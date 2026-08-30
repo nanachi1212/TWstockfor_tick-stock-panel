@@ -283,6 +283,14 @@ def test_realtime_gate_blocks_on_snapshot_and_launches_repair(tmp_path, monkeypa
         "app.services.preferences.save", lambda payload: saved.update(payload),
     )
 
+    # Pin today for test determinism
+    class _FixedDatetime(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return datetime.combine(TODAY, time(12, 0), tzinfo=CN_TZ)
+
+    monkeypatch.setattr(data_integrity, "datetime", _FixedDatetime)
+
     qs = _QuoteServiceStub()
     request = _gate_state(tmp_path, qs, repo=None)
     req = settings_api.RealtimeQuotesPrefs(realtime_quotes_enabled=True)

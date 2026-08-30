@@ -101,6 +101,7 @@ export const QK = {
   taiwanRules:          ['taiwan-rules'] as const,
   taiwanQuotes:         (symbols: string) => ['taiwan-quotes', symbols] as const,
   taiwanSearch:         (q: string) => ['taiwan-search', q] as const,
+  taiwanStockDetail:    (symbol: string, days?: number) => ['taiwan-stock-detail', symbol, days ?? 120] as const,
 
 
   // AI 大盘复盘
@@ -137,5 +138,6 @@ export const SSE_INVALIDATE_PREFIXES = [
   'overview-market',
   'limit-ladder',
   'taiwan-quotes',
+  'taiwan-stock-detail',
 ] as const
 

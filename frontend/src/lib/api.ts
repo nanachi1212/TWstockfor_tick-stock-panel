@@ -985,6 +985,149 @@ export interface TaiwanSearchResult {
   is_no_limit?: boolean
 }
 
+// ===== Phase 6A: Taiwan Stock Detail Workspace =====
+export interface TaiwanSectionMeta {
+  source: string
+  trade_date?: string | null
+  fetched_at?: string | null
+  status: 'available' | 'unavailable' | 'stale' | 'fallback' | string
+  is_stale: boolean
+  fallback_reason?: string | null
+}
+
+export interface TaiwanStockIdentity {
+  symbol: string
+  code: string
+  name: string
+  exchange: string
+  instrument_type: string
+  is_supported: boolean
+  listing_status?: string | null
+  listing_date?: string | null
+  industry?: string | null
+  cfi_code?: string | null
+  etf_category?: string | null
+}
+
+export interface TaiwanStockPriceLimit {
+  limit_up?: number | null
+  limit_down?: number | null
+  price_limit_pct?: number | null
+  is_no_limit: boolean
+  rule_type: string
+}
+
+export interface TaiwanStockRealtimeDetail {
+  last_price?: number | null
+  prev_close?: number | null
+  open?: number | null
+  high?: number | null
+  low?: number | null
+  change?: number | null
+  change_pct?: number | null
+  volume?: number | null
+  amount?: number | null
+  quote_time?: string | null
+  market_status: string
+  bid_price?: number | null
+  ask_price?: number | null
+  bids: [number, number][]
+  asks: [number, number][]
+  meta?: TaiwanSectionMeta | null
+}
+
+export interface TaiwanDailyItem {
+  date: string
+  open: number
+  high: number
+  low: number
+  close: number
+  volume: number
+  amount?: number | null
+}
+
+export interface TaiwanHistoricalDailyDetail {
+  status: string
+  rows: TaiwanDailyItem[]
+  meta?: TaiwanSectionMeta | null
+}
+
+export interface TaiwanInstitutionalDetail {
+  status: string
+  foreign_net?: number | null
+  investment_trust_net?: number | null
+  dealer_net?: number | null
+  total_net?: number | null
+  foreign_net_5d?: number | null
+  investment_trust_net_5d?: number | null
+  dealer_net_5d?: number | null
+  trend?: Record<string, any>[]
+  meta?: TaiwanSectionMeta | null
+}
+
+export interface TaiwanMarginDetail {
+  status: string
+  margin_balance?: number | null
+  margin_change?: number | null
+  short_balance?: number | null
+  short_change?: number | null
+  short_margin_ratio?: number | null
+  trend?: Record<string, any>[]
+  meta?: TaiwanSectionMeta | null
+}
+
+export interface TaiwanFactorsDetail {
+  status: string
+  foreign_net_5d?: number | null
+  investment_trust_net_5d?: number | null
+  dealer_net_5d?: number | null
+  margin_balance_change?: number | null
+  short_margin_ratio?: number | null
+  meta?: TaiwanSectionMeta | null
+}
+
+export interface TaiwanMarketContextDetail {
+  benchmark_symbol: string
+  benchmark_name: string
+  close?: number | null
+  change?: number | null
+  change_pct?: number | null
+  meta?: TaiwanSectionMeta | null
+}
+
+export interface TaiwanMonitorSummaryDetail {
+  rule_count: number
+  active_count: number
+  rules: Record<string, any>[]
+}
+
+export interface TaiwanRecentAlertDetail {
+  alert_id: string
+  rule_id: string
+  rule_name: string
+  rule_type: string
+  severity: string
+  trigger_price: number
+  trigger_value: number
+  message: string
+  triggered_at: string
+}
+
+export interface TaiwanStockDetailResponse {
+  symbol: string
+  identity: TaiwanStockIdentity
+  price_limit: TaiwanStockPriceLimit
+  realtime: TaiwanStockRealtimeDetail
+  daily_history: TaiwanHistoricalDailyDetail
+  institutional: TaiwanInstitutionalDetail
+  margin: TaiwanMarginDetail
+  factors: TaiwanFactorsDetail
+  market_context: TaiwanMarketContextDetail
+  monitor_summary: TaiwanMonitorSummaryDetail
+  recent_alerts: TaiwanRecentAlertDetail[]
+  overall_data_quality: 'good' | 'partial' | 'stale' | 'degraded' | string
+}
+
 /** 生成监控规则 id (时间戳 + 随机后缀), 用户无需手动填写。 */
 export function genRuleId(): string {
   const ts = Date.now().toString(36)
@@ -3007,6 +3150,11 @@ export const api = {
   taiwanSearch: (query: string, limit = 20) =>
     request<{ results: TaiwanSearchResult[]; count: number }>(
       `/api/intraday/taiwan/search?q=${encodeURIComponent(query)}&limit=${limit}`,
+    ),
+
+  taiwanStockDetail: (symbol: string, days = 120) =>
+    request<TaiwanStockDetailResponse>(
+      `/api/taiwan/stocks/${encodeURIComponent(symbol)}?days=${days}`,
     ),
 
   taiwanRulesList: () =>

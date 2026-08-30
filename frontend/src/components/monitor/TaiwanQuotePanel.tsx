@@ -1,9 +1,11 @@
 import { useState } from 'react'
+import { Link } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import {
   Activity,
   AlertCircle,
   Clock,
+  ExternalLink,
   Layers,
   TrendingDown,
   TrendingUp,
@@ -304,7 +306,14 @@ export function TaiwanQuotePanel({ onSelectSymbol, onAddRuleForSymbol }: TaiwanQ
               <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border/40 pb-3">
                 <div className="flex items-center gap-2">
                   <span className="text-lg font-bold text-foreground">{currentQuote.name}</span>
-                  <span className="font-mono text-sm font-semibold text-accent">{currentQuote.symbol}</span>
+                  <Link
+                    to={`/stocks/${encodeURIComponent(currentQuote.symbol)}`}
+                    className="font-mono text-sm font-semibold text-accent hover:underline flex items-center gap-0.5"
+                    title="進入個股研究頁"
+                  >
+                    <span>{currentQuote.symbol}</span>
+                    <ExternalLink className="h-3 w-3" />
+                  </Link>
                   <span className="rounded bg-elevated px-1.5 py-0.5 text-[10px] font-medium text-secondary">
                     {currentQuote.exchange === 'TWSE' ? '上市 (TWSE)' : '上櫃 (TPEx)'}
                   </span>
