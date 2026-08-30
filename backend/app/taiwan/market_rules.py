@@ -68,11 +68,12 @@ EXAMPLE_BROKER_MIN_COMMISSION: float = 20.0  # Common broker floor for reference
 class TradingCostModel:
     """Brokerage commission model.
 
-    Taiwan official legal ceiling is 0.1425% (0.001425).
+    The legacy backtest default is 0.1425% (0.001425); it is not a statutory rate.
+    Current TWSE guidance requires brokers to set their own commission rate.
     Minimum commission is strictly broker-specific. The statutory default is 0.0 (no exchange floor).
     Specific broker settings (e.g. 20 TWD standard, 1 TWD odd-lot) must be explicitly configured.
     """
-    commission_rate: float = 0.001425
+    commission_rate: float = 0.001425  # Legacy backtest default; broker configuration in production.
     discount: float = 1.0              # 1.0 = full price; 0.6 = 60%; 0.28 = 28%
     minimum_commission: float = 0.0    # Statutory default 0.0 (broker-specific when > 0)
 
