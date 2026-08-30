@@ -93,3 +93,26 @@ does not justify a hard-coded reconciliation rule for every date or security.
 Consumers must continue to distinguish `official_quote` from
 `official_daily_kline` through `source`, `source_url`, `retrieved_at`, and
 `trade_date`.
+
+## Historical volume consumers
+
+Taiwan official, FinMind, and Yahoo daily adapters all enter storage with
+`volume` normalized to shares/units. Parquet persistence and enriched data keep
+that number unchanged. Generic consumers resolve the unit from the canonical
+symbol: `.TWSE`/`.TPEX` matrices use `shares`; existing CN matrices retain
+`lots` (100 shares per lot).
+
+Turnover is a percentage against `float_shares`, which is a share count:
+
+```text
+Taiwan: volume(shares) / float_shares(shares) * 100
+CN:     volume(lots) * 100 / float_shares(shares) * 100
+```
+
+Relative-volume indicators are unit-invariant. VWAP first converts volume to
+shares; matrix cache metadata preserves the resolved unit across build, load,
+slice, copy, and live append paths. Mixed Taiwan/CN matrices fail closed because
+one matrix cannot truthfully expose a single `volume_unit` for both contracts.
+The current execution engine has no absolute-volume participation cap; volume is
+only used to identify non-trading rows, while slippage remains a configured bps
+model.

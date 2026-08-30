@@ -10,6 +10,7 @@ from datetime import date, timedelta
 
 import numpy as np
 import polars as pl
+import pytest
 
 from app.backtest.matrix import build_market_data_matrix, matrix_feature
 from app.strategy.scoring import materialize_scoring_columns
@@ -107,6 +108,35 @@ def test_vwap_bias_and_vol_trend():
     slow = sum(volumes[-60:]) / 60
     assert math.isclose(_tail_value(frame, "vol_trend_5_60"), fast / slow - 1, rel_tol=1e-9)
 
+
+def test_vwap_bias_uses_market_volume_unit():
+    panel = pl.DataFrame({
+        "symbol": ["2330.TWSE", "600000.SH"],
+        "date": [date(2026, 8, 28)] * 2,
+        "close": [100.0, 100.0],
+        "volume": [1_000_000.0, 10_000.0],
+        "amount": [100_000_000.0, 100_000_000.0],
+    })
+
+    result = materialize_scoring_columns(panel, {"vwap_bias"}).sort("symbol")
+
+    assert result["vwap_bias"].to_list() == pytest.approx([0.0, 0.0])
+
+
+def test_relative_volume_is_unit_invariant_across_markets():
+    start = date(2026, 8, 1)
+    rows = []
+    for offset in range(11):
+        ratio = 2.0 if offset == 10 else 1.0
+        rows.extend([
+            {"symbol": "2330.TWSE", "date": start + timedelta(days=offset), "volume": 1_000_000.0 * ratio},
+            {"symbol": "600000.SH", "date": start + timedelta(days=offset), "volume": 10_000.0 * ratio},
+        ])
+
+    result = materialize_scoring_columns(pl.DataFrame(rows), {"vol_ratio_10d"})
+    latest = result.filter(pl.col("date") == start + timedelta(days=10)).sort("symbol")
+
+    assert latest["vol_ratio_10d"].to_list() == pytest.approx([2.0, 2.0])
 
 def test_ret_skew_matches_population_skew():
     # 周期夹具的 20 日窗口恰含两个完整周期, 偏度恒为 0; 用不对称收益验证公式。

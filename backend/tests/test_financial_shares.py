@@ -163,6 +163,26 @@ def test_turnover_without_share_history_keeps_existing_behavior(monkeypatch):
     assert result["turnover_rate"][0] == pytest.approx(0.5)
 
 
+def test_turnover_uses_market_volume_unit():
+    bars = pl.DataFrame({
+        "symbol": ["2330.TWSE", "600000.SH"],
+        "date": [date(2026, 8, 28)] * 2,
+        "volume": [1_000_000.0, 10_000.0],
+    })
+    instruments = pl.DataFrame({
+        "symbol": ["2330.TWSE", "600000.SH"],
+        "float_shares": [100_000_000.0, 100_000_000.0],
+    })
+
+    result = pipeline.compute_limit_signals(
+        bars,
+        instruments,
+        needed={"turnover_rate"},
+    ).sort("symbol")
+
+    assert result["turnover_rate"].to_list() == pytest.approx([1.0, 1.0])
+
+
 def test_data_status_includes_share_history(tmp_path):
     path = tmp_path / "financials" / "shares" / "part.parquet"
     path.parent.mkdir(parents=True, exist_ok=True)

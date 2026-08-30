@@ -34,6 +34,7 @@ from app.price_limits import (
     polars_price_limit_pct,
 )
 from app.share_capital import apply_historical_float_shares, load_share_history
+from app.volume_units import turnover_rate_pct_expr
 
 logger = logging.getLogger(__name__)
 
@@ -736,11 +737,11 @@ def compute_limit_signals(
     if "turnover_rate" in want:
         df = apply_historical_float_shares(df, historical_shares, today=cn_today())
 
-    # 计算换手率(%) = volume(手) * 10000 / float_shares(股)
+    # Turnover (%): CN volume is lots; Taiwan volume and float_shares are shares.
     if "turnover_rate" in want and "float_shares" in df.columns and "volume" in df.columns:
         df = df.with_columns(
             pl.when(pl.col("float_shares") > 0)
-              .then(pl.col("volume") * 10000.0 / pl.col("float_shares"))
+              .then(turnover_rate_pct_expr())
               .otherwise(None)
               .alias("turnover_rate")
         )
@@ -1998,7 +1999,7 @@ def _compute_limit_signals_today(df: pl.DataFrame, instruments: pl.DataFrame) ->
         if "float_shares" in df.columns and "volume" in df.columns:
             df = df.with_columns(
                 pl.when(pl.col("float_shares") > 0)
-                  .then(pl.col("volume") * 10000.0 / pl.col("float_shares"))
+                  .then(turnover_rate_pct_expr())
                   .otherwise(None)
                   .alias("turnover_rate")
             )
