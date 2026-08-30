@@ -13,6 +13,7 @@ from dataclasses import asdict, dataclass
 from enum import Enum
 from typing import Any
 
+from app.taiwan.enrichment.models import EtfCategory
 from app.taiwan.market_rules import PriceLimitClass, TaxClass, TickSizeClass
 
 
@@ -37,22 +38,29 @@ class TaiwanInstrument:
     listing_date: str | None  # "YYYY/MM/DD" or None
     isin: str | None          # e.g. "TW0002330008"
     industry: str | None      # e.g. "半導體業", "光電業"
-    cfi_code: str | None      # ISO 10962 CFI code (e.g. "ESVUFR", "CEOJEU")
+    cfi_code: str | None      # ISO 10962 CFI code (e.g. "ESVUFR", "CEOJEU", "CEOIEU")
     raw_category: str         # Official category string ("股票", "ETF", "特別股", etc.)
     is_supported: bool        # True only for tradable stock/etf in current phase
     source: str               # "TWSE_ISIN" | "TPEX_ISIN"
     updated_at: str           # ISO timestamp string
+    etf_category: str | None = None  # EtfCategory value if instrument_type == "etf"
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
 
 
 class MarketProfileBridge:
-    """Translates TaiwanInstrument metadata into Phase 3 Market Profile rule classes."""
+    """Translates TaiwanInstrument metadata into Phase 3 Market Profile rule classes.
+
+    Strictly refuses to silently assume UNKNOWN ETFs have domestic equity rules.
+    """
 
     @staticmethod
     def get_tax_class(instrument: TaiwanInstrument) -> TaxClass:
         if instrument.instrument_type == "etf":
+            cat = instrument.etf_category or EtfCategory.UNKNOWN.value
+            if cat == EtfCategory.BOND.value:
+                return TaxClass.BOND_ETF
             return TaxClass.DOMESTIC_ETF
         return TaxClass.ORDINARY_STOCK
 
@@ -64,5 +72,25 @@ class MarketProfileBridge:
 
     @staticmethod
     def get_price_limit_class(instrument: TaiwanInstrument) -> PriceLimitClass:
-        # Domestic ordinary stocks and domestic equity ETFs have 10% limit
+        if instrument.instrument_type == "stock":
+            return PriceLimitClass.ORDINARY_TEN_PERCENT
+
+        if instrument.instrument_type == "etf":
+            cat = instrument.etf_category or EtfCategory.UNKNOWN.value
+            if cat == EtfCategory.DOMESTIC_EQUITY.value:
+                return PriceLimitClass.ORDINARY_TEN_PERCENT
+            elif cat in (
+                EtfCategory.FOREIGN_EQUITY.value,
+                EtfCategory.BOND.value,
+                EtfCategory.LEVERAGED.value,
+                EtfCategory.INVERSE.value,
+            ):
+                return PriceLimitClass.NO_LIMIT
+            elif cat == EtfCategory.UNKNOWN.value:
+                raise ValueError(
+                    f"Cannot determine price limit for UNKNOWN ETF {instrument.symbol}. "
+                    "Refusing to silently default to domestic 10% limit."
+                )
+
         return PriceLimitClass.ORDINARY_TEN_PERCENT
+

@@ -99,10 +99,27 @@ def parse_isin_html(html: str, exchange: str, source_name: str) -> list[TaiwanIn
 
         # Determine instrument classification from official category header
         cat_lower = current_category.lower()
+        etf_category: str | None = None
         if "etf" in cat_lower:
             instrument_type = "etf"
             is_supported = True
             listing_status = "active"
+
+            # Audit official metadata: CFI code and official name features
+            # CFI code CEOIEU indicates debt/bond ETF
+            if (cfi_code and "CEOI" in cfi_code) or "債" in name:
+                etf_category = "bond"
+            elif "正2" in name or "正向2" in name:
+                etf_category = "leveraged"
+            elif "反1" in name or "反向1" in name:
+                etf_category = "inverse"
+            elif any(kw in name for kw in ["S&P", "道瓊", "美", "日經", "NASDAQ", "海外", "全球", "富時", "香港", "恒生"]):
+                etf_category = "foreign_equity"
+            elif (cfi_code and any(c in cfi_code for c in ("CEOJ", "CEOG"))) or any(kw in name for kw in ("台灣50", "台50", "高股息", "中型100", "永續")):
+                etf_category = "domestic_equity"
+            else:
+                etf_category = "unknown"
+
         elif "股票" in current_category or "創新板" in current_category:
             instrument_type = "stock"
             is_supported = True
@@ -130,6 +147,7 @@ def parse_isin_html(html: str, exchange: str, source_name: str) -> list[TaiwanIn
             is_supported=is_supported,
             source=source_name,
             updated_at=now_iso,
+            etf_category=etf_category,
         )
         instruments.append(inst)
 

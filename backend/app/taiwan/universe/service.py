@@ -100,6 +100,7 @@ class TaiwanSecurityMaster:
                     is_supported=bool(r.get("is_supported", False)),
                     source=r.get("source", "cache"),
                     updated_at=r.get("updated_at", ""),
+                    etf_category=r.get("etf_category"),
                 )
                 loaded[inst.symbol] = inst
             self._instruments = loaded
@@ -210,24 +211,27 @@ class TaiwanSecurityMaster:
             for inst in self._instruments.values()
             if not supported_only or inst.is_supported
         ]
+        schema = {
+            "symbol": pl.String,
+            "code": pl.String,
+            "exchange": pl.String,
+            "name": pl.String,
+            "instrument_type": pl.String,
+            "listing_status": pl.String,
+            "listing_date": pl.String,
+            "isin": pl.String,
+            "industry": pl.String,
+            "cfi_code": pl.String,
+            "raw_category": pl.String,
+            "is_supported": pl.Boolean,
+            "source": pl.String,
+            "updated_at": pl.String,
+            "etf_category": pl.String,
+        }
         if not rows:
-            return pl.DataFrame(schema={
-                "symbol": pl.String,
-                "code": pl.String,
-                "exchange": pl.String,
-                "name": pl.String,
-                "instrument_type": pl.String,
-                "listing_status": pl.String,
-                "listing_date": pl.String,
-                "isin": pl.String,
-                "industry": pl.String,
-                "cfi_code": pl.String,
-                "raw_category": pl.String,
-                "is_supported": pl.Boolean,
-                "source": pl.String,
-                "updated_at": pl.String,
-            })
-        return pl.DataFrame(rows)
+            return pl.DataFrame(schema=schema)
+        return pl.DataFrame(rows, schema=schema)
+
 
     def to_provider_dataframe(self, asset_type: str = "stock") -> pl.DataFrame:
         """Export standardized DataFrame adhering to MarketDataProvider contract.
