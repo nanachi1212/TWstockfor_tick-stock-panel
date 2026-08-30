@@ -16,7 +16,10 @@ import time
 from fastapi import APIRouter, Query, Request
 from sse_starlette.sse import EventSourceResponse
 
+from app.taiwan.realtime import get_market_status, get_realtime_service, taipei_now
+
 router = APIRouter(prefix="/api/intraday", tags=["quotes"])
+
 
 
 def _get_quote_service(request: Request):
@@ -86,12 +89,41 @@ def _fallback_index_quotes_from_daily(request: Request, symbols: list[str] | Non
 
 @router.get("/status")
 def status(request: Request):
-    """行情状态 (来自全局 QuoteService)。"""
+    """行情状态 (整合全局 QuoteService 与 TaiwanRealtimeService)。"""
+    res: dict = {"enabled": False, "running": False, "symbol_count": 0, "index_symbol_count": 0,
+                 "quote_age_ms": None, "is_trading_hours": False, "last_fetch_ms": None}
     qs = _get_quote_service(request)
     if qs:
-        return qs.status()
-    return {"enabled": False, "running": False, "symbol_count": 0, "index_symbol_count": 0,
-            "quote_age_ms": None, "is_trading_hours": False, "last_fetch_ms": None}
+        res = qs.status()
+
+    # Enrich with Taiwan real-time layer state
+    tw_svc = get_realtime_service()
+    now_tpe = taipei_now()
+    res["taiwan_market"] = {
+        "status": get_market_status(now_tpe).value,
+        "taipei_time": now_tpe.isoformat(),
+        "cache_hits": tw_svc.cache_hits,
+        "cache_misses": tw_svc.cache_misses,
+        "provider_requests": tw_svc.provider_requests,
+    }
+    return res
+
+
+@router.get("/quotes")
+def get_quotes(
+    symbols: str = Query(..., description="逗号分隔的台股或标准 symbol (例如 2330.TWSE,8069.TPEX,0050.TWSE)"),
+    force: bool = Query(False, description="是否强制穿透缓存向外部来源请求"),
+):
+    """批次获取台股盘中实时行情 (支援 4 级 Fallback 与五档盘口)。"""
+    symbol_list = [s.strip() for s in symbols.split(",") if s.strip()]
+    if not symbol_list:
+        return {"quotes": [], "count": 0}
+
+    tw_svc = get_realtime_service()
+    quote_map = tw_svc.get_quotes(symbol_list, force_refresh=force)
+    rows = [q.to_dict() for q in quote_map.values()]
+    return {"quotes": rows, "count": len(rows)}
+
 
 
 @router.get("/indices")
