@@ -12,6 +12,7 @@ from app.taiwan.fundamentals import (
     TaiwanFundamentalStore,
     TaiwanOfficialFundamentals,
     latest_as_of,
+    normalize_dividend_status,
     roc_month,
     thousand_twd,
 )
@@ -98,3 +99,9 @@ def test_share_capital_concepts_are_not_substituted():
     assert capital.issued_shares == 1000
     assert capital.total_shares is None and capital.float_shares is None
     assert capital.status == "data_insufficient"
+
+
+def test_dividend_status_contract():
+    assert normalize_dividend_status("董事會決議") == "board_approved"
+    assert normalize_dividend_status("股東會通過") == "shareholder_approved"
+    assert normalize_dividend_status("") == "unknown"

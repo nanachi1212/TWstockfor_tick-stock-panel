@@ -16,7 +16,7 @@ from typing import Any
 
 import httpx
 
-from app.taiwan.providers.taiwan_values import TAIPEI, parse_number
+from app.taiwan.providers.taiwan_values import TAIPEI, parse_number, parse_taiwan_date
 
 STATEMENT_CATEGORIES = ("ci", "basi", "bd", "fh", "ins", "mim")
 NORMALIZED_STATUSES = {
@@ -214,6 +214,44 @@ class TaiwanOfficialFundamentals:
         record = self._record(symbol, "financial_statement", period_end, income, exchange, income_url + " | " + balance_url, retrieved, values, "TWD", "thousand_TWD")
         return FundamentalRecord(**{**record.to_dict(), "published_at": record.published_at, "available_at": record.available_at, "retrieved_at": record.retrieved_at, "period_start": f"{year:04d}-01-01", "accounting_category": category})
 
+    def valuation(self, symbol: str, exchange: str, *, security_type: str = "stock") -> FundamentalRecord:
+        if security_type == "etf":
+            return self._insufficient(symbol, "valuation", "official ETF valuation capability unverified")
+        path = "exchangeReport/BWIBBU_ALL" if exchange == "TWSE" else "tpex_mainboard_peratio_analysis"
+        url, row, retrieved = self._company_row(symbol, exchange, path)
+        raw_date = row.get("Date") or row.get("日期")
+        trade_date = parse_taiwan_date(str(raw_date)).isoformat()
+        values = {
+            "pe": parse_number(row.get("PEratio") or row.get("PriceEarningRatio")),
+            "pb": parse_number(row.get("PBratio") or row.get("PriceBookRatio")),
+            "dividend_yield": parse_number(row.get("DividendYield") or row.get("YieldRatio")),
+        }
+        return self._record(symbol, "valuation", trade_date, row, exchange, url, retrieved, values, "ratio", None)
+
+    def dividends(self, symbol: str, exchange: str, *, security_type: str = "stock") -> list[FundamentalRecord]:
+        path = "opendata/t187ap45_L" if exchange == "TWSE" else "mopsfin_t187ap39_O"
+        url, rows, retrieved = self._rows(exchange, path)
+        result = []
+        for row in rows:
+            code = str(row.get("公司代號") or row.get("SecuritiesCompanyCode") or "").strip()
+            if code != symbol.split(".")[0]:
+                continue
+            year_raw = str(row.get("股利年度") or "").strip()
+            year = int(year_raw) + (1911 if year_raw and int(year_raw) < 1911 else 0)
+            raw_status = str(row.get("決議（擬議）進度") or "").strip()
+            def total(*names: str, current: dict[str, Any] = row) -> float | None:
+                values = [parse_number(current.get(name)) for name in names]
+                present = [value for value in values if value is not None]
+                return sum(present) if present else None
+            values = {
+                "cash_dividend": total("股東配發-盈餘分配之現金股利(元/股)", "股東配發內容-盈餘分配之現金股利(元/股)"),
+                "stock_dividend": total("股東配發-盈餘轉增資配股(元/股)", "股東配發內容-盈餘轉增資配股(元/股)"),
+                "ex_date": None, "record_date": None, "payment_date": None,
+                "raw_status": raw_status, "normalized_status": normalize_dividend_status(raw_status),
+            }
+            result.append(self._record(symbol, "dividend", f"{year:04d}-12-31", row, exchange, url, retrieved, values, "TWD_per_share", None))
+        return result
+
     def _record(self, symbol: str, dataset: str, period_end: str, raw: dict[str, Any], exchange: str, url: str, retrieved: datetime, values: dict[str, Any], unit: str, raw_unit: str | None) -> FundamentalRecord:
         revision = str(raw.get("出表日期") or raw.get("Date") or "").strip()
         # Date-only metadata cannot prove when during that date the record became available.
@@ -223,14 +261,38 @@ class TaiwanOfficialFundamentals:
         now = datetime.now(TAIPEI)
         return FundamentalRecord(symbol, dataset, None, "", None, None, now, "", "Taiwan", "taiwan:capability", "", "unsupported", "unavailable")
 
+    def _insufficient(self, symbol: str, dataset: str, reason: str) -> FundamentalRecord:
+        now = datetime.now(TAIPEI)
+        return FundamentalRecord(symbol, dataset, None, "", None, None, now, "", "Taiwan", "taiwan:capability", "", "data_insufficient", "unavailable", values={"reason": reason})
+
     def _company_row(self, symbol: str, exchange: str, path: str) -> tuple[str, dict[str, Any], datetime]:
+        url, rows, retrieved = self._rows(exchange, path)
+        for row in rows:
+            code = str(row.get("公司代號") or row.get("SecuritiesCompanyCode") or row.get("Code") or "").strip()
+            if code == symbol.split(".")[0]:
+                return url, row, retrieved
+        raise LookupError(f"official {path} row not found for {symbol}")
+
+    def _rows(self, exchange: str, path: str) -> tuple[str, list[dict[str, Any]], datetime]:
         url = f"{self.TWSE if exchange == 'TWSE' else self.TPEX}/{path}"
         response = self.client.get(url)
         response.raise_for_status()
         retrieved = datetime.now(TAIPEI)
         rows = response.json()
-        for row in rows:
-            code = str(row.get("公司代號") or row.get("SecuritiesCompanyCode") or "").strip()
-            if code == symbol.split(".")[0]:
-                return url, row, retrieved
-        raise LookupError(f"official {path} row not found for {symbol}")
+        if not isinstance(rows, list):
+            raise ValueError(f"official {path} schema changed")
+        return url, rows, retrieved
+
+
+def normalize_dividend_status(raw: str) -> str:
+    if "股東會" in raw and "通過" in raw:
+        return "shareholder_approved"
+    if "董事會" in raw and ("決議" in raw or "通過" in raw):
+        return "board_approved"
+    if "擬議" in raw:
+        return "board_proposed"
+    if "除息" in raw or "除權" in raw:
+        return "ex_date_announced"
+    if "發放" in raw or "已付" in raw:
+        return "paid"
+    return "unknown"
