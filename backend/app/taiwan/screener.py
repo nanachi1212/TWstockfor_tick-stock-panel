@@ -26,6 +26,8 @@ import polars as pl
 from pydantic import BaseModel, Field
 
 from app.taiwan.daily_store import TaiwanDailyStore
+from app.taiwan.institutional_store import TaiwanInstitutionalStore
+from app.taiwan.margin_store import TaiwanMarginStore
 from app.taiwan.market_rules import PriceLimitModel
 from app.taiwan.symbol import parse_symbol
 from app.taiwan.universe import TaiwanSecurityMaster, get_security_master
@@ -175,9 +177,13 @@ class TaiwanScreenerService:
         self,
         security_master: TaiwanSecurityMaster | None = None,
         daily_store: TaiwanDailyStore | None = None,
+        institutional_store: TaiwanInstitutionalStore | None = None,
+        margin_store: TaiwanMarginStore | None = None,
     ) -> None:
         self.security_master = security_master or get_security_master()
         self.daily_store = daily_store or TaiwanDailyStore()
+        self.institutional_store = institutional_store or TaiwanInstitutionalStore()
+        self.margin_store = margin_store or TaiwanMarginStore()
 
     def run(self, req: TaiwanScreenerRequest) -> TaiwanScreenerResponse:
         # Step 1: Universe from TaiwanSecurityMaster
@@ -384,19 +390,71 @@ class TaiwanScreenerService:
     def _join_institutional_margin(
         self, df: pl.DataFrame, symbols: list[str]
     ) -> tuple[pl.DataFrame, str | None, str | None, list[str]]:
-        """Join institutional and margin metadata safely."""
+        """Join institutional and margin metadata safely via Polars batch join."""
         degraded = []
         inst_date = None
         margin_date = None
 
-        # Add null placeholders for institutional and margin fields
-        cols = [
-            "foreign_net", "foreign_net_5d", "investment_trust_net", "investment_trust_net_5d",
-            "dealer_net", "institutional_date", "institutional_status",
-            "margin_balance", "margin_balance_change", "short_balance", "short_margin_ratio",
-            "margin_date", "margin_status",
-        ]
-        df = self._add_null_cols(df, cols)
+        # 1. Batch read latest institutional
+        try:
+            inst_df = self.institutional_store.read_latest_per_symbol(symbols)
+            if not inst_df.is_empty():
+                inst_date = str(inst_df["date"].max())
+                # Select fields to join
+                inst_join = inst_df.select([
+                    pl.col("symbol"),
+                    pl.col("foreign_net").cast(pl.Float64, strict=False).alias("foreign_net"),
+                    pl.col("investment_trust_net").cast(pl.Float64, strict=False).alias("investment_trust_net"),
+                    pl.col("dealer_net").cast(pl.Float64, strict=False).alias("dealer_net"),
+                    pl.col("date").cast(pl.String).alias("institutional_date"),
+                    pl.col("status").alias("institutional_status"),
+                ])
+                df = df.join(inst_join, on="symbol", how="left")
+            else:
+                df = self._add_null_cols(df, [
+                    "foreign_net", "investment_trust_net", "dealer_net",
+                    "institutional_date", "institutional_status"
+                ])
+        except Exception as e:
+            logger.warning("Batch read institutional failed in screener: %s", e)
+            degraded.append("institutional")
+            df = self._add_null_cols(df, [
+                "foreign_net", "investment_trust_net", "dealer_net",
+                "institutional_date", "institutional_status"
+            ])
+
+        # 5-day rolling placeholders (or calculated if history present)
+        if "foreign_net_5d" not in df.columns:
+            df = self._add_null_cols(df, ["foreign_net_5d", "investment_trust_net_5d"])
+
+        # 2. Batch read latest margin
+        try:
+            margin_df = self.margin_store.read_latest_per_symbol(symbols)
+            if not margin_df.is_empty():
+                margin_date = str(margin_df["date"].max())
+                margin_join = margin_df.select([
+                    pl.col("symbol"),
+                    pl.col("margin_balance").cast(pl.Float64, strict=False).alias("margin_balance"),
+                    pl.col("margin_change").cast(pl.Float64, strict=False).alias("margin_balance_change"),
+                    pl.col("short_balance").cast(pl.Float64, strict=False).alias("short_balance"),
+                    pl.col("short_margin_ratio").cast(pl.Float64, strict=False).alias("short_margin_ratio"),
+                    pl.col("date").cast(pl.String).alias("margin_date"),
+                    pl.col("status").alias("margin_status"),
+                ])
+                df = df.join(margin_join, on="symbol", how="left")
+            else:
+                df = self._add_null_cols(df, [
+                    "margin_balance", "margin_balance_change", "short_balance", "short_margin_ratio",
+                    "margin_date", "margin_status"
+                ])
+        except Exception as e:
+            logger.warning("Batch read margin failed in screener: %s", e)
+            degraded.append("margin")
+            df = self._add_null_cols(df, [
+                "margin_balance", "margin_balance_change", "short_balance", "short_margin_ratio",
+                "margin_date", "margin_status"
+            ])
+
         return df, inst_date, margin_date, degraded
 
     def _apply_filters(self, df: pl.DataFrame, req: TaiwanScreenerRequest) -> pl.DataFrame:
