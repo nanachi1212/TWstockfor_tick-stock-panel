@@ -36,6 +36,7 @@ const Regime = lazy(() => import('./pages/Regime').then(m => ({ default: m.Regim
 const AbnormalMoves = lazy(() => import('./pages/AbnormalMoves').then(m => ({ default: m.AbnormalMoves })))
 const Dev = lazy(() => import('./pages/Dev').then(m => ({ default: m.Dev })))
 const TaiwanStockDetail = lazy(() => import('./pages/TaiwanStockDetail').then(m => ({ default: m.TaiwanStockDetail })))
+const TaiwanScreener = lazy(() => import('./pages/TaiwanScreener').then(m => ({ default: m.TaiwanScreener })))
 
 const CORE_ROUTE_PATHS = new Set([
   '/',
@@ -51,6 +52,7 @@ const CORE_ROUTE_PATHS = new Set([
   '/review',
   '/watchlist',
   '/screener',
+  '/taiwan-screener',
   '/backtest',
   '/mining',
   '/financials',
@@ -125,6 +127,7 @@ export const router = createBrowserRouter([
       { path: 'review', element: <Review /> },
       { path: 'watchlist', element: <Watchlist /> },
       { path: 'screener', element: <Screener /> },
+      { path: 'taiwan-screener', element: <TaiwanScreener /> },
       { path: 'backtest', element: <Backtest /> },
       { path: 'mining', element: <Mining /> },
       { path: 'financials', element: <Financials /> },

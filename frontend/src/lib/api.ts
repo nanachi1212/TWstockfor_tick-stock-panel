@@ -1128,6 +1128,102 @@ export interface TaiwanStockDetailResponse {
   overall_data_quality: 'good' | 'partial' | 'stale' | 'degraded' | string
 }
 
+// ===== Taiwan Screener Types (Phase 6B) =====
+export interface TaiwanScreenerRequest {
+  exchange?: 'TWSE' | 'TPEX' | 'ALL'
+  instrument?: 'stock' | 'etf' | 'ALL'
+  industry?: string | null
+  price_min?: number | null
+  price_max?: number | null
+  change_pct_min?: number | null
+  change_pct_max?: number | null
+  volume_min?: number | null
+  volume_max?: number | null
+  amount_min?: number | null
+  amount_max?: number | null
+  rsi_14_min?: number | null
+  rsi_14_max?: number | null
+  momentum_5d_min?: number | null
+  momentum_5d_max?: number | null
+  vol_ratio_5d_min?: number | null
+  vol_ratio_5d_max?: number | null
+  above_ma5?: boolean | null
+  above_ma20?: boolean | null
+  foreign_net_min?: number | null
+  foreign_net_max?: number | null
+  investment_trust_net_min?: number | null
+  investment_trust_net_max?: number | null
+  dealer_net_min?: number | null
+  dealer_net_max?: number | null
+  margin_balance_change_min?: number | null
+  margin_balance_change_max?: number | null
+  short_balance_min?: number | null
+  short_balance_max?: number | null
+  short_margin_ratio_min?: number | null
+  short_margin_ratio_max?: number | null
+  near_upper_limit?: boolean | null
+  near_lower_limit?: boolean | null
+  distance_to_upper_limit_max?: number | null
+  distance_to_lower_limit_max?: number | null
+  sort_by?: string
+  sort_order?: 'asc' | 'desc'
+  page?: number
+  page_size?: number
+}
+
+export interface ScreenerResultItem {
+  symbol: string
+  name: string
+  exchange: string
+  instrument_type: string
+  industry?: string | null
+  close?: number | null
+  change_pct?: number | null
+  volume?: number | null
+  amount?: number | null
+  quote_date?: string | null
+  price_limit_pct?: number | null
+  is_no_limit: boolean
+  limit_up?: number | null
+  limit_down?: number | null
+  distance_to_upper_limit?: number | null
+  distance_to_lower_limit?: number | null
+  ma5?: number | null
+  ma10?: number | null
+  ma20?: number | null
+  rsi_14?: number | null
+  momentum_5d?: number | null
+  vol_ratio_5d?: number | null
+  foreign_net?: number | null
+  foreign_net_5d?: number | null
+  investment_trust_net?: number | null
+  investment_trust_net_5d?: number | null
+  dealer_net?: number | null
+  institutional_date?: string | null
+  institutional_status?: string
+  margin_balance?: number | null
+  margin_balance_change?: number | null
+  short_balance?: number | null
+  short_margin_ratio?: number | null
+  margin_date?: string | null
+  margin_status?: string
+}
+
+export interface TaiwanScreenerResponse {
+  items: ScreenerResultItem[]
+  total: number
+  page: number
+  page_size: number
+  sort_by: string
+  sort_order: string
+  data_dates: {
+    daily_as_of?: string | null
+    institutional_as_of?: string | null
+    margin_as_of?: string | null
+  }
+  degraded_sections: string[]
+}
+
 /** 生成监控规则 id (时间戳 + 随机后缀), 用户无需手动填写。 */
 export function genRuleId(): string {
   const ts = Date.now().toString(36)
@@ -3156,6 +3252,12 @@ export const api = {
     request<TaiwanStockDetailResponse>(
       `/api/taiwan/stocks/${encodeURIComponent(symbol)}?days=${days}`,
     ),
+
+  taiwanScreenerRun: (payload: TaiwanScreenerRequest) =>
+    request<TaiwanScreenerResponse>('/api/taiwan/screener/run', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
 
   taiwanRulesList: () =>
     request<{ rules: TaiwanMonitorRule[]; total: number }>('/api/monitor-rules/taiwan'),

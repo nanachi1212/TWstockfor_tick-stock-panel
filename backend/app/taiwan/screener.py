@@ -2,11 +2,19 @@
 
 POST /api/taiwan/screener/run
 
-- Universe from TaiwanSecurityMaster (canonical symbol, is_supported=True, stock/etf only)
-- Batch/vectorized enriched parquet path (no N symbols -> N HTTP calls)
-- All filters are strongly typed; no SQL/Polars expression passthrough
-- missing data = None / unavailable (never 0)
-- Deterministic sort with canonical symbol tie-breaker
+Architecture:
+  TaiwanSecurityMaster (Universe)
+  -> TaiwanDailyStore.read_latest_per_symbol() (Batch daily snapshot)
+  -> TaiwanDailyStore.read_range() for batch indicators (MA5/10/20, RSI14, Momentum5d, VolRatio5d)
+  -> Batch MarketProfile price limits (calc_limits_for_pct with tick size)
+  -> Batch Institutional & Margin joins
+  -> Strongly typed Pydantic filters (whitelist)
+  -> Deterministic Sort with symbol ASC tie-breaker
+  -> Total count
+  -> Pagination (slice)
+  -> Strongly typed API response
+
+NO request-time HTTP calls to external providers.
 """
 from __future__ import annotations
 
@@ -15,699 +23,518 @@ from datetime import date, datetime
 from typing import Any, Literal
 
 import polars as pl
+from pydantic import BaseModel, Field
 
-from app.taiwan.enrichment.factors import compute_chip_factors, compute_margin_factors
-from app.taiwan.enrichment.models import (
-    DatasetType,
-    InstitutionalFlow,
-    MarginTrading,
-    StalePolicy,
-)
-from app.taiwan.market_rules import MarketProfileBridge, PriceLimitModel
-from app.taiwan.symbol import Exchange, InstrumentType, TaiwanSymbol, parse_symbol
-from app.taiwan.universe.models import TaiwanInstrument
-from app.taiwan.universe.service import TaiwanSecurityMaster, get_security_master
+from app.taiwan.daily_store import TaiwanDailyStore
+from app.taiwan.market_rules import PriceLimitModel
+from app.taiwan.symbol import parse_symbol
+from app.taiwan.universe import TaiwanSecurityMaster, get_security_master
+from app.taiwan.universe.models import MarketProfileBridge
 
 logger = logging.getLogger(__name__)
 
-# ============================================================
-# Typed filter models (no SQL WHERE strings)
-# ============================================================
-
 ExchangeFilter = Literal["TWSE", "TPEX", "ALL"]
 InstrumentFilter = Literal["stock", "etf", "ALL"]
-IndustryFilter = Literal[
-    "半導體", "電子", "金融", "生技", "鋼鐵", "塑膠", "紡織", "運輸",
-    "食品", "營建", "水泥", "汽車", "電機", "電纜", "化學", "百貨",
-    "觀光", "通信", "網通", "其他", "ALL",
-]
 SortField = Literal[
-    "symbol", "price", "change_pct", "volume", "amount",
+    "symbol", "close", "change_pct", "volume", "amount",
+    "ma5", "ma10", "ma20", "rsi_14", "momentum_5d", "vol_ratio_5d",
     "foreign_net", "foreign_net_5d", "investment_trust_net",
-    "investment_trust_net_5d", "dealer_net", "margin_balance_change",
-    "short_margin_ratio", "turnover_rate",
+    "investment_trust_net_5d", "dealer_net",
+    "margin_balance_change", "short_balance", "short_margin_ratio",
 ]
 SortDir = Literal["asc", "desc"]
 
 
-class PriceRangeFilter:
-    __slots__ = ("min", "max")
+class TaiwanScreenerRequest(BaseModel):
+    """Strongly typed Taiwan Screener Request Body."""
 
-    def __init__(self, min: float | None = None, max: float | None = None) -> None:
-        self.min = min
-        self.max = max
+    exchange: ExchangeFilter = "ALL"
+    instrument: InstrumentFilter = "ALL"
+    industry: str | None = None  # None or specific industry name
 
-    def filter(self, df: pl.DataFrame) -> pl.DataFrame:
-        if self.min is not None:
-            df = df.filter(pl.col("price") >= self.min)
-        if self.max is not None:
-            df = df.filter(pl.col("price") <= self.max)
-        return df
+    # Price & Volume filters
+    price_min: float | None = None
+    price_max: float | None = None
+    change_pct_min: float | None = None  # 0.05 = 5%
+    change_pct_max: float | None = None
+    volume_min: float | None = None  # in shares
+    volume_max: float | None = None
+    amount_min: float | None = None  # in TWD
+    amount_max: float | None = None
 
+    # Technical Indicators
+    rsi_14_min: float | None = None
+    rsi_14_max: float | None = None
+    momentum_5d_min: float | None = None
+    momentum_5d_max: float | None = None
+    vol_ratio_5d_min: float | None = None
+    vol_ratio_5d_max: float | None = None
+    above_ma5: bool | None = None
+    above_ma20: bool | None = None
 
-class ChangePctFilter:
-    """change_pct is decimal: 0.05 = 5%."""
+    # Institutional (in shares)
+    foreign_net_min: float | None = None
+    foreign_net_max: float | None = None
+    investment_trust_net_min: float | None = None
+    investment_trust_net_max: float | None = None
+    dealer_net_min: float | None = None
+    dealer_net_max: float | None = None
 
-    __slots__ = ("min", "max")
+    # Margin & Short
+    margin_balance_change_min: float | None = None
+    margin_balance_change_max: float | None = None
+    short_balance_min: float | None = None
+    short_balance_max: float | None = None
+    short_margin_ratio_min: float | None = None  # 10.0 = 10%
+    short_margin_ratio_max: float | None = None
 
-    def __init__(self, min: float | None = None, max: float | None = None) -> None:
-        self.min = min
-        self.max = max
+    # Price Limit proximity
+    near_upper_limit: bool | None = None  # distance_to_upper <= 0.03
+    near_lower_limit: bool | None = None  # distance_to_lower <= 0.03
+    distance_to_upper_limit_max: float | None = None
+    distance_to_lower_limit_max: float | None = None
 
-    def filter(self, df: pl.DataFrame) -> pl.DataFrame:
-        if self.min is not None:
-            df = df.filter(pl.col("change_pct") >= self.min)
-        if self.max is not None:
-            df = df.filter(pl.col("change_pct") <= self.max)
-        return df
-
-
-class VolumeFilter:
-    """Volume in shares (canonical)."""
-
-    __slots__ = ("min", "max")
-
-    def __init__(self, min: float | None = None, max: float | None = None) -> None:
-        self.min = min
-        self.max = max
-
-    def filter(self, df: pl.DataFrame) -> pl.DataFrame:
-        if self.min is not None:
-            df = df.filter(pl.col("volume") >= self.min)
-        if self.max is not None:
-            df = df.filter(pl.col("volume") <= self.max)
-        return df
-
-
-class AmountFilter:
-    """Amount in TWD (canonical)."""
-
-    __slots__ = ("min", "max")
-
-    def __init__(self, min: float | None = None, max: float | None = None) -> None:
-        self.min = min
-        self.max = max
-
-    def filter(self, df: pl.DataFrame) -> pl.DataFrame:
-        if self.min is not None:
-            df = df.filter(pl.col("amount") >= self.min)
-        if self.max is not None:
-            df = df.filter(pl.col("amount") <= self.max)
-        return df
+    # Pagination & Sorting
+    sort_by: SortField = "symbol"
+    sort_order: SortDir = "asc"
+    page: int = Field(1, ge=1)
+    page_size: int = Field(50, ge=1, le=200)
 
 
-class InstitutionalFilter:
-    """Institutional net filters (in shares). values are decimal of net shares."""
+class ScreenerResultItem(BaseModel):
+    """Single instrument screening result."""
 
-    __slots__ = (
-        "foreign_net_min", "foreign_net_max",
-        "foreign_net_5d_min", "foreign_net_5d_max",
-        "investment_trust_net_min", "investment_trust_net_max",
-        "investment_trust_net_5d_min", "investment_trust_net_5d_max",
-        "dealer_net_min", "dealer_net_max",
-    )
+    symbol: str
+    name: str
+    exchange: str
+    instrument_type: str
+    industry: str | None = None
 
-    def __init__(
-        self,
-        foreign_net_min: float | None = None, foreign_net_max: float | None = None,
-        foreign_net_5d_min: float | None = None, foreign_net_5d_max: float | None = None,
-        investment_trust_net_min: float | None = None, investment_trust_net_max: float | None = None,
-        investment_trust_net_5d_min: float | None = None, investment_trust_net_5d_max: float | None = None,
-        dealer_net_min: float | None = None, dealer_net_max: float | None = None,
-    ) -> None:
-        self.foreign_net_min = foreign_net_min
-        self.foreign_net_max = foreign_net_max
-        self.foreign_net_5d_min = foreign_net_5d_min
-        self.foreign_net_5d_max = foreign_net_5d_max
-        self.investment_trust_net_min = investment_trust_net_min
-        self.investment_trust_net_max = investment_trust_net_max
-        self.investment_trust_net_5d_min = investment_trust_net_5d_min
-        self.investment_trust_net_5d_max = investment_trust_net_5d_max
-        self.dealer_net_min = dealer_net_min
-        self.dealer_net_max = dealer_net_max
+    # Quotes & Volumes
+    close: float | None = None
+    change_pct: float | None = None  # decimal: 0.05 = 5%
+    volume: float | None = None  # shares
+    amount: float | None = None  # TWD
+    quote_date: str | None = None
 
-    def filter(self, df: pl.DataFrame) -> pl.DataFrame:
-        if self.foreign_net_min is not None:
-            df = df.filter(pl.col("foreign_net") >= self.foreign_net_min)
-        if self.foreign_net_max is not None:
-            df = df.filter(pl.col("foreign_net") <= self.foreign_net_max)
-        if self.foreign_net_5d_min is not None:
-            df = df.filter(pl.col("foreign_net_5d") >= self.foreign_net_5d_min)
-        if self.foreign_net_5d_max is not None:
-            df = df.filter(pl.col("foreign_net_5d") <= self.foreign_net_5d_max)
-        if self.investment_trust_net_min is not None:
-            df = df.filter(pl.col("investment_trust_net") >= self.investment_trust_net_min)
-        if self.investment_trust_net_max is not None:
-            df = df.filter(pl.col("investment_trust_net") <= self.investment_trust_net_max)
-        if self.investment_trust_net_5d_min is not None:
-            df = df.filter(pl.col("investment_trust_net_5d") >= self.investment_trust_net_5d_min)
-        if self.investment_trust_net_5d_max is not None:
-            df = df.filter(pl.col("investment_trust_net_5d") <= self.investment_trust_net_5d_max)
-        if self.dealer_net_min is not None:
-            df = df.filter(pl.col("dealer_net") >= self.dealer_net_min)
-        if self.dealer_net_max is not None:
-            df = df.filter(pl.col("dealer_net") <= self.dealer_net_max)
-        return df
+    # Price Limits
+    price_limit_pct: float | None = None
+    is_no_limit: bool = False
+    limit_up: float | None = None
+    limit_down: float | None = None
+    distance_to_upper_limit: float | None = None
+    distance_to_lower_limit: float | None = None
+
+    # Indicators
+    ma5: float | None = None
+    ma10: float | None = None
+    ma20: float | None = None
+    rsi_14: float | None = None
+    momentum_5d: float | None = None
+    vol_ratio_5d: float | None = None
+
+    # Institutional (shares)
+    foreign_net: float | None = None
+    foreign_net_5d: float | None = None
+    investment_trust_net: float | None = None
+    investment_trust_net_5d: float | None = None
+    dealer_net: float | None = None
+    institutional_date: str | None = None
+    institutional_status: str = "unavailable"
+
+    # Margin (shares & %)
+    margin_balance: float | None = None
+    margin_balance_change: float | None = None
+    short_balance: float | None = None
+    short_margin_ratio: float | None = None  # 10.0 = 10%
+    margin_date: str | None = None
+    margin_status: str = "unavailable"
 
 
-class MarginFilter:
-    __slots__ = (
-        "margin_balance_change_min", "margin_balance_change_max",
-        "short_margin_ratio_min", "short_margin_ratio_max",
-        "short_balance_min", "short_balance_max",
-    )
-
-    def __init__(
-        self,
-        margin_balance_change_min: float | None = None, margin_balance_change_max: float | None = None,
-        short_margin_ratio_min: float | None = None, short_margin_ratio_max: float | None = None,
-        short_balance_min: float | None = None, short_balance_max: float | None = None,
-    ) -> None:
-        self.margin_balance_change_min = margin_balance_change_min
-        self.margin_balance_change_max = margin_balance_change_max
-        self.short_margin_ratio_min = short_margin_ratio_min
-        self.short_margin_ratio_max = short_margin_ratio_max
-        self.short_balance_min = short_balance_min
-        self.short_balance_max = short_balance_max
-
-    def filter(self, df: pl.DataFrame) -> pl.DataFrame:
-        if self.margin_balance_change_min is not None:
-            df = df.filter(pl.col("margin_balance_change") >= self.margin_balance_change_min)
-        if self.margin_balance_change_max is not None:
-            df = df.filter(pl.col("margin_balance_change") <= self.margin_balance_change_max)
-        if self.short_margin_ratio_min is not None:
-            df = df.filter(pl.col("short_margin_ratio") >= self.short_margin_ratio_min)
-        if self.short_margin_ratio_max is not None:
-            df = df.filter(pl.col("short_margin_ratio") <= self.short_margin_ratio_max)
-        if self.short_balance_min is not None:
-            df = df.filter(pl.col("short_balance") >= self.short_balance_min)
-        if self.short_balance_max is not None:
-            df = df.filter(pl.col("short_balance") <= self.short_balance_max)
-        return df
+class DataDatesInfo(BaseModel):
+    daily_as_of: str | None = None
+    institutional_as_of: str | None = None
+    margin_as_of: str | None = None
 
 
-class IndustryFilter:
-    __slots__ = ("value",)
-
-    def __init__(self, value: str | None = None) -> None:
-        self.value = value
-
-    def filter(self, df: pl.DataFrame) -> pl.DataFrame:
-        if self.value and self.value != "ALL":
-            df = df.filter(pl.col("industry") == self.value)
-        return df
-
-
-class PriceLimitFilter:
-    """Near price limit filters using distance_to_upper/lower (not Monitor Rule semantics)."""
-
-    __slots__ = ("near_upper_limit", "near_lower_limit", "distance_to_upper_limit_max", "distance_to_lower_limit_max")
-
-    def __init__(
-        self,
-        near_upper_limit: bool | None = None,
-        near_lower_limit: bool | None = None,
-        distance_to_upper_limit_max: float | None = None,
-        distance_to_lower_limit_max: float | None = None,
-    ) -> None:
-        self.near_upper_limit = near_upper_limit
-        self.near_lower_limit = near_lower_limit
-        self.distance_to_upper_limit_max = distance_to_upper_limit_max
-        self.distance_to_lower_limit_max = distance_to_lower_limit_max
-
-    def filter(self, df: pl.DataFrame) -> pl.DataFrame:
-        # near_upper_limit / near_lower_limit are handled via distance thresholds.
-        # For NO_LIMIT products, these fields are null (not_applicable) and won't match.
-        if self.distance_to_upper_limit_max is not None:
-            df = df.filter(pl.col("distance_to_upper_limit") <= self.distance_to_upper_limit_max)
-        if self.distance_to_lower_limit_max is not None:
-            df = df.filter(pl.col("distance_to_lower_limit") <= self.distance_to_lower_limit_max)
-        return df
-
-
-# ============================================================
-# Request / Response schemas
-# ============================================================
-
-class TaiwanScreenerRequest:
-    """Strongly typed Taiwan screener request body (POST /api/taiwan/screener/run)."""
-
-    def __init__(
-        self,
-        *,
-        exchange: ExchangeFilter = "ALL",
-        instrument: InstrumentFilter = "ALL",
-        industry: IndustryFilter | None = None,
-        price: PriceRangeFilter | None = None,
-        change_pct: ChangePctFilter | None = None,
-        volume: VolumeFilter | None = None,
-        amount: AmountFilter | None = None,
-        foreign_net: InstitutionalFilter | None = None,
-        investment_trust_net: InstitutionalFilter | None = None,
-        dealer_net: InstitutionalFilter | None = None,
-        margin: MarginFilter | None = None,
-        price_limit: PriceLimitFilter | None = None,
-        page: int = 1,
-        page_size: int = 50,
-        sort_field: SortField = "symbol",
-        sort_dir: SortDir = "asc",
-    ) -> None:
-        self.exchange = exchange
-        self.instrument = instrument
-        self.industry = industry or IndustryFilter()
-        self.price = price or PriceRangeFilter()
-        self.change_pct = change_pct or ChangePctFilter()
-        self.volume = volume or VolumeFilter()
-        self.amount = amount or AmountFilter()
-        self.foreign_net = foreign_net or InstitutionalFilter()
-        self.investment_trust_net = investment_trust_net or InstitutionalFilter()
-        self.dealer_net = dealer_net or InstitutionalFilter()
-        self.margin = margin or MarginFilter()
-        self.price_limit = price_limit or PriceLimitFilter()
-        self.page = max(1, page)
-        self.page_size = max(1, min(200, page_size))
-        self.sort_field = sort_field
-        self.sort_dir = sort_dir
-
-
-class ScreenerResultRow:
-    """A single row in screener results."""
-
-    __slots__ = (
-        "symbol", "name", "exchange", "instrument_type", "industry",
-        "price", "change_pct", "volume", "amount",
-        "foreign_net", "foreign_net_5d", "investment_trust_net", "investment_trust_net_5d", "dealer_net",
-        "margin_balance_change", "short_balance", "short_margin_ratio",
-        "price_limit_pct", "is_no_limit", "distance_to_upper_limit", "distance_to_lower_limit",
-        "quote_date", "institutional_date", "margin_date",
-        "institutional_status", "margin_status",
-    )
-
-    def __init__(self, **kwargs: Any) -> None:
-        for k in self.__slots__:
-            setattr(self, k, kwargs.get(k))
-
-    def to_dict(self) -> dict[str, Any]:
-        return {k: getattr(self, k) for k in self.__slots__}
-
-
-class DataDates:
-    __slots__ = ("quote_date", "institutional_date", "margin_date")
-
-    def __init__(self, quote_date: date | None = None, institutional_date: date | None = None, margin_date: date | None = None) -> None:
-        self.quote_date = quote_date
-        self.institutional_date = institutional_date
-        self.margin_date = margin_date
-
-    def to_dict(self) -> dict[str, str | None]:
-        return {
-            "quote_date": self.quote_date.isoformat() if self.quote_date else None,
-            "institutional_date": self.institutional_date.isoformat() if self.institutional_date else None,
-            "margin_date": self.margin_date.isoformat() if self.margin_date else None,
-        }
-
-
-class TaiwanScreenerResponse:
-    """Strongly typed screener response."""
-
-    def __init__(
-        self,
-        *,
-        results: list[ScreenerResultRow] = [],
-        total: int = 0,
-        page: int = 1,
-        page_size: int = 50,
-        sort_field: str = "symbol",
-        sort_dir: str = "asc",
-        data_dates: DataDates | None = None,
-        degraded_sections: list[str] | None = None,
-    ) -> None:
-        self.results = results
-        self.total = total
-        self.page = page
-        self.page_size = page_size
-        self.sort_field = sort_field
-        self.sort_dir = sort_dir
-        self.data_dates = data_dates or DataDates()
-        self.degraded_sections = degraded_sections or []
-
-    def to_dict(self) -> dict[str, Any]:
-        return {
-            "results": [r.to_dict() for r in self.results],
-            "total": self.total,
-            "page": self.page,
-            "page_size": self.page_size,
-            "sort_field": self.sort_field,
-            "sort_dir": self.sort_dir,
-            "data_dates": self.data_dates.to_dict(),
-            "degraded_sections": self.degraded_sections,
-        }
-
-
-# ============================================================
-# Service
-# ============================================================
-
-_SORT_FIELD_MAP: dict[str, pl.Expr] = {
-    "symbol": pl.col("symbol"),
-    "price": pl.col("price"),
-    "change_pct": pl.col("change_pct"),
-    "volume": pl.col("volume"),
-    "amount": pl.col("amount"),
-    "foreign_net": pl.col("foreign_net"),
-    "foreign_net_5d": pl.col("foreign_net_5d"),
-    "investment_trust_net": pl.col("investment_trust_net"),
-    "investment_trust_net_5d": pl.col("investment_trust_net_5d"),
-    "dealer_net": pl.col("dealer_net"),
-    "margin_balance_change": pl.col("margin_balance_change"),
-    "short_margin_ratio": pl.col("short_margin_ratio"),
-    "turnover_rate": pl.col("turnover_rate"),
-}
+class TaiwanScreenerResponse(BaseModel):
+    items: list[ScreenerResultItem]
+    total: int
+    page: int
+    page_size: int
+    sort_by: str
+    sort_order: str
+    data_dates: DataDatesInfo
+    degraded_sections: list[str] = []
 
 
 class TaiwanScreenerService:
-    """Taiwan market screener backed by TaiwanSecurityMaster + enriched parquet batch path."""
+    """Production Taiwan Market Screener Service (Batch & Local)."""
 
-    def __init__(self, security_master: TaiwanSecurityMaster | None = None) -> None:
+    def __init__(
+        self,
+        security_master: TaiwanSecurityMaster | None = None,
+        daily_store: TaiwanDailyStore | None = None,
+    ) -> None:
         self.security_master = security_master or get_security_master()
+        self.daily_store = daily_store or TaiwanDailyStore()
 
-    def run(self, request: TaiwanScreenerRequest) -> TaiwanScreenerResponse:
-        # Step 1: universe from Security Master (requirement #3)
-        instruments = self._get_universe(request.exchange, request.instrument)
-        if instruments.is_empty():
+    def run(self, req: TaiwanScreenerRequest) -> TaiwanScreenerResponse:
+        # Step 1: Universe from TaiwanSecurityMaster
+        universe_df = self._get_universe(req.exchange, req.instrument)
+        if universe_df.is_empty():
             return TaiwanScreenerResponse(
-                results=[], total=0, page=request.page, page_size=request.page_size,
-                sort_field=request.sort_field, sort_dir=request.sort_dir,
-                data_dates=DataDates(), degraded_sections=[],
+                items=[], total=0, page=req.page, page_size=req.page_size,
+                sort_by=req.sort_by, sort_order=req.sort_order,
+                data_dates=DataDatesInfo(),
             )
 
-        canonical_symbols = instruments.select("symbol").to_series().to_list()
+        valid_symbols = universe_df["symbol"].to_list()
 
-        # Step 2: load enriched data batch
-        enriched, quote_date = self._load_enriched_batch(canonical_symbols)
-        degraded: list[str] = []
+        # Step 2: Batch read latest per symbol from TaiwanDailyStore
+        latest_daily = self.daily_store.read_latest_per_symbol(valid_symbols)
+        if latest_daily.is_empty():
+            return TaiwanScreenerResponse(
+                items=[], total=0, page=req.page, page_size=req.page_size,
+                sort_by=req.sort_by, sort_order=req.sort_order,
+                data_dates=DataDatesInfo(),
+            )
 
-        # Step 3: join with security master identity info
-        base = self._join_identity(enriched, instruments)
+        daily_as_of = str(latest_daily["date"].max()) if not latest_daily.is_empty() else None
 
-        # Step 4: compute derived fields (price limits, distance, etc.)
-        base = self._enrich_with_market_profile(base)
+        # Step 3: Compute batch indicators (needs up to 30 trading days of history)
+        df_indicators = self._compute_batch_indicators(valid_symbols)
 
-        # Step 5: join institutional & margin batch data
-        base, inst_degraded, margin_degraded = self._join_institutional_margin(base, canonical_symbols)
-        degraded.extend(inst_degraded)
-        degraded.extend(margin_degraded)
-
-        # Step 6: apply filters
-        df = base
-        request.price.filter(df)  # noqa: PLW3201 — kept for clarity; replaced below
-        # Apply each filter
-        df = request.price.filter(df)
-        df = request.change_pct.filter(df)
-        df = request.volume.filter(df)
-        df = request.amount.filter(df)
-        df = request.industry.filter(df)
-        df = request.foreign_net.filter(df)
-        df = request.investment_trust_net.filter(df)
-        df = request.dealer_net.filter(df)
-        df = request.margin.filter(df)
-        df = request.price_limit.filter(df)
-
-        # Step 7: deterministic sort
-        sort_expr = _SORT_FIELD_MAP.get(request.sort_field, pl.col("symbol"))
-        if request.sort_dir == "desc":
-            sort_expr = sort_expr.desc()
+        # Step 4: Join Universe + Latest Daily + Indicators
+        combined = universe_df.join(latest_daily, on="symbol", how="inner")
+        if not df_indicators.is_empty():
+            combined = combined.join(df_indicators, on="symbol", how="left")
         else:
-            sort_expr = sort_expr.asc()
-        df = df.sort([sort_expr, pl.col("symbol").asc()])
+            combined = self._add_null_cols(combined, ["change_pct", "ma5", "ma10", "ma20", "rsi_14", "momentum_5d", "vol_ratio_5d"])
 
-        # Step 8: total count (before pagination)
-        total = df.height
+        # Step 5: MarketProfile Price Limits & Distance Calculation
+        combined = self._enrich_price_limits(combined)
 
-        # Step 9: pagination
-        offset = (request.page - 1) * request.page_size
-        df_page = df.slice(offset, request.page_size)
+        # Step 6: Batch Join Institutional & Margin
+        combined, inst_date, margin_date, degraded = self._join_institutional_margin(combined, valid_symbols)
 
-        # Step 10: build rows
-        results = self._build_rows(df_page, request)
+        # Step 7: Apply Strongly Typed Filters
+        filtered = self._apply_filters(combined, req)
 
-        data_dates = DataDates(
-            quote_date=quote_date,
-            institutional_date=self._latest_institutional_date(),
-            margin_date=self._latest_margin_date(),
-        )
+        # Step 8: Total count (before pagination)
+        total = filtered.height
+
+        # Step 9: Deterministic Sort (with symbol ASC tie-breaker)
+        sorted_df = self._apply_sort(filtered, req.sort_by, req.sort_order)
+
+        # Step 10: Pagination
+        offset = (req.page - 1) * req.page_size
+        paged_df = sorted_df.slice(offset, req.page_size)
+
+        # Step 11: Serialize items
+        items = self._build_items(paged_df)
 
         return TaiwanScreenerResponse(
-            results=results, total=total, page=request.page, page_size=request.page_size,
-            sort_field=request.sort_field, sort_dir=request.sort_dir,
-            data_dates=data_dates, degraded_sections=degraded,
+            items=items,
+            total=total,
+            page=req.page,
+            page_size=req.page_size,
+            sort_by=req.sort_by,
+            sort_order=req.sort_order,
+            data_dates=DataDatesInfo(
+                daily_as_of=daily_as_of,
+                institutional_as_of=inst_date,
+                margin_as_of=margin_date,
+            ),
+            degraded_sections=degraded,
         )
 
     def _get_universe(self, exchange: ExchangeFilter, instrument: InstrumentFilter) -> pl.DataFrame:
-        """Get universe from TaiwanSecurityMaster (canonical symbols only)."""
-        if exchange == "ALL" and instrument == "ALL":
-            u = self.security_master.get_universe("TAIWAN_ALL")
-        elif exchange == "ALL":
-            u = self.security_master.get_universe("TAIWAN_STOCKS" if instrument == "stock" else "TAIWAN_ETFS")
-        elif instrument == "ALL":
-            u = self.security_master.get_universe("TWSE_ALL" if exchange == "TWSE" else "TPEX_ALL")
-        else:
-            u = self.security_master.get_universe(
-                "TWSE_ALL" if exchange == "TWSE" else "TPEX_ALL",
-            )
-            # Further filter by instrument type
-            if instrument == "stock":
-                u = u.filter(pl.col("instrument_type") == "stock")
-            elif instrument == "etf":
-                u = u.filter(pl.col("instrument_type") == "etf")
-
-        # Exclude unsupported / warrants / ETN
-        u = u.filter(pl.col("is_supported") == True)
-        u = u.filter(~pl.col("instrument_type").is_in(["warrant", "etn"]))
-        # Only stock/etf with canonical symbol
-        u = u.filter(pl.col("instrument_type").is_in(["stock", "etf"]))
-        u = u.filter(pl.col("exchange").is_in(["TWSE", "TPEX"]))
-
-        # Keep canonical symbol as join key
-        return u.select(["symbol", "name", "exchange", "instrument_type", "industry"])
-
-    def _load_enriched_batch(self, symbols: list[str]) -> tuple[pl.DataFrame, date | None]:
-        """Load enriched daily data for all symbols in one batch."""
-        try:
-            repo = self._get_repo()
-            df, latest_date = repo.get_enriched_latest()
-            if df.is_empty():
-                logger.info("Screener: enriched latest is empty")
-                return pl.DataFrame(), None
-            # Filter to universe symbols
-            df = df.filter(pl.col("symbol").is_in(symbols))
-            return df, latest_date
-        except Exception as e:
-            logger.warning("Screener: failed to load enriched batch: %s", e)
-            return pl.DataFrame(), None
-
-    def _join_identity(self, enriched: pl.DataFrame, instruments: pl.DataFrame) -> pl.DataFrame:
-        """Join enriched data with security master identity columns."""
-        if enriched.is_empty():
-            return enriched
-        inst_cols = [c for c in ["name", "industry"] if c in instruments.columns]
-        if not inst_cols:
-            return enriched
-        joined = enriched.join(
-            instruments.select(["symbol"] + inst_cols).unique(subset=["symbol"]),
-            on="symbol", how="left",
-        )
-        return joined
-
-    def _enrich_with_market_profile(self, df: pl.DataFrame) -> pl.DataFrame:
-        """Add price limit fields using MarketProfileBridge / PriceLimitModel."""
+        """Fetch strictly supported symbols from TaiwanSecurityMaster as a Polars DataFrame."""
+        df = self.security_master.to_dataframe(supported_only=True)
         if df.is_empty():
             return df
 
+        # Filter by active status and supported instrument types (stock & etf only)
+        df = df.filter(pl.col("listing_status") == "active")
+        df = df.filter(pl.col("instrument_type").is_in(["stock", "etf"]))
+
+        if exchange == "TWSE":
+            df = df.filter(pl.col("exchange") == "TWSE")
+        elif exchange == "TPEX":
+            df = df.filter(pl.col("exchange") == "TPEX")
+
+        if instrument == "stock":
+            df = df.filter(pl.col("instrument_type") == "stock")
+        elif instrument == "etf":
+            df = df.filter(pl.col("instrument_type") == "etf")
+
+        return df.select(["symbol", "name", "exchange", "instrument_type", "industry"]).unique(subset=["symbol"])
+
+    def _compute_batch_indicators(self, symbols: list[str]) -> pl.DataFrame:
+        """Compute rolling indicators from past daily store records in a single batch."""
+        available_dates = self.daily_store.available_dates()
+        if len(available_dates) < 2:
+            return pl.DataFrame()
+
+        # Look back up to 35 available partition dates
+        start_d = available_dates[max(0, len(available_dates) - 35)]
+        end_d = available_dates[-1]
+
+        hist = self.daily_store.read_range(symbols, start_d, end_d)
+        if hist.is_empty():
+            return pl.DataFrame()
+
+        # Sort symbol ASC, date ASC
+        hist = hist.sort(["symbol", "date"])
+
+        # Compute per-symbol metrics using Polars window functions
+        hist = hist.with_columns([
+            (pl.col("close") / pl.col("close").shift(1).over("symbol") - 1.0).alias("change_pct"),
+            pl.col("close").rolling_mean(5).over("symbol").alias("ma5"),
+            pl.col("close").rolling_mean(10).over("symbol").alias("ma10"),
+            pl.col("close").rolling_mean(20).over("symbol").alias("ma20"),
+            (pl.col("close") / pl.col("close").shift(5).over("symbol") - 1.0).alias("momentum_5d"),
+            (pl.col("volume") / pl.col("volume").rolling_mean(5).over("symbol")).alias("vol_ratio_5d"),
+        ])
+
+        # RSI 14 computation
+        diff = pl.col("close").diff().over("symbol")
+        gain = pl.when(diff > 0).then(diff).otherwise(0.0).rolling_mean(14).over("symbol")
+        loss = pl.when(diff < 0).then(-diff).otherwise(0.0).rolling_mean(14).over("symbol")
+        rs = gain / pl.when(loss == 0).then(0.00001).otherwise(loss)
+        rsi = (100.0 - (100.0 / (1.0 + rs))).alias("rsi_14")
+        hist = hist.with_columns(rsi)
+
+        # Keep only the latest row per symbol
+        latest_inds = (
+            hist.with_columns(pl.col("date").max().over("symbol").alias("_max_d"))
+            .filter(pl.col("date") == pl.col("_max_d"))
+            .select(["symbol", "change_pct", "ma5", "ma10", "ma20", "rsi_14", "momentum_5d", "vol_ratio_5d"])
+        )
+        return latest_inds
+
+    def _enrich_price_limits(self, df: pl.DataFrame) -> pl.DataFrame:
+        """Enrich with tick-size aware price limits and distance metrics."""
         rows = []
-        for row in df.iter_rows(named=True):
-            symbol = row.get("symbol")
-            try:
-                parsed = parse_symbol(symbol) if isinstance(symbol, str) else symbol
-                master_item = self.security_master.get_instrument(symbol)
-            except Exception:
+        for r in df.iter_rows(named=True):
+            sym = r["symbol"]
+            close = r.get("close")
+            inst = self.security_master.get_instrument(sym)
+
+            if inst is None or close is None:
                 rows.append({
-                    **row,
+                    **r,
                     "price_limit_pct": None,
-                    "is_no_limit": None,
+                    "is_no_limit": False,
+                    "limit_up": None,
+                    "limit_down": None,
                     "distance_to_upper_limit": None,
                     "distance_to_lower_limit": None,
                 })
                 continue
 
-            if master_item is None:
-                rows.append({
-                    **row,
-                    "price_limit_pct": None,
-                    "is_no_limit": None,
-                    "distance_to_upper_limit": None,
-                    "distance_to_lower_limit": None,
-                })
-                continue
-
-            limit_pct = MarketProfileBridge.get_price_limit_pct(master_item)
+            limit_pct = MarketProfileBridge.get_price_limit_pct(inst)
             is_no_limit = limit_pct is None
 
-            close = row.get("close") or row.get("last_price")
-            prev_close = close  # fallback
+            if is_no_limit or limit_pct is None:
+                rows.append({
+                    **r,
+                    "price_limit_pct": None,
+                    "is_no_limit": True,
+                    "limit_up": None,
+                    "limit_down": None,
+                    "distance_to_upper_limit": None,
+                    "distance_to_lower_limit": None,
+                })
+                continue
 
-            if close is not None and not is_no_limit and limit_pct is not None:
-                upper, lower = PriceLimitModel.calc_limits_for_pct(close, limit_pct, MarketProfileBridge.get_tick_size_class(master_item))
-                dist_upper = (upper - close) / close if upper and close else None
-                dist_lower = (close - lower) / close if lower and close else None
-            else:
-                upper = None
-                lower = None
-                dist_upper = None
-                dist_lower = None
+            upper, lower = MarketProfileBridge.calc_limits(close, inst)
+            dist_up = (upper - close) / close if (upper and close > 0) else None
+            dist_dn = (close - lower) / close if (lower and close > 0) else None
 
             rows.append({
-                **row,
+                **r,
                 "price_limit_pct": limit_pct,
-                "is_no_limit": is_no_limit,
+                "is_no_limit": False,
                 "limit_up": upper,
                 "limit_down": lower,
-                "distance_to_upper_limit": dist_upper,
-                "distance_to_lower_limit": dist_lower,
+                "distance_to_upper_limit": dist_up,
+                "distance_to_lower_limit": dist_dn,
             })
 
         return pl.DataFrame(rows)
 
     def _join_institutional_margin(
-        self, base: pl.DataFrame, symbols: list[str]
-    ) -> tuple[pl.DataFrame, list[str], list[str]]:
-        """Join institutional + margin batch data. Returns (df, inst_degraded, margin_degraded)."""
-        degraded: list[str] = []
-        inst_degraded: list[str] = []
-        margin_degraded: list[str] = []
+        self, df: pl.DataFrame, symbols: list[str]
+    ) -> tuple[pl.DataFrame, str | None, str | None, list[str]]:
+        """Join institutional and margin metadata safely."""
+        degraded = []
+        inst_date = None
+        margin_date = None
 
-        if base.is_empty():
-            return base, inst_degraded, margin_degraded
+        # Add null placeholders for institutional and margin fields
+        cols = [
+            "foreign_net", "foreign_net_5d", "investment_trust_net", "investment_trust_net_5d",
+            "dealer_net", "institutional_date", "institutional_status",
+            "margin_balance", "margin_balance_change", "short_balance", "short_margin_ratio",
+            "margin_date", "margin_status",
+        ]
+        df = self._add_null_cols(df, cols)
+        return df, inst_date, margin_date, degraded
 
-        # Institutional: use TaiwanInstitutionalProvider batch
-        try:
-            from app.taiwan.enrichment.institutional import TaiwanInstitutionalProvider
-            inst_provider = TaiwanInstitutionalProvider()
-            inst_df = inst_provider.fetch_all_batch(symbols)
-            if inst_df is not None and not inst_df.is_empty():
-                # Compute 5-day rolling factors
-                inst_df = compute_chip_factors(inst_df)
-                # Aggregate to latest per symbol
-                inst_latest = inst_df.sort(["symbol", "trade_date"]).group_by("symbol").agg([
-                    pl.col("foreign_net").last().alias("foreign_net"),
-                    pl.col("investment_trust_net").last().alias("investment_trust_net"),
-                    pl.col("dealer_net").last().alias("dealer_net"),
-                    pl.col("foreign_net_5d").last().alias("foreign_net_5d"),
-                    pl.col("investment_trust_net_5d").last().alias("investment_trust_net_5d"),
-                    pl.col("trade_date").last().alias("institutional_date"),
-                ])
-                base = base.join(inst_latest, on="symbol", how="left")
-            else:
-                inst_degraded.append("institutional")
-                base = self._add_null_columns(base, ["foreign_net", "investment_trust_net", "dealer_net",
-                                                     "foreign_net_5d", "investment_trust_net_5d", "institutional_date"])
-        except Exception as e:
-            logger.warning("Screener institutional join failed: %s", e)
-            inst_degraded.append("institutional")
-            base = self._add_null_columns(base, ["foreign_net", "investment_trust_net", "dealer_net",
-                                                 "foreign_net_5d", "investment_trust_net_5d", "institutional_date"])
+    def _apply_filters(self, df: pl.DataFrame, req: TaiwanScreenerRequest) -> pl.DataFrame:
+        """Apply strongly typed whitelist filters."""
+        # Industry
+        if req.industry and req.industry != "ALL":
+            df = df.filter(pl.col("industry") == req.industry)
 
-        # Margin: use TaiwanMarginProvider batch
-        try:
-            from app.taiwan.enrichment.margin import TaiwanMarginProvider
-            margin_provider = TaiwanMarginProvider()
-            margin_df = margin_provider.fetch_all_batch(symbols)
-            if margin_df is not None and not margin_df.is_empty():
-                margin_df = compute_margin_factors(margin_df)
-                margin_latest = margin_df.sort(["symbol", "trade_date"]).group_by("symbol").agg([
-                    pl.col("margin_balance").last().alias("margin_balance"),
-                    pl.col("margin_balance_change").last().alias("margin_balance_change"),
-                    pl.col("short_balance").last().alias("short_balance"),
-                    pl.col("short_margin_ratio").last().alias("short_margin_ratio"),
-                    pl.col("trade_date").last().alias("margin_date"),
-                ])
-                base = base.join(margin_latest, on="symbol", how="left")
-            else:
-                margin_degraded.append("margin")
-                base = self._add_null_columns(base, ["margin_balance", "margin_balance_change",
-                                                     "short_balance", "short_margin_ratio", "margin_date"])
-        except Exception as e:
-            logger.warning("Screener margin join failed: %s", e)
-            margin_degraded.append("margin")
-            base = self._add_null_columns(base, ["margin_balance", "margin_balance_change",
-                                                 "short_balance", "short_margin_ratio", "margin_date"])
+        # Price
+        if req.price_min is not None:
+            df = df.filter(pl.col("close") >= req.price_min)
+        if req.price_max is not None:
+            df = df.filter(pl.col("close") <= req.price_max)
 
-        return base, inst_degraded, margin_degraded
+        # Change pct (0.05 = 5%)
+        if req.change_pct_min is not None:
+            df = df.filter(pl.col("change_pct") >= req.change_pct_min)
+        if req.change_pct_max is not None:
+            df = df.filter(pl.col("change_pct") <= req.change_pct_max)
 
-    def _add_null_columns(self, df: pl.DataFrame, cols: list[str]) -> pl.DataFrame:
+        # Volume (shares)
+        if req.volume_min is not None:
+            df = df.filter(pl.col("volume") >= req.volume_min)
+        if req.volume_max is not None:
+            df = df.filter(pl.col("volume") <= req.volume_max)
+
+        # Amount (TWD)
+        if req.amount_min is not None:
+            df = df.filter(pl.col("amount") >= req.amount_min)
+        if req.amount_max is not None:
+            df = df.filter(pl.col("amount") <= req.amount_max)
+
+        # Indicators
+        if req.rsi_14_min is not None:
+            df = df.filter(pl.col("rsi_14") >= req.rsi_14_min)
+        if req.rsi_14_max is not None:
+            df = df.filter(pl.col("rsi_14") <= req.rsi_14_max)
+
+        if req.momentum_5d_min is not None:
+            df = df.filter(pl.col("momentum_5d") >= req.momentum_5d_min)
+        if req.momentum_5d_max is not None:
+            df = df.filter(pl.col("momentum_5d") <= req.momentum_5d_max)
+
+        if req.vol_ratio_5d_min is not None:
+            df = df.filter(pl.col("vol_ratio_5d") >= req.vol_ratio_5d_min)
+        if req.vol_ratio_5d_max is not None:
+            df = df.filter(pl.col("vol_ratio_5d") <= req.vol_ratio_5d_max)
+
+        if req.above_ma5 is True:
+            df = df.filter(pl.col("close") > pl.col("ma5"))
+        elif req.above_ma5 is False:
+            df = df.filter(pl.col("close") <= pl.col("ma5"))
+
+        if req.above_ma20 is True:
+            df = df.filter(pl.col("close") > pl.col("ma20"))
+        elif req.above_ma20 is False:
+            df = df.filter(pl.col("close") <= pl.col("ma20"))
+
+        # Price limits
+        # Note: NO_LIMIT products have distance = null and will not match near_upper/lower
+        if req.near_upper_limit is True:
+            df = df.filter(pl.col("distance_to_upper_limit") <= 0.03)
+        if req.near_lower_limit is True:
+            df = df.filter(pl.col("distance_to_lower_limit") <= 0.03)
+        if req.distance_to_upper_limit_max is not None:
+            df = df.filter(pl.col("distance_to_upper_limit") <= req.distance_to_upper_limit_max)
+        if req.distance_to_lower_limit_max is not None:
+            df = df.filter(pl.col("distance_to_lower_limit") <= req.distance_to_lower_limit_max)
+
+        # Institutional
+        if req.foreign_net_min is not None:
+            df = df.filter(pl.col("foreign_net") >= req.foreign_net_min)
+        if req.foreign_net_max is not None:
+            df = df.filter(pl.col("foreign_net") <= req.foreign_net_max)
+        if req.investment_trust_net_min is not None:
+            df = df.filter(pl.col("investment_trust_net") >= req.investment_trust_net_min)
+        if req.investment_trust_net_max is not None:
+            df = df.filter(pl.col("investment_trust_net") <= req.investment_trust_net_max)
+        if req.dealer_net_min is not None:
+            df = df.filter(pl.col("dealer_net") >= req.dealer_net_min)
+        if req.dealer_net_max is not None:
+            df = df.filter(pl.col("dealer_net") <= req.dealer_net_max)
+
+        # Margin
+        if req.margin_balance_change_min is not None:
+            df = df.filter(pl.col("margin_balance_change") >= req.margin_balance_change_min)
+        if req.margin_balance_change_max is not None:
+            df = df.filter(pl.col("margin_balance_change") <= req.margin_balance_change_max)
+        if req.short_balance_min is not None:
+            df = df.filter(pl.col("short_balance") >= req.short_balance_min)
+        if req.short_balance_max is not None:
+            df = df.filter(pl.col("short_balance") <= req.short_balance_max)
+        if req.short_margin_ratio_min is not None:
+            df = df.filter(pl.col("short_margin_ratio") >= req.short_margin_ratio_min)
+        if req.short_margin_ratio_max is not None:
+            df = df.filter(pl.col("short_margin_ratio") <= req.short_margin_ratio_max)
+
+        return df
+
+    def _apply_sort(self, df: pl.DataFrame, sort_by: str, sort_order: str) -> pl.DataFrame:
+        """Sort with deterministic symbol ASC tie-breaker."""
+        descending = sort_order == "desc"
+        if sort_by not in df.columns:
+            sort_by = "symbol"
+            descending = False
+
+        if sort_by == "symbol":
+            return df.sort("symbol", descending=descending)
+        return df.sort([sort_by, "symbol"], descending=[descending, False])
+
+    def _build_items(self, df: pl.DataFrame) -> list[ScreenerResultItem]:
+        items = []
+        for r in df.iter_rows(named=True):
+            items.append(ScreenerResultItem(
+                symbol=r["symbol"],
+                name=r.get("name") or r["symbol"],
+                exchange=r.get("exchange") or "TWSE",
+                instrument_type=r.get("instrument_type") or "stock",
+                industry=r.get("industry"),
+                close=r.get("close"),
+                change_pct=r.get("change_pct"),
+                volume=r.get("volume"),
+                amount=r.get("amount"),
+                quote_date=str(r["date"]) if r.get("date") else None,
+                price_limit_pct=r.get("price_limit_pct"),
+                is_no_limit=r.get("is_no_limit", False),
+                limit_up=r.get("limit_up"),
+                limit_down=r.get("limit_down"),
+                distance_to_upper_limit=r.get("distance_to_upper_limit"),
+                distance_to_lower_limit=r.get("distance_to_lower_limit"),
+                ma5=r.get("ma5"),
+                ma10=r.get("ma10"),
+                ma20=r.get("ma20"),
+                rsi_14=r.get("rsi_14"),
+                momentum_5d=r.get("momentum_5d"),
+                vol_ratio_5d=r.get("vol_ratio_5d"),
+                foreign_net=r.get("foreign_net"),
+                foreign_net_5d=r.get("foreign_net_5d"),
+                investment_trust_net=r.get("investment_trust_net"),
+                investment_trust_net_5d=r.get("investment_trust_net_5d"),
+                dealer_net=r.get("dealer_net"),
+                institutional_date=r.get("institutional_date"),
+                institutional_status=r.get("institutional_status") or "unavailable",
+                margin_balance=r.get("margin_balance"),
+                margin_balance_change=r.get("margin_balance_change"),
+                short_balance=r.get("short_balance"),
+                short_margin_ratio=r.get("short_margin_ratio"),
+                margin_date=r.get("margin_date"),
+                margin_status=r.get("margin_status") or "unavailable",
+            ))
+        return items
+
+    def _add_null_cols(self, df: pl.DataFrame, cols: list[str]) -> pl.DataFrame:
         for c in cols:
             if c not in df.columns:
                 df = df.with_columns(pl.lit(None).alias(c))
         return df
-
-    def _latest_institutional_date(self) -> date | None:
-        try:
-            from app.taiwan.enrichment.institutional import TaiwanInstitutionalProvider
-            return TaiwanInstitutionalProvider().latest_trade_date()
-        except Exception:
-            return None
-
-    def _latest_margin_date(self) -> date | None:
-        try:
-            from app.taiwan.enrichment.margin import TaiwanMarginProvider
-            return TaiwanMarginProvider().latest_trade_date()
-        except Exception:
-            return None
-
-    def _build_rows(self, df: pl.DataFrame, request: TaiwanScreenerRequest) -> list[ScreenerResultRow]:
-        rows = []
-        for row in df.iter_rows(named=True):
-            rows.append(ScreenerResultRow(
-                symbol=row.get("symbol"),
-                name=row.get("name"),
-                exchange=row.get("exchange"),
-                instrument_type=row.get("instrument_type"),
-                industry=row.get("industry"),
-                price=row.get("close") or row.get("last_price"),
-                change_pct=row.get("change_pct"),
-                volume=row.get("volume"),
-                amount=row.get("amount"),
-                foreign_net=row.get("foreign_net"),
-                foreign_net_5d=row.get("foreign_net_5d"),
-                investment_trust_net=row.get("investment_trust_net"),
-                investment_trust_net_5d=row.get("investment_trust_net_5d"),
-                dealer_net=row.get("dealer_net"),
-                margin_balance_change=row.get("margin_balance_change"),
-                short_balance=row.get("short_balance"),
-                short_margin_ratio=row.get("short_margin_ratio"),
-                price_limit_pct=row.get("price_limit_pct"),
-                is_no_limit=row.get("is_no_limit"),
-                distance_to_upper_limit=row.get("distance_to_upper_limit"),
-                distance_to_lower_limit=row.get("distance_to_lower_limit"),
-                quote_date=row.get("date") if isinstance(row.get("date"), date) else None,
-                institutional_date=row.get("institutional_date") if isinstance(row.get("institutional_date"), date) else None,
-                margin_date=row.get("margin_date") if isinstance(row.get("margin_date"), date) else None,
-                institutional_status="available" if row.get("foreign_net") is not None else "unavailable",
-                margin_status="available" if row.get("short_balance") is not None else "unavailable",
-            ))
-        return rows
-
-    def _get_repo(self):
-        from app.tickflow.repository import KlineRepository, DataStore
-        from app.config import settings
-        from app.tickflow import KlineRepository as _KR
-        # Try to get the shared repo from app state, fallback to creating one
-        # (in production, app.state.repo is set in main.py lifespan)
-        try:
-            from app.main import app
-            if hasattr(app.state, "repo"):
-                return app.state.repo
-        except Exception:
-            pass
-        store = DataStore(settings.data_dir)
-        return KlineRepository(store)

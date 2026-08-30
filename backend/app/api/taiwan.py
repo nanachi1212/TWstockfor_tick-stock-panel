@@ -10,6 +10,7 @@ from fastapi import APIRouter, HTTPException, Query, Request
 
 from app.taiwan.detail_models import TaiwanStockDetailResponse
 from app.taiwan.detail_service import get_taiwan_stock_detail_service
+from app.taiwan.screener import TaiwanScreenerRequest, TaiwanScreenerResponse
 from app.taiwan.symbol import parse_symbol
 
 logger = logging.getLogger(__name__)
@@ -40,4 +41,19 @@ def get_taiwan_stock_detail(
         raise HTTPException(
             status_code=500,
             detail=f"台股個股資訊聚合失敗: {e}",
+        ) from e
+
+
+@router.post("/screener/run", response_model=TaiwanScreenerResponse)
+def run_taiwan_screener(request: TaiwanScreenerRequest):
+    """執行台股批次選股 (基於本地 Parquet 持久化資料庫與 Security Master)。"""
+    from app.taiwan.screener import TaiwanScreenerService
+    svc = TaiwanScreenerService()
+    try:
+        return svc.run(request)
+    except Exception as e:
+        logger.exception("Taiwan screener execution failed: %s", e)
+        raise HTTPException(
+            status_code=500,
+            detail=f"台股選股執行失敗: {e}",
         ) from e
