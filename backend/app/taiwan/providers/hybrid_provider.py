@@ -43,24 +43,15 @@ class TaiwanHybridProvider:
         self.primary = primary.lower()
 
     def get_instruments(self, asset_type: AssetType = "stock") -> pl.DataFrame:
-        """Return canonical instruments dataframe.
+        """Return canonical instruments dataframe from official TaiwanSecurityMaster.
 
-        Schema: INSTRUMENT_COLS = ['symbol', 'name', 'code', 'exchange', 'asset_type', 'source']
+        Production path uses authoritative TWSE + TPEx security master.
         """
-        # Built-in baseline instruments fixtures for initial smoke test / offline support.
-        # Future phases will wire live TWSE/TPEx open data.
-        rows = [
-            {"symbol": "2330.TWSE", "name": "台積電", "code": "2330", "exchange": "TWSE", "asset_type": "stock", "source": self.name},
-            {"symbol": "2454.TWSE", "name": "聯發科", "code": "2454", "exchange": "TWSE", "asset_type": "stock", "source": self.name},
-            {"symbol": "2317.TWSE", "name": "鴻海", "code": "2317", "exchange": "TWSE", "asset_type": "stock", "source": self.name},
-            {"symbol": "0050.TWSE", "name": "元大台灣50", "code": "0050", "exchange": "TWSE", "asset_type": "etf", "source": self.name},
-            {"symbol": "006208.TWSE", "name": "富邦台50", "code": "006208", "exchange": "TWSE", "asset_type": "etf", "source": self.name},
-            {"symbol": "8069.TPEX", "name": "元太", "code": "8069", "exchange": "TPEX", "asset_type": "stock", "source": self.name},
-        ]
-        df = pl.DataFrame(rows)
-        if asset_type in ("stock", "etf"):
-            df = df.filter(pl.col("asset_type") == asset_type)
-        return df
+        from app.taiwan.universe import get_security_master
+
+        master = get_security_master()
+        return master.to_provider_dataframe(asset_type=asset_type)
+
 
     def get_daily(
         self,
