@@ -204,6 +204,37 @@ class TestTaiwanScreenerCore:
         symbols = [item.symbol for item in res.items]
         assert "00646.TWSE" not in symbols
 
+    def test_unconfirmed_market_profile_does_not_fallback_to_10pct(self, screener_service, monkeypatch):
+        """When MarketProfileBridge raises ValueError for unconfirmed profile, limit fields must be None (never 10%)."""
+        from app.taiwan.universe.models import MarketProfileBridge
+
+        orig_get_price_limit_pct = MarketProfileBridge.get_price_limit_pct
+
+        def _mock_get_price_limit_pct(inst):
+            if inst.symbol == "2330.TWSE":
+                raise ValueError("Refusing to apply regulatory market rules to unconfirmed ETF")
+            return orig_get_price_limit_pct(inst)
+
+        monkeypatch.setattr(MarketProfileBridge, "get_price_limit_pct", _mock_get_price_limit_pct)
+
+        # Run screener without filter
+        req = TaiwanScreenerRequest()
+        res = screener_service.run(req)
+        item_2330 = next(i for i in res.items if i.symbol == "2330.TWSE")
+
+        # Must be None, NEVER 0.10 or manual math
+        assert item_2330.price_limit_pct is None
+        assert item_2330.limit_up is None
+        assert item_2330.limit_down is None
+        assert item_2330.distance_to_upper_limit is None
+        assert item_2330.distance_to_lower_limit is None
+
+        # Near limit filter must NOT match this row
+        req_limit = TaiwanScreenerRequest(near_upper_limit=True)
+        res_limit = screener_service.run(req_limit)
+        limit_symbols = [i.symbol for i in res_limit.items]
+        assert "2330.TWSE" not in limit_symbols
+
     def test_deterministic_sort_with_tie_breaker(self, screener_service):
         # Sort by volume desc
         req = TaiwanScreenerRequest(sort_by="volume", sort_order="desc")

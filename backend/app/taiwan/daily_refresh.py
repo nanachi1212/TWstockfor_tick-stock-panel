@@ -228,10 +228,6 @@ class TaiwanDailyRefreshService:
         """Fetch a single symbol's daily data for [start, end] and store it atomically."""
         df = self._provider.get_daily([symbol], start_time=start, end_time=end)
         if df.is_empty():
-            # If query was for a single candidate date and returned no rows,
-            # record this date in calendar as a confirmed non-trading day
-            if start == end and self._calendar is not None:
-                self._calendar.add_holiday(start)
             return {"symbol": symbol, "rows": 0, "status": "empty"}
 
         rows = df.height

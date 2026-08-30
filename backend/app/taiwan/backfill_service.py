@@ -101,6 +101,8 @@ class TaiwanBackfillService:
             "symbols_fetched": 0,
             "symbols_skipped_up_to_date": 0,
             "symbols_failed": 0,
+            "total_rows_fetched": 0,
+            "total_rows_written_new": 0,
             "total_rows_written": 0,
             "total_jobs_executed": 0,
             "failed_symbols": [],
@@ -128,6 +130,8 @@ class TaiwanBackfillService:
             overall_stats["processed_symbols"] += len(batch)
             overall_stats["symbols_fetched"] += batch_fetched
             overall_stats["total_jobs_executed"] += batch_jobs
+            overall_stats["total_rows_fetched"] += batch_rows
+            overall_stats["total_rows_written_new"] += batch_rows
             overall_stats["total_rows_written"] += batch_rows
             overall_stats["batches_completed"] += 1
             overall_stats["elapsed_seconds"] = round(time.time() - t_global_start, 2)

@@ -222,3 +222,45 @@ class TestTaiwanDailyRefreshIncremental:
         res = service.refresh_symbols(["2330.TWSE"], start=date(2026, 8, 24), end=date(2026, 8, 28))
         assert len(provider.calls) == 0
         assert res.get("symbols_fetched") == 0
+
+    def test_empty_symbol_does_not_mark_market_holiday(self, tmp_store):
+        """Empty response for a single symbol MUST NOT mark the date as a market-wide holiday."""
+        cal = TaiwanTradingCalendar()
+        target_date = date(2026, 8, 26)  # Wednesday (unverified trading day)
+        assert target_date not in cal.known_holidays
+
+        class EmptyOneSymbolProvider:
+            def __init__(self):
+                self.calls = []
+
+            def get_daily(self, symbols: list[str], start_time=None, end_time=None, **kwargs):
+                self.calls.append(symbols)
+                # 2330.TWSE returns empty (e.g. suspension, delisted, provider gap)
+                if "2330.TWSE" in symbols:
+                    return pl.DataFrame()
+                # 0050.TWSE returns valid trading data
+                return pl.DataFrame([{
+                    "symbol": "0050.TWSE",
+                    "date": target_date.isoformat(),
+                    "open": 160.0, "high": 162.0, "low": 159.0, "close": 161.0,
+                    "volume": 50000.0, "amount": 8050000.0, "quote_ts": None,
+                }])
+
+        provider = EmptyOneSymbolProvider()
+        service = TaiwanDailyRefreshService(store=tmp_store, provider=provider, calendar=cal)
+
+        # Refresh 2330.TWSE which returns empty
+        res = service.refresh_symbols(["2330.TWSE"], start=target_date, end=target_date)
+        assert res.get("rows_written") == 0
+
+        # CRITICAL ASSERTION: The calendar must NOT have recorded target_date as a holiday!
+        assert target_date not in cal.known_holidays, f"{target_date} was incorrectly marked as holiday!"
+
+        # Another symbol (0050.TWSE) on the same date can still be fetched and stored normally
+        res2 = service.refresh_symbols(["0050.TWSE"], start=target_date, end=target_date)
+        assert res2.get("rows_written") == 1
+        assert res2.get("symbols_fetched") == 1
+
+        stored = tmp_store.read_all(["0050.TWSE"])
+        assert stored.height == 1
+        assert stored["date"][0] == target_date
