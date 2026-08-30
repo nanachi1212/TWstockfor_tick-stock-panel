@@ -13,10 +13,10 @@ Integrity Guarantees:
 """
 from __future__ import annotations
 
-from datetime import date, datetime
 import json
 import logging
 import urllib.request
+from datetime import date, datetime
 from typing import Any
 
 from app.taiwan.enrichment.models import (
@@ -25,22 +25,16 @@ from app.taiwan.enrichment.models import (
     SourceMeta,
     StalePolicy,
 )
+from app.taiwan.providers.taiwan_values import parse_integer
 
 logger = logging.getLogger(__name__)
 
 
-def _clean_lot_to_shares(val: Any, lot_multiplier: int = 1000) -> int:
-    """Parse integer lot count and deterministically convert to shares."""
-    if val is None:
-        return 0
-    s = str(val).strip().replace(",", "")
-    if not s or s == "--":
-        return 0
-    try:
-        lots = int(float(s))
-        return lots * lot_multiplier
-    except (ValueError, TypeError):
-        return 0
+def _required_lots_to_shares(val: Any, field: str, lot_multiplier: int = 1000) -> int:
+    lots = parse_integer(val)
+    if lots is None:
+        raise ValueError(f"missing required margin field {field}")
+    return lots * lot_multiplier
 
 
 class TwseMarginAdapter:
@@ -61,8 +55,9 @@ class TwseMarginAdapter:
         lot_multiplier: int = 1000,
     ) -> list[MarginTrading]:
         rows = payload.get("data")
-        if not rows and "tables" in payload and payload["tables"]:
-            rows = payload["tables"][0].get("data")
+        if not rows and "tables" in payload:
+            rows = next((table.get("data") for table in payload["tables"]
+                         if table.get("data") and len(table["data"][0]) >= 16), None)
         if not rows:
             return []
 
@@ -72,30 +67,29 @@ class TwseMarginAdapter:
 
         for r in rows:
             if len(r) < 13:
-                continue
+                raise ValueError(f"TWSE margin row has {len(r)} columns; expected at least 13")
             code = str(r[0]).strip()
             if target_code and code != target_code:
                 continue
 
             # Margin columns in MI_MARGN:
             # 2: buy, 3: sell, 4: cash redemption, 5: prev balance, 6: current balance
-            mb = _clean_lot_to_shares(r[2], lot_multiplier)
-            ms = _clean_lot_to_shares(r[3], lot_multiplier)
-            mc = _clean_lot_to_shares(r[4], lot_multiplier)
-            mprev = _clean_lot_to_shares(r[5], lot_multiplier)
-            mbal = _clean_lot_to_shares(r[6], lot_multiplier)
+            mb = _required_lots_to_shares(r[2], "margin_buy", lot_multiplier)
+            ms = _required_lots_to_shares(r[3], "margin_sell", lot_multiplier)
+            mc = _required_lots_to_shares(r[4], "margin_cash_redemption", lot_multiplier)
+            mprev = _required_lots_to_shares(r[5], "margin_previous_balance", lot_multiplier)
+            mbal = _required_lots_to_shares(r[6], "margin_balance", lot_multiplier)
             mchange = mbal - mprev
 
             # Short columns in MI_MARGN:
             # 8: cover (buy), 9: sell, 10: stock redemption, 11: prev balance, 12: current balance
-            scover = _clean_lot_to_shares(r[8], lot_multiplier)
-            ssell = _clean_lot_to_shares(r[9], lot_multiplier)
-            sred = _clean_lot_to_shares(r[10], lot_multiplier)
-            sprev = _clean_lot_to_shares(r[11], lot_multiplier)
-            sbal = _clean_lot_to_shares(r[12], lot_multiplier)
+            scover = _required_lots_to_shares(r[8], "short_cover", lot_multiplier)
+            ssell = _required_lots_to_shares(r[9], "short_sell", lot_multiplier)
+            sred = _required_lots_to_shares(r[10], "short_stock_redemption", lot_multiplier)
+            sprev = _required_lots_to_shares(r[11], "short_previous_balance", lot_multiplier)
+            sbal = _required_lots_to_shares(r[12], "short_balance", lot_multiplier)
             schange = sbal - sprev
 
-            ratio = round((sbal / mbal * 100.0), 2) if mbal > 0 else 0.0
             note = str(r[15]).strip() if len(r) > 15 else ""
 
             meta = SourceMeta(
@@ -103,11 +97,12 @@ class TwseMarginAdapter:
                 source_url=source_url,
                 fetched_at=fetched_at,
                 trade_date=trade_date,
-                status="official_close",
+                status="stale" if is_stale else "official",
+                provider="twse",
                 is_realtime=False,
                 available_fields=(
                     "margin_balance", "margin_buy", "margin_sell",
-                    "short_balance", "short_sell", "short_cover", "short_margin_ratio",
+                    "short_balance", "short_sell", "short_cover",
                 ),
                 is_stale=is_stale,
                 source_type="official_open_data",
@@ -132,7 +127,7 @@ class TwseMarginAdapter:
                 short_stock_redemption=sred,
                 short_balance=sbal,
                 short_change=schange,
-                short_margin_ratio=ratio,
+                short_margin_ratio=None,
                 note=note,
                 meta=meta,
             )
@@ -170,30 +165,29 @@ class TpexMarginAdapter:
 
         for r in rows:
             if len(r) < 15:
-                continue
+                raise ValueError(f"TPEx margin row has {len(r)} columns; expected at least 15")
             code = str(r[0]).strip()
             if target_code and code != target_code:
                 continue
 
             # TPEx margin columns:
             # 2: prev balance, 3: buy, 4: sell, 5: cash redemption, 6: current balance
-            mprev = _clean_lot_to_shares(r[2], lot_multiplier)
-            mb = _clean_lot_to_shares(r[3], lot_multiplier)
-            ms = _clean_lot_to_shares(r[4], lot_multiplier)
-            mc = _clean_lot_to_shares(r[5], lot_multiplier)
-            mbal = _clean_lot_to_shares(r[6], lot_multiplier)
+            mprev = _required_lots_to_shares(r[2], "margin_previous_balance", lot_multiplier)
+            mb = _required_lots_to_shares(r[3], "margin_buy", lot_multiplier)
+            ms = _required_lots_to_shares(r[4], "margin_sell", lot_multiplier)
+            mc = _required_lots_to_shares(r[5], "margin_cash_redemption", lot_multiplier)
+            mbal = _required_lots_to_shares(r[6], "margin_balance", lot_multiplier)
             mchange = mbal - mprev
 
             # TPEx short columns:
             # 10: prev balance, 11: sell, 12: cover (buy), 13: redemption, 14: current balance
-            sprev = _clean_lot_to_shares(r[10], lot_multiplier)
-            ssell = _clean_lot_to_shares(r[11], lot_multiplier)
-            scover = _clean_lot_to_shares(r[12], lot_multiplier)
-            sred = _clean_lot_to_shares(r[13], lot_multiplier)
-            sbal = _clean_lot_to_shares(r[14], lot_multiplier)
+            sprev = _required_lots_to_shares(r[10], "short_previous_balance", lot_multiplier)
+            ssell = _required_lots_to_shares(r[11], "short_sell", lot_multiplier)
+            scover = _required_lots_to_shares(r[12], "short_cover", lot_multiplier)
+            sred = _required_lots_to_shares(r[13], "short_stock_redemption", lot_multiplier)
+            sbal = _required_lots_to_shares(r[14], "short_balance", lot_multiplier)
             schange = sbal - sprev
 
-            ratio = round((sbal / mbal * 100.0), 2) if mbal > 0 else 0.0
             note = str(r[19]).strip() if len(r) > 19 else ""
 
             meta = SourceMeta(
@@ -201,11 +195,12 @@ class TpexMarginAdapter:
                 source_url=source_url,
                 fetched_at=fetched_at,
                 trade_date=trade_date,
-                status="official_close",
+                status="stale" if is_stale else "official",
+                provider="tpex",
                 is_realtime=False,
                 available_fields=(
                     "margin_balance", "margin_buy", "margin_sell",
-                    "short_balance", "short_sell", "short_cover", "short_margin_ratio",
+                    "short_balance", "short_sell", "short_cover",
                 ),
                 is_stale=is_stale,
                 source_type="official_open_data",
@@ -230,7 +225,7 @@ class TpexMarginAdapter:
                 short_stock_redemption=sred,
                 short_balance=sbal,
                 short_change=schange,
-                short_margin_ratio=ratio,
+                short_margin_ratio=None,
                 note=note,
                 meta=meta,
             )

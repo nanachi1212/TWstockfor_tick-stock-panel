@@ -22,6 +22,15 @@
 - 后端源码扩展注册：`backend/app/custom/<module>.py`，支持 FastAPI 路由、启动钩子和通知格式化器。
 - 当前前端插槽：`layout.navigation.extra`、`stock-preview.footer`、`watchlist.toolbar`。
 - 当前后端继承点：`NotificationFormatter`。
+- 台湾市场官方数据统一经 `app/taiwan` 既有 adapter → normalizer/model → consumer
+  路径接入；法人与融资融券须扩展 `enrichment` 现有 parser，不得另建平行 provider。
+
+台湾官方法人／融资融券的二开边界：TWSE T86、TPEx dailyTrade、TWSE
+MI_MARGN 与 TPEx margin/balance 只在既有 adapter 解析；raw 数量统一为 shares，
+来源、URL、抓取时间、交易日与 Contract status 保存在每笔 record 的 `SourceMeta`。
+FinMind 当前没有可靠的法人／融资融券 adapter，因此官方失败必须显式抛错，不能
+以空结果或 Yahoo 抓取伪装 fallback。滚动买卖超与券资比属于 `enrichment/factors.py`
+的 derived factor，不应放回 raw provider。
 
 尚未实现、只能在真实需求出现后增加的能力：
 

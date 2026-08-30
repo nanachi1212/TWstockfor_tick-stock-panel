@@ -23,17 +23,18 @@ import pytest
 from app.taiwan.enrichment.factors import compute_chip_factors, compute_margin_factors
 from app.taiwan.enrichment.index import TaiwanIndexProvider
 from app.taiwan.enrichment.institutional import (
+    TaiwanInstitutionalProvider,
     TpexInstitutionalAdapter,
     TwseInstitutionalAdapter,
 )
 from app.taiwan.enrichment.margin import (
+    TaiwanMarginProvider,
     TpexMarginAdapter,
     TwseMarginAdapter,
 )
 from app.taiwan.enrichment.models import (
     DatasetType,
     EtfCategory,
-    SourceMeta,
     StalePolicy,
 )
 from app.taiwan.enrichment.quote import TaiwanOfficialQuoteProvider
@@ -74,12 +75,18 @@ class TestInstitutionalEnrichment:
         assert flow.foreign_net == 5_000_000
         assert flow.investment_trust_net == 1_500_000
         assert flow.dealer_net == 800_000
+        assert flow.unit == "shares"
         assert flow.dealer_buy == 1_100_000  # 600k + 500k
         assert flow.dealer_sell == 300_000   # 200k + 100k
         assert flow.official_net == 7_300_000
         assert flow.computed_net == 7_300_000
         assert flow.has_discrepancy is False
-        assert flow.meta.status == "official_close"
+        assert flow.meta.status == ("stale" if flow.meta.is_stale else "official")
+        assert flow.meta.provider == "twse"
+        assert flow.meta.source == "twse:t86"
+        assert flow.meta.source_url == "https://mock.twse/t86"
+        assert flow.meta.retrieved_at == flow.meta.fetched_at
+        assert flow.meta.trade_date == trade_dt
 
     def test_twse_institutional_discrepancy_detection(self):
         adapter = TwseInstitutionalAdapter()
@@ -106,7 +113,7 @@ class TestInstitutionalEnrichment:
         assert flow.official_net == 8_000_000
         assert flow.computed_net == 7_300_000
         assert flow.has_discrepancy is True
-        assert flow.meta.status == "discrepancy_detected"
+        assert flow.meta.status == ("stale" if flow.meta.is_stale else "official")
 
     def test_tpex_institutional_parsing_and_integrity(self):
         adapter = TpexInstitutionalAdapter()
@@ -119,8 +126,8 @@ class TestInstitutionalEnrichment:
                     "1,200,000", "200,000", "1,000,000",    # Trust buy, sell, net (idx 11, 12, 13)
                     "300,000", "100,000", "200,000",        # Prop buy, sell, net (idx 14, 15, 16)
                     "200,000", "100,000", "100,000",        # Hedge buy, sell, net (idx 17, 18, 19)
-                    "300,000",                              # Dealer total net (idx 20)
-                    "2,300,000",                            # Official total net (idx 21)
+                    "500,000", "200,000", "300,000",      # Dealer buy, sell, net (idx 20-22)
+                    "2,300,000",                            # Official total net (idx 23)
                 ]
             ]
         }
@@ -136,6 +143,25 @@ class TestInstitutionalEnrichment:
         assert flow.official_net == 2_300_000
         assert flow.computed_net == 2_300_000
         assert flow.has_discrepancy is False
+        assert flow.meta.provider == "tpex"
+        assert flow.meta.status == ("stale" if flow.meta.is_stale else "official")
+
+    @pytest.mark.parametrize("raw", ["", "-", "--", "N/A", "abc", "12x3"])
+    def test_institutional_missing_or_malformed_is_not_zero(self, raw):
+        row = ["2330", "台積電", raw, "0", "0", "0", "0", "0", "0", "0", "0",
+               "0", "0", "0", "0", "0", "0", "0", "0"]
+        with pytest.raises(ValueError):
+            TwseInstitutionalAdapter().parse_payload(
+                {"data": [row]}, date(2026, 8, 28), "https://mock.twse/t86"
+            )
+
+    def test_institutional_explicit_zero_is_preserved(self):
+        row = ["2330", "台積電", "0.0", "0", "0", "0", "0", "0", "0", "0", "0",
+               "0", "0", "0", "0", "0", "0", "0", "0"]
+        flow = TwseInstitutionalAdapter().parse_payload(
+            {"data": [row]}, date(2026, 8, 28), "https://mock.twse/t86"
+        )[0]
+        assert flow.foreign_buy == 0
 
 
 # ── 2. Margin Trading & Short Selling Tests ─────────────────────
@@ -181,9 +207,14 @@ class TestMarginEnrichment:
         assert m.short_balance == 2_090_000
         assert m.short_change == 90_000
 
-        # Short-margin ratio: 2,090,000 / 20,450,000 * 100 = 10.22%
-        assert m.short_margin_ratio == 10.22
+        assert m.short_margin_ratio is None
         assert m.note == "合格標的"
+        assert m.meta.provider == "twse"
+        assert m.meta.source == "twse:mi_margn"
+        assert m.meta.source_url == "https://mock.twse/margin"
+        assert m.meta.retrieved_at == m.meta.fetched_at
+        assert m.meta.trade_date == trade_dt
+        assert m.meta.status == ("stale" if m.meta.is_stale else "official")
 
     def test_tpex_margin_parsing(self):
         adapter = TpexMarginAdapter()
@@ -208,7 +239,23 @@ class TestMarginEnrichment:
         assert m.margin_change == 290_000
         assert m.short_balance == 1_050_000
         assert m.short_change == 50_000
-        assert m.short_margin_ratio == round(1050000 / 5290000 * 100, 2)
+        assert m.short_margin_ratio is None
+        assert m.meta.provider == "tpex"
+
+    @pytest.mark.parametrize("raw", ["", "-", "--", "N/A", "abc", "12x3"])
+    def test_margin_missing_or_malformed_is_not_zero(self, raw):
+        row = ["2330", "台積電", raw, "0", "0", "0", "0", "", "0", "0", "0", "0", "0"]
+        with pytest.raises(ValueError):
+            TwseMarginAdapter().parse_payload(
+                {"data": [row]}, date(2026, 8, 28), "https://mock.twse/margin"
+            )
+
+    def test_margin_explicit_zero_is_preserved(self):
+        row = ["2330", "台積電", "0.0", "0", "0", "0", "0", "", "0", "0", "0", "0", "0"]
+        margin = TwseMarginAdapter().parse_payload(
+            {"data": [row]}, date(2026, 8, 28), "https://mock.twse/margin"
+        )[0]
+        assert margin.margin_buy == 0
 
 
 # ── 3. SourceMeta & StalePolicy Tests ───────────────────────────
@@ -232,6 +279,19 @@ class TestSourceMetaAndStalePolicy:
         # Older date (e.g. 10 days ago) is stale
         old_dt = date(2026, 8, 15)
         assert StalePolicy.is_stale(DatasetType.INSTITUTIONAL, old_dt, fetched_at=datetime(2026, 8, 15, 18, 0), now=now) is True
+
+
+class TestOfficialFailureSemantics:
+    """Institutional/margin have no reliable third-party fallback seam."""
+
+    @pytest.mark.parametrize("provider", [TaiwanInstitutionalProvider(), TaiwanMarginProvider()])
+    def test_official_network_failure_is_not_empty_success(self, provider, monkeypatch):
+        def fail(*_args, **_kwargs):
+            raise TimeoutError("official endpoint timeout")
+
+        monkeypatch.setattr("urllib.request.urlopen", fail)
+        with pytest.raises(TimeoutError, match="official endpoint timeout"):
+            provider.fetch_live_day("TWSE", date(2026, 8, 28), target_code="2330")
 
 
 # ── 4. Quote Snapshots & Fallback Tests ─────────────────────────

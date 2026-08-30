@@ -84,6 +84,7 @@ class SourceMeta:
     fetched_at: datetime | str       # Timestamp when request succeeded
     trade_date: date | None          # Applicable trading date
     status: str                      # "realtime", "official_snapshot", "fallback", "stale", etc.
+    provider: str = ""              # Supplying organization/adapter (twse, tpex, ...)
     is_realtime: bool = False        # True only during live regular trading hours
     fallback_reason: str | None = None  # Non-empty if fallback was triggered
     available_fields: tuple[str, ...] = ()
@@ -101,7 +102,12 @@ class SourceMeta:
         else:
             data["fetched_at"] = str(self.fetched_at)
         data["trade_date"] = self.trade_date.isoformat() if self.trade_date else None
+        data["retrieved_at"] = data["fetched_at"]
         return data
+
+    @property
+    def retrieved_at(self) -> datetime | str:
+        return self.fetched_at
 
 
 
@@ -125,7 +131,8 @@ class InstitutionalFlow:
     dealer_buy: int
     dealer_sell: int
     dealer_net: int
-    # Dealer Sub-accounts (自營商避險與自行買賣，若官方提供)
+    unit: str = "shares"
+    # Dealer Sub-accounts (自營商避險與自行買賣, 若官方提供)
     dealer_proprietary_buy: int = 0
     dealer_proprietary_sell: int = 0
     dealer_proprietary_net: int = 0
@@ -172,7 +179,7 @@ class MarginTrading:
     short_balance: int
     short_change: int
     # Computed metrics
-    short_margin_ratio: float         # 券資比 (%) = short_balance / margin_balance * 100
+    short_margin_ratio: float | None  # Derived by the factor layer, not the raw provider
     note: str = ""
     meta: SourceMeta | None = None
 

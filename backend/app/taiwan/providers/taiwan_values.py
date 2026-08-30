@@ -48,3 +48,13 @@ def parse_number(raw: object) -> float | None:
         return float(Decimal(value))
     except InvalidOperation as exc:
         raise ValueError(f"malformed number: {raw!r}") from exc
+
+
+def parse_integer(raw: object) -> int | None:
+    """Parse an official integral quantity without conflating missing and zero."""
+    value = parse_number(raw)
+    if value is None:
+        return None
+    if not value.is_integer():
+        raise ValueError(f"malformed integer: {raw!r}")
+    return int(value)
