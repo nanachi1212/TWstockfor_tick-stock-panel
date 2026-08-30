@@ -25,7 +25,15 @@ class DatasetType(str, Enum):
     INDEX = "index"
 
 
+class ClassificationSource(str, Enum):
+    OFFICIAL_METADATA = "official_metadata"  # From TWSE t187ap47_L or official fund category
+    CFI_CODE = "cfi_code"                    # From ISO 10962 CFI code in ISIN master
+    NAME_HEURISTIC = "name_heuristic"        # Degraded fallback based on multi-character keywords
+    UNKNOWN = "unknown"
+
+
 class EtfCategory(str, Enum):
+
     DOMESTIC_EQUITY = "domestic_equity"    # e.g. 0050, 006208 (10% limit, 0.1% tax)
     FOREIGN_EQUITY = "foreign_equity"      # e.g. 00646, 00830 (NO_LIMIT, 0.1% tax)
     BOND = "bond"                          # e.g. 00720B, 00679B (NO_LIMIT, 0% tax incentive)

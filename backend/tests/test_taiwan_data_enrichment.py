@@ -359,7 +359,7 @@ class TestEtfClassificationAndSafety:
     """Verify ETF categorization and strict safety for UNKNOWN ETFs in MarketProfileBridge."""
 
     def test_etf_subclass_rule_bridge(self):
-        # 1. Domestic Equity ETF: 0050
+        # 1. Domestic Equity ETF: 0050 (Confirmed official_metadata)
         etf_0050 = TaiwanInstrument(
             symbol="0050.TWSE",
             code="0050",
@@ -370,18 +370,19 @@ class TestEtfClassificationAndSafety:
             listing_date="2003/06/30",
             isin="TW0000050004",
             industry=None,
-            cfi_code="CEOJEU",
+            cfi_code="CEOGEU",
             raw_category="ETF",
             is_supported=True,
             source="TWSE_ISIN",
             updated_at="2026-08-30",
             etf_category=EtfCategory.DOMESTIC_EQUITY.value,
+            classification_source="official_metadata",
         )
         assert MarketProfileBridge.get_tax_class(etf_0050) == TaxClass.DOMESTIC_ETF
         assert MarketProfileBridge.get_tick_size_class(etf_0050) == TickSizeClass.ETF
         assert MarketProfileBridge.get_price_limit_class(etf_0050) == PriceLimitClass.ORDINARY_TEN_PERCENT
 
-        # 2. Bond ETF: 00720B
+        # 2. Bond ETF: 00720B (Confirmed cfi_code)
         bond_etf = TaiwanInstrument(
             symbol="00720B.TPEX",
             code="00720B",
@@ -392,17 +393,18 @@ class TestEtfClassificationAndSafety:
             listing_date="2018/01/09",
             isin="TW00000720B5",
             industry=None,
-            cfi_code="CEOIEU",
+            cfi_code="CEOJBU",
             raw_category="ETF",
             is_supported=True,
             source="TPEX_ISIN",
             updated_at="2026-08-30",
             etf_category=EtfCategory.BOND.value,
+            classification_source="cfi_code",
         )
         assert MarketProfileBridge.get_tax_class(bond_etf) == TaxClass.BOND_ETF
         assert MarketProfileBridge.get_price_limit_class(bond_etf) == PriceLimitClass.NO_LIMIT
 
-        # 3. Foreign Component ETF: 00646 S&P 500
+        # 3. Foreign Component ETF: 00646 S&P 500 (Confirmed official_metadata)
         foreign_etf = TaiwanInstrument(
             symbol="00646.TWSE",
             code="00646",
@@ -419,8 +421,46 @@ class TestEtfClassificationAndSafety:
             source="TWSE_ISIN",
             updated_at="2026-08-30",
             etf_category=EtfCategory.FOREIGN_EQUITY.value,
+            classification_source="official_metadata",
         )
         assert MarketProfileBridge.get_price_limit_class(foreign_etf) == PriceLimitClass.NO_LIMIT
+
+    def test_single_character_false_positive_prevention(self):
+        """Disallow single-character keywords like '美' from classifying an ETF as foreign."""
+        from app.taiwan.universe.adapters import classify_etf_provenance
+
+        # Name contains '美' (e.g. 美麗台灣) but no official metadata or multi-char foreign keyword
+        cat, source = classify_etf_provenance(
+            code="00991",
+            name="富邦美麗台灣",
+            cfi_code=None,
+            official_product_types=None,
+        )
+        assert cat == "unknown"
+        assert source == "unknown"
+
+    def test_name_heuristic_rejected_by_market_profile_safety(self):
+        """MarketProfileBridge must reject regulatory application if classification is merely heuristic."""
+        heuristic_foreign_etf = TaiwanInstrument(
+            symbol="00992.TWSE",
+            code="00992",
+            exchange="TWSE",
+            name="富邦全球旗艦",
+            instrument_type="etf",
+            listing_status="active",
+            listing_date=None,
+            isin=None,
+            industry=None,
+            cfi_code=None,
+            raw_category="ETF",
+            is_supported=True,
+            source="TWSE_ISIN",
+            updated_at="2026-08-30",
+            etf_category=EtfCategory.FOREIGN_EQUITY.value,
+            classification_source="name_heuristic",  # Unconfirmed!
+        )
+        with pytest.raises(ValueError, match="Refusing to apply regulatory market rules to unconfirmed ETF"):
+            MarketProfileBridge.get_price_limit_class(heuristic_foreign_etf)
 
     def test_unknown_etf_safety_fails_loudly(self):
         """Bridge must refuse to silently assume domestic 10% limit for an unclassified ETF."""
@@ -440,9 +480,11 @@ class TestEtfClassificationAndSafety:
             source="TWSE_ISIN",
             updated_at="2026-08-30",
             etf_category=EtfCategory.UNKNOWN.value,
+            classification_source="unknown",
         )
-        with pytest.raises(ValueError, match="Cannot determine price limit for UNKNOWN ETF"):
+        with pytest.raises(ValueError, match="Refusing to apply regulatory market rules to unconfirmed ETF"):
             MarketProfileBridge.get_price_limit_class(unknown_etf)
+
 
 
 # ── 7. Polars Factor Compatibility Tests ────────────────────────

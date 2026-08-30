@@ -44,6 +44,7 @@ class TaiwanInstrument:
     source: str               # "TWSE_ISIN" | "TPEX_ISIN"
     updated_at: str           # ISO timestamp string
     etf_category: str | None = None  # EtfCategory value if instrument_type == "etf"
+    classification_source: str | None = None  # ClassificationSource value
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -52,30 +53,48 @@ class TaiwanInstrument:
 class MarketProfileBridge:
     """Translates TaiwanInstrument metadata into Phase 3 Market Profile rule classes.
 
-    Strictly refuses to silently assume UNKNOWN ETFs have domestic equity rules.
+    Strictly refuses to apply real trading regulations (tax, price limits) if an ETF's
+    classification is unconfirmed or derived solely from name heuristics.
     """
 
-    @staticmethod
-    def get_tax_class(instrument: TaiwanInstrument) -> TaxClass:
+    CONFIRMED_SOURCES = {
+        "official_metadata",
+        "cfi_code",
+    }
+
+    @classmethod
+    def verify_confirmed_etf(cls, instrument: TaiwanInstrument) -> None:
         if instrument.instrument_type == "etf":
+            source = instrument.classification_source or "unknown"
+            if source not in cls.CONFIRMED_SOURCES:
+                raise ValueError(
+                    f"Refusing to apply regulatory market rules to unconfirmed ETF {instrument.symbol} "
+                    f"(source: {source!r}). Confirmed official product metadata or CFI code is required."
+                )
+
+    @classmethod
+    def get_tax_class(cls, instrument: TaiwanInstrument) -> TaxClass:
+        if instrument.instrument_type == "etf":
+            cls.verify_confirmed_etf(instrument)
             cat = instrument.etf_category or EtfCategory.UNKNOWN.value
             if cat == EtfCategory.BOND.value:
                 return TaxClass.BOND_ETF
             return TaxClass.DOMESTIC_ETF
         return TaxClass.ORDINARY_STOCK
 
-    @staticmethod
-    def get_tick_size_class(instrument: TaiwanInstrument) -> TickSizeClass:
+    @classmethod
+    def get_tick_size_class(cls, instrument: TaiwanInstrument) -> TickSizeClass:
         if instrument.instrument_type == "etf":
             return TickSizeClass.ETF
         return TickSizeClass.ORDINARY_STOCK
 
-    @staticmethod
-    def get_price_limit_class(instrument: TaiwanInstrument) -> PriceLimitClass:
+    @classmethod
+    def get_price_limit_class(cls, instrument: TaiwanInstrument) -> PriceLimitClass:
         if instrument.instrument_type == "stock":
             return PriceLimitClass.ORDINARY_TEN_PERCENT
 
         if instrument.instrument_type == "etf":
+            cls.verify_confirmed_etf(instrument)
             cat = instrument.etf_category or EtfCategory.UNKNOWN.value
             if cat == EtfCategory.DOMESTIC_EQUITY.value:
                 return PriceLimitClass.ORDINARY_TEN_PERCENT
@@ -93,4 +112,5 @@ class MarketProfileBridge:
                 )
 
         return PriceLimitClass.ORDINARY_TEN_PERCENT
+
 

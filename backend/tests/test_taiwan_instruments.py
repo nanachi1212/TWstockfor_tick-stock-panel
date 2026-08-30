@@ -32,11 +32,12 @@ TWSE_SAMPLE_HTML = """
   </tr>
   <tr><td colspan="7"><b>ETF</b></td></tr>
   <tr>
-    <td>0050　元大台灣50</td><td>TW0000050004</td><td>2003/06/30</td><td>上市</td><td></td><td>CEOJEU</td><td></td>
+    <td>0050　元大台灣50</td><td>TW0000050004</td><td>2003/06/30</td><td>上市</td><td></td><td>CEOGEU</td><td></td>
   </tr>
   <tr>
-    <td>006208　富邦台50</td><td>TW0000062082</td><td>2012/07/17</td><td>上市</td><td></td><td>CEOJEU</td><td></td>
+    <td>006208　富邦台50</td><td>TW0000062082</td><td>2012/07/17</td><td>上市</td><td></td><td>CEOGEU</td><td></td>
   </tr>
+
   <tr><td colspan="7"><b>特別股</b></td></tr>
   <tr>
     <td>1101B　台泥乙特</td><td>TW0001101B05</td><td>2019/01/29</td><td>上市</td><td></td><td>EPNRAR</td><td></td>
@@ -63,8 +64,9 @@ TPEX_SAMPLE_HTML = """
   </tr>
   <tr><td colspan="7"><b>ETF</b></td></tr>
   <tr>
-    <td>00720B　元大投資級公司債</td><td>TW00000720B5</td><td>2018/01/09</td><td>上櫃</td><td></td><td>CEOIEU</td><td></td>
+    <td>00720B　元大投資級公司債</td><td>TW00000720B5</td><td>2018/01/09</td><td>上櫃</td><td></td><td>CEOJBU</td><td></td>
   </tr>
+
   <tr><td colspan="7"><b>上櫃認購(售)權證</b></td></tr>
   <tr>
     <td>701623　元太統一5B購01</td><td>TW25Z7016231</td><td>2025/11/03</td><td>上櫃</td><td></td><td>RWSCCA</td><td></td>
@@ -102,8 +104,11 @@ class TestTaiwanInstrumentAdaptersOffline:
         assert etf0050.instrument_type == "etf"
         assert etf0050.is_supported is True
         assert etf0050.isin == "TW0000050004"
+        assert etf0050.etf_category == "domestic_equity"
+        assert etf0050.classification_source == "cfi_code"
 
         # 3. Preferred shares (1101B) -> unsupported
+
         pref = by_symbol.get("1101B.TWSE")
         assert pref is not None
         assert pref.instrument_type == "unsupported"
@@ -134,8 +139,11 @@ class TestTaiwanInstrumentAdaptersOffline:
         assert bond_etf is not None
         assert bond_etf.instrument_type == "etf"
         assert bond_etf.is_supported is True
+        assert bond_etf.etf_category == "bond"
+        assert bond_etf.classification_source == "cfi_code"
 
         # 3. TPEx Warrant -> unsupported
+
         warrant = by_symbol.get("701623.TPEX")
         assert warrant is not None
         assert warrant.instrument_type == "unsupported"

@@ -101,8 +101,10 @@ class TaiwanSecurityMaster:
                     source=r.get("source", "cache"),
                     updated_at=r.get("updated_at", ""),
                     etf_category=r.get("etf_category"),
+                    classification_source=r.get("classification_source"),
                 )
                 loaded[inst.symbol] = inst
+
             self._instruments = loaded
             self._loaded = True
             logger.info("Loaded %d instruments from cache %s", len(loaded), target)
@@ -227,8 +229,10 @@ class TaiwanSecurityMaster:
             "source": pl.String,
             "updated_at": pl.String,
             "etf_category": pl.String,
+            "classification_source": pl.String,
         }
         if not rows:
+
             return pl.DataFrame(schema=schema)
         return pl.DataFrame(rows, schema=schema)
 
