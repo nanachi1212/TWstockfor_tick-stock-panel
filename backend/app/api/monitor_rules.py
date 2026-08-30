@@ -673,3 +673,148 @@ def trigger_ladder(request: Request):
         "triggered": len(rule_events),
         "events": [{"symbol": ev["symbol"], "name": ev["name"], "message": ev["message"]} for ev in rule_events],
     }
+
+
+# ================================================================
+# ── Taiwan Realtime Monitor Rules API (Phase 5B) ────────────────
+# ================================================================
+
+class TaiwanMonitorRuleCreate(BaseModel):
+    rule_id: str | None = None
+    name: str
+    symbol: str
+    rule_type: str
+    threshold: float
+    enabled: bool = True
+    cooldown_seconds: int = 300
+    hysteresis: float | None = None
+    reference_volume: int | None = None
+    severity: str = "warning"
+
+
+class TaiwanMonitorRuleUpdate(BaseModel):
+    name: str | None = None
+    threshold: float | None = None
+    enabled: bool | None = None
+    cooldown_seconds: int | None = None
+    hysteresis: float | None = None
+    reference_volume: int | None = None
+    severity: str | None = None
+
+
+@router.get("/taiwan")
+def list_taiwan_rules():
+    """获取所有台股即时监控规则。"""
+    from app.taiwan.realtime.monitor_engine import get_monitor_engine
+    engine = get_monitor_engine()
+    rules = engine.list_rules()
+    return {"rules": [r.to_dict() for r in rules], "total": len(rules)}
+
+
+@router.post("/taiwan")
+def create_taiwan_rule(req: TaiwanMonitorRuleCreate):
+    """新增台股即时监控规则 (带 Security Master 与参数合法性校验)。"""
+    import uuid
+    from app.taiwan.realtime.monitor_engine import get_monitor_engine
+    from app.taiwan.realtime.monitor_models import TaiwanMonitorRule
+
+    rule_id = req.rule_id or f"tw_rule_{uuid.uuid4().hex[:10]}"
+    rule = TaiwanMonitorRule(
+        rule_id=rule_id,
+        name=req.name,
+        symbol=req.symbol,
+        rule_type=req.rule_type,
+        threshold=req.threshold,
+        enabled=req.enabled,
+        cooldown_seconds=req.cooldown_seconds,
+        hysteresis=req.hysteresis,
+        reference_volume=req.reference_volume,
+        severity=req.severity,
+    )
+    engine = get_monitor_engine()
+    try:
+        engine.add_rule(rule)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+
+    return {"ok": True, "rule": rule.to_dict()}
+
+
+@router.patch("/taiwan/{rule_id}")
+def update_taiwan_rule(rule_id: str, req: TaiwanMonitorRuleUpdate):
+    """更新或启用/停用指定台股监控规则。"""
+    from app.taiwan.realtime.monitor_engine import get_monitor_engine
+
+    engine = get_monitor_engine()
+    rule = engine.get_rule(rule_id)
+    if not rule:
+        raise HTTPException(status_code=404, detail=f"Rule {rule_id} not found")
+
+    if req.name is not None:
+        rule.name = req.name
+    if req.threshold is not None:
+        rule.threshold = req.threshold
+    if req.enabled is not None:
+        rule.enabled = req.enabled
+    if req.cooldown_seconds is not None:
+        rule.cooldown_seconds = req.cooldown_seconds
+    if req.hysteresis is not None:
+        rule.hysteresis = req.hysteresis
+    if req.reference_volume is not None:
+        rule.reference_volume = req.reference_volume
+    if req.severity is not None:
+        rule.severity = req.severity
+
+    try:
+        engine.add_rule(rule)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+
+    return {"ok": True, "rule": rule.to_dict()}
+
+
+@router.delete("/taiwan/{rule_id}")
+def delete_taiwan_rule(rule_id: str):
+    """删除指定台股监控规则。"""
+    from app.taiwan.realtime.monitor_engine import get_monitor_engine
+    engine = get_monitor_engine()
+    deleted = engine.delete_rule(rule_id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail=f"Rule {rule_id} not found")
+    return {"ok": True, "deleted": rule_id}
+
+
+@router.post("/taiwan/evaluate")
+def evaluate_taiwan_rules(request: Request):
+    """执行一轮台股实时规则评估，并将告警落盘与推送到 SSE。"""
+    from app.taiwan.realtime.monitor_engine import get_monitor_engine
+    from app.services import alert_store
+
+    engine = get_monitor_engine()
+    alerts = engine.evaluate_all()
+
+    if alerts:
+        # 1. 落盘持久化
+        alert_dicts = [a.to_dict() for a in alerts]
+        try:
+            repo = getattr(request.app.state, "repo", None)
+            if repo:
+                alert_store.append_many(repo.store.data_dir, alert_dicts)
+        except Exception as e:
+            logger.warning("Failed to persist Taiwan alerts: %s", e)
+
+        # 2. 推送至现有 SSE 广播通道
+        quote_svc = getattr(request.app.state, "quote_service", None)
+        if quote_svc:
+            try:
+                quote_svc.push_alerts(alert_dicts)
+            except Exception as e:
+                logger.warning("Failed to push Taiwan alerts to SSE: %s", e)
+
+    return {
+        "ok": True,
+        "evaluated_rules": len(engine.list_rules()),
+        "alerts_count": len(alerts),
+        "alerts": [a.to_dict() for a in alerts],
+    }
+

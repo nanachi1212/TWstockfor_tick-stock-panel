@@ -19,16 +19,39 @@ from app.taiwan.realtime.models import (
     RealtimeStatus,
     TaiwanRealtimeQuote,
 )
-from app.taiwan.realtime.service import TaiwanRealtimeService
+from app.taiwan.realtime.monitor_engine import TaiwanMonitorEngine, get_monitor_engine
+from app.taiwan.realtime.monitor_models import (
+    EvaluationStatus,
+    TaiwanAlertEvent,
+    TaiwanAlertSeverity,
+    TaiwanMonitorRule,
+    TaiwanRuleType,
+)
+from app.taiwan.realtime.service import TaiwanRealtimeService, get_realtime_service
 from app.taiwan.realtime.yahoo_provider import YahooRealtimeProvider, to_yahoo_ticker
 
 
-_default_service: TaiwanRealtimeService | None = None
-
-
-def get_realtime_service() -> TaiwanRealtimeService:
-    """Get or instantiate global singleton TaiwanRealtimeService."""
-    global _default_service
-    if _default_service is None:
-        _default_service = TaiwanRealtimeService()
-    return _default_service
+__all__ = [
+    "EvaluationStatus",
+    "MarketStatus",
+    "RealtimeFreshnessPolicy",
+    "RealtimeStatus",
+    "TAIPEI_TZ",
+    "TaiwanAlertEvent",
+    "TaiwanAlertSeverity",
+    "TaiwanMonitorEngine",
+    "TaiwanMonitorRule",
+    "TaiwanRealtimeQuote",
+    "TaiwanRealtimeService",
+    "TaiwanRuleType",
+    "TaiwanTradingCalendar",
+    "TwseMisRealtimeProvider",
+    "YahooRealtimeProvider",
+    "get_market_status",
+    "get_monitor_engine",
+    "get_realtime_service",
+    "taipei_now",
+    "taipei_today",
+    "to_mis_channel",
+    "to_yahoo_ticker",
+]

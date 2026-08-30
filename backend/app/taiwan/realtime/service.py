@@ -307,3 +307,15 @@ class TaiwanRealtimeService:
         )
         ts = symbol if isinstance(symbol, TaiwanSymbol) else parse_symbol(symbol)
         return res.get(ts.canonical)
+
+
+_default_service: TaiwanRealtimeService | None = None
+
+
+def get_realtime_service() -> TaiwanRealtimeService:
+    """Get or instantiate global singleton TaiwanRealtimeService."""
+    global _default_service
+    if _default_service is None:
+        _default_service = TaiwanRealtimeService()
+    return _default_service
+
