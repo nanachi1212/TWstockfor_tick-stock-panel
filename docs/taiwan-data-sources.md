@@ -142,3 +142,57 @@ Share-capital fields are not interchangeable: `total_shares`, `issued_shares`,
 `float_shares`, and monetary `capital` retain their own meanings. In particular,
 issued shares or capital divided by par value are not used as historical float
 shares without an authoritative source.
+
+## Official fundamentals availability investigation (Phase 6C.1)
+
+Investigation on 2026-08-31 distinguished an official timestamp from a safe
+end-to-end mapping to an OpenAPI record. MOPS historical material information
+exposes exact `發言日期` and `發言時間`, and the official financial-report
+document service exposes exact `上傳日期` timestamps. The aggregate OpenAPI
+datasets used by the provider, however, do not carry a material-information
+serial number, document filename, or another stable identifier that proves
+which announcement/upload created each value or revision.
+
+| Dataset | Official evidence | Classification | Production policy |
+| --- | --- | --- | --- |
+| Monthly revenue (`t187ap05_L`, `mopsfin_t187ap05_O`) | Date-only `出表日期`; some issuers separately publish timed material information, but this is not universal | C: insufficient record-level evidence | Keep `published_at`/`available_at` null |
+| Financial statement aggregate (`t187ap06/07`) | Exact PDF upload timestamps exist in the MOPS document service; correction history has a separate official query | C for the aggregate record/revision mapping | Keep aggregate values unavailable until a stable report/revision join exists |
+| Valuation (`BWIBBU_ALL`, `tpex_mainboard_peratio_analysis`) | Trade date and current HTTP refresh metadata only; no historical per-record finalization timestamp | C | Keep `available_at` null |
+| Dividend board resolution | MOPS material information has exact timestamp | A for the announcement event, C for the aggregate-row join | Do not copy the timestamp by subject-text matching |
+| Dividend ex-date/basis-date announcement | MOPS material information has exact timestamp | A for the announcement event, C for the aggregate-row join | Preserve lifecycle events separately when a stable key is available |
+| Dividend payment | Timed announcements exist for some issuers, not a universal keyed source for current aggregate rows | C | Keep missing lifecycle fields null |
+
+Historical evidence included:
+
+- `2330`: July 2026 revenue material information at `2026-08-10
+  13:51:09+08:00`; Q2 financial-report PDF upload at `2026-08-14
+  13:59:44+08:00`; board dividend resolution at `2026-08-11
+  18:53:34+08:00`; ex-date announcement at `2026-08-11 19:01:29+08:00`.
+- `6488`: Q2 financial-report board approval at `2026-08-04
+  15:16:23+08:00` and PDF upload at `2026-08-07 15:22:28+08:00`;
+  dividend resolution and basis-date announcements at `2026-03-03
+  16:05:53+08:00` and `16:06:25+08:00`. No equivalent July-revenue
+  material-information event was found.
+- `2881`: Q2 financial-report board approval at `2026-08-20
+  16:48:04+08:00` and PDF upload at `2026-08-28 14:09:26+08:00`.
+  Its July disclosure was a consolidated self-reported profit/loss event, not
+  an unambiguous match to the monthly-revenue aggregate.
+
+These timestamps prove that the official event/document streams can express
+exact times. They do not yet prove that an aggregate value was public at the
+same instant. HTTP `Date` is response time and aggregate `Last-Modified` is a
+resource/cache timestamp; neither is historical record-level availability.
+Likewise, a statutory filing deadline does not prove that a particular issuer
+filed successfully by that time. No date-level next-trading-day fallback is
+therefore adopted.
+
+The future integration boundary should accept only an official stable join,
+such as issuer + report period + report/revision identifier. Subject-text
+matching is not sufficient. Once joined, the existing strict rule remains:
+`query_at > available_at`; equality is unavailable. Original and corrected
+reports must keep their own upload/announcement timestamps.
+
+Taiwan Market Contract v1.1 should add `period_start`, `period_end`,
+`published_at`, `available_at`, `revision`, `normalized_unit`, `raw_unit`, an
+availability evidence URL/identifier, and a policy type (`exact_timestamp`,
+`date_level_conservative`, or `insufficient`). Contract v1 remains unchanged.
