@@ -1,0 +1,88 @@
+{
+  "contract_version": "1.1.0",
+  "extends": "1.0.0",
+  "timezone": "Asia/Taipei",
+  "dataset_types": [
+    "monthly_revenue",
+    "financial_statement_revision",
+    "valuation_snapshot",
+    "dividend_lifecycle_event",
+    "share_capital_record"
+  ],
+  "availability_policies": ["exact_timestamp", "date_level_conservative", "insufficient"],
+  "availability_boundary": {
+    "available_at": "2026-05-10T00:00:00+08:00",
+    "strict_unavailable": [
+      "2026-05-09T23:59:59+08:00",
+      "2026-05-10T00:00:00+08:00"
+    ],
+    "first_available": "2026-05-10T00:00:01+08:00"
+  },
+  "revisions": [
+    {
+      "revision_identity": "revision-a",
+      "supersedes_revision": null,
+      "available_at": "2026-05-10T00:00:00+08:00",
+      "value": 100
+    },
+    {
+      "revision_identity": "revision-b",
+      "supersedes_revision": "revision-a",
+      "available_at": "2026-05-20T00:00:00+08:00",
+      "value": 110
+    }
+  ],
+  "revision_queries": [
+    {"query_at": "2026-05-15T00:00:00+08:00", "expected_revision": "revision-a", "expected_value": 100},
+    {"query_at": "2026-05-21T00:00:00+08:00", "expected_revision": "revision-b", "expected_value": 110}
+  ],
+  "insufficient_availability": {
+    "availability_policy": "insufficient",
+    "available_at": null,
+    "historically_available": false
+  },
+  "exact_evidence": {
+    "availability_policy": "exact_timestamp",
+    "availability_evidence_source": "official",
+    "availability_evidence_url": "https://official.example/evidence",
+    "availability_evidence_identifier": "official-stable-id",
+    "availability_confidence": "verified",
+    "available_at": "2026-05-10T15:30:00+08:00"
+  },
+  "evidence_identity": {
+    "material_information": ["market", "issuer", "enter_date", "serial_number"],
+    "financial_document": ["issuer", "report_period", "document_identity", "revision_status"]
+  },
+  "dividend_lifecycle_events": [
+    "board_resolution",
+    "shareholder_resolution",
+    "ex_date_announcement",
+    "basis_date_announcement",
+    "payment_announcement",
+    "paid"
+  ],
+  "share_capital": {
+    "total_shares": 1200,
+    "issued_shares": 1000,
+    "float_shares": 800,
+    "capital": 10000,
+    "currency": "TWD",
+    "issued_equals_float": false,
+    "capital_implies_float": false
+  },
+  "units": {
+    "raw_unit": "thousand_TWD",
+    "normalized_unit": "TWD",
+    "currency": "TWD"
+  },
+  "forbidden_inferences": [
+    "report_date_to_midnight",
+    "http_last_modified_to_historical_availability",
+    "filing_deadline_to_actual_availability",
+    "subject_fuzzy_match_to_stable_join",
+    "third_party_timestamp_to_official_timestamp",
+    "current_value_to_original_revision_timestamp",
+    "issued_shares_to_float_shares",
+    "capital_to_float_shares"
+  ]
+}
