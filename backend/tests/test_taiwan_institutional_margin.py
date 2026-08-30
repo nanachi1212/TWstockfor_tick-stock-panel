@@ -303,3 +303,103 @@ class TestScreenerBatchJoin:
         assert res.data_dates.daily_as_of == "2026-08-28"
         assert res.data_dates.institutional_as_of == "2026-08-28"
         assert res.data_dates.margin_as_of == "2026-08-28"
+
+
+# =====================================================================
+# 5. HTTP Retry Hardening Unit Tests
+# =====================================================================
+
+class TestHttpRetryHardening:
+    def test_institutional_transient_failure_retries_then_succeeds(self, inst_store: TaiwanInstitutionalStore, monkeypatch):
+        """Scenario: attempt 1 timeout, attempt 2 HTTP 500, attempt 3 success -> 3 calls, persisted."""
+        import urllib.error
+        from app.taiwan import institutional_margin_refresh
+
+        calls = {"count": 0}
+
+        def mock_urlopen(req, timeout=None):
+            calls["count"] += 1
+            if calls["count"] == 1:
+                raise TimeoutError("Connection timed out")
+            elif calls["count"] == 2:
+                raise urllib.error.HTTPError(req.full_url, 500, "Internal Server Error", {}, None)
+            else:
+                import io
+                return io.BytesIO(b'{"data": [["2330", "\xe5\x8f\xb0\xe7\xa9\x8d\xe9\x9b\xbb", "1000", "500", "500", "0", "0", "0", "100", "0", "100", "40", "20", "10", "10", "10", "10", "0", "640"]]}')
+
+        monkeypatch.setattr("urllib.request.urlopen", mock_urlopen)
+        monkeypatch.setattr("time.sleep", lambda s: None)  # speed up test
+
+        service = TaiwanInstitutionalRefreshService(store=inst_store)
+        # Only TWSE to isolate count
+        url = service._provider.twse.build_url(date(2026, 8, 28))
+        res = institutional_margin_refresh._fetch_json_with_retry(url, max_attempts=3, initial_backoff=0.01)
+
+        assert calls["count"] == 3
+        assert "data" in res
+
+    def test_margin_permanent_failure_stops_after_max_attempts(self, margin_store: TaiwanMarginStore, monkeypatch):
+        """Persistent 500 error stops after max attempts (3), records in failed_dates, no partition created."""
+        import urllib.error
+
+        calls = {"count": 0}
+
+        def mock_urlopen(req, timeout=None):
+            calls["count"] += 1
+            raise urllib.error.HTTPError(req.full_url, 503, "Service Unavailable", {}, None)
+
+        monkeypatch.setattr("urllib.request.urlopen", mock_urlopen)
+        monkeypatch.setattr("time.sleep", lambda s: None)
+
+        service = TaiwanMarginRefreshService(store=margin_store)
+        target_date = date(2026, 8, 28)
+        res = service.refresh_dates(target_date, target_date)
+
+        assert len(res["failed_dates"]) == 1
+        assert res["failed_dates"][0]["date"] == str(target_date)
+        assert res["total_rows_written"] == 0
+        # Check that no partition directory or parquet was created
+        part_dir = margin_store._data_dir / f"date={target_date.isoformat()}"
+        assert not (part_dir / "part.parquet").exists()
+
+    def test_http_404_not_retried(self, monkeypatch):
+        """Permanent 4xx errors (e.g. 404) must NOT be retried (only 1 call)."""
+        import urllib.error
+        from app.taiwan import institutional_margin_refresh
+
+        calls = {"count": 0}
+
+        def mock_urlopen(req, timeout=None):
+            calls["count"] += 1
+            raise urllib.error.HTTPError(req.full_url, 404, "Not Found", {}, None)
+
+        monkeypatch.setattr("urllib.request.urlopen", mock_urlopen)
+        monkeypatch.setattr("time.sleep", lambda s: None)
+
+        with pytest.raises(urllib.error.HTTPError) as exc_info:
+            institutional_margin_refresh._fetch_json_with_retry("http://example.com/test", max_attempts=3)
+
+        assert exc_info.value.code == 404
+        assert calls["count"] == 1  # Exactly 1 call, zero retry
+
+    def test_retry_does_not_mark_holiday(self, inst_store: TaiwanInstitutionalStore, monkeypatch):
+        """Refresh failure or retry MUST NOT mark date as holiday in TaiwanTradingCalendar."""
+        import urllib.error
+
+        def mock_urlopen(req, timeout=None):
+            raise urllib.error.HTTPError(req.full_url, 500, "Server Error", {}, None)
+
+        monkeypatch.setattr("urllib.request.urlopen", mock_urlopen)
+        monkeypatch.setattr("time.sleep", lambda s: None)
+
+        cal = TaiwanTradingCalendar()
+        target_date = date(2026, 8, 28)
+        assert target_date not in cal.known_holidays
+
+        service = TaiwanInstitutionalRefreshService(store=inst_store, calendar=cal)
+        res = service.refresh_dates(target_date, target_date)
+
+        assert len(res["failed_dates"]) == 1
+        # Calendar must strictly remain untainted
+        assert target_date not in cal.known_holidays
+
