@@ -134,7 +134,7 @@ class TestTaiwanSecurityMasterOffline:
         df = provider.get_instruments("stock")
         assert isinstance(df, pl.DataFrame)
         # Output columns must follow standard provider contract
-        expected_cols = {"symbol", "name", "code", "exchange", "asset_type", "source", "list_date", "status"}
+        expected_cols = {"symbol", "name", "code", "exchange", "asset_type", "source", "list_date", "status", "currency", "lot_size"}
         assert set(df.columns) == expected_cols
         # Production master contains far more than the 6 hardcoded bootstrap items
         assert df.height > 6, f"Expected full universe, got {df.height} items"

@@ -54,6 +54,11 @@ class SourceMetadata:
     supports_tpex: bool = True
 
 
+PROVENANCE_COLS = [
+    "provider", "source", "source_url", "retrieved_at", "trade_date", "status",
+]
+
+
 class TaiwanSourceAdapter(Protocol):
     """Protocol for single-source Taiwan data adapters."""
     metadata: SourceMetadata

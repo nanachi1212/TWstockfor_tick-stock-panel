@@ -17,8 +17,9 @@ from __future__ import annotations
 import tempfile
 from datetime import date
 from pathlib import Path
-import pytest
+
 import polars as pl
+import pytest
 
 from app.data_providers.normalizer import DAILY_COLS
 from app.indicators.pipeline import compute_indicators
@@ -29,13 +30,18 @@ from app.taiwan.providers.base import (
     SourceMetadata,
     VolumeUnit,
 )
-from app.taiwan.providers.finmind_provider import FINMIND_METADATA, FinMindAdapter
+from app.taiwan.providers.finmind_provider import FINMIND_METADATA
 from app.taiwan.providers.hybrid_provider import TaiwanHybridProvider
 from app.taiwan.providers.normalizer import normalize_taiwan_daily
-from app.taiwan.providers.yahoo_provider import YAHOO_METADATA, YahooFinanceAdapter
+from app.taiwan.providers.official_provider import OfficialTaiwanAdapter
+from app.taiwan.providers.taiwan_values import (
+    market_close,
+    official_status,
+    parse_number,
+    parse_taiwan_date,
+)
 from app.taiwan.symbol import Exchange, TaiwanSymbol, parse_symbol
 from app.tickflow.repository import DataStore, KlineRepository
-
 
 # ── Sample Raw Fixtures ────────────────────────────────────────
 
@@ -266,6 +272,48 @@ class TestCanonicalSchemaAlignment:
         assert not (df["symbol"] == "2330.TW").any()
 
 
+class TestOfficialTaiwanProviderContract:
+    def test_strict_values_dates_and_stale(self):
+        assert parse_number("") is None
+        assert parse_number("--") is None
+        assert parse_number("0.0") == 0
+        with pytest.raises(ValueError, match="malformed number"):
+            parse_number("12x3")
+        assert parse_taiwan_date("115/08/30") == date(2026, 8, 30)
+        assert parse_taiwan_date("1150830") == date(2026, 8, 30)
+        close = market_close(date(2026, 8, 28))
+        assert (close.hour, close.minute, str(close.tzinfo)) == (13, 30, "Asia/Taipei")
+        assert official_status(date(2026, 8, 28), date(2026, 8, 31)) == "official"
+        assert official_status(date(2026, 8, 28), date(2026, 9, 1)) == "stale"
+
+    def test_twse_quote_fixture_has_record_provenance(self, monkeypatch):
+        payload = [{"Date": "1150828", "Code": "2330", "Name": "台積電", "TradeVolume": "1,234",
+                    "TradeValue": "2,980,000", "OpeningPrice": "2400", "HighestPrice": "2445",
+                    "LowestPrice": "2390", "ClosingPrice": "2420", "Change": "+10"}]
+        adapter = OfficialTaiwanAdapter()
+        monkeypatch.setattr(adapter, "_json", lambda _url: payload)
+        frame = adapter.fetch_quote(["2330.TWSE"])
+        row = frame.row(0, named=True)
+        assert row["symbol"] == "2330.TWSE"
+        assert row["volume"] == 1234
+        assert row["provider"] == "twse"
+        assert row["source"] == "official_quote"
+        assert row["source_url"].endswith("STOCK_DAY_ALL")
+        assert row["trade_date"] == "2026-08-28"
+        assert row["status"] in {"official", "stale"}
+
+    def test_tpex_month_converts_lots_and_thousand_twd(self, monkeypatch):
+        payload = {"tables": [{"data": [["115/08/28", "123", "456", "10", "11", "9", "10.5", "+0.5", "20"]]}]}
+        adapter = OfficialTaiwanAdapter()
+        monkeypatch.setattr(adapter, "_json", lambda _url: payload)
+        frame = adapter._fetch_month(parse_symbol("6488.TPEX"), date(2026, 8, 1))
+        row = frame.row(0, named=True)
+        assert row["volume"] == 123_000
+        assert row["amount"] == 456_000
+        assert row["timestamp"].hour == 13 and row["timestamp"].minute == 30
+        assert row["provider"] == "tpex"
+
+
 # ── Parquet Storage & Indicator Pipeline Integration ───────────
 
 
@@ -277,7 +325,6 @@ class TestParquetStorageAndIndicatorPipeline:
         rows = []
         base_price = 100.0
         for i in range(1, 31):
-            day_str = f"2026-07-{i:02d}" if i <= 31 else f"2026-08-{i-31:02d}"
             # Simulated trading prices
             p = base_price + (i % 5) * 2.0
             rows.append({
@@ -331,6 +378,7 @@ class TestHybridProviderContract:
         p = get_provider("taiwan")
         assert p.name == "taiwan"
         assert p.capabilities.daily is True
+        assert p.capabilities.realtime is True
 
     def test_instruments_schema(self):
         p = TaiwanHybridProvider()
@@ -346,3 +394,16 @@ class TestHybridProviderContract:
         etf_inst = p.get_instruments("etf")
         assert "0050.TWSE" in etf_inst["symbol"].to_list()
         assert "006208.TWSE" in etf_inst["symbol"].to_list()
+
+    def test_official_failure_marks_third_party_fallback(self, monkeypatch):
+        provider = TaiwanHybridProvider()
+        monkeypatch.setattr(provider.official, "fetch_daily", lambda *args, **kwargs: (_ for _ in ()).throw(OSError("down")))
+        fallback = pl.DataFrame({"symbol": ["2330.TWSE"], "date": [date(2026, 8, 28)], "open": [1.0],
+                                 "high": [1.0], "low": [1.0], "close": [1.0], "volume": [0.0],
+                                 "amount": [0.0], "provider": ["finmind"], "source": ["TaiwanStockPrice"],
+                                 "source_url": ["https://api.finmindtrade.com/api/v4/data"],
+                                 "retrieved_at": ["2026-08-30T12:00:00+08:00"],
+                                 "trade_date": ["2026-08-28"], "status": ["third_party"]})
+        monkeypatch.setattr(provider.finmind, "fetch_daily", lambda *args, **kwargs: fallback)
+        result = provider.get_daily(["2330.TWSE"])
+        assert result["status"].to_list() == ["third_party_fallback"]

@@ -47,6 +47,8 @@ class TaiwanInstrument:
     classification_source: str | None = None  # ClassificationSource value
     underlying_scope: str | None = None       # "domestic" | "foreign" | "unknown"
     leverage_multiplier: float = 1.0          # e.g. 1.0, 2.0, -1.0
+    currency: str = "TWD"
+    lot_size: int = 1000
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)

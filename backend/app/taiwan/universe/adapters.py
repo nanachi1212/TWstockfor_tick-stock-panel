@@ -21,13 +21,13 @@ Strictly adheres to:
 """
 from __future__ import annotations
 
-from dataclasses import dataclass
-from datetime import datetime
-from html.parser import HTMLParser
 import json
 import logging
 import re
 import urllib.request
+from dataclasses import dataclass
+from datetime import datetime
+from html.parser import HTMLParser
 
 from app.taiwan.universe.models import TaiwanInstrument
 
@@ -36,6 +36,8 @@ logger = logging.getLogger(__name__)
 TWSE_ISIN_URL = "https://isin.twse.com.tw/isin/C_public.jsp?strMode=2"
 TPEX_ISIN_URL = "https://isin.twse.com.tw/isin/C_public.jsp?strMode=4"
 TWSE_ETF_PRODUCTS_URL = "https://openapi.twse.com.tw/v1/opendata/t187ap47_L"
+TWSE_COMPANIES_URL = "https://openapi.twse.com.tw/v1/opendata/t187ap03_L"
+TPEX_COMPANIES_URL = "https://www.tpex.org.tw/openapi/v1/mopsfin_t187ap03_O"
 
 
 @dataclass(frozen=True)
@@ -105,8 +107,7 @@ def classify_etf_provenance(
         # Check Bond
         if "債券" in f_type or "債" in f_type:
             # Check if underlying bond is domestic or foreign
-            scope = "foreign" if any(kw in idx_name for kw in ["美國", "彭博", "ICE", "全球"]) else "foreign"
-            return "bond", "official_metadata", scope, multiplier
+            return "bond", "official_metadata", "foreign", multiplier
 
         # Check Leveraged / Inverse
         elif "槓桿" in f_type or "反向" in f_type:
@@ -316,7 +317,9 @@ class TwseInstrumentAdapter:
         html_content: str | None = None,
         official_product_types: dict[str, OfficialEtfProductMeta | str] | None = None,
     ) -> list[TaiwanInstrument]:
-        html = html_content if html_content is not None else self.fetch_live_html()
+        if html_content is None:
+            return _official_company_directory("TWSE", TWSE_COMPANIES_URL) + _official_twse_etf_directory()
+        html = html_content
         # If live and no product types injected, fetch live product types
         prod_types = official_product_types
         if prod_types is None and html_content is None:
@@ -346,10 +349,67 @@ class TpexInstrumentAdapter:
         html_content: str | None = None,
         official_product_types: dict[str, OfficialEtfProductMeta | str] | None = None,
     ) -> list[TaiwanInstrument]:
-        html = html_content if html_content is not None else self.fetch_live_html()
+        if html_content is None:
+            return _official_company_directory("TPEX", TPEX_COMPANIES_URL)
+        html = html_content
         return parse_isin_html(
             html,
             exchange="TPEX",
             source_name="TPEX_ISIN",
             official_product_types=official_product_types,
         )
+
+
+def _get_json(url: str, timeout: float = 15.0) -> list[dict]:
+    request = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+    with urllib.request.urlopen(request, timeout=timeout) as response:
+        payload = json.loads(response.read().decode("utf-8-sig"))
+    if not isinstance(payload, list):
+        raise ValueError(f"official directory schema changed: {url}")
+    return payload
+
+
+def _official_company_directory(exchange: str, url: str) -> list[TaiwanInstrument]:
+    now = datetime.now().astimezone().isoformat()
+    instruments = []
+    for row in _get_json(url):
+        if exchange == "TWSE":
+            code, name = row.get("公司代號"), row.get("公司簡稱")
+            listed, industry = row.get("上市日期"), row.get("產業別")
+        else:
+            code, name = row.get("SecuritiesCompanyCode"), row.get("CompanyAbbreviation")
+            listed, industry = row.get("DateOfListing"), row.get("SecuritiesIndustryCode")
+        if not code or not name:
+            raise ValueError(f"official directory schema changed: {url}")
+        code = str(code).strip()
+        instruments.append(TaiwanInstrument(
+            symbol=f"{code}.{exchange}", code=code, exchange=exchange, name=str(name).strip(),
+            instrument_type="stock", listing_status="active", listing_date=str(listed or "").strip() or None,
+            isin=None, industry=str(industry or "").strip() or None, cfi_code=None, raw_category="股票",
+            is_supported=True, source="TWSE_OPENAPI" if exchange == "TWSE" else "TPEX_OPENAPI",
+            updated_at=now, underlying_scope="domestic",
+        ))
+    return instruments
+
+
+def _official_twse_etf_directory() -> list[TaiwanInstrument]:
+    now = datetime.now().astimezone().isoformat()
+    instruments = []
+    for row in _get_json(TWSE_ETF_PRODUCTS_URL):
+        code, name = row.get("基金代號"), row.get("基金簡稱")
+        if not code or not name:
+            raise ValueError(f"official directory schema changed: {TWSE_ETF_PRODUCTS_URL}")
+        scope = {"是": "foreign", "否": "domestic"}.get(str(row.get("是否包含國外成分股", "")).strip(), "unknown")
+        fund_type = str(row.get("基金類型", "")).strip()
+        ordinary_types = {"國內成分證券指數股票型基金", "國外成分證券指數股票型基金"}
+        category = "foreign_equity" if scope == "foreign" else "domestic_equity" if scope == "domestic" else "unknown"
+        code = str(code).strip()
+        instruments.append(TaiwanInstrument(
+            symbol=f"{code}.TWSE", code=code, exchange="TWSE", name=str(name).strip(), instrument_type="etf",
+            listing_status="active", listing_date=str(row.get("上市日期") or "").strip() or None,
+            isin=None, industry=None, cfi_code=None, raw_category=fund_type, is_supported=True,
+            source="TWSE_OPENAPI", updated_at=now, etf_category=category,
+            classification_source="official_metadata" if fund_type in ordinary_types else None,
+            underlying_scope=scope,
+        ))
+    return instruments
