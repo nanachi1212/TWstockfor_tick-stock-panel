@@ -104,6 +104,8 @@ class TaiwanSecurityMaster:
                     classification_source=r.get("classification_source"),
                     underlying_scope=r.get("underlying_scope"),
                     leverage_multiplier=float(r.get("leverage_multiplier") or 1.0),
+                    currency=r.get("currency") or "TWD",
+                    lot_size=int(r.get("lot_size") or 1000),
                 )
                 loaded[inst.symbol] = inst
 
@@ -235,6 +237,8 @@ class TaiwanSecurityMaster:
             "classification_source": pl.String,
             "underlying_scope": pl.String,
             "leverage_multiplier": pl.Float64,
+            "currency": pl.String,
+            "lot_size": pl.Int64,
         }
         if not rows:
 
@@ -265,5 +269,7 @@ class TaiwanSecurityMaster:
                 "source": inst.source,
                 "list_date": inst.listing_date,
                 "status": inst.listing_status,
+                "currency": inst.currency,
+                "lot_size": inst.lot_size,
             })
         return pl.DataFrame(rows)

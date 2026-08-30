@@ -17,8 +17,8 @@ from typing import Any
 import polars as pl
 
 from app.data_providers.normalizer import DAILY_COLS, to_polars
-from app.taiwan.providers.base import AmountUnit, SourceMetadata, VolumeUnit
-from app.taiwan.symbol import TaiwanSymbol, parse_symbol
+from app.taiwan.providers.base import PROVENANCE_COLS, AmountUnit, SourceMetadata, VolumeUnit
+from app.taiwan.symbol import TaiwanSymbol
 
 logger = logging.getLogger(__name__)
 
@@ -27,6 +27,7 @@ def normalize_taiwan_daily(
     data: Any,
     metadata: SourceMetadata,
     default_symbol: str | TaiwanSymbol | None = None,
+    provenance: dict[str, object] | None = None,
 ) -> pl.DataFrame:
     """Normalize raw daily market data from a declared source adapter.
 
@@ -64,6 +65,8 @@ def normalize_taiwan_daily(
         "timestamp": "quote_ts",
     }
     df = df.rename({k: v for k, v in rename_map.items() if k in df.columns})
+    if "market_timestamp" in df.columns:
+        df = df.rename({"market_timestamp": "timestamp"})
 
     # Canonical Symbol Assignment & Normalization
     canonical_sym_str = None
@@ -180,6 +183,17 @@ def normalize_taiwan_daily(
     else:
         df = df.with_columns(pl.lit(None, dtype=pl.Int64).alias("quote_ts"))
 
+    if "timestamp" in df.columns:
+        df = df.with_columns(pl.col("timestamp").cast(pl.Datetime(time_zone="Asia/Taipei"), strict=False))
+
+    if provenance:
+        for col in PROVENANCE_COLS:
+            value = provenance.get(col)
+            if col == "trade_date" and value is None:
+                df = df.with_columns(pl.col("date").cast(pl.String).alias(col))
+            else:
+                df = df.with_columns(pl.lit(value).alias(col))
+
     # ── Strict OHLC Integrity Rules (Prompt Rule 9) ──
     # Valid positive prices, no zero/negative prices
     valid_prices = (
@@ -210,5 +224,5 @@ def normalize_taiwan_daily(
     df = df.sort(["symbol", "date"])
 
     # Keep only DAILY_COLS
-    keep = [c for c in DAILY_COLS if c in df.columns]
+    keep = [c for c in [*DAILY_COLS, "timestamp", *PROVENANCE_COLS] if c in df.columns]
     return df.select(keep)

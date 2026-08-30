@@ -21,6 +21,7 @@ import polars as pl
 from app.data_providers.base import AssetType
 from app.taiwan.providers.base import AmountUnit, PriceSemantics, SourceMetadata, VolumeUnit
 from app.taiwan.providers.normalizer import normalize_taiwan_daily
+from app.taiwan.providers.taiwan_values import TAIPEI
 from app.taiwan.symbol import TaiwanSymbol, parse_symbol, to_provider_symbol
 
 logger = logging.getLogger(__name__)
@@ -50,7 +51,7 @@ class FinMindAdapter:
         symbols: list[str | TaiwanSymbol],
         start_time: datetime | None,
         end_time: datetime | None,
-        asset_type: AssetType = "stock",  # noqa: ARG002
+        asset_type: AssetType = "stock",
     ) -> pl.DataFrame:
         """Fetch daily raw records for given symbols via FinMind."""
         if not symbols:
@@ -63,11 +64,9 @@ class FinMindAdapter:
 
         frames: list[pl.DataFrame] = []
 
+        del asset_type
         for sym in symbols:
-            if isinstance(sym, str):
-                canonical_sym = parse_symbol(sym)
-            else:
-                canonical_sym = sym
+            canonical_sym = parse_symbol(sym) if isinstance(sym, str) else sym
 
             raw_code = to_provider_symbol(canonical_sym, "finmind")
             params = {
@@ -94,6 +93,11 @@ class FinMindAdapter:
                         rows,
                         metadata=self.metadata,
                         default_symbol=canonical_sym,
+                        provenance={
+                            "provider": "finmind", "source": "TaiwanStockPrice", "source_url": url,
+                            "retrieved_at": datetime.now(TAIPEI).isoformat(), "trade_date": None,
+                            "status": "third_party",
+                        },
                     )
                     if not normalized.is_empty():
                         frames.append(normalized)

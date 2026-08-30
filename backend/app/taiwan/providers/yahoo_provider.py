@@ -21,6 +21,7 @@ import polars as pl
 from app.data_providers.base import AssetType
 from app.taiwan.providers.base import AmountUnit, PriceSemantics, SourceMetadata, VolumeUnit
 from app.taiwan.providers.normalizer import normalize_taiwan_daily
+from app.taiwan.providers.taiwan_values import TAIPEI
 from app.taiwan.symbol import TaiwanSymbol, parse_symbol, to_provider_symbol
 
 logger = logging.getLogger(__name__)
@@ -49,7 +50,7 @@ class YahooFinanceAdapter:
         symbols: list[str | TaiwanSymbol],
         start_time: datetime | None,
         end_time: datetime | None,
-        asset_type: AssetType = "stock",  # noqa: ARG002
+        asset_type: AssetType = "stock",
     ) -> pl.DataFrame:
         """Fetch daily raw records for given symbols via Yahoo Finance."""
         if not symbols:
@@ -62,11 +63,9 @@ class YahooFinanceAdapter:
 
         frames: list[pl.DataFrame] = []
 
+        del asset_type
         for sym in symbols:
-            if isinstance(sym, str):
-                canonical_sym = parse_symbol(sym)
-            else:
-                canonical_sym = sym
+            canonical_sym = parse_symbol(sym) if isinstance(sym, str) else sym
 
             provider_sym = to_provider_symbol(canonical_sym, "yahoo")
             url = f"https://query1.finance.yahoo.com/v8/finance/chart/{urllib.parse.quote(provider_sym)}?period1={p1}&period2={p2}&interval=1d"
@@ -124,6 +123,11 @@ class YahooFinanceAdapter:
                         rows,
                         metadata=self.metadata,
                         default_symbol=canonical_sym,
+                        provenance={
+                            "provider": "yahoo", "source": "chart", "source_url": url,
+                            "retrieved_at": datetime.now(TAIPEI).isoformat(), "trade_date": None,
+                            "status": "third_party",
+                        },
                     )
                     if not normalized.is_empty():
                         frames.append(normalized)
