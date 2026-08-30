@@ -28,7 +28,7 @@ source is integrated; code/name heuristics are not used to fill this gap.
 
 ## Normalized contract
 
-- `volume` is shares/units. TPEx monthly `成交張數` is multiplied by 1,000.
+- `volume` is shares/units. TPEx monthly `成交仟股` is multiplied by 1,000.
 - `amount` is TWD. TPEx monthly `成交仟元` is multiplied by 1,000.
 - ROC dates such as `115/08/30` and `1150830` normalize to `2026-08-30`.
 - Daily `timestamp` is explicitly `13:30 Asia/Taipei`.
@@ -53,3 +53,43 @@ official provider and dataset provenance. FinMind currently supplies price data
 only, so there is no reliable institutional/margin fallback; official failures are
 raised instead of returned as empty success. Rolling flows and ratios remain in
 `app.taiwan.enrichment.factors`, outside raw providers.
+
+## TPEx quote and historical daily separation
+
+TPEx publishes multiple official close-style datasets with different coverage.
+They must retain separate provenance and must not overwrite each other:
+
+- `tpex_mainboard_quotes` is the latest official close-style quote source used by
+  `get_realtime`. Its Swagger description is "上櫃股票收盤行情"; the OpenAPI does
+  not provide a historical date parameter or explicitly enumerate every included
+  or excluded trading type.
+- `afterTrading/tradingStock` is the reconstructable official monthly historical
+  daily-bar source used by `get_daily`. TPEx labels its quantity fields as
+  `成交仟股`/`成交仟元`, and the official page states that the data excludes TPEx
+  block trades. It remains the canonical Taiwan historical source for indicators
+  and backtests.
+- `tpex_mainboard_daily_close_quotes` is a broader official daily close dataset.
+  It is diagnostic here, not an automatic replacement for historical bars.
+
+The datasets are not contractually required to have identical daily volume. On
+2026-08-28, TPEx official records for 6488 reconciled as follows (retrieved
+2026-08-30 Asia/Taipei):
+
+```text
+tpex_mainboard_quotes                         11,084,000 shares
+盤中零股                                         410,427 shares
+盤後定價                                          26,000 shares
+盤後零股                                           2,113 shares
+non-block total                                 11,522,540 shares
+tradingStock 成交仟股 (rounded)                     11,523 x 1,000 shares
+鉅額交易                                         250,000 shares
+tpex_mainboard_daily_close_quotes total        11,772,540 shares
+```
+
+The corresponding non-block amount was exactly TWD 11,236,724,997, which the
+monthly dataset reports as `11,236,725` thousand TWD. This proves an official
+dataset coverage and thousand-unit rounding difference for that observation; it
+does not justify a hard-coded reconciliation rule for every date or security.
+Consumers must continue to distinguish `official_quote` from
+`official_daily_kline` through `source`, `source_url`, `retrieved_at`, and
+`trade_date`.
