@@ -113,6 +113,8 @@ class TwseInstitutionalAdapter:
                     "dealer_proprietary", "dealer_hedge",
                 ),
                 is_stale=is_stale,
+                source_type="official_open_data",
+                freshness_class="eod_snapshot",
             )
 
             flow = InstitutionalFlow(
@@ -212,6 +214,8 @@ class TpexInstitutionalAdapter:
                     "dealer_proprietary", "dealer_hedge",
                 ),
                 is_stale=is_stale,
+                source_type="official_open_data",
+                freshness_class="eod_snapshot",
             )
 
             flow = InstitutionalFlow(

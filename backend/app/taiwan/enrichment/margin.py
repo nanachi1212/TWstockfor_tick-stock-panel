@@ -110,6 +110,8 @@ class TwseMarginAdapter:
                     "short_balance", "short_sell", "short_cover", "short_margin_ratio",
                 ),
                 is_stale=is_stale,
+                source_type="official_open_data",
+                freshness_class="eod_snapshot",
             )
 
             rec = MarginTrading(
@@ -206,6 +208,8 @@ class TpexMarginAdapter:
                     "short_balance", "short_sell", "short_cover", "short_margin_ratio",
                 ),
                 is_stale=is_stale,
+                source_type="official_open_data",
+                freshness_class="eod_snapshot",
             )
 
             rec = MarginTrading(

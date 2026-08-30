@@ -74,12 +74,16 @@ class YahooRealtimeProvider:
         ts_unix = meta.get("regularMarketTime")
 
         now_tpe = taipei_now()
-        quote_time = (
-            datetime.fromtimestamp(ts_unix, tz=now_tpe.tzinfo)
-            if ts_unix
-            else now_tpe
-        )
-        trade_date = quote_time.date()
+
+        # Timestamp safety: use Yahoo-provided unix timestamp only; never fake with local time
+        if ts_unix:
+            quote_time = datetime.fromtimestamp(ts_unix, tz=now_tpe.tzinfo)
+            trade_date = quote_time.date()
+            timestamp_missing = False
+        else:
+            quote_time = None
+            trade_date = now_tpe.date()  # Best guess for trade_date context
+            timestamp_missing = True
 
         change: float | None = None
         change_pct: float | None = None
@@ -93,16 +97,24 @@ class YahooRealtimeProvider:
         if volume is not None:
             avail.append("volume")
 
+        fallback_reason = "Primary MIS unavailable or missing symbol"
+        if timestamp_missing:
+            fallback_reason += "; Yahoo timestamp missing, refused to fake with local time"
+
         source_meta = SourceMeta(
             source="yahoo:chart",
             source_url=url,
             fetched_at=now_tpe.isoformat(),
             trade_date=trade_date,
             status=RealtimeStatus.FALLBACK.value,
-            is_realtime=(current_market_status == MarketStatus.OPEN),
-            fallback_reason="Primary MIS unavailable or missing symbol",
+            is_realtime=False,  # Yahoo is delayed, never truly realtime
+            fallback_reason=fallback_reason,
             available_fields=tuple(avail),
-            is_stale=False,
+            is_stale=timestamp_missing,
+            source_type="third_party_aggregator",
+            freshness_class="delayed_15m",
+            is_best_effort=True,
+            documented_sla=False,
         )
 
         return TaiwanRealtimeQuote(

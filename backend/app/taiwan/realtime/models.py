@@ -59,7 +59,7 @@ class RealtimeFreshnessPolicy:
             return self.mis_stale_threshold_seconds
         elif "yahoo" in s:
             return self.yahoo_stale_threshold_seconds
-        elif "stock_day_all" in s or "official" in s:
+        elif "stock_day_all" in s or "official" in s or "daily_kline" in s:
             return self.snapshot_stale_threshold_seconds
         return self.default_stale_threshold_seconds
 

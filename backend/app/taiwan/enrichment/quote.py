@@ -92,6 +92,8 @@ class TaiwanOfficialQuoteProvider:
                     is_realtime=False,
                     available_fields=("open", "high", "low", "close", "change", "volume", "amount"),
                     is_stale=StalePolicy.is_stale(DatasetType.QUOTE, date.today(), fetched_at),
+                    source_type="official_open_data",
+                    freshness_class="eod_snapshot",
                 )
 
                 return MarketQuote(
@@ -141,6 +143,8 @@ class TaiwanOfficialQuoteProvider:
                     is_realtime=False,
                     available_fields=("open", "high", "low", "close", "change", "volume", "amount"),
                     is_stale=StalePolicy.is_stale(DatasetType.QUOTE, date.today(), fetched_at),
+                    source_type="official_open_data",
+                    freshness_class="eod_snapshot",
                 )
 
                 return MarketQuote(
@@ -203,6 +207,8 @@ class TaiwanOfficialQuoteProvider:
                 fallback_reason=f"Official snapshot unavailable for {symbol}; fell back to latest Daily K",
                 available_fields=("open", "high", "low", "close", "change_pct", "volume"),
                 is_stale=True,
+                source_type="local_store",
+                freshness_class="daily_cached",
             )
 
             return MarketQuote(

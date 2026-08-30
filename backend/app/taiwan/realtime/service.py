@@ -6,7 +6,7 @@ rate limiting protection, freshness / stale detection, and fallback chain.
 from __future__ import annotations
 
 from dataclasses import replace
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, time as dt_time, timedelta
 
 import logging
 import threading
@@ -15,7 +15,11 @@ from typing import Any
 
 from app.taiwan.enrichment.models import SourceMeta
 from app.taiwan.enrichment.quote import TaiwanOfficialQuoteProvider
-from app.taiwan.realtime.calendar import get_market_status, taipei_now
+from app.taiwan.realtime.calendar import (
+    TAIPEI_TZ,
+    TaiwanTradingCalendar,
+    taipei_now,
+)
 from app.taiwan.realtime.mis_provider import TwseMisRealtimeProvider
 from app.taiwan.realtime.models import (
     MarketStatus,
@@ -28,6 +32,9 @@ from app.taiwan.symbol import TaiwanSymbol, parse_symbol
 
 logger = logging.getLogger(__name__)
 
+# Canonical close time for Taiwan market (13:30 Taipei)
+_MARKET_CLOSE_TIME = dt_time(13, 30, 0)
+
 
 class TaiwanRealtimeService:
     """Thread-safe Real-time Quotation Service with 4-level Fallback Chain."""
@@ -36,12 +43,14 @@ class TaiwanRealtimeService:
         self,
         cache_ttl_seconds: float = 3.0,
         freshness_policy: RealtimeFreshnessPolicy | None = None,
+        trading_calendar: TaiwanTradingCalendar | None = None,
         mis_provider: TwseMisRealtimeProvider | None = None,
         yahoo_provider: YahooRealtimeProvider | None = None,
         official_close_provider: TaiwanOfficialQuoteProvider | None = None,
     ) -> None:
         self.cache_ttl_seconds = cache_ttl_seconds
         self.freshness_policy = freshness_policy or RealtimeFreshnessPolicy()
+        self.trading_calendar = trading_calendar or TaiwanTradingCalendar()
         self.mis_provider = mis_provider or TwseMisRealtimeProvider()
         self.yahoo_provider = yahoo_provider or YahooRealtimeProvider()
         self.official_close_provider = official_close_provider or TaiwanOfficialQuoteProvider()
@@ -80,7 +89,9 @@ class TaiwanRealtimeService:
 
         now_mono = time.monotonic()
         now_tpe = taipei_now()
-        cur_market_status = get_market_status(now_tpe)
+        cur_market_status = self.trading_calendar.get_market_status(
+            now_tpe, require_verified_trading_day=True,
+        )
         parsed_symbols = [s if isinstance(s, TaiwanSymbol) else parse_symbol(s) for s in symbols]
         results: dict[str, TaiwanRealtimeQuote] = {}
         to_fetch: list[TaiwanSymbol] = []
@@ -111,7 +122,19 @@ class TaiwanRealtimeService:
         except Exception as e:
             logger.warning("Primary MIS provider failed: %s", e)
 
+        # Confirm today as trading day if first-party MIS provides verified quotes for today
+        has_first_party_today = any(
+            q.trade_date == now_tpe.date() and not q.source_meta.is_stale
+            for q in fetched_quotes.values()
+        )
+        if has_first_party_today and now_tpe.weekday() < 5 and now_tpe.date() not in self.trading_calendar.known_holidays:
+            self.trading_calendar.add_trading_day(now_tpe.date())
+            cur_market_status = self.trading_calendar.get_market_status(
+                now_tpe, require_verified_trading_day=True,
+            )
+
         for sym, q in fetched_quotes.items():
+            q.market_status = cur_market_status.value
             results[sym] = q
 
         missing_after_primary = [ts for ts in to_fetch if ts.canonical not in results]
@@ -122,6 +145,7 @@ class TaiwanRealtimeService:
             try:
                 yahoo_quotes = self.yahoo_provider.fetch_quotes(missing_after_primary)
                 for sym, q in yahoo_quotes.items():
+                    q.market_status = cur_market_status.value
                     results[sym] = q
             except Exception as e:
                 logger.warning("Secondary Yahoo provider failed: %s", e)
@@ -135,6 +159,16 @@ class TaiwanRealtimeService:
                     snap = self.official_close_provider.get_quote(ts.canonical)
                     if snap:
                         now_tpe = taipei_now()
+                        # Derive quote_time from official close date at canonical 13:30 Taipei
+                        snap_quote_time = datetime.combine(
+                            snap.date, _MARKET_CLOSE_TIME, tzinfo=TAIPEI_TZ,
+                        )
+                        # Snapshot during an open/unverified session is inherently stale
+                        snap_is_stale = cur_market_status in (
+                            MarketStatus.OPEN,
+                            MarketStatus.SCHEDULED_OPEN_UNVERIFIED,
+                            MarketStatus.PRE_OPEN,
+                        )
                         meta = SourceMeta(
                             source=snap.source,
                             source_url="",
@@ -144,7 +178,11 @@ class TaiwanRealtimeService:
                             is_realtime=False,
                             fallback_reason="Realtime providers unavailable; fell back to official close snapshot",
                             available_fields=("last_price", "prev_close", "volume", "amount"),
-                            is_stale=False,
+                            is_stale=snap_is_stale,
+                            source_type="official_open_data",
+                            freshness_class="eod_snapshot",
+                            is_best_effort=False,
+                            documented_sla=False,
                         )
                         rt_quote = TaiwanRealtimeQuote(
                             symbol=ts.canonical,
@@ -159,9 +197,9 @@ class TaiwanRealtimeService:
                             change_pct=snap.change_pct,
                             volume=snap.volume,
                             amount=snap.amount,
-                            quote_time=datetime.combine(snap.date, datetime.min.time(), tzinfo=now_tpe.tzinfo),
+                            quote_time=snap_quote_time,
                             trade_date=snap.date,
-                            market_status=get_market_status(now_tpe).value,
+                            market_status=cur_market_status.value,
                             source_meta=meta,
                         )
                         results[ts.canonical] = rt_quote
@@ -177,7 +215,25 @@ class TaiwanRealtimeService:
                     daily_row = daily_kline_fallback_fn(ts.canonical)
                     if daily_row:
                         now_tpe = taipei_now()
-                        t_date = daily_row.get("date") or now_tpe.date()
+                        raw_date = daily_row.get("date")
+
+                        # Timestamp safety: derive from daily row date, never use fetch time
+                        if isinstance(raw_date, date):
+                            t_date = raw_date
+                            # Derive quote_time at canonical 13:30 close
+                            daily_quote_time = datetime.combine(
+                                t_date, _MARKET_CLOSE_TIME, tzinfo=TAIPEI_TZ,
+                            )
+                            fallback_reason = "All realtime & snapshot sources failed; fell back to latest Daily K"
+                        else:
+                            # Date missing or unreliable — refuse to fake
+                            t_date = now_tpe.date()
+                            daily_quote_time = None
+                            fallback_reason = (
+                                "All realtime & snapshot sources failed; fell back to latest Daily K; "
+                                "daily row date missing, refused to fake quote timestamp"
+                            )
+
                         meta = SourceMeta(
                             source="daily_kline",
                             source_url="",
@@ -185,9 +241,13 @@ class TaiwanRealtimeService:
                             trade_date=t_date,
                             status=RealtimeStatus.DAILY_FALLBACK.value,
                             is_realtime=False,
-                            fallback_reason="All realtime & snapshot sources failed; fell back to latest Daily K",
+                            fallback_reason=fallback_reason,
                             available_fields=("last_price", "prev_close", "volume"),
                             is_stale=True,
+                            source_type="local_store",
+                            freshness_class="daily_cached",
+                            is_best_effort=False,
+                            documented_sla=False,
                         )
                         results[ts.canonical] = TaiwanRealtimeQuote(
                             symbol=ts.canonical,
@@ -202,9 +262,9 @@ class TaiwanRealtimeService:
                             change_pct=daily_row.get("change_pct"),
                             volume=daily_row.get("volume"),
                             amount=daily_row.get("amount"),
-                            quote_time=now_tpe,
+                            quote_time=daily_quote_time,
                             trade_date=t_date,
-                            market_status=get_market_status(now_tpe).value,
+                            market_status=cur_market_status.value,
                             source_meta=meta,
                         )
                 except Exception as e:

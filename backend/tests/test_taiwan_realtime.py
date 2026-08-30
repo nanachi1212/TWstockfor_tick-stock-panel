@@ -395,7 +395,7 @@ class TestRealtimeCachingAndBatch:
         svc = TaiwanRealtimeService(cache_ttl_seconds=60.0, mis_provider=mis)
 
         # 1. First fetch in CLOSED session
-        with patch("app.taiwan.realtime.service.get_market_status", return_value=MarketStatus.CLOSED):
+        with patch.object(svc.trading_calendar, "get_market_status", return_value=MarketStatus.CLOSED):
             q_closed = svc.get_quote("2330.TWSE")
             assert q_closed is not None
             assert svc.cache_misses == 1
@@ -406,7 +406,7 @@ class TestRealtimeCachingAndBatch:
             assert svc.cache_hits == 1
 
         # 2. Market transitions to OPEN -> Cache miss must occur (no leakage of closed snapshot)
-        with patch("app.taiwan.realtime.service.get_market_status", return_value=MarketStatus.OPEN):
+        with patch.object(svc.trading_calendar, "get_market_status", return_value=MarketStatus.OPEN):
             q_open = svc.get_quote("2330.TWSE")
             assert q_open is not None
             # Misses incremented because (2330.TWSE, 'open') was not in cache
@@ -458,3 +458,373 @@ class TestRealtimeCachingAndBatch:
         assert results["8069.TPEX"].source_meta.status == RealtimeStatus.FALLBACK.value
         assert results["8069.TPEX"].last_price == 160.5
 
+
+# ── 6. Phase 5A.2 — Calendar Wiring, Provenance, Timestamp Safety ─
+
+
+class TestCalendarProductionWiring:
+    """Verify TaiwanRealtimeService actually uses TaiwanTradingCalendar with require_verified_trading_day=True."""
+
+    def test_default_service_does_not_claim_verified_open(self):
+        """Default service (no known_trading_days) must NOT return OPEN status for unknown weekday."""
+        from unittest.mock import patch
+        from app.taiwan.realtime.calendar import TaiwanTradingCalendar
+
+        mock_mis = {
+            "msgArray": [
+                {"c": "2330", "n": "台積電", "ch": "tse_2330.tw", "z": "2420.0", "y": "2410.0", "d": "20260828", "t": "10:30:00"}
+            ]
+        }
+        mis = TwseMisRealtimeProvider()
+        orig_fetch = mis.fetch_quotes
+        mis.fetch_quotes = lambda syms: orig_fetch(syms, mock_response_json=mock_mis)
+
+        # Empty calendar — no confirmed trading days
+        cal = TaiwanTradingCalendar()
+        svc = TaiwanRealtimeService(mis_provider=mis, trading_calendar=cal)
+
+        # Simulate a Wednesday at 10:00
+        fake_now = datetime(2026, 8, 26, 10, 0, 0, tzinfo=TAIPEI_TZ)
+        with patch("app.taiwan.realtime.service.taipei_now", return_value=fake_now), \
+             patch("app.taiwan.realtime.mis_provider.taipei_now", return_value=fake_now):
+            quotes = svc.get_quotes(["2330.TWSE"])
+
+        q = quotes["2330.TWSE"]
+        # Because weekday is not confirmed, market_status should be unverified
+        assert q.market_status == MarketStatus.SCHEDULED_OPEN_UNVERIFIED.value
+
+    def test_confirmed_trading_day_returns_open(self):
+        """When today is confirmed via known_trading_days, market_status should be OPEN."""
+        from unittest.mock import patch
+        from app.taiwan.realtime.calendar import TaiwanTradingCalendar
+
+        mock_mis = {
+            "msgArray": [
+                {"c": "2330", "n": "台積電", "ch": "tse_2330.tw", "z": "2420.0", "y": "2410.0", "d": "20260826", "t": "10:30:00"}
+            ]
+        }
+        mis = TwseMisRealtimeProvider()
+        orig_fetch = mis.fetch_quotes
+        mis.fetch_quotes = lambda syms: orig_fetch(syms, mock_response_json=mock_mis)
+
+        cal = TaiwanTradingCalendar(known_trading_days={date(2026, 8, 26)})
+        svc = TaiwanRealtimeService(mis_provider=mis, trading_calendar=cal)
+
+        fake_now = datetime(2026, 8, 26, 10, 0, 0, tzinfo=TAIPEI_TZ)
+        with patch("app.taiwan.realtime.service.taipei_now", return_value=fake_now), \
+             patch("app.taiwan.realtime.mis_provider.taipei_now", return_value=fake_now):
+            quotes = svc.get_quotes(["2330.TWSE"])
+
+        q = quotes["2330.TWSE"]
+        assert q.market_status == MarketStatus.OPEN.value
+
+    def test_confirmed_holiday_returns_non_trading_day(self):
+        """When today is a confirmed holiday, market_status should be NON_TRADING_DAY."""
+        from unittest.mock import patch
+        from app.taiwan.realtime.calendar import TaiwanTradingCalendar
+
+        mock_mis = {
+            "msgArray": [
+                {"c": "2330", "n": "台積電", "ch": "tse_2330.tw", "z": "2420.0", "y": "2410.0", "d": "20261010", "t": "10:00:00"}
+            ]
+        }
+        mis = TwseMisRealtimeProvider()
+        orig_fetch = mis.fetch_quotes
+        mis.fetch_quotes = lambda syms: orig_fetch(syms, mock_response_json=mock_mis)
+
+        cal = TaiwanTradingCalendar(known_holidays={date(2026, 10, 10)})
+        svc = TaiwanRealtimeService(mis_provider=mis, trading_calendar=cal)
+
+        fake_now = datetime(2026, 10, 10, 10, 0, 0, tzinfo=TAIPEI_TZ)
+        with patch("app.taiwan.realtime.service.taipei_now", return_value=fake_now), \
+             patch("app.taiwan.realtime.mis_provider.taipei_now", return_value=fake_now):
+            quotes = svc.get_quotes(["2330.TWSE"])
+        # Holiday: no provider data returned since market is closed
+        # But actual market status should be non-trading
+        assert cal.get_market_status(fake_now) == MarketStatus.NON_TRADING_DAY
+
+    def test_unverified_to_verified_cache_transition(self):
+        """Transition from SCHEDULED_OPEN_UNVERIFIED to OPEN causes cache miss."""
+        from unittest.mock import patch
+        from app.taiwan.realtime.calendar import TaiwanTradingCalendar
+
+        # MIS data has yesterday date so it won't auto-verify today on fetch
+        mock_mis = {
+            "msgArray": [
+                {"c": "2330", "n": "台積電", "ch": "tse_2330.tw", "z": "2420.0", "y": "2410.0", "d": "20260825", "t": "10:30:00"}
+            ]
+        }
+        mis = TwseMisRealtimeProvider()
+        orig_fetch = mis.fetch_quotes
+        mis.fetch_quotes = lambda syms: orig_fetch(syms, mock_response_json=mock_mis)
+
+        cal = TaiwanTradingCalendar()
+        svc = TaiwanRealtimeService(cache_ttl_seconds=60.0, mis_provider=mis, trading_calendar=cal)
+
+        fake_now = datetime(2026, 8, 26, 10, 0, 0, tzinfo=TAIPEI_TZ)
+        # 1. Fetch while unverified
+        with patch("app.taiwan.realtime.service.taipei_now", return_value=fake_now), \
+             patch("app.taiwan.realtime.mis_provider.taipei_now", return_value=fake_now):
+            svc.get_quote("2330.TWSE")
+        assert svc.cache_misses == 1
+
+        # 2. Confirm the day
+        cal.add_trading_day(date(2026, 8, 26))
+        with patch("app.taiwan.realtime.service.taipei_now", return_value=fake_now), \
+             patch("app.taiwan.realtime.mis_provider.taipei_now", return_value=fake_now):
+            svc.get_quote("2330.TWSE")
+        # Cache key changed from (2330.TWSE, scheduled_open_unverified) to (2330.TWSE, open) → miss
+        assert svc.cache_misses == 2
+
+
+class TestTimestampSafety:
+    """Verify timestamps are never faked with datetime.now()."""
+
+    def test_daily_fallback_does_not_use_fetch_time(self):
+        """Daily fallback must derive quote_time from daily row date at 13:30, not fetch time."""
+        from unittest.mock import patch
+
+        mis = TwseMisRealtimeProvider()
+        mis.fetch_quotes = lambda syms: {}
+        yahoo = YahooRealtimeProvider()
+        yahoo.fetch_quotes = lambda syms: {}
+
+        mock_daily_store = {
+            "2330.TWSE": {
+                "close": 2420.0,
+                "prev_close": 2410.0,
+                "open": 2440.0,
+                "high": 2445.0,
+                "low": 2410.0,
+                "change": 10.0,
+                "change_pct": 0.41,
+                "volume": 13498000,
+                "date": date(2026, 8, 28),
+            }
+        }
+
+        fake_now = datetime(2026, 8, 30, 10, 0, 0, tzinfo=TAIPEI_TZ)
+        svc = TaiwanRealtimeService(mis_provider=mis, yahoo_provider=yahoo)
+
+        with patch("app.taiwan.realtime.service.taipei_now", return_value=fake_now):
+            quotes = svc.get_quotes(
+                ["2330.TWSE"],
+                daily_kline_fallback_fn=lambda s: mock_daily_store.get(s),
+            )
+
+        q = quotes["2330.TWSE"]
+        # quote_time must be 2026-08-28 13:30 Taipei, NOT 2026-08-30 10:00
+        assert q.quote_time is not None
+        assert q.quote_time.date() == date(2026, 8, 28)
+        assert q.quote_time.hour == 13
+        assert q.quote_time.minute == 30
+
+    def test_daily_fallback_missing_date_returns_none_quote_time(self):
+        """Daily row without a date field must set quote_time=None, never fake."""
+        from unittest.mock import patch
+
+        mis = TwseMisRealtimeProvider()
+        mis.fetch_quotes = lambda syms: {}
+        yahoo = YahooRealtimeProvider()
+        yahoo.fetch_quotes = lambda syms: {}
+
+        mock_daily_store = {
+            "2330.TWSE": {"close": 2420.0, "prev_close": 2410.0}  # No date!
+        }
+
+        fake_now = datetime(2026, 8, 30, 10, 0, 0, tzinfo=TAIPEI_TZ)
+        svc = TaiwanRealtimeService(mis_provider=mis, yahoo_provider=yahoo)
+        with patch("app.taiwan.realtime.service.taipei_now", return_value=fake_now):
+            quotes = svc.get_quotes(
+                ["2330.TWSE"],
+                daily_kline_fallback_fn=lambda s: mock_daily_store.get(s),
+            )
+
+        q = quotes["2330.TWSE"]
+        assert q.quote_time is None
+        assert q.source_meta.is_stale is True
+        assert "refused to fake" in q.source_meta.fallback_reason
+
+    def test_official_snapshot_uses_1330_not_midnight(self):
+        """Official snapshot must derive quote_time at 13:30, not midnight."""
+        from unittest.mock import patch
+        from dataclasses import dataclass
+
+        @dataclass
+        class MockSnap:
+            source: str = "twse:STOCK_DAY_ALL"
+            date: date = date(2026, 8, 28)
+            name: str = "台積電"
+            close: float = 2420.0
+            previous_close: float = 2410.0
+            open: float = 2440.0
+            high: float = 2445.0
+            low: float = 2410.0
+            change: float = 10.0
+            change_pct: float = 0.41
+            volume: int = 13498000
+            amount: float = 326000000.0
+
+        mis = TwseMisRealtimeProvider()
+        mis.fetch_quotes = lambda syms: {}
+        yahoo = YahooRealtimeProvider()
+        yahoo.fetch_quotes = lambda syms: {}
+
+        class MockOfficialProvider:
+            def get_quote(self, sym):
+                return MockSnap()
+
+        fake_now = datetime(2026, 8, 30, 10, 0, 0, tzinfo=TAIPEI_TZ)
+        svc = TaiwanRealtimeService(
+            mis_provider=mis, yahoo_provider=yahoo, official_close_provider=MockOfficialProvider()
+        )
+        with patch("app.taiwan.realtime.service.taipei_now", return_value=fake_now):
+            quotes = svc.get_quotes(["2330.TWSE"])
+
+        q = quotes["2330.TWSE"]
+        assert q.quote_time is not None
+        assert q.quote_time.hour == 13
+        assert q.quote_time.minute == 30
+        # Must NOT be midnight
+        assert not (q.quote_time.hour == 0 and q.quote_time.minute == 0)
+
+
+class TestProvenanceCorrectness:
+    """Verify every source has correct explicit provenance metadata."""
+
+    def test_mis_provenance(self):
+        """MIS SourceMeta must be first_party_web_endpoint / best_effort_near_realtime."""
+        mock_mis = {
+            "msgArray": [
+                {"c": "2330", "n": "台積電", "ch": "tse_2330.tw", "z": "2420.0", "y": "2410.0", "d": "20260828", "t": "13:30:00"}
+            ]
+        }
+        provider = TwseMisRealtimeProvider()
+        quotes = provider.fetch_quotes(["2330.TWSE"], mock_response_json=mock_mis)
+        meta = quotes["2330.TWSE"].source_meta
+        assert meta.source_type == "first_party_web_endpoint"
+        assert meta.freshness_class == "best_effort_near_realtime"
+        assert meta.is_best_effort is True
+
+    def test_yahoo_provenance(self):
+        """Yahoo SourceMeta must be third_party_aggregator / delayed_15m."""
+        mock_yahoo = {
+            "chart": {
+                "result": [{"meta": {"regularMarketPrice": 160.5, "chartPreviousClose": 159.0, "regularMarketVolume": 5122000, "regularMarketTime": 1756359000, "shortName": "E-INK"}}]
+            }
+        }
+        provider = YahooRealtimeProvider()
+        q = provider.fetch_single_quote("8069.TPEX", mock_response_json=mock_yahoo)
+        assert q is not None
+        assert q.source_meta.source_type == "third_party_aggregator"
+        assert q.source_meta.freshness_class == "delayed_15m"
+        assert q.source_meta.is_best_effort is True
+        assert q.source_meta.is_realtime is False  # Yahoo is never truly realtime
+
+    def test_daily_fallback_provenance(self):
+        """Daily K fallback SourceMeta must be local_store / daily_cached."""
+        from unittest.mock import patch
+
+        mis = TwseMisRealtimeProvider()
+        mis.fetch_quotes = lambda syms: {}
+        yahoo = YahooRealtimeProvider()
+        yahoo.fetch_quotes = lambda syms: {}
+
+        mock_daily = {"2330.TWSE": {"close": 2420.0, "prev_close": 2410.0, "date": date(2026, 8, 28)}}
+        svc = TaiwanRealtimeService(mis_provider=mis, yahoo_provider=yahoo)
+
+        fake_now = datetime(2026, 8, 30, 10, 0, 0, tzinfo=TAIPEI_TZ)
+        with patch("app.taiwan.realtime.service.taipei_now", return_value=fake_now):
+            quotes = svc.get_quotes(["2330.TWSE"], daily_kline_fallback_fn=lambda s: mock_daily.get(s))
+
+        meta = quotes["2330.TWSE"].source_meta
+        assert meta.source_type == "local_store"
+        assert meta.freshness_class == "daily_cached"
+        assert meta.is_best_effort is False
+        assert meta.is_stale is True
+
+    def test_sourcemeta_default_does_not_silently_become_mis(self):
+        """SourceMeta with no explicit provenance must show 'unknown', not MIS semantics."""
+        meta = SourceMeta(
+            source="some_unknown_source",
+            source_url="",
+            fetched_at="2026-08-30T10:00:00",
+            trade_date=None,
+            status="unknown",
+        )
+        assert meta.source_type == "unknown"
+        assert meta.freshness_class == "unknown"
+        assert meta.is_best_effort is False
+
+
+class TestFreshnessCorrectness:
+    """Verify freshness / stale handling across source types and sessions."""
+
+    def test_official_snapshot_during_open_is_stale(self):
+        """Official snapshot used during OPEN session must be marked stale (it's yesterday's data)."""
+        from unittest.mock import patch
+        from dataclasses import dataclass
+
+        @dataclass
+        class MockSnap:
+            source: str = "twse:STOCK_DAY_ALL"
+            date: date = date(2026, 8, 28)
+            name: str = "台積電"
+            close: float = 2420.0
+            previous_close: float = 2410.0
+            open: float = 2440.0
+            high: float = 2445.0
+            low: float = 2410.0
+            change: float = 10.0
+            change_pct: float = 0.41
+            volume: int = 13498000
+            amount: float = 326000000.0
+
+        mis = TwseMisRealtimeProvider()
+        mis.fetch_quotes = lambda syms: {}
+        yahoo = YahooRealtimeProvider()
+        yahoo.fetch_quotes = lambda syms: {}
+
+        class MockProvider:
+            def get_quote(self, sym):
+                return MockSnap()
+
+        from app.taiwan.realtime.calendar import TaiwanTradingCalendar
+        cal = TaiwanTradingCalendar(known_trading_days={date(2026, 8, 28)})
+        svc = TaiwanRealtimeService(
+            mis_provider=mis, yahoo_provider=yahoo,
+            official_close_provider=MockProvider(), trading_calendar=cal,
+        )
+        # Friday 10:00 — verified OPEN
+        fake_now = datetime(2026, 8, 28, 10, 0, 0, tzinfo=TAIPEI_TZ)  # Friday
+        with patch("app.taiwan.realtime.service.taipei_now", return_value=fake_now):
+            quotes = svc.get_quotes(["2330.TWSE"])
+
+        q = quotes["2330.TWSE"]
+        assert q.source_meta.source_type == "official_open_data"
+        assert q.source_meta.freshness_class == "eod_snapshot"
+        assert q.source_meta.is_stale is True  # Snapshot during open is stale!
+        assert q.source_meta.is_realtime is False
+
+    def test_daily_fallback_during_open_remains_stale(self):
+        """Daily K fallback during regular open must always be is_stale=True."""
+        from unittest.mock import patch
+        from app.taiwan.realtime.calendar import TaiwanTradingCalendar
+
+        mis = TwseMisRealtimeProvider()
+        mis.fetch_quotes = lambda syms: {}
+        yahoo = YahooRealtimeProvider()
+        yahoo.fetch_quotes = lambda syms: {}
+
+        mock_daily = {"2330.TWSE": {"close": 2420.0, "prev_close": 2410.0, "date": date(2026, 8, 28)}}
+        cal = TaiwanTradingCalendar(known_trading_days={date(2026, 8, 28)})
+        svc = TaiwanRealtimeService(mis_provider=mis, yahoo_provider=yahoo, trading_calendar=cal)
+
+        fake_now = datetime(2026, 8, 28, 10, 0, 0, tzinfo=TAIPEI_TZ)
+        with patch("app.taiwan.realtime.service.taipei_now", return_value=fake_now):
+            quotes = svc.get_quotes(["2330.TWSE"], daily_kline_fallback_fn=lambda s: mock_daily.get(s))
+
+        q = quotes["2330.TWSE"]
+        assert q.source_meta.is_stale is True
+        assert q.source_meta.status == RealtimeStatus.DAILY_FALLBACK.value
+        assert q.source_meta.is_realtime is False

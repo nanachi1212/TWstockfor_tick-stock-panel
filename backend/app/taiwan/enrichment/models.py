@@ -88,9 +88,9 @@ class SourceMeta:
     fallback_reason: str | None = None  # Non-empty if fallback was triggered
     available_fields: tuple[str, ...] = ()
     is_stale: bool = False
-    source_type: str = "first_party_web_endpoint" # "first_party_web_endpoint", "third_party_aggregator", "official_open_data", "local_store"
-    freshness_class: str = "best_effort_near_realtime" # "best_effort_near_realtime", "delayed_15m", "eod_snapshot", "daily_cached"
-    is_best_effort: bool = True     # Explicitly signals no guaranteed contractual SLA
+    source_type: str = "unknown" # "first_party_web_endpoint", "third_party_aggregator", "official_open_data", "local_store", "unknown"
+    freshness_class: str = "unknown" # "best_effort_near_realtime", "delayed_15m", "eod_snapshot", "daily_cached", "unknown"
+    is_best_effort: bool = False    # Must be explicitly set True by providers that lack contractual SLA
     documented_sla: bool = False    # False indicates lack of consumer SLA from TWSE/TPEx for public web scraping
     observed_latency_ms: float | None = None # Empirically observed network roundtrip, not SLA contract
 

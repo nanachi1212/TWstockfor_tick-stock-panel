@@ -98,6 +98,8 @@ class TaiwanIndexProvider:
                 is_realtime=False,
                 available_fields=("open", "high", "low", "close", "change", "change_pct"),
                 is_stale=StalePolicy.is_stale(DatasetType.INDEX, dt, fetched_at),
+                source_type="official_open_data",
+                freshness_class="eod_snapshot",
             )
 
             idx = MarketIndex(
@@ -152,6 +154,8 @@ class TaiwanIndexProvider:
                 is_realtime=False,
                 available_fields=("open", "high", "low", "close", "change", "change_pct"),
                 is_stale=StalePolicy.is_stale(DatasetType.INDEX, dt, fetched_at),
+                source_type="official_open_data",
+                freshness_class="eod_snapshot",
             )
 
             idx = MarketIndex(
