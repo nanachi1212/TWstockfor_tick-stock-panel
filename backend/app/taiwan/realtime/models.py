@@ -26,13 +26,43 @@ class RealtimeStatus(str, Enum):
 
 
 class MarketStatus(str, Enum):
-    """Taiwan stock exchange market operating status."""
+    """Taiwan stock exchange market operating status.
+
+    Clearly separates pre-open, regular continuous session, post-close sessions,
+    and unverified / extraordinary closure states.
+    """
     PRE_OPEN = "pre_open"                   # 08:30 - 09:00 (Pre-market trial matching)
-    OPEN = "open"                           # 09:00 - 13:30 (Continuous regular trading)
+    OPEN = "open"                           # 09:00 - 13:30 (Continuous regular trading, verified)
+    REGULAR_OPEN = "open"                   # Alias for OPEN
+    SCHEDULED_OPEN_UNVERIFIED = "scheduled_open_unverified" # 09:00 - 13:30 scheduled, but open state unverified
     POST_CLOSE = "post_close"               # 13:30 - 14:30 (Post-market odd-lot & fixed-price)
+    POST_CLOSE_SESSION = "post_close"       # Alias for POST_CLOSE
     CLOSED = "closed"                       # After 14:30 or before 08:30
-    NON_TRADING_DAY = "non_trading_day"     # Weekend or statutory holiday
-    UNKNOWN = "unknown"
+    NON_TRADING_DAY = "non_trading_day"     # Confirmed weekend or statutory/typhoon holiday
+    UNKNOWN = "unknown"                     # Unresolved status
+
+
+@dataclass
+class RealtimeFreshnessPolicy:
+    """Configurable freshness thresholds by provider feed type.
+
+    Replaces arbitrary magic numbers with distinct thresholds based on feed characteristics.
+    """
+    mis_stale_threshold_seconds: float = 60.0        # TWSE MIS near-realtime feed
+    yahoo_stale_threshold_seconds: float = 1200.0    # Yahoo Finance delayed feed (~20 min)
+    snapshot_stale_threshold_seconds: float = 86400.0 # Official EOD snapshot (1 day)
+    default_stale_threshold_seconds: float = 60.0
+
+    def get_threshold_for_source(self, source: str) -> float:
+        s = source.lower()
+        if "mis" in s:
+            return self.mis_stale_threshold_seconds
+        elif "yahoo" in s:
+            return self.yahoo_stale_threshold_seconds
+        elif "stock_day_all" in s or "official" in s:
+            return self.snapshot_stale_threshold_seconds
+        return self.default_stale_threshold_seconds
+
 
 
 @dataclass

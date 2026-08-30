@@ -34,43 +34,100 @@ def taipei_today() -> date:
     return datetime.now(TAIPEI_TZ).date()
 
 
+class TaiwanTradingCalendar:
+    """Trading calendar model for Taiwan Stock Exchange and Taipei Exchange.
+
+    Distinguishes strictly between confirmed trading days, confirmed non-trading days
+    (weekends, statutory holidays, extraordinary typhoon closures), and unverified scheduled sessions.
+    """
+
+    def __init__(
+        self,
+        known_holidays: set[date] | None = None,
+        known_trading_days: set[date] | None = None,
+    ) -> None:
+        self.known_holidays = set(known_holidays) if known_holidays else set()
+        self.known_trading_days = set(known_trading_days) if known_trading_days else set()
+
+    def add_holiday(self, d: date) -> None:
+        self.known_holidays.add(d)
+
+    def add_trading_day(self, d: date) -> None:
+        self.known_trading_days.add(d)
+
+    def is_trading_day(self, d: date) -> bool | None:
+        """Evaluate if date is a trading day.
+
+        Returns:
+            True: Confirmed trading day.
+            False: Confirmed non-trading day (weekend, statutory holiday, typhoon closure).
+            None: Unverified (weekday with unknown statutory/extraordinary closure status).
+        """
+        if d.weekday() >= 5:  # Saturday or Sunday
+            return False
+        if d in self.known_holidays:
+            return False
+        if d in self.known_trading_days:
+            return True
+        return None  # Unverified status
+
+    def get_market_status(
+        self,
+        dt: datetime | None = None,
+        require_verified_trading_day: bool = False,
+    ) -> MarketStatus:
+        """Determine session status for a given datetime.
+
+        If require_verified_trading_day is True and the weekday has not been confirmed via
+        first-party calendar or daily data, returns SCHEDULED_OPEN_UNVERIFIED during trading hours
+        instead of falsely claiming guaranteed regular session.
+        """
+        now = dt if dt is not None else taipei_now()
+        if now.tzinfo is None:
+            now = now.replace(tzinfo=TAIPEI_TZ)
+        else:
+            now = now.astimezone(TAIPEI_TZ)
+
+        d = now.date()
+        trading_day_state = self.is_trading_day(d)
+
+        # 1. Confirmed non-trading day (weekends, statutory holidays, typhoon closures)
+        if trading_day_state is False:
+            return MarketStatus.NON_TRADING_DAY
+
+        # 2. Time-of-day session division
+        t = now.time()
+        if t < PRE_OPEN_START:
+            return MarketStatus.CLOSED
+        elif t > POST_CLOSE_END:
+            return MarketStatus.CLOSED
+
+        # 3. Extraordinary closure / Unverified weekday during scheduled trading hours
+        if trading_day_state is None and require_verified_trading_day:
+            return MarketStatus.SCHEDULED_OPEN_UNVERIFIED
+
+        if t < REGULAR_OPEN_START:
+            return MarketStatus.PRE_OPEN
+        elif t <= REGULAR_OPEN_END:
+            return MarketStatus.OPEN
+        else:
+            return MarketStatus.POST_CLOSE
+
+
+_DEFAULT_CALENDAR = TaiwanTradingCalendar()
+
+
 def get_market_status(
     dt: datetime | None = None,
     holidays: set[date] | None = None,
+    require_verified_trading_day: bool = False,
 ) -> MarketStatus:
     """Determine Taiwan market operating status for a given datetime.
 
-    Args:
-        dt: Datetime to inspect (defaults to current taipei_now()).
-        holidays: Optional set of known statutory market holidays.
-
-    Returns:
-        MarketStatus enum indicating current market session state.
+    Delegates to TaiwanTradingCalendar with optional ad-hoc holiday fixtures.
     """
-    now = dt if dt is not None else taipei_now()
-    if now.tzinfo is None:
-        now = now.replace(tzinfo=TAIPEI_TZ)
-    else:
-        now = now.astimezone(TAIPEI_TZ)
+    if holidays:
+        cal = TaiwanTradingCalendar(known_holidays=holidays)
+        return cal.get_market_status(dt, require_verified_trading_day=require_verified_trading_day)
+    return _DEFAULT_CALENDAR.get_market_status(dt, require_verified_trading_day=require_verified_trading_day)
 
-    d = now.date()
-    # 1. Weekends
-    if d.weekday() >= 5:  # Saturday = 5, Sunday = 6
-        return MarketStatus.NON_TRADING_DAY
-
-    # 2. Known Statutory Holidays
-    if holidays and d in holidays:
-        return MarketStatus.NON_TRADING_DAY
-
-    # 3. Time session divisions
-    t = now.time()
-    if t < PRE_OPEN_START:
-        return MarketStatus.CLOSED
-    elif t < REGULAR_OPEN_START:
-        return MarketStatus.PRE_OPEN
-    elif t <= REGULAR_OPEN_END:
-        return MarketStatus.OPEN
-    elif t <= POST_CLOSE_END:
-        return MarketStatus.POST_CLOSE
-    else:
-        return MarketStatus.CLOSED

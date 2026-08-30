@@ -74,22 +74,35 @@ class StalePolicy:
 
 @dataclass(frozen=True)
 class SourceMeta:
-    """Provenance and data integrity metadata for all Taiwan market feeds."""
-    source: str                      # e.g. "twse:t86", "tpex:daily_trade", "twse:stock_day_all"
-    source_url: str                  # Official endpoint URL
-    fetched_at: datetime             # Timestamp when request succeeded
+    """Provenance and data integrity metadata for all Taiwan market feeds.
+
+    Clearly differentiates between formal documented APIs and best-effort web endpoints,
+    preventing unwarranted assumptions of contractual exchange SLAs.
+    """
+    source: str                      # e.g. "twse:mis", "twse:t86", "yahoo:chart", "twse:stock_day_all"
+    source_url: str                  # Endpoint URL
+    fetched_at: datetime | str       # Timestamp when request succeeded
     trade_date: date | None          # Applicable trading date
-    status: str                      # "official_close", "official_snapshot", "official_monthly_fallback", "discrepancy_detected"
-    is_realtime: bool = False        # Official snapshots are not tick-by-tick realtime
+    status: str                      # "realtime", "official_snapshot", "fallback", "stale", etc.
+    is_realtime: bool = False        # True only during live regular trading hours
     fallback_reason: str | None = None  # Non-empty if fallback was triggered
     available_fields: tuple[str, ...] = ()
     is_stale: bool = False
+    source_type: str = "first_party_web_endpoint" # "first_party_web_endpoint", "third_party_aggregator", "official_open_data", "local_store"
+    freshness_class: str = "best_effort_near_realtime" # "best_effort_near_realtime", "delayed_15m", "eod_snapshot", "daily_cached"
+    is_best_effort: bool = True     # Explicitly signals no guaranteed contractual SLA
+    documented_sla: bool = False    # False indicates lack of consumer SLA from TWSE/TPEx for public web scraping
+    observed_latency_ms: float | None = None # Empirically observed network roundtrip, not SLA contract
 
     def to_dict(self) -> dict[str, Any]:
         data = asdict(self)
-        data["fetched_at"] = self.fetched_at.isoformat()
+        if isinstance(self.fetched_at, datetime):
+            data["fetched_at"] = self.fetched_at.isoformat()
+        else:
+            data["fetched_at"] = str(self.fetched_at)
         data["trade_date"] = self.trade_date.isoformat() if self.trade_date else None
         return data
+
 
 
 @dataclass(frozen=True)

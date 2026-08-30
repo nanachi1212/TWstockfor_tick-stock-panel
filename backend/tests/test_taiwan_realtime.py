@@ -73,6 +73,30 @@ class TestTaiwanMarketCalendar:
         dt = datetime(2026, 10, 10, 10, 0, tzinfo=TAIPEI_TZ)
         assert get_market_status(dt, holidays={holiday}) == MarketStatus.NON_TRADING_DAY
 
+    def test_extraordinary_typhoon_closure(self):
+        """Extraordinary closure (e.g. Typhoon day) must yield NON_TRADING_DAY, never falsely OPEN."""
+        from app.taiwan.realtime.calendar import TaiwanTradingCalendar
+        typhoon_day = date(2026, 7, 24)
+        cal = TaiwanTradingCalendar(known_holidays={typhoon_day})
+        dt = datetime(2026, 7, 24, 10, 30, tzinfo=TAIPEI_TZ)
+        assert cal.get_market_status(dt) == MarketStatus.NON_TRADING_DAY
+
+    def test_unverified_trading_day_safety(self):
+        """When strict verification is requested and date is not confirmed, return SCHEDULED_OPEN_UNVERIFIED."""
+        from app.taiwan.realtime.calendar import TaiwanTradingCalendar
+        cal = TaiwanTradingCalendar()  # Empty calendar (no verified dates)
+        # Wednesday regular hours
+        dt = datetime(2026, 8, 26, 10, 0, tzinfo=TAIPEI_TZ)
+        assert cal.get_market_status(dt, require_verified_trading_day=True) == MarketStatus.SCHEDULED_OPEN_UNVERIFIED
+
+    def test_verified_trading_day_returns_open(self):
+        """When date is confirmed in known_trading_days, return OPEN during session."""
+        from app.taiwan.realtime.calendar import TaiwanTradingCalendar
+        trading_day = date(2026, 8, 26)
+        cal = TaiwanTradingCalendar(known_trading_days={trading_day})
+        dt = datetime(2026, 8, 26, 10, 0, tzinfo=TAIPEI_TZ)
+        assert cal.get_market_status(dt, require_verified_trading_day=True) == MarketStatus.OPEN
+
     def test_trading_day_sessions(self):
         # Wednesday (weekday)
         base = datetime(2026, 8, 26, 0, 0, tzinfo=TAIPEI_TZ)
@@ -88,6 +112,7 @@ class TestTaiwanMarketCalendar:
         assert get_market_status(base.replace(hour=13, minute=45)) == MarketStatus.POST_CLOSE
         # 15:00 -> CLOSED
         assert get_market_status(base.replace(hour=15, minute=0)) == MarketStatus.CLOSED
+
 
 
 # ── 3. MIS Provider Parsing & Volume Normalization Tests ─────────
@@ -145,6 +170,52 @@ class TestTwseMisProviderParsing:
     def test_depth_tier_parser_empty(self):
         assert _parse_depth_tier(None, None) == []
         assert _parse_depth_tier("", "") == []
+
+    def test_mis_is_best_effort_and_observed_latency(self):
+        """MIS must be labeled best_effort with no contractual SLA, and observed latency recorded."""
+        mock_mis = {
+            "msgArray": [
+                {"c": "2330", "n": "台積電", "ch": "tse_2330.tw", "z": "2420.0", "y": "2410.0", "d": "20260828", "t": "13:30:00"}
+            ]
+        }
+        provider = TwseMisRealtimeProvider()
+        quotes = provider.fetch_quotes(["2330.TWSE"], mock_response_json=mock_mis)
+        meta = quotes["2330.TWSE"].source_meta
+        assert meta.is_best_effort is True
+        assert meta.documented_sla is False
+        assert meta.source_type == "first_party_web_endpoint"
+        assert meta.freshness_class == "best_effort_near_realtime"
+        assert meta.observed_latency_ms is not None
+
+    def test_quote_timestamp_missing_fails_safely(self):
+        """When MIS d/t is missing, do NOT substitute datetime.now(); mark stale safely."""
+        mock_mis = {
+            "msgArray": [
+                {"c": "2330", "n": "台積電", "ch": "tse_2330.tw", "z": "2420.0", "y": "2410.0"}  # No d or t!
+            ]
+        }
+        provider = TwseMisRealtimeProvider()
+        quotes = provider.fetch_quotes(["2330.TWSE"], mock_response_json=mock_mis)
+        q = quotes["2330.TWSE"]
+        assert q.quote_time is None
+        assert q.source_meta.is_stale is True
+        assert q.source_meta.status == RealtimeStatus.STALE.value
+        assert "refused to fake with local time" in q.source_meta.fallback_reason
+
+    def test_quote_timestamp_malformed_fails_safely(self):
+        """When MIS time is corrupted/malformed, refuse to guess; mark stale."""
+        mock_mis = {
+            "msgArray": [
+                {"c": "2330", "n": "台積電", "ch": "tse_2330.tw", "z": "2420.0", "y": "2410.0", "d": "bad_date", "t": "bad_time"}
+            ]
+        }
+        provider = TwseMisRealtimeProvider()
+        quotes = provider.fetch_quotes(["2330.TWSE"], mock_response_json=mock_mis)
+        q = quotes["2330.TWSE"]
+        assert q.quote_time is None
+        assert q.source_meta.is_stale is True
+        assert q.source_meta.status == RealtimeStatus.STALE.value
+
 
 
 # ── 4. Multi-Tier Fallback Chain Tests ───────────────────────────
@@ -295,3 +366,95 @@ class TestRealtimeCachingAndBatch:
         assert q3 is not None
         assert svc.cache_misses == 2
         assert svc.provider_requests == 2
+
+    def test_configurable_freshness_threshold(self):
+        """Verify RealtimeFreshnessPolicy properly distinguishes MIS vs Yahoo thresholds."""
+        from app.taiwan.realtime.models import RealtimeFreshnessPolicy
+
+        policy = RealtimeFreshnessPolicy(
+            mis_stale_threshold_seconds=10.0,
+            yahoo_stale_threshold_seconds=300.0,
+        )
+        assert policy.get_threshold_for_source("twse:mis") == 10.0
+        assert policy.get_threshold_for_source("yahoo:chart") == 300.0
+        assert policy.get_threshold_for_source("twse:stock_day_all") == 86400.0
+
+    def test_cache_across_market_status_transition(self):
+        """When market transitions from closed to open, old closed session cache must invalidate safely."""
+        from app.taiwan.realtime.calendar import MarketStatus
+        from unittest.mock import patch
+
+        mock_mis = {
+            "msgArray": [
+                {"c": "2330", "n": "台積電", "ch": "tse_2330.tw", "z": "2420.0", "y": "2410.0", "d": "20260828", "t": "13:30:00"}
+            ]
+        }
+        mis = TwseMisRealtimeProvider()
+        orig_fetch = mis.fetch_quotes
+        mis.fetch_quotes = lambda syms: orig_fetch(syms, mock_response_json=mock_mis)
+        svc = TaiwanRealtimeService(cache_ttl_seconds=60.0, mis_provider=mis)
+
+        # 1. First fetch in CLOSED session
+        with patch("app.taiwan.realtime.service.get_market_status", return_value=MarketStatus.CLOSED):
+            q_closed = svc.get_quote("2330.TWSE")
+            assert q_closed is not None
+            assert svc.cache_misses == 1
+            assert svc.cache_hits == 0
+
+            # Second fetch still in CLOSED -> Cache hit!
+            q_closed_2 = svc.get_quote("2330.TWSE")
+            assert svc.cache_hits == 1
+
+        # 2. Market transitions to OPEN -> Cache miss must occur (no leakage of closed snapshot)
+        with patch("app.taiwan.realtime.service.get_market_status", return_value=MarketStatus.OPEN):
+            q_open = svc.get_quote("2330.TWSE")
+            assert q_open is not None
+            # Misses incremented because (2330.TWSE, 'open') was not in cache
+            assert svc.cache_misses == 2
+
+    def test_partial_mis_batch_response_single_symbol_fallback(self):
+        """When MIS returns 2330 but misses 8069, 8069 must seamlessly fallback to Yahoo without dropping 2330."""
+        # MIS only returns 2330!
+        mock_mis = {
+            "msgArray": [
+                {"c": "2330", "n": "台積電", "ch": "tse_2330.tw", "z": "2420.0", "y": "2410.0", "v": "1000", "d": "20260828", "t": "13:30:00"}
+            ]
+        }
+        mis = TwseMisRealtimeProvider()
+        orig_mis_fetch = mis.fetch_quotes
+        mis.fetch_quotes = lambda syms: orig_mis_fetch(syms, mock_response_json=mock_mis)
+
+        # Yahoo handles 8069!
+        mock_yahoo_8069 = {
+            "chart": {
+                "result": [
+                    {
+                        "meta": {
+                            "regularMarketPrice": 160.5,
+                            "chartPreviousClose": 159.0,
+                            "regularMarketVolume": 5122000,
+                            "regularMarketTime": 1756359000,
+                            "shortName": "E-INK",
+                        }
+                    }
+                ]
+            }
+        }
+        yahoo = YahooRealtimeProvider()
+        orig_single = yahoo.fetch_single_quote
+        yahoo.fetch_single_quote = lambda sym, mock_response_json=None: orig_single(
+            sym, mock_response_json=mock_yahoo_8069
+        )
+
+        svc = TaiwanRealtimeService(mis_provider=mis, yahoo_provider=yahoo)
+        results = svc.get_quotes(["2330.TWSE", "8069.TPEX"])
+
+        assert len(results) == 2
+        # 2330 from MIS
+        assert results["2330.TWSE"].source_meta.source == "twse:mis"
+        assert results["2330.TWSE"].last_price == 2420.0
+        # 8069 seamlessly fell back to Yahoo
+        assert results["8069.TPEX"].source_meta.source == "yahoo:chart"
+        assert results["8069.TPEX"].source_meta.status == RealtimeStatus.FALLBACK.value
+        assert results["8069.TPEX"].last_price == 160.5
+

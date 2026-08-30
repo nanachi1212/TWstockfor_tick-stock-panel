@@ -1,12 +1,13 @@
 """TWSE MIS (Market Information System) Realtime Provider.
 
-Authoritative first-party real-time quotation endpoint provided by
-Taiwan Stock Exchange (TWSE).
+First-party web quotation endpoint provided by Taiwan Stock Exchange (TWSE).
 
-Endpoint characteristics:
+Semantics & Boundary Clarification:
   - Base URL: https://mis.twse.com.tw/stock/api/getStockInfo.jsp
+  - Source Type: First-party public web endpoint (best_effort_near_realtime).
+  - SLA: No formal contractual or published consumer SLA provided by TWSE.
+  - Rate Limits: Subject to empirical web scraping protections; no official rate limit SLA.
   - Batching: Supports pipe-delimited channels (e.g. tse_2330.tw|otc_8069.tw)
-  - Latency: Sub-second to real-time (delay=0)
   - Unit Semantics:
       * Cumulative volume 'v' is in LOTS (張) -> Deterministically multiplied by 1,000 to SHARES.
       * Depth order volumes 'g' (bids) and 'f' (asks) are in LOTS -> Multiplied by 1,000 to SHARES.
@@ -17,7 +18,9 @@ from __future__ import annotations
 from datetime import date, datetime
 import json
 import logging
+import time
 import urllib.request
+
 
 from app.taiwan.enrichment.models import SourceMeta
 from app.taiwan.realtime.calendar import get_market_status, taipei_now
@@ -96,8 +99,11 @@ class TwseMisRealtimeProvider:
         }
 
         # 1. Fetch data (or use injected mock response for tests)
+        t0 = time.perf_counter()
+        observed_ms: float | None = None
         if mock_response_json is not None:
             raw_data = mock_response_json
+            observed_ms = 0.5
         else:
             channels = "|".join(channel_to_canonical.keys())
             url = f"{MIS_ENDPOINT}?ex_ch={channels}&json=1&delay=0"
@@ -105,6 +111,7 @@ class TwseMisRealtimeProvider:
             try:
                 with urllib.request.urlopen(req, timeout=self.timeout) as resp:
                     raw_data = json.loads(resp.read().decode("utf-8"))
+                observed_ms = (time.perf_counter() - t0) * 1000
             except Exception as e:
                 logger.warning("Failed to fetch quotes from TWSE MIS: %s", e)
                 return {}
@@ -145,11 +152,12 @@ class TwseMisRealtimeProvider:
                 change = round(last_price - prev_close, 4)
                 change_pct = round((change / prev_close) * 100.0, 4)
 
-            # Parse quote official timestamp
+            # Parse quote official timestamp strictly; refuse to substitute datetime.now()
             d_str = item.get("d")  # "20260828"
             t_str = item.get("t")  # "13:30:00"
             quote_time: datetime | None = None
-            trade_date = now_tpe.date()
+            trade_date: date | None = None
+            timestamp_malformed = False
             if d_str and t_str:
                 try:
                     quote_time = datetime.strptime(f"{d_str} {t_str}", "%Y%m%d %H:%M:%S").replace(
@@ -157,7 +165,31 @@ class TwseMisRealtimeProvider:
                     )
                     trade_date = quote_time.date()
                 except Exception:
-                    pass
+                    timestamp_malformed = True
+            else:
+                timestamp_malformed = True
+
+            # Date mismatch detection: session open but quote still on prior trading date
+            date_mismatch = (
+                current_market_status in (MarketStatus.OPEN, MarketStatus.PRE_OPEN)
+                and trade_date is not None
+                and trade_date != now_tpe.date()
+            )
+
+            is_stale = timestamp_malformed or date_mismatch
+            fallback_reason: str | None = None
+            if timestamp_malformed:
+                fallback_reason = "Quote timestamp missing or malformed; refused to fake with local time"
+                status = RealtimeStatus.STALE.value
+            elif date_mismatch:
+                fallback_reason = f"Quote trade date {trade_date} does not match current session date {now_tpe.date()}"
+                status = RealtimeStatus.STALE.value
+            else:
+                status = (
+                    RealtimeStatus.REALTIME.value
+                    if current_market_status == MarketStatus.OPEN
+                    else RealtimeStatus.OFFICIAL_SNAPSHOT.value
+                )
 
             # Parse 5-tier bid / ask depth book
             bids = _parse_depth_tier(item.get("b"), item.get("g"))
@@ -166,7 +198,11 @@ class TwseMisRealtimeProvider:
             ask_p, ask_v = asks[0] if asks else (None, None)
 
             # Available fields metadata
-            avail = ["last_price", "prev_close", "volume"]
+            avail = ["prev_close"]
+            if last_price is not None:
+                avail.append("last_price")
+            if volume_shares is not None:
+                avail.append("volume")
             if open_p is not None:
                 avail.append("open")
             if high_p is not None:
@@ -178,23 +214,23 @@ class TwseMisRealtimeProvider:
             if asks:
                 avail.append("asks")
 
-            # Determine real-time vs snapshot
-            status = (
-                RealtimeStatus.REALTIME.value
-                if current_market_status == MarketStatus.OPEN
-                else RealtimeStatus.OFFICIAL_SNAPSHOT.value
-            )
-
             meta = SourceMeta(
                 source="twse:mis",
                 source_url=MIS_ENDPOINT,
                 fetched_at=fetched_at_iso,
                 trade_date=trade_date,
                 status=status,
-                is_realtime=(current_market_status == MarketStatus.OPEN),
+                is_realtime=(current_market_status == MarketStatus.OPEN and not is_stale),
+                fallback_reason=fallback_reason,
                 available_fields=tuple(avail),
-                is_stale=False,
+                is_stale=is_stale,
+                source_type="first_party_web_endpoint",
+                freshness_class="best_effort_near_realtime",
+                is_best_effort=True,
+                documented_sla=False,
+                observed_latency_ms=round(observed_ms, 2) if observed_ms is not None else None,
             )
+
 
             ts_obj = parse_symbol(canonical)
             quote = TaiwanRealtimeQuote(
