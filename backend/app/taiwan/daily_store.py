@@ -12,6 +12,8 @@ from __future__ import annotations
 import logging
 import os
 import tempfile
+import threading
+from collections import defaultdict
 from datetime import date
 from pathlib import Path
 from typing import Any
@@ -51,6 +53,14 @@ class TaiwanDailyStore:
     def __init__(self, data_dir: Path | None = None) -> None:
         self._data_dir = Path(data_dir or "data/taiwan/daily")
         self._data_dir.mkdir(parents=True, exist_ok=True)
+        self._partition_locks: dict[str, threading.Lock] = defaultdict(threading.Lock)
+        self._locks_guard = threading.Lock()
+
+    def _lock_for(self, d: date) -> threading.Lock:
+        """Return a per-partition lock keyed by date ISO string."""
+        key = d.isoformat()
+        with self._locks_guard:
+            return self._partition_locks[key]
 
     # ── Write ──────────────────────────────────────────────────────
 
@@ -96,40 +106,46 @@ class TaiwanDailyStore:
         return total_written
 
     def _write_partition(self, d: date, df: pl.DataFrame) -> int:
-        """Write *df* to the partition directory for date *d*, merging if exists."""
-        partition_dir = self._data_dir / f"date={d.isoformat()}"
-        partition_dir.mkdir(parents=True, exist_ok=True)
-        target = partition_dir / "part.parquet"
+        """Write *df* to the partition directory for date *d*, merging if exists.
 
-        # Merge with existing partition if present.
-        if target.exists():
+        The entire read-merge-dedup-replace sequence is protected by a
+        per-partition lock so that concurrent writers targeting the same
+        date are serialized (different dates can still write in parallel).
+        """
+        with self._lock_for(d):
+            partition_dir = self._data_dir / f"date={d.isoformat()}"
+            partition_dir.mkdir(parents=True, exist_ok=True)
+            target = partition_dir / "part.parquet"
+
+            # Merge with existing partition if present.
+            if target.exists():
+                try:
+                    existing = pl.scan_parquet(target, missing_columns="insert", extra_columns="ignore").collect()
+                    if not existing.is_empty():
+                        df = pl.concat([existing, df], how="diagonal_relaxed")
+                except Exception as exc:
+                    logger.warning("Failed to read existing partition %s: %s", target, exc)
+
+            # Final dedup + deterministic sort.
+            before = df.height
+            df = df.unique(subset=["symbol", "date"], keep="last").sort(["symbol", "date"])
+            logger.debug("partition %s dedup: %d rows -> %d rows", d, before, df.height)
+
+            # Atomic write: temp file -> replace.
+            tmp_fd, tmp_path = tempfile.mkstemp(dir=str(partition_dir), suffix=".parquet")
             try:
-                existing = pl.scan_parquet(target, missing_columns="insert", extra_columns="ignore").collect()
-                if not existing.is_empty():
-                    df = pl.concat([existing, df], how="diagonal_relaxed")
-            except Exception as exc:
-                logger.warning("Failed to read existing partition %s: %s", target, exc)
+                os.close(tmp_fd)
+                df.write_parquet(tmp_path)
+                Path(tmp_path).replace(target)
+                logger.debug("Wrote %d rows to %s", df.height, target)
+            except BaseException:
+                try:
+                    Path(tmp_path).unlink(missing_ok=True)
+                except OSError:
+                    pass
+                raise
 
-        # Final dedup + deterministic sort.
-        before = df.height
-        df = df.unique(subset=["symbol", "date"], keep="last").sort(["symbol", "date"])
-        logger.debug("partition %s dedup: %d rows -> %d rows", d, before, df.height)
-
-        # Atomic write: temp file -> replace.
-        tmp_fd, tmp_path = tempfile.mkstemp(dir=str(partition_dir), suffix=".parquet")
-        try:
-            os.close(tmp_fd)
-            df.write_parquet(tmp_path)
-            Path(tmp_path).replace(target)
-            logger.debug("Wrote %d rows to %s", df.height, target)
-        except BaseException:
-            try:
-                Path(tmp_path).unlink(missing_ok=True)
-            except OSError:
-                pass
-            raise
-
-        return df.height
+            return df.height
 
     # ── Read ───────────────────────────────────────────────────────
 

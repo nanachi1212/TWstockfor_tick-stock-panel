@@ -15,7 +15,7 @@ Covers:
 from __future__ import annotations
 
 import tempfile
-from datetime import date
+from datetime import date, datetime
 from pathlib import Path
 
 import polars as pl
@@ -312,6 +312,20 @@ class TestOfficialTaiwanProviderContract:
         assert row["amount"] == 456_000
         assert row["timestamp"].hour == 13 and row["timestamp"].minute == 30
         assert row["provider"] == "tpex"
+
+    def test_official_fetch_daily_accepts_date_and_datetime(self, monkeypatch):
+        """fetch_daily must accept both date and datetime objects for start_time and end_time."""
+        adapter = OfficialTaiwanAdapter()
+        # Mock _fetch_month to avoid network calls
+        monkeypatch.setattr(adapter, "_fetch_month", lambda symbol, cursor: pl.DataFrame())
+
+        # Test with date objects (as passed by TaiwanDailyRefreshService)
+        res1 = adapter.fetch_daily(["2330.TWSE"], start_time=date(2026, 8, 1), end_time=date(2026, 8, 28))
+        assert isinstance(res1, pl.DataFrame)
+
+        # Test with datetime objects
+        res2 = adapter.fetch_daily(["2330.TWSE"], start_time=datetime(2026, 8, 1, 9, 0), end_time=datetime(2026, 8, 28, 13, 30))
+        assert isinstance(res2, pl.DataFrame)
 
 
 # ── Parquet Storage & Indicator Pipeline Integration ───────────

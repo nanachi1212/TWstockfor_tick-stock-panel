@@ -309,3 +309,75 @@ class TestTaiwanDailyStoreVolumeShares:
         )
         assert first_date_row["volume"].dtype == pl.Float64
         assert first_date_row["volume"][0] == 10000.0
+
+
+# ── Concurrent write safety ───────────────────────────────────────────
+
+import threading
+
+
+def _make_single(symbol: str, d: date) -> pl.DataFrame:
+    return pl.DataFrame({
+        "symbol": [symbol],
+        "date": [d.isoformat()],
+        "open": [100.0], "high": [105.0], "low": [95.0], "close": [102.0],
+        "volume": [10000.0], "amount": [1020000.0], "quote_ts": [None],
+    })
+
+
+class TestTaiwanDailyStoreConcurrentSamePartition:
+    """Concurrent writers to the SAME date partition must not lose rows."""
+
+    SYMBOLS = ["2330.TWSE", "0050.TWSE", "00631L.TWSE", "00632R.TWSE", "00646.TWSE", "8069.TPEX"]
+    TARGET_DATE = date(2026, 8, 28)
+
+    def test_concurrent_same_partition_writes_preserve_all_symbols(self, store):
+        for _round in range(5):
+            errors = []
+
+            def worker(sym):
+                try:
+                    store.write_batch(_make_single(sym, self.TARGET_DATE))
+                except Exception as e:
+                    errors.append((sym, str(e)))
+
+            threads = [threading.Thread(target=worker, args=(s,)) for s in self.SYMBOLS]
+            for t in threads:
+                t.start()
+            for t in threads:
+                t.join()
+
+            assert not errors, f"Round {_round} errors: {errors}"
+            result = store.read_range(self.SYMBOLS, self.TARGET_DATE, self.TARGET_DATE)
+            actual = sorted(result["symbol"].unique().to_list())
+            assert actual == sorted(self.SYMBOLS), f"Round {_round}: expected {sorted(self.SYMBOLS)}, got {actual}"
+            # No duplicates
+            assert result.unique(subset=["symbol", "date"]).height == result.height
+
+
+class TestTaiwanDailyStoreConcurrentDifferentPartitions:
+    """Concurrent writers to DIFFERENT date partitions must all succeed."""
+
+    def test_concurrent_different_partition_writes(self, store):
+        dates = [date(2026, 8, d) for d in range(20, 26)]
+        errors = []
+
+        def worker(d):
+            try:
+                store.write_batch(_make_single("2330.TWSE", d))
+            except Exception as e:
+                errors.append((d, str(e)))
+
+        threads = [threading.Thread(target=worker, args=(d,)) for d in dates]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+
+        assert not errors, f"Errors: {errors}"
+        avail = store.available_dates()
+        for d in dates:
+            assert d in avail, f"Missing partition for {d}"
+        all_rows = store.read_all()
+        assert all_rows.height == len(dates)
+
