@@ -20,9 +20,33 @@ def is_risk_warning_name(name: str | None) -> bool:
     return "ST" in str(name or "").upper()
 
 
-def board_limit_pct(symbol: str) -> float:
+def taiwan_price_limit_pct(
+    symbol: str,
+    *,
+    limit_class: Any | None = None,
+) -> float | None:
+    """Delegate Taiwan price limit percentages strictly to Taiwan PriceLimitModel.
+
+    PriceLimitModel is the single authoritative source of truth.
+    Does not let symbol suffix alone dictate 10%.
+    """
+    from app.taiwan.market_rules import PriceLimitClass, PriceLimitModel
+
+    if limit_class is not None:
+        if isinstance(limit_class, str):
+            limit_class = PriceLimitClass(limit_class)
+        return PriceLimitModel.get_limit_pct(limit_class)
+
+    return PriceLimitModel.get_limit_pct(PriceLimitClass.ORDINARY_TEN_PERCENT)
+
+
+def board_limit_pct(
+    symbol: str,
+    *,
+    limit_class: Any | None = None,
+) -> float | None:
     if symbol.endswith((".TWSE", ".TPEX")):
-        return 0.10
+        return taiwan_price_limit_pct(symbol, limit_class=limit_class)
     if symbol.endswith(".BJ"):
         return BEIJING_BOARD_LIMIT
     if symbol.startswith(("300", "301", "688", "689")):
@@ -30,19 +54,22 @@ def board_limit_pct(symbol: str) -> float:
     return MAIN_BOARD_LIMIT
 
 
-
 def price_limit_pct(
     symbol: str,
     trade_date: date,
     *,
     is_risk_warning: bool = False,
-) -> float:
+    limit_class: Any | None = None,
+) -> float | None:
+    if symbol.endswith((".TWSE", ".TPEX")):
+        return taiwan_price_limit_pct(symbol, limit_class=limit_class)
     base = board_limit_pct(symbol)
     if (
         base == MAIN_BOARD_LIMIT
         and is_risk_warning
         and trade_date < MAIN_BOARD_ST_LIMIT_CHANGE_DATE
     ):
+
         return LEGACY_MAIN_BOARD_ST_LIMIT
     return base
 

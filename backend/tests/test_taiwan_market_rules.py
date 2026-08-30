@@ -1,12 +1,12 @@
-"""Unit tests for Taiwan Market Rules and Models.
+"""Unit tests for Taiwan Market Rules and Models (Hardened).
 
 Covers:
-  - Commission model: configurable rate, discount, minimum commission
+  - Commission model: statutory default 0.0 min commission, configurable discount/fee
   - Securities tax model: ordinary stock (0.3%), domestic ETF (0.1%), day-trading (0.15%), bond ETF (0%)
-  - Regulatory effective dates & expiry checks
+  - Regulatory effective dates & RegulatoryRuleUnavailableError upon statutory expiry
   - Lot model: board lot (1000) vs odd lot (1), share alignment
-  - Tick size model: stock 6 tiers, ETF 2 tiers, buy/sell rounding semantics
-  - Price limit model: 10% standard and no-limit class
+  - Tick size model: stock 6 tiers, ETF 2 tiers, price limit boundary vs order rounding
+  - Price limit single source of truth: delegation in price_limits.py, NO_LIMIT handling
   - Settlement cycle vs same-day trading decoupling (STANDARD_CASH vs DAY_TRADING)
 """
 from __future__ import annotations
@@ -14,11 +14,14 @@ from __future__ import annotations
 from datetime import date
 import pytest
 
+from app.price_limits import board_limit_pct, price_limit_pct, taiwan_price_limit_pct
 from app.taiwan.market_rules import (
     BacktestMode,
+    EXAMPLE_BROKER_MIN_COMMISSION,
     LotModel,
     PriceLimitClass,
     PriceLimitModel,
+    RegulatoryRuleUnavailableError,
     SecuritiesTaxModel,
     SettlementModel,
     TaiwanMarketProfile,
@@ -35,38 +38,47 @@ from app.taiwan.market_rules import (
 class TestCommissionModel:
     """Test configurable brokerage commission model."""
 
-    def test_default_full_commission(self):
-        cost = TradingCostModel(commission_rate=0.001425, discount=1.0, minimum_commission=20.0)
-        # Trade value 100,000 TWD -> 100,000 * 0.001425 = 142.5 TWD
-        assert cost.calc_commission(100_000.0) == 142.5
+    def test_statutory_default_has_zero_minimum_commission(self):
+        """Statutory default has no minimum commission floor (broker-specific)."""
+        cost = TradingCostModel()
+        assert cost.minimum_commission == 0.0
+        # Trade value 1,000 TWD -> 1,000 * 0.001425 = 1.425 TWD
+        assert cost.calc_commission(1_000.0) == pytest.approx(1.425)
 
-    def test_broker_discount_60pct(self):
-        cost = TradingCostModel(commission_rate=0.001425, discount=0.6, minimum_commission=20.0)
-        # 100,000 * 0.001425 * 0.6 = 85.5 TWD
+    def test_explicit_broker_configuration_with_20_twd_floor(self):
+        """Explicit broker profile with 20 TWD minimum charge."""
+        cost = TradingCostModel(
+            commission_rate=0.001425,
+            discount=0.6,
+            minimum_commission=EXAMPLE_BROKER_MIN_COMMISSION,
+        )
         assert cost.calc_commission(100_000.0) == pytest.approx(85.5)
-
-    def test_broker_discount_28pct(self):
-        cost = TradingCostModel(commission_rate=0.001425, discount=0.28, minimum_commission=20.0)
-        # 100,000 * 0.001425 * 0.28 = 39.9 TWD
-        assert cost.calc_commission(100_000.0) == pytest.approx(39.9)
-
-    def test_minimum_commission_floor(self):
-        cost = TradingCostModel(commission_rate=0.001425, discount=0.6, minimum_commission=20.0)
-        # Trade value 1,000 TWD -> raw fee = 0.855 TWD < 20 TWD floor -> 20.0 TWD
+        # Small trade floored at 20 TWD
         assert cost.calc_commission(1_000.0) == 20.0
 
+    def test_broker_discount_28pct(self):
+        cost = TradingCostModel(
+            commission_rate=0.001425,
+            discount=0.28,
+            minimum_commission=20.0,
+        )
+        assert cost.calc_commission(100_000.0) == pytest.approx(39.9)
+
     def test_odd_lot_configurable_min_commission(self):
-        cost = TradingCostModel(commission_rate=0.001425, discount=0.6, minimum_commission=1.0)
-        # Trade value 1,000 TWD -> raw fee 0.855 TWD < 1 TWD floor -> 1.0 TWD
-        assert cost.calc_commission(1_000.0) == 1.0
+        cost = TradingCostModel(
+            commission_rate=0.001425,
+            discount=0.6,
+            minimum_commission=1.0,
+        )
+        assert cost.calc_commission(1_000.0) == pytest.approx(1.0)
 
     def test_zero_or_negative_trade_value(self):
-        cost = TradingCostModel()
+        cost = TradingCostModel(minimum_commission=20.0)
         assert cost.calc_commission(0.0) == 0.0
         assert cost.calc_commission(-500.0) == 0.0
 
 
-# ── 2. Securities Tax Model Tests ──────────────────────────────
+# ── 2. Securities Tax Model Tests & Expiry Handling ────────────
 
 
 class TestSecuritiesTaxModel:
@@ -74,37 +86,35 @@ class TestSecuritiesTaxModel:
 
     def test_ordinary_stock_tax_sell_side(self):
         tax_model = SecuritiesTaxModel()
-        # 100,000 TWD trade value -> 0.3% = 300 TWD
         assert tax_model.calc_tax(100_000.0, TaxClass.ORDINARY_STOCK) == 300.0
 
     def test_domestic_etf_tax(self):
         tax_model = SecuritiesTaxModel()
-        # 100,000 TWD trade value -> 0.1% = 100 TWD
         assert tax_model.calc_tax(100_000.0, TaxClass.DOMESTIC_ETF) == 100.0
 
-    def test_day_trade_reduced_tax_before_expiry(self):
+    def test_day_trade_reduced_tax_within_enacted_window(self):
         tax_model = SecuritiesTaxModel()
-        # On 2026-08-28 (before 2027-12-31 expiry) -> 0.15% = 150 TWD
         trade_date = date(2026, 8, 28)
         assert tax_model.calc_tax(100_000.0, TaxClass.ORDINARY_STOCK, is_day_trade=True, trade_date=trade_date) == 150.0
 
-    def test_day_trade_tax_after_expiry_reverts_to_full(self):
+    def test_day_trade_tax_raises_when_expired(self):
+        """Do not speculate on future laws beyond enacted expiry date."""
         tax_model = SecuritiesTaxModel()
-        # On 2028-01-05 (after 2027-12-31 expiry) -> reverts to 0.3% = 300 TWD
         post_expiry = date(2028, 1, 5)
-        assert tax_model.calc_tax(100_000.0, TaxClass.ORDINARY_STOCK, is_day_trade=True, trade_date=post_expiry) == 300.0
+        with pytest.raises(RegulatoryRuleUnavailableError, match="Day-trade tax incentive"):
+            tax_model.get_tax_rate(TaxClass.ORDINARY_STOCK, is_day_trade=True, trade_date=post_expiry)
 
-    def test_bond_etf_tax_free_before_expiry(self):
+    def test_bond_etf_tax_free_within_enacted_window(self):
         tax_model = SecuritiesTaxModel()
-        # On 2026-08-28 (before 2026-12-31 expiry) -> 0% = 0 TWD
         trade_date = date(2026, 8, 28)
         assert tax_model.calc_tax(100_000.0, TaxClass.BOND_ETF, trade_date=trade_date) == 0.0
 
-    def test_bond_etf_tax_after_expiry(self):
+    def test_bond_etf_tax_raises_when_expired(self):
+        """Do not speculate on future laws beyond enacted expiry date."""
         tax_model = SecuritiesTaxModel()
-        # On 2027-01-05 (after 2026-12-31 expiry) -> falls back to ETF rate 0.1%
-        trade_date = date(2027, 1, 5)
-        assert tax_model.calc_tax(100_000.0, TaxClass.BOND_ETF, trade_date=trade_date) == 100.0
+        post_expiry = date(2027, 1, 5)
+        with pytest.raises(RegulatoryRuleUnavailableError, match="Bond ETF 0% tax exemption expired"):
+            tax_model.get_tax_rate(TaxClass.BOND_ETF, trade_date=post_expiry)
 
 
 # ── 3. Lot Model Tests ─────────────────────────────────────────
@@ -115,24 +125,18 @@ class TestLotModel:
 
     def test_board_lot_rounds_to_multiples_of_1000(self):
         lot = LotModel(mode="board_lot", board_lot_size=1000)
-        # Allocation 250,000 at price 100 TWD -> 2,500 shares max -> 2,000 shares (2 lots)
-        shares = lot.align_shares(allocation=250_000.0, price=100.0)
-        assert shares == 2000
+        assert lot.align_shares(allocation=250_000.0, price=100.0) == 2000
 
     def test_board_lot_insufficient_for_one_lot(self):
         lot = LotModel(mode="board_lot", board_lot_size=1000)
-        # Allocation 50,000 at price 100 TWD -> 500 shares -> 0 lots
-        shares = lot.align_shares(allocation=50_000.0, price=100.0)
-        assert shares == 0
+        assert lot.align_shares(allocation=50_000.0, price=100.0) == 0
 
     def test_odd_lot_mode_allows_single_shares(self):
         lot = LotModel(mode="odd_lot", odd_lot_size=1)
-        # Allocation 50,000 at price 100 TWD -> 500 shares
-        shares = lot.align_shares(allocation=50_000.0, price=100.0)
-        assert shares == 500
+        assert lot.align_shares(allocation=50_000.0, price=100.0) == 500
 
 
-# ── 4. Tick Size Model Tests ───────────────────────────────────
+# ── 4. Tick Size Model Tests (Boundary vs Order Rounding) ──────
 
 
 class TestTickSizeModel:
@@ -167,44 +171,42 @@ class TestTickSizeModel:
     def test_etf_tick_size_boundaries(self, price: float, expected_tick: float):
         assert TickSizeModel.get_tick_size(price, TickSizeClass.ETF) == expected_tick
 
-    def test_round_to_valid_tick_stock_buy_and_sell(self):
-        # Price 1005.3 TWD: tick size is 5.00
-        # side='buy' floors to 1005.00 (don't pay above tick)
-        assert TickSizeModel.round_to_valid_tick(1005.3, TickSizeClass.ORDINARY_STOCK, side="buy") == 1005.0
-        # side='sell' ceils to 1010.00 (don't sell below tick)
-        assert TickSizeModel.round_to_valid_tick(1005.3, TickSizeClass.ORDINARY_STOCK, side="sell") == 1010.0
-        # side='round' nearest is 1005.00
-        assert TickSizeModel.round_to_valid_tick(1005.3, TickSizeClass.ORDINARY_STOCK, side="round") == 1005.0
+    def test_round_price_limit_boundary_strict(self):
+        # 1005.3 TWD with 5.00 tick
+        # Limit-up must floor so ceiling is not breached
+        assert TickSizeModel.round_price_limit_boundary(1005.3, direction="up") == 1005.0
+        # Limit-down must ceil so floor is not breached
+        assert TickSizeModel.round_price_limit_boundary(1005.3, direction="down") == 1010.0
 
-    def test_round_to_valid_tick_etf(self):
-        # ETF price 50.03 TWD: tick size is 0.05
-        assert TickSizeModel.round_to_valid_tick(50.03, TickSizeClass.ETF, side="buy") == 50.00
-        assert TickSizeModel.round_to_valid_tick(50.03, TickSizeClass.ETF, side="sell") == 50.05
+    def test_round_order_price_nearest(self):
+        # Order price does not force floor or ceil; rounds to nearest tick
+        assert TickSizeModel.round_order_price(1006.0) == 1005.0
+        assert TickSizeModel.round_order_price(1008.0) == 1010.0
 
 
-# ── 5. Price Limit Model Tests ─────────────────────────────────
+# ── 5. Price Limit Single Source of Truth & Delegation ─────────
 
 
-class TestPriceLimitModel:
-    """Test 10% daily price limit and no-limit rules."""
+class TestPriceLimitModelAndDelegation:
+    """Verify PriceLimitModel is the single authoritative source of truth."""
 
-    def test_ordinary_stock_price_limit(self):
-        # Base price 100.0 TWD -> +10% = 110.0, -10% = 90.0 (both valid ticks)
-        up, down = PriceLimitModel.calc_limits(100.0, PriceLimitClass.ORDINARY_TEN_PERCENT, TickSizeClass.ORDINARY_STOCK)
-        assert up == 110.0
-        assert down == 90.0
+    def test_model_get_limit_pct_ordinary_stock(self):
+        assert PriceLimitModel.get_limit_pct(PriceLimitClass.ORDINARY_TEN_PERCENT) == 0.10
 
-    def test_tsmc_price_limit_rounding(self):
-        # 2330 base price 2420.0 -> up: 2420 * 1.10 = 2662.0 -> tick is 5.0 -> floor to 2660.0
-        up, down = PriceLimitModel.calc_limits(2420.0, PriceLimitClass.ORDINARY_TEN_PERCENT, TickSizeClass.ORDINARY_STOCK)
-        assert up == 2660.0
-        # down: 2420 * 0.90 = 2178.0 -> tick is 5.0 -> ceil to 2180.0
-        assert down == 2180.0
+    def test_model_get_limit_pct_no_limit(self):
+        assert PriceLimitModel.get_limit_pct(PriceLimitClass.NO_LIMIT) is None
 
-    def test_no_limit_etf_class(self):
-        up, down = PriceLimitModel.calc_limits(100.0, PriceLimitClass.NO_LIMIT, TickSizeClass.ETF)
-        assert up is None
-        assert down is None
+    def test_price_limits_py_delegation_ordinary_stock(self):
+        # Ordinary stock 2330.TWSE -> 10%
+        assert taiwan_price_limit_pct("2330.TWSE") == 0.10
+        assert board_limit_pct("2330.TWSE") == 0.10
+        assert price_limit_pct("2330.TWSE", date(2026, 8, 28)) == 0.10
+
+    def test_price_limits_py_delegation_no_limit_etf(self):
+        # Foreign ETF / Bond ETF with NO_LIMIT class must return None, NOT 10%
+        assert taiwan_price_limit_pct("00646.TWSE", limit_class=PriceLimitClass.NO_LIMIT) is None
+        assert board_limit_pct("00646.TWSE", limit_class=PriceLimitClass.NO_LIMIT) is None
+        assert price_limit_pct("00646.TWSE", date(2026, 8, 28), limit_class=PriceLimitClass.NO_LIMIT) is None
 
 
 # ── 6. Settlement and Same-Day Exit Decoupling ─────────────────
@@ -219,12 +221,10 @@ class TestSettlementAndSameDayExit:
 
     def test_standard_cash_disallows_same_day_exit(self):
         profile = TaiwanMarketProfile(mode=BacktestMode.STANDARD_CASH)
-        # Even if eligible for day-trade, STANDARD_CASH account policy prohibits same-day exit
         assert profile.can_same_day_exit(is_day_trade_eligible=True) is False
         assert profile.can_same_day_exit(is_day_trade_eligible=False) is False
 
     def test_day_trading_allows_same_day_exit_for_eligible_securities(self):
         profile = TaiwanMarketProfile(mode=BacktestMode.DAY_TRADING)
         assert profile.can_same_day_exit(is_day_trade_eligible=True) is True
-        # Ineligible security (e.g. disposed stock) prohibited
         assert profile.can_same_day_exit(is_day_trade_eligible=False) is False

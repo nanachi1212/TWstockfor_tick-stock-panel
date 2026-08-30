@@ -50,7 +50,16 @@ class BacktestMode(str, Enum):
     ODD_LOT = "odd_lot"                # Odd-lot mode: 1-share sizing with odd-lot min commission
 
 
+# ── Exceptions ──────────────────────────────────────────────────
+
+
+class RegulatoryRuleUnavailableError(ValueError):
+    """Raised when a regulatory rule is unverified or expired beyond enacted statutory windows."""
+
+
 # ── 1. Trading Cost (Commission) Model ─────────────────────────
+
+EXAMPLE_BROKER_MIN_COMMISSION: float = 20.0  # Common broker floor for reference only
 
 
 @dataclass(frozen=True)
@@ -58,11 +67,12 @@ class TradingCostModel:
     """Brokerage commission model.
 
     Taiwan official legal ceiling is 0.1425% (0.001425).
-    Discount and minimum commission are broker-specific configurations and must be configurable.
+    Minimum commission is strictly broker-specific. The statutory default is 0.0 (no exchange floor).
+    Specific broker settings (e.g. 20 TWD standard, 1 TWD odd-lot) must be explicitly configured.
     """
     commission_rate: float = 0.001425
     discount: float = 1.0              # 1.0 = full price; 0.6 = 60%; 0.28 = 28%
-    minimum_commission: float = 20.0   # Broker minimum charge in TWD (0.0 to disable)
+    minimum_commission: float = 0.0    # Statutory default 0.0 (broker-specific when > 0)
 
     def calc_commission(self, trade_value: float) -> float:
         """Calculate commission in TWD for a given trade value."""
@@ -82,7 +92,8 @@ class SecuritiesTaxModel:
     """Securities transaction tax model.
 
     Taxes are levied EXCLUSIVELY on the SELL side.
-    Day-trade and bond ETF exemptions have regulatory effective dates.
+    Day-trade and bond ETF exemptions have statutory effective windows.
+    Querying beyond the enacted expiry date raises RegulatoryRuleUnavailableError rather than guessing.
     """
     ordinary_stock_rate: float = 0.003
     day_trade_stock_rate: float = 0.0015
@@ -90,7 +101,7 @@ class SecuritiesTaxModel:
     foreign_etf_rate: float = 0.001
     bond_etf_rate: float = 0.0
 
-    # Regulatory expiry dates from legislation
+    # Statutory expiry dates from enacted legislation
     day_trade_expiry: date = date(2027, 12, 31)
     bond_etf_expiry: date = date(2026, 12, 31)
 
@@ -102,21 +113,26 @@ class SecuritiesTaxModel:
     ) -> float:
         """Get applicable tax rate based on asset class, day-trade status, and date."""
         if is_day_trade:
-            if trade_date is None or trade_date <= self.day_trade_expiry:
-                return self.day_trade_stock_rate
-            # If day-trade rate incentive expired, revert to ordinary stock rate
-            return self.ordinary_stock_rate
+            if trade_date is not None and trade_date > self.day_trade_expiry:
+                raise RegulatoryRuleUnavailableError(
+                    f"Day-trade tax incentive (0.15%) expired on {self.day_trade_expiry}. "
+                    f"Statutory policy for trade_date {trade_date} is unverified by law."
+                )
+            return self.day_trade_stock_rate
 
         if tax_class == TaxClass.BOND_ETF:
-            if trade_date is None or trade_date <= self.bond_etf_expiry:
-                return self.bond_etf_rate
-            # If bond ETF tax exemption expired, falls back to ETF rate
-            return self.domestic_etf_rate
+            if trade_date is not None and trade_date > self.bond_etf_expiry:
+                raise RegulatoryRuleUnavailableError(
+                    f"Bond ETF 0% tax exemption expired on {self.bond_etf_expiry}. "
+                    f"Statutory policy for trade_date {trade_date} is unverified by law."
+                )
+            return self.bond_etf_rate
 
         if tax_class in (TaxClass.DOMESTIC_ETF, TaxClass.FOREIGN_ETF):
             return self.domestic_etf_rate
 
         return self.ordinary_stock_rate
+
 
     def calc_tax(
         self,
@@ -195,6 +211,53 @@ class TickSizeModel:
         return 5.00
 
     @classmethod
+    def round_price_limit_boundary(
+        cls,
+        raw_price: float,
+        direction: Literal["up", "down"],
+        tick_class: TickSizeClass = TickSizeClass.ORDINARY_STOCK,
+        trade_date: date | None = None,
+    ) -> float:
+        """Round statutory price limit boundaries strictly without violating exchange bands.
+
+        direction='up': floor to tick so limit-up never exceeds statutory ceiling (+10%).
+        direction='down': ceil to tick so limit-down never breaches statutory floor (-10%).
+        """
+        if raw_price <= 0:
+            return 0.0
+        tick = cls.get_tick_size(raw_price, tick_class=tick_class, trade_date=trade_date)
+        if direction == "up":
+            steps = math.floor(raw_price / tick + 1e-9)
+        else:
+            steps = math.ceil(raw_price / tick - 1e-9)
+        return round(steps * tick, 4)
+
+    @classmethod
+    def round_order_price(
+        cls,
+        price: float,
+        tick_class: TickSizeClass = TickSizeClass.ORDINARY_STOCK,
+        mode: Literal["nearest", "floor", "ceil"] = "nearest",
+        trade_date: date | None = None,
+    ) -> float:
+        """Round order or execution fill price to valid tick without skewing strategy intent.
+
+        mode='nearest': standard closest tick (default for orders/fills).
+        mode='floor': round downward to tick.
+        mode='ceil': round upward to tick.
+        """
+        if price <= 0:
+            return 0.0
+        tick = cls.get_tick_size(price, tick_class=tick_class, trade_date=trade_date)
+        if mode == "floor":
+            steps = math.floor(price / tick + 1e-9)
+        elif mode == "ceil":
+            steps = math.ceil(price / tick - 1e-9)
+        else:
+            steps = round(price / tick)
+        return round(steps * tick, 4)
+
+    @classmethod
     def round_to_valid_tick(
         cls,
         price: float,
@@ -202,29 +265,38 @@ class TickSizeModel:
         side: Literal["buy", "sell", "round"] = "round",
         trade_date: date | None = None,
     ) -> float:
-        """Round price to valid exchange tick.
+        """General rounding entry point.
 
-        side='buy': floor to tick (conservative, avoid paying above limit)
-        side='sell': ceil to tick (conservative, avoid selling below limit)
-        side='round': standard nearest tick
+        side='round': standard nearest tick (recommended for general orders/fills).
+        side='buy': floor to tick (conservative boundary limit).
+        side='sell': ceil to tick (conservative boundary limit).
         """
-        if price <= 0:
-            return 0.0
-        tick = cls.get_tick_size(price, tick_class=tick_class, trade_date=trade_date)
         if side == "buy":
-            steps = math.floor(price / tick + 1e-9)
-        elif side == "sell":
-            steps = math.ceil(price / tick - 1e-9)
-        else:
-            steps = round(price / tick)
-        return round(steps * tick, 4)
+            return cls.round_price_limit_boundary(price, direction="up", tick_class=tick_class, trade_date=trade_date)
+        if side == "sell":
+            return cls.round_price_limit_boundary(price, direction="down", tick_class=tick_class, trade_date=trade_date)
+        return cls.round_order_price(price, tick_class=tick_class, mode="nearest", trade_date=trade_date)
 
 
 # ── 5. Price Limit Model ───────────────────────────────────────
 
 
 class PriceLimitModel:
-    """Daily price limit model (+-10% standard or no-limit)."""
+    """Daily price limit model (+-10% standard or no-limit). Single source of truth."""
+
+    @staticmethod
+    def get_limit_pct(
+        limit_class: PriceLimitClass = PriceLimitClass.ORDINARY_TEN_PERCENT,
+    ) -> float | None:
+        """Authoritative single source of truth for Taiwan price limit percentages.
+
+        Returns:
+            0.10 for ordinary stocks and domestic equity ETFs.
+            None for NO_LIMIT class (foreign ETFs, bond ETFs, 5-day IPOs).
+        """
+        if limit_class == PriceLimitClass.NO_LIMIT:
+            return None
+        return 0.10
 
     @staticmethod
     def calc_limits(
@@ -241,9 +313,10 @@ class PriceLimitModel:
         up_raw = ref_price * 1.10
         down_raw = ref_price * 0.90
 
-        limit_up = TickSizeModel.round_to_valid_tick(up_raw, tick_class=tick_class, side="buy")
-        limit_down = TickSizeModel.round_to_valid_tick(down_raw, tick_class=tick_class, side="sell")
+        limit_up = TickSizeModel.round_price_limit_boundary(up_raw, direction="up", tick_class=tick_class)
+        limit_down = TickSizeModel.round_price_limit_boundary(down_raw, direction="down", tick_class=tick_class)
         return limit_up, limit_down
+
 
 
 # ── 6. Settlement Model ────────────────────────────────────────
