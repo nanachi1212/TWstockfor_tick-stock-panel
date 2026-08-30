@@ -439,7 +439,9 @@ class MarketDataMatrix:
     limit_up_locked: np.ndarray
     limit_down_locked: np.ndarray
     fields: Mapping[str, np.ndarray]
+    volume_unit: str = "lots"
     cache_status: str = "memory"
+
     cache_path: str | None = None
     cache_lease: Any | None = field(default=None, compare=False, repr=False)
     vector_fields: frozenset[str] = field(default_factory=frozenset)
@@ -656,11 +658,15 @@ def build_market_data_matrix(
     )
     _make_read_only(*arrays)
 
+    sym_tuple = tuple(str(value) for value in symbol_values)
+    is_taiwan = any(s.endswith((".TWSE", ".TPEX")) for s in sym_tuple)
+    vol_unit = "shares" if is_taiwan else "lots"
+
     return MarketDataMatrix(
         timestamps=timestamps,
         timestamp_labels=timestamp_labels,
         session_ids=session_ids,
-        symbols=tuple(str(value) for value in symbol_values),
+        symbols=sym_tuple,
         names=tuple(names),
         open=open_,
         high=high,
@@ -671,7 +677,9 @@ def build_market_data_matrix(
         limit_up_locked=limit_up_locked,
         limit_down_locked=limit_down_locked,
         fields=MappingProxyType(fields),
+        volume_unit=vol_unit,
     )
+
 
 
 def load_market_data_matrix_from_parquet(
@@ -3978,11 +3986,16 @@ def _compute_matrix_feature(market: MarketDataMatrix, name: str) -> np.ndarray:
         return _matrix_rolling_corr(daily, market.volume, close_valid, 20)
     if name == "vwap_bias":
         amount = market.field("amount")
-        shares = market.volume * np.float32(100.0)
+        vol_unit = getattr(market, "volume_unit", "lots")
+        if vol_unit == "shares" or (hasattr(market, "symbols") and any(s.endswith((".TWSE", ".TPEX")) for s in market.symbols)):
+            shares = market.volume
+        else:
+            shares = market.volume * np.float32(100.0)
         valid = close_valid & np.isfinite(amount) & (market.volume > 0) & (amount > 0)
         vwap = np.full(market.shape, np.nan, dtype=np.float32)
         np.divide(amount, shares, out=vwap, where=valid)
         return _matrix_relative(market.close, vwap)
+
     if name == "vol_trend_5_60":
         volume_valid = close_valid & np.isfinite(market.volume)
         fast = valid_rolling_mean(market.volume, volume_valid, 5)
@@ -4135,6 +4148,10 @@ def _apply_bound(mask: np.ndarray, values: np.ndarray, config: dict, prefix: str
 
 def _symbol_in_boards(symbol: str, boards: list[str]) -> bool:
     for board in boards:
+        if board in ("TWSE", "上市") and symbol.endswith(".TWSE"):
+            return True
+        if board in ("TPEX", "上櫃", "柜买") and symbol.endswith(".TPEX"):
+            return True
         if board == "沪主板" and symbol.startswith("60"):
             return True
         if board == "深主板" and symbol.startswith(("00", "001")):
@@ -4146,3 +4163,4 @@ def _symbol_in_boards(symbol: str, boards: list[str]) -> bool:
         if board == "北交所" and symbol.endswith(".BJ"):
             return True
     return False
+

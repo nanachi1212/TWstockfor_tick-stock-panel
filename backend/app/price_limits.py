@@ -21,11 +21,14 @@ def is_risk_warning_name(name: str | None) -> bool:
 
 
 def board_limit_pct(symbol: str) -> float:
+    if symbol.endswith((".TWSE", ".TPEX")):
+        return 0.10
     if symbol.endswith(".BJ"):
         return BEIJING_BOARD_LIMIT
     if symbol.startswith(("300", "301", "688", "689")):
         return GROWTH_BOARD_LIMIT
     return MAIN_BOARD_LIMIT
+
 
 
 def price_limit_pct(
