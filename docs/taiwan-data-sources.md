@@ -18,9 +18,9 @@ The `taiwan` provider uses one existing provider seam with the following policy:
 - TWSE monthly K-line: `exchangeReport/STOCK_DAY`
 - TPEx monthly K-line: `afterTrading/tradingStock`
 
-TPEx ETF identity/classification remains `data_insufficient` until an official,
-structured product metadata source is integrated. Code/name heuristics are not used
-to fill this gap.
+TPEx ETF identity is retained from the official ISIN directory. Product
+classification remains `data_insufficient` until an official structured metadata
+source is integrated; code/name heuristics are not used to fill this gap.
 
 ## Normalized contract
 

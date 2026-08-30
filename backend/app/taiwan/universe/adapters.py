@@ -25,7 +25,7 @@ import json
 import logging
 import re
 import urllib.request
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime
 from html.parser import HTMLParser
 
@@ -350,7 +350,13 @@ class TpexInstrumentAdapter:
         official_product_types: dict[str, OfficialEtfProductMeta | str] | None = None,
     ) -> list[TaiwanInstrument]:
         if html_content is None:
-            return _official_company_directory("TPEX", TPEX_COMPANIES_URL)
+            etfs = [
+                replace(item, etf_category="unknown", classification_source=None,
+                        underlying_scope="unknown", leverage_multiplier=1.0)
+                for item in parse_isin_html(self.fetch_live_html(), "TPEX", "TPEX_ISIN")
+                if item.instrument_type == "etf"
+            ]
+            return _official_company_directory("TPEX", TPEX_COMPANIES_URL) + etfs
         html = html_content
         return parse_isin_html(
             html,
