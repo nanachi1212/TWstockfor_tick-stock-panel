@@ -31,7 +31,7 @@ class TaiwanHybridProvider:
         adj_factor=False,
         minute=False,
         realtime=True,
-        financial=False,
+        financial=True,
     )
 
     def __init__(
@@ -43,6 +43,17 @@ class TaiwanHybridProvider:
         self.yahoo = YahooFinanceAdapter()
         self.official = OfficialTaiwanAdapter()
         self.primary = primary.lower()
+
+    def get_fundamentals(self, symbol: str, dataset: str, *, exchange: str, security_type: str = "stock"):
+        """Use the authoritative Taiwan fundamentals seam without changing factors."""
+        from app.taiwan.fundamentals import TaiwanOfficialFundamentals
+
+        provider = TaiwanOfficialFundamentals()
+        if dataset == "monthly_revenue":
+            return provider.monthly_revenue(symbol, exchange, security_type=security_type)
+        if dataset == "financial_statement":
+            return provider.financial_statement(symbol, exchange, security_type=security_type)
+        raise ValueError(f"unsupported Taiwan fundamentals dataset: {dataset}")
 
     def get_instruments(self, asset_type: AssetType = "stock") -> pl.DataFrame:
         """Return canonical instruments dataframe from official TaiwanSecurityMaster.

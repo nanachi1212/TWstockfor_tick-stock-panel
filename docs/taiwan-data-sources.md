@@ -116,3 +116,29 @@ one matrix cannot truthfully expose a single `volume_unit` for both contracts.
 The current execution engine has no absolute-volume participation cap; volume is
 only used to identify non-trading rows, while slippage remains a configured bps
 model.
+# Point-in-time fundamentals
+
+Taiwan company fundamentals use official TWSE/TPEx MOPS open-data records and
+keep every record's provider, source URL, retrieval time, status, units, and
+revision evidence. The time fields are intentionally distinct:
+
+- `period_end` is the accounting period end; it is never an availability date.
+- `published_at` is the verified publication timestamp, when a source provides one.
+- `available_at` is the first verified timestamp the record could be consumed.
+- `retrieved_at` is when this application fetched the record.
+
+Historical queries are strict: a record is visible only when
+`query_at > available_at`. A missing `available_at` is never inferred from the
+period end or a date-only `出表日期`; the record is retained as
+`data_insufficient` and excluded from backtests. Revisions are stored separately
+and an as-of query selects the latest eligible revision rather than today's
+latest value.
+
+Official financial amounts reported in `仟元` are normalized to TWD. Missing
+values remain null, explicit zero remains zero, and malformed values are errors.
+Company monthly revenue and statements are `unsupported` for ETFs.
+
+Share-capital fields are not interchangeable: `total_shares`, `issued_shares`,
+`float_shares`, and monetary `capital` retain their own meanings. In particular,
+issued shares or capital divided by par value are not used as historical float
+shares without an authoritative source.
