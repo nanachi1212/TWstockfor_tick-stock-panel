@@ -22,7 +22,7 @@ from app.taiwan.symbol import Exchange, TaiwanSymbol, parse_symbol
 
 TWSE_QUOTE_URL = "https://openapi.twse.com.tw/v1/exchangeReport/STOCK_DAY_ALL"
 TPEX_QUOTE_URL = "https://www.tpex.org.tw/openapi/v1/tpex_mainboard_quotes"
-TWSE_MONTH_URL = "https://www.twse.com.tw/exchangeReport/STOCK_DAY"
+TWSE_MONTH_URL = "https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY"
 TPEX_MONTH_URL = "https://www.tpex.org.tw/www/zh-tw/afterTrading/tradingStock"
 
 OFFICIAL_METADATA = SourceMetadata(
@@ -38,7 +38,10 @@ class OfficialTaiwanAdapter:
         self.timeout = timeout
 
     def _json(self, url: str) -> object:
-        request = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+        request = urllib.request.Request(
+            url,
+            headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"},
+        )
         with urllib.request.urlopen(request, timeout=self.timeout) as response:
             return json.loads(response.read().decode("utf-8-sig"))
 

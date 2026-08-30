@@ -334,7 +334,12 @@ class TaiwanScreenerService:
                 })
                 continue
 
-            limit_pct = MarketProfileBridge.get_price_limit_pct(inst)
+            try:
+                limit_pct = MarketProfileBridge.get_price_limit_pct(inst)
+            except ValueError as e:
+                logger.debug("Unconfirmed regulatory profile for %s: %s", inst.symbol, e)
+                limit_pct = 0.10  # Fallback to standard Taiwan 10% limit for unconfirmed ETFs
+
             is_no_limit = limit_pct is None
 
             if is_no_limit or limit_pct is None:
@@ -349,7 +354,12 @@ class TaiwanScreenerService:
                 })
                 continue
 
-            upper, lower = MarketProfileBridge.calc_limits(close, inst)
+            try:
+                upper, lower = MarketProfileBridge.calc_limits(close, inst)
+            except ValueError:
+                upper = round(close * (1 + limit_pct), 2)
+                lower = round(close * (1 - limit_pct), 2)
+
             dist_up = (upper - close) / close if (upper and close > 0) else None
             dist_dn = (close - lower) / close if (lower and close > 0) else None
 

@@ -14,7 +14,7 @@ import json
 import logging
 import urllib.parse
 import urllib.request
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 
 import polars as pl
 
@@ -56,8 +56,10 @@ class YahooFinanceAdapter:
         if not symbols:
             return pl.DataFrame()
 
-        end_dt = end_time or datetime.now()
-        start_dt = start_time or (end_dt - timedelta(days=365))
+        end_raw = end_time or datetime.now()
+        start_raw = start_time or (end_raw - timedelta(days=365))
+        end_dt = datetime.combine(end_raw, datetime.min.time()) if isinstance(end_raw, date) and not isinstance(end_raw, datetime) else end_raw
+        start_dt = datetime.combine(start_raw, datetime.min.time()) if isinstance(start_raw, date) and not isinstance(start_raw, datetime) else start_raw
         p1 = int(start_dt.timestamp())
         p2 = int(end_dt.timestamp())
 

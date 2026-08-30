@@ -10,7 +10,7 @@ MISSING_VALUES = {"", "-", "--", "N/A"}
 
 
 def parse_taiwan_date(raw: str) -> date:
-    value = str(raw).strip()
+    value = str(raw).strip().rstrip("*").strip()
     compact = value.replace("/", "")
     if len(compact) == 7 and compact.isdigit():
         compact = f"{int(compact[:3]) + 1911:04d}{compact[3:]}"

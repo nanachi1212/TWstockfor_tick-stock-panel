@@ -196,15 +196,17 @@ class TaiwanDailyRefreshService:
                 sym, j_start, j_end = futures[future]
                 try:
                     result = future.result()
-                    symbols_seen.add(sym)
+                    rows_got = result.get("rows", 0)
+                    if rows_got > 0:
+                        symbols_seen.add(sym)
                     stats["jobs_executed"] += 1
-                    stats["rows_written"] += result.get("rows", 0)
+                    stats["rows_written"] += rows_got
                     if sym not in stats["per_symbol"]:
                         stats["per_symbol"][sym] = {
                             "symbol": sym,
                             "rows": 0,
                             "ranges": [],
-                            "status": "ok",
+                            "status": "ok" if rows_got > 0 else "empty",
                         }
                     stats["per_symbol"][sym]["rows"] += result.get("rows", 0)
                     stats["per_symbol"][sym]["ranges"].append({
@@ -226,6 +228,10 @@ class TaiwanDailyRefreshService:
         """Fetch a single symbol's daily data for [start, end] and store it atomically."""
         df = self._provider.get_daily([symbol], start_time=start, end_time=end)
         if df.is_empty():
+            # If query was for a single candidate date and returned no rows,
+            # record this date in calendar as a confirmed non-trading day
+            if start == end and self._calendar is not None:
+                self._calendar.add_holiday(start)
             return {"symbol": symbol, "rows": 0, "status": "empty"}
 
         rows = df.height
