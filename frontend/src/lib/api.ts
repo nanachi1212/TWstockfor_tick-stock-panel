@@ -874,12 +874,124 @@ export interface AlertEvent {
   [key: string]: unknown
 }
 
+// ===== Taiwan Realtime & Monitor Types (Phase 5C) =====
+export type TaiwanMarketStatus =
+  | 'open'
+  | 'pre_open'
+  | 'post_close'
+  | 'closed'
+  | 'non_trading_day'
+  | 'scheduled_open_unverified'
+
+export interface TaiwanSourceMeta {
+  source: string
+  source_url: string
+  fetched_at: string
+  trade_date: string
+  status: string
+  is_realtime: boolean
+  is_stale: boolean
+  source_type: string
+  freshness_class: string
+  is_best_effort: boolean
+  fallback_reason?: string | null
+}
+
+export interface TaiwanRealtimeQuote {
+  symbol: string
+  name: string
+  exchange: 'TWSE' | 'TPEx' | string
+  last_price: number | null
+  prev_close: number | null
+  open: number | null
+  high: number | null
+  low: number | null
+  change: number | null
+  change_pct: number | null
+  volume: number | null               // In SHARES (股)
+  amount: number | null               // In TWD
+  quote_time: string | null           // ISO string
+  trade_date: string                  // YYYY-MM-DD
+  market_status: TaiwanMarketStatus | string
+  source_meta: TaiwanSourceMeta
+  bid_price?: number | null
+  ask_price?: number | null
+  bid_volume?: number | null          // In SHARES (股)
+  ask_volume?: number | null          // In SHARES (股)
+  bids?: [number, number][]           // 5-level order book: [price, shares]
+  asks?: [number, number][]           // 5-level order book: [price, shares]
+  limit_up?: number | null
+  limit_down?: number | null
+  price_limit_pct?: number | null
+  is_no_limit?: boolean
+}
+
+export type TaiwanRuleType =
+  | 'price_above'
+  | 'price_below'
+  | 'change_pct_above'
+  | 'change_pct_below'
+  | 'volume_above'
+  | 'volume_spike'
+  | 'near_upper_limit'
+  | 'near_lower_limit'
+
+export interface TaiwanMonitorRule {
+  rule_id: string
+  name: string
+  symbol: string
+  rule_type: TaiwanRuleType
+  threshold: number
+  enabled: boolean
+  cooldown_seconds: number
+  hysteresis?: number | null
+  reference_volume?: number | null     // In SHARES (股)
+  severity: 'info' | 'warning' | 'critical'
+  created_at?: string
+  updated_at?: string
+}
+
+export interface TaiwanAlertEvent {
+  alert_id: string
+  rule_id: string
+  rule_name: string
+  symbol: string
+  name: string
+  rule_type: string
+  triggered_at: string
+  quote_time?: string | null
+  trigger_value: number
+  threshold: number
+  message: string
+  source: string
+  source_status: string
+  market_status: string
+  severity: 'info' | 'warning' | 'critical' | string
+  field_name: string
+  dedup_key: string
+  ts: number
+  price?: number | null
+  change_pct?: number | null
+}
+
+export interface TaiwanSearchResult {
+  symbol: string
+  code: string
+  name: string
+  exchange: string
+  instrument_type: string
+  is_supported: boolean
+  price_limit_pct?: number | null
+  is_no_limit?: boolean
+}
+
 /** 生成监控规则 id (时间戳 + 随机后缀), 用户无需手动填写。 */
 export function genRuleId(): string {
   const ts = Date.now().toString(36)
   const rand = Math.random().toString(36).slice(2, 6)
   return `mr_${ts}_${rand}`
 }
+
 
 // ===== Limit Ladder =====
 export interface LimitLadderStock {
@@ -2885,6 +2997,55 @@ export const api = {
 
   monitorRuleDelete: (id: string) =>
     request<{ ok: boolean }>(`/api/monitor-rules/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+
+  // ===== Taiwan Realtime & Monitor APIs (Phase 5C) =====
+  taiwanQuotes: (symbols: string[], force = false) =>
+    request<{ quotes: TaiwanRealtimeQuote[]; count: number }>(
+      `/api/intraday/quotes?symbols=${encodeURIComponent(symbols.join(','))}&force=${force}`,
+    ),
+
+  taiwanSearch: (query: string, limit = 20) =>
+    request<{ results: TaiwanSearchResult[]; count: number }>(
+      `/api/intraday/taiwan/search?q=${encodeURIComponent(query)}&limit=${limit}`,
+    ),
+
+  taiwanRulesList: () =>
+    request<{ rules: TaiwanMonitorRule[]; total: number }>('/api/monitor-rules/taiwan'),
+
+  taiwanRuleSave: (rule: {
+    rule_id?: string
+    name: string
+    symbol: string
+    rule_type: string
+    threshold: number
+    enabled?: boolean
+    cooldown_seconds?: number
+    hysteresis?: number | null
+    reference_volume?: number | null
+    severity?: string
+  }) =>
+    request<{ ok: boolean; rule: TaiwanMonitorRule }>('/api/monitor-rules/taiwan', {
+      method: 'POST',
+      body: JSON.stringify(rule),
+    }),
+
+  taiwanRuleUpdate: (ruleId: string, updates: Partial<TaiwanMonitorRule>) =>
+    request<{ ok: boolean; rule: TaiwanMonitorRule }>(`/api/monitor-rules/taiwan/${encodeURIComponent(ruleId)}`, {
+      method: 'PATCH',
+      body: JSON.stringify(updates),
+    }),
+
+  taiwanRuleDelete: (ruleId: string) =>
+    request<{ ok: boolean; deleted: string }>(`/api/monitor-rules/taiwan/${encodeURIComponent(ruleId)}`, {
+      method: 'DELETE',
+    }),
+
+  taiwanEvaluateRules: () =>
+    request<{ ok: boolean; evaluated_rules: number; alerts_count: number; alerts: TaiwanAlertEvent[] }>(
+      '/api/monitor-rules/taiwan/evaluate',
+      { method: 'POST' },
+    ),
+
 
   /** 模拟触发 ladder 封单监控 (Dev 调试, 不落盘不推送) */
   monitorRuleTestLadder: () =>

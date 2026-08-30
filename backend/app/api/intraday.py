@@ -121,8 +121,62 @@ def get_quotes(
 
     tw_svc = get_realtime_service()
     quote_map = tw_svc.get_quotes(symbol_list, force_refresh=force)
-    rows = [q.to_dict() for q in quote_map.values()]
+    
+    from app.taiwan.universe import get_security_master
+    from app.taiwan.universe.models import MarketProfileBridge
+    sec_master = get_security_master()
+
+    rows = []
+    for q in quote_map.values():
+        d = q.to_dict()
+        inst = sec_master.get_instrument(q.symbol)
+        limit_up, limit_down = (None, None)
+        limit_pct = None
+        is_no_limit = False
+        if inst:
+            limit_pct = MarketProfileBridge.get_price_limit_pct(inst)
+            if limit_pct is None:
+                is_no_limit = True
+            elif q.prev_close is not None:
+                limit_up, limit_down = MarketProfileBridge.calc_limits(q.prev_close, inst)
+        d["limit_up"] = limit_up
+        d["limit_down"] = limit_down
+        d["price_limit_pct"] = limit_pct
+        d["is_no_limit"] = is_no_limit
+        rows.append(d)
+
     return {"quotes": rows, "count": len(rows)}
+
+
+@router.get("/taiwan/search")
+def search_taiwan_instruments(
+    q: str = Query(..., description="代號、全名或代號簡稱，如 2330, 台積電, 0050"),
+    limit: int = Query(20, ge=1, le=100),
+):
+    """查詢台灣證券主檔 (Security Master)。支援股票、ETF、權證搜尋與支援狀態判斷。"""
+    from app.taiwan.universe import get_security_master
+    from app.taiwan.universe.models import MarketProfileBridge
+
+    sec_master = get_security_master()
+    results = sec_master.search(q, limit=limit)
+    
+    # 附帶法規限制資訊 (方便前端即時判斷是否支援接近漲跌停規則)
+    enriched = []
+    for item in results:
+        sym = item.get("symbol")
+        inst = sec_master.get_instrument(sym) if sym else None
+        limit_pct = None
+        is_no_limit = False
+        if inst and inst.is_supported:
+            limit_pct = MarketProfileBridge.get_price_limit_pct(inst)
+            is_no_limit = (limit_pct is None)
+        item["price_limit_pct"] = limit_pct
+        item["is_no_limit"] = is_no_limit
+        enriched.append(item)
+
+    return {"results": enriched, "count": len(enriched)}
+
+
 
 
 

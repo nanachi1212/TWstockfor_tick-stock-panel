@@ -98,6 +98,10 @@ export const QK = {
   monitorRules:         ['monitor-rules'] as const,
   monitorRuleOptions:   ['monitor-rule-options'] as const,
   alerts:               (source?: string) => ['alerts', source ?? ''] as const,
+  taiwanRules:          ['taiwan-rules'] as const,
+  taiwanQuotes:         (symbols: string) => ['taiwan-quotes', symbols] as const,
+  taiwanSearch:         (q: string) => ['taiwan-search', q] as const,
+
 
   // AI 大盘复盘
   reviewReports:        ['review-reports'] as const,
@@ -132,4 +136,6 @@ export const SSE_INVALIDATE_PREFIXES = [
   'index-quotes',
   'overview-market',
   'limit-ladder',
+  'taiwan-quotes',
 ] as const
+
