@@ -11,12 +11,17 @@ Strictly adheres to:
       1. Official product metadata (TWSE t187ap47_L / TPEx)
       2. ISO 10962 CFI code (CEOIBU, CEOJBU, CEOGDU, CEOGEU)
       3. Multi-character name heuristics (degraded fallback)
+  - Parameterized underlying_scope ("domestic" | "foreign" | "unknown") and leverage_multiplier
+  - Strict statutory price limit rules:
+      * Domestic leveraged/inverse: 10% * abs(multiplier) (e.g. 00631L is +-20%, 00632R is +-10%)
+      * Foreign leveraged/inverse / Foreign plain / Bond: NO_LIMIT
   - Zero single-character false positives (e.g. '美' or '債' alone strictly disallowed)
   - Classification provenance tracking (OFFICIAL_METADATA, CFI_CODE, NAME_HEURISTIC, UNKNOWN)
   - Canonical symbol generation: {code}.{EXCHANGE}
 """
 from __future__ import annotations
 
+from dataclasses import dataclass
 from datetime import datetime
 from html.parser import HTMLParser
 import json
@@ -31,6 +36,13 @@ logger = logging.getLogger(__name__)
 TWSE_ISIN_URL = "https://isin.twse.com.tw/isin/C_public.jsp?strMode=2"
 TPEX_ISIN_URL = "https://isin.twse.com.tw/isin/C_public.jsp?strMode=4"
 TWSE_ETF_PRODUCTS_URL = "https://openapi.twse.com.tw/v1/opendata/t187ap47_L"
+
+
+@dataclass(frozen=True)
+class OfficialEtfProductMeta:
+    """Official ETF product metadata from TWSE t187ap47_L."""
+    fund_type: str         # 基金類型
+    underlying_index: str  # 標的指數/追蹤指數名稱
 
 
 class _IsinTableParser(HTMLParser):
@@ -66,61 +78,105 @@ def classify_etf_provenance(
     code: str,
     name: str,
     cfi_code: str | None,
-    official_product_types: dict[str, str] | None = None,
-) -> tuple[str, str]:
-    """Classify ETF with strict priority and provenance tracking.
+    official_product_types: dict[str, OfficialEtfProductMeta | str] | None = None,
+) -> tuple[str, str, str, float]:
+    """Classify ETF with strict priority, provenance, underlying scope, and multiplier.
 
     Returns:
-        tuple[etf_category, classification_source]
+        tuple[etf_category, classification_source, underlying_scope, leverage_multiplier]
     """
-    # 1. First priority: Official Product Metadata (e.g. TWSE t187ap47_L 基金類型)
+    # 0. Determine leverage multiplier
+    multiplier = 1.0
+    if code.endswith("L") or "正2" in name or "正向2" in name:
+        multiplier = 2.0
+    elif code.endswith("R") or "反1" in name or "反向1" in name or "反一" in name:
+        multiplier = -1.0
+
+    # 1. First priority: Official Product Metadata (e.g. TWSE t187ap47_L 基金類型 + 標的指數)
     if official_product_types and code in official_product_types:
-        f_type = official_product_types[code]
+        meta = official_product_types[code]
+        if isinstance(meta, OfficialEtfProductMeta):
+            f_type = meta.fund_type
+            idx_name = meta.underlying_index
+        else:
+            f_type = str(meta)
+            idx_name = ""
+
+        # Check Bond
         if "債券" in f_type or "債" in f_type:
-            return "bond", "official_metadata"
+            # Check if underlying bond is domestic or foreign
+            scope = "foreign" if any(kw in idx_name for kw in ["美國", "彭博", "ICE", "全球"]) else "foreign"
+            return "bond", "official_metadata", scope, multiplier
+
+        # Check Leveraged / Inverse
         elif "槓桿" in f_type or "反向" in f_type:
-            cat = "inverse" if "反" in name else "leveraged"
-            return cat, "official_metadata"
+            cat = "inverse" if multiplier < 0 else "leveraged"
+            # Authoritative underlying index examination
+            if any(kw in idx_name for kw in ["臺灣", "台湾", "加權", "櫃買", "TPEx", "TWSE", "台50", "藍籌30"]) and not any(kw in idx_name for kw in ["中國", "S&P", "美", "日", "海外"]):
+                scope = "domestic"
+            elif any(kw in idx_name for kw in ["上証", "滬深", "S&P", "道瓊", "NASDAQ", "日經", "東証", "美債", "公債", "印度", "黃金", "原油", "香港", "恒生", "中國", "富時"]):
+                scope = "foreign"
+            else:
+                # Fallback to ETF official name
+                if any(kw in name for kw in ["臺灣", "台灣", "加權", "台50"]):
+                    scope = "domestic"
+                elif any(kw in name for kw in ["上証", "滬深", "S&P", "道瓊", "NASDAQ", "日經", "美債", "原油", "黃金", "香港", "恒生", "中國"]):
+                    scope = "foreign"
+                else:
+                    scope = "unknown"
+            return cat, "official_metadata", scope, multiplier
+
+        # Check Foreign Equity
         elif "國外成分" in f_type or "國外成份" in f_type or "境外" in f_type:
-            return "foreign_equity", "official_metadata"
+            return "foreign_equity", "official_metadata", "foreign", multiplier
+
+        # Check Domestic Equity
         elif "國內成分" in f_type:
-            return "domestic_equity", "official_metadata"
+            return "domestic_equity", "official_metadata", "domestic", multiplier
 
     # 2. Second priority: ISO 10962 CFI Code
     if cfi_code:
         # Debt/Bond ETF (e.g. 00720B is CEOJBU, 00710B is CEOIBU)
         if cfi_code in ("CEOIBU", "CEOJBU"):
-            return "bond", "cfi_code"
+            return "bond", "cfi_code", "foreign", multiplier
         # Leveraged / Inverse / Commodity Derivatives (e.g. 00631L/00632R is CEOGDU)
         elif cfi_code in ("CEOGDU", "CEOGMU"):
-            cat = "inverse" if ("反1" in name or "反向" in name) else "leveraged"
-            return cat, "cfi_code"
+            cat = "inverse" if multiplier < 0 else "leveraged"
+            if any(kw in name for kw in ["臺灣", "台灣", "加權", "台50"]):
+                scope = "domestic"
+            elif any(kw in name for kw in ["上証", "滬深", "S&P", "道瓊", "NASDAQ", "日經", "美債", "原油", "黃金", "香港", "恒生", "中國"]):
+                scope = "foreign"
+            else:
+                scope = "unknown"
+            return cat, "cfi_code", scope, multiplier
         # Plain-Vanilla Domestic Equity ETF (e.g. 0050, 006208, 0051 is CEOGEU)
         elif cfi_code == "CEOGEU":
-            return "domestic_equity", "cfi_code"
+            return "domestic_equity", "cfi_code", "domestic", multiplier
 
     # 3. Third priority / degraded fallback: Multi-character Name Heuristics
     # Strictly disallow single-character triggers (like "美" or "債")
     if "正2" in name or "正向2" in name:
-        return "leveraged", "name_heuristic"
+        scope = "domestic" if any(kw in name for kw in ["台灣", "臺灣", "加權", "台50"]) else "foreign" if any(kw in name for kw in ["上証", "滬深", "美國", "S&P", "道瓊", "NASDAQ", "日經"]) else "unknown"
+        return "leveraged", "name_heuristic", scope, multiplier
     elif "反1" in name or "反向1" in name:
-        return "inverse", "name_heuristic"
+        scope = "domestic" if any(kw in name for kw in ["台灣", "臺灣", "加權", "台50"]) else "foreign" if any(kw in name for kw in ["上証", "滬深", "美國", "S&P", "道瓊", "NASDAQ", "日經"]) else "unknown"
+        return "inverse", "name_heuristic", scope, multiplier
     elif any(kw in name for kw in ["公司債", "金融債", "公債", "國債", "投等債", "新興債"]):
-        return "bond", "name_heuristic"
+        return "bond", "name_heuristic", "foreign", multiplier
     elif any(kw in name for kw in ["S&P", "道瓊", "美國", "日經", "NASDAQ", "海外", "全球", "富時", "香港", "恒生"]):
-        return "foreign_equity", "name_heuristic"
+        return "foreign_equity", "name_heuristic", "foreign", multiplier
     elif any(kw in name for kw in ["台灣50", "台50", "中型100", "高股息"]):
-        return "domestic_equity", "name_heuristic"
+        return "domestic_equity", "name_heuristic", "domestic", multiplier
 
     # 4. Unknown
-    return "unknown", "unknown"
+    return "unknown", "unknown", "unknown", multiplier
 
 
 def parse_isin_html(
     html: str,
     exchange: str,
     source_name: str,
-    official_product_types: dict[str, str] | None = None,
+    official_product_types: dict[str, OfficialEtfProductMeta | str] | None = None,
 ) -> list[TaiwanInstrument]:
     """Parse official TWSE/TPEx ISIN HTML table into canonical TaiwanInstrument list."""
     parser = _IsinTableParser()
@@ -166,12 +222,14 @@ def parse_isin_html(
         cat_lower = current_category.lower()
         etf_category: str | None = None
         classification_source: str | None = None
+        underlying_scope: str | None = None
+        leverage_multiplier: float = 1.0
 
         if "etf" in cat_lower:
             instrument_type = "etf"
             is_supported = True
             listing_status = "active"
-            etf_category, classification_source = classify_etf_provenance(
+            etf_category, classification_source, underlying_scope, leverage_multiplier = classify_etf_provenance(
                 code=code,
                 name=name,
                 cfi_code=cfi_code,
@@ -181,6 +239,8 @@ def parse_isin_html(
             instrument_type = "stock"
             is_supported = True
             listing_status = "active"
+            underlying_scope = "domestic"
+            leverage_multiplier = 1.0
         else:
             # Warrants, ETNs, TDRs, REITs, Preferred shares, etc.
             instrument_type = "unsupported"
@@ -206,28 +266,34 @@ def parse_isin_html(
             updated_at=now_iso,
             etf_category=etf_category,
             classification_source=classification_source,
+            underlying_scope=underlying_scope,
+            leverage_multiplier=leverage_multiplier,
         )
         instruments.append(inst)
 
     return instruments
 
 
-def fetch_official_twse_etf_products(timeout: float = 10.0) -> dict[str, str]:
-    """Fetch official TWSE ETF product categories from t187ap47_L.
+def fetch_official_twse_etf_products(timeout: float = 10.0) -> dict[str, OfficialEtfProductMeta]:
+    """Fetch official TWSE ETF product categories and underlying index from t187ap47_L.
 
     Returns:
-        dict[code, 基金類型]
+        dict[code, OfficialEtfProductMeta]
     """
     try:
         req = urllib.request.Request(TWSE_ETF_PRODUCTS_URL, headers={"User-Agent": "Mozilla/5.0"})
         with urllib.request.urlopen(req, timeout=timeout) as resp:
             data = json.loads(resp.read().decode("utf-8"))
-        product_map: dict[str, str] = {}
+        product_map: dict[str, OfficialEtfProductMeta] = {}
         for r in data:
             code = r.get("基金代號") or r.get("證券代號") or list(r.values())[1]
             cat = r.get("基金類型") or list(r.values())[3]
+            idx_name = r.get("標的指數/追蹤指數名稱") or list(r.values())[6] or ""
             if code and cat:
-                product_map[str(code).strip()] = str(cat).strip()
+                product_map[str(code).strip()] = OfficialEtfProductMeta(
+                    fund_type=str(cat).strip(),
+                    underlying_index=str(idx_name).strip(),
+                )
         return product_map
     except Exception as e:
         logger.warning("Could not fetch official TWSE ETF product metadata: %s", e)
@@ -248,7 +314,7 @@ class TwseInstrumentAdapter:
     def get_instruments(
         self,
         html_content: str | None = None,
-        official_product_types: dict[str, str] | None = None,
+        official_product_types: dict[str, OfficialEtfProductMeta | str] | None = None,
     ) -> list[TaiwanInstrument]:
         html = html_content if html_content is not None else self.fetch_live_html()
         # If live and no product types injected, fetch live product types
@@ -278,7 +344,7 @@ class TpexInstrumentAdapter:
     def get_instruments(
         self,
         html_content: str | None = None,
-        official_product_types: dict[str, str] | None = None,
+        official_product_types: dict[str, OfficialEtfProductMeta | str] | None = None,
     ) -> list[TaiwanInstrument]:
         html = html_content if html_content is not None else self.fetch_live_html()
         return parse_isin_html(

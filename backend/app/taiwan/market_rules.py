@@ -35,6 +35,8 @@ class PriceLimitClass(str, Enum):
     """Price limit rule classification."""
     ORDINARY_TEN_PERCENT = "ordinary_10pct"
     NO_LIMIT = "no_limit"              # Foreign-component ETF, bond ETF, IPO 5 days
+    LEVERAGED_DOMESTIC = "leveraged_domestic"  # Domestic leveraged/inverse ETF (10% * abs(multiplier))
+
 
 
 class TickSizeClass(str, Enum):
@@ -282,40 +284,54 @@ class TickSizeModel:
 
 
 class PriceLimitModel:
-    """Daily price limit model (+-10% standard or no-limit). Single source of truth."""
+    """Daily price limit model (+-10% standard, multiplier-adjusted, or no-limit). Single source of truth."""
 
     @staticmethod
     def get_limit_pct(
         limit_class: PriceLimitClass = PriceLimitClass.ORDINARY_TEN_PERCENT,
+        multiplier: float = 1.0,
     ) -> float | None:
         """Authoritative single source of truth for Taiwan price limit percentages.
 
         Returns:
             0.10 for ordinary stocks and domestic equity ETFs.
+            0.10 * abs(multiplier) for domestic leveraged/inverse ETFs (e.g. 0.20 for 2X, 0.10 for -1X).
             None for NO_LIMIT class (foreign ETFs, bond ETFs, 5-day IPOs).
         """
         if limit_class == PriceLimitClass.NO_LIMIT:
             return None
+        if limit_class == PriceLimitClass.LEVERAGED_DOMESTIC:
+            return round(0.10 * abs(multiplier), 4)
         return 0.10
 
-    @staticmethod
-    def calc_limits(
+    @classmethod
+    def calc_limits_for_pct(
+        cls,
         ref_price: float,
-        limit_class: PriceLimitClass = PriceLimitClass.ORDINARY_TEN_PERCENT,
+        limit_pct: float | None,
         tick_class: TickSizeClass = TickSizeClass.ORDINARY_STOCK,
     ) -> tuple[float | None, float | None]:
-        """Calculate (limit_up, limit_down) rounded to valid ticks."""
-        if ref_price <= 0:
+        """Calculate (limit_up, limit_down) for an explicit percentage, aligned to valid ticks."""
+        if ref_price <= 0 or limit_pct is None:
             return None, None
-        if limit_class == PriceLimitClass.NO_LIMIT:
-            return None, None
-
-        up_raw = ref_price * 1.10
-        down_raw = ref_price * 0.90
-
+        up_raw = ref_price * (1.0 + limit_pct)
+        down_raw = max(0.01, ref_price * (1.0 - limit_pct))
         limit_up = TickSizeModel.round_price_limit_boundary(up_raw, direction="up", tick_class=tick_class)
         limit_down = TickSizeModel.round_price_limit_boundary(down_raw, direction="down", tick_class=tick_class)
         return limit_up, limit_down
+
+    @classmethod
+    def calc_limits(
+        cls,
+        ref_price: float,
+        limit_class: PriceLimitClass = PriceLimitClass.ORDINARY_TEN_PERCENT,
+        tick_class: TickSizeClass = TickSizeClass.ORDINARY_STOCK,
+        multiplier: float = 1.0,
+    ) -> tuple[float | None, float | None]:
+        """Calculate (limit_up, limit_down) rounded to valid ticks."""
+        pct = cls.get_limit_pct(limit_class=limit_class, multiplier=multiplier)
+        return cls.calc_limits_for_pct(ref_price=ref_price, limit_pct=pct, tick_class=tick_class)
+
 
 
 

@@ -102,8 +102,11 @@ class TaiwanSecurityMaster:
                     updated_at=r.get("updated_at", ""),
                     etf_category=r.get("etf_category"),
                     classification_source=r.get("classification_source"),
+                    underlying_scope=r.get("underlying_scope"),
+                    leverage_multiplier=float(r.get("leverage_multiplier") or 1.0),
                 )
                 loaded[inst.symbol] = inst
+
 
             self._instruments = loaded
             self._loaded = True
@@ -230,8 +233,11 @@ class TaiwanSecurityMaster:
             "updated_at": pl.String,
             "etf_category": pl.String,
             "classification_source": pl.String,
+            "underlying_scope": pl.String,
+            "leverage_multiplier": pl.Float64,
         }
         if not rows:
+
 
             return pl.DataFrame(schema=schema)
         return pl.DataFrame(rows, schema=schema)

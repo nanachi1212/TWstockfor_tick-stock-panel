@@ -377,10 +377,15 @@ class TestEtfClassificationAndSafety:
             updated_at="2026-08-30",
             etf_category=EtfCategory.DOMESTIC_EQUITY.value,
             classification_source="official_metadata",
+            underlying_scope="domestic",
+            leverage_multiplier=1.0,
         )
         assert MarketProfileBridge.get_tax_class(etf_0050) == TaxClass.DOMESTIC_ETF
         assert MarketProfileBridge.get_tick_size_class(etf_0050) == TickSizeClass.ETF
+        assert MarketProfileBridge.get_price_limit_pct(etf_0050) == 0.10
         assert MarketProfileBridge.get_price_limit_class(etf_0050) == PriceLimitClass.ORDINARY_TEN_PERCENT
+        up, down = MarketProfileBridge.calc_limits(100.0, etf_0050)
+        assert up == 110.0 and down == 90.0
 
         # 2. Bond ETF: 00720B (Confirmed cfi_code)
         bond_etf = TaiwanInstrument(
@@ -400,9 +405,13 @@ class TestEtfClassificationAndSafety:
             updated_at="2026-08-30",
             etf_category=EtfCategory.BOND.value,
             classification_source="cfi_code",
+            underlying_scope="foreign",
+            leverage_multiplier=1.0,
         )
         assert MarketProfileBridge.get_tax_class(bond_etf) == TaxClass.BOND_ETF
+        assert MarketProfileBridge.get_price_limit_pct(bond_etf) is None
         assert MarketProfileBridge.get_price_limit_class(bond_etf) == PriceLimitClass.NO_LIMIT
+        assert MarketProfileBridge.calc_limits(100.0, bond_etf) == (None, None)
 
         # 3. Foreign Component ETF: 00646 S&P 500 (Confirmed official_metadata)
         foreign_etf = TaiwanInstrument(
@@ -422,15 +431,129 @@ class TestEtfClassificationAndSafety:
             updated_at="2026-08-30",
             etf_category=EtfCategory.FOREIGN_EQUITY.value,
             classification_source="official_metadata",
+            underlying_scope="foreign",
+            leverage_multiplier=1.0,
         )
+        assert MarketProfileBridge.get_price_limit_pct(foreign_etf) is None
         assert MarketProfileBridge.get_price_limit_class(foreign_etf) == PriceLimitClass.NO_LIMIT
+        assert MarketProfileBridge.calc_limits(100.0, foreign_etf) == (None, None)
+
+    def test_leveraged_and_inverse_etf_statutory_rules(self):
+        """Verify domestic leveraged (+-20%), domestic inverse (+-10%), foreign leveraged (NO_LIMIT), and bond tax audit."""
+        # 1. Domestic Leveraged 2X: 00631L (元大台灣50正2)
+        etf_00631l = TaiwanInstrument(
+            symbol="00631L.TWSE",
+            code="00631L",
+            exchange="TWSE",
+            name="元大台灣50正2",
+            instrument_type="etf",
+            listing_status="active",
+            listing_date="2014/10/31",
+            isin="TW00000631L2",
+            industry=None,
+            cfi_code="CEOGDU",
+            raw_category="ETF",
+            is_supported=True,
+            source="TWSE_ISIN",
+            updated_at="2026-08-30",
+            etf_category=EtfCategory.LEVERAGED.value,
+            classification_source="official_metadata",
+            underlying_scope="domestic",
+            leverage_multiplier=2.0,
+        )
+        assert MarketProfileBridge.get_price_limit_pct(etf_00631l) == 0.20
+        assert MarketProfileBridge.get_price_limit_class(etf_00631l) == PriceLimitClass.LEVERAGED_DOMESTIC
+        assert MarketProfileBridge.get_tax_class(etf_00631l) == TaxClass.DOMESTIC_ETF
+        # Tick-aligned calculation for ref_price = 100.0 (tick is 0.05 for ETF >= 50)
+        up, down = MarketProfileBridge.calc_limits(100.0, etf_00631l)
+        assert up == 120.0 and down == 80.0
+        # Tick-aligned calculation for ref_price = 45.0 (tick is 0.01 for ETF < 50, raw up 54.0 -> tick 0.05)
+        up_45, down_45 = MarketProfileBridge.calc_limits(45.0, etf_00631l)
+        assert up_45 == 54.0 and down_45 == 36.0
+
+        # 2. Domestic Inverse -1X: 00632R (元大台灣50反1)
+        etf_00632r = TaiwanInstrument(
+            symbol="00632R.TWSE",
+            code="00632R",
+            exchange="TWSE",
+            name="元大台灣50反1",
+            instrument_type="etf",
+            listing_status="active",
+            listing_date="2014/10/31",
+            isin="TW00000632R7",
+            industry=None,
+            cfi_code="CEOGDU",
+            raw_category="ETF",
+            is_supported=True,
+            source="TWSE_ISIN",
+            updated_at="2026-08-30",
+            etf_category=EtfCategory.INVERSE.value,
+            classification_source="official_metadata",
+            underlying_scope="domestic",
+            leverage_multiplier=-1.0,
+        )
+        assert MarketProfileBridge.get_price_limit_pct(etf_00632r) == 0.10
+        assert MarketProfileBridge.get_price_limit_class(etf_00632r) == PriceLimitClass.LEVERAGED_DOMESTIC
+        up_r, down_r = MarketProfileBridge.calc_limits(10.0, etf_00632r)
+        assert up_r == 11.0 and down_r == 9.0
+
+        # 3. Foreign Leveraged 2X: 00633L (富邦上証正2)
+        etf_00633l = TaiwanInstrument(
+            symbol="00633L.TWSE",
+            code="00633L",
+            exchange="TWSE",
+            name="富邦上証正2",
+            instrument_type="etf",
+            listing_status="active",
+            listing_date="2014/11/25",
+            isin="TW00000633L8",
+            industry=None,
+            cfi_code="CEOGDU",
+            raw_category="ETF",
+            is_supported=True,
+            source="TWSE_ISIN",
+            updated_at="2026-08-30",
+            etf_category=EtfCategory.LEVERAGED.value,
+            classification_source="official_metadata",
+            underlying_scope="foreign",
+            leverage_multiplier=2.0,
+        )
+        assert MarketProfileBridge.get_price_limit_pct(etf_00633l) is None
+        assert MarketProfileBridge.get_price_limit_class(etf_00633l) == PriceLimitClass.NO_LIMIT
+        assert MarketProfileBridge.calc_limits(50.0, etf_00633l) == (None, None)
+
+        # 4. Leveraged Bond ETF: 00688L (國泰20年美債正2)
+        # Audit: Must be subject to 0.1% tax (NOT 0% tax exemption) under MoF ruling!
+        bond_2x = TaiwanInstrument(
+            symbol="00688L.TWSE",
+            code="00688L",
+            exchange="TWSE",
+            name="國泰20年美債正2",
+            instrument_type="etf",
+            listing_status="active",
+            listing_date="2017/04/13",
+            isin="TW00000688L6",
+            industry=None,
+            cfi_code="CEOGBU",
+            raw_category="ETF",
+            is_supported=True,
+            source="TWSE_ISIN",
+            updated_at="2026-08-30",
+            etf_category=EtfCategory.BOND.value,
+            classification_source="official_metadata",
+            underlying_scope="foreign",
+            leverage_multiplier=2.0,
+        )
+        assert MarketProfileBridge.get_price_limit_pct(bond_2x) is None
+        assert MarketProfileBridge.get_price_limit_class(bond_2x) == PriceLimitClass.NO_LIMIT
+        assert MarketProfileBridge.get_tax_class(bond_2x) == TaxClass.DOMESTIC_ETF  # 0.1% tax!
 
     def test_single_character_false_positive_prevention(self):
         """Disallow single-character keywords like '美' from classifying an ETF as foreign."""
         from app.taiwan.universe.adapters import classify_etf_provenance
 
         # Name contains '美' (e.g. 美麗台灣) but no official metadata or multi-char foreign keyword
-        cat, source = classify_etf_provenance(
+        cat, source, scope, mult = classify_etf_provenance(
             code="00991",
             name="富邦美麗台灣",
             cfi_code=None,
@@ -438,6 +561,7 @@ class TestEtfClassificationAndSafety:
         )
         assert cat == "unknown"
         assert source == "unknown"
+        assert scope == "unknown"
 
     def test_name_heuristic_rejected_by_market_profile_safety(self):
         """MarketProfileBridge must reject regulatory application if classification is merely heuristic."""
@@ -458,9 +582,36 @@ class TestEtfClassificationAndSafety:
             updated_at="2026-08-30",
             etf_category=EtfCategory.FOREIGN_EQUITY.value,
             classification_source="name_heuristic",  # Unconfirmed!
+            underlying_scope="foreign",
+            leverage_multiplier=1.0,
         )
         with pytest.raises(ValueError, match="Refusing to apply regulatory market rules to unconfirmed ETF"):
             MarketProfileBridge.get_price_limit_class(heuristic_foreign_etf)
+
+    def test_unknown_underlying_scope_fails_loudly(self):
+        """MarketProfileBridge must fail loudly if an ETF has unknown underlying scope."""
+        unknown_scope_etf = TaiwanInstrument(
+            symbol="00993.TWSE",
+            code="00993",
+            exchange="TWSE",
+            name="未知標的ETF",
+            instrument_type="etf",
+            listing_status="active",
+            listing_date=None,
+            isin=None,
+            industry=None,
+            cfi_code="CEOGDU",
+            raw_category="ETF",
+            is_supported=True,
+            source="TWSE_ISIN",
+            updated_at="2026-08-30",
+            etf_category=EtfCategory.LEVERAGED.value,
+            classification_source="cfi_code",
+            underlying_scope="unknown",  # UNKNOWN SCOPE!
+            leverage_multiplier=2.0,
+        )
+        with pytest.raises(ValueError, match="with UNKNOWN underlying scope"):
+            MarketProfileBridge.get_price_limit_pct(unknown_scope_etf)
 
     def test_unknown_etf_safety_fails_loudly(self):
         """Bridge must refuse to silently assume domestic 10% limit for an unclassified ETF."""
@@ -481,9 +632,12 @@ class TestEtfClassificationAndSafety:
             updated_at="2026-08-30",
             etf_category=EtfCategory.UNKNOWN.value,
             classification_source="unknown",
+            underlying_scope="unknown",
+            leverage_multiplier=1.0,
         )
         with pytest.raises(ValueError, match="Refusing to apply regulatory market rules to unconfirmed ETF"):
             MarketProfileBridge.get_price_limit_class(unknown_etf)
+
 
 
 
