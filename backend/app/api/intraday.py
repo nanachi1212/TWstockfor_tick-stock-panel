@@ -222,10 +222,17 @@ async def quote_stream(request: Request):
 
         sub = qs.subscribe()
         try:
+            # 连接建立时立刻发送一条握手事件，确保 HTTP response headers 立即 flush 到客户端触发 onopen
+            yield {
+                "event": "connected",
+                "data": json.dumps({"ts": int(time.time() * 1000), "status": "ok"}),
+            }
+
             while True:
                 # 等待任一通道有新信号 (5s 超时保持循环, 便于断线时尽快退出)
                 await asyncio.to_thread(sub.wait, 5.0)
                 data = sub.pop()
+
 
                 # 告警 (分片推送, 避免单条 SSE 过大)
                 alerts = data["alerts"]
