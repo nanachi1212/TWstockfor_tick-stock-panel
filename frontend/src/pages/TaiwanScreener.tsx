@@ -34,6 +34,17 @@ export function TaiwanScreener() {
   const [nearUpperLimit, setNearUpperLimit] = useState<boolean>(false)
   const [nearLowerLimit, setNearLowerLimit] = useState<boolean>(false)
 
+  // Institutional filters (UI in 張 -> backend in shares x1000)
+  const [foreignNetMinLots, setForeignNetMinLots] = useState<string>('')
+  const [foreignNetMaxLots, setForeignNetMaxLots] = useState<string>('')
+  const [investmentTrustNetMinLots, setInvestmentTrustNetMinLots] = useState<string>('')
+  const [dealerNetMinLots, setDealerNetMinLots] = useState<string>('')
+
+  // Margin filters (UI in 張 -> backend in shares x1000, ratio: 10 = 10%)
+  const [marginBalanceChangeMinLots, setMarginBalanceChangeMinLots] = useState<string>('')
+  const [shortBalanceMinLots, setShortBalanceMinLots] = useState<string>('')
+  const [shortMarginRatioMin, setShortMarginRatioMin] = useState<string>('')
+
   // Sorting & Pagination
   const [sortBy, setSortBy] = useState<string>('symbol')
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('asc')
@@ -58,6 +69,13 @@ export function TaiwanScreener() {
     setAboveMa20(null)
     setNearUpperLimit(false)
     setNearLowerLimit(false)
+    setForeignNetMinLots('')
+    setForeignNetMaxLots('')
+    setInvestmentTrustNetMinLots('')
+    setDealerNetMinLots('')
+    setMarginBalanceChangeMinLots('')
+    setShortBalanceMinLots('')
+    setShortMarginRatioMin('')
     setSortBy('symbol')
     setSortOrder('asc')
     setPage(1)
@@ -85,6 +103,15 @@ export function TaiwanScreener() {
       above_ma20: aboveMa20,
       near_upper_limit: nearUpperLimit || null,
       near_lower_limit: nearLowerLimit || null,
+      // Institutional: UI lots (張) -> backend shares (x 1000)
+      foreign_net_min: foreignNetMinLots ? parseFloat(foreignNetMinLots) * 1000.0 : null,
+      foreign_net_max: foreignNetMaxLots ? parseFloat(foreignNetMaxLots) * 1000.0 : null,
+      investment_trust_net_min: investmentTrustNetMinLots ? parseFloat(investmentTrustNetMinLots) * 1000.0 : null,
+      dealer_net_min: dealerNetMinLots ? parseFloat(dealerNetMinLots) * 1000.0 : null,
+      // Margin: UI lots (張) -> backend shares (x 1000), ratio: 10.0 = 10%
+      margin_balance_change_min: marginBalanceChangeMinLots ? parseFloat(marginBalanceChangeMinLots) * 1000.0 : null,
+      short_balance_min: shortBalanceMinLots ? parseFloat(shortBalanceMinLots) * 1000.0 : null,
+      short_margin_ratio_min: shortMarginRatioMin ? parseFloat(shortMarginRatioMin) : null,
       sort_by: sortBy,
       sort_order: sortOrder,
       page,
@@ -94,7 +121,10 @@ export function TaiwanScreener() {
   }, [
     exchange, instrument, industry, priceMin, priceMax, changePctMin, changePctMax,
     volumeMinLots, amountMinMln, rsiMin, rsiMax, momentumMin, volRatioMin,
-    aboveMa5, aboveMa20, nearUpperLimit, nearLowerLimit, sortBy, sortOrder, page,
+    aboveMa5, aboveMa20, nearUpperLimit, nearLowerLimit,
+    foreignNetMinLots, foreignNetMaxLots, investmentTrustNetMinLots, dealerNetMinLots,
+    marginBalanceChangeMinLots, shortBalanceMinLots, shortMarginRatioMin,
+    sortBy, sortOrder, page,
   ])
 
   // Screener query
@@ -144,6 +174,32 @@ export function TaiwanScreener() {
     return `${(amt / 10_000).toFixed(0)} 萬`
   }
 
+  // Institutional / Margin signed flow formatter (Taiwan color: >0 Red, <0 Green, null '—')
+  const formatSignedSharesLots = (shares?: number | null) => {
+    if (shares === null || shares === undefined) return <span className="text-zinc-500">—</span>
+    const lots = Math.round(shares / 1000)
+    const formatted = lots.toLocaleString(undefined)
+    if (lots > 0) {
+      return <span className="text-red-500 font-medium">+{formatted} 張</span>
+    } else if (lots < 0) {
+      return <span className="text-emerald-500 font-medium">{formatted} 張</span>
+    }
+    return <span className="text-zinc-400">0 張</span>
+  }
+
+  // Short balance formatter (neutral, null '—')
+  const formatShortBalanceLots = (shares?: number | null) => {
+    if (shares === null || shares === undefined) return <span className="text-zinc-500">—</span>
+    const lots = Math.round(shares / 1000)
+    return <span className="text-zinc-300 font-mono">{lots.toLocaleString(undefined)} 張</span>
+  }
+
+  // Short margin ratio formatter (10.0 = 10%, null '—')
+  const formatShortMarginRatio = (ratio?: number | null) => {
+    if (ratio === null || ratio === undefined) return <span className="text-zinc-500">—</span>
+    return <span className="text-zinc-300 font-mono">{ratio.toFixed(2)}%</span>
+  }
+
   return (
     <div className="flex-1 flex flex-col p-6 space-y-6 max-w-7xl mx-auto w-full">
       {/* Top Header */}
@@ -154,17 +210,21 @@ export function TaiwanScreener() {
             台股策略選股工作台
           </h1>
           <p className="text-sm text-zinc-400 mt-1">
-            基於 Security Master 全市場標的與本地持久化分區日線資料庫的高效批次選股 (Taiwan Market Screener)
+            基於 Security Master 全市場標的與本地持久化分區日線、法人及資券資料庫的高效批次選股 (Taiwan Market Screener)
           </p>
         </div>
 
-        {/* Data Provenance Badge */}
+        {/* Data Provenance Badges (Independent daily, institutional, margin dates) */}
         {data && (
-          <div className="flex items-center gap-3 text-xs bg-zinc-900 border border-zinc-800 px-3 py-2 rounded-lg text-zinc-400">
-            <Database className="w-4 h-4 text-purple-400" />
-            <span>日線基準: <strong className="text-zinc-200">{data.data_dates.daily_as_of || '無資料'}</strong></span>
-            <span>|</span>
-            <span>符合標的: <strong className="text-purple-400">{data.total}</strong> 檔</span>
+          <div className="flex flex-wrap items-center gap-2 text-xs bg-zinc-900 border border-zinc-800 px-3 py-2 rounded-lg text-zinc-400">
+            <Database className="w-4 h-4 text-purple-400 shrink-0" />
+            <span>日線: <strong className="text-zinc-200">{data.data_dates.daily_as_of || '—'}</strong></span>
+            <span className="text-zinc-600">|</span>
+            <span>法人: <strong className="text-zinc-200">{data.data_dates.institutional_as_of || '—'}</strong></span>
+            <span className="text-zinc-600">|</span>
+            <span>資券: <strong className="text-zinc-200">{data.data_dates.margin_as_of || '—'}</strong></span>
+            <span className="text-zinc-600">|</span>
+            <span>符合: <strong className="text-purple-400">{data.total}</strong> 檔</span>
           </div>
         )}
       </div>
@@ -316,7 +376,89 @@ export function TaiwanScreener() {
           </div>
         </div>
 
-        {/* Row 3: Quick Toggles (MA & Near Limit) & Actions */}
+        {/* Row 3: Institutional Filters (外資買賣超區間、投信買超、自營商買超) */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4 pt-2 border-t border-zinc-800/60">
+          <div>
+            <label className="text-xs font-semibold text-zinc-400 block mb-1.5">外資買賣超區間 (張)</label>
+            <div className="flex items-center gap-2">
+              <input
+                type="number"
+                placeholder="最小 (張)"
+                value={foreignNetMinLots}
+                onChange={e => { setForeignNetMinLots(e.target.value); setPage(1) }}
+                className="w-full bg-zinc-800 border border-zinc-700 rounded-md px-2.5 py-1.5 text-xs text-zinc-200 focus:outline-none focus:border-purple-500"
+              />
+              <span className="text-zinc-500">~</span>
+              <input
+                type="number"
+                placeholder="最大 (張)"
+                value={foreignNetMaxLots}
+                onChange={e => { setForeignNetMaxLots(e.target.value); setPage(1) }}
+                className="w-full bg-zinc-800 border border-zinc-700 rounded-md px-2.5 py-1.5 text-xs text-zinc-200 focus:outline-none focus:border-purple-500"
+              />
+            </div>
+          </div>
+
+          <div>
+            <label className="text-xs font-semibold text-zinc-400 block mb-1.5">投信最低買超 (張)</label>
+            <input
+              type="number"
+              placeholder="例: 500 張"
+              value={investmentTrustNetMinLots}
+              onChange={e => { setInvestmentTrustNetMinLots(e.target.value); setPage(1) }}
+              className="w-full bg-zinc-800 border border-zinc-700 rounded-md px-2.5 py-1.5 text-xs text-zinc-200 focus:outline-none focus:border-purple-500"
+            />
+          </div>
+
+          <div>
+            <label className="text-xs font-semibold text-zinc-400 block mb-1.5">自營商最低買超 (張)</label>
+            <input
+              type="number"
+              placeholder="例: 100 張"
+              value={dealerNetMinLots}
+              onChange={e => { setDealerNetMinLots(e.target.value); setPage(1) }}
+              className="w-full bg-zinc-800 border border-zinc-700 rounded-md px-2.5 py-1.5 text-xs text-zinc-200 focus:outline-none focus:border-purple-500"
+            />
+          </div>
+
+          <div>
+            <label className="text-xs font-semibold text-zinc-400 block mb-1.5">融資餘額最低增加 (張)</label>
+            <input
+              type="number"
+              placeholder="例: 100 張"
+              value={marginBalanceChangeMinLots}
+              onChange={e => { setMarginBalanceChangeMinLots(e.target.value); setPage(1) }}
+              className="w-full bg-zinc-800 border border-zinc-700 rounded-md px-2.5 py-1.5 text-xs text-zinc-200 focus:outline-none focus:border-purple-500"
+            />
+          </div>
+        </div>
+
+        {/* Row 4: Margin & Short Filters (融券餘額、券資比) */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
+          <div>
+            <label className="text-xs font-semibold text-zinc-400 block mb-1.5">最低融券餘額 (張)</label>
+            <input
+              type="number"
+              placeholder="例: 100 張"
+              value={shortBalanceMinLots}
+              onChange={e => { setShortBalanceMinLots(e.target.value); setPage(1) }}
+              className="w-full bg-zinc-800 border border-zinc-700 rounded-md px-2.5 py-1.5 text-xs text-zinc-200 focus:outline-none focus:border-purple-500"
+            />
+          </div>
+
+          <div>
+            <label className="text-xs font-semibold text-zinc-400 block mb-1.5">券資比最低 (%)</label>
+            <input
+              type="number"
+              placeholder="例: 10 (%)"
+              value={shortMarginRatioMin}
+              onChange={e => { setShortMarginRatioMin(e.target.value); setPage(1) }}
+              className="w-full bg-zinc-800 border border-zinc-700 rounded-md px-2.5 py-1.5 text-xs text-zinc-200 focus:outline-none focus:border-purple-500"
+            />
+          </div>
+        </div>
+
+        {/* Row 5: Quick Toggles (MA & Near Limit) & Actions */}
         <div className="flex flex-wrap items-center justify-between gap-4 pt-2 border-t border-zinc-800/60">
           <div className="flex flex-wrap items-center gap-3">
             <button
@@ -413,6 +555,42 @@ export function TaiwanScreener() {
                     {sortBy === 'amount' && (sortOrder === 'asc' ? <ArrowUp className="w-3 h-3 text-purple-400" /> : <ArrowDown className="w-3 h-3 text-purple-400" />)}
                   </div>
                 </th>
+                <th className="py-3 px-3 font-semibold cursor-pointer hover:text-zinc-100 text-right" onClick={() => handleSort('foreign_net')}>
+                  <div className="flex items-center justify-end gap-1">
+                    外資買賣超
+                    {sortBy === 'foreign_net' && (sortOrder === 'asc' ? <ArrowUp className="w-3 h-3 text-purple-400" /> : <ArrowDown className="w-3 h-3 text-purple-400" />)}
+                  </div>
+                </th>
+                <th className="py-3 px-3 font-semibold cursor-pointer hover:text-zinc-100 text-right" onClick={() => handleSort('investment_trust_net')}>
+                  <div className="flex items-center justify-end gap-1">
+                    投信買賣超
+                    {sortBy === 'investment_trust_net' && (sortOrder === 'asc' ? <ArrowUp className="w-3 h-3 text-purple-400" /> : <ArrowDown className="w-3 h-3 text-purple-400" />)}
+                  </div>
+                </th>
+                <th className="py-3 px-3 font-semibold cursor-pointer hover:text-zinc-100 text-right" onClick={() => handleSort('dealer_net')}>
+                  <div className="flex items-center justify-end gap-1">
+                    自營商
+                    {sortBy === 'dealer_net' && (sortOrder === 'asc' ? <ArrowUp className="w-3 h-3 text-purple-400" /> : <ArrowDown className="w-3 h-3 text-purple-400" />)}
+                  </div>
+                </th>
+                <th className="py-3 px-3 font-semibold cursor-pointer hover:text-zinc-100 text-right" onClick={() => handleSort('margin_balance_change')}>
+                  <div className="flex items-center justify-end gap-1">
+                    融資變化
+                    {sortBy === 'margin_balance_change' && (sortOrder === 'asc' ? <ArrowUp className="w-3 h-3 text-purple-400" /> : <ArrowDown className="w-3 h-3 text-purple-400" />)}
+                  </div>
+                </th>
+                <th className="py-3 px-3 font-semibold cursor-pointer hover:text-zinc-100 text-right" onClick={() => handleSort('short_balance')}>
+                  <div className="flex items-center justify-end gap-1">
+                    融券餘額
+                    {sortBy === 'short_balance' && (sortOrder === 'asc' ? <ArrowUp className="w-3 h-3 text-purple-400" /> : <ArrowDown className="w-3 h-3 text-purple-400" />)}
+                  </div>
+                </th>
+                <th className="py-3 px-3 font-semibold cursor-pointer hover:text-zinc-100 text-right" onClick={() => handleSort('short_margin_ratio')}>
+                  <div className="flex items-center justify-end gap-1">
+                    券資比
+                    {sortBy === 'short_margin_ratio' && (sortOrder === 'asc' ? <ArrowUp className="w-3 h-3 text-purple-400" /> : <ArrowDown className="w-3 h-3 text-purple-400" />)}
+                  </div>
+                </th>
                 <th className="py-3 px-3 font-semibold text-right">漲跌停幅度</th>
                 <th className="py-3 px-3 font-semibold text-right">MA5 / MA20</th>
                 <th className="py-3 px-3 font-semibold cursor-pointer hover:text-zinc-100 text-right" onClick={() => handleSort('rsi_14')}>
@@ -434,7 +612,7 @@ export function TaiwanScreener() {
             <tbody className="divide-y divide-zinc-800/60">
               {isLoading ? (
                 <tr>
-                  <td colSpan={12} className="py-12 text-center text-zinc-500">
+                  <td colSpan={18} className="py-12 text-center text-zinc-500">
                     <div className="flex items-center justify-center gap-2">
                       <div className="w-4 h-4 border-2 border-purple-500 border-t-transparent rounded-full animate-spin" />
                       <span>正在批次掃描篩選台股市場...</span>
@@ -443,14 +621,14 @@ export function TaiwanScreener() {
                 </tr>
               ) : isError ? (
                 <tr>
-                  <td colSpan={12} className="py-12 text-center text-red-400">
+                  <td colSpan={18} className="py-12 text-center text-red-400">
                     <AlertCircle className="w-6 h-6 mx-auto mb-2 text-red-500" />
                     <span>選股執行失敗: {String(error)}</span>
                   </td>
                 </tr>
               ) : !data || data.items.length === 0 ? (
                 <tr>
-                  <td colSpan={12} className="py-12 text-center text-zinc-500">
+                  <td colSpan={18} className="py-12 text-center text-zinc-500">
                     <span>沒有符合當前條件的台股標的</span>
                   </td>
                 </tr>
@@ -468,10 +646,10 @@ export function TaiwanScreener() {
                     </td>
 
                     {/* Name */}
-                    <td className="py-3 px-3 text-zinc-200 font-medium">{item.name}</td>
+                    <td className="py-3 px-3 text-zinc-200 font-medium whitespace-nowrap">{item.name}</td>
 
                     {/* Exchange & Instrument */}
-                    <td className="py-3 px-3">
+                    <td className="py-3 px-3 whitespace-nowrap">
                       <span className="text-[10px] bg-zinc-800 text-zinc-400 px-1.5 py-0.5 rounded border border-zinc-700 mr-1.5">
                         {item.exchange}
                       </span>
@@ -481,29 +659,59 @@ export function TaiwanScreener() {
                     </td>
 
                     {/* Price */}
-                    <td className="py-3 px-3 text-right font-mono text-zinc-100 font-semibold">
+                    <td className="py-3 px-3 text-right font-mono text-zinc-100 font-semibold whitespace-nowrap">
                       {formatPrice(item.close)}
                     </td>
 
                     {/* Change Pct */}
-                    <td className="py-3 px-3 text-right font-mono">
+                    <td className="py-3 px-3 text-right font-mono whitespace-nowrap">
                       {formatChangePct(item.change_pct)}
                     </td>
 
                     {/* Volume (Lots) */}
-                    <td className="py-3 px-3 text-right font-mono text-zinc-300">
+                    <td className="py-3 px-3 text-right font-mono text-zinc-300 whitespace-nowrap">
                       {formatVolumeLots(item.volume)}
                     </td>
 
                     {/* Amount */}
-                    <td className="py-3 px-3 text-right font-mono text-zinc-400">
+                    <td className="py-3 px-3 text-right font-mono text-zinc-400 whitespace-nowrap">
                       {formatAmount(item.amount)}
                     </td>
 
+                    {/* Foreign Net (Lots) */}
+                    <td className="py-3 px-3 text-right font-mono whitespace-nowrap">
+                      {formatSignedSharesLots(item.foreign_net)}
+                    </td>
+
+                    {/* Investment Trust Net (Lots) */}
+                    <td className="py-3 px-3 text-right font-mono whitespace-nowrap">
+                      {formatSignedSharesLots(item.investment_trust_net)}
+                    </td>
+
+                    {/* Dealer Net (Lots) */}
+                    <td className="py-3 px-3 text-right font-mono whitespace-nowrap">
+                      {formatSignedSharesLots(item.dealer_net)}
+                    </td>
+
+                    {/* Margin Balance Change (Lots) */}
+                    <td className="py-3 px-3 text-right font-mono whitespace-nowrap">
+                      {formatSignedSharesLots(item.margin_balance_change)}
+                    </td>
+
+                    {/* Short Balance (Lots) */}
+                    <td className="py-3 px-3 text-right font-mono whitespace-nowrap">
+                      {formatShortBalanceLots(item.short_balance)}
+                    </td>
+
+                    {/* Short Margin Ratio */}
+                    <td className="py-3 px-3 text-right font-mono whitespace-nowrap">
+                      {formatShortMarginRatio(item.short_margin_ratio)}
+                    </td>
+
                     {/* Price Limit */}
-                    <td className="py-3 px-3 text-right font-mono">
+                    <td className="py-3 px-3 text-right font-mono whitespace-nowrap">
                       {item.is_no_limit ? (
-                        <span className="text-zinc-500 text-[10px]">無漲跌幅限制</span>
+                        <span className="text-zinc-500 text-[10px]">無限制</span>
                       ) : item.price_limit_pct ? (
                         <span className="text-zinc-400 text-xs">&plusmn;{(item.price_limit_pct * 100).toFixed(0)}%</span>
                       ) : (
@@ -512,14 +720,14 @@ export function TaiwanScreener() {
                     </td>
 
                     {/* MA5 / MA20 */}
-                    <td className="py-3 px-3 text-right font-mono text-zinc-400">
+                    <td className="py-3 px-3 text-right font-mono text-zinc-400 whitespace-nowrap">
                       <span>{item.ma5 ? item.ma5.toFixed(1) : '-'}</span>
                       <span className="text-zinc-600 mx-1">/</span>
                       <span>{item.ma20 ? item.ma20.toFixed(1) : '-'}</span>
                     </td>
 
                     {/* RSI 14 */}
-                    <td className="py-3 px-3 text-right font-mono text-zinc-300">
+                    <td className="py-3 px-3 text-right font-mono text-zinc-300 whitespace-nowrap">
                       {item.rsi_14 ? (
                         <span className={item.rsi_14 >= 70 ? 'text-red-400' : item.rsi_14 <= 30 ? 'text-emerald-400' : ''}>
                           {item.rsi_14.toFixed(1)}
@@ -530,12 +738,12 @@ export function TaiwanScreener() {
                     </td>
 
                     {/* 5d Momentum */}
-                    <td className="py-3 px-3 text-right font-mono">
+                    <td className="py-3 px-3 text-right font-mono whitespace-nowrap">
                       {formatChangePct(item.momentum_5d)}
                     </td>
 
                     {/* Action button */}
-                    <td className="py-3 px-4 text-center">
+                    <td className="py-3 px-4 text-center whitespace-nowrap">
                       <Link
                         to={`/stocks/${encodeURIComponent(item.symbol)}`}
                         className="inline-flex items-center gap-1 text-[11px] bg-zinc-800 hover:bg-purple-600 text-zinc-300 hover:text-white px-2 py-1 rounded transition-colors"
