@@ -11,10 +11,10 @@ Covers:
 """
 from __future__ import annotations
 
-import pytest
+import httpx
 
-from app.taiwan.universe.adapters import parse_isin_html
-
+from app.taiwan.universe import adapters
+from app.taiwan.universe.adapters import TwseInstrumentAdapter, parse_isin_html
 
 TWSE_SAMPLE_HTML = """
 <html>
@@ -79,6 +79,23 @@ TPEX_SAMPLE_HTML = """
 
 class TestTaiwanInstrumentAdaptersOffline:
     """Offline parsing tests using canonical HTML fixtures."""
+
+    def test_official_transport_uses_verified_httpx_path(self, monkeypatch):
+        response = httpx.Response(
+            200,
+            content=TWSE_SAMPLE_HTML.encode("cp950"),
+            request=httpx.Request("GET", adapters.TWSE_ISIN_URL),
+        )
+        calls = []
+
+        def get(url, *, headers, timeout):
+            calls.append((url, headers, timeout))
+            return response
+
+        monkeypatch.setattr(adapters.httpx, "get", get)
+        html = TwseInstrumentAdapter().fetch_live_html(timeout=7)
+        assert "2330" in html
+        assert calls == [(adapters.TWSE_ISIN_URL, adapters.OFFICIAL_HEADERS, 7)]
 
     def test_twse_parsing_stocks_and_etfs(self):
         items = parse_isin_html(TWSE_SAMPLE_HTML, exchange="TWSE", source_name="TWSE_ISIN")

@@ -24,14 +24,17 @@ from __future__ import annotations
 import json
 import logging
 import re
-import urllib.request
 from dataclasses import dataclass, replace
 from datetime import datetime
 from html.parser import HTMLParser
 
+import httpx
+
 from app.taiwan.universe.models import TaiwanInstrument
 
 logger = logging.getLogger(__name__)
+
+OFFICIAL_HEADERS = {"User-Agent": "Mozilla/5.0"}
 
 TWSE_ISIN_URL = "https://isin.twse.com.tw/isin/C_public.jsp?strMode=2"
 TPEX_ISIN_URL = "https://isin.twse.com.tw/isin/C_public.jsp?strMode=4"
@@ -282,9 +285,9 @@ def fetch_official_twse_etf_products(timeout: float = 10.0) -> dict[str, Officia
         dict[code, OfficialEtfProductMeta]
     """
     try:
-        req = urllib.request.Request(TWSE_ETF_PRODUCTS_URL, headers={"User-Agent": "Mozilla/5.0"})
-        with urllib.request.urlopen(req, timeout=timeout) as resp:
-            data = json.loads(resp.read().decode("utf-8"))
+        response = httpx.get(TWSE_ETF_PRODUCTS_URL, headers=OFFICIAL_HEADERS, timeout=timeout)
+        response.raise_for_status()
+        data = response.json()
         product_map: dict[str, OfficialEtfProductMeta] = {}
         for r in data:
             code = r.get("基金代號") or r.get("證券代號") or list(r.values())[1]
@@ -308,9 +311,9 @@ class TwseInstrumentAdapter:
         self.url = url
 
     def fetch_live_html(self, timeout: float = 15.0) -> str:
-        req = urllib.request.Request(self.url, headers={"User-Agent": "Mozilla/5.0"})
-        with urllib.request.urlopen(req, timeout=timeout) as resp:
-            return resp.read().decode("cp950", errors="ignore")
+        response = httpx.get(self.url, headers=OFFICIAL_HEADERS, timeout=timeout)
+        response.raise_for_status()
+        return response.content.decode("cp950", errors="ignore")
 
     def get_instruments(
         self,
@@ -340,9 +343,9 @@ class TpexInstrumentAdapter:
         self.url = url
 
     def fetch_live_html(self, timeout: float = 15.0) -> str:
-        req = urllib.request.Request(self.url, headers={"User-Agent": "Mozilla/5.0"})
-        with urllib.request.urlopen(req, timeout=timeout) as resp:
-            return resp.read().decode("cp950", errors="ignore")
+        response = httpx.get(self.url, headers=OFFICIAL_HEADERS, timeout=timeout)
+        response.raise_for_status()
+        return response.content.decode("cp950", errors="ignore")
 
     def get_instruments(
         self,
@@ -367,9 +370,9 @@ class TpexInstrumentAdapter:
 
 
 def _get_json(url: str, timeout: float = 15.0) -> list[dict]:
-    request = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
-    with urllib.request.urlopen(request, timeout=timeout) as response:
-        payload = json.loads(response.read().decode("utf-8-sig"))
+    response = httpx.get(url, headers=OFFICIAL_HEADERS, timeout=timeout)
+    response.raise_for_status()
+    payload = json.loads(response.content.decode("utf-8-sig"))
     if not isinstance(payload, list):
         raise ValueError(f"official directory schema changed: {url}")
     return payload

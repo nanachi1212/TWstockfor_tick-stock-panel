@@ -3,9 +3,9 @@ from __future__ import annotations
 
 import json
 import urllib.parse
-import urllib.request
 from datetime import datetime, timedelta
 
+import httpx
 import polars as pl
 
 from app.data_providers.base import AssetType
@@ -34,16 +34,17 @@ OFFICIAL_METADATA = SourceMetadata(
 class OfficialTaiwanAdapter:
     metadata = OFFICIAL_METADATA
 
-    def __init__(self, timeout: int = 15) -> None:
+    def __init__(self, timeout: int = 15, client: httpx.Client | None = None) -> None:
         self.timeout = timeout
+        self.client = client or httpx.Client(timeout=timeout)
 
     def _json(self, url: str) -> object:
-        request = urllib.request.Request(
+        response = self.client.get(
             url,
             headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"},
         )
-        with urllib.request.urlopen(request, timeout=self.timeout) as response:
-            return json.loads(response.read().decode("utf-8-sig"))
+        response.raise_for_status()
+        return json.loads(response.content.decode("utf-8-sig"))
 
     def fetch_quote(self, symbols: list[str | TaiwanSymbol]) -> pl.DataFrame:
         wanted = [parse_symbol(s) if isinstance(s, str) else s for s in symbols]

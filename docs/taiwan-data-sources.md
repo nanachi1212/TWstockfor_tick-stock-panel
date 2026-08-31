@@ -8,6 +8,10 @@ The `taiwan` provider uses one existing provider seam with the following policy:
    official endpoints. Fallback records are labelled `third_party_fallback`.
 3. No third-party value silently overwrites a successful official value.
 
+TWSE Security Master and official quote/history requests use the existing
+`httpx` transport with normal certificate verification. This avoids a Windows
+Python 3.13 `urllib` system-trust chain incompatibility without weakening TLS.
+
 ## Official endpoints
 
 - TWSE companies: `opendata/t187ap03_L`

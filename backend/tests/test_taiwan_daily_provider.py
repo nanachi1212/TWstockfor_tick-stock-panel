@@ -18,6 +18,7 @@ import tempfile
 from datetime import date, datetime
 from pathlib import Path
 
+import httpx
 import polars as pl
 import pytest
 
@@ -33,7 +34,7 @@ from app.taiwan.providers.base import (
 from app.taiwan.providers.finmind_provider import FINMIND_METADATA
 from app.taiwan.providers.hybrid_provider import TaiwanHybridProvider
 from app.taiwan.providers.normalizer import normalize_taiwan_daily
-from app.taiwan.providers.official_provider import OfficialTaiwanAdapter
+from app.taiwan.providers.official_provider import TWSE_QUOTE_URL, OfficialTaiwanAdapter
 from app.taiwan.providers.taiwan_values import (
     market_close,
     official_status,
@@ -273,6 +274,12 @@ class TestCanonicalSchemaAlignment:
 
 
 class TestOfficialTaiwanProviderContract:
+    def test_official_json_uses_verified_httpx_client(self):
+        payload = [{"Date": "1150828", "Code": "2330"}]
+        transport = httpx.MockTransport(lambda request: httpx.Response(200, json=payload))
+        adapter = OfficialTaiwanAdapter(client=httpx.Client(transport=transport))
+        assert adapter._json(TWSE_QUOTE_URL) == payload
+
     def test_strict_values_dates_and_stale(self):
         assert parse_number("") is None
         assert parse_number("--") is None
