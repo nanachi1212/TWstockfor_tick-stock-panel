@@ -23,6 +23,10 @@ from app.taiwan.industry_intelligence import (
     TaiwanIndustryIntelligenceService,
     TaiwanIndustryIntelligenceSnapshot,
 )
+from app.taiwan.research_context import (
+    TaiwanStockResearchContext,
+    TaiwanStockResearchContextService,
+)
 from app.taiwan.market_intelligence import (
     TaiwanMarketIntelligenceService,
     TaiwanMarketIntelligenceSnapshot,
@@ -91,6 +95,33 @@ def get_taiwan_stock_detail(
         raise HTTPException(
             status_code=500,
             detail=f"台股個股資訊聚合失敗: {e}",
+        ) from e
+
+
+@router.get("/stocks/{symbol}/research-context", response_model=TaiwanStockResearchContext)
+def get_taiwan_stock_research_context(
+    symbol: str,
+    date: str | None = Query(None, description="指定交易日 (YYYY-MM-DD)，預設為最新已完成交易日"),
+):
+    """取得單一台股/ETF 標的強型別確定性研究證據上下文 (提供 AI 分析或量化研究，0 執行期外部請求)。"""
+    from datetime import date as dt_date
+    target_dt = None
+    if date:
+        try:
+            target_dt = dt_date.fromisoformat(date)
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=f"無效的日期格式: {date}，請使用 YYYY-MM-DD") from e
+
+    svc = TaiwanStockResearchContextService()
+    try:
+        return svc.get_research_context(symbol, target_date=target_dt)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
+    except Exception as e:
+        logger.exception("Failed to compute Taiwan stock research context for %s: %s", symbol, e)
+        raise HTTPException(
+            status_code=500,
+            detail=f"台股個股研究上下文生成失敗: {e}",
         ) from e
 
 

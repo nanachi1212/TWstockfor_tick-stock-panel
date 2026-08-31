@@ -9,6 +9,7 @@ import {
   AlertTriangle,
   ShieldAlert,
   BarChart3,
+  FileText,
 } from 'lucide-react'
 import { api, type TaiwanSearchResult } from '@/lib/api'
 import { QK } from '@/lib/queryKeys'
@@ -57,6 +58,13 @@ export function TaiwanStockDetail() {
   const currentDataQuery = useQuery({
     queryKey: QK.taiwanCurrentData(symbol),
     queryFn: () => api.taiwanCurrentData(symbol),
+    staleTime: 5 * 60_000,
+  })
+
+  // Phase 7C: Structured Research Context Query
+  const researchQuery = useQuery({
+    queryKey: ['taiwanStockResearchContext', symbol],
+    queryFn: () => api.taiwanStockResearchContext(symbol),
     staleTime: 5 * 60_000,
   })
 
@@ -675,6 +683,64 @@ export function TaiwanStockDetail() {
                 </div>
               )}
             </div>
+
+            {/* 結構化個股研究證據上下文 (Phase 7C) */}
+            {researchQuery.data && (
+              <div className="rounded-2xl border border-border bg-surface p-4 space-y-3">
+                <div className="flex items-center justify-between border-b border-border/60 pb-2">
+                  <div className="flex items-center gap-2">
+                    <FileText className="w-4 h-4 text-purple-400" />
+                    <h3 className="text-sm font-bold text-foreground">結構化研究證據上下文</h3>
+                    <span className="text-[10px] text-muted font-mono">
+                      (狀態: {researchQuery.data.data_quality.overall_status === 'complete' ? '完整' : '部分'})
+                    </span>
+                  </div>
+                  <span className="text-[10px] text-muted font-mono">
+                    已認證事實: {researchQuery.data.evidence_summary.known_fields_count} 項 | 衍生計算: {researchQuery.data.evidence_summary.derived_fields_count} 項
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs font-mono">
+                  <div className="bg-base p-2 rounded-lg border border-border/50">
+                    <span className="text-[10px] text-muted block">5日報酬率</span>
+                    <span className={researchQuery.data.price_context.return_5d !== null ? (researchQuery.data.price_context.return_5d > 0 ? 'text-up font-semibold' : researchQuery.data.price_context.return_5d < 0 ? 'text-down font-semibold' : 'text-foreground') : 'text-muted'}>
+                      {researchQuery.data.price_context.return_5d !== null ? `${(researchQuery.data.price_context.return_5d * 100).toFixed(2)}%` : '—'}
+                    </span>
+                  </div>
+                  <div className="bg-base p-2 rounded-lg border border-border/50">
+                    <span className="text-[10px] text-muted block">20日報酬率</span>
+                    <span className={researchQuery.data.price_context.return_20d !== null ? (researchQuery.data.price_context.return_20d > 0 ? 'text-up font-semibold' : researchQuery.data.price_context.return_20d < 0 ? 'text-down font-semibold' : 'text-foreground') : 'text-muted'}>
+                      {researchQuery.data.price_context.return_20d !== null ? `${(researchQuery.data.price_context.return_20d * 100).toFixed(2)}%` : '—'}
+                    </span>
+                  </div>
+                  <div className="bg-base p-2 rounded-lg border border-border/50">
+                    <span className="text-[10px] text-muted block">距 MA20 乖離</span>
+                    <span className={researchQuery.data.technical_context.distance_to_ma20 !== null ? (researchQuery.data.technical_context.distance_to_ma20 > 0 ? 'text-up' : researchQuery.data.technical_context.distance_to_ma20 < 0 ? 'text-down' : 'text-foreground') : 'text-muted'}>
+                      {researchQuery.data.technical_context.distance_to_ma20 !== null ? `${(researchQuery.data.technical_context.distance_to_ma20 * 100).toFixed(2)}%` : '—'}
+                    </span>
+                  </div>
+                  <div className="bg-base p-2 rounded-lg border border-border/50">
+                    <span className="text-[10px] text-muted block">5日均量比</span>
+                    <span className="text-foreground">
+                      {researchQuery.data.technical_context.vol_ratio_5d !== null ? `${researchQuery.data.technical_context.vol_ratio_5d}x` : '—'}
+                    </span>
+                  </div>
+                </div>
+
+                {researchQuery.data.industry_context.industry && (
+                  <div className="bg-base p-2.5 rounded-lg border border-border/50 text-xs flex items-center justify-between">
+                    <div>
+                      <span className="text-muted text-[11px]">產業輪動背景: </span>
+                      <span className="font-semibold text-foreground">{researchQuery.data.industry_context.industry}</span>
+                    </div>
+                    <div className="flex gap-4 font-mono text-[11px]">
+                      <span>成交佔比: {researchQuery.data.industry_context.turnover_share !== null ? `${(researchQuery.data.industry_context.turnover_share * 100).toFixed(1)}%` : '—'}</span>
+                      <span>5D RS: {researchQuery.data.industry_context.relative_strength_5d !== null ? `${(researchQuery.data.industry_context.relative_strength_5d * 100).toFixed(2)}%` : '—'}</span>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         </div>
       )}

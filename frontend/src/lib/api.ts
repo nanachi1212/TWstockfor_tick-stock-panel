@@ -1427,6 +1427,167 @@ export interface TaiwanIndustryIntelligenceSnapshot {
   }
 }
 
+export interface EvidenceMeta {
+  classification: 'KNOWN' | 'MISSING' | 'DERIVED'
+  source: string
+  formula?: string | null
+  as_of?: string | null
+}
+
+export interface TaiwanStockResearchContext {
+  symbol: string
+  generated_at: string
+  as_of_date: string
+  identity: {
+    canonical_symbol: string
+    code: string
+    name: string
+    exchange: string
+    instrument_type: string
+    industry: string | null
+    currency: string
+    listing_status: string
+    listing_date: string | null
+    meta: EvidenceMeta
+  }
+  market_context: {
+    trade_date: string
+    market_turnover: number
+    advance_count: number
+    decline_count: number
+    flat_count: number
+    upper_limit_count: number
+    lower_limit_count: number
+    exchange_turnover: number | null
+    institutional_market_net: number | null
+    margin_market_change: number | null
+    status: string
+    meta: EvidenceMeta
+  }
+  industry_context: {
+    industry: string | null
+    turnover: number | null
+    turnover_share: number | null
+    advance_ratio: number | null
+    average_change_pct: number | null
+    median_change_pct: number | null
+    foreign_net: number | null
+    investment_trust_net: number | null
+    relative_strength_5d: number | null
+    relative_strength_20d: number | null
+    status: string
+    meta: EvidenceMeta
+  }
+  price_context: {
+    trade_date: string
+    open: number | null
+    high: number | null
+    low: number | null
+    close: number | null
+    volume: number | null
+    amount: number | null
+    previous_close: number | null
+    change: number | null
+    change_pct: number | null
+    return_5d: number | null
+    return_20d: number | null
+    high_20d: number | null
+    low_20d: number | null
+    distance_from_20d_high: number | null
+    distance_from_20d_low: number | null
+    meta: EvidenceMeta
+  }
+  technical_context: {
+    ma5: number | null
+    ma20: number | null
+    ma60: number | null
+    rsi14: number | null
+    above_ma5: boolean | null
+    above_ma20: boolean | null
+    distance_to_ma20: number | null
+    vol_ratio_5d: number | null
+    meta: EvidenceMeta
+  }
+  institutional_context: {
+    as_of: string | null
+    foreign_net_1d: number | null
+    foreign_net_5d: number | null
+    foreign_net_20d: number | null
+    investment_trust_net_1d: number | null
+    investment_trust_net_5d: number | null
+    investment_trust_net_20d: number | null
+    dealer_net_1d: number | null
+    dealer_net_5d: number | null
+    dealer_net_20d: number | null
+    coverage_days_5d: number
+    coverage_days_20d: number
+    status: string
+    meta: EvidenceMeta
+  }
+  margin_context: {
+    as_of: string | null
+    margin_balance: number | null
+    margin_balance_change_1d: number | null
+    margin_balance_change_5d: number | null
+    short_balance: number | null
+    short_balance_change_1d: number | null
+    short_balance_change_5d: number | null
+    short_margin_ratio: number | null
+    status: string
+    meta: EvidenceMeta
+  }
+  fundamentals_context: {
+    status: string
+    as_of_period: string | null
+    available_at: string | null
+    pe: number | null
+    pb: number | null
+    dividend_yield: number | null
+    monthly_revenue_yoy: number | null
+    latest_eps: number | null
+    meta: EvidenceMeta
+  }
+  etf_context: {
+    status: string
+    etf_type: string | null
+    underlying_scope: string | null
+    leverage_multiplier: number | null
+    inverse: boolean | null
+    benchmark: string | null
+    meta: EvidenceMeta
+  }
+  market_rules_context: {
+    price_limit_pct: number | null
+    is_no_limit: boolean
+    limit_up: number | null
+    limit_down: number | null
+    tick_size: number | null
+    meta: EvidenceMeta
+  }
+  realtime_context: {
+    status: string
+    last_price: number | null
+    quote_ts: string | null
+    meta: EvidenceMeta
+  }
+  monitor_context: {
+    active_rule_count: number
+    recent_alert_count: number
+    meta: EvidenceMeta
+  }
+  data_quality: {
+    overall_status: 'complete' | 'partial' | 'unavailable'
+    sections: { section: string; status: string; as_of: string | null }[]
+    target_trade_date: string
+  }
+  evidence_summary: {
+    known_fields_count: number
+    missing_fields_count: number
+    derived_fields_count: number
+    missing_sections: string[]
+  }
+}
+
 /** 生成监控规则 id (时间戳 + 随机后缀), 用户无需手动填写。 */
 export function genRuleId(): string {
   const ts = Date.now().toString(36)
@@ -3492,6 +3653,13 @@ export const api = {
       qs ? `/api/taiwan/industry-intelligence?${qs}` : '/api/taiwan/industry-intelligence',
     )
   },
+
+  taiwanStockResearchContext: (symbol: string, date?: string) =>
+    request<TaiwanStockResearchContext>(
+      date
+        ? `/api/taiwan/stocks/${encodeURIComponent(symbol)}/research-context?date=${encodeURIComponent(date)}`
+        : `/api/taiwan/stocks/${encodeURIComponent(symbol)}/research-context`,
+    ),
 
   taiwanRulesList: () =>
     request<{ rules: TaiwanMonitorRule[]; total: number }>('/api/monitor-rules/taiwan'),
