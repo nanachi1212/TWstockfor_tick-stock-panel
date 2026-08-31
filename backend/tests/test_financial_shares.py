@@ -163,7 +163,56 @@ def test_turnover_without_share_history_keeps_existing_behavior(monkeypatch):
     assert result["turnover_rate"][0] == pytest.approx(0.5)
 
 
-def test_turnover_uses_market_volume_unit():
+def test_historical_taiwan_turnover_without_verified_share_history_fails_closed(monkeypatch):
+    monkeypatch.setattr(pipeline, "cn_today", lambda: date(2026, 8, 31))
+    bars = pl.DataFrame({
+        "symbol": ["2330.TWSE"],
+        "date": [date(2026, 8, 28)],
+        "volume": [1_000_000.0],
+    })
+    instruments = pl.DataFrame({
+        "symbol": ["2330.TWSE"],
+        "float_shares": [100_000_000.0],
+    })
+
+    result = pipeline.compute_limit_signals(
+        bars,
+        instruments,
+        needed={"turnover_rate"},
+    )
+
+    assert result["turnover_rate"][0] is None
+
+
+def test_taiwan_period_end_share_row_cannot_enable_historical_turnover(monkeypatch):
+    monkeypatch.setattr(pipeline, "cn_today", lambda: date(2026, 8, 31))
+    bars = pl.DataFrame({
+        "symbol": ["2330.TWSE"],
+        "date": [date(2026, 8, 28)],
+        "volume": [1_000_000.0],
+    })
+    instruments = pl.DataFrame({
+        "symbol": ["2330.TWSE"],
+        "float_shares": [100_000_000.0],
+    })
+    unverified_history = pl.DataFrame({
+        "symbol": ["2330.TWSE"],
+        "period_end": ["2026-06-30"],
+        "float_shares": [80_000_000.0],
+    })
+
+    result = pipeline.compute_limit_signals(
+        bars,
+        instruments,
+        needed={"turnover_rate"},
+        historical_shares=unverified_history,
+    )
+
+    assert result["turnover_rate"][0] is None
+
+
+def test_turnover_uses_market_volume_unit(monkeypatch):
+    monkeypatch.setattr(pipeline, "cn_today", lambda: date(2026, 8, 28))
     bars = pl.DataFrame({
         "symbol": ["2330.TWSE", "600000.SH"],
         "date": [date(2026, 8, 28)] * 2,

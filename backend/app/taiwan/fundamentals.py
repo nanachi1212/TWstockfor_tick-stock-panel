@@ -8,6 +8,7 @@ verifiable publication time.  Such live records are retained with provenance but
 from __future__ import annotations
 
 import json
+import re
 from collections.abc import Iterable
 from dataclasses import asdict, dataclass, fields
 from datetime import date, datetime, timedelta
@@ -42,6 +43,19 @@ def _datetime(value: str | datetime | None) -> datetime | None:
 def thousand_twd(raw: object) -> int | None:
     value = parse_number(raw)
     return None if value is None else round(value * 1000)
+
+
+def _whole_number(raw: object) -> int | None:
+    value = parse_number(raw)
+    return None if value is None else round(value)
+
+
+def _par_value_twd(raw: object) -> float | None:
+    text = str(raw or "").strip()
+    if not text or text in {"-", "--", "N/A"}:
+        return None
+    match = re.search(r"([0-9][0-9,]*(?:\.[0-9]+)?)", text)
+    return parse_number(match.group(1)) if match else None
 
 
 def roc_month(raw: object) -> str:
@@ -227,6 +241,31 @@ class TaiwanOfficialFundamentals:
             "dividend_yield": parse_number(row.get("DividendYield") or row.get("YieldRatio")),
         }
         return self._record(symbol, "valuation", trade_date, row, exchange, url, retrieved, values, "ratio", None)
+
+    def share_capital(self, symbol: str, exchange: str, *, security_type: str = "stock") -> FundamentalRecord:
+        """Return the official current/reference capital snapshot without historical inference."""
+        if security_type == "etf":
+            return self._unsupported(symbol, "share_capital_record")
+        path = "opendata/t187ap03_L" if exchange == "TWSE" else "mopsfin_t187ap03_O"
+        url, row, retrieved = self._company_row(symbol, exchange, path)
+        report_date = parse_taiwan_date(str(row.get("出表日期") or row.get("Date"))).isoformat()
+        values = {
+            "total_shares": None,
+            "issued_shares": _whole_number(
+                row.get("已發行普通股數或TDR原股發行股數") or row.get("IssueShares")
+            ),
+            "float_shares": None,
+            "capital_twd": _whole_number(
+                row.get("實收資本額") or row.get("Paidin.Capital.NTDollars")
+            ),
+            "par_value_twd": _par_value_twd(
+                row.get("普通股每股面額") or row.get("ParValueOfCommonStock")
+            ),
+        }
+        return self._record(
+            symbol, "share_capital_record", report_date, row, exchange, url,
+            retrieved, values, "structured", None,
+        )
 
     def dividends(self, symbol: str, exchange: str, *, security_type: str = "stock") -> list[FundamentalRecord]:
         path = "opendata/t187ap45_L" if exchange == "TWSE" else "mopsfin_t187ap39_O"

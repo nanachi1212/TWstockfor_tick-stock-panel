@@ -156,6 +156,16 @@ Share-capital fields are not interchangeable: `total_shares`, `issued_shares`,
 issued shares or capital divided by par value are not used as historical float
 shares without an authoritative source.
 
+Phase 6H verified that TWSE/TPEx company profiles expose current issued common
+shares, paid-in capital, and par value, but only with date-level report metadata.
+These fields are retained as a current/reference `share_capital_record` with
+`available_at=None`; `total_shares` and `float_shares` remain null. Official
+capital-event sources did not provide a uniform exact-time, effective-date, and
+revision chain suitable for historical ingest. Taiwan historical turnover now
+fails closed when no verified PIT float denominator exists. The source matrix and
+live samples are recorded in
+[`taiwan-share-capital-phase-6h.md`](taiwan-share-capital-phase-6h.md).
+
 ## Official fundamentals availability investigation (Phase 6C.1)
 
 Investigation on 2026-08-31 distinguished an official timestamp from a safe

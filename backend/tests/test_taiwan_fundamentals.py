@@ -107,9 +107,56 @@ def test_valuation_trade_date_and_retrieval_do_not_create_availability():
 
 def test_etf_company_fundamentals_fail_closed():
     provider = TaiwanOfficialFundamentals(httpx.Client(transport=httpx.MockTransport(lambda r: httpx.Response(500))))
-    for dataset, method in (("monthly_revenue", provider.monthly_revenue), ("financial_statement", provider.financial_statement)):
+    for dataset, method in (
+        ("monthly_revenue", provider.monthly_revenue),
+        ("financial_statement", provider.financial_statement),
+        ("share_capital_record", provider.share_capital),
+    ):
         got = method("0050.TWSE", "TWSE", security_type="etf")
         assert got.dataset == dataset and got.status == "unsupported" and got.values is None
+
+
+@pytest.mark.parametrize(
+    ("exchange", "row", "expected"),
+    [
+        (
+            "TWSE",
+            {
+                "出表日期": "1150830", "公司代號": "2330",
+                "普通股每股面額": "新台幣 10.0000元", "實收資本額": "259323700670",
+                "已發行普通股數或TDR原股發行股數": "25932370067",
+            },
+            (25_932_370_067, 259_323_700_670, 10.0),
+        ),
+        (
+            "TPEX",
+            {
+                "Date": "1150830", "SecuritiesCompanyCode": "6488",
+                "ParValueOfCommonStock": "新台幣 10.0000元",
+                "Paidin.Capital.NTDollars": "4781137250", "IssueShares": "478113725",
+            },
+            (478_113_725, 4_781_137_250, 10.0),
+        ),
+    ],
+)
+def test_current_share_capital_preserves_distinct_concepts_without_historical_availability(
+    exchange, row, expected,
+):
+    transport = httpx.MockTransport(lambda request: httpx.Response(200, json=[row]))
+    symbol = "2330.TWSE" if exchange == "TWSE" else "6488.TPEX"
+    got = TaiwanOfficialFundamentals(httpx.Client(transport=transport)).share_capital(
+        symbol, exchange
+    )
+    assert got.period_end == "2026-08-30"
+    assert got.values == {
+        "total_shares": None,
+        "issued_shares": expected[0],
+        "float_shares": None,
+        "capital_twd": expected[1],
+        "par_value_twd": expected[2],
+    }
+    assert got.available_at is None and got.published_at is None
+    assert got.status == "data_insufficient"
 
 
 def test_share_capital_concepts_are_not_substituted():
