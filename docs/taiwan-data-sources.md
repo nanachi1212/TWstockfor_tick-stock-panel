@@ -294,8 +294,8 @@ daily NAV, AUM, units, distributions, and holdings must not be stored there.
 | Class | Dataset | Fields and units | Frequency / history | Decision |
 |---|---|---|---|---|
 | A | TWSE OpenAPI `opendata/t187ap47_L` (基金基本資料彙總表) | product name/type, benchmark, inception/listing dates; `發行單位數/轉換數` retained as issued units | current report with date-only `出表日期`; no proven publication time | profile is production-usable; current issued units are retained with `available_at=None` and are historically unavailable; outstanding units remain unknown |
-| B | TWSE e添富 ETF pages and distribution list | displayed NAV/AUM/ranking/distribution information | web presentation and date-level information; no stable historical API and exact publication time verified in this phase | reference/live investigation only; not parsed into production history |
-| B | TPEx ETF pages and published media format | per-unit NAV and related declared fields | official specification exists, but a stable historical cross-product API and availability timestamps were not verified | capability remains `data_insufficient` |
+| B | TWSE e添富 NAV chart and `ETF/etfDiv` report | dated NAV/premium-discount observations; ETF ex/basis/payment dates and distribution amount per unit | historical values are queryable, but no record publication timestamp, stable revision identity, or approved availability rule exists | historical reference only; not parsed into PIT history |
+| B | TPEx ETF information-center product service and monthly report | recent per-unit NAV, four recent payments, current/month-end scale fields | recent or monthly partial history; no exact record availability or revision identity | reference only; capability remains `data_insufficient` |
 | C | Issuer holdings pages or top-holding displays | holdings/weights vary by issuer and may be partial | completeness, cash/derivative coverage, schema, and availability are not consistently proven | no production holdings ingest |
 
 ## Semantic boundaries
@@ -316,6 +316,14 @@ daily NAV, AUM, units, distributions, and holdings must not be stored there.
 - Leveraged/inverse direction and multiplier remain absent unless an explicit
   official field proves them; ticker/name suffixes are not evidence in this ETF
   structured-data domain.
+
+Phase 6I verified TWSE historical NAV chart responses for `0050`, `00631L`, and
+`00632R`, and TWSE distribution rows for `0050` back to 2020. It also verified
+the genuine TPEx ETF `006201` through the official ETF information-center API.
+These sources remain reference-only because none supplies an exact publication
+timestamp, approved `available_at`, and stable revision identity. No ETF history
+provider or store was added. The endpoint and rejection evidence is recorded in
+[`taiwan-etf-history-phase-6i.md`](taiwan-etf-history-phase-6i.md).
 
 # Taiwan verified fundamentals factor safety (Phase 6F)
 
