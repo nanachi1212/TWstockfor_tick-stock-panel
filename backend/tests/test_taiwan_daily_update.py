@@ -90,6 +90,9 @@ def test_orchestrator_all_success_mocked():
 
     mock_daily_svc = MagicMock()
     mock_daily_svc.refresh_symbols.return_value = {"symbols_fetched": 10, "rows_written": 500}
+    mock_daily_svc.refresh_dates.return_value = {
+        "dates_requested": 1, "dates_fetched": 1, "dates_skipped": 0, "total_rows_written": 500, "failed_dates": []
+    }
     mock_inst_svc = MagicMock()
     mock_inst_svc.refresh_dates.return_value = {"dates_requested": 1, "dates_fetched": 1, "total_rows_written": 2000, "failed_dates": []}
     mock_margin_svc = MagicMock()

@@ -1119,17 +1119,17 @@ def start_scheduler(repo: KlineRepository, capset: CapabilitySet) -> AsyncIOSche
         logger.info("scheduled_review enabled @%02d:%02d mon-fri",
                     review_sched["hour"], review_sched["minute"])
 
-    # 台股盘后增量更新 (Taiwan Institutional & Margin Market-Wide Update)
-    # 每天 16:30 Asia/Taipei 触发。官方三大法人與融資融券各僅 2 次 HTTP 請求 (TWSE 1 + TPEx 1)
-    # Daily OHLCV 預設保持 refresh_daily=False (避免在缺少全市場快照端點前逐股打 ~2335 次請求)
+    # 台股盘后增量更新 (Taiwan Full-Market Daily OHLCV + Institutional + Margin Update)
+    # 每天 16:30 Asia/Taipei 触发。
+    # 官方全市場快照端點極速更新：Daily (TWSE 1 + TPEx 1) + Inst (2) + Margin (2) = ~6 次 HTTP 請求 / 日
     def _scheduled_taiwan_update():
         try:
             from app.taiwan.daily_update import TaiwanDailyUpdateService
             svc = TaiwanDailyUpdateService()
-            result = svc.run_update(refresh_daily=False)
+            result = svc.run_update(refresh_daily=True)
             logger.info(
-                "Scheduled Taiwan daily update finished: overall=%s, inst=%s, margin=%s",
-                result.overall_status, result.institutional.status, result.margin.status,
+                "Scheduled Taiwan daily update finished: overall=%s, daily=%s, inst=%s, margin=%s",
+                result.overall_status, result.daily.status, result.institutional.status, result.margin.status,
             )
         except Exception as e:
             logger.exception("Scheduled Taiwan daily update job failed: %s", e)

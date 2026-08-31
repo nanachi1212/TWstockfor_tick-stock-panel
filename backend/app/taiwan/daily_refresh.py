@@ -16,6 +16,7 @@ import polars as pl
 
 from app.taiwan.daily_store import TaiwanDailyStore
 from app.taiwan.providers.hybrid_provider import TaiwanHybridProvider
+from app.taiwan.providers.snapshot_provider import OfficialDailySnapshotAdapter
 from app.taiwan.realtime.calendar import TaiwanTradingCalendar
 from app.taiwan.universe import get_security_master
 
@@ -122,14 +123,67 @@ class TaiwanDailyRefreshService:
         store: TaiwanDailyStore | None = None,
         provider: TaiwanHybridProvider | None = None,
         calendar: TaiwanTradingCalendar | None = None,
+        snapshot_adapter: OfficialDailySnapshotAdapter | None = None,
         concurrency: int = DEFAULT_CONCURRENCY,
         start_date: str = DEFAULT_START_DATE,
     ) -> None:
         self._store = store or TaiwanDailyStore()
         self._provider = provider or TaiwanHybridProvider()
         self._calendar = calendar or TaiwanTradingCalendar()
+        self._snapshot_adapter = snapshot_adapter or OfficialDailySnapshotAdapter()
         self._concurrency = concurrency
         self._start_date = date.fromisoformat(start_date)
+
+    def refresh_dates(
+        self,
+        start_date: date,
+        end_date: date,
+        force: bool = False,
+    ) -> dict[str, Any]:
+        """Fetch and persist market-wide daily snapshots for trading days in [start_date, end_date].
+
+        Uses OfficialDailySnapshotAdapter:
+          - Exactly 1 HTTP request for TWSE MI_INDEX
+          - Exactly 1 HTTP request for TPEx dailyQuotes
+        per trading day (2 HTTP requests total per date instead of ~2,335).
+        """
+        available = set(self._store.available_dates()) if not force else set()
+        stats: dict[str, Any] = {
+            "dates_requested": 0,
+            "dates_fetched": 0,
+            "dates_skipped": 0,
+            "total_rows_written": 0,
+            "failed_dates": [],
+        }
+
+        cur = start_date
+        while cur <= end_date:
+            if self._calendar.is_trading_day(cur) is False:
+                cur += timedelta(days=1)
+                continue
+
+            stats["dates_requested"] += 1
+
+            if cur in available:
+                stats["dates_skipped"] += 1
+                cur += timedelta(days=1)
+                continue
+
+            try:
+                df = self._snapshot_adapter.fetch_date(cur)
+                if not df.is_empty():
+                    written = self._store.write_batch(df, partition_date=cur)
+                    stats["total_rows_written"] += written
+                    stats["dates_fetched"] += 1
+                else:
+                    stats["dates_skipped"] += 1
+            except Exception as exc:
+                logger.warning("Daily snapshot refresh failed for %s: %s", cur, exc)
+                stats["failed_dates"].append({"date": str(cur), "error": str(exc)})
+
+            cur += timedelta(days=1)
+
+        return stats
 
     def refresh_symbols(
         self,

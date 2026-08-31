@@ -191,7 +191,7 @@ class TaiwanDailyUpdateService:
     def run_update(
         self,
         target_date: date | None = None,
-        refresh_daily: bool = False,
+        refresh_daily: bool = True,
         daily_symbols: list[str] | None = None,
         force: bool = False,
     ) -> TaiwanDailyUpdateResult:
@@ -199,9 +199,10 @@ class TaiwanDailyUpdateService:
 
         Args:
             target_date: Override target trading date (defaults to resolved latest trading day).
-            refresh_daily: Whether to trigger Daily OHLCV refresh. Defaults to False to avoid
-                           invoking ~2,335 HTTP calls per symbol without explicit intent.
-            daily_symbols: Subset of symbols to refresh for Daily OHLCV if enabled (None = full universe).
+            refresh_daily: Whether to trigger Daily OHLCV refresh. Defaults to True (using the fast
+                           official market-wide snapshot path: TWSE 1 + TPEx 1 = 2 HTTP calls per date).
+            daily_symbols: Subset of symbols to refresh for Daily OHLCV if specified (uses per-symbol path;
+                           if None, uses the fast market-wide snapshot path).
             force: Refetch even if dates already exist in stores.
 
         Returns:
@@ -234,10 +235,7 @@ class TaiwanDailyUpdateService:
         daily_stats = DatasetRefreshStats()
         if not refresh_daily:
             daily_stats.status = "skipped"
-            daily_stats.note = (
-                "Daily full-market refresh requires per-symbol requests (~2,335 calls). "
-                "Skipped in automatic flow; invoke with refresh_daily=True or specific daily_symbols."
-            )
+            daily_stats.note = "Daily refresh skipped by caller configuration."
         else:
             try:
                 d_range = resolve_missing_date_range(d_max, target, self.calendar) if not force else (start_bound, end_bound)
@@ -247,15 +245,29 @@ class TaiwanDailyUpdateService:
                     daily_stats.note = "Daily store already current"
                 else:
                     d_start, d_end = d_range if d_range else (start_bound, end_bound)
-                    res = self.daily_service.refresh_symbols(symbols=daily_symbols, start=d_start, end=d_end)
-                    if "error" in res:
-                        daily_stats.status = "failed"
-                        daily_stats.failed_dates.append({"error": res["error"]})
+                    if daily_symbols is not None:
+                        # Specific symbols requested -> use per-symbol path
+                        res = self.daily_service.refresh_symbols(symbols=daily_symbols, start=d_start, end=d_end)
+                        if "error" in res:
+                            daily_stats.status = "failed"
+                            daily_stats.failed_dates.append({"error": res["error"]})
+                        else:
+                            daily_stats.status = "success"
+                            daily_stats.dates_fetched = 1 if res.get("symbols_fetched", 0) > 0 else 0
+                            daily_stats.dates_skipped = 1 if res.get("symbols_fetched", 0) == 0 else 0
+                            daily_stats.rows_written = res.get("rows_written", 0)
                     else:
-                        daily_stats.status = "success"
-                        daily_stats.dates_fetched = 1 if res.get("symbols_fetched", 0) > 0 else 0
-                        daily_stats.dates_skipped = 1 if res.get("symbols_fetched", 0) == 0 else 0
-                        daily_stats.rows_written = res.get("rows_written", 0)
+                        # Full-market refresh -> use fast official snapshot path (TWSE 1 + TPEx 1)
+                        res = self.daily_service.refresh_dates(start_date=d_start, end_date=d_end, force=force)
+                        daily_stats.dates_requested = res.get("dates_requested", 0)
+                        daily_stats.dates_fetched = res.get("dates_fetched", 0)
+                        daily_stats.dates_skipped = res.get("dates_skipped", 0)
+                        daily_stats.rows_written = res.get("total_rows_written", 0)
+                        daily_stats.failed_dates = res.get("failed_dates", [])
+                        if daily_stats.failed_dates:
+                            daily_stats.status = "failed" if daily_stats.dates_fetched == 0 else "partial"
+                        else:
+                            daily_stats.status = "success"
             except Exception as e:
                 logger.exception("Daily refresh failed: %s", e)
                 daily_stats.status = "failed"
@@ -359,8 +371,8 @@ def main():
 
     parser = argparse.ArgumentParser(description="Taiwan Daily Incremental Update CLI")
     parser.add_argument("--status-only", action="store_true", help="Only display current data freshness")
-    parser.add_argument("--refresh-daily", action="store_true", help="Enable Daily OHLCV refresh (per-symbol calls)")
-    parser.add_argument("--symbols", nargs="+", help="Specific symbols to refresh for Daily OHLCV")
+    parser.add_argument("--skip-daily", action="store_true", help="Skip Daily OHLCV refresh")
+    parser.add_argument("--symbols", nargs="+", help="Specific symbols to refresh for Daily OHLCV (uses per-symbol path)")
     parser.add_argument("--target-date", type=str, help="Target date YYYY-MM-DD override")
     parser.add_argument("--force", action="store_true", help="Force refetch existing dates")
 
@@ -377,7 +389,7 @@ def main():
 
     res = svc.run_update(
         target_date=t_date,
-        refresh_daily=args.refresh_daily,
+        refresh_daily=not args.skip_daily,
         daily_symbols=args.symbols,
         force=args.force,
     )
