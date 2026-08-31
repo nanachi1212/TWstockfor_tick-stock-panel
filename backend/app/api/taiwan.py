@@ -19,6 +19,10 @@ from app.taiwan.current_data import (
 from app.taiwan.daily_update import FreshnessStatus, TaiwanDailyUpdateService
 from app.taiwan.detail_models import TaiwanStockDetailResponse
 from app.taiwan.detail_service import get_taiwan_stock_detail_service
+from app.taiwan.industry_intelligence import (
+    TaiwanIndustryIntelligenceService,
+    TaiwanIndustryIntelligenceSnapshot,
+)
 from app.taiwan.market_intelligence import (
     TaiwanMarketIntelligenceService,
     TaiwanMarketIntelligenceSnapshot,
@@ -131,3 +135,27 @@ def get_taiwan_market_intelligence(
     except Exception as e:
         logger.exception("Failed to compute Taiwan market intelligence snapshot: %s", e)
         raise HTTPException(status_code=500, detail=f"市場情報快照生成失敗: {e}") from e
+
+
+@router.get("/industry-intelligence", response_model=TaiwanIndustryIntelligenceSnapshot)
+def get_taiwan_industry_intelligence(
+    date: str | None = Query(None, description="指定交易日 (YYYY-MM-DD)，預設為最新已完成交易日"),
+    sort_by: str = Query("turnover", description="排序欄位: turnover, median_change_pct, relative_strength_5d, relative_strength_20d, advance_ratio, foreign_net, investment_trust_net"),
+    order: str = Query("desc", description="排序順序: desc 或 asc"),
+):
+    """取得台股各產業類股量化統計快照 (包含類股漲跌中位數、5D/20D 相對強弱 RS、成交占比與三大法人動向，純本地確定性計算)。"""
+    from datetime import date as dt_date
+    target_dt = None
+    if date:
+        try:
+            target_dt = dt_date.fromisoformat(date)
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=f"無效的日期格式: {date}，請使用 YYYY-MM-DD") from e
+
+    svc = TaiwanIndustryIntelligenceService()
+    try:
+        return svc.get_snapshot(target_date=target_dt, sort_by=sort_by, order=order)
+    except Exception as e:
+        logger.exception("Failed to compute Taiwan industry intelligence snapshot: %s", e)
+        raise HTTPException(status_code=500, detail=f"產業情報快照生成失敗: {e}") from e
+

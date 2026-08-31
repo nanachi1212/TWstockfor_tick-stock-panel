@@ -1359,6 +1359,74 @@ export interface TaiwanMarketIntelligenceSnapshot {
   }
 }
 
+export interface IndustryConstituentMover {
+  symbol: string
+  name: string
+  change_pct: number | null
+  close: number | null
+  turnover: number
+}
+
+export interface IndustryMetrics {
+  industry: string
+  supported_symbol_count: number
+  snapshot_symbol_count: number
+  traded_symbol_count: number
+  comparable_symbol_count: number
+  turnover: number
+  turnover_share: number
+  advance_count: number
+  decline_count: number
+  flat_count: number
+  uncompared_count: number
+  advance_ratio: number | null
+  decline_ratio: number | null
+  average_change_pct: number | null
+  median_change_pct: number | null
+  foreign_net: number | null
+  investment_trust_net: number | null
+  dealer_net: number | null
+  margin_balance_change: number | null
+  short_balance_change: number | null
+  relative_strength_5d: number | null
+  relative_strength_20d: number | null
+  relative_strength_5d_comparable_count: number
+  relative_strength_20d_comparable_count: number
+  top_gainers: IndustryConstituentMover[]
+  top_losers: IndustryConstituentMover[]
+  top_turnover: IndustryConstituentMover[]
+}
+
+export interface TaiwanIndustryIntelligenceSnapshot {
+  trade_date: string
+  generated_at: string
+  market_reference: {
+    trade_date: string
+    total_stock_turnover: number
+    market_equal_weight_return_5d: number | null
+    market_equal_weight_return_20d: number | null
+    comparable_stocks_5d_count: number
+    comparable_stocks_20d_count: number
+  }
+  industries: IndustryMetrics[]
+  data_quality: {
+    target_trade_date: string
+    previous_trade_date: string | null
+    base_date_5d: string | null
+    base_date_20d: string | null
+    supported_stock_count: number
+    classified_stock_count: number
+    unclassified_stock_count: number
+    etfs_excluded_count: number
+    industry_count: number
+    classification_coverage_pct: number
+    daily_status: 'current' | 'stale' | 'unavailable'
+    institutional_status: 'current' | 'stale' | 'unavailable'
+    margin_status: 'current' | 'stale' | 'unavailable'
+    overall_status: 'complete' | 'partial' | 'unavailable'
+  }
+}
+
 /** 生成监控规则 id (时间戳 + 随机后缀), 用户无需手动填写。 */
 export function genRuleId(): string {
   const ts = Date.now().toString(36)
@@ -3413,6 +3481,17 @@ export const api = {
     request<TaiwanMarketIntelligenceSnapshot>(
       date ? `/api/taiwan/market-intelligence?date=${encodeURIComponent(date)}` : '/api/taiwan/market-intelligence',
     ),
+
+  taiwanIndustryIntelligence: (params?: { date?: string; sort_by?: string; order?: string }) => {
+    const q = new URLSearchParams()
+    if (params?.date) q.set('date', params.date)
+    if (params?.sort_by) q.set('sort_by', params.sort_by)
+    if (params?.order) q.set('order', params.order)
+    const qs = q.toString()
+    return request<TaiwanIndustryIntelligenceSnapshot>(
+      qs ? `/api/taiwan/industry-intelligence?${qs}` : '/api/taiwan/industry-intelligence',
+    )
+  },
 
   taiwanRulesList: () =>
     request<{ rules: TaiwanMonitorRule[]; total: number }>('/api/monitor-rules/taiwan'),
