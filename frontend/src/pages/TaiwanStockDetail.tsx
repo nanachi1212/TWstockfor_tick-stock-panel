@@ -10,8 +10,14 @@ import {
   ShieldAlert,
   BarChart3,
   FileText,
+  Sparkles,
+  Loader2,
 } from 'lucide-react'
-import { api, type TaiwanSearchResult } from '@/lib/api'
+import {
+  api,
+  type TaiwanSearchResult,
+  type TaiwanAIStockResearchReport,
+} from '@/lib/api'
 import { QK } from '@/lib/queryKeys'
 import { cn } from '@/lib/cn'
 import { TaiwanRuleEditorDialog } from '@/components/monitor/TaiwanRuleEditorDialog'
@@ -67,6 +73,28 @@ export function TaiwanStockDetail() {
     queryFn: () => api.taiwanStockResearchContext(symbol),
     staleTime: 5 * 60_000,
   })
+
+  // Phase 7E: Grounded AI Stock Research Report state (MANUAL ONLY, NEVER AUTO-TRIGGER)
+  const [aiReport, setAiReport] = useState<TaiwanAIStockResearchReport | null>(null)
+  const [isAiLoading, setIsAiLoading] = useState<boolean>(false)
+  const [aiError, setAiError] = useState<string | null>(null)
+
+  const handleGenerateAiReport = async () => {
+    setIsAiLoading(true)
+    setAiError(null)
+    try {
+      const res = await api.taiwanStockAIResearch(symbol)
+      if (res.status === 'success' && res.report) {
+        setAiReport(res.report)
+      } else {
+        setAiError(res.error_message || 'AI 研究報告生成失敗')
+      }
+    } catch (e: any) {
+      setAiError(e?.message || 'AI 服務調用失敗，請稍後重試')
+    } finally {
+      setIsAiLoading(false)
+    }
+  }
 
   const data = detailQuery.data
   const isLoading = detailQuery.isLoading
@@ -744,6 +772,179 @@ export function TaiwanStockDetail() {
           </div>
         </div>
       )}
+
+      {/* Phase 7E: Grounded AI Stock Research Report (客觀事實解讀，無買賣推薦) */}
+      <div className="bg-surface border border-purple-900/40 rounded-xl p-5 shadow-sm space-y-4">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-border/40 pb-3">
+          <div className="flex items-center gap-2.5">
+            <Sparkles className="w-5 h-5 text-purple-400" />
+            <div>
+              <h3 className="font-semibold text-sm text-foreground flex items-center gap-2">
+                AI 客觀研究報告 (Grounded Research Interpretation)
+                <span className="text-[10px] bg-purple-950/60 border border-purple-800 text-purple-300 px-2 py-0.5 rounded font-mono">
+                  PROMPT v1 (無買賣推薦)
+                </span>
+              </h3>
+              <p className="text-[11px] text-muted">
+                僅依據上方結構化事實證據與異常診斷進行事實摘要與客觀解讀，絕不自創事實或提供進出場操作建議
+              </p>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={handleGenerateAiReport}
+            disabled={isAiLoading}
+            className={cn(
+              "px-3.5 py-1.5 rounded-lg text-xs font-medium flex items-center justify-center gap-1.5 transition-colors border",
+              isAiLoading
+                ? "bg-purple-950/40 border-purple-800/40 text-purple-400 cursor-not-allowed"
+                : "bg-purple-600 hover:bg-purple-500 text-white border-purple-500 shadow-sm"
+            )}
+          >
+            {isAiLoading ? (
+              <>
+                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                正在客觀分析中...
+              </>
+            ) : (
+              <>
+                <Sparkles className="w-3.5 h-3.5" />
+                {aiReport ? '重新生成 AI 研究報告' : '生成 AI 研究報告'}
+              </>
+            )}
+          </button>
+        </div>
+
+        {aiError && (
+          <div className="p-3 bg-red-950/30 border border-red-900/50 rounded-lg text-xs text-red-400 flex items-center gap-2">
+            <AlertTriangle className="w-4 h-4 shrink-0 text-red-400" />
+            <span>{aiError}</span>
+          </div>
+        )}
+
+        {!aiReport && !isAiLoading && !aiError && (
+          <div className="py-8 text-center text-muted text-xs border border-dashed border-border/40 rounded-xl bg-base/30">
+            <Sparkles className="w-8 h-8 mx-auto mb-2 text-purple-400/40" />
+            <p className="font-medium text-foreground">尚未生成 AI 研究報告</p>
+            <p className="text-[11px] text-muted mt-1">點擊上方「生成 AI 研究報告」按鈕以進行封閉事實邊界之客觀解讀 (不自動呼叫)</p>
+          </div>
+        )}
+
+        {aiReport && (
+          <div className="space-y-4 text-xs">
+            {/* Overview */}
+            <div className="bg-base/60 p-3.5 rounded-lg border border-border/50">
+              <span className="text-[11px] font-semibold text-purple-300 block mb-1">【研究摘要】</span>
+              <p className="text-foreground leading-relaxed text-xs">{aiReport.overview}</p>
+            </div>
+
+            {/* Sectional Interpretations Grid */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              {aiReport.market_interpretation && (
+                <div className="bg-base/40 p-3 rounded-lg border border-border/40">
+                  <span className="text-[11px] font-semibold text-muted block mb-1">大盤環境解讀</span>
+                  <p className="text-foreground text-[11px] leading-normal">{aiReport.market_interpretation}</p>
+                </div>
+              )}
+              {aiReport.industry_interpretation && (
+                <div className="bg-base/40 p-3 rounded-lg border border-border/40">
+                  <span className="text-[11px] font-semibold text-muted block mb-1">產業輪動解讀</span>
+                  <p className="text-foreground text-[11px] leading-normal">{aiReport.industry_interpretation}</p>
+                </div>
+              )}
+              {aiReport.price_technical_interpretation && (
+                <div className="bg-base/40 p-3 rounded-lg border border-border/40">
+                  <span className="text-[11px] font-semibold text-muted block mb-1">量價與技術位階解讀</span>
+                  <p className="text-foreground text-[11px] leading-normal">{aiReport.price_technical_interpretation}</p>
+                </div>
+              )}
+              {aiReport.institutional_interpretation && (
+                <div className="bg-base/40 p-3 rounded-lg border border-border/40">
+                  <span className="text-[11px] font-semibold text-muted block mb-1">三大法人籌碼解讀</span>
+                  <p className="text-foreground text-[11px] leading-normal">{aiReport.institutional_interpretation}</p>
+                </div>
+              )}
+              {aiReport.margin_interpretation && (
+                <div className="bg-base/40 p-3 rounded-lg border border-border/40">
+                  <span className="text-[11px] font-semibold text-muted block mb-1">融資融券信用交易解讀</span>
+                  <p className="text-foreground text-[11px] leading-normal">{aiReport.margin_interpretation}</p>
+                </div>
+              )}
+              {aiReport.fundamentals_interpretation && (
+                <div className="bg-base/40 p-3 rounded-lg border border-border/40">
+                  <span className="text-[11px] font-semibold text-muted block mb-1">基本面 / 財務營收解讀</span>
+                  <p className="text-foreground text-[11px] leading-normal">{aiReport.fundamentals_interpretation}</p>
+                </div>
+              )}
+              {aiReport.abnormal_diagnostics_interpretation && (
+                <div className="bg-base/40 p-3 rounded-lg border border-border/40 md:col-span-2">
+                  <span className="text-[11px] font-semibold text-muted block mb-1">異常異動與資金流向解讀</span>
+                  <p className="text-foreground text-[11px] leading-normal">{aiReport.abnormal_diagnostics_interpretation}</p>
+                </div>
+              )}
+            </div>
+
+            {/* Key Observations with Evidence Chips */}
+            {aiReport.key_observations && aiReport.key_observations.length > 0 && (
+              <div className="bg-base/40 p-3.5 rounded-lg border border-border/40 space-y-2">
+                <span className="text-[11px] font-semibold text-emerald-400 block">【重點客觀觀察 (Grounded Observations)】</span>
+                <div className="space-y-2">
+                  {aiReport.key_observations.map((obs, idx) => (
+                    <div key={idx} className="flex flex-col gap-1 bg-surface/60 p-2 rounded border border-border/30">
+                      <span className="text-foreground text-xs leading-normal">{obs.text}</span>
+                      <div className="flex flex-wrap gap-1 mt-0.5">
+                        {obs.evidence_refs.map((ref, rIdx) => (
+                          <span key={rIdx} className="text-[10px] font-mono px-1.5 py-0.2 bg-emerald-950/40 border border-emerald-800/40 text-emerald-300 rounded">
+                            證據: {ref}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Risk Factors with Evidence Chips */}
+            {aiReport.risk_factors && aiReport.risk_factors.length > 0 && (
+              <div className="bg-base/40 p-3.5 rounded-lg border border-border/40 space-y-2">
+                <span className="text-[11px] font-semibold text-amber-400 block">【數據揭示之風險特徵 (Risk Evidence)】</span>
+                <div className="space-y-2">
+                  {aiReport.risk_factors.map((rsk, idx) => (
+                    <div key={idx} className="flex flex-col gap-1 bg-surface/60 p-2 rounded border border-border/30">
+                      <span className="text-foreground text-xs leading-normal">{rsk.text}</span>
+                      <div className="flex flex-wrap gap-1 mt-0.5">
+                        {rsk.evidence_refs.map((ref, rIdx) => (
+                          <span key={rIdx} className="text-[10px] font-mono px-1.5 py-0.2 bg-amber-950/40 border border-amber-800/40 text-amber-300 rounded">
+                            依據: {ref}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Deterministic Missing Information */}
+            {aiReport.missing_information && aiReport.missing_information.length > 0 && (
+              <div className="bg-base/30 p-2.5 rounded-lg border border-border/30 text-[11px] text-muted">
+                <span className="font-semibold text-zinc-400 block mb-1">【系統數據覆蓋度說明】:</span>
+                <ul className="list-disc list-inside space-y-0.5 font-mono text-[10px]">
+                  {aiReport.missing_information.map((item, idx) => (
+                    <li key={idx} className="text-zinc-400">{item}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
+            {/* Disclaimer */}
+            <div className="p-2.5 bg-zinc-950/40 border border-zinc-800/60 rounded text-[10px] text-zinc-500 font-sans text-center">
+              {aiReport.disclaimer}
+            </div>
+          </div>
+        )}
+      </div>
 
       {/* 新增台股監控規則彈窗 */}
       <TaiwanRuleEditorDialog

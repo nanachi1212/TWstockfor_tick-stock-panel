@@ -27,6 +27,11 @@ from app.taiwan.abnormal_diagnostics import (
     TaiwanAbnormalDiagnosticsService,
     TaiwanAbnormalDiagnosticsSnapshot,
 )
+from app.taiwan.ai_research import (
+    TaiwanAIResearchRequest,
+    TaiwanAIResearchResponse,
+    TaiwanAIResearchService,
+)
 from app.taiwan.research_context import (
     TaiwanStockResearchContext,
     TaiwanStockResearchContextService,
@@ -126,6 +131,31 @@ def get_taiwan_stock_research_context(
         raise HTTPException(
             status_code=500,
             detail=f"台股個股研究上下文生成失敗: {e}",
+        ) from e
+
+
+@router.post("/stocks/{symbol}/ai-research", response_model=TaiwanAIResearchResponse)
+async def generate_taiwan_stock_ai_research(
+    symbol: str,
+    payload: TaiwanAIResearchRequest | None = None,
+):
+    """依據本地確定性事實證據生成台股客觀 AI 個股研究報告 (封閉事實邊界、無買賣推薦、0 市場 HTTP)。"""
+    from datetime import date as dt_date
+    target_dt = None
+    if payload and payload.date:
+        try:
+            target_dt = dt_date.fromisoformat(payload.date)
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=f"無效的日期格式: {payload.date}，請使用 YYYY-MM-DD") from e
+
+    svc = TaiwanAIResearchService()
+    try:
+        return await svc.generate_report(symbol, target_date=target_dt)
+    except Exception as e:
+        logger.exception("Failed to generate AI stock research report for %s: %s", symbol, e)
+        raise HTTPException(
+            status_code=500,
+            detail=f"AI 研究報告生成失敗: {e}",
         ) from e
 
 

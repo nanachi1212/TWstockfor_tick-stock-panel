@@ -1659,6 +1659,47 @@ export interface TaiwanAbnormalDiagnosticsSnapshot {
   provenance: string[]
 }
 
+export interface ObservationItem {
+  text: string
+  evidence_refs: string[]
+}
+
+export interface TaiwanAIStockResearchReport {
+  symbol: string
+  code: string
+  name: string
+  industry: string | null
+  instrument_type: string
+  evidence_as_of: string
+  generated_at: string
+  prompt_version: string
+  overview: string
+  market_interpretation?: string | null
+  industry_interpretation?: string | null
+  price_technical_interpretation?: string | null
+  institutional_interpretation?: string | null
+  margin_interpretation?: string | null
+  fundamentals_interpretation?: string | null
+  abnormal_diagnostics_interpretation?: string | null
+  key_observations: ObservationItem[]
+  risk_factors: ObservationItem[]
+  missing_information: string[]
+  disclaimer: string
+}
+
+export interface TaiwanAIResearchResponse {
+  status: 'success' | 'unavailable' | 'error'
+  error_code?: string | null
+  error_message?: string | null
+  report?: TaiwanAIStockResearchReport | null
+  provider?: string | null
+  model?: string | null
+  prompt_version: string
+  evidence_as_of?: string | null
+  generated_at: string
+  evidence_registry_keys: string[]
+}
+
 /** 生成监控规则 id (时间戳 + 随机后缀), 用户无需手动填写。 */
 export function genRuleId(): string {
   const ts = Date.now().toString(36)
@@ -3730,6 +3771,15 @@ export const api = {
       date
         ? `/api/taiwan/stocks/${encodeURIComponent(symbol)}/research-context?date=${encodeURIComponent(date)}`
         : `/api/taiwan/stocks/${encodeURIComponent(symbol)}/research-context`,
+    ),
+
+  taiwanStockAIResearch: (symbol: string, date?: string) =>
+    request<TaiwanAIResearchResponse>(
+      `/api/taiwan/stocks/${encodeURIComponent(symbol)}/ai-research`,
+      {
+        method: 'POST',
+        body: JSON.stringify({ date: date || null }),
+      },
     ),
 
   taiwanAbnormalDiagnostics: (params?: {
