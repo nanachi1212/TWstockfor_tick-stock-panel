@@ -226,7 +226,80 @@ def test_api_taiwan_data_status_endpoint():
     assert "margin_as_of" in data
     assert "target_latest_trading_date" in data
     assert "is_fully_current" in data
+    assert "daily_status" in data
+    assert "institutional_status" in data
+    assert "margin_status" in data
+    assert "scheduler_enabled" in data
+    assert "scheduled_update_time" in data
+    assert "scheduled_timezone" in data
     assert data["daily_as_of"] == "2026-08-28"
+    assert data["scheduler_enabled"] is True
+    assert data["scheduled_update_time"] == "16:30"
+    assert data["scheduled_timezone"] == "Asia/Taipei"
+
+
+def test_status_scenarios_deterministic():
+    """Test all status calculation combinations: all current, stale variants, all unavailable."""
+    cal = TaiwanTradingCalendar()
+    target = date(2026, 8, 31)
+
+    mock_d = MagicMock()
+    mock_i = MagicMock()
+    mock_m = MagicMock()
+    svc = TaiwanDailyUpdateService(
+        daily_store=mock_d, inst_store=mock_i, margin_store=mock_m, calendar=cal
+    )
+
+    # A. All datasets current
+    mock_d.available_dates.return_value = [target]
+    mock_i.available_dates.return_value = [target]
+    mock_m.available_dates.return_value = [target]
+    st = svc.get_freshness(target_date=target)
+    assert st.is_fully_current is True
+    assert st.daily_status == "current"
+    assert st.institutional_status == "current"
+    assert st.margin_status == "current"
+
+    # B. Daily stale
+    mock_d.available_dates.return_value = [date(2026, 8, 28)]
+    mock_i.available_dates.return_value = [target]
+    mock_m.available_dates.return_value = [target]
+    st = svc.get_freshness(target_date=target)
+    assert st.is_fully_current is False
+    assert st.daily_status == "stale"
+    assert st.daily_days_behind == 1
+    assert st.institutional_status == "current"
+    assert st.margin_status == "current"
+
+    # C. Institutional stale
+    mock_d.available_dates.return_value = [target]
+    mock_i.available_dates.return_value = [date(2026, 8, 28)]
+    mock_m.available_dates.return_value = [target]
+    st = svc.get_freshness(target_date=target)
+    assert st.is_fully_current is False
+    assert st.daily_status == "current"
+    assert st.institutional_status == "stale"
+    assert st.margin_status == "current"
+
+    # D. Margin stale
+    mock_d.available_dates.return_value = [target]
+    mock_i.available_dates.return_value = [target]
+    mock_m.available_dates.return_value = [date(2026, 8, 28)]
+    st = svc.get_freshness(target_date=target)
+    assert st.is_fully_current is False
+    assert st.daily_status == "current"
+    assert st.institutional_status == "current"
+    assert st.margin_status == "stale"
+
+    # E. All unavailable
+    mock_d.available_dates.return_value = []
+    mock_i.available_dates.return_value = []
+    mock_m.available_dates.return_value = []
+    st = svc.get_freshness(target_date=target)
+    assert st.is_fully_current is False
+    assert st.daily_status == "unavailable"
+    assert st.institutional_status == "unavailable"
+    assert st.margin_status == "unavailable"
 
 
 def test_closure_2026_07_10_not_fabricated():

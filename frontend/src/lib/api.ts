@@ -1262,6 +1262,23 @@ export interface TaiwanScreenerResponse {
   degraded_sections: string[]
 }
 
+export interface TaiwanDataStatus {
+  daily_as_of: string | null
+  institutional_as_of: string | null
+  margin_as_of: string | null
+  target_latest_trading_date: string
+  is_fully_current: boolean
+  daily_status: 'current' | 'stale' | 'unavailable'
+  institutional_status: 'current' | 'stale' | 'unavailable'
+  margin_status: 'current' | 'stale' | 'unavailable'
+  daily_days_behind: number
+  institutional_days_behind: number
+  margin_days_behind: number
+  scheduler_enabled: boolean
+  scheduled_update_time: string
+  scheduled_timezone: string
+}
+
 /** 生成监控规则 id (时间戳 + 随机后缀), 用户无需手动填写。 */
 export function genRuleId(): string {
   const ts = Date.now().toString(36)
@@ -3302,6 +3319,9 @@ export const api = {
       method: 'POST',
       body: JSON.stringify(payload),
     }),
+
+  taiwanDataStatus: () =>
+    request<TaiwanDataStatus>('/api/taiwan/data-status'),
 
   taiwanRulesList: () =>
     request<{ rules: TaiwanMonitorRule[]; total: number }>('/api/monitor-rules/taiwan'),

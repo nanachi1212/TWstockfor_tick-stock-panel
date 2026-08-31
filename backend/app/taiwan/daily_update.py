@@ -52,12 +52,24 @@ class DatasetRefreshStats(BaseModel):
     note: str | None = None
 
 
+DatasetFreshnessStatus = Literal["current", "stale", "unavailable"]
+
+
 class FreshnessStatus(BaseModel):
     daily_as_of: str | None = None
     institutional_as_of: str | None = None
     margin_as_of: str | None = None
     target_latest_trading_date: str
     is_fully_current: bool = False
+    daily_status: DatasetFreshnessStatus = "unavailable"
+    institutional_status: DatasetFreshnessStatus = "unavailable"
+    margin_status: DatasetFreshnessStatus = "unavailable"
+    daily_days_behind: int = 0
+    institutional_days_behind: int = 0
+    margin_days_behind: int = 0
+    scheduler_enabled: bool = True
+    scheduled_update_time: str = "16:30"
+    scheduled_timezone: str = "Asia/Taipei"
 
 
 class TaiwanDailyUpdateResult(BaseModel):
@@ -163,6 +175,20 @@ class TaiwanDailyUpdateService:
             store=self.margin_store, calendar=self.calendar
         )
 
+    def _calc_dataset_status(self, as_of: date | None, target: date) -> tuple[DatasetFreshnessStatus, int]:
+        if as_of is None:
+            return "unavailable", 0
+        if as_of >= target:
+            return "current", 0
+        # Count missing trading days in (as_of, target]
+        days_behind = 0
+        cur = as_of + timedelta(days=1)
+        while cur <= target:
+            if self.calendar.is_trading_day(cur) is not False:
+                days_behind += 1
+            cur += timedelta(days=1)
+        return "stale", days_behind
+
     def get_freshness(self, target_date: date | None = None) -> FreshnessStatus:
         """Inspect and return current storage freshness across all 3 datasets."""
         target = target_date or resolve_target_latest_trading_date(self.calendar)
@@ -174,11 +200,11 @@ class TaiwanDailyUpdateService:
         i_as_of = max(i_dates) if i_dates else None
         m_as_of = max(m_dates) if m_dates else None
 
-        is_current = (
-            d_as_of is not None and d_as_of >= target
-            and i_as_of is not None and i_as_of >= target
-            and m_as_of is not None and m_as_of >= target
-        )
+        d_status, d_behind = self._calc_dataset_status(d_as_of, target)
+        i_status, i_behind = self._calc_dataset_status(i_as_of, target)
+        m_status, m_behind = self._calc_dataset_status(m_as_of, target)
+
+        is_current = (d_status == "current" and i_status == "current" and m_status == "current")
 
         return FreshnessStatus(
             daily_as_of=str(d_as_of) if d_as_of else None,
@@ -186,6 +212,15 @@ class TaiwanDailyUpdateService:
             margin_as_of=str(m_as_of) if m_as_of else None,
             target_latest_trading_date=str(target),
             is_fully_current=is_current,
+            daily_status=d_status,
+            institutional_status=i_status,
+            margin_status=m_status,
+            daily_days_behind=d_behind,
+            institutional_days_behind=i_behind,
+            margin_days_behind=m_behind,
+            scheduler_enabled=True,
+            scheduled_update_time="16:30",
+            scheduled_timezone="Asia/Taipei",
         )
 
     def run_update(
