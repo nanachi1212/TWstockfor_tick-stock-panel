@@ -205,6 +205,14 @@ matching is not sufficient. Once joined, the existing strict rule remains:
 `query_at > available_at`; equality is unavailable. Original and corrected
 reports must keep their own upload/announcement timestamps.
 
+Phase 6G re-verified this boundary against the live MOPS financial-report
+document service and both official OpenAPI schemas. Exact 2026 Q1/Q2 document
+timestamps were reproducible for 2330, 6488, and 2881, but the aggregate rows
+still exposed no document or revision identifier. Monthly revenue and valuation
+also exposed no new stable exact-time identity. No production availability was
+upgraded; the evidence and rejection matrix are recorded in
+[`taiwan-fundamentals-availability-phase-6g.md`](taiwan-fundamentals-availability-phase-6g.md).
+
 ## Dividend lifecycle stable event ingest (Phase 6D)
 
 The official source is the MOPS historical material-information service:

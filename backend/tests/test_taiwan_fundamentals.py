@@ -85,6 +85,24 @@ def test_statement_category_is_resolved_by_unique_official_dataset_not_symbol_he
     got = TaiwanOfficialFundamentals(httpx.Client(transport=httpx.MockTransport(handler))).financial_statement("2881.TWSE", "TWSE")
     assert got.accounting_category == "fh" and got.statement_type == "unknown"
     assert got.values["revenue"] == 100_000 and got.values["assets"] == 1_000_000
+    assert got.available_at is None and got.published_at is None
+    assert got.status == "data_insufficient"
+
+
+def test_valuation_trade_date_and_retrieval_do_not_create_availability():
+    row = {
+        "Date": "1150831", "Code": "2330", "Name": "台積電",
+        "PEratio": "20", "PBratio": "5", "DividendYield": "2",
+    }
+    transport = httpx.MockTransport(lambda request: httpx.Response(200, json=[row]))
+    got = TaiwanOfficialFundamentals(httpx.Client(transport=transport)).valuation(
+        "2330.TWSE", "TWSE"
+    )
+    assert got.period_end == "2026-08-31"
+    assert got.values == {"pe": 20, "pb": 5, "dividend_yield": 2}
+    assert got.retrieved_at is not None
+    assert got.available_at is None and got.published_at is None
+    assert got.status == "data_insufficient"
 
 
 def test_etf_company_fundamentals_fail_closed():

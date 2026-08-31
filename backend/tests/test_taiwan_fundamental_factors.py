@@ -25,6 +25,8 @@ def test_pit_boundary_revision_and_no_lookahead(tmp_path):
     assert factors.evaluate("2330.TWSE", "eps", datetime.fromisoformat("2026-05-10T18:46:58+08:00")).status == "data_insufficient"
     first = factors.evaluate("2330.TWSE", "eps", datetime.fromisoformat("2026-05-15T00:00:00+08:00"))
     assert (first.value, first.revision_identity) == (10.0, "A")
+    at_second = factors.evaluate("2330.TWSE", "eps", datetime.fromisoformat("2026-05-20T18:46:58+08:00"))
+    assert (at_second.value, at_second.revision_identity) == (10.0, "A")
     assert factors.evaluate("2330.TWSE", "eps", datetime.fromisoformat("2026-05-21T00:00:00+08:00")).value == 12.0
 
 
