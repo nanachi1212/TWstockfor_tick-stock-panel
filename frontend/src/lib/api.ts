@@ -1588,6 +1588,77 @@ export interface TaiwanStockResearchContext {
   }
 }
 
+export interface DiagnosticSignalEvidence {
+  type: string
+  subtype?: string | null
+  severity: 'low' | 'moderate' | 'high' | 'extreme'
+  observed: number
+  baseline?: number | null
+  ratio?: number | null
+  delta?: number | null
+  threshold: number
+  formula: string
+  lookback_sessions: number
+  valid_sessions: number
+  source: string
+  status: string
+}
+
+export interface TaiwanAbnormalDiagnosticItem {
+  symbol: string
+  code: string
+  name: string
+  exchange: string
+  industry: string | null
+  close: number | null
+  previous_close: number | null
+  change: number | null
+  change_pct: number | null
+  volume: number | null
+  amount: number | null
+  volume_ratio_5d: number | null
+  amount_ratio_5d: number | null
+  foreign_net: number | null
+  investment_trust_net: number | null
+  margin_balance_change: number | null
+  short_balance_change: number | null
+  short_margin_ratio: number | null
+  signal_count: number
+  signals: DiagnosticSignalEvidence[]
+  market_context: {
+    trade_date: string
+    advance_ratio: number | null
+    market_turnover: number | null
+    overall_status: string
+  }
+  industry_context: {
+    industry: string | null
+    turnover_share: number | null
+    advance_ratio: number | null
+    relative_strength_5d: number | null
+    relative_strength_20d: number | null
+  }
+}
+
+export interface TaiwanAbnormalDiagnosticsSnapshot {
+  trade_date: string
+  generated_at: string
+  universe_count: number
+  diagnostic_count: number
+  items: TaiwanAbnormalDiagnosticItem[]
+  data_quality: {
+    target_trade_date: string
+    universe_supported_count: number
+    evaluated_symbol_count: number
+    diagnostic_symbol_count: number
+    daily_status: 'current' | 'stale' | 'unavailable'
+    institutional_status: 'current' | 'stale' | 'unavailable'
+    margin_status: 'current' | 'stale' | 'unavailable'
+    overall_status: 'complete' | 'partial' | 'unavailable'
+  }
+  provenance: string[]
+}
+
 /** 生成监控规则 id (时间戳 + 随机后缀), 用户无需手动填写。 */
 export function genRuleId(): string {
   const ts = Date.now().toString(36)
@@ -3660,6 +3731,25 @@ export const api = {
         ? `/api/taiwan/stocks/${encodeURIComponent(symbol)}/research-context?date=${encodeURIComponent(date)}`
         : `/api/taiwan/stocks/${encodeURIComponent(symbol)}/research-context`,
     ),
+
+  taiwanAbnormalDiagnostics: (params?: {
+    date?: string
+    include_all?: boolean
+    signal_type?: string
+    industry?: string
+    exchange?: string
+  }) => {
+    const q = new URLSearchParams()
+    if (params?.date) q.set('date', params.date)
+    if (params?.include_all !== undefined) q.set('include_all', String(params.include_all))
+    if (params?.signal_type) q.set('signal_type', params.signal_type)
+    if (params?.industry) q.set('industry', params.industry)
+    if (params?.exchange) q.set('exchange', params.exchange)
+    const qs = q.toString()
+    return request<TaiwanAbnormalDiagnosticsSnapshot>(
+      qs ? `/api/taiwan/abnormal-diagnostics?${qs}` : '/api/taiwan/abnormal-diagnostics',
+    )
+  },
 
   taiwanRulesList: () =>
     request<{ rules: TaiwanMonitorRule[]; total: number }>('/api/monitor-rules/taiwan'),

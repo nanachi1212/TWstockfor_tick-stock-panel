@@ -23,6 +23,10 @@ from app.taiwan.industry_intelligence import (
     TaiwanIndustryIntelligenceService,
     TaiwanIndustryIntelligenceSnapshot,
 )
+from app.taiwan.abnormal_diagnostics import (
+    TaiwanAbnormalDiagnosticsService,
+    TaiwanAbnormalDiagnosticsSnapshot,
+)
 from app.taiwan.research_context import (
     TaiwanStockResearchContext,
     TaiwanStockResearchContextService,
@@ -122,6 +126,40 @@ def get_taiwan_stock_research_context(
         raise HTTPException(
             status_code=500,
             detail=f"台股個股研究上下文生成失敗: {e}",
+        ) from e
+
+
+@router.get("/abnormal-diagnostics", response_model=TaiwanAbnormalDiagnosticsSnapshot)
+def get_taiwan_abnormal_diagnostics(
+    date: str | None = Query(None, description="指定交易日 (YYYY-MM-DD)，預設為最新已完成交易日"),
+    include_all: bool = Query(False, description="是否包含無觸發異常訊號的標的"),
+    signal_type: str | None = Query(None, description="依訊號類型篩選 (如 VOLUME_SPIKE, FOREIGN_FLOW_SPIKE 等)"),
+    industry: str | None = Query(None, description="依產業篩選"),
+    exchange: str | None = Query(None, description="依交易所篩選 (TWSE 或 TPEX)"),
+):
+    """取得台股全市場確定性異常異動與資金流向診斷快照 (純本地客觀計算，0 執行期外部請求)。"""
+    from datetime import date as dt_date
+    target_dt = None
+    if date:
+        try:
+            target_dt = dt_date.fromisoformat(date)
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=f"無效的日期格式: {date}，請使用 YYYY-MM-DD") from e
+
+    svc = TaiwanAbnormalDiagnosticsService()
+    try:
+        return svc.get_diagnostics(
+            target_date=target_dt,
+            include_all=include_all,
+            signal_filter=signal_type,
+            industry_filter=industry,
+            exchange_filter=exchange,
+        )
+    except Exception as e:
+        logger.exception("Failed to compute Taiwan abnormal diagnostics: %s", e)
+        raise HTTPException(
+            status_code=500,
+            detail=f"台股異常異動診斷快照生成失敗: {e}",
         ) from e
 
 
