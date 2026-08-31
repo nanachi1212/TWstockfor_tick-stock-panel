@@ -62,6 +62,10 @@ class TaiwanHybridProvider:
             return provider.monthly_revenue(symbol, exchange, security_type=security_type)
         if dataset == "financial_statement":
             return provider.financial_statement(symbol, exchange, security_type=security_type)
+        if dataset == "valuation":
+            return provider.valuation(symbol, exchange, security_type=security_type)
+        if dataset == "share_capital_record":
+            return provider.share_capital(symbol, exchange, security_type=security_type)
         if dataset == "dividend_lifecycle_event":
             if start_date is None or end_date is None:
                 raise ValueError("dividend lifecycle events require start_date and end_date")

@@ -3,11 +3,19 @@
 Covers:
   - GET /api/taiwan/stocks/{symbol}: Unified Taiwan Stock Research Workspace Detail API.
 """
+# ruff: noqa: RUF001, RUF002 -- user-facing Traditional Chinese API messages.
 from __future__ import annotations
 
 import logging
-from fastapi import APIRouter, HTTPException, Query, Request
 
+from fastapi import APIRouter, HTTPException, Query
+
+from app.taiwan.current_data import (
+    TaiwanCurrentDataResponse,
+    TaiwanDatasetCapability,
+    capability_matrix,
+    get_taiwan_current_data_service,
+)
 from app.taiwan.detail_models import TaiwanStockDetailResponse
 from app.taiwan.detail_service import get_taiwan_stock_detail_service
 from app.taiwan.screener import TaiwanScreenerRequest, TaiwanScreenerResponse
@@ -16,6 +24,27 @@ from app.taiwan.symbol import parse_symbol
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/taiwan", tags=["taiwan"])
+
+
+@router.get("/capabilities", response_model=list[TaiwanDatasetCapability])
+def get_taiwan_data_capabilities():
+    """Expose product usage boundaries without fetching network data."""
+    return capability_matrix()
+
+
+@router.get("/data/{symbol}", response_model=TaiwanCurrentDataResponse)
+def get_taiwan_current_data(
+    symbol: str,
+):
+    """Return isolated current/reference sections for one Taiwan security."""
+    try:
+        parse_symbol(symbol)
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=f"invalid Taiwan symbol: {symbol}") from exc
+    try:
+        return get_taiwan_current_data_service().get_current_data(symbol)
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
 @router.get("/stocks/{symbol}", response_model=TaiwanStockDetailResponse)

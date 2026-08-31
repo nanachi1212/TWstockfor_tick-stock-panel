@@ -325,6 +325,37 @@ timestamp, approved `available_at`, and stable revision identity. No ETF history
 provider or store was added. The endpoint and rejection evidence is recorded in
 [`taiwan-etf-history-phase-6i.md`](taiwan-etf-history-phase-6i.md).
 
+## Current/reference product surface (Phase 6J)
+
+The authoritative machine-readable capability matrix is
+`app.taiwan.current_data.CAPABILITIES`. It separates domain status from intended
+usage through these values:
+
+- `current_reference`: may be shown as the latest official reference value but
+  is not eligible for historical queries;
+- `historical_reference`: official historical evidence exists, but there is no
+  production ingest or verified point-in-time availability;
+- `pit_historical`: the production record has a verified availability seam;
+- `unsupported`: no production capability exists.
+
+`status=data_insufficient` and `usage_scope=current_reference` are intentionally
+compatible. A missing `available_at` still means historically unavailable; it
+does not hide a current/reference value from the dedicated product surface.
+
+The Taiwan-specific API exposes the code matrix without network access at
+`GET /api/taiwan/capabilities`. `GET /api/taiwan/data/{symbol}` resolves the
+instrument type through Security Master and returns isolated sections:
+
+- stocks: monthly revenue, financial statement, valuation, and share capital;
+- ETFs: official profile and the current/reference snapshot.
+
+The API reuses `TaiwanHybridProvider`, `TaiwanOfficialFundamentals`, and
+`TaiwanOfficialETFData`; it does not duplicate parsing. Dividend lifecycle events
+remain on their explicit time-window seam and are not fetched by every current
+request. Phase 6I historical NAV and distribution evidence remains documentation
+only. Current/reference sections do not enter verified factors, the historical
+screener, turnover history, or backtests.
+
 # Taiwan verified fundamentals factor safety (Phase 6F)
 
 Taiwan company factors are derived on demand from `TaiwanFundamentalStore` and
