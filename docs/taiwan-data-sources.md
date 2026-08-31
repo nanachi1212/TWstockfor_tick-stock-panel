@@ -251,3 +251,37 @@ Taiwan Market Contract v1.1 should add `period_start`, `period_end`,
 `published_at`, `available_at`, `revision`, `normalized_unit`, `raw_unit`, an
 availability evidence URL/identifier, and a policy type (`exact_timestamp`,
 `date_level_conservative`, or `insufficient`). Contract v1 remains unchanged.
+
+# ETF structured data foundation (Phase 6E)
+
+ETF data is a separate domain from company fundamentals and company dividend
+events. The security master retains identity and stable classification only;
+daily NAV, AUM, units, distributions, and holdings must not be stored there.
+
+## Official dataset classification
+
+| Class | Dataset | Fields and units | Frequency / history | Decision |
+|---|---|---|---|---|
+| A | TWSE OpenAPI `opendata/t187ap47_L` (基金基本資料彙總表) | product name/type, benchmark, inception/listing dates; `發行單位數/轉換數` retained as issued units | current report with date-only `出表日期`; no proven publication time | profile is production-usable; current issued units are retained with `available_at=None` and are historically unavailable; outstanding units remain unknown |
+| B | TWSE e添富 ETF pages and distribution list | displayed NAV/AUM/ranking/distribution information | web presentation and date-level information; no stable historical API and exact publication time verified in this phase | reference/live investigation only; not parsed into production history |
+| B | TPEx ETF pages and published media format | per-unit NAV and related declared fields | official specification exists, but a stable historical cross-product API and availability timestamps were not verified | capability remains `data_insufficient` |
+| C | Issuer holdings pages or top-holding displays | holdings/weights vary by issuer and may be partial | completeness, cash/derivative coverage, schema, and availability are not consistently proven | no production holdings ingest |
+
+## Semantic boundaries
+
+- `nav` means final per-unit NAV; `estimated_nav`/iNAV is a separate field;
+  neither is substituted for market close.
+- Premium/discount is calculated as `market_price / nav - 1` only when both
+  values use the same date and compatible currency/unit semantics.
+- AUM (TWD), outstanding ETF units (units), issued units, and beneficiary units
+  are distinct concepts. No value is inferred from `AUM / NAV`.
+- Distribution uses TWD per ETF unit and is not a company dividend lifecycle.
+- Holdings require an explicit `full`, `partial`, or `unknown` coverage marker;
+  a top-N list is never a complete portfolio.
+- Missing markers become `None`; numeric zero remains a real zero; malformed
+  numbers are schema/parse errors.
+- Historical selection is strict: `query_at > available_at`. Date-only source
+  metadata does not create an `available_at`, so it cannot enter backtests.
+- Leveraged/inverse direction and multiplier remain absent unless an explicit
+  official field proves them; ticker/name suffixes are not evidence in this ETF
+  structured-data domain.

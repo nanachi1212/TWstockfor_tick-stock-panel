@@ -74,6 +74,17 @@ class TaiwanHybridProvider:
             )
         raise ValueError(f"unsupported Taiwan fundamentals dataset: {dataset}")
 
+    def get_etf_data(self, symbol: str, dataset: str, *, exchange: str):
+        """Return ETF-domain records without routing through company fundamentals."""
+        from app.taiwan.etf_data import TaiwanOfficialETFData
+
+        provider = TaiwanOfficialETFData()
+        if dataset == "profile":
+            return provider.profile(symbol, exchange)
+        if dataset == "snapshot":
+            return provider.snapshot(symbol, exchange)
+        raise ValueError(f"unsupported Taiwan ETF dataset: {dataset}")
+
     def get_instruments(self, asset_type: AssetType = "stock") -> pl.DataFrame:
         """Return canonical instruments dataframe from official TaiwanSecurityMaster.
 
