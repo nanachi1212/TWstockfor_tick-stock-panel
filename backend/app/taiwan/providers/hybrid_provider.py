@@ -9,7 +9,7 @@ Implements the MarketDataProvider protocol:
 from __future__ import annotations
 
 import logging
-from datetime import datetime
+from datetime import date, datetime
 
 import polars as pl
 
@@ -44,7 +44,16 @@ class TaiwanHybridProvider:
         self.official = OfficialTaiwanAdapter()
         self.primary = primary.lower()
 
-    def get_fundamentals(self, symbol: str, dataset: str, *, exchange: str, security_type: str = "stock"):
+    def get_fundamentals(
+        self,
+        symbol: str,
+        dataset: str,
+        *,
+        exchange: str,
+        security_type: str = "stock",
+        start_date: date | None = None,
+        end_date: date | None = None,
+    ):
         """Use the authoritative Taiwan fundamentals seam without changing factors."""
         from app.taiwan.fundamentals import TaiwanOfficialFundamentals
 
@@ -53,6 +62,16 @@ class TaiwanHybridProvider:
             return provider.monthly_revenue(symbol, exchange, security_type=security_type)
         if dataset == "financial_statement":
             return provider.financial_statement(symbol, exchange, security_type=security_type)
+        if dataset == "dividend_lifecycle_event":
+            if start_date is None or end_date is None:
+                raise ValueError("dividend lifecycle events require start_date and end_date")
+            return provider.dividend_lifecycle_events(
+                symbol,
+                exchange,
+                start_date,
+                end_date,
+                security_type=security_type,
+            )
         raise ValueError(f"unsupported Taiwan fundamentals dataset: {dataset}")
 
     def get_instruments(self, asset_type: AssetType = "stock") -> pl.DataFrame:

@@ -192,6 +192,61 @@ matching is not sufficient. Once joined, the existing strict rule remains:
 `query_at > available_at`; equality is unavailable. Original and corrected
 reports must keep their own upload/announcement timestamps.
 
+## Dividend lifecycle stable event ingest (Phase 6D)
+
+The official source is the MOPS historical material-information service:
+
+- search: `https://mops.twse.com.tw/mops/api/t05st01`
+- detail: `https://mops.twse.com.tw/mops/api/t05st01_detail`
+- user-facing query: `https://mops.twse.com.tw/mops/web/t05st01`
+
+The search result supplies the detail parameters `marketKind`, `companyId`,
+`enterDate`, and `serialNumber`. Their deterministic encoding
+`marketKind/companyId/enterDate/serialNumber` is the event and revision
+identity. The detail response supplies the exact official speech date/time,
+subject, and structured description. Therefore these events use
+`availability_policy=exact_timestamp`, `available_at=event_timestamp`, and
+`availability_confidence=verified`. Point-in-time queries remain strict:
+an event is visible only when `query_at > available_at`.
+
+Classification is deliberately conservative. Phase 6D supports an explicit
+issuer-level board dividend-resolution subject, an explicit ex-date subject,
+and an explicit basis-date/distribution-record subject. Subsidiary and preferred
+share subjects are excluded from the ordinary-share stream. Generic shareholder
+meeting resolutions, payment announcements, paid status, corrections, and
+subjects that do not identify one lifecycle stage remain unresolved; no fuzzy
+matching is used.
+
+The material event and the existing TWSE `t187ap45_L` / TPEx
+`mopsfin_t187ap39_O` dividend aggregation remain separate records. Aggregation
+rows can validate amounts and dates, but their date-only metadata and lack of a
+material-event serial identity do not authorize copying an exact timestamp.
+Phase 6D parses amounts only when they are stated in the official event detail.
+Missing event fields remain null, while explicit zero remains zero.
+
+Live official read-back on 2026-08-31 verified:
+
+- `2330.TWSE`: board resolution
+  `sii/2330/1150811/3` at `2026-08-11T18:53:34+08:00`, cash dividend
+  `7.0`, stock dividend `0.0`; ex-date announcement
+  `sii/2330/1150811/4` at `19:01:29+08:00`, ex-date `2026-12-10`,
+  basis date `2026-12-16`, payment date `2027-01-07`.
+- `6488.TPEX`: board resolution
+  `otc/6488/1150303/1` at `2026-03-03T16:05:53+08:00`, cash dividend
+  `5.7`, stock dividend `0.0`; basis-date announcement
+  `otc/6488/1150302/2` at `16:06:25+08:00`, ex-date `2026-07-16`,
+  basis date `2026-07-22`, payment date `2026-08-14`. The identity retains
+  the official `enterDate` even where it differs from the displayed speech date.
+- `2881.TWSE`: ordinary-share board resolution
+  `sii/2881/1150430/7` at `2026-04-30T18:06:38+08:00`, cash dividend
+  `4.25`, stock dividend `0.0`; basis-date announcement
+  `sii/2881/1150612/15` at `2026-06-12T17:50:31+08:00`, ex-date
+  `2026-07-01`, basis date `2026-07-07`, payment date `2026-07-31`.
+
+ETF company dividend events are outside this stream. For example,
+`0050.TWSE` returns no company lifecycle events without making a network
+request; ETF distributions remain a separate structured-data phase.
+
 Taiwan Market Contract v1.1 should add `period_start`, `period_end`,
 `published_at`, `available_at`, `revision`, `normalized_unit`, `raw_unit`, an
 availability evidence URL/identifier, and a policy type (`exact_timestamp`,

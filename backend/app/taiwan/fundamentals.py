@@ -252,6 +252,26 @@ class TaiwanOfficialFundamentals:
             result.append(self._record(symbol, "dividend", f"{year:04d}-12-31", row, exchange, url, retrieved, values, "TWD_per_share", None))
         return result
 
+    def dividend_lifecycle_events(
+        self,
+        symbol: str,
+        exchange: str,
+        start_date: date,
+        end_date: date,
+        *,
+        security_type: str = "stock",
+    ):
+        """Return exact-timestamp MOPS events, separate from dividend aggregates."""
+        from app.taiwan.dividend_events import MOPSDividendLifecycleProvider
+
+        return MOPSDividendLifecycleProvider(self.client).events(
+            symbol,
+            exchange,
+            start_date,
+            end_date,
+            security_type=security_type,
+        )
+
     def _record(self, symbol: str, dataset: str, period_end: str, raw: dict[str, Any], exchange: str, url: str, retrieved: datetime, values: dict[str, Any], unit: str, raw_unit: str | None) -> FundamentalRecord:
         revision = str(raw.get("出表日期") or raw.get("Date") or "").strip()
         # Date-only metadata cannot prove when during that date the record became available.
