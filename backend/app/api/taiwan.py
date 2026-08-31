@@ -16,6 +16,7 @@ from app.taiwan.current_data import (
     capability_matrix,
     get_taiwan_current_data_service,
 )
+from app.taiwan.daily_update import FreshnessStatus, TaiwanDailyUpdateService
 from app.taiwan.detail_models import TaiwanStockDetailResponse
 from app.taiwan.detail_service import get_taiwan_stock_detail_service
 from app.taiwan.screener import TaiwanScreenerRequest, TaiwanScreenerResponse
@@ -24,6 +25,13 @@ from app.taiwan.symbol import parse_symbol
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/taiwan", tags=["taiwan"])
+
+
+@router.get("/data-status", response_model=FreshnessStatus)
+def get_taiwan_data_status():
+    """獲取台股市場三大本地數據集 (日線、三大法人、融資券) 之最新落盤日期與市場時效狀況。"""
+    svc = TaiwanDailyUpdateService()
+    return svc.get_freshness()
 
 
 @router.get("/capabilities", response_model=list[TaiwanDatasetCapability])

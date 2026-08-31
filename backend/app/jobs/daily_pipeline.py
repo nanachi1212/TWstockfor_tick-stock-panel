@@ -1119,8 +1119,33 @@ def start_scheduler(repo: KlineRepository, capset: CapabilitySet) -> AsyncIOSche
         logger.info("scheduled_review enabled @%02d:%02d mon-fri",
                     review_sched["hour"], review_sched["minute"])
 
+    # 台股盘后增量更新 (Taiwan Institutional & Margin Market-Wide Update)
+    # 每天 16:30 Asia/Taipei 触发。官方三大法人與融資融券各僅 2 次 HTTP 請求 (TWSE 1 + TPEx 1)
+    # Daily OHLCV 預設保持 refresh_daily=False (避免在缺少全市場快照端點前逐股打 ~2335 次請求)
+    def _scheduled_taiwan_update():
+        try:
+            from app.taiwan.daily_update import TaiwanDailyUpdateService
+            svc = TaiwanDailyUpdateService()
+            result = svc.run_update(refresh_daily=False)
+            logger.info(
+                "Scheduled Taiwan daily update finished: overall=%s, inst=%s, margin=%s",
+                result.overall_status, result.institutional.status, result.margin.status,
+            )
+        except Exception as e:
+            logger.exception("Scheduled Taiwan daily update job failed: %s", e)
+
+    scheduler.add_job(
+        _scheduled_taiwan_update,
+        trigger=CronTrigger(day_of_week="mon-fri", hour=16, minute=30, timezone="Asia/Taipei"),
+        id="taiwan_daily_update",
+        misfire_grace_time=3600,
+        coalesce=True,
+        max_instances=1,
+        replace_existing=True,
+    )
+
     scheduler.start()
-    logger.info("scheduler started; instruments@%02d:%02d, pipeline@%02d:%02d, depth@%02d:%02d mon-fri",
+    logger.info("scheduler started; instruments@%02d:%02d, pipeline@%02d:%02d, depth@%02d:%02d mon-fri, taiwan@16:30",
                 inst_sched["hour"], inst_sched["minute"], sched["hour"], sched["minute"],
                 depth_sched["hour"], depth_sched["minute"])
     return scheduler
