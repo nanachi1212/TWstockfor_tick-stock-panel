@@ -1287,6 +1287,78 @@ export interface TaiwanScreenerTranslation {
   clarification_message: string | null
 }
 
+export interface MarketBreadthStats {
+  supported_count: number
+  snapshot_row_count: number
+  traded_count: number
+  advance_count: number
+  decline_count: number
+  flat_count: number
+  uncompared_count: number
+  upper_limit_count: number
+  lower_limit_count: number
+  turnover: number
+}
+
+export interface InstitutionalMarketAggregate {
+  trade_date: string | null
+  row_count: number
+  foreign_net: number | null
+  investment_trust_net: number | null
+  dealer_net: number | null
+  total_net: number | null
+  status: 'current' | 'stale' | 'unavailable'
+}
+
+export interface MarginMarketAggregate {
+  trade_date: string | null
+  row_count: number
+  margin_balance: number | null
+  margin_balance_change: number | null
+  short_balance: number | null
+  short_balance_change: number | null
+  aggregate_short_margin_ratio: number | null
+  status: 'current' | 'stale' | 'unavailable'
+}
+
+export interface IndexSnapshot {
+  symbol: string
+  name: string
+  trade_date: string | null
+  close: number | null
+  change: number | null
+  change_pct: number | null
+  status: string
+}
+
+export interface TaiwanMarketIntelligenceSnapshot {
+  trade_date: string
+  generated_at: string
+  market_totals: MarketBreadthStats
+  by_exchange: {
+    twse: MarketBreadthStats
+    tpex: MarketBreadthStats
+  }
+  by_instrument: {
+    stock: MarketBreadthStats
+    etf: MarketBreadthStats
+  }
+  institutional: InstitutionalMarketAggregate
+  margin: MarginMarketAggregate
+  indexes: {
+    taiex: IndexSnapshot | null
+    tpex_index: IndexSnapshot | null
+  }
+  data_quality: {
+    target_trade_date: string
+    previous_trade_date: string | null
+    overall_status: 'complete' | 'partial' | 'unavailable'
+    universe_supported_symbols: number
+    daily_snapshot_symbols: number
+    missing_symbols_count: number
+  }
+}
+
 /** 生成监控规则 id (时间戳 + 随机后缀), 用户无需手动填写。 */
 export function genRuleId(): string {
   const ts = Date.now().toString(36)
@@ -3336,6 +3408,11 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ query }),
     }),
+
+  taiwanMarketIntelligence: (date?: string) =>
+    request<TaiwanMarketIntelligenceSnapshot>(
+      date ? `/api/taiwan/market-intelligence?date=${encodeURIComponent(date)}` : '/api/taiwan/market-intelligence',
+    ),
 
   taiwanRulesList: () =>
     request<{ rules: TaiwanMonitorRule[]; total: number }>('/api/monitor-rules/taiwan'),

@@ -19,6 +19,10 @@ from app.taiwan.current_data import (
 from app.taiwan.daily_update import FreshnessStatus, TaiwanDailyUpdateService
 from app.taiwan.detail_models import TaiwanStockDetailResponse
 from app.taiwan.detail_service import get_taiwan_stock_detail_service
+from app.taiwan.market_intelligence import (
+    TaiwanMarketIntelligenceService,
+    TaiwanMarketIntelligenceSnapshot,
+)
 from app.taiwan.screener import TaiwanScreenerRequest, TaiwanScreenerResponse
 from app.taiwan.screener_nl import (
     TaiwanScreenerTranslateQuery,
@@ -106,3 +110,24 @@ async def translate_taiwan_screener_query(payload: TaiwanScreenerTranslateQuery)
     """將自然語言選股描述轉換為強型別 TaiwanScreenerRequest 條件 (純翻譯層，不直出股票)。"""
     translator = TaiwanScreenerTranslator()
     return await translator.translate(payload.query)
+
+
+@router.get("/market-intelligence", response_model=TaiwanMarketIntelligenceSnapshot)
+def get_taiwan_market_intelligence(
+    date: str | None = Query(None, description="指定交易日 (YYYY-MM-DD)，預設為最新已完成交易日"),
+):
+    """取得台股全市場量化統計快照 (包含漲跌家數、漲跌停家數、成交量能、三大法人與資券總計，純本地確定性計算)。"""
+    from datetime import date as dt_date
+    target_dt = None
+    if date:
+        try:
+            target_dt = dt_date.fromisoformat(date)
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=f"無效的日期格式: {date}，請使用 YYYY-MM-DD") from e
+
+    svc = TaiwanMarketIntelligenceService()
+    try:
+        return svc.get_snapshot(target_date=target_dt)
+    except Exception as e:
+        logger.exception("Failed to compute Taiwan market intelligence snapshot: %s", e)
+        raise HTTPException(status_code=500, detail=f"市場情報快照生成失敗: {e}") from e
