@@ -1128,6 +1128,44 @@ export interface TaiwanStockDetailResponse {
   overall_data_quality: 'good' | 'partial' | 'stale' | 'degraded' | string
 }
 
+export type TaiwanUsageScope =
+  | 'current_reference'
+  | 'historical_reference'
+  | 'pit_historical'
+  | 'unsupported'
+
+export interface TaiwanDatasetCapability {
+  domain: 'company' | 'etf'
+  dataset: string
+  exchanges: Array<'TWSE' | 'TPEX'>
+  production_supported: boolean
+  current_reference: boolean
+  pit_historical: boolean
+  usage_scope: TaiwanUsageScope
+  status: string
+  reason: string
+}
+
+export interface TaiwanDataSection {
+  dataset: string
+  status: string
+  usage_scope: TaiwanUsageScope
+  historically_eligible: boolean
+  available_at?: string | null
+  source?: string | null
+  provider?: string | null
+  reason?: string | null
+  data?: Record<string, unknown> | null
+}
+
+export interface TaiwanCurrentDataResponse {
+  symbol: string
+  exchange: string
+  security_type: 'stock' | 'etf'
+  identity: Record<string, unknown>
+  sections: Record<string, TaiwanDataSection>
+}
+
 // ===== Taiwan Screener Types (Phase 6B) =====
 export interface TaiwanScreenerRequest {
   exchange?: 'TWSE' | 'TPEX' | 'ALL'
@@ -3252,6 +3290,12 @@ export const api = {
     request<TaiwanStockDetailResponse>(
       `/api/taiwan/stocks/${encodeURIComponent(symbol)}?days=${days}`,
     ),
+
+  taiwanCapabilities: () =>
+    request<TaiwanDatasetCapability[]>('/api/taiwan/capabilities'),
+
+  taiwanCurrentData: (symbol: string) =>
+    request<TaiwanCurrentDataResponse>(`/api/taiwan/data/${encodeURIComponent(symbol)}`),
 
   taiwanScreenerRun: (payload: TaiwanScreenerRequest) =>
     request<TaiwanScreenerResponse>('/api/taiwan/screener/run', {

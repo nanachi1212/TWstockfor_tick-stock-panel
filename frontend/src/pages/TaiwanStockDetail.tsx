@@ -15,6 +15,7 @@ import { QK } from '@/lib/queryKeys'
 import { cn } from '@/lib/cn'
 import { TaiwanRuleEditorDialog } from '@/components/monitor/TaiwanRuleEditorDialog'
 import { EChartsCandlestick, type OHLC } from '@/components/EChartsCandlestick'
+import { TaiwanReferenceData } from '@/components/taiwan/TaiwanReferenceData'
 
 const RANGE_OPTIONS = [
   { label: '1 個月', days: 30 },
@@ -51,6 +52,12 @@ export function TaiwanStockDetail() {
     queryKey: QK.taiwanStockDetail(symbol, selectedRange),
     queryFn: () => api.taiwanStockDetail(symbol, selectedRange),
     refetchInterval: 10_000,
+  })
+
+  const currentDataQuery = useQuery({
+    queryKey: QK.taiwanCurrentData(symbol),
+    queryFn: () => api.taiwanCurrentData(symbol),
+    staleTime: 5 * 60_000,
   })
 
   const data = detailQuery.data
@@ -167,12 +174,15 @@ export function TaiwanStockDetail() {
           )}
 
           <button
-            onClick={() => detailQuery.refetch()}
-            disabled={detailQuery.isFetching}
+            onClick={() => {
+              detailQuery.refetch()
+              currentDataQuery.refetch()
+            }}
+            disabled={detailQuery.isFetching || currentDataQuery.isFetching}
             className="flex items-center gap-1 rounded-lg border border-border bg-surface px-2 py-1 text-xs text-muted hover:text-foreground cursor-pointer transition-colors"
             title="手動重新整理"
           >
-            <RefreshCw className={cn('h-3.5 w-3.5', detailQuery.isFetching && 'animate-spin')} />
+            <RefreshCw className={cn('h-3.5 w-3.5', (detailQuery.isFetching || currentDataQuery.isFetching) && 'animate-spin')} />
           </button>
         </div>
       </div>
@@ -588,6 +598,14 @@ export function TaiwanStockDetail() {
               )}
             </div>
           </div>
+
+          <TaiwanReferenceData
+            response={currentDataQuery.data}
+            isLoading={currentDataQuery.isLoading}
+            isError={currentDataQuery.isError}
+            isFetching={currentDataQuery.isFetching}
+            onRetry={() => currentDataQuery.refetch()}
+          />
 
           {/* 區塊 4: 監控規則與最近警報 */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
