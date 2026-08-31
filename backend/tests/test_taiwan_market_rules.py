@@ -12,12 +12,13 @@ Covers:
 from __future__ import annotations
 
 from datetime import date
+
 import pytest
 
 from app.price_limits import board_limit_pct, price_limit_pct, taiwan_price_limit_pct
 from app.taiwan.market_rules import (
-    BacktestMode,
     EXAMPLE_BROKER_MIN_COMMISSION,
+    BacktestMode,
     LotModel,
     PriceLimitClass,
     PriceLimitModel,
@@ -30,7 +31,7 @@ from app.taiwan.market_rules import (
     TickSizeModel,
     TradingCostModel,
 )
-
+from app.taiwan.universe.models import OFFICIAL_ETF_RULE_PROFILES
 
 # ── 1. Commission Model Tests ──────────────────────────────────
 
@@ -228,3 +229,11 @@ class TestSettlementAndSameDayExit:
         profile = TaiwanMarketProfile(mode=BacktestMode.DAY_TRADING)
         assert profile.can_same_day_exit(is_day_trade_eligible=True) is True
         assert profile.can_same_day_exit(is_day_trade_eligible=False) is False
+
+
+def test_audited_leveraged_etf_rule_profiles_are_explicit_official_evidence():
+    leveraged = OFFICIAL_ETF_RULE_PROFILES["00631L.TWSE"]
+    inverse = OFFICIAL_ETF_RULE_PROFILES["00632R.TWSE"]
+    assert (leveraged.category, leveraged.underlying_scope, leveraged.price_limit_multiplier) == ("leveraged", "domestic", 2.0)
+    assert (inverse.category, inverse.underlying_scope, inverse.price_limit_multiplier) == ("inverse", "domestic", -1.0)
+    assert leveraged.evidence_url.startswith("https://www.twse.com.tw/")

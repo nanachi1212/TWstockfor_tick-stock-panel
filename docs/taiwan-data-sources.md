@@ -12,6 +12,15 @@ TWSE Security Master and official quote/history requests use the existing
 `httpx` transport with normal certificate verification. This avoids a Windows
 Python 3.13 `urllib` system-trust chain incompatibility without weakening TLS.
 
+TPEx valuation remains fail-closed on TLS errors. On 2026-08-31 the same Python
+3.13 runtime verified the endpoint with production, plain, and explicit-certifi
+`httpx` clients without redirects; no certificate bypass or code change was needed.
+
+TWSE rule profiles for 00631L and 00632R are explicit audited product entries,
+not ticker/name heuristics. Official ETF product pages establish domestic-index
+leveraged/inverse identity; TWSE trading rules then apply `10% * abs(multiplier)`.
+This rule registry does not populate Phase 6E structured multiplier/direction fields.
+
 ## Official endpoints
 
 - TWSE companies: `opendata/t187ap03_L`

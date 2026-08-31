@@ -10,14 +10,36 @@ Responsibilities:
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass
-from enum import Enum
-from typing import Any
+from enum import StrEnum
+from typing import Any, ClassVar
 
 from app.taiwan.enrichment.models import EtfCategory
 from app.taiwan.market_rules import PriceLimitClass, TaxClass, TickSizeClass
 
 
-class UniverseType(str, Enum):
+@dataclass(frozen=True)
+class OfficialEtfRuleProfile:
+    category: str
+    underlying_scope: str
+    price_limit_multiplier: float
+    evidence_url: str
+
+
+# Explicit audited product rules. This is not ticker/name inference and does not
+# populate the separate Phase 6E ETF structured metadata model.
+OFFICIAL_ETF_RULE_PROFILES = {
+    "00631L.TWSE": OfficialEtfRuleProfile(
+        "leveraged", "domestic", 2.0,
+        "https://www.twse.com.tw/zh/ETFortune/etfInfo/00631L",
+    ),
+    "00632R.TWSE": OfficialEtfRuleProfile(
+        "inverse", "domestic", -1.0,
+        "https://www.twse.com.tw/zh/ETFortune/etfInfo/00632R",
+    ),
+}
+
+
+class UniverseType(StrEnum):
     """Predefined market universes for Taiwan securities."""
     TAIWAN_ALL = "taiwan_all"        # All active TWSE + TPEx stocks & ETFs
     TWSE_ALL = "twse_all"            # All active TWSE stocks & ETFs
@@ -62,7 +84,7 @@ class MarketProfileBridge:
     underlying_scope cannot be reliably confirmed.
     """
 
-    CONFIRMED_SOURCES = {
+    CONFIRMED_SOURCES: ClassVar[set[str]] = {
         "official_metadata",
         "cfi_code",
     }
@@ -70,6 +92,8 @@ class MarketProfileBridge:
     @classmethod
     def verify_confirmed_etf(cls, instrument: TaiwanInstrument) -> None:
         if instrument.instrument_type == "etf":
+            if instrument.symbol in OFFICIAL_ETF_RULE_PROFILES:
+                return
             source = instrument.classification_source or "unknown"
             if source not in cls.CONFIRMED_SOURCES:
                 raise ValueError(
@@ -111,6 +135,11 @@ class MarketProfileBridge:
 
         if instrument.instrument_type == "etf":
             cls.verify_confirmed_etf(instrument)
+            official_profile = OFFICIAL_ETF_RULE_PROFILES.get(instrument.symbol)
+            if official_profile is not None:
+                if official_profile.underlying_scope == "foreign":
+                    return None
+                return round(0.10 * abs(official_profile.price_limit_multiplier), 4)
             cat = instrument.etf_category or EtfCategory.UNKNOWN.value
 
             scope = instrument.underlying_scope or "unknown"
