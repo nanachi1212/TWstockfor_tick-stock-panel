@@ -289,3 +289,25 @@ daily NAV, AUM, units, distributions, and holdings must not be stored there.
 - Leveraged/inverse direction and multiplier remain absent unless an explicit
   official field proves them; ticker/name suffixes are not evidence in this ETF
   structured-data domain.
+
+# Taiwan verified fundamentals factor safety (Phase 6F)
+
+Taiwan company factors are derived on demand from `TaiwanFundamentalStore` and
+must pass the strict `query_at > available_at` gate. Current aggregation values
+with `available_at=None` are reference-only and never enter screener ranking or
+backtests. Later revisions cannot replace earlier revisions before their own
+availability time.
+
+| Factor | Dataset / field | Unit | Live official availability | Historical decision |
+|---|---|---|---|---|
+| EPS | financial statement / `cumulative_eps` | TWD per share | date-level aggregation only | supported only for records carrying verified `available_at`; current source is current-only |
+| ROE | `net_income / equity` from one financial-statement revision | ratio | date-level aggregation only | supported only for verified records; zero equity is malformed |
+| PE | valuation / `pe` | ratio | trade/report date without proven first-public timestamp | current-only; verified-record seam supported |
+| PB | valuation / `pb` | ratio | trade/report date without proven first-public timestamp | current-only; verified-record seam supported |
+| Dividend yield | valuation / `dividend_yield` | percent | trade/report date without proven first-public timestamp | current-only; verified-record seam supported |
+| Revenue growth | monthly-revenue aggregation | percent | no stable exact availability join | data-insufficient |
+
+Ranking compares only finite `available` values at one shared `query_at`.
+`missing`, `data_insufficient`, `unsupported`, and `malformed` observations are
+excluded rather than converted to zero or worst rank. Coverage reports totals
+for each status. ETFs are always unsupported for company fundamental factors.
