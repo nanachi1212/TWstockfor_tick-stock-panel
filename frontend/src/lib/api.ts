@@ -1279,6 +1279,14 @@ export interface TaiwanDataStatus {
   scheduled_timezone: string
 }
 
+export interface TaiwanScreenerTranslation {
+  request: TaiwanScreenerRequest | null
+  recognized_conditions: string[]
+  unsupported_conditions: string[]
+  clarification_needed: boolean
+  clarification_message: string | null
+}
+
 /** 生成监控规则 id (时间戳 + 随机后缀), 用户无需手动填写。 */
 export function genRuleId(): string {
   const ts = Date.now().toString(36)
@@ -3322,6 +3330,12 @@ export const api = {
 
   taiwanDataStatus: () =>
     request<TaiwanDataStatus>('/api/taiwan/data-status'),
+
+  taiwanScreenerTranslate: (query: string) =>
+    request<TaiwanScreenerTranslation>('/api/taiwan/screener/translate', {
+      method: 'POST',
+      body: JSON.stringify({ query }),
+    }),
 
   taiwanRulesList: () =>
     request<{ rules: TaiwanMonitorRule[]; total: number }>('/api/monitor-rules/taiwan'),

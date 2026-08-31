@@ -20,6 +20,11 @@ from app.taiwan.daily_update import FreshnessStatus, TaiwanDailyUpdateService
 from app.taiwan.detail_models import TaiwanStockDetailResponse
 from app.taiwan.detail_service import get_taiwan_stock_detail_service
 from app.taiwan.screener import TaiwanScreenerRequest, TaiwanScreenerResponse
+from app.taiwan.screener_nl import (
+    TaiwanScreenerTranslateQuery,
+    TaiwanScreenerTranslation,
+    TaiwanScreenerTranslator,
+)
 from app.taiwan.symbol import parse_symbol
 
 logger = logging.getLogger(__name__)
@@ -94,3 +99,10 @@ def run_taiwan_screener(request: TaiwanScreenerRequest):
             status_code=500,
             detail=f"台股選股執行失敗: {e}",
         ) from e
+
+
+@router.post("/screener/translate", response_model=TaiwanScreenerTranslation)
+async def translate_taiwan_screener_query(payload: TaiwanScreenerTranslateQuery):
+    """將自然語言選股描述轉換為強型別 TaiwanScreenerRequest 條件 (純翻譯層，不直出股票)。"""
+    translator = TaiwanScreenerTranslator()
+    return await translator.translate(payload.query)
