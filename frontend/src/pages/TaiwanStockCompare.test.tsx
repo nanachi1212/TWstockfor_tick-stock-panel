@@ -171,6 +171,26 @@ describe('refresh persistence', () => {
     const merged = mergeSymbolIntoCompare(loadLastCompareSymbols(), '8069.TPEX')
     expect(merged).toEqual(['2330.TWSE', '2881.TWSE', '8069.TPEX'])
   })
+
+  it('clearing the comparison selection clears localStorage too, so a later 加入比較 does not resurrect it (Phase 7H.1)', async () => {
+    // 1. store A+B
+    renderAt('/stocks/compare?symbols=2330.TWSE,2881.TWSE')
+    await waitFor(() => expect(loadLastCompareSymbols()).toEqual(['2330.TWSE', '2881.TWSE']))
+
+    // 2. clear the comparison selection (remove both chips)
+    fireEvent.click(screen.getByLabelText('移除 2330.TWSE'))
+    await waitFor(() => expect(currentSearch()).not.toContain('2330.TWSE'))
+    fireEvent.click(screen.getByLabelText('移除 2881.TWSE'))
+    await waitFor(() => expect(currentSearch()).not.toContain('2881.TWSE'))
+
+    // 3. persisted comparison symbols become empty
+    await waitFor(() => expect(loadLastCompareSymbols()).toEqual([]))
+    expect(localStorage.getItem('tw_compare:last_symbols')).toBeNull()
+
+    // 4. later 加入比較 from a stock detail page does not resurrect A+B
+    const merged = mergeSymbolIntoCompare(loadLastCompareSymbols(), '8069.TPEX')
+    expect(merged).toEqual(['8069.TPEX']) // NOT ['2330.TWSE', '2881.TWSE', '8069.TPEX']
+  })
 })
 
 describe('AI never auto-triggers', () => {

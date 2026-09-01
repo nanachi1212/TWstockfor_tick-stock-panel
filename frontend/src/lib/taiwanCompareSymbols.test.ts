@@ -77,6 +77,16 @@ describe('loadLastCompareSymbols / saveLastCompareSymbols', () => {
     expect(loadLastCompareSymbols()).toEqual([])
   })
 
+  it('saving an empty list clears any previously stored key (Phase 7H.1)', () => {
+    saveLastCompareSymbols(['2330.TWSE', '2881.TWSE'])
+    expect(loadLastCompareSymbols()).toEqual(['2330.TWSE', '2881.TWSE'])
+
+    saveLastCompareSymbols([])
+
+    expect(localStorage.getItem('tw_compare:last_symbols')).toBeNull()
+    expect(loadLastCompareSymbols()).toEqual([])
+  })
+
   it('falls back to [] on corrupt JSON instead of throwing', () => {
     localStorage.setItem('tw_compare:last_symbols', '{not valid json')
     expect(() => loadLastCompareSymbols()).not.toThrow()

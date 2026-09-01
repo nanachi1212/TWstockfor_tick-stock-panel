@@ -9,8 +9,11 @@
 // ——不僅限於使用者主動新增/移除，也包含「直接開啟分享連結」等僅由 URL 衍生選取
 // 的情形；否則透過分享連結進入比較頁後、未點擊任何按鈕就切去別的個股頁，再從
 // 該頁點「加入比較」時，將讀不到分享連結帶入的既有選取，重演「跨頁遺失」問題。
-// 僅在選取非空時才寫入，避免造訪空白比較頁（如導覽列連結）時，把先前有意義的
-// 記憶覆蓋成空陣列。
+//
+// 無條件鏡射（包含清空至 0 檔）：localStorage 必須隨時精確代表比較頁「當下」的選取
+// 狀態。使用者移除完所有標的後，儲存的清單也必須一併清空 (saveLastCompareSymbols
+// 對空陣列會移除該鍵)，避免之後從個股頁點「加入比較」時，意外復活已被使用者主動
+// 清空的舊選取。
 import { useCallback, useEffect, useMemo } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import {
@@ -32,7 +35,7 @@ export function useCompareSymbols() {
   const selectedKey = selected.join(',')
 
   useEffect(() => {
-    if (selected.length > 0) saveLastCompareSymbols(selected)
+    saveLastCompareSymbols(selected)
     // eslint-disable-next-line react-hooks/exhaustive-deps -- selectedKey is the canonical dep
   }, [selectedKey])
 

@@ -46,10 +46,19 @@ export function loadLastCompareSymbols(): string[] {
   return []
 }
 
-/** 寫入本次比較頁所選之標的清單（僅代碼字串，絕不含 AI 生成內容）。 */
+/**
+ * 寫入本次比較頁所選之標的清單（僅代碼字串，絕不含 AI 生成內容）。
+ * 正規化後為空陣列時，直接移除該鍵——不留下 "[]" 這種代表「曾經清空」的殘留值，
+ * 使 localStorage 隨時精確代表當前選取狀態，不會在使用者清空比較後殘留舊標的。
+ */
 export function saveLastCompareSymbols(symbols: string[]): void {
   try {
-    localStorage.setItem(LAST_COMPARE_SYMBOLS_KEY, JSON.stringify(canonicalizeSymbols(symbols)))
+    const canonical = canonicalizeSymbols(symbols)
+    if (canonical.length === 0) {
+      localStorage.removeItem(LAST_COMPARE_SYMBOLS_KEY)
+    } else {
+      localStorage.setItem(LAST_COMPARE_SYMBOLS_KEY, JSON.stringify(canonical))
+    }
   } catch {
     /* ignore — private browsing / storage unavailable */
   }
