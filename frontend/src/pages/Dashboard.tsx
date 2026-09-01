@@ -7,7 +7,7 @@ import { DatePicker } from '@/components/DatePicker'
 import { api, type MarketSnapshotRow, type OverviewDimensionRankItem, type OverviewMarket, type AlertEvent } from '@/lib/api'
 import { QK } from '@/lib/queryKeys'
 import { fmtBigNum, fmtPct } from '@/lib/format'
-import { useDataStatus, useCapabilities, useSettings, usePreferences } from '@/lib/useSharedQueries'
+import { useDataStatus, useCapabilities, usePreferences } from '@/lib/useSharedQueries'
 import { SealedBadge } from '@/components/SealedBadge'
 import { StockPreviewDialog } from '@/components/StockPreviewDialog'
 import { SettingsModal } from '@/components/data/SettingsModal'
@@ -551,7 +551,6 @@ export function Dashboard() {
   })
   const data = overview.data
   const caps = useCapabilities()
-  const settings = useSettings()
   const hasDepth = !!caps.data?.capabilities?.['depth5.batch']
   const sealedReady = !!data?.limit?.sealed_ready
   const isSealedDegrade = !hasDepth || !sealedReady
@@ -599,14 +598,11 @@ export function Dashboard() {
   const fetchFailed = fetchStatus.data?.status === 'failed'
   const fetchSucceeded = fetchStatus.data?.status === 'succeeded'
 
-  // 首次使用且无数据 → 自动弹一次引导弹窗(同会话只弹一次)
-  useEffect(() => {
-    if (!hasNoData) return
-    if (settings.data?.onboarding_completed === false) return  // 还在引导流程中,不重复弹
-    if (sessionStorage.getItem('tf_welcome_shown')) return
-    sessionStorage.setItem('tf_welcome_shown', '1')
-    setShowWelcomeModal(true)
-  }, [hasNoData, settings.data?.onboarding_completed])
+  // Phase 8B-1: 不再自动弹出「获取 A 股数据」引导弹窗 —— 台股优先的用户预期本来就
+  // 没有 A 股数据,这不该被当成需要打断的异常状态。常驻的 FetchDataCard(见下方
+  // JSX)仍会显示,用户可自行选择是否获取,只是不再强制弹窗打断。
+  // WelcomeFetchModal 组件与 showWelcomeModal state 保留(供未来按需触发),仅移除
+  // 自动触发逻辑。
 
   // 同步完成后刷新看板数据
   useEffect(() => {
@@ -893,11 +889,11 @@ function FetchDataCard({
           <Database className="h-4 w-4 text-accent" />
         </div>
         <div className="min-w-0 flex-1">
-          <div className="text-sm font-medium text-foreground">当前暂无数据</div>
+          <div className="text-sm font-medium text-foreground">目前尚無資料</div>
           <p className="mt-1 text-xs text-secondary leading-relaxed">
-            首次使用需获取行情数据后才能查看看板。{isTickflowProvider
-              ? '可通过 TickFlow 免费服务器拉取近 1 年全 A 股日K'
-              : `将从当前数据源「${providerLabel}」拉取近 1 年全 A 股日K`}(约 5500 只),预计 1-3 分钟,期间可继续浏览其他页面。
+            此看板為選配的大盤全市場功能,與台股核心功能各自獨立、互不影響。首次使用需先取得資料才能查看,{isTickflowProvider
+              ? '可透過 TickFlow 免費伺服器拉取近 1 年日K'
+              : `將從目前資料來源「${providerLabel}」拉取近 1 年日K`},預計 1-3 分鐘,同步期間可繼續瀏覽其他頁面(含全部台股功能)。
           </p>
           {isTickflowProvider && (
             <p className="mt-1 text-[11px] text-warning/80 leading-relaxed">
@@ -968,7 +964,7 @@ function WelcomeFetchModal({
   onStart: () => void
 }) {
   return (
-    <SettingsModal title="欢迎首次使用 · 获取行情数据" onClose={onClose}>
+    <SettingsModal title="大盤全市場資料(選配)" onClose={onClose}>
       <div className="text-center">
         <motion.div
           initial={{ scale: 0.85, opacity: 0 }}
@@ -978,16 +974,16 @@ function WelcomeFetchModal({
         >
           <Sparkles className="h-7 w-7 text-accent" />
         </motion.div>
-        <h3 className="mt-4 text-base font-semibold text-foreground">首次使用,需先获取行情数据</h3>
+        <h3 className="mt-4 text-base font-semibold text-foreground">此為選配的大盤全市場功能</h3>
         <p className="mt-2 text-xs text-secondary leading-relaxed">
           {isTickflowProvider
-            ? '可通过 TickFlow 免费服务器拉取近 1 年全 A 股日K'
-            : `将从当前数据源「${providerLabel}」拉取近 1 年全 A 股日K`}(约 5500 只),预计 1-3 分钟。
-          同步期间可继续浏览其他页面,完成后看板自动刷新。
+            ? '可透過 TickFlow 免費伺服器拉取近 1 年日K'
+            : `將從目前資料來源「${providerLabel}」拉取近 1 年日K`},預計 1-3 分鐘。
+          同步期間可繼續瀏覽其他頁面(含全部台股功能),完成後此看板自動刷新。
         </p>
         {isTickflowProvider && (
           <div className="mt-3 rounded-btn bg-elevated/60 px-3 py-2 text-[11px] text-muted leading-relaxed">
-            ⓘ 获取数据后即可进行策略定制、回测验证等本地分析功能。
+            ⓘ 此功能與台股核心功能各自獨立,不取得此資料不影響台股功能使用。
           </div>
         )}
         <div className="mt-5 flex items-center justify-center gap-2.5">
