@@ -31,7 +31,7 @@ const VARIANTS: Variant[] = [
   {
     id: 'pulsar',
     name: 'Tick Stock Panel',
-    tagline: 'A-SHARE · SIGNAL TERMINAL',
+    tagline: 'TAIWAN STOCK · SIGNAL TERMINAL',
     hint: '脉冲星、雷达波纹 — 青绿强调色,字重黑体,中等字距',
     icon: RadioTower,
     iconAccent: 'text-[#3DD68C]',
@@ -61,7 +61,7 @@ const VARIANTS: Variant[] = [
   {
     id: 'aurora',
     name: 'Tick Stock Panel',
-    tagline: 'A-SHARE · DASHBOARD',
+    tagline: 'TAIWAN STOCK · DASHBOARD',
     hint: '极光 — 青色强调,细字优雅,适中字距,与涨跌语义色不冲突',
     icon: Sparkles,
     iconAccent: 'text-[#22D3EE]',
@@ -192,7 +192,7 @@ function Sample({ v }: { v: Variant }) {
 
         {/* 模拟一个数据卡片,看与配色协调度 */}
         <div className="mt-5 rounded-btn bg-surface border border-border px-3 py-2 flex items-baseline justify-between">
-          <span className="text-xs text-secondary">600519.SH</span>
+          <span className="text-xs text-secondary">2330.TWSE</span>
           <span className="font-mono text-sm" style={{ color: v.glow }}>
             +1.85%
           </span>

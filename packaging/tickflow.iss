@@ -18,7 +18,7 @@
 ;   - 卸载入口 (控制面板可见)
 ; ===========================================================================
 
-#define MyAppName          "TickFlow 股票面板"
+#define MyAppName          "TickFlow 台股面板"
 #define MyAppNameEN       "Tick Stock Panel"
 #define MyAppExeName      "TickFlowStockPanel.exe"
 #define MyAppPublisher    "TickFlow"
@@ -82,7 +82,7 @@ Source: "..\backend\dist\TickFlowStockPanel\*"; DestDir: "{app}"; Flags: ignorev
 [Icons]
 ; 开始菜单
 Name: "{group}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"
-Name: "{group}\卸载 {#MyAppName}"; Filename: "{uninstallexe}"
+Name: "{group}\解除安裝 {#MyAppName}"; Filename: "{uninstallexe}"
 
 ; 桌面 (可选, 由 Task 控制)
 Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; Tasks: desktopicon
@@ -159,10 +159,10 @@ begin
     if DirExists(DataDir) then
     begin
       if SuppressibleMsgBox(
-          '是否同时删除用户数据?' + #13#10 + #13#10 +
-          '位置: ' + DataDir + #13#10 +
-          '内容: 行情数据、策略、选股结果、回测记录、监控规则等' + #13#10 + #13#10 +
-          '选「是」彻底卸载, 选「否」保留数据(重装后可恢复)。',
+          '是否同時刪除使用者資料？' + #13#10 + #13#10 +
+          '位置：' + DataDir + #13#10 +
+          '內容：行情資料、選股結果、回測紀錄、監控規則等' + #13#10 + #13#10 +
+          '選「是」徹底解除安裝，選「否」保留資料（重新安裝後可恢復）。',
           mbConfirmation, MB_YESNO or MB_DEFBUTTON2, IDNO) = IDYES then
       begin
         DelTree(DataDir, True, True, True);

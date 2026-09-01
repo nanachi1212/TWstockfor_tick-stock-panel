@@ -539,7 +539,7 @@ export function Layout() {
                 className="font-bold text-[11px] uppercase tracking-[0.14em] text-foreground whitespace-nowrap"
                 style={{ textShadow: `0 0 10px ${BRAND}44` }}
               >
-                Tick Stock Panel
+                TickFlow 台股面板
               </div>
             )}
             {/* 收起/展开 按钮 */}

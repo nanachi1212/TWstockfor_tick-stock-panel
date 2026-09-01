@@ -372,9 +372,9 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(
-    title="Tick Stock Panel",
+    title="TickFlow 台股面板",
     version=__version__,
-    description="A 股选股 + 回测面板 — TickFlow 适配",
+    description="台股選股 + 回測面板 — TickFlow 適配",
     lifespan=lifespan,
 )
 
