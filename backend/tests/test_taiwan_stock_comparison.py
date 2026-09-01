@@ -29,7 +29,10 @@ from fastapi.testclient import TestClient
 
 from app.main import app
 from app.taiwan.abnormal_diagnostics import (
+    TaiwanAbnormalDiagnosticItem,
     TaiwanAbnormalDiagnosticsSnapshot,
+    CompactIndustryContext,
+    CompactMarketContext,
     DiagnosticsDataQuality,
 )
 from app.taiwan.comparison import (
@@ -446,6 +449,55 @@ def test_compare_abnormal_diagnostics_computed_once_and_filtered():
 
     svc.compare(["2330.TWSE", "2881.TWSE"], target_date=date(2026, 8, 28))
     assert svc.diag_svc.get_diagnostics.call_count == 1
+
+
+def test_compare_passes_include_etfs_true_and_populates_etf_diagnostic_item():
+    """Phase 7J: comparison's diagnostics call opts in with include_etfs=True, and an
+    ETF's diagnostic_item is genuinely populated (not None) when the diag service returns
+    a matching item for it — proving the original diagnostic_item=None-for-ETFs gap is closed."""
+    ctx_stock = build_context("2330.TWSE", "2330", "台積電")
+    ctx_etf = build_context("0050.TWSE", "0050", "元大台灣50", instrument_type="etf", etf_leverage=1.0)
+
+    meta_kwargs = dict(
+        code="0050", name="元大台灣50", exchange="TWSE", close=100.0, previous_close=100.0,
+        change=0.0, change_pct=0.0, volume=1000.0, amount=100000.0,
+        market_context=CompactMarketContext(trade_date="2026-08-28"),
+        industry_context=CompactIndustryContext(),
+    )
+    etf_diag_item = TaiwanAbnormalDiagnosticItem(
+        symbol="0050.TWSE",
+        not_applicable_signals=["RELATIVE_STRENGTH_OUTLIER"],
+        **meta_kwargs,
+    )
+    diag_snapshot = TaiwanAbnormalDiagnosticsSnapshot(
+        trade_date="2026-08-28",
+        generated_at="2026-08-28T16:00:00+08:00",
+        universe_count=1,
+        diagnostic_count=1,
+        items=[etf_diag_item],
+        data_quality=DiagnosticsDataQuality(
+            target_trade_date="2026-08-28",
+            universe_supported_count=1,
+            evaluated_symbol_count=1,
+            diagnostic_symbol_count=1,
+            daily_status="current",
+            institutional_status="current",
+            margin_status="current",
+            overall_status="complete",
+        ),
+        provenance=[],
+    )
+
+    svc = _make_stub_service({"2330.TWSE": ctx_stock, "0050.TWSE": ctx_etf})
+    svc.diag_svc.get_diagnostics.return_value = diag_snapshot
+
+    resp = svc.compare(["2330.TWSE", "0050.TWSE"], target_date=date(2026, 8, 28))
+
+    svc.diag_svc.get_diagnostics.assert_called_once_with(target_date=date(2026, 8, 28), include_all=True, include_etfs=True)
+
+    etf_instrument = next(i for i in resp.instruments if i.symbol == "0050.TWSE")
+    assert etf_instrument.diagnostic_item is not None
+    assert etf_instrument.diagnostic_item.not_applicable_signals == ["RELATIVE_STRENGTH_OUTLIER"]
 
 
 # ── Pydantic-level request validation (min/max symbols) ───────

@@ -301,6 +301,15 @@ def build_evidence_registry(
     else:
         payload["abnormal_signals"] = []
 
+    # Structurally not-applicable signal types (Phase 7J) — e.g. RELATIVE_STRENGTH_OUTLIER
+    # for ETFs. Single-source serialization: build_comparison_evidence_registry() reuses
+    # this function per-instrument and namespaces every key it returns as "{symbol}.{key}",
+    # so this one addition automatically produces "{symbol}.abnormal.not_applicable_signals"
+    # in comparisons with no separate comparison-side implementation.
+    if diag_item and diag_item.not_applicable_signals:
+        payload["abnormal_not_applicable_signals"] = diag_item.not_applicable_signals
+        registry_keys.add("abnormal.not_applicable_signals")
+
     return payload, registry_keys, missing_items
 
 
@@ -332,7 +341,9 @@ SYSTEM_PROMPT = """你是一個客觀、確定性導向的「台股個股研究�
      * 站上均線 (above_ma20 == true) 必須描述為站上或位於均線之上；跌破 (above_ma20 == false) 必須描述為位於均線之下。
      * 融資融券增加 (> 0) 或減少 (< 0) 必須忠實陳述方向，禁止顛倒。
 5. 零數值非缺失 (Zero Is Not Missing)：
-   - 數值為 0（例如 foreign_net_1d=0, margin_change=0, abnormal signal_count=0）代表「客觀數值為零 / 當日無變動 / 無觸發訊號」，絕對不得描述為資料缺失、遺失或未提供。
+   - 數值為 0（例如 foreign_net_1d=0, margin_change=0）代表「客觀數值為零 / 當日無變動」，絕對不得描述為資料缺失、遺失或未提供。
+   - abnormal.signal_count 代表「已觸發且適用之異常訊號數量」，並非「已評估之診斷種類總數」。signal_count=0 僅代表「無適用之異常訊號被觸發」，不得延伸解讀為「所有診斷類型皆已檢查且正常」。
+   - 若證據中出現 abnormal.not_applicable_signals（或比較情境下之 {symbol}.abnormal.not_applicable_signals），其中列出之訊號類型代表「該類型訊號因標的類別而結構性不適用，並未被評估」，絕對不得描述為零、缺失、正常或「已檢查但未觸發」。例如 ETF 的 RELATIVE_STRENGTH_OUTLIER，僅可陳述為「此類型訊號不適用於此標的類別」。
 6. ETF 標的處理：
    - 若為 ETF 標的，個別公司基本面 (fundamentals) 狀態為 not_applicable，必須陳述為「ETF 不適用個別公司財務指標」，絕對不得描述為「資料缺失」、「資料品質不佳」或「基本面惡化」。
    - 槓桿 (leveraged) 或反向 (inverse) 乘數必須如實依據提供之數字陳述，不得給予投資方向建議。
@@ -380,9 +391,13 @@ class TaiwanAIResearchService:
         # Retrieve Phase 7D diagnostic item if available
         diag_item = None
         try:
+            # include_etfs=True (Phase 7J): single-symbol AI research already branches
+            # ETF-vs-stock correctly throughout (fundamentals not_applicable, etc.) — one
+            # of the two internal consumers proven safe to opt in.
             diag_snap = self.diag_svc.get_diagnostics(
                 target_date=date.fromisoformat(ctx.as_of_date),
                 include_all=True,
+                include_etfs=True,
             )
             for item in diag_snap.items:
                 if item.symbol == ctx.symbol:

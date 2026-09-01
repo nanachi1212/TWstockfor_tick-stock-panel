@@ -22,6 +22,13 @@ import pytest
 
 from app.taiwan.comparison_ai_research import (
     TaiwanComparisonAIResearchService,
+    build_comparison_evidence_registry,
+)
+from app.taiwan.comparison import ComparisonInstrumentResult
+from app.taiwan.abnormal_diagnostics import (
+    TaiwanAbnormalDiagnosticItem,
+    CompactIndustryContext,
+    CompactMarketContext,
 )
 from tests.test_taiwan_stock_comparison import build_context, _make_stub_service
 
@@ -241,3 +248,47 @@ async def test_deterministic_comparison_never_invokes_ai():
     with patch("app.taiwan.comparison_ai_research.generate_ai_text", new_callable=AsyncMock) as mock_ai:
         comparison_svc.compare(["2330.TWSE", "2881.TWSE"], target_date=date(2026, 8, 28))
         assert mock_ai.call_count == 0
+
+
+def test_comparison_registry_inherits_not_applicable_signals_without_duplicate_impl():
+    """Phase 7J: build_comparison_evidence_registry() must NOT re-implement
+    not_applicable_signals serialization — it already reuses build_evidence_registry()
+    per-instrument and namespaces every key that function returns. This asserts the
+    namespaced key {symbol}.abnormal.not_applicable_signals appears purely through that
+    existing inheritance mechanism, with zero comparison-specific code exercised for it."""
+    ctx_etf = build_context("00631L.TWSE", "00631L", "元大台灣50正2", instrument_type="etf", etf_leverage=2.0)
+    ctx_stock = build_context("2330.TWSE", "2330", "台積電")
+
+    etf_diag_item = TaiwanAbnormalDiagnosticItem(
+        symbol="00631L.TWSE",
+        code="00631L",
+        name="元大台灣50正2",
+        exchange="TWSE",
+        close=36.3,
+        not_applicable_signals=["RELATIVE_STRENGTH_OUTLIER"],
+        market_context=CompactMarketContext(trade_date="2026-08-28"),
+        industry_context=CompactIndustryContext(),
+    )
+    stock_diag_item = TaiwanAbnormalDiagnosticItem(
+        symbol="2330.TWSE",
+        code="2330",
+        name="台積電",
+        exchange="TWSE",
+        close=2420.0,
+        not_applicable_signals=[],
+        market_context=CompactMarketContext(trade_date="2026-08-28"),
+        industry_context=CompactIndustryContext(),
+    )
+
+    instruments = [
+        ComparisonInstrumentResult(symbol="00631L.TWSE", context=ctx_etf, diagnostic_item=etf_diag_item),
+        ComparisonInstrumentResult(symbol="2330.TWSE", context=ctx_stock, diagnostic_item=stock_diag_item),
+    ]
+
+    payload, registry_keys, _ = build_comparison_evidence_registry(instruments)
+
+    assert "00631L.TWSE.abnormal.not_applicable_signals" in registry_keys
+    assert payload["00631L.TWSE"]["abnormal_not_applicable_signals"] == ["RELATIVE_STRENGTH_OUTLIER"]
+    # Stock side has none — no spurious key namespaced under it
+    assert "2330.TWSE.abnormal.not_applicable_signals" not in registry_keys
+    assert "abnormal_not_applicable_signals" not in payload["2330.TWSE"]

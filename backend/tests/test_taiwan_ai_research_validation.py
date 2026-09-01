@@ -426,3 +426,61 @@ async def test_dual_historical_dates_no_look_ahead():
 
     assert payload_1["price_context"]["trade_date"] <= "2026-08-20"
     assert payload_2["price_context"]["trade_date"] <= "2026-08-28"
+
+
+def test_build_evidence_registry_includes_not_applicable_signals_key():
+    """Phase 7J: build_evidence_registry() serializes diag_item.not_applicable_signals into
+    BOTH the evidence payload (abnormal_not_applicable_signals) AND the registry-key
+    whitelist (abnormal.not_applicable_signals), so the AI can cite it as grounded
+    evidence — single-source implementation, self-contained (no real-data dependency)."""
+    from tests.test_taiwan_stock_comparison import build_context
+    from app.taiwan.abnormal_diagnostics import (
+        TaiwanAbnormalDiagnosticItem,
+        CompactIndustryContext,
+        CompactMarketContext,
+    )
+
+    etf_ctx = build_context("0050.TWSE", "0050", "元大台灣50", instrument_type="etf", etf_leverage=1.0)
+    diag_item = TaiwanAbnormalDiagnosticItem(
+        symbol="0050.TWSE",
+        code="0050",
+        name="元大台灣50",
+        exchange="TWSE",
+        close=100.0,
+        not_applicable_signals=["RELATIVE_STRENGTH_OUTLIER"],
+        market_context=CompactMarketContext(trade_date="2026-08-28"),
+        industry_context=CompactIndustryContext(),
+    )
+
+    payload, registry_keys, _ = build_evidence_registry(etf_ctx, diag_item)
+
+    assert payload["abnormal_not_applicable_signals"] == ["RELATIVE_STRENGTH_OUTLIER"]
+    assert "abnormal.not_applicable_signals" in registry_keys
+
+
+def test_build_evidence_registry_stock_has_no_not_applicable_key():
+    """A stock (or any diag_item with an empty not_applicable_signals list) must not
+    produce the abnormal_not_applicable_signals payload key or registry key at all."""
+    from tests.test_taiwan_stock_comparison import build_context
+    from app.taiwan.abnormal_diagnostics import (
+        TaiwanAbnormalDiagnosticItem,
+        CompactIndustryContext,
+        CompactMarketContext,
+    )
+
+    stock_ctx = build_context("2330.TWSE", "2330", "台積電")
+    diag_item = TaiwanAbnormalDiagnosticItem(
+        symbol="2330.TWSE",
+        code="2330",
+        name="台積電",
+        exchange="TWSE",
+        close=100.0,
+        not_applicable_signals=[],
+        market_context=CompactMarketContext(trade_date="2026-08-28"),
+        industry_context=CompactIndustryContext(),
+    )
+
+    payload, registry_keys, _ = build_evidence_registry(stock_ctx, diag_item)
+
+    assert "abnormal_not_applicable_signals" not in payload
+    assert "abnormal.not_applicable_signals" not in registry_keys

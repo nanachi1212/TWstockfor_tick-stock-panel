@@ -70,6 +70,10 @@ def _build_mock_sm(symbols_with_names: list[tuple[str, str, str]]):
         inst.exchange = sym.split(".")[1] if "." in sym else "TWSE"
         inst.instrument_type = "stock"
         inst.industry = ind
+        # Matches the real TaiwanInstrument dataclass default (leverage_multiplier: float = 1.0)
+        # so Phase 7J's leverage-normalization code (abs(inst_master.leverage_multiplier)) has a
+        # real numeric value to read instead of an unconfigured MagicMock.
+        inst.leverage_multiplier = 1.0
         inst_map[sym] = inst
 
     mock_sm.get_instrument.side_effect = lambda s: inst_map.get(s)
@@ -848,3 +852,340 @@ def test_api_endpoint_zero_market_http_and_no_ai():
         assert mock_urlopen.call_count == 0
         assert mock_httpx_get.call_count == 0
         assert mock_httpx_post.call_count == 0
+
+
+# ══════════════════════════════════════════════════════════════
+# Phase 7J — ETF Abnormal Diagnostics Coverage
+# ══════════════════════════════════════════════════════════════
+
+
+def _build_mock_sm_mixed(specs: list[dict]):
+    """Like _build_mock_sm but each spec dict may set instrument_type/leverage_multiplier,
+    and get_universe() returns a DIFFERENT list depending on the requested UniverseType —
+    required to exercise Phase 7J's include_etfs union (unlike _build_mock_sm's single
+    fixed return_value, which would return the same list regardless of universe_type).
+
+    spec keys: symbol, name, industry (None for ETFs), instrument_type ("stock"/"etf"),
+    leverage_multiplier (float, defaults to 1.0).
+    """
+    from app.taiwan.universe.service import UniverseType
+
+    mock_sm = MagicMock()
+
+    stock_syms = [s["symbol"] for s in specs if s.get("instrument_type", "stock") == "stock"]
+    etf_syms = [s["symbol"] for s in specs if s.get("instrument_type") == "etf"]
+    all_syms = [s["symbol"] for s in specs]
+
+    def _get_universe(universe_type):
+        if universe_type == UniverseType.TAIWAN_STOCKS:
+            return stock_syms
+        if universe_type == UniverseType.TAIWAN_ETFS:
+            return etf_syms
+        return all_syms
+
+    mock_sm.get_universe.side_effect = _get_universe
+
+    inst_map = {}
+    for s in specs:
+        inst = MagicMock()
+        inst.symbol = s["symbol"]
+        inst.code = s["symbol"].split(".")[0]
+        inst.name = s["name"]
+        inst.exchange = s["symbol"].split(".")[1] if "." in s["symbol"] else "TWSE"
+        inst.instrument_type = s.get("instrument_type", "stock")
+        inst.industry = s.get("industry")
+        inst.leverage_multiplier = s.get("leverage_multiplier", 1.0)
+        inst_map[s["symbol"]] = inst
+
+    mock_sm.get_instrument.side_effect = lambda sym: inst_map.get(sym)
+    mock_sm.to_dataframe.return_value = pl.DataFrame({
+        "symbol": all_syms,
+        "name": [s["name"] for s in specs],
+        "exchange": [s["symbol"].split(".")[1] if "." in s["symbol"] else "TWSE" for s in specs],
+        "instrument_type": [s.get("instrument_type", "stock") for s in specs],
+        "industry": pl.Series([s.get("industry") for s in specs], dtype=pl.Utf8),
+        "listing_status": ["active"] * len(specs),
+    })
+    return mock_sm
+
+
+def _flat_daily_mock(d_curr: date, d_prev: date, closes: dict[str, tuple[float, float]]):
+    """Build a mock TaiwanDailyStore returning fixed prev/curr closes per symbol.
+    closes: {symbol: (prev_close, curr_close)}."""
+    mock_daily = MagicMock()
+    mock_daily.available_dates.return_value = [d_prev, d_curr]
+
+    def mock_read_range(syms, start, end):
+        if start == d_curr:
+            return pl.DataFrame({
+                "symbol": list(closes.keys()),
+                "date": [d_curr] * len(closes),
+                "close": [v[1] for v in closes.values()],
+                "volume": [1000.0] * len(closes),
+                "amount": [100000.0] * len(closes),
+            })
+        if start == d_prev:
+            return pl.DataFrame({
+                "symbol": list(closes.keys()),
+                "date": [d_prev] * len(closes),
+                "close": [v[0] for v in closes.values()],
+                "volume": [1000.0] * len(closes),
+                "amount": [100000.0] * len(closes),
+            })
+        return pl.DataFrame()
+
+    mock_daily.read_range.side_effect = mock_read_range
+    return mock_daily
+
+
+def test_include_etfs_false_stays_stock_only():
+    """get_diagnostics(include_etfs=False) — the default — must never include an ETF."""
+    d_curr, d_prev = date(2026, 8, 28), date(2026, 8, 27)
+    specs = [
+        {"symbol": "STK.TWSE", "name": "個股", "industry": "半導體業", "instrument_type": "stock"},
+        {"symbol": "ETF.TWSE", "name": "一般ETF", "industry": None, "instrument_type": "etf"},
+    ]
+    mock_sm = _build_mock_sm_mixed(specs)
+    mock_daily = _flat_daily_mock(d_curr, d_prev, {"STK.TWSE": (100.0, 100.0), "ETF.TWSE": (50.0, 50.0)})
+
+    svc = TaiwanAbnormalDiagnosticsService(daily_store=mock_daily, security_master=mock_sm)
+
+    # explicit False
+    snap = svc.get_diagnostics(target_date=d_curr, include_all=True, include_etfs=False)
+    assert {i.symbol for i in snap.items} == {"STK.TWSE"}
+
+    # default (no kwarg at all)
+    snap_default = svc.get_diagnostics(target_date=d_curr, include_all=True)
+    assert {i.symbol for i in snap_default.items} == {"STK.TWSE"}
+
+
+def test_include_etfs_true_includes_etfs():
+    """get_diagnostics(include_etfs=True) includes ETF symbols alongside stocks."""
+    d_curr, d_prev = date(2026, 8, 28), date(2026, 8, 27)
+    specs = [
+        {"symbol": "STK.TWSE", "name": "個股", "industry": "半導體業", "instrument_type": "stock"},
+        {"symbol": "ETF.TWSE", "name": "一般ETF", "industry": None, "instrument_type": "etf"},
+    ]
+    mock_sm = _build_mock_sm_mixed(specs)
+    mock_daily = _flat_daily_mock(d_curr, d_prev, {"STK.TWSE": (100.0, 100.0), "ETF.TWSE": (50.0, 50.0)})
+
+    svc = TaiwanAbnormalDiagnosticsService(daily_store=mock_daily, security_master=mock_sm)
+    snap = svc.get_diagnostics(target_date=d_curr, include_all=True, include_etfs=True)
+
+    assert {i.symbol for i in snap.items} == {"STK.TWSE", "ETF.TWSE"}
+
+
+def test_public_route_stays_stock_only_regardless_of_local_data():
+    """Route-level regression: GET /abnormal-diagnostics never exposes a known ETF symbol,
+    because taiwan.py's route never passes include_etfs. Valid whether or not real local
+    daily data happens to be present in this environment (items may be empty either way)."""
+    client = TestClient(app, client=("127.0.0.1", 50000))
+    resp = client.get("/api/taiwan/abnormal-diagnostics?date=2026-08-28&include_all=true")
+    assert resp.status_code == 200
+    data = resp.json()
+    known_etf_symbols = {"0050.TWSE", "00646.TWSE", "00631L.TWSE", "00632R.TWSE"}
+    returned_symbols = {item["symbol"] for item in data["items"]}
+    assert returned_symbols.isdisjoint(known_etf_symbols)
+
+
+def test_stock_signal_outcomes_unchanged_regardless_of_include_etfs():
+    """A stock's PRICE_MOVE outcome must be byte-for-byte identical whether include_etfs
+    is True or False — universe widening must not perturb stock-path results."""
+    d_curr, d_prev = date(2026, 8, 28), date(2026, 8, 27)
+    specs = [{"symbol": "UP.TWSE", "name": "上漲股", "industry": "半導體業", "instrument_type": "stock"}]
+    mock_sm = _build_mock_sm_mixed(specs)
+    mock_daily = _flat_daily_mock(d_curr, d_prev, {"UP.TWSE": (100.0, 106.0)})
+
+    svc = TaiwanAbnormalDiagnosticsService(daily_store=mock_daily, security_master=mock_sm)
+    snap_false = svc.get_diagnostics(target_date=d_curr, include_all=True, include_etfs=False)
+    snap_true = svc.get_diagnostics(target_date=d_curr, include_all=True, include_etfs=True)
+
+    item_false = next(i for i in snap_false.items if i.symbol == "UP.TWSE")
+    item_true = next(i for i in snap_true.items if i.symbol == "UP.TWSE")
+    assert item_false.model_dump() == item_true.model_dump()
+    assert item_false.change_pct == 0.06
+    assert any(s.type == "PRICE_MOVE" for s in item_false.signals)
+
+
+def test_normal_etf_class_a_signal_and_not_applicable_semantics():
+    """Normal (1x) ETF: Class-A VOLUME_SPIKE works; RELATIVE_STRENGTH_OUTLIER is never
+    evaluated/triggered and is explicitly listed in not_applicable_signals."""
+    d_curr = date(2026, 8, 28)
+    p_dates = [date(2026, 8, i) for i in range(21, 28)]
+
+    mock_daily = MagicMock()
+    mock_daily.available_dates.return_value = p_dates + [d_curr]
+    specs = [{"symbol": "0050.TWSE", "name": "元大台灣50", "industry": None, "instrument_type": "etf", "leverage_multiplier": 1.0}]
+    mock_sm = _build_mock_sm_mixed(specs)
+
+    def mock_read_range(syms, start, end):
+        if start == d_curr and end == d_curr:
+            return pl.DataFrame({
+                "symbol": ["0050.TWSE"], "date": [d_curr],
+                "close": [100.0], "volume": [300.0], "amount": [300.0],
+            })
+        # 5-day prior window for volume baseline
+        return pl.DataFrame({
+            "symbol": ["0050.TWSE"] * 5,
+            "date": p_dates[-5:],
+            "close": [100.0] * 5,
+            "volume": [100.0] * 5,
+            "amount": [100.0] * 5,
+        })
+
+    mock_daily.read_range.side_effect = mock_read_range
+
+    svc = TaiwanAbnormalDiagnosticsService(daily_store=mock_daily, security_master=mock_sm)
+    snap = svc.get_diagnostics(target_date=d_curr, include_all=True, include_etfs=True)
+
+    item = next(i for i in snap.items if i.symbol == "0050.TWSE")
+    assert any(s.type == "VOLUME_SPIKE" for s in item.signals)  # Class A works for ETFs
+    assert item.not_applicable_signals == ["RELATIVE_STRENGTH_OUTLIER"]
+    assert all(s.type != "RELATIVE_STRENGTH_OUTLIER" for s in item.signals)
+
+
+def test_stock_not_applicable_signals_always_empty():
+    """Stocks must always report not_applicable_signals == [] (unchanged shape)."""
+    d_curr, d_prev = date(2026, 8, 28), date(2026, 8, 27)
+    specs = [{"symbol": "STK.TWSE", "name": "個股", "industry": "半導體業", "instrument_type": "stock"}]
+    mock_sm = _build_mock_sm_mixed(specs)
+    mock_daily = _flat_daily_mock(d_curr, d_prev, {"STK.TWSE": (100.0, 100.0)})
+
+    svc = TaiwanAbnormalDiagnosticsService(daily_store=mock_daily, security_master=mock_sm)
+    snap = svc.get_diagnostics(target_date=d_curr, include_all=True)
+    item = next(i for i in snap.items if i.symbol == "STK.TWSE")
+    assert item.not_applicable_signals == []
+
+
+def test_leveraged_etf_price_move_normalized_below_threshold_no_trigger():
+    """2x leveraged ETF: raw change_pct ~6% -> normalized ~3% -> PRICE_MOVE must NOT trigger."""
+    d_curr, d_prev = date(2026, 8, 28), date(2026, 8, 27)
+    specs = [{"symbol": "2XL.TWSE", "name": "2倍ETF", "industry": None, "instrument_type": "etf", "leverage_multiplier": 2.0}]
+    mock_sm = _build_mock_sm_mixed(specs)
+    mock_daily = _flat_daily_mock(d_curr, d_prev, {"2XL.TWSE": (100.0, 106.0)})  # raw +6%
+
+    svc = TaiwanAbnormalDiagnosticsService(daily_store=mock_daily, security_master=mock_sm)
+    snap = svc.get_diagnostics(target_date=d_curr, include_all=True, include_etfs=True)
+    item = next(i for i in snap.items if i.symbol == "2XL.TWSE")
+
+    assert item.change_pct == 0.06  # raw value preserved on the item itself
+    assert all(s.type != "PRICE_MOVE" for s in item.signals)
+
+
+def test_leveraged_etf_price_move_normalized_above_threshold_triggers():
+    """2x leveraged ETF: raw change_pct ~11% -> normalized ~5.5% -> PRICE_MOVE DOES trigger,
+    with `observed` still reporting the RAW ~11%, never the normalized ~5.5%."""
+    d_curr, d_prev = date(2026, 8, 28), date(2026, 8, 27)
+    specs = [{"symbol": "2XL.TWSE", "name": "2倍ETF", "industry": None, "instrument_type": "etf", "leverage_multiplier": 2.0}]
+    mock_sm = _build_mock_sm_mixed(specs)
+    mock_daily = _flat_daily_mock(d_curr, d_prev, {"2XL.TWSE": (100.0, 111.0)})  # raw +11%
+
+    svc = TaiwanAbnormalDiagnosticsService(daily_store=mock_daily, security_master=mock_sm)
+    snap = svc.get_diagnostics(target_date=d_curr, include_all=True, include_etfs=True)
+    item = next(i for i in snap.items if i.symbol == "2XL.TWSE")
+
+    price_move = next(s for s in item.signals if s.type == "PRICE_MOVE")
+    assert item.change_pct == 0.11
+    assert price_move.observed == pytest.approx(11.0, abs=0.01)  # raw %, not normalized 5.5%
+    assert "leverage_multiplier=2.0" in price_move.formula
+    assert "normalized=5.5" in price_move.formula
+
+
+def test_inverse_etf_price_move_divisor_is_one_unchanged_threshold():
+    """-1x inverse ETF: abs(-1.0) == 1.0 divisor -> behaves exactly like a stock's raw
+    threshold (no false negative from misapplied normalization)."""
+    d_curr, d_prev = date(2026, 8, 28), date(2026, 8, 27)
+    specs = [{"symbol": "INV.TWSE", "name": "反1ETF", "industry": None, "instrument_type": "etf", "leverage_multiplier": -1.0}]
+    mock_sm = _build_mock_sm_mixed(specs)
+    mock_daily = _flat_daily_mock(d_curr, d_prev, {"INV.TWSE": (100.0, 106.0)})  # raw +6%, same as stock test
+
+    svc = TaiwanAbnormalDiagnosticsService(daily_store=mock_daily, security_master=mock_sm)
+    snap = svc.get_diagnostics(target_date=d_curr, include_all=True, include_etfs=True)
+    item = next(i for i in snap.items if i.symbol == "INV.TWSE")
+
+    price_move = next(s for s in item.signals if s.type == "PRICE_MOVE")
+    assert item.change_pct == 0.06
+    assert price_move.observed == pytest.approx(6.0, abs=0.01)
+    assert "leverage_multiplier=-1.0" in price_move.formula
+    assert "normalized=6.0" in price_move.formula
+
+
+def test_price_flow_divergence_leverage_normalization():
+    """PRICE_FLOW_DIVERGENCE applies the same leverage-normalization principle as
+    PRICE_MOVE at the 2x boundary: raw ~4% (normalized ~2%, below the 3% gate) does not
+    trigger even with a qualifying opposite institutional flow."""
+    d_curr = date(2026, 8, 28)
+    p_dates = [date(2026, 8, i) for i in range(1, 21)]
+
+    mock_daily = _flat_daily_mock(d_curr, p_dates[-1], {"2XL.TWSE": (100.0, 104.0)})  # raw +4%
+    specs = [{"symbol": "2XL.TWSE", "name": "2倍ETF", "industry": None, "instrument_type": "etf", "leverage_multiplier": 2.0}]
+    mock_sm = _build_mock_sm_mixed(specs)
+
+    mock_inst = MagicMock()
+    mock_inst.available_dates.return_value = p_dates
+
+    def mock_inst_read_range(syms, start, end):
+        if start == d_curr:
+            return pl.DataFrame({"symbol": ["2XL.TWSE"], "date": [d_curr], "foreign_net": [-300000], "investment_trust_net": [0], "dealer_net": [0]})
+        return pl.DataFrame({
+            "symbol": ["2XL.TWSE"] * 20, "date": p_dates,
+            "foreign_net": [10000] * 20, "investment_trust_net": [0] * 20, "dealer_net": [0] * 20,
+        })
+
+    mock_inst.read_range.side_effect = mock_inst_read_range
+
+    svc = TaiwanAbnormalDiagnosticsService(daily_store=mock_daily, inst_store=mock_inst, security_master=mock_sm)
+    snap = svc.get_diagnostics(target_date=d_curr, include_all=True, include_etfs=True)
+    item = next(i for i in snap.items if i.symbol == "2XL.TWSE")
+
+    # raw 4% qualifies the OLD (unnormalized) gate, but normalized (~2%) does not reach 3% —
+    # proves normalization is actually applied to this signal too, not just PRICE_MOVE.
+    assert all(s.type != "PRICE_FLOW_DIVERGENCE" for s in item.signals)
+
+
+def test_zero_investment_trust_net_remains_zero_for_etf():
+    """A real numeric zero (investment_trust_net=0) for an ETF must remain 0, never coerced
+    to None/missing — the general zero-is-not-missing rule is unaffected by Phase 7J."""
+    d_curr, d_prev = date(2026, 8, 28), date(2026, 8, 27)
+    specs = [{"symbol": "ETF.TWSE", "name": "ETF", "industry": None, "instrument_type": "etf"}]
+    mock_sm = _build_mock_sm_mixed(specs)
+    mock_daily = _flat_daily_mock(d_curr, d_prev, {"ETF.TWSE": (100.0, 100.0)})
+
+    mock_inst = MagicMock()
+    mock_inst.available_dates.return_value = [d_prev]
+    mock_inst.read_range.return_value = pl.DataFrame({
+        "symbol": ["ETF.TWSE"], "date": [d_curr],
+        "foreign_net": [0], "investment_trust_net": [0], "dealer_net": [0],
+    })
+
+    svc = TaiwanAbnormalDiagnosticsService(daily_store=mock_daily, inst_store=mock_inst, security_master=mock_sm)
+    snap = svc.get_diagnostics(target_date=d_curr, include_all=True, include_etfs=True)
+    item = next(i for i in snap.items if i.symbol == "ETF.TWSE")
+
+    assert item.foreign_net == 0
+    assert item.investment_trust_net == 0
+    assert item.foreign_net is not None
+    assert item.investment_trust_net is not None
+
+
+def test_etf_no_look_ahead():
+    """No-look-ahead must hold for ETFs exactly as it does for stocks: D+1 data never leaks
+    into a D query's baseline."""
+    d_target = date(2026, 8, 28)
+    d_future = date(2026, 8, 29)
+    specs = [{"symbol": "ETF.TWSE", "name": "ETF", "industry": None, "instrument_type": "etf"}]
+    mock_sm = _build_mock_sm_mixed(specs)
+
+    mock_daily = MagicMock()
+    mock_daily.available_dates.return_value = [date(2026, 8, 27), d_target, d_future]
+    mock_daily.read_range.return_value = pl.DataFrame({
+        "symbol": ["ETF.TWSE"], "date": [d_target], "close": [100.0], "volume": [1000.0], "amount": [100000.0],
+    })
+
+    svc = TaiwanAbnormalDiagnosticsService(daily_store=mock_daily, security_master=mock_sm)
+    svc.get_diagnostics(target_date=d_target, include_all=True, include_etfs=True)
+
+    for call in mock_daily.read_range.call_args_list:
+        _, start, end = call[0]
+        if end is not None:
+            assert end <= d_target

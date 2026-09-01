@@ -21,6 +21,32 @@ CORE RULES:
     * SHORT_MARGIN_RATIO_SPIKE: (target_sm_ratio - median_previous_20_sm_ratio) >= 5.0 percentage points
     * PRICE_FLOW_DIVERGENCE: abs(change_pct) >= 0.03 AND strong opposite institutional flow
     * RELATIVE_STRENGTH_OUTLIER: abs(stock_5d_return - industry_5d_return) >= 0.10 (>= 10% excess return)
+
+ETF COVERAGE (Phase 7J):
+- get_diagnostics() accepts an opt-in `include_etfs: bool = False` parameter. Default False
+  preserves the exact pre-Phase-7J stock-only universe and behavior — the public
+  GET /api/taiwan/abnormal-diagnostics route and TaiwanScreener.tsx never pass this flag,
+  so they are unaffected. Only TaiwanStockComparisonService and TaiwanAIResearchService
+  opt in with include_etfs=True.
+- When include_etfs=True, the universe is the EXPLICIT union of TAIWAN_STOCKS + TAIWAN_ETFS
+  (never UniverseType.TAIWAN_ALL, which would silently include any future new instrument type).
+- Signal applicability for ETFs (normal/leveraged/inverse alike):
+    * VOLUME_SPIKE, TURNOVER_SPIKE, FOREIGN_FLOW_SPIKE, TRUST_FLOW_SPIKE, MARGIN_SURGE,
+      SHORT_SURGE, SHORT_MARGIN_RATIO_SPIKE: self-normalized per-symbol ratios/deltas —
+      apply unchanged to ETFs, real institutional/margin/short data confirmed present.
+    * PRICE_MOVE, PRICE_FLOW_DIVERGENCE: the raw change_pct is normalized by
+      abs(leverage_multiplier) (from the Security Master; 1.0 when None/absent, which is a
+      no-op for stocks and normal 1x ETFs) BEFORE the existing 5%/3% thresholds are applied.
+      `observed` in the evidence always remains the RAW change_pct — never the normalized
+      value — so the true market move is never hidden.
+    * RELATIVE_STRENGTH_OUTLIER: genuinely not applicable to any ETF (keyed on company
+      `industry`, which is always None for ETFs — a different classification axis entirely,
+      not something this phase invents a substitute for). Never evaluated as
+      triggered/not-triggered for an ETF; always listed in `not_applicable_signals` instead.
+- `TaiwanAbnormalDiagnosticItem.not_applicable_signals: list[str]` — always [] for stocks,
+  always ["RELATIVE_STRENGTH_OUTLIER"] for ETFs. This does NOT change the meaning of
+  `signals` (still only triggered signals) or `signal_count` (still only the count of
+  triggered applicable signals, never "how many diagnostic types were evaluated").
 """
 from __future__ import annotations
 
@@ -104,8 +130,12 @@ class TaiwanAbnormalDiagnosticItem(BaseModel):
     margin_balance_change: float | None = None  # in shares
     short_balance_change: float | None = None  # in shares
     short_margin_ratio: float | None = None  # percentage
-    signal_count: int = Field(0, description="觸發之客觀異常訊號數量")
+    signal_count: int = Field(0, description="觸發之客觀異常訊號數量 (僅計入適用且觸發之訊號，非已評估之訊號種類數)")
     signals: list[DiagnosticSignalEvidence] = Field(default_factory=list)
+    not_applicable_signals: list[str] = Field(
+        default_factory=list,
+        description="因標的類別而結構性不適用之訊號類型 (如 ETF 之 RELATIVE_STRENGTH_OUTLIER)；股票恆為空清單",
+    )
     market_context: CompactMarketContext
     industry_context: CompactIndustryContext
 
@@ -185,13 +215,25 @@ class TaiwanAbnormalDiagnosticsService:
         signal_filter: str | None = None,
         industry_filter: str | None = None,
         exchange_filter: str | None = None,
+        include_etfs: bool = False,
     ) -> TaiwanAbnormalDiagnosticsSnapshot:
-        """Run batch diagnostics across Taiwan universe for target_date with zero request-time HTTP."""
+        """Run batch diagnostics across Taiwan universe for target_date with zero request-time HTTP.
+
+        include_etfs: opt-in only (default False preserves the exact pre-Phase-7J stock-only
+        universe — the public GET /api/taiwan/abnormal-diagnostics route and
+        TaiwanScreener.tsx never pass this flag). When True, the universe is the explicit
+        union of TAIWAN_STOCKS + TAIWAN_ETFS (see module docstring "ETF COVERAGE" section).
+        """
         target = target_date or resolve_target_latest_trading_date(self.calendar)
         self.security_master.ensure_loaded()
 
-        # 1. Base Universe: Active supported stocks (ETFs excluded from corporate flow diagnostics)
+        # 1. Base Universe: Active supported stocks, plus ETFs when explicitly opted in
+        #    (Phase 7J). Explicit union, never UniverseType.TAIWAN_ALL, so this module
+        #    controls exactly which instrument types participate, not whatever the
+        #    Security Master's "all" definition happens to include in the future.
         stock_symbols = self.security_master.get_universe(UniverseType.TAIWAN_STOCKS)
+        if include_etfs:
+            stock_symbols = stock_symbols + self.security_master.get_universe(UniverseType.TAIWAN_ETFS)
         universe_count = len(stock_symbols)
         if not stock_symbols:
             return self._empty_snapshot(target)
@@ -309,6 +351,14 @@ class TaiwanAbnormalDiagnosticsService:
             chg = round(close_p - prev_close_p, 4) if (close_p is not None and prev_close_p is not None) else None
             chg_pct = round((close_p / prev_close_p) - 1.0, 6) if (close_p is not None and prev_close_p is not None and prev_close_p > 0) else None
 
+            # Leverage normalization (Phase 7J) — for PRICE_MOVE / PRICE_FLOW_DIVERGENCE
+            # threshold checks ONLY. `observed` in the evidence always stays the RAW
+            # chg_pct; only the threshold comparison uses the normalized value, so a
+            # leveraged/inverse ETF's structural amplification doesn't by itself trip a
+            # false "abnormal" signal. Divisor is 1.0 (no-op) for stocks and normal 1x ETFs.
+            leverage_divisor = abs(inst_master.leverage_multiplier) if inst_master.leverage_multiplier else 1.0
+            normalized_chg_pct = (chg_pct / leverage_divisor) if chg_pct is not None else None
+
             vol_ratio = None
             amt_ratio = None
             f_net = float(t_inst["foreign_net"]) if (t_inst and t_inst["foreign_net"] is not None) else None
@@ -362,8 +412,11 @@ class TaiwanAbnormalDiagnosticsService:
                     ))
 
             # ── Signal 3: PRICE_MOVE ──
-            if chg_pct is not None and abs(chg_pct) >= 0.05:
-                sev: Literal["low", "moderate", "high", "extreme"] = "extreme" if abs(chg_pct) >= 0.095 else ("high" if abs(chg_pct) >= 0.07 else "moderate")
+            # Leverage-normalized threshold check (Phase 7J): a 2x leveraged ETF's raw
+            # move is divided by 2 before comparison so structural amplification alone
+            # never trips a false signal; `observed`/`delta` stay the RAW change_pct.
+            if normalized_chg_pct is not None and abs(normalized_chg_pct) >= 0.05:
+                sev: Literal["low", "moderate", "high", "extreme"] = "extreme" if abs(normalized_chg_pct) >= 0.095 else ("high" if abs(normalized_chg_pct) >= 0.07 else "moderate")
                 signals.append(DiagnosticSignalEvidence(
                     type="PRICE_MOVE",
                     subtype="UP" if chg_pct > 0 else "DOWN",
@@ -372,7 +425,11 @@ class TaiwanAbnormalDiagnosticsService:
                     baseline=0.0,
                     delta=round(chg_pct * 100.0, 2),
                     threshold=5.0,
-                    formula="abs(close / previous_close - 1) >= 0.05",
+                    formula=(
+                        "abs(close / previous_close - 1) / abs(leverage_multiplier) >= 0.05"
+                        f" (raw={round(chg_pct * 100.0, 2)}%, leverage_multiplier={inst_master.leverage_multiplier},"
+                        f" normalized={round(normalized_chg_pct * 100.0, 2)}%)"
+                    ),
                     lookback_sessions=1,
                     valid_sessions=1,
                     source="taiwan_daily_store",
@@ -481,9 +538,11 @@ class TaiwanAbnormalDiagnosticsService:
                     ))
 
             # ── Signal 9: PRICE_FLOW_DIVERGENCE ──
-            if chg_pct is not None and abs(chg_pct) >= 0.03:
+            # Same leverage-normalization principle as PRICE_MOVE: the price-magnitude
+            # gate (3%) is evaluated on normalized_chg_pct; observed/baseline stay raw.
+            if normalized_chg_pct is not None and abs(normalized_chg_pct) >= 0.03:
                 # Up price with strong foreign sell
-                if chg_pct >= 0.03 and f_net is not None and f_net <= -200000 and (f_mult is not None and f_mult >= 2.0):
+                if normalized_chg_pct >= 0.03 and f_net is not None and f_net <= -200000 and (f_mult is not None and f_mult >= 2.0):
                     signals.append(DiagnosticSignalEvidence(
                         type="PRICE_FLOW_DIVERGENCE",
                         subtype="PRICE_UP_FOREIGN_SELL",
@@ -491,13 +550,17 @@ class TaiwanAbnormalDiagnosticsService:
                         observed=chg_pct * 100.0,
                         baseline=f_net,
                         threshold=3.0,
-                        formula="change_pct >= 3% AND foreign_net <= -200k with multiple >= 2x",
+                        formula=(
+                            "(change_pct / abs(leverage_multiplier)) >= 3% AND foreign_net <= -200k with multiple >= 2x"
+                            f" (raw={round(chg_pct * 100.0, 2)}%, leverage_multiplier={inst_master.leverage_multiplier},"
+                            f" normalized={round(normalized_chg_pct * 100.0, 2)}%)"
+                        ),
                         lookback_sessions=20,
                         valid_sessions=int(i_stat["count_inst_20d"] if i_stat else 1),
                         source="taiwan_daily_store+taiwan_institutional_store",
                     ))
                 # Down price with strong foreign buy
-                elif chg_pct <= -0.03 and f_net is not None and f_net >= 200000 and (f_mult is not None and f_mult >= 2.0):
+                elif normalized_chg_pct <= -0.03 and f_net is not None and f_net >= 200000 and (f_mult is not None and f_mult >= 2.0):
                     signals.append(DiagnosticSignalEvidence(
                         type="PRICE_FLOW_DIVERGENCE",
                         subtype="PRICE_DOWN_FOREIGN_BUY",
@@ -505,7 +568,11 @@ class TaiwanAbnormalDiagnosticsService:
                         observed=chg_pct * 100.0,
                         baseline=f_net,
                         threshold=3.0,
-                        formula="change_pct <= -3% AND foreign_net >= 200k with multiple >= 2x",
+                        formula=(
+                            "(change_pct / abs(leverage_multiplier)) <= -3% AND foreign_net >= 200k with multiple >= 2x"
+                            f" (raw={round(chg_pct * 100.0, 2)}%, leverage_multiplier={inst_master.leverage_multiplier},"
+                            f" normalized={round(normalized_chg_pct * 100.0, 2)}%)"
+                        ),
                         lookback_sessions=20,
                         valid_sessions=int(i_stat["count_inst_20d"] if i_stat else 1),
                         source="taiwan_daily_store+taiwan_institutional_store",
@@ -534,6 +601,14 @@ class TaiwanAbnormalDiagnosticsService:
                         valid_sessions=5,
                         source="taiwan_daily_store+taiwan_industry_intelligence",
                     ))
+
+            # Structurally not-applicable signals (Phase 7J) — explicit, not inferred from
+            # absence. RELATIVE_STRENGTH_OUTLIER is keyed on company `industry`, which is
+            # never populated for ETFs (a different classification axis entirely) — it is
+            # never evaluated as triggered/not-triggered for an ETF, only listed here.
+            not_applicable_signals: list[str] = []
+            if inst_master.instrument_type == "etf":
+                not_applicable_signals.append("RELATIVE_STRENGTH_OUTLIER")
 
             # Filter by specific signal type if requested
             if signal_filter:
@@ -571,6 +646,7 @@ class TaiwanAbnormalDiagnosticsService:
                 short_margin_ratio=sm_ratio,
                 signal_count=len(signals),
                 signals=signals,
+                not_applicable_signals=not_applicable_signals,
                 market_context=compact_market,
                 industry_context=compact_ind,
             ))

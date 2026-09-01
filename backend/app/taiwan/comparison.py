@@ -229,7 +229,11 @@ class TaiwanStockComparisonService:
         # Abnormal diagnostics: ONE whole-market batch call at the shared date, then
         # filter to the resolved symbol set (mirrors ai_research.py:382-392).
         try:
-            diag_snap = self.diag_svc.get_diagnostics(target_date=resolved_date, include_all=True)
+            # include_etfs=True (Phase 7J): comparison already renders ETF instruments
+            # correctly per-symbol (leverage badges, not_applicable fundamentals, etc.) —
+            # this is one of the two internal consumers proven safe to opt in (the public
+            # /abnormal-diagnostics endpoint and TaiwanScreener.tsx never pass this flag).
+            diag_snap = self.diag_svc.get_diagnostics(target_date=resolved_date, include_all=True, include_etfs=True)
             diag_by_symbol = {item.symbol: item for item in diag_snap.items}
             for instrument in instruments:
                 instrument.diagnostic_item = diag_by_symbol.get(instrument.symbol)
