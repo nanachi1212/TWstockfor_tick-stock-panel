@@ -36,6 +36,7 @@ const Regime = lazy(() => import('./pages/Regime').then(m => ({ default: m.Regim
 const AbnormalMoves = lazy(() => import('./pages/AbnormalMoves').then(m => ({ default: m.AbnormalMoves })))
 const Dev = lazy(() => import('./pages/Dev').then(m => ({ default: m.Dev })))
 const TaiwanStockDetail = lazy(() => import('./pages/TaiwanStockDetail').then(m => ({ default: m.TaiwanStockDetail })))
+const TaiwanStockCompare = lazy(() => import('./pages/TaiwanStockCompare').then(m => ({ default: m.TaiwanStockCompare })))
 const TaiwanScreener = lazy(() => import('./pages/TaiwanScreener').then(m => ({ default: m.TaiwanScreener })))
 
 const CORE_ROUTE_PATHS = new Set([
@@ -49,6 +50,7 @@ const CORE_ROUTE_PATHS = new Set([
   '/industry-analysis',
   '/stock-analysis',
   '/stocks/:symbol',
+  '/stocks/compare',
   '/review',
   '/watchlist',
   '/screener',
@@ -123,6 +125,7 @@ export const router = createBrowserRouter([
       { path: 'concept-analysis', element: <ConceptAnalysis /> },
       { path: 'industry-analysis', element: <IndustryAnalysis /> },
       { path: 'stock-analysis', element: <StockAnalysis /> },
+      { path: 'stocks/compare', element: <TaiwanStockCompare /> },
       { path: 'stocks/:symbol', element: <TaiwanStockDetail /> },
       { path: 'review', element: <Review /> },
       { path: 'watchlist', element: <Watchlist /> },

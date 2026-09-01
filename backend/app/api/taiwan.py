@@ -32,6 +32,16 @@ from app.taiwan.ai_research import (
     TaiwanAIResearchResponse,
     TaiwanAIResearchService,
 )
+from app.taiwan.comparison import (
+    TaiwanStockCompareRequest,
+    TaiwanStockComparisonResponse,
+    TaiwanStockComparisonService,
+)
+from app.taiwan.comparison_ai_research import (
+    TaiwanComparisonAIRequest,
+    TaiwanComparisonAIResearchResponse,
+    TaiwanComparisonAIResearchService,
+)
 from app.taiwan.research_context import (
     TaiwanStockResearchContext,
     TaiwanStockResearchContextService,
@@ -64,6 +74,59 @@ def get_taiwan_data_status():
 def get_taiwan_data_capabilities():
     """Expose product usage boundaries without fetching network data."""
     return capability_matrix()
+
+
+@router.post("/stocks/compare", response_model=TaiwanStockComparisonResponse)
+def compare_taiwan_stocks(request: TaiwanStockCompareRequest):
+    """台股多標的 (2-5檔) 確定性客觀比較 (純本地計算，0 AI 調用，0 執行期外部請求)。
+
+    NOTE: 此路由必須註冊於任何 /stocks/{symbol} 動態路由之前，
+    避免 FastAPI 依註冊順序將 'compare' 誤判為 {symbol} 路徑參數。
+    """
+    from datetime import date as dt_date
+    target_dt = None
+    if request.date:
+        try:
+            target_dt = dt_date.fromisoformat(request.date)
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=f"無效的日期格式: {request.date}，請使用 YYYY-MM-DD") from e
+
+    svc = TaiwanStockComparisonService()
+    try:
+        return svc.compare(request.symbols, target_date=target_dt)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    except Exception as e:
+        logger.exception("Taiwan stock comparison failed for %s: %s", request.symbols, e)
+        raise HTTPException(
+            status_code=500,
+            detail=f"台股標的比較失敗: {e}",
+        ) from e
+
+
+@router.post("/stocks/compare/ai-research", response_model=TaiwanComparisonAIResearchResponse)
+async def compare_taiwan_stocks_ai_research(request: TaiwanComparisonAIRequest):
+    """依據本地確定性事實證據生成台股多標的客觀 AI 比較報告 (封閉事實邊界、無優劣排序、需使用者主動觸發)。
+
+    NOTE: 此路由必須註冊於任何 /stocks/{symbol}/... 動態路由之前 (見上方 /stocks/compare 說明)。
+    """
+    from datetime import date as dt_date
+    target_dt = None
+    if request.date:
+        try:
+            target_dt = dt_date.fromisoformat(request.date)
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=f"無效的日期格式: {request.date}，請使用 YYYY-MM-DD") from e
+
+    svc = TaiwanComparisonAIResearchService()
+    try:
+        return await svc.generate_comparison(request.symbols, target_date=target_dt)
+    except Exception as e:
+        logger.exception("Taiwan stock comparison AI research failed for %s: %s", request.symbols, e)
+        raise HTTPException(
+            status_code=500,
+            detail=f"AI 比較報告生成失敗: {e}",
+        ) from e
 
 
 @router.get("/data/{symbol}", response_model=TaiwanCurrentDataResponse)

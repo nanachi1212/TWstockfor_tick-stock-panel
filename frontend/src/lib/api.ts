@@ -1700,6 +1700,59 @@ export interface TaiwanAIResearchResponse {
   evidence_registry_keys: string[]
 }
 
+// ── Phase 7G: Multi-Stock Objective Research Comparison ──────
+
+export interface ComparisonInstrumentResult {
+  symbol: string
+  context: TaiwanStockResearchContext
+  diagnostic_item?: TaiwanAbnormalDiagnosticItem | null
+}
+
+export interface TaiwanStockComparisonResponse {
+  symbols_requested: string[]
+  comparison_date: string
+  generated_at: string
+  instruments: ComparisonInstrumentResult[]
+  unsupported_symbols: string[]
+}
+
+export interface ComparisonObservationItem {
+  text: string
+  evidence_refs: string[]
+}
+
+export interface TaiwanComparisonAIStockResearchReport {
+  symbols: string[]
+  comparison_date: string
+  generated_at: string
+  prompt_version: string
+  provider?: string | null
+  model?: string | null
+  comparison_overview: string
+  price_technical_comparison?: string | null
+  institutional_comparison?: string | null
+  margin_comparison?: string | null
+  fundamentals_comparison?: string | null
+  abnormal_diagnostics_comparison?: string | null
+  key_observations: ComparisonObservationItem[]
+  risk_factors: ComparisonObservationItem[]
+  missing_information: string[]
+  disclaimer: string
+}
+
+export interface TaiwanComparisonAIResearchResponse {
+  status: 'success' | 'unavailable' | 'error'
+  error_code?: string | null
+  error_message?: string | null
+  report?: TaiwanComparisonAIStockResearchReport | null
+  provider?: string | null
+  model?: string | null
+  prompt_version: string
+  comparison_date?: string | null
+  generated_at: string
+  evidence_registry_keys: string[]
+}
+
 /** 生成监控规则 id (时间戳 + 随机后缀), 用户无需手动填写。 */
 export function genRuleId(): string {
   const ts = Date.now().toString(36)
@@ -3781,6 +3834,18 @@ export const api = {
         body: JSON.stringify({ date: date || null }),
       },
     ),
+
+  taiwanStockCompare: (symbols: string[], date?: string) =>
+    request<TaiwanStockComparisonResponse>('/api/taiwan/stocks/compare', {
+      method: 'POST',
+      body: JSON.stringify({ symbols, date: date || null }),
+    }),
+
+  taiwanStockCompareAIResearch: (symbols: string[], date?: string) =>
+    request<TaiwanComparisonAIResearchResponse>('/api/taiwan/stocks/compare/ai-research', {
+      method: 'POST',
+      body: JSON.stringify({ symbols, date: date || null }),
+    }),
 
   taiwanAbnormalDiagnostics: (params?: {
     date?: string

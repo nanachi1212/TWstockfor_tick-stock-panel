@@ -12,6 +12,7 @@ import {
   FileText,
   Sparkles,
   Loader2,
+  Scale,
 } from 'lucide-react'
 import {
   api,
@@ -151,6 +152,14 @@ export function TaiwanStockDetail() {
             <span className="rounded bg-accent/10 px-1.5 py-0.5 text-[10px] font-medium text-accent">
               {data?.identity?.instrument_type === 'etf' ? 'ETF' : '股票'}
             </span>
+            <button
+              onClick={() => navigate(`/stocks/compare?symbols=${encodeURIComponent(symbol)}`)}
+              title="加入多標的比較"
+              className="flex items-center gap-1 rounded-lg border border-border/60 bg-base px-1.5 py-0.5 text-[10px] font-medium text-muted hover:border-accent/50 hover:text-accent transition-colors cursor-pointer"
+            >
+              <Scale className="h-3 w-3" />
+              加入比較
+            </button>
           </div>
         </div>
 
