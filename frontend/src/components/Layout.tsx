@@ -362,6 +362,10 @@ export function Layout() {
       return next
     })
   }
+  // Phase 8B-3.2 — CORE_INDEXES(上證/深證/創業板/科創)是純 A 股 legacy 指數,
+  // 這裡提前到 sidebarIndexQuotes 查詢之前聲明, 用來在 A 股關閉時連 REST 請求
+  // 都不發(而不只是不渲染)。與 Menu Settings/Dashboard 讀同一份偏好, 非新開關。
+  const showAshareLegacy = prefs?.show_ashare_legacy_features ?? false
   const indicesPinned = prefs?.indices_nav_pinned ?? true
   const sidebarIndexSymbols = prefs?.sidebar_index_symbols ?? CORE_INDEXES.map(p => p.symbol)
   const sidebarIndexes = CORE_INDEXES.filter(item => sidebarIndexSymbols.includes(item.symbol))
@@ -370,7 +374,9 @@ export function Layout() {
   const { data: sidebarIndexQuotes } = useQuery({
     queryKey: [...QK.indexQuotes, 'sidebar', sidebarIndexSymbols.join(',')] as const,
     queryFn: () => api.indexQuotes(sidebarIndexes.map(p => p.symbol)),
-    enabled: showSidebarQuotes && sidebarIndexes.length > 0,
+    // showAshareLegacy 闸门: sidebarIndexes 恒为 CORE_INDEXES(A 股指数)的子集,
+    // 这个 query 是 ASHARE_ONLY —— A 股关闭时连 REST 请求都不该发, 不只是不渲染。
+    enabled: showAshareLegacy && showSidebarQuotes && sidebarIndexes.length > 0,
     placeholderData: (prev) => prev,
   })
 
@@ -491,8 +497,8 @@ export function Layout() {
   // nav_order 拖曳排序(排序對固定小節沒有意義), 但沿用同一份 nav_hidden 個別
   // 隱藏 —— 與 MenuSettings.tsx「中國 A 股功能」小節的個別 eye 開關是同一組
   // 資料, 不是第二套顯示邏輯。總開關 show_ashare_legacy_features 決定整個小節
-  // 是否出現, 個別 hiddenIds 決定小節內哪幾項出現。
-  const showAshareLegacy = prefs?.show_ashare_legacy_features ?? false
+  // 是否出現, 個別 hiddenIds 決定小節內哪幾項出現。(showAshareLegacy 已在上方
+  // sidebarIndexQuotes 查詢前聲明, Phase 8B-3.2, 此處不再重複宣告)
   const visibleAshareLegacyNav = showAshareLegacy
     ? ashareLegacyNav.filter(n => !hiddenIds.has(n.to))
     : []

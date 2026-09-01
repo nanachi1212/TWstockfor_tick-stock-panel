@@ -543,20 +543,24 @@ export function Dashboard() {
   // 首次使用(无数据 + 未完成引导)自动弹窗: 同一会话只弹一次
   const [showWelcomeModal, setShowWelcomeModal] = useState(false)
   const dataStatus = useDataStatus({ staleTime: 60_000 })
+  // 空态引导文案按当前数据源分流: TickFlow 源提"免费服务器", 其他源提"当前数据源",
+  // 弱化与默认 TickFlow 的隐式绑定 (None 档/免费 Key 等 TickFlow 概念仅在其被选中时出现)
+  const prefs = usePreferences()
+  // Phase 8B-3.1 — 中國 A 股 legacy Dashboard 內容總開關, 重用既有偏好
+  // (show_ashare_legacy_features, 與 sidebar/Menu Settings 同一份), 不新增 query。
+  const showAshareLegacy = prefs.data?.show_ashare_legacy_features ?? false
   const overview = useQuery({
     queryKey: QK.overviewMarket(selectedDate),
     queryFn: () => api.overviewMarket(selectedDate),
     staleTime: 5_000,
     placeholderData: (prev) => prev,
+    enabled: showAshareLegacy,
   })
   const data = overview.data
   const caps = useCapabilities()
   const hasDepth = !!caps.data?.capabilities?.['depth5.batch']
   const sealedReady = !!data?.limit?.sealed_ready
   const isSealedDegrade = !hasDepth || !sealedReady
-  // 空态引导文案按当前数据源分流: TickFlow 源提"免费服务器", 其他源提"当前数据源",
-  // 弱化与默认 TickFlow 的隐式绑定 (None 档/免费 Key 等 TickFlow 概念仅在其被选中时出现)
-  const prefs = usePreferences()
   const dataSourceList = useQuery({
     queryKey: QK.dataSources,
     queryFn: api.dataSources,
@@ -617,6 +621,8 @@ export function Dashboard() {
   // 修复: 挂载时若无本地数据且未跟踪任何 job, 查一次后端是否有 active job, 有则接管。
   const resumeTriedRef = useRef(false)
   useEffect(() => {
+    // Phase 8B-3.1: pipelineJobs 是 A 股盘后管道专属查询, A 股关闭时不请求。
+    if (!showAshareLegacy) return
     if (resumeTriedRef.current) return
     if (!hasNoData) return
     if (fetchJobId) return
@@ -624,7 +630,7 @@ export function Dashboard() {
     api.pipelineJobs(1).then(({ active_id }) => {
       if (active_id) setFetchJobId(active_id)
     }).catch(() => { /* 查询失败不阻塞, 用户仍可手动点击获取 */ })
-  }, [hasNoData, fetchJobId])
+  }, [hasNoData, fetchJobId, showAshareLegacy])
 
   // 手动刷新: 先重建后端 Polars 缓存(解决跨天残留), 再重新拉看板数据
   const handleRefresh = () => {
@@ -636,7 +642,10 @@ export function Dashboard() {
       })
   }
 
-  if (overview.isLoading && !data) {
+  // Phase 8B-3.1: 以下两个 loading/error 全页早退, 只在 A 股 legacy 内容开启时才
+  // 适用 —— 关闭时 overview 查询本就被 enabled:false 停用, data 永远是 undefined,
+  // 不应被当成「加载失败」阻挡 TaiwanOverviewCard / 監控中心 渲染。
+  if (showAshareLegacy && overview.isLoading && !data) {
     return (
       <div className="flex h-full items-center justify-center bg-base">
         <div className="flex items-center gap-2 text-sm text-muted">
@@ -646,7 +655,7 @@ export function Dashboard() {
     )
   }
 
-  if (!data) {
+  if (showAshareLegacy && !data) {
     return (
       <div className="flex h-full items-center justify-center bg-base p-6">
         <div className="rounded-card border border-border bg-surface p-6 text-center">
@@ -656,16 +665,18 @@ export function Dashboard() {
       </div>
     )
   }
-
-  const score = data.emotion?.score ?? 50
-  const strongUp = data.breadth.strong_up ?? 0
-  const strongDown = data.breadth.strong_down ?? 0
+  // Phase 8B-3.1: 以下均用 `data?.` 保护 —— A 股关闭时 data 为 undefined(查询
+  // 被 enabled:false 停用), 这些变量不应再让组件崩溃, 只是不会被下方 A 股专属
+  // JSX 用到(该 JSX 整段包在 `showAshareLegacy && data && (...)` 内)。
+  const score = data?.emotion?.score ?? 50
+  const strongUp = data?.breadth.strong_up ?? 0
+  const strongDown = data?.breadth.strong_down ?? 0
   const latestDate = dataStatus.data?.enriched?.latest_date ?? null
-  const currentDate = selectedDate ?? data.as_of ?? ''
-  const quoteRunning = (!selectedDate || selectedDate === latestDate) && data.quote_status?.running
+  const currentDate = selectedDate ?? data?.as_of ?? ''
+  const quoteRunning = (!selectedDate || selectedDate === latestDate) && data?.quote_status?.running
   // 实时模式: none / watchlist / full_market。
   // watchlist 模式仅自选 ≤5 只实时, 看板呈现的大盘数据实为盘后快照, 需提示避免误读。
-  const quoteMode = data.quote_status?.mode as ('none' | 'watchlist' | 'full_market') | undefined
+  const quoteMode = data?.quote_status?.mode as ('none' | 'watchlist' | 'full_market') | undefined
 
   return (
     <div className="min-h-full bg-base p-1.5">
@@ -674,6 +685,11 @@ export function Dashboard() {
           不 fallback 回 A 股內容、也不假造台股指數。 */}
       <TaiwanOverviewCard />
 
+      {/* Phase 8B-3.1: 以下 A 股 legacy 内容(下载卡/弹窗/大盘看板全部)只在
+          show_ashare_legacy_features 开启时渲染, 关闭时不显示、也不会因为本机
+          恰好有 A 股数据就自动出现 —— 与 sidebar/Menu Settings 用同一个开关。 */}
+      {showAshareLegacy && (
+      <>
       {/* 无本地数据常驻引导卡片 —— 一键触发盘后管道获取数据(无 Key 也可) */}
       {hasNoData && (
         <FetchDataCard
@@ -701,6 +717,16 @@ export function Dashboard() {
           />
         )}
       </AnimatePresence>
+      </>
+      )}
+
+      {showAshareLegacy && data && (
+      <>
+      {/* 中國 A 股（選配）區隔標題 —— 讓使用者知道以下是額外市場內容,
+          不與台股核心內容混在一起。 */}
+      <div className="mb-1.5 flex items-center gap-1.5 text-[10px] font-medium uppercase tracking-wider text-muted">
+        中國 A 股（選配）
+      </div>
       <div className="relative mb-1.5 flex flex-wrap items-center justify-between gap-2 overflow-hidden rounded-card border border-border bg-gradient-to-r from-surface/90 to-surface/70 px-3 py-1.5 shadow-[0_1px_3px_hsl(var(--border)/0.4)] backdrop-blur-sm">
         <div className="pointer-events-none absolute left-0 top-0 h-full w-1 bg-gradient-to-b from-accent to-accent/20" aria-hidden />
         <div className="flex items-center gap-2">
@@ -855,6 +881,28 @@ export function Dashboard() {
           </section>
         </aside>
       </div>
+      </>
+      )}
+
+      {/* 監控中心是市場中立功能(可監控台股規則), A 股關閉時仍獨立顯示,
+          不隨 A 股區塊一起隱藏。開啟時它已在上方 A 股區塊的 aside 內, 這裡不重複渲染。 */}
+      {!showAshareLegacy && (
+        <section className="rounded-card border border-border bg-surface/80 p-1.5 shadow-[0_1px_2px_hsl(var(--border)/0.4)] backdrop-blur-sm transition-shadow hover:shadow-[0_2px_8px_hsl(var(--border)/0.5)]">
+          <div className="mb-2 flex items-center justify-between gap-2">
+            <div className="flex items-center gap-1.5">
+              <BellRing className="h-3.5 w-3.5 text-accent" />
+              <h2 className="text-xs font-semibold text-foreground">監控中心</h2>
+              <span className="font-mono text-[10px] text-muted">即時信號</span>
+            </div>
+            <Link to="/monitor" className="inline-flex items-center justify-center h-5 w-5 rounded text-muted hover:text-accent hover:bg-accent/10 transition-colors" title="進入監控中心">
+              <ArrowUpRight className="h-3.5 w-3.5" />
+            </Link>
+          </div>
+          <MonitorWidget onStockClick={(event) => {
+            if (event.symbol) setPreviewStock({ symbol: event.symbol, name: event.name ?? undefined, alert: event })
+          }} />
+        </section>
+      )}
 
       <StockPreviewDialog
         symbol={previewStock?.symbol ?? null}

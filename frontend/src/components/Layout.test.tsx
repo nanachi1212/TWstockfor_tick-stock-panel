@@ -2,7 +2,7 @@
 // 涵蓋：主導覽預設顯示台股功能、預設不顯示 A 股 legacy 功能、
 // show_ashare_legacy_features 開啟後「中國 A 股（選配）」區塊出現且不與台股導航混排。
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { render, screen, waitFor } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { Layout } from './Layout'
@@ -10,6 +10,7 @@ import { usePreferences, useCapabilities, useSettings, useQuoteStatus, useVersio
 import { useToggleRealtimeQuotes } from '@/lib/useSharedMutations'
 import { useQuoteStream, useQuoteStreamStatus } from '@/lib/useQuoteStream'
 import { getFrontendExtensionNavigation } from '@/extensions/registry'
+import { api } from '@/lib/api'
 
 vi.mock('@/lib/api', () => ({
   api: {
@@ -122,5 +123,23 @@ describe('Layout — Taiwan-first navigation (Phase 8B-2)', () => {
     expect(screen.getByText('行業分析')).toBeInTheDocument()
     // 台股核心導航仍在, 不被 A 股區塊取代或混排
     expect(screen.getByText('台股選股')).toBeInTheDocument()
+  })
+
+  it('Phase 8B-3.2: does not fetch A-share sidebar index quotes when the preference is off', async () => {
+    vi.mocked(usePreferences).mockReturnValue({ data: {} } as any)
+    renderLayout()
+
+    await screen.findByText('台股選股')
+    // 给足够时间让 disabled 之外的其他查询完成, 确认 indexQuotes 全程未被调用
+    await waitFor(() => expect(api.dataSources).toHaveBeenCalled())
+    expect(api.indexQuotes).not.toHaveBeenCalled()
+  })
+
+  it('Phase 8B-3.2: fetches A-share sidebar index quotes once the preference is on', async () => {
+    vi.mocked(usePreferences).mockReturnValue({ data: { show_ashare_legacy_features: true } } as any)
+    renderLayout()
+
+    await screen.findByText('台股選股')
+    await waitFor(() => expect(api.indexQuotes).toHaveBeenCalled())
   })
 })
