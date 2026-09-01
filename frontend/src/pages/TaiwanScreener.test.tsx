@@ -2,7 +2,7 @@
 // 涵蓋：異常訊號面板列連結指向真實已註冊路由 /stocks/:symbol（保留交易所後綴），
 // 不再指向不存在的 /taiwan/stocks/:symbol；主篩選表格既有正確連結行為不受影響。
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { render, screen, waitFor, fireEvent } from '@testing-library/react'
+import { render, screen, waitFor, fireEvent, act } from '@testing-library/react'
 import { MemoryRouter, Routes, Route } from 'react-router-dom'
 import { QueryClientProvider, QueryClient } from '@tanstack/react-query'
 import { TaiwanScreener } from './TaiwanScreener'
@@ -107,6 +107,7 @@ function renderScreener() {
       </MemoryRouter>
     </QueryClientProvider>,
   )
+  return queryClient
 }
 
 function StockDetailMock() {
@@ -164,5 +165,72 @@ describe('Abnormal diagnostics panel navigation (Phase 7K)', () => {
     await waitFor(() => expect(screen.getAllByText('2330.TWSE').length).toBeGreaterThan(0))
     const symbolLink = screen.getAllByRole('link', { name: '2330.TWSE' })[0]
     expect(symbolLink).toHaveAttribute('href', '/stocks/2330.TWSE')
+  })
+})
+
+describe('Abnormal diagnostics panel state UX (Phase 7L)', () => {
+  it('shows a loading row when the query is pending with no cached data', async () => {
+    vi.mocked(api.taiwanAbnormalDiagnostics).mockReturnValue(new Promise(() => {}) as any)
+    renderScreener()
+    expect(await screen.findByText('正在載入異常診斷…')).toBeInTheDocument()
+  })
+
+  it('shows an error row when the query rejects with no cached data', async () => {
+    vi.mocked(api.taiwanAbnormalDiagnostics).mockRejectedValue(new Error('network error'))
+    renderScreener()
+    expect(await screen.findByText('異常診斷載入失敗，請稍後再試')).toBeInTheDocument()
+  })
+
+  it('error state exposes an accessible alert, with no stack trace/raw exception text', async () => {
+    vi.mocked(api.taiwanAbnormalDiagnostics).mockRejectedValue(new Error('some internal detail'))
+    renderScreener()
+    const alertEl = await screen.findByRole('alert')
+    expect(alertEl).toHaveTextContent('異常診斷載入失敗，請稍後再試')
+    expect(screen.queryByText(/some internal detail/)).not.toBeInTheDocument()
+  })
+
+  it('shows an explicit empty-success row when items is []', async () => {
+    vi.mocked(api.taiwanAbnormalDiagnostics).mockResolvedValue(buildAbnormalDiagnostics([]) as any)
+    renderScreener()
+    expect(await screen.findByText('目前沒有偵測到異常訊號')).toBeInTheDocument()
+  })
+
+  it('empty-success state is not an alert', async () => {
+    vi.mocked(api.taiwanAbnormalDiagnostics).mockResolvedValue(buildAbnormalDiagnostics([]) as any)
+    renderScreener()
+    await screen.findByText('目前沒有偵測到異常訊號')
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+  })
+
+  it('empty-success state does not use red error styling', async () => {
+    vi.mocked(api.taiwanAbnormalDiagnostics).mockResolvedValue(buildAbnormalDiagnostics([]) as any)
+    renderScreener()
+    const cell = await screen.findByText('目前沒有偵測到異常訊號')
+    expect(cell.className).not.toMatch(/text-red-400/)
+  })
+
+  it('renders populated abnormal-diagnostics rows on a successful non-empty response', async () => {
+    renderScreener()
+    expect(await screen.findByRole('link', { name: /台積電/ })).toBeInTheDocument()
+    expect(await screen.findByRole('link', { name: /元太/ })).toBeInTheDocument()
+  })
+
+  it('preserves already-loaded populated rows during a background refetch that subsequently errors (cached-data priority)', async () => {
+    vi.mocked(api.taiwanAbnormalDiagnostics).mockResolvedValueOnce(
+      buildAbnormalDiagnostics([buildAbnormalSignal({ symbol: '2330.TWSE', code: '2330', name: '台積電' })]) as any,
+    )
+    const queryClient = renderScreener()
+    await screen.findByRole('link', { name: /台積電/ })
+
+    // Simulate a background refetch (same query key, still 'ALL' filter — no user action needed
+    // to change the key) that fails; cached data must remain visible, not be replaced by an error row.
+    vi.mocked(api.taiwanAbnormalDiagnostics).mockRejectedValueOnce(new Error('refetch failed'))
+    await act(async () => {
+      await queryClient.refetchQueries({ queryKey: ['taiwanAbnormalDiagnostics', 'ALL'] })
+    })
+
+    expect(screen.getByRole('link', { name: /台積電/ })).toBeInTheDocument()
+    expect(screen.queryByText('異常診斷載入失敗，請稍後再試')).not.toBeInTheDocument()
+    expect(screen.queryByText('正在載入異常診斷…')).not.toBeInTheDocument()
   })
 })

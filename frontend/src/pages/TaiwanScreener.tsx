@@ -229,7 +229,7 @@ export function TaiwanScreener() {
 
   // Taiwan Abnormal Diagnostics query (Phase 7D)
   const [abnormalFilter, setAbnormalFilter] = useState<string>('ALL')
-  const { data: abnormalData } = useQuery({
+  const { data: abnormalData, isLoading: isAbnormalLoading, isError: isAbnormalError } = useQuery({
     queryKey: ['taiwanAbnormalDiagnostics', abnormalFilter],
     queryFn: () => api.taiwanAbnormalDiagnostics({
       signal_type: abnormalFilter !== 'ALL' ? abnormalFilter : undefined,
@@ -663,15 +663,16 @@ export function TaiwanScreener() {
       )}
 
       {/* Taiwan Abnormal Diagnostics Panel (Phase 7D) */}
-      {abnormalData && (
-        <div className="bg-zinc-900/80 border border-amber-900/40 rounded-xl p-4 text-xs space-y-3">
+      <div className="bg-zinc-900/80 border border-amber-900/40 rounded-xl p-4 text-xs space-y-3">
           <div className="flex items-center justify-between border-b border-zinc-800 pb-2">
             <div className="flex items-center gap-2">
               <Zap className="w-4 h-4 text-amber-400" />
               <span className="font-semibold text-zinc-200 text-sm">台股市場異常異動與資金流向診斷 (Abnormal Diagnostics)</span>
-              <span className="text-zinc-500 font-mono text-[11px]">
-                全市場偵測到 {abnormalData.diagnostic_count} 檔標的觸發客觀異常訊號 (純確定性無推薦)
-              </span>
+              {abnormalData && (
+                <span className="text-zinc-500 font-mono text-[11px]">
+                  全市場偵測到 {abnormalData.diagnostic_count} 檔標的觸發客觀異常訊號 (純確定性無推薦)
+                </span>
+              )}
             </div>
             <div className="flex items-center gap-2 text-[11px] text-zinc-400">
               <span>訊號篩選:</span>
@@ -712,7 +713,17 @@ export function TaiwanScreener() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-zinc-800/40 text-[11px] font-mono">
-                {abnormalData.items.slice(0, 50).map(item => (
+                {/* Data-first branching: cached/populated abnormalData always wins over a
+                    concurrent/subsequent background loading or error state (Phase 7L §3) */}
+                {abnormalData ? (
+                  abnormalData.items.length === 0 ? (
+                    <tr>
+                      <td colSpan={10} className="py-6 text-center text-zinc-500">
+                        目前沒有偵測到異常訊號
+                      </td>
+                    </tr>
+                  ) : (
+                    abnormalData.items.slice(0, 50).map(item => (
                   <tr key={item.symbol} className="hover:bg-zinc-800/30 transition-colors">
                     <td className="py-1.5 px-2 font-sans font-medium text-zinc-200">
                       <Link
@@ -778,12 +789,31 @@ export function TaiwanScreener() {
                       </div>
                     </td>
                   </tr>
-                ))}
+                    ))
+                  )
+                ) : isAbnormalLoading ? (
+                  <tr>
+                    <td colSpan={10} className="py-6 text-center text-zinc-500">
+                      <div role="status" aria-live="polite" className="flex items-center justify-center gap-2">
+                        <div className="w-3.5 h-3.5 border-2 border-amber-500 border-t-transparent rounded-full animate-spin" />
+                        <span>正在載入異常診斷…</span>
+                      </div>
+                    </td>
+                  </tr>
+                ) : isAbnormalError ? (
+                  <tr>
+                    <td colSpan={10} className="py-6 text-center text-red-400">
+                      <div role="alert" className="flex items-center justify-center gap-1.5">
+                        <AlertCircle className="w-4 h-4 text-red-500" />
+                        <span>異常診斷載入失敗，請稍後再試</span>
+                      </div>
+                    </td>
+                  </tr>
+                ) : null}
               </tbody>
             </table>
           </div>
-        </div>
-      )}
+      </div>
 
       {/* Natural Language Translation Panel (Phase 6D) */}
       <div className="bg-zinc-900/80 border border-purple-900/40 rounded-xl p-4 space-y-3">
