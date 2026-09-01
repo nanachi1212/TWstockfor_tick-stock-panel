@@ -17,11 +17,12 @@ import {
   verticalListSortingStrategy,
 } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
-import { Eye, EyeOff, ExternalLink, GripVertical, Settings, Bell } from 'lucide-react'
+import { Eye, EyeOff, ExternalLink, GripVertical, Settings, Bell, Globe2 } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import { api } from '@/lib/api'
 import { QK } from '@/lib/queryKeys'
 import { usePreferences } from '@/lib/useSharedQueries'
+import { CORE_NAV, ASHARE_LEGACY_NAV } from '@/lib/navigation'
 
 interface NavEntry {
   id: string
@@ -30,24 +31,13 @@ interface NavEntry {
   visible: boolean
 }
 
-const BUILTIN_PAGES: NavEntry[] = [
-  { id: '/', label: '看板', type: 'builtin', visible: true },
-  { id: '/watchlist', label: '自选', type: 'builtin', visible: true },
-  { id: '/screener', label: '策略', type: 'builtin', visible: true },
-  { id: '/backtest', label: '回测', type: 'builtin', visible: true },
-  { id: '/mining', label: '挖掘', type: 'builtin', visible: true },
-  { id: '/limit-ladder', label: '连板梯队', type: 'builtin', visible: true },
-  { id: '/concept-analysis', label: '概念分析', type: 'builtin', visible: true },
-  { id: '/industry-analysis', label: '行业分析', type: 'builtin', visible: true },
-  { id: '/stock-analysis', label: '个股分析', type: 'builtin', visible: true },
-  { id: '/regime', label: '市场环境', type: 'builtin', visible: true },
-  { id: '/abnormal', label: '异动监控', type: 'builtin', visible: true },
-  { id: '/review', label: '复盘', type: 'builtin', visible: true },
-  { id: '/financials', label: '财务分析', type: 'builtin', visible: true },
-  { id: '/indices', label: '指数', type: 'builtin', visible: true },
-  { id: '/monitor', label: '监控中心', type: 'builtin', visible: true },
-  { id: '/data', label: '数据', type: 'builtin', visible: true },
-]
+// Phase 8B-2.1 — 台股核心功能清單改由 @/lib/navigation.ts 的 CORE_NAV 產生,
+// 與 Layout.tsx 的 sidebar 共用同一份 metadata(不再各自維護一份易漂移的清單)。
+// 中國 A 股 legacy 功能(ASHARE_LEGACY_NAV)不在這裡 —— 它們不是獨立的核心
+// menu item, 改用下方「中國 A 股功能」小節的總開關 + 個別顯示管理。
+const BUILTIN_PAGES: NavEntry[] = CORE_NAV.map(n => ({
+  id: n.to, label: n.label, type: 'builtin' as const, visible: true,
+}))
 
 // ── Sortable row ──
 
@@ -273,6 +263,14 @@ export function SettingsMenuSettingsPanel() {
     saveNavHidden.mutate([...next])
   }
 
+  // Phase 8B-2.1 — 「中國 A 股功能」總開關。與 Layout.tsx sidebar 讀同一個
+  // show_ashare_legacy_features 偏好, 不是第二套顯示邏輯。
+  const showAshareLegacy = prefs?.show_ashare_legacy_features ?? false
+  const saveShowAshareLegacy = useMutation({
+    mutationFn: (enabled: boolean) => api.updateShowAshareLegacyFeatures(enabled),
+    onSuccess: () => qc.invalidateQueries({ queryKey: QK.preferences }),
+  })
+
   // 监控中心徽标开关 (localStorage)
   const [badgeEnabled, setBadgeEnabled] = useState(() => {
     try { return localStorage.getItem('monitor_badge_enabled') !== '0' } catch { return true }
@@ -328,6 +326,72 @@ export function SettingsMenuSettingsPanel() {
 
         {menus.isLoading && (
           <div className="px-5 py-10 text-center text-sm text-muted">正在加载菜单...</div>
+        )}
+      </section>
+
+      {/* Phase 8B-2.1 — 中國 A 股功能: 單一總開關 + 開啟後可個別隱藏,
+          與 Layout.tsx sidebar 的「中國 A 股（選配）」區塊同步同一組偏好
+          (show_ashare_legacy_features + nav_hidden), 不是獨立的顯示邏輯。 */}
+      <section className="rounded-card border border-border bg-surface p-5">
+        <div className="flex items-center gap-2 mb-1">
+          <Globe2 className="h-4 w-4 text-accent" />
+          <h3 className="text-sm font-medium text-foreground">中國 A 股功能</h3>
+        </div>
+        <p className="text-[11px] text-muted mb-4">
+          原專案保留的中國 A 股分析功能，預設不顯示在側邊欄，開啟後才會出現「中國 A 股（選配）」區塊。台股功能不受影響。
+        </p>
+
+        <div className="flex items-center justify-between gap-4 py-2 border-b border-border/60">
+          <div className="min-w-0">
+            <div className="text-sm text-foreground">顯示中國 A 股功能</div>
+            <div className="text-[11px] text-muted truncate">開啟後會顯示原專案保留的中國 A 股分析功能。台股功能不受影響。</div>
+          </div>
+          <button
+            aria-label="顯示中國 A 股功能"
+            onClick={() => saveShowAshareLegacy.mutate(!showAshareLegacy)}
+            disabled={saveShowAshareLegacy.isPending}
+            className={`relative inline-flex h-5 w-9 items-center rounded-full shrink-0 transition-colors duration-200 disabled:opacity-50 ${
+              showAshareLegacy ? 'bg-accent' : 'bg-elevated'
+            }`}
+          >
+            <span
+              className={`inline-block h-3.5 w-3.5 rounded-full bg-white shadow-sm transition-transform duration-200 ${
+                showAshareLegacy ? 'translate-x-[18px]' : 'translate-x-[3px]'
+              }`}
+            />
+          </button>
+        </div>
+
+        {showAshareLegacy && (
+          <div className="mt-1 divide-y divide-border/60">
+            {ASHARE_LEGACY_NAV.map(item => {
+              const hidden = hiddenSet.has(item.to)
+              return (
+                <div key={item.to} className="flex items-center justify-between gap-4 py-2.5">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <item.icon className="h-3.5 w-3.5 text-muted shrink-0" />
+                    <span className={`text-sm truncate ${hidden ? 'text-muted line-through' : 'text-foreground'}`}>
+                      {item.label}
+                    </span>
+                    {hidden && (
+                      <span className="rounded bg-elevated px-1.5 py-0.5 text-[10px] text-muted shrink-0">已隐藏</span>
+                    )}
+                  </div>
+                  <button
+                    onClick={() => toggleHidden(item.to)}
+                    className={`rounded p-1 transition-colors shrink-0 ${
+                      hidden
+                        ? 'text-muted hover:text-accent hover:bg-accent/10'
+                        : 'text-accent hover:bg-accent/10'
+                    }`}
+                    title={hidden ? '顯示' : '隱藏'}
+                  >
+                    {hidden ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                  </button>
+                </div>
+              )
+            })}
+          </div>
         )}
       </section>
     </div>

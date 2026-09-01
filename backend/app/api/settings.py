@@ -475,6 +475,7 @@ def get_preferences() -> dict:
         "realtime_allowed": _realtime_allowed(),
         "indices_nav_pinned": preferences.get_indices_nav_pinned(),
         "watchlist_groups_in_nav": preferences.get_watchlist_groups_in_nav(),
+        "show_ashare_legacy_features": preferences.get_show_ashare_legacy_features(),
         "minute_sync_enabled": preferences.get_minute_sync_enabled(),
         "minute_sync_days": preferences.get_minute_sync_days(),
         "minute_sync_segment_days": preferences.get_minute_sync_segment_days(),
@@ -971,6 +972,20 @@ def update_watchlist_groups_in_nav(req: WatchlistGroupsInNavPrefs) -> dict:
     from app.services import preferences
     preferences.save({"watchlist_groups_in_nav": req.watchlist_groups_in_nav})
     return {"watchlist_groups_in_nav": req.watchlist_groups_in_nav}
+
+
+class ShowAshareLegacyFeaturesPrefs(BaseModel):
+    show_ashare_legacy_features: bool
+
+
+@router.put("/preferences/show-ashare-legacy-features")
+def update_show_ashare_legacy_features(req: ShowAshareLegacyFeaturesPrefs) -> dict:
+    """保存是否显示中国 A 股 legacy 功能区块开关(默认关闭, Phase 8B-2)。
+
+    只影响导航展示, 不影响功能本身: route/component/backend 全部原样保留。"""
+    from app.services import preferences
+    preferences.save({"show_ashare_legacy_features": req.show_ashare_legacy_features})
+    return {"show_ashare_legacy_features": req.show_ashare_legacy_features}
 
 
 class RealtimeMonitorConfigIn(BaseModel):

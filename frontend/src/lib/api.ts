@@ -2334,6 +2334,7 @@ export interface Preferences {
   realtime_quotes_enabled: boolean
   indices_nav_pinned: boolean
   watchlist_groups_in_nav: boolean
+  show_ashare_legacy_features: boolean
   minute_sync_enabled: boolean
   minute_sync_days: number
   minute_sync_segment_days: number
@@ -2576,6 +2577,11 @@ export const api = {
     request<{ watchlist_groups_in_nav: boolean }>('/api/settings/preferences/watchlist-groups-in-nav', {
       method: 'PUT',
       body: JSON.stringify({ watchlist_groups_in_nav: enabled }),
+    }),
+  updateShowAshareLegacyFeatures: (enabled: boolean) =>
+    request<{ show_ashare_legacy_features: boolean }>('/api/settings/preferences/show-ashare-legacy-features', {
+      method: 'PUT',
+      body: JSON.stringify({ show_ashare_legacy_features: enabled }),
     }),
   quoteStatus: () =>
     request<{

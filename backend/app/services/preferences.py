@@ -80,6 +80,15 @@ def get_watchlist_groups_in_nav() -> bool:
     return load().get("watchlist_groups_in_nav", False)
 
 
+def get_show_ashare_legacy_features() -> bool:
+    """是否在导航中显示中国 A 股 legacy 功能区块（连板梯队/概念分析/行业分析等）。
+
+    Phase 8B-2 — 台股优先: 默认 False, 不删除 A 股功能本身(route/component/backend
+    均保留), 只是默认不在 Taiwan-first 导航中出现。用户可在 设置 → 系统 中开启,
+    开启后功能原样可用, 与台股功能互不影响。"""
+    return load().get("show_ashare_legacy_features", False)
+
+
 def get_realtime_quote_interval() -> float:
     return load().get("realtime_quote_interval", 6.0)
 

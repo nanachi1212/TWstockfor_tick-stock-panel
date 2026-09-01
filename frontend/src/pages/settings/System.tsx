@@ -5,7 +5,7 @@
  */
 import { useState, useCallback, useEffect } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
-import { Settings2, Trash2, RefreshCw, Bell, Volume2, Info } from 'lucide-react'
+import { Settings2, Trash2, RefreshCw, Bell, Volume2, Info, Globe2 } from 'lucide-react'
 import { usePreferences, useVersion } from '@/lib/useSharedQueries'
 import { api } from '@/lib/api'
 import { QK } from '@/lib/queryKeys'
@@ -23,6 +23,8 @@ export function SettingsSystemPanel() {
   const [saving, setSaving] = useState(false)
 
   const screenerAutoRun = prefs?.screener_auto_run ?? true
+  const showAshareLegacy = prefs?.show_ashare_legacy_features ?? false
+  const [savingAshareLegacy, setSavingAshareLegacy] = useState(false)
   const [clearing, setClearing] = useState(false)
   const [toastEnabled, setToastEnabled] = useState(() => {
     try { return localStorage.getItem('alert_toast_enabled') !== '0' } catch { return true }
@@ -290,8 +292,28 @@ export function SettingsSystemPanel() {
 
       <section className="rounded-card border border-border bg-surface p-5 mt-6">
         <div className="flex items-center gap-2 mb-4">
+          <Globe2 className="h-4 w-4 text-accent" />
+          <h3 className="text-sm font-medium text-foreground">中國 A 股功能</h3>
+        </div>
+
+        <ToggleRow
+          label="顯示中國 A 股功能"
+          desc="開啟後會顯示原專案保留的中國 A 股分析功能。台股功能不受影響。"
+          checked={showAshareLegacy}
+          disabled={savingAshareLegacy}
+          onChange={(v) => {
+            setSavingAshareLegacy(true)
+            api.updateShowAshareLegacyFeatures(v)
+              .then(() => qc.invalidateQueries({ queryKey: QK.preferences }))
+              .finally(() => setSavingAshareLegacy(false))
+          }}
+        />
+      </section>
+
+      <section className="rounded-card border border-border bg-surface p-5 mt-6">
+        <div className="flex items-center gap-2 mb-4">
           <Trash2 className="h-4 w-4 text-accent" />
-          <h3 className="text-sm font-medium text-foreground">缓存</h3>
+          <h3 className="text-sm font-medium text-foreground">緩存</h3>
         </div>
 
         <div className="flex items-center justify-between gap-4 py-2">

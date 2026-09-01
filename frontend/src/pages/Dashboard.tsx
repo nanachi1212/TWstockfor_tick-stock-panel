@@ -669,6 +669,11 @@ export function Dashboard() {
 
   return (
     <div className="min-h-full bg-base p-1.5">
+      {/* Phase 8B-2 — 台股優先: 首頁第一印象改為台股資料狀態卡, 下方 A 股大盤
+          看板內容保留但不再是「第一眼」。無台股資料時顯示清楚的繁體 empty state,
+          不 fallback 回 A 股內容、也不假造台股指數。 */}
+      <TaiwanOverviewCard />
+
       {/* 无本地数据常驻引导卡片 —— 一键触发盘后管道获取数据(无 Key 也可) */}
       {hasNoData && (
         <FetchDataCard
@@ -864,6 +869,78 @@ export function Dashboard() {
         onClose={() => setPreviewStock(null)}
       />
     </div>
+  )
+}
+
+// ===== Phase 8B-2: 台股資料狀態卡 — 首頁第一印象 =====
+// 只讀既有 /api/taiwan/data-status(與 Onboarding 台股資料狀態步驟同一個 API,
+// 不建立重複 backend 邏輯)。沒有資料時顯示清楚的繁體 empty state, 不 fallback
+// 回 A 股內容、不假造台股指數或任何資料。
+const TAIWAN_FRESHNESS_LABEL: Record<string, string> = {
+  current: '最新',
+  stale: '過期',
+  unavailable: '尚無資料',
+}
+
+function TaiwanOverviewCard() {
+  const status = useQuery({
+    queryKey: QK.taiwanDataStatus,
+    queryFn: api.taiwanDataStatus,
+    staleTime: 60_000,
+  })
+
+  const rows = status.data
+    ? [
+        { label: '日K', asOf: status.data.daily_as_of, freshness: status.data.daily_status },
+        { label: '三大法人', asOf: status.data.institutional_as_of, freshness: status.data.institutional_status },
+        { label: '融資融券', asOf: status.data.margin_as_of, freshness: status.data.margin_status },
+      ]
+    : []
+  const hasAnyData = rows.some(r => r.asOf)
+
+  return (
+    <section className="mb-3 rounded-card border border-border bg-surface/85 p-3.5">
+      <div className="flex items-center justify-between gap-2 mb-2.5">
+        <div className="flex items-center gap-1.5">
+          <Database className="h-3.5 w-3.5 text-accent" />
+          <h2 className="text-xs font-semibold text-foreground">台股資料狀態</h2>
+        </div>
+        <div className="flex items-center gap-3 text-[11px]">
+          <Link to="/taiwan-screener" className="text-secondary hover:text-accent transition-colors">台股選股</Link>
+          <Link to="/stocks/compare" className="text-secondary hover:text-accent transition-colors">多股比較</Link>
+          <Link to="/watchlist" className="text-secondary hover:text-accent transition-colors">自選股</Link>
+        </div>
+      </div>
+
+      {status.isLoading ? (
+        <div className="flex items-center gap-2 text-xs text-muted">
+          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+          正在讀取台股資料狀態…
+        </div>
+      ) : status.isError ? (
+        <p className="text-xs text-muted leading-relaxed">
+          目前無法讀取台股資料狀態,不影響其他功能使用,稍後可至「資料管理」查看。
+        </p>
+      ) : hasAnyData ? (
+        <div className="flex flex-wrap items-center gap-x-5 gap-y-1.5">
+          {rows.map(r => (
+            <div key={r.label} className="flex items-center gap-1.5 text-xs">
+              <span className="text-secondary">{r.label}</span>
+              <span className="font-mono text-muted">{r.asOf ?? '—'}</span>
+              <span className="text-[11px] font-medium text-muted">
+                {TAIWAN_FRESHNESS_LABEL[r.freshness] ?? r.freshness}
+              </span>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <p className="text-xs text-secondary leading-relaxed">
+          目前尚未下載台股資料,仍可先使用「台股選股」「多股比較」等功能,之後可至
+          <Link to="/data" className="text-accent hover:underline">「資料管理」</Link>
+          更新。
+        </p>
+      )}
+    </section>
   )
 }
 
