@@ -72,6 +72,8 @@ class MatcherConfig:
     # 分钟K精确成交: 开启后, 信号触发日的成交价用当日分钟K优化
     # (有参考线→穿越价, 无参考线→VWAP)。数据缺失时降级为日K口径。
     minute_fill: bool = False
+    # 市场制度与规则配置 (例如 TaiwanMarketProfile): 未设置时回退 A 股默认规则
+    market_profile: Any | None = None
 
     def __post_init__(self) -> None:
         # 解析最终口径: 优先 entry_fill/exit_fill, 否则回退到 matching (向后兼容)。
@@ -81,6 +83,8 @@ class MatcherConfig:
             self.exit_fill = self.matching
 
     def _commission_pct(self) -> float:
+        if self.market_profile is not None and hasattr(self.market_profile, "cost"):
+            return self.market_profile.cost.commission_rate * self.market_profile.cost.discount
         # commission_pct 显式给出时优先, 否则回退 fees_pct (向后兼容双边佣金)。
         return self.commission_pct if self.commission_pct is not None else self.fees_pct
 
@@ -90,8 +94,12 @@ class MatcherConfig:
 
     def sell_cost_pct(self) -> float:
         # 卖出腿: 佣金 + 印花税 + 滑点。印花税未设时为 0 (向后兼容)。
+        if self.market_profile is not None and hasattr(self.market_profile, "tax"):
+            stamp = self.market_profile.tax.ordinary_stock_rate
+            return self._commission_pct() + stamp + self.slippage_bps / 10000.0
         stamp = self.stamp_tax_pct if self.stamp_tax_pct is not None else 0.0
         return self._commission_pct() + stamp + self.slippage_bps / 10000.0
+
 
 
 @dataclass
@@ -2510,8 +2518,13 @@ class BacktestEngine:
                 if pos is None or pos.get("pending_exit_reason"):
                     continue
                 if pos.get("entry_date") == d_str:
-                    continue
+                    can_exit = False
+                    if config.market_profile is not None and hasattr(config.market_profile, "can_same_day_exit"):
+                        can_exit = config.market_profile.can_same_day_exit()
+                    if not can_exit:
+                        continue
                 idx = row_by_symbol.get(sym)
+
                 if idx is None or pos["entry_price"] <= 0:
                     continue
                 open_price = float(open_prices[idx])
@@ -2631,7 +2644,10 @@ class BacktestEngine:
                     _count("buy_exposure")
                     continue
                 entry_price = _refill_price(idx, "buy", float(entry_prices[idx]))
-                shares = np.floor(allocation / (entry_price * (1 + buy_cost_pct)) / 100) * 100
+                lot_size = 100
+                if config.market_profile is not None and hasattr(config.market_profile, "lot"):
+                    lot_size = config.market_profile.lot.lot_size
+                shares = np.floor(allocation / (entry_price * (1 + buy_cost_pct)) / lot_size) * lot_size
                 entry_value = shares * entry_price * (1 + buy_cost_pct)
                 if shares <= 0:
                     _count("buy_lot_size")
@@ -2652,8 +2668,9 @@ class BacktestEngine:
                     "entry_price": entry_price,
                     "entry_value": entry_value,
                     "shares": shares,
-                    "lots": shares / 100,
+                    "lots": shares / lot_size,
                     "position_pct": entry_value / account_equity_before_buy if account_equity_before_buy > 0 else 0.0,
+
                     "entry_score": _score,
                     "max_high": entry_price,
                     "hold_days": 0,

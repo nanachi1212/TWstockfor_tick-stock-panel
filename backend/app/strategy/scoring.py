@@ -6,6 +6,8 @@ from typing import Any
 
 import polars as pl
 
+from app.volume_units import volume_shares_expr
+
 SCORING_DIRECTION_HIGH = "high"
 SCORING_DIRECTION_LOW = "low"
 SCORING_DIRECTIONS = frozenset({SCORING_DIRECTION_HIGH, SCORING_DIRECTION_LOW})
@@ -192,7 +194,7 @@ def scoring_value_expr(columns: Collection[str], name: str) -> pl.Expr | None:
             .over("symbol")
         )
     if name == "vwap_bias":
-        vwap = _ratio(pl.col("amount"), pl.col("volume") * 100.0)
+        vwap = _ratio(pl.col("amount"), volume_shares_expr())
         return _relative(pl.col("close"), vwap)
     if name == "vol_trend_5_60":
         fast = pl.col("volume").rolling_mean(5)

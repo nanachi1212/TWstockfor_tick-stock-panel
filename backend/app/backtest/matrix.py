@@ -35,6 +35,7 @@ from app.price_limits import (
     write_numpy_price_limit_matrix,
 )
 from app.strategy.scoring import SCORING_DIRECTION_LOW
+from app.volume_units import volume_unit_for_symbols
 
 try:
     from numba import njit, prange
@@ -51,7 +52,7 @@ except ImportError:
     prange = range
 
 _MATRIX_CACHE_VERSION = 1
-_DIRECT_MATRIX_LOADER_VERSION = 4
+_DIRECT_MATRIX_LOADER_VERSION = 5
 _MATRIX_AXIS_INDEX_VERSION = 1
 _ARROW_BATCH_SIZE = 131_072
 _SCORE_ASSET_CHUNK_SIZE = 256
@@ -439,7 +440,9 @@ class MarketDataMatrix:
     limit_up_locked: np.ndarray
     limit_down_locked: np.ndarray
     fields: Mapping[str, np.ndarray]
+    volume_unit: str = "lots"
     cache_status: str = "memory"
+
     cache_path: str | None = None
     cache_lease: Any | None = field(default=None, compare=False, repr=False)
     vector_fields: frozenset[str] = field(default_factory=frozenset)
@@ -656,11 +659,14 @@ def build_market_data_matrix(
     )
     _make_read_only(*arrays)
 
+    sym_tuple = tuple(str(value) for value in symbol_values)
+    vol_unit = volume_unit_for_symbols(sym_tuple)
+
     return MarketDataMatrix(
         timestamps=timestamps,
         timestamp_labels=timestamp_labels,
         session_ids=session_ids,
-        symbols=tuple(str(value) for value in symbol_values),
+        symbols=sym_tuple,
         names=tuple(names),
         open=open_,
         high=high,
@@ -671,7 +677,9 @@ def build_market_data_matrix(
         limit_up_locked=limit_up_locked,
         limit_down_locked=limit_down_locked,
         fields=MappingProxyType(fields),
+        volume_unit=vol_unit,
     )
+
 
 
 def load_market_data_matrix_from_parquet(
@@ -1038,6 +1046,7 @@ def _build_market_data_matrix_from_dataset(
         limit_up_locked=limit_up_locked,
         limit_down_locked=limit_down_locked,
         fields=MappingProxyType(fields),
+        volume_unit=volume_unit_for_symbols(actual_symbols),
         cache_status=cache_status,
     )
 
@@ -1203,6 +1212,7 @@ def _build_market_data_matrix_cache_from_dataset(
             "timestamp_labels": [value.isoformat() for value in actual_dates],
             "symbols": list(actual_symbols),
             "names": list(names),
+            "volume_unit": volume_unit_for_symbols(actual_symbols),
             "arrays": array_specs,
             "fields": field_specs,
         }
@@ -1401,7 +1411,7 @@ def _populate_matrix_derived_arrays(
     vector_fields: list[str],
 ) -> tuple[list[str], Mapping[str, np.ndarray]]:
     instrument_wanted = set(wanted_fields)
-    if "turnover_rate" in wanted_fields and "turnover_rate" not in fields:
+    if "turnover_rate" in wanted_fields and "turnover_rate" not in parquet_fields:
         instrument_wanted.add("float_shares")
     names, instrument_fields, latest_limits = _instrument_axis_values(
         actual_symbols,
@@ -1429,6 +1439,7 @@ def _populate_matrix_derived_arrays(
             fields["turnover_rate"],
             arrays["volume"],
             float_shares,
+            volume_unit_for_symbols(actual_symbols),
         )
     return names, latest_limits
 
@@ -1437,6 +1448,7 @@ def _write_turnover_rate_matrix(
     target: np.ndarray,
     volume: np.ndarray,
     float_shares: np.ndarray,
+    volume_unit: str,
 ) -> None:
     shares = (
         float_shares
@@ -1447,7 +1459,8 @@ def _write_turnover_rate_matrix(
     for start in range(0, volume.shape[0], rows_per_chunk):
         stop = min(volume.shape[0], start + rows_per_chunk)
         out = target[start:stop]
-        np.multiply(volume[start:stop], np.float32(10_000.0), out=out)
+        multiplier = 100.0 if volume_unit == "shares" else 10_000.0
+        np.multiply(volume[start:stop], np.float32(multiplier), out=out)
         shares_chunk = shares[start:stop]
         valid = np.isfinite(shares_chunk) & (shares_chunk != 0)
         np.divide(
@@ -1757,6 +1770,7 @@ def _load_market_data_matrix_cache(
         limit_up_locked=arrays["limit_up_locked"],
         limit_down_locked=arrays["limit_down_locked"],
         fields=MappingProxyType(fields),
+        volume_unit=str(manifest["volume_unit"]),
         cache_status=cache_status,
         cache_path=str(path),
         cache_lease=_MatrixDiskCacheLease(path),
@@ -1815,6 +1829,7 @@ def _slice_and_project_market_data_matrix(
         limit_up_locked=sliced.limit_up_locked,
         limit_down_locked=sliced.limit_down_locked,
         fields=projected,
+        volume_unit=sliced.volume_unit,
         cache_status=sliced.cache_status,
         cache_path=sliced.cache_path,
         cache_lease=sliced.cache_lease,
@@ -2457,6 +2472,7 @@ def slice_market_data_matrix(market: MarketDataMatrix, start: int, stop: int) ->
         limit_up_locked=market.limit_up_locked[start:stop],
         limit_down_locked=market.limit_down_locked[start:stop],
         fields=MappingProxyType(fields),
+        volume_unit=market.volume_unit,
         cache_status=market.cache_status,
         cache_path=market.cache_path,
         cache_lease=market.cache_lease,
@@ -2587,6 +2603,7 @@ def _writable_market_copy(market: MarketDataMatrix) -> MarketDataMatrix:
         limit_up_locked=np.array(market.limit_up_locked, copy=True),
         limit_down_locked=np.array(market.limit_down_locked, copy=True),
         fields=MappingProxyType(fields),
+        volume_unit=market.volume_unit,
     )
 
 
@@ -2613,6 +2630,7 @@ def _readonly_market_view(market: MarketDataMatrix) -> MarketDataMatrix:
         limit_up_locked=_readonly_view(market.limit_up_locked),
         limit_down_locked=_readonly_view(market.limit_down_locked),
         fields=MappingProxyType(fields),
+        volume_unit=market.volume_unit,
     )
 
 
@@ -2675,6 +2693,7 @@ def _append_market_row(
         symbols=market.symbols,
         names=market.names,
         fields=MappingProxyType(fields),
+        volume_unit=market.volume_unit,
         **arrays,
     )
 
@@ -3978,11 +3997,16 @@ def _compute_matrix_feature(market: MarketDataMatrix, name: str) -> np.ndarray:
         return _matrix_rolling_corr(daily, market.volume, close_valid, 20)
     if name == "vwap_bias":
         amount = market.field("amount")
-        shares = market.volume * np.float32(100.0)
+        vol_unit = getattr(market, "volume_unit", "lots")
+        if vol_unit == "shares" or (hasattr(market, "symbols") and any(s.endswith((".TWSE", ".TPEX")) for s in market.symbols)):
+            shares = market.volume
+        else:
+            shares = market.volume * np.float32(100.0)
         valid = close_valid & np.isfinite(amount) & (market.volume > 0) & (amount > 0)
         vwap = np.full(market.shape, np.nan, dtype=np.float32)
         np.divide(amount, shares, out=vwap, where=valid)
         return _matrix_relative(market.close, vwap)
+
     if name == "vol_trend_5_60":
         volume_valid = close_valid & np.isfinite(market.volume)
         fast = valid_rolling_mean(market.volume, volume_valid, 5)
@@ -4135,6 +4159,10 @@ def _apply_bound(mask: np.ndarray, values: np.ndarray, config: dict, prefix: str
 
 def _symbol_in_boards(symbol: str, boards: list[str]) -> bool:
     for board in boards:
+        if board in ("TWSE", "上市") and symbol.endswith(".TWSE"):
+            return True
+        if board in ("TPEX", "上櫃", "柜买") and symbol.endswith(".TPEX"):
+            return True
         if board == "沪主板" and symbol.startswith("60"):
             return True
         if board == "深主板" and symbol.startswith(("00", "001")):
@@ -4146,3 +4174,4 @@ def _symbol_in_boards(symbol: str, boards: list[str]) -> bool:
         if board == "北交所" and symbol.endswith(".BJ"):
             return True
     return False
+

@@ -2,11 +2,11 @@ import { useState, useRef, useEffect, useMemo } from 'react'
 import { useNavigate, useSearchParams, Link } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { motion, AnimatePresence } from 'framer-motion'
-import { AlertTriangle, RadioTower, Plus, Trash2, Settings2, Zap, Bell, ListChecks, BellRing, TrendingUp, TrendingDown, Flame, Tags } from 'lucide-react'
-import { PageHeader } from '@/components/PageHeader'
+import { AlertTriangle, RadioTower, Plus, Trash2, Settings2, Zap, Bell, ListChecks, BellRing, TrendingUp, TrendingDown, Flame, Tags, Globe } from 'lucide-react'
 import { EmptyState } from '@/components/EmptyState'
+
 import { Skeleton } from '@/components/data/Skeleton'
-import { api, type MonitorRule, type AlertEvent, type MonitorCondition, type MonitorExtFieldItem } from '@/lib/api'
+import { api, type MonitorRule, type AlertEvent, type MonitorCondition, type MonitorExtFieldItem, type TaiwanMonitorRule, type TaiwanRealtimeQuote } from '@/lib/api'
 import { QK } from '@/lib/queryKeys'
 import { fmtPrice, fmtPct } from '@/lib/format'
 import { useDialogBackdrop } from '@/lib/useDialogBackdrop'
@@ -20,6 +20,11 @@ import { RuleEditor } from '@/components/monitor/RuleEditor'
 import { StockPreviewDialog } from '@/components/StockPreviewDialog'
 import { DimensionMembersDialog, type DimensionKind, type DimensionMembersTarget } from '@/components/DimensionMembersDialog'
 import { usePreferences } from '@/lib/useSharedQueries'
+import { TaiwanQuotePanel } from '@/components/monitor/TaiwanQuotePanel'
+import { TaiwanRuleEditorDialog } from '@/components/monitor/TaiwanRuleEditorDialog'
+import { TaiwanAlertsList } from '@/components/monitor/TaiwanAlertsList'
+import { TaiwanRulesList } from '@/components/monitor/TaiwanRulesList'
+
 
 const TYPE_LABEL: Record<string, string> = {
   signal: '信号', price: '价格/涨跌', market: '市场异动', strategy: '策略监控', sector: '板块监控',
@@ -115,15 +120,31 @@ function AlertExtTags({ ev, fields, onTagClick }: {
 
 export function Monitor() {
   const qc = useQueryClient()
+  // 市場切換頁籤: 'taiwan' | 'cn' (預設為台灣市場 'taiwan')
+  const [marketTab, setMarketTab] = useState<'taiwan' | 'cn'>('taiwan')
+
   const [editorOpen, setEditorOpen] = useState(false)
   const [editingRule, setEditingRule] = useState<MonitorRule | null>(null)
   const [editorPreset, setEditorPreset] = useState<Partial<MonitorRule> | null>(null)
+
+  // 台灣市場編輯器狀態
+  const [twEditorOpen, setTwEditorOpen] = useState(false)
+  const [editingTwRule, setEditingTwRule] = useState<TaiwanMonitorRule | null>(null)
+  const [presetTwQuote, setPresetTwQuote] = useState<TaiwanRealtimeQuote | null>(null)
+
+  // 台灣監控規則 Query
+  const twRulesQuery = useQuery({
+    queryKey: QK.taiwanRules,
+    queryFn: () => api.taiwanRulesList(),
+  })
+  const twRules = twRulesQuery.data?.rules || []
 
   // 深链: /monitor?new=abnormal (异动监控页「告警规则」入口) → 直接弹出预置类型的编辑器
   const [searchParams, setSearchParams] = useSearchParams()
   useEffect(() => {
     const kind = searchParams.get('new')
     if (kind === 'abnormal') {
+      setMarketTab('cn')
       setEditingRule(null)
       setEditorPreset({ type: 'abnormal', threshold_pct: 70, direction: 'both', abnormal_window: 'any', scope: 'all' })
       setEditorOpen(true)
@@ -172,6 +193,7 @@ export function Monitor() {
     },
   })
 
+
   // 进入监控页: 清零未读徽标 + 记录"进入时刻", 之后新增的记录会闪烁
   // 离开监控页: 停止同步, 之后新增才计入未读
   const enterTsRef = useRef<number>(Date.now())
@@ -184,88 +206,204 @@ export function Monitor() {
 
   return (
     <div className="flex flex-col h-full">
-      <PageHeader title="监控中心" subtitle="实时信号与规则管理" />
-      <div className="flex-1 min-h-0 px-5 py-4">
-        <div className="mx-auto flex h-full max-w-7xl flex-col gap-4 lg:flex-row">
-          {/* 左栏: 触发记录 */}
-          <section className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border border-border bg-surface/40 shadow-lg shadow-black/5">
-            <div className="flex items-center gap-3 border-b border-border/60 bg-surface/60 px-4 py-2.5">
-              <SectionHeader icon={BellRing} title="触发记录" />
-              {/* 过滤标签 */}
-              <div className="flex flex-wrap items-center gap-0.5">
-                {(['all', 'strategy', 'signal', 'price', 'market', 'sector', 'abnormal'] as const).map(f => (
-                  <button
-                    key={f}
-                    onClick={() => setFilter(f)}
-                    className={cn(
-                      'rounded-md px-1.5 py-0.5 text-[10px] font-medium transition-all cursor-pointer',
-                      filter === f ? 'bg-accent/15 text-accent' : 'text-muted hover:bg-elevated/60 hover:text-secondary',
-                    )}
-                  >
-                    {f === 'all' ? '全部' : TYPE_LABEL[f]}
-                  </button>
-                ))}
-              </div>
-              {/* 数量 + 清空 + 字段配置 */}
-              <div className="ml-auto flex items-center gap-2 shrink-0">
-                <button
-                  onClick={() => setExtConfigOpen(true)}
-                  title="配置行业/概念标签"
-                  className={cn(
-                    'inline-flex h-6 w-6 items-center justify-center rounded-lg border transition-all cursor-pointer',
-                    extConfigOpen ? 'border-accent/40 text-accent' : 'border-border/60 bg-surface text-muted hover:border-accent/40 hover:text-accent',
-                  )}
-                >
-                  <Tags className="h-3.5 w-3.5" />
-                </button>
-                <span className="rounded-md bg-elevated/50 px-1.5 py-0.5 text-[10px] font-medium text-muted">{total}</span>
-                {total > 0 && (
-                  <button
-                    onClick={() => setConfirmClear(true)}
-                    className="inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[10px] text-muted transition-colors hover:bg-danger/10 hover:text-danger cursor-pointer"
-                  >
-                    <Trash2 className="h-2.5 w-2.5" />清空
-                  </button>
-                )}
-              </div>
-            </div>
-            <div className="min-h-0 flex-1 overflow-auto p-3.5">
-              <AlertsList alertsQuery={alertsQuery} confirmClear={confirmClear} setConfirmClear={setConfirmClear} total={total} enterTs={enterTsRef.current} monitorExtFields={monitorExtFields} />
-            </div>
-          </section>
+      <div className="flex flex-wrap items-center justify-between gap-3 px-5 pt-3 pb-1 border-b border-border/40 bg-surface/50">
+        <div>
+          <h1 className="text-lg font-bold text-foreground flex items-center gap-2">
+            <BellRing className="h-5 w-5 text-accent" />
+            即時監控中心
+          </h1>
+          <p className="text-xs text-muted">台股與 A 股盤中即時行情、深度五檔與邊緣規則觸發</p>
+        </div>
 
-          {/* 右栏: 监控规则 */}
-          <section className="flex min-h-0 w-full flex-col overflow-hidden rounded-xl border border-border bg-surface/40 shadow-lg shadow-black/5 lg:w-[400px] lg:shrink-0">
-            <div className="flex items-center gap-3 border-b border-border/60 bg-surface/60 px-4 py-2.5">
-              <SectionHeader icon={ListChecks} title="监控规则" />
-              <span className="rounded-md bg-elevated/50 px-1.5 py-0.5 text-[10px] font-medium text-muted">{rulesCount}</span>
-              <div className="ml-auto flex items-center gap-1">
-                <button
-                  onClick={() => { setEditingRule(null); setEditorPreset(null); setEditorOpen(true) }}
-                  title="新建规则"
-                  className="inline-flex h-6 w-6 items-center justify-center rounded-lg border border-border/60 bg-surface text-muted transition-all hover:border-accent/40 hover:text-accent hover:shadow-sm cursor-pointer"
-                >
-                  <Plus className="h-3.5 w-3.5" />
-                </button>
-                <button
-                  onClick={() => setConfirmClearRules(true)}
-                  disabled={rulesCount === 0}
-                  title="清除全部规则"
-                  className="inline-flex h-6 w-6 items-center justify-center rounded-lg border border-border/60 bg-surface text-muted transition-all hover:border-danger/40 hover:text-danger disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer"
-                >
-                  <Trash2 className="h-3.5 w-3.5" />
-                </button>
-              </div>
-            </div>
-            <div className="min-h-0 flex-1 overflow-auto p-3.5">
-              <RulesList
-                rulesQuery={rulesQuery}
-                onEdit={(r) => { setEditingRule(r); setEditorOpen(true) }}
-              />
-            </div>
-          </section>
+        {/* 市場切換 Tabs */}
+        <div className="flex items-center gap-1 rounded-xl bg-elevated/60 p-1 border border-border/60">
+          <button
+            onClick={() => setMarketTab('taiwan')}
+            className={cn(
+              'flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer',
+              marketTab === 'taiwan'
+                ? 'bg-accent text-accent-foreground shadow-sm'
+                : 'text-muted hover:text-foreground'
+            )}
+          >
+            <Globe className="h-3.5 w-3.5" />
+            台股即時監控 (TWSE / TPEx)
+          </button>
+          <button
+            onClick={() => setMarketTab('cn')}
+            className={cn(
+              'flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer',
+              marketTab === 'cn'
+                ? 'bg-accent text-accent-foreground shadow-sm'
+                : 'text-muted hover:text-foreground'
+            )}
+          >
+            <RadioTower className="h-3.5 w-3.5" />
+            A 股策略監控
+          </button>
         </div>
       </div>
+
+      <div className="flex-1 min-h-0 px-5 py-4">
+        {marketTab === 'taiwan' ? (
+          /* ===== 台股即時監控區塊 ===== */
+          <div className="mx-auto flex h-full max-w-7xl flex-col gap-4">
+            {/* 上部: 台股即時行情 + 五檔盤口 */}
+            <div className="h-auto">
+              <TaiwanQuotePanel
+                onAddRuleForSymbol={(q) => {
+                  setPresetTwQuote(q)
+                  setEditingTwRule(null)
+                  setTwEditorOpen(true)
+                }}
+              />
+            </div>
+
+            {/* 下部: 左右雙欄 (左: 警報觸發記錄, 右: 監控規則列表) */}
+            <div className="flex min-h-0 flex-1 flex-col gap-4 lg:flex-row">
+              {/* 左欄: 台股告警觸發紀錄 */}
+              <section className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border border-border bg-surface/40 shadow-lg shadow-black/5">
+                <div className="flex items-center justify-between border-b border-border/60 bg-surface/60 px-4 py-2.5">
+                  <SectionHeader icon={BellRing} title="台股觸發記錄" />
+                  <div className="flex items-center gap-2">
+                    <span className="rounded-md bg-elevated/50 px-1.5 py-0.5 text-[10px] font-medium text-muted">
+                      {total} 筆事件
+                    </span>
+                  </div>
+                </div>
+                <div className="min-h-0 flex-1 overflow-auto p-3.5">
+                  <TaiwanAlertsList alerts={alertsQuery.data?.alerts || []} />
+                </div>
+
+              </section>
+
+              {/* 右欄: 台股監控規則管理 */}
+              <section className="flex min-h-0 w-full flex-col overflow-hidden rounded-xl border border-border bg-surface/40 shadow-lg shadow-black/5 lg:w-[420px] lg:shrink-0">
+                <div className="flex items-center justify-between border-b border-border/60 bg-surface/60 px-4 py-2.5">
+                  <div className="flex items-center gap-2">
+                    <SectionHeader icon={ListChecks} title="台股規則管理" />
+                    <span className="rounded-md bg-elevated/50 px-1.5 py-0.5 text-[10px] font-medium text-muted">
+                      {twRules.length}
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-1">
+                    <button
+                      onClick={() => {
+                        setEditingTwRule(null)
+                        setPresetTwQuote(null)
+                        setTwEditorOpen(true)
+                      }}
+                      title="新建台股規則"
+                      className="inline-flex h-6 w-6 items-center justify-center rounded-lg border border-border/60 bg-surface text-muted transition-all hover:border-accent/40 hover:text-accent hover:shadow-sm cursor-pointer"
+                    >
+                      <Plus className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
+                </div>
+                <div className="min-h-0 flex-1 overflow-auto p-3.5">
+                  <TaiwanRulesList
+                    rules={twRules}
+                    onEdit={(r) => {
+                      setEditingTwRule(r)
+                      setPresetTwQuote(null)
+                      setTwEditorOpen(true)
+                    }}
+                  />
+                </div>
+              </section>
+            </div>
+          </div>
+        ) : (
+          /* ===== A 股原有監控區塊 ===== */
+          <div className="mx-auto flex h-full max-w-7xl flex-col gap-4 lg:flex-row">
+            {/* 左栏: 触发记录 */}
+            <section className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border border-border bg-surface/40 shadow-lg shadow-black/5">
+              <div className="flex items-center gap-3 border-b border-border/60 bg-surface/60 px-4 py-2.5">
+                <SectionHeader icon={BellRing} title="触发记录" />
+                {/* 过滤标签 */}
+                <div className="flex flex-wrap items-center gap-0.5">
+                  {(['all', 'strategy', 'signal', 'price', 'market', 'sector', 'abnormal'] as const).map(f => (
+                    <button
+                      key={f}
+                      onClick={() => setFilter(f)}
+                      className={cn(
+                        'rounded-md px-1.5 py-0.5 text-[10px] font-medium transition-all cursor-pointer',
+                        filter === f ? 'bg-accent/15 text-accent' : 'text-muted hover:bg-elevated/60 hover:text-secondary',
+                      )}
+                    >
+                      {f === 'all' ? '全部' : TYPE_LABEL[f]}
+                    </button>
+                  ))}
+                </div>
+                {/* 数量 + 清空 + 字段配置 */}
+                <div className="ml-auto flex items-center gap-2 shrink-0">
+                  <button
+                    onClick={() => setExtConfigOpen(true)}
+                    title="配置行业/概念标签"
+                    className={cn(
+                      'inline-flex h-6 w-6 items-center justify-center rounded-lg border transition-all cursor-pointer',
+                      extConfigOpen ? 'border-accent/40 text-accent' : 'border-border/60 bg-surface text-muted hover:border-accent/40 hover:text-accent',
+                    )}
+                  >
+                    <Tags className="h-3.5 w-3.5" />
+                  </button>
+                  <span className="rounded-md bg-elevated/50 px-1.5 py-0.5 text-[10px] font-medium text-muted">{total}</span>
+                  {total > 0 && (
+                    <button
+                      onClick={() => setConfirmClear(true)}
+                      className="inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[10px] text-muted transition-colors hover:bg-danger/10 hover:text-danger cursor-pointer"
+                    >
+                      <Trash2 className="h-2.5 w-2.5" />清空
+                    </button>
+                  )}
+                </div>
+              </div>
+              <div className="min-h-0 flex-1 overflow-auto p-3.5">
+                <AlertsList alertsQuery={alertsQuery} confirmClear={confirmClear} setConfirmClear={setConfirmClear} total={total} enterTs={enterTsRef.current} monitorExtFields={monitorExtFields} />
+              </div>
+            </section>
+
+            {/* 右栏: 监控规则 */}
+            <section className="flex min-h-0 w-full flex-col overflow-hidden rounded-xl border border-border bg-surface/40 shadow-lg shadow-black/5 lg:w-[400px] lg:shrink-0">
+              <div className="flex items-center gap-3 border-b border-border/60 bg-surface/60 px-4 py-2.5">
+                <SectionHeader icon={ListChecks} title="监控规则" />
+                <span className="rounded-md bg-elevated/50 px-1.5 py-0.5 text-[10px] font-medium text-muted">{rulesCount}</span>
+                <div className="ml-auto flex items-center gap-1">
+                  <button
+                    onClick={() => { setEditingRule(null); setEditorPreset(null); setEditorOpen(true) }}
+                    title="新建规则"
+                    className="inline-flex h-6 w-6 items-center justify-center rounded-lg border border-border/60 bg-surface text-muted transition-all hover:border-accent/40 hover:text-accent hover:shadow-sm cursor-pointer"
+                  >
+                    <Plus className="h-3.5 w-3.5" />
+                  </button>
+                  <button
+                    onClick={() => setConfirmClearRules(true)}
+                    disabled={rulesCount === 0}
+                    title="清除全部规则"
+                    className="inline-flex h-6 w-6 items-center justify-center rounded-lg border border-border/60 bg-surface text-muted transition-all hover:border-danger/40 hover:text-danger disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer"
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                  </button>
+                </div>
+              </div>
+              <div className="min-h-0 flex-1 overflow-auto p-3.5">
+                <RulesList
+                  rulesQuery={rulesQuery}
+                  onEdit={(r) => { setEditingRule(r); setEditorOpen(true) }}
+                />
+              </div>
+            </section>
+          </div>
+        )}
+      </div>
+
+
+      <TaiwanRuleEditorDialog
+        open={twEditorOpen}
+        rule={editingTwRule}
+        presetQuote={presetTwQuote}
+        onClose={() => { setTwEditorOpen(false); setEditingTwRule(null); setPresetTwQuote(null) }}
+      />
 
       <RuleEditorDialog
         open={editorOpen}
@@ -273,6 +411,7 @@ export function Monitor() {
         preset={editorPreset}
         onClose={() => { setEditorOpen(false); setEditingRule(null); setEditorPreset(null) }}
       />
+
 
       <ConfirmDialog
         open={confirmClearRules}

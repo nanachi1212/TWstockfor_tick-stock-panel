@@ -1,0 +1,36 @@
+{
+  "contract_version": "1.0.0",
+  "rules_as_of": "2026-08-30",
+  "currency": "TWD",
+  "timezone": "Asia/Taipei",
+  "symbols": [
+    {"input":"2330","canonical_symbol":"2330.TWSE","exchange":"TWSE","security_type":"stock","name":"台積電","lot_size":1000},
+    {"input":"6488","canonical_symbol":"6488.TPEX","exchange":"TPEX","security_type":"stock","name":"環球晶","lot_size":1000},
+    {"input":"2881","canonical_symbol":"2881.TWSE","exchange":"TWSE","security_type":"stock","name":"富邦金","lot_size":1000},
+    {"input":"0050","canonical_symbol":"0050.TWSE","exchange":"TWSE","security_type":"etf","name":"元大台灣50","lot_size":1000}
+  ],
+  "tick_sizes": {
+    "ordinary_stock": [[9.99,0.01],[10,0.05],[49.95,0.05],[50,0.1],[99.9,0.1],[100,0.5],[499.5,0.5],[500,1],[999,1],[1000,5]],
+    "etf": [[9.99,0.01],[10,0.01],[49.95,0.01],[50,0.05],[99.9,0.05],[100,0.05],[499.5,0.05],[500,0.05],[999,0.05],[1000,0.05]]
+  },
+  "price_limits": [
+    {"reference_price":100,"limit_pct":0.1,"tick_class":"ordinary_stock","upper":110,"lower":90},
+    {"reference_price":40.6,"limit_pct":0.1,"tick_class":"ordinary_stock","upper":44.65,"lower":36.55},
+    {"reference_price":45,"limit_pct":0.2,"tick_class":"etf","upper":54,"lower":36}
+  ],
+  "taxes": [
+    {"class":"ordinary_stock","trade_date":"2026-08-30","rate":0.003,"valid_through":null},
+    {"class":"day_trade_stock","trade_date":"2026-08-30","rate":0.0015,"valid_through":"2027-12-31"},
+    {"class":"domestic_etf","trade_date":"2026-08-30","rate":0.001,"valid_through":null},
+    {"class":"foreign_component_etf","trade_date":"2026-08-30","rate":0.001,"valid_through":null},
+    {"class":"passive_bond_etf","trade_date":"2026-08-30","rate":0,"valid_through":"2026-12-31"}
+  ],
+  "missing_values": ["","-","--","N/A"],
+  "explicit_zero_values": ["0","0.0"],
+  "malformed_values": ["abc","12x3"],
+  "roc_dates": [{"input":"115/08/30","expected":"2026-08-30"},{"input":"1150830","expected":"2026-08-30"}],
+  "availability": {"period_end":"2026-03-31","available_at":"2026-05-10T00:00:00+08:00","strict_unavailable":["2026-05-09T23:59:59+08:00","2026-05-10T00:00:00+08:00"],"first_available":"2026-05-10T00:00:01+08:00"},
+  "lot": {"board_lot_shares":1000,"odd_lot_min_shares":1},
+  "settlement": {"business_days":2},
+  "commission": {"rate_source":"broker_config","minimum_source":"broker_config","statutory_rate":null,"statutory_minimum":null}
+}

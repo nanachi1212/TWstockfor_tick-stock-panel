@@ -874,12 +874,892 @@ export interface AlertEvent {
   [key: string]: unknown
 }
 
+// ===== Taiwan Realtime & Monitor Types (Phase 5C) =====
+export type TaiwanMarketStatus =
+  | 'open'
+  | 'pre_open'
+  | 'post_close'
+  | 'closed'
+  | 'non_trading_day'
+  | 'scheduled_open_unverified'
+
+export interface TaiwanSourceMeta {
+  source: string
+  source_url: string
+  fetched_at: string
+  trade_date: string
+  status: string
+  is_realtime: boolean
+  is_stale: boolean
+  source_type: string
+  freshness_class: string
+  is_best_effort: boolean
+  fallback_reason?: string | null
+}
+
+export interface TaiwanRealtimeQuote {
+  symbol: string
+  name: string
+  exchange: 'TWSE' | 'TPEx' | string
+  last_price: number | null
+  prev_close: number | null
+  open: number | null
+  high: number | null
+  low: number | null
+  change: number | null
+  change_pct: number | null
+  volume: number | null               // In SHARES (股)
+  amount: number | null               // In TWD
+  quote_time: string | null           // ISO string
+  trade_date: string                  // YYYY-MM-DD
+  market_status: TaiwanMarketStatus | string
+  source_meta: TaiwanSourceMeta
+  bid_price?: number | null
+  ask_price?: number | null
+  bid_volume?: number | null          // In SHARES (股)
+  ask_volume?: number | null          // In SHARES (股)
+  bids?: [number, number][]           // 5-level order book: [price, shares]
+  asks?: [number, number][]           // 5-level order book: [price, shares]
+  limit_up?: number | null
+  limit_down?: number | null
+  price_limit_pct?: number | null
+  is_no_limit?: boolean
+}
+
+export type TaiwanRuleType =
+  | 'price_above'
+  | 'price_below'
+  | 'change_pct_above'
+  | 'change_pct_below'
+  | 'volume_above'
+  | 'volume_spike'
+  | 'near_upper_limit'
+  | 'near_lower_limit'
+
+export interface TaiwanMonitorRule {
+  rule_id: string
+  name: string
+  symbol: string
+  rule_type: TaiwanRuleType
+  threshold: number
+  enabled: boolean
+  cooldown_seconds: number
+  hysteresis?: number | null
+  reference_volume?: number | null     // In SHARES (股)
+  severity: 'info' | 'warning' | 'critical'
+  created_at?: string
+  updated_at?: string
+}
+
+export interface TaiwanAlertEvent {
+  alert_id: string
+  rule_id: string
+  rule_name: string
+  symbol: string
+  name: string
+  rule_type: string
+  triggered_at: string
+  quote_time?: string | null
+  trigger_value: number
+  threshold: number
+  message: string
+  source: string
+  source_status: string
+  market_status: string
+  severity: 'info' | 'warning' | 'critical' | string
+  field_name: string
+  dedup_key: string
+  ts: number
+  price?: number | null
+  change_pct?: number | null
+}
+
+export interface TaiwanSearchResult {
+  symbol: string
+  code: string
+  name: string
+  exchange: string
+  instrument_type: string
+  is_supported: boolean
+  price_limit_pct?: number | null
+  is_no_limit?: boolean
+}
+
+// ===== Phase 6A: Taiwan Stock Detail Workspace =====
+export interface TaiwanSectionMeta {
+  source: string
+  trade_date?: string | null
+  fetched_at?: string | null
+  status: 'available' | 'unavailable' | 'stale' | 'fallback' | string
+  is_stale: boolean
+  fallback_reason?: string | null
+}
+
+export interface TaiwanStockIdentity {
+  symbol: string
+  code: string
+  name: string
+  exchange: string
+  instrument_type: string
+  is_supported: boolean
+  listing_status?: string | null
+  listing_date?: string | null
+  industry?: string | null
+  cfi_code?: string | null
+  etf_category?: string | null
+}
+
+export interface TaiwanStockPriceLimit {
+  limit_up?: number | null
+  limit_down?: number | null
+  price_limit_pct?: number | null
+  is_no_limit: boolean
+  rule_type: string
+}
+
+export interface TaiwanStockRealtimeDetail {
+  last_price?: number | null
+  prev_close?: number | null
+  open?: number | null
+  high?: number | null
+  low?: number | null
+  change?: number | null
+  change_pct?: number | null
+  volume?: number | null
+  amount?: number | null
+  quote_time?: string | null
+  market_status: string
+  bid_price?: number | null
+  ask_price?: number | null
+  bids: [number, number][]
+  asks: [number, number][]
+  meta?: TaiwanSectionMeta | null
+}
+
+export interface TaiwanDailyItem {
+  date: string
+  open: number
+  high: number
+  low: number
+  close: number
+  volume: number
+  amount?: number | null
+}
+
+export interface TaiwanHistoricalDailyDetail {
+  status: string
+  rows: TaiwanDailyItem[]
+  meta?: TaiwanSectionMeta | null
+}
+
+export interface TaiwanInstitutionalDetail {
+  status: string
+  foreign_net?: number | null
+  investment_trust_net?: number | null
+  dealer_net?: number | null
+  total_net?: number | null
+  foreign_net_5d?: number | null
+  investment_trust_net_5d?: number | null
+  dealer_net_5d?: number | null
+  trend?: Record<string, any>[]
+  meta?: TaiwanSectionMeta | null
+}
+
+export interface TaiwanMarginDetail {
+  status: string
+  margin_balance?: number | null
+  margin_change?: number | null
+  short_balance?: number | null
+  short_change?: number | null
+  short_margin_ratio?: number | null
+  trend?: Record<string, any>[]
+  meta?: TaiwanSectionMeta | null
+}
+
+export interface TaiwanFactorsDetail {
+  status: string
+  foreign_net_5d?: number | null
+  investment_trust_net_5d?: number | null
+  dealer_net_5d?: number | null
+  margin_balance_change?: number | null
+  short_margin_ratio?: number | null
+  meta?: TaiwanSectionMeta | null
+}
+
+export interface TaiwanMarketContextDetail {
+  benchmark_symbol: string
+  benchmark_name: string
+  close?: number | null
+  change?: number | null
+  change_pct?: number | null
+  meta?: TaiwanSectionMeta | null
+}
+
+export interface TaiwanMonitorSummaryDetail {
+  rule_count: number
+  active_count: number
+  rules: Record<string, any>[]
+}
+
+export interface TaiwanRecentAlertDetail {
+  alert_id: string
+  rule_id: string
+  rule_name: string
+  rule_type: string
+  severity: string
+  trigger_price: number
+  trigger_value: number
+  message: string
+  triggered_at: string
+}
+
+export interface TaiwanStockDetailResponse {
+  symbol: string
+  identity: TaiwanStockIdentity
+  price_limit: TaiwanStockPriceLimit
+  realtime: TaiwanStockRealtimeDetail
+  daily_history: TaiwanHistoricalDailyDetail
+  institutional: TaiwanInstitutionalDetail
+  margin: TaiwanMarginDetail
+  factors: TaiwanFactorsDetail
+  market_context: TaiwanMarketContextDetail
+  monitor_summary: TaiwanMonitorSummaryDetail
+  recent_alerts: TaiwanRecentAlertDetail[]
+  overall_data_quality: 'good' | 'partial' | 'stale' | 'degraded' | string
+}
+
+export type TaiwanUsageScope =
+  | 'current_reference'
+  | 'historical_reference'
+  | 'pit_historical'
+  | 'unsupported'
+
+export interface TaiwanDatasetCapability {
+  domain: 'company' | 'etf'
+  dataset: string
+  exchanges: Array<'TWSE' | 'TPEX'>
+  production_supported: boolean
+  current_reference: boolean
+  pit_historical: boolean
+  usage_scope: TaiwanUsageScope
+  status: string
+  reason: string
+}
+
+export interface TaiwanDataSection {
+  dataset: string
+  status: string
+  usage_scope: TaiwanUsageScope
+  historically_eligible: boolean
+  available_at?: string | null
+  source?: string | null
+  provider?: string | null
+  reason?: string | null
+  data?: Record<string, unknown> | null
+}
+
+export interface TaiwanCurrentDataResponse {
+  symbol: string
+  exchange: string
+  security_type: 'stock' | 'etf'
+  identity: Record<string, unknown>
+  sections: Record<string, TaiwanDataSection>
+}
+
+// ===== Taiwan Screener Types (Phase 6B) =====
+export interface TaiwanScreenerRequest {
+  exchange?: 'TWSE' | 'TPEX' | 'ALL'
+  instrument?: 'stock' | 'etf' | 'ALL'
+  industry?: string | null
+  price_min?: number | null
+  price_max?: number | null
+  change_pct_min?: number | null
+  change_pct_max?: number | null
+  volume_min?: number | null
+  volume_max?: number | null
+  amount_min?: number | null
+  amount_max?: number | null
+  rsi_14_min?: number | null
+  rsi_14_max?: number | null
+  momentum_5d_min?: number | null
+  momentum_5d_max?: number | null
+  vol_ratio_5d_min?: number | null
+  vol_ratio_5d_max?: number | null
+  above_ma5?: boolean | null
+  above_ma20?: boolean | null
+  foreign_net_min?: number | null
+  foreign_net_max?: number | null
+  investment_trust_net_min?: number | null
+  investment_trust_net_max?: number | null
+  dealer_net_min?: number | null
+  dealer_net_max?: number | null
+  margin_balance_change_min?: number | null
+  margin_balance_change_max?: number | null
+  short_balance_min?: number | null
+  short_balance_max?: number | null
+  short_margin_ratio_min?: number | null
+  short_margin_ratio_max?: number | null
+  near_upper_limit?: boolean | null
+  near_lower_limit?: boolean | null
+  distance_to_upper_limit_max?: number | null
+  distance_to_lower_limit_max?: number | null
+  sort_by?: string
+  sort_order?: 'asc' | 'desc'
+  page?: number
+  page_size?: number
+}
+
+export interface ScreenerResultItem {
+  symbol: string
+  name: string
+  exchange: string
+  instrument_type: string
+  industry?: string | null
+  close?: number | null
+  change_pct?: number | null
+  volume?: number | null
+  amount?: number | null
+  quote_date?: string | null
+  price_limit_pct?: number | null
+  is_no_limit: boolean
+  limit_up?: number | null
+  limit_down?: number | null
+  distance_to_upper_limit?: number | null
+  distance_to_lower_limit?: number | null
+  ma5?: number | null
+  ma10?: number | null
+  ma20?: number | null
+  rsi_14?: number | null
+  momentum_5d?: number | null
+  vol_ratio_5d?: number | null
+  foreign_net?: number | null
+  foreign_net_5d?: number | null
+  investment_trust_net?: number | null
+  investment_trust_net_5d?: number | null
+  dealer_net?: number | null
+  institutional_date?: string | null
+  institutional_status?: string
+  margin_balance?: number | null
+  margin_balance_change?: number | null
+  short_balance?: number | null
+  short_margin_ratio?: number | null
+  margin_date?: string | null
+  margin_status?: string
+}
+
+export interface TaiwanScreenerResponse {
+  items: ScreenerResultItem[]
+  total: number
+  page: number
+  page_size: number
+  sort_by: string
+  sort_order: string
+  data_dates: {
+    daily_as_of?: string | null
+    institutional_as_of?: string | null
+    margin_as_of?: string | null
+  }
+  degraded_sections: string[]
+}
+
+export interface TaiwanDataStatus {
+  daily_as_of: string | null
+  institutional_as_of: string | null
+  margin_as_of: string | null
+  target_latest_trading_date: string
+  is_fully_current: boolean
+  daily_status: 'current' | 'stale' | 'unavailable'
+  institutional_status: 'current' | 'stale' | 'unavailable'
+  margin_status: 'current' | 'stale' | 'unavailable'
+  daily_days_behind: number
+  institutional_days_behind: number
+  margin_days_behind: number
+  scheduler_enabled: boolean
+  scheduled_update_time: string
+  scheduled_timezone: string
+}
+
+export interface TaiwanScreenerTranslation {
+  request: TaiwanScreenerRequest | null
+  recognized_conditions: string[]
+  unsupported_conditions: string[]
+  clarification_needed: boolean
+  clarification_message: string | null
+}
+
+export interface MarketBreadthStats {
+  supported_count: number
+  snapshot_row_count: number
+  traded_count: number
+  advance_count: number
+  decline_count: number
+  flat_count: number
+  uncompared_count: number
+  upper_limit_count: number
+  lower_limit_count: number
+  turnover: number
+}
+
+export interface InstitutionalMarketAggregate {
+  trade_date: string | null
+  row_count: number
+  foreign_net: number | null
+  investment_trust_net: number | null
+  dealer_net: number | null
+  total_net: number | null
+  status: 'current' | 'stale' | 'unavailable'
+}
+
+export interface MarginMarketAggregate {
+  trade_date: string | null
+  row_count: number
+  margin_balance: number | null
+  margin_balance_change: number | null
+  short_balance: number | null
+  short_balance_change: number | null
+  aggregate_short_margin_ratio: number | null
+  status: 'current' | 'stale' | 'unavailable'
+}
+
+export interface IndexSnapshot {
+  symbol: string
+  name: string
+  trade_date: string | null
+  close: number | null
+  change: number | null
+  change_pct: number | null
+  status: string
+}
+
+export interface TaiwanMarketIntelligenceSnapshot {
+  trade_date: string
+  generated_at: string
+  market_totals: MarketBreadthStats
+  by_exchange: {
+    twse: MarketBreadthStats
+    tpex: MarketBreadthStats
+  }
+  by_instrument: {
+    stock: MarketBreadthStats
+    etf: MarketBreadthStats
+  }
+  institutional: InstitutionalMarketAggregate
+  margin: MarginMarketAggregate
+  indexes: {
+    taiex: IndexSnapshot | null
+    tpex_index: IndexSnapshot | null
+  }
+  data_quality: {
+    target_trade_date: string
+    previous_trade_date: string | null
+    overall_status: 'complete' | 'partial' | 'unavailable'
+    universe_supported_symbols: number
+    daily_snapshot_symbols: number
+    missing_symbols_count: number
+  }
+}
+
+export interface IndustryConstituentMover {
+  symbol: string
+  name: string
+  change_pct: number | null
+  close: number | null
+  turnover: number
+}
+
+export interface IndustryMetrics {
+  industry: string
+  supported_symbol_count: number
+  snapshot_symbol_count: number
+  traded_symbol_count: number
+  comparable_symbol_count: number
+  turnover: number
+  turnover_share: number
+  advance_count: number
+  decline_count: number
+  flat_count: number
+  uncompared_count: number
+  advance_ratio: number | null
+  decline_ratio: number | null
+  average_change_pct: number | null
+  median_change_pct: number | null
+  foreign_net: number | null
+  investment_trust_net: number | null
+  dealer_net: number | null
+  margin_balance_change: number | null
+  short_balance_change: number | null
+  relative_strength_5d: number | null
+  relative_strength_20d: number | null
+  relative_strength_5d_comparable_count: number
+  relative_strength_20d_comparable_count: number
+  top_gainers: IndustryConstituentMover[]
+  top_losers: IndustryConstituentMover[]
+  top_turnover: IndustryConstituentMover[]
+}
+
+export interface TaiwanIndustryIntelligenceSnapshot {
+  trade_date: string
+  generated_at: string
+  market_reference: {
+    trade_date: string
+    total_stock_turnover: number
+    market_equal_weight_return_5d: number | null
+    market_equal_weight_return_20d: number | null
+    comparable_stocks_5d_count: number
+    comparable_stocks_20d_count: number
+  }
+  industries: IndustryMetrics[]
+  data_quality: {
+    target_trade_date: string
+    previous_trade_date: string | null
+    base_date_5d: string | null
+    base_date_20d: string | null
+    supported_stock_count: number
+    classified_stock_count: number
+    unclassified_stock_count: number
+    etfs_excluded_count: number
+    industry_count: number
+    classification_coverage_pct: number
+    daily_status: 'current' | 'stale' | 'unavailable'
+    institutional_status: 'current' | 'stale' | 'unavailable'
+    margin_status: 'current' | 'stale' | 'unavailable'
+    overall_status: 'complete' | 'partial' | 'unavailable'
+  }
+}
+
+export interface EvidenceMeta {
+  classification: 'KNOWN' | 'MISSING' | 'DERIVED'
+  source: string
+  formula?: string | null
+  as_of?: string | null
+}
+
+export interface TaiwanStockResearchContext {
+  symbol: string
+  generated_at: string
+  as_of_date: string
+  identity: {
+    canonical_symbol: string
+    code: string
+    name: string
+    exchange: string
+    instrument_type: string
+    industry: string | null
+    currency: string
+    listing_status: string
+    listing_date: string | null
+    meta: EvidenceMeta
+  }
+  market_context: {
+    trade_date: string
+    market_turnover: number
+    advance_count: number
+    decline_count: number
+    flat_count: number
+    upper_limit_count: number
+    lower_limit_count: number
+    exchange_turnover: number | null
+    institutional_market_net: number | null
+    margin_market_change: number | null
+    status: string
+    meta: EvidenceMeta
+  }
+  industry_context: {
+    industry: string | null
+    turnover: number | null
+    turnover_share: number | null
+    advance_ratio: number | null
+    average_change_pct: number | null
+    median_change_pct: number | null
+    foreign_net: number | null
+    investment_trust_net: number | null
+    relative_strength_5d: number | null
+    relative_strength_20d: number | null
+    status: string
+    meta: EvidenceMeta
+  }
+  price_context: {
+    trade_date: string
+    open: number | null
+    high: number | null
+    low: number | null
+    close: number | null
+    volume: number | null
+    amount: number | null
+    previous_close: number | null
+    change: number | null
+    change_pct: number | null
+    return_5d: number | null
+    return_20d: number | null
+    high_20d: number | null
+    low_20d: number | null
+    distance_from_20d_high: number | null
+    distance_from_20d_low: number | null
+    meta: EvidenceMeta
+  }
+  technical_context: {
+    ma5: number | null
+    ma20: number | null
+    ma60: number | null
+    rsi14: number | null
+    above_ma5: boolean | null
+    above_ma20: boolean | null
+    distance_to_ma20: number | null
+    vol_ratio_5d: number | null
+    meta: EvidenceMeta
+  }
+  institutional_context: {
+    as_of: string | null
+    foreign_net_1d: number | null
+    foreign_net_5d: number | null
+    foreign_net_20d: number | null
+    investment_trust_net_1d: number | null
+    investment_trust_net_5d: number | null
+    investment_trust_net_20d: number | null
+    dealer_net_1d: number | null
+    dealer_net_5d: number | null
+    dealer_net_20d: number | null
+    coverage_days_5d: number
+    coverage_days_20d: number
+    status: string
+    meta: EvidenceMeta
+  }
+  margin_context: {
+    as_of: string | null
+    margin_balance: number | null
+    margin_balance_change_1d: number | null
+    margin_balance_change_5d: number | null
+    short_balance: number | null
+    short_balance_change_1d: number | null
+    short_balance_change_5d: number | null
+    short_margin_ratio: number | null
+    status: string
+    meta: EvidenceMeta
+  }
+  fundamentals_context: {
+    status: string
+    as_of_period: string | null
+    available_at: string | null
+    pe: number | null
+    pb: number | null
+    dividend_yield: number | null
+    monthly_revenue_yoy: number | null
+    latest_eps: number | null
+    meta: EvidenceMeta
+  }
+  etf_context: {
+    status: string
+    etf_type: string | null
+    underlying_scope: string | null
+    leverage_multiplier: number | null
+    inverse: boolean | null
+    benchmark: string | null
+    meta: EvidenceMeta
+  }
+  market_rules_context: {
+    price_limit_pct: number | null
+    is_no_limit: boolean
+    limit_up: number | null
+    limit_down: number | null
+    tick_size: number | null
+    meta: EvidenceMeta
+  }
+  realtime_context: {
+    status: string
+    last_price: number | null
+    quote_ts: string | null
+    meta: EvidenceMeta
+  }
+  monitor_context: {
+    active_rule_count: number
+    recent_alert_count: number
+    meta: EvidenceMeta
+  }
+  data_quality: {
+    overall_status: 'complete' | 'partial' | 'unavailable'
+    sections: { section: string; status: string; as_of: string | null }[]
+    target_trade_date: string
+  }
+  evidence_summary: {
+    known_fields_count: number
+    missing_fields_count: number
+    derived_fields_count: number
+    missing_sections: string[]
+  }
+}
+
+export interface DiagnosticSignalEvidence {
+  type: string
+  subtype?: string | null
+  severity: 'low' | 'moderate' | 'high' | 'extreme'
+  observed: number
+  baseline?: number | null
+  ratio?: number | null
+  delta?: number | null
+  threshold: number
+  formula: string
+  lookback_sessions: number
+  valid_sessions: number
+  source: string
+  status: string
+}
+
+export interface TaiwanAbnormalDiagnosticItem {
+  symbol: string
+  code: string
+  name: string
+  exchange: string
+  industry: string | null
+  close: number | null
+  previous_close: number | null
+  change: number | null
+  change_pct: number | null
+  volume: number | null
+  amount: number | null
+  volume_ratio_5d: number | null
+  amount_ratio_5d: number | null
+  foreign_net: number | null
+  investment_trust_net: number | null
+  margin_balance_change: number | null
+  short_balance_change: number | null
+  short_margin_ratio: number | null
+  signal_count: number
+  signals: DiagnosticSignalEvidence[]
+  market_context: {
+    trade_date: string
+    advance_ratio: number | null
+    market_turnover: number | null
+    overall_status: string
+  }
+  industry_context: {
+    industry: string | null
+    turnover_share: number | null
+    advance_ratio: number | null
+    relative_strength_5d: number | null
+    relative_strength_20d: number | null
+  }
+}
+
+export interface TaiwanAbnormalDiagnosticsSnapshot {
+  trade_date: string
+  generated_at: string
+  universe_count: number
+  diagnostic_count: number
+  items: TaiwanAbnormalDiagnosticItem[]
+  data_quality: {
+    target_trade_date: string
+    universe_supported_count: number
+    evaluated_symbol_count: number
+    diagnostic_symbol_count: number
+    daily_status: 'current' | 'stale' | 'unavailable'
+    institutional_status: 'current' | 'stale' | 'unavailable'
+    margin_status: 'current' | 'stale' | 'unavailable'
+    overall_status: 'complete' | 'partial' | 'unavailable'
+  }
+  provenance: string[]
+}
+
+export interface ObservationItem {
+  text: string
+  evidence_refs: string[]
+}
+
+export interface TaiwanAIStockResearchReport {
+  symbol: string
+  code: string
+  name: string
+  industry: string | null
+  instrument_type: string
+  evidence_as_of: string
+  generated_at: string
+  prompt_version: string
+  overview: string
+  market_interpretation?: string | null
+  industry_interpretation?: string | null
+  price_technical_interpretation?: string | null
+  institutional_interpretation?: string | null
+  margin_interpretation?: string | null
+  fundamentals_interpretation?: string | null
+  abnormal_diagnostics_interpretation?: string | null
+  key_observations: ObservationItem[]
+  risk_factors: ObservationItem[]
+  missing_information: string[]
+  disclaimer: string
+}
+
+export interface TaiwanAIResearchResponse {
+  status: 'success' | 'unavailable' | 'error'
+  error_code?: string | null
+  error_message?: string | null
+  report?: TaiwanAIStockResearchReport | null
+  provider?: string | null
+  model?: string | null
+  prompt_version: string
+  evidence_as_of?: string | null
+  generated_at: string
+  evidence_registry_keys: string[]
+}
+
+// ── Phase 7G: Multi-Stock Objective Research Comparison ──────
+
+export interface ComparisonInstrumentResult {
+  symbol: string
+  context: TaiwanStockResearchContext
+  diagnostic_item?: TaiwanAbnormalDiagnosticItem | null
+}
+
+export interface TaiwanStockComparisonResponse {
+  symbols_requested: string[]
+  comparison_date: string
+  generated_at: string
+  instruments: ComparisonInstrumentResult[]
+  unsupported_symbols: string[]
+}
+
+export interface ComparisonObservationItem {
+  text: string
+  evidence_refs: string[]
+}
+
+export interface TaiwanComparisonAIStockResearchReport {
+  symbols: string[]
+  comparison_date: string
+  generated_at: string
+  prompt_version: string
+  provider?: string | null
+  model?: string | null
+  comparison_overview: string
+  price_technical_comparison?: string | null
+  institutional_comparison?: string | null
+  margin_comparison?: string | null
+  fundamentals_comparison?: string | null
+  abnormal_diagnostics_comparison?: string | null
+  key_observations: ComparisonObservationItem[]
+  risk_factors: ComparisonObservationItem[]
+  missing_information: string[]
+  disclaimer: string
+}
+
+export interface TaiwanComparisonAIResearchResponse {
+  status: 'success' | 'unavailable' | 'error'
+  error_code?: string | null
+  error_message?: string | null
+  report?: TaiwanComparisonAIStockResearchReport | null
+  provider?: string | null
+  model?: string | null
+  prompt_version: string
+  comparison_date?: string | null
+  generated_at: string
+  evidence_registry_keys: string[]
+}
+
 /** 生成监控规则 id (时间戳 + 随机后缀), 用户无需手动填写。 */
 export function genRuleId(): string {
   const ts = Date.now().toString(36)
   const rand = Math.random().toString(36).slice(2, 6)
   return `mr_${ts}_${rand}`
 }
+
 
 // ===== Limit Ladder =====
 export interface LimitLadderStock {
@@ -2885,6 +3765,144 @@ export const api = {
 
   monitorRuleDelete: (id: string) =>
     request<{ ok: boolean }>(`/api/monitor-rules/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+
+  // ===== Taiwan Realtime & Monitor APIs (Phase 5C) =====
+  taiwanQuotes: (symbols: string[], force = false) =>
+    request<{ quotes: TaiwanRealtimeQuote[]; count: number }>(
+      `/api/intraday/quotes?symbols=${encodeURIComponent(symbols.join(','))}&force=${force}`,
+    ),
+
+  taiwanSearch: (query: string, limit = 20) =>
+    request<{ results: TaiwanSearchResult[]; count: number }>(
+      `/api/intraday/taiwan/search?q=${encodeURIComponent(query)}&limit=${limit}`,
+    ),
+
+  taiwanStockDetail: (symbol: string, days = 120) =>
+    request<TaiwanStockDetailResponse>(
+      `/api/taiwan/stocks/${encodeURIComponent(symbol)}?days=${days}`,
+    ),
+
+  taiwanCapabilities: () =>
+    request<TaiwanDatasetCapability[]>('/api/taiwan/capabilities'),
+
+  taiwanCurrentData: (symbol: string) =>
+    request<TaiwanCurrentDataResponse>(`/api/taiwan/data/${encodeURIComponent(symbol)}`),
+
+  taiwanScreenerRun: (payload: TaiwanScreenerRequest) =>
+    request<TaiwanScreenerResponse>('/api/taiwan/screener/run', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
+
+  taiwanDataStatus: () =>
+    request<TaiwanDataStatus>('/api/taiwan/data-status'),
+
+  taiwanScreenerTranslate: (query: string) =>
+    request<TaiwanScreenerTranslation>('/api/taiwan/screener/translate', {
+      method: 'POST',
+      body: JSON.stringify({ query }),
+    }),
+
+  taiwanMarketIntelligence: (date?: string) =>
+    request<TaiwanMarketIntelligenceSnapshot>(
+      date ? `/api/taiwan/market-intelligence?date=${encodeURIComponent(date)}` : '/api/taiwan/market-intelligence',
+    ),
+
+  taiwanIndustryIntelligence: (params?: { date?: string; sort_by?: string; order?: string }) => {
+    const q = new URLSearchParams()
+    if (params?.date) q.set('date', params.date)
+    if (params?.sort_by) q.set('sort_by', params.sort_by)
+    if (params?.order) q.set('order', params.order)
+    const qs = q.toString()
+    return request<TaiwanIndustryIntelligenceSnapshot>(
+      qs ? `/api/taiwan/industry-intelligence?${qs}` : '/api/taiwan/industry-intelligence',
+    )
+  },
+
+  taiwanStockResearchContext: (symbol: string, date?: string) =>
+    request<TaiwanStockResearchContext>(
+      date
+        ? `/api/taiwan/stocks/${encodeURIComponent(symbol)}/research-context?date=${encodeURIComponent(date)}`
+        : `/api/taiwan/stocks/${encodeURIComponent(symbol)}/research-context`,
+    ),
+
+  taiwanStockAIResearch: (symbol: string, date?: string) =>
+    request<TaiwanAIResearchResponse>(
+      `/api/taiwan/stocks/${encodeURIComponent(symbol)}/ai-research`,
+      {
+        method: 'POST',
+        body: JSON.stringify({ date: date || null }),
+      },
+    ),
+
+  taiwanStockCompare: (symbols: string[], date?: string) =>
+    request<TaiwanStockComparisonResponse>('/api/taiwan/stocks/compare', {
+      method: 'POST',
+      body: JSON.stringify({ symbols, date: date || null }),
+    }),
+
+  taiwanStockCompareAIResearch: (symbols: string[], date?: string) =>
+    request<TaiwanComparisonAIResearchResponse>('/api/taiwan/stocks/compare/ai-research', {
+      method: 'POST',
+      body: JSON.stringify({ symbols, date: date || null }),
+    }),
+
+  taiwanAbnormalDiagnostics: (params?: {
+    date?: string
+    include_all?: boolean
+    signal_type?: string
+    industry?: string
+    exchange?: string
+  }) => {
+    const q = new URLSearchParams()
+    if (params?.date) q.set('date', params.date)
+    if (params?.include_all !== undefined) q.set('include_all', String(params.include_all))
+    if (params?.signal_type) q.set('signal_type', params.signal_type)
+    if (params?.industry) q.set('industry', params.industry)
+    if (params?.exchange) q.set('exchange', params.exchange)
+    const qs = q.toString()
+    return request<TaiwanAbnormalDiagnosticsSnapshot>(
+      qs ? `/api/taiwan/abnormal-diagnostics?${qs}` : '/api/taiwan/abnormal-diagnostics',
+    )
+  },
+
+  taiwanRulesList: () =>
+    request<{ rules: TaiwanMonitorRule[]; total: number }>('/api/monitor-rules/taiwan'),
+
+  taiwanRuleSave: (rule: {
+    rule_id?: string
+    name: string
+    symbol: string
+    rule_type: string
+    threshold: number
+    enabled?: boolean
+    cooldown_seconds?: number
+    hysteresis?: number | null
+    reference_volume?: number | null
+    severity?: string
+  }) =>
+    request<{ ok: boolean; rule: TaiwanMonitorRule }>('/api/monitor-rules/taiwan', {
+      method: 'POST',
+      body: JSON.stringify(rule),
+    }),
+
+  taiwanRuleUpdate: (ruleId: string, updates: Partial<TaiwanMonitorRule>) =>
+    request<{ ok: boolean; rule: TaiwanMonitorRule }>(`/api/monitor-rules/taiwan/${encodeURIComponent(ruleId)}`, {
+      method: 'PATCH',
+      body: JSON.stringify(updates),
+    }),
+
+  taiwanRuleDelete: (ruleId: string) =>
+    request<{ ok: boolean; deleted: string }>(`/api/monitor-rules/taiwan/${encodeURIComponent(ruleId)}`, {
+      method: 'DELETE',
+    }),
+
+  taiwanEvaluateRules: () =>
+    request<{ ok: boolean; evaluated_rules: number; alerts_count: number; alerts: TaiwanAlertEvent[] }>(
+      '/api/monitor-rules/taiwan/evaluate',
+      { method: 'POST' },
+    ),
+
 
   /** 模拟触发 ladder 封单监控 (Dev 调试, 不落盘不推送) */
   monitorRuleTestLadder: () =>

@@ -16,7 +16,10 @@ import time
 from fastapi import APIRouter, Query, Request
 from sse_starlette.sse import EventSourceResponse
 
+from app.taiwan.realtime import get_market_status, get_realtime_service, taipei_now
+
 router = APIRouter(prefix="/api/intraday", tags=["quotes"])
+
 
 
 def _get_quote_service(request: Request):
@@ -86,12 +89,95 @@ def _fallback_index_quotes_from_daily(request: Request, symbols: list[str] | Non
 
 @router.get("/status")
 def status(request: Request):
-    """行情状态 (来自全局 QuoteService)。"""
+    """行情状态 (整合全局 QuoteService 与 TaiwanRealtimeService)。"""
+    res: dict = {"enabled": False, "running": False, "symbol_count": 0, "index_symbol_count": 0,
+                 "quote_age_ms": None, "is_trading_hours": False, "last_fetch_ms": None}
     qs = _get_quote_service(request)
     if qs:
-        return qs.status()
-    return {"enabled": False, "running": False, "symbol_count": 0, "index_symbol_count": 0,
-            "quote_age_ms": None, "is_trading_hours": False, "last_fetch_ms": None}
+        res = qs.status()
+
+    # Enrich with Taiwan real-time layer state
+    tw_svc = get_realtime_service()
+    now_tpe = taipei_now()
+    res["taiwan_market"] = {
+        "status": get_market_status(now_tpe).value,
+        "taipei_time": now_tpe.isoformat(),
+        "cache_hits": tw_svc.cache_hits,
+        "cache_misses": tw_svc.cache_misses,
+        "provider_requests": tw_svc.provider_requests,
+    }
+    return res
+
+
+@router.get("/quotes")
+def get_quotes(
+    symbols: str = Query(..., description="逗号分隔的台股或标准 symbol (例如 2330.TWSE,8069.TPEX,0050.TWSE)"),
+    force: bool = Query(False, description="是否强制穿透缓存向外部来源请求"),
+):
+    """批次获取台股盘中实时行情 (支援 4 级 Fallback 与五档盘口)。"""
+    symbol_list = [s.strip() for s in symbols.split(",") if s.strip()]
+    if not symbol_list:
+        return {"quotes": [], "count": 0}
+
+    tw_svc = get_realtime_service()
+    quote_map = tw_svc.get_quotes(symbol_list, force_refresh=force)
+    
+    from app.taiwan.universe import get_security_master
+    from app.taiwan.universe.models import MarketProfileBridge
+    sec_master = get_security_master()
+
+    rows = []
+    for q in quote_map.values():
+        d = q.to_dict()
+        inst = sec_master.get_instrument(q.symbol)
+        limit_up, limit_down = (None, None)
+        limit_pct = None
+        is_no_limit = False
+        if inst:
+            limit_pct = MarketProfileBridge.get_price_limit_pct(inst)
+            if limit_pct is None:
+                is_no_limit = True
+            elif q.prev_close is not None:
+                limit_up, limit_down = MarketProfileBridge.calc_limits(q.prev_close, inst)
+        d["limit_up"] = limit_up
+        d["limit_down"] = limit_down
+        d["price_limit_pct"] = limit_pct
+        d["is_no_limit"] = is_no_limit
+        rows.append(d)
+
+    return {"quotes": rows, "count": len(rows)}
+
+
+@router.get("/taiwan/search")
+def search_taiwan_instruments(
+    q: str = Query(..., description="代號、全名或代號簡稱，如 2330, 台積電, 0050"),
+    limit: int = Query(20, ge=1, le=100),
+):
+    """查詢台灣證券主檔 (Security Master)。支援股票、ETF、權證搜尋與支援狀態判斷。"""
+    from app.taiwan.universe import get_security_master
+    from app.taiwan.universe.models import MarketProfileBridge
+
+    sec_master = get_security_master()
+    results = sec_master.search(q, limit=limit)
+    
+    # 附帶法規限制資訊 (方便前端即時判斷是否支援接近漲跌停規則)
+    enriched = []
+    for item in results:
+        sym = item.get("symbol")
+        inst = sec_master.get_instrument(sym) if sym else None
+        limit_pct = None
+        is_no_limit = False
+        if inst and inst.is_supported:
+            limit_pct = MarketProfileBridge.get_price_limit_pct(inst)
+            is_no_limit = (limit_pct is None)
+        item["price_limit_pct"] = limit_pct
+        item["is_no_limit"] = is_no_limit
+        enriched.append(item)
+
+    return {"results": enriched, "count": len(enriched)}
+
+
+
 
 
 @router.get("/indices")
@@ -136,10 +222,17 @@ async def quote_stream(request: Request):
 
         sub = qs.subscribe()
         try:
+            # 连接建立时立刻发送一条握手事件，确保 HTTP response headers 立即 flush 到客户端触发 onopen
+            yield {
+                "event": "connected",
+                "data": json.dumps({"ts": int(time.time() * 1000), "status": "ok"}),
+            }
+
             while True:
                 # 等待任一通道有新信号 (5s 超时保持循环, 便于断线时尽快退出)
                 await asyncio.to_thread(sub.wait, 5.0)
                 data = sub.pop()
+
 
                 # 告警 (分片推送, 避免单条 SSE 过大)
                 alerts = data["alerts"]

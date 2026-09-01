@@ -596,7 +596,14 @@ export function WatchlistGroupPicker({ groups, groupIds, symbol, disabled, onTog
         ref={btnRef}
         type="button"
         disabled={disabled}
-        onClick={event => { event.stopPropagation(); open ? setOpen(false) : openMenu() }}
+        onClick={event => {
+          event.stopPropagation()
+          if (open) {
+            setOpen(false)
+          } else {
+            openMenu()
+          }
+        }}
         className={`relative inline-flex h-5 items-center justify-center gap-0.5 rounded border border-transparent px-1 transition-colors ${
           memberGroups.length > 0
             ? 'hover:border-accent/30'

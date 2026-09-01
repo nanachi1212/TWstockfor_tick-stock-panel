@@ -1,7 +1,4 @@
-"""历史股本解析。
-
-财务股本按公告日可用，历史缺失时回退 instruments 最新流通股本。
-"""
+"""历史股本解析, Taiwan 缺少 PIT denominator 时保持 fail-closed。"""
 from __future__ import annotations
 
 from datetime import date
@@ -11,7 +8,7 @@ import polars as pl
 
 
 def load_share_history(data_dir: Path) -> pl.DataFrame:
-    """读取本地财务股本表；未同步或损坏时返回空表。"""
+    """读取本地财务股本表; 未同步或损坏时返回空表。"""
     path = data_dir / "financials" / "shares" / "part.parquet"
     if not path.exists():
         return pl.DataFrame()
@@ -32,18 +29,33 @@ def apply_historical_float_shares(
 ) -> pl.DataFrame:
     """为行情行解析有效流通股本。
 
-    当日保留 rows.float_shares；历史日期使用公告日不晚于交易日的最新股本，
-    找不到历史记录时继续使用 rows.float_shares。
+    当日保留 rows.float_shares; 历史日期使用公告日不晚于交易日的最新股本。
+    既有非 Taiwan 市场保留 current fallback; Taiwan 不允许 current backward-fill。
     """
     required = {"symbol", "date", "float_shares"}
+    if rows.is_empty() or not required <= set(rows.columns):
+        return rows
+
+    def fail_closed_taiwan_history(frame: pl.DataFrame) -> pl.DataFrame:
+        taiwan = (
+            pl.col("symbol").str.ends_with(".TWSE")
+            | pl.col("symbol").str.ends_with(".TPEX")
+        )
+        trade_date = pl.col("date").cast(pl.Date, strict=False)
+        return frame.with_columns(
+            pl.when(taiwan & (trade_date != pl.lit(today)))
+            .then(None)
+            .otherwise(pl.col("float_shares"))
+            .cast(pl.Float64)
+            .alias("float_shares")
+        )
+
     if (
-        rows.is_empty()
-        or not required <= set(rows.columns)
-        or shares is None
+        shares is None
         or shares.is_empty()
         or not {"symbol", "period_end", "float_shares"} <= set(shares.columns)
     ):
-        return rows
+        return fail_closed_taiwan_history(rows)
 
     def as_date_expr(column: str) -> pl.Expr:
         dtype = shares.schema[column]
@@ -67,13 +79,15 @@ def apply_historical_float_shares(
             pl.col("symbol").is_not_null()
             & pl.col("_share_available_date").is_not_null()
             & (pl.col("_historical_float_shares") > 0)
+            & ~pl.col("symbol").str.ends_with(".TWSE")
+            & ~pl.col("symbol").str.ends_with(".TPEX")
         )
         .sort(["symbol", "_share_available_date", "_share_period_end"])
         .unique(subset=["symbol", "_share_available_date"], keep="last")
         .sort(["symbol", "_share_available_date"])
     )
     if history.is_empty():
-        return rows
+        return fail_closed_taiwan_history(rows)
 
     resolved = (
         rows
@@ -94,6 +108,11 @@ def apply_historical_float_shares(
         .with_columns(
             pl.when(pl.col("_share_trade_date") == pl.lit(today))
             .then(pl.col("float_shares"))
+            .when(
+                pl.col("symbol").str.ends_with(".TWSE")
+                | pl.col("symbol").str.ends_with(".TPEX")
+            )
+            .then(pl.col("_historical_float_shares"))
             .otherwise(
                 pl.coalesce("_historical_float_shares", "float_shares")
             )

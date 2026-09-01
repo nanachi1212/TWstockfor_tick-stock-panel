@@ -1170,6 +1170,18 @@ class QuoteService:
                                 )
                         except Exception as e:  # noqa: BLE001
                             logger.warning("指数监控评估失败 (不影响股票/ETF 告警): %s", e)
+
+                    # 台湾市场实时规则轮: 独立评估 TaiwanMonitorEngine 并汇总告警
+                    try:
+                        from app.taiwan.realtime.monitor_engine import get_monitor_engine
+                        tw_engine = get_monitor_engine()
+                        if tw_engine.list_rules():
+                            tw_alerts = tw_engine.evaluate_all()
+                            if tw_alerts:
+                                rule_events.extend([a.to_dict() for a in tw_alerts])
+                    except Exception as e:  # noqa: BLE001
+                        logger.warning("台股监控评估失败 (不影响其他告警): %s", e)
+
                     if rule_events:
                         rule_events = self._format_extension_notifications(rule_events)
                         # 落盘到 alerts.jsonl
