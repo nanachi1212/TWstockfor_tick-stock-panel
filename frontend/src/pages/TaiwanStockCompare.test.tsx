@@ -26,14 +26,38 @@ vi.mock('@/lib/api', () => ({
     taiwanSearch: vi.fn(),
     taiwanStockCompare: vi.fn(),
     taiwanStockCompareAIResearch: vi.fn(),
+    taiwanDataStatus: vi.fn(),
   },
 }))
+
+function buildDataStatus(dailyAsOf: string | null) {
+  return {
+    daily_as_of: dailyAsOf,
+    institutional_as_of: dailyAsOf,
+    margin_as_of: dailyAsOf,
+    target_latest_trading_date: dailyAsOf || '2026-09-01',
+    is_fully_current: true,
+    daily_status: 'current',
+    institutional_status: 'current',
+    margin_status: 'current',
+    daily_days_behind: 0,
+    institutional_days_behind: 0,
+    margin_days_behind: 0,
+    scheduler_enabled: true,
+    scheduled_update_time: '16:30',
+    scheduled_timezone: 'Asia/Taipei',
+  }
+}
 
 function buildContext(symbol: string, name: string, opts: Partial<any> = {}) {
   return {
     symbol,
     identity: { name, instrument_type: opts.instrument_type ?? 'stock' },
-    price_context: { close: opts.close ?? 100, return_5d: opts.return_5d ?? 0.01, return_20d: 0.02 },
+    price_context: {
+      close: 'close' in opts ? opts.close : 100,
+      return_5d: opts.return_5d ?? 0.01,
+      return_20d: 0.02,
+    },
     technical_context: { rsi14: 55 },
     institutional_context: { foreign_net_1d: opts.foreign_net_1d ?? 0 },
     fundamentals_context: { status: opts.fundamentals_status ?? 'available', pe: 18 },
@@ -41,12 +65,20 @@ function buildContext(symbol: string, name: string, opts: Partial<any> = {}) {
   }
 }
 
-function buildComparisonResponse(symbols: string[]) {
+function buildComparisonResponse(
+  symbols: string[],
+  opts: { comparisonDate?: string; allClosesNull?: boolean } = {},
+) {
+  const comparisonDate = opts.comparisonDate ?? '2026-08-28'
   return {
     symbols_requested: symbols,
-    comparison_date: '2026-08-28',
+    comparison_date: comparisonDate,
     generated_at: '2026-08-28T16:00:00+08:00',
-    instruments: symbols.map(s => ({ symbol: s, context: buildContext(s, s), diagnostic_item: { signal_count: 0 } })),
+    instruments: symbols.map(s => ({
+      symbol: s,
+      context: buildContext(s, s, opts.allClosesNull ? { close: null } : {}),
+      diagnostic_item: { signal_count: 0 },
+    })),
     unsupported_symbols: [],
   }
 }
@@ -70,12 +102,16 @@ function currentSearch(): string {
 }
 
 async function waitForComparisonLoaded() {
-  await waitFor(() => expect(screen.getByText(/比較基準日/)).toBeInTheDocument())
+  // 固定出現於任一新鮮度文案結尾的字串，作為「確定性資料已載入完成」的穩定判準
+  // (取代 Phase 7H 舊有、Phase 7I 已改寫的「比較基準日」固定文案)。
+  await waitFor(() => expect(screen.getByText(/所有標的共用同一交易日資料/)).toBeInTheDocument())
 }
 
 beforeEach(() => {
   vi.mocked(api.taiwanStockCompare).mockResolvedValue(buildComparisonResponse(['2330.TWSE', '2881.TWSE']) as any)
   vi.mocked(api.taiwanSearch).mockResolvedValue({ results: [] } as any)
+  // 預設：資料新鮮度與比較回應之 comparison_date 一致 ('2026-08-28')，代表「最新模式」。
+  vi.mocked(api.taiwanDataStatus).mockResolvedValue(buildDataStatus('2026-08-28') as any)
 })
 
 afterEach(() => {
@@ -219,10 +255,12 @@ describe('stale AI response race guard', () => {
     renderAt('/stocks/compare?symbols=2330.TWSE,2881.TWSE,8069.TPEX')
     await waitForComparisonLoaded()
 
-    // 1. start AI generation for [2330.TWSE, 2881.TWSE, 8069.TPEX]
+    // 1. start AI generation for [2330.TWSE, 2881.TWSE, 8069.TPEX] — must use the
+    //    deterministic response's resolved comparison_date, never re-derive "latest"
     fireEvent.click(screen.getByText('生成 AI 客觀比較'))
     await waitFor(() => expect(api.taiwanStockCompareAIResearch).toHaveBeenCalledWith(
       ['2330.TWSE', '2881.TWSE', '8069.TPEX'],
+      '2026-08-28',
     ))
     expect(screen.getByText('正在客觀比較中...')).toBeInTheDocument()
 
@@ -256,5 +294,191 @@ describe('stale AI response race guard', () => {
     await new Promise(r => setTimeout(r, 20))
     expect(screen.queryByText('STALE RESPONSE — must never be shown')).not.toBeInTheDocument()
     expect(screen.getByText('尚未生成 AI 客觀比較')).toBeInTheDocument()
+  })
+})
+
+describe('Phase 7I: latest mode uses daily_as_of', () => {
+  it('no date param + daily_as_of available -> comparison API called with daily_as_of', async () => {
+    vi.mocked(api.taiwanDataStatus).mockResolvedValue(buildDataStatus('2026-08-28') as any)
+    vi.mocked(api.taiwanStockCompare).mockResolvedValue(
+      buildComparisonResponse(['2330.TWSE', '2881.TWSE'], { comparisonDate: '2026-08-28' }) as any,
+    )
+    renderAt('/stocks/compare?symbols=2330.TWSE,2881.TWSE')
+
+    await waitFor(() => expect(api.taiwanStockCompare).toHaveBeenCalledWith(
+      ['2330.TWSE', '2881.TWSE'],
+      '2026-08-28',
+    ))
+  })
+
+  it('data-status failure -> falls back to no explicit date, page still works', async () => {
+    vi.mocked(api.taiwanDataStatus).mockRejectedValue(new Error('network error'))
+    renderAt('/stocks/compare?symbols=2330.TWSE,2881.TWSE')
+
+    await waitFor(() => expect(api.taiwanStockCompare).toHaveBeenCalledWith(
+      ['2330.TWSE', '2881.TWSE'],
+      undefined,
+    ))
+    // page is not blocked — deterministic table still renders
+    await waitForComparisonLoaded()
+  })
+
+  it('explicit URL date overrides daily_as_of even when they differ', async () => {
+    vi.mocked(api.taiwanDataStatus).mockResolvedValue(buildDataStatus('2026-08-28') as any)
+    vi.mocked(api.taiwanStockCompare).mockResolvedValue(
+      buildComparisonResponse(['2330.TWSE', '2881.TWSE'], { comparisonDate: '2026-08-20' }) as any,
+    )
+    renderAt('/stocks/compare?symbols=2330.TWSE,2881.TWSE&date=2026-08-20')
+
+    await waitFor(() => expect(api.taiwanStockCompare).toHaveBeenCalledWith(
+      ['2330.TWSE', '2881.TWSE'],
+      '2026-08-20',
+    ))
+  })
+})
+
+describe('Phase 7I: freshness caption wording', () => {
+  it('comparison_date === daily_as_of -> latest wording, never "historical"', async () => {
+    vi.mocked(api.taiwanDataStatus).mockResolvedValue(buildDataStatus('2026-08-28') as any)
+    vi.mocked(api.taiwanStockCompare).mockResolvedValue(
+      buildComparisonResponse(['2330.TWSE', '2881.TWSE'], { comparisonDate: '2026-08-28' }) as any,
+    )
+    renderAt('/stocks/compare?symbols=2330.TWSE,2881.TWSE')
+
+    await waitFor(() => expect(screen.getByText(/最新資料：2026-08-28/)).toBeInTheDocument())
+    expect(screen.queryByText(/比較日期：/)).not.toBeInTheDocument()
+    expect(screen.queryByText(/超出本機資料範圍/)).not.toBeInTheDocument()
+  })
+
+  it('comparison_date < daily_as_of -> historical wording, not "latest"', async () => {
+    vi.mocked(api.taiwanDataStatus).mockResolvedValue(buildDataStatus('2026-08-28') as any)
+    vi.mocked(api.taiwanStockCompare).mockResolvedValue(
+      buildComparisonResponse(['2330.TWSE', '2881.TWSE'], { comparisonDate: '2026-08-20' }) as any,
+    )
+    renderAt('/stocks/compare?symbols=2330.TWSE,2881.TWSE&date=2026-08-20')
+
+    await waitFor(() => expect(
+      screen.getByText(/比較日期：2026-08-20｜最新本機資料：2026-08-28/),
+    ).toBeInTheDocument())
+    expect(screen.queryByText(/^最新資料：/)).not.toBeInTheDocument()
+  })
+
+  it('explicit date > daily_as_of -> amber out-of-range wording', async () => {
+    vi.mocked(api.taiwanDataStatus).mockResolvedValue(buildDataStatus('2026-08-28') as any)
+    vi.mocked(api.taiwanStockCompare).mockResolvedValue(
+      buildComparisonResponse(['2330.TWSE', '2881.TWSE'], { comparisonDate: '2026-09-01' }) as any,
+    )
+    renderAt('/stocks/compare?symbols=2330.TWSE,2881.TWSE&date=2026-09-01')
+
+    const caption = await screen.findByText(/要求日期 2026-09-01 超出本機資料範圍，最新本機資料至 2026-08-28/)
+    expect(caption).toBeInTheDocument()
+    expect(caption.className).toContain('amber')
+  })
+
+  it('all instrument closes null on an in-range date -> non-trading-day wording takes priority', async () => {
+    // 2026-08-23 (Sunday) is WITHIN the ingested range (<= daily_as_of 2026-08-28) —
+    // distinct from the out-of-range case (date > daily_as_of), which must win instead
+    // when the requested date exceeds local data, per the priority rule in the plan.
+    vi.mocked(api.taiwanDataStatus).mockResolvedValue(buildDataStatus('2026-08-28') as any)
+    vi.mocked(api.taiwanStockCompare).mockResolvedValue(
+      buildComparisonResponse(['2330.TWSE', '2881.TWSE'], {
+        comparisonDate: '2026-08-23',
+        allClosesNull: true,
+      }) as any,
+    )
+    renderAt('/stocks/compare?symbols=2330.TWSE,2881.TWSE&date=2026-08-23')
+
+    await waitFor(() => expect(
+      screen.getByText(/2026-08-23 查無交易資料（可能為非交易日）/),
+    ).toBeInTheDocument())
+  })
+
+  it('an out-of-range date wins over non-trading-day wording even when closes are also null', async () => {
+    vi.mocked(api.taiwanDataStatus).mockResolvedValue(buildDataStatus('2026-08-28') as any)
+    vi.mocked(api.taiwanStockCompare).mockResolvedValue(
+      buildComparisonResponse(['2330.TWSE', '2881.TWSE'], {
+        comparisonDate: '2026-08-30',
+        allClosesNull: true,
+      }) as any,
+    )
+    renderAt('/stocks/compare?symbols=2330.TWSE,2881.TWSE&date=2026-08-30')
+
+    await waitFor(() => expect(
+      screen.getByText(/要求日期 2026-08-30 超出本機資料範圍/),
+    ).toBeInTheDocument())
+    expect(screen.queryByText(/查無交易資料/)).not.toBeInTheDocument()
+  })
+})
+
+describe('Phase 7I: React Query key and symbol/date independence', () => {
+  it('changing only the date triggers a new comparison fetch (query key includes effective date)', async () => {
+    vi.mocked(api.taiwanDataStatus).mockResolvedValue(buildDataStatus('2026-08-28') as any)
+    vi.mocked(api.taiwanStockCompare).mockResolvedValue(
+      buildComparisonResponse(['2330.TWSE', '2881.TWSE'], { comparisonDate: '2026-08-28' }) as any,
+    )
+    renderAt('/stocks/compare?symbols=2330.TWSE,2881.TWSE')
+    await waitFor(() => expect(api.taiwanStockCompare).toHaveBeenCalledWith(
+      ['2330.TWSE', '2881.TWSE'],
+      '2026-08-28',
+    ))
+    const callCountBefore = vi.mocked(api.taiwanStockCompare).mock.calls.length
+
+    vi.mocked(api.taiwanStockCompare).mockResolvedValue(
+      buildComparisonResponse(['2330.TWSE', '2881.TWSE'], { comparisonDate: '2026-08-20' }) as any,
+    )
+    // simulate picking a historical date by re-rendering at the date-qualified URL
+    // (equivalent effect to calling setDate — exercised at the URL/query level)
+    renderAt('/stocks/compare?symbols=2330.TWSE,2881.TWSE&date=2026-08-20')
+
+    await waitFor(() => expect(api.taiwanStockCompare).toHaveBeenCalledWith(
+      ['2330.TWSE', '2881.TWSE'],
+      '2026-08-20',
+    ))
+    expect(vi.mocked(api.taiwanStockCompare).mock.calls.length).toBeGreaterThan(callCountBefore)
+  })
+
+  it('symbols remain unchanged in the URL when only date is present/changes', async () => {
+    vi.mocked(api.taiwanDataStatus).mockResolvedValue(buildDataStatus('2026-08-28') as any)
+    renderAt('/stocks/compare?symbols=2330.TWSE,2881.TWSE&date=2026-08-20')
+    await waitFor(() => expect(screen.getByLabelText('移除 2330.TWSE')).toBeInTheDocument())
+    expect(currentSearch()).toContain('2330.TWSE')
+    expect(currentSearch()).toContain('2881.TWSE')
+    expect(currentSearch()).toContain('date=2026-08-20')
+  })
+})
+
+describe('Phase 7I: AI uses the deterministic resolved comparison_date', () => {
+  it('AI request always uses data.comparison_date, never independently resolved', async () => {
+    vi.mocked(api.taiwanDataStatus).mockResolvedValue(buildDataStatus('2026-08-28') as any)
+    vi.mocked(api.taiwanStockCompare).mockResolvedValue(
+      buildComparisonResponse(['2330.TWSE', '2881.TWSE'], { comparisonDate: '2026-08-20' }) as any,
+    )
+    vi.mocked(api.taiwanStockCompareAIResearch).mockResolvedValue({
+      status: 'unavailable',
+      error_code: 'provider_error',
+      generated_at: '2026-08-28T16:00:00+08:00',
+    } as any)
+
+    renderAt('/stocks/compare?symbols=2330.TWSE,2881.TWSE&date=2026-08-20')
+    await waitForComparisonLoaded()
+
+    fireEvent.click(screen.getByText('生成 AI 客觀比較'))
+
+    await waitFor(() => expect(api.taiwanStockCompareAIResearch).toHaveBeenCalledWith(
+      ['2330.TWSE', '2881.TWSE'],
+      '2026-08-20', // the deterministic response's resolved date, not "latest"
+    ))
+  })
+
+  it('AI never auto-triggers after a date change', async () => {
+    vi.mocked(api.taiwanDataStatus).mockResolvedValue(buildDataStatus('2026-08-28') as any)
+    renderAt('/stocks/compare?symbols=2330.TWSE,2881.TWSE')
+    await waitForComparisonLoaded()
+
+    renderAt('/stocks/compare?symbols=2330.TWSE,2881.TWSE&date=2026-08-20')
+    await waitForComparisonLoaded()
+
+    await new Promise(r => setTimeout(r, 20))
+    expect(api.taiwanStockCompareAIResearch).not.toHaveBeenCalled()
   })
 })

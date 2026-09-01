@@ -1,13 +1,15 @@
-// 台股多標的比較 — 純邏輯 / localStorage 輔助函式 (Phase 7H)
+// 台股多標的比較 — 純邏輯 / localStorage 輔助函式 (Phase 7H / 7I)
 //
 // 不依賴 React / react-router，可安全地同時被比較頁 (useCompareSymbols.ts)
 // 與個股詳情頁 (TaiwanStockDetail.tsx 的「加入比較」) 呼叫，避免重複實作
 // 正規化/去重/上限邏輯，也避免詳情頁被迫依賴比較頁專用的 useSearchParams hook。
 //
-// 僅持久化「標的代碼清單」，絕不持久化 AI 生成內容 (符合 Phase 7H 邊界)。
+// 僅持久化「標的代碼清單」，絕不持久化比較日期或 AI 生成內容 (符合 Phase 7H/7I 邊界)。
 
 export const MIN_COMPARE_SYMBOLS = 2
 export const MAX_COMPARE_SYMBOLS = 5
+
+const DATE_SHAPE_RE = /^(\d{4})-(\d{2})-(\d{2})$/
 
 const LAST_COMPARE_SYMBOLS_KEY = 'tw_compare:last_symbols'
 
@@ -31,6 +33,30 @@ export function canonicalizeSymbols(raw: (string | null | undefined)[]): string[
 /** 將單一標的代碼合併進現有比較清單（正規化、去重、裁切至上限）。 */
 export function mergeSymbolIntoCompare(existing: (string | null | undefined)[], symbol: string): string[] {
   return canonicalizeSymbols([...existing, symbol])
+}
+
+/**
+ * 驗證並回傳一個合法的 YYYY-MM-DD 比較日期字串，否則回傳 null（代表「最新模式」）。
+ * 不僅檢查字串形狀，還會驗證其為真實存在的西曆日期（拒絕 2026-13-01、2026-02-30、
+ * 2026-00-10 等），做法是建構 Date 後反查年/月/日是否與輸入完全一致（無需日期函式庫，
+ * 這是標準的無依賴驗證技巧：無效的月/日輸入會被 JS Date 自動進位捲動到別的日期，
+ * 因此反查不吻合即代表輸入本身不是一個真實存在的日期）。
+ */
+export function parseCompareDate(raw: string | null | undefined): string | null {
+  if (!raw) return null
+  const match = DATE_SHAPE_RE.exec(raw.trim())
+  if (!match) return null
+
+  const year = Number(match[1])
+  const month = Number(match[2])
+  const day = Number(match[3])
+
+  const d = new Date(year, month - 1, day)
+  const isRealDate =
+    d.getFullYear() === year && d.getMonth() === month - 1 && d.getDate() === day
+  if (!isRealDate) return null
+
+  return raw.trim()
 }
 
 /** 讀取上次比較頁所選之標的清單（localStorage，失敗時安全回退為空陣列）。 */

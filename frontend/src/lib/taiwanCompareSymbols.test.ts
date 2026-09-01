@@ -1,10 +1,11 @@
-// Phase 7H — 純邏輯 / localStorage 輔助函式測試
+// Phase 7H / 7I — 純邏輯 / localStorage 輔助函式測試
 import { describe, expect, it } from 'vitest'
 import {
   MAX_COMPARE_SYMBOLS,
   canonicalizeSymbols,
   loadLastCompareSymbols,
   mergeSymbolIntoCompare,
+  parseCompareDate,
   saveLastCompareSymbols,
 } from './taiwanCompareSymbols'
 
@@ -104,5 +105,45 @@ describe('loadLastCompareSymbols / saveLastCompareSymbols', () => {
     delete globalThis.localStorage
     expect(() => saveLastCompareSymbols(['2330.TWSE'])).not.toThrow()
     globalThis.localStorage = original
+  })
+})
+
+describe('parseCompareDate (Phase 7I)', () => {
+  it('accepts a well-formed real calendar date', () => {
+    expect(parseCompareDate('2026-08-28')).toBe('2026-08-28')
+  })
+
+  it('returns null for null/undefined/empty input', () => {
+    expect(parseCompareDate(null)).toBeNull()
+    expect(parseCompareDate(undefined)).toBeNull()
+    expect(parseCompareDate('')).toBeNull()
+  })
+
+  it('returns null for malformed shape (not YYYY-MM-DD)', () => {
+    expect(parseCompareDate('2026/08/28')).toBeNull()
+    expect(parseCompareDate('26-08-28')).toBeNull()
+    expect(parseCompareDate('2026-8-28')).toBeNull()
+    expect(parseCompareDate('not-a-date')).toBeNull()
+  })
+
+  it('rejects a real-calendar-invalid month (2026-13-01)', () => {
+    expect(parseCompareDate('2026-13-01')).toBeNull()
+  })
+
+  it('rejects a real-calendar-invalid day-of-month (2026-02-30)', () => {
+    expect(parseCompareDate('2026-02-30')).toBeNull()
+  })
+
+  it('rejects a zero month (2026-00-10)', () => {
+    expect(parseCompareDate('2026-00-10')).toBeNull()
+  })
+
+  it('rejects a zero day', () => {
+    expect(parseCompareDate('2026-08-00')).toBeNull()
+  })
+
+  it('accepts a real leap-day date and rejects it on a non-leap year', () => {
+    expect(parseCompareDate('2024-02-29')).toBe('2024-02-29') // 2024 is a leap year
+    expect(parseCompareDate('2026-02-29')).toBeNull() // 2026 is not
   })
 })

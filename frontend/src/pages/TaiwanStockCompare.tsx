@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import {
@@ -16,15 +16,19 @@ import {
   type TaiwanComparisonAIStockResearchReport,
 } from '@/lib/api'
 import { cn } from '@/lib/cn'
+import { fmtDate } from '@/lib/format'
 import { useCompareSymbols, MAX_COMPARE_SYMBOLS, MIN_COMPARE_SYMBOLS } from '@/lib/useCompareSymbols'
+import { DatePicker } from '@/components/DatePicker'
 
-/** 台股多標的客觀比較頁 (Phase 7G / 7H)。
- * URL 查詢參數 (?symbols=A,B) 為選取狀態之唯一真實來源，重新整理或分享連結皆可還原。
+/** 台股多標的客觀比較頁 (Phase 7G / 7H / 7I)。
+ * URL 查詢參數 (?symbols=A,B&date=YYYY-MM-DD) 為選取狀態之唯一真實來源，
+ * 重新整理或分享連結皆可還原。無 date 參數代表「最新模式」——採用本機最新已
+ * 入庫資料日 (daily_as_of)，而非行事曆上的最新交易日 (兩者可能相差數日)。
  * 確定性比較資料自動載入；AI 客觀比較報告需使用者主動點擊觸發（絕不自動呼叫）。
  */
 export function TaiwanStockCompare() {
   const navigate = useNavigate()
-  const { selected, addSymbol, removeSymbol } = useCompareSymbols()
+  const { selected, addSymbol, removeSymbol, date: explicitDate, setDate } = useCompareSymbols()
   const [searchQuery, setSearchQuery] = useState('')
   const [isSearchOpen, setIsSearchOpen] = useState(false)
 
@@ -44,58 +48,116 @@ export function TaiwanStockCompare() {
     setIsSearchOpen(false)
   }
 
-  // 確定性比較：symbols 有效時自動載入 (不涉及 AI，0 AI 成本)
-  const comparisonQuery = useQuery({
-    queryKey: ['taiwanStockCompare', selected],
-    queryFn: () => api.taiwanStockCompare(selected),
-    enabled: canCompare,
+  // 本機資料新鮮度狀態 (既有端點，複用 TaiwanScreener.tsx 相同 queryKey 以共享快取)。
+  // 用於將「最新模式」解析為本機實際已入庫的最新資料日，而非行事曆最新交易日。
+  const dataStatusQuery = useQuery({
+    queryKey: ['taiwanDataStatus'],
+    queryFn: () => api.taiwanDataStatus(),
     staleTime: 60_000,
   })
+
+  // 有效比較日期解析（僅前端邏輯，後端語意完全不變）：
+  // 1. URL 明確指定日期 → 直接採用該日期。
+  // 2. 否則，若資料新鮮度已成功取得且 daily_as_of 存在 → 採用 daily_as_of
+  //    （本機實際最新已入庫資料日，而非行事曆最新交易日，避免「開啟即一片 N/A」）。
+  // 3. 否則（資料新鮮度載入中/失敗/daily_as_of 為 null）→ 不傳日期，優雅回退為
+  //    後端既有的「無日期→resolve_target_latest_trading_date()」語意，不阻塞頁面。
+  const effectiveDate = explicitDate ?? (dataStatusQuery.data?.daily_as_of || undefined)
+
+  // 是否已經知道「有效日期該用什麼」——避免資料新鮮度尚在載入時，先用行事曆最新
+  // 日觸發一次比較請求、稍後又因 daily_as_of 到位而重新請求，造成畫面閃爍。
+  const effectiveDateResolved =
+    explicitDate != null || dataStatusQuery.isSuccess || dataStatusQuery.isError
+
+  // 確定性比較：symbols 有效且有效日期已解析時自動載入 (不涉及 AI，0 AI 成本)。
+  // queryKey 納入 effectiveDate——僅變更日期也必定觸發重新請求。
+  const comparisonQuery = useQuery({
+    queryKey: ['taiwanStockCompare', selected, effectiveDate ?? null],
+    queryFn: () => api.taiwanStockCompare(selected, effectiveDate),
+    enabled: canCompare && effectiveDateResolved,
+    staleTime: 60_000,
+  })
+
+  const data = comparisonQuery.data
+  // AI 請求識別鍵之權威日期：務必使用確定性回應已解析出的 comparison_date，
+  // 絕不再次自行猜測/解析「最新」，避免 AI 與畫面表格所依據的日期不一致。
+  const resolvedComparisonDate = data?.comparison_date ?? null
 
   // AI 客觀比較：手動觸發狀態 (MANUAL ONLY, NEVER AUTO-TRIGGER — 同 TaiwanStockDetail.tsx 慣例)
   const [aiComparison, setAiComparison] = useState<TaiwanComparisonAIStockResearchReport | null>(null)
   const [isAiLoading, setIsAiLoading] = useState(false)
   const [aiError, setAiError] = useState<string | null>(null)
 
-  // 過期 AI 回應防護：以「選取當下的正規化標的清單」作為請求鍵。
-  // 若回應抵達時目前選取已變更（鍵不相符），該回應一律捨棄，絕不套用於 UI。
+  // 過期 AI 回應防護 (延伸 Phase 7H 既有機制，未新增第二套非同步機制)：
+  // 請求鍵 = 正規化標的清單 + 確定性回應之權威解析日期。任一者變更、回應抵達時
+  // 鍵不相符，該回應一律捨棄，絕不套用於 UI。
   const activeAiRequestKey = useRef<string | null>(null)
   const selectedKey = selected.join(',')
+  const aiRequestKey = `${selectedKey}|${resolvedComparisonDate ?? ''}`
 
-  // 選取變更時：立即清除舊 AI 結果/錯誤/載入狀態，並讓任何仍在途的舊請求失效。
+  // 選取標的或（確定性回應解析出的）比較日期變更時：立即清除舊 AI 結果/錯誤/
+  // 載入狀態，並讓任何仍在途的舊請求失效。換日絕不自動重新生成 AI。
   useEffect(() => {
     activeAiRequestKey.current = null
     setAiComparison(null)
     setAiError(null)
     setIsAiLoading(false)
-  }, [selectedKey])
+  }, [aiRequestKey])
 
   const handleGenerateAiComparison = async () => {
-    const requestKey = selectedKey
+    if (!resolvedComparisonDate) return // 確定性資料尚未就緒，不應能觸發
+    const requestKey = aiRequestKey
     activeAiRequestKey.current = requestKey
     setIsAiLoading(true)
     setAiError(null)
     try {
-      const res = await api.taiwanStockCompareAIResearch(selected)
-      if (activeAiRequestKey.current !== requestKey) return // 選取已變更，捨棄過期回應
+      const res = await api.taiwanStockCompareAIResearch(selected, resolvedComparisonDate)
+      if (activeAiRequestKey.current !== requestKey) return // 標的或日期已變更，捨棄過期回應
       if (res.status === 'success' && res.report) {
         setAiComparison(res.report)
       } else {
         setAiError(res.error_message || 'AI 客觀比較生成失敗')
       }
     } catch (e: any) {
-      if (activeAiRequestKey.current !== requestKey) return // 選取已變更，捨棄過期錯誤
+      if (activeAiRequestKey.current !== requestKey) return // 標的或日期已變更，捨棄過期錯誤
       setAiError(e?.message || 'AI 服務調用失敗，請稍後重試')
     } finally {
       if (activeAiRequestKey.current === requestKey) setIsAiLoading(false)
     }
   }
 
-  const data = comparisonQuery.data
   const comparisonErrorMessage =
     comparisonQuery.error instanceof Error ? comparisonQuery.error.message : '比較資料載入失敗，請重試'
   const fmtPct = (v: number | null | undefined) => (v == null ? 'N/A（不適用）' : `${(v * 100).toFixed(2)}%`)
   const fmtNum = (v: number | null | undefined, digits = 2) => (v == null ? 'N/A（不適用）' : v.toFixed(digits))
+
+  // 資料新鮮度提示文字（單行、非儀表板）：依 comparison_date 與 daily_as_of
+  // 之關係，明確區分「最新」「歷史比較」「要求日期超出本機範圍」「非交易日」
+  // 「新鮮度未知」五種狀態，絕不將較舊之歷史日期誤稱為「與最新資料一致」。
+  const dailyAsOf = dataStatusQuery.data?.daily_as_of || null
+  const freshnessCaption = useMemo(() => {
+    if (!data) return null
+    const comparisonDate = data.comparison_date
+    const allClosesNull = data.instruments.every(i => i.context.price_context.close == null)
+
+    if (allClosesNull && dailyAsOf && comparisonDate <= dailyAsOf) {
+      return { tone: 'neutral' as const, text: `${comparisonDate} 查無交易資料（可能為非交易日）` }
+    }
+    if (!dailyAsOf) {
+      return { tone: 'neutral' as const, text: `比較基準日：${comparisonDate}` }
+    }
+    if (comparisonDate === dailyAsOf) {
+      return { tone: 'neutral' as const, text: `最新資料：${comparisonDate}` }
+    }
+    if (comparisonDate < dailyAsOf) {
+      return { tone: 'neutral' as const, text: `比較日期：${comparisonDate}｜最新本機資料：${dailyAsOf}` }
+    }
+    // comparisonDate > dailyAsOf — 要求日期超出本機已入庫範圍
+    return {
+      tone: 'amber' as const,
+      text: `要求日期 ${comparisonDate} 超出本機資料範圍，最新本機資料至 ${dailyAsOf}`,
+    }
+  }, [data, dailyAsOf])
 
   return (
     <div className="flex flex-col min-h-screen bg-base text-foreground pb-12">
@@ -196,7 +258,29 @@ export function TaiwanStockCompare() {
         {/* 確定性比較表 */}
         {canCompare && (
           <div className="rounded-2xl border border-border bg-surface p-4 space-y-3">
-            <h3 className="text-xs font-semibold text-foreground">確定性客觀比較（純本地計算，非 AI）</h3>
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <h3 className="text-xs font-semibold text-foreground">確定性客觀比較（純本地計算，非 AI）</h3>
+              <div className="flex items-center gap-1.5">
+                <span className="text-[11px] text-muted">比較日期</span>
+                <DatePicker
+                  value={explicitDate || ''}
+                  onChange={v => setDate(v)}
+                  max={fmtDate(new Date())}
+                  placeholder="最新"
+                  align="right"
+                />
+                {explicitDate && (
+                  <button
+                    type="button"
+                    onClick={() => setDate(null)}
+                    title="回到最新模式"
+                    className="rounded-lg border border-border/60 bg-base p-1 text-muted hover:border-accent/50 hover:text-accent transition-colors cursor-pointer"
+                  >
+                    <X className="h-3 w-3" />
+                  </button>
+                )}
+              </div>
+            </div>
 
             {comparisonQuery.isLoading && (
               <div className="py-8 text-center text-xs text-muted">載入比較資料中...</div>
@@ -307,7 +391,16 @@ export function TaiwanStockCompare() {
                     </tbody>
                   </table>
                 </div>
-                <p className="text-[10px] text-muted">比較基準日：{data.comparison_date}（所有標的共用同一交易日資料，無前視偏誤）</p>
+                {freshnessCaption && (
+                  <p
+                    className={cn(
+                      'text-[10px]',
+                      freshnessCaption.tone === 'amber' ? 'text-amber-400' : 'text-muted',
+                    )}
+                  >
+                    {freshnessCaption.text}（所有標的共用同一交易日資料，無前視偏誤）
+                  </p>
+                )}
               </>
             )}
           </div>
