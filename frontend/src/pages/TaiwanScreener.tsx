@@ -716,7 +716,7 @@ export function TaiwanScreener() {
                   <tr key={item.symbol} className="hover:bg-zinc-800/30 transition-colors">
                     <td className="py-1.5 px-2 font-sans font-medium text-zinc-200">
                       <Link
-                        to={`/taiwan/stocks/${item.symbol}`}
+                        to={`/stocks/${encodeURIComponent(item.symbol)}`}
                         className="hover:text-amber-400 hover:underline inline-flex items-center gap-1"
                       >
                         {item.name}
