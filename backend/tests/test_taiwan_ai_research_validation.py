@@ -273,3 +273,156 @@ def test_api_endpoint_e2e_integration():
         assert data["provider"] is not None
         assert data["model"] is not None
         assert mock_urllib.call_count == 0
+
+
+# ── Phase 7F.1 Validation Extensions ──────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_financial_stock_and_leveraged_etf_semantics():
+    """Verify financial stock (2881.TWSE) and leveraged ETF (00631L.TWSE) semantics."""
+    svc = TaiwanAIResearchService()
+    target_d = date(2026, 8, 28)
+
+    # 1. Financial stock 2881.TWSE
+    fin_ctx = svc.research_svc.get_research_context("2881.TWSE", target_date=target_d)
+    assert fin_ctx.identity.industry == "金融保險業"
+    assert fin_ctx.identity.instrument_type == "stock"
+
+    # 2. Leveraged ETF 00631L.TWSE
+    etf_ctx = svc.research_svc.get_research_context("00631L.TWSE", target_date=target_d)
+    assert etf_ctx.identity.instrument_type == "etf"
+    assert etf_ctx.etf_context.leverage_multiplier == 2.0
+    assert etf_ctx.etf_context.inverse is False
+
+    mock_llm_json = {
+        "overview": "元大台灣50正2 為槓桿 2.0 倍指數股票型基金，個別公司基本面指標不適用。",
+        "key_observations": [
+            {
+                "text": "槓桿倍數為 2.0 倍，屬於正向槓桿 ETF。",
+                "evidence_refs": ["etf_context.leverage_multiplier"],
+            }
+        ],
+        "risk_factors": [
+            {
+                "text": "槓桿 ETF 複利效應在震盪盤整時可能產生折損。",
+                "evidence_refs": ["etf_context.leverage_multiplier"],
+            }
+        ],
+        "missing_information": ["fundamentals_not_applicable_for_etf"],
+    }
+
+    with patch("app.taiwan.ai_research.generate_ai_text", new_callable=AsyncMock) as mock_ai:
+        mock_ai.return_value = json.dumps(mock_llm_json)
+        resp = await svc.generate_report("00631L.TWSE", target_date=target_d)
+
+        assert resp.status == "success"
+        assert resp.report is not None
+        assert resp.report.instrument_type == "etf"
+        assert "fundamentals_not_applicable_for_etf" in resp.report.missing_information
+        assert resp.report.key_observations[0].evidence_refs == ["etf_context.leverage_multiplier"]
+
+
+@pytest.mark.asyncio
+async def test_zero_is_not_missing_or_unavailable():
+    """Verify that zero values (foreign_net=0, margin_change=0, signals=0) are preserved as known 0."""
+    svc = TaiwanAIResearchService()
+    target_d = date(2026, 8, 28)
+
+    real_ctx = svc.research_svc.get_research_context("2330.TWSE", target_date=target_d)
+    zero_ctx = real_ctx.model_copy(deep=True)
+    # Inject exact zero values
+    zero_ctx.institutional_context.foreign_net_1d = 0
+    zero_ctx.margin_context.margin_balance_change_1d = 0
+
+    payload, registry_keys, missing = build_evidence_registry(zero_ctx, diag_item=None)
+
+    # 0 must be preserved as numeric 0, NOT converted to None or marked missing
+    assert payload["institutional_context"]["foreign_net_1d"] == 0
+    assert payload["margin_context"]["margin_balance_change_1d"] == 0
+    assert payload["abnormal_signals"] == []
+    assert "institutional_context.foreign_net_1d" in registry_keys
+    assert "margin_context.margin_balance_change_1d" in registry_keys
+    assert "institutional_context.foreign_net_1d" not in missing
+    assert "margin_context.margin_balance_change_1d" not in missing
+
+
+@pytest.mark.asyncio
+async def test_numerical_direction_preservation_validation():
+    """Verify that prompt explicitly enforces direction and evidence keys track signs."""
+    svc = TaiwanAIResearchService()
+    target_d = date(2026, 8, 28)
+
+    ctx = svc.research_svc.get_research_context("2330.TWSE", target_date=target_d)
+    assert ctx.price_context.close is not None
+    assert ctx.price_context.return_5d is not None
+
+    # Verify build_evidence_registry includes direction keys
+    payload, registry_keys, _ = build_evidence_registry(ctx, diag_item=None)
+    assert "price_context.return_5d" in registry_keys
+    assert "price_context.change_pct" in registry_keys
+    assert "technical_context.above_ma20" in registry_keys
+
+    # Verify system prompt has direction preservation rules
+    from app.taiwan.ai_research import SYSTEM_PROMPT
+    assert "數值正負方向保真" in SYSTEM_PROMPT
+    assert "正報酬" in SYSTEM_PROMPT
+    assert "外資/投信淨買超" in SYSTEM_PROMPT
+
+
+@pytest.mark.asyncio
+async def test_sparse_and_partially_unavailable_data_handling():
+    """Verify that when context has missing sections, AI report faithfully records them in missing_information."""
+    svc = TaiwanAIResearchService()
+    target_d = date(2026, 8, 28)
+
+    real_ctx = svc.research_svc.get_research_context("2330.TWSE", target_date=target_d)
+    sparse_ctx = real_ctx.model_copy(deep=True)
+    # Simulate missing institutional and missing margin
+    sparse_ctx.institutional_context.status = "unavailable"
+    sparse_ctx.margin_context.status = "unavailable"
+
+    with patch.object(svc.research_svc, "get_research_context", return_value=sparse_ctx):
+        mock_llm_json = {
+            "overview": "資料稀疏情形測試，三大法人與信用交易數據暫未提供。",
+            "key_observations": [
+                {
+                    "text": "收盤價格維持穩定。",
+                    "evidence_refs": ["price_context.close"],
+                }
+            ],
+            "risk_factors": [],
+            "missing_information": ["institutional_context", "margin_context"],
+        }
+
+        with patch("app.taiwan.ai_research.generate_ai_text", new_callable=AsyncMock) as mock_ai:
+            mock_ai.return_value = json.dumps(mock_llm_json)
+            resp = await svc.generate_report("2330.TWSE", target_date=target_d)
+
+            assert resp.status == "success"
+            assert resp.report is not None
+            # Verified missing items merged
+            assert "institutional_context" in resp.report.missing_information
+            assert "margin_context" in resp.report.missing_information
+
+
+@pytest.mark.asyncio
+async def test_dual_historical_dates_no_look_ahead():
+    """Confirm deterministic test coverage across two distinct historical dates (2026-08-20 & 2026-08-28)."""
+    svc = TaiwanAIResearchService()
+    date_1 = date(2026, 8, 20)
+    date_2 = date(2026, 8, 28)
+
+    ctx_1 = svc.research_svc.get_research_context("2330.TWSE", target_date=date_1)
+    ctx_2 = svc.research_svc.get_research_context("2330.TWSE", target_date=date_2)
+
+    assert ctx_1.as_of_date == "2026-08-20"
+    assert ctx_2.as_of_date == "2026-08-28"
+    assert ctx_1.price_context.trade_date <= "2026-08-20"
+    assert ctx_2.price_context.trade_date <= "2026-08-28"
+
+    payload_1, _, _ = build_evidence_registry(ctx_1, diag_item=None)
+    payload_2, _, _ = build_evidence_registry(ctx_2, diag_item=None)
+
+    assert payload_1["price_context"]["trade_date"] <= "2026-08-20"
+    assert payload_2["price_context"]["trade_date"] <= "2026-08-28"
