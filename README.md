@@ -258,6 +258,7 @@ PORT=3018                      # 服务端口
 | [docs/plugin-development.md](./docs/plugin-development.md)                                         | 数据源插件开发规范(以 stock-sdk 为参考实现)                         |
 | [docs/secondary-development.md](./docs/secondary-development.md)                                   | 代码二次开发、前端插槽、后端策略接口与 AI 开发模板                   |
 | [backend/app/strategy/prompts/strategy-guide.md](./backend/app/strategy/prompts/strategy-guide.md) | 策略开发完整规范(AI 生成与手写)                                      |
+| [docs/taiwan-market-overview.md](./docs/taiwan-market-overview.md)                                 | 台股(TWSE/TPEx)模块开发者指南:启动、测试、本地数据位置、AI 使用说明 |
 
 fork同时请点个star哦,欢迎 Issue 和 PR。
 
