@@ -1,5 +1,5 @@
-import { useState } from 'react'
-import { useNavigate, useSearchParams } from 'react-router-dom'
+import { useEffect, useRef, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import {
   ArrowLeft,
@@ -16,24 +16,15 @@ import {
   type TaiwanComparisonAIStockResearchReport,
 } from '@/lib/api'
 import { cn } from '@/lib/cn'
+import { useCompareSymbols, MAX_COMPARE_SYMBOLS, MIN_COMPARE_SYMBOLS } from '@/lib/useCompareSymbols'
 
-const MIN_SYMBOLS = 2
-const MAX_SYMBOLS = 5
-
-/** 台股多標的客觀比較頁 (Phase 7G)。
+/** 台股多標的客觀比較頁 (Phase 7G / 7H)。
+ * URL 查詢參數 (?symbols=A,B) 為選取狀態之唯一真實來源，重新整理或分享連結皆可還原。
  * 確定性比較資料自動載入；AI 客觀比較報告需使用者主動點擊觸發（絕不自動呼叫）。
  */
 export function TaiwanStockCompare() {
   const navigate = useNavigate()
-  const [searchParams] = useSearchParams()
-
-  const initialSymbols = (searchParams.get('symbols') || '')
-    .split(',')
-    .map(s => s.trim().toUpperCase())
-    .filter(Boolean)
-    .slice(0, MAX_SYMBOLS)
-
-  const [selected, setSelected] = useState<string[]>(initialSymbols)
+  const { selected, addSymbol, removeSymbol } = useCompareSymbols()
   const [searchQuery, setSearchQuery] = useState('')
   const [isSearchOpen, setIsSearchOpen] = useState(false)
 
@@ -44,19 +35,13 @@ export function TaiwanStockCompare() {
     staleTime: 60_000,
   })
 
-  const canAddMore = selected.length < MAX_SYMBOLS
-  const canCompare = selected.length >= MIN_SYMBOLS
+  const canAddMore = selected.length < MAX_COMPARE_SYMBOLS
+  const canCompare = selected.length >= MIN_COMPARE_SYMBOLS
 
-  const addSymbol = (symbol: string) => {
-    const sym = symbol.toUpperCase()
-    if (selected.includes(sym) || selected.length >= MAX_SYMBOLS) return
-    setSelected(prev => [...prev, sym])
+  const handleAddSymbol = (symbol: string) => {
+    addSymbol(symbol)
     setSearchQuery('')
     setIsSearchOpen(false)
-  }
-
-  const removeSymbol = (symbol: string) => {
-    setSelected(prev => prev.filter(s => s !== symbol))
   }
 
   // 確定性比較：symbols 有效時自動載入 (不涉及 AI，0 AI 成本)
@@ -72,24 +57,43 @@ export function TaiwanStockCompare() {
   const [isAiLoading, setIsAiLoading] = useState(false)
   const [aiError, setAiError] = useState<string | null>(null)
 
+  // 過期 AI 回應防護：以「選取當下的正規化標的清單」作為請求鍵。
+  // 若回應抵達時目前選取已變更（鍵不相符），該回應一律捨棄，絕不套用於 UI。
+  const activeAiRequestKey = useRef<string | null>(null)
+  const selectedKey = selected.join(',')
+
+  // 選取變更時：立即清除舊 AI 結果/錯誤/載入狀態，並讓任何仍在途的舊請求失效。
+  useEffect(() => {
+    activeAiRequestKey.current = null
+    setAiComparison(null)
+    setAiError(null)
+    setIsAiLoading(false)
+  }, [selectedKey])
+
   const handleGenerateAiComparison = async () => {
+    const requestKey = selectedKey
+    activeAiRequestKey.current = requestKey
     setIsAiLoading(true)
     setAiError(null)
     try {
       const res = await api.taiwanStockCompareAIResearch(selected)
+      if (activeAiRequestKey.current !== requestKey) return // 選取已變更，捨棄過期回應
       if (res.status === 'success' && res.report) {
         setAiComparison(res.report)
       } else {
         setAiError(res.error_message || 'AI 客觀比較生成失敗')
       }
     } catch (e: any) {
+      if (activeAiRequestKey.current !== requestKey) return // 選取已變更，捨棄過期錯誤
       setAiError(e?.message || 'AI 服務調用失敗，請稍後重試')
     } finally {
-      setIsAiLoading(false)
+      if (activeAiRequestKey.current === requestKey) setIsAiLoading(false)
     }
   }
 
   const data = comparisonQuery.data
+  const comparisonErrorMessage =
+    comparisonQuery.error instanceof Error ? comparisonQuery.error.message : '比較資料載入失敗，請重試'
   const fmtPct = (v: number | null | undefined) => (v == null ? 'N/A（不適用）' : `${(v * 100).toFixed(2)}%`)
   const fmtNum = (v: number | null | undefined, digits = 2) => (v == null ? 'N/A（不適用）' : v.toFixed(digits))
 
@@ -118,7 +122,7 @@ export function TaiwanStockCompare() {
         <div className="rounded-2xl border border-border bg-surface p-4 space-y-3">
           <div className="flex items-center justify-between">
             <span className="text-xs font-semibold text-foreground">
-              選擇比較標的（{selected.length}/{MAX_SYMBOLS}，至少需 {MIN_SYMBOLS} 檔）
+              選擇比較標的（{selected.length}/{MAX_COMPARE_SYMBOLS}，至少需 {MIN_COMPARE_SYMBOLS} 檔）
             </span>
           </div>
 
@@ -172,7 +176,7 @@ export function TaiwanStockCompare() {
                   {searchQueryResult.data?.results?.map((item: TaiwanSearchResult) => (
                     <button
                       key={item.symbol}
-                      onClick={() => addSymbol(item.symbol)}
+                      onClick={() => handleAddSymbol(item.symbol)}
                       disabled={selected.includes(item.symbol.toUpperCase())}
                       className="flex w-full items-center justify-between rounded-lg p-2 text-left hover:bg-surface transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
                     >
@@ -200,7 +204,7 @@ export function TaiwanStockCompare() {
             {comparisonQuery.isError && (
               <div className="p-3 bg-red-950/30 border border-red-900/50 rounded-lg text-xs text-red-400 flex items-center gap-2">
                 <AlertTriangle className="w-4 h-4 shrink-0" />
-                <span>比較資料載入失敗，請重試</span>
+                <span>{comparisonErrorMessage}</span>
               </div>
             )}
 
@@ -311,7 +315,7 @@ export function TaiwanStockCompare() {
 
         {!canCompare && (
           <div className="py-10 text-center text-xs text-muted border border-dashed border-border/40 rounded-2xl bg-surface/40">
-            請至少選擇 {MIN_SYMBOLS} 檔標的以開始比較
+            請至少選擇 {MIN_COMPARE_SYMBOLS} 檔標的以開始比較
           </div>
         )}
 

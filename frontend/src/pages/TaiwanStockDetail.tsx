@@ -21,6 +21,7 @@ import {
 } from '@/lib/api'
 import { QK } from '@/lib/queryKeys'
 import { cn } from '@/lib/cn'
+import { loadLastCompareSymbols, mergeSymbolIntoCompare } from '@/lib/taiwanCompareSymbols'
 import { TaiwanRuleEditorDialog } from '@/components/monitor/TaiwanRuleEditorDialog'
 import { EChartsCandlestick, type OHLC } from '@/components/EChartsCandlestick'
 import { TaiwanReferenceData } from '@/components/taiwan/TaiwanReferenceData'
@@ -153,7 +154,10 @@ export function TaiwanStockDetail() {
               {data?.identity?.instrument_type === 'etf' ? 'ETF' : '股票'}
             </span>
             <button
-              onClick={() => navigate(`/stocks/compare?symbols=${encodeURIComponent(symbol)}`)}
+              onClick={() => {
+                const merged = mergeSymbolIntoCompare(loadLastCompareSymbols(), symbol)
+                navigate(`/stocks/compare?symbols=${encodeURIComponent(merged.join(','))}`)
+              }}
               title="加入多標的比較"
               className="flex items-center gap-1 rounded-lg border border-border/60 bg-base px-1.5 py-0.5 text-[10px] font-medium text-muted hover:border-accent/50 hover:text-accent transition-colors cursor-pointer"
             >
