@@ -25,7 +25,11 @@ from datetime import date
 from typing import Any, Literal
 from pydantic import BaseModel, Field
 
-from app.services.ai_provider import generate_ai_text
+from app.services.ai_provider import (
+    current_ai_model,
+    current_ai_provider,
+    generate_ai_text,
+)
 from app.strategy.custom_signals_ai import _extract_json_object
 from app.taiwan.abnormal_diagnostics import (
     TaiwanAbnormalDiagnosticsService,
@@ -64,6 +68,8 @@ class TaiwanAIStockResearchReport(BaseModel):
     evidence_as_of: str
     generated_at: str
     prompt_version: str = PROMPT_VERSION
+    provider: str | None = None
+    model: str | None = None
 
     # Sectional interpretations
     overview: str = Field("", description="客觀綜合摘要 (陳述已知證據事實，非後市看好看空)")
@@ -428,6 +434,8 @@ class TaiwanAIResearchService:
                 status="unavailable",
                 error_code="provider_error",
                 error_message=f"AI 分析服務調用失敗: {e}",
+                provider=current_ai_provider(),
+                model=current_ai_model(),
                 prompt_version=PROMPT_VERSION,
                 evidence_as_of=ctx.as_of_date,
                 generated_at=now_iso,
@@ -445,6 +453,8 @@ class TaiwanAIResearchService:
                 status="unavailable",
                 error_code="invalid_output",
                 error_message="AI 回傳內容無法解析為合法 JSON 格式。",
+                provider=current_ai_provider(),
+                model=current_ai_model(),
                 prompt_version=PROMPT_VERSION,
                 evidence_as_of=ctx.as_of_date,
                 generated_at=now_iso,
@@ -479,6 +489,9 @@ class TaiwanAIResearchService:
         combined_missing = sorted(list(set(missing_items + [str(m).strip() for m in ai_missing if m])))
 
         # 7. Construct Final Grounded Report
+        curr_provider = current_ai_provider()
+        curr_model = current_ai_model()
+
         report = TaiwanAIStockResearchReport(
             symbol=ctx.symbol,
             code=ctx.identity.code,
@@ -488,6 +501,8 @@ class TaiwanAIResearchService:
             evidence_as_of=ctx.as_of_date,
             generated_at=now_iso,
             prompt_version=PROMPT_VERSION,
+            provider=curr_provider,
+            model=curr_model,
             overview=str(parsed.get("overview") or "").strip(),
             market_interpretation=parsed.get("market_interpretation"),
             industry_interpretation=parsed.get("industry_interpretation"),
@@ -505,6 +520,8 @@ class TaiwanAIResearchService:
         return TaiwanAIResearchResponse(
             status="success",
             report=report,
+            provider=curr_provider,
+            model=curr_model,
             prompt_version=PROMPT_VERSION,
             evidence_as_of=ctx.as_of_date,
             generated_at=now_iso,
