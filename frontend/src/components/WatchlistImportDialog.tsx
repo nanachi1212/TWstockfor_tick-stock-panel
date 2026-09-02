@@ -117,15 +117,15 @@ export function WatchlistImportDialog({ open, onClose, groupId, groupName, group
   const runRecognizeQueue = async (files: File[]) => {
     const images = files.filter(isImageFile)
     if (images.length === 0) {
-      toast('请选择图片文件', 'error')
+      toast('請選擇圖片檔案', 'error')
       return
     }
     if (images.length < files.length) {
-      toast('已忽略非图片文件', 'error')
+      toast('已忽略非圖片檔案', 'error')
     }
     const queue = images.slice(0, MAX_IMPORT_IMAGES)
     if (images.length > MAX_IMPORT_IMAGES) {
-      toast(`一次最多识别 ${MAX_IMPORT_IMAGES} 张，已取前 ${MAX_IMPORT_IMAGES} 张`, 'error')
+      toast(`一次最多辨識 ${MAX_IMPORT_IMAGES} 張,已取前 ${MAX_IMPORT_IMAGES} 張`, 'error')
     }
 
     abortInFlight()
@@ -184,14 +184,14 @@ export function WatchlistImportDialog({ open, onClose, groupId, groupName, group
         toast(
           lastError
             || (failed > 0
-              ? '识别失败或未识别到股票代码，请换更清晰的截图'
-              : '未识别到股票代码，请换一张更清晰的自选列表截图'),
+              ? '辨識失敗或未辨識到股票代號,請換更清晰的截圖'
+              : '未辨識到股票代號,請換一張更清晰的自選清單截圖'),
           'error',
         )
       } else if (merged.every(c => !c.matched)) {
-        toast('识别到代码但未能匹配证券主数据', 'error')
+        toast('辨識到代號但未能比對證券主檔資料', 'error')
       } else if (failed > 0) {
-        toast(`有 ${failed} 张识别失败，已合并其余结果`, 'error')
+        toast(`有 ${failed} 張辨識失敗,已合併其餘結果`, 'error')
       }
     } finally {
       if (gen === genRef.current) {
@@ -227,12 +227,12 @@ export function WatchlistImportDialog({ open, onClose, groupId, groupName, group
   const confirmAdd = async () => {
     const symbols = [...selected]
     if (symbols.length === 0) {
-      toast('请至少选择一只股票', 'error')
+      toast('請至少選擇一檔股票', 'error')
       return
     }
     try {
       const data = await batchAdd.mutateAsync({ symbols, groupId })
-      toast(`已添加 ${data.added} 只自选`, 'success')
+      toast(`已新增 ${data.added} 檔自選`, 'success')
       onClose()
     } catch {
       /* toast in request */
@@ -244,9 +244,9 @@ export function WatchlistImportDialog({ open, onClose, groupId, groupName, group
   const ocrBlocked = ocrAvailable === false
   const progressLabel =
     progress && progress.total > 1
-      ? `识别中 ${progress.done}/${progress.total}…`
+      ? `辨識中 ${progress.done}/${progress.total}…`
       : progress
-        ? '识别中…'
+        ? '辨識中…'
         : null
   const selectedGroupColor = resolveWatchlistGroupColor(groupColor)
 
@@ -259,13 +259,13 @@ export function WatchlistImportDialog({ open, onClose, groupId, groupName, group
       <div className="flex items-center justify-between px-4 py-3 border-b border-border shrink-0">
         <div>
           <h2 id="watchlist-import-title" className="text-sm font-semibold text-foreground">
-            从截图导入自选
+            從截圖匯入自選
           </h2>
           <div className="mt-0.5 flex flex-wrap items-center gap-1.5">
             <p className="text-[11px] text-muted">
               {ocrBlocked
                 ? 'OCR 引擎不可用'
-                : '可多选截图，将逐张识别并合并结果后确认添加'}
+                : '可多選截圖,將逐張辨識並合併結果後確認新增'}
               {provider ? ` · ${provider}` : ''}
             </p>
             {groupName && (
@@ -280,7 +280,7 @@ export function WatchlistImportDialog({ open, onClose, groupId, groupName, group
           type="button"
           onClick={onClose}
           className="h-8 w-8 inline-flex items-center justify-center rounded-btn text-secondary hover:bg-elevated"
-          aria-label="关闭"
+          aria-label="關閉"
         >
           <X className="h-4 w-4" />
         </button>
@@ -323,7 +323,7 @@ export function WatchlistImportDialog({ open, onClose, groupId, groupName, group
               )}
               <span className="text-xs">
                 {progressLabel
-                  ?? (ocrAvailable === null ? '检查 OCR…' : '点击选择或拖拽截图（支持多选）')}
+                  ?? (ocrAvailable === null ? '檢查 OCR…' : '點擊選擇或拖曳截圖（支援多選）')}
               </span>
             </button>
 
@@ -336,7 +336,7 @@ export function WatchlistImportDialog({ open, onClose, groupId, groupName, group
                   >
                     <img
                       src={url}
-                      alt={`预览 ${i + 1}`}
+                      alt={`預覽 ${i + 1}`}
                       className="w-full h-full object-contain"
                     />
                   </div>
@@ -348,7 +348,7 @@ export function WatchlistImportDialog({ open, onClose, groupId, groupName, group
               <div className="space-y-2">
                 <div className="flex items-center justify-between">
                   <span className="text-xs text-secondary">
-                    识别 {candidates.length} 个代码 · 匹配 {matched.length} · 已选 {selected.size}
+                    辨識 {candidates.length} 個代號 · 比對 {matched.length} · 已選 {selected.size}
                   </span>
                   {selectable.length > 0 && (
                     <button
@@ -356,7 +356,7 @@ export function WatchlistImportDialog({ open, onClose, groupId, groupName, group
                       onClick={toggleAll}
                       className="text-[11px] text-accent hover:underline"
                     >
-                      {allSelected ? '取消全选' : '全选可添加'}
+                      {allSelected ? '取消全選' : '全選可新增'}
                     </button>
                   )}
                 </div>
@@ -382,7 +382,7 @@ export function WatchlistImportDialog({ open, onClose, groupId, groupName, group
                           <div className="flex-1 min-w-0">
                             <div className="flex items-baseline gap-2">
                               <span className="font-medium text-foreground truncate">
-                                {c.name || (c.matched ? c.symbol : '未匹配')}
+                                {c.name || (c.matched ? c.symbol : '未比對')}
                               </span>
                               <span className="text-[11px] text-muted tabular-nums shrink-0">
                                 {c.code}
@@ -390,10 +390,10 @@ export function WatchlistImportDialog({ open, onClose, groupId, groupName, group
                               </span>
                             </div>
                             {c.already_in_watchlist && (
-                              <span className="text-[10px] text-muted">已在自选</span>
+                              <span className="text-[10px] text-muted">已在自選</span>
                             )}
                             {!c.matched && (
-                              <span className="text-[10px] text-warning/90">主数据未找到，已跳过</span>
+                              <span className="text-[10px] text-warning/90">主檔資料未找到,已跳過</span>
                             )}
                           </div>
                         </label>
@@ -426,7 +426,7 @@ export function WatchlistImportDialog({ open, onClose, groupId, groupName, group
           ) : (
             <Upload className="h-3.5 w-3.5" />
           )}
-          添加所选 ({selected.size})
+          新增所選 ({selected.size})
         </button>
       </div>
     </Modal>

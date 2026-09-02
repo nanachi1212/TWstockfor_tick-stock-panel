@@ -1,5 +1,5 @@
 import { useState, useMemo } from 'react'
-import { useParams, useNavigate, Link } from 'react-router-dom'
+import { useParams, useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import {
   ArrowLeft,
@@ -8,7 +8,6 @@ import {
   Search,
   AlertTriangle,
   ShieldAlert,
-  BarChart3,
   FileText,
   Sparkles,
   Loader2,
@@ -349,6 +348,10 @@ export function TaiwanStockDetail() {
                 </div>
 
                 {/* 操作按鈕 */}
+                {/* Phase 8B-4.2.1: 移除原本連到 /backtest?symbol=... 的「查看回測」
+                    按鈕 —— 該回測工作台的標的選擇器目前仍呼叫 A 股 instrumentSearch,
+                    無法真正選取台股標的,留著會是誤導使用者的死路連結。route/component
+                    本身未刪除,待台股回測真正可用後再視情況加回。 */}
                 <div className="flex flex-col gap-1.5">
                   <button
                     onClick={() => setIsRuleEditorOpen(true)}
@@ -357,13 +360,6 @@ export function TaiwanStockDetail() {
                     <RadioTower className="h-3.5 w-3.5" />
                     <span>新增監控</span>
                   </button>
-                  <Link
-                    to={`/backtest?symbol=${encodeURIComponent(data.symbol)}`}
-                    className="flex items-center justify-center gap-1.5 rounded-lg border border-border bg-elevated px-3 py-1.5 text-xs font-medium text-muted hover:text-foreground transition-colors"
-                  >
-                    <BarChart3 className="h-3.5 w-3.5" />
-                    <span>查看回測</span>
-                  </Link>
                 </div>
               </div>
             </div>

@@ -188,7 +188,7 @@ function DimensionMembersDialogContent({ target, onClose, onStockClick }: Omit<P
             <span className={`shrink-0 rounded px-1.5 py-0.5 text-[10px] font-medium ${accent.badgeCls}`}>{accent.badge}</span>
           </div>
           <div className="mt-0.5 flex items-center gap-2 text-[10px] text-muted">
-            <span>{membersQuery.data?.label ?? source?.configId ?? '扩展数据'}</span>
+            <span>{membersQuery.data?.label ?? source?.configId ?? '擴展資料'}</span>
             {membersQuery.data?.date && <span>{membersQuery.data.date}</span>}
           </div>
         </div>
@@ -224,7 +224,7 @@ function DimensionMembersDialogContent({ target, onClose, onStockClick }: Omit<P
               <input
                 value={search}
                 onChange={event => setSearch(event.target.value)}
-                placeholder="搜索代码或名称"
+                placeholder="搜尋代碼或名稱"
                 className="h-8 w-full rounded-input border border-border bg-surface pl-8 pr-3 text-xs text-foreground placeholder:text-muted focus:border-accent/60 focus:outline-none"
               />
             </div>
@@ -236,18 +236,18 @@ function DimensionMembersDialogContent({ target, onClose, onStockClick }: Omit<P
             >
               <option value="change_desc">涨幅从高到低</option>
               <option value="change_asc">涨幅从低到高</option>
-              <option value="amount_desc">成交额从高到低</option>
+              <option value="amount_desc">成交金額從高到低</option>
               <option value="name">名称排序</option>
             </select>
           </div>
 
           <div className="grid shrink-0 grid-cols-[minmax(132px,1fr)_74px_74px_18px] border-b border-border bg-elevated/60 px-4 py-2 text-[10px] font-medium text-muted md:grid-cols-[minmax(180px,1fr)_90px_84px_88px_100px_18px]">
             <span>股票</span><span className="text-right">现价</span><span className="text-right">涨跌幅</span>
-            <span className="hidden text-right md:block">换手率</span><span className="hidden text-right md:block">成交额</span><span />
+            <span className="hidden text-right md:block">換手率</span><span className="hidden text-right md:block">成交金額</span><span />
           </div>
 
           {visibleRows.length === 0 ? (
-            <div className="grid min-h-56 place-items-center text-sm text-muted">{search ? '没有匹配的股票' : '暂无成分股'}</div>
+            <div className="grid min-h-56 place-items-center text-sm text-muted">{search ? '沒有符合的股票' : '尚無成分股'}</div>
           ) : (
             <div ref={listRef} className="min-h-0 flex-1 overflow-y-auto">
               <div className="relative w-full" style={{ height: rowVirtualizer.getTotalSize() }}>

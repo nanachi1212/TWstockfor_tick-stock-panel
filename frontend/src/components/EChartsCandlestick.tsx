@@ -98,8 +98,8 @@ function volMaN(data: OHLC[], n: number): (number | null)[] {
 
 function fmtVol(v: number | null | undefined): string {
   if (v == null) return '—'
-  if (v >= 1e8) return (v / 1e8).toFixed(2) + '亿'
-  if (v >= 1e4) return (v / 1e4).toFixed(0) + '万'
+  if (v >= 1e8) return (v / 1e8).toFixed(2) + '億'
+  if (v >= 1e4) return (v / 1e4).toFixed(0) + '萬'
   return v.toFixed(0)
 }
 
@@ -927,7 +927,7 @@ export function EChartsCandlestick({
       html += `<span style="color:${clr};margin-left:8px">${isUp ? '+' : ''}${chgPct.toFixed(2)}%</span>`
     }
     if (turnoverRate != null) {
-      html += `<span style="color:${CT().text}">换手</span>`
+      html += `<span style="color:${CT().text}">換手</span>`
       html += `<span style="color:${CT().text}">${turnoverRate.toFixed(2)}%</span>`
     }
     html += `</div>`
@@ -1177,7 +1177,7 @@ export function EChartsCandlestick({
       html += `<span style="color:${clr0};margin-left:8px">${chgPct0 >= 0 ? '+' : ''}${chgPct0.toFixed(2)}%</span>`
     }
     if (turnoverRate != null) {
-      html += `<span style="color:${CT().text}">换手</span>`
+      html += `<span style="color:${CT().text}">換手</span>`
       html += `<span style="color:${CT().text}">${turnoverRate.toFixed(2)}%</span>`
     }
     html += `</div>`

@@ -41,13 +41,19 @@ export interface NavMeta {
   icon: LucideIcon
 }
 
+// Phase 8B-4.2.1 — /backtest 與 /data 移出 CORE_NAV。原因(見報告 A 節):
+//   /backtest 的 StrategyBacktest 標的選擇器呼叫 A 股 instrumentSearch,
+//     使用者實際無法選取台股標的(如 2330.TWSE)進行回測 —— 不是語言問題,
+//     是功能尚未支援台股, Taiwan-first 導航不該推薦一個選不到台股的回測。
+//   /data 的實際內容(每日管道/分鐘K同步/Enriched重建/擴展概念行業)
+//     完全是 A 股資料維運, 沒有任何台股資料管理功能。
+// route / component / backend 完全保留, 只搬到 ASHARE_LEGACY_NAV, 受
+// show_ashare_legacy_features 控制(HIDE, NOT DELETE, 與既有機制一致)。
 export const CORE_NAV: readonly NavMeta[] = [
   { to: '/',                label: '看板',     icon: LayoutDashboard },
   { to: '/watchlist',  label: '自選股',   icon: Star },
   { to: '/taiwan-screener', label: '台股選股', icon: Filter },
   { to: '/stocks/compare', label: '多股比較', icon: Scale },
-  { to: '/backtest',   label: '回測', icon: History },
-  { to: '/data',       label: '資料管理',   icon: Database },
   { to: '/monitor', label: '監控中心', icon: RadioTower },
 ] as const
 
@@ -55,6 +61,8 @@ export const ASHARE_LEGACY_NAV: readonly NavMeta[] = [
   { to: '/screener',   label: '策略選股',   icon: ScanSearch },
   { to: '/stock-analysis',    label: '個股分析', icon: TrendingUp },
   { to: '/financials', label: '財務分析', icon: FileText },
+  { to: '/backtest',   label: 'A 股回測', icon: History },
+  { to: '/data',       label: 'A 股資料管理',   icon: Database },
   { to: '/mining',     label: '因子挖掘', icon: Pickaxe },
   { to: '/regime', label: '市場環境', icon: Gauge },
   { to: '/abnormal', label: '異動監控', icon: Siren },

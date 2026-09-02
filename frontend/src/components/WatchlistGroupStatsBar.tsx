@@ -65,7 +65,7 @@ export function WatchlistGroupStatsBar({
   if ((counts.ungrouped ?? 0) > 0) {
     rows.push({
       key: 'ungrouped',
-      name: '未分组',
+      name: '未分組',
       dot: 'bg-muted/60',
       text: 'text-foreground',
       count: counts.ungrouped ?? 0,
@@ -91,7 +91,7 @@ export function WatchlistGroupStatsBar({
   return (
     <div className="border-b border-border bg-surface/40 px-5 py-2">
       <div className="mb-1 flex items-center justify-between">
-        <div className="text-[10px] uppercase tracking-wider text-muted">分组涨跌 · {metricLabel}</div>
+        <div className="text-[10px] uppercase tracking-wider text-muted">分組漲跌 · {metricLabel}</div>
         <GroupStatsSettings config={config} onChange={onConfigChange} />
       </div>
       <div className="flex flex-col gap-px">
@@ -144,7 +144,7 @@ export function WatchlistGroupStatsBar({
               <span className="w-[72px] shrink-0 text-right text-[10px] tabular-nums">
                 {info && info.sampled > 0 ? (
                   <>
-                    <span className="text-bull">{info.up}涨</span>
+                    <span className="text-bull">{info.up}漲</span>
                     <span className="mx-0.5 text-muted/40">/</span>
                     <span className="text-bear">{info.down}跌</span>
                   </>

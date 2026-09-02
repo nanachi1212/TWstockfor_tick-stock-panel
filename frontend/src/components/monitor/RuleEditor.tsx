@@ -23,7 +23,7 @@ interface Props {
 }
 
 const TYPE_DEFAULT_NAME: Record<string, string> = {
-  signal: '信号监控', price: '价格监控', market: '市场异动监控', strategy: '策略监控', sector: '板块监控', abnormal: '异动监控',
+  signal: '訊號監控', price: '價格監控', market: '市場異動監控', strategy: '策略監控', sector: '板塊監控', abnormal: '異動監控',
 }
 
 const TYPE_ICONS = {
@@ -172,7 +172,7 @@ export function RuleEditor({ rule, preset, simple, onClose, onSaved }: Props) {
       delete d.runtime_warning
       // name 为空时用默认名
       if (!d.name.trim()) {
-        const base = TYPE_DEFAULT_NAME[d.type] ?? '监控规则'
+        const base = TYPE_DEFAULT_NAME[d.type] ?? '監控規則'
         d.name = d.type === 'sector' && d.sector_targets?.length
           ? `${base} · ${d.sector_targets[0].name}${d.sector_targets.length > 1 ? ` 等${d.sector_targets.length}个` : ''}`
           : d.type === 'abnormal'
@@ -184,7 +184,7 @@ export function RuleEditor({ rule, preset, simple, onClose, onSaved }: Props) {
           : base
       }
       if (d.type === 'strategy') {
-        if (!d.strategy_id) throw new Error('策略监控必须选择一个策略')
+        if (!d.strategy_id) throw new Error('策略監控必須選擇一個策略')
         if (!d.notify_events?.length) throw new Error('至少选择一个通知事件')
         for (const [label, value] of [['最低分', d.score_min], ['最高分', d.score_max]] as const) {
           if (value != null && (!Number.isFinite(value) || value < 0 || value > 100)) {
@@ -201,7 +201,7 @@ export function RuleEditor({ rule, preset, simple, onClose, onSaved }: Props) {
         d.symbols = []
         d.conditions = []
         delete d.notify_events
-        if (!d.sector_targets?.length) throw new Error('请选择至少一个监控对象')
+        if (!d.sector_targets?.length) throw new Error('請選擇至少一個監控對象')
         if ((d.threshold_pct ?? 0) <= 0 || (d.threshold_pct ?? 0) > 20) throw new Error('阈值必须大于 0 且不超过 20%')
       } else if (d.type === 'abnormal') {
         delete d.score_min
@@ -443,7 +443,7 @@ export function RuleEditor({ rule, preset, simple, onClose, onSaved }: Props) {
     return (
       <div className="rounded-card border border-border bg-surface p-5 space-y-4">
         <div className="flex items-center justify-between gap-3">
-          <h3 className="text-sm font-medium text-foreground">{editing ? '编辑监控' : '加入监控'}</h3>
+          <h3 className="text-sm font-medium text-foreground">{editing ? '編輯監控' : '加入監控'}</h3>
           <button onClick={onClose} className="rounded p-1 text-muted hover:bg-elevated hover:text-foreground cursor-pointer">
             <X className="h-4 w-4" />
           </button>
@@ -510,7 +510,7 @@ export function RuleEditor({ rule, preset, simple, onClose, onSaved }: Props) {
 
         <label className="space-y-1.5">
           <span className="text-[11px] text-muted">备注 (可选)</span>
-          <input value={draft.message} onChange={e => setDraft(d => ({ ...d, message: e.target.value }))} placeholder="给这条监控加个备注" className="h-9 w-full rounded-btn border border-border bg-base px-3 text-xs text-foreground" />
+          <input value={draft.message} onChange={e => setDraft(d => ({ ...d, message: e.target.value }))} placeholder="給這條監控加個備註" className="h-9 w-full rounded-btn border border-border bg-base px-3 text-xs text-foreground" />
         </label>
 
         {error && <div className="rounded-btn border border-danger/30 bg-danger/5 px-3 py-2 text-xs text-danger">{error}</div>}
@@ -518,7 +518,7 @@ export function RuleEditor({ rule, preset, simple, onClose, onSaved }: Props) {
         <div className="flex justify-end gap-2">
           <button onClick={onClose} className="px-4 py-1.5 rounded-btn bg-elevated text-secondary text-xs cursor-pointer">取消</button>
           <button onClick={() => save.mutate()} disabled={save.isPending} className="inline-flex items-center gap-1.5 px-4 py-1.5 rounded-btn bg-accent text-base text-xs font-medium disabled:opacity-50 cursor-pointer">
-            <Save className="h-3.5 w-3.5" />加入监控
+            <Save className="h-3.5 w-3.5" />加入監控
           </button>
         </div>
       </div>
@@ -530,7 +530,7 @@ export function RuleEditor({ rule, preset, simple, onClose, onSaved }: Props) {
     <div className="rounded-card border border-border bg-surface p-5 space-y-4">
       <div className="flex items-center justify-between gap-3">
         <div>
-          <h3 className="text-sm font-medium text-foreground">{editing ? '编辑监控规则' : '新建监控规则'}</h3>
+          <h3 className="text-sm font-medium text-foreground">{editing ? '編輯監控規則' : '新建監控規則'}</h3>
           <p className="mt-1 text-[11px] text-muted">规则标识自动生成,描述为可选。</p>
         </div>
         <button onClick={onClose} className="rounded p-1 text-muted hover:bg-elevated hover:text-foreground cursor-pointer">
@@ -576,7 +576,7 @@ export function RuleEditor({ rule, preset, simple, onClose, onSaved }: Props) {
 
       {/* 监控类型 */}
       <div className="space-y-1.5">
-        <span className="text-[11px] text-muted">监控类型</span>
+        <span className="text-[11px] text-muted">監控類型</span>
         <div className="grid grid-cols-2 gap-1.5 sm:grid-cols-6">
           {visibleTypes.map(t => {
             const Icon = TYPE_ICONS[t.key as keyof typeof TYPE_ICONS] ?? Activity
@@ -622,7 +622,7 @@ export function RuleEditor({ rule, preset, simple, onClose, onSaved }: Props) {
 
       <label className="space-y-1.5">
         <span className="text-[11px] text-muted">描述 (可选)</span>
-        <input value={draft.name} onChange={e => setDraft(d => ({ ...d, name: e.target.value }))} placeholder="留空用默认名称" className="h-9 w-full rounded-btn border border-border bg-base px-3 text-xs text-foreground" />
+        <input value={draft.name} onChange={e => setDraft(d => ({ ...d, name: e.target.value }))} placeholder="留空用預設名稱" className="h-9 w-full rounded-btn border border-border bg-base px-3 text-xs text-foreground" />
       </label>
 
       {draft.type === 'sector' && (
@@ -677,7 +677,7 @@ export function RuleEditor({ rule, preset, simple, onClose, onSaved }: Props) {
 
           <div className="space-y-2">
             <div className="flex items-center justify-between gap-3">
-              <span className="text-[11px] text-muted">监控对象</span>
+              <span className="text-[11px] text-muted">監控對象</span>
               <span className="text-[10px] font-mono text-muted">{draft.sector_targets?.length ?? 0}/20</span>
             </div>
             {(draft.sector_targets?.length ?? 0) > 0 && (
@@ -697,14 +697,14 @@ export function RuleEditor({ rule, preset, simple, onClose, onSaved }: Props) {
               <input
                 value={sectorQuery}
                 onChange={event => setSectorQuery(event.target.value)}
-                placeholder={`搜索${SECTOR_KIND_OPTIONS.find(option => option.key === sectorKind)?.label ?? '板块'}`}
+                placeholder={`搜尋${SECTOR_KIND_OPTIONS.find(option => option.key === sectorKind)?.label ?? '板塊'}`}
                 className="h-9 w-full rounded-btn border border-border bg-base pl-8 pr-3 text-xs text-foreground placeholder:text-muted/50 focus:border-accent/50 focus:outline-none"
               />
             </label>
             <div className="grid max-h-48 grid-cols-1 gap-1 overflow-y-auto pr-1 sm:grid-cols-2">
               {visibleSectorTargets.length === 0 ? (
                 <div className="col-span-full rounded-btn border border-dashed border-border py-6 text-center text-xs text-muted">
-                  {options.isLoading ? '正在加载...' : '没有可用的监控对象'}
+                  {options.isLoading ? '正在載入…' : '沒有可用的監控對象'}
                 </div>
               ) : visibleSectorTargets.map(target => {
                 const selected = draft.sector_targets?.some(item => item.key === target.key) ?? false
@@ -719,7 +719,7 @@ export function RuleEditor({ rule, preset, simple, onClose, onSaved }: Props) {
                     disabled={unavailable}
                     aria-pressed={selected}
                     onClick={() => toggleSectorTarget(target)}
-                    title={!target.available ? '请先在实时监控设置中加入该指数' : target.member_count < 5 ? '有效成分少于 5 只' : targetLabel}
+                    title={!target.available ? '請先在即時監控設定中加入該指數' : target.member_count < 5 ? '有效成分少於 5 檔' : targetLabel}
                     className={`flex h-9 min-w-0 items-center gap-2 rounded-btn border px-2.5 text-left transition-colors ${
                       unavailable
                         ? 'cursor-not-allowed border-border/40 bg-base/40 text-muted/40'
@@ -889,8 +889,8 @@ export function RuleEditor({ rule, preset, simple, onClose, onSaved }: Props) {
             </div>
           </div>
           <div className="rounded-btn bg-base px-3 py-2 text-[10px] leading-relaxed text-muted">
-            按交易所异动规则口径 (3日±20%/30%… 10日+100%、30日+200% 等按板块) 计算
-            个股涨跌幅偏离值的接近度, 上穿阈值时告警; 冷却期内同一标的不重复提醒。
+            按交易所異動規則口徑 (3日±20%/30%… 10日+100%、30日+200% 等按板塊) 計算
+            個股漲跌幅偏離值的接近度,上穿閾值時告警;冷卻期內同一標的不重複提醒。
           </div>
         </div>
       )}
@@ -922,7 +922,7 @@ export function RuleEditor({ rule, preset, simple, onClose, onSaved }: Props) {
                   {watchMenuOpen && (
                     <div className="absolute z-10 mt-1 max-h-56 w-44 overflow-y-auto rounded border border-border bg-surface py-1 shadow-lg">
                       {watchlistQ.isLoading ? (
-                        <div className="px-2.5 py-2 text-[11px] text-muted">正在加载自选...</div>
+                        <div className="px-2.5 py-2 text-[11px] text-muted">正在載入自選…</div>
                       ) : watchImportOptions.length === 0 ? (
                         <div className="px-2.5 py-2 text-[11px] text-muted">自选列表为空</div>
                       ) : watchImportOptions.map(option => (
@@ -944,7 +944,7 @@ export function RuleEditor({ rule, preset, simple, onClose, onSaved }: Props) {
                   <input
                     value={symbolQuery}
                     onChange={e => setSymbolQuery(e.target.value)}
-                    placeholder="搜索代码或名称添加标的..."
+                    placeholder="搜尋代號或名稱新增標的…"
                     className="h-7 w-full rounded border border-border bg-base pl-6 pr-2 text-[11px] text-foreground focus:outline-none focus:border-accent/50"
                   />
                   <Search className="absolute left-1.5 top-1.5 h-3.5 w-3.5 text-muted" />
@@ -1025,7 +1025,7 @@ export function RuleEditor({ rule, preset, simple, onClose, onSaved }: Props) {
                 <button
                   type="button"
                   onClick={() => setGroupMenuOpen(v => !v)}
-                  title="选择要监控的自选分组 (动态绑定, 分组内增删标的自动生效)"
+                  title="選擇要監控的自選分組 (動態綁定,分組內增刪標的自動生效)"
                   className={`inline-flex h-7 max-w-full items-center gap-1.5 rounded border px-2 text-[11px] transition-colors cursor-pointer ${
                     groupMenuOpen
                       ? 'border-accent/40 bg-accent/10 text-accent'
@@ -1039,14 +1039,14 @@ export function RuleEditor({ rule, preset, simple, onClose, onSaved }: Props) {
                       <span className="shrink-0 font-mono text-[9px] tabular-nums text-muted">{groupCounts[selectedGroup.id] ?? 0}只</span>
                     </>
                   ) : (
-                    <span className="text-muted">{watchGroupsQ.isLoading ? '加载分组中...' : '选择自选分组...'}</span>
+                    <span className="text-muted">{watchGroupsQ.isLoading ? '載入分組中…' : '選擇自選分組…'}</span>
                   )}
                   {groupMenuOpen ? <ChevronUp className="h-3 w-3 shrink-0" /> : <ChevronDown className="h-3 w-3 shrink-0" />}
                 </button>
                 {groupMenuOpen && (
                   <div className="absolute z-10 mt-1 max-h-56 w-56 overflow-y-auto rounded border border-border bg-surface py-1 shadow-lg">
                     {watchGroupsQ.isLoading ? (
-                      <div className="px-2.5 py-2 text-[11px] text-muted">正在加载分组...</div>
+                      <div className="px-2.5 py-2 text-[11px] text-muted">正在載入分組…</div>
                     ) : groupList.length === 0 ? (
                       <div className="px-2.5 py-2 text-[11px] text-muted">
                         还没有自选分组,<Link to="/watchlist" className="text-accent hover:text-accent/80">去自选页创建 →</Link>
@@ -1090,11 +1090,11 @@ export function RuleEditor({ rule, preset, simple, onClose, onSaved }: Props) {
                     </div>
                   ) : (
                     <div className="rounded border border-dashed border-border px-2 py-1.5 text-[10px] text-muted">
-                      该分组当前没有标的, 后续在分组内添加自选会自动纳入监控
+                      該分組目前沒有標的,後續在分組內新增自選會自動納入監控
                     </div>
                   )}
                   <div className="text-[10px] text-muted/70">
-                    动态绑定: 分组内增删标的自动同步监控范围, 无需修改本规则
+                    動態綁定:分組內增刪標的自動同步監控範圍,無需修改本規則
                   </div>
                 </div>
               )}
@@ -1180,13 +1180,13 @@ export function RuleEditor({ rule, preset, simple, onClose, onSaved }: Props) {
         <div className="space-y-3">
           <div className="flex flex-col gap-2 sm:flex-row sm:items-end">
             <label className="min-w-0 flex-1 space-y-1.5">
-              <span className="text-[11px] text-muted">搜索策略</span>
+              <span className="text-[11px] text-muted">搜尋策略</span>
               <span className="relative block">
                 <Search className="absolute left-2.5 top-2.5 h-3.5 w-3.5 text-muted" />
                 <input
                   value={strategyQuery}
                   onChange={e => setStrategyQuery(e.target.value)}
-                  placeholder="搜索名称、标签或策略 ID"
+                  placeholder="搜尋名稱、標籤或策略 ID"
                   className="h-9 w-full rounded-btn border border-border bg-base pl-8 pr-3 text-xs text-foreground placeholder:text-muted/50 focus:border-accent/50 focus:outline-none"
                 />
               </span>
@@ -1213,7 +1213,7 @@ export function RuleEditor({ rule, preset, simple, onClose, onSaved }: Props) {
 
           <div className="grid max-h-56 grid-cols-1 gap-1.5 overflow-y-auto pr-1 sm:grid-cols-2">
             {strategies.isLoading ? (
-              <div className="col-span-full py-8 text-center text-xs text-muted">正在加载策略...</div>
+              <div className="col-span-full py-8 text-center text-xs text-muted">正在載入策略…</div>
             ) : visibleStrategies.length === 0 ? (
               <div className="col-span-full rounded-btn border border-dashed border-border py-8 text-center text-xs text-muted">没有匹配的策略</div>
             ) : visibleStrategies.map(strategy => {
@@ -1343,7 +1343,7 @@ export function RuleEditor({ rule, preset, simple, onClose, onSaved }: Props) {
         </label>
         <label className="space-y-1.5 md:col-span-1">
           <span className="text-[11px] text-muted">自定义提示(可选)</span>
-          <input value={draft.message} onChange={e => setDraft(d => ({ ...d, message: e.target.value }))} placeholder="留空用默认文案" className="h-9 w-full rounded-btn border border-border bg-base px-3 text-xs text-foreground" />
+          <input value={draft.message} onChange={e => setDraft(d => ({ ...d, message: e.target.value }))} placeholder="留空用預設文案" className="h-9 w-full rounded-btn border border-border bg-base px-3 text-xs text-foreground" />
         </label>
       </div>
 
@@ -1402,7 +1402,7 @@ export function RuleEditor({ rule, preset, simple, onClose, onSaved }: Props) {
           return (
             <p className="text-[10px] leading-relaxed text-warning/80">
               {unconfigured.join('、')}尚未配置,
-              <Link to="/settings?tab=monitoring" className="text-accent hover:text-accent/80">前往设置页配置 →</Link>
+              <Link to="/settings?tab=monitoring" className="text-accent hover:text-accent/80">前往設定頁設定 →</Link>
             </p>
           )
         })()}
@@ -1425,7 +1425,7 @@ export function RuleEditor({ rule, preset, simple, onClose, onSaved }: Props) {
       <div className="flex justify-end gap-2">
         <button onClick={onClose} className="px-4 py-1.5 rounded-btn bg-elevated text-secondary text-xs cursor-pointer">取消</button>
         <button onClick={() => save.mutate()} disabled={save.isPending} className="inline-flex items-center gap-1.5 px-4 py-1.5 rounded-btn bg-accent text-base text-xs font-medium disabled:opacity-50 cursor-pointer">
-          <Save className="h-3.5 w-3.5" />保存
+          <Save className="h-3.5 w-3.5" />儲存
         </button>
       </div>
     </div>

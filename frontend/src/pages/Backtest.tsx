@@ -12,17 +12,17 @@ type Tab = 'factor' | 'strategy' | 'robustness'
 const MODES: Record<Tab, { title: string; subtitle: string; icon: typeof BarChart3 }> = {
   factor: {
     title: '因子',
-    subtitle: '批量筛选与单因子检验',
+    subtitle: '批量篩選與單因子檢定',
     icon: BarChart3,
   },
   strategy: {
     title: '策略',
-    subtitle: '现有策略评估与候选沉淀',
+    subtitle: '現有策略評估與候選沉澱',
     icon: FlaskConical,
   },
   robustness: {
-    title: '验证',
-    subtitle: '参数敏感性与滚动样本外',
+    title: '驗證',
+    subtitle: '參數敏感性與滾動樣本外',
     icon: ShieldCheck,
   },
 }
@@ -53,7 +53,7 @@ export function Backtest() {
   return (
     <div className="flex min-h-full flex-col bg-base">
       <PageHeader
-        title="回测"
+        title="回測"
         subtitle={<span className="hidden md:inline">{MODES[activeTab].subtitle}</span>}
         className="shrink-0 flex-wrap gap-x-4 gap-y-2 bg-base/95 px-3 lg:flex-nowrap lg:px-5"
         right={(
@@ -61,15 +61,15 @@ export function Backtest() {
             <button
               type="button"
               onClick={() => setCandidatesOpen(true)}
-              aria-label="打开候选方案"
-              title="候选方案"
+              aria-label="開啟候選方案"
+              title="候選方案"
               className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-btn border border-border bg-surface px-2 text-[11px] font-medium text-secondary transition-colors hover:border-accent/40 hover:text-accent sm:px-2.5 sm:text-xs"
             >
               <BookmarkCheck className="h-3.5 w-3.5" />
-              <span>候选方案</span>
+              <span>候選方案</span>
             </button>
             <span className="h-5 w-px shrink-0 bg-border" aria-hidden="true" />
-            <nav className="min-w-0 flex-1 overflow-x-auto lg:flex-none" aria-label="回测视图">
+            <nav className="min-w-0 flex-1 overflow-x-auto lg:flex-none" aria-label="回測檢視">
               <div className="inline-flex min-w-max items-center gap-0.5 rounded-btn border border-border bg-surface/80 p-0.5">
                 {(Object.keys(MODES) as Tab[]).map(tab => {
                   const mode = MODES[tab]

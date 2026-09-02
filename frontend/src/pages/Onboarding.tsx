@@ -316,7 +316,7 @@ function TaiwanDataStatusStep({ onNext, onBack }: { onNext: () => void; onBack: 
           </div>
         ) : status.isError ? (
           <p className="text-xs text-muted leading-relaxed">
-            目前無法讀取台股資料狀態,不影響使用,稍後可至「資料管理」查看。
+            目前無法讀取台股資料狀態,不影響使用,請稍後再試。
           </p>
         ) : hasAnyData ? (
           <div className="space-y-2.5">
@@ -336,7 +336,7 @@ function TaiwanDataStatusStep({ onNext, onBack }: { onNext: () => void; onBack: 
           <div className="flex items-start gap-2.5">
             <AlertCircle className="h-4 w-4 text-warning shrink-0 mt-0.5" />
             <p className="text-sm text-secondary leading-relaxed">
-              目前尚未下載台股資料,仍可先進入系統,之後可至「資料管理」更新。
+              目前尚未下載台股資料,仍可先進入系統,資料將於每日排程自動更新。
             </p>
           </div>
         )}

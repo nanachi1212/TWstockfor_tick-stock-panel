@@ -84,7 +84,7 @@ const GroupCard = React.memo(function GroupCard({
         type="button"
         onClick={() => onOpen(data.key)}
         className={`group flex w-full items-center gap-1.5 border-b border-border/60 px-3 py-2 text-left transition-colors hover:bg-elevated/60 ${showColorBar && color ? color.background : ''}`}
-        title={`查看「${data.name}」分组列表`}
+        title={`查看「${data.name}」分組清單`}
       >
         <span className={`h-2 w-2 shrink-0 rounded-full ${color ? color.dot : 'bg-muted/60'}`} />
         <span className={`truncate text-xs font-medium ${color ? color.text : 'text-foreground'}`}>
@@ -102,7 +102,7 @@ const GroupCard = React.memo(function GroupCard({
           <span className="font-mono text-[10px] tabular-nums text-muted">{data.rows.length}</span>
           {pctInfo && pctInfo.sampled > 0 && (
             <span className="text-[10px] tabular-nums">
-              <span className="text-bull">{pctInfo.up}涨</span>
+              <span className="text-bull">{pctInfo.up}漲</span>
               <span className="mx-0.5 text-muted/40">/</span>
               <span className="text-bear">{pctInfo.down}跌</span>
             </span>
@@ -113,7 +113,7 @@ const GroupCard = React.memo(function GroupCard({
 
       {/* 组内榜单: 按涨跌幅降序 */}
       {data.rows.length === 0 ? (
-        <div className="px-3 py-4 text-center text-[11px] text-muted">暂无标的</div>
+        <div className="px-3 py-4 text-center text-[11px] text-muted">尚無標的</div>
       ) : (
         <div className="flex flex-col">
           {visible.map((r: any, i: number) => {
@@ -160,7 +160,7 @@ const GroupCard = React.memo(function GroupCard({
           onClick={() => onToggle(data.key)}
           className="flex items-center justify-center gap-1 border-t border-border/60 px-3 py-1.5 text-[10px] text-muted transition-colors hover:bg-elevated/60 hover:text-foreground"
         >
-          {expanded ? '收起' : `显示全部 ${data.rows.length} 只`}
+          {expanded ? '收起' : `顯示全部 ${data.rows.length} 檔`}
           <ChevronDown className={`h-3 w-3 transition-transform ${expanded ? '' : 'rotate-180'}`} />
         </button>
       )}
@@ -239,7 +239,7 @@ export function WatchlistGroupCards({
     // 未分组仅在非空时展示
     const ungrouped = sorted.get('ungrouped') ?? []
     if (ungrouped.length > 0) {
-      result.push({ key: 'ungrouped', name: '未分组', color: null, rows: ungrouped })
+      result.push({ key: 'ungrouped', name: '未分組', color: null, rows: ungrouped })
     }
     return result
   }, [groups, rows, groupBySymbol])
@@ -257,8 +257,8 @@ export function WatchlistGroupCards({
   return (
     <div>
       <div className="mb-2 flex items-center justify-between">
-        <div className="text-[10px] uppercase tracking-wider text-muted">分组卡片 · {metricLabel}</div>
-        <GroupStatsSettings config={config} onChange={onConfigChange} ariaLabel="分组卡片设置" showCardLimit />
+        <div className="text-[10px] uppercase tracking-wider text-muted">分組卡片 · {metricLabel}</div>
+        <GroupStatsSettings config={config} onChange={onConfigChange} ariaLabel="分組卡片設定" showCardLimit />
       </div>
       <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
         {ordered.map(card => (

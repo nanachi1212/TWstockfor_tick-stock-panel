@@ -23,7 +23,7 @@ export function MiniIntraday({ rows, prevClose, changePct, width = 100, height =
   const rawId = useId()
   // 空数据：返回等尺寸占位
   if (!rows || rows.length < 2) {
-    return <svg width={width} height={height} viewBox={`0 0 ${width} ${height}`} className="block" aria-label="暂无分时" />
+    return <svg width={width} height={height} viewBox={`0 0 ${width} ${height}`} className="block" aria-label="尚無分時" />
   }
 
   const gradId = rawId.replace(/:/g, '')

@@ -967,7 +967,7 @@ function TaiwanOverviewCard() {
         </div>
       ) : status.isError ? (
         <p className="text-xs text-muted leading-relaxed">
-          目前無法讀取台股資料狀態,不影響其他功能使用,稍後可至「資料管理」查看。
+          目前無法讀取台股資料狀態,不影響其他功能使用,請稍後再試。
         </p>
       ) : hasAnyData ? (
         <div className="flex flex-wrap items-center gap-x-5 gap-y-1.5">
@@ -983,9 +983,7 @@ function TaiwanOverviewCard() {
         </div>
       ) : (
         <p className="text-xs text-secondary leading-relaxed">
-          目前尚未下載台股資料,仍可先使用「台股選股」「多股比較」等功能,之後可至
-          <Link to="/data" className="text-accent hover:underline">「資料管理」</Link>
-          更新。
+          目前尚未下載台股資料,仍可先使用「台股選股」「多股比較」等功能,資料將於每日排程自動更新。
         </p>
       )}
     </section>

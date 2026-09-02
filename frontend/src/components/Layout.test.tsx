@@ -112,6 +112,15 @@ describe('Layout — Taiwan-first navigation (Phase 8B-2)', () => {
     expect(screen.queryByText('中國 A 股（選配）')).not.toBeInTheDocument()
   })
 
+  it('Phase 8B-4.2.1: /backtest 與 /data 預設不在核心導航中顯示', async () => {
+    vi.mocked(usePreferences).mockReturnValue({ data: {} } as any)
+    renderLayout()
+
+    await screen.findByText('台股選股')
+    expect(screen.queryByText('A 股回測')).not.toBeInTheDocument()
+    expect(screen.queryByText('A 股資料管理')).not.toBeInTheDocument()
+  })
+
   it('reveals the "中國 A 股（選配）" section with legacy routes intact when the preference is on', async () => {
     vi.mocked(usePreferences).mockReturnValue({ data: { show_ashare_legacy_features: true } } as any)
     renderLayout()
@@ -123,6 +132,15 @@ describe('Layout — Taiwan-first navigation (Phase 8B-2)', () => {
     expect(screen.getByText('行業分析')).toBeInTheDocument()
     // 台股核心導航仍在, 不被 A 股區塊取代或混排
     expect(screen.getByText('台股選股')).toBeInTheDocument()
+  })
+
+  it('Phase 8B-4.2.1: 開啟 A 股 legacy 後,「中國 A 股（選配）」區塊顯示 A 股回測 / A 股資料管理', async () => {
+    vi.mocked(usePreferences).mockReturnValue({ data: { show_ashare_legacy_features: true } } as any)
+    renderLayout()
+
+    await screen.findByText('台股選股')
+    expect(screen.getByText('A 股回測')).toBeInTheDocument()
+    expect(screen.getByText('A 股資料管理')).toBeInTheDocument()
   })
 
   it('Phase 8B-3.2: does not fetch A-share sidebar index quotes when the preference is off', async () => {

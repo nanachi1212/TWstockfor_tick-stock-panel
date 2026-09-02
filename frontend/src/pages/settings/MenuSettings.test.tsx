@@ -49,6 +49,9 @@ describe('MenuSettings — Taiwan-first consistency (Phase 8B-2.1)', () => {
     // 总开关关闭时, 个别 A 股项目不应出现 (不产生第二套不一致的显示)
     expect(screen.queryByText('連板梯隊')).not.toBeInTheDocument()
     expect(screen.queryByText('概念分析')).not.toBeInTheDocument()
+    // Phase 8B-4.2.1: /backtest 與 /data 已移出 CORE_NAV, 总开关关闭时也不应出现
+    expect(screen.queryByText('A 股回測')).not.toBeInTheDocument()
+    expect(screen.queryByText('A 股資料管理')).not.toBeInTheDocument()
   })
 
   it('reveals individual A-share rows once the master toggle is on, without affecting Taiwan core items', async () => {
@@ -58,6 +61,9 @@ describe('MenuSettings — Taiwan-first consistency (Phase 8B-2.1)', () => {
     expect(await screen.findByText('連板梯隊')).toBeInTheDocument()
     expect(screen.getByText('概念分析')).toBeInTheDocument()
     expect(screen.getByText('行業分析')).toBeInTheDocument()
+    // Phase 8B-4.2.1: 开启后 A 股回測 / A 股資料管理 应出现在 A 股区块中(与 sidebar 同步)
+    expect(screen.getByText('A 股回測')).toBeInTheDocument()
+    expect(screen.getByText('A 股資料管理')).toBeInTheDocument()
     // 台股核心项目不受影响
     expect(screen.getByText('台股選股')).toBeInTheDocument()
     expect(screen.getByText('自選股')).toBeInTheDocument()
