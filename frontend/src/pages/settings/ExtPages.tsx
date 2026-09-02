@@ -83,11 +83,11 @@ export function SettingsExtPagesPanel() {
   const save = useMutation({
     mutationFn: () => {
       const cfg = activeConfig
-      if (!cfg) throw new Error('请选择扩展数据源')
-      if (!id.trim()) throw new Error('请输入菜单标识')
-      if (!label.trim()) throw new Error('请输入菜单名称')
-      if (template === 'dimension_rank' && !dimensionField) throw new Error('请选择分组字段')
-      if (template === 'ranking' && !rankField) throw new Error('请选择排名字段')
+      if (!cfg) throw new Error('請選擇擴展資料來源')
+      if (!id.trim()) throw new Error('請輸入選單識別碼')
+      if (!label.trim()) throw new Error('請輸入選單名稱')
+      if (template === 'dimension_rank' && !dimensionField) throw new Error('請選擇分組欄位')
+      if (template === 'ranking' && !rankField) throw new Error('請選擇排名欄位')
 
       const detailColumns = selectedColumns
         .map(name => cfg.fields.find(f => f.name === name))
@@ -95,8 +95,8 @@ export function SettingsExtPagesPanel() {
         .map(f => buildColumn(f as ExtDataField))
       const groupColumns: AnalysisColumn[] = template === 'dimension_rank'
         ? [
-            { field: '__dimension', label: cfg.fields.find(f => f.name === dimensionField)?.label || '分组', type: 'string', visible: true },
-            { field: '__count', label: '股票数', type: 'number', sortable: true, visible: true },
+            { field: '__dimension', label: cfg.fields.find(f => f.name === dimensionField)?.label || '分組', type: 'string', visible: true },
+            { field: '__count', label: '股票數', type: 'number', sortable: true, visible: true },
             ...detailColumns.filter(c => c.type === 'number').slice(0, 2).map(c => ({ ...c, label: `平均${c.label || c.field}`, aggregate: 'avg' as const })),
           ]
         : []
@@ -133,10 +133,10 @@ export function SettingsExtPagesPanel() {
       <section className="rounded-2xl border border-border bg-surface p-6 bg-[radial-gradient(circle_at_top_right,rgba(139,92,246,0.14),transparent_38%)]">
         <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
           <div>
-            <div className="text-[11px] uppercase tracking-[0.2em] text-accent/80">扩展页面</div>
-            <h2 className="mt-2 text-2xl font-semibold tracking-tight text-foreground">把扩展数据配置成左侧分析菜单</h2>
+            <div className="text-[11px] uppercase tracking-[0.2em] text-accent/80">擴展頁面</div>
+            <h2 className="mt-2 text-2xl font-semibold tracking-tight text-foreground">把擴展資料設定成左側分析選單</h2>
             <p className="mt-2 max-w-3xl text-sm leading-6 text-secondary">
-              选择扩展数据源、分析模板、分组字段和列表列后，系统会生成一个可访问的动态分析页面。
+              選擇擴展資料來源、分析範本、分組欄位和列表欄後,系統會產生一個可存取的動態分析頁面。
             </p>
           </div>
           <button
@@ -144,7 +144,7 @@ export function SettingsExtPagesPanel() {
             className="inline-flex items-center justify-center gap-1.5 rounded-btn bg-accent/90 px-3 py-1.5 text-xs font-medium text-base hover:bg-accent transition-colors"
           >
             <Plus className="h-3.5 w-3.5" />
-            新建页面
+            新建頁面
           </button>
         </div>
       </section>
@@ -153,8 +153,8 @@ export function SettingsExtPagesPanel() {
         <section className="rounded-card border border-border bg-surface p-5 space-y-4">
           <div className="flex items-center justify-between gap-3">
             <div>
-              <h3 className="text-sm font-medium text-foreground">{editingMenu ? '编辑扩展页面' : '新建扩展页面'}</h3>
-              <p className="mt-1 text-[11px] text-muted">菜单标识保存后不可在此处直接修改，如需更换标识请新建页面。</p>
+              <h3 className="text-sm font-medium text-foreground">{editingMenu ? '編輯擴展頁面' : '新建擴展頁面'}</h3>
+              <p className="mt-1 text-[11px] text-muted">選單識別碼儲存後不可在此處直接修改,如需更換識別碼請新建頁面。</p>
             </div>
             <button onClick={() => { setShowForm(false); setError('') }} className="rounded p-1 text-muted hover:bg-elevated hover:text-foreground">
               <X className="h-4 w-4" />
@@ -163,7 +163,7 @@ export function SettingsExtPagesPanel() {
 
           <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
             <label className="space-y-1.5">
-              <span className="text-[11px] text-muted">菜单标识</span>
+              <span className="text-[11px] text-muted">選單識別碼</span>
               <input
                 value={id}
                 disabled={!!editingMenu}
@@ -173,11 +173,11 @@ export function SettingsExtPagesPanel() {
               />
             </label>
             <label className="space-y-1.5">
-              <span className="text-[11px] text-muted">菜单名称</span>
-              <input value={label} onChange={e => setLabel(e.target.value)} placeholder="如 概念热度" className="h-9 w-full rounded-btn border border-border bg-base px-3 text-xs text-foreground" />
+              <span className="text-[11px] text-muted">選單名稱</span>
+              <input value={label} onChange={e => setLabel(e.target.value)} placeholder="如 概念熱度" className="h-9 w-full rounded-btn border border-border bg-base px-3 text-xs text-foreground" />
             </label>
             <label className="space-y-1.5">
-              <span className="text-[11px] text-muted">扩展数据源</span>
+              <span className="text-[11px] text-muted">擴展資料來源</span>
               <select
                 value={dataSource || activeConfig?.id || ''}
                 onChange={e => {
@@ -196,31 +196,31 @@ export function SettingsExtPagesPanel() {
 
           <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
             <label className="space-y-1.5">
-              <span className="text-[11px] text-muted">模板</span>
+              <span className="text-[11px] text-muted">範本</span>
               <select value={template} onChange={e => setTemplate(e.target.value as any)} className="h-9 w-full rounded-btn border border-border bg-base px-3 text-xs text-foreground">
-                <option value="dimension_rank">维度热度榜</option>
-                <option value="ranking">指标排名榜</option>
-                <option value="table">明细表</option>
+                <option value="dimension_rank">維度熱度榜</option>
+                <option value="ranking">指標排名榜</option>
+                <option value="table">明細表</option>
               </select>
             </label>
             <label className="space-y-1.5">
-              <span className="text-[11px] text-muted">分组字段</span>
+              <span className="text-[11px] text-muted">分組欄位</span>
               <select value={dimensionField} onChange={e => setDimensionField(e.target.value)} disabled={template !== 'dimension_rank'} className="h-9 w-full rounded-btn border border-border bg-base px-3 text-xs text-foreground disabled:opacity-50">
-                <option value="">请选择</option>
+                <option value="">請選擇</option>
                 {fields.map(f => <option key={f.name} value={f.name}>{f.label || f.name}</option>)}
               </select>
             </label>
             <label className="space-y-1.5">
-              <span className="text-[11px] text-muted">排名字段</span>
+              <span className="text-[11px] text-muted">排名欄位</span>
               <select value={rankField} onChange={e => setRankField(e.target.value)} disabled={template !== 'ranking'} className="h-9 w-full rounded-btn border border-border bg-base px-3 text-xs text-foreground disabled:opacity-50">
-                <option value="">请选择</option>
+                <option value="">請選擇</option>
                 {numericFields.map(f => <option key={f.name} value={f.name}>{f.label || f.name}</option>)}
               </select>
             </label>
           </div>
 
           <div>
-            <div className="text-[11px] text-muted mb-2">列表列配置</div>
+            <div className="text-[11px] text-muted mb-2">列表欄設定</div>
             <div className="flex flex-wrap gap-2">
               {fields.filter(f => !['symbol', 'code'].includes(f.name)).map(f => {
                 const active = selectedColumns.includes(f.name)
@@ -242,7 +242,7 @@ export function SettingsExtPagesPanel() {
           <div className="flex justify-end gap-2">
             <button onClick={() => { setShowForm(false); setError('') }} className="px-4 py-1.5 rounded-btn bg-elevated text-secondary text-xs">取消</button>
             <button onClick={() => save.mutate()} disabled={save.isPending} className="inline-flex items-center gap-1.5 px-4 py-1.5 rounded-btn bg-accent/90 text-base text-xs font-medium disabled:opacity-50">
-              <Save className="h-3.5 w-3.5" />保存
+              <Save className="h-3.5 w-3.5" />儲存
             </button>
           </div>
         </section>
@@ -255,31 +255,31 @@ export function SettingsExtPagesPanel() {
               <div>
                 <div className="flex items-center gap-2">
                   <h3 className="text-sm font-medium text-foreground">{menu.label}</h3>
-                  {menu.builtin && <span className="rounded bg-accent/10 px-1.5 py-0.5 text-[10px] text-accent">默认</span>}
-                  {!menu.visible && <span className="rounded bg-muted/10 px-1.5 py-0.5 text-[10px] text-muted">已隐藏</span>}
+                  {menu.builtin && <span className="rounded bg-accent/10 px-1.5 py-0.5 text-[10px] text-accent">預設</span>}
+                  {!menu.visible && <span className="rounded bg-muted/10 px-1.5 py-0.5 text-[10px] text-muted">已隱藏</span>}
                 </div>
                 <p className="mt-1 text-[11px] text-muted font-mono">{menu.id}</p>
               </div>
               <div className="flex items-center gap-1">
-                <button onClick={() => editMenu(menu)} className="p-1 rounded text-muted hover:text-accent hover:bg-accent/10" title="编辑">
+                <button onClick={() => editMenu(menu)} className="p-1 rounded text-muted hover:text-accent hover:bg-accent/10" title="編輯">
                   <Pencil className="h-3.5 w-3.5" />
                 </button>
                 {!menu.builtin && (
-                  <button onClick={() => del.mutate(menu.id)} disabled={del.isPending} className="p-1 rounded text-muted hover:text-danger hover:bg-danger/10" title="删除">
+                  <button onClick={() => del.mutate(menu.id)} disabled={del.isPending} className="p-1 rounded text-muted hover:text-danger hover:bg-danger/10" title="刪除">
                     <Trash2 className="h-3.5 w-3.5" />
                   </button>
                 )}
               </div>
             </div>
             <div className="mt-3 space-y-1 text-[11px] text-secondary">
-              <div>数据源：<span className="font-mono text-muted">{menu.data_source}</span></div>
-              <div>模板：{menu.template}</div>
-              {menu.dimension_field && <div>分组字段：{menu.dimension_field}</div>}
-              <div>列表列：{menu.detail_columns.length} 个</div>
+              <div>資料來源:<span className="font-mono text-muted">{menu.data_source}</span></div>
+              <div>範本:{menu.template}</div>
+              {menu.dimension_field && <div>分組欄位:{menu.dimension_field}</div>}
+              <div>列表欄:{menu.detail_columns.length} 個</div>
             </div>
             <Link to={`/analysis/${menu.id}`} className="mt-4 inline-flex w-full items-center justify-center gap-1.5 rounded-btn border border-border bg-elevated px-3 py-1.5 text-xs text-foreground hover:bg-border/30 transition-colors">
               <ExternalLink className="h-3.5 w-3.5" />
-              打开分析页
+              開啟分析頁
             </Link>
           </div>
         ))}
@@ -292,7 +292,7 @@ export function SettingsExtPagesPanel() {
             </div>
           ))}
         {!menus.isLoading && menuItems.length === 0 && (
-          <div className="rounded-card border border-border bg-surface px-5 py-10 text-center text-sm text-muted md:col-span-2 xl:col-span-3">暂无扩展页面，点击右上角新建。</div>
+          <div className="rounded-card border border-border bg-surface px-5 py-10 text-center text-sm text-muted md:col-span-2 xl:col-span-3">尚無擴展頁面,點擊右上角新建。</div>
         )}
       </section>
     </div>

@@ -67,9 +67,9 @@ function boardTag(symbol: string): { label: string; color: string } | null {
 // ===== 异动边缘 (与异动页同口径) =====
 
 const AB_STATUS_META: Record<string, { label: string; cls: string; bar: string; icon: string }> = {
-  triggered: { label: '已触发', cls: 'bg-danger/20 text-danger font-semibold', bar: 'border-b border-danger/30 bg-danger/[0.08]', icon: 'text-danger' },
-  edge: { label: '异动边缘', cls: 'bg-warning/20 text-warning font-semibold', bar: 'border-b border-warning/30 bg-warning/[0.07]', icon: 'text-warning' },
-  watch: { label: '观察', cls: 'bg-elevated text-secondary font-semibold', bar: 'border-b border-border bg-surface', icon: 'text-secondary' },
+  triggered: { label: '已觸發', cls: 'bg-danger/20 text-danger font-semibold', bar: 'border-b border-danger/30 bg-danger/[0.08]', icon: 'text-danger' },
+  edge: { label: '異動邊緣', cls: 'bg-warning/20 text-warning font-semibold', bar: 'border-b border-warning/30 bg-warning/[0.07]', icon: 'text-warning' },
+  watch: { label: '觀察', cls: 'bg-elevated text-secondary font-semibold', bar: 'border-b border-border bg-surface', icon: 'text-secondary' },
 }
 
 /** 异动引擎计算时间 (服务端 asof 秒级时间戳 → 月-日 时:分:秒) */
@@ -273,7 +273,7 @@ export function StockPreviewDialog({ symbol, name, onClose, triggerInfo }: Props
                   </div>
                 ) : (
                   <div className="flex items-center gap-1">
-                    <div className="inline-flex shrink-0 items-center rounded border border-border bg-elevated p-0.5" aria-label="分时周期">
+                    <div className="inline-flex shrink-0 items-center rounded border border-border bg-elevated p-0.5" aria-label="分時週期">
                       {INTRADAY_DAY_OPTIONS.map(days => (
                         <button
                           key={days}
@@ -296,7 +296,7 @@ export function StockPreviewDialog({ symbol, name, onClose, triggerInfo }: Props
                 <span className="mx-0.5 h-4 w-px shrink-0 bg-border" />
 
                 {/* 日K / 分时 切换 */}
-                <div role="tablist" aria-label="图表视图" className="inline-flex shrink-0 items-center rounded border border-border bg-elevated p-0.5">
+                <div role="tablist" aria-label="圖表視圖" className="inline-flex shrink-0 items-center rounded border border-border bg-elevated p-0.5">
                   <button
                     type="button"
                     role="tab"
@@ -319,7 +319,7 @@ export function StockPreviewDialog({ symbol, name, onClose, triggerInfo }: Props
                     }`}
                   >
                     <Clock className="h-3 w-3" />
-                    分时
+                    分時
                   </button>
                 </div>
 
@@ -332,8 +332,8 @@ export function StockPreviewDialog({ symbol, name, onClose, triggerInfo }: Props
                     onClick={() => toggleWatchlist.mutate({ action: 'remove' })}
                     disabled={toggleWatchlist.isPending}
                     className="rounded-btn p-1.5 text-[#FACC15] transition-colors cursor-pointer hover:bg-elevated disabled:opacity-50"
-                    title="移出自选"
-                    aria-label={`将 ${symbol} 移出自选`}
+                    title="移出自選"
+                    aria-label={`將 ${symbol} 移出自選`}
                   >
                     <Star className="h-4 w-4" />
                   </button>
@@ -342,7 +342,7 @@ export function StockPreviewDialog({ symbol, name, onClose, triggerInfo }: Props
                     onSelect={groupId => toggleWatchlist.mutate({ action: 'add', groupId })}
                     disabled={toggleWatchlist.isPending}
                     triggerClassName="rounded-btn p-1.5 text-muted transition-colors cursor-pointer hover:bg-elevated hover:text-foreground disabled:opacity-50"
-                    ariaLabel={`将 ${symbol} 加入自选`}
+                    ariaLabel={`將 ${symbol} 加入自選`}
                   >
                     <Star className="h-4 w-4" />
                   </WatchlistAddMenu>
@@ -351,7 +351,7 @@ export function StockPreviewDialog({ symbol, name, onClose, triggerInfo }: Props
                 <button
                   onClick={() => setShowMonitorEditor(true)}
                   className="p-1.5 rounded-btn text-amber-400 hover:bg-amber-400/10 transition-colors cursor-pointer"
-                  title="加监控"
+                  title="加監控"
                 >
                   <RadioTower className="h-4 w-4" />
                 </button>
@@ -360,7 +360,7 @@ export function StockPreviewDialog({ symbol, name, onClose, triggerInfo }: Props
                 <button
                   onClick={handleRefresh}
                   className="p-1.5 rounded-btn text-secondary hover:text-foreground hover:bg-elevated transition-colors"
-                  title="刷新"
+                  title="重新整理"
                 >
                   <RefreshCw className="h-4 w-4" />
                 </button>
@@ -369,7 +369,7 @@ export function StockPreviewDialog({ symbol, name, onClose, triggerInfo }: Props
                 <button
                   onClick={() => setMaximized(v => !v)}
                   className="p-1.5 rounded-btn text-secondary hover:text-foreground hover:bg-elevated transition-colors"
-                  title={maximized ? '缩小' : '放大'}
+                  title={maximized ? '縮小' : '放大'}
                 >
                   {maximized ? <Minimize2 className="h-4 w-4" /> : <Maximize2 className="h-4 w-4" />}
                 </button>
@@ -377,8 +377,8 @@ export function StockPreviewDialog({ symbol, name, onClose, triggerInfo }: Props
                 <button
                   onClick={onClose}
                   className="shrink-0 rounded-btn p-1.5 text-secondary transition-colors hover:bg-elevated hover:text-foreground"
-                  aria-label="关闭个股详情"
-                  title="关闭"
+                  aria-label="關閉個股詳細資料"
+                  title="關閉"
                 >
                   <X className="h-4 w-4" />
                 </button>
@@ -390,7 +390,7 @@ export function StockPreviewDialog({ symbol, name, onClose, triggerInfo }: Props
               <div className="flex items-center gap-4 border-b border-amber-400/20 bg-amber-400/[0.06] px-5 py-2 shrink-0">
                 {/* 左: 触发标记 + 时间 */}
                 <div className="flex items-center gap-2 shrink-0">
-                  <span className="text-[10px] font-semibold text-amber-400">⚡ 触发</span>
+                  <span className="text-[10px] font-semibold text-amber-400">⚡ 觸發</span>
                   {triggerInfo.ts && (
                     <span className="text-[11px] text-secondary font-mono">
                       {new Date(triggerInfo.ts).toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })}
@@ -433,7 +433,7 @@ export function StockPreviewDialog({ symbol, name, onClose, triggerInfo }: Props
                 <div className={`flex flex-wrap items-center gap-x-3 gap-y-1 px-5 py-2 shrink-0 ${meta.bar}`}>
                   <span className="flex shrink-0 items-center gap-1.5">
                     <Activity className={`h-3.5 w-3.5 ${meta.icon}`} />
-                    <span className={`text-[11px] font-bold ${meta.icon}`}>异动</span>
+                    <span className={`text-[11px] font-bold ${meta.icon}`}>異動</span>
                     <span className={`rounded px-1.5 py-0.5 text-[10px] ${meta.cls}`}>
                       {meta.label}
                     </span>
@@ -445,7 +445,7 @@ export function StockPreviewDialog({ symbol, name, onClose, triggerInfo }: Props
                       return (
                         <span
                           key={w}
-                          title={`近${parseInt(w, 10)}日累计偏离(含实时) / 交易所规则阈值 · 接近度=|偏离|/阈值`}
+                          title={`近${parseInt(w, 10)}日累計偏離(含即時) / 交易所規則閾值 · 接近度=|偏離|/閾值`}
                           className={`shrink-0 rounded border px-1.5 py-0.5 font-mono text-[11px] ${
                             dominant
                               ? 'border-border bg-elevated font-semibold text-foreground'
@@ -461,9 +461,9 @@ export function StockPreviewDialog({ symbol, name, onClose, triggerInfo }: Props
                     })}
                   <span
                     className="ml-auto shrink-0 font-mono text-[10px] text-muted"
-                    title="异动引擎上次计算时间"
+                    title="異動引擎上次計算時間"
                   >
-                    计算于 {fmtAbnormalCalcTime(abnormal.data?.asof ?? 0)}
+                    計算於 {fmtAbnormalCalcTime(abnormal.data?.asof ?? 0)}
                   </span>
                 </div>
               )

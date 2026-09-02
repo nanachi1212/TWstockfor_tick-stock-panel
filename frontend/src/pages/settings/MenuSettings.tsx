@@ -84,7 +84,7 @@ function SortableItem({ entry, hidden, onToggleHidden, badgeEnabled, onToggleBad
           {entry.label}
         </span>
         {hidden && (
-          <span className="rounded bg-elevated px-1.5 py-0.5 text-[10px] text-muted shrink-0">已隐藏</span>
+          <span className="rounded bg-elevated px-1.5 py-0.5 text-[10px] text-muted shrink-0">已隱藏</span>
         )}
         <span className="truncate text-[11px] text-muted font-mono">{entry.id}</span>
       </div>
@@ -92,7 +92,7 @@ function SortableItem({ entry, hidden, onToggleHidden, badgeEnabled, onToggleBad
         <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[11px] ${
           entry.type === 'analysis' ? 'bg-accent/10 text-accent' : 'bg-elevated text-muted'
         }`}>
-          {entry.type === 'builtin' ? '内置' : '扩展'}
+          {entry.type === 'builtin' ? '內建' : '擴展'}
         </span>
       </div>
       <div className="flex justify-center">
@@ -103,7 +103,7 @@ function SortableItem({ entry, hidden, onToggleHidden, badgeEnabled, onToggleBad
               ? 'text-muted hover:text-accent hover:bg-accent/10'
               : 'text-accent hover:bg-accent/10'
           }`}
-          title={hidden ? '显示' : '隐藏'}
+          title={hidden ? '顯示' : '隱藏'}
         >
           {hidden ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
         </button>
@@ -113,7 +113,7 @@ function SortableItem({ entry, hidden, onToggleHidden, badgeEnabled, onToggleBad
           <Link
             to={entry.id}
             className="rounded p-1 text-muted hover:text-accent hover:bg-accent/10 transition-colors"
-            title="打开页面"
+            title="開啟頁面"
           >
             <ExternalLink className="h-3.5 w-3.5" />
           </Link>
@@ -121,7 +121,7 @@ function SortableItem({ entry, hidden, onToggleHidden, badgeEnabled, onToggleBad
           <Link
             to={`/settings?tab=ext-pages`}
             className="rounded p-1 text-muted hover:text-accent hover:bg-accent/10 transition-colors"
-            title="编辑扩展页面"
+            title="編輯擴展頁面"
           >
             <Settings className="h-3.5 w-3.5" />
           </Link>
@@ -137,7 +137,7 @@ function SortableItem({ entry, hidden, onToggleHidden, badgeEnabled, onToggleBad
                 ? 'text-accent hover:bg-accent/10'
                 : 'text-muted hover:text-accent hover:bg-accent/10'
             }`}
-            title={badgeEnabled ? '关闭数字提示' : '开启数字提示'}
+            title={badgeEnabled ? '關閉數字提示' : '開啟數字提示'}
           >
             <Bell className="h-3.5 w-3.5" />
           </button>
@@ -285,21 +285,21 @@ export function SettingsMenuSettingsPanel() {
   return (
     <div className="max-w-5xl space-y-6">
       <section className="rounded-2xl border border-border bg-surface p-6 bg-[radial-gradient(circle_at_top_right,rgba(59,130,246,0.12),transparent_38%)]">
-        <div className="text-[11px] uppercase tracking-[0.2em] text-accent/80">菜单设置</div>
-        <h2 className="mt-2 text-2xl font-semibold tracking-tight text-foreground">调整左侧菜单顺序</h2>
+        <div className="text-[11px] uppercase tracking-[0.2em] text-accent/80">選單設定</div>
+        <h2 className="mt-2 text-2xl font-semibold tracking-tight text-foreground">調整左側選單順序</h2>
         <p className="mt-2 max-w-3xl text-sm leading-6 text-secondary">
-          拖动左侧手柄调整菜单排列顺序，点击眼睛图标控制菜单在侧边栏中的显示或隐藏。
+          拖動左側把手調整選單排列順序,點擊眼睛圖示控制選單在側邊欄中的顯示或隱藏。
         </p>
       </section>
 
       <section className="rounded-card border border-border bg-surface overflow-hidden">
         <div className="grid grid-cols-[2.5rem_1fr_4.5rem_3rem_3rem_3rem] items-center border-b border-border px-4 py-2 text-[11px] text-muted">
           <div />
-          <div>菜单</div>
-          <div>类型</div>
-          <div className="text-center">显示</div>
-          <div className="text-center">设置</div>
-          <div className="text-center">数字</div>
+          <div>選單</div>
+          <div>類型</div>
+          <div className="text-center">顯示</div>
+          <div className="text-center">設定</div>
+          <div className="text-center">數字</div>
         </div>
 
         <DndContext
@@ -325,7 +325,7 @@ export function SettingsMenuSettingsPanel() {
         </DndContext>
 
         {menus.isLoading && (
-          <div className="px-5 py-10 text-center text-sm text-muted">正在加载菜单...</div>
+          <div className="px-5 py-10 text-center text-sm text-muted">正在載入選單…</div>
         )}
       </section>
 
@@ -374,7 +374,7 @@ export function SettingsMenuSettingsPanel() {
                       {item.label}
                     </span>
                     {hidden && (
-                      <span className="rounded bg-elevated px-1.5 py-0.5 text-[10px] text-muted shrink-0">已隐藏</span>
+                      <span className="rounded bg-elevated px-1.5 py-0.5 text-[10px] text-muted shrink-0">已隱藏</span>
                     )}
                   </div>
                   <button

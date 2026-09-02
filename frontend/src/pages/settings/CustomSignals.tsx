@@ -9,7 +9,7 @@ import { Skeleton } from '@/components/data/Skeleton'
 
 type SignalSection = 'builtin' | 'custom'
 
-const KIND_LABEL: Record<SignalKind, string> = { entry: '入场', exit: '出场', both: '出入通用' }
+const KIND_LABEL: Record<SignalKind, string> = { entry: '入場', exit: '出場', both: '出入通用' }
 const KIND_CLASS: Record<SignalKind, string> = {
   entry: 'bg-accent/10 text-accent',
   exit: 'bg-warning/10 text-warning',
@@ -31,8 +31,8 @@ export function SettingsCustomSignalsPanel() {
   const signals = list.data?.signals ?? []
   const enabledCustomSignals = signals.filter(sig => sig.enabled).length
   const tabs = [
-    { key: 'builtin' as const, label: '内置信号', count: BUILTIN_SIGNAL_DEFINITIONS.length, hint: '系统提供，只读' },
-    { key: 'custom' as const, label: '自定义信号', count: signals.length, hint: `${enabledCustomSignals} 个已启用` },
+    { key: 'builtin' as const, label: '內建訊號', count: BUILTIN_SIGNAL_DEFINITIONS.length, hint: '系統提供,唯讀' },
+    { key: 'custom' as const, label: '自訂訊號', count: signals.length, hint: `${enabledCustomSignals} 個已啟用` },
   ]
 
   useEffect(() => () => {
@@ -90,10 +90,10 @@ export function SettingsCustomSignalsPanel() {
       <section className="rounded-2xl border border-border bg-surface p-6 bg-[radial-gradient(circle_at_top_right,rgba(234,179,8,0.12),transparent_38%)]">
         <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
           <div>
-            <div className="text-[11px] uppercase tracking-[0.2em] text-amber-400/80">信号库</div>
-            <h2 className="mt-2 text-2xl font-semibold tracking-tight text-foreground">统一查看策略、回测与监控可用信号</h2>
+            <div className="text-[11px] uppercase tracking-[0.2em] text-amber-400/80">訊號庫</div>
+            <h2 className="mt-2 text-2xl font-semibold tracking-tight text-foreground">統一查看策略、回測與監控可用訊號</h2>
             <p className="mt-2 max-w-3xl text-sm leading-6 text-secondary">
-              内置信号由系统预计算，作为只读信号库展示；自定义信号可用「字段 + 运算符 + 值」组合条件创建，保存后可在策略、回测与监控中选择使用。
+              內建訊號由系統預先計算,作為唯讀訊號庫展示;自訂訊號可用「欄位 + 運算子 + 值」組合條件建立,儲存後可在策略、回測與監控中選擇使用。
             </p>
           </div>
           <button
@@ -101,14 +101,14 @@ export function SettingsCustomSignalsPanel() {
             className="inline-flex items-center justify-center gap-1.5 rounded-btn bg-amber-500/90 px-3 py-1.5 text-xs font-medium text-base hover:bg-amber-500 transition-colors"
           >
             <Plus className="h-3.5 w-3.5" />
-            新建自定义信号
+            新建自訂訊號
           </button>
         </div>
 
         <div className="mt-5 grid grid-cols-1 gap-3 md:grid-cols-3">
-          <StatCard label="内置信号" value={BUILTIN_SIGNAL_DEFINITIONS.length} hint="系统提供，只读" />
-          <StatCard label="自定义信号" value={signals.length} hint="用户创建，可编辑" />
-          <StatCard label="已启用自定义" value={enabledCustomSignals} hint="会注入 csg_* 列" />
+          <StatCard label="內建訊號" value={BUILTIN_SIGNAL_DEFINITIONS.length} hint="系統提供,唯讀" />
+          <StatCard label="自訂訊號" value={signals.length} hint="使用者建立,可編輯" />
+          <StatCard label="已啟用自訂" value={enabledCustomSignals} hint="會注入 csg_* 欄" />
         </div>
 
         <div className="mt-5 rounded-card border border-border bg-base/60 p-1.5">
@@ -140,12 +140,12 @@ export function SettingsCustomSignalsPanel() {
             <div>
               <div className="flex items-center gap-2">
                 <Lock className="h-3.5 w-3.5 text-muted" />
-                <h3 className="text-sm font-medium text-foreground">内置信号</h3>
-                <span className="rounded bg-elevated px-1.5 py-0.5 text-[10px] text-muted">只读</span>
+                <h3 className="text-sm font-medium text-foreground">內建訊號</h3>
+                <span className="rounded bg-elevated px-1.5 py-0.5 text-[10px] text-muted">唯讀</span>
               </div>
-              <p className="mt-1 text-xs text-muted">这些信号由系统在 enriched 数据中预计算，策略选择器会直接展示。</p>
+              <p className="mt-1 text-xs text-muted">這些訊號由系統在 enriched 資料中預先計算,策略選擇器會直接展示。</p>
             </div>
-            <div className="text-[11px] text-muted">ID 前缀：<span className="font-mono text-foreground/70">signal_</span></div>
+            <div className="text-[11px] text-muted">ID 前綴:<span className="font-mono text-foreground/70">signal_</span></div>
           </div>
           <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
             {BUILTIN_SIGNAL_DEFINITIONS.map(sig => (
@@ -175,17 +175,17 @@ export function SettingsCustomSignalsPanel() {
             <div>
               <div className="flex items-center gap-2">
                 <Zap className="h-3.5 w-3.5 text-amber-400" />
-                <h3 className="text-sm font-medium text-foreground">自定义信号</h3>
-                <span className="rounded bg-amber-400/10 px-1.5 py-0.5 text-[10px] text-amber-400">可配置</span>
+                <h3 className="text-sm font-medium text-foreground">自訂訊號</h3>
+                <span className="rounded bg-amber-400/10 px-1.5 py-0.5 text-[10px] text-amber-400">可設定</span>
               </div>
-              <p className="mt-1 text-xs text-muted">这些信号由你定义，可启用/停用，并在策略、回测与监控中作为 csg_* 信号使用。</p>
+              <p className="mt-1 text-xs text-muted">這些訊號由你定義,可啟用/停用,並在策略、回測與監控中作為 csg_* 訊號使用。</p>
             </div>
             <button
               onClick={openNew}
               className="inline-flex items-center justify-center gap-1.5 rounded-btn border border-amber-400/30 bg-amber-400/5 px-3 py-1.5 text-xs font-medium text-amber-400 hover:bg-amber-400/10 transition-colors"
             >
               <Plus className="h-3.5 w-3.5" />
-              新建自定义信号
+              新建自訂訊號
             </button>
           </div>
 
@@ -204,27 +204,27 @@ export function SettingsCustomSignalsPanel() {
                     <p className="mt-1 text-[11px] text-muted font-mono truncate">csg_{sig.id}</p>
                   </div>
                   <div className="flex items-center gap-1 shrink-0">
-                    <button onClick={() => toggleEnabled(sig)} title={sig.enabled ? '停用' : '启用'} className={`p-1 rounded cursor-pointer ${sig.enabled ? 'text-emerald-400 hover:bg-emerald-400/10' : 'text-muted hover:bg-elevated'}`}>
+                    <button onClick={() => toggleEnabled(sig)} title={sig.enabled ? '停用' : '啟用'} className={`p-1 rounded cursor-pointer ${sig.enabled ? 'text-emerald-400 hover:bg-emerald-400/10' : 'text-muted hover:bg-elevated'}`}>
                       <Zap className="h-3.5 w-3.5" />
                     </button>
-                    <button onClick={() => openEdit(sig)} className="p-1 rounded text-muted hover:text-accent hover:bg-accent/10 cursor-pointer" title="编辑">
+                    <button onClick={() => openEdit(sig)} className="p-1 rounded text-muted hover:text-accent hover:bg-accent/10 cursor-pointer" title="編輯">
                       <Settings2 className="h-3.5 w-3.5" />
                     </button>
                     {confirmingDeleteId === sig.id ? (
                       <button
                         onClick={() => handleDeleteClick(sig)}
                         disabled={del.isPending}
-                        title="再次点击确认删除"
+                        title="再次點擊確認刪除"
                         className="inline-flex items-center gap-1 rounded-md bg-danger/15 px-1.5 py-0.5 text-[10px] font-medium text-danger border border-danger/30 animate-pulse cursor-pointer disabled:opacity-50"
                       >
-                        <Trash2 className="h-2.5 w-2.5" />确认
+                        <Trash2 className="h-2.5 w-2.5" />確認
                       </button>
                     ) : (
                       <button
                         onClick={() => handleDeleteClick(sig)}
                         disabled={del.isPending}
                         className="p-1 rounded text-muted hover:text-danger hover:bg-danger/10 cursor-pointer disabled:opacity-50"
-                        title="删除"
+                        title="刪除"
                       >
                         <Trash2 className="h-3.5 w-3.5" />
                       </button>
@@ -234,7 +234,7 @@ export function SettingsCustomSignalsPanel() {
                 <div className="mt-3 space-y-1">
                   {sig.conditions.map((c, i) => (
                     <div key={i} className="flex items-center gap-1.5 text-[11px] text-secondary">
-                      <span className="text-muted/50 w-6 text-right">{i === 0 ? '当' : '且'}</span>
+                      <span className="text-muted/50 w-6 text-right">{i === 0 ? '當' : '且'}</span>
                       <span className="font-mono text-foreground/80">{fieldWithDays(c.left, c.leftDays, fields)}</span>
                       <span className="font-mono text-muted">{c.op}</span>
                       <span className="font-mono text-foreground/80">
@@ -257,7 +257,7 @@ export function SettingsCustomSignalsPanel() {
               ))}
             {!list.isLoading && signals.length === 0 && (
               <div className="rounded-card border border-border bg-base px-5 py-10 text-center text-sm text-muted md:col-span-2">
-                暂无自定义信号，点击右上角「新建自定义信号」。
+                尚無自訂訊號,點擊右上角「新建自訂訊號」。
               </div>
             )}
           </div>

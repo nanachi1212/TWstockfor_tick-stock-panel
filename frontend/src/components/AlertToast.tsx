@@ -85,16 +85,16 @@ const SEVERITY_BAR: Record<string, string> = {
 }
 const SOURCE_BADGE: Record<string, { label: string; cls: string }> = {
   strategy:  { label: '策略',   cls: 'bg-amber-400/15 text-amber-400' },
-  signal:    { label: '信号',   cls: 'bg-accent/15 text-accent' },
-  price:     { label: '价格',   cls: 'bg-emerald-400/15 text-emerald-400' },
-  market:    { label: '异动',   cls: 'bg-purple-500/15 text-purple-400' },
-  sector:    { label: '板块',   cls: 'bg-cyan-500/15 text-cyan-700 dark:text-cyan-300' },
-  abnormal:  { label: '异动边缘', cls: 'bg-orange-500/15 text-orange-500 dark:text-orange-400' },
-  pool_entry: { label: '进入', cls: 'bg-danger/15 text-danger' },
+  signal:    { label: '訊號',   cls: 'bg-accent/15 text-accent' },
+  price:     { label: '價格',   cls: 'bg-emerald-400/15 text-emerald-400' },
+  market:    { label: '異動',   cls: 'bg-purple-500/15 text-purple-400' },
+  sector:    { label: '板塊',   cls: 'bg-cyan-500/15 text-cyan-700 dark:text-cyan-300' },
+  abnormal:  { label: '異動邊緣', cls: 'bg-orange-500/15 text-orange-500 dark:text-orange-400' },
+  pool_entry: { label: '進入', cls: 'bg-danger/15 text-danger' },
   pool_exit:   { label: '移出', cls: 'bg-bear/15 text-bear' },
-  buy_signal: { label: '买入', cls: 'bg-danger/15 text-danger' },
-  sell_signal: { label: '卖出', cls: 'bg-bear/15 text-bear' },
-  new_entry: { label: '进入', cls: 'bg-danger/15 text-danger' },
+  buy_signal: { label: '買進', cls: 'bg-danger/15 text-danger' },
+  sell_signal: { label: '賣出', cls: 'bg-bear/15 text-bear' },
+  new_entry: { label: '進入', cls: 'bg-danger/15 text-danger' },
   dropped:   { label: '移出', cls: 'bg-bear/15 text-bear' },
 }
 
@@ -150,7 +150,7 @@ export function AlertToastContainer() {
               onClick={() => handleClick(item.id)}
               role="button"
               tabIndex={0}
-              aria-label={`查看监控通知${ev.name ? ` ${ev.name}` : ''}${ev.symbol ? ` ${ev.symbol}` : ''}`}
+              aria-label={`查看監控通知${ev.name ? ` ${ev.name}` : ''}${ev.symbol ? ` ${ev.symbol}` : ''}`}
               onKeyDown={(e) => {
                 if (e.key === 'Enter' || e.key === ' ') {
                   e.preventDefault()
@@ -175,7 +175,7 @@ export function AlertToastContainer() {
                     {fmtPct(pct)}
                   </span>
                 )}
-                <button aria-label="关闭通知" onClick={(e) => { e.stopPropagation(); dismiss(item.id) }} className="shrink-0 p-0.5 rounded text-muted/50 hover:text-foreground hover:bg-elevated transition-colors cursor-pointer">
+                <button aria-label="關閉通知" onClick={(e) => { e.stopPropagation(); dismiss(item.id) }} className="shrink-0 p-0.5 rounded text-muted/50 hover:text-foreground hover:bg-elevated transition-colors cursor-pointer">
                   <X className="h-3 w-3" />
                 </button>
               </div>

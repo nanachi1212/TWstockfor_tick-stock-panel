@@ -89,30 +89,30 @@ export function TickFlowKeyConfig() {
                 tickflow.org
                 <ExternalLink className="h-3 w-3 self-center" />
               </a>{' '}
-              注册获取。API Key 存放为本地文件,不会上传任何第三方,请妥善保管。
+              註冊取得。API Key 存放為本機檔案,不會上傳任何第三方,請妥善保管。
             </p>
 
             {/* 当前状态 */}
             <div className="flex items-center justify-between mb-4">
               <div className="min-w-0">
-                <div className="text-[10px] uppercase tracking-widest text-muted">状态</div>
+                <div className="text-[10px] uppercase tracking-widest text-muted">狀態</div>
                 <div className="mt-1 flex items-center gap-2 min-w-0">
                   {mode === 'api_key' ? (
                     <>
                       <CheckCircle2 className="h-4 w-4 text-bear shrink-0" />
-                      <span className="text-sm font-medium shrink-0">已配置</span>
+                      <span className="text-sm font-medium shrink-0">已設定</span>
                       <span className="font-mono text-xs text-secondary truncate">{masked}</span>
                     </>
                   ) : mode === 'free' ? (
                     <>
                       <CheckCircle2 className="h-4 w-4 text-bear shrink-0" />
-                      <span className="text-sm font-medium shrink-0">免费 Key</span>
+                      <span className="text-sm font-medium shrink-0">免費 Key</span>
                       <span className="font-mono text-xs text-secondary truncate">{masked}</span>
                     </>
                   ) : (
                     <>
                       <AlertCircle className="h-4 w-4 text-muted shrink-0" />
-                      <span className="text-sm font-medium text-muted">未配置</span>
+                      <span className="text-sm font-medium text-muted">未設定</span>
                     </>
                   )}
                 </div>
@@ -140,7 +140,7 @@ export function TickFlowKeyConfig() {
               <div className="relative">
                 <input
                   type={revealing ? 'text' : 'password'}
-                  placeholder={mode === 'none' ? '粘贴 TickFlow API Key' : '粘贴新 Key 替换当前'}
+                  placeholder={mode === 'none' ? '貼上 TickFlow API Key' : '貼上新 Key 取代目前'}
                   value={keyInput}
                   onChange={(e) => { setKeyInput(e.target.value); if (saved) setSaved(false) }}
                   className="w-full px-3 py-2 pr-9 rounded-input bg-base border border-border text-sm font-mono focus:outline-none focus:border-accent transition-colors duration-150 ease-smooth"
@@ -150,7 +150,7 @@ export function TickFlowKeyConfig() {
                   onClick={() => setRevealing((v) => !v)}
                   className="absolute right-2 top-1/2 -translate-y-1/2 text-muted hover:text-foreground transition-colors duration-150 ease-smooth"
                   tabIndex={-1}
-                  aria-label={revealing ? '隐藏' : '显示'}
+                  aria-label={revealing ? '隱藏' : '顯示'}
                 >
                   {revealing ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                 </button>
@@ -161,7 +161,7 @@ export function TickFlowKeyConfig() {
                 className="w-full h-10 rounded-xl bg-accent text-white text-sm font-semibold flex items-center justify-center gap-2 hover:bg-accent/90 disabled:opacity-40 transition-all"
               >
                 {save.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : saved ? <Check className="h-4 w-4" /> : <Save className="h-4 w-4" />}
-                {save.isPending ? '保存中...' : saved ? '已保存' : '保存并检测'}
+                {save.isPending ? '儲存中…' : saved ? '已儲存' : '儲存並檢測'}
               </button>
 
               {/* 检测中提示 —— 成功/失败后自动消失 */}
@@ -169,14 +169,14 @@ export function TickFlowKeyConfig() {
                 <div className="flex items-start gap-1.5 rounded-btn border border-warning/30 bg-warning/10 px-3 py-2 text-[11px] leading-snug text-warning">
                   <AlertCircle className="h-3.5 w-3.5 mt-px shrink-0" />
                   <span>
-                    验证通过前请不要离开当前页面 · 如遇网络问题请点击
+                    驗證通過前請不要離開目前頁面 · 如遇網路問題請點擊
                     <button
                       type="button"
                       onClick={() => { save.reset(); redetect.mutate() }}
                       disabled={redetect.isPending}
                       className="font-semibold underline underline-offset-2 hover:text-warning/80 disabled:opacity-50"
                     >
-                      {redetect.isPending ? '重新检测中…' : '重新检测'}
+                      {redetect.isPending ? '重新檢測中…' : '重新檢測'}
                     </button>
                   </span>
                 </div>
@@ -185,7 +185,7 @@ export function TickFlowKeyConfig() {
 
             {save.isError && (
               <div className="mt-3 text-xs text-danger">
-                保存失败:{String((save.error as any).message)}
+                儲存失敗:{String((save.error as any).message)}
               </div>
             )}
             {/* 无效 key —— 先探后存:探测失败(key 无效/乱填)时不存储,提示用户 */}
@@ -193,15 +193,15 @@ export function TickFlowKeyConfig() {
               <div className="mt-3 text-xs text-danger flex items-center gap-1.5">
                 <AlertCircle className="h-3 w-3 shrink-0" />
                 {save.data.reason === 'invalid'
-                  ? 'Key 无效或已过期,请检查后重试(未保存该 Key)'
-                  : save.data.error ?? '保存失败'}
+                  ? 'Key 無效或已過期,請檢查後重試(未儲存該 Key)'
+                  : save.data.error ?? '儲存失敗'}
               </div>
             )}
             {save.data?.ok && (
               <div className="mt-3 text-xs text-bear flex items-center gap-1.5">
                 <CheckCircle2 className="h-3 w-3" />
-                保存成功 — 档位 {save.data.tier_label}
-                {save.data.mode === 'free' && '(免费档 · 历史日K + 自选实时监控)'}
+                儲存成功 — 檔位 {save.data.tier_label}
+                {save.data.mode === 'free' && '(免費檔 · 歷史日K + 自選即時監控)'}
               </div>
             )}
           </Card>
@@ -211,7 +211,7 @@ export function TickFlowKeyConfig() {
         <div className="space-y-6">
           <Card
             icon={Activity}
-            title="订阅档位"
+            title="訂閱檔位"
             right={
               <button
                 onClick={() => redetect.mutate()}
@@ -219,7 +219,7 @@ export function TickFlowKeyConfig() {
                 className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-btn bg-elevated hover:bg-elevated/80 text-xs text-secondary transition-colors duration-150 ease-smooth disabled:opacity-50"
               >
                 <RefreshCw className={`h-3 w-3 ${redetect.isPending ? 'animate-spin' : ''}`} />
-                重新检测
+                重新檢測
               </button>
             }
           >
@@ -232,13 +232,13 @@ export function TickFlowKeyConfig() {
                   <TierHelpPopover currentLabel={caps.data.label} />
                 </div>
                 <div className="mt-1 text-xs text-muted">
-                  根据 API Key 自动检测 · 拥有"代表性 capability"任一即认为该档
+                  根據 API Key 自動檢測 · 擁有「代表性 capability」任一即認定該檔
                 </div>
 
                 {settings.data?.missing_caps && settings.data.missing_caps.length > 0 && (
                   <div className="mt-3 rounded-btn border border-warning/40 bg-warning/5 px-3 py-2 text-xs">
                     <div className="font-medium text-warning mb-1">
-                      本档应有但未探测到({settings.data.missing_caps.length} 项)
+                      本檔應有但未偵測到({settings.data.missing_caps.length} 項)
                     </div>
                     <div className="text-secondary space-y-0.5">
                       {settings.data.missing_caps.map((c) => (
@@ -251,11 +251,11 @@ export function TickFlowKeyConfig() {
                 )}
               </>
             ) : (
-              <div className="text-sm text-muted">加载中…</div>
+              <div className="text-sm text-muted">載入中…</div>
             )}
           </Card>
 
-          <Card icon={CheckCircle2} title="可用功能" badge={`${capCount} 项`}>
+          <Card icon={CheckCircle2} title="可用功能" badge={`${capCount} 項`}>
             {caps.data && (
               <motion.div
                 initial={{ opacity: 0 }}
@@ -283,10 +283,10 @@ export function TickFlowKeyConfig() {
                         </div>
                         <div className="text-right shrink-0 text-xs">
                           <div className="font-mono text-foreground">
-                            {lim.rpm ? `${lim.rpm}/min` : lim.subscribe ? `${lim.subscribe} 订阅` : '—'}
+                            {lim.rpm ? `${lim.rpm}/min` : lim.subscribe ? `${lim.subscribe} 訂閱` : '—'}
                           </div>
                           {lim.batch && (
-                            <div className="font-mono text-muted">{lim.batch} 只/次</div>
+                            <div className="font-mono text-muted">{lim.batch} 檔/次</div>
                           )}
                         </div>
                       </div>
@@ -299,7 +299,7 @@ export function TickFlowKeyConfig() {
             {settings.data?.probe_log && settings.data.probe_log.length > 0 && (
               <details className="mt-4 -mx-5 -mb-5 border-t border-border">
                 <summary className="cursor-pointer px-5 py-3 text-xs text-muted hover:text-secondary transition-colors duration-150 ease-smooth select-none">
-                  查看检测日志
+                  查看檢測日誌
                 </summary>
                 <div className="px-5 pb-4 font-mono text-[11px] space-y-0.5 text-secondary">
                   {settings.data.probe_log.map((line, i) => (
@@ -322,7 +322,7 @@ export function TickFlowKeyConfig() {
           <div className="relative w-[90vw] max-w-[380px] rounded-card border border-border bg-base shadow-2xl p-6">
             <h3 className="text-sm font-medium text-foreground mb-2">清除 API Key</h3>
             <p className="text-xs text-secondary mb-5">
-              清除后将退回 None 档(仅历史日K),需要重新输入 Key 才能恢复。
+              清除後將退回 None 檔(僅歷史日K),需要重新輸入 Key 才能恢復。
             </p>
             <div className="flex items-center justify-end gap-2">
               <button
@@ -336,7 +336,7 @@ export function TickFlowKeyConfig() {
                 disabled={clear.isPending}
                 className="px-3 py-1.5 rounded-btn bg-danger/15 text-danger hover:bg-danger/25 text-sm font-medium transition-colors disabled:opacity-50"
               >
-                {clear.isPending ? '清除中...' : '确认清除'}
+                {clear.isPending ? '清除中…' : '確認清除'}
               </button>
             </div>
           </div>
@@ -396,14 +396,14 @@ function TierHelpPopover({ currentLabel }: { currentLabel: string }) {
               </div>
 
               <div className="mb-3 rounded-btn border border-warning/30 bg-warning/10 px-2.5 py-1.5 text-[11px] font-medium text-warning">
-                高等档位包含较低档位的全部权益。
+                較高檔位包含較低檔位的全部權益。
               </div>
 
               {/* 检测说明 */}
               <div className="text-secondary space-y-1.5">
-                <div className="font-medium text-foreground">档位检测说明</div>
-                <p>保存 Key 后系统会在付费端点逐一试探数据能力:连单只日K都拿不到则判为「None」(不存 Key);有日K但无复权因子则判为「Free」;有复权因子再按代表能力判定 Starter/Pro/Expert。</p>
-                <p className="text-muted">None 档与 Free 档运行时都走免费数据通道(仅历史日K),区别仅在于是否保存了 Key。付费档走付费端点,享有实时行情等完整能力。</p>
+                <div className="font-medium text-foreground">檔位檢測說明</div>
+                <p>儲存 Key 後系統會在付費端點逐一試探資料能力:連單一檔日K都拿不到則判為「None」(不存 Key);有日K但無除權因子則判為「Free」;有除權因子再依代表能力判定 Starter/Pro/Expert。</p>
+                <p className="text-muted">None 檔與 Free 檔執行時都走免費資料通道(僅歷史日K),差別僅在於是否儲存了 Key。付費檔走付費端點,享有即時行情等完整能力。</p>
               </div>
             </motion.div>
           </>

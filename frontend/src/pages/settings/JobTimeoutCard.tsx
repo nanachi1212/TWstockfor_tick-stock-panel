@@ -61,9 +61,9 @@ export function JobTimeoutCard() {
         current ? { ...current, ...saved } : current
       ))
       setTimeoutDraft(null)
-      toast('任务超时配置已保存', 'success')
+      toast('任務逾時設定已儲存', 'success')
     },
-    onError: (e: Error) => toast(`保存失败: ${e.message}`, 'error'),
+    onError: (e: Error) => toast(`儲存失敗: ${e.message}`, 'error'),
   })
 
   return (
@@ -72,9 +72,9 @@ export function JobTimeoutCard() {
         <div className="flex items-start gap-2.5">
           <Clock3 className="h-4 w-4 text-secondary mt-0.5" />
           <div>
-            <h2 className="text-sm font-medium text-foreground">超时设置</h2>
+            <h2 className="text-sm font-medium text-foreground">逾時設定</h2>
             <p className="text-[11px] text-muted mt-1 leading-relaxed">
-              后台任务超过对应时间<b>没有任何进度</b>才判定卡死并自动终止；只要任务仍在推进（如慢带宽下的冷启动全市场拉取），无论总时长多久都不会被中断。保存时自动换算为秒，修改后对新建任务生效。
+              背景任務超過對應時間<b>沒有任何進度</b>才判定卡死並自動終止;只要任務仍在推進(如慢頻寬下的冷啟動全市場拉取),無論總時長多久都不會被中斷。儲存時自動換算為秒,修改後對新建任務生效。
             </p>
           </div>
         </div>
@@ -83,14 +83,14 @@ export function JobTimeoutCard() {
           disabled={!timeoutValuesValid || !timeoutValuesChanged || saveJobTimeouts.isPending}
           className="shrink-0 px-3 py-1.5 rounded-btn bg-accent text-white text-xs font-medium hover:bg-accent/90 disabled:opacity-40 transition-colors"
         >
-          {saveJobTimeouts.isPending ? '保存中...' : '保存'}
+          {saveJobTimeouts.isPending ? '儲存中…' : '儲存'}
         </button>
       </div>
 
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
         <label className="rounded-lg border border-border/60 bg-elevated/20 px-3.5 py-3">
-          <span className="block text-xs font-medium text-foreground mb-1">普通任务停滞超时</span>
-          <span className="block text-[10px] text-muted mb-2">日 K 管道、扩展、修正与重算任务</span>
+          <span className="block text-xs font-medium text-foreground mb-1">一般任務停滯逾時</span>
+          <span className="block text-[10px] text-muted mb-2">日 K 管道、擴展、修正與重算任務</span>
           <div className="flex items-center gap-2">
             <input
               type="number"
@@ -113,16 +113,16 @@ export function JobTimeoutCard() {
               className="w-20 shrink-0 rounded-btn border border-border bg-base px-2 py-1.5 text-xs text-foreground outline-none focus:border-accent"
             >
               <option value="second">秒</option>
-              <option value="minute">分钟</option>
-              <option value="hour">小时</option>
+              <option value="minute">分鐘</option>
+              <option value="hour">小時</option>
             </select>
           </div>
-          <span className="block text-[10px] text-muted/60 mt-1.5">默认 20 分钟无进度，最小 1 分钟</span>
+          <span className="block text-[10px] text-muted/60 mt-1.5">預設 20 分鐘無進度,最小 1 分鐘</span>
         </label>
 
         <label className="rounded-lg border border-border/60 bg-elevated/20 px-3.5 py-3">
-          <span className="block text-xs font-medium text-foreground mb-1">长任务停滞超时</span>
-          <span className="block text-[10px] text-muted mb-2">分钟 K 全市场同步任务</span>
+          <span className="block text-xs font-medium text-foreground mb-1">長任務停滯逾時</span>
+          <span className="block text-[10px] text-muted mb-2">分鐘 K 全市場同步任務</span>
           <div className="flex items-center gap-2">
             <input
               type="number"
@@ -145,11 +145,11 @@ export function JobTimeoutCard() {
               className="w-20 shrink-0 rounded-btn border border-border bg-base px-2 py-1.5 text-xs text-foreground outline-none focus:border-accent"
             >
               <option value="second">秒</option>
-              <option value="minute">分钟</option>
-              <option value="hour">小时</option>
+              <option value="minute">分鐘</option>
+              <option value="hour">小時</option>
             </select>
           </div>
-          <span className="block text-[10px] text-muted/60 mt-1.5">默认 30 分钟无进度，最小 1 分钟</span>
+          <span className="block text-[10px] text-muted/60 mt-1.5">預設 30 分鐘無進度,最小 1 分鐘</span>
         </label>
       </div>
     </section>

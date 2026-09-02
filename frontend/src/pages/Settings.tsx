@@ -31,14 +31,14 @@ type TabDef = {
 }
 
 const TABS: readonly TabDef[] = [
-  { key: 'data-sources', label: '数据源',     icon: Database,  panel: SettingsDataSourcesPanel },
-  { key: 'ai',         label: 'AI 设置',    icon: Sparkles,  panel: SettingsAIPanel },
-  { key: 'monitoring', label: '实时监控',   icon: Radio,     panel: SettingsMonitoringPanel },
-  { key: 'ext-pages',  label: '扩展页面',   icon: BarChart3, panel: SettingsExtPagesPanel },
-  { key: 'signals',    label: '信号库',     icon: Zap,       panel: SettingsCustomSignalsPanel },
-  { key: 'timeout',    label: '超时设置',   icon: Clock3,    panel: SettingsTimeoutPanel },
-  { key: 'menus',      label: '菜单设置',   icon: SlidersHorizontal, panel: SettingsMenuSettingsPanel },
-  { key: 'system',     label: '系统设置',   icon: Settings2, panel: SettingsSystemPanel },
+  { key: 'data-sources', label: '資料來源',     icon: Database,  panel: SettingsDataSourcesPanel },
+  { key: 'ai',         label: 'AI 設定',    icon: Sparkles,  panel: SettingsAIPanel },
+  { key: 'monitoring', label: '即時監控',   icon: Radio,     panel: SettingsMonitoringPanel },
+  { key: 'ext-pages',  label: '擴展頁面',   icon: BarChart3, panel: SettingsExtPagesPanel },
+  { key: 'signals',    label: '訊號庫',     icon: Zap,       panel: SettingsCustomSignalsPanel },
+  { key: 'timeout',    label: '逾時設定',   icon: Clock3,    panel: SettingsTimeoutPanel },
+  { key: 'menus',      label: '選單設定',   icon: SlidersHorizontal, panel: SettingsMenuSettingsPanel },
+  { key: 'system',     label: '系統設定',   icon: Settings2, panel: SettingsSystemPanel },
 ]
 
 type TabKey = (typeof TABS)[number]['key']
@@ -64,8 +64,8 @@ export function Settings() {
   return (
     <>
       <PageHeader
-        title="设置"
-        subtitle="管理账户、数据刷新策略和高级功能配置。"
+        title="設定"
+        subtitle="管理帳戶、資料重新整理策略與進階功能設定。"
       />
 
       <div className="px-8 py-6">
@@ -80,13 +80,13 @@ export function Settings() {
                   'flex items-center gap-2 rounded-btn text-muted hover:text-foreground hover:bg-elevated/60 transition-colors duration-150 ease-smooth mb-1',
                   collapsed ? 'justify-center px-0 py-2' : 'px-3 py-2 text-xs',
                 )}
-                title={collapsed ? '展开菜单' : '收起菜单'}
+                title={collapsed ? '展開選單' : '收起選單'}
               >
                 {collapsed
                   ? <PanelLeftOpen className="h-3.5 w-3.5 shrink-0" />
                   : <PanelLeftClose className="h-3.5 w-3.5 shrink-0" />
                 }
-                {!collapsed && <span>收起菜单</span>}
+                {!collapsed && <span>收起選單</span>}
               </button>
 
               {/* Tab 按钮列表 — 收起时只显示图标 */}

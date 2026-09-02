@@ -44,7 +44,7 @@ export function DatePicker({
   onChange,
   min,
   max,
-  placeholder = '选择日期',
+  placeholder = '選擇日期',
   className = '',
   buttonClassName = '',
   align = 'right',

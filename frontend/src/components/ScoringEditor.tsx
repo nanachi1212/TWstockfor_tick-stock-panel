@@ -90,7 +90,7 @@ function ScoringRow({ name, label, weight, direction, editing, onWeightChange, o
           value={weight}
           onChange={event => onWeightChange(Number(event.target.value))}
           className="h-1 min-w-0 cursor-pointer accent-amber-400"
-          aria-label={`${label}权重`}
+          aria-label={`${label}權重`}
         />
       ) : (
         <div className="h-1.5 min-w-0 overflow-hidden rounded-full bg-elevated">
@@ -104,7 +104,7 @@ function ScoringRow({ name, label, weight, direction, editing, onWeightChange, o
           onClick={onRemove}
           className="flex h-7 w-7 items-center justify-center rounded-btn text-muted transition-colors hover:bg-danger/10 hover:text-danger"
           title={`移除${label}`}
-          aria-label={`移除评分因子${label}`}
+          aria-label={`移除評分因子${label}`}
         >
           <Trash2 className="h-3.5 w-3.5" />
         </button>
@@ -190,10 +190,10 @@ export function ScoringEditor({ value, directions, onChange, fallbackLabels = {}
             onChange={event => setFactorToAdd(event.target.value)}
             disabled={factors.isLoading || factors.isError}
             className="h-8 min-w-0 flex-1 rounded-input border border-border bg-base px-2 text-xs text-secondary focus:border-accent focus:outline-none disabled:opacity-50"
-            aria-label="选择要添加的评分因子"
+            aria-label="選擇要新增的評分因子"
           >
             <option value="">
-              {factors.isLoading ? '加载因子目录…' : factors.isError ? '因子目录加载失败' : '选择评分因子'}
+              {factors.isLoading ? '載入因子目錄…' : factors.isError ? '因子目錄載入失敗' : '選擇評分因子'}
             </option>
             {Object.entries(factorGroups).map(([group, items]) => {
               const available = items.filter(item => !(item.id in draft))
@@ -209,8 +209,8 @@ export function ScoringEditor({ value, directions, onChange, fallbackLabels = {}
             onClick={addFactor}
             disabled={!factorToAdd}
             className="flex h-8 w-8 shrink-0 items-center justify-center rounded-btn border border-accent/30 bg-accent/10 text-accent transition-colors hover:bg-accent/15 disabled:cursor-not-allowed disabled:opacity-40"
-            title="添加评分因子"
-            aria-label="添加评分因子"
+            title="新增評分因子"
+            aria-label="新增評分因子"
           >
             <Plus className="h-3.5 w-3.5" />
           </button>
@@ -235,13 +235,13 @@ export function ScoringEditor({ value, directions, onChange, fallbackLabels = {}
         </div>
       ) : (
         <div className="border-y border-border/40 py-5 text-center text-xs text-muted">
-          {editing ? '请选择评分因子' : '当前策略不使用因子评分'}
+          {editing ? '請選擇評分因子' : '目前策略不使用因子評分'}
         </div>
       )}
 
       <div className="flex flex-wrap items-center justify-between gap-2 border-t border-border/40 pt-2">
         <div className="text-[10px] text-muted">
-          权重 <span className={`font-mono text-xs font-medium ${editing && draftTotal !== 100 ? 'text-amber-400' : 'text-emerald-400'}`}>
+          權重 <span className={`font-mono text-xs font-medium ${editing && draftTotal !== 100 ? 'text-amber-400' : 'text-emerald-400'}`}>
             {editing ? draftTotal : visibleKeys.length > 0 ? 100 : 0}%
           </span>
         </div>
@@ -251,8 +251,8 @@ export function ScoringEditor({ value, directions, onChange, fallbackLabels = {}
               type="button"
               onClick={cancelEditing}
               className="flex h-7 w-7 items-center justify-center rounded-btn text-muted transition-colors hover:bg-elevated hover:text-foreground"
-              title="取消编辑"
-              aria-label="取消编辑评分方案"
+              title="取消編輯"
+              aria-label="取消編輯評分方案"
             >
               <X className="h-3.5 w-3.5" />
             </button>
@@ -263,7 +263,7 @@ export function ScoringEditor({ value, directions, onChange, fallbackLabels = {}
             className="inline-flex h-7 items-center gap-1.5 rounded-btn border border-amber-400/40 bg-amber-400/10 px-2.5 text-[11px] text-amber-400 transition-colors hover:bg-amber-400/15"
           >
             {editing ? <Save className="h-3.5 w-3.5" /> : <Pencil className="h-3.5 w-3.5" />}
-            {editing ? '保存方案' : '编辑方案'}
+            {editing ? '儲存方案' : '編輯方案'}
           </button>
         </div>
       </div>

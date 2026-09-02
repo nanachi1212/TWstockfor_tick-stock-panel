@@ -101,19 +101,19 @@ export function SettingsSystemPanel() {
   return (
     <>
       <PageHeader
-        title="系统设置"
-        subtitle="全局行为开关"
+        title="系統設定"
+        subtitle="全域行為開關"
       />
 
       <section className="rounded-card border border-border bg-surface p-5">
         <div className="flex items-center gap-2 mb-4">
           <Settings2 className="h-4 w-4 text-accent" />
-          <h3 className="text-sm font-medium text-foreground">策略页</h3>
+          <h3 className="text-sm font-medium text-foreground">策略頁</h3>
         </div>
 
         <ToggleRow
-          label="进入策略页自动运行策略"
-          desc="开启后进入策略页自动跑所有策略获取命中数; 关闭则需手动点击"
+          label="進入策略頁自動執行策略"
+          desc="開啟後進入策略頁自動跑所有策略取得命中數;關閉則需手動點擊"
           checked={screenerAutoRun}
           disabled={saving}
           onChange={(v) => save({ screener_auto_run: v })}
@@ -123,12 +123,12 @@ export function SettingsSystemPanel() {
       <section className="rounded-card border border-border bg-surface p-5 mt-6">
         <div className="flex items-center gap-2 mb-4">
           <Bell className="h-4 w-4 text-accent" />
-          <h3 className="text-sm font-medium text-foreground">通知弹窗</h3>
+          <h3 className="text-sm font-medium text-foreground">通知彈窗</h3>
         </div>
 
         <ToggleRow
-          label="开启监控通知弹窗"
-          desc="收到监控告警时在右下角弹出通知卡片"
+          label="開啟監控通知彈窗"
+          desc="收到監控告警時在右下角彈出通知卡片"
           checked={toastEnabled}
           disabled={saving}
           onChange={(v) => {
@@ -140,8 +140,8 @@ export function SettingsSystemPanel() {
 
         <div className="flex items-center justify-between gap-4 py-2">
           <div className="min-w-0">
-            <div className="text-sm text-foreground">最大弹窗个数</div>
-            <div className="text-[11px] text-muted truncate">同时显示的通知数量 (1-5), 超出丢弃最旧的</div>
+            <div className="text-sm text-foreground">最大彈窗個數</div>
+            <div className="text-[11px] text-muted truncate">同時顯示的通知數量 (1-5),超出捨棄最舊的</div>
           </div>
           <select
             value={toastMax}
@@ -159,8 +159,8 @@ export function SettingsSystemPanel() {
         </div>
 
         <ToggleRow
-          label="通知声效"
-          desc="收到监控告警时播放提示音"
+          label="通知音效"
+          desc="收到監控告警時播放提示音"
           checked={soundEnabled}
           disabled={!toastEnabled}
           onChange={(v) => {
@@ -174,8 +174,8 @@ export function SettingsSystemPanel() {
           <div className="min-w-0 flex items-center gap-1.5">
             <Volume2 className="h-3.5 w-3.5 text-muted" />
             <div>
-              <div className="text-sm text-foreground">声效选择</div>
-              <div className="text-[11px] text-muted truncate">选择提示音风格</div>
+              <div className="text-sm text-foreground">音效選擇</div>
+              <div className="text-[11px] text-muted truncate">選擇提示音風格</div>
             </div>
           </div>
           <div className="flex items-center gap-1.5">
@@ -197,7 +197,7 @@ export function SettingsSystemPanel() {
               disabled={!toastEnabled || !soundEnabled || soundType === 'none'}
               className="px-2 h-8 rounded-btn border border-border bg-base text-xs text-secondary hover:text-foreground hover:border-accent/30 disabled:opacity-50 transition-colors cursor-pointer"
             >
-              试听
+              試聽
             </button>
           </div>
         </div>
@@ -206,12 +206,12 @@ export function SettingsSystemPanel() {
       <section className="rounded-card border border-border bg-surface p-5 mt-6">
         <div className="flex items-center gap-2 mb-4">
           <Volume2 className="h-4 w-4 text-accent" />
-          <h3 className="text-sm font-medium text-foreground">语音播报</h3>
+          <h3 className="text-sm font-medium text-foreground">語音播報</h3>
         </div>
 
         <ToggleRow
-          label="监控告警语音播报"
-          desc="收到告警时用中文语音播报内容 (需浏览器支持, 默认关闭)"
+          label="監控告警語音播報"
+          desc="收到告警時用中文語音播報內容 (需瀏覽器支援,預設關閉)"
           checked={voiceEnabled}
           disabled={!toastEnabled}
           onChange={(v) => {
@@ -225,11 +225,11 @@ export function SettingsSystemPanel() {
           <div className="min-w-0 flex items-center gap-1.5">
             <Volume2 className="h-3.5 w-3.5 text-muted" />
             <div>
-              <div className="text-sm text-foreground">语音音色</div>
+              <div className="text-sm text-foreground">語音音色</div>
               <div className="text-[11px] text-muted truncate">
                 {voices.length === 0
-                  ? '未检测到中文语音, 将用系统默认'
-                  : '默认优先 Google 中国大陆 (音质最佳)'}
+                  ? '未偵測到中文語音,將用系統預設'
+                  : '預設優先 Google 中國大陸 (音質最佳)'}
               </div>
             </div>
           </div>
@@ -253,7 +253,7 @@ export function SettingsSystemPanel() {
               }}
               className="w-32 h-8 px-1.5 rounded-btn border border-border bg-base text-xs text-foreground disabled:opacity-50"
             >
-              <option value={getCurrentVoiceURI()}>默认偏好</option>
+              <option value={getCurrentVoiceURI()}>預設偏好</option>
               {voices
                 .filter(v => v.voiceURI !== getCurrentVoiceURI())
                 .map(v => <option key={v.voiceURI} value={v.voiceURI}>{v.name}</option>)
@@ -264,14 +264,14 @@ export function SettingsSystemPanel() {
               disabled={!toastEnabled || !voiceEnabled}
               className="px-2 h-8 rounded-btn border border-border bg-base text-xs text-secondary hover:text-foreground hover:border-accent/30 disabled:opacity-50 transition-colors cursor-pointer"
             >
-              试听
+              試聽
             </button>
           </div>
         </div>
 
         <div className="flex items-center justify-between gap-4 py-2">
           <div className="min-w-0">
-            <div className="text-sm text-foreground">语速</div>
+            <div className="text-sm text-foreground">語速</div>
             <div className="text-[11px] text-muted truncate">0.5 慢 — 2.0 快</div>
           </div>
           <div className="flex items-center gap-2 shrink-0">
@@ -313,14 +313,14 @@ export function SettingsSystemPanel() {
       <section className="rounded-card border border-border bg-surface p-5 mt-6">
         <div className="flex items-center gap-2 mb-4">
           <Trash2 className="h-4 w-4 text-accent" />
-          <h3 className="text-sm font-medium text-foreground">緩存</h3>
+          <h3 className="text-sm font-medium text-foreground">快取</h3>
         </div>
 
         <div className="flex items-center justify-between gap-4 py-2">
           <div className="min-w-0">
-            <div className="text-sm text-foreground">刷新前端缓存</div>
+            <div className="text-sm text-foreground">重新整理前端快取</div>
             <div className="text-[11px] text-muted truncate">
-              清除页面缓存并强制重新加载 (不影响个人配置和本地股票数据)
+              清除頁面快取並強制重新載入 (不影響個人設定與本機股票資料)
             </div>
           </div>
           <button
@@ -335,7 +335,7 @@ export function SettingsSystemPanel() {
             ) : (
               <RefreshCw className="h-3.5 w-3.5" />
             )}
-            {clearing ? '清理中…' : '清理并刷新'}
+            {clearing ? '清理中…' : '清理並重新整理'}
           </button>
         </div>
       </section>
@@ -343,13 +343,13 @@ export function SettingsSystemPanel() {
       <section className="rounded-card border border-border bg-surface p-5 mt-6">
         <div className="flex items-center gap-2 mb-4">
           <Info className="h-4 w-4 text-accent" />
-          <h3 className="text-sm font-medium text-foreground">关于</h3>
+          <h3 className="text-sm font-medium text-foreground">關於</h3>
         </div>
 
         <div className="flex items-center justify-between gap-4 py-2">
           <div className="min-w-0">
             <div className="text-sm text-foreground">版本</div>
-            <div className="text-[11px] text-muted truncate">当前安装的应用版本</div>
+            <div className="text-[11px] text-muted truncate">目前安裝的應用版本</div>
           </div>
           <span className="font-mono text-xs text-secondary shrink-0">
             {versionData?.version ?? '—'}
@@ -358,8 +358,8 @@ export function SettingsSystemPanel() {
 
         <div className="flex items-center justify-between gap-4 py-2">
           <div className="min-w-0">
-            <div className="text-sm text-foreground">检查更新</div>
-            <div className="text-[11px] text-muted truncate">前往 GitHub Releases 下载最新版本</div>
+            <div className="text-sm text-foreground">檢查更新</div>
+            <div className="text-[11px] text-muted truncate">前往 GitHub Releases 下載最新版本</div>
           </div>
           <a
             href="https://github.com/shy3130/tickflow-stock-panel/releases/latest"
@@ -369,7 +369,7 @@ export function SettingsSystemPanel() {
                        bg-elevated text-secondary hover:text-foreground transition-colors shrink-0"
           >
             <RefreshCw className="h-3.5 w-3.5" />
-            检查更新
+            檢查更新
           </a>
         </div>
       </section>

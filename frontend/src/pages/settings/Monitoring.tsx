@@ -25,15 +25,15 @@ import { DepthConfigContent } from '@/components/data/DepthConfigCard'
 // 页面 → 显示名
 const PAGE_LABELS: Record<string, string> = {
   'overview-market': '看板',
-  watchlist: '自选页',
-  'limit-ladder': '连板梯队',
+  watchlist: '自選頁',
+  'limit-ladder': '連板梯隊',
 }
 
 const SIDEBAR_INDEX_OPTIONS = [
-  { symbol: '000001.SH', name: '上证指数' },
-  { symbol: '399001.SZ', name: '深证成指' },
-  { symbol: '399006.SZ', name: '创业板指' },
-  { symbol: '000680.SH', name: '科创综指' },
+  { symbol: '000001.SH', name: '上證指數' },
+  { symbol: '399001.SZ', name: '深證成指' },
+  { symbol: '399006.SZ', name: '創業板指' },
+  { symbol: '000680.SH', name: '科創綜指' },
 ]
 
 // ===== 导出为 Panel 组件 (由 Settings.tsx 嵌入) =====
@@ -159,17 +159,17 @@ export function SettingsMonitoringPanel({ highlight }: { highlight?: string } = 
     mutationFn: ({ url, secret }: { url: string; secret: string }) => api.updateFeishuWebhook(url, secret),
     onSuccess: () => {
       setFeishuError('')
-      toast('飞书 Webhook 已保存', 'success')
+      toast('飛書 Webhook 已儲存', 'success')
       qc.invalidateQueries({ queryKey: QK.preferences })
     },
-    onError: (err: any) => setFeishuError(String(err?.message ?? '保存失败')),
+    onError: (err: any) => setFeishuError(String(err?.message ?? '儲存失敗')),
   })
   const FEISHU_PREFIX = 'https://open.feishu.cn/open-apis/bot/v2/hook/'
   const submitFeishu = useCallback(() => {
     const url = feishuDraft.trim()
     const secret = feishuSecretDraft.trim()
     if (url && !url.startsWith(FEISHU_PREFIX)) {
-      setFeishuError('地址需以 ' + FEISHU_PREFIX + ' 开头')
+      setFeishuError('位址需以 ' + FEISHU_PREFIX + ' 開頭')
       return
     }
     saveFeishuWebhook.mutate({ url, secret })
@@ -179,17 +179,17 @@ export function SettingsMonitoringPanel({ highlight }: { highlight?: string } = 
     mutationFn: (url: string) => api.updateWecomWebhook(url),
     onSuccess: () => {
       setWecomError('')
-      toast('企业微信 Webhook 已保存', 'success')
+      toast('企業微信 Webhook 已儲存', 'success')
       qc.invalidateQueries({ queryKey: QK.preferences })
     },
-    onError: (err: any) => setWecomError(String(err?.message ?? '保存失败')),
+    onError: (err: any) => setWecomError(String(err?.message ?? '儲存失敗')),
   })
   const WECOM_PREFIX = 'https://qyapi.weixin.qq.com/cgi-bin/webhook/send'
   const submitWecom = useCallback(() => {
     const url = wecomDraft.trim()
     // 允许完整 URL 或纯 key (36位UUID样式)
     if (url && !url.startsWith(WECOM_PREFIX) && url.length < 20) {
-      setWecomError('请输入完整 Webhook 地址或纯 key (至少 20 位)')
+      setWecomError('請輸入完整 Webhook 位址或純 key (至少 20 位)')
       return
     }
     saveWecomWebhook.mutate(url)
@@ -201,14 +201,14 @@ export function SettingsMonitoringPanel({ highlight }: { highlight?: string } = 
       api.updateWecomBot(botId, secret, true),
     onSuccess: (data) => {
       setBotError('')
-      toast('智能机器人凭证已保存, 正在连接…', 'success')
+      toast('智慧型機器人憑證已儲存,正在連線…', 'success')
       setBotStatus({
         connected: data.wecom_bot_status?.connected ?? false,
         last_error: data.wecom_bot_status?.last_error ?? '',
       })
       qc.invalidateQueries({ queryKey: QK.preferences })
     },
-    onError: (err: any) => setBotError(String(err?.message ?? '保存失败')),
+    onError: (err: any) => setBotError(String(err?.message ?? '儲存失敗')),
   })
   const submitBot = useCallback(() => {
     saveWecomBot.mutate({ botId: botIdDraft.trim(), secret: botSecretDraft.trim() })
@@ -233,7 +233,7 @@ export function SettingsMonitoringPanel({ highlight }: { highlight?: string } = 
       // 修正后连板梯队数据变了, 刷新相关缓存
       qc.invalidateQueries({ queryKey: ['limit-ladder'] })
     },
-    onError: () => toast('修正请求失败', 'error'),
+    onError: () => toast('修正請求失敗', 'error'),
   })
 
   useEffect(() => {
@@ -282,14 +282,14 @@ export function SettingsMonitoringPanel({ highlight }: { highlight?: string } = 
       {/* ========== 左列 ========== */}
       <div className="space-y-6">
         {/* 行情状态 — 开关 + 间隔 */}
-        <Card icon={Activity} title="行情轮询">
+        <Card icon={Activity} title="行情輪詢">
           <ToggleRow
-            label="实时行情"
+            label="即時行情"
             desc={
-              isPaused ? '数据同步运行中，已临时暂停'
-              : isRunning && isTrading ? '运行中'
-              : isRunning ? '运行中 (非交易时段)'
-              : '已关闭'
+              isPaused ? '資料同步進行中,已暫時暫停'
+              : isRunning && isTrading ? '執行中'
+              : isRunning ? '執行中 (非交易時段)'
+              : '已關閉'
             }
             checked={realtimeEnabled}
             onChange={handleToggleQuote}
@@ -299,9 +299,9 @@ export function SettingsMonitoringPanel({ highlight }: { highlight?: string } = 
           <div className="mt-3 pt-3 border-t border-border">
             <div className="flex items-center justify-between gap-4 py-1">
               <div className="min-w-0">
-                <div className="text-sm text-foreground">轮询间隔</div>
+                <div className="text-sm text-foreground">輪詢間隔</div>
                 <div className="text-[11px] text-muted">
-                  {isWatchlistMode ? '每轮拉取自选股实时行情的时间间隔' : '每轮拉取全市场行情的时间间隔'}
+                  {isWatchlistMode ? '每輪拉取自選股即時行情的時間間隔' : '每輪拉取全市場行情的時間間隔'}
                 </div>
               </div>
               <span className="text-[11px] font-mono text-foreground shrink-0 tabular-nums">
@@ -319,16 +319,16 @@ export function SettingsMonitoringPanel({ highlight }: { highlight?: string } = 
                 className="flex-1 h-1 accent-accent cursor-pointer"
               />
               <span className="text-[10px] text-muted shrink-0">
-                {intervalDraft !== interval ? '2秒后保存' : `${minInterval}s — ${maxInterval}s`}
+                {intervalDraft !== interval ? '2秒後儲存' : `${minInterval}s — ${maxInterval}s`}
               </span>
             </div>
           </div>
         </Card>
 
         {isWatchlistMode && (
-        <Card icon={Activity} title="自选股实时">
+        <Card icon={Activity} title="自選股即時">
           <div className="mb-3 rounded-btn border border-accent/25 bg-accent/10 px-3 py-2 text-xs font-medium leading-snug text-accent">
-            自选实时模式下自动监控「自选」页面前 5 个标的，最低 6 秒刷新。
+            自選即時模式下自動監控「自選」頁面前 5 檔標的,最低 6 秒重新整理。
           </div>
           {watchlistSymbols.length > 0 ? (
             <div className="space-y-1.5">
@@ -340,39 +340,39 @@ export function SettingsMonitoringPanel({ highlight }: { highlight?: string } = 
                       <span className="text-xs font-mono text-foreground">{symbol}</span>
                       {name && <span className="truncate text-[11px] text-secondary">{name}</span>}
                     </div>
-                    <span className="text-[10px] text-muted shrink-0">自选页</span>
+                    <span className="text-[10px] text-muted shrink-0">自選頁</span>
                   </div>
                 )
               })}
             </div>
           ) : (
             <div className="rounded-btn border border-border bg-base/40 px-3 py-3 text-xs text-muted">
-              自选列表为空，开启自选实时前请先添加自选股。
+              自選清單為空,開啟自選即時前請先新增自選股。
             </div>
           )}
           <div className="mt-2 flex items-center justify-between gap-3">
-            <span className="text-[10px] text-muted">当前 {watchlistSymbols.length}/5 只</span>
+            <span className="text-[10px] text-muted">目前 {watchlistSymbols.length}/5 檔</span>
             <Link
               to="/watchlist"
               className="px-3 py-1 rounded-btn bg-elevated text-secondary text-xs font-medium hover:text-foreground transition-colors"
             >
-              管理自选
+              管理自選
             </Link>
           </div>
         </Card>
         )}
         {!isWatchlistMode && (
-        <Card icon={Wifi} title="页面实时刷新">
+        <Card icon={Wifi} title="頁面即時重新整理">
           <p className="text-xs text-secondary mb-4">
-            选择哪些页面跟随 SSE 实时刷新数据。关闭的页面不会被推送，
-            但行情轮询和策略监控不受影响。
+            選擇哪些頁面跟隨 SSE 即時重新整理資料。關閉的頁面不會被推送,
+            但行情輪詢和策略監控不受影響。
           </p>
           <div className="space-y-2">
             {Object.entries(PAGE_LABELS).map(([key, label]) => (
               <ToggleRow
                 key={key}
                 label={label}
-                desc={`SSE 推送时刷新 ${label} 数据`}
+                desc={`SSE 推送時重新整理 ${label} 資料`}
                 checked={refreshPages[key] !== false}
                 onChange={(v) => save({ sse_refresh_pages: { ...refreshPages, [key]: v } })}
               />
@@ -382,19 +382,19 @@ export function SettingsMonitoringPanel({ highlight }: { highlight?: string } = 
         )}
 
         {/* 自选列表分时图实时刷新 (默认关闭, 开启后盘中按设定间隔轮询刷新分时数据) */}
-        <Card icon={Activity} title="分时图刷新">
+        <Card icon={Activity} title="分時圖重新整理">
           <ToggleRow
-            label="自选/策略分时图实时刷新"
-            desc={`开启后自选与策略列表的分时图盘中每 ${intradayInterval} 秒自动刷新（依赖分钟K批量数据 + 实时行情运行）。关闭时仅打开页面时拉取一次, 可点表头刷新按钮手动更新。`}
+            label="自選/策略分時圖即時重新整理"
+            desc={`開啟後自選與策略清單的分時圖盤中每 ${intradayInterval} 秒自動重新整理（依賴分鐘K批次資料 + 即時行情執行）。關閉時僅開啟頁面時拉取一次,可點表頭重新整理按鈕手動更新。`}
             checked={prefs?.minute_intraday_refresh ?? false}
             onChange={(v) => save({ minute_intraday_refresh: v })}
           />
           <div className="mt-3 pt-3 border-t border-border">
             <div className="flex items-center justify-between gap-4 py-1">
               <div className="min-w-0">
-                <div className="text-sm text-foreground">刷新间隔</div>
+                <div className="text-sm text-foreground">重新整理間隔</div>
                 <div className="text-[11px] text-muted">
-                  间隔越短更新越及时, 但越耗数据源配额 (rpm)
+                  間隔越短更新越即時,但越耗資料來源配額 (rpm)
                 </div>
               </div>
               <span className="text-[11px] font-mono text-foreground shrink-0 tabular-nums">
@@ -412,16 +412,16 @@ export function SettingsMonitoringPanel({ highlight }: { highlight?: string } = 
                 className="flex-1 h-1 accent-accent cursor-pointer"
               />
               <span className="text-[10px] text-muted shrink-0">
-                {intradayIntervalDraft !== intradayInterval ? '2秒后保存' : '3s — 60s'}
+                {intradayIntervalDraft !== intradayInterval ? '2秒後儲存' : '3s — 60s'}
               </span>
             </div>
           </div>
         </Card>
 
         {!isWatchlistMode && (
-        <Card icon={BarChart3} title="左侧菜单指数">
+        <Card icon={BarChart3} title="左側選單指數">
           <p className="text-xs text-secondary mb-4">
-            选择实时行情开启时，左侧菜单底部显示哪些指数点位和涨跌幅。
+            選擇即時行情開啟時,左側選單底部顯示哪些指數點位和漲跌幅。
           </p>
           <div className="space-y-2">
             {SIDEBAR_INDEX_OPTIONS.map(item => (
@@ -436,8 +436,8 @@ export function SettingsMonitoringPanel({ highlight }: { highlight?: string } = 
           </div>
           <div className="mt-3 pt-3 border-t border-border">
             <ToggleRow
-              label="固定显示"
-              desc={indicesPinned ? '指数卡片常驻显示（即使实时行情关闭）' : '跟随实时行情开关（仅实时开时显示）'}
+              label="固定顯示"
+              desc={indicesPinned ? '指數卡片常駐顯示（即使即時行情關閉）' : '跟隨即時行情開關（僅即時開啟時顯示）'}
               checked={indicesPinned}
               onChange={toggleIndicesPin}
             />
@@ -455,8 +455,8 @@ export function SettingsMonitoringPanel({ highlight }: { highlight?: string } = 
         >
         <Card
           icon={Flame}
-          title="连板梯队降级修正"
-          badge={!hasDepth ? '五档盘口不可用' : undefined}
+          title="連板梯隊降級修正"
+          badge={!hasDepth ? '五檔盤口不可用' : undefined}
           right={hasDepth ? (
             <button
               onClick={() => runFix.mutate()}
@@ -473,18 +473,18 @@ export function SettingsMonitoringPanel({ highlight }: { highlight?: string } = 
           {hasDepth ? (
             <>
               <p className="text-xs text-secondary mb-4">
-                通过五档盘口实时修正真假涨停/跌停。真封板显示封单量,假涨停(收盘价=涨停价但卖一有量)归入炸板。
-                盘中按设定间隔轮询,收盘后自动定版。
+                透過五檔盤口即時修正真假漲停/跌停。真封板顯示封單量,假漲停(收盤價=漲停價但賣一有量)歸入炸板。
+                盤中依設定間隔輪詢,收盤後自動定版。
               </p>
               <ToggleRow
-                label="启用真假板修正"
-                desc="开启后盘中自动拉取五档盘口修正真假板"
+                label="啟用真假板修正"
+                desc="開啟後盤中自動拉取五檔盤口修正真假板"
                 checked={limitLadderMonitor}
                 onChange={toggleLimitLadderMonitor}
               />
               <div className="mt-4 pt-3 border-t border-border">
                 <div className="text-[10px] uppercase tracking-widest text-muted mb-3">
-                  五档盘口配置
+                  五檔盤口設定
                 </div>
                 <DepthConfigContent disabled={!limitLadderMonitor} />
               </div>
@@ -498,10 +498,10 @@ export function SettingsMonitoringPanel({ highlight }: { highlight?: string } = 
         {/* 推送通知 — 监控告警的外部推送渠道 (全局配置)。
             飞书 / 企业微信。
             每个渠道合并成一行: 勾选=新建规则默认推送, 点行展开地址配置。 */}
-        <Card icon={Webhook} title="推送通知">
+        <Card icon={Webhook} title="推播通知">
           <p className="text-xs text-secondary mb-3">
-            监控规则命中后,可把告警推送到外部。勾选渠道作为<b className="text-foreground/80">新建规则的默认推送</b>,
-            单条规则仍可在编辑页独立修改。
+            監控規則命中後,可把告警推送到外部。勾選管道作為<b className="text-foreground/80">新建規則的預設推播</b>,
+            單條規則仍可在編輯頁獨立修改。
           </p>
 
           {/* 渠道列表 — 每行一个渠道, 勾选默认 + 点行展开地址配置 */}
@@ -517,16 +517,16 @@ export function SettingsMonitoringPanel({ highlight }: { highlight?: string } = 
                   checked={webhookDefaultChannels.includes('feishu')}
                   onChange={e => { e.stopPropagation(); toggleDefaultChannel('feishu', e.target.checked) }}
                   onClick={e => e.stopPropagation()}
-                  title="作为新建规则的默认推送渠道"
+                  title="作為新建規則的預設推播管道"
                   className="h-3 w-3 accent-accent cursor-pointer"
                 />
-                <span className="text-[11px] font-medium text-foreground">飞书</span>
-                <span className="text-[9px] text-muted">群推送 Webhook</span>
+                <span className="text-[11px] font-medium text-foreground">飛書</span>
+                <span className="text-[9px] text-muted">群推播 Webhook</span>
                 {webhookDefaultChannels.includes('feishu') && (
-                  <span className="rounded bg-accent/15 px-1 py-px text-[9px] text-accent">默认</span>
+                  <span className="rounded bg-accent/15 px-1 py-px text-[9px] text-accent">預設</span>
                 )}
                 <span className={`ml-auto text-[9px] ${feishuWebhookUrl ? 'text-emerald-500' : 'text-warning'}`}>
-                  {feishuWebhookUrl ? '已配置' : '未配置'}
+                  {feishuWebhookUrl ? '已設定' : '未設定'}
                 </span>
                 <ChevronDown className={`h-3 w-3 text-muted transition-transform ${channelOpen ? 'rotate-180' : ''}`} />
               </div>
@@ -535,7 +535,7 @@ export function SettingsMonitoringPanel({ highlight }: { highlight?: string } = 
               {channelOpen && (
                 <div className="border-t border-border/60 bg-base/30 p-3">
                   <label className="block space-y-1.5">
-                    <span className="text-[11px] text-muted">Webhook 地址</span>
+                    <span className="text-[11px] text-muted">Webhook 位址</span>
                     <input
                       value={feishuDraft}
                       onChange={e => setFeishuDraft(e.target.value)}
@@ -545,12 +545,12 @@ export function SettingsMonitoringPanel({ highlight }: { highlight?: string } = 
                   </label>
 
                   <label className="block mt-2 space-y-1.5">
-                    <span className="text-[11px] text-muted">签名密钥 (可选 · 启用签名校验时填)</span>
+                    <span className="text-[11px] text-muted">簽章金鑰 (可選 · 啟用簽章驗證時填)</span>
                     <input
                       type="password"
                       value={feishuSecretDraft}
                       onChange={e => setFeishuSecretDraft(e.target.value)}
-                      placeholder="机器人未启用签名校验则留空"
+                      placeholder="機器人未啟用簽章驗證則留空"
                       className="h-9 w-full rounded-btn border border-border bg-base px-3 text-xs font-mono text-foreground focus:outline-none focus:border-accent/50"
                     />
                   </label>
@@ -565,26 +565,26 @@ export function SettingsMonitoringPanel({ highlight }: { highlight?: string } = 
                       disabled={saveFeishuWebhook.isPending || (feishuDraft.trim() === feishuWebhookUrl && feishuSecretDraft.trim() === feishuWebhookSecret)}
                       className="px-3 py-1.5 rounded-btn bg-accent text-base text-xs font-medium disabled:opacity-50 cursor-pointer hover:bg-accent/90 transition-colors"
                     >
-                      {saveFeishuWebhook.isPending ? '保存中…' : '保存'}
+                      {saveFeishuWebhook.isPending ? '儲存中…' : '儲存'}
                     </button>
                     {feishuWebhookUrl && (
-                      <span className="text-[10px] text-emerald-500">● 已配置</span>
+                      <span className="text-[10px] text-emerald-500">● 已設定</span>
                     )}
                   </div>
 
                   <details className="mt-3 text-[10px] text-muted">
-                    <summary className="cursor-pointer hover:text-secondary">如何获取飞书 Webhook 地址?</summary>
+                    <summary className="cursor-pointer hover:text-secondary">如何取得飛書 Webhook 位址?</summary>
                     <ol className="mt-1.5 space-y-1 pl-4 list-decimal leading-relaxed">
-                      <li>打开飞书,进入目标群聊 → 群设置 → <b>群推送 Webhook</b></li>
-                      <li>点击「添加机器人」→ 选择「<b>自定义机器人</b>」</li>
-                      <li>填写机器人名称后添加,复制生成的 Webhook 地址</li>
-                      <li>安全设置若启用了「<b>签名校验</b>」,把密钥一并复制填到「签名密钥」框</li>
-                      <li>粘贴到上方输入框并保存</li>
+                      <li>開啟飛書,進入目標群聊 → 群設定 → <b>群推播 Webhook</b></li>
+                      <li>點擊「新增機器人」→ 選擇「<b>自訂機器人</b>」</li>
+                      <li>填寫機器人名稱後新增,複製產生的 Webhook 位址</li>
+                      <li>安全設定若啟用了「<b>簽章驗證</b>」,把金鑰一併複製填到「簽章金鑰」框</li>
+                      <li>貼上到上方輸入框並儲存</li>
                     </ol>
                     <p className="mt-1.5 pl-4 text-muted/70">
                       📖 官方文档:
                       <a href="https://open.feishu.cn/document/client-docs/bot-v3/add-custom-bot?lang=zh-CN" target="_blank" rel="noreferrer" className="text-accent hover:text-accent/80">
-                        自定义机器人使用指南 ↗
+                        自訂機器人使用指南 ↗
                       </a>
                     </p>
                   </details>
@@ -603,16 +603,16 @@ export function SettingsMonitoringPanel({ highlight }: { highlight?: string } = 
                   checked={webhookDefaultChannels.includes('wecom')}
                   onChange={e => { e.stopPropagation(); toggleDefaultChannel('wecom', e.target.checked) }}
                   onClick={e => e.stopPropagation()}
-                  title="作为新建规则的默认推送渠道"
+                  title="作為新建規則的預設推播管道"
                   className="h-3 w-3 accent-accent cursor-pointer"
                 />
-                <span className="text-[11px] font-medium text-foreground">企业微信</span>
-                <span className="text-[9px] text-muted">群推送 Webhook</span>
+                <span className="text-[11px] font-medium text-foreground">企業微信</span>
+                <span className="text-[9px] text-muted">群推播 Webhook</span>
                 {webhookDefaultChannels.includes('wecom') && (
-                  <span className="rounded bg-accent/15 px-1 py-px text-[9px] text-accent">默认</span>
+                  <span className="rounded bg-accent/15 px-1 py-px text-[9px] text-accent">預設</span>
                 )}
                 <span className={`ml-auto text-[9px] ${wecomWebhookUrl ? 'text-emerald-500' : 'text-warning'}`}>
-                  {wecomWebhookUrl ? '已配置' : '未配置'}
+                  {wecomWebhookUrl ? '已設定' : '未設定'}
                 </span>
                 <ChevronDown className={`h-3 w-3 text-muted transition-transform ${wecomOpen ? 'rotate-180' : ''}`} />
               </div>
@@ -620,7 +620,7 @@ export function SettingsMonitoringPanel({ highlight }: { highlight?: string } = 
               {wecomOpen && (
                 <div className="border-t border-border/60 bg-base/30 p-3">
                   <label className="block space-y-1.5">
-                    <span className="text-[11px] text-muted">Webhook 地址 或 Key</span>
+                    <span className="text-[11px] text-muted">Webhook 位址 或 Key</span>
                     <input
                       value={wecomDraft}
                       onChange={e => setWecomDraft(e.target.value)}
@@ -639,26 +639,26 @@ export function SettingsMonitoringPanel({ highlight }: { highlight?: string } = 
                       disabled={saveWecomWebhook.isPending || wecomDraft.trim() === wecomWebhookUrl}
                       className="px-3 py-1.5 rounded-btn bg-accent text-base text-xs font-medium disabled:opacity-50 cursor-pointer hover:bg-accent/90 transition-colors"
                     >
-                      {saveWecomWebhook.isPending ? '保存中…' : '保存'}
+                      {saveWecomWebhook.isPending ? '儲存中…' : '儲存'}
                     </button>
                     {wecomWebhookUrl && (
-                      <span className="text-[10px] text-emerald-500">● 已配置</span>
+                      <span className="text-[10px] text-emerald-500">● 已設定</span>
                     )}
                   </div>
 
                   <details className="mt-3 text-[10px] text-muted">
-                    <summary className="cursor-pointer hover:text-secondary">如何获取企业微信 Webhook 地址?</summary>
+                    <summary className="cursor-pointer hover:text-secondary">如何取得企業微信 Webhook 位址?</summary>
                     <ol className="mt-1.5 space-y-1 pl-4 list-decimal leading-relaxed">
-                      <li>打开企业微信,进入目标群聊 → 右上角「...」→ <b>群推送 Webhook</b></li>
-                      <li>点击「添加」→ 选择「<b>消息推送</b>」→ 填写名字</li>
-                      <li>复制生成的 <b>Webhook 地址</b>(含 key 参数),粘贴到上方输入框</li>
-                      <li>也可只复制 key 参数部分(= 后面的内容)填入</li>
-                      <li>企业微信群的消息可同步到绑定的个人微信,实现"微信推送"</li>
+                      <li>開啟企業微信,進入目標群聊 → 右上角「...」→ <b>群推播 Webhook</b></li>
+                      <li>點擊「新增」→ 選擇「<b>訊息推播</b>」→ 填寫名稱</li>
+                      <li>複製產生的 <b>Webhook 位址</b>(含 key 參數),貼上到上方輸入框</li>
+                      <li>也可只複製 key 參數部分(= 後面的內容)填入</li>
+                      <li>企業微信群的訊息可同步到綁定的個人微信,實現「微信推播」</li>
                     </ol>
                     <p className="mt-1.5 pl-4 text-muted/70">
                       📖 官方文档:
                       <a href="https://developer.work.weixin.qq.com/document/path/91770" target="_blank" rel="noreferrer" className="text-accent hover:text-accent/80">
-                        群推送 Webhook 使用指南 ↗
+                        群推播 Webhook 使用指南 ↗
                       </a>
                     </p>
                   </details>
@@ -678,13 +678,13 @@ export function SettingsMonitoringPanel({ highlight }: { highlight?: string } = 
                   onChange={e => { e.stopPropagation(); toggleBotConnection.mutate(e.target.checked) }}
                   onClick={e => e.stopPropagation()}
                   disabled={!wecomBotId || toggleBotConnection.isPending}
-                  title="开启后建立长连接保活, 关闭则断开"
+                  title="開啟後建立長連線保活,關閉則斷開"
                   className="h-3 w-3 accent-accent cursor-pointer disabled:opacity-40"
                 />
-                <span className="text-[11px] font-medium text-foreground">企业微信</span>
-                <span className="text-[9px] text-muted">智能机器人</span>
+                <span className="text-[11px] font-medium text-foreground">企業微信</span>
+                <span className="text-[9px] text-muted">智慧型機器人</span>
                 <span className={`ml-auto text-[9px] ${wecomBotId ? (botStatus?.connected ? 'text-emerald-500' : 'text-warning') : 'text-muted'}`}>
-                  {wecomBotId ? (botStatus?.connected ? '已连接' : (wecomBotEnabled ? '连接中' : '已配置')) : '未配置'}
+                  {wecomBotId ? (botStatus?.connected ? '已連線' : (wecomBotEnabled ? '連線中' : '已設定')) : '未設定'}
                 </span>
                 <ChevronDown className={`h-3 w-3 text-muted transition-transform ${botOpen ? 'rotate-180' : ''}`} />
               </div>
@@ -692,26 +692,26 @@ export function SettingsMonitoringPanel({ highlight }: { highlight?: string } = 
               {botOpen && (
                 <div className="border-t border-border/60 bg-base/30 p-3">
                   <p className="mb-2.5 text-[10px] text-muted leading-relaxed">
-                    勾选卡片左侧开关可启用长连接保活(开启后后端持续保持与企业微信的
-                    WebSocket 连接)。保存凭证后需勾选才会连接, 取消勾选则立即断开。
+                    勾選卡片左側開關可啟用長連線保活(開啟後後端持續保持與企業微信的
+                    WebSocket 連線)。儲存憑證後需勾選才會連線,取消勾選則立即斷開。
                   </p>
                   <label className="block space-y-1.5">
                     <span className="text-[11px] text-muted">BotID</span>
                     <input
                       value={botIdDraft}
                       onChange={e => setBotIdDraft(e.target.value)}
-                      placeholder="智能机器人的唯一标识"
+                      placeholder="智慧型機器人的唯一識別碼"
                       className="h-9 w-full rounded-btn border border-border bg-base px-3 text-xs font-mono text-foreground focus:outline-none focus:border-accent/50"
                     />
                   </label>
 
                   <label className="block mt-2 space-y-1.5">
-                    <span className="text-[11px] text-muted">Secret (长连接专用密钥)</span>
+                    <span className="text-[11px] text-muted">Secret (長連線專用金鑰)</span>
                     <input
                       type="password"
                       value={botSecretDraft}
                       onChange={e => setBotSecretDraft(e.target.value)}
-                      placeholder="开启长连接 API 模式后获取的密钥"
+                      placeholder="開啟長連線 API 模式後取得的金鑰"
                       className="h-9 w-full rounded-btn border border-border bg-base px-3 text-xs font-mono text-foreground focus:outline-none focus:border-accent/50"
                     />
                   </label>
@@ -721,7 +721,7 @@ export function SettingsMonitoringPanel({ highlight }: { highlight?: string } = 
                   )}
 
                   {botStatus?.last_error && !botError && (
-                    <div className="mt-2 text-[11px] text-warning">连接异常: {botStatus.last_error}</div>
+                    <div className="mt-2 text-[11px] text-warning">連線異常: {botStatus.last_error}</div>
                   )}
 
                   <div className="mt-2 flex items-center gap-2">
@@ -730,29 +730,29 @@ export function SettingsMonitoringPanel({ highlight }: { highlight?: string } = 
                       disabled={saveWecomBot.isPending || (botIdDraft.trim() === wecomBotId && botSecretDraft.trim() === wecomBotSecret)}
                       className="px-3 py-1.5 rounded-btn bg-accent text-base text-xs font-medium disabled:opacity-50 cursor-pointer hover:bg-accent/90 transition-colors"
                     >
-                      {saveWecomBot.isPending ? '保存中…' : '保存并连接'}
+                      {saveWecomBot.isPending ? '儲存中…' : '儲存並連線'}
                     </button>
                     {wecomBotId && (
-                      <span className="text-[10px] text-emerald-500">● 已配置</span>
+                      <span className="text-[10px] text-emerald-500">● 已設定</span>
                     )}
                   </div>
 
                   <details className="mt-3 text-[10px] text-muted">
-                    <summary className="cursor-pointer hover:text-secondary">如何获取 BotID 和 Secret?</summary>
+                    <summary className="cursor-pointer hover:text-secondary">如何取得 BotID 和 Secret?</summary>
                     <ol className="mt-1.5 space-y-1 pl-4 list-decimal leading-relaxed">
-                      <li>登录<b>企业微信管理后台</b> → 应用管理 → <b>智能机器人</b> → 创建机器人</li>
-                      <li>填写名称、头像后进入机器人配置页</li>
-                      <li>开启「<b>API 模式</b>」→ 选择「<b>长连接</b>」方式(另一项"回调URL"需公网IP)</li>
-                      <li>页面显示 <b>BotID</b> 和 <b>Secret</b>, 复制填到上方输入框</li>
+                      <li>登入<b>企業微信管理後台</b> → 應用程式管理 → <b>智慧型機器人</b> → 建立機器人</li>
+                      <li>填寫名稱、頭像後進入機器人設定頁</li>
+                      <li>開啟「<b>API 模式</b>」→ 選擇「<b>長連線</b>」方式(另一項「回呼URL」需公網IP)</li>
+                      <li>頁面顯示 <b>BotID</b> 和 <b>Secret</b>,複製填到上方輸入框</li>
                     </ol>
                     <p className="mt-1.5 pl-4 text-muted/70">
-                      💡 智能机器人支持 @交互和流式回复, 与群推送 Webhook(单向推送)互补。
-                      保存后后端会自动建立 WebSocket 长连接保活。
+                      💡 智慧型機器人支援 @互動和串流回覆,與群推播 Webhook(單向推播)互補。
+                      儲存後後端會自動建立 WebSocket 長連線保活。
                     </p>
                     <p className="mt-1.5 pl-4 text-muted/70">
                       📖 官方文档:
                       <a href="https://developer.work.weixin.qq.com/document/path/101463" target="_blank" rel="noreferrer" className="text-accent hover:text-accent/80">
-                        智能机器人长连接 ↗
+                        智慧型機器人長連線 ↗
                       </a>
                     </p>
                   </details>

@@ -58,10 +58,10 @@ const BRAND = '#8B5CF6'
 // sidebar_index_symbols 偏好保留, 不删除既有能力 —— 目前没有可靠的台股大盘
 // 指数数据源(REQUIRES BACKEND SUPPORT), 不假造台股指数, 详见 Phase 8B-2 报告 E 节。
 const CORE_INDEXES = [
-  { symbol: '000001.SH', name: '上证指数' },
-  { symbol: '399001.SZ', name: '深证成指' },
-  { symbol: '399006.SZ', name: '创业板指' },
-  { symbol: '000680.SH', name: '科创综指' },
+  { symbol: '000001.SH', name: '上證指數' },
+  { symbol: '399001.SZ', name: '深證成指' },
+  { symbol: '399006.SZ', name: '創業板指' },
+  { symbol: '000680.SH', name: '科創綜指' },
 ] as const
 
 type CoreIndex = (typeof CORE_INDEXES)[number]
@@ -79,7 +79,7 @@ function ThemeToggle() {
     <button
       onClick={() => toggleTheme()}
       className="flex items-center justify-center rounded-btn p-2 text-foreground/80 transition-colors duration-150 ease-smooth hover:bg-elevated hover:text-foreground cursor-pointer"
-      title={dark ? '切换到亮色模式' : '切换到暗色模式'}
+      title={dark ? '切換到亮色模式' : '切換到暗色模式'}
     >
       {dark ? <Sun className="h-4 w-4 shrink-0" /> : <Moon className="h-4 w-4 shrink-0" />}
     </button>
@@ -160,13 +160,13 @@ function TierBadge({ label, hasKey, providerName, isTickflow }: { label: string;
     labelTextStyle: React.CSSProperties
   }> = {
     none: {
-      desc: '未配置 Key · 仅历史日K',
+      desc: '未設定 Key · 僅歷史日K',
       dotStyle: { background: '#52525b' },
       tagBg: { background: 'rgba(113,113,122,0.15)' },
       labelTextStyle: { color: '#71717a' },
     },
     free: {
-      desc: '基础日K · 自选实时',
+      desc: '基礎日K · 自選即時',
       dotStyle: { background: '#71717a' },
       tagBg: { background: 'rgba(113,113,122,0.3)' },
       labelTextStyle: { color: '#a1a1aa' },
@@ -178,13 +178,13 @@ function TierBadge({ label, hasKey, providerName, isTickflow }: { label: string;
       labelTextStyle: { color: '#60a5fa' },
     },
     pro: {
-      desc: '分钟K · 实时行情 · 盘口',
+      desc: '分鐘K · 即時行情 · 盤口',
       dotStyle: { background: 'linear-gradient(135deg, #a855f7, #7c3aed)' },
       tagBg: { background: 'linear-gradient(135deg, rgba(168,85,247,0.2), rgba(124,58,237,0.15))' },
       labelTextStyle: { background: 'linear-gradient(135deg, #c084fc, #a855f7)', WebkitBackgroundClip: 'text', backgroundClip: 'text', color: 'transparent' },
     },
     expert: {
-      desc: 'WebSocket · 财务数据',
+      desc: 'WebSocket · 財務資料',
       dotStyle: { background: 'linear-gradient(135deg, #3b82f6, #a855f7, #f59e0b)' },
       tagBg: { background: 'linear-gradient(135deg, rgba(59,130,246,0.2), rgba(168,85,247,0.2), rgba(245,158,11,0.2))' },
       labelTextStyle: { background: 'linear-gradient(135deg, #60a5fa, #c084fc, #fbbf24)', WebkitBackgroundClip: 'text', backgroundClip: 'text', color: 'transparent' },
@@ -193,13 +193,13 @@ function TierBadge({ label, hasKey, providerName, isTickflow }: { label: string;
 
   const t = tierConfig[base] || tierConfig.none
   const displayLabel = isNone ? 'None' : (label || 'None')
-  const descText = isNone && !hasKey ? '配置 Key 解锁更多能力' : t.desc
+  const descText = isNone && !hasKey ? '設定 Key 解鎖更多能力' : t.desc
 
   return (
     <NavLink
       to="/settings?tab=data-sources"
       className="group relative flex items-center gap-2 overflow-hidden rounded-md py-1.5 pl-2.5 pr-2 transition-colors duration-150 hover:bg-elevated/70"
-      title={`数据源 · ${providerName} — ${descText}`}
+      title={`資料來源 · ${providerName} — ${descText}`}
     >
       <span
         className="pointer-events-none absolute inset-y-1.5 left-0 w-[2px] rounded-full bg-accent/50 transition-colors group-hover:bg-accent"
@@ -207,7 +207,7 @@ function TierBadge({ label, hasKey, providerName, isTickflow }: { label: string;
       />
       <DatabaseZap className="h-3.5 w-3.5 shrink-0 text-muted group-hover:text-accent transition-colors" />
       <span className="min-w-0 truncate text-[11px] font-medium text-secondary group-hover:text-foreground transition-colors">
-        {providerName || '数据源'}
+        {providerName || '資料來源'}
       </span>
       <span
         className="h-1.5 w-1.5 rounded-full shrink-0"
@@ -231,7 +231,7 @@ function AIConfigBadge({ configured, model }: { configured?: boolean; model?: st
     <NavLink
       to="/settings?tab=ai"
       className="group relative flex items-center gap-2 overflow-hidden rounded-md py-1.5 pl-2.5 pr-2 transition-colors duration-150 hover:bg-elevated/70"
-      title={`AI 配置 — ${descText}`}
+      title={`AI 設定 — ${descText}`}
     >
       <span className="pointer-events-none absolute inset-y-1.5 left-0 w-[2px] rounded-full bg-purple-400/50 transition-colors group-hover:bg-purple-400" />
       <Sparkles className="h-3.5 w-3.5 shrink-0 text-muted group-hover:text-purple-400 transition-colors" />
@@ -241,8 +241,8 @@ function AIConfigBadge({ configured, model }: { configured?: boolean; model?: st
         </span>
       ) : (
         <>
-          <span className="text-[11px] text-secondary group-hover:text-foreground transition-colors">AI 配置</span>
-          <span className="ml-auto text-[11px] font-mono leading-none text-muted">未配置</span>
+          <span className="text-[11px] text-secondary group-hover:text-foreground transition-colors">AI 設定</span>
+          <span className="ml-auto text-[11px] font-mono leading-none text-muted">未設定</span>
         </>
       )}
       <span className={`h-1.5 w-1.5 rounded-full shrink-0 ${configured ? 'bg-bear' : 'bg-warning'}`} />
@@ -394,7 +394,7 @@ export function Layout() {
   const quoteMode = quoteStatus?.mode ?? 'none'
   const realtimeUnavailable = quoteMode === 'none'
   const isWatchlistMode = quoteMode === 'watchlist'
-  const realtimeModeLabel = isWatchlistMode ? '自选股' : '全市场'
+  const realtimeModeLabel = isWatchlistMode ? '自選股' : '全市場'
   // 当前实时行情数据源名称 (custom 时显示源名, tickflow 时不显示)
   const realtimeProvider = prefs?.realtime_data_provider
   const realtimeProviderName = realtimeProvider && realtimeProvider !== 'tickflow'
@@ -405,12 +405,12 @@ export function Layout() {
   const realtimeStatusLabel = toggleQuote.isPending
     ? '正在更新'
     : isPaused
-      ? '同步期间暂停'
+      ? '同步期間暫停'
       : realtimeActive
-        ? '运行中'
+        ? '執行中'
         : realtimeEnabled
-          ? (isTrading ? '正在连接' : '等待交易时段')
-          : '已关闭'
+          ? (isTrading ? '正在連線' : '等待交易時段')
+          : '已關閉'
   const realtimeStatusClass = realtimeActive
     ? 'text-accent'
     : realtimeEnabled || isPaused
@@ -422,12 +422,12 @@ export function Layout() {
       ? 'bg-warning/70'
       : 'bg-muted'
   const realtimeToggleTitle = isPaused
-    ? '数据同步运行中，实时行情已临时暂停'
+    ? '資料同步進行中,即時行情已暫時暫停'
     : toggleQuote.isPending
-      ? '正在更新实时行情设置'
+      ? '正在更新即時行情設定'
       : realtimeEnabled
-        ? '关闭实时行情'
-        : '开启实时行情'
+        ? '關閉即時行情'
+        : '開啟即時行情'
 
   // 当前主数据源 (用于侧边栏数据源状态卡)
   const activeProvider = prefs?.daily_data_provider || 'tickflow'
@@ -511,7 +511,7 @@ export function Layout() {
         queryFn: api.quoteStatus,
       })
       if (!fresh.realtime_allowed) {
-        toast('当前数据源无实时行情能力, 请先配置数据源', 'error')
+        toast('目前資料來源無即時行情能力,請先設定資料來源', 'error')
         return
       }
       if (fresh.mode === 'watchlist' && (prefs?.realtime_watchlist_symbols?.length ?? 0) === 0) {
@@ -555,7 +555,7 @@ export function Layout() {
                 'flex items-center rounded-btn text-muted hover:text-foreground hover:bg-elevated/60 transition-colors duration-150 ease-smooth',
                 navCollapsed ? 'justify-center p-1.5' : 'ml-auto p-1.5',
               )}
-              title={navCollapsed ? '展开菜单' : '收起菜单'}
+              title={navCollapsed ? '展開選單' : '收起選單'}
             >
               {navCollapsed
                 ? <PanelLeftOpen className="h-3.5 w-3.5 shrink-0" />
@@ -778,19 +778,19 @@ export function Layout() {
           {realtimeUnavailable && !realtimeProviderName ? (
             <div>
               <div className="flex items-center justify-between">
-                <span className="text-xs text-secondary truncate">实时行情</span>
+                <span className="text-xs text-secondary truncate">即時行情</span>
                 <span className="text-[10px] text-muted/80 bg-elevated px-1.5 py-0.5 rounded">
                   不可用
                 </span>
               </div>
               <div className="mt-1.5 text-[10px] leading-snug text-muted">
-                当前数据源无实时行情权限,
+                目前資料來源無即時行情權限,
                 <button
                   type="button"
                   onClick={() => navigate('/settings?tab=data-sources')}
                   className="mx-0.5 text-accent/80 hover:text-accent hover:underline"
                 >
-                  去配置数据源
+                  前往設定資料來源
                 </button>
               </div>
             </div>
@@ -800,7 +800,7 @@ export function Layout() {
               <div className="flex min-w-0 flex-1 items-center gap-2">
                 <span className={`inline-block h-2 w-2 shrink-0 rounded-full ${realtimeIndicatorClass}`} />
                 <div className="min-w-0">
-                  <div className="text-xs font-medium leading-none text-foreground">实时行情</div>
+                  <div className="text-xs font-medium leading-none text-foreground">即時行情</div>
                   <div className="mt-1 flex min-w-0 items-center gap-1 text-[10px] leading-none">
                     <span className="truncate text-muted">{realtimeProviderName || realtimeModeLabel}</span>
                     <span className="shrink-0 text-border" aria-hidden="true">·</span>
@@ -811,9 +811,9 @@ export function Layout() {
               <div className="flex shrink-0 items-center gap-1">
                 <button
                   onClick={() => navigate('/settings?tab=monitoring')}
-                  aria-label="打开实时监控设置"
+                  aria-label="開啟即時監控設定"
                   className="flex h-7 w-7 items-center justify-center rounded-btn text-muted transition-colors hover:bg-elevated hover:text-foreground"
-                  title="实时监控设置"
+                  title="即時監控設定"
                 >
                   <Settings className="h-3.5 w-3.5" />
                 </button>
@@ -851,18 +851,18 @@ export function Layout() {
               <div className="mt-1.5 text-[10px] leading-snug space-y-0.5">
                 {isWatchlistMode && !dismissFreeHint && !realtimeProviderName && (
                   <div className="flex items-start gap-1 text-amber-400/80">
-                    <span className="flex-1">自选实时模式监控前 5 只，全市场实时依赖数据源支持</span>
+                    <span className="flex-1">自選即時模式監控前 5 檔,全市場即時依賴資料來源支援</span>
                     <button
                       onClick={() => setDismissFreeHint(true)}
                       className="text-amber-400/50 hover:text-amber-400 shrink-0 transition-colors"
-                      title="关闭提示"
+                      title="關閉提示"
                     >
                       <X className="h-2.5 w-2.5" />
                     </button>
                   </div>
                 )}
                 {isPaused && (
-                  <div className="text-warning/80">数据同步运行中，实时行情已临时暂停</div>
+                  <div className="text-warning/80">資料同步進行中,即時行情已暫時暫停</div>
                 )}
               </div>
             )}
