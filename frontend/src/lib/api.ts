@@ -2786,9 +2786,14 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ symbols, date }),
     }),
-  instrumentSearch: (q: string, limit = 20, assetTypes?: string) =>
-    request<{ results: { symbol: string; name: string; code: string; asset_type?: string }[] }>(
-      `/api/kline/instruments/search?q=${encodeURIComponent(q)}&limit=${limit}${assetTypes ? `&asset_types=${encodeURIComponent(assetTypes)}` : ''}`,
+  /**
+   * market 省略 = 既有 A 股 legacy 行为(Financials 搜索 / A 股监控规则编辑器 /
+   * A 股回测标的选择器等既有调用方不用改)。market='taiwan' 只查
+   * TaiwanSecurityMaster, 不会混入 .SH/.SZ/.BJ 结果 —— 自选股搜索用这个。
+   */
+  instrumentSearch: (q: string, limit = 20, assetTypes?: string, market?: 'ashare' | 'taiwan' | 'all') =>
+    request<{ results: { symbol: string; name: string; code: string; asset_type?: string; market: 'ashare' | 'taiwan' }[] }>(
+      `/api/kline/instruments/search?q=${encodeURIComponent(q)}&limit=${limit}${assetTypes ? `&asset_types=${encodeURIComponent(assetTypes)}` : ''}${market ? `&market=${market}` : ''}`,
     ),
 
   /** 批量查股票名称 (传入 symbol 列表, 返回 {symbol: name}) */

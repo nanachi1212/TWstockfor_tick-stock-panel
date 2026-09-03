@@ -5,7 +5,7 @@ import logging
 import math
 from datetime import date, timedelta
 from functools import lru_cache
-from typing import Optional
+from typing import Annotated, Literal, Optional
 
 from fastapi import APIRouter, HTTPException, Query, Request
 
@@ -80,21 +80,31 @@ def _match_pinyin(name: str, keyword: str) -> bool:
     return any(k.startswith(keyword) for k in _name_pinyin_keys(name))
 
 
-@router.get("/instruments/search")
-def search_instruments(
-    request: Request,
-    q: str = Query("", min_length=0, max_length=50, description="搜索关键词"),
-    limit: int = Query(20, ge=1, le=50),
-    asset_types: str = Query("stock", description="逗号分隔的资产类型: stock,etf"),
-):
-    """模糊搜索标的 (代码 / 名称)。从内存 instruments 缓存中查。
+def _search_taiwan_instruments(q: str, limit: int) -> list[dict]:
+    """仅查 TaiwanSecurityMaster, 不触碰 repo.get_instruments*() 的 legacy A 股缓存。
 
-    默认只搜股票, 保持既有调用方行为不变; 自选等场景传 asset_types=stock,etf
-    可一并搜出 ETF, 结果附带 asset_type 字段供前端区分。
+    canonical symbol 形如 2330.TWSE / 6488.TPEX; 支持代码/canonical symbol/
+    繁体中文名称查询, 排序/评分逻辑在 TaiwanSecurityMaster.search() 内完成。
+    只保留 is_supported 的 stock/etf(权证等未支援标的不该出现在自选搜索里)。
     """
-    if not q.strip():
-        return {"results": []}
+    from app.taiwan.universe import get_security_master
 
+    hits = get_security_master().search(q.strip(), limit=limit)
+    return [
+        {
+            "symbol": hit["symbol"],
+            "name": hit["name"],
+            "code": hit["code"],
+            "asset_type": hit["instrument_type"],
+            "market": "taiwan",
+        }
+        for hit in hits
+        if hit.get("is_supported") and hit.get("instrument_type") in ("stock", "etf")
+    ][:limit]
+
+
+def _search_ashare_instruments(request: Request, q: str, limit: int, asset_types: str) -> list[dict]:
+    """既有 legacy A 股搜索逻辑 (代码/名称/拼音首字母), 从 repo 内存 instruments 缓存查。"""
     repo = request.app.state.repo
     import polars as pl
 
@@ -112,7 +122,7 @@ def search_instruments(
             pl.lit(t).alias("asset_type"),
         ]).select(["symbol", "name", "code", "asset_type"]))
     if not parts:
-        return {"results": []}
+        return []
     df = pl.concat(parts, how="vertical")
 
     keyword = q.strip().upper()
@@ -162,7 +172,53 @@ def search_instruments(
             else (collected[0] if collected else df.head(0))
         )
     rows = matched.select(["symbol", "name", "code", "asset_type"]).to_dicts()
-    return {"results": rows}
+    for row in rows:
+        row["market"] = "ashare"
+    return rows
+
+
+@router.get("/instruments/search")
+def search_instruments(
+    request: Request,
+    q: str = Query("", min_length=0, max_length=50, description="搜索关键词"),
+    limit: int = Query(20, ge=1, le=50),
+    asset_types: str = Query("stock", description="逗号分隔的资产类型: stock,etf"),
+    # 用 Annotated 而非 `= Query(None, ...)`: 后者的默认值是 Query() 返回的 FieldInfo
+    # 对象本身(真值), 直接调用本函数(不经 FastAPI 路由层解析, 如
+    # test_instrument_search.py 的用法)时若不显式传参会被当成非 None。Annotated 形式
+    # 的默认值就是字面量 None, 两种调用方式行为一致。
+    market: Annotated[
+        Optional[Literal["ashare", "taiwan", "all"]],
+        Query(
+            description=(
+                "市场路由。省略(向后兼容既有调用方: Financials 搜索/A 股监控规则编辑器/"
+                "A 股回测标的选择器)=仅 A 股 legacy repository; taiwan=仅 TaiwanSecurityMaster"
+                "(自选股搜索用); all=两者都搜, 仅供未来兼容保留, 自选股不应使用。"
+                "未来新增市场(如 us)只需在此扩充。"
+            )
+        ),
+    ] = None,
+):
+    """模糊搜索标的 (代码 / 名称)。
+
+    market 省略或 market=ashare: 从内存 A 股 instruments 缓存中查 (SH/SZ/BJ), 保持
+    既有调用方行为不变; asset_types=stock,etf 可一并搜出 ETF。
+    market=taiwan: 只查 TaiwanSecurityMaster, 完全不碰 A 股 repo, 结果不会混入
+    .SH/.SZ/.BJ; symbol 形如 2330.TWSE / 6488.TPEX。
+    结果统一附带 market: "ashare" | "taiwan" 字段, 供前端区分 —— 不用空字串表示
+    A 股, 避免"缺省值隐含语意"这种不透明的 contract。
+    """
+    if not q.strip():
+        return {"results": []}
+
+    if market == "taiwan":
+        return {"results": _search_taiwan_instruments(q, limit)}
+
+    ashare_rows = _search_ashare_instruments(request, q, limit, asset_types)
+    if market == "all":
+        combined = ashare_rows + _search_taiwan_instruments(q, limit)
+        return {"results": combined[:limit]}
+    return {"results": ashare_rows}
 
 
 @router.post("/instruments/names")

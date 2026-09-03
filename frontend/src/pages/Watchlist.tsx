@@ -249,8 +249,10 @@ function StockSearchBox({
   const [activeIdx, setActiveIdx] = useState(-1)
 
   const search = useQuery({
-    queryKey: QK.instrumentSearch(query, 'stock,etf,index'),
-    queryFn: () => api.instrumentSearch(query, 20, 'stock,etf,index'),
+    // Taiwan-only 产品方向: 自选搜索只查台股证券主档(TaiwanSecurityMaster),
+    // 不应再出现 A 股 .SH/.SZ/.BJ 结果。2330.TWSE / 6488.TPEX 这类标的可被搜到并加入自选。
+    queryKey: QK.instrumentSearch(query, 'stock,etf,index', 'taiwan'),
+    queryFn: () => api.instrumentSearch(query, 20, 'stock,etf,index', 'taiwan'),
     enabled: query.trim().length > 0,
     staleTime: 30_000,
   })
