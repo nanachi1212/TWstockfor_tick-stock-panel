@@ -159,20 +159,43 @@ async def _application_lifespan(app: FastAPI):
     app.state.depth_service = depth_service
 
     # 启动调度器(若 enriched 数据为空,首次启动可手动 POST /api/pipeline/run)
+    #
+    # Phase 8B-5.0.2: 调度器仍然启动(台股 taiwan_daily_update 与通用
+    # reprobe_capabilities job 都注册在同一个 start_scheduler() 里,详见
+    # jobs/daily_pipeline.py:start_scheduler), 但立即移除以下纯 A 股 job:
+    #   - pre_market_instruments (同步 SH/SZ/BJ 个股维表)
+    #   - daily_pipeline          (A 股日K + enriched 盘后管道)
+    #   - depth_finalize          (A 股连板/封板 sealed 定版, 见下方 depth_service 说明)
+    #   - scheduled_review        (A 股大盘复盘 AI 报告, 若用户曾开启才会被注册)
+    # 不修改 jobs/daily_pipeline.py 本身 —— 该档案与其余 A 股 job 实作原样保留,
+    # 供后续正式删除 Phase 处理; 这里只停止「App 启动就自动跑」这件事。
+    _ASHARE_AUTO_JOB_IDS = (
+        "pre_market_instruments",
+        "daily_pipeline",
+        "depth_finalize",
+        "scheduled_review",
+    )
     try:
         daily_pipeline.set_app_state(app.state)  # 供 depth_finalize job 访问 depth_service
         scheduler = daily_pipeline.start_scheduler(repo, capset)
+        for _job_id in _ASHARE_AUTO_JOB_IDS:
+            if scheduler.get_job(_job_id) is not None:
+                scheduler.remove_job(_job_id)
+                logger.info("A-share auto job stopped (Phase 8B-5.0.2): %s", _job_id)
         app.state.scheduler = scheduler
     except Exception as e:  # noqa: BLE001
         logger.warning("scheduler not started: %s", e)
         app.state.scheduler = None
 
-    # depth sealed: 启动补跑(当天文件不存在) + 盘中轮询(有能力时)
-    try:
-        depth_service.boot_check()
-        depth_service.start_polling()
-    except Exception as e:  # noqa: BLE001
-        logger.warning("depth_service init failed: %s", e)
+    # depth sealed(真假涨停/跌停, 纯 A 股概念): Phase 8B-5.0.2 停止其自动补跑 +
+    # 盘中轮询的自动启动。depth_service 实例仍然创建并注入 app.state(上方),
+    # ladder 规则类型等既有读路径不受影响, 只是不再有数据可读 —— 与"仅停止
+    # automatic startup, 不删除实作"的本 Phase 范围一致。
+    # try:
+    #     depth_service.boot_check()
+    #     depth_service.start_polling()
+    # except Exception as e:  # noqa: BLE001
+    #     logger.warning("depth_service init failed: %s", e)
 
     # 停机缺口自检: 延迟后台扫描, 发现最近交易日的盘中快照/缺口时自动创建
     # 修复任务 (盘中停机→次日开实时场景, 不修则坏数据被"只刷今天"分支永久留存)
