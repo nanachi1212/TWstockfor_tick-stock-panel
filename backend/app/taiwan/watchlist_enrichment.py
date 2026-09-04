@@ -1,4 +1,4 @@
-"""Taiwan Watchlist Enrichment (Phase 8B-5.0.4).
+"""Taiwan Watchlist Enrichment (Phase 8B-5.0.4, extended in Phase 8B-5.0.5).
 
 Thin adapter that fills in `/api/watchlist/enriched` rows for canonical Taiwan
 symbols (``2330.TWSE`` / ``6488.TPEX``) by reusing the *existing* Taiwan
@@ -12,11 +12,15 @@ network itself; it only orchestrates already-built services:
     close snapshot), extended here with a 5th tier: latest Taiwan daily close
     (``TaiwanDailyStore``), so a closed market / provider outage still shows
     the last known price instead of turning the whole row blank.
+  - ``app.taiwan.technical_indicators.compute_taiwan_daily_indicators()``
+    (Phase 8B-5.0.5) — MA5/10/20/60, vol_ma5/10, RSI14, MACD, momentum_5d/20d,
+    computed from a single batched ``TaiwanDailyStore.read_range()`` call for
+    the whole watchlist, never per symbol.
 
-Deliberately NOT implemented here (see Phase 8B-5.0.4 report, section N):
-technical indicators (MA/RSI/MACD/KDJ/boll/momentum/turnover_rate/limit-up
-signals) — those stay ``None`` until a real Taiwan technical-indicator
-pipeline exists; faking them would be worse than showing "—".
+Deliberately still NOT implemented here (Phase 8B-5.0.5 report §S):
+KDJ, Bollinger, ATR, turnover_rate, amplitude, annual_vol_20d, RPS, deviate_*,
+signal_* (limit-up/board-related) — those stay ``None``; faking them would be
+worse than showing "—".
 """
 from __future__ import annotations
 
@@ -100,6 +104,31 @@ def _taiwan_daily_fallback_map(symbols: list[str], daily_store: Any) -> dict[str
     return result
 
 
+def _taiwan_indicator_map(symbols: list[str], daily_store: Any) -> dict[str, dict]:
+    """一次性批量读取足够回看窗口的台股日K, 算出技术指标映射 (symbol -> 指标 dict)。
+
+    只读一次 (最近 150 个可用交易日分区, 足够 MA60/MACD(12,26,9) 稳定暖机),
+    不对每个 symbol 各自打开 parquet。与 _taiwan_daily_fallback_map 是各自
+    独立的批量读取 (窗口大小不同: 14 天 vs 150 个交易日), 两者都是 O(1) 次
+    IO, 不随 symbol 数量增长 —— 没有合并成一次读取, 是刻意的最小改动: 价格
+    fallback 的窗口需求(2 个交易日)远小于指标需求, 合并会让 fallback 路径
+    平白多扫一个大得多的窗口。
+    """
+    from app.taiwan.technical_indicators import compute_taiwan_daily_indicators
+
+    available = daily_store.available_dates()
+    if not available:
+        return {}
+    lookback = available[-150:]
+    start, end = lookback[0], lookback[-1]
+    history = daily_store.read_range(symbols, start, end)
+    if history.is_empty():
+        return {}
+
+    indicators = compute_taiwan_daily_indicators(history)
+    return {row["symbol"]: row for row in indicators.to_dicts()}
+
+
 def enrich_taiwan_watchlist_rows(
     symbols: list[str],
     *,
@@ -139,6 +168,13 @@ def enrich_taiwan_watchlist_rows(
         logger.warning("taiwan watchlist realtime quote fetch failed: %s", e)
         quote_map = {}
 
+    try:
+        indicator_map = _taiwan_indicator_map(symbols, store)
+    except Exception as e:  # noqa: BLE001
+        # 技术指标计算失败不该连累价格/涨跌欄位 —— 退化为全部指标 null。
+        logger.warning("taiwan watchlist indicator computation failed: %s", e)
+        indicator_map = {}
+
     rows: list[dict] = []
     for symbol in symbols:
         inst = None
@@ -148,6 +184,7 @@ def enrich_taiwan_watchlist_rows(
             logger.debug("taiwan security master lookup failed for %s: %s", symbol, e)
 
         q = quote_map.get(symbol)
+        ind = indicator_map.get(symbol) or {}
         asset_type = (
             inst.instrument_type if inst and inst.instrument_type in ("stock", "etf") else "stock"
         )
@@ -163,5 +200,17 @@ def enrich_taiwan_watchlist_rows(
             "change_amount": _sanitize_float(q.change) if q else None,
             "change_pct": _to_fraction_pct(q.change_pct) if q else None,
             "amount": _sanitize_float(q.amount) if q else None,
+            "ma5": _sanitize_float(ind.get("ma5")),
+            "ma10": _sanitize_float(ind.get("ma10")),
+            "ma20": _sanitize_float(ind.get("ma20")),
+            "ma60": _sanitize_float(ind.get("ma60")),
+            "vol_ma5": _sanitize_float(ind.get("vol_ma5")),
+            "vol_ma10": _sanitize_float(ind.get("vol_ma10")),
+            "rsi_14": _sanitize_float(ind.get("rsi_14")),
+            "macd_dif": _sanitize_float(ind.get("macd_dif")),
+            "macd_dea": _sanitize_float(ind.get("macd_dea")),
+            "macd_hist": _sanitize_float(ind.get("macd_hist")),
+            "momentum_5d": _sanitize_float(ind.get("momentum_5d")),
+            "momentum_20d": _sanitize_float(ind.get("momentum_20d")),
         })
     return rows

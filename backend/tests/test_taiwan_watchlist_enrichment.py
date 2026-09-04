@@ -6,8 +6,9 @@ test_watchlist_market_dispatch.py。
 """
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, timedelta
 
 import polars as pl
 import pytest
@@ -93,6 +94,11 @@ class _FakeDailyStore:
         if symbols is not None:
             df = df.filter(pl.col("symbol").is_in(symbols))
         return df
+
+    def available_dates(self):
+        if self._df.is_empty():
+            return []
+        return sorted(self._df["date"].unique().to_list())
 
 
 def test_twse_symbol_with_realtime_quote():
@@ -269,3 +275,135 @@ def test_realtime_provider_exception_does_not_raise():
     assert len(rows) == 1
     assert rows[0]["name"] == "台積電"
     assert rows[0]["close"] is None
+
+
+# ===== Phase 8B-5.0.5: 技术指标透过 enrich_taiwan_watchlist_rows 落到 watchlist 行契约 =====
+
+def _make_indicator_history(symbol: str, n: int = 70) -> pl.DataFrame:
+    """足够 MA60/MACD 稳定暖机的确定性历史(与 test_taiwan_technical_indicators.py
+    的 fixture 生成方式一致, 各自独立以避免测试间耦合)。"""
+    closes = [round(100.0 + i * 0.5 + 3.0 * math.sin(i / 3.0), 4) for i in range(n)]
+    volumes = [round(1_000_000 + i * 5_000, 1) for i in range(n)]
+    start = date(2026, 1, 1)
+    dates = [start + timedelta(days=i) for i in range(n)]
+    return pl.DataFrame({
+        "symbol": [symbol] * n, "date": dates,
+        "open": closes, "high": closes, "low": closes, "close": closes,
+        "volume": volumes, "amount": [c * v for c, v in zip(closes, volumes)],
+    })
+
+
+def test_twse_stock_gets_technical_indicators_populated():
+    """2330.TWSE 有足够日线历史时, ma5/10/20/60、rsi_14、macd_*、momentum_* 都应有值。"""
+    sec_master = _FakeSecurityMaster({
+        "2330.TWSE": _FakeInstrument(name="台積電", instrument_type="stock"),
+    })
+    rt_service = _FakeRealtimeService({
+        "2330.TWSE": _FakeQuote(1100.0, 1080.0, 1085.0, 1105.0, 1082.0, 20.0, 1.85, 1, 1.0),
+    })
+    history = _make_indicator_history("2330.TWSE")
+    rows = enrich_taiwan_watchlist_rows(
+        ["2330.TWSE"], security_master=sec_master, realtime_service=rt_service,
+        daily_store=_FakeDailyStore(df=history, latest=history["date"].max()),
+    )
+    row = rows[0]
+    for field in ("ma5", "ma10", "ma20", "ma60", "vol_ma5", "vol_ma10",
+                  "rsi_14", "macd_dif", "macd_dea", "macd_hist",
+                  "momentum_5d", "momentum_20d"):
+        assert row[field] is not None, f"{field} 应有值(70 天历史足够)"
+    assert 0.0 <= row["rsi_14"] <= 100.0
+
+
+def test_tpex_stock_gets_technical_indicators_populated():
+    """6488.TPEX 同样应正常算出技术指标, 不因交易所不同走错分支。"""
+    sec_master = _FakeSecurityMaster({
+        "6488.TPEX": _FakeInstrument(name="環球晶", instrument_type="stock"),
+    })
+    rt_service = _FakeRealtimeService({
+        "6488.TPEX": _FakeQuote(680.0, 675.0, 676.0, 685.0, 674.0, 5.0, 0.74, 1, 1.0),
+    })
+    history = _make_indicator_history("6488.TPEX")
+    rows = enrich_taiwan_watchlist_rows(
+        ["6488.TPEX"], security_master=sec_master, realtime_service=rt_service,
+        daily_store=_FakeDailyStore(df=history, latest=history["date"].max()),
+    )
+    row = rows[0]
+    assert row["ma20"] is not None
+    assert row["macd_dif"] is not None
+
+
+def test_etf_gets_technical_indicators_populated():
+    """Taiwan ETF(0050.TWSE)必须走同一技术指标 flow, 不因 instrument_type==etf 被排除。"""
+    sec_master = _FakeSecurityMaster({
+        "0050.TWSE": _FakeInstrument(name="元大台灣50", instrument_type="etf"),
+    })
+    rt_service = _FakeRealtimeService({
+        "0050.TWSE": _FakeQuote(185.5, 184.0, 184.2, 186.0, 184.0, 1.5, 0.82, 1, 1.0),
+    })
+    history = _make_indicator_history("0050.TWSE")
+    rows = enrich_taiwan_watchlist_rows(
+        ["0050.TWSE"], security_master=sec_master, realtime_service=rt_service,
+        daily_store=_FakeDailyStore(df=history, latest=history["date"].max()),
+    )
+    row = rows[0]
+    assert row["asset_type"] == "etf"
+    assert row["ma5"] is not None
+    assert row["rsi_14"] is not None
+
+
+def test_insufficient_history_leaves_technical_fields_null():
+    """只有 3 天历史: 技术指标应全为 None, 不影响价格/涨跌欄位。"""
+    sec_master = _FakeSecurityMaster({
+        "2330.TWSE": _FakeInstrument(name="台積電", instrument_type="stock"),
+    })
+    rt_service = _FakeRealtimeService({
+        "2330.TWSE": _FakeQuote(1100.0, 1080.0, 1085.0, 1105.0, 1082.0, 20.0, 1.85, 1, 1.0),
+    })
+    history = _make_indicator_history("2330.TWSE", n=3)
+    rows = enrich_taiwan_watchlist_rows(
+        ["2330.TWSE"], security_master=sec_master, realtime_service=rt_service,
+        daily_store=_FakeDailyStore(df=history, latest=history["date"].max()),
+    )
+    row = rows[0]
+    # 价格/涨跌不受历史不足影响 (来自 realtime quote, 与技术指标是独立数据源)
+    assert row["close"] == 1100.0
+    assert row["change_pct"] == pytest.approx(0.0185)
+    for field in ("ma5", "ma20", "ma60", "rsi_14", "macd_dif", "momentum_20d"):
+        assert row[field] is None, f"{field} 应为 None(仅 3 天历史)"
+
+
+def test_indicator_computation_uses_single_batch_read(monkeypatch):
+    """技术指标计算应对整批 symbol 只调用一次 daily_store.read_range(), 不逐 symbol 各读一次。"""
+    sec_master = _FakeSecurityMaster({
+        "2330.TWSE": _FakeInstrument(name="台積電", instrument_type="stock"),
+        "6488.TPEX": _FakeInstrument(name="環球晶", instrument_type="stock"),
+    })
+    rt_service = _FakeRealtimeService({
+        "2330.TWSE": _FakeQuote(1100.0, 1080.0, 1085.0, 1105.0, 1082.0, 20.0, 1.85, 1, 1.0),
+        "6488.TPEX": _FakeQuote(680.0, 675.0, 676.0, 685.0, 674.0, 5.0, 0.74, 1, 1.0),
+    })
+    h1 = _make_indicator_history("2330.TWSE")
+    h2 = _make_indicator_history("6488.TPEX")
+    combined = pl.concat([h1, h2], how="vertical")
+
+    read_range_calls: list[list[str]] = []
+
+    class _CountingDailyStore(_FakeDailyStore):
+        def read_range(self, symbols, start, end):
+            read_range_calls.append(list(symbols) if symbols is not None else [])
+            return super().read_range(symbols, start, end)
+
+    store = _CountingDailyStore(df=combined, latest=combined["date"].max())
+    rows = enrich_taiwan_watchlist_rows(
+        ["2330.TWSE", "6488.TPEX"], security_master=sec_master, realtime_service=rt_service,
+        daily_store=store,
+    )
+    assert len(rows) == 2
+    assert all(r["ma20"] is not None for r in rows)
+    # 一次是价格 fallback 窗口的 read_range, 一次是技术指标窗口的 read_range ——
+    # 两者都是与 symbol 数量无关的常数次数(各恰好一次), 不随 watchlist 大小增长。
+    assert len(read_range_calls) == 2, (
+        f"预期恰好 2 次 read_range 调用(fallback + indicators), 实际 {len(read_range_calls)}"
+    )
+    for call_symbols in read_range_calls:
+        assert sorted(call_symbols) == ["2330.TWSE", "6488.TPEX"], "每次调用都应是整批 symbol, 不是逐个"
