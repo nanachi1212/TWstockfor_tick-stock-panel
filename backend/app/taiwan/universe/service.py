@@ -21,18 +21,22 @@ from app.taiwan.universe.models import TaiwanInstrument, UniverseType
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_SECURITY_MASTER_PATH = Path("data/taiwan/security_master.parquet")
-
-
 class TaiwanSecurityMaster:
     """Orchestrates Taiwan instruments master and universes."""
 
     def __init__(
         self,
-        cache_path: Path = DEFAULT_SECURITY_MASTER_PATH,
+        cache_path: Path | None = None,
         twse_adapter: TwseInstrumentAdapter | None = None,
         tpex_adapter: TpexInstrumentAdapter | None = None,
     ) -> None:
+        # Phase 8B-5.0.6: 省略 cache_path 时锚定到 settings.data_dir, 不再是
+        # cwd-dependent 的裸相对路径(见 app/taiwan/data_root.py)。显式传入
+        # cache_path(既有 deterministic test 都这样做)时行为不变。
+        if cache_path is None:
+            from app.taiwan.data_root import taiwan_data_root
+
+            cache_path = taiwan_data_root() / "security_master.parquet"
         self.cache_path = Path(cache_path)
         self.twse_adapter = twse_adapter or TwseInstrumentAdapter()
         self.tpex_adapter = tpex_adapter or TpexInstrumentAdapter()

@@ -35,18 +35,24 @@ from app.taiwan.universe.models import MarketProfileBridge, TaiwanInstrument
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_RULES_PATH = Path("data/taiwan/monitor_rules.json")
-
-
 class TaiwanMonitorEngine:
     """Intraday Real-time Alert & Rule Evaluation Engine for Taiwan Markets."""
 
     def __init__(
         self,
         realtime_service: TaiwanRealtimeService | None = None,
-        storage_path: Path = DEFAULT_RULES_PATH,
+        storage_path: Path | None = None,
         alert_handler: Callable[[TaiwanAlertEvent], None] | None = None,
     ) -> None:
+        # Phase 8B-5.0.6: 省略 storage_path 时锚定到 settings.data_dir, 不再是
+        # cwd-dependent 的裸相对路径(见 app/taiwan/data_root.py)。显式传入
+        # storage_path(既有 deterministic test 都这样做)时行为不变。未发现
+        # repo 内任何既有 monitor_rules.json(见 8B-5.0.6 报告 Data Safety),
+        # 此改动不会让任何既有规则文件失联。
+        if storage_path is None:
+            from app.taiwan.data_root import taiwan_data_root
+
+            storage_path = taiwan_data_root() / "monitor_rules.json"
         self.realtime_service = realtime_service or get_realtime_service()
         self.storage_path = Path(storage_path)
         self.alert_handler = alert_handler
