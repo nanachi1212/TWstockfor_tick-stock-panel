@@ -234,12 +234,6 @@ async def _application_lifespan(app: FastAPI):
     pull_scheduler.refresh(store.data_dir)
     app.state.pull_scheduler = pull_scheduler
 
-    # 财务数据 (需 Expert 套餐): 仅初始化调度器供 /api/financials/sync/* 手动同步,
-    # 不启动自动调度——用户在「财务分析」页点「同步」手动拉取。
-    from app.services.financial_sync import financial_scheduler
-    financial_scheduler.start(store.data_dir, capset)
-    app.state.financial_scheduler = financial_scheduler
-
     # 策略引擎
     from app.strategy.engine import StrategyEngine
     from app.strategy import config as strategy_config
@@ -367,9 +361,6 @@ async def _application_lifespan(app: FastAPI):
         ps = getattr(app.state, "pull_scheduler", None)
         if ps:
             ps.stop()
-        fsc = getattr(app.state, "financial_scheduler", None)
-        if fsc:
-            fsc.stop()
         qs = getattr(app.state, "quote_service", None)
         if qs:
             qs.stop()

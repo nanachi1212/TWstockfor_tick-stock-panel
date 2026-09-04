@@ -5,8 +5,6 @@ import { motion } from 'framer-motion'
 import { useQuoteStream, useQuoteStreamStatus } from '@/lib/useQuoteStream'
 import { ToastContainer, toast } from '@/components/Toast'
 import { AlertToastContainer } from '@/components/AlertToast'
-import { AiAnalysisHost } from '@/components/financials/AiAnalysisHost'
-import { AiReportBubble } from '@/components/financials/AiReportBubble'
 import { StockAnalysisHost } from '@/components/stock-analysis/StockAnalysisHost'
 import { StockAnalysisBubble } from '@/components/stock-analysis/StockAnalysisBubble'
 import {
@@ -941,8 +939,6 @@ export function Layout() {
       </motion.main>
       <ToastContainer />
       <AlertToastContainer />
-      <AiAnalysisHost />
-      <AiReportBubble />
       <StockAnalysisHost />
       <StockAnalysisBubble />
     </div>

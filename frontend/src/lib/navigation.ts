@@ -18,7 +18,6 @@ import {
   ScanSearch,
   History,
   Pickaxe,
-  FileText,
   Database,
   LayoutDashboard,
   TrendingUp,
@@ -58,7 +57,6 @@ export const CORE_NAV: readonly NavMeta[] = [
 export const ASHARE_LEGACY_NAV: readonly NavMeta[] = [
   { to: '/screener',   label: '策略選股',   icon: ScanSearch },
   { to: '/stock-analysis',    label: '個股分析', icon: TrendingUp },
-  { to: '/financials', label: '財務分析', icon: FileText },
   { to: '/backtest',   label: 'A 股回測', icon: History },
   { to: '/data',       label: 'A 股資料管理',   icon: Database },
   { to: '/mining',     label: '因子挖掘', icon: Pickaxe },

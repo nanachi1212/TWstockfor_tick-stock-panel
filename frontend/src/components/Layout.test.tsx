@@ -56,8 +56,6 @@ vi.mock('@/components/Toast', () => ({
   toast: vi.fn(),
 }))
 vi.mock('@/components/AlertToast', () => ({ AlertToastContainer: () => null }))
-vi.mock('@/components/financials/AiAnalysisHost', () => ({ AiAnalysisHost: () => null }))
-vi.mock('@/components/financials/AiReportBubble', () => ({ AiReportBubble: () => null }))
 vi.mock('@/components/stock-analysis/StockAnalysisHost', () => ({ StockAnalysisHost: () => null }))
 vi.mock('@/components/stock-analysis/StockAnalysisBubble', () => ({ StockAnalysisBubble: () => null }))
 
