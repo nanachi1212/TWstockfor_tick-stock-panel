@@ -1,6 +1,7 @@
-"""Phase 8B-5.0.6 — canonical Taiwan data root: CWD-independence + override tests.
+"""Phase 8B-5.0.6/7 — canonical Taiwan data root: CWD-independence + override tests.
 
 Root cause under test: TaiwanDailyStore / TaiwanSecurityMaster / TaiwanMonitorEngine
+(Phase 8B-5.0.6), and TaiwanInstitutionalStore / TaiwanMarginStore (Phase 8B-5.0.7)
 used to default to a *bare* relative Path("data/taiwan/...") — resolved against
 whatever the process's current working directory happened to be at first use,
 not the project root. Phase 8B-5.0.5 observed this directly: launching the same
@@ -15,6 +16,8 @@ import os
 
 from app.taiwan.data_root import taiwan_data_root
 from app.taiwan.daily_store import TaiwanDailyStore
+from app.taiwan.institutional_store import TaiwanInstitutionalStore
+from app.taiwan.margin_store import TaiwanMarginStore
 from app.taiwan.realtime.monitor_engine import TaiwanMonitorEngine
 from app.taiwan.universe.service import TaiwanSecurityMaster
 
@@ -116,3 +119,79 @@ def test_data_root_matches_ashare_sibling_layout():
     root = taiwan_data_root()
     assert root.parent == settings.data_dir
     assert root.name == "taiwan"
+
+
+# ===== Phase 8B-5.0.7: TaiwanInstitutionalStore / TaiwanMarginStore =====
+
+def test_taiwan_institutional_store_default_path_is_cwd_independent(tmp_path, monkeypatch):
+    """建两个不同 CWD 下的 TaiwanInstitutionalStore(), 默认路径必须解析到同一个
+    canonical root(与 TaiwanDailyStore 相同的 Phase 8B-5.0.6 bug 类别)。"""
+    cwd_a = tmp_path / "cwd_a"
+    cwd_b = tmp_path / "cwd_b"
+    cwd_a.mkdir()
+    cwd_b.mkdir()
+
+    monkeypatch.chdir(cwd_a)
+    store_a = TaiwanInstitutionalStore()
+    path_a = store_a._data_dir  # noqa: SLF001 (白盒验证 resolve 结果)
+
+    monkeypatch.chdir(cwd_b)
+    store_b = TaiwanInstitutionalStore()
+    path_b = store_b._data_dir  # noqa: SLF001
+
+    assert path_a == path_b, (
+        f"不同 CWD 下的默认 TaiwanInstitutionalStore 路径应相同, 实际: {path_a} vs {path_b}"
+    )
+    assert path_a.is_absolute()
+    assert str(cwd_a) not in str(path_a)
+    assert str(cwd_b) not in str(path_b)
+
+
+def test_taiwan_margin_store_default_path_is_cwd_independent(tmp_path, monkeypatch):
+    cwd_a = tmp_path / "cwd_a"
+    cwd_b = tmp_path / "cwd_b"
+    cwd_a.mkdir()
+    cwd_b.mkdir()
+
+    monkeypatch.chdir(cwd_a)
+    store_a = TaiwanMarginStore()
+    path_a = store_a._data_dir  # noqa: SLF001
+
+    monkeypatch.chdir(cwd_b)
+    store_b = TaiwanMarginStore()
+    path_b = store_b._data_dir  # noqa: SLF001
+
+    assert path_a == path_b, (
+        f"不同 CWD 下的默认 TaiwanMarginStore 路径应相同, 实际: {path_a} vs {path_b}"
+    )
+    assert path_a.is_absolute()
+    assert str(cwd_a) not in str(path_a)
+    assert str(cwd_b) not in str(path_b)
+
+
+def test_taiwan_institutional_store_explicit_override_still_respected(tmp_path):
+    """显式传入 data_dir 时, 必须精确使用该路径 (不落回 canonical root)。"""
+    custom = tmp_path / "my_custom_institutional_dir"
+    store = TaiwanInstitutionalStore(data_dir=custom)
+    assert store._data_dir == custom  # noqa: SLF001
+
+
+def test_taiwan_margin_store_explicit_override_still_respected(tmp_path):
+    custom = tmp_path / "my_custom_margin_dir"
+    store = TaiwanMarginStore(data_dir=custom)
+    assert store._data_dir == custom  # noqa: SLF001
+
+
+def test_taiwan_institutional_and_margin_share_canonical_root_with_daily():
+    """三个 Taiwan 日频 store(daily/institutional/margin)的默认路径都应是
+    taiwan_data_root() 下的同级子目录, 不是各自独立的路径系统。"""
+    daily_root = TaiwanDailyStore()._data_dir  # noqa: SLF001
+    inst_root = TaiwanInstitutionalStore()._data_dir  # noqa: SLF001
+    margin_root = TaiwanMarginStore()._data_dir  # noqa: SLF001
+
+    assert daily_root.parent == taiwan_data_root()
+    assert inst_root.parent == taiwan_data_root()
+    assert margin_root.parent == taiwan_data_root()
+    assert daily_root.name == "daily"
+    assert inst_root.name == "institutional"
+    assert margin_root.name == "margin"
