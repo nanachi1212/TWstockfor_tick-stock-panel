@@ -288,14 +288,6 @@ export interface Quote {
   [key: string]: any
 }
 
-export interface IndexInstrument {
-  symbol: string
-  name?: string | null
-  code?: string | null
-  asset_type?: 'index'
-  [key: string]: any
-}
-
 export interface IndexQuote {
   symbol: string
   name?: string | null
@@ -2827,36 +2819,6 @@ export const api = {
     }>(
       `/api/kline/minute-range?symbol=${encodeURIComponent(symbol)}&days=${days}`,
     ),
-  indexList: () => request<{ results: IndexInstrument[]; count: number }>('/api/index/list'),
-  indexSearch: (q: string, limit = 20) =>
-    request<{ results: IndexInstrument[] }>(
-      `/api/index/search?q=${encodeURIComponent(q)}&limit=${limit}`,
-    ),
-  indexDaily: (symbol: string, days = 120, dateRange?: { start: string; end: string }) =>
-    request<{
-      symbol: string
-      name?: string
-      index_info?: IndexInstrument
-      rows: KlineRow[]
-      source?: string
-    }>(
-      dateRange
-        ? `/api/index/daily?symbol=${encodeURIComponent(symbol)}&start_date=${dateRange.start}&end_date=${dateRange.end}`
-        : `/api/index/daily?symbol=${encodeURIComponent(symbol)}&days=${days}`,
-    ),
-  indexMinute: (symbol: string, date?: string) =>
-    request<{
-      symbol: string
-      name?: string
-      index_info?: IndexInstrument
-      date: string | null
-      rows: MinuteKlineRow[]
-      source?: string
-    }>(
-      `/api/index/minute?symbol=${encodeURIComponent(symbol)}${date ? `&date=${date}` : ''}`,
-    ),
-  syncIndexInstruments: () =>
-    request<{ status: string; count: number }>('/api/index/sync_instruments', { method: 'POST' }),
   syncIndexDaily: (days = 365) =>
     request<{ status: string; index_count: number; rows_written: number }>(
       `/api/index/sync_daily?days=${days}`,

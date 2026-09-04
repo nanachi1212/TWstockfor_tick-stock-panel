@@ -722,8 +722,8 @@ def get_minute_batch(request: Request, body: dict):
         lim = capset.limits(Cap.KLINE_MINUTE_BATCH)
         # etf_set 已在上方获取, 直接复用 — 按 asset_type 拆分调用 sync_minute_batch
         # (自定义源 / TickFlow 路由均依赖 asset_type 正确传递)
-        # 契约: 本端点只接受 stock/ETF (指数分钟K走 /api/index/minute 独立路径),
-        # 故两分支已覆盖全部 incomplete。若未来放开指数支持, 需额外加 index 分支
+        # 契约: 本端点只接受 stock/ETF (指数分钟K已随 Phase 8B-5.1 一并移除),
+        # 故两分支已覆盖全部 incomplete。若未来重新支持指数, 需额外加 index 分支
         # 以避免被误路由为 stock。
         stock_incomplete = [s for s in incomplete if s not in etf_set]
         etf_incomplete = [s for s in incomplete if s in etf_set]
@@ -787,7 +787,7 @@ def get_minute_range(
         "requested_days": days,
     }
 
-    # 指数分钟 K 不落本地仓库, 最新分时仍由 /api/index/minute 实时读取。
+    # 指数分钟 K 不落本地仓库 (Phase 8B-5.1: 只读实时端点已随 Indices.tsx 一并删除)。
     if asset_type == "index":
         return {**base_response, "sessions": [], "source": "none"}
 
@@ -1091,10 +1091,11 @@ async def sync_minute_single(request: Request, body: dict):
     repo = request.app.state.repo
     capset = request.app.state.capabilities
 
-    # 指数分钟K无本地存储, 落库会污染股票分钟表 kline_minute;
-    # 指数分钟数据走 /api/index/minute 实时读取, 此端点显式拒绝。
+    # 指数分钟K无本地存储, 落库会污染股票分钟表 kline_minute, 此端点显式拒绝。
+    # (Phase 8B-5.1: 指数分钟K只读端点 /api/index/minute 已随 Indices.tsx 一并删除,
+    # 无实时读取替代路径。)
     if repo.resolve_asset_type(symbol) == "index":
-        raise HTTPException(status_code=400, detail="指数分钟K不支持落库同步 (指数分钟数据走 /api/index/minute 实时读取)")
+        raise HTTPException(status_code=400, detail="指数分钟K不支持落库同步")
 
     if not _minute_allowed(capset):
         raise HTTPException(status_code=403, detail="需要 Pro+ 权限")
