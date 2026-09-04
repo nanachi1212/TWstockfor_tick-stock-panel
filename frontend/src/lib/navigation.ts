@@ -14,7 +14,6 @@
 //   的用法) —— 但不参与 nav_order 拖曳排序, 因为它们固定渲染在独立的
 //   「中國 A 股（選配）」小节, 排序对它们没有意义。
 import {
-  Siren,
   Star,
   ScanSearch,
   History,
@@ -64,7 +63,6 @@ export const ASHARE_LEGACY_NAV: readonly NavMeta[] = [
   { to: '/data',       label: 'A 股資料管理',   icon: Database },
   { to: '/mining',     label: '因子挖掘', icon: Pickaxe },
   { to: '/regime', label: '市場環境', icon: Gauge },
-  { to: '/abnormal', label: '異動監控', icon: Siren },
   { to: '/review',      label: '盤後檢討',   icon: BookOpenCheck },
   { to: '/limit-ladder', label: '連板梯隊', icon: Flame },
   { to: '/concept-analysis', label: '概念分析', icon: Layers3 },

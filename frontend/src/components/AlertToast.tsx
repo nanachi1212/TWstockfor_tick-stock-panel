@@ -89,7 +89,6 @@ const SOURCE_BADGE: Record<string, { label: string; cls: string }> = {
   price:     { label: '價格',   cls: 'bg-emerald-400/15 text-emerald-400' },
   market:    { label: '異動',   cls: 'bg-purple-500/15 text-purple-400' },
   sector:    { label: '板塊',   cls: 'bg-cyan-500/15 text-cyan-700 dark:text-cyan-300' },
-  abnormal:  { label: '異動邊緣', cls: 'bg-orange-500/15 text-orange-500 dark:text-orange-400' },
   pool_entry: { label: '進入', cls: 'bg-danger/15 text-danger' },
   pool_exit:   { label: '移出', cls: 'bg-bear/15 text-bear' },
   buy_signal: { label: '買進', cls: 'bg-danger/15 text-danger' },
