@@ -23,8 +23,6 @@ import {
   TrendingUp,
   Flame,
   Gauge,
-  Layers3,
-  Landmark,
   RadioTower,
   BookOpenCheck,
   Filter,
@@ -63,6 +61,4 @@ export const ASHARE_LEGACY_NAV: readonly NavMeta[] = [
   { to: '/regime', label: '市場環境', icon: Gauge },
   { to: '/review',      label: '盤後檢討',   icon: BookOpenCheck },
   { to: '/limit-ladder', label: '連板梯隊', icon: Flame },
-  { to: '/concept-analysis', label: '概念分析', icon: Layers3 },
-  { to: '/industry-analysis', label: '行業分析', icon: Landmark },
 ] as const

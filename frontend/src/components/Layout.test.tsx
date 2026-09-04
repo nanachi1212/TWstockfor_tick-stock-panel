@@ -105,8 +105,6 @@ describe('Layout — Taiwan-first navigation (Phase 8B-2)', () => {
 
     await screen.findByText('台股選股')
     expect(screen.queryByText('連板梯隊')).not.toBeInTheDocument()
-    expect(screen.queryByText('概念分析')).not.toBeInTheDocument()
-    expect(screen.queryByText('行業分析')).not.toBeInTheDocument()
     expect(screen.queryByText('中國 A 股（選配）')).not.toBeInTheDocument()
   })
 
@@ -126,8 +124,6 @@ describe('Layout — Taiwan-first navigation (Phase 8B-2)', () => {
     await screen.findByText('台股選股')
     expect(screen.getByText('中國 A 股（選配）')).toBeInTheDocument()
     expect(screen.getByText('連板梯隊')).toBeInTheDocument()
-    expect(screen.getByText('概念分析')).toBeInTheDocument()
-    expect(screen.getByText('行業分析')).toBeInTheDocument()
     // 台股核心導航仍在, 不被 A 股區塊取代或混排
     expect(screen.getByText('台股選股')).toBeInTheDocument()
   })

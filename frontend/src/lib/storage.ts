@@ -127,12 +127,6 @@ export const storage = {
     result: any
   } | null>('strategy-backtest-last'),
 
-  /** 概念分析页面字段配置 */
-  conceptAnalysisConfig: kv<Record<string, any>>('concept-analysis-config'),
-
-  /** 行业分析页面字段配置 */
-  industryAnalysisConfig: kv<Record<string, any>>('industry-analysis-config'),
-
   /** 数据页画像卡片显隐 (卡片key → 是否显示) */
   dataCardVisible: kv<Record<string, boolean>>('data-card-visible'),
   /** 数据页画像卡片顺序 (卡片key 数组, 长度=卡片总数) */

@@ -48,7 +48,6 @@ describe('MenuSettings — Taiwan-first consistency (Phase 8B-2.1)', () => {
     expect(screen.getByText('顯示中國 A 股功能')).toBeInTheDocument()
     // 总开关关闭时, 个别 A 股项目不应出现 (不产生第二套不一致的显示)
     expect(screen.queryByText('連板梯隊')).not.toBeInTheDocument()
-    expect(screen.queryByText('概念分析')).not.toBeInTheDocument()
     // Phase 8B-4.2.1: /backtest 與 /data 已移出 CORE_NAV, 总开关关闭时也不应出现
     expect(screen.queryByText('A 股回測')).not.toBeInTheDocument()
     expect(screen.queryByText('A 股資料管理')).not.toBeInTheDocument()
@@ -59,8 +58,6 @@ describe('MenuSettings — Taiwan-first consistency (Phase 8B-2.1)', () => {
     renderPanel()
 
     expect(await screen.findByText('連板梯隊')).toBeInTheDocument()
-    expect(screen.getByText('概念分析')).toBeInTheDocument()
-    expect(screen.getByText('行業分析')).toBeInTheDocument()
     // Phase 8B-4.2.1: 开启后 A 股回測 / A 股資料管理 应出现在 A 股区块中(与 sidebar 同步)
     expect(screen.getByText('A 股回測')).toBeInTheDocument()
     expect(screen.getByText('A 股資料管理')).toBeInTheDocument()

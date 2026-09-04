@@ -847,8 +847,8 @@ export function Dashboard() {
           </div>
 
           <div className="grid grid-cols-1 gap-1.5 md:grid-cols-2">
-            <HotRankCard title="概念热度" rank={data.concept_rank} configUrl="/concept-analysis" onStockClick={(symbol, name) => setPreviewStock({symbol, name})} />
-            <HotRankCard title="行业热度" rank={data.industry_rank} configUrl="/industry-analysis" onStockClick={(symbol, name) => setPreviewStock({symbol, name})} />
+            <HotRankCard title="概念热度" rank={data.concept_rank} configUrl="/settings?tab=ext-pages" onStockClick={(symbol, name) => setPreviewStock({symbol, name})} />
+            <HotRankCard title="行业热度" rank={data.industry_rank} configUrl="/settings?tab=ext-pages" onStockClick={(symbol, name) => setPreviewStock({symbol, name})} />
           </div>
 
           <div className="grid grid-cols-1 gap-1.5 sm:grid-cols-2 xl:grid-cols-4">

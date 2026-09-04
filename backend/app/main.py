@@ -28,7 +28,6 @@ from app.api import (
     overview,
     pipeline,
     regime,
-    rps,
     screener,
     signals,
     stock_analysis,
@@ -472,7 +471,6 @@ app.include_router(strategy.router)
 app.include_router(signals.router)
 app.include_router(monitor_rules.router)
 app.include_router(alerts.router)
-app.include_router(rps.router)
 app.include_router(taiwan.router)
 
 # 二次开发路由与小粒度策略在所有核心路由后注册, 禁止覆盖核心路径。
