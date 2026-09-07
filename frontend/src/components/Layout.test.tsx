@@ -56,8 +56,6 @@ vi.mock('@/components/Toast', () => ({
   toast: vi.fn(),
 }))
 vi.mock('@/components/AlertToast', () => ({ AlertToastContainer: () => null }))
-vi.mock('@/components/stock-analysis/StockAnalysisHost', () => ({ StockAnalysisHost: () => null }))
-vi.mock('@/components/stock-analysis/StockAnalysisBubble', () => ({ StockAnalysisBubble: () => null }))
 
 function mockCommonHooks() {
   vi.mocked(useCapabilities).mockReturnValue({ data: undefined } as any)

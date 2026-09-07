@@ -111,18 +111,6 @@ export interface StockLevels {
   series?: LevelSeries
 }
 
-export interface AiStockReport {
-  id: string
-  symbol: string
-  name: string
-  focus: string
-  content: string
-  summary?: string
-  close?: number | null
-  levels?: Record<LevelType, PriceLevel[]>
-  created_at: string
-}
-
 // ===== Kline =====
 export interface MinuteKlineRow {
   datetime: string
@@ -3252,70 +3240,12 @@ export const api = {
     ),
 
   // ===== 个股分析 =====
+  // Phase 8B-5.6B: 仅保留 stockAnalysisLevels(PriceAlertDialog 价格提醒 +
+  // 关键价位持续使用)—— AI 长篇个股研究报告 workflow(analyze/reports CRUD)
+  // 已随其唯一消费者(已刪除的 StockAnalysis.tsx 页面 + stockAnalysisStore)
+  // 一併移除,详见 Phase 8B-5.6A audit。
   stockAnalysisLevels: (symbol: string, days = 120) =>
     request<StockLevels>(`/api/stock-analysis/levels?symbol=${encodeURIComponent(symbol)}&days=${days}`),
-
-  stockAnalysisReportsList: () =>
-    request<{ reports: AiStockReport[] }>('/api/stock-analysis/reports'),
-
-  stockAnalysisReportSave: (r: {
-    symbol: string; name?: string; focus?: string; content: string
-    summary?: string; close?: number | null
-    levels?: Record<LevelType, PriceLevel[]>
-  }) =>
-    request<{ ok: boolean; report: AiStockReport }>('/api/stock-analysis/reports', {
-      method: 'POST', body: JSON.stringify(r),
-    }),
-
-  stockAnalysisReportDelete: (reportId: string) =>
-    request<{ ok: boolean }>(`/api/stock-analysis/reports/${encodeURIComponent(reportId)}`, { method: 'DELETE' }),
-
-  /**
-   * AI 个股四维分析 — 流式调用(NDJSON,与财务分析同协议)。
-   * meta 里额外带 levels(关键价位)供图表回放。
-   */
-  async *stockAnalyzeStream(symbol: string, focus?: string): AsyncGenerator<{
-    type: 'meta' | 'delta' | 'error' | 'done'
-    symbol?: string
-    summary?: string
-    levels?: Record<LevelType, PriceLevel[]>
-    close?: number | null
-    content?: string
-    message?: string
-  }> {
-    const res = await fetch('/api/stock-analysis/analyze', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ symbol, focus: focus ?? '' }),
-    })
-    if (!res.ok) {
-      let detail = ''
-      try { const j = JSON.parse(await res.text()); detail = j.detail ?? j.message ?? '' } catch { /* ignore */ }
-      const msg = detail || `${res.status} ${res.statusText}`
-      toast(msg, 'error')
-      throw new Error(msg)
-    }
-    if (!res.body) throw new Error('响应无 body')
-
-    const reader = res.body.getReader()
-    const decoder = new TextDecoder()
-    let buf = ''
-    for (;;) {
-      const { done, value } = await reader.read()
-      if (done) break
-      buf += decoder.decode(value, { stream: true })
-      const lines = buf.split('\n')
-      buf = lines.pop() ?? ''
-      for (const line of lines) {
-        const s = line.trim()
-        if (!s) continue
-        try { yield JSON.parse(s) } catch { /* ignore */ }
-      }
-    }
-    if (buf.trim()) {
-      try { yield JSON.parse(buf.trim()) } catch { /* ignore */ }
-    }
-  },
 
   // ===== 大盘复盘 =====
   reviewReportsList: () =>
