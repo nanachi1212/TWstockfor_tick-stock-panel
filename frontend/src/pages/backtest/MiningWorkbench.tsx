@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Link, useSearchParams } from 'react-router-dom'
+import { useSearchParams } from 'react-router-dom'
 import {
   AlertTriangle,
   CheckCircle2,
@@ -581,9 +581,9 @@ export function MiningWorkbench() {
           </section>
 
           {regimeLatestQuery.data && !regimeLatestQuery.data.row && (
-            <Link to="/data" className="block rounded-btn border border-warning/40 bg-warning/5 px-2 py-1.5 text-[9px] leading-4 text-warning transition-colors hover:border-warning/70">
-              尚未计算市场环境数据 — 挖掘含市场环境分组评估，缺少时启动即校验失败。<span className="underline underline-offset-2">前往数据页完成市场环境计算 →</span>
-            </Link>
+            <div className="rounded-btn border border-warning/40 bg-warning/5 px-2 py-1.5 text-[9px] leading-4 text-warning">
+              尚未计算市场环境数据 — 挖掘含市场环境分组评估，缺少时启动即校验失败。市场环境由盘后管道自动计算，请稍候后重试。
+            </div>
           )}
 
           <section className="border-t border-border pt-3">

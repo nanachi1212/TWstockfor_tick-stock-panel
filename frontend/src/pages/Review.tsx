@@ -287,13 +287,13 @@ export function Review() {
               </div>
               <div className="text-center">
                 <div className="text-sm font-medium text-foreground">暂无市场数据</div>
-                <p className="mt-1 text-xs text-muted">复盘需要日 K 与指数,请先前往「数据」页同步</p>
+                <p className="mt-1 text-xs text-muted">复盘需要日 K 与指数,请先前往看板同步</p>
               </div>
               <Link
-                to="/data"
+                to="/"
                 className="inline-flex items-center gap-1.5 rounded-btn bg-accent px-4 py-2 text-xs font-medium text-white shadow-sm transition-all hover:bg-accent/90 hover:shadow"
               >
-                <Database className="h-3.5 w-3.5" />前往数据页同步
+                <Database className="h-3.5 w-3.5" />前往看板同步
                 <ChevronRight className="h-3.5 w-3.5" />
               </Link>
             </div>

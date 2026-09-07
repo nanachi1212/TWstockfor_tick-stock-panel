@@ -11,7 +11,6 @@ export const QK = {
   // 全局 / 共享 (Layout 预取)
   capabilities:   ['capabilities'] as const,
   settings:       ['settings'] as const,
-  endpoints:      ['endpoints'] as const,
   version:        ['version'] as const,
   preferences:    ['preferences'] as const,
   dataSources:    ['data-sources'] as const,
@@ -20,7 +19,6 @@ export const QK = {
   quoteInterval:  ['quote-interval'] as const,
   overviewMarket: (asOf?: string) => ['overview-market', asOf ?? 'latest'] as const,
   indexQuotes:    ['index-quotes'] as const,
-  indexList:      ['index-list'] as const,
 
   // Watchlist
   watchlist:            ['watchlist'] as const,
@@ -84,7 +82,6 @@ export const QK = {
 
   // Schema
   extDataSchemaAll:     ['ext-data-schema-all'] as const,
-  tableSchema:          (table: string) => ['table-schema', table] as const,
 
   // Custom Signals
   customSignals:        ['custom-signals'] as const,

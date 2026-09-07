@@ -1062,13 +1062,6 @@ function FetchDataCard({
               >
                 <Play className="h-3.5 w-3.5" />立即获取数据
               </button>
-              <Link
-                to="/data"
-                className="inline-flex items-center gap-0.5 text-xs text-secondary hover:text-accent transition-colors"
-              >
-                前往数据页
-                <ArrowUpRight className="h-3 w-3 self-center" />
-              </Link>
             </div>
           )}
         </div>

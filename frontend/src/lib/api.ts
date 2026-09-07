@@ -1950,27 +1950,6 @@ export interface StrategyBacktestResult {
 
 // ===== Settings =====
 
-/** 端点发现清单 —— 对应 tickflow.org/endpoints.json */
-export interface EndpointItem {
-  id: string
-  url: string
-  label: string
-  region?: string
-  description?: string
-  premium?: boolean
-}
-
-export interface EndpointManifest {
-  version?: number
-  description?: string
-  healthPath?: string
-  /** 每端点测试轮数,用于 /health 多轮探测取中位数 */
-  testRounds?: number
-  endpoints: EndpointItem[]
-  /** 数据来源:remote=远程拉取 / fallback=内置回退列表 */
-  source?: 'remote' | 'fallback'
-}
-
 export interface SettingsState {
   mode: 'none' | 'free' | 'api_key'
   tickflow_api_key_masked: string
@@ -2298,34 +2277,10 @@ export const api = {
         }),
       },
     ),
-  updateMinuteSync: (enabled: boolean, days: number, segmentDays?: number) =>
-    request<Preferences>('/api/settings/preferences/minute-sync', {
-      method: 'PUT',
-      body: JSON.stringify({
-        minute_sync_enabled: enabled,
-        minute_sync_days: days,
-        ...(segmentDays != null ? { minute_sync_segment_days: segmentDays } : {}),
-      }),
-    }),
-  updatePipelinePullTypes: (cfg: Partial<Pick<Preferences, 'pipeline_pull_a_share' | 'pipeline_pull_etf' | 'pipeline_pull_index'>>) =>
-    request<{
-      pipeline_pull_a_share: boolean
-      pipeline_pull_etf: boolean
-      pipeline_pull_index: boolean
-    }>('/api/settings/preferences/pipeline-pull-types', {
-      method: 'PUT',
-      body: JSON.stringify(cfg),
-    }),
-  updatePipelineRegimeEnabled: (enabled: boolean) =>
-    request<{ pipeline_regime_enabled: boolean }>('/api/settings/preferences/pipeline-regime-enabled', {
-      method: 'PUT',
-      body: JSON.stringify({ pipeline_regime_enabled: enabled }),
-    }),
-  updateRegimeBatchParams: (params: { batch_days?: number; warmup_days?: number }) =>
-    request<{ regime_batch_days: number; regime_warmup_days: number }>('/api/settings/preferences/regime-batch-params', {
-      method: 'PUT',
-      body: JSON.stringify(params),
-    }),
+  // Phase 8B-5.8: updateMinuteSync/updatePipelinePullTypes/
+  // updatePipelineRegimeEnabled/updateRegimeBatchParams 隨已刪除的
+  // Data.tsx(A 股資料管理頁)一併移除 —— 對應 backend 設定端點未動,
+  // 屬 POSSIBLE_ORPHAN_BACKEND_API, 留待之後統一的 Dead Backend API Sweep。
   updatePipelineIndexSymbols: (symbols: string) =>
     request<{ pipeline_index_symbols: string }>('/api/settings/preferences/pipeline-index-symbols', {
       method: 'PUT',
@@ -2453,11 +2408,6 @@ export const api = {
       method: 'PUT',
       body: JSON.stringify({ channels }),
     }),
-  updatePipelineSchedule: (hour: number, minute: number) =>
-    request<{ hour: number; minute: number }>('/api/settings/preferences/pipeline-schedule', {
-      method: 'PUT',
-      body: JSON.stringify({ hour, minute }),
-    }),
   updateReviewSchedule: (enabled: boolean, hour: number, minute: number) =>
     request<{ enabled: boolean; hour: number; minute: number }>('/api/settings/preferences/review-schedule', {
       method: 'PUT',
@@ -2497,22 +2447,6 @@ export const api = {
       method: 'PUT',
       body: JSON.stringify({ nav_hidden }),
     }),
-  updateInstrumentsSchedule: (hour: number, minute: number) =>
-    request<{ hour: number; minute: number }>('/api/settings/preferences/instruments-schedule', {
-      method: 'PUT',
-      body: JSON.stringify({ hour, minute }),
-    }),
-  updateEnrichedBatchSize: (size: number) =>
-    request<{ enriched_batch_size: number }>('/api/settings/preferences/enriched-batch-size', {
-      method: 'PUT',
-      body: JSON.stringify({ size }),
-    }),
-  updateIndexDailyBatchSize: (size: number) =>
-    request<{ index_daily_batch_size: number }>('/api/settings/preferences/index-daily-batch-size', {
-      method: 'PUT',
-      body: JSON.stringify({ size }),
-    }),
-
   // 自选列表列配置
   watchlistColumns: () =>
     request<{ columns: any[] | null }>('/api/settings/preferences/watchlist-columns'),
@@ -2600,45 +2534,20 @@ export const api = {
     }>(
       `/api/kline/minute-range?symbol=${encodeURIComponent(symbol)}&days=${days}`,
     ),
-  syncIndexDaily: (days = 365) =>
-    request<{ status: string; index_count: number; rows_written: number }>(
-      `/api/index/sync_daily?days=${days}`,
-      { method: 'POST' },
-    ),
   syncSymbol: (symbol: string, days = 250) =>
     request<{ symbol: string; rows_written: number }>(
       `/api/kline/sync?symbol=${encodeURIComponent(symbol)}&days=${days}`,
       { method: 'POST' },
     ),
-  syncMinute: (days?: number, extend?: boolean) =>
-    request<{ status: string; job_id: string }>('/api/kline/sync_minute', {
-      method: 'POST',
-      body: JSON.stringify({ ...(days ? { days } : {}), ...(extend ? { extend: true } : {}) }),
-    }),
   syncMinuteSingle: (symbol: string, days?: number) =>
     request<{ status: string; symbol: string; rows: number }>('/api/kline/sync_minute_single', {
       method: 'POST',
       body: JSON.stringify({ symbol, ...(days != null ? { days } : {}) }),
     }),
-  clearMinute: () =>
-    request<{ status: string; removed: number }>('/api/kline/clear_minute', {
-      method: 'POST',
-      body: JSON.stringify({ confirm: true }),
-    }),
-  extendHistory: (value: number, unit: 'day' | 'month' | 'year') =>
-    request<{ status: string; job_id: string }>('/api/kline/extend_history', {
-      method: 'POST',
-      body: JSON.stringify({ value, unit }),
-    }),
-  repairDaily: (startDate: string) =>
-    request<{ status: string; job_id: string }>('/api/kline/repair_daily', {
-      method: 'POST',
-      body: JSON.stringify({ start_date: startDate }),
-    }),
-  rebuildEnriched: () =>
-    request<{ status: string; job_id: string }>('/api/kline/rebuild_enriched', {
-      method: 'POST',
-    }),
+  // Phase 8B-5.8: syncIndexDaily/syncMinute/clearMinute/extendHistory/
+  // repairDaily/rebuildEnriched 隨已刪除的 Data.tsx 一併移除(僅該頁使用)。
+  // 對應 backend /api/index/sync_daily、/api/kline/* 端點未動, 屬
+  // POSSIBLE_ORPHAN_BACKEND_API, 留待之後統一的 Dead Backend API Sweep。
 
   watchlistList: () => request<{ symbols: WatchlistEntry[] }>('/api/watchlist'),
   watchlistAdd: (symbol: string, note = '', groupId?: string | null) =>
@@ -2957,40 +2866,11 @@ export const api = {
     ),
 
   dataStatus: () => request<DataStatus>('/api/data/status'),
-  dataClear: () => request<{ deleted_files: number }>('/api/data/clear', { method: 'POST' }),
   refreshCache: () => request<{ ok: boolean }>('/api/data/refresh-cache', { method: 'POST' }),
-  enrichedSchema: (table: string) => request<EnrichedField[]>(`/api/data/schema/${table}`),
 
-  testEndpoint: (url: string, rounds?: number) =>
-    request<{
-      ok: boolean
-      url: string
-      rounds: number
-      success: number
-      median_ms: number | null
-      min_ms?: number | null
-      max_ms?: number | null
-      /** 兼容旧字段,等于 median_ms */
-      latency_ms?: number | null
-      error?: string
-    }>(
-      '/api/settings/test_endpoint', {
-        method: 'POST',
-        body: JSON.stringify({ url, rounds }),
-      },
-    ),
-
-  // 端点发现 —— 后端代理拉取 tickflow.org/endpoints.json(前端无法跨域直连)
-  listEndpoints: () =>
-    request<EndpointManifest>('/api/settings/endpoints'),
-
-  switchEndpoint: (url: string) =>
-    request<{ ok: boolean; current_endpoint: string; error?: string }>(
-      '/api/settings/switch_endpoint', {
-        method: 'POST',
-        body: JSON.stringify({ url }),
-      },
-    ),
+  // Phase 8B-5.8: dataClear/enrichedSchema/testEndpoint/listEndpoints/
+  // switchEndpoint 隨已刪除的 Data.tsx + EndpointTestDialog.tsx 一併移除
+  // (僅供該頁使用)。對應 backend 端點未動, 屬 POSSIBLE_ORPHAN_BACKEND_API。
 
   // ===== 扩展数据 =====
   extDataList: () =>
@@ -3033,29 +2913,11 @@ export const api = {
   analysisMenuDelete: (id: string) =>
     request<{ status: string }>(`/api/analysis-menus/${encodeURIComponent(id)}`, { method: 'DELETE' }),
 
-  extDataCreate: (body: { id: string; label: string; mode: 'snapshot' | 'timeseries'; fields: { name: string; dtype: string; label: string }[]; description?: string; symbol_map?: Record<string, string>; code_map?: Record<string, string> }) =>
-    request<ExtDataConfig>('/api/ext-data', {
-      method: 'POST',
-      body: JSON.stringify(body),
-    }),
-
-  extDataUpdate: (id: string, body: { label?: string; fields?: { name: string; dtype: string; label: string }[]; description?: string }) =>
-    request<ExtDataConfig>(`/api/ext-data/${id}`, {
-      method: 'PUT',
-      body: JSON.stringify(body),
-    }),
-
-  extDataDelete: (id: string) =>
-    request<{ status: string }>(`/api/ext-data/${id}`, { method: 'DELETE' }),
-
-  extDataUpload: (id: string, file: File, snapshotDate?: string) => {
-    const fd = new FormData()
-    fd.append('file', file)
-    return request<{ status: string; rows: number; date: string }>(
-      `/api/ext-data/${id}/upload${snapshotDate ? `?snapshot_date=${snapshotDate}` : ''}`,
-      { method: 'POST', body: fd },
-    )
-  },
+  // Phase 8B-5.8: extDataCreate/Update/Delete/Upload(建立/編輯/刪除/上傳
+  // 擴充資料源, 由已刪除的 CreateExtDialog/EditExtDialog/ExtDataStatCard
+  // 使用)隨 Data.tsx 一併移除, 對應 backend 端點未動。extDataList/Rows/
+  // SchemaAll(唯讀消費既有資料源)仍被 Analysis/ExtPages/Monitor 等真實
+  // 頁面使用, 完整保留。
 
   extDataIngest: (id: string, body: { date?: string; rows: Record<string, unknown>[] }) =>
     request<{ status: string; rows: number; date: string }>(
@@ -3066,54 +2928,10 @@ export const api = {
   extDataSchemaAll: () =>
     request<{ items: { id: string; label: string; mode: string; columns: { name: string; type: string; label: string }[] }[] }>('/api/ext-data/schema-all'),
 
-  extDataPullConfig: (id: string, body: {
-    url: string; method?: string; headers?: Record<string, string>; body?: string;
-    response_path?: string; field_map?: Record<string, string>;
-    schedule_minutes?: number; enabled?: boolean;
-    time_window_start?: string | null; time_window_end?: string | null;
-  }) =>
-    request<{ status: string; pull: PullConfig }>(
-      `/api/ext-data/${id}/pull`,
-      { method: 'PUT', body: JSON.stringify(body) },
-    ),
-
-  extDataPullTest: (id: string) =>
-    request<{ status: string; total_rows: number; preview: Record<string, unknown>[]; has_symbol: boolean }>(
-      `/api/ext-data/${id}/pull/test`,
-      { method: 'POST' },
-    ),
-
-  extDataPullRun: (id: string) =>
-    request<{ status: string; rows: number; date: string }>(
-      `/api/ext-data/${id}/pull/run`,
-      { method: 'POST' },
-    ),
-
   // 内置预设 (概念/行业) 手动获取数据: 走结构转换, 保证 schema 一致
   extDataPresetFetch: (id: string) =>
     request<{ status: string; rows: number }>(
       `/api/ext-data/presets/${id}/fetch`,
-      { method: 'POST' },
-    ),
-
-  extDataDetectFields: (file: File) => {
-    const fd = new FormData()
-    fd.append('file', file)
-    return request<{ fields: { name: string; dtype: string; label: string }[]; rows: number; symbol_candidates: string[]; code_candidates: string[] }>(
-      '/api/ext-data/detect-fields',
-      { method: 'POST', body: fd },
-    )
-  },
-
-  extDataDetectUrl: (body: ExtDataDetectUrlRequest) =>
-    request<ExtDataDetectUrlResult>('/api/ext-data/detect-url', {
-      method: 'POST',
-      body: JSON.stringify(body),
-    }),
-
-  extDataFixSymbol: (id: string) =>
-    request<{ status: string; fixed_files: number }>(
-      `/api/ext-data/${id}/fix-symbol`,
       { method: 'POST' },
     ),
 
@@ -3692,26 +3510,6 @@ export interface PullConfig {
   next_run?: string | null
   time_window_start?: string | null
   time_window_end?: string | null
-}
-
-export interface ExtDataDetectUrlRequest {
-  url: string
-  method?: string
-  headers?: Record<string, string>
-  body?: string
-  response_path?: string
-  field_map?: Record<string, string>
-}
-
-export interface ExtDataDetectUrlResult {
-  status: string
-  total_rows: number
-  response_path: string
-  response_path_candidates: string[]
-  fields: ExtDataField[]
-  symbol_candidates: string[]
-  code_candidates: string[]
-  preview: Record<string, unknown>[]
 }
 
 export interface ExtDataConfig {

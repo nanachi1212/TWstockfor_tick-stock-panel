@@ -19,7 +19,6 @@ const Watchlist = lazy(() => import('./pages/Watchlist').then(m => ({ default: m
 const Screener = lazy(() => import('./pages/Screener').then(m => ({ default: m.Screener })))
 const Backtest = lazy(() => import('./pages/Backtest').then(m => ({ default: m.Backtest })))
 const Mining = lazy(() => import('./pages/Mining').then(m => ({ default: m.Mining })))
-const Data = lazy(() => import('./pages/Data').then(m => ({ default: m.Data })))
 const Monitor = lazy(() => import('./pages/Monitor').then(m => ({ default: m.Monitor })))
 const Dashboard = lazy(() => import('./pages/Dashboard').then(m => ({ default: m.Dashboard })))
 const AnalysisDetail = lazy(() => import('./pages/AnalysisDetail').then(m => ({ default: m.AnalysisDetail })))
@@ -47,7 +46,6 @@ const CORE_ROUTE_PATHS = new Set([
   '/taiwan-screener',
   '/backtest',
   '/mining',
-  '/data',
   '/monitor',
   '/limit-ladder',
   '/indices',
@@ -117,7 +115,6 @@ export const router = createBrowserRouter([
       { path: 'taiwan-screener', element: <TaiwanScreener /> },
       { path: 'backtest', element: <Backtest /> },
       { path: 'mining', element: <Mining /> },
-      { path: 'data', element: <Data /> },
       { path: 'monitor', element: <Monitor /> },
       { path: 'limit-ladder', element: <LimitUpLadder /> },
       { path: 'branding', element: <Branding /> },
