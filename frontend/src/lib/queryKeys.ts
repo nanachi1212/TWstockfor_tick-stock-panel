@@ -106,12 +106,11 @@ export const QK = {
   reviewReports:        ['review-reports'] as const,
 
   // 市场环境(Regime) — 日级离线计算, 不进 SSE 刷新
-  regimeHistory:        (limit?: number) => ['regime-history', limit ?? 0] as const,
+  // Phase 8B-5.7: 仅保留仍有真实 consumer 的 regimeLatest(Mining)/
+  // regimeCoverage(Data) —— history/states/phases/mainline 随已刪除的
+  // Regime.tsx 一併移除。
   regimeLatest:         ['regime-latest'] as const,
-  regimeStates:         (days: number) => ['regime-states', days] as const,
   regimeCoverage:       ['regime-coverage'] as const,
-  regimePhases:         (start?: string, end?: string) => ['regime-phases', start ?? '', end ?? ''] as const,
-  regimeMainline:       (kind: string, start?: string, end?: string) => ['regime-mainline', kind, start ?? '', end ?? ''] as const,
 } as const
 
 // ===== SSE 应该 invalidate 的 key 前缀列表 =====

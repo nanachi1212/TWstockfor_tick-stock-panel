@@ -391,112 +391,25 @@ export interface RegimeRow {
   promo_pool?: number | null
 }
 
-export interface RegimeHistory {
-  rows: RegimeRow[]
-  total: number
-}
-
-export interface RegimeStateItem {
-  state: RegimeState
-  label: string
-  count: number
-  pct: number
-}
-
-export interface RegimeStates {
-  distribution: RegimeStateItem[]
-  days: number
-}
-
 export interface RegimeCoverage {
   rows: number
   earliest_date: string | null
   latest_date: string | null
 }
 
-// ── 市场阶段(情绪周期) 与 主线 ──
+// ── 市场阶段(情绪周期) ──
+// Phase 8B-5.7: MARKET_PHASE_LABELS/COLORS/ORDER 与 PhaseSegment(s)/
+// MainlineRow/Leader/Result 仅供已刪除的 Regime.tsx 研究頁使用, 一併移除。
+// MarketPhase 型別本身保留 —— 是 RegimeRow.phase 欄位的型別依賴(regimeLatest
+// 仍是 Mining 頁真實 consumer)。MainlineFilter 保留 —— 是 mainlineFilterUpdate
+// (設定頁 /api/settings/preferences/mainline-filter)的回傳型別, 不屬本次範圍。
 export type MarketPhase = 'ice' | 'ignite' | 'rally' | 'climax' | 'ebb' | 'repair'
-
-export const MARKET_PHASE_LABELS: Record<MarketPhase, string> = {
-  ice: '冰点',
-  ignite: '启动',
-  rally: '主升',
-  climax: '高潮',
-  ebb: '退潮',
-  repair: '修复',
-}
-
-export const MARKET_PHASE_COLORS: Record<MarketPhase, string> = {
-  ice: '#38bdf8',     // 天蓝(冻结)
-  ignite: '#f59e0b',  // 琥珀(升温)
-  rally: '#ef4444',   // 红(主升)
-  climax: '#d946ef',  // 品红(极端)
-  ebb: '#14b8a6',     // 青(退潮)
-  repair: '#94a3b8',  // 灰(修复)
-}
-
-export const MARKET_PHASE_ORDER: MarketPhase[] = ['ice', 'ignite', 'rally', 'climax', 'ebb', 'repair']
-
-export interface MainlineMemberStat {
-  member: string
-  top5_days: number
-  score_sum: number
-  max_boards: number
-  leader_symbol: string
-}
-
-export interface PhaseSegment {
-  phase: MarketPhase
-  label: string
-  start: string
-  end: string
-  days: number
-  avg_height: number
-  avg_first_board: number
-  avg_ge2: number
-  avg_promo: number | null
-  avg_seal_rate: number
-  top_mainlines: MainlineMemberStat[]
-}
-
-export interface PhaseSegments {
-  segments: PhaseSegment[]
-  total: number
-}
-
-export interface MainlineRow {
-  date: string
-  kind: string
-  member: string
-  limit_up_count: number
-  ge2_count: number
-  max_boards: number
-  boards_sum: number
-  rungs_filled: number
-  leader_symbol: string
-  score: number
-  rank: number
-}
-
-export interface MainlineLeader {
-  member: string
-  top1_days: number
-  avg_score: number
-  max_boards: number
-}
 
 export interface MainlineFilter {
   min_members: number
   max_members: number
   blacklist: string[]
   exclude_st: boolean
-}
-
-export interface MainlineResult {
-  rows: MainlineRow[]
-  leaders: MainlineLeader[]
-  membership_note: string
-  filter: MainlineFilter
 }
 
 // ===== 大盘复盘 =====
@@ -2851,39 +2764,11 @@ export const api = {
   overviewMarket: (asOf?: string) => request<OverviewMarket>(`/api/overview/market${asOf ? `?as_of=${asOf}` : ''}`),
 
   // 市场环境(Regime)
-  regimeHistory: (start?: string, end?: string, limit?: number) => {
-    const params = new URLSearchParams()
-    if (start) params.set('start', start)
-    if (end) params.set('end', end)
-    if (limit) params.set('limit', String(limit))
-    const qs = params.toString()
-    return request<RegimeHistory>(`/api/regime/history${qs ? `?${qs}` : ''}`)
-  },
+  // Phase 8B-5.7: 移除仅供已刪除的 Regime.tsx 研究頁使用的 history/states/
+  // recompute/phases/mainline 端點 —— regimeLatest(Mining 挖掘頁核驗市場環境
+  // 是否已計算)與 regimeCoverage(Data 頁資料畫像)仍有真實 consumer, 保留。
   regimeLatest: () => request<{ row: RegimeRow | null }>('/api/regime/latest'),
-  regimeStates: (days = 60) => request<RegimeStates>(`/api/regime/states?days=${days}`),
   regimeCoverage: () => request<RegimeCoverage>('/api/regime/coverage'),
-  regimeRecompute: (start?: string, end?: string) => {
-    const params = new URLSearchParams()
-    if (start) params.set('start', start)
-    if (end) params.set('end', end)
-    const qs = params.toString()
-    return request<{ ok: boolean; computed: number; phase_days?: number; mainline_rows?: number }>(`/api/regime/recompute${qs ? `?${qs}` : ''}`, { method: 'POST' })
-  },
-  regimePhases: (start?: string, end?: string) => {
-    const params = new URLSearchParams()
-    if (start) params.set('start', start)
-    if (end) params.set('end', end)
-    const qs = params.toString()
-    return request<PhaseSegments>(`/api/regime/phases${qs ? `?${qs}` : ''}`)
-  },
-  regimeMainline: (start?: string, end?: string, top = 10, kind: 'concept' | 'industry' = 'concept') => {
-    const params = new URLSearchParams({ top: String(top), kind })
-    if (start) params.set('start', start)
-    if (end) params.set('end', end)
-    return request<MainlineResult>(`/api/regime/mainline?${params.toString()}`)
-  },
-  regimeMainlineRecompute: () =>
-    request<{ ok: boolean; rows: number }>('/api/regime/mainline/recompute', { method: 'POST' }),
   mainlineFilterUpdate: (payload: { min_members?: number; max_members?: number; blacklist?: string[]; exclude_st?: boolean }) =>
     request<MainlineFilter>('/api/settings/preferences/mainline-filter', {
       method: 'PUT',

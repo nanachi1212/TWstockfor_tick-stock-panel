@@ -27,7 +27,6 @@ const Review = lazy(() => import('./pages/Review').then(m => ({ default: m.Revie
 const LimitUpLadder = lazy(() => import('./pages/LimitUpLadder').then(m => ({ default: m.LimitUpLadder })))
 const Branding = lazy(() => import('./pages/Branding').then(m => ({ default: m.Branding })))
 const Settings = lazy(() => import('./pages/Settings').then(m => ({ default: m.Settings })))
-const Regime = lazy(() => import('./pages/Regime').then(m => ({ default: m.Regime })))
 const Dev = lazy(() => import('./pages/Dev').then(m => ({ default: m.Dev })))
 const TaiwanStockDetail = lazy(() => import('./pages/TaiwanStockDetail').then(m => ({ default: m.TaiwanStockDetail })))
 const TaiwanStockCompare = lazy(() => import('./pages/TaiwanStockCompare').then(m => ({ default: m.TaiwanStockCompare })))
@@ -52,7 +51,6 @@ const CORE_ROUTE_PATHS = new Set([
   '/monitor',
   '/limit-ladder',
   '/indices',
-  '/regime',
   '/branding',
   '/settings',
   '/dev',
@@ -122,7 +120,6 @@ export const router = createBrowserRouter([
       { path: 'data', element: <Data /> },
       { path: 'monitor', element: <Monitor /> },
       { path: 'limit-ladder', element: <LimitUpLadder /> },
-    { path: 'regime', element: <Regime /> },
       { path: 'branding', element: <Branding /> },
       { path: 'settings', element: <Settings /> },
       // 隐藏路由：开发者工具（不暴露在菜单，仅供调试）

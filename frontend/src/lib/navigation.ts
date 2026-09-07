@@ -21,7 +21,6 @@ import {
   Database,
   LayoutDashboard,
   Flame,
-  Gauge,
   RadioTower,
   BookOpenCheck,
   Filter,
@@ -56,7 +55,6 @@ export const ASHARE_LEGACY_NAV: readonly NavMeta[] = [
   { to: '/backtest',   label: 'A 股回測', icon: History },
   { to: '/data',       label: 'A 股資料管理',   icon: Database },
   { to: '/mining',     label: '因子挖掘', icon: Pickaxe },
-  { to: '/regime', label: '市場環境', icon: Gauge },
   { to: '/review',      label: '盤後檢討',   icon: BookOpenCheck },
   { to: '/limit-ladder', label: '連板梯隊', icon: Flame },
 ] as const
