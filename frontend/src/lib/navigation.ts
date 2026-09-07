@@ -20,7 +20,6 @@ import {
   Pickaxe,
   LayoutDashboard,
   RadioTower,
-  BookOpenCheck,
   Filter,
   Scale,
   type LucideIcon,
@@ -49,6 +48,14 @@ export interface NavMeta {
 // 不硬改名成台股功能。depth_service 的封板判定(sealed cache)仍被
 // market_overview_builder / quote_service / monitor_rules 等多方真實消費,
 // 完全保留未動。
+//
+// Phase 8B-5.11 — /review(盤後檢討/AI 大盤復盤頁)已整頁刪除, 連同其專屬的
+// 定時復盤 scheduler job、飛書/企業微信推送設定一併移除(非僅隱藏 UI,
+// 避免曾開啟過的使用者留下無 UI 可關的背景任務)。A 股四大指數/漲停封板率
+// 情緒分析對台股無意義;台股「今天強不強」由 TaiwanScreener / Market
+// Intelligence / Industry Intelligence / Dashboard 提供, 不建立替代頁面。
+// GET /api/overview/market、market_overview_builder、depth_service、
+// ai_provider、generic WeCom/Feishu webhook 基礎設施完全未動。
 export const CORE_NAV: readonly NavMeta[] = [
   { to: '/',                label: '看板',     icon: LayoutDashboard },
   { to: '/watchlist',  label: '自選股',   icon: Star },
@@ -61,5 +68,4 @@ export const ASHARE_LEGACY_NAV: readonly NavMeta[] = [
   { to: '/screener',   label: '策略選股',   icon: ScanSearch },
   { to: '/backtest',   label: 'A 股回測', icon: History },
   { to: '/mining',     label: '因子挖掘', icon: Pickaxe },
-  { to: '/review',      label: '盤後檢討',   icon: BookOpenCheck },
 ] as const

@@ -97,10 +97,6 @@ export const QK = {
   taiwanCurrentData:    (symbol: string) => ['taiwan-current-data', symbol] as const,
   taiwanCapabilities:   ['taiwan-capabilities'] as const,
 
-
-  // AI 大盘复盘
-  reviewReports:        ['review-reports'] as const,
-
   // 市场环境(Regime) — 日级离线计算, 不进 SSE 刷新
   // Phase 8B-5.7: 仅保留仍有真实 consumer 的 regimeLatest(Mining)/
   // regimeCoverage(Data) —— history/states/phases/mainline 随已刪除的

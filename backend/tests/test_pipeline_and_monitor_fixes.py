@@ -7,7 +7,6 @@ from __future__ import annotations
 import polars as pl
 import pytest
 
-from app.jobs import daily_pipeline
 from app.services import pipeline_jobs, preferences, quote_service
 from app.services.pipeline_jobs import JobStore
 from app.services.quote_service import QuoteService
@@ -132,25 +131,4 @@ def test_ladder_webhook_uses_chinese_title_without_brand(monkeypatch):
     )
 
     assert [args[1] for _, args in calls] == ["连板梯队", "连板梯队"]
-    assert all("TickFlow" not in args[1] for _, args in calls)
-
-
-def test_review_webhooks_use_title_without_brand(monkeypatch):
-    calls = []
-    monkeypatch.setattr("app.services.preferences.get_review_push_channels", lambda: ["feishu", "wecom"])
-    monkeypatch.setattr("app.services.preferences.get_feishu_webhook_url", lambda: "feishu-url")
-    monkeypatch.setattr("app.services.preferences.get_feishu_webhook_secret", lambda: "secret")
-    monkeypatch.setattr("app.services.preferences.get_wecom_webhook_url", lambda: "wecom-url")
-    monkeypatch.setattr(
-        "app.services.webhook_adapter.send_feishu_card",
-        lambda *args: calls.append(("feishu", args)) or True,
-    )
-    monkeypatch.setattr(
-        "app.services.webhook_adapter.send_wecom_markdown",
-        lambda *args: calls.append(("wecom", args)) or True,
-    )
-
-    daily_pipeline._maybe_push_review("复盘正文", {"as_of": "2026-07-18"})
-
-    assert [args[1] for _, args in calls] == ["每日复盘", "每日复盘"]
     assert all("TickFlow" not in args[1] for _, args in calls)

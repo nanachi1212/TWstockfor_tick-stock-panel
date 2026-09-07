@@ -412,18 +412,6 @@ export interface MainlineFilter {
   exclude_st: boolean
 }
 
-// ===== 大盘复盘 =====
-export interface AiReviewReport {
-  id: string
-  as_of: string
-  focus?: string
-  content: string
-  summary?: string
-  emotion_score?: number | null
-  emotion_label?: string
-  created_at: string
-}
-
 // ===== Strategy Engine =====
 export interface StrategyParamDef {
   id: string
@@ -2080,8 +2068,6 @@ export interface Preferences {
   limit_ladder_monitor_enabled: boolean
   depth_polling_interval: number
   depth_finalize_time: { hour: number; minute: number }
-  review_schedule: { enabled: boolean; hour: number; minute: number }
-  review_push_channels: string[]
   sse_refresh_pages: Record<string, boolean>
   strategy_monitor_enabled: boolean
   strategy_monitor_ids: string[]
@@ -2368,16 +2354,6 @@ export const api = {
     }),
   updateWebhookDefaultChannels: (channels: string[]) =>
     request<{ webhook_default_channels: string[] }>('/api/settings/preferences/webhook-default-channels', {
-      method: 'PUT',
-      body: JSON.stringify({ channels }),
-    }),
-  updateReviewSchedule: (enabled: boolean, hour: number, minute: number) =>
-    request<{ enabled: boolean; hour: number; minute: number }>('/api/settings/preferences/review-schedule', {
-      method: 'PUT',
-      body: JSON.stringify({ enabled, hour, minute }),
-    }),
-  updateReviewPush: (channels: string[]) =>
-    request<{ review_push_channels: string[] }>('/api/settings/preferences/review-push', {
       method: 'PUT',
       body: JSON.stringify({ channels }),
     }),
@@ -2903,67 +2879,10 @@ export const api = {
   stockAnalysisLevels: (symbol: string, days = 120) =>
     request<StockLevels>(`/api/stock-analysis/levels?symbol=${encodeURIComponent(symbol)}&days=${days}`),
 
-  // ===== 大盘复盘 =====
-  reviewReportsList: () =>
-    request<{ reports: AiReviewReport[] }>('/api/market-recap/reports'),
-
-  reviewReportSave: (r: {
-    as_of: string; focus?: string; content: string
-    summary?: string; emotion_score?: number | null; emotion_label?: string
-  }) =>
-    request<{ ok: boolean; report: AiReviewReport }>('/api/market-recap/reports', {
-      method: 'POST', body: JSON.stringify(r),
-    }),
-
-  reviewReportDelete: (reportId: string) =>
-    request<{ ok: boolean }>(`/api/market-recap/reports/${encodeURIComponent(reportId)}`, { method: 'DELETE' }),
-
-  /**
-   * AI 大盘复盘 — 流式调用(NDJSON,与个股/财务分析同协议)。
-   * meta 里带 as_of / emotion_score / emotion_label / summary,供前端先渲染信号灯。
-   */
-  async *reviewStream(asOf?: string, focus?: string): AsyncGenerator<{
-    type: 'meta' | 'delta' | 'error' | 'done'
-    as_of?: string
-    emotion_score?: number
-    emotion_label?: string
-    summary?: string
-    content?: string
-    message?: string
-  }> {
-    const res = await fetch('/api/market-recap/analyze', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ as_of: asOf ?? null, focus: focus ?? '' }),
-    })
-    if (!res.ok) {
-      let detail = ''
-      try { const j = JSON.parse(await res.text()); detail = j.detail ?? j.message ?? '' } catch { /* ignore */ }
-      const msg = detail || `${res.status} ${res.statusText}`
-      toast(msg, 'error')
-      throw new Error(msg)
-    }
-    if (!res.body) throw new Error('响应无 body')
-
-    const reader = res.body.getReader()
-    const decoder = new TextDecoder()
-    let buf = ''
-    for (;;) {
-      const { done, value } = await reader.read()
-      if (done) break
-      buf += decoder.decode(value, { stream: true })
-      const lines = buf.split('\n')
-      buf = lines.pop() ?? ''
-      for (const line of lines) {
-        const s = line.trim()
-        if (!s) continue
-        try { yield JSON.parse(s) } catch { /* ignore */ }
-      }
-    }
-    if (buf.trim()) {
-      try { yield JSON.parse(buf.trim()) } catch { /* ignore */ }
-    }
-  },
+  // Phase 8B-5.11: 大盘复盘(reviewReportsList/Save/Delete/reviewStream)
+  // 隨已刪除的 Review.tsx(盤後檢討頁)一併移除 —— 純 A 股 AI 長篇復盤
+  // workflow, 對台股無意義。GET /api/overview/market(Dashboard A 股選配
+  // 板塊仍用)、market_overview_builder、depth_service 完全未動。
 
   // ===== Strategy Engine =====
   strategyList: (assetType?: 'stock' | 'etf', timeframe = '1d') => {

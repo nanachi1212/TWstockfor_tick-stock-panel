@@ -1,10 +1,9 @@
 import { useEffect, useRef, useCallback, useSyncExternalStore } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
-import { SSE_INVALIDATE_PREFIXES, QK } from './queryKeys'
+import { SSE_INVALIDATE_PREFIXES } from './queryKeys'
 import { getQueryConfig } from './useQueryConfig'
 import { toast } from '@/components/Toast'
 import { pushAlertToasts } from '@/components/AlertToast'
-import { feedReviewEvent } from './reviewStore'
 import type { StrategyAlertEvent } from './api'
 
 // ===== 全局 SSE 连接状态 (模块级 store, 仿 AlertToast.tsx 模式) =====
@@ -190,21 +189,6 @@ export function useQuoteStream(
               qc.invalidateQueries({ queryKey: ['alerts'] })
               qc.invalidateQueries({ queryKey: ['alerts-total'] })
             }
-        } catch {
-          // 忽略解析错误
-        }
-      })
-
-      // 定时复盘流式进度: 后端到点生成时把 meta/delta/done 推来, 喂进 reviewStore
-      // 开着复盘页可看到「边生成边显示」, 切走再回来也能看到生成中/已生成
-      es.addEventListener('review_progress', (e: MessageEvent) => {
-        try {
-          const evt = JSON.parse(e.data)
-          feedReviewEvent(evt)
-          // done(后端已归档) → 刷新历史列表, 让新报告出现并可查看
-          if (evt.type === 'done') {
-            qc.invalidateQueries({ queryKey: QK.reviewReports })
-          }
         } catch {
           // 忽略解析错误
         }

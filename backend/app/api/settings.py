@@ -505,8 +505,6 @@ def get_preferences() -> dict:
         "limit_ladder_monitor_enabled": preferences.get_limit_ladder_monitor_enabled(),
         "depth_polling_interval": preferences.get_depth_polling_interval(),
         "depth_finalize_time": preferences.get_depth_finalize_time(),
-        "review_schedule": preferences.get_review_schedule(),
-        "review_push_channels": preferences.get_review_push_channels(),
         **preferences.get_mining_schedule(),
     }
 
@@ -1645,65 +1643,3 @@ def update_depth_finalize_time(req: DepthFinalizeTimeIn, request: Request) -> di
         logger.info("depth_finalize rescheduled to %02d:%02d mon-fri", sched["hour"], sched["minute"])
 
     return sched
-
-
-class ReviewScheduleIn(BaseModel):
-    enabled: bool
-    hour: int
-    minute: int
-
-
-@router.put("/preferences/review-schedule")
-def update_review_schedule(req: ReviewScheduleIn, request: Request) -> dict:
-    """保存定时复盘调度并立即更新 APScheduler job。
-
-    - enabled=True: 注册/更新 job(工作日定时生成复盘报告)
-    - enabled=False: 移除 job(停止定时复盘)
-    - 校验: 开启时若 AI Key 未配置则拒绝(复盘依赖 AI), 提示用户先配置。
-    - 时间下限 15:00(A股收盘), 由 preferences 层强制。
-    """
-    from app.services import preferences
-
-    if req.enabled:
-        # 复盘必须有 AI Key, 否则每日报错刷日志
-        from app import secrets_store
-        if not secrets_store.get_ai_key():
-            raise HTTPException(
-                status_code=400,
-                detail="复盘依赖 AI,请先在「设置 → AI」配置 API Key 后再开启定时复盘",
-            )
-
-    sched = preferences.set_review_schedule(req.enabled, req.hour, req.minute)
-
-    # 动态操作 APScheduler job
-    from app.jobs.daily_pipeline import _register_review_job, REVIEW_JOB_ID
-    scheduler = getattr(request.app.state, "scheduler", None)
-    if scheduler:
-        if sched["enabled"]:
-            _register_review_job(scheduler, request.app.state.repo, sched["hour"], sched["minute"])
-            logger.info("scheduled_review enabled @%02d:%02d mon-fri", sched["hour"], sched["minute"])
-        else:
-            try:
-                scheduler.remove_job(REVIEW_JOB_ID)
-                logger.info("scheduled_review disabled (job removed)")
-            except Exception:
-                pass  # job 本就不存在(从未开过), 无需处理
-
-    return sched
-
-
-class ReviewPushIn(BaseModel):
-    channels: list[str]  # 多选: ['feishu'] 等; 空数组=不推送。微信等开发中
-
-
-@router.put("/preferences/review-push")
-def update_review_push(req: ReviewPushIn) -> dict:
-    """复盘推送渠道(多选) — 选定把复盘报告(手动生成 / 定时生成归档后)推送到哪些外部工具。
-
-    纯偏好, 与定时复盘 / 实时行情完全独立, 常驻可单独设置。空数组=不推送。
-    实际推送由归档端点(POST /api/market-recap/reports)与定时任务(_run_scheduled_review)
-    在归档后读取本列表逐个推送。白名单外的渠道会被过滤掉。
-    """
-    from app.services import preferences
-    saved = preferences.set_review_push_channels(req.channels)
-    return {"review_push_channels": saved}

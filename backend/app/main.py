@@ -22,7 +22,6 @@ from app.api import (
     indices,
     intraday,
     kline,
-    market_recap,
     mining,
     monitor_rules,
     overview,
@@ -164,14 +163,16 @@ async def _application_lifespan(app: FastAPI):
     #   - pre_market_instruments (同步 SH/SZ/BJ 个股维表)
     #   - daily_pipeline          (A 股日K + enriched 盘后管道)
     #   - depth_finalize          (A 股连板/封板 sealed 定版, 见下方 depth_service 说明)
-    #   - scheduled_review        (A 股大盘复盘 AI 报告, 若用户曾开启才会被注册)
     # 不修改 jobs/daily_pipeline.py 本身 —— 该档案与其余 A 股 job 实作原样保留,
     # 供后续正式删除 Phase 处理; 这里只停止「App 启动就自动跑」这件事。
+    #
+    # Phase 8B-5.11: scheduled_review(A 股大盘复盘 AI 报告)job 的註冊/執行
+    # 程式碼已隨 Review.tsx 一併從 jobs/daily_pipeline.py 徹底移除, 不再需要
+    # 在此逐一移除保護 —— scheduler 永遠不會註冊此 job。
     _ASHARE_AUTO_JOB_IDS = (
         "pre_market_instruments",
         "daily_pipeline",
         "depth_finalize",
-        "scheduled_review",
     )
     try:
         daily_pipeline.set_app_state(app.state)  # 供 depth_finalize job 访问 depth_service
@@ -465,7 +466,6 @@ app.include_router(data.router)
 app.include_router(ext_data.router)
 app.include_router(financials.router)
 app.include_router(stock_analysis.router)
-app.include_router(market_recap.router)
 app.include_router(settings_api.router)
 app.include_router(strategy.router)
 app.include_router(signals.router)
