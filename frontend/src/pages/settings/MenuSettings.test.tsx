@@ -47,7 +47,7 @@ describe('MenuSettings — Taiwan-first consistency (Phase 8B-2.1)', () => {
     expect(screen.getByText('多股比較')).toBeInTheDocument()
     expect(screen.getByText('顯示中國 A 股功能')).toBeInTheDocument()
     // 总开关关闭时, 个别 A 股项目不应出现 (不产生第二套不一致的显示)
-    expect(screen.queryByText('連板梯隊')).not.toBeInTheDocument()
+    expect(screen.queryByText('策略選股')).not.toBeInTheDocument()
     // Phase 8B-4.2.1: /backtest 已移出 CORE_NAV, 总开关关闭时也不应出现
     expect(screen.queryByText('A 股回測')).not.toBeInTheDocument()
   })
@@ -56,7 +56,7 @@ describe('MenuSettings — Taiwan-first consistency (Phase 8B-2.1)', () => {
     vi.mocked(usePreferences).mockReturnValue({ data: { nav_order: [], nav_hidden: [], show_ashare_legacy_features: true } } as any)
     renderPanel()
 
-    expect(await screen.findByText('連板梯隊')).toBeInTheDocument()
+    expect(await screen.findByText('策略選股')).toBeInTheDocument()
     // Phase 8B-4.2.1: 开启后 A 股回測 应出现在 A 股区块中(与 sidebar 同步)
     expect(screen.getByText('A 股回測')).toBeInTheDocument()
     // 台股核心项目不受影响
@@ -78,10 +78,10 @@ describe('MenuSettings — Taiwan-first consistency (Phase 8B-2.1)', () => {
     vi.mocked(usePreferences).mockReturnValue({ data: { nav_order: [], nav_hidden: [], show_ashare_legacy_features: true } } as any)
     renderPanel()
 
-    const row = await screen.findByText('連板梯隊')
+    const row = await screen.findByText('策略選股')
     const hideBtn = row.closest('div')!.parentElement!.querySelector('button[title="隱藏"]')!
     fireEvent.click(hideBtn)
 
-    await waitFor(() => expect(api.saveNavHidden).toHaveBeenCalledWith(['/limit-ladder']))
+    await waitFor(() => expect(api.saveNavHidden).toHaveBeenCalledWith(['/screener']))
   })
 })

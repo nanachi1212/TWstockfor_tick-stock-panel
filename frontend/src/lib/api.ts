@@ -1534,47 +1534,10 @@ export function genRuleId(): string {
 }
 
 
-// ===== Limit Ladder =====
-export interface LimitLadderStock {
-  symbol: string
-  name?: string | null
-  close?: number | null
-  change_pct?: number | null
-  consecutive_limit_ups?: number | null
-  consecutive_limit_downs?: number | null
-  status?: 'limit_up' | 'broken' | 'failed' | 'limit_down' | 'recovery' | null
-  /** 五档 sealed: real=真封板, fake=假涨停(已归炸板), pending=待确认, null=降级/无能力 */
-  sealed_status?: 'real' | 'fake' | 'pending' | null
-  /** 封单量(买一/卖一量), 仅真封板有值 */
-  sealed_vol?: number | null
-  /** 最终状态为涨跌停且当天开高低收四价相同 */
-  is_one_word?: boolean
-}
-
-export interface LimitLadderTier {
-  boards: number
-  count: number
-  stocks: LimitLadderStock[]
-}
-
-export interface LimitLadderResult {
-  as_of: string
-  tiers: LimitLadderTier[]
-  /** 双方向涨跌停计数(修正后, 不论当前 direction) */
-  counts?: { up: number; down: number }
-  /** 双方向涨跌停原始计数(修正前, 供弹窗对比) */
-  counts_raw?: { up: number; down: number }
-  /** sealed 数据是否就绪(false→前端显示降级标识) */
-  sealed_ready?: boolean
-  /** sealed 数据 age(秒), null=盘后定版或无数据 */
-  sealed_age?: number | null
-  /** sealed 修正统计: real=真封板, fake=假涨停(归炸板), pending=待确认 */
-  sealed_counts?: { real: number; fake: number; pending: number }
-  /** 涨停侧 sealed 明细 */
-  sealed_counts_up?: { real: number; fake: number; pending: number }
-  /** 跌停侧 sealed 明细 */
-  sealed_counts_down?: { real: number; fake: number; pending: number }
-}
+// Phase 8B-5.10: LimitLadderStock/Tier/Result 隨已刪除的 LimitUpLadder.tsx
+// (連板梯隊頁)一併移除 —— 連板/打板/炸板/封板率為中國 A 股漲跌停制度
+// 衍生術語, 對台股產品無意義。depth_service 的 sealed cache 判定邏輯本身
+// 完全未動, 仍供 market_overview_builder/quote_service/monitor_rules 使用。
 
 // ===== Backtest =====
 export interface BacktestResult {
@@ -2684,16 +2647,6 @@ export const api = {
       body: JSON.stringify(payload),
     }),
 
-  limitLadder: (asOf?: string, extColumns?: string, direction?: 'up' | 'down') => {
-    const params = new URLSearchParams()
-    if (asOf) params.set('as_of', asOf)
-    if (extColumns) params.set('ext_columns', extColumns)
-    if (direction === 'down') params.set('direction', 'down')
-    const qs = params.toString()
-    return request<LimitLadderResult>(
-      `/api/screener/limit-ladder${qs ? `?${qs}` : ''}`,
-    )
-  },
 
   backtestStatus: () => request<{ available: boolean }>('/api/backtest/status'),
 

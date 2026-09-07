@@ -19,7 +19,6 @@ import {
   History,
   Pickaxe,
   LayoutDashboard,
-  Flame,
   RadioTower,
   BookOpenCheck,
   Filter,
@@ -44,6 +43,12 @@ export interface NavMeta {
 // 使用者不需要理解或操作 daily pipeline / enriched rebuild / minute K sync
 // 等資料工程操作, 資料更新改由 backend scheduler 全自動處理。backend
 // pipeline / scheduler / sync services 完全未變更。
+//
+// Phase 8B-5.10 — /limit-ladder(連板梯隊頁)已整頁刪除: 連板/打板/炸板/
+// 封板率等皆為中國 A 股漲跌停制度衍生的投機文化術語, 對台股使用者無意義,
+// 不硬改名成台股功能。depth_service 的封板判定(sealed cache)仍被
+// market_overview_builder / quote_service / monitor_rules 等多方真實消費,
+// 完全保留未動。
 export const CORE_NAV: readonly NavMeta[] = [
   { to: '/',                label: '看板',     icon: LayoutDashboard },
   { to: '/watchlist',  label: '自選股',   icon: Star },
@@ -57,5 +62,4 @@ export const ASHARE_LEGACY_NAV: readonly NavMeta[] = [
   { to: '/backtest',   label: 'A 股回測', icon: History },
   { to: '/mining',     label: '因子挖掘', icon: Pickaxe },
   { to: '/review',      label: '盤後檢討',   icon: BookOpenCheck },
-  { to: '/limit-ladder', label: '連板梯隊', icon: Flame },
 ] as const

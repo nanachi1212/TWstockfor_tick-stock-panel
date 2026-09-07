@@ -69,21 +69,6 @@ export const storage = {
   /** Screener 卡片尺寸 */
   screenerCardSize:     kv<string>('screener-card-size'),
 
-  /** 连板梯队板块筛选 */
-  limitLadderBoard:     kv<string[]>('limit-ladder-board-filter'),
-
-  /** 连板梯队 ext 字段配置 */
-  limitLadderExtFields: kv<Record<string, any>>('limit-ladder-ext-fields'),
-
-  /** 连板梯队 概念/行业 显示开关 */
-  limitLadderShowExt:   kv<{ concept: boolean; industry: boolean }>('limit-ladder-show-ext'),
-
-  /** 连板梯队 涨停/跌停 切换方向 */
-  limitLadderDirection: kv<'up' | 'down'>('limit-ladder-direction'),
-
-  /** 连板梯队 封单显示模式: vol=按成交量(手), amount=按金额(元) */
-  limitLadderSealMode:  kv<'vol' | 'amount'>('limit-ladder-seal-mode'),
-
   /** 策略创建草稿（新建专用） */
   strategyDraft: kv<{ name: string; description: string; direction: string; style?: string; rules: string; code: string; step: number; strategyId: string; source?: 'ai' | 'custom' } | null>('strategy-draft'),
 

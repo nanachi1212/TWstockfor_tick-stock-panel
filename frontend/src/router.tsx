@@ -23,7 +23,6 @@ const Monitor = lazy(() => import('./pages/Monitor').then(m => ({ default: m.Mon
 const Dashboard = lazy(() => import('./pages/Dashboard').then(m => ({ default: m.Dashboard })))
 const AnalysisDetail = lazy(() => import('./pages/AnalysisDetail').then(m => ({ default: m.AnalysisDetail })))
 const Review = lazy(() => import('./pages/Review').then(m => ({ default: m.Review })))
-const LimitUpLadder = lazy(() => import('./pages/LimitUpLadder').then(m => ({ default: m.LimitUpLadder })))
 const Branding = lazy(() => import('./pages/Branding').then(m => ({ default: m.Branding })))
 const Settings = lazy(() => import('./pages/Settings').then(m => ({ default: m.Settings })))
 const Dev = lazy(() => import('./pages/Dev').then(m => ({ default: m.Dev })))
@@ -47,7 +46,6 @@ const CORE_ROUTE_PATHS = new Set([
   '/backtest',
   '/mining',
   '/monitor',
-  '/limit-ladder',
   '/indices',
   '/branding',
   '/settings',
@@ -116,7 +114,6 @@ export const router = createBrowserRouter([
       { path: 'backtest', element: <Backtest /> },
       { path: 'mining', element: <Mining /> },
       { path: 'monitor', element: <Monitor /> },
-      { path: 'limit-ladder', element: <LimitUpLadder /> },
       { path: 'branding', element: <Branding /> },
       { path: 'settings', element: <Settings /> },
       // 隐藏路由：开发者工具（不暴露在菜单，仅供调试）
