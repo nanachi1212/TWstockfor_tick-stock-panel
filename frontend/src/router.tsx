@@ -21,7 +21,6 @@ const Backtest = lazy(() => import('./pages/Backtest').then(m => ({ default: m.B
 const Mining = lazy(() => import('./pages/Mining').then(m => ({ default: m.Mining })))
 const Monitor = lazy(() => import('./pages/Monitor').then(m => ({ default: m.Monitor })))
 const Dashboard = lazy(() => import('./pages/Dashboard').then(m => ({ default: m.Dashboard })))
-const AnalysisDetail = lazy(() => import('./pages/AnalysisDetail').then(m => ({ default: m.AnalysisDetail })))
 const Branding = lazy(() => import('./pages/Branding').then(m => ({ default: m.Branding })))
 const Settings = lazy(() => import('./pages/Settings').then(m => ({ default: m.Settings })))
 const Dev = lazy(() => import('./pages/Dev').then(m => ({ default: m.Dev })))
@@ -34,8 +33,6 @@ const CORE_ROUTE_PATHS = new Set([
   '/onboarding',
   '/login',
   '/overview',
-  '/analysis',
-  '/analysis/:menuId',
   '/stocks/:symbol',
   '/stocks/compare',
   '/watchlist',
@@ -101,8 +98,6 @@ export const router = createBrowserRouter([
     children: [
       { index: true, element: <Dashboard /> },
       { path: 'overview', element: <Navigate to="/" replace /> },
-      { path: 'analysis', element: <Navigate to="/settings?tab=ext-pages" replace /> },
-      { path: 'analysis/:menuId', element: <AnalysisDetail /> },
       { path: 'stocks/compare', element: <TaiwanStockCompare /> },
       { path: 'stocks/:symbol', element: <TaiwanStockDetail /> },
       { path: 'watchlist', element: <Watchlist /> },

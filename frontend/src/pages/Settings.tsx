@@ -6,10 +6,9 @@
 import { useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { motion } from 'framer-motion'
-import { BarChart3, Database, Radio, SlidersHorizontal, Sparkles, Settings2, Zap, PanelLeftClose, PanelLeftOpen, Clock3 } from 'lucide-react'
+import { Database, Radio, SlidersHorizontal, Sparkles, Settings2, Zap, PanelLeftClose, PanelLeftOpen, Clock3 } from 'lucide-react'
 import { SettingsAIPanel } from './settings/AI'
 import { SettingsMonitoringPanel } from './settings/Monitoring'
-import { SettingsExtPagesPanel } from './settings/ExtPages'
 import { SettingsMenuSettingsPanel } from './settings/MenuSettings'
 import { SettingsTimeoutPanel } from './settings/Timeout'
 import { SettingsSystemPanel } from './settings/System'
@@ -34,7 +33,6 @@ const TABS: readonly TabDef[] = [
   { key: 'data-sources', label: '資料來源',     icon: Database,  panel: SettingsDataSourcesPanel },
   { key: 'ai',         label: 'AI 設定',    icon: Sparkles,  panel: SettingsAIPanel },
   { key: 'monitoring', label: '即時監控',   icon: Radio,     panel: SettingsMonitoringPanel },
-  { key: 'ext-pages',  label: '擴展頁面',   icon: BarChart3, panel: SettingsExtPagesPanel },
   { key: 'signals',    label: '訊號庫',     icon: Zap,       panel: SettingsCustomSignalsPanel },
   { key: 'timeout',    label: '逾時設定',   icon: Clock3,    panel: SettingsTimeoutPanel },
   { key: 'menus',      label: '選單設定',   icon: SlidersHorizontal, panel: SettingsMenuSettingsPanel },

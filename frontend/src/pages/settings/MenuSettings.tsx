@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react'
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useMutation, useQueryClient } from '@tanstack/react-query'
 import {
   DndContext,
   closestCenter,
@@ -17,7 +17,7 @@ import {
   verticalListSortingStrategy,
 } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
-import { Eye, EyeOff, ExternalLink, GripVertical, Settings, Bell, Globe2 } from 'lucide-react'
+import { Eye, EyeOff, ExternalLink, GripVertical, Bell, Globe2 } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import { api } from '@/lib/api'
 import { QK } from '@/lib/queryKeys'
@@ -27,7 +27,7 @@ import { CORE_NAV, ASHARE_LEGACY_NAV } from '@/lib/navigation'
 interface NavEntry {
   id: string
   label: string
-  type: 'builtin' | 'analysis'
+  type: 'builtin'
   visible: boolean
 }
 
@@ -89,10 +89,8 @@ function SortableItem({ entry, hidden, onToggleHidden, badgeEnabled, onToggleBad
         <span className="truncate text-[11px] text-muted font-mono">{entry.id}</span>
       </div>
       <div>
-        <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[11px] ${
-          entry.type === 'analysis' ? 'bg-accent/10 text-accent' : 'bg-elevated text-muted'
-        }`}>
-          {entry.type === 'builtin' ? '內建' : '擴展'}
+        <span className="inline-flex items-center rounded-full px-2 py-0.5 text-[11px] bg-elevated text-muted">
+          內建
         </span>
       </div>
       <div className="flex justify-center">
@@ -109,23 +107,13 @@ function SortableItem({ entry, hidden, onToggleHidden, badgeEnabled, onToggleBad
         </button>
       </div>
       <div className="flex justify-center">
-        {entry.type === 'builtin' ? (
-          <Link
-            to={entry.id}
-            className="rounded p-1 text-muted hover:text-accent hover:bg-accent/10 transition-colors"
-            title="開啟頁面"
-          >
-            <ExternalLink className="h-3.5 w-3.5" />
-          </Link>
-        ) : (
-          <Link
-            to={`/settings?tab=ext-pages`}
-            className="rounded p-1 text-muted hover:text-accent hover:bg-accent/10 transition-colors"
-            title="編輯擴展頁面"
-          >
-            <Settings className="h-3.5 w-3.5" />
-          </Link>
-        )}
+        <Link
+          to={entry.id}
+          className="rounded p-1 text-muted hover:text-accent hover:bg-accent/10 transition-colors"
+          title="開啟頁面"
+        >
+          <ExternalLink className="h-3.5 w-3.5" />
+        </Link>
       </div>
       {/* 第 6 列: 徽标开关 (仅监控中心) */}
       <div className="flex justify-center">
@@ -152,22 +140,13 @@ function SortableItem({ entry, hidden, onToggleHidden, badgeEnabled, onToggleBad
 export function SettingsMenuSettingsPanel() {
   const qc = useQueryClient()
   const { data: prefs } = usePreferences()
-  const menus = useQuery({ queryKey: QK.analysisMenus, queryFn: api.analysisMenus })
-
-  const analysisEntries: NavEntry[] = (menus.data?.items ?? []).map(m => ({
-    id: m.id,
-    label: m.label,
-    type: 'analysis' as const,
-    visible: m.visible,
-  }))
 
   const allEntries = useMemo(() => {
     const saved = prefs?.nav_order ?? []
     const entryMap = new Map<string, NavEntry>()
     for (const e of BUILTIN_PAGES) entryMap.set(e.id, e)
-    for (const e of analysisEntries) entryMap.set(e.id, e)
 
-    if (saved.length === 0) return [...BUILTIN_PAGES, ...analysisEntries]
+    if (saved.length === 0) return [...BUILTIN_PAGES]
 
     const ordered: NavEntry[] = []
     const seen = new Set<string>()
@@ -178,9 +157,9 @@ export function SettingsMenuSettingsPanel() {
         seen.add(id)
       }
     }
-    for (const e of [...BUILTIN_PAGES, ...analysisEntries]) {
+    for (const e of BUILTIN_PAGES) {
       if (seen.has(e.id)) continue
-      // 未保存过排序的新条目: 内置页插回默认位置, 分析菜单追加到末尾
+      // 未保存过排序的新条目: 内置页插回默认位置
       const defaultIndex = BUILTIN_PAGES.findIndex(p => p.id === e.id)
       let anchor = -1
       if (defaultIndex > 0) {
@@ -193,7 +172,7 @@ export function SettingsMenuSettingsPanel() {
       else ordered.push(e)
     }
     return ordered
-  }, [prefs?.nav_order, analysisEntries])
+  }, [prefs?.nav_order])
 
   const hiddenSet = useMemo(() => new Set(prefs?.nav_hidden ?? []), [prefs?.nav_hidden])
 
@@ -323,10 +302,6 @@ export function SettingsMenuSettingsPanel() {
             ))}
           </SortableContext>
         </DndContext>
-
-        {menus.isLoading && (
-          <div className="px-5 py-10 text-center text-sm text-muted">正在載入選單…</div>
-        )}
       </section>
 
       {/* Phase 8B-2.1 — 中國 A 股功能: 單一總開關 + 開啟後可個別隱藏,

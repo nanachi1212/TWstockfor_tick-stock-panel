@@ -2821,32 +2821,15 @@ export const api = {
     return request<DimensionMembersResult>(`/api/ext-data/${encodeURIComponent(id)}/dimension-members?${qs.toString()}`)
   },
 
-  analysisMenus: () =>
-    request<{ items: AnalysisMenu[] }>('/api/analysis-menus'),
-
-  analysisMenu: (id: string) =>
-    request<AnalysisMenu>(`/api/analysis-menus/${encodeURIComponent(id)}`),
-
-  analysisMenuSave: (id: string, body: Omit<AnalysisMenu, 'id' | 'created_at' | 'updated_at' | 'builtin'>) =>
-    request<AnalysisMenu>(`/api/analysis-menus/${encodeURIComponent(id)}`, {
-      method: 'POST',
-      body: JSON.stringify(body),
-    }),
-
-  analysisMenuReorder: (ids: string[]) =>
-    request<{ items: AnalysisMenu[] }>('/api/analysis-menus/reorder', {
-      method: 'POST',
-      body: JSON.stringify({ ids }),
-    }),
-
-  analysisMenuDelete: (id: string) =>
-    request<{ status: string }>(`/api/analysis-menus/${encodeURIComponent(id)}`, { method: 'DELETE' }),
-
   // Phase 8B-5.8: extDataCreate/Update/Delete/Upload(建立/編輯/刪除/上傳
   // 擴充資料源, 由已刪除的 CreateExtDialog/EditExtDialog/ExtDataStatCard
-  // 使用)隨 Data.tsx 一併移除, 對應 backend 端點未動。extDataList/Rows/
-  // SchemaAll(唯讀消費既有資料源)仍被 Analysis/ExtPages/Monitor 等真實
-  // 頁面使用, 完整保留。
+  // 使用)隨 Data.tsx 一併移除, 對應 backend 端點未動。
+  // Phase 8B-5.12: analysisMenus/analysisMenu/analysisMenuSave/Reorder/Delete
+  // (自訂分析選單建構器, 隨已刪除的 Analysis.tsx/AnalysisDetail.tsx/ExtPages.tsx
+  // 一併移除, 對應 backend /api/analysis-menus 路由整組刪除, 見 analysis.py)。
+  // extDataList/Rows/SchemaAll(唯讀消費既有資料源)仍被 Monitor 等真實頁面
+  // 使用, 完整保留 —— extDataList/Rows 目前已無前端消費者(僅 api 定義),
+  // 留待後續 orphan sweep 評估, 本 phase 不刪除 read-side 基礎設施。
 
   extDataIngest: (id: string, body: { date?: string; rows: Record<string, unknown>[] }) =>
     request<{ status: string; rows: number; date: string }>(
@@ -3419,34 +3402,4 @@ export interface DimensionMembersResult {
   total: number
   limit: number
   rows: Record<string, any>[]
-}
-
-export interface AnalysisColumn {
-  field: string
-  label?: string
-  type?: 'string' | 'number' | 'percent' | 'amount' | 'date'
-  width?: number | null
-  sortable?: boolean
-  precision?: number | null
-  format?: string | null
-  aggregate?: 'count' | 'avg' | 'sum' | 'min' | 'max' | null
-  visible?: boolean
-}
-
-export interface AnalysisMenu {
-  id: string
-  label: string
-  icon: string
-  data_source: string
-  template: 'dimension_rank' | 'ranking' | 'table'
-  dimension_field?: string | null
-  rank_field?: string | null
-  group_columns: AnalysisColumn[]
-  detail_columns: AnalysisColumn[]
-  default_sort?: { field: string; order: 'asc' | 'desc' } | null
-  visible: boolean
-  order: number
-  created_at?: string | null
-  updated_at?: string | null
-  builtin?: boolean
 }

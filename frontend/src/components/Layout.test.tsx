@@ -15,7 +15,6 @@ import { api } from '@/lib/api'
 vi.mock('@/lib/api', () => ({
   api: {
     dataSources: vi.fn().mockResolvedValue({ builtin: [], plugins: [], custom: [] }),
-    analysisMenus: vi.fn().mockResolvedValue({ items: [] }),
     watchlistGroups: vi.fn().mockResolvedValue({ groups: [] }),
     watchlistList: vi.fn().mockResolvedValue({ items: [] }),
     watchlistEnriched: vi.fn().mockResolvedValue({ items: [] }),

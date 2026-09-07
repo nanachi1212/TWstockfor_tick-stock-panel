@@ -20,8 +20,6 @@ import {
   Settings,
   DatabaseZap,
   Loader2,
-  Tags,
-  BarChart3,
   Sparkles,
   CheckCircle2,
   ChevronRight,
@@ -260,10 +258,6 @@ export function Layout() {
   })
   // poll=true: 全局唯一开启条件轮询 (非交易时段 60s 兜底, 交易时段靠 SSE)
   const { data: quoteStatus } = useQuoteStatus({ poll: true })
-  const { data: analysisMenus } = useQuery({
-    queryKey: QK.analysisMenus,
-    queryFn: api.analysisMenus,
-  })
 
   // 自选分组 — 仅当用户开启「显示在侧边栏」时拉取
   const groupsInNav = prefs?.watchlist_groups_in_nav ?? false
@@ -445,11 +439,8 @@ export function Layout() {
     if (alertsTotal != null) setAlertTotal(alertsTotal)
   }, [alertsTotal])
 
-  // 合并内置页面 + 可见的扩展分析菜单
+  // 合并内置页面 + 扩展导航
   type NavItem = { to: string; label: string; icon: LucideIcon; badge?: string }
-  const analysisNav: NavItem[] = (analysisMenus?.items ?? [])
-    .filter(m => m.visible)
-    .map(m => ({ to: `/analysis/${m.id}`, label: m.label, icon: m.icon === 'tags' ? Tags : BarChart3 }))
   const extensionNav: NavItem[] = getFrontendExtensionNavigation().map(item => ({
     to: item.route.path,
     label: item.label,
@@ -457,14 +448,14 @@ export function Layout() {
     badge: item.badge,
   }))
 
-  const allNav: NavItem[] = [...nav, ...analysisNav, ...extensionNav]
+  const allNav: NavItem[] = [...nav, ...extensionNav]
   const savedOrder = prefs?.nav_order ?? []
 
   const navItems = savedOrder.length > 0
     ? (() => {
         const byTo = new Map(allNav.map(n => [n.to, n]))
         const ordered = (savedOrder
-          .map(id => byTo.get(id) ?? byTo.get(`/analysis/${id}`))
+          .map(id => byTo.get(id))
           .filter(Boolean)) as typeof allNav
         const seen = new Set(ordered.map(n => n.to))
         const merged = [...ordered]
@@ -488,7 +479,7 @@ export function Layout() {
     : allNav
 
   const hiddenIds = new Set(prefs?.nav_hidden ?? [])
-  const visibleNavItems = navItems.filter(n => !hiddenIds.has(n.to) && !hiddenIds.has(n.to.replace(/^\/analysis\//, '')))
+  const visibleNavItems = navItems.filter(n => !hiddenIds.has(n.to))
   // Phase 8B-2.1 — 中國 A 股 legacy 功能區塊: 固定渲染在獨立小節, 不參與
   // nav_order 拖曳排序(排序對固定小節沒有意義), 但沿用同一份 nav_hidden 個別
   // 隱藏 —— 與 MenuSettings.tsx「中國 A 股功能」小節的個別 eye 開關是同一組

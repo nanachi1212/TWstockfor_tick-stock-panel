@@ -12,7 +12,6 @@ import { usePreferences } from '@/lib/useSharedQueries'
 
 vi.mock('@/lib/api', () => ({
   api: {
-    analysisMenus: vi.fn().mockResolvedValue({ items: [] }),
     saveNavOrder: vi.fn().mockResolvedValue({ nav_order: [] }),
     saveNavHidden: vi.fn().mockResolvedValue({ nav_hidden: [] }),
     updateShowAshareLegacyFeatures: vi.fn().mockResolvedValue({ show_ashare_legacy_features: true }),

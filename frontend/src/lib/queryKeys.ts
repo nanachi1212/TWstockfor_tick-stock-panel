@@ -67,8 +67,6 @@ export const QK = {
   extData:              ['ext-data'] as const,
   extDataRows:          (id: string, date?: string, limit?: number, columns?: string) => ['ext-data-rows', id, date, limit, columns] as const,
   dimensionMembers:     (id: string, field: string, value: string, date?: string) => ['dimension-members', id, field, value, date] as const,
-  analysisMenus:        ['analysis-menus'] as const,
-  analysisMenu:         (id: string) => ['analysis-menu', id] as const,
 
   // Kline
   kline:                (symbol: string, start: string, end: string, extColumns?: string) =>
