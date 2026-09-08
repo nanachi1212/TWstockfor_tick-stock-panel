@@ -1,6 +1,6 @@
 import { useState, useMemo } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import {
   ArrowLeft,
   RefreshCw,
@@ -12,6 +12,8 @@ import {
   Sparkles,
   Loader2,
   Scale,
+  Star,
+  ChevronDown,
 } from 'lucide-react'
 import {
   api,
@@ -24,6 +26,7 @@ import { loadLastCompareSymbols, mergeSymbolIntoCompare } from '@/lib/taiwanComp
 import { TaiwanRuleEditorDialog } from '@/components/monitor/TaiwanRuleEditorDialog'
 import { EChartsCandlestick, type OHLC } from '@/components/EChartsCandlestick'
 import { TaiwanReferenceData } from '@/components/taiwan/TaiwanReferenceData'
+import { WatchlistAddMenu } from '@/components/WatchlistAddMenu'
 
 const RANGE_OPTIONS = [
   { label: '1 個月', days: 30 },
@@ -35,6 +38,7 @@ const RANGE_OPTIONS = [
 export function TaiwanStockDetail() {
   const { symbol: routeSymbol } = useParams<{ symbol: string }>()
   const navigate = useNavigate()
+  const qc = useQueryClient()
 
   const rawSymbol = routeSymbol || '2330.TWSE'
   const symbol = rawSymbol.toUpperCase()
@@ -53,6 +57,22 @@ export function TaiwanStockDetail() {
     queryFn: () => api.taiwanSearch(searchQuery, 10),
     enabled: searchQuery.trim().length > 0,
     staleTime: 60_000,
+  })
+
+  // Phase 8C-A: 加入自選 — 與 StockPreviewDialog.tsx 相同的 query/mutation 慣例,
+  // 補齊本頁原本缺少的自選動作 (與已存在的「加入比較」「新增監控」看齊)。
+  const watchlist = useQuery({
+    queryKey: QK.watchlist,
+    queryFn: api.watchlistList,
+  })
+  const inWatchlist = (watchlist.data?.symbols ?? []).some(s => s.symbol === symbol)
+  const toggleWatchlist = useMutation({
+    mutationFn: ({ action, groupId }: { action: 'add' | 'remove'; groupId?: string | null }) =>
+      action === 'remove' ? api.watchlistRemove(symbol) : api.watchlistAdd(symbol, '', groupId),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: QK.watchlist })
+      qc.invalidateQueries({ queryKey: ['watchlist-enriched'] })
+    },
   })
 
   // Query unified stock detail
@@ -152,6 +172,46 @@ export function TaiwanStockDetail() {
             <span className="rounded bg-accent/10 px-1.5 py-0.5 text-[10px] font-medium text-accent">
               {data?.identity?.instrument_type === 'etf' ? 'ETF' : '股票'}
             </span>
+            {/* Phase 8C-A fix: ⭐ 主按鈕 1 click 直接加入未分組(canonical group_id=null,
+                與既有「未分組」選項相同 backend 語意), 選特定分組改為旁邊小 chevron
+                觸發既有 WatchlistAddMenu, quick-add 不再彈選單。已加自選時顯示狀態,
+                可切換移出。 */}
+            {inWatchlist ? (
+              <button
+                type="button"
+                onClick={() => toggleWatchlist.mutate({ action: 'remove' })}
+                disabled={toggleWatchlist.isPending}
+                title="移出自選"
+                aria-label={`將 ${symbol} 移出自選`}
+                className="flex items-center gap-1 rounded-lg border border-[#FACC15]/50 bg-base px-1.5 py-0.5 text-[10px] font-medium text-[#FACC15] transition-colors cursor-pointer disabled:opacity-50"
+              >
+                <Star className="h-3 w-3 fill-current" />
+                已加自選
+              </button>
+            ) : (
+              <div className="flex items-center rounded-lg border border-border/60 bg-base overflow-hidden">
+                <button
+                  type="button"
+                  onClick={() => toggleWatchlist.mutate({ action: 'add' })}
+                  disabled={toggleWatchlist.isPending}
+                  title="加入自選"
+                  aria-label={`將 ${symbol} 加入自選`}
+                  className="flex items-center gap-1 px-1.5 py-0.5 text-[10px] font-medium text-muted hover:text-accent transition-colors cursor-pointer disabled:opacity-50"
+                >
+                  <Star className="h-3 w-3" />
+                  加入自選
+                </button>
+                <WatchlistAddMenu
+                  onSelect={groupId => toggleWatchlist.mutate({ action: 'add', groupId })}
+                  disabled={toggleWatchlist.isPending}
+                  title="選擇分組加入自選"
+                  ariaLabel={`選擇分組將 ${symbol} 加入自選`}
+                  triggerClassName="flex items-center px-1 py-0.5 border-l border-border/60 text-muted hover:text-accent transition-colors cursor-pointer disabled:opacity-50"
+                >
+                  <ChevronDown className="h-3 w-3" />
+                </WatchlistAddMenu>
+              </div>
+            )}
             <button
               onClick={() => {
                 const merged = mergeSymbolIntoCompare(loadLastCompareSymbols(), symbol)

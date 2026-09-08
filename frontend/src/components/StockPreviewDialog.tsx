@@ -1,7 +1,8 @@
 import { useState, useEffect, useMemo } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { motion, AnimatePresence } from 'framer-motion'
-import { X, RefreshCw, Clock, LineChart, Star, RadioTower, Maximize2, Minimize2 } from 'lucide-react'
+import { X, RefreshCw, Clock, LineChart, Star, RadioTower, Maximize2, Minimize2, Scale, ChevronDown } from 'lucide-react'
 import { api } from '@/lib/api'
 import { QK } from '@/lib/queryKeys'
 import { cn } from '@/lib/cn'
@@ -17,6 +18,7 @@ import { usePreferences, useQuoteStatus } from '@/lib/useSharedQueries'
 import { setFocusSymbol, clearFocusSymbol } from '@/lib/useQuoteStream'
 import { useDialogBackdrop } from '@/lib/useDialogBackdrop'
 import { storage } from '@/lib/storage'
+import { loadLastCompareSymbols, mergeSymbolIntoCompare } from '@/lib/taiwanCompareSymbols'
 import { ExtensionSlot } from '@/extensions/ExtensionSlot'
 
 interface Props {
@@ -71,7 +73,13 @@ export function StockPreviewDialog({ symbol, name, onClose, triggerInfo }: Props
   const [priceAlertDraft, setPriceAlertDraft] = useState<PriceAlertDraft | null>(null)
   const [maximized, setMaximized] = useState(false)
   const qc = useQueryClient()
+  const navigate = useNavigate()
   const backdrop = useDialogBackdrop(onClose)
+
+  // Phase 8C-A: 加入比較 — 本 dialog 為 A 股 Screener.tsx 與台股頁面共用元件,
+  // 「多股比較」(/stocks/compare) 僅支援台股標的, 故只在台股代碼時顯示此動作,
+  // 避免把 A 股標的送進台股專用比較頁 (FLOW_GAP 修正需限定範圍, 不做 A 股相容)。
+  const isTaiwanSymbol = !!symbol && (symbol.endsWith('.TWSE') || symbol.endsWith('.TPEX'))
 
   const watchlist = useQuery({
     queryKey: QK.watchlist,
@@ -293,7 +301,9 @@ export function StockPreviewDialog({ symbol, name, onClose, triggerInfo }: Props
 
                 <span className="mx-0.5 h-4 w-px shrink-0 bg-border" />
 
-                {/* 自选 */}
+                {/* 自选 — Phase 8C-A fix: ⭐ 主按鈕 1 click 直接加入未分組(canonical
+                    group_id=null, 與既有「未分組」選項相同 backend 語意), 選特定分組
+                    改為旁邊小 chevron 觸發既有 WatchlistAddMenu, quick-add 不再彈選單。 */}
                 {inWatchlist ? (
                   <button
                     type="button"
@@ -306,14 +316,27 @@ export function StockPreviewDialog({ symbol, name, onClose, triggerInfo }: Props
                     <Star className="h-4 w-4" />
                   </button>
                 ) : (
-                  <WatchlistAddMenu
-                    onSelect={groupId => toggleWatchlist.mutate({ action: 'add', groupId })}
-                    disabled={toggleWatchlist.isPending}
-                    triggerClassName="rounded-btn p-1.5 text-muted transition-colors cursor-pointer hover:bg-elevated hover:text-foreground disabled:opacity-50"
-                    ariaLabel={`將 ${symbol} 加入自選`}
-                  >
-                    <Star className="h-4 w-4" />
-                  </WatchlistAddMenu>
+                  <div className="flex items-center">
+                    <button
+                      type="button"
+                      onClick={() => toggleWatchlist.mutate({ action: 'add' })}
+                      disabled={toggleWatchlist.isPending}
+                      className="rounded-btn p-1.5 text-muted transition-colors cursor-pointer hover:bg-elevated hover:text-foreground disabled:opacity-50"
+                      title="加入自選"
+                      aria-label={`將 ${symbol} 加入自選`}
+                    >
+                      <Star className="h-4 w-4" />
+                    </button>
+                    <WatchlistAddMenu
+                      onSelect={groupId => toggleWatchlist.mutate({ action: 'add', groupId })}
+                      disabled={toggleWatchlist.isPending}
+                      triggerClassName="rounded-btn p-0.5 text-muted transition-colors cursor-pointer hover:bg-elevated hover:text-foreground disabled:opacity-50"
+                      title="選擇分組加入自選"
+                      ariaLabel={`選擇分組將 ${symbol} 加入自選`}
+                    >
+                      <ChevronDown className="h-3 w-3" />
+                    </WatchlistAddMenu>
+                  </div>
                 )}
                 {/* 加监控 */}
                 <button
@@ -323,6 +346,21 @@ export function StockPreviewDialog({ symbol, name, onClose, triggerInfo }: Props
                 >
                   <RadioTower className="h-4 w-4" />
                 </button>
+
+                {/* 加入比較 (Phase 8C-A, 僅台股標的) */}
+                {isTaiwanSymbol && (
+                  <button
+                    onClick={() => {
+                      const merged = mergeSymbolIntoCompare(loadLastCompareSymbols(), symbol!)
+                      navigate(`/stocks/compare?symbols=${encodeURIComponent(merged.join(','))}`)
+                    }}
+                    className="p-1.5 rounded-btn text-secondary hover:bg-elevated hover:text-foreground transition-colors cursor-pointer"
+                    title="加入多標的比較"
+                    aria-label={`將 ${symbol} 加入比較`}
+                  >
+                    <Scale className="h-4 w-4" />
+                  </button>
+                )}
 
                 {/* 刷新 */}
                 <button

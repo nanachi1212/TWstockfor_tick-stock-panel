@@ -56,10 +56,13 @@ export interface NavMeta {
 // Intelligence / Industry Intelligence / Dashboard 提供, 不建立替代頁面。
 // GET /api/overview/market、market_overview_builder、depth_service、
 // ai_provider、generic WeCom/Feishu webhook 基礎設施完全未動。
+// Phase 8C-A — 順序改為看市場(看板)→找股票(台股選股)→加自選(自選股)→比較→
+// 監控, 對齊產品核心使用流程(見 Phase 8C-0 審查 C 節); route path 完全不動,
+// 只調整陣列順序(即側欄/選單設定顯示順序)。
 export const CORE_NAV: readonly NavMeta[] = [
   { to: '/',                label: '看板',     icon: LayoutDashboard },
-  { to: '/watchlist',  label: '自選股',   icon: Star },
   { to: '/taiwan-screener', label: '台股選股', icon: Filter },
+  { to: '/watchlist',  label: '自選股',   icon: Star },
   { to: '/stocks/compare', label: '多股比較', icon: Scale },
   { to: '/monitor', label: '監控中心', icon: RadioTower },
 ] as const

@@ -1,9 +1,9 @@
 import React, { useState, useCallback, useRef, useEffect, useMemo } from 'react'
-import { useSearchParams } from 'react-router-dom'
+import { useSearchParams, useNavigate } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useVirtualizer } from '@tanstack/react-virtual'
 import { motion, AnimatePresence } from 'framer-motion'
-import { Trash2, RefreshCw, Star, X, Search, LayoutGrid, List, Rows3, BarChart3, Settings2, Plus, Check, Filter, Eye, EyeOff, Minus, ChevronsUp, Clock, RotateCcw, ImagePlus, FolderOpen, FolderMinus, FolderPlus } from 'lucide-react'
+import { Trash2, RefreshCw, Star, X, Search, LayoutGrid, List, Rows3, BarChart3, Settings2, Plus, Check, Filter, Eye, EyeOff, Minus, ChevronsUp, Clock, RotateCcw, ImagePlus, FolderOpen, FolderMinus, FolderPlus, Scale } from 'lucide-react'
 import { api, type KlineRow, type MinuteKlineRow, type WatchlistGroup, type WatchlistGroupColor } from '@/lib/api'
 import { QK } from '@/lib/queryKeys'
 import { storage } from '@/lib/storage'
@@ -27,6 +27,7 @@ import {
 import { WatchlistGroupCards } from '@/components/WatchlistGroupCards'
 import { WatchlistGroupStatsBar } from '@/components/WatchlistGroupStatsBar'
 import { ExtensionSlot } from '@/extensions/ExtensionSlot'
+import { MIN_COMPARE_SYMBOLS, MAX_COMPARE_SYMBOLS } from '@/lib/taiwanCompareSymbols'
 
 // 分时列开放排序 (StockDataTable 实例级白名单; 表头眼睛/刷新按钮已 stopPropagation)
 const INTRADAY_SORTABLE_KEYS = new Set(['intraday'])
@@ -652,9 +653,28 @@ const StockCard = React.memo(function StockCard({
 
 export function Watchlist() {
   const qc = useQueryClient()
+  const navigate = useNavigate()
   const [viewMode, setViewMode] = useState<'table' | 'card'>(() => {
     return (storage.watchlistView.get('table') as 'table' | 'card')
   })
+  // Phase 8C-A: 選 2–5 檔直接比較 — 會話內選取狀態, 不持久化(離開頁面即清空,
+  // 與比較頁本身的 URL-as-truth 選取狀態是兩件事; 這裡只負責「把選好的帶過去」)。
+  const [selectedForCompare, setSelectedForCompare] = useState<Set<string>>(new Set())
+  const toggleCompareSelection = useCallback((symbol: string) => {
+    setSelectedForCompare(prev => {
+      const next = new Set(prev)
+      if (next.has(symbol)) {
+        next.delete(symbol)
+      } else if (next.size < MAX_COMPARE_SYMBOLS) {
+        next.add(symbol)
+      }
+      return next
+    })
+  }, [])
+  const handleCompareSelected = () => {
+    if (selectedForCompare.size < MIN_COMPARE_SYMBOLS) return
+    navigate(`/stocks/compare?symbols=${encodeURIComponent(Array.from(selectedForCompare).join(','))}`)
+  }
   // 分组卡片总览: 临时整页模式, 不持久化; 关闭(含刷新)后回到原视图设置
   const [groupCardsOpen, setGroupCardsOpen] = useState(false)
   // 分组统计条: 顶部图形化分组涨跌概览, 会话内开关, 不影响个股视图设置
@@ -1444,6 +1464,35 @@ export function Watchlist() {
         onReorder={orderedIds => reorderGroup.mutateAsync(orderedIds).then(() => undefined)}
       />
 
+      {/* Phase 8C-A: 選 2–5 檔直接比較 — 有勾選時才出現的 compact action bar */}
+      {selectedForCompare.size > 0 && (
+        <div className="flex items-center gap-2 px-5 py-1.5 border-b border-border bg-accent/5 text-xs">
+          <span className="text-secondary">
+            已選 <span className="font-mono font-semibold text-foreground">{selectedForCompare.size}</span> / {MAX_COMPARE_SYMBOLS} 檔
+          </span>
+          <button
+            type="button"
+            onClick={handleCompareSelected}
+            disabled={selectedForCompare.size < MIN_COMPARE_SYMBOLS}
+            title={selectedForCompare.size < MIN_COMPARE_SYMBOLS ? `至少選 ${MIN_COMPARE_SYMBOLS} 檔才能比較` : '比較已選股票'}
+            className="inline-flex items-center gap-1.5 rounded-btn bg-accent px-2.5 py-1 text-white font-medium hover:bg-accent/90 transition-colors disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
+          >
+            <Scale className="h-3.5 w-3.5" />
+            比較已選股票
+          </button>
+          {selectedForCompare.size < MIN_COMPARE_SYMBOLS && (
+            <span className="text-muted">再選 {MIN_COMPARE_SYMBOLS - selectedForCompare.size} 檔即可比較</span>
+          )}
+          <button
+            type="button"
+            onClick={() => setSelectedForCompare(new Set())}
+            className="ml-auto text-muted hover:text-foreground transition-colors cursor-pointer"
+          >
+            清除選取
+          </button>
+        </div>
+      )}
+
       {/* 筛选栏 */}
       {filterOpen && (
         <div className="px-5 py-2 border-b border-border bg-surface/50 max-h-[184px] overflow-y-auto">
@@ -1653,6 +1702,17 @@ export function Watchlist() {
                   return (
                     <td className="px-1.5 py-1.5">
                       <div className="flex items-center gap-1 w-full">
+                        {/* Phase 8C-A: 選 2–5 檔直接比較 — 勾選框, 與預覽按鈕互不干擾 */}
+                        <input
+                          type="checkbox"
+                          checked={selectedForCompare.has(r.symbol)}
+                          onChange={() => toggleCompareSelection(r.symbol)}
+                          onClick={e => e.stopPropagation()}
+                          disabled={!selectedForCompare.has(r.symbol) && selectedForCompare.size >= MAX_COMPARE_SYMBOLS}
+                          title={selectedForCompare.has(r.symbol) ? '取消選取以比較' : `選取以比較（最多 ${MAX_COMPARE_SYMBOLS} 檔）`}
+                          aria-label={`選取 ${r.symbol} 加入比較`}
+                          className="shrink-0 h-3.5 w-3.5 rounded border-border accent-accent cursor-pointer disabled:cursor-not-allowed disabled:opacity-40"
+                        />
                         <button
                           type="button"
                           onClick={() => { setPreviewSymbol(r.symbol); setPreviewName(name ?? '') }}

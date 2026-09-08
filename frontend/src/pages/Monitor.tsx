@@ -148,6 +148,11 @@ export function Monitor() {
     concept: { field: 'ext_gn_ths.所属概念' },
     industry: { field: 'ext_hy_ths.所属同花顺行业' },
   }
+  // Phase 8C-A: 「A 股策略監控」分頁與 Dashboard/Layout 側欄同一顆開關同步
+  // (show_ashare_legacy_features, 預設 false) —— 修正 Phase 8C-0 發現的最大
+  // legacy leak: 此分頁先前無條件顯示, 未跟隨其餘 A 股區塊的既有隱藏機制。
+  // strategy_alert SSE / generic monitor infra / backend 完全未動, 純前端顯示開關。
+  const showAshareLegacy = prefs?.show_ashare_legacy_features ?? false
   const [extConfigOpen, setExtConfigOpen] = useState(false)
   const extColumnsParam = useMemo(() => {
     const parts = [monitorExtFields.concept?.field, monitorExtFields.industry?.field].filter(Boolean) as string[]
@@ -179,6 +184,12 @@ export function Monitor() {
   })
 
 
+  // Phase 8C-A: 開關關閉時若仍停留在 A 股分頁 (例如先前開過關後又關掉), 保護性
+  // 導回台股分頁——不留下「開關已關但畫面還卡在 A 股」的不一致狀態。
+  useEffect(() => {
+    if (!showAshareLegacy && marketTab === 'cn') setMarketTab('taiwan')
+  }, [showAshareLegacy, marketTab])
+
   // 进入监控页: 清零未读徽标 + 记录"进入时刻", 之后新增的记录会闪烁
   // 离开监控页: 停止同步, 之后新增才计入未读
   const enterTsRef = useRef<number>(Date.now())
@@ -197,10 +208,13 @@ export function Monitor() {
             <BellRing className="h-5 w-5 text-accent" />
             即時監控中心
           </h1>
-          <p className="text-xs text-muted">台股與 A 股盤中即時行情、深度五檔與邊緣規則觸發</p>
+          <p className="text-xs text-muted">
+            {showAshareLegacy ? '台股與 A 股盤中即時行情、深度五檔與邊緣規則觸發' : '台股盤中即時行情、深度五檔與邊緣規則觸發'}
+          </p>
         </div>
 
-        {/* 市場切換 Tabs */}
+        {/* 市場切換 Tabs — 「A 股策略監控」跟隨 show_ashare_legacy_features 開關
+            (預設 false, 與 Dashboard/側欄同一顆), 關閉時只剩台股, 不顯示切換 UI。 */}
         <div className="flex items-center gap-1 rounded-xl bg-elevated/60 p-1 border border-border/60">
           <button
             onClick={() => setMarketTab('taiwan')}
@@ -214,18 +228,20 @@ export function Monitor() {
             <Globe className="h-3.5 w-3.5" />
             台股即時監控 (TWSE / TPEx)
           </button>
-          <button
-            onClick={() => setMarketTab('cn')}
-            className={cn(
-              'flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer',
-              marketTab === 'cn'
-                ? 'bg-accent text-accent-foreground shadow-sm'
-                : 'text-muted hover:text-foreground'
-            )}
-          >
-            <RadioTower className="h-3.5 w-3.5" />
-            A 股策略監控
-          </button>
+          {showAshareLegacy && (
+            <button
+              onClick={() => setMarketTab('cn')}
+              className={cn(
+                'flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer',
+                marketTab === 'cn'
+                  ? 'bg-accent text-accent-foreground shadow-sm'
+                  : 'text-muted hover:text-foreground'
+              )}
+            >
+              <RadioTower className="h-3.5 w-3.5" />
+              A 股策略監控
+            </button>
+          )}
         </div>
       </div>
 

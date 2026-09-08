@@ -1,6 +1,6 @@
 import { useState, useMemo } from 'react'
-import { useQuery } from '@tanstack/react-query'
-import { Link } from 'react-router-dom'
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { Link, useNavigate } from 'react-router-dom'
 import {
   Filter,
   ArrowUp,
@@ -21,6 +21,10 @@ import {
   TrendingDown,
   Layers,
   Zap,
+  Star,
+  Scale,
+  RadioTower,
+  ChevronDown,
 } from 'lucide-react'
 import {
   api,
@@ -28,8 +32,39 @@ import {
   type ScreenerResultItem,
   type TaiwanScreenerTranslation,
 } from '@/lib/api'
+import { QK } from '@/lib/queryKeys'
+import { WatchlistAddMenu } from '@/components/WatchlistAddMenu'
+import { TaiwanRuleEditorDialog } from '@/components/monitor/TaiwanRuleEditorDialog'
+import { loadLastCompareSymbols, mergeSymbolIntoCompare } from '@/lib/taiwanCompareSymbols'
 
 export function TaiwanScreener() {
+  const navigate = useNavigate()
+  const qc = useQueryClient()
+
+  // Phase 8C-A: 結果 row 直接操作 (自選/比較/監控) — 與 StockPreviewDialog /
+  // TaiwanStockDetail 相同的 query/mutation 慣例, 不新增 backend endpoint。
+  const watchlist = useQuery({
+    queryKey: QK.watchlist,
+    queryFn: api.watchlistList,
+  })
+  const watchlistSymbols = useMemo(
+    () => new Set((watchlist.data?.symbols ?? []).map(s => s.symbol)),
+    [watchlist.data],
+  )
+  const toggleWatchlist = useMutation({
+    mutationFn: ({ symbol, action, groupId }: { symbol: string; action: 'add' | 'remove'; groupId?: string | null }) =>
+      action === 'remove' ? api.watchlistRemove(symbol) : api.watchlistAdd(symbol, '', groupId),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: QK.watchlist })
+      qc.invalidateQueries({ queryKey: ['watchlist-enriched'] })
+    },
+  })
+  const handleAddToCompare = (symbol: string) => {
+    const merged = mergeSymbolIntoCompare(loadLastCompareSymbols(), symbol)
+    navigate(`/stocks/compare?symbols=${encodeURIComponent(merged.join(','))}`)
+  }
+  const [monitorSymbol, setMonitorSymbol] = useState<string | null>(null)
+
   // Filter states
   const [exchange, setExchange] = useState<'ALL' | 'TWSE' | 'TPEX'>('ALL')
   const [instrument, setInstrument] = useState<'ALL' | 'stock' | 'etf'>('ALL')
@@ -1443,15 +1478,70 @@ export function TaiwanScreener() {
                       {formatChangePct(item.momentum_5d)}
                     </td>
 
-                    {/* Action button */}
+                    {/* Phase 8C-A: 結果 row 直接操作 — 自選/比較/監控/研究, 不強迫先跳頁 */}
                     <td className="py-3 px-4 text-center whitespace-nowrap">
-                      <Link
-                        to={`/stocks/${encodeURIComponent(item.symbol)}`}
-                        className="inline-flex items-center gap-1 text-[11px] bg-zinc-800 hover:bg-purple-600 text-zinc-300 hover:text-white px-2 py-1 rounded transition-colors"
-                      >
-                        <span>研究</span>
-                        <ExternalLink className="w-3 h-3" />
-                      </Link>
+                      <div className="inline-flex items-center gap-1">
+                        {watchlistSymbols.has(item.symbol) ? (
+                          <button
+                            type="button"
+                            onClick={() => toggleWatchlist.mutate({ symbol: item.symbol, action: 'remove' })}
+                            disabled={toggleWatchlist.isPending}
+                            title="移出自選"
+                            aria-label={`將 ${item.symbol} 移出自選`}
+                            className="inline-flex items-center justify-center w-6 h-6 rounded text-[#FACC15] hover:bg-zinc-800 transition-colors disabled:opacity-50"
+                          >
+                            <Star className="w-3.5 h-3.5 fill-current" />
+                          </button>
+                        ) : (
+                          <span className="inline-flex items-center">
+                            <button
+                              type="button"
+                              onClick={() => toggleWatchlist.mutate({ symbol: item.symbol, action: 'add' })}
+                              disabled={toggleWatchlist.isPending}
+                              title="加入自選"
+                              aria-label={`將 ${item.symbol} 加入自選`}
+                              className="inline-flex items-center justify-center w-6 h-6 rounded text-zinc-400 hover:bg-zinc-800 hover:text-[#FACC15] transition-colors disabled:opacity-50"
+                            >
+                              <Star className="w-3.5 h-3.5" />
+                            </button>
+                            <WatchlistAddMenu
+                              onSelect={groupId => toggleWatchlist.mutate({ symbol: item.symbol, action: 'add', groupId })}
+                              disabled={toggleWatchlist.isPending}
+                              title="選擇分組加入自選"
+                              ariaLabel={`選擇分組將 ${item.symbol} 加入自選`}
+                              triggerClassName="inline-flex items-center justify-center w-4 h-6 rounded text-zinc-500 hover:bg-zinc-800 hover:text-[#FACC15] transition-colors disabled:opacity-50"
+                            >
+                              <ChevronDown className="w-2.5 h-2.5" />
+                            </WatchlistAddMenu>
+                          </span>
+                        )}
+                        <button
+                          type="button"
+                          onClick={() => handleAddToCompare(item.symbol)}
+                          title="加入比較"
+                          aria-label={`將 ${item.symbol} 加入比較`}
+                          className="inline-flex items-center justify-center w-6 h-6 rounded text-zinc-400 hover:bg-zinc-800 hover:text-purple-400 transition-colors"
+                        >
+                          <Scale className="w-3.5 h-3.5" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setMonitorSymbol(item.symbol)}
+                          title="新增監控"
+                          aria-label={`為 ${item.symbol} 新增監控`}
+                          className="inline-flex items-center justify-center w-6 h-6 rounded text-zinc-400 hover:bg-zinc-800 hover:text-amber-400 transition-colors"
+                        >
+                          <RadioTower className="w-3.5 h-3.5" />
+                        </button>
+                        <Link
+                          to={`/stocks/${encodeURIComponent(item.symbol)}`}
+                          title="查看詳細研究頁"
+                          aria-label={`查看 ${item.symbol} 詳細研究頁`}
+                          className="inline-flex items-center justify-center w-6 h-6 rounded text-zinc-400 hover:bg-purple-600 hover:text-white transition-colors"
+                        >
+                          <ExternalLink className="w-3.5 h-3.5" />
+                        </Link>
+                      </div>
                     </td>
                   </tr>
                 ))
@@ -1491,6 +1581,15 @@ export function TaiwanScreener() {
           </div>
         )}
       </div>
+
+      {/* Phase 8C-A: 結果 row「監控」— 重用 TaiwanStockDetail 已使用的同一個
+          rule editor dialog, 不另做第二套 Monitor form。 */}
+      <TaiwanRuleEditorDialog
+        open={monitorSymbol != null}
+        rule={null}
+        presetSymbol={monitorSymbol}
+        onClose={() => setMonitorSymbol(null)}
+      />
     </div>
   )
 }

@@ -3,7 +3,7 @@
 // 不再指向不存在的 /taiwan/stocks/:symbol；主篩選表格既有正確連結行為不受影響。
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { render, screen, waitFor, fireEvent, act } from '@testing-library/react'
-import { MemoryRouter, Routes, Route } from 'react-router-dom'
+import { MemoryRouter, Routes, Route, useSearchParams } from 'react-router-dom'
 import { QueryClientProvider, QueryClient } from '@tanstack/react-query'
 import { TaiwanScreener } from './TaiwanScreener'
 import { api } from '@/lib/api'
@@ -15,6 +15,12 @@ vi.mock('@/lib/api', () => ({
     taiwanMarketIntelligence: vi.fn(),
     taiwanIndustryIntelligence: vi.fn(),
     taiwanAbnormalDiagnostics: vi.fn(),
+    // Phase 8C-A: 結果 row 直接操作 (自選/比較/監控)
+    watchlistList: vi.fn(),
+    watchlistAdd: vi.fn(),
+    watchlistRemove: vi.fn(),
+    watchlistGroups: vi.fn(),
+    taiwanSearch: vi.fn(),
   },
 }))
 
@@ -116,6 +122,28 @@ function StockDetailMock() {
   return <div data-testid="detail-mock">stock-detail-page</div>
 }
 
+// Phase 8C-A: 驗證「加入比較」handoff 帶著 symbols query param 進入 /stocks/compare
+// (MemoryRouter 不會同步真實 window.location, 需透過 useSearchParams 讀取)
+function CompareMock() {
+  const [params] = useSearchParams()
+  return <div data-testid="compare-mock">{params.get('symbols')}</div>
+}
+
+function renderScreenerWithCompareRoute() {
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  render(
+    <QueryClientProvider client={queryClient}>
+      <MemoryRouter initialEntries={['/taiwan-screener']}>
+        <Routes>
+          <Route path="/taiwan-screener" element={<TaiwanScreener />} />
+          <Route path="/stocks/compare" element={<CompareMock />} />
+        </Routes>
+      </MemoryRouter>
+    </QueryClientProvider>,
+  )
+  return queryClient
+}
+
 beforeEach(() => {
   vi.mocked(api.taiwanScreenerRun).mockResolvedValue(buildScreenerResponse() as any)
   vi.mocked(api.taiwanDataStatus).mockResolvedValue(buildDataStatus() as any)
@@ -127,6 +155,11 @@ beforeEach(() => {
       buildAbnormalSignal({ symbol: '8069.TPEX', code: '8069', name: '元太' }),
     ]) as any,
   )
+  vi.mocked(api.watchlistList).mockResolvedValue({ symbols: [] } as any)
+  vi.mocked(api.watchlistAdd).mockResolvedValue({ symbols: [] } as any)
+  vi.mocked(api.watchlistRemove).mockResolvedValue({ symbols: [] } as any)
+  vi.mocked(api.watchlistGroups).mockResolvedValue({ groups: [] } as any)
+  vi.mocked(api.taiwanSearch).mockResolvedValue({ results: [] } as any)
 })
 
 afterEach(() => {
@@ -165,6 +198,57 @@ describe('Abnormal diagnostics panel navigation (Phase 7K)', () => {
     await waitFor(() => expect(screen.getAllByText('2330.TWSE').length).toBeGreaterThan(0))
     const symbolLink = screen.getAllByRole('link', { name: '2330.TWSE' })[0]
     expect(symbolLink).toHaveAttribute('href', '/stocks/2330.TWSE')
+  })
+})
+
+describe('Main results row direct actions (Phase 8C-A)', () => {
+  it('offers 加入自選/加入比較/新增監控/研究 without leaving the page first', async () => {
+    renderScreener()
+    await waitFor(() => expect(screen.getAllByText('2330.TWSE').length).toBeGreaterThan(0))
+
+    expect(await screen.findByRole('button', { name: '將 2330.TWSE 加入自選' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '將 2330.TWSE 加入比較' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '為 2330.TWSE 新增監控' })).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: '查看 2330.TWSE 詳細研究頁' })).toHaveAttribute('href', '/stocks/2330.TWSE')
+  })
+
+  it('加入自選 is a genuine 1-click quick-add — no group picker in the way (Phase 8C-A fix)', async () => {
+    renderScreener()
+    const addButton = await screen.findByRole('button', { name: '將 2330.TWSE 加入自選' })
+    fireEvent.click(addButton)
+    // 直接呼叫 watchlistAdd(symbol, '', undefined) → api.ts 正規化為 group_id=null
+    // (與既有「未分組」選項相同 backend 語意), 不彈任何選單, 单次 click 即完成。
+    await waitFor(() => expect(api.watchlistAdd).toHaveBeenCalledWith('2330.TWSE', '', undefined))
+    expect(screen.queryByRole('menuitem', { name: /未分組/ })).not.toBeInTheDocument()
+    // 仍停留在 Screener, 沒有被導去別的頁面
+    expect(screen.queryByTestId('detail-mock')).not.toBeInTheDocument()
+  })
+
+  it('選擇分組加入自選 chevron still opens the group picker (specific-group path preserved)', async () => {
+    vi.mocked(api.watchlistGroups).mockResolvedValue({
+      groups: [{ id: 'g1', name: '半導體', color: 'blue' }],
+    } as any)
+    renderScreener()
+    const chevron = await screen.findByRole('button', { name: '選擇分組將 2330.TWSE 加入自選' })
+    fireEvent.click(chevron)
+    const groupOption = await screen.findByRole('menuitem', { name: /半導體/ })
+    fireEvent.click(groupOption)
+    await waitFor(() => expect(api.watchlistAdd).toHaveBeenCalledWith('2330.TWSE', '', 'g1'))
+  })
+
+  it('加入比較 navigates straight to /stocks/compare with the symbol pre-populated', async () => {
+    renderScreenerWithCompareRoute()
+    const compareButton = await screen.findByRole('button', { name: '將 2330.TWSE 加入比較' })
+    fireEvent.click(compareButton)
+    await waitFor(() => expect(screen.getByTestId('compare-mock')).toHaveTextContent('2330.TWSE'))
+  })
+
+  it('監控 opens the rule editor scoped to the row symbol, without a second Monitor form', async () => {
+    renderScreener()
+    const monitorButton = await screen.findByRole('button', { name: '為 2330.TWSE 新增監控' })
+    fireEvent.click(monitorButton)
+    expect(await screen.findByText('監控標的 (Security Master)')).toBeInTheDocument()
+    expect(screen.getByDisplayValue('2330.TWSE')).toBeInTheDocument()
   })
 })
 
