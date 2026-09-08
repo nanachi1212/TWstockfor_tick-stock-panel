@@ -1,6 +1,8 @@
 // Phase 8B-2 — Taiwan-first Navigation 回歸測試
-// 涵蓋：主導覽預設顯示台股功能、預設不顯示 A 股 legacy 功能、
-// show_ashare_legacy_features 開啟後「中國 A 股（選配）」區塊出現且不與台股導航混排。
+// Phase 8C-D — Legacy Product Removal: 「中國 A 股（選配）」區塊、
+// show_ashare_legacy_features 開關、A 股側邊欄指數卡片(SidebarIndexQuotes)
+// 已隨產品介面正式移除, 不再有任何 legacy 開關可以「開啟」——CORE_NAV 是
+// 主導覽唯一的清單。
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { render, screen, waitFor } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
@@ -18,7 +20,6 @@ vi.mock('@/lib/api', () => ({
     watchlistGroups: vi.fn().mockResolvedValue({ groups: [] }),
     watchlistList: vi.fn().mockResolvedValue({ items: [] }),
     watchlistEnriched: vi.fn().mockResolvedValue({ items: [] }),
-    indexQuotes: vi.fn().mockResolvedValue({ rows: [] }),
     alertsList: vi.fn().mockResolvedValue({ items: [], total: 0 }),
     intradayRefresh: vi.fn().mockResolvedValue({}),
     pipelineJobs: vi.fn().mockResolvedValue({ active_id: null }),
@@ -112,41 +113,27 @@ describe('Layout — Taiwan-first navigation (Phase 8B-2)', () => {
     await screen.findByText('台股選股')
     expect(screen.queryByText('A 股回測')).not.toBeInTheDocument()
   })
+})
 
-  it('reveals the "中國 A 股（選配）" section with legacy routes intact when the preference is on', async () => {
-    vi.mocked(usePreferences).mockReturnValue({ data: { show_ashare_legacy_features: true } } as any)
+describe('Layout — Legacy A-share removal (Phase 8C-D)', () => {
+  it('legacy section stays absent even if a stale show_ashare_legacy_features field is present in cached preferences', async () => {
+    // 偏好型別已移除該欄位, 但既有使用者 localStorage/cache 可能仍殘留舊值 —
+    // 確保 Layout 不再讀取它、也不會意外恢復 legacy 區塊。
+    vi.mocked(usePreferences).mockReturnValue({ data: { show_ashare_legacy_features: true } as any } as any)
     renderLayout()
 
     await screen.findByText('台股選股')
-    expect(screen.getByText('中國 A 股（選配）')).toBeInTheDocument()
-    expect(screen.getByText('策略選股')).toBeInTheDocument()
-    // 台股核心導航仍在, 不被 A 股區塊取代或混排
-    expect(screen.getByText('台股選股')).toBeInTheDocument()
+    expect(screen.queryByText('中國 A 股（選配）')).not.toBeInTheDocument()
+    expect(screen.queryByText('策略選股')).not.toBeInTheDocument()
+    expect(screen.queryByText('A 股回測')).not.toBeInTheDocument()
+    expect(screen.queryByText('因子挖掘')).not.toBeInTheDocument()
   })
 
-  it('Phase 8B-4.2.1: 開啟 A 股 legacy 後,「中國 A 股（選配）」區塊顯示 A 股回測', async () => {
-    vi.mocked(usePreferences).mockReturnValue({ data: { show_ashare_legacy_features: true } } as any)
-    renderLayout()
-
-    await screen.findByText('台股選股')
-    expect(screen.getByText('A 股回測')).toBeInTheDocument()
-  })
-
-  it('Phase 8B-3.2: does not fetch A-share sidebar index quotes when the preference is off', async () => {
+  it('never fetches A-share sidebar index quotes (feature removed entirely, not just gated)', async () => {
     vi.mocked(usePreferences).mockReturnValue({ data: {} } as any)
     renderLayout()
 
-    await screen.findByText('台股選股')
-    // 给足够时间让 disabled 之外的其他查询完成, 确认 indexQuotes 全程未被调用
     await waitFor(() => expect(api.dataSources).toHaveBeenCalled())
-    expect(api.indexQuotes).not.toHaveBeenCalled()
-  })
-
-  it('Phase 8B-3.2: fetches A-share sidebar index quotes once the preference is on', async () => {
-    vi.mocked(usePreferences).mockReturnValue({ data: { show_ashare_legacy_features: true } } as any)
-    renderLayout()
-
-    await screen.findByText('台股選股')
-    await waitFor(() => expect(api.indexQuotes).toHaveBeenCalled())
+    expect((api as any).indexQuotes).toBeUndefined()
   })
 })

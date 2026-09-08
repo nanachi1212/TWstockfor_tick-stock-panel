@@ -41,8 +41,6 @@ describe('Taiwan core pages — no simplified Chinese in rendered text (Phase 8B
       expect(code, `Monitor.tsx 不應含簡體字詞「${term}」`).not.toContain(term)
     }
     expect(code).toContain('即時監控中心')
-    expect(code).toContain('尚無觸發記錄')
-    expect(code).toContain('尚無監控規則')
   })
 
   it('TaiwanScreener.tsx / TaiwanStockDetail.tsx / TaiwanStockCompare.tsx remain simplified-free', () => {

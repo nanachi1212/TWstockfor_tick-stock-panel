@@ -4,7 +4,6 @@ import { useQueryClient, useMutation, useQuery } from '@tanstack/react-query'
 import {
   Activity,
   Wifi,
-  BarChart3,
   Flame,
   Zap,
   Webhook,
@@ -29,13 +28,6 @@ const PAGE_LABELS: Record<string, string> = {
   'limit-ladder': '連板梯隊',
 }
 
-const SIDEBAR_INDEX_OPTIONS = [
-  { symbol: '000001.SH', name: '上證指數' },
-  { symbol: '399001.SZ', name: '深證成指' },
-  { symbol: '399006.SZ', name: '創業板指' },
-  { symbol: '000680.SH', name: '科創綜指' },
-]
-
 // ===== 导出为 Panel 组件 (由 Settings.tsx 嵌入) =====
 
 export function SettingsMonitoringPanel({ highlight }: { highlight?: string } = {}) {
@@ -59,8 +51,6 @@ export function SettingsMonitoringPanel({ highlight }: { highlight?: string } = 
   const hasDepth = !!caps?.capabilities?.['depth5.batch']
   // 新建监控规则时默认勾选的推送渠道 (全局默认值数组, 单条规则可独立修改)
   const webhookDefaultChannels = prefs?.webhook_default_channels ?? []
-  const sidebarIndexSymbols = prefs?.sidebar_index_symbols ?? SIDEBAR_INDEX_OPTIONS.map(i => i.symbol)
-  const indicesPinned = prefs?.indices_nav_pinned ?? true
   const isRunning = quoteStatus?.running ?? false
   const isTrading = quoteStatus?.is_trading_hours ?? false
   // 管道/数据修正运行期间实时行情被临时暂停 — 此时禁止开启
@@ -127,20 +117,6 @@ export function SettingsMonitoringPanel({ highlight }: { highlight?: string } = 
     qc.invalidateQueries({ queryKey: QK.preferences })
     qc.invalidateQueries({ queryKey: QK.quoteStatus })
   }, [toggleQuote, qc])
-
-  const toggleSidebarIndex = useCallback((symbol: string, visible: boolean) => {
-    const selected = new Set(sidebarIndexSymbols)
-    if (visible) selected.add(symbol)
-    else selected.delete(symbol)
-    const next = SIDEBAR_INDEX_OPTIONS
-      .map(item => item.symbol)
-      .filter(s => selected.has(s))
-    save({ sidebar_index_symbols: next })
-  }, [save, sidebarIndexSymbols])
-
-  const toggleIndicesPin = useCallback((pinned: boolean) => {
-    api.updateIndicesNavPinned(pinned).then(() => qc.invalidateQueries({ queryKey: QK.preferences }))
-  }, [qc])
 
   const toggleLimitLadderMonitor = useCallback(async (enabled: boolean) => {
     await api.updateLimitLadderMonitor(enabled)
@@ -418,32 +394,6 @@ export function SettingsMonitoringPanel({ highlight }: { highlight?: string } = 
           </div>
         </Card>
 
-        {!isWatchlistMode && (
-        <Card icon={BarChart3} title="左側選單指數">
-          <p className="text-xs text-secondary mb-4">
-            選擇即時行情開啟時,左側選單底部顯示哪些指數點位和漲跌幅。
-          </p>
-          <div className="space-y-2">
-            {SIDEBAR_INDEX_OPTIONS.map(item => (
-              <ToggleRow
-                key={item.symbol}
-                label={item.name}
-                desc={item.symbol}
-                checked={sidebarIndexSymbols.includes(item.symbol)}
-                onChange={(v) => toggleSidebarIndex(item.symbol, v)}
-              />
-            ))}
-          </div>
-          <div className="mt-3 pt-3 border-t border-border">
-            <ToggleRow
-              label="固定顯示"
-              desc={indicesPinned ? '指數卡片常駐顯示（即使即時行情關閉）' : '跟隨即時行情開關（僅即時開啟時顯示）'}
-              checked={indicesPinned}
-              onChange={toggleIndicesPin}
-            />
-          </div>
-        </Card>
-        )}
       </div>
 
       {/* ========== 右列 ========== */}

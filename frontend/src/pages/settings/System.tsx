@@ -5,10 +5,8 @@
  */
 import { useState, useCallback, useEffect } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
-import { Settings2, Trash2, RefreshCw, Bell, Volume2, Info, Globe2 } from 'lucide-react'
-import { usePreferences, useVersion } from '@/lib/useSharedQueries'
-import { api } from '@/lib/api'
-import { QK } from '@/lib/queryKeys'
+import { Trash2, RefreshCw, Bell, Volume2, Info } from 'lucide-react'
+import { useVersion } from '@/lib/useSharedQueries'
 import { PageHeader } from '@/components/PageHeader'
 import { refreshAlertToastConfig } from '@/components/AlertToast'
 import { SOUND_OPTIONS, previewSound } from '@/lib/notificationSound'
@@ -18,13 +16,7 @@ import {
 
 export function SettingsSystemPanel() {
   const qc = useQueryClient()
-  const { data: prefs } = usePreferences()
   const { data: versionData } = useVersion()
-  const [saving, setSaving] = useState(false)
-
-  const screenerAutoRun = prefs?.screener_auto_run ?? true
-  const showAshareLegacy = prefs?.show_ashare_legacy_features ?? false
-  const [savingAshareLegacy, setSavingAshareLegacy] = useState(false)
   const [clearing, setClearing] = useState(false)
   const [toastEnabled, setToastEnabled] = useState(() => {
     try { return localStorage.getItem('alert_toast_enabled') !== '0' } catch { return true }
@@ -77,16 +69,6 @@ export function SettingsSystemPanel() {
     }
   }, [voiceConfigured])
 
-  const save = useCallback(async (cfg: Record<string, unknown>) => {
-    setSaving(true)
-    try {
-      await api.updateRealtimeMonitorConfig(cfg)
-      qc.invalidateQueries({ queryKey: QK.preferences })
-    } finally {
-      setSaving(false)
-    }
-  }, [qc])
-
   // 刷新前端缓存: 清除 react-query 缓存 + 强制重载 (绕过浏览器缓存)
   // 不动 localStorage (用户列配置/策略池等偏好保留), 也不影响后端的本地股票数据
   const handleClearCache = useCallback(() => {
@@ -107,21 +89,6 @@ export function SettingsSystemPanel() {
 
       <section className="rounded-card border border-border bg-surface p-5">
         <div className="flex items-center gap-2 mb-4">
-          <Settings2 className="h-4 w-4 text-accent" />
-          <h3 className="text-sm font-medium text-foreground">策略頁</h3>
-        </div>
-
-        <ToggleRow
-          label="進入策略頁自動執行策略"
-          desc="開啟後進入策略頁自動跑所有策略取得命中數;關閉則需手動點擊"
-          checked={screenerAutoRun}
-          disabled={saving}
-          onChange={(v) => save({ screener_auto_run: v })}
-        />
-      </section>
-
-      <section className="rounded-card border border-border bg-surface p-5 mt-6">
-        <div className="flex items-center gap-2 mb-4">
           <Bell className="h-4 w-4 text-accent" />
           <h3 className="text-sm font-medium text-foreground">通知彈窗</h3>
         </div>
@@ -130,7 +97,6 @@ export function SettingsSystemPanel() {
           label="開啟監控通知彈窗"
           desc="收到監控告警時在右下角彈出通知卡片"
           checked={toastEnabled}
-          disabled={saving}
           onChange={(v) => {
             localStorage.setItem('alert_toast_enabled', v ? '1' : '0')
             setToastEnabled(v)
@@ -288,26 +254,6 @@ export function SettingsSystemPanel() {
             <span className="text-xs text-muted w-8 text-right">{voiceRate.toFixed(1)}</span>
           </div>
         </div>
-      </section>
-
-      <section className="rounded-card border border-border bg-surface p-5 mt-6">
-        <div className="flex items-center gap-2 mb-4">
-          <Globe2 className="h-4 w-4 text-accent" />
-          <h3 className="text-sm font-medium text-foreground">中國 A 股功能</h3>
-        </div>
-
-        <ToggleRow
-          label="顯示中國 A 股功能"
-          desc="開啟後會顯示原專案保留的中國 A 股分析功能。台股功能不受影響。"
-          checked={showAshareLegacy}
-          disabled={savingAshareLegacy}
-          onChange={(v) => {
-            setSavingAshareLegacy(true)
-            api.updateShowAshareLegacyFeatures(v)
-              .then(() => qc.invalidateQueries({ queryKey: QK.preferences }))
-              .finally(() => setSavingAshareLegacy(false))
-          }}
-        />
       </section>
 
       <section className="rounded-card border border-border bg-surface p-5 mt-6">

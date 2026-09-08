@@ -32,7 +32,7 @@ import {
   PanelLeftOpen,
 } from 'lucide-react'
 import { Logo } from './Logo'
-import { api, type IndexQuote } from '@/lib/api'
+import { api } from '@/lib/api'
 import { cn } from '@/lib/cn'
 import { resolveWatchlistGroupColor } from '@/lib/watchlist-group-colors'
 import { computeGroupPcts, groupPctColor, groupPctTitle } from '@/lib/watchlistGroupStats'
@@ -41,29 +41,15 @@ import { toggleTheme, useTheme } from '@/lib/theme'
 import { setCurrentTotal as setAlertTotal, useUnreadAlerts } from '@/lib/monitorBadge'
 import { ExtensionSlot } from '@/extensions/ExtensionSlot'
 import { getFrontendExtensionNavigation } from '@/extensions/registry'
-import { CORE_NAV as nav, ASHARE_LEGACY_NAV as ashareLegacyNav } from '@/lib/navigation'
+import { CORE_NAV as nav } from '@/lib/navigation'
 import type { LucideIcon } from 'lucide-react'
 
 // 品牌色 — 只用于 logo / brand 区域,不影响功能语义色
 const BRAND = '#8B5CF6'
 
-// Phase 8B-2: 这 4 个是 A 股指数, 侧边栏卡片(SidebarIndexQuotes)只在
-// show_ashare_legacy_features 偏好开启时才渲染(见下方渲染处)。数组本身与
-// sidebar_index_symbols 偏好保留, 不删除既有能力 —— 目前没有可靠的台股大盘
-// 指数数据源(REQUIRES BACKEND SUPPORT), 不假造台股指数, 详见 Phase 8B-2 报告 E 节。
-const CORE_INDEXES = [
-  { symbol: '000001.SH', name: '上證指數' },
-  { symbol: '399001.SZ', name: '深證成指' },
-  { symbol: '399006.SZ', name: '創業板指' },
-  { symbol: '000680.SH', name: '科創綜指' },
-] as const
-
-type CoreIndex = (typeof CORE_INDEXES)[number]
-
-// Phase 8B-2.1: nav / ashareLegacyNav 的定义已抽到 @/lib/navigation.ts
-// (CORE_NAV / ASHARE_LEGACY_NAV), 与 MenuSettings.tsx 共用同一份 metadata,
-// 避免两处各自维护清单造成显示/隐藏不同步。此处用别名 import 保持下方
-// 既有代码(nav.findIndex 等)不必改名。
+// Phase 8B-2.1: nav 的定义已抽到 @/lib/navigation.ts (CORE_NAV), 与
+// MenuSettings.tsx 共用同一份 metadata。此处用别名 import 保持下方既有
+// 代码(nav.findIndex 等)不必改名。
 
 /** 亮/暗主题切换 — 状态存 localStorage, 生效见 lib/theme.ts */
 function ThemeToggle() {
@@ -80,23 +66,6 @@ function ThemeToggle() {
   )
 }
 
-function fmtIndexValue(v: number | null | undefined) {
-  if (v == null || Number.isNaN(Number(v))) return '--'
-  return Number(v).toFixed(2)
-}
-
-function fmtIndexPct(v: number | null | undefined) {
-  if (v == null || Number.isNaN(Number(v))) return '--'
-  return `${Number(v) >= 0 ? '+' : ''}${Number(v).toFixed(2)}%`
-}
-
-function indexPctClass(v: number | null | undefined) {
-  if (v == null || Number.isNaN(Number(v))) return 'text-muted'
-  const n = Number(v)
-  if (n === 0) return 'text-foreground'
-  return n > 0 ? 'text-bull' : 'text-bear'
-}
-
 /** 监控中心未读徽标 — 仅在非监控页且有未读时显示。 */
 function MonitorBadge({ active }: { active: boolean }) {
   const unread = useUnreadAlerts()
@@ -109,36 +78,6 @@ function MonitorBadge({ active }: { active: boolean }) {
     <span className="inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-danger px-1 text-[9px] font-bold text-white animate-pulse">
       {unread > 99 ? '99+' : unread}
     </span>
-  )
-}
-
-function SidebarIndexQuotes({ rows, items }: { rows: IndexQuote[] | undefined; items: CoreIndex[] }) {
-  if (items.length === 0) return null
-  const quoteBySymbol = new Map((rows ?? []).map(q => [q.symbol, q]))
-  return (
-    <div className="mt-2 grid grid-cols-2 gap-1.5 border-t border-border/60 pt-2">
-      {items.map(item => {
-        const q = quoteBySymbol.get(item.symbol)
-        const value = q?.last_price ?? q?.close
-        const pct = q?.change_pct
-        return (
-          <NavLink
-            key={item.symbol}
-            to={`/indices?symbol=${encodeURIComponent(item.symbol)}`}
-            className="block rounded bg-elevated/60 px-2 py-1.5 transition-colors hover:bg-elevated"
-            title={`${item.name} ${item.symbol}`}
-          >
-            <div className="flex items-center justify-between gap-1">
-              <span className="text-[10px] text-secondary">{item.name}</span>
-              <span className={`text-[10px] font-mono ${indexPctClass(pct)}`}>{fmtIndexPct(pct)}</span>
-            </div>
-            <div className={`mt-0.5 truncate font-mono text-[10px] ${indexPctClass(pct)}`}>
-              {fmtIndexValue(value)}
-            </div>
-          </NavLink>
-        )
-      })}
-    </div>
   )
 }
 
@@ -352,24 +291,6 @@ export function Layout() {
       return next
     })
   }
-  // Phase 8B-3.2 — CORE_INDEXES(上證/深證/創業板/科創)是純 A 股 legacy 指數,
-  // 這裡提前到 sidebarIndexQuotes 查詢之前聲明, 用來在 A 股關閉時連 REST 請求
-  // 都不發(而不只是不渲染)。與 Menu Settings/Dashboard 讀同一份偏好, 非新開關。
-  const showAshareLegacy = prefs?.show_ashare_legacy_features ?? false
-  const indicesPinned = prefs?.indices_nav_pinned ?? true
-  const sidebarIndexSymbols = prefs?.sidebar_index_symbols ?? CORE_INDEXES.map(p => p.symbol)
-  const sidebarIndexes = CORE_INDEXES.filter(item => sidebarIndexSymbols.includes(item.symbol))
-  // 卡片数据：固定显示时也拉取（即使实时行情关闭）
-  const showSidebarQuotes = indicesPinned || realtimeEnabled
-  const { data: sidebarIndexQuotes } = useQuery({
-    queryKey: [...QK.indexQuotes, 'sidebar', sidebarIndexSymbols.join(',')] as const,
-    queryFn: () => api.indexQuotes(sidebarIndexes.map(p => p.symbol)),
-    // showAshareLegacy 闸门: sidebarIndexes 恒为 CORE_INDEXES(A 股指数)的子集,
-    // 这个 query 是 ASHARE_ONLY —— A 股关闭时连 REST 请求都不该发, 不只是不渲染。
-    enabled: showAshareLegacy && showSidebarQuotes && sidebarIndexes.length > 0,
-    placeholderData: (prev) => prev,
-  })
-
   // SSE: 行情更新时自动刷新相关 queries + 告警通知
   useQuoteStream(realtimeEnabled, prefs?.sse_refresh_pages)
   // 实时 SSE 连接状态 — 断开时底部显示提示, 提示可能漏策略告警
@@ -480,15 +401,6 @@ export function Layout() {
 
   const hiddenIds = new Set(prefs?.nav_hidden ?? [])
   const visibleNavItems = navItems.filter(n => !hiddenIds.has(n.to))
-  // Phase 8B-2.1 — 中國 A 股 legacy 功能區塊: 固定渲染在獨立小節, 不參與
-  // nav_order 拖曳排序(排序對固定小節沒有意義), 但沿用同一份 nav_hidden 個別
-  // 隱藏 —— 與 MenuSettings.tsx「中國 A 股功能」小節的個別 eye 開關是同一組
-  // 資料, 不是第二套顯示邏輯。總開關 show_ashare_legacy_features 決定整個小節
-  // 是否出現, 個別 hiddenIds 決定小節內哪幾項出現。(showAshareLegacy 已在上方
-  // sidebarIndexQuotes 查詢前聲明, Phase 8B-3.2, 此處不再重複宣告)
-  const visibleAshareLegacyNav = showAshareLegacy
-    ? ashareLegacyNav.filter(n => !hiddenIds.has(n.to))
-    : []
 
   const handleToggle = async (enabled: boolean) => {
     // 开启时重新校验实时权限 (以 quote_status 的数据源无关判定为准)
@@ -703,47 +615,6 @@ export function Layout() {
             context={{ collapsed: navCollapsed, pathname: location.pathname }}
             compact
           />
-
-          {/* Phase 8B-2 — 中國 A 股（選配）區塊: 預設隱藏, 設定 → 系統 開啟後才顯示。
-              獨立小節, 不與上方台股核心導航混排、不參與拖曳排序。 */}
-          {visibleAshareLegacyNav.length > 0 && (
-            <div className="mt-2 pt-2 border-t border-border/60">
-              {!navCollapsed && (
-                <div className="px-3 pb-1 text-[10px] font-medium uppercase tracking-wider text-muted">
-                  中國 A 股（選配）
-                </div>
-              )}
-              {visibleAshareLegacyNav.map(({ to, label, icon: Icon }) => (
-                <NavLink
-                  key={to}
-                  to={to}
-                  title={navCollapsed ? label : undefined}
-                  className={({ isActive }) =>
-                    cn(
-                      'group relative flex items-center rounded-btn text-sm transition-all duration-150 ease-smooth',
-                      navCollapsed ? 'justify-center px-0 py-2' : 'gap-3 px-3 py-2',
-                      isActive
-                        ? 'bg-elevated text-foreground font-medium'
-                        : 'text-foreground/60 hover:bg-elevated/70 hover:text-foreground',
-                    )
-                  }
-                >
-                  {({ isActive }) => (
-                    <>
-                      <span
-                        className={cn(
-                          'pointer-events-none absolute left-0 top-1/2 h-4 -translate-y-1/2 w-[2.5px] rounded-full bg-accent transition-opacity duration-150',
-                          isActive ? 'opacity-100 shadow-[0_0_8px_rgba(59,130,246,0.6)]' : 'opacity-0',
-                        )}
-                      />
-                      <Icon className={cn('h-4 w-4 shrink-0 transition-colors', isActive ? 'text-accent' : 'text-foreground/50 group-hover:text-foreground/80')} />
-                      {!navCollapsed && <span className="flex-1">{label}</span>}
-                    </>
-                  )}
-                </NavLink>
-              ))}
-            </div>
-          )}
         </nav>
 
         {/* 全局行情开关 — 收起时只显示状态指示点 */}
@@ -853,12 +724,6 @@ export function Layout() {
                 )}
               </div>
             )}
-          {/* Phase 8B-2: 侧边栏指数卡片目前只有 A 股指数(CORE_INDEXES)可选,
-              尚无可靠台股大盘指数数据源(REQUIRES BACKEND SUPPORT)。跟随「中國 A 股
-              （選配）」开关: 关闭时不展示 A 股指数、也不假造台股指数;开启后原样可用。 */}
-          {showAshareLegacy && showSidebarQuotes && !isWatchlistMode && (!realtimeUnavailable || !!realtimeProviderName) && (
-            <SidebarIndexQuotes rows={sidebarIndexQuotes?.rows} items={sidebarIndexes} />
-          )}
         </div>
         )}
 

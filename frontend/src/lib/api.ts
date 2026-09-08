@@ -2037,7 +2037,6 @@ export interface Preferences {
   realtime_quotes_enabled: boolean
   indices_nav_pinned: boolean
   watchlist_groups_in_nav: boolean
-  show_ashare_legacy_features: boolean
   minute_sync_enabled: boolean
   minute_sync_days: number
   minute_sync_segment_days: number
@@ -2245,20 +2244,10 @@ export const api = {
       method: 'PUT',
       body: JSON.stringify(cfg),
     }),
-  updateIndicesNavPinned: (pinned: boolean) =>
-    request<{ indices_nav_pinned: boolean }>('/api/settings/preferences/indices-nav-pinned', {
-      method: 'PUT',
-      body: JSON.stringify({ indices_nav_pinned: pinned }),
-    }),
   updateWatchlistGroupsInNav: (enabled: boolean) =>
     request<{ watchlist_groups_in_nav: boolean }>('/api/settings/preferences/watchlist-groups-in-nav', {
       method: 'PUT',
       body: JSON.stringify({ watchlist_groups_in_nav: enabled }),
-    }),
-  updateShowAshareLegacyFeatures: (enabled: boolean) =>
-    request<{ show_ashare_legacy_features: boolean }>('/api/settings/preferences/show-ashare-legacy-features', {
-      method: 'PUT',
-      body: JSON.stringify({ show_ashare_legacy_features: enabled }),
     }),
   quoteStatus: () =>
     request<{
@@ -2290,10 +2279,6 @@ export const api = {
       { method: 'PUT', body: JSON.stringify({ interval }) },
     ),
   intradayRefresh: () => request<{ status: string }>('/api/intraday/refresh', { method: 'POST' }),
-  indexQuotes: (symbols?: string[]) =>
-    request<{ rows: IndexQuote[]; count: number }>(
-      `/api/intraday/indices${symbols?.length ? `?symbols=${encodeURIComponent(symbols.join(','))}` : ''}`,
-    ),
   updateRealtimeMonitorConfig: (cfg: {
     sse_refresh_pages?: Record<string, boolean>
     strategy_monitor_enabled?: boolean
@@ -2615,13 +2600,14 @@ export const api = {
     ),
   marketSnapshot: () =>
     request<{ as_of: string | null; rows: MarketSnapshotRow[] }>('/api/screener/market-snapshot'),
-  overviewMarket: (asOf?: string) => request<OverviewMarket>(`/api/overview/market${asOf ? `?as_of=${asOf}` : ''}`),
 
   // 市场环境(Regime)
   // Phase 8B-5.7: 移除仅供已刪除的 Regime.tsx 研究頁使用的 history/states/
-  // recompute/phases/mainline 端點 —— regimeLatest(Mining 挖掘頁核驗市場環境
-  // 是否已計算)與 regimeCoverage(Data 頁資料畫像)仍有真實 consumer, 保留。
-  regimeLatest: () => request<{ row: RegimeRow | null }>('/api/regime/latest'),
+  // recompute/phases/mainline 端點。Phase 8C-D: regimeLatest 唯一的 frontend
+  // consumer(Mining 挖掘頁)已隨產品介面移除, 一併移除此 client method
+  // (backend /api/regime/latest 與 regime core 計算完全未動, 見 Final Report)。
+  // regimeCoverage 已是 Phase 8B-5.8 刪除 /data 頁後的既有 orphan, 不屬本次
+  // 範圍, 不動。
   regimeCoverage: () => request<RegimeCoverage>('/api/regime/coverage'),
   mainlineFilterUpdate: (payload: { min_members?: number; max_members?: number; blacklist?: string[]; exclude_st?: boolean }) =>
     request<MainlineFilter>('/api/settings/preferences/mainline-filter', {

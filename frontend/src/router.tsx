@@ -16,9 +16,6 @@ import {
 // framer-motion 等重库) → 大幅减小首屏 bundle。命名导出用 .then 映射为 default。
 // Layout / Onboarding / Auth 为应用外壳与入口, 保持同步加载。
 const Watchlist = lazy(() => import('./pages/Watchlist').then(m => ({ default: m.Watchlist })))
-const Screener = lazy(() => import('./pages/Screener').then(m => ({ default: m.Screener })))
-const Backtest = lazy(() => import('./pages/Backtest').then(m => ({ default: m.Backtest })))
-const Mining = lazy(() => import('./pages/Mining').then(m => ({ default: m.Mining })))
 const Monitor = lazy(() => import('./pages/Monitor').then(m => ({ default: m.Monitor })))
 const Dashboard = lazy(() => import('./pages/Dashboard').then(m => ({ default: m.Dashboard })))
 const Branding = lazy(() => import('./pages/Branding').then(m => ({ default: m.Branding })))
@@ -36,10 +33,7 @@ const CORE_ROUTE_PATHS = new Set([
   '/stocks/:symbol',
   '/stocks/compare',
   '/watchlist',
-  '/screener',
   '/taiwan-screener',
-  '/backtest',
-  '/mining',
   '/monitor',
   '/indices',
   '/branding',
@@ -101,10 +95,7 @@ export const router = createBrowserRouter([
       { path: 'stocks/compare', element: <TaiwanStockCompare /> },
       { path: 'stocks/:symbol', element: <TaiwanStockDetail /> },
       { path: 'watchlist', element: <Watchlist /> },
-      { path: 'screener', element: <Screener /> },
       { path: 'taiwan-screener', element: <TaiwanScreener /> },
-      { path: 'backtest', element: <Backtest /> },
-      { path: 'mining', element: <Mining /> },
       { path: 'monitor', element: <Monitor /> },
       { path: 'branding', element: <Branding /> },
       { path: 'settings', element: <Settings /> },
