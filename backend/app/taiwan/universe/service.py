@@ -17,6 +17,7 @@ from typing import Any
 import polars as pl
 
 from app.taiwan.universe.adapters import TpexInstrumentAdapter, TwseInstrumentAdapter
+from app.taiwan.universe.industry_classification import resolve_industry_name
 from app.taiwan.universe.models import TaiwanInstrument, UniverseType
 
 logger = logging.getLogger(__name__)
@@ -98,7 +99,12 @@ class TaiwanSecurityMaster:
                     listing_status=r["listing_status"],
                     listing_date=r.get("listing_date"),
                     isin=r.get("isin"),
-                    industry=r.get("industry"),
+                    # Phase 8C-C Final Completion: 既有 parquet cache 可能存有
+                    # 未正規化前寫入的數字產業代碼("01"/"24"/"91") —— 讀取時
+                    # 一律經過 resolve_industry_name() 正規化, 不需重建 parquet
+                    # 即可讓所有 consumer 立即拿到可讀名稱; 已是可讀名稱的既有
+                    # rows 原樣通過(函式為 idempotent)。
+                    industry=resolve_industry_name(r.get("industry")),
                     cfi_code=r.get("cfi_code"),
                     raw_category=r.get("raw_category", ""),
                     is_supported=bool(r.get("is_supported", False)),

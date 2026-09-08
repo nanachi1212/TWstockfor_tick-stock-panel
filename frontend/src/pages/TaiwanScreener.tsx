@@ -95,6 +95,11 @@ export function TaiwanScreener() {
   const [shortBalanceMinLots, setShortBalanceMinLots] = useState<string>('')
   const [shortMarginRatioMin, setShortMarginRatioMin] = useState<string>('')
 
+  // Phase 8C-C: 進階條件預設收合, 只在使用者展開後才顯示技術面/法人/籌碼與融資券
+  const [showAdvanced, setShowAdvanced] = useState(false)
+  // Phase 8C-C: 結果表格預設只顯示常用欄位, 其餘技術/法人細項欄位收進「更多欄位」
+  const [showMoreColumns, setShowMoreColumns] = useState(false)
+
   // Sorting & Pagination
   const [sortBy, setSortBy] = useState<string>('symbol')
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('asc')
@@ -256,6 +261,8 @@ export function TaiwanScreener() {
   // Taiwan Industry Intelligence Snapshot query (Phase 7B)
   const [indSortBy, setIndSortBy] = useState<string>('turnover')
   const [indOrder, setIndOrder] = useState<'desc' | 'asc'>('desc')
+  // Phase 8C-C: 34 檔預設收合只顯示前 10 檔, 避免一次全部展開
+  const [showAllIndustries, setShowAllIndustries] = useState(false)
   const { data: indData } = useQuery({
     queryKey: ['taiwanIndustryIntelligence', indSortBy, indOrder],
     queryFn: () => api.taiwanIndustryIntelligence({ sort_by: indSortBy, order: indOrder }),
@@ -273,6 +280,9 @@ export function TaiwanScreener() {
   })
 
   const totalPages = data ? Math.ceil(data.total / data.page_size) : 1
+  // Phase 8C-C: 結果表格預設 8 個資料欄 + 操作欄 = 9; 展開「更多欄位」後為
+  // 完整 17 個資料欄 + 操作欄 = 18 (與 loading/error/empty 列的 colSpan 對齊)。
+  const resultColSpan = showMoreColumns ? 18 : 9
 
   const handleSort = (col: string) => {
     if (sortBy === col) {
@@ -338,6 +348,49 @@ export function TaiwanScreener() {
     return <span className="text-zinc-300 font-mono">{ratio.toFixed(2)}%</span>
   }
 
+  // Phase 8C-C: 常用意圖快速篩選 — 只組合現有 filter capability, 不建立第二套
+  // screener 邏輯。每個 preset 的 active 狀態直接由現有 filter state 推導(而非
+  // 額外存一個 activePreset flag), 使用者手動調整任一相關欄位時會自然「退出」
+  // 該 preset 的 active 外觀, 不會與手動狀態打架。再次點擊已 active 的 preset
+  // 會清除該 preset 設定的欄位(視為局部 reset)。
+  const quickPresets = [
+    {
+      id: 'strong',
+      label: '強勢股',
+      active: aboveMa20 === true && momentumMin === '2',
+      apply: () => { setAboveMa20(true); setMomentumMin('2'); setPage(1) },
+      clear: () => { setAboveMa20(null); setMomentumMin(''); setPage(1) },
+    },
+    {
+      id: 'volume',
+      label: '放量股',
+      active: volRatioMin === '2',
+      apply: () => { setVolRatioMin('2'); setPage(1) },
+      clear: () => { setVolRatioMin(''); setPage(1) },
+    },
+    {
+      id: 'institutional',
+      label: '法人買超',
+      active: foreignNetMinLots === '1000',
+      apply: () => { setForeignNetMinLots('1000'); setPage(1) },
+      clear: () => { setForeignNetMinLots(''); setPage(1) },
+    },
+    {
+      id: 'breakout',
+      label: '突破轉強',
+      active: aboveMa5 === true && aboveMa20 === true && changePctMin === '0',
+      apply: () => { setAboveMa5(true); setAboveMa20(true); setChangePctMin('0'); setPage(1) },
+      clear: () => { setAboveMa5(null); setAboveMa20(null); setChangePctMin(''); setPage(1) },
+    },
+    {
+      id: 'hot',
+      label: '熱門股',
+      active: amountMinMln === '500',
+      apply: () => { setAmountMinMln('500'); setPage(1) },
+      clear: () => { setAmountMinMln(''); setPage(1) },
+    },
+  ]
+
   return (
     <div className="flex-1 flex flex-col p-6 space-y-6 max-w-7xl mx-auto w-full">
       {/* Top Header */}
@@ -345,10 +398,10 @@ export function TaiwanScreener() {
         <div>
           <h1 className="text-2xl font-bold text-zinc-100 flex items-center gap-2">
             <Filter className="w-6 h-6 text-purple-400" />
-            台股策略選股工作台
+            台股選股器
           </h1>
           <p className="text-sm text-zinc-400 mt-1">
-            基於 Security Master 全市場標的與本地持久化分區日線、法人及資券資料庫的高效批次選股 (Taiwan Market Screener)
+            從全市場台股中，依價格、成交、技術面與法人條件快速篩選標的
           </p>
         </div>
 
@@ -579,7 +632,7 @@ export function TaiwanScreener() {
             <div className="flex items-center gap-2">
               <Layers className="w-4 h-4 text-cyan-400" />
               <span className="font-semibold text-zinc-200 text-sm">台股產業類股輪動 (Industry Intelligence)</span>
-              <span className="text-zinc-500 font-mono text-[11px]">34 大類股統計 (點擊產業名稱可套用篩選)</span>
+              <span className="text-zinc-500 font-mono text-[11px]">{indData.industries.length} 大類股統計 (點擊產業名稱可套用篩選)</span>
             </div>
             <div className="flex items-center gap-2 text-[11px] text-zinc-400">
               <span>排序:</span>
@@ -605,7 +658,7 @@ export function TaiwanScreener() {
             </div>
           </div>
 
-          <div className="overflow-x-auto max-h-72 overflow-y-auto">
+          <div id="industry-intelligence-table" className={`overflow-x-auto ${showAllIndustries ? 'max-h-96 overflow-y-auto' : ''}`}>
             <table className="w-full text-left border-collapse">
               <thead className="sticky top-0 bg-zinc-950/90 text-zinc-400 text-[11px] border-b border-zinc-800">
                 <tr>
@@ -623,7 +676,7 @@ export function TaiwanScreener() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-zinc-800/40 text-[11px] font-mono">
-                {indData.industries.map(ind => (
+                {(showAllIndustries ? indData.industries : indData.industries.slice(0, 10)).map(ind => (
                   <tr key={ind.industry} className="hover:bg-zinc-800/30 transition-colors">
                     <td className="py-1.5 px-2 font-sans font-medium text-zinc-200">
                       <button
@@ -694,6 +747,20 @@ export function TaiwanScreener() {
               </tbody>
             </table>
           </div>
+
+          {/* Phase 8C-C: 34 檔預設只顯示前 10 檔, 避免一次展開完整分析表格
+              (Dashboard 已有 Top/Bottom 摘要, 這裡保留完整分析能力供進階使用者展開)。 */}
+          {indData.industries.length > 10 && (
+            <button
+              type="button"
+              onClick={() => setShowAllIndustries(prev => !prev)}
+              aria-expanded={showAllIndustries}
+              aria-controls="industry-intelligence-table"
+              className="w-full py-1.5 rounded-md bg-zinc-800/60 hover:bg-zinc-800 text-zinc-400 hover:text-zinc-200 text-[11px] font-medium transition-colors"
+            >
+              {showAllIndustries ? '收合 ▴' : `顯示全部 ${indData.industries.length} 檔 ▾`}
+            </button>
+          )}
         </div>
       )}
 
@@ -965,9 +1032,36 @@ export function TaiwanScreener() {
         )}
       </div>
 
+      {/* Quick Presets — Phase 8C-C: 少量真正有語意的常用篩選, 只組合現有 filter
+          capability, 點擊直接更新既有 filter state (非第二套 screener 邏輯);
+          再次點擊已套用的 preset 會清除該 preset 設定的欄位。 */}
+      <div className="bg-zinc-900/70 border border-zinc-800/80 rounded-xl p-4">
+        <div className="flex items-center gap-2 mb-2.5">
+          <Sparkles className="w-4 h-4 text-purple-400" />
+          <span className="text-xs font-semibold text-zinc-300">常用篩選</span>
+        </div>
+        <div className="flex flex-wrap gap-2" role="group" aria-label="常用篩選">
+          {quickPresets.map(preset => (
+            <button
+              key={preset.id}
+              type="button"
+              onClick={() => (preset.active ? preset.clear() : preset.apply())}
+              aria-pressed={preset.active}
+              className={`px-3 py-1.5 text-xs font-medium rounded-full border transition-all ${
+                preset.active
+                  ? 'bg-purple-600 border-purple-500 text-white'
+                  : 'bg-zinc-800/80 border-zinc-700 text-zinc-300 hover:bg-zinc-700'
+              }`}
+            >
+              {preset.active ? `✓ ${preset.label}` : preset.label}
+            </button>
+          ))}
+        </div>
+      </div>
+
       {/* Filter Control Panel */}
       <div className="bg-zinc-900/70 border border-zinc-800/80 rounded-xl p-5 space-y-4">
-        {/* Row 1: Exchange & Instrument Types */}
+        {/* Basic Filters — 一般使用者最常用的條件, 預設就看得到 */}
         <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
           <div>
             <label className="text-xs font-semibold text-zinc-400 block mb-1.5">市場交易所</label>
@@ -1046,8 +1140,7 @@ export function TaiwanScreener() {
           </div>
         </div>
 
-        {/* Row 2: Volume, Amount, RSI, Momentum */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div>
             <label className="text-xs font-semibold text-zinc-400 block mb-1.5">最低成交量 (張)</label>
             <input
@@ -1069,179 +1162,209 @@ export function TaiwanScreener() {
               className="w-full bg-zinc-800 border border-zinc-700 rounded-md px-2.5 py-1.5 text-xs text-zinc-200 focus:outline-none focus:border-purple-500"
             />
           </div>
-
-          <div>
-            <label className="text-xs font-semibold text-zinc-400 block mb-1.5">RSI (14) 區間</label>
-            <div className="flex items-center gap-2">
-              <input
-                type="number"
-                placeholder="最小"
-                value={rsiMin}
-                onChange={e => { setRsiMin(e.target.value); setPage(1) }}
-                className="w-full bg-zinc-800 border border-zinc-700 rounded-md px-2.5 py-1.5 text-xs text-zinc-200 focus:outline-none focus:border-purple-500"
-              />
-              <span className="text-zinc-500">~</span>
-              <input
-                type="number"
-                placeholder="最大"
-                value={rsiMax}
-                onChange={e => { setRsiMax(e.target.value); setPage(1) }}
-                className="w-full bg-zinc-800 border border-zinc-700 rounded-md px-2.5 py-1.5 text-xs text-zinc-200 focus:outline-none focus:border-purple-500"
-              />
-            </div>
-          </div>
-
-          <div>
-            <label className="text-xs font-semibold text-zinc-400 block mb-1.5">5日動量 / 量比條件</label>
-            <div className="flex items-center gap-2">
-              <input
-                type="number"
-                placeholder="5日動量 (%)"
-                value={momentumMin}
-                onChange={e => { setMomentumMin(e.target.value); setPage(1) }}
-                className="w-full bg-zinc-800 border border-zinc-700 rounded-md px-2.5 py-1.5 text-xs text-zinc-200 focus:outline-none focus:border-purple-500"
-              />
-              <input
-                type="number"
-                placeholder="5日量比"
-                value={volRatioMin}
-                onChange={e => { setVolRatioMin(e.target.value); setPage(1) }}
-                className="w-full bg-zinc-800 border border-zinc-700 rounded-md px-2.5 py-1.5 text-xs text-zinc-200 focus:outline-none focus:border-purple-500"
-              />
-            </div>
-          </div>
         </div>
 
-        {/* Row 3: Institutional Filters (外資買賣超區間、投信買超、自營商買超) */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4 pt-2 border-t border-zinc-800/60">
-          <div>
-            <label className="text-xs font-semibold text-zinc-400 block mb-1.5">外資買賣超區間 (張)</label>
-            <div className="flex items-center gap-2">
-              <input
-                type="number"
-                placeholder="最小 (張)"
-                value={foreignNetMinLots}
-                onChange={e => { setForeignNetMinLots(e.target.value); setPage(1) }}
-                className="w-full bg-zinc-800 border border-zinc-700 rounded-md px-2.5 py-1.5 text-xs text-zinc-200 focus:outline-none focus:border-purple-500"
-              />
-              <span className="text-zinc-500">~</span>
-              <input
-                type="number"
-                placeholder="最大 (張)"
-                value={foreignNetMaxLots}
-                onChange={e => { setForeignNetMaxLots(e.target.value); setPage(1) }}
-                className="w-full bg-zinc-800 border border-zinc-700 rounded-md px-2.5 py-1.5 text-xs text-zinc-200 focus:outline-none focus:border-purple-500"
-              />
+        {/* Advanced Filters Toggle — Phase 8C-C: 進階條件預設收合, 一般使用者
+            不需要一開始就看到 17 個技術/籌碼欄位。 */}
+        <div className="pt-2 border-t border-zinc-800/60">
+          <button
+            type="button"
+            onClick={() => setShowAdvanced(prev => !prev)}
+            aria-expanded={showAdvanced}
+            aria-controls="screener-advanced-filters"
+            className="flex items-center gap-1.5 text-xs font-medium text-purple-400 hover:text-purple-300 transition-colors"
+          >
+            <ChevronDown className={`w-3.5 h-3.5 transition-transform ${showAdvanced ? 'rotate-180' : ''}`} />
+            進階條件{showAdvanced ? '（收合）' : '（技術面・法人・籌碼與融資券）'}
+          </button>
+        </div>
+
+        {showAdvanced && (
+          <div id="screener-advanced-filters" className="space-y-4">
+            {/* 技術面 */}
+            <div>
+              <h3 className="text-[11px] font-semibold text-zinc-500 uppercase tracking-wide mb-2">技術面</h3>
+              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
+                <div>
+                  <label className="text-xs font-semibold text-zinc-400 block mb-1.5">RSI (14) 區間</label>
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="number"
+                      placeholder="最小"
+                      value={rsiMin}
+                      onChange={e => { setRsiMin(e.target.value); setPage(1) }}
+                      className="w-full bg-zinc-800 border border-zinc-700 rounded-md px-2.5 py-1.5 text-xs text-zinc-200 focus:outline-none focus:border-purple-500"
+                    />
+                    <span className="text-zinc-500">~</span>
+                    <input
+                      type="number"
+                      placeholder="最大"
+                      value={rsiMax}
+                      onChange={e => { setRsiMax(e.target.value); setPage(1) }}
+                      className="w-full bg-zinc-800 border border-zinc-700 rounded-md px-2.5 py-1.5 text-xs text-zinc-200 focus:outline-none focus:border-purple-500"
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="text-xs font-semibold text-zinc-400 block mb-1.5">5日動量 / 量比條件</label>
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="number"
+                      placeholder="5日動量 (%)"
+                      value={momentumMin}
+                      onChange={e => { setMomentumMin(e.target.value); setPage(1) }}
+                      className="w-full bg-zinc-800 border border-zinc-700 rounded-md px-2.5 py-1.5 text-xs text-zinc-200 focus:outline-none focus:border-purple-500"
+                    />
+                    <input
+                      type="number"
+                      placeholder="5日量比"
+                      value={volRatioMin}
+                      onChange={e => { setVolRatioMin(e.target.value); setPage(1) }}
+                      className="w-full bg-zinc-800 border border-zinc-700 rounded-md px-2.5 py-1.5 text-xs text-zinc-200 focus:outline-none focus:border-purple-500"
+                    />
+                  </div>
+                </div>
+
+                <div className="sm:col-span-2 md:col-span-2 flex flex-wrap items-end gap-2">
+                  <button
+                    onClick={() => { setAboveMa5(prev => (prev === true ? null : true)); setPage(1) }}
+                    className={`px-3 py-1.5 text-xs font-medium rounded-md border transition-all ${
+                      aboveMa5 === true
+                        ? 'bg-purple-600 border-purple-500 text-white'
+                        : 'bg-zinc-800/80 border-zinc-700 text-zinc-300 hover:bg-zinc-700'
+                    }`}
+                  >
+                    站上 MA5
+                  </button>
+
+                  <button
+                    onClick={() => { setAboveMa20(prev => (prev === true ? null : true)); setPage(1) }}
+                    className={`px-3 py-1.5 text-xs font-medium rounded-md border transition-all ${
+                      aboveMa20 === true
+                        ? 'bg-purple-600 border-purple-500 text-white'
+                        : 'bg-zinc-800/80 border-zinc-700 text-zinc-300 hover:bg-zinc-700'
+                    }`}
+                  >
+                    站上 MA20 (月線)
+                  </button>
+
+                  <button
+                    onClick={() => { setNearUpperLimit(prev => !prev); setPage(1) }}
+                    className={`px-3 py-1.5 text-xs font-medium rounded-md border transition-all ${
+                      nearUpperLimit
+                        ? 'bg-red-600 border-red-500 text-white'
+                        : 'bg-zinc-800/80 border-zinc-700 text-zinc-300 hover:bg-zinc-700'
+                    }`}
+                  >
+                    逼近漲停 (&le; 3%)
+                  </button>
+
+                  <button
+                    onClick={() => { setNearLowerLimit(prev => !prev); setPage(1) }}
+                    className={`px-3 py-1.5 text-xs font-medium rounded-md border transition-all ${
+                      nearLowerLimit
+                        ? 'bg-emerald-600 border-emerald-500 text-white'
+                        : 'bg-zinc-800/80 border-zinc-700 text-zinc-300 hover:bg-zinc-700'
+                    }`}
+                  >
+                    逼近跌停 (&le; 3%)
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            {/* 法人 */}
+            <div>
+              <h3 className="text-[11px] font-semibold text-zinc-500 uppercase tracking-wide mb-2">法人</h3>
+              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
+                <div>
+                  <label className="text-xs font-semibold text-zinc-400 block mb-1.5">外資買賣超區間 (張)</label>
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="number"
+                      placeholder="最小 (張)"
+                      value={foreignNetMinLots}
+                      onChange={e => { setForeignNetMinLots(e.target.value); setPage(1) }}
+                      className="w-full bg-zinc-800 border border-zinc-700 rounded-md px-2.5 py-1.5 text-xs text-zinc-200 focus:outline-none focus:border-purple-500"
+                    />
+                    <span className="text-zinc-500">~</span>
+                    <input
+                      type="number"
+                      placeholder="最大 (張)"
+                      value={foreignNetMaxLots}
+                      onChange={e => { setForeignNetMaxLots(e.target.value); setPage(1) }}
+                      className="w-full bg-zinc-800 border border-zinc-700 rounded-md px-2.5 py-1.5 text-xs text-zinc-200 focus:outline-none focus:border-purple-500"
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="text-xs font-semibold text-zinc-400 block mb-1.5">投信最低買超 (張)</label>
+                  <input
+                    type="number"
+                    placeholder="例: 500 張"
+                    value={investmentTrustNetMinLots}
+                    onChange={e => { setInvestmentTrustNetMinLots(e.target.value); setPage(1) }}
+                    className="w-full bg-zinc-800 border border-zinc-700 rounded-md px-2.5 py-1.5 text-xs text-zinc-200 focus:outline-none focus:border-purple-500"
+                  />
+                </div>
+
+                <div>
+                  <label className="text-xs font-semibold text-zinc-400 block mb-1.5">自營商最低買超 (張)</label>
+                  <input
+                    type="number"
+                    placeholder="例: 100 張"
+                    value={dealerNetMinLots}
+                    onChange={e => { setDealerNetMinLots(e.target.value); setPage(1) }}
+                    className="w-full bg-zinc-800 border border-zinc-700 rounded-md px-2.5 py-1.5 text-xs text-zinc-200 focus:outline-none focus:border-purple-500"
+                  />
+                </div>
+              </div>
+            </div>
+
+            {/* 籌碼與融資券 */}
+            <div>
+              <h3 className="text-[11px] font-semibold text-zinc-500 uppercase tracking-wide mb-2">籌碼與融資券</h3>
+              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
+                <div>
+                  <label className="text-xs font-semibold text-zinc-400 block mb-1.5">融資餘額最低增加 (張)</label>
+                  <input
+                    type="number"
+                    placeholder="例: 100 張"
+                    value={marginBalanceChangeMinLots}
+                    onChange={e => { setMarginBalanceChangeMinLots(e.target.value); setPage(1) }}
+                    className="w-full bg-zinc-800 border border-zinc-700 rounded-md px-2.5 py-1.5 text-xs text-zinc-200 focus:outline-none focus:border-purple-500"
+                  />
+                </div>
+
+                <div>
+                  <label className="text-xs font-semibold text-zinc-400 block mb-1.5">最低融券餘額 (張)</label>
+                  <input
+                    type="number"
+                    placeholder="例: 100 張"
+                    value={shortBalanceMinLots}
+                    onChange={e => { setShortBalanceMinLots(e.target.value); setPage(1) }}
+                    className="w-full bg-zinc-800 border border-zinc-700 rounded-md px-2.5 py-1.5 text-xs text-zinc-200 focus:outline-none focus:border-purple-500"
+                  />
+                </div>
+
+                <div>
+                  <label className="text-xs font-semibold text-zinc-400 block mb-1.5">券資比最低 (%)</label>
+                  <input
+                    type="number"
+                    placeholder="例: 10 (%)"
+                    value={shortMarginRatioMin}
+                    onChange={e => { setShortMarginRatioMin(e.target.value); setPage(1) }}
+                    className="w-full bg-zinc-800 border border-zinc-700 rounded-md px-2.5 py-1.5 text-xs text-zinc-200 focus:outline-none focus:border-purple-500"
+                  />
+                </div>
+              </div>
             </div>
           </div>
+        )}
 
-          <div>
-            <label className="text-xs font-semibold text-zinc-400 block mb-1.5">投信最低買超 (張)</label>
-            <input
-              type="number"
-              placeholder="例: 500 張"
-              value={investmentTrustNetMinLots}
-              onChange={e => { setInvestmentTrustNetMinLots(e.target.value); setPage(1) }}
-              className="w-full bg-zinc-800 border border-zinc-700 rounded-md px-2.5 py-1.5 text-xs text-zinc-200 focus:outline-none focus:border-purple-500"
-            />
-          </div>
-
-          <div>
-            <label className="text-xs font-semibold text-zinc-400 block mb-1.5">自營商最低買超 (張)</label>
-            <input
-              type="number"
-              placeholder="例: 100 張"
-              value={dealerNetMinLots}
-              onChange={e => { setDealerNetMinLots(e.target.value); setPage(1) }}
-              className="w-full bg-zinc-800 border border-zinc-700 rounded-md px-2.5 py-1.5 text-xs text-zinc-200 focus:outline-none focus:border-purple-500"
-            />
-          </div>
-
-          <div>
-            <label className="text-xs font-semibold text-zinc-400 block mb-1.5">融資餘額最低增加 (張)</label>
-            <input
-              type="number"
-              placeholder="例: 100 張"
-              value={marginBalanceChangeMinLots}
-              onChange={e => { setMarginBalanceChangeMinLots(e.target.value); setPage(1) }}
-              className="w-full bg-zinc-800 border border-zinc-700 rounded-md px-2.5 py-1.5 text-xs text-zinc-200 focus:outline-none focus:border-purple-500"
-            />
-          </div>
-        </div>
-
-        {/* Row 4: Margin & Short Filters (融券餘額、券資比) */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
-          <div>
-            <label className="text-xs font-semibold text-zinc-400 block mb-1.5">最低融券餘額 (張)</label>
-            <input
-              type="number"
-              placeholder="例: 100 張"
-              value={shortBalanceMinLots}
-              onChange={e => { setShortBalanceMinLots(e.target.value); setPage(1) }}
-              className="w-full bg-zinc-800 border border-zinc-700 rounded-md px-2.5 py-1.5 text-xs text-zinc-200 focus:outline-none focus:border-purple-500"
-            />
-          </div>
-
-          <div>
-            <label className="text-xs font-semibold text-zinc-400 block mb-1.5">券資比最低 (%)</label>
-            <input
-              type="number"
-              placeholder="例: 10 (%)"
-              value={shortMarginRatioMin}
-              onChange={e => { setShortMarginRatioMin(e.target.value); setPage(1) }}
-              className="w-full bg-zinc-800 border border-zinc-700 rounded-md px-2.5 py-1.5 text-xs text-zinc-200 focus:outline-none focus:border-purple-500"
-            />
-          </div>
-        </div>
-
-        {/* Row 5: Quick Toggles (MA & Near Limit) & Actions */}
-        <div className="flex flex-wrap items-center justify-between gap-4 pt-2 border-t border-zinc-800/60">
-          <div className="flex flex-wrap items-center gap-3">
-            <button
-              onClick={() => { setAboveMa5(prev => (prev === true ? null : true)); setPage(1) }}
-              className={`px-3 py-1.5 text-xs font-medium rounded-md border transition-all ${
-                aboveMa5 === true
-                  ? 'bg-purple-600 border-purple-500 text-white'
-                  : 'bg-zinc-800/80 border-zinc-700 text-zinc-300 hover:bg-zinc-700'
-              }`}
-            >
-              站上 MA5
-            </button>
-
-            <button
-              onClick={() => { setAboveMa20(prev => (prev === true ? null : true)); setPage(1) }}
-              className={`px-3 py-1.5 text-xs font-medium rounded-md border transition-all ${
-                aboveMa20 === true
-                  ? 'bg-purple-600 border-purple-500 text-white'
-                  : 'bg-zinc-800/80 border-zinc-700 text-zinc-300 hover:bg-zinc-700'
-              }`}
-            >
-              站上 MA20 (月線)
-            </button>
-
-            <button
-              onClick={() => { setNearUpperLimit(prev => !prev); setPage(1) }}
-              className={`px-3 py-1.5 text-xs font-medium rounded-md border transition-all ${
-                nearUpperLimit
-                  ? 'bg-red-600 border-red-500 text-white'
-                  : 'bg-zinc-800/80 border-zinc-700 text-zinc-300 hover:bg-zinc-700'
-              }`}
-            >
-              逼近漲停 (&le; 3%)
-            </button>
-
-            <button
-              onClick={() => { setNearLowerLimit(prev => !prev); setPage(1) }}
-              className={`px-3 py-1.5 text-xs font-medium rounded-md border transition-all ${
-                nearLowerLimit
-                  ? 'bg-emerald-600 border-emerald-500 text-white'
-                  : 'bg-zinc-800/80 border-zinc-700 text-zinc-300 hover:bg-zinc-700'
-              }`}
-            >
-              逼近跌停 (&le; 3%)
-            </button>
-          </div>
-
+        <div className="flex items-center justify-end pt-2 border-t border-zinc-800/60">
           <button
             onClick={handleReset}
             className="flex items-center gap-1.5 px-3 py-1.5 text-xs text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800 rounded-md transition-colors"
@@ -1254,8 +1377,22 @@ export function TaiwanScreener() {
 
       {/* Results Table Section */}
       <div className="bg-zinc-900 border border-zinc-800 rounded-xl overflow-hidden shadow-lg flex flex-col flex-1">
+        {/* Phase 8C-C: 預設只顯示常用欄位, 技術/法人細項欄位收進「更多欄位」,
+            避免預設就是 quant export CSV 般的密集表格。 */}
+        <div className="flex items-center justify-end px-4 py-2 border-b border-zinc-800/80">
+          <button
+            type="button"
+            onClick={() => setShowMoreColumns(prev => !prev)}
+            aria-expanded={showMoreColumns}
+            aria-controls="screener-results-table"
+            className="flex items-center gap-1.5 text-[11px] font-medium text-zinc-400 hover:text-zinc-200 transition-colors"
+          >
+            <ChevronDown className={`w-3 h-3 transition-transform ${showMoreColumns ? 'rotate-180' : ''}`} />
+            {showMoreColumns ? '收起欄位' : '更多欄位（投信・自營商・融資券・技術指標）'}
+          </button>
+        </div>
         {/* Table View */}
-        <div className="overflow-x-auto">
+        <div id="screener-results-table" className="overflow-x-auto">
           <table className="w-full text-left text-xs text-zinc-300">
             <thead className="bg-zinc-800/90 text-zinc-400 border-b border-zinc-700/80 sticky top-0">
               <tr>
@@ -1297,6 +1434,8 @@ export function TaiwanScreener() {
                     {sortBy === 'foreign_net' && (sortOrder === 'asc' ? <ArrowUp className="w-3 h-3 text-purple-400" /> : <ArrowDown className="w-3 h-3 text-purple-400" />)}
                   </div>
                 </th>
+                {showMoreColumns && (
+                <>
                 <th className="py-3 px-3 font-semibold cursor-pointer hover:text-zinc-100 text-right" onClick={() => handleSort('investment_trust_net')}>
                   <div className="flex items-center justify-end gap-1">
                     投信買賣超
@@ -1341,6 +1480,8 @@ export function TaiwanScreener() {
                     {sortBy === 'momentum_5d' && (sortOrder === 'asc' ? <ArrowUp className="w-3 h-3 text-purple-400" /> : <ArrowDown className="w-3 h-3 text-purple-400" />)}
                   </div>
                 </th>
+                </>
+                )}
                 <th className="py-3 px-4 font-semibold text-center">操作</th>
               </tr>
             </thead>
@@ -1348,7 +1489,7 @@ export function TaiwanScreener() {
             <tbody className="divide-y divide-zinc-800/60">
               {isLoading ? (
                 <tr>
-                  <td colSpan={18} className="py-12 text-center text-zinc-500">
+                  <td colSpan={resultColSpan} className="py-12 text-center text-zinc-500">
                     <div className="flex items-center justify-center gap-2">
                       <div className="w-4 h-4 border-2 border-purple-500 border-t-transparent rounded-full animate-spin" />
                       <span>正在批次掃描篩選台股市場...</span>
@@ -1357,14 +1498,14 @@ export function TaiwanScreener() {
                 </tr>
               ) : isError ? (
                 <tr>
-                  <td colSpan={18} className="py-12 text-center text-red-400">
+                  <td colSpan={resultColSpan} className="py-12 text-center text-red-400">
                     <AlertCircle className="w-6 h-6 mx-auto mb-2 text-red-500" />
                     <span>選股執行失敗: {String(error)}</span>
                   </td>
                 </tr>
               ) : !data || data.items.length === 0 ? (
                 <tr>
-                  <td colSpan={18} className="py-12 text-center text-zinc-500">
+                  <td colSpan={resultColSpan} className="py-12 text-center text-zinc-500">
                     <span>沒有符合當前條件的台股標的</span>
                   </td>
                 </tr>
@@ -1419,6 +1560,8 @@ export function TaiwanScreener() {
                       {formatSignedSharesLots(item.foreign_net)}
                     </td>
 
+                    {showMoreColumns && (
+                    <>
                     {/* Investment Trust Net (Lots) */}
                     <td className="py-3 px-3 text-right font-mono whitespace-nowrap">
                       {formatSignedSharesLots(item.investment_trust_net)}
@@ -1477,6 +1620,8 @@ export function TaiwanScreener() {
                     <td className="py-3 px-3 text-right font-mono whitespace-nowrap">
                       {formatChangePct(item.momentum_5d)}
                     </td>
+                    </>
+                    )}
 
                     {/* Phase 8C-A: 結果 row 直接操作 — 自選/比較/監控/研究, 不強迫先跳頁 */}
                     <td className="py-3 px-4 text-center whitespace-nowrap">

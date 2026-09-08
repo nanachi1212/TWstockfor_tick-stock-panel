@@ -138,3 +138,48 @@ class TestTaiwanSecurityMasterOffline:
         assert set(df.columns) == expected_cols
         # Production master contains far more than the 6 hardcoded bootstrap items
         assert df.height > 6, f"Expected full universe, got {df.height} items"
+
+
+class TestIndustryReadTimeNormalization:
+    """Phase 8C-C Final Completion — existing `security_master.parquet` caches
+    written before the industry-code fix may still hold raw numeric codes
+    ("01"/"24"/"91"). `load_cache()` must normalize them to readable names at
+    read time, without requiring the parquet file itself to be rebuilt.
+    """
+
+    def test_cached_numeric_industry_code_reads_back_as_readable_name(self, tmp_path: Path):
+        cache_file = tmp_path / "legacy_numeric_codes.parquet"
+        # Simulates a pre-fix cached row: industry holds the raw numeric code.
+        df = pl.DataFrame({
+            "symbol": ["2330.TWSE"],
+            "code": ["2330"],
+            "exchange": ["TWSE"],
+            "name": ["台積電"],
+            "instrument_type": ["stock"],
+            "listing_status": ["active"],
+            "industry": ["24"],
+            "is_supported": [True],
+        })
+        df.write_parquet(cache_file)
+
+        master = TaiwanSecurityMaster(cache_path=cache_file)
+        assert master.load_cache() is True
+        assert master.get_instrument("2330.TWSE").industry == "半導體業"
+
+    def test_cached_already_readable_industry_is_unchanged(self, tmp_path: Path):
+        cache_file = tmp_path / "already_readable.parquet"
+        df = pl.DataFrame({
+            "symbol": ["8069.TPEX"],
+            "code": ["8069"],
+            "exchange": ["TPEX"],
+            "name": ["元太"],
+            "instrument_type": ["stock"],
+            "listing_status": ["active"],
+            "industry": ["光電業"],
+            "is_supported": [True],
+        })
+        df.write_parquet(cache_file)
+
+        master = TaiwanSecurityMaster(cache_path=cache_file)
+        assert master.load_cache() is True
+        assert master.get_instrument("8069.TPEX").industry == "光電業"
