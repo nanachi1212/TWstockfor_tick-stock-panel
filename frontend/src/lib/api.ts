@@ -2473,11 +2473,6 @@ export const api = {
     }>(
       `/api/kline/minute-range?symbol=${encodeURIComponent(symbol)}&days=${days}`,
     ),
-  syncSymbol: (symbol: string, days = 250) =>
-    request<{ symbol: string; rows_written: number }>(
-      `/api/kline/sync?symbol=${encodeURIComponent(symbol)}&days=${days}`,
-      { method: 'POST' },
-    ),
   syncMinuteSingle: (symbol: string, days?: number) =>
     request<{ status: string; symbol: string; rows: number }>('/api/kline/sync_minute_single', {
       method: 'POST',
@@ -2494,6 +2489,10 @@ export const api = {
   // 用)完全未動, 與被刪的 batch sync_minute 是不同端點。kline_sync.py/
   // data_integrity.py/repair_daily.py/extend_history.py/run_pipeline 均未動,
   // daily_pipeline.py 自身的分鐘K同步流程(stage label "sync_minute")亦不受影響。
+  // Phase 8B-FINAL: syncSymbol(對應 backend POST /api/kline/sync)已確認 zero
+  // 消費者並與其 backend handler 一併刪除, 避免留下「前端方法已死但 backend
+  // route 仍公開」的半殘狀態; 與其同源的 sync_and_persist_daily_batch 服務
+  // (daily_pipeline.py/extend_history.py 真實使用)完全未動。
 
   watchlistList: () => request<{ symbols: WatchlistEntry[] }>('/api/watchlist'),
   watchlistAdd: (symbol: string, note = '', groupId?: string | null) =>

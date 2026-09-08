@@ -1,11 +1,23 @@
 """设置 API — Key 配置 / 模式切换。
 
 提供面向非开发者的 UI 配置入口,避免逼用户改 .env。
+
+Phase 8B-FINAL: 移除已确认 zero 消费者且具明确风险的孤儿端点——
+switch_endpoint(持久化任意呼叫者提供的 HTTPS URL 并重置 TickFlow 客户端指向
+该端点,zero 前端消费者)、test_endpoint(对呼叫者提供的任意 URL 发起服务端
+出站请求探测延迟,SSRF 形态,zero 前端消费者)、endpoints(仅服务已随
+Data.tsx/EndpointTestDialog.tsx 一并删除的端点诊断功能, zero 消费者,一并
+清理避免留下孤儿残片)、pipeline-schedule/instruments-schedule 两个偏好
+setter(zero 前端消费者, 且会持久化配置并呼叫 scheduler.reschedule_job 操作
+已被 Phase 8B-5.0.2 从调度器移除的 daily_pipeline/pre_market_instruments
+job——目前虽因 job 不存在而实际上会抛错, 但一旦该 job id 未来被重新注册即
+恢复危险)。DEFAULT_PAID_ENDPOINT / tf_client / capability detection /
+preferences.get_pipeline_schedule() 与 get_instruments_schedule()(供
+daily_pipeline.py 的 start_scheduler() 读取排程时间)等底层能力完全未动。
 """
 from __future__ import annotations
 
 import logging
-import time
 from typing import Literal
 
 from fastapi import APIRouter, HTTPException, Request
@@ -80,36 +92,6 @@ def get_settings() -> dict:
         "ai_user_agent": secrets_store.get_ai_config("ai_user_agent", settings.ai_user_agent),
         "ai_max_output_tokens": current_ai_max_output_tokens(),
         "ai_context_window": current_ai_context_window(),
-    }
-
-
-class SwitchEndpointIn(BaseModel):
-    url: str
-
-
-@router.post("/switch_endpoint")
-def switch_endpoint(req: SwitchEndpointIn, request: Request) -> dict:
-    """切换 TickFlow 端点并立即生效。
-
-    端点切换仅对付费档(starter+,走 api.tickflow.org)有意义;
-    none/free 档运行在 free-api 服务器,无付费端点权限,禁止切换。
-    """
-    # none/free 档没有付费端点权限,禁止切换
-    if tf_client.current_mode() != "api_key":
-        return {"ok": False, "error": "当前档位无法切换端点,仅付费套餐(Starter+)支持"}
-
-    url = req.url.strip().rstrip("/")
-    if not url.startswith("https://"):
-        return {"ok": False, "error": "仅支持 HTTPS 端点"}
-
-    # 持久化到 secrets.json
-    secrets_store.save({"tickflow_base_url": url})
-    # 重置客户端，下次调用自动用新端点
-    tf_client.reset_clients()
-
-    return {
-        "ok": True,
-        "current_endpoint": tf_client.current_endpoint(),
     }
 
 
@@ -1289,252 +1271,6 @@ def get_quote_interval(request: Request) -> dict:
         "min_interval": qs.get_min_interval(),
         "max_interval": qs.MAX_INTERVAL,
     }
-
-
-class TestEndpointIn(BaseModel):
-    url: str
-    # 测试轮数;不传时取 endpoints.json 的 testRounds(默认 5)
-    rounds: int | None = None
-
-
-# 官方端点发现清单 —— 前端浏览器无法直接跨域拉取 tickflow.org/endpoints.json
-# (无 CORS 头),因此由后端代理。缓存 5 分钟,失败时回退到内置列表。
-ENDPOINTS_URL = "https://tickflow.org/endpoints.json"
-ENDPOINTS_TTL = 300.0  # 秒
-
-# 回退列表 —— 与官方 endpoints.json 的 endpoints[] 字段对齐。
-# 当远程拉取失败时使用,保证 UI 永远有内容可显示。
-_FALLBACK_ENDPOINTS: list[dict] = [
-    {
-        "id": "default",
-        "url": "https://api.tickflow.org",
-        "label": "默认端点",
-        "region": "auto",
-        "description": "默认端点",
-        "premium": False,
-    },
-    {
-        "id": "hk",
-        "url": "https://hk-api.tickflow.org",
-        "label": "香港端点",
-        "region": "ap-east-1",
-        "description": "备用端点，部分地区访问更稳定",
-        "premium": False,
-    },
-    {
-        "id": "sg",
-        "url": "https://sg-api.tickflow.org",
-        "label": "新加坡端点",
-        "region": "ap-southeast-1",
-        "description": "备用端点，亚太地区访问更稳定",
-        "premium": False,
-    },
-    {
-        "id": "us",
-        "url": "https://us-api.tickflow.org",
-        "label": "美国端点",
-        "region": "us-east-1",
-        "description": "备用端点，欧美地区访问更稳定",
-        "premium": False,
-    },
-    {
-        "id": "cn",
-        "url": "https://139.196.55.234:50443",
-        "label": "中国大陆端点（Beta）",
-        "region": "cn-east-1",
-        "description": "备用端点，中国大陆地区访问更稳定，目前处于测试阶段，谨慎使用",
-        "premium": False,
-    },
-    {
-        "id": "cn-premium",
-        "url": "https://106.15.238.72:50443",
-        "label": "中国大陆专线端点",
-        "region": "cn-east-1",
-        "description": "专线加速端点，需要专线加速权限（该权限包含在 Expert 及以上套餐中，也可通过自定义组合单独开通）",
-        "premium": True,
-    },
-]
-
-# 进程内缓存:{ "ts": float, "data": dict }
-_endpoints_cache: dict = {"ts": 0.0, "data": None}
-
-
-@router.get("/endpoints")
-def list_endpoints() -> dict:
-    """代理拉取 tickflow.org/endpoints.json 并返回规范化端点列表。
-
-    前端无法跨域直连该 URL(无 CORS 头),故由本接口代理。带 8s 超时、
-    5 分钟内存缓存,远程失败时回退到内置列表,保证 UI 始终有内容。
-    返回结构与原始 endpoints.json 一致(透传 schema/version 等元信息)。
-    """
-    import httpx
-
-    now = time.monotonic()
-    cached = _endpoints_cache.get("data")
-    if cached is not None and (now - _endpoints_cache["ts"]) < ENDPOINTS_TTL:
-        return cached
-
-    source = "remote"
-    data: dict | None = None
-    try:
-        resp = httpx.get(ENDPOINTS_URL, timeout=8.0, follow_redirects=True)
-        if resp.status_code == 200:
-            parsed = resp.json()
-            eps = parsed.get("endpoints")
-            # 校验:必须是列表且每项含必要字段,否则视为无效
-            if isinstance(eps, list) and all(
-                isinstance(e, dict) and "url" in e for e in eps
-            ):
-                data = {
-                    "version": parsed.get("version", 1),
-                    "description": parsed.get(
-                        "description", "TickFlow API 端点配置"
-                    ),
-                    "healthPath": parsed.get("healthPath", "/health"),
-                    "testRounds": parsed.get("testRounds", 5),
-                    "endpoints": eps,
-                }
-    except (httpx.HTTPError, ValueError):
-        logger.warning("拉取 endpoints.json 失败，使用内置回退列表", exc_info=True)
-
-    if data is None:
-        source = "fallback"
-        data = {
-            "version": 1,
-            "description": "TickFlow API 端点配置",
-            "healthPath": "/health",
-            "testRounds": 5,
-            "endpoints": _FALLBACK_ENDPOINTS,
-        }
-
-    # 标记数据来源,便于前端提示(回退时显示"内置列表")。
-    data["source"] = source
-    _endpoints_cache["ts"] = now
-    _endpoints_cache["data"] = data
-    return data
-
-
-async def _http_ping(url: str, timeout: float = 10.0) -> float | None:
-    """单次异步 GET 请求并返回延迟(ms),失败返回 None。
-
-    对齐官方 latency_test.py:用 /health 轻量端点测真实网络延迟,
-    不携带 API Key(/health 公开)。异步实现,保证多端点并行测速不阻塞。
-    """
-    import httpx
-
-    t0 = time.perf_counter()
-    try:
-        async with httpx.AsyncClient(timeout=timeout, follow_redirects=True) as client:
-            resp = await client.get(url)
-            dt = (time.perf_counter() - t0) * 1000
-            # 只把 <400 视为成功;4xx/5xx 也算"不可达"
-            if resp.status_code < 400:
-                return round(dt, 2)
-            return None
-    except (httpx.TimeoutException, httpx.ConnectError, httpx.HTTPError, OSError):
-        return None
-
-
-@router.post("/test_endpoint")
-async def test_endpoint(req: TestEndpointIn) -> dict:
-    """测试端点网络延迟:对 /health 多轮探测取中位数。
-
-    参考 TickFlow 官方 latency_test.py:
-    - 路径用 /health(公开、轻量),反映真实网络延迟而非业务接口耗时
-    - 多轮探测(默认 5 轮,取自 endpoints.json 的 testRounds),间隔 0.3s
-    - 返回 median/min/max/success,前端显示中位数
-    - 异步实现,保证"全部测速"时多端点真正并行
-    """
-    import asyncio
-    import statistics
-
-    base = req.url.rstrip("/")
-    rounds = max(1, min(10, req.rounds or _endpoints_cache.get("data", {}).get("testRounds", 5)))
-    health_url = base + "/health"
-
-    latencies: list[float] = []
-    for _ in range(rounds):
-        ms = await _http_ping(health_url)
-        if ms is not None:
-            latencies.append(ms)
-        # 官方脚本间隔 0.3s;末轮无需等待
-        await asyncio.sleep(0.3)
-
-    success = len(latencies)
-    if success == 0:
-        return {
-            "ok": False,
-            "error": "不可达",
-            "url": req.url,
-            "rounds": rounds,
-            "success": 0,
-            "median_ms": None,
-            "min_ms": None,
-            "max_ms": None,
-        }
-
-    median = round(statistics.median(latencies), 2)
-    return {
-        "ok": True,
-        "url": req.url,
-        "rounds": rounds,
-        "success": success,
-        "median_ms": median,
-        "min_ms": round(min(latencies), 2),
-        "max_ms": round(max(latencies), 2),
-        # 兼容旧字段:取中位数作为代表延迟
-        "latency_ms": median,
-    }
-
-
-class PipelineScheduleIn(BaseModel):
-    hour: int
-    minute: int
-
-
-@router.put("/preferences/pipeline-schedule")
-def update_pipeline_schedule(req: PipelineScheduleIn, request: Request) -> dict:
-    """保存盘后管道调度时间并立即 reschedule。"""
-    from app.services import preferences
-    sched = preferences.set_pipeline_schedule(req.hour, req.minute)
-
-    # 动态 reschedule
-    from apscheduler.triggers.cron import CronTrigger
-    scheduler = getattr(request.app.state, "scheduler", None)
-    if scheduler:
-        scheduler.reschedule_job(
-            "daily_pipeline",
-            trigger=CronTrigger(
-                day_of_week="mon-fri",
-                hour=sched["hour"],
-                minute=sched["minute"],
-                timezone="Asia/Shanghai",
-            ),
-        )
-        logger.info("pipeline rescheduled to %02d:%02d mon-fri", sched["hour"], sched["minute"])
-
-    return sched
-
-
-@router.put("/preferences/instruments-schedule")
-def update_instruments_schedule(req: PipelineScheduleIn, request: Request) -> dict:
-    """保存盘前标的维表调度时间并立即 reschedule。"""
-    from app.services import preferences
-    sched = preferences.set_instruments_schedule(req.hour, req.minute)
-
-    from apscheduler.triggers.cron import CronTrigger
-    scheduler = getattr(request.app.state, "scheduler", None)
-    if scheduler:
-        scheduler.reschedule_job(
-            "pre_market_instruments",
-            trigger=CronTrigger(
-                day_of_week="mon-fri",
-                hour=sched["hour"],
-                minute=sched["minute"],
-                timezone="Asia/Shanghai",
-            ),
-        )
-        return sched
 
 
 class EnrichedBatchSizeIn(BaseModel):

@@ -20,9 +20,13 @@ Phase 8B-5.21: 移除已确认 zero 前端/后端/scheduler/脚本/测试消费�
 refresh_views(手动刷新 DuckDB 视图)。sync_and_persist_daily_batch 仍被
 daily_pipeline.py / extend_history.py / 本文件的 sync(单股同步)真实使用;
 daily_pipeline._refresh_views → repository.rebuild_views() 仍被 daily_pipeline
-盘后管道每次运行时直接调用(非 HTTP 路径), 完全未动。/api/kline/sync 本次
-稽核发现暂无前端消费者, 但不属于本 phase 处理范围, 归类为独立后续稽核,
-本 phase 未动。
+盘后管道每次运行时直接调用(非 HTTP 路径), 完全未动。
+
+Phase 8B-FINAL: 移除已确认 zero 前端/后端/scheduler/脚本/测试消费者、且可
+对呼叫者提供的任意 symbol 触发真实网络拉取 + parquet 落盘的孤儿端点 sync
+(单股同步, 与 8B-5.21 已移除的 sync_batch 同源同险, 仅批量/单股之别)。
+sync_and_persist_daily_batch 仍被 daily_pipeline.py / extend_history.py 真实
+使用, 完全未动。
 """
 from __future__ import annotations
 
@@ -955,19 +959,6 @@ def get_minute(
         "price_limit": price_limit,
         "prev_close": prev_close,
     }
-
-
-@router.post("/sync")
-def sync_symbol(
-    request: Request,
-    symbol: str = Query(...),
-    days: int = Query(250, ge=10, le=2000),
-):
-    """手动触发单股同步(Free 用户在 K 线页用)。"""
-    repo = request.app.state.repo
-    capset = request.app.state.capabilities
-    n = kline_sync.sync_and_persist_daily_batch([symbol], repo, capset, count=days)
-    return {"symbol": symbol, "rows_written": n}
 
 
 @router.post("/sync_minute_single")
