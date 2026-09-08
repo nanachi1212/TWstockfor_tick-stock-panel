@@ -218,18 +218,26 @@ async def _application_lifespan(app: FastAPI):
     except Exception as e:  # noqa: BLE001
         logger.warning("wecom_bot_service init failed: %s", e)
 
-    # 内置扩展表 (概念/行业): 先创建 config (含拉取配置), 默认开启定时拉取。
-    # 必须在 pull_scheduler.refresh() 之前执行, 否则全新部署时 scheduler 读不到
-    # 刚创建的预设, 定时任务不会启动。
-    try:
-        from app.services.ext_presets import ensure_builtin_presets
-        await ensure_builtin_presets(store.data_dir)
-    except Exception as e:  # noqa: BLE001
-        logger.warning("内置扩展表初始化失败 (不影响启动): %s", e)
+    # Phase 8B-5.14 — 内置扩展表 (概念/行业, ext_gn_ths/ext_hy_ths) 为纯中国
+    # A 股同花顺概念/行业分类资料, 对台股产品无必要性 (见 Phase 8B-5.13 audit)。
+    # 停止 ensure_builtin_presets() 的自动调用: 全新安装不再自动创建这两个
+    # config.json / 不再自动排程 / 不再对 shy313.com 发起启动期请求。
+    # 已有旧 config (曾经启动过本产品早期版本的使用者) 完全不动 —— 不改写、
+    # 不删除其 config.json / 既有 parquet 数据, 只是让 PullScheduler 对这两个
+    # id "自动拉取惰性"(见下方 set_excluded_ids), 使既有安装与全新安装行为一致。
+    # extDataSchemaAll / dimensionMembers / _read_ext_dataframe 等唯读消费路径
+    # 完全不受影响, 现有数据仍可被读取, 只是不再自动刷新。
+    # 手动拉取入口 POST /api/ext-data/presets/{id}/fetch (fetch_preset) 未变更,
+    # 仍可按需手动触发 (该端点自行确保 config.json 存在)。
+    _ASHARE_EXT_PRESET_IDS = (
+        "ext_gn_ths",
+        "ext_hy_ths",
+    )
 
-    # 扩展数据定时拉取: 在预设配置就绪后启动, 自动调度 enabled 的预设。
+    # 扩展数据定时拉取: 通用调度器, 对任何启用了 pull 的 ExtConfig 生效。
     from app.services.ext_pull import pull_scheduler
     pull_scheduler.start(store.data_dir)
+    pull_scheduler.set_excluded_ids(_ASHARE_EXT_PRESET_IDS)
     pull_scheduler.refresh(store.data_dir)
     app.state.pull_scheduler = pull_scheduler
 

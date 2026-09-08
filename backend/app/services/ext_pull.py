@@ -182,6 +182,11 @@ class PullScheduler:
         self._tasks: dict[str, asyncio.Task] = {}
         self._running = False
         self._loop: asyncio.AbstractEventLoop | None = None
+        # Phase 8B-5.14 — 通用排除清单: 不管 config.pull.enabled 是什么, id 在
+        # 此清单里的一律不排程/不拉取。用于让调用方 (main.py) 在不改动使用者
+        # config.json 的前提下, 让特定 id 对自动拉取"惰性" (INERT_FOR_AUTOMATIC_PULL)。
+        # 调度器本身仍是通用的 —— 不认识、不关心任何具体 id 是什么产品/市场。
+        self._excluded_ids: frozenset[str] = frozenset()
 
     def start(self, data_dir) -> None:
         """启动调度（在 lifespan startup 调用，主事件循环内）。"""
@@ -192,6 +197,15 @@ class PullScheduler:
         except RuntimeError:
             self._loop = None
         logger.info("PullScheduler started")
+
+    def set_excluded_ids(self, ids) -> None:
+        """设置对自动拉取"惰性"的 config id 清单 (通用机制, 不含任何业务语义)。
+
+        下次 refresh() 时生效: 清单内的 id 即使 pull.enabled=true 也不会被排程/
+        拉取, 但 config.json 本身不会被读写/修改。适合"不想改用户既有配置,
+        但要停止自动背景拉取"的场景。
+        """
+        self._excluded_ids = frozenset(ids)
 
     def _submit(self, fn, *args) -> None:
         """把一个 callable 提交到主事件循环执行 (线程安全)。
@@ -224,6 +238,8 @@ class PullScheduler:
         new_configs: list[ExtConfig] = []
 
         for config in configs:
+            if config.id in self._excluded_ids:
+                continue
             if not config.pull or not config.pull.enabled or not config.pull.url:
                 continue
             active_ids.add(config.id)
