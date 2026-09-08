@@ -2,9 +2,9 @@ import { useState, useEffect, useRef, type ReactNode } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { motion, AnimatePresence } from 'framer-motion'
-import { Activity, ArrowDownRight, ArrowUpRight, BarChart3, BellRing, Database, Flame, Gauge, Info, LineChart, Loader2, Play, RefreshCw, Sparkles, Target, Timer } from 'lucide-react'
+import { Activity, ArrowDownRight, ArrowUpRight, BarChart3, BellRing, Database, Eye, Flame, Gauge, Info, Layers, LineChart, Loader2, Play, RefreshCw, Sparkles, Target, Timer, TrendingUp } from 'lucide-react'
 import { DatePicker } from '@/components/DatePicker'
-import { api, type MarketSnapshotRow, type OverviewDimensionRankItem, type OverviewMarket, type AlertEvent } from '@/lib/api'
+import { api, type MarketSnapshotRow, type OverviewDimensionRankItem, type OverviewMarket, type AlertEvent, type IndustryMetrics } from '@/lib/api'
 import { QK } from '@/lib/queryKeys'
 import { fmtBigNum, fmtPct } from '@/lib/format'
 import { useDataStatus, useCapabilities, usePreferences } from '@/lib/useSharedQueries'
@@ -680,10 +680,16 @@ export function Dashboard() {
 
   return (
     <div className="min-h-full bg-base p-1.5">
-      {/* Phase 8B-2 — 台股優先: 首頁第一印象改為台股資料狀態卡, 下方 A 股大盤
-          看板內容保留但不再是「第一眼」。無台股資料時顯示清楚的繁體 empty state,
-          不 fallback 回 A 股內容、也不假造台股指數。 */}
-      <TaiwanOverviewCard />
+      {/* Phase 8C-B — Dashboard Market Clarity: 首頁第一印象改為「今日市場強弱」,
+          其次為「產業強弱 + 自選股動態」, 監控事件摘要在下方, 台股資料狀態卡
+          (資料新鮮度) 移到最下層。市場中立內容不依賴 A 股 legacy 開關, 兩種狀態
+          下都會顯示。 */}
+      <MarketStrengthCard />
+
+      <div className="mb-1.5 grid grid-cols-1 gap-1.5 lg:grid-cols-2">
+        <IndustryStrengthCard />
+        <WatchlistQuickGlance onStockClick={(symbol, name) => setPreviewStock({ symbol, name })} />
+      </div>
 
       {/* Phase 8B-3.1: 以下 A 股 legacy 内容(下载卡/弹窗/大盘看板全部)只在
           show_ashare_legacy_features 开启时渲染, 关闭时不显示、也不会因为本机
@@ -885,9 +891,10 @@ export function Dashboard() {
       )}
 
       {/* 監控中心是市場中立功能(可監控台股規則), A 股關閉時仍獨立顯示,
-          不隨 A 股區塊一起隱藏。開啟時它已在上方 A 股區塊的 aside 內, 這裡不重複渲染。 */}
+          不隨 A 股區塊一起隱藏。開啟時它已在上方 A 股區塊的 aside 內, 這裡不重複渲染。
+          第三層: 監控事件摘要, 優先序低於市場/產業/自選摘要。 */}
       {!showAshareLegacy && (
-        <section className="rounded-card border border-border bg-surface/80 p-1.5 shadow-[0_1px_2px_hsl(var(--border)/0.4)] backdrop-blur-sm transition-shadow hover:shadow-[0_2px_8px_hsl(var(--border)/0.5)]">
+        <section className="mb-1.5 rounded-card border border-border bg-surface/80 p-1.5 shadow-[0_1px_2px_hsl(var(--border)/0.4)] backdrop-blur-sm transition-shadow hover:shadow-[0_2px_8px_hsl(var(--border)/0.5)]">
           <div className="mb-2 flex items-center justify-between gap-2">
             <div className="flex items-center gap-1.5">
               <BellRing className="h-3.5 w-3.5 text-accent" />
@@ -903,6 +910,9 @@ export function Dashboard() {
           }} />
         </section>
       )}
+
+      {/* 台股資料狀態(資料新鮮度) — 移到最下層, 不再是首頁第一眼內容。 */}
+      <TaiwanOverviewCard />
 
       <StockPreviewDialog
         symbol={previewStock?.symbol ?? null}
@@ -920,10 +930,215 @@ export function Dashboard() {
   )
 }
 
-// ===== Phase 8B-2: 台股資料狀態卡 — 首頁第一印象 =====
+// ===== Phase 8C-B: 台股市場強弱摘要 — 首頁第一層資訊 =====
+// 直接重用既有 /api/taiwan/market-intelligence (api.taiwanMarketIntelligence),
+// 與 TaiwanScreener 同一份 API、同一 query key, 不新增 backend 邏輯/計算。
+function taiwanStrengthLabel(advanceRatio: number | null): '偏強' | '中性' | '偏弱' | null {
+  // 門檻僅由既有 advance/decline/flat 家數計算, 非新研究結論: ≥55% 偏強,
+  // ≤45% 偏弱, 其餘中性 —— 對稱、可重現的既有數值判讀。
+  if (advanceRatio == null) return null
+  if (advanceRatio >= 0.55) return '偏強'
+  if (advanceRatio <= 0.45) return '偏弱'
+  return '中性'
+}
+
+function TaiwanBreadthBar({ advance, decline, flat }: { advance: number; decline: number; flat: number }) {
+  const total = Math.max(advance + decline + flat, 1)
+  const upW = advance / total * 100
+  const downW = decline / total * 100
+  const flatW = Math.max(0, 100 - upW - downW)
+  return (
+    <div className="flex h-2.5 overflow-hidden rounded-full bg-elevated" role="img" aria-label={`上漲 ${advance} 檔, 平盤 ${flat} 檔, 下跌 ${decline} 檔`}>
+      <div className="bg-bull/85" style={{ width: `${upW}%` }} />
+      <div className="bg-muted/45" style={{ width: `${flatW}%` }} />
+      <div className="bg-bear/85" style={{ width: `${downW}%` }} />
+    </div>
+  )
+}
+
+function MarketStrengthCard() {
+  const intel = useQuery({
+    queryKey: ['taiwanMarketIntelligence'],
+    queryFn: () => api.taiwanMarketIntelligence(),
+    staleTime: 5 * 60 * 1000,
+  })
+  const totals = intel.data?.market_totals
+  // 分母為 0 (全市場無漲跌平資料, 例如尚未下載當日資料) 時不可判讀強弱, ratio
+  // 保持 null —— 避免把「無資料」誤判成「偏弱」而顯示假結論。
+  const countedTotal = totals ? totals.advance_count + totals.decline_count + totals.flat_count : 0
+  const advanceRatio = totals && countedTotal > 0 ? totals.advance_count / countedTotal : null
+  const label = taiwanStrengthLabel(advanceRatio)
+
+  return (
+    <section className="mb-1.5 rounded-card border border-border bg-surface/80 p-2.5 shadow-[0_1px_2px_hsl(var(--border)/0.4)] backdrop-blur-sm">
+      <SectionTitle icon={TrendingUp} title="今日市場強弱" hint={intel.data ? `交易日 ${intel.data.trade_date}` : undefined} />
+      {intel.isLoading ? (
+        <div className="flex items-center gap-2 py-4 text-xs text-muted">
+          <Loader2 className="h-3.5 w-3.5 animate-spin" />正在讀取市場強弱資料…
+        </div>
+      ) : intel.isError || !totals ? (
+        <p className="py-4 text-xs text-muted">目前無法讀取市場強弱資料,不影響其他功能使用。</p>
+      ) : (
+        <>
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
+            <span className="text-bull">漲 <span className="font-mono font-semibold">{totals.advance_count}</span></span>
+            <span className="text-muted">平 <span className="font-mono">{totals.flat_count}</span></span>
+            <span className="text-bear">跌 <span className="font-mono font-semibold">{totals.decline_count}</span></span>
+            {label && (
+              <span className={cn(
+                'rounded-full border px-2 py-0.5 text-[10px] font-medium',
+                label === '偏強' ? 'border-bull/40 bg-bull/10 text-bull' : label === '偏弱' ? 'border-bear/40 bg-bear/10 text-bear' : 'border-border bg-elevated text-muted',
+              )}>
+                {label}
+              </span>
+            )}
+          </div>
+          <div className="mt-2">
+            <TaiwanBreadthBar advance={totals.advance_count} decline={totals.decline_count} flat={totals.flat_count} />
+          </div>
+          <div className="mt-2 grid grid-cols-3 gap-1.5">
+            <MiniMetric
+              label="漲停 / 跌停"
+              value={`${totals.upper_limit_count} / ${totals.lower_limit_count}`}
+              cls={totals.upper_limit_count >= totals.lower_limit_count ? 'text-bull' : 'text-bear'}
+            />
+            <MiniMetric label="成交額" value={fmtBigNum(totals.turnover)} />
+            {intel.data && intel.data.institutional.foreign_net != null ? (
+              <MiniMetric
+                label="外資買賣超"
+                value={`${intel.data.institutional.foreign_net > 0 ? '+' : ''}${(intel.data.institutional.foreign_net / 1000).toLocaleString()} 張`}
+                cls={pctClass(intel.data.institutional.foreign_net)}
+              />
+            ) : (
+              <MiniMetric label="外資買賣超" value="—" />
+            )}
+          </div>
+        </>
+      )}
+    </section>
+  )
+}
+
+// ===== Phase 8C-B: 台股產業強弱摘要 — 只顯示 Top/Bottom, 不做完整 34 檔表格 =====
+// 直接重用既有 /api/taiwan/industry-intelligence (api.taiwanIndustryIntelligence),
+// 與 TaiwanScreener 預設排序 (turnover/desc) 同一份 query key, 排名於前端依
+// average_change_pct 對既有資料排序, 不新增 backend 計算。此 API 回傳的
+// industry 欄位本身已是可讀產業名稱 (34 大類股中文名), 非數字代碼, 無需額外
+// mapping —— TaiwanScreener/StockDetail 其他頁面的代碼顯示問題屬 8C-C 範圍。
+function IndustryStrengthList({ title, rows, tone }: { title: string; rows: IndustryMetrics[]; tone: 'bull' | 'bear' }) {
+  return (
+    <div className="min-w-0 space-y-1">
+      <div className={`text-[10px] font-medium ${tone === 'bull' ? 'text-bull' : 'text-bear'}`}>{title}</div>
+      {rows.map(ind => (
+        <div key={ind.industry} className="flex items-center justify-between gap-2 rounded-md bg-elevated/40 px-2 py-1 text-[11px]">
+          <span className="truncate text-foreground" title={ind.industry}>{ind.industry}</span>
+          <span className={`shrink-0 font-mono font-semibold ${pctClass(ind.average_change_pct)}`}>{fmtStockPct(ind.average_change_pct)}</span>
+        </div>
+      ))}
+      {rows.length === 0 && <div className="rounded border border-dashed border-border py-3 text-center text-[11px] text-muted">暫無資料</div>}
+    </div>
+  )
+}
+
+function IndustryStrengthCard() {
+  const ind = useQuery({
+    queryKey: ['taiwanIndustryIntelligence', 'turnover', 'desc'],
+    queryFn: () => api.taiwanIndustryIntelligence({ sort_by: 'turnover', order: 'desc' }),
+    staleTime: 5 * 60 * 1000,
+  })
+  const comparable = (ind.data?.industries ?? []).filter(i => i.average_change_pct != null)
+  const sorted = [...comparable].sort((a, b) => (b.average_change_pct ?? 0) - (a.average_change_pct ?? 0))
+  const topCount = Math.min(5, sorted.length)
+  const bottomCount = Math.min(5, Math.max(0, sorted.length - topCount))
+  const top = sorted.slice(0, topCount)
+  const bottom = sorted.slice(sorted.length - bottomCount).reverse()
+
+  return (
+    <section className="rounded-card border border-border bg-surface/80 p-2.5 shadow-[0_1px_2px_hsl(var(--border)/0.4)] backdrop-blur-sm">
+      <SectionTitle icon={Layers} title="產業強弱" hint={ind.data ? `${ind.data.industries.length} 大類股` : undefined} />
+      {ind.isLoading ? (
+        <div className="flex items-center gap-2 py-4 text-xs text-muted">
+          <Loader2 className="h-3.5 w-3.5 animate-spin" />正在讀取產業資料…
+        </div>
+      ) : ind.isError || !ind.data ? (
+        <p className="py-4 text-xs text-muted">目前無法讀取產業強弱資料,不影響其他功能使用。</p>
+      ) : sorted.length === 0 ? (
+        <p className="py-4 text-xs text-muted">目前尚無可比較的產業資料。</p>
+      ) : (
+        <div className="grid grid-cols-2 gap-2">
+          <IndustryStrengthList title="最強" rows={top} tone="bull" />
+          <IndustryStrengthList title="最弱" rows={bottom} tone="bear" />
+        </div>
+      )}
+    </section>
+  )
+}
+
+// ===== Phase 8C-B: 自選股快覽 — 只顯示 3-5 檔值得注意的標的 =====
+// 重用既有 /api/watchlist/enriched (api.watchlistEnriched) 與 Watchlist 頁面
+// 相同的 query key 慣例 (無 ext columns 時皆為空字串), 未加自選時不顯示大空表,
+// 改為簡短 empty state + CTA。點擊標的重用既有 StockPreviewDialog 動作流程
+// (與 Phase 8C-A 一致), 不做第二套 stock action UI。
+function WatchlistQuickGlance({ onStockClick }: { onStockClick: (symbol: string, name?: string) => void }) {
+  const enriched = useQuery({
+    queryKey: QK.watchlistEnriched(''),
+    queryFn: () => api.watchlistEnriched(''),
+    staleTime: 30_000,
+  })
+  const rows: any[] = enriched.data?.rows ?? []
+  // 依既有資料的漲跌幅絕對值排序, 找出今天值得注意的標的; 資料缺漲跌幅時
+  // (abs 視為 0) 排序穩定, 自然退回既有自選順序 —— 不發明新排名邏輯。
+  const attention = [...rows]
+    .sort((a, b) => Math.abs(b.change_pct ?? 0) - Math.abs(a.change_pct ?? 0))
+    .slice(0, 5)
+
+  return (
+    <section className="rounded-card border border-border bg-surface/80 p-2.5 shadow-[0_1px_2px_hsl(var(--border)/0.4)] backdrop-blur-sm">
+      <SectionTitle icon={Eye} title="自選股動態" hint={rows.length ? `${rows.length} 檔` : undefined} />
+      {enriched.isLoading ? (
+        <div className="flex items-center gap-2 py-4 text-xs text-muted">
+          <Loader2 className="h-3.5 w-3.5 animate-spin" />正在讀取自選股資料…
+        </div>
+      ) : enriched.isError ? (
+        <p className="py-4 text-xs text-muted">目前無法讀取自選股資料,不影響其他功能使用。</p>
+      ) : rows.length === 0 ? (
+        <div className="py-4 text-center">
+          <p className="text-xs text-secondary">尚未加入任何自選股</p>
+          <Link to="/watchlist" className="mt-1.5 inline-block text-[11px] text-accent hover:text-accent/80 transition-colors">
+            前往自選股 →
+          </Link>
+        </div>
+      ) : (
+        <div className="space-y-1">
+          {attention.map(r => (
+            <button
+              key={r.symbol}
+              type="button"
+              onClick={() => onStockClick(r.symbol, r.name ?? undefined)}
+              aria-label={`查看 ${r.name || r.symbol} 走勢`}
+              className="flex w-full items-center justify-between gap-2 rounded-md bg-elevated/40 px-2 py-1.5 text-left hover:bg-elevated hover:brightness-110 transition-colors border border-transparent hover:border-border/60"
+            >
+              <div className="min-w-0">
+                <div className="truncate text-[11px] text-foreground">{r.name || r.symbol}</div>
+                <div className="font-mono text-[9px] text-muted">{r.symbol}</div>
+              </div>
+              <div className="text-right shrink-0">
+                <div className="font-mono text-[11px] text-foreground">{fmtPrice(r.close)}</div>
+                <div className={`font-mono text-[10px] font-semibold ${pctClass(r.change_pct)}`}>{fmtStockPct(r.change_pct)}</div>
+              </div>
+            </button>
+          ))}
+        </div>
+      )}
+    </section>
+  )
+}
+
+// ===== Phase 8B-2: 台股資料狀態卡 =====
 // 只讀既有 /api/taiwan/data-status(與 Onboarding 台股資料狀態步驟同一個 API,
 // 不建立重複 backend 邏輯)。沒有資料時顯示清楚的繁體 empty state, 不 fallback
 // 回 A 股內容、不假造台股指數或任何資料。
+// Phase 8C-B: 不再是首頁第一眼內容, 改列於監控中心之後的最下層(資料新鮮度)。
 const TAIWAN_FRESHNESS_LABEL: Record<string, string> = {
   current: '最新',
   stale: '過期',
