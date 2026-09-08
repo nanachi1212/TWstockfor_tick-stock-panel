@@ -14,6 +14,15 @@ sync_minute_single 与 daily_pipeline.py 真实使用; run_repair_daily
 使用——均完全未动。extend_history.py 保留(其 run_extend_history 现无其他
 调用方, 留待后续独立的 service-level orphan 稽核, 本 phase 不处理)。
 _long_task_executor 仍被 sync_minute_single 使用, 完整保留。
+
+Phase 8B-5.21: 移除已确认 zero 前端/后端/scheduler/脚本/测试消费者的相邻维护
+端点 sync_batch(全市场批量日K同步, 原供已删除的 Data.tsx 使用)、
+refresh_views(手动刷新 DuckDB 视图)。sync_and_persist_daily_batch 仍被
+daily_pipeline.py / extend_history.py / 本文件的 sync(单股同步)真实使用;
+daily_pipeline._refresh_views → repository.rebuild_views() 仍被 daily_pipeline
+盘后管道每次运行时直接调用(非 HTTP 路径), 完全未动。/api/kline/sync 本次
+稽核发现暂无前端消费者, 但不属于本 phase 处理范围, 归类为独立后续稽核,
+本 phase 未动。
 """
 from __future__ import annotations
 
@@ -959,27 +968,6 @@ def sync_symbol(
     capset = request.app.state.capabilities
     n = kline_sync.sync_and_persist_daily_batch([symbol], repo, capset, count=days)
     return {"symbol": symbol, "rows_written": n}
-
-
-@router.post("/sync_batch")
-def sync_batch(
-    request: Request,
-    symbols: list[str],
-    days: int = Query(250, ge=10, le=2000),
-):
-    repo = request.app.state.repo
-    capset = request.app.state.capabilities
-    n = kline_sync.sync_and_persist_daily_batch(symbols, repo, capset, count=days)
-    return {"symbols": symbols, "rows_written": n}
-
-
-@router.post("/refresh_views")
-def refresh_views(request: Request):
-    """刷新所有 DuckDB 视图(解决视图状态不一致问题)。"""
-    from app.jobs.daily_pipeline import _refresh_views
-    repo = request.app.state.repo
-    _refresh_views(repo)
-    return {"status": "ok"}
 
 
 @router.post("/sync_minute_single")
