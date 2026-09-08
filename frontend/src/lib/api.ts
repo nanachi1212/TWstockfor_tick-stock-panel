@@ -2488,8 +2488,12 @@ export const api = {
   // Phase 8B-5.18: 對應 backend POST /api/index/sync_daily 已確認 zero 消費者
   // 並整組刪除, 連同僅有此一路由的 backend/app/api/indices.py 一併移除;
   // index_sync service(daily_pipeline.py 真實直接呼叫)完全未動。
-  // /api/kline/* 的 sync_minute/clear_minute/extend_history/repair_daily/
-  // rebuild_enriched 暫未動, 留待後續獨立 Phase。
+  // Phase 8B-5.19: 對應 backend POST /api/kline/sync_minute、clear_minute、
+  // extend_history、repair_daily、rebuild_enriched 已確認 zero 消費者並整組
+  // 刪除(見 backend/app/api/kline.py)。sync_minute_single(本檔上方,個股分時圖
+  // 用)完全未動, 與被刪的 batch sync_minute 是不同端點。kline_sync.py/
+  // data_integrity.py/repair_daily.py/extend_history.py/run_pipeline 均未動,
+  // daily_pipeline.py 自身的分鐘K同步流程(stage label "sync_minute")亦不受影響。
 
   watchlistList: () => request<{ symbols: WatchlistEntry[] }>('/api/watchlist'),
   watchlistAdd: (symbol: string, note = '', groupId?: string | null) =>
