@@ -2802,17 +2802,21 @@ export const api = {
   // (僅供該頁使用)。對應 backend 端點未動, 屬 POSSIBLE_ORPHAN_BACKEND_API。
 
   // ===== 扩展数据 =====
-  extDataList: () =>
-    request<{ items: ExtDataConfig[] }>('/api/ext-data'),
-
-  extDataRows: (id: string, opts?: { date?: string; limit?: number; columns?: string[] }) => {
-    const qs = new URLSearchParams()
-    if (opts?.date) qs.set('date', opts.date)
-    if (opts?.limit) qs.set('limit', String(opts.limit))
-    if (opts?.columns?.length) qs.set('columns', opts.columns.join(','))
-    const suffix = qs.toString()
-    return request<ExtDataRowsResult>(`/api/ext-data/${encodeURIComponent(id)}/rows${suffix ? `?${suffix}` : ''}`)
-  },
+  // Phase 8B-5.8: extDataCreate/Update/Delete/Upload(建立/編輯/刪除/上傳
+  // 擴充資料源, 由已刪除的 CreateExtDialog/EditExtDialog/ExtDataStatCard
+  // 使用)隨 Data.tsx 一併移除。
+  // Phase 8B-5.12: analysisMenus/analysisMenu/analysisMenuSave/Reorder/Delete
+  // (自訂分析選單建構器, 隨已刪除的 Analysis.tsx/AnalysisDetail.tsx/ExtPages.tsx
+  // 一併移除)。
+  // Phase 8B-5.16: extDataList/extDataRows/extDataIngest/extDataPresetFetch
+  // 經 8B-5.13/8B-5.15 兩輪 audit 確認 zero 前端/後端/scheduler/腳本消費者,
+  // 對應 backend CRUD/upload/ingest/pull-config/pull-test/pull-run/
+  // fix-symbol/detect-fields/detect-url/list/schema/{id}/presets-fetch 端點
+  // 整組移除(見 backend/app/api/ext_data.py)。extDataSchemaAll/
+  // dimensionMembers(唯讀 schema 發現 + 維度成員鑽取)仍是 ListColumnCustomizer/
+  // DimensionMembersDialog/Monitor/Watchlist/Dashboard/Screener 的真實消費者,
+  // 完整保留。ExtConfigStore/_read_ext_dataframe/PullScheduler/ext_presets.py
+  // 均未變更。
 
   dimensionMembers: (id: string, opts: { field: string; value: string; date?: string; limit?: number }) => {
     const qs = new URLSearchParams({ field: opts.field, value: opts.value })
@@ -2821,31 +2825,8 @@ export const api = {
     return request<DimensionMembersResult>(`/api/ext-data/${encodeURIComponent(id)}/dimension-members?${qs.toString()}`)
   },
 
-  // Phase 8B-5.8: extDataCreate/Update/Delete/Upload(建立/編輯/刪除/上傳
-  // 擴充資料源, 由已刪除的 CreateExtDialog/EditExtDialog/ExtDataStatCard
-  // 使用)隨 Data.tsx 一併移除, 對應 backend 端點未動。
-  // Phase 8B-5.12: analysisMenus/analysisMenu/analysisMenuSave/Reorder/Delete
-  // (自訂分析選單建構器, 隨已刪除的 Analysis.tsx/AnalysisDetail.tsx/ExtPages.tsx
-  // 一併移除, 對應 backend /api/analysis-menus 路由整組刪除, 見 analysis.py)。
-  // extDataList/Rows/SchemaAll(唯讀消費既有資料源)仍被 Monitor 等真實頁面
-  // 使用, 完整保留 —— extDataList/Rows 目前已無前端消費者(僅 api 定義),
-  // 留待後續 orphan sweep 評估, 本 phase 不刪除 read-side 基礎設施。
-
-  extDataIngest: (id: string, body: { date?: string; rows: Record<string, unknown>[] }) =>
-    request<{ status: string; rows: number; date: string }>(
-      `/api/ext-data/${id}/ingest`,
-      { method: 'POST', body: JSON.stringify(body) },
-    ),
-
   extDataSchemaAll: () =>
     request<{ items: { id: string; label: string; mode: string; columns: { name: string; type: string; label: string }[] }[] }>('/api/ext-data/schema-all'),
-
-  // 内置预设 (概念/行业) 手动获取数据: 走结构转换, 保证 schema 一致
-  extDataPresetFetch: (id: string) =>
-    request<{ status: string; rows: number }>(
-      `/api/ext-data/presets/${id}/fetch`,
-      { method: 'POST' },
-    ),
 
   // ===== Financials =====
   // Phase 8B-5.3: 仅保留 financialMetrics —— 见上方 FinancialMetricRecord 注释。
@@ -3343,56 +3324,9 @@ export interface EnrichedField {
 }
 
 // ===== 扩展数据 =====
-export interface ExtDataField {
-  name: string
-  dtype: string
-  label: string
-}
-
-export interface PullConfig {
-  url: string
-  method: string
-  headers?: Record<string, string>
-  body?: string | null
-  response_path: string
-  field_map?: Record<string, string>
-  schedule_minutes: number
-  enabled: boolean
-  last_run?: string | null
-  last_status?: string | null
-  last_message?: string | null
-  last_rows?: number | null
-  next_run?: string | null
-  time_window_start?: string | null
-  time_window_end?: string | null
-}
-
-export interface ExtDataConfig {
-  id: string
-  label: string
-  mode: 'snapshot' | 'timeseries'
-  fields: ExtDataField[]
-  description?: string
-  symbol_map?: Record<string, string>
-  code_map?: Record<string, string>
-  created_at: string
-  updated_at: string
-  latest_sync_date?: string | null
-  date_range?: string[] | null
-  pull?: PullConfig | null
-}
-
-export interface ExtDataRowsResult {
-  id: string
-  label: string
-  mode: 'snapshot' | 'timeseries'
-  date: string | null
-  total: number
-  limit: number
-  fields: ExtDataField[]
-  rows: Record<string, any>[]
-}
-
+// Phase 8B-5.16: ExtDataConfig/ExtDataField/PullConfig/ExtDataRowsResult 隨
+// extDataList/extDataRows/CRUD/pull-config 一併移除的端點失去唯一消費者, 一併
+// 清理。DimensionMembersResult 仍被 dimensionMembers() 使用, 保留。
 export interface DimensionMembersResult {
   id: string
   label: string
