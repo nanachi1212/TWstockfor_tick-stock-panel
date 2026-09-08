@@ -2485,8 +2485,11 @@ export const api = {
     }),
   // Phase 8B-5.8: syncIndexDaily/syncMinute/clearMinute/extendHistory/
   // repairDaily/rebuildEnriched 隨已刪除的 Data.tsx 一併移除(僅該頁使用)。
-  // 對應 backend /api/index/sync_daily、/api/kline/* 端點未動, 屬
-  // POSSIBLE_ORPHAN_BACKEND_API, 留待之後統一的 Dead Backend API Sweep。
+  // Phase 8B-5.18: 對應 backend POST /api/index/sync_daily 已確認 zero 消費者
+  // 並整組刪除, 連同僅有此一路由的 backend/app/api/indices.py 一併移除;
+  // index_sync service(daily_pipeline.py 真實直接呼叫)完全未動。
+  // /api/kline/* 的 sync_minute/clear_minute/extend_history/repair_daily/
+  // rebuild_enriched 暫未動, 留待後續獨立 Phase。
 
   watchlistList: () => request<{ symbols: WatchlistEntry[] }>('/api/watchlist'),
   watchlistAdd: (symbol: string, note = '', groupId?: string | null) =>
@@ -2799,7 +2802,10 @@ export const api = {
 
   // Phase 8B-5.8: dataClear/enrichedSchema/testEndpoint/listEndpoints/
   // switchEndpoint 隨已刪除的 Data.tsx + EndpointTestDialog.tsx 一併移除
-  // (僅供該頁使用)。對應 backend 端點未動, 屬 POSSIBLE_ORPHAN_BACKEND_API。
+  // (僅供該頁使用)。
+  // Phase 8B-5.18: 對應 backend POST /api/data/clear、GET /api/data/schema/{table}
+  // 已確認 zero 消費者並整組刪除(見 backend/app/api/data.py)。testEndpoint/
+  // listEndpoints/switchEndpoint 對應的 backend 端點暫未動, 留待後續獨立 Phase。
 
   // ===== 扩展数据 =====
   // Phase 8B-5.8: extDataCreate/Update/Delete/Upload(建立/編輯/刪除/上傳

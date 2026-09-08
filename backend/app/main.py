@@ -18,7 +18,6 @@ from app.api import (
     data,
     ext_data,
     financials,
-    indices,
     intraday,
     kline,
     mining,
@@ -464,7 +463,6 @@ app.include_router(screener.router)
 app.include_router(backtest.router)
 app.include_router(mining.router)
 app.include_router(intraday.router)
-app.include_router(indices.router)
 app.include_router(overview.router)
 app.include_router(regime.router)
 app.include_router(pipeline.router)
