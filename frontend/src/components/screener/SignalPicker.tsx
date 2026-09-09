@@ -83,7 +83,7 @@ export function SignalPicker({ signals, onChange, kind, variant = 'panel', built
             key={id}
             type="button"
             onClick={() => toggle(id)}
-            title="自定义信号"
+            title="自訂訊號"
             className={`${btnCls} ${signals.includes(id) ? customActive : customIdle}`}
           >
             {customOptions.names[id]}

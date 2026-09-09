@@ -21,22 +21,22 @@ def test_index_signal_price_allowed():
 
 
 def test_index_strategy_rejected():
-    with pytest.raises(ValueError, match="指数"):
+    with pytest.raises(ValueError, match="指數"):
         monitor_rules.validate(_index_rule(type="strategy", strategy_id="s1"))
 
 
 def test_index_market_rejected():
-    with pytest.raises(ValueError, match="指数"):
+    with pytest.raises(ValueError, match="指數"):
         monitor_rules.validate(_index_rule(type="market"))
 
 
 def test_index_scope_all_rejected():
-    with pytest.raises(ValueError, match="指数"):
+    with pytest.raises(ValueError, match="指數"):
         monitor_rules.validate(_index_rule(scope="all", symbols=[]))
 
 
 def test_index_intraday_signal_rejected():
-    with pytest.raises(ValueError, match="分时"):
+    with pytest.raises(ValueError, match="分時"):
         monitor_rules.validate(_index_rule(
             conditions=[{"field": "signal_intraday_avg_cross_up", "op": "truth"}],
         ))

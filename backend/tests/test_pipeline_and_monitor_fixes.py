@@ -130,5 +130,5 @@ def test_ladder_webhook_uses_chinese_title_without_brand(monkeypatch):
         engine,
     )
 
-    assert [args[1] for _, args in calls] == ["连板梯队", "连板梯队"]
+    assert [args[1] for _, args in calls] == ["連續漲停梯隊", "連續漲停梯隊"]
     assert all("TickFlow" not in args[1] for _, args in calls)

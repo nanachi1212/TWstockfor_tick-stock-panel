@@ -195,7 +195,7 @@ export function SettingsSystemPanel() {
               <div className="text-[11px] text-muted truncate">
                 {voices.length === 0
                   ? '未偵測到中文語音,將用系統預設'
-                  : '預設優先 Google 中國大陸 (音質最佳)'}
+                  : '建議優先選擇台灣繁體中文語音'}
               </div>
             </div>
           </div>

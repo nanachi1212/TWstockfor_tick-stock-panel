@@ -97,11 +97,11 @@ export function groupPctColor(pct: number | null): string {
 export type GroupMetric = 'mean' | 'median' | 'up_ratio' | 'max' | 'min'
 
 export const GROUP_METRICS: ReadonlyArray<{ id: GroupMetric; label: string; hint: string }> = [
-  { id: 'mean', label: '等权平均', hint: '组内涨跌幅算术平均' },
-  { id: 'median', label: '中位数', hint: '组内涨跌幅中位值, 抗极值' },
-  { id: 'up_ratio', label: '上涨占比', hint: '上涨家数占有效样本比例, 50% 为强弱轴' },
-  { id: 'max', label: '组内最强', hint: '组内最大涨幅 (龙头强度)' },
-  { id: 'min', label: '组内最弱', hint: '组内最小涨幅' },
+  { id: 'mean', label: '等權平均', hint: '組內漲跌幅算術平均' },
+  { id: 'median', label: '中位數', hint: '組內漲跌幅中位值, 抗極值' },
+  { id: 'up_ratio', label: '上漲佔比', hint: '上漲家數佔有效樣本比例, 50% 為強弱軸' },
+  { id: 'max', label: '組內最強', hint: '組內最大漲幅 (龍頭強度)' },
+  { id: 'min', label: '組內最弱', hint: '組內最小漲幅' },
 ]
 
 export function isGroupMetric(v: unknown): v is GroupMetric {
@@ -112,7 +112,7 @@ export function isGroupMetric(v: unknown): v is GroupMetric {
 export type GroupSort = 'default' | 'desc' | 'asc'
 
 export const GROUP_SORT_OPTIONS: ReadonlyArray<{ id: GroupSort; label: string }> = [
-  { id: 'default', label: '定义顺序' },
+  { id: 'default', label: '定義順序' },
   { id: 'desc', label: '降序' },
   { id: 'asc', label: '升序' },
 ]
@@ -202,7 +202,7 @@ export function groupMetricValue(info: GroupPctInfo | undefined, metric: GroupMe
 
 /** 悬停明细: 按当前指标给出数值 + 全套统计, 任意指标下信息完整 */
 export function groupMetricTitle(info: GroupPctInfo | undefined, metric: GroupMetric): string {
-  if (!info || info.sampled === 0) return '暂无涨跌幅数据'
+  if (!info || info.sampled === 0) return '暫無漲跌幅數據'
   const value = groupMetricValue(info, metric)
   const metricLabel = GROUP_METRICS.find(m => m.id === metric)?.label ?? ''
   const valueText = value == null
@@ -210,11 +210,11 @@ export function groupMetricTitle(info: GroupPctInfo | undefined, metric: GroupMe
     : metric === 'up_ratio'
       ? `${(value * 100).toFixed(1)}%`
       : fmtPct(value)
-  return `${metricLabel} ${valueText} · 等权 ${fmtPct(info.pct)} · 中位 ${fmtPct(info.median)} · 最强 ${fmtPct(info.max)} · 最弱 ${fmtPct(info.min)} · 上涨${info.up} 下跌${info.down} 平${info.flat} (共${info.sampled}只)`
+  return `${metricLabel} ${valueText} · 等權 ${fmtPct(info.pct)} · 中位 ${fmtPct(info.median)} · 最強 ${fmtPct(info.max)} · 最弱 ${fmtPct(info.min)} · 上漲${info.up} 下跌${info.down} 平${info.flat} (共${info.sampled}檔)`
 }
 
 /** 悬停明细: 等权平均 +1.23% · 上涨12 下跌5 平1 (格式化复用全站 fmtPct) */
 export function groupPctTitle(info: GroupPctInfo | undefined): string {
-  if (!info || info.pct == null) return '暂无涨跌幅数据'
-  return `等权平均 ${fmtPct(info.pct)} · 上涨${info.up} 下跌${info.down} 平${info.flat} (共${info.sampled}只)`
+  if (!info || info.pct == null) return '暫無漲跌幅數據'
+  return `等權平均 ${fmtPct(info.pct)} · 上漲${info.up} 下跌${info.down} 平${info.flat} (共${info.sampled}檔)`
 }

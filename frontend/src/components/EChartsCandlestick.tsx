@@ -913,7 +913,7 @@ export function EChartsCandlestick({
 
     let html = `<div style="display:flex;align-items:center;gap:6px;padding:0 8px;font:11px 'JetBrains Mono',monospace;select:none;height:20px;flex-wrap:wrap">`
     html += `<span style="color:${CT().text}">${d.date}</span>`
-    html += `<span style="color:${CT().text}">开</span>`
+    html += `<span style="color:${CT().text}">開</span>`
     html += `<span style="color:${d.open >= d.close ? THEME.bear : THEME.bull}">${d.open.toFixed(2)}</span>`
     html += `<span style="color:${CT().text}">高</span>`
     html += `<span style="color:${THEME.bull}">${d.high.toFixed(2)}</span>`
@@ -1161,7 +1161,7 @@ export function EChartsCandlestick({
     const turnoverRate = floatShares && d.volume ? (d.volume * 100 / floatShares * 100) : null
     let html = `<div style="display:flex;align-items:center;gap:6px;padding:0 8px;font:11px 'JetBrains Mono',monospace;height:20px;flex-wrap:wrap">`
     html += `<span style="color:${CT().text}">${d.date}</span>`
-    html += `<span style="color:${CT().text}">开</span>`
+    html += `<span style="color:${CT().text}">開</span>`
     html += `<span style="color:${d.open >= d.close ? THEME.bear : THEME.bull}">${d.open.toFixed(2)}</span>`
     html += `<span style="color:${CT().text}">高</span>`
     html += `<span style="color:${THEME.bull}">${d.high.toFixed(2)}</span>`

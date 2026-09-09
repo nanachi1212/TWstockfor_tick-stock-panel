@@ -202,7 +202,7 @@ export function useQuoteStream(
         // 连续失败到阈值 → 弹一次 toast (漏行情=可能漏策略告警, 需明确告知)
         if (failCount >= FAILS_BEFORE_TOAST && !toastFired) {
           toastFired = true
-          toast('实时连接已断开，正在重连…', 'error')
+          toast('即時連線已中斷，正在重連…', 'error')
         }
         // 指数退避 (base * 2^(n-1), 上限 60s), 替代原来固定 5s
         const base = getQueryConfig().sse.reconnectDelay

@@ -105,133 +105,133 @@ def validate(rule: dict) -> None:
     """校验一条监控规则,非法则抛 ValueError (含中文信息)。"""
     rid = rule.get("id", "")
     if not isinstance(rid, str) or not ID_RE.match(rid):
-        raise ValueError(f"规则 id 非法 (仅小写字母数字下划线, 1-40字符): {rid!r}")
+        raise ValueError(f"規則 id 非法 (僅小寫字母數字下劃線, 1-40字符): {rid!r}")
     if not isinstance(rule.get("name"), str) or not rule["name"].strip():
-        raise ValueError("规则 name 不能为空")
+        raise ValueError("規則 name 不可為空")
     if rule.get("type") not in RULE_TYPES:
-        raise ValueError(f"type 必须是 {RULE_TYPES} 之一")
+        raise ValueError(f"type 必須是 {RULE_TYPES} 之一")
 
     # 指数规则: 仅 signal/price + symbols 作用域 + 不含分时信号
     # (指数无涨跌停/策略/封单语义; 无本地分钟K, 分时信号会静默不触发)
     if rule.get("asset_type") == "index":
         if rule.get("type") not in ("signal", "price"):
-            raise ValueError("指数监控仅支持 signal/price 类型 (无涨跌停/策略/封单语义)")
+            raise ValueError("指數監控僅支援 signal/price 類型 (無漲跌停/策略/封單語義)")
         if rule.get("scope") != "symbols":
-            raise ValueError("指数监控仅支持指定标的 (scope=symbols)")
+            raise ValueError("指數監控僅支援指定標的 (scope=symbols)")
         if uses_intraday_signals(rule):
-            raise ValueError("指数无本地分钟K数据, 不支持分时信号条件")
+            raise ValueError("指數無本地分鐘K資料, 不支持分時訊號條件")
 
     # 策略类型: 需要 strategy_id + direction,conditions 可空
     if rule.get("type") == "strategy":
         if not rule.get("strategy_id"):
-            raise ValueError("策略类型规则必须指定 strategy_id")
+            raise ValueError("策略類型規則必須指定 strategy_id")
         if rule.get("direction", "entry") not in DIRECTIONS:
-            raise ValueError(f"direction 必须是 {DIRECTIONS} 之一")
+            raise ValueError(f"direction 必須是 {DIRECTIONS} 之一")
         notify_events = rule.get("notify_events")
         if not isinstance(notify_events, list) or not notify_events:
-            raise ValueError("策略类型规则至少选择一个通知事件")
+            raise ValueError("策略類型規則至少選擇一個通知事件")
         invalid_events = set(notify_events) - STRATEGY_NOTIFY_EVENTS
         if invalid_events:
             raise ValueError(f"notify_events 包含非法事件: {sorted(invalid_events)}")
         score_min = rule.get("score_min")
         score_max = rule.get("score_max")
-        for label, value in (("评分下限", score_min), ("评分上限", score_max)):
+        for label, value in (("評分下限", score_min), ("評分上限", score_max)):
             if value is None:
                 continue
             if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value):
-                raise ValueError(f"{label}必须是 0 到 100 之间的数字")
+                raise ValueError(f"{label}必須是 0 到 100 之間的數字")
             if value < 0 or value > 100:
-                raise ValueError(f"{label}必须是 0 到 100 之间的数字")
+                raise ValueError(f"{label}必須是 0 到 100 之間的數字")
         if score_min is not None and score_max is not None and score_min > score_max:
-            raise ValueError("评分下限不能大于评分上限")
+            raise ValueError("評分下限不能大於評分上限")
     elif rule.get("type") == "ladder":
         # 连板梯队封单监控: 需 metric + threshold + direction(up/down), 不用 conditions
         if rule.get("metric", "sealed_vol") not in LADDER_METRICS:
-            raise ValueError(f"metric 必须是 {LADDER_METRICS} 之一")
+            raise ValueError(f"metric 必須是 {LADDER_METRICS} 之一")
         if rule.get("direction", "up") not in LADDER_DIRECTIONS:
-            raise ValueError(f"direction 必须是 {LADDER_DIRECTIONS} 之一 (up=涨停炸板, down=跌停翘板)")
+            raise ValueError(f"direction 必須是 {LADDER_DIRECTIONS} 之一 (up=漲停炸板, down=跌停翹板)")
         thr = rule.get("threshold")
         if not isinstance(thr, (int, float)) or thr < 0:
-            raise ValueError("threshold 必须是非负数字 (封单 ≤ 此值时报警)")
+            raise ValueError("threshold 必須是非負數字 (封單 ≤ 此值時報警)")
     elif rule.get("type") == "sector":
         kind = rule.get("sector_kind")
         if kind not in SECTOR_KINDS:
-            raise ValueError(f"sector_kind 必须是 {SECTOR_KINDS} 之一")
+            raise ValueError(f"sector_kind 必須是 {SECTOR_KINDS} 之一")
         targets = rule.get("sector_targets")
         if not isinstance(targets, list) or not targets:
-            raise ValueError("板块监控至少选择一个监控对象")
+            raise ValueError("板塊監控至少選擇一個監控對象")
         if len(targets) > 20:
-            raise ValueError("板块监控对象最多 20 个")
+            raise ValueError("板塊監控對象最多 20 個")
         for target in targets:
             if not isinstance(target, dict) or not target.get("key") or not target.get("name"):
-                raise ValueError("板块监控对象格式错误")
+                raise ValueError("板塊監控對象格式錯誤")
             if target.get("kind") != kind:
-                raise ValueError("板块监控对象类型必须一致")
+                raise ValueError("板塊監控對象類型必須一致")
         if rule.get("sector_trigger") not in SECTOR_TRIGGERS:
-            raise ValueError(f"sector_trigger 必须是 {SECTOR_TRIGGERS} 之一")
+            raise ValueError(f"sector_trigger 必須是 {SECTOR_TRIGGERS} 之一")
         if rule.get("direction") not in LADDER_DIRECTIONS:
-            raise ValueError("板块监控 direction 必须是 up 或 down")
+            raise ValueError("板塊監控 direction 必須是 up 或 down")
         threshold_pct = rule.get("threshold_pct")
         if not isinstance(threshold_pct, (int, float)) or not 0 < threshold_pct <= 20:
-            raise ValueError("板块监控阈值必须大于 0 且不超过 20%")
+            raise ValueError("板塊監控閾值必須大於 0 且不超過 20%")
         if rule.get("sector_trigger") == "momentum" and rule.get("window_minutes") not in SECTOR_WINDOWS:
-            raise ValueError(f"板块异动窗口必须是 {sorted(SECTOR_WINDOWS)} 分钟之一")
+            raise ValueError(f"板塊異動窗口必須是 {sorted(SECTOR_WINDOWS)} 分鐘之一")
     else:
         # 信号/价格/市场类型: 需要 conditions
         conds = rule.get("conditions")
         if not isinstance(conds, list) or len(conds) == 0:
-            raise ValueError("conditions 不能为空")
+            raise ValueError("conditions 不可為空")
         if len(conds) > 8:
-            raise ValueError("conditions 最多 8 条")
+            raise ValueError("conditions 最多 8 條")
         if rule.get("logic", "and") not in LOGICS:
-            raise ValueError(f"logic 必须是 {LOGICS} 之一")
+            raise ValueError(f"logic 必須是 {LOGICS} 之一")
         for i, c in enumerate(conds):
             if not isinstance(c, dict):
-                raise ValueError(f"第 {i+1} 个条件格式错误")
+                raise ValueError(f"第 {i+1} 個條件格式錯誤")
             field = c.get("field", "")
             op = c.get("op", "")
             if op == "truth":
                 # 布尔信号: field 必须是 signal_/csg_ 前缀
                 if not _is_signal_field(field):
-                    raise ValueError(f"第 {i+1} 个条件: op=truth 时 field 必须是信号列 (signal_/csg_ 前缀): {field!r}")
+                    raise ValueError(f"第 {i+1} 個條件: op=truth 時 field 必須是訊號列 (signal_/csg_ 前綴): {field!r}")
             elif op in OPS:
                 # 阈值比较: field 必须在白名单, 需要 value
                 if field not in ALLOWED_FIELDS:
-                    raise ValueError(f"第 {i+1} 个条件: 阈值字段 {field!r} 不在白名单")
+                    raise ValueError(f"第 {i+1} 個條件: 閾值字段 {field!r} 不在白名單")
                 if not isinstance(c.get("value"), (int, float)):
-                    raise ValueError(f"第 {i+1} 个条件: value 必须是数字")
+                    raise ValueError(f"第 {i+1} 個條件: value 必須是數字")
             else:
-                raise ValueError(f"第 {i+1} 个条件: op {op!r} 非法 (应为 truth 或 {OPS})")
+                raise ValueError(f"第 {i+1} 個條件: op {op!r} 非法 (應為 truth 或 {OPS})")
 
     # scope 校验
     if rule.get("scope", "symbols") not in SCOPES:
-        raise ValueError(f"scope 必须是 {SCOPES} 之一")
+        raise ValueError(f"scope 必須是 {SCOPES} 之一")
     if rule.get("scope") == "symbols":
         syms = rule.get("symbols")
         if not isinstance(syms, list) or len(syms) == 0:
-            raise ValueError("scope=symbols 时 symbols 不能为空")
+            raise ValueError("scope=symbols 時 symbols 不可為空")
     if rule.get("scope") == "watchlist_group":
         # 动态绑定自选分组: 评估时实时解析成员 (分组后续增删自动生效)。
         # 分组存在性由 API 层在保存时校验 (strategy 层不依赖 services)。
         gid = rule.get("group_id")
         if not isinstance(gid, str) or not gid.strip():
-            raise ValueError("scope=watchlist_group 时必须选择自选分组")
+            raise ValueError("scope=watchlist_group 時必須選擇自選分組")
         if rule.get("asset_type", "stock") != "stock":
-            raise ValueError("自选分组作用域仅支持个股")
+            raise ValueError("自選分組作用域僅支援個股")
     if uses_intraday_signals(rule) and rule.get("scope") != "symbols":
-        raise ValueError("分时穿越信号仅支持指定标的")
+        raise ValueError("分時穿越訊號僅支援指定標的")
     # sector 作用域的板块 JOIN 尚未实现: _apply_scope 目前会退化为「全市场」,
     # 一条本意针对某板块的规则会对全市场每只命中都触发(告警风暴)。在板块 JOIN
     # 落地前, 拒绝创建 sector 规则(fail-closed), 避免用户建出会刷屏的规则。
     if rule.get("scope") == "sector":
-        raise ValueError("scope=sector 暂未支持(板块 JOIN 未实现),请改用 scope=symbols 指定标的或 scope=all")
+        raise ValueError("scope=sector 暫未支持(板塊 JOIN 未實現),請改用 scope=symbols 指定標的或 scope=all")
 
     # 其余枚举
     if rule.get("severity", "info") not in SEVERITIES:
-        raise ValueError(f"severity 必须是 {SEVERITIES} 之一")
+        raise ValueError(f"severity 必須是 {SEVERITIES} 之一")
     cd = rule.get("cooldown_seconds", 3600)
     if not isinstance(cd, int) or cd < 0:
-        raise ValueError("cooldown_seconds 必须是非负整数")
+        raise ValueError("cooldown_seconds 必須是非負整數")
 
 
 def normalize(rule: dict) -> dict:

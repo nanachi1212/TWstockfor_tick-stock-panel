@@ -98,6 +98,21 @@ def _safe_json_value(value):
     return value
 
 
+# TAIWAN_LOCALIZATION_POLISH follow-up: 已建立的 data/ext_data/*/config.json
+# 是使用者本机既有资料, 依 ext_presets.py 的「已存在则跳过」设计不会因程序码
+# default 变更而被覆写, 因此仍可能存有旧版简体 label ("扩展概念"/"扩展行业")。
+# 这里只在 API 回应组装时做 display-layer 正规化, 不写回/不覆盖 config.json,
+# 也不建立通用简繁转换 —— 只处理这两个已知的历史遗留 label。
+_LEGACY_EXT_LABELS = {
+    "扩展概念": "擴展概念",
+    "扩展行业": "擴展行業",
+}
+
+
+def _display_ext_label(label: str) -> str:
+    return _LEGACY_EXT_LABELS.get(label, label)
+
+
 def _read_ext_dataframe(
     config: ExtConfig,
     data_dir: Path,
@@ -243,7 +258,7 @@ def dimension_members(
         rows.append(row)
     return {
         "id": config.id,
-        "label": config.label,
+        "label": _display_ext_label(config.label),
         "date": active_date,
         "field": field,
         "value": value.strip(),
@@ -274,7 +289,7 @@ def discover_all_schemas(request: Request):
 
         result.append({
             "id": config.id,
-            "label": config.label,
+            "label": _display_ext_label(config.label),
             "mode": config.mode,
             "columns": columns,
         })

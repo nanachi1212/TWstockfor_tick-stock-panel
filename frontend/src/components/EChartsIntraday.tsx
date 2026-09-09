@@ -31,8 +31,8 @@ interface Props {
 }
 
 function fmtAmt(v: number): string {
-  if (v >= 1_000_000_000) return `${(v / 1_000_000_000).toFixed(2)}亿`
-  if (v >= 10_000) return `${(v / 10_000).toFixed(0)}万`
+  if (v >= 1_000_000_000) return `${(v / 1_000_000_000).toFixed(2)}億`
+  if (v >= 10_000) return `${(v / 10_000).toFixed(0)}萬`
   return v.toFixed(0)
 }
 
@@ -353,7 +353,7 @@ function buildOption(data: MinuteKlineRow[], prevClose: number | undefined, avgP
     ],
     series: [
       {
-        name: '价格',
+        name: '價格',
         type: 'line',
         data: closes,
         smooth: false,
@@ -365,7 +365,7 @@ function buildOption(data: MinuteKlineRow[], prevClose: number | undefined, avgP
         markLine: markLineData.length > 0 ? { symbol: 'none', data: markLineData, animation: false, silent: true } : undefined,
       },
       ...(showAvgLine ? [{
-        name: '均价',
+        name: '均價',
         type: 'line' as const,
         data: avgData,
         smooth: false,
@@ -547,7 +547,7 @@ export function EChartsIntraday({
                 : 'text-muted hover:text-secondary'
             }`}
           >
-            自适应
+            自適應
           </button>
           <div className="w-px h-3 bg-border/40" />
           <button
@@ -558,7 +558,7 @@ export function EChartsIntraday({
                 : 'text-muted hover:text-secondary'
             }`}
           >
-            涨跌停
+            漲跌停
           </button>
         </div>
       </div>}
@@ -569,7 +569,7 @@ export function EChartsIntraday({
           {d && (
             <>
               {date && <span className="text-muted">{date}</span>}
-              <span className="text-muted">开</span>
+              <span className="text-muted">開</span>
               <span style={{ color: priceClr }}>{d.open.toFixed(2)}</span>
               <span className="text-muted">高</span>
               <span style={{ color: priceClr }}>{d.high.toFixed(2)}</span>
@@ -594,7 +594,7 @@ export function EChartsIntraday({
               </span>}
               <span className="text-muted">量</span>
               <span className="text-secondary">{d.volume.toFixed(0)}</span>
-              <span className="text-muted">额</span>
+              <span className="text-muted">額</span>
               <span className="text-secondary">{fmtAmt(d.amount)}</span>
             </>
           )}

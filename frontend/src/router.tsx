@@ -65,7 +65,7 @@ function OnboardingGuard({ children }: { children: React.ReactNode }) {
       <div className="min-h-screen bg-base grid place-items-center">
         <div className="flex flex-col items-center gap-3 text-muted">
           <Logo size={28} className="text-foreground" />
-          <div className="text-xs">加载中…</div>
+          <div className="text-xs">載入中…</div>
         </div>
       </div>
     )

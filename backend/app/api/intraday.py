@@ -143,6 +143,14 @@ def get_quotes(
         d["limit_down"] = limit_down
         d["price_limit_pct"] = limit_pct
         d["is_no_limit"] = is_no_limit
+        # TAIWAN_LOCALIZATION_POLISH: 顯示名稱一律以 TaiwanSecurityMaster 的
+        # 正體中文簡稱為準 (與 Screener/Watchlist 一致)，而不是 q.to_dict() 原樣
+        # 帶出的 provider name —— MIS 通常已是中文, 但 Yahoo fallback
+        # (yahoo_provider.py: name=meta.get("shortName")) 給的是英文公司全名,
+        # 兩者混用會讓同一檔股票在不同頁面顯示不同名稱。inst 在本迴圈已為了
+        # 漲跌停試算取得, 這裡直接重用, 不多一次查詢。優先序:
+        # canonical Taiwan 中文簡稱 → provider name → symbol。
+        d["name"] = inst.name if inst else (d.get("name") or q.symbol)
         rows.append(d)
 
     return {"quotes": rows, "count": len(rows)}

@@ -130,17 +130,17 @@ export function playNotificationSound() {
 /** 声效选项 (供设置页下拉) */
 export const SOUND_OPTIONS = [
   { key: 'ding', label: '清脆叮' },
-  { key: 'chime', label: '风铃' },
-  { key: 'rise', label: '上升音阶' },
-  { key: 'fall', label: '下降音阶' },
-  { key: 'alert', label: '急促警报' },
-  { key: 'electronic', label: '电子音' },
+  { key: 'chime', label: '風鈴' },
+  { key: 'rise', label: '上升音階' },
+  { key: 'fall', label: '下降音階' },
+  { key: 'alert', label: '急促警報' },
+  { key: 'electronic', label: '電子音' },
   { key: 'drop', label: '水滴' },
-  { key: 'bell', label: '钟声' },
+  { key: 'bell', label: '鐘聲' },
   { key: 'pingpong', label: '乒乓' },
   { key: 'magic', label: '魔法' },
   { key: 'soft', label: '柔和' },
-  { key: 'none', label: '无声' },
+  { key: 'none', label: '無聲' },
 ]
 
 /** 预览声效 (设置页点"试听"用) */

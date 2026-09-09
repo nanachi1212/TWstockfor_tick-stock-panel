@@ -51,8 +51,8 @@ export function DepthConfigContent({ disabled }: { disabled?: boolean }) {
     return (
       <div className="space-y-2">
         <p className="text-xs text-muted leading-relaxed">
-          真假涨停判定依赖五档盘口实时快照,该数据当前不可用。
-          配置提供五档盘口的数据源后,连板梯队将自动区分真封板(显示封单量)与假涨停(归入炸板)。
+          真假漲停判定依賴五檔盤口即時快照，該資料目前不可用。
+          配置提供五檔盤口的資料來源後，連續漲停梯隊將自動區分真封板（顯示封單量）與假漲停（歸入炸板）。
         </p>
         <MissingCapChip capKey="depth5.batch" />
       </div>
@@ -66,8 +66,8 @@ export function DepthConfigContent({ disabled }: { disabled?: boolean }) {
       {/* 盘中轮询间隔 */}
       <div className="flex items-center justify-between gap-2">
         <div className={disabled ? 'opacity-50' : ''}>
-          <div className="text-xs text-secondary">盘中轮询间隔</div>
-          <div className="text-[10px] text-muted">范围 {range.lo}~{range.hi} 秒 · 涨跌停过多时系统自动放慢</div>
+          <div className="text-xs text-secondary">盤中輪詢間隔</div>
+          <div className="text-[10px] text-muted">範圍 {range.lo}~{range.hi} 秒 · 漲跌停過多時系統自動放慢</div>
         </div>
         <div className="flex items-center gap-1">
           <input
@@ -93,8 +93,8 @@ export function DepthConfigContent({ disabled }: { disabled?: boolean }) {
       {/* 盘后定版时间 */}
       <div className="flex items-center justify-between gap-2">
         <div className={disabled ? 'opacity-50' : ''}>
-          <div className="text-xs text-secondary">盘后定版时间</div>
-          <div className="text-[10px] text-muted">范围 15:01~18:00 · 收盘后拉取最终盘口定版</div>
+          <div className="text-xs text-secondary">盤後定版時間</div>
+          <div className="text-[10px] text-muted">範圍 15:01~18:00 · 收盤後拉取最終盤口定版</div>
         </div>
         <div className="flex items-center gap-1">
           <input

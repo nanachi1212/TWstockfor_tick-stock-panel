@@ -1402,9 +1402,9 @@ class QuoteService:
 
             # 反查规则, 过滤出启用推送的事件
             source_labels = {
-                "strategy": "策略", "signal": "信号",
-                "price": "价格", "market": "异动", "ladder": "连板梯队",
-                "sector": "板块",
+                "strategy": "策略", "signal": "訊號",
+                "price": "價格", "market": "異動", "ladder": "連續漲停梯隊",
+                "sector": "板塊",
             }
             rules = engine.rules if engine is not None else {}
             enqueued = 0
@@ -1456,8 +1456,8 @@ class QuoteService:
                 # 通知标题: 用 source 分类 (策略/信号/价格/异动)
                 source = ev.get("source", "")
                 source_label = {
-                    "strategy": "策略", "signal": "信号",
-                    "price": "价格", "market": "异动", "sector": "板块",
+                    "strategy": "策略", "signal": "訊號",
+                    "price": "價格", "market": "異動", "sector": "板塊",
                 }.get(source, source or "通知")
 
                 name = ev.get("name") or ""

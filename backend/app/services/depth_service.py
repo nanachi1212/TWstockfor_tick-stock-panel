@@ -190,15 +190,15 @@ class DepthService:
         返回 {"ok": bool, "count": int, "msg": str}
         """
         if not self._has_capability():
-            return {"ok": False, "count": 0, "msg": "无五档盘口能力(需 Pro+)"}
+            return {"ok": False, "count": 0, "msg": "無五檔盤口能力(需 Pro+)"}
         try:
             self._fetch_and_seal(persist=True)  # 落盘, 刷新页面不丢
             with self._lock:
                 count = len(self._sealed_cache)
-            return {"ok": True, "count": count, "msg": f"已修正 {count} 只"}
+            return {"ok": True, "count": count, "msg": f"已修正 {count} 檔"}
         except Exception as e:  # noqa: BLE001
             logger.warning("depth run_once 失败: %s", e)
-            return {"ok": False, "count": 0, "msg": f"修正失败: {e}"}
+            return {"ok": False, "count": 0, "msg": f"修正失敗: {e}"}
 
     # ================================================================
     # 核心拉取
@@ -561,8 +561,8 @@ class DepthService:
         qs = getattr(self._app_state, "quote_service", None)
         if not qs:
             return
-        msg = (f"五档轮询: 当前涨跌停 {n_stocks} 只, 您设置的 {user_interval:.0f} 秒间隔会超限, "
-               f"系统已自动调整为 {actual_interval:.0f} 秒")
+        msg = (f"五檔輪詢: 當前漲跌停 {n_stocks} 檔, 您設置的 {user_interval:.0f} 秒間隔會超限, "
+               f"系統已自動調整為 {actual_interval:.0f} 秒")
         alert = {
             "source": "depth",
             "type": "takeover",

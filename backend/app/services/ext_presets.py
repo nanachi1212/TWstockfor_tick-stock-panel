@@ -46,7 +46,7 @@ def _concept_preset() -> ExtConfig:
     """
     return ExtConfig(
         id="ext_gn_ths",
-        label="扩展概念",
+        label="擴展概念",
         mode="snapshot",
         fields=[
             ExtField("symbol", "string", "标的代码"),
@@ -75,7 +75,7 @@ def _industry_preset() -> ExtConfig:
     """
     return ExtConfig(
         id="ext_hy_ths",
-        label="扩展行业",
+        label="擴展行業",
         mode="snapshot",
         fields=[
             ExtField("symbol", "string", "标的代码"),

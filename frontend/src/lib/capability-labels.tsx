@@ -2,19 +2,19 @@
 import { useNavigate } from 'react-router-dom'
 
 export const CAP_LABELS: Record<string, { name: string; hint: string }> = {
-  'quote.by_symbol':         { name: '自选股实时监控', hint: 'Free 可按标的查询实时行情,用于少量自选股监控' },
-  'quote.batch':             { name: '实时行情(批量)',   hint: '一次拿多只股票的价' },
-  'quote.pool':              { name: '标的池查询',        hint: '按沪深300等池子拿行情' },
-  'kline.daily.by_symbol':   { name: '日 K(按标的)',    hint: '单只股票历史日 K' },
-  'kline.daily.batch':       { name: '日 K(批量)',      hint: '一次拿多只股票的日 K — 选股 / 信号扫描 必需' },
-  'kline.minute.by_symbol':  { name: '分钟 K(按标的)',  hint: '单股 1m/5m/15m/30m/60m K 线' },
-  'kline.minute.batch':      { name: '分钟 K(批量)',    hint: '多股分钟 K' },
+  'quote.by_symbol':         { name: '自選股即時監控', hint: 'Free 可按標的查詢即時行情，用於少量自選股監控' },
+  'quote.batch':             { name: '即時行情(批量)',   hint: '一次取得多檔股票的價格' },
+  'quote.pool':              { name: '標的池查詢',        hint: '按標的池（如成分股清單）批量取得行情' },
+  'kline.daily.by_symbol':   { name: '日 K(按標的)',    hint: '單一股票歷史日 K' },
+  'kline.daily.batch':       { name: '日 K(批量)',      hint: '一次取得多檔股票的日 K — 選股 / 訊號掃描所需' },
+  'kline.minute.by_symbol':  { name: '分鐘 K(按標的)',  hint: '單股 1m/5m/15m/30m/60m K 線' },
+  'kline.minute.batch':      { name: '分鐘 K(批量)',    hint: '多股分鐘 K' },
 
-  'depth5':                  { name: '五档盘口',          hint: '买卖五档报价' },
-  'depth5.batch':            { name: '五档盘口(批量)',   hint: '批量买卖五档快照' },
-  'websocket':               { name: '实时推送(WS)',    hint: '免轮询的实时行情订阅' },
-  'financial':               { name: '财务数据',          hint: '利润表 / 资负表 / 现金流 / 关键指标' },
-  'adj_factor':              { name: '复权因子',          hint: '让 MA/MACD 等指标在分红送转日不失真' },
+  'depth5':                  { name: '五檔盤口',          hint: '買賣五檔報價' },
+  'depth5.batch':            { name: '五檔盤口(批量)',   hint: '批量買賣五檔快照' },
+  'websocket':               { name: '即時推送(WS)',    hint: '免輪詢的即時行情訂閱' },
+  'financial':               { name: '財務數據',          hint: '損益表 / 資產負債表 / 現金流量表 / 關鍵指標' },
+  'adj_factor':              { name: '除權因子',          hint: '讓 MA/MACD 等指標在除權息日不失真' },
 }
 
 // ===== 数据源无关的能力提示 (所有数据源共用一套标准) =====
@@ -41,7 +41,7 @@ export function MissingCapChip({ capKey, label, to = '/settings?tab=data-sources
   )
   if (to == null) {
     return (
-      <span className={`text-[10px] text-warning/90 bg-warning/8 rounded px-1.5 py-px font-medium ${className}`} title="该数据当前不可用">
+      <span className={`text-[10px] text-warning/90 bg-warning/8 rounded px-1.5 py-px font-medium ${className}`} title="該資料目前不可用">
         {content}
       </span>
     )
@@ -51,7 +51,7 @@ export function MissingCapChip({ capKey, label, to = '/settings?tab=data-sources
       type="button"
       onClick={(e) => { e.stopPropagation(); navigate(to) }}
       className={`text-[10px] text-warning/90 bg-warning/8 rounded px-1.5 py-px font-medium hover:bg-warning/15 transition-colors ${className}`}
-      title="前往 设置 → 数据源"
+      title="前往 設定 → 資料來源"
     >
       {content}
     </button>
@@ -84,31 +84,31 @@ export interface TierStyle {
 
 const TIER_STYLE: Record<string, TierStyle> = {
   none: {
-    desc: '未配置 Key · 仅历史日K',
+    desc: '未配置 Key · 僅歷史日K',
     tagBg: { background: 'rgba(113,113,122,0.15)' },
     dotStyle: { background: '#52525b' },
     labelTextStyle: { color: '#71717a' },
   },
   free: {
-    desc: '历史日K · 自选实时',
+    desc: '歷史日K · 自選即時',
     tagBg: { background: 'rgba(113,113,122,0.3)' },
     dotStyle: { background: '#71717a' },
     labelTextStyle: { color: '#a1a1aa' },
   },
   starter: {
-    desc: '除权因子 · 全市场实时',
+    desc: '除權因子 · 全市場即時',
     tagBg: { background: 'rgba(59,130,246,0.2)' },
     dotStyle: { background: '#3b82f6' },
     labelTextStyle: { color: '#60a5fa' },
   },
   pro: {
-    desc: '分钟K · 盘口',
+    desc: '分鐘K · 盤口',
     tagBg: { background: 'linear-gradient(135deg, rgba(168,85,247,0.2), rgba(124,58,237,0.15))' },
     dotStyle: { background: 'linear-gradient(135deg, #a855f7, #7c3aed)' },
     labelTextStyle: { background: 'linear-gradient(135deg, #c084fc, #a855f7)', WebkitBackgroundClip: 'text', backgroundClip: 'text', color: 'transparent' },
   },
   expert: {
-    desc: 'WebSocket · 财务数据',
+    desc: 'WebSocket · 財務數據',
     tagBg: { background: 'linear-gradient(135deg, rgba(59,130,246,0.2), rgba(168,85,247,0.2), rgba(245,158,11,0.2))' },
     dotStyle: { background: 'linear-gradient(135deg, #3b82f6, #a855f7, #f59e0b)' },
     labelTextStyle: { background: 'linear-gradient(135deg, #60a5fa, #c084fc, #fbbf24)', WebkitBackgroundClip: 'text', backgroundClip: 'text', color: 'transparent' },

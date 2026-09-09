@@ -224,8 +224,8 @@ export function StockDailyKChart({
                 type="button"
                 role="switch"
                 aria-checked={volumeCompare.enabled}
-                aria-label="开启量能对比"
-                title={volumeCompare.enabled ? '关闭量能对比' : '开启量能对比'}
+                aria-label="開啟量能對比"
+                title={volumeCompare.enabled ? '關閉量能對比' : '開啟量能對比'}
                 onClick={() => updateVolumeCompare({ enabled: !volumeCompare.enabled })}
                 className={`relative h-3.5 w-6 shrink-0 rounded-full transition-colors ${
                   volumeCompare.enabled ? 'bg-accent' : 'bg-elevated'
@@ -236,7 +236,7 @@ export function StockDailyKChart({
                 }`} />
               </button>
               <select
-                aria-label="量能对比周期"
+                aria-label="量能對比週期"
                 value={volumeCompare.days}
                 disabled={!volumeCompare.enabled}
                 onChange={event => updateVolumeCompare({ days: Number(event.target.value) })}
@@ -257,15 +257,15 @@ export function StockDailyKChart({
                   : 'bg-elevated text-muted hover:text-secondary'
               }`}
             >
-              异动
+              異動
             </button>
           )}
         </div>
       )}
-      {kline.isLoading && <div className="text-sm text-muted py-4">加载中…</div>}
-      {kline.isError && <div className="text-sm text-danger py-2">日K加载失败</div>}
+      {kline.isLoading && <div className="text-sm text-muted py-4">載入中…</div>}
+      {kline.isError && <div className="text-sm text-danger py-2">日K載入失敗</div>}
       {!kline.isLoading && !kline.isError && (kline.data?.rows?.length ?? 0) > 0 && rows.length === 0 && (
-        <div className="text-sm text-danger py-2">数据格式异常，请刷新页面</div>
+        <div className="text-sm text-danger py-2">資料格式異常，請重新整理頁面</div>
       )}
       {rows.length > 0 && (
         <EChartsCandlestick

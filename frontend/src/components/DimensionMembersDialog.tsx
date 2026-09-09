@@ -167,7 +167,7 @@ function DimensionMembersDialogContent({ target, onClose, onStockClick }: Omit<P
 
   const accent = target.kind === 'concept'
     ? { icon: Tags, badge: '概念', iconCls: 'text-orange-700 dark:text-orange-300', badgeCls: 'bg-orange-500/10 text-orange-700 dark:text-orange-300' }
-    : { icon: Building2, badge: '行业', iconCls: 'text-sky-700 dark:text-sky-300', badgeCls: 'bg-sky-500/10 text-sky-700 dark:text-sky-300' }
+    : { icon: Building2, badge: '行業', iconCls: 'text-sky-700 dark:text-sky-300', badgeCls: 'bg-sky-500/10 text-sky-700 dark:text-sky-300' }
   const AccentIcon = accent.icon
   const titleId = 'dimension-members-title'
   const total = membersQuery.data?.total ?? 0
@@ -197,14 +197,14 @@ function DimensionMembersDialogContent({ target, onClose, onStockClick }: Omit<P
             <Users className="h-3.5 w-3.5 text-muted" />
             {membersQuery.isLoading ? '—' : total}
           </span>
-          <button onClick={onClose} className="inline-flex h-7 w-7 items-center justify-center rounded text-muted hover:bg-elevated hover:text-foreground" title="关闭">
+          <button onClick={onClose} className="inline-flex h-7 w-7 items-center justify-center rounded text-muted hover:bg-elevated hover:text-foreground" title="關閉">
             <X className="h-4 w-4" />
           </button>
         </div>
       </div>
 
       {!source ? (
-        <div className="grid min-h-64 place-items-center px-6 text-sm text-danger">扩展字段格式无效</div>
+        <div className="grid min-h-64 place-items-center px-6 text-sm text-danger">擴展欄位格式無效</div>
       ) : membersQuery.isLoading ? (
         <div className="grid min-h-64 place-items-center text-muted"><RefreshCw className="h-5 w-5 animate-spin" /></div>
       ) : membersQuery.isError ? (
@@ -212,10 +212,10 @@ function DimensionMembersDialogContent({ target, onClose, onStockClick }: Omit<P
       ) : (
         <>
           <div className="grid shrink-0 grid-cols-4 divide-x divide-border border-b border-border bg-surface/50">
-            <Summary label="上涨" value={stats.up} className="text-bull" />
+            <Summary label="上漲" value={stats.up} className="text-bull" />
             <Summary label="下跌" value={stats.down} className="text-bear" />
-            <Summary label="平盘/待更新" value={stats.flat} className="text-secondary" />
-            <Summary label="平均涨跌" value={fmtPct(stats.average)} className={priceColorClass(stats.average)} />
+            <Summary label="平盤/待更新" value={stats.flat} className="text-secondary" />
+            <Summary label="平均漲跌" value={fmtPct(stats.average)} className={priceColorClass(stats.average)} />
           </div>
 
           <div className="flex shrink-0 items-center gap-2 border-b border-border px-4 py-2.5">
@@ -234,15 +234,15 @@ function DimensionMembersDialogContent({ target, onClose, onStockClick }: Omit<P
               className="h-8 rounded-input border border-border bg-surface px-2 text-xs text-secondary focus:border-accent/60 focus:outline-none"
               aria-label="排序方式"
             >
-              <option value="change_desc">涨幅从高到低</option>
-              <option value="change_asc">涨幅从低到高</option>
+              <option value="change_desc">漲幅從高到低</option>
+              <option value="change_asc">漲幅從低到高</option>
               <option value="amount_desc">成交金額從高到低</option>
-              <option value="name">名称排序</option>
+              <option value="name">名稱排序</option>
             </select>
           </div>
 
           <div className="grid shrink-0 grid-cols-[minmax(132px,1fr)_74px_74px_18px] border-b border-border bg-elevated/60 px-4 py-2 text-[10px] font-medium text-muted md:grid-cols-[minmax(180px,1fr)_90px_84px_88px_100px_18px]">
-            <span>股票</span><span className="text-right">现价</span><span className="text-right">涨跌幅</span>
+            <span>股票</span><span className="text-right">現價</span><span className="text-right">漲跌幅</span>
             <span className="hidden text-right md:block">換手率</span><span className="hidden text-right md:block">成交金額</span><span />
           </div>
 
@@ -284,7 +284,7 @@ function DimensionMembersDialogContent({ target, onClose, onStockClick }: Omit<P
           )}
 
           {total > rows.length && (
-            <div className="shrink-0 border-t border-border px-4 py-2 text-center text-[10px] text-muted">显示前 {rows.length} / {total} 只</div>
+            <div className="shrink-0 border-t border-border px-4 py-2 text-center text-[10px] text-muted">顯示前 {rows.length} / {total} 檔</div>
           )}
         </>
       )}

@@ -20,15 +20,15 @@ export type { ColumnConfig, ColumnGroup }
 // ===== 内置指标注册表 =====
 
 export const BUILTIN_INFO_FIELDS: ColumnConfig[] = [
-  // 规模
+  // 規模
   { id: 'builtin:market_cap', source: { type: 'builtin', key: 'market_cap' }, label: '市值', visible: true, align: 'left' },
   { id: 'builtin:float_market_cap', source: { type: 'builtin', key: 'float_market_cap' }, label: '流通值', visible: true, align: 'left' },
   // 成交
-  { id: 'builtin:turnover', source: { type: 'builtin', key: 'turnover' }, label: '换手', visible: true, align: 'left' },
+  { id: 'builtin:turnover', source: { type: 'builtin', key: 'turnover' }, label: '換手', visible: true, align: 'left' },
   { id: 'builtin:volume', source: { type: 'builtin', key: 'volume' }, label: '成交量', visible: false, align: 'left' },
   { id: 'builtin:amplitude', source: { type: 'builtin', key: 'amplitude' }, label: '振幅', visible: false, align: 'left' },
   // 行情
-  { id: 'builtin:open', source: { type: 'builtin', key: 'open' }, label: '开盘', visible: false, align: 'left' },
+  { id: 'builtin:open', source: { type: 'builtin', key: 'open' }, label: '開盤', visible: false, align: 'left' },
   { id: 'builtin:high', source: { type: 'builtin', key: 'high' }, label: '最高', visible: false, align: 'left' },
   { id: 'builtin:low', source: { type: 'builtin', key: 'low' }, label: '最低', visible: false, align: 'left' },
   // 财务（数据来自 financials metrics 接口，默认隐藏；pe_ttm/pb 用 close 现算）
@@ -38,17 +38,17 @@ export const BUILTIN_INFO_FIELDS: ColumnConfig[] = [
   { id: 'builtin:pe_ttm', source: { type: 'builtin', key: 'pe_ttm' }, label: 'PE', visible: false, align: 'left' },
   { id: 'builtin:pb', source: { type: 'builtin', key: 'pb' }, label: 'PB', visible: false, align: 'left' },
   { id: 'builtin:gross_margin', source: { type: 'builtin', key: 'gross_margin' }, label: '毛利率', visible: false, align: 'left' },
-  { id: 'builtin:net_margin', source: { type: 'builtin', key: 'net_margin' }, label: '净利率', visible: false, align: 'left' },
-  { id: 'builtin:debt_ratio', source: { type: 'builtin', key: 'debt_ratio' }, label: '负债率', visible: false, align: 'left' },
-  { id: 'builtin:revenue_yoy', source: { type: 'builtin', key: 'revenue_yoy' }, label: '营收增速', visible: false, align: 'left' },
-  { id: 'builtin:net_income_yoy', source: { type: 'builtin', key: 'net_income_yoy' }, label: '净利增速', visible: false, align: 'left' },
+  { id: 'builtin:net_margin', source: { type: 'builtin', key: 'net_margin' }, label: '淨利率', visible: false, align: 'left' },
+  { id: 'builtin:debt_ratio', source: { type: 'builtin', key: 'debt_ratio' }, label: '負債率', visible: false, align: 'left' },
+  { id: 'builtin:revenue_yoy', source: { type: 'builtin', key: 'revenue_yoy' }, label: '營收增速', visible: false, align: 'left' },
+  { id: 'builtin:net_income_yoy', source: { type: 'builtin', key: 'net_income_yoy' }, label: '淨利增速', visible: false, align: 'left' },
 ]
 
 export const INFO_GROUPS: ColumnGroup[] = [
-  { id: 'scale', label: '规模', icon: '🏦', keys: ['market_cap', 'float_market_cap'] },
+  { id: 'scale', label: '規模', icon: '🏦', keys: ['market_cap', 'float_market_cap'] },
   { id: 'volume', label: '成交', icon: '📊', keys: ['turnover', 'volume', 'amplitude'] },
   { id: 'quote', label: '行情', icon: '📈', keys: ['open', 'high', 'low'] },
-  { id: 'finance', label: '财务', icon: '📋', keys: ['eps', 'bps', 'roe', 'pe_ttm', 'pb', 'gross_margin', 'net_margin', 'debt_ratio', 'revenue_yoy', 'net_income_yoy'] },
+  { id: 'finance', label: '財務', icon: '📋', keys: ['eps', 'bps', 'roe', 'pe_ttm', 'pb', 'gross_margin', 'net_margin', 'debt_ratio', 'revenue_yoy', 'net_income_yoy'] },
 ]
 
 // ===== localStorage 持久化 =====

@@ -56,15 +56,22 @@ export function listZhVoices(): SpeechSynthesisVoice[] {
   } catch { return [] }
 }
 
-// ===== 语音包解析: 用户手选 > 默认偏好(Google 中国大陆) > 兜底 =====
+// ===== 语音包解析: 用户手选 > zh-TW > 其他中文 > zh-CN 兜底 =====
 
 /**
- * 解析当前应使用的语音包。
+ * 解析当前应使用的语音包 (TAIWAN_LOCALIZATION_POLISH follow-up: 修正预设偏好,
+ * 不再让 zh-CN 优先于 zh-TW)。
+ *
  * 优先级:
- *   1. 用户在设置页手选的 (voice_broadcast_voice)
- *   2. 默认偏好: Google 中国大陆 (Chrome 在线云语音, zh-CN, 音质接近真人)
- *   3. 兜底: 任意 zh-CN
- *   4. 都没有: undefined (交浏览器系统默认, 可能不标准但不崩)
+ *   1. 用户在设置页手选的 (voice_broadcast_voice) — 不受本次调整影响
+ *   2. zh-TW 语音 (若同时存在多个 zh-TW 语音包, 优先其中的 Google 版本 — 因其
+ *      音质通常接近真人; 但不要求一定要有 Google, 没有 Google zh-TW 时用任一
+ *      zh-TW 语音)
+ *   3. 其他适合中文的语音 (zh-HK / 泛用 zh 等, 排除 zh-CN — zh-CN 只能是更后面
+ *      的兜底, 不该在这一层出现)
+ *   4. zh-CN 兜底 (没有任何 zh-TW / 其他中文语音时, 至少用中文发音, 优于英文
+ *      系统默认音)
+ *   5. 都没有: undefined (交浏览器系统默认, 可能不标准但不崩)
  */
 function resolveVoice(): SpeechSynthesisVoice | undefined {
   try {
@@ -78,11 +85,17 @@ function resolveVoice(): SpeechSynthesisVoice | undefined {
       if (m) return m
     }
 
-    // 2. 默认偏好: Google 中国大陆
-    const googleCN = voices.find(v => /Google/i.test(v.name) && v.lang === 'zh-CN')
-    if (googleCN) return googleCN
+    // 2. zh-TW 优先 (同为 zh-TW 时, Google 版本优先, 但不要求一定要有 Google)
+    const twVoices = voices.filter(v => v.lang === 'zh-TW')
+    if (twVoices.length > 0) {
+      return twVoices.find(v => /Google/i.test(v.name)) ?? twVoices[0]
+    }
 
-    // 3. 兜底: 任意 zh-CN
+    // 3. 其他中文语音 (非 zh-CN)
+    const otherZh = voices.find(v => v.lang.startsWith('zh') && v.lang !== 'zh-CN')
+    if (otherZh) return otherZh
+
+    // 4. zh-CN 兜底
     return voices.find(v => v.lang === 'zh-CN')
   } catch { return undefined }
 }
@@ -100,7 +113,7 @@ const MAX_SPEAK = 3  // 单批最多逐条念 3 只, 超出汇总成数量
  *  入参是小数制 (后端 change_pct, 0.0366 = 3.66%), 需 ×100 再念, 与 format.ts 的 fmtPct 一致。 */
 function fmtPctText(pct: number): string {
   const p = pct * 100
-  if (p >= 0) return `涨${p.toFixed(1)}%`
+  if (p >= 0) return `漲${p.toFixed(1)}%`
   return `跌${Math.abs(p).toFixed(1)}%`
 }
 
@@ -113,7 +126,7 @@ function fmtPctText(pct: number): string {
  *   price/market/其他: "[名称] [message条件摘要] [涨跌幅]"
  */
 function buildSingleText(a: AlertEvent): string {
-  const name = a.name || '标的'
+  const name = a.name || '標的'
   const pctText = a.change_pct != null ? fmtPctText(a.change_pct) : ''
 
   // 板块消息已包含名称、触发条件和当前涨跌幅，避免重复播报。
@@ -155,7 +168,7 @@ function buildText(alerts: AlertEvent[]): string {
   const parts = head.map(buildSingleText)
   let text = parts.join('；')
   if (alerts.length > MAX_SPEAK) {
-    text += `；还有${alerts.length - MAX_SPEAK}只`
+    text += `；還有${alerts.length - MAX_SPEAK}檔`
   }
   return text
 }
@@ -176,11 +189,12 @@ export function speakAlerts(alerts: AlertEvent[]) {
 
     const text = buildText(alerts)
     const u = new SpeechSynthesisUtterance(text)
-    u.lang = 'zh-CN'
     u.rate = parseFloat(localStorage.getItem(LS.rate) || '1')
 
+    // lang 跟随实际解析到的语音包 (zh-TW 优先, 见 resolveVoice); 没有匹配到任何
+    // 语音包时, 预设语言也用 zh-TW 而非 zh-CN, 与台湾产品定位一致。
     const v = resolveVoice()
-    if (v) u.voice = v
+    if (v) { u.voice = v; u.lang = v.lang } else { u.lang = 'zh-TW' }
 
     _speaking = true
     u.onend = () => { _speaking = false }
@@ -202,15 +216,14 @@ export function stopVoice() {
 }
 
 /** 试听 (设置页点"试听"用) */
-export function previewVoice(text = '语音播报已开启, 这是试听效果') {
+export function previewVoice(text = '語音播報已開啟, 這是試聽效果') {
   try {
     if (!isVoiceSupported()) return
     activateVoice()
     const u = new SpeechSynthesisUtterance(text)
-    u.lang = 'zh-CN'
     u.rate = parseFloat(localStorage.getItem(LS.rate) || '1')
     const v = resolveVoice()
-    if (v) u.voice = v
+    if (v) { u.voice = v; u.lang = v.lang } else { u.lang = 'zh-TW' }
     window.speechSynthesis.cancel()   // 试听前停掉正在念的
     window.speechSynthesis.speak(u)
   } catch { /* ignore */ }

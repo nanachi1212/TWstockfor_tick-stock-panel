@@ -43,14 +43,14 @@ def _stock_df():
 # ── 校验与 normalize ─────────────────────────────────────
 
 def test_group_scope_validation():
-    with pytest.raises(ValueError, match="自选分组"):
+    with pytest.raises(ValueError, match="自選分組"):
         monitor_rules.validate(_group_rule(group_id=None))
-    with pytest.raises(ValueError, match="自选分组"):
+    with pytest.raises(ValueError, match="自選分組"):
         monitor_rules.validate(_group_rule(group_id="  "))
-    with pytest.raises(ValueError, match="仅支持个股"):
+    with pytest.raises(ValueError, match="僅支援個股"):
         monitor_rules.validate(_group_rule(asset_type="etf"))
     # 分时穿越信号仅支持指定标的 (沿用既有限制)
-    with pytest.raises(ValueError, match="分时穿越"):
+    with pytest.raises(ValueError, match="分時穿越"):
         monitor_rules.validate(_group_rule(
             conditions=[{"field": "signal_intraday_avg_cross_up", "op": "truth"}],
         ))

@@ -55,7 +55,7 @@ const _SOURCE_BADGE: Record<string, string> = {
   sector: 'bg-cyan-500/10 text-cyan-700 dark:text-cyan-300',
 }
 const _SOURCE_LABEL: Record<string, string> = {
-  strategy: '策略', signal: '信号', price: '价格', market: '异动', sector: '板块',
+  strategy: '策略', signal: '訊號', price: '價格', market: '異動', sector: '板塊',
 }
 const _SEVERITY_BAR: Record<string, string> = {
   info: 'bg-accent/40', warn: 'bg-warning', critical: 'bg-danger',
@@ -72,7 +72,7 @@ function MonitorWidget({ onStockClick }: { onStockClick: (event: AlertEvent) => 
 
   if (events.length === 0) {
     return (
-      <div className="mt-1 py-6 text-center text-[11px] text-muted">暂无触发记录</div>
+      <div className="mt-1 py-6 text-center text-[11px] text-muted">暫無觸發記錄</div>
     )
   }
 
@@ -99,7 +99,7 @@ function MonitorWidget({ onStockClick }: { onStockClick: (event: AlertEvent) => 
               <div className="flex items-center gap-1.5">
                 <button
                   onClick={() => isSector ? navigate('/monitor') : ev.symbol && onStockClick(ev)}
-                  title={isSector ? '在监控中心查看板块告警' : ev.symbol ? `查看 ${ev.symbol} 日K` : undefined}
+                  title={isSector ? '在監控中心查看板塊告警' : ev.symbol ? `查看 ${ev.symbol} 日K` : undefined}
                   className={`inline-flex items-center gap-1 min-w-0 shrink-0 rounded hover:bg-elevated/60 transition-colors -mx-0.5 px-0.5 ${isSector || ev.symbol ? 'cursor-pointer' : 'cursor-default'}`}
                 >
                   <span className="font-mono text-[10px] font-medium text-foreground/80 hover:text-accent">{ev.symbol?.replace(/\.(SH|SZ|BJ)$/, '')}</span>

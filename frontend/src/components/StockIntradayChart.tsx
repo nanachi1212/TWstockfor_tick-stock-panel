@@ -66,7 +66,7 @@ export function StockIntradayChart({
 
   return (
     <div className={className} style={{ height, flexShrink: 0 }}>
-      {minute.isLoading && <div className="text-xs text-muted py-2">分时加载中…</div>}
+      {minute.isLoading && <div className="text-xs text-muted py-2">分時載入中…</div>}
       {!minute.isLoading && minuteRows.length === 0 && (
         <>
           {fetchMinute.isPending ? (

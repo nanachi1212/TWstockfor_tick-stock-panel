@@ -238,8 +238,8 @@ export function StockInfoBar({
               onClick={onRemoveFromWatchlist}
               disabled={watchlistPending}
               className="rounded-btn p-1 text-[#FACC15] transition-colors cursor-pointer hover:bg-elevated disabled:opacity-50"
-              title="移出自选"
-              aria-label={`将 ${symbol} 移出自选`}
+              title="移出自選"
+              aria-label={`將 ${symbol} 移出自選`}
             >
               <Star className="h-3.5 w-3.5" />
             </button>
@@ -248,7 +248,7 @@ export function StockInfoBar({
               onSelect={onAddToWatchlist}
               disabled={watchlistPending}
               triggerClassName="rounded-btn p-1 text-muted transition-colors cursor-pointer hover:bg-elevated hover:text-foreground disabled:opacity-50"
-              ariaLabel={`将 ${symbol} 加入自选`}
+              ariaLabel={`將 ${symbol} 加入自選`}
             >
               <Star className="h-3.5 w-3.5" />
             </WatchlistAddMenu>
@@ -257,7 +257,7 @@ export function StockInfoBar({
             <button
               onClick={onMonitor}
               className="p-1 rounded-btn text-amber-400 hover:bg-amber-400/10 transition-colors cursor-pointer"
-              title="加监控"
+              title="加監控"
             >
               <RadioTower className="h-3.5 w-3.5" />
             </button>
@@ -265,7 +265,7 @@ export function StockInfoBar({
           <button
             onClick={() => setCustomizerOpen(true)}
             className="p-1 rounded-btn text-muted hover:text-foreground hover:bg-elevated transition-colors"
-            title="自定义信息条"
+            title="自訂資訊條"
           >
             <Settings2 className="h-3.5 w-3.5" />
           </button>
@@ -296,8 +296,8 @@ export function StockInfoBar({
         onChange={onFieldsChange}
         open={customizerOpen}
         onClose={() => setCustomizerOpen(false)}
-        title="信息条指标"
-        builtinSectionLabel="可选指标"
+        title="資訊條指標"
+        builtinSectionLabel="可選指標"
         extColumnAlign="left"
         showStandaloneToggle
       />
