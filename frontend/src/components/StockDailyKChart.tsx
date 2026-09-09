@@ -264,6 +264,13 @@ export function StockDailyKChart({
       )}
       {kline.isLoading && <div className="text-sm text-muted py-4">載入中…</div>}
       {kline.isError && <div className="text-sm text-danger py-2">日K載入失敗</div>}
+      {/* DAILY_USE_CORE_UX_FIXES (P1-3): HTTP 成功但 rows 本身就是空陣列(該標的
+          在本機 K 線資料源尚無資料)時, 過去沒有對應分支, 畫面留下一片空白,
+          使用者無法分辨是「還在載入」還是「壞掉」。與下面「格式異常」分支
+          (rows 有值但全部解析失敗)區分, 不誤報成 error。 */}
+      {!kline.isLoading && !kline.isError && (kline.data?.rows?.length ?? 0) === 0 && (
+        <div className="text-sm text-muted py-4">目前沒有可顯示的日 K 資料</div>
+      )}
       {!kline.isLoading && !kline.isError && (kline.data?.rows?.length ?? 0) > 0 && rows.length === 0 && (
         <div className="text-sm text-danger py-2">資料格式異常，請重新整理頁面</div>
       )}

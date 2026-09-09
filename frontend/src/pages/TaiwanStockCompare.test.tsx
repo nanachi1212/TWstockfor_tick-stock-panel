@@ -91,6 +91,27 @@ function renderAt(initialPath: string) {
         <LocationSpy />
         <Routes>
           <Route path="/stocks/compare" element={<TaiwanStockCompare />} />
+          <Route path="/watchlist" element={<div>WATCHLIST PAGE</div>} />
+        </Routes>
+      </MemoryRouter>
+    </QueryClientProvider>,
+  )
+}
+
+// DAILY_USE_CORE_UX_FIXES (P1-2) — 通用 idx-based 判斷邏輯已在
+// useSafeBack.test.tsx 用真實 window.history 完整驗證(含 fallback 分支);
+// 這裡只驗證本頁真的接上了它 —— 不再寫死「返回即時監控」文案/目的地,
+// 且能在有可信 in-app 來源(如自選股)時正確返回該來源。
+function renderComingFromWatchlist(compareEntry: string) {
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  window.history.replaceState({ idx: 1 }, '')
+  return render(
+    <QueryClientProvider client={queryClient}>
+      <MemoryRouter initialEntries={['/watchlist', compareEntry]} initialIndex={1}>
+        <LocationSpy />
+        <Routes>
+          <Route path="/watchlist" element={<div>WATCHLIST PAGE</div>} />
+          <Route path="/stocks/compare" element={<TaiwanStockCompare />} />
         </Routes>
       </MemoryRouter>
     </QueryClientProvider>,
@@ -112,10 +133,44 @@ beforeEach(() => {
   vi.mocked(api.taiwanSearch).mockResolvedValue({ results: [] } as any)
   // 預設：資料新鮮度與比較回應之 comparison_date 一致 ('2026-08-28')，代表「最新模式」。
   vi.mocked(api.taiwanDataStatus).mockResolvedValue(buildDataStatus('2026-08-28') as any)
+  window.history.replaceState(null, '')
 })
 
 afterEach(() => {
   vi.clearAllMocks()
+  window.history.replaceState(null, '')
+})
+
+// DAILY_USE_CORE_UX_FIXES (P1-2)
+describe('back navigation', () => {
+  it('never shows the old hardcoded "返回即時監控" label', async () => {
+    renderAt('/stocks/compare?symbols=2330.TWSE,2881.TWSE')
+    await waitFor(() => expect(screen.getByText('2330.TWSE')).toBeInTheDocument())
+
+    expect(screen.queryByText('返回即時監控')).not.toBeInTheDocument()
+    expect(screen.getByText('返回')).toBeInTheDocument()
+  })
+
+  it('returns to Watchlist when entered from Watchlist (trustworthy in-app history)', async () => {
+    renderComingFromWatchlist('/stocks/compare?symbols=2330.TWSE,2881.TWSE')
+    await waitFor(() => expect(screen.getByText('2330.TWSE')).toBeInTheDocument())
+
+    fireEvent.click(screen.getByText('返回'))
+
+    expect(await screen.findByText('WATCHLIST PAGE')).toBeInTheDocument()
+  })
+
+  it('direct URL (no trustworthy in-app history) falls back safely instead of leaving the app', async () => {
+    // window.history.state 為 null (beforeEach 已重置) 模擬直接輸入網址/新分頁
+    renderAt('/stocks/compare?symbols=2330.TWSE,2881.TWSE')
+    await waitFor(() => expect(screen.getByText('2330.TWSE')).toBeInTheDocument())
+
+    fireEvent.click(screen.getByText('返回'))
+
+    // 沒有可信站內來源時, 落到呼叫端提供的 fallback('/watchlist'), 不是留在
+    // 原地、不是空白頁、也不是被帶出 app。
+    expect(await screen.findByText('WATCHLIST PAGE')).toBeInTheDocument()
+  })
 })
 
 describe('URL restore', () => {

@@ -10,5 +10,5 @@ runtime: node
 entry: app.plugins.stocksdk.provider:StockSDKProvider
 check: app.plugins.stocksdk.bridge:availability
 datasets: [daily, adj_factor, minute, realtime]
-description: "抓取第三方财经网站行情接口(存在版权与反爬风险,使用需自行评估合规责任)。日K/除权/分钟/实时全市场。需运行环境含 Node.js 18+。Docker 默认不打包。"
-install_hint: "Docker 需 --build-arg INCLUDE_STOCKSDK=1 才打包;开发模式: cd backend/app/plugins/stocksdk && npm install"
+description: "選用的中國 A 股資料來源，提供日 K、除權息因子、分鐘 K 與即時行情。資料取自第三方財經網站，可能受存取限制；使用前請確認資料授權與使用條款。執行環境需有 Node.js 18 以上版本。"
+install_hint: "此資料來源尚未就緒。可嘗試點選「安裝」；若仍無法使用，請聯絡系統維護者確認必要元件已備妥。"

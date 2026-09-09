@@ -1353,7 +1353,7 @@ export function Watchlist() {
               className="inline-flex items-center justify-center h-8 w-8 rounded-btn bg-elevated hover:bg-elevated/80 text-secondary hover:text-foreground transition-colors duration-150 ease-smooth disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-elevated disabled:hover:text-secondary"
               title={
                 ocrAvailable === false
-                  ? ocrInstallHint || 'OCR 不可用,請先安裝 Tesseract'
+                  ? ocrInstallHint || getOcrInstallHint()
                   : '從截圖匯入自選'
               }
             >

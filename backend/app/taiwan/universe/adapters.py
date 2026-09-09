@@ -26,6 +26,7 @@ import logging
 import re
 from dataclasses import dataclass, replace
 from datetime import datetime
+from html import unescape
 from html.parser import HTMLParser
 
 import httpx
@@ -419,7 +420,7 @@ def _official_twse_etf_directory() -> list[TaiwanInstrument]:
         category = "foreign_equity" if scope == "foreign" else "domestic_equity" if scope == "domestic" else "unknown"
         code = str(code).strip()
         instruments.append(TaiwanInstrument(
-            symbol=f"{code}.TWSE", code=code, exchange="TWSE", name=str(name).strip(), instrument_type="etf",
+            symbol=f"{code}.TWSE", code=code, exchange="TWSE", name=unescape(str(name)).strip(), instrument_type="etf",
             listing_status="active", listing_date=str(row.get("上市日期") or "").strip() or None,
             isin=None, industry=None, cfi_code=None, raw_category=fund_type, is_supported=True,
             source="TWSE_OPENAPI", updated_at=now, etf_category=category,

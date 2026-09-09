@@ -11,6 +11,7 @@ Responsibilities:
 from __future__ import annotations
 
 import logging
+from html import unescape
 from pathlib import Path
 from typing import Any
 
@@ -94,7 +95,9 @@ class TaiwanSecurityMaster:
                     symbol=r["symbol"],
                     code=r["code"],
                     exchange=r["exchange"],
-                    name=r["name"],
+                    # Older official JSON caches retain HTML character references.
+                    # Normalize in memory without rewriting the user's cache.
+                    name=unescape(r["name"]),
                     instrument_type=r["instrument_type"],
                     listing_status=r["listing_status"],
                     listing_date=r.get("listing_date"),

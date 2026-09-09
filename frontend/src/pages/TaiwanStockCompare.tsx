@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
+import { useSafeBack } from '@/lib/useSafeBack'
 import {
   ArrowLeft,
   Search,
@@ -27,7 +27,11 @@ import { DatePicker } from '@/components/DatePicker'
  * 確定性比較資料自動載入；AI 客觀比較報告需使用者主動點擊觸發（絕不自動呼叫）。
  */
 export function TaiwanStockCompare() {
-  const navigate = useNavigate()
+  // DAILY_USE_CORE_UX_FIXES (P1-2): Compare 可從自選股/台股選股/StockPreview/
+  // 監控中心等多處進入, 不再固定寫死「返回即時監控」→ /monitor。優先用瀏覽器
+  // 站內 history back(navigate(-1)); 直接輸入網址等沒有可信站內來源時, 回退到
+  // 自選股(比較功能最常見的起點)。
+  const goBack = useSafeBack('/watchlist')
   const { selected, addSymbol, removeSymbol, date: explicitDate, setDate } = useCompareSymbols()
   const [searchQuery, setSearchQuery] = useState('')
   const [isSearchOpen, setIsSearchOpen] = useState(false)
@@ -165,11 +169,11 @@ export function TaiwanStockCompare() {
       <div className="sticky top-0 z-30 flex items-center justify-between border-b border-border bg-surface/90 px-4 py-2.5 backdrop-blur-md">
         <div className="flex items-center gap-3">
           <button
-            onClick={() => navigate('/monitor')}
+            onClick={goBack}
             className="flex items-center gap-1.5 rounded-lg border border-border/80 bg-base px-2.5 py-1 text-xs font-medium text-muted hover:border-accent/50 hover:text-foreground transition-all cursor-pointer"
           >
             <ArrowLeft className="h-3.5 w-3.5" />
-            <span>返回即時監控</span>
+            <span>返回</span>
           </button>
           <div className="h-4 w-px bg-border" />
           <div className="flex items-center gap-2">

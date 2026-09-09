@@ -182,3 +182,57 @@ describe('Dashboard — Market Clarity (Phase 8C-B)', () => {
     expect(screen.getByText('台股資料狀態')).toBeInTheDocument()
   })
 })
+
+// DAILY_USE_CORE_UX_FIXES (P1-1) — 「今日市場強弱」不可把 data_quality
+// 不完整時的 0/0/0 當成正式市場結果呈現; 完整資料時(即使真的全 0)則照實顯示。
+describe('Dashboard — Market data honesty (DAILY_USE_CORE_UX_FIXES P1-1)', () => {
+  it('A. complete data renders normally, without the incomplete-data notice', async () => {
+    vi.mocked(api.taiwanMarketIntelligence).mockResolvedValue(buildMarketIntelligence() as any)
+    renderDashboard()
+
+    expect(await screen.findByText('今日市場強弱')).toBeInTheDocument()
+    expect(await screen.findByText('600')).toBeInTheDocument()
+    expect(screen.queryByText(/今日市場資料尚未完整/)).not.toBeInTheDocument()
+  })
+
+  it('B. partial data shows a clear incomplete-data notice', async () => {
+    vi.mocked(api.taiwanMarketIntelligence).mockResolvedValue(buildMarketIntelligence({
+      data_quality: { target_trade_date: '2026-09-09', previous_trade_date: '2026-09-03', overall_status: 'partial', universe_supported_symbols: 2375, daily_snapshot_symbols: 0, missing_symbols_count: 2375 },
+    }) as any)
+    renderDashboard()
+
+    expect(await screen.findByText(/今日市場資料尚未完整/)).toBeInTheDocument()
+    expect(screen.getByText(/前一交易日：2026-09-03/)).toBeInTheDocument()
+    expect(screen.queryByText(/已知最新資料|最新資料日期|非今日實際行情/)).not.toBeInTheDocument()
+  })
+
+  it('C. partial data with all-zero totals still shows the notice, not a bare 0/0/0 result', async () => {
+    vi.mocked(api.taiwanMarketIntelligence).mockResolvedValue(buildMarketIntelligence({
+      market_totals: {
+        supported_count: 2375, snapshot_row_count: 0, traded_count: 0,
+        advance_count: 0, decline_count: 0, flat_count: 0, uncompared_count: 0,
+        upper_limit_count: 0, lower_limit_count: 0, turnover: 0,
+      },
+      data_quality: { target_trade_date: '2026-09-09', previous_trade_date: '2026-09-03', overall_status: 'partial', universe_supported_symbols: 2375, daily_snapshot_symbols: 0, missing_symbols_count: 2375 },
+    }) as any)
+    renderDashboard()
+
+    expect(await screen.findByText(/今日市場資料尚未完整/)).toBeInTheDocument()
+    // 0/0/0 本身仍可顯示(誠實反映 API 回傳值), 但必須伴隨明確提示, 而非唯一線索
+    expect(screen.getAllByText('0').length).toBeGreaterThan(0)
+  })
+
+  it('D. strength label (偏強/偏弱/中性) is suppressed while data is incomplete, even if the ratio would otherwise qualify', async () => {
+    // advance 600 / (600+300+50) ≈ 66.7% -> 若資料完整會判為偏強, 但這裡
+    // overall_status = partial, 不應顯示任何 deterministic 強弱結論。
+    vi.mocked(api.taiwanMarketIntelligence).mockResolvedValue(buildMarketIntelligence({
+      data_quality: { target_trade_date: '2026-09-09', previous_trade_date: '2026-09-03', overall_status: 'partial', universe_supported_symbols: 2375, daily_snapshot_symbols: 950, missing_symbols_count: 1425 },
+    }) as any)
+    renderDashboard()
+
+    expect(await screen.findByText(/今日市場資料尚未完整/)).toBeInTheDocument()
+    expect(screen.queryByText('偏強')).not.toBeInTheDocument()
+    expect(screen.queryByText('偏弱')).not.toBeInTheDocument()
+    expect(screen.queryByText('中性')).not.toBeInTheDocument()
+  })
+})

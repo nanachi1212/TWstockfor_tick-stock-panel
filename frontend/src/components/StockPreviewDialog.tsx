@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { motion, AnimatePresence } from 'framer-motion'
-import { X, RefreshCw, Clock, LineChart, Star, RadioTower, Maximize2, Minimize2, Scale, ChevronDown } from 'lucide-react'
+import { X, RefreshCw, Clock, LineChart, Star, RadioTower, Maximize2, Minimize2, Scale, ChevronDown, ExternalLink } from 'lucide-react'
 import { api } from '@/lib/api'
 import { QK } from '@/lib/queryKeys'
 import { cn } from '@/lib/cn'
@@ -359,6 +359,26 @@ export function StockPreviewDialog({ symbol, name, onClose, triggerInfo }: Props
                     aria-label={`將 ${symbol} 加入比較`}
                   >
                     <Scale className="h-4 w-4" />
+                  </button>
+                )}
+
+                {/* DAILY_USE_CORE_UX_FIXES (P1-3): 查看完整個股 — 這裡的日K/分時是
+                    輕量預覽(generic /api/kline/daily), 該來源沒資料時本 dialog
+                    只能空白; 完整版 TaiwanStockDetail 走專屬台股資料層, 常常仍有
+                    資料。提供明確出口, 不讓使用者卡在空白圖表, 僅台股標的顯示
+                    (與「加入比較」同一限制, 路由本身是台股專用頁)。*/}
+                {isTaiwanSymbol && (
+                  <button
+                    onClick={() => {
+                      const target = symbol!
+                      onClose()
+                      navigate(`/stocks/${encodeURIComponent(target)}`)
+                    }}
+                    className="p-1.5 rounded-btn text-secondary hover:bg-elevated hover:text-foreground transition-colors cursor-pointer"
+                    title="查看完整個股"
+                    aria-label={`查看 ${symbol} 完整個股頁`}
+                  >
+                    <ExternalLink className="h-4 w-4" />
                   </button>
                 )}
 

@@ -28,6 +28,7 @@ import { EChartsCandlestick, type OHLC } from '@/components/EChartsCandlestick'
 import { TaiwanReferenceData } from '@/components/taiwan/TaiwanReferenceData'
 import { DataQualityBadge, formatQuoteSource } from '@/components/taiwan/TaiwanDataQuality'
 import { WatchlistAddMenu } from '@/components/WatchlistAddMenu'
+import { useSafeBack } from '@/lib/useSafeBack'
 
 const RANGE_OPTIONS = [
   { label: '1 個月', days: 30 },
@@ -40,6 +41,11 @@ export function TaiwanStockDetail() {
   const { symbol: routeSymbol } = useParams<{ symbol: string }>()
   const navigate = useNavigate()
   const qc = useQueryClient()
+  // DAILY_USE_CORE_UX_FIXES (P1-2): 個股詳細頁可從監控中心/台股選股/自選股/
+  // StockPreview 等多處進入, 不再固定寫死「返回即時監控」→ /monitor。優先用
+  // 瀏覽器站內 history back; 直接輸入網址等沒有可信站內來源時, 回退到台股選股
+  // (最常見的個股研究起點)。
+  const goBack = useSafeBack('/taiwan-screener')
 
   const rawSymbol = routeSymbol || '2330.TWSE'
   const symbol = rawSymbol.toUpperCase()
@@ -157,11 +163,11 @@ export function TaiwanStockDetail() {
       <div className="sticky top-0 z-30 flex items-center justify-between border-b border-border bg-surface/90 px-4 py-2.5 backdrop-blur-md">
         <div className="flex items-center gap-3">
           <button
-            onClick={() => navigate('/monitor')}
+            onClick={goBack}
             className="flex items-center gap-1.5 rounded-lg border border-border/80 bg-base px-2.5 py-1 text-xs font-medium text-muted hover:border-accent/50 hover:text-foreground transition-all cursor-pointer"
           >
             <ArrowLeft className="h-3.5 w-3.5" />
-            <span>返回即時監控</span>
+            <span>返回</span>
           </button>
           <div className="h-4 w-px bg-border" />
           <div className="flex items-center gap-2">

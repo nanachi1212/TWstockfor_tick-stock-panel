@@ -232,7 +232,13 @@ function MarketStrengthCard() {
   // 保持 null —— 避免把「無資料」誤判成「偏弱」而顯示假結論。
   const countedTotal = totals ? totals.advance_count + totals.decline_count + totals.flat_count : 0
   const advanceRatio = totals && countedTotal > 0 ? totals.advance_count / countedTotal : null
-  const label = taiwanStrengthLabel(advanceRatio)
+  // DAILY_USE_CORE_UX_FIXES (P1-1): 與 TaiwanScreener 同一份 data_quality 欄位
+  // (overall_status !== 'complete' 時下方漲/平/跌/成交額可能全部是 0、也可能
+  // 只是部分到位 —— 兩種情形都不該讓「偏強/偏弱/中性」這類 deterministic 結論
+  // 顯示出來)。沿用 TaiwanScreener 既有判斷條件,不新增第二套完整性計算;只是
+  // 把同一個既有 badge 樣式語意搬來這裡。
+  const dataIncomplete = intel.data ? intel.data.data_quality?.overall_status !== 'complete' : false
+  const label = dataIncomplete ? null : taiwanStrengthLabel(advanceRatio)
 
   return (
     <section className="mb-1.5 rounded-card border border-border bg-surface/80 p-2.5 shadow-[0_1px_2px_hsl(var(--border)/0.4)] backdrop-blur-sm">
@@ -245,6 +251,14 @@ function MarketStrengthCard() {
         <p className="py-4 text-xs text-muted">目前無法讀取市場強弱資料,不影響其他功能使用。</p>
       ) : (
         <>
+          {dataIncomplete && (
+            <div className="mb-1.5 rounded border border-warning/40 bg-warning/10 px-2 py-1 text-[11px] text-warning">
+              今日市場資料尚未完整，以下統計僅供參考
+              {intel.data?.data_quality?.previous_trade_date && (
+                <>；前一交易日：{intel.data.data_quality.previous_trade_date}</>
+              )}
+            </div>
+          )}
           <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
             <span className="text-bull">漲 <span className="font-mono font-semibold">{totals.advance_count}</span></span>
             <span className="text-muted">平 <span className="font-mono">{totals.flat_count}</span></span>

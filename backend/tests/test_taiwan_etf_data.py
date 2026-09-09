@@ -72,3 +72,21 @@ def test_leveraged_codes_do_not_create_multiplier_without_official_field():
     for code in ("00631L", "00632R"):
         profile = _provider({**ROW, "基金代號": code}).profile(f"{code}.TWSE", "TWSE")
         assert profile.leverage_multiplier is None and profile.inverse is None
+
+
+@pytest.mark.parametrize("raw_name,expected_name", [
+    ("元大S&amp;P500", "元大S&P500"),
+    ("元大S&#38;P500", "元大S&P500"),
+    ("元大S&#x26;P500", "元大S&P500"),
+    ("元大S&P500", "元大S&P500"),
+])
+def test_official_profile_normalizes_html_entities(raw_name, expected_name):
+    row = {
+        **ROW,
+        "基金代號": "00646",
+        "基金簡稱": raw_name,
+        "標的指數/追蹤指數名稱": "S&amp;P 500 指數",
+    }
+    profile = _provider(row).profile("00646.TWSE", "TWSE")
+    assert profile.name == expected_name
+    assert profile.benchmark == "S&P 500 指數"
