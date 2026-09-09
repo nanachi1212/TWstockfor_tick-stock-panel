@@ -28,6 +28,7 @@ import { WatchlistGroupCards } from '@/components/WatchlistGroupCards'
 import { WatchlistGroupStatsBar } from '@/components/WatchlistGroupStatsBar'
 import { ExtensionSlot } from '@/extensions/ExtensionSlot'
 import { MIN_COMPARE_SYMBOLS, MAX_COMPARE_SYMBOLS } from '@/lib/taiwanCompareSymbols'
+import { DataQualityBadge } from '@/components/taiwan/TaiwanDataQuality'
 
 // 分时列开放排序 (StockDataTable 实例级白名单; 表头眼睛/刷新按钮已 stopPropagation)
 const INTRADAY_SORTABLE_KEYS = new Set(['intraday'])
@@ -1797,7 +1798,17 @@ export function Watchlist() {
                 // 实时行情列：price/pct/amount 使用 rt_ 回退（自选页有实时推送）
                 const numCls = 'px-2 py-1.5 text-right num tabular-nums'
                 if (key === 'price') {
-                  return <td className={`${numCls} ${priceColorClass(pct)}`}>{fmtPrice(price)}</td>
+                  // Data Freshness & Source Labels batch: 現價旁補上精簡新鮮度徽章
+                  // (即時/延遲/快照/過期), 只有 Taiwan symbol 才有 source_meta —
+                  // legacy A 股 row 沒有這個欄位, DataQualityBadge 會直接不渲染。
+                  return (
+                    <td className={`${numCls} ${priceColorClass(pct)}`}>
+                      <span className="inline-flex items-center justify-end gap-1 w-full">
+                        {r.source_meta && <DataQualityBadge meta={r.source_meta} quoteTime={r.quote_time} />}
+                        <span>{fmtPrice(price)}</span>
+                      </span>
+                    </td>
+                  )
                 }
                 if (key === 'pct') {
                   return <td className={`${numCls} ${priceColorClass(pct)}`}>{fmtPct(pct)}</td>

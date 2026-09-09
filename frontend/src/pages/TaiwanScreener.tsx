@@ -528,6 +528,17 @@ export function TaiwanScreener() {
               <BarChart3 className="w-4 h-4 text-purple-400" />
               <span className="font-semibold text-zinc-200 text-sm">台股全市場量化統計快照 (Market Intelligence)</span>
               <span className="text-zinc-500 font-mono text-[11px]">交易日: {intelData.trade_date}</span>
+              {/* Data Freshness & Source Labels batch: trade_date 是「應有最新
+                  交易日」(resolve_target_latest_trading_date, 依當下時間與收盤
+                  時間推算)，不等於本地實際持有資料的日期。當該日尚無完整市場
+                  資料時 (data_quality.overall_status !== 'complete')，下方統計
+                  會全部是 0 —— 不加註明容易被誤讀為「今日零成交」。沿用本頁
+                  上方既有的 待更新 badge 視覺樣式，不新造一套。 */}
+              {intelData.data_quality?.overall_status !== 'complete' && (
+                <span className="px-1.5 py-0.5 rounded bg-amber-900/50 text-amber-400 font-medium text-[10px]">
+                  尚無完整市場資料，以下統計非今日實際行情
+                </span>
+              )}
             </div>
             <div className="text-[11px] text-zinc-400">
               全市場成交額: <strong className="text-zinc-200 font-mono">{(intelData.market_totals.turnover / 100_000_000).toFixed(1)}</strong> 億元

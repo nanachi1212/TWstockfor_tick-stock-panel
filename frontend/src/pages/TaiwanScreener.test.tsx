@@ -485,3 +485,46 @@ describe('Results table density (Phase 8C-C)', () => {
     expect(screen.getByText('RSI (14)')).toBeInTheDocument()
   })
 })
+
+// Data Freshness & Source Labels batch (Post-8C follow-up)：Market Intelligence
+// 的 trade_date 是「應有最新交易日」(resolve_target_latest_trading_date, 依當下
+// 時間推算)，不是本地實際持有資料的日期。當該日尚無完整市場資料時，下方統計
+// 全部是 0 —— 若沒有明確標示，容易被誤讀為「今日零成交」而非「無資料」。
+function buildMarketIntelligence(overrides: Partial<Record<string, any>> = {}) {
+  return {
+    trade_date: '2026-09-08',
+    generated_at: '2026-09-08T16:00:00+08:00',
+    market_totals: {
+      supported_count: 2375, snapshot_row_count: 0, traded_count: 0,
+      advance_count: 0, decline_count: 0, flat_count: 0, uncompared_count: 0,
+      upper_limit_count: 0, lower_limit_count: 0, turnover: 0,
+    },
+    by_exchange: { twse: { turnover: 0 } as any, tpex: { turnover: 0 } as any },
+    by_instrument: { stock: {} as any, etf: {} as any },
+    institutional: { trade_date: '2026-09-08', row_count: 0, foreign_net: null, investment_trust_net: null, dealer_net: null, total_net: null, status: 'unavailable' },
+    margin: { trade_date: '2026-09-08', row_count: 0, margin_balance: null, margin_balance_change: null, short_balance: null, short_balance_change: null, aggregate_short_margin_ratio: null, status: 'unavailable' },
+    indexes: { taiex: null, tpex_index: null },
+    data_quality: { target_trade_date: '2026-09-08', previous_trade_date: '2026-09-03', overall_status: 'unavailable', universe_supported_symbols: 2375, daily_snapshot_symbols: 0, missing_symbols_count: 2375 },
+    ...overrides,
+  }
+}
+
+describe('Market Intelligence date honesty (Data Freshness & Source Labels batch)', () => {
+  it('shows an explicit "no complete data" notice when data_quality.overall_status is not complete, instead of silently presenting all-zero stats as today\'s real market', async () => {
+    vi.mocked(api.taiwanMarketIntelligence).mockResolvedValue(buildMarketIntelligence() as any)
+    renderScreener()
+
+    await screen.findByText('交易日: 2026-09-08')
+    expect(screen.getByText('尚無完整市場資料，以下統計非今日實際行情')).toBeInTheDocument()
+  })
+
+  it('does not show the notice when data_quality.overall_status is complete (genuine zero-activity day stays unflagged)', async () => {
+    vi.mocked(api.taiwanMarketIntelligence).mockResolvedValue(
+      buildMarketIntelligence({ data_quality: { target_trade_date: '2026-09-08', previous_trade_date: '2026-09-05', overall_status: 'complete', universe_supported_symbols: 2375, daily_snapshot_symbols: 2375, missing_symbols_count: 0 } }) as any,
+    )
+    renderScreener()
+
+    await screen.findByText('交易日: 2026-09-08')
+    expect(screen.queryByText('尚無完整市場資料，以下統計非今日實際行情')).not.toBeInTheDocument()
+  })
+})

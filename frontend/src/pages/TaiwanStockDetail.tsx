@@ -26,6 +26,7 @@ import { loadLastCompareSymbols, mergeSymbolIntoCompare } from '@/lib/taiwanComp
 import { TaiwanRuleEditorDialog } from '@/components/monitor/TaiwanRuleEditorDialog'
 import { EChartsCandlestick, type OHLC } from '@/components/EChartsCandlestick'
 import { TaiwanReferenceData } from '@/components/taiwan/TaiwanReferenceData'
+import { DataQualityBadge, formatQuoteSource } from '@/components/taiwan/TaiwanDataQuality'
 import { WatchlistAddMenu } from '@/components/WatchlistAddMenu'
 
 const RANGE_OPTIONS = [
@@ -363,11 +364,14 @@ export function TaiwanStockDetail() {
                       <span>({sign}{data.realtime.change_pct?.toFixed(2)}%)</span>
                     </div>
                   )}
-                  {data.realtime.meta?.status && (
-                    <span className="rounded-full bg-elevated px-2.5 py-0.5 text-[11px] text-muted border border-border/80">
-                      {data.realtime.meta.status === 'official_snapshot' ? '盤後快照' : '近即時行情'}
-                    </span>
-                  )}
+                  {/* Data Freshness & Source Labels batch: 原本此徽章比對
+                      meta.status === 'official_snapshot'，但 backend
+                      _aggregate_realtime() 實際只會產生 "available"/"stale"
+                      兩種 status（見 detail_service.py），該比對永遠不成立，
+                      導致無論真實新鮮度為何都固定顯示「近即時行情」——與下方
+                      footer 的「⚠️ 資料已過期」互相矛盾。改用與 Watchlist /
+                      Monitor 共用的同一套判斷與用語。 */}
+                  <DataQualityBadge meta={data.realtime.meta} quoteTime={data.realtime.quote_time} />
                 </div>
               </div>
 
@@ -555,9 +559,11 @@ export function TaiwanStockDetail() {
                 </div>
               </div>
 
-              {/* 來源與新鮮度 */}
+              {/* 來源與新鮮度 — 來源不再原樣顯示 provider 內部識別碼
+                  (如 "yahoo:chart")，改用與 Watchlist/Monitor 共用的
+                  formatQuoteSource 顯示名稱。 */}
               <div className="mt-4 pt-3 border-t border-border/60 text-[11px] text-muted flex items-center justify-between">
-                <span>來源: {data.realtime.meta?.source || '官方即時資訊'}</span>
+                <span>來源: {formatQuoteSource(data.realtime.meta?.source)}</span>
                 <span>{data.realtime.meta?.is_stale ? '⚠️ 資料已過期' : '即時更新正常'}</span>
               </div>
             </div>

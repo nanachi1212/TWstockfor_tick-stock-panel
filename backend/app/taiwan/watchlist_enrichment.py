@@ -200,6 +200,14 @@ def enrich_taiwan_watchlist_rows(
             "change_amount": _sanitize_float(q.change) if q else None,
             "change_pct": _to_fraction_pct(q.change_pct) if q else None,
             "amount": _sanitize_float(q.amount) if q else None,
+            # Data Freshness & Source Labels batch (Post-8C follow-up): 透传既有
+            # TaiwanRealtimeQuote 的 provenance/staleness metadata, 不新造 schema —
+            # source_meta 直接重用 SourceMeta.to_dict()（Monitor /api/intraday/quotes
+            # 与 StockDetail 已经在用同一份数据, 这里之前漏掉了透传）。quote_time 额外
+            # 摊平出来方便前端直接读, 不需要为了一个字段解一层 source_meta。
+            # quote 查无(q is None)时两者都是 None, 不伪造新鲜度状态。
+            "quote_time": q.quote_time.isoformat() if q and q.quote_time else None,
+            "source_meta": q.source_meta.to_dict() if q and q.source_meta else None,
             "ma5": _sanitize_float(ind.get("ma5")),
             "ma10": _sanitize_float(ind.get("ma10")),
             "ma20": _sanitize_float(ind.get("ma20")),

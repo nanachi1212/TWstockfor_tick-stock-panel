@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 
 import polars as pl
 import pytest
@@ -31,6 +31,26 @@ class _FakeSecurityMaster:
 
 
 @dataclass
+class _FakeSourceMeta:
+    """镜像 app.taiwan.enrichment.models.SourceMeta 的最小 fake, 只为测试
+    watchlist_enrichment 对 source_meta 的透传, 不依赖真实 provider 模型。"""
+    source: str = "twse:mis"
+    is_stale: bool = False
+    freshness_class: str = "best_effort_near_realtime"
+    fallback_reason: str | None = None
+    trade_date: date | None = None
+
+    def to_dict(self) -> dict:
+        return {
+            "source": self.source,
+            "is_stale": self.is_stale,
+            "freshness_class": self.freshness_class,
+            "fallback_reason": self.fallback_reason,
+            "trade_date": self.trade_date.isoformat() if self.trade_date else None,
+        }
+
+
+@dataclass
 class _FakeQuote:
     last_price: float | None
     prev_close: float | None
@@ -41,6 +61,8 @@ class _FakeQuote:
     change_pct: float | None
     volume: int | None
     amount: float | None
+    quote_time: object | None = None
+    source_meta: _FakeSourceMeta | None = None
 
 
 class _FakeRealtimeService:
@@ -407,3 +429,136 @@ def test_indicator_computation_uses_single_batch_read(monkeypatch):
     )
     for call_symbols in read_range_calls:
         assert sorted(call_symbols) == ["2330.TWSE", "6488.TPEX"], "每次调用都应是整批 symbol, 不是逐个"
+
+
+# ===== Data Freshness & Source Labels batch (Post-8C follow-up): =====
+# Monitor (/api/intraday/quotes) 与 StockDetail 一直都完整透传
+# TaiwanRealtimeQuote.source_meta / quote_time; enrich_taiwan_watchlist_rows
+# 之前组 row dict 时把这两个字段漏掉了, 导致 Watchlist 前端完全拿不到新鲜度/
+# 来源信息(见 Data Source Consistency & Freshness Audit report §D)。以下测试
+# 覆盖补上的透传逻辑本身, 不重新验证 realtime_service 的 fallback chain(那部分
+# 已由 test_taiwan_realtime_service.py 等既有测试覆盖)。
+
+def test_watchlist_row_preserves_source_meta():
+    """有 quote 时, row["source_meta"] 应是 q.source_meta.to_dict() 的原样结果。"""
+    sec_master = _FakeSecurityMaster({
+        "2330.TWSE": _FakeInstrument(name="台積電", instrument_type="stock"),
+    })
+    meta = _FakeSourceMeta(source="twse:mis", is_stale=False, freshness_class="best_effort_near_realtime")
+    rt_service = _FakeRealtimeService({
+        "2330.TWSE": _FakeQuote(
+            1100.0, 1080.0, 1085.0, 1105.0, 1082.0, 20.0, 1.85, 1, 1.0,
+            source_meta=meta,
+        ),
+    })
+    rows = enrich_taiwan_watchlist_rows(
+        ["2330.TWSE"], security_master=sec_master, realtime_service=rt_service,
+        daily_store=_FakeDailyStore(),
+    )
+    row = rows[0]
+    assert row["source_meta"] == meta.to_dict()
+    assert row["source_meta"]["source"] == "twse:mis"
+    assert row["source_meta"]["freshness_class"] == "best_effort_near_realtime"
+
+
+def test_watchlist_row_is_stale_survives_serialization():
+    """is_stale=True 的 quote, row["source_meta"]["is_stale"] 必须原样是 True
+    (不能因为序列化被静默丢掉或换成假的 False)。"""
+    sec_master = _FakeSecurityMaster({
+        "2330.TWSE": _FakeInstrument(name="台積電", instrument_type="stock"),
+    })
+    meta = _FakeSourceMeta(source="yahoo:chart", is_stale=True, freshness_class="delayed_15m")
+    rt_service = _FakeRealtimeService({
+        "2330.TWSE": _FakeQuote(
+            2480.0, 2470.0, 2490.0, 2490.0, 2475.0, 10.0, 0.40, 1, 1.0,
+            source_meta=meta,
+        ),
+    })
+    rows = enrich_taiwan_watchlist_rows(
+        ["2330.TWSE"], security_master=sec_master, realtime_service=rt_service,
+        daily_store=_FakeDailyStore(),
+    )
+    row = rows[0]
+    assert row["source_meta"]["is_stale"] is True
+    assert row["source_meta"]["freshness_class"] == "delayed_15m"
+
+
+def test_watchlist_row_quote_time_survives_serialization():
+    """quote_time 应以 ISO 字串落到 row["quote_time"], 与 q.quote_time.isoformat() 一致。"""
+    sec_master = _FakeSecurityMaster({
+        "2330.TWSE": _FakeInstrument(name="台積電", instrument_type="stock"),
+    })
+    qt = datetime(2026, 9, 9, 9, 53, 58)
+    rt_service = _FakeRealtimeService({
+        "2330.TWSE": _FakeQuote(
+            2480.0, 2470.0, 2490.0, 2490.0, 2475.0, 10.0, 0.40, 1, 1.0,
+            quote_time=qt, source_meta=_FakeSourceMeta(),
+        ),
+    })
+    rows = enrich_taiwan_watchlist_rows(
+        ["2330.TWSE"], security_master=sec_master, realtime_service=rt_service,
+        daily_store=_FakeDailyStore(),
+    )
+    row = rows[0]
+    assert row["quote_time"] == qt.isoformat()
+
+
+def test_watchlist_row_fallback_reason_survives_serialization():
+    """降级 fallback 时的 fallback_reason 应保留在 source_meta 内, 供前端 tooltip 使用。"""
+    sec_master = _FakeSecurityMaster({
+        "2330.TWSE": _FakeInstrument(name="台積電", instrument_type="stock"),
+    })
+    meta = _FakeSourceMeta(
+        source="yahoo:chart", is_stale=True, freshness_class="delayed_15m",
+        fallback_reason="Primary MIS unavailable or missing symbol",
+    )
+    rt_service = _FakeRealtimeService({
+        "2330.TWSE": _FakeQuote(
+            2480.0, 2470.0, 2490.0, 2490.0, 2475.0, 10.0, 0.40, 1, 1.0,
+            source_meta=meta,
+        ),
+    })
+    rows = enrich_taiwan_watchlist_rows(
+        ["2330.TWSE"], security_master=sec_master, realtime_service=rt_service,
+        daily_store=_FakeDailyStore(),
+    )
+    row = rows[0]
+    assert row["source_meta"]["fallback_reason"] == "Primary MIS unavailable or missing symbol"
+
+
+def test_watchlist_row_missing_metadata_does_not_crash():
+    """quote 存在但 quote_time/source_meta 都是 None (旧 fixture / mock 不完整) 时,
+    row 仍正常返回, 不因缺 metadata 而抛异常; 价格字段不受影响。"""
+    sec_master = _FakeSecurityMaster({
+        "2330.TWSE": _FakeInstrument(name="台積電", instrument_type="stock"),
+    })
+    rt_service = _FakeRealtimeService({
+        "2330.TWSE": _FakeQuote(
+            2480.0, 2470.0, 2490.0, 2490.0, 2475.0, 10.0, 0.40, 1, 1.0,
+            quote_time=None, source_meta=None,
+        ),
+    })
+    rows = enrich_taiwan_watchlist_rows(
+        ["2330.TWSE"], security_master=sec_master, realtime_service=rt_service,
+        daily_store=_FakeDailyStore(),
+    )
+    row = rows[0]
+    assert row["quote_time"] is None
+    assert row["source_meta"] is None
+    assert row["close"] == 2480.0  # 价格字段不受 metadata 缺失影响
+
+
+def test_watchlist_row_no_quote_at_all_has_no_fake_metadata():
+    """完全查无 quote 的 symbol (q is None): quote_time/source_meta 应是 None,
+    不得伪造出「即時」之类假新鲜度状态。"""
+    sec_master = _FakeSecurityMaster({
+        "9999.TWSE": _FakeInstrument(name="測試無資料股", instrument_type="stock"),
+    })
+    rt_service = _FakeRealtimeService(quotes={})
+    rows = enrich_taiwan_watchlist_rows(
+        ["9999.TWSE"], security_master=sec_master, realtime_service=rt_service,
+        daily_store=_FakeDailyStore(),
+    )
+    row = rows[0]
+    assert row["quote_time"] is None
+    assert row["source_meta"] is None
