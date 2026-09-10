@@ -36,8 +36,8 @@ export function Monitor() {
   })
   const total = alertsQuery.data?.total ?? 0
 
-  // 进入监控页: 清零未读徽标 + 记录"进入时刻", 之后新增的记录会闪烁
-  // 离开监控页: 停止同步, 之后新增才计入未读
+  // 進入監控頁: 清零未讀徽標 + 記錄"進入時刻", 之後新增的記錄會閃爍
+  // 離開監控頁: 停止同步, 之後新增才計入未讀
   const enterTsRef = useRef<number>(Date.now())
   useEffect(() => {
     enterTsRef.current = Date.now()

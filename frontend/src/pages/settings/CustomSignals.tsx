@@ -283,7 +283,7 @@ function fieldLabel(key: string, fields: { key: string; label: string }[]): stri
   return fields.find(f => f.key === key)?.label ?? key
 }
 
-/** 带偏移标注的字段显示: 收盘价(前1日) / MA20(最新省略) */
+/** 帶偏移標註的字段顯示: 收盤價(前1日) / MA20(最新省略) */
 function fieldWithDays(key: string, days: number | undefined, fields: { key: string; label: string }[]): string {
   const label = fieldLabel(key, fields)
   return days && days > 0 ? `${label}(前${days}日)` : label

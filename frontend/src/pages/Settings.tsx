@@ -1,7 +1,7 @@
 /**
- * 统一设置页面 — Tab 切换外壳。
+ * 統一設置頁面 — Tab 切換外殼。
  *
- * 通过 URL query param ?tab=xxx 同步 Tab 状态。
+ * 通過 URL query param ?tab=xxx 同步 Tab 狀態。
  */
 import { useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
@@ -19,7 +19,7 @@ import { cn } from '@/lib/cn'
 
 import type { ComponentType } from 'react'
 
-// ===== Tab 定义 =====
+// ===== Tab 定義 =====
 
 type TabDef = {
   key: string
@@ -47,7 +47,7 @@ export function Settings() {
   const activeTab = TABS.find((t) => t.key === tabParam) ?? TABS[0]
   const highlight = searchParams.get('highlight') ?? ''
 
-  // 设置菜单收起状态 — 持久化到 localStorage
+  // 設置菜單收起狀態 — 持久化到 localStorage
   const [collapsed, setCollapsed] = useState(() => {
     try { return localStorage.getItem('tf-settings-nav-collapsed') === '1' } catch { return false }
   })
@@ -68,10 +68,10 @@ export function Settings() {
 
       <div className="px-8 py-6">
         <div className="flex gap-6 items-stretch">
-          {/* ===== 竖向 Tab 侧栏 ===== */}
+          {/* ===== 豎向 Tab 側欄 ===== */}
           <nav className={cn('shrink-0 transition-all duration-200 ease-smooth', collapsed ? 'w-10' : 'w-36')}>
             <div className="flex flex-col gap-0.5 justify-center min-h-[60vh] sticky top-6">
-              {/* 收起/展开 按钮 */}
+              {/* 收起/展開 按鈕 */}
               <button
                 onClick={toggleCollapsed}
                 className={cn(
@@ -87,7 +87,7 @@ export function Settings() {
                 {!collapsed && <span>收起選單</span>}
               </button>
 
-              {/* Tab 按钮列表 — 收起时只显示图标 */}
+              {/* Tab 按鈕列表 — 收起時只顯示圖標 */}
               {TABS.map(({ key, label, icon: Icon, badge }) => (
                 <button
                   key={key}
@@ -113,7 +113,7 @@ export function Settings() {
             </div>
           </nav>
 
-          {/* ===== Tab 内容 ===== */}
+          {/* ===== Tab 內容 ===== */}
           <motion.div
             key={activeTab.key}
             initial={{ opacity: 0, y: 6 }}

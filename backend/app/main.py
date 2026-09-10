@@ -82,7 +82,7 @@ if not getattr(sys, "frozen", False):
 @asynccontextmanager
 async def _application_lifespan(app: FastAPI):
     logger.info(
-        "Tick Stock Panel v%s starting (mode=%s)",
+        "Nanachi 的台股監控看板 v%s starting (mode=%s)",
         __version__, tf_client.current_mode(),
     )
 
@@ -206,16 +206,6 @@ async def _application_lifespan(app: FastAPI):
         timer.start()
     except Exception as e:  # noqa: BLE001
         logger.warning("integrity boot check scheduling failed: %s", e)
-
-    # 企业微信智能机器人长连接(可选通道, 失败不阻断启动)
-    try:
-        from app.services.wecom_bot_service import WecomBotService
-        wecom_bot_service = WecomBotService()
-        wecom_bot_service.set_app_state(app.state)
-        app.state.wecom_bot_service = wecom_bot_service
-        wecom_bot_service.boot_check()
-    except Exception as e:  # noqa: BLE001
-        logger.warning("wecom_bot_service init failed: %s", e)
 
     # Phase 8B-5.14 — 内置扩展表 (概念/行业, ext_gn_ths/ext_hy_ths) 为纯中国
     # A 股同花顺概念/行业分类资料, 对台股产品无必要性 (见 Phase 8B-5.13 audit)。
@@ -373,9 +363,6 @@ async def _application_lifespan(app: FastAPI):
         dsvc = getattr(app.state, "depth_service", None)
         if dsvc:
             dsvc.stop_polling()
-        wbot = getattr(app.state, "wecom_bot_service", None)
-        if wbot:
-            wbot.stop()
         logger.info("shutdown")
 
 
@@ -391,9 +378,9 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(
-    title="TickFlow 台股面板",
+    title="Nanachi 的台股監控看板",
     version=__version__,
-    description="台股選股 + 回測面板 — TickFlow 適配",
+    description="台股選股、監控與回測面板",
     lifespan=lifespan,
 )
 

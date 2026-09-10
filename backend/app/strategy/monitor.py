@@ -1301,7 +1301,7 @@ class MonitorRuleEngine:
                 "severity": severity,
                 "conditions": [],
                 "logic": "and",
-                "sealed_value": sealed_value,   # 预警封单量/额 (飞书+记录展示)
+                "sealed_value": sealed_value,   # 预警封单量/额 (外部推播+记录展示)
                 "sealed_metric": metric,
             })
         return events

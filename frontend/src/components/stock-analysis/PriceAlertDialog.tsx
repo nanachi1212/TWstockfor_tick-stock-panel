@@ -24,10 +24,10 @@ interface Props {
 }
 
 const COOLDOWNS = [
-  { value: 600, label: '10 分钟' },
-  { value: 1800, label: '30 分钟' },
-  { value: 3600, label: '1 小时' },
-  { value: 86400, label: '当日一次' },
+  { value: 600, label: '10 分鐘' },
+  { value: 1800, label: '30 分鐘' },
+  { value: 3600, label: '1 小時' },
+  { value: 86400, label: '當日一次' },
 ]
 
 function levelGroupLabel(level: PriceLevel) {
@@ -104,8 +104,8 @@ export function PriceAlertDialog({
     if (channelsInitialized.current || !prefs) return
     channelsInitialized.current = true
     const configured = new Set<string>()
-    if (prefs.feishu_webhook_url) configured.add('feishu')
-    if (prefs.wecom_webhook_url) configured.add('wecom')
+    if (prefs.line_configured) configured.add('line')
+    if (prefs.telegram_configured) configured.add('telegram')
     setChannels((prefs.webhook_default_channels ?? []).filter(channel => configured.has(channel)))
   }, [prefs])
 
@@ -140,7 +140,7 @@ export function PriceAlertDialog({
   const save = useMutation({
     mutationFn: () => api.monitorRuleSave({
       id: genRuleId(),
-      name: `点位提醒 · ${name || symbol} · ${direction === 'up' ? '涨至' : '跌至'}${selectedLabel || targetValue.toFixed(2)}`,
+      name: `點位提醒 · ${name || symbol} · ${direction === 'up' ? '漲至' : '跌至'}${selectedLabel || targetValue.toFixed(2)}`,
       enabled: true,
       type: 'price',
       asset_type: 'stock',
@@ -158,10 +158,10 @@ export function PriceAlertDialog({
     }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: QK.monitorRules })
-      toast('点位提醒已创建', 'success')
+      toast('點位提醒已創建', 'success')
       onClose()
     },
-    onError: error => toast(String((error as Error)?.message || '创建失败'), 'error'),
+    onError: error => toast(String((error as Error)?.message || '創建失敗'), 'error'),
   })
 
   const toggle = useMutation({
@@ -170,7 +170,7 @@ export function PriceAlertDialog({
       return api.monitorRuleSave({ ...persisted, enabled: !rule.enabled })
     },
     onSuccess: () => qc.invalidateQueries({ queryKey: QK.monitorRules }),
-    onError: error => toast(String((error as Error)?.message || '更新失败'), 'error'),
+    onError: error => toast(String((error as Error)?.message || '更新失敗'), 'error'),
   })
 
   const remove = useMutation({
@@ -178,9 +178,9 @@ export function PriceAlertDialog({
     onSuccess: () => {
       setConfirmDelete(null)
       qc.invalidateQueries({ queryKey: QK.monitorRules })
-      toast('点位提醒已删除', 'success')
+      toast('點位提醒已刪除', 'success')
     },
-    onError: error => toast(String((error as Error)?.message || '删除失败'), 'error'),
+    onError: error => toast(String((error as Error)?.message || '刪除失敗'), 'error'),
   })
 
   const selectLevel = (level: PriceLevel) => {
@@ -218,15 +218,15 @@ export function PriceAlertDialog({
           </span>
           <div className="min-w-0 flex-1">
             <div className="flex items-center gap-2">
-              <h2 id="price-alert-title" className="text-sm font-semibold text-foreground">点位提醒</h2>
+              <h2 id="price-alert-title" className="text-sm font-semibold text-foreground">點位提醒</h2>
               <span className="truncate text-xs text-secondary">{name || symbol}</span>
               <span className="shrink-0 font-mono text-[10px] text-muted">{symbol}</span>
             </div>
             <div className="mt-0.5 text-[10px] text-muted">
-              当前价 <span className="font-mono text-foreground">{currentPrice?.toFixed(2) ?? '—'}</span>
+              當前價 <span className="font-mono text-foreground">{currentPrice?.toFixed(2) ?? '—'}</span>
             </div>
           </div>
-          <button onClick={onClose} className="rounded-md p-1.5 text-muted transition-colors hover:bg-elevated hover:text-foreground" title="关闭">
+          <button onClick={onClose} className="rounded-md p-1.5 text-muted transition-colors hover:bg-elevated hover:text-foreground" title="關閉">
             <X className="h-4 w-4" />
           </button>
         </header>
@@ -247,10 +247,10 @@ export function PriceAlertDialog({
           <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4 sm:px-5">
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-[180px_1fr]">
               <div className="space-y-1.5">
-                <span className="text-[11px] text-muted">触发方向</span>
+                <span className="text-[11px] text-muted">觸發方向</span>
                 <div className="grid h-9 grid-cols-2 overflow-hidden rounded-md border border-border bg-base">
                   <button onClick={() => setDirection('up')} className={`inline-flex items-center justify-center gap-1 text-xs font-medium transition-colors ${direction === 'up' ? 'bg-bull/10 text-bull' : 'text-muted hover:text-foreground'}`}>
-                    <ArrowUp className="h-3.5 w-3.5" />涨至
+                    <ArrowUp className="h-3.5 w-3.5" />漲至
                   </button>
                   <button onClick={() => setDirection('down')} className={`inline-flex items-center justify-center gap-1 border-l border-border text-xs font-medium transition-colors ${direction === 'down' ? 'bg-bear/10 text-bear' : 'text-muted hover:text-foreground'}`}>
                     <ArrowDown className="h-3.5 w-3.5" />跌至
@@ -258,7 +258,7 @@ export function PriceAlertDialog({
                 </div>
               </div>
               <label className="space-y-1.5">
-                <span className="text-[11px] text-muted">目标价格</span>
+                <span className="text-[11px] text-muted">目標價格</span>
                 <div className="relative">
                   <input type="number" min="0" step="0.01" value={target} onChange={event => updateTarget(event.target.value)} className="h-9 w-full rounded-md border border-border bg-base px-3 pr-14 font-mono text-sm text-foreground focus:border-sky-400/50 focus:outline-none" />
                   {targetValid && currentPrice != null && (
@@ -272,7 +272,7 @@ export function PriceAlertDialog({
 
             <section className="mt-5">
               <div className="mb-2 flex items-center justify-between">
-                <span className="text-[11px] font-medium text-secondary">关键价位</span>
+                <span className="text-[11px] font-medium text-secondary">關鍵價位</span>
                 {levelsQuery.isLoading && <Loader2 className="h-3.5 w-3.5 animate-spin text-muted" />}
               </div>
               <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 sm:gap-x-4">
@@ -286,7 +286,7 @@ export function PriceAlertDialog({
                     </div>
                     <div className="divide-y divide-border/50 border-y border-border/50">
                       {group.levels.length === 0 ? (
-                        <div className="py-5 text-center text-[10px] text-muted">暂无价位</div>
+                        <div className="py-5 text-center text-[10px] text-muted">暫無價位</div>
                       ) : group.levels.map(level => {
                         const selected = Math.abs(Number(target) - level.value) < 0.005
                         return (
@@ -310,14 +310,14 @@ export function PriceAlertDialog({
 
             <div className="mt-5 grid grid-cols-1 gap-4 border-t border-border/60 pt-4 sm:grid-cols-2">
               <label className="space-y-1.5">
-                <span className="text-[11px] text-muted">重复提醒</span>
+                <span className="text-[11px] text-muted">重複提醒</span>
                 <select value={cooldown} onChange={event => setCooldown(Number(event.target.value))} className="h-9 w-full rounded-md border border-border bg-base px-3 text-xs text-foreground focus:outline-none">
                   {COOLDOWNS.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}
                 </select>
               </label>
               <label className="space-y-1.5">
-                <span className="text-[11px] text-muted">自定义提示</span>
-                <input value={message} onChange={event => updateMessage(event.target.value)} placeholder="留空使用默认内容" className="h-9 w-full rounded-md border border-border bg-base px-3 text-xs text-foreground placeholder:text-muted/50 focus:outline-none" />
+                <span className="text-[11px] text-muted">自定義提示</span>
+                <input value={message} onChange={event => updateMessage(event.target.value)} placeholder="留空使用默認內容" className="h-9 w-full rounded-md border border-border bg-base px-3 text-xs text-foreground placeholder:text-muted/50 focus:outline-none" />
               </label>
             </div>
 
@@ -325,11 +325,11 @@ export function PriceAlertDialog({
               <span className="text-[11px] text-muted">通知渠道</span>
               <div className="mt-2 flex flex-wrap gap-4">
                 <label className="inline-flex items-center gap-2 text-xs text-foreground">
-                  <input type="checkbox" checked disabled className="h-3.5 w-3.5 accent-sky-500" />站内
+                  <input type="checkbox" checked disabled className="h-3.5 w-3.5 accent-sky-500" />站內
                 </label>
                 {([
-                  { key: 'feishu', label: '飞书', configured: !!prefs?.feishu_webhook_url },
-                  { key: 'wecom', label: '企业微信', configured: !!prefs?.wecom_webhook_url },
+                  { key: 'line', label: 'LINE', configured: !!prefs?.line_configured },
+                  { key: 'telegram', label: 'Telegram', configured: !!prefs?.telegram_configured },
                 ]).map(channel => (
                   <label key={channel.key} className={`inline-flex items-center gap-2 text-xs ${channel.configured ? 'text-foreground' : 'text-muted/60'}`}>
                     <input type="checkbox" checked={channels.includes(channel.key)} disabled={!channel.configured} onChange={() => toggleChannel(channel.key)} className="h-3.5 w-3.5 accent-sky-500" />
@@ -342,7 +342,7 @@ export function PriceAlertDialog({
 
             {(alreadyReached || duplicate) && (
               <div className="mt-4 rounded-md border border-warning/30 bg-warning/5 px-3 py-2 text-[11px] text-warning">
-                {duplicate ? '相同方向和价格的提醒已存在。' : '当前价格已处于触发区间,请调整目标价格或触发方向。'}
+                {duplicate ? '相同方向和價格的提醒已存在。' : '當前價格已處於觸發區間,請調整目標價格或觸發方向。'}
               </div>
             )}
           </div>
@@ -353,7 +353,7 @@ export function PriceAlertDialog({
             ) : pointRules.length === 0 ? (
               <div className="flex flex-col items-center justify-center py-16 text-center">
                 <Bell className="h-6 w-6 text-muted/50" />
-                <span className="mt-2 text-xs text-muted">暂无点位提醒</span>
+                <span className="mt-2 text-xs text-muted">暫無點位提醒</span>
                 <button onClick={() => setTab('create')} className="mt-3 text-xs text-sky-400 hover:text-sky-300">新建提醒</button>
               </div>
             ) : (
@@ -368,15 +368,15 @@ export function PriceAlertDialog({
                       </span>
                       <span className="min-w-0 flex-1">
                         <span className="block truncate text-xs text-foreground">{rule.name}</span>
-                        <span className="mt-0.5 block font-mono text-[10px] text-muted">{isUp ? '涨至' : '跌至'} {alert.target.toFixed(2)} · {COOLDOWNS.find(item => item.value === rule.cooldown_seconds)?.label ?? `${rule.cooldown_seconds} 秒`}</span>
+                        <span className="mt-0.5 block font-mono text-[10px] text-muted">{isUp ? '漲至' : '跌至'} {alert.target.toFixed(2)} · {COOLDOWNS.find(item => item.value === rule.cooldown_seconds)?.label ?? `${rule.cooldown_seconds} 秒`}</span>
                       </span>
-                      <button role="switch" aria-checked={rule.enabled} onClick={() => toggle.mutate(rule)} disabled={toggle.isPending} className={`relative h-5 w-9 shrink-0 rounded-full transition-colors ${rule.enabled ? 'bg-sky-500' : 'bg-elevated'}`} title={rule.enabled ? '停用' : '启用'}>
+                      <button role="switch" aria-checked={rule.enabled} onClick={() => toggle.mutate(rule)} disabled={toggle.isPending} className={`relative h-5 w-9 shrink-0 rounded-full transition-colors ${rule.enabled ? 'bg-sky-500' : 'bg-elevated'}`} title={rule.enabled ? '停用' : '啟用'}>
                         <span className={`absolute top-0.5 h-4 w-4 rounded-full bg-white shadow transition-transform ${rule.enabled ? 'translate-x-[18px]' : 'translate-x-0.5'}`} />
                       </button>
                       {confirmDelete === rule.id ? (
-                        <button onClick={() => remove.mutate(rule.id)} disabled={remove.isPending} className="h-7 rounded-md border border-danger/30 bg-danger/10 px-2 text-[10px] text-danger">确认</button>
+                        <button onClick={() => remove.mutate(rule.id)} disabled={remove.isPending} className="h-7 rounded-md border border-danger/30 bg-danger/10 px-2 text-[10px] text-danger">確認</button>
                       ) : (
-                        <button onClick={() => setConfirmDelete(rule.id)} className="rounded-md p-1.5 text-muted hover:bg-danger/10 hover:text-danger" title="删除">
+                        <button onClick={() => setConfirmDelete(rule.id)} className="rounded-md p-1.5 text-muted hover:bg-danger/10 hover:text-danger" title="刪除">
                           <Trash2 className="h-3.5 w-3.5" />
                         </button>
                       )}
@@ -390,14 +390,14 @@ export function PriceAlertDialog({
 
         <footer className="flex min-h-14 items-center justify-between gap-3 border-t border-border/60 bg-base/30 px-5 py-2.5">
           <Link to="/monitor" onClick={onClose} className="inline-flex items-center gap-1 text-[11px] text-muted hover:text-sky-400">
-            监控中心<ExternalLink className="h-3 w-3" />
+            監控中心<ExternalLink className="h-3 w-3" />
           </Link>
           <div className="flex items-center gap-2">
             <button onClick={onClose} className="h-8 rounded-md border border-border px-3 text-xs text-secondary hover:text-foreground">取消</button>
             {tab === 'create' && (
               <button onClick={() => save.mutate()} disabled={!targetValid || alreadyReached || duplicate || save.isPending} className="inline-flex h-8 items-center gap-1.5 rounded-md bg-sky-500 px-4 text-xs font-medium text-white transition-colors hover:bg-sky-400 disabled:cursor-not-allowed disabled:opacity-40">
                 {save.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Bell className="h-3.5 w-3.5" />}
-                创建提醒
+                創建提醒
               </button>
             )}
           </div>

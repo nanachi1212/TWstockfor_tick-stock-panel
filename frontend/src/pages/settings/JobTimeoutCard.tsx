@@ -1,5 +1,5 @@
 /**
- * 数据任务超时配置卡片 — 从 DataSources 抽出, 放在系统设置页。
+ * 數據任務超時配置卡片 — 從 DataSources 抽出, 放在系統設置頁。
  */
 import { useState } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'

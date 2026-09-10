@@ -115,7 +115,7 @@ function SortableItem({ entry, hidden, onToggleHidden, badgeEnabled, onToggleBad
           <ExternalLink className="h-3.5 w-3.5" />
         </Link>
       </div>
-      {/* 第 6 列: 徽标开关 (仅监控中心) */}
+      {/* 第 6 列: 徽標開關 (僅監控中心) */}
       <div className="flex justify-center">
         {onToggleBadge && (
           <button
@@ -159,7 +159,7 @@ export function SettingsMenuSettingsPanel() {
     }
     for (const e of BUILTIN_PAGES) {
       if (seen.has(e.id)) continue
-      // 未保存过排序的新条目: 内置页插回默认位置
+      // 未保存過排序的新條目: 內置頁插回默認位置
       const defaultIndex = BUILTIN_PAGES.findIndex(p => p.id === e.id)
       let anchor = -1
       if (defaultIndex > 0) {
@@ -190,7 +190,7 @@ export function SettingsMenuSettingsPanel() {
     }
     for (const e of allEntries) {
       if (seen.has(e.id)) continue
-      // 与 allEntries 同一语义: 未保存的新内置页插回默认位置而非追加到末尾
+      // 與 allEntries 同一語義: 未保存的新內置頁插回默認位置而非追加到末尾
       const defaultIndex = BUILTIN_PAGES.findIndex(p => p.id === e.id)
       let anchor = -1
       if (defaultIndex > 0) {
@@ -242,7 +242,7 @@ export function SettingsMenuSettingsPanel() {
     saveNavHidden.mutate([...next])
   }
 
-  // 监控中心徽标开关 (localStorage)
+  // 監控中心徽標開關 (localStorage)
   const [badgeEnabled, setBadgeEnabled] = useState(() => {
     try { return localStorage.getItem('monitor_badge_enabled') !== '0' } catch { return true }
   })

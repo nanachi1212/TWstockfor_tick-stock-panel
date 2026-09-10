@@ -5,7 +5,7 @@ import { KeyRound, Play, Plus, Save, Trash2, X, Zap, Check, ChevronDown } from '
 import { api, type CustomSourceConfig, type DatasetConfig } from '@/lib/api'
 import { toast } from '@/components/Toast'
 
-// 暗色适配的标准输入框样式 (与 AI 页统一, bg-base 在暗色下为深色, 不会白底白字)
+// 暗色適配的標準輸入框樣式 (與 AI 頁統一, bg-base 在暗色下為深色, 不會白底白字)
 const INPUT_CLS =
   'w-full h-9 px-2.5 rounded-lg bg-base border-0 ring-1 ring-border/40 text-xs text-foreground placeholder:text-muted/30 focus:outline-none focus:ring-2 focus:ring-accent/40 transition-shadow'
 
@@ -26,7 +26,7 @@ const TARGET_FIELDS: Record<DatasetKey, string[]> = {
   minute: ['symbol', 'datetime', 'open', 'high', 'low', 'close', 'volume', 'amount'],
 }
 
-// 内部字段的中文说明 (下拉选项展示用)
+// 內部字段的中文說明 (下拉選項展示用)
 const FIELD_LABELS: Record<string, string> = {
   symbol: '股票代碼 (如 000001.SZ / 600000.SH)',
   date: '交易日期 (YYYY-MM-DD)',
@@ -102,7 +102,7 @@ export function DataSourceEditor({
   const [config, setConfig] = useState<CustomSourceConfig>(() => initial ? structuredClone(initial) : emptyConfig())
   const [activeTab, setActiveTab] = useState<DatasetKey>('daily')
 
-  // 编辑现有源: 从后端拉完整配置 (每次挂载都重新拉, 不用缓存, 确保拿到最新保存的配置)
+  // 編輯現有源: 從後端拉完整配置 (每次掛載都重新拉, 不用緩存, 確保拿到最新保存的配置)
   const fetchCfg = useQuery({
     queryKey: ['data-source-detail', existingName],
     queryFn: () => api.dataSource(existingName!),
@@ -118,7 +118,7 @@ export function DataSourceEditor({
 
   const save = useMutation({
     mutationFn: () => {
-      // 提交前校验: 每个已启用数据集必须填了 URL
+      // 提交前校驗: 每個已啟用數據集必須填了 URL
       for (const [key, ds] of Object.entries(config.datasets)) {
         if (!ds.url.trim()) {
           throw new Error(`資料集「${DATASET_LABEL[key as DatasetKey] || key}」未填寫介面 URL`)
@@ -136,7 +136,7 @@ export function DataSourceEditor({
     },
     onSuccess: () => {
       toast(isNew ? '資料來源已建立' : '資料來源已更新', 'success')
-      // 保存后强制重新拉取最新配置, 让数据集开关状态正确刷新
+      // 保存後強制重新拉取最新配置, 讓數據集開關狀態正確刷新
       fetchCfg.refetch()
       onSaved()
     },
@@ -172,7 +172,7 @@ export function DataSourceEditor({
 
   return (
     <section className="rounded-card border border-border bg-surface overflow-hidden">
-      {/* 头部 */}
+      {/* 頭部 */}
       <div className="px-6 py-4 border-b border-border/60 flex items-center justify-between">
         <div className="flex items-center gap-3">
           <div className={`h-9 w-9 rounded-lg flex items-center justify-center ${isNew ? 'bg-accent/10' : 'bg-elevated'}`}>
@@ -212,7 +212,7 @@ export function DataSourceEditor({
         <div className="p-12 text-center text-sm text-muted">載入設定中…</div>
       ) : (
         <div className="grid grid-cols-1 lg:grid-cols-[260px_1fr]">
-          {/* 左: 基本信息 + 鉴权 + 数据集开关 */}
+          {/* 左: 基本信息 + 鑑權 + 數據集開關 */}
           <div className="p-5 space-y-4 border-r border-border/40">
             <Field label="名稱" hint="小寫字母/數字/底線">
               <input
@@ -282,7 +282,7 @@ export function DataSourceEditor({
             </div>
           </div>
 
-          {/* 右: 当前数据集详情 */}
+          {/* 右: 當前數據集詳情 */}
           <div className="p-5">
             <DatasetDetail
               key={activeTab}
@@ -298,7 +298,7 @@ export function DataSourceEditor({
         </div>
       )}
 
-      {/* 底部保存栏 */}
+      {/* 底部保存欄 */}
       <div className="px-6 py-3.5 border-t border-border/60 flex items-center justify-between bg-elevated/20">
         <div className="text-[11px] text-muted">
           {Object.keys(config.datasets).length} 個資料集已設定
@@ -435,7 +435,7 @@ function DatasetDetail({
               </Field>
             </div>
 
-            {/* 请求参数字段映射 — 折叠区 */}
+            {/* 請求參數字段映射 — 摺疊區 */}
             <div>
               <button
                 type="button"
@@ -521,7 +521,7 @@ function DatasetDetail({
               <div className="flex items-center justify-between mb-2">
                 <div className="text-[10px] uppercase tracking-widest text-muted">回應參數欄位對應</div>
                 <a
-                  href="https://github.com/shy3130/tickflow-stock-panel/blob/main/docs/custom-data-source.md#用-ai-生成映射配置"
+                  href="https://github.com/nanachi1212/TWstockfor_tick-stock-panel/blob/main/docs/custom-data-source.md#用-ai-生成映射配置"
                   target="_blank"
                   rel="noreferrer"
                   className="text-[10px] text-accent/70 hover:text-accent hover:underline"
@@ -581,7 +581,7 @@ function DatasetDetail({
             className="py-12 text-center"
           >
             <div className="text-sm text-muted mb-1">{DATASET_LABEL[datasetKey]} 未啟用</div>
-            <div className="text-[11px] text-muted/60">啟用後此資料集將由該自訂來源提供,未啟用則回退 TickFlow</div>
+            <div className="text-[11px] text-muted/60">啟用後此資料集將由該自訂來源提供,未啟用則回退內建資料來源</div>
             <button
               onClick={() => onToggle(true)}
               className="mt-3 inline-flex items-center gap-1 px-3 py-1.5 rounded-btn bg-accent/10 text-accent text-xs font-medium hover:bg-accent/20 transition-colors"
@@ -604,12 +604,12 @@ function FieldMapEditor({
   targets: string[]
   onChange: (fm: Record<string, string>) => void
 }) {
-  // 内部用数组维护行的稳定身份, 避免 Record 在编辑空行时 key 漂移导致输入框失焦
+  // 內部用數組維護行的穩定身份, 避免 Record 在編輯空行時 key 漂移導致輸入框失焦
   const [rows, setRows] = useState<Array<{ src: string; target: string; id: number }>>(() => {
     const entries = Object.entries(fieldMap)
-    // 有意义的映射 (src 非空且非 pending)
+    // 有意義的映射 (src 非空且非 pending)
     const real = entries.filter(([s, t]) => s.trim() && t.trim() && !s.startsWith('__pending_'))
-    // pending 行 (外部字段名还没填, 但 target 已选)
+    // pending 行 (外部字段名還沒填, 但 target 已選)
     const pending = entries.filter(([s]) => s.startsWith('__pending_'))
     if (real.length > 0 || pending.length > 0) {
       return [
@@ -617,13 +617,13 @@ function FieldMapEditor({
         ...pending.map(([, target], i) => ({ src: '', target, id: real.length + i + 1 })),
       ]
     }
-    // fieldMap 为空时自动预填该数据集的所有内部字段 (外部字段名留空待填)
+    // fieldMap 為空時自動預填該數據集的所有內部字段 (外部字段名留空待填)
     return targets.map((target, i) => ({ src: '', target, id: i + 1 }))
   })
   const nextId = useRef(targets.length + 1)
 
-  // rows 变化时立即同步到父级 (含空 src 的草稿行, 用 __pending_ 前缀保留)
-  // 这样切换 tab 再切回来, 未填完的映射行不会丢
+  // rows 變化時立即同步到父級 (含空 src 的草稿行, 用 __pending_ 前綴保留)
+  // 這樣切換 tab 再切回來, 未填完的映射行不會丟
   useEffect(() => {
     const out: Record<string, string> = {}
     let pendingIdx = 0
@@ -632,7 +632,7 @@ function FieldMapEditor({
       if (s && r.target.trim()) {
         out[s] = r.target.trim()
       } else if (r.target.trim()) {
-        // 外部字段名还没填, 用临时 key 保留 target 选择
+        // 外部字段名還沒填, 用臨時 key 保留 target 選擇
         out[`__pending_${pendingIdx++}`] = r.target.trim()
       }
     }

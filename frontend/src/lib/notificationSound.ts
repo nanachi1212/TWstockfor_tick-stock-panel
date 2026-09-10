@@ -1,12 +1,12 @@
 /**
- * 通知声效 — 用 Web Audio API 合成, 无需音频文件。
+ * 通知聲效 — 用 Web Audio API 合成, 無需音頻文件。
  *
- * 声效列表 (纯代码合成, 不同频率/波形/节奏):
- * - ding:   清脆"叮" (默认, 适合一般提醒)
- * - chime:  两音阶风铃 (适合策略信号)
- * - alert:  急促警报 (适合重要/异动)
- * - soft:   柔和低音 (适合价格提醒)
- * - none:   无声
+ * 聲效列表 (純代碼合成, 不同頻率/波形/節奏):
+ * - ding:   清脆"叮" (默認, 適合一般提醒)
+ * - chime:  兩音階風鈴 (適合策略信號)
+ * - alert:  急促警報 (適合重要/異動)
+ * - soft:   柔和低音 (適合價格提醒)
+ * - none:   無聲
  */
 
 let _audioCtx: AudioContext | null = null
@@ -23,7 +23,7 @@ function getCtx(): AudioContext | null {
   }
 }
 
-/** 播放单个音符 */
+/** 播放單個音符 */
 function playTone(ctx: AudioContext, freq: number, start: number, duration: number, type: OscillatorType = 'sine', gain: number = 0.15) {
   const osc = ctx.createOscillator()
   const g = ctx.createGain()
@@ -40,65 +40,65 @@ function playTone(ctx: AudioContext, freq: number, start: number, duration: numb
 }
 
 const SOUND_PRESETS: Record<string, (ctx: AudioContext) => void> = {
-  // 清脆"叮" — 一个正弦波短音
+  // 清脆"叮" — 一個正弦波短音
   ding: (ctx) => {
     playTone(ctx, 880, 0, 0.3, 'sine', 0.2)
   },
-  // 两音阶风铃 — 高低两个音
+  // 兩音階風鈴 — 高低兩個音
   chime: (ctx) => {
     playTone(ctx, 660, 0, 0.25, 'sine', 0.15)
     playTone(ctx, 990, 0.12, 0.35, 'sine', 0.15)
   },
-  // 急促警报 — 三个快速方波
+  // 急促警報 — 三個快速方波
   alert: (ctx) => {
     playTone(ctx, 800, 0, 0.1, 'square', 0.12)
     playTone(ctx, 800, 0.15, 0.1, 'square', 0.12)
     playTone(ctx, 1000, 0.3, 0.15, 'square', 0.12)
   },
-  // 柔和低音 — 低频三角波
+  // 柔和低音 — 低頻三角波
   soft: (ctx) => {
     playTone(ctx, 440, 0, 0.5, 'triangle', 0.15)
     playTone(ctx, 330, 0.2, 0.5, 'triangle', 0.12)
   },
-  // 上升音阶 — C-E-G-C 递进 (积极感)
+  // 上升音階 — C-E-G-C 遞進 (積極感)
   rise: (ctx) => {
     playTone(ctx, 523, 0, 0.12, 'sine', 0.18)      // C5
     playTone(ctx, 659, 0.1, 0.12, 'sine', 0.18)     // E5
     playTone(ctx, 784, 0.2, 0.12, 'sine', 0.18)     // G5
     playTone(ctx, 1047, 0.3, 0.3, 'sine', 0.2)      // C6
   },
-  // 下降音阶 — C-A-F-D (消极/警示感)
+  // 下降音階 — C-A-F-D (消極/警示感)
   fall: (ctx) => {
     playTone(ctx, 523, 0, 0.15, 'sine', 0.18)       // C5
     playTone(ctx, 440, 0.12, 0.15, 'sine', 0.18)    // A4
     playTone(ctx, 349, 0.24, 0.15, 'sine', 0.18)    // F4
     playTone(ctx, 294, 0.36, 0.3, 'sine', 0.18)     // D4
   },
-  // 电子提示音 — 锯齿波短促
+  // 電子提示音 — 鋸齒波短促
   electronic: (ctx) => {
     playTone(ctx, 1200, 0, 0.08, 'sawtooth', 0.1)
     playTone(ctx, 1600, 0.06, 0.08, 'sawtooth', 0.1)
     playTone(ctx, 1200, 0.12, 0.15, 'sawtooth', 0.1)
   },
-  // 水滴 — 极高频短音, 清脆
+  // 水滴 — 極高頻短音, 清脆
   drop: (ctx) => {
     playTone(ctx, 1800, 0, 0.06, 'sine', 0.15)
     playTone(ctx, 2400, 0.04, 0.1, 'sine', 0.12)
   },
-  // 钟声 — 低频持续共鸣
+  // 鐘聲 — 低頻持續共鳴
   bell: (ctx) => {
     playTone(ctx, 523, 0, 0.8, 'sine', 0.15)
     playTone(ctx, 784, 0.02, 0.8, 'sine', 0.1)      // 泛音
     playTone(ctx, 1047, 0.04, 0.6, 'sine', 0.06)    // 高泛音
   },
-  // 乒乓 — 两个交替音
+  // 乒乓 — 兩個交替音
   pingpong: (ctx) => {
     playTone(ctx, 1000, 0, 0.08, 'sine', 0.15)
     playTone(ctx, 700, 0.1, 0.08, 'sine', 0.15)
     playTone(ctx, 1000, 0.2, 0.08, 'sine', 0.15)
     playTone(ctx, 700, 0.3, 0.15, 'sine', 0.15)
   },
-  // 魔法 — 快速上升扫频感
+  // 魔法 — 快速上升掃頻感
   magic: (ctx) => {
     playTone(ctx, 400, 0, 0.05, 'sine', 0.12)
     playTone(ctx, 600, 0.04, 0.05, 'sine', 0.12)
@@ -108,11 +108,11 @@ const SOUND_PRESETS: Record<string, (ctx: AudioContext) => void> = {
   },
 }
 
-/** 播放通知声效 (从 localStorage 读配置) */
+/** 播放通知聲效 (從 localStorage 讀配置) */
 export function playNotificationSound() {
   try {
     const enabled = localStorage.getItem('alert_sound_enabled')
-    if (enabled === '0') return  // 关闭声效
+    if (enabled === '0') return  // 關閉聲效
 
     const sound = localStorage.getItem('alert_sound') || 'ding'
     if (sound === 'none') return
@@ -123,11 +123,11 @@ export function playNotificationSound() {
     const preset = SOUND_PRESETS[sound]
     if (preset) preset(ctx)
   } catch {
-    // 音频不可用时静默
+    // 音頻不可用時靜默
   }
 }
 
-/** 声效选项 (供设置页下拉) */
+/** 聲效選項 (供設置頁下拉) */
 export const SOUND_OPTIONS = [
   { key: 'ding', label: '清脆叮' },
   { key: 'chime', label: '風鈴' },
@@ -143,7 +143,7 @@ export const SOUND_OPTIONS = [
   { key: 'none', label: '無聲' },
 ]
 
-/** 预览声效 (设置页点"试听"用) */
+/** 預覽聲效 (設置頁點"試聽"用) */
 export function previewSound(sound: string) {
   try {
     const ctx = getCtx()

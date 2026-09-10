@@ -12,11 +12,11 @@ import { MONITOR_INTRADAY_SIGNAL_OPTIONS, SIGNAL_OPTIONS, cnSignal } from '@/lib
 import { usePreferences } from '@/lib/useSharedQueries'
 
 interface Props {
-  /** 编辑现有规则;null=新建 */
+  /** 編輯現有規則;null=新建 */
   rule: MonitorRule | null
-  /** 新建时的预填值 (如个股弹窗传入 symbol/scope) */
+  /** 新建時的預填值 (如個股彈窗傳入 symbol/scope) */
   preset?: Partial<MonitorRule>
-  /** 极简模式: 个股场景, 隐藏 type/scope/阈值等, 只显示信号点选 */
+  /** 極簡模式: 個股場景, 隱藏 type/scope/閾值等, 只顯示信號點選 */
   simple?: boolean
   onClose: () => void
   onSaved?: () => void
@@ -78,11 +78,11 @@ export function RuleEditor({ rule, preset, simple, onClose, onSaved }: Props) {
   const qc = useQueryClient()
   const options = useQuery({ queryKey: QK.monitorRuleOptions, queryFn: api.monitorRuleOptions })
   const { data: prefs } = usePreferences()
-  const feishuConfigured = !!(prefs?.feishu_webhook_url)
-  const wecomConfigured = !!(prefs?.wecom_webhook_url)
+  const lineConfigured = !!prefs?.line_configured
+  const telegramConfigured = !!prefs?.telegram_configured
   const [editing] = useState(!!rule)
-  // 新建规则: 预填全局「默认推送渠道」(多选数组), preset 显式指定时以 preset 为准。
-  // 编辑规则: 完全沿用规则自身配置, 不受默认值影响。
+  // 新建規則: 預填全局「默認推送渠道」(多選數組), preset 顯式指定時以 preset 為準。
+  // 編輯規則: 完全沿用規則自身配置, 不受默認值影響。
   const [draft, setDraft] = useState<MonitorRule>(() => {
     if (rule) {
       return {
@@ -104,7 +104,7 @@ export function RuleEditor({ rule, preset, simple, onClose, onSaved }: Props) {
     return initial
   })
   const assetType = draft.asset_type ?? 'stock'
-  // 策略列表跟随资产类型: ETF 只列技术类策略。
+  // 策略列表跟隨資產類型: ETF 只列技術類策略。
   const strategies = useQuery({
     queryKey: QK.screenerStrategies(assetType),
     queryFn: () => api.screenerStrategies(assetType),
@@ -112,8 +112,8 @@ export function RuleEditor({ rule, preset, simple, onClose, onSaved }: Props) {
   const [error, setError] = useState('')
   const [symbolQuery, setSymbolQuery] = useState('')
   const isGroupScope = draft.scope === 'watchlist_group'
-  // 「自选导入」下拉: 从自选/自选分组批量并入标的 (与自选页共用查询缓存)。
-  // 分组作用域模式同样需要分组/成员数据 (选择分组 + 成员预览)。
+  // 「自選導入」下拉: 從自選/自選分組批量併入標的 (與自選頁共用查詢緩存)。
+  // 分組作用域模式同樣需要分組/成員數據 (選擇分組 + 成員預覽)。
   const [watchMenuOpen, setWatchMenuOpen] = useState(false)
   const watchMenuRef = useRef<HTMLDivElement>(null)
   const watchlistQ = useQuery({
@@ -126,7 +126,7 @@ export function RuleEditor({ rule, preset, simple, onClose, onSaved }: Props) {
     queryFn: api.watchlistGroups,
     enabled: watchMenuOpen || isGroupScope,
   })
-  // 分组选择下拉 (scope=watchlist_group)
+  // 分組選擇下拉 (scope=watchlist_group)
   const [groupMenuOpen, setGroupMenuOpen] = useState(false)
   const groupMenuRef = useRef<HTMLDivElement>(null)
   useEffect(() => {
@@ -156,7 +156,7 @@ export function RuleEditor({ rule, preset, simple, onClose, onSaved }: Props) {
   })
   const [strategyQuery, setStrategyQuery] = useState('')
   const [strategyCategory, setStrategyCategory] = useState<'all' | 'builtin' | 'custom' | 'ai' | 'composite'>('all')
-  // 标的搜索资产类型: ETF 一并搜股票; 指数只搜指数; 否则只搜股票。
+  // 標的搜索資產類型: ETF 一併搜股票; 指數只搜指數; 否則只搜股票。
   const symbolAssetTypes = assetType === 'etf' ? 'stock,etf' : assetType === 'index' ? 'index' : 'stock'
   const symbolSearch = useQuery({
     queryKey: QK.instrumentSearch(symbolQuery, symbolAssetTypes),
@@ -168,7 +168,7 @@ export function RuleEditor({ rule, preset, simple, onClose, onSaved }: Props) {
     mutationFn: () => {
       const d = { ...draft }
       delete d.runtime_warning
-      // name 为空时用默认名
+      // name 為空時用默認名
       if (!d.name.trim()) {
         const base = TYPE_DEFAULT_NAME[d.type] ?? '監控規則'
         d.name = d.type === 'sector' && d.sector_targets?.length
@@ -221,7 +221,7 @@ export function RuleEditor({ rule, preset, simple, onClose, onSaved }: Props) {
     onError: err => setError(String((err as any)?.message ?? err)),
   })
 
-  // 条件编辑
+  // 條件編輯
   const updateCond = (idx: number, patch: Partial<MonitorCondition>) =>
     setDraft(d => ({ ...d, conditions: d.conditions.map((c, i) => i === idx ? { ...c, ...patch } : c) }))
   const addCond = (op: 'truth' | 'threshold') =>
@@ -229,7 +229,7 @@ export function RuleEditor({ rule, preset, simple, onClose, onSaved }: Props) {
       ...d,
       conditions: [...d.conditions, op === 'truth'
         ? { field: 'signal_volume_surge', op: 'truth' }
-        // simple 模式(个股弹窗)默认现价; 完整模式默认 RSI 超卖
+        // simple 模式(個股彈窗)默認現價; 完整模式默認 RSI 超賣
         : { field: simple ? 'close' : 'rsi_14', op: '<', value: simple ? 0 : 30 }],
     }))
   const removeCond = (idx: number) =>
@@ -242,7 +242,7 @@ export function RuleEditor({ rule, preset, simple, onClose, onSaved }: Props) {
     setSymbolQuery('')
   }
 
-  // 并入一组标的 (去重); 选择后关闭自选导入下拉
+  // 併入一組標的 (去重); 選擇後關閉自選導入下拉
   const importSymbols = (syms: string[]) => {
     setDraft(d => {
       const merged = [...d.symbols]
@@ -254,11 +254,11 @@ export function RuleEditor({ rule, preset, simple, onClose, onSaved }: Props) {
     setWatchMenuOpen(false)
   }
 
-  // ── 标的标签: 名称 + 板标(创/科/北) + 代码, 可逐个删除 ──
+  // ── 標的標籤: 名稱 + 板標(創/科/北) + 代碼, 可逐個刪除 ──
   const [symbolsExpanded, setSymbolsExpanded] = useState(false)
   const symbolsKey = draft.symbols.join(',')
-  // 名称映射: 本地即时缓存(搜索/自选数据) 优先, 缺失的由批量名称接口补齐
-  // (覆盖编辑旧规则等本地无名称的场景)。key 随标的集变化, staleTime 长防抖。
+  // 名稱映射: 本地即時緩存(搜索/自選數據) 優先, 缺失的由批量名稱接口補齊
+  // (覆蓋編輯舊規則等本地無名稱的場景)。key 隨標的集變化, staleTime 長防抖。
   const localNamesRef = useRef<Record<string, string>>({})
   const recordLocalNames = (pairs: { symbol: string; name?: string | null }[]) => {
     for (const p of pairs) {
@@ -277,7 +277,7 @@ export function RuleEditor({ rule, preset, simple, onClose, onSaved }: Props) {
     () => ({ ...localNamesRef.current, ...(namesQ.data?.names ?? {}) }),
     [symbolsKey, namesQ.data],
   )
-  // 自选导入选项: 全部自选 + 各分组 (空分组隐藏) + 未分组
+  // 自選導入選項: 全部自選 + 各分組 (空分組隱藏) + 未分組
   const watchImportOptions = (() => {
     const entries = watchlistQ.data?.symbols ?? []
     if (entries.length === 0) return []
@@ -299,7 +299,7 @@ export function RuleEditor({ rule, preset, simple, onClose, onSaved }: Props) {
     return options
   })()
 
-  // ── 自选分组作用域 (scope=watchlist_group): 分组选择 + 只读成员预览 ──
+  // ── 自選分組作用域 (scope=watchlist_group): 分組選擇 + 只讀成員預覽 ──
   const groupList = watchGroupsQ.data?.groups ?? []
   const watchEntries = watchlistQ.data?.symbols ?? []
   const groupCounts = useMemo(() => {
@@ -316,7 +316,7 @@ export function RuleEditor({ rule, preset, simple, onClose, onSaved }: Props) {
       : [],
     [selectedGroup, watchEntries],
   )
-  // 预览区名称补齐 (分组成员通常不在 draft.symbols 里, 单独批量查询)
+  // 預覽區名稱補齊 (分組成員通常不在 draft.symbols 裡, 單獨批量查詢)
   const groupNamesQ = useQuery({
     queryKey: ['instrument-names', selectedGroupSymbols.join(',')],
     queryFn: () => api.instrumentNames(selectedGroupSymbols),
@@ -341,7 +341,7 @@ export function RuleEditor({ rule, preset, simple, onClose, onSaved }: Props) {
     })
   }
 
-  // 勾选/取消勾选某个推送渠道 (飞书 / 企业微信 各自独立)
+  // 勾選/取消勾選某個推播渠道 (LINE / Telegram 各自獨立)
   const toggleChannel = (ch: string) =>
     setDraft(d => {
       const cur = d.webhook_channels ?? []
@@ -368,23 +368,23 @@ export function RuleEditor({ rule, preset, simple, onClose, onSaved }: Props) {
     ...SIGNAL_OPTIONS.map(key => ({ key, label: cnSignal(key) })),
     ...(options.data?.builtin_signals ?? []).filter(option => MONITOR_INTRADAY_SIGNAL_OPTIONS.includes(option.key)),
   ]
-  // 指数: 隐藏涨跌停/连板类 (指数无这些列) 与分时信号 (无本地分钟K, 会静默不触发)
+  // 指數: 隱藏漲跌停/連板類 (指數無這些列) 與分時信號 (無本地分鐘K, 會靜默不觸發)
   const INDEX_HIDDEN_SIGNALS = (key: string) =>
     key.includes('limit') || MONITOR_INTRADAY_SIGNAL_OPTIONS.includes(key)
   const pickerSignals = assetType === 'index'
     ? monitorBuiltinSignals.filter(o => !INDEX_HIDDEN_SIGNALS(o.key))
     : monitorBuiltinSignals
-  // 分时穿越信号: 数据按标的清单订阅且有上限, 自选分组是动态集合 (静默超限风险) → 禁用
+  // 分時穿越信號: 數據按標的清單訂閱且有上限, 自選分組是動態集合 (靜默超限風險) → 禁用
   const intradayDisabledSignals =
     intradaySupport?.available === false || isGroupScope ? MONITOR_INTRADAY_SIGNAL_OPTIONS : []
   const intradayDisabledHint = isGroupScope
     ? '分時穿越訊號需逐股訂閱, 暫不支援自選分組作用域'
     : intradaySupport?.reason
-  // 指数: 监控类型仅 signal/price (无涨跌停/策略/封单语义)
+  // 指數: 監控類型僅 signal/price (無漲跌停/策略/封單語義)
   const visibleTypes = (options.data?.types ?? []).filter(
     t => assetType !== 'index' || t.key === 'signal' || t.key === 'price',
   )
-  // 指数: 作用范围仅 symbols (无全市场/板块语义); ETF: 不支持自选分组 (分组为个股)
+  // 指數: 作用範圍僅 symbols (無全市場/板塊語義); ETF: 不支持自選分組 (分組為個股)
   const visibleScopes = (options.data?.scopes ?? []).filter(
     s => (assetType !== 'index' || s.key === 'symbols')
       && (assetType === 'stock' || s.key !== 'watchlist_group'),
@@ -426,7 +426,7 @@ export function RuleEditor({ rule, preset, simple, onClose, onSaved }: Props) {
     })
   }
 
-  // ── 极简模式: 只显示信号点选 + 可选描述 ──
+  // ── 極簡模式: 只顯示信號點選 + 可選描述 ──
   if (simple) {
     return (
       <div className="rounded-card border border-border bg-surface p-5 space-y-4">
@@ -464,7 +464,7 @@ export function RuleEditor({ rule, preset, simple, onClose, onSaved }: Props) {
           )}
         </div>
 
-        {/* 价位条件 (阈值) — 与信号共存, 可选添加 */}
+        {/* 價位條件 (閾值) — 與信號共存, 可選添加 */}
         <div className="space-y-1.5">
           <div className="flex items-center justify-between">
             <span className="text-[11px] text-muted">價位條件 (可選)</span>
@@ -513,7 +513,7 @@ export function RuleEditor({ rule, preset, simple, onClose, onSaved }: Props) {
     )
   }
 
-  // ── 完整模式: 监控页新建/编辑 ──
+  // ── 完整模式: 監控頁新建/編輯 ──
   return (
     <div className="rounded-card border border-border bg-surface p-5 space-y-4">
       <div className="flex items-center justify-between gap-3">
@@ -526,7 +526,7 @@ export function RuleEditor({ rule, preset, simple, onClose, onSaved }: Props) {
         </button>
       </div>
 
-      {/* 资产类型: 股票 / ETF / 指数 (个股极简模式不显示; 板块仅个股) */}
+      {/* 資產類型: 股票 / ETF / 指數 (個股極簡模式不顯示; 板塊僅個股) */}
       {!simple && draft.type !== 'sector' && (
         <div className="space-y-1.5">
           <span className="text-[11px] text-muted">資產類型</span>
@@ -544,7 +544,7 @@ export function RuleEditor({ rule, preset, simple, onClose, onSaved }: Props) {
                     strategy_id: null,
                     symbols: [],
                     type: t === 'index' && d.type !== 'signal' && d.type !== 'price' ? 'signal' : d.type,
-                    // 指数仅指定标的; ETF 不支持分组作用域 (自选分组为个股)
+                    // 指數僅指定標的; ETF 不支持分組作用域 (自選分組為個股)
                     scope: t === 'index' || (t !== 'stock' && d.scope === 'watchlist_group')
                       ? 'symbols'
                       : d.scope,
@@ -562,7 +562,7 @@ export function RuleEditor({ rule, preset, simple, onClose, onSaved }: Props) {
         </div>
       )}
 
-      {/* 监控类型 */}
+      {/* 監控類型 */}
       <div className="space-y-1.5">
         <span className="text-[11px] text-muted">監控類型</span>
         <div className="grid grid-cols-2 gap-1.5 sm:grid-cols-6">
@@ -805,7 +805,7 @@ export function RuleEditor({ rule, preset, simple, onClose, onSaved }: Props) {
       )}
 
 
-      {/* 作用范围 */}
+      {/* 作用範圍 */}
       {draft.type !== 'sector' && <div className="space-y-2">
         <span className="text-[11px] text-muted">作用範圍</span>
         <div className="flex items-start gap-1.5">
@@ -814,7 +814,7 @@ export function RuleEditor({ rule, preset, simple, onClose, onSaved }: Props) {
           </select>
           {draft.scope === 'symbols' && (
             <div className="min-w-0 flex-1 space-y-1.5">
-              {/* 导入与搜索: 与范围下拉同一行等高(h-7), 不换行, 搜索框占满剩余宽度 */}
+              {/* 導入與搜索: 與範圍下拉同一行等高(h-7), 不換行, 搜索框佔滿剩餘寬度 */}
               <div className="flex items-center gap-1.5">
                 <div className="relative" ref={watchMenuRef}>
                   <button
@@ -871,7 +871,7 @@ export function RuleEditor({ rule, preset, simple, onClose, onSaved }: Props) {
                   )}
                 </div>
               </div>
-              {/* 「已加入 N 只」单独成行(收起态, 与控件列左对齐) / 标签管理区(展开态) */}
+              {/* 「已加入 N 只」單獨成行(收起態, 與控件列左對齊) / 標籤管理區(展開態) */}
               {draft.symbols.length > 0 && !symbolsExpanded && (
                 <button
                   type="button"
@@ -980,7 +980,7 @@ export function RuleEditor({ rule, preset, simple, onClose, onSaved }: Props) {
                   </div>
                 )}
               </div>
-              {/* 成员预览 (只读): 让用户明确当前监控哪些标的; 与手动选标的的可编辑标签区分 */}
+              {/* 成員預覽 (只讀): 讓用戶明確當前監控哪些標的; 與手動選標的的可編輯標籤區分 */}
               {selectedGroup && (
                 <div className="space-y-1">
                   {selectedGroupSymbols.length > 0 ? (
@@ -1015,7 +1015,7 @@ export function RuleEditor({ rule, preset, simple, onClose, onSaved }: Props) {
         </div>
       </div>}
 
-      {/* 触发条件 (非 strategy) */}
+      {/* 觸發條件 (非 strategy) */}
       {draft.type !== 'strategy' && draft.type !== 'sector' && (
         <div className="space-y-3">
           <div className="flex items-center justify-between">
@@ -1085,7 +1085,7 @@ export function RuleEditor({ rule, preset, simple, onClose, onSaved }: Props) {
         </div>
       )}
 
-      {/* strategy 类型: 选策略 + 方向 */}
+      {/* strategy 類型: 選策略 + 方向 */}
       {draft.type === 'strategy' && (
         <div className="space-y-3">
           <div className="flex flex-col gap-2 sm:flex-row sm:items-end">
@@ -1239,7 +1239,7 @@ export function RuleEditor({ rule, preset, simple, onClose, onSaved }: Props) {
         </div>
       )}
 
-      {/* 通知设置 */}
+      {/* 通知設置 */}
       <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
         <label className="space-y-1.5">
           <span className="text-[11px] text-muted">冷卻期(秒)</span>
@@ -1257,7 +1257,7 @@ export function RuleEditor({ rule, preset, simple, onClose, onSaved }: Props) {
         </label>
       </div>
 
-      {/* Webhook 推送 — 飞书 / 企业微信 */}
+      {/* 外部推播 — LINE / Telegram */}
       <div className="rounded-btn border border-border/40 bg-base/40 p-3 space-y-2">
         <div className="flex items-center gap-1.5">
           <span className="text-[11px] font-medium text-foreground">Webhook 推送</span>
@@ -1266,48 +1266,48 @@ export function RuleEditor({ rule, preset, simple, onClose, onSaved }: Props) {
 
         {/* 渠道列表 */}
         <div className="space-y-1.5">
-          {/* 飞书 (可用) */}
+          {/* LINE Messaging API */}
           <label className="flex items-center gap-2 cursor-pointer">
             <input
               type="checkbox"
-              checked={(draft.webhook_channels ?? []).includes('feishu')}
-              onChange={() => toggleChannel('feishu')}
+              checked={(draft.webhook_channels ?? []).includes('line')}
+              onChange={() => toggleChannel('line')}
               className="h-3 w-3 accent-accent cursor-pointer"
             />
-            <span className="text-[11px] text-foreground">飛書</span>
-            <span className="text-[9px] text-muted">群推送 Webhook</span>
-            {(draft.webhook_channels ?? []).includes('feishu') && (
-              <span className={`ml-auto text-[9px] ${feishuConfigured ? 'text-emerald-500' : 'text-warning'}`}>
-                {feishuConfigured ? '已配置' : '未配置'}
+            <span className="text-[11px] text-foreground">LINE</span>
+            <span className="text-[9px] text-muted">Messaging API</span>
+            {(draft.webhook_channels ?? []).includes('line') && (
+              <span className={`ml-auto text-[9px] ${lineConfigured ? 'text-emerald-500' : 'text-warning'}`}>
+                {lineConfigured ? '已配置' : '未配置'}
               </span>
             )}
           </label>
 
-          {/* 企业微信 (可用) */}
+          {/* Telegram Bot API */}
           <label className="flex items-center gap-2 cursor-pointer">
             <input
               type="checkbox"
-              checked={(draft.webhook_channels ?? []).includes('wecom')}
-              onChange={() => toggleChannel('wecom')}
+              checked={(draft.webhook_channels ?? []).includes('telegram')}
+              onChange={() => toggleChannel('telegram')}
               className="h-3 w-3 accent-accent cursor-pointer"
             />
-            <span className="text-[11px] text-foreground">企業微信</span>
-            <span className="text-[9px] text-muted">群推送 Webhook</span>
-            {(draft.webhook_channels ?? []).includes('wecom') && (
-              <span className={`ml-auto text-[9px] ${wecomConfigured ? 'text-emerald-500' : 'text-warning'}`}>
-                {wecomConfigured ? '已配置' : '未配置'}
+            <span className="text-[11px] text-foreground">Telegram</span>
+            <span className="text-[9px] text-muted">Bot API</span>
+            {(draft.webhook_channels ?? []).includes('telegram') && (
+              <span className={`ml-auto text-[9px] ${telegramConfigured ? 'text-emerald-500' : 'text-warning'}`}>
+                {telegramConfigured ? '已配置' : '未配置'}
               </span>
             )}
           </label>
 
         </div>
 
-        {/* 勾选了某渠道但该渠道地址未配置 → 提示前往设置 */}
+        {/* 勾選了某渠道但該渠道地址未配置 → 提示前往設置 */}
         {(draft.webhook_channels ?? []).length > 0 && (() => {
           const selected = draft.webhook_channels ?? []
           const unconfigured: string[] = []
-          if (selected.includes('feishu') && !feishuConfigured) unconfigured.push('飛書')
-          if (selected.includes('wecom') && !wecomConfigured) unconfigured.push('企業微信')
+          if (selected.includes('line') && !lineConfigured) unconfigured.push('LINE')
+          if (selected.includes('telegram') && !telegramConfigured) unconfigured.push('Telegram')
           if (unconfigured.length === 0) return null
           return (
             <p className="text-[10px] leading-relaxed text-warning/80">
@@ -1319,8 +1319,8 @@ export function RuleEditor({ rule, preset, simple, onClose, onSaved }: Props) {
         {(draft.webhook_channels ?? []).length > 0 && (() => {
           const selected = draft.webhook_channels ?? []
           const ready: string[] = []
-          if (selected.includes('feishu') && feishuConfigured) ready.push('飛書')
-          if (selected.includes('wecom') && wecomConfigured) ready.push('企業微信')
+          if (selected.includes('line') && lineConfigured) ready.push('LINE')
+          if (selected.includes('telegram') && telegramConfigured) ready.push('Telegram')
           if (ready.length === 0) return null
           return (
             <p className="text-[10px] leading-relaxed text-muted">

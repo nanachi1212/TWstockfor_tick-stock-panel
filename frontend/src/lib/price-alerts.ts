@@ -47,7 +47,7 @@ export function buildPriceAlertMessage(
   direction: PriceAlertDirection,
   target: number,
 ): string {
-  return `${name || symbol}股价${direction === 'up' ? '上穿' : '下穿'} ${target.toFixed(2)}`
+  return `${name || symbol}股價${direction === 'up' ? '上穿' : '下穿'} ${target.toFixed(2)}`
 }
 
 export function buildMonitorPriceLines(rules: MonitorRule[], symbol: string): MonitorPriceLine[] {

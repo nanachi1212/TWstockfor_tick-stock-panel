@@ -469,12 +469,12 @@ def get_preferences() -> dict:
         "strategy_monitor_enabled": preferences.get_strategy_monitor_enabled(),
         "strategy_monitor_ids": preferences.get_strategy_monitor_ids(),
         "system_notify_enabled": preferences.get_system_notify_enabled(),
-        "feishu_webhook_url": preferences.get_feishu_webhook_url(),
-        "feishu_webhook_secret": preferences.get_feishu_webhook_secret(),
-        "wecom_webhook_url": preferences.get_wecom_webhook_url(),
-        "wecom_bot_id": preferences.get_wecom_bot_id(),
-        "wecom_bot_secret": preferences.get_wecom_bot_secret(),
-        "wecom_bot_enabled": preferences.get_wecom_bot_enabled(),
+        "line_target_id": preferences.get_line_target_id(),
+        "line_channel_access_token_masked": secrets_store.mask(preferences.get_line_channel_access_token()),
+        "line_configured": bool(preferences.get_line_target_id() and preferences.get_line_channel_access_token()),
+        "telegram_chat_id": preferences.get_telegram_chat_id(),
+        "telegram_bot_token_masked": secrets_store.mask(preferences.get_telegram_bot_token()),
+        "telegram_configured": bool(preferences.get_telegram_chat_id() and preferences.get_telegram_bot_token()),
         "webhook_enabled_default": preferences.get_webhook_enabled_default(),
         "webhook_default_channels": preferences.get_webhook_default_channels(),
         "sidebar_index_symbols": preferences.get_sidebar_index_symbols(),
@@ -484,7 +484,6 @@ def get_preferences() -> dict:
         "nav_order": preferences.get_nav_order(),
         "nav_hidden": preferences.get_nav_hidden(),
         "screener_auto_run": preferences.get_screener_auto_run(),
-        "limit_ladder_monitor_enabled": preferences.get_limit_ladder_monitor_enabled(),
         "depth_polling_interval": preferences.get_depth_polling_interval(),
         "depth_finalize_time": preferences.get_depth_finalize_time(),
         **preferences.get_mining_schedule(),
@@ -496,7 +495,7 @@ def list_data_sources() -> dict:
     """列出已加载的数据源 (内置 / 插件 / 用户自定义)。"""
     from app.data_providers import custom as custom_sources
     return {
-        "builtin": [{"name": "tickflow", "display_name": "TickFlow", "datasets": ["daily", "adj_factor", "realtime", "minute"]}],
+        "builtin": [{"name": "taiwan", "display_name": "台灣官方資料源 (TWSE/TPEx)", "datasets": ["daily", "realtime", "financial"]}],
         "plugins": custom_sources.list_plugins(),
         "custom": custom_sources.list_sources(),
         "errors": custom_sources.errors(),
@@ -825,19 +824,6 @@ def update_realtime_quotes(req: RealtimeQuotesPrefs, request: Request) -> dict:
     """
     from app.services import preferences
     qs = getattr(request.app.state, "quote_service", None)
-    depth_svc = getattr(request.app.state, "depth_service", None)
-
-    def _sync_depth_polling(realtime_on: bool) -> None:
-        """实时行情开关联动 depth 盘中轮询: 开→恢复(仍受监控开关/能力门控), 关→立即停。
-
-        实时行情关闭时 enriched 停留在上一交易日, depth 轮询只会反复拉陈旧名单。
-        """
-        if not depth_svc:
-            return
-        if realtime_on:
-            depth_svc.start_polling()
-        else:
-            depth_svc.stop_polling()
 
     allowed = qs.is_realtime_allowed() if qs else True
     if req.realtime_quotes_enabled and not allowed:
@@ -845,7 +831,6 @@ def update_realtime_quotes(req: RealtimeQuotesPrefs, request: Request) -> dict:
         preferences.save({"realtime_quotes_enabled": False})
         if qs:
             qs.disable()
-        _sync_depth_polling(False)
         return {"realtime_quotes_enabled": False, "realtime_allowed": False}
     if req.realtime_quotes_enabled and qs and qs.is_paused():
         # 管道/数据修正运行期间禁止开启实时行情 — 防止写盘竞态
@@ -877,7 +862,6 @@ def update_realtime_quotes(req: RealtimeQuotesPrefs, request: Request) -> dict:
                     raise HTTPException(status_code=409, detail=detail)
     if req.realtime_quotes_enabled and qs and qs.realtime_mode() == "watchlist" and not preferences.get_realtime_watchlist_symbols():
         preferences.save({"realtime_quotes_enabled": False})
-        _sync_depth_polling(False)
         return {"realtime_quotes_enabled": False, "realtime_allowed": True, "mode": "watchlist", "error": "watchlist_empty"}
 
     preferences.save({"realtime_quotes_enabled": req.realtime_quotes_enabled})
@@ -886,8 +870,6 @@ def update_realtime_quotes(req: RealtimeQuotesPrefs, request: Request) -> dict:
             qs.enable()
         else:
             qs.disable()
-    _sync_depth_polling(req.realtime_quotes_enabled)
-
     return {"realtime_quotes_enabled": req.realtime_quotes_enabled, "realtime_allowed": allowed}
 
 
@@ -1097,119 +1079,80 @@ def update_system_notify(req: SystemNotifyPrefsIn) -> dict:
     return {"system_notify_enabled": saved}
 
 
-class FeishuWebhookPrefsIn(BaseModel):
-    url: str
-    secret: str = ""
+class NotificationChannelPrefsIn(BaseModel):
+    recipient: str = ""
+    token: str | None = None
+    clear_token: bool = False
 
 
-@router.put("/preferences/feishu-webhook")
-def update_feishu_webhook(req: FeishuWebhookPrefsIn) -> dict:
-    """飞书 Webhook 地址 + 签名密钥 — 全局一处配置, 所有启用推送的监控规则共用。
-
-    - url: 传入空串表示清空配置; 非空则需为合法的飞书自定义机器人地址。
-    - secret: 机器人启用了「签名校验」时填密钥, 留空表示不验签。
-    """
-    from app.services import preferences
-    from app.services import webhook_adapter
-
-    url = (req.url or "").strip()
-    if url and not webhook_adapter.is_valid_feishu_url(url):
-        raise HTTPException(
-            status_code=400,
-            detail="Webhook 地址非法, 需为飞书自定义机器人地址 "
-                   "(https://open.feishu.cn/open-apis/bot/v2/hook/...)",
-        )
-    saved_url = preferences.set_feishu_webhook_url(url)
-    saved_secret = preferences.set_feishu_webhook_secret((req.secret or "").strip())
-    return {"feishu_webhook_url": saved_url, "feishu_webhook_secret": saved_secret}
-
-
-class WecomWebhookPrefsIn(BaseModel):
-    url: str
-
-
-@router.put("/preferences/wecom-webhook")
-def update_wecom_webhook(req: WecomWebhookPrefsIn) -> dict:
-    """企业微信群推送 Webhook 地址 — 与飞书并列的第二推送通道。
-
-    - url: 传入空串表示清空配置; 非空需为合法企业微信群推送 Webhook 地址, 或纯 key。
-    - 用户可只填 key (webhook/send?key=xxx 的 xxx 部分), 后端自动补全为完整 URL。
-    """
-    from app.services import preferences
-    from app.services import webhook_adapter
-
-    url = (req.url or "").strip()
-    if url and not webhook_adapter.is_valid_wecom_url(url):
-        raise HTTPException(
-            status_code=400,
-            detail="Webhook 地址非法, 需为企业微信群推送 Webhook 地址 "
-                   "(https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=... 或纯 key)",
-        )
-    saved_url = preferences.set_wecom_webhook_url(url)
-    return {"wecom_webhook_url": saved_url}
-
-
-class WecomBotPrefsIn(BaseModel):
-    bot_id: str
-    secret: str
-    enabled: bool = True
-
-
-@router.put("/preferences/wecom-bot")
-def update_wecom_bot(req: WecomBotPrefsIn, request: Request) -> dict:
-    """企业微信智能机器人(BotID + Secret)配置 — 长连接通道。
-
-    保存凭证后立即重建连接(stop→start), 因每机器人仅允许 1 条长连接。
-    - bot_id/secret 均传空串表示清空配置并断开连接。
-    - enabled 控制是否启用长连接(凭证齐全时生效)。
-    """
+def _notification_channel_response(channel: str) -> dict:
     from app.services import preferences
 
-    bot_id = (req.bot_id or "").strip()
-    secret = (req.secret or "").strip()
-    preferences.set_wecom_bot_id(bot_id)
-    preferences.set_wecom_bot_secret(secret)
-    # 凭证不齐时强制关闭(避免 enabled=True 但连不上)
-    enabled = req.enabled and bool(bot_id) and bool(secret)
-    preferences.set_wecom_bot_enabled(enabled)
-
-    # 立即应用: 重建连接
-    bot_svc = getattr(request.app.state, "wecom_bot_service", None)
-    status: dict = {}
-    if bot_svc:
-        bot_svc.apply_credential_change()
-        status = bot_svc.status()
+    if channel == "line":
+        recipient = preferences.get_line_target_id()
+        token = preferences.get_line_channel_access_token()
+        return {
+            "line_target_id": recipient,
+            "line_channel_access_token_masked": secrets_store.mask(token),
+            "line_configured": bool(recipient and token),
+        }
+    recipient = preferences.get_telegram_chat_id()
+    token = preferences.get_telegram_bot_token()
     return {
-        "wecom_bot_id": preferences.get_wecom_bot_id(),
-        "wecom_bot_secret": preferences.get_wecom_bot_secret(),
-        "wecom_bot_enabled": preferences.get_wecom_bot_enabled(),
-        "wecom_bot_status": status,
+        "telegram_chat_id": recipient,
+        "telegram_bot_token_masked": secrets_store.mask(token),
+        "telegram_configured": bool(recipient and token),
     }
 
 
-class WecomBotToggleIn(BaseModel):
-    enabled: bool
-
-
-@router.put("/preferences/wecom-bot-toggle")
-def toggle_wecom_bot(req: WecomBotToggleIn, request: Request) -> dict:
-    """独立开关: 启用/禁用智能机器人长连接(不改动凭证)。
-
-    凭证不齐时强制返回未启用(无法连接)。
-    """
+@router.put("/preferences/line-messaging")
+def update_line_messaging(req: NotificationChannelPrefsIn) -> dict:
     from app.services import preferences
 
-    bot_id = preferences.get_wecom_bot_id()
-    secret = preferences.get_wecom_bot_secret()
-    enabled = req.enabled and bool(bot_id) and bool(secret)
-    preferences.set_wecom_bot_enabled(enabled)
+    preferences.set_line_target_id(req.recipient)
+    if req.clear_token:
+        preferences.set_line_channel_access_token("")
+    elif req.token and req.token.strip():
+        preferences.set_line_channel_access_token(req.token)
+    return _notification_channel_response("line")
 
-    bot_svc = getattr(request.app.state, "wecom_bot_service", None)
-    status: dict = {}
-    if bot_svc:
-        bot_svc.apply_credential_change()
-        status = bot_svc.status()
-    return {"wecom_bot_enabled": enabled, "wecom_bot_status": status}
+
+@router.put("/preferences/telegram-bot")
+def update_telegram_bot(req: NotificationChannelPrefsIn) -> dict:
+    from app.services import preferences
+
+    preferences.set_telegram_chat_id(req.recipient)
+    if req.clear_token:
+        preferences.set_telegram_bot_token("")
+    elif req.token and req.token.strip():
+        preferences.set_telegram_bot_token(req.token)
+    return _notification_channel_response("telegram")
+
+
+@router.post("/preferences/line-messaging/test")
+def test_line_messaging() -> dict:
+    from app.services import preferences, webhook_adapter
+
+    ok = webhook_adapter.send_line(
+        preferences.get_line_channel_access_token(),
+        preferences.get_line_target_id(),
+        "測試通知",
+        "LINE Messaging API 已成功連線。",
+    )
+    return {"ok": ok}
+
+
+@router.post("/preferences/telegram-bot/test")
+def test_telegram_bot() -> dict:
+    from app.services import preferences, webhook_adapter
+
+    ok = webhook_adapter.send_telegram(
+        preferences.get_telegram_bot_token(),
+        preferences.get_telegram_chat_id(),
+        "測試通知",
+        "Telegram Bot API 已成功連線。",
+    )
+    return {"ok": ok}
 
 
 class WebhookEnabledDefaultIn(BaseModel):
@@ -1220,8 +1163,7 @@ class WebhookEnabledDefaultIn(BaseModel):
 def update_webhook_enabled_default(req: WebhookEnabledDefaultIn) -> dict:
     """新建监控规则时是否默认勾选推送 (老布尔接口, 兼容旧前端)。
 
-    新数据模型为渠道数组 (webhook_default_channels); 此处转译为
-    True→['feishu','wecom'], False→[]。新前端请改用 webhook-default-channels 接口。
+    舊布林值無法安全推斷新的 LINE/Telegram 收件者,因此不自動啟用新渠道。
     """
     from app.services import preferences
 
@@ -1230,7 +1172,7 @@ def update_webhook_enabled_default(req: WebhookEnabledDefaultIn) -> dict:
 
 
 class WebhookDefaultChannelsIn(BaseModel):
-    channels: list[str]  # 多选: ['feishu','wecom'] 等; 空数组=默认不推送
+    channels: list[str]  # 多选: ['line','telegram']; 空数组=默认不推送
 
 
 @router.put("/preferences/webhook-default-channels")
@@ -1298,42 +1240,6 @@ def update_index_daily_batch_size(req: IndexDailyBatchSizeIn) -> dict:
 
 
 # ── 五档盘口 sealed 配置 ──────────────────────────────
-
-class LimitLadderMonitorIn(BaseModel):
-    enabled: bool
-
-
-@router.put("/preferences/limit-ladder-monitor")
-def update_limit_ladder_monitor(req: LimitLadderMonitorIn, request: Request) -> dict:
-    """连板梯队 5 档监控开关。开启→启动 depth 轮询, 关闭→停止。"""
-    from app.services import preferences
-    preferences.save({"limit_ladder_monitor_enabled": req.enabled})
-
-    # 立即应用: 启停 depth 轮询线程
-    depth_svc = getattr(request.app.state, "depth_service", None)
-    if depth_svc:
-        depth_svc.apply_monitor_toggle(req.enabled)
-
-    return {"limit_ladder_monitor_enabled": req.enabled}
-
-
-@router.post("/preferences/limit-ladder-monitor/run")
-def run_limit_ladder_fix(request: Request) -> dict:
-    """立即手动修正一次真假板(拉取五档盘口 + 更新缓存)。需 Pro+。"""
-    from app.tickflow.capabilities import Cap
-    capset = request.app.state.capabilities
-    capset.require(Cap.DEPTH5_BATCH)  # 无能力抛 CapabilityDenied(403)
-
-    depth_svc = getattr(request.app.state, "depth_service", None)
-    if not depth_svc:
-        raise HTTPException(status_code=503, detail="depth 服务未初始化")
-    result = depth_svc.run_once()
-    # sealed 数据变了, 清看板总览缓存, 否则看板在 TTL 窗口内仍返回旧的 limit_up/fake 等
-    if result.get("ok"):
-        from app.api.overview import invalidate_overview_cache
-        invalidate_overview_cache()
-    return result
-
 
 class DepthPollingIntervalIn(BaseModel):
     interval: float

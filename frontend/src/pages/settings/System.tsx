@@ -1,7 +1,7 @@
 /**
- * 系统设置面板 — 全局行为开关。
+ * 系統設置面板 — 全局行為開關。
  *
- * 独立于实时监控, 放置影响整体应用行为的开关项。
+ * 獨立於實時監控, 放置影響整體應用行為的開關項。
  */
 import { useState, useCallback, useEffect } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
@@ -37,11 +37,11 @@ export function SettingsSystemPanel() {
     try { return localStorage.getItem('voice_broadcast_enabled') === '1' } catch { return false }
   })
   const [voices, setVoices] = useState(listZhVoices())
-  // 用户手选值 (空=走默认偏好 Google 中国大陆)
+  // 用戶手選值 (空=走默認偏好 Google 中國大陸)
   const [voiceConfigured, setVoiceConfigured] = useState(() => {
     try { return localStorage.getItem('voice_broadcast_voice') || '' } catch { return '' }
   })
-  // 下拉回显值: 用户手选优先, 否则显示当前解析到的语音
+  // 下拉回顯值: 用戶手選優先, 否則顯示當前解析到的語音
   const [voiceURI, setVoiceURI] = useState(() => {
     try { return localStorage.getItem('voice_broadcast_voice') || getCurrentVoiceURI() } catch { return getCurrentVoiceURI() }
   })
@@ -52,16 +52,16 @@ export function SettingsSystemPanel() {
     } catch { return 1 }
   })
 
-  // 语音包异步加载 (Google 云语音为 Chrome 联网注入, 比本地晚到), 监听刷新
+  // 語音包異步加載 (Google 雲語音為 Chrome 聯網注入, 比本地晚到), 監聽刷新
   useEffect(() => {
     const h = () => {
       setVoices(listZhVoices())
-      // 用户未手选时, 跟随默认偏好 (Google CN 到货后自动同步回显)
+      // 用戶未手選時, 跟隨默認偏好 (Google CN 到貨後自動同步回顯)
       if (!voiceConfigured) setVoiceURI(getCurrentVoiceURI())
     }
     if ('speechSynthesis' in window) {
       window.speechSynthesis.addEventListener('voiceschanged', h)
-      // 部分浏览器首次需主动触发一次
+      // 部分瀏覽器首次需主動觸發一次
       h()
     }
     return () => {
@@ -69,12 +69,12 @@ export function SettingsSystemPanel() {
     }
   }, [voiceConfigured])
 
-  // 刷新前端缓存: 清除 react-query 缓存 + 强制重载 (绕过浏览器缓存)
-  // 不动 localStorage (用户列配置/策略池等偏好保留), 也不影响后端的本地股票数据
+  // 刷新前端緩存: 清除 react-query 緩存 + 強制重載 (繞過瀏覽器緩存)
+  // 不動 localStorage (用戶列配置/策略池等偏好保留), 也不影響後端的本地股票數據
   const handleClearCache = useCallback(() => {
     setClearing(true)
     qc.clear()
-    // 加时间戳参数强制浏览器重新下载所有静态资源
+    // 加時間戳參數強制瀏覽器重新下載所有靜態資源
     setTimeout(() => {
       window.location.href = window.location.pathname + '?_t=' + Date.now()
     }, 300)
@@ -183,7 +183,7 @@ export function SettingsSystemPanel() {
           onChange={(v) => {
             localStorage.setItem('voice_broadcast_enabled', v ? '1' : '0')
             setVoiceEnabled(v)
-            if (v) { activateVoice(); previewVoice() }   // 开启即激活 + 试听一句
+            if (v) { activateVoice(); previewVoice() }   // 開啟即激活 + 試聽一句
           }}
         />
 
@@ -206,12 +206,12 @@ export function SettingsSystemPanel() {
               onChange={(e) => {
                 const v = e.target.value
                 if (v) {
-                  // 手选某一语音包
+                  // 手選某一語音包
                   localStorage.setItem('voice_broadcast_voice', v)
                   setVoiceConfigured(v)
                   setVoiceURI(v)
                 } else {
-                  // 选"默认偏好": 清空手选, 走 Google 中国大陆偏好
+                  // 選"默認偏好": 清空手選, 走 Google 中國大陸偏好
                   localStorage.removeItem('voice_broadcast_voice')
                   setVoiceConfigured('')
                   setVoiceURI(getCurrentVoiceURI())
@@ -308,7 +308,7 @@ export function SettingsSystemPanel() {
             <div className="text-[11px] text-muted truncate">前往 GitHub Releases 下載最新版本</div>
           </div>
           <a
-            href="https://github.com/shy3130/tickflow-stock-panel/releases/latest"
+            href="https://github.com/nanachi1212/TWstockfor_tick-stock-panel/releases/latest"
             target="_blank"
             rel="noreferrer"
             className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-btn text-xs

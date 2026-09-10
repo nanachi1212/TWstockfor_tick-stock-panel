@@ -28,7 +28,7 @@ export function CustomSignalDialog({ open, signal, defaultKind = 'exit', onClose
   const [draft, setDraft] = useState<CustomSignal>(() => emptySignal(defaultKind))
   const [error, setError] = useState('')
 
-  // AI 生成条件
+  // AI 生成條件
   const [aiOpen, setAiOpen] = useState(false)
   const [aiDesc, setAiDesc] = useState('')
   const [aiLoading, setAiLoading] = useState(false)
@@ -49,7 +49,7 @@ export function CustomSignalDialog({ open, signal, defaultKind = 'exit', onClose
     setAiOpen(false); setAiDesc(''); setAiError(''); setAiLoading(false)
   }, [open, signal, defaultKind])
 
-  // 打开时检查一次 AI 是否已配置（复用策略构建器逻辑）
+  // 打開時檢查一次 AI 是否已配置（複用策略構建器邏輯）
   useEffect(() => {
     if (!open || checkedAi.current) return
     checkedAi.current = true
@@ -178,16 +178,16 @@ export function CustomSignalDialog({ open, signal, defaultKind = 'exit', onClose
                     <div key={i} className="flex flex-wrap items-center gap-1.5">
                       <span className="text-[10px] text-muted/60 w-5 text-right shrink-0">{i === 0 ? '當' : '且'}</span>
 
-                      {/* 左操作数: 前N日 + 字段(弹出选择) */}
+                      {/* 左操作數: 前N日 + 字段(彈出選擇) */}
                       <DaysInput value={c.leftDays ?? 0} max={maxDays} onChange={v => updateCond(i, { leftDays: v })} />
                       <FieldPicker value={c.left} fields={fields} groups={groups} onChange={v => updateCond(i, { left: v })} />
 
-                      {/* 运算符 */}
+                      {/* 運算符 */}
                       <select value={c.op} onChange={e => updateCond(i, { op: e.target.value })} className="w-11 h-7 px-0.5 rounded bg-base border border-border text-[11px] font-mono text-foreground text-center focus:outline-none focus:border-accent/50">
                         {operators.map(op => <option key={op} value={op}>{op}</option>)}
                       </select>
 
-                      {/* 右操作数: 前N日(仅字段) + 字段/常量(弹出选择) */}
+                      {/* 右操作數: 前N日(僅字段) + 字段/常量(彈出選擇) */}
                       <RightValueInput cond={c} fields={fields} groups={groups} maxDays={maxDays}
                         onChangeRight={v => updateCond(i, { right: v })}
                         onChangeDays={v => updateCond(i, { rightDays: v })} />
@@ -256,7 +256,7 @@ export function CustomSignalDialog({ open, signal, defaultKind = 'exit', onClose
   )
 }
 
-// ── 字段选择器: 搜索 + 分组居中对话框 ───────────────────
+// ── 字段選擇器: 搜索 + 分組居中對話框 ───────────────────
 
 function FieldPicker({ value, fields, groups, onChange }: {
   value: string
@@ -310,7 +310,7 @@ function FieldPicker({ value, fields, groups, onChange }: {
                 className="w-full max-w-sm bg-surface border border-border/50 rounded-2xl shadow-2xl flex flex-col overflow-hidden max-h-[70vh]"
                 onClick={e => e.stopPropagation()}
               >
-                {/* 标题 + 搜索 */}
+                {/* 標題 + 搜索 */}
                 <div className="p-3 border-b border-border/50 space-y-2.5">
                   <div className="flex items-center justify-between">
                     <span className="text-xs font-medium text-foreground">選擇欄位</span>
@@ -330,7 +330,7 @@ function FieldPicker({ value, fields, groups, onChange }: {
                     {query && <button onClick={() => setQuery('')} className="text-muted hover:text-foreground"><X className="h-3 w-3" /></button>}
                   </div>
                 </div>
-                {/* 分组列表 */}
+                {/* 分組列表 */}
                 <div className="flex-1 overflow-y-auto p-2">
                   {filteredGroups ? (
                     filteredGroups.length > 0 ? filteredGroups.map(g => (
@@ -419,7 +419,7 @@ function DaysInput({ value, max, onChange }: { value: number; max: number; onCha
   )
 }
 
-// ── 右操作数: 字段(弹出) / 常量 切换 ─────────────────────
+// ── 右操作數: 字段(彈出) / 常量 切換 ─────────────────────
 
 function RightValueInput({ cond, fields, groups, maxDays, onChangeRight, onChangeDays }: {
   cond: CustomSignalCondition
@@ -445,7 +445,7 @@ function RightValueInput({ cond, fields, groups, maxDays, onChangeRight, onChang
         </>
       ) : (
         <>
-          {/* 常量无前N日概念, 占位保持与字段模式对齐 */}
+          {/* 常量無前N日概念, 佔位保持與字段模式對齊 */}
           <div className="shrink-0" style={{ width: 44 }} />
           <input type="number" value={numValue} onChange={e => onChangeRight(e.target.value)} step="any"
             className="flex-1 min-w-0 h-7 px-1.5 rounded bg-base border border-border text-[11px] font-mono text-foreground text-center focus:outline-none focus:border-accent/50" />

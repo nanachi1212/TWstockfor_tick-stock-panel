@@ -100,7 +100,7 @@ class RuleModel(BaseModel):
     severity: str = "info"    # info | warn | critical
     webhook_url: str = ""     # Webhook 推送地址 (推送到 QMT 等外部软件, 待定)
     webhook_enabled: bool = False  # 兼容老规则 (已由 webhook_channels 取代, 仅做向后兼容读)
-    webhook_channels: list[str] = []  # 命中时推送的外部渠道 (合法值 'feishu' | 'wecom')
+    webhook_channels: list[str] = []  # 命中时推播的外部渠道 (合法值 'line' | 'telegram')
     message: str = ""
     # ladder 专属 (连板梯队封单监控)
     metric: str = "sealed_vol"   # sealed_vol=封单量(手) | sealed_amount=封单额(元)
@@ -426,7 +426,7 @@ def seed_demo_rules(request: Request):
 # ── 封单监控模拟触发 (Dev 调试用) ─────────────────────
 @router.post("/test-ladder")
 def test_ladder(request: Request):
-    """模拟触发所有 ladder 规则, 返回命中结果 (不落盘、不推送飞书)。
+    """模拟触发所有 ladder 规则, 返回命中结果 (不落盘、不送出外部推播)。
 
     用当前 depth_service 的封单数据 + enriched 最新日 close 构造 mock DataFrame,
     跑 _evaluate_ladder 判断哪些规则会触发。供 Dev 页面调试验证。
@@ -540,9 +540,9 @@ def test_ladder(request: Request):
 
 @router.post("/trigger-ladder")
 def trigger_ladder(request: Request):
-    """真实触发一次 ladder 预警 (落盘 + 飞书推送 + SSE), 供 Dev 调试验证完整效果。
+    """真实触发一次 ladder 预警 (落盘 + 外部推播 + SSE), 供 Dev 调试验证完整效果。
 
-    与 test-ladder 区别: 本端点会真的把预警写入 alerts.jsonl、推送飞书、触发 SSE,
+    与 test-ladder 区别: 本端点会真的把预警写入 alerts.jsonl、送出外部推播、触发 SSE,
     让用户看到真实的预警通知。绕过 cooldown 强制触发。
     """
     import time
@@ -658,7 +658,7 @@ def trigger_ladder(request: Request):
         except Exception:  # noqa: BLE001
             pass
 
-    # 3. 飞书推送
+    # 3. 外部推播
     if quote_svc:
         try:
             quote_svc._maybe_send_webhook(rule_events, engine)

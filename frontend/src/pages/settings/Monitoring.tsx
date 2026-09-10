@@ -1,98 +1,76 @@
-import { useState, useCallback, useEffect, useRef } from 'react'
+import { useState, useCallback, useEffect } from 'react'
 import { Link } from 'react-router-dom'
 import { useQueryClient, useMutation, useQuery } from '@tanstack/react-query'
 import {
   Activity,
   Wifi,
-  Flame,
-  Zap,
   Webhook,
   ChevronDown,
+  BookOpen,
+  ExternalLink,
 } from 'lucide-react'
 import {
   usePreferences,
   useQuoteStatus,
   useQuoteInterval,
-  useCapabilities,
 } from '@/lib/useSharedQueries'
 import { useUpdateQuoteInterval, useToggleRealtimeQuotes } from '@/lib/useSharedMutations'
 import { api } from '@/lib/api'
 import { QK } from '@/lib/queryKeys'
 import { toast } from '@/components/Toast'
-import { DepthConfigContent } from '@/components/data/DepthConfigCard'
 
-// 页面 → 显示名
+// 頁面 → 顯示名
 const PAGE_LABELS: Record<string, string> = {
   'overview-market': '看板',
   watchlist: '自選頁',
-  'limit-ladder': '連板梯隊',
 }
 
-// ===== 导出为 Panel 组件 (由 Settings.tsx 嵌入) =====
+// ===== 導出為 Panel 組件 (由 Settings.tsx 嵌入) =====
 
-export function SettingsMonitoringPanel({ highlight }: { highlight?: string } = {}) {
+export function SettingsMonitoringPanel(_props: { highlight?: string } = {}) {
   const qc = useQueryClient()
   const { data: prefs } = usePreferences()
-  const { data: caps } = useCapabilities()
   const { data: quoteStatus } = useQuoteStatus()
   const { data: intervalData } = useQuoteInterval()
   const updateInterval = useUpdateQuoteInterval()
   const toggleQuote = useToggleRealtimeQuotes()
-  // 实时模式以 quote_status 为准 (数据源无关): watchlist=自选实时 / full_market=全市场 / none=不可用
+  // 實時模式以 quote_status 為準 (數據源無關): watchlist=自選實時 / full_market=全市場 / none=不可用
   const quoteMode = quoteStatus?.mode ?? 'none'
   const isWatchlistMode = quoteMode === 'watchlist'
   const realtimeEnabled = prefs?.realtime_quotes_enabled ?? false
-  // 分时图实时刷新间隔 (秒), 与后端 [3,60] clamp 对齐; 默认 6
+  // 分時圖實時刷新間隔 (秒), 與後端 [3,60] clamp 對齊; 默認 6
   const intradayInterval = prefs?.minute_intraday_refresh_interval ?? 6
-  // 滑块本地草稿: 拖动时即时反馈, 停顿 2s 后落库 (与行情轮询滑块一致)
+  // 滑塊本地草稿: 拖動時即時反饋, 停頓 2s 後落庫 (與行情輪詢滑塊一致)
   const [intradayIntervalDraft, setIntradayIntervalDraft] = useState(intradayInterval)
   const refreshPages = prefs?.sse_refresh_pages ?? {}
-  const limitLadderMonitor = prefs?.limit_ladder_monitor_enabled ?? false
-  const hasDepth = !!caps?.capabilities?.['depth5.batch']
-  // 新建监控规则时默认勾选的推送渠道 (全局默认值数组, 单条规则可独立修改)
+  // 新建監控規則時默認勾選的推送渠道 (全局默認值數組, 單條規則可獨立修改)
   const webhookDefaultChannels = prefs?.webhook_default_channels ?? []
   const isRunning = quoteStatus?.running ?? false
   const isTrading = quoteStatus?.is_trading_hours ?? false
-  // 管道/数据修正运行期间实时行情被临时暂停 — 此时禁止开启
+  // 管道/數據修正運行期間實時行情被臨時暫停 — 此時禁止開啟
   const isPaused = quoteStatus?.paused ?? false
   const interval = intervalData?.interval ?? 6
   const minInterval = intervalData?.min_interval ?? 6
   const maxInterval = intervalData?.max_interval ?? 60
   const [intervalDraft, setIntervalDraft] = useState(interval)
-  const feishuWebhookUrl = prefs?.feishu_webhook_url ?? ''
-  const feishuWebhookSecret = prefs?.feishu_webhook_secret ?? ''
-  const [feishuDraft, setFeishuDraft] = useState(feishuWebhookUrl)
-  const [feishuSecretDraft, setFeishuSecretDraft] = useState(feishuWebhookSecret)
-  const [feishuError, setFeishuError] = useState('')
-  // 企业微信 webhook
-  const wecomWebhookUrl = prefs?.wecom_webhook_url ?? ''
-  const [wecomDraft, setWecomDraft] = useState(wecomWebhookUrl)
-  const [wecomError, setWecomError] = useState('')
-  // 企业微信智能机器人 (BotID + Secret, 长连接通道)
-  const wecomBotId = prefs?.wecom_bot_id ?? ''
-  const wecomBotSecret = prefs?.wecom_bot_secret ?? ''
-  const wecomBotEnabled = prefs?.wecom_bot_enabled ?? false
-  const [botIdDraft, setBotIdDraft] = useState(wecomBotId)
-  const [botSecretDraft, setBotSecretDraft] = useState(wecomBotSecret)
-  const [botError, setBotError] = useState('')
-  const [botStatus, setBotStatus] = useState<{connected: boolean; last_error: string} | null>(null)
-  // 飞书渠道配置区展开态 (推送通知卡片内)
-  const [channelOpen, setChannelOpen] = useState(false)
-  // 企业微信渠道配置区展开态
-  const [wecomOpen, setWecomOpen] = useState(false)
-  // 智能机器人配置区展开态
-  const [botOpen, setBotOpen] = useState(false)
+  const lineTargetId = prefs?.line_target_id ?? ''
+  const lineTokenMasked = prefs?.line_channel_access_token_masked ?? ''
+  const lineConfigured = prefs?.line_configured ?? false
+  const telegramChatId = prefs?.telegram_chat_id ?? ''
+  const telegramTokenMasked = prefs?.telegram_bot_token_masked ?? ''
+  const telegramConfigured = prefs?.telegram_configured ?? false
+  const [lineTargetDraft, setLineTargetDraft] = useState(lineTargetId)
+  const [lineTokenDraft, setLineTokenDraft] = useState('')
+  const [telegramChatDraft, setTelegramChatDraft] = useState(telegramChatId)
+  const [telegramTokenDraft, setTelegramTokenDraft] = useState('')
+  const [lineOpen, setLineOpen] = useState(false)
+  const [telegramOpen, setTelegramOpen] = useState(false)
   useEffect(() => {
-    setFeishuDraft(feishuWebhookUrl)
-    setFeishuSecretDraft(feishuWebhookSecret)
-  }, [feishuWebhookUrl, feishuWebhookSecret])
+    setLineTargetDraft(lineTargetId)
+  }, [lineTargetId])
   useEffect(() => {
-    setWecomDraft(wecomWebhookUrl)
-  }, [wecomWebhookUrl])
-  useEffect(() => {
-    setBotIdDraft(wecomBotId)
-    setBotSecretDraft(wecomBotSecret)
-  }, [wecomBotId, wecomBotSecret])
+    setTelegramChatDraft(telegramChatId)
+  }, [telegramChatId])
   const watchlistSymbols = prefs?.realtime_watchlist_symbols ?? []
   const watchlist = useQuery({
     queryKey: QK.watchlist,
@@ -108,7 +86,7 @@ export function SettingsMonitoringPanel({ highlight }: { highlight?: string } = 
       await api.updateRealtimeMonitorConfig(cfg)
       qc.invalidateQueries({ queryKey: QK.preferences })
     } catch (e) {
-      // 忽略 — Toast 已在 request 层处理
+      // 忽略 — Toast 已在 request 層處理
     }
   }, [qc])
 
@@ -118,12 +96,7 @@ export function SettingsMonitoringPanel({ highlight }: { highlight?: string } = 
     qc.invalidateQueries({ queryKey: QK.quoteStatus })
   }, [toggleQuote, qc])
 
-  const toggleLimitLadderMonitor = useCallback(async (enabled: boolean) => {
-    await api.updateLimitLadderMonitor(enabled)
-    qc.invalidateQueries({ queryKey: QK.preferences })
-  }, [qc])
-
-  // 勾选/取消勾选某个默认推送渠道 (飞书 / 企业微信 各自独立)
+  // 勾選/取消勾選某個預設推播渠道 (LINE / Telegram 各自獨立)
   const toggleDefaultChannel = useCallback(async (ch: string, enabled: boolean) => {
     const cur = prefs?.webhook_default_channels ?? []
     const next = enabled ? [...cur, ch] : cur.filter(c => c !== ch)
@@ -131,85 +104,31 @@ export function SettingsMonitoringPanel({ highlight }: { highlight?: string } = 
     qc.invalidateQueries({ queryKey: QK.preferences })
   }, [qc, prefs])
 
-  const saveFeishuWebhook = useMutation({
-    mutationFn: ({ url, secret }: { url: string; secret: string }) => api.updateFeishuWebhook(url, secret),
+  const saveLine = useMutation({
+    mutationFn: ({ recipient, token, clearToken = false }: { recipient: string; token?: string; clearToken?: boolean }) =>
+      api.updateLineMessaging(recipient, token, clearToken),
     onSuccess: () => {
-      setFeishuError('')
-      toast('飛書 Webhook 已儲存', 'success')
+      setLineTokenDraft('')
+      toast('LINE Messaging API 設定已儲存', 'success')
       qc.invalidateQueries({ queryKey: QK.preferences })
     },
-    onError: (err: any) => setFeishuError(String(err?.message ?? '儲存失敗')),
   })
-  const FEISHU_PREFIX = 'https://open.feishu.cn/open-apis/bot/v2/hook/'
-  const submitFeishu = useCallback(() => {
-    const url = feishuDraft.trim()
-    const secret = feishuSecretDraft.trim()
-    if (url && !url.startsWith(FEISHU_PREFIX)) {
-      setFeishuError('位址需以 ' + FEISHU_PREFIX + ' 開頭')
-      return
-    }
-    saveFeishuWebhook.mutate({ url, secret })
-  }, [feishuDraft, feishuSecretDraft, saveFeishuWebhook])
-
-  const saveWecomWebhook = useMutation({
-    mutationFn: (url: string) => api.updateWecomWebhook(url),
+  const saveTelegram = useMutation({
+    mutationFn: ({ recipient, token, clearToken = false }: { recipient: string; token?: string; clearToken?: boolean }) =>
+      api.updateTelegramBot(recipient, token, clearToken),
     onSuccess: () => {
-      setWecomError('')
-      toast('企業微信 Webhook 已儲存', 'success')
-      qc.invalidateQueries({ queryKey: QK.preferences })
-    },
-    onError: (err: any) => setWecomError(String(err?.message ?? '儲存失敗')),
-  })
-  const WECOM_PREFIX = 'https://qyapi.weixin.qq.com/cgi-bin/webhook/send'
-  const submitWecom = useCallback(() => {
-    const url = wecomDraft.trim()
-    // 允许完整 URL 或纯 key (36位UUID样式)
-    if (url && !url.startsWith(WECOM_PREFIX) && url.length < 20) {
-      setWecomError('請輸入完整 Webhook 位址或純 key (至少 20 位)')
-      return
-    }
-    saveWecomWebhook.mutate(url)
-  }, [wecomDraft, saveWecomWebhook])
-
-  // 智能机器人 (BotID + Secret) 保存 → 后端立即重建连接
-  const saveWecomBot = useMutation({
-    mutationFn: ({ botId, secret }: { botId: string; secret: string }) =>
-      api.updateWecomBot(botId, secret, true),
-    onSuccess: (data) => {
-      setBotError('')
-      toast('智慧型機器人憑證已儲存,正在連線…', 'success')
-      setBotStatus({
-        connected: data.wecom_bot_status?.connected ?? false,
-        last_error: data.wecom_bot_status?.last_error ?? '',
-      })
-      qc.invalidateQueries({ queryKey: QK.preferences })
-    },
-    onError: (err: any) => setBotError(String(err?.message ?? '儲存失敗')),
-  })
-  const submitBot = useCallback(() => {
-    saveWecomBot.mutate({ botId: botIdDraft.trim(), secret: botSecretDraft.trim() })
-  }, [botIdDraft, botSecretDraft, saveWecomBot])
-
-  // 智能机器人长连接开关(不改动凭证): 开启→连接, 关闭→断开
-  const toggleBotConnection = useMutation({
-    mutationFn: (enabled: boolean) => api.toggleWecomBot(enabled),
-    onSuccess: (data) => {
-      setBotStatus({
-        connected: data.wecom_bot_status?.connected ?? false,
-        last_error: data.wecom_bot_status?.last_error ?? '',
-      })
+      setTelegramTokenDraft('')
+      toast('Telegram Bot API 設定已儲存', 'success')
       qc.invalidateQueries({ queryKey: QK.preferences })
     },
   })
-
-  const runFix = useMutation({
-    mutationFn: () => api.runLimitLadderFix(),
-    onSuccess: (data) => {
-      toast(data.msg, data.ok ? 'success' : 'error')
-      // 修正后连板梯队数据变了, 刷新相关缓存
-      qc.invalidateQueries({ queryKey: ['limit-ladder'] })
-    },
-    onError: () => toast('修正請求失敗', 'error'),
+  const testLine = useMutation({
+    mutationFn: api.testLineMessaging,
+    onSuccess: ({ ok }) => toast(ok ? 'LINE 測試通知已送出' : 'LINE 測試通知失敗', ok ? 'success' : 'error'),
+  })
+  const testTelegram = useMutation({
+    mutationFn: api.testTelegramBot,
+    onSuccess: ({ ok }) => toast(ok ? 'Telegram 測試通知已送出' : 'Telegram 測試通知失敗', ok ? 'success' : 'error'),
   })
 
   useEffect(() => {
@@ -224,12 +143,12 @@ export function SettingsMonitoringPanel({ highlight }: { highlight?: string } = 
     return () => window.clearTimeout(t)
   }, [intervalDraft, interval, updateInterval])
 
-  // 分时刷新间隔: 服务端值变化时同步本地草稿
+  // 分時刷新間隔: 服務端值變化時同步本地草稿
   useEffect(() => {
     setIntradayIntervalDraft(intradayInterval)
   }, [intradayInterval])
 
-  // 分时刷新间隔: 草稿与已保存值不同时, 2s 防抖落库
+  // 分時刷新間隔: 草稿與已保存值不同時, 2s 防抖落庫
   useEffect(() => {
     if (intradayIntervalDraft === intradayInterval) return
     const t = window.setTimeout(() => {
@@ -238,26 +157,11 @@ export function SettingsMonitoringPanel({ highlight }: { highlight?: string } = 
     return () => window.clearTimeout(t)
   }, [intradayIntervalDraft, intradayInterval, save])
 
-  // highlight=depth-fix 时闪烁高亮连板梯队修正卡片
-  const [flash, setFlash] = useState(false)
-  const flashedRef = useRef(false)
-  useEffect(() => {
-    if (highlight === 'depth-fix' && !flashedRef.current) {
-      flashedRef.current = true
-      // 延迟一帧确保 DOM 已渲染, 再触发闪烁
-      requestAnimationFrame(() => {
-        setFlash(true)
-        const t = setTimeout(() => setFlash(false), 2000)
-        return () => clearTimeout(t)
-      })
-    }
-  }, [highlight])
-
   return (
     <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)] gap-6 max-w-5xl">
       {/* ========== 左列 ========== */}
       <div className="space-y-6">
-        {/* 行情状态 — 开关 + 间隔 */}
+        {/* 行情狀態 — 開關 + 間隔 */}
         <Card icon={Activity} title="行情輪詢">
           <ToggleRow
             label="即時行情"
@@ -357,7 +261,7 @@ export function SettingsMonitoringPanel({ highlight }: { highlight?: string } = 
         </Card>
         )}
 
-        {/* 自选列表分时图实时刷新 (默认关闭, 开启后盘中按设定间隔轮询刷新分时数据) */}
+        {/* 自選列表分時圖實時刷新 (默認關閉, 開啟後盤中按設定間隔輪詢刷新分時數據) */}
         <Card icon={Activity} title="分時圖重新整理">
           <ToggleRow
             label="自選/策略分時圖即時重新整理"
@@ -398,318 +302,280 @@ export function SettingsMonitoringPanel({ highlight }: { highlight?: string } = 
 
       {/* ========== 右列 ========== */}
       <div className="space-y-6">
-        {/* 连板梯队降级修正 (移至右列顶部) */}
-        <div
-          id="depth-fix"
-          className={`rounded-card transition-all duration-500 ${flash ? 'ring-2 ring-accent/60 ring-offset-2 ring-offset-base scale-[1.01]' : 'ring-0 ring-transparent'}`}
-        >
-        <Card
-          icon={Flame}
-          title="連板梯隊降級修正"
-          badge={!hasDepth ? '五檔盤口不可用' : undefined}
-          right={hasDepth ? (
-            <button
-              onClick={() => runFix.mutate()}
-              disabled={runFix.isPending}
-              className="inline-flex items-center gap-1 px-2 py-1 rounded text-[11px]
-                         bg-accent/15 text-accent hover:bg-accent/25 transition-colors
-                         disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              <Zap className="h-3 w-3" />
-              {runFix.isPending ? '修正中…' : '立即修正'}
-            </button>
-          ) : undefined}
-        >
-          {hasDepth ? (
-            <>
-              <p className="text-xs text-secondary mb-4">
-                透過五檔盤口即時修正真假漲停/跌停。真封板顯示封單量,假漲停(收盤價=漲停價但賣一有量)歸入炸板。
-                盤中依設定間隔輪詢,收盤後自動定版。
-              </p>
-              <ToggleRow
-                label="啟用真假板修正"
-                desc="開啟後盤中自動拉取五檔盤口修正真假板"
-                checked={limitLadderMonitor}
-                onChange={toggleLimitLadderMonitor}
-              />
-              <div className="mt-4 pt-3 border-t border-border">
-                <div className="text-[10px] uppercase tracking-widest text-muted mb-3">
-                  五檔盤口設定
-                </div>
-                <DepthConfigContent disabled={!limitLadderMonitor} />
-              </div>
-            </>
-          ) : (
-            <DepthConfigContent disabled />
-          )}
-        </Card>
-        </div>
-
-        {/* 推送通知 — 监控告警的外部推送渠道 (全局配置)。
-            飞书 / 企业微信。
-            每个渠道合并成一行: 勾选=新建规则默认推送, 点行展开地址配置。 */}
+        {/* 外部推播渠道；告警落盤與 SSE 流程不依賴這些 API。 */}
         <Card icon={Webhook} title="推播通知">
           <p className="text-xs text-secondary mb-3">
             監控規則命中後,可把告警推送到外部。勾選管道作為<b className="text-foreground/80">新建規則的預設推播</b>,
             單條規則仍可在編輯頁獨立修改。
           </p>
 
-          {/* 渠道列表 — 每行一个渠道, 勾选默认 + 点行展开地址配置 */}
           <div className="space-y-2">
-            {/* 飞书 (可用): 勾选默认 + 展开地址配置 */}
             <div className="rounded-btn border border-border/60 bg-base/40 overflow-hidden">
               <div
-                onClick={() => setChannelOpen(o => !o)}
+                onClick={() => setLineOpen(open => !open)}
                 className="flex items-center gap-2 px-2.5 py-2 cursor-pointer transition-colors hover:bg-base/60"
               >
                 <input
                   type="checkbox"
-                  checked={webhookDefaultChannels.includes('feishu')}
-                  onChange={e => { e.stopPropagation(); toggleDefaultChannel('feishu', e.target.checked) }}
-                  onClick={e => e.stopPropagation()}
+                  checked={webhookDefaultChannels.includes('line')}
+                  onChange={event => { event.stopPropagation(); toggleDefaultChannel('line', event.target.checked) }}
+                  onClick={event => event.stopPropagation()}
                   title="作為新建規則的預設推播管道"
                   className="h-3 w-3 accent-accent cursor-pointer"
                 />
-                <span className="text-[11px] font-medium text-foreground">飛書</span>
-                <span className="text-[9px] text-muted">群推播 Webhook</span>
-                {webhookDefaultChannels.includes('feishu') && (
+                <span className="text-[11px] font-medium text-foreground">LINE</span>
+                <span className="text-[9px] text-muted">Messaging API</span>
+                {webhookDefaultChannels.includes('line') && (
                   <span className="rounded bg-accent/15 px-1 py-px text-[9px] text-accent">預設</span>
                 )}
-                <span className={`ml-auto text-[9px] ${feishuWebhookUrl ? 'text-emerald-500' : 'text-warning'}`}>
-                  {feishuWebhookUrl ? '已設定' : '未設定'}
+                <span className={`ml-auto text-[9px] ${lineConfigured ? 'text-emerald-500' : 'text-warning'}`}>
+                  {lineConfigured ? '已設定' : '未設定'}
                 </span>
-                <ChevronDown className={`h-3 w-3 text-muted transition-transform ${channelOpen ? 'rotate-180' : ''}`} />
+                <ChevronDown className={`h-3 w-3 text-muted transition-transform ${lineOpen ? 'rotate-180' : ''}`} />
               </div>
 
-              {/* 飞书地址配置 — 行内展开 */}
-              {channelOpen && (
+              {lineOpen && (
                 <div className="border-t border-border/60 bg-base/30 p-3">
                   <label className="block space-y-1.5">
-                    <span className="text-[11px] text-muted">Webhook 位址</span>
+                    <span className="text-[11px] text-muted">Target ID（開發者 User ID / 群組 ID，非一般 LINE ID）</span>
                     <input
-                      value={feishuDraft}
-                      onChange={e => setFeishuDraft(e.target.value)}
-                      placeholder={FEISHU_PREFIX + 'xxxxxxxx'}
+                      value={lineTargetDraft}
+                      onChange={event => setLineTargetDraft(event.target.value)}
+                      placeholder="U… (個人) / C… (群組)"
                       className="h-9 w-full rounded-btn border border-border bg-base px-3 text-xs font-mono text-foreground focus:outline-none focus:border-accent/50"
                     />
                   </label>
-
                   <label className="block mt-2 space-y-1.5">
-                    <span className="text-[11px] text-muted">簽章金鑰 (可選 · 啟用簽章驗證時填)</span>
+                    <span className="text-[11px] text-muted">Channel access token</span>
                     <input
                       type="password"
-                      value={feishuSecretDraft}
-                      onChange={e => setFeishuSecretDraft(e.target.value)}
-                      placeholder="機器人未啟用簽章驗證則留空"
+                      value={lineTokenDraft}
+                      onChange={event => setLineTokenDraft(event.target.value)}
+                      placeholder={lineTokenMasked || '貼上 Channel access token'}
                       className="h-9 w-full rounded-btn border border-border bg-base px-3 text-xs font-mono text-foreground focus:outline-none focus:border-accent/50"
                     />
                   </label>
-
-                  {feishuError && (
-                    <div className="mt-2 text-[11px] text-danger">{feishuError}</div>
-                  )}
-
-                  <div className="mt-2 flex items-center gap-2">
+                  <p className="mt-1.5 text-[10px] text-muted">Token 留空會保留目前已儲存的值。</p>
+                  <div className="mt-2 flex flex-wrap items-center gap-2">
                     <button
-                      onClick={submitFeishu}
-                      disabled={saveFeishuWebhook.isPending || (feishuDraft.trim() === feishuWebhookUrl && feishuSecretDraft.trim() === feishuWebhookSecret)}
+                      onClick={() => saveLine.mutate({
+                        recipient: lineTargetDraft.trim(),
+                        token: lineTokenDraft.trim() || undefined,
+                      })}
+                      disabled={saveLine.isPending || (lineTargetDraft.trim() === lineTargetId && !lineTokenDraft.trim())}
                       className="px-3 py-1.5 rounded-btn bg-accent text-base text-xs font-medium disabled:opacity-50 cursor-pointer hover:bg-accent/90 transition-colors"
                     >
-                      {saveFeishuWebhook.isPending ? '儲存中…' : '儲存'}
+                      {saveLine.isPending ? '儲存中…' : '儲存'}
                     </button>
-                    {feishuWebhookUrl && (
-                      <span className="text-[10px] text-emerald-500">● 已設定</span>
+                    <button
+                      onClick={() => testLine.mutate()}
+                      disabled={!lineConfigured || testLine.isPending}
+                      className="px-3 py-1.5 rounded-btn bg-elevated text-xs text-secondary disabled:opacity-50"
+                    >
+                      {testLine.isPending ? '測試中…' : '測試通知'}
+                    </button>
+                    {lineConfigured && (
+                      <button
+                        onClick={() => saveLine.mutate({ recipient: '', clearToken: true })}
+                        disabled={saveLine.isPending}
+                        className="ml-auto px-2 py-1 text-[10px] text-danger disabled:opacity-50"
+                      >
+                        清除設定
+                      </button>
                     )}
                   </div>
 
-                  <details className="mt-3 text-[10px] text-muted">
-                    <summary className="cursor-pointer hover:text-secondary">如何取得飛書 Webhook 位址?</summary>
-                    <ol className="mt-1.5 space-y-1 pl-4 list-decimal leading-relaxed">
-                      <li>開啟飛書,進入目標群聊 → 群設定 → <b>群推播 Webhook</b></li>
-                      <li>點擊「新增機器人」→ 選擇「<b>自訂機器人</b>」</li>
-                      <li>填寫機器人名稱後新增,複製產生的 Webhook 位址</li>
-                      <li>安全設定若啟用了「<b>簽章驗證</b>」,把金鑰一併複製填到「簽章金鑰」框</li>
-                      <li>貼上到上方輸入框並儲存</li>
-                    </ol>
-                    <p className="mt-1.5 pl-4 text-muted/70">
-                      📖 官方文档:
-                      <a href="https://open.feishu.cn/document/client-docs/bot-v3/add-custom-bot?lang=zh-CN" target="_blank" rel="noreferrer" className="text-accent hover:text-accent/80">
-                        自訂機器人使用指南 ↗
-                      </a>
-                    </p>
+                  {/* LINE 串接教學 (可展開折疊區塊，預設收合) */}
+                  <details className="mt-3 rounded-btn border border-border/60 bg-base/40 p-2.5 group">
+                    <summary className="cursor-pointer text-xs font-medium text-secondary hover:text-foreground flex items-center justify-between select-none">
+                      <span className="flex items-center gap-1.5">
+                        <BookOpen className="h-3.5 w-3.5 text-accent" />
+                        LINE Messaging API 串接教學
+                      </span>
+                      <ChevronDown className="h-3 w-3 text-muted transition-transform group-open:rotate-180" />
+                    </summary>
+                    <div className="mt-2.5 pt-2.5 border-t border-border/50 text-[11px] text-secondary space-y-2 leading-relaxed">
+                      <ol className="list-decimal list-inside space-y-2 pl-0.5 text-foreground/90">
+                        <li><b>建立 LINE Official Account</b>：前往 LINE Official Account 平台註冊並建立專屬官方帳號。</li>
+                        <li><b>啟用 Messaging API</b>：登入後台管理頁面，在「設定 &gt; Messaging API」分頁點選啟用。</li>
+                        <li><b>取得 Channel Access Token</b>：登入 LINE Developers Console，在頻道「Messaging API」頁籤發行並複製長期 Channel Access Token。</li>
+                        <li>
+                          <b>取得 Target ID（接收對象識別碼）</b>：
+                          <div className="mt-1 space-y-1 pl-1 text-[10.5px] text-secondary">
+                            <p>
+                              <b>⚠️ 重要觀念</b>：Target ID <b>不等於一般 LINE ID</b>（不能填寫個人自訂的好友搜尋帳號或行動條碼）。
+                            </p>
+                            <p>
+                              • <b>自己的開發者 User ID</b>：登入 LINE Developers Console，進入所屬頻道之「<b>Basic settings</b>」頁籤，滑至最下方複製「Your user ID」（以 <code className="px-1 rounded bg-elevated text-accent font-mono">U</code> 開頭的 33 碼字串）。
+                            </p>
+                            <p>
+                              • <b>其他使用者或群組 / 聊天室 ID</b>：其他人的 User ID（<code className="px-1 rounded bg-elevated font-mono">U…</code>）或群組 ID（<code className="px-1 rounded bg-elevated font-mono">C…</code>）通常需透過伺服器設定 <b>webhook event</b>（如好友訊息或加入群組事件）動態取得。
+                            </p>
+                          </div>
+                        </li>
+                        <li><b>填入設定</b>：回到本系統填入 Channel Access Token 與 Target ID。</li>
+                        <li><b>儲存並驗證</b>：點擊「儲存」按鈕後，按「測試通知」確認能否正常收到測試推播。</li>
+                        <li><span className="text-warning font-medium">⚠️ Channel Access Token 視同密碼，請妥善保管，切勿分享給他人。</span></li>
+                      </ol>
+                      <div className="pt-1 flex flex-wrap gap-3 text-[11px]">
+                        <a
+                          href="https://developers.line.biz/en/docs/messaging-api/getting-started/"
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-accent hover:underline inline-flex items-center gap-1"
+                        >
+                          <ExternalLink className="h-3 w-3" />
+                          LINE 官方 Messaging API 起步教學
+                        </a>
+                        <a
+                          href="https://developers.line.biz/en/docs/basics/channel-access-token/"
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-accent hover:underline inline-flex items-center gap-1"
+                        >
+                          <ExternalLink className="h-3 w-3" />
+                          Channel Access Token 官方文件
+                        </a>
+                      </div>
+                    </div>
                   </details>
                 </div>
               )}
             </div>
 
-            {/* 企业微信群推送 Webhook (可用): 与飞书并列, 勾选默认 + 展开地址配置 */}
             <div className="rounded-btn border border-border/60 bg-base/40 overflow-hidden">
               <div
-                onClick={() => setWecomOpen(o => !o)}
+                onClick={() => setTelegramOpen(open => !open)}
                 className="flex items-center gap-2 px-2.5 py-2 cursor-pointer transition-colors hover:bg-base/60"
               >
                 <input
                   type="checkbox"
-                  checked={webhookDefaultChannels.includes('wecom')}
-                  onChange={e => { e.stopPropagation(); toggleDefaultChannel('wecom', e.target.checked) }}
-                  onClick={e => e.stopPropagation()}
+                  checked={webhookDefaultChannels.includes('telegram')}
+                  onChange={event => { event.stopPropagation(); toggleDefaultChannel('telegram', event.target.checked) }}
+                  onClick={event => event.stopPropagation()}
                   title="作為新建規則的預設推播管道"
                   className="h-3 w-3 accent-accent cursor-pointer"
                 />
-                <span className="text-[11px] font-medium text-foreground">企業微信</span>
-                <span className="text-[9px] text-muted">群推播 Webhook</span>
-                {webhookDefaultChannels.includes('wecom') && (
+                <span className="text-[11px] font-medium text-foreground">Telegram</span>
+                <span className="text-[9px] text-muted">Bot API</span>
+                {webhookDefaultChannels.includes('telegram') && (
                   <span className="rounded bg-accent/15 px-1 py-px text-[9px] text-accent">預設</span>
                 )}
-                <span className={`ml-auto text-[9px] ${wecomWebhookUrl ? 'text-emerald-500' : 'text-warning'}`}>
-                  {wecomWebhookUrl ? '已設定' : '未設定'}
+                <span className={`ml-auto text-[9px] ${telegramConfigured ? 'text-emerald-500' : 'text-warning'}`}>
+                  {telegramConfigured ? '已設定' : '未設定'}
                 </span>
-                <ChevronDown className={`h-3 w-3 text-muted transition-transform ${wecomOpen ? 'rotate-180' : ''}`} />
+                <ChevronDown className={`h-3 w-3 text-muted transition-transform ${telegramOpen ? 'rotate-180' : ''}`} />
               </div>
 
-              {wecomOpen && (
+              {telegramOpen && (
                 <div className="border-t border-border/60 bg-base/30 p-3">
                   <label className="block space-y-1.5">
-                    <span className="text-[11px] text-muted">Webhook 位址 或 Key</span>
+                    <span className="text-[11px] text-muted">Chat ID</span>
                     <input
-                      value={wecomDraft}
-                      onChange={e => setWecomDraft(e.target.value)}
-                      placeholder={WECOM_PREFIX + '?key=xxxxxxxx' + ' 或直接填 key'}
+                      value={telegramChatDraft}
+                      onChange={event => setTelegramChatDraft(event.target.value)}
+                      placeholder="例如 -1001234567890"
                       className="h-9 w-full rounded-btn border border-border bg-base px-3 text-xs font-mono text-foreground focus:outline-none focus:border-accent/50"
                     />
                   </label>
-
-                  {wecomError && (
-                    <div className="mt-2 text-[11px] text-danger">{wecomError}</div>
-                  )}
-
-                  <div className="mt-2 flex items-center gap-2">
-                    <button
-                      onClick={submitWecom}
-                      disabled={saveWecomWebhook.isPending || wecomDraft.trim() === wecomWebhookUrl}
-                      className="px-3 py-1.5 rounded-btn bg-accent text-base text-xs font-medium disabled:opacity-50 cursor-pointer hover:bg-accent/90 transition-colors"
-                    >
-                      {saveWecomWebhook.isPending ? '儲存中…' : '儲存'}
-                    </button>
-                    {wecomWebhookUrl && (
-                      <span className="text-[10px] text-emerald-500">● 已設定</span>
-                    )}
-                  </div>
-
-                  <details className="mt-3 text-[10px] text-muted">
-                    <summary className="cursor-pointer hover:text-secondary">如何取得企業微信 Webhook 位址?</summary>
-                    <ol className="mt-1.5 space-y-1 pl-4 list-decimal leading-relaxed">
-                      <li>開啟企業微信,進入目標群聊 → 右上角「...」→ <b>群推播 Webhook</b></li>
-                      <li>點擊「新增」→ 選擇「<b>訊息推播</b>」→ 填寫名稱</li>
-                      <li>複製產生的 <b>Webhook 位址</b>(含 key 參數),貼上到上方輸入框</li>
-                      <li>也可只複製 key 參數部分(= 後面的內容)填入</li>
-                      <li>企業微信群的訊息可同步到綁定的個人微信,實現「微信推播」</li>
-                    </ol>
-                    <p className="mt-1.5 pl-4 text-muted/70">
-                      📖 官方文档:
-                      <a href="https://developer.work.weixin.qq.com/document/path/91770" target="_blank" rel="noreferrer" className="text-accent hover:text-accent/80">
-                        群推播 Webhook 使用指南 ↗
-                      </a>
-                    </p>
-                  </details>
-                </div>
-              )}
-            </div>
-
-            {/* 企业微信智能机器人 (BotID + Secret): 长连接通道, 与群推送 Webhook 并列 */}
-            <div className="rounded-btn border border-border/60 bg-base/40 overflow-hidden">
-              <div
-                onClick={() => setBotOpen(o => !o)}
-                className="flex items-center gap-2 px-2.5 py-2 cursor-pointer transition-colors hover:bg-base/60"
-              >
-                <input
-                  type="checkbox"
-                  checked={wecomBotEnabled}
-                  onChange={e => { e.stopPropagation(); toggleBotConnection.mutate(e.target.checked) }}
-                  onClick={e => e.stopPropagation()}
-                  disabled={!wecomBotId || toggleBotConnection.isPending}
-                  title="開啟後建立長連線保活,關閉則斷開"
-                  className="h-3 w-3 accent-accent cursor-pointer disabled:opacity-40"
-                />
-                <span className="text-[11px] font-medium text-foreground">企業微信</span>
-                <span className="text-[9px] text-muted">智慧型機器人</span>
-                <span className={`ml-auto text-[9px] ${wecomBotId ? (botStatus?.connected ? 'text-emerald-500' : 'text-warning') : 'text-muted'}`}>
-                  {wecomBotId ? (botStatus?.connected ? '已連線' : (wecomBotEnabled ? '連線中' : '已設定')) : '未設定'}
-                </span>
-                <ChevronDown className={`h-3 w-3 text-muted transition-transform ${botOpen ? 'rotate-180' : ''}`} />
-              </div>
-
-              {botOpen && (
-                <div className="border-t border-border/60 bg-base/30 p-3">
-                  <p className="mb-2.5 text-[10px] text-muted leading-relaxed">
-                    勾選卡片左側開關可啟用長連線保活(開啟後後端持續保持與企業微信的
-                    WebSocket 連線)。儲存憑證後需勾選才會連線,取消勾選則立即斷開。
-                  </p>
-                  <label className="block space-y-1.5">
-                    <span className="text-[11px] text-muted">BotID</span>
-                    <input
-                      value={botIdDraft}
-                      onChange={e => setBotIdDraft(e.target.value)}
-                      placeholder="智慧型機器人的唯一識別碼"
-                      className="h-9 w-full rounded-btn border border-border bg-base px-3 text-xs font-mono text-foreground focus:outline-none focus:border-accent/50"
-                    />
-                  </label>
-
                   <label className="block mt-2 space-y-1.5">
-                    <span className="text-[11px] text-muted">Secret (長連線專用金鑰)</span>
+                    <span className="text-[11px] text-muted">Bot token</span>
                     <input
                       type="password"
-                      value={botSecretDraft}
-                      onChange={e => setBotSecretDraft(e.target.value)}
-                      placeholder="開啟長連線 API 模式後取得的金鑰"
+                      value={telegramTokenDraft}
+                      onChange={event => setTelegramTokenDraft(event.target.value)}
+                      placeholder={telegramTokenMasked || '貼上 Bot token'}
                       className="h-9 w-full rounded-btn border border-border bg-base px-3 text-xs font-mono text-foreground focus:outline-none focus:border-accent/50"
                     />
                   </label>
-
-                  {botError && (
-                    <div className="mt-2 text-[11px] text-danger">{botError}</div>
-                  )}
-
-                  {botStatus?.last_error && !botError && (
-                    <div className="mt-2 text-[11px] text-warning">連線異常: {botStatus.last_error}</div>
-                  )}
-
-                  <div className="mt-2 flex items-center gap-2">
+                  <p className="mt-1.5 text-[10px] text-muted">Token 留空會保留目前已儲存的值。</p>
+                  <div className="mt-2 flex flex-wrap items-center gap-2">
                     <button
-                      onClick={submitBot}
-                      disabled={saveWecomBot.isPending || (botIdDraft.trim() === wecomBotId && botSecretDraft.trim() === wecomBotSecret)}
+                      onClick={() => saveTelegram.mutate({
+                        recipient: telegramChatDraft.trim(),
+                        token: telegramTokenDraft.trim() || undefined,
+                      })}
+                      disabled={saveTelegram.isPending || (telegramChatDraft.trim() === telegramChatId && !telegramTokenDraft.trim())}
                       className="px-3 py-1.5 rounded-btn bg-accent text-base text-xs font-medium disabled:opacity-50 cursor-pointer hover:bg-accent/90 transition-colors"
                     >
-                      {saveWecomBot.isPending ? '儲存中…' : '儲存並連線'}
+                      {saveTelegram.isPending ? '儲存中…' : '儲存'}
                     </button>
-                    {wecomBotId && (
-                      <span className="text-[10px] text-emerald-500">● 已設定</span>
+                    <button
+                      onClick={() => testTelegram.mutate()}
+                      disabled={!telegramConfigured || testTelegram.isPending}
+                      className="px-3 py-1.5 rounded-btn bg-elevated text-xs text-secondary disabled:opacity-50"
+                    >
+                      {testTelegram.isPending ? '測試中…' : '測試通知'}
+                    </button>
+                    {telegramConfigured && (
+                      <button
+                        onClick={() => saveTelegram.mutate({ recipient: '', clearToken: true })}
+                        disabled={saveTelegram.isPending}
+                        className="ml-auto px-2 py-1 text-[10px] text-danger disabled:opacity-50"
+                      >
+                        清除設定
+                      </button>
                     )}
                   </div>
 
-                  <details className="mt-3 text-[10px] text-muted">
-                    <summary className="cursor-pointer hover:text-secondary">如何取得 BotID 和 Secret?</summary>
-                    <ol className="mt-1.5 space-y-1 pl-4 list-decimal leading-relaxed">
-                      <li>登入<b>企業微信管理後台</b> → 應用程式管理 → <b>智慧型機器人</b> → 建立機器人</li>
-                      <li>填寫名稱、頭像後進入機器人設定頁</li>
-                      <li>開啟「<b>API 模式</b>」→ 選擇「<b>長連線</b>」方式(另一項「回呼URL」需公網IP)</li>
-                      <li>頁面顯示 <b>BotID</b> 和 <b>Secret</b>,複製填到上方輸入框</li>
-                    </ol>
-                    <p className="mt-1.5 pl-4 text-muted/70">
-                      💡 智慧型機器人支援 @互動和串流回覆,與群推播 Webhook(單向推播)互補。
-                      儲存後後端會自動建立 WebSocket 長連線保活。
-                    </p>
-                    <p className="mt-1.5 pl-4 text-muted/70">
-                      📖 官方文档:
-                      <a href="https://developer.work.weixin.qq.com/document/path/101463" target="_blank" rel="noreferrer" className="text-accent hover:text-accent/80">
-                        智慧型機器人長連線 ↗
-                      </a>
-                    </p>
+                  {/* Telegram 串接教學 (可展開折疊區塊，預設收合) */}
+                  <details className="mt-3 rounded-btn border border-border/60 bg-base/40 p-2.5 group">
+                    <summary className="cursor-pointer text-xs font-medium text-secondary hover:text-foreground flex items-center justify-between select-none">
+                      <span className="flex items-center gap-1.5">
+                        <BookOpen className="h-3.5 w-3.5 text-accent" />
+                        Telegram Bot 串接教學
+                      </span>
+                      <ChevronDown className="h-3 w-3 text-muted transition-transform group-open:rotate-180" />
+                    </summary>
+                    <div className="mt-2.5 pt-2.5 border-t border-border/50 text-[11px] text-secondary space-y-2 leading-relaxed">
+                      <ol className="list-decimal list-inside space-y-2 pl-0.5 text-foreground/90">
+                        <li><b>在 Telegram 尋找 @BotFather</b>：開啟 Telegram 搜尋官方機器人管理員 <code className="px-1 rounded bg-elevated text-accent font-mono">@BotFather</code> 並開啟對話。</li>
+                        <li><b>使用 /newbot 建立 Bot</b>：向 BotFather 發送 <code className="px-1 rounded bg-elevated text-foreground font-mono">/newbot</code>，依引導設定 Bot 名稱與 username（結尾須為 bot）。</li>
+                        <li><b>取得 Bot Token</b>：建立完成後，BotFather 會回傳專屬 API Token（例如 <code className="px-1 rounded bg-elevated text-muted font-mono">123456:ABC-DEF...</code>）。</li>
+                        <li><b>傳訊息給剛建立的 Bot</b>：在 Telegram 搜尋剛建立的 Bot，點擊「Start」並傳送任意一則文字訊息（Bot 必須先收到訊息才能建立通訊通道）。</li>
+                        <li>
+                          <b>呼叫 getUpdates 讀取 message.chat.id（官方方式）</b>：
+                          <div className="mt-1 space-y-1 pl-1 text-[10.5px] text-secondary">
+                            <p>
+                              在瀏覽器中開啟官方 API 網址（將 <code className="px-1 rounded bg-elevated font-mono">&lt;YourBotToken&gt;</code> 替換為您的 Bot Token）：
+                            </p>
+                            <p className="font-mono text-xs text-accent break-all select-all">
+                              https://api.telegram.org/bot&lt;YourBotToken&gt;/getUpdates
+                            </p>
+                            <p>
+                              在回傳的 JSON 內容中，展開 <code className="px-1 rounded bg-elevated font-mono">result</code> 找到 <code className="px-1 rounded bg-elevated font-mono">message.chat.id</code>（個人聊天為正整數，群組通常為以 <code className="px-1 rounded bg-elevated font-mono">-</code> 開頭的負整數），該數值即為 Chat ID。
+                            </p>
+                          </div>
+                        </li>
+                        <li><b>填入設定</b>：回到本系統填入 Chat ID 與 Bot Token。</li>
+                        <li><b>儲存並驗證</b>：點擊「儲存」按鈕後，按「測試通知」確認能否正常收到測試推播。</li>
+                        <li><span className="text-warning font-medium">⚠️ Bot Token 視同密碼，請妥善保管，切勿分享給他人。</span></li>
+                      </ol>
+                      <div className="pt-1 flex flex-wrap gap-3 text-[11px]">
+                        <a
+                          href="https://core.telegram.org/bots/tutorial"
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-accent hover:underline inline-flex items-center gap-1"
+                        >
+                          <ExternalLink className="h-3 w-3" />
+                          Telegram Bots 官方起步教程
+                        </a>
+                        <a
+                          href="https://core.telegram.org/bots/api"
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-accent hover:underline inline-flex items-center gap-1"
+                        >
+                          <ExternalLink className="h-3 w-3" />
+                          Telegram Bot API 官方文件
+                        </a>
+                      </div>
+                    </div>
                   </details>
                 </div>
               )}
             </div>
-
           </div>
         </Card>
       </div>
