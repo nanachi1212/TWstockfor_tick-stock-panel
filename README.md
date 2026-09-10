@@ -1,5 +1,5 @@
+Nanachi 的台股監控看板是一套以台灣股票日常追蹤為核心的開源工具，主要使用 TWSE 臺灣證券交易所、TPEx 證券櫃檯買賣中心等官方公開資料來源，不依賴付費行情 API。
 
-<div align="center">
-全部台股化中，專案來源：https://github.com/shy3130/tick-stock-panel
+專案聚焦於「看市場 → 找股票 → 加入自選 → 多股比較 → 設定監控」的使用流程，提供台股市場看板、台股選股、自選股、多股比較、個股行情與 K 線、監控提醒，以及 LINE Messaging API／Telegram Bot 通知。
 
-[![声明:个人开源](https://img.shields.io/badge/⚠️_声明-个人开源_非TickFlow官方项目-green?style=for-the-badge&labelColor=red)](https://github.com/shy3130/tick-stock-panel)
+歷史日 K 資料可透過 GitHub Release 快速下載，並可再由程式補齊最新交易日資料。
