@@ -2,23 +2,23 @@ import { ShieldCheck } from 'lucide-react'
 import type { FrontendExtension } from '@/extensions/types'
 
 function RiskPage() {
-  return <div>风险分析</div>
+  return <div>風險分析</div>
 }
 
 function NavigationExtra({ collapsed }: { collapsed: boolean; pathname: string }) {
-  return collapsed ? null : <div className="px-3 py-1 text-xs text-muted">二开内容</div>
+  return collapsed ? null : <div className="px-3 py-1 text-xs text-muted">二開內容</div>
 }
 
-/** 个股详情对话框底部: 自带分隔与内边距 */
+/** 個股詳情對話框底部: 自帶分隔與內邊距 */
 function StockPreviewFooter({ symbol, name }: { symbol: string; name: string | null; view: 'daily' | 'intraday' }) {
   return (
     <div className="border-t border-border px-4 py-2 text-xs text-muted">
-      {symbol} {name} · 二开面板示例
+      {symbol} {name} · 二開面板示例
     </div>
   )
 }
 
-/** 自选页工具栏: 按钮尺寸与核心工具栏一致 */
+/** 自選頁工具欄: 按鈕尺寸與核心工具欄一致 */
 function WatchlistToolbar({ symbols, refresh }: { symbols: string[]; viewMode: 'table' | 'card'; selectedGroup: string; refresh: () => void }) {
   return (
     <button
@@ -26,7 +26,7 @@ function WatchlistToolbar({ symbols, refresh }: { symbols: string[]; viewMode: '
       onClick={refresh}
       className="inline-flex items-center h-8 px-2.5 rounded-btn bg-elevated text-xs text-secondary hover:bg-elevated/80 hover:text-foreground transition-colors duration-150 ease-smooth"
     >
-      二开操作 ({symbols.length})
+      二開操作 ({symbols.length})
     </button>
   )
 }
@@ -38,7 +38,7 @@ const extension: FrontendExtension = {
     { id: 'company-risk', path: '/company/risk', component: RiskPage },
   ],
   navigation: [
-    { id: 'company-risk', routeId: 'company-risk', label: '风险分析', icon: ShieldCheck },
+    { id: 'company-risk', routeId: 'company-risk', label: '風險分析', icon: ShieldCheck },
   ],
   slots: [
     {

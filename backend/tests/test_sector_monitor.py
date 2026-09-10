@@ -68,7 +68,7 @@ def test_validate_accepts_sector_rule_and_rejects_mixed_target_kinds():
     try:
         monitor_rules.validate(mixed)
     except ValueError as exc:
-        assert "类型" in str(exc)
+        assert "類型" in str(exc)
     else:
         raise AssertionError("混合板块类型必须被拒绝")
 

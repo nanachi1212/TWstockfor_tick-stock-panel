@@ -1,4 +1,13 @@
-"""数据画像 API —— 让前端知道"我们本地有什么数据"。"""
+"""数据画像 API —— 让前端知道"我们本地有什么数据"。
+
+Phase 8B-5.18: 移除已确认 zero 前端/后端/scheduler/脚本消费者的
+POST /clear(清空所有本地 parquet, 原供已删除的 Data.tsx 使用)与
+GET /schema/{table}(表结构查看, 原供 Data.tsx 的 schema viewer 使用)。
+两者专属的 _TABLE_FIELD_DESC / _SCHEMA_VIEWS 常量一并移除。
+invalidate_data_cache / invalidate_storage_cache(仍被 daily_pipeline.py /
+extend_history.py / kline.py / pipeline.py / data_integrity.py 使用)、
+EnrichedPublication(仍被 repository.py 的即时/排程写入使用)完全未变更。
+"""
 from __future__ import annotations
 
 import logging
@@ -10,9 +19,6 @@ from pathlib import Path
 from typing import Any, Callable
 
 from fastapi import APIRouter, Request
-
-from app.enriched_generation import EnrichedPublication
-from app.indicators.pipeline import ENRICHED_COLUMNS
 
 logger = logging.getLogger(__name__)
 
@@ -614,248 +620,12 @@ def status(request: Request) -> dict:
     }
 
 
-@router.post("/clear")
-def clear_data(request: Request):
-    """清除所有本地 Parquet 数据（保留 capabilities.json 和目录结构）。"""
-    import shutil
-
-    repo = request.app.state.repo
-    data_dir = repo.store.data_dir
-    deleted = 0
-    # recover=True: 清空语义就是接管一切 — 外部进程(崩掉的脚本/中断的管道)
-    # 残留的 publishing 标记(owner pid 已死)不应永久阻塞清空; 活进程的发布
-    # 仍会被拦(another publication is active), 写盘竞态保护不受影响。
-    publications = {
-        "kline_daily_enriched": EnrichedPublication(data_dir, "stock", recover=True),
-        "kline_etf_enriched": EnrichedPublication(data_dir, "etf", recover=True),
-    }
-
-    for sub in (
-        "kline_daily", "kline_daily_enriched", "kline_index_daily", "kline_index_enriched",
-        "kline_etf_daily", "kline_etf_enriched", "kline_etf_minute", "kline_minute",
-        "adj_factor", "adj_factor_etf", "instruments", "instruments_index", "instruments_etf", "pools", "financials",
-        "backtest_results", "screener_results", "ai_cache",
-    ):
-        d = data_dir / sub
-        if not d.exists():
-            continue
-        publication = publications.get(sub)
-        parquet_files = list(d.rglob("*.parquet"))
-        if publication is not None and parquet_files:
-            publication.begin()
-        try:
-            for f in parquet_files:
-                f.unlink()
-                deleted += 1
-                if publication is not None:
-                    publication.mark_changed()
-            for child in list(d.iterdir()):
-                if child.is_dir():
-                    shutil.rmtree(child, ignore_errors=True)
-            if publication is not None:
-                publication.commit()
-        except BaseException:
-            if publication is not None:
-                publication.abandon()
-            raise
-
-    # 清除同步历史（内存 + 磁盘 job_store/ 文件夹）
-    from app.services.pipeline_jobs import job_store
-    job_store.clear()
-
-    # 清除财务数据
-    fin_dir = data_dir / "financials"
-    for sub in ("metrics", "income", "balance_sheet", "cash_flow"):
-        fp = fin_dir / sub / "part.parquet"
-        if fp.exists():
-            fp.unlink()
-            deleted += 1
-
-    # 清除监控运行数据 (user_data 下仅清运行产物, 不动 monitor_rules/preferences/secrets 等用户配置)
-    # - 触发记录 alerts.jsonl
-    from app.services import alert_store
-    alert_store.clear(data_dir)
-    # - 待推送的实时通知队列 (进程内存)
-    qs = getattr(request.app.state, "quote_service", None)
-    if qs is not None:
-        qs.clear_pending_alerts()
-
-    # 清除 Polars 缓存
-    # 先 clear_cache 无条件清空内存 (refresh_cache 在磁盘无数据时会提前 return,
-    # 导致 _enriched_cache 等旧数据残留 —— 清数据后看板仍显示旧数据的根因),
-    # 再 refresh_cache 尝试重载 (磁盘有数据则重建缓存)。
-    repo.clear_cache()
-    repo.refresh_cache()
-
-    # 清除 Screener 进程级 _history_cache (TTL 缓存)
-    from app.services.screener import ScreenerService
-    ScreenerService.clear_history_cache()
-
-    # 清除 Overview 总览聚合结果缓存 (5s TTL)
-    from app.api.overview import invalidate_overview_cache
-    invalidate_overview_cache()
-
-    # 刷新 DuckDB 视图（空 parquet 目录也需要重新挂载）——
-    # 委托给 repository 的唯一权威实现, 覆盖全部视图 (此前这里内联的副本漏了几张)。
-    repo.rebuild_views()
-
-    logger.info("数据已清除: 删除 %d 个 parquet 文件", deleted)
-    invalidate_data_cache(None)
-    return {"deleted_files": deleted}
-
-
-# 各表字段说明
-_TABLE_FIELD_DESC: dict[str, dict[str, str]] = {
-    "kline_daily": {
-        "symbol": "股票代码",
-        "date": "交易日期",
-        "open": "开盘价",
-        "high": "最高价",
-        "low": "最低价",
-        "close": "收盘价",
-        "volume": "成交量",
-        "amount": "成交额",
-    },
-    "kline_enriched": ENRICHED_COLUMNS,
-    "kline_index_daily": {
-        "symbol": "指数代码",
-        "date": "交易日期",
-        "open": "开盘点位",
-        "high": "最高点位",
-        "low": "最低点位",
-        "close": "收盘点位",
-        "volume": "成交量",
-        "amount": "成交额",
-    },
-    "kline_index_enriched": ENRICHED_COLUMNS,
-    "kline_etf_daily": {
-        "symbol": "ETF代码",
-        "date": "交易日期",
-        "open": "开盘价",
-        "high": "最高价",
-        "low": "最低价",
-        "close": "收盘价",
-        "volume": "成交量",
-        "amount": "成交额",
-    },
-    "kline_etf_enriched": ENRICHED_COLUMNS,
-    "kline_minute": {
-        "symbol": "股票代码",
-        "datetime": "分钟时间戳",
-        "open": "开盘价",
-        "high": "最高价",
-        "low": "最低价",
-        "close": "收盘价",
-        "volume": "成交量",
-        "amount": "成交额",
-    },
-    "adj_factor": {
-        "symbol": "股票代码",
-        "timestamp": "除权除息时间戳(ms)",
-        "trade_date": "除权除息日",
-        "ex_factor": "复权因子",
-    },
-    "instruments": {
-        "symbol": "股票代码",
-        "name": "股票名称",
-        "code": "股票编码(纯数字)",
-        "exchange": "交易所(SH/SZ/BJ)",
-        "region": "地区",
-        "type": "证券类型",
-        "listing_date": "上市日期",
-        "total_shares": "总股本",
-        "float_shares": "流通股本",
-        "tick_size": "最小价格变动单位",
-        "limit_up": "涨停限制(%)",
-        "limit_down": "跌停限制(%)",
-        "as_of": "快照日期",
-    },
-    "instruments_index": {
-        "symbol": "指数代码",
-        "name": "指数名称",
-        "code": "指数编码(纯数字)",
-        "asset_type": "资产类型(index)",
-    },
-    "instruments_etf": {
-        "symbol": "ETF代码",
-        "name": "ETF名称",
-        "code": "ETF编码(纯数字)",
-        "asset_type": "资产类型(etf)",
-        "source": "数据源",
-    },
-}
-
-# view 名 → DuckDB 视图名
-_SCHEMA_VIEWS: dict[str, str] = {
-    "daily": "kline_daily",
-    "enriched": "kline_enriched",
-    "index_daily": "kline_index_daily",
-    "index_enriched": "kline_index_enriched",
-    "index_instruments": "instruments_index",
-    "etf_daily": "kline_etf_daily",
-    "etf_enriched": "kline_etf_enriched",
-    "etf_instruments": "instruments_etf",
-    "minute": "kline_minute",
-    "adj_factor": "adj_factor",
-    "instruments": "instruments",
-}
-
-
-@router.get("/schema/{table}")
-def table_schema(request: Request, table: str) -> list[dict]:
-    """返回指定表的字段名、类型和中文说明。
-
-    优先从 DuckDB DESCRIBE 读取(有数据时含精确类型)；
-    视图不存在(无数据)时回退到 _TABLE_FIELD_DESC 静态定义。
-    """
-    view = _SCHEMA_VIEWS.get(table)
-    if not view:
-        return []
-    desc_map = _TABLE_FIELD_DESC.get(view, {})
-    repo = request.app.state.repo
-    fields: list[dict] = []
-    try:
-        cols = repo.execute_all(f"DESCRIBE {view}")
-        for col in cols:
-            name = col[0]
-            dtype = col[1]
-            fields.append({
-                "name": name,
-                "type": dtype,
-                "desc": desc_map.get(name, ""),
-            })
-    except Exception:  # noqa: BLE001
-        # 视图不存在(本地无数据)，用静态字段定义兜底
-        if desc_map:
-            for name, desc in desc_map.items():
-                fields.append({"name": name, "type": "—", "desc": desc})
-    return fields
-
-
 @router.get("/version")
-def get_version(request: Request) -> dict:
-    """返回当前项目版本号。
-
-    优先读 app.__version__ (与 /health 接口同源, 唯一权威版本),
-    回退到项目根 VERSION 文件, 最后兜底 v0.0.0。
-    """
+def get_version() -> dict:
+    """Return the current project version defined by VERSION."""
     from app import __version__
 
-    # 1. 优先用 app.__version__ (唯一权威版本, 打包期由 PyInstaller 注入)
-    if __version__:
-        v = __version__.strip()
-        return {"version": v if v.startswith("v") else f"v{v}"}
-
-    # 2. 回退到项目根 VERSION 文件
-    from app.config import settings
-    project_root = Path(settings.data_dir).parent
-    version_file = project_root / "VERSION"
-    if version_file.exists():
-        v = version_file.read_text(encoding="utf-8").strip()
-        if v:
-            return {"version": v}
-
-    return {"version": "v0.0.0"}
+    return {"version": f"v{__version__}"}
 
 
 @router.post("/refresh-cache")

@@ -1,21 +1,16 @@
 """Provider registry."""
 from __future__ import annotations
 
-from app.data_providers.tickflow_provider import TickFlowProvider
-
 def _get_providers():
     from app.data_providers.tickflow_provider import TickFlowProvider
     from app.taiwan.providers.hybrid_provider import TaiwanHybridProvider
     return {
-        "tickflow": TickFlowProvider,
         "taiwan": TaiwanHybridProvider,
+        "tickflow": TickFlowProvider,
     }
 
 
-def get_provider(name: str = "tickflow"):
+def get_provider(name: str = "taiwan"):
     providers = _get_providers()
-    provider_cls = providers.get((name or "tickflow").lower())
-    if provider_cls is None:
-        raise ValueError(f"Unsupported data provider: {name}")
+    provider_cls = providers.get((name or "taiwan").lower(), providers["taiwan"])
     return provider_cls()
-

@@ -1,8 +1,10 @@
-"""Tick Stock Panel backend."""
+"""Nanachi 的台股監控看板 backend."""
 
 import sys
+from pathlib import Path
 
-__version__ = "0.2.1"
+_version_root = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parents[2]))
+__version__ = (_version_root / "VERSION").read_text(encoding="utf-8").strip().removeprefix("v")
 
 # Windows 默认 stdout/stderr 编码为 GBK(cp936),TickFlow SDK 内部输出含 emoji 的
 # 指数/标的名称(如 \U0001f193)时会抛 UnicodeEncodeError,导致请求失败。

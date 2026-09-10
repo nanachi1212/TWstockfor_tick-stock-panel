@@ -11,58 +11,58 @@ import { speakAlerts } from '@/lib/voiceBroadcast'
 import { usePreferences } from '@/lib/useSharedQueries'
 import { strategyEventMeta, strategyName } from '@/lib/strategyMonitorEvents'
 
-/** 通知渠道分发 — 所有副作用渠道在此汇合, 新增渠道只改这里 */
+/** 通知渠道分發 — 所有副作用渠道在此匯合, 新增渠道只改這裡 */
 function dispatchSideEffects(alerts: AlertEvent[]) {
   playNotificationSound()        // 提示音 (Web Audio 合成)
-  speakAlerts(alerts)            // 语音播报 (speechSynthesis, 各自独立开关)
+  speakAlerts(alerts)            // 語音播報 (speechSynthesis, 各自獨立開關)
 }
 
-// ===== 全局状态 (模块级, 仿 Toast.tsx 模式) =====
+// ===== 全局狀態 (模塊級, 仿 Toast.tsx 模式) =====
 type Item = { id: number; alert: AlertEvent }
 let _id = 0
 let _queue: Item[] = []
-const AUTO_DISMISS = 5000      // 5 秒自动消失
+const AUTO_DISMISS = 5000      // 5 秒自動消失
 const _listeners: Set<(items: Item[]) => void> = new Set()
 
-/** 从 localStorage 读取配置 */
+/** 從 localStorage 讀取配置 */
 function getEnabled(): boolean {
   try {
     const v = localStorage.getItem('alert_toast_enabled')
-    return v === null ? true : v === '1'   // 默认开启
+    return v === null ? true : v === '1'   // 默認開啟
   } catch { return true }
 }
 
 function getMaxVisible(): number {
   try {
     const v = parseInt(localStorage.getItem('alert_toast_max') || '', 10)
-    return v >= 1 && v <= 10 ? v : 3       // 默认 3, 范围 1-10
+    return v >= 1 && v <= 10 ? v : 3       // 默認 3, 範圍 1-10
   } catch { return 3 }
 }
 
-/** 通知外部配置变更后刷新 (设置页改了配置后调用) */
+/** 通知外部配置變更後刷新 (設置頁改了配置後調用) */
 export function refreshAlertToastConfig() {
   _emit()
 }
 
 function _emit() { _listeners.forEach(fn => fn([..._queue])) }
 
-/** 推入单条监控告警通知 (兼容入口, 不发声 — 发声由批量入口统一处理) */
+/** 推入單條監控告警通知 (兼容入口, 不發聲 — 發聲由批量入口統一處理) */
 export function pushAlertToast(alert: AlertEvent) {
   pushAlertToasts([alert])
 }
 
 /**
- * 批量推入监控告警通知 (一轮 SSE 多只新命中时调用)。
- * - 每条都弹 Toast (受 maxVisible 上限, 超出丢最旧)
- * - 整批只播放一声通知音, 避免短时连续响多声刷屏
+ * 批量推入監控告警通知 (一輪 SSE 多隻新命中時調用)。
+ * - 每條都彈 Toast (受 maxVisible 上限, 超出丟最舊)
+ * - 整批只播放一聲通知音, 避免短時連續響多聲刷屏
  */
 export function pushAlertToasts(alerts: AlertEvent[]) {
   if (alerts.length === 0) return
-  if (!getEnabled()) return                  // 开关关闭: 不弹
+  if (!getEnabled()) return                  // 開關關閉: 不彈
   const maxVisible = getMaxVisible()
   const newItems = alerts.map(alert => ({ id: ++_id, alert }))
   _queue = [..._queue, ...newItems]
-  // 超出上限: 丢弃最旧的
+  // 超出上限: 丟棄最舊的
   if (_queue.length > maxVisible) {
     _queue = _queue.slice(-maxVisible)
   }
@@ -70,10 +70,10 @@ export function pushAlertToasts(alerts: AlertEvent[]) {
   for (const item of newItems) {
     setTimeout(() => dismiss(item.id), AUTO_DISMISS)
   }
-  dispatchSideEffects(alerts)                  // 副作用分发: 提示音 + 语音 (整批各一次)
+  dispatchSideEffects(alerts)                  // 副作用分發: 提示音 + 語音 (整批各一次)
 }
 
-/** 手动关闭 */
+/** 手動關閉 */
 export function dismiss(id: number) {
   _queue = _queue.filter(t => t.id !== id)
   _emit()
@@ -85,27 +85,26 @@ const SEVERITY_BAR: Record<string, string> = {
 }
 const SOURCE_BADGE: Record<string, { label: string; cls: string }> = {
   strategy:  { label: '策略',   cls: 'bg-amber-400/15 text-amber-400' },
-  signal:    { label: '信号',   cls: 'bg-accent/15 text-accent' },
-  price:     { label: '价格',   cls: 'bg-emerald-400/15 text-emerald-400' },
-  market:    { label: '异动',   cls: 'bg-purple-500/15 text-purple-400' },
-  sector:    { label: '板块',   cls: 'bg-cyan-500/15 text-cyan-700 dark:text-cyan-300' },
-  abnormal:  { label: '异动边缘', cls: 'bg-orange-500/15 text-orange-500 dark:text-orange-400' },
-  pool_entry: { label: '进入', cls: 'bg-danger/15 text-danger' },
+  signal:    { label: '訊號',   cls: 'bg-accent/15 text-accent' },
+  price:     { label: '價格',   cls: 'bg-emerald-400/15 text-emerald-400' },
+  market:    { label: '異動',   cls: 'bg-purple-500/15 text-purple-400' },
+  sector:    { label: '板塊',   cls: 'bg-cyan-500/15 text-cyan-700 dark:text-cyan-300' },
+  pool_entry: { label: '進入', cls: 'bg-danger/15 text-danger' },
   pool_exit:   { label: '移出', cls: 'bg-bear/15 text-bear' },
-  buy_signal: { label: '买入', cls: 'bg-danger/15 text-danger' },
-  sell_signal: { label: '卖出', cls: 'bg-bear/15 text-bear' },
-  new_entry: { label: '进入', cls: 'bg-danger/15 text-danger' },
+  buy_signal: { label: '買進', cls: 'bg-danger/15 text-danger' },
+  sell_signal: { label: '賣出', cls: 'bg-bear/15 text-bear' },
+  new_entry: { label: '進入', cls: 'bg-danger/15 text-danger' },
   dropped:   { label: '移出', cls: 'bg-bear/15 text-bear' },
 }
 
-// ===== 容器 — 挂在 Layout =====
+// ===== 容器 — 掛在 Layout =====
 export function AlertToastContainer() {
   const [items, setItems] = useState<Item[]>([])
   const navigate = useNavigate()
   const { data: prefs } = usePreferences()
   const extFields = prefs?.monitor_ext_fields ?? {
-    concept: { field: 'ext_gn_ths.所属概念' },
-    industry: { field: 'ext_hy_ths.所属同花顺行业' },
+    concept: { field: 'ext_gn_ths.所屬概念' },
+    industry: { field: 'ext_hy_ths.所屬同花順行業' },
   }
 
   const sub = useCallback(() => {
@@ -114,7 +113,7 @@ export function AlertToastContainer() {
   }, [])
   useEffect(sub, [sub])
 
-  // 点击通知 → 跳转监控中心 + 关闭当前通知
+  // 點擊通知 → 跳轉監控中心 + 關閉當前通知
   const handleClick = (id: number) => {
     dismiss(id)
     navigate('/monitor')
@@ -150,7 +149,7 @@ export function AlertToastContainer() {
               onClick={() => handleClick(item.id)}
               role="button"
               tabIndex={0}
-              aria-label={`查看监控通知${ev.name ? ` ${ev.name}` : ''}${ev.symbol ? ` ${ev.symbol}` : ''}`}
+              aria-label={`查看監控通知${ev.name ? ` ${ev.name}` : ''}${ev.symbol ? ` ${ev.symbol}` : ''}`}
               onKeyDown={(e) => {
                 if (e.key === 'Enter' || e.key === ' ') {
                   e.preventDefault()
@@ -159,10 +158,10 @@ export function AlertToastContainer() {
               }}
               className="pointer-events-auto relative overflow-hidden rounded-xl border border-border/60 bg-surface/95 backdrop-blur-md shadow-2xl pl-3 pr-2 py-2.5 cursor-pointer hover:border-accent/40 hover:shadow-accent/10 transition-all focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/60"
             >
-              {/* 左侧色条 */}
+              {/* 左側色條 */}
               <div className={cn('absolute left-0 top-0 h-full w-0.5', sev)} />
 
-              {/* 顶行: 分类标签 + 代码/名称 + 涨跌幅 + 关闭 */}
+              {/* 頂行: 分類標籤 + 代碼/名稱 + 漲跌幅 + 關閉 */}
               <div className="flex items-center gap-2">
                 <span className={cn('shrink-0 rounded px-1 py-px text-[9px] font-medium', badge.cls)}>
                   {badge.label}
@@ -175,12 +174,12 @@ export function AlertToastContainer() {
                     {fmtPct(pct)}
                   </span>
                 )}
-                <button aria-label="关闭通知" onClick={(e) => { e.stopPropagation(); dismiss(item.id) }} className="shrink-0 p-0.5 rounded text-muted/50 hover:text-foreground hover:bg-elevated transition-colors cursor-pointer">
+                <button aria-label="關閉通知" onClick={(e) => { e.stopPropagation(); dismiss(item.id) }} className="shrink-0 p-0.5 rounded text-muted/50 hover:text-foreground hover:bg-elevated transition-colors cursor-pointer">
                   <X className="h-3 w-3" />
                 </button>
               </div>
 
-              {/* 底行: 策略类型走新格式, 其他走旧格式 */}
+              {/* 底行: 策略類型走新格式, 其他走舊格式 */}
               {isStrategy ? (
                 <>
                   {ev.symbol ? (
@@ -212,12 +211,12 @@ export function AlertToastContainer() {
               ) : (
                 <div className="mt-1 flex items-center gap-1.5 pl-0.5">
                   <Bell className={cn('h-3 w-3 shrink-0', sev.replace('bg-', 'text-'))} />
-                  {/* message 已含「条件摘要 · 现价 · 涨跌幅」(后端生成), 直接展示避免重复 */}
+                  {/* message 已含「條件摘要 · 現價 · 漲跌幅」(後端生成), 直接展示避免重複 */}
                   {ev.message && <span className="text-[11px] text-foreground/70 truncate flex-1">{ev.message}</span>}
                 </div>
               )}
 
-              {/* 行业/概念标签 (后端 SSE 推送时已富化, 字段配置来自监控中心全局设置) */}
+              {/* 行業/概念標籤 (後端 SSE 推送時已富化, 字段配置來自監控中心全局設置) */}
               {(() => {
                 const tags: { text: string; cls: string }[] = []
                 for (const [isIndustry, item] of [[true, extFields.industry], [false, extFields.concept]] as const) {

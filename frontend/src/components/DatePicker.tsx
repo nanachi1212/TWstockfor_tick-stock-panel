@@ -3,11 +3,11 @@ import { createPortal } from 'react-dom'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Calendar, ChevronLeft, ChevronRight } from 'lucide-react'
 
-/** 弹层固定宽度(px) — 与下方 w-[260px] 保持一致,用于水平边界裁剪计算 */
+/** 彈層固定寬度(px) — 與下方 w-[260px] 保持一致,用於水平邊界裁剪計算 */
 const POPUP_WIDTH = 260
-/** 弹层预估高度(px) — 用于判断是否需要向上翻转 */
+/** 彈層預估高度(px) — 用於判斷是否需要向上翻轉 */
 const POPUP_HEIGHT = 320
-/** 弹层与触发按钮的间距(px) */
+/** 彈層與觸發按鈕的間距(px) */
 const POPUP_GAP = 6
 
 interface DatePickerProps {
@@ -44,50 +44,50 @@ export function DatePicker({
   onChange,
   min,
   max,
-  placeholder = '选择日期',
+  placeholder = '選擇日期',
   className = '',
   buttonClassName = '',
   align = 'right',
 }: DatePickerProps) {
   const [open, setOpen] = useState(false)
   const [showYearPicker, setShowYearPicker] = useState(false)
-  // 触发按钮 ref (外部点击检测 + 计算弹层坐标)
+  // 觸發按鈕 ref (外部點擊檢測 + 計算彈層座標)
   const btnRef = useRef<HTMLButtonElement>(null)
-  // 弹层 portal ref (外部点击检测)
+  // 彈層 portal ref (外部點擊檢測)
   const popRef = useRef<HTMLDivElement>(null)
-  // 弹层视口坐标 + 展开方向(open 时计算一次,避免滚动时漂移)
+  // 彈層視口座標 + 展開方向(open 時計算一次,避免滾動時漂移)
   const [pos, setPos] = useState<{ top: number; left: number } | null>(null)
 
-  // 当前显示的月份
+  // 當前顯示的月份
   const [viewYear, setViewYear] = useState(() => viewDate(value, min, max).year)
   const [viewMonth, setViewMonth] = useState(() => viewDate(value, min, max).month)
 
-  // 当 value 外部变化时同步 view
+  // 當 value 外部變化時同步 view
   useEffect(() => {
     const next = viewDate(value, min, max)
     setViewYear(next.year)
     setViewMonth(next.month)
   }, [value, min, max])
 
-  // 打开弹层: 按钮的视口坐标计算 + 智能方向翻转 + 水平边界裁剪
+  // 打開彈層: 按鈕的視口座標計算 + 智能方向翻轉 + 水平邊界裁剪
   const handleOpen = () => {
     if (open) { setOpen(false); return }
     if (!btnRef.current) { setOpen(true); return }
     const r = btnRef.current.getBoundingClientRect()
     const spaceBelow = window.innerHeight - r.bottom
-    // 下方空间不足 → 向上展开
+    // 下方空間不足 → 向上展開
     const dropUp = spaceBelow < POPUP_HEIGHT + POPUP_GAP && r.top > POPUP_HEIGHT + POPUP_GAP
     const top = dropUp
       ? Math.max(8, r.top - POPUP_HEIGHT - POPUP_GAP)
       : r.bottom + POPUP_GAP
-    // 水平: 默认按 align 贴齐按钮左/右边缘, 再做右侧溢出裁剪
+    // 水平: 默認按 align 貼齊按鈕左/右邊緣, 再做右側溢出裁剪
     const rawLeft = align === 'left' ? r.left : r.right - POPUP_WIDTH
     const left = Math.max(8, Math.min(rawLeft, window.innerWidth - POPUP_WIDTH - 8))
     setPos({ top, left })
     setOpen(true)
   }
 
-  // 点击外部关闭 (Portal 下弹层不在 ref 树内, 分别判断按钮与弹层)
+  // 點擊外部關閉 (Portal 下彈層不在 ref 樹內, 分別判斷按鈕與彈層)
   useEffect(() => {
     if (!open) return
     const handler = (e: MouseEvent) => {
@@ -100,11 +100,11 @@ export function DatePicker({
     return () => document.removeEventListener('mousedown', handler)
   }, [open])
 
-  // 滚动 / resize 时关闭弹层 (fixed 定位不跟随滚动,关闭比重算更可靠)
+  // 滾動 / resize 時關閉彈層 (fixed 定位不跟隨滾動,關閉比重算更可靠)
   useEffect(() => {
     if (!open) return
     const close = () => setOpen(false)
-    // capture: true → 捕获到任意祖先滚动容器的 scroll
+    // capture: true → 捕獲到任意祖先滾動容器的 scroll
     window.addEventListener('scroll', close, true)
     window.addEventListener('resize', close)
     return () => {
@@ -122,7 +122,7 @@ export function DatePicker({
     else setViewMonth(viewMonth + 1)
   }
 
-  // 构建日历格子: 周一为第一天
+  // 構建日曆格子: 週一為第一天
   const firstDay = new Date(viewYear, viewMonth, 1).getDay()
   const offset = firstDay === 0 ? 6 : firstDay - 1          // 周一=0
   const daysInMonth = new Date(viewYear, viewMonth + 1, 0).getDate()
@@ -138,12 +138,12 @@ export function DatePicker({
     const ds = toDateStr(y, m, d)
     cells.push({ day: d, cur: false, dateStr: ds, disabled: !!min && ds < min || !!max && ds > max })
   }
-  // 当月
+  // 當月
   for (let d = 1; d <= daysInMonth; d++) {
     const ds = toDateStr(viewYear, viewMonth, d)
     cells.push({ day: d, cur: true, dateStr: ds, disabled: !!min && ds < min || !!max && ds > max })
   }
-  // 下月头部 — 补齐到 6 行 × 7 = 42
+  // 下月頭部 — 補齊到 6 行 × 7 = 42
   const remain = 42 - cells.length
   for (let d = 1; d <= remain; d++) {
     const m = viewMonth === 11 ? 0 : viewMonth + 1
@@ -157,7 +157,7 @@ export function DatePicker({
 
   return (
     <div className={`relative inline-flex ${className}`}>
-      {/* 触发按钮 */}
+      {/* 觸發按鈕 */}
       <button
         ref={btnRef}
         type="button"
@@ -170,7 +170,7 @@ export function DatePicker({
         <span className={value ? undefined : 'text-muted'}>{displayLabel}</span>
       </button>
 
-      {/* 弹出日历 — Portal 到 body, 逃逸祖先 overflow 裁剪与 framer-motion transform 包含块 */}
+      {/* 彈出日曆 — Portal 到 body, 逃逸祖先 overflow 裁剪與 framer-motion transform 包含塊 */}
       {createPortal(
         <AnimatePresence>
           {open && pos && (
@@ -184,7 +184,7 @@ export function DatePicker({
               className="z-[9999] w-[260px] rounded-card border border-border
                 bg-surface shadow-[0_8px_30px_rgba(0,0,0,0.4)] p-3"
             >
-            {/* 月份导航 */}
+            {/* 月份導航 */}
             <div className="flex items-center justify-between mb-2">
               <button
                 type="button"
@@ -213,7 +213,7 @@ export function DatePicker({
             </div>
 
             {showYearPicker ? (
-              /* 年份选择网格 */
+              /* 年份選擇網格 */
               <div className="grid grid-cols-4 gap-1">
                 {Array.from({ length: 12 }, (_, i) => viewYear - 5 + i).map(y => {
                   const isSelected = y === Number(value.slice(0, 4))
@@ -239,7 +239,7 @@ export function DatePicker({
               </div>
             ) : (
               <>
-                {/* 星期头 */}
+                {/* 星期頭 */}
                 <div className="grid grid-cols-7 text-center text-[10px] text-muted mb-1">
                   {WEEKDAYS.map((w) => (
                     <div key={w}>{w}</div>

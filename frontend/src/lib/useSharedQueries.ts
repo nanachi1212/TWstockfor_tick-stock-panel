@@ -1,8 +1,8 @@
 /**
- * 共享 query hooks — 消除多页面重复的 useQuery 调用。
+ * 共享 query hooks — 消除多頁面重複的 useQuery 調用。
  *
- * 实时数据走 SSE invalidation，无需前端轮询。
- * 只有管线进度等非 SSE 数据才用 refetchInterval。
+ * 實時數據走 SSE invalidation，無需前端輪詢。
+ * 只有管線進度等非 SSE 數據才用 refetchInterval。
  */
 import { useQuery } from '@tanstack/react-query'
 import { api } from './api'
@@ -10,7 +10,7 @@ import { QK } from './queryKeys'
 
 // ===== 全局共享 =====
 
-/** 能力检测 — Layout / Data / Keys 共用 */
+/** 能力檢測 — Layout / Data / Keys 共用 */
 export function useCapabilities() {
   return useQuery({
     queryKey: QK.capabilities,
@@ -18,7 +18,7 @@ export function useCapabilities() {
   })
 }
 
-/** 设置状态 — Layout / Data / Keys 共用 */
+/** 設置狀態 — Layout / Data / Keys 共用 */
 export function useSettings() {
   return useQuery({
     queryKey: QK.settings,
@@ -26,7 +26,7 @@ export function useSettings() {
   })
 }
 
-/** 用户偏好 — Layout / Data / Intraday 共用 */
+/** 用戶偏好 — Layout / Data / Intraday 共用 */
 export function usePreferences() {
   return useQuery({
     queryKey: QK.preferences,
@@ -34,13 +34,13 @@ export function usePreferences() {
   })
 }
 
-/** 行情状态 — SSE quotes_updated 自动刷新。
+/** 行情狀態 — SSE quotes_updated 自動刷新。
 
- * poll=true 时启用 60s 状态轮询兜底, 用于在交易时段边界
- * (11:30午休 / 13:00开盘 / 15:00收盘) 同步 quote status。
- * SSE 会在行情更新时即时刷新, 轮询负责没有 SSE 的休盘边界。
- * 只应在全局唯一挂载处 (Layout) 传 poll=true, 避免多页面重复轮询;
- * 其他调用方共享同一 queryKey 缓存, 无需自行轮询。
+ * poll=true 時啟用 60s 狀態輪詢兜底, 用於在交易時段邊界
+ * (11:30午休 / 13:00開盤 / 15:00收盤) 同步 quote status。
+ * SSE 會在行情更新時即時刷新, 輪詢負責沒有 SSE 的休盤邊界。
+ * 只應在全局唯一掛載處 (Layout) 傳 poll=true, 避免多頁面重複輪詢;
+ * 其他調用方共享同一 queryKey 緩存, 無需自行輪詢。
  */
 export function useQuoteStatus(opts?: { enabled?: boolean; poll?: boolean }) {
   return useQuery({
@@ -51,7 +51,7 @@ export function useQuoteStatus(opts?: { enabled?: boolean; poll?: boolean }) {
   })
 }
 
-/** 行情间隔 — Layout / Data 共用 */
+/** 行情間隔 — Layout / Data 共用 */
 export function useQuoteInterval() {
   return useQuery({
     queryKey: QK.quoteInterval,
@@ -59,7 +59,7 @@ export function useQuoteInterval() {
   })
 }
 
-/** 版本号 — Layout 专用 */
+/** 版本號 — Layout 專用 */
 export function useVersion() {
   return useQuery({
     queryKey: QK.version,
@@ -68,7 +68,7 @@ export function useVersion() {
   })
 }
 
-/** 数据状态 — Data / Screener 共用 */
+/** 數據狀態 — Data / Screener 共用 */
 export function useDataStatus(opts?: {
   staleTime?: number
   refetchInterval?: number | false | ((query: any) => number | false | undefined)

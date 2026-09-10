@@ -1,12 +1,12 @@
 import { useState, useEffect, useMemo } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { motion, AnimatePresence } from 'framer-motion'
-import { X, RefreshCw, Clock, LineChart, Star, RadioTower, Maximize2, Minimize2, Activity } from 'lucide-react'
+import { X, RefreshCw, Clock, LineChart, Star, RadioTower, Maximize2, Minimize2, Scale, ChevronDown, ExternalLink } from 'lucide-react'
 import { api } from '@/lib/api'
 import { QK } from '@/lib/queryKeys'
 import { cn } from '@/lib/cn'
 import { cnSignal } from '@/lib/signals'
-import { fmtPct } from '@/lib/format'
 import { StockPanel, getDefaultRange } from '@/components/StockPanel'
 import { WatchlistAddMenu } from '@/components/WatchlistAddMenu'
 import { StockMultiDayIntradayChart } from '@/components/StockMultiDayIntradayChart'
@@ -18,13 +18,14 @@ import { usePreferences, useQuoteStatus } from '@/lib/useSharedQueries'
 import { setFocusSymbol, clearFocusSymbol } from '@/lib/useQuoteStream'
 import { useDialogBackdrop } from '@/lib/useDialogBackdrop'
 import { storage } from '@/lib/storage'
+import { loadLastCompareSymbols, mergeSymbolIntoCompare } from '@/lib/taiwanCompareSymbols'
 import { ExtensionSlot } from '@/extensions/ExtensionSlot'
 
 interface Props {
   symbol: string | null
   name?: string
   onClose: () => void
-  /** 触发信息 (来自监控触发记录, 有值时在顶栏下方显示) */
+  /** 觸發信息 (來自監控觸發記錄, 有值時在頂欄下方顯示) */
   triggerInfo?: {
     price?: number | null
     changePct?: number | null
@@ -34,9 +35,9 @@ interface Props {
   } | null
 }
 
-// ===== 板块标识（与 Screener 列表一致）=====
+// ===== 板塊標識（與 Screener 列表一致）=====
 
-// 预设快捷范围（只保留半年和1年）
+// 預設快捷範圍（只保留半年和1年）
 const PRESETS: { label: string; months: number }[] = [
   { label: '半年', months: 6 },
   { label: '1年', months: 12 },
@@ -58,25 +59,10 @@ function loadIntradayDays(): number {
 }
 
 function boardTag(symbol: string): { label: string; color: string } | null {
-  if (/^(300|301)/.test(symbol)) return { label: '创', color: 'text-[#f97316] bg-[#f97316]/12 border-[#f97316]/25' }
+  if (/^(300|301)/.test(symbol)) return { label: '創', color: 'text-[#f97316] bg-[#f97316]/12 border-[#f97316]/25' }
   if (/^688/.test(symbol))       return { label: '科', color: 'text-purple-400 bg-purple-400/12 border-purple-400/25' }
   if (/^[48]/.test(symbol))      return { label: '北', color: 'text-cyan-400 bg-cyan-400/12 border-cyan-400/25' }
   return null
-}
-
-// ===== 异动边缘 (与异动页同口径) =====
-
-const AB_STATUS_META: Record<string, { label: string; cls: string; bar: string; icon: string }> = {
-  triggered: { label: '已触发', cls: 'bg-danger/20 text-danger font-semibold', bar: 'border-b border-danger/30 bg-danger/[0.08]', icon: 'text-danger' },
-  edge: { label: '异动边缘', cls: 'bg-warning/20 text-warning font-semibold', bar: 'border-b border-warning/30 bg-warning/[0.07]', icon: 'text-warning' },
-  watch: { label: '观察', cls: 'bg-elevated text-secondary font-semibold', bar: 'border-b border-border bg-surface', icon: 'text-secondary' },
-}
-
-/** 异动引擎计算时间 (服务端 asof 秒级时间戳 → 月-日 时:分:秒) */
-function fmtAbnormalCalcTime(asofSec: number): string {
-  const d = new Date(asofSec * 1000)
-  const pad = (n: number) => String(n).padStart(2, '0')
-  return `${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`
 }
 
 export function StockPreviewDialog({ symbol, name, onClose, triggerInfo }: Props) {
@@ -87,7 +73,13 @@ export function StockPreviewDialog({ symbol, name, onClose, triggerInfo }: Props
   const [priceAlertDraft, setPriceAlertDraft] = useState<PriceAlertDraft | null>(null)
   const [maximized, setMaximized] = useState(false)
   const qc = useQueryClient()
+  const navigate = useNavigate()
   const backdrop = useDialogBackdrop(onClose)
+
+  // Phase 8C-A: 加入比較 — 本 dialog 為 A 股 Screener.tsx 與台股頁面共用元件,
+  // 「多股比較」(/stocks/compare) 僅支援台股標的, 故只在台股代碼時顯示此動作,
+  // 避免把 A 股標的送進台股專用比較頁 (FLOW_GAP 修正需限定範圍, 不做 A 股相容)。
+  const isTaiwanSymbol = !!symbol && (symbol.endsWith('.TWSE') || symbol.endsWith('.TPEX'))
 
   const watchlist = useQuery({
     queryKey: QK.watchlist,
@@ -99,22 +91,6 @@ export function StockPreviewDialog({ symbol, name, onClose, triggerInfo }: Props
     queryFn: api.monitorRulesList,
     enabled: !!symbol,
   })
-  // 异动边缘: 与异动页同 queryKey 共享缓存; 该股处于观察/边缘/触发状态时在图表上方显示信息条
-  const abnormal = useQuery({
-    queryKey: QK.abnormalOverview(0.5, 300),
-    queryFn: () => api.abnormalOverview(0.5, 300),
-    enabled: !!symbol,
-  })
-  const abRow = symbol
-    ? abnormal.data?.rows.find(r => r.symbol === symbol)
-    : undefined
-  // 接近度最高的窗口 (信息条中高亮)
-  const abDominantWindow = abRow
-    ? Object.entries(abRow.windows).reduce(
-        (best, [k, w]) => (!best || w.closeness > best[1].closeness ? [k, w] as const : best),
-        undefined as undefined | readonly [string, { value: number; threshold: number; closeness: number }],
-      )
-    : undefined
   const monitorPriceLines = useMemo(
     () => symbol ? buildMonitorPriceLines(monitorRules.data?.rules ?? [], symbol) : [],
     [monitorRules.data?.rules, symbol],
@@ -137,7 +113,7 @@ export function StockPreviewDialog({ symbol, name, onClose, triggerInfo }: Props
     },
   })
 
-  // ESC 关闭
+  // ESC 關閉
   useEffect(() => {
     if (!symbol) return
     const handler = (e: KeyboardEvent) => {
@@ -152,17 +128,17 @@ export function StockPreviewDialog({ symbol, name, onClose, triggerInfo }: Props
     setPriceAlertDraft(null)
   }, [symbol])
 
-  // 焦点股票注册: SSE quotes_updated 推送时精准 invalidate 当前股票日K,
-  // 让对话框日K最后一根蜡烛随实时价变化 (后端只读内存, 不调 TickFlow)。
-  // 关闭/切股时清除, 避免无谓刷新。
+  // 焦點股票註冊: SSE quotes_updated 推送時精準 invalidate 當前股票日K,
+  // 讓對話框日K最後一根蠟燭隨實時價變化 (後端只讀內存, 不調 TickFlow)。
+  // 關閉/切股時清除, 避免無謂刷新。
   useEffect(() => {
     if (!symbol) return
     setFocusSymbol(symbol)
     return () => clearFocusSymbol()
   }, [symbol])
 
-  // 分时图实时轮询: 复用自选列表的「分时刷新开关 + 间隔」偏好。
-  // 仅实时行情运行 且 用户开启分时刷新时才轮询; 否则 undefined (定格)。
+  // 分時圖實時輪詢: 複用自選列表的「分時刷新開關 + 間隔」偏好。
+  // 僅實時行情運行 且 用戶開啟分時刷新時才輪詢; 否則 undefined (定格)。
   const { data: prefs } = usePreferences()
   const { data: quoteStatus } = useQuoteStatus()
   const realtimeRunning = quoteStatus?.running ?? false
@@ -204,7 +180,7 @@ export function StockPreviewDialog({ symbol, name, onClose, triggerInfo }: Props
             {...backdrop}
           />
 
-          {/* 弹窗主体 */}
+          {/* 彈窗主體 */}
           <motion.div
             initial={{ opacity: 0, scale: 0.95, y: 12 }}
             animate={{ opacity: 1, scale: 1, y: 0 }}
@@ -215,7 +191,7 @@ export function StockPreviewDialog({ symbol, name, onClose, triggerInfo }: Props
               maximized ? 'w-screen h-screen max-w-none max-h-none' : 'w-[92vw] max-w-[1100px] max-h-[95vh]',
             )}
           >
-            {/* 顶栏 */}
+            {/* 頂欄 */}
             <div className="flex items-center justify-between gap-3 px-4 py-3 sm:px-5 shrink-0">
               <div className="flex min-w-0 items-center gap-2">
                 {(() => {
@@ -231,7 +207,7 @@ export function StockPreviewDialog({ symbol, name, onClose, triggerInfo }: Props
               </div>
 
               <div className="flex shrink-0 items-center gap-1">
-                {/* 区间选择 — 随视图切换 */}
+                {/* 區間選擇 — 隨視圖切換 */}
                 {view === 'daily' ? (
                   <div className="flex items-center gap-1">
                     {PRESETS.map(p => {
@@ -273,7 +249,7 @@ export function StockPreviewDialog({ symbol, name, onClose, triggerInfo }: Props
                   </div>
                 ) : (
                   <div className="flex items-center gap-1">
-                    <div className="inline-flex shrink-0 items-center rounded border border-border bg-elevated p-0.5" aria-label="分时周期">
+                    <div className="inline-flex shrink-0 items-center rounded border border-border bg-elevated p-0.5" aria-label="分時週期">
                       {INTRADAY_DAY_OPTIONS.map(days => (
                         <button
                           key={days}
@@ -295,8 +271,8 @@ export function StockPreviewDialog({ symbol, name, onClose, triggerInfo }: Props
 
                 <span className="mx-0.5 h-4 w-px shrink-0 bg-border" />
 
-                {/* 日K / 分时 切换 */}
-                <div role="tablist" aria-label="图表视图" className="inline-flex shrink-0 items-center rounded border border-border bg-elevated p-0.5">
+                {/* 日K / 分時 切換 */}
+                <div role="tablist" aria-label="圖表視圖" className="inline-flex shrink-0 items-center rounded border border-border bg-elevated p-0.5">
                   <button
                     type="button"
                     role="tab"
@@ -319,57 +295,107 @@ export function StockPreviewDialog({ symbol, name, onClose, triggerInfo }: Props
                     }`}
                   >
                     <Clock className="h-3 w-3" />
-                    分时
+                    分時
                   </button>
                 </div>
 
                 <span className="mx-0.5 h-4 w-px shrink-0 bg-border" />
 
-                {/* 自选 */}
+                {/* 自選 — Phase 8C-A fix: ⭐ 主按鈕 1 click 直接加入未分組(canonical
+                    group_id=null, 與既有「未分組」選項相同 backend 語意), 選特定分組
+                    改為旁邊小 chevron 觸發既有 WatchlistAddMenu, quick-add 不再彈選單。 */}
                 {inWatchlist ? (
                   <button
                     type="button"
                     onClick={() => toggleWatchlist.mutate({ action: 'remove' })}
                     disabled={toggleWatchlist.isPending}
                     className="rounded-btn p-1.5 text-[#FACC15] transition-colors cursor-pointer hover:bg-elevated disabled:opacity-50"
-                    title="移出自选"
-                    aria-label={`将 ${symbol} 移出自选`}
+                    title="移出自選"
+                    aria-label={`將 ${symbol} 移出自選`}
                   >
                     <Star className="h-4 w-4" />
                   </button>
                 ) : (
-                  <WatchlistAddMenu
-                    onSelect={groupId => toggleWatchlist.mutate({ action: 'add', groupId })}
-                    disabled={toggleWatchlist.isPending}
-                    triggerClassName="rounded-btn p-1.5 text-muted transition-colors cursor-pointer hover:bg-elevated hover:text-foreground disabled:opacity-50"
-                    ariaLabel={`将 ${symbol} 加入自选`}
-                  >
-                    <Star className="h-4 w-4" />
-                  </WatchlistAddMenu>
+                  <div className="flex items-center">
+                    <button
+                      type="button"
+                      onClick={() => toggleWatchlist.mutate({ action: 'add' })}
+                      disabled={toggleWatchlist.isPending}
+                      className="rounded-btn p-1.5 text-muted transition-colors cursor-pointer hover:bg-elevated hover:text-foreground disabled:opacity-50"
+                      title="加入自選"
+                      aria-label={`將 ${symbol} 加入自選`}
+                    >
+                      <Star className="h-4 w-4" />
+                    </button>
+                    <WatchlistAddMenu
+                      onSelect={groupId => toggleWatchlist.mutate({ action: 'add', groupId })}
+                      disabled={toggleWatchlist.isPending}
+                      triggerClassName="rounded-btn p-0.5 text-muted transition-colors cursor-pointer hover:bg-elevated hover:text-foreground disabled:opacity-50"
+                      title="選擇分組加入自選"
+                      ariaLabel={`選擇分組將 ${symbol} 加入自選`}
+                    >
+                      <ChevronDown className="h-3 w-3" />
+                    </WatchlistAddMenu>
+                  </div>
                 )}
-                {/* 加监控 */}
+                {/* 加監控 */}
                 <button
                   onClick={() => setShowMonitorEditor(true)}
                   className="p-1.5 rounded-btn text-amber-400 hover:bg-amber-400/10 transition-colors cursor-pointer"
-                  title="加监控"
+                  title="加監控"
                 >
                   <RadioTower className="h-4 w-4" />
                 </button>
+
+                {/* 加入比較 (Phase 8C-A, 僅台股標的) */}
+                {isTaiwanSymbol && (
+                  <button
+                    onClick={() => {
+                      const merged = mergeSymbolIntoCompare(loadLastCompareSymbols(), symbol!)
+                      navigate(`/stocks/compare?symbols=${encodeURIComponent(merged.join(','))}`)
+                    }}
+                    className="p-1.5 rounded-btn text-secondary hover:bg-elevated hover:text-foreground transition-colors cursor-pointer"
+                    title="加入多標的比較"
+                    aria-label={`將 ${symbol} 加入比較`}
+                  >
+                    <Scale className="h-4 w-4" />
+                  </button>
+                )}
+
+                {/* DAILY_USE_CORE_UX_FIXES (P1-3): 查看完整個股 — 這裡的日K/分時是
+                    輕量預覽(generic /api/kline/daily), 該來源沒資料時本 dialog
+                    只能空白; 完整版 TaiwanStockDetail 走專屬台股資料層, 常常仍有
+                    資料。提供明確出口, 不讓使用者卡在空白圖表, 僅台股標的顯示
+                    (與「加入比較」同一限制, 路由本身是台股專用頁)。*/}
+                {isTaiwanSymbol && (
+                  <button
+                    onClick={() => {
+                      const target = symbol!
+                      onClose()
+                      navigate(`/stocks/${encodeURIComponent(target)}`)
+                    }}
+                    className="p-1.5 rounded-btn text-secondary hover:bg-elevated hover:text-foreground transition-colors cursor-pointer"
+                    title="查看完整個股"
+                    aria-label={`查看 ${symbol} 完整個股頁`}
+                  >
+                    <ExternalLink className="h-4 w-4" />
+                  </button>
+                )}
 
                 {/* 刷新 */}
                 <button
                   onClick={handleRefresh}
                   className="p-1.5 rounded-btn text-secondary hover:text-foreground hover:bg-elevated transition-colors"
-                  title="刷新"
+                  title="重新整理"
                 >
                   <RefreshCw className="h-4 w-4" />
                 </button>
 
-                {/* 放大 / 缩小 */}
+                {/* 放大 / 縮小 */}
                 <button
                   onClick={() => setMaximized(v => !v)}
                   className="p-1.5 rounded-btn text-secondary hover:text-foreground hover:bg-elevated transition-colors"
-                  title={maximized ? '缩小' : '放大'}
+                  title={maximized ? '縮小' : '放大'}
                 >
                   {maximized ? <Minimize2 className="h-4 w-4" /> : <Maximize2 className="h-4 w-4" />}
                 </button>
@@ -377,20 +403,20 @@ export function StockPreviewDialog({ symbol, name, onClose, triggerInfo }: Props
                 <button
                   onClick={onClose}
                   className="shrink-0 rounded-btn p-1.5 text-secondary transition-colors hover:bg-elevated hover:text-foreground"
-                  aria-label="关闭个股详情"
-                  title="关闭"
+                  aria-label="關閉個股詳細資料"
+                  title="關閉"
                 >
                   <X className="h-4 w-4" />
                 </button>
               </div>
             </div>
 
-            {/* 触发信息条 (来自监控触发记录) */}
+            {/* 觸發信息條 (來自監控觸發記錄) */}
             {triggerInfo && (
               <div className="flex items-center gap-4 border-b border-amber-400/20 bg-amber-400/[0.06] px-5 py-2 shrink-0">
-                {/* 左: 触发标记 + 时间 */}
+                {/* 左: 觸發標記 + 時間 */}
                 <div className="flex items-center gap-2 shrink-0">
-                  <span className="text-[10px] font-semibold text-amber-400">⚡ 触发</span>
+                  <span className="text-[10px] font-semibold text-amber-400">⚡ 觸發</span>
                   {triggerInfo.ts && (
                     <span className="text-[11px] text-secondary font-mono">
                       {new Date(triggerInfo.ts).toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })}
@@ -398,7 +424,7 @@ export function StockPreviewDialog({ symbol, name, onClose, triggerInfo }: Props
                   )}
                 </div>
 
-                {/* 中: 价格 + 涨跌幅 */}
+                {/* 中: 價格 + 漲跌幅 */}
                 <div className="flex items-center gap-2 shrink-0">
                   {triggerInfo.price != null && (
                     <span className="text-[11px] font-mono text-foreground/80">{triggerInfo.price.toFixed(2)}</span>
@@ -410,7 +436,7 @@ export function StockPreviewDialog({ symbol, name, onClose, triggerInfo }: Props
                   )}
                 </div>
 
-                {/* 右: 消息 + 信号标签 */}
+                {/* 右: 消息 + 信號標籤 */}
                 <div className="flex items-center gap-2 flex-wrap min-w-0">
                   {triggerInfo.message && (
                     <span className="text-[11px] text-foreground/70 truncate">{triggerInfo.message}</span>
@@ -426,50 +452,7 @@ export function StockPreviewDialog({ symbol, name, onClose, triggerInfo }: Props
               </div>
             )}
 
-            {/* 异动边缘信息条 (与异动页同源; 该股无异动数据时不显示)。整条按状态着色提升辨识度 */}
-            {abRow && (() => {
-              const meta = AB_STATUS_META[abRow.status] ?? AB_STATUS_META.watch
-              return (
-                <div className={`flex flex-wrap items-center gap-x-3 gap-y-1 px-5 py-2 shrink-0 ${meta.bar}`}>
-                  <span className="flex shrink-0 items-center gap-1.5">
-                    <Activity className={`h-3.5 w-3.5 ${meta.icon}`} />
-                    <span className={`text-[11px] font-bold ${meta.icon}`}>异动</span>
-                    <span className={`rounded px-1.5 py-0.5 text-[10px] ${meta.cls}`}>
-                      {meta.label}
-                    </span>
-                  </span>
-                  {Object.entries(abRow.windows)
-                    .sort((a, b) => parseInt(a[0], 10) - parseInt(b[0], 10))
-                    .map(([w, info]) => {
-                      const dominant = abDominantWindow?.[0] === w
-                      return (
-                        <span
-                          key={w}
-                          title={`近${parseInt(w, 10)}日累计偏离(含实时) / 交易所规则阈值 · 接近度=|偏离|/阈值`}
-                          className={`shrink-0 rounded border px-1.5 py-0.5 font-mono text-[11px] ${
-                            dominant
-                              ? 'border-border bg-elevated font-semibold text-foreground'
-                              : 'border-border/60 bg-base/40 text-secondary'
-                          }`}
-                        >
-                          {parseInt(w, 10)}日{' '}
-                          <span className={info.value >= 0 ? 'text-bull' : 'text-bear'}>{fmtPct(info.value, 1)}</span>
-                          <span className="text-muted"> / ±{(info.threshold * 100).toFixed(0)}%</span>
-                          <span className="text-muted"> · 接近{(info.closeness * 100).toFixed(0)}%</span>
-                        </span>
-                      )
-                    })}
-                  <span
-                    className="ml-auto shrink-0 font-mono text-[10px] text-muted"
-                    title="异动引擎上次计算时间"
-                  >
-                    计算于 {fmtAbnormalCalcTime(abnormal.data?.asof ?? 0)}
-                  </span>
-                </div>
-              )
-            })()}
-
-            {/* 图表内容 */}
+            {/* 圖表內容 */}
             <div className="flex-1 overflow-auto p-4">
               {view === 'daily' ? (
                 <StockPanel
@@ -499,7 +482,7 @@ export function StockPreviewDialog({ symbol, name, onClose, triggerInfo }: Props
               )}
             </div>
 
-            {/* 扩展插槽: 对话框底部二开区 (无注册时不渲染) */}
+            {/* 擴展插槽: 對話框底部二開區 (無註冊時不渲染) */}
             <div className="shrink-0">
               <ExtensionSlot
                 name="stock-preview.footer"
@@ -507,7 +490,7 @@ export function StockPreviewDialog({ symbol, name, onClose, triggerInfo }: Props
               />
             </div>
 
-            {/* 加监控编辑器弹层 */}
+            {/* 加監控編輯器彈層 */}
             <AnimatePresence>
               {showMonitorEditor && symbol && (
                 <motion.div

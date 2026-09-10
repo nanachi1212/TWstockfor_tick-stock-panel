@@ -251,7 +251,7 @@ def clear_all():
 
 # 自选页需要的列
 _WATCHLIST_COLS = [
-    "symbol", "close", "open", "high", "low", "change_pct", "change_amount", "amount",
+    "symbol", "close", "open", "high", "low", "prev_close", "change_pct", "change_amount", "amount",
     "turnover_rate",
     "amplitude", "annual_vol_20d",
     "vol_ratio_5d",
@@ -291,13 +291,21 @@ def watchlist_enriched(
     if not symbols:
         return {"rows": [], "as_of": None, "elapsed_ms": 0}
 
+    # Market-aware dispatch (Phase 8B-5.0.4): canonical Taiwan symbols (2330.TWSE /
+    # 6488.TPEX) 一律走既有 Taiwan realtime/daily stack, 完全不进 legacy A 股
+    # enriched 管线 —— 不写入 A 股 parquet, 不建 Taiwan→A 股 adapter。legacy A 股
+    # symbol 走原样不变的既有 join 逻辑 (下方), 两边最后合并成同一份 response。
+    from app.taiwan.symbol import is_taiwan_symbol
+    taiwan_symbols = [s for s in symbols if is_taiwan_symbol(s)]
+    legacy_symbols = [s for s in symbols if not is_taiwan_symbol(s)]
+
     # 按资产拆分自选 symbol; ETF enriched 是独立缓存, 仅自选真的含 ETF 才去加载
     # (避免无 ETF 用户在缓存冷启动时触发 ETF 全量懒加载)
     etf_set = repo.get_etf_symbol_set()
     index_set = repo.get_index_symbol_set()
-    etf_symbols = [s for s in symbols if s in etf_set]
-    index_symbols = [s for s in symbols if s not in etf_set and s in index_set]
-    stock_symbols = [s for s in symbols if s not in etf_set and s not in index_set]
+    etf_symbols = [s for s in legacy_symbols if s in etf_set]
+    index_symbols = [s for s in legacy_symbols if s not in etf_set and s in index_set]
+    stock_symbols = [s for s in legacy_symbols if s not in etf_set and s not in index_set]
 
     df_e, cache_date = repo.get_enriched_latest()
 
@@ -340,95 +348,124 @@ def watchlist_enriched(
     # as_of 取三类缓存中较旧者
     dates = [d for d in (cache_date if stock_symbols else None, etf_date, index_date) if d is not None]
     as_of = min(dates) if dates else None
-    if df.is_empty():
+    if df.is_empty() and not taiwan_symbols:
         return {"rows": [], "as_of": str(as_of) if as_of else None, "elapsed_ms": 0}
 
-    # JOIN float_shares (仅股票有) + 名称 (股票/ETF 统一走 get_name_map)
-    df_i = repo.get_instruments()
-    if not df_i.is_empty() and "float_shares" in df_i.columns:
-        df = df.join(df_i.select(["symbol", "float_shares"]), on="symbol", how="left")
-    name_map = repo.get_name_map(df["symbol"].to_list())
-    df = df.with_columns(
-        pl.col("symbol").replace_strict(name_map, default=None, return_dtype=pl.Utf8).alias("name")
-    )
-
-    # 标注资产类型: 前端据此渲染徽标/豁免板块筛选/分时列降级
-    asset_map = {**{s: "etf" for s in etf_symbols}, **{s: "index" for s in index_symbols}}
-    df = df.with_columns(
-        pl.col("symbol").replace_strict(asset_map, default="stock", return_dtype=pl.Utf8).alias("asset_type")
-    )
-
-    # 选择内置需要的列
-    keep = [c for c in _WATCHLIST_COLS + ["name", "float_shares", "asset_type"] if c in df.columns]
-    df = df.select(keep)
-
-    # 动态 JOIN 扩展数据表
+    # ext 扩展列(概念/行业等)是纯 A 股功能; 先在这里解析好列名, 供合并阶段把
+    # Taiwan 行的对应字段也补成 None, 而不是让这些 key 在 Taiwan 行上完全缺失。
     ext_specs = _parse_ext_columns(ext_columns) if ext_columns else []
-    if ext_specs:
-        db = repo.store.db
-        data_dir = repo.store.data_dir
-        from app.services.ext_data import ExtConfigStore
-        from app.api.ext_data import _read_ext_dataframe
+    ext_col_names = [f"{config_id}__{field_name}" for config_id, field_name in ext_specs]
 
-        ext_store = ExtConfigStore(data_dir)
-        configs = {c.id: c for c in ext_store.load_all()}
+    # legacy A 股行: 原有 join/select/ext 扩展/NaN 清洗逻辑保持不变, 只是现在只
+    # 处理 legacy_symbols 那一份 df (Taiwan 完全不进这条管线, 见下方)。
+    if legacy_symbols and not df.is_empty():
+        # JOIN float_shares (仅股票有) + 名称 (股票/ETF 统一走 get_name_map)
+        df_i = repo.get_instruments()
+        if not df_i.is_empty() and "float_shares" in df_i.columns:
+            df = df.join(df_i.select(["symbol", "float_shares"]), on="symbol", how="left")
+        name_map = repo.get_name_map(df["symbol"].to_list())
+        df = df.with_columns(
+            pl.col("symbol").replace_strict(name_map, default=None, return_dtype=pl.Utf8).alias("name")
+        )
 
-        for config_id, field_name in ext_specs:
-            view_name = f"ext_{config_id}"
-            ext_col_name = f"{config_id}__{field_name}"
-            try:
-                # 扩展时序数据必须只取最新分区；否则一个 symbol 会按历史分区数被 JOIN 放大。
-                cfg = configs.get(config_id)
-                if cfg:
-                    ext_df, _ = _read_ext_dataframe(cfg, data_dir)
-                else:
-                    ext_df = pl.from_arrow(db.query(
-                        f"SELECT symbol, {quote_ident(field_name)} FROM {view_name}"
-                    ).arrow())
-                if not ext_df.is_empty() and "symbol" in ext_df.columns:
-                    ext_df = (
-                        ext_df
-                        .select(["symbol", field_name])
-                        .unique(subset=["symbol"], keep="last")
-                        .rename({field_name: ext_col_name})
-                    )
-                    df = df.join(ext_df.select(["symbol", ext_col_name]), on="symbol", how="left")
-            except Exception:
-                # view 不存在或字段不存在，尝试直接读 parquet
-                cfg = configs.get(config_id)
-                if cfg:
-                    try:
+        # 标注资产类型: 前端据此渲染徽标/豁免板块筛选/分时列降级
+        asset_map = {**{s: "etf" for s in etf_symbols}, **{s: "index" for s in index_symbols}}
+        df = df.with_columns(
+            pl.col("symbol").replace_strict(asset_map, default="stock", return_dtype=pl.Utf8).alias("asset_type")
+        )
+
+        # 选择内置需要的列
+        keep = [c for c in _WATCHLIST_COLS + ["name", "float_shares", "asset_type"] if c in df.columns]
+        df = df.select(keep)
+
+        # 动态 JOIN 扩展数据表
+        if ext_specs:
+            db = repo.store.db
+            data_dir = repo.store.data_dir
+            from app.services.ext_data import ExtConfigStore
+            from app.api.ext_data import _read_ext_dataframe
+
+            ext_store = ExtConfigStore(data_dir)
+            configs = {c.id: c for c in ext_store.load_all()}
+
+            for config_id, field_name in ext_specs:
+                view_name = f"ext_{config_id}"
+                ext_col_name = f"{config_id}__{field_name}"
+                try:
+                    # 扩展时序数据必须只取最新分区；否则一个 symbol 会按历史分区数被 JOIN 放大。
+                    cfg = configs.get(config_id)
+                    if cfg:
                         ext_df, _ = _read_ext_dataframe(cfg, data_dir)
-                        if not ext_df.is_empty() and "symbol" in ext_df.columns and field_name in ext_df.columns:
-                            ext_df = (
-                                ext_df
-                                .select(["symbol", field_name])
-                                .unique(subset=["symbol"], keep="last")
-                                .rename({field_name: ext_col_name})
-                            )
-                            df = df.join(ext_df, on="symbol", how="left")
-                    except Exception as e2:
-                        logger.debug("ext join fallback failed for %s.%s: %s", config_id, field_name, e2)
+                    else:
+                        ext_df = pl.from_arrow(db.query(
+                            f"SELECT symbol, {quote_ident(field_name)} FROM {view_name}"
+                        ).arrow())
+                    if not ext_df.is_empty() and "symbol" in ext_df.columns:
+                        ext_df = (
+                            ext_df
+                            .select(["symbol", field_name])
+                            .unique(subset=["symbol"], keep="last")
+                            .rename({field_name: ext_col_name})
+                        )
+                        df = df.join(ext_df.select(["symbol", ext_col_name]), on="symbol", how="left")
+                except Exception:
+                    # view 不存在或字段不存在，尝试直接读 parquet
+                    cfg = configs.get(config_id)
+                    if cfg:
+                        try:
+                            ext_df, _ = _read_ext_dataframe(cfg, data_dir)
+                            if not ext_df.is_empty() and "symbol" in ext_df.columns and field_name in ext_df.columns:
+                                ext_df = (
+                                    ext_df
+                                    .select(["symbol", field_name])
+                                    .unique(subset=["symbol"], keep="last")
+                                    .rename({field_name: ext_col_name})
+                                )
+                                df = df.join(ext_df, on="symbol", how="left")
+                        except Exception as e2:
+                            logger.debug("ext join fallback failed for %s.%s: %s", config_id, field_name, e2)
 
-    # sanitize NaN / Inf
-    float_cols = [c for c in df.columns if df[c].dtype.is_float()]
-    if float_cols:
-        df = df.with_columns([
-            pl.when(pl.col(c).is_nan() | pl.col(c).is_infinite())
-              .then(None)
-              .otherwise(pl.col(c))
-              .alias(c)
-            for c in float_cols
-        ])
+        # sanitize NaN / Inf
+        float_cols = [c for c in df.columns if df[c].dtype.is_float()]
+        if float_cols:
+            df = df.with_columns([
+                pl.when(pl.col(c).is_nan() | pl.col(c).is_infinite())
+                  .then(None)
+                  .otherwise(pl.col(c))
+                  .alias(c)
+                for c in float_cols
+            ])
+        legacy_rows = df.to_dicts()
+    else:
+        legacy_rows = []
+
+    # Taiwan 行: 完全独立的 enrichment 路径 (既有 realtime/daily stack), 见
+    # app/taiwan/watchlist_enrichment.py。不会往这条路径混入任何 A 股 symbol。
+    taiwan_rows: list[dict] = []
+    if taiwan_symbols:
+        from app.taiwan.watchlist_enrichment import enrich_taiwan_watchlist_rows
+        try:
+            taiwan_rows = enrich_taiwan_watchlist_rows(taiwan_symbols)
+        except Exception as e:  # noqa: BLE001
+            # 与 legacy 分支同等的容错原则: Taiwan 数据源异常不该让整个端点 500,
+            # 只是这批标的这一轮退化为全 null (symbol 仍需要保留, 前端仍渲染 "—")。
+            logger.warning("taiwan watchlist enrichment failed: %s", e)
+            taiwan_rows = [{"symbol": s, "asset_type": "stock"} for s in taiwan_symbols]
+
+    # 合并 + 补齐字段: 两条路径产出的字典 key 集合不同 (Taiwan 没有技术指标列),
+    # 统一补 None 而非让 key 缺失, 遵循"缺数据回 null 不是假造"的既有口径。
+    expected_cols = _WATCHLIST_COLS + ["name", "float_shares", "asset_type"] + ext_col_names
+    all_rows = legacy_rows + taiwan_rows
+    for row in all_rows:
+        for col in expected_cols:
+            row.setdefault(col, None)
 
     # 按自选添加顺序（新加的在前）重排行
     order_map = {s: i for i, s in enumerate(symbols)}
-    df = df.with_columns(pl.col("symbol").map_elements(lambda s: order_map.get(s, len(symbols)), return_dtype=pl.Int32).alias("_sort_order"))
-    df = df.sort("_sort_order").drop("_sort_order")
+    all_rows.sort(key=lambda r: order_map.get(r["symbol"], len(symbols)))
 
-    rows = df.to_dicts()
     elapsed = (time.perf_counter() - t0) * 1000
-    return {"rows": rows, "as_of": str(as_of) if as_of else None, "elapsed_ms": elapsed}
+    return {"rows": all_rows, "as_of": str(as_of) if as_of else None, "elapsed_ms": elapsed}
 
 
 def _parse_ext_columns(ext_columns: str) -> list[tuple[str, str]]:

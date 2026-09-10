@@ -7,7 +7,7 @@ import { cn } from '@/lib/cn'
 import { QK } from '@/lib/queryKeys'
 import { resetBadge } from '@/lib/monitorBadge'
 
-// ── 分钟K探测 (迁移自 MinuteDataProbe) ─────────────────
+// ── 分鐘K探測 (遷移自 MinuteDataProbe) ─────────────────
 interface ProbeResult {
   date: string
   rows: number
@@ -64,16 +64,16 @@ function MinuteProbePanel() {
   return (
     <div className="space-y-4">
       <div>
-        <h2 className="text-sm font-semibold text-foreground">分钟K数据探测</h2>
+        <h2 className="text-sm font-semibold text-foreground">分鐘K數據探測</h2>
         <p className="mt-1 text-xs text-muted">
-          逐日调用 <code className="px-1 rounded bg-elevated text-secondary">/api/kline/minute</code> 接口，
-          检测每只股票最近若干天的分钟K数据是否齐全。本地无数据时会自动走 TickFlow 实时拉取。
+          逐日調用 <code className="px-1 rounded bg-elevated text-secondary">/api/kline/minute</code> 接口，
+          檢測每隻股票最近若干天的分鐘K數據是否齊全。本地無數據時會自動走內建數據源實時拉取。
         </p>
       </div>
 
       <div className="flex flex-wrap items-end gap-3 rounded-btn bg-elevated p-4">
         <div className="flex flex-col gap-1">
-          <label className="text-xs text-muted">股票代码</label>
+          <label className="text-xs text-muted">股票代碼</label>
           <input
             value={symbol}
             onChange={(e) => setSymbol(e.target.value)}
@@ -83,7 +83,7 @@ function MinuteProbePanel() {
           />
         </div>
         <div className="flex flex-col gap-1">
-          <label className="text-xs text-muted">回溯天数</label>
+          <label className="text-xs text-muted">回溯天數</label>
           <input
             type="number"
             min={1}
@@ -99,7 +99,7 @@ function MinuteProbePanel() {
           className="flex items-center gap-1.5 rounded-btn bg-accent px-4 py-1.5 text-sm font-medium text-base hover:bg-accent/90 disabled:opacity-50 cursor-pointer"
         >
           {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />}
-          {loading ? '探测中…' : '开始探测'}
+          {loading ? '探測中…' : '開始探測'}
         </button>
       </div>
 
@@ -113,11 +113,11 @@ function MinuteProbePanel() {
       {total > 0 && (
         <div className="grid grid-cols-3 gap-3">
           <div className="rounded-btn bg-elevated p-3">
-            <div className="text-xs text-muted">检测天数</div>
+            <div className="text-xs text-muted">檢測天數</div>
             <div className="mt-1 text-lg font-semibold text-foreground">{total}</div>
           </div>
           <div className="rounded-btn bg-elevated p-3">
-            <div className="text-xs text-muted">有数据</div>
+            <div className="text-xs text-muted">有數據</div>
             <div className="mt-1 text-lg font-semibold text-emerald-400">{hasData}</div>
           </div>
           <div className="rounded-btn bg-elevated p-3">
@@ -133,9 +133,9 @@ function MinuteProbePanel() {
             <thead className="bg-elevated text-xs text-muted">
               <tr>
                 <th className="px-4 py-2 text-left font-medium">日期</th>
-                <th className="px-4 py-2 text-right font-medium">分钟K条数</th>
-                <th className="px-4 py-2 text-left font-medium">数据来源</th>
-                <th className="px-4 py-2 text-center font-medium">状态</th>
+                <th className="px-4 py-2 text-right font-medium">分鐘K條數</th>
+                <th className="px-4 py-2 text-left font-medium">數據來源</th>
+                <th className="px-4 py-2 text-center font-medium">狀態</th>
               </tr>
             </thead>
             <tbody>
@@ -167,13 +167,13 @@ function MinuteProbePanel() {
       {missing.length > 0 && (
         <div className="rounded-btn border border-warning/40 bg-warning/10 p-3 text-xs text-foreground">
           <div className="mb-1 flex items-center gap-1.5 font-medium text-warning">
-            <AlertTriangle className="h-4 w-4" /> 缺失日期的诊断
+            <AlertTriangle className="h-4 w-4" /> 缺失日期的診斷
           </div>
           <p className="leading-relaxed text-secondary">
-            缺失日期若为<span className="text-foreground">周末/节假日</span>属正常；
-            若为<span className="text-foreground">停牌日</span>（成交量为 0）也属正常；
-            若为<span className="text-foreground">正常交易日</span>（日K有成交量）却缺失分钟K，
-            则是 TickFlow 数据源未提供该日分钟数据。
+            缺失日期若為<span className="text-foreground">週末/節假日</span>屬正常；
+            若為<span className="text-foreground">停牌日</span>（成交量為 0）也屬正常；
+            若為<span className="text-foreground">正常交易日</span>（日K有成交量）卻缺失分鐘K，
+            則是內建數據源未提供該日分鐘數據。
           </p>
         </div>
       )}
@@ -181,7 +181,7 @@ function MinuteProbePanel() {
   )
 }
 
-// ── 演示数据生成 ──────────────────────────────────────
+// ── 演示數據生成 ──────────────────────────────────────
 function SeedPanel() {
   const qc = useQueryClient()
   const [count, setCount] = useState(12)
@@ -191,13 +191,13 @@ function SeedPanel() {
   const seedMut = useMutation({
     mutationFn: () => api.alertSeed(count, recent),
     onSuccess: (data) => {
-      setMsg(`已生成 ${data.generated} 条触发记录`)
+      setMsg(`已生成 ${data.generated} 條觸發記錄`)
       qc.invalidateQueries({ queryKey: ['alerts'] })
       qc.invalidateQueries({ queryKey: ['alerts-total'] })
       setTimeout(() => setMsg(''), 4000)
     },
     onError: () => {
-      setMsg('生成失败')
+      setMsg('生成失敗')
       setTimeout(() => setMsg(''), 4000)
     },
   })
@@ -205,7 +205,7 @@ function SeedPanel() {
   const clearMut = useMutation({
     mutationFn: () => api.alertsClear(),
     onSuccess: (data) => {
-      setMsg(`已清空 ${data.cleared} 条触发记录`)
+      setMsg(`已清空 ${data.cleared} 條觸發記錄`)
       qc.invalidateQueries({ queryKey: ['alerts'] })
       qc.invalidateQueries({ queryKey: ['alerts-total'] })
       resetBadge()
@@ -216,12 +216,12 @@ function SeedPanel() {
   const ruleSeedMut = useMutation({
     mutationFn: () => api.monitorRuleSeed(),
     onSuccess: (data) => {
-      setMsg(`已生成 ${data.generated} 条监控规则`)
+      setMsg(`已生成 ${data.generated} 條監控規則`)
       qc.invalidateQueries({ queryKey: QK.monitorRules })
       setTimeout(() => setMsg(''), 4000)
     },
     onError: () => {
-      setMsg('规则生成失败')
+      setMsg('規則生成失敗')
       setTimeout(() => setMsg(''), 4000)
     },
   })
@@ -229,16 +229,16 @@ function SeedPanel() {
   return (
     <div className="space-y-4">
       <div>
-        <h2 className="text-sm font-semibold text-foreground">监控触发记录演示数据</h2>
+        <h2 className="text-sm font-semibold text-foreground">監控觸發記錄演示數據</h2>
         <p className="mt-1 text-xs text-muted">
-          生成模拟的触发记录,用于测试监控中心页面的展示效果、未读徽标、新增闪烁等功能。生成的数据可随时清空。
+          生成模擬的觸發記錄,用於測試監控中心頁面的展示效果、未讀徽標、新增閃爍等功能。生成的數據可隨時清空。
         </p>
       </div>
 
       <div className="space-y-3 rounded-btn bg-elevated p-4">
         <div className="flex flex-wrap items-end gap-3">
           <div className="flex flex-col gap-1">
-            <label className="text-xs text-muted">生成条数</label>
+            <label className="text-xs text-muted">生成條數</label>
             <input
               type="number"
               min={1}
@@ -255,7 +255,7 @@ function SeedPanel() {
               onChange={(e) => setRecent(e.target.checked)}
               className="h-3.5 w-3.5 accent-accent"
             />
-            <span className="text-xs text-secondary">时间戳设为"刚刚"(测试闪烁效果)</span>
+            <span className="text-xs text-secondary">時間戳設為"剛剛"(測試閃爍效果)</span>
           </label>
         </div>
 
@@ -266,7 +266,7 @@ function SeedPanel() {
             className="flex items-center gap-1.5 rounded-btn bg-accent px-4 py-1.5 text-sm font-medium text-base hover:bg-accent/90 disabled:opacity-50 cursor-pointer"
           >
             {seedMut.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <FlaskConical className="h-4 w-4" />}
-            生成演示数据
+            生成演示數據
           </button>
           <button
             onClick={() => clearMut.mutate()}
@@ -283,12 +283,12 @@ function SeedPanel() {
         <div className="rounded-btn border border-accent/40 bg-accent/10 p-3 text-sm text-accent">{msg}</div>
       )}
 
-      {/* 监控规则生成 */}
+      {/* 監控規則生成 */}
       <div className="space-y-3 rounded-btn bg-elevated p-4">
         <div>
-          <h3 className="text-sm font-medium text-foreground">监控规则</h3>
+          <h3 className="text-sm font-medium text-foreground">監控規則</h3>
           <p className="mt-0.5 text-xs text-muted">
-            生成多种类型的演示监控规则 (个股信号/价格/市场异动/策略变更),用于测试监控中心规则列表展示。
+            生成多種類型的演示監控規則 (個股信號/價格/市場異動/策略變更),用於測試監控中心規則列表展示。
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
@@ -298,25 +298,25 @@ function SeedPanel() {
             className="flex items-center gap-1.5 rounded-btn bg-accent px-4 py-1.5 text-sm font-medium text-base hover:bg-accent/90 disabled:opacity-50 cursor-pointer"
           >
             {ruleSeedMut.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <FlaskConical className="h-4 w-4" />}
-            生成演示规则
+            生成演示規則
           </button>
         </div>
       </div>
 
       <div className="rounded-btn border border-border/40 bg-surface/40 p-4 text-xs leading-relaxed text-muted">
-        <div className="mb-1 font-medium text-secondary">使用说明</div>
+        <div className="mb-1 font-medium text-secondary">使用說明</div>
         <ul className="list-disc space-y-0.5 pl-4">
-          <li>勾选「时间戳设为刚刚」后,切到其他页面再回监控中心,新记录会闪烁高亮</li>
-          <li>生成后菜单「监控中心」会出现红色未读徽标</li>
-          <li>数据覆盖策略/信号/价格/市场异动四种来源</li>
-          <li>清空操作不可撤销</li>
+          <li>勾選「時間戳設為剛剛」後,切到其他頁面再回監控中心,新記錄會閃爍高亮</li>
+          <li>生成後菜單「監控中心」會出現紅色未讀徽標</li>
+          <li>數據覆蓋策略/信號/價格/市場異動四種來源</li>
+          <li>清空操作不可撤銷</li>
         </ul>
       </div>
     </div>
   )
 }
 
-// ── 封单监控模拟触发 ──────────────────────────────────
+// ── 封單監控模擬觸發 ──────────────────────────────────
 function LadderTestPanel() {
   const [result, setResult] = useState<Awaited<ReturnType<typeof api.monitorRuleTestLadder>> | null>(null)
   const [error, setError] = useState('')
@@ -331,27 +331,27 @@ function LadderTestPanel() {
   const triggerMut = useMutation({
     mutationFn: () => api.monitorRuleTriggerLadder(),
     onSuccess: (data) => {
-      setPushMsg(`✅ 已真实触发 ${data.triggered} 条预警 (落盘 + 飞书 + SSE)`)
+      setPushMsg(`✅ 已真實觸發 ${data.triggered} 條預警 (落盤 + 外部推播 + SSE)`)
       setTimeout(() => setPushMsg(''), 6000)
     },
     onError: (e: any) => {
-      setPushMsg(`❌ 触发失败: ${e?.message ?? String(e)}`)
+      setPushMsg(`❌ 觸發失敗: ${e?.message ?? String(e)}`)
       setTimeout(() => setPushMsg(''), 6000)
     },
   })
 
   const fmtVal = (v: number | null | undefined, metric: string) => {
     if (v == null) return '—'
-    if (metric === 'sealed_amount') return `${(v / 1e8).toFixed(4)} 亿`
+    if (metric === 'sealed_amount') return `${(v / 1e8).toFixed(4)} 億`
     return `${v.toLocaleString()} 手`
   }
 
   return (
     <div className="space-y-4">
       <div>
-        <h2 className="text-sm font-semibold text-foreground">封单监控模拟触发</h2>
+        <h2 className="text-sm font-semibold text-foreground">封單監控模擬觸發</h2>
         <p className="mt-1 text-xs text-muted">
-          用当前 depth 封单数据 + 最新日 enriched, 评估所有 ladder 规则。
+          用當前 depth 封單數據 + 最新日 enriched, 評估所有 ladder 規則。
         </p>
       </div>
 
@@ -362,11 +362,11 @@ function LadderTestPanel() {
           className="flex items-center gap-1.5 rounded-btn bg-accent px-4 py-1.5 text-sm font-medium text-base hover:bg-accent/90 disabled:opacity-50 cursor-pointer"
         >
           {testMut.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Bell className="h-4 w-4" />}
-          模拟触发
+          模擬觸發
         </button>
         <button
           onClick={() => {
-            if (confirm('将真实推送飞书 + 写入监控中心 + 触发 SSE 通知。确认?')) {
+            if (confirm('將真實送出外部推播 + 寫入監控中心 + 觸發 SSE 通知。確認?')) {
               triggerMut.mutate()
             }
           }}
@@ -374,18 +374,18 @@ function LadderTestPanel() {
           className="flex items-center gap-1.5 rounded-btn border border-amber-400/40 bg-amber-400/10 px-4 py-1.5 text-sm font-medium text-amber-400 hover:bg-amber-400/20 disabled:opacity-50 cursor-pointer"
         >
           {triggerMut.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Bell className="h-4 w-4" />}
-          真实触发预警
+          真實觸發預警
         </button>
         {result && (
           <span className="text-xs text-muted">
-            日期 {result.as_of} · 封单股 {result.sealed_count} · 触发 {result.triggered.length} · 未触发 {result.not_triggered.length}
+            日期 {result.as_of} · 封單股 {result.sealed_count} · 觸發 {result.triggered.length} · 未觸發 {result.not_triggered.length}
           </span>
         )}
       </div>
 
       <div className="rounded-btn border border-amber-400/30 bg-amber-400/5 p-3 text-xs text-muted">
-        <span className="font-medium text-amber-400">模拟触发</span>:纯条件判断,不落盘不推送。
-        <span className="font-medium text-amber-400 ml-2">真实触发</span>:走完整链路(落盘 alerts.jsonl + 推送飞书 + SSE 通知),会在监控中心和飞书看到预警。
+        <span className="font-medium text-amber-400">模擬觸發</span>:純條件判斷,不落盤不推送。
+        <span className="font-medium text-amber-400 ml-2">真實觸發</span>:走完整鏈路(落盤 alerts.jsonl + 外部推播 + SSE 通知),會在監控中心和已設定的渠道看到預警。
       </div>
 
       {pushMsg && (
@@ -401,7 +401,7 @@ function LadderTestPanel() {
 
       {result && result.triggered.length > 0 && (
         <div className="space-y-2">
-          <h3 className="text-sm font-medium text-emerald-400">✅ 会触发 ({result.triggered.length})</h3>
+          <h3 className="text-sm font-medium text-emerald-400">✅ 會觸發 ({result.triggered.length})</h3>
           {result.triggered.map((ev) => (
             <div key={ev.rule_id} className="rounded-btn border border-emerald-400/30 bg-emerald-400/5 p-3 text-sm">
               <div className="flex items-center gap-2 mb-1">
@@ -411,7 +411,7 @@ function LadderTestPanel() {
               </div>
               <div className="text-xs text-secondary">{ev.message}</div>
               <div className="mt-1 text-xs text-muted tabular-nums">
-                当前封单: {fmtVal(ev.sealed_metric === 'sealed_amount' ? ev.current_sealed_amount : ev.current_sealed_vol, ev.sealed_metric)}
+                當前封單: {fmtVal(ev.sealed_metric === 'sealed_amount' ? ev.current_sealed_amount : ev.current_sealed_vol, ev.sealed_metric)}
               </div>
             </div>
           ))}
@@ -420,7 +420,7 @@ function LadderTestPanel() {
 
       {result && result.not_triggered.length > 0 && (
         <div className="space-y-2">
-          <h3 className="text-sm font-medium text-muted">⚪ 未触发 ({result.not_triggered.length})</h3>
+          <h3 className="text-sm font-medium text-muted">⚪ 未觸發 ({result.not_triggered.length})</h3>
           {result.not_triggered.map((r) => (
             <div key={r.rule_id} className="rounded-btn border border-border bg-surface/40 p-3 text-sm">
               <div className="flex items-center gap-2 mb-1">
@@ -428,7 +428,7 @@ function LadderTestPanel() {
                 <span className="text-secondary text-xs">{r.rule_name}</span>
               </div>
               <div className="text-xs text-muted tabular-nums">
-                阈值 {fmtVal(r.threshold, r.metric)} · 当前 {fmtVal(r.current_value, r.metric)} · {r.reason}
+                閾值 {fmtVal(r.threshold, r.metric)} · 當前 {fmtVal(r.current_value, r.metric)} · {r.reason}
               </div>
             </div>
           ))}
@@ -437,22 +437,22 @@ function LadderTestPanel() {
 
       {result && result.triggered.length === 0 && result.not_triggered.length === 0 && (
         <div className="rounded-btn border border-border bg-surface/40 p-4 text-center text-sm text-muted">
-          无 ladder 监控规则,请先在连板梯队页设置封单监控
+          無 ladder 監控規則,請先在連板梯隊頁設置封單監控
         </div>
       )}
     </div>
   )
 }
 
-// ── Dev 主页面 ────────────────────────────────────────
+// ── Dev 主頁面 ────────────────────────────────────────
 export function Dev() {
   const [tab, setTab] = useState<'minute' | 'seed' | 'ladder'>('seed')
 
   return (
     <div className="flex flex-col h-full">
       <PageHeader
-        title="系统工具"
-        subtitle="数据诊断与预警调试"
+        title="系統工具"
+        subtitle="數據診斷與預警調試"
         right={
           <div className="flex items-center gap-1 rounded-btn bg-elevated p-0.5">
             <button
@@ -462,7 +462,7 @@ export function Dev() {
                 tab === 'seed' ? 'bg-surface text-foreground shadow-sm' : 'text-muted hover:text-secondary',
               )}
             >
-              <FlaskConical className="h-3.5 w-3.5" />演示数据
+              <FlaskConical className="h-3.5 w-3.5" />演示數據
             </button>
             <button
               onClick={() => setTab('ladder')}
@@ -471,7 +471,7 @@ export function Dev() {
                 tab === 'ladder' ? 'bg-surface text-foreground shadow-sm' : 'text-muted hover:text-secondary',
               )}
             >
-              <Bell className="h-3.5 w-3.5" />封单监控
+              <Bell className="h-3.5 w-3.5" />封單監控
             </button>
             <button
               onClick={() => setTab('minute')}
@@ -480,7 +480,7 @@ export function Dev() {
                 tab === 'minute' ? 'bg-surface text-foreground shadow-sm' : 'text-muted hover:text-secondary',
               )}
             >
-              <Activity className="h-3.5 w-3.5" />分钟K探测
+              <Activity className="h-3.5 w-3.5" />分鐘K探測
             </button>
           </div>
         }

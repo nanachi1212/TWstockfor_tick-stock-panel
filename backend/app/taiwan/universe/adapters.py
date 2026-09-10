@@ -26,10 +26,12 @@ import logging
 import re
 from dataclasses import dataclass, replace
 from datetime import datetime
+from html import unescape
 from html.parser import HTMLParser
 
 import httpx
 
+from app.taiwan.universe.industry_classification import resolve_industry_name
 from app.taiwan.universe.models import TaiwanInstrument
 
 logger = logging.getLogger(__name__)
@@ -384,6 +386,9 @@ def _official_company_directory(exchange: str, url: str) -> list[TaiwanInstrumen
     for row in _get_json(url):
         if exchange == "TWSE":
             code, name = row.get("公司代號"), row.get("公司簡稱")
+            # "產業別" 在 t187ap03_L 回傳的是數字產業代碼(如 "01"/"24"), 不是
+            # 可讀名稱 —— 與 mopsfin_t187ap03_O 的 SecuritiesIndustryCode 同樣
+            # 需要 resolve_industry_name() 正規化(見 industry_classification.py)。
             listed, industry = row.get("上市日期"), row.get("產業別")
         else:
             code, name = row.get("SecuritiesCompanyCode"), row.get("CompanyAbbreviation")
@@ -394,7 +399,8 @@ def _official_company_directory(exchange: str, url: str) -> list[TaiwanInstrumen
         instruments.append(TaiwanInstrument(
             symbol=f"{code}.{exchange}", code=code, exchange=exchange, name=str(name).strip(),
             instrument_type="stock", listing_status="active", listing_date=str(listed or "").strip() or None,
-            isin=None, industry=str(industry or "").strip() or None, cfi_code=None, raw_category="股票",
+            isin=None, industry=resolve_industry_name(str(industry or "").strip() or None), cfi_code=None,
+            raw_category="股票",
             is_supported=True, source="TWSE_OPENAPI" if exchange == "TWSE" else "TPEX_OPENAPI",
             updated_at=now, underlying_scope="domestic",
         ))
@@ -414,7 +420,7 @@ def _official_twse_etf_directory() -> list[TaiwanInstrument]:
         category = "foreign_equity" if scope == "foreign" else "domestic_equity" if scope == "domestic" else "unknown"
         code = str(code).strip()
         instruments.append(TaiwanInstrument(
-            symbol=f"{code}.TWSE", code=code, exchange="TWSE", name=str(name).strip(), instrument_type="etf",
+            symbol=f"{code}.TWSE", code=code, exchange="TWSE", name=unescape(str(name)).strip(), instrument_type="etf",
             listing_status="active", listing_date=str(row.get("上市日期") or "").strip() or None,
             isin=None, industry=None, cfi_code=None, raw_category=fund_type, is_supported=True,
             source="TWSE_OPENAPI", updated_at=now, etf_category=category,

@@ -18,7 +18,7 @@ export class ExtensionBoundary extends Component<Props, State> {
   }
 
   componentDidCatch(error: Error, info: ErrorInfo) {
-    console.error(`扩展 ${this.props.extensionId} 渲染失败`, error, info)
+    console.error(`擴展 ${this.props.extensionId} 渲染失敗`, error, info)
   }
 
   render() {
@@ -26,7 +26,7 @@ export class ExtensionBoundary extends Component<Props, State> {
     if (this.props.compact) return null
     return (
       <div className="rounded border border-danger/30 bg-danger/5 px-3 py-2 text-xs text-danger">
-        扩展 {this.props.extensionId} 暂时不可用
+        擴展 {this.props.extensionId} 暫時不可用
       </div>
     )
   }

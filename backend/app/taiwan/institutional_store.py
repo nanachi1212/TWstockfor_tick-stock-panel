@@ -96,11 +96,19 @@ def _schema() -> dict[str, pl.DataType]:
 class TaiwanInstitutionalStore:
     """Taiwan institutional flows parquet persistence.
 
-    Layout: data/taiwan/institutional/date=YYYY-MM-DD/part.parquet
+    Layout: <settings.data_dir>/taiwan/institutional/date=YYYY-MM-DD/part.parquet
     """
 
     def __init__(self, data_dir: Path | None = None) -> None:
-        self._data_dir = Path(data_dir or "data/taiwan/institutional")
+        # Phase 8B-5.0.7: 省略 data_dir 时锚定到 settings.data_dir(与
+        # TaiwanDailyStore/TaiwanSecurityMaster 同一套 Phase 8B-5.0.6 canonical
+        # root), 不再是 cwd-dependent 的裸相对路径。显式传入 data_dir(所有既有
+        # deterministic test 都这样做)时行为不变。
+        if data_dir is None:
+            from app.taiwan.data_root import taiwan_data_root
+
+            data_dir = taiwan_data_root() / "institutional"
+        self._data_dir = Path(data_dir)
         self._data_dir.mkdir(parents=True, exist_ok=True)
         self._partition_locks: dict[str, threading.Lock] = defaultdict(threading.Lock)
         self._locks_guard = threading.Lock()

@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react'
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useMutation, useQueryClient } from '@tanstack/react-query'
 import {
   DndContext,
   closestCenter,
@@ -17,37 +17,27 @@ import {
   verticalListSortingStrategy,
 } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
-import { Eye, EyeOff, ExternalLink, GripVertical, Settings, Bell } from 'lucide-react'
+import { Eye, EyeOff, ExternalLink, GripVertical, Bell } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import { api } from '@/lib/api'
 import { QK } from '@/lib/queryKeys'
 import { usePreferences } from '@/lib/useSharedQueries'
+import { CORE_NAV } from '@/lib/navigation'
 
 interface NavEntry {
   id: string
   label: string
-  type: 'builtin' | 'analysis'
+  type: 'builtin'
   visible: boolean
 }
 
-const BUILTIN_PAGES: NavEntry[] = [
-  { id: '/', label: '看板', type: 'builtin', visible: true },
-  { id: '/watchlist', label: '自选', type: 'builtin', visible: true },
-  { id: '/screener', label: '策略', type: 'builtin', visible: true },
-  { id: '/backtest', label: '回测', type: 'builtin', visible: true },
-  { id: '/mining', label: '挖掘', type: 'builtin', visible: true },
-  { id: '/limit-ladder', label: '连板梯队', type: 'builtin', visible: true },
-  { id: '/concept-analysis', label: '概念分析', type: 'builtin', visible: true },
-  { id: '/industry-analysis', label: '行业分析', type: 'builtin', visible: true },
-  { id: '/stock-analysis', label: '个股分析', type: 'builtin', visible: true },
-  { id: '/regime', label: '市场环境', type: 'builtin', visible: true },
-  { id: '/abnormal', label: '异动监控', type: 'builtin', visible: true },
-  { id: '/review', label: '复盘', type: 'builtin', visible: true },
-  { id: '/financials', label: '财务分析', type: 'builtin', visible: true },
-  { id: '/indices', label: '指数', type: 'builtin', visible: true },
-  { id: '/monitor', label: '监控中心', type: 'builtin', visible: true },
-  { id: '/data', label: '数据', type: 'builtin', visible: true },
-]
+// Phase 8B-2.1 — 台股核心功能清單改由 @/lib/navigation.ts 的 CORE_NAV 產生,
+// 與 Layout.tsx 的 sidebar 共用同一份 metadata(不再各自維護一份易漂移的清單)。
+// 中國 A 股 legacy 功能(ASHARE_LEGACY_NAV)不在這裡 —— 它們不是獨立的核心
+// menu item, 改用下方「中國 A 股功能」小節的總開關 + 個別顯示管理。
+const BUILTIN_PAGES: NavEntry[] = CORE_NAV.map(n => ({
+  id: n.to, label: n.label, type: 'builtin' as const, visible: true,
+}))
 
 // ── Sortable row ──
 
@@ -94,15 +84,13 @@ function SortableItem({ entry, hidden, onToggleHidden, badgeEnabled, onToggleBad
           {entry.label}
         </span>
         {hidden && (
-          <span className="rounded bg-elevated px-1.5 py-0.5 text-[10px] text-muted shrink-0">已隐藏</span>
+          <span className="rounded bg-elevated px-1.5 py-0.5 text-[10px] text-muted shrink-0">已隱藏</span>
         )}
         <span className="truncate text-[11px] text-muted font-mono">{entry.id}</span>
       </div>
       <div>
-        <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[11px] ${
-          entry.type === 'analysis' ? 'bg-accent/10 text-accent' : 'bg-elevated text-muted'
-        }`}>
-          {entry.type === 'builtin' ? '内置' : '扩展'}
+        <span className="inline-flex items-center rounded-full px-2 py-0.5 text-[11px] bg-elevated text-muted">
+          內建
         </span>
       </div>
       <div className="flex justify-center">
@@ -113,31 +101,21 @@ function SortableItem({ entry, hidden, onToggleHidden, badgeEnabled, onToggleBad
               ? 'text-muted hover:text-accent hover:bg-accent/10'
               : 'text-accent hover:bg-accent/10'
           }`}
-          title={hidden ? '显示' : '隐藏'}
+          title={hidden ? '顯示' : '隱藏'}
         >
           {hidden ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
         </button>
       </div>
       <div className="flex justify-center">
-        {entry.type === 'builtin' ? (
-          <Link
-            to={entry.id}
-            className="rounded p-1 text-muted hover:text-accent hover:bg-accent/10 transition-colors"
-            title="打开页面"
-          >
-            <ExternalLink className="h-3.5 w-3.5" />
-          </Link>
-        ) : (
-          <Link
-            to={`/settings?tab=ext-pages`}
-            className="rounded p-1 text-muted hover:text-accent hover:bg-accent/10 transition-colors"
-            title="编辑扩展页面"
-          >
-            <Settings className="h-3.5 w-3.5" />
-          </Link>
-        )}
+        <Link
+          to={entry.id}
+          className="rounded p-1 text-muted hover:text-accent hover:bg-accent/10 transition-colors"
+          title="開啟頁面"
+        >
+          <ExternalLink className="h-3.5 w-3.5" />
+        </Link>
       </div>
-      {/* 第 6 列: 徽标开关 (仅监控中心) */}
+      {/* 第 6 列: 徽標開關 (僅監控中心) */}
       <div className="flex justify-center">
         {onToggleBadge && (
           <button
@@ -147,7 +125,7 @@ function SortableItem({ entry, hidden, onToggleHidden, badgeEnabled, onToggleBad
                 ? 'text-accent hover:bg-accent/10'
                 : 'text-muted hover:text-accent hover:bg-accent/10'
             }`}
-            title={badgeEnabled ? '关闭数字提示' : '开启数字提示'}
+            title={badgeEnabled ? '關閉數字提示' : '開啟數字提示'}
           >
             <Bell className="h-3.5 w-3.5" />
           </button>
@@ -162,22 +140,13 @@ function SortableItem({ entry, hidden, onToggleHidden, badgeEnabled, onToggleBad
 export function SettingsMenuSettingsPanel() {
   const qc = useQueryClient()
   const { data: prefs } = usePreferences()
-  const menus = useQuery({ queryKey: QK.analysisMenus, queryFn: api.analysisMenus })
-
-  const analysisEntries: NavEntry[] = (menus.data?.items ?? []).map(m => ({
-    id: m.id,
-    label: m.label,
-    type: 'analysis' as const,
-    visible: m.visible,
-  }))
 
   const allEntries = useMemo(() => {
     const saved = prefs?.nav_order ?? []
     const entryMap = new Map<string, NavEntry>()
     for (const e of BUILTIN_PAGES) entryMap.set(e.id, e)
-    for (const e of analysisEntries) entryMap.set(e.id, e)
 
-    if (saved.length === 0) return [...BUILTIN_PAGES, ...analysisEntries]
+    if (saved.length === 0) return [...BUILTIN_PAGES]
 
     const ordered: NavEntry[] = []
     const seen = new Set<string>()
@@ -188,9 +157,9 @@ export function SettingsMenuSettingsPanel() {
         seen.add(id)
       }
     }
-    for (const e of [...BUILTIN_PAGES, ...analysisEntries]) {
+    for (const e of BUILTIN_PAGES) {
       if (seen.has(e.id)) continue
-      // 未保存过排序的新条目: 内置页插回默认位置, 分析菜单追加到末尾
+      // 未保存過排序的新條目: 內置頁插回默認位置
       const defaultIndex = BUILTIN_PAGES.findIndex(p => p.id === e.id)
       let anchor = -1
       if (defaultIndex > 0) {
@@ -203,7 +172,7 @@ export function SettingsMenuSettingsPanel() {
       else ordered.push(e)
     }
     return ordered
-  }, [prefs?.nav_order, analysisEntries])
+  }, [prefs?.nav_order])
 
   const hiddenSet = useMemo(() => new Set(prefs?.nav_hidden ?? []), [prefs?.nav_hidden])
 
@@ -221,7 +190,7 @@ export function SettingsMenuSettingsPanel() {
     }
     for (const e of allEntries) {
       if (seen.has(e.id)) continue
-      // 与 allEntries 同一语义: 未保存的新内置页插回默认位置而非追加到末尾
+      // 與 allEntries 同一語義: 未保存的新內置頁插回默認位置而非追加到末尾
       const defaultIndex = BUILTIN_PAGES.findIndex(p => p.id === e.id)
       let anchor = -1
       if (defaultIndex > 0) {
@@ -273,7 +242,7 @@ export function SettingsMenuSettingsPanel() {
     saveNavHidden.mutate([...next])
   }
 
-  // 监控中心徽标开关 (localStorage)
+  // 監控中心徽標開關 (localStorage)
   const [badgeEnabled, setBadgeEnabled] = useState(() => {
     try { return localStorage.getItem('monitor_badge_enabled') !== '0' } catch { return true }
   })
@@ -287,21 +256,21 @@ export function SettingsMenuSettingsPanel() {
   return (
     <div className="max-w-5xl space-y-6">
       <section className="rounded-2xl border border-border bg-surface p-6 bg-[radial-gradient(circle_at_top_right,rgba(59,130,246,0.12),transparent_38%)]">
-        <div className="text-[11px] uppercase tracking-[0.2em] text-accent/80">菜单设置</div>
-        <h2 className="mt-2 text-2xl font-semibold tracking-tight text-foreground">调整左侧菜单顺序</h2>
+        <div className="text-[11px] uppercase tracking-[0.2em] text-accent/80">選單設定</div>
+        <h2 className="mt-2 text-2xl font-semibold tracking-tight text-foreground">調整左側選單順序</h2>
         <p className="mt-2 max-w-3xl text-sm leading-6 text-secondary">
-          拖动左侧手柄调整菜单排列顺序，点击眼睛图标控制菜单在侧边栏中的显示或隐藏。
+          拖動左側把手調整選單排列順序,點擊眼睛圖示控制選單在側邊欄中的顯示或隱藏。
         </p>
       </section>
 
       <section className="rounded-card border border-border bg-surface overflow-hidden">
         <div className="grid grid-cols-[2.5rem_1fr_4.5rem_3rem_3rem_3rem] items-center border-b border-border px-4 py-2 text-[11px] text-muted">
           <div />
-          <div>菜单</div>
-          <div>类型</div>
-          <div className="text-center">显示</div>
-          <div className="text-center">设置</div>
-          <div className="text-center">数字</div>
+          <div>選單</div>
+          <div>類型</div>
+          <div className="text-center">顯示</div>
+          <div className="text-center">設定</div>
+          <div className="text-center">數字</div>
         </div>
 
         <DndContext
@@ -325,10 +294,6 @@ export function SettingsMenuSettingsPanel() {
             ))}
           </SortableContext>
         </DndContext>
-
-        {menus.isLoading && (
-          <div className="px-5 py-10 text-center text-sm text-muted">正在加载菜单...</div>
-        )}
       </section>
     </div>
   )

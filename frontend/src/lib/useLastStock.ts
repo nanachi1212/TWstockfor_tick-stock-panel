@@ -1,16 +1,16 @@
 import { useCallback, useState } from 'react'
 
 /**
- * 记忆"上次查看的个股"(按页面维度,localStorage 持久化)。
+ * 記憶"上次查看的個股"(按頁面維度,localStorage 持久化)。
  *
- * 两个分析页(财务 / 个股)各自独立记忆,key 区分:
- *   - financials: 最后查看的财务分析个股
- *   - stock-analysis: 最后查看的个股分析个股
+ * 兩個分析頁(財務 / 個股)各自獨立記憶,key 區分:
+ *   - financials: 最後查看的財務分析個股
+ *   - stock-analysis: 最後查看的個股分析個股
  *
  * 用法:
  *   const { last, remember } = useLastStock('stock-analysis')
- *   remember('000001.SZ', '平安银行')   // 选中股票时调用
- *   <LastStockChip stock={last} ... />  // 渲染在 PageHeader 右侧
+ *   remember('000001.SZ', '平安銀行')   // 選中股票時調用
+ *   <LastStockChip stock={last} ... />  // 渲染在 PageHeader 右側
  */
 
 export interface StockRef { symbol: string; name: string }

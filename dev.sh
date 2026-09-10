@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
-# tickflow-stock-panel — 一键启动前后端
+# Nanachi 的台股監控看板 — 一鍵啟動前後端
 #
 # 用法:
-#   ./dev.sh                          # 默认 backend:3018  frontend:3011
-#   BACKEND_PORT=8000 ./dev.sh        # 改后端端口
+#   ./dev.sh                          # 默認 backend:3018  frontend:3011
+#   BACKEND_PORT=8000 ./dev.sh        # 改後端端口
 #   FRONTEND_PORT=5173 ./dev.sh       # 改前端端口
 #
-# Ctrl-C 同时关闭两端。
+# Ctrl-C 同時關閉兩端。
 
 set -euo pipefail
 
@@ -77,12 +77,12 @@ ok()    { echo -e "${GREEN}[dev]${NC} $*"; }
 warn()  { echo -e "${YELLOW}[dev]${NC} $*"; }
 err()   { echo -e "${RED}[dev]${NC} $*" >&2; }
 
-# ===== 1. 依赖检查 =====
+# ===== 1. 依賴檢查 =====
 require_cmd() {
   local cmd="$1" hint="$2"
   if ! command -v "$cmd" >/dev/null 2>&1; then
-    err "$cmd 未安装"
-    echo "       安装方式:$hint"
+    err "$cmd 未安裝"
+    echo "       安裝方式:$hint"
     exit 1
   fi
 }
@@ -90,7 +90,7 @@ require_cmd() {
 require_cmd uv   "curl -LsSf https://astral.sh/uv/install.sh | sh"
 require_cmd pnpm "npm i -g pnpm   或   corepack enable && corepack prepare pnpm@9 --activate"
 
-# ===== 2. 端口占用检查 —— 占用就直接 kill =====
+# ===== 2. 端口佔用檢查 —— 佔用就直接 kill =====
 free_port() {
   local name="$1" port="$2"
   local pids
@@ -98,87 +98,87 @@ free_port() {
   if [ -z "$pids" ]; then
     return 0
   fi
-  warn "端口 $port($name)被占用,kill 现有进程 PID: $(echo "$pids" | xargs)"
+  warn "端口 $port($name)被佔用,kill 現有進程 PID: $(echo "$pids" | xargs)"
   # 先 TERM
   echo "$pids" | xargs kill 2>/dev/null || true
   sleep 1
-  # 还活着就 KILL
+  # 還活著就 KILL
   pids=$(lsof -nP -tiTCP:"$port" -sTCP:LISTEN 2>/dev/null || true)
   if [ -n "$pids" ]; then
-    warn "TERM 没杀掉,改用 KILL -9"
+    warn "TERM 沒殺掉,改用 KILL -9"
     echo "$pids" | xargs kill -9 2>/dev/null || true
     sleep 1
   fi
-  # 再确认一次
+  # 再確認一次
   pids=$(lsof -nP -tiTCP:"$port" -sTCP:LISTEN 2>/dev/null || true)
   if [ -n "$pids" ]; then
-    err "端口 $port 仍被占用 — kill 失败。请手动处理:lsof -i :$port"
+    err "端口 $port 仍被佔用 — kill 失敗。請手動處理:lsof -i :$port"
     exit 1
   fi
-  ok "端口 $port 已释放"
+  ok "端口 $port 已釋放"
 }
 free_port backend  "$BACKEND_PORT"
 free_port frontend "$FRONTEND_PORT"
 
-# ===== 3. 依赖安装 =====
+# ===== 3. 依賴安裝 =====
 if [ ! -d "$BACKEND_DIR/.venv" ] || [ "${#BACKEND_EXTRA_ARGS[@]}" -gt 0 ]; then
   if [ "${#BACKEND_EXTRA_ARGS[@]}" -gt 0 ]; then
-    info "同步后端 Python 依赖，extras: $BACKEND_EXTRAS"
+    info "同步後端 Python 依賴，extras: $BACKEND_EXTRAS"
   else
-    info "后端首次启动 — 安装 Python 依赖(约 1-2 分钟)..."
+    info "後端首次啟動 — 安裝 Python 依賴(約 1-2 分鐘)..."
   fi
-  # macOS 自带 bash 3.2 在 set -u 下展开空数组会报 unbound variable,
-  # ${arr[@]+"${arr[@]}"} 守卫:数组为空时展开为零个参数,非空时逐个带引号展开。
+  # macOS 自帶 bash 3.2 在 set -u 下展開空數組會報 unbound variable,
+  # ${arr[@]+"${arr[@]}"} 守衛:數組為空時展開為零個參數,非空時逐個帶引號展開。
   ( cd "$BACKEND_DIR" && uv sync --frozen ${BACKEND_EXTRA_ARGS[@]+"${BACKEND_EXTRA_ARGS[@]}"} )
-  ok "后端依赖装好了"
+  ok "後端依賴裝好了"
 fi
 
 if [ ! -d "$FRONTEND_DIR/node_modules" ]; then
-  info "前端首次启动 — 安装 Node 依赖..."
+  info "前端首次啟動 — 安裝 Node 依賴..."
   ( cd "$FRONTEND_DIR" && pnpm install )
-  ok "前端依赖装好了"
+  ok "前端依賴裝好了"
 fi
 
-# ===== 4. 启动 + 日志前缀 =====
+# ===== 4. 啟動 + 日誌前綴 =====
 PIDS=()
 
 cleanup() {
   echo
-  info "关闭服务..."
+  info "關閉服務..."
   for pid in "${PIDS[@]:-}"; do
     if [ -n "$pid" ]; then
       kill "$pid" 2>/dev/null || true
     fi
   done
-  # 等子进程退出,避免孤儿
+  # 等子進程退出,避免孤兒
   wait 2>/dev/null || true
   ok "已退出"
   exit 0
 }
 trap cleanup INT TERM
 
-# 用 awk 加前缀(macOS sed 没有 -u line-buffered,改用 awk + fflush 兼容)
+# 用 awk 加前綴(macOS sed 沒有 -u line-buffered,改用 awk + fflush 兼容)
 prefix_awk() {
   awk -v p="$1" '{ print p $0; fflush() }'
 }
 
 echo
 echo -e "${BLUE}╭──────────────────────────────────────────────╮${NC}"
-echo -e "${BLUE}│${NC}  ${GREEN}tickflow-stock-panel${NC}                        ${BLUE}│${NC}"
+echo -e "${BLUE}│${NC}  ${GREEN}Nanachi 的台股監控看板${NC}                      ${BLUE}│${NC}"
 echo -e "${BLUE}│${NC}                                              ${BLUE}│${NC}"
 echo -e "${BLUE}│${NC}  backend   ${YELLOW}http://$DISPLAY_HOST:$BACKEND_PORT${NC}          ${BLUE}│${NC}"
 echo -e "${BLUE}│${NC}  frontend  ${YELLOW}http://$DISPLAY_HOST:$FRONTEND_PORT${NC}          ${BLUE}│${NC}"
 echo -e "${BLUE}│${NC}                                              ${BLUE}│${NC}"
-echo -e "${BLUE}│${NC}  Ctrl-C 同时关闭两端                          ${BLUE}│${NC}"
+echo -e "${BLUE}│${NC}  Ctrl-C 同時關閉兩端                          ${BLUE}│${NC}"
 echo -e "${BLUE}╰──────────────────────────────────────────────╯${NC}"
 echo
 
 (
   cd "$BACKEND_DIR"
-  # --no-sync: 跳过依赖解析, 直接用已安装的 .venv。
-  # 比 --frozen 更彻底: 不校验 lockfile, 避免镜像源 403/网络抖动导致后端起不来。
-  # python -m uvicorn: 强制用 venv 的解释器和 uvicorn 模块, 防止 PATH 里
-  # 其他 Python(如 /usr/local/bin/uvicorn) 抢先, 导致用错误版本启动后端。
+  # --no-sync: 跳過依賴解析, 直接用已安裝的 .venv。
+  # 比 --frozen 更徹底: 不校驗 lockfile, 避免鏡像源 403/網絡抖動導致後端起不來。
+  # python -m uvicorn: 強制用 venv 的解釋器和 uvicorn 模塊, 防止 PATH 裡
+  # 其他 Python(如 /usr/local/bin/uvicorn) 搶先, 導致用錯誤版本啟動後端。
   uv run --no-sync python -m uvicorn app.main:app ${UVICORN_ENV_ARGS[@]+"${UVICORN_ENV_ARGS[@]}"} --reload \
     --host "$BACKEND_HOST" --port "$BACKEND_PORT" 2>&1 \
     | prefix_awk "$(printf "${BLUE}[backend ]${NC} ")"
@@ -195,9 +195,9 @@ PIDS+=("$!")
 
 # 等任一退出(bash 4.3+)或全部退出(老 bash)
 if wait -n 2>/dev/null; then
-  warn "其中一个进程退出,正在关闭另一个..."
+  warn "其中一個進程退出,正在關閉另一個..."
   cleanup
 else
-  # 老 bash 没有 wait -n,退化为 wait 全部
+  # 老 bash 沒有 wait -n,退化為 wait 全部
   wait
 fi

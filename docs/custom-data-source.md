@@ -1,32 +1,32 @@
-# 自定义数据源接入
+# 自定義數據源接入
 
-本项目默认使用 TickFlow。自定义数据源是一个可选扩展: 外部 HTTP 服务负责取数和整理, 本项目只把返回结果映射成内部标准字段, 然后复用现有存储、指标、enriched、策略和前端展示逻辑。
+本項目默認使用內建數據源。自定義數據源是一個可選擴展: 外部 HTTP 服務負責取數和整理, 本項目只把返回結果映射成內部標準字段, 然後複用現有存儲、指標、enriched、策略和前端展示邏輯。
 
-## 支持范围
+## 支持範圍
 
-当前自定义源支持五类数据:
+當前自定義源支持五類數據:
 
-| 数据集 | 配置名 | 说明 |
+| 數據集 | 配置名 | 說明 |
 | --- | --- | --- |
-| 日K | `daily` | 批量返回一组股票在指定区间内的日K |
-| 除权因子 | `adj_factor` | 批量返回一组股票的复权因子 |
-| 实时行情 | `realtime` | 返回全市场快照,用于盘中 enriched 增量计算 |
-| 分钟K | `minute` | 返回 1m 分钟K(需映射出 symbol / datetime / OHLC / 量额) |
-| 财务数据 | `financial` | 一个配置覆盖全部财务表,请求时把表名作为参数传给上游;字段由数据源决定,仅需映射出 symbol |
+| 日K | `daily` | 批量返回一組股票在指定區間內的日K |
+| 除權因子 | `adj_factor` | 批量返回一組股票的復權因子 |
+| 實時行情 | `realtime` | 返回全市場快照,用於盤中 enriched 增量計算 |
+| 分鐘K | `minute` | 返回 1m 分鐘K(需映射出 symbol / datetime / OHLC / 量額) |
+| 財務數據 | `financial` | 一個配置覆蓋全部財務表,請求時把表名作為參數傳給上游;字段由數據源決定,僅需映射出 symbol |
 
-深度盘口(depth5)暂无数据集契约,仍由 TickFlow 提供。
+深度盤口(depth5)暫無數據集契約,仍由內建數據源提供。
 
 ## 配置位置
 
-把 YAML 放到运行数据目录下:
+把 YAML 放到運行數據目錄下:
 
 ```text
 data/data_sources/*.yaml
 ```
 
-Dev 模式下，默认位置是项目根目录的 `data/`；Docker 部署中，项目的 `data/` 会挂载为容器内的 `/app/data`。可通过 `DATA_DIR` 覆盖。
+Dev 模式下，默認位置是項目根目錄的 `data/`；Docker 部署中，項目的 `data/` 會掛載為容器內的 `/app/data`。可通過 `DATA_DIR` 覆蓋。
 
-修改 YAML 后可在「设置 -> 数据源」点击「重新加载」,或调用:
+修改 YAML 後可在「設置 -> 數據源」點擊「重新加載」,或調用:
 
 ```bash
 curl -X POST http://127.0.0.1:3018/api/settings/data-sources/reload
@@ -36,7 +36,7 @@ curl -X POST http://127.0.0.1:3018/api/settings/data-sources/reload
 
 ```yaml
 name: mock_source
-display_name: "Mock 自定义数据源"
+display_name: "Mock 自定義數據源"
 auth:
   type: none
 
@@ -93,48 +93,48 @@ datasets:
       turnover: turnover_rate
 ```
 
-## 字段契约
+## 字段契約
 
 ### daily 必填
 
-| 内部字段 | 含义 |
+| 內部字段 | 含義 |
 | --- | --- |
-| `symbol` | 标准代码,如 `000001.SZ` |
+| `symbol` | 標準代碼,如 `000001.SZ` |
 | `date` | 交易日 |
-| `open` / `high` / `low` / `close` | 不复权 OHLC |
+| `open` / `high` / `low` / `close` | 不復權 OHLC |
 | `volume` | 成交量 |
-| `amount` | 成交额 |
+| `amount` | 成交額 |
 
 ### adj_factor 必填
 
-| 内部字段 | 含义 |
+| 內部字段 | 含義 |
 | --- | --- |
-| `symbol` | 标准代码 |
-| `trade_date` | 除权日期 |
-| `ex_factor` | 复权因子 |
+| `symbol` | 標準代碼 |
+| `trade_date` | 除權日期 |
+| `ex_factor` | 復權因子 |
 
 ### realtime 必填
 
-| 内部字段 | 含义 |
+| 內部字段 | 含義 |
 | --- | --- |
-| `symbol` | 标准代码 |
-| `last_price` | 最新价 |
+| `symbol` | 標準代碼 |
+| `last_price` | 最新價 |
 | `prev_close` | 昨收 |
-| `open` / `high` / `low` | 当日 OHLC |
+| `open` / `high` / `low` | 當日 OHLC |
 | `volume` | 成交量 |
 
-建议实时接口额外提供 `amount`、`change_pct`、`change_amount`、`amplitude`、`turnover_rate`、`name`。缺失时部分字段会由 pipeline 回算,但精度取决于可用输入。
+建議實時接口額外提供 `amount`、`change_pct`、`change_amount`、`amplitude`、`turnover_rate`、`name`。缺失時部分字段會由 pipeline 回算,但精度取決於可用輸入。
 
-`change_pct` 和 `amplitude` 使用小数制,例如 `0.0366` 表示 `3.66%`(`turnover_rate` 同)。若接口直接返回百分数值 `3.66`,实时行情会按截面中位数自动归一为小数制,但仍建议接口直接提供小数制以避免小样本歧义。
+`change_pct` 和 `amplitude` 使用小數制,例如 `0.0366` 表示 `3.66%`(`turnover_rate` 同)。若接口直接返回百分數值 `3.66`,實時行情會按截面中位數自動歸一為小數制,但仍建議接口直接提供小數制以避免小樣本歧義。
 
-## 请求约定
+## 請求約定
 
-- `daily` / `adj_factor` 会按 `batch` 切分 symbols。
-- POST 请求会发送 JSON body: `symbols`、`start_time`、`end_time`。
-- GET 请求会发送 query 参数: `symbols=000001.SZ,600000.SH`。
-- `realtime` 必须是全市场快照接口,不支持逐个 symbol 拉实时行情。
+- `daily` / `adj_factor` 會按 `batch` 切分 symbols。
+- POST 請求會發送 JSON body: `symbols`、`start_time`、`end_time`。
+- GET 請求會發送 query 參數: `symbols=000001.SZ,600000.SH`。
+- `realtime` 必須是全市場快照接口,不支持逐個 symbol 拉實時行情。
 
-可通过这些字段改参数名:
+可通過這些字段改參數名:
 
 ```yaml
 symbols_param: symbols
@@ -142,28 +142,28 @@ start_param: start_time
 end_param: end_time
 ```
 
-分钟数据源如果需要区分资产类型或周期，可继续配置：
+分鐘數據源如果需要區分資產類型或週期，可繼續配置：
 
 ```yaml
 asset_type_param: asset_type
 freq_param: period
 ```
 
-配置后，分钟请求会分别传入 `stock` / `etf` / `index` 和 `1m`；留空时不向上游发送这两个参数，以兼容已有数据源。
+配置後，分鐘請求會分別傳入 `stock` / `etf` / `index` 和 `1m`；留空時不向上游發送這兩個參數，以兼容已有數據源。
 
-### 请求超时
+### 請求超時
 
-每个数据集可单独配置请求超时（秒），默认 30：
+每個數據集可單獨配置請求超時（秒），默認 30：
 
 ```yaml
 timeout: 60
 ```
 
-留空或省略时用默认 30 秒，可配置范围为大于 0 且不超过 300 秒；该值对数据同步与「试拉测试」均生效。在设置页编辑数据源时可在「超时」输入框修改（与 批量 / RPM / 响应路径 同行）。「试拉测试」直接使用当前表单内容，新建数据源或尚未保存的修改也可测试。
+留空或省略時用默認 30 秒，可配置範圍為大於 0 且不超過 300 秒；該值對數據同步與「試拉測試」均生效。在設置頁編輯數據源時可在「超時」輸入框修改（與 批量 / RPM / 響應路徑 同行）。「試拉測試」直接使用當前表單內容，新建數據源或尚未保存的修改也可測試。
 
-## 鉴权
+## 鑑權
 
-支持三种简单鉴权:
+支持三種簡單鑑權:
 
 ```yaml
 auth:
@@ -185,116 +185,116 @@ auth:
   token_env: MY_DATA_TOKEN
 ```
 
-Token 可以放在系统环境变量或项目 `.env` 中。
+Token 可以放在系統環境變量或項目 `.env` 中。
 
-## 联调流程
+## 聯調流程
 
-1. 启动 mock 数据源:
+1. 啟動 mock 數據源:
 
 ```bash
 cd docs/examples/custom-data-source
 python mock_server.py
 ```
 
-2. 复制示例配置:
+2. 複製示例配置:
 
 ```bash
 mkdir -p data/data_sources
 cp docs/examples/custom-data-source/mock_source.yaml data/data_sources/mock_source.yaml
 ```
 
-3. 在「设置 -> 数据源」点击「重新加载」。
+3. 在「設置 -> 數據源」點擊「重新加載」。
 
-4. 使用「试拉测试」选择 `mock_source` 和 `daily` / `adj_factor` / `realtime`。
+4. 使用「試拉測試」選擇 `mock_source` 和 `daily` / `adj_factor` / `realtime`。
 
-5. 保存数据源选择:
+5. 保存數據源選擇:
 
 - 日K: `mock_source`
-- 除权因子: `same_as_daily` 或 `mock_source`
-- 实时行情: `mock_source`
+- 除權因子: `same_as_daily` 或 `mock_source`
+- 實時行情: `mock_source`
 
-6. 触发同步或开启实时行情。
+6. 觸發同步或開啟實時行情。
 
-## 常见错误
+## 常見錯誤
 
-| 现象 | 处理 |
+| 現象 | 處理 |
 | --- | --- |
-| 列表里没有 custom 源 | 检查 YAML 是否放在 `data/data_sources/` 并点击重新加载 |
-| errors 提示 missing mapped fields | `field_map` 没映射到必填内部字段 |
-| 试拉 rows 为 0 | 检查 `response_path` 是否指向数组 |
-| 日期列全为空 | 检查 `parse_date` 的格式是否和返回值一致 |
-| 实时行情没刷新 | 确认实时数据源已保存为 custom,且返回全市场快照 |
+| 列表裡沒有 custom 源 | 檢查 YAML 是否放在 `data/data_sources/` 並點擊重新加載 |
+| errors 提示 missing mapped fields | `field_map` 沒映射到必填內部字段 |
+| 試拉 rows 為 0 | 檢查 `response_path` 是否指向數組 |
+| 日期列全為空 | 檢查 `parse_date` 的格式是否和返回值一致 |
+| 實時行情沒刷新 | 確認實時數據源已保存為 custom,且返回全市場快照 |
 
 ## 用 AI 生成映射配置
 
-如果你的数据源 API 文档比较复杂,可以把 API 文档和返回示例丢给 AI,让它帮你生成 `field_map` 和 YAML 配置。
+如果你的數據源 API 文檔比較複雜,可以把 API 文檔和返回示例丟給 AI,讓它幫你生成 `field_map` 和 YAML 配置。
 
-### 操作步骤
+### 操作步驟
 
-1. 从你的数据源获取 API 文档(接口地址、请求方式、返回字段说明)
-2. 试拉一次,拿到返回的 JSON 示例
-3. 把下面的 prompt 模板 + API 文档 + JSON 示例一起发给 AI
-4. 把 AI 生成的 YAML 贴到 `data/data_sources/xxx.yaml`
-5. 在设置页点「重新加载」,再「试拉测试」验证
+1. 從你的數據源獲取 API 文檔(接口地址、請求方式、返回字段說明)
+2. 試拉一次,拿到返回的 JSON 示例
+3. 把下面的 prompt 模板 + API 文檔 + JSON 示例一起發給 AI
+4. 把 AI 生成的 YAML 貼到 `data/data_sources/xxx.yaml`
+5. 在設置頁點「重新加載」,再「試拉測試」驗證
 
 ### Prompt 模板
 
-复制以下内容发给 AI(替换方括号部分):
+複製以下內容發給 AI(替換方括號部分):
 
 ```text
-我在配置一个自定义数据源接入股票面板。请根据我的 API 文档和返回示例,生成 YAML 配置。
+我在配置一個自定義數據源接入股票面板。請根據我的 API 文檔和返回示例,生成 YAML 配置。
 
 要求:
-1. 输出标准 YAML 配置,包含 name / display_name / auth / datasets
-2. 每个数据集的 field_map 把我的接口字段名映射到内部字段名
-3. 日期类字段如果格式不是 YYYY-MM-DD, 加上 transforms 里的 parse_date
-4. 只配置我能提供的接口, 不存在的数据集不要写
+1. 輸出標準 YAML 配置,包含 name / display_name / auth / datasets
+2. 每個數據集的 field_map 把我的接口字段名映射到內部字段名
+3. 日期類字段如果格式不是 YYYY-MM-DD, 加上 transforms 裡的 parse_date
+4. 只配置我能提供的接口, 不存在的數據集不要寫
 
-内部字段对照表:
+內部字段對照表:
 
 日K (daily):
-  symbol = 股票代码, 格式 000001.SZ / 600000.SH
+  symbol = 股票代碼, 格式 000001.SZ / 600000.SH
   date = 交易日期
   open / high / low / close = OHLC
   volume = 成交量
-  amount = 成交额
+  amount = 成交額
 
-除权因子 (adj_factor):
-  symbol = 股票代码
-  trade_date = 除权日期
-  ex_factor = 复权因子
+除權因子 (adj_factor):
+  symbol = 股票代碼
+  trade_date = 除權日期
+  ex_factor = 復權因子
 
-实时行情 (realtime):
-  symbol = 股票代码
-  last_price = 最新价
-  prev_close = 昨收价
-  open / high / low = 当日 OHLC
+實時行情 (realtime):
+  symbol = 股票代碼
+  last_price = 最新價
+  prev_close = 昨收價
+  open / high / low = 當日 OHLC
   volume = 成交量
-  amount = 成交额
-  change_pct = 涨跌幅 (小数, 0.0366 = 3.66%)
-  change_amount = 涨跌额
+  amount = 成交額
+  change_pct = 漲跌幅 (小數, 0.0366 = 3.66%)
+  change_amount = 漲跌額
   amplitude = 振幅
-  turnover_rate = 换手率 (小数, 0.05 = 5%; 若上游返回 5 表示 5%, 配置 transforms: turnover_rate: "value / 100")
+  turnover_rate = 換手率 (小數, 0.05 = 5%; 若上游返回 5 表示 5%, 配置 transforms: turnover_rate: "value / 100")
 
-分钟K (minute):
-  symbol = 股票代码
-  datetime = 时间戳 (YYYY-MM-DD HH:MM:SS)
+分鐘K (minute):
+  symbol = 股票代碼
+  datetime = 時間戳 (YYYY-MM-DD HH:MM:SS)
   open / high / low / close = OHLC
   volume = 成交量
-  amount = 成交额
+  amount = 成交額
 
-=== 我的 API 文档 ===
-[把你的接口文档贴这里: URL / 请求方式 / 参数 / 返回字段说明]
+=== 我的 API 文檔 ===
+[把你的接口文檔貼這裡: URL / 請求方式 / 參數 / 返回字段說明]
 
 === 返回 JSON 示例 ===
-[把试拉的 JSON 返回贴这里]
+[把試拉的 JSON 返回貼這裡]
 ```
 
-AI 会输出类似这样的结果:
+AI 會輸出類似這樣的結果:
 
 ```yaml
 name: my_source
-display_name: "我的数据源"
+display_name: "我的數據源"
 auth:
   type: bearer
   token_env: MY_API_TOKEN
@@ -315,4 +315,4 @@ datasets:
       date: "parse_date(value, '%Y%m%d')"
 ```
 
-把这段 YAML 保存为 `data/data_sources/my_source.yaml`,然后在设置页重新加载即可。
+把這段 YAML 保存為 `data/data_sources/my_source.yaml`,然後在設置頁重新加載即可。

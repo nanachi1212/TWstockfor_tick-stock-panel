@@ -80,6 +80,15 @@ def get_watchlist_groups_in_nav() -> bool:
     return load().get("watchlist_groups_in_nav", False)
 
 
+def get_show_ashare_legacy_features() -> bool:
+    """是否在导航中显示中国 A 股 legacy 功能区块（连板梯队/概念分析/行业分析等）。
+
+    Phase 8B-2 — 台股优先: 默认 False, 不删除 A 股功能本身(route/component/backend
+    均保留), 只是默认不在 Taiwan-first 导航中出现。用户可在 设置 → 系统 中开启,
+    开启后功能原样可用, 与台股功能互不影响。"""
+    return load().get("show_ashare_legacy_features", False)
+
+
 def get_realtime_quote_interval() -> float:
     return load().get("realtime_quote_interval", 6.0)
 
@@ -217,7 +226,7 @@ def get_minute_sync_segment_days() -> int:
 
 # ===== 数据源选择 (默认 TickFlow；第一阶段仅日K切换入口) =====
 
-_ALLOWED_DATA_PROVIDERS = {"tickflow"}
+_ALLOWED_DATA_PROVIDERS = {"taiwan", "tickflow"}
 DATA_SOURCE_JOB_TIMEOUT_MIN_S = 60
 
 
@@ -255,8 +264,10 @@ def _allowed_data_providers() -> set[str]:
 
 
 def get_daily_data_provider() -> str:
-    provider = str(load().get("daily_data_provider", "tickflow") or "tickflow").lower()
-    return provider if provider in _allowed_data_providers() else "tickflow"
+    provider = str(load().get("daily_data_provider", "taiwan") or "taiwan").lower()
+    if provider == "tickflow":
+        return "taiwan"
+    return provider if provider in _allowed_data_providers() else "taiwan"
 
 
 def get_adj_factor_provider() -> str:
@@ -267,18 +278,24 @@ def get_adj_factor_provider() -> str:
 
 
 def get_minute_data_provider() -> str:
-    provider = str(load().get("minute_data_provider", "tickflow") or "tickflow").lower()
-    return provider if provider in _allowed_data_providers() else "tickflow"
+    provider = str(load().get("minute_data_provider", "taiwan") or "taiwan").lower()
+    if provider == "tickflow":
+        return "taiwan"
+    return provider if provider in _allowed_data_providers() else "taiwan"
 
 
 def get_realtime_data_provider() -> str:
-    provider = str(load().get("realtime_data_provider", "tickflow") or "tickflow").lower()
-    return provider if provider in _allowed_data_providers() else "tickflow"
+    provider = str(load().get("realtime_data_provider", "taiwan") or "taiwan").lower()
+    if provider == "tickflow":
+        return "taiwan"
+    return provider if provider in _allowed_data_providers() else "taiwan"
 
 
 def get_financial_provider() -> str:
-    provider = str(load().get("financial_data_provider", "tickflow") or "tickflow").lower()
-    return provider if provider in _allowed_data_providers() else "tickflow"
+    provider = str(load().get("financial_data_provider", "taiwan") or "taiwan").lower()
+    if provider == "tickflow":
+        return "taiwan"
+    return provider if provider in _allowed_data_providers() else "taiwan"
 
 
 # ===== 盘后管道拉取内容开关 (A股 / ETF / 指数 独立控制) =====
@@ -520,11 +537,6 @@ def set_index_daily_batch_size(size: int) -> int:
 
 # ── 五档盘口 sealed(真假涨停) 配置 ──────────────────────
 
-def get_limit_ladder_monitor_enabled() -> bool:
-    """连板梯队 5 档监控开关。关闭时 depth 不轮询(连板梯队降级显示)。"""
-    return load().get("limit_ladder_monitor_enabled", False)
-
-
 def get_depth_polling_interval() -> float:
     """depth 盘中轮询间隔(秒)。默认 10(Pro/Expert 都适用)。"""
     return float(load().get("depth_polling_interval", 10.0))
@@ -556,36 +568,8 @@ def set_depth_finalize_time(hour: int, minute: int) -> dict:
     return {"hour": h, "minute": m}
 
 
-# 复盘推送可选渠道白名单 (企业微信已实现, 与飞书并列)
-# 多选: 不推送 = 空数组, 而非 'none'
-REVIEW_PUSH_CHANNELS = {"feishu", "wecom"}
-
-
-def get_review_schedule() -> dict:
-    """定时复盘调度 {"enabled": False, "hour": 15, "minute": 10}。默认关闭。
-
-    A股 15:00 收盘, 默认时间设为 15:10(收盘后即时复盘), 强制下限 15:00。
-    """
-    d = load().get("review_schedule", {"enabled": False, "hour": 15, "minute": 10})
-    return {
-        "enabled": bool(d.get("enabled", False)),
-        "hour": d.get("hour", 15),
-        "minute": d.get("minute", 10),
-    }
-
-
-def set_review_schedule(enabled: bool, hour: int, minute: int) -> dict:
-    """保存定时复盘调度。强制时间下限 15:00(A股收盘)。
-
-    enabled=False 时时间仍保存(下次开启可沿用), 但调度器不会注册 job。
-    """
-    h = max(0, min(23, hour))
-    m = max(0, min(59, minute))
-    # 下限 15:00: A股 15:00 收盘, 收盘后才有当日完整数据复盘
-    if h * 60 + m < 15 * 60:
-        h, m = 15, 0
-    save({"review_schedule": {"enabled": bool(enabled), "hour": h, "minute": m}})
-    return {"enabled": bool(enabled), "hour": h, "minute": m}
+# 监控规则可选的外部推播渠道。多选: 不推播 = 空数组, 而非 'none'。
+REVIEW_PUSH_CHANNELS = {"line", "telegram"}
 
 
 MINING_BUDGET_PROFILES = frozenset({"balanced", "strict"})
@@ -625,49 +609,13 @@ def set_mining_schedule(enabled: bool, weekday: int, profile: str) -> dict:
     return result
 
 
-def get_review_push_channels() -> list[str]:
-    """复盘推送渠道(多选) — 选定的外部工具列表, 复盘归档后逐个推送。
-
-    与 review_schedule / 实时行情完全独立, 常驻可单独设置。
-    空列表 = 不推送; ['feishu'] = 推送到飞书(复用监控中心全局 feishu_webhook_url/secret)。
-
-    向后兼容:
-      - 老多版本单选 review_push_channel=='feishu' → ['feishu']
-      - 更老布尔 review_push_enabled==True → ['feishu']
-    """
-    d = load()
-    raw = d.get("review_push_channels")
-    if isinstance(raw, list):
-        return [c for c in raw if c in REVIEW_PUSH_CHANNELS]
-    # 兼容老单选字符串
-    if d.get("review_push_channel") == "feishu":
-        return ["feishu"]
-    # 兼容更老布尔开关
-    if d.get("review_push_enabled") is True:
-        return ["feishu"]
-    return []
-
-
-def set_review_push_channels(channels: list[str]) -> list[str]:
-    """保存复盘推送渠道(多选)。过滤白名单外的值、去重、保序。空列表 = 不推送。"""
-    seen: set[str] = set()
-    cleaned: list[str] = []
-    for c in channels or []:
-        if c in REVIEW_PUSH_CHANNELS and c not in seen:
-            seen.add(c)
-            cleaned.append(c)
-    save({"review_push_channels": cleaned})
-    return cleaned
-
-
-
 # ===== 实时监控 =====
 
 # 页面 SSE 刷新配置: { "watchlist": true, "monitor": true, ... }
 # 可刷新的页面列表及其默认值
 SSE_REFRESH_PAGES_DEFAULT = {
+    "overview-market": True,
     "watchlist": True,
-    "limit-ladder": False,
 }
 
 SIDEBAR_INDEX_SYMBOLS_DEFAULT = ["000001.SH", "399001.SZ", "399006.SZ", "000680.SH"]
@@ -731,7 +679,7 @@ def get_sse_refresh_pages() -> dict[str, bool]:
     stored = load().get("sse_refresh_pages", {})
     # 合并默认值 (新增页面自动出现)
     result = dict(SSE_REFRESH_PAGES_DEFAULT)
-    result.update(stored)
+    result.update({key: value for key, value in stored.items() if key in result})
     return result
 
 
@@ -764,82 +712,53 @@ def set_system_notify_enabled(enabled: bool) -> bool:
     return bool(enabled)
 
 
-def get_feishu_webhook_url() -> str:
-    """飞书自定义机器人 Webhook 地址 — 全局共用一处, 所有启用推送的规则都推到这一个群。"""
-    return load().get("feishu_webhook_url", "")
+def get_line_target_id() -> str:
+    return str(load().get("line_target_id", "") or "").strip()
 
 
-def get_feishu_webhook_secret() -> str:
-    """飞书自定义机器人签名密钥 — 机器人启用「签名校验」时必填, 留空表示不验签。"""
-    return load().get("feishu_webhook_secret", "")
+def set_line_target_id(target_id: str) -> str:
+    save({"line_target_id": str(target_id or "").strip()})
+    return get_line_target_id()
 
 
-def set_feishu_webhook_url(url: str) -> str:
-    """保存飞书 Webhook 地址。传入空串表示清空配置。"""
-    save({"feishu_webhook_url": str(url or "").strip()})
-    return get_feishu_webhook_url()
+def get_telegram_chat_id() -> str:
+    return str(load().get("telegram_chat_id", "") or "").strip()
 
 
-def set_feishu_webhook_secret(secret: str) -> str:
-    """保存飞书签名密钥。传入空串表示不验签。"""
-    save({"feishu_webhook_secret": str(secret or "").strip()})
-    return get_feishu_webhook_secret()
+def set_telegram_chat_id(chat_id: str) -> str:
+    save({"telegram_chat_id": str(chat_id or "").strip()})
+    return get_telegram_chat_id()
 
 
-def get_wecom_webhook_url() -> str:
-    """企业微信群推送 Webhook 地址 — 与飞书并列的第二推送通道。
-
-    存储完整 URL (https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=xxx);
-    用户也可只填 key, 由 webhook_adapter.normalize_wecom_url 自动补全。
-    """
-    return load().get("wecom_webhook_url", "")
+def _get_notification_secret(key: str) -> str:
+    from app import secrets_store
+    return str(secrets_store.load().get(key, "") or "").strip()
 
 
-def set_wecom_webhook_url(url: str) -> str:
-    """保存企业微信 Webhook 地址。传入空串表示清空配置。
-
-    存储时统一补全为完整 URL, 避免后续每次推送都要再判一次。
-    """
-    from app.services.webhook_adapter import normalize_wecom_url
-    save({"wecom_webhook_url": normalize_wecom_url(url)})
-    return get_wecom_webhook_url()
-
-
-# ===== 企业微信智能机器人 (API 模式 / 长连接) =====
+def _set_notification_secret(key: str, value: str) -> str:
+    from app import secrets_store
+    value = str(value or "").strip()
+    if value:
+        secrets_store.save({key: value})
+    else:
+        secrets_store.clear(key)
+    return _get_notification_secret(key)
 
 
-def get_wecom_bot_id() -> str:
-    """企业微信智能机器人 BotID — 机器人的唯一标识。"""
-    return load().get("wecom_bot_id", "")
+def get_line_channel_access_token() -> str:
+    return _get_notification_secret("line_channel_access_token")
 
 
-def set_wecom_bot_id(bot_id: str) -> str:
-    """保存智能机器人 BotID。传入空串表示清空。"""
-    save({"wecom_bot_id": (bot_id or "").strip()})
-    return get_wecom_bot_id()
+def set_line_channel_access_token(token: str) -> str:
+    return _set_notification_secret("line_channel_access_token", token)
 
 
-def get_wecom_bot_secret() -> str:
-    """企业微信智能机器人 Secret — 长连接专用密钥。"""
-    return load().get("wecom_bot_secret", "")
+def get_telegram_bot_token() -> str:
+    return _get_notification_secret("telegram_bot_token")
 
 
-def set_wecom_bot_secret(secret: str) -> str:
-    """保存智能机器人 Secret。传入空串表示清空。"""
-    save({"wecom_bot_secret": (secret or "").strip()})
-    return get_wecom_bot_secret()
-
-
-def get_wecom_bot_enabled() -> bool:
-    """智能机器人长连接是否启用。默认 False(需用户配置凭证后手动开启)。"""
-    return load().get("wecom_bot_enabled", False)
-
-
-def set_wecom_bot_enabled(enabled: bool) -> bool:
-    """保存智能机器人启用状态。"""
-    save({"wecom_bot_enabled": bool(enabled)})
-    return get_wecom_bot_enabled()
-
+def set_telegram_bot_token(token: str) -> str:
+    return _set_notification_secret("telegram_bot_token", token)
 
 
 def get_webhook_enabled_default() -> bool:
@@ -853,28 +772,25 @@ def get_webhook_enabled_default() -> bool:
 def set_webhook_enabled_default(enabled: bool) -> bool:
     """保存推送默认勾选态 (老布尔兼容入口)。
 
-    新数据模型为渠道数组; 此处把老布尔转译: True→['feishu','wecom'], False→[]。
+    舊布林值無法安全推斷新的 LINE/Telegram 收件者; True/False 都不自動啟用新渠道。
     """
-    set_webhook_default_channels(["feishu", "wecom"] if enabled else [])
+    set_webhook_default_channels([])
     return get_webhook_enabled_default()
 
 
 def get_webhook_default_channels() -> list[str]:
     """新建监控规则时默认勾选的推送渠道 (多选)。
 
-    空列表 = 新建规则默认不推送; ['feishu'] = 默认推飞书。
+    空列表 = 新建规则默认不推送; ['line'] = 默认推播 LINE。
     此默认值供规则编辑器新建规则时预填, 单条规则仍可独立修改。
 
-    向后兼容: 老版本只有布尔 webhook_enabled_default (勾选即飞书+企业微信双推),
-    这里把 True 迁移为 ['feishu','wecom'], 还原当时的实际行为。
+    舊版飛書/企業微信渠道與布林值只做安全過濾,不刪除原始偏好資料,
+    也不自動映射到新的收件者。
     """
     d = load()
     raw = d.get("webhook_default_channels")
     if isinstance(raw, list):
         return [c for c in raw if c in REVIEW_PUSH_CHANNELS]
-    # 兼容老布尔开关 (勾选即双推)
-    if d.get("webhook_enabled_default") is True:
-        return ["feishu", "wecom"]
     return []
 
 

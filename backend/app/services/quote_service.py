@@ -38,11 +38,11 @@ from app.strategy.intraday_signals import IntradaySignalEvaluator
 
 logger = logging.getLogger(__name__)
 
-# Webhook(飞书等)投递专用线程池 —— 与行情轮询线程隔离。
-# send_feishu 内置重试(最坏 ~3×5s 超时 + 退避), 若在 _poll_loop 上同步投递,
-# webhook 慢/宕机会逐条累加, 拖垮整条实时行情+告警轮询。这里 fire-and-forget,
+# 外部推播专用线程池 —— 与行情轮询线程隔离。
+# 若在 _poll_loop 上同步投递, API 慢/宕机会逐条累加,拖垮整条实时行情+告警轮询。
+# 这里 fire-and-forget,
 # 失败由 webhook_adapter 记 WARNING(可见), 但绝不阻塞热路径。
-_WEBHOOK_EXECUTOR = ThreadPoolExecutor(max_workers=2, thread_name_prefix="feishu-webhook")
+_WEBHOOK_EXECUTOR = ThreadPoolExecutor(max_workers=2, thread_name_prefix="notification-push")
 
 
 class QuoteSubscriber:
@@ -195,9 +195,6 @@ class QuoteService:
         self._subscribers: set[QuoteSubscriber] = set()
         self._strategy_monitor = None            # 延迟注入
         self._app_state = None                   # 延迟注入 (FastAPI app.state)
-        # 异动边缘规则上次评估时间戳 (秒)。异动快照历史部分有 60s 缓存,
-        # 但每次构建仍有全市场循环, 轮询线程里限频到 30s 一次。
-        self._abnormal_last_eval = 0.0
 
         # 拉取元信息 (给 SSE / status 用)
         self._fetch_time: float = 0.0       # perf_counter (用于计算 quote_age_ms)
@@ -423,15 +420,7 @@ class QuoteService:
 
     @classmethod
     def realtime_mode(cls) -> str:
-        """当前实时行情模式: none / watchlist / full_market。"""
-        from app.services import preferences
-        if preferences.get_realtime_data_provider() != "tickflow":
-            return "full_market"
-        tier = cls._current_tier()
-        if tier == "none":
-            return "none"
-        if tier == "free":
-            return "watchlist"
+        """当前实时行情模式: 台湾官方模式下全功能开放。"""
         return "full_market"
 
     @classmethod
@@ -577,26 +566,38 @@ class QuoteService:
         from app.services import preferences
 
         provider_name = preferences.get_realtime_data_provider()
-        if provider_name != "tickflow":
-            from app.data_providers import custom as custom_sources
-            if custom_sources.provider_has_dataset(provider_name, "realtime"):
-                try:
-                    t0 = time.perf_counter()
-                    now_ts = time.perf_counter()
-                    records = custom_sources.get_provider(provider_name).get_realtime()
-                except Exception as e:  # noqa: BLE001
-                    logger.warning("自定义实时行情拉取失败: %s", e)
+        if provider_name in ("taiwan", "tickflow"):
+            try:
+                from app.data_providers.registry import get_provider
+                provider = get_provider("taiwan")
+                t0 = time.perf_counter()
+                now_ts = time.perf_counter()
+                from app.services import watchlist
+                symbols = watchlist.list_symbols()
+                sym_list = [str((s or {}).get("symbol") or "").strip() for s in symbols]
+                sym_list = [s for s in sym_list if s]
+                if not sym_list:
                     return
+                df = provider.get_realtime(symbols=sym_list)
+                if not df.is_empty():
+                    records = df.to_dicts()
+                    self._process_full_market_records(records, t0=t0, now_ts=now_ts)
+                return
+            except Exception as e:
+                logger.warning("台湾官方实时行情拉取失败: %s", e)
+                return
+
+        from app.data_providers import custom as custom_sources
+        if custom_sources.provider_has_dataset(provider_name, "realtime"):
+            try:
+                t0 = time.perf_counter()
+                now_ts = time.perf_counter()
+                records = custom_sources.get_provider(provider_name).get_realtime()
                 self._process_full_market_records(records, t0=t0, now_ts=now_ts)
                 return
-            # 自定义源未配置 realtime → 回退 TickFlow
-
-        from app.tickflow.client import get_paid_realtime_client
-
-        tf = get_paid_realtime_client()
-        if tf is None:
-            logger.warning("实时行情拉取失败:未配置付费服务器 API Key")
-            return
+            except Exception as e:  # noqa: BLE001
+                logger.warning("自定义实时行情拉取失败: %s", e)
+                return
         t0 = time.perf_counter()
         now_ts = time.perf_counter()
 
@@ -1126,23 +1127,6 @@ class QuoteService:
                             enriched_today if stock_ready else pl.DataFrame(),
                             self.get_index_quotes(),
                         )
-                    # 异动边缘规则轮: 快照 (enriched 偏离列 + 实时叠加) 由
-                    # abnormal_moves.build_overview 统一构建, 引擎只做边缘触发判定。
-                    # 30s 限频 —— 快照历史部分 60s 缓存, 无需跟行情轮询同频重算。
-                    if engine.has_rule_type("abnormal") and self._repo is not None:
-                        _now_ts = time.time()
-                        if _now_ts - self._abnormal_last_eval >= 30.0:
-                            self._abnormal_last_eval = _now_ts
-                            try:
-                                from app.services import abnormal_moves
-                                _overview = abnormal_moves.build_overview(
-                                    self._repo, self,
-                                    min_closeness=engine.min_abnormal_closeness(),
-                                    limit=1000,
-                                )
-                                rule_events += engine.evaluate_abnormal(_overview.get("rows") or [])
-                            except Exception as e:  # noqa: BLE001
-                                logger.warning("异动监控规则评估失败 (不影响其他告警): %s", e)
                     # ETF 规则轮: 股票快照不含 ETF, 用 ETF enriched 快照单独评估。
                     # 独立 try —— ETF 轮任何异常都不得丢弃本轮已算出的股票告警。
                     # refresh=False —— 不在轮询线程上触发 ETF 冷缓存的同步重算 (缓存由 ETF 实时
@@ -1214,8 +1198,6 @@ class QuoteService:
                                 "sector_source_field", "sector_value", "sector_level",
                                 "window_change_pct", "coverage_ratio", "valid_count",
                                 "total_count", "up_count", "down_count", "leader",
-                                "abnormal_window", "abnormal_value", "abnormal_threshold",
-                                "abnormal_closeness",
                             ):
                                 if key in ev:
                                     alert[key] = ev[key]
@@ -1236,7 +1218,7 @@ class QuoteService:
                 # cooldown 去重已在 MonitorRuleEngine 做过, 这里只负责转发。
                 self._maybe_send_system_notifications(all_alerts)
 
-            # Webhook 推送 (飞书等外部 IM, 由规则 webhook_channels 指定渠道)。
+            # 外部推播 (由规则 webhook_channels 指定渠道)。
             # 紧随系统通知, 同样静默降级不阻断主流程。
             if rule_events:
                 self._maybe_send_webhook(rule_events, engine)
@@ -1401,9 +1383,9 @@ class QuoteService:
             return enriched_today
 
     def _maybe_send_webhook(self, rule_events: list[dict], engine) -> None:
-        """把告警通过 Webhook 推送到外部 IM (由规则 webhook_channels 指定渠道)。
+        """把告警推送到外部 IM (由规则 webhook_channels 指定渠道)。
 
-        - 飞书 / 企业微信任一已配置即生效 (两个都没配才跳过)
+        - LINE / Telegram 任一已配置即生效 (两个都没配才跳过)
         - 仅推送 webhook_channels 非空的规则触发的告警, 且只投递被勾选的渠道
         - 失败静默, 不阻断主流程
         - 去重: 复用 MonitorRuleEngine 的 cooldown, 此处不重复去重
@@ -1415,24 +1397,24 @@ class QuoteService:
             from app.services import preferences
             from app.services import webhook_adapter
 
-            feishu_url = preferences.get_feishu_webhook_url()
-            feishu_secret = preferences.get_feishu_webhook_secret()
-            wecom_url = preferences.get_wecom_webhook_url()
-            # 两个通道都没配置才跳过
-            if not feishu_url and not wecom_url:
+            line_token = preferences.get_line_channel_access_token()
+            line_target = preferences.get_line_target_id()
+            telegram_token = preferences.get_telegram_bot_token()
+            telegram_chat = preferences.get_telegram_chat_id()
+            if not (line_token and line_target) and not (telegram_token and telegram_chat):
                 return
 
             # 反查规则, 过滤出启用推送的事件
             source_labels = {
-                "strategy": "策略", "signal": "信号",
-                "price": "价格", "market": "异动", "ladder": "连板梯队",
-                "sector": "板块",
+                "strategy": "策略", "signal": "訊號",
+                "price": "價格", "market": "異動", "ladder": "連續漲停梯隊",
+                "sector": "板塊",
             }
             rules = engine.rules if engine is not None else {}
             enqueued = 0
             for ev in rule_events:
                 rule = rules.get(ev.get("rule_id"))
-                # webhook_channels 指定命中的渠道 (['feishu'] / ['wecom'] / ['feishu','wecom'] / []).
+                # webhook_channels 指定命中的渠道 (['line'] / ['telegram'] / 两者 / []).
                 # 空列表 = 该规则不推送。仅推送「渠道已选 + 对应地址已配置」的组合。
                 channels = rule.get("webhook_channels") if rule else None
                 if not channels:
@@ -1445,14 +1427,14 @@ class QuoteService:
                 title = source_label
                 body = f"{symbol} {name} {message}".strip() if symbol else (message or name)
                 # 提交到独立线程池, 不阻塞行情轮询线程 (webhook 慢/重试不拖累实时行情+告警)。
-                # 按渠道独立投递: 飞书 / 企业微信谁被勾选且已配置就推谁。
+                # 按渠道独立投递: LINE / Telegram 谁被勾选且已配置就推谁。
                 # 应用内 alerts.jsonl 记录与 SSE 已在前面完成, 不依赖 webhook 成败,
                 # 失败由 webhook_adapter 记 WARNING(可见)。
-                if feishu_url and "feishu" in channels:
-                    _WEBHOOK_EXECUTOR.submit(webhook_adapter.send_feishu, feishu_url, title, body, feishu_secret)
+                if line_token and line_target and "line" in channels:
+                    _WEBHOOK_EXECUTOR.submit(webhook_adapter.send_line, line_token, line_target, title, body)
                     enqueued += 1
-                if wecom_url and "wecom" in channels:
-                    _WEBHOOK_EXECUTOR.submit(webhook_adapter.send_wecom, wecom_url, title, body)
+                if telegram_token and telegram_chat and "telegram" in channels:
+                    _WEBHOOK_EXECUTOR.submit(webhook_adapter.send_telegram, telegram_token, telegram_chat, title, body)
                     enqueued += 1
             if enqueued:
                 logger.info("Webhook 已提交 %d 条 (异步投递, 按渠道独立投递, 失败记 WARNING)", enqueued)
@@ -1478,8 +1460,8 @@ class QuoteService:
                 # 通知标题: 用 source 分类 (策略/信号/价格/异动)
                 source = ev.get("source", "")
                 source_label = {
-                    "strategy": "策略", "signal": "信号",
-                    "price": "价格", "market": "异动", "sector": "板块",
+                    "strategy": "策略", "signal": "訊號",
+                    "price": "價格", "market": "異動", "sector": "板塊",
                 }.get(source, source or "通知")
 
                 name = ev.get("name") or ""

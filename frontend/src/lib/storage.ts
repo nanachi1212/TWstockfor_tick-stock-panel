@@ -1,8 +1,8 @@
 /**
  * 集中管理所有 localStorage 持久化。
  *
- * - key 在此注册，各页面只通过 storage.xxx.get/set 调用。
- * - 类型安全，不再散落 try/catch。
+ * - key 在此註冊，各頁面只通過 storage.xxx.get/set 調用。
+ * - 類型安全，不再散落 try/catch。
  */
 
 function kv<T>(key: string) {
@@ -21,91 +21,70 @@ function kv<T>(key: string) {
 }
 
 export const storage = {
-  /** 查询轮询 / SSE 配置 */
+  /** 查詢輪詢 / SSE 配置 */
   queryConfig:          kv<unknown>('tf-stocks-query-config'),
 
   /** 策略池 (screener) */
   strategyPool:         kv<string[]>('strategy-pool'),
 
-  /** 自选列表列配置 */
+  /** 自選列表列配置 */
   watchlistColumns:     kv<unknown[]>('watchlist_columns'),
 
-  /** 个股日K信息条指标配置 */
+  /** 個股日K信息條指標配置 */
   stockInfoBarFields:   kv<unknown[]>('stock_info_bar_fields'),
 
-  /** 个股日K成交量对比设置 */
+  /** 個股日K成交量對比設置 */
   stockVolumeCompare:   kv<{ enabled: boolean; days: number }>('stock_volume_compare'),
 
-  /** 个股详情多日分时周期 */
+  /** 個股詳情多日分時週期 */
   stockPreviewIntradayDays: kv<number>('stock_preview_intraday_days'),
 
-  /** 策略结果列表列配置 */
+  /** 策略結果列表列配置 */
   screenerResultColumns: kv<unknown[]>('screener_result_columns'),
 
-  /** 自选列表视图模式 table | card (分组卡片为临时模式, 不持久化) */
+  /** 自選列表視圖模式 table | card (分組卡片為臨時模式, 不持久化) */
   watchlistView:        kv<string>('watchlist_view'),
 
-  /** 自选列表日K蜡烛图显示状态 */
+  /** 自選列表日K蠟燭圖顯示狀態 */
   watchlistCandle:      kv<boolean>('watchlist_showCandle'),
 
-  /** 自选列表分时图显示状态 */
+  /** 自選列表分時圖顯示狀態 */
   watchlistIntraday:    kv<boolean>('watchlist_showIntraday'),
 
-  /** 策略结果列表日K蜡烛图显示状态 */
+  /** 策略結果列表日K蠟燭圖顯示狀態 */
   screenerCandle:       kv<boolean>('screener_showCandle'),
 
-  /** 策略结果列表分时图显示状态 */
+  /** 策略結果列表分時圖顯示狀態 */
   screenerIntraday:     kv<boolean>('screener_showIntraday'),
 
-  /** 自选列表板块筛选 */
+  /** 自選列表板塊篩選 */
   watchlistBoardFilter: kv<string[]>('watchlist_boardFilter'),
 
-  /** 自选列表排除 ST 标的 (默认不排除) */
+  /** 自選列表排除 ST 標的 (默認不排除) */
   watchlistExcludeST:    kv<boolean>('watchlist_excludeST'),
 
-  /** 自选分组统计条配置 (metric: 统计指标, sort: 排序方式, card*: 分组卡片显示项) */
+  /** 自選分組統計條配置 (metric: 統計指標, sort: 排序方式, card*: 分組卡片顯示項) */
   watchlistGroupStats: kv<{ metric: string; sort: string; cardTopN?: number; cardColorBar?: boolean; cardRank?: boolean }>('watchlist_groupStats'),
-
-  /** 异动监控: 主开关 (默认关, 开启后才轮询计算; 告警走监控中心规则) */
-  abnormalEnabled:      kv<boolean>('abnormal_enabled'),
-
-  /** 异动监控: 上次计算结果 (关闭开关后仍展示, 含 asof 计算时间戳) */
-  abnormalLastResult:   kv<unknown>('abnormal_last_result'),
 
   /** Screener 卡片尺寸 */
   screenerCardSize:     kv<string>('screener-card-size'),
 
-  /** 连板梯队板块筛选 */
-  limitLadderBoard:     kv<string[]>('limit-ladder-board-filter'),
-
-  /** 连板梯队 ext 字段配置 */
-  limitLadderExtFields: kv<Record<string, any>>('limit-ladder-ext-fields'),
-
-  /** 连板梯队 概念/行业 显示开关 */
-  limitLadderShowExt:   kv<{ concept: boolean; industry: boolean }>('limit-ladder-show-ext'),
-
-  /** 连板梯队 涨停/跌停 切换方向 */
-  limitLadderDirection: kv<'up' | 'down'>('limit-ladder-direction'),
-
-  /** 连板梯队 封单显示模式: vol=按成交量(手), amount=按金额(元) */
-  limitLadderSealMode:  kv<'vol' | 'amount'>('limit-ladder-seal-mode'),
-
-  /** 策略创建草稿（新建专用） */
+  /** 策略創建草稿（新建專用） */
   strategyDraft: kv<{ name: string; description: string; direction: string; style?: string; rules: string; code: string; step: number; strategyId: string; source?: 'ai' | 'custom' } | null>('strategy-draft'),
 
-  /** 策略修改草稿（AI修改专用，不影响创建按钮） */
+  /** 策略修改草稿（AI修改專用，不影響創建按鈕） */
   strategyModify: kv<{ name: string; description: string; direction: string; style?: string; rules: string; code: string; step: number; strategyId: string; source?: 'ai' | 'custom' } | null>('strategy-modify'),
 
-  /** 策略构建器草稿（旧版兼容，逐渐废弃） */
+  /** 策略構建器草稿（舊版兼容，逐漸廢棄） */
   strategyBuilderDraft: kv<{ name: string; description: string; direction: string; style?: string; rules: string; code: string; step: number; strategyId: string; source?: 'ai' | 'custom' } | null>('strategy-builder-draft'),
 
-  /** 已保存策略的原始规则（策略ID → 规则文本） */
+  /** 已保存策略的原始規則（策略ID → 規則文本） */
   strategyRules: kv<Record<string, string>>('strategy-rules'),
 
-  /** 策略回测快捷区间按钮配置 */
+  /** 策略回測快捷區間按鈕配置 */
   strategyBacktestQuickRanges: kv<unknown>('strategy-backtest-quick-ranges'),
 
-  /** 策略回测最后一次成功结果和参数 */
+  /** 策略回測最後一次成功結果和參數 */
   strategyBacktestLast: kv<{
     selectedStrategy: string | null
     symbols: string
@@ -133,14 +112,8 @@ export const storage = {
     result: any
   } | null>('strategy-backtest-last'),
 
-  /** 概念分析页面字段配置 */
-  conceptAnalysisConfig: kv<Record<string, any>>('concept-analysis-config'),
-
-  /** 行业分析页面字段配置 */
-  industryAnalysisConfig: kv<Record<string, any>>('industry-analysis-config'),
-
-  /** 数据页画像卡片显隐 (卡片key → 是否显示) */
+  /** 數據頁畫像卡片顯隱 (卡片key → 是否顯示) */
   dataCardVisible: kv<Record<string, boolean>>('data-card-visible'),
-  /** 数据页画像卡片顺序 (卡片key 数组, 长度=卡片总数) */
+  /** 數據頁畫像卡片順序 (卡片key 數組, 長度=卡片總數) */
   dataCardOrder: kv<string[]>('data-card-order'),
 } as const

@@ -16,8 +16,8 @@ export function ColumnCustomizer({ columns, onChange, open, onClose }: ColumnCus
       onChange={onChange}
       open={open}
       onClose={onClose}
-      title="自定义列"
-      builtinSectionLabel="内置列"
+      title="自訂欄位"
+      builtinSectionLabel="內建欄位"
       extColumnAlign="right"
     />
   )

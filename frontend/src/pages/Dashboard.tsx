@@ -1,17 +1,12 @@
-import { useState, useEffect, useRef, type ReactNode } from 'react'
+import { useState, type ReactNode } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { motion, AnimatePresence } from 'framer-motion'
-import { Activity, ArrowDownRight, ArrowUpRight, BarChart3, BellRing, Database, Flame, Gauge, Info, LineChart, Loader2, Play, RefreshCw, Sparkles, Target, Timer } from 'lucide-react'
-import { DatePicker } from '@/components/DatePicker'
-import { api, type MarketSnapshotRow, type OverviewDimensionRankItem, type OverviewMarket, type AlertEvent } from '@/lib/api'
+import { useQuery } from '@tanstack/react-query'
+import { motion } from 'framer-motion'
+import { Activity, ArrowUpRight, BellRing, Database, Eye, Layers, Loader2, TrendingUp } from 'lucide-react'
+import { api, type AlertEvent, type IndustryMetrics } from '@/lib/api'
 import { QK } from '@/lib/queryKeys'
 import { fmtBigNum, fmtPct } from '@/lib/format'
-import { useDataStatus, useCapabilities, useSettings, usePreferences } from '@/lib/useSharedQueries'
-import { SealedBadge } from '@/components/SealedBadge'
 import { StockPreviewDialog } from '@/components/StockPreviewDialog'
-import { SettingsModal } from '@/components/data/SettingsModal'
-import { STAGE_LABELS } from '@/components/data/ActiveJobCard'
 import { cn } from '@/lib/cn'
 import { cnSignal } from '@/lib/signals'
 import { strategyEventMeta, strategyName } from '@/lib/strategyMonitorEvents'
@@ -21,24 +16,9 @@ function n(v: number | null | undefined) {
   return typeof v === 'number' && Number.isFinite(v) ? v : null
 }
 
-function scoreColor(v: number) {
-  // A 股惯例: 强势=红, 弱式=绿
-  if (v >= 70) return '#F04438'
-  if (v >= 55) return '#FB923C'
-  if (v >= 45) return '#F59E0B'
-  if (v >= 30) return '#84CC16'
-  return '#12B76A'
-}
-
 function fmtPrice(v: number | null | undefined, digits = 2) {
   const x = n(v)
   return x == null ? '—' : x.toFixed(digits)
-}
-
-function fmtIndexPct(v: number | null | undefined) {
-  const x = n(v)
-  if (x == null) return '—'
-  return `${x >= 0 ? '+' : ''}${x.toFixed(2)}%`
 }
 
 function fmtStockPct(v: number | null | undefined) {
@@ -51,21 +31,6 @@ function pctClass(v: number | null | undefined) {
   const x = n(v)
   if (x == null || x === 0) return 'text-muted'
   return x > 0 ? 'text-bull' : 'text-bear'
-}
-
-function quoteAge(ms?: number | null) {
-  if (ms == null) return '—'
-  if (ms < 1000) return `${Math.round(ms)}ms`
-  const s = Math.round(ms / 1000)
-  if (s < 60) return `${s}s`
-  return `${Math.floor(s / 60)}m${s % 60}s`
-}
-
-function compactCount(v: number | null | undefined) {
-  const x = n(v)
-  if (x == null) return '—'
-  if (x >= 1000) return `${(x / 1000).toFixed(1)}k`
-  return x.toFixed(0)
 }
 
 function SectionTitle({ icon: Icon, title, hint }: { icon: typeof Activity; title: string; hint?: ReactNode }) {
@@ -81,7 +46,7 @@ function SectionTitle({ icon: Icon, title, hint }: { icon: typeof Activity; titl
   )
 }
 
-// 看板监控中心小组件 — 显示前 10 条触发记录 + 更多按钮
+// 看板監控中心小組件 — 顯示前 10 條觸發記錄 + 更多按鈕
 const _SOURCE_BADGE: Record<string, string> = {
   strategy: 'bg-amber-400/10 text-amber-400',
   signal: 'bg-accent/10 text-accent',
@@ -90,7 +55,7 @@ const _SOURCE_BADGE: Record<string, string> = {
   sector: 'bg-cyan-500/10 text-cyan-700 dark:text-cyan-300',
 }
 const _SOURCE_LABEL: Record<string, string> = {
-  strategy: '策略', signal: '信号', price: '价格', market: '异动', sector: '板块',
+  strategy: '策略', signal: '訊號', price: '價格', market: '異動', sector: '板塊',
 }
 const _SEVERITY_BAR: Record<string, string> = {
   info: 'bg-accent/40', warn: 'bg-warning', critical: 'bg-danger',
@@ -107,7 +72,7 @@ function MonitorWidget({ onStockClick }: { onStockClick: (event: AlertEvent) => 
 
   if (events.length === 0) {
     return (
-      <div className="mt-1 py-6 text-center text-[11px] text-muted">暂无触发记录</div>
+      <div className="mt-1 py-6 text-center text-[11px] text-muted">暫無觸發記錄</div>
     )
   }
 
@@ -130,11 +95,11 @@ function MonitorWidget({ onStockClick }: { onStockClick: (event: AlertEvent) => 
               className="relative overflow-hidden rounded-md border border-border/40 bg-surface/60 pl-2.5 pr-2 py-1.5 hover:border-border hover:bg-surface transition-colors"
             >
               <div className={cn('absolute left-0 top-0 h-full w-0.5', sev)} />
-              {/* 第一行: 代码 + 名称 + 价格 + 涨跌幅 (点击代码/名称弹日K) */}
+              {/* 第一行: 代碼 + 名稱 + 價格 + 漲跌幅 (點擊代碼/名稱彈日K) */}
               <div className="flex items-center gap-1.5">
                 <button
                   onClick={() => isSector ? navigate('/monitor') : ev.symbol && onStockClick(ev)}
-                  title={isSector ? '在监控中心查看板块告警' : ev.symbol ? `查看 ${ev.symbol} 日K` : undefined}
+                  title={isSector ? '在監控中心查看板塊告警' : ev.symbol ? `查看 ${ev.symbol} 日K` : undefined}
                   className={`inline-flex items-center gap-1 min-w-0 shrink-0 rounded hover:bg-elevated/60 transition-colors -mx-0.5 px-0.5 ${isSector || ev.symbol ? 'cursor-pointer' : 'cursor-default'}`}
                 >
                   <span className="font-mono text-[10px] font-medium text-foreground/80 hover:text-accent">{ev.symbol?.replace(/\.(SH|SZ|BJ)$/, '')}</span>
@@ -158,7 +123,7 @@ function MonitorWidget({ onStockClick }: { onStockClick: (event: AlertEvent) => 
                   </span>
                 )}
               </div>
-              {/* 第二行: 策略类型走新格式, 其他走旧格式 */}
+              {/* 第二行: 策略類型走新格式, 其他走舊格式 */}
               {isStrategy ? (
                 <>
                   {ev.symbol ? (
@@ -221,183 +186,6 @@ function MonitorWidget({ onStockClick }: { onStockClick: (event: AlertEvent) => 
   )
 }
 
-function KpiCell({ label, value, sub, tone = 'neutral' }: { label: ReactNode; value: ReactNode; sub?: string; tone?: 'bull' | 'bear' | 'accent' | 'neutral' }) {
-  const isPlain = typeof value === 'string' || typeof value === 'number'
-  const color = tone === 'bull' ? 'text-bull' : tone === 'bear' ? 'text-bear' : tone === 'accent' ? 'text-accent' : 'text-foreground'
-  return (
-    <div className="min-w-0 overflow-hidden rounded-lg border border-border bg-surface/80 px-2 py-1 shadow-[0_1px_2px_hsl(var(--border)/0.4)] backdrop-blur-sm transition-all hover:border-accent/30 hover:shadow-[0_2px_8px_hsl(var(--accent)/0.15)]">
-      <div className="flex items-center gap-1 text-[11px] text-muted">{label}</div>
-      <div className={`mt-1 truncate font-mono text-lg font-semibold leading-none tabular-nums ${isPlain ? color : 'text-foreground'}`}>{value}</div>
-      {sub && <div className="mt-1 truncate text-[10px] text-muted">{sub}</div>}
-    </div>
-  )
-}
-
-function IndexTicker({ item }: { item: OverviewMarket['indices'][number] }) {
-  const pct = item.change_pct
-  const isUp = (n(pct) ?? 0) >= 0
-  return (
-    <Link
-      to={`/indices?symbol=${encodeURIComponent(item.symbol)}`}
-      className="grid min-w-0 grid-cols-[1fr_auto] items-center gap-x-2 gap-y-0.5 rounded-lg border border-border bg-elevated/45 px-1.5 py-1 shadow-[0_1px_1px_hsl(var(--border)/0.3)] backdrop-blur-sm transition-all hover:border-accent/40 hover:bg-elevated hover:shadow-[0_2px_6px_hsl(var(--accent)/0.15)]"
-    >
-      <div className="truncate text-xs font-medium text-foreground">{item.name || item.symbol}</div>
-      <div className={`font-mono text-xs font-semibold ${pctClass(pct)}`}>{fmtIndexPct(pct)}</div>
-      <div className="font-mono text-[10px] text-muted">{item.symbol}</div>
-      <div className={`flex items-center gap-1 font-mono text-[11px] ${pctClass(pct)}`}>
-        {isUp ? <ArrowUpRight className="h-3 w-3" /> : <ArrowDownRight className="h-3 w-3" />}
-        {fmtPrice(item.last_price)}
-      </div>
-    </Link>
-  )
-}
-
-function BreadthBar({ data }: { data: OverviewMarket['breadth'] }) {
-  const denom = Math.max(data.total, 1)
-  const upW = data.up / denom * 100
-  const downW = data.down / denom * 100
-  const flatW = Math.max(0, 100 - upW - downW)
-  return (
-    <div className="space-y-2">
-      <div className="flex h-2.5 overflow-hidden rounded-full bg-elevated">
-        <div className="bg-bull/85" style={{ width: `${upW}%` }} />
-        <div className="bg-muted/45" style={{ width: `${flatW}%` }} />
-        <div className="bg-bear/85" style={{ width: `${downW}%` }} />
-      </div>
-      <div className="grid grid-cols-3 gap-1.5 text-[11px]">
-        <div className="rounded bg-bull/8 px-2 py-1 text-bull">涨 <span className="font-mono">{data.up}</span></div>
-        <div className="rounded bg-elevated/70 px-2 py-1 text-muted">平 <span className="font-mono">{data.flat}</span></div>
-        <div className="rounded bg-bear/8 px-2 py-1 text-bear">跌 <span className="font-mono">{data.down}</span></div>
-      </div>
-    </div>
-  )
-}
-
-function DistributionBars({ rows }: { rows: OverviewMarket['distribution'] }) {
-  const maxCount = Math.max(...rows.map(r => r.count), 1)
-  return (
-    <div className="grid h-24 grid-cols-8 items-end gap-1 pt-1">
-      {rows.map((r, i) => {
-        const positive = i >= 4
-        return (
-          <div key={r.label} className="flex h-full min-w-0 flex-col items-center justify-end gap-0.5">
-            <div className="font-mono text-[9px] text-muted">{r.count || ''}</div>
-            <div
-              className={`w-2 rounded-full ${positive ? 'bg-gradient-to-t from-bull/45 to-bull/90' : 'bg-gradient-to-t from-bear/45 to-bear/90'}`}
-              style={{ height: `${Math.max(4, r.count / maxCount * 86)}%` }}
-              title={`${r.label}: ${r.count}只`}
-            />
-            <div className="truncate text-[9px] text-muted">{r.label}</div>
-          </div>
-        )
-      })}
-    </div>
-  )
-}
-
-function EmotionRadar({ radar, score }: { radar: OverviewMarket['radar']; score: number }) {
-  const size = 240
-  const cx = size / 2
-  const cy = size / 2
-  const maxR = 78
-  const color = scoreColor(score)
-  if (!radar.length) return <div className="flex h-52 items-center justify-center text-xs text-muted">暂无雷达数据</div>
-  const points = radar.map((r, i) => {
-    const angle = -Math.PI / 2 + i * 2 * Math.PI / radar.length
-    const radius = maxR * Math.max(0, Math.min(100, r.value)) / 100
-    return {
-      ...r,
-      x: cx + Math.cos(angle) * radius,
-      y: cy + Math.sin(angle) * radius,
-      lx: cx + Math.cos(angle) * (maxR + 27),
-      ly: cy + Math.sin(angle) * (maxR + 27),
-      gx: cx + Math.cos(angle) * maxR,
-      gy: cy + Math.sin(angle) * maxR,
-    }
-  })
-  const polygon = points.map(p => `${p.x},${p.y}`).join(' ')
-  const gridPolygons = [1, 0.66, 0.33].map((level, idx) => ({
-    level,
-    idx,
-    points: radar.map((_, i) => {
-      const angle = -Math.PI / 2 + i * 2 * Math.PI / radar.length
-      return `${cx + Math.cos(angle) * maxR * level},${cy + Math.sin(angle) * maxR * level}`
-    }).join(' '),
-  }))
-  return (
-    <div className="flex justify-center">
-      <svg viewBox={`0 0 ${size} ${size}`} className="h-56 w-full">
-        <defs>
-          <radialGradient id="emotionRadarFill" cx="50%" cy="45%" r="70%">
-            <stop offset="0%" stopColor={`${color}57`} />
-            <stop offset="100%" stopColor={`${color}1f`} />
-          </radialGradient>
-          {/* 中心/网格用 CSS 变量取色, 亮暗主题自动切换 (SVG 属性支持 hsl(var(--x))) */}
-          <radialGradient id="emotionRadarCenter" cx="50%" cy="50%" r="55%">
-            <stop offset="0%" stopColor="hsl(var(--surface) / 0.92)" />
-            <stop offset="68%" stopColor="hsl(var(--surface) / 0.70)" />
-            <stop offset="100%" stopColor="hsl(var(--surface) / 0)" />
-          </radialGradient>
-        </defs>
-        {gridPolygons.map(g => (
-          <polygon
-            key={g.level}
-            points={g.points}
-            fill={g.idx % 2 === 0 ? 'hsl(var(--elevated) / 0.55)' : 'hsl(var(--elevated) / 0.3)'}
-            stroke={g.level === 1 ? 'hsl(var(--border) / 0.9)' : 'hsl(var(--border) / 0.5)'}
-            strokeWidth={g.level === 1 ? 1.2 : 0.8}
-          />
-        ))}
-        {points.map(p => <line key={p.key} x1={cx} y1={cy} x2={p.gx} y2={p.gy} stroke="hsl(var(--border) / 0.4)" />)}
-        <polygon points={polygon} fill="url(#emotionRadarFill)" stroke={color} strokeWidth="2" />
-        {points.map(p => <circle key={p.key} cx={p.x} cy={p.y} r="2.8" fill={color} stroke="hsl(var(--surface) / 0.9)" strokeWidth="1" />)}
-        <circle cx={cx} cy={cy} r="29" fill="url(#emotionRadarCenter)" />
-        <text x={cx} y={cy + 7} textAnchor="middle" className="fill-foreground font-mono text-[24px] font-bold">{score}</text>
-        {points.map(p => (
-          <text key={`${p.key}-label`} x={p.lx} y={p.ly + 4} textAnchor="middle" className="fill-secondary text-[10px] font-medium">{p.label}</text>
-        ))}
-      </svg>
-    </div>
-  )
-}
-
-function LadderMini({ limit }: { limit: OverviewMarket['limit'] }) {
-  const tiers = limit.tiers.filter(t => t.boards >= 2).slice(0, 6)
-  return (
-    <div className="space-y-1.5">
-      <div className="flex items-center justify-between rounded bg-elevated/55 px-2 py-1.5 text-[11px]">
-        <span className="text-muted">封板率</span>
-        <span className="font-mono text-accent">{(limit.seal_rate ?? 0).toFixed(0)}%</span>
-      </div>
-      {tiers.length === 0 && <div className="rounded border border-dashed border-border py-5 text-center text-xs text-muted">暂无 2 板以上</div>}
-      {tiers.map(t => {
-        const stocks = t.stocks ?? []
-        const showStocks = stocks.length > 0 && stocks.length <= 3
-        return (
-          <div key={t.boards} className="rounded bg-elevated/35 px-2 py-1.5">
-            <div className="grid grid-cols-[42px_1fr_auto] items-center gap-2">
-              <span className={`font-mono text-sm font-bold ${t.boards >= 5 ? 'text-bull' : t.boards >= 3 ? 'text-accent' : 'text-secondary'}`}>{t.boards}板</span>
-              <div className="h-1.5 overflow-hidden rounded-full bg-base">
-                <div className="h-full rounded-full bg-bull/70" style={{ width: `${Math.min(100, t.count * 12)}%` }} />
-              </div>
-              <span className="font-mono text-xs text-foreground">{t.count}</span>
-            </div>
-            {showStocks && (
-              <div className="mt-1 flex flex-wrap gap-x-2 gap-y-0.5 pl-[50px]">
-                {stocks.map(s => (
-                  <span key={s.symbol} className="inline-flex items-center gap-0.5 text-[9px] text-secondary">
-                    {s.name || s.symbol}
-                  </span>
-                ))}
-              </div>
-            )}
-          </div>
-        )
-      })}
-    </div>
-  )
-}
-
 function MiniMetric({ label, value, cls = 'text-foreground' }: { label: string; value: string; cls?: string }) {
   return (
     <div className="rounded-md bg-elevated/45 px-2 py-1.5 border border-border/40">
@@ -407,453 +195,330 @@ function MiniMetric({ label, value, cls = 'text-foreground' }: { label: string; 
   )
 }
 
-function StockList({ title, rows, mode, onStockClick }: {
-  title: string; rows: MarketSnapshotRow[]; mode: 'gain' | 'loss' | 'amount' | 'active';
-  onStockClick?: (symbol: string, name?: string) => void;
-}) {
+// ===== Phase 8C-B: 台股市場強弱摘要 — 首頁第一層資訊 =====
+// 直接重用既有 /api/taiwan/market-intelligence (api.taiwanMarketIntelligence),
+// 與 TaiwanScreener 同一份 API、同一 query key, 不新增 backend 邏輯/計算。
+function taiwanStrengthLabel(advanceRatio: number | null): '偏強' | '中性' | '偏弱' | null {
+  // 門檻僅由既有 advance/decline/flat 家數計算, 非新研究結論: ≥55% 偏強,
+  // ≤45% 偏弱, 其餘中性 —— 對稱、可重現的既有數值判讀。
+  if (advanceRatio == null) return null
+  if (advanceRatio >= 0.55) return '偏強'
+  if (advanceRatio <= 0.45) return '偏弱'
+  return '中性'
+}
+
+function TaiwanBreadthBar({ advance, decline, flat }: { advance: number; decline: number; flat: number }) {
+  const total = Math.max(advance + decline + flat, 1)
+  const upW = advance / total * 100
+  const downW = decline / total * 100
+  const flatW = Math.max(0, 100 - upW - downW)
   return (
-    <div className="rounded-card border border-border bg-surface/80 p-1.5 shadow-[0_1px_2px_hsl(var(--border)/0.4)] backdrop-blur-sm transition-shadow hover:shadow-[0_2px_8px_hsl(var(--border)/0.5)]">
-      <div className="mb-1 flex items-center justify-between">
-        <h3 className="text-xs font-semibold text-foreground">{title}</h3>
-        <span className="text-[9px] text-muted">TOP {Math.min(rows.length, 8)}</span>
-      </div>
-      <div className="space-y-1">
-        {rows.slice(0, 8).map((r, idx) => (
-          <div
-            key={`${r.symbol}-${idx}`}
-            className="grid grid-cols-[18px_1fr_auto] items-center gap-1.5 rounded-md bg-elevated/40 px-1.5 py-1 cursor-pointer hover:bg-elevated hover:brightness-110 transition-colors border border-transparent hover:border-border/60"
-            onClick={() => onStockClick?.(r.symbol, r.name ?? undefined)}
-          >
-            <span className="text-center font-mono text-[10px] text-muted">{idx + 1}</span>
-            <div className="min-w-0">
-              <div className="flex items-center gap-1">
-                <span className="truncate text-[11px] text-foreground">{r.name || r.symbol}</span>
-                {(() => {
-                  const board = boardTag(r.symbol)
-                  return board ? (
-                    <span className={`shrink-0 inline-flex items-center justify-center h-3 px-1 rounded text-[8px] font-bold leading-none border ${board.color}`}>
-                      {board.label}
-                    </span>
-                  ) : null
-                })()}
-              </div>
-              <span className="font-mono text-[9px] text-muted">{r.symbol}</span>
-            </div>
-            <div className="text-right">
-              {mode === 'amount' ? (
-                <>
-                  <div className="font-mono text-[11px] text-foreground">{fmtBigNum(r.amount)}</div>
-                  <div className={`font-mono text-[9px] ${pctClass(r.change_pct)}`}>{fmtStockPct(r.change_pct)}</div>
-                </>
-              ) : mode === 'active' ? (
-                <>
-                  <div className="font-mono text-[11px] text-accent">{fmtPrice(r.turnover_rate, 1)}%</div>
-                  <div className={`font-mono text-[9px] ${pctClass(r.change_pct)}`}>{fmtStockPct(r.change_pct)}</div>
-                </>
-              ) : (
-                <>
-                  <div className={`font-mono text-[11px] font-semibold ${pctClass(r.change_pct)}`}>{fmtStockPct(r.change_pct)}</div>
-                  <div className="font-mono text-[9px] text-muted">{fmtPrice(r.close)}</div>
-                </>
-              )}
-            </div>
-          </div>
-        ))}
-        {rows.length === 0 && <div className="py-5 text-center text-xs text-muted">暂无数据</div>}
-      </div>
+    <div className="flex h-2.5 overflow-hidden rounded-full bg-elevated" role="img" aria-label={`上漲 ${advance} 檔, 平盤 ${flat} 檔, 下跌 ${decline} 檔`}>
+      <div className="bg-bull/85" style={{ width: `${upW}%` }} />
+      <div className="bg-muted/45" style={{ width: `${flatW}%` }} />
+      <div className="bg-bear/85" style={{ width: `${downW}%` }} />
     </div>
   )
 }
 
-function RankColumn({ title, rows, tone, onStockClick }: {
-  title: string; rows: OverviewDimensionRankItem[]; tone: 'bull' | 'bear';
-  onStockClick?: (symbol: string, name?: string) => void;
-}) {
+function MarketStrengthCard() {
+  const intel = useQuery({
+    queryKey: ['taiwanMarketIntelligence'],
+    queryFn: () => api.taiwanMarketIntelligence(),
+    staleTime: 5 * 60 * 1000,
+  })
+  const totals = intel.data?.market_totals
+  // 分母為 0 (全市場無漲跌平資料, 例如尚未下載當日資料) 時不可判讀強弱, ratio
+  // 保持 null —— 避免把「無資料」誤判成「偏弱」而顯示假結論。
+  const countedTotal = totals ? totals.advance_count + totals.decline_count + totals.flat_count : 0
+  const advanceRatio = totals && countedTotal > 0 ? totals.advance_count / countedTotal : null
+  // DAILY_USE_CORE_UX_FIXES (P1-1): 與 TaiwanScreener 同一份 data_quality 欄位
+  // (overall_status !== 'complete' 時下方漲/平/跌/成交額可能全部是 0、也可能
+  // 只是部分到位 —— 兩種情形都不該讓「偏強/偏弱/中性」這類 deterministic 結論
+  // 顯示出來)。沿用 TaiwanScreener 既有判斷條件,不新增第二套完整性計算;只是
+  // 把同一個既有 badge 樣式語意搬來這裡。
+  const dataIncomplete = intel.data ? intel.data.data_quality?.overall_status !== 'complete' : false
+  const label = dataIncomplete ? null : taiwanStrengthLabel(advanceRatio)
+
+  return (
+    <section className="mb-1.5 rounded-card border border-border bg-surface/80 p-2.5 shadow-[0_1px_2px_hsl(var(--border)/0.4)] backdrop-blur-sm">
+      <SectionTitle icon={TrendingUp} title="今日市場強弱" hint={intel.data ? `交易日 ${intel.data.trade_date}` : undefined} />
+      {intel.isLoading ? (
+        <div className="flex items-center gap-2 py-4 text-xs text-muted">
+          <Loader2 className="h-3.5 w-3.5 animate-spin" />正在讀取市場強弱資料…
+        </div>
+      ) : intel.isError || !totals ? (
+        <p className="py-4 text-xs text-muted">目前無法讀取市場強弱資料,不影響其他功能使用。</p>
+      ) : (
+        <>
+          {dataIncomplete && (
+            <div className="mb-1.5 rounded border border-warning/40 bg-warning/10 px-2 py-1 text-[11px] text-warning">
+              今日市場資料尚未完整，以下統計僅供參考
+              {intel.data?.data_quality?.previous_trade_date && (
+                <>；前一交易日：{intel.data.data_quality.previous_trade_date}</>
+              )}
+            </div>
+          )}
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
+            <span className="text-bull">漲 <span className="font-mono font-semibold">{totals.advance_count}</span></span>
+            <span className="text-muted">平 <span className="font-mono">{totals.flat_count}</span></span>
+            <span className="text-bear">跌 <span className="font-mono font-semibold">{totals.decline_count}</span></span>
+            {label && (
+              <span className={cn(
+                'rounded-full border px-2 py-0.5 text-[10px] font-medium',
+                label === '偏強' ? 'border-bull/40 bg-bull/10 text-bull' : label === '偏弱' ? 'border-bear/40 bg-bear/10 text-bear' : 'border-border bg-elevated text-muted',
+              )}>
+                {label}
+              </span>
+            )}
+          </div>
+          <div className="mt-2">
+            <TaiwanBreadthBar advance={totals.advance_count} decline={totals.decline_count} flat={totals.flat_count} />
+          </div>
+          <div className="mt-2 grid grid-cols-3 gap-1.5">
+            <MiniMetric
+              label="漲停 / 跌停"
+              value={`${totals.upper_limit_count} / ${totals.lower_limit_count}`}
+              cls={totals.upper_limit_count >= totals.lower_limit_count ? 'text-bull' : 'text-bear'}
+            />
+            <MiniMetric label="成交額" value={fmtBigNum(totals.turnover)} />
+            {intel.data && intel.data.institutional.foreign_net != null ? (
+              <MiniMetric
+                label="外資買賣超"
+                value={`${intel.data.institutional.foreign_net > 0 ? '+' : ''}${(intel.data.institutional.foreign_net / 1000).toLocaleString()} 張`}
+                cls={pctClass(intel.data.institutional.foreign_net)}
+              />
+            ) : (
+              <MiniMetric label="外資買賣超" value="—" />
+            )}
+          </div>
+        </>
+      )}
+    </section>
+  )
+}
+
+// ===== Phase 8C-B: 台股產業強弱摘要 — 只顯示 Top/Bottom, 不做完整 34 檔表格 =====
+// 直接重用既有 /api/taiwan/industry-intelligence (api.taiwanIndustryIntelligence),
+// 與 TaiwanScreener 預設排序 (turnover/desc) 同一份 query key, 排名於前端依
+// average_change_pct 對既有資料排序, 不新增 backend 計算。此 API 回傳的
+// industry 欄位本身已是可讀產業名稱 (34 大類股中文名), 非數字代碼, 無需額外
+// mapping(Phase 8C-C 已於 backend 修正 TPEx/TWSE 數字代碼正規化)。
+function IndustryStrengthList({ title, rows, tone }: { title: string; rows: IndustryMetrics[]; tone: 'bull' | 'bear' }) {
   return (
     <div className="min-w-0 space-y-1">
       <div className={`text-[10px] font-medium ${tone === 'bull' ? 'text-bull' : 'text-bear'}`}>{title}</div>
-      {rows.slice(0, 5).map((r, idx) => (
-        <div key={`${title}-${r.name}-${idx}`} className="grid grid-cols-[14px_1fr_auto] items-center gap-1 rounded-md bg-elevated/40 px-1.5 py-1 border border-transparent hover:border-border/60 transition-colors">
-          <span className="text-center font-mono text-[9px] text-muted">{idx + 1}</span>
-          <div className="min-w-0">
-            <div className="truncate text-[11px] text-foreground" title={r.name}>{r.name}</div>
-            <div className="mt-0.5 flex items-center gap-1">
-              <span className="shrink-0 font-mono text-[9px] text-muted">{r.count}只</span>
-              <span className="text-muted">·</span>
-              {r.leader?.symbol ? (
-                <button
-                  onClick={(e) => { e.stopPropagation(); onStockClick?.(r.leader!.symbol!, r.leader!.name ?? undefined) }}
-                  className="truncate text-[10px] font-medium text-secondary hover:text-accent cursor-pointer transition-colors"
-                  title={r.leader?.symbol ?? undefined}
-                >{r.leader?.name ?? '—'}</button>
-              ) : (
-                <span className="truncate text-[10px] text-muted">{r.leader?.name ?? '—'}</span>
-              )}
-              {r.leader?.symbol && (() => {
-                const board = boardTag(r.leader!.symbol!)
-                return board ? (
-                  <span className={`shrink-0 inline-flex items-center justify-center h-3 px-1 rounded text-[8px] font-bold leading-none border ${board.color}`}>
-                    {board.label}
-                  </span>
-                ) : null
-              })()}
-            </div>
-          </div>
-          <div className={`font-mono text-[10px] font-semibold ${pctClass(r.avg_pct)}`}>{fmtStockPct(r.avg_pct)}</div>
+      {rows.map(ind => (
+        <div key={ind.industry} className="flex items-center justify-between gap-2 rounded-md bg-elevated/40 px-2 py-1 text-[11px]">
+          <span className="truncate text-foreground" title={ind.industry}>{ind.industry}</span>
+          <span className={`shrink-0 font-mono font-semibold ${pctClass(ind.average_change_pct)}`}>{fmtStockPct(ind.average_change_pct)}</span>
         </div>
       ))}
-      {rows.length === 0 && <div className="rounded border border-dashed border-border py-4 text-center text-xs text-muted">暂无数据</div>}
+      {rows.length === 0 && <div className="rounded border border-dashed border-border py-3 text-center text-[11px] text-muted">暫無資料</div>}
     </div>
   )
 }
 
-function HotRankCard({ title, rank, configUrl, onStockClick }: {
-  title: string; rank?: OverviewMarket['concept_rank']; configUrl: string;
-  onStockClick?: (symbol: string, name?: string) => void;
-}) {
-  const hasData = (rank?.leading?.length ?? 0) > 0 || (rank?.lagging?.length ?? 0) > 0
+function IndustryStrengthCard() {
+  const ind = useQuery({
+    queryKey: ['taiwanIndustryIntelligence', 'turnover', 'desc'],
+    queryFn: () => api.taiwanIndustryIntelligence({ sort_by: 'turnover', order: 'desc' }),
+    staleTime: 5 * 60 * 1000,
+  })
+  const comparable = (ind.data?.industries ?? []).filter(i => i.average_change_pct != null)
+  const sorted = [...comparable].sort((a, b) => (b.average_change_pct ?? 0) - (a.average_change_pct ?? 0))
+  const topCount = Math.min(5, sorted.length)
+  const bottomCount = Math.min(5, Math.max(0, sorted.length - topCount))
+  const top = sorted.slice(0, topCount)
+  const bottom = sorted.slice(sorted.length - bottomCount).reverse()
+
   return (
-    <section className="rounded-card border border-border bg-surface/80 p-1.5 shadow-[0_1px_2px_hsl(var(--border)/0.4)] backdrop-blur-sm transition-shadow hover:shadow-[0_2px_8px_hsl(var(--border)/0.5)]">
-      <SectionTitle icon={Flame} title={title} hint="领涨/领跌" />
-      {hasData ? (
-        <div className="grid grid-cols-2 gap-2">
-          <RankColumn title="领涨" rows={rank?.leading ?? []} tone="bull" onStockClick={onStockClick} />
-          <RankColumn title="领跌" rows={rank?.lagging ?? []} tone="bear" onStockClick={onStockClick} />
+    <section className="rounded-card border border-border bg-surface/80 p-2.5 shadow-[0_1px_2px_hsl(var(--border)/0.4)] backdrop-blur-sm">
+      <SectionTitle icon={Layers} title="產業強弱" hint={ind.data ? `${ind.data.industries.length} 大類股` : undefined} />
+      {ind.isLoading ? (
+        <div className="flex items-center gap-2 py-4 text-xs text-muted">
+          <Loader2 className="h-3.5 w-3.5 animate-spin" />正在讀取產業資料…
         </div>
+      ) : ind.isError || !ind.data ? (
+        <p className="py-4 text-xs text-muted">目前無法讀取產業強弱資料,不影響其他功能使用。</p>
+      ) : sorted.length === 0 ? (
+        <p className="py-4 text-xs text-muted">目前尚無可比較的產業資料。</p>
       ) : (
-        <div className="py-4 text-center">
-          <p className="text-[11px] text-muted">未配置扩展数据源</p>
-          <Link
-            to={configUrl}
-            className="mt-1.5 inline-block text-[11px] text-accent hover:text-accent/80 transition-colors"
-          >
-            前往配置 →
-          </Link>
+        <div className="grid grid-cols-2 gap-2">
+          <IndustryStrengthList title="最強" rows={top} tone="bull" />
+          <IndustryStrengthList title="最弱" rows={bottom} tone="bear" />
         </div>
       )}
     </section>
   )
 }
 
-export function Dashboard() {
-  const qc = useQueryClient()
-  const [selectedDate, setSelectedDate] = useState<string | undefined>()
-  const [manualFetching, setManualFetching] = useState(false)
-  const [previewStock, setPreviewStock] = useState<{symbol: string; name?: string; alert?: AlertEvent} | null>(null)
-  // 首次使用(无数据 + 未完成引导)自动弹窗: 同一会话只弹一次
-  const [showWelcomeModal, setShowWelcomeModal] = useState(false)
-  const dataStatus = useDataStatus({ staleTime: 60_000 })
-  const overview = useQuery({
-    queryKey: QK.overviewMarket(selectedDate),
-    queryFn: () => api.overviewMarket(selectedDate),
-    staleTime: 5_000,
-    placeholderData: (prev) => prev,
+// ===== Phase 8C-B: 自選股快覽 — 只顯示 3-5 檔值得注意的標的 =====
+// 重用既有 /api/watchlist/enriched (api.watchlistEnriched) 與 Watchlist 頁面
+// 相同的 query key 慣例 (無 ext columns 時皆為空字串), 未加自選時不顯示大空表,
+// 改為簡短 empty state + CTA。點擊標的重用既有 StockPreviewDialog 動作流程
+// (與 Phase 8C-A 一致), 不做第二套 stock action UI。
+function WatchlistQuickGlance({ onStockClick }: { onStockClick: (symbol: string, name?: string) => void }) {
+  const enriched = useQuery({
+    queryKey: QK.watchlistEnriched(''),
+    queryFn: () => api.watchlistEnriched(''),
+    staleTime: 30_000,
   })
-  const data = overview.data
-  const caps = useCapabilities()
-  const settings = useSettings()
-  const hasDepth = !!caps.data?.capabilities?.['depth5.batch']
-  const sealedReady = !!data?.limit?.sealed_ready
-  const isSealedDegrade = !hasDepth || !sealedReady
-  // 空态引导文案按当前数据源分流: TickFlow 源提"免费服务器", 其他源提"当前数据源",
-  // 弱化与默认 TickFlow 的隐式绑定 (None 档/免费 Key 等 TickFlow 概念仅在其被选中时出现)
-  const prefs = usePreferences()
-  const dataSourceList = useQuery({
-    queryKey: QK.dataSources,
-    queryFn: api.dataSources,
+  const rows: any[] = enriched.data?.rows ?? []
+  // 依既有資料的漲跌幅絕對值排序, 找出今天值得注意的標的; 資料缺漲跌幅時
+  // (abs 視為 0) 排序穩定, 自然退回既有自選順序 —— 不發明新排名邏輯。
+  const attention = [...rows]
+    .sort((a, b) => Math.abs(b.change_pct ?? 0) - Math.abs(a.change_pct ?? 0))
+    .slice(0, 5)
+
+  return (
+    <section className="rounded-card border border-border bg-surface/80 p-2.5 shadow-[0_1px_2px_hsl(var(--border)/0.4)] backdrop-blur-sm">
+      <SectionTitle icon={Eye} title="自選股動態" hint={rows.length ? `${rows.length} 檔` : undefined} />
+      {enriched.isLoading ? (
+        <div className="flex items-center gap-2 py-4 text-xs text-muted">
+          <Loader2 className="h-3.5 w-3.5 animate-spin" />正在讀取自選股資料…
+        </div>
+      ) : enriched.isError ? (
+        <p className="py-4 text-xs text-muted">目前無法讀取自選股資料,不影響其他功能使用。</p>
+      ) : rows.length === 0 ? (
+        <div className="py-4 text-center">
+          <p className="text-xs text-secondary">尚未加入任何自選股</p>
+          <Link to="/watchlist" className="mt-1.5 inline-block text-[11px] text-accent hover:text-accent/80 transition-colors">
+            前往自選股 →
+          </Link>
+        </div>
+      ) : (
+        <div className="space-y-1">
+          {attention.map(r => (
+            <button
+              key={r.symbol}
+              type="button"
+              onClick={() => onStockClick(r.symbol, r.name ?? undefined)}
+              aria-label={`查看 ${r.name || r.symbol} 走勢`}
+              className="flex w-full items-center justify-between gap-2 rounded-md bg-elevated/40 px-2 py-1.5 text-left hover:bg-elevated hover:brightness-110 transition-colors border border-transparent hover:border-border/60"
+            >
+              <div className="min-w-0">
+                <div className="truncate text-[11px] text-foreground">{r.name || r.symbol}</div>
+                <div className="font-mono text-[9px] text-muted">{r.symbol}</div>
+              </div>
+              <div className="text-right shrink-0">
+                <div className="font-mono text-[11px] text-foreground">{fmtPrice(r.close)}</div>
+                <div className={`font-mono text-[10px] font-semibold ${pctClass(r.change_pct)}`}>{fmtStockPct(r.change_pct)}</div>
+              </div>
+            </button>
+          ))}
+        </div>
+      )}
+    </section>
+  )
+}
+
+// ===== Phase 8B-2: 台股資料狀態卡 =====
+// 只讀既有 /api/taiwan/data-status(與 Onboarding 台股資料狀態步驟同一個 API,
+// 不建立重複 backend 邏輯)。沒有資料時顯示清楚的繁體 empty state, 不假造台股
+// 指數或任何資料。Phase 8C-B: 不再是首頁第一眼內容, 改列於監控中心之後的最下層
+// (資料新鮮度)。Phase 8C-D: 中國 A 股 legacy Dashboard 區塊已隨產品介面整體
+// 移除, 此卡不再有任何 legacy 開關依賴。
+const TAIWAN_FRESHNESS_LABEL: Record<string, string> = {
+  current: '最新',
+  stale: '過期',
+  unavailable: '尚無資料',
+}
+
+function TaiwanOverviewCard() {
+  const status = useQuery({
+    queryKey: QK.taiwanDataStatus,
+    queryFn: api.taiwanDataStatus,
     staleTime: 60_000,
   })
-  const activeProvider = prefs.data?.daily_data_provider || 'tickflow'
-  const isTickflowProvider = activeProvider === 'tickflow'
-  const providerLabel = [
-    ...(dataSourceList.data?.builtin ?? []),
-    ...(dataSourceList.data?.plugins ?? []),
-    ...(dataSourceList.data?.custom ?? []),
-  ].find(s => s.name === activeProvider)?.display_name
-    ?.replace(/（.*?）|\(.*?\)/g, '').trim() || activeProvider
-  // 无本地数据(enriched/daily 都没有)→ 常驻引导卡片
-  // 注: 后端 status 的 rows 为性能刻意返回 0, 用 trading_days 判断是否有数据
-  const ds = dataStatus.data
-  const hasNoData = !!ds
-    && (ds.enriched?.trading_days ?? 0) === 0
-    && (ds.daily?.trading_days ?? 0) === 0
 
-  // ===== 盘后管道触发(看板内一键获取数据) =====
-  const [fetchJobId, setFetchJobId] = useState<string | null>(null)
-  const fetchStatus = useQuery({
-    queryKey: QK.pipelineJob(fetchJobId ?? ''),
-    queryFn: () => api.pipelineJob(fetchJobId!),
-    enabled: !!fetchJobId,
-    refetchInterval: (q: any) => {
-      const j = q.state.data
-      return j && (j.status === 'succeeded' || j.status === 'failed') ? false : 1_000
-    },
-  })
-  const startFetch = useMutation({
-    mutationFn: api.pipelineRun,
-    onSuccess: ({ job_id }) => setFetchJobId(job_id),
-  })
-  const isFetching = startFetch.isPending
-    || fetchStatus.data?.status === 'running'
-    || fetchStatus.data?.status === 'pending'
-  const fetchFailed = fetchStatus.data?.status === 'failed'
-  const fetchSucceeded = fetchStatus.data?.status === 'succeeded'
+  const rows = status.data
+    ? [
+        { label: '日K', asOf: status.data.daily_as_of, freshness: status.data.daily_status },
+        { label: '三大法人', asOf: status.data.institutional_as_of, freshness: status.data.institutional_status },
+        { label: '融資融券', asOf: status.data.margin_as_of, freshness: status.data.margin_status },
+      ]
+    : []
+  const hasAnyData = rows.some(r => r.asOf)
 
-  // 首次使用且无数据 → 自动弹一次引导弹窗(同会话只弹一次)
-  useEffect(() => {
-    if (!hasNoData) return
-    if (settings.data?.onboarding_completed === false) return  // 还在引导流程中,不重复弹
-    if (sessionStorage.getItem('tf_welcome_shown')) return
-    sessionStorage.setItem('tf_welcome_shown', '1')
-    setShowWelcomeModal(true)
-  }, [hasNoData, settings.data?.onboarding_completed])
-
-  // 同步完成后刷新看板数据
-  useEffect(() => {
-    if (fetchSucceeded) {
-      qc.invalidateQueries({ queryKey: QK.dataStatus })
-      qc.invalidateQueries({ queryKey: QK.overviewMarket(undefined) })
-    }
-  }, [fetchSucceeded, qc])
-
-  // 组件重新挂载时(从其他页面切回)恢复正在运行的同步任务进度。
-  // 原因: fetchJobId 是组件内状态, 切走页面时组件卸载、状态丢失, 切回后进度卡片消失。
-  // 修复: 挂载时若无本地数据且未跟踪任何 job, 查一次后端是否有 active job, 有则接管。
-  const resumeTriedRef = useRef(false)
-  useEffect(() => {
-    if (resumeTriedRef.current) return
-    if (!hasNoData) return
-    if (fetchJobId) return
-    resumeTriedRef.current = true
-    api.pipelineJobs(1).then(({ active_id }) => {
-      if (active_id) setFetchJobId(active_id)
-    }).catch(() => { /* 查询失败不阻塞, 用户仍可手动点击获取 */ })
-  }, [hasNoData, fetchJobId])
-
-  // 手动刷新: 先重建后端 Polars 缓存(解决跨天残留), 再重新拉看板数据
-  const handleRefresh = () => {
-    setManualFetching(true)
-    api.refreshCache()
-      .then(() => qc.invalidateQueries({ queryKey: ['overview-market'] }))
-      .finally(() => {
-        overview.refetch().finally(() => setManualFetching(false))
-      })
-  }
-
-  if (overview.isLoading && !data) {
-    return (
-      <div className="flex h-full items-center justify-center bg-base">
-        <div className="flex items-center gap-2 text-sm text-muted">
-          <Loader2 className="h-4 w-4 animate-spin" /> 加载市场看板…
+  return (
+    <section className="mb-3 rounded-card border border-border bg-surface/85 p-3.5">
+      <div className="flex items-center justify-between gap-2 mb-2.5">
+        <div className="flex items-center gap-1.5">
+          <Database className="h-3.5 w-3.5 text-accent" />
+          <h2 className="text-xs font-semibold text-foreground">台股資料狀態</h2>
+        </div>
+        <div className="flex items-center gap-3 text-[11px]">
+          <Link to="/taiwan-screener" className="text-secondary hover:text-accent transition-colors">台股選股</Link>
+          <Link to="/stocks/compare" className="text-secondary hover:text-accent transition-colors">多股比較</Link>
+          <Link to="/watchlist" className="text-secondary hover:text-accent transition-colors">自選股</Link>
         </div>
       </div>
-    )
-  }
 
-  if (!data) {
-    return (
-      <div className="flex h-full items-center justify-center bg-base p-6">
-        <div className="rounded-card border border-border bg-surface p-6 text-center">
-          <div className="text-sm text-danger">看板加载失败</div>
-          <button onClick={() => overview.refetch()} className="mt-3 rounded-btn bg-accent px-3 py-1.5 text-xs font-medium text-base">重试</button>
+      {status.isLoading ? (
+        <div className="flex items-center gap-2 text-xs text-muted">
+          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+          正在讀取台股資料狀態…
         </div>
-      </div>
-    )
-  }
+      ) : status.isError ? (
+        <p className="text-xs text-muted leading-relaxed">
+          目前無法讀取台股資料狀態,不影響其他功能使用,請稍後再試。
+        </p>
+      ) : hasAnyData ? (
+        <div className="flex flex-wrap items-center gap-x-5 gap-y-1.5">
+          {rows.map(r => (
+            <div key={r.label} className="flex items-center gap-1.5 text-xs">
+              <span className="text-secondary">{r.label}</span>
+              <span className="font-mono text-muted">{r.asOf ?? '—'}</span>
+              <span className="text-[11px] font-medium text-muted">
+                {TAIWAN_FRESHNESS_LABEL[r.freshness] ?? r.freshness}
+              </span>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <p className="text-xs text-secondary leading-relaxed">
+          目前尚未下載台股資料,仍可先使用「台股選股」「多股比較」等功能,資料將於每日排程自動更新。
+        </p>
+      )}
+    </section>
+  )
+}
 
-  const score = data.emotion?.score ?? 50
-  const strongUp = data.breadth.strong_up ?? 0
-  const strongDown = data.breadth.strong_down ?? 0
-  const latestDate = dataStatus.data?.enriched?.latest_date ?? null
-  const currentDate = selectedDate ?? data.as_of ?? ''
-  const quoteRunning = (!selectedDate || selectedDate === latestDate) && data.quote_status?.running
-  // 实时模式: none / watchlist / full_market。
-  // watchlist 模式仅自选 ≤5 只实时, 看板呈现的大盘数据实为盘后快照, 需提示避免误读。
-  const quoteMode = data.quote_status?.mode as ('none' | 'watchlist' | 'full_market') | undefined
+export function Dashboard() {
+  const [previewStock, setPreviewStock] = useState<{symbol: string; name?: string; alert?: AlertEvent} | null>(null)
 
   return (
     <div className="min-h-full bg-base p-1.5">
-      {/* 无本地数据常驻引导卡片 —— 一键触发盘后管道获取数据(无 Key 也可) */}
-      {hasNoData && (
-        <FetchDataCard
-          isFetching={isFetching}
-          isStarting={startFetch.isPending}
-          fetchFailed={fetchFailed}
-          stage={fetchStatus.data?.stage}
-          fetchPct={fetchStatus.data?.progress}
-          onStart={() => startFetch.mutate()}
-          isTickflowProvider={isTickflowProvider}
-          providerLabel={providerLabel}
-        />
-      )}
-      {/* 首次使用自动弹窗(同会话仅一次) */}
-      <AnimatePresence>
-        {showWelcomeModal && (
-          <WelcomeFetchModal
-            isTickflowProvider={isTickflowProvider}
-            providerLabel={providerLabel}
-            onClose={() => setShowWelcomeModal(false)}
-            onStart={() => {
-              startFetch.mutate()
-              setShowWelcomeModal(false)
-            }}
-          />
-        )}
-      </AnimatePresence>
-      <div className="relative mb-1.5 flex flex-wrap items-center justify-between gap-2 overflow-hidden rounded-card border border-border bg-gradient-to-r from-surface/90 to-surface/70 px-3 py-1.5 shadow-[0_1px_3px_hsl(var(--border)/0.4)] backdrop-blur-sm">
-        <div className="pointer-events-none absolute left-0 top-0 h-full w-1 bg-gradient-to-b from-accent to-accent/20" aria-hidden />
-        <div className="flex items-center gap-2">
-          <Gauge className="h-4 w-4 text-accent" />
-          <h1 className="text-base font-semibold text-foreground">市场看板</h1>
-          <span
-            className="rounded-full border px-2 py-0.5 text-[10px] font-medium"
-            style={{
-              color: scoreColor(score),
-              borderColor: `${scoreColor(score)}40`,
-              background: `${scoreColor(score)}14`,
-            }}
-          >
-            {data.emotion.label} · {score}
-          </span>
+      {/* Phase 8C-B — Dashboard Market Clarity: 首頁第一印象為「今日市場強弱」,
+          其次為「產業強弱 + 自選股動態」, 監控事件摘要在下方, 台股資料狀態卡
+          (資料新鮮度) 移到最下層。Phase 8C-D: 中國 A 股 legacy 大盤看板整段已
+          移除產品介面, Dashboard 全站僅剩台股內容, 不再有任何 legacy 開關。 */}
+      <MarketStrengthCard />
+
+      <div className="mb-1.5 grid grid-cols-1 gap-1.5 lg:grid-cols-2">
+        <IndustryStrengthCard />
+        <WatchlistQuickGlance onStockClick={(symbol, name) => setPreviewStock({ symbol, name })} />
+      </div>
+
+      <section className="mb-1.5 rounded-card border border-border bg-surface/80 p-1.5 shadow-[0_1px_2px_hsl(var(--border)/0.4)] backdrop-blur-sm transition-shadow hover:shadow-[0_2px_8px_hsl(var(--border)/0.5)]">
+        <div className="mb-2 flex items-center justify-between gap-2">
+          <div className="flex items-center gap-1.5">
+            <BellRing className="h-3.5 w-3.5 text-accent" />
+            <h2 className="text-xs font-semibold text-foreground">監控中心</h2>
+            <span className="font-mono text-[10px] text-muted">即時信號</span>
+          </div>
+          <Link to="/monitor" className="inline-flex items-center justify-center h-5 w-5 rounded text-muted hover:text-accent hover:bg-accent/10 transition-colors" title="進入監控中心">
+            <ArrowUpRight className="h-3.5 w-3.5" />
+          </Link>
         </div>
-        <div className="flex items-center gap-3 text-[11px] text-muted">
-          {currentDate ? (
-            <DatePicker
-              value={currentDate}
-              onChange={setSelectedDate}
-              min={dataStatus.data?.enriched?.earliest_date ?? undefined}
-              max={latestDate ?? undefined}
-              className="w-32"
-            />
-          ) : (
-            <span className="font-mono text-secondary">—</span>
-          )}
-          <span className="flex items-center gap-1"><Timer className="h-3 w-3" />{quoteAge(data.quote_status?.quote_age_ms)}</span>
-          <span className={quoteRunning ? 'text-accent' : 'text-warning'}>{quoteRunning ? '实时' : '非实时'}</span>
-          <button
-            onClick={handleRefresh}
-            disabled={manualFetching}
-            className="inline-flex items-center gap-1 rounded-btn border border-border bg-elevated px-2 py-1 text-[11px] text-secondary transition-colors hover:text-foreground disabled:opacity-50"
-          >
-            <RefreshCw className={`h-3 w-3 ${manualFetching ? 'animate-spin' : ''}`} />重载
-          </button>
-        </div>
-      </div>
+        <MonitorWidget onStockClick={(event) => {
+          if (event.symbol) setPreviewStock({ symbol: event.symbol, name: event.name ?? undefined, alert: event })
+        }} />
+      </section>
 
-      {/* 自选实时模式提示: 大盘看板为盘后数据, 仅自选股实时。避免用户误读为全市场实时。 */}
-      {quoteMode === 'watchlist' && (
-        <div className="mb-1.5 flex items-start gap-2 rounded-card border border-amber-500/30 bg-amber-500/8 px-3 py-1.5 text-[11px] leading-relaxed">
-          <Info className="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-500" />
-          <div className="min-w-0 flex-1 text-secondary">
-            当前为「自选实时」模式,看板展示的大盘数据为<strong className="text-foreground">盘后快照</strong>(最新有数据日),并非盘中实时;
-            仅自选股({data.quote_status?.watchlist_symbol_count ?? 0} 只)支持实时监控。
-            <span className="ml-1 text-accent">全市场实时依赖数据源支持</span>
-          </div>
-        </div>
-      )}
-
-      <div className="mb-1.5 grid grid-cols-4 gap-1">
-        {data.indices.map(item => <IndexTicker key={item.symbol} item={item} />)}
-      </div>
-
-      <div className="mb-1.5 grid grid-cols-6 gap-1">
-        <KpiCell label="个股涨 / 平 / 跌" value={<><span className="text-bull">{data.breadth.up}</span><span className="text-muted">/</span><span className="text-muted">{data.breadth.flat}</span><span className="text-muted">/</span><span className="text-bear">{data.breadth.down}</span></>} sub={`上涨率 ${data.breadth.up_pct.toFixed(1)}%`} />
-        <KpiCell label="强势 / 弱势" value={<><span className="text-bull">{strongUp}</span><span className="text-muted">/</span><span className="text-bear">{strongDown}</span></>} sub="涨跌 ≥3%" />
-        <KpiCell label={<span className="inline-flex items-center gap-1">涨停 / 跌停<SealedBadge degraded={isSealedDegrade} hasDepth={hasDepth} isHistorical={false} sealedReady={sealedReady} sealedCountsUp={{ real: data.limit.limit_up, fake: data.limit.fake_up ?? 0, pending: 0 }} sealedCountsDown={{ real: data.limit.limit_down, fake: data.limit.fake_down ?? 0, pending: 0 }} rawUp={data.limit.limit_up + (data.limit.fake_up ?? 0)} rawDown={data.limit.limit_down + (data.limit.fake_down ?? 0)} invalidateKeys={['overview-market', 'limit-ladder']} /></span>} value={<><span className="text-bull">{data.limit.limit_up}</span><span className="text-muted">/</span><span className="text-bear">{data.limit.limit_down}</span></>} sub={`封板率 ${(data.limit.seal_rate ?? 0).toFixed(0)}%`} />
-        <KpiCell label="最高连板" value={`${data.limit.max_boards || 0}板`} sub={(() => {
-          const top = data.limit.tiers.find(t => t.boards === data.limit.max_boards)
-          const stocks = top?.stocks ?? []
-          if (stocks.length > 0 && stocks.length <= 3) return stocks.map(s => s.name || s.symbol).join(' · ')
-          return `梯队 ${data.limit.tiers.length}`
-        })()} tone="accent" />
-        <KpiCell label="成交额" value={fmtBigNum(data.amount.total)} sub={`均额 ${fmtBigNum(data.amount.avg)}`} />
-        <KpiCell label="换手 / 量比" value={`${fmtPrice(data.activity.avg_turnover, 1)}% / ${fmtPrice(data.activity.vol_ratio, 2)}`} sub={`高换手 ${data.activity.high_turnover} · 放量占比 ${fmtPrice(data.activity.high_vol_ratio, 1)}%`} tone="accent" />
-      </div>
-
-      <div className="grid grid-cols-1 gap-1.5 xl:grid-cols-[minmax(0,1fr)_20rem]">
-        <main className="min-w-0 space-y-1.5">
-          <div className="grid grid-cols-1 gap-1.5 lg:grid-cols-3">
-            <section className="rounded-card border border-border bg-surface/80 p-1.5 shadow-[0_1px_2px_hsl(var(--border)/0.4)] backdrop-blur-sm transition-shadow hover:shadow-[0_2px_8px_hsl(var(--border)/0.5)]">
-              <SectionTitle icon={BarChart3} title="涨跌分布 / 广度" hint={`${data.breadth.total}只`} />
-              <DistributionBars rows={data.distribution} />
-              <div className="mt-2">
-                <BreadthBar data={data.breadth} />
-              </div>
-              <div className="mt-2 grid grid-cols-2 gap-1.5">
-                <MiniMetric label="平均涨跌" value={fmtStockPct(data.breadth.avg_pct)} cls={pctClass(data.breadth.avg_pct)} />
-                <MiniMetric label="中位涨跌" value={fmtStockPct(data.breadth.median_pct)} cls={pctClass(data.breadth.median_pct)} />
-              </div>
-            </section>
-
-            <section
-              className="rounded-card border bg-surface/80 p-1.5 shadow-[0_1px_2px_hsl(var(--border)/0.4)] backdrop-blur-sm transition-shadow hover:shadow-[0_2px_8px_hsl(var(--border)/0.5)]"
-              style={{ borderColor: `${scoreColor(score)}40` }}
-            >
-              <SectionTitle icon={Sparkles} title="情绪雷达" hint={`情绪评分 ${score}`} />
-              <EmotionRadar radar={data.radar} score={score} />
-            </section>
-
-            <section className="flex flex-col rounded-card border border-border bg-surface/80 p-1.5 shadow-[0_1px_2px_hsl(var(--border)/0.4)] backdrop-blur-sm transition-shadow hover:shadow-[0_2px_8px_hsl(var(--border)/0.5)]">
-              <div>
-                <SectionTitle icon={LineChart} title="趋势强度" hint="均线/新高低" />
-                <div className="grid grid-cols-3 gap-1.5">
-                  <MiniMetric label="站上MA5" value={`${data.trend.above_ma5_pct.toFixed(0)}%`} cls="text-accent" />
-                  <MiniMetric label="站上MA20" value={`${data.trend.above_ma20_pct.toFixed(0)}%`} cls="text-accent" />
-                  <MiniMetric label="站上MA60" value={`${data.trend.above_ma60_pct.toFixed(0)}%`} cls="text-accent" />
-                  <MiniMetric label="60日新高" value={compactCount(data.trend.new_high)} cls="text-bull" />
-                  <MiniMetric label="60日新低" value={compactCount(data.trend.new_low)} cls="text-bear" />
-                  <MiniMetric label="高低比" value={`${data.trend.new_high + data.trend.new_low > 0 ? Math.round(data.trend.new_high / (data.trend.new_high + data.trend.new_low) * 100) : 50}%`} cls={data.trend.new_high >= data.trend.new_low ? 'text-bull' : 'text-bear'} />
-                </div>
-              </div>
-              <div className="mt-1.5 border-t border-border pt-1.5">
-                <SectionTitle icon={Target} title="实用监控" hint="盘中观察" />
-                <div className="grid grid-cols-3 gap-1.5">
-                  <MiniMetric label="炸板" value={`${data.limit.broken ?? 0}`} cls="text-warning" />
-                  <MiniMetric label="跌停" value={`${data.limit.limit_down ?? 0}`} cls="text-bear" />
-                  <MiniMetric label="站上MA60" value={`${data.trend.above_ma60_pct.toFixed(0)}%`} cls="text-accent" />
-                  <MiniMetric label="新高/新低" value={`${compactCount(data.trend.new_high)}/${compactCount(data.trend.new_low)}`} cls={data.trend.new_high >= data.trend.new_low ? 'text-bull' : 'text-bear'} />
-                  <MiniMetric label="高换手数" value={`${data.activity.high_turnover}`} cls="text-accent" />
-                  <MiniMetric label="放量占比" value={`${fmtPrice(data.activity.high_vol_ratio, 1)}%`} cls="text-accent" />
-                </div>
-              </div>
-            </section>
-          </div>
-
-          <div className="grid grid-cols-1 gap-1.5 md:grid-cols-2">
-            <HotRankCard title="概念热度" rank={data.concept_rank} configUrl="/concept-analysis" onStockClick={(symbol, name) => setPreviewStock({symbol, name})} />
-            <HotRankCard title="行业热度" rank={data.industry_rank} configUrl="/industry-analysis" onStockClick={(symbol, name) => setPreviewStock({symbol, name})} />
-          </div>
-
-          <div className="grid grid-cols-1 gap-1.5 sm:grid-cols-2 xl:grid-cols-4">
-            <StockList title="涨幅榜" rows={data.top_gainers} mode="gain" onStockClick={(symbol, name) => setPreviewStock({symbol, name})} />
-            <StockList title="跌幅榜" rows={data.top_losers} mode="loss" onStockClick={(symbol, name) => setPreviewStock({symbol, name})} />
-            <StockList title="成交额榜" rows={data.turnover_leaders} mode="amount" onStockClick={(symbol, name) => setPreviewStock({symbol, name})} />
-            <StockList title="活跃换手" rows={data.active_leaders} mode="active" onStockClick={(symbol, name) => setPreviewStock({symbol, name})} />
-          </div>
-        </main>
-
-        <aside className="min-w-0 space-y-1.5">
-          <section className="rounded-card border border-border bg-surface/80 p-1.5 shadow-[0_1px_2px_hsl(var(--border)/0.4)] backdrop-blur-sm transition-shadow hover:shadow-[0_2px_8px_hsl(var(--border)/0.5)]">
-            <SectionTitle icon={Flame} title="涨停梯队" hint={<span className="inline-flex items-center gap-1">{`涨停 ${data.limit.limit_up}`}{isSealedDegrade && <span className="text-[9px] px-1 rounded bg-yellow-500/10 text-yellow-600 dark:text-yellow-500">{hasDepth ? '未修正' : '降级'}</span>}</span>} />
-            <LadderMini limit={data.limit} />
-          </section>
-          <section className="rounded-card border border-border bg-surface/80 p-1.5 shadow-[0_1px_2px_hsl(var(--border)/0.4)] backdrop-blur-sm transition-shadow hover:shadow-[0_2px_8px_hsl(var(--border)/0.5)]">
-            <div className="mb-2 flex items-center justify-between gap-2">
-              <div className="flex items-center gap-1.5">
-                <BellRing className="h-3.5 w-3.5 text-accent" />
-                <h2 className="text-xs font-semibold text-foreground">监控中心</h2>
-                <span className="font-mono text-[10px] text-muted">实时信号</span>
-              </div>
-              <Link to="/monitor" className="inline-flex items-center justify-center h-5 w-5 rounded text-muted hover:text-accent hover:bg-accent/10 transition-colors" title="进入监控中心">
-                <ArrowUpRight className="h-3.5 w-3.5" />
-              </Link>
-            </div>
-            <MonitorWidget onStockClick={(event) => {
-              if (event.symbol) setPreviewStock({ symbol: event.symbol, name: event.name ?? undefined, alert: event })
-            }} />
-          </section>
-        </aside>
-      </div>
+      {/* 台股資料狀態(資料新鮮度) — 最下層, 不再是首頁第一眼內容。 */}
+      <TaiwanOverviewCard />
 
       <StockPreviewDialog
         symbol={previewStock?.symbol ?? null}
@@ -868,143 +533,5 @@ export function Dashboard() {
         onClose={() => setPreviewStock(null)}
       />
     </div>
-  )
-}
-
-// ===== 无数据常驻引导卡片: 一键触发盘后管道获取行情数据(无 Key 也可) =====
-function FetchDataCard({
-  isFetching, isStarting, fetchFailed, stage, fetchPct, onStart,
-  isTickflowProvider, providerLabel,
-}: {
-  isFetching: boolean
-  isStarting: boolean
-  fetchFailed: boolean
-  stage?: string
-  fetchPct?: number
-  onStart: () => void
-  isTickflowProvider: boolean
-  providerLabel: string
-}) {
-  const stageText = stage ? (STAGE_LABELS[stage] ?? stage) : '正在同步行情数据…'
-  return (
-    <div className="mb-3 rounded-card border border-border bg-surface/85 p-3.5">
-      <div className="flex items-start gap-3">
-        <div className="rounded-lg bg-accent/10 p-2 shrink-0">
-          <Database className="h-4 w-4 text-accent" />
-        </div>
-        <div className="min-w-0 flex-1">
-          <div className="text-sm font-medium text-foreground">当前暂无数据</div>
-          <p className="mt-1 text-xs text-secondary leading-relaxed">
-            首次使用需获取行情数据后才能查看看板。{isTickflowProvider
-              ? '可通过 TickFlow 免费服务器拉取近 1 年全 A 股日K'
-              : `将从当前数据源「${providerLabel}」拉取近 1 年全 A 股日K`}(约 5500 只),预计 1-3 分钟,期间可继续浏览其他页面。
-          </p>
-          {isTickflowProvider && (
-            <p className="mt-1 text-[11px] text-warning/80 leading-relaxed">
-              ⓘ 获取数据后即可进行策略定制、回测验证、选股扫描等本地分析功能。
-            </p>
-          )}
-
-          {isFetching ? (
-            <div className="mt-3">
-              <div className="flex items-center justify-between text-[11px] text-muted mb-1.5">
-                <span className="inline-flex items-center gap-1.5">
-                  <Loader2 className="h-3 w-3 animate-spin" />
-                  {isStarting ? '正在启动同步任务…' : stageText}
-                </span>
-                <span className="font-mono tabular">
-                  {typeof fetchPct === 'number' ? `${Math.round(fetchPct)}%` : ''}
-                </span>
-              </div>
-              <div className="h-1.5 rounded-full bg-elevated overflow-hidden">
-                <motion.div
-                  className="h-full bg-accent"
-                  initial={{ width: 0 }}
-                  animate={{ width: `${Math.max(2, Math.min(100, fetchPct ?? 0))}%` }}
-                  transition={{ duration: 0.4, ease: 'easeOut' }}
-                />
-              </div>
-            </div>
-          ) : fetchFailed ? (
-            <div className="mt-3 flex items-center gap-2">
-              <span className="text-xs text-danger">同步失败,请重试</span>
-              <button
-                onClick={onStart}
-                className="inline-flex items-center gap-1.5 px-3 h-8 rounded-btn bg-accent text-white text-xs font-medium hover:bg-accent/90 transition-colors"
-              >
-                <Play className="h-3.5 w-3.5" />重新获取
-              </button>
-            </div>
-          ) : (
-            <div className="mt-3 flex items-center gap-3">
-              <button
-                onClick={onStart}
-                className="inline-flex items-center gap-1.5 px-4 h-8 rounded-btn bg-accent text-white text-xs font-medium hover:bg-accent/90 transition-colors"
-              >
-                <Play className="h-3.5 w-3.5" />立即获取数据
-              </button>
-              <Link
-                to="/data"
-                className="inline-flex items-center gap-0.5 text-xs text-secondary hover:text-accent transition-colors"
-              >
-                前往数据页
-                <ArrowUpRight className="h-3 w-3 self-center" />
-              </Link>
-            </div>
-          )}
-        </div>
-      </div>
-    </div>
-  )
-}
-
-// ===== 首次使用自动弹窗: 询问用户后触发盘后管道 =====
-function WelcomeFetchModal({
-  onClose, onStart, isTickflowProvider, providerLabel,
-}: {
-  isTickflowProvider: boolean
-  providerLabel: string
-  onClose: () => void
-  onStart: () => void
-}) {
-  return (
-    <SettingsModal title="欢迎首次使用 · 获取行情数据" onClose={onClose}>
-      <div className="text-center">
-        <motion.div
-          initial={{ scale: 0.85, opacity: 0 }}
-          animate={{ scale: 1, opacity: 1 }}
-          transition={{ duration: 0.4, ease: [0.16, 1, 0.3, 1] }}
-          className="mx-auto w-fit rounded-2xl bg-accent/10 p-3.5"
-        >
-          <Sparkles className="h-7 w-7 text-accent" />
-        </motion.div>
-        <h3 className="mt-4 text-base font-semibold text-foreground">首次使用,需先获取行情数据</h3>
-        <p className="mt-2 text-xs text-secondary leading-relaxed">
-          {isTickflowProvider
-            ? '可通过 TickFlow 免费服务器拉取近 1 年全 A 股日K'
-            : `将从当前数据源「${providerLabel}」拉取近 1 年全 A 股日K`}(约 5500 只),预计 1-3 分钟。
-          同步期间可继续浏览其他页面,完成后看板自动刷新。
-        </p>
-        {isTickflowProvider && (
-          <div className="mt-3 rounded-btn bg-elevated/60 px-3 py-2 text-[11px] text-muted leading-relaxed">
-            ⓘ 获取数据后即可进行策略定制、回测验证等本地分析功能。
-          </div>
-        )}
-        <div className="mt-5 flex items-center justify-center gap-2.5">
-          <button
-            onClick={onClose}
-            className="px-4 h-9 rounded-btn text-sm text-secondary hover:text-foreground hover:bg-elevated transition-colors"
-          >
-            稍后再说
-          </button>
-          <button
-            onClick={onStart}
-            className="inline-flex items-center gap-2 px-5 h-9 rounded-xl bg-accent text-white text-sm font-semibold shadow-lg shadow-accent/20 hover:bg-accent/90 transition-all"
-          >
-            <Play className="h-4 w-4" />开始获取
-          </button>
-        </div>
-      </div>
-    </SettingsModal>
   )
 }

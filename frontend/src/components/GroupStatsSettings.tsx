@@ -10,14 +10,14 @@ import {
 } from '@/lib/watchlistGroupStats'
 
 /**
- * 分组「指标 + 排序」设置弹层 — 分组统计条与分组卡片共用。
- * 状态由父级持有并持久化, 这里只负责弹层交互与展示。
- * showCardLimit 为真时额外暴露分组卡片显示项 (条数/头部彩条/序号, 仅卡片视图有意义)。
+ * 分組「指標 + 排序」設置彈層 — 分組統計條與分組卡片共用。
+ * 狀態由父級持有並持久化, 這裡只負責彈層交互與展示。
+ * showCardLimit 為真時額外暴露分組卡片顯示項 (條數/頭部彩條/序號, 僅卡片視圖有意義)。
  */
 export function GroupStatsSettings({
   config,
   onChange,
-  ariaLabel = '分组统计设置',
+  ariaLabel = '分組統計設置',
   showCardLimit = false,
 }: {
   config: GroupStatsConfig
@@ -28,7 +28,7 @@ export function GroupStatsSettings({
   const [open, setOpen] = useState(false)
   const rootRef = useRef<HTMLDivElement>(null)
 
-  // 点击面板外部关闭 (与自选页搜索框同模式)
+  // 點擊面板外部關閉 (與自選頁搜索框同模式)
   useEffect(() => {
     if (!open) return
     const handleClick = (e: MouseEvent) => {
@@ -57,7 +57,7 @@ export function GroupStatsSettings({
       </button>
       {open && (
         <div className="absolute right-0 top-full z-30 mt-1 w-64 rounded-card border border-border bg-base p-3 shadow-xl">
-          <div className="text-[10px] uppercase tracking-wider text-muted">指标</div>
+          <div className="text-[10px] uppercase tracking-wider text-muted">指標</div>
           <div className="mt-1 flex flex-wrap gap-1">
             {GROUP_METRICS.map(m => (
               <button
@@ -94,11 +94,11 @@ export function GroupStatsSettings({
           </div>
           {showCardLimit && (
             <>
-              <div className="mt-2.5 text-[10px] uppercase tracking-wider text-muted">卡片显示</div>
-              <div className="mt-1 flex items-center gap-2" title="分组卡片默认展示组内前 N 条, 可展开查看全部">
+              <div className="mt-2.5 text-[10px] uppercase tracking-wider text-muted">卡片顯示</div>
+              <div className="mt-1 flex items-center gap-2" title="分組卡片默認展示組內前 N 條, 可展開查看全部">
                 <button
                   type="button"
-                  aria-label="减少卡片显示条数"
+                  aria-label="減少卡片顯示條數"
                   disabled={config.cardTopN <= GROUP_CARD_TOP_N_MIN}
                   onClick={() => onChange({ cardTopN: config.cardTopN - 1 })}
                   className="inline-flex h-5 w-5 items-center justify-center rounded bg-elevated text-secondary transition-colors hover:text-foreground hover:bg-elevated/80 disabled:cursor-not-allowed disabled:opacity-40"
@@ -106,11 +106,11 @@ export function GroupStatsSettings({
                   <Minus className="h-3 w-3" />
                 </button>
                 <span className="w-16 text-center font-mono text-[11px] tabular-nums text-secondary">
-                  前 {config.cardTopN} 条
+                  前 {config.cardTopN} 條
                 </span>
                 <button
                   type="button"
-                  aria-label="增加卡片显示条数"
+                  aria-label="增加卡片顯示條數"
                   disabled={config.cardTopN >= GROUP_CARD_TOP_N_MAX}
                   onClick={() => onChange({ cardTopN: config.cardTopN + 1 })}
                   className="inline-flex h-5 w-5 items-center justify-center rounded bg-elevated text-secondary transition-colors hover:text-foreground hover:bg-elevated/80 disabled:cursor-not-allowed disabled:opacity-40"
@@ -119,13 +119,13 @@ export function GroupStatsSettings({
                 </button>
               </div>
               <div className="mt-2 space-y-1.5">
-                <div className="flex items-center justify-between" title="分组卡片头部是否显示分组颜色底条">
-                  <span className="text-[11px] text-secondary">头部颜色</span>
+                <div className="flex items-center justify-between" title="分組卡片頭部是否顯示分組顏色底條">
+                  <span className="text-[11px] text-secondary">頭部顏色</span>
                   <button
                     type="button"
                     role="switch"
                     aria-checked={config.cardColorBar}
-                    aria-label="切换卡片头部颜色"
+                    aria-label="切換卡片頭部顏色"
                     onClick={() => onChange({ cardColorBar: !config.cardColorBar })}
                     className={`relative h-4 w-7 shrink-0 rounded-full transition-colors ${
                       config.cardColorBar ? 'bg-accent/60' : 'bg-elevated hover:bg-elevated/80'
@@ -138,13 +138,13 @@ export function GroupStatsSettings({
                     />
                   </button>
                 </div>
-                <div className="flex items-center justify-between" title="成员行左侧是否显示排名序号">
-                  <span className="text-[11px] text-secondary">序号</span>
+                <div className="flex items-center justify-between" title="成員行左側是否顯示排名序號">
+                  <span className="text-[11px] text-secondary">序號</span>
                   <button
                     type="button"
                     role="switch"
                     aria-checked={config.cardRank}
-                    aria-label="切换卡片序号显示"
+                    aria-label="切換卡片序號顯示"
                     onClick={() => onChange({ cardRank: !config.cardRank })}
                     className={`relative h-4 w-7 shrink-0 rounded-full transition-colors ${
                       config.cardRank ? 'bg-accent/60' : 'bg-elevated hover:bg-elevated/80'

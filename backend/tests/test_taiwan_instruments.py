@@ -11,10 +11,16 @@ Covers:
 """
 from __future__ import annotations
 
+import json
+
 import httpx
 
 from app.taiwan.universe import adapters
-from app.taiwan.universe.adapters import TwseInstrumentAdapter, parse_isin_html
+from app.taiwan.universe.adapters import (
+    TwseInstrumentAdapter,
+    _official_company_directory,
+    parse_isin_html,
+)
 
 TWSE_SAMPLE_HTML = """
 <html>
@@ -165,3 +171,48 @@ class TestTaiwanInstrumentAdaptersOffline:
         assert warrant is not None
         assert warrant.instrument_type == "unsupported"
         assert warrant.is_supported is False
+
+
+class TestOfficialCompanyDirectoryIndustryNormalization:
+    """Phase 8C-C Final Completion — the live-fetch company-directory path
+    (`_official_company_directory`, used by both `TwseInstrumentAdapter` and
+    `TpexInstrumentAdapter` in production when no HTML is injected) reads a
+    numeric industry code from the official JSON APIs ("產業別" /
+    "SecuritiesIndustryCode"), not a readable name. Confirms the fix: future
+    ingestion normalizes it via `resolve_industry_name()` before it ever
+    reaches `TaiwanInstrument.industry`.
+    """
+
+    def _mock_json_get(self, monkeypatch, rows: list[dict]):
+        def get(url, *, headers, timeout):
+            return httpx.Response(
+                200,
+                content=json.dumps(rows).encode("utf-8"),
+                request=httpx.Request("GET", url),
+            )
+        monkeypatch.setattr(adapters.httpx, "get", get)
+
+    def test_twse_numeric_industry_code_normalized_to_readable_name(self, monkeypatch):
+        self._mock_json_get(monkeypatch, [
+            {"公司代號": "1101", "公司簡稱": "台泥", "上市日期": "19620209", "產業別": "01"},
+        ])
+        items = _official_company_directory("TWSE", adapters.TWSE_COMPANIES_URL)
+        assert len(items) == 1
+        assert items[0].symbol == "1101.TWSE"
+        assert items[0].industry == "水泥工業"
+
+    def test_tpex_numeric_industry_code_normalized_to_readable_name(self, monkeypatch):
+        self._mock_json_get(monkeypatch, [
+            {"SecuritiesCompanyCode": "6488", "CompanyAbbreviation": "環球晶", "DateOfListing": "20191218", "SecuritiesIndustryCode": "24"},
+        ])
+        items = _official_company_directory("TPEX", adapters.TPEX_COMPANIES_URL)
+        assert len(items) == 1
+        assert items[0].symbol == "6488.TPEX"
+        assert items[0].industry == "半導體業"
+
+    def test_unmapped_numeric_industry_code_gets_honest_fallback(self, monkeypatch):
+        self._mock_json_get(monkeypatch, [
+            {"公司代號": "9103", "公司簡稱": "美食-DR", "上市日期": "20021213", "產業別": "91"},
+        ])
+        items = _official_company_directory("TWSE", adapters.TWSE_COMPANIES_URL)
+        assert items[0].industry == "未知產業（91）"

@@ -1,22 +1,22 @@
 import { useRef, useCallback } from 'react'
 
 /**
- * 对话框遮罩"点击外部关闭"的共享逻辑, 防止拖拽穿透。
+ * 對話框遮罩"點擊外部關閉"的共享邏輯, 防止拖拽穿透。
 
- * 问题: 用户在对话框内容内按下鼠标拖选文本, 鼠标移到遮罩上松开时,
- * 浏览器仍会触发遮罩的 click 事件 (click 派发给 mousedown/mouseup 的共同祖先),
- * 导致对话框意外关闭。
+ * 問題: 用戶在對話框內容內按下鼠標拖選文本, 鼠標移到遮罩上鬆開時,
+ * 瀏覽器仍會觸發遮罩的 click 事件 (click 派發給 mousedown/mouseup 的共同祖先),
+ * 導致對話框意外關閉。
 
- * 解法: 记录 mousedown 时是否落在遮罩本身上; 仅当 mousedown 和 mouseup(click)
- * 都发生在遮罩上时才触发关闭。
+ * 解法: 記錄 mousedown 時是否落在遮罩本身上; 僅當 mousedown 和 mouseup(click)
+ * 都發生在遮罩上時才觸發關閉。
 
  * 用法:
  *   const backdrop = useDialogBackdrop(onClose)
  *   <div className="fixed inset-0 ..." {...backdrop}>
- *     <div onClick={e => e.stopPropagation()}>内容</div>
+ *     <div onClick={e => e.stopPropagation()}>內容</div>
  *   </div>
  *
- * 对于有额外条件(如 isWorking 时禁止关闭)的场景, 传 enabled 回调:
+ * 對於有額外條件(如 isWorking 時禁止關閉)的場景, 傳 enabled 回調:
  *   const backdrop = useDialogBackdrop(onClose, () => !isWorking)
  */
 export function useDialogBackdrop(

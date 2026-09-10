@@ -13,23 +13,18 @@ from fastapi.staticfiles import StaticFiles
 
 from app import __version__
 from app.api import (
-    abnormal,
     alerts,
-    analysis,
     backtest,
     data,
     ext_data,
     financials,
-    indices,
     intraday,
     kline,
-    market_recap,
     mining,
     monitor_rules,
     overview,
     pipeline,
     regime,
-    rps,
     screener,
     signals,
     stock_analysis,
@@ -87,7 +82,7 @@ if not getattr(sys, "frozen", False):
 @asynccontextmanager
 async def _application_lifespan(app: FastAPI):
     logger.info(
-        "Tick Stock Panel v%s starting (mode=%s)",
+        "Nanachi 的台股監控看板 v%s starting (mode=%s)",
         __version__, tf_client.current_mode(),
     )
 
@@ -159,20 +154,45 @@ async def _application_lifespan(app: FastAPI):
     app.state.depth_service = depth_service
 
     # 启动调度器(若 enriched 数据为空,首次启动可手动 POST /api/pipeline/run)
+    #
+    # Phase 8B-5.0.2: 调度器仍然启动(台股 taiwan_daily_update 与通用
+    # reprobe_capabilities job 都注册在同一个 start_scheduler() 里,详见
+    # jobs/daily_pipeline.py:start_scheduler), 但立即移除以下纯 A 股 job:
+    #   - pre_market_instruments (同步 SH/SZ/BJ 个股维表)
+    #   - daily_pipeline          (A 股日K + enriched 盘后管道)
+    #   - depth_finalize          (A 股连板/封板 sealed 定版, 见下方 depth_service 说明)
+    # 不修改 jobs/daily_pipeline.py 本身 —— 该档案与其余 A 股 job 实作原样保留,
+    # 供后续正式删除 Phase 处理; 这里只停止「App 启动就自动跑」这件事。
+    #
+    # Phase 8B-5.11: scheduled_review(A 股大盘复盘 AI 报告)job 的註冊/執行
+    # 程式碼已隨 Review.tsx 一併從 jobs/daily_pipeline.py 徹底移除, 不再需要
+    # 在此逐一移除保護 —— scheduler 永遠不會註冊此 job。
+    _ASHARE_AUTO_JOB_IDS = (
+        "pre_market_instruments",
+        "daily_pipeline",
+        "depth_finalize",
+    )
     try:
         daily_pipeline.set_app_state(app.state)  # 供 depth_finalize job 访问 depth_service
         scheduler = daily_pipeline.start_scheduler(repo, capset)
+        for _job_id in _ASHARE_AUTO_JOB_IDS:
+            if scheduler.get_job(_job_id) is not None:
+                scheduler.remove_job(_job_id)
+                logger.info("A-share auto job stopped (Phase 8B-5.0.2): %s", _job_id)
         app.state.scheduler = scheduler
     except Exception as e:  # noqa: BLE001
         logger.warning("scheduler not started: %s", e)
         app.state.scheduler = None
 
-    # depth sealed: 启动补跑(当天文件不存在) + 盘中轮询(有能力时)
-    try:
-        depth_service.boot_check()
-        depth_service.start_polling()
-    except Exception as e:  # noqa: BLE001
-        logger.warning("depth_service init failed: %s", e)
+    # depth sealed(真假涨停/跌停, 纯 A 股概念): Phase 8B-5.0.2 停止其自动补跑 +
+    # 盘中轮询的自动启动。depth_service 实例仍然创建并注入 app.state(上方),
+    # ladder 规则类型等既有读路径不受影响, 只是不再有数据可读 —— 与"仅停止
+    # automatic startup, 不删除实作"的本 Phase 范围一致。
+    # try:
+    #     depth_service.boot_check()
+    #     depth_service.start_polling()
+    # except Exception as e:  # noqa: BLE001
+    #     logger.warning("depth_service init failed: %s", e)
 
     # 停机缺口自检: 延迟后台扫描, 发现最近交易日的盘中快照/缺口时自动创建
     # 修复任务 (盘中停机→次日开实时场景, 不修则坏数据被"只刷今天"分支永久留存)
@@ -187,36 +207,28 @@ async def _application_lifespan(app: FastAPI):
     except Exception as e:  # noqa: BLE001
         logger.warning("integrity boot check scheduling failed: %s", e)
 
-    # 企业微信智能机器人长连接(可选通道, 失败不阻断启动)
-    try:
-        from app.services.wecom_bot_service import WecomBotService
-        wecom_bot_service = WecomBotService()
-        wecom_bot_service.set_app_state(app.state)
-        app.state.wecom_bot_service = wecom_bot_service
-        wecom_bot_service.boot_check()
-    except Exception as e:  # noqa: BLE001
-        logger.warning("wecom_bot_service init failed: %s", e)
+    # Phase 8B-5.14 — 内置扩展表 (概念/行业, ext_gn_ths/ext_hy_ths) 为纯中国
+    # A 股同花顺概念/行业分类资料, 对台股产品无必要性 (见 Phase 8B-5.13 audit)。
+    # 停止 ensure_builtin_presets() 的自动调用: 全新安装不再自动创建这两个
+    # config.json / 不再自动排程 / 不再对 shy313.com 发起启动期请求。
+    # 已有旧 config (曾经启动过本产品早期版本的使用者) 完全不动 —— 不改写、
+    # 不删除其 config.json / 既有 parquet 数据, 只是让 PullScheduler 对这两个
+    # id "自动拉取惰性"(见下方 set_excluded_ids), 使既有安装与全新安装行为一致。
+    # extDataSchemaAll / dimensionMembers / _read_ext_dataframe 等唯读消费路径
+    # 完全不受影响, 现有数据仍可被读取, 只是不再自动刷新。
+    # 手动拉取入口 POST /api/ext-data/presets/{id}/fetch (fetch_preset) 未变更,
+    # 仍可按需手动触发 (该端点自行确保 config.json 存在)。
+    _ASHARE_EXT_PRESET_IDS = (
+        "ext_gn_ths",
+        "ext_hy_ths",
+    )
 
-    # 内置扩展表 (概念/行业): 先创建 config (含拉取配置), 默认开启定时拉取。
-    # 必须在 pull_scheduler.refresh() 之前执行, 否则全新部署时 scheduler 读不到
-    # 刚创建的预设, 定时任务不会启动。
-    try:
-        from app.services.ext_presets import ensure_builtin_presets
-        await ensure_builtin_presets(store.data_dir)
-    except Exception as e:  # noqa: BLE001
-        logger.warning("内置扩展表初始化失败 (不影响启动): %s", e)
-
-    # 扩展数据定时拉取: 在预设配置就绪后启动, 自动调度 enabled 的预设。
+    # 扩展数据定时拉取: 通用调度器, 对任何启用了 pull 的 ExtConfig 生效。
     from app.services.ext_pull import pull_scheduler
     pull_scheduler.start(store.data_dir)
+    pull_scheduler.set_excluded_ids(_ASHARE_EXT_PRESET_IDS)
     pull_scheduler.refresh(store.data_dir)
     app.state.pull_scheduler = pull_scheduler
-
-    # 财务数据 (需 Expert 套餐): 仅初始化调度器供 /api/financials/sync/* 手动同步,
-    # 不启动自动调度——用户在「财务分析」页点「同步」手动拉取。
-    from app.services.financial_sync import financial_scheduler
-    financial_scheduler.start(store.data_dir, capset)
-    app.state.financial_scheduler = financial_scheduler
 
     # 策略引擎
     from app.strategy.engine import StrategyEngine
@@ -345,18 +357,12 @@ async def _application_lifespan(app: FastAPI):
         ps = getattr(app.state, "pull_scheduler", None)
         if ps:
             ps.stop()
-        fsc = getattr(app.state, "financial_scheduler", None)
-        if fsc:
-            fsc.stop()
         qs = getattr(app.state, "quote_service", None)
         if qs:
             qs.stop()
         dsvc = getattr(app.state, "depth_service", None)
         if dsvc:
             dsvc.stop_polling()
-        wbot = getattr(app.state, "wecom_bot_service", None)
-        if wbot:
-            wbot.stop()
         logger.info("shutdown")
 
 
@@ -372,9 +378,9 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(
-    title="Tick Stock Panel",
+    title="Nanachi 的台股監控看板",
     version=__version__,
-    description="A 股选股 + 回测面板 — TickFlow 适配",
+    description="台股選股、監控與回測面板",
     lifespan=lifespan,
 )
 
@@ -444,23 +450,18 @@ app.include_router(screener.router)
 app.include_router(backtest.router)
 app.include_router(mining.router)
 app.include_router(intraday.router)
-app.include_router(indices.router)
 app.include_router(overview.router)
-app.include_router(abnormal.router)
 app.include_router(regime.router)
-app.include_router(analysis.router)
 app.include_router(pipeline.router)
 app.include_router(data.router)
 app.include_router(ext_data.router)
 app.include_router(financials.router)
 app.include_router(stock_analysis.router)
-app.include_router(market_recap.router)
 app.include_router(settings_api.router)
 app.include_router(strategy.router)
 app.include_router(signals.router)
 app.include_router(monitor_rules.router)
 app.include_router(alerts.router)
-app.include_router(rps.router)
 app.include_router(taiwan.router)
 
 # 二次开发路由与小粒度策略在所有核心路由后注册, 禁止覆盖核心路径。

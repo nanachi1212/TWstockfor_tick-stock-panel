@@ -1,4 +1,4 @@
-"""财务因子点时接入测试: 公告日门控 / 无数据 null 安全 / 双路径一致 / 历史累积同步。"""
+"""财务因子点时接入测试: 公告日门控 / 无数据 null 安全 / 双路径一致。"""
 from __future__ import annotations
 
 from datetime import date, timedelta
@@ -158,36 +158,3 @@ def test_fundamental_factor_names_are_catalogued():
 
     catalog_ids = {item["id"] for item in FACTOR_COLUMNS}
     assert catalog_ids >= FUNDAMENTAL_FACTOR_NAMES
-
-
-def test_financial_sync_merges_history(tmp_path: Path):
-    from app.services import financial_sync as fs
-
-    old = pl.DataFrame({
-        "symbol": ["600000.SH", "600000.SH"],
-        "period_end": ["2025-09-30", "2025-12-31"],
-        "announce_date": ["2025-10-28", "2026-01-20"],
-        "roe": [8.0, 9.0],
-    })
-    latest = pl.DataFrame({
-        "symbol": ["600000.SH", "000001.SZ"],
-        "period_end": ["2026-03-31", "2026-03-31"],
-        "announce_date": ["2026-04-25", "2026-04-24"],
-        "roe": [10.0, 5.0],
-    })
-    merged = fs._merge_report_history(old, latest)
-    assert merged.height == 4  # 旧各期保留 + 新一期并入
-    # 同期修正: 旧 2025-12-31 公告 2026-01-20 vs 更晚的修正公告
-    revised = pl.DataFrame({
-        "symbol": ["600000.SH"],
-        "period_end": ["2025-12-31"],
-        "announce_date": ["2026-02-01"],
-        "roe": [9.5],
-    })
-    merged2 = fs._merge_report_history(old, revised)
-    row = merged2.filter(
-        (pl.col("symbol") == "600000.SH") & (pl.col("period_end") == "2025-12-31")
-    )
-    assert row.height == 1
-    assert row["roe"].item() == 9.5
-    assert merged2.height == 2  # 修正不增加行数

@@ -19,26 +19,26 @@ interface Props {
   height?: number
   showIntraday?: boolean
   className?: string
-  /** 当用户点击蜡烛选中日期时回调（用于外部自动开启分时图）。 */
+  /** 當用戶點擊蠟燭選中日期時回調（用於外部自動開啟分時圖）。 */
   onSelectDate?: (date: string) => void
-  /** 外部传入的日期范围 */
+  /** 外部傳入的日期範圍 */
   dateRange?: { start: string; end: string }
   markers?: ChartMarker[]
   ranges?: ChartRange[]
   priceLines?: ChartPriceLine[]
   showLimitMarkers?: boolean
   showMarkerToggle?: boolean
-  /** 加监控回调 (传入后信息条显示 RadioTower 图标) */
+  /** 加監控回調 (傳入後信息條顯示 RadioTower 圖標) */
   onMonitor?: () => void
   onPriceDoubleClick?: (price: number, currentPrice: number) => void
-  /** 自选操作（传入后信息条显示 Star 图标） */
+  /** 自選操作（傳入後信息條顯示 Star 圖標） */
   inWatchlist?: boolean
   onAddToWatchlist?: (groupId: string | null) => void
   onRemoveFromWatchlist?: () => void
   watchlistPending?: boolean
-  /** 分时图自动刷新间隔(ms)。undefined = 不轮询。个股对话框盘中实时刷新时传入。 */
+  /** 分時圖自動刷新間隔(ms)。undefined = 不輪詢。個股對話框盤中實時刷新時傳入。 */
   refetchIntervalMs?: number
-  /** 只渲染信息条, 隐藏图表 (用于分时 tab 共享信息条) */
+  /** 只渲染信息條, 隱藏圖表 (用於分時 tab 共享信息條) */
   infoBarOnly?: boolean
 }
 
@@ -69,7 +69,7 @@ export function StockPanel({
   const [selectedDate, setSelectedDate] = useState<string | null>(null)
   const [intradayDismissed, setIntradayDismissed] = useState(false)
   const [dailyResult, setDailyResult] = useState<StockDailyKChartResult | null>(null)
-  // 信息条指标配置提升到此层：同时供 StockInfoBar 渲染与 StockDailyKChart 请求 ext 数据
+  // 信息條指標配置提升到此層：同時供 StockInfoBar 渲染與 StockDailyKChart 請求 ext 數據
   const [fields, setFields] = useState<ColumnConfig[]>(loadInfoFields)
   const extColumns = useMemo(() => buildInfoExtColumnsParam(fields), [fields])
 
@@ -78,8 +78,8 @@ export function StockPanel({
     saveInfoFields(next)
   }, [])
 
-  // 财务指标：仅当信息条配置含可见的财务字段且用户具备财务数据能力 (financial) 时才请求
-  // 无能力时跳过请求, 避免后端抛 CapabilityDenied (403) 导致 free/starter 档弹错误提示
+  // 財務指標：僅當信息條配置含可見的財務字段且用戶具備財務數據能力 (financial) 時才請求
+  // 無能力時跳過請求, 避免後端拋 CapabilityDenied (403) 導致 free/starter 檔彈錯誤提示
   const { data: caps } = useCapabilities()
   const hasFinancialCap = !!caps?.capabilities?.['financial']
   const hasFinanceField = useMemo(
@@ -101,10 +101,10 @@ export function StockPanel({
   const stockInfo = dailyResult?.stockInfo
   const rawRows: KlineRow[] = dailyResult?.rawRows ?? []
 
-  // symbol 变化时重置分时相关状态，避免切股后残留旧日期。
-  // 注意：必须跳过首次挂载——重开弹窗时 kline 命中 react-query 缓存，
-  // 子组件 onDataChange effect（先于父 effect 执行）会把 dailyResult 置为有效数据，
-  // 若此处再无条件清空，会把刚加载的数据抹掉，导致信息条整行消失。
+  // symbol 變化時重置分時相關狀態，避免切股後殘留舊日期。
+  // 注意：必須跳過首次掛載——重開彈窗時 kline 命中 react-query 緩存，
+  // 子組件 onDataChange effect（先於父 effect 執行）會把 dailyResult 置為有效數據，
+  // 若此處再無條件清空，會把剛加載的數據抹掉，導致信息條整行消失。
   const prevSymbol = useRef<string | null>(symbol)
   useEffect(() => {
     if (prevSymbol.current === symbol) return
@@ -114,7 +114,7 @@ export function StockPanel({
     setDailyResult(null)
   }, [symbol])
 
-  // 当分时开启、无选中日期时，自动选中最新日期
+  // 當分時開啟、無選中日期時，自動選中最新日期
   useEffect(() => {
     if (showIntraday && !selectedDate && rows.length > 0) {
       setSelectedDate(rows[rows.length - 1].date)
@@ -129,7 +129,7 @@ export function StockPanel({
       : undefined
   if (!symbol) return null
 
-  // 财务指标最新一期（metrics 按 period_end 排序，取首项）
+  // 財務指標最新一期（metrics 按 period_end 排序，取首項）
   const financialMetrics: FinancialMetricRecord | undefined = financials.data?.data?.[0]
 
   return (
@@ -174,8 +174,8 @@ export function StockPanel({
             <button
               onClick={() => setIntradayDismissed(true)}
               className="absolute -left-1.5 -top-1.5 z-10 flex h-5 w-5 items-center justify-center rounded-full border border-border bg-surface text-muted shadow-sm transition-colors hover:text-foreground hover:bg-elevated"
-              title="收起分时图"
-              aria-label="收起分时图"
+              title="收起分時圖"
+              aria-label="收起分時圖"
             >
               <X className="h-3 w-3" />
             </button>

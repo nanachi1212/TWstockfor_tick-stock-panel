@@ -1,5 +1,5 @@
 /**
- * 超时设置面板 — 数据任务超时配置。
+ * 超時設置面板 — 數據任務超時配置。
  */
 import { JobTimeoutCard } from './JobTimeoutCard'
 

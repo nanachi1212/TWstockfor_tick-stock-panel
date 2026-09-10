@@ -103,6 +103,11 @@ def sync_daily_batch(symbols: list[str],
     failed_out: 可选出参。拉取失败的分块标的会追加进该 list, 供上层判定「部分失败」
                 而非静默当成功(某分块断网 → 这些标的本轮未更新, 保持旧数据)。
     """
+    if preferences.get_daily_data_provider() in ("taiwan", "tickflow"):
+        from app.data_providers.registry import get_provider
+        provider = get_provider(preferences.get_daily_data_provider())
+        return provider.get_daily(symbols, start_time=start_time, end_time=end_time, on_chunk_done=on_chunk_done)
+
     tf = get_client()
     out: list[pl.DataFrame] = []
     chunks = chunked(symbols, batch_size)
@@ -170,6 +175,31 @@ def sync_and_persist_daily_batch(
         return 0
 
     provider_name = preferences.get_daily_data_provider()
+    if provider_name in ("taiwan", "tickflow"):
+        from app.data_providers.registry import get_provider
+        provider = get_provider(provider_name)
+        end_time = end_date or datetime.now()
+        days = count or 365
+        start_time = start_date or (end_time - timedelta(days=days))
+        df = provider.get_daily(
+            symbols,
+            start_time=start_time,
+            end_time=end_time,
+            on_chunk_done=on_chunk_done,
+        )
+        if df.is_empty():
+            return 0
+        repo.append_daily(df)
+        try:
+            d = repo.store.data_dir.as_posix()
+            repo.db.execute(
+                f"""CREATE OR REPLACE VIEW kline_daily AS
+                    SELECT * FROM read_parquet('{d}/kline_daily/**/*.parquet', union_by_name=true)"""
+            )
+        except Exception as e:  # noqa: BLE001
+            logger.warning("refresh view failed: %s", e)
+        return df.height
+
     if provider_name != "tickflow":
         from app.data_providers import custom as custom_sources
         if custom_sources.provider_has_dataset(provider_name, "daily"):
@@ -234,12 +264,14 @@ def sync_daily_by_quotes(repo: KlineRepository) -> int:
     一个请求覆盖 ~5500 只股票,比 batch K-line 快几个数量级。
     返回写入的行数。
     """
+    if preferences.get_daily_data_provider() in ("taiwan", "tickflow"):
+        return 0
+
     from datetime import date as _date
 
-    from app.tickflow.client import get_client
-
-    tf = get_client()
     try:
+        from app.tickflow.client import get_client
+        tf = get_client()
         resp = tf.quotes.get_by_universes(universes=["CN_Equity_A"])
     except Exception as e:
         logger.warning("get_by_universes failed: %s", e)
@@ -337,6 +369,8 @@ def sync_adj_factor(symbols: list[str], repo: KlineRepository,
     provider_name = preferences.get_adj_factor_provider()
     if provider_name == "same_as_daily":
         provider_name = preferences.get_daily_data_provider()
+    if provider_name in ("taiwan", "tickflow"):
+        return 0, []
     if provider_name != "tickflow":
         from app.data_providers import custom as custom_sources
         if custom_sources.provider_has_dataset(provider_name, "adj_factor"):
@@ -656,6 +690,9 @@ def sync_minute_batch(
             return pl.DataFrame()
         return df
 
+    if preferences.get_minute_data_provider() in ("taiwan", "tickflow"):
+        return pl.DataFrame()
+
     tf = get_client()
 
     # TickFlow count 上限 10000 根/股, 1 天 240 根 → 单次最多约 41 个交易日。
@@ -806,6 +843,9 @@ def fetch_intraday_monitor_batch(
             rpm=limits.rpm if limits else None,
         )
 
+    if preferences.get_minute_data_provider() in ("taiwan", "tickflow"):
+        return pl.DataFrame()
+
     tf = get_client()
     frames: list[pl.DataFrame] = []
     try:
@@ -850,6 +890,9 @@ def fetch_minute_single(
         # 见 sync_minute_batch 同分支注释: df 在此必非 None。
         return df if df is not None else pl.DataFrame()
 
+    if preferences.get_minute_data_provider() in ("taiwan", "tickflow"):
+        return pl.DataFrame()
+
     tf = get_client()
     try:
         raw = tf.klines.batch(
@@ -878,8 +921,14 @@ def fetch_adj_factor_single(symbol: str) -> pl.DataFrame:
     返回结构: symbol, trade_date, ex_factor (空 DataFrame 表示无除权事件或拉取失败)。
     与 _apply_adj_factor / compute_enriched 的 factors 参数格式一致。
     """
-    tf = get_client()
+    provider_name = preferences.get_adj_factor_provider()
+    if provider_name == "same_as_daily":
+        provider_name = preferences.get_daily_data_provider()
+    if provider_name in ("taiwan", "tickflow"):
+        return pl.DataFrame()
+
     try:
+        tf = get_client()
         raw = tf.klines.ex_factors([symbol], as_dataframe=True, show_progress=False)
     except Exception as e:  # noqa: BLE001
         logger.warning("fetch_adj_factor_single(%s) failed: %s", symbol, e)

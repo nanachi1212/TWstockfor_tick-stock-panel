@@ -9,7 +9,6 @@ from __future__ import annotations
 import logging
 
 from fastapi import APIRouter, HTTPException, Query
-
 from app.taiwan.current_data import (
     TaiwanCurrentDataResponse,
     TaiwanDatasetCapability,
@@ -68,6 +67,77 @@ def get_taiwan_data_status():
     """獲取台股市場三大本地數據集 (日線、三大法人、融資券) 之最新落盤日期與市場時效狀況。"""
     svc = TaiwanDailyUpdateService()
     return svc.get_freshness()
+
+
+from app.taiwan.bootstrap import (
+    BootstrapJobState,
+    TaiwanBootstrapService,
+    TaiwanHistoryStatus,
+    get_history_status,
+)
+
+
+@router.get("/history-status", response_model=TaiwanHistoryStatus)
+def get_taiwan_history_status():
+    """獲取台股歷史日 K 資料狀態 (是否已落盤、最早/最新日期、交易日數、是否需初始化)。"""
+    return get_history_status()
+
+
+@router.post("/bootstrap/run")
+def run_taiwan_bootstrap():
+    """觸發從 GitHub Release 一鍵下載官方歷史日 K 資料包並自動解壓與補齊最新日。"""
+    svc = TaiwanBootstrapService()
+    job_id = svc.start_bootstrap()
+    job = svc.get_job(job_id)
+    return {"job_id": job_id, "status": job.status if job else "pending"}
+
+
+@router.get("/bootstrap/jobs/{job_id}", response_model=BootstrapJobState)
+def get_taiwan_bootstrap_job(job_id: str):
+    """查詢台股歷史資料 Bootstrap 下載與解壓進度。"""
+    svc = TaiwanBootstrapService()
+    job = svc.get_job(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail=f"找不到任務 {job_id}")
+    return job
+
+
+@router.get("/bootstrap/stream/{job_id}")
+async def stream_taiwan_bootstrap_job(job_id: str):
+    """SSE 即時推播 Bootstrap 任務進度。"""
+    import asyncio
+    from sse_starlette.sse import EventSourceResponse
+
+    svc = TaiwanBootstrapService()
+    job = svc.get_job(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail=f"找不到任務 {job_id}")
+
+    async def event_generator():
+        while True:
+            cur = svc.get_job(job_id)
+            if not cur:
+                break
+            payload = cur.model_dump_json()
+            yield {"event": "progress", "data": payload}
+            if cur.status in ("success", "failed"):
+                break
+            await asyncio.sleep(0.5)
+
+    return EventSourceResponse(event_generator())
+
+
+@router.post("/bootstrap/update-latest")
+def update_taiwan_history_to_latest():
+    """已有歷史資料時，直接增量補齊至當前最新交易日（不重新下載整包）。"""
+    svc = TaiwanBootstrapService()
+    try:
+        return svc.update_to_latest()
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        logger.exception("Update to latest failed: %s", exc)
+        raise HTTPException(status_code=500, detail=f"更新至最新交易日失敗: {exc}") from exc
 
 
 @router.get("/capabilities", response_model=list[TaiwanDatasetCapability])

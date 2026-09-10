@@ -52,7 +52,7 @@ interface Props {
   onDateClick?: (date: string) => void
   onPriceDoubleClick?: (price: number, currentPrice: number) => void
   onDataChange?: (result: StockDailyKChartResult) => void
-  /** 扩展数据列参数（逗号分隔 config_id.field_name），透传给 klineDaily 接口 */
+  /** 擴展數據列參數（逗號分隔 config_id.field_name），透傳給 klineDaily 接口 */
   extColumns?: string
 }
 
@@ -145,7 +145,7 @@ export function StockDailyKChart({
   const dateRange = externalDateRange ?? getDefaultRange()
   const days = useMemo(() => rangeDays(dateRange), [dateRange])
 
-  // extColumns 纳入 query key：勾选/取消扩展字段时需重新请求（带 ext_columns 参数）
+  // extColumns 納入 query key：勾選/取消擴展字段時需重新請求（帶 ext_columns 參數）
   const kline = useQuery({
     queryKey: QK.kline(symbol, dateRange.start, dateRange.end, extColumns),
     queryFn: () => api.klineDaily(symbol, days, dateRange, extColumns),
@@ -224,8 +224,8 @@ export function StockDailyKChart({
                 type="button"
                 role="switch"
                 aria-checked={volumeCompare.enabled}
-                aria-label="开启量能对比"
-                title={volumeCompare.enabled ? '关闭量能对比' : '开启量能对比'}
+                aria-label="開啟量能對比"
+                title={volumeCompare.enabled ? '關閉量能對比' : '開啟量能對比'}
                 onClick={() => updateVolumeCompare({ enabled: !volumeCompare.enabled })}
                 className={`relative h-3.5 w-6 shrink-0 rounded-full transition-colors ${
                   volumeCompare.enabled ? 'bg-accent' : 'bg-elevated'
@@ -236,7 +236,7 @@ export function StockDailyKChart({
                 }`} />
               </button>
               <select
-                aria-label="量能对比周期"
+                aria-label="量能對比週期"
                 value={volumeCompare.days}
                 disabled={!volumeCompare.enabled}
                 onChange={event => updateVolumeCompare({ days: Number(event.target.value) })}
@@ -257,15 +257,22 @@ export function StockDailyKChart({
                   : 'bg-elevated text-muted hover:text-secondary'
               }`}
             >
-              异动
+              異動
             </button>
           )}
         </div>
       )}
-      {kline.isLoading && <div className="text-sm text-muted py-4">加载中…</div>}
-      {kline.isError && <div className="text-sm text-danger py-2">日K加载失败</div>}
+      {kline.isLoading && <div className="text-sm text-muted py-4">載入中…</div>}
+      {kline.isError && <div className="text-sm text-danger py-2">日K載入失敗</div>}
+      {/* DAILY_USE_CORE_UX_FIXES (P1-3): HTTP 成功但 rows 本身就是空陣列(該標的
+          在本機 K 線資料源尚無資料)時, 過去沒有對應分支, 畫面留下一片空白,
+          使用者無法分辨是「還在載入」還是「壞掉」。與下面「格式異常」分支
+          (rows 有值但全部解析失敗)區分, 不誤報成 error。 */}
+      {!kline.isLoading && !kline.isError && (kline.data?.rows?.length ?? 0) === 0 && (
+        <div className="text-sm text-muted py-4">目前沒有可顯示的日 K 資料</div>
+      )}
       {!kline.isLoading && !kline.isError && (kline.data?.rows?.length ?? 0) > 0 && rows.length === 0 && (
-        <div className="text-sm text-danger py-2">数据格式异常，请刷新页面</div>
+        <div className="text-sm text-danger py-2">資料格式異常，請重新整理頁面</div>
       )}
       {rows.length > 0 && (
         <EChartsCandlestick

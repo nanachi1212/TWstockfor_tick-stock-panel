@@ -1,11 +1,11 @@
 import type { StrategyDetail } from './api'
 
-/** 信号 id 归一 (与策略回测页一致): 裸名补 signal_ 前缀。 */
+/** 信號 id 歸一 (與策略回測頁一致): 裸名補 signal_ 前綴。 */
 export const toSignalId = (sig: string) =>
   sig.startsWith('signal_') || sig.startsWith('csg_') ? sig : `signal_${sig}`
 
-/** 从策略详情构建默认 overrides (basic_filter / 信号 / 风控)。
- * 优化器与策略回测页共用, 保证优化的就是用户当前配置的策略。 */
+/** 從策略詳情構建默認 overrides (basic_filter / 信號 / 風控)。
+ * 優化器與策略回測頁共用, 保證優化的就是用戶當前配置的策略。 */
 export function buildDefaultOverrides(detail: StrategyDetail): Record<string, any> {
   return {
     basic_filter: { ...detail.basic_filter },

@@ -1,15 +1,14 @@
 /**
- * 统一设置页面 — Tab 切换外壳。
+ * 統一設置頁面 — Tab 切換外殼。
  *
- * 通过 URL query param ?tab=xxx 同步 Tab 状态。
+ * 通過 URL query param ?tab=xxx 同步 Tab 狀態。
  */
 import { useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { motion } from 'framer-motion'
-import { BarChart3, Database, Radio, SlidersHorizontal, Sparkles, Settings2, Zap, PanelLeftClose, PanelLeftOpen, Clock3 } from 'lucide-react'
+import { Database, Radio, SlidersHorizontal, Sparkles, Settings2, Zap, PanelLeftClose, PanelLeftOpen, Clock3 } from 'lucide-react'
 import { SettingsAIPanel } from './settings/AI'
 import { SettingsMonitoringPanel } from './settings/Monitoring'
-import { SettingsExtPagesPanel } from './settings/ExtPages'
 import { SettingsMenuSettingsPanel } from './settings/MenuSettings'
 import { SettingsTimeoutPanel } from './settings/Timeout'
 import { SettingsSystemPanel } from './settings/System'
@@ -20,7 +19,7 @@ import { cn } from '@/lib/cn'
 
 import type { ComponentType } from 'react'
 
-// ===== Tab 定义 =====
+// ===== Tab 定義 =====
 
 type TabDef = {
   key: string
@@ -31,14 +30,13 @@ type TabDef = {
 }
 
 const TABS: readonly TabDef[] = [
-  { key: 'data-sources', label: '数据源',     icon: Database,  panel: SettingsDataSourcesPanel },
-  { key: 'ai',         label: 'AI 设置',    icon: Sparkles,  panel: SettingsAIPanel },
-  { key: 'monitoring', label: '实时监控',   icon: Radio,     panel: SettingsMonitoringPanel },
-  { key: 'ext-pages',  label: '扩展页面',   icon: BarChart3, panel: SettingsExtPagesPanel },
-  { key: 'signals',    label: '信号库',     icon: Zap,       panel: SettingsCustomSignalsPanel },
-  { key: 'timeout',    label: '超时设置',   icon: Clock3,    panel: SettingsTimeoutPanel },
-  { key: 'menus',      label: '菜单设置',   icon: SlidersHorizontal, panel: SettingsMenuSettingsPanel },
-  { key: 'system',     label: '系统设置',   icon: Settings2, panel: SettingsSystemPanel },
+  { key: 'data-sources', label: '資料來源',     icon: Database,  panel: SettingsDataSourcesPanel },
+  { key: 'ai',         label: 'AI 設定',    icon: Sparkles,  panel: SettingsAIPanel },
+  { key: 'monitoring', label: '即時監控',   icon: Radio,     panel: SettingsMonitoringPanel },
+  { key: 'signals',    label: '訊號庫',     icon: Zap,       panel: SettingsCustomSignalsPanel },
+  { key: 'timeout',    label: '逾時設定',   icon: Clock3,    panel: SettingsTimeoutPanel },
+  { key: 'menus',      label: '選單設定',   icon: SlidersHorizontal, panel: SettingsMenuSettingsPanel },
+  { key: 'system',     label: '系統設定',   icon: Settings2, panel: SettingsSystemPanel },
 ]
 
 type TabKey = (typeof TABS)[number]['key']
@@ -49,7 +47,7 @@ export function Settings() {
   const activeTab = TABS.find((t) => t.key === tabParam) ?? TABS[0]
   const highlight = searchParams.get('highlight') ?? ''
 
-  // 设置菜单收起状态 — 持久化到 localStorage
+  // 設置菜單收起狀態 — 持久化到 localStorage
   const [collapsed, setCollapsed] = useState(() => {
     try { return localStorage.getItem('tf-settings-nav-collapsed') === '1' } catch { return false }
   })
@@ -64,32 +62,32 @@ export function Settings() {
   return (
     <>
       <PageHeader
-        title="设置"
-        subtitle="管理账户、数据刷新策略和高级功能配置。"
+        title="設定"
+        subtitle="管理帳戶、資料重新整理策略與進階功能設定。"
       />
 
       <div className="px-8 py-6">
         <div className="flex gap-6 items-stretch">
-          {/* ===== 竖向 Tab 侧栏 ===== */}
+          {/* ===== 豎向 Tab 側欄 ===== */}
           <nav className={cn('shrink-0 transition-all duration-200 ease-smooth', collapsed ? 'w-10' : 'w-36')}>
             <div className="flex flex-col gap-0.5 justify-center min-h-[60vh] sticky top-6">
-              {/* 收起/展开 按钮 */}
+              {/* 收起/展開 按鈕 */}
               <button
                 onClick={toggleCollapsed}
                 className={cn(
                   'flex items-center gap-2 rounded-btn text-muted hover:text-foreground hover:bg-elevated/60 transition-colors duration-150 ease-smooth mb-1',
                   collapsed ? 'justify-center px-0 py-2' : 'px-3 py-2 text-xs',
                 )}
-                title={collapsed ? '展开菜单' : '收起菜单'}
+                title={collapsed ? '展開選單' : '收起選單'}
               >
                 {collapsed
                   ? <PanelLeftOpen className="h-3.5 w-3.5 shrink-0" />
                   : <PanelLeftClose className="h-3.5 w-3.5 shrink-0" />
                 }
-                {!collapsed && <span>收起菜单</span>}
+                {!collapsed && <span>收起選單</span>}
               </button>
 
-              {/* Tab 按钮列表 — 收起时只显示图标 */}
+              {/* Tab 按鈕列表 — 收起時只顯示圖標 */}
               {TABS.map(({ key, label, icon: Icon, badge }) => (
                 <button
                   key={key}
@@ -115,7 +113,7 @@ export function Settings() {
             </div>
           </nav>
 
-          {/* ===== Tab 内容 ===== */}
+          {/* ===== Tab 內容 ===== */}
           <motion.div
             key={activeTab.key}
             initial={{ opacity: 0, y: 6 }}

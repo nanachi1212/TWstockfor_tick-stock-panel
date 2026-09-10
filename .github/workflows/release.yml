@@ -1,53 +1,62 @@
-name: 桌面客户端发布
+name: 桌面客戶端發佈
 
-# 触发方式: 手动 (workflow_dispatch)。
-# 在 GitHub Actions 页面点 "Run workflow", 选择要构建的平台 + 版本号,
-# 构建完成后自动创建/更新 Release 并上传安装包。
+# 觸發方式: 手動 (workflow_dispatch)。
+# 在 GitHub Actions 頁面點 "Run workflow", 選擇要構建的平台,
+# 構建完成後自動創建/更新 Release 並上傳安裝包。
 #
-# 为什么不用 tag 自动触发:
-#   - 多平台并行构建, mac/linux 未就绪时会自动失败污染 Release
-#   - 手动触发可精确控制 "今天只发 Windows, 明天补 mac"
-#   - 版本号通过 input 传入, 与 tag 解耦, 更灵活
+# 為什麼不用 tag 自動觸發:
+#   - 多平台並行構建, mac/linux 未就緒時會自動失敗汙染 Release
+#   - 手動觸發可精確控制 "今天只發 Windows, 明天補 mac"
+#   - 版本號固定從倉庫根目錄 VERSION 讀取
 #
 # 使用:
-#   gh workflow run release.yml -f version=v0.2.0 -f platforms=windows
-#   或 GitHub 网页 Actions → 桌面客户端发布 → Run workflow
+#   gh workflow run release.yml -f platforms=windows
+#   或 GitHub 網頁 Actions → 桌面客戶端發佈 → Run workflow
 on:
   workflow_dispatch:
     inputs:
-      version:
-        description: '版本号 (如 v0.1.33, 用作 Release tag 和标题)'
-        required: true
-        default: 'v0.1.33'
       platforms:
-        description: '要构建的平台 (逗号分隔: windows,macos,linux)'
+        description: '要構建的平台 (逗號分隔: windows,macos,linux)'
         required: true
         default: 'windows'
       prerelease:
-        description: '是否为预发布 (勾选则标记为 Pre-release)'
+        description: '是否為預發佈 (勾選則標記為 Pre-release)'
         type: boolean
         default: false
 
 permissions:
-  contents: write   # 创建 Release 需要写权限
+  contents: write   # 創建 Release 需要寫權限
 
 jobs:
-  # 第一步: 过滤出本次要构建的平台
+  # 第一步: 過濾出本次要構建的平台
   prepare:
     runs-on: ubuntu-latest
     outputs:
       matrix: ${{ steps.filter.outputs.matrix }}
+      version: ${{ steps.version.outputs.version }}
+      release_tag: ${{ steps.version.outputs.release_tag }}
     steps:
+      - name: 檢出代碼
+        uses: actions/checkout@v4
+
+      - name: 驗證版本
+        id: version
+        run: |
+          python3 scripts/check_version.py
+          RELEASE_TAG=$(tr -d '\r\n' < VERSION)
+          echo "release_tag=$RELEASE_TAG" >> "$GITHUB_OUTPUT"
+          echo "version=${RELEASE_TAG#v}" >> "$GITHUB_OUTPUT"
+
       - id: filter
         run: |
           REQUESTED="${{ github.event.inputs.platforms }}"
-          # macOS 仅构建 ARM64 (Apple Silicon), 不构建 Intel:
-          #   1) GitHub 最后一个原生 Intel runner (macos-13) 已于 2025-12-04 退役;
-          #   2) 项目依赖 polars, 而 polars 自 1.33 起移除了 macOS x86_64 原生 wheel
-          #      (改 py3-none-any), 在 arm64 runner 上经 Rosetta 无法产出可运行的 x64 包。
-          #   runner 用 macos-26 (2026-02 GA, 免费, arm64 原生, SDK 更新)。
-          ALL='[{"os":"windows-latest","artifact":"TickFlowStockPanel-Setup-x64.exe","platform":"windows"},{"os":"macos-26","artifact":"TickFlowStockPanel-macos-arm64.dmg","platform":"macos","arch":"arm64"},{"os":"ubuntu-latest","artifact":"TickFlowStockPanel-linux-x64.tar.gz","platform":"linux"}]'
-          # 按 input 过滤平台 (macos → arm64 单项)
+          # macOS 僅構建 ARM64 (Apple Silicon), 不構建 Intel:
+          #   1) GitHub 最後一個原生 Intel runner (macos-13) 已於 2025-12-04 退役;
+          #   2) 項目依賴 polars, 而 polars 自 1.33 起移除了 macOS x86_64 原生 wheel
+          #      (改 py3-none-any), 在 arm64 runner 上經 Rosetta 無法產出可運行的 x64 包。
+          #   runner 用 macos-26 (2026-02 GA, 免費, arm64 原生, SDK 更新)。
+          ALL='[{"os":"windows-latest","artifact":"NanachiStockPanel-Setup-x64.exe","platform":"windows"},{"os":"macos-26","artifact":"NanachiStockPanel-macos-arm64.dmg","platform":"macos","arch":"arm64"},{"os":"ubuntu-latest","artifact":"NanachiStockPanel-linux-x64.tar.gz","platform":"linux"}]'
+          # 按 input 過濾平台 (macos → arm64 單項)
           python3 -c "
           import json, sys
           requested = '${{ github.event.inputs.platforms }}'.split(',')
@@ -59,87 +68,87 @@ jobs:
               f.write('matrix=' + json.dumps({'include': selected}) + '\n')
           "
 
-  # 第二步: 各平台并行构建
+  # 第二步: 各平台並行構建
   build:
     needs: prepare
     runs-on: ${{ matrix.os }}
     strategy:
-      fail-fast: false   # 单平台失败不影响其他平台
+      fail-fast: false   # 單平台失敗不影響其他平台
       matrix: ${{ fromJson(needs.prepare.outputs.matrix) }}
     steps:
-      - name: 检出代码
+      - name: 檢出代碼
         uses: actions/checkout@v4
 
-      - name: 安装 pnpm
+      - name: 安裝 pnpm
         uses: pnpm/action-setup@v4
         with:
           version: 9
 
-      - name: 设置 Node 20
+      - name: 設置 Node 20
         uses: actions/setup-node@v4
         with:
           node-version: '20'
           cache: 'pnpm'
           cache-dependency-path: frontend/pnpm-lock.yaml
 
-      - name: 构建前端
+      - name: 構建前端
         working-directory: frontend
         run: |
           pnpm install --frozen-lockfile
           pnpm build
 
-      - name: 安装 uv
+      - name: 安裝 uv
         uses: astral-sh/setup-uv@v3
         with:
           enable-cache: true
 
-      - name: 设置 Python
+      - name: 設置 Python
         run: uv python install 3.12
 
-      - name: 安装后端依赖 (含 desktop + legacy-cpu, 不含 backtest)
+      - name: 安裝後端依賴 (含 desktop + legacy-cpu, 不含 backtest)
         working-directory: backend
-        # --no-dev 排除 pytest/ruff/mypy; --extra desktop 装 pywebview
-        # --extra legacy-cpu 装 polars[rtcompat] 运行时兼容内核:
-        #   让安装包同时兼容 AVX2 新 CPU 和无 AVX2 的老 CPU (NAS/老服务器/国产 CPU)。
-        #   rtcompat 会在运行时自动探测 CPU 能力 —— 有 AVX2 用 AVX2, 没有则回退,
-        #   对新 CPU 性能几乎无损 (Polars 1.x 官方推荐方案)。
+        # --no-dev 排除 pytest/ruff/mypy; --extra desktop 裝 pywebview
+        # --extra legacy-cpu 裝 polars[rtcompat] 運行時兼容內核:
+        #   讓安裝包同時兼容 AVX2 新 CPU 和無 AVX2 的老 CPU (NAS/老服務器/國產 CPU)。
+        #   rtcompat 會在運行時自動探測 CPU 能力 —— 有 AVX2 用 AVX2, 沒有則回退,
+        #   對新 CPU 性能幾乎無損 (Polars 1.x 官方推薦方案)。
         # 不加 --extra backtest, 主包不含 vectorbt/numba/llvmlite
         run: uv sync --no-dev --extra desktop --extra legacy-cpu
 
-      - name: 安装 PyInstaller
-        # 必须装进 backend 的 uv 环境 (pywebview/polars 等依赖都在那里),
-        # 否则根目录 uv run 找不到依赖, 打包出来的产物启动即崩。
+      - name: 安裝 PyInstaller
+        # 必須裝進 backend 的 uv 環境 (pywebview/polars 等依賴都在那裡),
+        # 否則根目錄 uv run 找不到依賴, 打包出來的產物啟動即崩。
         # 注意: 不用 `uv pip install --project backend` —— 在 macos runner 上
-        # --project 的 venv 自动发现不可靠 (报 "No virtual environment found")。
-        # 用 working-directory 进 backend 目录, 与上面 uv sync 的环境一致。
+        # --project 的 venv 自動發現不可靠 (報 "No virtual environment found")。
+        # 用 working-directory 進 backend 目錄, 與上面 uv sync 的環境一致。
         working-directory: backend
         run: uv pip install pyinstaller
 
-      - name: 生成 macOS 图标 (仅 macOS)
+      - name: 生成 macOS 圖標 (僅 macOS)
         if: matrix.platform == 'macos'
-        # icon.ico 已入库 (Windows 直接用), 但 icon.icns 未入库 (macOS 专用产物)。
-        # 用 generate_icon.py 现场生成, 否则 spec 第 37 行 BUNDLE 会因找不到图标而崩。
-        # 注意: Pillow 不是 backend 的运行时依赖 (它属于 backtest 的 matplotlib 链),
-        # --no-dev --extra desktop 不装它, 故需在此显式安装 (仅图标生成需要)。
+        # icon.ico 已入庫 (Windows 直接用), 但 icon.icns 未入庫 (macOS 專用產物)。
+        # 用 generate_icon.py 現場生成, 否則 spec 第 37 行 BUNDLE 會因找不到圖標而崩。
+        # 注意: Pillow 不是 backend 的運行時依賴 (它屬於 backtest 的 matplotlib 鏈),
+        # --no-dev --extra desktop 不裝它, 故需在此顯式安裝 (僅圖標生成需要)。
         working-directory: backend
         run: |
           uv pip install pillow
           uv run python ../packaging/generate_icon.py
 
       - name: 打包 (PyInstaller)
-        # 在 backend 目录跑 (用该目录的 venv: pywebview/polars 等依赖)。
-        # 产物输出到 backend/dist/ (PyInstaller 默认路径), 与 packaging/tickflow.iss
-        # 第 78 行的 Source 路径 (..\backend\dist\TickFlowStockPanel\*) 保持一致。
-        # SPECPATH 由 spec 文件位置决定 (packaging/tickflow.spec → 项目根),
-        # 与 cwd 无关, 故 frontend/dist、tiers.yaml 等相对路径仍正确。
+        # 在 backend 目錄跑 (用該目錄的 venv: pywebview/polars 等依賴)。
+        # 產物輸出到 backend/dist/ (PyInstaller 默認路徑), 與 packaging/tickflow.iss
+        # 第 81 行的 Source 路徑 (..\backend\dist\NanachiStockPanel\*) 保持一致。
+        # SPECPATH 由 spec 文件位置決定 (packaging/tickflow.spec → 項目根),
+        # 與 cwd 無關, 故 frontend/dist、tiers.yaml 等相對路徑仍正確。
         working-directory: backend
         run: uv run pyinstaller ../packaging/tickflow.spec --noconfirm
 
-      - name: 检查 Polars 兼容内核 (仅 Windows)
+      - name: 檢查 Polars 兼容內核 (僅 Windows)
         if: matrix.platform == 'windows'
         shell: pwsh
         run: |
-          $runtimeRoot = 'backend/dist/TickFlowStockPanel/_internal'
+          $runtimeRoot = 'backend/dist/NanachiStockPanel/_internal'
           $required = @(
             '_polars_runtime_32/_polars_runtime.pyd',
             '_polars_runtime_compat/_polars_runtime.pyd'
@@ -151,31 +160,31 @@ jobs:
             throw "PyInstaller output is missing Polars runtime(s): $($missing -join ', ')"
           }
 
-      - name: 安装 Inno Setup (仅 Windows)
+      - name: 安裝 Inno Setup (僅 Windows)
         if: matrix.platform == 'windows'
-        # Inno Setup 6: 把 PyInstaller 产出封装成单文件安装包
+        # Inno Setup 6: 把 PyInstaller 產出封裝成單文件安裝包
         run: choco install innosetup -y --no-progress
 
-      - name: 生成 Windows 安装包 (Inno Setup)
+      - name: 生成 Windows 安裝包 (Inno Setup)
         if: matrix.platform == 'windows'
-        # 从 frontend/package.json 读版本号传给 ISCC, 保持与 Release tag 一致
+        # 從 prepare job 的 VERSION 結果傳給 ISCC。
         run: |
-          $ver = (Get-Content frontend/package.json | ConvertFrom-Json).version
-          echo "版本号: $ver"
+          $ver = '${{ needs.prepare.outputs.version }}'
+          echo "版本號: $ver"
           ISCC.exe "/DMyAppVersion=$ver" packaging/tickflow.iss
-          # 把生成的 Setup.exe 移到工作区根 (Release 上传用)
-          Move-Item packaging/Output/TickFlowStockPanel-Setup-$ver.exe ${{ matrix.artifact }} -Force
+          # 把生成的 Setup.exe 移到工作區根 (Release 上傳用)
+          Move-Item packaging/Output/NanachiStockPanel-Setup-$ver.exe ${{ matrix.artifact }} -Force
         shell: pwsh
 
       - name: 生成 DMG (macOS)
         if: matrix.platform == 'macos'
-        # 用 create-dmg 生成标准 macOS DMG:
-        # 挂载后显示一个带背景的卷, 左侧 app 图标, 右侧 Applications 替身,
-        # 用户直接把图标拖进 Applications 即完成安装 (符合 mac 习惯)。
-        # --app-drop-link 在指定坐标生成 Applications 替身 (即"拖拽安装"箭头的目标);
-        # --skip-jenkins 跳过 Finder 排图标动画 (CI 无 GUI, 否则 AppleScript 卡住)。
-        # 工作目录是项目根 (与 Windows/Linux 步骤一致), 产物输出到根。
-        # create-dmg 语法: create-dmg [选项] <输出.dmg> <源目录或.app>
+        # 用 create-dmg 生成標準 macOS DMG:
+        # 掛載後顯示一個帶背景的卷, 左側 app 圖標, 右側 Applications 替身,
+        # 用戶直接把圖標拖進 Applications 即完成安裝 (符合 mac 習慣)。
+        # --app-drop-link 在指定座標生成 Applications 替身 (即"拖拽安裝"箭頭的目標);
+        # --skip-jenkins 跳過 Finder 排圖標動畫 (CI 無 GUI, 否則 AppleScript 卡住)。
+        # 工作目錄是項目根 (與 Windows/Linux 步驟一致), 產物輸出到根。
+        # create-dmg 語法: create-dmg [選項] <輸出.dmg> <源目錄或.app>
         run: |
           brew install create-dmg
           create-dmg \
@@ -183,54 +192,54 @@ jobs:
             --window-pos 200 120 \
             --window-size 600 400 \
             --icon-size 100 \
-            --icon "TickFlowStockPanel.app" 175 190 \
+            --icon "NanachiStockPanel.app" 175 190 \
             --app-drop-link 425 190 \
-            --hide-extension "TickFlowStockPanel.app" \
+            --hide-extension "NanachiStockPanel.app" \
             --skip-jenkins \
             --no-internet-enable \
             "${{ matrix.artifact }}" \
-            backend/dist/TickFlowStockPanel.app
+            backend/dist/NanachiStockPanel.app
 
-      - name: 压缩产物 (Linux)
+      - name: 壓縮產物 (Linux)
         if: matrix.platform == 'linux'
         run: |
           cd backend/dist
-          tar -czf ../../${{ matrix.artifact }} TickFlowStockPanel
+          tar -czf ../../${{ matrix.artifact }} NanachiStockPanel
 
-      - name: 上传产物为构建产物 (备查)
+      - name: 上傳產物為構建產物 (備查)
         uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.artifact }}
           path: ${{ matrix.artifact }}
 
-      - name: 上传到 GitHub Release
+      - name: 上傳到 GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ github.event.inputs.version }}
-          name: ${{ github.event.inputs.version }}
+          tag_name: ${{ needs.prepare.outputs.release_tag }}
+          name: ${{ needs.prepare.outputs.release_tag }}
           files: ${{ matrix.artifact }}
           prerelease: ${{ github.event.inputs.prerelease }}
-          generate_release_notes: true   # 自动从 commit 生成 changelog
+          generate_release_notes: true   # 自動從 commit 生成 changelog
           body: |
-            ## 桌面客户端 ${{ github.event.inputs.version }}
+            ## 桌面應用程式 ${{ needs.prepare.outputs.release_tag }}
 
-            ### ⬇️ 下载
+            ### ⬇️ 下載
 
-            | 平台 | 文件 | 下载 |
+            | 平台 | 檔案 | 下載 |
             | :--- | :--- | :--- |
-            | **Windows x64** | `TickFlowStockPanel-Setup-x64.exe` | [⬇️ 立即下载](https://github.com/${{ github.repository }}/releases/download/${{ github.event.inputs.version }}/TickFlowStockPanel-Setup-x64.exe) |
-            | **macOS (Apple Silicon / M 系列芯片)** | `TickFlowStockPanel-macos-arm64.dmg` | [⬇️ 立即下载](https://github.com/${{ github.repository }}/releases/download/${{ github.event.inputs.version }}/TickFlowStockPanel-macos-arm64.dmg) |
-            | **Linux** | `TickFlowStockPanel-linux-x64.tar.gz` | [⬇️ 立即下载](https://github.com/${{ github.repository }}/releases/download/${{ github.event.inputs.version }}/TickFlowStockPanel-linux-x64.tar.gz) |
+            | **Windows x64** | `NanachiStockPanel-Setup-x64.exe` | [⬇️ 立即下載](https://github.com/${{ github.repository }}/releases/download/${{ needs.prepare.outputs.release_tag }}/NanachiStockPanel-Setup-x64.exe) |
+            | **macOS (Apple Silicon / M 系列晶片)** | `NanachiStockPanel-macos-arm64.dmg` | [⬇️ 立即下載](https://github.com/${{ github.repository }}/releases/download/${{ needs.prepare.outputs.release_tag }}/NanachiStockPanel-macos-arm64.dmg) |
+            | **Linux** | `NanachiStockPanel-linux-x64.tar.gz` | [⬇️ 立即下載](https://github.com/${{ github.repository }}/releases/download/${{ needs.prepare.outputs.release_tag }}/NanachiStockPanel-linux-x64.tar.gz) |
 
-            > 💡 点击「立即下载」直接获取, 无需滚动到底部附件区。
-            > 🍎 **macOS 仅提供 Apple Silicon (M 系列芯片) 版本**: 点左上角  → "关于本机", 看"芯片"一项是否为 Apple; Intel 芯片 Mac 暂不支持 (上游 polars 已停止发布 Intel wheel)。
+            > 💡 點「立即下載」可直接取得, 不必捲到頁面底部的附件區。
+            > 🍎 **macOS 僅提供 Apple Silicon (M 系列晶片) 版本**: 點左上角  → 「關於這台 Mac」, 看「晶片」一項是否為 Apple; Intel 晶片的 Mac 暫不支援 (上游 polars 已停止發佈 Intel wheel)。
 
-            ### 📋 使用说明
-            - **Windows**: 下载后双击运行, 按安装向导操作(无需管理员权限), 自动创建桌面/开始菜单快捷方式
-            - **macOS**: 双击 dmg 打开, 将 TickFlowStockPanel 拖入 Applications 文件夹; 首次启动需右键→打开(绕过 Gatekeeper)
-            - **Linux**: 解压后运行可执行文件
-            - 数据存储在安装目录下的 `data/` 子文件夹, 卸载重装不丢数据
-            - 内置 Polars 兼容内核, 新老 CPU (无 AVX2) 均可运行
-            - 含纯 Polars 回测引擎; 不含 vectorbt 回测(为控制体积)
-            - 系统通知: 设置 → 实时监控 → 系统通知
-            - 检查更新: 设置 → 系统设置 → 关于
+            ### 📋 使用說明
+            - **Windows**: 下載後雙擊執行, 依安裝精靈操作(不需系統管理員權限), 會自動建立桌面與開始功能表捷徑
+            - **macOS**: 雙擊 dmg 開啟, 將 NanachiStockPanel 拖進 Applications 資料夾; 首次啟動需按右鍵→開啟(繞過 Gatekeeper)
+            - **Linux**: 解壓縮後執行可執行檔
+            - 資料存放在安裝目錄下的 `data/` 子資料夾, 解除安裝後重新安裝不會遺失
+            - 內建 Polars 相容核心, 新舊 CPU (無 AVX2) 都可執行
+            - 內含純 Polars 回測引擎; 不含 vectorbt 回測(為控制體積)
+            - 系統通知: 設定 → 即時監控 → 系統通知
+            - 檢查更新: 設定 → 系統設定 → 關於

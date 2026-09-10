@@ -5,6 +5,7 @@ import json
 from collections.abc import Iterable
 from dataclasses import asdict, dataclass, fields
 from datetime import datetime
+from html import unescape
 from pathlib import Path
 from typing import Any
 
@@ -178,11 +179,13 @@ class TaiwanOfficialETFData:
 
     def profile(self, symbol: str, exchange: str) -> TaiwanETFProfile:
         retrieved, row = self._row(symbol, exchange)
+        name_raw = str(row.get("基金簡稱") or "").strip()
+        benchmark_raw = str(row.get("標的指數/追蹤指數名稱") or "").strip()
         return TaiwanETFProfile(
             symbol=symbol,
-            name=str(row.get("基金簡稱") or "").strip() or None,
+            name=unescape(name_raw).strip() or None,
             exchange=exchange,
-            benchmark=str(row.get("標的指數/追蹤指數名稱") or "").strip() or None,
+            benchmark=unescape(benchmark_raw).strip() or None,
             etf_type=str(row.get("基金類型") or "").strip() or None,
             inception_date=self._official_date(row.get("成立日期")),
             listing_date=self._official_date(row.get("上市日期")),

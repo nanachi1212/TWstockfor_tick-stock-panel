@@ -1,10 +1,10 @@
 /**
- * 通用列表列自定义组件。
+ * 通用列表列自定義組件。
  *
  * 布局：
- * - 上半区「已启用」：已启用的列，@dnd-kit 拖拽排序
- * - 下半区「内置列」：按业务分组折叠
- * - 底部「扩展数据列」：复用 ext_data schema，按需添加字段
+ * - 上半區「已啟用」：已啟用的列，@dnd-kit 拖拽排序
+ * - 下半區「內置列」：按業務分組摺疊
+ * - 底部「擴展數據列」：複用 ext_data schema，按需添加字段
  */
 import React, { useState, useCallback, useEffect, useMemo } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
@@ -35,19 +35,19 @@ interface ListColumnCustomizerProps {
   builtinSectionLabel?: string
   extColumnAlign?: 'left' | 'center' | 'right'
   extFieldFilter?: (field: { name: string; label: string; type: string }) => boolean
-  /** 是否显示扩展数据列区块（默认 true；信息条等无法渲染 ext 数据的场景设为 false）。 */
+  /** 是否顯示擴展數據列區塊（默認 true；信息條等無法渲染 ext 數據的場景設為 false）。 */
   showExtColumns?: boolean
-  /** 是否显示「单独显示」勾选项（默认 false；仅信息条场景启用，让某列独占一行）。 */
+  /** 是否顯示「單獨顯示」勾選項（默認 false；僅信息條場景啟用，讓某列獨佔一行）。 */
   showStandaloneToggle?: boolean
 }
 
-/** 判断扩展数据字段类型是否为数字(int/float/double/number/decimal 等)。
- * 旧列 source 无 fieldType 时默认 true(放宽), 让旧列也能配置数字格式 ——
- * 若列实际非数字, 渲染时 typeof val==='number' 判断会跳过格式化, 无副作用。 */
+/** 判斷擴展數據字段類型是否為數字(int/float/double/number/decimal 等)。
+ * 舊列 source 無 fieldType 時默認 true(放寬), 讓舊列也能配置數字格式 ——
+ * 若列實際非數字, 渲染時 typeof val==='number' 判斷會跳過格式化, 無副作用。 */
 function isNumericFieldType(ft?: string): boolean {
   if (!ft) return true
   const t = ft.toLowerCase()
-  // 明确是文本类则不显示
+  // 明確是文本類則不顯示
   if (['str', 'string', 'text', 'char', 'varchar', 'date', 'time', 'bool', 'boolean'].some(k => t.includes(k))) {
     return false
   }
@@ -110,9 +110,9 @@ function SortableActiveCol({ col, onRemove, onConfig, configOpen, extTableLabel,
                 ? 'text-accent bg-accent/10'
                 : 'text-muted hover:text-secondary opacity-0 group-hover:opacity-100'
             }`}
-            title={col.standalone ? '取消单独显示' : '单独一行显示'}
+            title={col.standalone ? '取消單獨顯示' : '單獨一行顯示'}
           >
-            {col.standalone ? '单独' : '单行'}
+            {col.standalone ? '單獨' : '單行'}
           </button>
         )}
         {hasConfig && (
@@ -127,7 +127,7 @@ function SortableActiveCol({ col, onRemove, onConfig, configOpen, extTableLabel,
         <button
           onClick={() => onRemove(col.id)}
           className="opacity-0 group-hover:opacity-100 text-muted hover:text-danger transition-all shrink-0"
-          title="隐藏"
+          title="隱藏"
         >
           <EyeOff className="h-3 w-3" />
         </button>
@@ -143,8 +143,8 @@ export function ListColumnCustomizer({
   onChange,
   open,
   onClose,
-  title = '自定义列',
-  builtinSectionLabel = '内置列',
+  title = '自訂列',
+  builtinSectionLabel = '內建列',
   extColumnAlign = 'center',
   extFieldFilter,
   showExtColumns = true,
@@ -328,14 +328,14 @@ export function ListColumnCustomizer({
     >
       <div className="pl-10 pr-3 py-2 space-y-2 border-l-2 border-accent/20 ml-[18px]">
         <label className="flex items-center gap-2 text-xs">
-          <span className="text-secondary w-16 shrink-0">显示模式</span>
+          <span className="text-secondary w-16 shrink-0">顯示模式</span>
           <select
             value={col.extDisplay?.displayMode ?? 'tag'}
             onChange={e => updateExtDisplay(col.id, { displayMode: e.target.value as 'tag' | 'text' })}
             className="flex-1 h-7 rounded bg-elevated border border-border text-foreground text-xs px-2 focus:outline-none focus:border-accent/50"
           >
-            <option value="tag">标签</option>
-            <option value="text">纯文本</option>
+            <option value="tag">標籤</option>
+            <option value="text">純文字</option>
           </select>
         </label>
         {(col.extDisplay?.displayMode ?? 'tag') === 'tag' && (
@@ -345,13 +345,13 @@ export function ListColumnCustomizer({
               type="text"
               value={col.extDisplay?.separator ?? ''}
               onChange={e => updateExtDisplay(col.id, { separator: e.target.value })}
-              placeholder="默认：、,，;；-"
+              placeholder="預設：、,，;；-"
               className="flex-1 h-7 rounded bg-elevated border border-border text-foreground text-xs px-2 placeholder:text-muted focus:outline-none focus:border-accent/50"
             />
           </label>
         )}
         <label className="flex items-center gap-2 text-xs">
-          <span className="text-secondary w-16 shrink-0">最大列宽</span>
+          <span className="text-secondary w-16 shrink-0">最大欄寬</span>
           <input
             type="text"
             value={col.extDisplay?.maxWidth ?? ''}
@@ -362,7 +362,7 @@ export function ListColumnCustomizer({
         </label>
         {(col.extDisplay?.displayMode ?? 'tag') === 'tag' && (
           <label className="flex items-center gap-2 text-xs">
-            <span className="text-secondary w-16 shrink-0">显示前N个</span>
+            <span className="text-secondary w-16 shrink-0">顯示前N個</span>
             <input
               type="number" min={0}
               value={col.extDisplay?.maxTags ?? ''}
@@ -377,7 +377,7 @@ export function ListColumnCustomizer({
         )}
         {(col.extDisplay?.displayMode ?? 'tag') === 'tag' && (col.extDisplay?.maxTags ?? 0) > 0 && (
           <div className="flex items-center gap-2 text-xs">
-            <span className="text-secondary w-16 shrink-0">显示位置</span>
+            <span className="text-secondary w-16 shrink-0">顯示位置</span>
             <div className="flex flex-wrap gap-1">
               {Array.from({ length: col.extDisplay!.maxTags! }, (_, i) => {
                 const hidden = col.extDisplay?.hiddenIndices?.includes(i)
@@ -410,21 +410,21 @@ export function ListColumnCustomizer({
                   (col.extDisplay?.tagLayout ?? 'horizontal') === 'horizontal'
                     ? 'bg-accent/15 text-accent' : 'bg-elevated text-secondary hover:text-foreground'
                 }`}
-              >横向</button>
+              >橫向</button>
               <button
                 onClick={() => updateExtDisplay(col.id, { tagLayout: 'vertical' })}
                 className={`px-3 py-1 text-xs transition-colors border-l border-border ${
                   col.extDisplay?.tagLayout === 'vertical'
                     ? 'bg-accent/15 text-accent' : 'bg-elevated text-secondary hover:text-foreground'
                 }`}
-              >竖向</button>
+              >縱向</button>
             </div>
           </label>
         )}
-        {/* 数字格式化配置: 千分位 + 单位换算 + 小数位(仅 number 类型字段) */}
+        {/* 數字格式化配置: 千分位 + 單位換算 + 小數位(僅 number 類型字段) */}
         {col.source.type === 'ext' && isNumericFieldType(col.source.fieldType) && (
           <>
-            <div className="border-t border-border/40 pt-2 mt-1 text-[10px] text-muted">数字格式</div>
+            <div className="border-t border-border/40 pt-2 mt-1 text-[10px] text-muted">數字格式</div>
             <label className="flex items-center gap-2 text-xs">
               <span className="text-secondary w-16 shrink-0">千分位</span>
               <button
@@ -442,28 +442,28 @@ export function ListColumnCustomizer({
               <span className="text-[10px] text-muted">如 1,234,567</span>
             </label>
             <label className="flex items-center gap-2 text-xs">
-              <span className="text-secondary w-16 shrink-0">单位换算</span>
+              <span className="text-secondary w-16 shrink-0">單位換算</span>
               <select
                 value={col.extDisplay?.unitConvert ?? 'none'}
                 onChange={e => updateExtDisplay(col.id, { unitConvert: e.target.value as 'none' | 'wan' | 'yi' | 'auto' })}
                 className="flex-1 h-7 rounded bg-elevated border border-border text-foreground text-xs px-2 focus:outline-none focus:border-accent/50"
               >
-                <option value="none">不换算</option>
-                <option value="wan">万 (÷1万)</option>
-                <option value="yi">亿 (÷1亿)</option>
-                <option value="auto">自动 (≥亿用亿, ≥万用万)</option>
+                <option value="none">不換算</option>
+                <option value="wan">萬 (÷1萬)</option>
+                <option value="yi">億 (÷1億)</option>
+                <option value="auto">自動 (≥億用億, ≥萬用萬)</option>
               </select>
             </label>
             {(col.extDisplay?.unitConvert ?? 'none') !== 'none' && (
               <label className="flex items-center gap-2 text-xs">
-                <span className="text-secondary w-16 shrink-0">小数位</span>
+                <span className="text-secondary w-16 shrink-0">小數位</span>
                 <input
                   type="number" min={0} max={6} step={1}
                   value={col.extDisplay?.unitDecimals ?? 2}
                   onChange={e => updateExtDisplay(col.id, { unitDecimals: Math.max(0, Math.min(6, Number(e.target.value) || 0)) })}
                   className="w-16 h-7 rounded bg-elevated border border-border text-foreground text-xs px-2 text-center focus:outline-none focus:border-accent/50"
                 />
-                <span className="text-[10px] text-muted">换算后保留几位</span>
+                <span className="text-[10px] text-muted">換算後保留幾位</span>
               </label>
             )}
           </>
@@ -471,7 +471,7 @@ export function ListColumnCustomizer({
         {col.extDisplay && (
           <div className="flex justify-end pt-1">
             <button onClick={() => resetExtDisplay(col.id)} className="text-[10px] text-muted hover:text-foreground transition-colors">
-              恢复默认
+              恢復預設
             </button>
           </div>
         )}
@@ -479,7 +479,7 @@ export function ListColumnCustomizer({
     </motion.div>
   )
 
-  // 策略列配置（精简版：仅显示数量/位置/排列方向，复用 extDisplay 存储）
+  // 策略列配置（精簡版：僅顯示數量/位置/排列方向，複用 extDisplay 存儲）
   const renderStrategiesConfig = (col: ColumnConfig) => (
     <motion.div
       initial={{ height: 0, opacity: 0 }}
@@ -490,7 +490,7 @@ export function ListColumnCustomizer({
     >
       <div className="pl-10 pr-3 py-2 space-y-2 border-l-2 border-accent/20 ml-[18px]">
         <label className="flex items-center gap-2 text-xs">
-          <span className="text-secondary w-16 shrink-0">显示前N个</span>
+          <span className="text-secondary w-16 shrink-0">顯示前N個</span>
           <input
             type="number" min={0}
             value={col.extDisplay?.maxTags ?? ''}
@@ -504,7 +504,7 @@ export function ListColumnCustomizer({
         </label>
         {(col.extDisplay?.maxTags ?? 0) > 0 && (
           <div className="flex items-center gap-2 text-xs">
-            <span className="text-secondary w-16 shrink-0">显示位置</span>
+            <span className="text-secondary w-16 shrink-0">顯示位置</span>
             <div className="flex flex-wrap gap-1">
               {Array.from({ length: col.extDisplay!.maxTags! }, (_, i) => {
                 const hidden = col.extDisplay?.hiddenIndices?.includes(i)
@@ -536,20 +536,20 @@ export function ListColumnCustomizer({
                 (col.extDisplay?.tagLayout ?? 'horizontal') === 'horizontal'
                   ? 'bg-accent/15 text-accent' : 'bg-elevated text-secondary hover:text-foreground'
               }`}
-            >横向</button>
+            >橫向</button>
             <button
               onClick={() => updateExtDisplay(col.id, { tagLayout: 'vertical' })}
               className={`px-3 py-1 text-xs transition-colors border-l border-border ${
                 col.extDisplay?.tagLayout === 'vertical'
                   ? 'bg-accent/15 text-accent' : 'bg-elevated text-secondary hover:text-foreground'
               }`}
-            >竖向</button>
+            >縱向</button>
           </div>
         </label>
         {col.extDisplay && (
           <div className="flex justify-end pt-1">
             <button onClick={() => resetExtDisplay(col.id)} className="text-[10px] text-muted hover:text-foreground transition-colors">
-              恢复默认
+              恢復預設
             </button>
           </div>
         )}
@@ -559,7 +559,7 @@ export function ListColumnCustomizer({
 
   const renderCandleConfig = (col: ColumnConfig) => {
     const cfg = resolveCandleConfig(col.candleConfig)
-    // 数值输入: onChange 存原始值(不钳制, 允许自由输入), onBlur 钳制边界
+    // 數值輸入: onChange 存原始值(不鉗制, 允許自由輸入), onBlur 鉗制邊界
     const numInput = (
       field: keyof CandleColumnConfig,
       label: string,
@@ -571,12 +571,12 @@ export function ListColumnCustomizer({
           value={col.candleConfig?.[field] ?? cfg[field]}
           onChange={e => {
             const raw = e.target.value
-            // 空字符串 → 存 undefined (回退到默认值显示); 否则存原始数字 (不钳制)
+            // 空字符串 → 存 undefined (回退到默認值顯示); 否則存原始數字 (不鉗制)
             updateCandleConfig(col.id, { [field]: raw === '' ? undefined : Number(raw) } as Partial<CandleColumnConfig>)
           }}
           onBlur={e => {
             const raw = e.target.value
-            // 失焦时钳制: 过大取上限、过小取最小值
+            // 失焦時鉗制: 過大取上限、過小取最小值
             const merged = resolveCandleConfig({ ...col.candleConfig, [field]: raw === '' ? undefined : Number(raw) })
             updateCandleConfig(col.id, { [field]: merged[field] } as Partial<CandleColumnConfig>)
           }}
@@ -593,18 +593,18 @@ export function ListColumnCustomizer({
         className="overflow-hidden"
       >
         <div className="pl-10 pr-3 py-2 space-y-2 border-l-2 border-accent/20 ml-[18px]">
-          {numInput('days', '日k天数')}
-          {numInput('enabledWidth', '开启宽度')}
-          {numInput('enabledHeight', '开启高度')}
-          {numInput('disabledWidth', '收起宽度')}
+          {numInput('days', '日k天數')}
+          {numInput('enabledWidth', '開啟寬度')}
+          {numInput('enabledHeight', '開啟高度')}
+          {numInput('disabledWidth', '收起寬度')}
           {numInput('disabledHeight', '收起高度')}
           <div className="text-[10px] text-muted leading-relaxed pt-0.5">
-            宽度 40–300 / 高度 32–200 / 天数 1–60，越界自动钳制到边界
+            寬度 40–300 / 高度 32–200 / 天數 1–60，越界自動鉗制到邊界
           </div>
           {col.candleConfig && (
             <div className="flex justify-end pt-1">
               <button onClick={() => resetCandleConfig(col.id)} className="text-[10px] text-muted hover:text-foreground transition-colors">
-                恢复默认
+                恢復預設
               </button>
             </div>
           )}
@@ -646,15 +646,15 @@ export function ListColumnCustomizer({
         className="overflow-hidden"
       >
         <div className="pl-10 pr-3 py-2 space-y-2 border-l-2 border-accent/20 ml-[18px]">
-          {numInput('width', '宽度')}
+          {numInput('width', '寬度')}
           {numInput('height', '高度')}
           <div className="text-[10px] text-muted leading-relaxed pt-0.5">
-            宽度 60–300 / 高度 32–200，越界自动钳制到边界
+            寬度 60–300 / 高度 32–200，越界自動鉗制到邊界
           </div>
           {col.intradayConfig && (
             <div className="flex justify-end pt-1">
               <button onClick={() => resetIntradayConfig(col.id)} className="text-[10px] text-muted hover:text-foreground transition-colors">
-                恢复默认
+                恢復預設
               </button>
             </div>
           )}
@@ -690,9 +690,9 @@ export function ListColumnCustomizer({
               ? 'text-accent bg-accent/10'
               : 'text-muted hover:text-secondary'
           }`}
-          title={col.standalone ? '取消单独显示' : '单独一行显示'}
+          title={col.standalone ? '取消單獨顯示' : '單獨一行顯示'}
         >
-          {col.standalone ? '单独' : '单行'}
+          {col.standalone ? '單獨' : '單行'}
         </button>
       )}
     </div>
@@ -744,7 +744,7 @@ export function ListColumnCustomizer({
                   type="text"
                   value={searchQuery}
                   onChange={e => setSearchQuery(e.target.value)}
-                  placeholder="搜索列名..."
+                  placeholder="搜尋欄位名稱..."
                   className="w-full h-8 pl-8 pr-3 rounded-lg bg-elevated border border-border text-xs text-foreground placeholder:text-muted focus:outline-none focus:border-accent/50 transition-colors"
                 />
               </div>
@@ -755,7 +755,7 @@ export function ListColumnCustomizer({
                 <div>
                   <div className="flex items-center gap-1.5 px-1 py-1.5">
                     <Eye className="h-3 w-3 text-accent/70" />
-                    <span className="text-[10px] font-semibold text-accent/80 uppercase tracking-wider">已启用</span>
+                    <span className="text-[10px] font-semibold text-accent/80 uppercase tracking-wider">已啟用</span>
                     <span className="text-[10px] text-muted">{activeCols.length} 列 · 拖拽排序</span>
                   </div>
                   <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
@@ -832,7 +832,7 @@ export function ListColumnCustomizer({
                 <div className="pt-1 border-t border-border mt-1">
                   <div className="flex items-center gap-1.5 px-1 py-1.5">
                     <Database className="h-3 w-3 text-accent/70" />
-                    <span className="text-[10px] font-semibold text-accent/80 uppercase tracking-wider">扩展数据列</span>
+                    <span className="text-[10px] font-semibold text-accent/80 uppercase tracking-wider">擴展資料列</span>
                   </div>
                   <div className="space-y-0.5">
                     {extTables.map(table => {
@@ -853,7 +853,7 @@ export function ListColumnCustomizer({
                             {isExpanded ? <ChevronDown className="h-3 w-3 text-muted" /> : <ChevronRight className="h-3 w-3 text-muted" />}
                             <Database className="h-3 w-3 text-accent shrink-0" />
                             <span className="text-[11px] font-medium text-secondary flex-1">{table.label}</span>
-                            <span className="text-[10px] text-muted">{table.mode === 'snapshot' ? '快照' : '时序'}</span>
+                            <span className="text-[10px] text-muted">{table.mode === 'snapshot' ? '快照' : '時序'}</span>
                             {activeCount > 0 && (
                               <span className="text-[10px] text-accent font-medium">{activeCount}</span>
                             )}
@@ -880,7 +880,7 @@ export function ListColumnCustomizer({
 
               {showExtColumns && extTables.length === 0 && extSchema.isSuccess && (
                 <div className="text-xs text-muted text-center py-4">
-                  暂无扩展数据表，可在「数据」页面创建
+                  暫無擴展資料表，可在「資料」頁面建立
                 </div>
               )}
             </div>

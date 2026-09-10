@@ -1,11 +1,23 @@
 """设置 API — Key 配置 / 模式切换。
 
 提供面向非开发者的 UI 配置入口,避免逼用户改 .env。
+
+Phase 8B-FINAL: 移除已确认 zero 消费者且具明确风险的孤儿端点——
+switch_endpoint(持久化任意呼叫者提供的 HTTPS URL 并重置 TickFlow 客户端指向
+该端点,zero 前端消费者)、test_endpoint(对呼叫者提供的任意 URL 发起服务端
+出站请求探测延迟,SSRF 形态,zero 前端消费者)、endpoints(仅服务已随
+Data.tsx/EndpointTestDialog.tsx 一并删除的端点诊断功能, zero 消费者,一并
+清理避免留下孤儿残片)、pipeline-schedule/instruments-schedule 两个偏好
+setter(zero 前端消费者, 且会持久化配置并呼叫 scheduler.reschedule_job 操作
+已被 Phase 8B-5.0.2 从调度器移除的 daily_pipeline/pre_market_instruments
+job——目前虽因 job 不存在而实际上会抛错, 但一旦该 job id 未来被重新注册即
+恢复危险)。DEFAULT_PAID_ENDPOINT / tf_client / capability detection /
+preferences.get_pipeline_schedule() 与 get_instruments_schedule()(供
+daily_pipeline.py 的 start_scheduler() 读取排程时间)等底层能力完全未动。
 """
 from __future__ import annotations
 
 import logging
-import time
 from typing import Literal
 
 from fastapi import APIRouter, HTTPException, Request
@@ -29,21 +41,6 @@ router = APIRouter(prefix="/api/settings", tags=["settings"])
 # 默认端点 —— endpoints.json 列表第一项,UI"当前使用"始终对齐此项。
 # 注意:Free 模式 SDK 实际走 free-api(免费数据通道),但 UI 显示统一用默认节点。
 DEFAULT_PAID_ENDPOINT = "https://api.tickflow.org"
-
-
-def _sync_financial_scheduler_caps(app_state, capset) -> None:
-    """把重新探测出的能力同步给财务调度器。
-
-    app.state.capabilities 在此已更新, 但 FinancialScheduler 在启动时捕获的是旧引用,
-    需显式刷新, 否则用户升级到 Expert 后点「全部同步」仍会因调度器读旧 capset 而被拒。
-    """
-    fs = getattr(app_state, "financial_scheduler", None)
-    if fs is None:
-        return
-    try:
-        fs.update_capabilities(capset)
-    except Exception as e:  # noqa: BLE001
-        logging.getLogger(__name__).warning("update financial_scheduler capabilities failed: %s", e)
 
 
 class TickflowKeyIn(BaseModel):
@@ -98,36 +95,6 @@ def get_settings() -> dict:
     }
 
 
-class SwitchEndpointIn(BaseModel):
-    url: str
-
-
-@router.post("/switch_endpoint")
-def switch_endpoint(req: SwitchEndpointIn, request: Request) -> dict:
-    """切换 TickFlow 端点并立即生效。
-
-    端点切换仅对付费档(starter+,走 api.tickflow.org)有意义;
-    none/free 档运行在 free-api 服务器,无付费端点权限,禁止切换。
-    """
-    # none/free 档没有付费端点权限,禁止切换
-    if tf_client.current_mode() != "api_key":
-        return {"ok": False, "error": "当前档位无法切换端点,仅付费套餐(Starter+)支持"}
-
-    url = req.url.strip().rstrip("/")
-    if not url.startswith("https://"):
-        return {"ok": False, "error": "仅支持 HTTPS 端点"}
-
-    # 持久化到 secrets.json
-    secrets_store.save({"tickflow_base_url": url})
-    # 重置客户端，下次调用自动用新端点
-    tf_client.reset_clients()
-
-    return {
-        "ok": True,
-        "current_endpoint": tf_client.current_endpoint(),
-    }
-
-
 @router.post("/tickflow-key")
 def save_tickflow_key(req: TickflowKeyIn, request: Request) -> dict:
     """保存 TickFlow API Key 并立即重新探测能力。
@@ -157,7 +124,6 @@ def save_tickflow_key(req: TickflowKeyIn, request: Request) -> dict:
     # 立即重新探测(此时 client 已按档位判定,但首次探测必然走付费端点验证)
     capset = detect_capabilities(force=True)
     request.app.state.capabilities = capset
-    _sync_financial_scheduler_caps(request.app.state, capset)
 
     # ===== 2) 判定为无效 key(连单只日K都拿不到)→ 不存,清除 =====
     if is_invalid_key() or base_tier_name() == "none":
@@ -166,7 +132,6 @@ def save_tickflow_key(req: TickflowKeyIn, request: Request) -> dict:
         tf_client.reset_clients()
         capset = detect_capabilities(force=True)
         request.app.state.capabilities = capset
-        _sync_financial_scheduler_caps(request.app.state, capset)
         return {
             "ok": False,
             "reason": "invalid",
@@ -223,7 +188,6 @@ def clear_tickflow_key(request: Request) -> dict:
 
     capset = detect_capabilities(force=True)
     request.app.state.capabilities = capset
-    _sync_financial_scheduler_caps(request.app.state, capset)
 
     return {
         "ok": True,
@@ -475,6 +439,7 @@ def get_preferences() -> dict:
         "realtime_allowed": _realtime_allowed(),
         "indices_nav_pinned": preferences.get_indices_nav_pinned(),
         "watchlist_groups_in_nav": preferences.get_watchlist_groups_in_nav(),
+        "show_ashare_legacy_features": preferences.get_show_ashare_legacy_features(),
         "minute_sync_enabled": preferences.get_minute_sync_enabled(),
         "minute_sync_days": preferences.get_minute_sync_days(),
         "minute_sync_segment_days": preferences.get_minute_sync_segment_days(),
@@ -504,12 +469,12 @@ def get_preferences() -> dict:
         "strategy_monitor_enabled": preferences.get_strategy_monitor_enabled(),
         "strategy_monitor_ids": preferences.get_strategy_monitor_ids(),
         "system_notify_enabled": preferences.get_system_notify_enabled(),
-        "feishu_webhook_url": preferences.get_feishu_webhook_url(),
-        "feishu_webhook_secret": preferences.get_feishu_webhook_secret(),
-        "wecom_webhook_url": preferences.get_wecom_webhook_url(),
-        "wecom_bot_id": preferences.get_wecom_bot_id(),
-        "wecom_bot_secret": preferences.get_wecom_bot_secret(),
-        "wecom_bot_enabled": preferences.get_wecom_bot_enabled(),
+        "line_target_id": preferences.get_line_target_id(),
+        "line_channel_access_token_masked": secrets_store.mask(preferences.get_line_channel_access_token()),
+        "line_configured": bool(preferences.get_line_target_id() and preferences.get_line_channel_access_token()),
+        "telegram_chat_id": preferences.get_telegram_chat_id(),
+        "telegram_bot_token_masked": secrets_store.mask(preferences.get_telegram_bot_token()),
+        "telegram_configured": bool(preferences.get_telegram_chat_id() and preferences.get_telegram_bot_token()),
         "webhook_enabled_default": preferences.get_webhook_enabled_default(),
         "webhook_default_channels": preferences.get_webhook_default_channels(),
         "sidebar_index_symbols": preferences.get_sidebar_index_symbols(),
@@ -519,11 +484,8 @@ def get_preferences() -> dict:
         "nav_order": preferences.get_nav_order(),
         "nav_hidden": preferences.get_nav_hidden(),
         "screener_auto_run": preferences.get_screener_auto_run(),
-        "limit_ladder_monitor_enabled": preferences.get_limit_ladder_monitor_enabled(),
         "depth_polling_interval": preferences.get_depth_polling_interval(),
         "depth_finalize_time": preferences.get_depth_finalize_time(),
-        "review_schedule": preferences.get_review_schedule(),
-        "review_push_channels": preferences.get_review_push_channels(),
         **preferences.get_mining_schedule(),
     }
 
@@ -533,7 +495,7 @@ def list_data_sources() -> dict:
     """列出已加载的数据源 (内置 / 插件 / 用户自定义)。"""
     from app.data_providers import custom as custom_sources
     return {
-        "builtin": [{"name": "tickflow", "display_name": "TickFlow", "datasets": ["daily", "adj_factor", "realtime", "minute"]}],
+        "builtin": [{"name": "taiwan", "display_name": "台灣官方資料源 (TWSE/TPEx)", "datasets": ["daily", "realtime", "financial"]}],
         "plugins": custom_sources.list_plugins(),
         "custom": custom_sources.list_sources(),
         "errors": custom_sources.errors(),
@@ -862,19 +824,6 @@ def update_realtime_quotes(req: RealtimeQuotesPrefs, request: Request) -> dict:
     """
     from app.services import preferences
     qs = getattr(request.app.state, "quote_service", None)
-    depth_svc = getattr(request.app.state, "depth_service", None)
-
-    def _sync_depth_polling(realtime_on: bool) -> None:
-        """实时行情开关联动 depth 盘中轮询: 开→恢复(仍受监控开关/能力门控), 关→立即停。
-
-        实时行情关闭时 enriched 停留在上一交易日, depth 轮询只会反复拉陈旧名单。
-        """
-        if not depth_svc:
-            return
-        if realtime_on:
-            depth_svc.start_polling()
-        else:
-            depth_svc.stop_polling()
 
     allowed = qs.is_realtime_allowed() if qs else True
     if req.realtime_quotes_enabled and not allowed:
@@ -882,7 +831,6 @@ def update_realtime_quotes(req: RealtimeQuotesPrefs, request: Request) -> dict:
         preferences.save({"realtime_quotes_enabled": False})
         if qs:
             qs.disable()
-        _sync_depth_polling(False)
         return {"realtime_quotes_enabled": False, "realtime_allowed": False}
     if req.realtime_quotes_enabled and qs and qs.is_paused():
         # 管道/数据修正运行期间禁止开启实时行情 — 防止写盘竞态
@@ -914,7 +862,6 @@ def update_realtime_quotes(req: RealtimeQuotesPrefs, request: Request) -> dict:
                     raise HTTPException(status_code=409, detail=detail)
     if req.realtime_quotes_enabled and qs and qs.realtime_mode() == "watchlist" and not preferences.get_realtime_watchlist_symbols():
         preferences.save({"realtime_quotes_enabled": False})
-        _sync_depth_polling(False)
         return {"realtime_quotes_enabled": False, "realtime_allowed": True, "mode": "watchlist", "error": "watchlist_empty"}
 
     preferences.save({"realtime_quotes_enabled": req.realtime_quotes_enabled})
@@ -923,8 +870,6 @@ def update_realtime_quotes(req: RealtimeQuotesPrefs, request: Request) -> dict:
             qs.enable()
         else:
             qs.disable()
-    _sync_depth_polling(req.realtime_quotes_enabled)
-
     return {"realtime_quotes_enabled": req.realtime_quotes_enabled, "realtime_allowed": allowed}
 
 
@@ -971,6 +916,20 @@ def update_watchlist_groups_in_nav(req: WatchlistGroupsInNavPrefs) -> dict:
     from app.services import preferences
     preferences.save({"watchlist_groups_in_nav": req.watchlist_groups_in_nav})
     return {"watchlist_groups_in_nav": req.watchlist_groups_in_nav}
+
+
+class ShowAshareLegacyFeaturesPrefs(BaseModel):
+    show_ashare_legacy_features: bool
+
+
+@router.put("/preferences/show-ashare-legacy-features")
+def update_show_ashare_legacy_features(req: ShowAshareLegacyFeaturesPrefs) -> dict:
+    """保存是否显示中国 A 股 legacy 功能区块开关(默认关闭, Phase 8B-2)。
+
+    只影响导航展示, 不影响功能本身: route/component/backend 全部原样保留。"""
+    from app.services import preferences
+    preferences.save({"show_ashare_legacy_features": req.show_ashare_legacy_features})
+    return {"show_ashare_legacy_features": req.show_ashare_legacy_features}
 
 
 class RealtimeMonitorConfigIn(BaseModel):
@@ -1120,119 +1079,80 @@ def update_system_notify(req: SystemNotifyPrefsIn) -> dict:
     return {"system_notify_enabled": saved}
 
 
-class FeishuWebhookPrefsIn(BaseModel):
-    url: str
-    secret: str = ""
+class NotificationChannelPrefsIn(BaseModel):
+    recipient: str = ""
+    token: str | None = None
+    clear_token: bool = False
 
 
-@router.put("/preferences/feishu-webhook")
-def update_feishu_webhook(req: FeishuWebhookPrefsIn) -> dict:
-    """飞书 Webhook 地址 + 签名密钥 — 全局一处配置, 所有启用推送的监控规则共用。
-
-    - url: 传入空串表示清空配置; 非空则需为合法的飞书自定义机器人地址。
-    - secret: 机器人启用了「签名校验」时填密钥, 留空表示不验签。
-    """
-    from app.services import preferences
-    from app.services import webhook_adapter
-
-    url = (req.url or "").strip()
-    if url and not webhook_adapter.is_valid_feishu_url(url):
-        raise HTTPException(
-            status_code=400,
-            detail="Webhook 地址非法, 需为飞书自定义机器人地址 "
-                   "(https://open.feishu.cn/open-apis/bot/v2/hook/...)",
-        )
-    saved_url = preferences.set_feishu_webhook_url(url)
-    saved_secret = preferences.set_feishu_webhook_secret((req.secret or "").strip())
-    return {"feishu_webhook_url": saved_url, "feishu_webhook_secret": saved_secret}
-
-
-class WecomWebhookPrefsIn(BaseModel):
-    url: str
-
-
-@router.put("/preferences/wecom-webhook")
-def update_wecom_webhook(req: WecomWebhookPrefsIn) -> dict:
-    """企业微信群推送 Webhook 地址 — 与飞书并列的第二推送通道。
-
-    - url: 传入空串表示清空配置; 非空需为合法企业微信群推送 Webhook 地址, 或纯 key。
-    - 用户可只填 key (webhook/send?key=xxx 的 xxx 部分), 后端自动补全为完整 URL。
-    """
-    from app.services import preferences
-    from app.services import webhook_adapter
-
-    url = (req.url or "").strip()
-    if url and not webhook_adapter.is_valid_wecom_url(url):
-        raise HTTPException(
-            status_code=400,
-            detail="Webhook 地址非法, 需为企业微信群推送 Webhook 地址 "
-                   "(https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=... 或纯 key)",
-        )
-    saved_url = preferences.set_wecom_webhook_url(url)
-    return {"wecom_webhook_url": saved_url}
-
-
-class WecomBotPrefsIn(BaseModel):
-    bot_id: str
-    secret: str
-    enabled: bool = True
-
-
-@router.put("/preferences/wecom-bot")
-def update_wecom_bot(req: WecomBotPrefsIn, request: Request) -> dict:
-    """企业微信智能机器人(BotID + Secret)配置 — 长连接通道。
-
-    保存凭证后立即重建连接(stop→start), 因每机器人仅允许 1 条长连接。
-    - bot_id/secret 均传空串表示清空配置并断开连接。
-    - enabled 控制是否启用长连接(凭证齐全时生效)。
-    """
+def _notification_channel_response(channel: str) -> dict:
     from app.services import preferences
 
-    bot_id = (req.bot_id or "").strip()
-    secret = (req.secret or "").strip()
-    preferences.set_wecom_bot_id(bot_id)
-    preferences.set_wecom_bot_secret(secret)
-    # 凭证不齐时强制关闭(避免 enabled=True 但连不上)
-    enabled = req.enabled and bool(bot_id) and bool(secret)
-    preferences.set_wecom_bot_enabled(enabled)
-
-    # 立即应用: 重建连接
-    bot_svc = getattr(request.app.state, "wecom_bot_service", None)
-    status: dict = {}
-    if bot_svc:
-        bot_svc.apply_credential_change()
-        status = bot_svc.status()
+    if channel == "line":
+        recipient = preferences.get_line_target_id()
+        token = preferences.get_line_channel_access_token()
+        return {
+            "line_target_id": recipient,
+            "line_channel_access_token_masked": secrets_store.mask(token),
+            "line_configured": bool(recipient and token),
+        }
+    recipient = preferences.get_telegram_chat_id()
+    token = preferences.get_telegram_bot_token()
     return {
-        "wecom_bot_id": preferences.get_wecom_bot_id(),
-        "wecom_bot_secret": preferences.get_wecom_bot_secret(),
-        "wecom_bot_enabled": preferences.get_wecom_bot_enabled(),
-        "wecom_bot_status": status,
+        "telegram_chat_id": recipient,
+        "telegram_bot_token_masked": secrets_store.mask(token),
+        "telegram_configured": bool(recipient and token),
     }
 
 
-class WecomBotToggleIn(BaseModel):
-    enabled: bool
-
-
-@router.put("/preferences/wecom-bot-toggle")
-def toggle_wecom_bot(req: WecomBotToggleIn, request: Request) -> dict:
-    """独立开关: 启用/禁用智能机器人长连接(不改动凭证)。
-
-    凭证不齐时强制返回未启用(无法连接)。
-    """
+@router.put("/preferences/line-messaging")
+def update_line_messaging(req: NotificationChannelPrefsIn) -> dict:
     from app.services import preferences
 
-    bot_id = preferences.get_wecom_bot_id()
-    secret = preferences.get_wecom_bot_secret()
-    enabled = req.enabled and bool(bot_id) and bool(secret)
-    preferences.set_wecom_bot_enabled(enabled)
+    preferences.set_line_target_id(req.recipient)
+    if req.clear_token:
+        preferences.set_line_channel_access_token("")
+    elif req.token and req.token.strip():
+        preferences.set_line_channel_access_token(req.token)
+    return _notification_channel_response("line")
 
-    bot_svc = getattr(request.app.state, "wecom_bot_service", None)
-    status: dict = {}
-    if bot_svc:
-        bot_svc.apply_credential_change()
-        status = bot_svc.status()
-    return {"wecom_bot_enabled": enabled, "wecom_bot_status": status}
+
+@router.put("/preferences/telegram-bot")
+def update_telegram_bot(req: NotificationChannelPrefsIn) -> dict:
+    from app.services import preferences
+
+    preferences.set_telegram_chat_id(req.recipient)
+    if req.clear_token:
+        preferences.set_telegram_bot_token("")
+    elif req.token and req.token.strip():
+        preferences.set_telegram_bot_token(req.token)
+    return _notification_channel_response("telegram")
+
+
+@router.post("/preferences/line-messaging/test")
+def test_line_messaging() -> dict:
+    from app.services import preferences, webhook_adapter
+
+    ok = webhook_adapter.send_line(
+        preferences.get_line_channel_access_token(),
+        preferences.get_line_target_id(),
+        "測試通知",
+        "LINE Messaging API 已成功連線。",
+    )
+    return {"ok": ok}
+
+
+@router.post("/preferences/telegram-bot/test")
+def test_telegram_bot() -> dict:
+    from app.services import preferences, webhook_adapter
+
+    ok = webhook_adapter.send_telegram(
+        preferences.get_telegram_bot_token(),
+        preferences.get_telegram_chat_id(),
+        "測試通知",
+        "Telegram Bot API 已成功連線。",
+    )
+    return {"ok": ok}
 
 
 class WebhookEnabledDefaultIn(BaseModel):
@@ -1243,8 +1163,7 @@ class WebhookEnabledDefaultIn(BaseModel):
 def update_webhook_enabled_default(req: WebhookEnabledDefaultIn) -> dict:
     """新建监控规则时是否默认勾选推送 (老布尔接口, 兼容旧前端)。
 
-    新数据模型为渠道数组 (webhook_default_channels); 此处转译为
-    True→['feishu','wecom'], False→[]。新前端请改用 webhook-default-channels 接口。
+    舊布林值無法安全推斷新的 LINE/Telegram 收件者,因此不自動啟用新渠道。
     """
     from app.services import preferences
 
@@ -1253,7 +1172,7 @@ def update_webhook_enabled_default(req: WebhookEnabledDefaultIn) -> dict:
 
 
 class WebhookDefaultChannelsIn(BaseModel):
-    channels: list[str]  # 多选: ['feishu','wecom'] 等; 空数组=默认不推送
+    channels: list[str]  # 多选: ['line','telegram']; 空数组=默认不推送
 
 
 @router.put("/preferences/webhook-default-channels")
@@ -1296,252 +1215,6 @@ def get_quote_interval(request: Request) -> dict:
     }
 
 
-class TestEndpointIn(BaseModel):
-    url: str
-    # 测试轮数;不传时取 endpoints.json 的 testRounds(默认 5)
-    rounds: int | None = None
-
-
-# 官方端点发现清单 —— 前端浏览器无法直接跨域拉取 tickflow.org/endpoints.json
-# (无 CORS 头),因此由后端代理。缓存 5 分钟,失败时回退到内置列表。
-ENDPOINTS_URL = "https://tickflow.org/endpoints.json"
-ENDPOINTS_TTL = 300.0  # 秒
-
-# 回退列表 —— 与官方 endpoints.json 的 endpoints[] 字段对齐。
-# 当远程拉取失败时使用,保证 UI 永远有内容可显示。
-_FALLBACK_ENDPOINTS: list[dict] = [
-    {
-        "id": "default",
-        "url": "https://api.tickflow.org",
-        "label": "默认端点",
-        "region": "auto",
-        "description": "默认端点",
-        "premium": False,
-    },
-    {
-        "id": "hk",
-        "url": "https://hk-api.tickflow.org",
-        "label": "香港端点",
-        "region": "ap-east-1",
-        "description": "备用端点，部分地区访问更稳定",
-        "premium": False,
-    },
-    {
-        "id": "sg",
-        "url": "https://sg-api.tickflow.org",
-        "label": "新加坡端点",
-        "region": "ap-southeast-1",
-        "description": "备用端点，亚太地区访问更稳定",
-        "premium": False,
-    },
-    {
-        "id": "us",
-        "url": "https://us-api.tickflow.org",
-        "label": "美国端点",
-        "region": "us-east-1",
-        "description": "备用端点，欧美地区访问更稳定",
-        "premium": False,
-    },
-    {
-        "id": "cn",
-        "url": "https://139.196.55.234:50443",
-        "label": "中国大陆端点（Beta）",
-        "region": "cn-east-1",
-        "description": "备用端点，中国大陆地区访问更稳定，目前处于测试阶段，谨慎使用",
-        "premium": False,
-    },
-    {
-        "id": "cn-premium",
-        "url": "https://106.15.238.72:50443",
-        "label": "中国大陆专线端点",
-        "region": "cn-east-1",
-        "description": "专线加速端点，需要专线加速权限（该权限包含在 Expert 及以上套餐中，也可通过自定义组合单独开通）",
-        "premium": True,
-    },
-]
-
-# 进程内缓存:{ "ts": float, "data": dict }
-_endpoints_cache: dict = {"ts": 0.0, "data": None}
-
-
-@router.get("/endpoints")
-def list_endpoints() -> dict:
-    """代理拉取 tickflow.org/endpoints.json 并返回规范化端点列表。
-
-    前端无法跨域直连该 URL(无 CORS 头),故由本接口代理。带 8s 超时、
-    5 分钟内存缓存,远程失败时回退到内置列表,保证 UI 始终有内容。
-    返回结构与原始 endpoints.json 一致(透传 schema/version 等元信息)。
-    """
-    import httpx
-
-    now = time.monotonic()
-    cached = _endpoints_cache.get("data")
-    if cached is not None and (now - _endpoints_cache["ts"]) < ENDPOINTS_TTL:
-        return cached
-
-    source = "remote"
-    data: dict | None = None
-    try:
-        resp = httpx.get(ENDPOINTS_URL, timeout=8.0, follow_redirects=True)
-        if resp.status_code == 200:
-            parsed = resp.json()
-            eps = parsed.get("endpoints")
-            # 校验:必须是列表且每项含必要字段,否则视为无效
-            if isinstance(eps, list) and all(
-                isinstance(e, dict) and "url" in e for e in eps
-            ):
-                data = {
-                    "version": parsed.get("version", 1),
-                    "description": parsed.get(
-                        "description", "TickFlow API 端点配置"
-                    ),
-                    "healthPath": parsed.get("healthPath", "/health"),
-                    "testRounds": parsed.get("testRounds", 5),
-                    "endpoints": eps,
-                }
-    except (httpx.HTTPError, ValueError):
-        logger.warning("拉取 endpoints.json 失败，使用内置回退列表", exc_info=True)
-
-    if data is None:
-        source = "fallback"
-        data = {
-            "version": 1,
-            "description": "TickFlow API 端点配置",
-            "healthPath": "/health",
-            "testRounds": 5,
-            "endpoints": _FALLBACK_ENDPOINTS,
-        }
-
-    # 标记数据来源,便于前端提示(回退时显示"内置列表")。
-    data["source"] = source
-    _endpoints_cache["ts"] = now
-    _endpoints_cache["data"] = data
-    return data
-
-
-async def _http_ping(url: str, timeout: float = 10.0) -> float | None:
-    """单次异步 GET 请求并返回延迟(ms),失败返回 None。
-
-    对齐官方 latency_test.py:用 /health 轻量端点测真实网络延迟,
-    不携带 API Key(/health 公开)。异步实现,保证多端点并行测速不阻塞。
-    """
-    import httpx
-
-    t0 = time.perf_counter()
-    try:
-        async with httpx.AsyncClient(timeout=timeout, follow_redirects=True) as client:
-            resp = await client.get(url)
-            dt = (time.perf_counter() - t0) * 1000
-            # 只把 <400 视为成功;4xx/5xx 也算"不可达"
-            if resp.status_code < 400:
-                return round(dt, 2)
-            return None
-    except (httpx.TimeoutException, httpx.ConnectError, httpx.HTTPError, OSError):
-        return None
-
-
-@router.post("/test_endpoint")
-async def test_endpoint(req: TestEndpointIn) -> dict:
-    """测试端点网络延迟:对 /health 多轮探测取中位数。
-
-    参考 TickFlow 官方 latency_test.py:
-    - 路径用 /health(公开、轻量),反映真实网络延迟而非业务接口耗时
-    - 多轮探测(默认 5 轮,取自 endpoints.json 的 testRounds),间隔 0.3s
-    - 返回 median/min/max/success,前端显示中位数
-    - 异步实现,保证"全部测速"时多端点真正并行
-    """
-    import asyncio
-    import statistics
-
-    base = req.url.rstrip("/")
-    rounds = max(1, min(10, req.rounds or _endpoints_cache.get("data", {}).get("testRounds", 5)))
-    health_url = base + "/health"
-
-    latencies: list[float] = []
-    for _ in range(rounds):
-        ms = await _http_ping(health_url)
-        if ms is not None:
-            latencies.append(ms)
-        # 官方脚本间隔 0.3s;末轮无需等待
-        await asyncio.sleep(0.3)
-
-    success = len(latencies)
-    if success == 0:
-        return {
-            "ok": False,
-            "error": "不可达",
-            "url": req.url,
-            "rounds": rounds,
-            "success": 0,
-            "median_ms": None,
-            "min_ms": None,
-            "max_ms": None,
-        }
-
-    median = round(statistics.median(latencies), 2)
-    return {
-        "ok": True,
-        "url": req.url,
-        "rounds": rounds,
-        "success": success,
-        "median_ms": median,
-        "min_ms": round(min(latencies), 2),
-        "max_ms": round(max(latencies), 2),
-        # 兼容旧字段:取中位数作为代表延迟
-        "latency_ms": median,
-    }
-
-
-class PipelineScheduleIn(BaseModel):
-    hour: int
-    minute: int
-
-
-@router.put("/preferences/pipeline-schedule")
-def update_pipeline_schedule(req: PipelineScheduleIn, request: Request) -> dict:
-    """保存盘后管道调度时间并立即 reschedule。"""
-    from app.services import preferences
-    sched = preferences.set_pipeline_schedule(req.hour, req.minute)
-
-    # 动态 reschedule
-    from apscheduler.triggers.cron import CronTrigger
-    scheduler = getattr(request.app.state, "scheduler", None)
-    if scheduler:
-        scheduler.reschedule_job(
-            "daily_pipeline",
-            trigger=CronTrigger(
-                day_of_week="mon-fri",
-                hour=sched["hour"],
-                minute=sched["minute"],
-                timezone="Asia/Shanghai",
-            ),
-        )
-        logger.info("pipeline rescheduled to %02d:%02d mon-fri", sched["hour"], sched["minute"])
-
-    return sched
-
-
-@router.put("/preferences/instruments-schedule")
-def update_instruments_schedule(req: PipelineScheduleIn, request: Request) -> dict:
-    """保存盘前标的维表调度时间并立即 reschedule。"""
-    from app.services import preferences
-    sched = preferences.set_instruments_schedule(req.hour, req.minute)
-
-    from apscheduler.triggers.cron import CronTrigger
-    scheduler = getattr(request.app.state, "scheduler", None)
-    if scheduler:
-        scheduler.reschedule_job(
-            "pre_market_instruments",
-            trigger=CronTrigger(
-                day_of_week="mon-fri",
-                hour=sched["hour"],
-                minute=sched["minute"],
-                timezone="Asia/Shanghai",
-            ),
-        )
-        return sched
-
-
 class EnrichedBatchSizeIn(BaseModel):
     size: int
 
@@ -1567,42 +1240,6 @@ def update_index_daily_batch_size(req: IndexDailyBatchSizeIn) -> dict:
 
 
 # ── 五档盘口 sealed 配置 ──────────────────────────────
-
-class LimitLadderMonitorIn(BaseModel):
-    enabled: bool
-
-
-@router.put("/preferences/limit-ladder-monitor")
-def update_limit_ladder_monitor(req: LimitLadderMonitorIn, request: Request) -> dict:
-    """连板梯队 5 档监控开关。开启→启动 depth 轮询, 关闭→停止。"""
-    from app.services import preferences
-    preferences.save({"limit_ladder_monitor_enabled": req.enabled})
-
-    # 立即应用: 启停 depth 轮询线程
-    depth_svc = getattr(request.app.state, "depth_service", None)
-    if depth_svc:
-        depth_svc.apply_monitor_toggle(req.enabled)
-
-    return {"limit_ladder_monitor_enabled": req.enabled}
-
-
-@router.post("/preferences/limit-ladder-monitor/run")
-def run_limit_ladder_fix(request: Request) -> dict:
-    """立即手动修正一次真假板(拉取五档盘口 + 更新缓存)。需 Pro+。"""
-    from app.tickflow.capabilities import Cap
-    capset = request.app.state.capabilities
-    capset.require(Cap.DEPTH5_BATCH)  # 无能力抛 CapabilityDenied(403)
-
-    depth_svc = getattr(request.app.state, "depth_service", None)
-    if not depth_svc:
-        raise HTTPException(status_code=503, detail="depth 服务未初始化")
-    result = depth_svc.run_once()
-    # sealed 数据变了, 清看板总览缓存, 否则看板在 TTL 窗口内仍返回旧的 limit_up/fake 等
-    if result.get("ok"):
-        from app.api.overview import invalidate_overview_cache
-        invalidate_overview_cache()
-    return result
-
 
 class DepthPollingIntervalIn(BaseModel):
     interval: float
@@ -1648,65 +1285,3 @@ def update_depth_finalize_time(req: DepthFinalizeTimeIn, request: Request) -> di
         logger.info("depth_finalize rescheduled to %02d:%02d mon-fri", sched["hour"], sched["minute"])
 
     return sched
-
-
-class ReviewScheduleIn(BaseModel):
-    enabled: bool
-    hour: int
-    minute: int
-
-
-@router.put("/preferences/review-schedule")
-def update_review_schedule(req: ReviewScheduleIn, request: Request) -> dict:
-    """保存定时复盘调度并立即更新 APScheduler job。
-
-    - enabled=True: 注册/更新 job(工作日定时生成复盘报告)
-    - enabled=False: 移除 job(停止定时复盘)
-    - 校验: 开启时若 AI Key 未配置则拒绝(复盘依赖 AI), 提示用户先配置。
-    - 时间下限 15:00(A股收盘), 由 preferences 层强制。
-    """
-    from app.services import preferences
-
-    if req.enabled:
-        # 复盘必须有 AI Key, 否则每日报错刷日志
-        from app import secrets_store
-        if not secrets_store.get_ai_key():
-            raise HTTPException(
-                status_code=400,
-                detail="复盘依赖 AI,请先在「设置 → AI」配置 API Key 后再开启定时复盘",
-            )
-
-    sched = preferences.set_review_schedule(req.enabled, req.hour, req.minute)
-
-    # 动态操作 APScheduler job
-    from app.jobs.daily_pipeline import _register_review_job, REVIEW_JOB_ID
-    scheduler = getattr(request.app.state, "scheduler", None)
-    if scheduler:
-        if sched["enabled"]:
-            _register_review_job(scheduler, request.app.state.repo, sched["hour"], sched["minute"])
-            logger.info("scheduled_review enabled @%02d:%02d mon-fri", sched["hour"], sched["minute"])
-        else:
-            try:
-                scheduler.remove_job(REVIEW_JOB_ID)
-                logger.info("scheduled_review disabled (job removed)")
-            except Exception:
-                pass  # job 本就不存在(从未开过), 无需处理
-
-    return sched
-
-
-class ReviewPushIn(BaseModel):
-    channels: list[str]  # 多选: ['feishu'] 等; 空数组=不推送。微信等开发中
-
-
-@router.put("/preferences/review-push")
-def update_review_push(req: ReviewPushIn) -> dict:
-    """复盘推送渠道(多选) — 选定把复盘报告(手动生成 / 定时生成归档后)推送到哪些外部工具。
-
-    纯偏好, 与定时复盘 / 实时行情完全独立, 常驻可单独设置。空数组=不推送。
-    实际推送由归档端点(POST /api/market-recap/reports)与定时任务(_run_scheduled_review)
-    在归档后读取本列表逐个推送。白名单外的渠道会被过滤掉。
-    """
-    from app.services import preferences
-    saved = preferences.set_review_push_channels(req.channels)
-    return {"review_push_channels": saved}

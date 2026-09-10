@@ -1,14 +1,14 @@
-// 后端 API 客户端 — 全项目统一入口
+// 後端 API 客戶端 — 全項目統一入口
 //
-// Dev: Vite 按启动脚本解析出的 BACKEND_HOST/BACKEND_PORT 代理 /api
-// Prod:同源(FastAPI 托管前端 dist)
+// Dev: Vite 按啟動腳本解析出的 BACKEND_HOST/BACKEND_PORT 代理 /api
+// Prod:同源(FastAPI 託管前端 dist)
 
 import { toast } from '@/components/Toast'
 
 const BASE = ''
 
 type RequestOptions = RequestInit & {
-  /** 为 true 时不弹错误 toast（由调用方自行汇总提示，如多图串行队列） */
+  /** 為 true 時不彈錯誤 toast（由調用方自行彙總提示，如多圖串行隊列） */
   quiet?: boolean
 }
 
@@ -17,7 +17,7 @@ async function request<T>(path: string, init?: RequestOptions): Promise<T> {
   const isFormData = fetchInit.body instanceof FormData
   const headers: Record<string, string> = {}
   if (!isFormData) headers['Content-Type'] = 'application/json'
-  // 合并调用方传入的 headers (此前会被整体覆盖丢弃)
+  // 合併調用方傳入的 headers (此前會被整體覆蓋丟棄)
   Object.assign(headers, fetchInit.headers as Record<string, string> | undefined)
   const res = await fetch(`${BASE}${path}`, { ...fetchInit, headers })
   if (!res.ok) {
@@ -26,7 +26,7 @@ async function request<T>(path: string, init?: RequestOptions): Promise<T> {
       const j = JSON.parse(await res.text())
       const raw = j.detail ?? j.message ?? ''
       if (Array.isArray(raw)) {
-        // FastAPI 422 校验错误: [{type, loc, msg, input}, ...] → 取 msg 拼接
+        // FastAPI 422 校驗錯誤: [{type, loc, msg, input}, ...] → 取 msg 拼接
         detail = raw.map((e: any) => e?.msg || String(e)).join('; ')
       } else if (typeof raw === 'string') {
         detail = raw
@@ -35,7 +35,7 @@ async function request<T>(path: string, init?: RequestOptions): Promise<T> {
       }
     } catch { /* ignore */ }
     const msg = detail || `${res.status} ${res.statusText}`
-    // 401 (未登录/会话过期) 不弹 toast — 由全局认证拦截器统一跳登录页, 避免刷屏
+    // 401 (未登錄/會話過期) 不彈 toast — 由全局認證攔截器統一跳登錄頁, 避免刷屏
     if (res.status !== 401 && !quiet) toast(msg, 'error')
     throw new Error(msg)
   }
@@ -55,14 +55,9 @@ export interface CapabilitiesResponse {
 }
 
 // ===== Financials =====
-export interface FinancialStatus {
-  available: boolean
-  tables: Record<string, { rows: number; symbols: number }>
-  last_sync: Record<string, string>
-  /** 服务端是否正在同步(手动触发)——驱动"同步中"UI 并防重复点击 */
-  syncing?: boolean
-}
-
+// Phase 8B-5.3: A 股財務分析產品(狀態/利潤表/資產負債表/現金流量表/歷史股本/
+// AI 財務分析/報告)已整體下線。僅保留 FinancialMetricRecord —— 它被
+// StockPanel/StockInfoBar 的信息條「財務」字段組 (EPS/BPS/ROE/PE/PB 等) 複用。
 export interface FinancialMetricRecord {
   symbol?: string
   period_end: string
@@ -84,68 +79,7 @@ export interface FinancialMetricRecord {
   [key: string]: any
 }
 
-export interface FinancialIncomeRecord {
-  symbol?: string
-  period_end: string
-  announce_date?: string | null
-  revenue?: number | null
-  operating_cost?: number | null
-  operating_profit?: number | null
-  total_profit?: number | null
-  net_income?: number | null
-  net_income_attributable?: number | null
-  basic_eps?: number | null
-  diluted_eps?: number | null
-  [key: string]: any
-}
-
-export interface FinancialBalanceSheetRecord {
-  symbol?: string
-  period_end: string
-  announce_date?: string | null
-  total_assets?: number | null
-  total_current_assets?: number | null
-  cash_and_equivalents?: number | null
-  total_liabilities?: number | null
-  total_equity?: number | null
-  equity_attributable?: number | null
-  [key: string]: any
-}
-
-export interface FinancialCashFlowRecord {
-  symbol?: string
-  period_end: string
-  announce_date?: string | null
-  net_operating_cash_flow?: number | null
-  net_investing_cash_flow?: number | null
-  net_financing_cash_flow?: number | null
-  capex?: number | null
-  net_cash_change?: number | null
-  [key: string]: any
-}
-
-export interface FinancialSharesRecord {
-  symbol?: string
-  period_end: string
-  announce_date?: string | null
-  total_shares?: number | null
-  float_shares?: number | null
-  [key: string]: any
-}
-
-/** AI 财务分析历史报告 */
-export interface AiFinancialReport {
-  id: string
-  symbol: string
-  name: string
-  focus: string
-  content: string
-  periods?: number
-  summary?: string
-  created_at: string
-}
-
-// ===== 个股分析 =====
+// ===== 個股分析 =====
 export type LevelType = 'sr' | 'pivot' | 'extreme' | 'boll' | 'keltner_s' | 'keltner_m' | 'keltner_l' | 'atr_stop' | 'gap' | 'fib' | 'round'
 
 export interface PriceLevel {
@@ -154,11 +88,11 @@ export interface PriceLevel {
   type: LevelType
   side: 'resistance' | 'support' | 'neutral'
   strength?: 'strong' | 'medium' | 'weak'
-  /** 档位(仅 pivot 有):0=P, 1=R1/S1, 2=R2/S2, 3=R3/S3。前端按"显示到第几档"过滤。 */
+  /** 檔位(僅 pivot 有):0=P, 1=R1/S1, 2=R2/S2, 3=R3/S3。前端按"顯示到第幾檔"過濾。 */
   rank?: number
 }
 
-/** 带状曲线指标(布林带/Keltner/ATR)的每日时间序列,与 dates 对齐。 */
+/** 帶狀曲線指標(布林帶/Keltner/ATR)的每日時間序列,與 dates 對齊。 */
 export interface LevelSeries {
   boll?: { upper: (number | null)[]; lower: (number | null)[]; mid?: (number | null)[] }
   keltner_s?: { upper: (number | null)[]; lower: (number | null)[] }
@@ -172,21 +106,9 @@ export interface StockLevels {
   close: number | null
   summary: string
   symbol: string
-  /** dates 与 series 对齐;前端按自身 rows 的日期映射,缺失填 null */
+  /** dates 與 series 對齊;前端按自身 rows 的日期映射,缺失填 null */
   dates?: string[]
   series?: LevelSeries
-}
-
-export interface AiStockReport {
-  id: string
-  symbol: string
-  name: string
-  focus: string
-  content: string
-  summary?: string
-  close?: number | null
-  levels?: Record<LevelType, PriceLevel[]>
-  created_at: string
 }
 
 // ===== Kline =====
@@ -239,7 +161,7 @@ export interface WatchlistEntry {
   added_at: string
   note?: string
   name?: string | null
-  /** 所属分组 id 列表 (同一标的可属于多个分组; 空数组=未分组) */
+  /** 所屬分組 id 列表 (同一標的可屬於多個分組; 空數組=未分組) */
   group_ids?: string[]
 }
 
@@ -285,14 +207,6 @@ export interface Quote {
   pct?: number
   close?: number
   change_pct?: number
-  [key: string]: any
-}
-
-export interface IndexInstrument {
-  symbol: string
-  name?: string | null
-  code?: string | null
-  asset_type?: 'index'
   [key: string]: any
 }
 
@@ -422,31 +336,23 @@ export interface OverviewMarket {
   industry_rank: { leading: OverviewDimensionRankItem[]; lagging: OverviewDimensionRankItem[] }
 }
 
-// ===== 概念涨幅轮动矩阵 =====
-// dates: 日期字符串列表(最新在最前); columns: {日期: [[概念名, 涨幅小数], ...]} 每列各自降序
-export interface RpsRotationData {
-  dates: string[]
-  columns: Record<string, [string, number][]>
-  concept_count: number
-}
-
-// ===== 市场环境(Regime) =====
+// ===== 市場環境(Regime) =====
 export type RegimeState = 'strong' | 'lean_strong' | 'range' | 'lean_weak' | 'weak'
 
 export const REGIME_STATE_LABELS: Record<RegimeState, string> = {
-  strong: '强势',
-  lean_strong: '偏强',
-  range: '震荡',
+  strong: '強勢',
+  lean_strong: '偏強',
+  range: '震盪',
   lean_weak: '偏弱',
-  weak: '弱势',
+  weak: '弱勢',
 }
 
 export const REGIME_STATE_COLORS: Record<RegimeState, string> = {
-  strong: '#ef4444',      // 红(强)
+  strong: '#ef4444',      // 紅(強)
   lean_strong: '#f97316', // 橙
   range: '#6b7280',       // 灰
-  lean_weak: '#3b82f6',   // 蓝
-  weak: '#10b981',        // 绿(弱)
+  lean_weak: '#3b82f6',   // 藍
+  weak: '#10b981',        // 綠(弱)
 }
 
 export interface RegimeRow {
@@ -465,7 +371,7 @@ export interface RegimeRow {
   above_ma20_pct: number
   total_amount: number
   avg_turnover: number
-  // 4 个子维度分(0-100, 重算后才有; 旧数据可能缺) — 综合分的加权来源
+  // 4 個子維度分(0-100, 重算後才有; 舊數據可能缺) — 綜合分的加權來源
   avg_pct?: number
   median_pct?: number
   strong_up_pct?: number
@@ -474,7 +380,7 @@ export interface RegimeRow {
   speculation_score?: number
   resilience_score?: number
   trend_score?: number
-  // 情绪周期阶段与梯队指标(重算后才有; 旧数据可能缺)
+  // 情緒週期階段與梯隊指標(重算後才有; 舊數據可能缺)
   phase?: MarketPhase | null
   first_board?: number | null
   ge2_count?: number | null
@@ -485,124 +391,25 @@ export interface RegimeRow {
   promo_pool?: number | null
 }
 
-export interface RegimeHistory {
-  rows: RegimeRow[]
-  total: number
-}
-
-export interface RegimeStateItem {
-  state: RegimeState
-  label: string
-  count: number
-  pct: number
-}
-
-export interface RegimeStates {
-  distribution: RegimeStateItem[]
-  days: number
-}
-
 export interface RegimeCoverage {
   rows: number
   earliest_date: string | null
   latest_date: string | null
 }
 
-// ── 市场阶段(情绪周期) 与 主线 ──
+// ── 市場階段(情緒週期) ──
+// Phase 8B-5.7: MARKET_PHASE_LABELS/COLORS/ORDER 與 PhaseSegment(s)/
+// MainlineRow/Leader/Result 僅供已刪除的 Regime.tsx 研究頁使用, 一併移除。
+// MarketPhase 型別本身保留 —— 是 RegimeRow.phase 欄位的型別依賴(regimeLatest
+// 仍是 Mining 頁真實 consumer)。MainlineFilter 保留 —— 是 mainlineFilterUpdate
+// (設定頁 /api/settings/preferences/mainline-filter)的回傳型別, 不屬本次範圍。
 export type MarketPhase = 'ice' | 'ignite' | 'rally' | 'climax' | 'ebb' | 'repair'
-
-export const MARKET_PHASE_LABELS: Record<MarketPhase, string> = {
-  ice: '冰点',
-  ignite: '启动',
-  rally: '主升',
-  climax: '高潮',
-  ebb: '退潮',
-  repair: '修复',
-}
-
-export const MARKET_PHASE_COLORS: Record<MarketPhase, string> = {
-  ice: '#38bdf8',     // 天蓝(冻结)
-  ignite: '#f59e0b',  // 琥珀(升温)
-  rally: '#ef4444',   // 红(主升)
-  climax: '#d946ef',  // 品红(极端)
-  ebb: '#14b8a6',     // 青(退潮)
-  repair: '#94a3b8',  // 灰(修复)
-}
-
-export const MARKET_PHASE_ORDER: MarketPhase[] = ['ice', 'ignite', 'rally', 'climax', 'ebb', 'repair']
-
-export interface MainlineMemberStat {
-  member: string
-  top5_days: number
-  score_sum: number
-  max_boards: number
-  leader_symbol: string
-}
-
-export interface PhaseSegment {
-  phase: MarketPhase
-  label: string
-  start: string
-  end: string
-  days: number
-  avg_height: number
-  avg_first_board: number
-  avg_ge2: number
-  avg_promo: number | null
-  avg_seal_rate: number
-  top_mainlines: MainlineMemberStat[]
-}
-
-export interface PhaseSegments {
-  segments: PhaseSegment[]
-  total: number
-}
-
-export interface MainlineRow {
-  date: string
-  kind: string
-  member: string
-  limit_up_count: number
-  ge2_count: number
-  max_boards: number
-  boards_sum: number
-  rungs_filled: number
-  leader_symbol: string
-  score: number
-  rank: number
-}
-
-export interface MainlineLeader {
-  member: string
-  top1_days: number
-  avg_score: number
-  max_boards: number
-}
 
 export interface MainlineFilter {
   min_members: number
   max_members: number
   blacklist: string[]
   exclude_st: boolean
-}
-
-export interface MainlineResult {
-  rows: MainlineRow[]
-  leaders: MainlineLeader[]
-  membership_note: string
-  filter: MainlineFilter
-}
-
-// ===== 大盘复盘 =====
-export interface AiReviewReport {
-  id: string
-  as_of: string
-  focus?: string
-  content: string
-  summary?: string
-  emotion_score?: number | null
-  emotion_label?: string
-  created_at: string
 }
 
 // ===== Strategy Engine =====
@@ -652,7 +459,7 @@ export interface StrategyDetail {
   order_by: string
   descending: boolean
   limit: number
-  // 叠加策略(composite)专属: 子策略列表与合并模式。非 composite 时为 null。
+  // 疊加策略(composite)專屬: 子策略列表與合併模式。非 composite 時為 null。
   composite_children?: CompositeChildInfo[] | null
 }
 
@@ -679,13 +486,13 @@ export interface StrategyCodeSaveResult {
   meta: Record<string, any>
 }
 
-// ===== Custom Signals (自定义信号) =====
+// ===== Custom Signals (自定義信號) =====
 export interface CustomSignalCondition {
   left: string     // 字段名
   op: string       // > >= < <= == !=
-  right: string    // "field:xxx" 或数字字符串
-  leftDays?: number   // 左字段取几日前 (0=当日, 默认)
-  rightDays?: number  // 右字段取几日前 (仅 right 为字段时有意义)
+  right: string    // "field:xxx" 或數字字符串
+  leftDays?: number   // 左字段取幾日前 (0=當日, 默認)
+  rightDays?: number  // 右字段取幾日前 (僅 right 為字段時有意義)
 }
 
 export interface CustomSignal {
@@ -715,11 +522,11 @@ export interface CustomSignalAIGenerateResult {
   conditions: CustomSignalCondition[]
 }
 
-// ===== Monitor (监控规则 + 触发记录) =====
+// ===== Monitor (監控規則 + 觸發記錄) =====
 export interface MonitorCondition {
   field: string
   op: string              // truth | > >= < <= == !=
-  value?: number | null   // op 非 truth 时必填
+  value?: number | null   // op 非 truth 時必填
 }
 
 export type StrategyNotifyEvent = 'buy_signal' | 'sell_signal' | 'pool_entry' | 'pool_exit'
@@ -740,54 +547,15 @@ export interface SectorMonitorTarget {
   member_count: number
 }
 
-export interface AbnormalWindowInfo {
-  /** 实时偏离值 (小数) */
-  value: number
-  /** 该窗口阈值 (小数) — 后端已按偏离方向取对应侧 (严重异动负向更严) */
-  threshold: number
-  /** 接近度 |value|/threshold */
-  closeness: number
-}
-
-export type AbnormalStatus = 'triggered' | 'edge' | 'watch'
-
-export interface AbnormalRow {
-  symbol: string
-  name: string | null
-  board: string
-  st: boolean
-  close: number | null
-  rt_pct: number | null
-  windows: Record<string, AbnormalWindowInfo>
-  max_closeness: number
-  status: AbnormalStatus
-}
-
-export interface AbnormalOverview {
-  asof: number
-  cache_date: string | null
-  bench_rt_pct: number
-  includes_today: boolean
-  rules: Array<{
-    board: string
-    st: boolean
-    /** 各窗口双侧阈值 {up: 正向, down: 负向} (小数) */
-    thresholds: Record<string, { up: number; down: number }>
-    note: string
-  }>
-  counts: { triggered: number; edge: number; watch: number }
-  rows: AbnormalRow[]
-}
-
 export interface MonitorRule {
   id: string
   name: string
   enabled: boolean
-  type: 'strategy' | 'signal' | 'price' | 'market' | 'ladder' | 'sector' | 'abnormal'
+  type: 'strategy' | 'signal' | 'price' | 'market' | 'ladder' | 'sector'
   asset_type?: 'stock' | 'etf' | 'index'
   scope: 'symbols' | 'all' | 'sector' | 'watchlist_group'
   symbols: string[]
-  /** scope=watchlist_group 时绑定的自选分组 id (成员动态解析, 增删自选自动生效) */
+  /** scope=watchlist_group 時綁定的自選分組 id (成員動態解析, 增刪自選自動生效) */
   group_id?: string | null
   sector?: string | null
   sector_kind?: SectorKind | null
@@ -795,8 +563,6 @@ export interface MonitorRule {
   sector_trigger?: 'change_pct' | 'momentum'
   threshold_pct?: number
   window_minutes?: 1 | 3 | 5 | 10 | 15
-  /** abnormal 专属: 关注窗口 (any=全部) */
-  abnormal_window?: 'any' | '3d' | '10d' | '30d'
   strategy_id?: string | null
   direction: 'entry' | 'exit' | 'both' | 'up' | 'down'
   notify_events?: StrategyNotifyEvent[]
@@ -808,13 +574,13 @@ export interface MonitorRule {
   severity: 'info' | 'warn' | 'critical'
   message: string
   webhook_url?: string
-  webhook_enabled?: boolean  // 兼容老规则, 已由 webhook_channels 取代
-  webhook_channels?: string[]  // 命中时推送的外部渠道 (合法值 'feishu' | 'wecom')
+  webhook_enabled?: boolean  // 兼容老規則, 已由 webhook_channels 取代
+  webhook_channels?: string[]  // 命中時推送的外部渠道 (合法值 'feishu' | 'wecom')
   created_at?: string
   runtime_warning?: string
-  // ladder 专属: 封单监控
-  metric?: 'sealed_vol' | 'sealed_amount'  // 量(手) / 额(元)
-  threshold?: number                        // 封单 <= 此值时报警
+  // ladder 專屬: 封單監控
+  metric?: 'sealed_vol' | 'sealed_amount'  // 量(手) / 額(元)
+  threshold?: number                        // 封單 <= 此值時報警
 }
 
 export interface MonitorRuleOptions {
@@ -865,12 +631,7 @@ export interface AlertEvent {
   up_count?: number
   down_count?: number
   leader?: { symbol?: string; name?: string; change_pct?: number } | null
-  /** 异动边缘告警 (source=abnormal) 附加字段 */
-  abnormal_window?: string
-  abnormal_value?: number
-  abnormal_threshold?: number
-  abnormal_closeness?: number
-  /** ext 富化字段 (行业/概念等), 键为 "{configId}__{fieldName}" */
+  /** ext 富化字段 (行業/概念等), 鍵為 "{configId}__{fieldName}" */
   [key: string]: unknown
 }
 
@@ -1753,7 +1514,7 @@ export interface TaiwanComparisonAIResearchResponse {
   evidence_registry_keys: string[]
 }
 
-/** 生成监控规则 id (时间戳 + 随机后缀), 用户无需手动填写。 */
+/** 生成監控規則 id (時間戳 + 隨機後綴), 用戶無需手動填寫。 */
 export function genRuleId(): string {
   const ts = Date.now().toString(36)
   const rand = Math.random().toString(36).slice(2, 6)
@@ -1761,47 +1522,10 @@ export function genRuleId(): string {
 }
 
 
-// ===== Limit Ladder =====
-export interface LimitLadderStock {
-  symbol: string
-  name?: string | null
-  close?: number | null
-  change_pct?: number | null
-  consecutive_limit_ups?: number | null
-  consecutive_limit_downs?: number | null
-  status?: 'limit_up' | 'broken' | 'failed' | 'limit_down' | 'recovery' | null
-  /** 五档 sealed: real=真封板, fake=假涨停(已归炸板), pending=待确认, null=降级/无能力 */
-  sealed_status?: 'real' | 'fake' | 'pending' | null
-  /** 封单量(买一/卖一量), 仅真封板有值 */
-  sealed_vol?: number | null
-  /** 最终状态为涨跌停且当天开高低收四价相同 */
-  is_one_word?: boolean
-}
-
-export interface LimitLadderTier {
-  boards: number
-  count: number
-  stocks: LimitLadderStock[]
-}
-
-export interface LimitLadderResult {
-  as_of: string
-  tiers: LimitLadderTier[]
-  /** 双方向涨跌停计数(修正后, 不论当前 direction) */
-  counts?: { up: number; down: number }
-  /** 双方向涨跌停原始计数(修正前, 供弹窗对比) */
-  counts_raw?: { up: number; down: number }
-  /** sealed 数据是否就绪(false→前端显示降级标识) */
-  sealed_ready?: boolean
-  /** sealed 数据 age(秒), null=盘后定版或无数据 */
-  sealed_age?: number | null
-  /** sealed 修正统计: real=真封板, fake=假涨停(归炸板), pending=待确认 */
-  sealed_counts?: { real: number; fake: number; pending: number }
-  /** 涨停侧 sealed 明细 */
-  sealed_counts_up?: { real: number; fake: number; pending: number }
-  /** 跌停侧 sealed 明细 */
-  sealed_counts_down?: { real: number; fake: number; pending: number }
-}
+// Phase 8B-5.10: LimitLadderStock/Tier/Result 隨已刪除的 LimitUpLadder.tsx
+// (連板梯隊頁)一併移除 —— 連板/打板/炸板/封板率為中國 A 股漲跌停制度
+// 衍生術語, 對台股產品無意義。depth_service 的 sealed cache 判定邏輯本身
+// 完全未動, 仍供 market_overview_builder/quote_service/monitor_rules 使用。
 
 // ===== Backtest =====
 export interface BacktestResult {
@@ -2168,7 +1892,7 @@ export interface StrategyBacktestResult {
     max_hold_days: number | null
     source: string
     execution_backend?: string
-    // 叠加策略回测: 子策略构成与权重归因
+    // 疊加策略回測: 子策略構成與權重歸因
     composite_children?: { id: string; weight: number }[]
   }
   elapsed_ms: number
@@ -2176,27 +1900,6 @@ export interface StrategyBacktestResult {
 }
 
 // ===== Settings =====
-
-/** 端点发现清单 —— 对应 tickflow.org/endpoints.json */
-export interface EndpointItem {
-  id: string
-  url: string
-  label: string
-  region?: string
-  description?: string
-  premium?: boolean
-}
-
-export interface EndpointManifest {
-  version?: number
-  description?: string
-  healthPath?: string
-  /** 每端点测试轮数,用于 /health 多轮探测取中位数 */
-  testRounds?: number
-  endpoints: EndpointItem[]
-  /** 数据来源:remote=远程拉取 / fallback=内置回退列表 */
-  source?: 'remote' | 'fallback'
-}
 
 export interface SettingsState {
   mode: 'none' | 'free' | 'api_key'
@@ -2207,7 +1910,7 @@ export interface SettingsState {
   probe_log: string[]
   missing_caps: string[]
   extras_caps: string[]
-  // 首次使用引导
+  // 首次使用引導
   onboarding_completed: boolean
   // AI 配置
   ai_provider: string
@@ -2226,10 +1929,10 @@ export interface SettingsState {
   ai_context_window?: number
 }
 
-/** 保存 TickFlow Key 的响应(先探后存) */
+/** 保存 TickFlow Key 的響應(先探後存) */
 export interface SaveTickflowKeyResult {
   ok: boolean
-  /** ok=false 且 key 无效时的原因标识,前端据此提示「Key 无效」 */
+  /** ok=false 且 key 無效時的原因標識,前端據此提示「Key 無效」 */
   reason?: 'invalid'
   error?: string
   mode?: 'none' | 'free' | 'api_key'
@@ -2246,17 +1949,17 @@ export interface DataSourceItem {
   path?: string | null
 }
 
-/** 内置可选插件数据源 (plugins/ 目录, 需手动装依赖) */
+/** 內置可選插件數據源 (plugins/ 目錄, 需手動裝依賴) */
 export interface PluginDataSourceItem {
   name: string
   display_name: string
   datasets: string[]
   runtime: string          // node | python | none
-  available: boolean       // 依赖是否已安装
-  status: string           // 可用性原因 (供 UI 显示)
+  available: boolean       // 依賴是否已安裝
+  status: string           // 可用性原因 (供 UI 顯示)
   description: string
-  install_hint: string     // 未装依赖时显示的安装命令
-  api_key_env?: string     // 声明后设置页提供 Key 输入框 (先探后存)
+  install_hint: string     // 未裝依賴時顯示的安裝命令
+  api_key_env?: string     // 聲明後設置頁提供 Key 輸入框 (先探後存)
 }
 
 export interface DataSourceLoadError {
@@ -2281,7 +1984,7 @@ export interface DataSourceTestResult {
   preview: Record<string, unknown>[]
 }
 
-/** 插件 Key 保存结果 (先探后存: 无效 Key 返回 ok=false 且不落盘) */
+/** 插件 Key 保存結果 (先探後存: 無效 Key 返回 ok=false 且不落盤) */
 export interface PluginKeyResult {
   ok: boolean
   reason?: string
@@ -2361,11 +2064,8 @@ export interface Preferences {
   instruments_schedule: { hour: number; minute: number }
   enriched_batch_size: number
   index_daily_batch_size: number
-  limit_ladder_monitor_enabled: boolean
   depth_polling_interval: number
   depth_finalize_time: { hour: number; minute: number }
-  review_schedule: { enabled: boolean; hour: number; minute: number }
-  review_push_channels: string[]
   sse_refresh_pages: Record<string, boolean>
   strategy_monitor_enabled: boolean
   strategy_monitor_ids: string[]
@@ -2378,6 +2078,12 @@ export interface Preferences {
   wecom_bot_enabled?: boolean
   webhook_enabled_default?: boolean
   webhook_default_channels?: string[]
+  line_target_id?: string
+  line_channel_access_token_masked?: string
+  line_configured?: boolean
+  telegram_chat_id?: string
+  telegram_bot_token_masked?: string
+  telegram_configured?: boolean
   sidebar_index_symbols: string[]
   nav_order: string[]
   nav_hidden: string[]
@@ -2387,13 +2093,13 @@ export interface Preferences {
   monitor_ext_fields: { concept: MonitorExtFieldItem | null; industry: MonitorExtFieldItem | null }
 }
 
-/** 监控中心 ext 字段单项配置 (行业/概念标签的来源 + 显示裁剪) */
+/** 監控中心 ext 字段單項配置 (行業/概念標籤的來源 + 顯示裁剪) */
 export interface MonitorExtFieldItem {
   /** "configId.fieldName" */
   field: string
-  /** 显示前N个标签, 0=不限制 */
+  /** 顯示前N個標籤, 0=不限制 */
   maxTags?: number
-  /** 隐藏的位置 (0-based), 如 [0] 表示隐藏第一个 */
+  /** 隱藏的位置 (0-based), 如 [0] 表示隱藏第一個 */
   hiddenIndices?: number[]
 }
 export interface StrategyAlertEvent {
@@ -2406,7 +2112,7 @@ export interface StrategyAlertEvent {
   price?: number | null
   change_pct?: number | null
   signals?: string[]
-  /** ext 富化字段 (行业/概念等), 键为 "{configId}__{fieldName}" */
+  /** ext 富化字段 (行業/概念等), 鍵為 "{configId}__{fieldName}" */
   [key: string]: unknown
 }
 
@@ -2414,7 +2120,7 @@ export interface StrategyAlertEvent {
 export const api = {
   health: () => request<{ status: string; version: string; mode: string }>('/health'),
 
-  // ===== Auth (访问认证) =====
+  // ===== Auth (訪問認證) =====
   authStatus: () =>
     request<{ configured: boolean; authenticated: boolean }>('/api/auth/status'),
   authSetup: (password: string) =>
@@ -2444,7 +2150,7 @@ export const api = {
   clearTickflowKey: () =>
     request<any>('/api/settings/tickflow-key', { method: 'DELETE' }),
 
-  /** 标记首次使用向导完成（持久化到后端 preferences） */
+  /** 標記首次使用嚮導完成（持久化到後端 preferences） */
   completeOnboarding: () =>
     request<{ ok: boolean; onboarding_completed: boolean }>(
       '/api/settings/onboarding/complete', { method: 'POST' },
@@ -2457,7 +2163,7 @@ export const api = {
       body: JSON.stringify(ai),
     }),
 
-  /** 一键清空 AI 配置(保留自定义 UA) */
+  /** 一鍵清空 AI 配置(保留自定義 UA) */
   clearAiSettings: () =>
     request<{ ok: boolean }>('/api/settings/ai', { method: 'DELETE' }),
 
@@ -2473,7 +2179,7 @@ export const api = {
     request<DataSourcesResponse>(`/api/settings/data-sources/${encodeURIComponent(name)}`, { method: 'DELETE' }),
   reloadDataSources: () => request<DataSourcesResponse>('/api/settings/data-sources/reload', { method: 'POST' }),
   installPlugin: (name: string) => {
-    // npm install 可能耗时较长, 用 6 分钟超时
+    // npm install 可能耗時較長, 用 6 分鐘超時
     const controller = new AbortController()
     const timer = setTimeout(() => controller.abort(), 360_000)
     return request<DataSourcesResponse & { install_ok: boolean; install_message: string }>(
@@ -2487,7 +2193,7 @@ export const api = {
       { method: 'DELETE' },
     ),
   savePluginKey: (plugin: string, apiKey: string) => {
-    // 先探后存: 后端会用候选 Key 实探一次, 探测超时 10s + 余量
+    // 先探後存: 後端會用候選 Key 實探一次, 探測超時 10s + 餘量
     const controller = new AbortController()
     const timer = setTimeout(() => controller.abort(), 30_000)
     return request<PluginKeyResult>('/api/settings/plugin-key', {
@@ -2524,34 +2230,10 @@ export const api = {
         }),
       },
     ),
-  updateMinuteSync: (enabled: boolean, days: number, segmentDays?: number) =>
-    request<Preferences>('/api/settings/preferences/minute-sync', {
-      method: 'PUT',
-      body: JSON.stringify({
-        minute_sync_enabled: enabled,
-        minute_sync_days: days,
-        ...(segmentDays != null ? { minute_sync_segment_days: segmentDays } : {}),
-      }),
-    }),
-  updatePipelinePullTypes: (cfg: Partial<Pick<Preferences, 'pipeline_pull_a_share' | 'pipeline_pull_etf' | 'pipeline_pull_index'>>) =>
-    request<{
-      pipeline_pull_a_share: boolean
-      pipeline_pull_etf: boolean
-      pipeline_pull_index: boolean
-    }>('/api/settings/preferences/pipeline-pull-types', {
-      method: 'PUT',
-      body: JSON.stringify(cfg),
-    }),
-  updatePipelineRegimeEnabled: (enabled: boolean) =>
-    request<{ pipeline_regime_enabled: boolean }>('/api/settings/preferences/pipeline-regime-enabled', {
-      method: 'PUT',
-      body: JSON.stringify({ pipeline_regime_enabled: enabled }),
-    }),
-  updateRegimeBatchParams: (params: { batch_days?: number; warmup_days?: number }) =>
-    request<{ regime_batch_days: number; regime_warmup_days: number }>('/api/settings/preferences/regime-batch-params', {
-      method: 'PUT',
-      body: JSON.stringify(params),
-    }),
+  // Phase 8B-5.8: updateMinuteSync/updatePipelinePullTypes/
+  // updatePipelineRegimeEnabled/updateRegimeBatchParams 隨已刪除的
+  // Data.tsx(A 股資料管理頁)一併移除 —— 對應 backend 設定端點未動,
+  // 屬 POSSIBLE_ORPHAN_BACKEND_API, 留待之後統一的 Dead Backend API Sweep。
   updatePipelineIndexSymbols: (symbols: string) =>
     request<{ pipeline_index_symbols: string }>('/api/settings/preferences/pipeline-index-symbols', {
       method: 'PUT',
@@ -2566,11 +2248,6 @@ export const api = {
     request<Partial<Preferences>>('/api/settings/preferences/realtime-quote-scope', {
       method: 'PUT',
       body: JSON.stringify(cfg),
-    }),
-  updateIndicesNavPinned: (pinned: boolean) =>
-    request<{ indices_nav_pinned: boolean }>('/api/settings/preferences/indices-nav-pinned', {
-      method: 'PUT',
-      body: JSON.stringify({ indices_nav_pinned: pinned }),
     }),
   updateWatchlistGroupsInNav: (enabled: boolean) =>
     request<{ watchlist_groups_in_nav: boolean }>('/api/settings/preferences/watchlist-groups-in-nav', {
@@ -2607,10 +2284,6 @@ export const api = {
       { method: 'PUT', body: JSON.stringify({ interval }) },
     ),
   intradayRefresh: () => request<{ status: string }>('/api/intraday/refresh', { method: 'POST' }),
-  indexQuotes: (symbols?: string[]) =>
-    request<{ rows: IndexQuote[]; count: number }>(
-      `/api/intraday/indices${symbols?.length ? `?symbols=${encodeURIComponent(symbols.join(','))}` : ''}`,
-    ),
   updateRealtimeMonitorConfig: (cfg: {
     sse_refresh_pages?: Record<string, boolean>
     strategy_monitor_enabled?: boolean
@@ -2674,34 +2347,24 @@ export const api = {
       method: 'PUT',
       body: JSON.stringify({ channels }),
     }),
-  updatePipelineSchedule: (hour: number, minute: number) =>
-    request<{ hour: number; minute: number }>('/api/settings/preferences/pipeline-schedule', {
+  updateLineMessaging: (recipient: string, token?: string, clearToken: boolean = false) =>
+    request<{ ok: boolean; line_target_id: string; line_configured: boolean }>('/api/settings/preferences/line-messaging', {
       method: 'PUT',
-      body: JSON.stringify({ hour, minute }),
+      body: JSON.stringify({ recipient, token, clear_token: clearToken }),
     }),
-  updateReviewSchedule: (enabled: boolean, hour: number, minute: number) =>
-    request<{ enabled: boolean; hour: number; minute: number }>('/api/settings/preferences/review-schedule', {
+  updateTelegramBot: (recipient: string, token?: string, clearToken: boolean = false) =>
+    request<{ ok: boolean; telegram_chat_id: string; telegram_configured: boolean }>('/api/settings/preferences/telegram-bot', {
       method: 'PUT',
-      body: JSON.stringify({ enabled, hour, minute }),
+      body: JSON.stringify({ recipient, token, clear_token: clearToken }),
     }),
-  updateReviewPush: (channels: string[]) =>
-    request<{ review_push_channels: string[] }>('/api/settings/preferences/review-push', {
-      method: 'PUT',
-      body: JSON.stringify({ channels }),
-    }),
+  testLineMessaging: () =>
+    request<{ ok: boolean }>('/api/settings/preferences/line-messaging/test', { method: 'POST' }),
+  testTelegramBot: () =>
+    request<{ ok: boolean }>('/api/settings/preferences/telegram-bot/test', { method: 'POST' }),
   updateDepthPollingInterval: (interval: number) =>
     request<{ depth_polling_interval: number }>('/api/settings/preferences/depth-polling-interval', {
       method: 'PUT',
       body: JSON.stringify({ interval }),
-    }),
-  updateLimitLadderMonitor: (enabled: boolean) =>
-    request<{ limit_ladder_monitor_enabled: boolean }>('/api/settings/preferences/limit-ladder-monitor', {
-      method: 'PUT',
-      body: JSON.stringify({ enabled }),
-    }),
-  runLimitLadderFix: () =>
-    request<{ ok: boolean; count: number; msg: string }>('/api/settings/preferences/limit-ladder-monitor/run', {
-      method: 'POST',
     }),
   updateDepthFinalizeTime: (hour: number, minute: number) =>
     request<{ hour: number; minute: number }>('/api/settings/preferences/depth-finalize-time', {
@@ -2718,23 +2381,7 @@ export const api = {
       method: 'PUT',
       body: JSON.stringify({ nav_hidden }),
     }),
-  updateInstrumentsSchedule: (hour: number, minute: number) =>
-    request<{ hour: number; minute: number }>('/api/settings/preferences/instruments-schedule', {
-      method: 'PUT',
-      body: JSON.stringify({ hour, minute }),
-    }),
-  updateEnrichedBatchSize: (size: number) =>
-    request<{ enriched_batch_size: number }>('/api/settings/preferences/enriched-batch-size', {
-      method: 'PUT',
-      body: JSON.stringify({ size }),
-    }),
-  updateIndexDailyBatchSize: (size: number) =>
-    request<{ index_daily_batch_size: number }>('/api/settings/preferences/index-daily-batch-size', {
-      method: 'PUT',
-      body: JSON.stringify({ size }),
-    }),
-
-  // 自选列表列配置
+  // 自選列表列配置
   watchlistColumns: () =>
     request<{ columns: any[] | null }>('/api/settings/preferences/watchlist-columns'),
   updateWatchlistColumns: (columns: any[]) =>
@@ -2743,7 +2390,7 @@ export const api = {
       body: JSON.stringify({ columns }),
     }),
 
-  // 策略结果列表列配置
+  // 策略結果列表列配置
   screenerResultColumns: () =>
     request<{ columns: any[] | null }>('/api/settings/preferences/screener-result-columns'),
   updateScreenerResultColumns: (columns: any[]) =>
@@ -2780,12 +2427,17 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ symbols, date }),
     }),
-  instrumentSearch: (q: string, limit = 20, assetTypes?: string) =>
-    request<{ results: { symbol: string; name: string; code: string; asset_type?: string }[] }>(
-      `/api/kline/instruments/search?q=${encodeURIComponent(q)}&limit=${limit}${assetTypes ? `&asset_types=${encodeURIComponent(assetTypes)}` : ''}`,
+  /**
+   * market 省略 = 既有 A 股 legacy 行為(Financials 搜索 / A 股監控規則編輯器 /
+   * A 股回測標的選擇器等既有調用方不用改)。market='taiwan' 只查
+   * TaiwanSecurityMaster, 不會混入 .SH/.SZ/.BJ 結果 —— 自選股搜索用這個。
+   */
+  instrumentSearch: (q: string, limit = 20, assetTypes?: string, market?: 'ashare' | 'taiwan' | 'all') =>
+    request<{ results: { symbol: string; name: string; code: string; asset_type?: string; market: 'ashare' | 'taiwan' }[] }>(
+      `/api/kline/instruments/search?q=${encodeURIComponent(q)}&limit=${limit}${assetTypes ? `&asset_types=${encodeURIComponent(assetTypes)}` : ''}${market ? `&market=${market}` : ''}`,
     ),
 
-  /** 批量查股票名称 (传入 symbol 列表, 返回 {symbol: name}) */
+  /** 批量查股票名稱 (傳入 symbol 列表, 返回 {symbol: name}) */
   instrumentNames: (symbols: string[]) =>
     request<{ names: Record<string, string> }>('/api/kline/instruments/names', {
       method: 'POST',
@@ -2816,75 +2468,26 @@ export const api = {
     }>(
       `/api/kline/minute-range?symbol=${encodeURIComponent(symbol)}&days=${days}`,
     ),
-  indexList: () => request<{ results: IndexInstrument[]; count: number }>('/api/index/list'),
-  indexSearch: (q: string, limit = 20) =>
-    request<{ results: IndexInstrument[] }>(
-      `/api/index/search?q=${encodeURIComponent(q)}&limit=${limit}`,
-    ),
-  indexDaily: (symbol: string, days = 120, dateRange?: { start: string; end: string }) =>
-    request<{
-      symbol: string
-      name?: string
-      index_info?: IndexInstrument
-      rows: KlineRow[]
-      source?: string
-    }>(
-      dateRange
-        ? `/api/index/daily?symbol=${encodeURIComponent(symbol)}&start_date=${dateRange.start}&end_date=${dateRange.end}`
-        : `/api/index/daily?symbol=${encodeURIComponent(symbol)}&days=${days}`,
-    ),
-  indexMinute: (symbol: string, date?: string) =>
-    request<{
-      symbol: string
-      name?: string
-      index_info?: IndexInstrument
-      date: string | null
-      rows: MinuteKlineRow[]
-      source?: string
-    }>(
-      `/api/index/minute?symbol=${encodeURIComponent(symbol)}${date ? `&date=${date}` : ''}`,
-    ),
-  syncIndexInstruments: () =>
-    request<{ status: string; count: number }>('/api/index/sync_instruments', { method: 'POST' }),
-  syncIndexDaily: (days = 365) =>
-    request<{ status: string; index_count: number; rows_written: number }>(
-      `/api/index/sync_daily?days=${days}`,
-      { method: 'POST' },
-    ),
-  syncSymbol: (symbol: string, days = 250) =>
-    request<{ symbol: string; rows_written: number }>(
-      `/api/kline/sync?symbol=${encodeURIComponent(symbol)}&days=${days}`,
-      { method: 'POST' },
-    ),
-  syncMinute: (days?: number, extend?: boolean) =>
-    request<{ status: string; job_id: string }>('/api/kline/sync_minute', {
-      method: 'POST',
-      body: JSON.stringify({ ...(days ? { days } : {}), ...(extend ? { extend: true } : {}) }),
-    }),
   syncMinuteSingle: (symbol: string, days?: number) =>
     request<{ status: string; symbol: string; rows: number }>('/api/kline/sync_minute_single', {
       method: 'POST',
       body: JSON.stringify({ symbol, ...(days != null ? { days } : {}) }),
     }),
-  clearMinute: () =>
-    request<{ status: string; removed: number }>('/api/kline/clear_minute', {
-      method: 'POST',
-      body: JSON.stringify({ confirm: true }),
-    }),
-  extendHistory: (value: number, unit: 'day' | 'month' | 'year') =>
-    request<{ status: string; job_id: string }>('/api/kline/extend_history', {
-      method: 'POST',
-      body: JSON.stringify({ value, unit }),
-    }),
-  repairDaily: (startDate: string) =>
-    request<{ status: string; job_id: string }>('/api/kline/repair_daily', {
-      method: 'POST',
-      body: JSON.stringify({ start_date: startDate }),
-    }),
-  rebuildEnriched: () =>
-    request<{ status: string; job_id: string }>('/api/kline/rebuild_enriched', {
-      method: 'POST',
-    }),
+  // Phase 8B-5.8: syncIndexDaily/syncMinute/clearMinute/extendHistory/
+  // repairDaily/rebuildEnriched 隨已刪除的 Data.tsx 一併移除(僅該頁使用)。
+  // Phase 8B-5.18: 對應 backend POST /api/index/sync_daily 已確認 zero 消費者
+  // 並整組刪除, 連同僅有此一路由的 backend/app/api/indices.py 一併移除;
+  // index_sync service(daily_pipeline.py 真實直接呼叫)完全未動。
+  // Phase 8B-5.19: 對應 backend POST /api/kline/sync_minute、clear_minute、
+  // extend_history、repair_daily、rebuild_enriched 已確認 zero 消費者並整組
+  // 刪除(見 backend/app/api/kline.py)。sync_minute_single(本檔上方,個股分時圖
+  // 用)完全未動, 與被刪的 batch sync_minute 是不同端點。kline_sync.py/
+  // data_integrity.py/repair_daily.py/extend_history.py/run_pipeline 均未動,
+  // daily_pipeline.py 自身的分鐘K同步流程(stage label "sync_minute")亦不受影響。
+  // Phase 8B-FINAL: syncSymbol(對應 backend POST /api/kline/sync)已確認 zero
+  // 消費者並與其 backend handler 一併刪除, 避免留下「前端方法已死但 backend
+  // route 仍公開」的半殘狀態; 與其同源的 sync_and_persist_daily_batch 服務
+  // (daily_pipeline.py/extend_history.py 真實使用)完全未動。
 
   watchlistList: () => request<{ symbols: WatchlistEntry[] }>('/api/watchlist'),
   watchlistAdd: (symbol: string, note = '', groupId?: string | null) =>
@@ -3007,62 +2610,21 @@ export const api = {
     ),
   marketSnapshot: () =>
     request<{ as_of: string | null; rows: MarketSnapshotRow[] }>('/api/screener/market-snapshot'),
-  overviewMarket: (asOf?: string) => request<OverviewMarket>(`/api/overview/market${asOf ? `?as_of=${asOf}` : ''}`),
 
-  // 概念涨幅轮动矩阵: 每列(日期)各自把所有概念按当天涨幅从高到低排序
-  rpsRotation: (days: number, kind?: 'concept' | 'industry', level?: number) =>
-    request<RpsRotationData>(`/api/rps/rotation?days=${days}${kind ? `&kind=${kind}` : ''}${level ? `&level=${level}` : ''}`),
-
-  // 市场环境(Regime)
-  regimeHistory: (start?: string, end?: string, limit?: number) => {
-    const params = new URLSearchParams()
-    if (start) params.set('start', start)
-    if (end) params.set('end', end)
-    if (limit) params.set('limit', String(limit))
-    const qs = params.toString()
-    return request<RegimeHistory>(`/api/regime/history${qs ? `?${qs}` : ''}`)
-  },
-  regimeLatest: () => request<{ row: RegimeRow | null }>('/api/regime/latest'),
-  regimeStates: (days = 60) => request<RegimeStates>(`/api/regime/states?days=${days}`),
+  // 市場環境(Regime)
+  // Phase 8B-5.7: 移除僅供已刪除的 Regime.tsx 研究頁使用的 history/states/
+  // recompute/phases/mainline 端點。Phase 8C-D: regimeLatest 唯一的 frontend
+  // consumer(Mining 挖掘頁)已隨產品介面移除, 一併移除此 client method
+  // (backend /api/regime/latest 與 regime core 計算完全未動, 見 Final Report)。
+  // regimeCoverage 已是 Phase 8B-5.8 刪除 /data 頁後的既有 orphan, 不屬本次
+  // 範圍, 不動。
   regimeCoverage: () => request<RegimeCoverage>('/api/regime/coverage'),
-  regimeRecompute: (start?: string, end?: string) => {
-    const params = new URLSearchParams()
-    if (start) params.set('start', start)
-    if (end) params.set('end', end)
-    const qs = params.toString()
-    return request<{ ok: boolean; computed: number; phase_days?: number; mainline_rows?: number }>(`/api/regime/recompute${qs ? `?${qs}` : ''}`, { method: 'POST' })
-  },
-  regimePhases: (start?: string, end?: string) => {
-    const params = new URLSearchParams()
-    if (start) params.set('start', start)
-    if (end) params.set('end', end)
-    const qs = params.toString()
-    return request<PhaseSegments>(`/api/regime/phases${qs ? `?${qs}` : ''}`)
-  },
-  regimeMainline: (start?: string, end?: string, top = 10, kind: 'concept' | 'industry' = 'concept') => {
-    const params = new URLSearchParams({ top: String(top), kind })
-    if (start) params.set('start', start)
-    if (end) params.set('end', end)
-    return request<MainlineResult>(`/api/regime/mainline?${params.toString()}`)
-  },
-  regimeMainlineRecompute: () =>
-    request<{ ok: boolean; rows: number }>('/api/regime/mainline/recompute', { method: 'POST' }),
   mainlineFilterUpdate: (payload: { min_members?: number; max_members?: number; blacklist?: string[]; exclude_st?: boolean }) =>
     request<MainlineFilter>('/api/settings/preferences/mainline-filter', {
       method: 'PUT',
       body: JSON.stringify(payload),
     }),
 
-  limitLadder: (asOf?: string, extColumns?: string, direction?: 'up' | 'down') => {
-    const params = new URLSearchParams()
-    if (asOf) params.set('as_of', asOf)
-    if (extColumns) params.set('ext_columns', extColumns)
-    if (direction === 'down') params.set('direction', 'down')
-    const qs = params.toString()
-    return request<LimitLadderResult>(
-      `/api/screener/limit-ladder${qs ? `?${qs}` : ''}`,
-    )
-  },
 
   backtestStatus: () => request<{ available: boolean }>('/api/backtest/status'),
 
@@ -3235,53 +2797,31 @@ export const api = {
     ),
 
   dataStatus: () => request<DataStatus>('/api/data/status'),
-  dataClear: () => request<{ deleted_files: number }>('/api/data/clear', { method: 'POST' }),
   refreshCache: () => request<{ ok: boolean }>('/api/data/refresh-cache', { method: 'POST' }),
-  enrichedSchema: (table: string) => request<EnrichedField[]>(`/api/data/schema/${table}`),
 
-  testEndpoint: (url: string, rounds?: number) =>
-    request<{
-      ok: boolean
-      url: string
-      rounds: number
-      success: number
-      median_ms: number | null
-      min_ms?: number | null
-      max_ms?: number | null
-      /** 兼容旧字段,等于 median_ms */
-      latency_ms?: number | null
-      error?: string
-    }>(
-      '/api/settings/test_endpoint', {
-        method: 'POST',
-        body: JSON.stringify({ url, rounds }),
-      },
-    ),
+  // Phase 8B-5.8: dataClear/enrichedSchema/testEndpoint/listEndpoints/
+  // switchEndpoint 隨已刪除的 Data.tsx + EndpointTestDialog.tsx 一併移除
+  // (僅供該頁使用)。
+  // Phase 8B-5.18: 對應 backend POST /api/data/clear、GET /api/data/schema/{table}
+  // 已確認 zero 消費者並整組刪除(見 backend/app/api/data.py)。testEndpoint/
+  // listEndpoints/switchEndpoint 對應的 backend 端點暫未動, 留待後續獨立 Phase。
 
-  // 端点发现 —— 后端代理拉取 tickflow.org/endpoints.json(前端无法跨域直连)
-  listEndpoints: () =>
-    request<EndpointManifest>('/api/settings/endpoints'),
-
-  switchEndpoint: (url: string) =>
-    request<{ ok: boolean; current_endpoint: string; error?: string }>(
-      '/api/settings/switch_endpoint', {
-        method: 'POST',
-        body: JSON.stringify({ url }),
-      },
-    ),
-
-  // ===== 扩展数据 =====
-  extDataList: () =>
-    request<{ items: ExtDataConfig[] }>('/api/ext-data'),
-
-  extDataRows: (id: string, opts?: { date?: string; limit?: number; columns?: string[] }) => {
-    const qs = new URLSearchParams()
-    if (opts?.date) qs.set('date', opts.date)
-    if (opts?.limit) qs.set('limit', String(opts.limit))
-    if (opts?.columns?.length) qs.set('columns', opts.columns.join(','))
-    const suffix = qs.toString()
-    return request<ExtDataRowsResult>(`/api/ext-data/${encodeURIComponent(id)}/rows${suffix ? `?${suffix}` : ''}`)
-  },
+  // ===== 擴展數據 =====
+  // Phase 8B-5.8: extDataCreate/Update/Delete/Upload(建立/編輯/刪除/上傳
+  // 擴充資料源, 由已刪除的 CreateExtDialog/EditExtDialog/ExtDataStatCard
+  // 使用)隨 Data.tsx 一併移除。
+  // Phase 8B-5.12: analysisMenus/analysisMenu/analysisMenuSave/Reorder/Delete
+  // (自訂分析選單建構器, 隨已刪除的 Analysis.tsx/AnalysisDetail.tsx/ExtPages.tsx
+  // 一併移除)。
+  // Phase 8B-5.16: extDataList/extDataRows/extDataIngest/extDataPresetFetch
+  // 經 8B-5.13/8B-5.15 兩輪 audit 確認 zero 前端/後端/scheduler/腳本消費者,
+  // 對應 backend CRUD/upload/ingest/pull-config/pull-test/pull-run/
+  // fix-symbol/detect-fields/detect-url/list/schema/{id}/presets-fetch 端點
+  // 整組移除(見 backend/app/api/ext_data.py)。extDataSchemaAll/
+  // dimensionMembers(唯讀 schema 發現 + 維度成員鑽取)仍是 ListColumnCustomizer/
+  // DimensionMembersDialog/Monitor/Watchlist/Dashboard/Screener 的真實消費者,
+  // 完整保留。ExtConfigStore/_read_ext_dataframe/PullScheduler/ext_presets.py
+  // 均未變更。
 
   dimensionMembers: (id: string, opts: { field: string; value: string; date?: string; limit?: number }) => {
     const qs = new URLSearchParams({ field: opts.field, value: opts.value })
@@ -3290,389 +2830,28 @@ export const api = {
     return request<DimensionMembersResult>(`/api/ext-data/${encodeURIComponent(id)}/dimension-members?${qs.toString()}`)
   },
 
-  analysisMenus: () =>
-    request<{ items: AnalysisMenu[] }>('/api/analysis-menus'),
-
-  analysisMenu: (id: string) =>
-    request<AnalysisMenu>(`/api/analysis-menus/${encodeURIComponent(id)}`),
-
-  analysisMenuSave: (id: string, body: Omit<AnalysisMenu, 'id' | 'created_at' | 'updated_at' | 'builtin'>) =>
-    request<AnalysisMenu>(`/api/analysis-menus/${encodeURIComponent(id)}`, {
-      method: 'POST',
-      body: JSON.stringify(body),
-    }),
-
-  analysisMenuReorder: (ids: string[]) =>
-    request<{ items: AnalysisMenu[] }>('/api/analysis-menus/reorder', {
-      method: 'POST',
-      body: JSON.stringify({ ids }),
-    }),
-
-  analysisMenuDelete: (id: string) =>
-    request<{ status: string }>(`/api/analysis-menus/${encodeURIComponent(id)}`, { method: 'DELETE' }),
-
-  extDataCreate: (body: { id: string; label: string; mode: 'snapshot' | 'timeseries'; fields: { name: string; dtype: string; label: string }[]; description?: string; symbol_map?: Record<string, string>; code_map?: Record<string, string> }) =>
-    request<ExtDataConfig>('/api/ext-data', {
-      method: 'POST',
-      body: JSON.stringify(body),
-    }),
-
-  extDataUpdate: (id: string, body: { label?: string; fields?: { name: string; dtype: string; label: string }[]; description?: string }) =>
-    request<ExtDataConfig>(`/api/ext-data/${id}`, {
-      method: 'PUT',
-      body: JSON.stringify(body),
-    }),
-
-  extDataDelete: (id: string) =>
-    request<{ status: string }>(`/api/ext-data/${id}`, { method: 'DELETE' }),
-
-  extDataUpload: (id: string, file: File, snapshotDate?: string) => {
-    const fd = new FormData()
-    fd.append('file', file)
-    return request<{ status: string; rows: number; date: string }>(
-      `/api/ext-data/${id}/upload${snapshotDate ? `?snapshot_date=${snapshotDate}` : ''}`,
-      { method: 'POST', body: fd },
-    )
-  },
-
-  extDataIngest: (id: string, body: { date?: string; rows: Record<string, unknown>[] }) =>
-    request<{ status: string; rows: number; date: string }>(
-      `/api/ext-data/${id}/ingest`,
-      { method: 'POST', body: JSON.stringify(body) },
-    ),
-
   extDataSchemaAll: () =>
     request<{ items: { id: string; label: string; mode: string; columns: { name: string; type: string; label: string }[] }[] }>('/api/ext-data/schema-all'),
 
-  extDataPullConfig: (id: string, body: {
-    url: string; method?: string; headers?: Record<string, string>; body?: string;
-    response_path?: string; field_map?: Record<string, string>;
-    schedule_minutes?: number; enabled?: boolean;
-    time_window_start?: string | null; time_window_end?: string | null;
-  }) =>
-    request<{ status: string; pull: PullConfig }>(
-      `/api/ext-data/${id}/pull`,
-      { method: 'PUT', body: JSON.stringify(body) },
-    ),
-
-  extDataPullTest: (id: string) =>
-    request<{ status: string; total_rows: number; preview: Record<string, unknown>[]; has_symbol: boolean }>(
-      `/api/ext-data/${id}/pull/test`,
-      { method: 'POST' },
-    ),
-
-  extDataPullRun: (id: string) =>
-    request<{ status: string; rows: number; date: string }>(
-      `/api/ext-data/${id}/pull/run`,
-      { method: 'POST' },
-    ),
-
-  // 内置预设 (概念/行业) 手动获取数据: 走结构转换, 保证 schema 一致
-  extDataPresetFetch: (id: string) =>
-    request<{ status: string; rows: number }>(
-      `/api/ext-data/presets/${id}/fetch`,
-      { method: 'POST' },
-    ),
-
-  extDataDetectFields: (file: File) => {
-    const fd = new FormData()
-    fd.append('file', file)
-    return request<{ fields: { name: string; dtype: string; label: string }[]; rows: number; symbol_candidates: string[]; code_candidates: string[] }>(
-      '/api/ext-data/detect-fields',
-      { method: 'POST', body: fd },
-    )
-  },
-
-  extDataDetectUrl: (body: ExtDataDetectUrlRequest) =>
-    request<ExtDataDetectUrlResult>('/api/ext-data/detect-url', {
-      method: 'POST',
-      body: JSON.stringify(body),
-    }),
-
-  extDataFixSymbol: (id: string) =>
-    request<{ status: string; fixed_files: number }>(
-      `/api/ext-data/${id}/fix-symbol`,
-      { method: 'POST' },
-    ),
-
   // ===== Financials =====
-  financialStatus: () =>
-    request<FinancialStatus>('/api/financials/status'),
-
+  // Phase 8B-5.3: 僅保留 financialMetrics —— 見上方 FinancialMetricRecord 註釋。
   financialMetrics: (symbol?: string) =>
     request<{ data: FinancialMetricRecord[] }>(
       `/api/financials/metrics${symbol ? `?symbol=${encodeURIComponent(symbol)}` : ''}`,
     ),
 
-  financialIncome: (symbol?: string) =>
-    request<{ data: FinancialIncomeRecord[] }>(
-      `/api/financials/income${symbol ? `?symbol=${encodeURIComponent(symbol)}` : ''}`,
-    ),
-
-  financialBalanceSheet: (symbol?: string) =>
-    request<{ data: FinancialBalanceSheetRecord[] }>(
-      `/api/financials/balance-sheet${symbol ? `?symbol=${encodeURIComponent(symbol)}` : ''}`,
-    ),
-
-  financialCashFlow: (symbol?: string) =>
-    request<{ data: FinancialCashFlowRecord[] }>(
-      `/api/financials/cash-flow${symbol ? `?symbol=${encodeURIComponent(symbol)}` : ''}`,
-    ),
-
-  financialShares: (symbol?: string) =>
-    request<{ data: FinancialSharesRecord[] }>(
-      `/api/financials/shares${symbol ? `?symbol=${encodeURIComponent(symbol)}` : ''}`,
-    ),
-
-  /** 触发财务数据同步(后台异步执行,接口立即返回 started 状态) */
-  financialSync: (table: string) =>
-    request<{ status: string; synced: { started: boolean; reason?: string } }>(
-      `/api/financials/sync/${table}`, { method: 'POST' },
-    ),
-
-  /** AI 分析报告 CRUD */
-  financialReportsList: () =>
-    request<{ reports: AiFinancialReport[] }>('/api/financials/reports'),
-
-  financialReportSave: (r: {
-    symbol: string; name?: string; focus?: string; content: string
-    periods?: number; summary?: string
-  }) =>
-    request<{ ok: boolean; report: AiFinancialReport }>('/api/financials/reports', {
-      method: 'POST', body: JSON.stringify(r),
-    }),
-
-  financialReportDelete: (reportId: string) =>
-    request<{ ok: boolean }>(`/api/financials/reports/${encodeURIComponent(reportId)}`, { method: 'DELETE' }),
-
-  /**
-   * AI 财务分析 — 流式调用。
-   *
-   * 返回一个可逐行读取的 async generator,每行是 JSON:
-   *   {type:"meta",symbol,summary,periods}
-   *   {type:"delta",content:"..."}    ← 文本片段,逐个累加
-   *   {type:"error",message:"..."}
-   *   {type:"done"}
-   *
-   * 用 ReadableStream 解析(而非 SSE EventSource),支持 POST body 且更简单。
-   */
-  async *financialAnalyzeStream(symbol: string, focus?: string): AsyncGenerator<{
-    type: 'meta' | 'delta' | 'error' | 'done'
-    symbol?: string
-    summary?: string
-    periods?: number
-    content?: string
-    message?: string
-  }> {
-    const res = await fetch('/api/financials/analyze', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ symbol, focus: focus ?? '' }),
-    })
-    if (!res.ok) {
-      let detail = ''
-      try { const j = JSON.parse(await res.text()); detail = j.detail ?? j.message ?? '' } catch { /* ignore */ }
-      const msg = detail || `${res.status} ${res.statusText}`
-      toast(msg, 'error')
-      throw new Error(msg)
-    }
-    if (!res.body) throw new Error('响应无 body')
-
-    const reader = res.body.getReader()
-    const decoder = new TextDecoder()
-    let buf = ''
-    for (;;) {
-      const { done, value } = await reader.read()
-      if (done) break
-      buf += decoder.decode(value, { stream: true })
-      // 按行分割(保留最后不完整的行在 buf)
-      const lines = buf.split('\n')
-      buf = lines.pop() ?? ''
-      for (const line of lines) {
-        const s = line.trim()
-        if (!s) continue
-        try {
-          yield JSON.parse(s)
-        } catch {
-          // 忽略无法解析的行
-        }
-      }
-    }
-    // 处理残余
-    if (buf.trim()) {
-      try { yield JSON.parse(buf.trim()) } catch { /* ignore */ }
-    }
-  },
-
-  // ===== 个股分析 =====
+  // ===== 個股分析 =====
+  // Phase 8B-5.6B: 僅保留 stockAnalysisLevels(PriceAlertDialog 價格提醒 +
+  // 關鍵價位持續使用)—— AI 長篇個股研究報告 workflow(analyze/reports CRUD)
+  // 已隨其唯一消費者(已刪除的 StockAnalysis.tsx 頁面 + stockAnalysisStore)
+  // 一併移除,詳見 Phase 8B-5.6A audit。
   stockAnalysisLevels: (symbol: string, days = 120) =>
     request<StockLevels>(`/api/stock-analysis/levels?symbol=${encodeURIComponent(symbol)}&days=${days}`),
 
-  stockAnalysisReportsList: () =>
-    request<{ reports: AiStockReport[] }>('/api/stock-analysis/reports'),
-
-  stockAnalysisReportSave: (r: {
-    symbol: string; name?: string; focus?: string; content: string
-    summary?: string; close?: number | null
-    levels?: Record<LevelType, PriceLevel[]>
-  }) =>
-    request<{ ok: boolean; report: AiStockReport }>('/api/stock-analysis/reports', {
-      method: 'POST', body: JSON.stringify(r),
-    }),
-
-  stockAnalysisReportDelete: (reportId: string) =>
-    request<{ ok: boolean }>(`/api/stock-analysis/reports/${encodeURIComponent(reportId)}`, { method: 'DELETE' }),
-
-  /**
-   * AI 个股四维分析 — 流式调用(NDJSON,与财务分析同协议)。
-   * meta 里额外带 levels(关键价位)供图表回放。
-   */
-  async *stockAnalyzeStream(symbol: string, focus?: string): AsyncGenerator<{
-    type: 'meta' | 'delta' | 'error' | 'done'
-    symbol?: string
-    summary?: string
-    levels?: Record<LevelType, PriceLevel[]>
-    close?: number | null
-    content?: string
-    message?: string
-  }> {
-    const res = await fetch('/api/stock-analysis/analyze', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ symbol, focus: focus ?? '' }),
-    })
-    if (!res.ok) {
-      let detail = ''
-      try { const j = JSON.parse(await res.text()); detail = j.detail ?? j.message ?? '' } catch { /* ignore */ }
-      const msg = detail || `${res.status} ${res.statusText}`
-      toast(msg, 'error')
-      throw new Error(msg)
-    }
-    if (!res.body) throw new Error('响应无 body')
-
-    const reader = res.body.getReader()
-    const decoder = new TextDecoder()
-    let buf = ''
-    for (;;) {
-      const { done, value } = await reader.read()
-      if (done) break
-      buf += decoder.decode(value, { stream: true })
-      const lines = buf.split('\n')
-      buf = lines.pop() ?? ''
-      for (const line of lines) {
-        const s = line.trim()
-        if (!s) continue
-        try { yield JSON.parse(s) } catch { /* ignore */ }
-      }
-    }
-    if (buf.trim()) {
-      try { yield JSON.parse(buf.trim()) } catch { /* ignore */ }
-    }
-  },
-
-  // ===== 大盘复盘 =====
-  reviewReportsList: () =>
-    request<{ reports: AiReviewReport[] }>('/api/market-recap/reports'),
-
-  reviewReportSave: (r: {
-    as_of: string; focus?: string; content: string
-    summary?: string; emotion_score?: number | null; emotion_label?: string
-  }) =>
-    request<{ ok: boolean; report: AiReviewReport }>('/api/market-recap/reports', {
-      method: 'POST', body: JSON.stringify(r),
-    }),
-
-  reviewReportDelete: (reportId: string) =>
-    request<{ ok: boolean }>(`/api/market-recap/reports/${encodeURIComponent(reportId)}`, { method: 'DELETE' }),
-
-  /**
-   * AI 大盘复盘 — 流式调用(NDJSON,与个股/财务分析同协议)。
-   * meta 里带 as_of / emotion_score / emotion_label / summary,供前端先渲染信号灯。
-   */
-  async *reviewStream(asOf?: string, focus?: string): AsyncGenerator<{
-    type: 'meta' | 'delta' | 'error' | 'done'
-    as_of?: string
-    emotion_score?: number
-    emotion_label?: string
-    summary?: string
-    content?: string
-    message?: string
-  }> {
-    const res = await fetch('/api/market-recap/analyze', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ as_of: asOf ?? null, focus: focus ?? '' }),
-    })
-    if (!res.ok) {
-      let detail = ''
-      try { const j = JSON.parse(await res.text()); detail = j.detail ?? j.message ?? '' } catch { /* ignore */ }
-      const msg = detail || `${res.status} ${res.statusText}`
-      toast(msg, 'error')
-      throw new Error(msg)
-    }
-    if (!res.body) throw new Error('响应无 body')
-
-    const reader = res.body.getReader()
-    const decoder = new TextDecoder()
-    let buf = ''
-    for (;;) {
-      const { done, value } = await reader.read()
-      if (done) break
-      buf += decoder.decode(value, { stream: true })
-      const lines = buf.split('\n')
-      buf = lines.pop() ?? ''
-      for (const line of lines) {
-        const s = line.trim()
-        if (!s) continue
-        try { yield JSON.parse(s) } catch { /* ignore */ }
-      }
-    }
-    if (buf.trim()) {
-      try { yield JSON.parse(buf.trim()) } catch { /* ignore */ }
-    }
-  },
-
-  /** AI 概念轮动分析 — 流式 NDJSON。 */
-  async *rotationAnalyzeStream(days: number, focus?: string, kind?: 'concept' | 'industry', level?: number): AsyncGenerator<{
-    type: 'meta' | 'delta' | 'error' | 'done'
-    days?: number
-    summary?: string
-    content?: string
-    message?: string
-  }> {
-    const res = await fetch('/api/rps/rotation-analyze', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ days, focus: focus ?? '', kind: kind ?? 'concept', level: level ?? null }),
-    })
-    if (!res.ok) {
-      let detail = ''
-      try { const j = JSON.parse(await res.text()); detail = j.detail ?? j.message ?? '' } catch { /* ignore */ }
-      const msg = detail || `${res.status} ${res.statusText}`
-      toast(msg, 'error')
-      throw new Error(msg)
-    }
-    if (!res.body) throw new Error('响应无 body')
-
-    const reader = res.body.getReader()
-    const decoder = new TextDecoder()
-    let buf = ''
-    for (;;) {
-      const { done, value } = await reader.read()
-      if (done) break
-      buf += decoder.decode(value, { stream: true })
-      const lines = buf.split('\n')
-      buf = lines.pop() ?? ''
-      for (const line of lines) {
-        const s = line.trim()
-        if (!s) continue
-        try { yield JSON.parse(s) } catch { /* ignore */ }
-      }
-    }
-    if (buf.trim()) {
-      try { yield JSON.parse(buf.trim()) } catch { /* ignore */ }
-    }
-  },
+  // Phase 8B-5.11: 大盤覆盤(reviewReportsList/Save/Delete/reviewStream)
+  // 隨已刪除的 Review.tsx(盤後檢討頁)一併移除 —— 純 A 股 AI 長篇復盤
+  // workflow, 對台股無意義。GET /api/overview/market(Dashboard A 股選配
+  // 板塊仍用)、market_overview_builder、depth_service 完全未動。
 
   // ===== Strategy Engine =====
   strategyList: (assetType?: 'stock' | 'etf', timeframe = '1d') => {
@@ -3715,14 +2894,14 @@ export const api = {
   strategyResetConfig: (strategyId: string) =>
     request<{ ok: boolean }>(`/api/strategies/config/${strategyId}`, { method: 'DELETE' }),
 
-  /** 删除自定义策略（内置策略不可删除） */
+  /** 刪除自定義策略（內置策略不可刪除） */
   strategyDelete: (strategyId: string) =>
     request<{ ok: boolean }>(`/api/strategies/${strategyId}`, { method: 'DELETE' }),
 
   strategyReload: () =>
     request<{ ok: boolean; count: number }>('/api/strategies/reload', { method: 'POST' }),
 
-  // ===== Custom Signals (自定义信号) =====
+  // ===== Custom Signals (自定義信號) =====
   customSignalsList: () =>
     request<{ signals: CustomSignal[] }>('/api/custom-signals'),
 
@@ -3744,13 +2923,7 @@ export const api = {
       body: JSON.stringify({ description }),
     }),
 
-  // ===== Abnormal Moves (异动边缘) =====
-  abnormalOverview: (minCloseness = 0.5, limit = 200) =>
-    request<AbnormalOverview>(
-      `/api/abnormal/overview?min_closeness=${minCloseness}&limit=${limit}`,
-    ),
-
-  // ===== Monitor Rules (监控规则) =====
+  // ===== Monitor Rules (監控規則) =====
   monitorRulesList: () =>
     request<{ rules: MonitorRule[] }>('/api/monitor-rules'),
 
@@ -3904,7 +3077,7 @@ export const api = {
     ),
 
 
-  /** 模拟触发 ladder 封单监控 (Dev 调试, 不落盘不推送) */
+  /** 模擬觸發 ladder 封單監控 (Dev 調試, 不落盤不推送) */
   monitorRuleTestLadder: () =>
     request<{
       ok: boolean
@@ -3924,7 +3097,7 @@ export const api = {
       }>
     }>('/api/monitor-rules/test-ladder', { method: 'POST' }),
 
-  /** 真实触发 ladder 预警 (落盘+飞书+SSE), Dev 调试用 */
+  /** 真實觸發 ladder 預警 (落盤+飛書+SSE), Dev 調試用 */
   monitorRuleTriggerLadder: () =>
     request<{
       ok: boolean
@@ -3932,11 +3105,11 @@ export const api = {
       events: Array<{ symbol: string; name: string; message: string }>
     }>('/api/monitor-rules/trigger-ladder', { method: 'POST' }),
 
-  /** 生成演示监控规则 (Dev 页用) */
+  /** 生成演示監控規則 (Dev 頁用) */
   monitorRuleSeed: () =>
     request<{ ok: boolean; generated: number }>('/api/monitor-rules/seed', { method: 'POST' }),
 
-  // ===== Alerts (触发记录) =====
+  // ===== Alerts (觸發記錄) =====
   alertsList: (params?: { days?: number; limit?: number; source?: string; type?: string; extColumns?: string }) => {
     const qs = new URLSearchParams()
     if (params?.days) qs.set('days', String(params.days))
@@ -3954,22 +3127,22 @@ export const api = {
   alertDelete: (ts: number) =>
     request<{ ok: boolean }>(`/api/alerts/${ts}`, { method: 'DELETE' }),
 
-  /** 生成演示触发记录 (Dev 页用) */
+  /** 生成演示觸發記錄 (Dev 頁用) */
   alertSeed: (count = 12, recent = true) =>
     request<{ ok: boolean; generated: number }>(`/api/alerts/seed?count=${count}&recent=${recent}`, { method: 'POST' }),
 
-  /** 检查 AI 配置状态 */
+  /** 檢查 AI 配置狀態 */
   strategyAiStatus: () =>
     request<{ configured: boolean; has_key: boolean; has_model: boolean; provider?: string }>('/api/strategies/ai/status'),
 
-  /** 测试 AI 连通性 */
+  /** 測試 AI 連通性 */
   strategyAiTest: () =>
     request<{ ok: boolean; error?: string; model?: string; response?: string; usage?: { prompt: number; completion: number } }>(
       '/api/strategies/ai/test',
       { method: 'POST' },
     ),
 
-  /** 获取策略源文件内容 */
+  /** 獲取策略源文件內容 */
   strategyGetSource: (id: string) =>
     request<{ code: string; source: string }>(`/api/strategies/${id}/source`),
   strategyBuild: (step: number, payload: Record<string, any>) =>
@@ -3991,7 +3164,7 @@ export const api = {
       toast(msg, 'error')
       throw new Error(msg)
     }
-    if (!res.body) throw new Error('响应无 body')
+    if (!res.body) throw new Error('響應無 body')
 
     const reader = res.body.getReader()
     const decoder = new TextDecoder()
@@ -4032,7 +3205,7 @@ export const api = {
       body: JSON.stringify(payload),
     }),
 
-  /** 创建/更新叠加策略(composite): 声明式引用多个子策略 */
+  /** 創建/更新疊加策略(composite): 聲明式引用多個子策略 */
   strategySaveComposite: (payload: {
     strategy_id: string
     name: string
@@ -4053,6 +3226,65 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ strategy_id: strategyId, code, name: meta?.name ?? '', description: meta?.description ?? '' }),
     }),
+
+  // ===== Taiwan Historical Data & Bootstrap =====
+  /** 獲取台股歷史日 K 本地存儲狀態與 Bootstrap 需求 */
+  taiwanHistoryStatus: () =>
+    request<TaiwanHistoryStatus>('/api/taiwan/history-status'),
+
+  /** 觸發 GitHub Release 官方歷史日 K 資料包下載與自動匯入 */
+  taiwanBootstrapRun: () =>
+    request<TaiwanBootstrapRunResult>('/api/taiwan/bootstrap/run', { method: 'POST' }),
+
+  /** 查詢台股歷史資料 Bootstrap 作業進度 */
+  taiwanBootstrapJob: (jobId: string) =>
+    request<TaiwanBootstrapJobState>(`/api/taiwan/bootstrap/jobs/${jobId}`),
+
+  /** 增量補齊已存在的歷史資料至最新交易日（不重新下載整包） */
+  taiwanUpdateLatest: () =>
+    request<TaiwanUpdateLatestResult>('/api/taiwan/bootstrap/update-latest', { method: 'POST' }),
+}
+
+// ===== Taiwan Historical Bootstrap Interfaces =====
+export interface TaiwanHistoryStatus {
+  has_data: boolean
+  earliest_date: string | null
+  latest_date: string | null
+  trading_days: number
+  needs_bootstrap: boolean
+  asset_info?: {
+    repo?: string
+    tag?: string
+    asset?: string
+    sha256?: string
+    approx_size_mb?: number
+    date_range?: string
+    download_url?: string
+  }
+}
+
+export interface TaiwanBootstrapJobState {
+  job_id: string
+  status: 'pending' | 'downloading' | 'verifying' | 'extracting' | 'importing' | 'refreshing' | 'success' | 'failed'
+  stage: string
+  progress: number
+  message: string
+  error?: string | null
+  downloaded_bytes: number
+  total_bytes: number
+}
+
+export interface TaiwanBootstrapRunResult {
+  job_id: string
+  status: string
+}
+
+export interface TaiwanUpdateLatestResult {
+  ok: boolean
+  already_current: boolean
+  message: string
+  dates_fetched: number
+  stats?: Record<string, any>
 }
 
 // ===== Pipeline =====
@@ -4060,8 +3292,8 @@ export interface PipelineJob {
   id: string
   status: 'pending' | 'running' | 'succeeded' | 'failed'
   stage: string
-  progress: number          // 0-100 整体进度
-  stage_pct: number         // 0-100 当前阶段内进度
+  progress: number          // 0-100 整體進度
+  stage_pct: number         // 0-100 當前階段內進度
   log: { ts: string; stage: string; msg: string }[]
   started_at: string | null
   finished_at: string | null
@@ -4155,77 +3387,10 @@ export interface EnrichedField {
   desc: string
 }
 
-// ===== 扩展数据 =====
-export interface ExtDataField {
-  name: string
-  dtype: string
-  label: string
-}
-
-export interface PullConfig {
-  url: string
-  method: string
-  headers?: Record<string, string>
-  body?: string | null
-  response_path: string
-  field_map?: Record<string, string>
-  schedule_minutes: number
-  enabled: boolean
-  last_run?: string | null
-  last_status?: string | null
-  last_message?: string | null
-  last_rows?: number | null
-  next_run?: string | null
-  time_window_start?: string | null
-  time_window_end?: string | null
-}
-
-export interface ExtDataDetectUrlRequest {
-  url: string
-  method?: string
-  headers?: Record<string, string>
-  body?: string
-  response_path?: string
-  field_map?: Record<string, string>
-}
-
-export interface ExtDataDetectUrlResult {
-  status: string
-  total_rows: number
-  response_path: string
-  response_path_candidates: string[]
-  fields: ExtDataField[]
-  symbol_candidates: string[]
-  code_candidates: string[]
-  preview: Record<string, unknown>[]
-}
-
-export interface ExtDataConfig {
-  id: string
-  label: string
-  mode: 'snapshot' | 'timeseries'
-  fields: ExtDataField[]
-  description?: string
-  symbol_map?: Record<string, string>
-  code_map?: Record<string, string>
-  created_at: string
-  updated_at: string
-  latest_sync_date?: string | null
-  date_range?: string[] | null
-  pull?: PullConfig | null
-}
-
-export interface ExtDataRowsResult {
-  id: string
-  label: string
-  mode: 'snapshot' | 'timeseries'
-  date: string | null
-  total: number
-  limit: number
-  fields: ExtDataField[]
-  rows: Record<string, any>[]
-}
-
+// ===== 擴展數據 =====
+// Phase 8B-5.16: ExtDataConfig/ExtDataField/PullConfig/ExtDataRowsResult 隨
+// extDataList/extDataRows/CRUD/pull-config 一併移除的端點失去唯一消費者, 一併
+// 清理。DimensionMembersResult 仍被 dimensionMembers() 使用, 保留。
 export interface DimensionMembersResult {
   id: string
   label: string
@@ -4235,34 +3400,4 @@ export interface DimensionMembersResult {
   total: number
   limit: number
   rows: Record<string, any>[]
-}
-
-export interface AnalysisColumn {
-  field: string
-  label?: string
-  type?: 'string' | 'number' | 'percent' | 'amount' | 'date'
-  width?: number | null
-  sortable?: boolean
-  precision?: number | null
-  format?: string | null
-  aggregate?: 'count' | 'avg' | 'sum' | 'min' | 'max' | null
-  visible?: boolean
-}
-
-export interface AnalysisMenu {
-  id: string
-  label: string
-  icon: string
-  data_source: string
-  template: 'dimension_rank' | 'ranking' | 'table'
-  dimension_field?: string | null
-  rank_field?: string | null
-  group_columns: AnalysisColumn[]
-  detail_columns: AnalysisColumn[]
-  default_sort?: { field: string; order: 'asc' | 'desc' } | null
-  visible: boolean
-  order: number
-  created_at?: string | null
-  updated_at?: string | null
-  builtin?: boolean
 }

@@ -14,14 +14,14 @@ interface Props {
   name?: string
   stockInfo?: { name?: string; total_shares?: number; float_shares?: number; ext?: Record<string, unknown> }
   rows: KlineRow[]
-  /** 信息条字段配置（由 StockPanel 提升，受控） */
+  /** 信息條字段配置（由 StockPanel 提升，受控） */
   fields: ColumnConfig[]
   onFieldsChange: (fields: ColumnConfig[]) => void
-  /** 财务指标最新一期（来自 useFinancialMetrics，受 Cap.FINANCIAL 门控） */
+  /** 財務指標最新一期（來自 useFinancialMetrics，受 Cap.FINANCIAL 門控） */
   financialMetrics?: FinancialMetricRecord
-  /** 加监控回调 (个股弹窗传入, 有值时渲染 RadioTower 图标) */
+  /** 加監控回調 (個股彈窗傳入, 有值時渲染 RadioTower 圖標) */
   onMonitor?: () => void
-  /** 自选状态与操作（传入对应回调时渲染 Star 图标） */
+  /** 自選狀態與操作（傳入對應回調時渲染 Star 圖標） */
   inWatchlist?: boolean
   onAddToWatchlist?: (groupId: string | null) => void
   onRemoveFromWatchlist?: () => void
@@ -29,9 +29,9 @@ interface Props {
 }
 
 /**
- * 精简渲染扩展数据值（信息条专用）。
- * 仍尊重 extDisplay 配置：text=纯文本，tag(默认)=按分隔符拆成小标签 + maxTags 截断。
- * 与自选列表的差异：标签模式无 maxWidth/排列方向，但保留 +N 展开交互。
+ * 精簡渲染擴展數據值（信息條專用）。
+ * 仍尊重 extDisplay 配置：text=純文本，tag(默認)=按分隔符拆成小標籤 + maxTags 截斷。
+ * 與自選列表的差異：標籤模式無 maxWidth/排列方向，但保留 +N 展開交互。
  */
 function renderExtInline(
   val: unknown,
@@ -50,17 +50,17 @@ function renderExtInline(
     return <span className={val ? 'text-bull' : 'text-muted'}>{val ? '是' : '否'}</span>
   }
   const str = String(val)
-  // 纯文本模式
+  // 純文本模式
   if (col.extDisplay?.displayMode === 'text') {
     return <span>{str}</span>
   }
-  // 标签模式（默认）：按分隔符拆成小标签
+  // 標籤模式（默認）：按分隔符拆成小標籤
   const sep = col.extDisplay?.separator?.trim() || null
   const tags = sep
     ? str.split(sep).map(s => s.trim()).filter(Boolean)
     : str.split(/[、,，;；\-]/).map(s => s.trim()).filter(Boolean)
   if (tags.length === 0) return <span className="text-muted">—</span>
-  // maxTags 截断 + 展开交互：收起时显示前 N 个 + +N，展开时显示全部 + 收起
+  // maxTags 截斷 + 展開交互：收起時顯示前 N 個 + +N，展開時顯示全部 + 收起
   const maxTags = col.extDisplay?.maxTags ?? 0
   const hiddenIndices = maxTags > 0 ? col.extDisplay?.hiddenIndices : undefined
   const showAll = maxTags <= 0 || expanded
@@ -108,9 +108,9 @@ export function StockInfoBar({
   onRemoveFromWatchlist,
   watchlistPending,
 }: Props) {
-  // 弹窗开关：纯本地状态，与数据/配置无关，放早期 return 之前
+  // 彈窗開關：純本地狀態，與數據/配置無關，放早期 return 之前
   const [customizerOpen, setCustomizerOpen] = useState(false)
-  // ext 标签展开状态：按 symbol::colId，切股/切字段时互不干扰
+  // ext 標籤展開狀態：按 symbol::colId，切股/切字段時互不干擾
   const [expandedExt, setExpandedExt] = useState<Set<string>>(new Set())
 
   const toggleExtExpand = (key: string) => {
@@ -143,8 +143,8 @@ export function StockInfoBar({
   const displayName = stockInfo?.name ?? name ?? ''
   const extData = stockInfo?.ext ?? {}
 
-  // 按指标 key 计算格式化值，无数据返回 null（渲染时跳过，与原行为一致）。
-  // 普通函数：依赖行情值每次 render 都变，useCallback 无收益；且必须定义在早期 return 之后。
+  // 按指標 key 計算格式化值，無數據返回 null（渲染時跳過，與原行為一致）。
+  // 普通函數：依賴行情值每次 render 都變，useCallback 無收益；且必須定義在早期 return 之後。
   const computeBuiltinValue = (key: string): string | null => {
     switch (key) {
       case 'market_cap':       return marketCap != null ? fmtBigNum(marketCap) : null
@@ -161,7 +161,7 @@ export function StockInfoBar({
       case 'open': return fmtPrice(Number(latest.open))
       case 'high': return fmtPrice(Number(latest.high))
       case 'low':  return fmtPrice(Number(latest.low))
-      // 财务指标：百分比字段存储为百分点(12.3 表示 12.3%)，直接 toFixed(2) + %
+      // 財務指標：百分比字段存儲為百分點(12.3 表示 12.3%)，直接 toFixed(2) + %
       case 'eps':         return financialMetrics?.eps_basic != null ? fmtPrice(financialMetrics.eps_basic) : null
       case 'bps':         return financialMetrics?.bps != null ? fmtPrice(financialMetrics.bps) : null
       case 'roe':         return financialMetrics?.roe != null ? `${financialMetrics.roe.toFixed(2)}%` : null
@@ -170,7 +170,7 @@ export function StockInfoBar({
       case 'debt_ratio':  return financialMetrics?.debt_to_asset_ratio != null ? `${financialMetrics.debt_to_asset_ratio.toFixed(2)}%` : null
       case 'revenue_yoy': return financialMetrics?.revenue_yoy != null ? `${financialMetrics.revenue_yoy.toFixed(2)}%` : null
       case 'net_income_yoy': return financialMetrics?.net_income_yoy != null ? `${financialMetrics.net_income_yoy.toFixed(2)}%` : null
-      // PE/PB 后端无此字段，用现价现算（PE 基于最新一期 EPS，非严格 TTM）
+      // PE/PB 後端無此字段，用現價現算（PE 基於最新一期 EPS，非嚴格 TTM）
       case 'pe_ttm': {
         const eps = financialMetrics?.eps_basic
         return eps && eps !== 0 ? fmtPrice(close / eps) : null
@@ -184,16 +184,16 @@ export function StockInfoBar({
   }
 
   const visibleFields = fields.filter(f => f.visible)
-  // 按是否单独显示分组：普通列共一行，standalone 列各占一行
+  // 按是否單獨顯示分組：普通列共一行，standalone 列各佔一行
   const inlineFields = visibleFields.filter(f => !f.standalone)
   const standaloneFields = visibleFields.filter(f => f.standalone)
 
-  // 渲染单个字段（builtin / ext 通用）
+  // 渲染單個字段（builtin / ext 通用）
   const renderField = (f: ColumnConfig): ReactNode => {
     if (f.source.type === 'ext') {
       const { configId, fieldName } = f.source
       const val = extData[`${configId}__${fieldName}`]
-      // 无值的 ext 字段整体跳过（与 builtin 无数据行为一致）
+      // 無值的 ext 字段整體跳過（與 builtin 無數據行為一致）
       if (val == null || (typeof val === 'number' && Number.isNaN(val))) return null
       const cellKey = `${symbol}::${f.id}`
       return (
@@ -230,7 +230,7 @@ export function StockInfoBar({
         <span style={{ color: clr }} className="tabular-nums">
           {isUp ? '+' : ''}{fmtPrice(chgPct)}%
         </span>
-        {/* 右侧操作按钮：加自选 + 加监控 + 信息条配置 */}
+        {/* 右側操作按鈕：加自選 + 加監控 + 信息條配置 */}
         <div className="ml-auto self-center flex items-center gap-1">
           {inWatchlist && onRemoveFromWatchlist ? (
             <button
@@ -238,8 +238,8 @@ export function StockInfoBar({
               onClick={onRemoveFromWatchlist}
               disabled={watchlistPending}
               className="rounded-btn p-1 text-[#FACC15] transition-colors cursor-pointer hover:bg-elevated disabled:opacity-50"
-              title="移出自选"
-              aria-label={`将 ${symbol} 移出自选`}
+              title="移出自選"
+              aria-label={`將 ${symbol} 移出自選`}
             >
               <Star className="h-3.5 w-3.5" />
             </button>
@@ -248,7 +248,7 @@ export function StockInfoBar({
               onSelect={onAddToWatchlist}
               disabled={watchlistPending}
               triggerClassName="rounded-btn p-1 text-muted transition-colors cursor-pointer hover:bg-elevated hover:text-foreground disabled:opacity-50"
-              ariaLabel={`将 ${symbol} 加入自选`}
+              ariaLabel={`將 ${symbol} 加入自選`}
             >
               <Star className="h-3.5 w-3.5" />
             </WatchlistAddMenu>
@@ -257,7 +257,7 @@ export function StockInfoBar({
             <button
               onClick={onMonitor}
               className="p-1 rounded-btn text-amber-400 hover:bg-amber-400/10 transition-colors cursor-pointer"
-              title="加监控"
+              title="加監控"
             >
               <RadioTower className="h-3.5 w-3.5" />
             </button>
@@ -265,21 +265,21 @@ export function StockInfoBar({
           <button
             onClick={() => setCustomizerOpen(true)}
             className="p-1 rounded-btn text-muted hover:text-foreground hover:bg-elevated transition-colors"
-            title="自定义信息条"
+            title="自訂資訊條"
           >
             <Settings2 className="h-3.5 w-3.5" />
           </button>
         </div>
       </div>
 
-      {/* Row 2: 普通指标（builtin + ext，共一行 flex-wrap） */}
+      {/* Row 2: 普通指標（builtin + ext，共一行 flex-wrap） */}
       {inlineFields.length > 0 && (
         <div className="flex items-center gap-x-4 gap-y-1 text-[11px] flex-wrap text-muted">
           {inlineFields.map(renderField)}
         </div>
       )}
 
-      {/* 单独显示的指标：各占一行 */}
+      {/* 單獨顯示的指標：各佔一行 */}
       {standaloneFields.map(f => {
         const node = renderField(f)
         if (node == null) return null
@@ -296,8 +296,8 @@ export function StockInfoBar({
         onChange={onFieldsChange}
         open={customizerOpen}
         onClose={() => setCustomizerOpen(false)}
-        title="信息条指标"
-        builtinSectionLabel="可选指标"
+        title="資訊條指標"
+        builtinSectionLabel="可選指標"
         extColumnAlign="left"
         showStandaloneToggle
       />

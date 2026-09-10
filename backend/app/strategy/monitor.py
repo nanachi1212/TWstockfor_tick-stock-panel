@@ -30,6 +30,10 @@ logger = logging.getLogger(__name__)
 
 # 信号 / 字段中文名映射 — 与前端 lib/signals.ts 对齐, 用于告警 message / 推送文案。
 # signal_* 为内置原子信号, 其余为技术指标/行情字段。
+# TAIWAN_LOCALIZATION_POLISH follow-up: value 全面改为正体中文 (与前端
+# frontend/src/lib/signals.ts 的 SIGNAL_LABELS/FIELD_LABELS 对齐一致); dict key
+# (signal_* id / 字段 id) 完全不变, 不影响 rule.conditions 的既有 saved 值、
+# event contract、signal 判定逻辑。
 _SIGNAL_CN: dict[str, str] = {
     # 内置信号
     "signal_ma_golden_5_20": "MA5上穿MA20", "signal_ma_dead_5_20": "MA5下穿MA20",
@@ -38,30 +42,30 @@ _SIGNAL_CN: dict[str, str] = {
     "signal_ma20_breakdown": "跌破MA20", "signal_ma5_breakout": "突破MA5",
     "signal_ma5_breakdown": "跌破MA5", "signal_ma10_breakout": "突破MA10",
     "signal_ma10_breakdown": "跌破MA10", "signal_n_day_high": "60日新高",
-    "signal_n_day_low": "60日新低", "signal_boll_breakout_upper": "突破布林上轨",
-    "signal_boll_breakdown_lower": "跌破布林下轨", "signal_volume_surge": "放量",
-    "signal_limit_up": "涨停", "signal_limit_down": "跌停",
-    "signal_limit_down_recovery": "跌停翘板", "signal_broken_limit_up": "炸板",
+    "signal_n_day_low": "60日新低", "signal_boll_breakout_upper": "突破布林上軌",
+    "signal_boll_breakdown_lower": "跌破布林下軌", "signal_volume_surge": "放量",
+    "signal_limit_up": "漲停", "signal_limit_down": "跌停",
+    "signal_limit_down_recovery": "跌停翹板", "signal_broken_limit_up": "炸板",
     **INTRADAY_SIGNAL_LABELS,
     # 行情字段
-    "close": "收盘价", "open": "开盘价", "high": "最高价", "low": "最低价",
-    "change_pct": "涨跌幅", "change_amount": "涨跌额", "amplitude": "振幅",
-    "turnover_rate": "换手率", "volume": "成交量", "amount": "成交额",
+    "close": "收盤價", "open": "開盤價", "high": "最高價", "low": "最低價",
+    "change_pct": "漲跌幅", "change_amount": "漲跌額", "amplitude": "振幅",
+    "turnover_rate": "換手率", "volume": "成交量", "amount": "成交額",
     # 均线
     "ma5": "MA5", "ma10": "MA10", "ma20": "MA20", "ma30": "MA30", "ma60": "MA60",
     "ema5": "EMA5", "ema10": "EMA10", "ema20": "EMA20",
     # MACD / BOLL / KDJ / RSI
     "macd_dif": "MACD-DIF", "macd_dea": "MACD-DEA", "macd_hist": "MACD柱",
-    "boll_upper": "布林上轨", "boll_lower": "布林下轨",
+    "boll_upper": "布林上軌", "boll_lower": "布林下軌",
     "kdj_k": "KDJ-K", "kdj_d": "KDJ-D", "kdj_j": "KDJ-J",
     "rsi_6": "RSI6", "rsi_14": "RSI14", "rsi_24": "RSI24",
     # 量能 / 动量 / 波动
     "vol_ratio_5d": "5日量比", "vol_ratio_20d": "20日量比",
     "vol_ma5": "5日均量", "vol_ma10": "10日均量",
     "high_60d": "60日最高", "low_60d": "60日最低",
-    "momentum_5d": "5日动量", "momentum_20d": "20日动量", "momentum_60d": "60日动量",
-    "atr_14": "ATR14", "annual_vol_20d": "20日年化波动",
-    "consecutive_limit_ups": "连板数", "consecutive_limit_downs": "跌停连板",
+    "momentum_5d": "5日動量", "momentum_20d": "20日動量", "momentum_60d": "60日動量",
+    "atr_14": "ATR14", "annual_vol_20d": "20日年化波動",
+    "consecutive_limit_ups": "連續漲停", "consecutive_limit_downs": "連續跌停",
 }
 
 
@@ -152,7 +156,7 @@ class StrategyMonitorService:
                         strategy_id=strategy_id,
                         symbol=sym,
                         name=name,
-                        message="入场信号触发",
+                        message="入場訊號觸發",
                         price=price,
                         change_pct=pct,
                         signals=hit_sigs,
@@ -169,7 +173,7 @@ class StrategyMonitorService:
                         strategy_id=strategy_id,
                         symbol=sym,
                         name=name,
-                        message="出场信号触发",
+                        message="出場訊號觸發",
                         price=price,
                         change_pct=pct,
                         signals=hit_sigs,
@@ -352,9 +356,6 @@ class MonitorRuleEngine:
         self._latest_strategy_result_ids: set[str] = set()
         self._sector_monitor_service = None
         self._sector_condition_state: dict[tuple[str, str], bool] = {}
-        # abnormal 规则边缘触发状态: (rule_id, symbol) → 上一轮是否已达阈值。
-        # 只在 False → True 跳变时告警 (首轮观测不触发, 防止新建规则瞬间刷屏)。
-        self._abnormal_condition_state: dict[tuple[str, str], bool] = {}
 
     def set_strategy_engine(self, engine) -> None:
         """注入 StrategyEngine, type=strategy 规则据此跑选股。"""
@@ -467,11 +468,6 @@ class MonitorRuleEngine:
         self._sector_condition_state = {
             key: value
             for key, value in list(self._sector_condition_state.items())
-            if key[0] in active_ids
-        }
-        self._abnormal_condition_state = {
-            key: value
-            for key, value in list(self._abnormal_condition_state.items())
             if key[0] in active_ids
         }
         logger.info("MonitorRuleEngine: 装载 %d 条规则", len(self._rules))
@@ -808,162 +804,29 @@ class MonitorRuleEngine:
         value: float | None,
     ) -> str:
         kind_label = {
-            "index": "指数", "concept": "概念", "industry": "行业",
-        }.get(snapshot.get("kind"), "板块")
+            "index": "指數", "concept": "概念", "industry": "行業",
+        }.get(snapshot.get("kind"), "板塊")
         current = float(snapshot.get("change_pct") or 0)
         if trigger == "momentum":
             action = "快速拉升" if direction == "up" else "快速下跌"
             head = (
-                f"{kind_label}「{snapshot.get('name')}」{window}分钟{action} "
+                f"{kind_label}「{snapshot.get('name')}」{window}分鐘{action} "
                 f"{float(value or 0) * 100:+.2f}%"
             )
         else:
-            action = "涨幅上穿" if direction == "up" else "跌幅下穿"
+            action = "漲幅上穿" if direction == "up" else "跌幅下穿"
             head = f"{kind_label}「{snapshot.get('name')}」{action} {threshold * 100:.2f}%"
-        parts = [head, f"当前 {current * 100:+.2f}%"]
+        parts = [head, f"當前 {current * 100:+.2f}%"]
         if snapshot.get("kind") != "index":
-            parts.append(f"上涨 {snapshot.get('up_count', 0)}/{snapshot.get('valid_count', 0)}")
-            parts.append(f"覆盖 {float(snapshot.get('coverage_ratio') or 0) * 100:.0f}%")
+            parts.append(f"上漲 {snapshot.get('up_count', 0)}/{snapshot.get('valid_count', 0)}")
+            parts.append(f"覆蓋 {float(snapshot.get('coverage_ratio') or 0) * 100:.0f}%")
             leader = snapshot.get("leader") or {}
             if leader.get("name") or leader.get("symbol"):
                 parts.append(
-                    f"领涨 {leader.get('name') or leader.get('symbol')} "
+                    f"領漲 {leader.get('name') or leader.get('symbol')} "
                     f"{float(leader.get('change_pct') or 0) * 100:+.2f}%"
                 )
         return "｜".join(parts)
-
-    def min_abnormal_closeness(self) -> float:
-        """启用的 abnormal 规则中最小的接近度阈值 (小数)。
-
-        供调用方 (quote_service) 构建异动快照时预过滤, 不必按最高阈值拉全量。
-        """
-        thresholds = [
-            float(r.get("threshold_pct", 70)) / 100
-            for r in list(self._rules.values())
-            if r.get("enabled", True) and r.get("type") == "abnormal"
-        ]
-        return min(thresholds) if thresholds else 1.0
-
-    def evaluate_abnormal(self, rows: list[dict], *, now: float | None = None) -> list[dict]:
-        """按异动边缘快照评估 type=abnormal 规则。
-
-        rows 为 abnormal_moves.build_overview 的 rows (调用方已按
-        min_abnormal_closeness 预过滤)。rows 为空也照常评估 —— 用于把
-        已消失标的的边缘状态清理回 False。
-        """
-        rules = [
-            rule for rule in list(self._rules.values())
-            if rule.get("enabled", True) and rule.get("type") == "abnormal"
-        ]
-        if not rules:
-            return []
-        timestamp = time.time() if now is None else now
-        events: list[dict] = []
-        for rule in rules:
-            try:
-                events.extend(self._evaluate_abnormal_rule(rule, rows, timestamp))
-            except Exception as exc:  # noqa: BLE001
-                logger.warning("异动规则评估失败 %s: %s", rule.get("id"), exc)
-        return events
-
-    def _evaluate_abnormal_rule(self, rule: dict, rows: list[dict], now: float) -> list[dict]:
-        events: list[dict] = []
-        threshold = float(rule.get("threshold_pct", 70)) / 100
-        if not 0 < threshold <= 1.5:
-            threshold = 0.7
-        direction = rule.get("direction", "both")
-        window_filter = str(rule.get("abnormal_window", "any"))
-        if rule.get("scope") == "symbols":
-            scope_symbols = {str(s) for s in rule.get("symbols", []) if s}
-        elif rule.get("scope") == "watchlist_group":
-            # 异动规则同样支持动态分组; 分组已删除返回 None → 本轮整体跳过
-            members = _group_members_or_none(rule)
-            if members is None:
-                return events
-            scope_symbols = set(members)
-        else:
-            scope_symbols = None
-
-        seen: set[str] = set()
-        for row in rows:
-            symbol = str(row.get("symbol") or "")
-            if not symbol or (scope_symbols is not None and symbol not in scope_symbols):
-                continue
-            seen.add(symbol)
-            # 方向/窗口过滤后取接近度最高的窗口作为代表
-            best: tuple[str, float, float, float] | None = None  # (窗口, 接近度, 偏离值, 阈值)
-            for key, win in (row.get("windows") or {}).items():
-                if window_filter != "any" and key != window_filter:
-                    continue
-                value = win.get("value")
-                if value is None:
-                    continue
-                if direction == "up" and value <= 0:
-                    continue
-                if direction == "down" and value >= 0:
-                    continue
-                closeness = float(win.get("closeness") or 0)
-                if best is None or closeness > best[1]:
-                    best = (key, closeness, float(value), float(win.get("threshold") or 0))
-            condition = best is not None and best[1] >= threshold
-            state_key = (rule["id"], symbol)
-            previous = self._abnormal_condition_state.get(state_key)
-            self._abnormal_condition_state[state_key] = condition
-            if previous is None or previous or not condition:
-                continue
-
-            event_type = f"abnormal_{'up' if best[2] > 0 else 'down'}"
-            cooldown_key = (rule["id"], symbol, event_type)
-            last = self._last_fire.get(cooldown_key)
-            cooldown = int(rule.get("cooldown_seconds", 3600))
-            if last is not None and now - last < cooldown:
-                continue
-            self._last_fire[cooldown_key] = now
-            event = {
-                "ts": int(now * 1000),
-                "rule_id": rule["id"],
-                "rule_name": rule.get("name", ""),
-                "strategy_id": None,
-                "source": "abnormal",
-                "type": event_type,
-                "symbol": symbol,
-                "name": row.get("name"),
-                "message": rule.get("message", "") or self._abnormal_message(row, best),
-                "price": row.get("close"),
-                "change_pct": row.get("rt_pct"),
-                "signals": [],
-                "severity": rule.get("severity", "info"),
-                "conditions": [],
-                "logic": "and",
-                "abnormal_window": best[0],
-                "abnormal_value": round(best[2], 4),
-                "abnormal_threshold": best[3],
-                "abnormal_closeness": round(best[1], 4),
-            }
-            events.append(event)
-            if self._alert_handler:
-                try:
-                    self._alert_handler(event)
-                except Exception as exc:  # noqa: BLE001
-                    logger.warning("alert handler failed: %s", exc)
-        # 本轮未出现的标的 (跌出预过滤区间) 状态置 False 而非删除:
-        # 删除会被当成「首轮观测」而不触发, 置 False 才能在回升穿过阈值时再次告警。
-        for key, value in list(self._abnormal_condition_state.items()):
-            if key[0] == rule["id"] and key[1] not in seen and value:
-                self._abnormal_condition_state[key] = False
-        return events
-
-    @staticmethod
-    def _abnormal_message(row: dict, best: tuple[str, float, float, float]) -> str:
-        window, closeness, value, threshold = best
-        board = row.get("board") or ""
-        tag = f"{board}{'·ST' if row.get('st') else ''}"
-        state = "已达异常波动阈值" if closeness >= 1 else "接近异常波动阈值"
-        return (
-            f"{row.get('name') or row.get('symbol')} {window}偏离值 "
-            f"{value * 100:+.2f}%/阈值{threshold * 100:.0f}% ({tag}) "
-            f"接近度{closeness * 100:.0f}%, {state}"
-        )
 
     def _evaluate_rule(self, df: pl.DataFrame, rule: dict, now: float) -> list[dict]:
         """评估单条规则,返回触发的 events。"""
@@ -1271,10 +1134,10 @@ class MonitorRuleEngine:
             },
         }
         action_labels = {
-            "buy_signal": "买入信号",
-            "sell_signal": "卖出信号",
-            "pool_entry": "进入选股结果",
-            "pool_exit": "移出选股结果",
+            "buy_signal": "買入訊號",
+            "sell_signal": "賣出訊號",
+            "pool_entry": "進入選股結果",
+            "pool_exit": "移出選股結果",
         }
         for event_type, symbols in changes.items():
             if event_type not in notify_events or not symbols:
@@ -1286,7 +1149,7 @@ class MonitorRuleEngine:
                     for symbol in symbol_list
                 ]
                 message = (
-                    f"策略「{sname}」{action_labels[event_type]} {len(symbol_list)} 只: "
+                    f"策略「{sname}」{action_labels[event_type]} {len(symbol_list)} 檔: "
                     f"{'、'.join(names)}"
                 )
                 hit_signals = sorted({
@@ -1397,7 +1260,7 @@ class MonitorRuleEngine:
         if hit.is_empty():
             return []
 
-        warn_label = "炸板预警" if direction == "up" else "翘板预警"
+        warn_label = "炸板預警" if direction == "up" else "翹板預警"
         events: list[dict] = []
         for row in hit.iter_rows(named=True):
             sym = row.get("symbol", "")
@@ -1416,12 +1279,12 @@ class MonitorRuleEngine:
 
             # message 体现预警封单量 + 阈值
             if metric == "sealed_amount":
-                sv_text = f"{sealed_value / 1e4:.0f}万{unit}"
-                th_text = f"{threshold / 1e4:.0f}万{unit}"
+                sv_text = f"{sealed_value / 1e4:.0f}萬{unit}"
+                th_text = f"{threshold / 1e4:.0f}萬{unit}"
             else:
                 sv_text = f"{sealed_value:,.0f} {unit}"
                 th_text = f"{threshold:,.0f} {unit}"
-            message = f"{warn_label} · 封单 {sv_text} ≤ {th_text}"
+            message = f"{warn_label} · 封單 {sv_text} ≤ {th_text}"
 
             events.append({
                 "ts": int(now * 1000),
@@ -1438,7 +1301,7 @@ class MonitorRuleEngine:
                 "severity": severity,
                 "conditions": [],
                 "logic": "and",
-                "sealed_value": sealed_value,   # 预警封单量/额 (飞书+记录展示)
+                "sealed_value": sealed_value,   # 预警封单量/额 (外部推播+记录展示)
                 "sealed_metric": metric,
             })
         return events
@@ -1467,12 +1330,12 @@ class MonitorRuleEngine:
                 sname = rn.split(" · ", 1)[1] if " · " in rn else (rn or "策略")
 
             action = {
-                "buy_signal": "买入信号",
-                "sell_signal": "卖出信号",
-                "pool_entry": "进入选股结果",
-                "pool_exit": "移出选股结果",
-                "new_entry": "进入选股结果",
-                "dropped": "移出选股结果",
+                "buy_signal": "買入訊號",
+                "sell_signal": "賣出訊號",
+                "pool_entry": "進入選股結果",
+                "pool_exit": "移出選股結果",
+                "new_entry": "進入選股結果",
+                "dropped": "移出選股結果",
             }.get(ev_type)
             if action:
                 pct_text = ""
@@ -1485,7 +1348,7 @@ class MonitorRuleEngine:
         # signal / price / market: 条件摘要 + 现价 + 涨跌幅
         # 条件摘要: 把 conditions (truth/比较) 拼成可读串, 如 "MA20金叉 且 量比>2"
         cond_text = self._format_conditions_text(rule, conditions)
-        price_text = f"现价 {price}" if price is not None else ""
+        price_text = f"現價 {price}" if price is not None else ""
         pct_text = ""
         if pct is not None:
             sign = "+" if pct >= 0 else ""
@@ -1493,7 +1356,7 @@ class MonitorRuleEngine:
         tail = " · ".join(s for s in (price_text, pct_text) if s)
         if cond_text and tail:
             return f"{cond_text} · {tail}"
-        return cond_text or tail or "监控触发"
+        return cond_text or tail or "監控觸發"
 
     @staticmethod
     def _format_conditions_text(rule: dict, conditions: list[dict] | None) -> str:

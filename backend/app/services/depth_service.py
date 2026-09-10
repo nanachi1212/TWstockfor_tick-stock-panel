@@ -146,17 +146,14 @@ class DepthService:
             logger.warning("depth sealed 从 parquet 恢复失败: %s", e)
 
     def start_polling(self) -> None:
-        """启动盘中轮询线程(连板梯队监控开启 + 实时行情开启 + 有能力)。
+        """在實時行情開啟且有能力時啟動盤中輪詢執行緒。
 
         依赖实时行情开关: 实时行情关闭时 enriched 内存缓存停留在上一交易日,
         轮询会反复拉取陈旧的涨跌停名单(浪费 API 额度且数据无意义)。
-        实时行情开关切换时由 settings API 调 stop_polling/start_polling 同步启停。
         """
         if not self._has_capability():
             return
         from app.services import preferences
-        if not preferences.get_limit_ladder_monitor_enabled():
-            return
         if not preferences.get_realtime_quotes_enabled():
             return
         # check-then-act 加锁: 两个线程同时 start_polling 不会各起一个轮询线程
@@ -190,15 +187,15 @@ class DepthService:
         返回 {"ok": bool, "count": int, "msg": str}
         """
         if not self._has_capability():
-            return {"ok": False, "count": 0, "msg": "无五档盘口能力(需 Pro+)"}
+            return {"ok": False, "count": 0, "msg": "無五檔盤口能力(需 Pro+)"}
         try:
             self._fetch_and_seal(persist=True)  # 落盘, 刷新页面不丢
             with self._lock:
                 count = len(self._sealed_cache)
-            return {"ok": True, "count": count, "msg": f"已修正 {count} 只"}
+            return {"ok": True, "count": count, "msg": f"已修正 {count} 檔"}
         except Exception as e:  # noqa: BLE001
             logger.warning("depth run_once 失败: %s", e)
-            return {"ok": False, "count": 0, "msg": f"修正失败: {e}"}
+            return {"ok": False, "count": 0, "msg": f"修正失敗: {e}"}
 
     # ================================================================
     # 核心拉取
@@ -561,8 +558,8 @@ class DepthService:
         qs = getattr(self._app_state, "quote_service", None)
         if not qs:
             return
-        msg = (f"五档轮询: 当前涨跌停 {n_stocks} 只, 您设置的 {user_interval:.0f} 秒间隔会超限, "
-               f"系统已自动调整为 {actual_interval:.0f} 秒")
+        msg = (f"五檔輪詢: 當前漲跌停 {n_stocks} 檔, 您設置的 {user_interval:.0f} 秒間隔會超限, "
+               f"系統已自動調整為 {actual_interval:.0f} 秒")
         alert = {
             "source": "depth",
             "type": "takeover",

@@ -1,43 +1,43 @@
-# 自定义数据源 mock 联调示例
+# 自定義數據源 mock 聯調示例
 
-这个目录提供一个本地 mock HTTP 数据源,用于验证项目的自定义数据源接入链路。
+這個目錄提供一個本地 mock HTTP 數據源,用於驗證項目的自定義數據源接入鏈路。
 
-## 运行 mock 服务
+## 運行 mock 服務
 
 ```bash
 cd docs/examples/custom-data-source
 python mock_server.py
 ```
 
-服务默认监听:
+服務默認監聽:
 
 ```text
 http://127.0.0.1:3021
 ```
 
-端点:
+端點:
 
-| 端点 | 数据 |
+| 端點 | 數據 |
 | --- | --- |
 | `/daily` | 日K |
-| `/adj_factor` | 除权因子 |
-| `/realtime` | 全市场实时快照 |
+| `/adj_factor` | 除權因子 |
+| `/realtime` | 全市場實時快照 |
 
-## 接入项目
+## 接入項目
 
-复制示例 YAML 到运行数据目录:
+複製示例 YAML 到運行數據目錄:
 
 ```bash
 mkdir -p data/data_sources
 cp docs/examples/custom-data-source/mock_source.yaml data/data_sources/mock_source.yaml
 ```
 
-然后在项目里打开:
+然後在項目裡打開:
 
 ```text
-设置 -> 数据源 -> 重新加载
+設置 -> 數據源 -> 重新加載
 ```
 
-选择 `mock_source` 后,可用「试拉测试」验证 `daily`、`adj_factor` 和 `realtime`。
+選擇 `mock_source` 後,可用「試拉測試」驗證 `daily`、`adj_factor` 和 `realtime`。
 
-完整说明见 [../../custom-data-source.md](../../custom-data-source.md)。
+完整說明見 [../../custom-data-source.md](../../custom-data-source.md)。

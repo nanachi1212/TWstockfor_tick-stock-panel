@@ -99,13 +99,13 @@ def test_strategy_rule_compatibility_and_validation(tmp_path):
     assert loaded["score_max"] is None
     assert monitor_rules.load_all(tmp_path)[0]["notify_events"] == ["pool_entry", "pool_exit"]
 
-    with pytest.raises(ValueError, match="至少选择一个通知事件"):
+    with pytest.raises(ValueError, match="至少選擇一個通知事件"):
         monitor_rules.validate(_rule())
     with pytest.raises(ValueError, match="非法事件"):
         monitor_rules.validate(_rule("unknown"))
     with pytest.raises(ValueError, match="0 到 100"):
         monitor_rules.validate(_rule("pool_entry", score_min=-1))
-    with pytest.raises(ValueError, match="不能大于"):
+    with pytest.raises(ValueError, match="不能大於"):
         monitor_rules.validate(_rule("pool_entry", score_min=90, score_max=70))
     monitor_rules.validate(_rule("buy_signal", "pool_exit"))
 

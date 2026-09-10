@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 
-// ===== 全局 toast 状态 =====
+// ===== 全局 toast 狀態 =====
 type ToastItem = { id: number; msg: string; kind: 'error' | 'success' }
 let _id = 0
 const _listeners: Set<(items: ToastItem[]) => void> = new Set()
@@ -17,7 +17,7 @@ function toast(msg: string, kind: 'error' | 'success' = 'error') {
 
 export { toast }
 
-// ===== Toast 容器 — 挂在 Layout 最顶层 =====
+// ===== Toast 容器 — 掛在 Layout 最頂層 =====
 export function ToastContainer() {
   const [items, setItems] = useState<ToastItem[]>([])
 

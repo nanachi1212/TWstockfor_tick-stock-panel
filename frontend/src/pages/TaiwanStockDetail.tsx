@@ -1,6 +1,6 @@
 import { useState, useMemo } from 'react'
-import { useParams, useNavigate, Link } from 'react-router-dom'
-import { useQuery } from '@tanstack/react-query'
+import { useParams, useNavigate } from 'react-router-dom'
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import {
   ArrowLeft,
   RefreshCw,
@@ -8,11 +8,12 @@ import {
   Search,
   AlertTriangle,
   ShieldAlert,
-  BarChart3,
   FileText,
   Sparkles,
   Loader2,
   Scale,
+  Star,
+  ChevronDown,
 } from 'lucide-react'
 import {
   api,
@@ -25,6 +26,9 @@ import { loadLastCompareSymbols, mergeSymbolIntoCompare } from '@/lib/taiwanComp
 import { TaiwanRuleEditorDialog } from '@/components/monitor/TaiwanRuleEditorDialog'
 import { EChartsCandlestick, type OHLC } from '@/components/EChartsCandlestick'
 import { TaiwanReferenceData } from '@/components/taiwan/TaiwanReferenceData'
+import { DataQualityBadge, formatQuoteSource } from '@/components/taiwan/TaiwanDataQuality'
+import { WatchlistAddMenu } from '@/components/WatchlistAddMenu'
+import { useSafeBack } from '@/lib/useSafeBack'
 
 const RANGE_OPTIONS = [
   { label: '1 個月', days: 30 },
@@ -36,6 +40,12 @@ const RANGE_OPTIONS = [
 export function TaiwanStockDetail() {
   const { symbol: routeSymbol } = useParams<{ symbol: string }>()
   const navigate = useNavigate()
+  const qc = useQueryClient()
+  // DAILY_USE_CORE_UX_FIXES (P1-2): 個股詳細頁可從監控中心/台股選股/自選股/
+  // StockPreview 等多處進入, 不再固定寫死「返回即時監控」→ /monitor。優先用
+  // 瀏覽器站內 history back; 直接輸入網址等沒有可信站內來源時, 回退到台股選股
+  // (最常見的個股研究起點)。
+  const goBack = useSafeBack('/taiwan-screener')
 
   const rawSymbol = routeSymbol || '2330.TWSE'
   const symbol = rawSymbol.toUpperCase()
@@ -54,6 +64,22 @@ export function TaiwanStockDetail() {
     queryFn: () => api.taiwanSearch(searchQuery, 10),
     enabled: searchQuery.trim().length > 0,
     staleTime: 60_000,
+  })
+
+  // Phase 8C-A: 加入自選 — 與 StockPreviewDialog.tsx 相同的 query/mutation 慣例,
+  // 補齊本頁原本缺少的自選動作 (與已存在的「加入比較」「新增監控」看齊)。
+  const watchlist = useQuery({
+    queryKey: QK.watchlist,
+    queryFn: api.watchlistList,
+  })
+  const inWatchlist = (watchlist.data?.symbols ?? []).some(s => s.symbol === symbol)
+  const toggleWatchlist = useMutation({
+    mutationFn: ({ action, groupId }: { action: 'add' | 'remove'; groupId?: string | null }) =>
+      action === 'remove' ? api.watchlistRemove(symbol) : api.watchlistAdd(symbol, '', groupId),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: QK.watchlist })
+      qc.invalidateQueries({ queryKey: ['watchlist-enriched'] })
+    },
   })
 
   // Query unified stock detail
@@ -137,11 +163,11 @@ export function TaiwanStockDetail() {
       <div className="sticky top-0 z-30 flex items-center justify-between border-b border-border bg-surface/90 px-4 py-2.5 backdrop-blur-md">
         <div className="flex items-center gap-3">
           <button
-            onClick={() => navigate('/monitor')}
+            onClick={goBack}
             className="flex items-center gap-1.5 rounded-lg border border-border/80 bg-base px-2.5 py-1 text-xs font-medium text-muted hover:border-accent/50 hover:text-foreground transition-all cursor-pointer"
           >
             <ArrowLeft className="h-3.5 w-3.5" />
-            <span>返回即時監控</span>
+            <span>返回</span>
           </button>
           <div className="h-4 w-px bg-border" />
           <div className="flex items-center gap-2">
@@ -153,6 +179,46 @@ export function TaiwanStockDetail() {
             <span className="rounded bg-accent/10 px-1.5 py-0.5 text-[10px] font-medium text-accent">
               {data?.identity?.instrument_type === 'etf' ? 'ETF' : '股票'}
             </span>
+            {/* Phase 8C-A fix: ⭐ 主按鈕 1 click 直接加入未分組(canonical group_id=null,
+                與既有「未分組」選項相同 backend 語意), 選特定分組改為旁邊小 chevron
+                觸發既有 WatchlistAddMenu, quick-add 不再彈選單。已加自選時顯示狀態,
+                可切換移出。 */}
+            {inWatchlist ? (
+              <button
+                type="button"
+                onClick={() => toggleWatchlist.mutate({ action: 'remove' })}
+                disabled={toggleWatchlist.isPending}
+                title="移出自選"
+                aria-label={`將 ${symbol} 移出自選`}
+                className="flex items-center gap-1 rounded-lg border border-[#FACC15]/50 bg-base px-1.5 py-0.5 text-[10px] font-medium text-[#FACC15] transition-colors cursor-pointer disabled:opacity-50"
+              >
+                <Star className="h-3 w-3 fill-current" />
+                已加自選
+              </button>
+            ) : (
+              <div className="flex items-center rounded-lg border border-border/60 bg-base overflow-hidden">
+                <button
+                  type="button"
+                  onClick={() => toggleWatchlist.mutate({ action: 'add' })}
+                  disabled={toggleWatchlist.isPending}
+                  title="加入自選"
+                  aria-label={`將 ${symbol} 加入自選`}
+                  className="flex items-center gap-1 px-1.5 py-0.5 text-[10px] font-medium text-muted hover:text-accent transition-colors cursor-pointer disabled:opacity-50"
+                >
+                  <Star className="h-3 w-3" />
+                  加入自選
+                </button>
+                <WatchlistAddMenu
+                  onSelect={groupId => toggleWatchlist.mutate({ action: 'add', groupId })}
+                  disabled={toggleWatchlist.isPending}
+                  title="選擇分組加入自選"
+                  ariaLabel={`選擇分組將 ${symbol} 加入自選`}
+                  triggerClassName="flex items-center px-1 py-0.5 border-l border-border/60 text-muted hover:text-accent transition-colors cursor-pointer disabled:opacity-50"
+                >
+                  <ChevronDown className="h-3 w-3" />
+                </WatchlistAddMenu>
+              </div>
+            )}
             <button
               onClick={() => {
                 const merged = mergeSymbolIntoCompare(loadLastCompareSymbols(), symbol)
@@ -304,11 +370,14 @@ export function TaiwanStockDetail() {
                       <span>({sign}{data.realtime.change_pct?.toFixed(2)}%)</span>
                     </div>
                   )}
-                  {data.realtime.meta?.status && (
-                    <span className="rounded-full bg-elevated px-2.5 py-0.5 text-[11px] text-muted border border-border/80">
-                      {data.realtime.meta.status === 'official_snapshot' ? '盤後快照' : '近即時行情'}
-                    </span>
-                  )}
+                  {/* Data Freshness & Source Labels batch: 原本此徽章比對
+                      meta.status === 'official_snapshot'，但 backend
+                      _aggregate_realtime() 實際只會產生 "available"/"stale"
+                      兩種 status（見 detail_service.py），該比對永遠不成立，
+                      導致無論真實新鮮度為何都固定顯示「近即時行情」——與下方
+                      footer 的「⚠️ 資料已過期」互相矛盾。改用與 Watchlist /
+                      Monitor 共用的同一套判斷與用語。 */}
+                  <DataQualityBadge meta={data.realtime.meta} quoteTime={data.realtime.quote_time} />
                 </div>
               </div>
 
@@ -349,6 +418,10 @@ export function TaiwanStockDetail() {
                 </div>
 
                 {/* 操作按鈕 */}
+                {/* Phase 8B-4.2.1: 移除原本連到 /backtest?symbol=... 的「查看回測」
+                    按鈕 —— 該回測工作台的標的選擇器目前仍呼叫 A 股 instrumentSearch,
+                    無法真正選取台股標的,留著會是誤導使用者的死路連結。route/component
+                    本身未刪除,待台股回測真正可用後再視情況加回。 */}
                 <div className="flex flex-col gap-1.5">
                   <button
                     onClick={() => setIsRuleEditorOpen(true)}
@@ -357,13 +430,6 @@ export function TaiwanStockDetail() {
                     <RadioTower className="h-3.5 w-3.5" />
                     <span>新增監控</span>
                   </button>
-                  <Link
-                    to={`/backtest?symbol=${encodeURIComponent(data.symbol)}`}
-                    className="flex items-center justify-center gap-1.5 rounded-lg border border-border bg-elevated px-3 py-1.5 text-xs font-medium text-muted hover:text-foreground transition-colors"
-                  >
-                    <BarChart3 className="h-3.5 w-3.5" />
-                    <span>查看回測</span>
-                  </Link>
                 </div>
               </div>
             </div>
@@ -499,9 +565,11 @@ export function TaiwanStockDetail() {
                 </div>
               </div>
 
-              {/* 來源與新鮮度 */}
+              {/* 來源與新鮮度 — 來源不再原樣顯示 provider 內部識別碼
+                  (如 "yahoo:chart")，改用與 Watchlist/Monitor 共用的
+                  formatQuoteSource 顯示名稱。 */}
               <div className="mt-4 pt-3 border-t border-border/60 text-[11px] text-muted flex items-center justify-between">
-                <span>來源: {data.realtime.meta?.source || '官方即時資訊'}</span>
+                <span>來源: {formatQuoteSource(data.realtime.meta?.source)}</span>
                 <span>{data.realtime.meta?.is_stale ? '⚠️ 資料已過期' : '即時更新正常'}</span>
               </div>
             </div>

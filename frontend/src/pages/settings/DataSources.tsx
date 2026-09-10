@@ -4,90 +4,45 @@ import { motion, AnimatePresence } from 'framer-motion'
 import { Check, Database, Eye, EyeOff, KeyRound, Plus, RefreshCw, Zap, FileWarning, Puzzle, AlertCircle, CheckCircle2, Loader2, Save, Trash2 } from 'lucide-react'
 import { api, type DataSourceItem, type PluginDataSourceItem } from '@/lib/api'
 import { QK } from '@/lib/queryKeys'
-import { useCapabilities, usePreferences } from '@/lib/useSharedQueries'
-import { TIER_RANK, tierRank, tierStyle } from '@/lib/capability-labels'
+import { usePreferences } from '@/lib/useSharedQueries'
 import { toast } from '@/components/Toast'
 import { DataSourceEditor } from './DataSourceEditor'
-import { TickFlowKeyConfig } from './Keys'
+import { TaiwanHistoryDataCard } from './TaiwanHistoryDataCard'
 
 const DATASET_LABEL: Record<string, string> = {
   daily: '日K',
-  adj_factor: '除权',
-  realtime: '实时',
-  minute: '分钟',
-  financial: '财务',
+  adj_factor: '除權',
+  realtime: '即時',
+  minute: '分鐘',
+  financial: '財務',
 }
 
-/** 数据集 → 路由偏好字段 + 默认值 + 展示标签 (financial 无后端路由消费方, 仅展示不参与切换) */
-/** 能力卡片定义: 数据集 + 说明 (路由选择嵌入每张卡片) */
+/** 數據集 → 路由偏好字段 + 默認值 + 展示標籤 (financial 無後端路由消費方, 僅展示不參與切換) */
+/** 能力卡片定義: 數據集 + 說明 (路由選擇嵌入每張卡片) */
 const CAPABILITY_CARDS = [
-  { dataset: 'daily', label: '日K', desc: '历史 + 实时覆写' },
-  { dataset: 'adj_factor', label: '除权因子', desc: '复权计算' },
-  { dataset: 'realtime', label: '实时行情', desc: '全市场快照' },
-  { dataset: 'minute', label: '分钟K', desc: '分时图 · 回测' },
+  { dataset: 'daily', label: '日K', desc: '歷史 + 即時覆寫' },
+  { dataset: 'adj_factor', label: '除權因子', desc: '復權計算' },
+  { dataset: 'realtime', label: '即時行情', desc: '全市場快照' },
+  { dataset: 'minute', label: '分鐘K', desc: '分時圖 · 回測' },
 ] as const
 
-/** 数据集 → 路由偏好字段 + 默认值 (financial 无后端路由消费方, 仅展示) */
+/** 數據集 → 路由偏好字段 + 默認值 (financial 無後端路由消費方, 僅展示) */
 const DATASET_ROUTE: Record<string, {
   field: 'daily_data_provider' | 'adj_factor_provider' | 'minute_data_provider' | 'realtime_data_provider'
   def: string
 }> = {
-  daily: { field: 'daily_data_provider', def: 'tickflow' },
+  daily: { field: 'daily_data_provider', def: 'taiwan' },
   adj_factor: { field: 'adj_factor_provider', def: 'same_as_daily' },
-  minute: { field: 'minute_data_provider', def: 'tickflow' },
-  realtime: { field: 'realtime_data_provider', def: 'tickflow' },
+  minute: { field: 'minute_data_provider', def: 'taiwan' },
+  realtime: { field: 'realtime_data_provider', def: 'taiwan' },
 }
 
-/** 各能力在 TickFlow 需要的最低订阅档位 (对照 tiers.yaml: 日K 全档位可用,
- *  全市场实时/除权因子需 Starter+, 分钟K需 Pro+, 财务需 Expert+) */
-const TICKFLOW_TIER_REQ: Record<string, string> = {
-  daily: 'none',
-  adj_factor: 'starter',
-  realtime: 'starter',
-  minute: 'pro',
-  financial: 'expert',
-}
-
-/** TickFlow 档位要求徽标: 按所需档位配色(与左侧菜单/Key 页一致), 当前档位不足时琥珀描边提示 */
-function TierReqChip({ tier, currentLabel }: { tier: string; currentLabel?: string }) {
-  const text = tier === 'none' ? '全档位' : `${tier}+`
-  const req = TIER_RANK[tier] ?? -1
-  const unmet = currentLabel != null && tierRank(currentLabel) < req
-  const t = tierStyle(tier)
-  return (
-    <span
-      title={unmet
-        ? `TickFlow 该能力需 ${text} — 当前档位 ${currentLabel}`
-        : `TickFlow 该能力需 ${text}`}
-      className={`inline-flex h-[15px] shrink-0 items-center gap-1 rounded px-1.5 text-[9px] font-bold font-mono leading-none ${unmet ? 'ring-1 ring-warning/60' : ''}`}
-      style={t.tagBg}
-    >
-      <span className="h-1 w-1 rounded-full shrink-0" style={t.dotStyle} />
-      <span className="capitalize" style={t.labelTextStyle}>{text}</span>
-    </span>
-  )
-}
-
-/** TickFlow「已适配全档位」标识: Expert 三色渐变(全档位体系里最醒目的身份色) */
-function AllTiersBadge({ size = 'text-[10px]' }: { size?: string }) {
-  const t = tierStyle('expert')
-  return (
-    <span
-      className="inline-flex shrink-0 items-center rounded px-1.5 py-0.5 font-medium leading-none"
-      style={t.tagBg}
-      title="无 Key 到 Expert 各订阅档位均有可用能力 — 日K全档位可用, 除权/分钟/财务等高级能力按订阅档位解锁"
-    >
-      <span className={size} style={t.labelTextStyle}>✦ 已适配全档位</span>
-    </span>
-  )
-}
-
-/** 卡片内静态数据集标签: 只展示该源适配了哪些数据集 (路由选择在下方能力卡片) */
+/** 卡片內靜態數據集標籤: 只展示該源適配了哪些數據集 (路由選擇在下方能力卡片) */
 function DatasetChipRow({ datasets }: { datasets: string[] }) {
   if (datasets.length === 0) return null
   return (
     <div className="flex flex-wrap items-center gap-1 ml-3.5 mt-1">
-      <span className="text-[9px] font-medium text-accent bg-accent/10 px-1 py-0.5 rounded">已适配</span>
+      <span className="text-[9px] font-medium text-accent bg-accent/10 px-1 py-0.5 rounded">已適配</span>
       {datasets.map(ds => (
         <span key={ds} className="text-[9px] text-muted/60 bg-elevated/60 px-1 py-0.5 rounded">
           {DATASET_LABEL[ds] || ds}
@@ -97,25 +52,24 @@ function DatasetChipRow({ datasets }: { datasets: string[] }) {
   )
 }
 
-/** 按能力路由网格: 每个数据源详情下展示一张能力卡,卡片上以可点标签列出
- *  所有具备该能力的数据源 — 点谁,该数据集就立刻由谁提供,可跨源自由组合。
- *  TickFlow 详情含全部能力; 其他源只列自己参与的能力。 */
+/** 按能力路由網格: 每個數據源詳情下展示一張能力卡,卡片上以可點標籤列出
+ *  所有具備該能力的數據源 — 點誰,該數據集就立刻由誰提供,可跨源自由組合。
+ *  TickFlow 詳情含全部能力; 其他源只列自己參與的能力。 */
 function SourceCapabilityGrid({ sourceName, sourceDisplay, datasets, candidatesOf, providerOf, pending, onSelect, anyCustom, onReset }: {
   sourceName: string
   sourceDisplay: string
   datasets: string[]
-  /** 该数据集的所有候选提供方 (含 TickFlow), 按推荐顺序 */
+  /** 該數據集的所有候選提供方 (含 TickFlow), 按推薦順序 */
   candidatesOf: (dataset: string) => { name: string; display: string }[]
-  /** 该数据集当前的原始路由偏好值 (adj_factor 可能是 same_as_daily) */
+  /** 該數據集當前的原始路由偏好值 (adj_factor 可能是 same_as_daily) */
   providerOf: (dataset: string) => string
   pending?: boolean
   onSelect: (dataset: string, provider: string) => void
   anyCustom?: boolean
   onReset?: () => void
 }) {
-  const isDefault = sourceName === 'tickflow'
+  const isDefault = sourceName === 'taiwan' || sourceName === 'tickflow'
   const dsList = isDefault ? [...datasets, 'financial'] : datasets
-  const caps = useCapabilities()
   if (dsList.length === 0) return null
 
   return (
@@ -123,8 +77,8 @@ function SourceCapabilityGrid({ sourceName, sourceDisplay, datasets, candidatesO
       <div className="flex items-center justify-between mb-2">
         <span className="text-[11px] text-muted">
           {isDefault
-            ? '每个能力可单独选择提供方 — 点标签即刻切换,未单独设置的由 TickFlow 提供'
-            : `${sourceDisplay} 参与的能力 — 每个能力都可单独选择由哪个数据源提供`}
+            ? '每個能力可個別選擇提供者 — 點標籤即刻切換,未個別設定的由內建資料來源提供'
+            : `${sourceDisplay} 參與的能力 — 每個能力都可個別選擇由哪個資料來源提供`}
         </span>
         {isDefault && anyCustom && (
           <button
@@ -132,7 +86,7 @@ function SourceCapabilityGrid({ sourceName, sourceDisplay, datasets, candidatesO
             disabled={pending}
             className="text-[11px] text-muted/60 hover:text-accent transition-colors disabled:opacity-50"
           >
-            恢复默认
+            恢復預設
           </button>
         )}
       </div>
@@ -145,16 +99,13 @@ function SourceCapabilityGrid({ sourceName, sourceDisplay, datasets, candidatesO
           const desc = meta?.desc || ''
           if (!route) {
             return (
-              <div key={ds} className="rounded-lg border border-border/50 bg-elevated/20 px-3 py-2.5" title="该数据集暂不支持切换数据源">
+              <div key={ds} className="rounded-lg border border-border/50 bg-elevated/20 px-3 py-2.5" title="該資料集暫不支援切換資料來源">
                 <div className="flex items-start justify-between gap-2">
                   <div className="min-w-0">
                     <div className="text-xs font-medium text-foreground truncate">{label}</div>
                     {desc && <div className="text-[10px] text-muted mt-0.5">{desc}</div>}
                   </div>
-                  <div className="flex items-center gap-1 shrink-0">
-                    {isDefault && <TierReqChip tier={TICKFLOW_TIER_REQ[ds]} currentLabel={caps.data?.label} />}
-                    <span className="shrink-0 px-1.5 py-0.5 rounded text-[10px] text-muted/50 bg-elevated/60">固定</span>
-                  </div>
+                  <span className="shrink-0 px-1.5 py-0.5 rounded text-[10px] text-muted/50 bg-elevated/60">固定</span>
                 </div>
               </div>
             )
@@ -168,20 +119,18 @@ function SourceCapabilityGrid({ sourceName, sourceDisplay, datasets, candidatesO
                   <div className="text-xs font-medium text-foreground">{label}</div>
                   {desc && <div className="text-[10px] text-muted mt-0.5">{desc}</div>}
                 </div>
-                {/* 右上角: TickFlow 所需档位 (当前提供方由下方高亮标签指示) */}
-                {isDefault && <TierReqChip tier={TICKFLOW_TIER_REQ[ds]} currentLabel={caps.data?.label} />}
               </div>
-              {/* 提供方标签: 点谁该数据集就由谁提供,当前项高亮 */}
+              {/* 提供者標籤:點誰該資料集就由誰提供,目前項目高亮 */}
               <div className="flex flex-wrap gap-1 mt-2 pt-2 border-t border-border/50">
                 {ds === 'adj_factor' && (
                   <button
                     type="button"
                     disabled={pending}
                     onClick={() => onSelect(ds, 'same_as_daily')}
-                    title="除权因子跟随日K数据源"
+                    title="除權因子跟隨日K資料來源"
                     className={tagCls(raw === 'same_as_daily')}
                   >
-                    跟随日K
+                    跟隨日K
                   </button>
                 )}
                 {candidates.map(c => (
@@ -205,7 +154,7 @@ function SourceCapabilityGrid({ sourceName, sourceDisplay, datasets, candidatesO
   )
 }
 
-/** 提供方标签样式: 当前项高亮(accent), 其余弱化可点 */
+/** 提供方標籤樣式: 當前項高亮(accent), 其餘弱化可點 */
 function tagCls(active: boolean) {
   return `px-1.5 py-0.5 rounded text-[10px] transition-colors select-none disabled:opacity-50 cursor-pointer ${
     active
@@ -215,11 +164,11 @@ function tagCls(active: boolean) {
 }
 
 
-/** 详情组件所需的路由上下文(由面板构造) */
+/** 詳情組件所需的路由上下文(由面板構造) */
 interface RouteCtx {
-  /** 数据集 → 候选提供方列表 (含 TickFlow) */
+  /** 數據集 → 候選提供方列表 (含 TickFlow) */
   candidatesOf: (dataset: string) => { name: string; display: string }[]
-  /** 数据集 → 当前原始路由偏好值 (adj_factor 可能是 same_as_daily) */
+  /** 數據集 → 當前原始路由偏好值 (adj_factor 可能是 same_as_daily) */
   providerOf: (dataset: string) => string
   displayOf: (name?: string) => string
   pending: boolean
@@ -228,8 +177,8 @@ interface RouteCtx {
   onReset: () => void
 }
 
-/** 插件 API Key 配置区 (布局对齐 TickFlowKeyConfig: 状态 + 输入 + 保存并检测)。
- *  先探后存: 后端用候选 Key 实探一次, 无效不落盘; secrets.json 优先于 .env。 */
+/** 插件 API Key 配置區: 狀態 + 輸入 + 保存並檢測。
+ *  先探後存: 後端用候選 Key 實探一次, 無效不落盤; secrets.json 優先於 .env。 */
 function PluginKeyConfig({ plugin }: { plugin: PluginDataSourceItem }) {
   const qc = useQueryClient()
   const [keyInput, setKeyInput] = useState('')
@@ -252,7 +201,7 @@ function PluginKeyConfig({ plugin }: { plugin: PluginDataSourceItem }) {
         setTimeout(() => setSaved(false), 2000)
       }
     },
-    onError: (e: Error) => toast(`保存失败: ${e.message}`, 'error'),
+    onError: (e: Error) => toast(`儲存失敗: ${e.message}`, 'error'),
   })
 
   const clear = useMutation({
@@ -262,13 +211,13 @@ function PluginKeyConfig({ plugin }: { plugin: PluginDataSourceItem }) {
       if (data.ok) {
         toast(
           data.plugin_available
-            ? '已清除界面配置的 Key(.env 中的同名变量仍然生效)'
+            ? '已清除介面設定的 Key(.env 中的同名變數仍然生效)'
             : 'Key 已清除,插件不再可用',
           'success',
         )
       }
     },
-    onError: (e: Error) => toast(`清除失败: ${e.message}`, 'error'),
+    onError: (e: Error) => toast(`清除失敗: ${e.message}`, 'error'),
   })
 
   return (
@@ -279,19 +228,19 @@ function PluginKeyConfig({ plugin }: { plugin: PluginDataSourceItem }) {
         <span className="text-[10px] text-muted/50 uppercase tracking-wider">{plugin.api_key_env}</span>
       </div>
       <p className="text-xs text-secondary leading-relaxed mb-4">
-        Key 保存为本地文件(secrets.json, 优先级高于 .env),不会上传任何第三方。保存前会先用该 Key
-        实探一次数据接口,无效则不落盘。
+        Key 儲存為本機檔案(secrets.json,優先順序高於 .env),不會上傳任何第三方。儲存前會先用該 Key
+        實際探測一次資料介面,無效則不落地儲存。
       </p>
 
-      {/* 当前状态 */}
+      {/* 當前狀態 */}
       <div className="flex items-center justify-between mb-4">
         <div className="min-w-0">
-          <div className="text-[10px] uppercase tracking-widest text-muted">状态</div>
+          <div className="text-[10px] uppercase tracking-widest text-muted">狀態</div>
           <div className="mt-1 flex items-center gap-2 min-w-0">
             {plugin.available ? (
               <>
                 <CheckCircle2 className="h-4 w-4 text-bear shrink-0" />
-                <span className="text-sm font-medium shrink-0">已配置</span>
+                <span className="text-sm font-medium shrink-0">已設定</span>
                 {save.data?.ok && save.data.api_key_masked && (
                   <span className="font-mono text-xs text-secondary truncate">{save.data.api_key_masked}</span>
                 )}
@@ -299,7 +248,7 @@ function PluginKeyConfig({ plugin }: { plugin: PluginDataSourceItem }) {
             ) : (
               <>
                 <AlertCircle className="h-4 w-4 text-muted shrink-0" />
-                <span className="text-sm font-medium text-muted shrink-0">未配置</span>
+                <span className="text-sm font-medium text-muted shrink-0">未設定</span>
                 <span className="text-xs text-muted/70 truncate" title={plugin.status}>{plugin.status}</span>
               </>
             )}
@@ -317,7 +266,7 @@ function PluginKeyConfig({ plugin }: { plugin: PluginDataSourceItem }) {
         )}
       </div>
 
-      {/* 输入 */}
+      {/* 輸入 */}
       <form
         onSubmit={(e) => { e.preventDefault(); if (keyInput.trim()) save.mutate() }}
         className="space-y-2"
@@ -325,7 +274,7 @@ function PluginKeyConfig({ plugin }: { plugin: PluginDataSourceItem }) {
         <div className="relative">
           <input
             type={revealing ? 'text' : 'password'}
-            placeholder={plugin.available ? '粘贴新 Key 替换当前' : `粘贴 ${plugin.display_name} API Key`}
+            placeholder={plugin.available ? '貼上新 Key 取代目前' : `貼上 ${plugin.display_name} API Key`}
             value={keyInput}
             onChange={(e) => { setKeyInput(e.target.value); if (saved) setSaved(false) }}
             autoComplete="off"
@@ -336,7 +285,7 @@ function PluginKeyConfig({ plugin }: { plugin: PluginDataSourceItem }) {
             onClick={() => setRevealing((v) => !v)}
             className="absolute right-2 top-1/2 -translate-y-1/2 text-muted hover:text-foreground transition-colors duration-150 ease-smooth"
             tabIndex={-1}
-            aria-label={revealing ? '隐藏' : '显示'}
+            aria-label={revealing ? '隱藏' : '顯示'}
           >
             {revealing ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
           </button>
@@ -347,20 +296,20 @@ function PluginKeyConfig({ plugin }: { plugin: PluginDataSourceItem }) {
           className="w-full h-10 rounded-xl bg-accent text-white text-sm font-semibold flex items-center justify-center gap-2 hover:bg-accent/90 disabled:opacity-40 transition-all"
         >
           {save.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : saved ? <Check className="h-4 w-4" /> : <Save className="h-4 w-4" />}
-          {save.isPending ? '验证中...' : saved ? '已保存' : '保存并检测'}
+          {save.isPending ? '驗證中…' : saved ? '已儲存' : '儲存並檢測'}
         </button>
       </form>
 
-      {/* 无效 Key —— 先探后存: 探测失败时不存储 */}
+      {/* 無效 Key —— 先探後存: 探測失敗時不存儲 */}
       {save.data && !save.data.ok && (
         <div className="mt-3 text-xs text-danger flex items-center gap-1.5">
           <AlertCircle className="h-3 w-3 shrink-0" />
-          {save.data.error || 'Key 无效,未保存'}
+          {save.data.error || 'Key 無效,未儲存'}
         </div>
       )}
       {save.isError && (
         <div className="mt-3 text-xs text-danger">
-          保存失败:{String((save.error as Error).message)}
+          儲存失敗:{String((save.error as Error).message)}
         </div>
       )}
     </section>
@@ -371,17 +320,17 @@ export function SettingsDataSourcesPanel() {
   const qc = useQueryClient()
   const prefs = usePreferences()
   const sources = useQuery({ queryKey: QK.dataSources, queryFn: api.dataSources })
-  const [selected, setSelected] = useState<string>('tickflow') // 当前在右侧编辑的源 name
+  const [selected, setSelected] = useState<string>('taiwan') // 當前在右側編輯的源 name
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null)
 
   const reload = useMutation({
     mutationFn: api.reloadDataSources,
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: QK.dataSources })
-      // 重载可能改变数据集声明 → 能力与实时模式随之变化
+      // 重載可能改變數據集聲明 → 能力與實時模式隨之變化
       qc.invalidateQueries({ queryKey: QK.capabilities })
       qc.invalidateQueries({ queryKey: QK.quoteStatus })
-      toast('配置已重新加载', 'success')
+      toast('設定已重新載入', 'success')
     },
   })
 
@@ -392,44 +341,44 @@ export function SettingsDataSourcesPanel() {
       qc.invalidateQueries({ queryKey: QK.preferences })
       qc.invalidateQueries({ queryKey: QK.capabilities })
       qc.invalidateQueries({ queryKey: QK.quoteStatus })
-      setSelected('tickflow')
+      setSelected('taiwan')
       setConfirmDelete(null)
-      toast('数据源已删除', 'success')
+      toast('資料來源已刪除', 'success')
     },
   })
 
   const switchProvider = useMutation({
     mutationFn: async (name: string) => {
-      // tickflow: 全量重置为默认路由
-      if (name === 'tickflow') {
+      // taiwan/tickflow: 全量重置為台灣官方默認路由
+      if (name === 'taiwan' || name === 'tickflow') {
         return api.updateDataProviders({
-          daily_data_provider: 'tickflow',
+          daily_data_provider: 'taiwan',
           adj_factor_provider: 'same_as_daily',
-          realtime_data_provider: 'tickflow',
-          minute_data_provider: 'tickflow',
-          financial_data_provider: 'tickflow',
+          realtime_data_provider: 'taiwan',
+          minute_data_provider: 'taiwan',
+          financial_data_provider: 'taiwan',
         })
       }
-      // 非 tickflow: 该源适配了哪些数据集就接管哪些, 其余回退默认
+      // 非台灣官方: 該源適配了哪些數據集就接管哪些, 其餘回退默認
       const supported = new Set(
         allItems.find(s => s.name === name)?.datasets ?? []
       )
       const pick = (dataset: string) =>
-        supported.has(dataset) ? name : (dataset === 'adj_factor' ? 'same_as_daily' : 'tickflow')
+        supported.has(dataset) ? name : (dataset === 'adj_factor' ? 'same_as_daily' : 'taiwan')
       return api.updateDataProviders({
         daily_data_provider: pick('daily'),
         adj_factor_provider: pick('adj_factor'),
         realtime_data_provider: pick('realtime'),
         minute_data_provider: pick('minute'),
-        financial_data_provider: 'tickflow',
+        financial_data_provider: 'taiwan',
       })
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: QK.preferences })
       qc.invalidateQueries({ queryKey: QK.capabilities })
-      // 切换会改变实时行情 provider → 模式(none/watchlist/full_market)立即刷新
+      // 切換會改變實時行情 provider → 模式(none/watchlist/full_market)立即刷新
       qc.invalidateQueries({ queryKey: QK.quoteStatus })
-      toast('数据源已切换', 'success')
+      toast('資料來源已切換', 'success')
     },
   })
 
@@ -445,12 +394,12 @@ export function SettingsDataSourcesPanel() {
       qc.invalidateQueries({ queryKey: QK.capabilities })
       qc.invalidateQueries({ queryKey: QK.quoteStatus })
       if (data.install_ok) {
-        toast('插件依赖安装成功', 'success')
+        toast('插件相依套件安裝成功', 'success')
       } else {
-        toast(data.install_message || '安装失败', 'error')
+        toast(data.install_message || '安裝失敗', 'error')
       }
     },
-    onError: (e: Error) => toast(`安装失败: ${e.message}`, 'error'),
+    onError: (e: Error) => toast(`安裝失敗: ${e.message}`, 'error'),
   })
 
   const uninstallMut = useMutation({
@@ -461,25 +410,25 @@ export function SettingsDataSourcesPanel() {
       qc.invalidateQueries({ queryKey: QK.capabilities })
       qc.invalidateQueries({ queryKey: QK.quoteStatus })
       if (data.uninstall_ok) {
-        toast(data.uninstall_message || '已卸载', 'success')
+        toast(data.uninstall_message || '已解除安裝', 'success')
       } else {
-        toast(data.uninstall_message || '卸载失败', 'error')
+        toast(data.uninstall_message || '解除安裝失敗', 'error')
       }
     },
-    onError: (e: Error) => toast(`卸载失败: ${e.message}`, 'error'),
+    onError: (e: Error) => toast(`解除安裝失敗: ${e.message}`, 'error'),
   })
 
   const builtin: DataSourceItem[] = sources.data?.builtin ?? []
   const pluginList: PluginDataSourceItem[] = sources.data?.plugins ?? []
   const customList: DataSourceItem[] = sources.data?.custom ?? []
   const errors = sources.data?.errors ?? []
-  const activeName = prefs.data?.daily_data_provider || 'tickflow'
+  const activeName = prefs.data?.daily_data_provider || 'taiwan'
 
-  // 插件 name → 状态 (供卡片渲染时判断 available/installing 等)
+  // 插件 name → 狀態 (供卡片渲染時判斷 available/installing 等)
   const pluginMap = new Map(pluginList.map(p => [p.name, p]))
   const pluginNames = new Set(pluginList.map(p => p.name))
 
-  // 顶部数据源选择列表 (内置 + 所有插件 + 自定义 + 新增)
+  // 頂部數據源選擇列表 (內置 + 所有插件 + 自定義 + 新增)
   const pluginItems: DataSourceItem[] = pluginList.map(p => ({
     name: p.name, display_name: p.display_name, datasets: p.datasets,
   }))
@@ -491,24 +440,24 @@ export function SettingsDataSourcesPanel() {
 
   const selectedCustom = customList.find(s => s.name === selected)
 
-  // ===== 各数据集当前的有效提供方 (除权 same_as_daily = 跟随日K) =====
-  // 用于"服务中"徽标: 改单个能力路由只影响对应数据集, 不再产生"当前数据源被切换"的表现
-  const dailyPref = prefs.data?.daily_data_provider || 'tickflow'
+  // ===== 各數據集當前的有效提供方 (除權 same_as_daily = 跟隨日K) =====
+  // 用於"服務中"徽標: 改單個能力路由隻影響對應數據集, 不再產生"當前數據源被切換"的表現
+  const dailyPref = prefs.data?.daily_data_provider || 'taiwan'
   const adjPref = prefs.data?.adj_factor_provider || 'same_as_daily'
   const effProvider: Record<string, string> = {
     daily: dailyPref,
     adj_factor: adjPref === 'same_as_daily' ? dailyPref : adjPref,
-    minute: prefs.data?.minute_data_provider || 'tickflow',
-    realtime: prefs.data?.realtime_data_provider || 'tickflow',
+    minute: prefs.data?.minute_data_provider || 'taiwan',
+    realtime: prefs.data?.realtime_data_provider || 'taiwan',
   }
   const servingDatasets = (name: string) =>
-    Object.entries(effProvider).filter(([, v]) => v === name).map(([k]) => k)
+    Object.entries(effProvider).filter(([, v]) => (name === 'taiwan' || name === 'tickflow') ? (v === 'taiwan' || v === 'tickflow') : v === name).map(([k]) => k)
   const servingLabels = (name: string) =>
     servingDatasets(name).map(k => DATASET_LABEL[k] || k)
 
   const displayOf = (name?: string) =>
-    name === 'tickflow' ? 'TickFlow'
-      : name === 'same_as_daily' ? '跟随日K'
+    (name === 'taiwan' || name === 'tickflow') ? '台灣官方資料源'
+      : name === 'same_as_daily' ? '跟隨日K'
         : allItems.find(s => s.name === name)?.display_name || name || ''
 
   const invalidateRouting = () => {
@@ -517,61 +466,61 @@ export function SettingsDataSourcesPanel() {
     qc.invalidateQueries({ queryKey: QK.quoteStatus })
   }
 
-  // 单个能力的提供方切换: 点标签即刻生效 (same_as_daily 仅除权有效 = 跟随日K)
+  // 單個能力的提供方切換: 點標籤即刻生效 (same_as_daily 僅除權有效 = 跟隨日K)
   const routeMut = useMutation({
     mutationFn: ({ dataset, provider }: { dataset: string; provider: string }) => {
       const route = DATASET_ROUTE[dataset]
-      if (!route) throw new Error(`数据集 ${dataset} 不支持切换数据源`)
+      if (!route) throw new Error(`資料集 ${dataset} 不支援切換資料來源`)
       return api.updateDataProviders({ [route.field]: provider })
     },
     onSuccess: (_d, v) => {
       invalidateRouting()
       const label = DATASET_LABEL[v.dataset] || v.dataset
-      toast(`「${label}」已切换为 ${displayOf(v.provider)}`, 'success')
+      toast(`「${label}」已切換為 ${displayOf(v.provider)}`, 'success')
     },
-    onError: (e: Error) => toast(`路由切换失败: ${e.message}`, 'error'),
+    onError: (e: Error) => toast(`路由切換失敗: ${e.message}`, 'error'),
   })
 
-  // 恢复默认: 路由全部回 TickFlow
+  // 恢復默認: 路由全部回 台灣官方資料源
   const resetRouteMut = useMutation({
     mutationFn: () => api.updateDataProviders({
-      daily_data_provider: 'tickflow',
+      daily_data_provider: 'taiwan',
       adj_factor_provider: 'same_as_daily',
-      minute_data_provider: 'tickflow',
-      realtime_data_provider: 'tickflow',
+      minute_data_provider: 'taiwan',
+      realtime_data_provider: 'taiwan',
     }),
     onSuccess: () => {
       invalidateRouting()
-      toast('数据集路由已恢复默认(TickFlow)', 'success')
+      toast('資料集路由已恢復預設', 'success')
     },
-    onError: (e: Error) => toast(`恢复失败: ${e.message}`, 'error'),
+    onError: (e: Error) => toast(`恢復失敗: ${e.message}`, 'error'),
   })
 
-  const anyCustomRouting = Object.values(effProvider).some(v => v !== 'tickflow') || adjPref !== 'same_as_daily'
+  const anyCustomRouting = Object.values(effProvider).some(v => v !== 'taiwan' && v !== 'tickflow') || adjPref !== 'same_as_daily'
 
-  // 某数据集的全部候选提供方 (TickFlow 恒在首位, 其余按声明该数据集的数据源列出)
+  // 某數據集的全部候選提供方 (台灣官方恆在首位, 其餘按聲明該數據集的數據源列出)
   const candidatesOf = (dataset: string) => {
-    const list = [{ name: 'tickflow', display: 'TickFlow' }]
+    const list = [{ name: 'taiwan', display: '台灣官方資料源' }]
     for (const item of allItems) {
-      if (item.name !== 'tickflow' && item.datasets.includes(dataset)) {
+      if (item.name !== 'tickflow' && item.name !== 'taiwan' && item.datasets.includes(dataset)) {
         list.push({ name: item.name, display: item.display_name || item.name })
       }
     }
     return list
   }
 
-  // 数据集 → 当前原始路由偏好值 (adj_factor 保留 same_as_daily 以驱动"跟随日K"标签态)
+  // 數據集 → 當前原始路由偏好值 (adj_factor 保留 same_as_daily 以驅動"跟隨日K"標籤態)
   const providerOf = (dataset: string) => {
     switch (dataset) {
       case 'daily': return dailyPref
       case 'adj_factor': return adjPref
-      case 'minute': return prefs.data?.minute_data_provider || 'tickflow'
-      case 'realtime': return prefs.data?.realtime_data_provider || 'tickflow'
-      default: return 'tickflow'
+      case 'minute': return prefs.data?.minute_data_provider || 'taiwan'
+      case 'realtime': return prefs.data?.realtime_data_provider || 'taiwan'
+      default: return 'taiwan'
     }
   }
 
-  // 传给各数据源详情的路由上下文(能力卡标签选择 + 当前提供方展示)
+  // 傳給各數據源詳情的路由上下文(能力卡標籤選擇 + 當前提供方展示)
   const routeCtx: RouteCtx = {
     candidatesOf,
     providerOf,
@@ -584,12 +533,12 @@ export function SettingsDataSourcesPanel() {
 
   return (
     <div className="space-y-5 max-w-5xl">
-      {/* ===== 顶部: 当前数据源 + 数据源选择 (一个大卡片) ===== */}
+      {/* ===== 頂部: 當前數據源 + 數據源選擇 (一個大卡片) ===== */}
       <section className="rounded-card border border-border bg-surface p-5">
         <div className="flex items-center justify-between mb-4">
           <div className="flex items-center gap-2.5">
             <Database className="h-4 w-4 text-secondary" />
-            <h2 className="text-sm font-medium text-foreground">数据源</h2>
+            <h2 className="text-sm font-medium text-foreground">資料來源</h2>
             <span
               className="text-[10px] text-muted/40 font-mono truncate hidden lg:inline max-w-[480px]"
               title={sources.data?.config_dir}
@@ -603,24 +552,24 @@ export function SettingsDataSourcesPanel() {
             className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-btn text-xs text-muted hover:text-foreground hover:bg-elevated transition-colors disabled:opacity-50"
           >
             <RefreshCw className={`h-3 w-3 ${reload.isPending ? 'animate-spin' : ''}`} />
-            重新加载
+            重新載入
           </button>
         </div>
 
-        {/* 插件化说明 (置顶黄色提示条): 接入自有行情 → 把文档交给 AI */}
+        {/* 插件化說明 (置頂黃色提示條): 接入自有行情 → 把文檔交給 AI */}
         <div className="mb-4 flex items-start gap-2 rounded-lg border border-warning/40 bg-warning/10 px-3 py-2.5">
           <Puzzle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-warning" />
           <div className="text-[11px] leading-relaxed text-muted">
-            <span className="text-secondary">数据源已插件化</span>
-            ,接入自有行情?把文档发给 AI 即可自动接入:
+            <span className="text-secondary">資料來源已插件化</span>
+            ,接入自有行情?把文件交給 AI 即可自動接入:
             <span className="mx-0.5 rounded bg-elevated/70 px-1 py-px font-mono text-[10px] text-secondary">docs/custom-data-source.md</span>
-            (自有 HTTP 接口) ·
+            (自有 HTTP 介面) ·
             <span className="mx-0.5 rounded bg-elevated/70 px-1 py-px font-mono text-[10px] text-secondary">docs/plugin-development.md</span>
-            (插件开发)
+            (插件開發)
           </div>
         </div>
 
-        {/* 数据源选择 - 横向卡片列表 */}
+        {/* 數據源選擇 - 橫向卡片列表 */}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2.5">
           {allItems.map(item => {
             const serving = servingLabels(item.name)
@@ -633,10 +582,10 @@ export function SettingsDataSourcesPanel() {
               <div
                 key={item.name}
                 onClick={() => {
-                  // 未就绪插件仅当支持界面配 Key 时可点开(进详情配置); 其余不可选
+                  // 未就緒插件僅當支持界面配 Key 時可點開(進詳情配置); 其餘不可選
                   if (pluginUnavailable && !plugin?.api_key_env) return
                   setSelected(item.name)
-                  // 只有用户自定义源 (YAML) 才进编辑器; tickflow 和插件不可编辑
+                  // 只有用戶自定義源 (YAML) 才進編輯器; tickflow 和插件不可編輯
                   if (customList.some(c => c.name === item.name)) {
                     editExisting.mutate(item.name)
                   }
@@ -663,30 +612,27 @@ export function SettingsDataSourcesPanel() {
                       className="shrink-0 inline-flex items-center gap-0.5 text-[9px] text-accent"
                       title={`正在提供: ${serving.join(' · ')}`}
                     >
-                      <Check className="h-2.5 w-2.5" /> 服务中
+                      <Check className="h-2.5 w-2.5" /> 服務中
                     </span>
                   )}
-                  {item.name === 'tickflow' && (
-                    <>
-                      <span className="shrink-0 rounded bg-warning/15 px-1 py-0.5 text-[9px] font-medium leading-none text-warning">第三方</span>
-                      <AllTiersBadge size="text-[9px]" />
-                    </>
+                  {(item.name === 'taiwan' || item.name === 'tickflow') && (
+                    <span className="shrink-0 rounded bg-accent/15 px-1 py-0.5 text-[9px] font-medium leading-none text-accent">官方預設</span>
                   )}
                   {pluginNames.has(item.name) && (
                     <span className="shrink-0 rounded bg-warning/15 px-1 py-0.5 text-[9px] font-medium leading-none text-warning">第三方</span>
                   )}
-                  {/* 右侧操作区: 插件未安装→安装按钮(runtime=none 无依赖可装,显示配置提示); 否则→使用/卸载 */}
+                  {/* 右側操作區: 插件未安裝→安裝按鈕(runtime=none 無依賴可裝,顯示配置提示); 否則→使用/卸載 */}
                   {pluginUnavailable ? (
                     plugin?.runtime === 'none' ? (
                       <span
                         className="text-[10px] text-muted/50 shrink-0 cursor-help"
-                        title={plugin?.status || '未配置凭据'}
+                        title={plugin?.status || '未設定憑證'}
                       >
-                        点击配置 Key
+                        點擊設定 Key
                       </span>
                     ) : installing ? (
                       <span className="inline-flex items-center gap-1 text-[9px] text-accent shrink-0">
-                        <RefreshCw className="h-2.5 w-2.5 animate-spin" /> 安装中...
+                        <RefreshCw className="h-2.5 w-2.5 animate-spin" /> 安裝中…
                       </span>
                     ) : (
                       <button
@@ -694,11 +640,11 @@ export function SettingsDataSourcesPanel() {
                         disabled={installMut.isPending}
                         className="shrink-0 inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-medium bg-accent/10 text-accent hover:bg-accent/20 transition-colors disabled:opacity-50"
                       >
-                        <Zap className="h-2.5 w-2.5" /> 安装
+                        <Zap className="h-2.5 w-2.5" /> 安裝
                       </button>
                     )
                   ) : plugin ? (
-                    /* 已安装插件: 使用 + 卸载 */
+                    /* 已安裝插件: 使用 + 卸載 */
                     <div className="flex items-center gap-1 shrink-0">
                       <button
                         onClick={(e) => { e.stopPropagation(); switchProvider.mutate(item.name) }}
@@ -714,9 +660,9 @@ export function SettingsDataSourcesPanel() {
                           onClick={(e) => { e.stopPropagation(); uninstallMut.mutate(item.name) }}
                           disabled={uninstallMut.isPending}
                           className="text-[10px] text-muted/50 hover:text-danger transition-colors disabled:opacity-40"
-                          title="卸载依赖"
+                          title="解除安裝依賴"
                         >
-                          卸载
+                          解除安裝
                         </button>
                       ))}
                     </div>
@@ -730,9 +676,9 @@ export function SettingsDataSourcesPanel() {
                     </button>
                   )}
                 </div>
-                {/* 数据集标签(静态): 该源适配的数据集, 路由选择在下方能力卡片 */}
-                <DatasetChipRow datasets={item.name === 'tickflow' ? [...item.datasets, 'financial'] : item.datasets} />
-                {/* 未安装插件显示安装命令提示 */}
+                {/* 數據集標籤(靜態): 該源適配的數據集, 路由選擇在下方能力卡片 */}
+                <DatasetChipRow datasets={(item.name === 'taiwan' || item.name === 'tickflow') ? [...item.datasets, 'financial'] : item.datasets} />
+                {/* 未安裝插件顯示安裝命令提示 */}
                 {pluginUnavailable && plugin?.install_hint && (
                   <div className="ml-3.5 mt-1 text-[10px] text-muted/40 font-mono truncate">{plugin.install_hint}</div>
                 )}
@@ -740,7 +686,7 @@ export function SettingsDataSourcesPanel() {
             )
           })}
 
-          {/* 新增数据源卡片 */}
+          {/* 新增數據源卡片 */}
           <button
             onClick={() => setSelected('__new__')}
             className={`rounded-lg border border-dashed px-3.5 py-3 transition-all flex items-center justify-center gap-1.5 text-sm ${
@@ -750,11 +696,11 @@ export function SettingsDataSourcesPanel() {
             }`}
           >
             <Plus className="h-3.5 w-3.5" />
-            新增数据源
+            新增資料來源
           </button>
         </div>
 
-        {/* 错误提示 */}
+        {/* 錯誤提示 */}
         {errors.length > 0 && (
           <div className="mt-3 flex items-start gap-1.5 px-3 py-2 rounded-lg bg-danger/5 border border-danger/20">
             <FileWarning className="h-3.5 w-3.5 text-danger shrink-0 mt-0.5" />
@@ -769,18 +715,18 @@ export function SettingsDataSourcesPanel() {
         )}
 
         <div className="mt-3 flex items-center gap-3 text-[10px] text-muted/50">
-          <span>单击查看各源能力</span>
+          <span>點擊查看各來源能力</span>
           <span className="text-muted/30">·</span>
-          <span>能力卡片上点标签,单独选择每个数据集的提供方</span>
+          <span>能力卡片上點擊標籤,個別選擇每個資料集的提供者</span>
           <span className="text-muted/30">·</span>
-          <span>点「使用」一键套用该源全部能力</span>
+          <span>點「使用」一鍵套用該來源全部能力</span>
           <span className="text-muted/30">·</span>
-          <span>未单独设置的由 TickFlow 提供</span>
+          <span>未個別設定的由台灣官方資料源提供</span>
         </div>
 
       </section>
 
-      {/* ===== 下方: 编辑区 ===== */}
+      {/* ===== 下方: 編輯區 ===== */}
       <AnimatePresence mode="wait">
         <motion.div
           key={selected}
@@ -788,10 +734,10 @@ export function SettingsDataSourcesPanel() {
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.15 }}
         >
-          {selected === 'tickflow' ? (
-            <TickFlowDetail
-              active={servingDatasets('tickflow').length > 0}
-              onSwitch={() => switchProvider.mutate('tickflow')}
+          {(selected === 'taiwan' || selected === 'tickflow') ? (
+            <TaiwanOfficialDetail
+              active={servingDatasets('taiwan').length > 0 || servingDatasets('tickflow').length > 0}
+              onSwitch={() => switchProvider.mutate('taiwan')}
               switching={switchProvider.isPending}
               route={routeCtx}
             />
@@ -801,26 +747,26 @@ export function SettingsDataSourcesPanel() {
                 key={selected}
                 initial={null}
                 existingName={undefined}
-                onCancel={() => setSelected('tickflow')}
+                onCancel={() => setSelected('taiwan')}
                 onSaved={() => {
                   qc.invalidateQueries({ queryKey: QK.dataSources })
-                  // 数据集声明变化 → 能力增广与实时模式立即刷新
+                  // 數據集聲明變化 → 能力增廣與實時模式立即刷新
                   qc.invalidateQueries({ queryKey: QK.preferences })
                   qc.invalidateQueries({ queryKey: QK.capabilities })
                   qc.invalidateQueries({ queryKey: QK.quoteStatus })
-                  setSelected('tickflow')
+                  setSelected('taiwan')
                 }}
                 activeName={activeName}
                 onActivate={(name) => switchProvider.mutate(name)}
               />
             ) : (
-              /* 自定义源详情: 能力卡片(路由) + 编辑器 */
+              /* 自定義源詳情: 能力卡片(路由) + 編輯器 */
               <div className="space-y-5">
                 <section className="rounded-card border border-border bg-surface p-6">
                   <div className="flex items-center gap-2.5 mb-4">
                     <Database className="h-4 w-4 text-secondary" />
                     <h3 className="text-sm font-medium text-foreground">
-                      {selectedCustom?.display_name || selected} · 数据集能力与路由
+                      {selectedCustom?.display_name || selected} · 資料集能力與路由
                     </h3>
                   </div>
                   <SourceCapabilityGrid
@@ -837,14 +783,14 @@ export function SettingsDataSourcesPanel() {
                   key={selected}
                   initial={null}
                   existingName={selected}
-                  onCancel={() => setSelected('tickflow')}
+                  onCancel={() => setSelected('taiwan')}
                   onSaved={() => {
                     qc.invalidateQueries({ queryKey: QK.dataSources })
-                    // 数据集声明变化 → 能力增广与实时模式立即刷新
+                    // 數據集聲明變化 → 能力增廣與實時模式立即刷新
                     qc.invalidateQueries({ queryKey: QK.preferences })
                     qc.invalidateQueries({ queryKey: QK.capabilities })
                     qc.invalidateQueries({ queryKey: QK.quoteStatus })
-                    // 强制清除该源的详情缓存, 下次编辑重新拉取最新配置
+                    // 強制清除該源的詳情緩存, 下次編輯重新拉取最新配置
                     qc.removeQueries({ queryKey: ['data-source-detail', selected] })
                   }}
                   activeName={activeName}
@@ -854,7 +800,7 @@ export function SettingsDataSourcesPanel() {
               </div>
             )
           ) : pluginList.find(x => x.name === selected) ? (
-            /* 选中插件: 信息 + 能力卡片(路由) + Key 配置 */
+            /* 選中插件: 信息 + 能力卡片(路由) + Key 配置 */
             <PluginDetail
               plugin={pluginList.find(x => x.name === selected)!}
               isActive={servingDatasets(selected).length > 0}
@@ -866,7 +812,7 @@ export function SettingsDataSourcesPanel() {
         </motion.div>
       </AnimatePresence>
 
-      {/* 删除确认弹窗 */}
+      {/* 刪除確認彈窗 */}
       {confirmDelete && (
         <div className="fixed inset-0 z-50 flex items-center justify-center">
           <div
@@ -874,9 +820,9 @@ export function SettingsDataSourcesPanel() {
             onClick={() => setConfirmDelete(null)}
           />
           <div className="relative w-[90vw] max-w-[380px] rounded-card border border-border bg-base shadow-2xl p-6">
-            <h3 className="text-sm font-medium text-foreground mb-2">删除数据源</h3>
+            <h3 className="text-sm font-medium text-foreground mb-2">刪除資料來源</h3>
             <p className="text-xs text-secondary mb-5">
-              确认删除「{customList.find(s => s.name === confirmDelete)?.display_name || confirmDelete}」? 该数据源的配置文件将被移除,此操作不可撤销。
+              確認刪除「{customList.find(s => s.name === confirmDelete)?.display_name || confirmDelete}」? 該資料來源的設定檔將被移除,此操作無法復原。
             </p>
             <div className="flex items-center justify-end gap-2">
               <button
@@ -890,7 +836,7 @@ export function SettingsDataSourcesPanel() {
                 disabled={remove.isPending}
                 className="px-3 py-1.5 rounded-btn bg-danger/15 text-danger hover:bg-danger/25 text-sm font-medium transition-colors disabled:opacity-50"
               >
-                {remove.isPending ? '删除中...' : '确认删除'}
+                {remove.isPending ? '刪除中…' : '確認刪除'}
               </button>
             </div>
           </div>
@@ -923,7 +869,7 @@ function PluginDetail({ plugin, isActive, onSwitch, switching, route }: {
           </div>
         </div>
 
-        {/* 本源参与的能力: 标签选择提供方, 即刻生效 */}
+        {/* 本源參與的能力: 標籤選擇提供方, 即刻生效 */}
         <SourceCapabilityGrid
           sourceName={plugin.name}
           sourceDisplay={plugin.display_name}
@@ -937,7 +883,7 @@ function PluginDetail({ plugin, isActive, onSwitch, switching, route }: {
         <div className="flex items-center gap-3 mt-4">
           {isActive ? (
             <span className="inline-flex items-center gap-1 text-[10px] text-accent bg-accent/10 px-2 py-1 rounded">
-              <Check className="h-2.5 w-2.5" /> 服务中
+              <Check className="h-2.5 w-2.5" /> 服務中
             </span>
           ) : plugin.available ? (
             <button
@@ -946,7 +892,7 @@ function PluginDetail({ plugin, isActive, onSwitch, switching, route }: {
               className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-btn bg-accent/10 text-accent text-xs font-medium hover:bg-accent/20 transition-colors disabled:opacity-50"
             >
               <Zap className="h-3.5 w-3.5" />
-              整体切换为该源
+              整體切換為該來源
             </button>
           ) : (
             <span className="text-xs text-muted">{plugin.status}</span>
@@ -954,13 +900,13 @@ function PluginDetail({ plugin, isActive, onSwitch, switching, route }: {
         </div>
       </section>
 
-      {/* API Key 配置 (声明了 api_key_env 的插件) */}
+      {/* API Key 配置 (聲明了 api_key_env 的插件) */}
       {plugin.api_key_env && <PluginKeyConfig plugin={plugin} />}
     </div>
   )
 }
 
-function TickFlowDetail({ active, onSwitch, switching, route }: {
+function TaiwanOfficialDetail({ active, onSwitch, switching, route }: {
   active: boolean
   onSwitch: () => void
   switching: boolean
@@ -975,25 +921,24 @@ function TickFlowDetail({ active, onSwitch, switching, route }: {
           </div>
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-2 flex-wrap">
-              <h2 className="text-base font-semibold text-foreground">TickFlow</h2>
-              <span className="rounded bg-warning/15 px-1.5 py-0.5 text-[10px] font-medium text-warning">第三方</span>
-              <AllTiersBadge />
+              <h2 className="text-base font-semibold text-foreground">台灣官方資料源 (TWSE/TPEx)</h2>
+              <span className="rounded bg-accent/15 px-1.5 py-0.5 text-[10px] font-medium text-accent">官方公開</span>
               {active && (
                 <span className="inline-flex items-center gap-1 text-[10px] text-accent bg-accent/10 px-2 py-1 rounded">
-                  <Check className="h-2.5 w-2.5" /> 服务中
+                  <Check className="h-2.5 w-2.5" /> 服務中
                 </span>
               )}
             </div>
             <p className="text-xs text-secondary mt-1.5 leading-relaxed">
-              默认数据源,具备全部能力(日K · 除权 · 分钟 · 实时 · 财务)。在下方每个能力卡片上点标签,可单独选择该数据集由哪个数据源提供。
+              整合台灣證券交易所 (TWSE) 與證券櫃檯買賣中心 (TPEx) 官方公開資料，提供日K歷史行情、即時報價、標的清單與基本面資訊，無需任何 API Key 即可開箱即用。在下方能力卡片上點標籤，可個別選擇該資料集由哪個資料來源提供。
             </p>
           </div>
         </div>
 
-        {/* 全部能力的提供方标签选择 + 恢复默认 */}
+        {/* 全部能力的提供方標籤選擇 + 恢復默認 */}
         <SourceCapabilityGrid
-          sourceName="tickflow"
-          sourceDisplay="TickFlow"
+          sourceName="taiwan"
+          sourceDisplay="台灣官方資料源"
           datasets={['daily', 'adj_factor', 'realtime', 'minute']}
           candidatesOf={route.candidatesOf}
           providerOf={route.providerOf}
@@ -1010,13 +955,23 @@ function TickFlowDetail({ active, onSwitch, switching, route }: {
             className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-btn bg-accent/10 text-accent text-xs font-medium hover:bg-accent/20 transition-colors disabled:opacity-50 mt-3"
           >
             <Zap className="h-3.5 w-3.5" />
-            切换为当前数据源
+            切換為目前資料來源
           </button>
         )}
       </section>
 
-      {/* TickFlow API Key 配置 + 订阅档位 + 可用功能 (原 account tab 内容) */}
-      <TickFlowKeyConfig />
+      {/* 台股歷史日 K 資料庫狀態與下載/更新 */}
+      <TaiwanHistoryDataCard />
+
+      <section className="rounded-card border border-border bg-surface p-6">
+        <div className="flex items-center gap-2 mb-2">
+          <CheckCircle2 className="h-4 w-4 text-emerald-500" />
+          <h3 className="text-sm font-medium text-foreground">公開免費，免 API Key</h3>
+        </div>
+        <p className="text-xs text-secondary leading-relaxed">
+          本資料源直接透過 TWSE 與 TPEx 官方公開端點獲取盤後日K與最新報價，並提供 Yahoo Finance 與公開資訊作為備援與補充。所有資料均自動於本機建立 Parquet/DuckDB 快取，高速且不受第三方付費 API 限制。
+        </p>
+      </section>
     </div>
   )
 }

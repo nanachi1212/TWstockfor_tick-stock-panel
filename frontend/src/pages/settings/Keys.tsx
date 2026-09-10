@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
-import { motion, AnimatePresence } from 'framer-motion'
+import { motion } from 'framer-motion'
 import {
   Key,
   Eye,
@@ -9,19 +9,16 @@ import {
   CheckCircle2,
   AlertCircle,
   RefreshCw,
-  Activity,
-  ExternalLink,
   Loader2,
   Save,
   Check,
-  HelpCircle,
 } from 'lucide-react'
 import { api } from '@/lib/api'
 import { useCapabilities, useSettings } from '@/lib/useSharedQueries'
 import { QK } from '@/lib/queryKeys'
-import { CAP_LABELS, tierTextStyle, tierStyle, tierBaseName, ALL_TIERS, TierTag } from '@/lib/capability-labels'
+import { CAP_LABELS } from '@/lib/capability-labels'
 
-// ===== TickFlow Key 配置主体 (可嵌入 DataSources 的 TickFlow 详情区) =====
+// ===== TickFlow Key 配置主體 (可嵌入 DataSources 的 TickFlow 詳情區) =====
 
 export function TickFlowKeyConfig() {
   const qc = useQueryClient()
@@ -40,13 +37,13 @@ export function TickFlowKeyConfig() {
       setKeyInput('')
       qc.invalidateQueries({ queryKey: QK.settings })
       qc.invalidateQueries({ queryKey: QK.capabilities })
-      // 档位变化会改变实时行情模式(none/watchlist/full_market), 立即刷新侧边栏状态
+      // 可用能力變化會改變即時行情模式,立即刷新側邊欄狀態。
       qc.invalidateQueries({ queryKey: QK.quoteStatus })
       if (data.ok) {
         setSaved(true)
         setTimeout(() => setSaved(false), 2000)
       }
-      // ok=false 由 save.data 在下方渲染提示(reason=invalid),无需额外处理
+      // ok=false 由 save.data 在下方渲染提示(reason=invalid),無需額外處理
     },
   })
 
@@ -77,42 +74,32 @@ export function TickFlowKeyConfig() {
       <div className="grid grid-cols-1 lg:grid-cols-[1fr_1.3fr] gap-6 max-w-5xl">
         {/* ========== 左列: Key 配置 ========== */}
         <div className="space-y-6">
-          <Card icon={Key} title="TickFlow API Key">
+          <Card icon={Key} title="內建資料來源 API Key">
             <p className="text-sm text-secondary leading-relaxed mb-4">
-              在{' '}
-              <a
-                href="https://tickflow.org/auth/register?ref=V3KDKGXPEA"
-                target="_blank"
-                rel="noreferrer"
-                className="text-accent hover:underline inline-flex items-baseline gap-0.5"
-              >
-                tickflow.org
-                <ExternalLink className="h-3 w-3 self-center" />
-              </a>{' '}
-              注册获取。API Key 存放为本地文件,不会上传任何第三方,请妥善保管。
+              供系統內建資料來源使用。API Key 存放為本機秘密資料,畫面只顯示遮罩值。
             </p>
 
-            {/* 当前状态 */}
+            {/* 當前狀態 */}
             <div className="flex items-center justify-between mb-4">
               <div className="min-w-0">
-                <div className="text-[10px] uppercase tracking-widest text-muted">状态</div>
+                <div className="text-[10px] uppercase tracking-widest text-muted">狀態</div>
                 <div className="mt-1 flex items-center gap-2 min-w-0">
                   {mode === 'api_key' ? (
                     <>
                       <CheckCircle2 className="h-4 w-4 text-bear shrink-0" />
-                      <span className="text-sm font-medium shrink-0">已配置</span>
+                      <span className="text-sm font-medium shrink-0">已設定</span>
                       <span className="font-mono text-xs text-secondary truncate">{masked}</span>
                     </>
                   ) : mode === 'free' ? (
                     <>
                       <CheckCircle2 className="h-4 w-4 text-bear shrink-0" />
-                      <span className="text-sm font-medium shrink-0">免费 Key</span>
+                      <span className="text-sm font-medium shrink-0">免費 Key</span>
                       <span className="font-mono text-xs text-secondary truncate">{masked}</span>
                     </>
                   ) : (
                     <>
                       <AlertCircle className="h-4 w-4 text-muted shrink-0" />
-                      <span className="text-sm font-medium text-muted">未配置</span>
+                      <span className="text-sm font-medium text-muted">未設定</span>
                     </>
                   )}
                 </div>
@@ -129,7 +116,7 @@ export function TickFlowKeyConfig() {
               )}
             </div>
 
-            {/* 输入 */}
+            {/* 輸入 */}
             <form
               onSubmit={(e) => {
                 e.preventDefault()
@@ -140,7 +127,7 @@ export function TickFlowKeyConfig() {
               <div className="relative">
                 <input
                   type={revealing ? 'text' : 'password'}
-                  placeholder={mode === 'none' ? '粘贴 TickFlow API Key' : '粘贴新 Key 替换当前'}
+                  placeholder={mode === 'none' ? '貼上內建資料來源 API Key' : '貼上新 Key 取代目前'}
                   value={keyInput}
                   onChange={(e) => { setKeyInput(e.target.value); if (saved) setSaved(false) }}
                   className="w-full px-3 py-2 pr-9 rounded-input bg-base border border-border text-sm font-mono focus:outline-none focus:border-accent transition-colors duration-150 ease-smooth"
@@ -150,7 +137,7 @@ export function TickFlowKeyConfig() {
                   onClick={() => setRevealing((v) => !v)}
                   className="absolute right-2 top-1/2 -translate-y-1/2 text-muted hover:text-foreground transition-colors duration-150 ease-smooth"
                   tabIndex={-1}
-                  aria-label={revealing ? '隐藏' : '显示'}
+                  aria-label={revealing ? '隱藏' : '顯示'}
                 >
                   {revealing ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                 </button>
@@ -161,22 +148,22 @@ export function TickFlowKeyConfig() {
                 className="w-full h-10 rounded-xl bg-accent text-white text-sm font-semibold flex items-center justify-center gap-2 hover:bg-accent/90 disabled:opacity-40 transition-all"
               >
                 {save.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : saved ? <Check className="h-4 w-4" /> : <Save className="h-4 w-4" />}
-                {save.isPending ? '保存中...' : saved ? '已保存' : '保存并检测'}
+                {save.isPending ? '儲存中…' : saved ? '已儲存' : '儲存並檢測'}
               </button>
 
-              {/* 检测中提示 —— 成功/失败后自动消失 */}
+              {/* 檢測中提示 —— 成功/失敗後自動消失 */}
               {save.isPending && (
                 <div className="flex items-start gap-1.5 rounded-btn border border-warning/30 bg-warning/10 px-3 py-2 text-[11px] leading-snug text-warning">
                   <AlertCircle className="h-3.5 w-3.5 mt-px shrink-0" />
                   <span>
-                    验证通过前请不要离开当前页面 · 如遇网络问题请点击
+                    驗證通過前請不要離開目前頁面 · 如遇網路問題請點擊
                     <button
                       type="button"
                       onClick={() => { save.reset(); redetect.mutate() }}
                       disabled={redetect.isPending}
                       className="font-semibold underline underline-offset-2 hover:text-warning/80 disabled:opacity-50"
                     >
-                      {redetect.isPending ? '重新检测中…' : '重新检测'}
+                      {redetect.isPending ? '重新檢測中…' : '重新檢測'}
                     </button>
                   </span>
                 </div>
@@ -185,33 +172,34 @@ export function TickFlowKeyConfig() {
 
             {save.isError && (
               <div className="mt-3 text-xs text-danger">
-                保存失败:{String((save.error as any).message)}
+                儲存失敗:{String((save.error as any).message)}
               </div>
             )}
-            {/* 无效 key —— 先探后存:探测失败(key 无效/乱填)时不存储,提示用户 */}
+            {/* 無效 key —— 先探後存:探測失敗(key 無效/亂填)時不存儲,提示用戶 */}
             {save.data && !save.data.ok && (
               <div className="mt-3 text-xs text-danger flex items-center gap-1.5">
                 <AlertCircle className="h-3 w-3 shrink-0" />
                 {save.data.reason === 'invalid'
-                  ? 'Key 无效或已过期,请检查后重试(未保存该 Key)'
-                  : save.data.error ?? '保存失败'}
+                  ? 'Key 無效或已過期,請檢查後重試(未儲存該 Key)'
+                  : save.data.error ?? '儲存失敗'}
               </div>
             )}
             {save.data?.ok && (
               <div className="mt-3 text-xs text-bear flex items-center gap-1.5">
                 <CheckCircle2 className="h-3 w-3" />
-                保存成功 — 档位 {save.data.tier_label}
-                {save.data.mode === 'free' && '(免费档 · 历史日K + 自选实时监控)'}
+                儲存成功,已更新可用功能。
               </div>
             )}
           </Card>
         </div>
 
-        {/* ========== 右列: 档位 + 能力 ========== */}
+        {/* ========== 右列: 實際可用能力 ========== */}
         <div className="space-y-6">
+
           <Card
-            icon={Activity}
-            title="订阅档位"
+            icon={CheckCircle2}
+            title="可用功能"
+            badge={`${capCount} 項`}
             right={
               <button
                 onClick={() => redetect.mutate()}
@@ -219,43 +207,10 @@ export function TickFlowKeyConfig() {
                 className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-btn bg-elevated hover:bg-elevated/80 text-xs text-secondary transition-colors duration-150 ease-smooth disabled:opacity-50"
               >
                 <RefreshCw className={`h-3 w-3 ${redetect.isPending ? 'animate-spin' : ''}`} />
-                重新检测
+                重新檢測
               </button>
             }
           >
-            {caps.data ? (
-              <>
-                <div className="flex items-center gap-1.5">
-                  <div className="font-mono text-3xl font-bold tracking-tight" style={tierTextStyle(caps.data.label)}>
-                    {caps.data.label}
-                  </div>
-                  <TierHelpPopover currentLabel={caps.data.label} />
-                </div>
-                <div className="mt-1 text-xs text-muted">
-                  根据 API Key 自动检测 · 拥有"代表性 capability"任一即认为该档
-                </div>
-
-                {settings.data?.missing_caps && settings.data.missing_caps.length > 0 && (
-                  <div className="mt-3 rounded-btn border border-warning/40 bg-warning/5 px-3 py-2 text-xs">
-                    <div className="font-medium text-warning mb-1">
-                      本档应有但未探测到({settings.data.missing_caps.length} 项)
-                    </div>
-                    <div className="text-secondary space-y-0.5">
-                      {settings.data.missing_caps.map((c) => (
-                        <div key={c} className="font-mono">
-                          {CAP_LABELS[c]?.name ?? c}
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-              </>
-            ) : (
-              <div className="text-sm text-muted">加载中…</div>
-            )}
-          </Card>
-
-          <Card icon={CheckCircle2} title="可用功能" badge={`${capCount} 项`}>
             {caps.data && (
               <motion.div
                 initial={{ opacity: 0 }}
@@ -283,10 +238,10 @@ export function TickFlowKeyConfig() {
                         </div>
                         <div className="text-right shrink-0 text-xs">
                           <div className="font-mono text-foreground">
-                            {lim.rpm ? `${lim.rpm}/min` : lim.subscribe ? `${lim.subscribe} 订阅` : '—'}
+                            {lim.rpm ? `${lim.rpm}/min` : lim.subscribe ? `${lim.subscribe} 訂閱` : '—'}
                           </div>
                           {lim.batch && (
-                            <div className="font-mono text-muted">{lim.batch} 只/次</div>
+                            <div className="font-mono text-muted">{lim.batch} 檔/次</div>
                           )}
                         </div>
                       </div>
@@ -299,7 +254,7 @@ export function TickFlowKeyConfig() {
             {settings.data?.probe_log && settings.data.probe_log.length > 0 && (
               <details className="mt-4 -mx-5 -mb-5 border-t border-border">
                 <summary className="cursor-pointer px-5 py-3 text-xs text-muted hover:text-secondary transition-colors duration-150 ease-smooth select-none">
-                  查看检测日志
+                  查看檢測日誌
                 </summary>
                 <div className="px-5 pb-4 font-mono text-[11px] space-y-0.5 text-secondary">
                   {settings.data.probe_log.map((line, i) => (
@@ -312,7 +267,7 @@ export function TickFlowKeyConfig() {
         </div>
       </div>
 
-      {/* 确认清除 Key 弹窗 */}
+      {/* 確認清除 Key 彈窗 */}
       {confirmClear && (
         <div className="fixed inset-0 z-50 flex items-center justify-center">
           <div
@@ -322,7 +277,7 @@ export function TickFlowKeyConfig() {
           <div className="relative w-[90vw] max-w-[380px] rounded-card border border-border bg-base shadow-2xl p-6">
             <h3 className="text-sm font-medium text-foreground mb-2">清除 API Key</h3>
             <p className="text-xs text-secondary mb-5">
-              清除后将退回 None 档(仅历史日K),需要重新输入 Key 才能恢复。
+              清除後將移除目前儲存的內建資料來源 API Key；需要時可重新輸入。
             </p>
             <div className="flex items-center justify-end gap-2">
               <button
@@ -336,7 +291,7 @@ export function TickFlowKeyConfig() {
                 disabled={clear.isPending}
                 className="px-3 py-1.5 rounded-btn bg-danger/15 text-danger hover:bg-danger/25 text-sm font-medium transition-colors disabled:opacity-50"
               >
-                {clear.isPending ? '清除中...' : '确认清除'}
+                {clear.isPending ? '清除中…' : '確認清除'}
               </button>
             </div>
           </div>
@@ -347,72 +302,6 @@ export function TickFlowKeyConfig() {
 }
 
 // ===== 通用卡片 =====
-
-// ===== 档位说明弹窗 =====
-
-function TierHelpPopover({ currentLabel }: { currentLabel: string }) {
-  const [open, setOpen] = useState(false)
-  const currentBase = tierBaseName(currentLabel)
-
-  return (
-    <div className="relative inline-flex items-center">
-      <HelpCircle
-        className="h-4 w-4 text-muted/60 cursor-help hover:text-muted transition-colors"
-        onClick={() => setOpen(v => !v)}
-      />
-      <AnimatePresence>
-        {open && (
-          <>
-            <div className="fixed inset-0 z-40" onClick={() => setOpen(false)} />
-            <motion.div
-              initial={{ opacity: 0, y: -4, scale: 0.95 }}
-              animate={{ opacity: 1, y: 0, scale: 1 }}
-              exit={{ opacity: 0, y: -4, scale: 0.95 }}
-              transition={{ duration: 0.15 }}
-              className="absolute top-full left-0 mt-1 z-50 w-72 bg-surface border border-border rounded-lg shadow-xl p-3.5 text-[11px] leading-relaxed"
-              onClick={e => e.stopPropagation()}
-            >
-              {/* 档位 tag 横排 */}
-              <div className="flex items-center gap-1.5 mb-3">
-                {ALL_TIERS.map(t => (
-                  <div key={t} className={`flex flex-col items-center gap-1 ${t === currentBase ? '' : 'opacity-60'}`}>
-                    <TierTag label={t} />
-                  </div>
-                ))}
-              </div>
-
-              {/* 每档说明 */}
-              <div className="space-y-1 mb-3 pb-3 border-b border-border">
-                {ALL_TIERS.map(t => {
-                  const s = tierStyle(t)
-                  return (
-                    <div key={t} className="flex items-center gap-2">
-                      <span className="h-1.5 w-1.5 rounded-full shrink-0" style={s.dotStyle} />
-                      <span className="font-mono font-bold w-12 shrink-0" style={s.labelTextStyle}>{t === 'none' ? 'None' : t}</span>
-                      <span className="text-secondary">{s.desc}</span>
-                    </div>
-                  )
-                })}
-              </div>
-
-              <div className="mb-3 rounded-btn border border-warning/30 bg-warning/10 px-2.5 py-1.5 text-[11px] font-medium text-warning">
-                高等档位包含较低档位的全部权益。
-              </div>
-
-              {/* 检测说明 */}
-              <div className="text-secondary space-y-1.5">
-                <div className="font-medium text-foreground">档位检测说明</div>
-                <p>保存 Key 后系统会在付费端点逐一试探数据能力:连单只日K都拿不到则判为「None」(不存 Key);有日K但无复权因子则判为「Free」;有复权因子再按代表能力判定 Starter/Pro/Expert。</p>
-                <p className="text-muted">None 档与 Free 档运行时都走免费数据通道(仅历史日K),区别仅在于是否保存了 Key。付费档走付费端点,享有实时行情等完整能力。</p>
-              </div>
-            </motion.div>
-          </>
-        )}
-      </AnimatePresence>
-    </div>
-  )
-}
-
 
 interface CardProps {
   icon: React.ComponentType<{ className?: string }>

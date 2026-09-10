@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Activity, Building2, ChartNoAxesCombined, Check, ChevronDown, ChevronUp, Eraser, Layers3, ListPlus, Plus, RadioTower, Save, Search, Siren, Tags, TrendingUp, Waypoints, X } from 'lucide-react'
+import { Activity, Building2, ChartNoAxesCombined, Check, ChevronDown, ChevronUp, Eraser, Layers3, ListPlus, Plus, RadioTower, Save, Search, Tags, TrendingUp, Waypoints, X } from 'lucide-react'
 import { api, genRuleId, type MonitorRule, type MonitorCondition, type SectorKind, type SectorMonitorTarget, type StrategyNotifyEvent } from '@/lib/api'
 import { DEFAULT_STRATEGY_NOTIFY_EVENTS, LEGACY_STRATEGY_NOTIFY_EVENTS, STRATEGY_NOTIFY_EVENT_OPTIONS } from '@/lib/strategyMonitorEvents'
 import { QK } from '@/lib/queryKeys'
@@ -12,18 +12,18 @@ import { MONITOR_INTRADAY_SIGNAL_OPTIONS, SIGNAL_OPTIONS, cnSignal } from '@/lib
 import { usePreferences } from '@/lib/useSharedQueries'
 
 interface Props {
-  /** 编辑现有规则;null=新建 */
+  /** 編輯現有規則;null=新建 */
   rule: MonitorRule | null
-  /** 新建时的预填值 (如个股弹窗传入 symbol/scope) */
+  /** 新建時的預填值 (如個股彈窗傳入 symbol/scope) */
   preset?: Partial<MonitorRule>
-  /** 极简模式: 个股场景, 隐藏 type/scope/阈值等, 只显示信号点选 */
+  /** 極簡模式: 個股場景, 隱藏 type/scope/閾值等, 只顯示信號點選 */
   simple?: boolean
   onClose: () => void
   onSaved?: () => void
 }
 
 const TYPE_DEFAULT_NAME: Record<string, string> = {
-  signal: '信号监控', price: '价格监控', market: '市场异动监控', strategy: '策略监控', sector: '板块监控', abnormal: '异动监控',
+  signal: '訊號監控', price: '價格監控', market: '市場異動監控', strategy: '策略監控', sector: '板塊監控',
 }
 
 const TYPE_ICONS = {
@@ -32,20 +32,19 @@ const TYPE_ICONS = {
   market: RadioTower,
   strategy: Waypoints,
   sector: Layers3,
-  abnormal: Siren,
 }
 
 const SECTOR_KIND_OPTIONS: Array<{ key: SectorKind; label: string; icon: typeof ChartNoAxesCombined }> = [
-  { key: 'index', label: '大盘指数', icon: ChartNoAxesCombined },
-  { key: 'concept', label: '概念题材', icon: Tags },
-  { key: 'industry', label: '行业板块', icon: Building2 },
+  { key: 'index', label: '大盤指數', icon: ChartNoAxesCombined },
+  { key: 'concept', label: '概念題材', icon: Tags },
+  { key: 'industry', label: '產業板塊', icon: Building2 },
 ]
 
 const STRATEGY_SOURCE_META = {
-  builtin: { label: '内置', className: 'border-accent/25 bg-accent/10 text-accent' },
-  custom: { label: '自定义', className: 'border-emerald-400/25 bg-emerald-400/10 text-emerald-400' },
+  builtin: { label: '內建', className: 'border-accent/25 bg-accent/10 text-accent' },
+  custom: { label: '自訂', className: 'border-emerald-400/25 bg-emerald-400/10 text-emerald-400' },
   ai: { label: 'AI', className: 'border-amber-400/25 bg-amber-400/10 text-amber-400' },
-  composite: { label: '叠加', className: 'border-teal-500/25 bg-teal-500/10 text-teal-400' },
+  composite: { label: '疊加', className: 'border-teal-500/25 bg-teal-500/10 text-teal-400' },
 } as const
 
 const emptyRule = (preset?: Partial<MonitorRule>): MonitorRule => ({
@@ -63,7 +62,6 @@ const emptyRule = (preset?: Partial<MonitorRule>): MonitorRule => ({
   sector_trigger: 'change_pct',
   threshold_pct: 1,
   window_minutes: 5,
-  abnormal_window: 'any',
   strategy_id: null,
   score_min: null,
   score_max: null,
@@ -80,11 +78,11 @@ export function RuleEditor({ rule, preset, simple, onClose, onSaved }: Props) {
   const qc = useQueryClient()
   const options = useQuery({ queryKey: QK.monitorRuleOptions, queryFn: api.monitorRuleOptions })
   const { data: prefs } = usePreferences()
-  const feishuConfigured = !!(prefs?.feishu_webhook_url)
-  const wecomConfigured = !!(prefs?.wecom_webhook_url)
+  const lineConfigured = !!prefs?.line_configured
+  const telegramConfigured = !!prefs?.telegram_configured
   const [editing] = useState(!!rule)
-  // 新建规则: 预填全局「默认推送渠道」(多选数组), preset 显式指定时以 preset 为准。
-  // 编辑规则: 完全沿用规则自身配置, 不受默认值影响。
+  // 新建規則: 預填全局「默認推送渠道」(多選數組), preset 顯式指定時以 preset 為準。
+  // 編輯規則: 完全沿用規則自身配置, 不受默認值影響。
   const [draft, setDraft] = useState<MonitorRule>(() => {
     if (rule) {
       return {
@@ -106,7 +104,7 @@ export function RuleEditor({ rule, preset, simple, onClose, onSaved }: Props) {
     return initial
   })
   const assetType = draft.asset_type ?? 'stock'
-  // 策略列表跟随资产类型: ETF 只列技术类策略。
+  // 策略列表跟隨資產類型: ETF 只列技術類策略。
   const strategies = useQuery({
     queryKey: QK.screenerStrategies(assetType),
     queryFn: () => api.screenerStrategies(assetType),
@@ -114,8 +112,8 @@ export function RuleEditor({ rule, preset, simple, onClose, onSaved }: Props) {
   const [error, setError] = useState('')
   const [symbolQuery, setSymbolQuery] = useState('')
   const isGroupScope = draft.scope === 'watchlist_group'
-  // 「自选导入」下拉: 从自选/自选分组批量并入标的 (与自选页共用查询缓存)。
-  // 分组作用域模式同样需要分组/成员数据 (选择分组 + 成员预览)。
+  // 「自選導入」下拉: 從自選/自選分組批量併入標的 (與自選頁共用查詢緩存)。
+  // 分組作用域模式同樣需要分組/成員數據 (選擇分組 + 成員預覽)。
   const [watchMenuOpen, setWatchMenuOpen] = useState(false)
   const watchMenuRef = useRef<HTMLDivElement>(null)
   const watchlistQ = useQuery({
@@ -128,7 +126,7 @@ export function RuleEditor({ rule, preset, simple, onClose, onSaved }: Props) {
     queryFn: api.watchlistGroups,
     enabled: watchMenuOpen || isGroupScope,
   })
-  // 分组选择下拉 (scope=watchlist_group)
+  // 分組選擇下拉 (scope=watchlist_group)
   const [groupMenuOpen, setGroupMenuOpen] = useState(false)
   const groupMenuRef = useRef<HTMLDivElement>(null)
   useEffect(() => {
@@ -158,7 +156,7 @@ export function RuleEditor({ rule, preset, simple, onClose, onSaved }: Props) {
   })
   const [strategyQuery, setStrategyQuery] = useState('')
   const [strategyCategory, setStrategyCategory] = useState<'all' | 'builtin' | 'custom' | 'ai' | 'composite'>('all')
-  // 标的搜索资产类型: ETF 一并搜股票; 指数只搜指数; 否则只搜股票。
+  // 標的搜索資產類型: ETF 一併搜股票; 指數只搜指數; 否則只搜股票。
   const symbolAssetTypes = assetType === 'etf' ? 'stock,etf' : assetType === 'index' ? 'index' : 'stock'
   const symbolSearch = useQuery({
     queryKey: QK.instrumentSearch(symbolQuery, symbolAssetTypes),
@@ -170,29 +168,27 @@ export function RuleEditor({ rule, preset, simple, onClose, onSaved }: Props) {
     mutationFn: () => {
       const d = { ...draft }
       delete d.runtime_warning
-      // name 为空时用默认名
+      // name 為空時用默認名
       if (!d.name.trim()) {
-        const base = TYPE_DEFAULT_NAME[d.type] ?? '监控规则'
+        const base = TYPE_DEFAULT_NAME[d.type] ?? '監控規則'
         d.name = d.type === 'sector' && d.sector_targets?.length
-          ? `${base} · ${d.sector_targets[0].name}${d.sector_targets.length > 1 ? ` 等${d.sector_targets.length}个` : ''}`
-          : d.type === 'abnormal'
-          ? `${base} · 接近度≥${d.threshold_pct ?? 70}%${d.abnormal_window && d.abnormal_window !== 'any' ? ` (${d.abnormal_window.toUpperCase()})` : ''}`
+          ? `${base} · ${d.sector_targets[0].name}${d.sector_targets.length > 1 ? ` 等${d.sector_targets.length}個` : ''}`
           : d.scope === 'watchlist_group' && selectedGroup
-          ? `${base} · 分组「${selectedGroup.name}」`
+          ? `${base} · 分組「${selectedGroup.name}」`
           : d.scope === 'symbols' && d.symbols.length > 0
-          ? `${base} · ${d.symbols[0]}${d.symbols.length > 1 ? ` 等${d.symbols.length}只` : ''}`
+          ? `${base} · ${d.symbols[0]}${d.symbols.length > 1 ? ` 等${d.symbols.length}檔` : ''}`
           : base
       }
       if (d.type === 'strategy') {
-        if (!d.strategy_id) throw new Error('策略监控必须选择一个策略')
-        if (!d.notify_events?.length) throw new Error('至少选择一个通知事件')
+        if (!d.strategy_id) throw new Error('策略監控必須選擇一個策略')
+        if (!d.notify_events?.length) throw new Error('至少選擇一個通知事件')
         for (const [label, value] of [['最低分', d.score_min], ['最高分', d.score_max]] as const) {
           if (value != null && (!Number.isFinite(value) || value < 0 || value > 100)) {
-            throw new Error(`${label}必须在 0 到 100 之间`)
+            throw new Error(`${label}必須在 0 到 100 之間`)
           }
         }
         if (d.score_min != null && d.score_max != null && d.score_min > d.score_max) {
-          throw new Error('最低分不能高于最高分')
+          throw new Error('最低分不能高於最高分')
         }
       } else if (d.type === 'sector') {
         delete d.score_min
@@ -201,28 +197,20 @@ export function RuleEditor({ rule, preset, simple, onClose, onSaved }: Props) {
         d.symbols = []
         d.conditions = []
         delete d.notify_events
-        if (!d.sector_targets?.length) throw new Error('请选择至少一个监控对象')
-        if ((d.threshold_pct ?? 0) <= 0 || (d.threshold_pct ?? 0) > 20) throw new Error('阈值必须大于 0 且不超过 20%')
-      } else if (d.type === 'abnormal') {
-        delete d.score_min
-        delete d.score_max
-        d.conditions = []
-        delete d.notify_events
-        if ((d.threshold_pct ?? 0) < 1 || (d.threshold_pct ?? 0) > 150) {
-          throw new Error('接近度阈值必须在 1 到 150 之间 (70=边缘, 100=已触发)')
-        }
+        if (!d.sector_targets?.length) throw new Error('請選擇至少一個監控對象')
+        if ((d.threshold_pct ?? 0) <= 0 || (d.threshold_pct ?? 0) > 20) throw new Error('閾值必須大於 0 且不超過 20%')
       } else {
         delete d.score_min
         delete d.score_max
         delete d.notify_events
-        if (d.conditions.length === 0) throw new Error('至少选择一个触发条件')
+        if (d.conditions.length === 0) throw new Error('至少選擇一個觸發條件')
         for (const c of d.conditions) {
-          if (!c.field || !c.op) throw new Error('条件填写不完整')
-          if (c.op !== 'truth' && (c.value === null || c.value === undefined)) throw new Error('阈值条件需要数值')
+          if (!c.field || !c.op) throw new Error('條件填寫不完整')
+          if (c.op !== 'truth' && (c.value === null || c.value === undefined)) throw new Error('閾值條件需要數值')
         }
       }
-      if (d.type !== 'sector' && d.scope === 'symbols' && d.symbols.length === 0) throw new Error('请选择至少一只标的')
-      if (d.type !== 'sector' && d.scope === 'watchlist_group' && !d.group_id) throw new Error('请选择一个自选分组')
+      if (d.type !== 'sector' && d.scope === 'symbols' && d.symbols.length === 0) throw new Error('請選擇至少一檔標的')
+      if (d.type !== 'sector' && d.scope === 'watchlist_group' && !d.group_id) throw new Error('請選擇一個自選分組')
       return api.monitorRuleSave(d)
     },
     onSuccess: () => {
@@ -233,7 +221,7 @@ export function RuleEditor({ rule, preset, simple, onClose, onSaved }: Props) {
     onError: err => setError(String((err as any)?.message ?? err)),
   })
 
-  // 条件编辑
+  // 條件編輯
   const updateCond = (idx: number, patch: Partial<MonitorCondition>) =>
     setDraft(d => ({ ...d, conditions: d.conditions.map((c, i) => i === idx ? { ...c, ...patch } : c) }))
   const addCond = (op: 'truth' | 'threshold') =>
@@ -241,7 +229,7 @@ export function RuleEditor({ rule, preset, simple, onClose, onSaved }: Props) {
       ...d,
       conditions: [...d.conditions, op === 'truth'
         ? { field: 'signal_volume_surge', op: 'truth' }
-        // simple 模式(个股弹窗)默认现价; 完整模式默认 RSI 超卖
+        // simple 模式(個股彈窗)默認現價; 完整模式默認 RSI 超賣
         : { field: simple ? 'close' : 'rsi_14', op: '<', value: simple ? 0 : 30 }],
     }))
   const removeCond = (idx: number) =>
@@ -254,7 +242,7 @@ export function RuleEditor({ rule, preset, simple, onClose, onSaved }: Props) {
     setSymbolQuery('')
   }
 
-  // 并入一组标的 (去重); 选择后关闭自选导入下拉
+  // 併入一組標的 (去重); 選擇後關閉自選導入下拉
   const importSymbols = (syms: string[]) => {
     setDraft(d => {
       const merged = [...d.symbols]
@@ -266,11 +254,11 @@ export function RuleEditor({ rule, preset, simple, onClose, onSaved }: Props) {
     setWatchMenuOpen(false)
   }
 
-  // ── 标的标签: 名称 + 板标(创/科/北) + 代码, 可逐个删除 ──
+  // ── 標的標籤: 名稱 + 板標(創/科/北) + 代碼, 可逐個刪除 ──
   const [symbolsExpanded, setSymbolsExpanded] = useState(false)
   const symbolsKey = draft.symbols.join(',')
-  // 名称映射: 本地即时缓存(搜索/自选数据) 优先, 缺失的由批量名称接口补齐
-  // (覆盖编辑旧规则等本地无名称的场景)。key 随标的集变化, staleTime 长防抖。
+  // 名稱映射: 本地即時緩存(搜索/自選數據) 優先, 缺失的由批量名稱接口補齊
+  // (覆蓋編輯舊規則等本地無名稱的場景)。key 隨標的集變化, staleTime 長防抖。
   const localNamesRef = useRef<Record<string, string>>({})
   const recordLocalNames = (pairs: { symbol: string; name?: string | null }[]) => {
     for (const p of pairs) {
@@ -289,13 +277,13 @@ export function RuleEditor({ rule, preset, simple, onClose, onSaved }: Props) {
     () => ({ ...localNamesRef.current, ...(namesQ.data?.names ?? {}) }),
     [symbolsKey, namesQ.data],
   )
-  // 自选导入选项: 全部自选 + 各分组 (空分组隐藏) + 未分组
+  // 自選導入選項: 全部自選 + 各分組 (空分組隱藏) + 未分組
   const watchImportOptions = (() => {
     const entries = watchlistQ.data?.symbols ?? []
     if (entries.length === 0) return []
     const options = [{
       key: 'all',
-      name: '全部自选',
+      name: '全部自選',
       dot: 'bg-muted/60',
       symbols: entries.map(e => e.symbol),
     }]
@@ -306,12 +294,12 @@ export function RuleEditor({ rule, preset, simple, onClose, onSaved }: Props) {
     }
     const ungrouped = entries.filter(e => !(e.group_ids?.length)).map(e => e.symbol)
     if (ungrouped.length > 0) {
-      options.push({ key: 'ungrouped', name: '未分组', dot: 'bg-muted/60', symbols: ungrouped })
+      options.push({ key: 'ungrouped', name: '未分組', dot: 'bg-muted/60', symbols: ungrouped })
     }
     return options
   })()
 
-  // ── 自选分组作用域 (scope=watchlist_group): 分组选择 + 只读成员预览 ──
+  // ── 自選分組作用域 (scope=watchlist_group): 分組選擇 + 只讀成員預覽 ──
   const groupList = watchGroupsQ.data?.groups ?? []
   const watchEntries = watchlistQ.data?.symbols ?? []
   const groupCounts = useMemo(() => {
@@ -328,7 +316,7 @@ export function RuleEditor({ rule, preset, simple, onClose, onSaved }: Props) {
       : [],
     [selectedGroup, watchEntries],
   )
-  // 预览区名称补齐 (分组成员通常不在 draft.symbols 里, 单独批量查询)
+  // 預覽區名稱補齊 (分組成員通常不在 draft.symbols 裡, 單獨批量查詢)
   const groupNamesQ = useQuery({
     queryKey: ['instrument-names', selectedGroupSymbols.join(',')],
     queryFn: () => api.instrumentNames(selectedGroupSymbols),
@@ -353,7 +341,7 @@ export function RuleEditor({ rule, preset, simple, onClose, onSaved }: Props) {
     })
   }
 
-  // 勾选/取消勾选某个推送渠道 (飞书 / 企业微信 各自独立)
+  // 勾選/取消勾選某個推播渠道 (LINE / Telegram 各自獨立)
   const toggleChannel = (ch: string) =>
     setDraft(d => {
       const cur = d.webhook_channels ?? []
@@ -380,23 +368,23 @@ export function RuleEditor({ rule, preset, simple, onClose, onSaved }: Props) {
     ...SIGNAL_OPTIONS.map(key => ({ key, label: cnSignal(key) })),
     ...(options.data?.builtin_signals ?? []).filter(option => MONITOR_INTRADAY_SIGNAL_OPTIONS.includes(option.key)),
   ]
-  // 指数: 隐藏涨跌停/连板类 (指数无这些列) 与分时信号 (无本地分钟K, 会静默不触发)
+  // 指數: 隱藏漲跌停/連板類 (指數無這些列) 與分時信號 (無本地分鐘K, 會靜默不觸發)
   const INDEX_HIDDEN_SIGNALS = (key: string) =>
     key.includes('limit') || MONITOR_INTRADAY_SIGNAL_OPTIONS.includes(key)
   const pickerSignals = assetType === 'index'
     ? monitorBuiltinSignals.filter(o => !INDEX_HIDDEN_SIGNALS(o.key))
     : monitorBuiltinSignals
-  // 分时穿越信号: 数据按标的清单订阅且有上限, 自选分组是动态集合 (静默超限风险) → 禁用
+  // 分時穿越信號: 數據按標的清單訂閱且有上限, 自選分組是動態集合 (靜默超限風險) → 禁用
   const intradayDisabledSignals =
     intradaySupport?.available === false || isGroupScope ? MONITOR_INTRADAY_SIGNAL_OPTIONS : []
   const intradayDisabledHint = isGroupScope
-    ? '分时穿越信号需逐股订阅, 暂不支持自选分组作用域'
+    ? '分時穿越訊號需逐股訂閱, 暫不支援自選分組作用域'
     : intradaySupport?.reason
-  // 指数: 监控类型仅 signal/price (无涨跌停/策略/封单语义)
+  // 指數: 監控類型僅 signal/price (無漲跌停/策略/封單語義)
   const visibleTypes = (options.data?.types ?? []).filter(
     t => assetType !== 'index' || t.key === 'signal' || t.key === 'price',
   )
-  // 指数: 作用范围仅 symbols (无全市场/板块语义); ETF: 不支持自选分组 (分组为个股)
+  // 指數: 作用範圍僅 symbols (無全市場/板塊語義); ETF: 不支持自選分組 (分組為個股)
   const visibleScopes = (options.data?.scopes ?? []).filter(
     s => (assetType !== 'index' || s.key === 'symbols')
       && (assetType === 'stock' || s.key !== 'watchlist_group'),
@@ -420,10 +408,10 @@ export function RuleEditor({ rule, preset, simple, onClose, onSaved }: Props) {
   })
   const strategyCategories = [
     { key: 'all' as const, label: '全部', count: strategyPresets.length },
-    { key: 'builtin' as const, label: '内置', count: strategyPresets.filter(strategy => strategy.source === 'builtin').length },
-    { key: 'custom' as const, label: '自定义', count: strategyPresets.filter(strategy => strategy.source === 'custom').length },
+    { key: 'builtin' as const, label: '內建', count: strategyPresets.filter(strategy => strategy.source === 'builtin').length },
+    { key: 'custom' as const, label: '自訂', count: strategyPresets.filter(strategy => strategy.source === 'custom').length },
     { key: 'ai' as const, label: 'AI', count: strategyPresets.filter(strategy => strategy.source === 'ai').length },
-    { key: 'composite' as const, label: '叠加', count: strategyPresets.filter(strategy => strategy.source === 'composite').length },
+    { key: 'composite' as const, label: '疊加', count: strategyPresets.filter(strategy => strategy.source === 'composite').length },
   ]
 
   const onSignalPickerChange = (next: string[]) => {
@@ -438,12 +426,12 @@ export function RuleEditor({ rule, preset, simple, onClose, onSaved }: Props) {
     })
   }
 
-  // ── 极简模式: 只显示信号点选 + 可选描述 ──
+  // ── 極簡模式: 只顯示信號點選 + 可選描述 ──
   if (simple) {
     return (
       <div className="rounded-card border border-border bg-surface p-5 space-y-4">
         <div className="flex items-center justify-between gap-3">
-          <h3 className="text-sm font-medium text-foreground">{editing ? '编辑监控' : '加入监控'}</h3>
+          <h3 className="text-sm font-medium text-foreground">{editing ? '編輯監控' : '加入監控'}</h3>
           <button onClick={onClose} className="rounded p-1 text-muted hover:bg-elevated hover:text-foreground cursor-pointer">
             <X className="h-4 w-4" />
           </button>
@@ -458,7 +446,7 @@ export function RuleEditor({ rule, preset, simple, onClose, onSaved }: Props) {
         )}
 
         <div>
-          <div className="mb-1.5 text-[11px] text-muted">选择触发信号 (任一命中即报警)</div>
+          <div className="mb-1.5 text-[11px] text-muted">選擇觸發訊號 (任一命中即報警)</div>
           <SignalPicker
             signals={selectedSignals}
             onChange={onSignalPickerChange}
@@ -471,17 +459,17 @@ export function RuleEditor({ rule, preset, simple, onClose, onSaved }: Props) {
             <div className={`mt-2 text-[10px] ${intradaySupport?.available === false ? 'text-danger' : 'text-muted'}`}>
               {intradaySupport?.available === false
                 ? intradaySupport.reason
-                : `按已完成的一分钟判断,当前最多监听 ${intradaySupport?.max_symbols ?? 0} 只标的。`}
+                : `按已完成的一分鐘判斷,當前最多監聽 ${intradaySupport?.max_symbols ?? 0} 檔標的。`}
             </div>
           )}
         </div>
 
-        {/* 价位条件 (阈值) — 与信号共存, 可选添加 */}
+        {/* 價位條件 (閾值) — 與信號共存, 可選添加 */}
         <div className="space-y-1.5">
           <div className="flex items-center justify-between">
-            <span className="text-[11px] text-muted">价位条件 (可选)</span>
+            <span className="text-[11px] text-muted">價位條件 (可選)</span>
             <button onClick={() => addCond('threshold')} className="inline-flex items-center gap-1 text-[11px] text-accent hover:text-accent/80 cursor-pointer">
-              <Plus className="h-3 w-3" />添加价位
+              <Plus className="h-3 w-3" />新增價位
             </button>
           </div>
           {thresholdConds.length > 0 && (
@@ -490,7 +478,7 @@ export function RuleEditor({ rule, preset, simple, onClose, onSaved }: Props) {
                 const realIdx = draft.conditions.indexOf(c)
                 return (
                   <div key={i} className="flex items-center gap-1.5">
-                    <span className="text-[10px] text-muted/60 w-6 text-right shrink-0">{i === 0 && selectedSignals.length === 0 ? '当' : draft.logic === 'and' ? '且' : '或'}</span>
+                    <span className="text-[10px] text-muted/60 w-6 text-right shrink-0">{i === 0 && selectedSignals.length === 0 ? '當' : draft.logic === 'and' ? '且' : '或'}</span>
                     <select value={c.field} onChange={e => updateCond(realIdx, { field: e.target.value })} className="flex-1 h-7 px-1.5 rounded bg-base border border-border text-[11px] text-foreground focus:outline-none focus:border-accent/50">
                       {thresholdFields.map(f => <option key={f.key} value={f.key}>{f.label}</option>)}
                     </select>
@@ -509,8 +497,8 @@ export function RuleEditor({ rule, preset, simple, onClose, onSaved }: Props) {
         </div>
 
         <label className="space-y-1.5">
-          <span className="text-[11px] text-muted">备注 (可选)</span>
-          <input value={draft.message} onChange={e => setDraft(d => ({ ...d, message: e.target.value }))} placeholder="给这条监控加个备注" className="h-9 w-full rounded-btn border border-border bg-base px-3 text-xs text-foreground" />
+          <span className="text-[11px] text-muted">備註 (可選)</span>
+          <input value={draft.message} onChange={e => setDraft(d => ({ ...d, message: e.target.value }))} placeholder="給這條監控加個備註" className="h-9 w-full rounded-btn border border-border bg-base px-3 text-xs text-foreground" />
         </label>
 
         {error && <div className="rounded-btn border border-danger/30 bg-danger/5 px-3 py-2 text-xs text-danger">{error}</div>}
@@ -518,30 +506,30 @@ export function RuleEditor({ rule, preset, simple, onClose, onSaved }: Props) {
         <div className="flex justify-end gap-2">
           <button onClick={onClose} className="px-4 py-1.5 rounded-btn bg-elevated text-secondary text-xs cursor-pointer">取消</button>
           <button onClick={() => save.mutate()} disabled={save.isPending} className="inline-flex items-center gap-1.5 px-4 py-1.5 rounded-btn bg-accent text-base text-xs font-medium disabled:opacity-50 cursor-pointer">
-            <Save className="h-3.5 w-3.5" />加入监控
+            <Save className="h-3.5 w-3.5" />加入監控
           </button>
         </div>
       </div>
     )
   }
 
-  // ── 完整模式: 监控页新建/编辑 ──
+  // ── 完整模式: 監控頁新建/編輯 ──
   return (
     <div className="rounded-card border border-border bg-surface p-5 space-y-4">
       <div className="flex items-center justify-between gap-3">
         <div>
-          <h3 className="text-sm font-medium text-foreground">{editing ? '编辑监控规则' : '新建监控规则'}</h3>
-          <p className="mt-1 text-[11px] text-muted">规则标识自动生成,描述为可选。</p>
+          <h3 className="text-sm font-medium text-foreground">{editing ? '編輯監控規則' : '新建監控規則'}</h3>
+          <p className="mt-1 text-[11px] text-muted">規則標識自動生成,描述為可選。</p>
         </div>
         <button onClick={onClose} className="rounded p-1 text-muted hover:bg-elevated hover:text-foreground cursor-pointer">
           <X className="h-4 w-4" />
         </button>
       </div>
 
-      {/* 资产类型: 股票 / ETF / 指数 (个股极简模式不显示; 板块/异动仅个股) */}
-      {!simple && draft.type !== 'sector' && draft.type !== 'abnormal' && (
+      {/* 資產類型: 股票 / ETF / 指數 (個股極簡模式不顯示; 板塊僅個股) */}
+      {!simple && draft.type !== 'sector' && (
         <div className="space-y-1.5">
-          <span className="text-[11px] text-muted">资产类型</span>
+          <span className="text-[11px] text-muted">資產類型</span>
           <div className="inline-flex h-9 rounded-btn border border-border overflow-hidden">
             {(['stock', 'etf', 'index'] as const).map(t => (
               <button
@@ -556,7 +544,7 @@ export function RuleEditor({ rule, preset, simple, onClose, onSaved }: Props) {
                     strategy_id: null,
                     symbols: [],
                     type: t === 'index' && d.type !== 'signal' && d.type !== 'price' ? 'signal' : d.type,
-                    // 指数仅指定标的; ETF 不支持分组作用域 (自选分组为个股)
+                    // 指數僅指定標的; ETF 不支持分組作用域 (自選分組為個股)
                     scope: t === 'index' || (t !== 'stock' && d.scope === 'watchlist_group')
                       ? 'symbols'
                       : d.scope,
@@ -567,16 +555,16 @@ export function RuleEditor({ rule, preset, simple, onClose, onSaved }: Props) {
                 className={`h-full px-4 text-xs font-medium transition-colors cursor-pointer
                   ${assetType === t ? 'bg-accent/10 text-accent' : 'text-muted hover:text-foreground'}`}
               >
-                {t === 'stock' ? '股票' : t === 'etf' ? 'ETF' : '指数'}
+                {t === 'stock' ? '股票' : t === 'etf' ? 'ETF' : '指數'}
               </button>
             ))}
           </div>
         </div>
       )}
 
-      {/* 监控类型 */}
+      {/* 監控類型 */}
       <div className="space-y-1.5">
-        <span className="text-[11px] text-muted">监控类型</span>
+        <span className="text-[11px] text-muted">監控類型</span>
         <div className="grid grid-cols-2 gap-1.5 sm:grid-cols-6">
           {visibleTypes.map(t => {
             const Icon = TYPE_ICONS[t.key as keyof typeof TYPE_ICONS] ?? Activity
@@ -594,16 +582,11 @@ export function RuleEditor({ rule, preset, simple, onClose, onSaved }: Props) {
                     notify_events: type === 'strategy'
                       ? [...(d.notify_events ?? DEFAULT_STRATEGY_NOTIFY_EVENTS)]
                       : undefined,
-                    scope: type === 'sector' || type === 'abnormal'
+                    scope: type === 'sector'
                       ? 'all'
                       : type === 'strategy' && d.scope === 'symbols' && d.symbols.length === 0 ? 'all' : d.scope,
                     direction: type === 'sector' ? 'up'
-                      : type === 'abnormal' ? 'both'
-                      : d.type === 'sector' || d.type === 'abnormal' ? 'entry' : d.direction,
-                    // 异动规则复用 threshold_pct 存接近度阈值%, 其他类型为涨跌幅%
-                    threshold_pct: type === 'abnormal' && d.type !== 'abnormal' ? 70
-                      : type !== 'abnormal' && d.type === 'abnormal' ? 1
-                      : d.threshold_pct,
+                      : d.type === 'sector' ? 'entry' : d.direction,
                   }
                 })}
                 className={`inline-flex h-9 items-center justify-center gap-1.5 rounded-btn border px-2 text-xs font-medium transition-colors cursor-pointer ${
@@ -621,14 +604,14 @@ export function RuleEditor({ rule, preset, simple, onClose, onSaved }: Props) {
       </div>
 
       <label className="space-y-1.5">
-        <span className="text-[11px] text-muted">描述 (可选)</span>
-        <input value={draft.name} onChange={e => setDraft(d => ({ ...d, name: e.target.value }))} placeholder="留空用默认名称" className="h-9 w-full rounded-btn border border-border bg-base px-3 text-xs text-foreground" />
+        <span className="text-[11px] text-muted">描述 (可選)</span>
+        <input value={draft.name} onChange={e => setDraft(d => ({ ...d, name: e.target.value }))} placeholder="留空用預設名稱" className="h-9 w-full rounded-btn border border-border bg-base px-3 text-xs text-foreground" />
       </label>
 
       {draft.type === 'sector' && (
         <div className="space-y-4 border-t border-border/60 pt-4">
           <div className="space-y-1.5">
-            <span className="text-[11px] text-muted">板块分类</span>
+            <span className="text-[11px] text-muted">板塊分類</span>
             <div className="grid grid-cols-3 gap-1.5">
               {SECTOR_KIND_OPTIONS.map(option => {
                 const Icon = option.icon
@@ -653,7 +636,7 @@ export function RuleEditor({ rule, preset, simple, onClose, onSaved }: Props) {
 
           {sectorKind === 'industry' && (
             <div className="space-y-1.5">
-              <span className="text-[11px] text-muted">行业层级</span>
+              <span className="text-[11px] text-muted">產業層級</span>
               <div className="inline-flex h-8 overflow-hidden rounded-btn border border-border bg-base">
                 {([1, 2, 3] as const).map(level => (
                   <button
@@ -668,7 +651,7 @@ export function RuleEditor({ rule, preset, simple, onClose, onSaved }: Props) {
                       industryLevel === level ? 'bg-accent/10 text-accent' : 'text-muted hover:text-foreground'
                     }`}
                   >
-                    {level}级
+                    {level}級
                   </button>
                 ))}
               </div>
@@ -677,7 +660,7 @@ export function RuleEditor({ rule, preset, simple, onClose, onSaved }: Props) {
 
           <div className="space-y-2">
             <div className="flex items-center justify-between gap-3">
-              <span className="text-[11px] text-muted">监控对象</span>
+              <span className="text-[11px] text-muted">監控對象</span>
               <span className="text-[10px] font-mono text-muted">{draft.sector_targets?.length ?? 0}/20</span>
             </div>
             {(draft.sector_targets?.length ?? 0) > 0 && (
@@ -697,14 +680,14 @@ export function RuleEditor({ rule, preset, simple, onClose, onSaved }: Props) {
               <input
                 value={sectorQuery}
                 onChange={event => setSectorQuery(event.target.value)}
-                placeholder={`搜索${SECTOR_KIND_OPTIONS.find(option => option.key === sectorKind)?.label ?? '板块'}`}
+                placeholder={`搜尋${SECTOR_KIND_OPTIONS.find(option => option.key === sectorKind)?.label ?? '板塊'}`}
                 className="h-9 w-full rounded-btn border border-border bg-base pl-8 pr-3 text-xs text-foreground placeholder:text-muted/50 focus:border-accent/50 focus:outline-none"
               />
             </label>
             <div className="grid max-h-48 grid-cols-1 gap-1 overflow-y-auto pr-1 sm:grid-cols-2">
               {visibleSectorTargets.length === 0 ? (
                 <div className="col-span-full rounded-btn border border-dashed border-border py-6 text-center text-xs text-muted">
-                  {options.isLoading ? '正在加载...' : '没有可用的监控对象'}
+                  {options.isLoading ? '正在載入…' : '沒有可用的監控對象'}
                 </div>
               ) : visibleSectorTargets.map(target => {
                 const selected = draft.sector_targets?.some(item => item.key === target.key) ?? false
@@ -719,7 +702,7 @@ export function RuleEditor({ rule, preset, simple, onClose, onSaved }: Props) {
                     disabled={unavailable}
                     aria-pressed={selected}
                     onClick={() => toggleSectorTarget(target)}
-                    title={!target.available ? '请先在实时监控设置中加入该指数' : target.member_count < 5 ? '有效成分少于 5 只' : targetLabel}
+                    title={!target.available ? '請先在即時監控設定中加入該指數' : target.member_count < 5 ? '有效成分少於 5 檔' : targetLabel}
                     className={`flex h-9 min-w-0 items-center gap-2 rounded-btn border px-2.5 text-left transition-colors ${
                       unavailable
                         ? 'cursor-not-allowed border-border/40 bg-base/40 text-muted/40'
@@ -742,11 +725,11 @@ export function RuleEditor({ rule, preset, simple, onClose, onSaved }: Props) {
 
           <div className="grid gap-3 border-t border-border/60 pt-4 sm:grid-cols-2">
             <div className="space-y-1.5">
-              <span className="text-[11px] text-muted">触发方式</span>
+              <span className="text-[11px] text-muted">觸發方式</span>
               <div className="grid h-9 grid-cols-2 overflow-hidden rounded-btn border border-border bg-base">
                 {([
-                  ['change_pct', '涨跌幅到达'],
-                  ['momentum', '快速异动'],
+                  ['change_pct', '漲跌幅到達'],
+                  ['momentum', '快速異動'],
                 ] as const).map(([key, label]) => (
                   <button
                     key={key}
@@ -766,7 +749,7 @@ export function RuleEditor({ rule, preset, simple, onClose, onSaved }: Props) {
               <span className="text-[11px] text-muted">方向</span>
               <div className="grid h-9 grid-cols-2 overflow-hidden rounded-btn border border-border bg-base">
                 {([
-                  ['up', draft.sector_trigger === 'momentum' ? '快速上涨' : '上涨'],
+                  ['up', draft.sector_trigger === 'momentum' ? '快速上漲' : '上漲'],
                   ['down', draft.sector_trigger === 'momentum' ? '快速下跌' : '下跌'],
                 ] as const).map(([key, label]) => (
                   <button
@@ -785,18 +768,18 @@ export function RuleEditor({ rule, preset, simple, onClose, onSaved }: Props) {
             </div>
             {draft.sector_trigger === 'momentum' && (
               <label className="space-y-1.5">
-                <span className="text-[11px] text-muted">统计窗口</span>
+                <span className="text-[11px] text-muted">統計窗口</span>
                 <select
                   value={draft.window_minutes ?? 5}
                   onChange={event => setDraft(d => ({ ...d, window_minutes: Number(event.target.value) as MonitorRule['window_minutes'] }))}
                   className="h-9 w-full rounded-btn border border-border bg-base px-3 text-xs text-foreground"
                 >
-                  {[1, 3, 5, 10, 15].map(window => <option key={window} value={window}>{window} 分钟</option>)}
+                  {[1, 3, 5, 10, 15].map(window => <option key={window} value={window}>{window} 分鐘</option>)}
                 </select>
               </label>
             )}
             <label className="space-y-1.5">
-              <span className="text-[11px] text-muted">{draft.sector_trigger === 'momentum' ? '窗口变化阈值' : '板块涨跌幅阈值'}</span>
+              <span className="text-[11px] text-muted">{draft.sector_trigger === 'momentum' ? '窗口變化閾值' : '板塊漲跌幅閾值'}</span>
               <span className="relative block">
                 <input
                   type="number"
@@ -813,118 +796,45 @@ export function RuleEditor({ rule, preset, simple, onClose, onSaved }: Props) {
           </div>
           {sectorKind !== 'index' && (
             <div className="flex flex-wrap gap-1.5 text-[9px] text-muted">
-              <span className="rounded bg-elevated px-1.5 py-0.5">等权平均</span>
-              <span className="rounded bg-elevated px-1.5 py-0.5">行情覆盖 ≥ 80%</span>
+              <span className="rounded bg-elevated px-1.5 py-0.5">等權平均</span>
+              <span className="rounded bg-elevated px-1.5 py-0.5">行情覆蓋 ≥ 80%</span>
               <span className="rounded bg-elevated px-1.5 py-0.5">有效成分 ≥ 5</span>
             </div>
           )}
         </div>
       )}
 
-      {draft.type === 'abnormal' && (
-        <div className="space-y-4 border-t border-border/60 pt-4">
-          <div className="grid gap-3 sm:grid-cols-2">
-            <label className="space-y-1.5">
-              <span className="text-[11px] text-muted">接近度阈值</span>
-              <span className="relative block">
-                <input
-                  type="number"
-                  min="1"
-                  max="150"
-                  step="5"
-                  value={draft.threshold_pct ?? 70}
-                  onChange={event => setDraft(d => ({ ...d, threshold_pct: Number(event.target.value) }))}
-                  className="h-9 w-full rounded-btn border border-border bg-base pl-3 pr-8 text-xs font-mono text-foreground"
-                />
-                <span className="absolute right-3 top-2.5 text-xs text-muted">%</span>
-              </span>
-              <span className="block text-[10px] text-muted/70">
-                接近度 = |偏离值| ÷ 交易所阈值。70=边缘预警, 100=已触发
-              </span>
-            </label>
-            <div className="space-y-1.5">
-              <span className="text-[11px] text-muted">方向</span>
-              <div className="grid h-9 grid-cols-3 overflow-hidden rounded-btn border border-border bg-base">
-                {([
-                  ['both', '全部'],
-                  ['up', '涨势偏离'],
-                  ['down', '跌势偏离'],
-                ] as const).map(([key, label]) => (
-                  <button
-                    key={key}
-                    type="button"
-                    aria-pressed={(draft.direction ?? 'both') === key}
-                    onClick={() => setDraft(d => ({ ...d, direction: key }))}
-                    className={`text-[11px] font-medium transition-colors cursor-pointer ${
-                      (draft.direction ?? 'both') === key ? 'bg-accent/10 text-accent' : 'text-muted hover:text-foreground'
-                    }`}
-                  >
-                    {label}
-                  </button>
-                ))}
-              </div>
-            </div>
-          </div>
-          <div className="space-y-1.5">
-            <span className="text-[11px] text-muted">关注窗口</span>
-            <div className="grid h-9 grid-cols-4 overflow-hidden rounded-btn border border-border bg-base">
-              {([
-                ['any', '全部'],
-                ['3d', '3日 (异常波动)'],
-                ['10d', '10日 (严重)'],
-                ['30d', '30日 (严重)'],
-              ] as const).map(([key, label]) => (
-                <button
-                  key={key}
-                  type="button"
-                  aria-pressed={(draft.abnormal_window ?? 'any') === key}
-                  onClick={() => setDraft(d => ({ ...d, abnormal_window: key }))}
-                  className={`text-[11px] font-medium transition-colors cursor-pointer ${
-                    (draft.abnormal_window ?? 'any') === key ? 'bg-accent/10 text-accent' : 'text-muted hover:text-foreground'
-                  }`}
-                >
-                  {label}
-                </button>
-              ))}
-            </div>
-          </div>
-          <div className="rounded-btn bg-base px-3 py-2 text-[10px] leading-relaxed text-muted">
-            按交易所异动规则口径 (3日±20%/30%… 10日+100%、30日+200% 等按板块) 计算
-            个股涨跌幅偏离值的接近度, 上穿阈值时告警; 冷却期内同一标的不重复提醒。
-          </div>
-        </div>
-      )}
 
-      {/* 作用范围 */}
+      {/* 作用範圍 */}
       {draft.type !== 'sector' && <div className="space-y-2">
-        <span className="text-[11px] text-muted">作用范围</span>
+        <span className="text-[11px] text-muted">作用範圍</span>
         <div className="flex items-start gap-1.5">
           <select value={draft.scope} onChange={e => setDraft(d => ({ ...d, scope: e.target.value as MonitorRule['scope'] }))} className="h-7 w-32 shrink-0 rounded border border-border bg-base px-2 text-[11px] text-foreground">
             {visibleScopes.map(s => <option key={s.key} value={s.key} disabled={hasIntradaySignal && s.key !== 'symbols'}>{s.label}</option>)}
           </select>
           {draft.scope === 'symbols' && (
             <div className="min-w-0 flex-1 space-y-1.5">
-              {/* 导入与搜索: 与范围下拉同一行等高(h-7), 不换行, 搜索框占满剩余宽度 */}
+              {/* 導入與搜索: 與範圍下拉同一行等高(h-7), 不換行, 搜索框佔滿剩餘寬度 */}
               <div className="flex items-center gap-1.5">
                 <div className="relative" ref={watchMenuRef}>
                   <button
                     type="button"
                     onClick={() => setWatchMenuOpen(v => !v)}
-                    title="从自选 / 自选分组导入当前成员 (一次性拷贝, 后续增删自选不影响本规则); 需要动态跟随分组请把作用范围切到「自选分组」"
+                    title="從自選 / 自選分組匯入當前成員 (一次性拷貝, 後續增刪自選不影響本規則); 需要動態跟隨分組請把作用範圍切到「自選分組」"
                     className={`inline-flex h-7 shrink-0 items-center gap-1 rounded border px-2 text-[11px] transition-colors cursor-pointer ${
                       watchMenuOpen
                         ? 'border-accent/40 bg-accent/10 text-accent'
                         : 'border-border bg-base text-secondary hover:border-accent/30 hover:text-foreground'
                     }`}
                   >
-                    <ListPlus className="h-3 w-3" />自选导入
+                    <ListPlus className="h-3 w-3" />自選匯入
                   </button>
                   {watchMenuOpen && (
                     <div className="absolute z-10 mt-1 max-h-56 w-44 overflow-y-auto rounded border border-border bg-surface py-1 shadow-lg">
                       {watchlistQ.isLoading ? (
-                        <div className="px-2.5 py-2 text-[11px] text-muted">正在加载自选...</div>
+                        <div className="px-2.5 py-2 text-[11px] text-muted">正在載入自選…</div>
                       ) : watchImportOptions.length === 0 ? (
-                        <div className="px-2.5 py-2 text-[11px] text-muted">自选列表为空</div>
+                        <div className="px-2.5 py-2 text-[11px] text-muted">自選列表為空</div>
                       ) : watchImportOptions.map(option => (
                         <button
                           key={option.key}
@@ -944,7 +854,7 @@ export function RuleEditor({ rule, preset, simple, onClose, onSaved }: Props) {
                   <input
                     value={symbolQuery}
                     onChange={e => setSymbolQuery(e.target.value)}
-                    placeholder="搜索代码或名称添加标的..."
+                    placeholder="搜尋代號或名稱新增標的…"
                     className="h-7 w-full rounded border border-border bg-base pl-6 pr-2 text-[11px] text-foreground focus:outline-none focus:border-accent/50"
                   />
                   <Search className="absolute left-1.5 top-1.5 h-3.5 w-3.5 text-muted" />
@@ -961,28 +871,28 @@ export function RuleEditor({ rule, preset, simple, onClose, onSaved }: Props) {
                   )}
                 </div>
               </div>
-              {/* 「已加入 N 只」单独成行(收起态, 与控件列左对齐) / 标签管理区(展开态) */}
+              {/* 「已加入 N 只」單獨成行(收起態, 與控件列左對齊) / 標籤管理區(展開態) */}
               {draft.symbols.length > 0 && !symbolsExpanded && (
                 <button
                   type="button"
                   onClick={() => setSymbolsExpanded(true)}
-                  title="展开管理标的列表"
+                  title="展開管理標的列表"
                   className="inline-flex items-center gap-1 rounded border border-accent/30 bg-accent/10 px-2 py-0.5 text-[10px] text-accent transition-colors hover:bg-accent/20 cursor-pointer"
                 >
-                  已加入 <span className="font-mono font-semibold tabular-nums">{draft.symbols.length}</span> 只
+                  已加入 <span className="font-mono font-semibold tabular-nums">{draft.symbols.length}</span> 檔
                   <ChevronDown className="h-3 w-3" />
                 </button>
               )}
               {draft.symbols.length > 0 && symbolsExpanded && (
                 <>
                   <div className="flex items-center justify-between">
-                    <span className="text-[10px] text-muted">已加入 <span className="font-mono tabular-nums text-secondary">{draft.symbols.length}</span> 只</span>
+                    <span className="text-[10px] text-muted">已加入 <span className="font-mono tabular-nums text-secondary">{draft.symbols.length}</span> 檔</span>
                     <span className="flex items-center gap-2">
                       <button
                         type="button"
                         onClick={() => setDraft(d => ({ ...d, symbols: [] }))}
                         className="inline-flex items-center gap-0.5 text-[10px] text-muted transition-colors hover:text-warning cursor-pointer"
-                        title="移除全部标的"
+                        title="移除全部標的"
                       >
                         <Eraser className="h-3 w-3" />清空
                       </button>
@@ -1025,7 +935,7 @@ export function RuleEditor({ rule, preset, simple, onClose, onSaved }: Props) {
                 <button
                   type="button"
                   onClick={() => setGroupMenuOpen(v => !v)}
-                  title="选择要监控的自选分组 (动态绑定, 分组内增删标的自动生效)"
+                  title="選擇要監控的自選分組 (動態綁定,分組內增刪標的自動生效)"
                   className={`inline-flex h-7 max-w-full items-center gap-1.5 rounded border px-2 text-[11px] transition-colors cursor-pointer ${
                     groupMenuOpen
                       ? 'border-accent/40 bg-accent/10 text-accent'
@@ -1036,20 +946,20 @@ export function RuleEditor({ rule, preset, simple, onClose, onSaved }: Props) {
                     <>
                       <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${resolveWatchlistGroupColor(selectedGroup.color).dot}`} />
                       <span className="max-w-32 truncate">{selectedGroup.name}</span>
-                      <span className="shrink-0 font-mono text-[9px] tabular-nums text-muted">{groupCounts[selectedGroup.id] ?? 0}只</span>
+                      <span className="shrink-0 font-mono text-[9px] tabular-nums text-muted">{groupCounts[selectedGroup.id] ?? 0}檔</span>
                     </>
                   ) : (
-                    <span className="text-muted">{watchGroupsQ.isLoading ? '加载分组中...' : '选择自选分组...'}</span>
+                    <span className="text-muted">{watchGroupsQ.isLoading ? '載入分組中…' : '選擇自選分組…'}</span>
                   )}
                   {groupMenuOpen ? <ChevronUp className="h-3 w-3 shrink-0" /> : <ChevronDown className="h-3 w-3 shrink-0" />}
                 </button>
                 {groupMenuOpen && (
                   <div className="absolute z-10 mt-1 max-h-56 w-56 overflow-y-auto rounded border border-border bg-surface py-1 shadow-lg">
                     {watchGroupsQ.isLoading ? (
-                      <div className="px-2.5 py-2 text-[11px] text-muted">正在加载分组...</div>
+                      <div className="px-2.5 py-2 text-[11px] text-muted">正在載入分組…</div>
                     ) : groupList.length === 0 ? (
                       <div className="px-2.5 py-2 text-[11px] text-muted">
-                        还没有自选分组,<Link to="/watchlist" className="text-accent hover:text-accent/80">去自选页创建 →</Link>
+                        還沒有自選分組,<Link to="/watchlist" className="text-accent hover:text-accent/80">去自選頁建立 →</Link>
                       </div>
                     ) : groupList.map(g => (
                       <button
@@ -1070,7 +980,7 @@ export function RuleEditor({ rule, preset, simple, onClose, onSaved }: Props) {
                   </div>
                 )}
               </div>
-              {/* 成员预览 (只读): 让用户明确当前监控哪些标的; 与手动选标的的可编辑标签区分 */}
+              {/* 成員預覽 (只讀): 讓用戶明確當前監控哪些標的; 與手動選標的的可編輯標籤區分 */}
               {selectedGroup && (
                 <div className="space-y-1">
                   {selectedGroupSymbols.length > 0 ? (
@@ -1090,42 +1000,42 @@ export function RuleEditor({ rule, preset, simple, onClose, onSaved }: Props) {
                     </div>
                   ) : (
                     <div className="rounded border border-dashed border-border px-2 py-1.5 text-[10px] text-muted">
-                      该分组当前没有标的, 后续在分组内添加自选会自动纳入监控
+                      該分組目前沒有標的,後續在分組內新增自選會自動納入監控
                     </div>
                   )}
                   <div className="text-[10px] text-muted/70">
-                    动态绑定: 分组内增删标的自动同步监控范围, 无需修改本规则
+                    動態綁定:分組內增刪標的自動同步監控範圍,無需修改本規則
                   </div>
                 </div>
               )}
             </div>
           )}
-          {draft.scope === 'all' && <span className="text-[11px] text-muted">对全市场所有标的生效</span>}
-          {draft.scope === 'sector' && <span className="text-[11px] text-muted/60">板块精确过滤(开发中,当前等同全市场)</span>}
+          {draft.scope === 'all' && <span className="text-[11px] text-muted">對全市場所有標的生效</span>}
+          {draft.scope === 'sector' && <span className="text-[11px] text-muted/60">板塊精確過濾(開發中,當前等同全市場)</span>}
         </div>
       </div>}
 
-      {/* 触发条件 (非 strategy) */}
-      {draft.type !== 'strategy' && draft.type !== 'sector' && draft.type !== 'abnormal' && (
+      {/* 觸發條件 (非 strategy) */}
+      {draft.type !== 'strategy' && draft.type !== 'sector' && (
         <div className="space-y-3">
           <div className="flex items-center justify-between">
-            <span className="text-[11px] text-muted">触发条件</span>
+            <span className="text-[11px] text-muted">觸發條件</span>
             <div className="flex items-center gap-2">
               <select value={draft.logic} onChange={e => setDraft(d => ({ ...d, logic: e.target.value as MonitorRule['logic'] }))} className="h-7 rounded border border-border bg-base px-1.5 text-[11px] text-foreground">
                 {(options.data?.logics ?? []).map(l => <option key={l.key} value={l.key}>{l.label}</option>)}
               </select>
               <button onClick={() => addCond('truth')} className="inline-flex items-center gap-1 text-[11px] text-accent hover:text-accent/80 cursor-pointer">
-                <Plus className="h-3 w-3" />信号条件
+                <Plus className="h-3 w-3" />訊號條件
               </button>
               <button onClick={() => addCond('threshold')} className="inline-flex items-center gap-1 text-[11px] text-accent hover:text-accent/80 cursor-pointer">
-                <Plus className="h-3 w-3" />阈值条件
+                <Plus className="h-3 w-3" />閾值條件
               </button>
             </div>
           </div>
 
           {selectedSignals.length > 0 || (options.data?.builtin_signals ?? []).length > 0 ? (
             <div>
-              <div className="mb-1.5 text-[10px] text-muted/70">信号条件 (点选)</div>
+              <div className="mb-1.5 text-[10px] text-muted/70">訊號條件 (點選)</div>
               <SignalPicker
                 signals={selectedSignals}
                 onChange={onSignalPickerChange}
@@ -1138,7 +1048,7 @@ export function RuleEditor({ rule, preset, simple, onClose, onSaved }: Props) {
                 <div className={`mt-2 text-[10px] ${intradaySupport?.available === false ? 'text-danger' : 'text-muted'}`}>
                   {intradaySupport?.available === false
                     ? intradaySupport.reason
-                    : `分时穿越按已完成的一分钟判断,仅支持指定标的,当前最多监听 ${intradaySupport?.max_symbols ?? 0} 只。`}
+                    : `分時穿越按已完成的一分鐘判斷,僅支援指定標的,當前最多監聽 ${intradaySupport?.max_symbols ?? 0} 檔。`}
                 </div>
               )}
             </div>
@@ -1150,7 +1060,7 @@ export function RuleEditor({ rule, preset, simple, onClose, onSaved }: Props) {
                 const realIdx = draft.conditions.indexOf(c)
                 return (
                   <div key={i} className="flex items-center gap-1.5">
-                    <span className="text-[10px] text-muted/60 w-6 text-right shrink-0">{i === 0 && selectedSignals.length === 0 ? '当' : draft.logic === 'and' ? '且' : '或'}</span>
+                    <span className="text-[10px] text-muted/60 w-6 text-right shrink-0">{i === 0 && selectedSignals.length === 0 ? '當' : draft.logic === 'and' ? '且' : '或'}</span>
                     <select value={c.field} onChange={e => updateCond(realIdx, { field: e.target.value })} className="w-32 h-7 px-1.5 rounded bg-base border border-border text-[11px] text-foreground focus:outline-none focus:border-accent/50">
                       {thresholdFields.map(f => <option key={f.key} value={f.key}>{f.label}</option>)}
                     </select>
@@ -1169,24 +1079,24 @@ export function RuleEditor({ rule, preset, simple, onClose, onSaved }: Props) {
 
           {draft.conditions.length === 0 && (
             <div className="rounded border border-dashed border-border px-3 py-4 text-center text-[11px] text-muted">
-              点击上方「信号条件」或「阈值条件」添加触发规则
+              點擊上方「訊號條件」或「閾值條件」新增觸發規則
             </div>
           )}
         </div>
       )}
 
-      {/* strategy 类型: 选策略 + 方向 */}
+      {/* strategy 類型: 選策略 + 方向 */}
       {draft.type === 'strategy' && (
         <div className="space-y-3">
           <div className="flex flex-col gap-2 sm:flex-row sm:items-end">
             <label className="min-w-0 flex-1 space-y-1.5">
-              <span className="text-[11px] text-muted">搜索策略</span>
+              <span className="text-[11px] text-muted">搜尋策略</span>
               <span className="relative block">
                 <Search className="absolute left-2.5 top-2.5 h-3.5 w-3.5 text-muted" />
                 <input
                   value={strategyQuery}
                   onChange={e => setStrategyQuery(e.target.value)}
-                  placeholder="搜索名称、标签或策略 ID"
+                  placeholder="搜尋名稱、標籤或策略 ID"
                   className="h-9 w-full rounded-btn border border-border bg-base pl-8 pr-3 text-xs text-foreground placeholder:text-muted/50 focus:border-accent/50 focus:outline-none"
                 />
               </span>
@@ -1213,9 +1123,9 @@ export function RuleEditor({ rule, preset, simple, onClose, onSaved }: Props) {
 
           <div className="grid max-h-56 grid-cols-1 gap-1.5 overflow-y-auto pr-1 sm:grid-cols-2">
             {strategies.isLoading ? (
-              <div className="col-span-full py-8 text-center text-xs text-muted">正在加载策略...</div>
+              <div className="col-span-full py-8 text-center text-xs text-muted">正在載入策略…</div>
             ) : visibleStrategies.length === 0 ? (
-              <div className="col-span-full rounded-btn border border-dashed border-border py-8 text-center text-xs text-muted">没有匹配的策略</div>
+              <div className="col-span-full rounded-btn border border-dashed border-border py-8 text-center text-xs text-muted">沒有相符的策略</div>
             ) : visibleStrategies.map(strategy => {
               const active = draft.strategy_id === strategy.id
               const sourceMeta = STRATEGY_SOURCE_META[strategy.source]
@@ -1254,9 +1164,9 @@ export function RuleEditor({ rule, preset, simple, onClose, onSaved }: Props) {
           <div className="border-t border-border/60 pt-3">
             <div
               className="mb-2 text-[11px] text-muted"
-              title="评分范围仅过滤选股结果与买入信号，卖出信号不受限制"
+              title="評分範圍僅過濾選股結果與買入訊號，賣出訊號不受限制"
             >
-              评分范围
+              評分範圍
             </div>
             <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-2">
               <label className="space-y-1.5">
@@ -1298,13 +1208,13 @@ export function RuleEditor({ rule, preset, simple, onClose, onSaved }: Props) {
           <div className="border-t border-border/60 pt-3">
             <div className="mb-2 flex items-center justify-between gap-3">
               <span className="text-[11px] text-muted">通知事件</span>
-              <span className="text-[9px] text-muted">至少选择一项</span>
+              <span className="text-[9px] text-muted">至少選擇一項</span>
             </div>
             <div className="grid gap-3 sm:grid-cols-2">
               {(['signal', 'pool'] as const).map(group => (
                 <div key={group} className="rounded-btn border border-border bg-base p-2.5">
                   <div className="mb-2 text-[10px] font-medium text-secondary">
-                    {group === 'signal' ? '交易信号' : '选股结果'}
+                    {group === 'signal' ? '交易訊號' : '選股結果'}
                   </div>
                   <div className="space-y-2">
                     {STRATEGY_NOTIFY_EVENT_OPTIONS.filter(option => option.group === group).map(option => (
@@ -1323,98 +1233,98 @@ export function RuleEditor({ rule, preset, simple, onClose, onSaved }: Props) {
               ))}
             </div>
             {(draft.notify_events ?? LEGACY_STRATEGY_NOTIFY_EVENTS).length === 0 && (
-              <div className="mt-2 text-[10px] text-danger">至少选择一个通知事件</div>
+              <div className="mt-2 text-[10px] text-danger">至少選擇一個通知事件</div>
             )}
           </div>
         </div>
       )}
 
-      {/* 通知设置 */}
+      {/* 通知設置 */}
       <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
         <label className="space-y-1.5">
-          <span className="text-[11px] text-muted">冷却期(秒)</span>
+          <span className="text-[11px] text-muted">冷卻期(秒)</span>
           <input type="number" value={draft.cooldown_seconds} onChange={e => setDraft(d => ({ ...d, cooldown_seconds: parseInt(e.target.value) || 0 }))} min={0} className="h-9 w-full rounded-btn border border-border bg-base px-3 text-xs text-foreground" />
         </label>
         <label className="space-y-1.5">
-          <span className="text-[11px] text-muted">严重级别</span>
+          <span className="text-[11px] text-muted">嚴重級別</span>
           <select value={draft.severity} onChange={e => setDraft(d => ({ ...d, severity: e.target.value as MonitorRule['severity'] }))} className="h-9 w-full rounded-btn border border-border bg-base px-3 text-xs text-foreground">
             {(options.data?.severities ?? []).map(s => <option key={s.key} value={s.key}>{s.label}</option>)}
           </select>
         </label>
         <label className="space-y-1.5 md:col-span-1">
-          <span className="text-[11px] text-muted">自定义提示(可选)</span>
-          <input value={draft.message} onChange={e => setDraft(d => ({ ...d, message: e.target.value }))} placeholder="留空用默认文案" className="h-9 w-full rounded-btn border border-border bg-base px-3 text-xs text-foreground" />
+          <span className="text-[11px] text-muted">自訂提示(可選)</span>
+          <input value={draft.message} onChange={e => setDraft(d => ({ ...d, message: e.target.value }))} placeholder="留空用預設文案" className="h-9 w-full rounded-btn border border-border bg-base px-3 text-xs text-foreground" />
         </label>
       </div>
 
-      {/* Webhook 推送 — 飞书 / 企业微信 */}
+      {/* 外部推播 — LINE / Telegram */}
       <div className="rounded-btn border border-border/40 bg-base/40 p-3 space-y-2">
         <div className="flex items-center gap-1.5">
           <span className="text-[11px] font-medium text-foreground">Webhook 推送</span>
-          <span className="text-[9px] text-muted">触发时推送告警到外部</span>
+          <span className="text-[9px] text-muted">觸發時推送告警到外部</span>
         </div>
 
         {/* 渠道列表 */}
         <div className="space-y-1.5">
-          {/* 飞书 (可用) */}
+          {/* LINE Messaging API */}
           <label className="flex items-center gap-2 cursor-pointer">
             <input
               type="checkbox"
-              checked={(draft.webhook_channels ?? []).includes('feishu')}
-              onChange={() => toggleChannel('feishu')}
+              checked={(draft.webhook_channels ?? []).includes('line')}
+              onChange={() => toggleChannel('line')}
               className="h-3 w-3 accent-accent cursor-pointer"
             />
-            <span className="text-[11px] text-foreground">飞书</span>
-            <span className="text-[9px] text-muted">群推送 Webhook</span>
-            {(draft.webhook_channels ?? []).includes('feishu') && (
-              <span className={`ml-auto text-[9px] ${feishuConfigured ? 'text-emerald-500' : 'text-warning'}`}>
-                {feishuConfigured ? '已配置' : '未配置'}
+            <span className="text-[11px] text-foreground">LINE</span>
+            <span className="text-[9px] text-muted">Messaging API</span>
+            {(draft.webhook_channels ?? []).includes('line') && (
+              <span className={`ml-auto text-[9px] ${lineConfigured ? 'text-emerald-500' : 'text-warning'}`}>
+                {lineConfigured ? '已配置' : '未配置'}
               </span>
             )}
           </label>
 
-          {/* 企业微信 (可用) */}
+          {/* Telegram Bot API */}
           <label className="flex items-center gap-2 cursor-pointer">
             <input
               type="checkbox"
-              checked={(draft.webhook_channels ?? []).includes('wecom')}
-              onChange={() => toggleChannel('wecom')}
+              checked={(draft.webhook_channels ?? []).includes('telegram')}
+              onChange={() => toggleChannel('telegram')}
               className="h-3 w-3 accent-accent cursor-pointer"
             />
-            <span className="text-[11px] text-foreground">企业微信</span>
-            <span className="text-[9px] text-muted">群推送 Webhook</span>
-            {(draft.webhook_channels ?? []).includes('wecom') && (
-              <span className={`ml-auto text-[9px] ${wecomConfigured ? 'text-emerald-500' : 'text-warning'}`}>
-                {wecomConfigured ? '已配置' : '未配置'}
+            <span className="text-[11px] text-foreground">Telegram</span>
+            <span className="text-[9px] text-muted">Bot API</span>
+            {(draft.webhook_channels ?? []).includes('telegram') && (
+              <span className={`ml-auto text-[9px] ${telegramConfigured ? 'text-emerald-500' : 'text-warning'}`}>
+                {telegramConfigured ? '已配置' : '未配置'}
               </span>
             )}
           </label>
 
         </div>
 
-        {/* 勾选了某渠道但该渠道地址未配置 → 提示前往设置 */}
+        {/* 勾選了某渠道但該渠道地址未配置 → 提示前往設置 */}
         {(draft.webhook_channels ?? []).length > 0 && (() => {
           const selected = draft.webhook_channels ?? []
           const unconfigured: string[] = []
-          if (selected.includes('feishu') && !feishuConfigured) unconfigured.push('飞书')
-          if (selected.includes('wecom') && !wecomConfigured) unconfigured.push('企业微信')
+          if (selected.includes('line') && !lineConfigured) unconfigured.push('LINE')
+          if (selected.includes('telegram') && !telegramConfigured) unconfigured.push('Telegram')
           if (unconfigured.length === 0) return null
           return (
             <p className="text-[10px] leading-relaxed text-warning/80">
               {unconfigured.join('、')}尚未配置,
-              <Link to="/settings?tab=monitoring" className="text-accent hover:text-accent/80">前往设置页配置 →</Link>
+              <Link to="/settings?tab=monitoring" className="text-accent hover:text-accent/80">前往設定頁設定 →</Link>
             </p>
           )
         })()}
         {(draft.webhook_channels ?? []).length > 0 && (() => {
           const selected = draft.webhook_channels ?? []
           const ready: string[] = []
-          if (selected.includes('feishu') && feishuConfigured) ready.push('飞书')
-          if (selected.includes('wecom') && wecomConfigured) ready.push('企业微信')
+          if (selected.includes('line') && lineConfigured) ready.push('LINE')
+          if (selected.includes('telegram') && telegramConfigured) ready.push('Telegram')
           if (ready.length === 0) return null
           return (
             <p className="text-[10px] leading-relaxed text-muted">
-              命中本规则时,告警将推送到已配置的{ready.join(' + ')}。
+              命中本規則時,告警將推送到已配置的{ready.join(' + ')}。
             </p>
           )
         })()}
@@ -1425,7 +1335,7 @@ export function RuleEditor({ rule, preset, simple, onClose, onSaved }: Props) {
       <div className="flex justify-end gap-2">
         <button onClick={onClose} className="px-4 py-1.5 rounded-btn bg-elevated text-secondary text-xs cursor-pointer">取消</button>
         <button onClick={() => save.mutate()} disabled={save.isPending} className="inline-flex items-center gap-1.5 px-4 py-1.5 rounded-btn bg-accent text-base text-xs font-medium disabled:opacity-50 cursor-pointer">
-          <Save className="h-3.5 w-3.5" />保存
+          <Save className="h-3.5 w-3.5" />儲存
         </button>
       </div>
     </div>

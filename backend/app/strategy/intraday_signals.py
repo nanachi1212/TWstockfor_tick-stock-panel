@@ -10,10 +10,10 @@ import polars as pl
 from app.market_time import CN_TZ
 
 INTRADAY_SIGNAL_LABELS: dict[str, str] = {
-    "signal_intraday_avg_cross_up": "分时价格上穿均价",
-    "signal_intraday_avg_cross_down": "分时价格下穿均价",
-    "signal_intraday_zero_cross_up": "分时价格上穿0轴",
-    "signal_intraday_zero_cross_down": "分时价格下穿0轴",
+    "signal_intraday_avg_cross_up": "分時價格上穿均價",
+    "signal_intraday_avg_cross_down": "分時價格下穿均價",
+    "signal_intraday_zero_cross_up": "分時價格上穿0軸",
+    "signal_intraday_zero_cross_down": "分時價格下穿0軸",
 }
 INTRADAY_SIGNAL_FIELDS = frozenset(INTRADAY_SIGNAL_LABELS)
 

@@ -28,7 +28,7 @@ export function CustomSignalDialog({ open, signal, defaultKind = 'exit', onClose
   const [draft, setDraft] = useState<CustomSignal>(() => emptySignal(defaultKind))
   const [error, setError] = useState('')
 
-  // AI 生成条件
+  // AI 生成條件
   const [aiOpen, setAiOpen] = useState(false)
   const [aiDesc, setAiDesc] = useState('')
   const [aiLoading, setAiLoading] = useState(false)
@@ -49,7 +49,7 @@ export function CustomSignalDialog({ open, signal, defaultKind = 'exit', onClose
     setAiOpen(false); setAiDesc(''); setAiError(''); setAiLoading(false)
   }, [open, signal, defaultKind])
 
-  // 打开时检查一次 AI 是否已配置（复用策略构建器逻辑）
+  // 打開時檢查一次 AI 是否已配置（複用策略構建器邏輯）
   useEffect(() => {
     if (!open || checkedAi.current) return
     checkedAi.current = true
@@ -60,7 +60,7 @@ export function CustomSignalDialog({ open, signal, defaultKind = 'exit', onClose
 
   const generateByAI = async () => {
     const desc = aiDesc.trim()
-    if (!desc) { setAiError('请先描述信号思路'); return }
+    if (!desc) { setAiError('請先描述訊號思路'); return }
     setAiLoading(true)
     setAiError('')
     try {
@@ -80,12 +80,12 @@ export function CustomSignalDialog({ open, signal, defaultKind = 'exit', onClose
   const save = useMutation({
     mutationFn: () => {
       const d = draft
-      if (!d.id.trim()) throw new Error('请输入信号标识')
-      if (!/^[a-z0-9_]{1,40}$/.test(d.id)) throw new Error('标识仅允许小写字母、数字、下划线（1-40字符）')
-      if (!d.name.trim()) throw new Error('请输入信号名称')
-      if (d.conditions.length === 0) throw new Error('至少需要一个条件')
+      if (!d.id.trim()) throw new Error('請輸入訊號標識')
+      if (!/^[a-z0-9_]{1,40}$/.test(d.id)) throw new Error('標識僅允許小寫字母、數字、底線（1-40字元）')
+      if (!d.name.trim()) throw new Error('請輸入訊號名稱')
+      if (d.conditions.length === 0) throw new Error('至少需要一個條件')
       for (const c of d.conditions) {
-        if (!c.left || !c.op || c.right === '') throw new Error('条件填写不完整')
+        if (!c.left || !c.op || c.right === '') throw new Error('條件填寫不完整')
       }
       return api.customSignalSave(d)
     },
@@ -124,8 +124,8 @@ export function CustomSignalDialog({ open, signal, defaultKind = 'exit', onClose
           >
             <div className="flex items-center justify-between gap-3 border-b border-border/50 px-5 py-4">
               <div>
-                <h3 className="text-sm font-semibold text-foreground">{editing ? '编辑自定义信号' : '新建自定义信号'}</h3>
-                <p className="mt-1 text-[11px] text-muted">标识保存后不可修改，如需更换请新建。自定义信号保存为 csg_* 列。</p>
+                <h3 className="text-sm font-semibold text-foreground">{editing ? '編輯自訂訊號' : '新建自訂訊號'}</h3>
+                <p className="mt-1 text-[11px] text-muted">標識保存後不可修改，如需更換請新建。自訂訊號保存為 csg_* 欄。</p>
               </div>
               <button onClick={onClose} className="rounded-lg p-1.5 text-muted transition-colors hover:bg-elevated hover:text-foreground">
                 <X className="h-4 w-4" />
@@ -135,7 +135,7 @@ export function CustomSignalDialog({ open, signal, defaultKind = 'exit', onClose
             <div className="flex-1 overflow-y-auto px-5 py-5 space-y-5">
               <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
                 <label className="space-y-1.5">
-                  <span className="text-[11px] text-muted">信号标识</span>
+                  <span className="text-[11px] text-muted">訊號標識</span>
                   <input
                     value={draft.id}
                     disabled={editing}
@@ -145,14 +145,14 @@ export function CustomSignalDialog({ open, signal, defaultKind = 'exit', onClose
                   />
                 </label>
                 <label className="space-y-1.5">
-                  <span className="text-[11px] text-muted">信号名称</span>
+                  <span className="text-[11px] text-muted">訊號名稱</span>
                   <input value={draft.name} onChange={e => setDraft(d => ({ ...d, name: e.target.value }))} placeholder="如 跌至MA5" className="h-9 w-full rounded-btn border border-border bg-base px-3 text-xs text-foreground" />
                 </label>
                 <label className="space-y-1.5">
-                  <span className="text-[11px] text-muted">类型</span>
+                  <span className="text-[11px] text-muted">類型</span>
                   <select value={draft.kind} onChange={e => setDraft(d => ({ ...d, kind: e.target.value as CustomSignal['kind'] }))} className="h-9 w-full rounded-btn border border-border bg-base px-3 text-xs text-foreground">
-                    <option value="entry">入场</option>
-                    <option value="exit">出场</option>
+                    <option value="entry">入場</option>
+                    <option value="exit">出場</option>
                     <option value="both">出入通用</option>
                   </select>
                 </label>
@@ -160,34 +160,34 @@ export function CustomSignalDialog({ open, signal, defaultKind = 'exit', onClose
 
               <div className="space-y-2">
                 <div className="flex items-center justify-between gap-2">
-                  <span className="text-[11px] text-muted">条件（多条件为「且」关系）</span>
+                  <span className="text-[11px] text-muted">條件（多條件為「且」關係）</span>
                   <div className="flex items-center gap-2 shrink-0">
                     <button
                       onClick={() => setAiOpen(o => !o)}
                       className={`inline-flex items-center gap-1 text-[11px] cursor-pointer transition-colors ${aiOpen ? 'text-amber-400' : 'text-amber-400/80 hover:text-amber-400'}`}
                     >
-                      <Sparkles className="h-3 w-3" />AI 生成条件
+                      <Sparkles className="h-3 w-3" />AI 生成條件
                     </button>
                     <button onClick={addCond} className="inline-flex items-center gap-1 text-[11px] text-accent hover:text-accent/80 cursor-pointer">
-                      <Plus className="h-3 w-3" />添加条件
+                      <Plus className="h-3 w-3" />新增條件
                     </button>
                   </div>
                 </div>
                 <div className="space-y-2 rounded-card border border-border/70 bg-base/50 p-3">
                   {draft.conditions.map((c, i) => (
                     <div key={i} className="flex flex-wrap items-center gap-1.5">
-                      <span className="text-[10px] text-muted/60 w-5 text-right shrink-0">{i === 0 ? '当' : '且'}</span>
+                      <span className="text-[10px] text-muted/60 w-5 text-right shrink-0">{i === 0 ? '當' : '且'}</span>
 
-                      {/* 左操作数: 前N日 + 字段(弹出选择) */}
+                      {/* 左操作數: 前N日 + 字段(彈出選擇) */}
                       <DaysInput value={c.leftDays ?? 0} max={maxDays} onChange={v => updateCond(i, { leftDays: v })} />
                       <FieldPicker value={c.left} fields={fields} groups={groups} onChange={v => updateCond(i, { left: v })} />
 
-                      {/* 运算符 */}
+                      {/* 運算符 */}
                       <select value={c.op} onChange={e => updateCond(i, { op: e.target.value })} className="w-11 h-7 px-0.5 rounded bg-base border border-border text-[11px] font-mono text-foreground text-center focus:outline-none focus:border-accent/50">
                         {operators.map(op => <option key={op} value={op}>{op}</option>)}
                       </select>
 
-                      {/* 右操作数: 前N日(仅字段) + 字段/常量(弹出选择) */}
+                      {/* 右操作數: 前N日(僅字段) + 字段/常量(彈出選擇) */}
                       <RightValueInput cond={c} fields={fields} groups={groups} maxDays={maxDays}
                         onChangeRight={v => updateCond(i, { right: v })}
                         onChangeDays={v => updateCond(i, { rightDays: v })} />
@@ -204,19 +204,19 @@ export function CustomSignalDialog({ open, signal, defaultKind = 'exit', onClose
                   <div className="rounded-card border border-amber-400/30 bg-amber-400/5 p-3 space-y-2">
                     <div className="flex items-center gap-2">
                       <Sparkles className="h-3.5 w-3.5 text-amber-400 shrink-0" />
-                      <span className="text-[11px] text-amber-300">描述信号思路，AI 将生成条件组合</span>
+                      <span className="text-[11px] text-amber-300">描述訊號思路，AI 將生成條件組合</span>
                     </div>
                     {aiConfigured === false ? (
                       <div className="text-xs text-amber-400/80">
-                        AI 未配置，无法生成信号。{' '}
-                        <a href="/settings?tab=ai" className="underline hover:text-amber-300">去设置页配置 API Key</a>
+                        AI 未配置，無法生成訊號。{' '}
+                        <a href="/settings?tab=ai" className="underline hover:text-amber-300">去設定頁配置 API Key</a>
                       </div>
                     ) : (
                       <>
                         <textarea
                           value={aiDesc}
                           onChange={e => setAiDesc(e.target.value)}
-                          placeholder="例如：收盘价回踩20日均线，且量比≥2 放量"
+                          placeholder="例如：收盤價回踩20日均線，且量比≥2 放量"
                           rows={2}
                           className="w-full rounded-btn border border-border bg-base px-3 py-2 text-xs text-foreground focus:outline-none focus:border-amber-400/50 resize-none"
                         />
@@ -228,7 +228,7 @@ export function CustomSignalDialog({ open, signal, defaultKind = 'exit', onClose
                             className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-btn bg-amber-500/90 text-base text-xs font-medium disabled:opacity-50 cursor-pointer"
                           >
                             {aiLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
-                            {aiLoading ? '生成中…' : '生成条件'}
+                            {aiLoading ? '生成中…' : '生成條件'}
                           </button>
                         </div>
                       </>
@@ -236,7 +236,7 @@ export function CustomSignalDialog({ open, signal, defaultKind = 'exit', onClose
                   </div>
                 )}
                 <p className="text-[10px] text-muted/60 px-1">
-                  每个操作数左侧的 <span className="text-foreground/70">最新</span> 按钮可点击切换为「前N日」(取 N 个交易日前的值)。例:收盘价(最新) &gt; 收盘价(前1日) = 上涨。带偏移的条件仅盘后/回测生效, 盘中实时跳过。
+                  每個操作數左側的 <span className="text-foreground/70">最新</span> 按鈕可點擊切換為「前N日」(取 N 個交易日前的值)。例:收盤價(最新) &gt; 收盤價(前1日) = 上漲。帶偏移的條件僅盤後/回測生效, 盤中即時跳過。
                 </p>
               </div>
 
@@ -246,7 +246,7 @@ export function CustomSignalDialog({ open, signal, defaultKind = 'exit', onClose
             <div className="flex justify-end gap-2 border-t border-border/50 px-5 py-4">
               <button onClick={onClose} className="px-4 py-1.5 rounded-btn bg-elevated text-secondary text-xs">取消</button>
               <button onClick={() => save.mutate()} disabled={save.isPending} className="inline-flex items-center gap-1.5 px-4 py-1.5 rounded-btn bg-amber-500/90 text-base text-xs font-medium disabled:opacity-50">
-                <Save className="h-3.5 w-3.5" />保存
+                <Save className="h-3.5 w-3.5" />儲存
               </button>
             </div>
           </motion.div>
@@ -256,7 +256,7 @@ export function CustomSignalDialog({ open, signal, defaultKind = 'exit', onClose
   )
 }
 
-// ── 字段选择器: 搜索 + 分组居中对话框 ───────────────────
+// ── 字段選擇器: 搜索 + 分組居中對話框 ───────────────────
 
 function FieldPicker({ value, fields, groups, onChange }: {
   value: string
@@ -310,10 +310,10 @@ function FieldPicker({ value, fields, groups, onChange }: {
                 className="w-full max-w-sm bg-surface border border-border/50 rounded-2xl shadow-2xl flex flex-col overflow-hidden max-h-[70vh]"
                 onClick={e => e.stopPropagation()}
               >
-                {/* 标题 + 搜索 */}
+                {/* 標題 + 搜索 */}
                 <div className="p-3 border-b border-border/50 space-y-2.5">
                   <div className="flex items-center justify-between">
-                    <span className="text-xs font-medium text-foreground">选择字段</span>
+                    <span className="text-xs font-medium text-foreground">選擇欄位</span>
                     <button onClick={() => setOpen(false)} className="rounded p-1 text-muted hover:bg-elevated hover:text-foreground transition-colors">
                       <X className="h-3.5 w-3.5" />
                     </button>
@@ -324,13 +324,13 @@ function FieldPicker({ value, fields, groups, onChange }: {
                       autoFocus
                       value={query}
                       onChange={e => setQuery(e.target.value)}
-                      placeholder="搜索字段…"
+                      placeholder="搜尋欄位…"
                       className="flex-1 bg-transparent text-xs text-foreground focus:outline-none"
                     />
                     {query && <button onClick={() => setQuery('')} className="text-muted hover:text-foreground"><X className="h-3 w-3" /></button>}
                   </div>
                 </div>
-                {/* 分组列表 */}
+                {/* 分組列表 */}
                 <div className="flex-1 overflow-y-auto p-2">
                   {filteredGroups ? (
                     filteredGroups.length > 0 ? filteredGroups.map(g => (
@@ -349,7 +349,7 @@ function FieldPicker({ value, fields, groups, onChange }: {
                         ))}
                       </div>
                     )) : (
-                      <div className="px-3 py-8 text-center text-xs text-muted">无匹配字段</div>
+                      <div className="px-3 py-8 text-center text-xs text-muted">無相符欄位</div>
                     )
                   ) : (
                     filteredFields.map(f => (
@@ -383,7 +383,7 @@ function DaysInput({ value, max, onChange }: { value: number; max: number; onCha
       <button
         type="button"
         onClick={() => onChange(1)}
-        title="点击切换为「前N日」(取 N 个交易日前的值)"
+        title="點擊切換為「前N日」(取 N 個交易日前的值)"
         className="h-7 px-2 rounded bg-base border border-border text-[11px] text-muted hover:text-accent hover:border-accent/50 transition-colors shrink-0 cursor-pointer"
       >
         最新
@@ -404,7 +404,7 @@ function DaysInput({ value, max, onChange }: { value: number; max: number; onCha
           const n = Math.max(1, Math.min(max, parseInt(raw) || 1))
           onChange(n)
         }}
-        title={`前 ${value} 个交易日的值`}
+        title={`前 ${value} 個交易日的值`}
         className="w-7 h-full px-0 text-[11px] font-mono text-foreground text-center bg-transparent focus:outline-none [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none"
       />
       <button
@@ -419,7 +419,7 @@ function DaysInput({ value, max, onChange }: { value: number; max: number; onCha
   )
 }
 
-// ── 右操作数: 字段(弹出) / 常量 切换 ─────────────────────
+// ── 右操作數: 字段(彈出) / 常量 切換 ─────────────────────
 
 function RightValueInput({ cond, fields, groups, maxDays, onChangeRight, onChangeDays }: {
   cond: CustomSignalCondition
@@ -439,17 +439,17 @@ function RightValueInput({ cond, fields, groups, maxDays, onChangeRight, onChang
         <>
           <DaysInput value={cond.rightDays ?? 0} max={maxDays} onChange={onChangeDays} />
           <FieldPicker value={fieldValue} fields={fields} groups={groups} onChange={v => onChangeRight(`field:${v}`)} />
-          <button onClick={() => onChangeRight('0')} title="切换为数字" className="p-0.5 rounded text-muted hover:text-accent cursor-pointer shrink-0">
+          <button onClick={() => onChangeRight('0')} title="切換為數字" className="p-0.5 rounded text-muted hover:text-accent cursor-pointer shrink-0">
             <ArrowRight className="h-3 w-3 rotate-90" />
           </button>
         </>
       ) : (
         <>
-          {/* 常量无前N日概念, 占位保持与字段模式对齐 */}
+          {/* 常量無前N日概念, 佔位保持與字段模式對齊 */}
           <div className="shrink-0" style={{ width: 44 }} />
           <input type="number" value={numValue} onChange={e => onChangeRight(e.target.value)} step="any"
             className="flex-1 min-w-0 h-7 px-1.5 rounded bg-base border border-border text-[11px] font-mono text-foreground text-center focus:outline-none focus:border-accent/50" />
-          <button onClick={() => onChangeRight('field:close')} title="切换为字段" className="p-0.5 rounded text-muted hover:text-accent cursor-pointer shrink-0">
+          <button onClick={() => onChangeRight('field:close')} title="切換為欄位" className="p-0.5 rounded text-muted hover:text-accent cursor-pointer shrink-0">
             <ArrowRight className="h-3 w-3 -rotate-90" />
           </button>
         </>

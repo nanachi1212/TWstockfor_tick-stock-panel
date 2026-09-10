@@ -48,7 +48,7 @@ def test_all_builtin_strategies_use_matrix_backend_only():
     engine = _engine()
     assert engine.load_errors() == []
     strategies = [engine.get(meta["id"]) for meta in engine.list_strategies()]
-    assert len(strategies) == 18
+    assert len(strategies) == 14
     assert all(strategy.execution_backend == "matrix_native" for strategy in strategies)
     assert all(strategy.matrix_strategy is not None for strategy in strategies)
     assert all(strategy.filter_fn is None for strategy in strategies)
@@ -86,12 +86,6 @@ def test_all_builtin_matrix_formulas_accept_base_market_matrix():
         strategy = engine.get(meta["id"])
         signals = strategy.matrix_strategy.compute_signals(market, {})
         assert signals.shape == market.shape, meta["id"]
-
-
-def test_limit_up_strategies_are_stock_only():
-    engine = _engine()
-    for sid in ("broken_board_recovery", "consecutive_limit_ups"):
-        assert engine.get(sid).meta["asset_types"] == ["stock"]
 
 
 def test_pure_technical_strategies_support_etf():
@@ -173,7 +167,7 @@ def test_stock_only_strategy_on_etf_fails_explicitly():
     engine = _engine()
     with pytest.raises(ValueError, match="does not support asset_type"):
         engine.run(
-            "consecutive_limit_ups",
+            "high_turnover_surge",
             StrategyDataContext(
                 asset_type="etf",
                 timeframe="1d",

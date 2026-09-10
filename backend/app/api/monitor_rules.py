@@ -77,7 +77,7 @@ class RuleModel(BaseModel):
     id: str
     name: str
     enabled: bool = True
-    type: str          # strategy | signal | price | market | sector | abnormal
+    type: str          # strategy | signal | price | market | sector
     asset_type: str = "stock"   # stock | etf (etf: strategy 型走 ETF 历史加载器)
     scope: str = "symbols"   # symbols | all | sector | watchlist_group
     symbols: list[str] = []
@@ -90,7 +90,7 @@ class RuleModel(BaseModel):
     threshold_pct: float = 1.0
     window_minutes: int = 5
     strategy_id: str | None = None
-    direction: str = "entry"  # entry | exit | both | (sector/ladder/abnormal: up|down|both)
+    direction: str = "entry"  # entry | exit | both | (sector/ladder: up|down|both)
     notify_events: list[str] | None = None
     score_min: float | None = None
     score_max: float | None = None
@@ -100,10 +100,8 @@ class RuleModel(BaseModel):
     severity: str = "info"    # info | warn | critical
     webhook_url: str = ""     # Webhook 推送地址 (推送到 QMT 等外部软件, 待定)
     webhook_enabled: bool = False  # 兼容老规则 (已由 webhook_channels 取代, 仅做向后兼容读)
-    webhook_channels: list[str] = []  # 命中时推送的外部渠道 (合法值 'feishu' | 'wecom')
+    webhook_channels: list[str] = []  # 命中时推播的外部渠道 (合法值 'line' | 'telegram')
     message: str = ""
-    # abnormal 专属 (异动边缘监控): any | 3d | 10d | 30d
-    abnormal_window: str = "any"
     # ladder 专属 (连板梯队封单监控)
     metric: str = "sealed_vol"   # sealed_vol=封单量(手) | sealed_amount=封单额(元)
     threshold: float = 0         # 封单 <= 此值时报警 (原始单位: 量=手, 额=元)
@@ -154,22 +152,21 @@ def get_options(request: Request):
         "custom_signals": custom_sigs,
         "operators": [">", ">=", "<", "<=", "==", "!="],
         "types": [
-            {"key": "signal", "label": "信号"},
-            {"key": "price", "label": "价格/涨跌"},
-            {"key": "market", "label": "市场异动"},
-            {"key": "strategy", "label": "策略监控"},
-            {"key": "abnormal", "label": "异动监控"},
-            {"key": "sector", "label": "板块监控"},
+            {"key": "signal", "label": "訊號"},
+            {"key": "price", "label": "價格/漲跌"},
+            {"key": "market", "label": "市場異動"},
+            {"key": "strategy", "label": "策略監控"},
+            {"key": "sector", "label": "板塊監控"},
         ],
         "scopes": [
-            {"key": "symbols", "label": "指定标的"},
-            {"key": "watchlist_group", "label": "自选分组"},
-            {"key": "all", "label": "全市场"},
-            {"key": "sector", "label": "板块"},
+            {"key": "symbols", "label": "指定標的"},
+            {"key": "watchlist_group", "label": "自選分組"},
+            {"key": "all", "label": "全市場"},
+            {"key": "sector", "label": "板塊"},
         ],
         "logics": [
-            {"key": "and", "label": "全部满足 (AND)"},
-            {"key": "or", "label": "任一满足 (OR)"},
+            {"key": "and", "label": "全部滿足 (AND)"},
+            {"key": "or", "label": "任一滿足 (OR)"},
         ],
         "severities": [
             {"key": "info", "label": "普通"},
@@ -429,7 +426,7 @@ def seed_demo_rules(request: Request):
 # ── 封单监控模拟触发 (Dev 调试用) ─────────────────────
 @router.post("/test-ladder")
 def test_ladder(request: Request):
-    """模拟触发所有 ladder 规则, 返回命中结果 (不落盘、不推送飞书)。
+    """模拟触发所有 ladder 规则, 返回命中结果 (不落盘、不送出外部推播)。
 
     用当前 depth_service 的封单数据 + enriched 最新日 close 构造 mock DataFrame,
     跑 _evaluate_ladder 判断哪些规则会触发。供 Dev 页面调试验证。
@@ -543,9 +540,9 @@ def test_ladder(request: Request):
 
 @router.post("/trigger-ladder")
 def trigger_ladder(request: Request):
-    """真实触发一次 ladder 预警 (落盘 + 飞书推送 + SSE), 供 Dev 调试验证完整效果。
+    """真实触发一次 ladder 预警 (落盘 + 外部推播 + SSE), 供 Dev 调试验证完整效果。
 
-    与 test-ladder 区别: 本端点会真的把预警写入 alerts.jsonl、推送飞书、触发 SSE,
+    与 test-ladder 区别: 本端点会真的把预警写入 alerts.jsonl、送出外部推播、触发 SSE,
     让用户看到真实的预警通知。绕过 cooldown 强制触发。
     """
     import time
@@ -661,7 +658,7 @@ def trigger_ladder(request: Request):
         except Exception:  # noqa: BLE001
             pass
 
-    # 3. 飞书推送
+    # 3. 外部推播
     if quote_svc:
         try:
             quote_svc._maybe_send_webhook(rule_events, engine)

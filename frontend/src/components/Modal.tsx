@@ -1,30 +1,30 @@
 import { useEffect, useRef, type ReactNode } from 'react'
 
 /**
- * 共享模态对话框原语 — 统一处理可访问性:
+ * 共享模態對話框原語 — 統一處理可訪問性:
  * - role="dialog" + aria-modal + aria-labelledby / aria-label
- * - ESC 关闭
- * - 打开时把焦点移入对话框 (initialFocusRef 或首个可聚焦元素)
- * - Tab / Shift+Tab 焦点陷阱 (焦点不会跑出对话框)
- * - 关闭时把焦点还给打开前的元素
- * - 点击遮罩关闭 (可用 closeOnBackdrop 关闭)
+ * - ESC 關閉
+ * - 打開時把焦點移入對話框 (initialFocusRef 或首個可聚焦元素)
+ * - Tab / Shift+Tab 焦點陷阱 (焦點不會跑出對話框)
+ * - 關閉時把焦點還給打開前的元素
+ * - 點擊遮罩關閉 (可用 closeOnBackdrop 關閉)
  *
- * 视觉: 提供居中遮罩 + 面板容器, 面板样式由 panelClassName 定制。
+ * 視覺: 提供居中遮罩 + 面板容器, 面板樣式由 panelClassName 定製。
  */
 export interface ModalProps {
   onClose: () => void
   children: ReactNode
-  /** 对话框标题元素 id (用于 aria-labelledby) */
+  /** 對話框標題元素 id (用於 aria-labelledby) */
   labelledBy?: string
-  /** 无可见标题时的无障碍名称 */
+  /** 無可見標題時的無障礙名稱 */
   ariaLabel?: string
-  /** 面板 className (尺寸/背景/圆角等) */
+  /** 面板 className (尺寸/背景/圓角等) */
   panelClassName?: string
-  /** 遮罩 className (覆盖默认居中/背景) */
+  /** 遮罩 className (覆蓋默認居中/背景) */
   overlayClassName?: string
-  /** 打开时聚焦的元素; 不传则聚焦面板内首个可聚焦元素 */
+  /** 打開時聚焦的元素; 不傳則聚焦面板內首個可聚焦元素 */
   initialFocusRef?: React.RefObject<HTMLElement>
-  /** 点击遮罩是否关闭 (默认 true) */
+  /** 點擊遮罩是否關閉 (默認 true) */
   closeOnBackdrop?: boolean
 }
 
@@ -48,18 +48,18 @@ export function Modal({
   closeOnBackdrop = true,
 }: ModalProps) {
   const panelRef = useRef<HTMLDivElement>(null)
-  // 记录鼠标按下时是否落在遮罩(而非面板)上。
-  // 仅当 mousedown 和 mouseup 都在遮罩时才视为"点击遮罩关闭",
-  // 避免在面板内拖选文本时鼠标移出面板边缘导致误关 (拖拽穿透)。
+  // 記錄鼠標按下時是否落在遮罩(而非面板)上。
+  // 僅當 mousedown 和 mouseup 都在遮罩時才視為"點擊遮罩關閉",
+  // 避免在面板內拖選文本時鼠標移出面板邊緣導致誤關 (拖拽穿透)。
   const mouseDownOnBackdrop = useRef(false)
-  // onClose 存 ref: 焦点陷阱/ESC effect 只在挂载时装一次。否则父级每次重渲染 (或未 memo 的
-  // onClose) 都让 effect 重跑, requestAnimationFrame(focusFirst) 会在每次输入后把焦点抢回
-  // 面板首个元素, 导致对话框内文本框无法输入。
+  // onClose 存 ref: 焦點陷阱/ESC effect 只在掛載時裝一次。否則父級每次重渲染 (或未 memo 的
+  // onClose) 都讓 effect 重跑, requestAnimationFrame(focusFirst) 會在每次輸入後把焦點搶回
+  // 面板首個元素, 導致對話框內文本框無法輸入。
   const onCloseRef = useRef(onClose)
   onCloseRef.current = onClose
 
   useEffect(() => {
-    // 记住打开前的焦点, 关闭时还原
+    // 記住打開前的焦點, 關閉時還原
     const prevActive = document.activeElement as HTMLElement | null
 
     // 初始聚焦
@@ -73,7 +73,7 @@ export function Modal({
       const first = panel.querySelector<HTMLElement>(FOCUSABLE)
       ;(first ?? panel).focus()
     }
-    // 等一帧确保内容已挂载
+    // 等一幀確保內容已掛載
     const raf = requestAnimationFrame(focusFirst)
 
     const onKeyDown = (e: KeyboardEvent) => {
@@ -112,10 +112,10 @@ export function Modal({
     return () => {
       cancelAnimationFrame(raf)
       document.removeEventListener('keydown', onKeyDown, true)
-      // 还原焦点
+      // 還原焦點
       prevActive?.focus?.()
     }
-    // 只在挂载时装一次: onClose 走 ref, initialFocusRef 为稳定 ref 对象, 无需进依赖。
+    // 只在掛載時裝一次: onClose 走 ref, initialFocusRef 為穩定 ref 對象, 無需進依賴。
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
@@ -123,11 +123,11 @@ export function Modal({
     <div
       className={overlayClassName}
       onMouseDown={(e) => {
-        // 仅记录"按下时确实在遮罩上"; 在面板内按下时记 false。
+        // 僅記錄"按下時確實在遮罩上"; 在面板內按下時記 false。
         mouseDownOnBackdrop.current = e.target === e.currentTarget
       }}
       onClick={closeOnBackdrop ? (e) => {
-        // 只有按下和松开都在遮罩上才关闭, 避免拖选文本误关。
+        // 只有按下和鬆開都在遮罩上才關閉, 避免拖選文本誤關。
         if (mouseDownOnBackdrop.current && e.target === e.currentTarget) onClose()
       } : undefined}
     >

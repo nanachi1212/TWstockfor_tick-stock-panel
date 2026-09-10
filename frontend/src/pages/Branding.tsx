@@ -21,18 +21,18 @@ interface Variant {
   hint: string
   icon: React.ComponentType<{ className?: string }>
   iconAccent: string                  // tailwind text color
-  nameClass: string                   // 文字本身样式(字号/字重/字距/字体)
-  glow?: string                       // 名字下方的发光线条 hex
+  nameClass: string                   // 文字本身樣式(字號/字重/字距/字體)
+  glow?: string                       // 名字下方的發光線條 hex
 }
 
-// 同一个名字 "Tick Stock Panel" 在 4 种风格语言里的呈现
-// 长字符串自动用更小字号 + 更窄字距,免得撑爆卡片;但风格语言(字体/字重/配色/图标)保持不变
+// 同一個名字 "Nanachi 的台股監控看板" 在 4 種風格語言裡的呈現
+// 長字符串自動用更小字號 + 更窄字距,免得撐爆卡片;但風格語言(字體/字重/配色/圖標)保持不變
 const VARIANTS: Variant[] = [
   {
     id: 'pulsar',
-    name: 'Tick Stock Panel',
-    tagline: 'A-SHARE · SIGNAL TERMINAL',
-    hint: '脉冲星、雷达波纹 — 青绿强调色,字重黑体,中等字距',
+    name: 'Nanachi 的台股監控看板',
+    tagline: 'TAIWAN STOCK · SIGNAL TERMINAL',
+    hint: '脈衝星、雷達波紋 — 青綠強調色,字重黑體,中等字距',
     icon: RadioTower,
     iconAccent: 'text-[#3DD68C]',
     nameClass: 'font-sans font-black text-base tracking-[0.10em]',
@@ -40,9 +40,9 @@ const VARIANTS: Variant[] = [
   },
   {
     id: 'vanta',
-    name: 'Tick Stock Panel',
+    name: 'Nanachi 的台股監控看板',
     tagline: 'MARKET · INTELLIGENCE',
-    hint: 'Vantablack — 纯白单色,字重最重,字距最宽,monochrome 高级感',
+    hint: 'Vantablack — 純白單色,字重最重,字距最寬,monochrome 高級感',
     icon: Square,
     iconAccent: 'text-[#FAFAFA]',
     nameClass: 'font-sans font-black text-base tracking-[0.18em]',
@@ -50,9 +50,9 @@ const VARIANTS: Variant[] = [
   },
   {
     id: 'helix',
-    name: 'Tick Stock Panel',
+    name: 'Nanachi 的台股監控看板',
     tagline: 'QUANT · TERMINAL',
-    hint: 'DNA 螺旋 — 紫色强调,等宽字体,赛博朋克经典意象',
+    hint: 'DNA 螺旋 — 紫色強調,等寬字體,賽博朋克經典意象',
     icon: GitFork,
     iconAccent: 'text-[#8B5CF6]',
     nameClass: 'font-mono font-bold text-base tracking-[0.08em]',
@@ -60,9 +60,9 @@ const VARIANTS: Variant[] = [
   },
   {
     id: 'aurora',
-    name: 'Tick Stock Panel',
-    tagline: 'A-SHARE · DASHBOARD',
-    hint: '极光 — 青色强调,细字优雅,适中字距,与涨跌语义色不冲突',
+    name: 'Nanachi 的台股監控看板',
+    tagline: 'TAIWAN STOCK · DASHBOARD',
+    hint: '極光 — 青色強調,細字優雅,適中字距,與漲跌語義色不衝突',
     icon: Sparkles,
     iconAccent: 'text-[#22D3EE]',
     nameClass: 'font-sans font-light text-base tracking-[0.12em]',
@@ -71,21 +71,21 @@ const VARIANTS: Variant[] = [
 ]
 
 const MOCK_NAV = [
-  { icon: Star, label: '自选' },
-  { icon: LineChart, label: 'K 线' },
+  { icon: Star, label: '自選' },
+  { icon: LineChart, label: 'K 線' },
   { icon: ScanSearch, label: '策略' },
-  { icon: History, label: '回测' },
-  { icon: SignalIcon, label: '信号' },
-  { icon: Eye, label: '监控' },
-  { icon: FileText, label: '财务分析' },
+  { icon: History, label: '回測' },
+  { icon: SignalIcon, label: '信號' },
+  { icon: Eye, label: '監控' },
+  { icon: FileText, label: '財務分析' },
 ]
 
 export function Branding() {
   return (
     <>
       <PageHeader
-        title="视觉风格预览"
-        subtitle="名字保持 Tick Stock Panel,4 种赛博朋克 + 高级感的视觉处理 — 字重、字距、配色、图标各不同。挑你最喜欢的告诉我。"
+        title="視覺風格預覽"
+        subtitle="名字保持 Nanachi 的台股監控看板,4 種賽博朋克 + 高級感的視覺處理 — 字重、字距、配色、圖標各不同。挑你最喜歡的告訴我。"
       />
 
       <div className="px-8 py-6">
@@ -96,10 +96,10 @@ export function Branding() {
         </div>
 
         <div className="mt-8 rounded-card border border-border bg-surface p-5 text-sm text-secondary leading-relaxed max-w-2xl">
-          <div className="font-medium text-foreground mb-2">挑哪个?</div>
-          回复 <code className="font-mono text-accent">pulsar / vanta / helix / aurora</code> 任一,
-          我把该风格的字体、配色、图标、发光效果应用到真实侧栏。
-          也可以告诉我你想微调哪里(比如"用 VANTA 但换青色"),都行。
+          <div className="font-medium text-foreground mb-2">挑哪個?</div>
+          回覆 <code className="font-mono text-accent">pulsar / vanta / helix / aurora</code> 任一,
+          我把該風格的字體、配色、圖標、發光效果應用到真實側欄。
+          也可以告訴我你想微調哪裡(比如"用 VANTA 但換青色"),都行。
         </div>
       </div>
     </>
@@ -116,9 +116,9 @@ function Sample({ v }: { v: Variant }) {
       transition={{ duration: 0.3, ease: [0.16, 1, 0.3, 1] }}
       className="rounded-card border border-border overflow-hidden bg-base flex"
     >
-      {/* 模拟侧边栏 */}
+      {/* 模擬側邊欄 */}
       <div className="w-56 bg-surface border-r border-border flex flex-col">
-        {/* Logo 区 */}
+        {/* Logo 區 */}
         <div className="px-5 py-5 border-b border-border">
           <div className="flex items-center gap-2.5">
             <div
@@ -144,11 +144,11 @@ function Sample({ v }: { v: Variant }) {
             }}
           />
           <div className="mt-2 text-xs text-secondary">
-            档位 · <span className="text-foreground font-medium font-mono">Pro</span>
+            檔位 · <span className="text-foreground font-medium font-mono">Pro</span>
           </div>
         </div>
 
-        {/* 模拟导航 */}
+        {/* 模擬導航 */}
         <nav className="px-2 py-3 space-y-0.5">
           {MOCK_NAV.slice(0, 5).map(({ icon: I, label }, i) => (
             <div
@@ -166,7 +166,7 @@ function Sample({ v }: { v: Variant }) {
         </nav>
       </div>
 
-      {/* 右侧说明 + 大字预览 */}
+      {/* 右側說明 + 大字預覽 */}
       <div className="flex-1 p-5 flex flex-col">
         <div className="flex-1">
           <div className="text-xs font-medium text-muted uppercase tracking-widest">{v.id}</div>
@@ -175,7 +175,7 @@ function Sample({ v }: { v: Variant }) {
           </div>
         </div>
 
-        {/* 大字 wordmark 预览 */}
+        {/* 大字 wordmark 預覽 */}
         <div className="mt-6 pt-6 border-t border-border">
           <div
             className={`${v.nameClass} text-foreground`}
@@ -190,9 +190,9 @@ function Sample({ v }: { v: Variant }) {
           </div>
         </div>
 
-        {/* 模拟一个数据卡片,看与配色协调度 */}
+        {/* 模擬一個數據卡片,看與配色協調度 */}
         <div className="mt-5 rounded-btn bg-surface border border-border px-3 py-2 flex items-baseline justify-between">
-          <span className="text-xs text-secondary">600519.SH</span>
+          <span className="text-xs text-secondary">2330.TWSE</span>
           <span className="font-mono text-sm" style={{ color: v.glow }}>
             +1.85%
           </span>

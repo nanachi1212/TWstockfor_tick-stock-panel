@@ -2,7 +2,6 @@ import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import {
-  Activity,
   AlertCircle,
   Clock,
   ExternalLink,
@@ -10,10 +9,11 @@ import {
   TrendingDown,
   TrendingUp,
 } from 'lucide-react'
-import { api, type TaiwanRealtimeQuote, type TaiwanSourceMeta } from '@/lib/api'
+import { api, type TaiwanRealtimeQuote } from '@/lib/api'
 
 import { QK } from '@/lib/queryKeys'
 import { cn } from '@/lib/cn'
+import { DataQualityBadge, formatQuoteTime } from '@/components/taiwan/TaiwanDataQuality'
 
 interface TaiwanQuotePanelProps {
   onSelectSymbol?: (symbol: string) => void
@@ -51,21 +51,6 @@ function formatVolume(shares: number | null | undefined, unit: 'shares' | 'lots'
   return `${shares.toLocaleString()} 股`
 }
 
-/** 格式化時間 (HH:mm:ss 或 上一交易日 13:30) */
-function formatQuoteTime(timeStr: string | null | undefined, isFallback: boolean): string {
-  if (!timeStr) return isFallback ? '上一交易日 13:30' : '時間不可用'
-  try {
-    const d = new Date(timeStr)
-    if (isNaN(d.getTime())) return timeStr
-    const hh = String(d.getHours()).padStart(2, '0')
-    const mm = String(d.getMinutes()).padStart(2, '0')
-    const ss = String(d.getSeconds()).padStart(2, '0')
-    return `${hh}:${mm}:${ss}`
-  } catch {
-    return timeStr
-  }
-}
-
 /** 台灣市場狀態徽章 */
 export function MarketStatusBadge({ status }: { status: string | undefined }) {
   const s = (status || '').toLowerCase()
@@ -93,46 +78,6 @@ export function MarketStatusBadge({ status }: { status: string | undefined }) {
     <span className={cn('inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-medium border', cls)}>
       <span className={cn('h-1.5 w-1.5 rounded-full', s === 'open' ? 'bg-emerald-500 animate-pulse' : 'bg-current opacity-60')} />
       {text}
-    </span>
-  )
-}
-
-/** 台灣資料品質徽章 (帶 tooltip 詳細資訊) */
-export function DataQualityBadge({ meta }: { meta: TaiwanSourceMeta | undefined }) {
-  if (!meta) return null
-
-  let label = '未知來源'
-  let color = 'bg-surface text-muted border-border'
-
-  if (meta.is_stale) {
-    label = '資料過期'
-    color = 'bg-rose-500/10 text-rose-600 dark:text-rose-400 border-rose-500/30'
-  } else if (meta.status === 'daily_fallback' || meta.source_type === 'local_store') {
-    label = '日線備援'
-    color = 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/30'
-  } else if (meta.freshness_class === 'delayed_15m' || meta.freshness_class.includes('delayed')) {
-    label = '延遲 15m'
-    color = 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/30'
-  } else if (meta.freshness_class === 'eod_snapshot') {
-    label = '盤後快照'
-    color = 'bg-sky-500/10 text-sky-600 dark:text-sky-400 border-sky-500/30'
-  } else if (meta.freshness_class === 'best_effort_near_realtime') {
-    label = '近即時'
-    color = 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/30'
-  } else if (meta.is_realtime) {
-    label = '即時'
-    color = 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/30 font-medium'
-  }
-
-  const tooltip = `來源: ${meta.source} (${meta.source_type})\n等級: ${meta.freshness_class}\n抓取時間: ${meta.fetched_at || '--'}${meta.fallback_reason ? `\n備援原因: ${meta.fallback_reason}` : ''}`
-
-  return (
-    <span
-      title={tooltip}
-      className={cn('cursor-help inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] border', color)}
-    >
-      <Activity className="h-2.5 w-2.5" />
-      {label}
     </span>
   )
 }

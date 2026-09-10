@@ -1,7 +1,7 @@
 """监控规则 scope=watchlist_group — 自选分组动态作用域。
 
 覆盖: 规则校验/normalize、引擎按分组当前成员过滤 (分组增删自选后无需改规则,
-下一轮评估自动生效)、分组删除 fail-closed、异动规则分组过滤、API 保存时
+下一轮评估自动生效)、分组删除 fail-closed、API 保存时
 分组存在性校验与列表 runtime_warning。
 """
 from types import SimpleNamespace
@@ -43,14 +43,14 @@ def _stock_df():
 # ── 校验与 normalize ─────────────────────────────────────
 
 def test_group_scope_validation():
-    with pytest.raises(ValueError, match="自选分组"):
+    with pytest.raises(ValueError, match="自選分組"):
         monitor_rules.validate(_group_rule(group_id=None))
-    with pytest.raises(ValueError, match="自选分组"):
+    with pytest.raises(ValueError, match="自選分組"):
         monitor_rules.validate(_group_rule(group_id="  "))
-    with pytest.raises(ValueError, match="仅支持个股"):
+    with pytest.raises(ValueError, match="僅支援個股"):
         monitor_rules.validate(_group_rule(asset_type="etf"))
     # 分时穿越信号仅支持指定标的 (沿用既有限制)
-    with pytest.raises(ValueError, match="分时穿越"):
+    with pytest.raises(ValueError, match="分時穿越"):
         monitor_rules.validate(_group_rule(
             conditions=[{"field": "signal_intraday_avg_cross_up", "op": "truth"}],
         ))
@@ -112,34 +112,6 @@ def test_engine_group_scope_empty_group(monkeypatch, tmp_path):
     eng = MonitorRuleEngine()
     eng.set_rules([_group_rule(group_id=group["id"])])
     assert eng.evaluate(_stock_df()) == []
-
-
-def test_abnormal_group_scope_filtering(monkeypatch, tmp_path):
-    monkeypatch.setattr(settings, "data_dir", tmp_path)
-    _, group = watchlist.create_group("异动池")
-    gid = group["id"]
-    watchlist.add("600000.SH", group_id=gid)
-
-    def _row(symbol, dev_3d):
-        return {
-            "symbol": symbol, "name": symbol, "board": "主板", "st": False,
-            "close": 10.0, "rt_pct": 1.0,
-            "windows": {"3d": {"value": dev_3d, "threshold": 0.2, "closeness": abs(dev_3d) / 0.2}},
-        }
-
-    eng = MonitorRuleEngine()
-    eng.set_rules([_group_rule(
-        rid="r_ab", group_id=gid, type="abnormal",
-        scope="watchlist_group", threshold_pct=70, direction="both",
-        conditions=[], symbols=[],
-    )])
-    high_rows = [_row("600000.SH", 0.16), _row("000001.SZ", 0.18), _row("300750.SZ", 0.19)]
-    low_rows = [_row("600000.SH", 0.10), _row("000001.SZ", 0.05), _row("300750.SZ", 0.05)]
-    # 边缘触发: 首轮观测不告警, 回落置 False 后再次上穿才触发
-    eng.evaluate_abnormal(low_rows)
-    events = eng.evaluate_abnormal(high_rows)
-    # 只有分组内的 600000.SH 触发; 组外两只偏离更高也不会告警
-    assert [e["symbol"] for e in events] == ["600000.SH"]
 
 
 # ── API: 保存校验 + 列表警告 ────────────────────────────
