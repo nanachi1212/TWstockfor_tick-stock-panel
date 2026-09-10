@@ -258,7 +258,7 @@ describe('refresh persistence', () => {
 
     await waitFor(() => expect(loadLastCompareSymbols()).toEqual(['2330.TWSE', '2881.TWSE']))
 
-    // 模拟「加入比較」的合併邏輯 (TaiwanStockDetail.tsx 僅呼叫這兩個純函式)
+    // 模擬「加入比較」的合併邏輯 (TaiwanStockDetail.tsx 僅呼叫這兩個純函式)
     const merged = mergeSymbolIntoCompare(loadLastCompareSymbols(), '8069.TPEX')
     expect(merged).toEqual(['2330.TWSE', '2881.TWSE', '8069.TPEX'])
   })

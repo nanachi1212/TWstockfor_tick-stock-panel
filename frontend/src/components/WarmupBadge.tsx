@@ -1,15 +1,15 @@
 /**
- * 回测预热期徽标 — 点击弹出说明气泡。
+ * 回測預熱期徽標 — 點擊彈出說明氣泡。
  *
- * 解释「回测开头几个月没有交易」这一高频疑问: 技术指标需要历史数据预热,
- * 系统会自动在回测起点之前多取约 120 天 (≈4 个月) 数据; 若本地数据恰好从
- * 起点才开始, 开头几个月指标算不出、信号不触发, 属正常现象。
+ * 解釋「回測開頭幾個月沒有交易」這一高頻疑問: 技術指標需要歷史數據預熱,
+ * 系統會自動在回測起點之前多取約 120 天 (≈4 個月) 數據; 若本地數據恰好從
+ * 起點才開始, 開頭幾個月指標算不出、信號不觸發, 屬正常現象。
  *
- * 实现要点:
- *   - 点击触发 (非 hover), 移动端友好
- *   - 用 createPortal 渲染到 body, 绕开父容器 overflow 裁剪 (回测配置面板有 overflow-y-auto)
- *   - 全屏透明遮罩点击关闭 + ESC 关闭
- *   - 气泡位置 = 锚点 rect 实时计算, 自动判断向左/向右展开避免溢出屏幕
+ * 實現要點:
+ *   - 點擊觸發 (非 hover), 移動端友好
+ *   - 用 createPortal 渲染到 body, 繞開父容器 overflow 裁剪 (回測配置面板有 overflow-y-auto)
+ *   - 全屏透明遮罩點擊關閉 + ESC 關閉
+ *   - 氣泡位置 = 錨點 rect 實時計算, 自動判斷向左/向右展開避免溢出屏幕
  */
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
@@ -23,13 +23,13 @@ export function WarmupBadge() {
   const anchorRef = useRef<HTMLButtonElement>(null)
   const [pos, setPos] = useState<Pos>({ top: 0, left: 0 })
 
-  // 打开时根据锚点 rect 计算气泡位置 (向下方弹出)
+  // 打開時根據錨點 rect 計算氣泡位置 (向下方彈出)
   useLayoutEffect(() => {
     if (!open || !anchorRef.current) return
     const rect = anchorRef.current.getBoundingClientRect()
     const POPUP_W = 272
     const GAP = 8
-    // 优先左对齐锚点; 右侧不够则右对齐; 兜底贴左边
+    // 優先左對齊錨點; 右側不夠則右對齊; 兜底貼左邊
     let left = rect.left
     if (left + POPUP_W > window.innerWidth - 8) {
       left = rect.right - POPUP_W
@@ -38,7 +38,7 @@ export function WarmupBadge() {
     setPos({ top: rect.bottom + GAP, left })
   }, [open])
 
-  // ESC 关闭
+  // ESC 關閉
   useEffect(() => {
     if (!open) return
     const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setOpen(false) }
@@ -53,22 +53,22 @@ export function WarmupBadge() {
         type="button"
         onClick={() => setOpen(o => !o)}
         className="inline-flex items-center gap-0.5 rounded-full px-1.5 text-[10px] text-amber-500/70 transition-colors hover:bg-amber-400/10 hover:text-amber-500"
-        title="为什么开头可能没交易?"
+        title="為什麼開頭可能沒交易?"
       >
         <Info className="h-3 w-3" strokeWidth={1.5} />
-        预热 ≥120 天
+        預熱 ≥120 天
       </button>
 
       {createPortal(
         <AnimatePresence>
           {open && (
             <>
-              {/* 全屏透明遮罩: 点击关闭 */}
+              {/* 全屏透明遮罩: 點擊關閉 */}
               <div
                 className="fixed inset-0 z-[60]"
                 onClick={() => setOpen(false)}
               />
-              {/* 气泡: 绝对定位到 body, 绕开 overflow 裁剪 */}
+              {/* 氣泡: 絕對定位到 body, 繞開 overflow 裁剪 */}
               <motion.div
                 initial={{ opacity: 0, y: -4, scale: 0.96 }}
                 animate={{ opacity: 1, y: 0, scale: 1 }}
@@ -78,19 +78,19 @@ export function WarmupBadge() {
                 className="z-[70] rounded-btn border border-border bg-surface p-3 text-[11px] leading-relaxed text-secondary shadow-2xl"
                 onClick={e => e.stopPropagation()}
               >
-                <div className="mb-1.5 font-medium text-foreground">为什么开头几个月可能没有交易?</div>
+                <div className="mb-1.5 font-medium text-foreground">為什麼開頭幾個月可能沒有交易?</div>
                 <p className="text-muted">
-                  技术指标 (MA / MACD / RSI 等) 需要历史数据才能算出。系统会自动在回测起点之前多取约
-                  <span className="font-medium text-amber-300"> 120 天 (≈4 个月)</span> 数据做预热。
+                  技術指標 (MA / MACD / RSI 等) 需要歷史數據才能算出。系統會自動在回測起點之前多取約
+                  <span className="font-medium text-amber-300"> 120 天 (≈4 個月)</span> 數據做預熱。
                 </p>
                 <p className="mt-1.5 text-muted">
-                  若本地数据恰好从回测起点才开始, 开头几个月指标算不出、信号不触发,
-                  <span className="text-secondary"> 属正常现象, 不是 bug</span>。等数据攒够后自然开始产生交易。
+                  若本地數據恰好從回測起點才開始, 開頭幾個月指標算不出、信號不觸發,
+                  <span className="text-secondary"> 屬正常現象, 不是 bug</span>。等數據攢夠後自然開始產生交易。
                 </p>
                 <div className="mt-2 border-t border-border/60 pt-2 text-muted">
-                  <span className="text-secondary">解决:</span> 把历史数据补到回测起点之前至少半年, 或把起点往后挪。
+                  <span className="text-secondary">解決:</span> 把歷史數據補到回測起點之前至少半年, 或把起點往後挪。
                 </div>
-                {/* 小箭头指向锚点 */}
+                {/* 小箭頭指向錨點 */}
                 <div
                   className="absolute -top-1 h-2 w-2 rotate-45 border-l border-t border-border bg-surface"
                   style={{ left: 12 }}

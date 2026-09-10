@@ -1,8 +1,8 @@
 /**
- * 自选列表自定义列配置。
+ * 自選列表自定義列配置。
  *
- * 自选页只保留业务内置列、分组和偏好持久化；通用列模型/合并/扩展列参数
- * 来自 list-columns，策略页等其它股票列表可复用同一底座。
+ * 自選頁只保留業務內置列、分組和偏好持久化；通用列模型/合併/擴展列參數
+ * 來自 list-columns，策略頁等其它股票列表可複用同一底座。
  */
 
 import { storage } from '@/lib/storage'
@@ -20,7 +20,7 @@ import {
 
 export type { ColumnConfig, ColumnGroup, ColumnSource, ExtColumnDisplayConfig, CandleColumnConfig }
 
-// ===== 内置列注册表（与当前硬编码一一对应） =====
+// ===== 內置列註冊表（與當前硬編碼一一對應） =====
 
 export const BUILTIN_COLUMNS: ColumnConfig[] = [
   // 固定列
@@ -66,9 +66,9 @@ export const BUILTIN_COLUMNS: ColumnConfig[] = [
   { id: 'builtin:momentum_30d', source: { type: 'builtin', key: 'momentum_30d' }, label: '30D 動量', visible: false, align: 'center' },
   { id: 'builtin:momentum_60d', source: { type: 'builtin', key: 'momentum' }, label: '60D 動量', visible: false, align: 'center' },
   // 連續漲停/跌停 — Phase 8C-C: 後端欄位語意為「連續漲停/跌停天數」
-  // (consecutive_limit_ups/downs，見 backend/app/indicators/pipeline.py「连板数/连跌数」)，
+  // (consecutive_limit_ups/downs，見 backend/app/indicators/pipeline.py「連板數/連跌數」)，
   // 對台股永久空值、無產品意義，預設不在台股場景顯示；仍保留註冊表定義供
-  // 已保存偏好/legacy 場景使用。TAIWAN_LOCALIZATION_POLISH: label 由「连板/连跌」
+  // 已保存偏好/legacy 場景使用。TAIWAN_LOCALIZATION_POLISH: label 由「連板/連跌」
   // 改為依實際語意翻譯的「連續漲停/連續跌停」，internal id 不變。
   { id: 'builtin:limit_ups', source: { type: 'builtin', key: 'limit_ups' }, label: '連續漲停', visible: false, align: 'center' },
   { id: 'builtin:limit_downs', source: { type: 'builtin', key: 'limit_downs' }, label: '連續跌停', visible: false, align: 'center' },
@@ -101,32 +101,32 @@ export const COLUMN_GROUPS: ColumnGroup[] = [
   { id: 'finance', label: '財務', icon: '📋', keys: ['eps', 'bps', 'roe', 'pe_ttm', 'pb', 'gross_margin', 'net_margin', 'revenue_yoy', 'net_income_yoy', 'debt_ratio'] },
 ]
 
-// 操作列（始终显示，不参与自定义）
+// 操作列（始終顯示，不參與自定義）
 export const ACTION_COLUMN_ID = 'builtin:action'
 
 // ===== localStorage 持久化 =====
 
-/** 序列化列配置（只保存用户可自定义的列，排除 pinned 和 action） */
+/** 序列化列配置（只保存用戶可自定義的列，排除 pinned 和 action） */
 export function serializeColumns(columns: ColumnConfig[]): ColumnConfig[] {
   return serializeColumnsBase(columns, ACTION_COLUMN_ID)
 }
 
-/** 序列化并保存到后端 + localStorage */
+/** 序列化並保存到後端 + localStorage */
 export async function saveColumnConfig(columns: ColumnConfig[]): Promise<void> {
   const saveable = serializeColumns(columns)
-  // 同时写 localStorage（即时）和后端（持久化）
+  // 同時寫 localStorage（即時）和後端（持久化）
   storage.watchlistColumns.set(saveable)
   try {
     const { api } = await import('@/lib/api')
     await api.updateWatchlistColumns(saveable)
   } catch {
-    // 后端不可用时 localStorage 仍有效
+    // 後端不可用時 localStorage 仍有效
   }
 }
 
-/** 加载列配置：优先后端，回退 localStorage，最终用默认值 */
+/** 加載列配置：優先後端，回退 localStorage，最終用默認值 */
 export async function loadColumnConfig(): Promise<ColumnConfig[]> {
-  // 1. 尝试从后端加载
+  // 1. 嘗試從後端加載
   try {
     const { api } = await import('@/lib/api')
     const res = await api.watchlistColumns()
@@ -137,30 +137,30 @@ export async function loadColumnConfig(): Promise<ColumnConfig[]> {
       return merged
     }
   } catch {
-    // 后端不可用，继续尝试 localStorage
+    // 後端不可用，繼續嘗試 localStorage
   }
 
-  // 2. 尝试从 localStorage 加载
+  // 2. 嘗試從 localStorage 加載
   const saved = storage.watchlistColumns.get([]) as ColumnConfig[]
   if (saved.length > 0) {
     return mergeColumns(saved, BUILTIN_COLUMNS)
   }
 
-  // 3. 默认值
+  // 3. 默認值
   return [...BUILTIN_COLUMNS]
 }
 
-/** 合并用户保存的列与默认列 */
+/** 合併用戶保存的列與默認列 */
 function mergeColumns(saved: ColumnConfig[], defaults: ColumnConfig[]): ColumnConfig[] {
   return mergeColumnsBase(saved, defaults, { actionColumnId: ACTION_COLUMN_ID })
 }
 
-/** 从列配置中提取 ext 列参数，用于后端 enriched 接口 */
+/** 從列配置中提取 ext 列參數，用於後端 enriched 接口 */
 export function buildExtColumnsParam(columns: ColumnConfig[]): string {
   return buildExtColumnsParamBase(columns)
 }
 
-/** 根据 ext schema 数据创建 ext 列配置 */
+/** 根據 ext schema 數據創建 ext 列配置 */
 export function createExtColumn(
   configId: string,
   configLabel: string,

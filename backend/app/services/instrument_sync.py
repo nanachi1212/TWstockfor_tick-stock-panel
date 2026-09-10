@@ -52,8 +52,36 @@ def _fetch_instruments_via_provider() -> list[dict] | None:
     from app.services import preferences
 
     provider_name = preferences.get_daily_data_provider()
-    if provider_name == "tickflow":
+    if provider_name in ("taiwan", "tickflow"):
+        try:
+            from app.taiwan.universe import get_security_master
+            master = get_security_master()
+            stocks = master.to_provider_dataframe(asset_type="stock")
+            etfs = master.to_provider_dataframe(asset_type="etf")
+            combined = pl.concat([stocks, etfs], how="diagonal_relaxed")
+            if not combined.is_empty():
+                rows = []
+                for row in combined.iter_rows(named=True):
+                    sym = row.get("symbol")
+                    rows.append({
+                        "symbol": sym,
+                        "name": row.get("name"),
+                        "code": row.get("code") or (sym.split(".")[0] if sym else ""),
+                        "exchange": row.get("exchange"),
+                        "region": "TW",
+                        "type": row.get("asset_type") or "stock",
+                        "listing_date": row.get("listing_date"),
+                        "total_shares": row.get("total_shares"),
+                        "float_shares": row.get("float_shares"),
+                        "tick_size": row.get("tick_size"),
+                        "limit_up": row.get("limit_up"),
+                        "limit_down": row.get("limit_down"),
+                    })
+                return rows
+        except Exception as e:
+            logger.warning("fetch Taiwan instruments failed: %s", e)
         return None
+
     from app.data_providers import custom as custom_sources
 
     if not custom_sources.is_custom_provider(provider_name):

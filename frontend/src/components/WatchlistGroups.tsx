@@ -26,14 +26,14 @@ interface GroupBarProps {
   counts: Record<string, number>
   selected: WatchlistGroupFilter
   total: number
-  /** 分组等权平均涨跌幅 (key: 'all' | 'ungrouped' | 分组id); 缺省不显示 */
+  /** 分組等權平均漲跌幅 (key: 'all' | 'ungrouped' | 分組id); 缺省不顯示 */
   pcts?: GroupPctMap
   onSelect: (group: WatchlistGroupFilter) => void
   onCreate: (name: string, color: WatchlistGroupColor) => Promise<void>
   onRename: (groupId: string, name: string, color: WatchlistGroupColor) => Promise<void>
   onDelete: (groupId: string) => Promise<void>
   onClearGroup?: (groupId: string) => Promise<void>
-  /** 手动调整分组前后顺序 (持久化到后端) */
+  /** 手動調整分組前後順序 (持久化到後端) */
   onReorder?: (orderedIds: string[]) => Promise<void>
 }
 
@@ -57,7 +57,7 @@ export function WatchlistGroupBar({
     { id: 'ungrouped', name: '未分組', count: counts.ungrouped ?? 0, color: null },
     ...groups.map(group => ({ id: group.id, name: group.name, count: counts[group.id] ?? 0, color: group.color })),
   ]
-  // 拖拽排序状态: dragIndex = 拖动中的分组下标, dropIndex = 插入位置 (均相对 groups 数组)
+  // 拖拽排序狀態: dragIndex = 拖動中的分組下標, dropIndex = 插入位置 (均相對 groups 數組)
   const [dragIndex, setDragIndex] = useState<number | null>(null)
   const [dropIndex, setDropIndex] = useState<number | null>(null)
   const reorderable = !!onReorder && groups.length > 1
@@ -65,7 +65,7 @@ export function WatchlistGroupBar({
 
   const clearDrag = () => { setDragIndex(null); setDropIndex(null) }
 
-  // 分组很多时标签栏横向滚动, 拖到边缘附近自动滚动, 保证能拖到视野外的位置
+  // 分組很多時標籤欄橫向滾動, 拖到邊緣附近自動滾動, 保證能拖到視野外的位置
   const autoScroll = (clientX: number) => {
     const el = tablistRef.current
     if (!el || el.scrollWidth <= el.clientWidth) return
@@ -101,7 +101,7 @@ export function WatchlistGroupBar({
           {tabs.map((tab, tabIndex) => {
             const active = selected === tab.id
             const color = tab.color ? resolveWatchlistGroupColor(tab.color) : null
-            // 前两个为固定标签 (全部/未分组), 其后对应 groups 数组 — 可拖拽排序
+            // 前兩個為固定標籤 (全部/未分組), 其後對應 groups 數組 — 可拖拽排序
             const groupIndex = tabIndex - 2
             const draggable = reorderable && tabIndex >= 2
             const dragging = draggable && dragIndex === groupIndex
@@ -178,7 +178,7 @@ export function WatchlistGroupBar({
         >
           <FolderCog className="h-4 w-4" />
         </button>
-        {/* 清空当前分组 — 仅选中具体分组时显示 */}
+        {/* 清空當前分組 — 僅選中具體分組時顯示 */}
         {onClearGroup && selected !== 'all' && selected !== 'ungrouped' && (
           <button
             type="button"
@@ -192,7 +192,7 @@ export function WatchlistGroupBar({
         )}
       </div>
 
-      {/* 清空分组确认弹窗 */}
+      {/* 清空分組確認彈窗 */}
       {confirmClear && selected !== 'all' && selected !== 'ungrouped' && (
         <div className="fixed inset-0 z-50 flex items-center justify-center">
           <div
@@ -290,7 +290,7 @@ function GroupManagerDialog({
   const [pending, setPending] = useState(false)
   const [error, setError] = useState('')
 
-  // 「显示在侧边栏」偏好开关
+  // 「顯示在側邊欄」偏好開關
   const qc = useQueryClient()
   const prefs = usePreferences()
   const groupsInNav = prefs.data?.watchlist_groups_in_nav ?? false
@@ -350,7 +350,7 @@ function GroupManagerDialog({
     })
   }
 
-  // 上移/下移: 与相邻分组交换位置, 新顺序由后端持久化 (json 数组顺序即定义顺序)
+  // 上移/下移: 與相鄰分組交換位置, 新順序由後端持久化 (json 數組順序即定義順序)
   const move = async (groupId: string, dir: -1 | 1) => {
     if (!onReorder) return
     const ids = groups.map(group => group.id)
@@ -378,7 +378,7 @@ function GroupManagerDialog({
         </button>
       </div>
 
-      {/* 显示在侧边栏 开关 */}
+      {/* 顯示在側邊欄 開關 */}
       <div className="flex items-center justify-between border-b border-border px-4 py-2.5">
         <div className="min-w-0">
           <div className="text-xs font-medium text-foreground">顯示在側邊欄</div>
@@ -536,11 +536,11 @@ function GroupManagerDialog({
 
 interface GroupPickerProps {
   groups: WatchlistGroup[]
-  /** 该标的当前所属分组 id 列表 */
+  /** 該標的當前所屬分組 id 列表 */
   groupIds: string[]
   symbol: string
   disabled?: boolean
-  /** 勾选=加入该分组, 取消勾选=仅移出该分组 (标的保留在自选中) */
+  /** 勾選=加入該分組, 取消勾選=僅移出該分組 (標的保留在自選中) */
   onToggleMember: (symbol: string, groupId: string, member: boolean) => void
 }
 
@@ -554,7 +554,7 @@ export function WatchlistGroupPicker({ groups, groupIds, symbol, disabled, onTog
   const openMenu = () => {
     const rect = btnRef.current?.getBoundingClientRect()
     if (rect) {
-      // 面板右对齐按钮 (视口边界保护); 底部放不下时翻转到按钮上方
+      // 面板右對齊按鈕 (視口邊界保護); 底部放不下時翻轉到按鈕上方
       const estHeight = groups.length * 28 + 44
       const flipUp = rect.bottom + estHeight > window.innerHeight && rect.top > estHeight
       setPos({
@@ -566,7 +566,7 @@ export function WatchlistGroupPicker({ groups, groupIds, symbol, disabled, onTog
     setOpen(true)
   }
 
-  // 外部点击 / Esc 关闭 (按钮与面板自身除外)
+  // 外部點擊 / Esc 關閉 (按鈕與面板自身除外)
   useEffect(() => {
     if (!open) return
     const onDocMouseDown = (e: MouseEvent) => {
@@ -617,7 +617,7 @@ export function WatchlistGroupPicker({ groups, groupIds, symbol, disabled, onTog
         {dots.length === 0 ? (
           <FolderInput className="h-3.5 w-3.5" />
         ) : (
-          // 叠瓦式圆点: 先加的分组在最上层完整显示, 后加的从其右侧露出半圆, 紧凑不撑宽
+          // 疊瓦式圓點: 先加的分組在最上層完整顯示, 後加的從其右側露出半圓, 緊湊不撐寬
           <span className="flex items-center">
             {dots.map((g, i) => (
               <span

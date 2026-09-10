@@ -217,7 +217,7 @@ describe('Main results row direct actions (Phase 8C-A)', () => {
     const addButton = await screen.findByRole('button', { name: '將 2330.TWSE 加入自選' })
     fireEvent.click(addButton)
     // 直接呼叫 watchlistAdd(symbol, '', undefined) → api.ts 正規化為 group_id=null
-    // (與既有「未分組」選項相同 backend 語意), 不彈任何選單, 单次 click 即完成。
+    // (與既有「未分組」選項相同 backend 語意), 不彈任何選單, 單次 click 即完成。
     await waitFor(() => expect(api.watchlistAdd).toHaveBeenCalledWith('2330.TWSE', '', undefined))
     expect(screen.queryByRole('menuitem', { name: /未分組/ })).not.toBeInTheDocument()
     // 仍停留在 Screener, 沒有被導去別的頁面

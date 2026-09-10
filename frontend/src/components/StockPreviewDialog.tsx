@@ -25,7 +25,7 @@ interface Props {
   symbol: string | null
   name?: string
   onClose: () => void
-  /** 触发信息 (来自监控触发记录, 有值时在顶栏下方显示) */
+  /** 觸發信息 (來自監控觸發記錄, 有值時在頂欄下方顯示) */
   triggerInfo?: {
     price?: number | null
     changePct?: number | null
@@ -35,9 +35,9 @@ interface Props {
   } | null
 }
 
-// ===== 板块标识（与 Screener 列表一致）=====
+// ===== 板塊標識（與 Screener 列表一致）=====
 
-// 预设快捷范围（只保留半年和1年）
+// 預設快捷範圍（只保留半年和1年）
 const PRESETS: { label: string; months: number }[] = [
   { label: '半年', months: 6 },
   { label: '1年', months: 12 },
@@ -59,7 +59,7 @@ function loadIntradayDays(): number {
 }
 
 function boardTag(symbol: string): { label: string; color: string } | null {
-  if (/^(300|301)/.test(symbol)) return { label: '创', color: 'text-[#f97316] bg-[#f97316]/12 border-[#f97316]/25' }
+  if (/^(300|301)/.test(symbol)) return { label: '創', color: 'text-[#f97316] bg-[#f97316]/12 border-[#f97316]/25' }
   if (/^688/.test(symbol))       return { label: '科', color: 'text-purple-400 bg-purple-400/12 border-purple-400/25' }
   if (/^[48]/.test(symbol))      return { label: '北', color: 'text-cyan-400 bg-cyan-400/12 border-cyan-400/25' }
   return null
@@ -113,7 +113,7 @@ export function StockPreviewDialog({ symbol, name, onClose, triggerInfo }: Props
     },
   })
 
-  // ESC 关闭
+  // ESC 關閉
   useEffect(() => {
     if (!symbol) return
     const handler = (e: KeyboardEvent) => {
@@ -128,17 +128,17 @@ export function StockPreviewDialog({ symbol, name, onClose, triggerInfo }: Props
     setPriceAlertDraft(null)
   }, [symbol])
 
-  // 焦点股票注册: SSE quotes_updated 推送时精准 invalidate 当前股票日K,
-  // 让对话框日K最后一根蜡烛随实时价变化 (后端只读内存, 不调 TickFlow)。
-  // 关闭/切股时清除, 避免无谓刷新。
+  // 焦點股票註冊: SSE quotes_updated 推送時精準 invalidate 當前股票日K,
+  // 讓對話框日K最後一根蠟燭隨實時價變化 (後端只讀內存, 不調 TickFlow)。
+  // 關閉/切股時清除, 避免無謂刷新。
   useEffect(() => {
     if (!symbol) return
     setFocusSymbol(symbol)
     return () => clearFocusSymbol()
   }, [symbol])
 
-  // 分时图实时轮询: 复用自选列表的「分时刷新开关 + 间隔」偏好。
-  // 仅实时行情运行 且 用户开启分时刷新时才轮询; 否则 undefined (定格)。
+  // 分時圖實時輪詢: 複用自選列表的「分時刷新開關 + 間隔」偏好。
+  // 僅實時行情運行 且 用戶開啟分時刷新時才輪詢; 否則 undefined (定格)。
   const { data: prefs } = usePreferences()
   const { data: quoteStatus } = useQuoteStatus()
   const realtimeRunning = quoteStatus?.running ?? false
@@ -180,7 +180,7 @@ export function StockPreviewDialog({ symbol, name, onClose, triggerInfo }: Props
             {...backdrop}
           />
 
-          {/* 弹窗主体 */}
+          {/* 彈窗主體 */}
           <motion.div
             initial={{ opacity: 0, scale: 0.95, y: 12 }}
             animate={{ opacity: 1, scale: 1, y: 0 }}
@@ -191,7 +191,7 @@ export function StockPreviewDialog({ symbol, name, onClose, triggerInfo }: Props
               maximized ? 'w-screen h-screen max-w-none max-h-none' : 'w-[92vw] max-w-[1100px] max-h-[95vh]',
             )}
           >
-            {/* 顶栏 */}
+            {/* 頂欄 */}
             <div className="flex items-center justify-between gap-3 px-4 py-3 sm:px-5 shrink-0">
               <div className="flex min-w-0 items-center gap-2">
                 {(() => {
@@ -207,7 +207,7 @@ export function StockPreviewDialog({ symbol, name, onClose, triggerInfo }: Props
               </div>
 
               <div className="flex shrink-0 items-center gap-1">
-                {/* 区间选择 — 随视图切换 */}
+                {/* 區間選擇 — 隨視圖切換 */}
                 {view === 'daily' ? (
                   <div className="flex items-center gap-1">
                     {PRESETS.map(p => {
@@ -271,7 +271,7 @@ export function StockPreviewDialog({ symbol, name, onClose, triggerInfo }: Props
 
                 <span className="mx-0.5 h-4 w-px shrink-0 bg-border" />
 
-                {/* 日K / 分时 切换 */}
+                {/* 日K / 分時 切換 */}
                 <div role="tablist" aria-label="圖表視圖" className="inline-flex shrink-0 items-center rounded border border-border bg-elevated p-0.5">
                   <button
                     type="button"
@@ -301,7 +301,7 @@ export function StockPreviewDialog({ symbol, name, onClose, triggerInfo }: Props
 
                 <span className="mx-0.5 h-4 w-px shrink-0 bg-border" />
 
-                {/* 自选 — Phase 8C-A fix: ⭐ 主按鈕 1 click 直接加入未分組(canonical
+                {/* 自選 — Phase 8C-A fix: ⭐ 主按鈕 1 click 直接加入未分組(canonical
                     group_id=null, 與既有「未分組」選項相同 backend 語意), 選特定分組
                     改為旁邊小 chevron 觸發既有 WatchlistAddMenu, quick-add 不再彈選單。 */}
                 {inWatchlist ? (
@@ -338,7 +338,7 @@ export function StockPreviewDialog({ symbol, name, onClose, triggerInfo }: Props
                     </WatchlistAddMenu>
                   </div>
                 )}
-                {/* 加监控 */}
+                {/* 加監控 */}
                 <button
                   onClick={() => setShowMonitorEditor(true)}
                   className="p-1.5 rounded-btn text-amber-400 hover:bg-amber-400/10 transition-colors cursor-pointer"
@@ -391,7 +391,7 @@ export function StockPreviewDialog({ symbol, name, onClose, triggerInfo }: Props
                   <RefreshCw className="h-4 w-4" />
                 </button>
 
-                {/* 放大 / 缩小 */}
+                {/* 放大 / 縮小 */}
                 <button
                   onClick={() => setMaximized(v => !v)}
                   className="p-1.5 rounded-btn text-secondary hover:text-foreground hover:bg-elevated transition-colors"
@@ -411,10 +411,10 @@ export function StockPreviewDialog({ symbol, name, onClose, triggerInfo }: Props
               </div>
             </div>
 
-            {/* 触发信息条 (来自监控触发记录) */}
+            {/* 觸發信息條 (來自監控觸發記錄) */}
             {triggerInfo && (
               <div className="flex items-center gap-4 border-b border-amber-400/20 bg-amber-400/[0.06] px-5 py-2 shrink-0">
-                {/* 左: 触发标记 + 时间 */}
+                {/* 左: 觸發標記 + 時間 */}
                 <div className="flex items-center gap-2 shrink-0">
                   <span className="text-[10px] font-semibold text-amber-400">⚡ 觸發</span>
                   {triggerInfo.ts && (
@@ -424,7 +424,7 @@ export function StockPreviewDialog({ symbol, name, onClose, triggerInfo }: Props
                   )}
                 </div>
 
-                {/* 中: 价格 + 涨跌幅 */}
+                {/* 中: 價格 + 漲跌幅 */}
                 <div className="flex items-center gap-2 shrink-0">
                   {triggerInfo.price != null && (
                     <span className="text-[11px] font-mono text-foreground/80">{triggerInfo.price.toFixed(2)}</span>
@@ -436,7 +436,7 @@ export function StockPreviewDialog({ symbol, name, onClose, triggerInfo }: Props
                   )}
                 </div>
 
-                {/* 右: 消息 + 信号标签 */}
+                {/* 右: 消息 + 信號標籤 */}
                 <div className="flex items-center gap-2 flex-wrap min-w-0">
                   {triggerInfo.message && (
                     <span className="text-[11px] text-foreground/70 truncate">{triggerInfo.message}</span>
@@ -452,7 +452,7 @@ export function StockPreviewDialog({ symbol, name, onClose, triggerInfo }: Props
               </div>
             )}
 
-            {/* 图表内容 */}
+            {/* 圖表內容 */}
             <div className="flex-1 overflow-auto p-4">
               {view === 'daily' ? (
                 <StockPanel
@@ -482,7 +482,7 @@ export function StockPreviewDialog({ symbol, name, onClose, triggerInfo }: Props
               )}
             </div>
 
-            {/* 扩展插槽: 对话框底部二开区 (无注册时不渲染) */}
+            {/* 擴展插槽: 對話框底部二開區 (無註冊時不渲染) */}
             <div className="shrink-0">
               <ExtensionSlot
                 name="stock-preview.footer"
@@ -490,7 +490,7 @@ export function StockPreviewDialog({ symbol, name, onClose, triggerInfo }: Props
               />
             </div>
 
-            {/* 加监控编辑器弹层 */}
+            {/* 加監控編輯器彈層 */}
             <AnimatePresence>
               {showMonitorEditor && symbol && (
                 <motion.div

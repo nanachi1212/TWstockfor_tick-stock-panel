@@ -1,20 +1,21 @@
 /**
  * 集中管理所有 React Query key。
  *
- * - 新增查询只需在此加一行，所有消费方自动引用。
- * - SSE invalidation 基于 SSE_INVALIDATE_PREFIXES 列表，新增 key 无需改 useQuoteStream。
+ * - 新增查詢只需在此加一行，所有消費方自動引用。
+ * - SSE invalidation 基於 SSE_INVALIDATE_PREFIXES 列表，新增 key 無需改 useQuoteStream。
  */
 
-// ===== Query Key 工厂 =====
+// ===== Query Key 工廠 =====
 
 export const QK = {
-  // 全局 / 共享 (Layout 预取)
+  // 全局 / 共享 (Layout 預取)
   capabilities:   ['capabilities'] as const,
   settings:       ['settings'] as const,
   version:        ['version'] as const,
   preferences:    ['preferences'] as const,
   dataSources:    ['data-sources'] as const,
   taiwanDataStatus: ['taiwan-data-status'] as const,
+  taiwanHistoryStatus: ['taiwan-history-status'] as const,
   quoteStatus:    ['quote-status'] as const,
   quoteInterval:  ['quote-interval'] as const,
   overviewMarket: (asOf?: string) => ['overview-market', asOf ?? 'latest'] as const,
@@ -25,13 +26,13 @@ export const QK = {
   watchlistGroups:      ['watchlist-groups'] as const,
   watchlistQuotes:      ['watchlist-quotes'] as const,
   watchlistEnriched:    (ext?: string) => ['watchlist-enriched', ext] as const,
-  // 不用 watchlist- 前缀: 日K历史盘中几乎不变, 若被 SSE quotes_updated 高频失效
-  // (expert 1s) 会导致全自选日K每秒重拉, staleTime 形同虚设。
-  // 刷新点: staleTime 过期 + Watchlist 增删自选/改蜡烛天数时的手动失效;
-  // 当日最后一根蜡烛由 Watchlist 用 enriched 实时 OHLC 前端修补 (零额外请求)。
+  // 不用 watchlist- 前綴: 日K歷史盤中幾乎不變, 若被 SSE quotes_updated 高頻失效
+  // (expert 1s) 會導致全自選日K每秒重拉, staleTime 形同虛設。
+  // 刷新點: staleTime 過期 + Watchlist 增刪自選/改蠟燭天數時的手動失效;
+  // 當日最後一根蠟燭由 Watchlist 用 enriched 實時 OHLC 前端修補 (零額外請求)。
   watchlistKlineBatch:  (symbols: string) => ['kline-batch', symbols] as const,
-  // 不用 watchlist- 前缀: 避免被 SSE quotes_updated 高频失效(expert 1s/pro 2s)
-  // 导致每次都拉 TickFlow 触限流。分时图用固定 refetchInterval 刷新即可。
+  // 不用 watchlist- 前綴: 避免被 SSE quotes_updated 高頻失效(expert 1s/pro 2s)
+  // 導致每次都拉 TickFlow 觸限流。分時圖用固定 refetchInterval 刷新即可。
   minuteBatch:          (symbols: string) => ['minute-batch', symbols] as const,
   instrumentSearch:     (q: string, assetTypes?: string, market?: 'ashare' | 'taiwan' | 'all') =>
     ['instrument-search', q, assetTypes ?? 'stock', market ?? 'ashare'] as const,
@@ -82,7 +83,7 @@ export const QK = {
   customSignals:        ['custom-signals'] as const,
   customSignalsOptions: ['custom-signals-options'] as const,
 
-  // Monitor (监控规则 + 触发记录)
+  // Monitor (監控規則 + 觸發記錄)
   monitorRules:         ['monitor-rules'] as const,
   monitorRuleOptions:   ['monitor-rule-options'] as const,
   alerts:               (source?: string) => ['alerts', source ?? ''] as const,
@@ -93,32 +94,31 @@ export const QK = {
   taiwanCurrentData:    (symbol: string) => ['taiwan-current-data', symbol] as const,
   taiwanCapabilities:   ['taiwan-capabilities'] as const,
 
-  // 市场环境(Regime) — 日级离线计算, 不进 SSE 刷新
-  // Phase 8B-5.7: 仅保留仍有真实 consumer 的 regimeLatest(Mining)/
-  // regimeCoverage(Data) —— history/states/phases/mainline 随已刪除的
+  // 市場環境(Regime) — 日級離線計算, 不進 SSE 刷新
+  // Phase 8B-5.7: 僅保留仍有真實 consumer 的 regimeLatest(Mining)/
+  // regimeCoverage(Data) —— history/states/phases/mainline 隨已刪除的
   // Regime.tsx 一併移除。
   regimeLatest:         ['regime-latest'] as const,
   regimeCoverage:       ['regime-coverage'] as const,
 } as const
 
-// ===== SSE 应该 invalidate 的 key 前缀列表 =====
-// 新增需要 SSE 推送的查询，只需在此加一行
+// ===== SSE 應該 invalidate 的 key 前綴列表 =====
+// 新增需要 SSE 推送的查詢，只需在此加一行
 //
-// 注意: 策略页 (screener-cached) 不在此列表 —— 行情刷新时策略结果不变
-// (非监控策略读盘后静态缓存, 监控策略由独立的 strategy_results_updated 事件在
-// 重算完成后刷新)。若加入 'screener', 会导致每个行情 tick 双重刷新策略页,
-// 且在 monitor "重算" 窗口内读到空结果, 造成策略列表闪烁 (变 0 → 空失效 → 又出现)。
+// 注意: 策略頁 (screener-cached) 不在此列表 —— 行情刷新時策略結果不變
+// (非監控策略讀盤後靜態緩存, 監控策略由獨立的 strategy_results_updated 事件在
+// 重算完成後刷新)。若加入 'screener', 會導致每個行情 tick 雙重刷新策略頁,
+// 且在 monitor "重算" 窗口內讀到空結果, 造成策略列表閃爍 (變 0 → 空失效 → 又出現)。
 
 export const SSE_INVALIDATE_PREFIXES = [
-  // 精确前缀: 只命中自选页的实时数据 (quotes/enriched)。不能用宽泛的 'watchlist' ——
-  // 会误伤 ['watchlist'] (自选列表) 和 ['watchlist-groups'] (分组配置, 只随手动操作变化)。
-  // 旧设置里的 'watchlist' 单开关由 useQuoteStream 兼容读取。
+  // 精確前綴: 只命中自選頁的實時數據 (quotes/enriched)。不能用寬泛的 'watchlist' ——
+  // 會誤傷 ['watchlist'] (自選列表) 和 ['watchlist-groups'] (分組配置, 只隨手動操作變化)。
+  // 舊設置裡的 'watchlist' 單開關由 useQuoteStream 兼容讀取。
   'watchlist-quotes',
   'watchlist-enriched',
   'quote-status',
   'index-quotes',
   'overview-market',
-  'limit-ladder',
   'taiwan-quotes',
   'taiwan-stock-detail',
 ] as const

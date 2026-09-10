@@ -16,7 +16,7 @@ interface Props {
 }
 
 function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : '分钟数据获取失败'
+  return error instanceof Error ? error.message : '分鐘數據獲取失敗'
 }
 
 export function StockMultiDayIntradayChart({
@@ -73,9 +73,9 @@ export function StockMultiDayIntradayChart({
     onError: (e: Error) => {
       const msg = e.message || ''
       if (msg.includes('403') || msg.includes('Pro')) {
-        toast('分钟K(批量)数据不可用', 'error')
+        toast('分鐘K(批量)數據不可用', 'error')
       } else {
-        toast(`补齐数据失败: ${msg}`, 'error')
+        toast(`補齊數據失敗: ${msg}`, 'error')
       }
     },
   })
@@ -86,16 +86,16 @@ export function StockMultiDayIntradayChart({
   const missingDays = Math.max(0, days - sessions.length)
   const showCoverage = !history.isPlaceholderData && sessions.length > 0 && missingDays > 0 && !isIndex
 
-  // 自动补齐: 数据不足且非指数时, 自动触发同步
-  // 用 ref 记录已触发的 symbol:days, 避免重复
+  // 自動補齊: 數據不足且非指數時, 自動觸發同步
+  // 用 ref 記錄已觸發的 symbol:days, 避免重複
   const autoSyncRef = useRef<string | null>(null)
   useEffect(() => {
-    // 后端没运行时 history 会 error, 此时 missingDays 计算无意义, 跳过
+    // 後端沒運行時 history 會 error, 此時 missingDays 計算無意義, 跳過
     if (history.error || history.isPlaceholderData || loading || isIndex || sessions.length >= days) return
     if (syncMinute.isPending) return
 
     const key = `${symbol}:${days}`
-    if (autoSyncRef.current === key) return  // 本组合已触发过
+    if (autoSyncRef.current === key) return  // 本組合已觸發過
     autoSyncRef.current = key
     syncMinute.mutate()
   }, [symbol, days, sessions.length, loading, isIndex, history.error, history.isPlaceholderData, syncMinute.isPending])
@@ -106,7 +106,7 @@ export function StockMultiDayIntradayChart({
     return (
       <div className="flex items-center justify-center gap-2 text-xs text-muted" style={{ height }}>
         <Loader2 className="h-4 w-4 animate-spin text-accent" />
-        正在加载近 {days} 日分时…
+        正在加載近 {days} 日分時…
       </div>
     )
   }
@@ -121,7 +121,7 @@ export function StockMultiDayIntradayChart({
           className="inline-flex items-center gap-1.5 rounded-btn border border-border bg-elevated px-3 py-1.5 text-secondary hover:text-foreground"
         >
           <RefreshCw className="h-3.5 w-3.5" />
-          重新加载
+          重新加載
         </button>
       </div>
     )
@@ -133,11 +133,11 @@ export function StockMultiDayIntradayChart({
         {syncMinute.isPending ? (
           <>
             <Loader2 className="h-5 w-5 animate-spin text-accent" />
-            <span className="text-secondary">正在获取近 {days} 日分钟 K…</span>
+            <span className="text-secondary">正在獲取近 {days} 日分鐘 K…</span>
           </>
         ) : (
           <>
-            <span className="text-muted">{isIndex ? '指数暂无分钟数据' : '本地暂无可展示的分钟数据'}</span>
+            <span className="text-muted">{isIndex ? '指數暫無分鐘數據' : '本地暫無可展示的分鐘數據'}</span>
             {!isIndex && (
               <button
                 type="button"
@@ -145,7 +145,7 @@ export function StockMultiDayIntradayChart({
                 className="inline-flex items-center gap-1.5 rounded-btn bg-accent px-3 py-1.5 text-xs font-medium text-white hover:bg-accent/90"
               >
                 <Download className="h-3.5 w-3.5" />
-                获取近 {days} 日
+                獲取近 {days} 日
               </button>
             )}
           </>
@@ -162,12 +162,12 @@ export function StockMultiDayIntradayChart({
           {syncMinute.isPending ? (
             <span className="truncate text-accent flex items-center gap-1.5">
               <Loader2 className="h-3 w-3 animate-spin" />
-              正在补齐最近 {days} 日分时数据…
+              正在補齊最近 {days} 日分時數據…
             </span>
           ) : syncMinute.isError ? (
-            <span className="truncate text-muted">当前 {sessions.length} 日，目标 {days} 日 — 补齐失败</span>
+            <span className="truncate text-muted">當前 {sessions.length} 日，目標 {days} 日 — 補齊失敗</span>
           ) : (
-            <span className="truncate text-muted">当前 {sessions.length} 个交易日数据，目标 {days} 日</span>
+            <span className="truncate text-muted">當前 {sessions.length} 個交易日數據，目標 {days} 日</span>
           )}
           {!syncMinute.isPending && (
             <button
@@ -179,7 +179,7 @@ export function StockMultiDayIntradayChart({
               className="inline-flex shrink-0 items-center gap-1 text-accent hover:text-accent/80"
             >
               <Download className="h-3 w-3" />
-              重试补齐
+              重試補齊
             </button>
           )}
         </div>

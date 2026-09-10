@@ -2,7 +2,7 @@
 //
 // BUILTIN_SIGNAL_DEFINITIONS 是「訊號庫」設定頁 / SignalPicker (Screener) /
 // RuleEditor (Monitor) 共用的唯一權威來源 (frontend/src/lib/signals.ts 頭部
-// 註解: "权威展示来源, 两页统一")。本次只改 name/category/description 的顯示
+// 註解: "權威展示來源, 兩頁統一")。本次只改 name/category/description 的顯示
 // 文字, id 完全不變 (與 backend backtest/strategy.py 及已保存的 rule/策略
 // identifier 對齊, 也是 Monitor rule 的 saved condition.field 值)。
 import { describe, expect, it } from 'vitest'

@@ -2492,26 +2492,6 @@ wheels = [
 ]
 
 [[package]]
-name = "tickflow"
-version = "0.1.24"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "httpx" },
-    { name = "typing-extensions" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/aa/56/d911f7d03363a06f69838878df4f92dd01235c899431197f94fb4c0e36ad/tickflow-0.1.24.tar.gz", hash = "sha256:13f6464a9dd1bdf98a312bc8c313fcc24ad0ad83c16d4f83b76bee83df6e11df", size = 36867, upload-time = "2026-06-20T02:39:35.891Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/4c/9d/6c03706054f3bcca8a7113a60258e1a52a762077a555d52a5a84e4f6895f/tickflow-0.1.24-py3-none-any.whl", hash = "sha256:e898867b0e3e668618135c78e3a367542f81b7a289567335d298c707452e5f42", size = 43031, upload-time = "2026-06-20T02:39:34.307Z" },
-]
-
-[package.optional-dependencies]
-all = [
-    { name = "pandas" },
-    { name = "tqdm" },
-    { name = "websockets" },
-]
-
-[[package]]
 name = "tickflow-stock-panel-backend"
 version = "0.2.1"
 source = { editable = "." }
@@ -2538,7 +2518,6 @@ dependencies = [
     { name = "python-multipart" },
     { name = "pyyaml" },
     { name = "sse-starlette" },
-    { name = "tickflow", extra = ["all"] },
     { name = "uvicorn", extra = ["standard"] },
     { name = "winotify", marker = "sys_platform == 'win32'" },
 ]
@@ -2590,7 +2569,6 @@ requires-dist = [
     { name = "pyyaml", specifier = ">=6.0" },
     { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.5" },
     { name = "sse-starlette", specifier = ">=2.0" },
-    { name = "tickflow", extras = ["all"], specifier = ">=0.1.23" },
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.30" },
     { name = "vectorbt", marker = "extra == 'backtest'", specifier = ">=0.26" },
     { name = "winotify", marker = "sys_platform == 'win32'", specifier = ">=1.1" },

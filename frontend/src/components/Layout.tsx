@@ -6,7 +6,6 @@ import { useQuoteStream, useQuoteStreamStatus } from '@/lib/useQuoteStream'
 import { ToastContainer, toast } from '@/components/Toast'
 import { AlertToastContainer } from '@/components/AlertToast'
 import {
-  useCapabilities,
   useSettings,
   usePreferences,
   useQuoteStatus,
@@ -44,14 +43,14 @@ import { getFrontendExtensionNavigation } from '@/extensions/registry'
 import { CORE_NAV as nav } from '@/lib/navigation'
 import type { LucideIcon } from 'lucide-react'
 
-// 品牌色 — 只用于 logo / brand 区域,不影响功能语义色
+// 品牌色 — 只用於 logo / brand 區域,不影響功能語義色
 const BRAND = '#8B5CF6'
 
-// Phase 8B-2.1: nav 的定义已抽到 @/lib/navigation.ts (CORE_NAV), 与
-// MenuSettings.tsx 共用同一份 metadata。此处用别名 import 保持下方既有
-// 代码(nav.findIndex 等)不必改名。
+// Phase 8B-2.1: nav 的定義已抽到 @/lib/navigation.ts (CORE_NAV), 與
+// MenuSettings.tsx 共用同一份 metadata。此處用別名 import 保持下方既有
+// 代碼(nav.findIndex 等)不必改名。
 
-/** 亮/暗主题切换 — 状态存 localStorage, 生效见 lib/theme.ts */
+/** 亮/暗主題切換 — 狀態存 localStorage, 生效見 lib/theme.ts */
 function ThemeToggle() {
   const theme = useTheme()
   const dark = theme === 'dark'
@@ -66,10 +65,10 @@ function ThemeToggle() {
   )
 }
 
-/** 监控中心未读徽标 — 仅在非监控页且有未读时显示。 */
+/** 監控中心未讀徽標 — 僅在非監控頁且有未讀時顯示。 */
 function MonitorBadge({ active }: { active: boolean }) {
   const unread = useUnreadAlerts()
-  // 尊重用户设置: 可在菜单设置里关闭数字提示
+  // 尊重用戶設置: 可在菜單設置裡關閉數字提示
   const badgeEnabled = (() => {
     try { return localStorage.getItem('monitor_badge_enabled') !== '0' } catch { return true }
   })()
@@ -81,79 +80,25 @@ function MonitorBadge({ active }: { active: boolean }) {
   )
 }
 
-// ===== 档位卡片 =====
-function TierBadge({ label, hasKey, providerName, isTickflow }: { label: string; hasKey?: boolean; providerName: string; isTickflow: boolean }) {
-  const base = label.split(' ')[0].split('+')[0].toLowerCase()
-  const isNone = base === 'none'
-
-  const tierConfig: Record<string, {
-    desc: string
-    dotStyle: React.CSSProperties
-    tagBg: React.CSSProperties
-    labelTextStyle: React.CSSProperties
-  }> = {
-    none: {
-      desc: '未設定 Key · 僅歷史日K',
-      dotStyle: { background: '#52525b' },
-      tagBg: { background: 'rgba(113,113,122,0.15)' },
-      labelTextStyle: { color: '#71717a' },
-    },
-    free: {
-      desc: '基礎日K · 自選即時',
-      dotStyle: { background: '#71717a' },
-      tagBg: { background: 'rgba(113,113,122,0.3)' },
-      labelTextStyle: { color: '#a1a1aa' },
-    },
-    starter: {
-      desc: '批量同步 · 行情池',
-      dotStyle: { background: '#3b82f6' },
-      tagBg: { background: 'rgba(59,130,246,0.2)' },
-      labelTextStyle: { color: '#60a5fa' },
-    },
-    pro: {
-      desc: '分鐘K · 即時行情 · 盤口',
-      dotStyle: { background: 'linear-gradient(135deg, #a855f7, #7c3aed)' },
-      tagBg: { background: 'linear-gradient(135deg, rgba(168,85,247,0.2), rgba(124,58,237,0.15))' },
-      labelTextStyle: { background: 'linear-gradient(135deg, #c084fc, #a855f7)', WebkitBackgroundClip: 'text', backgroundClip: 'text', color: 'transparent' },
-    },
-    expert: {
-      desc: 'WebSocket · 財務資料',
-      dotStyle: { background: 'linear-gradient(135deg, #3b82f6, #a855f7, #f59e0b)' },
-      tagBg: { background: 'linear-gradient(135deg, rgba(59,130,246,0.2), rgba(168,85,247,0.2), rgba(245,158,11,0.2))' },
-      labelTextStyle: { background: 'linear-gradient(135deg, #60a5fa, #c084fc, #fbbf24)', WebkitBackgroundClip: 'text', backgroundClip: 'text', color: 'transparent' },
-    },
-  }
-
-  const t = tierConfig[base] || tierConfig.none
-  const displayLabel = isNone ? 'None' : (label || 'None')
-  const descText = isNone && !hasKey ? '設定 Key 解鎖更多能力' : t.desc
-
+// ===== 資料來源卡片 =====
+function DataSourceBadge({ providerName }: { providerName: string }) {
   return (
     <NavLink
       to="/settings?tab=data-sources"
       className="group relative flex items-center gap-2 overflow-hidden rounded-md py-1.5 pl-2.5 pr-2 transition-colors duration-150 hover:bg-elevated/70"
-      title={`資料來源 · ${providerName} — ${descText}`}
+      title={`資料來源 · ${providerName}`}
     >
       <span
         className="pointer-events-none absolute inset-y-1.5 left-0 w-[2px] rounded-full bg-accent/50 transition-colors group-hover:bg-accent"
-        style={base === 'expert' ? { background: 'linear-gradient(180deg, #60a5fa, #c084fc, #fbbf24)' } : undefined}
       />
       <DatabaseZap className="h-3.5 w-3.5 shrink-0 text-muted group-hover:text-accent transition-colors" />
       <span className="min-w-0 truncate text-[11px] font-medium text-secondary group-hover:text-foreground transition-colors">
-        {providerName || '資料來源'}
+        {providerName || '台灣官方資料源'}
       </span>
-      <span
-        className="h-1.5 w-1.5 rounded-full shrink-0"
-        style={{ ...t.dotStyle, ...(base === 'expert' ? { animation: 'pulse 2s infinite' } : {}) }}
-      />
-      {isTickflow && (
-        <span
-          className="ml-auto inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-bold font-mono leading-none shrink-0"
-          style={t.tagBg}
-        >
-          <span className="truncate" style={t.labelTextStyle}>{displayLabel}</span>
-        </span>
-      )}
+      <span className="h-1.5 w-1.5 rounded-full shrink-0 bg-emerald-500" />
+      <span className="ml-auto inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-medium leading-none text-muted bg-muted/20">
+        官方公開
+      </span>
     </NavLink>
   )
 }
@@ -184,21 +129,20 @@ function AIConfigBadge({ configured, model }: { configured?: boolean; model?: st
 }
 
 export function Layout() {
-  // ===== 共享 hooks (替代内联 useQuery) =====
-  const { data: caps } = useCapabilities()
+  // ===== 共享 hooks (替代內聯 useQuery) =====
   const { data: settingsState } = useSettings()
   const { data: versionData } = useVersion()
   const { data: prefs } = usePreferences()
-  // 数据源列表 (用于实时行情状态显示当前数据源名称)
+  // 數據源列表 (用於實時行情狀態顯示當前數據源名稱)
   const { data: dataSources } = useQuery({
     queryKey: QK.dataSources,
     queryFn: api.dataSources,
     staleTime: 60_000,
   })
-  // poll=true: 全局唯一开启条件轮询 (非交易时段 60s 兜底, 交易时段靠 SSE)
+  // poll=true: 全局唯一開啟條件輪詢 (非交易時段 60s 兜底, 交易時段靠 SSE)
   const { data: quoteStatus } = useQuoteStatus({ poll: true })
 
-  // 自选分组 — 仅当用户开启「显示在侧边栏」时拉取
+  // 自選分組 — 僅當用戶開啟「顯示在側邊欄」時拉取
   const groupsInNav = prefs?.watchlist_groups_in_nav ?? false
   const location = useLocation()
   const { data: watchlistGroupsData } = useQuery({
@@ -208,18 +152,18 @@ export function Layout() {
     staleTime: 60_000,
   })
   const watchlistGroups = watchlistGroupsData?.groups ?? []
-  // 自选二级菜单展开状态 — 默认当前在自选页时展开
+  // 自選二級菜單展開狀態 — 默認當前在自選頁時展開
   const [watchlistNavExpanded, setWatchlistNavExpanded] = useState(location.pathname === '/watchlist')
 
-  // 侧边栏收起状态 — 持久化到 localStorage
+  // 側邊欄收起狀態 — 持久化到 localStorage
   const [navCollapsed, setNavCollapsed] = useState(() => {
     if (typeof window !== 'undefined' && window.matchMedia('(max-width: 767px)').matches) return true
     try { return localStorage.getItem('tf-nav-collapsed') === '1' } catch { return false }
   })
 
-  // 分组等权平均涨跌幅 — 复用 watchlist/enriched 查询缓存(与自选页同 key,
-  // 盘中随 SSE 刷新)。可见性门控: 子菜单实际可见(侧栏展开 + 二级菜单展开)
-  // 时才拉取, 收起状态下不为隐藏 UI 发请求。
+  // 分組等權平均漲跌幅 — 複用 watchlist/enriched 查詢緩存(與自選頁同 key,
+  // 盤中隨 SSE 刷新)。可見性門控: 子菜單實際可見(側欄展開 + 二級菜單展開)
+  // 時才拉取, 收起狀態下不為隱藏 UI 發請求。
   const navGroupPctVisible = groupsInNav && !navCollapsed && watchlistNavExpanded
   const { data: navWatchlist } = useQuery({
     queryKey: QK.watchlist,
@@ -241,7 +185,7 @@ export function Layout() {
     [navWatchlist, navEnriched],
   )
 
-  // 数据同步状态轮询: 有活跃 job 时「数据」菜单项显示转圈
+  // 數據同步狀態輪詢: 有活躍 job 時「數據」菜單項顯示轉圈
   const { data: pipelineJobs } = useQuery({
     queryKey: QK.pipelineJobs,
     queryFn: () => api.pipelineJobs(1),
@@ -250,12 +194,12 @@ export function Layout() {
   })
   const isDataSyncing = !!pipelineJobs?.active_id
 
-  // 数据同步完成的"瞬时反馈": isDataSyncing 从 true→false 时显示绿色对勾,
-  // 闪烁约 3 秒后自动消失。
+  // 數據同步完成的"瞬時反饋": isDataSyncing 從 true→false 時顯示綠色對勾,
+  // 閃爍約 3 秒後自動消失。
   const [dataSyncJustDone, setDataSyncJustDone] = useState(false)
   const prevSyncingRef = useRef(false)
   useEffect(() => {
-    // 仅在"刚结束"(true→false)且非首次挂载时触发
+    // 僅在"剛結束"(true→false)且非首次掛載時觸發
     if (prevSyncingRef.current && !isDataSyncing) {
       setDataSyncJustDone(true)
       const t = setTimeout(() => setDataSyncJustDone(false), 3000)
@@ -269,7 +213,7 @@ export function Layout() {
   const navigate = useNavigate()
   const version = versionData?.version
   const realtimeEnabled = prefs?.realtime_quotes_enabled ?? false
-  // 自选实时模式限制提示: 可手动关闭, 不持久化 (刷新后恢复显示)
+  // 自選實時模式限制提示: 可手動關閉, 不持久化 (刷新後恢復顯示)
   const [dismissFreeHint, setDismissFreeHint] = useState(false)
   useEffect(() => {
     const compact = window.matchMedia('(max-width: 767px)')
@@ -291,22 +235,22 @@ export function Layout() {
       return next
     })
   }
-  // SSE: 行情更新时自动刷新相关 queries + 告警通知
+  // SSE: 行情更新時自動刷新相關 queries + 告警通知
   useQuoteStream(realtimeEnabled, prefs?.sse_refresh_pages)
-  // 实时 SSE 连接状态 — 断开时底部显示提示, 提示可能漏策略告警
+  // 實時 SSE 連接狀態 — 斷開時底部顯示提示, 提示可能漏策略告警
   const streamStatus = useQuoteStreamStatus()
 
   const toggleQuote = useToggleRealtimeQuotes()
   const isRunning = quoteStatus?.running ?? false
   const isTrading = quoteStatus?.is_trading_hours ?? false
-  // 管道/数据修正运行期间实时行情被临时暂停 — 此时禁止开启
+  // 管道/數據修正運行期間實時行情被臨時暫停 — 此時禁止開啟
   const isPaused = quoteStatus?.paused ?? false
-  // 实时模式以 quote_status 为准 (数据源无关): none=不可用 / watchlist=自选实时 / full_market=全市场
+  // 實時模式以 quote_status 為準 (數據源無關): none=不可用 / watchlist=自選實時 / full_market=全市場
   const quoteMode = quoteStatus?.mode ?? 'none'
   const realtimeUnavailable = quoteMode === 'none'
   const isWatchlistMode = quoteMode === 'watchlist'
   const realtimeModeLabel = isWatchlistMode ? '自選股' : '全市場'
-  // 当前实时行情数据源名称 (custom 时显示源名, tickflow 时不显示)
+  // 當前實時行情數據源名稱 (custom 時顯示源名, tickflow 時不顯示)
   const realtimeProvider = prefs?.realtime_data_provider
   const realtimeProviderName = realtimeProvider && realtimeProvider !== 'tickflow'
     ? (dataSources?.custom?.find(s => s.name === realtimeProvider)?.display_name || realtimeProvider)
@@ -340,27 +284,26 @@ export function Layout() {
         ? '關閉即時行情'
         : '開啟即時行情'
 
-  // 当前主数据源 (用于侧边栏数据源状态卡)
-  const activeProvider = prefs?.daily_data_provider || 'tickflow'
-  const activeProviderName = activeProvider === 'tickflow'
-    ? 'TickFlow'
+  // 當前主數據源 (用於側邊欄數據源狀態卡)
+  const activeProvider = prefs?.daily_data_provider || 'taiwan'
+  const activeProviderName = (activeProvider === 'taiwan' || activeProvider === 'tickflow')
+    ? '台灣官方資料源'
     : (dataSources?.custom?.find(s => s.name === activeProvider)?.display_name || activeProvider)
-  const isCustomActive = activeProvider !== 'tickflow'
 
-  // 轮询触发记录总数 → 更新监控中心徽标 (每 15 秒; 后台标签页由 SSE 事件驱动, 不轮询)
+  // 輪詢觸發記錄總數 → 更新監控中心徽標 (每 15 秒; 後台標籤頁由 SSE 事件驅動, 不輪詢)
   const alertsTotalQuery = useQuery({
     queryKey: ['alerts-total'],
     queryFn: () => api.alertsList({ days: 7, limit: 1 }),
     refetchInterval: 15000,
     select: (data) => data.total,
   })
-  // 只在拿到真实总数时同步徽标 (避免 data=undefined 时传 0 重置 lastSeen)
+  // 只在拿到真實總數時同步徽標 (避免 data=undefined 時傳 0 重置 lastSeen)
   const alertsTotal = alertsTotalQuery.data
   useEffect(() => {
     if (alertsTotal != null) setAlertTotal(alertsTotal)
   }, [alertsTotal])
 
-  // 合并内置页面 + 扩展导航
+  // 合併內置頁面 + 擴展導航
   type NavItem = { to: string; label: string; icon: LucideIcon; badge?: string }
   const extensionNav: NavItem[] = getFrontendExtensionNavigation().map(item => ({
     to: item.route.path,
@@ -382,8 +325,8 @@ export function Layout() {
         const merged = [...ordered]
         for (const item of allNav) {
           if (seen.has(item.to)) continue
-          // 未保存过排序的新条目: 内置页插回默认位置(排在已保存的默认前驱之后),
-          // 分析/扩展菜单仍追加到末尾
+          // 未保存過排序的新條目: 內置頁插回默認位置(排在已保存的默認前驅之後),
+          // 分析/擴展菜單仍追加到末尾
           const defaultIndex = nav.findIndex(n => n.to === item.to)
           let anchor = -1
           if (defaultIndex > 0) {
@@ -403,7 +346,7 @@ export function Layout() {
   const visibleNavItems = navItems.filter(n => !hiddenIds.has(n.to))
 
   const handleToggle = async (enabled: boolean) => {
-    // 开启时重新校验实时权限 (以 quote_status 的数据源无关判定为准)
+    // 開啟時重新校驗實時權限 (以 quote_status 的數據源無關判定為準)
     if (enabled) {
       const fresh = await qc.fetchQuery({
         queryKey: QK.quoteStatus,
@@ -419,7 +362,7 @@ export function Layout() {
       }
     }
     await toggleQuote.mutateAsync(enabled)
-    // 仅在交易时段立即获取一次行情
+    // 僅在交易時段立即獲取一次行情
     if (enabled && isTrading) {
       api.intradayRefresh().catch(() => {})
     }
@@ -432,7 +375,7 @@ export function Layout() {
     >
       <aside className="border-r border-border bg-surface flex flex-col h-full min-h-0 overflow-hidden">
         <div className={cn('border-b border-border shrink-0', navCollapsed ? 'px-2 pt-3 pb-2' : 'px-4 pt-4 pb-3')}>
-          {/* Brand block — 收起时只显 logo 居中 */}
+          {/* Brand block — 收起時只顯 logo 居中 */}
           <div className={cn('flex', navCollapsed ? 'flex-col items-center gap-2' : 'items-center gap-2')}>
             <Logo
               size={navCollapsed ? 24 : 26}
@@ -444,10 +387,10 @@ export function Layout() {
                 className="font-bold text-[11px] uppercase tracking-[0.14em] text-foreground whitespace-nowrap"
                 style={{ textShadow: `0 0 10px ${BRAND}44` }}
               >
-                TickFlow 台股面板
+                Nanachi 的台股監控看板
               </div>
             )}
-            {/* 收起/展开 按钮 */}
+            {/* 收起/展開 按鈕 */}
             <button
               onClick={toggleNavCollapsed}
               className={cn(
@@ -463,14 +406,11 @@ export function Layout() {
             </button>
           </div>
 
-          {/* 状态卡 — 收起时隐藏 */}
+          {/* 狀態卡 — 收起時隱藏 */}
           {!navCollapsed && (
             <div className="mt-2.5 border-t border-border/60 pt-1">
-              <TierBadge
-                label={caps?.label ?? ''}
-                hasKey={settingsState?.mode !== 'none'}
+              <DataSourceBadge
                 providerName={activeProviderName}
-                isTickflow={!isCustomActive}
               />
               <div className="mx-2 border-t border-border/45" aria-hidden="true" />
               <AIConfigBadge
@@ -483,12 +423,12 @@ export function Layout() {
 
         <nav className="flex-1 min-h-0 overflow-y-auto px-2 py-3 space-y-0.5">
           {visibleNavItems.map(({ to, label, icon: Icon, badge }) => {
-            // 「自选」项 — 开启分组侧栏且未整体收起时, 渲染为可展开父项 + 二级分组
+            // 「自選」項 — 開啟分組側欄且未整體收起時, 渲染為可展開父項 + 二級分組
             const isWatchlistExpandable = to === '/watchlist' && groupsInNav && !navCollapsed && watchlistGroups.length > 0
             return (
               <div key={to}>
                 {isWatchlistExpandable ? (
-                  /* 可展开的自选父项 — 点击切换展开, 不直接跳页 */
+                  /* 可展開的自選父項 — 點擊切換展開, 不直接跳頁 */
                   <button
                     onClick={() => setWatchlistNavExpanded(v => !v)}
                     className={cn(
@@ -512,7 +452,7 @@ export function Layout() {
                     }
                   </button>
                 ) : (
-                  /* 普通菜单项 */
+                  /* 普通菜單項 */
                   <NavLink
                     to={to}
                     title={navCollapsed ? label : undefined}
@@ -528,7 +468,7 @@ export function Layout() {
                   >
                     {({ isActive }) => (
                       <>
-                        {/* active 左侧 accent 竖条指示 */}
+                        {/* active 左側 accent 豎條指示 */}
                         <span
                           className={cn(
                             'pointer-events-none absolute left-0 top-1/2 h-4 -translate-y-1/2 w-[2.5px] rounded-full bg-accent transition-opacity duration-150',
@@ -542,21 +482,21 @@ export function Layout() {
                             {badge}
                           </span>
                         )}
-                        {/* 数据同步状态: 同步中转圈, 刚完成显示绿色对勾闪烁 3 秒 */}
+                        {/* 數據同步狀態: 同步中轉圈, 剛完成顯示綠色對勾閃爍 3 秒 */}
                         {to === '/data' && isDataSyncing && !navCollapsed && (
                           <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin text-accent" />
                         )}
                         {to === '/data' && !isDataSyncing && dataSyncJustDone && !navCollapsed && (
                           <CheckCircle2 className="h-3.5 w-3.5 shrink-0 text-bull animate-pulse" />
                         )}
-                        {/* 监控中心徽标: 仅非监控页且有未读时显示 */}
+                        {/* 監控中心徽標: 僅非監控頁且有未讀時顯示 */}
                         {to === '/monitor' && !navCollapsed && <MonitorBadge active={isActive} />}
                       </>
                     )}
                   </NavLink>
                 )}
 
-                {/* 自选分组二级子菜单 — 展开时显示 */}
+                {/* 自選分組二級子菜單 — 展開時顯示 */}
                 {isWatchlistExpandable && watchlistNavExpanded && (
                   <div className="mt-0.5 space-y-0.5">
                     <NavLink
@@ -617,7 +557,7 @@ export function Layout() {
           />
         </nav>
 
-        {/* 全局行情开关 — 收起时只显示状态指示点 */}
+        {/* 全局行情開關 — 收起時只顯示狀態指示點 */}
         {navCollapsed ? (
           <div className="border-t border-border px-2 py-2.5 shrink-0 flex justify-center">
             <button
@@ -653,7 +593,7 @@ export function Layout() {
               </div>
             </div>
           ) : (
-            /* 实时可用 — 开关 + 跳转设置 */
+            /* 實時可用 — 開關 + 跳轉設置 */
             <div className="flex items-center gap-2">
               <div className="flex min-w-0 flex-1 items-center gap-2">
                 <span className={`inline-block h-2 w-2 shrink-0 rounded-full ${realtimeIndicatorClass}`} />
@@ -701,7 +641,7 @@ export function Layout() {
             </div>
           )}
 
-          {/* 状态提示 */}
+          {/* 狀態提示 */}
           {realtimeEnabled
             && (!realtimeUnavailable || realtimeProviderName)
             && (isPaused || (isWatchlistMode && !dismissFreeHint && !realtimeProviderName))

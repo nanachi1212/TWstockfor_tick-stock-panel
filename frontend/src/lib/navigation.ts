@@ -4,8 +4,8 @@
 // (ASHARE_LEGACY_NAV: 策略選股/A 股回測/因子挖掘, 受 show_ashare_legacy_features
 // 總開關控制)已隨對應 route/page 正式移除產品介面, 本檔案不再匯出該陣列。
 //
-// CORE_NAV: 已确认可靠支援台股 / 市场中立的功能, 走既有的 nav_order /
-//   nav_hidden 偏好机制(可拖曳排序、可个别显示/隐藏)。
+// CORE_NAV: 已確認可靠支援台股 / 市場中立的功能, 走既有的 nav_order /
+//   nav_hidden 偏好機制(可拖曳排序、可個別顯示/隱藏)。
 import {
   Star,
   LayoutDashboard,
@@ -33,8 +33,8 @@ export interface NavMeta {
 // 等資料工程操作, 資料更新改由 backend scheduler 全自動處理。backend
 // pipeline / scheduler / sync services 完全未變更。
 //
-// Phase 8B-5.10 — /limit-ladder(連板梯隊頁)已整頁刪除: 連板/打板/炸板/
-// 封板率等皆為中國 A 股漲跌停制度衍生的投機文化術語, 對台股使用者無意義,
+// Phase 8B-5.10 — 舊連板梯隊頁已整頁刪除: 連板/打板/炸板/
+// 封板率等皆為中國 A 股漲跌停製度衍生的投機文化術語, 對台股使用者無意義,
 // 不硬改名成台股功能。depth_service 的封板判定(sealed cache)仍被
 // market_overview_builder / quote_service / monitor_rules 等多方真實消費,
 // 完全保留未動。

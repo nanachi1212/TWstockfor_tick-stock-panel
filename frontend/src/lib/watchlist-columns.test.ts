@@ -32,7 +32,7 @@ describe('Watchlist BUILTIN_COLUMNS — Taiwan-first defaults (Phase 8C-C)', () 
     expect(findColumn('builtin:limit_ups').visible).toBe(false)
   })
 
-  it('60D 动量 is not default-visible (avoids two technical indicators both defaulting on)', () => {
+  it('60D 動量 is not default-visible (avoids two technical indicators both defaulting on)', () => {
     expect(findColumn('builtin:momentum_60d').visible).toBe(false)
   })
 

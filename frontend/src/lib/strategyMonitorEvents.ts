@@ -39,7 +39,7 @@ const META: Record<string, StrategyEventMeta> = {
   },
 }
 
-/** 新建策略监控的默认通知事件: 选股结果(进入/移出), 与后端省略字段时的回填一致 */
+/** 新建策略監控的默認通知事件: 選股結果(進入/移出), 與後端省略字段時的回填一致 */
 export const DEFAULT_STRATEGY_NOTIFY_EVENTS: StrategyNotifyEvent[] = [
   'pool_entry',
   'pool_exit',

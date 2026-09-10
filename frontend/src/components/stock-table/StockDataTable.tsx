@@ -1,9 +1,9 @@
 /**
- * 股票列表表格骨架（自选/策略页共享）。
+ * 股票列表表格骨架（自選/策略頁共享）。
  *
- * 职责：表头渲染（读列配置 label/align + 可排序三态指示器）、表体遍历、sticky 表头。
- * 不内置任何业务逻辑：单元格内容（含 symbol 列交互、操作列、ext 列）由调用方通过
- * renderCell / renderExtraCol 注入。这样两个页面的特有交互得以保留，同时表头能力一致。
+ * 職責：表頭渲染（讀列配置 label/align + 可排序三態指示器）、表體遍歷、sticky 表頭。
+ * 不內置任何業務邏輯：單元格內容（含 symbol 列交互、操作列、ext 列）由調用方通過
+ * renderCell / renderExtraCol 注入。這樣兩個頁面的特有交互得以保留，同時表頭能力一致。
  */
 import { cloneElement, isValidElement, useRef, type ReactElement, type ReactNode } from 'react'
 import { useVirtualizer, type VirtualItem } from '@tanstack/react-virtual'
@@ -17,33 +17,33 @@ export type { SortState }
 export interface StockDataTableProps {
   columns: ColumnConfig[]
   rows: any[]
-  /** 单元格渲染回调。返回 null 时回退到内置纯数据列渲染。 */
+  /** 單元格渲染回調。返回 null 時回退到內置純數據列渲染。 */
   renderCell: (r: any, col: ColumnConfig) => ReactNode
-  /** 行 key（默认取 r.symbol） */
+  /** 行 key（默認取 r.symbol） */
   rowKey?: (r: any) => string | number
-  /** 行 className（默认含 hover） */
+  /** 行 className（默認含 hover） */
   rowClassName?: (r: any) => string
-  /** 表头是否 sticky（自选页需要，策略页不需要） */
+  /** 表頭是否 sticky（自選頁需要，策略頁不需要） */
   headerSticky?: boolean
-  /** 最小表格宽度，默认按列数计算 */
+  /** 最小表格寬度，默認按列數計算 */
   minWidth?: number
-  /** 排序：外部受控时传入（含当前 sort 与 toggle）；不传则表头不可排序 */
+  /** 排序：外部受控時傳入（含當前 sort 與 toggle）；不傳則表頭不可排序 */
   sort?: SortState | null
   onSortToggle?: (colId: string) => void
-  /** 实例级放行: 让 UNSORTABLE_KEYS 中的 builtin 列在本表也可排序 (如自选页分时列) */
+  /** 實例級放行: 讓 UNSORTABLE_KEYS 中的 builtin 列在本表也可排序 (如自選頁分時列) */
   extraSortableKeys?: ReadonlySet<string>
-  /** 追加在每行末尾的额外单元格（如自选页的操作列） */
+  /** 追加在每行末尾的額外單元格（如自選頁的操作列） */
   renderExtraCol?: (r: any) => ReactNode
-  /** 追加的表头单元格（对应 renderExtraCol） */
+  /** 追加的表頭單元格（對應 renderExtraCol） */
   extraHeader?: ReactNode
-  /** 自定义表头单元格内容覆盖（如日k眼睛按钮）。返回 undefined 则用 col.label */
+  /** 自定義表頭單元格內容覆蓋（如日k眼睛按鈕）。返回 undefined 則用 col.label */
   renderHeaderContent?: (col: ColumnConfig) => ReactNode | undefined
-  /** 外层容器 className */
+  /** 外層容器 className */
   className?: string
 }
 
 function alignThClass(align: ColumnConfig['align']): string {
-  // 表头一律不换行: 窄列(如收起的图表列)中标签/排序箭头折行会把整行表头顶高
+  // 表頭一律不換行: 窄列(如收起的圖表列)中標籤/排序箭頭折行會把整行表頭頂高
   if (align === 'right') return 'px-3 py-2.5 font-medium text-right whitespace-nowrap'
   if (align === 'center') return 'px-3 py-2.5 font-medium text-center whitespace-nowrap'
   return 'px-3 py-2.5 font-medium whitespace-nowrap'
@@ -87,7 +87,7 @@ export function StockDataTable({
   const columnCount = visibleColumns.length + (renderExtraCol || extraHeader ? 1 : 0)
 
   const isColSortable = (col: ColumnConfig): boolean => {
-    // 排序能力由调用方是否提供 onSortToggle 决定；sort 是否为 null 只影响当前指示器
+    // 排序能力由調用方是否提供 onSortToggle 決定；sort 是否為 null 隻影響當前指示器
     if (!onSortToggle) return false
     if (col.source.type === 'builtin' && UNSORTABLE_KEYS.has(col.source.key) && !extraSortableKeys?.has(col.source.key)) return false
     return true
@@ -105,7 +105,7 @@ export function StockDataTable({
       className={`transition-colors duration-150 ease-smooth group ${rowClassName(r)}`}
     >
       {visibleColumns.map(col => {
-        // renderCell 返回的 <td> 无 key, 这里补上避免 React key 警告
+        // renderCell 返回的 <td> 無 key, 這裡補上避免 React key 警告
         const cell = renderCell(r, col)
         return isValidElement(cell)
           ? cloneElement(cell as ReactElement, { key: col.id })

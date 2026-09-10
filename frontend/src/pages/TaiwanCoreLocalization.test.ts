@@ -54,7 +54,7 @@ describe('Taiwan core pages — no simplified Chinese in rendered text (Phase 8B
 
   it('Taiwan symbol/exchange handling is untouched (.TWSE / .TPEX suffixes still referenced)', () => {
     const detail = read('pages/TaiwanStockDetail.tsx')
-    // 只需確認 route/symbol 相關程式碼仍在, 不要求逐字比對(避免测试过度耦合实作细节)
+    // 只需確認 route/symbol 相關程式碼仍在, 不要求逐字比對(避免測試過度耦合實作細節)
     expect(detail).toMatch(/symbol/i)
   })
 })

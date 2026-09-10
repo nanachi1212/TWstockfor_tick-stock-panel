@@ -1,11 +1,11 @@
 /**
- * 共享 mutation hooks — 消除多页面重复的 useMutation 调用。
+ * 共享 mutation hooks — 消除多頁面重複的 useMutation 調用。
  */
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { api } from './api'
 import { QK } from './queryKeys'
 
-/** 切换实时行情 — Layout / Data 共用 */
+/** 切換實時行情 — Layout / Data 共用 */
 export function useToggleRealtimeQuotes() {
   const qc = useQueryClient()
   return useMutation({
@@ -17,7 +17,7 @@ export function useToggleRealtimeQuotes() {
   })
 }
 
-/** 更新行情轮询间隔 — Layout / Data 共用 */
+/** 更新行情輪詢間隔 — Layout / Data 共用 */
 export function useUpdateQuoteInterval() {
   const qc = useQueryClient()
   return useMutation({
@@ -34,7 +34,7 @@ interface WatchlistBatchAddInput {
   groupId?: string | null
 }
 
-/** 批量添加自选 — Screener / 截图导入共用 */
+/** 批量添加自選 — Screener / 截圖導入共用 */
 export function useWatchlistBatchAdd() {
   const qc = useQueryClient()
   return useMutation({
@@ -42,8 +42,8 @@ export function useWatchlistBatchAdd() {
       api.watchlistBatchAdd(symbols, '', groupId),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: QK.watchlist })
-      // 前缀匹配: 实际 key 为 ['watchlist-enriched', extColumnsParam],
-      // 不能用 QK.watchlistEnriched()(= undefined) 精确匹配, 否则列表不刷新。
+      // 前綴匹配: 實際 key 為 ['watchlist-enriched', extColumnsParam],
+      // 不能用 QK.watchlistEnriched()(= undefined) 精確匹配, 否則列表不刷新。
       qc.invalidateQueries({ queryKey: ['watchlist-enriched'] })
     },
   })

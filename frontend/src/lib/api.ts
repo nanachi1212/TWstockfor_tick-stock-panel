@@ -1,14 +1,14 @@
-// 后端 API 客户端 — 全项目统一入口
+// 後端 API 客戶端 — 全項目統一入口
 //
-// Dev: Vite 按启动脚本解析出的 BACKEND_HOST/BACKEND_PORT 代理 /api
-// Prod:同源(FastAPI 托管前端 dist)
+// Dev: Vite 按啟動腳本解析出的 BACKEND_HOST/BACKEND_PORT 代理 /api
+// Prod:同源(FastAPI 託管前端 dist)
 
 import { toast } from '@/components/Toast'
 
 const BASE = ''
 
 type RequestOptions = RequestInit & {
-  /** 为 true 时不弹错误 toast（由调用方自行汇总提示，如多图串行队列） */
+  /** 為 true 時不彈錯誤 toast（由調用方自行彙總提示，如多圖串行隊列） */
   quiet?: boolean
 }
 
@@ -17,7 +17,7 @@ async function request<T>(path: string, init?: RequestOptions): Promise<T> {
   const isFormData = fetchInit.body instanceof FormData
   const headers: Record<string, string> = {}
   if (!isFormData) headers['Content-Type'] = 'application/json'
-  // 合并调用方传入的 headers (此前会被整体覆盖丢弃)
+  // 合併調用方傳入的 headers (此前會被整體覆蓋丟棄)
   Object.assign(headers, fetchInit.headers as Record<string, string> | undefined)
   const res = await fetch(`${BASE}${path}`, { ...fetchInit, headers })
   if (!res.ok) {
@@ -26,7 +26,7 @@ async function request<T>(path: string, init?: RequestOptions): Promise<T> {
       const j = JSON.parse(await res.text())
       const raw = j.detail ?? j.message ?? ''
       if (Array.isArray(raw)) {
-        // FastAPI 422 校验错误: [{type, loc, msg, input}, ...] → 取 msg 拼接
+        // FastAPI 422 校驗錯誤: [{type, loc, msg, input}, ...] → 取 msg 拼接
         detail = raw.map((e: any) => e?.msg || String(e)).join('; ')
       } else if (typeof raw === 'string') {
         detail = raw
@@ -35,7 +35,7 @@ async function request<T>(path: string, init?: RequestOptions): Promise<T> {
       }
     } catch { /* ignore */ }
     const msg = detail || `${res.status} ${res.statusText}`
-    // 401 (未登录/会话过期) 不弹 toast — 由全局认证拦截器统一跳登录页, 避免刷屏
+    // 401 (未登錄/會話過期) 不彈 toast — 由全局認證攔截器統一跳登錄頁, 避免刷屏
     if (res.status !== 401 && !quiet) toast(msg, 'error')
     throw new Error(msg)
   }
@@ -55,9 +55,9 @@ export interface CapabilitiesResponse {
 }
 
 // ===== Financials =====
-// Phase 8B-5.3: A 股财务分析产品(状态/利润表/资产负债表/现金流量表/历史股本/
-// AI 财务分析/报告)已整体下线。仅保留 FinancialMetricRecord —— 它被
-// StockPanel/StockInfoBar 的信息条「财务」字段组 (EPS/BPS/ROE/PE/PB 等) 复用。
+// Phase 8B-5.3: A 股財務分析產品(狀態/利潤表/資產負債表/現金流量表/歷史股本/
+// AI 財務分析/報告)已整體下線。僅保留 FinancialMetricRecord —— 它被
+// StockPanel/StockInfoBar 的信息條「財務」字段組 (EPS/BPS/ROE/PE/PB 等) 複用。
 export interface FinancialMetricRecord {
   symbol?: string
   period_end: string
@@ -79,7 +79,7 @@ export interface FinancialMetricRecord {
   [key: string]: any
 }
 
-// ===== 个股分析 =====
+// ===== 個股分析 =====
 export type LevelType = 'sr' | 'pivot' | 'extreme' | 'boll' | 'keltner_s' | 'keltner_m' | 'keltner_l' | 'atr_stop' | 'gap' | 'fib' | 'round'
 
 export interface PriceLevel {
@@ -88,11 +88,11 @@ export interface PriceLevel {
   type: LevelType
   side: 'resistance' | 'support' | 'neutral'
   strength?: 'strong' | 'medium' | 'weak'
-  /** 档位(仅 pivot 有):0=P, 1=R1/S1, 2=R2/S2, 3=R3/S3。前端按"显示到第几档"过滤。 */
+  /** 檔位(僅 pivot 有):0=P, 1=R1/S1, 2=R2/S2, 3=R3/S3。前端按"顯示到第幾檔"過濾。 */
   rank?: number
 }
 
-/** 带状曲线指标(布林带/Keltner/ATR)的每日时间序列,与 dates 对齐。 */
+/** 帶狀曲線指標(布林帶/Keltner/ATR)的每日時間序列,與 dates 對齊。 */
 export interface LevelSeries {
   boll?: { upper: (number | null)[]; lower: (number | null)[]; mid?: (number | null)[] }
   keltner_s?: { upper: (number | null)[]; lower: (number | null)[] }
@@ -106,7 +106,7 @@ export interface StockLevels {
   close: number | null
   summary: string
   symbol: string
-  /** dates 与 series 对齐;前端按自身 rows 的日期映射,缺失填 null */
+  /** dates 與 series 對齊;前端按自身 rows 的日期映射,缺失填 null */
   dates?: string[]
   series?: LevelSeries
 }
@@ -161,7 +161,7 @@ export interface WatchlistEntry {
   added_at: string
   note?: string
   name?: string | null
-  /** 所属分组 id 列表 (同一标的可属于多个分组; 空数组=未分组) */
+  /** 所屬分組 id 列表 (同一標的可屬於多個分組; 空數組=未分組) */
   group_ids?: string[]
 }
 
@@ -336,23 +336,23 @@ export interface OverviewMarket {
   industry_rank: { leading: OverviewDimensionRankItem[]; lagging: OverviewDimensionRankItem[] }
 }
 
-// ===== 市场环境(Regime) =====
+// ===== 市場環境(Regime) =====
 export type RegimeState = 'strong' | 'lean_strong' | 'range' | 'lean_weak' | 'weak'
 
 export const REGIME_STATE_LABELS: Record<RegimeState, string> = {
-  strong: '强势',
-  lean_strong: '偏强',
-  range: '震荡',
+  strong: '強勢',
+  lean_strong: '偏強',
+  range: '震盪',
   lean_weak: '偏弱',
-  weak: '弱势',
+  weak: '弱勢',
 }
 
 export const REGIME_STATE_COLORS: Record<RegimeState, string> = {
-  strong: '#ef4444',      // 红(强)
+  strong: '#ef4444',      // 紅(強)
   lean_strong: '#f97316', // 橙
   range: '#6b7280',       // 灰
-  lean_weak: '#3b82f6',   // 蓝
-  weak: '#10b981',        // 绿(弱)
+  lean_weak: '#3b82f6',   // 藍
+  weak: '#10b981',        // 綠(弱)
 }
 
 export interface RegimeRow {
@@ -371,7 +371,7 @@ export interface RegimeRow {
   above_ma20_pct: number
   total_amount: number
   avg_turnover: number
-  // 4 个子维度分(0-100, 重算后才有; 旧数据可能缺) — 综合分的加权来源
+  // 4 個子維度分(0-100, 重算後才有; 舊數據可能缺) — 綜合分的加權來源
   avg_pct?: number
   median_pct?: number
   strong_up_pct?: number
@@ -380,7 +380,7 @@ export interface RegimeRow {
   speculation_score?: number
   resilience_score?: number
   trend_score?: number
-  // 情绪周期阶段与梯队指标(重算后才有; 旧数据可能缺)
+  // 情緒週期階段與梯隊指標(重算後才有; 舊數據可能缺)
   phase?: MarketPhase | null
   first_board?: number | null
   ge2_count?: number | null
@@ -397,9 +397,9 @@ export interface RegimeCoverage {
   latest_date: string | null
 }
 
-// ── 市场阶段(情绪周期) ──
-// Phase 8B-5.7: MARKET_PHASE_LABELS/COLORS/ORDER 与 PhaseSegment(s)/
-// MainlineRow/Leader/Result 仅供已刪除的 Regime.tsx 研究頁使用, 一併移除。
+// ── 市場階段(情緒週期) ──
+// Phase 8B-5.7: MARKET_PHASE_LABELS/COLORS/ORDER 與 PhaseSegment(s)/
+// MainlineRow/Leader/Result 僅供已刪除的 Regime.tsx 研究頁使用, 一併移除。
 // MarketPhase 型別本身保留 —— 是 RegimeRow.phase 欄位的型別依賴(regimeLatest
 // 仍是 Mining 頁真實 consumer)。MainlineFilter 保留 —— 是 mainlineFilterUpdate
 // (設定頁 /api/settings/preferences/mainline-filter)的回傳型別, 不屬本次範圍。
@@ -459,7 +459,7 @@ export interface StrategyDetail {
   order_by: string
   descending: boolean
   limit: number
-  // 叠加策略(composite)专属: 子策略列表与合并模式。非 composite 时为 null。
+  // 疊加策略(composite)專屬: 子策略列表與合併模式。非 composite 時為 null。
   composite_children?: CompositeChildInfo[] | null
 }
 
@@ -486,13 +486,13 @@ export interface StrategyCodeSaveResult {
   meta: Record<string, any>
 }
 
-// ===== Custom Signals (自定义信号) =====
+// ===== Custom Signals (自定義信號) =====
 export interface CustomSignalCondition {
   left: string     // 字段名
   op: string       // > >= < <= == !=
-  right: string    // "field:xxx" 或数字字符串
-  leftDays?: number   // 左字段取几日前 (0=当日, 默认)
-  rightDays?: number  // 右字段取几日前 (仅 right 为字段时有意义)
+  right: string    // "field:xxx" 或數字字符串
+  leftDays?: number   // 左字段取幾日前 (0=當日, 默認)
+  rightDays?: number  // 右字段取幾日前 (僅 right 為字段時有意義)
 }
 
 export interface CustomSignal {
@@ -522,11 +522,11 @@ export interface CustomSignalAIGenerateResult {
   conditions: CustomSignalCondition[]
 }
 
-// ===== Monitor (监控规则 + 触发记录) =====
+// ===== Monitor (監控規則 + 觸發記錄) =====
 export interface MonitorCondition {
   field: string
   op: string              // truth | > >= < <= == !=
-  value?: number | null   // op 非 truth 时必填
+  value?: number | null   // op 非 truth 時必填
 }
 
 export type StrategyNotifyEvent = 'buy_signal' | 'sell_signal' | 'pool_entry' | 'pool_exit'
@@ -555,7 +555,7 @@ export interface MonitorRule {
   asset_type?: 'stock' | 'etf' | 'index'
   scope: 'symbols' | 'all' | 'sector' | 'watchlist_group'
   symbols: string[]
-  /** scope=watchlist_group 时绑定的自选分组 id (成员动态解析, 增删自选自动生效) */
+  /** scope=watchlist_group 時綁定的自選分組 id (成員動態解析, 增刪自選自動生效) */
   group_id?: string | null
   sector?: string | null
   sector_kind?: SectorKind | null
@@ -574,13 +574,13 @@ export interface MonitorRule {
   severity: 'info' | 'warn' | 'critical'
   message: string
   webhook_url?: string
-  webhook_enabled?: boolean  // 兼容老规则, 已由 webhook_channels 取代
-  webhook_channels?: string[]  // 命中时推送的外部渠道 (合法值 'feishu' | 'wecom')
+  webhook_enabled?: boolean  // 兼容老規則, 已由 webhook_channels 取代
+  webhook_channels?: string[]  // 命中時推送的外部渠道 (合法值 'feishu' | 'wecom')
   created_at?: string
   runtime_warning?: string
-  // ladder 专属: 封单监控
-  metric?: 'sealed_vol' | 'sealed_amount'  // 量(手) / 额(元)
-  threshold?: number                        // 封单 <= 此值时报警
+  // ladder 專屬: 封單監控
+  metric?: 'sealed_vol' | 'sealed_amount'  // 量(手) / 額(元)
+  threshold?: number                        // 封單 <= 此值時報警
 }
 
 export interface MonitorRuleOptions {
@@ -631,7 +631,7 @@ export interface AlertEvent {
   up_count?: number
   down_count?: number
   leader?: { symbol?: string; name?: string; change_pct?: number } | null
-  /** ext 富化字段 (行业/概念等), 键为 "{configId}__{fieldName}" */
+  /** ext 富化字段 (行業/概念等), 鍵為 "{configId}__{fieldName}" */
   [key: string]: unknown
 }
 
@@ -1514,7 +1514,7 @@ export interface TaiwanComparisonAIResearchResponse {
   evidence_registry_keys: string[]
 }
 
-/** 生成监控规则 id (时间戳 + 随机后缀), 用户无需手动填写。 */
+/** 生成監控規則 id (時間戳 + 隨機後綴), 用戶無需手動填寫。 */
 export function genRuleId(): string {
   const ts = Date.now().toString(36)
   const rand = Math.random().toString(36).slice(2, 6)
@@ -1892,7 +1892,7 @@ export interface StrategyBacktestResult {
     max_hold_days: number | null
     source: string
     execution_backend?: string
-    // 叠加策略回测: 子策略构成与权重归因
+    // 疊加策略回測: 子策略構成與權重歸因
     composite_children?: { id: string; weight: number }[]
   }
   elapsed_ms: number
@@ -1910,7 +1910,7 @@ export interface SettingsState {
   probe_log: string[]
   missing_caps: string[]
   extras_caps: string[]
-  // 首次使用引导
+  // 首次使用引導
   onboarding_completed: boolean
   // AI 配置
   ai_provider: string
@@ -1929,10 +1929,10 @@ export interface SettingsState {
   ai_context_window?: number
 }
 
-/** 保存 TickFlow Key 的响应(先探后存) */
+/** 保存 TickFlow Key 的響應(先探後存) */
 export interface SaveTickflowKeyResult {
   ok: boolean
-  /** ok=false 且 key 无效时的原因标识,前端据此提示「Key 无效」 */
+  /** ok=false 且 key 無效時的原因標識,前端據此提示「Key 無效」 */
   reason?: 'invalid'
   error?: string
   mode?: 'none' | 'free' | 'api_key'
@@ -1949,17 +1949,17 @@ export interface DataSourceItem {
   path?: string | null
 }
 
-/** 内置可选插件数据源 (plugins/ 目录, 需手动装依赖) */
+/** 內置可選插件數據源 (plugins/ 目錄, 需手動裝依賴) */
 export interface PluginDataSourceItem {
   name: string
   display_name: string
   datasets: string[]
   runtime: string          // node | python | none
-  available: boolean       // 依赖是否已安装
-  status: string           // 可用性原因 (供 UI 显示)
+  available: boolean       // 依賴是否已安裝
+  status: string           // 可用性原因 (供 UI 顯示)
   description: string
-  install_hint: string     // 未装依赖时显示的安装命令
-  api_key_env?: string     // 声明后设置页提供 Key 输入框 (先探后存)
+  install_hint: string     // 未裝依賴時顯示的安裝命令
+  api_key_env?: string     // 聲明後設置頁提供 Key 輸入框 (先探後存)
 }
 
 export interface DataSourceLoadError {
@@ -1984,7 +1984,7 @@ export interface DataSourceTestResult {
   preview: Record<string, unknown>[]
 }
 
-/** 插件 Key 保存结果 (先探后存: 无效 Key 返回 ok=false 且不落盘) */
+/** 插件 Key 保存結果 (先探後存: 無效 Key 返回 ok=false 且不落盤) */
 export interface PluginKeyResult {
   ok: boolean
   reason?: string
@@ -2064,7 +2064,6 @@ export interface Preferences {
   instruments_schedule: { hour: number; minute: number }
   enriched_batch_size: number
   index_daily_batch_size: number
-  limit_ladder_monitor_enabled: boolean
   depth_polling_interval: number
   depth_finalize_time: { hour: number; minute: number }
   sse_refresh_pages: Record<string, boolean>
@@ -2079,6 +2078,12 @@ export interface Preferences {
   wecom_bot_enabled?: boolean
   webhook_enabled_default?: boolean
   webhook_default_channels?: string[]
+  line_target_id?: string
+  line_channel_access_token_masked?: string
+  line_configured?: boolean
+  telegram_chat_id?: string
+  telegram_bot_token_masked?: string
+  telegram_configured?: boolean
   sidebar_index_symbols: string[]
   nav_order: string[]
   nav_hidden: string[]
@@ -2088,13 +2093,13 @@ export interface Preferences {
   monitor_ext_fields: { concept: MonitorExtFieldItem | null; industry: MonitorExtFieldItem | null }
 }
 
-/** 监控中心 ext 字段单项配置 (行业/概念标签的来源 + 显示裁剪) */
+/** 監控中心 ext 字段單項配置 (行業/概念標籤的來源 + 顯示裁剪) */
 export interface MonitorExtFieldItem {
   /** "configId.fieldName" */
   field: string
-  /** 显示前N个标签, 0=不限制 */
+  /** 顯示前N個標籤, 0=不限制 */
   maxTags?: number
-  /** 隐藏的位置 (0-based), 如 [0] 表示隐藏第一个 */
+  /** 隱藏的位置 (0-based), 如 [0] 表示隱藏第一個 */
   hiddenIndices?: number[]
 }
 export interface StrategyAlertEvent {
@@ -2107,7 +2112,7 @@ export interface StrategyAlertEvent {
   price?: number | null
   change_pct?: number | null
   signals?: string[]
-  /** ext 富化字段 (行业/概念等), 键为 "{configId}__{fieldName}" */
+  /** ext 富化字段 (行業/概念等), 鍵為 "{configId}__{fieldName}" */
   [key: string]: unknown
 }
 
@@ -2115,7 +2120,7 @@ export interface StrategyAlertEvent {
 export const api = {
   health: () => request<{ status: string; version: string; mode: string }>('/health'),
 
-  // ===== Auth (访问认证) =====
+  // ===== Auth (訪問認證) =====
   authStatus: () =>
     request<{ configured: boolean; authenticated: boolean }>('/api/auth/status'),
   authSetup: (password: string) =>
@@ -2145,7 +2150,7 @@ export const api = {
   clearTickflowKey: () =>
     request<any>('/api/settings/tickflow-key', { method: 'DELETE' }),
 
-  /** 标记首次使用向导完成（持久化到后端 preferences） */
+  /** 標記首次使用嚮導完成（持久化到後端 preferences） */
   completeOnboarding: () =>
     request<{ ok: boolean; onboarding_completed: boolean }>(
       '/api/settings/onboarding/complete', { method: 'POST' },
@@ -2158,7 +2163,7 @@ export const api = {
       body: JSON.stringify(ai),
     }),
 
-  /** 一键清空 AI 配置(保留自定义 UA) */
+  /** 一鍵清空 AI 配置(保留自定義 UA) */
   clearAiSettings: () =>
     request<{ ok: boolean }>('/api/settings/ai', { method: 'DELETE' }),
 
@@ -2174,7 +2179,7 @@ export const api = {
     request<DataSourcesResponse>(`/api/settings/data-sources/${encodeURIComponent(name)}`, { method: 'DELETE' }),
   reloadDataSources: () => request<DataSourcesResponse>('/api/settings/data-sources/reload', { method: 'POST' }),
   installPlugin: (name: string) => {
-    // npm install 可能耗时较长, 用 6 分钟超时
+    // npm install 可能耗時較長, 用 6 分鐘超時
     const controller = new AbortController()
     const timer = setTimeout(() => controller.abort(), 360_000)
     return request<DataSourcesResponse & { install_ok: boolean; install_message: string }>(
@@ -2188,7 +2193,7 @@ export const api = {
       { method: 'DELETE' },
     ),
   savePluginKey: (plugin: string, apiKey: string) => {
-    // 先探后存: 后端会用候选 Key 实探一次, 探测超时 10s + 余量
+    // 先探後存: 後端會用候選 Key 實探一次, 探測超時 10s + 餘量
     const controller = new AbortController()
     const timer = setTimeout(() => controller.abort(), 30_000)
     return request<PluginKeyResult>('/api/settings/plugin-key', {
@@ -2342,19 +2347,24 @@ export const api = {
       method: 'PUT',
       body: JSON.stringify({ channels }),
     }),
+  updateLineMessaging: (recipient: string, token?: string, clearToken: boolean = false) =>
+    request<{ ok: boolean; line_target_id: string; line_configured: boolean }>('/api/settings/preferences/line-messaging', {
+      method: 'PUT',
+      body: JSON.stringify({ recipient, token, clear_token: clearToken }),
+    }),
+  updateTelegramBot: (recipient: string, token?: string, clearToken: boolean = false) =>
+    request<{ ok: boolean; telegram_chat_id: string; telegram_configured: boolean }>('/api/settings/preferences/telegram-bot', {
+      method: 'PUT',
+      body: JSON.stringify({ recipient, token, clear_token: clearToken }),
+    }),
+  testLineMessaging: () =>
+    request<{ ok: boolean }>('/api/settings/preferences/line-messaging/test', { method: 'POST' }),
+  testTelegramBot: () =>
+    request<{ ok: boolean }>('/api/settings/preferences/telegram-bot/test', { method: 'POST' }),
   updateDepthPollingInterval: (interval: number) =>
     request<{ depth_polling_interval: number }>('/api/settings/preferences/depth-polling-interval', {
       method: 'PUT',
       body: JSON.stringify({ interval }),
-    }),
-  updateLimitLadderMonitor: (enabled: boolean) =>
-    request<{ limit_ladder_monitor_enabled: boolean }>('/api/settings/preferences/limit-ladder-monitor', {
-      method: 'PUT',
-      body: JSON.stringify({ enabled }),
-    }),
-  runLimitLadderFix: () =>
-    request<{ ok: boolean; count: number; msg: string }>('/api/settings/preferences/limit-ladder-monitor/run', {
-      method: 'POST',
     }),
   updateDepthFinalizeTime: (hour: number, minute: number) =>
     request<{ hour: number; minute: number }>('/api/settings/preferences/depth-finalize-time', {
@@ -2371,7 +2381,7 @@ export const api = {
       method: 'PUT',
       body: JSON.stringify({ nav_hidden }),
     }),
-  // 自选列表列配置
+  // 自選列表列配置
   watchlistColumns: () =>
     request<{ columns: any[] | null }>('/api/settings/preferences/watchlist-columns'),
   updateWatchlistColumns: (columns: any[]) =>
@@ -2380,7 +2390,7 @@ export const api = {
       body: JSON.stringify({ columns }),
     }),
 
-  // 策略结果列表列配置
+  // 策略結果列表列配置
   screenerResultColumns: () =>
     request<{ columns: any[] | null }>('/api/settings/preferences/screener-result-columns'),
   updateScreenerResultColumns: (columns: any[]) =>
@@ -2418,16 +2428,16 @@ export const api = {
       body: JSON.stringify({ symbols, date }),
     }),
   /**
-   * market 省略 = 既有 A 股 legacy 行为(Financials 搜索 / A 股监控规则编辑器 /
-   * A 股回测标的选择器等既有调用方不用改)。market='taiwan' 只查
-   * TaiwanSecurityMaster, 不会混入 .SH/.SZ/.BJ 结果 —— 自选股搜索用这个。
+   * market 省略 = 既有 A 股 legacy 行為(Financials 搜索 / A 股監控規則編輯器 /
+   * A 股回測標的選擇器等既有調用方不用改)。market='taiwan' 只查
+   * TaiwanSecurityMaster, 不會混入 .SH/.SZ/.BJ 結果 —— 自選股搜索用這個。
    */
   instrumentSearch: (q: string, limit = 20, assetTypes?: string, market?: 'ashare' | 'taiwan' | 'all') =>
     request<{ results: { symbol: string; name: string; code: string; asset_type?: string; market: 'ashare' | 'taiwan' }[] }>(
       `/api/kline/instruments/search?q=${encodeURIComponent(q)}&limit=${limit}${assetTypes ? `&asset_types=${encodeURIComponent(assetTypes)}` : ''}${market ? `&market=${market}` : ''}`,
     ),
 
-  /** 批量查股票名称 (传入 symbol 列表, 返回 {symbol: name}) */
+  /** 批量查股票名稱 (傳入 symbol 列表, 返回 {symbol: name}) */
   instrumentNames: (symbols: string[]) =>
     request<{ names: Record<string, string> }>('/api/kline/instruments/names', {
       method: 'POST',
@@ -2601,8 +2611,8 @@ export const api = {
   marketSnapshot: () =>
     request<{ as_of: string | null; rows: MarketSnapshotRow[] }>('/api/screener/market-snapshot'),
 
-  // 市场环境(Regime)
-  // Phase 8B-5.7: 移除仅供已刪除的 Regime.tsx 研究頁使用的 history/states/
+  // 市場環境(Regime)
+  // Phase 8B-5.7: 移除僅供已刪除的 Regime.tsx 研究頁使用的 history/states/
   // recompute/phases/mainline 端點。Phase 8C-D: regimeLatest 唯一的 frontend
   // consumer(Mining 挖掘頁)已隨產品介面移除, 一併移除此 client method
   // (backend /api/regime/latest 與 regime core 計算完全未動, 見 Final Report)。
@@ -2796,7 +2806,7 @@ export const api = {
   // 已確認 zero 消費者並整組刪除(見 backend/app/api/data.py)。testEndpoint/
   // listEndpoints/switchEndpoint 對應的 backend 端點暫未動, 留待後續獨立 Phase。
 
-  // ===== 扩展数据 =====
+  // ===== 擴展數據 =====
   // Phase 8B-5.8: extDataCreate/Update/Delete/Upload(建立/編輯/刪除/上傳
   // 擴充資料源, 由已刪除的 CreateExtDialog/EditExtDialog/ExtDataStatCard
   // 使用)隨 Data.tsx 一併移除。
@@ -2824,21 +2834,21 @@ export const api = {
     request<{ items: { id: string; label: string; mode: string; columns: { name: string; type: string; label: string }[] }[] }>('/api/ext-data/schema-all'),
 
   // ===== Financials =====
-  // Phase 8B-5.3: 仅保留 financialMetrics —— 见上方 FinancialMetricRecord 注释。
+  // Phase 8B-5.3: 僅保留 financialMetrics —— 見上方 FinancialMetricRecord 註釋。
   financialMetrics: (symbol?: string) =>
     request<{ data: FinancialMetricRecord[] }>(
       `/api/financials/metrics${symbol ? `?symbol=${encodeURIComponent(symbol)}` : ''}`,
     ),
 
-  // ===== 个股分析 =====
-  // Phase 8B-5.6B: 仅保留 stockAnalysisLevels(PriceAlertDialog 价格提醒 +
-  // 关键价位持续使用)—— AI 长篇个股研究报告 workflow(analyze/reports CRUD)
-  // 已随其唯一消费者(已刪除的 StockAnalysis.tsx 页面 + stockAnalysisStore)
-  // 一併移除,详见 Phase 8B-5.6A audit。
+  // ===== 個股分析 =====
+  // Phase 8B-5.6B: 僅保留 stockAnalysisLevels(PriceAlertDialog 價格提醒 +
+  // 關鍵價位持續使用)—— AI 長篇個股研究報告 workflow(analyze/reports CRUD)
+  // 已隨其唯一消費者(已刪除的 StockAnalysis.tsx 頁面 + stockAnalysisStore)
+  // 一併移除,詳見 Phase 8B-5.6A audit。
   stockAnalysisLevels: (symbol: string, days = 120) =>
     request<StockLevels>(`/api/stock-analysis/levels?symbol=${encodeURIComponent(symbol)}&days=${days}`),
 
-  // Phase 8B-5.11: 大盘复盘(reviewReportsList/Save/Delete/reviewStream)
+  // Phase 8B-5.11: 大盤覆盤(reviewReportsList/Save/Delete/reviewStream)
   // 隨已刪除的 Review.tsx(盤後檢討頁)一併移除 —— 純 A 股 AI 長篇復盤
   // workflow, 對台股無意義。GET /api/overview/market(Dashboard A 股選配
   // 板塊仍用)、market_overview_builder、depth_service 完全未動。
@@ -2884,14 +2894,14 @@ export const api = {
   strategyResetConfig: (strategyId: string) =>
     request<{ ok: boolean }>(`/api/strategies/config/${strategyId}`, { method: 'DELETE' }),
 
-  /** 删除自定义策略（内置策略不可删除） */
+  /** 刪除自定義策略（內置策略不可刪除） */
   strategyDelete: (strategyId: string) =>
     request<{ ok: boolean }>(`/api/strategies/${strategyId}`, { method: 'DELETE' }),
 
   strategyReload: () =>
     request<{ ok: boolean; count: number }>('/api/strategies/reload', { method: 'POST' }),
 
-  // ===== Custom Signals (自定义信号) =====
+  // ===== Custom Signals (自定義信號) =====
   customSignalsList: () =>
     request<{ signals: CustomSignal[] }>('/api/custom-signals'),
 
@@ -2913,7 +2923,7 @@ export const api = {
       body: JSON.stringify({ description }),
     }),
 
-  // ===== Monitor Rules (监控规则) =====
+  // ===== Monitor Rules (監控規則) =====
   monitorRulesList: () =>
     request<{ rules: MonitorRule[] }>('/api/monitor-rules'),
 
@@ -3067,7 +3077,7 @@ export const api = {
     ),
 
 
-  /** 模拟触发 ladder 封单监控 (Dev 调试, 不落盘不推送) */
+  /** 模擬觸發 ladder 封單監控 (Dev 調試, 不落盤不推送) */
   monitorRuleTestLadder: () =>
     request<{
       ok: boolean
@@ -3087,7 +3097,7 @@ export const api = {
       }>
     }>('/api/monitor-rules/test-ladder', { method: 'POST' }),
 
-  /** 真实触发 ladder 预警 (落盘+飞书+SSE), Dev 调试用 */
+  /** 真實觸發 ladder 預警 (落盤+飛書+SSE), Dev 調試用 */
   monitorRuleTriggerLadder: () =>
     request<{
       ok: boolean
@@ -3095,11 +3105,11 @@ export const api = {
       events: Array<{ symbol: string; name: string; message: string }>
     }>('/api/monitor-rules/trigger-ladder', { method: 'POST' }),
 
-  /** 生成演示监控规则 (Dev 页用) */
+  /** 生成演示監控規則 (Dev 頁用) */
   monitorRuleSeed: () =>
     request<{ ok: boolean; generated: number }>('/api/monitor-rules/seed', { method: 'POST' }),
 
-  // ===== Alerts (触发记录) =====
+  // ===== Alerts (觸發記錄) =====
   alertsList: (params?: { days?: number; limit?: number; source?: string; type?: string; extColumns?: string }) => {
     const qs = new URLSearchParams()
     if (params?.days) qs.set('days', String(params.days))
@@ -3117,22 +3127,22 @@ export const api = {
   alertDelete: (ts: number) =>
     request<{ ok: boolean }>(`/api/alerts/${ts}`, { method: 'DELETE' }),
 
-  /** 生成演示触发记录 (Dev 页用) */
+  /** 生成演示觸發記錄 (Dev 頁用) */
   alertSeed: (count = 12, recent = true) =>
     request<{ ok: boolean; generated: number }>(`/api/alerts/seed?count=${count}&recent=${recent}`, { method: 'POST' }),
 
-  /** 检查 AI 配置状态 */
+  /** 檢查 AI 配置狀態 */
   strategyAiStatus: () =>
     request<{ configured: boolean; has_key: boolean; has_model: boolean; provider?: string }>('/api/strategies/ai/status'),
 
-  /** 测试 AI 连通性 */
+  /** 測試 AI 連通性 */
   strategyAiTest: () =>
     request<{ ok: boolean; error?: string; model?: string; response?: string; usage?: { prompt: number; completion: number } }>(
       '/api/strategies/ai/test',
       { method: 'POST' },
     ),
 
-  /** 获取策略源文件内容 */
+  /** 獲取策略源文件內容 */
   strategyGetSource: (id: string) =>
     request<{ code: string; source: string }>(`/api/strategies/${id}/source`),
   strategyBuild: (step: number, payload: Record<string, any>) =>
@@ -3154,7 +3164,7 @@ export const api = {
       toast(msg, 'error')
       throw new Error(msg)
     }
-    if (!res.body) throw new Error('响应无 body')
+    if (!res.body) throw new Error('響應無 body')
 
     const reader = res.body.getReader()
     const decoder = new TextDecoder()
@@ -3195,7 +3205,7 @@ export const api = {
       body: JSON.stringify(payload),
     }),
 
-  /** 创建/更新叠加策略(composite): 声明式引用多个子策略 */
+  /** 創建/更新疊加策略(composite): 聲明式引用多個子策略 */
   strategySaveComposite: (payload: {
     strategy_id: string
     name: string
@@ -3216,6 +3226,65 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ strategy_id: strategyId, code, name: meta?.name ?? '', description: meta?.description ?? '' }),
     }),
+
+  // ===== Taiwan Historical Data & Bootstrap =====
+  /** 獲取台股歷史日 K 本地存儲狀態與 Bootstrap 需求 */
+  taiwanHistoryStatus: () =>
+    request<TaiwanHistoryStatus>('/api/taiwan/history-status'),
+
+  /** 觸發 GitHub Release 官方歷史日 K 資料包下載與自動匯入 */
+  taiwanBootstrapRun: () =>
+    request<TaiwanBootstrapRunResult>('/api/taiwan/bootstrap/run', { method: 'POST' }),
+
+  /** 查詢台股歷史資料 Bootstrap 作業進度 */
+  taiwanBootstrapJob: (jobId: string) =>
+    request<TaiwanBootstrapJobState>(`/api/taiwan/bootstrap/jobs/${jobId}`),
+
+  /** 增量補齊已存在的歷史資料至最新交易日（不重新下載整包） */
+  taiwanUpdateLatest: () =>
+    request<TaiwanUpdateLatestResult>('/api/taiwan/bootstrap/update-latest', { method: 'POST' }),
+}
+
+// ===== Taiwan Historical Bootstrap Interfaces =====
+export interface TaiwanHistoryStatus {
+  has_data: boolean
+  earliest_date: string | null
+  latest_date: string | null
+  trading_days: number
+  needs_bootstrap: boolean
+  asset_info?: {
+    repo?: string
+    tag?: string
+    asset?: string
+    sha256?: string
+    approx_size_mb?: number
+    date_range?: string
+    download_url?: string
+  }
+}
+
+export interface TaiwanBootstrapJobState {
+  job_id: string
+  status: 'pending' | 'downloading' | 'verifying' | 'extracting' | 'importing' | 'refreshing' | 'success' | 'failed'
+  stage: string
+  progress: number
+  message: string
+  error?: string | null
+  downloaded_bytes: number
+  total_bytes: number
+}
+
+export interface TaiwanBootstrapRunResult {
+  job_id: string
+  status: string
+}
+
+export interface TaiwanUpdateLatestResult {
+  ok: boolean
+  already_current: boolean
+  message: string
+  dates_fetched: number
+  stats?: Record<string, any>
 }
 
 // ===== Pipeline =====
@@ -3223,8 +3292,8 @@ export interface PipelineJob {
   id: string
   status: 'pending' | 'running' | 'succeeded' | 'failed'
   stage: string
-  progress: number          // 0-100 整体进度
-  stage_pct: number         // 0-100 当前阶段内进度
+  progress: number          // 0-100 整體進度
+  stage_pct: number         // 0-100 當前階段內進度
   log: { ts: string; stage: string; msg: string }[]
   started_at: string | null
   finished_at: string | null
@@ -3318,7 +3387,7 @@ export interface EnrichedField {
   desc: string
 }
 
-// ===== 扩展数据 =====
+// ===== 擴展數據 =====
 // Phase 8B-5.16: ExtDataConfig/ExtDataField/PullConfig/ExtDataRowsResult 隨
 // extDataList/extDataRows/CRUD/pull-config 一併移除的端點失去唯一消費者, 一併
 // 清理。DimensionMembersResult 仍被 dimensionMembers() 使用, 保留。

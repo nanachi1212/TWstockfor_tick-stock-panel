@@ -31,9 +31,9 @@ export interface ChartMarker {
   date: string
   kind: 'buy' | 'sell' | 'neutral'
   label?: string
-  /** 若为 true，标记放在蜡烛上方（如涨停连板标签）。 */
+  /** 若為 true，標記放在蠟燭上方（如漲停連板標籤）。 */
   above?: boolean
-  /** 自定义标签颜色，覆盖默认的 kind 对应色。 */
+  /** 自定義標籤顏色，覆蓋默認的 kind 對應色。 */
   color?: string
 }
 
@@ -56,7 +56,7 @@ export interface StockInfo {
   name?: string
   total_shares?: number
   float_shares?: number
-  /** 扩展数据（key: configId__fieldName），来自 klineDaily 的 ext_columns */
+  /** 擴展數據（key: configId__fieldName），來自 klineDaily 的 ext_columns */
   ext?: Record<string, unknown>
 }
 
@@ -70,17 +70,17 @@ interface SubChartContext {
   volumeCompare: VolumeCompareConfig
 }
 
-/** 子图定义 */
+/** 子圖定義 */
 export interface SubChartDef {
   key: string
   label: string
-  /** 子图固定高度 px */
+  /** 子圖固定高度 px */
   height: number
-  /** 构建 series 数组 */
+  /** 構建 series 數組 */
   buildSeries: (data: OHLC[], context: SubChartContext) => any[]
-  /** 构建信息栏文字 (当前数据行 -> 显示内容) */
+  /** 構建信息欄文字 (當前數據行 -> 顯示內容) */
   buildInfo: (d: OHLC | null) => { label: string; color: string; value: string }[]
-  /** Y 轴特殊配置 */
+  /** Y 軸特殊配置 */
   yAxisConfig?: Record<string, any>
 }
 
@@ -310,10 +310,10 @@ export const SUB_CHARTS: SubChartDef[] = [
   },
 ]
 
-/** 向后兼容的 INDICATORS 导出 (不含 vol) */
+/** 向後兼容的 INDICATORS 導出 (不含 vol) */
 export const INDICATORS = SUB_CHARTS.filter(s => s.key !== 'vol')
 
-/** 主图叠加指标 (画在 K 线上方, 不占副图空间) */
+/** 主圖疊加指標 (畫在 K 線上方, 不佔副圖空間) */
 export const OVERLAY_INDICATORS: { key: string; label: string }[] = [
   { key: 'boll', label: 'BOLL' },
 ]
@@ -333,15 +333,15 @@ interface Props {
   linkedPrice?: number | null
   onDateClick?: (date: string) => void
   onPriceDoubleClick?: (price: number, currentPrice: number) => void
-  /** 默认可见蜡烛根数, 默认 60 */
+  /** 默認可見蠟燭根數, 默認 60 */
   visibleBars?: number
-  /** 已激活的子图 key 列表 (含 vol, 按点击顺序) */
+  /** 已激活的子圖 key 列表 (含 vol, 按點擊順序) */
   activeIndicators?: string[]
-  /** 成交量柱相对前 N 个交易日均量的显示设置 */
+  /** 成交量柱相對前 N 個交易日均量的顯示設置 */
   volumeCompare?: VolumeCompareConfig
 }
 
-// 序列颜色 (双主题通用); 画布轴/网格/文字等主题相关色走 CT() 动态取
+// 序列顏色 (雙主題通用); 畫布軸/網格/文字等主題相關色走 CT() 動態取
 const THEME = {
   bull: '#C74040',
   bear: '#2D9B65',
@@ -354,15 +354,15 @@ const THEME = {
   bg: 'transparent',
 }
 
-/** 当前主题的图表调色板 (buildOption/信息栏在渲染时调用; 主题切换由组件 effect 触发重建)。 */
+/** 當前主題的圖表調色板 (buildOption/信息欄在渲染時調用; 主題切換由組件 effect 觸發重建)。 */
 const CT = () => chartTheme(getTheme())
 
-/** 可见蜡烛超过此数量时，涨停/炸板标签切换为小圆点。 */
+/** 可見蠟燭超過此數量時，漲停/炸板標籤切換為小圓點。 */
 const COMPACT_THRESHOLD = 60
 
-/** 子图上方信息栏高度 (px) */
+/** 子圖上方信息欄高度 (px) */
 const INFO_BAR_H = 16
-/** 子图之间的间距 (px) */
+/** 子圖之間的間距 (px) */
 const SUB_GAP_PX = 4
 
 function buildSubInfoGraphics(
@@ -402,7 +402,7 @@ function buildSubInfoGraphics(
       }
     }
 
-    // 每个元素加固定 id，确保 ECharts 增量更新时能正确匹配
+    // 每個元素加固定 id，確保 ECharts 增量更新時能正確匹配
     graphics.push({
       id: `sub-sep-${key}`,
       type: 'line',
@@ -528,7 +528,7 @@ function buildOption(
     }
   }
 
-  // ====== 布局计算 ======
+  // ====== 佈局計算 ======
   const left = 60
   const right = 20
   const topPad = 8
@@ -570,7 +570,7 @@ function buildOption(
       }
     : undefined
 
-  // ===== grid 0: K线主图 =====
+  // ===== grid 0: K線主圖 =====
   grids.push({ left, right, top: topPad, height: candleAvail })
   xAxes.push({
     type: 'category', data: dates, boundaryGap: true,
@@ -583,7 +583,7 @@ function buildOption(
     scale: true,
     min: axisMin,
     max: axisMax,
-    // 上下各留 3% 边距: 防止最高/最低点的蜡烛贴边, 涨停/炸板标签被遮挡
+    // 上下各留 3% 邊距: 防止最高/最低點的蠟燭貼邊, 漲停/炸板標籤被遮擋
     boundaryGap: [0.03, 0.03],
     splitArea: { show: false },
     axisLine: { show: false }, axisTick: { show: false },
@@ -693,7 +693,7 @@ function buildOption(
     series.push(maLine('ma60', THEME.ma60, 'MA60'))
   }
 
-  // BOLL 布林带 — 需在 activeIndicators 中激活
+  // BOLL 布林帶 — 需在 activeIndicators 中激活
   const showBOLL = activeIndicators.includes('boll') && data.some(d => d.boll_upper != null || d.boll_lower != null)
   if (showBOLL) {
     const bollLine = (key: keyof OHLC, color: string, name: string) => ({
@@ -707,7 +707,7 @@ function buildOption(
     series.push(bollLine('boll_lower', '#E879F9', 'BOLL下'))
   }
 
-  // ===== 子图区域 =====
+  // ===== 子圖區域 =====
   let curTop = topPad + candleAvail + candleBottomPad
 
   activeSubDefs.forEach((def, i) => {
@@ -756,7 +756,7 @@ function buildOption(
     curTop += INFO_BAR_H + def.height + SUB_GAP_PX
   })
 
-  // 子图信息栏 graphic
+  // 子圖信息欄 graphic
   const subStartTop = topPad + candleAvail + candleBottomPad
   const infoGraphics = buildSubInfoGraphics(data, infoIdx, activeIndicators, subStartTop, volumeCompare)
 
@@ -825,15 +825,15 @@ export function EChartsCandlestick({
   onDateClickRef.current = onDateClick
   const onPriceDoubleClickRef = useRef(onPriceDoubleClick)
   onPriceDoubleClickRef.current = onPriceDoubleClick
-  // 主题: buildOption/信息栏内部通过 CT() 动态取调色板, 这里只负责切换时触发重建
+  // 主題: buildOption/信息欄內部通過 CT() 動態取調色板, 這裡只負責切換時觸發重建
   const theme = useTheme()
 
-  // --- 全部用 ref，避免高频交互触发 React 重渲染 ---
+  // --- 全部用 ref，避免高頻交互觸發 React 重渲染 ---
   const infoIdxRef = useRef<number>(data.length - 1)
   const compactRef = useRef(false)
   const userZoomRef = useRef<{ start: number; end: number } | null>(null)
 
-  // 需要在闭包中访问最新值的变量 — 先声明占位，后面赋值
+  // 需要在閉包中訪問最新值的變量 — 先聲明佔位，後面賦值
   const activeIndicatorsRef = useRef(activeIndicators)
   activeIndicatorsRef.current = activeIndicators
   const volumeCompareRef = useRef(volumeCompare)
@@ -842,7 +842,7 @@ export function EChartsCandlestick({
   const subTotalHRef = useRef(0)
   const getInfoBarHTMLRef = useRef<() => string>(() => '')
 
-  // 强制刷新信息栏 DOM 的回调
+  // 強制刷新信息欄 DOM 的回調
   const infoBarRef = useRef<HTMLDivElement>(null)
   const triggerInfoBarUpdate = useRef(() => {
     const idx = infoIdxRef.current
@@ -864,7 +864,7 @@ export function EChartsCandlestick({
     }
   }).current
 
-  // 计算子图总高度
+  // 計算子圖總高度
   const activeSubDefs = activeIndicators
     .map(key => SUB_CHARTS.find(s => s.key === key))
     .filter((d): d is SubChartDef => !!d)
@@ -880,7 +880,7 @@ export function EChartsCandlestick({
   chartHeightRef.current = chartHeight
   subTotalHRef.current = subTotalH
 
-  // 预计算 date→index Map (O(1) 查找)
+  // 預計算 date→index Map (O(1) 查找)
   const dates = useMemo(() => data.map(d => d.date), [data])
   const dateIndexMap = useMemo(() => {
     const m = new Map<string, number>()
@@ -888,17 +888,17 @@ export function EChartsCandlestick({
     return m
   }, [dates])
 
-  // 计算 dataZoom 初始范围
+  // 計算 dataZoom 初始範圍
   const initialZoom = useMemo(() => ({
     start: Math.max(0, 100 - (visibleBars / Math.max(data.length, 1)) * 100),
     end: 100,
   }), [visibleBars, data.length])
 
-  // ===== 信息栏 HTML 内容 (基于 infoIdxRef.current) =====
+  // ===== 信息欄 HTML 內容 (基於 infoIdxRef.current) =====
   const getInfoBarHTML = useCallback(() => {
     let idx = infoIdxRef.current
     let d = idx >= 0 && idx < data.length ? data[idx] : null
-    // fallback: 如果当前 idx 无数据，取最后一根 K 线
+    // fallback: 如果當前 idx 無數據，取最後一根 K 線
     if (!d && data.length > 0) {
       idx = data.length - 1
       d = data[idx]
@@ -921,7 +921,7 @@ export function EChartsCandlestick({
     html += `<span style="color:${THEME.bear}">${d.low.toFixed(2)}</span>`
     html += `<span style="color:${CT().text}">收</span>`
     html += `<span style="color:${clr};font-weight:600">${d.close.toFixed(2)}</span>`
-    // 涨跌幅 (收盘后, 换手前; 和收间隔一些距离)
+    // 漲跌幅 (收盤後, 換手前; 和收間隔一些距離)
     if (prev) {
       const chgPct = (chg / prev.close * 100)
       html += `<span style="color:${clr};margin-left:8px">${isUp ? '+' : ''}${chgPct.toFixed(2)}%</span>`
@@ -949,14 +949,14 @@ export function EChartsCandlestick({
   }, [data, stockInfo, showMA, activeIndicators])
   getInfoBarHTMLRef.current = getInfoBarHTML
 
-  // data 变化时重置 infoIdx
+  // data 變化時重置 infoIdx
   useEffect(() => {
     infoIdxRef.current = data.length - 1
     compactRef.current = false
     userZoomRef.current = null
   }, [data.length])
 
-  // ===== 初始化 chart (只在 chartHeight 变化时重建) =====
+  // ===== 初始化 chart (只在 chartHeight 變化時重建) =====
   useEffect(() => {
     const el = containerRef.current
     if (!el) return
@@ -964,11 +964,11 @@ export function EChartsCandlestick({
     const chart = echarts.init(el, undefined, { renderer: 'canvas' })
     chartRef.current = chart
 
-    // 鼠标移动 → 只更新 ref + DOM，不触发 React re-render
-    // 设计原则: 找不到有效数据时保持上次显示，永远不清空信息栏
+    // 鼠標移動 → 只更新 ref + DOM，不觸發 React re-render
+    // 設計原則: 找不到有效數據時保持上次顯示，永遠不清空信息欄
     chart.on('updateAxisPointer', (event: any) => {
       const axesInfo = event.axesInfo
-      if (!axesInfo) return // 鼠标移出图表区域，保持当前显示
+      if (!axesInfo) return // 鼠標移出圖表區域，保持當前顯示
       for (const info of Object.values(axesInfo)) {
         const val = (info as any)?.value
         if (val == null) continue
@@ -978,19 +978,19 @@ export function EChartsCandlestick({
           if (infoIdxRef.current === idx) return
           infoIdxRef.current = idx
 
-          // 直接更新信息栏 DOM (通过 ref 读取最新的生成函数)
+          // 直接更新信息欄 DOM (通過 ref 讀取最新的生成函數)
           const infoEl = infoBarRef.current
           if (infoEl) {
             const html = getInfoBarHTMLRef.current()
-            if (html) infoEl.innerHTML = html  // 只在有内容时更新
+            if (html) infoEl.innerHTML = html  // 只在有內容時更新
           }
 
-          // 更新子图 graphic
+          // 更新子圖 graphic
           triggerInfoBarUpdate()
           return
         }
       }
-      // 没有找到有效数据 — 不做任何操作，保持上次显示
+      // 沒有找到有效數據 — 不做任何操作，保持上次顯示
     })
 
     chart.on('click', (params: any) => {
@@ -1018,8 +1018,8 @@ export function EChartsCandlestick({
     }
     chart.getZr().on('dblclick', handlePriceDoubleClick)
 
-    // dataZoom → 只更新 ref，不触发 React re-render
-    // compact 变化时需要增量更新 markPoint
+    // dataZoom → 只更新 ref，不觸發 React re-render
+    // compact 變化時需要增量更新 markPoint
     chart.on('dataZoom', () => {
       const opt = chart.getOption() as any
       const zoom = opt?.dataZoom?.[0]
@@ -1050,7 +1050,7 @@ export function EChartsCandlestick({
     }
   }, [chartHeight]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  // 缩放跨过紧凑阈值时，仅增量更新标签，不重建整张图。
+  // 縮放跨過緊湊閾值時，僅增量更新標籤，不重建整張圖。
   function updateCompactPresentation() {
     const chart = chartRef.current
     if (!chart) return
@@ -1118,7 +1118,7 @@ export function EChartsCandlestick({
     if (seriesUpdates.length > 0) chart.setOption({ series: seriesUpdates })
   }
 
-  // ===== 核心: 仅在数据/配置变更时全量 setOption =====
+  // ===== 核心: 僅在數據/配置變更時全量 setOption =====
   useEffect(() => {
     const chart = chartRef.current
     if (!chart) return
@@ -1137,7 +1137,7 @@ export function EChartsCandlestick({
 
     chart.setOption(option, true)
 
-    // 恢复用户缩放位置
+    // 恢復用戶縮放位置
     const zoom = userZoomRef.current
     if (zoom) {
       chart.dispatchAction({ type: 'dataZoom', start: zoom.start, end: zoom.end })
@@ -1145,14 +1145,14 @@ export function EChartsCandlestick({
       chart.dispatchAction({ type: 'dataZoom', start: initialZoom.start, end: initialZoom.end })
     }
 
-    // 初始信息栏
+    // 初始信息欄
     const infoEl = infoBarRef.current
     if (infoEl) {
       infoEl.innerHTML = getInfoBarHTML()
     }
   }, [data, markers, ranges, priceLines, linkedPrice, showMA, showMarkersProp, activeIndicators, volumeCompare, chartHeight, dates, dateIndexMap, initialZoom, getInfoBarHTML, theme])
 
-  // 渲染信息栏容器 (内容由 JS 直接写入)
+  // 渲染信息欄容器 (內容由 JS 直接寫入)
   const initialHTML = useMemo(() => {
     const idx = data.length - 1
     const d = idx >= 0 && idx < data.length ? data[idx] : null
@@ -1171,7 +1171,7 @@ export function EChartsCandlestick({
     const prevClose0 = data[idx-1]?.close ?? d.close
     const clr0 = d.close >= prevClose0 ? THEME.bull : THEME.bear
     html += `<span style="color:${clr0};font-weight:600">${d.close.toFixed(2)}</span>`
-    // 涨跌幅 (收盘后, 换手前; 和收间隔一些距离)
+    // 漲跌幅 (收盤後, 換手前; 和收間隔一些距離)
     if (idx > 0) {
       const chgPct0 = ((d.close - prevClose0) / prevClose0 * 100)
       html += `<span style="color:${clr0};margin-left:8px">${chgPct0 >= 0 ? '+' : ''}${chgPct0.toFixed(2)}%</span>`
@@ -1198,7 +1198,7 @@ export function EChartsCandlestick({
 
   return (
     <div className="w-full">
-      {/* 主图信息栏 — 内容由 JS 直接操作 innerHTML */}
+      {/* 主圖信息欄 — 內容由 JS 直接操作 innerHTML */}
       {showInfoBar && (
         <div ref={infoBarRef} style={{ backgroundColor: CT().infoBarBg }}
           dangerouslySetInnerHTML={{ __html: initialHTML }} />

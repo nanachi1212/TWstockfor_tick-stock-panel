@@ -15,14 +15,14 @@ interface Props {
   groupColor?: WatchlistGroupColor
 }
 
-/** 一次最多排队识别的图片数，避免误选大量文件拖垮小内存机器。 */
+/** 一次最多排隊識別的圖片數，避免誤選大量文件拖垮小內存機器。 */
 const MAX_IMPORT_IMAGES = 10
 
 function isImageFile(file: File): boolean {
   return file.type.startsWith('image/') || /\.(jpe?g|png|webp|bmp|gif)$/i.test(file.name)
 }
 
-/** 按 code 合并多图 OCR 结果：优先保留已匹配项，已在自选取并集。 */
+/** 按 code 合併多圖 OCR 結果：優先保留已匹配項，已在自選取並集。 */
 export function mergeImportCandidates(
   lists: WatchlistImportCandidate[][],
 ): WatchlistImportCandidate[] {
@@ -152,7 +152,7 @@ export function WatchlistImportDialog({ open, onClose, groupId, groupName, group
       for (let i = 0; i < queue.length; i++) {
         if (gen !== genRef.current || controller.signal.aborted) return
         try {
-          // quiet：避免每张失败各弹一条 toast，结束时统一提示
+          // quiet：避免每張失敗各彈一條 toast，結束時統一提示
           const res = await api.watchlistImportImage(queue[i], controller.signal, true)
           if (gen !== genRef.current) return
           lastProvider = res.provider

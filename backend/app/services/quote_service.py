@@ -38,11 +38,11 @@ from app.strategy.intraday_signals import IntradaySignalEvaluator
 
 logger = logging.getLogger(__name__)
 
-# Webhook(飞书等)投递专用线程池 —— 与行情轮询线程隔离。
-# send_feishu 内置重试(最坏 ~3×5s 超时 + 退避), 若在 _poll_loop 上同步投递,
-# webhook 慢/宕机会逐条累加, 拖垮整条实时行情+告警轮询。这里 fire-and-forget,
+# 外部推播专用线程池 —— 与行情轮询线程隔离。
+# 若在 _poll_loop 上同步投递, API 慢/宕机会逐条累加,拖垮整条实时行情+告警轮询。
+# 这里 fire-and-forget,
 # 失败由 webhook_adapter 记 WARNING(可见), 但绝不阻塞热路径。
-_WEBHOOK_EXECUTOR = ThreadPoolExecutor(max_workers=2, thread_name_prefix="feishu-webhook")
+_WEBHOOK_EXECUTOR = ThreadPoolExecutor(max_workers=2, thread_name_prefix="notification-push")
 
 
 class QuoteSubscriber:
@@ -420,15 +420,7 @@ class QuoteService:
 
     @classmethod
     def realtime_mode(cls) -> str:
-        """当前实时行情模式: none / watchlist / full_market。"""
-        from app.services import preferences
-        if preferences.get_realtime_data_provider() != "tickflow":
-            return "full_market"
-        tier = cls._current_tier()
-        if tier == "none":
-            return "none"
-        if tier == "free":
-            return "watchlist"
+        """当前实时行情模式: 台湾官方模式下全功能开放。"""
         return "full_market"
 
     @classmethod
@@ -574,26 +566,38 @@ class QuoteService:
         from app.services import preferences
 
         provider_name = preferences.get_realtime_data_provider()
-        if provider_name != "tickflow":
-            from app.data_providers import custom as custom_sources
-            if custom_sources.provider_has_dataset(provider_name, "realtime"):
-                try:
-                    t0 = time.perf_counter()
-                    now_ts = time.perf_counter()
-                    records = custom_sources.get_provider(provider_name).get_realtime()
-                except Exception as e:  # noqa: BLE001
-                    logger.warning("自定义实时行情拉取失败: %s", e)
+        if provider_name in ("taiwan", "tickflow"):
+            try:
+                from app.data_providers.registry import get_provider
+                provider = get_provider("taiwan")
+                t0 = time.perf_counter()
+                now_ts = time.perf_counter()
+                from app.services import watchlist
+                symbols = watchlist.list_symbols()
+                sym_list = [str((s or {}).get("symbol") or "").strip() for s in symbols]
+                sym_list = [s for s in sym_list if s]
+                if not sym_list:
                     return
+                df = provider.get_realtime(symbols=sym_list)
+                if not df.is_empty():
+                    records = df.to_dicts()
+                    self._process_full_market_records(records, t0=t0, now_ts=now_ts)
+                return
+            except Exception as e:
+                logger.warning("台湾官方实时行情拉取失败: %s", e)
+                return
+
+        from app.data_providers import custom as custom_sources
+        if custom_sources.provider_has_dataset(provider_name, "realtime"):
+            try:
+                t0 = time.perf_counter()
+                now_ts = time.perf_counter()
+                records = custom_sources.get_provider(provider_name).get_realtime()
                 self._process_full_market_records(records, t0=t0, now_ts=now_ts)
                 return
-            # 自定义源未配置 realtime → 回退 TickFlow
-
-        from app.tickflow.client import get_paid_realtime_client
-
-        tf = get_paid_realtime_client()
-        if tf is None:
-            logger.warning("实时行情拉取失败:未配置付费服务器 API Key")
-            return
+            except Exception as e:  # noqa: BLE001
+                logger.warning("自定义实时行情拉取失败: %s", e)
+                return
         t0 = time.perf_counter()
         now_ts = time.perf_counter()
 
@@ -1214,7 +1218,7 @@ class QuoteService:
                 # cooldown 去重已在 MonitorRuleEngine 做过, 这里只负责转发。
                 self._maybe_send_system_notifications(all_alerts)
 
-            # Webhook 推送 (飞书等外部 IM, 由规则 webhook_channels 指定渠道)。
+            # 外部推播 (由规则 webhook_channels 指定渠道)。
             # 紧随系统通知, 同样静默降级不阻断主流程。
             if rule_events:
                 self._maybe_send_webhook(rule_events, engine)
@@ -1379,9 +1383,9 @@ class QuoteService:
             return enriched_today
 
     def _maybe_send_webhook(self, rule_events: list[dict], engine) -> None:
-        """把告警通过 Webhook 推送到外部 IM (由规则 webhook_channels 指定渠道)。
+        """把告警推送到外部 IM (由规则 webhook_channels 指定渠道)。
 
-        - 飞书 / 企业微信任一已配置即生效 (两个都没配才跳过)
+        - LINE / Telegram 任一已配置即生效 (两个都没配才跳过)
         - 仅推送 webhook_channels 非空的规则触发的告警, 且只投递被勾选的渠道
         - 失败静默, 不阻断主流程
         - 去重: 复用 MonitorRuleEngine 的 cooldown, 此处不重复去重
@@ -1393,11 +1397,11 @@ class QuoteService:
             from app.services import preferences
             from app.services import webhook_adapter
 
-            feishu_url = preferences.get_feishu_webhook_url()
-            feishu_secret = preferences.get_feishu_webhook_secret()
-            wecom_url = preferences.get_wecom_webhook_url()
-            # 两个通道都没配置才跳过
-            if not feishu_url and not wecom_url:
+            line_token = preferences.get_line_channel_access_token()
+            line_target = preferences.get_line_target_id()
+            telegram_token = preferences.get_telegram_bot_token()
+            telegram_chat = preferences.get_telegram_chat_id()
+            if not (line_token and line_target) and not (telegram_token and telegram_chat):
                 return
 
             # 反查规则, 过滤出启用推送的事件
@@ -1410,7 +1414,7 @@ class QuoteService:
             enqueued = 0
             for ev in rule_events:
                 rule = rules.get(ev.get("rule_id"))
-                # webhook_channels 指定命中的渠道 (['feishu'] / ['wecom'] / ['feishu','wecom'] / []).
+                # webhook_channels 指定命中的渠道 (['line'] / ['telegram'] / 两者 / []).
                 # 空列表 = 该规则不推送。仅推送「渠道已选 + 对应地址已配置」的组合。
                 channels = rule.get("webhook_channels") if rule else None
                 if not channels:
@@ -1423,14 +1427,14 @@ class QuoteService:
                 title = source_label
                 body = f"{symbol} {name} {message}".strip() if symbol else (message or name)
                 # 提交到独立线程池, 不阻塞行情轮询线程 (webhook 慢/重试不拖累实时行情+告警)。
-                # 按渠道独立投递: 飞书 / 企业微信谁被勾选且已配置就推谁。
+                # 按渠道独立投递: LINE / Telegram 谁被勾选且已配置就推谁。
                 # 应用内 alerts.jsonl 记录与 SSE 已在前面完成, 不依赖 webhook 成败,
                 # 失败由 webhook_adapter 记 WARNING(可见)。
-                if feishu_url and "feishu" in channels:
-                    _WEBHOOK_EXECUTOR.submit(webhook_adapter.send_feishu, feishu_url, title, body, feishu_secret)
+                if line_token and line_target and "line" in channels:
+                    _WEBHOOK_EXECUTOR.submit(webhook_adapter.send_line, line_token, line_target, title, body)
                     enqueued += 1
-                if wecom_url and "wecom" in channels:
-                    _WEBHOOK_EXECUTOR.submit(webhook_adapter.send_wecom, wecom_url, title, body)
+                if telegram_token and telegram_chat and "telegram" in channels:
+                    _WEBHOOK_EXECUTOR.submit(webhook_adapter.send_telegram, telegram_token, telegram_chat, title, body)
                     enqueued += 1
             if enqueued:
                 logger.info("Webhook 已提交 %d 条 (异步投递, 按渠道独立投递, 失败记 WARNING)", enqueued)

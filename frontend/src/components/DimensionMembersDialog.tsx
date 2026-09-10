@@ -13,7 +13,7 @@ export type DimensionKind = 'concept' | 'industry'
 export interface DimensionMembersTarget {
   kind: DimensionKind
   value: string
-  /** 扩展字段完整标识，例如 ext_gn_ths.所属概念。 */
+  /** 擴展字段完整標識，例如 ext_gn_ths.所属概念。 */
   sourceField: string
   date?: string
 }

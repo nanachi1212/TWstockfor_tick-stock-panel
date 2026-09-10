@@ -15,14 +15,14 @@ import { GroupStatsSettings } from '@/components/GroupStatsSettings'
 import type { WatchlistGroupFilter } from '@/components/WatchlistGroups'
 
 /**
- * 自选「分组统计条」— 页面顶部的图形化分组涨跌概览。
+ * 自選「分組統計條」— 頁面頂部的圖形化分組漲跌概覽。
  *
- * 每个分组一行: 中轴分叉条形图直观对比各组强弱 (红=强 向右, 绿=弱 向左,
- * 长度按各组最大绝对值归一化)。指标与排序可配置 (与分组卡片视图共享,
- * 由自选页统一持有并持久化):
- * - 指标: 等权平均 / 中位数 / 上涨占比(50%强弱轴) / 组内最强 / 组内最弱
- * - 排序: 分组定义顺序 / 按指标降序 / 升序
- * 数据来自自选页既有的分组涨跌统计 (groupPcts), 零额外请求; 点击行钻取分组列表。
+ * 每個分組一行: 中軸分叉條形圖直觀對比各組強弱 (紅=強 向右, 綠=弱 向左,
+ * 長度按各組最大絕對值歸一化)。指標與排序可配置 (與分組卡片視圖共享,
+ * 由自選頁統一持有並持久化):
+ * - 指標: 等權平均 / 中位數 / 上漲佔比(50%強弱軸) / 組內最強 / 組內最弱
+ * - 排序: 分組定義順序 / 按指標降序 / 升序
+ * 數據來自自選頁既有的分組漲跌統計 (groupPcts), 零額外請求; 點擊行鑽取分組列表。
  */
 
 interface Row {
@@ -80,7 +80,7 @@ export function WatchlistGroupStatsBar({
 
   const ordered = sortGroupKeys(rows, r => r.key, pcts, config)
 
-  // 条长归一化基准: 上涨占比以 0.5 强弱轴的偏离量为幅值, 其余指标取绝对值
+  // 條長歸一化基準: 上漲佔比以 0.5 強弱軸的偏離量為幅值, 其餘指標取絕對值
   const magnitude = (v: number) => config.metric === 'up_ratio' ? Math.abs(v - 0.5) : Math.abs(v)
   const maxMag = Math.max(...ordered.reduce<number[]>((acc, r) => {
     const v = valueOf(r.key)
@@ -98,7 +98,7 @@ export function WatchlistGroupStatsBar({
         {ordered.map(r => {
           const info = pcts[r.key]
           const v = valueOf(r.key)
-          // 条形方向: 上涨占比以 0.5 为轴, 其余以 0 为轴; 幅值按组间最大值归一化
+          // 條形方向: 上漲佔比以 0.5 為軸, 其餘以 0 為軸; 幅值按組間最大值歸一化
           const signed = config.metric === 'up_ratio' ? (v == null ? null : v - 0.5) : v
           const half = v == null ? 0 : Math.min(50, (magnitude(v) / maxMag) * 50)
           const isUp = signed != null && signed > 0

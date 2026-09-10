@@ -5,13 +5,13 @@ import { QK } from '@/lib/queryKeys'
 import { SIGNAL_OPTIONS, cnSignal } from '@/lib/signals'
 
 interface Props {
-  /** 当前选中的信号 ID 列表 */
+  /** 當前選中的信號 ID 列表 */
   signals: string[]
-  /** 选中变化回调 */
+  /** 選中變化回調 */
   onChange: (next: string[]) => void
-  /** 买点 / 卖点 — 决定自定义信号的过滤与配色主题 */
+  /** 買點 / 賣點 — 決定自定義信號的過濾與配色主題 */
   kind: 'entry' | 'exit'
-  /** 渲染尺寸: dialog = 选股弹窗紧凑样式; panel = 回测页设置抽屉样式 */
+  /** 渲染尺寸: dialog = 選股彈窗緊湊樣式; panel = 回測頁設置抽屜樣式 */
   variant?: 'dialog' | 'panel'
   builtinSignals?: { key: string; label: string }[]
   disabledSignals?: string[]
@@ -19,11 +19,11 @@ interface Props {
 }
 
 /**
- * 买卖触发器信号选择 — 选股页弹窗 / 回测页共用。
+ * 買賣觸發器信號選擇 — 選股頁彈窗 / 回測頁共用。
  *
- * - 内置信号 (signal_*): 全部展示
- * - 自定义信号 (csg_*): 按 kind 过滤 (entry / exit / both)
- * - entry 蓝色主题, exit 橙色主题
+ * - 內置信號 (signal_*): 全部展示
+ * - 自定義信號 (csg_*): 按 kind 過濾 (entry / exit / both)
+ * - entry 藍色主題, exit 橙色主題
  */
 export function SignalPicker({ signals, onChange, kind, variant = 'panel', builtinSignals, disabledSignals = [], disabledSignalHint }: Props) {
   const customSignalsQuery = useQuery({ queryKey: QK.customSignals, queryFn: api.customSignalsList })
@@ -41,7 +41,7 @@ export function SignalPicker({ signals, onChange, kind, variant = 'panel', built
     onChange(next)
   }
 
-  // 配色: entry 蓝色 (accent), exit 橙色 (warning/amber)
+  // 配色: entry 藍色 (accent), exit 橙色 (warning/amber)
   const isEntry = kind === 'entry'
   const active = isEntry
     ? 'border-accent/50 bg-accent/10 text-accent'

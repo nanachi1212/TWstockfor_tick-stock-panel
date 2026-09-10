@@ -1,12 +1,12 @@
 /**
- * SSE 配置 — 运行时参数。
+ * SSE 配置 — 運行時參數。
  *
- * 目前只保留 SSE 重连延迟，其他数据刷新全部走 SSE invalidation。
- * 存储在 localStorage。
+ * 目前只保留 SSE 重連延遲，其他數據刷新全部走 SSE invalidation。
+ * 存儲在 localStorage。
  */
 import { storage } from '@/lib/storage'
 
-// ===== 配置结构 =====
+// ===== 配置結構 =====
 
 export interface QueryConfig {
   /** SSE 配置 */
@@ -32,7 +32,7 @@ function loadConfig(): QueryConfig {
 }
 
 /**
- * 轻量版：只读取当前配置。
+ * 輕量版：只讀取當前配置。
  * 供 useQuoteStream 使用。
  */
 export function getQueryConfig(): QueryConfig {

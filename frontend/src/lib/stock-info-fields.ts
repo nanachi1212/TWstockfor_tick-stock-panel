@@ -1,8 +1,8 @@
 /**
- * 个股日K信息条（StockInfoBar Row 2）的指标自定义配置。
+ * 個股日K信息條（StockInfoBar Row 2）的指標自定義配置。
  *
- * 与自选列表列配置同源：复用 list-columns 的通用列模型与合并/序列化底座，
- * 仅做纯 localStorage 同步持久化（无后端双写）。个股预览弹窗与回测成交K线
+ * 與自選列表列配置同源：複用 list-columns 的通用列模型與合併/序列化底座，
+ * 僅做純 localStorage 同步持久化（無後端雙寫）。個股預覽彈窗與回測成交K線
  * Modal 共用同一份配置。
  */
 
@@ -17,7 +17,7 @@ import {
 
 export type { ColumnConfig, ColumnGroup }
 
-// ===== 内置指标注册表 =====
+// ===== 內置指標註冊表 =====
 
 export const BUILTIN_INFO_FIELDS: ColumnConfig[] = [
   // 規模
@@ -31,7 +31,7 @@ export const BUILTIN_INFO_FIELDS: ColumnConfig[] = [
   { id: 'builtin:open', source: { type: 'builtin', key: 'open' }, label: '開盤', visible: false, align: 'left' },
   { id: 'builtin:high', source: { type: 'builtin', key: 'high' }, label: '最高', visible: false, align: 'left' },
   { id: 'builtin:low', source: { type: 'builtin', key: 'low' }, label: '最低', visible: false, align: 'left' },
-  // 财务（数据来自 financials metrics 接口，默认隐藏；pe_ttm/pb 用 close 现算）
+  // 財務（數據來自 financials metrics 接口，默認隱藏；pe_ttm/pb 用 close 現算）
   { id: 'builtin:eps', source: { type: 'builtin', key: 'eps' }, label: 'EPS', visible: false, align: 'left' },
   { id: 'builtin:bps', source: { type: 'builtin', key: 'bps' }, label: 'BPS', visible: false, align: 'left' },
   { id: 'builtin:roe', source: { type: 'builtin', key: 'roe' }, label: 'ROE', visible: false, align: 'left' },
@@ -53,30 +53,30 @@ export const INFO_GROUPS: ColumnGroup[] = [
 
 // ===== localStorage 持久化 =====
 
-/** 加载信息条指标配置：localStorage → 默认值，自动补齐新增默认项。 */
+/** 加載信息條指標配置：localStorage → 默認值，自動補齊新增默認項。 */
 export function loadInfoFields(): ColumnConfig[] {
   const saved = storage.stockInfoBarFields.get([]) as ColumnConfig[]
   if (saved.length === 0) return [...BUILTIN_INFO_FIELDS]
   return mergeFields(saved, BUILTIN_INFO_FIELDS)
 }
 
-/** 保存信息条指标配置到 localStorage。 */
+/** 保存信息條指標配置到 localStorage。 */
 export function saveInfoFields(columns: ColumnConfig[]): void {
   storage.stockInfoBarFields.set(serializeFields(columns))
 }
 
-/** 序列化（此处无 pinned/action 列，直接用底座默认实现）。 */
+/** 序列化（此處無 pinned/action 列，直接用底座默認實現）。 */
 function serializeFields(columns: ColumnConfig[]): ColumnConfig[] {
   return serializeColumnsBase(columns)
 }
 
-/** 从信息条字段配置中提取 ext 列参数（逗号分隔 config_id.field_name），用于 klineDaily 接口。 */
+/** 從信息條字段配置中提取 ext 列參數（逗號分隔 config_id.field_name），用於 klineDaily 接口。 */
 export function buildInfoExtColumnsParam(columns: ColumnConfig[]): string {
   return buildExtColumnsParamBase(columns)
 }
 
-/** 合并用户保存的配置与默认配置。 */
+/** 合併用戶保存的配置與默認配置。 */
 function mergeFields(saved: ColumnConfig[], defaults: ColumnConfig[]): ColumnConfig[] {
-  // 无固定列，传入空的 pinnedFirstIds 跳过「代码置顶」逻辑
+  // 無固定列，傳入空的 pinnedFirstIds 跳過「代碼置頂」邏輯
   return mergeColumnsBase(saved, defaults, { pinnedFirstIds: [] })
 }

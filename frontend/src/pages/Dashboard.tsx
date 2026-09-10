@@ -46,7 +46,7 @@ function SectionTitle({ icon: Icon, title, hint }: { icon: typeof Activity; titl
   )
 }
 
-// 看板监控中心小组件 — 显示前 10 条触发记录 + 更多按钮
+// 看板監控中心小組件 — 顯示前 10 條觸發記錄 + 更多按鈕
 const _SOURCE_BADGE: Record<string, string> = {
   strategy: 'bg-amber-400/10 text-amber-400',
   signal: 'bg-accent/10 text-accent',
@@ -95,7 +95,7 @@ function MonitorWidget({ onStockClick }: { onStockClick: (event: AlertEvent) => 
               className="relative overflow-hidden rounded-md border border-border/40 bg-surface/60 pl-2.5 pr-2 py-1.5 hover:border-border hover:bg-surface transition-colors"
             >
               <div className={cn('absolute left-0 top-0 h-full w-0.5', sev)} />
-              {/* 第一行: 代码 + 名称 + 价格 + 涨跌幅 (点击代码/名称弹日K) */}
+              {/* 第一行: 代碼 + 名稱 + 價格 + 漲跌幅 (點擊代碼/名稱彈日K) */}
               <div className="flex items-center gap-1.5">
                 <button
                   onClick={() => isSector ? navigate('/monitor') : ev.symbol && onStockClick(ev)}
@@ -123,7 +123,7 @@ function MonitorWidget({ onStockClick }: { onStockClick: (event: AlertEvent) => 
                   </span>
                 )}
               </div>
-              {/* 第二行: 策略类型走新格式, 其他走旧格式 */}
+              {/* 第二行: 策略類型走新格式, 其他走舊格式 */}
               {isStrategy ? (
                 <>
                   {ev.symbol ? (

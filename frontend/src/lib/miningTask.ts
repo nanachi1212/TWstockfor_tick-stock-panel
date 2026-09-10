@@ -98,7 +98,7 @@ async function refreshTerminalRun(
     let result: MiningResult | null = null
     if (SUCCESS_STATES.has(run.status)) {
       result = await api.miningResult(runId)
-      if (result.run_id !== runId) throw new Error('任务结果与运行 ID 不匹配')
+      if (result.run_id !== runId) throw new Error('任務結果與運行 ID 不匹配')
     }
     if (current.runId !== runId || connectionToken !== token) return
     localStorage.removeItem(ACTIVE_RUN_KEY)
@@ -124,7 +124,7 @@ async function refreshTerminalRun(
       cancelling: false,
       reconnecting: false,
       error: fallbackStatus === 'cancelled'
-        ? '任务已取消'
+        ? '任務已取消'
         : fallbackError || String((error as Error).message || error),
     })
   }
@@ -243,7 +243,7 @@ export async function startMining(payload: Parameters<typeof api.miningStart>[0]
     cancelling: false,
     reconnecting: false,
     run: null,
-    progress: { phase: 'queued', label: '创建任务' },
+    progress: { phase: 'queued', label: '創建任務' },
     result: null,
     previousResult: current.result ?? current.previousResult,
     error: null,
@@ -312,7 +312,7 @@ export async function attachMiningRun(runId: string): Promise<boolean> {
     cancelling: false,
     reconnecting: true,
     run: null,
-    progress: { phase: 'reconnecting', label: '读取任务状态' },
+    progress: { phase: 'reconnecting', label: '讀取任務狀態' },
     result: null,
     previousResult,
     error: null,

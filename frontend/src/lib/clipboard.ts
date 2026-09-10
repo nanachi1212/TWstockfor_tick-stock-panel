@@ -7,7 +7,7 @@ export async function copyText(text: string): Promise<boolean> {
       return true
     }
   } catch {
-    // 权限拒绝时继续尝试兼容复制。
+    // 權限拒絕時繼續嘗試兼容複製。
   }
 
   const textarea = document.createElement('textarea')

@@ -103,7 +103,7 @@ def test_apply_scope_sector_fails_closed():
     assert picked.height == 1
 
 
-def test_ladder_webhook_uses_chinese_title_without_brand(monkeypatch):
+def test_ladder_notification_uses_chinese_title_without_brand(monkeypatch):
     calls = []
 
     class CaptureExecutor:
@@ -111,12 +111,13 @@ def test_ladder_webhook_uses_chinese_title_without_brand(monkeypatch):
             calls.append((fn, args))
 
     monkeypatch.setattr(quote_service, "_WEBHOOK_EXECUTOR", CaptureExecutor())
-    monkeypatch.setattr("app.services.preferences.get_feishu_webhook_url", lambda: "https://open.feishu.cn/open-apis/bot/v2/hook/test")
-    monkeypatch.setattr("app.services.preferences.get_feishu_webhook_secret", lambda: "secret")
-    monkeypatch.setattr("app.services.preferences.get_wecom_webhook_url", lambda: "wecom-key")
+    monkeypatch.setattr("app.services.preferences.get_line_channel_access_token", lambda: "line-token")
+    monkeypatch.setattr("app.services.preferences.get_line_target_id", lambda: "line-target")
+    monkeypatch.setattr("app.services.preferences.get_telegram_bot_token", lambda: "telegram-token")
+    monkeypatch.setattr("app.services.preferences.get_telegram_chat_id", lambda: "telegram-chat")
 
     engine = type("Engine", (), {
-        "rules": {"r_ladder": {"webhook_channels": ["feishu", "wecom"]}},
+        "rules": {"r_ladder": {"webhook_channels": ["line", "telegram"]}},
     })()
     QuoteService._maybe_send_webhook(
         object.__new__(QuoteService),
@@ -130,5 +131,5 @@ def test_ladder_webhook_uses_chinese_title_without_brand(monkeypatch):
         engine,
     )
 
-    assert [args[1] for _, args in calls] == ["連續漲停梯隊", "連續漲停梯隊"]
-    assert all("TickFlow" not in args[1] for _, args in calls)
+    assert [args[2] for _, args in calls] == ["連續漲停梯隊", "連續漲停梯隊"]
+    assert all("TickFlow" not in args[2] for _, args in calls)

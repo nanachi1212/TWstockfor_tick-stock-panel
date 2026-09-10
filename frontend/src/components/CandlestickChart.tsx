@@ -19,13 +19,13 @@ export interface OHLC {
 }
 
 export function fmtBigNum(v: number): string {
-  if (v >= 1_000_000_000_000) return `${(v / 1_000_000_000_000).toFixed(2)}万亿`
-  if (v >= 100_000_000) return `${(v / 100_000_000).toFixed(2)}亿`
-  if (v >= 10_000) return `${(v / 10_000).toFixed(0)}万`
+  if (v >= 1_000_000_000_000) return `${(v / 1_000_000_000_000).toFixed(2)}萬億`
+  if (v >= 100_000_000) return `${(v / 100_000_000).toFixed(2)}億`
+  if (v >= 10_000) return `${(v / 10_000).toFixed(0)}萬`
   return v.toFixed(0)
 }
 
-// 序列颜色 (双主题通用); 画布文字/网格/边框主题相关色走 ChartTheme
+// 序列顏色 (雙主題通用); 畫布文字/網格/邊框主題相關色走 ChartTheme
 const THEME = {
   background: 'transparent',
   bull: '#F04438',
@@ -48,7 +48,7 @@ export function CandlestickChart({ data, height = 480 }: Props) {
   const ctRef = useRef(ct)
   ctRef.current = ct
 
-  // 主题切换: 无需重建 chart, applyOptions 即时生效
+  // 主題切換: 無需重建 chart, applyOptions 即時生效
   useEffect(() => {
     chartRef.current?.applyOptions({
       layout: { textColor: ct.text },

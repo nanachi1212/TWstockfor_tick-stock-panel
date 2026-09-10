@@ -19,7 +19,7 @@ const loadErrors: FrontendExtensionLoadError[] = []
 let frozen = false
 
 function assertMutable() {
-  if (frozen) throw new Error('前端扩展注册表已冻结')
+  if (frozen) throw new Error('前端擴展註冊表已凍結')
 }
 
 function assertId(value: string, label: string) {
@@ -28,27 +28,27 @@ function assertId(value: string, label: string) {
 
 function registerExtension(extension: FrontendExtension) {
   assertMutable()
-  assertId(extension.id, '扩展 ID')
+  assertId(extension.id, '擴展 ID')
   if (extension.apiVersion !== FRONTEND_EXTENSION_API_VERSION) {
     throw new Error(
-      `扩展 ${extension.id} 需要前端契约 v${extension.apiVersion}, 当前为 v${FRONTEND_EXTENSION_API_VERSION}`,
+      `擴展 ${extension.id} 需要前端契約 v${extension.apiVersion}, 當前為 v${FRONTEND_EXTENSION_API_VERSION}`,
     )
   }
-  if (extensions.has(extension.id)) throw new Error(`扩展 ID 重复: ${extension.id}`)
+  if (extensions.has(extension.id)) throw new Error(`擴展 ID 重複: ${extension.id}`)
 
   const localRouteIds = new Set<string>()
   const localRoutePaths = new Set<string>()
   for (const route of extension.routes ?? []) {
     assertId(route.id, '路由 ID')
     if (!route.path.startsWith('/') || route.path === '/') {
-      throw new Error(`扩展路由必须使用非根绝对路径: ${route.path}`)
+      throw new Error(`擴展路由必須使用非根絕對路徑: ${route.path}`)
     }
     if (routes.has(route.id) || localRouteIds.has(route.id)) {
-      throw new Error(`扩展路由 ID 重复: ${route.id}`)
+      throw new Error(`擴展路由 ID 重複: ${route.id}`)
     }
     const duplicatePath = [...routes.values()].find(item => item.path === route.path)
     if (duplicatePath || localRoutePaths.has(route.path)) {
-      throw new Error(`扩展路由路径重复: ${route.path}`)
+      throw new Error(`擴展路由路徑重複: ${route.path}`)
     }
     localRouteIds.add(route.id)
     localRoutePaths.add(route.path)
@@ -56,20 +56,20 @@ function registerExtension(extension: FrontendExtension) {
 
   const localNavigationIds = new Set<string>()
   for (const item of extension.navigation ?? []) {
-    assertId(item.id, '导航 ID')
+    assertId(item.id, '導航 ID')
     if (navigation.has(item.id) || localNavigationIds.has(item.id)) {
-      throw new Error(`扩展导航 ID 重复: ${item.id}`)
+      throw new Error(`擴展導航 ID 重複: ${item.id}`)
     }
     localNavigationIds.add(item.id)
   }
 
   const localSlotIds = new Set<string>()
   for (const slot of extension.slots ?? []) {
-    assertId(slot.id, '插槽实现 ID')
+    assertId(slot.id, '插槽實現 ID')
     const key = `${slot.name}:${slot.id}`
-    if (localSlotIds.has(key)) throw new Error(`扩展内插槽实现重复: ${key}`)
+    if (localSlotIds.has(key)) throw new Error(`擴展內插槽實現重複: ${key}`)
     if ((slots.get(slot.name) ?? []).some(item => item.id === slot.id)) {
-      throw new Error(`插槽实现 ID 重复: ${key}`)
+      throw new Error(`插槽實現 ID 重複: ${key}`)
     }
     localSlotIds.add(key)
   }
@@ -95,7 +95,7 @@ export async function loadFrontendExtensions(
     let extension: FrontendExtension | undefined
     try {
       extension = (await modules[source]()).default
-      if (!extension) throw new Error('模块必须 default export FrontendExtension')
+      if (!extension) throw new Error('模塊必須 default export FrontendExtension')
       registerExtension(extension)
     } catch (error) {
       loadErrors.push({
@@ -113,16 +113,16 @@ export function finalizeFrontendExtensions(reservedPaths: ReadonlySet<string>) {
     try {
       for (const route of extension.routes ?? []) {
         if (route.path.includes(':') || route.path.includes('*')) {
-          throw new Error(`扩展路由首版只支持静态路径: ${route.path}`)
+          throw new Error(`擴展路由首版只支持靜態路徑: ${route.path}`)
         }
         if ([...reservedPaths].some(corePath => coreRouteMatches(corePath, route.path))) {
-          throw new Error(`试图覆盖核心路由 ${route.path}`)
+          throw new Error(`試圖覆蓋核心路由 ${route.path}`)
         }
       }
       const ownRouteIds = new Set((extension.routes ?? []).map(route => route.id))
       for (const item of extension.navigation ?? []) {
         if (!ownRouteIds.has(item.routeId)) {
-          throw new Error(`导航 ${item.id} 引用了本扩展中不存在的路由 ${item.routeId}`)
+          throw new Error(`導航 ${item.id} 引用了本擴展中不存在的路由 ${item.routeId}`)
         }
       }
     } catch (error) {
@@ -161,20 +161,20 @@ function coreRouteMatches(pattern: string, path: string) {
 }
 
 export function getFrontendExtensionRoutes() {
-  if (!frozen) throw new Error('读取扩展路由前必须冻结注册表')
+  if (!frozen) throw new Error('讀取擴展路由前必須凍結註冊表')
   return [...routes.values()].sort((a, b) => a.path.localeCompare(b.path))
 }
 
 export function getFrontendExtensionNavigation() {
-  if (!frozen) throw new Error('读取扩展导航前必须冻结注册表')
+  if (!frozen) throw new Error('讀取擴展導航前必須凍結註冊表')
   return [...navigation.values()]
     .map(item => ({ ...item, route: routes.get(item.routeId)! }))
     .sort((a, b) => (a.order ?? 100) - (b.order ?? 100) || a.id.localeCompare(b.id))
 }
 
 export function getFrontendSlotRegistrations<K extends FrontendSlotName>(name: K) {
-  if (!frozen) throw new Error('读取扩展插槽前必须冻结注册表')
-  // 存储按槽位名分桶, 桶内注册项的 name 必与键一致, 断言安全
+  if (!frozen) throw new Error('讀取擴展插槽前必須凍結註冊表')
+  // 存儲按槽位名分桶, 桶內註冊項的 name 必與鍵一致, 斷言安全
   return (slots.get(name) ?? []) as unknown as Array<FrontendSlotRegistration<K> & { extensionId: string }>
 }
 

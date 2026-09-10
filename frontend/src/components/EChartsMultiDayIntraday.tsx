@@ -30,8 +30,8 @@ interface InfoPoint {
 }
 
 function formatAmount(value: number): string {
-  if (value >= 1_000_000_000) return `${(value / 1_000_000_000).toFixed(2)}亿`
-  if (value >= 10_000) return `${(value / 10_000).toFixed(0)}万`
+  if (value >= 1_000_000_000) return `${(value / 1_000_000_000).toFixed(2)}億`
+  if (value >= 10_000) return `${(value / 10_000).toFixed(0)}萬`
   return value.toFixed(0)
 }
 
@@ -262,7 +262,7 @@ export function EChartsMultiDayIntraday({
       const data = new Array(totalLength).fill(null) as (number | null)[]
       for (let index = 0; index < averages.length; index++) data[start + index] = averages[index]
       return {
-        name: `${session.date} 均价`,
+        name: `${session.date} 均價`,
         type: 'line',
         data,
         symbol: 'none',
@@ -408,20 +408,20 @@ export function EChartsMultiDayIntraday({
           {info ? (
             <>
               <span className="text-muted">{info.date} {formatMinuteTime(info.row.datetime)}</span>
-              <span className="text-muted">开</span><span style={{ color: infoColor }}>{info.row.open.toFixed(2)}</span>
+              <span className="text-muted">開</span><span style={{ color: infoColor }}>{info.row.open.toFixed(2)}</span>
               <span className="text-muted">高</span><span style={{ color: infoColor }}>{info.row.high.toFixed(2)}</span>
               <span className="text-muted">低</span><span style={{ color: infoColor }}>{info.row.low.toFixed(2)}</span>
               <span className="text-muted">收</span><span className="font-semibold" style={{ color: infoColor }}>{info.row.close.toFixed(2)}</span>
               {changePct != null && (
                 <span style={{ color: infoColor }}>{changePct >= 0 ? '+' : ''}{changePct.toFixed(2)}%</span>
               )}
-              <span className="text-muted">均价</span><span style={{ color: COLORS.average }}>{info.average.toFixed(2)}</span>
+              <span className="text-muted">均價</span><span style={{ color: COLORS.average }}>{info.average.toFixed(2)}</span>
               <span className="text-muted">量</span><span className="text-secondary">{info.row.volume.toFixed(0)}</span>
-              <span className="text-muted">额</span><span className="text-secondary">{formatAmount(info.row.amount)}</span>
+              <span className="text-muted">額</span><span className="text-secondary">{formatAmount(info.row.amount)}</span>
             </>
           ) : <span className="text-muted">—</span>}
         </div>
-        <div className="shrink-0 text-[10px] text-muted">{sessions.length} 个交易日 · {rowCount} 分钟</div>
+        <div className="shrink-0 text-[10px] text-muted">{sessions.length} 個交易日 · {rowCount} 分鐘</div>
       </div>
       <div ref={containerRef} className="w-full" style={{ height: height - 40, cursor: 'crosshair' }} />
     </div>

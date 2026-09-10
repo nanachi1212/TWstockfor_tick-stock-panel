@@ -6,17 +6,17 @@ import { toast } from '@/components/Toast'
 import { pushAlertToasts } from '@/components/AlertToast'
 import type { StrategyAlertEvent } from './api'
 
-// ===== 全局 SSE 连接状态 (模块级 store, 仿 AlertToast.tsx 模式) =====
-// 实时行情 SSE 断开时 UI 无感知 → 会漏掉策略告警。这里暴露连接状态,
-// 供 Layout 顶部渲染徽标、连续失败 N 次后弹一次 toast。
+// ===== 全局 SSE 連接狀態 (模塊級 store, 仿 AlertToast.tsx 模式) =====
+// 實時行情 SSE 斷開時 UI 無感知 → 會漏掉策略告警。這裡暴露連接狀態,
+// 供 Layout 頂部渲染徽標、連續失敗 N 次後彈一次 toast。
 export type QuoteStreamStatus = 'connected' | 'reconnecting' | 'disconnected'
 
 let _streamStatus: QuoteStreamStatus = 'disconnected'
 const _statusListeners = new Set<() => void>()
 
-// 连续失败到达该阈值后弹一次 toast (只弹一次, 恢复后重置)
+// 連續失敗到達該閾值後彈一次 toast (只彈一次, 恢復後重置)
 const FAILS_BEFORE_TOAST = 3
-// 指数退避上限
+// 指數退避上限
 const BACKOFF_CAP_MS = 60_000
 
 function _emitStatus() {
@@ -40,34 +40,34 @@ function _getStatus() {
   return _streamStatus
 }
 
-/** React hook: 读取全局实时行情 SSE 连接状态 (供 Layout 徽标使用) */
+/** React hook: 讀取全局實時行情 SSE 連接狀態 (供 Layout 徽標使用) */
 export function useQuoteStreamStatus(): QuoteStreamStatus {
   return useSyncExternalStore(_subscribeStatus, _getStatus, () => 'disconnected' as const)
 }
 
-// ===== 焦点股票注册表 (个股对话框用) =====
-// 个股对话框打开时注册当前 symbol, SSE quotes_updated 推送时精准 invalidate
-// 该 symbol 的日K查询 (['kline', symbol]), 让日K最后一根蜡烛随实时价变化。
-// 不加进 SSE_INVALIDATE_PREFIXES 全局列表 —— 避免回测弹窗等也每秒重拉。
+// ===== 焦點股票註冊表 (個股對話框用) =====
+// 個股對話框打開時註冊當前 symbol, SSE quotes_updated 推送時精準 invalidate
+// 該 symbol 的日K查詢 (['kline', symbol]), 讓日K最後一根蠟燭隨實時價變化。
+// 不加進 SSE_INVALIDATE_PREFIXES 全局列表 —— 避免回測彈窗等也每秒重拉。
 let _focusSymbol: string | null = null
 
-/** 注册当前焦点股票 (个股对话框打开时调用)。 */
+/** 註冊當前焦點股票 (個股對話框打開時調用)。 */
 export function setFocusSymbol(symbol: string): void {
   _focusSymbol = symbol
 }
 
-/** 清除焦点股票 (个股对话框关闭时调用)。 */
+/** 清除焦點股票 (個股對話框關閉時調用)。 */
 export function clearFocusSymbol(): void {
   _focusSymbol = null
 }
 
 /**
- * 全局 SSE hook: 监听后端行情更新推送 + 策略监控通知。
+ * 全局 SSE hook: 監聽後端行情更新推送 + 策略監控通知。
  *
- * - 行情更新 (quotes_updated): 根据 sseRefreshPages 配置过滤 invalidation
- * - 策略监控通知 (strategy_alert): 通过 onAlert 回调弹 toast
+ * - 行情更新 (quotes_updated): 根據 sseRefreshPages 配置過濾 invalidation
+ * - 策略監控通知 (strategy_alert): 通過 onAlert 回調彈 toast
  *
- * 应在顶层 Layout 中调用一次。
+ * 應在頂層 Layout 中調用一次。
  */
 export function useQuoteStream(
   enabled: boolean,
@@ -81,22 +81,22 @@ export function useQuoteStream(
   pagesRef.current = sseRefreshPages
 
   const handleAlerts = useCallback((alerts: StrategyAlertEvent[]) => {
-    // depth 系统接管通知: 单独处理, 不走 strategy 回调
+    // depth 系統接管通知: 單獨處理, 不走 strategy 回調
     const depthAlerts = alerts.filter(a => a.source === 'depth')
     const strategyAlerts = alerts.filter(a => a.source !== 'depth')
 
-    // depth 通知直接 toast(防刷屏: 后端已在状态切换时才推)
+    // depth 通知直接 toast(防刷屏: 後端已在狀態切換時才推)
     for (const a of depthAlerts.slice(0, 1)) {
       toast(a.message, 'success')
     }
 
-    // 监控告警: 用专用 AlertToast (整批只响一声, 每条都弹, 受 maxVisible 上限保护)
+    // 監控告警: 用專用 AlertToast (整批只響一聲, 每條都彈, 受 maxVisible 上限保護)
     if (strategyAlerts.length > 0) {
-      // 有 onAlert 回调时走回调, 否则弹 AlertToast
+      // 有 onAlert 回調時走回調, 否則彈 AlertToast
       if (onAlert) {
         onAlert(strategyAlerts)
       }
-      // 批量弹通知 (去掉了 slice(0,2) 截断, 让每只新命中都弹 toast; 声音整批只响一次)
+      // 批量彈通知 (去掉了 slice(0,2) 截斷, 讓每隻新命中都彈 toast; 聲音整批只響一次)
       pushAlertToasts(strategyAlerts as any)
     }
   }, [onAlert])
@@ -105,10 +105,10 @@ export function useQuoteStream(
   enabledRef.current = enabled
 
   useEffect(() => {
-    // SSE 始终连接 — 监控告警不依赖实时行情开关
-    // (quotes_updated 行情刷新受 enabled 控制, strategy_alert 始终处理)
+    // SSE 始終連接 — 監控告警不依賴實時行情開關
+    // (quotes_updated 行情刷新受 enabled 控制, strategy_alert 始終處理)
 
-    // 连续失败计数 (用于指数退避 + 到阈值弹一次 toast)
+    // 連續失敗計數 (用於指數退避 + 到閾值彈一次 toast)
     let failCount = 0
     let toastFired = false
 
@@ -118,25 +118,25 @@ export function useQuoteStream(
       esRef.current = es
 
       es.onopen = () => {
-        // 连接成功: 重置退避与 toast 标记
+        // 連接成功: 重置退避與 toast 標記
         failCount = 0
         toastFired = false
         _setStatus('connected')
       }
 
-      // sse-starlette ping 心跳走 SSE comment，不会到达这里
+      // sse-starlette ping 心跳走 SSE comment，不會到達這裡
 
       es.addEventListener('quotes_updated', () => {
-        // 实时行情未开启时不处理行情刷新
+        // 實時行情未開啟時不處理行情刷新
         if (!enabledRef.current) return
-        // 根据用户配置过滤 invalidation
+        // 根據用戶配置過濾 invalidation
         const pages = pagesRef.current
         if (pages) {
-          // 只 invalidate 开启的页面对应的 prefix
+          // 只 invalidate 開啟的頁面對應的 prefix
           const activePrefixes = SSE_INVALIDATE_PREFIXES.filter((p) => {
-            // 'quote-status' 始终刷新 (全局状态)
+            // 'quote-status' 始終刷新 (全局狀態)
             if (p === 'quote-status') return true
-            // 兼容旧配置: 'watchlist' 拆成两个精确前缀后, 未单独设置时沿用旧 'watchlist' 开关
+            // 兼容舊配置: 'watchlist' 拆成兩個精確前綴後, 未單獨設置時沿用舊 'watchlist' 開關
             if (
               (p === 'watchlist-quotes' || p === 'watchlist-enriched') &&
               pages[p] === undefined
@@ -152,7 +152,7 @@ export function useQuoteStream(
               ),
           })
         } else {
-          // 无配置时全部刷新 (向后兼容)
+          // 無配置時全部刷新 (向後兼容)
           qc.invalidateQueries({
             predicate: (query) =>
               SSE_INVALIDATE_PREFIXES.some(
@@ -160,22 +160,21 @@ export function useQuoteStream(
               ),
           })
         }
-        // 焦点股票日K精准刷新: 个股对话框打开时, 日K最后一根蜡烛随实时价变化。
-        // 后端 _maybe_inject_live_candle 只读内存缓存, 不调 TickFlow, 秒级重拉零额外成本。
+        // 焦點股票日K精準刷新: 個股對話框打開時, 日K最後一根蠟燭隨實時價變化。
+        // 後端 _maybe_inject_live_candle 只讀內存緩存, 不調 TickFlow, 秒級重拉零額外成本。
         if (_focusSymbol) {
           qc.invalidateQueries({ queryKey: ['kline', _focusSymbol] })
         }
       })
 
       es.addEventListener('strategy_results_updated', () => {
-        // 策略监控完成后只刷新策略结果缓存，不扩散到其他行情页面。
+        // 策略監控完成後只刷新策略結果緩存，不擴散到其他行情頁面。
         qc.invalidateQueries({ queryKey: ['screener-cached'] })
       })
 
       es.addEventListener('depth_updated', () => {
-        // 五档修正完成: 刷新连板梯队 + 看板封单数据。
-        // 不受实时行情开关限制 — 修正轮询独立于行情轮询, 用户开了修正就想看实时封单。
-        qc.invalidateQueries({ queryKey: ['limit-ladder'] })
+        // 五檔修正完成後刷新看板封單數據。
+        // 不受實時行情開關限制 — 修正輪詢獨立於行情輪詢, 用戶開了修正就想看實時封單。
         qc.invalidateQueries({ queryKey: ['overview-market'] })
       })
 
@@ -185,12 +184,12 @@ export function useQuoteStream(
             const alerts: StrategyAlertEvent[] = data.alerts || []
             if (alerts.length > 0) {
               handleAlerts(alerts)
-              // 实时刷新触发记录列表 + 监控中心徽标
+              // 實時刷新觸發記錄列表 + 監控中心徽標
               qc.invalidateQueries({ queryKey: ['alerts'] })
               qc.invalidateQueries({ queryKey: ['alerts-total'] })
             }
         } catch {
-          // 忽略解析错误
+          // 忽略解析錯誤
         }
       })
 
@@ -199,12 +198,12 @@ export function useQuoteStream(
         esRef.current = null
         failCount += 1
         _setStatus('reconnecting')
-        // 连续失败到阈值 → 弹一次 toast (漏行情=可能漏策略告警, 需明确告知)
+        // 連續失敗到閾值 → 彈一次 toast (漏行情=可能漏策略告警, 需明確告知)
         if (failCount >= FAILS_BEFORE_TOAST && !toastFired) {
           toastFired = true
           toast('即時連線已中斷，正在重連…', 'error')
         }
-        // 指数退避 (base * 2^(n-1), 上限 60s), 替代原来固定 5s
+        // 指數退避 (base * 2^(n-1), 上限 60s), 替代原來固定 5s
         const base = getQueryConfig().sse.reconnectDelay
         const delay = Math.min(base * 2 ** (failCount - 1), BACKOFF_CAP_MS)
         retryRef.current = setTimeout(connect, delay)

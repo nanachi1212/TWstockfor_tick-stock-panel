@@ -23,19 +23,19 @@ import { boardTag } from '@/components/stock-table/primitives'
 import { GroupStatsSettings } from '@/components/GroupStatsSettings'
 
 /**
- * 自选「分组卡片」视图 — 每个分组一张卡, 组内按涨跌幅降序排列,
- * 默认展示前 N 名 (N 在设置弹层可调), 可展开查看全部。卡片自身顺序、
- * 头部数值与显示条数跟随「指标 + 排序」配置 (与分组统计条共享,
- * 由自选页统一持有并持久化)。数据全部来自自选页既有查询
- * (enriched 行 + 分组归属), 不产生额外请求。
+ * 自選「分組卡片」視圖 — 每個分組一張卡, 組內按漲跌幅降序排列,
+ * 默認展示前 N 名 (N 在設置彈層可調), 可展開查看全部。卡片自身順序、
+ * 頭部數值與顯示條數跟隨「指標 + 排序」配置 (與分組統計條共享,
+ * 由自選頁統一持有並持久化)。數據全部來自自選頁既有查詢
+ * (enriched 行 + 分組歸屬), 不產生額外請求。
  */
 
 interface GroupCardData {
-  /** 'ungrouped' 或分组 id */
+  /** 'ungrouped' 或分組 id */
   key: string
   name: string
   color: WatchlistGroupColorOption | null
-  /** 组内成员 (已按涨跌幅降序) */
+  /** 組內成員 (已按漲跌幅降序) */
   rows: any[]
 }
 
@@ -54,11 +54,11 @@ const GroupCard = React.memo(function GroupCard({
   data: GroupCardData
   pctInfo?: GroupPctInfo
   metric: GroupMetric
-  /** 默认展示的成员条数 (来自持久化配置) */
+  /** 默認展示的成員條數 (來自持久化配置) */
   topN: number
-  /** 头部是否显示分组颜色底条 (来自持久化配置) */
+  /** 頭部是否顯示分組顏色底條 (來自持久化配置) */
   showColorBar: boolean
-  /** 成员行是否显示序号 (来自持久化配置) */
+  /** 成員行是否顯示序號 (來自持久化配置) */
   showRank: boolean
   expanded: boolean
   onToggle: (key: string) => void
@@ -68,7 +68,7 @@ const GroupCard = React.memo(function GroupCard({
   const visible = expanded ? data.rows : data.rows.slice(0, topN)
   const hasMore = data.rows.length > topN
   const color = data.color
-  // 头部数值跟随所选指标; 上涨占比以 0.5 为强弱轴染色
+  // 頭部數值跟隨所選指標; 上漲佔比以 0.5 為強弱軸染色
   const v = groupMetricValue(pctInfo, metric)
   const signed = metric === 'up_ratio' ? (v == null ? null : v - 0.5) : v
   const valueLabel = v == null
@@ -79,7 +79,7 @@ const GroupCard = React.memo(function GroupCard({
 
   return (
     <div className="flex flex-col self-start w-full overflow-hidden rounded-lg border border-border bg-surface">
-      {/* 头部: 色点 + 名称 + 指标数值居左, 总数 + 涨跌家数居右; 点击钻取该分组 */}
+      {/* 頭部: 色點 + 名稱 + 指標數值居左, 總數 + 漲跌家數居右; 點擊鑽取該分組 */}
       <button
         type="button"
         onClick={() => onOpen(data.key)}
@@ -111,7 +111,7 @@ const GroupCard = React.memo(function GroupCard({
         <ChevronRight className="h-3.5 w-3.5 shrink-0 text-muted/60 transition-transform group-hover:translate-x-0.5" />
       </button>
 
-      {/* 组内榜单: 按涨跌幅降序 */}
+      {/* 組內榜單: 按漲跌幅降序 */}
       {data.rows.length === 0 ? (
         <div className="px-3 py-4 text-center text-[11px] text-muted">尚無標的</div>
       ) : (
@@ -153,7 +153,7 @@ const GroupCard = React.memo(function GroupCard({
         </div>
       )}
 
-      {/* 展开/收起 */}
+      {/* 展開/收起 */}
       {hasMore && (
         <button
           type="button"
@@ -170,14 +170,14 @@ const GroupCard = React.memo(function GroupCard({
 
 interface WatchlistGroupCardsProps {
   groups: WatchlistGroup[]
-  /** enriched 全量行 (未经过分组/板块筛选) */
+  /** enriched 全量行 (未經過分組/板塊篩選) */
   rows: any[]
-  /** symbol -> 所属分组 id 列表 (空数组 = 未分组), 来自自选列表查询 */
+  /** symbol -> 所屬分組 id 列表 (空數組 = 未分組), 來自自選列表查詢 */
   groupBySymbol: Map<string, string[]>
-  /** 分组等权涨跌幅统计 */
+  /** 分組等權漲跌幅統計 */
   pcts: GroupPctMap
   onPreview: (symbol: string, name: string) => void
-  /** 钻取分组 (切换到该分组的卡片列表) */
+  /** 鑽取分組 (切換到該分組的卡片列表) */
   onOpenGroup: (groupId: string) => void
   config: GroupStatsConfig
   onConfigChange: (patch: GroupStatsConfigPatch) => void
@@ -204,14 +204,14 @@ export function WatchlistGroupCards({
     })
   }, [])
 
-  // 分桶 + 组内按涨跌幅降序: 仅在 enriched 行或分组归属变化时重算,
-  // 每组数组引用稳定, 配合 GroupCard memo 避免无关卡片重渲染。
+  // 分桶 + 組內按漲跌幅降序: 僅在 enriched 行或分組歸屬變化時重算,
+  // 每組數組引用穩定, 配合 GroupCard memo 避免無關卡片重渲染。
   const cards = useMemo<GroupCardData[]>(() => {
     const buckets = new Map<string, any[]>()
     for (const group of groups) buckets.set(group.id, [])
     buckets.set('ungrouped', [])
     for (const r of rows) {
-      // 多组并存: 一股可同时出现在多个分组卡片中
+      // 多組並存: 一股可同時出現在多個分組卡片中
       const gids = groupBySymbol.get(r.symbol)
       if (!gids || gids.length === 0) {
         buckets.get('ungrouped')?.push(r)
@@ -236,7 +236,7 @@ export function WatchlistGroupCards({
       color: resolveWatchlistGroupColor(group.color),
       rows: sorted.get(group.id) ?? [],
     }))
-    // 未分组仅在非空时展示
+    // 未分組僅在非空時展示
     const ungrouped = sorted.get('ungrouped') ?? []
     if (ungrouped.length > 0) {
       result.push({ key: 'ungrouped', name: '未分組', color: null, rows: ungrouped })
@@ -244,7 +244,7 @@ export function WatchlistGroupCards({
     return result
   }, [groups, rows, groupBySymbol])
 
-  // 卡片顺序跟随「指标 + 排序」配置 (与分组统计条同源)
+  // 卡片順序跟隨「指標 + 排序」配置 (與分組統計條同源)
   const ordered = useMemo(
     () => sortGroupKeys(cards, c => c.key, pcts, config),
     [cards, pcts, config],

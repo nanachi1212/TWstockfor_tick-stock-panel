@@ -1,8 +1,8 @@
 /**
  * 通用列表列配置底座。
  *
- * 业务页面只负责定义内置列、分组和持久化 adapter；拖拽、显隐、扩展列参数等
- * 公共能力集中在这里，避免每个股票列表重复实现。
+ * 業務頁面只負責定義內置列、分組和持久化 adapter；拖拽、顯隱、擴展列參數等
+ * 公共能力集中在這裡，避免每個股票列表重複實現。
  */
 
 export type ColumnSource =
@@ -10,43 +10,43 @@ export type ColumnSource =
   | { type: 'ext'; configId: string; fieldName: string; fieldLabel?: string; fieldType?: string }
   | { type: 'computed'; key: string }
 
-/** 扩展列字符串值渲染配置 */
+/** 擴展列字符串值渲染配置 */
 export interface ExtColumnDisplayConfig {
-  /** 显示模式: tag=分隔为标签, text=纯文本 */
+  /** 顯示模式: tag=分隔為標籤, text=純文本 */
   displayMode: 'tag' | 'text'
-  /** 自定义分隔符，留空使用默认 [、,，;；-] */
+  /** 自定義分隔符，留空使用默認 [、,，;；-] */
   separator?: string
-  /** 列最大宽度 CSS 值，如 "200px" */
+  /** 列最大寬度 CSS 值，如 "200px" */
   maxWidth?: string
-  /** 标签显示上限，0 或 undefined=全部显示 */
+  /** 標籤顯示上限，0 或 undefined=全部顯示 */
   maxTags?: number
-  /** 隐藏的标签索引（0-based），在 maxTags 范围内按位置隐藏 */
+  /** 隱藏的標籤索引（0-based），在 maxTags 範圍內按位置隱藏 */
   hiddenIndices?: number[]
-  /** 标签排列方向: horizontal=横向(默认), vertical=竖向 */
+  /** 標籤排列方向: horizontal=橫向(默認), vertical=豎向 */
   tagLayout?: 'horizontal' | 'vertical'
-  /** 数字千分位逗号(仅 number 类型有效): true=1,234,567 */
+  /** 數字千分位逗號(僅 number 類型有效): true=1,234,567 */
   thousandSeparator?: boolean
-  /** 单位换算(仅 number 类型有效): none=不换算(默认), wan=万, yi=亿, auto=自动 */
+  /** 單位換算(僅 number 類型有效): none=不換算(默認), wan=萬, yi=億, auto=自動 */
   unitConvert?: 'none' | 'wan' | 'yi' | 'auto'
-  /** 单位换算后保留小数位(仅 number 类型 + unitConvert≠none 有效), 默认 2 */
+  /** 單位換算後保留小數位(僅 number 類型 + unitConvert≠none 有效), 默認 2 */
   unitDecimals?: number
 }
 
-/** 日k列渲染配置（builtin: candle 列专用） */
+/** 日k列渲染配置（builtin: candle 列專用） */
 export interface CandleColumnConfig {
-  /** 开启（显示蜡烛图）时单元格宽度 px */
+  /** 開啟（顯示蠟燭圖）時單元格寬度 px */
   enabledWidth?: number
-  /** 开启时单元格高度 px */
+  /** 開啟時單元格高度 px */
   enabledHeight?: number
-  /** 关闭（收起）时单元格宽度 px */
+  /** 關閉（收起）時單元格寬度 px */
   disabledWidth?: number
-  /** 关闭时单元格高度 px */
+  /** 關閉時單元格高度 px */
   disabledHeight?: number
-  /** 显示最近多少个交易日的日k */
+  /** 顯示最近多少個交易日的日k */
   days?: number
 }
 
-/** 日k列配置默认值（与改造前 MiniCandlestick 硬编码值一致） */
+/** 日k列配置默認值（與改造前 MiniCandlestick 硬編碼值一致） */
 export const DEFAULT_CANDLE_CONFIG: Required<CandleColumnConfig> = {
   enabledWidth: 100,
   enabledHeight: 80,
@@ -55,21 +55,21 @@ export const DEFAULT_CANDLE_CONFIG: Required<CandleColumnConfig> = {
   days: 12,
 }
 
-/** 分时列渲染配置（builtin: intraday 列专用） */
+/** 分時列渲染配置（builtin: intraday 列專用） */
 export interface IntradayColumnConfig {
-  /** 单元格宽度 px */
+  /** 單元格寬度 px */
   width?: number
-  /** 单元格高度 px */
+  /** 單元格高度 px */
   height?: number
 }
 
-/** 分时列配置默认值 */
+/** 分時列配置默認值 */
 export const DEFAULT_INTRADAY_CONFIG: Required<IntradayColumnConfig> = {
   width: 150,
   height: 80,
 }
 
-/** 分时列数值边界 */
+/** 分時列數值邊界 */
 const INTRADAY_BOUNDS = {
   width:  { min: 60, max: 300 },
   height: { min: 32, max: 200 },
@@ -83,7 +83,7 @@ export function resolveIntradayConfig(cfg: IntradayColumnConfig | undefined): Re
   }
 }
 
-/** 数值边界（设置过大取上限，过小取最小值） */
+/** 數值邊界（設置過大取上限，過小取最小值） */
 const CANDLE_BOUNDS = {
   enabledWidth:  { min: 40,  max: 300 },
   enabledHeight: { min: 32,  max: 200 },
@@ -98,8 +98,8 @@ function clampNum(v: unknown, bounds: { min: number; max: number }, fallback: nu
 }
 
 /**
- * 合并用户配置与默认值，并对越界数值做钳制（过大取上限，过小取最小值）。
- * 返回字段齐全的配置，调用方可直接解构使用。
+ * 合併用戶配置與默認值，並對越界數值做鉗制（過大取上限，過小取最小值）。
+ * 返回字段齊全的配置，調用方可直接解構使用。
  */
 export function resolveCandleConfig(cfg: CandleColumnConfig | undefined): Required<CandleColumnConfig> {
   const c = cfg ?? {}
@@ -113,19 +113,19 @@ export function resolveCandleConfig(cfg: CandleColumnConfig | undefined): Requir
 }
 
 export interface ColumnConfig {
-  id: string        // 唯一标识，如 "builtin:price" 或 "ext:my_table:score"
+  id: string        // 唯一標識，如 "builtin:price" 或 "ext:my_table:score"
   source: ColumnSource
-  label: string     // 用户看到的表头名
-  visible: boolean  // 是否显示
-  pinned?: boolean  // 固定列不可隐藏（代码/名称、操作）
+  label: string     // 用戶看到的表頭名
+  visible: boolean  // 是否顯示
+  pinned?: boolean  // 固定列不可隱藏（代碼/名稱、操作）
   align?: 'left' | 'center' | 'right'
-  /** 扩展列显示配置（仅 ext 类型生效） */
+  /** 擴展列顯示配置（僅 ext 類型生效） */
   extDisplay?: ExtColumnDisplayConfig
-  /** 日k列渲染配置（仅 builtin: candle 列生效） */
+  /** 日k列渲染配置（僅 builtin: candle 列生效） */
   candleConfig?: CandleColumnConfig
-  /** 分时列渲染配置（仅 builtin: intraday 列生效） */
+  /** 分時列渲染配置（僅 builtin: intraday 列生效） */
   intradayConfig?: IntradayColumnConfig
-  /** 信息条场景：是否单独占一行显示（仅 StockInfoBar 生效，表格场景忽略） */
+  /** 信息條場景：是否單獨佔一行顯示（僅 StockInfoBar 生效，表格場景忽略） */
   standalone?: boolean
 }
 
@@ -139,7 +139,7 @@ export interface ColumnGroup {
 
 export const DEFAULT_ACTION_COLUMN_ID = 'builtin:action'
 
-/** 序列化列配置（只保存用户可自定义的列，排除 pinned 和 action） */
+/** 序列化列配置（只保存用戶可自定義的列，排除 pinned 和 action） */
 export function serializeColumns(
   columns: ColumnConfig[],
   actionColumnId = DEFAULT_ACTION_COLUMN_ID,
@@ -152,7 +152,7 @@ export interface MergeColumnsOptions {
   pinnedFirstIds?: string[]
 }
 
-/** 合并用户保存的列与默认列，保留用户顺序并补齐新增默认列。 */
+/** 合併用戶保存的列與默認列，保留用戶順序並補齊新增默認列。 */
 export function mergeColumns(
   saved: ColumnConfig[] | null | undefined,
   defaults: ColumnConfig[],
@@ -165,13 +165,13 @@ export function mergeColumns(
   const savedMap = new Map(normalizedSaved.map(c => [c.id, c]))
   const defaultMap = new Map(defaults.map(c => [c.id, c]))
 
-  // 1. 按用户保存顺序排列
+  // 1. 按用戶保存順序排列
   for (const col of normalizedSaved) {
     if (!col || col.id === actionColumnId) continue
     const def = defaultMap.get(col.id)
     if (def) {
-      // 内置列: label/source/align/pinned 以默认定义为准；visible 使用用户配置；
-      // 用户自定义的渲染配置（如日k的 candleConfig、分时的 intradayConfig、策略列的 extDisplay、信息条 standalone）需保留，否则刷新后丢失
+      // 內置列: label/source/align/pinned 以默認定義為準；visible 使用用戶配置；
+      // 用戶自定義的渲染配置（如日k的 candleConfig、分時的 intradayConfig、策略列的 extDisplay、信息條 standalone）需保留，否則刷新後丟失
       result.push({
         ...def,
         visible: col.visible,
@@ -181,7 +181,7 @@ export function mergeColumns(
         ...(col.standalone ? { standalone: col.standalone } : {}),
       })
     } else if (col.source?.type === 'ext') {
-      // ext 列: 保留用户配置，清理旧 label 中的括号后缀
+      // ext 列: 保留用戶配置，清理舊 label 中的括號後綴
       let extCol = col
       if (col.label.includes('(') || col.label.includes('（')) {
         extCol = {
@@ -193,12 +193,12 @@ export function mergeColumns(
     }
   }
 
-  // 2. 补充新增的默认列
+  // 2. 補充新增的默認列
   for (const def of defaults) {
     if (!savedMap.has(def.id)) result.push(def)
   }
 
-  // 3. 固定优先列放到最前，例如代码/名称
+  // 3. 固定優先列放到最前，例如代碼/名稱
   for (let i = pinnedFirstIds.length - 1; i >= 0; i -= 1) {
     const id = pinnedFirstIds[i]
     const idx = result.findIndex(c => c.id === id)
@@ -211,7 +211,7 @@ export function mergeColumns(
   return result
 }
 
-/** 从列配置中提取 ext 列参数，用于后端 enriched 接口。 */
+/** 從列配置中提取 ext 列參數，用於後端 enriched 接口。 */
 export function buildExtColumnsParam(columns: ColumnConfig[]): string {
   return columns
     .filter(c => c.visible && c.source.type === 'ext')
@@ -219,7 +219,7 @@ export function buildExtColumnsParam(columns: ColumnConfig[]): string {
     .join(',')
 }
 
-/** 根据 ext schema 数据创建 ext 列配置。 */
+/** 根據 ext schema 數據創建 ext 列配置。 */
 export function createExtColumn(
   configId: string,
   _configLabel: string,

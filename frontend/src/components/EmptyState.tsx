@@ -6,7 +6,7 @@ interface Props {
   hint?: string
 }
 
-// §6.0.5 四态评审 — empty 状态:图示 + 引导,而不是一句"暂无数据"
+// §6.0.5 四態評審 — empty 狀態:圖示 + 引導,而不是一句"暫無數據"
 export function EmptyState({ icon: Icon = Construction, title, hint }: Props) {
   return (
     <div className="h-full grid place-items-center px-8 py-16">

@@ -8,19 +8,19 @@ export interface FrontendSlotContextMap {
     collapsed: boolean
     pathname: string
   }
-  /** 个股详情对话框底部扩展区 (日K/分时图表下方) */
+  /** 個股詳情對話框底部擴展區 (日K/分時圖表下方) */
   'stock-preview.footer': {
     symbol: string
     name: string | null
     view: 'daily' | 'intraday'
   }
-  /** 自选页工具栏扩展区 (按钮行末尾) */
+  /** 自選頁工具欄擴展區 (按鈕行末尾) */
   'watchlist.toolbar': {
-    /** 当前筛选/排序后视图中的标的 */
+    /** 當前篩選/排序後視圖中的標的 */
     symbols: string[]
     viewMode: 'table' | 'card'
     selectedGroup: string
-    /** 刷新自选增强数据 (扩展修改数据后调用) */
+    /** 刷新自選增強數據 (擴展修改數據後調用) */
     refresh: () => void
   }
 }

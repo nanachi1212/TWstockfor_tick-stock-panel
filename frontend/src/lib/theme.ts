@@ -1,11 +1,11 @@
-// 主题管理 — 暗色(默认) / 亮色切换
+// 主題管理 — 暗色(默認) / 亮色切換
 //
-// 机制:
-//   - 状态存 localStorage('tf-theme'), 默认 dark (保持老用户体验不变)
+// 機制:
+//   - 狀態存 localStorage('tf-theme'), 默認 dark (保持老用戶體驗不變)
 //   - 生效方式: html.dark class (index.css 的 CSS variables + Tailwind darkMode:class)
-//   - index.html 里有预渲染内联脚本, 首屏前就设好 class, 避免闪烁 (FOUC)
-//   - UI token (bg-surface/text-foreground 等) 自动跟随;
-//     图表画布不吃 CSS 变量, 统一走 useChartTheme() 取调色板
+//   - index.html 裡有預渲染內聯腳本, 首屏前就設好 class, 避免閃爍 (FOUC)
+//   - UI token (bg-surface/text-foreground 等) 自動跟隨;
+//     圖表畫布不吃 CSS 變量, 統一走 useChartTheme() 取調色板
 import { useEffect, useState } from 'react'
 
 const KEY = 'tf-theme'
@@ -33,13 +33,13 @@ export function toggleTheme(): Theme {
   return next
 }
 
-/** 订阅当前主题 (本页切换 + 其他标签页切换均同步)。 */
+/** 訂閱當前主題 (本頁切換 + 其他標籤頁切換均同步)。 */
 export function useTheme(): Theme {
   const [theme, set] = useState<Theme>(getTheme)
   useEffect(() => {
     const onChange = () => set(getTheme())
     window.addEventListener(EVENT, onChange)
-    window.addEventListener('storage', onChange)  // 跨标签页同步
+    window.addEventListener('storage', onChange)  // 跨標籤頁同步
     return () => {
       window.removeEventListener(EVENT, onChange)
       window.removeEventListener('storage', onChange)
@@ -49,35 +49,35 @@ export function useTheme(): Theme {
 }
 
 // ================================================================
-// 图表调色板 — ECharts / lightweight-charts 画布不吃 CSS 变量,
-// 所有图表组件统一从这里取色, 主题切换时依赖 useTheme 重建 option。
-// bull/bear/accent 等语义色双主题一致, 不在此重复定义。
+// 圖表調色板 — ECharts / lightweight-charts 畫布不吃 CSS 變量,
+// 所有圖表組件統一從這裡取色, 主題切換時依賴 useTheme 重建 option。
+// bull/bear/accent 等語義色雙主題一致, 不在此重複定義。
 // ================================================================
 
 export interface ChartTheme {
-  /** 轴刻度/图例等常规文字 */
+  /** 軸刻度/圖例等常規文字 */
   text: string
-  /** 信息条/图例里的强调文字 */
+  /** 信息條/圖例裡的強調文字 */
   textStrong: string
-  /** 网格线 */
+  /** 網格線 */
   grid: string
-  /** 轴线/边框 */
+  /** 軸線/邊框 */
   border: string
-  /** 十字光标线 */
+  /** 十字光標線 */
   crosshair: string
-  /** 十字光标轴标签背景 */
+  /** 十字光標軸標籤背景 */
   crosshairLabelBg: string
   /** tooltip 背景 */
   tooltipBg: string
-  /** tooltip 边框 */
+  /** tooltip 邊框 */
   tooltipBorder: string
   /** tooltip 文字 */
   tooltipText: string
-  /** 半透明信息条背景 (K线图左上角 OHLC 条) */
+  /** 半透明信息條背景 (K線圖左上角 OHLC 條) */
   infoBarBg: string
-  /** dataZoom 滑块填充 */
+  /** dataZoom 滑塊填充 */
   zoomFill: string
-  /** 分时图均价线以外的弱填充 */
+  /** 分時圖均價線以外的弱填充 */
   fillSubtle: string
 }
 
@@ -115,7 +115,7 @@ export function chartTheme(theme: Theme): ChartTheme {
   return theme === 'dark' ? DARK : LIGHT
 }
 
-/** hook: 当前主题的图表调色板 (主题切换自动触发重渲染)。 */
+/** hook: 當前主題的圖表調色板 (主題切換自動觸發重渲染)。 */
 export function useChartTheme(): ChartTheme {
   return chartTheme(useTheme())
 }

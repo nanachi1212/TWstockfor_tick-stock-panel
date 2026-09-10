@@ -1,8 +1,8 @@
 /**
- * 买卖触发器信号定义 — 选股页弹窗 / 回测页共用。
+ * 買賣觸發器信號定義 — 選股頁彈窗 / 回測頁共用。
  *
- * 信号 ID 必须与后端 backtest/strategy.py:_build_signal_mask 对齐
- * (signal_* 前缀为内置原子信号, csg_ 前缀为用户自定义信号)。
+ * 信號 ID 必須與後端 backtest/strategy.py:_build_signal_mask 對齊
+ * (signal_* 前綴為內置原子信號, csg_ 前綴為用戶自定義信號)。
  */
 
 export type SignalKind = 'entry' | 'exit' | 'both'
@@ -15,10 +15,10 @@ export interface BuiltinSignalDefinition {
   description: string
 }
 
-/** 内置原子信号清单 (权威展示来源, 两页统一)
+/** 內置原子信號清單 (權威展示來源, 兩頁統一)
  *
  * TAIWAN_LOCALIZATION_POLISH: name/category/description 全面改為正體中文，
- * 並把「连板」相關描述改為依實際語意翻譯的「連續漲停」，不再是 A 股「连板」
+ * 並把「連板」相關描述改為依實際語意翻譯的「連續漲停」，不再是 A 股「連板」
  * 慣例術語直接透傳；id 全數不變 (與 backend backtest/strategy.py 及既有
  * saved rule/策略 identifier 對齊)。
  */
@@ -174,16 +174,16 @@ export const MONITOR_INTRADAY_SIGNAL_LABELS: Record<string, string> = {
 
 export const MONITOR_INTRADAY_SIGNAL_OPTIONS = Object.keys(MONITOR_INTRADAY_SIGNAL_LABELS)
 
-/** 内置原子信号 → 中文标签 */
+/** 內置原子信號 → 中文標籤 */
 export const SIGNAL_LABELS: Record<string, string> = BUILTIN_SIGNAL_DEFINITIONS.reduce<Record<string, string>>((acc, sig) => {
   acc[sig.id] = sig.name
   return acc
 }, { ...MONITOR_INTRADAY_SIGNAL_LABELS })
 
-/** 内置信号 ID 列表 */
+/** 內置信號 ID 列表 */
 export const SIGNAL_OPTIONS = BUILTIN_SIGNAL_DEFINITIONS.map(sig => sig.id)
 
-/** 常用技术指标/字段 → 中文 (阈值条件展示用, 与后端 ENRICHED_COLUMNS 对齐) */
+/** 常用技術指標/字段 → 中文 (閾值條件展示用, 與後端 ENRICHED_COLUMNS 對齊) */
 const FIELD_LABELS: Record<string, string> = {
   close: '收盤價', open: '開盤價', high: '最高價', low: '最低價',
   change_pct: '漲跌幅', change_amount: '漲跌額', amplitude: '振幅',
@@ -203,9 +203,9 @@ const FIELD_LABELS: Record<string, string> = {
 }
 
 /**
- * 信号/字段 ID → 中文显示名。
- * 内置信号查 SIGNAL_LABELS; csg_ 前缀查传入的自定义信号名称映射;
- * 技术指标查 FIELD_LABELS; 都找不到则原样返回。
+ * 信號/字段 ID → 中文顯示名。
+ * 內置信號查 SIGNAL_LABELS; csg_ 前綴查傳入的自定義信號名稱映射;
+ * 技術指標查 FIELD_LABELS; 都找不到則原樣返回。
  */
 export function cnSignal(name: string, customNames?: Record<string, string>): string {
   if (customNames && name in customNames) return customNames[name]

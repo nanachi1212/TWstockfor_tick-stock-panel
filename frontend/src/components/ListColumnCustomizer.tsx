@@ -1,10 +1,10 @@
 /**
- * 通用列表列自定义组件。
+ * 通用列表列自定義組件。
  *
  * 布局：
- * - 上半区「已启用」：已启用的列，@dnd-kit 拖拽排序
- * - 下半区「内置列」：按业务分组折叠
- * - 底部「扩展数据列」：复用 ext_data schema，按需添加字段
+ * - 上半區「已啟用」：已啟用的列，@dnd-kit 拖拽排序
+ * - 下半區「內置列」：按業務分組摺疊
+ * - 底部「擴展數據列」：複用 ext_data schema，按需添加字段
  */
 import React, { useState, useCallback, useEffect, useMemo } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
@@ -35,19 +35,19 @@ interface ListColumnCustomizerProps {
   builtinSectionLabel?: string
   extColumnAlign?: 'left' | 'center' | 'right'
   extFieldFilter?: (field: { name: string; label: string; type: string }) => boolean
-  /** 是否显示扩展数据列区块（默认 true；信息条等无法渲染 ext 数据的场景设为 false）。 */
+  /** 是否顯示擴展數據列區塊（默認 true；信息條等無法渲染 ext 數據的場景設為 false）。 */
   showExtColumns?: boolean
-  /** 是否显示「单独显示」勾选项（默认 false；仅信息条场景启用，让某列独占一行）。 */
+  /** 是否顯示「單獨顯示」勾選項（默認 false；僅信息條場景啟用，讓某列獨佔一行）。 */
   showStandaloneToggle?: boolean
 }
 
-/** 判断扩展数据字段类型是否为数字(int/float/double/number/decimal 等)。
- * 旧列 source 无 fieldType 时默认 true(放宽), 让旧列也能配置数字格式 ——
- * 若列实际非数字, 渲染时 typeof val==='number' 判断会跳过格式化, 无副作用。 */
+/** 判斷擴展數據字段類型是否為數字(int/float/double/number/decimal 等)。
+ * 舊列 source 無 fieldType 時默認 true(放寬), 讓舊列也能配置數字格式 ——
+ * 若列實際非數字, 渲染時 typeof val==='number' 判斷會跳過格式化, 無副作用。 */
 function isNumericFieldType(ft?: string): boolean {
   if (!ft) return true
   const t = ft.toLowerCase()
-  // 明确是文本类则不显示
+  // 明確是文本類則不顯示
   if (['str', 'string', 'text', 'char', 'varchar', 'date', 'time', 'bool', 'boolean'].some(k => t.includes(k))) {
     return false
   }
@@ -421,7 +421,7 @@ export function ListColumnCustomizer({
             </div>
           </label>
         )}
-        {/* 数字格式化配置: 千分位 + 单位换算 + 小数位(仅 number 类型字段) */}
+        {/* 數字格式化配置: 千分位 + 單位換算 + 小數位(僅 number 類型字段) */}
         {col.source.type === 'ext' && isNumericFieldType(col.source.fieldType) && (
           <>
             <div className="border-t border-border/40 pt-2 mt-1 text-[10px] text-muted">數字格式</div>
@@ -479,7 +479,7 @@ export function ListColumnCustomizer({
     </motion.div>
   )
 
-  // 策略列配置（精简版：仅显示数量/位置/排列方向，复用 extDisplay 存储）
+  // 策略列配置（精簡版：僅顯示數量/位置/排列方向，複用 extDisplay 存儲）
   const renderStrategiesConfig = (col: ColumnConfig) => (
     <motion.div
       initial={{ height: 0, opacity: 0 }}
@@ -559,7 +559,7 @@ export function ListColumnCustomizer({
 
   const renderCandleConfig = (col: ColumnConfig) => {
     const cfg = resolveCandleConfig(col.candleConfig)
-    // 数值输入: onChange 存原始值(不钳制, 允许自由输入), onBlur 钳制边界
+    // 數值輸入: onChange 存原始值(不鉗制, 允許自由輸入), onBlur 鉗制邊界
     const numInput = (
       field: keyof CandleColumnConfig,
       label: string,
@@ -571,12 +571,12 @@ export function ListColumnCustomizer({
           value={col.candleConfig?.[field] ?? cfg[field]}
           onChange={e => {
             const raw = e.target.value
-            // 空字符串 → 存 undefined (回退到默认值显示); 否则存原始数字 (不钳制)
+            // 空字符串 → 存 undefined (回退到默認值顯示); 否則存原始數字 (不鉗制)
             updateCandleConfig(col.id, { [field]: raw === '' ? undefined : Number(raw) } as Partial<CandleColumnConfig>)
           }}
           onBlur={e => {
             const raw = e.target.value
-            // 失焦时钳制: 过大取上限、过小取最小值
+            // 失焦時鉗制: 過大取上限、過小取最小值
             const merged = resolveCandleConfig({ ...col.candleConfig, [field]: raw === '' ? undefined : Number(raw) })
             updateCandleConfig(col.id, { [field]: merged[field] } as Partial<CandleColumnConfig>)
           }}

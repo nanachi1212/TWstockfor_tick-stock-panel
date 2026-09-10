@@ -1,26 +1,26 @@
 import { useSyncExternalStore } from 'react'
 
 /**
- * 监控中心未读触发记录徽标 — 全局 store + localStorage 持久化。
+ * 監控中心未讀觸發記錄徽標 — 全局 store + localStorage 持久化。
  *
- * 核心逻辑:
- *   - 在监控中心页面时, 每次收到新推送都同步更新 lastSeen (看到=已读)
- *   - 离开监控中心后, 新推送才计入未读
- *   - 刷新页面从 localStorage 恢复 lastSeen, 未读 = 期间新增
+ * 核心邏輯:
+ *   - 在監控中心頁面時, 每次收到新推送都同步更新 lastSeen (看到=已讀)
+ *   - 離開監控中心後, 新推送才計入未讀
+ *   - 刷新頁面從 localStorage 恢復 lastSeen, 未讀 = 期間新增
  */
 
 const STORAGE_KEY = 'monitor_last_seen_total'
 
 let currentTotal = 0
 let lastSeenTotal = readSeen()
-let onMonitorPage = false    // 当前是否在监控中心页面
-let pendingSeen = false      // Monitor mount 请求 markSeen, 等 currentTotal 就绪
+let onMonitorPage = false    // 當前是否在監控中心頁面
+let pendingSeen = false      // Monitor mount 請求 markSeen, 等 currentTotal 就緒
 const listeners = new Set<() => void>()
 
 function readSeen(): number {
   try {
     const v = localStorage.getItem(STORAGE_KEY)
-    if (v === null) return -1  // 从未设置过 → 未初始化
+    if (v === null) return -1  // 從未設置過 → 未初始化
     return parseInt(v, 10) || 0
   } catch {
     return -1
@@ -51,17 +51,17 @@ function getSnapshot() {
   return Math.max(0, currentTotal - Math.max(0, lastSeenTotal))
 }
 
-/** 轮询更新最新总数 (Layout 层调用)。 */
+/** 輪詢更新最新總數 (Layout 層調用)。 */
 export function setCurrentTotal(total: number): void {
   if (total < 0) return
 
-  // 首次初始化: lastSeen < 0 (从未设置) → 把已读基线设为当前总数
-  // 否则 lastSeen=0 + total=1 会被误算成"1条未读" (首次进入就显示徽标的 bug)
+  // 首次初始化: lastSeen < 0 (從未設置) → 把已讀基線設為當前總數
+  // 否則 lastSeen=0 + total=1 會被誤算成"1條未讀" (首次進入就顯示徽標的 bug)
   if (lastSeenTotal < 0) {
     lastSeenTotal = total
     writeSeen(total)
   }
-  // 总数减少 (清空) → 同步重置
+  // 總數減少 (清空) → 同步重置
   if (total < lastSeenTotal) {
     lastSeenTotal = total
     writeSeen(total)
@@ -70,12 +70,12 @@ export function setCurrentTotal(total: number): void {
   const changed = total !== currentTotal
   currentTotal = total
 
-  // 消费 pending markSeen
+  // 消費 pending markSeen
   if (pendingSeen) {
     pendingSeen = false
     syncSeen()
   }
-  // ★ 在监控中心页面期间: 收到新推送立即同步 (看到=已读, 不计入未读)
+  // ★ 在監控中心頁面期間: 收到新推送立即同步 (看到=已讀, 不計入未讀)
   else if (onMonitorPage && changed) {
     syncSeen()
   }
@@ -83,7 +83,7 @@ export function setCurrentTotal(total: number): void {
   emit()
 }
 
-/** 进入监控页时调用。 */
+/** 進入監控頁時調用。 */
 export function markSeen(): void {
   onMonitorPage = true
   if (currentTotal > 0) {
@@ -94,15 +94,15 @@ export function markSeen(): void {
   }
 }
 
-/** 离开监控页时调用 (停止同步, 之后新增才计入未读)。 */
+/** 離開監控頁時調用 (停止同步, 之後新增才計入未讀)。 */
 export function leaveMonitorPage(): void {
   onMonitorPage = false
   pendingSeen = false
-  // 不在此处 syncSeen — lastSeen 保持页面期间最后一次同步的值即可
-  // (避免 currentTotal 此刻还没刷新到最新, 写入偏小的值)
+  // 不在此處 syncSeen — lastSeen 保持頁面期間最後一次同步的值即可
+  // (避免 currentTotal 此刻還沒刷新到最新, 寫入偏小的值)
 }
 
-/** 记录被清空时调用。 */
+/** 記錄被清空時調用。 */
 export function resetBadge(): void {
   currentTotal = 0
   lastSeenTotal = 0
@@ -111,7 +111,7 @@ export function resetBadge(): void {
   emit()
 }
 
-/** 读取当前未读数。 */
+/** 讀取當前未讀數。 */
 export function useUnreadAlerts(): number {
   return useSyncExternalStore(subscribe, getSnapshot, () => 0)
 }
