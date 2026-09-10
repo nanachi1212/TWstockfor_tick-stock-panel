@@ -70,10 +70,10 @@ describe('Onboarding — Taiwan-first flow', () => {
     fireEvent.click(await screen.findByText('我已了解,繼續'))
 
     expect(await screen.findByText('歡迎使用台股分析工具')).toBeInTheDocument()
-    // 旧 A 股 onboarding 定位文案不应再出现
+    // 舊 A 股 onboarding 定位文案不應再出現
     expect(screen.queryByText(/A 股/)).not.toBeInTheDocument()
     expect(screen.queryByText(/连板梯队/)).not.toBeInTheDocument()
-    // 只展示已完成的台股功能, 不宣传能力探测 / 数据源配置步骤
+    // 只展示已完成的台股功能, 不宣傳能力探測 / 數據源配置步驟
     expect(screen.queryByText('配置数据源')).not.toBeInTheDocument()
     expect(screen.queryByText('能力探测结果')).not.toBeInTheDocument()
   })
@@ -83,11 +83,11 @@ describe('Onboarding — Taiwan-first flow', () => {
     fireEvent.click(await screen.findByText('我已了解,繼續'))
     fireEvent.click(await screen.findByText('開始使用'))
 
-    // 台股资料状态步骤: 无资料时显示提示, 但仍可继续
+    // 台股資料狀態步驟: 無資料時顯示提示, 但仍可繼續
     expect(await screen.findByText(/目前尚未下載台股資料/)).toBeInTheDocument()
     fireEvent.click(screen.getByText('下一步'))
 
-    // 完成步骤
+    // 完成步驟
     expect(await screen.findByText('一切就緒!')).toBeInTheDocument()
     fireEvent.click(screen.getByText('進入面板'))
 

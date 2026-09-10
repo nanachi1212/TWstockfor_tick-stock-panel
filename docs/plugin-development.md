@@ -1,143 +1,143 @@
-# 数据源插件开发指南
+# 數據源插件開發指南
 
-数据源插件是可选的行情数据来源(stock-sdk、akshare 等),作为独立模块放在
-`backend/app/plugins/` 下。用户**手动安装依赖**后才可用(开发模式);不安装完全不影响主功能。
+數據源插件是可選的行情數據來源(stock-sdk、akshare 等),作為獨立模塊放在
+`backend/app/plugins/` 下。用戶**手動安裝依賴**後才可用(開發模式);不安裝完全不影響主功能。
 
-> ⚠️ **Docker 默认不打包 stock-sdk**(合规考虑:它抓取第三方财经网站接口,存在版权与反爬风险)。如需在 Docker 中启用,构建时传 `--build-arg INCLUDE_STOCKSDK=1`,使用风险自负。下方"手动安装依赖"适用于开发模式及自定义 Docker 构建。
+> ⚠️ **Docker 默認不打包 stock-sdk**(合規考慮:它抓取第三方財經網站接口,存在版權與反爬風險)。如需在 Docker 中啟用,構建時傳 `--build-arg INCLUDE_STOCKSDK=1`,使用風險自負。下方"手動安裝依賴"適用於開發模式及自定義 Docker 構建。
 
 ## 快速上手
 
-一个插件 = 一个目录 + 一个 `plugin.yaml` 清单:
+一個插件 = 一個目錄 + 一個 `plugin.yaml` 清單:
 
 ```
 backend/app/plugins/<your_plugin>/
-├── plugin.yaml          # 清单(必需)
-├── provider.py          # Provider 实现(必需)
-├── ...                  # 桥接/依赖文件(按需)
+├── plugin.yaml          # 清單(必需)
+├── provider.py          # Provider 實現(必需)
+├── ...                  # 橋接/依賴文件(按需)
 ```
 
 ### plugin.yaml 字段
 
 ```yaml
-name: my_source                          # 唯一标识, 只允许 [a-z0-9_], 也是 provider name
-display_name: "我的数据源"                 # 设置页显示名
-runtime: python                          # 运行时类型: node | python | none
-entry: app.plugins.my_source.provider:MyProvider   # provider 类的导入路径
-check: app.plugins.my_source.bridge:availability   # 可用性检测函数(可选)
-datasets: [daily, adj_factor, minute, realtime]     # 支持的数据集
-api_key_env: MY_SOURCE_API_KEY           # (可选)声明后设置页提供 Key 输入框
-hidden: false                            # (可选)true = 已加载但对设置页隐藏,不注册不展示
-description: "数据源描述"
-install_hint: "pip install xxx"          # 未装依赖时显示的安装提示
+name: my_source                          # 唯一標識, 只允許 [a-z0-9_], 也是 provider name
+display_name: "我的數據源"                 # 設置頁顯示名
+runtime: python                          # 運行時類型: node | python | none
+entry: app.plugins.my_source.provider:MyProvider   # provider 類的導入路徑
+check: app.plugins.my_source.bridge:availability   # 可用性檢測函數(可選)
+datasets: [daily, adj_factor, minute, realtime]     # 支持的數據集
+api_key_env: MY_SOURCE_API_KEY           # (可選)聲明後設置頁提供 Key 輸入框
+hidden: false                            # (可選)true = 已加載但對設置頁隱藏,不註冊不展示
+description: "數據源描述"
+install_hint: "pip install xxx"          # 未裝依賴時顯示的安裝提示
 ```
 
 #### api_key_env(界面配置 API Key)
 
-声明 `api_key_env` 的插件可以在设置页的数据源卡片中直接填写 Key, 对齐
-TickFlow 的「先探后存」语义:
+聲明 `api_key_env` 的插件可以在設置頁的數據源卡片中直接填寫 Key, 對齊
+TickFlow 的「先探後存」語義:
 
-1. entry 模块需提供模块级 `probe_api_key(key) -> (ok, reason)`,
-   后端用候选 Key 实探一次, **无效不落盘**
-2. 有效则写入 `data/user_data/secrets.json` 的 `{name}_api_key` 字段
-   (0600 权限, 优先级高于 `.env` / 环境变量)
-3. 保存后自动重载数据源注册表, 插件即刻变为可切换
+1. entry 模塊需提供模塊級 `probe_api_key(key) -> (ok, reason)`,
+   後端用候選 Key 實探一次, **無效不落盤**
+2. 有效則寫入 `data/user_data/secrets.json` 的 `{name}_api_key` 字段
+   (0600 權限, 優先級高於 `.env` / 環境變量)
+3. 保存後自動重載數據源註冊表, 插件即刻變為可切換
 4. 插件取 Key 用 `secrets_store.get_env_backed_secret("{name}_api_key", api_key_env)`,
-   保证 secrets.json 与 .env 两条配置路径一致
+   保證 secrets.json 與 .env 兩條配置路徑一致
 
-### runtime 字段说明
+### runtime 字段說明
 
-| runtime | 含义 | 典型场景 |
+| runtime | 含義 | 典型場景 |
 |---|---|---|
-| `python` | 纯 Python 依赖, `pip install` | akshare、tushare |
-| `node` | 需要 Node.js 运行时, `npm install` | stock-sdk(Docker 默认不打包,见 [deployment.md](./deployment.md)) |
+| `python` | 純 Python 依賴, `pip install` | akshare、tushare |
+| `node` | 需要 Node.js 運行時, `npm install` | stock-sdk(Docker 默認不打包,見 [deployment.md](./deployment.md)) |
 
-> stock-sdk 在 Docker 中默认不打包(合规考虑);如需启用,构建时传 `--build-arg INCLUDE_STOCKSDK=1`,开发模式下需手动 `npm install`。
-| `none` | 无额外依赖 | 纯 HTTP API 源 |
+> stock-sdk 在 Docker 中默認不打包(合規考慮);如需啟用,構建時傳 `--build-arg INCLUDE_STOCKSDK=1`,開發模式下需手動 `npm install`。
+| `none` | 無額外依賴 | 純 HTTP API 源 |
 
-`runtime` 字段当前仅用于 UI 展示, 实际依赖检测由 `check` 函数负责。
+`runtime` 字段當前僅用於 UI 展示, 實際依賴檢測由 `check` 函數負責。
 
-### check 函数
+### check 函數
 
-插件自己负责检测依赖是否已安装。后端启动时会调用此函数:
+插件自己負責檢測依賴是否已安裝。後端啟動時會調用此函數:
 
 ```python
 # app/plugins/my_source/bridge.py
 def availability() -> tuple[bool, str]:
-    """返回 (是否可用, 原因)。不抛异常。"""
+    """返回 (是否可用, 原因)。不拋異常。"""
     try:
         import akshare  # noqa: F401
         return True, "ok"
     except ImportError:
-        return False, "未安装 akshare, 运行: pip install akshare"
+        return False, "未安裝 akshare, 運行: pip install akshare"
 ```
 
-- **可用** → 插件注册进路由表, 设置页可切换
-- **不可用** → 设置页显示插件卡片但灰显, 展示 `install_hint`
+- **可用** → 插件註冊進路由表, 設置頁可切換
+- **不可用** → 設置頁顯示插件卡片但灰顯, 展示 `install_hint`
 
-## Provider 接口契约
+## Provider 接口契約
 
-Provider 是一个普通 Python 类(无需继承基类), 实现以下方法签名。方法签名对齐
-`GenericHTTPProvider`, 这样 services 层(kline_sync / quote_service 等)的路由逻辑
-零改动即可路由到插件。
+Provider 是一個普通 Python 類(無需繼承基類), 實現以下方法簽名。方法簽名對齊
+`GenericHTTPProvider`, 這樣 services 層(kline_sync / quote_service 等)的路由邏輯
+零改動即可路由到插件。
 
 ```python
 class MyProvider:
     name = "my_source"
-    builtin = True  # 标记为内置(不可被用户编辑/删除)
+    builtin = True  # 標記為內置(不可被用戶編輯/刪除)
 
     def __init__(self):
-        self.config = MyConfig()  # 需有 .datasets 属性(dict, key 是数据集名)
+        self.config = MyConfig()  # 需有 .datasets 屬性(dict, key 是數據集名)
 
     def close(self) -> None:
-        """清理资源(load_all 重建注册表时会调)。"""
+        """清理資源(load_all 重建註冊表時會調)。"""
 
     def get_daily(self, symbols, start_time, end_time, asset_type="stock", on_chunk_done=None) -> pl.DataFrame:
         """日K: 返回 schema [symbol, date, open, high, low, close, volume, amount]"""
 
     def get_adj_factors(self, symbols, start_time, end_time, asset_type="stock", on_chunk_done=None) -> pl.DataFrame:
-        """除权因子: 返回 schema [symbol, trade_date, ex_factor]"""
+        """除權因子: 返回 schema [symbol, trade_date, ex_factor]"""
 
     def get_minute(self, symbols, start_time, end_time, asset_type="stock", on_chunk_done=None, freq="1m") -> pl.DataFrame:
-        """分钟K: 返回 schema [symbol, datetime, open, high, low, close, volume, amount]"""
+        """分鐘K: 返回 schema [symbol, datetime, open, high, low, close, volume, amount]"""
 
     def get_realtime(self) -> list[dict]:
-        """全市场实时快照: 返回 list[dict], 每行含 symbol/last_price/prev_close/open/high/low/volume"""
+        """全市場實時快照: 返回 list[dict], 每行含 symbol/last_price/prev_close/open/high/low/volume"""
 
     def get_instruments(self, asset_type="stock") -> list[dict]:
-        """标的维表(可选): 返回 tickflow Instrument 形状的行, 供 instrument_sync 复用 flatten"""
+        """標的維表(可選): 返回 tickflow Instrument 形狀的行, 供 instrument_sync 複用 flatten"""
 ```
 
 ### config.datasets 的作用
 
-`provider_has_dataset(name, dataset)` 通过 `dataset in provider.config.datasets` 判断。
-这是 services 层路由的关键: 用户在设置页选了插件, 但某数据集未声明时, 该数据集
-自动回退 TickFlow。
+`provider_has_dataset(name, dataset)` 通過 `dataset in provider.config.datasets` 判斷。
+這是 services 層路由的關鍵: 用戶在設置頁選了插件, 但某數據集未聲明時, 該數據集
+自動回退 TickFlow。
 
 ```python
 class MyConfig:
-    datasets = {"daily": ..., "realtime": ...}  # key 是数据集名, value 任意
+    datasets = {"daily": ..., "realtime": ...}  # key 是數據集名, value 任意
 ```
 
-## 现有插件参考
+## 現有插件參考
 
-- **`backend/app/plugins/fuyao/`** — 同花顺官方 REST 数据源(runtime: none, 纯 HTTP 零依赖)
-  - 当前提供 `realtime`(A 股全市场快照, 分页拉取); Key 在设置页卡片直接配置(先探后存), 或 `.env` 配 `FUYAO_API_KEY`
-  - `client.py` — httpx 客户端(X-api-key 认证 + 统一信封解包 + 分页)
-  - `provider.py` — Provider 实现(字段映射、百分数→小数制单位转换、软失败、Key 探测)
-  - 单位口径注意: 扶摇 `price_change_ratio_pct` 为百分数数值(1.74 = +1.74%),
-    内部 `change_pct` 契约为小数制, provider 内显式 / 100(见 CONTRIBUTING §3.1)
-- **`backend/app/plugins/stocksdk/`** — Node 型插件, 通过 subprocess 桥接调用 stock-sdk
-  - `bridge.py` — Python↔Node 桥接 + availability 检测
-  - `bridge.mjs` — Node 端(并发池、重试、SDK 解析)
-  - `provider.py` — Provider 实现(归一化、分批、错误降级)
+- **`backend/app/plugins/fuyao/`** — 同花順官方 REST 數據源(runtime: none, 純 HTTP 零依賴)
+  - 當前提供 `realtime`(A 股全市場快照, 分頁拉取); Key 在設置頁卡片直接配置(先探後存), 或 `.env` 配 `FUYAO_API_KEY`
+  - `client.py` — httpx 客戶端(X-api-key 認證 + 統一信封解包 + 分頁)
+  - `provider.py` — Provider 實現(字段映射、百分數→小數制單位轉換、軟失敗、Key 探測)
+  - 單位口徑注意: 扶搖 `price_change_ratio_pct` 為百分數數值(1.74 = +1.74%),
+    內部 `change_pct` 契約為小數制, provider 內顯式 / 100(見 CONTRIBUTING §3.1)
+- **`backend/app/plugins/stocksdk/`** — Node 型插件, 通過 subprocess 橋接調用 stock-sdk
+  - `bridge.py` — Python↔Node 橋接 + availability 檢測
+  - `bridge.mjs` — Node 端(併發池、重試、SDK 解析)
+  - `provider.py` — Provider 實現(歸一化、分批、錯誤降級)
 
-## 路由机制(无需关心, 仅参考)
+## 路由機制(無需關心, 僅參考)
 
-后端启动时, `loader.py` 的 `_load_builtin_plugins()` 扫描 `plugins/` 目录:
-1. 读每个子目录的 `plugin.yaml`
-2. 调 `check` 函数检测可用性
-3. 可用 → 动态 import `entry` 指向的 Provider 类 → 注册进 `_PROVIDERS`
-4. 不可用 → 记录状态, 设置页显示但不可切换
+後端啟動時, `loader.py` 的 `_load_builtin_plugins()` 掃描 `plugins/` 目錄:
+1. 讀每個子目錄的 `plugin.yaml`
+2. 調 `check` 函數檢測可用性
+3. 可用 → 動態 import `entry` 指向的 Provider 類 → 註冊進 `_PROVIDERS`
+4. 不可用 → 記錄狀態, 設置頁顯示但不可切換
 
-注册后, 插件和用户 YAML 自定义源走**完全相同的路由路径**(services 层的
-`provider_has_dataset` / `get_provider` 调用), 无需额外集成代码。
+註冊後, 插件和用戶 YAML 自定義源走**完全相同的路由路徑**(services 層的
+`provider_has_dataset` / `get_provider` 調用), 無需額外集成代碼。

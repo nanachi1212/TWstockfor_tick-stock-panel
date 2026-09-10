@@ -13,7 +13,8 @@ describe('index.html metadata — Taiwan-first branding (Phase 8B-3)', () => {
   })
 
   it('title does not carry A-share or mainland positioning', () => {
-    expect(indexHtml).toMatch(/<title>[^<]*TickFlow[^<]*<\/title>/)
+    expect(indexHtml).toMatch(/<title>[^<]*Nanachi 的台股監控看板[^<]*<\/title>/)
     expect(indexHtml).not.toMatch(/A-SHARE/i)
+    expect(indexHtml).not.toMatch(/TickFlow/i)
   })
 })

@@ -1,115 +1,106 @@
-# 配置详解
+# 配置詳解
 
-所有配置从根目录 `.env` 读取(复制 `.env.example` 开始),也可在面板 **设置** 页面可视化修改。本文件解释每个配置项的作用。
+所有配置從根目錄 `.env` 讀取(複製 `.env.example` 開始),也可在面板 **設定** 頁面修改。本文件解釋每個配置項的作用。
 
-部署相关配置(端口/密码/老 CPU 兼容)的实操见 [deployment.md](./deployment.md)。
+部署相關配置(端口/密碼/老 CPU 兼容)的實操見 [deployment.md](./deployment.md)。
 
 ---
 
-## 数据源:TickFlow
+## 資料來源設定
+
+預設資料來源是**台灣官方資料源(TWSE / TPEx)**,整合台灣證券交易所與證券櫃檯買賣中心的公開資料,提供日K歷史行情、即時報價、標的清單與基本面資訊,**不需要任何 API Key**,`.env` 也不需要為它填任何東西。
+
+資料集的提供方在面板 **設定 → 資料來源** 逐項切換;沒有個別指定的資料集一律由台灣官方資料源提供。系統同時支援插件化接入第三方資料來源(YAML 宣告自有介面見 [custom-data-source.md](./custom-data-source.md),插件開發見 [plugin-development.md](./plugin-development.md))。
+
+歷史日 K 需要先在本機建立,做法見 [操作說明書 → 歷史日 K 與 GitHub Release 資料包](../操作說明書.md#15-歷史日-k-與-github-release-資料包)。
+
+### 選配:舊 TickFlow 資料來源
 
 ```ini
-TICKFLOW_API_KEY=              # 留空 = None 模式(历史日K免费);填 Key = 按订阅档位解锁
+TICKFLOW_API_KEY=              # 選配;一般台股使用者留空即可
 ```
 
-TickFlow 是内置默认数据源;同时支持插件化接入第三方数据源(YAML 声明自有接口见 [custom-data-source.md](./custom-data-source.md),插件开发见 [plugin-development.md](./plugin-development.md)),在面板 **设置 → 数据源** 切换。
-
-- **留空(None 模式)**:通过 free-api 使用历史日 K(当日数据盘后 1-2 小时可用),**无需付费**即可体验核心选股/回测功能
-- **填入 API Key**:按你的订阅档位解锁更多能力
-
-### 实时行情按档位
-
-| 档位     | 实时能力                                 |
-| :------- | :--------------------------------------- |
-| Free     | 自选页前 5 个标的实时监控(最低 6 秒刷新) |
-| Starter+ | 全市场实时行情                           |
-| Pro      | 分钟 K + 盘口                            |
-| Expert   | WebSocket + 财务数据                     |
-
-> 完整能力矩阵见 [tickflow.org/pricing](https://tickflow.org/pricing/),高等档位含较低档全部权益。
-> 在面板 **设置 → 凭据与能力** 点「重新检测」可查看当前档位标签。
->
-> **档位仅适用于 TickFlow 数据源**。功能门槛的统一标准是"能力"(`kline.minute.batch`、`depth5.batch`、`financial` 等能力键):其他第三方/自定义数据源以声明的数据集能力为准,系统会按当前数据源配置自动合并判定,UI 提示一律以能力名表达,不再依赖 TickFlow 档位名。
+這是專案原本的 A 股資料來源,台股功能不依賴它。只有在你確實要接這個來源時才需要填,留空不影響任何台股功能。
 
 ---
 
-## AI(可选)
+## AI(可選)
 
-用于自然语言生成策略。**所有配置留空即跳过**,不影响核心功能。支持任意 OpenAI 兼容接口。
+AI 為選配功能,目前用在兩個地方:台股選股頁把中文條件翻譯成篩選欄位,以及多股比較頁對已呈現的數據做客觀解讀。兩者都要手動觸發。**所有設定留空即跳過**,不影響核心功能。支援任意 OpenAI 相容介面。
 
 ```ini
 AI_PROVIDER=openai_compat              # openai_compat | ollama
 AI_BASE_URL=https://api.deepseek.com/v1
-AI_API_KEY=                            # 留空 = 关闭 AI
+AI_API_KEY=                            # 留空 = 關閉 AI
 AI_MODEL=deepseek-chat
-AI_DAILY_TOKEN_BUDGET=500000           # 每日 token 预算上限
+AI_DAILY_TOKEN_BUDGET=500000           # 每日 token 預算上限
 ```
 
-| 配置项 | 说明 |
+| 配置項 | 說明 |
 | :--- | :--- |
-| `AI_PROVIDER` | `openai_compat`(OpenAI 兼容,支持 DeepSeek / 通义 / OpenAI 等)或 `ollama`(本地模型) |
+| `AI_PROVIDER` | `openai_compat`(OpenAI 兼容,支持 DeepSeek / 通義 / OpenAI 等)或 `ollama`(本地模型) |
 | `AI_BASE_URL` | 接口地址,如 DeepSeek `https://api.deepseek.com/v1` |
-| `AI_API_KEY` | 留空则关闭 AI 功能 |
+| `AI_API_KEY` | 留空則關閉 AI 功能 |
 | `AI_MODEL` | 模型名,如 `deepseek-chat` |
-| `AI_DAILY_TOKEN_BUDGET` | 每日 token 预算,超限后当日不再调用 |
+| `AI_DAILY_TOKEN_BUDGET` | 每日 token 預算,超限後當日不再調用 |
 
-接入示例见 [strategy.md](./strategy.md) 的「AI 生成策略」章节。
+也可以直接在面板 **設定 → AI 設定** 填寫與測試,不必手動編輯 `.env`。
 
 ---
 
-## 服务
+## 服務
 
 ```ini
-HOST=0.0.0.0          # 开发服务监听地址 / Docker 主机绑定地址
-PORT=3018             # 开发后端端口 / Docker 主机映射端口
+HOST=0.0.0.0          # 開發服務監聽地址 / Docker 主機綁定地址
+PORT=3018             # 開發後端端口 / Docker 主機映射端口
 LOG_LEVEL=INFO        # DEBUG | INFO | WARNING | ERROR
 ```
 
-- `HOST`:`0.0.0.0` 监听所有网卡(容器/公网部署需要);仅本机用可设 `127.0.0.1`
-- `PORT`:默认 `3018`;开发模式兼容显式的 `BACKEND_PORT` 覆盖,改端口后 SSH 转发命令也要同步改
-- `LOG_LEVEL`:排查问题时改 `DEBUG`
+- `HOST`:`0.0.0.0` 監聽所有網卡(容器/公網部署需要);僅本機用可設 `127.0.0.1`
+- `PORT`:默認 `3018`;開發模式兼容顯式的 `BACKEND_PORT` 覆蓋,改端口後 SSH 轉發命令也要同步改
+- `LOG_LEVEL`:排查問題時改 `DEBUG`
 
 ---
 
-## 数据
+## 數據
 
 ```ini
-DATA_DIR=./data       # Parquet / DuckDB 数据存储目录
+DATA_DIR=./data       # Parquet / DuckDB 數據存儲目錄
 ```
 
-整个 `data/` 目录都不纳入 git —— 行情 K线、财务、自选、回测、监控记录,乃至概念/行业扩展数据,全部是程序运行时生成/拉取的用户数据。
+整個 `data/` 目錄都不納入 git —— 行情日K、三大法人、融資融券、基本面、自選清單與分組、監控規則與觸發記錄,全部是程式執行時產生或拉取的使用者資料。
 
-如需迁移数据,直接拷贝整个 `data/` 目录即可。详见 [deployment.md → 更新代码](./deployment.md#更新代码已部署用户必读)。
+如需遷移數據,直接拷貝整個 `data/` 目錄即可。詳見 [deployment.md → 更新代碼](./deployment.md#更新代碼已部署用戶必讀)。
 
 ---
 
-## 访问密码(公网部署)
+## 訪問密碼(公網部署)
 
 ```ini
-AUTH_PASSWORD='你的密码'  # 至少 6 位;仅首次生效,已设过则不覆盖
+AUTH_PASSWORD='你的密碼'  # 至少 6 位;僅首次生效,已設過則不覆蓋
 ```
 
-面板首次设置访问密码时,出于安全考虑**仅允许本机或内网访问**(防公网陌生人抢先设置锁死面板)。公网服务器部署可通过此环境变量预置首个密码。
-密码建议使用单引号包裹，Docker 启动时会把整个原始 `.env` 只读挂载到容器内 `/app/.env`，兼容已有的未加引号配置。容器可以读取其中的密钥但不能修改该文件，请保持主机文件权限为 `600` 并仅运行可信镜像。
+面板首次設置訪問密碼時,出於安全考慮**僅允許本機或內網訪問**(防公網陌生人搶先設置鎖死麵板)。公網服務器部署可通過此環境變量預置首個密碼。
+密碼建議使用單引號包裹，Docker 啟動時會把整個原始 `.env` 只讀掛載到容器內 `/app/.env`，兼容已有的未加引號配置。容器可以讀取其中的密鑰但不能修改該文件，請保持主機文件權限為 `600` 並僅運行可信鏡像。
 
-详细步骤、SSH 转发方案、重置密码方法见 [deployment.md → 访问密码设置](./deployment.md#访问密码设置公网部署必读)。
+詳細步驟、SSH 轉發方案、重置密碼方法見 [deployment.md → 訪問密碼設置](./deployment.md#訪問密碼設置公網部署必讀)。
 
 ---
 
-## 后端依赖 Extras(可选)
+## 後端依賴 Extras(可選)
 
 ```ini
-BACKEND_EXTRAS=             # 留空默认;legacy-cpu 兼容老 CPU
+BACKEND_EXTRAS=             # 留空默認;legacy-cpu 兼容老 CPU
 ```
 
-老 CPU 无 AVX2/FMA 支持时设为 `legacy-cpu`,会给 Polars 切到 `rtcompat` 运行时;需回测则 `legacy-cpu backtest`。Docker 构建和 `./dev.sh` / `.\dev.ps1` 都会读取此值并同步依赖。详见 [deployment.md → 老 CPU 兼容](./deployment.md#老-cpu-兼容avx2fma-缺失)。
+老 CPU 無 AVX2/FMA 支持時設為 `legacy-cpu`,會給 Polars 切到 `rtcompat` 運行時;需回測則 `legacy-cpu backtest`。Docker 構建和 `./dev.sh` / `.\dev.ps1` 都會讀取此值並同步依賴。詳見 [deployment.md → 老 CPU 兼容](./deployment.md#老-cpu-兼容avx2fma-缺失)。
 
 ---
 
-## 配置优先级
+## 配置優先級
 
-1. **面板设置页**(`设置 → ...`):UI 修改后立即生效,持久化到 `data/`
-2. **`.env` 文件**:启动时读取
-3. **环境变量**:Docker / 系统环境变量,优先级最高
+1. **面板設定頁**(`設定 → ...`):UI 修改後立即生效,持久化到 `data/`
+2. **`.env` 文件**:啟動時讀取
+3. **環境變量**:Docker / 系統環境變量,優先級最高
 
-> 多数配置可在面板设置页修改,无需手动编辑 `.env`。仅 AI Key、API Key 等敏感项建议放 `.env`(不提交到 git)。
+> 多數設定可在面板設定頁修改,無需手動編輯 `.env`。僅 AI Key、API Key 等敏感項建議放 `.env`(不提交到 git)。

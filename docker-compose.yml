@@ -1,5 +1,5 @@
-# Phase 0 单 service:FastAPI 启动后既跑 API 又托管前端 dist。
-# 见 ADR-17 / §8.1。
+# Phase 0 單 service:FastAPI 啟動後既跑 API 又託管前端 dist。
+# 見 ADR-17 / §8.1。
 services:
   app:
     build:
@@ -16,19 +16,19 @@ services:
     env_file:
       - .env
     environment:
-      # 强制固定为容器内绝对路径, 防止 .env 里的 DATA_DIR=./data(开发模式用)
-      # 被 env_file 原样传入容器后按错误的相对路径解析, 写到未挂载卷的目录,
-      # 导致每次 up --build 重建容器都丢数据。environment 优先级高于 env_file,
-      # 无论 .env 怎么写这里都以容器路径为准。
+      # 強制固定為容器內絕對路徑, 防止 .env 裡的 DATA_DIR=./data(開發模式用)
+      # 被 env_file 原樣傳入容器後按錯誤的相對路徑解析, 寫到未掛載卷的目錄,
+      # 導致每次 up --build 重建容器都丟數據。environment 優先級高於 env_file,
+      # 無論 .env 怎麼寫這裡都以容器路徑為準。
       - DATA_DIR=/app/data
-      # 将主机 Codex Desktop 的 loopback local-access 端点映射到 Docker host gateway。
+      # 將主機 Codex Desktop 的 loopback local-access 端點映射到 Docker host gateway。
       - CODEX_DOCKER_HOST=host.docker.internal
     volumes:
       - ./data:/app/data
       - ./tiers.yaml:/app/tiers.yaml:ro
-      # 保留原始 dotenv 值供首次密码初始化读取，避免 Compose 展开密码中的 $VAR。
+      # 保留原始 dotenv 值供首次密碼初始化讀取，避免 Compose 展開密碼中的 $VAR。
       - ./.env:/app/.env:ro
-      # 复用主机 Codex 登录态；后端只读后复制到单次请求的临时 CODEX_HOME。
-      # Windows PowerShell/CMD 下 HOME 常未设置, 可通过 .env 里 CODEX_HOME_HOST 覆盖。
+      # 複用主機 Codex 登錄態；後端只讀後複製到單次請求的臨時 CODEX_HOME。
+      # Windows PowerShell/CMD 下 HOME 常未設置, 可通過 .env 裡 CODEX_HOME_HOST 覆蓋。
       - ${CODEX_HOME_HOST:-${HOME}/.codex}:/root/.codex:ro
     restart: unless-stopped

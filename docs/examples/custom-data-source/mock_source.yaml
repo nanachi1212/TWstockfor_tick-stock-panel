@@ -1,5 +1,5 @@
 name: mock_source
-display_name: "Mock 自定义数据源"
+display_name: "Mock 自定義數據源"
 auth:
   type: none
 

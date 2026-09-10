@@ -1,284 +1,194 @@
 
 <div align="center">
 
-# 📈 A股智能量化工作台
+# 📈 Nanachi 的台股監控看板
 
-[![声明:个人开源](https://img.shields.io/badge/⚠️_声明-个人开源_非TickFlow官方项目-green?style=for-the-badge&labelColor=red)](https://github.com/shy3130/tick-stock-panel)
+[![聲明:個人開源](https://img.shields.io/badge/⚠️_聲明-個人開源-green?style=for-the-badge&labelColor=red)](https://github.com/nanachi1212/TWstockfor_tick-stock-panel)
 
 
 
-**自托管、零运维的 A 股「选股 + 监控 + 回测」量化工作台**
+**自架、零維運的台股「看市場 + 選股 + 監控」面板**
 
-**面向个人散户与量化爱好者而生**
+**資料來自 TWSE / TPEx 公開資料,不需要任何付費行情 API Key**
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](./LICENSE)
 [![Python](https://img.shields.io/badge/Python-≥3.11-blue.svg)](https://www.python.org/)
 [![React](https://img.shields.io/badge/React-18-61dafb.svg)](https://react.dev/)
-[![Data: TickFlow](https://img.shields.io/badge/Data-TickFlow-00b386.svg)](https://tickflow.org/auth/register?ref=V3KDKGXPEA)
 [![Deploy: Docker](https://img.shields.io/badge/Deploy-Docker-2496ed.svg)](./Dockerfile)
-[![GitHub stars](https://img.shields.io/github/stars/shy3130/tick-stock-panel?style=social)](https://github.com/shy3130/tick-stock-panel/stargazers)
 
 </div>
 
 <div align="center">
-  
 
-
-**[快速开始](#-快速开始)** · **[核心功能](#-核心功能)** · **[配置](#️-配置)** · **[完整文档](#-完整文档)**
+**[快速開始](#-快速開始)** · **[核心功能](#-核心功能)** · **[資料來源](#-資料來源)** · **[設定](#️-設定)** · **[完整文件](#-完整文件)**
 
 </div>
 
 
 ---
 
+**本專案為個人開源專案,與台灣證券交易所、證券櫃檯買賣中心或任何商業資料服務均無官方關聯。僅供學習與研究使用。**
 
-
-**本项目个人开源，数据源插件化，可任意接入第三方数据源。仅供学习研究使用，严禁商业用途。**
-
-
-
-
-> ⚠️ 小白请绕路，本开源项目谨作为本地量化提供解决思路Demo，不作为投资软件或者看盘软件。
+> ⚠️ 這是把公開資料整理成看得懂的畫面的工具,不是投資軟體。
 >
-> **明确不做**:不对标同花顺 / 通达信,不内置「AI 荐股 / 涨停预测」。
-
-有问题可以邮件415333856@qq.com。
-
-觉得有用可以点个 Star
+> **明確不做**:不預測漲跌、不推薦個股、不做自動下單。AI 只在你主動點擊時才會呼叫。
 
 ---
 
 ## ✨ 核心功能
 
-| 模块             | 一句话                                                                 | 详见                              |
-| :--------------- | :--------------------------------------------------------------------- | :-------------------------------- |
-| 🔍 **选股引擎**   | 18 个内置策略 + 自定义信号 + AI 生成 + 代码迁移,Polars 毫秒级扫全 A 股 | [strategy.md](./docs/strategy.md) |
-| 📊 **指标流水线** | MA/EMA/MACD/RSI/KDJ/布林/量比等,一次扫表落盘 enriched Parquet          | [features.md](./docs/features.md) |
-| 🧪 **回测研究**   | 因子/策略回测 + 财务快照因子(点时口径),T+1/费用/滑点约束,SSE 持久任务  | [features.md](./docs/features.md) |
-| ⛏️ **因子挖掘**   | 嵌套样本外搜索多因子排名组合,与自有策略对照,候选库显式发布、永不自动上线 | [mining.md](./docs/mining.md) |
-| 🌡️ **市场环境**   | 情绪周期 6 阶段(连板梯队驱动)+ 概念/行业主线排名,与 5 档环境分并存    | [market-phase.md](./docs/market-phase.md) |
-| 🚨 **异动监控**   | 交易所异动规则口径(3/10/30 日偏离值),盘中实时接近度,系统告警与推送接入 | — |
-| 📡 **监控中心**   | 四类监控(策略/个股信号/价格/异动),多条件 AND/OR + 语音播报 + 飞书推送  | [features.md](./docs/features.md) |
-| 📈 **个股分析**   | 9 类关键价位 + AI 四维分析(技术/基本面/财务/消息面)                    | [features.md](./docs/features.md) |
-| 🏆 **连板梯队**   | 连板层级统计 + 概念涨幅轮动 + 盘后 AI 复盘 + 炸板/翘板预警             | [features.md](./docs/features.md) |
-| 🧰 **数据扩展**   | 数据源插件化(stock-sdk 示例 + YAML 自定义源),扩展字段配成一级页面同台分析 | [custom-data-source.md](./docs/custom-data-source.md) |
+側邊欄的順序就是建議的使用流程:
 
+```
+看市場  →  找股票  →  加自選  →  多股比較  →  設定監控
+ 看板      台股選股    自選股     多股比較      監控中心
+```
 
-
-
+| 頁面 | 一句話 |
+| :--- | :--- |
+| 📊 **看板** | 今日市場強弱(漲跌家數與偏強/中性/偏弱)、產業強弱最強最弱、自選股動態、台股資料狀態、監控觸發記錄 |
+| 🔍 **台股選股** | 全市場量化統計快照、產業類股輪動、10 類客觀異常訊號、5 組常用篩選、技術面與法人籌碼進階條件、AI 自然語言條件解析 |
+| ⭐ **自選股** | 自選清單與多對多分組、表格/卡片雙檢視、自訂欄位、板塊與風險警示過濾、迷你日K與分時 |
+| ⚖️ **多股比較** | 多檔並列的確定性比較表(報酬率、外資買賣超、本益比、異常訊號數),AI 客觀解讀為選配且需手動觸發 |
+| 📈 **個股頁面** | 歷史日K與成交量、五檔即時盤口、三大法人買賣超、融資融券與券資比、近 5 日核心籌碼滾動因子、漲跌幅限制規則 |
+| 🚨 **監控中心** | 盤中即時行情與五檔、8 種規則類型、冷卻時間與遲滯防抖、觸發記錄,命中可推播到 LINE 或 Telegram |
 
 <details>
-<summary><b>📦 主要页面与功能</b></summary>
+<summary><b>📦 更多細節</b></summary>
 
-**📊 行情总览**
-- **看板** Dashboard — 市场情绪评分 + 涨跌/成交额榜单 + 概念领涨领跌 + 大盘异动事件流,一日全貌
-- **自选** Watchlist — 自选股池,多分组管理(M:N),表格/卡片双视图,换手/量比/RSI 等实时指标
-- **指数** Indices — 沪深指数浏览与同步
+**選股頁的異常訊號**:爆量、成交額放大、價格異動、外資異常買賣超、投信異常買賣超、融資激增、融券激增、券資比驟升、價量/法人背離、產業相對強弱異常。全部是規則判定的事實描述,系統不據此給推薦。
 
-**🔍 选股与回测**
-- **策略** Screener — Polars 毫秒级扫描全 A 股,18 个内置策略卡片 + 自定义条件
-- **回测** Backtest — 两种模式:
-  - **因子回测** — IC/IR、分层收益、多空组合,先筛掉无效指标
-  - **策略回测** — 净值曲线、回撤、夏普、胜率,支持 T+1/手续费/滑点/止损,SSE 流式进度
-- **挖掘** Mining — 嵌套样本外因子与策略挖掘:训练区间因子方向重估 + 相关性去重 + 多因子排名组合搜索,自有策略作对照轨;候选入库,显式确认后才发布,永不自动上线
+**監控規則類型**:價格高於/低於、漲幅高於、跌幅低於、成交量高於、成交量異常放大、接近漲停、接近跌停。後兩者對無漲跌幅限制的商品不適用。
 
-**📈 个股与板块分析**
-- **个股分析** Stock Analysis (Beta) — 日K + 9 类关键价位 + AI 四维分析(技术/基本面/财务/消息面)
+**AI 的兩個用途**:選股頁把中文條件翻譯成篩選欄位(純翻譯層,結果先預覽再填表,不直接出股)、多股比較頁對已呈現的數據做客觀解讀。兩者都要手動觸發,不設定 AI 完全不影響其他功能。
 
-**🔔 监控与复盘**
-- **监控中心** Monitor — 策略/个股信号/价格/板块等多类规则,支持自选分组作用域,盘中实时弹窗 + 语音播报(播报个股名称与信号) + 触发记录持久化
-
-**🗄️ 数据与扩展**
-- **数据** Data — 本地数据画像与同步状态(维表/日K/除权/Enriched/指数/ETF/分钟K/财务),盘后管道与历史扩展
-- **扩展分析** (动态菜单) — 把任意第三方/扩展数据字段配成一级菜单,与内置数据同台分析
-- **设置** Settings — 数据源与能力检测、AI 接口、实时监控、扩展页面、信号库、菜单与系统设置
+**推播**:LINE Messaging API 與 Telegram Bot,可各自測試,並勾選作為新建規則的預設推播管道。
 
 </details>
 
-
 ---
 
-## 📸 界面预览
+## 🚀 快速開始
 
-<table>
-  <tr>
-    <td width="50%" align="center"><b>看板 Dashboard</b></td>
-    <td width="50%" align="center"><b>策略 Screener</b></td>
-  </tr>
-  <tr>
-    <td width="50%"><img src="./screenshots/看板.png" alt="看板页面"></td>
-    <td width="50%"><img src="./screenshots/策略.png" alt="策略页"></td>
-  </tr>
-  <tr>
-    <td width="50%" align="center"><b>回测 Backtest</b></td>
-    <td width="50%" align="center"><b>挖掘 Mining</b></td>
-  </tr>
-  <tr>
-    <td width="50%"><img src="./screenshots/回测.png" alt="回测页"></td>
-    <td width="50%"><img src="./screenshots/挖掘因子.png" alt="挖掘页"></td>
-  </tr>
-  <tr>
-    <td width="50%" align="center"><b>监控中心 Monitor</b></td>
-    <td width="50%" align="center"><b>连板梯队 Limit Ladder</b></td>
-  </tr>
-  <tr>
-    <td width="50%"><img src="./screenshots/监控中心.png" alt="监控中心"></td>
-    <td width="50%"><img src="./screenshots/连板梯队.png" alt="连板梯队页"></td>
-  </tr>
-  <tr>
-    <td width="50%" align="center"><b>概念分析 Concept</b></td>
-    <td width="50%" align="center"><b>自选 Watchlist</b></td>
-  </tr>
-  <tr>
-    <td width="50%"><img src="./screenshots/概念分析.png" alt="概念分析"></td>
-    <td width="50%"><img src="./screenshots/自选.png" alt="自选页"></td>
-  </tr>
-</table>
+### 方式 A:桌面安裝包(最簡單)
 
-<div align="center">
+到 [Releases](https://github.com/nanachi1212/TWstockfor_tick-stock-panel/releases) 下載對應平台的安裝檔:
 
-### 📸 [查看更多界面截图 »](./screenshots/README.md)
+| 平台 | 檔案 |
+| :--- | :--- |
+| Windows x64 | `NanachiStockPanel-Setup-x64.exe` |
+| macOS(Apple Silicon) | `NanachiStockPanel-macos-arm64.dmg` |
+| Linux | `NanachiStockPanel-linux-x64.tar.gz` |
 
-</div>
+Windows 不需要系統管理員權限,預設裝到 `D:\NanachiStockPanel`。使用者資料在安裝目錄下的 `data/`,覆蓋安裝不會遺失。
 
-
----
-
-
-
-
-## 🚀 快速开始
-
-> 前置依赖:Python ≥ 3.11 · Node ≥ 20 · [`uv`](https://docs.astral.sh/uv/) · `pnpm`(`npm i -g pnpm`)
-
-### 方式 A:Dev 模式(二次开发推荐)
-
-```bash
-cp .env.example .env       # 按需填 TICKFLOW_API_KEY(留空 = None 模式)
-./dev.sh                   # Windows: .\dev.ps1
-```
-
-自动检查 / 下载依赖、释放端口、同时起前后端。后端 → <http://localhost:3018> · 前端 → <http://localhost:3011>。
-
-### 方式 B:Docker(部署最省心)
+### 方式 B:Docker
 
 ```bash
 cp .env.example .env
 docker compose up --build
-# 打开 http://localhost:3018
+# 開啟 http://localhost:3018
 ```
 
-Docker 镜像内置固定版本的 **Codex CLI**，Compose 会将主机 `${HOME}/.codex` 只读挂载到容器，因此主机需先完成 Codex 登录。若主机 Codex 使用 loopback local-access provider，容器会保留实际端口并自动将主机名映射为 `host.docker.internal`。需要覆盖镜像内版本时可设置构建参数：
+### 方式 C:原始碼開發模式
+
+> 前置依賴:Python ≥ 3.11 · Node ≥ 20 · [`uv`](https://docs.astral.sh/uv/) · `pnpm`(`npm i -g pnpm`)
 
 ```bash
-CODEX_CLI_VERSION=0.144.3 docker compose up --build
+cp .env.example .env
+./dev.sh                   # Windows: .\dev.ps1
 ```
 
-> **Windows 用户注意**：纯 PowerShell / CMD 下 `HOME` 环境变量通常未设置，会导致挂载路径解析失败、容器读不到 Codex 登录态。请在 `.env` 中显式指定主机 Codex 目录：
-> ```bash
-> # PowerShell 示例(实际路径以本机为准)
-> echo "CODEX_HOME_HOST=C:\Users\你的用户名\.codex" >> .env
-> ```
+自動檢查與安裝依賴、釋放連接埠、同時起前後端。後端 → <http://localhost:3018> · 前端 → <http://localhost:3011>。
 
-> Codex CLI 模式允许 TickFlow 容器读取本机 Codex 登录凭据，仅应在受信任的本机环境启用。凭据目录以只读方式挂载，不会写入镜像。
+### 跑起來後的第一次使用
 
-镜像已内置 **stock-sdk** 数据源插件(Node 运行时 + 依赖),开箱即用。
+1. 面板要對外開放時,第一次會要求**設定存取密碼**。
+2. 走完引導(使用須知 → 歡迎 → 台股資料狀態 → 完成),過程不需要填任何金鑰。
+3. 到 **設定 → 資料來源 → 台股歷史日 K 資料庫**,下載歷史資料包(見下一節)。
+4. 回到**看板**看今天的市場,到**台股選股**掃出候選,加進**自選股**,在**監控中心**建規則。
 
-> 📖 Docker 进阶、GitHub Actions 自构建、老 CPU 兼容、访问密码设置等见 [docs/deployment.md](./docs/deployment.md)。
-
-### 跑起来后的第一次使用
-
-1. **设置 → 凭据与能力** → 点 **重新检测**,确认档位标签
-2. **设置** → **立即跑盘后管道**:拉日 K + 计算 enriched 表(None / Free 走 free-api,当日数据盘后 1-2 小时可用)
-3. **自选**页加标的 → **选股**页点策略卡片扫描 / 配自定义信号
-4. **回测**页选策略 + 区间 → 看净值 / 夏普 / 交易明细(SSE 实时进度)
-5. **监控中心**配规则,盘中实时弹窗 + 持久化记录
+完整逐頁操作見 [操作說明書](./操作說明書.md)。
 
 ---
 
-## ⚙️ 配置
+## 📡 資料來源
 
-所有配置从根目录 `.env` 读取(复制 `.env.example` 开始),也可在面板 **设置** 页修改。最常用的三项:
+預設且建議的來源是**台灣官方資料源(TWSE / TPEx)**,整合台灣證券交易所與證券櫃檯買賣中心的公開資料,提供日K歷史行情、即時報價、標的清單與基本面資訊,**不需要任何 API Key**。Yahoo Finance 與公開資訊站台作為備援與補充。所有資料在本機建立 Parquet / DuckDB 快取。
+
+在「設定 → 資料來源」可以逐個資料集指定提供方;沒有個別設定的一律由台灣官方資料源提供。
+
+### 歷史日 K 資料包
+
+即時報價隨時可抓,但歷史日 K 要先在本機建立。逐日回補太慢,所以整理好的資料包放在 GitHub Release:
+
+| 項目 | 內容 |
+| :--- | :--- |
+| Release tag | `data-daily-2026-09-10` |
+| 資料範圍 | 2024-01-02 ～ 2026-09-10 |
+| 大小 | 約 31 MB |
+| 校驗 | 下載後自動比對 SHA256 |
+
+在「設定 → 資料來源 → 台股歷史日 K 資料庫」點下載即可,流程會自動走完下載、校驗、解壓縮、匯入,最後**補上資料包結束日之後到最近交易日的缺口**。
+
+### 資料更新
+
+系統排程在**交易日 16:30(Asia/Taipei)**自動更新日線、法人與資券資料。面板關了幾天回來時,資料狀態會顯示「過期」,按歷史日 K 卡片的**「更新到最新」**即可補齊。
+
+---
+
+## ⚙️ 設定
+
+所有設定從根目錄 `.env` 讀取(複製 `.env.example` 開始),多數項目也可以在面板的**設定**頁調整。日常使用不需要任何 API Key。
 
 ```ini
-TICKFLOW_API_KEY=              # 留空 = None 模式(历史日K免费);填 Key 解锁更多
-AI_API_KEY=                    # 留空 = 关闭 AI;填 Key 启用策略生成
-PORT=3018                      # 服务端口
+PORT=3018                      # 後端服務連接埠
+HOST=0.0.0.0                   # 監聽位址;只給本機用可設 127.0.0.1
+DATA_DIR=./data                # 資料存放目錄
+AUTH_PASSWORD=''               # 首次啟動預置存取密碼(選填)
+AI_API_KEY=                    # 選配;留空 = 關閉 AI 功能
 ```
 
-> 📖 完整配置项(数据源档位、AI、服务、密码、老 CPU 兼容)见 [docs/configuration.md](./docs/configuration.md)。
+> 📖 完整設定項見 [docs/configuration.md](./docs/configuration.md);部署與存取密碼見 [docs/deployment.md](./docs/deployment.md)、[docs/deploy-password.md](./docs/deploy-password.md)。
 
 ---
 
-## 🏗️ 技术栈
+## 🏗️ 技術棧
 
-| 层           | 选型                                                                                              |
-| :----------- | :------------------------------------------------------------------------------------------------ |
-| **后端**     | FastAPI · Pydantic v2 · APScheduler · sse-starlette                                               |
-| **数据**     | Polars(计算)· DuckDB(查询)· Parquet(存储)                                                         |
-| **回测**     | vectorbt(全项目唯一 pandas 边界)                                                                  |
-| **数据源**   | [TickFlow](https://tickflow.org/auth/register?ref=V3KDKGXPEA) 官方 SDK · 插件化扩展(stock-sdk 示例插件 · YAML 自定义源) |
-| **AI**(可选) | OpenAI 兼容接口(DeepSeek / 通义 / Ollama 等)                                                      |
-| **前端**     | React 18 · Vite · TypeScript · Tailwind · Tanstack Query · Lightweight Charts · ECharts · dnd-kit |
-| **部署**     | Docker 两阶段构建,前端 dist 拷进后端镜像,**单容器**                                               |
-
----
-
-## 🗺️ 路线图
-
-| Phase  | 内容                                                               | 状态 |
-| :----- | :----------------------------------------------------------------- | :--- |
-| 0-1    | 仓库骨架 · FastAPI 壳 · 能力探测 · K 线同步与分析页                | ✅    |
-| 2-3    | Polars enriched 流水线 · Screener · vectorbt 回测(T+1/手续费/止损) | ✅    |
-| 4-5    | 监控引擎 · 四类监控规则 · 实时 SSE 推送 · 持久化记录               | ✅    |
-| 6      | 个股分析(专用日 K + 9 类关键价位 + AI 四维分析)                    | ✅    |
-| **v0.2** | 因子挖掘全链路 · 市场阶段与主线识别 · 异动监控 · 数据源插件化     | ✅    |
-| **v2** | Webhook 推送· 板块异动 · 早晚报 · 更多扩展           | 🚧    |
+| 層 | 選型 |
+| :--- | :--- |
+| **後端** | FastAPI · Pydantic v2 · APScheduler · sse-starlette |
+| **資料** | Polars(計算)· DuckDB(查詢)· Parquet(儲存) |
+| **資料來源** | TWSE / TPEx 官方公開資料 · 可插件化擴充(YAML 自訂源) |
+| **AI**(選配) | OpenAI 或任何 OpenAI 相容介面 |
+| **前端** | React 18 · Vite · TypeScript · Tailwind · TanStack Query · Lightweight Charts · ECharts · dnd-kit |
+| **桌面版** | PyInstaller · pywebview · Inno Setup(Windows 安裝包) |
+| **部署** | Docker 兩階段建置,前端 dist 拷進後端映像檔,**單容器** |
 
 ---
 
-## 📚 完整文档
+## 📚 完整文件
 
-| 文档                                                                                               | 内容                                                                 |
-| :------------------------------------------------------------------------------------------------- | :------------------------------------------------------------------- |
-| [docs/deployment.md](./docs/deployment.md)                                                         | 部署方式(Dev / Docker / GH Actions)、老 CPU 兼容、更新代码、访问密码 |
-| [docs/configuration.md](./docs/configuration.md)                                                   | 所有 `.env` 配置项详解(数据源、AI、服务、密码、数据目录)             |
-| [docs/features.md](./docs/features.md)                                                             | 各功能模块详细说明(选股/指标/回测/监控/个股分析/数据扩展)            |
-| [docs/custom-data-source.md](./docs/custom-data-source.md)                                         | 自定义数据源接入、YAML 配置与 mock 联调示例                         |
-| [docs/strategy.md](./docs/strategy.md)                                                             | 策略体系(18 内置策略 + 三种扩展方式 + 文件结构)                      |
-| [docs/mining.md](./docs/mining.md)                                                                 | 因子与策略挖掘口径、防泄漏、任务隔离和发布边界                       |
-| [docs/market-phase.md](./docs/market-phase.md)                                                     | 市场情绪周期 6 阶段与概念/行业主线识别的口径与设计                   |
-| [docs/plugin-development.md](./docs/plugin-development.md)                                         | 数据源插件开发规范(以 stock-sdk 为参考实现)                         |
-| [docs/secondary-development.md](./docs/secondary-development.md)                                   | 代码二次开发、前端插槽、后端策略接口与 AI 开发模板                   |
-| [backend/app/strategy/prompts/strategy-guide.md](./backend/app/strategy/prompts/strategy-guide.md) | 策略开发完整规范(AI 生成与手写)                                      |
-| [docs/taiwan-market-overview.md](./docs/taiwan-market-overview.md)                                 | 台股(TWSE/TPEx)模块开发者指南:启动、测试、本地数据位置、AI 使用说明 |
-
-fork同时请点个star哦,欢迎 Issue 和 PR。
+| 文件 | 內容 |
+| :--- | :--- |
+| [操作說明書](./操作說明書.md) | **逐頁操作、推播設定、資料更新、常見問題、資料與隱私** |
+| [docs/deployment.md](./docs/deployment.md) | 部署方式(Dev / Docker / GitHub Actions)、舊 CPU 相容、更新程式、存取密碼 |
+| [docs/configuration.md](./docs/configuration.md) | 所有 `.env` 設定項詳解 |
+| [docs/taiwan-market-overview.md](./docs/taiwan-market-overview.md) | 台股(TWSE/TPEx)模組開發者指南:啟動、測試、本地資料位置 |
+| [docs/taiwan-data-sources.md](./docs/taiwan-data-sources.md) | 台股資料來源與端點說明 |
+| [docs/custom-data-source.md](./docs/custom-data-source.md) | 自訂資料來源接入、YAML 設定與 mock 聯調範例 |
+| [docs/plugin-development.md](./docs/plugin-development.md) | 資料來源插件開發規範 |
+| [docs/secondary-development.md](./docs/secondary-development.md) | 二次開發、前端插槽、後端策略介面 |
+| [CONTRIBUTING.md](./CONTRIBUTING.md) | 貢獻、AI 開發與複審規範 |
 
 ---
 
-## 💬 交流群
+## ⚠️ 免責聲明
 
-欢迎加入交流群,讨论交流。
-
-<img src="./community-qr-code.jpg" alt="交流群二维码" width="240" />
-
----
-
-## ⚠️ 免责声明
-
-本项目仅供**学习与量化研究**,**不构成任何投资建议**。回测结果不代表未来收益。A 股有风险,入市需谨慎。数据准确性以数据源 TickFlow 官方为准。
+本專案僅供**學習與研究**,**不構成任何投資建議**。資料正確性以各來源官方公告為準,系統不保證即時性與完整性。股市有風險,投資決策與後果由使用者自行承擔。
 
 ## 📄 License
 
-[MIT](./LICENSE) © tick-stock-panel contributors 
+[MIT](./LICENSE) © Nanachi 的台股監控看板 contributors
 
-本项目依赖 [TickFlow](https://tickflow.org/auth/register?ref=V3KDKGXPEA) 提供数据服务,使用前请遵守其服务条款
-
-数据源插件 [stock-sdk](https://stock-sdk.linkdiary.cn) 遵循其各自的 ISC 协议。
-
-## 社区
-
-本开源项目已链接并认可 [LINUX DO 社区](https://linux.do)。
-
-本开源项目由 [智谱 GLM 大模型](https://open.bigmodel.cn/) 辅助构建,感谢 [智谱 AI 开放平台](https://open.bigmodel.cn/) 提供支持。
+本專案由 [tick-stock-panel](https://github.com/shy3130/tick-stock-panel) 改作而來,原專案為 A 股面板,本分支已改為台股定位。

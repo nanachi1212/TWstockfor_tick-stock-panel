@@ -103,16 +103,16 @@ screenshots/
 frontend/screenshots/
 
 # ===== 打包产物 (本地构建的安装包,不入库) =====
-backend/TickFlowStockPanel-win-x64.zip
-backend/TickFlowStockPanel-macos.zip
-backend/TickFlowStockPanel-linux-x64.tar.gz
+backend/NanachiStockPanel-win-x64.zip
+backend/NanachiStockPanel-macos.zip
+backend/NanachiStockPanel-linux-x64.tar.gz
 packaging/Output/
 packaging/icon_preview.png
 packaging/designs/
 packaging/install.log
 packaging/installed_run.log
 # macOS 本地构建产物 (PyInstaller .app 与 create-dmg 产出的 .dmg,根目录产出)
-TickFlowStockPanel.app/
-TickFlowStockPanel-macos*.dmg
-TickFlowStockPanel-macos*.zip
+NanachiStockPanel.app/
+NanachiStockPanel-macos*.dmg
+NanachiStockPanel-macos*.zip
 reports/cursor_tickflow_pro_rate_limit_p0.bundle
