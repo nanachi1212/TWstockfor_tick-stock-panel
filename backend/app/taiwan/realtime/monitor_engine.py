@@ -367,7 +367,10 @@ class TaiwanMonitorEngine:
 
         with self._state_lock:
             prev_triggered = self._trigger_states.get(dedup_key, False)
-            last_fire = self._last_fire_time.get(dedup_key, 0.0)
+            # 尚未触发过用 None 表示: time.monotonic() 的原点是任意的 (Linux 上是开机时间),
+            # 若用 0.0 当哨兵, 刚开机/容器刚启动时 cur_mono - 0.0 会小于 cooldown_seconds,
+            # 所有规则都会被误判成 cooldown 中而永不触发。
+            last_fire = self._last_fire_time.get(dedup_key)
 
             # Re-arm state check with optional hysteresis
             if not is_condition_met:
@@ -392,7 +395,7 @@ class TaiwanMonitorEngine:
                 return None, EvaluationStatus.DEDUP_SUPPRESSED, "Duplicate suppressed (already triggered)"
 
             # 2. Cooldown check
-            if (cur_mono - last_fire) < rule.cooldown_seconds:
+            if last_fire is not None and (cur_mono - last_fire) < rule.cooldown_seconds:
                 return None, EvaluationStatus.COOLDOWN_ACTIVE, f"In cooldown ({int(rule.cooldown_seconds - (cur_mono - last_fire))}s left)"
 
             # Mark state as triggered and record fire time

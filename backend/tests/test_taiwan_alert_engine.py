@@ -179,6 +179,23 @@ class TestPriceAndChangeRules:
         assert alert is not None
         assert alert.trigger_value == 158.0
 
+    def test_first_fire_is_not_suppressed_right_after_boot(self, engine):
+        """time.monotonic() 原点是开机时间: 刚开机时也必须能首次触发。
+
+        回归: 旧实现用 0.0 当「没触发过」的哨兵, 与 monotonic 直接相减,
+        于是 uptime < cooldown_seconds (300s) 的机器上所有规则都被判 cooldown。
+        """
+        rule = TaiwanMonitorRule(
+            rule_id="r_boot", name="剛開機",
+            symbol="2330.TWSE", rule_type=TaiwanRuleType.PRICE_ABOVE,
+            threshold=2500.0,
+        )
+        quote = make_quote(last_price=2505.0)
+        # now_mono=5.0 模拟开机后 5 秒, 远小于 cooldown_seconds 预设 300。
+        alert, status, _ = engine.evaluate_single_rule(rule, quote, now_mono=5.0)
+        assert status == EvaluationStatus.TRIGGERED
+        assert alert is not None
+
     def test_missing_last_price_does_not_trigger(self, engine):
         rule = TaiwanMonitorRule(
             rule_id="r_p_missing", name="無價格",
