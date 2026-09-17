@@ -161,7 +161,13 @@ def test_intraday_support_uses_capability_limits(monkeypatch):
 
 
 def test_intraday_batch_provider_is_normalized_without_network(monkeypatch):
-    monkeypatch.setattr("app.services.preferences.get_minute_data_provider", lambda: "tickflow")
+    # f8aef18 (台股官方化) 起, minute provider 为 taiwan/tickflow 时不再调 TickFlow SDK。
+    # intraday_batch 分支现在只在「配了自定义源但该源没有 minute dataset」时才会走到,
+    # 这里就用这个仍然存在的路径验证 raw → 归一化列的契约。
+    monkeypatch.setattr("app.services.preferences.get_minute_data_provider", lambda: "mock_src")
+    monkeypatch.setattr(
+        "app.services.kline_sync._resolve_minute_provider", lambda name: (None, True, None),
+    )
 
     class FakeKlines:
         def intraday_batch(self, symbols, count, as_dataframe, show_progress, batch_size):

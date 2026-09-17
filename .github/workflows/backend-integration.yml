@@ -1,16 +1,15 @@
-name: Backend Tests
+name: Backend Integration Tests (manual)
 
+# 需要真實外網 (TWSE / TPEx / Yahoo) 的 live smoke test。
+# 外部服務不穩定不應讓一般 PR 紅燈, 因此只保留手動觸發。
 on:
-  pull_request:
-    branches: [main]
-  push:
-    branches: [main]
+  workflow_dispatch:
 
 env:
   UV_PYTHON: "3.11"
 
 jobs:
-  pytest:
+  integration:
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -31,5 +30,5 @@ jobs:
       - name: Install dependencies
         run: uv sync --frozen --extra dev
 
-      - name: Run pytest
-        run: uv run pytest -q -m "not integration"
+      - name: Run integration tests
+        run: uv run pytest -q -m integration

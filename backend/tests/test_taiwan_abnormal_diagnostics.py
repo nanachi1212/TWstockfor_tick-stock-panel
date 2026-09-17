@@ -839,7 +839,7 @@ def test_historical_no_look_ahead():
             assert end <= d_target
 
 
-def test_api_endpoint_zero_market_http_and_no_ai():
+def test_api_endpoint_zero_market_http_and_no_ai(taiwan_data_env):
     """Verify GET /api/taiwan/abnormal-diagnostics performs 0 HTTP calls and no AI provider calls."""
     client = TestClient(app, client=("127.0.0.1", 50000))
     with patch("urllib.request.urlopen") as mock_urlopen, patch("httpx.get") as mock_httpx_get, patch("httpx.post") as mock_httpx_post:

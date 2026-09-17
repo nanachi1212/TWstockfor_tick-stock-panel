@@ -222,8 +222,15 @@ class TestTwseMisProviderParsing:
 
 
 class TestRealtimeFallbackChain:
-    def test_primary_mis_success(self):
+    def test_primary_mis_success(self, monkeypatch):
         """Primary provider succeeds -> source='twse:mis'."""
+        # fixture 報價落在 2026-08-28 13:30, 若用真實時鐘, 盤中跑這個 test 會被
+        # date_mismatch 判成 stale。把 provider 的時鐘固定在同一場次, 與日期無關。
+        from app.taiwan.realtime import mis_provider as mis_mod
+
+        fixed_now = datetime(2026, 8, 28, 13, 30, tzinfo=TAIPEI_TZ)
+        monkeypatch.setattr(mis_mod, "taipei_now", lambda: fixed_now)
+
         mock_mis = {
             "msgArray": [
                 {

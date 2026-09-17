@@ -42,7 +42,7 @@ from app.taiwan.research_context import TaiwanStockResearchContextService
 
 
 @pytest.mark.asyncio
-async def test_valid_grounded_report_accepted():
+async def test_valid_grounded_report_accepted(taiwan_data_env):
     """Verify valid report citing legitimate registry evidence refs is accepted."""
     svc = TaiwanAIResearchService()
 
