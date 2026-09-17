@@ -50,6 +50,23 @@ _FIXTURE_SECURITIES = [
         "cfi_code": "ESVUFR", "raw_category": "股票", "base_price": 250.0,
     },
     {
+        "symbol": "2317.TWSE", "code": "2317", "exchange": "TWSE", "name": "鴻海",
+        "instrument_type": "stock", "industry": "電子零組件業", "isin": "TW0002317005",
+        "cfi_code": "ESVUFR", "raw_category": "股票", "base_price": 220.0,
+    },
+    {
+        "symbol": "2412.TWSE", "code": "2412", "exchange": "TWSE", "name": "中華電",
+        "instrument_type": "stock", "industry": "通信網路業", "isin": "TW0002412004",
+        "cfi_code": "ESVUFR", "raw_category": "股票", "base_price": 130.0,
+    },
+    {
+        "symbol": "006208.TWSE", "code": "006208", "exchange": "TWSE", "name": "富邦台50",
+        "instrument_type": "etf", "industry": None, "isin": "TW0006208001",
+        "cfi_code": "CEOJEU", "raw_category": "ETF", "base_price": 110.0,
+        "etf_category": "domestic_equity", "underlying_scope": "domestic",
+        "leverage_multiplier": 1.0,
+    },
+    {
         "symbol": "0050.TWSE", "code": "0050", "exchange": "TWSE", "name": "元大台灣50",
         "instrument_type": "etf", "industry": None, "isin": "TW0000050004",
         "cfi_code": "CEOJEU", "raw_category": "ETF", "base_price": 200.0,
@@ -68,8 +85,16 @@ _FIXTURE_SECURITIES = [
         "symbol": "00631L.TWSE", "code": "00631L", "exchange": "TWSE", "name": "元大台灣50正2",
         "instrument_type": "etf", "industry": None, "isin": "TW0000631001",
         "cfi_code": "CEOJEU", "raw_category": "ETF", "base_price": 300.0,
-        "etf_category": "domestic_equity", "underlying_scope": "domestic",
+        "etf_category": "leveraged", "underlying_scope": "domestic",
         "leverage_multiplier": 2.0,
+    },
+    {
+        # 官方審定產品規則: 元大台灣50反1 為 -1.0 倍反向 (見 OFFICIAL_ETF_RULE_PROFILES)。
+        "symbol": "00632R.TWSE", "code": "00632R", "exchange": "TWSE", "name": "元大台灣50反1",
+        "instrument_type": "etf", "industry": None, "isin": "TW0000632009",
+        "cfi_code": "CEOJEU", "raw_category": "ETF", "base_price": 10.0,
+        "etf_category": "inverse", "underlying_scope": "domestic",
+        "leverage_multiplier": -1.0,
     },
 ]
 
@@ -167,12 +192,44 @@ def _security_master_frame() -> pl.DataFrame:
             "source": "TWSE_ISIN" if spec["exchange"] == "TWSE" else "TPEX_ISIN",
             "updated_at": now_iso,
             "etf_category": spec.get("etf_category"),
-            "classification_source": "official_rule" if spec.get("etf_category") else None,
+            "classification_source": "official_metadata" if spec.get("etf_category") else None,
             "underlying_scope": spec.get("underlying_scope"),
             "leverage_multiplier": float(spec.get("leverage_multiplier", 1.0)),
             "currency": "TWD", "lot_size": 1000,
         })
     return pl.DataFrame(rows)
+
+
+def _build_offline_master(cache_path):
+    """落盤 fixture security master 並回傳指向它的 TaiwanSecurityMaster。"""
+    from app.taiwan.universe.service import TaiwanSecurityMaster
+
+    cache_path.parent.mkdir(parents=True, exist_ok=True)
+    _security_master_frame().write_parquet(cache_path)
+    master = TaiwanSecurityMaster(cache_path=cache_path)
+    assert master.load_cache() is True
+    return master
+
+
+@pytest.fixture(autouse=True)
+def taiwan_security_master_offline(tmp_path_factory, monkeypatch):
+    """全域擋掉 security master 的線上回退。
+
+    TaiwanSecurityMaster.ensure_loaded() 在找不到本機 parquet cache 時會呼叫
+    load_from_adapters(), 也就是真的連 TWSE/TPEx 抓 ISIN 清單。任何用到
+    get_security_master() 的測試因此都變成「有網才會過」: 開發機碰巧有網就綠,
+    GitHub runner 被官方站擋掉就 JSONDecodeError。
+
+    這裡把 module-level singleton 換成指向測試專屬 parquet 的實例, 讓
+    ensure_loaded() 永遠走 load_cache()。自己注入 security_master 或自己
+    patch get_security_master 的測試不受影響。
+    """
+    from app.taiwan import universe as taiwan_universe
+
+    cache_path = tmp_path_factory.mktemp("sec_master") / "security_master.parquet"
+    master = _build_offline_master(cache_path)
+    monkeypatch.setattr(taiwan_universe, "_default_master", master)
+    return master
 
 
 @pytest.fixture
@@ -186,8 +243,6 @@ def taiwan_data_env(tmp_path, monkeypatch):
     from app.taiwan.daily_store import TaiwanDailyStore
     from app.taiwan.institutional_store import TaiwanInstitutionalStore
     from app.taiwan.margin_store import TaiwanMarginStore
-    from app.taiwan.universe.service import TaiwanSecurityMaster
-
     monkeypatch.setattr(settings, "data_dir", tmp_path)
     taiwan_root = tmp_path / "taiwan"
     taiwan_root.mkdir(parents=True, exist_ok=True)
@@ -200,10 +255,7 @@ def taiwan_data_env(tmp_path, monkeypatch):
 
     # security master: 先落 parquet, 再把 module-level singleton 換成指向該檔的實例,
     # ensure_loaded() 於是走 load_cache(), 永遠不會呼叫 adapters (= 不連外網)。
-    master_path = taiwan_root / "security_master.parquet"
-    _security_master_frame().write_parquet(master_path)
-    master = TaiwanSecurityMaster(cache_path=master_path)
-    assert master.load_cache() is True
+    master = _build_offline_master(taiwan_root / "security_master.parquet")
     monkeypatch.setattr(taiwan_universe, "_default_master", master)
 
     return {
