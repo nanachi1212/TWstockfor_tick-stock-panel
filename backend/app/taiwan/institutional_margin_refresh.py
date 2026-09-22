@@ -10,11 +10,7 @@ Design:
 """
 from __future__ import annotations
 
-import json
 import logging
-import time
-import urllib.error
-import urllib.request
 from datetime import date, timedelta
 from typing import Any
 
@@ -32,6 +28,7 @@ from app.taiwan.enrichment.margin import (
 )
 from app.taiwan.institutional_store import TaiwanInstitutionalStore
 from app.taiwan.margin_store import TaiwanMarginStore
+from app.taiwan.providers.http import fetch_json
 from app.taiwan.realtime.calendar import TaiwanTradingCalendar
 
 logger = logging.getLogger(__name__)
@@ -46,53 +43,20 @@ def _fetch_json_with_retry(
     initial_backoff: float = DEFAULT_INITIAL_BACKOFF_SEC,
     timeout: float = 15.0,
 ) -> dict[str, Any]:
-    """Fetch JSON with minimal finite retry for transient HTTP/network errors.
+    """Fetch JSON with the shared Taiwan rate limiter and the existing retry policy.
 
-    Retryable:
-      - Timeouts (TimeoutError, urllib.error.URLError wrapping timeout)
-      - Connection reset / network dropped
-      - HTTP 429 (Too Many Requests)
-      - HTTP 5xx (500, 502, 503, 504)
-
-    Non-retryable:
-      - HTTP 4xx (400, 401, 403, 404, etc. except 429)
-      - JSON decode / malformed data errors
+    Retry semantics are unchanged (429/5xx transient, other 4xx and malformed
+    JSON permanent); ``app.taiwan.providers.http.fetch_json`` now takes a
+    taiwan:twse / taiwan:tpex slot before *every* attempt, so a 429 retry
+    consumes quota just like the first try.
     """
-    attempt = 0
-    backoff = initial_backoff
-
-    while attempt < max_attempts:
-        attempt += 1
-        try:
-            req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
-            with urllib.request.urlopen(req, timeout=timeout) as resp:
-                raw = resp.read().decode("utf-8")
-                return json.loads(raw)
-        except urllib.error.HTTPError as exc:
-            # 429 or 5xx are transient; other 4xx are permanent
-            is_retryable = exc.code == 429 or 500 <= exc.code <= 599
-            if not is_retryable or attempt >= max_attempts:
-                raise
-            logger.warning(
-                "HTTP %d on %s (attempt %d/%d), retrying in %.1fs...",
-                exc.code, url, attempt, max_attempts, backoff,
-            )
-            time.sleep(backoff)
-            backoff *= 2.0
-        except (TimeoutError, urllib.error.URLError, ConnectionError, OSError) as exc:
-            if attempt >= max_attempts:
-                raise
-            logger.warning(
-                "Network/timeout error on %s: %s (attempt %d/%d), retrying in %.1fs...",
-                url, exc, attempt, max_attempts, backoff,
-            )
-            time.sleep(backoff)
-            backoff *= 2.0
-        except json.JSONDecodeError:
-            # Data parsing error is permanent; do not retry
-            raise
-
-    raise RuntimeError(f"Failed to fetch {url} after {max_attempts} attempts")
+    return fetch_json(
+        url,
+        headers={"User-Agent": "Mozilla/5.0"},
+        timeout=timeout,
+        max_attempts=max_attempts,
+        initial_backoff=initial_backoff,
+    )
 
 
 class TaiwanInstitutionalRefreshService:

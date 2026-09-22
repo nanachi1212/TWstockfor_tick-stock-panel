@@ -10,16 +10,15 @@ Source semantics (verified with official documentation and live tests):
 """
 from __future__ import annotations
 
-import json
 import logging
 import urllib.parse
-import urllib.request
 from datetime import datetime, timedelta
 
 import polars as pl
 
 from app.data_providers.base import AssetType
 from app.taiwan.providers.base import AmountUnit, PriceSemantics, SourceMetadata, VolumeUnit
+from app.taiwan.providers.http import fetch_json
 from app.taiwan.providers.normalizer import normalize_taiwan_daily
 from app.taiwan.providers.taiwan_values import TAIPEI
 from app.taiwan.symbol import TaiwanSymbol, parse_symbol, to_provider_symbol
@@ -79,28 +78,31 @@ class FinMindAdapter:
                 params["token"] = self.token
 
             url = f"https://api.finmindtrade.com/api/v4/data?{urllib.parse.urlencode(params)}"
-            req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"})
 
             try:
-                with urllib.request.urlopen(req, timeout=self.timeout) as resp:
-                    payload = json.loads(resp.read().decode("utf-8"))
-                    rows = payload.get("data", [])
-                    if not rows:
-                        logger.debug("FinMind returned 0 rows for %s", canonical_sym.canonical)
-                        continue
+                payload = fetch_json(
+                    url,
+                    headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"},
+                    timeout=self.timeout,
+                    rpm=self.metadata.rate_limit_rpm,
+                )
+                rows = payload.get("data", [])
+                if not rows:
+                    logger.debug("FinMind returned 0 rows for %s", canonical_sym.canonical)
+                    continue
 
-                    normalized = normalize_taiwan_daily(
-                        rows,
-                        metadata=self.metadata,
-                        default_symbol=canonical_sym,
-                        provenance={
-                            "provider": "finmind", "source": "TaiwanStockPrice", "source_url": url,
-                            "retrieved_at": datetime.now(TAIPEI).isoformat(), "trade_date": None,
-                            "status": "third_party",
-                        },
-                    )
-                    if not normalized.is_empty():
-                        frames.append(normalized)
+                normalized = normalize_taiwan_daily(
+                    rows,
+                    metadata=self.metadata,
+                    default_symbol=canonical_sym,
+                    provenance={
+                        "provider": "finmind", "source": "TaiwanStockPrice", "source_url": url,
+                        "retrieved_at": datetime.now(TAIPEI).isoformat(), "trade_date": None,
+                        "status": "third_party",
+                    },
+                )
+                if not normalized.is_empty():
+                    frames.append(normalized)
             except Exception as e:
                 logger.warning("FinMind fetch failed for %s: %s", canonical_sym.canonical, e)
 

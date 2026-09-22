@@ -10,6 +10,7 @@ import polars as pl
 
 from app.data_providers.base import AssetType
 from app.taiwan.providers.base import AmountUnit, PriceSemantics, SourceMetadata, VolumeUnit
+from app.taiwan.providers.http import taiwan_client
 from app.taiwan.providers.normalizer import normalize_taiwan_daily
 from app.taiwan.providers.taiwan_values import (
     TAIPEI,
@@ -36,7 +37,9 @@ class OfficialTaiwanAdapter:
 
     def __init__(self, timeout: int = 15, client: httpx.Client | None = None) -> None:
         self.timeout = timeout
-        self.client = client or httpx.Client(timeout=timeout)
+        # Default client is throttled per taiwan:twse / taiwan:tpex; an injected
+        # client is the caller's responsibility (tests use MockTransport).
+        self.client = client or taiwan_client(timeout=timeout)
 
     def _json(self, url: str) -> object:
         response = self.client.get(

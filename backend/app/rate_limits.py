@@ -25,7 +25,9 @@ SAFETY_RPM_FACTOR = 0.8
 # index=0 启动, 仍可能瞬时突发超过单能力 rpm。后续 index>0 批次会按同一时间轴排队。
 # Phase 1 / Stage A: 不要并发启动多个 probe 或大批量 sync; 跨进程仍靠错峰, 非账户级限频。
 _slot_lock = threading.Lock()
-_next_slot: dict[int, float] = {}
+# Bucket key is a legacy rpm int (TickFlow / A-share paths) or a namespaced
+# string such as "taiwan:twse". The two families never collide.
+_next_slot: dict[object, float] = {}
 
 
 def apply_safety_rpm(rpm: int | None, *, factor: float = SAFETY_RPM_FACTOR) -> int | None:
@@ -35,13 +37,14 @@ def apply_safety_rpm(rpm: int | None, *, factor: float = SAFETY_RPM_FACTOR) -> i
     return max(1, int(rpm * factor))
 
 
-def _reserve_slot(rpm: int, interval: float) -> float:
+def _reserve_slot(rpm: int, interval: float, key: object | None = None) -> float:
     """在共享时间轴上为一次请求预约一个发包槽, 返回需等待的秒数 (>=0)。
 
     interval = 60/rpm。now 早于该 rpm 桶的 next_slot 时排到 next_slot, 否则排到 now;
     随后把该桶 next_slot 后移 interval。持锁仅做时间账目, 不在锁内 sleep。
     """
-    key = rpm if rpm and rpm > 0 else -1
+    if key is None:
+        key = rpm if rpm and rpm > 0 else -1
     with _slot_lock:
         now = time.monotonic()
         scheduled = max(now, _next_slot.get(key, now))
@@ -122,3 +125,26 @@ def sleep_between_batches(index: int, rpm: int | None, *, default_interval: floa
 def min_batch(preferred: int, limit: ResolvedLimit) -> int:
     """Clamp a user-preferred batch size by a resolved capability batch limit."""
     return min(preferred, limit.batch) if limit.batch else preferred
+
+
+def acquire_slot(rpm: int | None, *, key: object | None = None) -> float:
+    """Block until this bucket's next send slot, then return the seconds slept.
+
+    Difference from ``sleep_between_batches``: there is no "first call is free"
+    branch.  A cold bucket hands out exactly **one** immediate slot and paces
+    every later caller by ``60/rpm``, so N threads starting together are spread
+    over the timeline instead of firing as a burst.  Reservation and decrement
+    happen inside ``_slot_lock`` (see ``_reserve_slot``), so concurrent callers
+    can never be granted the same slot.
+
+    Pass a namespaced *key* (e.g. ``"taiwan:twse"``) to keep a source's quota
+    separate from every other bucket.  Without a key the legacy rpm-value
+    bucketing is used, so existing callers are unaffected.
+    """
+    interval = batch_interval(rpm)
+    if interval <= 0:
+        return 0.0
+    wait = _reserve_slot(rpm or -1, interval, key)
+    if wait > 0:
+        time.sleep(wait)
+    return max(wait, 0.0)
