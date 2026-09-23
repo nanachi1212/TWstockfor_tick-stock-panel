@@ -16,6 +16,7 @@ from app.taiwan.quant.data_health import (
     ReadinessLevel,
     ReadinessThresholds,
     evaluate_data_health,
+    health_from_stores,
     price_dataset_capability,
 )
 from app.taiwan.quant.feature_manifest import (
@@ -213,6 +214,109 @@ def test_readiness_is_graded_not_a_single_boolean() -> None:
     assert set(described["levels"]) == {level.value for level in ReadinessLevel}
     assert described["levels"][ReadinessLevel.TRAINING.value] is True
     assert described["levels"][ReadinessLevel.PRIMARY_OOS.value] is False
+
+
+def test_primary_twse_readiness_uses_confirmed_trading_denominator(
+    tmp_path,
+) -> None:
+    """Synthetic verified closures cannot block a fully covered TWSE Primary."""
+    from app.taiwan.historical_classification import HistoricalClassificationStore
+    from app.taiwan.observed_universe import ObservedUniverseStore
+
+    census = ObservedUniverseStore(tmp_path / "observed_universe")
+    classification = HistoricalClassificationStore(tmp_path / "cls")
+
+    real_session = date(2015, 1, 5)
+    closure_1, closure_2 = date(2015, 1, 1), date(2015, 1, 2)
+
+    def row(code: str, exchange: str) -> dict:
+        return {"date": real_session, "raw_code": code, "exchange": exchange,
+                "observed": True, "raw_name": code, "raw_source_category": "t",
+                "open": None, "high": None, "low": None, "close": None,
+                "volume": None, "amount": None, "instrument_type": None,
+                "instrument_type_status": "data_insufficient", "source": "s",
+                "retrieved_at": "t"}
+
+    census.write("TWSE", real_session, [row("2330", "TWSE")])
+    for day in (closure_1, closure_2):
+        census.write("TWSE", day, [], confirmed_non_trading_source="test:verified_calendar")
+    verified_classification = {
+        "code": "2330", "exchange": "TWSE", "instrument_type": "stock",
+        "industry": None, "industry_status": "data_insufficient",
+        "classification_effective_from": real_session,
+        "classification_source": "test:official", "classification_status": "verified",
+        "retrieved_at": "test",
+    }
+    classification.write(real_session, [verified_classification])
+    thresholds = ReadinessThresholds(
+        factor_compute_sessions=1, training_census_ratio=1.0,
+        training_classification_ratio=1.0, primary_oos_census_ratio=1.0,
+        primary_oos_classification_ratio=1.0,
+    )
+
+    health = health_from_stores(
+        census, classification, start=closure_1, end=real_session,
+        thresholds=thresholds)
+    assert health.census_sessions == 1
+    assert health.census_total_sessions == 1
+    assert health.primary_census_ratio == 1.0
+    assert health.is_ready(ReadinessLevel.PRIMARY_OOS) is True
+    assert health.census_by_exchange["TWSE"]["processed_dates"] == 3
+    assert health.census_by_exchange["TWSE"]["observed_trading_sessions"] == 1
+    assert health.census_by_exchange["TWSE"]["confirmed_non_trading_dates"] == 2
+    assert health.census_by_exchange["TWSE"]["expected_trading_sessions"] == 1
+    assert health.census_by_exchange["TWSE"]["trading_coverage_ratio"] == 1.0
+    assert health.secondary_tpex_census_ratio == 0.0
+    assert health.describe()["secondary_tpex_experimental"]["unresolved_dates"] == 3
+
+    # TPEx can later become complete without changing the TWSE Primary gate.
+    census.write("TPEX", real_session, [row("8069", "TPEX")])
+    for day in (closure_1, closure_2):
+        census.write("TPEX", day, [], confirmed_non_trading_source="test:verified_calendar")
+    completed = health_from_stores(
+        census, classification, start=closure_1, end=real_session,
+        thresholds=thresholds)
+    assert completed.is_ready(ReadinessLevel.PRIMARY_OOS) is True
+    assert completed.primary_census_ratio == 1.0
+    assert completed.secondary_tpex_census_ratio == 1.0
+    assert completed.describe()["secondary_tpex_experimental"]["processed_ratio"] == 1.0
+
+    classification.write(real_session, [{
+        **verified_classification, "classification_status": "data_insufficient"}])
+    unverified = health_from_stores(
+        census, classification, start=closure_1, end=real_session,
+        thresholds=thresholds)
+    assert unverified.is_ready(ReadinessLevel.PRIMARY_OOS) is False
+    assert unverified.twse_codes_classified == 0
+
+
+def test_unknown_empty_and_unprocessed_weekday_remain_in_quant_denominator(
+    tmp_path,
+) -> None:
+    from app.taiwan.historical_classification import HistoricalClassificationStore
+    from app.taiwan.observed_universe import ObservedUniverseStore
+
+    census = ObservedUniverseStore(tmp_path / "observed_universe")
+    classification = HistoricalClassificationStore(tmp_path / "cls")
+    first, unknown, unprocessed = date(2024, 6, 3), date(2024, 6, 4), date(2024, 6, 5)
+    census.write("TWSE", first, [{
+        "date": first, "raw_code": "2330", "exchange": "TWSE", "observed": True,
+        "raw_name": "2330", "raw_source_category": "test", "open": None,
+        "high": None, "low": None, "close": None, "volume": None,
+        "amount": None, "instrument_type": None,
+        "instrument_type_status": "data_insufficient", "source": "test",
+        "retrieved_at": "test",
+    }])
+    census.write("TWSE", unknown, [])
+
+    health = health_from_stores(
+        census, classification, start=first, end=unprocessed)
+    twse = health.census_by_exchange["TWSE"]
+    assert twse["processed_ratio"] == 2 / 3
+    assert twse["unknown_empty_dates"] == 1
+    assert twse["unresolved_dates"] == 2
+    assert twse["expected_trading_sessions"] == 3
+    assert health.primary_census_ratio == 1 / 3
 
 
 def test_data_health_feeds_the_eligibility_resolver() -> None:

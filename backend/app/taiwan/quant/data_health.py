@@ -22,13 +22,15 @@ a dataset is sitting behind.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import date
 from enum import StrEnum
 from typing import Any
 
+import polars as pl
+
 from app.taiwan.historical_classification import HistoricalClassificationStore
-from app.taiwan.observed_universe import ObservedUniverseStore
+from app.taiwan.observed_universe import ObservedUniverseStore, census_coverage
 from app.taiwan.quant.feature_manifest import DatasetCapability
 
 
@@ -72,6 +74,18 @@ class DataHealth:
     classification_ratio: float
     levels: dict[str, bool] = field(default_factory=dict)
     blocked_reasons: dict[str, list[str]] = field(default_factory=dict)
+    #: Primary TWSE and experimental TPEx have independent coverage records.
+    #: The legacy census fields above refer to Primary TWSE only.
+    census_by_exchange: dict[str, dict[str, int | float]] = field(default_factory=dict)
+
+    @property
+    def primary_census_ratio(self) -> float:
+        return self.census_ratio
+
+    @property
+    def secondary_tpex_census_ratio(self) -> float | None:
+        coverage = self.census_by_exchange.get("TPEX")
+        return float(coverage["trading_coverage_ratio"]) if coverage else None
 
     def is_ready(self, level: ReadinessLevel) -> bool:
         return bool(self.levels.get(level.value, False))
@@ -98,6 +112,11 @@ class DataHealth:
             "levels": dict(self.levels),
             "highest_level": self.highest_level().value,
             "blocked_reasons": {k: list(v) for k, v in self.blocked_reasons.items()},
+            "census_by_exchange": {k: dict(v) for k, v in self.census_by_exchange.items()},
+            "primary_twse": dict(self.census_by_exchange.get("TWSE", {})),
+            "secondary_tpex_experimental": dict(self.census_by_exchange.get("TPEX", {})),
+            "primary_census_ratio": self.primary_census_ratio,
+            "secondary_tpex_census_ratio": self.secondary_tpex_census_ratio,
         }
 
 
@@ -183,21 +202,31 @@ def health_from_stores(
     start = start or CENSUS_START
     end = end or datetime.now(TAIPEI).date()
 
-    total = len(list(candidate_sessions(start, end)))
-    done = len(census.completed_dates("TWSE") & census.completed_dates("TPEX"))
+    candidates = set(candidate_sessions(start, end))
+    twse_coverage = census_coverage(census, "TWSE", candidates)
+    tpex_coverage = census_coverage(census, "TPEX", candidates)
 
     observed = first_observed_dates(census, "TWSE")
     classified = classification.read()
     classified_codes = (
-        set(classified["code"].to_list()) if classified.height else set()
+        set(classified.filter(
+            (pl.col("exchange") == "TWSE")
+            & (pl.col("classification_status") == "verified")
+        )["code"].to_list()) if classified.height else set()
     )
-    return evaluate_data_health(
-        census_sessions=done,
-        census_total_sessions=total,
+    # Primary OOS is TWSE Verified OOS.  TPEx historical instrument type is
+    # blocked, so its experimental coverage cannot block or promote Primary.
+    health = evaluate_data_health(
+        census_sessions=twse_coverage.observed_trading_sessions,
+        census_total_sessions=twse_coverage.expected_trading_sessions,
         twse_codes_observed=len(observed),
         twse_codes_classified=len(set(observed) & classified_codes),
         thresholds=thresholds,
     )
+    return replace(health, census_by_exchange={
+        "TWSE": twse_coverage.describe(),
+        "TPEX": tpex_coverage.describe(),
+    })
 
 
 def price_dataset_capability(health: DataHealth) -> DatasetCapability:

@@ -9,7 +9,7 @@
 
 | 階段 | 內容 | 每次請求數 |
 | --- | --- | --- |
-| **A2a** Observed Membership Census | 2015-01-01 → today，每個交易日各抓 TWSE `ALLBUT0999` 與 TPEx `dailyQuotes` 各 1 次，保存**官方當日快照實際出現的證券** | 1 / 交易所 / session |
+| **A2a** Observed Membership Census | 2015-01-01 → today，每個待查候選平日各抓 TWSE `ALLBUT0999` 與 TPEx `dailyQuotes` 各 1 次，保存**官方當日快照實際出現的證券** | 1 / 交易所 / 候選日 |
 | **A2b** TWSE First-Seen Classification | 依 census 算出每個 TWSE code 的 `first_observed_date`，對尚未分類的日期掃 34 個官方產業表 + 1 個 ETF 表 | **35 / 日期** |
 
 兩個階段共用同一個 CLI、同一把鎖、同一份 checkpoint。
@@ -147,7 +147,7 @@ A2b 的總量**不預設**，由 census 實際的 `unique_first_seen_dates` 決�
 exact_request_count_remaining = pending_jobs × 35
 ```
 
-`--status` 隨時會告訴你精確數字。目前 census 只跑了 10 個 session，樣本太小，
+`--status` 隨時會告訴你精確數字。下例只有 10 個已處理候選日，樣本太小，
 任何 A2b 總量推估都不可信 —— 等 census 推進後再看 `--status`。
 
 ---
@@ -159,12 +159,29 @@ exact_request_count_remaining = pending_jobs × 35
   "generated_at": "2026-09-22T19:07:41+08:00",
   "census": {
     "TWSE": {
+      "candidate_dates": 3059,
+      "processed_dates": 10,
+      "observed_trading_sessions": 9,
+      "confirmed_non_trading_dates": 0,
+      "unknown_empty_dates": 1,
+      "unresolved_dates": 3050,
+      "expected_trading_sessions": 3059,
+      "processed_ratio": 0.0032690421706440013,
+      "processed_percent": 0.33,
+      "trading_coverage_ratio": 0.002942137953579601,
+      "earliest_processed": "2015-01-01",
+      "latest_processed": "2015-01-14",
+      "earliest_trading_session": "2015-01-02",
+      "latest_trading_session": "2015-01-14",
+      "parked_dates": [],
       "completed_sessions": 10,
       "total_sessions": 3059,
       "percent": 0.33,
       "earliest_completed": "2015-01-01",
       "latest_completed": "2015-01-14",
-      "parked_dates": []
+      "trading_sessions": 9,
+      "percent_processed": 0.33,
+      "percent_trading_sessions": 0.29
     },
     "TPEX": { "...": "同上" }
   },
@@ -185,7 +202,16 @@ exact_request_count_remaining = pending_jobs × 35
 }
 ```
 
-全部欄位都是 JSON-serialisable，可直接餵給未來的 Dashboard Data Health 面板。
+`processed_ratio` / `processed_percent` 只表示候選平日的 worker 處理進度。
+`trading_coverage_ratio` 是 `observed_trading_sessions / expected_trading_sessions`，
+其中 `expected_trading_sessions = candidate_dates - confirmed_non_trading_dates`；
+未處理與無法確認原因的空分區都留在分母。TWSE 與 TPEx 各自計算，
+Primary OOS 只使用 TWSE 的交易日覆蓋率與已驗證分類，TPEx 僅供 Secondary / Experimental 顯示。
+
+`completed_sessions`、`percent`、`earliest_completed`、`latest_completed` 是過渡期保留的
+**deprecated aliases**，分別對應已處理日期數、已處理百分比、最早與最晚已處理日期。
+`trading_sessions`、`total_sessions`、`percent_processed`、`percent_trading_sessions`
+也保留給既有檢視流程；新的 Quant readiness 不使用這些別名。全部欄位都可序列化為 JSON。
 
 ---
 
@@ -200,8 +226,9 @@ exact_request_count_remaining = pending_jobs × 35
     backfill_worker.lock
 ```
 
-- **partition 檔案存在 = 該 session 已完成**，這就是全部的 resume 機制，沒有第二份 manifest 可以走樣。
-- 休市日／官方回「無資料」→ 寫**空 partition**，屬終結狀態，不會被反覆重抓。
+- **partition 檔案存在 = 該候選日已處理**，這就是全部的 resume 機制，沒有第二份 manifest 可以走樣。
+- 官方回「無資料」→ 寫**空 partition**，屬處理終結狀態，不會被反覆重抓；這本身不證明休市，也不表示任何個別證券已下市。
+- 只有經已驗證日曆確認的非交易日才在同一個 Parquet partition 的 metadata 記錄 `confirmed_non_trading`。舊空分區或只因解析結果為 0 筆的空分區一律維持 `empty_unknown`，並留在交易日覆蓋率分母；沒有額外的 completion manifest。
 - 網路/傳輸失敗 → **不寫檔**，下次自動重試。
 - 寫入使用 `mkstemp` + `os.replace`，**atomic**；中途斷電不會留下半個檔。
 - `DATA_DIR` 已被 `.gitignore` 的 `data/**` 涵蓋，**不會進 Git**。

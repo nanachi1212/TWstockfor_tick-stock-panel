@@ -34,11 +34,11 @@ Layout
 ``<taiwan_data_root>/observed_universe/exchange=<EX>/date=<YYYY-MM-DD>/part.parquet``
 
 The **existence of a partition file is the completion marker** — that is the
-whole resume mechanism.  A session with no official data (holiday, or an
-official "no rows" response) writes an *empty* partition, which is terminal.  A
-transport/HTTP failure writes nothing, so the date is simply retried.  Runs are
-therefore idempotent and interruptible with no separate manifest to get out of
-sync.
+whole resume mechanism.  An official "no rows" response writes an *empty*
+partition, which is terminal for processing but does not prove a holiday.
+Only an independently verified calendar may confirm a non-trading date; that
+evidence is kept in the same atomic Parquet partition.  A transport/HTTP
+failure writes nothing, so the date is simply retried.
 
 Requests
 --------
@@ -55,12 +55,14 @@ import logging
 import os
 import tempfile
 from collections.abc import Iterator
+from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
 import httpx
 import polars as pl
+import pyarrow.parquet as pq
 
 from app.taiwan.providers.http import DEFAULT_USER_AGENT, taiwan_client
 from app.taiwan.providers.taiwan_values import TAIPEI, parse_number
@@ -111,6 +113,9 @@ _CENSUS_SCHEMA: dict[str, Any] = {
 }
 
 _MISSING = {"", "-", "--", "---", "----", "N/A", "null", "None"}
+_MARKET_STATUS_KEY = b"taiwan_census_market_status"
+_CONFIRMATION_SOURCE_KEY = b"taiwan_census_confirmation_source"
+_CONFIRMED_NON_TRADING = b"confirmed_non_trading"
 
 
 def _num(raw: object) -> float | None:
@@ -149,8 +154,19 @@ class ObservedUniverseStore:
         """True once the session is terminal — including an official no-data day."""
         return self.partition_path(exchange, day).exists()
 
-    def write(self, exchange: str, day: date, rows: list[dict[str, Any]]) -> int:
-        """Atomically write one session's observations (possibly zero rows)."""
+    def write(
+        self,
+        exchange: str,
+        day: date,
+        rows: list[dict[str, Any]],
+        *,
+        confirmed_non_trading_source: str | None = None,
+    ) -> int:
+        """Atomically write observations; only explicit evidence marks a closure."""
+        if confirmed_non_trading_source is not None and not confirmed_non_trading_source:
+            raise ValueError("non-trading confirmation requires a source")
+        if rows and confirmed_non_trading_source is not None:
+            raise ValueError("an observed session cannot be confirmed non-trading")
         frame = (
             pl.DataFrame(rows, schema=_CENSUS_SCHEMA)
             if rows else pl.DataFrame(schema=_CENSUS_SCHEMA)
@@ -162,7 +178,16 @@ class ObservedUniverseStore:
         handle, temporary = tempfile.mkstemp(dir=str(path.parent), suffix=".tmp")
         os.close(handle)
         try:
-            frame.write_parquet(temporary)
+            if confirmed_non_trading_source is None:
+                frame.write_parquet(temporary)
+            else:
+                # PyArrow's file metadata travels with the same atomic partition.
+                # Missing metadata on old/unknown empty partitions fails closed.
+                table = frame.to_arrow().replace_schema_metadata({
+                    _MARKET_STATUS_KEY: _CONFIRMED_NON_TRADING,
+                    _CONFIRMATION_SOURCE_KEY: confirmed_non_trading_source.encode("utf-8"),
+                })
+                pq.write_table(table, temporary, compression="zstd")
             os.replace(temporary, path)
         except BaseException:
             Path(temporary).unlink(missing_ok=True)
@@ -188,12 +213,85 @@ class ObservedUniverseStore:
 
     def session_dates(self, exchange: str) -> set[date]:
         """Completed dates that actually contained observations."""
-        result: set[date] = set()
-        for day in self.completed_dates(exchange):
-            frame = pl.read_parquet(self.partition_path(exchange, day))
-            if frame.height:
-                result.add(day)
-        return result
+        return {day for day, status in self.partition_statuses(exchange).items()
+                if status == "observed"}
+
+    def confirmed_non_trading_dates(self, exchange: str) -> set[date]:
+        """Only empty partitions with recorded verification count as closures."""
+        return {day for day, status in self.partition_statuses(exchange).items()
+                if status == "confirmed_non_trading"}
+
+    def partition_statuses(self, exchange: str) -> dict[date, str]:
+        """Read Parquet footers only; legacy empty partitions remain unresolved."""
+        return {day: self.partition_status(exchange, day)
+                for day in self.completed_dates(exchange)}
+
+    def partition_status(self, exchange: str, day: date) -> str:
+        """Return observed, confirmed_non_trading, or empty_unknown."""
+        footer = pq.read_metadata(self.partition_path(exchange, day))
+        metadata = footer.metadata or {}
+        if footer.num_rows:
+            return "observed"
+        if (metadata.get(_MARKET_STATUS_KEY) == _CONFIRMED_NON_TRADING
+                and metadata.get(_CONFIRMATION_SOURCE_KEY)):
+            return "confirmed_non_trading"
+        return "empty_unknown"
+
+
+@dataclass(frozen=True)
+class CensusCoverage:
+    """Processing progress and observed trading coverage for one exchange."""
+
+    candidate_dates: int
+    processed_dates: int
+    observed_trading_sessions: int
+    confirmed_non_trading_dates: int
+    unknown_empty_dates: int
+    unresolved_dates: int
+    expected_trading_sessions: int
+    processed_ratio: float
+    trading_coverage_ratio: float
+
+    def describe(self) -> dict[str, int | float]:
+        return {
+            "candidate_dates": self.candidate_dates,
+            "processed_dates": self.processed_dates,
+            "observed_trading_sessions": self.observed_trading_sessions,
+            "confirmed_non_trading_dates": self.confirmed_non_trading_dates,
+            "unknown_empty_dates": self.unknown_empty_dates,
+            "unresolved_dates": self.unresolved_dates,
+            "expected_trading_sessions": self.expected_trading_sessions,
+            "processed_ratio": self.processed_ratio,
+            "trading_coverage_ratio": self.trading_coverage_ratio,
+        }
+
+
+def census_coverage(
+    store: ObservedUniverseStore,
+    exchange: str,
+    candidates: set[date],
+    *,
+    partition_statuses: dict[date, str] | None = None,
+) -> CensusCoverage:
+    """Keep unprocessed and unverified empty weekdays in the denominator."""
+    all_statuses = partition_statuses if partition_statuses is not None else store.partition_statuses(exchange)
+    statuses = {day: status for day, status in all_statuses.items()
+                if day in candidates}
+    observed = sum(status == "observed" for status in statuses.values())
+    confirmed = sum(status == "confirmed_non_trading" for status in statuses.values())
+    unknown = sum(status == "empty_unknown" for status in statuses.values())
+    expected = len(candidates) - confirmed
+    return CensusCoverage(
+        candidate_dates=len(candidates),
+        processed_dates=len(statuses),
+        observed_trading_sessions=observed,
+        confirmed_non_trading_dates=confirmed,
+        unknown_empty_dates=unknown,
+        unresolved_dates=len(candidates) - observed - confirmed,
+        expected_trading_sessions=expected,
+        processed_ratio=len(statuses) / len(candidates) if candidates else 0.0,
+        trading_coverage_ratio=observed / expected if expected else 0.0,
+    )
 
 
 # ── Parsing (no allowlist, no classification) ──────────────────
@@ -220,8 +318,8 @@ def _base_row(day: date, code: str, exchange: str, name: str | None,
 def parse_twse_census(payload: dict[str, Any], day: date, retrieved_at: str) -> list[dict[str, Any]]:
     """Parse ``MI_INDEX?type=ALLBUT0999`` into observations.
 
-    Returns ``[]`` for an official no-data response (holiday); that is terminal,
-    not a failure.
+    Returns ``[]`` for an official no-data response.  Its cause is not proven
+    by an empty result alone.
     """
     if str(payload.get("stat", "")).strip() != "OK":
         return []

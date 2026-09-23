@@ -36,6 +36,7 @@ from app.taiwan.observed_universe import (
     parse_tpex_census,
     parse_twse_census,
 )
+from app.taiwan.realtime.calendar import TaiwanTradingCalendar
 
 PROBE_DATE = date(2024, 6, 3)
 
@@ -211,11 +212,12 @@ def test_census_schema_never_guesses_instrument_type(tmp_path: Path) -> None:
 
 # ── Storage: resume, idempotency, retry ────────────────────────
 
-def test_holiday_writes_a_terminal_empty_partition(tmp_path: Path) -> None:
+def test_official_no_data_writes_an_unverified_empty_partition(tmp_path: Path) -> None:
     census, store, _client = _census(tmp_path)
-    holiday = date(2024, 6, 4)  # router serves the "no data" payload
-    assert store.write("TWSE", holiday, census.fetch_twse(holiday)) == 0
-    assert store.has("TWSE", holiday)  # terminal: never re-fetched
+    empty_day = date(2024, 6, 4)  # router serves an ambiguous "no data" payload
+    assert store.write("TWSE", empty_day, census.fetch_twse(empty_day)) == 0
+    assert store.has("TWSE", empty_day)  # terminal for processing
+    assert store.partition_status("TWSE", empty_day) == "empty_unknown"
 
 
 def test_census_is_idempotent_and_resumable(tmp_path: Path) -> None:
@@ -453,9 +455,15 @@ def test_status_reports_exact_remaining_request_count(tmp_path: Path) -> None:
     worker.run_census(PROBE_DATE, PROBE_DATE, session_budget=1)
 
     status = worker.status(start=PROBE_DATE, end=PROBE_DATE)
-    assert status["census"]["TWSE"]["completed_sessions"] == 1
+    assert status["census"]["TWSE"]["processed_dates"] == 1
+    assert status["census"]["TWSE"]["observed_trading_sessions"] == 1
     assert status["census"]["TWSE"]["total_sessions"] == 1
+    assert status["census"]["TWSE"]["processed_percent"] == 100.0
+    assert status["census"]["TWSE"]["trading_coverage_ratio"] == 1.0
+    assert status["census"]["TWSE"]["completed_sessions"] == 1
     assert status["census"]["TWSE"]["percent"] == 100.0
+    assert status["census"]["TWSE"]["earliest_completed"] == PROBE_DATE.isoformat()
+    assert status["census"]["TWSE"]["latest_completed"] == PROBE_DATE.isoformat()
     assert status["classification"]["unique_first_seen_dates"] == 1
     assert status["classification"]["pending_jobs"] == 1
     assert status["classification"]["requests_per_job"] == REQUESTS_PER_DATE
@@ -464,15 +472,94 @@ def test_status_reports_exact_remaining_request_count(tmp_path: Path) -> None:
     json.dumps(status)
 
 
+def test_ambiguous_empty_partitions_are_processed_but_unresolved(
+    tmp_path: Path,
+) -> None:
+    """Legacy empty partitions have no evidence of a market closure."""
+    census = ObservedUniverseStore(tmp_path / "observed_universe")
+    first, second = date(2015, 1, 1), date(2015, 1, 2)
+    census.write("TWSE", first, [])
+    census.write("TWSE", second, [])
+
+    assert census.completed_dates("TWSE") == {first, second}
+    assert census.session_dates("TWSE") == set()
+    assert census.confirmed_non_trading_dates("TWSE") == set()
+
+    worker = _worker(tmp_path)
+    status = worker.status(start=first, end=second)
+    assert status["census"]["TWSE"]["processed_dates"] == 2
+    assert status["census"]["TWSE"]["observed_trading_sessions"] == 0
+    assert status["census"]["TWSE"]["confirmed_non_trading_dates"] == 0
+    assert status["census"]["TWSE"]["unresolved_dates"] == 2
+    assert status["census"]["TWSE"]["expected_trading_sessions"] == 2
+    assert status["census"]["TWSE"]["processed_ratio"] == 1.0
+    assert status["census"]["TWSE"]["trading_coverage_ratio"] == 0.0
+
+
+def test_verified_calendar_closures_reach_full_trading_coverage(tmp_path: Path) -> None:
+    """Two synthetic confirmed closures and one observed session are fully covered."""
+    closure_1, closure_2 = date(2024, 6, 4), date(2024, 6, 5)
+    worker = _worker(
+        tmp_path,
+        calendar=TaiwanTradingCalendar(known_holidays={closure_1, closure_2}),
+    )
+    worker.run_census(PROBE_DATE, closure_2, session_budget=1)
+
+    for exchange in ("TWSE", "TPEX"):
+        status = worker.status(start=PROBE_DATE, end=closure_2)["census"][exchange]
+        assert status["candidate_dates"] == 3
+        assert status["processed_dates"] == 3
+        assert status["processed_ratio"] == 1.0
+        assert status["processed_percent"] == 100.0
+        assert status["observed_trading_sessions"] == 1
+        assert status["confirmed_non_trading_dates"] == 2
+        assert status["unresolved_dates"] == 0
+        assert status["expected_trading_sessions"] == 1
+        assert status["trading_coverage_ratio"] == 1.0
+        assert worker.census_store.confirmed_non_trading_dates(exchange) == {
+            closure_1, closure_2}
+
+
+def test_unprocessed_weekday_remains_in_trading_denominator(tmp_path: Path) -> None:
+    worker = _worker(tmp_path)
+    worker.run_census(PROBE_DATE, PROBE_DATE, session_budget=1)
+    status = worker.status(start=PROBE_DATE, end=PROBE_DATE + timedelta(days=1))
+    twse = status["census"]["TWSE"]
+    assert twse["candidate_dates"] == 2
+    assert twse["processed_ratio"] == 0.5
+    assert twse["processed_percent"] == 50.0
+    assert twse["expected_trading_sessions"] == 2
+    assert twse["trading_coverage_ratio"] == 0.5
+
+
+def test_unknown_provider_empty_never_confirms_a_closure(tmp_path: Path) -> None:
+    worker = _worker(tmp_path)
+    unknown_day = date(2024, 6, 4)
+    worker.run_census(unknown_day, unknown_day, session_budget=1)
+    for exchange in ("TWSE", "TPEX"):
+        status = worker.status(start=unknown_day, end=unknown_day)["census"][exchange]
+        assert status["processed_dates"] == 1
+        assert status["unknown_empty_dates"] == 1
+        assert status["confirmed_non_trading_dates"] == 0
+        assert status["unresolved_dates"] == 1
+        assert status["expected_trading_sessions"] == 1
+        assert status["trading_coverage_ratio"] == 0.0
+
+
 # ── Helpers ────────────────────────────────────────────────────
 
-def _worker(tmp_path: Path, router=_census_router) -> TaiwanHistoricalBackfillWorker:
+def _worker(
+    tmp_path: Path,
+    router=_census_router,
+    calendar: TaiwanTradingCalendar | None = None,
+) -> TaiwanHistoricalBackfillWorker:
     store = ObservedUniverseStore(tmp_path / "observed_universe")
     census = ObservedUniverseCensus(store=store, client=_StubClient(router))
     return TaiwanHistoricalBackfillWorker(
         data_dir=tmp_path,
         census_store=store,
         classification_store=HistoricalClassificationStore(tmp_path / "cls"),
+        calendar=calendar,
         census=census,
     )
 

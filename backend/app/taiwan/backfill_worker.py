@@ -40,6 +40,7 @@ from app.taiwan.observed_universe import (
     ObservedUniverseCensus,
     ObservedUniverseStore,
     candidate_sessions,
+    census_coverage,
     first_observed_dates,
 )
 from app.taiwan.providers.taiwan_values import TAIPEI
@@ -269,6 +270,22 @@ class TaiwanHistoricalBackfillWorker:
             fetch = census.fetch_twse if exchange == "TWSE" else census.fetch_tpex
             stats = {"exchange": exchange, "sessions": 0, "empty": 0,
                      "rows": 0, "failed": [], "stopped_early": False}
+            # A verified calendar is independent evidence.  Never promote an
+            # ordinary empty provider response to a confirmed closure.
+            for day in sorted(self.calendar.known_holidays):
+                if not (start <= day <= end) or day.weekday() >= 5:
+                    continue
+                if self.census_store.has(exchange, day):
+                    status = self.census_store.partition_status(exchange, day)
+                    if status == "observed":
+                        logger.warning("%s %s: calendar closure conflicts with observations",
+                                       exchange, day)
+                        continue
+                    if status == "confirmed_non_trading":
+                        continue
+                self.census_store.write(
+                    exchange, day, [], confirmed_non_trading_source="calendar:known_holidays")
+                stats["empty"] += 1
             pending = self._pending_sessions(exchange, start, end)
             if session_budget > UNLIMITED_BUDGET:
                 pending = pending[:session_budget]
@@ -374,21 +391,43 @@ class TaiwanHistoricalBackfillWorker:
     # ── status ─────────────────────────────────────────────────
 
     def status(self, *, start: date = CENSUS_START, end: date | None = None) -> dict[str, Any]:
-        """Machine-readable progress snapshot. Reads only local state."""
+        """Machine-readable progress snapshot. Reads only local state.
+
+        ``completed_sessions``, ``percent``, ``earliest_completed`` and
+        ``latest_completed`` are deprecated processing-progress aliases.
+        Quant readiness uses the exchange-specific trading coverage fields.
+        """
         end = end or datetime.now(TAIPEI).date()
-        candidates = list(candidate_sessions(start, end, self.calendar))
+        candidates = set(candidate_sessions(start, end))
         total = len(candidates)
 
         census: dict[str, Any] = {}
         for exchange in ("TWSE", "TPEX"):
-            done = self.census_store.completed_dates(exchange)
+            statuses = {day: state for day, state in
+                        self.census_store.partition_statuses(exchange).items()
+                        if day in candidates}
+            coverage = census_coverage(
+                self.census_store, exchange, candidates, partition_statuses=statuses)
+            processed = set(statuses)
+            sessions = {day for day, state in statuses.items() if state == "observed"}
+            processed_percent = round(coverage.processed_ratio * 100, 2)
             census[exchange] = {
-                "completed_sessions": len(done),
-                "total_sessions": total,
-                "percent": round(len(done) / total * 100, 2) if total else 0.0,
-                "earliest_completed": min(done).isoformat() if done else None,
-                "latest_completed": max(done).isoformat() if done else None,
+                **coverage.describe(),
+                "processed_percent": processed_percent,
+                "earliest_processed": min(processed).isoformat() if processed else None,
+                "latest_processed": max(processed).isoformat() if processed else None,
+                "earliest_trading_session": min(sessions).isoformat() if sessions else None,
+                "latest_trading_session": max(sessions).isoformat() if sessions else None,
                 "parked_dates": self.state.parked(f"census:{exchange}"),
+                # Deprecated aliases for existing CLI consumers.
+                "completed_sessions": coverage.processed_dates,
+                "percent": processed_percent,
+                "earliest_completed": min(processed).isoformat() if processed else None,
+                "latest_completed": max(processed).isoformat() if processed else None,
+                "trading_sessions": coverage.observed_trading_sessions,
+                "total_sessions": total,
+                "percent_processed": processed_percent,
+                "percent_trading_sessions": round(coverage.trading_coverage_ratio * 100, 2),
             }
 
         first_seen = first_observed_dates(self.census_store, "TWSE")
@@ -398,8 +437,8 @@ class TaiwanHistoricalBackfillWorker:
         pending = [d for d in wanted if d not in completed_jobs and d.isoformat() not in parked]
 
         remaining_sessions = max(
-            total - min(census["TWSE"]["completed_sessions"],
-                        census["TPEX"]["completed_sessions"]),
+            total - min(census["TWSE"]["processed_dates"],
+                        census["TPEX"]["processed_dates"]),
             0,
         )
         return {
