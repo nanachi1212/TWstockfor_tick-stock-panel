@@ -21,7 +21,7 @@ from app.taiwan.quant.live_contract import (
     LiveSignalBatch,
     canonical_hash,
 )
-from app.taiwan.quant.live_store import LiveConflictError, LiveLedger
+from app.taiwan.quant.live_store import LiveConflictError, LiveLedger, LiveRunBusyError
 from app.taiwan.quant.live_universe import current_verified_universe
 from app.taiwan.quant.panel import build_factor_panel
 from app.taiwan.quant.regime import classify_market_regime, market_breadth_above_ma
@@ -267,20 +267,23 @@ def run_current_live(*, source=None, ledger: LiveLedger | None = None,
     ledger = ledger or LiveLedger(evidence=source.evidence)
     model = model or LiveModel()
     try:
-        metadata = ledger.activate(model)
-        session = ledger.current_session()
-        existing = ledger.read_run(model.key, session.isoformat())
-        if existing:
-            if existing["audit_status"] == "conflict":
-                raise LiveConflictError("existing signal identity has an unresolved conflict")
-            result = {"status": "noop", "session": session.isoformat(),
-                      "snapshot_hash": existing["snapshot_hash"]}
-        else:
-            inputs = source.load(session)
-            if inputs.session != session or inputs.cutoff > ledger.clock():
-                raise ValueError("live source session/cutoff mismatch")
-            result = ledger.freeze(build_live_batch(inputs, model))
-        result["model"] = metadata
+        with ledger.construction_lock(model):
+            metadata = ledger.activate(model)
+            session = ledger.current_session()
+            existing = ledger.read_run(model.key, session.isoformat())
+            if existing:
+                if existing["audit_status"] == "conflict":
+                    raise LiveConflictError("existing signal identity has an unresolved conflict")
+                result = {"status": "noop", "session": session.isoformat(),
+                          "snapshot_hash": existing["snapshot_hash"]}
+            else:
+                inputs = source.load(session)
+                if inputs.session != session or inputs.cutoff > ledger.clock():
+                    raise ValueError("live source session/cutoff mismatch")
+                result = ledger.freeze(build_live_batch(inputs, model))
+            result["model"] = metadata
+    except LiveRunBusyError as exc:
+        result = {"status": "skipped", "reason": str(exc)}
     except LiveConflictError as exc:
         result = {"status": "conflict", "reason": str(exc)}
     except ValueError as exc:

@@ -1,10 +1,12 @@
 """Hermetic EOD -> immutable ledger -> matured outcome acceptance."""
 from __future__ import annotations
 
+import multiprocessing
 import sqlite3
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
 from datetime import date, datetime, timedelta
+from threading import Event
 from types import SimpleNamespace
 from unittest.mock import Mock
 
@@ -91,6 +93,69 @@ def test_eod_to_ledger_preserves_missing_and_reuses_snapshot(inputs, environment
     assert run_current_live(source=source, ledger=ledger)["status"] == "noop"
     source.load.assert_not_called()
     assert ledger.runs()[0]["snapshot_hash"] == run["snapshot_hash"]
+
+
+def test_overlapping_runners_collect_one_snapshot_then_retry_is_noop(inputs, environment):
+    ledger, source, _ = environment
+    entered, release = Event(), Event()
+
+    def load_first(day):
+        entered.set()
+        assert release.wait(15)
+        return inputs
+
+    source.load = load_first
+    second = LiveLedger(ledger.root, clock=lambda: NOW + timedelta(seconds=1),
+                        evidence=ledger.evidence)
+    other_source = SimpleNamespace(load=Mock(return_value=replace(
+        inputs, cutoff=NOW + timedelta(seconds=1))), evidence=ledger.evidence)
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        first = pool.submit(run_current_live, source=source, ledger=ledger)
+        try:
+            assert entered.wait(15)
+            assert run_current_live(source=other_source, ledger=second) == {
+                "status": "skipped", "reason": "live_run_in_progress"}
+            other_source.load.assert_not_called()
+        finally:
+            release.set()
+        assert first.result(timeout=15)["status"] == "frozen"
+    assert run_current_live(source=other_source, ledger=second)["status"] == "noop"
+    other_source.load.assert_not_called()
+    assert len(ledger.runs()) == 1
+    assert ledger.runs()[0]["audit_status"] == "ok"
+
+
+def _hold_construction_lock(root, entered, release):
+    with LiveLedger(root).construction_lock(LiveModel()):
+        entered.set()
+        release.wait(30)
+
+
+@pytest.mark.parametrize("crash", [False, True])
+def test_construction_lock_is_cross_process_and_recovers_on_exit(environment, crash):
+    ledger, source, _ = environment
+    context = multiprocessing.get_context("spawn")
+    entered, release = context.Event(), context.Event()
+    owner = context.Process(target=_hold_construction_lock,
+                            args=(ledger.root, entered, release))
+    owner.start()
+    try:
+        assert entered.wait(20)
+        assert run_current_live(source=source, ledger=ledger) == {
+            "status": "skipped", "reason": "live_run_in_progress"}
+        assert ledger.models() == []  # No evidence collection or activation before claim.
+        if crash:
+            owner.terminate()
+        else:
+            release.set()
+        owner.join(timeout=10)
+        assert not owner.is_alive()
+        assert run_current_live(source=source, ledger=ledger)["status"] == "frozen"
+        assert ledger.runs()[0]["audit_status"] == "ok"
+    finally:
+        if owner.is_alive():
+            owner.terminate()
+        owner.join(timeout=10)
 
 
 def test_feature_and_snapshot_hash_ignore_row_column_order(inputs):

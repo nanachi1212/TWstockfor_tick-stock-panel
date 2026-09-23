@@ -75,6 +75,11 @@ SQLite transaction、唯一鍵及禁止 UPDATE/DELETE 的 triggers 防止併發�
 identical retry 為 no-op；不同 snapshot 留存 audit 並 fail-closed。
 已存在 batch 的 operational retry 讀取原始 snapshot，不用最新資料重造。
 
+收集 evidence／snapshot 前以 model key 取得跨程序 OS lock；重疊的排程或手動執行
+回報 `skipped/live_run_in_progress`，不建立第二份 snapshot。owner 完成後重試讀取原始
+batch 並 no-op；owner 異常退出會由 OS 釋放鎖。持續存在的 `.construction-*.lock`
+只是鎖定檔案，不代表執行中，不應刪除。SQLite writer 仍獨立強制內容衝突與 immutable 契約。
+
 Snapshot 保存實際 cutoff、完整 verified/eligible/ranking universe、當時 factor rows、
 缺值 coverage、rank/score、模型與 policy 版本、公司行動、session evidence 與 raw history hash。
 features 本身完整保存，raw history 不複製進 ledger。SHA-256 使用 canonical JSON：

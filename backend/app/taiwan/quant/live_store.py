@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import math
+import os
 import sqlite3
 from collections.abc import Callable
 from contextlib import contextmanager
@@ -33,6 +34,10 @@ class LiveConflictError(ValueError):
     """An immutable identity already has different content; audit was retained."""
 
 
+class LiveRunBusyError(ValueError):
+    """Another process is constructing a snapshot for this live model."""
+
+
 class LiveLedger:
     def __init__(self, root: Path | None = None, *,
                  clock: Callable[[], datetime] = taipei_now,
@@ -44,6 +49,46 @@ class LiveLedger:
         self.root = Path(root)
         self.clock = clock
         self.evidence = evidence
+
+    @contextmanager
+    def construction_lock(self, model: LiveModel):
+        """Claim construction before reading the ledger or collecting evidence.
+
+        The persistent file is only an OS lock anchor, never an ownership flag.
+        Process exit releases the lock; do not unlink it and split its identity.
+        Lock by model and resolve the session only after ownership, so a caller
+        cannot reuse evidence collected before a publication boundary.
+        """
+        self.root.mkdir(parents=True, exist_ok=True)
+        with (self.root / f".construction-{model.key}.lock").open("a+b") as stream:
+            stream.seek(0, os.SEEK_END)
+            if stream.tell() == 0:
+                stream.write(b"0")
+                stream.flush()
+            os.set_inheritable(stream.fileno(), False)
+            if os.name == "nt":
+                import msvcrt
+
+                stream.seek(0)
+                try:
+                    msvcrt.locking(stream.fileno(), msvcrt.LK_NBLCK, 1)
+                except OSError as exc:
+                    raise LiveRunBusyError("live_run_in_progress") from exc
+            else:
+                import fcntl
+
+                try:
+                    fcntl.flock(stream.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+                except OSError as exc:
+                    raise LiveRunBusyError("live_run_in_progress") from exc
+            try:
+                yield
+            finally:
+                if os.name == "nt":
+                    stream.seek(0)
+                    msvcrt.locking(stream.fileno(), msvcrt.LK_UNLCK, 1)
+                else:
+                    fcntl.flock(stream.fileno(), fcntl.LOCK_UN)
 
     @contextmanager
     def _connect(self, outcomes: bool = False):
