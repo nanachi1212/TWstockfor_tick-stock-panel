@@ -114,8 +114,13 @@ uv run pytest tests/test_taiwan_live_ledger.py tests/test_taiwan_live_runner.py 
 不可為清理或版本升級刪除舊 live events。外部資料不足時查詢 models API 的
 latest_operation；不得將 blocked、unavailable 或 0 signal 說成有效模型績效。
 
-本次 2026-09-23 實際資料驗證：最新官方完成 session 為 2026-09-22，current market 與
-公司行動來源可讀；freeze 因 61-session feature 窗口中的 TWSE 2026-07-10
-缺少可確認的 session/closure 證據而 blocked。已記錄首次啟用資格及 blocked operation，
-沒有製造 live signals。這不是 Historical Primary subtype blocker，也不是要求等待
-完整 background worker；所缺的是該日期的真實交易日證據。
+2026-09-23 operational follow-up：TWSE 與 TPEx 的 2026-07-10 legacy empty census
+partitions 已依政府停班公告及 TWSE 非營業日公告補上 verified closure provenance；原始
+0-signal batch 保持不變。隨後用官方 daily snapshot adapter 補齊 2026-09-11、09-14 至
+09-18、09-21 至 09-23，共 21,024 筆，涵蓋 TWSE 與 TPEx。抽查既有兩檔候選股的下個
+session 所需 60 根前置 bars 均完整；新的 EOD freeze 仍只會由下一個正常 session 觸發。
+
+此事件也揭露 daily refresh 原本會把兩交易所皆空的結果計為 skipped，且 adapter 會吞掉
+單一交易所錯誤，讓不完整日期可能被當成已完成。現已改成雙交易所快照完整且非空才寫入；
+空回應、provider error 或 schema mismatch 會成為 failed date、留待下次排程重試。現有
+交易日、readiness、PIT 與 immutable ledger guards 均未變更。

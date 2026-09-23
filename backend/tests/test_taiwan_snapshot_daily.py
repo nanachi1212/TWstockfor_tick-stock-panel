@@ -15,10 +15,10 @@ Validates:
   12. One-day full-market refresh HTTP budget (exactly 1 TWSE + 1 TPEx = 2 requests)
   13. Multi-day catch-up HTTP budget (3 missing dates = 6 requests)
   14. Idempotency (already-persisted date skips network requests)
-  15. Failure isolation (TWSE success + TPEx failure does not mark holiday or crash)
+  15. Incomplete exchange snapshots fail closed and remain retryable
 """
 from datetime import date
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 import polars as pl
 import pytest
@@ -26,10 +26,12 @@ import pytest
 from app.taiwan.daily_refresh import TaiwanDailyRefreshService
 from app.taiwan.daily_store import TaiwanDailyStore
 from app.taiwan.daily_update import TaiwanDailyUpdateService
-from app.taiwan.providers.snapshot_provider import OfficialDailySnapshotAdapter
+from app.taiwan.providers.snapshot_provider import (
+    OfficialDailySnapshotAdapter,
+    OfficialDailySnapshotError,
+)
 from app.taiwan.realtime.calendar import TaiwanTradingCalendar
 from app.taiwan.universe import TaiwanSecurityMaster
-
 
 # ── Sample Fixtures ───────────────────────────────────────────────
 
@@ -270,20 +272,22 @@ def test_refresh_dates_idempotency():
     mock_store.write_batch.assert_not_called()
 
 
-def test_failure_isolation_does_not_crash_or_mark_holiday():
-    """If TPEx fails, TWSE data is still preserved and not marked as holiday."""
+def test_one_exchange_failure_rejects_incomplete_market_snapshot():
+    """Do not persist one exchange when the other failed; dates are completion markers."""
+    adapter = OfficialDailySnapshotAdapter(security_master=mock_security_master())
+    adapter.fetch_twse = MagicMock(return_value=pl.DataFrame({"symbol": ["2330.TWSE"]}))
+    adapter.fetch_tpex = MagicMock(side_effect=RuntimeError("provider unavailable"))
+
+    with pytest.raises(OfficialDailySnapshotError, match="TPEX:RuntimeError:provider unavailable"):
+        adapter.fetch_date(date(2026, 8, 28))
+
+
+def test_empty_full_market_response_is_failed_and_retryable():
+    """A zero-row response is not counted as a completed daily refresh."""
     mock_store = MagicMock(spec=TaiwanDailyStore)
     mock_store.available_dates.return_value = []
-    mock_store.write_batch.return_value = 1318
-
-    # Adapter returns only TWSE rows
     mock_adapter = MagicMock(spec=OfficialDailySnapshotAdapter)
-    mock_adapter.fetch_date.return_value = pl.DataFrame({
-        "symbol": ["2330.TWSE"],
-        "date": [date(2026, 8, 28)],
-        "open": [2440.0], "high": [2445.0], "low": [2410.0], "close": [2420.0],
-        "volume": [15025832.0], "amount": [36465015980.0], "quote_ts": [None],
-    })
+    mock_adapter.fetch_date.return_value = pl.DataFrame()
 
     svc = TaiwanDailyRefreshService(
         store=mock_store,
@@ -291,11 +295,48 @@ def test_failure_isolation_does_not_crash_or_mark_holiday():
         calendar=TaiwanTradingCalendar(),
     )
 
-    stats = svc.refresh_dates(date(2026, 8, 28), date(2026, 8, 28))
-    assert stats["dates_requested"] == 1
-    assert stats["dates_fetched"] == 1
-    assert stats["total_rows_written"] == 1318
-    mock_store.write_batch.assert_called_once()
+    for _ in range(2):
+        stats = svc.refresh_dates(date(2026, 8, 28), date(2026, 8, 28))
+        assert stats["dates_requested"] == 1
+        assert stats["dates_fetched"] == 0
+        assert stats["dates_skipped"] == 0
+        assert stats["failed_dates"] == [{
+            "date": "2026-08-28", "error": "empty_official_daily_snapshot"
+        }]
+    assert mock_adapter.fetch_date.call_count == 2
+    mock_store.write_batch.assert_not_called()
+
+
+def test_daily_update_keeps_empty_official_snapshot_failed():
+    """An empty official daily result must reach the scheduler as a failure."""
+    target = date(2026, 9, 23)
+    mock_daily_store = MagicMock()
+    mock_daily_store.available_dates.return_value = [date(2026, 9, 10)]
+    mock_inst_store = MagicMock()
+    mock_inst_store.available_dates.return_value = [target]
+    mock_margin_store = MagicMock()
+    mock_margin_store.available_dates.return_value = [target]
+    mock_daily = MagicMock()
+    mock_daily.refresh_dates.return_value = {
+        "dates_requested": 9,
+        "dates_fetched": 0,
+        "dates_skipped": 0,
+        "total_rows_written": 0,
+        "failed_dates": [{"date": "2026-09-23", "error": "empty_official_daily_snapshot"}],
+    }
+    svc = TaiwanDailyUpdateService(
+        daily_store=mock_daily_store,
+        inst_store=mock_inst_store,
+        margin_store=mock_margin_store,
+        daily_service=mock_daily,
+    )
+
+    result = svc.run_update(target_date=target, refresh_daily=True)
+
+    assert result.daily.status == "failed"
+    assert result.daily.failed_dates[0]["error"] == "empty_official_daily_snapshot"
+    assert result.freshness.daily_status == "stale"
+    assert result.overall_status == "partial"
 
 
 def test_daily_update_orchestration_with_snapshot():

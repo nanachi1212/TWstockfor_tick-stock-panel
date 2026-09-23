@@ -9,7 +9,6 @@ from __future__ import annotations
 import logging
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import date, timedelta
-from pathlib import Path
 from typing import Any
 
 import polars as pl
@@ -176,7 +175,12 @@ class TaiwanDailyRefreshService:
                     stats["total_rows_written"] += written
                     stats["dates_fetched"] += 1
                 else:
-                    stats["dates_skipped"] += 1
+                    # A market-wide empty response is not a successful skip:
+                    # no date partition was persisted, so the gap must remain
+                    # visible and retryable on the next scheduled run.
+                    stats["failed_dates"].append({
+                        "date": str(cur), "error": "empty_official_daily_snapshot"
+                    })
             except Exception as exc:
                 logger.warning("Daily snapshot refresh failed for %s: %s", cur, exc)
                 stats["failed_dates"].append({"date": str(cur), "error": str(exc)})
