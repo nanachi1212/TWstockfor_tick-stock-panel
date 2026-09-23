@@ -96,16 +96,27 @@ class LiveLedger:
         session = latest_completed_session(before, self.evidence)
         after = self.clock()
 
-        def boundary(stamp):
-            local = stamp.astimezone(TAIPEI_TZ)
-            return local.date() - timedelta(days=int(local.hour < 16))
-
-        if boundary(before) != boundary(after):
+        if self._boundary(before) != self._boundary(after):
             raise ValueError("publication_boundary_changed_retry")
         return session
 
+    @staticmethod
+    def _boundary(stamp):
+        local = stamp.astimezone(TAIPEI_TZ)
+        return local.date() - timedelta(days=int(local.hour < 16))
+
     def activate(self, model: LiveModel) -> dict[str, Any]:
         definition = canonical_json(model.describe())
+        # Resolve remote evidence before taking a write lock. Recheck identity
+        # after acquiring the transaction so concurrent activations stay atomic.
+        with self._connect() as db:
+            existing = db.execute("SELECT * FROM models WHERE model_key=?", (model.key,)).fetchone()
+            if existing:
+                if existing["definition"] != definition:
+                    raise LiveConflictError("model definition changed without new version")
+                return self._model(existing)
+        boundary = self._boundary(self.clock())
+        session = self.current_session()
         with self._connect() as db:
             db.execute("BEGIN IMMEDIATE")
             existing = db.execute("SELECT * FROM models WHERE model_key=?", (model.key,)).fetchone()
@@ -113,7 +124,8 @@ class LiveLedger:
                 if existing["definition"] != definition:
                     raise LiveConflictError("model definition changed without new version")
                 return self._model(existing)
-            session = self.current_session()
+            if self._boundary(self.clock()) != boundary:
+                raise ValueError("publication_boundary_changed_retry")
             db.execute("INSERT INTO models VALUES (?,?,?,?)",
                        (model.key, definition, session.isoformat(), self.clock().isoformat()))
             return self._model(db.execute("SELECT * FROM models WHERE model_key=?", (model.key,)).fetchone())
@@ -154,6 +166,7 @@ class LiveLedger:
                for row in snapshot["eligible_universe"]):
             raise ValueError("historical universe rejected by live writer")
         # No origin flag, OOS row importer, or caller-supplied activation date.
+        boundary = self._boundary(self.clock())
         if batch.session != self.current_session():
             raise ValueError("live freeze only accepts latest completed session")
         payload = canonical_json(snapshot)
@@ -161,6 +174,8 @@ class LiveLedger:
         conflict = False
         with self._connect() as db:
             db.execute("BEGIN IMMEDIATE")
+            if self._boundary(self.clock()) != boundary:
+                raise ValueError("publication_boundary_changed_retry")
             model = db.execute("SELECT * FROM models WHERE model_key=?", (batch.model.key,)).fetchone()
             if model is None:
                 raise ValueError("activate live model before freeze")

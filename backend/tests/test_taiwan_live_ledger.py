@@ -1,4 +1,5 @@
 """Live events are not a backtest import surface."""
+import sqlite3
 from datetime import date, datetime, timedelta
 
 import pytest
@@ -59,3 +60,14 @@ def test_new_version_cannot_retroactively_start(ledger):
     store.activate(model)
     with pytest.raises(ValueError, match=r"latest|first"):
         store.freeze(batch(model, date(2026, 9, 21)))
+
+
+def test_session_network_evidence_runs_outside_sqlite_write_lock(ledger):
+    store, _ = ledger
+    calendar_reader = store.evidence
+    def evidence(day, exchange):
+        with sqlite3.connect(store.root / "signals.sqlite3", timeout=0.1) as db:
+            db.execute("BEGIN IMMEDIATE")
+        return calendar_reader(day, exchange)
+    store.evidence = evidence
+    assert store.activate(LiveModel())["first_live_session"] == "2026-09-21"
