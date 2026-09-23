@@ -225,7 +225,13 @@ class TwseHistoricalClassifier:
 
     def run(self, queue: list[date], *, request_budget: int,
             should_stop: Callable[[], bool] | None = None) -> dict[str, Any]:
-        """Work the queue until the request budget or a stop signal is hit."""
+        """Work the queue until the request budget or a stop signal is hit.
+
+        ``request_budget <= 0`` means unlimited (LongRun): drain the queue.
+        The rate limiter still paces every request; unlimited only removes the
+        per-run cap, never the throttle.
+        """
+        unlimited = request_budget <= 0
         stats: dict[str, Any] = {
             "requests_used": 0, "dates_done": 0, "rows": 0,
             "failed_dates": [], "stopped_early": False,
@@ -234,7 +240,7 @@ class TwseHistoricalClassifier:
             if should_stop is not None and should_stop():
                 stats["stopped_early"] = True
                 break
-            if stats["requests_used"] + REQUESTS_PER_DATE > request_budget:
+            if not unlimited and stats["requests_used"] + REQUESTS_PER_DATE > request_budget:
                 stats["stopped_early"] = True
                 break
             try:

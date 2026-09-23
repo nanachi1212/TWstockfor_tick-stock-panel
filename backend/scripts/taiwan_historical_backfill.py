@@ -33,6 +33,7 @@ from app.taiwan.backfill_worker import (
     CENSUS_START,
     DEFAULT_CLASSIFICATION_BUDGET,
     DEFAULT_SESSION_BUDGET,
+    UNLIMITED_BUDGET,
     TaiwanHistoricalBackfillWorker,
     WorkerBusyError,
 )
@@ -52,11 +53,21 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
                         help="census end date (default: today in Taipei)")
     parser.add_argument("--daily-session-budget", type=int, default=DEFAULT_SESSION_BUDGET,
                         help="max census sessions per exchange per run "
-                             f"(default {DEFAULT_SESSION_BUDGET}; 2 requests per session)")
+                             f"(default {DEFAULT_SESSION_BUDGET}; 2 requests per session). "
+                             "0 means UNLIMITED — run until done or interrupted.")
     parser.add_argument("--classification-request-budget", type=int,
                         default=DEFAULT_CLASSIFICATION_BUDGET,
                         help="max A2b classification requests per run "
-                             f"(default {DEFAULT_CLASSIFICATION_BUDGET})")
+                             f"(default {DEFAULT_CLASSIFICATION_BUDGET}). "
+                             "0 means UNLIMITED.")
+    parser.add_argument("--long-run", action="store_true",
+                        help="LongRun: unlimited budgets for both phases. Rate limiting, "
+                             "retry, locking, atomic writes and checkpointing are unchanged; "
+                             "Ctrl+C stops cleanly and the next run resumes.")
+    parser.add_argument("--skip-census", action="store_true",
+                        help="skip the A2a census phase (a budget of 0 now means unlimited)")
+    parser.add_argument("--skip-classification", action="store_true",
+                        help="skip the A2b classification phase")
     parser.add_argument("--force-unlock", action="store_true",
                         help="drop an existing lock before starting (use only when "
                              "certain no other worker is running)")
@@ -79,13 +90,23 @@ def main(argv: list[str] | None = None) -> int:
                          ensure_ascii=False, indent=2))
         return 0
 
+    session_budget = UNLIMITED_BUDGET if args.long_run else args.daily_session_budget
+    classification_budget = (
+        UNLIMITED_BUDGET if args.long_run else args.classification_request_budget)
+    if args.long_run:
+        logging.getLogger(__name__).info(
+            "LongRun: unlimited budgets; rate limiting and checkpointing unchanged. "
+            "Ctrl+C once to stop cleanly.")
+
     try:
         result = worker.run_once(
             start=args.start,
             end=args.end,
-            session_budget=args.daily_session_budget,
-            classification_budget=args.classification_request_budget,
+            session_budget=session_budget,
+            classification_budget=classification_budget,
             force_unlock=args.force_unlock,
+            skip_census=args.skip_census,
+            skip_classification=args.skip_classification,
         )
     except WorkerBusyError as exc:
         # Not an error: yesterday's run is still going.

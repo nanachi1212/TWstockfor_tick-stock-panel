@@ -21,6 +21,12 @@
     A2b classification requests per run. Each first-seen date costs 35 requests.
     Default 1200 (about 34 dates per run).
 
+.PARAMETER LongRun
+    Unlimited budgets: keep working until the backfill is done or you press
+    Ctrl+C. Rate limiting, bounded retry, the single-instance lock, atomic
+    writes and checkpointing are all unchanged, and the next run resumes from
+    the checkpoint. Provider rpm is never raised.
+
 .PARAMETER Status
     Print the machine-readable status snapshot and exit without doing work.
 
@@ -38,6 +44,7 @@ param(
     [int]$SessionBudget = 300,
     [int]$ClassificationRequestBudget = 1200,
     [switch]$Status,
+    [switch]$LongRun,
     [switch]$ForceUnlock
 )
 
@@ -67,6 +74,9 @@ $arguments = @('run', '--frozen', 'python', '-m', 'scripts.taiwan_historical_bac
 
 if ($Status) {
     $arguments += '--status'
+} elseif ($LongRun) {
+    $arguments += '--long-run'
+    if ($ForceUnlock) { $arguments += '--force-unlock' }
 } else {
     $arguments += @(
         '--daily-session-budget', $SessionBudget,

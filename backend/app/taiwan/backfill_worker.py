@@ -52,6 +52,15 @@ CENSUS_START = date(2015, 1, 1)
 DEFAULT_SESSION_BUDGET = 300
 DEFAULT_CLASSIFICATION_BUDGET = 1200
 
+#: A budget of 0 means *unlimited* (LongRun): keep going until the work is done
+#: or the operator interrupts.  Every other guarantee is unchanged — the rate
+#: limiter, bounded retry, single-instance lock, atomic writes and checkpoint
+#: all apply exactly as in a budgeted run.  Unlimited never raises provider rpm.
+UNLIMITED_BUDGET = 0
+
+#: In a LongRun the checkpoint must not wait for the end of the run.
+_STATE_FLUSH_EVERY = 50
+
 #: A date that keeps failing is parked rather than retried forever.
 MAX_ATTEMPTS = 5
 
@@ -260,7 +269,10 @@ class TaiwanHistoricalBackfillWorker:
             fetch = census.fetch_twse if exchange == "TWSE" else census.fetch_tpex
             stats = {"exchange": exchange, "sessions": 0, "empty": 0,
                      "rows": 0, "failed": [], "stopped_early": False}
-            for day in self._pending_sessions(exchange, start, end)[:session_budget]:
+            pending = self._pending_sessions(exchange, start, end)
+            if session_budget > UNLIMITED_BUDGET:
+                pending = pending[:session_budget]
+            for index, day in enumerate(pending, start=1):
                 if should_stop is not None and should_stop():
                     stats["stopped_early"] = True
                     break
@@ -279,6 +291,9 @@ class TaiwanHistoricalBackfillWorker:
                     stats["sessions"] += 1
                 else:
                     stats["empty"] += 1
+                if index % _STATE_FLUSH_EVERY == 0:
+                    with self._state_lock:
+                        self.state.save()
             return stats
 
         try:
@@ -298,7 +313,8 @@ class TaiwanHistoricalBackfillWorker:
                            should_stop: Any = None) -> dict[str, Any]:
         queue = classification_queue(self.census_store, self.classification_store)
         queue = [d for d in queue if not self.state.exhausted("classify:TWSE", d)]
-        if not queue or request_budget < REQUESTS_PER_DATE:
+        unlimited = request_budget <= UNLIMITED_BUDGET
+        if not queue or (not unlimited and request_budget < REQUESTS_PER_DATE):
             return {"queue_depth": len(queue), "requests_used": 0, "dates_done": 0,
                     "rows": 0, "failed_dates": [], "stopped_early": False}
         classifier = self._classifier or TwseHistoricalClassifier(
@@ -326,16 +342,23 @@ class TaiwanHistoricalBackfillWorker:
         session_budget: int = DEFAULT_SESSION_BUDGET,
         classification_budget: int = DEFAULT_CLASSIFICATION_BUDGET,
         force_unlock: bool = False,
+        skip_census: bool = False,
+        skip_classification: bool = False,
     ) -> dict[str, Any]:
         end = end or datetime.now(TAIPEI).date()
         self.lock.acquire(force=force_unlock)
         try:
             with StopSignal() as should_stop:
                 started = time.monotonic()
-                census = self.run_census(start, end, session_budget=session_budget,
-                                         should_stop=should_stop)
-                classification = self.run_classification(
-                    request_budget=classification_budget, should_stop=should_stop)
+                census = {} if skip_census else self.run_census(
+                    start, end, session_budget=session_budget, should_stop=should_stop)
+                classification = (
+                    {"queue_depth": 0, "requests_used": 0, "dates_done": 0, "rows": 0,
+                     "failed_dates": [], "stopped_early": False}
+                    if skip_classification
+                    else self.run_classification(
+                        request_budget=classification_budget, should_stop=should_stop)
+                )
                 self.state.data["last_run_at"] = datetime.now(TAIPEI).isoformat()
                 self.state.data["runs"] = int(self.state.data.get("runs", 0)) + 1
                 self.state.save()

@@ -43,6 +43,35 @@ uv run --frozen python -m scripts.taiwan_historical_backfill \
 uv run --frozen python -m scripts.taiwan_historical_backfill --force-unlock
 ```
 
+### LongRun（unlimited）
+
+有空時可以讓 worker 連續跑幾小時、甚至一次跑完：
+
+```bash
+uv run --frozen python -m scripts.taiwan_historical_backfill --long-run
+```
+
+```powershell
+.\scripts\run_taiwan_historical_backfill.ps1 -LongRun
+```
+
+`--long-run` 等同把兩個 budget 都設為 **0 = unlimited**。
+**其餘保證完全不變**：
+
+- rate limit 照舊（`taiwan:twse` / `taiwan:tpex` 各 16 rpm，**unlimited 不會提高 rpm**）
+- bounded retry、parking 照舊
+- single-instance lock 照舊
+- atomic partition write 照舊
+- **checkpoint 每 50 個 session flush 一次**，不必等整個 run 結束
+- **Ctrl+C 一次 → 做完手上那個 session 後乾淨退出**；下次執行從 checkpoint 續跑
+
+因為 `0` 現在代表 unlimited，要「只跑其中一個階段」改用：
+
+```bash
+--skip-census            # 只跑 A2b 分類
+--skip-classification    # 只跑 A2a census
+```
+
 PowerShell launcher（會自動寫 log 到 `data/logs/`）：
 
 ```powershell

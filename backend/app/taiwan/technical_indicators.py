@@ -71,9 +71,123 @@ _EMPTY_SCHEMA = {
     **{c: pl.Float64 for c in _OUTPUT_COLS if c != "symbol"},
 }
 
+_PANEL_SCHEMA = {
+    "symbol": pl.Utf8,
+    "date": pl.Date,
+    **{c: pl.Float64 for c in (
+        "ma5", "ma10", "ma20", "ma60", "vol_ma5", "vol_ma10",
+        "rsi_14", "macd_dif", "macd_dea", "macd_hist",
+        "momentum_5d", "momentum_20d",
+    )},
+    "price_semantics": pl.Utf8,
+}
+
 
 def _ema_alpha(span: int) -> float:
     return 2.0 / (span + 1.0)
+
+
+PRICE_SEMANTICS = ("raw", "adjusted")
+
+PANEL_INDICATOR_COLS = (
+    "ma5", "ma10", "ma20", "ma60", "vol_ma5", "vol_ma10",
+    "rsi_14", "macd_dif", "macd_dea", "macd_hist", "momentum_5d", "momentum_20d",
+)
+
+
+def compute_taiwan_indicator_panel(
+    history: pl.DataFrame,
+    *,
+    price_col: str = "close",
+    volume_col: str = "volume",
+    price_semantics: str = "raw",
+) -> pl.DataFrame:
+    """Full indicator time series — one row per (symbol, date).
+
+    ``compute_taiwan_daily_indicators`` is a thin latest-row wrapper over this.
+    Every formula lives here exactly once; there is no second MA / RSI / MACD /
+    momentum implementation anywhere in the Taiwan path.
+
+    price_col / volume_col
+        Which column to compute from. The caller decides whether it is passing
+        raw or adjusted prices — this module never adjusts anything and never
+        looks at a corporate action.
+
+    price_semantics
+        ``"raw"`` or ``"adjusted"``, echoed back as a column so a downstream
+        consumer cannot silently mix the two. ``adjust.py`` does not exist yet,
+        so an ``"adjusted"`` panel is only as point-in-time as the prices the
+        caller supplied — this module cannot and does not verify that.
+
+    Warm-up is evaluated **per row**, from the bars available up to and
+    including that row, never from the symbol's total history length. An
+    indicator that has not warmed up is ``null`` — never 0, NaN or Infinity.
+    """
+    if price_semantics not in PRICE_SEMANTICS:
+        raise ValueError(
+            f"price_semantics must be one of {PRICE_SEMANTICS}, got {price_semantics!r}"
+        )
+    if history.is_empty():
+        return pl.DataFrame(schema=_PANEL_SCHEMA)
+    for required in ("symbol", "date", price_col, volume_col):
+        if required not in history.columns:
+            raise ValueError(f"indicator panel input is missing column {required!r}")
+
+    df = history.sort(["symbol", "date"])
+    # Bars available *at this row*, so early rows stay null instead of
+    # inheriting the symbol's final history length.
+    df = df.with_columns(pl.col(price_col).cum_count().over("symbol").alias("_bar_count"))
+
+    price = pl.col(price_col)
+    df = df.with_columns([
+        price.rolling_mean(5, min_samples=5).over("symbol").alias("ma5"),
+        price.rolling_mean(10, min_samples=10).over("symbol").alias("ma10"),
+        price.rolling_mean(20, min_samples=20).over("symbol").alias("ma20"),
+        price.rolling_mean(60, min_samples=60).over("symbol").alias("ma60"),
+        pl.col(volume_col).rolling_mean(5, min_samples=5).over("symbol").alias("vol_ma5"),
+        pl.col(volume_col).rolling_mean(10, min_samples=10).over("symbol").alias("vol_ma10"),
+        (price / price.shift(5).over("symbol") - 1.0).alias("momentum_5d"),
+        (price / price.shift(20).over("symbol") - 1.0).alias("momentum_20d"),
+    ])
+
+    # RSI 14 (Wilder smoothing) — the single Taiwan RSI definition.
+    df = df.with_columns(
+        pl.when(pl.col("_bar_count") >= MIN_BARS_RSI_14)
+        .then(wilder_rsi_expr(close=price_col))
+        .otherwise(None)
+        .alias("rsi_14")
+    )
+
+    # MACD(12, 26, 9) — 与 pipeline.py / backtest/matrix.py 一致的参数。
+    ema12 = price.ewm_mean(alpha=_ema_alpha(12), adjust=False).over("symbol")
+    ema26 = price.ewm_mean(alpha=_ema_alpha(26), adjust=False).over("symbol")
+    df = df.with_columns((ema12 - ema26).alias("_macd_dif_raw"))
+    dea_raw = pl.col("_macd_dif_raw").ewm_mean(alpha=_ema_alpha(9), adjust=False).over("symbol")
+    df = df.with_columns(dea_raw.alias("_macd_dea_raw"))
+    warm = pl.col("_bar_count") >= MIN_BARS_MACD
+    df = df.with_columns([
+        pl.when(warm).then(pl.col("_macd_dif_raw")).otherwise(None).alias("macd_dif"),
+        pl.when(warm).then(pl.col("_macd_dea_raw")).otherwise(None).alias("macd_dea"),
+        pl.when(warm)
+        .then((pl.col("_macd_dif_raw") - pl.col("_macd_dea_raw")) * 2.0)
+        .otherwise(None).alias("macd_hist"),
+    ])
+
+    panel = df.with_columns(
+        pl.lit(price_semantics).alias("price_semantics")
+    ).select(["symbol", "date", *PANEL_INDICATOR_COLS, "price_semantics"])
+    return _sanitize(panel, PANEL_INDICATOR_COLS)
+
+
+def _sanitize(frame: pl.DataFrame, cols: tuple[str, ...]) -> pl.DataFrame:
+    """NaN/Inf -> null. An API response must never carry JSON-invalid floats."""
+    return frame.with_columns([
+        pl.when(pl.col(c).is_nan() | pl.col(c).is_infinite())
+        .then(None)
+        .otherwise(pl.col(c))
+        .alias(c)
+        for c in cols
+    ])
 
 
 def compute_taiwan_daily_indicators(history: pl.DataFrame) -> pl.DataFrame:
@@ -87,63 +201,15 @@ def compute_taiwan_daily_indicators(history: pl.DataFrame) -> pl.DataFrame:
     ma5/ma10/ma20/ma60/vol_ma5/vol_ma10/rsi_14/macd_dif/macd_dea/macd_hist/
     momentum_5d/momentum_20d。某 symbol 历史不足以支撑某项指标时, 该欄位为
     None —— 不是 0, 不是 NaN, 不是提前暖机的假数字。
+
+    Thin wrapper over :func:`compute_taiwan_indicator_panel` — the latest row of
+    the panel. Output columns and semantics are unchanged.
     """
-    if history.is_empty():
+    panel = compute_taiwan_indicator_panel(history)
+    if panel.is_empty():
         return pl.DataFrame(schema=_EMPTY_SCHEMA)
-
-    df = history.sort(["symbol", "date"])
-    df = df.with_columns(pl.len().over("symbol").alias("_bar_count"))
-
-    df = df.with_columns([
-        pl.col("close").rolling_mean(5, min_samples=5).over("symbol").alias("ma5"),
-        pl.col("close").rolling_mean(10, min_samples=10).over("symbol").alias("ma10"),
-        pl.col("close").rolling_mean(20, min_samples=20).over("symbol").alias("ma20"),
-        pl.col("close").rolling_mean(60, min_samples=60).over("symbol").alias("ma60"),
-        pl.col("volume").rolling_mean(5, min_samples=5).over("symbol").alias("vol_ma5"),
-        pl.col("volume").rolling_mean(10, min_samples=10).over("symbol").alias("vol_ma10"),
-        (pl.col("close") / pl.col("close").shift(5).over("symbol") - 1.0).alias("momentum_5d"),
-        (pl.col("close") / pl.col("close").shift(20).over("symbol") - 1.0).alias("momentum_20d"),
-    ])
-
-    # RSI 14 (Wilder smoothing) — 与 pipeline.py 的 rsi_14 公式一致。
-    rsi_raw = wilder_rsi_expr()
-    df = df.with_columns(
-        pl.when(pl.col("_bar_count") >= MIN_BARS_RSI_14)
-        .then(rsi_raw)
-        .otherwise(None)
-        .alias("rsi_14")
-    )
-
-    # MACD(12, 26, 9) — 与 pipeline.py / backtest/matrix.py 一致的参数。
-    ema12 = pl.col("close").ewm_mean(alpha=_ema_alpha(12), adjust=False).over("symbol")
-    ema26 = pl.col("close").ewm_mean(alpha=_ema_alpha(26), adjust=False).over("symbol")
-    df = df.with_columns((ema12 - ema26).alias("_macd_dif_raw"))
-    dea_raw = pl.col("_macd_dif_raw").ewm_mean(alpha=_ema_alpha(9), adjust=False).over("symbol")
-    df = df.with_columns(dea_raw.alias("_macd_dea_raw"))
-    df = df.with_columns([
-        pl.when(pl.col("_bar_count") >= MIN_BARS_MACD)
-        .then(pl.col("_macd_dif_raw")).otherwise(None).alias("macd_dif"),
-        pl.when(pl.col("_bar_count") >= MIN_BARS_MACD)
-        .then(pl.col("_macd_dea_raw")).otherwise(None).alias("macd_dea"),
-        pl.when(pl.col("_bar_count") >= MIN_BARS_MACD)
-        .then((pl.col("_macd_dif_raw") - pl.col("_macd_dea_raw")) * 2.0)
-        .otherwise(None).alias("macd_hist"),
-    ])
-
-    latest = (
-        df.with_columns(pl.col("date").max().over("symbol").alias("_max_date"))
+    return (
+        panel.with_columns(pl.col("date").max().over("symbol").alias("_max_date"))
         .filter(pl.col("date") == pl.col("_max_date"))
         .select(list(_OUTPUT_COLS))
     )
-
-    # sanitize NaN/Inf -> null (防御性; 上面的除法已用 1e-12 挡掉除 0, 理论上
-    # 不该再产生 NaN/Inf, 但 API 响应绝不能带 JSON 不合法的 NaN/Infinity)。
-    float_cols = [c for c in latest.columns if c != "symbol"]
-    latest = latest.with_columns([
-        pl.when(pl.col(c).is_nan() | pl.col(c).is_infinite())
-        .then(None)
-        .otherwise(pl.col(c))
-        .alias(c)
-        for c in float_cols
-    ])
-    return latest

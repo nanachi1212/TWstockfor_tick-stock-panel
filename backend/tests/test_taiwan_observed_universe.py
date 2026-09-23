@@ -489,3 +489,70 @@ def test_parse_helpers_tolerate_official_blank_cells() -> None:
     rows = parse_tpex_census(tpex, PROBE_DATE, "now")
     assert rows[0]["close"] is None
     assert rows[0]["raw_source_category"] == "上櫃股票行情"
+
+
+# ── LongRun (unlimited budget) ─────────────────────────────────
+
+def test_unlimited_session_budget_drains_all_pending(tmp_path: Path) -> None:
+    """budget 0 means unlimited, not 'do nothing'."""
+    from app.taiwan.backfill_worker import UNLIMITED_BUDGET
+
+    worker = _worker(tmp_path)
+    end = PROBE_DATE + timedelta(days=10)
+    result = worker.run_census(PROBE_DATE, end, session_budget=UNLIMITED_BUDGET)
+
+    candidates = [d for d in (PROBE_DATE + timedelta(days=i) for i in range(11))
+                  if d.weekday() < 5]
+    assert worker.census_store.completed_dates("TWSE") == set(candidates)
+    assert result["TWSE"]["stopped_early"] is False
+
+
+def test_unlimited_classification_budget_drains_the_queue(tmp_path: Path) -> None:
+    store = HistoricalClassificationStore(tmp_path / "cls")
+    classifier = TwseHistoricalClassifier(store=store, client=_StubClient(_classification_router))
+    queue = [PROBE_DATE + timedelta(days=i) for i in range(4)]
+
+    stats = classifier.run(queue, request_budget=0)
+    assert stats["dates_done"] == 4
+    assert stats["stopped_early"] is False
+    assert stats["requests_used"] == REQUESTS_PER_DATE * 4
+
+
+def test_long_run_still_stops_cleanly_on_interrupt(tmp_path: Path) -> None:
+    """Unlimited must not mean uninterruptible."""
+    from app.taiwan.backfill_worker import UNLIMITED_BUDGET, StopSignal
+
+    worker = _worker(tmp_path)
+    stop = StopSignal()
+    stop.set()
+    result = worker.run_census(PROBE_DATE, PROBE_DATE + timedelta(days=10),
+                               session_budget=UNLIMITED_BUDGET, should_stop=stop)
+    assert result["TWSE"]["stopped_early"] is True
+    assert worker.census_store.completed_dates("TWSE") == set()
+
+
+def test_long_run_resumes_from_checkpoint(tmp_path: Path) -> None:
+    from app.taiwan.backfill_worker import UNLIMITED_BUDGET
+
+    worker = _worker(tmp_path)
+    end = PROBE_DATE + timedelta(days=10)
+    worker.run_census(PROBE_DATE, end, session_budget=3)
+    done_first = len(worker.census_store.completed_dates("TWSE"))
+    assert done_first == 3
+
+    second = worker.run_census(PROBE_DATE, end, session_budget=UNLIMITED_BUDGET)
+    assert second["TWSE"]["sessions"] + second["TWSE"]["empty"] > 0
+    assert len(worker.census_store.completed_dates("TWSE")) > done_first
+
+
+def test_skip_flags_bypass_each_phase(tmp_path: Path) -> None:
+    worker = _worker(tmp_path)
+    result = worker.run_once(start=PROBE_DATE, end=PROBE_DATE,
+                             session_budget=5, skip_classification=True)
+    assert result["classification"]["dates_done"] == 0
+    assert worker.census_store.has("TWSE", PROBE_DATE)
+
+    other = _worker(tmp_path / "other")
+    skipped = other.run_once(start=PROBE_DATE, end=PROBE_DATE,
+                             session_budget=5, skip_census=True)
+    assert skipped["census"] == {}
