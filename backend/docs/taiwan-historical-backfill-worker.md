@@ -51,6 +51,12 @@ uv run --frozen python -m scripts.taiwan_historical_backfill \
 uv run --frozen python -m scripts.taiwan_historical_backfill --force-unlock
 ```
 
+鎖的 26 小時期限只適用於已確認死亡的 owner；活躍 PID（包含舊格式鎖）不會因
+長跑超時被回收，`--force-unlock` 也不允許取代已確認活躍的 owner。
+新鎖另記錄 process creation time 與 owner token，避免 PID 重用及舊 owner 誤刪新鎖。
+`.guard` 是持續存在的 OS 鎖檔，用來序列化短暫的 acquire/reclaim/release 操作；
+不代表 worker 仍在執行，不應手動刪除。分類成功重試會清除該日期的舊失敗計數。
+
 ### LongRun（unlimited）
 
 有空時可以讓 worker 連續跑幾小時、甚至一次跑完：

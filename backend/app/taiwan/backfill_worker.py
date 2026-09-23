@@ -6,7 +6,7 @@ detects the lock and leaves).
 
 Pieces
 ------
-``WorkerLock``     single-instance filesystem lock with staleness expiry.
+``WorkerLock``     single-instance lock with verified dead-owner reclamation.
 ``WorkerState``    crash-safe JSON checkpoint: attempt counts, provider
                    failures/retries, ``last_success_at``.
 ``run_once``       one scheduled run: census within the session budget, then
@@ -29,6 +29,9 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Any
+from uuid import uuid4
+
+import psutil
 
 from app.taiwan.historical_classification import (
     REQUESTS_PER_DATE,
@@ -66,7 +69,7 @@ _STATE_FLUSH_EVERY = 50
 #: A date that keeps failing is parked rather than retried forever.
 MAX_ATTEMPTS = 5
 
-#: A lock older than this is assumed to belong to a crashed run.
+#: Old locks are reclaimable only when the recorded process is confirmed dead.
 LOCK_MAX_AGE = timedelta(hours=26)
 
 
@@ -75,12 +78,57 @@ class WorkerBusyError(RuntimeError):
 
 
 class WorkerLock:
-    """Single-instance lock. ``O_EXCL`` create, with staleness expiry."""
+    """O_EXCL owner file; process identity, not age, proves owner death."""
 
     def __init__(self, path: Path, max_age: timedelta = LOCK_MAX_AGE) -> None:
         self.path = Path(path)
         self.max_age = max_age
         self._held = False
+        self._token = uuid4().hex
+
+    @contextlib.contextmanager
+    def _mutation_guard(self, *, wait: bool = False):
+        # A persistent, OS-locked sidecar serializes reclaim/create/release.
+        # Do not unlink the sidecar: that would create separate locking inodes.
+        with self.path.with_suffix(self.path.suffix + ".guard").open("a+b") as guard:
+            guard.seek(0, os.SEEK_END)
+            if guard.tell() == 0:
+                guard.write(b"0")
+                guard.flush()
+            guard.seek(0)
+            try:
+                if os.name == "nt":
+                    import msvcrt
+                    msvcrt.locking(guard.fileno(), msvcrt.LK_LOCK if wait else msvcrt.LK_NBLCK, 1)
+                else:
+                    import fcntl
+                    fcntl.flock(guard.fileno(), fcntl.LOCK_EX | (0 if wait else fcntl.LOCK_NB))
+            except OSError as exc:
+                raise WorkerBusyError("worker lock transition in progress") from exc
+            try:
+                yield
+            finally:
+                guard.seek(0)
+                if os.name == "nt":
+                    msvcrt.locking(guard.fileno(), msvcrt.LK_UNLCK, 1)
+                else:
+                    fcntl.flock(guard.fileno(), fcntl.LOCK_UN)
+
+    def _owner_alive(self) -> bool | None:
+        try:
+            owner = json.loads(self.path.read_text(encoding="utf-8"))
+            pid = owner["pid"]
+            if not isinstance(pid, int) or pid <= 0:
+                return None
+            process = psutil.Process(pid)
+            created = owner.get("process_created_at")
+            if created is not None and process.create_time() != created:
+                return False  # PID reused by a different process.
+            return process.is_running() and process.status() != psutil.STATUS_ZOMBIE
+        except psutil.NoSuchProcess:
+            return False
+        except (OSError, ValueError, KeyError, TypeError, psutil.AccessDenied):
+            return None  # Unknown/legacy corrupt evidence is never presumed dead.
 
     def _stale(self) -> bool:
         try:
@@ -91,29 +139,28 @@ class WorkerLock:
 
     def acquire(self, *, force: bool = False) -> None:
         self.path.parent.mkdir(parents=True, exist_ok=True)
-        if (force or self._stale()) and self.path.exists():
-            logger.warning("removing %s lock at %s",
-                           "forced" if force else "stale", self.path)
-            self.path.unlink(missing_ok=True)
-        try:
+        with self._mutation_guard():
+            if self.path.exists():
+                alive = self._owner_alive()
+                if alive is True or (not force and (alive is None or not self._stale())):
+                    raise WorkerBusyError(f"another or unverified worker holds {self.path}")
+                self.path.unlink()
             handle = os.open(self.path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
-        except FileExistsError as exc:
-            holder = ""
-            with contextlib.suppress(OSError):
-                holder = self.path.read_text(encoding="utf-8").strip()
-            raise WorkerBusyError(
-                f"another taiwan backfill worker holds {self.path} ({holder}); "
-                "exiting without doing work"
-            ) from exc
-        with os.fdopen(handle, "w", encoding="utf-8") as stream:
-            json.dump({"pid": os.getpid(),
-                       "started_at": datetime.now(TAIPEI).isoformat()}, stream)
-        self._held = True
+            with os.fdopen(handle, "w", encoding="utf-8") as stream:
+                json.dump({"pid": os.getpid(), "token": self._token,
+                           "process_created_at": psutil.Process().create_time(),
+                           "started_at": datetime.now(TAIPEI).isoformat()}, stream)
+            self._held = True
 
     def release(self) -> None:
         if self._held:
-            self.path.unlink(missing_ok=True)
-            self._held = False
+            try:
+                with self._mutation_guard(wait=True), contextlib.suppress(FileNotFoundError):
+                    owner = json.loads(self.path.read_text(encoding="utf-8"))
+                    if owner.get("token") == self._token:
+                        self.path.unlink()
+            finally:
+                self._held = False
 
     def __enter__(self) -> WorkerLock:
         self.acquire()
@@ -351,6 +398,8 @@ class TaiwanHistoricalBackfillWorker:
         for failure in stats["failed_dates"]:
             self.state.record_failure("classify:TWSE", date.fromisoformat(failure["date"]),
                                       failure["error"])
+        for completed in stats.get("completed_dates", []):
+            self.state.record_success("classify:TWSE", date.fromisoformat(completed))
         stats["queue_depth"] = len(queue)
         return stats
 

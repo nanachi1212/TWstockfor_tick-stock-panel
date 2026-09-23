@@ -8,6 +8,8 @@ like the real responses recorded in docs/taiwan-historical-universe-probe.md.
 from __future__ import annotations
 
 import json
+import os
+from concurrent.futures import ThreadPoolExecutor
 from datetime import date, timedelta
 from pathlib import Path
 
@@ -302,11 +304,71 @@ def test_single_instance_lock_blocks_a_second_worker(tmp_path: Path) -> None:
 
 
 def test_stale_lock_is_reclaimed(tmp_path: Path) -> None:
-    lock = WorkerLock(tmp_path / "w.lock", max_age=timedelta(seconds=0))
-    lock.acquire()
+    # A reused PID's creation time cannot match this impossible value; the
+    # prior lock owner is dead even though this PID currently exists.
+    path = tmp_path / "w.lock"
+    path.write_text(json.dumps({"pid": os.getpid(), "process_created_at": -1}))
     reclaimed = WorkerLock(tmp_path / "w.lock", max_age=timedelta(seconds=0))
     reclaimed.acquire()  # must not raise
     reclaimed.release()
+
+
+@pytest.mark.parametrize("force", [False, True])
+def test_active_long_run_is_never_reclaimed_by_age(tmp_path: Path, force: bool) -> None:
+    lock = WorkerLock(tmp_path / "w.lock", max_age=timedelta(seconds=0))
+    lock.acquire()
+    try:
+        with pytest.raises(WorkerBusyError):
+            WorkerLock(lock.path, max_age=timedelta(seconds=0)).acquire(force=force)
+    finally:
+        lock.release()
+
+
+def test_releasing_old_identity_preserves_replacement_lock(tmp_path: Path) -> None:
+    lock = WorkerLock(tmp_path / "w.lock")
+    lock.acquire()
+    replacement = {"pid": os.getpid(), "token": "another-owner"}
+    lock.path.write_text(json.dumps(replacement))
+    lock.release()
+    assert json.loads(lock.path.read_text()) == replacement
+
+
+def test_concurrent_stale_reclamation_admits_one_owner(tmp_path: Path) -> None:
+    path = tmp_path / "w.lock"
+    path.write_text(json.dumps({"pid": os.getpid(), "process_created_at": -1}))
+    locks = [WorkerLock(path, max_age=timedelta(seconds=0)) for _ in range(8)]
+    def acquire(lock):
+        try:
+            lock.acquire()
+            return lock
+        except WorkerBusyError:
+            return None
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        winners = [lock for lock in pool.map(acquire, locks) if lock is not None]
+    assert len(winners) == 1
+    winners[0].release()
+    assert not path.exists()
+
+
+def test_legacy_live_pid_lock_is_preserved_without_birth_timestamp(tmp_path: Path) -> None:
+    path = tmp_path / "w.lock"
+    path.write_text(json.dumps({"pid": os.getpid(), "started_at": "2000-01-01T00:00:00+08:00"}))
+    with pytest.raises(WorkerBusyError):
+        WorkerLock(path, max_age=timedelta(seconds=0)).acquire()
+
+
+def test_successful_classification_retry_clears_old_attempts(tmp_path: Path) -> None:
+    worker = _worker(tmp_path)
+    worker.run_census(PROBE_DATE, PROBE_DATE, session_budget=1)
+    worker._classifier = TwseHistoricalClassifier(
+        store=worker.classification_store, client=_StubClient(_classification_router))
+    for _ in range(MAX_ATTEMPTS - 1):
+        worker.state.record_failure("classify:TWSE", PROBE_DATE, "temporary")
+    result = worker.run_classification(request_budget=REQUESTS_PER_DATE)
+    assert result["completed_dates"] == [PROBE_DATE.isoformat()]
+    assert worker.state.attempts("classify:TWSE", PROBE_DATE) == 0
+    worker.state.record_failure("classify:TWSE", PROBE_DATE, "upgrade temporarily failed")
+    assert not worker.state.exhausted("classify:TWSE", PROBE_DATE)
 
 
 def test_worker_state_survives_a_crash(tmp_path: Path) -> None:

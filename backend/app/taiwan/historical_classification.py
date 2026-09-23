@@ -313,7 +313,7 @@ class TwseHistoricalClassifier:
         unlimited = request_budget <= 0
         stats: dict[str, Any] = {
             "requests_used": 0, "dates_done": 0, "rows": 0,
-            "failed_dates": [], "stopped_early": False,
+            "failed_dates": [], "completed_dates": [], "stopped_early": False,
         }
         for day in queue:
             if should_stop is not None and should_stop():
@@ -332,6 +332,7 @@ class TwseHistoricalClassifier:
             stats["rows"] += self.store.write(day, rows)
             stats["requests_used"] += REQUESTS_PER_DATE
             stats["dates_done"] += 1
+            stats["completed_dates"].append(day.isoformat())
         return stats
 
 
