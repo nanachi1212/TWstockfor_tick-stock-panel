@@ -92,6 +92,8 @@ close(T) 到 close(T+H) 的 PIT price-normalized return，**不是 total return 
 結果以獨立 observations 追加；相同結果 no-op，不同 verified 結果顯示 conflict，
 保留第一筆結果與所有審計紀錄，不覆寫。正常 scheduler 不重算已 verified/conflict 的
 horizon；維護程式可呼叫 maturation 的 `recheck_verified=True` 驗證資料修訂，仍只追加。
+重驗時暫時缺資料會保留既有值並顯示 `audit_status=recheck_unavailable`；
+狀態轉換另存 append-only evaluations，連續相同結果不重複写入。
 此流程不提供任意解除 conflict 或修改 signals 的捷徑。
 
 ## 驗證與維運

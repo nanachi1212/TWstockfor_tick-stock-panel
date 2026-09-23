@@ -343,6 +343,15 @@ def test_outcome_missing_session_is_not_shifted_and_revision_is_conflict(inputs,
     source.outcome_prices = original
     mature_live_outcomes(ledger, source)
     assert ledger.outcomes(run["model_key"], str(DAY))[0]["status"] == "verified"
+    source.outcome_prices = lambda symbol, days: original(symbol, days).slice(1)
+    mature_live_outcomes(ledger, source, recheck_verified=True)
+    # Preserve the published value while making a failed recheck visible.
+    rechecked = ledger.outcomes(run["model_key"], str(DAY))[0]
+    assert rechecked["value"] == pytest.approx(0.1)
+    assert rechecked["audit_status"] == "recheck_unavailable"
+    source.outcome_prices = original
+    mature_live_outcomes(ledger, source, recheck_verified=True)
+    assert ledger.outcomes(run["model_key"], str(DAY))[0]["audit_status"] == "ok"
     source.outcome_prices = lambda symbol, days: original(symbol, days).with_columns(pl.col("close") * 2)
     assert mature_live_outcomes(ledger, source, recheck_verified=True)["status"] == "conflict"
     assert ledger.outcomes(run["model_key"], str(DAY))[0]["status"] == "conflict"

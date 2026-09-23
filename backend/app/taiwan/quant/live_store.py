@@ -59,8 +59,13 @@ class LiveLedger:
                     horizon INTEGER NOT NULL CHECK(horizon IN (1,5,20)),
                     digest TEXT NOT NULL, payload TEXT NOT NULL, recorded_at TEXT NOT NULL,
                     PRIMARY KEY(model_key,session,symbol,horizon,digest));
+                CREATE TABLE IF NOT EXISTS evaluations (
+                    model_key TEXT NOT NULL, session TEXT NOT NULL, symbol TEXT NOT NULL,
+                    horizon INTEGER NOT NULL, digest TEXT NOT NULL, recorded_at TEXT NOT NULL);
+                CREATE INDEX IF NOT EXISTS evaluation_identity
+                    ON evaluations(model_key,session,symbol,horizon);
             """)
-            tables = ("observations",)
+            tables = ("observations", "evaluations")
         else:
             db.executescript("""
                 CREATE TABLE IF NOT EXISTS models (
@@ -276,6 +281,14 @@ class LiveLedger:
             db.execute("BEGIN IMMEDIATE")
             rows = db.execute("""SELECT payload,digest FROM observations
                 WHERE model_key=? AND session=? AND symbol=? AND horizon=?""", identity).fetchall()
+            latest = db.execute("""SELECT digest FROM evaluations
+                WHERE model_key=? AND session=? AND symbol=? AND horizon=?
+                ORDER BY rowid DESC LIMIT 1""", identity).fetchone()
+            if latest is None or latest["digest"] != digest:
+                # Track changed recheck states without duplicating or replacing
+                # result values. Consecutive identical retries remain no-ops.
+                db.execute("INSERT INTO evaluations VALUES (?,?,?,?,?,?)",
+                           (*identity, digest, self.clock().isoformat()))
             if any(row["digest"] == digest for row in rows):
                 return ("conflict" if sum(json.loads(row["payload"])["status"] == "verified"
                                           for row in rows) > 1 else "noop")
@@ -298,6 +311,10 @@ class LiveLedger:
         with self._connect(outcomes=True) as db:
             rows = db.execute("""SELECT * FROM observations WHERE model_key=? AND session=?
                 ORDER BY rowid""", (key, session)).fetchall()
+            evaluations = db.execute("""SELECT symbol,horizon,digest FROM evaluations
+                WHERE model_key=? AND session=? ORDER BY rowid""", (key, session)).fetchall()
+        last = {(r["symbol"], r["horizon"]): r["digest"] for r in evaluations}
+        payloads = {r["digest"]: json.loads(r["payload"]) for r in rows}
         result = []
         for signal in signals:
             for horizon in HORIZONS:
@@ -306,7 +323,11 @@ class LiveLedger:
                 verified = [row for row in matches if row["status"] == "verified"]
                 value = verified[0] if verified else matches[-1] if matches else {
                     "status": "pending", "value": None, "reason": "horizon_not_mature"}
+                evaluated = payloads.get(last.get((signal["symbol"], horizon)), value)
                 result.append({"symbol": signal["symbol"], "horizon": horizon, **value,
                                "status": "conflict" if len(verified) > 1 else value["status"],
+                               "audit_status": ("conflict" if len(verified) > 1 else
+                                                "recheck_unavailable" if verified and
+                                                evaluated["status"] != "verified" else "ok"),
                                "observations": matches})
         return result
