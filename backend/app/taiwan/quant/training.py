@@ -34,6 +34,8 @@ def panel_training_matrix(
     warmup_sessions: dict[str, int] | None = None,
     adv20_twd: dict[str, float] | None = None,
 ) -> TrainingMatrixResult:
+    if panel.universe_tier not in ("primary_verified", "secondary_observed"):
+        raise ValueError("live universe cannot enter historical training")
     if policy.version != panel.policy_version or policy.tier != panel.universe_tier:
         raise ValueError("panel and eligibility policy identity must match")
     if panel.values.is_empty():

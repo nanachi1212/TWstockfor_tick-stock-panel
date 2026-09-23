@@ -919,6 +919,14 @@ def start_scheduler(repo: KlineRepository, capset: CapabilitySet) -> AsyncIOSche
                 "Scheduled Taiwan daily update finished: overall=%s, daily=%s, inst=%s, margin=%s",
                 result.overall_status, result.daily.status, result.institutional.status, result.margin.status,
             )
+            # Quant is downstream and isolated: it must never roll back or
+            # relabel the completed market-data refresh.
+            try:
+                from app.taiwan.quant.live_runner import run_live_after_refresh
+
+                logger.info("Taiwan experimental live quant: %s", run_live_after_refresh(result))
+            except Exception:
+                logger.exception("Taiwan live quant failed; market refresh remains complete")
         except Exception as e:
             logger.exception("Scheduled Taiwan daily update job failed: %s", e)
 

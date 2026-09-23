@@ -118,6 +118,7 @@ def build_factor_panel(
     policy_version: str, universe_tier: str,
     institutional: pl.DataFrame | None = None, margin: pl.DataFrame | None = None,
     market: pl.DataFrame | None = None, factor_version: str = FACTOR_VERSION,
+    as_of: date | None = None,
 ) -> FactorPanel:
     """Build offline full time-series factors from raw OHLCV and explicit event snapshot.
 
@@ -133,7 +134,7 @@ def build_factor_panel(
         raise ValueError("daily dates must be unique trading-session Date per symbol")
     if "usage_scope" in history.columns or "price_semantics" in history.columns:
         raise ValueError("factor panel requires raw input; presentation/adjusted price rejected")
-    if not factor_version or not policy_version or universe_tier not in ("primary_verified", "secondary_observed"):
+    if not factor_version or not policy_version or universe_tier not in ("primary_verified", "secondary_observed", "current_live_verified"):
         raise ValueError("factor/policy version and valid universe tier are required")
     inst = _source_map(institutional, {"foreign_net", "investment_trust_net", "dealer_net"})
     marg = _source_map(margin, {"margin_balance", "short_balance"})
@@ -161,6 +162,8 @@ def build_factor_panel(
         series = raw.filter(pl.col("symbol") == symbol)
         dates = series["date"].to_list()
         for index, day in enumerate(dates):
+            if as_of is not None and day != as_of:
+                continue
             prefix = series.head(index + 1)
             adjusted = adjust_prices_as_of(prefix, as_of=day, events=actions)
             price = adjusted.to_frame()

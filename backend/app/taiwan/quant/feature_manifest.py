@@ -264,6 +264,10 @@ def training_matrix(
     from app.taiwan.adjust import PROVENANCE_COLUMNS, assert_training_safe
 
     assert_training_safe(frame)
+    if ("universe_contract" in frame.columns or
+            ("universe_tier" in frame.columns and
+             frame["universe_tier"].is_in(["current_live_verified"]).any())):
+        raise ValueError("live universe cannot enter historical training")
     resolution = resolve_training_eligibility(manifest, capabilities)
     eligible = set(resolution.eligible_features)
     columns = [c for c in keep_columns if c in frame.columns]

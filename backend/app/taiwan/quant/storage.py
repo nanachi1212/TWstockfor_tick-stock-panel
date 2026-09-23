@@ -135,6 +135,8 @@ class FactorPanelStore:
                 / f"universe_tier={panel.universe_tier}" / f"date={day}")
 
     def save(self, panel: FactorPanel) -> list[Path]:
+        if panel.universe_tier not in ("primary_verified", "secondary_observed"):
+            raise ValueError("live factors belong in the immutable live snapshot")
         if panel.values.is_empty():
             return []
         if not set(VALUE_IDENTITY) <= set(panel.values.columns) or not set(FACTORS) <= set(panel.values.columns):

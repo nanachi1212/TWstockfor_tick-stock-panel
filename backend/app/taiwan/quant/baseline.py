@@ -25,7 +25,7 @@ class BaselineDryRun:
     status: str = "dry_run_only"
 
 
-def _pct(values: dict[str, float]) -> dict[str, float]:
+def deterministic_percentiles(values: dict[str, float]) -> dict[str, float]:
     ordered = sorted(values, key=lambda symbol: (values[symbol], symbol))
     return {symbol: (index + 1) / len(ordered) for index, symbol in enumerate(ordered)}
 
@@ -92,7 +92,7 @@ def run_baseline_dry_run(
             for feature in weights:
                 available = {row["symbol"]: float(row[feature]) for row in rows
                              if row[feature] is not None and math.isfinite(row[feature])}
-                pct[feature] = _pct(available) if available else {}
+                pct[feature] = deterministic_percentiles(available) if available else {}
             for row in rows:
                 symbol = row["symbol"]
                 groups = {}

@@ -120,6 +120,10 @@ def market_truth_gate(universe: pl.DataFrame, policy: EligibilityPolicy) -> pl.D
     Separated from the liquidity/warm-up filters so it is visible exactly where
     truth stops and policy starts.
     """
+    if policy.tier not in (PRIMARY_VERIFIED, SECONDARY_OBSERVED):
+        raise ValueError("historical universe tier required")
+    if "universe_contract" in universe.columns:
+        raise ValueError("live universe cannot enter historical admission")
     if universe.is_empty():
         return universe
     gated = universe.filter(pl.col("observed_on_market"))
@@ -145,21 +149,32 @@ def eligible(
     with no entry fails a non-zero threshold: absent evidence is not a pass.
     """
     gated = market_truth_gate(universe, policy)
+    return apply_policy_filters(gated, min_warmup_sessions=policy.min_warmup_sessions,
+                                min_adv20_twd=policy.min_adv20_twd,
+                                warmup_sessions=warmup_sessions, adv20_twd=adv20_twd)
+
+
+def apply_policy_filters(
+    gated: pl.DataFrame, *, min_warmup_sessions: int, min_adv20_twd: float,
+    warmup_sessions: dict[str, int] | None = None,
+    adv20_twd: dict[str, float] | None = None,
+) -> pl.DataFrame:
+    """Shared numerical policy AFTER independent historical/live truth gates."""
     if gated.is_empty():
         return gated
 
-    if policy.min_warmup_sessions > 0:
+    if min_warmup_sessions > 0:
         counts = warmup_sessions or {}
         gated = gated.filter(
             pl.col("market_symbol")
             .replace_strict(counts, default=0, return_dtype=pl.Int64)
-            >= policy.min_warmup_sessions
+            >= min_warmup_sessions
         )
-    if policy.min_adv20_twd > 0:
+    if min_adv20_twd > 0:
         values = adv20_twd or {}
         gated = gated.filter(
             pl.col("market_symbol")
             .replace_strict(values, default=0.0, return_dtype=pl.Float64)
-            >= policy.min_adv20_twd
+            >= min_adv20_twd
         )
     return gated
