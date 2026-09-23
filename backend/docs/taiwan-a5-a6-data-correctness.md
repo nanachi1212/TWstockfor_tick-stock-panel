@@ -297,3 +297,31 @@ revivt 3064 2024-02-05 factor=3.3333333333333335。
 3. TPEx historical type、par-change、volume adjustment 仍 data_insufficient。
 4. 官方事件表無 revision publication timestamp；衝突拒用，不宣稱嚴格 vintage 已知。
 5. 本輪不宣告事件或 session 資料已全量回補，也不宣告任何正式 OOS／模型績效。
+
+## 19. B0 最後一次普通股 subtype 窄範圍核對（2026-09-23）
+
+只核對既有 audit 指向的官方來源，沒有擴大掃描端點：
+
+- TWSE `MI_INDEX` 歷史 `ALLBUT0999`／產業分表提供交易與產業成員，不提供普通股／特別股 subtype；產業分表同時包含特別股，見本檔 §5 與 [官方歷史日報](https://www.twse.com.tw/rwd/zh/afterTrading/MI_INDEX?date=20150105&type=ALLBUT0999&response=html)。
+- [TWSE 官方 ISIN/CFI 名冊](https://isin.twse.com.tw/isin/C_public.jsp?strMode=2)有證券種類與 CFI 欄位，但目前查詢是現況名冊；沒有已驗證的 2015 as-of snapshot，也無法保證已下市證券及 listing episode 的歷史 subtype 完整可得。不可把今天的 CFI 回貼 2015。
+- 既有 probe §9.2 的 MOPS 公司基本資料是現況登錄名冊，沒有已驗證的歷史 as-of 參數；公司資料亦不能代替每一檔證券的 subtype 證據。
+- TWSE [股票種類說明](https://www.twse.com.tw/zh/products/securities/stocks.html)確認普通股與特別股為不同權利類別；不能以產業成員身分當成普通股證明。
+
+結論：未找到可對 2015-01-05 全部 855 筆產業成員提供 authoritative、historical/as-of-safe 普通股 subtype 的官方資料。`verified_stock` 維持 unresolved；**Primary TWSE Verified OOS remains BLOCKED by historical common-stock subtype evidence.** 不採代號、名稱、現況 master/CFI 或產業表推論解鎖。此限制不阻擋 B2/B3 framework 的 synthetic/experimental dry-run。
+
+## 20. B2/B3 framework 契約
+
+`quant/panel.py` 對每個 feature date T 以 T 收盤為錨點調用 `adjust_prices_as_of`，技術與股票報酬只讀 PIT 調整價。法人、融資券與市場指數列須有不晚於 T 收盤的明確 `available_at`；目前舊 store 沒有這個欄位時，因子保留 null 與 coverage exception，不回填零。歷史產業因子固定 `not_pit_safe`。股數基準事件跨 20 期時 `relative_volume` 為 `data_insufficient`，金額與 ADV20 不受此限制。
+
+`quant/training.py` 是 panel 進入模型列的入口：`resolve_training_eligibility(manifest, capabilities)` → `quant_eligibility.eligible(universe, policy)` → `training_matrix()`。每日期的候選母體限同一 `policy_version`、`universe_tier` 的 eligible symbols，輸出保留 `feature_schema_version`、`factor_version`、`policy_version`、`universe_tier`，並回報 rejected features/symbols 與理由。`cross_section.py` 只對此母體做 winsorize、zscore、rank_pct，percentile 附 `date/policy_version/universe_tier/eligible_count`；產業中立化拒絕無 PIT assignment。
+
+`factors/factor_version=*/policy_version=*/universe_tier=*/date=*/` 分區含 `values.parquet`（identity/provenance + factor values）及 `coverage.parquet`（只含非 available exception：`symbol/date/factor/status/as_of/available_at/reason/source`）；`factors/_factor_meta.json` 保存 formula、unit、source、min_history、price semantics 與 manifest/capability training requirement。整個分區以暫存目錄原子發佈；既有不同內容不能覆寫，須換版本。
+
+`quant/baseline.py` 只讀已入選矩陣，train window 計 IC/ICIR 與權重，validation window 選 threshold，test 僅排名。所有輸出標記 `usage_scope=experimental_only`，不寫 formal Primary OOS artifact；歷史產業與未通過 capability × manifest 的因子不能進權重。
+
+## 21. B0/B2/B3 驗證（2026-09-23）
+
+- 定向：`tests/test_taiwan_factor_panel.py`、`test_taiwan_quant_framework.py`、`test_taiwan_pit_adjustment.py`、`test_taiwan_technical_indicators.py`，**95 passed**。含 2018 factor hash 在追加 2024 event 後不變、未來 index/available_at 不洩漏、股數事件 volume 邊界、政策母體與排序、訓練 admission、fold train/validation/test 隔離、storage 冪等及原子發佈失敗案例。
+- 完整 `uv run --frozen pytest -q --tb=line`：**1954 passed / 7 failed / 63 warnings**（234.02 秒）。七個 failure node ID 與本檔 §17 的基線集合完全相同；新增回歸 0。完整 suite 仍為 FAIL，不能稱全綠。
+- 一次完整 suite 額外出現 A 股 worker 子程序 native exit `3221225477`，同一 mining 案例單獨連續三次通過，下一次完整 suite 未重現；未修改或忽略該測試，列為間歇性環境現象。
+- 本輪 Python 檔案 Ruff 通過；未執行 CI / GitHub Codex Review，因本工作包明確不開 PR。未產生正式 OOS artifact。
