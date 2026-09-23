@@ -30,6 +30,7 @@ from app.taiwan.institutional_store import TaiwanInstitutionalStore
 from app.taiwan.margin_store import TaiwanMarginStore
 from app.taiwan.market_rules import PriceLimitModel
 from app.taiwan.symbol import parse_symbol
+from app.taiwan.technical_indicators import MIN_BARS_RSI_14, wilder_rsi_expr
 from app.taiwan.universe import TaiwanSecurityMaster, get_security_master
 from app.taiwan.universe.models import MarketProfileBridge
 
@@ -304,13 +305,16 @@ class TaiwanScreenerService:
             (pl.col("volume") / pl.col("volume").rolling_mean(5).over("symbol")).alias("vol_ratio_5d"),
         ])
 
-        # RSI 14 computation
-        diff = pl.col("close").diff().over("symbol")
-        gain = pl.when(diff > 0).then(diff).otherwise(0.0).rolling_mean(14).over("symbol")
-        loss = pl.when(diff < 0).then(-diff).otherwise(0.0).rolling_mean(14).over("symbol")
-        rs = gain / pl.when(loss == 0).then(0.00001).otherwise(loss)
-        rsi = (100.0 - (100.0 / (1.0 + rs))).alias("rsi_14")
-        hist = hist.with_columns(rsi)
+        # RSI 14 — canonical Wilder smoothing, shared with the technical panel.
+        # This used to be an SMA-based variant, which gave the same symbol two
+        # different RSI values depending on which screen you opened.
+        bar_count = pl.col("close").count().over("symbol")
+        hist = hist.with_columns(
+            pl.when(bar_count >= MIN_BARS_RSI_14)
+            .then(wilder_rsi_expr())
+            .otherwise(None)
+            .alias("rsi_14")
+        )
 
         # Keep only the latest row per symbol
         latest_inds = (

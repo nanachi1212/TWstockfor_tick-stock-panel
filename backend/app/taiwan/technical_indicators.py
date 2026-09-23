@@ -42,6 +42,25 @@ MIN_BARS_RSI_14 = 15
 # 慢线 EMA(26) 的常规经验暖机长度 + 信号线 EMA(9) 再暖机一轮。
 MIN_BARS_MACD = 35
 
+def wilder_rsi_expr(period: int = 14, close: str = "close", by: str = "symbol") -> pl.Expr:
+    """Canonical Wilder-smoothed RSI. The single Taiwan RSI definition.
+
+    Wilder's smoothing is an EMA with ``alpha = 1/period`` over gains and
+    losses — *not* a simple rolling mean, which is a different indicator that
+    happens to share the name.  Every Taiwan consumer (technical panel,
+    screener) must use this expression so one symbol cannot show two RSI
+    values depending on which screen you opened.
+    """
+    delta = pl.col(close).diff().over(by)
+    gain = pl.when(delta > 0).then(delta).otherwise(0.0)
+    loss = pl.when(delta < 0).then(-delta).otherwise(0.0)
+    avg_gain = gain.ewm_mean(alpha=1.0 / period, adjust=False).over(by)
+    avg_loss = loss.ewm_mean(alpha=1.0 / period, adjust=False).over(by)
+    return 100.0 - 100.0 / (
+        1.0 + avg_gain / pl.when(avg_loss == 0).then(1e-12).otherwise(avg_loss)
+    )
+
+
 _OUTPUT_COLS = (
     "symbol", "ma5", "ma10", "ma20", "ma60", "vol_ma5", "vol_ma10",
     "rsi_14", "macd_dif", "macd_dea", "macd_hist", "momentum_5d", "momentum_20d",
@@ -87,14 +106,7 @@ def compute_taiwan_daily_indicators(history: pl.DataFrame) -> pl.DataFrame:
     ])
 
     # RSI 14 (Wilder smoothing) — 与 pipeline.py 的 rsi_14 公式一致。
-    delta = pl.col("close").diff().over("symbol")
-    gain = pl.when(delta > 0).then(delta).otherwise(0.0)
-    loss = pl.when(delta < 0).then(-delta).otherwise(0.0)
-    avg_gain = gain.ewm_mean(alpha=1.0 / 14.0, adjust=False).over("symbol")
-    avg_loss = loss.ewm_mean(alpha=1.0 / 14.0, adjust=False).over("symbol")
-    rsi_raw = 100.0 - 100.0 / (
-        1.0 + avg_gain / pl.when(avg_loss == 0).then(1e-12).otherwise(avg_loss)
-    )
+    rsi_raw = wilder_rsi_expr()
     df = df.with_columns(
         pl.when(pl.col("_bar_count") >= MIN_BARS_RSI_14)
         .then(rsi_raw)

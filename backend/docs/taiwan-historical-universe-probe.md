@@ -120,7 +120,9 @@ A1 已標記的 TPEx `data_insufficient` 缺口，在這裡具體現形。
 0050 → 不在任何產業表（在 type=0099P ETF 表）  (對照組)
 ```
 
-→ **TWSE 歷史 instrument type 與產業別都是官方直接公布的，不需要任何猜測規則。**
+→ **TWSE 歷史 instrument type 是官方直接公布的，不需要任何猜測規則。**
+> ⚠️ **本節關於「產業別」的部分已於 §4.3 更正作廢** —— 產業標籤不是 point-in-time，
+> 且不唯一。只有 `instrument_type` 的結論成立。
 `type=01..31` 的聯集 = 當日上市普通股；`type=0099P` = 當日 ETF。
 
 ### 4.2 TPEx —— **無法驗證，BLOCKED**
@@ -150,6 +152,64 @@ TPEx openapi（225 個端點）中雖有 `tpex_warrant_daily_quts`、`tpex_mainb
 
 → **要把 TPEx 的 4 位純數字當成「普通股」，只能靠代號格式推測。
 這正是「heuristic masquerading as market truth」，本輪依指示不實作。標 `data_insufficient`。**
+
+---
+
+### 4.3 ⚠️ §4.1 的更正（A2 實作期間實測，2026-09-22）
+
+實作 A2b 前重新驗證 `MI_INDEX` 產業分表，發現 §4.1 的結論**有一半是錯的**。
+依「發現官方資料與文件矛盾就停止並回報」原則，這裡逐條更正。
+
+#### 實測
+
+```
+type=01..40, date=20150105  → 34 個產業碼有資料
+type=01..40, date=20240603  → 34 個產業碼有資料（完全相同的 34 個）
+```
+
+兩個日期回傳的產業碼集合**完全一樣**，包含
+`35 綠能環保`、`36 數位雲端`、`37 運動休閒`、`38 居家生活` ——
+這四個 TWSE 產業類別是 **2021 年才設立的**。
+
+```
+2015-01-05  type=35 綠能環保 → 3 筆
+              8422 可寧衛* 149.50 / 9930 中聯資源 70.10 / 9955 佳龍 18.40
+```
+
+#### 結論：membership 是 PIT，label 不是
+
+| 面向 | 實測 | 判定 |
+| --- | --- | --- |
+| 成員資格（哪些代號出現） | 2015-01-05 產業聯集 855 碼，`ALLBUT0999` 911 碼，**聯集 − ALLBUT0999 = 0** | ✅ **point-in-time**。TWSE 只回當日真的有交易的證券，沒有把未上市公司塞進歷史 |
+| 產業標籤 | 2015 的回應用的是**今天**的產業分類（綠能環保等 2021 年才有的類別） | ❌ **不是 point-in-time**，就是「current industry 回貼歷史」 |
+| 標籤唯一性 | 2015-01-05 的 855 碼中 **435 碼同時出現在 2 個以上產業表**（例：`1701 → 07 化學生技醫療 + 22 生技醫療業`） | ❌ **產業別不唯一**。07 是被拆成 21/22 的舊傘狀類別，TWSE 新舊都回 |
+
+#### 對 §4.1 的具體更正
+
+§4.1 原文寫「**TWSE 歷史 instrument type 與產業別都是官方直接公布的**」——
+
+- `instrument_type` 部分 **仍然成立**：
+  產業表聯集 = 當日普通股、`type=0099P` = 當日 ETF，且成員資格經證實為 PIT。
+  A2b 據此產出 `instrument_type`，fail-closed（不在任何產業表 → 不是 verified stock）。
+- **產業別部分不成立**：不得宣稱 point-in-time industry。
+
+#### A2b 的處置
+
+```
+classification_status = verified   僅適用於 instrument_type
+industry              = null
+industry_status       = data_insufficient   # 官方僅提供 current 分類，且不唯一
+```
+
+A2b **不寫入任何 `industry` 值**，也不把產業表標題當作歷史產業別。
+§6.2 設計表格中「industry 來自當日官方產業分表（authoritative，且是 point-in-time 產業別）」
+一列**作廢**，以本節為準。
+
+#### 連帶成本更正
+
+§11 決策表假設每個分類日 32 請求（31 產業 + ETF）。
+實測有效產業碼為 **34** 個，加 ETF 表 → **每個分類日 35 請求**。
+A2b 的實際總量由 A2a census 算出的 `unique_first_seen_dates` 動態決定，不預設。
 
 ---
 
