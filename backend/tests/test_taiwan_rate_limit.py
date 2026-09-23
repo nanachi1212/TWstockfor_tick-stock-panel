@@ -15,11 +15,14 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from itertools import pairwise
 
+import httpx
 import pytest
 
 from app.rate_limits import _next_slot, _slot_lock, apply_safety_rpm, sleep_between_batches
 from app.taiwan.providers import http as taiwan_http
 from app.taiwan.providers.finmind_provider import FinMindAdapter
+from app.taiwan.universe import adapters
+from app.taiwan.universe.service import TaiwanSecurityMaster
 
 TWSE_URL = "https://www.twse.com.tw/rwd/zh/afterTrading/MI_INDEX?date=20250102"
 TPEX_URL = "https://www.tpex.org.tw/www/zh-tw/afterTrading/dailyQuotes?date=114/01/02"
@@ -66,6 +69,40 @@ def test_finmind_adapter_uses_anonymous_or_token_rate(monkeypatch, token, expect
     assert adapter.metadata.rate_limit_rpm == expected
     assert FinMindAdapter().metadata.rate_limit_rpm == 5
     assert taiwan_http.SOURCE_RPM[taiwan_http.FINMIND] == 5
+
+
+def test_fresh_master_requests_all_reserve_shared_exchange_slots(tmp_path, monkeypatch):
+    reservations = []
+    requests = []
+
+    def handle(request):
+        url = str(request.url)
+        requests.append(url)
+        assert len(reservations) == len(requests)  # The hook runs before transport.
+        if url == adapters.TWSE_COMPANIES_URL:
+            return httpx.Response(200, json=[{"公司代號": "2330", "公司簡稱": "台積電"}])
+        if url == adapters.TPEX_COMPANIES_URL:
+            return httpx.Response(200, json=[{"SecuritiesCompanyCode": "8069",
+                                             "CompanyAbbreviation": "元太"}])
+        if url == adapters.TWSE_ETF_PRODUCTS_URL:
+            return httpx.Response(200, json=[])
+        assert url == adapters.TPEX_ISIN_URL
+        return httpx.Response(200, content=b"<table></table>")
+
+    def reserve(rpm, *, key):
+        reservations.append((key, rpm))
+        return 0.0
+
+    monkeypatch.setattr(taiwan_http, "acquire_slot", reserve)
+    monkeypatch.setattr(adapters, "taiwan_client", lambda **kwargs: taiwan_http.taiwan_client(
+        transport=httpx.MockTransport(handle), **kwargs))
+    master = TaiwanSecurityMaster(cache_path=tmp_path / "master.parquet")
+    assert master.load_from_adapters() == 2
+    assert reservations == [
+        (taiwan_http.TWSE, 16), (taiwan_http.TWSE, 16),
+        (taiwan_http.TWSE, 16), (taiwan_http.TPEX, 16),
+    ]
+    assert len(requests) == 4
 
 
 def test_unregistered_host_is_not_throttled() -> None:
