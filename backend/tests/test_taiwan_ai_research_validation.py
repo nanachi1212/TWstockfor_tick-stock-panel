@@ -279,7 +279,7 @@ def test_api_endpoint_e2e_integration():
 
 
 @pytest.mark.asyncio
-async def test_financial_stock_and_leveraged_etf_semantics():
+async def test_financial_stock_and_leveraged_etf_semantics(taiwan_data_env):
     """Verify financial stock (2881.TWSE) and leveraged ETF (00631L.TWSE) semantics."""
     svc = TaiwanAIResearchService()
     target_d = date(2026, 8, 28)
@@ -324,7 +324,7 @@ async def test_financial_stock_and_leveraged_etf_semantics():
 
 
 @pytest.mark.asyncio
-async def test_zero_is_not_missing_or_unavailable():
+async def test_zero_is_not_missing_or_unavailable(taiwan_data_env):
     """Verify that zero values (foreign_net=0, margin_change=0, signals=0) are preserved as known 0."""
     svc = TaiwanAIResearchService()
     target_d = date(2026, 8, 28)
@@ -348,7 +348,7 @@ async def test_zero_is_not_missing_or_unavailable():
 
 
 @pytest.mark.asyncio
-async def test_numerical_direction_preservation_validation():
+async def test_numerical_direction_preservation_validation(taiwan_data_env):
     """Verify that prompt explicitly enforces direction and evidence keys track signs."""
     svc = TaiwanAIResearchService()
     target_d = date(2026, 8, 28)

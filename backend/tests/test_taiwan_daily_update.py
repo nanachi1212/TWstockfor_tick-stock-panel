@@ -215,7 +215,7 @@ def test_orchestrator_idempotency_already_current():
     assert result.margin.dates_skipped == 1
 
 
-def test_api_taiwan_data_status_endpoint():
+def test_api_taiwan_data_status_endpoint(taiwan_data_env):
     """GET /api/taiwan/data-status returns typed freshness without external calls."""
     client = TestClient(app, client=("127.0.0.1", 50000))
     resp = client.get("/api/taiwan/data-status")

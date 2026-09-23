@@ -83,3 +83,6 @@ ignore = ["E501"]   # 长行交给 fmt
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
+markers = [
+    "integration: 需要真實外網 (TWSE/TPEx/Yahoo) 的 live smoke test; PR CI 以 -m 'not integration' 排除",
+]

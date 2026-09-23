@@ -1,0 +1,34 @@
+name: Backend Integration Tests (manual)
+
+# 需要真實外網 (TWSE / TPEx / Yahoo) 的 live smoke test。
+# 外部服務不穩定不應讓一般 PR 紅燈, 因此只保留手動觸發。
+on:
+  workflow_dispatch:
+
+env:
+  UV_PYTHON: "3.11"
+
+jobs:
+  integration:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          cache-dependency-glob: backend/uv.lock
+
+      - name: Set up Python 3.11
+        run: uv python install 3.11
+
+      - name: Install dependencies
+        run: uv sync --frozen --extra dev
+
+      - name: Run integration tests
+        run: uv run pytest -q -m integration
