@@ -255,3 +255,30 @@ def test_no_nan_or_infinite_values_in_output():
         if isinstance(value, float):
             assert not math.isnan(value), f"{key} is NaN"
             assert not math.isinf(value), f"{key} is Infinite"
+
+
+def test_screener_and_panel_share_one_rsi_definition():
+    """One symbol must not show two RSI values depending on the screen.
+
+    The screener previously used an SMA-based variant; both paths now build
+    from technical_indicators.wilder_rsi_expr.
+    """
+    import inspect
+
+    import polars as pl
+
+    from app.taiwan import screener
+    from app.taiwan.technical_indicators import wilder_rsi_expr
+
+    source = inspect.getsource(screener)
+    assert "wilder_rsi_expr()" in source
+    assert "rolling_mean(14)" not in source, "second, SMA-based RSI formula is back"
+
+    closes = [10.0 + (i % 7) - (i % 3) for i in range(40)]
+    frame = pl.DataFrame({
+        "symbol": ["2330.TWSE"] * len(closes),
+        "close": closes,
+    }).with_columns(wilder_rsi_expr().alias("rsi_14"))
+    value = frame["rsi_14"].to_list()[-1]
+    assert 0.0 <= value <= 100.0
+    assert value == pytest.approx(_ref_rsi14(closes)[-1], abs=1e-6)

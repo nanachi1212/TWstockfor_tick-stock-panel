@@ -24,6 +24,7 @@ import polars as pl
 
 from app.data_providers.normalizer import DAILY_COLS
 from app.taiwan.providers.base import AmountUnit, PriceSemantics, SourceMetadata, VolumeUnit
+from app.taiwan.providers.http import DEFAULT_USER_AGENT, taiwan_client
 from app.taiwan.providers.taiwan_values import TAIPEI, parse_number
 from app.taiwan.symbol import Exchange, parse_symbol
 from app.taiwan.universe import TaiwanSecurityMaster, get_security_master
@@ -69,9 +70,9 @@ class OfficialDailySnapshotAdapter:
     ) -> None:
         self.security_master = security_master or get_security_master()
         self.timeout = timeout
-        self.client = client or httpx.Client(
+        self.client = client or taiwan_client(
             timeout=timeout,
-            headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"},
+            headers={"User-Agent": DEFAULT_USER_AGENT},
         )
         # Pre-build supported symbol sets
         self._twse_allowlist: set[str] = set()

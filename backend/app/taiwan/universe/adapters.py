@@ -31,6 +31,7 @@ from html.parser import HTMLParser
 
 import httpx
 
+from app.taiwan.providers.http import taiwan_client
 from app.taiwan.universe.industry_classification import resolve_industry_name
 from app.taiwan.universe.models import TaiwanInstrument
 
@@ -43,6 +44,12 @@ TPEX_ISIN_URL = "https://isin.twse.com.tw/isin/C_public.jsp?strMode=4"
 TWSE_ETF_PRODUCTS_URL = "https://openapi.twse.com.tw/v1/opendata/t187ap47_L"
 TWSE_COMPANIES_URL = "https://openapi.twse.com.tw/v1/opendata/t187ap03_L"
 TPEX_COMPANIES_URL = "https://www.tpex.org.tw/openapi/v1/mopsfin_t187ap03_O"
+
+
+def _get_response(url: str, timeout: float) -> httpx.Response:
+    # All directory/ISIN requests reserve the same host slots as daily/live data.
+    with taiwan_client(headers=OFFICIAL_HEADERS, timeout=timeout) as client:
+        return client.get(url)
 
 
 @dataclass(frozen=True)
@@ -287,7 +294,7 @@ def fetch_official_twse_etf_products(timeout: float = 10.0) -> dict[str, Officia
         dict[code, OfficialEtfProductMeta]
     """
     try:
-        response = httpx.get(TWSE_ETF_PRODUCTS_URL, headers=OFFICIAL_HEADERS, timeout=timeout)
+        response = _get_response(TWSE_ETF_PRODUCTS_URL, timeout)
         response.raise_for_status()
         data = response.json()
         product_map: dict[str, OfficialEtfProductMeta] = {}
@@ -313,7 +320,7 @@ class TwseInstrumentAdapter:
         self.url = url
 
     def fetch_live_html(self, timeout: float = 15.0) -> str:
-        response = httpx.get(self.url, headers=OFFICIAL_HEADERS, timeout=timeout)
+        response = _get_response(self.url, timeout)
         response.raise_for_status()
         return response.content.decode("cp950", errors="ignore")
 
@@ -345,7 +352,7 @@ class TpexInstrumentAdapter:
         self.url = url
 
     def fetch_live_html(self, timeout: float = 15.0) -> str:
-        response = httpx.get(self.url, headers=OFFICIAL_HEADERS, timeout=timeout)
+        response = _get_response(self.url, timeout)
         response.raise_for_status()
         return response.content.decode("cp950", errors="ignore")
 
@@ -372,7 +379,7 @@ class TpexInstrumentAdapter:
 
 
 def _get_json(url: str, timeout: float = 15.0) -> list[dict]:
-    response = httpx.get(url, headers=OFFICIAL_HEADERS, timeout=timeout)
+    response = _get_response(url, timeout)
     response.raise_for_status()
     payload = json.loads(response.content.decode("utf-8-sig"))
     if not isinstance(payload, list):

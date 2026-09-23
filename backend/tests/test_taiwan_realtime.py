@@ -16,6 +16,7 @@ from datetime import date, datetime, time as dt_time, timedelta
 import pytest
 
 from app.taiwan.enrichment.models import SourceMeta
+from app.taiwan.realtime import mis_provider as mis_provider_module
 from app.taiwan.realtime.calendar import (
     TAIPEI_TZ,
     get_market_status,
@@ -37,6 +38,12 @@ from app.taiwan.realtime.yahoo_provider import (
     to_yahoo_ticker,
 )
 from app.taiwan.symbol import parse_symbol
+
+#: A frozen Taiwan trading session (Friday 2026-08-28, 11:00, market OPEN).
+#: Tests that exercise session-date validation drive both the provider clock and
+#: the mock payload from this one value, so the result never depends on the day
+#: the suite happens to run.
+_FROZEN_SESSION = datetime(2026, 8, 28, 11, 0, 0, tzinfo=TAIPEI_TZ)
 
 
 # ── 1. Symbol & Channel Conversion Tests ─────────────────────────
@@ -223,13 +230,16 @@ class TestTwseMisProviderParsing:
 
 class TestRealtimeFallbackChain:
     def test_primary_mis_success(self, monkeypatch):
-        """Primary provider succeeds -> source='twse:mis'."""
-        # fixture 報價落在 2026-08-28 13:30, 若用真實時鐘, 盤中跑這個 test 會被
-        # date_mismatch 判成 stale。把 provider 的時鐘固定在同一場次, 與日期無關。
-        from app.taiwan.realtime import mis_provider as mis_mod
+        """Primary provider succeeds -> source='twse:mis'.
 
-        fixed_now = datetime(2026, 8, 28, 13, 30, tzinfo=TAIPEI_TZ)
-        monkeypatch.setattr(mis_mod, "taipei_now", lambda: fixed_now)
+        The provider flags a quote stale when its trade date differs from the
+        *current* session date while the market is open, so both the clock and
+        the mock payload are driven from one frozen session timestamp. Reading
+        the wall clock here made the test pass or fail depending on the day it
+        ran and whether the market happened to be open.
+        """
+        frozen = _FROZEN_SESSION
+        monkeypatch.setattr(mis_provider_module, "taipei_now", lambda: frozen)
 
         mock_mis = {
             "msgArray": [
@@ -240,8 +250,8 @@ class TestRealtimeFallbackChain:
                     "z": "106.95",
                     "y": "106.05",
                     "v": "5000",
-                    "d": "20260828",
-                    "t": "13:30:00",
+                    "d": frozen.strftime("%Y%m%d"),
+                    "t": frozen.strftime("%H:%M:%S"),
                 }
             ]
         }

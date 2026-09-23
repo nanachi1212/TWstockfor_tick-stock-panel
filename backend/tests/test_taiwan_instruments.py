@@ -94,14 +94,14 @@ class TestTaiwanInstrumentAdaptersOffline:
         )
         calls = []
 
-        def get(url, *, headers, timeout):
-            calls.append((url, headers, timeout))
-            return response
+        def client(**kwargs):
+            calls.append(kwargs)
+            return httpx.Client(transport=httpx.MockTransport(lambda request: response), **kwargs)
 
-        monkeypatch.setattr(adapters.httpx, "get", get)
+        monkeypatch.setattr(adapters, "taiwan_client", client)
         html = TwseInstrumentAdapter().fetch_live_html(timeout=7)
         assert "2330" in html
-        assert calls == [(adapters.TWSE_ISIN_URL, adapters.OFFICIAL_HEADERS, 7)]
+        assert calls == [{"headers": adapters.OFFICIAL_HEADERS, "timeout": 7}]
 
     def test_twse_parsing_stocks_and_etfs(self):
         items = parse_isin_html(TWSE_SAMPLE_HTML, exchange="TWSE", source_name="TWSE_ISIN")
@@ -184,13 +184,13 @@ class TestOfficialCompanyDirectoryIndustryNormalization:
     """
 
     def _mock_json_get(self, monkeypatch, rows: list[dict]):
-        def get(url, *, headers, timeout):
+        def get(url, timeout):
             return httpx.Response(
                 200,
                 content=json.dumps(rows).encode("utf-8"),
                 request=httpx.Request("GET", url),
             )
-        monkeypatch.setattr(adapters.httpx, "get", get)
+        monkeypatch.setattr(adapters, "_get_response", get)
 
     def test_twse_numeric_industry_code_normalized_to_readable_name(self, monkeypatch):
         self._mock_json_get(monkeypatch, [

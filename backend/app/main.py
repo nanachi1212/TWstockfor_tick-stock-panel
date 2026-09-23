@@ -30,6 +30,7 @@ from app.api import (
     stock_analysis,
     strategy,
     taiwan,
+    taiwan_live,
     watchlist,
 )
 from app.api import auth as auth_api
@@ -463,6 +464,7 @@ app.include_router(signals.router)
 app.include_router(monitor_rules.router)
 app.include_router(alerts.router)
 app.include_router(taiwan.router)
+app.include_router(taiwan_live.router)
 
 # 二次开发路由与小粒度策略在所有核心路由后注册, 禁止覆盖核心路径。
 extension_registry, extension_load_errors = configure_backend_extensions(app)

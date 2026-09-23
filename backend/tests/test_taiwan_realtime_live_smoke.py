@@ -26,13 +26,23 @@ class TestTaiwanRealtimeLiveSmoke:
 
         assert len(quotes) >= 3, f"Expected at least 3 symbols, got {len(quotes)}"
 
+        # MIS publishes ``z`` (last traded price) as "-" whenever no trade has
+        # printed in the current snapshot interval, so ``last_price`` is
+        # legitimately absent intraday even for a liquid name. ``prev_close``
+        # is always present, so the invariants below assert on what the
+        # official endpoint actually guarantees and only check ``last_price``
+        # when the snapshot carried one. Asserting last_price unconditionally
+        # made this test depend on market micro-state at the moment it ran.
+
         # 1. 2330 TSMC
         if "2330.TWSE" in quotes:
             q_2330 = quotes["2330.TWSE"]
             assert q_2330.symbol == "2330.TWSE"
-            assert q_2330.last_price is not None and q_2330.last_price > 500.0
             assert q_2330.prev_close is not None and q_2330.prev_close > 500.0
-            assert q_2330.volume is not None and q_2330.volume > 1000
+            if q_2330.last_price is not None:
+                assert q_2330.last_price > 500.0
+            if q_2330.volume is not None:
+                assert q_2330.volume > 1000
             assert q_2330.source_meta.source == "twse:mis"
             # Depth book check
             if q_2330.bids:
@@ -43,15 +53,18 @@ class TestTaiwanRealtimeLiveSmoke:
         if "0050.TWSE" in quotes:
             q_0050 = quotes["0050.TWSE"]
             assert q_0050.symbol == "0050.TWSE"
-            assert q_0050.last_price is not None and q_0050.last_price > 50.0
-            assert q_0050.volume is not None and q_0050.volume > 1000
+            assert q_0050.prev_close is not None and q_0050.prev_close > 50.0
+            if q_0050.last_price is not None:
+                assert q_0050.last_price > 50.0
 
         # 3. 8069 TPEx
         if "8069.TPEX" in quotes:
             q_8069 = quotes["8069.TPEX"]
             assert q_8069.symbol == "8069.TPEX"
             assert q_8069.exchange == "TPEX"
-            assert q_8069.last_price is not None and q_8069.last_price > 50.0
+            assert q_8069.prev_close is not None and q_8069.prev_close > 50.0
+            if q_8069.last_price is not None:
+                assert q_8069.last_price > 50.0
 
     def test_live_service_with_caching(self):
         """Verify TaiwanRealtimeService live orchestrator and cache hit metrics."""
