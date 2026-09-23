@@ -12,12 +12,14 @@ import time
 import urllib.error
 import urllib.request
 from concurrent.futures import ThreadPoolExecutor
+from datetime import datetime
 from itertools import pairwise
 
 import pytest
 
 from app.rate_limits import _next_slot, _slot_lock, apply_safety_rpm, sleep_between_batches
 from app.taiwan.providers import http as taiwan_http
+from app.taiwan.providers.finmind_provider import FinMindAdapter
 
 TWSE_URL = "https://www.twse.com.tw/rwd/zh/afterTrading/MI_INDEX?date=20250102"
 TPEX_URL = "https://www.tpex.org.tw/www/zh-tw/afterTrading/dailyQuotes?date=114/01/02"
@@ -47,6 +49,23 @@ def test_hosts_map_to_namespaced_taiwan_keys() -> None:
         "taiwan:twse", "taiwan:tpex", "taiwan:mops",
         "taiwan:tdcc", "taiwan:finmind", "taiwan:yahoo",
     }
+
+
+@pytest.mark.parametrize(("token", "expected"), [("", 5), ("  ", 5), ("test-verified-token", 10)])
+def test_finmind_adapter_uses_anonymous_or_token_rate(monkeypatch, token, expected):
+    calls = []
+
+    def fetch(url, **kwargs):
+        calls.append(kwargs["rpm"])
+        return {"data": []}
+
+    monkeypatch.setattr("app.taiwan.providers.finmind_provider.fetch_json", fetch)
+    adapter = FinMindAdapter(token=token)
+    adapter.fetch_daily(["2330.TWSE"], datetime(2024, 1, 2), datetime(2024, 1, 3))
+    assert calls == [expected]
+    assert adapter.metadata.rate_limit_rpm == expected
+    assert FinMindAdapter().metadata.rate_limit_rpm == 5
+    assert taiwan_http.SOURCE_RPM[taiwan_http.FINMIND] == 5
 
 
 def test_unregistered_host_is_not_throttled() -> None:

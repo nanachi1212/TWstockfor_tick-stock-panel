@@ -150,17 +150,28 @@ class FactorPanelStore:
                                (pl.col("universe_tier") != panel.universe_tier)).height:
             raise ValueError("mixed factor version, policy or tier")
         metadata = json.dumps(factor_meta(), sort_keys=True, ensure_ascii=False, indent=2).encode("utf-8")
-        self.root.mkdir(parents=True, exist_ok=True)
-        meta_path = self.root / "_factor_meta.json"
+        version_root = self._partition(panel, panel.values["date"][0]).parents[2]
+        meta_path = version_root / "_factor_meta.json"
         if meta_path.exists():
             if meta_path.read_bytes() != metadata:
                 raise ValueError("factor metadata contract changed; bump version before publishing")
         else:
-            fd, temp = tempfile.mkstemp(dir=self.root, prefix=".factor_meta_")
+            # Existing legacy partitions share the old root manifest. Preserve
+            # it and require its contract before attaching a version manifest.
+            if next(version_root.glob("policy_version=*/universe_tier=*/date=*"), None):
+                legacy = self.root / "_factor_meta.json"
+                if not legacy.exists() or legacy.read_bytes() != metadata:
+                    raise ValueError("legacy factor metadata differs or is missing; bump version")
+            version_root.mkdir(parents=True, exist_ok=True)
+            fd, temp = tempfile.mkstemp(dir=version_root, prefix=".factor_meta_")
             try:
                 with os.fdopen(fd, "wb") as stream:
                     stream.write(metadata)
-                os.replace(temp, meta_path)
+                try:
+                    os.link(temp, meta_path)  # Atomic publish without replacing another writer.
+                except FileExistsError:
+                    if meta_path.read_bytes() != metadata:
+                        raise ValueError("factor metadata contract changed; bump version") from None
             finally:
                 Path(temp).unlink(missing_ok=True)
         saved = []

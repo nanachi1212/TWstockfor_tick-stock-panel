@@ -229,6 +229,35 @@ def test_training_filters_symbols_features_and_cross_section_population():
         industry_neutralize()
 
 
+def test_training_warmup_and_liquidity_are_date_specific():
+    days = _days(4)
+    symbol = "2330.TWSE"
+    panel = _panel(4)
+    universe = _universe(4, (symbol,))
+    policy = EligibilityPolicy(min_warmup_sessions=2, min_adv20_twd=10)
+    manifest = FeatureManifest("schema-1", ())
+    warmup = {(day, symbol): i + 1 for i, day in enumerate(days)}
+    liquidity = {(days[0], symbol): 100, (days[1], symbol): 1, (days[2], symbol): 100}
+    before = panel_training_matrix(panel, universe, policy, manifest, {},
+                                   warmup_sessions=warmup, adv20_twd=liquidity)
+    # IPO warmup, low turnover, and missing turnover reject independent dates.
+    assert before.matrix["date"].to_list() == [days[2]]
+    warmup[(days[3], symbol)] = 1000000
+    liquidity[(days[3], symbol)] = 1000000
+    after = panel_training_matrix(panel, universe, policy, manifest, {},
+                                  warmup_sessions=warmup, adv20_twd=liquidity)
+    assert after.matrix["date"].to_list() == days[2:]
+    assert after.matrix.filter(pl.col("date") < days[3]).equals(before.matrix)
+
+
+@pytest.mark.parametrize("field", ["warmup_sessions", "adv20_twd"])
+def test_training_rejects_symbol_only_policy_evidence(field):
+    with pytest.raises(ValueError, match=r"requires \(date, symbol\) keys"):
+        panel_training_matrix(_panel(2), _universe(2, ("2330.TWSE",)),
+                              EligibilityPolicy(), FeatureManifest("s", ()), {},
+                              **{field: {"2330.TWSE": 1000000}})
+
+
 def test_cross_section_ties_versions_and_numeric_transforms():
     base = {"date": [_days(1)[0]] * 3, "symbol": ["B", "A", "C"],
             "ma20": [1.0, 1.0, 100.0], "policy_version": ["v1"] * 3,
@@ -257,7 +286,7 @@ def test_storage_is_idempotent_atomic_and_preserves_nulls(tmp_path):
     store = FactorPanelStore(tmp_path / "factors")
     paths = store.save(first)
     assert paths == store.save(first)
-    assert (tmp_path / "factors" / "_factor_meta.json").exists()
+    assert (tmp_path / "factors" / f"factor_version={first.factor_version}" / "_factor_meta.json").exists()
     values, coverage = store.read(first, _days(2)[0])
     assert values["ma20"][0] is None
     assert coverage.filter(pl.col("factor") == "ma20")["status"].item() == "insufficient_history"
@@ -269,6 +298,57 @@ def test_storage_is_idempotent_atomic_and_preserves_nulls(tmp_path):
     changed = replace(first, values=first.values.with_columns((pl.col("amount") + 1).alias("amount")))
     with pytest.raises(ValueError, match="immutable"):
         store.save(changed)
+
+
+@pytest.mark.parametrize("legacy", [False, True])
+def test_factor_metadata_versions_coexist_without_rewriting_old_partitions(tmp_path, monkeypatch, legacy):
+    import app.taiwan.quant.storage as storage_module
+
+    first = _panel(2)
+    store = FactorPanelStore(tmp_path / "factors")
+    paths = store.save(first)
+    old_values = (paths[0] / "values.parquet").read_bytes()
+    old_meta_path = paths[0].parents[2] / "_factor_meta.json"
+    old_metadata = old_meta_path.read_bytes()
+    if legacy:
+        (store.root / "_factor_meta.json").write_bytes(old_metadata)
+        old_meta_path.unlink()
+    new_metadata = factor_meta()
+    new_metadata["factors"]["ma5"]["formula"] = "new version formula"
+    monkeypatch.setattr(storage_module, "factor_meta", lambda: new_metadata)
+    second = _panel(2, factor_version="tw-factors-v2")
+    new_paths = store.save(second)
+    assert (new_paths[0].parents[2] / "_factor_meta.json").read_bytes() != old_metadata
+    assert (paths[0] / "values.parquet").read_bytes() == old_values
+    assert store.read(first, _days(2)[0])[0]["factor_version"][0] == first.factor_version
+    with pytest.raises(ValueError, match="bump version"):
+        store.save(first)
+    if legacy:
+        assert (store.root / "_factor_meta.json").read_bytes() == old_metadata
+        assert not old_meta_path.exists()
+        monkeypatch.setattr(storage_module, "factor_meta", factor_meta)
+        assert store.save(first) == paths
+    assert old_meta_path.read_bytes() == old_metadata
+
+
+def test_metadata_publication_does_not_overwrite_a_competing_contract(tmp_path, monkeypatch):
+    import app.taiwan.quant.storage as storage_module
+
+    panel = _panel(1)
+    store = FactorPanelStore(tmp_path)
+    original_link = storage_module.os.link
+    competing = b'{"different_contract": true}'
+
+    def competing_publish(source, target):
+        target.write_bytes(competing)
+        original_link(source, target)
+
+    monkeypatch.setattr(storage_module.os, "link", competing_publish)
+    with pytest.raises(ValueError, match="bump version"):
+        store.save(panel)
+    target = store._partition(panel, _days(1)[0])
+    assert not target.exists()
+    assert (target.parents[2] / "_factor_meta.json").read_bytes() == competing
 
 
 def test_storage_partition_publication_failure_leaves_no_partial_target(tmp_path, monkeypatch):

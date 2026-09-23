@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import logging
 import urllib.parse
+from dataclasses import replace
 from datetime import datetime, timedelta
 
 import polars as pl
@@ -30,7 +31,7 @@ FINMIND_METADATA = SourceMetadata(
     volume_unit=VolumeUnit.SHARES,
     amount_unit=AmountUnit.TWD,
     price_semantics=PriceSemantics.RAW,
-    rate_limit_rpm=10,
+    rate_limit_rpm=5,
     supports_history=True,
     supports_etf=True,
     supports_tpex=True,
@@ -42,8 +43,11 @@ class FinMindAdapter:
     metadata = FINMIND_METADATA
 
     def __init__(self, token: str = "", timeout: int = 15) -> None:
-        self.token = token
+        self.token = token.strip()
         self.timeout = timeout
+        # A supplied token must belong to a registered, email-verified account:
+        # https://finmind.github.io/en/quickstart/
+        self.metadata = replace(FINMIND_METADATA, rate_limit_rpm=10 if self.token else 5)
 
     def fetch_daily(
         self,

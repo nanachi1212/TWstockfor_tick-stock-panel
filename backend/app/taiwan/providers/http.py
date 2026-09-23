@@ -12,7 +12,7 @@ behaviour.  That keeps injected test clients and unrelated hosts fast.
 rpm resolution
 --------------
 ``SourceMetadata.rate_limit_rpm`` wins when a caller passes it.  Only FinMind
-(10) and Yahoo (30) actually declare one; ``SourceMetadata`` otherwise carries
+(5 anonymous / 10 with token) and Yahoo (30) actually declare one; ``SourceMetadata`` otherwise carries
 its dataclass default of 60, which is not a statement about the source.  The
 conservative per-host defaults below are used when no rpm is supplied:
 
@@ -28,7 +28,7 @@ conservative per-host defaults below are used when no rpm is supplied:
   so it is paced more slowly than the quote endpoints.
 * ``taiwan:tdcc`` = 12 rpm.  集保 distribution data is not fetched yet; it is
   registered up-front at the MOPS pace so a future adapter cannot forget to.
-* ``taiwan:finmind`` = 10 rpm.  Declared: 300 req/hour anonymous (5/min),
+* ``taiwan:finmind`` = 5 rpm by default. Declared: 300 req/hour anonymous (5/min),
   600 req/hour with a verified token (10/min).
 * ``taiwan:yahoo`` = 30 rpm.  Declared in ``YAHOO_METADATA``; Yahoo publishes
   no quota for the chart API, 30 is the adapter's long-standing declaration.
@@ -76,7 +76,7 @@ SOURCE_RPM: dict[str, int] = {
     TPEX: 20,
     MOPS: 12,
     TDCC: 12,
-    FINMIND: 10,
+    FINMIND: 5,
     YAHOO: 30,
 }
 

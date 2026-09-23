@@ -315,7 +315,16 @@ revivt 3064 2024-02-05 factor=3.3333333333333335。
 
 `quant/training.py` 是 panel 進入模型列的入口：`resolve_training_eligibility(manifest, capabilities)` → `quant_eligibility.eligible(universe, policy)` → `training_matrix()`。每日期的候選母體限同一 `policy_version`、`universe_tier` 的 eligible symbols，輸出保留 `feature_schema_version`、`factor_version`、`policy_version`、`universe_tier`，並回報 rejected features/symbols 與理由。`cross_section.py` 只對此母體做 winsorize、zscore、rank_pct，percentile 附 `date/policy_version/universe_tier/eligible_count`；產業中立化拒絕無 PIT assignment。
 
-`factors/factor_version=*/policy_version=*/universe_tier=*/date=*/` 分區含 `values.parquet`（identity/provenance + factor values）及 `coverage.parquet`（只含非 available exception：`symbol/date/factor/status/as_of/available_at/reason/source`）；`factors/_factor_meta.json` 保存 formula、unit、source、min_history、price semantics 與 manifest/capability training requirement。整個分區以暫存目錄原子發佈；既有不同內容不能覆寫，須換版本。
+歷史 training 的 `warmup_sessions` 與 `adv20_twd` 必須以 `(date, symbol)` 為 key；
+symbol-only 現況／全樣本 map 會拒絕。每日期只取該日期的證據，缺值不通過非零門檻，
+不借用未來的 warm-up 或 liquidity 值。
+
+`factors/factor_version=*/policy_version=*/universe_tier=*/date=*/` 分區含 `values.parquet`（identity/provenance + factor values）及 `coverage.parquet`（只含非 available exception：`symbol/date/factor/status/as_of/available_at/reason/source`）；`factors/factor_version=*/_factor_meta.json` 保存 formula、unit、source、min_history、price semantics 與 manifest/capability training requirement。整個分區以暫存目錄原子發佈；既有不同內容不能覆寫，須換版本。
+
+不同 factor version 的 manifest 可並存；同版本不同 formula 仍拒絕。既有 root-level
+`factors/_factor_meta.json` 與舊 partitions 保留不動；對舊版本追加寫入時，必須先與
+legacy manifest 一致，才建立對應的版本 manifest。metadata 使用不覆寫的原子發佈，
+不允許併發 writer 取代先完成的契約。
 
 `quant/baseline.py` 只讀已入選矩陣，train window 計 IC/ICIR 與權重，validation window 選 threshold，test 僅排名。所有輸出標記 `usage_scope=experimental_only`，不寫 formal Primary OOS artifact；歷史產業與未通過 capability × manifest 的因子不能進權重。
 

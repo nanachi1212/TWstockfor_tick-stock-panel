@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import date
 
 import polars as pl
 
@@ -31,9 +32,15 @@ class TrainingMatrixResult:
 def panel_training_matrix(
     panel: FactorPanel, universe: pl.DataFrame, policy: EligibilityPolicy,
     manifest: FeatureManifest, capabilities: dict[str, DatasetCapability], *,
-    warmup_sessions: dict[str, int] | None = None,
-    adv20_twd: dict[str, float] | None = None,
+    warmup_sessions: dict[tuple[date, str], int] | None = None,
+    adv20_twd: dict[tuple[date, str], float] | None = None,
 ) -> TrainingMatrixResult:
+    # Historical admission cannot reuse a current/full-sample symbol-only map.
+    for name, entries in (("warmup_sessions", warmup_sessions), ("adv20_twd", adv20_twd)):
+        if any(not isinstance(key, tuple) or len(key) != 2
+               or type(key[0]) is not date or not isinstance(key[1], str)
+               for key in entries or {}):
+            raise ValueError(f"{name} requires (date, symbol) keys")
     if panel.universe_tier not in ("primary_verified", "secondary_observed"):
         raise ValueError("live universe cannot enter historical training")
     if policy.version != panel.policy_version or policy.tier != panel.universe_tier:
@@ -54,8 +61,13 @@ def panel_training_matrix(
     for day in panel.values["date"].unique().sort().to_list():
         same_day = panel.values.filter(pl.col("date") == day)
         candidates = universe.filter(pl.col("date") == day)
-        allowed = set(eligible(candidates, policy, warmup_sessions=warmup_sessions,
-                              adv20_twd=adv20_twd)["market_symbol"].to_list())
+        symbols = candidates["market_symbol"].to_list()
+        warmup = {symbol: warmup_sessions[(day, symbol)] for symbol in symbols
+                  if (day, symbol) in (warmup_sessions or {})}
+        liquidity = {symbol: adv20_twd[(day, symbol)] for symbol in symbols
+                     if (day, symbol) in (adv20_twd or {})}
+        allowed = set(eligible(candidates, policy, warmup_sessions=warmup,
+                              adv20_twd=liquidity)["market_symbol"].to_list())
         for symbol in same_day["symbol"].to_list():
             if symbol not in allowed:
                 rejected.add(symbol)
