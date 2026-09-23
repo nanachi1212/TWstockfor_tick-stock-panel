@@ -16,20 +16,21 @@ from __future__ import annotations
 
 import json
 import logging
-from datetime import date, datetime
+from datetime import date
 from typing import Any
 
 import httpx
 import polars as pl
 
-from app.data_providers.normalizer import DAILY_COLS
 from app.taiwan.providers.base import AmountUnit, PriceSemantics, SourceMetadata, VolumeUnit
 from app.taiwan.providers.http import DEFAULT_USER_AGENT, taiwan_client
-from app.taiwan.providers.taiwan_values import TAIPEI, parse_number
-from app.taiwan.symbol import Exchange, parse_symbol
 from app.taiwan.universe import TaiwanSecurityMaster, get_security_master
 
 logger = logging.getLogger(__name__)
+
+
+class OfficialDailySnapshotError(RuntimeError):
+    """An official full-market snapshot is incomplete or unusable."""
 
 TWSE_MI_INDEX_URL = "https://www.twse.com.tw/rwd/zh/afterTrading/MI_INDEX"
 TPEX_DAILY_QUOTES_URL = "https://www.tpex.org.tw/www/zh-tw/afterTrading/dailyQuotes"
@@ -102,24 +103,23 @@ class OfficialDailySnapshotAdapter:
         Filters strictly by Security Master allowlist.
         """
         frames: list[pl.DataFrame] = []
-        # 1. TWSE Snapshot
-        try:
-            df_twse = self.fetch_twse(target_date)
-            if not df_twse.is_empty():
-                frames.append(df_twse)
-        except Exception as e:
-            logger.warning("TWSE snapshot fetch failed for %s: %s", target_date, e)
+        failures: list[str] = []
+        for exchange, fetch in (("TWSE", self.fetch_twse), ("TPEX", self.fetch_tpex)):
+            try:
+                frame = fetch(target_date)
+                if frame.is_empty():
+                    failures.append(f"{exchange}:empty_or_unrecognized_snapshot")
+                else:
+                    frames.append(frame)
+            except Exception as exc:
+                failures.append(f"{exchange}:{type(exc).__name__}:{exc}")
 
-        # 2. TPEx Snapshot
-        try:
-            df_tpex = self.fetch_tpex(target_date)
-            if not df_tpex.is_empty():
-                frames.append(df_tpex)
-        except Exception as e:
-            logger.warning("TPEx snapshot fetch failed for %s: %s", target_date, e)
-
-        if not frames:
-            return pl.DataFrame(schema={col: pl.Float64 for col in DAILY_COLS})
+        # The returned frame is written as a date-level completion marker. Do
+        # not let a one-exchange snapshot make that date look complete forever.
+        if failures:
+            raise OfficialDailySnapshotError(
+                f"official_daily_snapshot_incomplete:{target_date}:" + ";".join(failures)
+            )
 
         combined = pl.concat(frames, how="diagonal_relaxed")
         return combined.unique(subset=["symbol", "date"], keep="last").sort(["symbol", "date"])
@@ -132,8 +132,9 @@ class OfficialDailySnapshotAdapter:
 
         stat = payload.get("stat", "")
         if stat != "OK":
-            logger.info("TWSE MI_INDEX returned non-OK status for %s: %s", target_date, stat)
-            return pl.DataFrame()
+            raise OfficialDailySnapshotError(
+                f"TWSE MI_INDEX returned non-OK status for {target_date}: {stat}"
+            )
 
         tables = payload.get("tables", [])
         quote_table = None
@@ -145,11 +146,18 @@ class OfficialDailySnapshotAdapter:
                 break
 
         if not quote_table:
-            logger.warning("TWSE MI_INDEX quote table not found for date %s", target_date)
-            return pl.DataFrame()
+            raise OfficialDailySnapshotError(
+                f"TWSE MI_INDEX quote table not found for {target_date}"
+            )
 
         fields = quote_table.get("fields", [])
         data_rows = quote_table.get("data", [])
+        required = {"證券代號", "成交股數", "成交金額", "開盤價", "最高價", "最低價", "收盤價"}
+        missing = sorted(required - set(fields))
+        if missing:
+            raise OfficialDailySnapshotError(
+                f"TWSE MI_INDEX schema mismatch for {target_date}: missing {missing}"
+            )
         return self._parse_twse_table(data_rows, fields, target_date)
 
     def _parse_twse_table(
@@ -227,11 +235,18 @@ class OfficialDailySnapshotAdapter:
                 break
 
         if not quote_table:
-            logger.warning("TPEx dailyQuotes quote table not found for date %s", target_date)
-            return pl.DataFrame()
+            raise OfficialDailySnapshotError(
+                f"TPEx dailyQuotes quote table not found for {target_date}"
+            )
 
         fields = quote_table.get("fields", [])
         data_rows = quote_table.get("data", [])
+        required = {"代號", "成交股數", "成交金額(元)", "開盤", "最高", "最低", "收盤"}
+        missing = sorted(required - set(fields))
+        if missing:
+            raise OfficialDailySnapshotError(
+                f"TPEx dailyQuotes schema mismatch for {target_date}: missing {missing}"
+            )
         return self._parse_tpex_table(data_rows, fields, target_date)
 
     def _parse_tpex_table(
