@@ -12,7 +12,10 @@ Operating Schedule:
 """
 from __future__ import annotations
 
-from datetime import date, datetime, time as dt_time, timedelta, timezone
+from dataclasses import dataclass
+from datetime import date, datetime, timedelta, timezone
+from datetime import time as dt_time
+from typing import Literal
 
 from app.taiwan.realtime.models import MarketStatus
 
@@ -22,6 +25,42 @@ PRE_OPEN_START = dt_time(8, 30)
 REGULAR_OPEN_START = dt_time(9, 0)
 REGULAR_OPEN_END = dt_time(13, 30)
 POST_CLOSE_END = dt_time(14, 30)
+
+
+@dataclass(frozen=True)
+class TradingDayEvidence:
+    """One exchange/date fact; a candidate weekday is never evidence of trading.
+
+    ``retrieved_at=None`` means no retrieval exists (calendar rule/pending/legacy
+    metadata). This timestamp is provenance, never a predictive available_at.
+    """
+
+    date: date
+    exchange: str
+    status: Literal["trading", "non_trading", "unresolved"]
+    evidence_source: str
+    reason: str
+    retrieved_at: datetime | None = None
+
+    def __post_init__(self) -> None:
+        if self.exchange not in {"TWSE", "TPEX"}:
+            raise ValueError("unsupported calendar exchange")
+        if self.status not in {"trading", "non_trading", "unresolved"}:
+            raise ValueError("invalid trading evidence status")
+        if not self.evidence_source or not self.reason:
+            raise ValueError("trading evidence needs a source and reason")
+        if self.retrieved_at is not None and self.retrieved_at.utcoffset() is None:
+            raise ValueError("retrieved_at must be timezone-aware")
+
+    @property
+    def possible_trading_session(self) -> bool:
+        return self.status != "non_trading"
+
+    def describe(self) -> dict[str, str | None]:
+        return {"date": self.date.isoformat(), "exchange": self.exchange,
+                "status": self.status, "evidence_source": self.evidence_source,
+                "reason": self.reason,
+                "retrieved_at": self.retrieved_at.isoformat() if self.retrieved_at else None}
 
 
 def taipei_now() -> datetime:
@@ -55,6 +94,20 @@ class TaiwanTradingCalendar:
     def add_trading_day(self, d: date) -> None:
         self.known_trading_days.add(d)
 
+    def day_evidence(self, d: date, exchange: str) -> TradingDayEvidence:
+        if d in self.known_holidays and d in self.known_trading_days:
+            return TradingDayEvidence(d, exchange, "unresolved", "calendar:known_days",
+                                      "conflicting_calendar_evidence")
+        if d in self.known_trading_days:
+            return TradingDayEvidence(d, exchange, "trading", "calendar:known_trading_days",
+                                      "verified_trading_day")
+        if d in self.known_holidays:
+            return TradingDayEvidence(d, exchange, "non_trading", "calendar:known_holidays",
+                                      "verified_holiday")
+        if d.weekday() >= 5:
+            return TradingDayEvidence(d, exchange, "non_trading", "calendar_rule", "weekend")
+        return TradingDayEvidence(d, exchange, "unresolved", "calendar:pending", "pending")
+
     def is_trading_day(self, d: date) -> bool | None:
         """Evaluate if date is a trading day.
 
@@ -63,13 +116,8 @@ class TaiwanTradingCalendar:
             False: Confirmed non-trading day (weekend, statutory holiday, typhoon closure).
             None: Unverified (weekday with unknown statutory/extraordinary closure status).
         """
-        if d.weekday() >= 5:  # Saturday or Sunday
-            return False
-        if d in self.known_holidays:
-            return False
-        if d in self.known_trading_days:
-            return True
-        return None  # Unverified status
+        evidence = self.day_evidence(d, "TWSE")
+        return {"trading": True, "non_trading": False, "unresolved": None}[evidence.status]
 
     def get_market_status(
         self,
@@ -83,10 +131,7 @@ class TaiwanTradingCalendar:
         instead of falsely claiming guaranteed regular session.
         """
         now = dt if dt is not None else taipei_now()
-        if now.tzinfo is None:
-            now = now.replace(tzinfo=TAIPEI_TZ)
-        else:
-            now = now.astimezone(TAIPEI_TZ)
+        now = now.replace(tzinfo=TAIPEI_TZ) if now.tzinfo is None else now.astimezone(TAIPEI_TZ)
 
         d = now.date()
         trading_day_state = self.is_trading_day(d)
@@ -97,9 +142,7 @@ class TaiwanTradingCalendar:
 
         # 2. Time-of-day session division
         t = now.time()
-        if t < PRE_OPEN_START:
-            return MarketStatus.CLOSED
-        elif t > POST_CLOSE_END:
+        if t < PRE_OPEN_START or t > POST_CLOSE_END:
             return MarketStatus.CLOSED
 
         # 3. Extraordinary closure / Unverified weekday during scheduled trading hours

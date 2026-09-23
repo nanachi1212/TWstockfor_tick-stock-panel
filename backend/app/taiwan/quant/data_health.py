@@ -29,7 +29,10 @@ from typing import Any
 
 import polars as pl
 
-from app.taiwan.historical_classification import HistoricalClassificationStore
+from app.taiwan.historical_classification import (
+    HistoricalClassificationStore,
+    classification_counts,
+)
 from app.taiwan.observed_universe import ObservedUniverseStore, census_coverage
 from app.taiwan.quant.feature_manifest import DatasetCapability
 
@@ -77,6 +80,7 @@ class DataHealth:
     #: Primary TWSE and experimental TPEx have independent coverage records.
     #: The legacy census fields above refer to Primary TWSE only.
     census_by_exchange: dict[str, dict[str, int | float]] = field(default_factory=dict)
+    classification: dict[str, int | float] = field(default_factory=dict)
 
     @property
     def primary_census_ratio(self) -> float:
@@ -108,13 +112,28 @@ class DataHealth:
                 "twse_codes_observed": self.twse_codes_observed,
                 "twse_codes_classified": self.twse_codes_classified,
                 "ratio": round(self.classification_ratio, 4),
+                **self.classification,
             },
             "levels": dict(self.levels),
             "highest_level": self.highest_level().value,
             "blocked_reasons": {k: list(v) for k, v in self.blocked_reasons.items()},
             "census_by_exchange": {k: dict(v) for k, v in self.census_by_exchange.items()},
-            "primary_twse": dict(self.census_by_exchange.get("TWSE", {})),
-            "secondary_tpex_experimental": dict(self.census_by_exchange.get("TPEX", {})),
+            "primary_twse": {
+                **self.census_by_exchange.get("TWSE", {}),
+                "classification": dict(self.classification),
+                "readiness": dict(self.levels),
+                "blocked_reasons": {k: list(v) for k, v in self.blocked_reasons.items()},
+            },
+            "secondary_tpex_experimental": {
+                **self.census_by_exchange.get("TPEX", {}),
+                "instrument_type_status": "data_insufficient",
+                "readiness": {"ready_for_verified_oos": False,
+                              "ready_for_observed_experiment": bool(
+                                  self.census_by_exchange.get("TPEX", {}).get("observed_trading_sessions", 0))},
+                "blocked_reasons": ["TPEx historical instrument_type source BLOCKED",
+                                    *(["TPEx trading coverage incomplete"]
+                                      if self.secondary_tpex_census_ratio != 1.0 else [])],
+            },
             "primary_census_ratio": self.primary_census_ratio,
             "secondary_tpex_census_ratio": self.secondary_tpex_census_ratio,
         }
@@ -127,12 +146,15 @@ def evaluate_data_health(
     twse_codes_observed: int,
     twse_codes_classified: int,
     thresholds: ReadinessThresholds | None = None,
+    classification: dict[str, int | float] | None = None,
 ) -> DataHealth:
     """Grade readiness from plain counts, so it is trivially testable."""
     gates = thresholds or ReadinessThresholds()
     census_ratio = (census_sessions / census_total_sessions) if census_total_sessions else 0.0
     classification_ratio = (
         twse_codes_classified / twse_codes_observed) if twse_codes_observed else 0.0
+    if classification is not None:
+        classification_ratio = float(classification["primary_classification_ratio"])
 
     blocked: dict[str, list[str]] = {level.value: [] for level in LEVEL_ORDER}
 
@@ -155,6 +177,10 @@ def evaluate_data_health(
         training_blocked.append(
             f"TWSE classification coverage {classification_ratio:.1%} "
             f"< {gates.training_classification_ratio:.0%}")
+    if classification and classification.get("industry_only_unresolved_count", 0):
+        training_blocked.append(
+            "industry-table membership does not verify common/preferred share subtype; "
+            "authoritative historical common-stock evidence is data_insufficient")
     blocked[ReadinessLevel.TRAINING.value] = training_blocked
     levels[ReadinessLevel.TRAINING.value] = not training_blocked
 
@@ -179,6 +205,7 @@ def evaluate_data_health(
         classification_ratio=classification_ratio,
         levels=levels,
         blocked_reasons={k: v for k, v in blocked.items() if v},
+        classification=classification or {},
     )
 
 
@@ -194,7 +221,7 @@ def health_from_stores(
     from datetime import datetime
 
     from app.taiwan.backfill_worker import CENSUS_START
-    from app.taiwan.observed_universe import candidate_sessions, first_observed_dates
+    from app.taiwan.observed_universe import candidate_sessions
     from app.taiwan.providers.taiwan_values import TAIPEI
 
     census = census or ObservedUniverseStore()
@@ -206,22 +233,20 @@ def health_from_stores(
     twse_coverage = census_coverage(census, "TWSE", candidates)
     tpex_coverage = census_coverage(census, "TPEX", candidates)
 
-    observed = first_observed_dates(census, "TWSE")
+    observations = census.read("TWSE").filter(pl.col("date").is_between(start, end))
+    observed = {r["raw_code"]: r["date"] for r in observations.group_by("raw_code")
+                .agg(pl.col("date").min()).iter_rows(named=True)}
     classified = classification.read()
-    classified_codes = (
-        set(classified.filter(
-            (pl.col("exchange") == "TWSE")
-            & (pl.col("classification_status") == "verified")
-        )["code"].to_list()) if classified.height else set()
-    )
+    counts = classification_counts(observed, classified)
     # Primary OOS is TWSE Verified OOS.  TPEx historical instrument type is
     # blocked, so its experimental coverage cannot block or promote Primary.
     health = evaluate_data_health(
         census_sessions=twse_coverage.observed_trading_sessions,
         census_total_sessions=twse_coverage.expected_trading_sessions,
         twse_codes_observed=len(observed),
-        twse_codes_classified=len(set(observed) & classified_codes),
+        twse_codes_classified=len(observed) - int(counts["unknown_count"]),
         thresholds=thresholds,
+        classification=counts,
     )
     return replace(health, census_by_exchange={
         "TWSE": twse_coverage.describe(),

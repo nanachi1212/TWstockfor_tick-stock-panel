@@ -1,5 +1,13 @@
 # Taiwan Historical Backfill Worker（Background Data Lane）
 
+> **2026-09-23 契約更新**：A2b 現為每日期 37 次請求（34 產業 + ETF + 受益證券 +
+> 存託憑證）。舊 35-request 分區維持可讀，worker queue 會列入 contract upgrade；
+> `jobs_needing_contract_upgrade` 顯示尚未升級數。本文下方舊數字為先前實測紀錄。
+> 產業表不再單獨證明普通股 subtype，Primary 保守阻擋；詳見
+> [A5/A6 正確性契約](taiwan-a5-a6-data-correctness.md)。
+> TradingDayEvidence 保存在既有 Parquet footer；provider/schema 失敗仍由 checkpoint
+> 記錄、下次重試，`failed_date_evidence` 可區分 provider_error 與 schema_mismatch。
+
 > 這是**背景資料車道**。它的完成**不是**後續程式開發的前置條件。
 > Foreground engineering 與這個 worker 並行進行。
 

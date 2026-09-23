@@ -50,6 +50,7 @@ buckets (``taiwan:twse`` / ``taiwan:tpex``):
 """
 from __future__ import annotations
 
+# ruff: noqa: RUF001 -- Official Chinese provider status must remain exact.
 import json
 import logging
 import os
@@ -66,7 +67,7 @@ import pyarrow.parquet as pq
 
 from app.taiwan.providers.http import DEFAULT_USER_AGENT, taiwan_client
 from app.taiwan.providers.taiwan_values import TAIPEI, parse_number
-from app.taiwan.realtime.calendar import TaiwanTradingCalendar
+from app.taiwan.realtime.calendar import TaiwanTradingCalendar, TradingDayEvidence
 
 logger = logging.getLogger(__name__)
 
@@ -116,6 +117,15 @@ _MISSING = {"", "-", "--", "---", "----", "N/A", "null", "None"}
 _MARKET_STATUS_KEY = b"taiwan_census_market_status"
 _CONFIRMATION_SOURCE_KEY = b"taiwan_census_confirmation_source"
 _CONFIRMED_NON_TRADING = b"confirmed_non_trading"
+_EVIDENCE_KEY = b"taiwan_trading_day_evidence_v1"
+
+
+class CensusSchemaError(ValueError):
+    """An HTTP response could not establish valid market observations."""
+
+
+class CensusProviderError(RuntimeError):
+    """An official endpoint returned an error rather than an empty market table."""
 
 
 def _num(raw: object) -> float | None:
@@ -178,16 +188,22 @@ class ObservedUniverseStore:
         handle, temporary = tempfile.mkstemp(dir=str(path.parent), suffix=".tmp")
         os.close(handle)
         try:
-            if confirmed_non_trading_source is None:
-                frame.write_parquet(temporary)
-            else:
-                # PyArrow's file metadata travels with the same atomic partition.
-                # Missing metadata on old/unknown empty partitions fails closed.
-                table = frame.to_arrow().replace_schema_metadata({
-                    _MARKET_STATUS_KEY: _CONFIRMED_NON_TRADING,
-                    _CONFIRMATION_SOURCE_KEY: confirmed_non_trading_source.encode("utf-8"),
-                })
-                pq.write_table(table, temporary, compression="zstd")
+            evidence = TradingDayEvidence(
+                day, exchange,
+                "trading" if frame.height else (
+                    "non_trading" if confirmed_non_trading_source else "unresolved"),
+                confirmed_non_trading_source or (
+                    TWSE_SOURCE if exchange == "TWSE" else TPEX_SOURCE),
+                "valid_market_rows" if frame.height else (
+                    "verified_holiday" if confirmed_non_trading_source else "unexplained_empty"),
+                datetime.now(TAIPEI),
+            )
+            metadata = {_EVIDENCE_KEY: json.dumps(evidence.describe()).encode("utf-8")}
+            if confirmed_non_trading_source:
+                metadata.update({_MARKET_STATUS_KEY: _CONFIRMED_NON_TRADING,
+                                 _CONFIRMATION_SOURCE_KEY: confirmed_non_trading_source.encode("utf-8")})
+            table = frame.to_arrow().replace_schema_metadata(metadata)
+            pq.write_table(table, temporary, compression="zstd")
             os.replace(temporary, path)
         except BaseException:
             Path(temporary).unlink(missing_ok=True)
@@ -228,14 +244,45 @@ class ObservedUniverseStore:
 
     def partition_status(self, exchange: str, day: date) -> str:
         """Return observed, confirmed_non_trading, or empty_unknown."""
+        evidence = self.day_evidence(exchange, day)
+        return {"trading": "observed", "non_trading": "confirmed_non_trading",
+                "unresolved": "empty_unknown"}[evidence.status]
+
+    def day_evidence(
+        self, exchange: str, day: date, *,
+        calendar: TaiwanTradingCalendar | None = None,
+        failure: dict[str, Any] | None = None,
+    ) -> TradingDayEvidence:
+        """Read evidence without creating completion for failed/pending dates.
+
+        Worker failures live in its existing checkpoint (``failure``); they do
+        not create a partition that would prevent retry. Legacy nonempty census
+        partitions are observations; legacy empties do not prove a holiday.
+        """
+        source = TWSE_SOURCE if exchange == "TWSE" else TPEX_SOURCE
+        if not self.has(exchange, day):
+            cal = (calendar or TaiwanTradingCalendar()).day_evidence(day, exchange)
+            if cal.status != "unresolved" or not failure:
+                return cal
+            stamp = failure.get("last_attempt")
+            return TradingDayEvidence(day, exchange, "unresolved", source,
+                                      failure.get("reason", "provider_error"),
+                                      datetime.fromisoformat(stamp) if stamp else None)
         footer = pq.read_metadata(self.partition_path(exchange, day))
         metadata = footer.metadata or {}
+        if _EVIDENCE_KEY in metadata:
+            raw = json.loads(metadata[_EVIDENCE_KEY])
+            stamp = raw.get("retrieved_at")
+            return TradingDayEvidence(day, exchange, raw["status"], raw["evidence_source"],
+                                      raw["reason"], datetime.fromisoformat(stamp) if stamp else None)
         if footer.num_rows:
-            return "observed"
+            return TradingDayEvidence(day, exchange, "trading", source, "legacy_valid_market_rows")
         if (metadata.get(_MARKET_STATUS_KEY) == _CONFIRMED_NON_TRADING
                 and metadata.get(_CONFIRMATION_SOURCE_KEY)):
-            return "confirmed_non_trading"
-        return "empty_unknown"
+            return TradingDayEvidence(day, exchange, "non_trading",
+                                      metadata[_CONFIRMATION_SOURCE_KEY].decode("utf-8"),
+                                      "verified_holiday")
+        return TradingDayEvidence(day, exchange, "unresolved", source, "unexplained_empty")
 
 
 @dataclass(frozen=True)
@@ -272,13 +319,18 @@ def census_coverage(
     candidates: set[date],
     *,
     partition_statuses: dict[date, str] | None = None,
+    calendar: TaiwanTradingCalendar | None = None,
 ) -> CensusCoverage:
     """Keep unprocessed and unverified empty weekdays in the denominator."""
     all_statuses = partition_statuses if partition_statuses is not None else store.partition_statuses(exchange)
     statuses = {day: status for day, status in all_statuses.items()
                 if day in candidates}
+    cal = calendar or TaiwanTradingCalendar()
     observed = sum(status == "observed" for status in statuses.values())
-    confirmed = sum(status == "confirmed_non_trading" for status in statuses.values())
+    confirmed = sum(
+        statuses.get(day) == "confirmed_non_trading"
+        or (statuses.get(day) != "observed" and cal.day_evidence(day, exchange).status == "non_trading")
+        for day in candidates)
     unknown = sum(status == "empty_unknown" for status in statuses.values())
     expected = len(candidates) - confirmed
     return CensusCoverage(
@@ -321,15 +373,22 @@ def parse_twse_census(payload: dict[str, Any], day: date, retrieved_at: str) -> 
     Returns ``[]`` for an official no-data response.  Its cause is not proven
     by an empty result alone.
     """
-    if str(payload.get("stat", "")).strip() != "OK":
-        return []
+    if not isinstance(payload, dict) or "stat" not in payload:
+        raise CensusSchemaError("TWSE MI_INDEX missing status")
+    if payload.get("date") and payload["date"] != day.strftime("%Y%m%d"):
+        raise CensusSchemaError("TWSE MI_INDEX response date mismatch")
+    stat = str(payload.get("stat", "")).strip()
+    if stat != "OK":
+        if stat == "很抱歉，沒有符合條件的資料!":
+            return []
+        raise CensusProviderError("TWSE MI_INDEX provider error")
     table = next(
         (t for t in payload.get("tables") or []
          if "每日收盤行情" in str(t.get("title") or "")),
         None,
     )
     if table is None:
-        return []
+        raise CensusSchemaError("TWSE MI_INDEX missing daily market table")
     fields = list(table.get("fields") or [])
     try:
         i_code = fields.index("證券代號")
@@ -341,16 +400,16 @@ def parse_twse_census(payload: dict[str, Any], day: date, retrieved_at: str) -> 
         i_low = fields.index("最低價")
         i_close = fields.index("收盤價")
     except ValueError as exc:
-        raise ValueError(f"TWSE MI_INDEX schema changed on {day}: {exc}; fields={fields}") from exc
+        raise CensusSchemaError(f"TWSE MI_INDEX schema changed on {day}: {exc}; fields={fields}") from exc
 
     category = str(table.get("title") or "")
     rows: list[dict[str, Any]] = []
     for raw in table.get("data") or []:
         if len(raw) <= max(i_code, i_name, i_vol, i_amt, i_open, i_high, i_low, i_close):
-            continue
+            raise CensusSchemaError("TWSE MI_INDEX truncated row")
         code = str(raw[i_code]).strip()
         if not code:
-            continue
+            raise CensusSchemaError("TWSE MI_INDEX missing code")
         row = _base_row(day, code, "TWSE", str(raw[i_name]).strip() or None,
                         category, TWSE_SOURCE, retrieved_at)
         row.update({
@@ -369,6 +428,10 @@ def parse_tpex_census(payload: dict[str, Any], day: date, retrieved_at: str) -> 
     (上櫃股票行情 / 管理股票).  The title is recorded as provenance only — the
     probe (§4.2) showed ETFs sit inside 上櫃股票行情, so it is not a type signal.
     """
+    if not isinstance(payload, dict) or not isinstance(payload.get("tables"), list):
+        raise CensusSchemaError("TPEx dailyQuotes missing tables")
+    if str(payload.get("stat", "ok")).strip().lower() not in {"ok", "很抱歉，沒有符合條件的資料!"}:
+        raise CensusProviderError("TPEx dailyQuotes provider error")
     rows: list[dict[str, Any]] = []
     for table in payload.get("tables") or []:
         fields = list(table.get("fields") or [])
@@ -385,15 +448,15 @@ def parse_tpex_census(payload: dict[str, Any], day: date, retrieved_at: str) -> 
             i_vol = fields.index("成交股數")
             i_amt = fields.index("成交金額(元)")
         except ValueError as exc:
-            raise ValueError(f"TPEx dailyQuotes schema changed on {day}: {exc}; fields={fields}") from exc
+            raise CensusSchemaError(f"TPEx dailyQuotes schema changed on {day}: {exc}; fields={fields}") from exc
 
         category = str(table.get("title") or "")
         for raw in data:
             if len(raw) <= max(i_code, i_name, i_vol, i_amt, i_open, i_high, i_low, i_close):
-                continue
+                raise CensusSchemaError("TPEx dailyQuotes truncated row")
             code = str(raw[i_code]).strip()
             if not code:
-                continue
+                raise CensusSchemaError("TPEx dailyQuotes missing code")
             row = _base_row(day, code, "TPEX", str(raw[i_name]).strip() or None,
                             category, TPEX_SOURCE, retrieved_at)
             row.update({

@@ -1,5 +1,9 @@
 # 台股 Corporate Action 來源稽核 (A1)
 
+> **2026-09-23 A6 實作索引**：本檔保留 A1/A1.5 的查證紀錄；目前的 canonical event
+> store、PIT API、用途隔離、OHLC / volume contract 與驗證結果見
+> [A5/A6 正確性契約](taiwan-a5-a6-data-correctness.md)。
+
 > 狀態：**調查報告，不含任何實作**。本次未建立 `adjust.py`，未寫任何還原相關功能程式。
 >
 > 調查日期：2026-09-22。所有欄位名稱、覆蓋範圍與數值都以當日實際 HTTP 回應為準，

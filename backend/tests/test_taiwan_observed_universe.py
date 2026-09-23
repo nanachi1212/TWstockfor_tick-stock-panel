@@ -24,6 +24,7 @@ from app.taiwan.backfill_worker import (
 from app.taiwan.historical_classification import (
     REQUESTS_PER_DATE,
     TWSE_INDUSTRY_TYPES,
+    TWSE_UNSUPPORTED_TYPES,
     HistoricalClassificationStore,
     TwseHistoricalClassifier,
     classification_queue,
@@ -357,13 +358,14 @@ def test_classification_uses_only_that_dates_official_response(tmp_path: Path) -
     classifier = TwseHistoricalClassifier(store=store, client=client)
     rows = classifier.classify_date(PROBE_DATE)
 
-    assert len(client.calls) == REQUESTS_PER_DATE == len(TWSE_INDUSTRY_TYPES) + 1
+    assert len(client.calls) == REQUESTS_PER_DATE == len(TWSE_INDUSTRY_TYPES) + 1 + len(TWSE_UNSUPPORTED_TYPES)
     for call in client.calls:
         assert "date=20240603" in call, "must query the historical date, not today"
 
     by_code = {r["code"]: r for r in rows}
-    assert by_code["2330"]["instrument_type"] == "stock"
-    assert by_code["1701"]["instrument_type"] == "stock"   # dedup across 07/22
+    assert by_code["2330"]["instrument_type"] is None  # industry is not common-share evidence
+    assert by_code["1701"]["instrument_type"] is None  # dedup across 07/22
+    assert by_code["2330"]["classification_status"] == "data_insufficient"
     assert by_code["0050"]["instrument_type"] == "etf"
     assert "9999" not in by_code, "unclassifiable codes must be left out (fail-closed)"
 
@@ -377,7 +379,8 @@ def test_classification_never_claims_a_point_in_time_industry(tmp_path: Path) ->
     for row in rows:
         assert row["industry"] is None
         assert row["industry_status"] == "data_insufficient"
-        assert row["classification_status"] == "verified"
+        expected = "verified" if row["instrument_type"] == "etf" else "data_insufficient"
+        assert row["classification_status"] == expected
         assert row["classification_effective_from"] == PROBE_DATE
         assert PROBE_DATE.isoformat() in row["classification_source"]
 
@@ -428,7 +431,7 @@ def test_tpex_rows_can_never_reach_the_primary_verified_universe(tmp_path: Path)
     classification.write(PROBE_DATE, classifier.classify_date(PROBE_DATE))
 
     verified = verified_stock_codes(classification)
-    assert set(verified["exchange"].to_list()) == {"TWSE"}
+    assert verified.is_empty(), "industry membership cannot establish a verified common stock"
 
     observed_tpex = store.read("TPEX")
     tpex_codes = set(observed_tpex["raw_code"].to_list())
@@ -436,7 +439,7 @@ def test_tpex_rows_can_never_reach_the_primary_verified_universe(tmp_path: Path)
     assert not (tpex_codes & set(verified["code"].to_list()) & {"5371", "4130"})
 
 
-def test_twse_verified_stock_enters_the_primary_universe(tmp_path: Path) -> None:
+def test_industry_only_membership_cannot_claim_common_stock(tmp_path: Path) -> None:
     classification = HistoricalClassificationStore(tmp_path / "cls")
     classifier = TwseHistoricalClassifier(store=classification,
                                           client=_StubClient(_classification_router))
@@ -444,7 +447,7 @@ def test_twse_verified_stock_enters_the_primary_universe(tmp_path: Path) -> None
 
     verified = verified_stock_codes(classification)
     codes = set(verified["code"].to_list())
-    assert {"2330", "1701"} <= codes
+    assert not ({"2330", "1701"} & codes)
     assert "0050" not in codes, "ETFs are classified but are not the stock universe"
 
 

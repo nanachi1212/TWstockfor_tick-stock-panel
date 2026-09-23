@@ -37,6 +37,8 @@ from __future__ import annotations
 
 import polars as pl
 
+from app.taiwan.adjust import PROVENANCE_COLUMNS, validate_feature_window
+
 # 需要 14 次涨跌 diff => 至少 15 根收盘价才不算"纯 warm-up"。
 MIN_BARS_RSI_14 = 15
 # 慢线 EMA(26) 的常规经验暖机长度 + 信号线 EMA(9) 再暖机一轮。
@@ -115,14 +117,16 @@ def compute_taiwan_indicator_panel(
 
     price_semantics
         ``"raw"`` or ``"adjusted"``, echoed back as a column so a downstream
-        consumer cannot silently mix the two. ``adjust.py`` does not exist yet,
-        so an ``"adjusted"`` panel is only as point-in-time as the prices the
-        caller supplied — this module cannot and does not verify that.
+        consumer cannot silently mix the two. New PIT-adjusted input preserves
+        its as-of provenance through this panel. Presentation input is rejected.
+        Legacy untagged adjusted columns retain their existing numeric behavior
+        but do not acquire a verified PIT claim.
 
     Warm-up is evaluated **per row**, from the bars available up to and
     including that row, never from the symbol's total history length. An
     indicator that has not warmed up is ``null`` — never 0, NaN or Infinity.
     """
+    validate_feature_window(history)
     if price_semantics not in PRICE_SEMANTICS:
         raise ValueError(
             f"price_semantics must be one of {PRICE_SEMANTICS}, got {price_semantics!r}"
@@ -173,9 +177,24 @@ def compute_taiwan_indicator_panel(
         .otherwise(None).alias("macd_hist"),
     ])
 
+    if "_share_count_epoch" in df.columns:
+        for size in (5, 10):
+            # A raw share-volume comparison cannot cross a stock-basis change.
+            same_basis = (pl.col("_share_count_epoch")
+                          == pl.col("_share_count_epoch").shift(size - 1).over("symbol"))
+            df = df.with_columns(
+                pl.when(same_basis).then(pl.col(f"vol_ma{size}")).otherwise(None)
+                .alias(f"vol_ma{size}"),
+                pl.when(same_basis).then(pl.lit("verified"))
+                .otherwise(pl.lit("data_insufficient")).alias(f"vol_ma{size}_status"),
+            )
+    provenance = [c for c in (*PROVENANCE_COLUMNS, "vol_ma5_status", "vol_ma10_status")
+                  if c in df.columns]
+    if "usage_scope" in df.columns:
+        price_semantics = "adjusted"
     panel = df.with_columns(
         pl.lit(price_semantics).alias("price_semantics")
-    ).select(["symbol", "date", *PANEL_INDICATOR_COLS, "price_semantics"])
+    ).select(["symbol", "date", *PANEL_INDICATOR_COLS, "price_semantics", *provenance])
     return _sanitize(panel, PANEL_INDICATOR_COLS)
 
 
@@ -208,8 +227,10 @@ def compute_taiwan_daily_indicators(history: pl.DataFrame) -> pl.DataFrame:
     panel = compute_taiwan_indicator_panel(history)
     if panel.is_empty():
         return pl.DataFrame(schema=_EMPTY_SCHEMA)
+    provenance = (["date", *[c for c in (*PROVENANCE_COLUMNS, "vol_ma5_status", "vol_ma10_status")
+                             if c in panel.columns]] if "usage_scope" in panel.columns else [])
     return (
         panel.with_columns(pl.col("date").max().over("symbol").alias("_max_date"))
         .filter(pl.col("date") == pl.col("_max_date"))
-        .select(list(_OUTPUT_COLS))
+        .select([*_OUTPUT_COLS, *provenance])
     )

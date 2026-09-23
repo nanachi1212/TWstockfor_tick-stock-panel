@@ -1,5 +1,11 @@
 # 台股歷史 Universe / Backfill Safety Probe (A1.5)
 
+> **2026-09-23 A5.2 更正**：§3 的產業聯集包含特別股，§4.3 卻把產業聯集全體
+> 稱為普通股，兩者矛盾。本輪禁止以碼長／名稱拆分；產業表只能證明股票類成員，
+> 不足以單獨驗證 V1 common-stock subtype，舊 stock 宣告在讀取時 fail-closed。
+> 2015-01-05 原本未分類的 31 筆已由當日官方 `019919T`（6）與 `9299`（25）
+> 驗證為 unsupported。詳見 [A5/A6 正確性契約](taiwan-a5-a6-data-correctness.md)。
+
 > 狀態：**調查報告 + 架構結論。本輪未實作 historical backfill parser，未建立 PIT universe。**
 >
 > 調查日期：2026-09-22。所有數字均為當日實際 HTTP 回應與本機 Security Master 的實測值。

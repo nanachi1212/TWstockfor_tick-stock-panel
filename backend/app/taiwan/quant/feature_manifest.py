@@ -261,8 +261,12 @@ def training_matrix(
     frame even when the caller's frame still has the column. The resolution is
     returned alongside so the caller can record exactly what was excluded.
     """
+    from app.taiwan.adjust import PROVENANCE_COLUMNS, assert_training_safe
+
+    assert_training_safe(frame)
     resolution = resolve_training_eligibility(manifest, capabilities)
     eligible = set(resolution.eligible_features)
     columns = [c for c in keep_columns if c in frame.columns]
     columns += [c for c in frame.columns if c in eligible and c not in columns]
+    columns += [c for c in PROVENANCE_COLUMNS if c in frame.columns and c not in columns]
     return frame.select(columns), resolution

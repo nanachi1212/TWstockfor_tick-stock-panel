@@ -37,6 +37,7 @@ from app.taiwan.historical_classification import (
     classification_queue,
 )
 from app.taiwan.observed_universe import (
+    CensusSchemaError,
     ObservedUniverseCensus,
     ObservedUniverseStore,
     candidate_sessions,
@@ -165,11 +166,13 @@ class WorkerState:
     def exhausted(self, scope: str, day: date) -> bool:
         return self.attempts(scope, day) >= MAX_ATTEMPTS
 
-    def record_failure(self, scope: str, day: date, error: str) -> None:
+    def record_failure(self, scope: str, day: date, error: str, *,
+                       reason: str = "provider_error") -> None:
         key = self._key(scope, day)
         entry = self.data["attempts"].setdefault(key, {"count": 0})
         entry["count"] = int(entry.get("count", 0)) + 1
         entry["last_error"] = error[:500]
+        entry["reason"] = reason
         entry["last_attempt"] = datetime.now(TAIPEI).isoformat()
         provider = self.data["providers"].setdefault(scope, {"failures": 0, "retries": 0})
         provider["failures"] += 1
@@ -297,7 +300,9 @@ class TaiwanHistoricalBackfillWorker:
                     rows = fetch(day)
                 except Exception as exc:
                     with self._state_lock:
-                        self.state.record_failure(scope, day, f"{type(exc).__name__}: {exc}")
+                        self.state.record_failure(
+                            scope, day, f"{type(exc).__name__}: {exc}",
+                            reason="schema_mismatch" if isinstance(exc, CensusSchemaError) else "provider_error")
                     stats["failed"].append(day.isoformat())
                     continue
                 written = self.census_store.write(exchange, day, rows)
@@ -407,7 +412,8 @@ class TaiwanHistoricalBackfillWorker:
                         self.census_store.partition_statuses(exchange).items()
                         if day in candidates}
             coverage = census_coverage(
-                self.census_store, exchange, candidates, partition_statuses=statuses)
+                self.census_store, exchange, candidates, partition_statuses=statuses,
+                calendar=self.calendar)
             processed = set(statuses)
             sessions = {day for day, state in statuses.items() if state == "observed"}
             processed_percent = round(coverage.processed_ratio * 100, 2)
@@ -419,6 +425,14 @@ class TaiwanHistoricalBackfillWorker:
                 "earliest_trading_session": min(sessions).isoformat() if sessions else None,
                 "latest_trading_session": max(sessions).isoformat() if sessions else None,
                 "parked_dates": self.state.parked(f"census:{exchange}"),
+                "failed_date_evidence": [
+                    self.census_store.day_evidence(
+                        exchange, date.fromisoformat(key.split(":")[-1]),
+                        calendar=self.calendar, failure=entry).describe()
+                    for key, entry in sorted(self.state.data["attempts"].items())
+                    if key.startswith(f"census:{exchange}:")
+                    and date.fromisoformat(key.split(":")[-1]) in candidates
+                ],
                 # Deprecated aliases for existing CLI consumers.
                 "completed_sessions": coverage.processed_dates,
                 "percent": processed_percent,
@@ -433,8 +447,12 @@ class TaiwanHistoricalBackfillWorker:
         first_seen = first_observed_dates(self.census_store, "TWSE")
         wanted = sorted(set(first_seen.values()))
         completed_jobs = self.classification_store.completed_dates()
+        upgrades = {d for d in completed_jobs & set(wanted)
+                    if self.classification_store.needs_upgrade(d)}
         parked = set(self.state.parked("classify:TWSE"))
-        pending = [d for d in wanted if d not in completed_jobs and d.isoformat() not in parked]
+        pending = [d for d in wanted
+                   if (d not in completed_jobs or d in upgrades)
+                   and d.isoformat() not in parked]
 
         remaining_sessions = max(
             total - min(census["TWSE"]["processed_dates"],
@@ -447,7 +465,8 @@ class TaiwanHistoricalBackfillWorker:
             "classification": {
                 "twse_codes_observed": len(first_seen),
                 "unique_first_seen_dates": len(wanted),
-                "completed_jobs": len(completed_jobs & set(wanted)),
+                "completed_jobs": len((completed_jobs & set(wanted)) - upgrades),
+                "jobs_needing_contract_upgrade": len(upgrades),
                 "pending_jobs": len(pending),
                 "failed_jobs": len(parked),
                 "requests_per_job": REQUESTS_PER_DATE,

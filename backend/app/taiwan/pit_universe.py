@@ -91,8 +91,8 @@ class PitUniverse:
         self.census = census or ObservedUniverseStore()
         self.classification = classification or HistoricalClassificationStore()
 
-    def _classification_frame(self) -> pl.DataFrame:
-        """Latest verified classification per code, with the date it was established."""
+    def _classification_frame(self, day: date) -> pl.DataFrame:
+        """Latest classification per code by day, including unresolved revisions."""
         frame = self.classification.read()
         if frame.is_empty():
             return pl.DataFrame(schema={
@@ -100,10 +100,11 @@ class PitUniverse:
                 "classification_effective_from": pl.Date, "classification_status": pl.Utf8,
             })
         return (
-            frame.filter(pl.col("classification_status") == "verified")
+            frame.filter(pl.col("classification_effective_from") <= day)
             .sort("classification_effective_from")
             .group_by(["code", "exchange"], maintain_order=True)
             .last()
+            .with_columns(pl.col("instrument_type_status").alias("classification_status"))
             .select("code", "exchange", "instrument_type",
                     "classification_effective_from", "classification_status")
         )
@@ -134,7 +135,7 @@ class PitUniverse:
               .alias("listing_metadata_status"),
         )
 
-        classification = self._classification_frame()
+        classification = self._classification_frame(day)
         if classification.is_empty():
             return truth.with_columns(
                 pl.lit(None, dtype=pl.Utf8).alias("instrument_type"),

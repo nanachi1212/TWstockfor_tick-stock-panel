@@ -29,6 +29,8 @@ from typing import Any
 
 import polars as pl
 
+from app.taiwan.adjust import reject_presentation, validate_feature_window
+
 
 class Regime(StrEnum):
     RISK_ON = "risk_on"
@@ -171,12 +173,19 @@ def classify_market_regime(
     that cannot be computed reports ``data_insufficient`` and abstains — it
     never falls back to a made-up number.
     """
+    validate_feature_window(index_history, as_of=as_of)
+    if ("adjustment_status" in index_history.columns
+            and set(index_history["adjustment_status"].to_list()) - {"verified"}):
+        raise ValueError("data_insufficient adjustment cannot enter market regime")
     gates = thresholds or RegimeThresholds()
     if index_history.is_empty():
         raise ValueError("regime classification needs index history")
 
     frame = index_history.sort("date")
     resolved_as_of = as_of or frame["date"].to_list()[-1]
+    frame = frame.filter(pl.col("date") <= resolved_as_of)
+    if frame.is_empty():
+        raise ValueError("regime classification has no history at as_of")
     sessions = frame.height
     components: list[RegimeComponent] = []
 
@@ -278,9 +287,13 @@ def market_breadth_above_ma(panel: pl.DataFrame, as_of: date, ma_col: str = "ma2
     "unknown" rather than a breadth of 0.0, which would read as maximally
     risk-off.
     """
+    reject_presentation(panel)
     if panel.is_empty():
         return None
     day = panel.filter((pl.col("date") == as_of) & pl.col(ma_col).is_not_null())
+    validate_feature_window(day, as_of=as_of)
+    if "adjustment_status" in day.columns:
+        day = day.filter(pl.col("adjustment_status") == "verified")
     if day.is_empty():
         return None
     above = day.filter(pl.col(close_col) > pl.col(ma_col)).height

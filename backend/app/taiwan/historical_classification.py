@@ -2,8 +2,10 @@
 
 What this establishes
 ---------------------
-For a given historical session, which TWSE codes were **common stocks** and
-which were **ETFs**, using only that date's official TWSE response.
+For a historical session, which TWSE securities have a verified specific type.
+ETF, TDR and beneficiary tables are specific. Industry tables prove equity
+membership but NOT common-stock subtype (probe §3 contradicts §4.3). They must
+stay unresolved for V1 until an authoritative common/preferred source exists.
 
 Membership is point-in-time and was verified as such
 (``docs/taiwan-historical-universe-probe.md`` §4.3): on 2015-01-05 the union of
@@ -26,8 +28,8 @@ Every record carries ``industry=None`` and ``industry_status="data_insufficient"
 
 Fail-closed
 -----------
-A code that appears in no industry table and no ETF table is **not** classified.
-It gets no record, so it can never reach the Primary verified universe.  There
+A code absent from every queried historical type table is **not** classified.
+It gets no record, so it can never reach the Primary verified universe. There
 is no format heuristic anywhere in this module.
 
 TPEx
@@ -47,6 +49,7 @@ from pathlib import Path
 from typing import Any
 
 import polars as pl
+import pyarrow.parquet as pq
 
 from app.taiwan.observed_universe import ObservedUniverseStore
 from app.taiwan.providers.http import DEFAULT_USER_AGENT, taiwan_client
@@ -67,14 +70,24 @@ TWSE_INDUSTRY_TYPES: tuple[str, ...] = (
 )
 TWSE_ETF_TYPE = "0099P"
 
+# Verified with historical 2015-01-05 responses, not symbol/name heuristics.
+# Other unsupported categories remain unknown until their source is audited.
+TWSE_UNSUPPORTED_TYPES = {"019919T": "beneficiary_security", "9299": "tdr"}
+VERIFIED_UNSUPPORTED_TYPES = frozenset({
+    *TWSE_UNSUPPORTED_TYPES.values(), "preferred_share", "etn", "bond", "closed_end_fund",
+})
+_CONTRACT_KEY = b"taiwan_classification_contract"
+_CONTRACT_VERSION = b"2"
+
 #: Requests consumed to classify one session.
-REQUESTS_PER_DATE = len(TWSE_INDUSTRY_TYPES) + 1
+REQUESTS_PER_DATE = len(TWSE_INDUSTRY_TYPES) + 1 + len(TWSE_UNSUPPORTED_TYPES)
 
 CLASSIFICATION_COLUMNS: list[str] = [
     "code", "exchange", "instrument_type",
     "industry", "industry_status",
     "classification_effective_from", "classification_source", "classification_status",
     "retrieved_at",
+    "instrument_type_status", "primary_oos_eligible_type",
 ]
 
 _SCHEMA: dict[str, Any] = {
@@ -87,7 +100,31 @@ _SCHEMA: dict[str, Any] = {
     "classification_source": pl.Utf8,
     "classification_status": pl.Utf8,
     "retrieved_at": pl.Utf8,
+    "instrument_type_status": pl.Utf8,
+    "primary_oos_eligible_type": pl.Boolean,
 }
+
+
+def _with_type_contract(frame: pl.DataFrame) -> pl.DataFrame:
+    """Additive read compatibility; never rewrite old partitions on read."""
+    # Old A2b partitions claimed all industry members were ordinary shares.
+    # The same audit §3 records preferred shares in that union. Do not inherit
+    # this unsupported claim, nor use code/name/current-master filters to fix it.
+    industry_only = pl.col("classification_source").str.starts_with(
+        "twse:MI_INDEX:industry_tables@").fill_null(False)
+    frame = frame.with_columns(
+        pl.when(industry_only).then(None).otherwise(pl.col("instrument_type")).alias("instrument_type"),
+        pl.when(industry_only).then(pl.lit("data_insufficient"))
+        .otherwise(pl.col("classification_status")).alias("classification_status"),
+    )
+    verified = ((pl.col("classification_status") == "verified")
+                & pl.col("instrument_type").is_in(["stock", "etf", *sorted(VERIFIED_UNSUPPORTED_TYPES)]))
+    return frame.with_columns(
+        pl.when(verified).then(pl.lit("verified")).otherwise(pl.lit("data_insufficient"))
+        .alias("instrument_type_status"),
+        (verified & (pl.col("instrument_type") == "stock")).fill_null(False)
+        .alias("primary_oos_eligible_type"),
+    )
 
 #: Only these may enter the Primary verified stock universe.
 VERIFIED_STOCK_TYPES = frozenset({"stock"})
@@ -113,13 +150,25 @@ class HistoricalClassificationStore:
     def write(self, day: date, rows: list[dict[str, Any]]) -> int:
         frame = pl.DataFrame(rows, schema=_SCHEMA) if rows else pl.DataFrame(schema=_SCHEMA)
         if frame.height:
+            conflicts = frame.group_by("code").agg(
+                pl.struct("instrument_type", "classification_status").n_unique().alias("variants")
+            ).filter(pl.col("variants") > 1)["code"].to_list()
+            frame = frame.with_columns(
+                pl.when(pl.col("code").is_in(conflicts)).then(None)
+                .otherwise(pl.col("instrument_type")).alias("instrument_type"),
+                pl.when(pl.col("code").is_in(conflicts)).then(pl.lit("data_insufficient"))
+                .otherwise(pl.col("classification_status")).alias("classification_status"),
+            )
+        frame = _with_type_contract(frame)
+        if frame.height:
             frame = frame.unique(subset=["code"], keep="last").sort("code")
         path = self.partition_path(day)
         path.parent.mkdir(parents=True, exist_ok=True)
         handle, temporary = tempfile.mkstemp(dir=str(path.parent), suffix=".tmp")
         os.close(handle)
         try:
-            frame.write_parquet(temporary)
+            pq.write_table(frame.to_arrow().replace_schema_metadata(
+                {_CONTRACT_KEY: _CONTRACT_VERSION}), temporary, compression="zstd")
             os.replace(temporary, path)
         except BaseException:
             Path(temporary).unlink(missing_ok=True)
@@ -136,7 +185,12 @@ class HistoricalClassificationStore:
     def read(self) -> pl.DataFrame:
         files = sorted(self._data_dir.glob("date=*/part.parquet"))
         frames = [f for f in (pl.read_parquet(p) for p in files) if f.height]
-        return pl.concat(frames, how="diagonal_relaxed") if frames else pl.DataFrame(schema=_SCHEMA)
+        frame = pl.concat(frames, how="diagonal_relaxed") if frames else pl.DataFrame(schema=_SCHEMA)
+        return _with_type_contract(frame)
+
+    def needs_upgrade(self, day: date) -> bool:
+        metadata = pq.read_metadata(self.partition_path(day)).metadata or {}
+        return metadata.get(_CONTRACT_KEY) != _CONTRACT_VERSION
 
 
 def classification_queue(
@@ -154,7 +208,7 @@ def classification_queue(
     first_seen = first_observed_dates(census, "TWSE")
     wanted = sorted(set(first_seen.values()))
     done = store.completed_dates()
-    return [day for day in wanted if day not in done]
+    return [day for day in wanted if day not in done or store.needs_upgrade(day)]
 
 
 class TwseHistoricalClassifier:
@@ -176,19 +230,29 @@ class TwseHistoricalClassifier:
         response = self._client.get(url)
         response.raise_for_status()
         payload = json.loads(response.content.decode("utf-8-sig"))
-        if str(payload.get("stat", "")).strip() != "OK":
-            return set()
+        if payload.get("date") and payload["date"] != day.strftime("%Y%m%d"):
+            raise ValueError("TWSE classification response date mismatch")
+        stat = str(payload.get("stat", "")).strip()
+        if stat != "OK":
+            if stat == "很抱歉，沒有符合條件的資料!":  # noqa: RUF001 -- Official status.
+                return set()
+            raise ValueError(f"TWSE classification provider error: {stat or 'missing status'}")
         table = next(
             (t for t in payload.get("tables") or []
              if "每日收盤行情" in str(t.get("title") or "")),
             None,
         )
         if table is None:
-            return set()
+            raise ValueError("TWSE classification missing market table")
+        fields = table.get("fields") or []
+        if "證券代號" not in fields:
+            raise ValueError("TWSE classification missing security code field")
+        index = fields.index("證券代號")
+        rows = table.get("data") or []
+        if any(len(row) <= index or not str(row[index]).strip() for row in rows):
+            raise ValueError("TWSE classification malformed security row")
         return {
-            str(row[0]).strip()
-            for row in table.get("data") or []
-            if row and str(row[0]).strip()
+            str(row[index]).strip() for row in rows
         }
 
     def classify_date(self, day: date) -> list[dict[str, Any]]:
@@ -201,25 +265,40 @@ class TwseHistoricalClassifier:
         # umbrella listings, the ETF table is the specific one.
         stock_codes -= etf_codes
 
+        unsupported = {kind: self._codes(day, code)
+                       for code, kind in TWSE_UNSUPPORTED_TYPES.items()}
+        excluded = set().union(*unsupported.values())
+        # Specific official security-type tables take precedence over industry
+        # umbrella membership. Contradictory specific types fail closed.
+        conflicts = excluded & etf_codes
+        kinds = list(unsupported.values())
+        conflicts |= kinds[0] & kinds[1]
+        stock_codes -= excluded
+        etf_codes -= conflicts
+
         retrieved = datetime.now(TAIPEI).isoformat()
         rows: list[dict[str, Any]] = []
         for codes, kind, source_type in (
             (sorted(stock_codes), "stock", "industry_tables"),
             (sorted(etf_codes), "etf", TWSE_ETF_TYPE),
+            *((sorted(unsupported[kind] - conflicts), kind, code)
+              for code, kind in TWSE_UNSUPPORTED_TYPES.items()),
         ):
             for code in codes:
                 rows.append({
                     "code": code,
                     "exchange": "TWSE",
-                    "instrument_type": kind,
+                    "instrument_type": None if kind == "stock" else kind,
                     # Never a value: the official label is current, not PIT,
                     # and not unique (probe §4.3).
                     "industry": None,
                     "industry_status": "data_insufficient",
                     "classification_effective_from": day,
                     "classification_source": f"twse:MI_INDEX:{source_type}@{day.isoformat()}",
-                    "classification_status": "verified",
+                    "classification_status": "data_insufficient" if kind == "stock" else "verified",
                     "retrieved_at": retrieved,
+                    "instrument_type_status": "data_insufficient" if kind == "stock" else "verified",
+                    "primary_oos_eligible_type": False,
                 })
         return rows
 
@@ -261,4 +340,39 @@ def verified_stock_codes(store: HistoricalClassificationStore) -> pl.DataFrame:
     frame = store.read()
     if frame.is_empty():
         return frame
-    return frame.filter(pl.col("instrument_type").is_in(list(VERIFIED_STOCK_TYPES)))
+    return frame.filter(pl.col("primary_oos_eligible_type"))
+
+
+def classification_counts(
+    first_observed: dict[str, date], classified: pl.DataFrame,
+) -> dict[str, int | float]:
+    """Distinct observed securities, resolved no later than first use in scope.
+
+    ETF and verified unsupported types are resolved exclusions. Only verified
+    stocks + unresolved potential stocks belong in the Primary denominator.
+    Later classifications never erase earlier unresolved observations.
+    """
+    by_code: dict[str, list[dict[str, Any]]] = {}
+    for row in classified.iter_rows(named=True):
+        if row["exchange"] == "TWSE":
+            by_code.setdefault(row["code"], []).append(row)
+    counts = {"verified_stock_count": 0, "verified_etf_count": 0,
+              "verified_unsupported_count": 0, "unknown_count": 0,
+              "industry_only_unresolved_count": 0}
+    for code, first in first_observed.items():
+        eligible_rows = [r for r in by_code.get(code, [])
+                         if r["classification_effective_from"] <= first]
+        latest = max(eligible_rows, key=lambda r: r["classification_effective_from"], default=None)
+        kind = latest["instrument_type"] if latest and latest["classification_status"] == "verified" else None
+        key = ("verified_stock_count" if kind == "stock" else
+               "verified_etf_count" if kind == "etf" else
+               "verified_unsupported_count" if kind in VERIFIED_UNSUPPORTED_TYPES else "unknown_count")
+        counts[key] += 1
+        if key == "unknown_count" and latest and str(latest.get("classification_source", "")).startswith(
+                "twse:MI_INDEX:industry_tables@"):
+            counts["industry_only_unresolved_count"] += 1
+    denominator = counts["verified_stock_count"] + counts["unknown_count"]
+    return {**counts,
+            "unknown_ratio": counts["unknown_count"] / len(first_observed) if first_observed else 0.0,
+            "primary_classification_denominator": denominator,
+            "primary_classification_ratio": counts["verified_stock_count"] / denominator if denominator else 0.0}
