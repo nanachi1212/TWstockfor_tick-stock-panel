@@ -17,10 +17,16 @@
 
 | 階段 | 內容 | 每次請求數 |
 | --- | --- | --- |
-| **A2a** Observed Membership Census | 2015-01-01 → today，每個待查候選平日各抓 TWSE `ALLBUT0999` 與 TPEx `dailyQuotes` 各 1 次，保存**官方當日快照實際出現的證券** | 1 / 交易所 / 候選日 |
+| **A2a** Observed Membership Census | 2015-01-01 → 最新已過 publication cutoff 的候選交易日，每個待查候選平日各抓 TWSE `ALLBUT0999` 與 TPEx `dailyQuotes` 各 1 次，保存**官方當日快照實際出現的證券** | 1 / 交易所 / 候選日 |
 | **A2b** TWSE First-Seen Classification | 依 census 算出每個 TWSE code 的 `first_observed_date`，對尚未分類的日期掃 34 個官方產業表 + 1 個 ETF 表 | **35 / 日期** |
 
 兩個階段共用同一個 CLI、同一把鎖、同一份 checkpoint。
+
+寫入範圍沿用 daily refresh 的 Asia/Taipei 16:00 publication cutoff。
+當日 16:00 前不抓當日資料，週末及已確認休市日向前回退；明確指定超過此上限的
+`--end` 會在取得 worker lock、發請求及寫 partition 前拒絕。長跑的日期上限在啟動時
+固定。未知平日仍只是待查候選，不因此宣稱已確認開市；`--status` 僅讀取進度，
+預設統計範圍仍包含今天。
 
 **A2a 不套用 current Security Master allowlist。** 它保存的是 observed market fact，
 不是「今天還支援的 universe」——這正是 `taiwan-historical-universe-probe.md` §2 證明會丟掉

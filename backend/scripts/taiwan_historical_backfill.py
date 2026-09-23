@@ -50,7 +50,8 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--start", type=date.fromisoformat, default=CENSUS_START,
                         help=f"census start date (default {CENSUS_START.isoformat()})")
     parser.add_argument("--end", type=date.fromisoformat, default=None,
-                        help="census end date (default: today in Taipei)")
+                        help="census end date (default: latest publication session at "
+                             "16:00 Asia/Taipei; later dates are rejected)")
     parser.add_argument("--daily-session-budget", type=int, default=DEFAULT_SESSION_BUDGET,
                         help="max census sessions per exchange per run "
                              f"(default {DEFAULT_SESSION_BUDGET}; 2 requests per session). "

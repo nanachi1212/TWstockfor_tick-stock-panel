@@ -33,6 +33,7 @@ from uuid import uuid4
 
 import psutil
 
+from app.taiwan.daily_update import resolve_target_latest_trading_date
 from app.taiwan.historical_classification import (
     REQUESTS_PER_DATE,
     HistoricalClassificationStore,
@@ -48,7 +49,7 @@ from app.taiwan.observed_universe import (
     first_observed_dates,
 )
 from app.taiwan.providers.taiwan_values import TAIPEI
-from app.taiwan.realtime.calendar import TaiwanTradingCalendar
+from app.taiwan.realtime.calendar import TaiwanTradingCalendar, taipei_now
 
 logger = logging.getLogger(__name__)
 
@@ -416,7 +417,10 @@ class TaiwanHistoricalBackfillWorker:
         skip_census: bool = False,
         skip_classification: bool = False,
     ) -> dict[str, Any]:
-        end = end or datetime.now(TAIPEI).date()
+        latest = resolve_target_latest_trading_date(self.calendar, as_of_dt=taipei_now())
+        if end is not None and end > latest:
+            raise ValueError(f"census end {end} exceeds latest publication session {latest}")
+        end = end or latest
         self.lock.acquire(force=force_unlock)
         try:
             with StopSignal() as should_stop:

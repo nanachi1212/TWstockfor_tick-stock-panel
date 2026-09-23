@@ -10,7 +10,7 @@ from __future__ import annotations
 import json
 import os
 from concurrent.futures import ThreadPoolExecutor
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from pathlib import Path
 
 import pytest
@@ -708,3 +708,37 @@ def test_skip_flags_bypass_each_phase(tmp_path: Path) -> None:
     skipped = other.run_once(start=PROBE_DATE, end=PROBE_DATE,
                              session_budget=5, skip_census=True)
     assert skipped["census"] == {}
+
+
+@pytest.mark.parametrize(("now", "latest", "holidays"), [
+    ("2024-06-04T15:59:59+08:00", "2024-06-03", set()),
+    ("2024-06-04T16:00:00+08:00", "2024-06-04", set()),
+    ("2024-06-10T10:00:00+08:00", "2024-06-07", set()),
+    ("2024-06-08T18:00:00+08:00", "2024-06-07", set()),
+    ("2024-06-10T18:00:00+08:00", "2024-06-07", {date(2024, 6, 10)}),
+])
+def test_worker_default_range_excludes_unpublished_sessions(
+    tmp_path: Path, monkeypatch, now: str, latest: str, holidays: set[date],
+) -> None:
+    monkeypatch.setattr("app.taiwan.backfill_worker.taipei_now",
+                        lambda: datetime.fromisoformat(now))
+    worker = _worker(tmp_path, calendar=TaiwanTradingCalendar(known_holidays=holidays))
+    target = date.fromisoformat(latest)
+    worker.run_once(start=target, skip_classification=True)
+    for exchange in ("TWSE", "TPEX"):
+        assert worker.census_store.completed_dates(exchange) == {target}
+
+
+@pytest.mark.parametrize("end", [date(2024, 6, 4), date(2024, 6, 5)])
+def test_worker_rejects_explicit_unpublished_end_before_lock_or_writes(
+    tmp_path: Path, monkeypatch, end: date,
+) -> None:
+    monkeypatch.setattr("app.taiwan.backfill_worker.taipei_now",
+                        lambda: datetime.fromisoformat("2024-06-04T15:59:59+08:00"))
+    worker = _worker(tmp_path)
+    monkeypatch.setattr(worker.lock, "acquire",
+                        lambda **kwargs: pytest.fail("must reject before acquiring lock"))
+    with pytest.raises(ValueError, match="exceeds latest publication session 2024-06-03"):
+        worker.run_once(start=PROBE_DATE, end=end)
+    for exchange in ("TWSE", "TPEX"):
+        assert worker.census_store.completed_dates(exchange) == set()
