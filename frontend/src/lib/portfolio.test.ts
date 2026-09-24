@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   buildPortfolioPositions,
   createPortfolioTransaction,
+  isSupportedPortfolioInstrument,
   type PortfolioTransaction,
 } from './portfolio'
 
@@ -10,6 +11,13 @@ function transaction(side: 'buy' | 'sell', shares: number, price: number, fee = 
 }
 
 describe('portfolio accounting', () => {
+  it('allows quick trade only for supported canonical Taiwan stocks and ETFs', () => {
+    expect(isSupportedPortfolioInstrument({ symbol: '2330.TWSE', instrument_type: 'stock', is_supported: true })).toBe(true)
+    expect(isSupportedPortfolioInstrument({ symbol: '0050.TWSE', instrument_type: 'etf', is_supported: true })).toBe(true)
+    expect(isSupportedPortfolioInstrument({ symbol: 'BABA.SZ', instrument_type: 'stock', is_supported: true })).toBe(false)
+    expect(isSupportedPortfolioInstrument({ symbol: 'TAIEX.TWSE', instrument_type: 'index', is_supported: false })).toBe(false)
+  })
+
   it('computes first and repeated buys with weighted average cost including fees', () => {
     const position = buildPortfolioPositions([
       transaction('buy', 10, 100, 10, '2026-09-22'),

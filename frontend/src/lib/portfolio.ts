@@ -33,6 +33,20 @@ export interface PortfolioTransactionInput {
   date: string
 }
 
+export function isTaiwanPortfolioSymbol(symbol: string) {
+  return /^\d{2,6}\.(TWSE|TPEX)$/i.test(symbol.trim())
+}
+
+export function isSupportedPortfolioInstrument(value: {
+  symbol: string
+  instrument_type?: string | null
+  is_supported?: boolean
+} | null | undefined) {
+  return !!value && isTaiwanPortfolioSymbol(value.symbol)
+    && value.is_supported === true
+    && (value.instrument_type === 'stock' || value.instrument_type === 'etf')
+}
+
 export function todayTaipeiDate() {
   return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Taipei' }).format(new Date())
 }

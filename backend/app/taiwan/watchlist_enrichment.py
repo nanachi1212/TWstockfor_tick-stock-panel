@@ -191,6 +191,8 @@ def enrich_taiwan_watchlist_rows(
         rows.append({
             "symbol": symbol,
             "name": inst.name if inst else None,
+            "instrument_type": inst.instrument_type if inst else None,
+            "is_supported": bool(inst and inst.is_supported and inst.instrument_type in ("stock", "etf")),
             "asset_type": asset_type,
             "close": _sanitize_float(q.last_price) if q else None,
             "open": _sanitize_float(q.open) if q else None,

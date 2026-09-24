@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { MemoryRouter } from 'react-router-dom'
@@ -6,7 +6,7 @@ import { api } from '@/lib/api'
 import { storage } from '@/lib/storage'
 import { PortfolioPanel } from './Portfolio'
 
-vi.mock('@/lib/api', () => ({ api: { taiwanQuotes: vi.fn(), taiwanTransactionTax: vi.fn() } }))
+vi.mock('@/lib/api', () => ({ api: { taiwanQuotes: vi.fn(), taiwanTransactionTax: vi.fn(), taiwanPortfolioInstrument: vi.fn() } }))
 vi.mock('@/components/quant/TodaySelection', () => ({ useTodayQuantSelection: () => ({ signals: [] }) }))
 
 function renderPortfolio() {
@@ -14,18 +14,27 @@ function renderPortfolio() {
   return render(<QueryClientProvider client={client}><MemoryRouter><PortfolioPanel /></MemoryRouter></QueryClientProvider>)
 }
 
-function fillTrade({ shares, price }: { shares: string; price: string }) {
+async function fillTrade({ shares, price }: { shares: string; price: string }) {
   fireEvent.change(screen.getByLabelText('股票代碼'), { target: { value: '2330.TWSE' } })
   const nameInput = screen.queryByLabelText('股票名稱（選填）')
   if (nameInput) fireEvent.change(nameInput, { target: { value: '台積電' } })
   fireEvent.change(screen.getByLabelText('股數'), { target: { value: shares } })
   fireEvent.change(screen.getByLabelText('成交價'), { target: { value: price } })
+  await waitFor(() => expect(screen.getByRole('button', { name: '保存成交' })).toBeEnabled())
   fireEvent.click(screen.getByRole('button', { name: '保存成交' }))
 }
+
+beforeEach(() => {
+  vi.mocked(api.taiwanPortfolioInstrument).mockResolvedValue({
+    symbol: '2330.TWSE', instrument_type: 'stock', tax_class: 'ordinary_stock',
+    trading_day_status: 'verified', is_supported: true,
+  } as any)
+})
 
 afterEach(() => {
   localStorage.removeItem('portfolio_transactions')
   vi.clearAllMocks()
+  vi.restoreAllMocks()
 })
 
 describe('Portfolio UI', () => {
@@ -36,7 +45,7 @@ describe('Portfolio UI', () => {
     } as any], count: 1 })
     const first = renderPortfolio()
     fireEvent.click(screen.getByRole('button', { name: '買入' }))
-    fillTrade({ shares: '10', price: '100' })
+    await fillTrade({ shares: '10', price: '100' })
 
     expect(await screen.findByText('台積電')).toBeInTheDocument()
     expect((await screen.findAllByText('NT$1,100.00')).length).toBeGreaterThan(0)
@@ -107,5 +116,16 @@ describe('Portfolio UI', () => {
 
     expect(await screen.findByText('延遲 15m')).toBeInTheDocument()
     expect(screen.getByText('總市值（含非即時報價）')).toBeInTheDocument()
+  })
+
+  it('keeps the trade dialog open and reports a persistence failure', async () => {
+    vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => { throw new Error('quota exceeded') })
+    vi.mocked(api.taiwanQuotes).mockResolvedValue({ quotes: [], count: 0 })
+    renderPortfolio()
+    fireEvent.click(screen.getByRole('button', { name: '買入' }))
+    await fillTrade({ shares: '1', price: '100' })
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('quota exceeded')
+    expect(screen.getByRole('form', { name: 'Portfolio 成交紀錄' })).toBeInTheDocument()
   })
 })

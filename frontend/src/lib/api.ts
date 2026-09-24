@@ -3051,6 +3051,12 @@ export const api = {
       { quiet: true },
     ),
 
+  taiwanPortfolioInstrument: (symbol: string, tradeDate: string) =>
+    request<{ symbol: string; instrument_type: string; is_supported: boolean; tax_class: string; trading_day_status: 'verified' | 'unverified' }>(
+      `/api/taiwan/portfolio-instrument?symbol=${encodeURIComponent(symbol)}&trade_date=${encodeURIComponent(tradeDate)}`,
+      { quiet: true },
+    ),
+
   taiwanQuantLiveModels: () =>
     request<{
       configured_model: { model_key: string; top_n: number }

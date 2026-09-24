@@ -48,6 +48,7 @@ from app.taiwan.market_intelligence import (
     TaiwanMarketIntelligenceSnapshot,
 )
 from app.taiwan.market_rules import SecuritiesTaxModel
+from app.taiwan.realtime.calendar import TaiwanTradingCalendar, taipei_today
 from app.taiwan.research_context import (
     TaiwanStockResearchContext,
     TaiwanStockResearchContextService,
@@ -66,6 +67,43 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/taiwan", tags=["taiwan"])
 
 
+def _resolve_portfolio_instrument(symbol: str, trade_date: dt_date):
+    try:
+        canonical = parse_symbol(symbol).canonical
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=f"invalid Taiwan symbol: {symbol}") from exc
+
+    instrument = get_security_master().get_instrument(canonical)
+    if instrument is None or not instrument.is_supported or instrument.instrument_type not in {"stock", "etf"}:
+        raise HTTPException(status_code=404, detail=f"找不到可交易的台股股票或 ETF: {canonical}")
+
+    if trade_date > taipei_today():
+        raise HTTPException(status_code=422, detail="成交日期不可晚於今日")
+    calendar = TaiwanTradingCalendar()
+    trading_day = calendar.is_trading_day(trade_date)
+    if trading_day is False:
+        raise HTTPException(status_code=422, detail=f"{trade_date.isoformat()} 是台灣市場休市日，不可記錄成交")
+
+    try:
+        tax_class = MarketProfileBridge.get_tax_class(instrument)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return canonical, instrument, tax_class, trading_day
+
+
+@router.get("/portfolio-instrument")
+def get_taiwan_portfolio_instrument(symbol: str, trade_date: dt_date):
+    """Validate a portfolio symbol and trade date using Taiwan's security master and calendar."""
+    canonical, instrument, tax_class, trading_day = _resolve_portfolio_instrument(symbol, trade_date)
+    return {
+        "symbol": canonical,
+        "instrument_type": instrument.instrument_type,
+        "is_supported": True,
+        "tax_class": tax_class.value,
+        "trading_day_status": "verified" if trading_day else "unverified",
+    }
+
+
 @router.get("/transaction-tax")
 def get_taiwan_transaction_tax(
     symbol: str,
@@ -74,17 +112,8 @@ def get_taiwan_transaction_tax(
     is_day_trade: bool = False,
 ):
     """Estimate sell-side securities tax using the canonical Taiwan market rules."""
+    canonical, instrument, tax_class, _ = _resolve_portfolio_instrument(symbol, trade_date)
     try:
-        canonical = parse_symbol(symbol).canonical
-    except Exception as exc:
-        raise HTTPException(status_code=400, detail=f"invalid Taiwan symbol: {symbol}") from exc
-
-    instrument = get_security_master().get_instrument(canonical)
-    if instrument is None or not instrument.is_supported:
-        raise HTTPException(status_code=404, detail=f"找不到可套用市場稅則的台股標的: {canonical}")
-
-    try:
-        tax_class = MarketProfileBridge.get_tax_class(instrument)
         if is_day_trade and instrument.instrument_type != "stock":
             raise ValueError("當沖稅率只適用於普通股")
         tax_model = SecuritiesTaxModel()

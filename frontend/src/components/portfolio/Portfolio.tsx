@@ -10,6 +10,7 @@ import { DataQualityBadge, freshnessLabel, type TaiwanQuoteMetaLike } from '@/co
 import {
   buildPortfolioPositions,
   createPortfolioTransaction,
+  isTaiwanPortfolioSymbol,
   isPortfolioTransaction,
   todayTaipeiDate,
   type PortfolioSide,
@@ -78,6 +79,12 @@ export function PortfolioTradeDialog({
   const [isDayTrade, setIsDayTrade] = useState(false)
   const [error, setError] = useState('')
   const position = useMemo(() => buildPortfolioPositions(transactions).find(item => item.symbol === symbol.trim().toUpperCase() && item.shares > 0), [transactions, symbol])
+  const instrumentQuery = useQuery({
+    queryKey: ['portfolio-instrument', symbol.trim().toUpperCase(), date],
+    queryFn: () => api.taiwanPortfolioInstrument(symbol.trim().toUpperCase(), date),
+    enabled: side === 'buy' && isTaiwanPortfolioSymbol(symbol) && date <= todayTaipeiDate(),
+    retry: false,
+  })
   const taxInputsValid = !!symbol.trim() && Number.isInteger(Number(shares)) && Number(shares) > 0
     && Number.isFinite(Number(price)) && Number(price) > 0 && /^\d{4}-\d{2}-\d{2}$/.test(date) && date <= todayTaipeiDate()
   const taxQuery = useQuery({
@@ -99,6 +106,9 @@ export function PortfolioTradeDialog({
         const result = await taxQuery.refetch()
         if (!result.data) throw new Error('目前無法依台灣市場規則估算證交稅，請稍後重試')
         tax = result.data.tax_amount
+      } else {
+        const result = await instrumentQuery.refetch()
+        if (!result.data) throw new Error('目前無法確認這是可交易的台股股票或 ETF，請稍後重試')
       }
       commitTransaction({
         symbol,
@@ -154,9 +164,15 @@ export function PortfolioTradeDialog({
               : taxQuery.data ? <p className="text-[11px] text-muted">預估證交稅：{money(taxQuery.data.tax_amount)}（{(taxQuery.data.tax_rate * 100).toFixed(2)}%，{taxQuery.data.tax_class}）</p>
                 : taxQuery.isError ? <p role="alert" className="text-[11px] text-warning">無法取得此標的適用的證交稅規則，請稍後重試。</p> : null}
         </>}
+        {side === 'buy' && symbol.trim() && <>
+          {!isTaiwanPortfolioSymbol(symbol) ? <p role="alert" className="text-[11px] text-warning">請輸入台股股票或 ETF 的標準代碼，例如 2330.TWSE。</p>
+            : instrumentQuery.isFetching ? <p role="status" className="text-[11px] text-muted">正在確認台股標的與成交日期…</p>
+              : instrumentQuery.data?.trading_day_status === 'unverified' ? <p role="status" className="text-[11px] text-warning">台灣交易日曆尚未確認此平日，請依成交單核對日期。</p>
+                : instrumentQuery.isError ? <p role="alert" className="text-[11px] text-warning">無法確認此標的是支援的台股股票或 ETF，請檢查代碼與成交日期。</p> : null}
+        </>}
         {side === 'sell' && position && <p className="text-[11px] text-muted">目前持有 {position.shares.toLocaleString()} 股，平均成本 {money(position.averageCost)}</p>}
         {error && <p role="alert" className="rounded-lg bg-danger/10 px-3 py-2 text-xs text-danger">{error}</p>}
-        <button type="submit" disabled={side === 'sell' && (!taxQuery.data || taxQuery.isFetching)} className="w-full rounded-lg bg-accent px-3 py-2 text-xs font-semibold text-white hover:bg-accent/90 disabled:cursor-not-allowed disabled:opacity-50">保存成交</button>
+        <button type="submit" disabled={side === 'sell' ? (!taxQuery.data || taxQuery.isFetching) : (!instrumentQuery.data || instrumentQuery.isFetching)} className="w-full rounded-lg bg-accent px-3 py-2 text-xs font-semibold text-white hover:bg-accent/90 disabled:cursor-not-allowed disabled:opacity-50">保存成交</button>
       </form>
     </div>
   )

@@ -30,6 +30,7 @@ import { ExtensionSlot } from '@/extensions/ExtensionSlot'
 import { MIN_COMPARE_SYMBOLS, MAX_COMPARE_SYMBOLS } from '@/lib/taiwanCompareSymbols'
 import { DataQualityBadge } from '@/components/taiwan/TaiwanDataQuality'
 import { PortfolioTradeDialog } from '@/components/portfolio/Portfolio'
+import { isSupportedPortfolioInstrument } from '@/lib/portfolio'
 
 // 分時列開放排序 (StockDataTable 實例級白名單; 表頭眼睛/刷新按鈕已 stopPropagation)
 const INTRADAY_SORTABLE_KEYS = new Set(['intraday'])
@@ -545,13 +546,13 @@ const StockCard = React.memo(function StockCard({
               disabled={groupChangePending}
               onToggleMember={onToggleMember}
             />
-            <button
+            {isSupportedPortfolioInstrument(r) && <button
               type="button"
               onClick={event => { event.stopPropagation(); onQuickBuy(r.symbol, name ?? r.symbol, r.rt_price ?? r.close ?? null) }}
               aria-label={`買入 ${r.symbol}`}
               title="記錄買入"
               className="rounded p-1 text-bull hover:bg-bull/10"
-            ><Plus className="h-3 w-3" /></button>
+            ><Plus className="h-3 w-3" /></button>}
             <button
               onClick={() => onRequestRemove(r.symbol)}
               className="opacity-0 group-hover:opacity-100 text-muted hover:text-danger transition-all duration-150 p-0.5 rounded hover:bg-elevated"
@@ -1746,13 +1747,13 @@ export function Watchlist() {
                           ) : null}
                           {monitoredSymbols.has(r.symbol) && <span className="ml-2"><RealtimeDot /></span>}
                         </button>
-                        <button
+                        {isSupportedPortfolioInstrument(r) && <button
                           type="button"
                           onClick={event => { event.stopPropagation(); setPortfolioTrade({ symbol: r.symbol, name: name ?? r.symbol, quote: r.rt_price ?? r.close ?? null }) }}
                           aria-label={`買入 ${r.symbol}`}
                           title="記錄買入並帶入此股票"
                           className="shrink-0 rounded p-1 text-bull hover:bg-bull/10"
-                        ><Plus className="h-3 w-3" /></button>
+                        ><Plus className="h-3 w-3" /></button>}
                         {/* 刪除入口：從分組移除 + 從自選移除(二次確認) + 移到頂部 */}
                         <div className="ml-auto pl-1 shrink-0">
                           {confirmRemove === r.symbol ? (
