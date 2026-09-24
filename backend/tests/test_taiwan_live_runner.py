@@ -434,7 +434,10 @@ def test_outcome_writer_rejects_premature_label(inputs, environment):
 
 def test_read_api_empty_real_outcomes_404_and_no_write_route(environment, monkeypatch):
     ledger, source, _ = environment
-    monkeypatch.setattr(taiwan_live, "LiveLedger", lambda: ledger)
+    monkeypatch.setattr(taiwan_live, "CurrentLiveSource", lambda: SimpleNamespace(
+        evidence=source.evidence, close=lambda: None,
+    ))
+    monkeypatch.setattr(taiwan_live, "LiveLedger", lambda evidence=None: ledger)
     app = FastAPI()
     app.include_router(taiwan_live.router)
     client = TestClient(app)
