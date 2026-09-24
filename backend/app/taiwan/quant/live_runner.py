@@ -12,7 +12,7 @@ from app.taiwan.corporate_actions import CorporateActionEvent
 from app.taiwan.daily_store import TaiwanDailyStore
 from app.taiwan.observed_universe import ObservedUniverseCensus, ObservedUniverseStore
 from app.taiwan.providers.corporate_actions import SOURCE_URLS, CorporateActionProvider
-from app.taiwan.quant.baseline import deterministic_percentiles
+from app.taiwan.quant.baseline import rank_equal_weight_features
 from app.taiwan.quant.live_contract import (
     FEATURES,
     LIVE_CONTRACT,
@@ -214,12 +214,13 @@ def build_live_batch(inputs: LiveInputs, model: LiveModel) -> LiveSignalBatch:
         else:
             exclusions[symbol] = "incomplete_trading_session_window"
     usable = usable.filter(pl.col("symbol").is_in(complete))
-    ranks = {f: deterministic_percentiles(dict(usable.select("symbol", f).iter_rows())) for f in FEATURES}
+    composite = rank_equal_weight_features(usable.sort("symbol").to_dicts(), FEATURES)
     rows = []
     for row in usable.sort("symbol").to_dicts():
-        score = sum(ranks[f][row["symbol"]] for f in FEATURES) / len(FEATURES)
+        ranked = composite[row["symbol"]]
+        score = ranked["score"]
         rows.append({"symbol": row["symbol"], "score": score,
-                     "feature_percentiles": {f: ranks[f][row["symbol"]] for f in FEATURES},
+                     "feature_percentiles": ranked["feature_percentiles"],
                      "selected": score >= model.min_rank and row["momentum_20d"] > 0})
     ordered = sorted(rows, key=lambda row: (-row["score"], row["symbol"]))
     for index, row in enumerate(ordered):

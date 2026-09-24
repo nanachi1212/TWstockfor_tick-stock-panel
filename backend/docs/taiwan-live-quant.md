@@ -124,3 +124,18 @@ session 所需 60 根前置 bars 均完整；新的 EOD freeze 仍只會由下�
 單一交易所錯誤，讓不完整日期可能被當成已完成。現已改成雙交易所快照完整且非空才寫入；
 空回應、provider error 或 schema mismatch 會成為 failed date、留待下次排程重試。現有
 交易日、readiness、PIT 與 immutable ledger guards 均未變更。
+
+## Historical Factor Validation
+
+`app.taiwan.quant.evaluation.evaluate_quant()` 評估已由 `panel_training_matrix` 納入的
+既有因子，不另建因子或 scorer。輸出包含各因子的 5／20 交易日 Spearman rank IC、現有
+live composite score 的 IC、前／後 20% 未來報酬、long-short spread、標籤覆蓋狀態，以及
+按時間推進並套用 purge／embargo 的 walk-forward test-fold 結果。Composite 沿用 live runner
+相同的等權 percentile scorer 與 `FEATURES`，不會用未來標籤調整權重或門檻。
+
+呼叫端必須提供 raw daily close、完整官方 census 的逐交易所 session 清單、PIT admission
+結果，以及覆蓋所需期間和全部官方來源的已驗證公司行動資料。Forward labels 保存在獨立表格；
+缺少 session 價格會保留為 `missing_session_price`，尚未成熟的 horizon 保留為 `pending`，
+不會靜默略過或推論為下市。Historical evaluation 拒絕 current live universe。只有既有
+`DataHealth` 達到 `ready_for_primary_oos` 才會標示 `primary_verified_oos`；未通過時會輸出
+readiness blocker，secondary observed-universe 結果維持 `experimental_only`。
