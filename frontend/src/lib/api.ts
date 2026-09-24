@@ -754,6 +754,9 @@ export interface TaiwanSectionMeta {
   status: 'available' | 'unavailable' | 'stale' | 'fallback' | string
   is_stale: boolean
   fallback_reason?: string | null
+  source_type?: string | null
+  freshness_class?: string | null
+  is_realtime?: boolean | null
 }
 
 export interface TaiwanStockIdentity {

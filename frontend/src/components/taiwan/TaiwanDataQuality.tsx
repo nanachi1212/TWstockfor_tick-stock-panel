@@ -14,10 +14,8 @@
 import { Activity } from 'lucide-react'
 import { cn } from '@/lib/cn'
 
-/** Watchlist 用的是 TaiwanSourceMeta；StockDetail header 用的是較精簡的
- * TaiwanSectionMeta（無 freshness_class / source_type / is_realtime）。兩者都
- * 可以套用同一套判斷，缺少的欄位視為未提供即可，不強迫兩邊改用同一個後端 schema
- * （那是架構變更，本批次明確排除）。 */
+/** Watchlist 使用 TaiwanSourceMeta，StockDetail 使用較精簡的 TaiwanSectionMeta。
+ * TaiwanSectionMeta 的 freshness 欄位可選，舊回應缺少時仍由下方 fallback 處理。 */
 export interface TaiwanQuoteMetaLike {
   source?: string | null
   source_type?: string | null
@@ -89,11 +87,8 @@ export function freshnessLabel(meta: TaiwanQuoteMetaLike | null | undefined): Fr
   if (meta.freshness_class === 'eod_snapshot') return { label: '盤後快照', tone: 'snapshot' }
   if (meta.freshness_class === 'best_effort_near_realtime') return { label: '近即時', tone: 'realtime' }
   if (meta.is_realtime || meta.status === 'realtime') return { label: '即時', tone: 'realtime' }
-  // 以下是新增的圖度分支：StockDetail header 用的 TaiwanSectionMeta 沒有
-  // freshness_class/source_type/is_realtime 欄位，只有可信的 is_stale。當
-  // is_stale 明確為 false 但以上欄位都缺席時 (SectionMeta 的既有情形)，仍應
-  // 誠實顯示「非過期」而非落入「未知來源」；真正 SourceMeta 情形不會走到這裡，
-  // 因為每個 provider 都會明確設定 freshness_class 為上述四個值之一。
+  // 舊版 detail 回應可能缺少 freshness 欄位。is_stale 明確為 false 時，
+  // 仍依既有相容行為顯示「非過期」；新回應優先採用 canonical freshness_class。
   if (meta.is_stale === false) return { label: '近即時', tone: 'realtime' }
   return { label: '未知來源', tone: 'unknown' }
 }

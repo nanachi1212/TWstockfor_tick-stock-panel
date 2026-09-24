@@ -267,6 +267,21 @@ describe('Portfolio UI', () => {
     expect(screen.getByText('NT$550.00')).toBeInTheDocument()
   })
 
+  it('preserves delayed quote freshness on the detail-page portfolio', async () => {
+    storage.portfolioTransactions.set([{
+      id: 'seed', symbol: '2330.TWSE', name: '台積電', side: 'buy', shares: 5,
+      price: 100, fee: 0, date: '2026-09-22', createdAt: '2026-09-22T00:00:00.000Z',
+    }])
+    renderPortfolio({
+      symbol: '2330.TWSE', name: '台積電', quote: 110, quoteMeta: {
+        is_stale: false, is_realtime: false, source_type: 'third_party_aggregator',
+        freshness_class: 'delayed_15m',
+      },
+    })
+
+    expect(await screen.findByText('延遲 15m')).toBeInTheDocument()
+  })
+
   it('keeps the trade dialog open and reports a persistence failure', async () => {
     vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => { throw new Error('quota exceeded') })
     vi.mocked(api.taiwanQuotes).mockResolvedValue({ quotes: [], count: 0 })
