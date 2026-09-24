@@ -78,7 +78,7 @@ export function PortfolioTradeDialog({
   const [fee, setFee] = useState('0')
   const [date, setDate] = useState(todayTaipei)
   const [error, setError] = useState('')
-  const position = useMemo(() => buildPortfolioPositions(transactions).find(item => item.symbol === symbol.trim().toUpperCase()), [transactions, symbol])
+  const position = useMemo(() => buildPortfolioPositions(transactions).find(item => item.symbol === symbol.trim().toUpperCase() && item.shares > 0), [transactions, symbol])
 
   const submit = (event: FormEvent) => {
     event.preventDefault()
@@ -146,7 +146,8 @@ export function PortfolioPanel({ symbol, name, quote: detailQuote, change: detai
 }) {
   const transactions = usePortfolioTransactions()
   const [trade, setTrade] = useState<{ symbol?: string; name?: string; side: PortfolioSide; quote?: number | null } | null>(null)
-  const positions = useMemo(() => buildPortfolioPositions(transactions), [transactions])
+  const ledgerPositions = useMemo(() => buildPortfolioPositions(transactions), [transactions])
+  const positions = useMemo(() => ledgerPositions.filter(position => position.shares > 0), [ledgerPositions])
   const { signals } = useTodayQuantSelection()
   const quantBySymbol = new Map(signals.map(signal => [signal.symbol, signal]))
   const symbols = positions.map(position => position.symbol)
@@ -159,6 +160,7 @@ export function PortfolioPanel({ symbol, name, quote: detailQuote, change: detai
   })
   const quotes = new Map((quotesQuery.data?.quotes ?? []).map(item => [item.symbol, item]))
   const targetPosition = symbol ? positions.find(position => position.symbol === symbol.toUpperCase()) : undefined
+  const targetLedgerPosition = symbol ? ledgerPositions.find(position => position.symbol === symbol.toUpperCase()) : undefined
   const shownPositions = symbol ? (targetPosition ? [targetPosition] : []) : positions
   const quoteFor = (position: typeof positions[number]): TaiwanRealtimeQuote | undefined => quotes.get(position.symbol)
   const hasMissingQuote = shownPositions.some(position => (symbol ? detailQuote : quoteFor(position)?.last_price) == null)
@@ -215,8 +217,8 @@ export function PortfolioPanel({ symbol, name, quote: detailQuote, change: detai
           {shownPositions.some(position => !symbol && !quoteFor(position)?.last_price) && <p className="mt-2 text-[11px] text-muted">部分標的目前無法取得報價，市值與損益摘要暫不顯示。</p>}
         </div>
       )}
-      {symbol && targetPosition && <p className="text-[11px] text-muted">已實現損益（平均成本法）：{money(targetPosition.realizedPnl)}</p>}
-      {!symbol && positions.length > 0 && <p className="text-[11px] text-muted">已實現損益（平均成本法）：{money(positions.reduce((sum, position) => sum + position.realizedPnl, 0))}</p>}
+      {symbol && targetLedgerPosition && <p className="text-[11px] text-muted">已實現損益（平均成本法）：{money(targetLedgerPosition.realizedPnl)}</p>}
+      {!symbol && ledgerPositions.length > 0 && <p className="text-[11px] text-muted">已實現損益（平均成本法）：{money(ledgerPositions.reduce((sum, position) => sum + position.realizedPnl, 0))}</p>}
       {trade && <PortfolioTradeDialog symbol={trade.symbol} name={trade.name} initialSide={trade.side} quote={trade.quote} onClose={() => setTrade(null)} />}
     </section>
   )

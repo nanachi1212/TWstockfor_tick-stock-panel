@@ -29,7 +29,9 @@ describe('portfolio accounting', () => {
     expect(partial.shares).toBe(6)
     expect(partial.costBasis).toBe(600)
     expect(partial.realizedPnl).toBe(115)
-    expect(buildPortfolioPositions([...transactions, transaction('sell', 6, 90, 0, '2026-09-26')])).toEqual([])
+    expect(buildPortfolioPositions([...transactions, transaction('sell', 6, 90, 0, '2026-09-26')])).toEqual([
+      expect.objectContaining({ shares: 0, costBasis: 0, realizedPnl: 55 }),
+    ])
   })
 
   it('rejects oversells, nonpositive prices, fractional shares, and invalid fees', () => {

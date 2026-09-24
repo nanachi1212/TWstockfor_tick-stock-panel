@@ -75,7 +75,7 @@ export function buildPortfolioPositions(transactions: readonly PortfolioTransact
     positions.set(transaction.symbol, position)
   }
 
-  return [...positions.values()].filter(position => position.shares > 0)
+  return [...positions.values()]
 }
 
 export function createPortfolioTransaction(

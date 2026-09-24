@@ -77,4 +77,15 @@ describe('Portfolio UI', () => {
     expect(screen.getAllByText('報價不完整').length).toBeGreaterThan(0)
     await waitFor(() => expect(screen.queryByText('NT$0.00')).not.toBeInTheDocument())
   })
+
+  it('keeps realized profit visible after closing the position', () => {
+    storage.portfolioTransactions.set([
+      { id: 'buy', symbol: '2330.TWSE', name: '台積電', side: 'buy', shares: 10, price: 100, fee: 0, date: '2026-09-22', createdAt: '2026-09-22T00:00:00.000Z' },
+      { id: 'sell', symbol: '2330.TWSE', name: '台積電', side: 'sell', shares: 10, price: 110, fee: 0, date: '2026-09-23', createdAt: '2026-09-23T00:00:00.000Z' },
+    ])
+    renderPortfolio()
+
+    expect(screen.getByText('目前沒有持股，從觀察清單或個股頁記錄第一筆買入。')).toBeInTheDocument()
+    expect(screen.getByText('已實現損益（平均成本法）：NT$100.00')).toBeInTheDocument()
+  })
 })
