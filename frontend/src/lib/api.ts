@@ -1040,6 +1040,53 @@ export interface TaiwanDataStatus {
   scheduled_timezone: string
 }
 
+export interface QuantIcSummary {
+  ic_mean: number | null
+  ic_std: number | null
+  ic_positive_ratio: number | null
+  n_dates: number
+}
+
+export interface QuantEvaluationMetrics {
+  horizons: number[]
+  factor_ic: Record<string, Record<string, QuantIcSummary>>
+  composite_score_ic: Record<string, QuantIcSummary>
+  composite_score_buckets: Record<string, {
+    top_bucket_future_return: number | null
+    bottom_bucket_future_return: number | null
+    long_short_spread: number | null
+    n_dates: number
+  }>
+  walk_forward: {
+    folds: Array<{ index: number; test_start: string; test_end: string }>
+    oos: { composite_score_ic?: Record<string, QuantIcSummary> }
+  }
+}
+
+export interface TaiwanQuantEvaluationStatus {
+  status: 'ready' | 'processing' | 'blocked' | 'failed'
+  generated_at: string
+  evaluation_status: 'waiting_for_data_health' | 'waiting_for_report' | 'available'
+  evaluation_timestamp: string | null
+  available_horizons: number[]
+  data_health: {
+    status: 'ready' | 'blocked'
+    primary_oos_ready: boolean
+    highest_level: string
+    blocked_reasons: Record<string, string[]>
+  }
+  a2b: {
+    completed: number
+    pending: number
+    failed: number
+    total: number
+    worker_status: string
+  }
+  evaluation: QuantEvaluationMetrics | null
+  blocking_reasons: string[]
+  ranking_modes: { live_current: string; historical_oos: string }
+}
+
 export interface TaiwanScreenerTranslation {
   request: TaiwanScreenerRequest | null
   recognized_conditions: string[]
@@ -2969,6 +3016,9 @@ export const api = {
 
   taiwanDataStatus: () =>
     request<TaiwanDataStatus>('/api/taiwan/data-status'),
+
+  taiwanQuantEvaluation: () =>
+    request<TaiwanQuantEvaluationStatus>('/api/taiwan/quant/evaluation'),
 
   taiwanScreenerTranslate: (query: string) =>
     request<TaiwanScreenerTranslation>('/api/taiwan/screener/translate', {

@@ -19,7 +19,11 @@ from app.taiwan.corporate_actions import CorporateActionEvent
 from app.taiwan.providers.corporate_actions import SOURCE_URLS
 from app.taiwan.providers.taiwan_values import market_close
 from app.taiwan.quant.baseline import rank_equal_weight_features
-from app.taiwan.quant.data_health import DataHealth, ReadinessLevel
+from app.taiwan.quant.data_health import (
+    DataHealth,
+    QuantEvaluationStatus,
+    quant_evaluation_readiness,
+)
 from app.taiwan.quant.live_contract import FEATURES, LIVE_TIER
 from app.taiwan.quant.training import TrainingMatrixResult
 from app.taiwan.quant.validation.folds import FoldConfig, generate_folds
@@ -317,6 +321,8 @@ def evaluate_quant(
     events: Iterable[CorporateActionEvent],
     action_coverage: Mapping[str, ActionCoverage],
     data_health: DataHealth | None = None,
+    a2b_progress: dict[str, int] | None = None,
+    a2b_worker_status: str = "idle",
     horizons: tuple[int, ...] = (5, 20),
     fold_config: FoldConfig | None = None,
 ) -> dict[str, Any]:
@@ -334,6 +340,25 @@ def evaluate_quant(
     eligible = set(admission.resolution.eligible_features)
     if not set(FEATURES) <= eligible:
         raise ValueError("existing live composite features are not all PIT-admitted")
+    readiness = quant_evaluation_readiness(
+        data_health, a2b_progress, worker_status=a2b_worker_status,
+    )
+    if tier == PRIMARY_VERIFIED and readiness.status is not QuantEvaluationStatus.READY:
+        return {
+            "status": "waiting_for_data_health",
+            "universe_tier": tier,
+            "claim_scope": "primary_oos_readiness_blocked",
+            "primary_oos_ready": False,
+            "readiness_status": readiness.status.value,
+            "primary_oos_blocked_reasons": list(readiness.blocking_reasons),
+            "label_source": "pit_forward_adjusted_close_return_evaluation_only",
+            "horizons": list(horizons),
+            "factor_ic": None,
+            "composite_score_ic": None,
+            "composite_score_buckets": None,
+            "composite_score_coverage": None,
+            "walk_forward": None,
+        }
     labels = build_forward_labels(
         admission, daily, exchange_by_symbol=exchange_by_symbol,
         sessions_by_exchange=sessions_by_exchange, events=events,
@@ -374,10 +399,7 @@ def evaluate_quant(
     oos_dates = set(oos_features["date"].to_list()) if oos_features.height else set()
     oos_labels = labels.filter(pl.col("date").is_in(sorted(oos_dates))) if oos_dates else labels.head(0)
     oos = _metrics(oos_features, oos_labels, factors=factor_names, horizons=horizons)
-    primary_oos_ready = bool(
-        tier == PRIMARY_VERIFIED and data_health is not None
-        and data_health.is_ready(ReadinessLevel.PRIMARY_OOS)
-    )
+    primary_oos_ready = tier == PRIMARY_VERIFIED and readiness.status is QuantEvaluationStatus.READY
     return {
         "status": "success" if folds else "insufficient_walk_forward_history",
         "universe_tier": tier,
@@ -387,9 +409,9 @@ def evaluate_quant(
             "primary_oos_readiness_blocked"
         ),
         "primary_oos_ready": primary_oos_ready,
+        "readiness_status": readiness.status.value,
         "primary_oos_blocked_reasons": (
-            data_health.blocked_reasons.get(ReadinessLevel.PRIMARY_OOS.value, [])
-            if data_health is not None and not primary_oos_ready else []
+            list(readiness.blocking_reasons) if not primary_oos_ready else []
         ),
         "label_source": "pit_forward_adjusted_close_return_evaluation_only",
         "horizons": list(horizons),

@@ -7,6 +7,7 @@ import { api, type AlertEvent, type IndustryMetrics } from '@/lib/api'
 import { QK } from '@/lib/queryKeys'
 import { fmtBigNum, fmtPct } from '@/lib/format'
 import { StockPreviewDialog } from '@/components/StockPreviewDialog'
+import { QuantEvaluationCard } from '@/components/QuantEvaluationCard'
 import { cn } from '@/lib/cn'
 import { cnSignal } from '@/lib/signals'
 import { strategyEventMeta, strategyName } from '@/lib/strategyMonitorEvents'
@@ -495,6 +496,8 @@ export function Dashboard() {
           (資料新鮮度) 移到最下層。Phase 8C-D: 中國 A 股 legacy 大盤看板整段已
           移除產品介面, Dashboard 全站僅剩台股內容, 不再有任何 legacy 開關。 */}
       <MarketStrengthCard />
+
+      <QuantEvaluationCard />
 
       <div className="mb-1.5 grid grid-cols-1 gap-1.5 lg:grid-cols-2">
         <IndustryStrengthCard />

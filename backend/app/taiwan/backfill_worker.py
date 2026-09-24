@@ -131,6 +131,13 @@ class WorkerLock:
         except (OSError, ValueError, KeyError, TypeError, psutil.AccessDenied):
             return None  # Unknown/legacy corrupt evidence is never presumed dead.
 
+    def owner_status(self) -> str:
+        """Read current lock evidence without reclaiming or mutating the lock."""
+        if not self.path.exists():
+            return "idle"
+        alive = self._owner_alive()
+        return "running" if alive is True else "stale" if alive is False else "unknown"
+
     def _stale(self) -> bool:
         try:
             age = time.time() - self.path.stat().st_mtime

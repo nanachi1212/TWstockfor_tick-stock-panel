@@ -15,6 +15,7 @@ export const QK = {
   preferences:    ['preferences'] as const,
   dataSources:    ['data-sources'] as const,
   taiwanDataStatus: ['taiwan-data-status'] as const,
+  taiwanQuantEvaluation: ['taiwan-quant-evaluation'] as const,
   taiwanHistoryStatus: ['taiwan-history-status'] as const,
   quoteStatus:    ['quote-status'] as const,
   quoteInterval:  ['quote-interval'] as const,
