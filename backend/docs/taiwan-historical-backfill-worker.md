@@ -26,7 +26,7 @@
 當日 16:00 前不抓當日資料，週末及已確認休市日向前回退；明確指定超過此上限的
 `--end` 會在取得 worker lock、發請求及寫 partition 前拒絕。長跑的日期上限在啟動時
 固定。未知平日仍只是待查候選，不因此宣稱已確認開市；`--status` 僅讀取進度，
-預設統計範圍仍包含今天。
+預設日期上限與 16:00 Asia/Taipei publication cutoff 一致，不會把尚未發布的今天列為未處理。
 
 **A2a 不套用 current Security Master allowlist。** 它保存的是 observed market fact，
 不是「今天還支援的 universe」——這正是 `taiwan-historical-universe-probe.md` §2 證明會丟掉
@@ -98,6 +98,10 @@ PowerShell launcher（會自動寫 log 到 `data/logs/`）：
 .\scripts\run_taiwan_historical_backfill.ps1
 .\scripts\run_taiwan_historical_backfill.ps1 -Status
 .\scripts\run_taiwan_historical_backfill.ps1 -SessionBudget 600 -ClassificationRequestBudget 2400
+
+# Re-check old empty_unknown partitions; repeated empty responses stay unresolved
+.\scripts\run_taiwan_historical_backfill.ps1 -RetryEmpty `
+    -SessionBudget 300 -ClassificationRequestBudget 0
 ```
 
 ### Exit code
@@ -247,7 +251,7 @@ Primary OOS 只使用 TWSE 的交易日覆蓋率與已驗證分類，TPEx 僅供
 ```
 
 - **partition 檔案存在 = 該候選日已處理**，這就是全部的 resume 機制，沒有第二份 manifest 可以走樣。
-- 官方回「無資料」→ 寫**空 partition**，屬處理終結狀態，不會被反覆重抓；這本身不證明休市，也不表示任何個別證券已下市。
+- 官方回「無資料」→ 寫 `empty_unknown` 空 partition。它不證明休市，也不表示任何個別證券已下市。一般 resume 保留 checkpoint；傳入 `-RetryEmpty` 可重查這些空分區。重查仍為空時以 `rechecked_empty_unresolved` 保留未解狀態，只有新來源列會原子替換空分區。
 - 只有經已驗證日曆確認的非交易日才在同一個 Parquet partition 的 metadata 記錄 `confirmed_non_trading`。舊空分區或只因解析結果為 0 筆的空分區一律維持 `empty_unknown`，並留在交易日覆蓋率分母；沒有額外的 completion manifest。
 - 網路/傳輸失敗 → **不寫檔**，下次自動重試。
 - 寫入使用 `mkstemp` + `os.replace`，**atomic**；中途斷電不會留下半個檔。

@@ -302,15 +302,24 @@ class TaiwanHistoricalBackfillWorker:
 
     # ── census ─────────────────────────────────────────────────
 
-    def _pending_sessions(self, exchange: str, start: date, end: date) -> list[date]:
+    def _pending_sessions(
+        self, exchange: str, start: date, end: date, *, retry_empty: bool = False,
+    ) -> list[date]:
         done = self.census_store.completed_dates(exchange)
+        retryable_empty = (
+            {day for day, status in self.census_store.partition_statuses(exchange).items()
+             if status == "empty_unknown"}
+            if retry_empty else set()
+        )
         return [
             day for day in candidate_sessions(start, end, self.calendar)
-            if day not in done and not self.state.exhausted(f"census:{exchange}", day)
+            if (day not in done or day in retryable_empty)
+            and not self.state.exhausted(f"census:{exchange}", day)
         ]
 
     def run_census(self, start: date, end: date, *, session_budget: int,
-                   should_stop: Any = None) -> dict[str, Any]:
+                   should_stop: Any = None,
+                   retry_empty: bool = False) -> dict[str, Any]:
         """Fetch up to *session_budget* sessions per exchange (2 requests each)."""
         census = self._census or ObservedUniverseCensus(
             store=self.census_store, calendar=self.calendar)
@@ -337,9 +346,14 @@ class TaiwanHistoricalBackfillWorker:
                 self.census_store.write(
                     exchange, day, [], confirmed_non_trading_source="calendar:known_holidays")
                 stats["empty"] += 1
-            pending = self._pending_sessions(exchange, start, end)
+            pending = self._pending_sessions(
+                exchange, start, end, retry_empty=retry_empty)
             if session_budget > UNLIMITED_BUDGET:
                 pending = pending[:session_budget]
+            stats["retried_empty"] = sum(
+                self.census_store.partition_status(exchange, day) == "empty_unknown"
+                for day in pending if self.census_store.has(exchange, day)
+            )
             for index, day in enumerate(pending, start=1):
                 if should_stop is not None and should_stop():
                     stats["stopped_early"] = True
@@ -353,7 +367,12 @@ class TaiwanHistoricalBackfillWorker:
                             reason="schema_mismatch" if isinstance(exc, CensusSchemaError) else "provider_error")
                     stats["failed"].append(day.isoformat())
                     continue
-                written = self.census_store.write(exchange, day, rows)
+                rechecked_empty = (
+                    not rows and self.census_store.has(exchange, day)
+                    and self.census_store.partition_status(exchange, day) == "empty_unknown"
+                )
+                written = self.census_store.write(
+                    exchange, day, rows, empty_response_rechecked=rechecked_empty)
                 with self._state_lock:
                     self.state.record_success(scope, day)
                 stats["rows"] += written
@@ -416,6 +435,7 @@ class TaiwanHistoricalBackfillWorker:
         force_unlock: bool = False,
         skip_census: bool = False,
         skip_classification: bool = False,
+        retry_empty: bool = False,
     ) -> dict[str, Any]:
         latest = resolve_target_latest_trading_date(self.calendar, as_of_dt=taipei_now())
         if end is not None and end > latest:
@@ -426,7 +446,8 @@ class TaiwanHistoricalBackfillWorker:
             with StopSignal() as should_stop:
                 started = time.monotonic()
                 census = {} if skip_census else self.run_census(
-                    start, end, session_budget=session_budget, should_stop=should_stop)
+                    start, end, session_budget=session_budget, should_stop=should_stop,
+                    retry_empty=retry_empty)
                 classification = (
                     {"queue_depth": 0, "requests_used": 0, "dates_done": 0, "rows": 0,
                      "failed_dates": [], "stopped_early": False}
@@ -455,7 +476,10 @@ class TaiwanHistoricalBackfillWorker:
         ``latest_completed`` are deprecated processing-progress aliases.
         Quant readiness uses the exchange-specific trading coverage fields.
         """
-        end = end or datetime.now(TAIPEI).date()
+        # Match the worker's publication cutoff. A weekday before 16:00 Taipei
+        # is not yet eligible, so it must not inflate the unresolved count.
+        end = end or resolve_target_latest_trading_date(
+            self.calendar, as_of_dt=taipei_now())
         candidates = set(candidate_sessions(start, end))
         total = len(candidates)
 
@@ -470,6 +494,24 @@ class TaiwanHistoricalBackfillWorker:
             processed = set(statuses)
             sessions = {day for day, state in statuses.items() if state == "observed"}
             processed_percent = round(coverage.processed_ratio * 100, 2)
+            failures = {
+                date.fromisoformat(key.rsplit(":", 1)[1]): value
+                for key, value in self.state.data["attempts"].items()
+                if key.startswith(f"census:{exchange}:")
+                and date.fromisoformat(key.rsplit(":", 1)[1]) in candidates
+            }
+            unresolved_by_reason: dict[str, dict[str, Any]] = {}
+            confirmed_dates = self.census_store.confirmed_non_trading_dates(exchange)
+            confirmed_dates.update(
+                day for day in candidates
+                if self.calendar.day_evidence(day, exchange).status == "non_trading")
+            for day in sorted(candidates - sessions - confirmed_dates):
+                evidence = self.census_store.day_evidence(
+                    exchange, day, calendar=self.calendar, failure=failures.get(day))
+                entry = unresolved_by_reason.setdefault(
+                    evidence.reason, {"count": 0, "dates": []})
+                entry["count"] += 1
+                entry["dates"].append(day.isoformat())
             census[exchange] = {
                 **coverage.describe(),
                 "processed_percent": processed_percent,
@@ -477,6 +519,7 @@ class TaiwanHistoricalBackfillWorker:
                 "latest_processed": max(processed).isoformat() if processed else None,
                 "earliest_trading_session": min(sessions).isoformat() if sessions else None,
                 "latest_trading_session": max(sessions).isoformat() if sessions else None,
+                "unresolved_by_reason": unresolved_by_reason,
                 "parked_dates": self.state.parked(f"census:{exchange}"),
                 "failed_date_evidence": [
                     self.census_store.day_evidence(
@@ -514,6 +557,8 @@ class TaiwanHistoricalBackfillWorker:
         )
         return {
             "generated_at": datetime.now(TAIPEI).isoformat(),
+            "start_date": start.isoformat(),
+            "end_date": end.isoformat(),
             "census": census,
             "classification": {
                 "twse_codes_observed": len(first_seen),

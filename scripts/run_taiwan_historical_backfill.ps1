@@ -30,6 +30,9 @@
 .PARAMETER Status
     Print the machine-readable status snapshot and exit without doing work.
 
+.PARAMETER RetryEmpty
+    Re-query empty_unknown census partitions without promoting empty responses to holidays.
+
 .EXAMPLE
     .\scripts\run_taiwan_historical_backfill.ps1
 
@@ -45,7 +48,8 @@ param(
     [int]$ClassificationRequestBudget = 1200,
     [switch]$Status,
     [switch]$LongRun,
-    [switch]$ForceUnlock
+    [switch]$ForceUnlock,
+    [switch]$RetryEmpty
 )
 
 $ErrorActionPreference = 'Stop'
@@ -82,6 +86,7 @@ if ($Status) {
         '--daily-session-budget', $SessionBudget,
         '--classification-request-budget', $ClassificationRequestBudget
     )
+    if ($RetryEmpty) { $arguments += '--retry-empty' }
     if ($ForceUnlock) { $arguments += '--force-unlock' }
 }
 

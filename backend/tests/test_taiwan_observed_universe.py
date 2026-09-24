@@ -33,6 +33,7 @@ from app.taiwan.historical_classification import (
     verified_stock_codes,
 )
 from app.taiwan.observed_universe import (
+    CensusSchemaError,
     ObservedUniverseCensus,
     ObservedUniverseStore,
     first_observed_dates,
@@ -611,6 +612,72 @@ def test_unknown_provider_empty_never_confirms_a_closure(tmp_path: Path) -> None
         assert status["trading_coverage_ratio"] == 0.0
 
 
+def test_retry_empty_refetches_and_recovers_rows_for_both_exchanges(tmp_path: Path) -> None:
+    unknown_day = date(2024, 6, 4)
+    state = {"empty": True}
+
+    def empty_then_rows(url: str) -> dict:
+        if state["empty"]:
+            return _census_router(url)
+        payload = json.loads(json.dumps(
+            TWSE_FIXTURE if "twse.com.tw" in url else TPEX_FIXTURE))
+        table = payload["tables"][1] if "twse.com.tw" in url else payload["tables"][0]
+        table["data"].append(list(table["data"][0]))
+        return payload
+
+    worker = _worker(tmp_path, router=empty_then_rows)
+    worker.run_census(unknown_day, unknown_day, session_budget=1)
+    assert worker.census_store.partition_status("TWSE", unknown_day) == "empty_unknown"
+    assert worker.census_store.partition_status("TPEX", unknown_day) == "empty_unknown"
+
+    state["empty"] = False
+    result = worker.run_census(
+        unknown_day, unknown_day, session_budget=1, retry_empty=True)
+
+    assert result["TWSE"]["retried_empty"] == 1
+    assert result["TPEX"]["retried_empty"] == 1
+    assert worker.census_store.partition_status("TWSE", unknown_day) == "observed"
+    assert worker.census_store.partition_status("TPEX", unknown_day) == "observed"
+    twse_rows = len(TWSE_FIXTURE["tables"][1]["data"])
+    tpex_rows = len(TPEX_FIXTURE["tables"][0]["data"])
+    assert worker.census_store.read("TWSE").height == twse_rows
+    assert worker.census_store.read("TPEX").height == tpex_rows
+
+    repeated = worker.run_census(
+        unknown_day, unknown_day, session_budget=1, retry_empty=True)
+    assert repeated["TWSE"]["sessions"] == 0
+    assert repeated["TPEX"]["sessions"] == 0
+    assert worker.census_store.read("TWSE").height == twse_rows
+    assert worker.census_store.read("TPEX").height == tpex_rows
+
+
+def test_retry_empty_that_remains_empty_stays_unresolved(tmp_path: Path) -> None:
+    unknown_day = date(2024, 6, 4)
+    worker = _worker(tmp_path)
+    worker.run_census(unknown_day, unknown_day, session_budget=1)
+    result = worker.run_census(
+        unknown_day, unknown_day, session_budget=1, retry_empty=True)
+
+    assert result["TWSE"]["retried_empty"] == 1
+    assert worker.census_store.partition_status("TWSE", unknown_day) == "empty_unknown"
+    status = worker.status(start=unknown_day, end=unknown_day)["census"]["TWSE"]
+    assert status["unresolved_by_reason"] == {
+        "rechecked_empty_unresolved": {"count": 1, "dates": [unknown_day.isoformat()]}}
+
+
+def test_status_default_uses_publication_cutoff(tmp_path: Path, monkeypatch) -> None:
+    from app.taiwan.realtime.calendar import TAIPEI_TZ
+
+    today = date(2024, 6, 5)
+    monkeypatch.setattr(
+        "app.taiwan.backfill_worker.taipei_now",
+        lambda: datetime(2024, 6, 5, 15, 59, tzinfo=TAIPEI_TZ),
+    )
+    status = _worker(tmp_path).status(start=today - timedelta(days=1))
+    assert status["end_date"] == (today - timedelta(days=1)).isoformat()
+    assert status["census"]["TWSE"]["candidate_dates"] == 1
+
+
 # ── Helpers ────────────────────────────────────────────────────
 
 def _worker(
@@ -641,6 +708,18 @@ def test_parse_helpers_tolerate_official_blank_cells() -> None:
     rows = parse_tpex_census(tpex, PROBE_DATE, "now")
     assert rows[0]["close"] is None
     assert rows[0]["raw_source_category"] == "上櫃股票行情"
+
+
+def test_tpex_report_title_in_data_is_skipped_and_invalid_code_fails_closed() -> None:
+    payload = _tpex_payload({"5678": "測試櫃"})
+    data = payload["tables"][0]["data"]
+    data.append(["113年06月03日 櫃檯買賣中心證券行情", "", "", "", "", "", "", "", "", ""])
+    rows = parse_tpex_census(payload, PROBE_DATE, "now")
+    assert [row["raw_code"] for row in rows] == ["5678"]
+
+    data[1][0] = "invalid security code"
+    with pytest.raises(CensusSchemaError, match="invalid security code"):
+        parse_tpex_census(payload, PROBE_DATE, "now")
 
 
 # ── LongRun (unlimited budget) ─────────────────────────────────
