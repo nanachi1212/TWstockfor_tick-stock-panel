@@ -27,6 +27,11 @@ router = APIRouter(prefix="/api/taiwan/quant", tags=["taiwan-quant"])
 _A2B_DATES_CACHE_TTL = 300.0
 _A2B_DATES_CACHE: dict[str, tuple[float, frozenset[date]]] = {}
 _A2B_DATES_CACHE_LOCK = threading.Lock()
+_A2B_CLASSIFICATION_CACHE_TTL = 30.0
+_A2B_CLASSIFICATION_CACHE: dict[
+    str, tuple[float, frozenset[date], frozenset[date]]
+] = {}
+_A2B_CLASSIFICATION_CACHE_LOCK = threading.Lock()
 
 
 def _a2b_classification_dates(worker: TaiwanHistoricalBackfillWorker) -> frozenset[date]:
@@ -42,13 +47,30 @@ def _a2b_classification_dates(worker: TaiwanHistoricalBackfillWorker) -> frozens
         return dates
 
 
+def _a2b_classification_progress(
+    worker: TaiwanHistoricalBackfillWorker, wanted: frozenset[date]
+) -> tuple[frozenset[date], frozenset[date]]:
+    """Bound partition listing and Parquet footer checks between status polls."""
+    key = str(worker.data_dir.resolve())
+    now = time.monotonic()
+    with _A2B_CLASSIFICATION_CACHE_LOCK:
+        cached = _A2B_CLASSIFICATION_CACHE.get(key)
+        if cached and now - cached[0] < _A2B_CLASSIFICATION_CACHE_TTL:
+            return cached[1], cached[2]
+        completed = frozenset(worker.classification_store.completed_dates()) & wanted
+        upgrades = frozenset(
+            day for day in completed if worker.classification_store.needs_upgrade(day)
+        )
+        _A2B_CLASSIFICATION_CACHE[key] = (now, completed, upgrades)
+        return completed, upgrades
+
+
 @router.get("/a2b-status")
 def a2b_progress_status() -> dict[str, Any]:
     """Small read-only A2b progress projection, independent of OOS data-health scans."""
     worker = TaiwanHistoricalBackfillWorker()
     wanted = _a2b_classification_dates(worker)
-    completed = worker.classification_store.completed_dates() & wanted
-    upgrades = {day for day in completed if worker.classification_store.needs_upgrade(day)}
+    completed, upgrades = _a2b_classification_progress(worker, wanted)
     completed_count = len(completed - upgrades)
     parked = {date.fromisoformat(day) for day in worker.state.parked("classify:TWSE")}
     failed = len(parked & wanted)

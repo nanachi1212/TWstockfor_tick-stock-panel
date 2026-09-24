@@ -47,6 +47,7 @@ def test_live_run_api_returns_not_found_without_substituting_other_ranking(monke
 
 
 def test_live_models_marks_run_current_only_when_session_operation_and_audit_agree(monkeypatch):
+    monkeypatch.setattr(taiwan_live, "_SESSION_CACHE", None)
     expected = date(2026, 9, 24)
     closed = []
 
@@ -81,6 +82,7 @@ def test_live_models_marks_run_current_only_when_session_operation_and_audit_agr
     ],
 )
 def test_live_models_fails_closed_for_conflict_or_stale_operation(monkeypatch, audit_status, operation, reason):
+    monkeypatch.setattr(taiwan_live, "_SESSION_CACHE", None)
     expected = date(2026, 9, 24)
 
     class Source:
@@ -105,6 +107,7 @@ def test_live_models_fails_closed_for_conflict_or_stale_operation(monkeypatch, a
 
 
 def test_live_models_fails_closed_when_expected_session_cannot_be_resolved(monkeypatch):
+    monkeypatch.setattr(taiwan_live, "_SESSION_CACHE", None)
     class Source:
         evidence = object()
 
@@ -125,3 +128,53 @@ def test_live_models_fails_closed_when_expected_session_cannot_be_resolved(monke
     assert response["expected_session"] is None
     assert response["current_run_valid"] is False
     assert response["current_run_reason"] == "session_unavailable"
+
+
+def test_live_models_reuses_bounded_expected_session_evidence(monkeypatch):
+    monkeypatch.setattr(taiwan_live, "_SESSION_CACHE", None)
+    now = [100.0]
+    calls = {"source": 0, "session": 0}
+
+    class Source:
+        evidence = object()
+
+        def __init__(self):
+            calls["source"] += 1
+
+        def close(self):
+            pass
+
+    class Ledger:
+        def __init__(self, evidence=None):
+            pass
+
+        def current_session(self):
+            calls["session"] += 1
+            return date(2026, 9, 24)
+
+        @staticmethod
+        def latest_operation():
+            return {"status": "blocked"}
+
+        @staticmethod
+        def read_run(model_key, session):
+            return None
+
+        @staticmethod
+        def models():
+            return []
+
+    monkeypatch.setattr(taiwan_live, "CurrentLiveSource", Source)
+    monkeypatch.setattr(taiwan_live, "LiveLedger", Ledger)
+    monkeypatch.setattr(taiwan_live.time, "monotonic", lambda: now[0])
+
+    first = taiwan_live.live_models()
+    now[0] += taiwan_live._SESSION_CACHE_TTL - 1
+    second = taiwan_live.live_models()
+    assert first["expected_session"] == second["expected_session"] == "2026-09-24"
+    assert calls == {"source": 1, "session": 1}
+
+    now[0] += 2
+    third = taiwan_live.live_models()
+    assert third["expected_session"] == "2026-09-24"
+    assert calls == {"source": 2, "session": 2}

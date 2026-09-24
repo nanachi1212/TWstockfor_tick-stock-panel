@@ -1,4 +1,6 @@
 """Read-only live contract. No caller-supplied session, importer or rerank API."""
+import threading
+import time
 from datetime import date
 
 from fastapi import APIRouter, HTTPException, Query
@@ -9,18 +11,34 @@ from app.taiwan.quant.live_store import LiveLedger
 
 router = APIRouter(prefix="/api/taiwan/quant/live", tags=["taiwan-live"])
 
+_SESSION_CACHE_TTL = 120.0
+_SESSION_CACHE: tuple[float, str] | None = None
+_SESSION_CACHE_LOCK = threading.Lock()
+
+
+def _expected_session() -> str | None:
+    """Bound official-session evidence reads shared by all dashboard polls."""
+    global _SESSION_CACHE
+    with _SESSION_CACHE_LOCK:
+        now = time.monotonic()
+        if _SESSION_CACHE and now - _SESSION_CACHE[0] < _SESSION_CACHE_TTL:
+            return _SESSION_CACHE[1]
+        source = CurrentLiveSource()
+        try:
+            session = LiveLedger(evidence=source.evidence).current_session().isoformat()
+        except Exception:
+            return None
+        finally:
+            source.close()
+        _SESSION_CACHE = (now, session)
+        return session
+
 
 @router.get("/models")
 def live_models():
-    source = CurrentLiveSource()
-    ledger = LiveLedger(evidence=source.evidence)
+    ledger = LiveLedger()
     model = LiveModel()
-    try:
-        expected_session = ledger.current_session().isoformat()
-    except Exception:
-        expected_session = None
-    finally:
-        source.close()
+    expected_session = _expected_session()
 
     latest_operation = ledger.latest_operation()
     current_run = ledger.read_run(model.key, expected_session) if expected_session else None

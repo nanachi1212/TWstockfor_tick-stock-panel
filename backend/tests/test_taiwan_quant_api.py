@@ -139,16 +139,21 @@ def test_processing_snapshot_never_exposes_oos_metrics_even_if_artifact_is_suppl
 
 
 def test_a2b_status_uses_cached_census_dates_and_lightweight_classification_progress(monkeypatch, tmp_path):
+    monkeypatch.setattr(taiwan_quant, "_A2B_DATES_CACHE", {})
+    monkeypatch.setattr(taiwan_quant, "_A2B_CLASSIFICATION_CACHE", {})
     wanted = {date(2020, 1, 2), date(2020, 1, 3)}
     scans = []
+    classification_scans = []
 
     class ClassificationStore:
         @staticmethod
         def completed_dates():
+            classification_scans.append("completed")
             return {date(2020, 1, 2)}
 
         @staticmethod
         def needs_upgrade(day):
+            classification_scans.append(("upgrade", day))
             return False
 
     class State:
@@ -181,6 +186,7 @@ def test_a2b_status_uses_cached_census_dates_and_lightweight_classification_prog
         "completed": 1, "pending": 1, "failed": 0, "total": 2, "worker_status": "running",
     }
     assert scans == ["TWSE"]
+    assert classification_scans == ["completed", ("upgrade", date(2020, 1, 2))]
 
 
 def test_ready_snapshot_exposes_only_a_verified_primary_artifact():
