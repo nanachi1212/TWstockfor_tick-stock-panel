@@ -171,12 +171,15 @@ class ObservedUniverseStore:
         rows: list[dict[str, Any]],
         *,
         confirmed_non_trading_source: str | None = None,
+        empty_response_rechecked: bool = False,
     ) -> int:
         """Atomically write observations; only explicit evidence marks a closure."""
         if confirmed_non_trading_source is not None and not confirmed_non_trading_source:
             raise ValueError("non-trading confirmation requires a source")
         if rows and confirmed_non_trading_source is not None:
             raise ValueError("an observed session cannot be confirmed non-trading")
+        if rows and empty_response_rechecked:
+            raise ValueError("only an empty response can be marked as rechecked")
         frame = (
             pl.DataFrame(rows, schema=_CENSUS_SCHEMA)
             if rows else pl.DataFrame(schema=_CENSUS_SCHEMA)
@@ -195,7 +198,9 @@ class ObservedUniverseStore:
                 confirmed_non_trading_source or (
                     TWSE_SOURCE if exchange == "TWSE" else TPEX_SOURCE),
                 "valid_market_rows" if frame.height else (
-                    "verified_holiday" if confirmed_non_trading_source else "unexplained_empty"),
+                    "verified_holiday" if confirmed_non_trading_source else (
+                        "rechecked_empty_unresolved" if empty_response_rechecked
+                        else "unexplained_empty")),
                 datetime.now(TAIPEI),
             )
             metadata = {_EVIDENCE_KEY: json.dumps(evidence.describe()).encode("utf-8")}
@@ -457,6 +462,14 @@ def parse_tpex_census(payload: dict[str, Any], day: date, retrieved_at: str) -> 
             code = str(raw[i_code]).strip()
             if not code:
                 raise CensusSchemaError("TPEx dailyQuotes missing code")
+            if (code.startswith(f"{day.year - 1911}年")
+                    and "櫃檯買賣中心證券行情" in code):
+                # Some legacy dailyQuotes responses repeat the report title as
+                # a data row. It is not a security observation.
+                logger.warning("TPEx dailyQuotes embedded report title in data on %s", day)
+                continue
+            if not code.isascii() or any(character.isspace() for character in code):
+                raise CensusSchemaError(f"TPEx dailyQuotes invalid security code on {day}")
             row = _base_row(day, code, "TPEX", str(raw[i_name]).strip() or None,
                             category, TPEX_SOURCE, retrieved_at)
             row.update({

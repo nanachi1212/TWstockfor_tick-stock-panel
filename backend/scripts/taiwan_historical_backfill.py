@@ -69,6 +69,8 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
                         help="skip the A2a census phase (a budget of 0 now means unlimited)")
     parser.add_argument("--skip-classification", action="store_true",
                         help="skip the A2b classification phase")
+    parser.add_argument("--retry-empty", action="store_true",
+                        help="re-query completed empty_unknown census partitions")
     parser.add_argument("--force-unlock", action="store_true",
                         help="drop an existing lock before starting (use only when "
                              "certain no other worker is running)")
@@ -108,6 +110,7 @@ def main(argv: list[str] | None = None) -> int:
             force_unlock=args.force_unlock,
             skip_census=args.skip_census,
             skip_classification=args.skip_classification,
+            retry_empty=args.retry_empty,
         )
     except WorkerBusyError as exc:
         # Not an error: yesterday's run is still going.
