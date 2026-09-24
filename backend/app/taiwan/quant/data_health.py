@@ -44,6 +44,13 @@ class ReadinessLevel(StrEnum):
     PRIMARY_OOS = "ready_for_primary_oos"
 
 
+class QuantEvaluationStatus(StrEnum):
+    READY = "ready"
+    PROCESSING = "processing"
+    BLOCKED = "blocked"
+    FAILED = "failed"
+
+
 LEVEL_ORDER: tuple[ReadinessLevel, ...] = (
     ReadinessLevel.FRAMEWORK,
     ReadinessLevel.FACTOR_COMPUTE,
@@ -137,6 +144,62 @@ class DataHealth:
             "primary_census_ratio": self.primary_census_ratio,
             "secondary_tpex_census_ratio": self.secondary_tpex_census_ratio,
         }
+
+
+@dataclass(frozen=True)
+class QuantEvaluationReadiness:
+    status: QuantEvaluationStatus
+    blocking_reasons: tuple[str, ...] = ()
+
+    def describe(self) -> dict[str, Any]:
+        return {"status": self.status.value, "blocking_reasons": list(self.blocking_reasons)}
+
+
+def quant_evaluation_readiness(
+    data_health: DataHealth | None,
+    classification_progress: dict[str, int] | None,
+    *,
+    worker_status: str,
+) -> QuantEvaluationReadiness:
+    """Single gate for the product API, evaluation runner, and dashboard state."""
+    if data_health is None:
+        return QuantEvaluationReadiness(
+            QuantEvaluationStatus.BLOCKED, ("Data health snapshot is unavailable",))
+    if classification_progress is None:
+        return QuantEvaluationReadiness(
+            QuantEvaluationStatus.BLOCKED, ("A2b progress snapshot is unavailable",))
+
+    try:
+        completed = classification_progress["completed_jobs"]
+        pending = classification_progress["pending_jobs"]
+        failed = classification_progress["failed_jobs"]
+        total = classification_progress["unique_first_seen_dates"]
+        values = (completed, pending, failed, total)
+        if any(type(value) is not int or value < 0 for value in values):
+            raise ValueError
+    except (KeyError, TypeError, ValueError):
+        return QuantEvaluationReadiness(
+            QuantEvaluationStatus.BLOCKED, ("A2b progress snapshot is invalid",))
+
+    reasons = list(data_health.blocked_reasons.get(ReadinessLevel.PRIMARY_OOS.value, ()))
+    if completed + pending + failed != total:
+        reasons.append("A2b job counts do not match the observed historical universe")
+        return QuantEvaluationReadiness(QuantEvaluationStatus.BLOCKED, tuple(dict.fromkeys(reasons)))
+    if failed:
+        reasons.append(f"A2b has {failed} failed historical classification jobs")
+        return QuantEvaluationReadiness(QuantEvaluationStatus.FAILED, tuple(dict.fromkeys(reasons)))
+    if pending:
+        if worker_status == "running":
+            reasons.insert(0, f"A2b classification is processing ({completed}/{total} complete)")
+            return QuantEvaluationReadiness(QuantEvaluationStatus.PROCESSING, tuple(dict.fromkeys(reasons)))
+        reasons.insert(0, f"A2b has {pending} pending jobs but no active worker")
+        return QuantEvaluationReadiness(QuantEvaluationStatus.BLOCKED, tuple(dict.fromkeys(reasons)))
+    if not data_health.is_ready(ReadinessLevel.PRIMARY_OOS):
+        return QuantEvaluationReadiness(
+            QuantEvaluationStatus.BLOCKED,
+            tuple(dict.fromkeys(reasons or ("Primary OOS data-health gates are not met",))),
+        )
+    return QuantEvaluationReadiness(QuantEvaluationStatus.READY)
 
 
 def evaluate_data_health(

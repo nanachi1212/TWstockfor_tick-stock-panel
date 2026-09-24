@@ -20,7 +20,8 @@ from app.taiwan.quant.training import TrainingMatrixResult
 from app.taiwan.quant.validation.folds import FoldConfig
 
 
-def _inputs(*, count: int = 60, missing: tuple[str, date] | None = None):
+def _inputs(*, count: int = 60, missing: tuple[str, date] | None = None,
+            universe_tier: str = "secondary_observed"):
     start = date(2020, 1, 1)
     sessions = [start + timedelta(days=i) for i in range(count)]
     symbols = [f"{code}.TWSE" for code in ("1101", "1216", "1301", "2002", "2330")]
@@ -36,7 +37,7 @@ def _inputs(*, count: int = 60, missing: tuple[str, date] | None = None):
                 "momentum_20d": rank,
                 "momentum_60d": rank,
                 "factor_alpha": rank,
-                "universe_tier": "primary_verified",
+                "universe_tier": universe_tier,
                 "usage_scope": "pit_feature",
                 "adjustment_as_of": market_close(day).isoformat(),
                 "adjustment_status": "verified",
@@ -69,6 +70,14 @@ def _evaluate(admission, daily, sessions, symbols, coverage):
         walk_forward_sessions=sessions,
         events=(),
         action_coverage={"TWSE": coverage},
+        data_health=evaluate_data_health(
+            census_sessions=2850, census_total_sessions=2850,
+            twse_codes_observed=100, twse_codes_classified=100,
+        ),
+        a2b_progress={
+            "completed_jobs": 478, "pending_jobs": 0, "failed_jobs": 0,
+            "unique_first_seen_dates": 478,
+        },
         horizons=(5, 20),
         fold_config=config,
     )
@@ -182,12 +191,12 @@ def test_walk_forward_is_ordered_disjoint_and_reproducible():
     assert folds[0]["test_start"] > folds[0]["validation_end"]
     assert first["walk_forward"]["oos"]["composite_score_ic"]["5"]["n_dates"] > 0
     assert first["composite_score_buckets"]["5"]["long_short_spread"] > 0
-    assert first["claim_scope"] == "primary_oos_readiness_blocked"
+    assert first["claim_scope"] == "experimental_only"
     assert first["primary_oos_ready"] is False
 
 
 def test_primary_oos_claim_requires_existing_data_health_gate():
-    admission, daily, sessions, symbols, coverage = _inputs()
+    admission, daily, sessions, symbols, coverage = _inputs(universe_tier="primary_verified")
     health = evaluate_data_health(
         census_sessions=2850, census_total_sessions=2850,
         twse_codes_observed=100, twse_codes_classified=100,
@@ -199,6 +208,10 @@ def test_primary_oos_claim_requires_existing_data_health_gate():
         exchange_by_symbol={symbol: "TWSE" for symbol in symbols},
         sessions_by_exchange={"TWSE": sessions}, walk_forward_sessions=sessions,
         events=(), action_coverage={"TWSE": coverage}, data_health=health,
+        a2b_progress={
+            "completed_jobs": 478, "pending_jobs": 0, "failed_jobs": 0,
+            "unique_first_seen_dates": 478,
+        },
         horizons=(5, 20), fold_config=config,
     )
     assert health.is_ready(ReadinessLevel.PRIMARY_OOS)
@@ -206,8 +219,33 @@ def test_primary_oos_claim_requires_existing_data_health_gate():
     assert report["primary_oos_ready"] is True
 
 
+def test_incomplete_a2b_suppresses_primary_oos_metrics_even_if_health_is_ready():
+    admission, daily, sessions, symbols, coverage = _inputs(universe_tier="primary_verified")
+    health = evaluate_data_health(
+        census_sessions=2850, census_total_sessions=2850,
+        twse_codes_observed=100, twse_codes_classified=100,
+    )
+    report = evaluate_quant(
+        admission, daily,
+        exchange_by_symbol={symbol: "TWSE" for symbol in symbols},
+        sessions_by_exchange={"TWSE": sessions}, walk_forward_sessions=sessions,
+        events=(), action_coverage={"TWSE": coverage}, data_health=health,
+        a2b_progress={
+            "completed_jobs": 192, "pending_jobs": 286, "failed_jobs": 0,
+            "unique_first_seen_dates": 478,
+        },
+        a2b_worker_status="running",
+        horizons=(5, 20),
+    )
+    assert report["status"] == "waiting_for_data_health"
+    assert report["readiness_status"] == "processing"
+    assert report["factor_ic"] is None
+    assert report["composite_score_ic"] is None
+    assert report["walk_forward"] is None
+
+
 def test_current_live_universe_cannot_be_used_for_historical_evaluation():
-    admission, daily, sessions, symbols, coverage = _inputs()
+    admission, daily, sessions, symbols, coverage = _inputs(universe_tier="primary_verified")
     matrix = admission.matrix.with_columns(pl.lit("current_live_verified").alias("universe_tier"))
     live = TrainingMatrixResult(matrix, admission.resolution, (), {})
     with pytest.raises(ValueError, match="current live universe"):

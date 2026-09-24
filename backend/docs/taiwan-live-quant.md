@@ -139,3 +139,33 @@ live composite score 的 IC、前／後 20% 未來報酬、long-short spread、�
 不會靜默略過或推論為下市。Historical evaluation 拒絕 current live universe。只有既有
 `DataHealth` 達到 `ready_for_primary_oos` 才會標示 `primary_verified_oos`；未通過時會輸出
 readiness blocker，secondary observed-universe 結果維持 `experimental_only`。
+
+## Quant Evaluation 產品狀態
+
+唯讀端點 `GET /api/taiwan/quant/evaluation` 使用共用的
+`quant_evaluation_readiness()` 判斷 `ready`、`processing`、`blocked` 或 `failed`，同時回傳
+DataHealth、A2b completed/pending/failed、可用 horizon 與阻擋原因。Worker lock 只用來判斷
+進度是否仍在執行，不會由 API 接管或重啟 worker。即時選股仍由
+`GET /api/taiwan/quant/live/models` 提供，歷史 OOS 與即時排名分開呈現。
+
+未達門檻時 API 不回傳評估 metrics；`evaluate_quant()` 對 Primary Verified 輸入也會在
+計算前停止。完成且通過 gate 的歷史報告才可由 `QuantEvaluationReportStore` 原子發布至
+`<DATA_DIR>/taiwan/quant/primary_oos_report.json`。報告綁定當時 DataHealth 與 A2b 計數，讀取時
+若健康狀態或分類進度已變，該報告會被視為過期而不對外提供。A2b 完成前不執行或發布正式
+Primary OOS 結果。
+
+## Mypy 基準
+
+`backend/pyproject.toml` 沒有 `[tool.mypy]`，repository 先前也沒有 `mypy.ini`、mypy plugin 或
+`mypy_path` 設定。因此未帶範圍的 `mypy app` 會檢查整個 app，與單一功能檔案的檢查不是同一
+基準。上一輪所述 11 errors 沒有保留下可重現的命令，不能與全 app 的 745 errors 當作同一
+基準直接比較；缺少 stub/plugin/config 亦不是 745 這個數字本身的充分解釋。本次新增明確的
+`mypy.ini`，固定本領域 scope、Python 版本、import 跟隨及 missing-import 規則，不會重設全 app
+既有問題的基線。
+
+Quant Evaluation 後續使用以下固定 scope 與 flags，在 `backend/` 執行；新增或移動本領域檔案時
+更新清單。這是本領域增量基準，不代表全 app 無型別問題：
+
+```powershell
+uv run --frozen mypy --config-file mypy.ini
+```
