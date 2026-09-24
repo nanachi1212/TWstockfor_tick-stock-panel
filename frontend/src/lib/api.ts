@@ -1066,8 +1066,19 @@ export interface QuantEvaluationMetrics {
 export interface TaiwanQuantEvaluationStatus {
   status: 'ready' | 'processing' | 'blocked' | 'failed'
   generated_at: string
-  evaluation_status: 'waiting_for_data_health' | 'waiting_for_report' | 'available'
+  evaluation_status: 'waiting_for_data_health' | 'ready_for_evaluation' | 'evaluation_running' | 'failed' | 'waiting_for_report' | 'available'
   evaluation_timestamp: string | null
+  evaluation_provenance: {
+    run_id: string
+    created_at: string
+    code_sha: string
+    evaluation_spec_version: string
+    evaluation_spec_hash: string
+    dataset_identity: string
+    latest_market_date: string
+    a2b_classification_identity: string
+    random_seed: number | null
+  } | null
   available_horizons: number[]
   data_health: {
     status: 'ready' | 'blocked'

@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 import os
 import tempfile
+from datetime import date
 from pathlib import Path
 
 import polars as pl
@@ -208,3 +209,53 @@ class FactorPanelStore:
     def read(self, panel: FactorPanel, day: object) -> tuple[pl.DataFrame, pl.DataFrame]:
         part = self._partition(panel, day)
         return pl.read_parquet(part / "values.parquet"), pl.read_parquet(part / "coverage.parquet")
+
+    def read_all(
+        self, *, factor_version: str, policy_version: str, universe_tier: str,
+    ) -> FactorPanel:
+        """Read one complete immutable PIT panel identity, failing on bad partitions."""
+        identity = FactorPanel(pl.DataFrame(), pl.DataFrame(), factor_version,
+                               policy_version, universe_tier)
+        root = self._partition(identity, "*").parent
+        metadata = root.parent.parent / "_factor_meta.json"
+        expected_metadata = json.dumps(
+            factor_meta(), sort_keys=True, ensure_ascii=False, indent=2,
+        ).encode("utf-8")
+        if not metadata.is_file() or metadata.read_bytes() != expected_metadata:
+            raise ValueError("PIT factor panel metadata is missing or does not match its version")
+        partitions = sorted(root.glob("date=*/values.parquet"))
+        if not partitions:
+            raise FileNotFoundError(
+                f"materialized PIT factor panel is unavailable for {factor_version}/"
+                f"{policy_version}/{universe_tier}"
+            )
+        values: list[pl.DataFrame] = []
+        coverage: list[pl.DataFrame] = []
+        for value_path in partitions:
+            partition = value_path.parent
+            if not (partition / "coverage.parquet").is_file():
+                raise ValueError(f"incomplete PIT factor partition: {partition.name}")
+            expected_day = date.fromisoformat(partition.name.removeprefix("date="))
+            value_frame = pl.read_parquet(value_path)
+            coverage_frame = pl.read_parquet(partition / "coverage.parquet")
+            if (
+                value_frame.is_empty()
+                or value_frame["date"].n_unique() != 1
+                or value_frame["date"][0] != expected_day
+                or value_frame.filter(
+                    (pl.col("factor_version") != factor_version)
+                    | (pl.col("policy_version") != policy_version)
+                    | (pl.col("universe_tier") != universe_tier)
+                ).height
+            ):
+                raise ValueError(f"factor partition identity mismatch: {partition.name}")
+            values.append(value_frame)
+            coverage.append(coverage_frame)
+        merged_values = pl.concat(values, how="diagonal_relaxed").sort(["date", "symbol"])
+        merged_coverage = pl.concat(coverage, how="diagonal_relaxed").sort(
+            ["date", "symbol", "factor"],
+        )
+        if merged_values.select(pl.struct("date", "symbol").is_duplicated().any()).item():
+            raise ValueError("duplicate factor row across PIT partitions")
+        return FactorPanel(merged_values, merged_coverage, factor_version,
+                           policy_version, universe_tier)

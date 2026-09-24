@@ -10,7 +10,8 @@ from app.taiwan.quant.data_health import (
     evaluate_data_health,
     quant_evaluation_readiness,
 )
-from app.taiwan.quant.evaluation_store import QuantEvaluationReportStore
+from app.taiwan.quant.evaluation_spec import PRIMARY_OOS_SPEC
+from app.taiwan.quant.evaluation_store import PrimaryOosRunStore
 
 
 def _health(*, classified: int = 100):
@@ -31,26 +32,46 @@ def _progress(*, completed: int = 478, pending: int = 0, failed: int = 0):
     }
 
 
-def _report():
+def _artifact():
     summary = {"ic_mean": 0.12, "ic_std": 0.03, "ic_positive_ratio": 0.7, "n_dates": 80}
     return {
-        "primary_oos_ready": True,
-        "claim_scope": "primary_verified_oos",
-        "generated_at": "2026-09-24T15:00:00+08:00",
-        "horizons": [5, 20],
-        "factor_ic": {"momentum_5d": {"5": summary}},
-        "composite_score_ic": {"5": summary, "20": summary},
-        "composite_score_buckets": {
-            "20": {
-                "top_bucket_future_return": 0.08,
-                "bottom_bucket_future_return": -0.02,
-                "long_short_spread": 0.1,
-                "n_dates": 60,
+        "provenance": {
+            "run_id": "fixture-run-1",
+            "created_at": "2026-09-24T15:00:00+08:00",
+            "code_sha": "a" * 40,
+            "evaluation_spec_version": PRIMARY_OOS_SPEC.version,
+            "evaluation_spec_hash": PRIMARY_OOS_SPEC.fingerprint,
+            "dataset_identity": "fixture-dataset",
+            "latest_market_date": "2026-09-23",
+            "a2b_classification_identity": "fixture-classification",
+            "random_seed": None,
+        },
+        "evaluation": {
+            "primary_oos_ready": True,
+            "claim_scope": "primary_verified_oos",
+            "horizons": [5, 20],
+            "factor_ic": {"momentum_5d": {"5": summary}},
+            "composite_score_ic": {"5": summary, "20": summary},
+            "composite_score_buckets": {
+                "20": {
+                    "top_bucket_future_return": 0.08,
+                    "bottom_bucket_future_return": -0.02,
+                    "long_short_spread": 0.1,
+                    "n_dates": 60,
+                },
+            },
+            "walk_forward": {
+                "folds": [{"index": 0, "test_start": "2025-01-01", "test_end": "2025-06-01"}],
+                "oos": {"composite_score_ic": {"5": summary}},
             },
         },
-        "walk_forward": {"folds": [{"index": 0, "test_start": "2025-01-01", "test_end": "2025-06-01"}],
-                         "oos": {"composite_score_ic": {"5": summary}}},
     }
+
+
+def _readiness(health=None, progress=None, worker_status="idle"):
+    return quant_evaluation_readiness(
+        health or _health(), progress or _progress(), worker_status=worker_status,
+    )
 
 
 def test_readiness_distinguishes_processing_ready_blocked_and_failed():
@@ -69,63 +90,107 @@ def test_readiness_distinguishes_processing_ready_blocked_and_failed():
     ).status is QuantEvaluationStatus.FAILED
 
 
-def test_processing_snapshot_never_exposes_oos_metrics_even_if_report_is_supplied():
+def test_processing_snapshot_never_exposes_oos_metrics_even_if_artifact_is_supplied():
     health = _health()
     progress = _progress(completed=192, pending=286)
-    readiness = quant_evaluation_readiness(health, progress, worker_status="running")
+    readiness = _readiness(health, progress, "running")
     response = taiwan_quant.evaluation_product_response(
         health, progress, readiness, worker_status="running",
-        generated_at=datetime.now(TAIPEI), evaluation_report=_report(),
+        generated_at=datetime.now(TAIPEI), evaluation_artifact=_artifact(),
     )
     assert response["status"] == "processing"
     assert response["evaluation_status"] == "waiting_for_data_health"
     assert response["evaluation"] is None
 
 
-def test_ready_snapshot_exposes_only_a_verified_primary_report():
+def test_ready_snapshot_exposes_only_a_verified_primary_artifact():
     health = _health()
     progress = _progress()
-    readiness = quant_evaluation_readiness(health, progress, worker_status="idle")
     response = taiwan_quant.evaluation_product_response(
-        health, progress, readiness, worker_status="idle",
-        generated_at=datetime.now(TAIPEI), evaluation_report=_report(),
+        health, progress, _readiness(), worker_status="idle",
+        generated_at=datetime.now(TAIPEI), evaluation_artifact=_artifact(),
     )
     assert response["status"] == "ready"
     assert response["evaluation_status"] == "available"
     assert response["evaluation"]["composite_score_ic"]["5"]["ic_mean"] == 0.12
     assert response["evaluation"]["composite_score_buckets"]["20"]["long_short_spread"] == 0.1
+    assert response["evaluation_provenance"]["evaluation_spec_version"] == PRIMARY_OOS_SPEC.version
     assert response["ranking_modes"]["live_current"] != response["ranking_modes"]["historical_oos"]
 
 
-def test_ready_data_without_report_does_not_claim_evaluation_is_available():
-    health = _health()
-    progress = _progress()
-    readiness = quant_evaluation_readiness(health, progress, worker_status="idle")
-    response = taiwan_quant.evaluation_product_response(
-        health, progress, readiness, worker_status="idle",
+def test_ready_without_report_and_running_states_are_distinct():
+    ready = taiwan_quant.evaluation_product_response(
+        _health(), _progress(), _readiness(), worker_status="idle",
         generated_at=datetime.now(TAIPEI),
     )
-    assert response["status"] == "ready"
-    assert response["evaluation_status"] == "waiting_for_report"
-    assert response["evaluation"] is None
+    assert ready["evaluation_status"] == "ready_for_evaluation"
+    assert ready["evaluation"] is None
+
+    running = taiwan_quant.evaluation_product_response(
+        _health(), _progress(), _readiness(), worker_status="idle",
+        generated_at=datetime.now(TAIPEI), evaluation_running=True,
+    )
+    assert running["evaluation_status"] == "evaluation_running"
+    assert running["evaluation"] is None
 
 
-def test_report_store_requires_readiness_and_invalidates_changed_health(tmp_path):
+def test_failed_run_state_does_not_replace_a_success_artifact():
+    response = taiwan_quant.evaluation_product_response(
+        _health(), _progress(), _readiness(), worker_status="idle",
+        generated_at=datetime.now(TAIPEI), evaluation_artifact=_artifact(),
+        latest_run_state={"event_type": "failed", "error_code": "RuntimeError"},
+    )
+    assert response["evaluation_status"] == "available"
+    assert response["evaluation"] is not None
+
+
+def test_append_only_store_reuses_identical_result_and_keeps_failed_event_separate(tmp_path):
     health = _health()
     progress = _progress()
-    store = QuantEvaluationReportStore(tmp_path / "primary_oos_report.json")
-    store.save(_report(), health=health, progress=progress, worker_status="idle")
-    assert store.read(health=health, progress=progress, worker_status="idle") == _report()
-    changed_progress = _progress(completed=477, pending=1)
-    assert store.read(health=health, progress=changed_progress, worker_status="running") is None
+    store = PrimaryOosRunStore(tmp_path / "primary_oos_runs.sqlite3")
+    context = {
+        "health": health.describe(),
+        "a2b": store.progress_snapshot(progress),
+        "spec_hash": PRIMARY_OOS_SPEC.fingerprint,
+        "dataset_identity": "fixture-dataset",
+        "code_sha": "a" * 40,
+    }
+    artifact = _artifact()
+    store.begin(
+        run_id="fixture-run-1", identity_key="same-identity", recorded_at="2026-09-24T15:00:00+08:00",
+        context=context,
+    )
+    store.succeed(
+        run_id="fixture-run-1", identity_key="same-identity",
+        recorded_at="2026-09-24T15:00:01+08:00", context=context, artifact=artifact,
+    )
+    reused = store.begin(
+        run_id="fixture-run-2", identity_key="same-identity", recorded_at="2026-09-24T15:01:00+08:00",
+        context=context,
+    )
+    assert reused is not None and reused["reused"] is True
+    assert reused["run_id"] == "fixture-run-1"
 
-    processing_progress = _progress(completed=477, pending=1)
-    try:
-        store.save(_report(), health=health, progress=processing_progress, worker_status="running")
-    except ValueError as exc:
-        assert "before readiness is ready" in str(exc)
-    else:
-        raise AssertionError("report was persisted while A2b remained in progress")
+    store.fail(
+        run_id="fixture-run-3", identity_key="other-identity",
+        recorded_at="2026-09-24T15:02:00+08:00", context=context, error_code="RuntimeError",
+    )
+    assert store.latest_success(
+        health=health, progress=progress, spec_hash=PRIMARY_OOS_SPEC.fingerprint,
+    )["evaluation"]["primary_oos_ready"] is True
+    assert store.latest_state(
+        health=health, progress=progress, spec_hash=PRIMARY_OOS_SPEC.fingerprint,
+    )["event_type"] == "failed"
+
+    import sqlite3
+
+    with sqlite3.connect(store.path) as db:
+        try:
+            db.execute("UPDATE run_events SET event_type='failed'")
+        except sqlite3.IntegrityError:
+            pass
+        else:
+            raise AssertionError("run events must be immutable")
 
 
 def test_worker_lock_status_is_read_only_and_distinguishes_running(tmp_path):
@@ -136,29 +201,38 @@ def test_worker_lock_status_is_read_only_and_distinguishes_running(tmp_path):
     assert lock.owner_status() == "idle"
 
 
-def test_endpoint_returns_processing_status_from_read_only_sources(monkeypatch):
-    progress = _progress(completed=194, pending=284)
+def test_endpoint_returns_processing_status_from_preflight(monkeypatch, tmp_path):
+    progress = _progress(completed=220, pending=258)
 
     class FakeLock:
         @staticmethod
         def owner_status():
             return "running"
 
-    class FakeWorker:
-        census_store = object()
-        classification_store = object()
-        lock = FakeLock()
+    class FakeStore:
+        path = tmp_path / "primary_oos_runs.sqlite3"
 
         @staticmethod
-        def status(*, start):
-            return {"end_date": "2026-09-23", "classification": progress}
+        def latest_success(**kwargs):
+            raise AssertionError("unready states must not read historical OOS output")
 
-    monkeypatch.setattr(taiwan_quant, "TaiwanHistoricalBackfillWorker", FakeWorker)
-    monkeypatch.setattr(taiwan_quant, "health_from_stores", lambda *args, **kwargs: _health())
+        @staticmethod
+        def latest_state(**kwargs):
+            raise AssertionError("unready states must not read run status")
+
+    class FakePreflight:
+        data_health = _health()
+        a2b_progress = progress
+        a2b_worker_status = "running"
+        readiness = quant_evaluation_readiness(data_health, progress, worker_status="running")
+
+    monkeypatch.setattr(taiwan_quant, "read_primary_oos_preflight", lambda: FakePreflight())
+    monkeypatch.setattr(taiwan_quant, "PrimaryOosRunStore", FakeStore)
+    monkeypatch.setattr(taiwan_quant, "WorkerLock", lambda path: FakeLock())
     response = taiwan_quant.quant_evaluation_status()
     assert response["status"] == "processing"
     assert response["a2b"] == {
-        "completed": 194, "pending": 284, "failed": 0, "total": 478,
+        "completed": 220, "pending": 258, "failed": 0, "total": 478,
         "worker_status": "running",
     }
     assert response["evaluation"] is None
