@@ -3045,6 +3045,12 @@ export const api = {
       `/api/intraday/quotes?symbols=${encodeURIComponent(symbols.join(','))}&force=${force}`,
     ),
 
+  taiwanTransactionTax: (symbol: string, tradeValue: number, tradeDate: string, isDayTrade = false) =>
+    request<{ symbol: string; tax_class: string; tax_rate: number; tax_amount: number }>(
+      `/api/taiwan/transaction-tax?symbol=${encodeURIComponent(symbol)}&trade_value=${tradeValue}&trade_date=${encodeURIComponent(tradeDate)}&is_day_trade=${isDayTrade}`,
+      { quiet: true },
+    ),
+
   taiwanQuantLiveModels: () =>
     request<{
       configured_model: { model_key: string; top_n: number }

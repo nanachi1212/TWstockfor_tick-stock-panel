@@ -7,21 +7,10 @@ Covers:
 from __future__ import annotations
 
 import logging
+from datetime import date as dt_date
 
 from fastapi import APIRouter, HTTPException, Query
-from app.taiwan.current_data import (
-    TaiwanCurrentDataResponse,
-    TaiwanDatasetCapability,
-    capability_matrix,
-    get_taiwan_current_data_service,
-)
-from app.taiwan.daily_update import FreshnessStatus, TaiwanDailyUpdateService
-from app.taiwan.detail_models import TaiwanStockDetailResponse
-from app.taiwan.detail_service import get_taiwan_stock_detail_service
-from app.taiwan.industry_intelligence import (
-    TaiwanIndustryIntelligenceService,
-    TaiwanIndustryIntelligenceSnapshot,
-)
+
 from app.taiwan.abnormal_diagnostics import (
     TaiwanAbnormalDiagnosticsService,
     TaiwanAbnormalDiagnosticsSnapshot,
@@ -41,13 +30,27 @@ from app.taiwan.comparison_ai_research import (
     TaiwanComparisonAIResearchResponse,
     TaiwanComparisonAIResearchService,
 )
-from app.taiwan.research_context import (
-    TaiwanStockResearchContext,
-    TaiwanStockResearchContextService,
+from app.taiwan.current_data import (
+    TaiwanCurrentDataResponse,
+    TaiwanDatasetCapability,
+    capability_matrix,
+    get_taiwan_current_data_service,
+)
+from app.taiwan.daily_update import FreshnessStatus, TaiwanDailyUpdateService
+from app.taiwan.detail_models import TaiwanStockDetailResponse
+from app.taiwan.detail_service import get_taiwan_stock_detail_service
+from app.taiwan.industry_intelligence import (
+    TaiwanIndustryIntelligenceService,
+    TaiwanIndustryIntelligenceSnapshot,
 )
 from app.taiwan.market_intelligence import (
     TaiwanMarketIntelligenceService,
     TaiwanMarketIntelligenceSnapshot,
+)
+from app.taiwan.market_rules import SecuritiesTaxModel
+from app.taiwan.research_context import (
+    TaiwanStockResearchContext,
+    TaiwanStockResearchContextService,
 )
 from app.taiwan.screener import TaiwanScreenerRequest, TaiwanScreenerResponse
 from app.taiwan.screener_nl import (
@@ -56,10 +59,51 @@ from app.taiwan.screener_nl import (
     TaiwanScreenerTranslator,
 )
 from app.taiwan.symbol import parse_symbol
+from app.taiwan.universe import MarketProfileBridge, get_security_master
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/taiwan", tags=["taiwan"])
+
+
+@router.get("/transaction-tax")
+def get_taiwan_transaction_tax(
+    symbol: str,
+    trade_date: dt_date,
+    trade_value: float = Query(..., gt=0),
+    is_day_trade: bool = False,
+):
+    """Estimate sell-side securities tax using the canonical Taiwan market rules."""
+    try:
+        canonical = parse_symbol(symbol).canonical
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=f"invalid Taiwan symbol: {symbol}") from exc
+
+    instrument = get_security_master().get_instrument(canonical)
+    if instrument is None or not instrument.is_supported:
+        raise HTTPException(status_code=404, detail=f"找不到可套用市場稅則的台股標的: {canonical}")
+
+    try:
+        tax_class = MarketProfileBridge.get_tax_class(instrument)
+        if is_day_trade and instrument.instrument_type != "stock":
+            raise ValueError("當沖稅率只適用於普通股")
+        tax_model = SecuritiesTaxModel()
+        rate = tax_model.get_tax_rate(tax_class=tax_class, is_day_trade=is_day_trade, trade_date=trade_date)
+        tax_amount = tax_model.calc_tax(
+            trade_value,
+            tax_class=tax_class,
+            is_day_trade=is_day_trade,
+            trade_date=trade_date,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    return {
+        "symbol": canonical,
+        "tax_class": tax_class.value,
+        "tax_rate": rate,
+        "tax_amount": tax_amount,
+    }
 
 
 @router.get("/data-status", response_model=FreshnessStatus)
@@ -106,6 +150,7 @@ def get_taiwan_bootstrap_job(job_id: str):
 async def stream_taiwan_bootstrap_job(job_id: str):
     """SSE 即時推播 Bootstrap 任務進度。"""
     import asyncio
+
     from sse_starlette.sse import EventSourceResponse
 
     svc = TaiwanBootstrapService()

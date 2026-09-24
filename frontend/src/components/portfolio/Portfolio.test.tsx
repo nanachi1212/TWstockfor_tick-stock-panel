@@ -6,7 +6,7 @@ import { api } from '@/lib/api'
 import { storage } from '@/lib/storage'
 import { PortfolioPanel } from './Portfolio'
 
-vi.mock('@/lib/api', () => ({ api: { taiwanQuotes: vi.fn() } }))
+vi.mock('@/lib/api', () => ({ api: { taiwanQuotes: vi.fn(), taiwanTransactionTax: vi.fn() } }))
 vi.mock('@/components/quant/TodaySelection', () => ({ useTodayQuantSelection: () => ({ signals: [] }) }))
 
 function renderPortfolio() {
@@ -49,6 +49,7 @@ describe('Portfolio UI', () => {
   })
 
   it('rejects an oversell with a clear message and keeps the holding unchanged', async () => {
+    vi.mocked(api.taiwanTransactionTax).mockResolvedValue({ symbol: '2330.TWSE', tax_class: 'ordinary_stock', tax_rate: 0.003, tax_amount: 19.8 })
     storage.portfolioTransactions.set([{
       id: 'seed', symbol: '2330.TWSE', name: '台積電', side: 'buy', shares: 5,
       price: 100, fee: 0, date: '2026-09-24', createdAt: '2026-09-24T00:00:00.000Z',
@@ -56,7 +57,11 @@ describe('Portfolio UI', () => {
     vi.mocked(api.taiwanQuotes).mockResolvedValue({ quotes: [], count: 0 })
     renderPortfolio()
     fireEvent.click(await screen.findByRole('button', { name: '賣出 2330.TWSE' }))
-    fillTrade({ shares: '6', price: '110' })
+    fireEvent.change(screen.getByLabelText('股票代碼'), { target: { value: '2330.TWSE' } })
+    fireEvent.change(screen.getByLabelText('股數'), { target: { value: '6' } })
+    fireEvent.change(screen.getByLabelText('成交價'), { target: { value: '110' } })
+    expect(await screen.findByText(/預估證交稅/)).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: '保存成交' }))
 
     expect(await screen.findByRole('alert')).toHaveTextContent('最多可賣出 5 股')
     expect(screen.getByText('5')).toBeInTheDocument()
@@ -87,5 +92,20 @@ describe('Portfolio UI', () => {
 
     expect(screen.getByText('目前沒有持股，從觀察清單或個股頁記錄第一筆買入。')).toBeInTheDocument()
     expect(screen.getByText('已實現損益（平均成本法）：NT$100.00')).toBeInTheDocument()
+  })
+
+  it('marks delayed quotes and the resulting portfolio valuation as non-realtime', async () => {
+    storage.portfolioTransactions.set([{
+      id: 'seed', symbol: '2330.TWSE', name: '台積電', side: 'buy', shares: 5,
+      price: 100, fee: 0, date: '2026-09-22', createdAt: '2026-09-22T00:00:00.000Z',
+    }])
+    vi.mocked(api.taiwanQuotes).mockResolvedValue({ quotes: [{
+      symbol: '2330.TWSE', name: '台積電', last_price: 110, prev_close: 108, change: 2,
+      change_pct: 1.85, source_meta: { is_stale: false, freshness_class: 'delayed_15m', source: 'yahoo:chart' },
+    } as any], count: 1 })
+    renderPortfolio()
+
+    expect(await screen.findByText('延遲 15m')).toBeInTheDocument()
+    expect(screen.getByText('總市值（含非即時報價）')).toBeInTheDocument()
   })
 })

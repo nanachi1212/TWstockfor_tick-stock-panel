@@ -8,6 +8,7 @@ export interface PortfolioTransaction {
   shares: number
   price: number
   fee: number
+  tax?: number
   date: string
   createdAt: string
 }
@@ -28,7 +29,12 @@ export interface PortfolioTransactionInput {
   shares: number
   price: number
   fee?: number
+  tax?: number
   date: string
+}
+
+export function todayTaipeiDate() {
+  return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Taipei' }).format(new Date())
 }
 
 export function isPortfolioTransaction(value: unknown): value is PortfolioTransaction {
@@ -41,6 +47,7 @@ export function isPortfolioTransaction(value: unknown): value is PortfolioTransa
     && Number.isInteger(item.shares) && (item.shares ?? 0) > 0
     && typeof item.price === 'number' && Number.isFinite(item.price) && item.price > 0
     && typeof item.fee === 'number' && Number.isFinite(item.fee) && item.fee >= 0
+    && (item.tax == null || (typeof item.tax === 'number' && Number.isFinite(item.tax) && item.tax >= 0))
     && typeof item.date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(item.date)
     && typeof item.createdAt === 'string'
 }
@@ -68,7 +75,7 @@ export function buildPortfolioPositions(transactions: readonly PortfolioTransact
       if (transaction.shares > position.shares) {
         throw new Error(`${transaction.symbol} 賣出股數超過當時持有股數`)
       }
-      position.realizedPnl += transaction.shares * (transaction.price - position.averageCost) - transaction.fee
+      position.realizedPnl += transaction.shares * (transaction.price - position.averageCost) - transaction.fee - (transaction.tax ?? 0)
       position.shares -= transaction.shares
       position.costBasis = position.shares * position.averageCost
     }
@@ -88,11 +95,14 @@ export function createPortfolioTransaction(
   if (!Number.isFinite(input.price) || input.price <= 0) throw new Error('成交價必須大於 0')
   const fee = input.fee ?? 0
   if (!Number.isFinite(fee) || fee < 0) throw new Error('手續費不可小於 0')
+  const tax = input.tax ?? 0
+  if (!Number.isFinite(tax) || tax < 0) throw new Error('證交稅不可小於 0')
   const dateParts = /^(\d{4})-(\d{2})-(\d{2})$/.exec(input.date)
   const parsedDate = dateParts ? new Date(Date.UTC(Number(dateParts[1]), Number(dateParts[2]) - 1, Number(dateParts[3]))) : null
   if (!parsedDate || parsedDate.toISOString().slice(0, 10) !== input.date) {
     throw new Error('請輸入有效成交日期')
   }
+  if (input.date > todayTaipeiDate()) throw new Error('成交日期不可晚於今日')
   if (input.side === 'sell') {
     const current = buildPortfolioPositions(transactions).find(position => position.symbol === symbol)
     if (!current || input.shares > current.shares) throw new Error(`最多可賣出 ${current?.shares ?? 0} 股`)
@@ -106,6 +116,7 @@ export function createPortfolioTransaction(
     shares: input.shares,
     price: input.price,
     fee,
+    tax,
     date: input.date,
     createdAt: new Date().toISOString(),
   }

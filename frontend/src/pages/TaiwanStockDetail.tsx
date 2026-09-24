@@ -337,6 +337,7 @@ export function TaiwanStockDetail() {
             quote={data.realtime.last_price}
             change={data.realtime.change}
             changePct={data.realtime.change_pct}
+            quoteMeta={data.realtime.meta}
           />
           {/* 未支援標的提示列 (例如權證/ETN) */}
           {!data.identity.is_supported && (

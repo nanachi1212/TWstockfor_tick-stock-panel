@@ -6,10 +6,12 @@ import { api, type TaiwanRealtimeQuote } from '@/lib/api'
 import { QK } from '@/lib/queryKeys'
 import { storage } from '@/lib/storage'
 import { useTodayQuantSelection } from '@/components/quant/TodaySelection'
+import { DataQualityBadge, freshnessLabel, type TaiwanQuoteMetaLike } from '@/components/taiwan/TaiwanDataQuality'
 import {
   buildPortfolioPositions,
   createPortfolioTransaction,
   isPortfolioTransaction,
+  todayTaipeiDate,
   type PortfolioSide,
   type PortfolioTransaction,
 } from '@/lib/portfolio'
@@ -42,10 +44,6 @@ function commitTransaction(input: Parameters<typeof createPortfolioTransaction>[
   window.dispatchEvent(new Event(PORTFOLIO_CHANGED))
 }
 
-function todayTaipei() {
-  return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Taipei' }).format(new Date())
-}
-
 function money(value: number | null | undefined) {
   return value == null || !Number.isFinite(value)
     ? '—'
@@ -76,20 +74,40 @@ export function PortfolioTradeDialog({
   const [shares, setShares] = useState('')
   const [price, setPrice] = useState(quote && quote > 0 ? String(quote) : '')
   const [fee, setFee] = useState('0')
-  const [date, setDate] = useState(todayTaipei)
+  const [date, setDate] = useState(todayTaipeiDate)
+  const [isDayTrade, setIsDayTrade] = useState(false)
   const [error, setError] = useState('')
   const position = useMemo(() => buildPortfolioPositions(transactions).find(item => item.symbol === symbol.trim().toUpperCase() && item.shares > 0), [transactions, symbol])
+  const taxInputsValid = !!symbol.trim() && Number.isInteger(Number(shares)) && Number(shares) > 0
+    && Number.isFinite(Number(price)) && Number(price) > 0 && /^\d{4}-\d{2}-\d{2}$/.test(date) && date <= todayTaipeiDate()
+  const taxQuery = useQuery({
+    queryKey: ['portfolio-sell-tax', symbol.trim().toUpperCase(), shares, price, date, isDayTrade],
+    queryFn: () => api.taiwanTransactionTax(symbol.trim().toUpperCase(), Number(shares) * Number(price), date, isDayTrade),
+    enabled: side === 'sell' && taxInputsValid,
+    retry: false,
+  })
 
-  const submit = (event: FormEvent) => {
+  const submit = async (event: FormEvent) => {
     event.preventDefault()
     try {
+      const shareCount = Number(shares)
+      if (side === 'sell' && (!position || shareCount > position.shares)) {
+        throw new Error(`最多可賣出 ${position?.shares ?? 0} 股`)
+      }
+      let tax = 0
+      if (side === 'sell') {
+        const result = await taxQuery.refetch()
+        if (!result.data) throw new Error('目前無法依台灣市場規則估算證交稅，請稍後重試')
+        tax = result.data.tax_amount
+      }
       commitTransaction({
         symbol,
         name,
         side,
-        shares: Number(shares),
+        shares: shareCount,
         price: Number(price),
         fee: Number(fee),
+        tax,
         date,
       }, transactions)
       onClose()
@@ -123,26 +141,34 @@ export function PortfolioTradeDialog({
             <input type="number" min="0.01" step="0.01" value={price} onChange={event => setPrice(event.target.value)} required className="w-full rounded-lg border border-border bg-base px-3 py-2 text-foreground" />
           </label>
           <label className="space-y-1 text-xs text-secondary">日期
-            <input type="date" value={date} onChange={event => setDate(event.target.value)} required className="w-full rounded-lg border border-border bg-base px-3 py-2 text-foreground" />
+            <input type="date" max={todayTaipeiDate()} value={date} onChange={event => setDate(event.target.value)} required className="w-full rounded-lg border border-border bg-base px-3 py-2 text-foreground" />
           </label>
           <label className="space-y-1 text-xs text-secondary">手續費（選填）
             <input type="number" min="0" step="1" value={fee} onChange={event => setFee(event.target.value)} className="w-full rounded-lg border border-border bg-base px-3 py-2 text-foreground" />
           </label>
         </div>
+        {side === 'sell' && <>
+          <label className="flex items-center gap-2 text-xs text-secondary"><input type="checkbox" checked={isDayTrade} onChange={event => setIsDayTrade(event.target.checked)} />當沖交易（適用時）</label>
+          {!taxInputsValid ? <p className="text-[11px] text-muted">輸入有效股數、價格與不晚於今日的成交日期後，會依台灣市場規則估算證交稅。</p>
+            : taxQuery.isFetching ? <p role="status" className="text-[11px] text-muted">正在依台灣市場規則估算證交稅…</p>
+              : taxQuery.data ? <p className="text-[11px] text-muted">預估證交稅：{money(taxQuery.data.tax_amount)}（{(taxQuery.data.tax_rate * 100).toFixed(2)}%，{taxQuery.data.tax_class}）</p>
+                : taxQuery.isError ? <p role="alert" className="text-[11px] text-warning">無法取得此標的適用的證交稅規則，請稍後重試。</p> : null}
+        </>}
         {side === 'sell' && position && <p className="text-[11px] text-muted">目前持有 {position.shares.toLocaleString()} 股，平均成本 {money(position.averageCost)}</p>}
         {error && <p role="alert" className="rounded-lg bg-danger/10 px-3 py-2 text-xs text-danger">{error}</p>}
-        <button type="submit" className="w-full rounded-lg bg-accent px-3 py-2 text-xs font-semibold text-white hover:bg-accent/90">保存成交</button>
+        <button type="submit" disabled={side === 'sell' && (!taxQuery.data || taxQuery.isFetching)} className="w-full rounded-lg bg-accent px-3 py-2 text-xs font-semibold text-white hover:bg-accent/90 disabled:cursor-not-allowed disabled:opacity-50">保存成交</button>
       </form>
     </div>
   )
 }
 
-export function PortfolioPanel({ symbol, name, quote: detailQuote, change: detailChange, changePct: detailChangePct }: {
+export function PortfolioPanel({ symbol, name, quote: detailQuote, change: detailChange, changePct: detailChangePct, quoteMeta }: {
   symbol?: string
   name?: string
   quote?: number | null
   change?: number | null
   changePct?: number | null
+  quoteMeta?: TaiwanQuoteMetaLike | null
 }) {
   const transactions = usePortfolioTransactions()
   const [trade, setTrade] = useState<{ symbol?: string; name?: string; side: PortfolioSide; quote?: number | null } | null>(null)
@@ -164,6 +190,11 @@ export function PortfolioPanel({ symbol, name, quote: detailQuote, change: detai
   const shownPositions = symbol ? (targetPosition ? [targetPosition] : []) : positions
   const quoteFor = (position: typeof positions[number]): TaiwanRealtimeQuote | undefined => quotes.get(position.symbol)
   const hasMissingQuote = shownPositions.some(position => (symbol ? detailQuote : quoteFor(position)?.last_price) == null)
+  const hasDegradedQuote = shownPositions.some(position => {
+    const meta = symbol ? quoteMeta : quoteFor(position)?.source_meta
+    const freshness = freshnessLabel(meta)
+    return !freshness || freshness.tone !== 'realtime'
+  })
   const totalCost = positions.reduce((total, position) => total + position.costBasis, 0)
   const totalMarket = positions.reduce((total, position) => total + (quotes.get(position.symbol)?.last_price ?? 0) * position.shares, 0)
   const totalUnrealized = totalMarket - totalCost
@@ -177,11 +208,11 @@ export function PortfolioPanel({ symbol, name, quote: detailQuote, change: detai
       </div>
       {!symbol && positions.length > 0 && (
         <div className="grid grid-cols-2 gap-2 sm:grid-cols-5 text-xs">
-          <Summary label="總市值" value={hasMissingQuote ? '報價不完整' : money(totalMarket)} />
+          <Summary label={hasDegradedQuote ? '總市值（含非即時報價）' : '總市值'} value={hasMissingQuote ? '報價不完整' : money(totalMarket)} />
           <Summary label="總成本" value={money(totalCost)} />
-          <Summary label="未實現損益" value={hasMissingQuote ? '報價不完整' : money(totalUnrealized)} tone={totalUnrealized} />
-          <Summary label="未實現報酬率" value={hasMissingQuote || totalCost === 0 ? '—' : signedPct(totalUnrealized / totalCost * 100)} tone={hasMissingQuote ? null : totalUnrealized} />
-          <Summary label="今日持股變化" value={hasMissingQuote ? '報價不完整' : money(totalDailyChange)} tone={hasMissingQuote ? null : totalDailyChange} />
+          <Summary label={hasDegradedQuote ? '未實現損益（含非即時報價）' : '未實現損益'} value={hasMissingQuote ? '報價不完整' : money(totalUnrealized)} tone={hasMissingQuote ? null : totalUnrealized} />
+          <Summary label={hasDegradedQuote ? '未實現報酬率（含非即時報價）' : '未實現報酬率'} value={hasMissingQuote || totalCost === 0 ? '—' : signedPct(totalUnrealized / totalCost * 100)} tone={hasMissingQuote ? null : totalUnrealized} />
+          <Summary label={hasDegradedQuote ? '今日持股變化（含非即時報價）' : '今日持股變化'} value={hasMissingQuote ? '報價不完整' : money(totalDailyChange)} tone={hasMissingQuote ? null : totalDailyChange} />
         </div>
       )}
       {!symbol && quotesQuery.isLoading && positions.length > 0 && <p role="status" className="text-[11px] text-muted">正在載入持股報價…</p>}
@@ -195,6 +226,7 @@ export function PortfolioPanel({ symbol, name, quote: detailQuote, change: detai
             <tbody>
               {shownPositions.map(position => {
                 const quote = quoteFor(position)
+                const meta = symbol ? quoteMeta : quote?.source_meta
                 const currentPrice = symbol ? detailQuote : quote?.last_price
                 const unrealized = currentPrice == null ? null : currentPrice * position.shares - position.costBasis
                 const returnPct = unrealized == null || position.costBasis === 0 ? null : unrealized / position.costBasis * 100
@@ -204,7 +236,7 @@ export function PortfolioPanel({ symbol, name, quote: detailQuote, change: detai
                 return <tr key={position.symbol} className="border-t border-border/60">
                   {!symbol && <td className="px-2 py-2"><Link to={`/stocks/${encodeURIComponent(position.symbol)}`} className="font-medium text-foreground hover:text-accent">{position.name}</Link><span className="ml-1 font-mono text-muted">{position.symbol}</span></td>}
                   <td className="px-2 py-2 font-mono">{position.shares.toLocaleString()}</td><td className="px-2 py-2 font-mono">{money(position.averageCost)}</td>
-                  <td className="px-2 py-2 font-mono">{currentPrice == null ? <span className="text-muted">目前無法取得報價</span> : <>{money(currentPrice)}{!symbol && quote?.source_meta?.is_stale && <small className="ml-1 text-warning">報價已過期</small>}</>}</td>
+                  <td className="px-2 py-2 font-mono">{currentPrice == null ? <span className="text-muted">目前無法取得報價</span> : <>{money(currentPrice)}<DataQualityBadge meta={meta} quoteTime={quote?.quote_time} className="ml-1" /></>}</td>
                   <td className="px-2 py-2 font-mono">{currentPrice == null ? '—' : money(currentPrice * position.shares)}</td>
                   <td className={`px-2 py-2 font-mono ${tone(unrealized)}`}>{unrealized == null ? '—' : money(unrealized)}</td><td className={`px-2 py-2 font-mono ${tone(unrealized)}`}>{signedPct(returnPct)}</td>
                   <td className={`px-2 py-2 font-mono ${tone(daily)}`}>{daily == null ? '—' : `${money(daily)} (${signedPct(dailyPct)})`}</td>
