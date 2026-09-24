@@ -12,6 +12,7 @@ function buildStatus(overrides: Record<string, any> = {}) {
     generated_at: '2026-09-24T15:00:00+08:00',
     evaluation_status: 'waiting_for_data_health',
     evaluation_timestamp: null,
+    evaluation_provenance: null,
     available_horizons: [5, 20],
     data_health: { status: 'blocked', primary_oos_ready: false, highest_level: 'ready_for_training', blocked_reasons: {} },
     a2b: { completed: 194, pending: 284, failed: 0, total: 478, worker_status: 'running' },
@@ -57,6 +58,35 @@ describe('QuantEvaluationCard', () => {
     expect(screen.queryByText('5D 指標 IC')).not.toBeInTheDocument()
   })
 
+  it('shows that ready data is waiting for the first formal evaluation', async () => {
+    vi.mocked(api.taiwanQuantEvaluation).mockResolvedValue(buildStatus({
+      status: 'ready',
+      evaluation_status: 'ready_for_evaluation',
+      data_health: { status: 'ready', primary_oos_ready: true, highest_level: 'ready_for_primary_oos', blocked_reasons: {} },
+      a2b: { completed: 478, pending: 0, failed: 0, total: 478, worker_status: 'idle' },
+      blocking_reasons: [],
+    }) as any)
+    renderCard()
+
+    expect(await screen.findByText('資料條件已符合')).toBeInTheDocument()
+    expect(screen.getByText('歷史資料已準備完成，等待首次正式歷史驗證。')).toBeInTheDocument()
+    expect(screen.queryByText('5D 指標 IC')).not.toBeInTheDocument()
+  })
+
+  it('shows evaluation running without exposing earlier or partial metrics', async () => {
+    vi.mocked(api.taiwanQuantEvaluation).mockResolvedValue(buildStatus({
+      status: 'ready',
+      evaluation_status: 'evaluation_running',
+      data_health: { status: 'ready', primary_oos_ready: true, highest_level: 'ready_for_primary_oos', blocked_reasons: {} },
+      a2b: { completed: 478, pending: 0, failed: 0, total: 478, worker_status: 'idle' },
+      blocking_reasons: [],
+    }) as any)
+    renderCard()
+
+    expect(await screen.findByText('正式歷史驗證執行中，完成後才會顯示結果。')).toBeInTheDocument()
+    expect(screen.queryByText('5D 指標 IC')).not.toBeInTheDocument()
+  })
+
   it('renders verified evaluation metrics once the API exposes an available report', async () => {
     vi.mocked(api.taiwanQuantEvaluation).mockResolvedValue(buildStatus({
       status: 'ready',
@@ -78,6 +108,17 @@ describe('QuantEvaluationCard', () => {
         },
         walk_forward: { folds: [{ index: 0, test_start: '2025-01-01', test_end: '2025-06-01' }], oos: {} },
       },
+      evaluation_provenance: {
+        run_id: '12345678-verified-run',
+        created_at: '2026-09-24T15:00:00+08:00',
+        code_sha: 'a'.repeat(40),
+        evaluation_spec_version: 'primary-oos-v1',
+        evaluation_spec_hash: 'b'.repeat(64),
+        dataset_identity: 'c'.repeat(64),
+        latest_market_date: '2026-09-23',
+        a2b_classification_identity: 'd'.repeat(64),
+        random_seed: null,
+      },
       blocking_reasons: [],
     }) as any)
     renderCard()
@@ -88,6 +129,7 @@ describe('QuantEvaluationCard', () => {
     expect(screen.getByText('Composite IC (20D)')).toBeInTheDocument()
     expect(screen.getByText('0.090')).toBeInTheDocument()
     expect(screen.getByText('10.00%')).toBeInTheDocument()
+    expect(screen.getByText(/資料截至 2026-09-23/)).toBeInTheDocument()
   })
 
   it('shows an API error and retry action without crashing', async () => {

@@ -140,19 +140,31 @@ live composite score 的 IC、前／後 20% 未來報酬、long-short spread、�
 `DataHealth` 達到 `ready_for_primary_oos` 才會標示 `primary_verified_oos`；未通過時會輸出
 readiness blocker，secondary observed-universe 結果維持 `experimental_only`。
 
-## Quant Evaluation 產品狀態
+## Primary OOS 評估執行與 provenance
 
 唯讀端點 `GET /api/taiwan/quant/evaluation` 使用共用的
-`quant_evaluation_readiness()` 判斷 `ready`、`processing`、`blocked` 或 `failed`，同時回傳
-DataHealth、A2b completed/pending/failed、可用 horizon 與阻擋原因。Worker lock 只用來判斷
-進度是否仍在執行，不會由 API 接管或重啟 worker。即時選股仍由
-`GET /api/taiwan/quant/live/models` 提供，歷史 OOS 與即時排名分開呈現。
+`quant_evaluation_readiness()` 顯示 `ready_for_evaluation`、`evaluation_running`、
+`waiting_for_data_health`、`failed` 或 `available`，同時回傳 DataHealth、A2b
+completed/pending/failed、可用 horizon 與阻擋原因。Worker lock 只用來判斷進度是否仍在執行，
+API 不會接管或重啟 worker。即時選股仍由 `GET /api/taiwan/quant/live/models` 提供，歷史 OOS
+與即時排名分開呈現。
 
-未達門檻時 API 不回傳評估 metrics；`evaluate_quant()` 對 Primary Verified 輸入也會在
-計算前停止。完成且通過 gate 的歷史報告才可由 `QuantEvaluationReportStore` 原子發布至
-`<DATA_DIR>/taiwan/quant/primary_oos_report.json`。報告綁定當時 DataHealth 與 A2b 計數，讀取時
-若健康狀態或分類進度已變，該報告會被視為過期而不對外提供。A2b 完成前不執行或發布正式
-Primary OOS 結果。
+維護者可從 `backend/` 執行 `uv run python scripts/taiwan_primary_oos_evaluation.py`，先檢視
+readiness，再由同一命令於 gate 通過後執行。命令沒有 force/override 選項；gate 未通過時
+以非零狀態結束且不載入評估資料、不寫入正式結果。Runner 只讀取已物化的 PIT factor
+partitions、A2a 歷史觀測 universe 和 raw close，並拒絕缺少已驗證 Primary 股票歷史 rows
+或混入 forward-label 欄位。公司行動資料只有在 readiness 通過後才會從五個官方來源載入。
+
+Spec `primary-oos-v1` 固定因子定義與版本、TWSE Primary universe、PIT admission、5D/20D
+horizon、bucket 方法及 756/126/63/63 walk-forward window；不做隨機切分或訓練 scorer。結果
+附 code SHA、spec fingerprint、A2b classification snapshot、DataHealth、資料集 identity、
+最新市場日期及 walk-forward 設定。相同 code/spec/dataset identity 會重用既有成功結果。
+
+`<DATA_DIR>/taiwan/quant/primary_oos_runs.sqlite3` 以 append-only SQLite events 保存
+started/succeeded/failed 與成功 artifact；UPDATE/DELETE triggers 禁止改寫。失敗事件不會取代
+既有成功結果；API 只有在目前 DataHealth、A2b 進度與 spec fingerprint 仍吻合時才提供成功
+metrics，且附上 provenance。A2b 未完成前不執行或發布正式 Primary OOS 結果。本次 runner
+實作工作使用合成測試 fixtures 驗證流程，不執行正式 Primary OOS evaluation。
 
 ## Mypy 基準
 

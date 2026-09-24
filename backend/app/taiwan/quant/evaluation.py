@@ -224,6 +224,7 @@ def _metrics(
     *,
     factors: Sequence[str],
     horizons: tuple[int, ...],
+    bucket_fraction: float,
 ) -> dict[str, Any]:
     joined = features.join(labels, on=["date", "symbol"], how="left")
     factor_ic: dict[str, dict[str, Any]] = {}
@@ -265,7 +266,7 @@ def _metrics(
                 ics.append(ic)
             rows = sorted(valid.to_dicts(), key=lambda item: (-item["composite_score"], item["symbol"]))
             if len(rows) >= 2:
-                bucket_size = max(1, math.ceil(len(rows) * 0.2))
+                bucket_size = max(1, math.ceil(len(rows) * bucket_fraction))
                 top_returns.append(sum(row[value_column] for row in rows[:bucket_size]) / bucket_size)
                 bottom_returns.append(sum(row[value_column] for row in rows[-bucket_size:]) / bucket_size)
                 bucket_observations += len(rows)
@@ -277,7 +278,7 @@ def _metrics(
             "bottom_bucket_future_return": bottom_mean,
             "long_short_spread": top_mean - bottom_mean
             if top_mean is not None and bottom_mean is not None else None,
-            "bucket_fraction": 0.2,
+            "bucket_fraction": bucket_fraction,
             "n_dates": min(len(top_returns), len(bottom_returns)),
             "n_observations": bucket_observations,
         }
@@ -325,6 +326,7 @@ def evaluate_quant(
     a2b_worker_status: str = "idle",
     horizons: tuple[int, ...] = (5, 20),
     fold_config: FoldConfig | None = None,
+    bucket_fraction: float = 0.2,
 ) -> dict[str, Any]:
     """Evaluate PIT-admitted existing factors and their live composite score."""
     if not isinstance(admission, TrainingMatrixResult):
@@ -365,7 +367,10 @@ def evaluate_quant(
         action_coverage=action_coverage, horizons=horizons,
     )
     factor_names = tuple(sorted(eligible & set(matrix.columns)))
-    full = _metrics(matrix, labels, factors=factor_names, horizons=horizons)
+    if not 0 < bucket_fraction <= 0.5:
+        raise ValueError("bucket_fraction must be in (0, 0.5]")
+    full = _metrics(matrix, labels, factors=factor_names, horizons=horizons,
+                    bucket_fraction=bucket_fraction)
     if len(walk_forward_sessions) != len(set(walk_forward_sessions)) \
             or list(walk_forward_sessions) != sorted(walk_forward_sessions):
         raise ValueError("walk-forward sessions must be sorted and unique")
@@ -382,7 +387,8 @@ def evaluate_quant(
         prior_test_end = fold.test_end
         test_features = matrix.filter(pl.col("date").is_between(fold.test_start, fold.test_end))
         test_labels = labels.filter(pl.col("date").is_between(fold.test_start, fold.test_end))
-        metrics = _metrics(test_features, test_labels, factors=factor_names, horizons=horizons)
+        metrics = _metrics(test_features, test_labels, factors=factor_names,
+                           horizons=horizons, bucket_fraction=bucket_fraction)
         fold_reports.append({
             "index": fold.index,
             "train_start": fold.train_start.isoformat(), "train_end": fold.train_end.isoformat(),
@@ -398,7 +404,8 @@ def evaluate_quant(
     oos_features = pl.concat(oos_rows) if oos_rows else matrix.head(0)
     oos_dates = set(oos_features["date"].to_list()) if oos_features.height else set()
     oos_labels = labels.filter(pl.col("date").is_in(sorted(oos_dates))) if oos_dates else labels.head(0)
-    oos = _metrics(oos_features, oos_labels, factors=factor_names, horizons=horizons)
+    oos = _metrics(oos_features, oos_labels, factors=factor_names,
+                   horizons=horizons, bucket_fraction=bucket_fraction)
     primary_oos_ready = tier == PRIMARY_VERIFIED and readiness.status is QuantEvaluationStatus.READY
     return {
         "status": "success" if folds else "insufficient_walk_forward_history",

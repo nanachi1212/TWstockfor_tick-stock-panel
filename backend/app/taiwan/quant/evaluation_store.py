@@ -1,103 +1,175 @@
-"""Read/write handoff for completed, readiness-gated Primary OOS reports."""
+"""Append-only provenance ledger for formal Primary OOS evaluations."""
 from __future__ import annotations
 
 import json
-import os
-import tempfile
-from collections.abc import Mapping
+import sqlite3
+from collections.abc import Iterator, Mapping
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 
-from app.taiwan.quant.data_health import (
-    DataHealth,
-    QuantEvaluationStatus,
-    quant_evaluation_readiness,
-)
+from app.taiwan.quant.data_health import DataHealth
+from app.taiwan.quant.live_contract import canonical_json
 
 
-class QuantEvaluationReportStore:
-    """Persist one report outside Git and invalidate it when its gate changes."""
+class PrimaryOosRunStore:
+    """Keep immutable run events and successful artifacts outside Git."""
 
     def __init__(self, path: Path | None = None) -> None:
         if path is None:
             from app.taiwan.data_root import taiwan_data_root
 
-            path = taiwan_data_root() / "quant" / "primary_oos_report.json"
+            path = taiwan_data_root() / "quant" / "primary_oos_runs.sqlite3"
         self.path = Path(path)
 
     @staticmethod
-    def _progress_snapshot(progress: Mapping[str, int]) -> dict[str, int]:
+    def progress_snapshot(progress: Mapping[str, int]) -> dict[str, int]:
         return {
             name: progress[name]
             for name in ("completed_jobs", "pending_jobs", "failed_jobs", "unique_first_seen_dates")
         }
 
-    def save(
-        self,
-        report: Mapping[str, Any],
-        *,
-        health: DataHealth,
-        progress: Mapping[str, int],
-        worker_status: str,
-    ) -> None:
-        readiness = quant_evaluation_readiness(
-            health, dict(progress), worker_status=worker_status,
-        )
-        if readiness.status is not QuantEvaluationStatus.READY:
-            raise ValueError("Primary OOS report cannot be saved before readiness is ready")
-        if (report.get("primary_oos_ready") is not True
-                or report.get("claim_scope") != "primary_verified_oos"
-                or set(report.get("horizons", ())) != {5, 20}):
-            raise ValueError("report does not contain a verified Primary OOS result")
-        generated_at = report.get("generated_at")
-        if not isinstance(generated_at, str):
-            raise ValueError("report requires a generated_at timestamp")
+    @contextmanager
+    def _connect(self) -> Iterator[sqlite3.Connection]:
         self.path.parent.mkdir(parents=True, exist_ok=True)
-        payload = {
-            "schema_version": 1,
-            "generated_at": generated_at,
-            "health": health.describe(),
-            "a2b": self._progress_snapshot(progress),
-            "report": dict(report),
-        }
-        descriptor, temporary = tempfile.mkstemp(dir=self.path.parent, suffix=".tmp")
+        db = sqlite3.connect(self.path, timeout=30)
+        db.row_factory = sqlite3.Row
         try:
-            with os.fdopen(descriptor, "w", encoding="utf-8") as stream:
-                json.dump(payload, stream, ensure_ascii=False, allow_nan=False, sort_keys=True)
-                stream.flush()
-                os.fsync(stream.fileno())
-            os.replace(temporary, self.path)
-        except BaseException:
-            Path(temporary).unlink(missing_ok=True)
-            raise
+            db.executescript("""
+                CREATE TABLE IF NOT EXISTS run_events (
+                    event_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    run_id TEXT NOT NULL,
+                    identity_key TEXT NOT NULL,
+                    event_type TEXT NOT NULL CHECK(event_type IN ('started','succeeded','failed')),
+                    recorded_at TEXT NOT NULL,
+                    payload_json TEXT NOT NULL
+                );
+                CREATE INDEX IF NOT EXISTS run_events_identity
+                    ON run_events(identity_key, event_type, event_id);
+                CREATE INDEX IF NOT EXISTS run_events_order
+                    ON run_events(event_id);
+                CREATE TRIGGER IF NOT EXISTS immutable_run_events_update
+                    BEFORE UPDATE ON run_events BEGIN
+                    SELECT RAISE(ABORT, 'immutable Primary OOS run event'); END;
+                CREATE TRIGGER IF NOT EXISTS immutable_run_events_delete
+                    BEFORE DELETE ON run_events BEGIN
+                    SELECT RAISE(ABORT, 'immutable Primary OOS run event'); END;
+            """)
+            yield db
+        finally:
+            db.close()
 
-    def read(
-        self,
-        *,
-        health: DataHealth,
-        progress: Mapping[str, int],
-        worker_status: str,
-    ) -> dict[str, Any] | None:
-        readiness = quant_evaluation_readiness(
-            health, dict(progress), worker_status=worker_status,
+    @staticmethod
+    def _context_matches(
+        payload: Mapping[str, Any], *, health: DataHealth,
+        progress: Mapping[str, int], spec_hash: str,
+    ) -> bool:
+        context = payload.get("context")
+        return (
+            isinstance(context, dict)
+            and context.get("health") == health.describe()
+            and context.get("a2b") == PrimaryOosRunStore.progress_snapshot(progress)
+            and context.get("spec_hash") == spec_hash
         )
-        if readiness.status is not QuantEvaluationStatus.READY or not self.path.exists():
-            return None
+
+    def begin(
+        self, *, run_id: str, identity_key: str, recorded_at: str,
+        context: Mapping[str, Any],
+    ) -> dict[str, Any] | None:
+        """Append a start event, or return an identical successful artifact."""
+        with self._connect() as db:
+            db.execute("BEGIN IMMEDIATE")
+            previous = db.execute(
+                "SELECT run_id, payload_json FROM run_events "
+                "WHERE identity_key=? AND event_type='succeeded' ORDER BY event_id DESC LIMIT 1",
+                (identity_key,),
+            ).fetchone()
+            if previous is not None:
+                payload = json.loads(previous["payload_json"])
+                artifact = payload.get("artifact")
+                if not isinstance(artifact, dict):
+                    raise RuntimeError("successful Primary OOS event has no artifact")
+                return {
+                    "run_id": previous["run_id"],
+                    "artifact": artifact,
+                    "reused": True,
+                }
+            db.execute(
+                "INSERT INTO run_events(run_id,identity_key,event_type,recorded_at,payload_json) "
+                "VALUES(?,?,?,?,?)",
+                (run_id, identity_key, "started", recorded_at,
+                 canonical_json({"context": dict(context)})),
+            )
+            db.commit()
+        return None
+
+    def succeed(
+        self, *, run_id: str, identity_key: str, recorded_at: str,
+        context: Mapping[str, Any], artifact: Mapping[str, Any],
+    ) -> None:
+        with self._connect() as db:
+            db.execute(
+                "INSERT INTO run_events(run_id,identity_key,event_type,recorded_at,payload_json) "
+                "VALUES(?,?,?,?,?)",
+                (run_id, identity_key, "succeeded", recorded_at,
+                 canonical_json({"context": dict(context), "artifact": dict(artifact)})),
+            )
+            db.commit()
+
+    def fail(
+        self, *, run_id: str, identity_key: str, recorded_at: str,
+        context: Mapping[str, Any], error_code: str,
+    ) -> None:
+        with self._connect() as db:
+            db.execute(
+                "INSERT INTO run_events(run_id,identity_key,event_type,recorded_at,payload_json) "
+                "VALUES(?,?,?,?,?)",
+                (run_id, identity_key, "failed", recorded_at,
+                 canonical_json({"context": dict(context), "error_code": error_code})),
+            )
+            db.commit()
+
+    def _read_events(self) -> list[sqlite3.Row]:
+        if not self.path.is_file():
+            return []
+        db: sqlite3.Connection | None = None
         try:
-            payload = json.loads(self.path.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError):
-            return None
-        report = payload.get("report") if isinstance(payload, dict) else None
-        if (
-            not isinstance(payload, dict)
-            or payload.get("schema_version") != 1
-            or payload.get("health") != health.describe()
-            or payload.get("a2b") != self._progress_snapshot(progress)
-            or not isinstance(report, dict)
-            or report.get("primary_oos_ready") is not True
-            or report.get("claim_scope") != "primary_verified_oos"
-            or set(report.get("horizons", ())) != {5, 20}
-            or not isinstance(report.get("generated_at"), str)
-        ):
-            return None
-        return report
+            db = sqlite3.connect(self.path, timeout=5)
+            db.row_factory = sqlite3.Row
+            return db.execute(
+                "SELECT run_id,identity_key,event_type,recorded_at,payload_json "
+                "FROM run_events ORDER BY event_id DESC"
+            ).fetchall()
+        except sqlite3.Error:
+            return []
+        finally:
+            if db is not None:
+                db.close()
+
+    def latest_success(
+        self, *, health: DataHealth, progress: Mapping[str, int], spec_hash: str,
+    ) -> dict[str, Any] | None:
+        for event in self._read_events():
+            if event["event_type"] != "succeeded":
+                continue
+            payload = json.loads(event["payload_json"])
+            if self._context_matches(payload, health=health, progress=progress,
+                                     spec_hash=spec_hash):
+                artifact = payload.get("artifact")
+                if isinstance(artifact, dict):
+                    return {"run_id": event["run_id"], **artifact}
+        return None
+
+    def latest_state(
+        self, *, health: DataHealth, progress: Mapping[str, int], spec_hash: str,
+    ) -> dict[str, Any] | None:
+        for event in self._read_events():
+            payload = json.loads(event["payload_json"])
+            if self._context_matches(payload, health=health, progress=progress,
+                                     spec_hash=spec_hash):
+                return {
+                    "run_id": event["run_id"], "event_type": event["event_type"],
+                    "recorded_at": event["recorded_at"],
+                    "error_code": payload.get("error_code"),
+                }
+        return None

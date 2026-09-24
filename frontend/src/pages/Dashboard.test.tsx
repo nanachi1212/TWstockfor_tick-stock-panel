@@ -88,6 +88,7 @@ vi.mock('@/lib/api', () => ({
       generated_at: '2026-09-24T15:00:00+08:00',
       evaluation_status: 'waiting_for_data_health',
       evaluation_timestamp: null,
+      evaluation_provenance: null,
       available_horizons: [5, 20],
       data_health: { status: 'blocked', primary_oos_ready: false, highest_level: 'ready_for_training', blocked_reasons: {} },
       a2b: { completed: 194, pending: 284, failed: 0, total: 478, worker_status: 'running' },

@@ -80,7 +80,13 @@ export function QuantEvaluationCard() {
               <p>
                 {query.data.evaluation_status === 'waiting_for_data_health'
                   ? 'Primary OOS 尚未提供，需等資料健康門檻通過。'
-                  : '資料健康門檻已通過，歷史評估報告尚未產生。'}
+                  : query.data.evaluation_status === 'ready_for_evaluation'
+                    ? '歷史資料已準備完成，等待首次正式歷史驗證。'
+                    : query.data.evaluation_status === 'evaluation_running'
+                      ? '正式歷史驗證執行中，完成後才會顯示結果。'
+                      : query.data.evaluation_status === 'failed'
+                        ? '正式歷史驗證失敗，本次沒有發布指標。'
+                        : '資料健康門檻已通過，歷史評估報告尚未產生。'}
               </p>
               {query.data.blocking_reasons.length > 0 && (
                 <ul className="mt-1 list-disc space-y-0.5 pl-4">
@@ -91,6 +97,13 @@ export function QuantEvaluationCard() {
             </div>
           ) : query.data.evaluation ? (
             <div className="mt-3">
+              {query.data.evaluation_provenance && (
+                <p className="mb-2 text-[10px] text-muted">
+                  正式 OOS，資料截至 {query.data.evaluation_provenance.latest_market_date}，
+                  spec {query.data.evaluation_provenance.evaluation_spec_version}，
+                  run {query.data.evaluation_provenance.run_id.slice(0, 8)}
+                </p>
+              )}
               <div className="grid grid-cols-2 gap-2 lg:grid-cols-4">
                 <Metric label="5D 指標 IC" value={formatNumber(query.data.evaluation.factor_ic.momentum_5d?.['5']?.ic_mean)} />
                 <Metric label="20D 指標 IC" value={formatNumber(query.data.evaluation.factor_ic.momentum_20d?.['20']?.ic_mean)} />
