@@ -1,6 +1,7 @@
 """One current EOD freeze; this module has no historical date/model-fit CLI."""
 from __future__ import annotations
 
+import logging
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
@@ -34,6 +35,7 @@ from app.taiwan.realtime.calendar import (
 from app.taiwan.universe.service import TaiwanSecurityMaster
 
 PRICE_COLUMNS = ("symbol", "date", "open", "high", "low", "close", "volume", "amount")
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -298,16 +300,46 @@ def run_current_live(*, source=None, ledger: LiveLedger | None = None,
     return result
 
 
-def run_live_after_refresh(result) -> dict[str, Any]:
+def run_live_after_refresh(result, *, app_state=None) -> dict[str, Any]:
     """Scheduler seam: never changes the refresh result or its success status."""
     if result.daily.status != "success":
         status = {"status": "skipped", "reason": "daily_refresh_not_ready"}
         LiveLedger().record_operation(status)
         return status
-    return run_live_cycle()
+    return run_live_cycle(app_state=app_state)
 
 
-def run_live_cycle() -> dict[str, Any]:
+def _evaluate_live_quant_alerts(freeze: dict[str, Any], ledger: LiveLedger, app_state=None) -> dict[str, Any]:
+    """Evaluate alerts only after the current audited live batch was frozen."""
+    if freeze.get("status") not in {"frozen", "noop"}:
+        return {"status": "unavailable", "reason": "live_freeze_not_current", "appended": 0}
+    session = freeze.get("session")
+    if not isinstance(session, str) or not session:
+        return {"status": "unavailable", "reason": "live_session_missing", "appended": 0}
+
+    model = LiveModel()
+    run = ledger.read_run(model.key, session)
+    if (run is None or run.get("audit_status") != "ok"
+            or run.get("session") != session):
+        return {"status": "unavailable", "reason": "live_snapshot_not_audited", "appended": 0}
+    signals = (run.get("snapshot") or {}).get("signals")
+    if not isinstance(signals, list):
+        return {"status": "unavailable", "reason": "live_signals_missing", "appended": 0}
+
+    from app.config import settings
+    from app.services import alert_store
+    from app.taiwan.realtime.monitor_engine import get_monitor_engine
+
+    events = get_monitor_engine().evaluate_quant_top10(signals, session)
+    if events:
+        alert_store.append_many(settings.data_dir, events)
+        quote_service = getattr(app_state, "quote_service", None)
+        if quote_service is not None:
+            quote_service.push_alerts(events)
+    return {"status": "available", "appended": len(events)}
+
+
+def run_live_cycle(*, app_state=None) -> dict[str, Any]:
     """Freeze latest completed session, then independently mature prior signals."""
     from app.taiwan.quant.live_outcomes import mature_live_outcomes
 
@@ -316,10 +348,15 @@ def run_live_cycle() -> dict[str, Any]:
     try:
         freeze = run_current_live(source=source, ledger=ledger)
         try:
+            alerts = _evaluate_live_quant_alerts(freeze, ledger, app_state)
+        except Exception as exc:
+            logger.exception("Live Quant reminder evaluation failed")
+            alerts = {"status": "blocked", "reason": type(exc).__name__, "appended": 0}
+        try:
             maturation = mature_live_outcomes(ledger, source)
         except Exception as exc:
             maturation = {"status": "blocked", "reason": f"maturation_error:{type(exc).__name__}"}
-        combined = {"freeze": freeze, "maturation": maturation}
+        combined = {"freeze": freeze, "quant_alerts": alerts, "maturation": maturation}
         ledger.record_operation(combined)
         return combined
     finally:

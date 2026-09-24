@@ -230,6 +230,29 @@ class TestPriceAndChangeRules:
         assert alert is not None
         assert alert.trigger_value == -4.0
 
+    def test_state_write_failure_does_not_consume_price_crossing(self, engine, monkeypatch):
+        rule = TaiwanMonitorRule(
+            rule_id="r_write_fail", name="狀態寫入失敗",
+            symbol="2330.TWSE", rule_type=TaiwanRuleType.PRICE_ABOVE,
+            threshold=2500.0,
+        )
+        save_state = engine._save_trigger_states_locked
+        def fail_save_state():
+            raise OSError("disk full")
+
+        monkeypatch.setattr(engine, "_save_trigger_states_locked", fail_save_state)
+
+        with pytest.raises(OSError, match="disk full"):
+            engine.evaluate_single_rule(rule, make_quote(last_price=2505.0), now_mono=10.0)
+
+        key = f"{rule.rule_id}:{rule.symbol}:{rule.rule_type.value}"
+        assert key not in engine._trigger_states
+        assert key not in engine._last_fire_time
+        monkeypatch.setattr(engine, "_save_trigger_states_locked", save_state)
+        alert, status, _ = engine.evaluate_single_rule(rule, make_quote(last_price=2505.0), now_mono=11.0)
+        assert status == EvaluationStatus.TRIGGERED
+        assert alert is not None
+
 
 class TestVolumeRules:
     """Test volume in shares and volume spike multiple."""

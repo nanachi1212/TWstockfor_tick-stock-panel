@@ -933,7 +933,9 @@ def start_scheduler(repo: KlineRepository, capset: CapabilitySet) -> AsyncIOSche
             try:
                 from app.taiwan.quant.live_runner import run_live_after_refresh
 
-                logger.info("Taiwan experimental live quant: %s", run_live_after_refresh(result))
+                logger.info("Taiwan experimental live quant: %s", run_live_after_refresh(
+                    result, app_state=_app_state_ref,
+                ))
             except Exception:
                 logger.exception("Taiwan live quant failed; market refresh remains complete")
         except Exception as e:

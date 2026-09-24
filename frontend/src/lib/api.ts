@@ -3088,11 +3088,6 @@ export const api = {
       `/api/taiwan/quant/live/runs/${encodeURIComponent(modelKey)}/${encodeURIComponent(session)}`,
     ),
 
-  taiwanQuantEvaluateAlerts: () =>
-    request<{ ok: boolean; status: 'available' | 'unavailable'; alerts: AlertEvent[] }>(
-      '/api/taiwan/quant/live/alerts/evaluate', { method: 'POST' },
-    ),
-
   taiwanSearch: (query: string, limit = 20) =>
     request<{ results: TaiwanSearchResult[]; count: number }>(
       `/api/intraday/taiwan/search?q=${encodeURIComponent(query)}&limit=${limit}`,

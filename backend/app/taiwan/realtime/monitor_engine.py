@@ -201,6 +201,8 @@ class TaiwanMonitorEngine:
 
         events: list[dict] = []
         with self._state_lock:
+            prior_states = dict(self._trigger_states)
+            changed_keys: set[str] = set()
             changed = False
             for rule in rules:
                 key = f"quant:{rule.rule_id}:{rule.symbol}"
@@ -215,6 +217,7 @@ class TaiwanMonitorEngine:
                 if previous != current:
                     self._trigger_states[key] = current
                     changed = True
+                    changed_keys.add(key)
                 if not should_fire:
                     continue
 
@@ -247,7 +250,15 @@ class TaiwanMonitorEngine:
                     "quant_session": session,
                 })
             if changed:
-                self._save_trigger_states_locked()
+                try:
+                    self._save_trigger_states_locked()
+                except Exception:
+                    for key in changed_keys:
+                        if key in prior_states:
+                            self._trigger_states[key] = prior_states[key]
+                        else:
+                            self._trigger_states.pop(key, None)
+                    raise
         return events
 
     # ── Rule Validation & Constraints ────────────────────────────
@@ -472,27 +483,26 @@ class TaiwanMonitorEngine:
 
             # Re-arm state check with optional hysteresis
             if not is_condition_met:
-                changed = False
+                should_rearm = False
                 if rearm_threshold is not None:
                     # Check if price moved sufficiently past rearm_threshold
-                    if rtype == TaiwanRuleType.PRICE_ABOVE and trigger_value < rearm_threshold:
-                        self._trigger_states[dedup_key] = False
-                        changed = True
-                    elif rtype == TaiwanRuleType.PRICE_BELOW and trigger_value > rearm_threshold:
-                        self._trigger_states[dedup_key] = False
-                        changed = True
-                    elif rtype == TaiwanRuleType.CHANGE_PCT_ABOVE and trigger_value < rearm_threshold:
-                        self._trigger_states[dedup_key] = False
-                        changed = True
-                    elif rtype == TaiwanRuleType.CHANGE_PCT_BELOW and trigger_value > rearm_threshold:
-                        self._trigger_states[dedup_key] = False
-                        changed = True
+                    should_rearm = (
+                        rtype in (TaiwanRuleType.PRICE_ABOVE, TaiwanRuleType.CHANGE_PCT_ABOVE)
+                        and trigger_value < rearm_threshold
+                    ) or (
+                        rtype in (TaiwanRuleType.PRICE_BELOW, TaiwanRuleType.CHANGE_PCT_BELOW)
+                        and trigger_value > rearm_threshold
+                    )
                 else:
-                    self._trigger_states[dedup_key] = False
-                    changed = prev_triggered
+                    should_rearm = prev_triggered
 
-                if changed:
-                    self._save_trigger_states_locked()
+                if prev_triggered and should_rearm:
+                    self._trigger_states[dedup_key] = False
+                    try:
+                        self._save_trigger_states_locked()
+                    except Exception:
+                        self._trigger_states[dedup_key] = True
+                        raise
 
                 return None, EvaluationStatus.NOT_TRIGGERED, "Condition not met"
 
@@ -506,9 +516,22 @@ class TaiwanMonitorEngine:
                 return None, EvaluationStatus.COOLDOWN_ACTIVE, f"In cooldown ({int(rule.cooldown_seconds - (cur_mono - last_fire))}s left)"
 
             # Mark state as triggered and record fire time
+            previous_state = self._trigger_states.get(dedup_key)
+            previous_fire_time = self._last_fire_time.get(dedup_key)
             self._trigger_states[dedup_key] = True
             self._last_fire_time[dedup_key] = cur_mono
-            self._save_trigger_states_locked()
+            try:
+                self._save_trigger_states_locked()
+            except Exception:
+                if previous_state is None:
+                    self._trigger_states.pop(dedup_key, None)
+                else:
+                    self._trigger_states[dedup_key] = previous_state
+                if previous_fire_time is None:
+                    self._last_fire_time.pop(dedup_key, None)
+                else:
+                    self._last_fire_time[dedup_key] = previous_fire_time
+                raise
 
         # Generate Explainable Alert Message
         inst_name = inst.name if inst else quote.name

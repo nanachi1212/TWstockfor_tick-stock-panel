@@ -295,7 +295,7 @@ export function TaiwanRuleEditorDialog({
               {RULE_TYPE_OPTIONS.map(opt => {
                 const isSelected = ruleType === opt.key
                 const isNearLimit = opt.key === 'near_upper_limit' || opt.key === 'near_lower_limit'
-                const optDisabled = isNoLimit && isNearLimit
+                const optDisabled = (isNoLimit && isNearLimit) || !!rule
 
                 return (
                   <button
@@ -314,13 +314,14 @@ export function TaiwanRuleEditorDialog({
                   >
                     <div className="flex items-center justify-between w-full">
                       <span className="font-semibold text-xs">{opt.label}</span>
-                      {optDisabled && <span className="text-[9px] text-purple-400">不可用 (無限制)</span>}
+                      {isNoLimit && isNearLimit && <span className="text-[9px] text-purple-400">不可用 (無限制)</span>}
                     </div>
                     <span className="text-[10px] text-muted mt-0.5 line-clamp-1">{opt.desc}</span>
                   </button>
                 )
               })}
             </div>
+            {rule && <p className="mt-1 text-[10px] text-muted">規則建立後無法更換型態；請新增規則以使用其他提醒條件。</p>}
             {limitRuleDisabled && (
               <p className="mt-1 text-[10px] text-rose-500 font-medium">
                 ⚠️ 本商品 ({symbol}) 屬於無漲跌幅限制商品，無法設定「接近漲跌停」規則。
