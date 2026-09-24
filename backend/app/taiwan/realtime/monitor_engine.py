@@ -143,13 +143,11 @@ class TaiwanMonitorEngine:
         return True
 
     def seed_quant_exit_rule(
-        self, rule_id: str, signals: list[dict], *, force: bool = False,
+        self, rule: TaiwanMonitorRule, signals: list[dict], *, force: bool = False,
     ) -> bool:
         """Baseline a new exit rule from an already audited snapshot without alerting."""
-        with self._rules_lock:
-            rule = self._rules.get(rule_id)
-            if (rule is None or rule.rule_type != TaiwanRuleType.QUANT_TOP10_EXIT):
-                return False
+        if rule.rule_type != TaiwanRuleType.QUANT_TOP10_EXIT:
+            return False
         ranked_symbols = {
             str(signal["symbol"])
             for signal in signals
@@ -162,12 +160,19 @@ class TaiwanMonitorEngine:
         with self._state_lock:
             if key in self._trigger_states and not force:
                 return False
+            previous = self._trigger_states.get(key)
+            had_previous = key in self._trigger_states
+            prior_dirty = self._state_dirty
             self._trigger_states[key] = rule.symbol in ranked_symbols
             try:
                 self._save_trigger_states_locked()
             except Exception as exc:
-                self._state_dirty = True
-                logger.warning("Quant exit baseline set but state save failed: %s", exc)
+                if had_previous:
+                    self._trigger_states[key] = previous
+                else:
+                    self._trigger_states.pop(key, None)
+                self._state_dirty = prior_dirty
+                raise OSError("Quant exit baseline could not be persisted") from exc
             else:
                 self._state_dirty = False
         return True
@@ -210,7 +215,7 @@ class TaiwanMonitorEngine:
 
     def evaluate_quant_top10(
         self, signals: list[dict], session: str, *, available: bool = True,
-        persist_events: Callable[[list[dict]], None] | None = None,
+        persist_events: Callable[[list[dict]], list[str] | None] | None = None,
     ) -> list[dict]:
         """Evaluate symbol-specific Top 10 entry/exit rules from a verified live run."""
         if not available:
@@ -263,8 +268,11 @@ class TaiwanMonitorEngine:
                 if isinstance(score, (int, float)) and is_entry:
                     detail += f", Quant 分數 {score * 100:.1f}%"
                 stock_name = instrument.name if instrument else rule.symbol
+                stable_event_key = ":".join((
+                    rule.rule_id, rule.symbol, rule.rule_type.value, session,
+                ))
                 events.append({
-                    "alert_id": f"tw_alert_{uuid.uuid4().hex[:12]}",
+                    "alert_id": f"tw_quant_{uuid.uuid5(uuid.NAMESPACE_URL, stable_event_key).hex}",
                     "ts": int(time.time() * 1000),
                     "rule_id": rule.rule_id,
                     "rule_name": rule.name,
@@ -289,8 +297,10 @@ class TaiwanMonitorEngine:
                 })
             try:
                 if events and persist_events is not None:
-                    persist_events(events)
+                    persisted_ids = persist_events(events)
                     events_persisted = True
+                    if isinstance(persisted_ids, list):
+                        events = [event for event in events if event["alert_id"] in persisted_ids]
                 if changed or self._state_dirty:
                     try:
                         self._save_trigger_states_locked()

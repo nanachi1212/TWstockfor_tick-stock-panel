@@ -343,7 +343,7 @@ def _evaluate_live_quant_alerts(freeze: dict[str, Any], ledger: LiveLedger, app_
 
 
 def seed_quant_exit_rule_from_latest_snapshot(
-    rule_id: str, engine=None, *, force: bool = False,
+    rule, engine=None, *, force: bool = False,
 ) -> bool:
     """Baseline a new exit reminder from the latest audited snapshot, if one exists."""
     if engine is None:
@@ -360,7 +360,7 @@ def seed_quant_exit_rule_from_latest_snapshot(
     signals = (run.get("snapshot") or {}).get("signals")
     if not isinstance(signals, list):
         return False
-    return engine.seed_quant_exit_rule(rule_id, signals, force=force)
+    return engine.seed_quant_exit_rule(rule, signals, force=force)
 
 
 def run_live_cycle(*, app_state=None) -> dict[str, Any]:

@@ -119,11 +119,12 @@ def test_new_quant_exit_rule_is_seeded_from_latest_audited_snapshot(monkeypatch)
     monkeypatch.setattr(live_runner, "LiveLedger", lambda: ledger)
     monkeypatch.setattr(live_runner, "LiveModel", lambda: SimpleNamespace(key="model"))
 
-    assert live_runner.seed_quant_exit_rule_from_latest_snapshot("rule-1", engine)
+    rule = SimpleNamespace(rule_id="rule-1")
+    assert live_runner.seed_quant_exit_rule_from_latest_snapshot(rule, engine)
 
     ledger.latest_run.assert_called_once_with("model")
     seeded.assert_called_once_with(
-        "rule-1", [{"symbol": "2330.TWSE", "rank": 2}], force=False,
+        rule, [{"symbol": "2330.TWSE", "rank": 2}], force=False,
     )
 
 
@@ -137,7 +138,8 @@ def test_new_quant_exit_rule_is_not_seeded_from_conflicted_snapshot(monkeypatch)
     monkeypatch.setattr(live_runner, "LiveLedger", lambda: ledger)
     monkeypatch.setattr(live_runner, "LiveModel", lambda: SimpleNamespace(key="model"))
 
-    assert not live_runner.seed_quant_exit_rule_from_latest_snapshot("rule-1", engine)
+    rule = SimpleNamespace(rule_id="rule-1")
+    assert not live_runner.seed_quant_exit_rule_from_latest_snapshot(rule, engine)
 
     engine.seed_quant_exit_rule.assert_not_called()
 

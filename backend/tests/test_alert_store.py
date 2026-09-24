@@ -78,6 +78,25 @@ def test_read_and_delete_rewrites_preserve_original_when_atomic_replace_fails(tm
     assert list(path.parent.glob(".alerts.jsonl.*.tmp")) == []
 
 
+def test_append_many_skips_an_already_persisted_alert_id(tmp_path):
+    data_dir = tmp_path / "data"
+    event = {
+        "alert_id": "stable-alert-id",
+        "ts": 1000,
+        "rule_id": "test_rule",
+        "source": "quant",
+        "type": "quant_top10_enter",
+        "symbol": "2330.TWSE",
+        "message": "進入 Top 10",
+    }
+
+    assert alert_store.append_many(data_dir, [event]) == ["stable-alert-id"]
+    assert alert_store.append_many(data_dir, [event]) == []
+    assert [item["alert_id"] for item in alert_store.list_recent(data_dir, days=999999)] == [
+        "stable-alert-id",
+    ]
+
+
 def test_append_many_keeps_existing_file_when_atomic_replace_fails(tmp_path, monkeypatch):
     data_dir = tmp_path / "data"
     alert_store.append_many(data_dir, [{

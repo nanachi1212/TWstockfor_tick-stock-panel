@@ -104,7 +104,7 @@ def evaluate_quant_alerts(request: Request):
         repo = getattr(request.app.state, "repo", None)
         if repo is None:
             raise HTTPException(status_code=503, detail="提醒儲存尚未就緒")
-        alert_store.append_many(repo.store.data_dir, events)
+        return alert_store.append_many(repo.store.data_dir, events)
 
     events = get_monitor_engine().evaluate_quant_top10(
         signals,

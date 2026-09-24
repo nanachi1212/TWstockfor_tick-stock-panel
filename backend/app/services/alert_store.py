@@ -91,14 +91,33 @@ def append(data_dir: Path, event: dict) -> None:
             _prune_locked(p)
 
 
-def append_many(data_dir: Path, events: list[dict]) -> None:
+def append_many(data_dir: Path, events: list[dict]) -> list[str]:
     """Append a complete batch atomically so failed writes cannot leave a prefix."""
     if not events:
-        return
-    lines = [json.dumps(_prepare_event(ev), ensure_ascii=False) for ev in events]
+        return []
     with _lock:
         p = _path(data_dir)
         original = p.read_bytes() if p.exists() else b""
+        existing_ids: set[str] = set()
+        for line in original.decode("utf-8", errors="replace").splitlines():
+            try:
+                existing = json.loads(line)
+            except (json.JSONDecodeError, TypeError):
+                continue
+            if isinstance(existing, dict):
+                existing_ids.add(str(existing.get("alert_id") or _identity(existing)))
+
+        prepared: list[dict] = []
+        for event in events:
+            item = _prepare_event(event)
+            alert_id = str(item["alert_id"])
+            if alert_id not in existing_ids:
+                prepared.append(item)
+                existing_ids.add(alert_id)
+        if not prepared:
+            return []
+
+        lines = [json.dumps(event, ensure_ascii=False) for event in prepared]
         payload = original
         if payload and not payload.endswith(b"\n"):
             payload += b"\n"
@@ -122,10 +141,11 @@ def append_many(data_dir: Path, events: list[dict]) -> None:
                 except OSError:
                     logger.warning("alert_store temporary append cleanup failed: %s", temporary)
         global _write_count
-        _write_count += len(events)
+        _write_count += len(prepared)
         if _write_count >= PRUNE_EVERY:
             _write_count = 0
             _prune_locked(p)
+        return [str(event["alert_id"]) for event in prepared]
 
 
 def list_recent(

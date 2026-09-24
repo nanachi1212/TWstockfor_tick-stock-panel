@@ -731,15 +731,22 @@ def create_taiwan_rule(req: TaiwanMonitorRuleCreate):
         severity=req.severity,
     )
     engine = get_monitor_engine()
+    if rule.rule_type == TaiwanRuleType.QUANT_TOP10_EXIT:
+        try:
+            engine.validate_rule(rule)
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e)) from e
+        from app.taiwan.quant.live_runner import seed_quant_exit_rule_from_latest_snapshot
+
+        try:
+            seed_quant_exit_rule_from_latest_snapshot(rule, engine)
+        except OSError as e:
+            raise HTTPException(status_code=503, detail="Quant 離開提醒基準儲存失敗") from e
+
     try:
         engine.add_rule(rule)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
-
-    if rule.rule_type == TaiwanRuleType.QUANT_TOP10_EXIT:
-        from app.taiwan.quant.live_runner import seed_quant_exit_rule_from_latest_snapshot
-
-        seed_quant_exit_rule_from_latest_snapshot(rule.rule_id, engine)
 
     return {"ok": True, "rule": rule.to_dict()}
 
@@ -748,41 +755,49 @@ def create_taiwan_rule(req: TaiwanMonitorRuleCreate):
 def update_taiwan_rule(rule_id: str, req: TaiwanMonitorRuleUpdate):
     """更新或启用/停用指定台股监控规则。"""
     from app.taiwan.realtime.monitor_engine import get_monitor_engine
-    from app.taiwan.realtime.monitor_models import TaiwanRuleType
+    from app.taiwan.realtime.monitor_models import TaiwanMonitorRule, TaiwanRuleType
 
     engine = get_monitor_engine()
     rule = engine.get_rule(rule_id)
     if not rule:
         raise HTTPException(status_code=404, detail=f"Rule {rule_id} not found")
     was_enabled = rule.enabled
+    updated_rule = TaiwanMonitorRule.from_dict(rule.to_dict())
 
     if req.name is not None:
-        rule.name = req.name
+        updated_rule.name = req.name
     if req.threshold is not None:
-        rule.threshold = req.threshold
+        updated_rule.threshold = req.threshold
     if req.enabled is not None:
-        rule.enabled = req.enabled
+        updated_rule.enabled = req.enabled
     if req.cooldown_seconds is not None:
-        rule.cooldown_seconds = req.cooldown_seconds
+        updated_rule.cooldown_seconds = req.cooldown_seconds
     if req.hysteresis is not None:
-        rule.hysteresis = req.hysteresis
+        updated_rule.hysteresis = req.hysteresis
     if req.reference_volume is not None:
-        rule.reference_volume = req.reference_volume
+        updated_rule.reference_volume = req.reference_volume
     if req.severity is not None:
-        rule.severity = req.severity
+        updated_rule.severity = req.severity
+
+    if (req.enabled is True and not was_enabled
+            and updated_rule.rule_type == TaiwanRuleType.QUANT_TOP10_EXIT):
+        try:
+            engine.validate_rule(updated_rule)
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e)) from e
+        from app.taiwan.quant.live_runner import seed_quant_exit_rule_from_latest_snapshot
+
+        try:
+            seed_quant_exit_rule_from_latest_snapshot(updated_rule, engine, force=True)
+        except OSError as e:
+            raise HTTPException(status_code=503, detail="Quant 離開提醒基準儲存失敗") from e
 
     try:
-        engine.add_rule(rule)
+        engine.add_rule(updated_rule)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
 
-    if (req.enabled is True and not was_enabled
-            and rule.rule_type == TaiwanRuleType.QUANT_TOP10_EXIT):
-        from app.taiwan.quant.live_runner import seed_quant_exit_rule_from_latest_snapshot
-
-        seed_quant_exit_rule_from_latest_snapshot(rule.rule_id, engine, force=True)
-
-    return {"ok": True, "rule": rule.to_dict()}
+    return {"ok": True, "rule": updated_rule.to_dict()}
 
 
 @router.delete("/taiwan/{rule_id}")
