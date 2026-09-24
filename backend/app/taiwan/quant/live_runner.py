@@ -330,9 +330,12 @@ def _evaluate_live_quant_alerts(freeze: dict[str, Any], ledger: LiveLedger, app_
     from app.services import alert_store
     from app.taiwan.realtime.monitor_engine import get_monitor_engine
 
-    events = get_monitor_engine().evaluate_quant_top10(signals, session)
+    events = get_monitor_engine().evaluate_quant_top10(
+        signals,
+        session,
+        persist_events=lambda pending: alert_store.append_many(settings.data_dir, pending),
+    )
     if events:
-        alert_store.append_many(settings.data_dir, events)
         quote_service = getattr(app_state, "quote_service", None)
         if quote_service is not None:
             quote_service.push_alerts(events)

@@ -492,6 +492,23 @@ class TestQuantTop10Alerts:
         reentered = restarted.evaluate_quant_top10(top10, "2026-09-27")
         assert [event["type"] for event in reentered] == ["quant_top10_enter"]
 
+    def test_entry_retries_when_durable_alert_persistence_fails(self, tmp_path, mock_sec_master, monkeypatch):
+        monkeypatch.setattr("app.taiwan.realtime.monitor_engine.get_security_master", lambda: mock_sec_master)
+        engine = TaiwanMonitorEngine(storage_path=tmp_path / "quant_rules.json")
+        engine.add_rule(TaiwanMonitorRule(
+            rule_id="q_retry", name="重試進入提醒", symbol="2330.TWSE",
+            rule_type=TaiwanRuleType.QUANT_TOP10_ENTER, threshold=0,
+        ))
+        top10 = [{"symbol": "2330.TWSE", "rank": 3, "score": 0.82}]
+
+        def fail_persist(_events):
+            raise OSError("alerts log is unavailable")
+
+        with pytest.raises(OSError, match="alerts log is unavailable"):
+            engine.evaluate_quant_top10(top10, "2026-09-25", persist_events=fail_persist)
+
+        assert engine.evaluate_quant_top10(top10, "2026-09-25")[0]["type"] == "quant_top10_enter"
+
     def test_cooldown_suppression(self, engine):
         rule = TaiwanMonitorRule(
             rule_id="r_cool", name="冷卻測試",

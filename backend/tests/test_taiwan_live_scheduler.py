@@ -83,8 +83,13 @@ def test_live_quant_alerts_use_only_audited_frozen_snapshot(monkeypatch, taiwan_
     }
     events = [{"alert_id": "event-1", "symbol": "2330.TWSE"}]
     engine = Mock()
-    engine.evaluate_quant_top10.return_value = events
     append = Mock()
+
+    def evaluate(_signals, _session, *, persist_events):
+        persist_events(events)
+        return events
+
+    engine.evaluate_quant_top10.side_effect = evaluate
     push = Mock()
     monkeypatch.setattr(monitor_engine, "get_monitor_engine", lambda: engine)
     monkeypatch.setattr(alert_store, "append_many", append)
@@ -95,6 +100,8 @@ def test_live_quant_alerts_use_only_audited_frozen_snapshot(monkeypatch, taiwan_
     )
 
     assert result == {"status": "available", "appended": 1}
-    engine.evaluate_quant_top10.assert_called_once_with([{"symbol": "2330.TWSE", "rank": 1}], "2026-09-24")
+    engine.evaluate_quant_top10.assert_called_once()
+    assert engine.evaluate_quant_top10.call_args.args == ([{"symbol": "2330.TWSE", "rank": 1}], "2026-09-24")
+    assert callable(engine.evaluate_quant_top10.call_args.kwargs["persist_events"])
     append.assert_called_once_with(taiwan_data_env["data_dir"], events)
     push.assert_called_once_with(events)

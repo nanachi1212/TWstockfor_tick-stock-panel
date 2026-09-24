@@ -179,6 +179,7 @@ class TaiwanMonitorEngine:
 
     def evaluate_quant_top10(
         self, signals: list[dict], session: str, *, available: bool = True,
+        persist_events: Callable[[list[dict]], None] | None = None,
     ) -> list[dict]:
         """Evaluate symbol-specific Top 10 entry/exit rules from a verified live run."""
         if not available:
@@ -249,16 +250,18 @@ class TaiwanMonitorEngine:
                     "quant_score": score,
                     "quant_session": session,
                 })
-            if changed:
-                try:
+            try:
+                if events and persist_events is not None:
+                    persist_events(events)
+                if changed:
                     self._save_trigger_states_locked()
-                except Exception:
-                    for key in changed_keys:
-                        if key in prior_states:
-                            self._trigger_states[key] = prior_states[key]
-                        else:
-                            self._trigger_states.pop(key, None)
-                    raise
+            except Exception:
+                for key in changed_keys:
+                    if key in prior_states:
+                        self._trigger_states[key] = prior_states[key]
+                    else:
+                        self._trigger_states.pop(key, None)
+                raise
         return events
 
     # ── Rule Validation & Constraints ────────────────────────────

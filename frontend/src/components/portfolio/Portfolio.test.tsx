@@ -65,6 +65,20 @@ describe('Portfolio UI', () => {
     expect(screen.getByText('10')).toBeInTheDocument()
   })
 
+  it('prefills a reminder from the quote shown on the stock detail page', async () => {
+    storage.portfolioTransactions.set([{
+      id: 'seed', symbol: '2330.TWSE', name: '台積電', side: 'buy', shares: 5,
+      price: 100, fee: 0, date: '2026-09-24', createdAt: '2026-09-24T00:00:00.000Z',
+    }])
+    renderPortfolio({ symbol: '2330.TWSE', name: '台積電', quote: 110 })
+
+    fireEvent.click(await screen.findByRole('button', { name: '設定 2330.TWSE 提醒' }))
+
+    expect(await screen.findByDisplayValue('台積電 提醒')).toBeInTheDocument()
+    expect(screen.getByDisplayValue('112.2')).toBeInTheDocument()
+    expect(api.taiwanQuotes).not.toHaveBeenCalled()
+  })
+
   it('saves through the IndexedDB lock when Web Locks are unavailable', async () => {
     Reflect.deleteProperty(navigator, 'locks')
     const database: any = {
