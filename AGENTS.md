@@ -20,3 +20,65 @@
 
 - 不以 `--admin` 繞過 required checks；不 force push。若尚無 CI 且已有穩定測試套件，補最小的依賴安裝與主要測試 workflow；當次仍須完成本機驗證。若 Codex GitHub Review 未啟用，據實回報未執行。
 - 本機額外 review 僅用於診斷 CI / Review 問題、高風險變更或 GitHub Review 無法涵蓋的環境問題。history rewrite、大量刪除、資料 migration、正式 release、權限、secrets、安全性及使用者資料風險，先提高驗證與確認層級。
+
+TWstockfor_tick-stock-panel
+
+Product Direction
+
+This repository is the single primary Taiwan-stock product and final user-facing application.
+
+Do not introduce a long-term architecture that requires mystocktracer to remain a parallel product.
+
+mystocktracer may be consulted as a source of existing functionality or UX ideas, but valuable functionality should be migrated into this repository rather than duplicated across both repositories.
+
+The final product should allow the user to launch one application for market observation, quantitative stock selection, AI research, portfolio management, alerts, research history, and dashboard workflows.
+
+Module Ownership
+
+Maintain one authoritative implementation for each core responsibility.
+
+market_data: market and source-data acquisition
+
+quant: factors, IC analysis, ML, walk-forward evaluation, and stock-selection scoring
+
+research: AI-assisted interpretation and research
+
+portfolio: positions and portfolio calculations
+
+alerts: event and condition notifications
+
+Do not duplicate authoritative calculations across modules.
+
+Taiwan Market Semantics
+
+Preserve established Taiwan-market semantics, schemas, symbols, dates, market rules, and availability states.
+
+When changing shared Taiwan-market contracts, inspect affected consumers before modifying the contract.
+
+Do not silently convert unavailable, stale, partial, or unqueried data into apparently valid fresh data.
+
+Use Asia/Taipei semantics where market-local time matters.
+
+Architecture
+
+Prefer extending existing modules over introducing parallel implementations.
+
+Avoid compatibility layers whose only purpose is maintaining mystocktracer as a second long-term application.
+
+When migrating functionality from another repository, adapt it to this repository's architecture rather than copying unnecessary legacy structure.
+
+Validation
+
+Use the smallest meaningful validation set first.
+
+Run broader backend/frontend/integration checks when shared contracts, cross-module behavior, application startup, packaging, or common infrastructure are affected.
+
+External upstream data failures must be distinguished from regressions caused by the current change.
+
+Context Routing
+
+Consult architecture documentation when changing module boundaries or authoritative ownership.
+
+Consult market-data documentation when changing provider semantics or Taiwan-market contracts.
+
+Consult deployment or packaging documentation only for packaging, distribution, release, or deployment work.
