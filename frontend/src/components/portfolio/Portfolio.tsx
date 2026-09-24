@@ -19,6 +19,75 @@ import {
 } from '@/lib/portfolio'
 
 const PORTFOLIO_CHANGED = 'portfolio-transactions-changed'
+const PORTFOLIO_LOCK_DB = 'tick-stock-panel-portfolio-lock'
+const PORTFOLIO_LOCK_STORE = 'locks'
+
+function withIndexedDbPortfolioLock<T>(operation: () => T): Promise<T> {
+  return new Promise((resolve, reject) => {
+    if (typeof indexedDB === 'undefined') {
+      reject(new Error('目前瀏覽器無法安全同步多分頁成交紀錄，請更新瀏覽器後重試'))
+      return
+    }
+
+    let openRequest: IDBOpenDBRequest
+    try {
+      openRequest = indexedDB.open(PORTFOLIO_LOCK_DB, 1)
+    } catch (cause) {
+      reject(cause)
+      return
+    }
+    openRequest.onupgradeneeded = () => {
+      openRequest.result.createObjectStore(PORTFOLIO_LOCK_STORE)
+    }
+    openRequest.onerror = () => reject(openRequest.error ?? new Error('無法開啟成交同步鎖'))
+    openRequest.onsuccess = () => {
+      const db = openRequest.result
+      let transaction: IDBTransaction
+      try {
+        transaction = db.transaction(PORTFOLIO_LOCK_STORE, 'readwrite')
+      } catch (cause) {
+        db.close()
+        reject(cause)
+        return
+      }
+
+      const store = transaction.objectStore(PORTFOLIO_LOCK_STORE)
+      const request = store.get('portfolio')
+      let result!: T
+      let operationFailed = false
+      request.onsuccess = () => {
+        try {
+          result = operation()
+          store.put(true, 'portfolio')
+        } catch (cause) {
+          operationFailed = true
+          reject(cause)
+          transaction.abort()
+        }
+      }
+      request.onerror = () => {
+        operationFailed = true
+        reject(request.error ?? new Error('無法取得成交同步鎖'))
+        transaction.abort()
+      }
+      transaction.oncomplete = () => {
+        db.close()
+        if (!operationFailed) resolve(result)
+      }
+      transaction.onabort = () => {
+        db.close()
+        if (!operationFailed) reject(transaction.error ?? new Error('成交同步鎖交易失敗'))
+      }
+    }
+  })
+}
+
+function withPortfolioWriteLock<T>(operation: () => T): Promise<T> {
+  if (typeof navigator !== 'undefined' && navigator.locks) {
+    return navigator.locks.request('portfolio_transactions', operation)
+  }
+  return withIndexedDbPortfolioLock(operation)
+}
 
 function readTransactions(): { transactions: PortfolioTransaction[]; error: string | null } {
   try {
@@ -48,10 +117,7 @@ function usePortfolioTransactions() {
 }
 
 async function commitTransaction(input: Parameters<typeof createPortfolioTransaction>[0]) {
-  if (typeof navigator === 'undefined' || !navigator.locks) {
-    throw new Error('目前瀏覽器不支援跨分頁安全保存成交，請更新瀏覽器後重試')
-  }
-  await navigator.locks.request('portfolio_transactions', () => {
+  await withPortfolioWriteLock(() => {
     const ledger = readTransactions()
     if (ledger.error) throw new Error(ledger.error)
     const transaction = createPortfolioTransaction(input, ledger.transactions)

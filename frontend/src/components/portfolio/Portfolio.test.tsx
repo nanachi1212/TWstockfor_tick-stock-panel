@@ -42,6 +42,7 @@ afterEach(() => {
   Reflect.deleteProperty(navigator, 'locks')
   vi.clearAllMocks()
   vi.restoreAllMocks()
+  vi.unstubAllGlobals()
 })
 
 describe('Portfolio UI', () => {
@@ -62,6 +63,46 @@ describe('Portfolio UI', () => {
     renderPortfolio()
     expect(await screen.findByText('台積電')).toBeInTheDocument()
     expect(screen.getByText('10')).toBeInTheDocument()
+  })
+
+  it('saves through the IndexedDB lock when Web Locks are unavailable', async () => {
+    Reflect.deleteProperty(navigator, 'locks')
+    const database: any = {
+      createObjectStore: vi.fn(),
+      close: vi.fn(),
+      transaction: vi.fn(() => {
+        const transaction: any = {
+          objectStore: () => store,
+          abort: () => queueMicrotask(() => transaction.onabort?.()),
+        }
+        const store: any = {
+          get: () => {
+            const request: any = {}
+            queueMicrotask(() => request.onsuccess?.())
+            return request
+          },
+          put: () => queueMicrotask(() => transaction.oncomplete?.()),
+        }
+        return transaction
+      }),
+    }
+    vi.stubGlobal('indexedDB', {
+      open: () => {
+        const request: any = { result: database }
+        queueMicrotask(() => {
+          request.onupgradeneeded?.()
+          request.onsuccess?.()
+        })
+        return request
+      },
+    })
+    vi.mocked(api.taiwanQuotes).mockResolvedValue({ quotes: [], count: 0 })
+    renderPortfolio()
+    fireEvent.click(screen.getByRole('button', { name: '買入' }))
+    await fillTrade({ shares: '1', price: '100' })
+
+    expect(await screen.findByText('台積電')).toBeInTheDocument()
+    expect(storage.portfolioTransactions.get([])).toHaveLength(1)
   })
 
   it('rejects an oversell with a clear message and keeps the holding unchanged', async () => {
