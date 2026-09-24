@@ -605,6 +605,43 @@ class TestQuantTop10Alerts:
         restarted = TaiwanMonitorEngine(storage_path=engine.storage_path)
         assert restarted.evaluate_quant_top10(top10, "2026-09-25") == []
 
+    def test_quant_rules_reject_supported_etf(self, engine):
+        with pytest.raises(ValueError, match="require a stock symbol"):
+            engine.add_rule(TaiwanMonitorRule(
+                rule_id="etf_quant", name="ETF Quant 提醒", symbol="0050.TWSE",
+                rule_type=TaiwanRuleType.QUANT_TOP10_ENTER, threshold=0,
+            ))
+
+    def test_exit_rule_baseline_uses_existing_top10_snapshot_without_alert(
+        self, engine, monkeypatch,
+    ):
+        rule = TaiwanMonitorRule(
+            rule_id="exit_baseline", name="Quant 離開提醒", symbol="2330.TWSE",
+            rule_type=TaiwanRuleType.QUANT_TOP10_EXIT, threshold=0,
+        )
+        engine.add_rule(rule)
+        assert engine.seed_quant_exit_rule(
+            rule.rule_id,
+            [{"symbol": "2330.TWSE", "rank": 4, "score": 0.9}],
+        )
+        monkeypatch.setattr(engine, "_save_trigger_states_locked", lambda: None)
+        exit_events = engine.evaluate_quant_top10([], "2026-09-26")
+        assert [event["type"] for event in exit_events] == ["quant_top10_exit"]
+        assert engine.evaluate_quant_top10([], "2026-09-26") == []
+
+    def test_reenabled_exit_rule_rebaselines_without_stale_exit(self, engine, monkeypatch):
+        rule = TaiwanMonitorRule(
+            rule_id="exit_reenabled", name="重新啟用 Quant 離開提醒", symbol="2330.TWSE",
+            rule_type=TaiwanRuleType.QUANT_TOP10_EXIT, threshold=0,
+        )
+        engine.add_rule(rule)
+        monkeypatch.setattr(engine, "_save_trigger_states_locked", lambda: None)
+        assert engine.seed_quant_exit_rule(
+            rule.rule_id, [{"symbol": "2330.TWSE", "rank": 2}],
+        )
+        assert engine.seed_quant_exit_rule(rule.rule_id, [], force=True)
+        assert engine.evaluate_quant_top10([], "2026-09-26") == []
+
     def test_cooldown_suppression(self, engine):
         rule = TaiwanMonitorRule(
             rule_id="r_cool", name="冷卻測試",
@@ -695,3 +732,20 @@ class TestBatchSymbolGrouping:
         # Exactly 2 symbols requested
         assert sorted(mock_svc.calls[0]) == ["2330.TWSE", "8069.TPEX"]
         assert len(alerts) == 5
+
+    def test_quant_only_rules_do_not_fetch_realtime_quotes(self, engine):
+        class MockRealtimeService:
+            calls = 0
+
+            def get_quotes(self, symbols, force_refresh=False):
+                self.calls += 1
+                raise AssertionError("Quant rules must not fetch intraday quotes")
+
+        service = MockRealtimeService()
+        engine.realtime_service = service
+        engine.add_rule(TaiwanMonitorRule(
+            rule_id="quant_only", name="Quant 進入提醒", symbol="2330.TWSE",
+            rule_type=TaiwanRuleType.QUANT_TOP10_ENTER, threshold=0,
+        ))
+        assert engine.evaluate_all() == []
+        assert service.calls == 0

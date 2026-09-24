@@ -715,7 +715,7 @@ def create_taiwan_rule(req: TaiwanMonitorRuleCreate):
     """新增台股即时监控规则 (带 Security Master 与参数合法性校验)。"""
     import uuid
     from app.taiwan.realtime.monitor_engine import get_monitor_engine
-    from app.taiwan.realtime.monitor_models import TaiwanMonitorRule
+    from app.taiwan.realtime.monitor_models import TaiwanMonitorRule, TaiwanRuleType
 
     rule_id = req.rule_id or f"tw_rule_{uuid.uuid4().hex[:10]}"
     rule = TaiwanMonitorRule(
@@ -736,6 +736,11 @@ def create_taiwan_rule(req: TaiwanMonitorRuleCreate):
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
 
+    if rule.rule_type == TaiwanRuleType.QUANT_TOP10_EXIT:
+        from app.taiwan.quant.live_runner import seed_quant_exit_rule_from_latest_snapshot
+
+        seed_quant_exit_rule_from_latest_snapshot(rule.rule_id, engine)
+
     return {"ok": True, "rule": rule.to_dict()}
 
 
@@ -743,11 +748,13 @@ def create_taiwan_rule(req: TaiwanMonitorRuleCreate):
 def update_taiwan_rule(rule_id: str, req: TaiwanMonitorRuleUpdate):
     """更新或启用/停用指定台股监控规则。"""
     from app.taiwan.realtime.monitor_engine import get_monitor_engine
+    from app.taiwan.realtime.monitor_models import TaiwanRuleType
 
     engine = get_monitor_engine()
     rule = engine.get_rule(rule_id)
     if not rule:
         raise HTTPException(status_code=404, detail=f"Rule {rule_id} not found")
+    was_enabled = rule.enabled
 
     if req.name is not None:
         rule.name = req.name
@@ -768,6 +775,12 @@ def update_taiwan_rule(rule_id: str, req: TaiwanMonitorRuleUpdate):
         engine.add_rule(rule)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
+
+    if (req.enabled is True and not was_enabled
+            and rule.rule_type == TaiwanRuleType.QUANT_TOP10_EXIT):
+        from app.taiwan.quant.live_runner import seed_quant_exit_rule_from_latest_snapshot
+
+        seed_quant_exit_rule_from_latest_snapshot(rule.rule_id, engine, force=True)
 
     return {"ok": True, "rule": rule.to_dict()}
 

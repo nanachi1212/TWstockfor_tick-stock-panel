@@ -76,3 +76,31 @@ def test_read_and_delete_rewrites_preserve_original_when_atomic_replace_fails(tm
         alert_store.delete_by_id(data_dir, alert_id)
     assert path.read_bytes() == original
     assert list(path.parent.glob(".alerts.jsonl.*.tmp")) == []
+
+
+def test_append_many_keeps_existing_file_when_atomic_replace_fails(tmp_path, monkeypatch):
+    data_dir = tmp_path / "data"
+    alert_store.append_many(data_dir, [{
+        "alert_id": "existing",
+        "ts": 1000,
+        "rule_id": "test_rule",
+        "source": "price",
+        "type": "price_above",
+        "symbol": "2330.TWSE",
+        "message": "既有提醒",
+    }])
+    path = data_dir / "user_data" / "alerts.jsonl"
+    original = path.read_bytes()
+
+    def fail_replace(_source, _destination):
+        raise OSError("replace failed")
+
+    monkeypatch.setattr(alert_store.os, "replace", fail_replace)
+    with pytest.raises(OSError, match="replace failed"):
+        alert_store.append_many(data_dir, [
+            {"alert_id": "new-1", "ts": 1001, "rule_id": "test_rule"},
+            {"alert_id": "new-2", "ts": 1002, "rule_id": "test_rule"},
+        ])
+
+    assert path.read_bytes() == original
+    assert list(path.parent.glob(".alerts.jsonl.*.tmp")) == []

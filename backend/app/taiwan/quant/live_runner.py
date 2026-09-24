@@ -342,6 +342,27 @@ def _evaluate_live_quant_alerts(freeze: dict[str, Any], ledger: LiveLedger, app_
     return {"status": "available", "appended": len(events)}
 
 
+def seed_quant_exit_rule_from_latest_snapshot(
+    rule_id: str, engine=None, *, force: bool = False,
+) -> bool:
+    """Baseline a new exit reminder from the latest audited snapshot, if one exists."""
+    if engine is None:
+        from app.taiwan.realtime.monitor_engine import get_monitor_engine
+
+        engine = get_monitor_engine()
+    try:
+        run = LiveLedger().latest_run(LiveModel().key)
+    except Exception as exc:
+        logger.warning("Quant exit reminder baseline lookup failed: %s", exc)
+        return False
+    if run is None or run.get("audit_status") != "ok":
+        return False
+    signals = (run.get("snapshot") or {}).get("signals")
+    if not isinstance(signals, list):
+        return False
+    return engine.seed_quant_exit_rule(rule_id, signals, force=force)
+
+
 def run_live_cycle(*, app_state=None) -> dict[str, Any]:
     """Freeze latest completed session, then independently mature prior signals."""
     from app.taiwan.quant.live_outcomes import mature_live_outcomes

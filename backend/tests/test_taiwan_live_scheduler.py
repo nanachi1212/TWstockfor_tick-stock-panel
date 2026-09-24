@@ -107,6 +107,41 @@ def test_live_quant_alerts_use_only_audited_frozen_snapshot(monkeypatch, taiwan_
     push.assert_called_once_with(events)
 
 
+def test_new_quant_exit_rule_is_seeded_from_latest_audited_snapshot(monkeypatch):
+    run = {
+        "audit_status": "ok",
+        "snapshot": {"signals": [{"symbol": "2330.TWSE", "rank": 2}]},
+    }
+    ledger = Mock()
+    ledger.latest_run.return_value = run
+    seeded = Mock(return_value=True)
+    engine = SimpleNamespace(seed_quant_exit_rule=seeded)
+    monkeypatch.setattr(live_runner, "LiveLedger", lambda: ledger)
+    monkeypatch.setattr(live_runner, "LiveModel", lambda: SimpleNamespace(key="model"))
+
+    assert live_runner.seed_quant_exit_rule_from_latest_snapshot("rule-1", engine)
+
+    ledger.latest_run.assert_called_once_with("model")
+    seeded.assert_called_once_with(
+        "rule-1", [{"symbol": "2330.TWSE", "rank": 2}], force=False,
+    )
+
+
+def test_new_quant_exit_rule_is_not_seeded_from_conflicted_snapshot(monkeypatch):
+    ledger = Mock()
+    ledger.latest_run.return_value = {
+        "audit_status": "conflict",
+        "snapshot": {"signals": [{"symbol": "2330.TWSE", "rank": 2}]},
+    }
+    engine = SimpleNamespace(seed_quant_exit_rule=Mock())
+    monkeypatch.setattr(live_runner, "LiveLedger", lambda: ledger)
+    monkeypatch.setattr(live_runner, "LiveModel", lambda: SimpleNamespace(key="model"))
+
+    assert not live_runner.seed_quant_exit_rule_from_latest_snapshot("rule-1", engine)
+
+    engine.seed_quant_exit_rule.assert_not_called()
+
+
 def test_manual_quant_alert_evaluation_persists_before_committing_edges(monkeypatch):
     from app.api import taiwan_live
     from app.services import alert_store

@@ -92,14 +92,35 @@ def append(data_dir: Path, event: dict) -> None:
 
 
 def append_many(data_dir: Path, events: list[dict]) -> None:
-    """批量追加。"""
+    """Append a complete batch atomically so failed writes cannot leave a prefix."""
     if not events:
         return
+    lines = [json.dumps(_prepare_event(ev), ensure_ascii=False) for ev in events]
     with _lock:
         p = _path(data_dir)
-        with p.open("a", encoding="utf-8") as f:
-            for ev in events:
-                f.write(json.dumps(_prepare_event(ev), ensure_ascii=False) + "\n")
+        original = p.read_bytes() if p.exists() else b""
+        payload = original
+        if payload and not payload.endswith(b"\n"):
+            payload += b"\n"
+        payload += ("\n".join(lines) + "\n").encode("utf-8")
+        temporary: Path | None = None
+        try:
+            with tempfile.NamedTemporaryFile(
+                mode="wb", dir=p.parent, prefix=f".{p.name}.",
+                suffix=".tmp", delete=False,
+            ) as stream:
+                temporary = Path(stream.name)
+                stream.write(payload)
+                stream.flush()
+                os.fsync(stream.fileno())
+            os.replace(temporary, p)
+            temporary = None
+        finally:
+            if temporary is not None:
+                try:
+                    temporary.unlink(missing_ok=True)
+                except OSError:
+                    logger.warning("alert_store temporary append cleanup failed: %s", temporary)
         global _write_count
         _write_count += len(events)
         if _write_count >= PRUNE_EVERY:

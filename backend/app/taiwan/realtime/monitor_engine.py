@@ -142,6 +142,36 @@ class TaiwanMonitorEngine:
         self.save_rules()
         return True
 
+    def seed_quant_exit_rule(
+        self, rule_id: str, signals: list[dict], *, force: bool = False,
+    ) -> bool:
+        """Baseline a new exit rule from an already audited snapshot without alerting."""
+        with self._rules_lock:
+            rule = self._rules.get(rule_id)
+            if (rule is None or rule.rule_type != TaiwanRuleType.QUANT_TOP10_EXIT):
+                return False
+        ranked_symbols = {
+            str(signal["symbol"])
+            for signal in signals
+            if isinstance(signal, dict)
+            and isinstance(signal.get("symbol"), str)
+            and isinstance(signal.get("rank"), int)
+            and signal["rank"] <= 10
+        }
+        key = f"quant:{rule.rule_id}:{rule.symbol}"
+        with self._state_lock:
+            if key in self._trigger_states and not force:
+                return False
+            self._trigger_states[key] = rule.symbol in ranked_symbols
+            try:
+                self._save_trigger_states_locked()
+            except Exception as exc:
+                self._state_dirty = True
+                logger.warning("Quant exit baseline set but state save failed: %s", exc)
+            else:
+                self._state_dirty = False
+        return True
+
     def delete_rule(self, rule_id: str) -> bool:
         with self._rules_lock:
             if rule_id in self._rules:
@@ -317,6 +347,11 @@ class TaiwanMonitorEngine:
 
         # Rule parameters validation
         rtype = rule.rule_type if isinstance(rule.rule_type, TaiwanRuleType) else TaiwanRuleType(rule.rule_type)
+        if (rtype in (TaiwanRuleType.QUANT_TOP10_ENTER, TaiwanRuleType.QUANT_TOP10_EXIT)
+                and inst.instrument_type != "stock"):
+            raise ValueError(
+                f"Quant Top 10 reminders require a stock symbol; {rule.symbol} is {inst.instrument_type}"
+            )
         if rtype in (TaiwanRuleType.PRICE_ABOVE, TaiwanRuleType.PRICE_BELOW):
             if rule.threshold <= 0:
                 raise ValueError(f"{rtype.value} threshold must be strictly positive (got {rule.threshold})")
@@ -352,7 +387,12 @@ class TaiwanMonitorEngine:
     ) -> list[TaiwanAlertEvent]:
         """Evaluate rules and persist emitted alerts before committing crossing state."""
         with self._rules_lock:
-            active_rules = [r for r in self._rules.values() if r.enabled]
+            active_rules = [
+                r for r in self._rules.values()
+                if r.enabled and r.rule_type not in (
+                    TaiwanRuleType.QUANT_TOP10_ENTER, TaiwanRuleType.QUANT_TOP10_EXIT,
+                )
+            ]
 
         if not active_rules:
             return []
