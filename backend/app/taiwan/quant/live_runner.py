@@ -345,17 +345,35 @@ def _evaluate_live_quant_alerts(freeze: dict[str, Any], ledger: LiveLedger, app_
 def seed_quant_exit_rule_from_latest_snapshot(
     rule, engine=None, *, force: bool = False,
 ) -> bool:
-    """Baseline a new exit reminder from the latest audited snapshot, if one exists."""
+    """Baseline an exit reminder only from the current audited Live freeze."""
     if engine is None:
         from app.taiwan.realtime.monitor_engine import get_monitor_engine
 
         engine = get_monitor_engine()
+    source = None
     try:
-        run = LiveLedger().latest_run(LiveModel().key)
+        source = CurrentLiveSource()
+        ledger = LiveLedger(evidence=source.evidence)
+        session = ledger.current_session().isoformat()
+        run = ledger.read_run(LiveModel().key, session)
+        operation = ledger.latest_operation()
     except Exception as exc:
         logger.warning("Quant exit reminder baseline lookup failed: %s", exc)
         return False
-    if run is None or run.get("audit_status") != "ok":
+    finally:
+        if source is not None:
+            try:
+                source.close()
+            except Exception as exc:
+                logger.warning("Quant exit reminder evidence source close failed: %s", exc)
+    freeze = operation.get("freeze", operation) if operation else {}
+    if (
+        run is None
+        or run.get("audit_status") != "ok"
+        or run.get("session") != session
+        or freeze.get("status") not in {"frozen", "noop"}
+        or freeze.get("session") != session
+    ):
         return False
     signals = (run.get("snapshot") or {}).get("signals")
     if not isinstance(signals, list):

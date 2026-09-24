@@ -788,7 +788,11 @@ def update_taiwan_rule(rule_id: str, req: TaiwanMonitorRuleUpdate):
         from app.taiwan.quant.live_runner import seed_quant_exit_rule_from_latest_snapshot
 
         try:
-            seed_quant_exit_rule_from_latest_snapshot(updated_rule, engine, force=True)
+            seeded = seed_quant_exit_rule_from_latest_snapshot(
+                updated_rule, engine, force=True,
+            )
+            if not seeded:
+                engine.seed_quant_exit_rule(updated_rule, [], force=True)
         except OSError as e:
             raise HTTPException(status_code=503, detail="Quant 離開提醒基準儲存失敗") from e
 

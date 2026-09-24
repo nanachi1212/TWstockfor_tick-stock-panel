@@ -11,6 +11,7 @@ import pytest
 import app.services.mining_manager as mining_manager_module
 from app.services.heavy_job_limiter import HeavyJobLimiter
 from app.services.mining_manager import MiningJobManager
+from app.services.mining_jobs import TERMINAL_RUN_STATUSES
 
 
 def _task_factory(kind: str, data_dir: Path, payload: dict[str, Any]) -> dict[str, Any]:
@@ -33,7 +34,12 @@ def _wait_for_status(
         manifest = manager.store.get(run_id)
         assert manifest is not None
         if manifest["status"] == status:
-            return manifest
+            if status not in TERMINAL_RUN_STATUSES:
+                return manifest
+            event_type = "error" if status == "failed" else status
+            events = manager.store.read_events(run_id)
+            if any(event.get("type") == event_type for event in events):
+                return manifest
         time.sleep(0.005)
     pytest.fail(f"run {run_id} did not reach {status}")
 

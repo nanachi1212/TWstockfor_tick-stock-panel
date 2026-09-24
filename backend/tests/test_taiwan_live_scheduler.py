@@ -108,40 +108,62 @@ def test_live_quant_alerts_use_only_audited_frozen_snapshot(monkeypatch, taiwan_
 
 
 def test_new_quant_exit_rule_is_seeded_from_latest_audited_snapshot(monkeypatch):
+    from datetime import date
+
+    session = "2026-09-25"
     run = {
         "audit_status": "ok",
+        "session": session,
         "snapshot": {"signals": [{"symbol": "2330.TWSE", "rank": 2}]},
     }
     ledger = Mock()
-    ledger.latest_run.return_value = run
+    ledger.current_session.return_value = date.fromisoformat(session)
+    ledger.read_run.return_value = run
+    ledger.latest_operation.return_value = {
+        "freeze": {"status": "frozen", "session": session},
+    }
+    source = SimpleNamespace(evidence=object(), close=Mock())
     seeded = Mock(return_value=True)
     engine = SimpleNamespace(seed_quant_exit_rule=seeded)
-    monkeypatch.setattr(live_runner, "LiveLedger", lambda: ledger)
+    monkeypatch.setattr(live_runner, "CurrentLiveSource", lambda: source)
+    monkeypatch.setattr(live_runner, "LiveLedger", lambda **_kwargs: ledger)
     monkeypatch.setattr(live_runner, "LiveModel", lambda: SimpleNamespace(key="model"))
 
     rule = SimpleNamespace(rule_id="rule-1")
     assert live_runner.seed_quant_exit_rule_from_latest_snapshot(rule, engine)
 
-    ledger.latest_run.assert_called_once_with("model")
+    ledger.read_run.assert_called_once_with("model", session)
     seeded.assert_called_once_with(
         rule, [{"symbol": "2330.TWSE", "rank": 2}], force=False,
     )
+    source.close.assert_called_once_with()
 
 
-def test_new_quant_exit_rule_is_not_seeded_from_conflicted_snapshot(monkeypatch):
+def test_new_quant_exit_rule_is_not_seeded_from_stale_freeze(monkeypatch):
+    from datetime import date
+
+    session = "2026-09-25"
     ledger = Mock()
-    ledger.latest_run.return_value = {
+    ledger.current_session.return_value = date.fromisoformat(session)
+    ledger.read_run.return_value = {
         "audit_status": "conflict",
+        "session": "2026-09-24",
         "snapshot": {"signals": [{"symbol": "2330.TWSE", "rank": 2}]},
     }
+    ledger.latest_operation.return_value = {
+        "freeze": {"status": "frozen", "session": "2026-09-24"},
+    }
+    source = SimpleNamespace(evidence=object(), close=Mock())
     engine = SimpleNamespace(seed_quant_exit_rule=Mock())
-    monkeypatch.setattr(live_runner, "LiveLedger", lambda: ledger)
+    monkeypatch.setattr(live_runner, "CurrentLiveSource", lambda: source)
+    monkeypatch.setattr(live_runner, "LiveLedger", lambda **_kwargs: ledger)
     monkeypatch.setattr(live_runner, "LiveModel", lambda: SimpleNamespace(key="model"))
 
     rule = SimpleNamespace(rule_id="rule-1")
     assert not live_runner.seed_quant_exit_rule_from_latest_snapshot(rule, engine)
 
     engine.seed_quant_exit_rule.assert_not_called()
+    source.close.assert_called_once_with()
 
 
 def test_manual_quant_alert_evaluation_persists_before_committing_edges(monkeypatch):
