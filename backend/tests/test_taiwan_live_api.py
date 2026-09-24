@@ -44,3 +44,84 @@ def test_live_run_api_returns_not_found_without_substituting_other_ranking(monke
     with pytest.raises(HTTPException, match="live_run_not_found") as exc:
         taiwan_live.live_run("missing-model", date(2026, 9, 23))
     assert exc.value.status_code == 404
+
+
+def test_live_models_marks_run_current_only_when_session_operation_and_audit_agree(monkeypatch):
+    expected = date(2026, 9, 24)
+    closed = []
+
+    class Source:
+        evidence = object()
+
+        def close(self):
+            closed.append(True)
+
+    ledger = SimpleNamespace(
+        current_session=lambda: expected,
+        latest_operation=lambda: {"freeze": {"status": "noop", "session": expected.isoformat()}},
+        read_run=lambda model_key, session: {"audit_status": "ok"} if session == expected.isoformat() else None,
+        models=lambda: [],
+    )
+    monkeypatch.setattr(taiwan_live, "CurrentLiveSource", Source)
+    monkeypatch.setattr(taiwan_live, "LiveLedger", lambda evidence=None: ledger)
+
+    response = taiwan_live.live_models()
+
+    assert response["expected_session"] == expected.isoformat()
+    assert response["current_run_valid"] is True
+    assert response["current_run_reason"] == "current"
+    assert closed == [True]
+
+
+@pytest.mark.parametrize(
+    ("audit_status", "operation", "reason"),
+    [
+        ("conflict", {"status": "noop", "session": "2026-09-24"}, "audit_conflict"),
+        ("ok", {"status": "blocked", "session": "2026-09-23"}, "operation_not_current_success"),
+    ],
+)
+def test_live_models_fails_closed_for_conflict_or_stale_operation(monkeypatch, audit_status, operation, reason):
+    expected = date(2026, 9, 24)
+
+    class Source:
+        evidence = object()
+
+        def close(self):
+            pass
+
+    ledger = SimpleNamespace(
+        current_session=lambda: expected,
+        latest_operation=lambda: operation,
+        read_run=lambda model_key, session: {"audit_status": audit_status},
+        models=lambda: [],
+    )
+    monkeypatch.setattr(taiwan_live, "CurrentLiveSource", Source)
+    monkeypatch.setattr(taiwan_live, "LiveLedger", lambda evidence=None: ledger)
+
+    response = taiwan_live.live_models()
+
+    assert response["current_run_valid"] is False
+    assert response["current_run_reason"] == reason
+
+
+def test_live_models_fails_closed_when_expected_session_cannot_be_resolved(monkeypatch):
+    class Source:
+        evidence = object()
+
+        def close(self):
+            pass
+
+    ledger = SimpleNamespace(
+        current_session=lambda: (_ for _ in ()).throw(ValueError("unresolved evidence")),
+        latest_operation=lambda: {"status": "frozen", "session": "2026-09-24"},
+        read_run=lambda model_key, session: (_ for _ in ()).throw(AssertionError("must not read an unknown session")),
+        models=lambda: [],
+    )
+    monkeypatch.setattr(taiwan_live, "CurrentLiveSource", Source)
+    monkeypatch.setattr(taiwan_live, "LiveLedger", lambda evidence=None: ledger)
+
+    response = taiwan_live.live_models()
+
+    assert response["expected_session"] is None
+    assert response["current_run_valid"] is False
+    assert response["current_run_reason"] == "session_unavailable"

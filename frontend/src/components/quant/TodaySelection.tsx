@@ -41,14 +41,17 @@ export function TodaySelection({ symbol }: { symbol?: string }) {
   })
   const modelKey = models.data?.configured_model.model_key
   const latest = runs.data?.runs.find(run => run.model_key === modelKey)
+  const expectedRun = Boolean(models.data?.current_run_valid && latest?.session === models.data.expected_session)
   const run = useQuery({
     queryKey: QK.taiwanQuantLiveRun(modelKey ?? '', latest?.session ?? ''),
     queryFn: () => api.taiwanQuantLiveRun(modelKey!, latest!.session),
-    enabled: Boolean(modelKey && latest),
+    enabled: Boolean(modelKey && latest && expectedRun),
     staleTime: 60_000,
     refetchInterval: 60_000,
   })
-  const signals = run.data?.snapshot.signals ?? []
+  const runData = run.data
+  const validRun = expectedRun && runData && runData.session === models.data?.expected_session && runData.audit_status === 'ok' ? runData : null
+  const signals = validRun?.snapshot.signals ?? []
   const symbols = signals.map(item => item.symbol)
   const quotes = useQuery({
     queryKey: QK.taiwanQuotes(symbols.join(',')),
@@ -74,20 +77,21 @@ export function TodaySelection({ symbol }: { symbol?: string }) {
     },
   })
   const selected = symbol ? signals.find(item => item.symbol === symbol) : null
-  const loading = models.isLoading || runs.isLoading || (!models.isError && !runs.isError && Boolean(modelKey && latest) && run.isLoading)
+  const loading = models.isLoading || runs.isLoading || (!models.isError && !runs.isError && expectedRun && run.isLoading)
   const error = models.isError || runs.isError || run.isError
 
   if (symbol) {
     if (loading) return <div className="text-xs text-muted" role="status">正在載入 live Quant 排名…</div>
     if (error) return <div className="text-xs text-muted" role="alert">Live Quant 摘要目前無法讀取。</div>
-    if (!selected || !run.data) return null
+    if (!expectedRun || !validRun) return <div className="text-xs text-muted" role="status">目前沒有通過交易日新鮮度與稽核檢查的 Live Quant 排名。</div>
+    if (!selected) return null
     const features = featureMap.get(symbol)
     return (
       <section aria-label="Live Quant 摘要" className="rounded-xl border border-accent/20 bg-accent/5 p-3">
         <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
           <strong className="text-sm">Live Quant 摘要</strong>
           <span className="rounded bg-accent/10 px-1.5 py-0.5 text-[10px] text-accent">即時排名，非 Primary OOS</span>
-          <span className="ml-auto text-[10px] text-muted">最近完成排名 {run.data.snapshot.signal_session}</span>
+          <span className="ml-auto text-[10px] text-muted">最近完成排名 {validRun.snapshot.signal_session}</span>
         </div>
         <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs">
           <span>排名 #{selected.rank}</span><span>分數 {formatPct(selected.score, 1)}</span>
@@ -108,16 +112,18 @@ export function TodaySelection({ symbol }: { symbol?: string }) {
       <div className="mb-2 flex flex-wrap items-center gap-2">
         <TrendingUp className="h-4 w-4 text-accent" />
         <h2 className="text-sm font-semibold">今日 Quant 選股</h2>
-        <span className="rounded bg-accent/10 px-1.5 py-0.5 text-[10px] text-accent">Live current</span>
+        <span className="rounded bg-accent/10 px-1.5 py-0.5 text-[10px] text-accent">{validRun ? 'Live current' : 'Live 排名待驗證'}</span>
         <span className="text-[10px] text-muted">與 Primary OOS 歷史驗證分開</span>
-        {run.data && <span className="ml-auto text-[10px] text-muted">最近完成排名 {run.data.snapshot.signal_session}</span>}
+        {validRun && <span className="ml-auto text-[10px] text-muted">最近完成排名 {validRun.snapshot.signal_session}</span>}
       </div>
 
       {loading ? <div className="flex items-center gap-2 py-5 text-xs text-muted" role="status"><Loader2 className="h-4 w-4 animate-spin" />讀取最新已完成的 live 排名…</div> : null}
       {error ? <div className="flex items-center justify-between gap-2 py-2 text-xs text-muted" role="alert"><span>Live Quant 或行情資料目前無法完整讀取，請稍後重試。</span><button type="button" onClick={() => { void models.refetch(); void runs.refetch(); if (modelKey && latest) void run.refetch(); if (symbols.length) void quotes.refetch() }} className="inline-flex items-center gap-1"><RefreshCw className="h-3 w-3" />重試</button></div> : null}
       {!loading && !error && !latest ? <p className="py-4 text-xs text-muted">目前尚無已完成的 live 排名；資料不足或非交易日不會以歷史 OOS 代替。</p> : null}
-      {!loading && !error && latest && signals.length === 0 ? <p className="py-4 text-xs text-muted">{latest.session} 已完成 live 排名，但沒有符合既有選取門檻的標的。</p> : null}
-      {!loading && !error && signals.length > 0 ? (
+      {!loading && !error && latest && !expectedRun ? <p className="py-4 text-xs text-muted">目前沒有符合預期交易日且通過稽核的新鮮 Live 排名；不顯示舊快照或歷史 OOS。</p> : null}
+      {!loading && !error && expectedRun && !validRun ? <p className="py-4 text-xs text-muted">目前 Live 快照未通過稽核檢查，不顯示排名。</p> : null}
+      {!loading && !error && expectedRun && latest && validRun && signals.length === 0 ? <p className="py-4 text-xs text-muted">{latest.session} 已完成 live 排名，但沒有符合既有選取門檻的標的。</p> : null}
+      {!loading && !error && validRun && signals.length > 0 ? (
         <div className="overflow-x-auto">
           <table className="w-full min-w-[760px] text-left text-xs">
             <thead className="text-[10px] text-muted"><tr><th className="px-2 py-1">排名 / 標的</th><th className="px-2 py-1">現價 / 漲跌</th><th className="px-2 py-1">Quant 分數</th><th className="px-2 py-1">動能 5 / 20 / 60D</th><th className="px-2 py-1">波動 / 流動性 / 相對量</th><th className="px-2 py-1">入選原因</th><th className="px-2 py-1">自選</th></tr></thead>

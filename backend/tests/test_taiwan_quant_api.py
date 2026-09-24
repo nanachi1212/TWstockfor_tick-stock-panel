@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime
 from types import SimpleNamespace
 
 from app.api import taiwan_quant
@@ -91,18 +91,33 @@ def test_readiness_distinguishes_processing_ready_blocked_and_failed():
     ).status is QuantEvaluationStatus.FAILED
 
 
-def test_a2b_progress_endpoint_returns_worker_counts_without_oos_evaluation(monkeypatch):
+def test_a2b_progress_endpoint_returns_worker_counts_without_oos_evaluation(monkeypatch, tmp_path):
+    wanted = [date.fromordinal(date(2000, 1, 1).toordinal() + index) for index in range(478)]
+
+    class ClassificationStore:
+        @staticmethod
+        def completed_dates():
+            return set(wanted[:232])
+
+        @staticmethod
+        def needs_upgrade(day):
+            return False
+
     class Worker:
+        data_dir = tmp_path
+        census_store = object()
+        classification_store = ClassificationStore()
+        state = SimpleNamespace(parked=lambda scope: [])
         lock = SimpleNamespace(owner_status=lambda: "running")
 
         def status(self, *, start):
-            assert start is not None
-            return {"classification": {
-                "completed_jobs": 232, "pending_jobs": 246, "failed_jobs": 0,
-                "unique_first_seen_dates": 478,
-            }}
+            raise AssertionError("progress polling must not call the full worker status scan")
 
     monkeypatch.setattr(taiwan_quant, "TaiwanHistoricalBackfillWorker", Worker)
+    monkeypatch.setattr(
+        taiwan_quant, "first_observed_dates",
+        lambda store, exchange: {str(index): day for index, day in enumerate(wanted)},
+    )
 
     assert taiwan_quant.a2b_progress_status() == {
         "completed": 232, "pending": 246, "failed": 0, "total": 478,
@@ -121,6 +136,51 @@ def test_processing_snapshot_never_exposes_oos_metrics_even_if_artifact_is_suppl
     assert response["status"] == "processing"
     assert response["evaluation_status"] == "waiting_for_data_health"
     assert response["evaluation"] is None
+
+
+def test_a2b_status_uses_cached_census_dates_and_lightweight_classification_progress(monkeypatch, tmp_path):
+    wanted = {date(2020, 1, 2), date(2020, 1, 3)}
+    scans = []
+
+    class ClassificationStore:
+        @staticmethod
+        def completed_dates():
+            return {date(2020, 1, 2)}
+
+        @staticmethod
+        def needs_upgrade(day):
+            return False
+
+    class State:
+        @staticmethod
+        def parked(scope):
+            return []
+
+    class Lock:
+        @staticmethod
+        def owner_status():
+            return "running"
+
+    worker = SimpleNamespace(
+        data_dir=tmp_path,
+        census_store=object(),
+        classification_store=ClassificationStore(),
+        state=State(),
+        lock=Lock(),
+    )
+    monkeypatch.setattr(taiwan_quant, "TaiwanHistoricalBackfillWorker", lambda: worker)
+    monkeypatch.setattr(
+        taiwan_quant, "first_observed_dates",
+        lambda store, exchange: scans.append(exchange) or {str(i): day for i, day in enumerate(wanted)},
+    )
+
+    first = taiwan_quant.a2b_progress_status()
+    second = taiwan_quant.a2b_progress_status()
+
+    assert first == second == {
+        "completed": 1, "pending": 1, "failed": 0, "total": 2, "worker_status": "running",
+    }
+    assert scans == ["TWSE"]
 
 
 def test_ready_snapshot_exposes_only_a_verified_primary_artifact():

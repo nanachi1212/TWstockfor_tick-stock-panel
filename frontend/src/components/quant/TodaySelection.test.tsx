@@ -17,10 +17,11 @@ const signals = Array.from({ length: 12 }, (_, index) => ({
 }))
 
 function setup() {
-  vi.mocked(api.taiwanQuantLiveModels).mockResolvedValue({ configured_model: { model_key: 'live-model', top_n: 10 }, latest_operation: null } as any)
+  vi.mocked(api.taiwanQuantLiveModels).mockResolvedValue({ configured_model: { model_key: 'live-model', top_n: 10 }, latest_operation: { status: 'noop', session: '2026-09-23' }, expected_session: '2026-09-23', current_run_valid: true, current_run_audit_status: 'ok', current_run_reason: 'current' } as any)
   vi.mocked(api.taiwanQuantLiveRuns).mockResolvedValue({ runs: [{ model_key: 'live-model', session: '2026-09-23', snapshot_hash: 'abc', frozen_at: '2026-09-23T16:00:00+08:00', signal_count: 12 }] } as any)
   vi.mocked(api.taiwanQuantLiveRun).mockResolvedValue({
     model_key: 'live-model', session: '2026-09-23', snapshot_hash: 'abc', frozen_at: '2026-09-23T16:00:00+08:00',
+    audit_status: 'ok',
     snapshot: { signal_session: '2026-09-23', usage_scope: 'experimental_live', validation_state: 'unvalidated', model: { model_key: 'live-model', top_n: 10, validation_state: 'unvalidated' }, signals, features: signals.map(signal => ({ symbol: signal.symbol, momentum_5d: 0.1, momentum_20d: 0.2, momentum_60d: 0.3, volatility_20d: 0.02, adv20_twd: 20_000_000, relative_volume: 1.4 })) },
   } as any)
   vi.mocked(api.taiwanQuotes).mockResolvedValue({ quotes: [{ symbol: signals[0].symbol, name: '台積電', last_price: 105, change_pct: 0.025 } as any], count: 1 })
@@ -82,6 +83,26 @@ describe('TodaySelection', () => {
     vi.mocked(api.taiwanQuantLiveRuns).mockResolvedValue({ runs: [] })
     renderSelection()
     expect(await screen.findByText('目前尚無已完成的 live 排名；資料不足或非交易日不會以歷史 OOS 代替。')).toBeInTheDocument()
+  })
+
+  it('fails closed when the latest run is older than the expected trading session', async () => {
+    setup()
+    vi.mocked(api.taiwanQuantLiveModels).mockResolvedValue({ configured_model: { model_key: 'live-model', top_n: 10 }, latest_operation: { status: 'blocked', session: '2026-09-23' }, expected_session: '2026-09-24', current_run_valid: false, current_run_audit_status: null, current_run_reason: 'live_run_missing' } as any)
+    renderSelection()
+    expect(await screen.findByText(/沒有符合預期交易日且通過稽核/)).toBeInTheDocument()
+    expect(screen.queryByText('台積電')).not.toBeInTheDocument()
+    expect(api.taiwanQuantLiveRun).not.toHaveBeenCalled()
+  })
+
+  it('hides a run whose detailed ledger audit reports a conflict', async () => {
+    setup()
+    vi.mocked(api.taiwanQuantLiveRun).mockResolvedValue({
+      model_key: 'live-model', session: '2026-09-23', audit_status: 'conflict', snapshot_hash: 'abc', frozen_at: '2026-09-23T16:00:00+08:00',
+      snapshot: { signal_session: '2026-09-23', usage_scope: 'experimental_live', validation_state: 'unvalidated', model: { model_key: 'live-model', top_n: 10, validation_state: 'unvalidated' }, signals, features: [] },
+    } as any)
+    renderSelection()
+    expect(await screen.findByText(/快照未通過稽核檢查/)).toBeInTheDocument()
+    expect(screen.queryByText('台積電')).not.toBeInTheDocument()
   })
 
   it('shows a retryable API error instead of hiding the dashboard', async () => {

@@ -1128,6 +1128,8 @@ export interface TaiwanLiveQuantRun {
   session: string
   snapshot_hash: string
   frozen_at: string
+  audit_status: string
+  conflicts?: Array<Record<string, unknown>>
   snapshot: {
     signal_session: string
     usage_scope: string
@@ -3044,7 +3046,14 @@ export const api = {
     ),
 
   taiwanQuantLiveModels: () =>
-    request<{ configured_model: { model_key: string; top_n: number }; latest_operation: unknown }>(
+    request<{
+      configured_model: { model_key: string; top_n: number }
+      latest_operation: unknown
+      expected_session: string | null
+      current_run_valid: boolean
+      current_run_audit_status: string | null
+      current_run_reason: string
+    }>(
       '/api/taiwan/quant/live/models',
     ),
 
