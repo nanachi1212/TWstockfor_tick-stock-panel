@@ -604,6 +604,8 @@ export interface MonitorRuleOptions {
 
 export interface AlertEvent {
   ts: number
+  alert_id?: string
+  is_read?: boolean
   rule_id?: string
   rule_name?: string
   source: string
@@ -615,6 +617,10 @@ export interface AlertEvent {
   change_pct?: number | null
   signals?: string[]
   severity?: string
+  quant_status?: string
+  quant_rank?: number | null
+  quant_score?: number | null
+  quant_session?: string
   strategy_id?: string
   conditions?: MonitorCondition[]
   logic?: 'and' | 'or'
@@ -696,6 +702,8 @@ export type TaiwanRuleType =
   | 'volume_spike'
   | 'near_upper_limit'
   | 'near_lower_limit'
+  | 'quant_top10_enter'
+  | 'quant_top10_exit'
 
 export interface TaiwanMonitorRule {
   rule_id: string
@@ -3267,6 +3275,15 @@ export const api = {
 
   alertDelete: (ts: number) =>
     request<{ ok: boolean }>(`/api/alerts/${ts}`, { method: 'DELETE' }),
+
+  alertsMarkRead: (alertId: string) =>
+    request<{ ok: boolean }>(`/api/alerts/${encodeURIComponent(alertId)}/read`, { method: 'PATCH' }),
+
+  alertsMarkAllRead: () =>
+    request<{ ok: boolean; updated: number }>('/api/alerts/read', { method: 'PATCH' }),
+
+  alertDeleteById: (alertId: string) =>
+    request<{ ok: boolean }>(`/api/alerts/id/${encodeURIComponent(alertId)}`, { method: 'DELETE' }),
 
   /** 生成演示觸發記錄 (Dev 頁用) */
   alertSeed: (count = 12, recent = true) =>

@@ -14,7 +14,8 @@ Tests:
 """
 from __future__ import annotations
 
-from datetime import date, datetime
+from datetime import datetime
+
 import pytest
 
 from app.taiwan.enrichment.models import SourceMeta
@@ -219,6 +220,40 @@ class TestPriceAndChangeRules:
         assert alert is not None
         assert alert.trigger_value == 2.2
 
+    def test_daily_drop_at_or_below_negative_threshold_triggers(self, engine):
+        rule = TaiwanMonitorRule(
+            rule_id="r_pct_below", name="單日跌幅達3%",
+            symbol="2330.TWSE", rule_type=TaiwanRuleType.CHANGE_PCT_BELOW,
+            threshold=-3.0, cooldown_seconds=0,
+        )
+        alert, status, _ = engine.evaluate_single_rule(rule, make_quote(last_price=2400.0, prev_close=2500.0))
+        assert status == EvaluationStatus.TRIGGERED
+        assert alert is not None
+        assert alert.trigger_value == -4.0
+
+    def test_state_write_failure_does_not_consume_price_crossing(self, engine, monkeypatch):
+        rule = TaiwanMonitorRule(
+            rule_id="r_write_fail", name="狀態寫入失敗",
+            symbol="2330.TWSE", rule_type=TaiwanRuleType.PRICE_ABOVE,
+            threshold=2500.0,
+        )
+        save_state = engine._save_trigger_states_locked
+        def fail_save_state():
+            raise OSError("disk full")
+
+        monkeypatch.setattr(engine, "_save_trigger_states_locked", fail_save_state)
+
+        with pytest.raises(OSError, match="disk full"):
+            engine.evaluate_single_rule(rule, make_quote(last_price=2505.0), now_mono=10.0)
+
+        key = f"{rule.rule_id}:{rule.symbol}:{rule.rule_type.value}"
+        assert key not in engine._trigger_states
+        assert key not in engine._last_fire_time
+        monkeypatch.setattr(engine, "_save_trigger_states_locked", save_state)
+        alert, status, _ = engine.evaluate_single_rule(rule, make_quote(last_price=2505.0), now_mono=11.0)
+        assert status == EvaluationStatus.TRIGGERED
+        assert alert is not None
+
 
 class TestVolumeRules:
     """Test volume in shares and volume spike multiple."""
@@ -404,6 +439,265 @@ class TestDeduplicationCooldownAndHysteresis:
         assert status4 == EvaluationStatus.TRIGGERED
         assert alert4 is not None
 
+    def test_edge_state_survives_engine_restart(self, tmp_path, engine, mock_sec_master, monkeypatch):
+        storage = tmp_path / "restart_rules.json"
+        rule = TaiwanMonitorRule(
+            rule_id="r_persist", name="重啟去重",
+            symbol="2330.TWSE", rule_type=TaiwanRuleType.PRICE_ABOVE,
+            threshold=2500.0, cooldown_seconds=0,
+        )
+        first = TaiwanMonitorEngine(storage_path=storage)
+        first.add_rule(rule)
+        alert, status, _ = first.evaluate_single_rule(rule, make_quote(last_price=2505.0))
+        assert status == EvaluationStatus.TRIGGERED and alert is not None
+
+        restarted = TaiwanMonitorEngine(storage_path=storage)
+        duplicate, status, _ = restarted.evaluate_single_rule(rule, make_quote(last_price=2508.0))
+        assert status == EvaluationStatus.DEDUP_SUPPRESSED
+        assert duplicate is None
+        restarted.evaluate_single_rule(rule, make_quote(last_price=2490.0))
+        reentered, status, _ = restarted.evaluate_single_rule(rule, make_quote(last_price=2502.0))
+        assert status == EvaluationStatus.TRIGGERED
+        assert reentered is not None
+
+    @pytest.mark.parametrize(
+        ("rule_type", "threshold"),
+        [
+            (TaiwanRuleType.PRICE_ABOVE, 2500.0),
+            (TaiwanRuleType.CHANGE_PCT_ABOVE, 0.1),
+            (TaiwanRuleType.VOLUME_ABOVE, 20_000_000),
+        ],
+    )
+    def test_evaluate_all_retries_crossing_when_alert_persistence_fails(
+        self, engine, rule_type, threshold,
+    ):
+        rule = TaiwanMonitorRule(
+            rule_id=f"persist_{rule_type.value}", name="持久化失敗重試",
+            symbol="2330.TWSE", rule_type=rule_type, threshold=threshold,
+            cooldown_seconds=0,
+        )
+        engine.add_rule(rule)
+        quotes = {rule.symbol: make_quote(last_price=2505.0, prev_close=2500.0, volume=30_000_000)}
+
+        def fail_persist(_alerts):
+            raise OSError("alerts log is unavailable")
+
+        with pytest.raises(OSError, match="alerts log is unavailable"):
+            engine.evaluate_all(force_quotes=quotes, persist_events=fail_persist)
+
+        alerts = engine.evaluate_all(force_quotes=quotes)
+        assert len(alerts) == 1
+        assert alerts[0].rule_id == rule.rule_id
+
+    def test_evaluate_all_keeps_edge_when_durable_alert_state_save_fails(
+        self, engine, monkeypatch,
+    ):
+        rule = TaiwanMonitorRule(
+            rule_id="durable_state_retry", name="已落盤狀態重試",
+            symbol="2330.TWSE", rule_type=TaiwanRuleType.PRICE_ABOVE,
+            threshold=2500.0, cooldown_seconds=0,
+        )
+        engine.add_rule(rule)
+        quotes = {rule.symbol: make_quote(last_price=2505.0)}
+        durable_alerts = []
+        save_states = engine._save_trigger_states_locked
+
+        def fail_state_save():
+            raise OSError("state file is unavailable")
+
+        monkeypatch.setattr(engine, "_save_trigger_states_locked", fail_state_save)
+        alerts = engine.evaluate_all(
+            force_quotes=quotes, persist_events=durable_alerts.extend,
+        )
+        assert len(alerts) == 1
+        assert len(durable_alerts) == 1
+
+        assert engine.evaluate_all(
+            force_quotes=quotes, persist_events=durable_alerts.extend,
+        ) == []
+        assert len(durable_alerts) == 1
+
+        monkeypatch.setattr(engine, "_save_trigger_states_locked", save_states)
+        assert engine.evaluate_all(force_quotes=quotes) == []
+        restarted = TaiwanMonitorEngine(storage_path=engine.storage_path)
+        assert restarted.evaluate_all(force_quotes=quotes) == []
+
+
+class TestQuantTop10Alerts:
+    def test_entry_exit_crossing_unavailable_and_persistence(self, tmp_path, mock_sec_master, monkeypatch):
+        monkeypatch.setattr("app.taiwan.realtime.monitor_engine.get_security_master", lambda: mock_sec_master)
+        storage = tmp_path / "quant_rules.json"
+        engine = TaiwanMonitorEngine(storage_path=storage)
+        entry = TaiwanMonitorRule(
+            rule_id="q_entry", name="進入前十", symbol="2330.TWSE",
+            rule_type=TaiwanRuleType.QUANT_TOP10_ENTER, threshold=0,
+            severity=TaiwanAlertSeverity.CRITICAL,
+        )
+        leaving = TaiwanMonitorRule(
+            rule_id="q_exit", name="離開前十", symbol="2330.TWSE",
+            rule_type=TaiwanRuleType.QUANT_TOP10_EXIT, threshold=0,
+        )
+        engine.add_rule(entry)
+        engine.add_rule(leaving)
+        top10 = [{"symbol": "2330.TWSE", "rank": 3, "score": 0.82}]
+
+        assert engine.evaluate_quant_top10(top10, "2026-09-25", available=False) == []
+        entered = engine.evaluate_quant_top10(top10, "2026-09-25")
+        assert [event["type"] for event in entered] == ["quant_top10_enter"]
+        assert entered[0]["quant_rank"] == 3
+        assert entered[0]["severity"] == "critical"
+        assert engine.evaluate_quant_top10(top10, "2026-09-25") == []
+
+        restarted = TaiwanMonitorEngine(storage_path=storage)
+        assert restarted.evaluate_quant_top10(top10, "2026-09-25") == []
+        left = restarted.evaluate_quant_top10([], "2026-09-26")
+        assert [event["type"] for event in left] == ["quant_top10_exit"]
+        assert restarted.evaluate_quant_top10([], "2026-09-26") == []
+        reentered = restarted.evaluate_quant_top10(top10, "2026-09-27")
+        assert [event["type"] for event in reentered] == ["quant_top10_enter"]
+
+    def test_entry_retries_when_durable_alert_persistence_fails(self, tmp_path, mock_sec_master, monkeypatch):
+        monkeypatch.setattr("app.taiwan.realtime.monitor_engine.get_security_master", lambda: mock_sec_master)
+        engine = TaiwanMonitorEngine(storage_path=tmp_path / "quant_rules.json")
+        engine.add_rule(TaiwanMonitorRule(
+            rule_id="q_retry", name="重試進入提醒", symbol="2330.TWSE",
+            rule_type=TaiwanRuleType.QUANT_TOP10_ENTER, threshold=0,
+        ))
+        top10 = [{"symbol": "2330.TWSE", "rank": 3, "score": 0.82}]
+
+        def fail_persist(_events):
+            raise OSError("alerts log is unavailable")
+
+        with pytest.raises(OSError, match="alerts log is unavailable"):
+            engine.evaluate_quant_top10(top10, "2026-09-25", persist_events=fail_persist)
+
+        assert engine.evaluate_quant_top10(top10, "2026-09-25")[0]["type"] == "quant_top10_enter"
+
+    def test_entry_keeps_edge_when_durable_alert_state_save_fails(
+        self, tmp_path, mock_sec_master, monkeypatch,
+    ):
+        monkeypatch.setattr("app.taiwan.realtime.monitor_engine.get_security_master", lambda: mock_sec_master)
+        engine = TaiwanMonitorEngine(storage_path=tmp_path / "quant-state-retry.json")
+        engine.add_rule(TaiwanMonitorRule(
+            rule_id="q_state_retry", name="狀態重試進入提醒", symbol="2330.TWSE",
+            rule_type=TaiwanRuleType.QUANT_TOP10_ENTER, threshold=0,
+        ))
+        top10 = [{"symbol": "2330.TWSE", "rank": 3, "score": 0.82}]
+        durable_events = []
+        save_states = engine._save_trigger_states_locked
+
+        def fail_state_save():
+            raise OSError("state file is unavailable")
+
+        monkeypatch.setattr(engine, "_save_trigger_states_locked", fail_state_save)
+        events = engine.evaluate_quant_top10(
+            top10, "2026-09-25", persist_events=durable_events.extend,
+        )
+        assert [event["type"] for event in events] == ["quant_top10_enter"]
+        assert len(durable_events) == 1
+        assert engine.evaluate_quant_top10(
+            top10, "2026-09-25", persist_events=durable_events.extend,
+        ) == []
+        assert len(durable_events) == 1
+
+        monkeypatch.setattr(engine, "_save_trigger_states_locked", save_states)
+        assert engine.evaluate_quant_top10(top10, "2026-09-25") == []
+        restarted = TaiwanMonitorEngine(storage_path=engine.storage_path)
+        assert restarted.evaluate_quant_top10(top10, "2026-09-25") == []
+
+    def test_durable_quant_alert_is_idempotent_after_immediate_restart(
+        self, tmp_path, mock_sec_master, monkeypatch,
+    ):
+        monkeypatch.setattr("app.taiwan.realtime.monitor_engine.get_security_master", lambda: mock_sec_master)
+        state_path = tmp_path / "quant-idempotent.json"
+        rule = TaiwanMonitorRule(
+            rule_id="quant_idempotent", name="Quant restart dedup", symbol="2330.TWSE",
+            rule_type=TaiwanRuleType.QUANT_TOP10_ENTER, threshold=0,
+        )
+        first_engine = TaiwanMonitorEngine(storage_path=state_path)
+        first_engine.add_rule(rule)
+        durable: dict[str, dict] = {}
+
+        def persist_once(events):
+            added = []
+            for event in events:
+                if event["alert_id"] not in durable:
+                    durable[event["alert_id"]] = event
+                    added.append(event["alert_id"])
+            return added
+
+        def fail_state_save():
+            raise OSError("state file is unavailable")
+
+        monkeypatch.setattr(first_engine, "_save_trigger_states_locked", fail_state_save)
+        top10 = [{"symbol": "2330.TWSE", "rank": 2, "score": 0.9}]
+        first_events = first_engine.evaluate_quant_top10(
+            top10, "2026-09-25", persist_events=persist_once,
+        )
+        assert len(first_events) == 1
+        assert len(durable) == 1
+
+        restarted = TaiwanMonitorEngine(storage_path=state_path)
+        assert restarted.evaluate_quant_top10(
+            top10, "2026-09-25", persist_events=persist_once,
+        ) == []
+        assert len(durable) == 1
+
+    def test_quant_rules_reject_supported_etf(self, engine):
+        with pytest.raises(ValueError, match="require a stock symbol"):
+            engine.add_rule(TaiwanMonitorRule(
+                rule_id="etf_quant", name="ETF Quant 提醒", symbol="0050.TWSE",
+                rule_type=TaiwanRuleType.QUANT_TOP10_ENTER, threshold=0,
+            ))
+
+    def test_exit_rule_baseline_uses_existing_top10_snapshot_without_alert(
+        self, engine, monkeypatch,
+    ):
+        rule = TaiwanMonitorRule(
+            rule_id="exit_baseline", name="Quant 離開提醒", symbol="2330.TWSE",
+            rule_type=TaiwanRuleType.QUANT_TOP10_EXIT, threshold=0,
+        )
+        engine.add_rule(rule)
+        assert engine.seed_quant_exit_rule(
+            rule,
+            [{"symbol": "2330.TWSE", "rank": 4, "score": 0.9}],
+        )
+        monkeypatch.setattr(engine, "_save_trigger_states_locked", lambda: None)
+        exit_events = engine.evaluate_quant_top10([], "2026-09-26")
+        assert [event["type"] for event in exit_events] == ["quant_top10_exit"]
+        assert engine.evaluate_quant_top10([], "2026-09-26") == []
+
+    def test_reenabled_exit_rule_rebaselines_without_stale_exit(self, engine, monkeypatch):
+        rule = TaiwanMonitorRule(
+            rule_id="exit_reenabled", name="重新啟用 Quant 離開提醒", symbol="2330.TWSE",
+            rule_type=TaiwanRuleType.QUANT_TOP10_EXIT, threshold=0,
+        )
+        engine.add_rule(rule)
+        monkeypatch.setattr(engine, "_save_trigger_states_locked", lambda: None)
+        assert engine.seed_quant_exit_rule(
+            rule, [{"symbol": "2330.TWSE", "rank": 2}],
+        )
+        assert engine.seed_quant_exit_rule(rule, [], force=True)
+        assert engine.evaluate_quant_top10([], "2026-09-26") == []
+
+    def test_exit_baseline_write_failure_is_reported_and_rolled_back(self, engine, monkeypatch):
+        rule = TaiwanMonitorRule(
+            rule_id="exit_baseline_write_failure", name="Quant 離開基準失敗",
+            symbol="2330.TWSE", rule_type=TaiwanRuleType.QUANT_TOP10_EXIT,
+            threshold=0,
+        )
+        engine.add_rule(rule)
+
+        def fail_save():
+            raise OSError("state file is unavailable")
+
+        monkeypatch.setattr(engine, "_save_trigger_states_locked", fail_save)
+        with pytest.raises(OSError, match="baseline could not be persisted"):
+            engine.seed_quant_exit_rule(
+                rule, [{"symbol": "2330.TWSE", "rank": 1}],
+            )
+        assert f"quant:{rule.rule_id}:{rule.symbol}" not in engine._trigger_states
+
     def test_cooldown_suppression(self, engine):
         rule = TaiwanMonitorRule(
             rule_id="r_cool", name="冷卻測試",
@@ -494,3 +788,20 @@ class TestBatchSymbolGrouping:
         # Exactly 2 symbols requested
         assert sorted(mock_svc.calls[0]) == ["2330.TWSE", "8069.TPEX"]
         assert len(alerts) == 5
+
+    def test_quant_only_rules_do_not_fetch_realtime_quotes(self, engine):
+        class MockRealtimeService:
+            calls = 0
+
+            def get_quotes(self, symbols, force_refresh=False):
+                self.calls += 1
+                raise AssertionError("Quant rules must not fetch intraday quotes")
+
+        service = MockRealtimeService()
+        engine.realtime_service = service
+        engine.add_rule(TaiwanMonitorRule(
+            rule_id="quant_only", name="Quant 進入提醒", symbol="2330.TWSE",
+            rule_type=TaiwanRuleType.QUANT_TOP10_ENTER, threshold=0,
+        ))
+        assert engine.evaluate_all() == []
+        assert service.calls == 0

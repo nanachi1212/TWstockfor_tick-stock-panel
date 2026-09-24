@@ -12,9 +12,13 @@
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
+import os
+import tempfile
 import threading
+import uuid
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
@@ -29,15 +33,53 @@ _lock = threading.Lock()
 _write_count = 0
 
 
+def _identity(event: dict) -> str:
+    alert_id = event.get("alert_id")
+    if isinstance(alert_id, str) and alert_id:
+        return alert_id
+    payload = json.dumps(event, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    return "legacy_" + hashlib.sha256(payload.encode("utf-8")).hexdigest()[:24]
+
+
+def _prepare_event(event: dict) -> dict:
+    result = dict(event)
+    result.setdefault("alert_id", f"alert_{uuid.uuid4().hex}")
+    result.setdefault("is_read", False)
+    return result
+
+
 def _path(data_dir: Path) -> Path:
     p = data_dir / "user_data" / "alerts.jsonl"
     p.parent.mkdir(parents=True, exist_ok=True)
     return p
 
 
+def _rewrite_locked(path: Path, events: list[dict]) -> None:
+    """Replace the JSONL file only after its complete replacement is written."""
+    temporary: Path | None = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode="w", encoding="utf-8", dir=path.parent,
+            prefix=f".{path.name}.", suffix=".tmp", delete=False,
+        ) as stream:
+            temporary = Path(stream.name)
+            for event in events:
+                stream.write(json.dumps(event, ensure_ascii=False) + "\n")
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(temporary, path)
+        temporary = None
+    finally:
+        if temporary is not None:
+            try:
+                temporary.unlink(missing_ok=True)
+            except OSError:
+                logger.warning("alert_store temporary rewrite cleanup failed: %s", temporary)
+
+
 def append(data_dir: Path, event: dict) -> None:
     """追加一条触发记录。event 应含 ts(毫秒)、rule_id、source 等字段。"""
-    line = json.dumps(event, ensure_ascii=False)
+    line = json.dumps(_prepare_event(event), ensure_ascii=False)
     with _lock:
         p = _path(data_dir)
         with p.open("a", encoding="utf-8") as f:
@@ -49,20 +91,61 @@ def append(data_dir: Path, event: dict) -> None:
             _prune_locked(p)
 
 
-def append_many(data_dir: Path, events: list[dict]) -> None:
-    """批量追加。"""
+def append_many(data_dir: Path, events: list[dict]) -> list[str]:
+    """Append a complete batch atomically so failed writes cannot leave a prefix."""
     if not events:
-        return
+        return []
     with _lock:
         p = _path(data_dir)
-        with p.open("a", encoding="utf-8") as f:
-            for ev in events:
-                f.write(json.dumps(ev, ensure_ascii=False) + "\n")
+        original = p.read_bytes() if p.exists() else b""
+        existing_ids: set[str] = set()
+        for line in original.decode("utf-8", errors="replace").splitlines():
+            try:
+                existing = json.loads(line)
+            except (json.JSONDecodeError, TypeError):
+                continue
+            if isinstance(existing, dict):
+                existing_ids.add(str(existing.get("alert_id") or _identity(existing)))
+
+        prepared: list[dict] = []
+        for event in events:
+            item = _prepare_event(event)
+            alert_id = str(item["alert_id"])
+            if alert_id not in existing_ids:
+                prepared.append(item)
+                existing_ids.add(alert_id)
+        if not prepared:
+            return []
+
+        lines = [json.dumps(event, ensure_ascii=False) for event in prepared]
+        payload = original
+        if payload and not payload.endswith(b"\n"):
+            payload += b"\n"
+        payload += ("\n".join(lines) + "\n").encode("utf-8")
+        temporary: Path | None = None
+        try:
+            with tempfile.NamedTemporaryFile(
+                mode="wb", dir=p.parent, prefix=f".{p.name}.",
+                suffix=".tmp", delete=False,
+            ) as stream:
+                temporary = Path(stream.name)
+                stream.write(payload)
+                stream.flush()
+                os.fsync(stream.fileno())
+            os.replace(temporary, p)
+            temporary = None
+        finally:
+            if temporary is not None:
+                try:
+                    temporary.unlink(missing_ok=True)
+                except OSError:
+                    logger.warning("alert_store temporary append cleanup failed: %s", temporary)
         global _write_count
-        _write_count += len(events)
+        _write_count += len(prepared)
         if _write_count >= PRUNE_EVERY:
             _write_count = 0
             _prune_locked(p)
+        return [str(event["alert_id"]) for event in prepared]
 
 
 def list_recent(
@@ -98,6 +181,8 @@ def list_recent(
                     continue
                 if type and ev.get("type") != type:
                     continue
+                ev.setdefault("alert_id", _identity(ev))
+                ev.setdefault("is_read", False)
                 out.append(ev)
     except Exception as e:
         logger.warning("alert_store read failed: %s", e)
@@ -119,7 +204,7 @@ def clear(data_dir: Path) -> int:
                 count = sum(1 for line in f if line.strip())
         except Exception:
             pass
-        p.write_text("", encoding="utf-8")
+        _rewrite_locked(p, [])
         return count
 
 
@@ -155,12 +240,83 @@ def delete_one(data_dir: Path, ts: int) -> bool:
         if not deleted:
             return False
         try:
-            with p.open("w", encoding="utf-8") as f:
-                for ev in kept:
-                    f.write(json.dumps(ev, ensure_ascii=False) + "\n")
+            _rewrite_locked(p, kept)
         except Exception as e:
             logger.warning("alert_store delete_one write failed: %s", e)
             return False
+        return True
+
+
+def update_read(data_dir: Path, alert_id: str | None = None, *, read: bool = True) -> int:
+    """Mark one alert or every alert as read/unread, preserving legacy identities."""
+    with _lock:
+        p = _path(data_dir)
+        if not p.exists():
+            return 0
+        kept: list[dict] = []
+        updated = 0
+        try:
+            with p.open("r", encoding="utf-8") as f:
+                for line in f:
+                    line = line.strip()
+                    if not line:
+                        continue
+                    try:
+                        event = json.loads(line)
+                    except Exception:
+                        continue
+                    identity = _identity(event)
+                    if alert_id is None or identity == alert_id:
+                        event["alert_id"] = identity
+                        if bool(event.get("is_read", False)) != read:
+                            updated += 1
+                        event["is_read"] = read
+                    kept.append(event)
+        except OSError as e:
+            logger.warning("alert_store read status update failed: %s", e)
+            raise
+        if alert_id is not None and not any(_identity(event) == alert_id for event in kept):
+            return 0
+        try:
+            _rewrite_locked(p, kept)
+        except OSError as e:
+            logger.warning("alert_store read status write failed: %s", e)
+            raise
+        return updated
+
+
+def delete_by_id(data_dir: Path, alert_id: str) -> bool:
+    """Delete one alert by its stable identity, including legacy records."""
+    with _lock:
+        p = _path(data_dir)
+        if not p.exists():
+            return False
+        kept: list[dict] = []
+        deleted = False
+        try:
+            with p.open("r", encoding="utf-8") as f:
+                for line in f:
+                    line = line.strip()
+                    if not line:
+                        continue
+                    try:
+                        event = json.loads(line)
+                    except Exception:
+                        continue
+                    if not deleted and _identity(event) == alert_id:
+                        deleted = True
+                        continue
+                    kept.append(event)
+        except OSError as e:
+            logger.warning("alert_store delete-by-id read failed: %s", e)
+            raise
+        if not deleted:
+            return False
+        try:
+            _rewrite_locked(p, kept)
+        except OSError as e:
+            logger.warning("alert_store delete-by-id write failed: %s", e)
+            raise
         return True
 
 
@@ -204,8 +360,6 @@ def _prune_locked(p: Path) -> None:
         kept = kept[-MAX_RECORDS:]
     # 重写文件
     try:
-        with p.open("w", encoding="utf-8") as f:
-            for ev in kept:
-                f.write(json.dumps(ev, ensure_ascii=False) + "\n")
+        _rewrite_locked(p, kept)
     except Exception as e:
         logger.warning("alert_store prune write failed: %s", e)

@@ -261,6 +261,15 @@ class LiveLedger:
                     "audit_status": "conflict" if conflicts else "ok",
                     "conflicts": [dict(x) for x in conflicts]}
 
+    def latest_run(self, key: str) -> dict[str, Any] | None:
+        """Read the latest frozen snapshot for one model key."""
+        with self._connect() as db:
+            row = db.execute(
+                "SELECT session FROM runs WHERE model_key=? ORDER BY session DESC LIMIT 1",
+                (key,),
+            ).fetchone()
+        return self.read_run(key, row["session"]) if row is not None else None
+
     def runs(self, limit: int = 30) -> list[dict[str, Any]]:
         with self._connect() as db:
             rows = db.execute("SELECT model_key,session FROM runs ORDER BY session DESC LIMIT ?",

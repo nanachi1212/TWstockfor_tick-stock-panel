@@ -1,12 +1,13 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
 import { Link } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
-import { ArrowDownToLine, ArrowUpFromLine, ExternalLink, Plus, Wallet } from 'lucide-react'
+import { ArrowDownToLine, ArrowUpFromLine, Bell, ExternalLink, Plus, Wallet } from 'lucide-react'
 import { api, type TaiwanRealtimeQuote } from '@/lib/api'
 import { QK } from '@/lib/queryKeys'
 import { storage } from '@/lib/storage'
 import { useTodayQuantSelection } from '@/components/quant/TodaySelection'
 import { DataQualityBadge, freshnessLabel, type TaiwanQuoteMetaLike } from '@/components/taiwan/TaiwanDataQuality'
+import { TaiwanRuleEditorDialog } from '@/components/monitor/TaiwanRuleEditorDialog'
 import {
   buildPortfolioPositions,
   createPortfolioTransaction,
@@ -320,6 +321,7 @@ export function PortfolioPanel({ symbol, name, quote: detailQuote, change: detai
 }) {
   const { transactions, error: ledgerError } = usePortfolioTransactions()
   const [trade, setTrade] = useState<{ symbol?: string; name?: string; side: PortfolioSide; quote?: number | null } | null>(null)
+  const [reminder, setReminder] = useState<{ symbol: string; name: string; price?: number | null; quote?: TaiwanRealtimeQuote } | null>(null)
   const ledgerPositions = useMemo(() => buildPortfolioPositions(transactions), [transactions])
   const positions = useMemo(() => ledgerPositions.filter(position => position.shares > 0), [ledgerPositions])
   const { signals } = useTodayQuantSelection()
@@ -395,7 +397,7 @@ export function PortfolioPanel({ symbol, name, quote: detailQuote, change: detai
                   <td className={`px-2 py-2 font-mono ${tone(unrealized)}`}>{unrealized == null ? '—' : money(unrealized)}</td><td className={`px-2 py-2 font-mono ${tone(unrealized)}`}>{signedPct(returnPct)}</td>
                   <td className={`px-2 py-2 font-mono ${tone(daily)}`}>{daily == null ? '—' : `${money(daily)} (${signedPct(dailyPct)})`}</td>
                   <td className="px-2 py-2 font-mono">{quant ? `${(quant.score * 100).toFixed(1)}%` : '—'}</td><td className="px-2 py-2 font-mono">{quant ? `#${quant.rank}` : '—'}</td>
-                  <td className="px-2 py-2"><div className="flex items-center gap-1"><button type="button" aria-label={`買入 ${position.symbol}`} onClick={() => setTrade({ symbol: position.symbol, name: position.name, side: 'buy', quote: currentPrice })} className="rounded p-1 text-bull hover:bg-bull/10"><ArrowDownToLine className="h-3.5 w-3.5" /></button><button type="button" aria-label={`賣出 ${position.symbol}`} onClick={() => setTrade({ symbol: position.symbol, name: position.name, side: 'sell', quote: currentPrice })} className="rounded p-1 text-bear hover:bg-bear/10"><ArrowUpFromLine className="h-3.5 w-3.5" /></button>{!symbol && <Link aria-label={`查看 ${position.symbol} 個股`} to={`/stocks/${encodeURIComponent(position.symbol)}`} className="rounded p-1 text-muted hover:text-accent"><ExternalLink className="h-3.5 w-3.5" /></Link>}</div></td>
+                  <td className="px-2 py-2"><div className="flex items-center gap-1"><button type="button" aria-label={`設定 ${position.symbol} 提醒`} title="設定提醒" onClick={() => setReminder({ symbol: position.symbol, name: position.name, price: currentPrice, quote: quoteFor(position) })} className="rounded p-1 text-accent hover:bg-accent/10"><Bell className="h-3.5 w-3.5" /></button><button type="button" aria-label={`買入 ${position.symbol}`} onClick={() => setTrade({ symbol: position.symbol, name: position.name, side: 'buy', quote: currentPrice })} className="rounded p-1 text-bull hover:bg-bull/10"><ArrowDownToLine className="h-3.5 w-3.5" /></button><button type="button" aria-label={`賣出 ${position.symbol}`} onClick={() => setTrade({ symbol: position.symbol, name: position.name, side: 'sell', quote: currentPrice })} className="rounded p-1 text-bear hover:bg-bear/10"><ArrowUpFromLine className="h-3.5 w-3.5" /></button>{!symbol && <Link aria-label={`查看 ${position.symbol} 個股`} to={`/stocks/${encodeURIComponent(position.symbol)}`} className="rounded p-1 text-muted hover:text-accent"><ExternalLink className="h-3.5 w-3.5" /></Link>}</div></td>
                 </tr>
               })}
             </tbody>
@@ -406,6 +408,7 @@ export function PortfolioPanel({ symbol, name, quote: detailQuote, change: detai
       {symbol && targetLedgerPosition && <p className="text-[11px] text-muted">已實現損益（平均成本法）：{targetLedgerPosition.realizedPnl == null ? '不完整，部分舊賣出缺少可驗證的證交稅' : money(targetLedgerPosition.realizedPnl)}</p>}
       {!symbol && ledgerPositions.length > 0 && <p className="text-[11px] text-muted">已實現損益（平均成本法）：{ledgerPositions.some(position => position.realizedPnl == null) ? '不完整，部分舊賣出缺少可驗證的證交稅' : money(ledgerPositions.reduce((sum, position) => sum + (position.realizedPnl ?? 0), 0))}</p>}
       {trade && <PortfolioTradeDialog symbol={trade.symbol} name={trade.name} initialSide={trade.side} quote={trade.quote} onClose={() => setTrade(null)} />}
+      <TaiwanRuleEditorDialog open={!!reminder} rule={null} presetSymbol={reminder?.symbol} presetName={reminder?.name} presetPrice={reminder?.price ?? reminder?.quote?.last_price} presetQuote={reminder?.quote ?? null} onClose={() => setReminder(null)} />
     </section>
   )
 }

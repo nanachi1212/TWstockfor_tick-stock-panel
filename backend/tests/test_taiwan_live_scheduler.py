@@ -18,8 +18,9 @@ def test_scheduler_market_refresh_is_complete_before_quant_failure(monkeypatch, 
         events.append("refresh_finished")
         return result
 
-    def quant(value):
+    def quant(value, *, app_state=None):
         assert value is result
+        assert app_state is daily_pipeline._app_state_ref
         assert events == ["refresh_finished"]
         events.append("quant_failed")
         raise RuntimeError("quant disk full")
@@ -44,6 +45,16 @@ def test_failed_daily_refresh_skips_quant_with_reason(monkeypatch, taiwan_data_e
     run.assert_not_called()
 
 
+def test_run_live_after_refresh_passes_app_state_to_backend_quant_cycle(monkeypatch):
+    app_state = object()
+    run = Mock(return_value={"freeze": {"status": "noop"}})
+    monkeypatch.setattr(live_runner, "run_live_cycle", run)
+    result = live_runner.run_live_after_refresh(SimpleNamespace(daily=SimpleNamespace(status="success")),
+                                                app_state=app_state)
+    assert result == {"freeze": {"status": "noop"}}
+    run.assert_called_once_with(app_state=app_state)
+
+
 def test_freeze_blocker_does_not_block_independent_maturation(monkeypatch):
     from app.taiwan.quant import live_outcomes
 
@@ -58,3 +69,141 @@ def test_freeze_blocker_does_not_block_independent_maturation(monkeypatch):
     assert result["maturation"]["appended"] == 1
     mature.assert_called_once_with(ledger, source)
     source.close.assert_called_once()
+
+
+def test_live_quant_alerts_use_only_audited_frozen_snapshot(monkeypatch, taiwan_data_env):
+    from app.services import alert_store
+    from app.taiwan.realtime import monitor_engine
+
+    ledger = Mock()
+    ledger.read_run.return_value = {
+        "audit_status": "ok",
+        "session": "2026-09-24",
+        "snapshot": {"signals": [{"symbol": "2330.TWSE", "rank": 1}]},
+    }
+    events = [{"alert_id": "event-1", "symbol": "2330.TWSE"}]
+    engine = Mock()
+    append = Mock()
+
+    def evaluate(_signals, _session, *, persist_events):
+        persist_events(events)
+        return events
+
+    engine.evaluate_quant_top10.side_effect = evaluate
+    push = Mock()
+    monkeypatch.setattr(monitor_engine, "get_monitor_engine", lambda: engine)
+    monkeypatch.setattr(alert_store, "append_many", append)
+    app_state = SimpleNamespace(quote_service=SimpleNamespace(push_alerts=push))
+
+    result = live_runner._evaluate_live_quant_alerts(
+        {"status": "frozen", "session": "2026-09-24"}, ledger, app_state,
+    )
+
+    assert result == {"status": "available", "appended": 1}
+    engine.evaluate_quant_top10.assert_called_once()
+    assert engine.evaluate_quant_top10.call_args.args == ([{"symbol": "2330.TWSE", "rank": 1}], "2026-09-24")
+    assert callable(engine.evaluate_quant_top10.call_args.kwargs["persist_events"])
+    append.assert_called_once_with(taiwan_data_env["data_dir"], events)
+    push.assert_called_once_with(events)
+
+
+def test_new_quant_exit_rule_is_seeded_from_latest_audited_snapshot(monkeypatch):
+    from datetime import date
+
+    session = "2026-09-25"
+    run = {
+        "audit_status": "ok",
+        "session": session,
+        "snapshot": {"signals": [{"symbol": "2330.TWSE", "rank": 2}]},
+    }
+    ledger = Mock()
+    ledger.current_session.return_value = date.fromisoformat(session)
+    ledger.read_run.return_value = run
+    ledger.latest_operation.return_value = {
+        "freeze": {"status": "frozen", "session": session},
+    }
+    source = SimpleNamespace(evidence=object(), close=Mock())
+    seeded = Mock(return_value=True)
+    engine = SimpleNamespace(seed_quant_exit_rule=seeded)
+    monkeypatch.setattr(live_runner, "CurrentLiveSource", lambda: source)
+    monkeypatch.setattr(live_runner, "LiveLedger", lambda **_kwargs: ledger)
+    monkeypatch.setattr(live_runner, "LiveModel", lambda: SimpleNamespace(key="model"))
+
+    rule = SimpleNamespace(rule_id="rule-1")
+    assert live_runner.seed_quant_exit_rule_from_latest_snapshot(rule, engine)
+
+    ledger.read_run.assert_called_once_with("model", session)
+    seeded.assert_called_once_with(
+        rule, [{"symbol": "2330.TWSE", "rank": 2}], force=False,
+    )
+    source.close.assert_called_once_with()
+
+
+def test_new_quant_exit_rule_is_not_seeded_from_stale_freeze(monkeypatch):
+    from datetime import date
+
+    session = "2026-09-25"
+    ledger = Mock()
+    ledger.current_session.return_value = date.fromisoformat(session)
+    ledger.read_run.return_value = {
+        "audit_status": "conflict",
+        "session": "2026-09-24",
+        "snapshot": {"signals": [{"symbol": "2330.TWSE", "rank": 2}]},
+    }
+    ledger.latest_operation.return_value = {
+        "freeze": {"status": "frozen", "session": "2026-09-24"},
+    }
+    source = SimpleNamespace(evidence=object(), close=Mock())
+    engine = SimpleNamespace(seed_quant_exit_rule=Mock())
+    monkeypatch.setattr(live_runner, "CurrentLiveSource", lambda: source)
+    monkeypatch.setattr(live_runner, "LiveLedger", lambda **_kwargs: ledger)
+    monkeypatch.setattr(live_runner, "LiveModel", lambda: SimpleNamespace(key="model"))
+
+    rule = SimpleNamespace(rule_id="rule-1")
+    assert not live_runner.seed_quant_exit_rule_from_latest_snapshot(rule, engine)
+
+    engine.seed_quant_exit_rule.assert_not_called()
+    source.close.assert_called_once_with()
+
+
+def test_manual_quant_alert_evaluation_persists_before_committing_edges(monkeypatch):
+    from app.api import taiwan_live
+    from app.services import alert_store
+    from app.taiwan.realtime import monitor_engine
+
+    session = "2026-09-24"
+    ledger = Mock()
+    ledger.read_run.return_value = {
+        "audit_status": "ok",
+        "snapshot": {"signals": [{"symbol": "2330.TWSE", "rank": 1}]},
+    }
+    ledger.latest_operation.return_value = {
+        "freeze": {"status": "frozen", "session": session},
+    }
+    events = [{"alert_id": "manual-event", "symbol": "2330.TWSE"}]
+    engine = Mock()
+
+    def evaluate(_signals, _session, *, available, persist_events):
+        assert available is True
+        persist_events(events)
+        return events
+
+    engine.evaluate_quant_top10.side_effect = evaluate
+    data_dir = object()
+    append = Mock()
+    push = Mock()
+    monkeypatch.setattr(taiwan_live, "_expected_session", lambda: session)
+    monkeypatch.setattr(taiwan_live, "LiveLedger", lambda: ledger)
+    monkeypatch.setattr(taiwan_live, "LiveModel", lambda: SimpleNamespace(key="model"))
+    monkeypatch.setattr(monitor_engine, "get_monitor_engine", lambda: engine)
+    monkeypatch.setattr(alert_store, "append_many", append)
+    request = SimpleNamespace(app=SimpleNamespace(state=SimpleNamespace(
+        repo=SimpleNamespace(store=SimpleNamespace(data_dir=data_dir)),
+        quote_service=SimpleNamespace(push_alerts=push),
+    )))
+
+    result = taiwan_live.evaluate_quant_alerts(request)
+
+    assert result == {"ok": True, "status": "available", "alerts": events}
+    append.assert_called_once_with(data_dir, events)
+    push.assert_called_once_with(events)

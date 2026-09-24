@@ -3,7 +3,7 @@ import { useSearchParams, useNavigate } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useVirtualizer } from '@tanstack/react-virtual'
 import { motion, AnimatePresence } from 'framer-motion'
-import { Trash2, RefreshCw, Star, X, Search, LayoutGrid, List, Rows3, BarChart3, Settings2, Plus, Check, Filter, Eye, EyeOff, Minus, ChevronsUp, Clock, RotateCcw, ImagePlus, FolderOpen, FolderMinus, FolderPlus, Scale } from 'lucide-react'
+import { Trash2, RefreshCw, Star, X, Search, LayoutGrid, List, Rows3, BarChart3, Settings2, Plus, Check, Filter, Eye, EyeOff, Minus, ChevronsUp, Clock, RotateCcw, ImagePlus, FolderOpen, FolderMinus, FolderPlus, Scale, Bell } from 'lucide-react'
 import { api, type KlineRow, type MinuteKlineRow, type WatchlistGroup, type WatchlistGroupColor } from '@/lib/api'
 import { QK } from '@/lib/queryKeys'
 import { storage } from '@/lib/storage'
@@ -30,6 +30,7 @@ import { ExtensionSlot } from '@/extensions/ExtensionSlot'
 import { MIN_COMPARE_SYMBOLS, MAX_COMPARE_SYMBOLS } from '@/lib/taiwanCompareSymbols'
 import { DataQualityBadge } from '@/components/taiwan/TaiwanDataQuality'
 import { PortfolioTradeDialog } from '@/components/portfolio/Portfolio'
+import { TaiwanRuleEditorDialog } from '@/components/monitor/TaiwanRuleEditorDialog'
 import { isSupportedPortfolioInstrument } from '@/lib/portfolio'
 
 // 分時列開放排序 (StockDataTable 實例級白名單; 表頭眼睛/刷新按鈕已 stopPropagation)
@@ -810,6 +811,7 @@ export function Watchlist() {
   }, [])
   const [previewSymbol, setPreviewSymbol] = useState<string | null>(null)
   const [previewName, setPreviewName] = useState<string>('')
+  const [reminderTarget, setReminderTarget] = useState<{ symbol: string; name: string; price: number | null } | null>(null)
   const [dimensionTarget, setDimensionTarget] = useState<DimensionMembersTarget | null>(null)
   const [expandedCells, setExpandedCells] = useState<Set<string>>(new Set())
   const closePreview = useCallback(() => {
@@ -1754,6 +1756,13 @@ export function Watchlist() {
                           title="記錄買入並帶入此股票"
                           className="shrink-0 rounded p-1 text-bull hover:bg-bull/10"
                         ><Plus className="h-3 w-3" /></button>}
+                        {isSupportedPortfolioInstrument(r) && <button
+                          type="button"
+                          onClick={event => { event.stopPropagation(); setReminderTarget({ symbol: r.symbol, name: name ?? r.symbol, price: r.rt_price ?? r.close ?? null }) }}
+                          aria-label={`設定 ${r.symbol} 提醒`}
+                          title="設定提醒"
+                          className="shrink-0 rounded p-1 text-accent hover:bg-accent/10"
+                        ><Bell className="h-3 w-3" /></button>}
                         {/* 刪除入口：從分組移除 + 從自選移除(二次確認) + 移到頂部 */}
                         <div className="ml-auto pl-1 shrink-0">
                           {confirmRemove === r.symbol ? (
@@ -1989,6 +1998,7 @@ export function Watchlist() {
         name={previewName}
         onClose={closePreview}
       />
+      <TaiwanRuleEditorDialog open={!!reminderTarget} rule={null} presetSymbol={reminderTarget?.symbol} presetName={reminderTarget?.name} presetPrice={reminderTarget?.price} onClose={() => setReminderTarget(null)} />
       {portfolioTrade && <PortfolioTradeDialog
         symbol={portfolioTrade.symbol}
         name={portfolioTrade.name}

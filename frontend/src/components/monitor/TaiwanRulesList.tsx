@@ -25,6 +25,8 @@ const RULE_TYPE_LABELS: Record<TaiwanRuleType, { label: string; unit: string }> 
   volume_spike: { label: '成交量異常放大', unit: '倍' },
   near_upper_limit: { label: '接近漲停', unit: '%' },
   near_lower_limit: { label: '接近跌停', unit: '%' },
+  quant_top10_enter: { label: '進入 Quant Top 10', unit: '' },
+  quant_top10_exit: { label: '離開 Quant Top 10', unit: '' },
 }
 
 export function TaiwanRulesList({ rules, onEdit }: TaiwanRulesListProps) {
@@ -65,7 +67,8 @@ export function TaiwanRulesList({ rules, onEdit }: TaiwanRulesListProps) {
           unit: '',
         }
         const isVolumeAbove = r.rule_type === 'volume_above'
-        const thresholdText = isVolumeAbove
+        const isQuant = r.rule_type === 'quant_top10_enter' || r.rule_type === 'quant_top10_exit'
+        const thresholdText = isQuant ? '通過稽核的 Live 排名' : isVolumeAbove
           ? r.threshold >= 1000
             ? `${(r.threshold / 1000).toLocaleString()} 張 (${r.threshold.toLocaleString()} 股)`
             : `${r.threshold.toLocaleString()} 股`
@@ -129,7 +132,7 @@ export function TaiwanRulesList({ rules, onEdit }: TaiwanRulesListProps) {
               <span className="font-mono font-bold text-accent">
                 {thresholdText}
               </span>
-              {r.cooldown_seconds > 0 && (
+              {!isQuant && r.cooldown_seconds > 0 && (
                 <span className="rounded bg-surface border border-border/50 px-1 py-0.5 text-[10px] text-muted">
                   冷卻 {r.cooldown_seconds}s
                 </span>
