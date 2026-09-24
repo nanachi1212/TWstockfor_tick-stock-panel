@@ -66,7 +66,7 @@ class TaiwanMonitorEngine:
         self._trigger_states: dict[str, bool] = {}
         # dedup_key -> last_fired_monotonic_timestamp (float)
         self._last_fire_time: dict[str, float] = {}
-        self._state_lock = threading.Lock()
+        self._state_lock = threading.RLock()
         try:
             saved_state = json.loads(self.state_path.read_text(encoding="utf-8"))
             if isinstance(saved_state, dict):
@@ -317,8 +317,9 @@ class TaiwanMonitorEngine:
         self,
         force_quotes: dict[str, TaiwanRealtimeQuote] | None = None,
         now_mono: float | None = None,
+        persist_events: Callable[[list[TaiwanAlertEvent]], None] | None = None,
     ) -> list[TaiwanAlertEvent]:
-        """Evaluate all active enabled rules in a single batched network call."""
+        """Evaluate rules and persist emitted alerts before committing crossing state."""
         with self._rules_lock:
             active_rules = [r for r in self._rules.values() if r.enabled]
 
@@ -335,16 +336,36 @@ class TaiwanMonitorEngine:
         alerts: list[TaiwanAlertEvent] = []
         cur_mono = time.monotonic() if now_mono is None else now_mono
 
-        for rule in active_rules:
-            quote = quotes.get(rule.symbol)
-            alert, _status, _reason = self.evaluate_single_rule(rule, quote, now_mono=cur_mono)
-            if alert:
-                alerts.append(alert)
-                if self.alert_handler:
-                    try:
-                        self.alert_handler(alert)
-                    except Exception as ex:
-                        logger.warning("Alert handler error for %s: %s", alert.alert_id, ex)
+        with self._state_lock:
+            prior_states = dict(self._trigger_states)
+            prior_fire_times = dict(self._last_fire_time)
+            try:
+                for rule in active_rules:
+                    quote = quotes.get(rule.symbol)
+                    alert, _status, _reason = self.evaluate_single_rule(
+                        rule, quote, now_mono=cur_mono, persist_state=False,
+                    )
+                    if alert:
+                        alerts.append(alert)
+
+                if alerts and persist_events is not None:
+                    persist_events(alerts)
+                if (self._trigger_states != prior_states
+                        or self._last_fire_time != prior_fire_times):
+                    self._save_trigger_states_locked()
+            except Exception:
+                self._trigger_states.clear()
+                self._trigger_states.update(prior_states)
+                self._last_fire_time.clear()
+                self._last_fire_time.update(prior_fire_times)
+                raise
+
+        if self.alert_handler:
+            for alert in alerts:
+                try:
+                    self.alert_handler(alert)
+                except Exception as ex:
+                    logger.warning("Alert handler error for %s: %s", alert.alert_id, ex)
 
         return alerts
 
@@ -353,6 +374,8 @@ class TaiwanMonitorEngine:
         rule: TaiwanMonitorRule,
         quote: TaiwanRealtimeQuote | None,
         now_mono: float | None = None,
+        *,
+        persist_state: bool = True,
     ) -> tuple[TaiwanAlertEvent | None, EvaluationStatus, str]:
         """Evaluate one rule against a quote adhering strictly to quality and status gates.
 
@@ -501,11 +524,12 @@ class TaiwanMonitorEngine:
 
                 if prev_triggered and should_rearm:
                     self._trigger_states[dedup_key] = False
-                    try:
-                        self._save_trigger_states_locked()
-                    except Exception:
-                        self._trigger_states[dedup_key] = True
-                        raise
+                    if persist_state:
+                        try:
+                            self._save_trigger_states_locked()
+                        except Exception:
+                            self._trigger_states[dedup_key] = True
+                            raise
 
                 return None, EvaluationStatus.NOT_TRIGGERED, "Condition not met"
 
@@ -523,18 +547,19 @@ class TaiwanMonitorEngine:
             previous_fire_time = self._last_fire_time.get(dedup_key)
             self._trigger_states[dedup_key] = True
             self._last_fire_time[dedup_key] = cur_mono
-            try:
-                self._save_trigger_states_locked()
-            except Exception:
-                if previous_state is None:
-                    self._trigger_states.pop(dedup_key, None)
-                else:
-                    self._trigger_states[dedup_key] = previous_state
-                if previous_fire_time is None:
-                    self._last_fire_time.pop(dedup_key, None)
-                else:
-                    self._last_fire_time[dedup_key] = previous_fire_time
-                raise
+            if persist_state:
+                try:
+                    self._save_trigger_states_locked()
+                except Exception:
+                    if previous_state is None:
+                        self._trigger_states.pop(dedup_key, None)
+                    else:
+                        self._trigger_states[dedup_key] = previous_state
+                    if previous_fire_time is None:
+                        self._last_fire_time.pop(dedup_key, None)
+                    else:
+                        self._last_fire_time[dedup_key] = previous_fire_time
+                    raise
 
         # Generate Explainable Alert Message
         inst_name = inst.name if inst else quote.name

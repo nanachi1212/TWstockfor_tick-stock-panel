@@ -99,14 +99,20 @@ def evaluate_quant_alerts(request: Request):
     signals = snapshot.get("signals")
     if not isinstance(signals, list):
         return {"ok": True, "status": "unavailable", "alerts": []}
-    events = get_monitor_engine().evaluate_quant_top10(
-        signals, expected_session, available=True,
-    )
-    if events:
+
+    def persist_events(events):
         repo = getattr(request.app.state, "repo", None)
         if repo is None:
             raise HTTPException(status_code=503, detail="提醒儲存尚未就緒")
         alert_store.append_many(repo.store.data_dir, events)
+
+    events = get_monitor_engine().evaluate_quant_top10(
+        signals,
+        expected_session,
+        available=True,
+        persist_events=persist_events,
+    )
+    if events:
         quote_service = getattr(request.app.state, "quote_service", None)
         if quote_service:
             quote_service.push_alerts(events)

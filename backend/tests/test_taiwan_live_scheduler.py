@@ -105,3 +105,46 @@ def test_live_quant_alerts_use_only_audited_frozen_snapshot(monkeypatch, taiwan_
     assert callable(engine.evaluate_quant_top10.call_args.kwargs["persist_events"])
     append.assert_called_once_with(taiwan_data_env["data_dir"], events)
     push.assert_called_once_with(events)
+
+
+def test_manual_quant_alert_evaluation_persists_before_committing_edges(monkeypatch):
+    from app.api import taiwan_live
+    from app.services import alert_store
+    from app.taiwan.realtime import monitor_engine
+
+    session = "2026-09-24"
+    ledger = Mock()
+    ledger.read_run.return_value = {
+        "audit_status": "ok",
+        "snapshot": {"signals": [{"symbol": "2330.TWSE", "rank": 1}]},
+    }
+    ledger.latest_operation.return_value = {
+        "freeze": {"status": "frozen", "session": session},
+    }
+    events = [{"alert_id": "manual-event", "symbol": "2330.TWSE"}]
+    engine = Mock()
+
+    def evaluate(_signals, _session, *, available, persist_events):
+        assert available is True
+        persist_events(events)
+        return events
+
+    engine.evaluate_quant_top10.side_effect = evaluate
+    data_dir = object()
+    append = Mock()
+    push = Mock()
+    monkeypatch.setattr(taiwan_live, "_expected_session", lambda: session)
+    monkeypatch.setattr(taiwan_live, "LiveLedger", lambda: ledger)
+    monkeypatch.setattr(taiwan_live, "LiveModel", lambda: SimpleNamespace(key="model"))
+    monkeypatch.setattr(monitor_engine, "get_monitor_engine", lambda: engine)
+    monkeypatch.setattr(alert_store, "append_many", append)
+    request = SimpleNamespace(app=SimpleNamespace(state=SimpleNamespace(
+        repo=SimpleNamespace(store=SimpleNamespace(data_dir=data_dir)),
+        quote_service=SimpleNamespace(push_alerts=push),
+    )))
+
+    result = taiwan_live.evaluate_quant_alerts(request)
+
+    assert result == {"ok": True, "status": "available", "alerts": events}
+    append.assert_called_once_with(data_dir, events)
+    push.assert_called_once_with(events)

@@ -200,3 +200,68 @@ def test_evaluate_monitors_stock_round_runs_when_snapshot_ready():
     stock_calls = [c for c in engine.evaluate.call_args_list
                    if c[1].get("asset_type") == "stock"]
     assert len(stock_calls) == 1, "股票快照就绪时股票轮应正常执行"
+
+
+def test_taiwan_alert_events_are_persisted_inside_engine_transaction(monkeypatch):
+    from datetime import date
+    from types import SimpleNamespace
+    from unittest.mock import MagicMock, patch
+
+    import polars as pl
+
+    from app.services import alert_store
+    from app.services.quote_service import QuoteService
+    from app.taiwan.realtime import monitor_engine
+
+    svc = QuoteService.__new__(QuoteService)
+    repo = MagicMock()
+    repo.store.data_dir = "data-dir"
+    engine = MagicMock()
+    engine.rule_count = 1
+    engine.has_rule_type.return_value = False
+    engine.has_asset_rules.return_value = False
+    engine.evaluate.return_value = []
+    engine.consume_strategy_result_updates.return_value = False
+    svc._repo = repo
+    svc._app_state = SimpleNamespace(
+        monitor_engine=engine, repo=repo, extension_registry=None,
+    )
+    svc._enrich_alerts_ext = MagicMock()
+    svc._broadcast_alerts = MagicMock()
+    svc._maybe_send_system_notifications = MagicMock()
+    svc._maybe_send_webhook = MagicMock()
+
+    event = {
+        "alert_id": "tw-event", "source": "twse:mis", "type": "price_above",
+        "rule_id": "price-rule", "symbol": "2330.TWSE", "name": "台積電",
+        "message": "價格突破", "price": 101.0, "change_pct": 1.0,
+        "signals": [], "severity": "warning", "conditions": [], "logic": "and",
+    }
+    tw_engine = MagicMock()
+    tw_engine.list_rules.return_value = [object()]
+    tw_alert = SimpleNamespace(to_dict=lambda: event)
+
+    def evaluate_all(*, persist_events):
+        persist_events([tw_alert])
+        return [tw_alert]
+
+    tw_engine.evaluate_all.side_effect = evaluate_all
+    append = MagicMock()
+    monkeypatch.setattr(monitor_engine, "get_monitor_engine", lambda: tw_engine)
+    monkeypatch.setattr(alert_store, "append_many", append)
+    monkeypatch.setattr("app.services.quote_service._monitor_name_map", lambda _repo: None)
+
+    with (
+        patch.object(QuoteService, "_is_continuous_trading", return_value=True),
+        patch.object(QuoteService, "get_enriched_today", return_value=(
+            pl.DataFrame({"symbol": ["2330.TWSE"], "close": [100.0]}), date(2026, 7, 28),
+        )),
+        patch.object(QuoteService, "_inject_intraday_signals", side_effect=lambda frame, *_args: frame),
+        patch("app.services.quote_service.cn_today", return_value=date(2026, 7, 28)),
+    ):
+        svc._evaluate_monitors(pl.DataFrame(), None)
+
+    tw_engine.evaluate_all.assert_called_once()
+    assert callable(tw_engine.evaluate_all.call_args.kwargs["persist_events"])
+    append.assert_called_once_with(repo.store.data_dir, [event])
+    svc._broadcast_alerts.assert_called_once()

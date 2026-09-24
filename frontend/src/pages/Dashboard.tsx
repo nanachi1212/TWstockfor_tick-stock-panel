@@ -65,7 +65,9 @@ const _SEVERITY_BAR: Record<string, string> = {
   info: 'bg-accent/40', warn: 'bg-warning', critical: 'bg-danger',
 }
 
-function MonitorWidget() {
+function MonitorWidget({ onStockClick }: {
+  onStockClick: (symbol: string, name?: string, alert?: AlertEvent) => void
+}) {
   const navigate = useNavigate()
   const qc = useQueryClient()
   const alerts = useQuery({
@@ -96,6 +98,7 @@ function MonitorWidget() {
           const pct = ev.change_pct ?? 0
           const isStrategy = ev.source === 'strategy'
           const isSector = ev.source === 'sector'
+          const isTaiwanSymbol = !!ev.symbol && /\.(TWSE|TPEX)$/i.test(ev.symbol)
           const sname = isStrategy ? strategyName(ev.message ?? '') : ''
           const eventMeta = strategyEventMeta(ev.type)
           return (
@@ -110,8 +113,12 @@ function MonitorWidget() {
               {/* 第一行: 代碼 + 名稱 + 價格 + 漲跌幅 (點擊代碼/名稱彈日K) */}
               <div className="flex items-center gap-1.5">
                 <button
-                  onClick={() => isSector ? navigate('/monitor') : ev.symbol && navigate(`/stocks/${encodeURIComponent(ev.symbol)}`)}
-                  title={isSector ? '在監控中心查看板塊告警' : ev.symbol ? `查看 ${ev.symbol} 個股詳情` : undefined}
+                  onClick={() => {
+                    if (isSector) navigate('/monitor')
+                    else if (ev.symbol && isTaiwanSymbol) navigate(`/stocks/${encodeURIComponent(ev.symbol)}`)
+                    else if (ev.symbol) onStockClick(ev.symbol, ev.name ?? undefined, ev)
+                  }}
+                  title={isSector ? '在監控中心查看板塊告警' : ev.symbol && isTaiwanSymbol ? `查看 ${ev.symbol} 個股詳情` : ev.symbol ? `預覽 ${ev.symbol} 個股資料` : undefined}
                   className={`inline-flex items-center gap-1 min-w-0 shrink-0 rounded hover:bg-elevated/60 transition-colors -mx-0.5 px-0.5 ${isSector || ev.symbol ? 'cursor-pointer' : 'cursor-default'}`}
                 >
                   <span className="font-mono text-[10px] font-medium text-foreground/80 hover:text-accent">{ev.symbol?.replace(/\.(SH|SZ|BJ)$/, '')}</span>
@@ -556,7 +563,7 @@ export function Dashboard() {
             <ArrowUpRight className="h-3.5 w-3.5" />
           </Link>
         </div>
-        <MonitorWidget />
+        <MonitorWidget onStockClick={(symbol, name, alert) => setPreviewStock({ symbol, name, alert })} />
       </section>
 
       {/* 台股資料狀態(資料新鮮度) — 最下層, 不再是首頁第一眼內容。 */}

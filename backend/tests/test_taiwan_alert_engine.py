@@ -454,11 +454,39 @@ class TestDeduplicationCooldownAndHysteresis:
         duplicate, status, _ = restarted.evaluate_single_rule(rule, make_quote(last_price=2508.0))
         assert status == EvaluationStatus.DEDUP_SUPPRESSED
         assert duplicate is None
-
         restarted.evaluate_single_rule(rule, make_quote(last_price=2490.0))
         reentered, status, _ = restarted.evaluate_single_rule(rule, make_quote(last_price=2502.0))
         assert status == EvaluationStatus.TRIGGERED
         assert reentered is not None
+
+    @pytest.mark.parametrize(
+        ("rule_type", "threshold"),
+        [
+            (TaiwanRuleType.PRICE_ABOVE, 2500.0),
+            (TaiwanRuleType.CHANGE_PCT_ABOVE, 0.1),
+            (TaiwanRuleType.VOLUME_ABOVE, 20_000_000),
+        ],
+    )
+    def test_evaluate_all_retries_crossing_when_alert_persistence_fails(
+        self, engine, rule_type, threshold,
+    ):
+        rule = TaiwanMonitorRule(
+            rule_id=f"persist_{rule_type.value}", name="持久化失敗重試",
+            symbol="2330.TWSE", rule_type=rule_type, threshold=threshold,
+            cooldown_seconds=0,
+        )
+        engine.add_rule(rule)
+        quotes = {rule.symbol: make_quote(last_price=2505.0, prev_close=2500.0, volume=30_000_000)}
+
+        def fail_persist(_alerts):
+            raise OSError("alerts log is unavailable")
+
+        with pytest.raises(OSError, match="alerts log is unavailable"):
+            engine.evaluate_all(force_quotes=quotes, persist_events=fail_persist)
+
+        alerts = engine.evaluate_all(force_quotes=quotes)
+        assert len(alerts) == 1
+        assert alerts[0].rule_id == rule.rule_id
 
 
 class TestQuantTop10Alerts:

@@ -1098,6 +1098,7 @@ class QuoteService:
 
             all_alerts: list[dict] = []
             rule_events: list[dict] = []
+            persisted_taiwan_events: list[dict] = []
             engine = None
 
             # 通用监控规则评估 (统一引擎: signal/price/market/strategy)
@@ -1160,9 +1161,17 @@ class QuoteService:
                         from app.taiwan.realtime.monitor_engine import get_monitor_engine
                         tw_engine = get_monitor_engine()
                         if tw_engine.list_rules():
-                            tw_alerts = tw_engine.evaluate_all()
-                            if tw_alerts:
-                                rule_events.extend([a.to_dict() for a in tw_alerts])
+                            def persist_taiwan_alerts(alerts):
+                                events = self._format_extension_notifications(
+                                    [alert.to_dict() for alert in alerts],
+                                )
+                                from app.services import alert_store
+                                alert_store.append_many(
+                                    self._app_state.repo.store.data_dir, events,
+                                )
+                                persisted_taiwan_events.extend(events)
+
+                            tw_engine.evaluate_all(persist_events=persist_taiwan_alerts)
                     except Exception as e:  # noqa: BLE001
                         logger.warning("台股监控评估失败 (不影响其他告警): %s", e)
 
@@ -1176,8 +1185,10 @@ class QuoteService:
                             )
                         except Exception as e:  # noqa: BLE001
                             logger.warning("告警落盘失败: %s", e)
+                    emitted_rule_events = rule_events + persisted_taiwan_events
+                    if emitted_rule_events:
                         # 转为 SSE 推送格式 (兼容旧 alert schema)
-                        for ev in rule_events:
+                        for ev in emitted_rule_events:
                             alert = {
                                 "source": ev["source"],
                                 "type": ev["type"],
@@ -1220,8 +1231,9 @@ class QuoteService:
 
             # 外部推播 (由规则 webhook_channels 指定渠道)。
             # 紧随系统通知, 同样静默降级不阻断主流程。
-            if rule_events:
-                self._maybe_send_webhook(rule_events, engine)
+            emitted_rule_events = rule_events + persisted_taiwan_events
+            if emitted_rule_events:
+                self._maybe_send_webhook(emitted_rule_events, engine)
 
         except Exception as e:  # noqa: BLE001
             logger.warning("监控评估失败: %s", e)
