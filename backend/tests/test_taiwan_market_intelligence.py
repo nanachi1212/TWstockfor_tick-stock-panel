@@ -27,6 +27,7 @@ Verifies:
 """
 from datetime import date
 from unittest.mock import MagicMock, patch
+
 import polars as pl
 import pytest
 from fastapi.testclient import TestClient
@@ -34,7 +35,6 @@ from fastapi.testclient import TestClient
 from app.main import app
 from app.taiwan.market_intelligence import (
     TaiwanMarketIntelligenceService,
-    TaiwanMarketIntelligenceSnapshot,
 )
 from app.taiwan.realtime.calendar import TaiwanTradingCalendar
 from app.taiwan.universe import TaiwanSecurityMaster
@@ -162,9 +162,52 @@ def test_monday_resolves_to_prior_friday(mock_calendar):
     assert prev == d_fri
 
 
-def test_price_limit_rules_and_no_limit():
+def test_price_limit_rules_and_no_limit(tmp_path):
     """Verify limit-up and limit-down detection across diverse regulatory profiles."""
-    sm = TaiwanSecurityMaster()
+    def instrument(
+        code: str, exchange: str, instrument_type: str, *, category: str | None = None,
+        underlying_scope: str | None = None, leverage: float = 1.0,
+    ) -> TaiwanInstrument:
+        symbol = f"{code}.{exchange}"
+        return TaiwanInstrument(
+            symbol=symbol,
+            code=code,
+            exchange=exchange,
+            name=f"fixture {code}",
+            instrument_type=instrument_type,
+            listing_status="active",
+            listing_date=None,
+            isin=None,
+            industry=None,
+            cfi_code=None,
+            raw_category="ETF" if instrument_type == "etf" else "股票",
+            is_supported=True,
+            source="fixture",
+            updated_at="2026-09-24T00:00:00+00:00",
+            etf_category=category,
+            classification_source="official_metadata" if category else None,
+            underlying_scope=underlying_scope,
+            leverage_multiplier=leverage,
+        )
+
+    twse_items = [
+        instrument("0050", "TWSE", "etf", category="domestic_equity",
+                   underlying_scope="domestic"),
+        instrument("00631L", "TWSE", "etf"),
+        instrument("00632R", "TWSE", "etf"),
+        instrument("00646", "TWSE", "etf", category="foreign_equity",
+                   underlying_scope="foreign"),
+    ]
+    tpex_items = [instrument("8069", "TPEX", "stock")]
+    twse_adapter = MagicMock()
+    twse_adapter.get_instruments.return_value = twse_items
+    tpex_adapter = MagicMock()
+    tpex_adapter.get_instruments.return_value = tpex_items
+    sm = TaiwanSecurityMaster(
+        cache_path=tmp_path / "security_master.parquet",
+        twse_adapter=twse_adapter,
+        tpex_adapter=tpex_adapter,
+    )
 
     # 1. 0050.TWSE: domestic ETF (10% limit)
     inst_0050 = sm.get_instrument("0050.TWSE")
@@ -265,7 +308,7 @@ def test_historical_snapshot_no_look_ahead():
         inst_store=mock_inst,
         margin_store=mock_margin,
     )
-    snapshot = svc.get_snapshot(d_target)
+    svc.get_snapshot(d_target)
 
     # Check that stores were called with start=d_target, end=d_target
     for call in mock_inst.read_range.call_args_list:
