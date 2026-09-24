@@ -12,6 +12,7 @@ import {
   createPortfolioTransaction,
   isTaiwanPortfolioSymbol,
   isPortfolioTransaction,
+  nowTaipeiTime,
   todayTaipeiDate,
   type PortfolioSide,
   type PortfolioTransaction,
@@ -19,15 +20,23 @@ import {
 
 const PORTFOLIO_CHANGED = 'portfolio-transactions-changed'
 
-function readTransactions(): PortfolioTransaction[] {
-  const saved = storage.portfolioTransactions.get([])
-  return Array.isArray(saved) ? saved.filter(isPortfolioTransaction) : []
+function readTransactions(): { transactions: PortfolioTransaction[]; error: string | null } {
+  try {
+    const saved = storage.portfolioTransactions.get([])
+    if (!Array.isArray(saved) || !saved.every(isPortfolioTransaction)) {
+      return { transactions: [], error: '成交紀錄格式錯誤，已停止計算持倉。請先保留瀏覽器資料並修復紀錄。' }
+    }
+    buildPortfolioPositions(saved)
+    return { transactions: saved, error: null }
+  } catch {
+    return { transactions: [], error: '無法讀取或驗證成交紀錄，已停止計算持倉。原始資料仍保留在瀏覽器中。' }
+  }
 }
 
 function usePortfolioTransactions() {
-  const [transactions, setTransactions] = useState(readTransactions)
+  const [ledger, setLedger] = useState(readTransactions)
   useEffect(() => {
-    const refresh = () => setTransactions(readTransactions())
+    const refresh = () => setLedger(readTransactions())
     window.addEventListener(PORTFOLIO_CHANGED, refresh)
     window.addEventListener('storage', refresh)
     return () => {
@@ -35,7 +44,7 @@ function usePortfolioTransactions() {
       window.removeEventListener('storage', refresh)
     }
   }, [])
-  return transactions
+  return ledger
 }
 
 function commitTransaction(input: Parameters<typeof createPortfolioTransaction>[0], current: PortfolioTransaction[]) {
@@ -68,7 +77,7 @@ export function PortfolioTradeDialog({
   quote?: number | null
   onClose: () => void
 }) {
-  const transactions = usePortfolioTransactions()
+  const { transactions, error: ledgerError } = usePortfolioTransactions()
   const [symbol, setSymbol] = useState(initialSymbol ?? '')
   const [name, setName] = useState(initialName ?? '')
   const [side, setSide] = useState<PortfolioSide>(initialSide)
@@ -76,6 +85,7 @@ export function PortfolioTradeDialog({
   const [price, setPrice] = useState(quote && quote > 0 ? String(quote) : '')
   const [fee, setFee] = useState('0')
   const [date, setDate] = useState(todayTaipeiDate)
+  const [tradeTime, setTradeTime] = useState(nowTaipeiTime)
   const [isDayTrade, setIsDayTrade] = useState(false)
   const [error, setError] = useState('')
   const position = useMemo(() => buildPortfolioPositions(transactions).find(item => item.symbol === symbol.trim().toUpperCase() && item.shares > 0), [transactions, symbol])
@@ -97,6 +107,7 @@ export function PortfolioTradeDialog({
   const submit = async (event: FormEvent) => {
     event.preventDefault()
     try {
+      if (ledgerError) throw new Error(ledgerError)
       const shareCount = Number(shares)
       if (side === 'sell' && (!position || shareCount > position.shares)) {
         throw new Error(`最多可賣出 ${position?.shares ?? 0} 股`)
@@ -119,6 +130,7 @@ export function PortfolioTradeDialog({
         fee: Number(fee),
         tax,
         date,
+        tradeTime,
       }, transactions)
       onClose()
     } catch (cause) {
@@ -153,6 +165,9 @@ export function PortfolioTradeDialog({
           <label className="space-y-1 text-xs text-secondary">日期
             <input type="date" max={todayTaipeiDate()} value={date} onChange={event => setDate(event.target.value)} required className="w-full rounded-lg border border-border bg-base px-3 py-2 text-foreground" />
           </label>
+          <label className="space-y-1 text-xs text-secondary">成交時間（台北）
+            <input type="time" value={tradeTime} onChange={event => setTradeTime(event.target.value)} required className="w-full rounded-lg border border-border bg-base px-3 py-2 text-foreground" />
+          </label>
           <label className="space-y-1 text-xs text-secondary">手續費（選填）
             <input type="number" min="0" step="1" value={fee} onChange={event => setFee(event.target.value)} className="w-full rounded-lg border border-border bg-base px-3 py-2 text-foreground" />
           </label>
@@ -171,8 +186,9 @@ export function PortfolioTradeDialog({
                 : instrumentQuery.isError ? <p role="alert" className="text-[11px] text-warning">無法確認此標的是支援的台股股票或 ETF，請檢查代碼與成交日期。</p> : null}
         </>}
         {side === 'sell' && position && <p className="text-[11px] text-muted">目前持有 {position.shares.toLocaleString()} 股，平均成本 {money(position.averageCost)}</p>}
+        {ledgerError && <p role="alert" className="text-[11px] text-danger">{ledgerError}</p>}
         {error && <p role="alert" className="rounded-lg bg-danger/10 px-3 py-2 text-xs text-danger">{error}</p>}
-        <button type="submit" disabled={side === 'sell' ? (!taxQuery.data || taxQuery.isFetching) : (!instrumentQuery.data || instrumentQuery.isFetching)} className="w-full rounded-lg bg-accent px-3 py-2 text-xs font-semibold text-white hover:bg-accent/90 disabled:cursor-not-allowed disabled:opacity-50">保存成交</button>
+        <button type="submit" disabled={!!ledgerError || (side === 'sell' ? (!taxQuery.data || taxQuery.isFetching) : (!instrumentQuery.data || instrumentQuery.isFetching))} className="w-full rounded-lg bg-accent px-3 py-2 text-xs font-semibold text-white hover:bg-accent/90 disabled:cursor-not-allowed disabled:opacity-50">保存成交</button>
       </form>
     </div>
   )
@@ -186,7 +202,7 @@ export function PortfolioPanel({ symbol, name, quote: detailQuote, change: detai
   changePct?: number | null
   quoteMeta?: TaiwanQuoteMetaLike | null
 }) {
-  const transactions = usePortfolioTransactions()
+  const { transactions, error: ledgerError } = usePortfolioTransactions()
   const [trade, setTrade] = useState<{ symbol?: string; name?: string; side: PortfolioSide; quote?: number | null } | null>(null)
   const ledgerPositions = useMemo(() => buildPortfolioPositions(transactions), [transactions])
   const positions = useMemo(() => ledgerPositions.filter(position => position.shares > 0), [ledgerPositions])
@@ -206,6 +222,7 @@ export function PortfolioPanel({ symbol, name, quote: detailQuote, change: detai
   const shownPositions = symbol ? (targetPosition ? [targetPosition] : []) : positions
   const quoteFor = (position: typeof positions[number]): TaiwanRealtimeQuote | undefined => quotes.get(position.symbol)
   const hasMissingQuote = shownPositions.some(position => (symbol ? detailQuote : quoteFor(position)?.last_price) == null)
+  const hasMissingDailyChange = positions.some(position => quotes.get(position.symbol)?.change == null)
   const hasDegradedQuote = shownPositions.some(position => {
     const meta = symbol ? quoteMeta : quoteFor(position)?.source_meta
     const freshness = freshnessLabel(meta)
@@ -220,20 +237,21 @@ export function PortfolioPanel({ symbol, name, quote: detailQuote, change: detai
     <section className="rounded-2xl border border-border bg-surface p-4 space-y-3" aria-label={symbol ? '我的持股' : '我的持倉'}>
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="flex items-center gap-2"><Wallet className="h-4 w-4 text-accent" /><h2 className="text-sm font-semibold">{symbol ? '我的持股' : '我的持倉'}</h2></div>
-        <button type="button" onClick={() => setTrade({ symbol: symbol ?? '', name: name ?? '', side: 'buy', quote: detailQuote })} className="inline-flex items-center gap-1 rounded-lg bg-accent px-2.5 py-1.5 text-xs font-medium text-white"><Plus className="h-3.5 w-3.5" />買入</button>
+        {!ledgerError && <button type="button" onClick={() => setTrade({ symbol: symbol ?? '', name: name ?? '', side: 'buy', quote: detailQuote })} className="inline-flex items-center gap-1 rounded-lg bg-accent px-2.5 py-1.5 text-xs font-medium text-white"><Plus className="h-3.5 w-3.5" />買入</button>}
       </div>
+      {ledgerError && <p role="alert" className="rounded-lg bg-danger/10 px-3 py-2 text-xs text-danger">{ledgerError}</p>}
       {!symbol && positions.length > 0 && (
         <div className="grid grid-cols-2 gap-2 sm:grid-cols-5 text-xs">
           <Summary label={hasDegradedQuote ? '總市值（含非即時報價）' : '總市值'} value={hasMissingQuote ? '報價不完整' : money(totalMarket)} />
           <Summary label="總成本" value={money(totalCost)} />
           <Summary label={hasDegradedQuote ? '未實現損益（含非即時報價）' : '未實現損益'} value={hasMissingQuote ? '報價不完整' : money(totalUnrealized)} tone={hasMissingQuote ? null : totalUnrealized} />
           <Summary label={hasDegradedQuote ? '未實現報酬率（含非即時報價）' : '未實現報酬率'} value={hasMissingQuote || totalCost === 0 ? '—' : signedPct(totalUnrealized / totalCost * 100)} tone={hasMissingQuote ? null : totalUnrealized} />
-          <Summary label={hasDegradedQuote ? '今日持股變化（含非即時報價）' : '今日持股變化'} value={hasMissingQuote ? '報價不完整' : money(totalDailyChange)} tone={hasMissingQuote ? null : totalDailyChange} />
+          <Summary label={hasDegradedQuote ? '今日持股變化（含非即時報價）' : '今日持股變化'} value={hasMissingQuote || hasMissingDailyChange ? '報價不完整' : money(totalDailyChange)} tone={hasMissingQuote || hasMissingDailyChange ? null : totalDailyChange} />
         </div>
       )}
       {!symbol && quotesQuery.isLoading && positions.length > 0 && <p role="status" className="text-[11px] text-muted">正在載入持股報價…</p>}
       {!symbol && quotesQuery.isError && <p role="alert" className="text-[11px] text-warning">報價載入失敗，請稍後重試；持股與成本資料仍已保存。</p>}
-      {shownPositions.length === 0 ? (
+      {shownPositions.length === 0 ? ledgerError ? null : (
         <p className="rounded-lg bg-base px-3 py-5 text-center text-xs text-muted">{symbol ? '目前沒有這檔持股，記錄買入後會顯示在這裡。' : '目前沒有持股，從觀察清單或個股頁記錄第一筆買入。'}</p>
       ) : (
         <div className="overflow-x-auto">

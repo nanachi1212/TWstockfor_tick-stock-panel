@@ -92,6 +92,32 @@ describe('Portfolio UI', () => {
     await waitFor(() => expect(screen.queryByText('NT$0.00')).not.toBeInTheDocument())
   })
 
+  it('marks daily change unavailable when a quote has no daily change value', async () => {
+    storage.portfolioTransactions.set([{
+      id: 'seed', symbol: '2330.TWSE', name: '台積電', side: 'buy', shares: 5,
+      price: 100, fee: 0, date: '2026-09-22', createdAt: '2026-09-22T00:00:00.000Z',
+    }])
+    vi.mocked(api.taiwanQuotes).mockResolvedValue({ quotes: [{
+      symbol: '2330.TWSE', name: '台積電', last_price: 110, prev_close: null, change: null,
+      change_pct: null, source_meta: { is_stale: false },
+    } as any], count: 1 })
+    renderPortfolio()
+
+    expect(await screen.findByText('報價不完整')).toBeInTheDocument()
+    expect(screen.queryByText('NT$0.00')).not.toBeInTheDocument()
+  })
+
+  it('fails closed on a malformed persisted ledger without offering writes', () => {
+    localStorage.setItem('portfolio_transactions', JSON.stringify([{
+      id: 'bad', symbol: '2330.TWSE', side: 'sell', shares: 100, price: 100,
+    }]))
+    vi.mocked(api.taiwanQuotes).mockResolvedValue({ quotes: [], count: 0 })
+    renderPortfolio()
+
+    expect(screen.getByRole('alert')).toHaveTextContent('成交紀錄格式錯誤')
+    expect(screen.queryByRole('button', { name: '買入' })).not.toBeInTheDocument()
+  })
+
   it('keeps realized profit visible after closing the position', () => {
     storage.portfolioTransactions.set([
       { id: 'buy', symbol: '2330.TWSE', name: '台積電', side: 'buy', shares: 10, price: 100, fee: 0, date: '2026-09-22', createdAt: '2026-09-22T00:00:00.000Z' },

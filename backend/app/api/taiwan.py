@@ -36,6 +36,7 @@ from app.taiwan.current_data import (
     capability_matrix,
     get_taiwan_current_data_service,
 )
+from app.taiwan.daily_store import TaiwanDailyStore
 from app.taiwan.daily_update import FreshnessStatus, TaiwanDailyUpdateService
 from app.taiwan.detail_models import TaiwanStockDetailResponse
 from app.taiwan.detail_service import get_taiwan_stock_detail_service
@@ -83,6 +84,13 @@ def _resolve_portfolio_instrument(symbol: str, trade_date: dt_date):
     trading_day = calendar.is_trading_day(trade_date)
     if trading_day is False:
         raise HTTPException(status_code=422, detail=f"{trade_date.isoformat()} 是台灣市場休市日，不可記錄成交")
+    if trading_day is None:
+        try:
+            trading_day = TaiwanDailyStore().has_symbol_date(canonical, trade_date)
+        except Exception:
+            trading_day = False
+        if not trading_day:
+            raise HTTPException(status_code=422, detail="目前無法以台灣市場日資料確認成交日期，請確認日資料已更新後再記錄")
 
     try:
         tax_class = MarketProfileBridge.get_tax_class(instrument)
@@ -94,13 +102,13 @@ def _resolve_portfolio_instrument(symbol: str, trade_date: dt_date):
 @router.get("/portfolio-instrument")
 def get_taiwan_portfolio_instrument(symbol: str, trade_date: dt_date):
     """Validate a portfolio symbol and trade date using Taiwan's security master and calendar."""
-    canonical, instrument, tax_class, trading_day = _resolve_portfolio_instrument(symbol, trade_date)
+    canonical, instrument, tax_class, _ = _resolve_portfolio_instrument(symbol, trade_date)
     return {
         "symbol": canonical,
         "instrument_type": instrument.instrument_type,
         "is_supported": True,
         "tax_class": tax_class.value,
-        "trading_day_status": "verified" if trading_day else "unverified",
+        "trading_day_status": "verified",
     }
 
 
