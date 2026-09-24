@@ -1,4 +1,4 @@
-import { useMemo } from 'react'
+import { useEffect, useMemo } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
 import { ArrowUpRight, Loader2, RefreshCw, Star, TrendingUp } from 'lucide-react'
@@ -37,6 +37,7 @@ export interface TodayQuantSelectionData {
 }
 
 function useTodayQuantSelectionInternal() {
+  const qc = useQueryClient()
   const models = useQuery({
     queryKey: QK.taiwanQuantLiveModels,
     queryFn: api.taiwanQuantLiveModels,
@@ -65,6 +66,13 @@ function useTodayQuantSelectionInternal() {
   const featureMap = useMemo(() => new Map((runData?.snapshot.features ?? []).map(item => [item.symbol, item])), [runData])
   const loading = models.isLoading || runs.isLoading || (!models.isError && !runs.isError && expectedRun && run.isLoading)
   const error = models.isError || runs.isError || run.isError
+
+  useEffect(() => {
+    if (!validRun) return
+    void Promise.resolve().then(() => api.taiwanQuantEvaluateAlerts()).then(result => {
+      if (result.alerts.length) void qc.invalidateQueries({ queryKey: QK.alerts(undefined) })
+    }).catch(() => undefined)
+  }, [validRun, qc])
 
   return {
     latest,

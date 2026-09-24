@@ -9,10 +9,10 @@ Defines:
 """
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass, field
+import re
+from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
-import re
 from typing import Any
 
 from app.taiwan.symbol import parse_symbol
@@ -30,6 +30,8 @@ class TaiwanRuleType(str, Enum):
     VOLUME_SPIKE = "volume_spike"
     NEAR_UPPER_LIMIT = "near_upper_limit"
     NEAR_LOWER_LIMIT = "near_lower_limit"
+    QUANT_TOP10_ENTER = "quant_top10_enter"
+    QUANT_TOP10_EXIT = "quant_top10_exit"
 
 
 class TaiwanAlertSeverity(str, Enum):

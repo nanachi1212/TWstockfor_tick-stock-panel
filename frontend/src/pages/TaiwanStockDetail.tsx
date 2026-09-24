@@ -751,7 +751,7 @@ export function TaiwanStockDetail() {
                   onClick={() => setIsRuleEditorOpen(true)}
                   className="text-xs text-accent hover:underline cursor-pointer"
                 >
-                  + 新增規則
+                  + 設定提醒
                 </button>
               </div>
 

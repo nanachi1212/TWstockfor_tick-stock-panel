@@ -53,6 +53,33 @@ def clear_alerts(request: Request):
     return {"ok": True, "cleared": n}
 
 
+@router.patch("/read")
+def mark_all_alerts_read(request: Request):
+    """Mark every stored alert as read."""
+    updated = alert_store.update_read(_data_dir(request), read=True)
+    return {"ok": True, "updated": updated}
+
+
+@router.patch("/{alert_id}/read")
+def mark_alert_read(alert_id: str, request: Request):
+    """Mark one stored alert as read."""
+    updated = alert_store.update_read(_data_dir(request), alert_id, read=True)
+    if updated == 0:
+        existing = any(event.get("alert_id") == alert_id for event in alert_store.list_recent(_data_dir(request)))
+        if not existing:
+            raise HTTPException(status_code=404, detail="記錄不存在")
+    return {"ok": True}
+
+
+@router.delete("/id/{alert_id}")
+def delete_alert_by_id(alert_id: str, request: Request):
+    """Delete one alert by stable ID."""
+    deleted = alert_store.delete_by_id(_data_dir(request), alert_id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail="記錄不存在")
+    return {"ok": True}
+
+
 @router.delete("/{ts}")
 def delete_alert(ts: int, request: Request):
     """删除单条触发记录 (按 ts 毫秒时间戳)。"""

@@ -21,6 +21,8 @@ interface TaiwanRuleEditorDialogProps {
   open: boolean
   rule: TaiwanMonitorRule | null
   presetSymbol?: string | null
+  presetName?: string | null
+  presetPrice?: number | null
   presetQuote?: TaiwanRealtimeQuote | null
   onClose: () => void
 }
@@ -28,8 +30,10 @@ interface TaiwanRuleEditorDialogProps {
 const RULE_TYPE_OPTIONS: { key: TaiwanRuleType; label: string; unit: string; desc: string }[] = [
   { key: 'price_above', label: '價格高於', unit: 'TWD', desc: '成交價突破或高於指定價格時觸發' },
   { key: 'price_below', label: '價格低於', unit: 'TWD', desc: '成交價跌破或低於指定價格時觸發' },
-  { key: 'change_pct_above', label: '漲幅高於', unit: '%', desc: '相較昨收之上漲幅度超越指定百分比時觸發' },
-  { key: 'change_pct_below', label: '跌幅低於', unit: '%', desc: '相較昨收之下跌幅度超過指定百分比時觸發' },
+  { key: 'change_pct_above', label: '單日漲幅達', unit: '%', desc: '單日漲幅大於或等於指定百分比時觸發' },
+  { key: 'change_pct_below', label: '單日跌幅達', unit: '%', desc: '單日漲跌幅小於或等於 -X% 時觸發' },
+  { key: 'quant_top10_enter', label: '進入 Quant Top 10', unit: '', desc: '通過稽核的今日 Live Quant 排名進入前十名時觸發' },
+  { key: 'quant_top10_exit', label: '離開 Quant Top 10', unit: '', desc: '通過稽核的今日 Live Quant 排名離開前十名時觸發' },
   { key: 'volume_above', label: '成交量高於', unit: '股 (可切換張)', desc: '累積成交量超越門檻時觸發 (後端以股為規範單位)' },
   { key: 'volume_spike', label: '成交量異常放大', unit: '倍數', desc: '目前量能超越基準參考成交量之倍數時觸發' },
   { key: 'near_upper_limit', label: '接近漲停', unit: '%', desc: '距官方漲停價距離百分比 ≤ 門檻時觸發 (無限制商品不適用)' },
@@ -40,6 +44,8 @@ export function TaiwanRuleEditorDialog({
   open,
   rule,
   presetSymbol,
+  presetName,
+  presetPrice,
   presetQuote,
   onClose,
 }: TaiwanRuleEditorDialogProps) {
@@ -76,7 +82,7 @@ export function TaiwanRuleEditorDialog({
       setName(rule.name)
       setSymbol(rule.symbol)
       setRuleType(rule.rule_type)
-      setThreshold(rule.threshold)
+      setThreshold(rule.rule_type === 'change_pct_below' ? Math.abs(rule.threshold) : rule.threshold)
       setCooldown(rule.cooldown_seconds || 300)
       setHysteresis(rule.hysteresis ?? '')
       setRefVolume(rule.reference_volume ?? '')
@@ -86,16 +92,17 @@ export function TaiwanRuleEditorDialog({
     } else {
       const initSym = presetQuote?.symbol || presetSymbol || '2330.TWSE'
       setSymbol(initSym)
-      setName(presetQuote ? `${presetQuote.name} 監控` : '台積電 價格監控')
+      setName(`${presetQuote?.name || presetName || '台股'} 提醒`)
       setRuleType('price_above')
-      setThreshold(presetQuote?.last_price ? Math.round(presetQuote.last_price * 1.02) : 2500)
+      const currentPrice = presetQuote?.last_price ?? presetPrice
+      setThreshold(currentPrice && currentPrice > 0 ? Math.round(currentPrice * 1.02 * 100) / 100 : 2500)
       setCooldown(300)
       setHysteresis('')
       setRefVolume('')
       setSeverity('warning')
       setErrorMessage(null)
     }
-  }, [rule, presetSymbol, presetQuote, open])
+  }, [rule, presetSymbol, presetName, presetPrice, presetQuote, open])
 
   // 新增 / 修改 Mutation
   const saveMut = useMutation({
@@ -103,6 +110,8 @@ export function TaiwanRuleEditorDialog({
       setErrorMessage(null)
       // 依單位轉換成交量
       let finalThreshold = threshold
+      if (ruleType === 'quant_top10_enter' || ruleType === 'quant_top10_exit') finalThreshold = 0
+      if (ruleType === 'change_pct_below') finalThreshold = -Math.abs(threshold)
       if (ruleType === 'volume_above' && volInputMode === 'lots') {
         finalThreshold = threshold * 1000
       }
@@ -193,16 +202,17 @@ export function TaiwanRuleEditorDialog({
                   value={symbol}
                   onChange={e => setSymbol(e.target.value.toUpperCase())}
                   placeholder="如 2330.TWSE 或 8069.TPEX"
+                  readOnly={!rule && !!presetSymbol}
                   className="flex-1 rounded-lg border border-border bg-elevated/40 px-3 py-2 text-xs font-mono font-semibold focus:border-accent focus:outline-none"
                 />
-                <button
+                {!presetSymbol && <button
                   type="button"
                   onClick={() => setSearchOpen(!searchOpen)}
                   className="inline-flex items-center gap-1 rounded-lg border border-border/80 bg-surface px-3 py-2 font-medium hover:border-accent/40 hover:text-accent transition-colors cursor-pointer"
                 >
                   <Search className="h-3.5 w-3.5" />
                   搜尋主檔
-                </button>
+                </button>}
               </div>
 
               {/* 搜尋下拉選單 */}
@@ -319,7 +329,7 @@ export function TaiwanRuleEditorDialog({
           </div>
 
           {/* 門檻數值 (動態切換單位) */}
-          <div>
+          {ruleType !== 'quant_top10_enter' && ruleType !== 'quant_top10_exit' && <div>
             <div className="flex items-center justify-between mb-1">
               <label className="text-[11px] font-semibold text-foreground/80">
                 觸發門檻數值
@@ -358,7 +368,7 @@ export function TaiwanRuleEditorDialog({
                   : RULE_TYPE_OPTIONS.find(o => o.key === ruleType)?.unit}
               </span>
             </div>
-          </div>
+          </div>}
 
           {/* 爆量專用: 基準參考成交量 */}
           {ruleType === 'volume_spike' && (

@@ -7,7 +7,7 @@
 // 市場或產業查詢失敗時 Dashboard 仍可渲染不白屏。
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
-import { MemoryRouter } from 'react-router-dom'
+import { MemoryRouter, useLocation } from 'react-router-dom'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { Dashboard } from './Dashboard'
 import { api } from '@/lib/api'
@@ -100,11 +100,15 @@ vi.mock('@/lib/api', () => ({
     taiwanQuantLiveModels: vi.fn().mockResolvedValue({ configured_model: { model_key: 'live-model', top_n: 10 }, latest_operation: null, expected_session: null, current_run_valid: false, current_run_audit_status: null, current_run_reason: 'session_unavailable' }),
     taiwanQuantLiveRuns: vi.fn().mockResolvedValue({ runs: [] }),
     taiwanQuantLiveRun: vi.fn(),
+    taiwanQuantEvaluateAlerts: vi.fn().mockResolvedValue({ ok: true, status: 'available', alerts: [] }),
     taiwanQuotes: vi.fn().mockResolvedValue({ quotes: [], count: 0 }),
     watchlistList: vi.fn().mockResolvedValue({ symbols: [] }),
     watchlistAdd: vi.fn().mockResolvedValue({ ok: true }),
     watchlistRemove: vi.fn().mockResolvedValue({ symbols: [] }),
     alertsList: vi.fn().mockResolvedValue({ alerts: [] }),
+    alertsMarkRead: vi.fn().mockResolvedValue({ ok: true }),
+    alertsMarkAllRead: vi.fn().mockResolvedValue({ ok: true, updated: 1 }),
+    alertDeleteById: vi.fn().mockResolvedValue({ ok: true }),
     taiwanMarketIntelligence: vi.fn().mockResolvedValue(null),
     taiwanIndustryIntelligence: vi.fn().mockResolvedValue(null),
     watchlistEnriched: vi.fn().mockResolvedValue({ rows: [], as_of: null, elapsed_ms: 0 }),
@@ -115,10 +119,13 @@ vi.mock('@/components/StockPreviewDialog', () => ({ StockPreviewDialog: () => nu
 
 function renderDashboard() {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  function CurrentPath() {
+    return <output data-testid="current-path">{useLocation().pathname}</output>
+  }
   return render(
     <QueryClientProvider client={qc}>
       <MemoryRouter>
-        <Dashboard />
+        <><CurrentPath /><Dashboard /></>
       </MemoryRouter>
     </QueryClientProvider>,
   )
@@ -136,8 +143,8 @@ describe('Dashboard — Legacy A-share removal (Phase 8C-D)', () => {
     expect(screen.queryByText('市场看板')).not.toBeInTheDocument()
     expect(screen.queryByText('中國 A 股（選配）')).not.toBeInTheDocument()
     expect(screen.queryByText('上证指数')).not.toBeInTheDocument()
-    // 監控中心是市場中立功能, 不受 legacy 移除影響
-    expect(screen.getByText('監控中心')).toBeInTheDocument()
+    // 提醒中心是市場中立功能, 不受 legacy 移除影響
+    expect(screen.getByText('提醒')).toBeInTheDocument()
     // legacy A 股 API 不應存在於 api mock 上, 更不會被呼叫
     expect((api as any).overviewMarket).toBeUndefined()
   })
@@ -153,7 +160,7 @@ describe('Dashboard — Market Clarity (Phase 8C-B)', () => {
     expect(await screen.findByText('偏強')).toBeInTheDocument()
     expect(screen.getByText('600')).toBeInTheDocument()
     expect(screen.getByText('300')).toBeInTheDocument()
-    expect(screen.getByText('監控中心')).toBeInTheDocument()
+    expect(screen.getByText('提醒')).toBeInTheDocument()
   })
 
   it('renders industry top/bottom strongest and weakest', async () => {
@@ -241,8 +248,26 @@ describe('Dashboard — Market Clarity (Phase 8C-B)', () => {
     expect(await screen.findByText('目前無法讀取市場強弱資料,不影響其他功能使用。')).toBeInTheDocument()
     expect(await screen.findByText('目前無法讀取產業強弱資料,不影響其他功能使用。')).toBeInTheDocument()
     // 其餘區塊仍正常渲染, 未白屏
-    expect(screen.getByText('監控中心')).toBeInTheDocument()
+    expect(screen.getByText('提醒')).toBeInTheDocument()
     expect(screen.getByText('台股資料狀態')).toBeInTheDocument()
+  })
+})
+
+describe('Dashboard — stock reminders', () => {
+  it('opens the stock detail route from an alert and supports read state', async () => {
+    vi.mocked(api.alertsList).mockResolvedValue({ alerts: [{
+      ts: Date.now(), alert_id: 'alert-1', is_read: false, rule_id: 'rule-1',
+      source: 'price', type: 'price_above', symbol: '2330.TWSE', name: '台積電',
+      message: '股價高於 1000 元', price: 1001, severity: 'info',
+    }], total: 1 } as any)
+    renderDashboard()
+
+    fireEvent.click(await screen.findByTitle('查看 2330.TWSE 個股詳情'))
+    expect(screen.getByTestId('current-path')).toHaveTextContent('/stocks/2330.TWSE')
+
+    fireEvent.click(screen.getByRole('button', { name: '標記 2330.TWSE 已讀' }))
+    await waitFor(() => expect(api.alertsMarkRead).toHaveBeenCalled())
+    expect(vi.mocked(api.alertsMarkRead).mock.calls[0][0]).toBe('alert-1')
   })
 })
 

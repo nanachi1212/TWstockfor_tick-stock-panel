@@ -14,7 +14,8 @@ Tests:
 """
 from __future__ import annotations
 
-from datetime import date, datetime
+from datetime import datetime
+
 import pytest
 
 from app.taiwan.enrichment.models import SourceMeta
@@ -23,7 +24,6 @@ from app.taiwan.realtime.models import RealtimeStatus, TaiwanRealtimeQuote
 from app.taiwan.realtime.monitor_engine import TaiwanMonitorEngine
 from app.taiwan.realtime.monitor_models import (
     EvaluationStatus,
-    TaiwanAlertSeverity,
     TaiwanMonitorRule,
     TaiwanRuleType,
 )
@@ -219,6 +219,17 @@ class TestPriceAndChangeRules:
         assert alert is not None
         assert alert.trigger_value == 2.2
 
+    def test_daily_drop_at_or_below_negative_threshold_triggers(self, engine):
+        rule = TaiwanMonitorRule(
+            rule_id="r_pct_below", name="單日跌幅達3%",
+            symbol="2330.TWSE", rule_type=TaiwanRuleType.CHANGE_PCT_BELOW,
+            threshold=-3.0, cooldown_seconds=0,
+        )
+        alert, status, _ = engine.evaluate_single_rule(rule, make_quote(last_price=2400.0, prev_close=2500.0))
+        assert status == EvaluationStatus.TRIGGERED
+        assert alert is not None
+        assert alert.trigger_value == -4.0
+
 
 class TestVolumeRules:
     """Test volume in shares and volume spike multiple."""
@@ -403,6 +414,60 @@ class TestDeduplicationCooldownAndHysteresis:
         alert4, status4, _ = engine.evaluate_single_rule(rule, q4)
         assert status4 == EvaluationStatus.TRIGGERED
         assert alert4 is not None
+
+    def test_edge_state_survives_engine_restart(self, tmp_path, engine, mock_sec_master, monkeypatch):
+        storage = tmp_path / "restart_rules.json"
+        rule = TaiwanMonitorRule(
+            rule_id="r_persist", name="重啟去重",
+            symbol="2330.TWSE", rule_type=TaiwanRuleType.PRICE_ABOVE,
+            threshold=2500.0, cooldown_seconds=0,
+        )
+        first = TaiwanMonitorEngine(storage_path=storage)
+        first.add_rule(rule)
+        alert, status, _ = first.evaluate_single_rule(rule, make_quote(last_price=2505.0))
+        assert status == EvaluationStatus.TRIGGERED and alert is not None
+
+        restarted = TaiwanMonitorEngine(storage_path=storage)
+        duplicate, status, _ = restarted.evaluate_single_rule(rule, make_quote(last_price=2508.0))
+        assert status == EvaluationStatus.DEDUP_SUPPRESSED
+        assert duplicate is None
+
+        restarted.evaluate_single_rule(rule, make_quote(last_price=2490.0))
+        reentered, status, _ = restarted.evaluate_single_rule(rule, make_quote(last_price=2502.0))
+        assert status == EvaluationStatus.TRIGGERED
+        assert reentered is not None
+
+
+class TestQuantTop10Alerts:
+    def test_entry_exit_crossing_unavailable_and_persistence(self, tmp_path, mock_sec_master, monkeypatch):
+        monkeypatch.setattr("app.taiwan.realtime.monitor_engine.get_security_master", lambda: mock_sec_master)
+        storage = tmp_path / "quant_rules.json"
+        engine = TaiwanMonitorEngine(storage_path=storage)
+        entry = TaiwanMonitorRule(
+            rule_id="q_entry", name="進入前十", symbol="2330.TWSE",
+            rule_type=TaiwanRuleType.QUANT_TOP10_ENTER, threshold=0,
+        )
+        leaving = TaiwanMonitorRule(
+            rule_id="q_exit", name="離開前十", symbol="2330.TWSE",
+            rule_type=TaiwanRuleType.QUANT_TOP10_EXIT, threshold=0,
+        )
+        engine.add_rule(entry)
+        engine.add_rule(leaving)
+        top10 = [{"symbol": "2330.TWSE", "rank": 3, "score": 0.82}]
+
+        assert engine.evaluate_quant_top10(top10, "2026-09-25", available=False) == []
+        entered = engine.evaluate_quant_top10(top10, "2026-09-25")
+        assert [event["type"] for event in entered] == ["quant_top10_enter"]
+        assert entered[0]["quant_rank"] == 3
+        assert engine.evaluate_quant_top10(top10, "2026-09-25") == []
+
+        restarted = TaiwanMonitorEngine(storage_path=storage)
+        assert restarted.evaluate_quant_top10(top10, "2026-09-25") == []
+        left = restarted.evaluate_quant_top10([], "2026-09-26")
+        assert [event["type"] for event in left] == ["quant_top10_exit"]
+        assert restarted.evaluate_quant_top10([], "2026-09-26") == []
+        reentered = restarted.evaluate_quant_top10(top10, "2026-09-27")
+        assert [event["type"] for event in reentered] == ["quant_top10_enter"]
 
     def test_cooldown_suppression(self, engine):
         rule = TaiwanMonitorRule(

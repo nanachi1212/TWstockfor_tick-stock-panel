@@ -12,9 +12,11 @@
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import threading
+import uuid
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
@@ -29,6 +31,21 @@ _lock = threading.Lock()
 _write_count = 0
 
 
+def _identity(event: dict) -> str:
+    alert_id = event.get("alert_id")
+    if isinstance(alert_id, str) and alert_id:
+        return alert_id
+    payload = json.dumps(event, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    return "legacy_" + hashlib.sha256(payload.encode("utf-8")).hexdigest()[:24]
+
+
+def _prepare_event(event: dict) -> dict:
+    result = dict(event)
+    result.setdefault("alert_id", f"alert_{uuid.uuid4().hex}")
+    result.setdefault("is_read", False)
+    return result
+
+
 def _path(data_dir: Path) -> Path:
     p = data_dir / "user_data" / "alerts.jsonl"
     p.parent.mkdir(parents=True, exist_ok=True)
@@ -37,7 +54,7 @@ def _path(data_dir: Path) -> Path:
 
 def append(data_dir: Path, event: dict) -> None:
     """追加一条触发记录。event 应含 ts(毫秒)、rule_id、source 等字段。"""
-    line = json.dumps(event, ensure_ascii=False)
+    line = json.dumps(_prepare_event(event), ensure_ascii=False)
     with _lock:
         p = _path(data_dir)
         with p.open("a", encoding="utf-8") as f:
@@ -57,7 +74,7 @@ def append_many(data_dir: Path, events: list[dict]) -> None:
         p = _path(data_dir)
         with p.open("a", encoding="utf-8") as f:
             for ev in events:
-                f.write(json.dumps(ev, ensure_ascii=False) + "\n")
+                f.write(json.dumps(_prepare_event(ev), ensure_ascii=False) + "\n")
         global _write_count
         _write_count += len(events)
         if _write_count >= PRUNE_EVERY:
@@ -98,6 +115,8 @@ def list_recent(
                     continue
                 if type and ev.get("type") != type:
                     continue
+                ev.setdefault("alert_id", _identity(ev))
+                ev.setdefault("is_read", False)
                 out.append(ev)
     except Exception as e:
         logger.warning("alert_store read failed: %s", e)
@@ -160,6 +179,79 @@ def delete_one(data_dir: Path, ts: int) -> bool:
                     f.write(json.dumps(ev, ensure_ascii=False) + "\n")
         except Exception as e:
             logger.warning("alert_store delete_one write failed: %s", e)
+            return False
+        return True
+
+
+def update_read(data_dir: Path, alert_id: str | None = None, *, read: bool = True) -> int:
+    """Mark one alert or every alert as read/unread, preserving legacy identities."""
+    with _lock:
+        p = _path(data_dir)
+        if not p.exists():
+            return 0
+        kept: list[dict] = []
+        updated = 0
+        try:
+            with p.open("r", encoding="utf-8") as f:
+                for line in f:
+                    line = line.strip()
+                    if not line:
+                        continue
+                    try:
+                        event = json.loads(line)
+                    except Exception:
+                        continue
+                    identity = _identity(event)
+                    if alert_id is None or identity == alert_id:
+                        event["alert_id"] = identity
+                        if bool(event.get("is_read", False)) != read:
+                            updated += 1
+                        event["is_read"] = read
+                    kept.append(event)
+        except OSError as e:
+            logger.warning("alert_store read status update failed: %s", e)
+            return 0
+        if alert_id is not None and not any(_identity(event) == alert_id for event in kept):
+            return 0
+        try:
+            p.write_text("".join(json.dumps(event, ensure_ascii=False) + "\n" for event in kept), encoding="utf-8")
+        except OSError as e:
+            logger.warning("alert_store read status write failed: %s", e)
+            return 0
+        return updated
+
+
+def delete_by_id(data_dir: Path, alert_id: str) -> bool:
+    """Delete one alert by its stable identity, including legacy records."""
+    with _lock:
+        p = _path(data_dir)
+        if not p.exists():
+            return False
+        kept: list[dict] = []
+        deleted = False
+        try:
+            with p.open("r", encoding="utf-8") as f:
+                for line in f:
+                    line = line.strip()
+                    if not line:
+                        continue
+                    try:
+                        event = json.loads(line)
+                    except Exception:
+                        continue
+                    if not deleted and _identity(event) == alert_id:
+                        deleted = True
+                        continue
+                    kept.append(event)
+        except OSError as e:
+            logger.warning("alert_store delete-by-id read failed: %s", e)
+            return False
+        if not deleted:
+            return False
+        try:
+            p.write_text("".join(json.dumps(event, ensure_ascii=False) + "\n" for event in kept), encoding="utf-8")
+        except OSError as e:
+            logger.warning("alert_store delete-by-id write failed: %s", e)
             return False
         return True
 

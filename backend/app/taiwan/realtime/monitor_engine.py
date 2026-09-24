@@ -11,14 +11,14 @@ Features:
 """
 from __future__ import annotations
 
-from datetime import datetime, timezone
 import json
 import logging
-from pathlib import Path
 import threading
 import time
-from typing import Any, Callable
 import uuid
+from collections.abc import Callable
+from datetime import datetime
+from pathlib import Path
 
 from app.taiwan.realtime.calendar import MarketStatus, taipei_now
 from app.taiwan.realtime.models import RealtimeStatus, TaiwanRealtimeQuote
@@ -55,6 +55,7 @@ class TaiwanMonitorEngine:
             storage_path = taiwan_data_root() / "monitor_rules.json"
         self.realtime_service = realtime_service or get_realtime_service()
         self.storage_path = Path(storage_path)
+        self.state_path = self.storage_path.with_suffix(".state.json")
         self.alert_handler = alert_handler
 
         self._rules: dict[str, TaiwanMonitorRule] = {}
@@ -66,6 +67,15 @@ class TaiwanMonitorEngine:
         # dedup_key -> last_fired_monotonic_timestamp (float)
         self._last_fire_time: dict[str, float] = {}
         self._state_lock = threading.Lock()
+        try:
+            saved_state = json.loads(self.state_path.read_text(encoding="utf-8"))
+            if isinstance(saved_state, dict):
+                self._trigger_states = {
+                    str(key): value for key, value in saved_state.items()
+                    if isinstance(key, str) and isinstance(value, bool)
+                }
+        except (FileNotFoundError, OSError, ValueError):
+            pass
 
         # Load persisted rules if available
         self.load_rules()
@@ -141,10 +151,14 @@ class TaiwanMonitorEngine:
         if deleted:
             self.save_rules()
             with self._state_lock:
-                keys_to_del = [k for k in self._trigger_states if k.startswith(f"{rule_id}:")]
+                keys_to_del = [
+                    key for key in self._trigger_states
+                    if key.startswith(f"{rule_id}:") or key.startswith(f"quant:{rule_id}:")
+                ]
                 for k in keys_to_del:
                     self._trigger_states.pop(k, None)
                     self._last_fire_time.pop(k, None)
+                self._save_trigger_states_locked()
         return deleted
 
     def clear_rules(self) -> None:
@@ -154,6 +168,87 @@ class TaiwanMonitorEngine:
         with self._state_lock:
             self._trigger_states.clear()
             self._last_fire_time.clear()
+            self._save_trigger_states_locked()
+
+    def _save_trigger_states_locked(self) -> None:
+        """Persist edge state so a held condition does not fire again after restart."""
+        self.state_path.parent.mkdir(parents=True, exist_ok=True)
+        temporary = self.state_path.with_suffix(self.state_path.suffix + ".tmp")
+        temporary.write_text(json.dumps(self._trigger_states), encoding="utf-8")
+        temporary.replace(self.state_path)
+
+    def evaluate_quant_top10(
+        self, signals: list[dict], session: str, *, available: bool = True,
+    ) -> list[dict]:
+        """Evaluate symbol-specific Top 10 entry/exit rules from a verified live run."""
+        if not available:
+            return []
+        ranked = {
+            str(signal["symbol"]): signal
+            for signal in signals
+            if isinstance(signal, dict)
+            and isinstance(signal.get("symbol"), str)
+            and isinstance(signal.get("rank"), int)
+            and signal["rank"] <= 10
+        }
+        with self._rules_lock:
+            rules = [
+                rule for rule in self._rules.values()
+                if rule.enabled and rule.rule_type in (
+                    TaiwanRuleType.QUANT_TOP10_ENTER, TaiwanRuleType.QUANT_TOP10_EXIT,
+                )
+            ]
+
+        events: list[dict] = []
+        with self._state_lock:
+            changed = False
+            for rule in rules:
+                key = f"quant:{rule.rule_id}:{rule.symbol}"
+                previous = self._trigger_states.get(key)
+                signal = ranked.get(rule.symbol)
+                current = signal is not None
+                is_entry = rule.rule_type == TaiwanRuleType.QUANT_TOP10_ENTER
+                should_fire = (
+                    current and (previous is False or previous is None)
+                    if is_entry else previous is True and not current
+                )
+                if previous != current:
+                    self._trigger_states[key] = current
+                    changed = True
+                if not should_fire:
+                    continue
+
+                instrument = get_security_master().get_instrument(rule.symbol)
+                rank = signal.get("rank") if signal else None
+                score = signal.get("score") if signal else None
+                action = "進入" if is_entry else "離開"
+                detail = f", 目前排名第 {rank} 名" if rank is not None and is_entry else ""
+                if isinstance(score, (int, float)) and is_entry:
+                    detail += f", Quant 分數 {score * 100:.1f}%"
+                stock_name = instrument.name if instrument else rule.symbol
+                events.append({
+                    "alert_id": f"tw_alert_{uuid.uuid4().hex[:12]}",
+                    "ts": int(time.time() * 1000),
+                    "rule_id": rule.rule_id,
+                    "rule_name": rule.name,
+                    "source": "quant",
+                    "type": "quant_top10_enter" if is_entry else "quant_top10_exit",
+                    "symbol": rule.symbol,
+                    "name": stock_name,
+                    "message": f"{stock_name}{action}今日 Live Quant Top 10{detail}",
+                    "price": None,
+                    "change_pct": None,
+                    "signals": [],
+                    "severity": "info",
+                    "conditions": [],
+                    "quant_status": action,
+                    "quant_rank": rank,
+                    "quant_score": score,
+                    "quant_session": session,
+                })
+            if changed:
+                self._save_trigger_states_locked()
+        return events
 
     # ── Rule Validation & Constraints ────────────────────────────
 
@@ -362,6 +457,9 @@ class TaiwanMonitorEngine:
                 trigger_value = distance_pct
                 is_condition_met = distance_pct <= rule.threshold
 
+        elif rtype in (TaiwanRuleType.QUANT_TOP10_ENTER, TaiwanRuleType.QUANT_TOP10_EXIT):
+            return None, EvaluationStatus.SKIPPED_MISSING_FIELD, "Quant rank is evaluated from a verified live snapshot"
+
         # Deduplication & Cooldown Gate
         dedup_key = f"{rule.rule_id}:{rule.symbol}:{rtype.value}"
 
@@ -374,18 +472,27 @@ class TaiwanMonitorEngine:
 
             # Re-arm state check with optional hysteresis
             if not is_condition_met:
+                changed = False
                 if rearm_threshold is not None:
                     # Check if price moved sufficiently past rearm_threshold
                     if rtype == TaiwanRuleType.PRICE_ABOVE and trigger_value < rearm_threshold:
                         self._trigger_states[dedup_key] = False
+                        changed = True
                     elif rtype == TaiwanRuleType.PRICE_BELOW and trigger_value > rearm_threshold:
                         self._trigger_states[dedup_key] = False
+                        changed = True
                     elif rtype == TaiwanRuleType.CHANGE_PCT_ABOVE and trigger_value < rearm_threshold:
                         self._trigger_states[dedup_key] = False
+                        changed = True
                     elif rtype == TaiwanRuleType.CHANGE_PCT_BELOW and trigger_value > rearm_threshold:
                         self._trigger_states[dedup_key] = False
+                        changed = True
                 else:
                     self._trigger_states[dedup_key] = False
+                    changed = prev_triggered
+
+                if changed:
+                    self._save_trigger_states_locked()
 
                 return None, EvaluationStatus.NOT_TRIGGERED, "Condition not met"
 
@@ -401,6 +508,7 @@ class TaiwanMonitorEngine:
             # Mark state as triggered and record fire time
             self._trigger_states[dedup_key] = True
             self._last_fire_time[dedup_key] = cur_mono
+            self._save_trigger_states_locked()
 
         # Generate Explainable Alert Message
         inst_name = inst.name if inst else quote.name

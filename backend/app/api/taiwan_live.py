@@ -3,7 +3,7 @@ import threading
 import time
 from datetime import date
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, Request
 
 from app.taiwan.quant.live_contract import LiveModel
 from app.taiwan.quant.live_runner import CurrentLiveSource
@@ -70,6 +70,47 @@ def live_models():
 @router.get("/runs")
 def live_runs(limit: int = Query(30, ge=1, le=100)):
     return {"runs": LiveLedger().list_runs(limit)}
+
+
+@router.post("/alerts/evaluate")
+def evaluate_quant_alerts(request: Request):
+    """Evaluate Top 10 reminders only from the current audited Live snapshot."""
+    expected_session = _expected_session()
+    if expected_session is None:
+        return {"ok": True, "status": "unavailable", "alerts": []}
+
+    ledger = LiveLedger()
+    model = LiveModel()
+    run = ledger.read_run(model.key, expected_session)
+    operation = ledger.latest_operation()
+    freeze = operation.get("freeze", operation) if operation else {}
+    if (
+        run is None
+        or run.get("audit_status") != "ok"
+        or freeze.get("status") not in {"frozen", "noop"}
+        or freeze.get("session") != expected_session
+    ):
+        return {"ok": True, "status": "unavailable", "alerts": []}
+
+    from app.services import alert_store
+    from app.taiwan.realtime.monitor_engine import get_monitor_engine
+
+    snapshot = run.get("snapshot") or {}
+    signals = snapshot.get("signals")
+    if not isinstance(signals, list):
+        return {"ok": True, "status": "unavailable", "alerts": []}
+    events = get_monitor_engine().evaluate_quant_top10(
+        signals, expected_session, available=True,
+    )
+    if events:
+        repo = getattr(request.app.state, "repo", None)
+        if repo is None:
+            raise HTTPException(status_code=503, detail="提醒儲存尚未就緒")
+        alert_store.append_many(repo.store.data_dir, events)
+        quote_service = getattr(request.app.state, "quote_service", None)
+        if quote_service:
+            quote_service.push_alerts(events)
+    return {"ok": True, "status": "available", "alerts": events}
 
 
 @router.get("/runs/{model_key}/{session}")
