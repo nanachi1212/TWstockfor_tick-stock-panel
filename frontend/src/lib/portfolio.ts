@@ -144,6 +144,9 @@ export function createPortfolioTransaction(
   }
   if (input.date > todayTaipeiDate()) throw new Error('成交日期不可晚於今日')
   if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(input.tradeTime)) throw new Error('請輸入有效成交時間')
+  if (input.date === todayTaipeiDate() && input.tradeTime > nowTaipeiTime()) {
+    throw new Error('成交時間不可晚於現在（台北時間）')
+  }
   if (input.side === 'sell') {
     const current = buildPortfolioPositions(transactions).find(position => position.symbol === symbol)
     if (!current || input.shares > current.shares) throw new Error(`最多可賣出 ${current?.shares ?? 0} 股`)

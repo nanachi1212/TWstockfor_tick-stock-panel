@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import {
   buildPortfolioPositions,
   createPortfolioTransaction,
@@ -67,5 +67,22 @@ describe('portfolio accounting', () => {
     expect(() => createPortfolioTransaction({ symbol: '2330.TWSE', side: 'sell', shares: 1, price: 101, date: '2026-09-23', tradeTime: '11:00' }, buys)).toThrow('當時持有股數')
     expect(() => createPortfolioTransaction({ symbol: '2330.TWSE', side: 'buy', shares: 1, price: 101, date: '2026-02-31', tradeTime: '11:00' }, buys)).toThrow('有效成交日期')
     expect(() => createPortfolioTransaction({ symbol: '2330.TWSE', side: 'buy', shares: 1, price: 101, date: '2099-01-01', tradeTime: '11:00' }, buys)).toThrow('晚於今日')
+  })
+
+  it('rejects an execution time later than now on today’s trades', () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-09-24T04:00:00.000Z')) // 12:00 Taipei
+    try {
+      expect(() => createPortfolioTransaction({
+        symbol: '2330.TWSE', side: 'buy', shares: 1, price: 101,
+        date: '2026-09-24', tradeTime: '12:01',
+      }, [])).toThrow('成交時間不可晚於現在')
+      expect(createPortfolioTransaction({
+        symbol: '2330.TWSE', side: 'buy', shares: 1, price: 101,
+        date: '2026-09-24', tradeTime: '12:00',
+      }, [])).toEqual(expect.objectContaining({ date: '2026-09-24', tradeTime: '12:00' }))
+    } finally {
+      vi.useRealTimers()
+    }
   })
 })

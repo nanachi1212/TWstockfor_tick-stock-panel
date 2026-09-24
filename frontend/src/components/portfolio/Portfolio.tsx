@@ -86,7 +86,6 @@ export function PortfolioTradeDialog({
   const [fee, setFee] = useState('0')
   const [date, setDate] = useState(todayTaipeiDate)
   const [tradeTime, setTradeTime] = useState(nowTaipeiTime)
-  const [isDayTrade, setIsDayTrade] = useState(false)
   const [error, setError] = useState('')
   const position = useMemo(() => buildPortfolioPositions(transactions).find(item => item.symbol === symbol.trim().toUpperCase() && item.shares > 0), [transactions, symbol])
   const instrumentQuery = useQuery({
@@ -98,8 +97,8 @@ export function PortfolioTradeDialog({
   const taxInputsValid = !!symbol.trim() && Number.isInteger(Number(shares)) && Number(shares) > 0
     && Number.isFinite(Number(price)) && Number(price) > 0 && /^\d{4}-\d{2}-\d{2}$/.test(date) && date <= todayTaipeiDate()
   const taxQuery = useQuery({
-    queryKey: ['portfolio-sell-tax', symbol.trim().toUpperCase(), shares, price, date, isDayTrade],
-    queryFn: () => api.taiwanTransactionTax(symbol.trim().toUpperCase(), Number(shares) * Number(price), date, isDayTrade),
+    queryKey: ['portfolio-sell-tax', symbol.trim().toUpperCase(), shares, price, date],
+    queryFn: () => api.taiwanTransactionTax(symbol.trim().toUpperCase(), Number(shares) * Number(price), date),
     enabled: side === 'sell' && taxInputsValid,
     retry: false,
   })
@@ -173,10 +172,9 @@ export function PortfolioTradeDialog({
           </label>
         </div>
         {side === 'sell' && <>
-          <label className="flex items-center gap-2 text-xs text-secondary"><input type="checkbox" checked={isDayTrade} onChange={event => setIsDayTrade(event.target.checked)} />當沖交易（適用時）</label>
           {!taxInputsValid ? <p className="text-[11px] text-muted">輸入有效股數、價格與不晚於今日的成交日期後，會依台灣市場規則估算證交稅。</p>
             : taxQuery.isFetching ? <p role="status" className="text-[11px] text-muted">正在依台灣市場規則估算證交稅…</p>
-              : taxQuery.data ? <p className="text-[11px] text-muted">預估證交稅：{money(taxQuery.data.tax_amount)}（{(taxQuery.data.tax_rate * 100).toFixed(2)}%，{taxQuery.data.tax_class}）</p>
+              : taxQuery.data ? <p className="text-[11px] text-muted">預估證交稅：{money(taxQuery.data.tax_amount)}（一般稅率 {(taxQuery.data.tax_rate * 100).toFixed(2)}%，{taxQuery.data.tax_class}；當沖資格與配對股數尚無可驗證資料）</p>
                 : taxQuery.isError ? <p role="alert" className="text-[11px] text-warning">無法取得此標的適用的證交稅規則，請稍後重試。</p> : null}
         </>}
         {side === 'buy' && symbol.trim() && <>

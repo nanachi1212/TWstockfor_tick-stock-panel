@@ -32,8 +32,8 @@ def test_transaction_tax_uses_market_rules(monkeypatch):
     assert regular.json() == {
         "symbol": "2330.TWSE", "tax_class": "ordinary_stock", "tax_rate": 0.003, "tax_amount": 30,
     }
-    assert day_trade.status_code == 200
-    assert day_trade.json()["tax_amount"] == 15
+    assert day_trade.status_code == 422
+    assert "當沖資格" in day_trade.json()["detail"]
 
 
 def test_transaction_tax_rejects_unknown_symbol_and_day_trading_etf(monkeypatch):
@@ -55,7 +55,7 @@ def test_transaction_tax_rejects_unknown_symbol_and_day_trading_etf(monkeypatch)
     })
 
     assert etf.status_code == 422
-    assert "當沖稅率" in etf.json()["detail"]
+    assert "當沖資格" in etf.json()["detail"]
     assert unknown.status_code == 400
 
 
@@ -88,6 +88,7 @@ def test_portfolio_instrument_validates_symbol_and_trading_date(monkeypatch):
 def test_portfolio_instrument_rejects_unverified_weekday(monkeypatch):
     monkeypatch.setattr("app.api.taiwan.taipei_today", lambda: date(2026, 9, 24))
     monkeypatch.setattr("app.api.taiwan.get_security_master", FakeSecurityMaster)
+    monkeypatch.setattr("app.api.taiwan.get_realtime_service", lambda: SimpleNamespace(get_quotes=lambda _: {}))
     monkeypatch.setattr("app.api.taiwan.TaiwanDailyStore.has_symbol_date", lambda *_: False)
     monkeypatch.setattr("app.api.taiwan.MarketProfileBridge.get_tax_class", lambda _: TaxClass.ORDINARY_STOCK)
     client = TestClient(app, client=("127.0.0.1", 50000))
@@ -98,3 +99,32 @@ def test_portfolio_instrument_rejects_unverified_weekday(monkeypatch):
 
     assert response.status_code == 422
     assert "確認成交日期" in response.json()["detail"]
+
+
+def test_portfolio_instrument_accepts_today_with_first_party_quote_evidence(monkeypatch):
+    trade_date = date(2026, 9, 24)
+    monkeypatch.setattr("app.api.taiwan.taipei_today", lambda: trade_date)
+    monkeypatch.setattr("app.api.taiwan.TaiwanTradingCalendar.is_trading_day", lambda *_: None)
+    monkeypatch.setattr("app.api.taiwan.get_security_master", FakeSecurityMaster)
+    monkeypatch.setattr("app.api.taiwan.TaiwanDailyStore.has_symbol_date", lambda *_: False)
+    quote = SimpleNamespace(
+        trade_date=trade_date,
+        source_meta=SimpleNamespace(
+            trade_date=trade_date,
+            source_type="first_party_web_endpoint",
+            is_stale=False,
+        ),
+    )
+    monkeypatch.setattr(
+        "app.api.taiwan.get_realtime_service",
+        lambda: SimpleNamespace(get_quotes=lambda _: {"2330.TWSE": quote}),
+    )
+    monkeypatch.setattr("app.api.taiwan.MarketProfileBridge.get_tax_class", lambda _: TaxClass.ORDINARY_STOCK)
+    client = TestClient(app, client=("127.0.0.1", 50000))
+
+    response = client.get("/api/taiwan/portfolio-instrument", params={
+        "symbol": "2330.TWSE", "trade_date": trade_date.isoformat(),
+    })
+
+    assert response.status_code == 200
+    assert response.json()["trading_day_status"] == "verified"

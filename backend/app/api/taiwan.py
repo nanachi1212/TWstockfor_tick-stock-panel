@@ -20,6 +20,12 @@ from app.taiwan.ai_research import (
     TaiwanAIResearchResponse,
     TaiwanAIResearchService,
 )
+from app.taiwan.bootstrap import (
+    BootstrapJobState,
+    TaiwanBootstrapService,
+    TaiwanHistoryStatus,
+    get_history_status,
+)
 from app.taiwan.comparison import (
     TaiwanStockCompareRequest,
     TaiwanStockComparisonResponse,
@@ -49,6 +55,7 @@ from app.taiwan.market_intelligence import (
     TaiwanMarketIntelligenceSnapshot,
 )
 from app.taiwan.market_rules import SecuritiesTaxModel
+from app.taiwan.realtime import get_realtime_service
 from app.taiwan.realtime.calendar import TaiwanTradingCalendar, taipei_today
 from app.taiwan.research_context import (
     TaiwanStockResearchContext,
@@ -85,10 +92,26 @@ def _resolve_portfolio_instrument(symbol: str, trade_date: dt_date):
     if trading_day is False:
         raise HTTPException(status_code=422, detail=f"{trade_date.isoformat()} 是台灣市場休市日，不可記錄成交")
     if trading_day is None:
-        try:
-            trading_day = TaiwanDailyStore().has_symbol_date(canonical, trade_date)
-        except Exception:
-            trading_day = False
+        trading_day = False
+        if trade_date == taipei_today():
+            try:
+                quote = get_realtime_service().get_quotes([canonical]).get(canonical)
+                meta = quote.source_meta if quote else None
+                trading_day = bool(
+                    quote
+                    and quote.trade_date == trade_date
+                    and meta
+                    and meta.trade_date == trade_date
+                    and meta.source_type == "first_party_web_endpoint"
+                    and not meta.is_stale
+                )
+            except Exception:
+                trading_day = False
+        if not trading_day:
+            try:
+                trading_day = TaiwanDailyStore().has_symbol_date(canonical, trade_date)
+            except Exception:
+                trading_day = False
         if not trading_day:
             raise HTTPException(status_code=422, detail="目前無法以台灣市場日資料確認成交日期，請確認日資料已更新後再記錄")
 
@@ -120,10 +143,10 @@ def get_taiwan_transaction_tax(
     is_day_trade: bool = False,
 ):
     """Estimate sell-side securities tax using the canonical Taiwan market rules."""
-    canonical, instrument, tax_class, _ = _resolve_portfolio_instrument(symbol, trade_date)
+    canonical, _, tax_class, _ = _resolve_portfolio_instrument(symbol, trade_date)
     try:
-        if is_day_trade and instrument.instrument_type != "stock":
-            raise ValueError("當沖稅率只適用於普通股")
+        if is_day_trade:
+            raise ValueError("目前沒有可驗證此標的當沖資格與可配對股數的資料，暫不套用當沖優惠稅率")
         tax_model = SecuritiesTaxModel()
         rate = tax_model.get_tax_rate(tax_class=tax_class, is_day_trade=is_day_trade, trade_date=trade_date)
         tax_amount = tax_model.calc_tax(
@@ -148,14 +171,6 @@ def get_taiwan_data_status():
     """獲取台股市場三大本地數據集 (日線、三大法人、融資券) 之最新落盤日期與市場時效狀況。"""
     svc = TaiwanDailyUpdateService()
     return svc.get_freshness()
-
-
-from app.taiwan.bootstrap import (
-    BootstrapJobState,
-    TaiwanBootstrapService,
-    TaiwanHistoryStatus,
-    get_history_status,
-)
 
 
 @router.get("/history-status", response_model=TaiwanHistoryStatus)
