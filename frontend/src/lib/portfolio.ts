@@ -144,6 +144,9 @@ export function createPortfolioTransaction(
   }
   if (input.date > todayTaipeiDate()) throw new Error('成交日期不可晚於今日')
   if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(input.tradeTime)) throw new Error('請輸入有效成交時間')
+  if (input.tradeTime < '09:00' || input.tradeTime > '14:30') {
+    throw new Error('成交時間必須落在台灣市場交易時段（09:00 至 14:30）')
+  }
   if (input.date === todayTaipeiDate() && input.tradeTime > nowTaipeiTime()) {
     throw new Error('成交時間不可晚於現在（台北時間）')
   }

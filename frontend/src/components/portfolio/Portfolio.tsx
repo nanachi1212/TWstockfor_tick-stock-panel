@@ -218,18 +218,21 @@ export function PortfolioPanel({ symbol, name, quote: detailQuote, change: detai
   const targetPosition = symbol ? positions.find(position => position.symbol === symbol.toUpperCase()) : undefined
   const targetLedgerPosition = symbol ? ledgerPositions.find(position => position.symbol === symbol.toUpperCase()) : undefined
   const shownPositions = symbol ? (targetPosition ? [targetPosition] : []) : positions
+  const quoteFetchFailed = !symbol && quotesQuery.isError
   const quoteFor = (position: typeof positions[number]): TaiwanRealtimeQuote | undefined => quotes.get(position.symbol)
-  const hasMissingQuote = shownPositions.some(position => (symbol ? detailQuote : quoteFor(position)?.last_price) == null)
+  const hasMissingQuote = quoteFetchFailed || shownPositions.some(position => (symbol ? detailQuote : quoteFor(position)?.last_price) == null)
   const hasMissingDailyChange = positions.some(position => quotes.get(position.symbol)?.change == null)
   const hasDegradedQuote = shownPositions.some(position => {
     const meta = symbol ? quoteMeta : quoteFor(position)?.source_meta
-    const freshness = freshnessLabel(meta)
+    const freshnessMeta = quoteFetchFailed && meta ? { ...meta, is_stale: true, status: 'stale' } : meta
+    const freshness = freshnessLabel(freshnessMeta)
     return !freshness || freshness.tone !== 'realtime'
   })
   const totalCost = positions.reduce((total, position) => total + position.costBasis, 0)
   const totalMarket = positions.reduce((total, position) => total + (quotes.get(position.symbol)?.last_price ?? 0) * position.shares, 0)
   const totalUnrealized = totalMarket - totalCost
   const totalDailyChange = positions.reduce((total, position) => total + (quotes.get(position.symbol)?.change ?? 0) * position.shares, 0)
+  const unavailableQuoteValue = quoteFetchFailed ? '行情更新失敗' : '報價不完整'
 
   return (
     <section className="rounded-2xl border border-border bg-surface p-4 space-y-3" aria-label={symbol ? '我的持股' : '我的持倉'}>
@@ -240,11 +243,11 @@ export function PortfolioPanel({ symbol, name, quote: detailQuote, change: detai
       {ledgerError && <p role="alert" className="rounded-lg bg-danger/10 px-3 py-2 text-xs text-danger">{ledgerError}</p>}
       {!symbol && positions.length > 0 && (
         <div className="grid grid-cols-2 gap-2 sm:grid-cols-5 text-xs">
-          <Summary label={hasDegradedQuote ? '總市值（含非即時報價）' : '總市值'} value={hasMissingQuote ? '報價不完整' : money(totalMarket)} />
+          <Summary label={hasDegradedQuote ? '總市值（含非即時報價）' : '總市值'} value={hasMissingQuote ? unavailableQuoteValue : money(totalMarket)} />
           <Summary label="總成本" value={money(totalCost)} />
-          <Summary label={hasDegradedQuote ? '未實現損益（含非即時報價）' : '未實現損益'} value={hasMissingQuote ? '報價不完整' : money(totalUnrealized)} tone={hasMissingQuote ? null : totalUnrealized} />
-          <Summary label={hasDegradedQuote ? '未實現報酬率（含非即時報價）' : '未實現報酬率'} value={hasMissingQuote || totalCost === 0 ? '—' : signedPct(totalUnrealized / totalCost * 100)} tone={hasMissingQuote ? null : totalUnrealized} />
-          <Summary label={hasDegradedQuote ? '今日持股變化（含非即時報價）' : '今日持股變化'} value={hasMissingQuote || hasMissingDailyChange ? '報價不完整' : money(totalDailyChange)} tone={hasMissingQuote || hasMissingDailyChange ? null : totalDailyChange} />
+          <Summary label={hasDegradedQuote ? '未實現損益（含非即時報價）' : '未實現損益'} value={hasMissingQuote ? unavailableQuoteValue : money(totalUnrealized)} tone={hasMissingQuote ? null : totalUnrealized} />
+          <Summary label={hasDegradedQuote ? '未實現報酬率（含非即時報價）' : '未實現報酬率'} value={hasMissingQuote || totalCost === 0 ? (hasMissingQuote ? unavailableQuoteValue : '—') : signedPct(totalUnrealized / totalCost * 100)} tone={hasMissingQuote ? null : totalUnrealized} />
+          <Summary label={hasDegradedQuote ? '今日持股變化（含非即時報價）' : '今日持股變化'} value={hasMissingQuote ? unavailableQuoteValue : hasMissingDailyChange ? '報價不完整' : money(totalDailyChange)} tone={hasMissingQuote || hasMissingDailyChange ? null : totalDailyChange} />
         </div>
       )}
       {!symbol && quotesQuery.isLoading && positions.length > 0 && <p role="status" className="text-[11px] text-muted">正在載入持股報價…</p>}
@@ -259,6 +262,7 @@ export function PortfolioPanel({ symbol, name, quote: detailQuote, change: detai
               {shownPositions.map(position => {
                 const quote = quoteFor(position)
                 const meta = symbol ? quoteMeta : quote?.source_meta
+                const displayMeta = quoteFetchFailed && meta ? { ...meta, is_stale: true, status: 'stale' } : meta
                 const currentPrice = symbol ? detailQuote : quote?.last_price
                 const unrealized = currentPrice == null ? null : currentPrice * position.shares - position.costBasis
                 const returnPct = unrealized == null || position.costBasis === 0 ? null : unrealized / position.costBasis * 100
@@ -268,7 +272,7 @@ export function PortfolioPanel({ symbol, name, quote: detailQuote, change: detai
                 return <tr key={position.symbol} className="border-t border-border/60">
                   {!symbol && <td className="px-2 py-2"><Link to={`/stocks/${encodeURIComponent(position.symbol)}`} className="font-medium text-foreground hover:text-accent">{position.name}</Link><span className="ml-1 font-mono text-muted">{position.symbol}</span></td>}
                   <td className="px-2 py-2 font-mono">{position.shares.toLocaleString()}</td><td className="px-2 py-2 font-mono">{money(position.averageCost)}</td>
-                  <td className="px-2 py-2 font-mono">{currentPrice == null ? <span className="text-muted">目前無法取得報價</span> : <>{money(currentPrice)}<DataQualityBadge meta={meta} quoteTime={quote?.quote_time} className="ml-1" /></>}</td>
+                  <td className="px-2 py-2 font-mono">{currentPrice == null ? <span className="text-muted">目前無法取得報價</span> : <>{money(currentPrice)}<DataQualityBadge meta={displayMeta} quoteTime={quote?.quote_time} className="ml-1" /></>}</td>
                   <td className="px-2 py-2 font-mono">{currentPrice == null ? '—' : money(currentPrice * position.shares)}</td>
                   <td className={`px-2 py-2 font-mono ${tone(unrealized)}`}>{unrealized == null ? '—' : money(unrealized)}</td><td className={`px-2 py-2 font-mono ${tone(unrealized)}`}>{signedPct(returnPct)}</td>
                   <td className={`px-2 py-2 font-mono ${tone(daily)}`}>{daily == null ? '—' : `${money(daily)} (${signedPct(dailyPct)})`}</td>

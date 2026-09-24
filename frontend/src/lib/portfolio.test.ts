@@ -85,4 +85,20 @@ describe('portfolio accounting', () => {
       vi.useRealTimers()
     }
   })
+
+  it('rejects execution times outside Taiwan market sessions', () => {
+    const empty: PortfolioTransaction[] = []
+    expect(() => createPortfolioTransaction({
+      symbol: '2330.TWSE', side: 'buy', shares: 1, price: 101,
+      date: '2026-09-24', tradeTime: '02:00',
+    }, empty)).toThrow('台灣市場交易時段')
+    expect(() => createPortfolioTransaction({
+      symbol: '2330.TWSE', side: 'buy', shares: 1, price: 101,
+      date: '2026-09-24', tradeTime: '14:31',
+    }, empty)).toThrow('台灣市場交易時段')
+    expect(createPortfolioTransaction({
+      symbol: '2330.TWSE', side: 'buy', shares: 1, price: 101,
+      date: '2026-09-24', tradeTime: '14:30',
+    }, empty)).toEqual(expect.objectContaining({ tradeTime: '14:30' }))
+  })
 })

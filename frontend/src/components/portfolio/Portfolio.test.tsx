@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { MemoryRouter } from 'react-router-dom'
 import { api } from '@/lib/api'
@@ -11,7 +11,7 @@ vi.mock('@/components/quant/TodaySelection', () => ({ useTodayQuantSelection: ()
 
 function renderPortfolio() {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
-  return render(<QueryClientProvider client={client}><MemoryRouter><PortfolioPanel /></MemoryRouter></QueryClientProvider>)
+  return { ...render(<QueryClientProvider client={client}><MemoryRouter><PortfolioPanel /></MemoryRouter></QueryClientProvider>), client }
 }
 
 async function fillTrade({ shares, price }: { shares: string; price: string }) {
@@ -20,6 +20,8 @@ async function fillTrade({ shares, price }: { shares: string; price: string }) {
   if (nameInput) fireEvent.change(nameInput, { target: { value: '台積電' } })
   fireEvent.change(screen.getByLabelText('股數'), { target: { value: shares } })
   fireEvent.change(screen.getByLabelText('成交價'), { target: { value: price } })
+  fireEvent.change(screen.getByLabelText('日期'), { target: { value: '2026-09-24' } })
+  fireEvent.change(screen.getByLabelText('成交時間（台北）'), { target: { value: '10:00' } })
   await waitFor(() => expect(screen.getByRole('button', { name: '保存成交' })).toBeEnabled())
   fireEvent.click(screen.getByRole('button', { name: '保存成交' }))
 }
@@ -142,6 +144,31 @@ describe('Portfolio UI', () => {
 
     expect(await screen.findByText('延遲 15m')).toBeInTheDocument()
     expect(screen.getByText('總市值（含非即時報價）')).toBeInTheDocument()
+  })
+
+  it('marks retained quotes stale and hides aggregate valuations after a refresh fails', async () => {
+    storage.portfolioTransactions.set([{
+      id: 'seed', symbol: '2330.TWSE', name: '台積電', side: 'buy', shares: 5,
+      price: 100, fee: 0, date: '2026-09-22', createdAt: '2026-09-22T00:00:00.000Z',
+    }])
+    vi.mocked(api.taiwanQuotes)
+      .mockResolvedValueOnce({ quotes: [{
+        symbol: '2330.TWSE', name: '台積電', last_price: 110, prev_close: 108, change: 2,
+        change_pct: 1.85, source_meta: { is_stale: false, freshness_class: 'best_effort_near_realtime' },
+      } as any], count: 1 })
+      .mockRejectedValueOnce(new Error('offline'))
+    const { client } = renderPortfolio()
+    expect(await screen.findByText('總市值')).toBeInTheDocument()
+
+    await act(async () => {
+      await client.invalidateQueries({ queryKey: ['portfolio-quotes', '2330.TWSE'] })
+    })
+
+    expect(await screen.findByText(/報價載入失敗/)).toBeInTheDocument()
+    expect(screen.getByText('總市值（含非即時報價）')).toBeInTheDocument()
+    expect(screen.getAllByText('行情更新失敗')).toHaveLength(4)
+    expect(screen.getByText('資料過期')).toBeInTheDocument()
+    expect(screen.getByText('NT$550.00')).toBeInTheDocument()
   })
 
   it('keeps the trade dialog open and reports a persistence failure', async () => {
