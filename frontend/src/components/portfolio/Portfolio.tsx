@@ -47,11 +47,17 @@ function usePortfolioTransactions() {
   return ledger
 }
 
-function commitTransaction(input: Parameters<typeof createPortfolioTransaction>[0], current: PortfolioTransaction[]) {
-  const transaction = createPortfolioTransaction(input, current)
-  const next = [...current, transaction]
-  storage.portfolioTransactions.set(next)
-  window.dispatchEvent(new Event(PORTFOLIO_CHANGED))
+async function commitTransaction(input: Parameters<typeof createPortfolioTransaction>[0]) {
+  if (typeof navigator === 'undefined' || !navigator.locks) {
+    throw new Error('目前瀏覽器不支援跨分頁安全保存成交，請更新瀏覽器後重試')
+  }
+  await navigator.locks.request('portfolio_transactions', () => {
+    const ledger = readTransactions()
+    if (ledger.error) throw new Error(ledger.error)
+    const transaction = createPortfolioTransaction(input, ledger.transactions)
+    storage.portfolioTransactions.set([...ledger.transactions, transaction])
+    window.dispatchEvent(new Event(PORTFOLIO_CHANGED))
+  })
 }
 
 function money(value: number | null | undefined) {
@@ -120,7 +126,7 @@ export function PortfolioTradeDialog({
         const result = await instrumentQuery.refetch()
         if (!result.data) throw new Error('目前無法確認這是可交易的台股股票或 ETF，請稍後重試')
       }
-      commitTransaction({
+      await commitTransaction({
         symbol,
         name,
         side,
@@ -130,7 +136,7 @@ export function PortfolioTradeDialog({
         tax,
         date,
         tradeTime,
-      }, transactions)
+      })
       onClose()
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : '無法保存成交紀錄')
@@ -192,13 +198,14 @@ export function PortfolioTradeDialog({
   )
 }
 
-export function PortfolioPanel({ symbol, name, quote: detailQuote, change: detailChange, changePct: detailChangePct, quoteMeta }: {
+export function PortfolioPanel({ symbol, name, quote: detailQuote, change: detailChange, changePct: detailChangePct, quoteMeta, quoteUnavailable = false }: {
   symbol?: string
   name?: string
   quote?: number | null
   change?: number | null
   changePct?: number | null
   quoteMeta?: TaiwanQuoteMetaLike | null
+  quoteUnavailable?: boolean
 }) {
   const { transactions, error: ledgerError } = usePortfolioTransactions()
   const [trade, setTrade] = useState<{ symbol?: string; name?: string; side: PortfolioSide; quote?: number | null } | null>(null)
@@ -218,7 +225,7 @@ export function PortfolioPanel({ symbol, name, quote: detailQuote, change: detai
   const targetPosition = symbol ? positions.find(position => position.symbol === symbol.toUpperCase()) : undefined
   const targetLedgerPosition = symbol ? ledgerPositions.find(position => position.symbol === symbol.toUpperCase()) : undefined
   const shownPositions = symbol ? (targetPosition ? [targetPosition] : []) : positions
-  const quoteFetchFailed = !symbol && quotesQuery.isError
+  const quoteFetchFailed = symbol ? quoteUnavailable : quotesQuery.isError
   const quoteFor = (position: typeof positions[number]): TaiwanRealtimeQuote | undefined => quotes.get(position.symbol)
   const hasMissingQuote = quoteFetchFailed || shownPositions.some(position => (symbol ? detailQuote : quoteFor(position)?.last_price) == null)
   const hasMissingDailyChange = positions.some(position => quotes.get(position.symbol)?.change == null)

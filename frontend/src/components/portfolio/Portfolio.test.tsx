@@ -9,9 +9,9 @@ import { PortfolioPanel } from './Portfolio'
 vi.mock('@/lib/api', () => ({ api: { taiwanQuotes: vi.fn(), taiwanTransactionTax: vi.fn(), taiwanPortfolioInstrument: vi.fn() } }))
 vi.mock('@/components/quant/TodaySelection', () => ({ useTodayQuantSelection: () => ({ signals: [] }) }))
 
-function renderPortfolio() {
+function renderPortfolio(props: Parameters<typeof PortfolioPanel>[0] = {}) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
-  return { ...render(<QueryClientProvider client={client}><MemoryRouter><PortfolioPanel /></MemoryRouter></QueryClientProvider>), client }
+  return { ...render(<QueryClientProvider client={client}><MemoryRouter><PortfolioPanel {...props} /></MemoryRouter></QueryClientProvider>), client }
 }
 
 async function fillTrade({ shares, price }: { shares: string; price: string }) {
@@ -27,6 +27,10 @@ async function fillTrade({ shares, price }: { shares: string; price: string }) {
 }
 
 beforeEach(() => {
+  Object.defineProperty(navigator, 'locks', {
+    configurable: true,
+    value: { request: async (_name: string, callback: (lock: Lock) => unknown) => callback({} as Lock) },
+  })
   vi.mocked(api.taiwanPortfolioInstrument).mockResolvedValue({
     symbol: '2330.TWSE', instrument_type: 'stock', tax_class: 'ordinary_stock',
     trading_day_status: 'verified', is_supported: true,
@@ -35,6 +39,7 @@ beforeEach(() => {
 
 afterEach(() => {
   localStorage.removeItem('portfolio_transactions')
+  Reflect.deleteProperty(navigator, 'locks')
   vi.clearAllMocks()
   vi.restoreAllMocks()
 })
@@ -168,6 +173,21 @@ describe('Portfolio UI', () => {
     expect(screen.getByText('總市值（含非即時報價）')).toBeInTheDocument()
     expect(screen.getAllByText('行情更新失敗')).toHaveLength(4)
     expect(screen.getByText('資料過期')).toBeInTheDocument()
+    expect(screen.getByText('NT$550.00')).toBeInTheDocument()
+  })
+
+  it('marks retained detail-page quotes stale after a detail refresh fails', async () => {
+    storage.portfolioTransactions.set([{
+      id: 'seed', symbol: '2330.TWSE', name: '台積電', side: 'buy', shares: 5,
+      price: 100, fee: 0, date: '2026-09-22', createdAt: '2026-09-22T00:00:00.000Z',
+    }])
+    renderPortfolio({
+      symbol: '2330.TWSE', name: '台積電', quote: 110, quoteMeta: {
+        is_stale: false, is_realtime: true, freshness_class: 'best_effort_near_realtime',
+      }, quoteUnavailable: true,
+    })
+
+    expect(await screen.findByText('資料過期')).toBeInTheDocument()
     expect(screen.getByText('NT$550.00')).toBeInTheDocument()
   })
 

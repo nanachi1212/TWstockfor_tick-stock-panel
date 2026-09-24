@@ -338,6 +338,7 @@ export function TaiwanStockDetail() {
             change={data.realtime.change}
             changePct={data.realtime.change_pct}
             quoteMeta={data.realtime.meta}
+            quoteUnavailable={detailQuery.isError}
           />
           {/* 未支援標的提示列 (例如權證/ETN) */}
           {!data.identity.is_supported && (
