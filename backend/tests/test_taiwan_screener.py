@@ -299,3 +299,74 @@ class TestTaiwanScreenerCore:
         assert "data_dates" in data
         assert data["total"] >= 5
         assert len(data["items"]) >= 5
+
+    def test_mixed_numeric_string_and_null_snapshot_is_unavailable_not_500(self):
+        """Provider/cache type drift must become null fields, never a Polars 500."""
+        class _Master:
+            def to_dataframe(self, supported_only=True):
+                del supported_only
+                return pl.DataFrame({
+                    "symbol": ["2330.TWSE", "9999.TWSE"],
+                    "name": ["台積電", "測試標的"],
+                    "exchange": ["TWSE", "TWSE"],
+                    "instrument_type": ["stock", "stock"],
+                    "industry": [None, None],
+                    "listing_status": ["active", "active"],
+                })
+
+            def get_instrument(self, symbol):
+                del symbol
+                return None
+
+        class _Daily:
+            def read_latest_per_symbol(self, symbols):
+                del symbols
+                return pl.DataFrame({
+                    "symbol": ["2330.TWSE", "9999.TWSE"],
+                    "date": ["2026-09-10", "2026-09-10"],
+                    "open": ["99", None],
+                    "high": ["101", "bad"],
+                    "low": ["98", None],
+                    "close": ["100", "bad"],
+                    "volume": ["1000", None],
+                    "amount": [None, "bad"],
+                })
+
+            def available_dates(self):
+                return [date(2026, 9, 10)]
+
+        class _EmptyStore:
+            def read_latest_per_symbol(self, symbols):
+                del symbols
+                return pl.DataFrame()
+
+        service = TaiwanScreenerService(
+            security_master=_Master(),
+            daily_store=_Daily(),
+            institutional_store=_EmptyStore(),
+            margin_store=_EmptyStore(),
+        )
+
+        response = service.run(TaiwanScreenerRequest(page_size=10))
+
+        by_symbol = {item.symbol: item for item in response.items}
+        assert by_symbol["2330.TWSE"].close == 100.0
+        assert by_symbol["9999.TWSE"].close is None
+        assert by_symbol["9999.TWSE"].volume is None
+
+    def test_empty_universe_returns_typed_empty_response(self):
+        class _Master:
+            def to_dataframe(self, supported_only=True):
+                del supported_only
+                return pl.DataFrame(schema={
+                    "symbol": pl.String, "name": pl.String, "exchange": pl.String,
+                    "instrument_type": pl.String, "industry": pl.String,
+                    "listing_status": pl.String,
+                })
+
+        service = TaiwanScreenerService(security_master=_Master())
+        response = service.run(TaiwanScreenerRequest())
+
+        assert response.items == []
+        assert response.total == 0
+        assert response.data_dates.daily_as_of is None

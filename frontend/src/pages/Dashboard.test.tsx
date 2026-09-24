@@ -6,7 +6,7 @@
 // 涵蓋：市場強弱摘要、產業強弱 top/bottom、自選股快覽 (empty/populated)、
 // 市場或產業查詢失敗時 Dashboard 仍可渲染不白屏。
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { Dashboard } from './Dashboard'
@@ -103,6 +103,7 @@ vi.mock('@/lib/api', () => ({
     taiwanQuotes: vi.fn().mockResolvedValue({ quotes: [], count: 0 }),
     watchlistList: vi.fn().mockResolvedValue({ symbols: [] }),
     watchlistAdd: vi.fn().mockResolvedValue({ ok: true }),
+    watchlistRemove: vi.fn().mockResolvedValue({ symbols: [] }),
     alertsList: vi.fn().mockResolvedValue({ alerts: [] }),
     taiwanMarketIntelligence: vi.fn().mockResolvedValue(null),
     taiwanIndustryIntelligence: vi.fn().mockResolvedValue(null),
@@ -188,6 +189,48 @@ describe('Dashboard — Market Clarity (Phase 8C-B)', () => {
 
     expect(await screen.findByText('台積電')).toBeInTheDocument()
     expect(screen.getByText('鴻海')).toBeInTheDocument()
+  })
+
+  it('my observations keep unranked symbols visible and support detail/remove actions', async () => {
+    vi.mocked(api.watchlistList).mockResolvedValue({ symbols: [
+      { symbol: '2330.TWSE', name: '台積電', added_at: '2026-09-05T09:00:00Z' },
+      { symbol: '2317.TWSE', name: '鴻海', added_at: '2026-09-05T09:01:00Z' },
+    ] } as any)
+    vi.mocked(api.watchlistEnriched).mockResolvedValue(buildWatchlistEnriched([
+      { symbol: '2330.TWSE', name: '台積電', close: 900, change_pct: 0.01 },
+      { symbol: '2317.TWSE', name: '鴻海', close: null, change_pct: null },
+    ]) as any)
+    vi.mocked(api.taiwanQuantLiveModels).mockResolvedValue({
+      configured_model: { model_key: 'live-model', top_n: 10 },
+      latest_operation: null,
+      expected_session: '2026-09-05',
+      current_run_valid: true,
+      current_run_audit_status: 'ok',
+      current_run_reason: 'current',
+    } as any)
+    vi.mocked(api.taiwanQuantLiveRuns).mockResolvedValue({ runs: [{
+      model_key: 'live-model', session: '2026-09-05', snapshot_hash: 'hash',
+      frozen_at: '2026-09-05T16:00:00Z', signal_count: 1,
+    }] } as any)
+    vi.mocked(api.taiwanQuantLiveRun).mockResolvedValue({
+      model_key: 'live-model', session: '2026-09-05', snapshot_hash: 'hash',
+      frozen_at: '2026-09-05T16:00:00Z', audit_status: 'ok',
+      snapshot: {
+        signal_session: '2026-09-05', usage_scope: 'live', validation_state: 'validated',
+        model: { model_key: 'live-model', top_n: 10, validation_state: 'validated' },
+        signals: [{ symbol: '2330.TWSE', score: 0.9, rank: 1, selected: true, reference_close: 900, feature_percentiles: { momentum_5d: 0.8 } }],
+        features: [],
+      },
+    } as any)
+    renderDashboard()
+
+    expect(await screen.findByText('我的觀察')).toBeInTheDocument()
+    expect(await screen.findByText(/#1 · Quant \+90\.00%/)).toBeInTheDocument()
+    expect(screen.getByText('今日未進入 Top 10')).toBeInTheDocument()
+    expect(screen.getByLabelText('查看 2330.TWSE 詳情')).toHaveAttribute('href', '/stocks/2330.TWSE')
+
+    fireEvent.click(screen.getByLabelText('移除 2317.TWSE 觀察'))
+    await waitFor(() => expect(api.watchlistRemove).toHaveBeenCalledWith('2317.TWSE'))
   })
 
   it('market/industry query failure does not crash the Dashboard', async () => {
