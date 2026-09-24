@@ -1,14 +1,14 @@
 import { useState, type ReactNode } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { useQuery } from '@tanstack/react-query'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { motion } from 'framer-motion'
-import { Activity, ArrowUpRight, BellRing, Database, Eye, Layers, Loader2, TrendingUp } from 'lucide-react'
+import { Activity, ArrowUpRight, BellRing, Database, Eye, Layers, Loader2, Star, TrendingUp, X } from 'lucide-react'
 import { api, type AlertEvent, type IndustryMetrics } from '@/lib/api'
 import { QK } from '@/lib/queryKeys'
 import { fmtBigNum, fmtPct } from '@/lib/format'
 import { StockPreviewDialog } from '@/components/StockPreviewDialog'
 import { QuantEvaluationCard } from '@/components/QuantEvaluationCard'
-import { TodaySelection } from '@/components/quant/TodaySelection'
+import { TodaySelection, selectionReasons, useTodayQuantSelection } from '@/components/quant/TodaySelection'
 import { cn } from '@/lib/cn'
 import { cnSignal } from '@/lib/signals'
 import { strategyEventMeta, strategyName } from '@/lib/strategyMonitorEvents'
@@ -20,7 +20,7 @@ function n(v: number | null | undefined) {
 
 function fmtPrice(v: number | null | undefined, digits = 2) {
   const x = n(v)
-  return x == null ? '—' : x.toFixed(digits)
+  return x == null || x <= 0 ? '—' : x.toFixed(digits)
 }
 
 function fmtStockPct(v: number | null | undefined) {
@@ -355,32 +355,45 @@ function IndustryStrengthCard() {
   )
 }
 
-// ===== Phase 8C-B: 自選股快覽 — 只顯示 3-5 檔值得注意的標的 =====
-// 重用既有 /api/watchlist/enriched (api.watchlistEnriched) 與 Watchlist 頁面
-// 相同的 query key 慣例 (無 ext columns 時皆為空字串), 未加自選時不顯示大空表,
-// 改為簡短 empty state + CTA。點擊標的重用既有 StockPreviewDialog 動作流程
-// (與 Phase 8C-A 一致), 不做第二套 stock action UI。
+// ===== A5: 我的觀察 =====
+// 自選清單是持久化資料，enriched 只負責補行情；兩者合併後即使某檔
+// 沒有今日排名或行情，也保留該檔，避免使用者的觀察標的靜默消失。
 function WatchlistQuickGlance({ onStockClick }: { onStockClick: (symbol: string, name?: string) => void }) {
+  const qc = useQueryClient()
+  const watchlist = useQuery({
+    queryKey: QK.watchlist,
+    queryFn: api.watchlistList,
+    staleTime: 60_000,
+  })
   const enriched = useQuery({
     queryKey: QK.watchlistEnriched(''),
     queryFn: () => api.watchlistEnriched(''),
     staleTime: 30_000,
   })
-  const rows: any[] = enriched.data?.rows ?? []
-  // 依既有資料的漲跌幅絕對值排序, 找出今天值得注意的標的; 資料缺漲跌幅時
-  // (abs 視為 0) 排序穩定, 自然退回既有自選順序 —— 不發明新排名邏輯。
-  const attention = [...rows]
+  const quant = useTodayQuantSelection()
+  const remove = useMutation({
+    mutationFn: (symbol: string) => api.watchlistRemove(symbol),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: QK.watchlist })
+      qc.invalidateQueries({ queryKey: QK.watchlistEnriched() })
+    },
+  })
+  const rowsBySymbol = new Map<string, any>()
+  for (const entry of watchlist.data?.symbols ?? []) rowsBySymbol.set(entry.symbol, { ...entry })
+  for (const row of enriched.data?.rows ?? []) rowsBySymbol.set(row.symbol, { ...rowsBySymbol.get(row.symbol), ...row })
+  const rows = [...rowsBySymbol.values()]
+  const attention = rows
     .sort((a, b) => Math.abs(b.change_pct ?? 0) - Math.abs(a.change_pct ?? 0))
-    .slice(0, 5)
+  const rankedBySymbol = new Map(quant.signals.map(signal => [signal.symbol, signal]))
 
   return (
     <section className="rounded-card border border-border bg-surface/80 p-2.5 shadow-[0_1px_2px_hsl(var(--border)/0.4)] backdrop-blur-sm">
-      <SectionTitle icon={Eye} title="自選股動態" hint={rows.length ? `${rows.length} 檔` : undefined} />
-      {enriched.isLoading ? (
+      <SectionTitle icon={Eye} title="我的觀察" hint={rows.length ? `${rows.length} 檔` : undefined} />
+      {watchlist.isLoading || enriched.isLoading ? (
         <div className="flex items-center gap-2 py-4 text-xs text-muted">
           <Loader2 className="h-3.5 w-3.5 animate-spin" />正在讀取自選股資料…
         </div>
-      ) : enriched.isError ? (
+      ) : watchlist.isError && enriched.isError && rows.length === 0 ? (
         <p className="py-4 text-xs text-muted">目前無法讀取自選股資料,不影響其他功能使用。</p>
       ) : rows.length === 0 ? (
         <div className="py-4 text-center">
@@ -392,23 +405,34 @@ function WatchlistQuickGlance({ onStockClick }: { onStockClick: (symbol: string,
       ) : (
         <div className="space-y-1">
           {attention.map(r => (
-            <button
+            <div
               key={r.symbol}
-              type="button"
-              onClick={() => onStockClick(r.symbol, r.name ?? undefined)}
-              aria-label={`查看 ${r.name || r.symbol} 走勢`}
-              className="flex w-full items-center justify-between gap-2 rounded-md bg-elevated/40 px-2 py-1.5 text-left hover:bg-elevated hover:brightness-110 transition-colors border border-transparent hover:border-border/60"
+              className="flex w-full items-center justify-between gap-2 rounded-md bg-elevated/40 px-2 py-1.5 text-left border border-transparent hover:border-border/60"
             >
-              <div className="min-w-0">
+              <button type="button" onClick={() => onStockClick(r.symbol, r.name ?? undefined)} aria-label={`查看 ${r.name || r.symbol} 走勢`} className="min-w-0 flex-1 text-left hover:brightness-110 transition-colors">
                 <div className="truncate text-[11px] text-foreground">{r.name || r.symbol}</div>
                 <div className="font-mono text-[9px] text-muted">{r.symbol}</div>
-              </div>
+              </button>
               <div className="text-right shrink-0">
                 <div className="font-mono text-[11px] text-foreground">{fmtPrice(r.close)}</div>
                 <div className={`font-mono text-[10px] font-semibold ${pctClass(r.change_pct)}`}>{fmtStockPct(r.change_pct)}</div>
+                {(() => {
+                  const signal = rankedBySymbol.get(r.symbol)
+                  const summary = signal
+                    ? `#${signal.rank} · Quant ${fmtStockPct(signal.score)} · ${selectionReasons(signal).slice(0, 1).join('') || '符合既有動能條件'}`
+                    : quant.validRun ? '今日未進入 Top 10' : '今日 Quant 排名 unavailable'
+                  return <div className="max-w-[240px] truncate text-[9px] text-secondary">{summary}</div>
+                })()}
               </div>
-            </button>
+              <Link to={`/stocks/${encodeURIComponent(r.symbol)}`} title="查看詳情" aria-label={`查看 ${r.symbol} 詳情`} className="inline-flex shrink-0 items-center gap-1 rounded border border-border px-1.5 py-1 text-[10px] text-muted hover:text-accent">
+                <Star className="h-3 w-3" />詳情
+              </Link>
+              <button type="button" onClick={() => remove.mutate(r.symbol)} disabled={remove.isPending} title="移除觀察" aria-label={`移除 ${r.symbol} 觀察`} className="inline-flex shrink-0 items-center justify-center rounded p-1 text-muted hover:bg-danger/10 hover:text-danger disabled:opacity-50">
+                <X className="h-3.5 w-3.5" />
+              </button>
+            </div>
           ))}
+          {remove.isError && <p role="alert" className="text-[10px] text-danger">移除觀察失敗，請重試。</p>}
         </div>
       )}
     </section>

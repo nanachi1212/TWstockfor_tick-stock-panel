@@ -36,6 +36,8 @@ from app.taiwan.universe.models import MarketProfileBridge
 
 logger = logging.getLogger(__name__)
 
+_DAILY_NUMERIC_COLUMNS = ("open", "high", "low", "close", "volume", "amount")
+
 ExchangeFilter = Literal["TWSE", "TPEX", "ALL"]
 InstrumentFilter = Literal["stock", "etf", "ALL"]
 SortField = Literal[
@@ -199,7 +201,9 @@ class TaiwanScreenerService:
         valid_symbols = universe_df["symbol"].to_list()
 
         # Step 2: Batch read latest per symbol from TaiwanDailyStore
-        latest_daily = self.daily_store.read_latest_per_symbol(valid_symbols)
+        latest_daily = self._normalize_daily_frame(
+            self.daily_store.read_latest_per_symbol(valid_symbols),
+        )
         if latest_daily.is_empty():
             return TaiwanScreenerResponse(
                 items=[], total=0, page=req.page, page_size=req.page_size,
@@ -288,7 +292,7 @@ class TaiwanScreenerService:
         start_d = available_dates[max(0, len(available_dates) - 35)]
         end_d = available_dates[-1]
 
-        hist = self.daily_store.read_range(symbols, start_d, end_d)
+        hist = self._normalize_daily_frame(self.daily_store.read_range(symbols, start_d, end_d))
         if hist.is_empty():
             return pl.DataFrame()
 
@@ -326,22 +330,24 @@ class TaiwanScreenerService:
 
     def _enrich_price_limits(self, df: pl.DataFrame) -> pl.DataFrame:
         """Enrich with tick-size aware price limits and distance metrics."""
-        rows = []
+        price_limit_pct: list[float | None] = []
+        is_no_limit_flags: list[bool] = []
+        limit_up: list[float | None] = []
+        limit_down: list[float | None] = []
+        distance_to_upper_limit: list[float | None] = []
+        distance_to_lower_limit: list[float | None] = []
         for r in df.iter_rows(named=True):
             sym = r["symbol"]
             close = r.get("close")
             inst = self.security_master.get_instrument(sym)
 
             if inst is None or close is None:
-                rows.append({
-                    **r,
-                    "price_limit_pct": None,
-                    "is_no_limit": False,
-                    "limit_up": None,
-                    "limit_down": None,
-                    "distance_to_upper_limit": None,
-                    "distance_to_lower_limit": None,
-                })
+                price_limit_pct.append(None)
+                is_no_limit_flags.append(False)
+                limit_up.append(None)
+                limit_down.append(None)
+                distance_to_upper_limit.append(None)
+                distance_to_lower_limit.append(None)
                 continue
 
             try:
@@ -350,46 +356,49 @@ class TaiwanScreenerService:
                 logger.debug("Unconfirmed regulatory profile for %s: %s", inst.symbol, e)
                 # Unconfirmed profile: cannot verify regulatory limit safely.
                 # Must set price limit fields to None and NOT match near-limit filters.
-                rows.append({
-                    **r,
-                    "price_limit_pct": None,
-                    "is_no_limit": False,
-                    "limit_up": None,
-                    "limit_down": None,
-                    "distance_to_upper_limit": None,
-                    "distance_to_lower_limit": None,
-                })
+                price_limit_pct.append(None)
+                is_no_limit_flags.append(False)
+                limit_up.append(None)
+                limit_down.append(None)
+                distance_to_upper_limit.append(None)
+                distance_to_lower_limit.append(None)
                 continue
 
-            is_no_limit = limit_pct is None
+            no_limit = limit_pct is None
 
-            if is_no_limit or limit_pct is None:
-                rows.append({
-                    **r,
-                    "price_limit_pct": None,
-                    "is_no_limit": True,
-                    "limit_up": None,
-                    "limit_down": None,
-                    "distance_to_upper_limit": None,
-                    "distance_to_lower_limit": None,
-                })
+            if no_limit:
+                price_limit_pct.append(None)
+                is_no_limit_flags.append(True)
+                limit_up.append(None)
+                limit_down.append(None)
+                distance_to_upper_limit.append(None)
+                distance_to_lower_limit.append(None)
                 continue
 
             upper, lower = MarketProfileBridge.calc_limits(close, inst)
             dist_up = (upper - close) / close if (upper and close > 0) else None
             dist_dn = (close - lower) / close if (lower and close > 0) else None
 
-            rows.append({
-                **r,
-                "price_limit_pct": limit_pct,
-                "is_no_limit": False,
-                "limit_up": upper,
-                "limit_down": lower,
-                "distance_to_upper_limit": dist_up,
-                "distance_to_lower_limit": dist_dn,
-            })
+            price_limit_pct.append(limit_pct)
+            is_no_limit_flags.append(False)
+            limit_up.append(upper)
+            limit_down.append(lower)
+            distance_to_upper_limit.append(dist_up)
+            distance_to_lower_limit.append(dist_dn)
 
-        return pl.DataFrame(rows)
+        # Keep the upstream schema intact. Building a new DataFrame from row
+        # dictionaries makes Polars infer a shared dtype from the first
+        # non-null value, which can fail when a provider/cache mixes numeric,
+        # string and null values. Explicit Series keep nulls as null and make
+        # price-limit enrichment safe for partial snapshots.
+        return df.with_columns([
+            pl.Series("price_limit_pct", price_limit_pct, dtype=pl.Float64),
+            pl.Series("is_no_limit", is_no_limit_flags, dtype=pl.Boolean),
+            pl.Series("limit_up", limit_up, dtype=pl.Float64),
+            pl.Series("limit_down", limit_down, dtype=pl.Float64),
+            pl.Series("distance_to_upper_limit", distance_to_upper_limit, dtype=pl.Float64),
+            pl.Series("distance_to_lower_limit", distance_to_lower_limit, dtype=pl.Float64),
+        ])
 
     def _join_institutional_margin(
         self, df: pl.DataFrame, symbols: list[str]
@@ -616,3 +625,24 @@ class TaiwanScreenerService:
             if c not in df.columns:
                 df = df.with_columns(pl.lit(None).alias(c))
         return df
+
+    @staticmethod
+    def _normalize_daily_frame(df: pl.DataFrame) -> pl.DataFrame:
+        """Normalize cache/provider values before arithmetic and joins.
+
+        Historical partitions can contain a numeric value, a numeric string,
+        or null for the same field. `strict=False` turns malformed values
+        into null, so a bad row becomes unavailable data instead of a request
+        time Polars schema/type error or a fabricated zero.
+        """
+        if df.is_empty():
+            return df
+        expressions = [pl.col("symbol").cast(pl.String, strict=False).alias("symbol")]
+        if "date" in df.columns:
+            expressions.append(pl.col("date").cast(pl.Date, strict=False).alias("date"))
+        expressions.extend(
+            pl.col(column).cast(pl.Float64, strict=False).alias(column)
+            for column in _DAILY_NUMERIC_COLUMNS
+            if column in df.columns
+        )
+        return df.with_columns(expressions)

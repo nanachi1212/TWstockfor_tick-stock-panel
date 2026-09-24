@@ -13,7 +13,7 @@ function formatPct(value: number | null, digits = 1) {
   return value == null ? '—' : `${(value * 100).toFixed(digits)}%`
 }
 
-function reasons(signal: TaiwanLiveQuantSignal): string[] {
+export function selectionReasons(signal: TaiwanLiveQuantSignal): string[] {
   const labels = [
     ['momentum_5d', '短期動能排名前段'],
     ['momentum_20d', '中期動能排名前段'],
@@ -25,8 +25,18 @@ function reasons(signal: TaiwanLiveQuantSignal): string[] {
     .map(([, label]) => label)
 }
 
-export function TodaySelection({ symbol }: { symbol?: string }) {
-  const qc = useQueryClient()
+export interface TodayQuantSelectionData {
+  latest: { model_key: string; session: string; signal_count: number } | undefined
+  expectedRun: boolean
+  validRun: NonNullable<ReturnType<typeof useTodayQuantSelectionInternal>>['validRun']
+  signals: TaiwanLiveQuantSignal[]
+  featureMap: Map<string, Record<string, unknown> & { symbol: string }>
+  loading: boolean
+  error: boolean
+  refetch: () => void
+}
+
+function useTodayQuantSelectionInternal() {
   const models = useQuery({
     queryKey: QK.taiwanQuantLiveModels,
     queryFn: api.taiwanQuantLiveModels,
@@ -52,6 +62,30 @@ export function TodaySelection({ symbol }: { symbol?: string }) {
   const runData = run.data
   const validRun = expectedRun && runData && runData.session === models.data?.expected_session && runData.audit_status === 'ok' ? runData : null
   const signals = validRun?.snapshot.signals ?? []
+  const featureMap = useMemo(() => new Map((runData?.snapshot.features ?? []).map(item => [item.symbol, item])), [runData])
+  const loading = models.isLoading || runs.isLoading || (!models.isError && !runs.isError && expectedRun && run.isLoading)
+  const error = models.isError || runs.isError || run.isError
+
+  return {
+    latest,
+    expectedRun,
+    validRun,
+    signals,
+    featureMap,
+    loading,
+    error,
+    refetch: () => { void models.refetch(); void runs.refetch(); if (modelKey && latest) void run.refetch() },
+  }
+}
+
+export function useTodayQuantSelection(): TodayQuantSelectionData {
+  return useTodayQuantSelectionInternal()
+}
+
+export function TodaySelection({ symbol }: { symbol?: string }) {
+  const qc = useQueryClient()
+  const selection = useTodayQuantSelection()
+  const { latest, expectedRun, validRun, signals, featureMap, loading, error } = selection
   const symbols = signals.map(item => item.symbol)
   const quotes = useQuery({
     queryKey: QK.taiwanQuotes(symbols.join(',')),
@@ -61,7 +95,6 @@ export function TodaySelection({ symbol }: { symbol?: string }) {
     refetchInterval: 60_000,
   })
   const quoteMap = useMemo(() => new Map((quotes.data?.quotes ?? []).map(item => [item.symbol, item])), [quotes.data])
-  const featureMap = useMemo(() => new Map((run.data?.snapshot.features ?? []).map(item => [item.symbol, item])), [run.data])
   const watchlist = useQuery({
     queryKey: QK.watchlist,
     queryFn: api.watchlistList,
@@ -77,8 +110,6 @@ export function TodaySelection({ symbol }: { symbol?: string }) {
     },
   })
   const selected = symbol ? signals.find(item => item.symbol === symbol) : null
-  const loading = models.isLoading || runs.isLoading || (!models.isError && !runs.isError && expectedRun && run.isLoading)
-  const error = models.isError || runs.isError || run.isError
 
   if (symbol) {
     if (loading) return <div className="text-xs text-muted" role="status">正在載入 live Quant 排名…</div>
@@ -102,7 +133,7 @@ export function TodaySelection({ symbol }: { symbol?: string }) {
           <span className="text-secondary">20D 日均成交額 {finite(features?.adv20_twd) == null ? '—' : `${(finite(features?.adv20_twd)! / 1_000_000).toFixed(0)} 百萬`}</span>
           <span className="text-secondary">相對量 {finite(features?.relative_volume)?.toFixed(2) ?? '—'}</span>
         </div>
-        <p className="mt-1.5 text-[11px] text-secondary">{reasons(selected).join('、') || '入選條件符合既有動能規則'}。說明取自凍結快照因子百分位，未重新計分。</p>
+        <p className="mt-1.5 text-[11px] text-secondary">{selectionReasons(selected).join('、') || '入選條件符合既有動能規則'}。說明取自凍結快照因子百分位，未重新計分。</p>
       </section>
     )
   }
@@ -118,7 +149,7 @@ export function TodaySelection({ symbol }: { symbol?: string }) {
       </div>
 
       {loading ? <div className="flex items-center gap-2 py-5 text-xs text-muted" role="status"><Loader2 className="h-4 w-4 animate-spin" />讀取最新已完成的 live 排名…</div> : null}
-      {error ? <div className="flex items-center justify-between gap-2 py-2 text-xs text-muted" role="alert"><span>Live Quant 或行情資料目前無法完整讀取，請稍後重試。</span><button type="button" onClick={() => { void models.refetch(); void runs.refetch(); if (modelKey && latest) void run.refetch(); if (symbols.length) void quotes.refetch() }} className="inline-flex items-center gap-1"><RefreshCw className="h-3 w-3" />重試</button></div> : null}
+      {error ? <div className="flex items-center justify-between gap-2 py-2 text-xs text-muted" role="alert"><span>Live Quant 或行情資料目前無法完整讀取，請稍後重試。</span><button type="button" onClick={() => { selection.refetch(); if (symbols.length) void quotes.refetch() }} className="inline-flex items-center gap-1"><RefreshCw className="h-3 w-3" />重試</button></div> : null}
       {!loading && !error && !latest ? <p className="py-4 text-xs text-muted">目前尚無已完成的 live 排名；資料不足或非交易日不會以歷史 OOS 代替。</p> : null}
       {!loading && !error && latest && !expectedRun ? <p className="py-4 text-xs text-muted">目前沒有符合預期交易日且通過稽核的新鮮 Live 排名；不顯示舊快照或歷史 OOS。</p> : null}
       {!loading && !error && expectedRun && !validRun ? <p className="py-4 text-xs text-muted">目前 Live 快照未通過稽核檢查，不顯示排名。</p> : null}
@@ -138,7 +169,7 @@ export function TodaySelection({ symbol }: { symbol?: string }) {
                 `行情狀態未知 ${quote.trade_date}` : quote.source_meta.is_stale ?
                   `行情偏舊 ${quote.trade_date}` : `${quote.source_meta.is_realtime ? '即時行情' : '收盤行情'} ${quote.trade_date}`
               const momentum = ['momentum_5d', 'momentum_20d', 'momentum_60d'].map(key => item.feature_percentiles[key])
-              const reason = reasons(item)
+              const reason = selectionReasons(item)
               return <tr key={item.symbol} className="border-t border-border/60 hover:bg-elevated/40">
                 <td className="px-2 py-2"><Link to={`/stocks/${encodeURIComponent(item.symbol)}`} className="font-medium text-foreground hover:text-accent"><span className="mr-1 text-muted">#{item.rank}</span>{quote?.name || item.symbol}<span className="ml-1 text-[10px] text-muted">{item.symbol}</span></Link></td>
                 <td className="px-2 py-2 font-mono">{current.toFixed(2)}<span className={`ml-1 ${percent == null || percent === 0 ? 'text-muted' : percent > 0 ? 'text-bull' : 'text-bear'}`}>{percent == null ? '' : `${percent.toFixed(2)}%`}</span><small className="ml-1 font-sans text-muted">{quoteLabel}</small></td>
