@@ -268,14 +268,14 @@ def delete_by_id(data_dir: Path, alert_id: str) -> bool:
                     kept.append(event)
         except OSError as e:
             logger.warning("alert_store delete-by-id read failed: %s", e)
-            return False
+            raise
         if not deleted:
             return False
         try:
             _rewrite_locked(p, kept)
         except OSError as e:
             logger.warning("alert_store delete-by-id write failed: %s", e)
-            return False
+            raise
         return True
 
 

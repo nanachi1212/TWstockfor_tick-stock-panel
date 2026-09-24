@@ -67,6 +67,7 @@ class TaiwanMonitorEngine:
         # dedup_key -> last_fired_monotonic_timestamp (float)
         self._last_fire_time: dict[str, float] = {}
         self._state_lock = threading.RLock()
+        self._state_dirty = False
         try:
             saved_state = json.loads(self.state_path.read_text(encoding="utf-8"))
             if isinstance(saved_state, dict):
@@ -203,8 +204,10 @@ class TaiwanMonitorEngine:
         events: list[dict] = []
         with self._state_lock:
             prior_states = dict(self._trigger_states)
+            prior_dirty = self._state_dirty
             changed_keys: set[str] = set()
             changed = False
+            events_persisted = False
             for rule in rules:
                 key = f"quant:{rule.rule_id}:{rule.symbol}"
                 previous = self._trigger_states.get(key)
@@ -257,14 +260,38 @@ class TaiwanMonitorEngine:
             try:
                 if events and persist_events is not None:
                     persist_events(events)
-                if changed:
-                    self._save_trigger_states_locked()
-            except Exception:
-                for key in changed_keys:
-                    if key in prior_states:
-                        self._trigger_states[key] = prior_states[key]
+                    events_persisted = True
+                if changed or self._state_dirty:
+                    try:
+                        self._save_trigger_states_locked()
+                    except Exception as exc:
+                        if events_persisted:
+                            self._state_dirty = True
+                            logger.warning(
+                                "Quant alert persisted but crossing state save failed: %s", exc,
+                            )
+                        elif prior_dirty:
+                            for key in changed_keys:
+                                if key in prior_states:
+                                    self._trigger_states[key] = prior_states[key]
+                                else:
+                                    self._trigger_states.pop(key, None)
+                            self._state_dirty = True
+                            logger.warning("Quant crossing state retry failed: %s", exc)
+                        else:
+                            raise
                     else:
-                        self._trigger_states.pop(key, None)
+                        self._state_dirty = False
+            except Exception:
+                if not events_persisted:
+                    for key in changed_keys:
+                        if key in prior_states:
+                            self._trigger_states[key] = prior_states[key]
+                        else:
+                            self._trigger_states.pop(key, None)
+                    self._state_dirty = prior_dirty
+                else:
+                    self._state_dirty = True
                 raise
         return events
 
@@ -343,6 +370,8 @@ class TaiwanMonitorEngine:
         with self._state_lock:
             prior_states = dict(self._trigger_states)
             prior_fire_times = dict(self._last_fire_time)
+            prior_dirty = self._state_dirty
+            events_persisted = False
             try:
                 for rule in active_rules:
                     quote = quotes.get(rule.symbol)
@@ -354,14 +383,38 @@ class TaiwanMonitorEngine:
 
                 if alerts and persist_events is not None:
                     persist_events(alerts)
+                    events_persisted = True
                 if (self._trigger_states != prior_states
-                        or self._last_fire_time != prior_fire_times):
-                    self._save_trigger_states_locked()
+                        or self._last_fire_time != prior_fire_times
+                        or self._state_dirty):
+                    try:
+                        self._save_trigger_states_locked()
+                    except Exception as ex:
+                        if events_persisted:
+                            self._state_dirty = True
+                            logger.warning(
+                                "Taiwan alert persisted but crossing state save failed: %s", ex,
+                            )
+                        elif prior_dirty:
+                            self._trigger_states.clear()
+                            self._trigger_states.update(prior_states)
+                            self._last_fire_time.clear()
+                            self._last_fire_time.update(prior_fire_times)
+                            self._state_dirty = True
+                            logger.warning("Taiwan crossing state retry failed: %s", ex)
+                        else:
+                            raise
+                    else:
+                        self._state_dirty = False
             except Exception:
-                self._trigger_states.clear()
-                self._trigger_states.update(prior_states)
-                self._last_fire_time.clear()
-                self._last_fire_time.update(prior_fire_times)
+                if not events_persisted:
+                    self._trigger_states.clear()
+                    self._trigger_states.update(prior_states)
+                    self._last_fire_time.clear()
+                    self._last_fire_time.update(prior_fire_times)
+                    self._state_dirty = prior_dirty
+                else:
+                    self._state_dirty = True
                 raise
 
         if self.alert_handler:

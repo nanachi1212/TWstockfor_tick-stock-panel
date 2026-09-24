@@ -80,7 +80,10 @@ def mark_alert_read(alert_id: str, request: Request):
 @router.delete("/id/{alert_id}")
 def delete_alert_by_id(alert_id: str, request: Request):
     """Delete one alert by stable ID."""
-    deleted = alert_store.delete_by_id(_data_dir(request), alert_id)
+    try:
+        deleted = alert_store.delete_by_id(_data_dir(request), alert_id)
+    except OSError as exc:
+        raise HTTPException(status_code=503, detail="提醒刪除儲存失敗") from exc
     if not deleted:
         raise HTTPException(status_code=404, detail="記錄不存在")
     return {"ok": True}

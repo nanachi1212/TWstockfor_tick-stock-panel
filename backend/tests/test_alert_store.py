@@ -72,6 +72,7 @@ def test_read_and_delete_rewrites_preserve_original_when_atomic_replace_fails(tm
     with pytest.raises(OSError, match="replace failed"):
         alert_store.update_read(data_dir, alert_id)
     assert path.read_bytes() == original
-    assert alert_store.delete_by_id(data_dir, alert_id) is False
+    with pytest.raises(OSError, match="replace failed"):
+        alert_store.delete_by_id(data_dir, alert_id)
     assert path.read_bytes() == original
     assert list(path.parent.glob(".alerts.jsonl.*.tmp")) == []
