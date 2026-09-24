@@ -24,7 +24,7 @@ function setup() {
     audit_status: 'ok',
     snapshot: { signal_session: '2026-09-23', usage_scope: 'experimental_live', validation_state: 'unvalidated', model: { model_key: 'live-model', top_n: 10, validation_state: 'unvalidated' }, signals, features: signals.map(signal => ({ symbol: signal.symbol, momentum_5d: 0.1, momentum_20d: 0.2, momentum_60d: 0.3, volatility_20d: 0.02, adv20_twd: 20_000_000, relative_volume: 1.4 })) },
   } as any)
-  vi.mocked(api.taiwanQuotes).mockResolvedValue({ quotes: [{ symbol: signals[0].symbol, name: '台積電', last_price: 105, change_pct: 0.025 } as any], count: 1 })
+  vi.mocked(api.taiwanQuotes).mockResolvedValue({ quotes: [{ symbol: signals[0].symbol, name: '台積電', last_price: 105, change_pct: 2.5 } as any], count: 1 })
   vi.mocked(api.watchlistList).mockResolvedValue({ symbols: [] } as any)
   vi.mocked(api.watchlistAdd).mockResolvedValue({ ok: true } as any)
 }
@@ -48,6 +48,8 @@ describe('TodaySelection', () => {
     expect(await screen.findByText('台積電')).toBeInTheDocument()
     expect(screen.getAllByText('105.00')).toHaveLength(2)
     expect(screen.getByText('90.0%')).toBeInTheDocument()
+    expect(screen.getByText('2.50%')).toBeInTheDocument()
+    expect(screen.queryByText('250.00%')).not.toBeInTheDocument()
     expect(screen.getAllByText('短期動能排名前段、中期動能排名前段、長期動能排名前段').length).toBeGreaterThan(0)
     expect(screen.getAllByRole('row')).toHaveLength(11)
     expect(api.taiwanQuantEvaluation).toBeUndefined()
@@ -63,6 +65,13 @@ describe('TodaySelection', () => {
     expect(api.taiwanQuantLiveRun).toHaveBeenCalledTimes(1)
   })
 
+  it('does not poll market quotes from stock-detail mode', async () => {
+    setup()
+    renderSelection('/stocks/2330.TWSE')
+    expect(await screen.findByRole('region', { name: 'Live Quant 摘要' })).toHaveTextContent('排名 #1')
+    expect(api.taiwanQuotes).not.toHaveBeenCalled()
+  })
+
   it('adds a ranked symbol through the existing watchlist API', async () => {
     setup()
     renderSelection()
@@ -76,6 +85,15 @@ describe('TodaySelection', () => {
     renderSelection()
     expect(await screen.findByText('部分標的報價不可用，對應列以凍結排名參考收盤價顯示。')).toBeInTheDocument()
     expect(screen.getByText('100.00')).toBeInTheDocument()
+  })
+
+  it('labels a null-priced quote as the frozen ranking reference close', async () => {
+    setup()
+    vi.mocked(api.taiwanQuotes).mockResolvedValue({ quotes: [{ symbol: signals[0].symbol, last_price: null, change_pct: null, trade_date: '2026-09-24', source_meta: { is_stale: false, is_realtime: true } } as any], count: 1 })
+    renderSelection()
+    expect(await screen.findByText('無有效報價，顯示排名參考收盤 2026-09-24')).toBeInTheDocument()
+    expect(screen.getByText('100.00')).toBeInTheDocument()
+    expect(screen.queryByText(/即時行情 2026-09-24/)).not.toBeInTheDocument()
   })
 
   it('shows a clear empty state when no live run exists', async () => {

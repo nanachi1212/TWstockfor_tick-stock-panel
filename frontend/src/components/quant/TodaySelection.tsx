@@ -56,7 +56,7 @@ export function TodaySelection({ symbol }: { symbol?: string }) {
   const quotes = useQuery({
     queryKey: QK.taiwanQuotes(symbols.join(',')),
     queryFn: () => api.taiwanQuotes(symbols),
-    enabled: symbols.length > 0,
+    enabled: !symbol && symbols.length > 0,
     staleTime: 15_000,
     refetchInterval: 60_000,
   })
@@ -132,15 +132,16 @@ export function TodaySelection({ symbol }: { symbol?: string }) {
               const features = featureMap.get(item.symbol)
               const adv20 = finite(features?.adv20_twd)
               const current = quote?.last_price ?? item.reference_close
-              const percent = quote?.last_price == null ? null : quote.change_pct
-              const quoteLabel = quote == null ? quotes.isLoading ? '行情載入中，顯示最近收盤' : '最近收盤' : !quote.source_meta ?
+              const percent = quote?.last_price == null ? null : finite(quote.change_pct)
+              const quoteLabel = quote == null ? quotes.isLoading ? '行情載入中，顯示最近收盤' : '最近收盤' : quote.last_price == null ?
+                `無有效報價，顯示排名參考收盤 ${quote.trade_date}` : !quote.source_meta ?
                 `行情狀態未知 ${quote.trade_date}` : quote.source_meta.is_stale ?
                   `行情偏舊 ${quote.trade_date}` : `${quote.source_meta.is_realtime ? '即時行情' : '收盤行情'} ${quote.trade_date}`
               const momentum = ['momentum_5d', 'momentum_20d', 'momentum_60d'].map(key => item.feature_percentiles[key])
               const reason = reasons(item)
               return <tr key={item.symbol} className="border-t border-border/60 hover:bg-elevated/40">
                 <td className="px-2 py-2"><Link to={`/stocks/${encodeURIComponent(item.symbol)}`} className="font-medium text-foreground hover:text-accent"><span className="mr-1 text-muted">#{item.rank}</span>{quote?.name || item.symbol}<span className="ml-1 text-[10px] text-muted">{item.symbol}</span></Link></td>
-                <td className="px-2 py-2 font-mono">{current.toFixed(2)}<span className={`ml-1 ${percent == null || percent === 0 ? 'text-muted' : percent > 0 ? 'text-bull' : 'text-bear'}`}>{percent == null ? '' : formatPct(percent, 2)}</span><small className="ml-1 font-sans text-muted">{quoteLabel}</small></td>
+                <td className="px-2 py-2 font-mono">{current.toFixed(2)}<span className={`ml-1 ${percent == null || percent === 0 ? 'text-muted' : percent > 0 ? 'text-bull' : 'text-bear'}`}>{percent == null ? '' : `${percent.toFixed(2)}%`}</span><small className="ml-1 font-sans text-muted">{quoteLabel}</small></td>
                 <td className="px-2 py-2 font-mono">{formatPct(item.score)}</td>
                 <td className="px-2 py-2 font-mono">{momentum.map(value => formatPct(finite(value))).join(' / ')}</td>
                 <td className="px-2 py-2 text-secondary">{formatPct(finite(features?.volatility_20d))} / {adv20 == null ? '—' : `${(adv20 / 1_000_000).toFixed(0)}M`} / {finite(features?.relative_volume)?.toFixed(2) ?? '—'}</td>
@@ -149,7 +150,7 @@ export function TodaySelection({ symbol }: { symbol?: string }) {
               </tr>
             })}</tbody>
           </table>
-          {quotes.isError ? <p className="mt-1 text-[10px] text-muted">即時行情讀取失敗，仍顯示排名快照參考收盤價；漲跌暫不可用。</p> : quotes.data && quotes.data.quotes.length < signals.length ? <p className="mt-1 text-[10px] text-muted">部分標的報價不可用，對應列以凍結排名參考收盤價顯示。</p> : null}
+          {quotes.isError ? <p className="mt-1 text-[10px] text-muted">即時行情讀取失敗，仍顯示排名快照參考收盤價；漲跌暫不可用。</p> : quotes.data && signals.some(item => finite(quoteMap.get(item.symbol)?.last_price) == null) ? <p className="mt-1 text-[10px] text-muted">部分標的報價不可用，對應列以凍結排名參考收盤價顯示。</p> : null}
           {watchlist.isError && <p role="alert" className="mt-1 text-[10px] text-muted">自選清單目前無法讀取，已暫停加入操作。</p>}
           {add.isError && <p role="alert" className="mt-1 text-[10px] text-rose-500">加入自選失敗，請重試。</p>}
           <Link to="/taiwan-screener" className="mt-2 inline-flex items-center gap-1 text-[10px] text-muted hover:text-accent">查看台股選股 <ArrowUpRight className="h-3 w-3" /></Link>
