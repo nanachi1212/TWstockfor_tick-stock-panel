@@ -201,6 +201,9 @@ class TaiwanStockDetailService:
                         status="available" if not q.source_meta.is_stale else "stale",
                         is_stale=q.source_meta.is_stale,
                         fallback_reason=q.source_meta.fallback_reason,
+                        source_type=q.source_meta.source_type,
+                        freshness_class=q.source_meta.freshness_class,
+                        is_realtime=q.source_meta.is_realtime,
                     )
 
                 q_t = q.quote_time

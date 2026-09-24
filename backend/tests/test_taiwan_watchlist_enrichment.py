@@ -20,6 +20,7 @@ from app.taiwan.watchlist_enrichment import enrich_taiwan_watchlist_rows
 class _FakeInstrument:
     name: str
     instrument_type: str
+    is_supported: bool = True
 
 
 class _FakeSecurityMaster:
@@ -143,6 +144,8 @@ def test_twse_symbol_with_realtime_quote():
     assert row["symbol"] == "2330.TWSE"
     assert row["name"] == "台積電"
     assert row["asset_type"] == "stock"
+    assert row["instrument_type"] == "stock"
+    assert row["is_supported"] is True
     assert row["close"] == 1100.0
     assert row["prev_close"] == 1080.0
     assert row["open"] == 1085.0

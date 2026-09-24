@@ -81,6 +81,30 @@ def test_service_stock_aggregation_2330():
     assert res.market_context.benchmark_symbol == "TAIEX"
 
 
+def test_service_realtime_preserves_delayed_quote_freshness():
+    svc = TaiwanStockDetailService()
+    quote = _make_sample_quote("2330.TWSE", 2420.0, 2410.0)
+    quote.source_meta = SourceMeta(
+        source="yahoo:chart",
+        source_url="https://query1.finance.yahoo.com/",
+        trade_date=date(2026, 8, 28),
+        fetched_at=datetime(2026, 8, 30, 20, 0, 0),
+        status="delayed",
+        source_type="third_party_aggregator",
+        freshness_class="delayed_15m",
+        is_realtime=False,
+    )
+    mock_rt = MagicMock()
+    mock_rt.get_quotes.return_value = {"2330.TWSE": quote}
+    svc.realtime_service = mock_rt
+
+    result = svc.get_stock_detail("2330.TWSE", days=30)
+
+    assert result.realtime.meta.source_type == "third_party_aggregator"
+    assert result.realtime.meta.freshness_class == "delayed_15m"
+    assert result.realtime.meta.is_realtime is False
+
+
 def test_service_etf_no_limit_00646():
     svc = TaiwanStockDetailService()
     mock_rt = MagicMock()

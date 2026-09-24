@@ -27,6 +27,9 @@ class SectionMeta(BaseModel):
     status: str = Field("available", description="區塊狀態: available, unavailable, stale, fallback")
     is_stale: bool = Field(False, description="是否已被判定為過期資料")
     fallback_reason: Optional[str] = Field(None, description="降級備援原因（若有）")
+    source_type: str | None = Field(None, description="資料來源類型")
+    freshness_class: str | None = Field(None, description="canonical 行情新鮮度分類")
+    is_realtime: bool | None = Field(None, description="來源是否確認為即時行情")
 
 
 class TaiwanStockIdentity(BaseModel):

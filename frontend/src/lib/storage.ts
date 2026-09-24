@@ -5,17 +5,21 @@
  * - 類型安全，不再散落 try/catch。
  */
 
-function kv<T>(key: string) {
+function kv<T>(key: string, throwOnWriteError = false, throwOnReadError = false) {
   return {
     get(fallback: T): T {
       try {
         const raw = localStorage.getItem(key)
         if (raw !== null) return JSON.parse(raw) as T
-      } catch { /* ignore */ }
+      } catch (error) {
+        if (throwOnReadError) throw error
+      }
       return fallback
     },
     set(val: T) {
-      try { localStorage.setItem(key, JSON.stringify(val)) } catch { /* ignore */ }
+      try { localStorage.setItem(key, JSON.stringify(val)) } catch (error) {
+        if (throwOnWriteError) throw error
+      }
     },
   }
 }
@@ -29,6 +33,9 @@ export const storage = {
 
   /** 自選列表列配置 */
   watchlistColumns:     kv<unknown[]>('watchlist_columns'),
+
+  /** Portfolio 成交紀錄，持倉與損益由成交資料重建 */
+  portfolioTransactions: kv<unknown[]>('portfolio_transactions', true, true),
 
   /** 個股日K信息條指標配置 */
   stockInfoBarFields:   kv<unknown[]>('stock_info_bar_fields'),

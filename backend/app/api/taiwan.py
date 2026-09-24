@@ -7,21 +7,10 @@ Covers:
 from __future__ import annotations
 
 import logging
+from datetime import date as dt_date
 
 from fastapi import APIRouter, HTTPException, Query
-from app.taiwan.current_data import (
-    TaiwanCurrentDataResponse,
-    TaiwanDatasetCapability,
-    capability_matrix,
-    get_taiwan_current_data_service,
-)
-from app.taiwan.daily_update import FreshnessStatus, TaiwanDailyUpdateService
-from app.taiwan.detail_models import TaiwanStockDetailResponse
-from app.taiwan.detail_service import get_taiwan_stock_detail_service
-from app.taiwan.industry_intelligence import (
-    TaiwanIndustryIntelligenceService,
-    TaiwanIndustryIntelligenceSnapshot,
-)
+
 from app.taiwan.abnormal_diagnostics import (
     TaiwanAbnormalDiagnosticsService,
     TaiwanAbnormalDiagnosticsSnapshot,
@@ -30,6 +19,12 @@ from app.taiwan.ai_research import (
     TaiwanAIResearchRequest,
     TaiwanAIResearchResponse,
     TaiwanAIResearchService,
+)
+from app.taiwan.bootstrap import (
+    BootstrapJobState,
+    TaiwanBootstrapService,
+    TaiwanHistoryStatus,
+    get_history_status,
 )
 from app.taiwan.comparison import (
     TaiwanStockCompareRequest,
@@ -41,13 +36,30 @@ from app.taiwan.comparison_ai_research import (
     TaiwanComparisonAIResearchResponse,
     TaiwanComparisonAIResearchService,
 )
-from app.taiwan.research_context import (
-    TaiwanStockResearchContext,
-    TaiwanStockResearchContextService,
+from app.taiwan.current_data import (
+    TaiwanCurrentDataResponse,
+    TaiwanDatasetCapability,
+    capability_matrix,
+    get_taiwan_current_data_service,
+)
+from app.taiwan.daily_store import TaiwanDailyStore
+from app.taiwan.daily_update import FreshnessStatus, TaiwanDailyUpdateService
+from app.taiwan.detail_models import TaiwanStockDetailResponse
+from app.taiwan.detail_service import get_taiwan_stock_detail_service
+from app.taiwan.industry_intelligence import (
+    TaiwanIndustryIntelligenceService,
+    TaiwanIndustryIntelligenceSnapshot,
 )
 from app.taiwan.market_intelligence import (
     TaiwanMarketIntelligenceService,
     TaiwanMarketIntelligenceSnapshot,
+)
+from app.taiwan.market_rules import SecuritiesTaxModel
+from app.taiwan.realtime import get_realtime_service
+from app.taiwan.realtime.calendar import TaiwanTradingCalendar, taipei_today
+from app.taiwan.research_context import (
+    TaiwanStockResearchContext,
+    TaiwanStockResearchContextService,
 )
 from app.taiwan.screener import TaiwanScreenerRequest, TaiwanScreenerResponse
 from app.taiwan.screener_nl import (
@@ -56,10 +68,102 @@ from app.taiwan.screener_nl import (
     TaiwanScreenerTranslator,
 )
 from app.taiwan.symbol import parse_symbol
+from app.taiwan.universe import MarketProfileBridge, get_security_master
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/taiwan", tags=["taiwan"])
+
+
+def _resolve_portfolio_instrument(symbol: str, trade_date: dt_date):
+    try:
+        canonical = parse_symbol(symbol).canonical
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=f"invalid Taiwan symbol: {symbol}") from exc
+
+    instrument = get_security_master().get_instrument(canonical)
+    if instrument is None or not instrument.is_supported or instrument.instrument_type not in {"stock", "etf"}:
+        raise HTTPException(status_code=404, detail=f"找不到可交易的台股股票或 ETF: {canonical}")
+
+    if trade_date > taipei_today():
+        raise HTTPException(status_code=422, detail="成交日期不可晚於今日")
+    calendar = TaiwanTradingCalendar()
+    trading_day = calendar.is_trading_day(trade_date)
+    if trading_day is False:
+        raise HTTPException(status_code=422, detail=f"{trade_date.isoformat()} 是台灣市場休市日，不可記錄成交")
+    if trading_day is None:
+        trading_day = False
+        if trade_date == taipei_today():
+            try:
+                quote = get_realtime_service().get_quotes([canonical]).get(canonical)
+                meta = quote.source_meta if quote else None
+                trading_day = bool(
+                    quote
+                    and quote.trade_date == trade_date
+                    and meta
+                    and meta.trade_date == trade_date
+                    and meta.source_type == "first_party_web_endpoint"
+                    and not meta.is_stale
+                )
+            except Exception:
+                trading_day = False
+        if not trading_day:
+            try:
+                trading_day = TaiwanDailyStore().has_symbol_date(canonical, trade_date)
+            except Exception:
+                trading_day = False
+        if not trading_day:
+            raise HTTPException(status_code=422, detail="目前無法以台灣市場日資料確認成交日期，請確認日資料已更新後再記錄")
+
+    try:
+        tax_class = MarketProfileBridge.get_tax_class(instrument)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return canonical, instrument, tax_class, trading_day
+
+
+@router.get("/portfolio-instrument")
+def get_taiwan_portfolio_instrument(symbol: str, trade_date: dt_date):
+    """Validate a portfolio symbol and trade date using Taiwan's security master and calendar."""
+    canonical, instrument, tax_class, _ = _resolve_portfolio_instrument(symbol, trade_date)
+    return {
+        "symbol": canonical,
+        "instrument_type": instrument.instrument_type,
+        "is_supported": True,
+        "tax_class": tax_class.value,
+        "trading_day_status": "verified",
+    }
+
+
+@router.get("/transaction-tax")
+def get_taiwan_transaction_tax(
+    symbol: str,
+    trade_date: dt_date,
+    trade_value: float = Query(..., gt=0),
+    is_day_trade: bool = False,
+):
+    """Estimate sell-side securities tax using the canonical Taiwan market rules."""
+    canonical, _, tax_class, _ = _resolve_portfolio_instrument(symbol, trade_date)
+    try:
+        if is_day_trade:
+            raise ValueError("目前沒有可驗證此標的當沖資格與可配對股數的資料，暫不套用當沖優惠稅率")
+        tax_model = SecuritiesTaxModel()
+        rate = tax_model.get_tax_rate(tax_class=tax_class, is_day_trade=is_day_trade, trade_date=trade_date)
+        tax_amount = tax_model.calc_tax(
+            trade_value,
+            tax_class=tax_class,
+            is_day_trade=is_day_trade,
+            trade_date=trade_date,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    return {
+        "symbol": canonical,
+        "tax_class": tax_class.value,
+        "tax_rate": rate,
+        "tax_amount": tax_amount,
+    }
 
 
 @router.get("/data-status", response_model=FreshnessStatus)
@@ -67,14 +171,6 @@ def get_taiwan_data_status():
     """獲取台股市場三大本地數據集 (日線、三大法人、融資券) 之最新落盤日期與市場時效狀況。"""
     svc = TaiwanDailyUpdateService()
     return svc.get_freshness()
-
-
-from app.taiwan.bootstrap import (
-    BootstrapJobState,
-    TaiwanBootstrapService,
-    TaiwanHistoryStatus,
-    get_history_status,
-)
 
 
 @router.get("/history-status", response_model=TaiwanHistoryStatus)
@@ -106,6 +202,7 @@ def get_taiwan_bootstrap_job(job_id: str):
 async def stream_taiwan_bootstrap_job(job_id: str):
     """SSE 即時推播 Bootstrap 任務進度。"""
     import asyncio
+
     from sse_starlette.sse import EventSourceResponse
 
     svc = TaiwanBootstrapService()

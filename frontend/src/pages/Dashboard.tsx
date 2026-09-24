@@ -13,6 +13,7 @@ import { cn } from '@/lib/cn'
 import { cnSignal } from '@/lib/signals'
 import { strategyEventMeta, strategyName } from '@/lib/strategyMonitorEvents'
 import { boardTag } from '@/components/stock-table/primitives'
+import { PortfolioPanel } from '@/components/portfolio/Portfolio'
 
 function n(v: number | null | undefined) {
   return typeof v === 'number' && Number.isFinite(v) ? v : null
@@ -521,6 +522,7 @@ export function Dashboard() {
           (資料新鮮度) 移到最下層。Phase 8C-D: 中國 A 股 legacy 大盤看板整段已
           移除產品介面, Dashboard 全站僅剩台股內容, 不再有任何 legacy 開關。 */}
       <TodaySelection />
+      <div className="mb-1.5"><PortfolioPanel /></div>
       <QuantEvaluationCard compact />
       <MarketStrengthCard />
 

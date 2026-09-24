@@ -754,6 +754,9 @@ export interface TaiwanSectionMeta {
   status: 'available' | 'unavailable' | 'stale' | 'fallback' | string
   is_stale: boolean
   fallback_reason?: string | null
+  source_type?: string | null
+  freshness_class?: string | null
+  is_realtime?: boolean | null
 }
 
 export interface TaiwanStockIdentity {
@@ -3043,6 +3046,18 @@ export const api = {
   taiwanQuotes: (symbols: string[], force = false) =>
     request<{ quotes: TaiwanRealtimeQuote[]; count: number }>(
       `/api/intraday/quotes?symbols=${encodeURIComponent(symbols.join(','))}&force=${force}`,
+    ),
+
+  taiwanTransactionTax: (symbol: string, tradeValue: number, tradeDate: string, isDayTrade = false) =>
+    request<{ symbol: string; tax_class: string; tax_rate: number; tax_amount: number }>(
+      `/api/taiwan/transaction-tax?symbol=${encodeURIComponent(symbol)}&trade_value=${tradeValue}&trade_date=${encodeURIComponent(tradeDate)}&is_day_trade=${isDayTrade}`,
+      { quiet: true },
+    ),
+
+  taiwanPortfolioInstrument: (symbol: string, tradeDate: string) =>
+    request<{ symbol: string; instrument_type: string; is_supported: boolean; tax_class: string; trading_day_status: 'verified' | 'unverified' }>(
+      `/api/taiwan/portfolio-instrument?symbol=${encodeURIComponent(symbol)}&trade_date=${encodeURIComponent(tradeDate)}`,
+      { quiet: true },
     ),
 
   taiwanQuantLiveModels: () =>
