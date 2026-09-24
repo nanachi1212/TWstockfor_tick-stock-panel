@@ -4,6 +4,7 @@
 """
 from __future__ import annotations
 
+import logging
 from datetime import date
 from pathlib import Path
 
@@ -14,6 +15,7 @@ from app.strategy import monitor_rules
 from app.strategy.intraday_signals import INTRADAY_SIGNAL_LABELS, uses_intraday_signals
 
 router = APIRouter(prefix="/api/monitor-rules", tags=["monitor-rules"])
+logger = logging.getLogger(__name__)
 
 
 def _data_dir(request: Request) -> Path:
@@ -783,24 +785,22 @@ def delete_taiwan_rule(rule_id: str):
 
 @router.post("/taiwan/evaluate")
 def evaluate_taiwan_rules(request: Request):
-    """执行一轮台股实时规则评估，并将告警落盘与推送到 SSE。"""
-    from app.taiwan.realtime.monitor_engine import get_monitor_engine
+    """执行一轮台股实时规则评估, 并将告警落盘与推送到 SSE。"""
     from app.services import alert_store
+    from app.taiwan.realtime.monitor_engine import get_monitor_engine
 
     engine = get_monitor_engine()
-    alerts = engine.evaluate_all()
+    def persist_events(alerts):
+        repo = getattr(request.app.state, "repo", None)
+        if repo is None:
+            raise HTTPException(status_code=503, detail="提醒儲存尚未就緒")
+        alert_store.append_many(
+            repo.store.data_dir, [alert.to_dict() for alert in alerts],
+        )
 
+    alerts = engine.evaluate_all(persist_events=persist_events)
     if alerts:
-        # 1. 落盘持久化
-        alert_dicts = [a.to_dict() for a in alerts]
-        try:
-            repo = getattr(request.app.state, "repo", None)
-            if repo:
-                alert_store.append_many(repo.store.data_dir, alert_dicts)
-        except Exception as e:
-            logger.warning("Failed to persist Taiwan alerts: %s", e)
-
-        # 2. 推送至现有 SSE 广播通道
+        alert_dicts = [alert.to_dict() for alert in alerts]
         quote_svc = getattr(request.app.state, "quote_service", None)
         if quote_svc:
             try:

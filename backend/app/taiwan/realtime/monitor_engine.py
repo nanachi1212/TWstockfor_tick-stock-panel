@@ -243,7 +243,11 @@ class TaiwanMonitorEngine:
                     "price": None,
                     "change_pct": None,
                     "signals": [],
-                    "severity": "info",
+                    "severity": (
+                        rule.severity.value
+                        if isinstance(rule.severity, TaiwanAlertSeverity)
+                        else str(rule.severity)
+                    ),
                     "conditions": [],
                     "quant_status": action,
                     "quant_rank": rank,

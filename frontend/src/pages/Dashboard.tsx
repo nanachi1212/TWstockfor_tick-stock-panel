@@ -90,7 +90,7 @@ function MonitorWidget({ onStockClick }: {
   return (
     <>
       <div className="mb-1 flex justify-end">
-        <button type="button" onClick={() => markAllRead.mutate()} disabled={markAllRead.isPending || events.every(event => event.is_read)} className="rounded px-1.5 py-1 text-[9px] text-muted hover:text-accent disabled:opacity-40">全部標記已讀</button>
+        <button type="button" onClick={() => markAllRead.mutate()} disabled={markAllRead.isPending} className="rounded px-1.5 py-1 text-[9px] text-muted hover:text-accent disabled:opacity-40">全部標記已讀</button>
       </div>
       <div className="mt-1 space-y-1.5">
         {events.map((ev, i) => {

@@ -24,6 +24,7 @@ from app.taiwan.realtime.models import RealtimeStatus, TaiwanRealtimeQuote
 from app.taiwan.realtime.monitor_engine import TaiwanMonitorEngine
 from app.taiwan.realtime.monitor_models import (
     EvaluationStatus,
+    TaiwanAlertSeverity,
     TaiwanMonitorRule,
     TaiwanRuleType,
 )
@@ -497,6 +498,7 @@ class TestQuantTop10Alerts:
         entry = TaiwanMonitorRule(
             rule_id="q_entry", name="進入前十", symbol="2330.TWSE",
             rule_type=TaiwanRuleType.QUANT_TOP10_ENTER, threshold=0,
+            severity=TaiwanAlertSeverity.CRITICAL,
         )
         leaving = TaiwanMonitorRule(
             rule_id="q_exit", name="離開前十", symbol="2330.TWSE",
@@ -510,6 +512,7 @@ class TestQuantTop10Alerts:
         entered = engine.evaluate_quant_top10(top10, "2026-09-25")
         assert [event["type"] for event in entered] == ["quant_top10_enter"]
         assert entered[0]["quant_rank"] == 3
+        assert entered[0]["severity"] == "critical"
         assert engine.evaluate_quant_top10(top10, "2026-09-25") == []
 
         restarted = TaiwanMonitorEngine(storage_path=storage)

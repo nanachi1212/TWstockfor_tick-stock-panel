@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import json
 
+import pytest
+
 from app.services import alert_store
 
 
@@ -67,7 +69,8 @@ def test_read_and_delete_rewrites_preserve_original_when_atomic_replace_fails(tm
         raise OSError("replace failed")
 
     monkeypatch.setattr(alert_store.os, "replace", fail_replace)
-    assert alert_store.update_read(data_dir, alert_id) == 0
+    with pytest.raises(OSError, match="replace failed"):
+        alert_store.update_read(data_dir, alert_id)
     assert path.read_bytes() == original
     assert alert_store.delete_by_id(data_dir, alert_id) is False
     assert path.read_bytes() == original

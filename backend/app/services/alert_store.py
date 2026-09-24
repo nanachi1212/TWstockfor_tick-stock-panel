@@ -233,14 +233,14 @@ def update_read(data_dir: Path, alert_id: str | None = None, *, read: bool = Tru
                     kept.append(event)
         except OSError as e:
             logger.warning("alert_store read status update failed: %s", e)
-            return 0
+            raise
         if alert_id is not None and not any(_identity(event) == alert_id for event in kept):
             return 0
         try:
             _rewrite_locked(p, kept)
         except OSError as e:
             logger.warning("alert_store read status write failed: %s", e)
-            return 0
+            raise
         return updated
 
 

@@ -256,6 +256,20 @@ describe('Dashboard — Market Clarity (Phase 8C-B)', () => {
 })
 
 describe('Dashboard — stock reminders', () => {
+  it('keeps mark-all-read available when older alerts are outside the latest page', async () => {
+    vi.mocked(api.alertsList).mockResolvedValue({ alerts: Array.from({ length: 10 }, (_, index) => ({
+      ts: Date.now() - index, alert_id: `read-${index}`, is_read: true,
+      rule_id: `rule-${index}`, source: 'price', type: 'price_above',
+      symbol: '2330.TWSE', name: '台積電', message: '已讀提醒',
+    })), total: 11 } as any)
+    renderDashboard()
+
+    const markAll = await screen.findByRole('button', { name: '全部標記已讀' })
+    expect(markAll).toBeEnabled()
+    fireEvent.click(markAll)
+    await waitFor(() => expect(api.alertsMarkAllRead).toHaveBeenCalled())
+  })
+
   it('opens the stock detail route from an alert and supports read state', async () => {
     vi.mocked(api.alertsList).mockResolvedValue({ alerts: [{
       ts: Date.now(), alert_id: 'alert-1', is_read: false, rule_id: 'rule-1',
