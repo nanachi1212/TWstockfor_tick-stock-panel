@@ -169,12 +169,47 @@ describe('Portfolio UI', () => {
   it('keeps realized profit visible after closing the position', () => {
     storage.portfolioTransactions.set([
       { id: 'buy', symbol: '2330.TWSE', name: '台積電', side: 'buy', shares: 10, price: 100, fee: 0, date: '2026-09-22', createdAt: '2026-09-22T00:00:00.000Z' },
-      { id: 'sell', symbol: '2330.TWSE', name: '台積電', side: 'sell', shares: 10, price: 110, fee: 0, date: '2026-09-23', createdAt: '2026-09-23T00:00:00.000Z' },
+      { id: 'sell', symbol: '2330.TWSE', name: '台積電', side: 'sell', shares: 10, price: 110, fee: 0, tax: 0, date: '2026-09-23', createdAt: '2026-09-23T00:00:00.000Z' },
     ])
     renderPortfolio()
 
     expect(screen.getByText('目前沒有持股，從觀察清單或個股頁記錄第一筆買入。')).toBeInTheDocument()
     expect(screen.getByText('已實現損益（平均成本法）：NT$100.00')).toBeInTheDocument()
+  })
+
+  it('migrates legacy sell tax through market rules and persists the same P/L after reload', async () => {
+    storage.portfolioTransactions.set([
+      { id: 'buy', symbol: '2330.TWSE', name: '台積電', side: 'buy', shares: 10, price: 100, fee: 0, date: '2026-09-22', createdAt: '2026-09-22T00:00:00.000Z' },
+      { id: 'legacy-sell', symbol: '2330.TWSE', name: '台積電', side: 'sell', shares: 10, price: 110, fee: 0, date: '2026-09-23', createdAt: '2026-09-23T00:00:00.000Z' },
+    ])
+    vi.mocked(api.taiwanTransactionTax).mockResolvedValue({
+      symbol: '2330.TWSE', tax_class: 'ordinary_stock', tax_rate: 0.003, tax_amount: 3.3,
+    })
+    const first = renderPortfolio()
+    expect(await screen.findByText('已實現損益（平均成本法）：NT$96.70')).toBeInTheDocument()
+    await waitFor(() => expect(storage.portfolioTransactions.get([])).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: 'legacy-sell', tax: 3.3 }),
+    ])))
+    first.unmount()
+
+    vi.mocked(api.taiwanTransactionTax).mockClear()
+    renderPortfolio()
+    expect(screen.getByText('已實現損益（平均成本法）：NT$96.70')).toBeInTheDocument()
+    expect(api.taiwanTransactionTax).not.toHaveBeenCalled()
+  })
+
+  it('shows legacy realized P/L as incomplete when market rules cannot resolve tax', async () => {
+    storage.portfolioTransactions.set([
+      { id: 'buy', symbol: '2330.TWSE', name: '台積電', side: 'buy', shares: 10, price: 100, fee: 0, date: '2026-09-22', createdAt: '2026-09-22T00:00:00.000Z' },
+      { id: 'legacy-sell', symbol: '2330.TWSE', name: '台積電', side: 'sell', shares: 10, price: 110, fee: 0, date: '2026-09-23', createdAt: '2026-09-23T00:00:00.000Z' },
+    ])
+    vi.mocked(api.taiwanTransactionTax).mockRejectedValue(new Error('rule unavailable'))
+    renderPortfolio()
+
+    expect(screen.getByText('已實現損益（平均成本法）：不完整，部分舊賣出缺少可驗證的證交稅')).toBeInTheDocument()
+    await waitFor(() => expect(api.taiwanTransactionTax).toHaveBeenCalled())
+    const savedTransactions = storage.portfolioTransactions.get([]) as Array<Record<string, unknown>>
+    expect(savedTransactions.find(transaction => transaction.id === 'legacy-sell')).not.toHaveProperty('tax')
   })
 
   it('marks delayed quotes and the resulting portfolio valuation as non-realtime', async () => {

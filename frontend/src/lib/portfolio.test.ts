@@ -42,6 +42,19 @@ describe('portfolio accounting', () => {
     ])
   })
 
+  it('keeps realized profit unavailable for legacy sells with unknown tax', () => {
+    const legacySell = { ...transaction('sell', 4, 130), tax: undefined }
+    expect(buildPortfolioPositions([transaction('buy', 10, 100), legacySell])[0]).toEqual(expect.objectContaining({
+      shares: 6, realizedPnl: null,
+    }))
+  })
+
+  it('does not change buy accounting when sell tax is unknown', () => {
+    expect(buildPortfolioPositions([transaction('buy', 10, 100)])[0]).toEqual(expect.objectContaining({
+      shares: 10, costBasis: 1000, averageCost: 100, realizedPnl: 0,
+    }))
+  })
+
   it('uses execution time for same-day buy and sell accounting', () => {
     const opening = transaction('buy', 10, 100, 0, '2026-09-24', 0, '09:00')
     const sell = transaction('sell', 10, 110, 0, '2026-09-24', 0, '09:30')

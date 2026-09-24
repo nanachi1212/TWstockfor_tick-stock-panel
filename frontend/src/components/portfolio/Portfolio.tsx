@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type FormEvent } from 'react'
+import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
 import { Link } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { ArrowDownToLine, ArrowUpFromLine, ExternalLink, Plus, Wallet } from 'lucide-react'
@@ -104,6 +104,51 @@ function readTransactions(): { transactions: PortfolioTransaction[]; error: stri
 
 function usePortfolioTransactions() {
   const [ledger, setLedger] = useState(readTransactions)
+  const migratingIds = useRef(new Set<string>())
+  useEffect(() => {
+    const legacySells = ledger.transactions.filter(transaction => transaction.side === 'sell' && transaction.tax == null
+      && !migratingIds.current.has(transaction.id))
+    for (const transaction of legacySells) migratingIds.current.add(transaction.id)
+    if (legacySells.length === 0) return
+
+    void Promise.all(legacySells.map(async transaction => {
+      try {
+        const result = await api.taiwanTransactionTax(
+          transaction.symbol,
+          transaction.shares * transaction.price,
+          transaction.date,
+        )
+        if (Number.isFinite(result.tax_amount) && result.tax_amount >= 0) {
+          return [transaction.id, result.tax_amount] as const
+        }
+      } catch {
+        // Keep unknown legacy tax unavailable when the authoritative rule cannot resolve it.
+      }
+      return null
+    })).then(async results => {
+      const resolvedTaxes = new Map(results.filter((result): result is readonly [string, number] => result != null))
+      if (resolvedTaxes.size === 0) return
+      try {
+        await withPortfolioWriteLock(() => {
+          const saved = storage.portfolioTransactions.get([])
+          if (!Array.isArray(saved) || !saved.every(isPortfolioTransaction)) return
+          const migrated = saved.map(transaction => {
+            const tax = resolvedTaxes.get(transaction.id)
+            return transaction.side === 'sell' && transaction.tax == null && tax != null
+              ? { ...transaction, tax }
+              : transaction
+          })
+          if (migrated.some((transaction, index) => transaction !== saved[index])) {
+            buildPortfolioPositions(migrated)
+            storage.portfolioTransactions.set(migrated)
+            window.dispatchEvent(new Event(PORTFOLIO_CHANGED))
+          }
+        })
+      } catch {
+        // A failed local write leaves the original ledger intact and the P/L unavailable.
+      }
+    })
+  }, [ledger.transactions])
   useEffect(() => {
     const refresh = () => setLedger(readTransactions())
     window.addEventListener(PORTFOLIO_CHANGED, refresh)
@@ -358,8 +403,8 @@ export function PortfolioPanel({ symbol, name, quote: detailQuote, change: detai
           {shownPositions.some(position => !symbol && !quoteFor(position)?.last_price) && <p className="mt-2 text-[11px] text-muted">部分標的目前無法取得報價，市值與損益摘要暫不顯示。</p>}
         </div>
       )}
-      {symbol && targetLedgerPosition && <p className="text-[11px] text-muted">已實現損益（平均成本法）：{money(targetLedgerPosition.realizedPnl)}</p>}
-      {!symbol && ledgerPositions.length > 0 && <p className="text-[11px] text-muted">已實現損益（平均成本法）：{money(ledgerPositions.reduce((sum, position) => sum + position.realizedPnl, 0))}</p>}
+      {symbol && targetLedgerPosition && <p className="text-[11px] text-muted">已實現損益（平均成本法）：{targetLedgerPosition.realizedPnl == null ? '不完整，部分舊賣出缺少可驗證的證交稅' : money(targetLedgerPosition.realizedPnl)}</p>}
+      {!symbol && ledgerPositions.length > 0 && <p className="text-[11px] text-muted">已實現損益（平均成本法）：{ledgerPositions.some(position => position.realizedPnl == null) ? '不完整，部分舊賣出缺少可驗證的證交稅' : money(ledgerPositions.reduce((sum, position) => sum + (position.realizedPnl ?? 0), 0))}</p>}
       {trade && <PortfolioTradeDialog symbol={trade.symbol} name={trade.name} initialSide={trade.side} quote={trade.quote} onClose={() => setTrade(null)} />}
     </section>
   )

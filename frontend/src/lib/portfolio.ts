@@ -8,7 +8,7 @@ export interface PortfolioTransaction {
   shares: number
   price: number
   fee: number
-  tax?: number
+  tax?: number | null
   date: string
   tradeTime?: string
   createdAt: string
@@ -20,7 +20,7 @@ export interface PortfolioPosition {
   shares: number
   costBasis: number
   averageCost: number
-  realizedPnl: number
+  realizedPnl: number | null
 }
 
 export interface PortfolioTransactionInput {
@@ -115,7 +115,11 @@ export function buildPortfolioPositions(transactions: readonly PortfolioTransact
       if (transaction.shares > position.shares) {
         throw new Error(`${transaction.symbol} 賣出股數超過當時持有股數`)
       }
-      position.realizedPnl += transaction.shares * (transaction.price - position.averageCost) - transaction.fee - (transaction.tax ?? 0)
+      if (transaction.tax == null) {
+        position.realizedPnl = null
+      } else if (position.realizedPnl != null) {
+        position.realizedPnl += transaction.shares * (transaction.price - position.averageCost) - transaction.fee - transaction.tax
+      }
       position.shares -= transaction.shares
       position.costBasis = position.shares * position.averageCost
     }
