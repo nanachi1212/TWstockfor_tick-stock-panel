@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+from types import SimpleNamespace
 
 from app.api import taiwan_quant
 from app.taiwan.backfill_worker import WorkerLock
@@ -88,6 +89,25 @@ def test_readiness_distinguishes_processing_ready_blocked_and_failed():
     assert quant_evaluation_readiness(
         health, _progress(completed=477, failed=1), worker_status="running",
     ).status is QuantEvaluationStatus.FAILED
+
+
+def test_a2b_progress_endpoint_returns_worker_counts_without_oos_evaluation(monkeypatch):
+    class Worker:
+        lock = SimpleNamespace(owner_status=lambda: "running")
+
+        def status(self, *, start):
+            assert start is not None
+            return {"classification": {
+                "completed_jobs": 232, "pending_jobs": 246, "failed_jobs": 0,
+                "unique_first_seen_dates": 478,
+            }}
+
+    monkeypatch.setattr(taiwan_quant, "TaiwanHistoricalBackfillWorker", Worker)
+
+    assert taiwan_quant.a2b_progress_status() == {
+        "completed": 232, "pending": 246, "failed": 0, "total": 478,
+        "worker_status": "running",
+    }
 
 
 def test_processing_snapshot_never_exposes_oos_metrics_even_if_artifact_is_supplied():

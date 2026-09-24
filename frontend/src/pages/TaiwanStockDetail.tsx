@@ -29,6 +29,7 @@ import { TaiwanReferenceData } from '@/components/taiwan/TaiwanReferenceData'
 import { DataQualityBadge, formatQuoteSource } from '@/components/taiwan/TaiwanDataQuality'
 import { WatchlistAddMenu } from '@/components/WatchlistAddMenu'
 import { useSafeBack } from '@/lib/useSafeBack'
+import { TodaySelection } from '@/components/quant/TodaySelection'
 
 const RANGE_OPTIONS = [
   { label: '1 個月', days: 30 },
@@ -328,6 +329,7 @@ export function TaiwanStockDetail() {
 
       {data && !isLoading && (
         <div className="px-4 py-4 space-y-4 max-w-7xl mx-auto w-full">
+          <TodaySelection symbol={symbol} />
           {/* 未支援標的提示列 (例如權證/ETN) */}
           {!data.identity.is_supported && (
             <div className="flex items-center gap-2 rounded-xl border border-amber-500/40 bg-amber-500/10 px-4 py-2.5 text-xs text-amber-400">

@@ -11,13 +11,36 @@ function formatPct(value: number | null | undefined) {
   return typeof value === 'number' && Number.isFinite(value) ? `${(value * 100).toFixed(2)}%` : '—'
 }
 
-export function QuantEvaluationCard() {
+export function QuantEvaluationCard({ compact = false }: { compact?: boolean }) {
+  const progress = useQuery({
+    queryKey: QK.taiwanQuantA2bProgress,
+    queryFn: api.taiwanQuantA2bStatus,
+    enabled: compact,
+    staleTime: 10_000,
+    refetchInterval: compact ? 10_000 : false,
+  })
   const query = useQuery({
     queryKey: QK.taiwanQuantEvaluation,
     queryFn: api.taiwanQuantEvaluation,
+    enabled: !compact,
     staleTime: 30_000,
-    refetchInterval: 30_000,
+    refetchInterval: compact ? false : 30_000,
   })
+
+  if (compact) {
+    return (
+      <section className="mb-1.5 rounded-lg border border-border/70 bg-surface/60 px-3 py-2" aria-label="歷史驗證準備狀態">
+        <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[10px]">
+          <Activity className="h-3 w-3 text-muted" />
+          <span className="font-medium text-secondary">Primary OOS 歷史驗證</span>
+          {progress.isLoading ? <span role="status" className="text-muted">讀取 A2b 背景分類進度…</span> : progress.isError ?
+            <span role="alert" className="text-muted">狀態暫不可用，Live 選股不受影響</span> : progress.data ?
+              <><span className="text-muted">A2b {progress.data?.completed} / {progress.data?.total}</span><span className="text-muted">待處理 {progress.data?.pending}，失敗 {progress.data?.failed}</span><span className="text-muted">{progress.data?.worker_status === 'running' ? '背景分類執行中，與 Live 排名分開' : '背景分類已停止，與 Live 排名分開'}</span></> :
+                <span className="text-muted">目前沒有歷史驗證狀態</span>}
+        </div>
+      </section>
+    )
+  }
 
   return (
     <section className="mb-1.5 rounded-card border border-border bg-surface/85 p-3.5">

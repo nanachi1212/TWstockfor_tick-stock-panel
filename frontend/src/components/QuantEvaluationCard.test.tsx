@@ -4,7 +4,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { QuantEvaluationCard } from './QuantEvaluationCard'
 import { api } from '@/lib/api'
 
-vi.mock('@/lib/api', () => ({ api: { taiwanQuantEvaluation: vi.fn() } }))
+vi.mock('@/lib/api', () => ({ api: { taiwanQuantEvaluation: vi.fn(), taiwanQuantA2bStatus: vi.fn() } }))
 
 function buildStatus(overrides: Record<string, any> = {}) {
   return {
@@ -23,11 +23,11 @@ function buildStatus(overrides: Record<string, any> = {}) {
   }
 }
 
-function renderCard() {
+function renderCard(compact = false) {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   return render(
     <QueryClientProvider client={queryClient}>
-      <QuantEvaluationCard />
+      <QuantEvaluationCard compact={compact} />
     </QueryClientProvider>,
   )
 }
@@ -35,6 +35,16 @@ function renderCard() {
 afterEach(() => { vi.clearAllMocks() })
 
 describe('QuantEvaluationCard', () => {
+  it('renders compact A2b progress without triggering the full historical health scan', async () => {
+    vi.mocked(api.taiwanQuantA2bStatus).mockResolvedValue({ completed: 232, pending: 246, failed: 0, total: 478, worker_status: 'running' })
+    renderCard(true)
+
+    expect(await screen.findByText('A2b 232 / 478')).toBeInTheDocument()
+    expect(screen.getByText('待處理 246，失敗 0')).toBeInTheDocument()
+    expect(screen.getByText('背景分類執行中，與 Live 排名分開')).toBeInTheDocument()
+    expect(api.taiwanQuantEvaluation).not.toHaveBeenCalled()
+  })
+
   it('shows A2b progress without presenting OOS metrics while processing', async () => {
     vi.mocked(api.taiwanQuantEvaluation).mockResolvedValue(buildStatus() as any)
     renderCard()

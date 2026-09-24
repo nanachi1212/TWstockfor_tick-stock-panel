@@ -7,7 +7,7 @@ from typing import Any
 
 from fastapi import APIRouter
 
-from app.taiwan.backfill_worker import WorkerLock
+from app.taiwan.backfill_worker import CENSUS_START, TaiwanHistoricalBackfillWorker, WorkerLock
 from app.taiwan.providers.taiwan_values import TAIPEI
 from app.taiwan.quant.data_health import (
     DataHealth,
@@ -20,6 +20,20 @@ from app.taiwan.quant.evaluation_store import PrimaryOosRunStore
 from app.taiwan.quant.primary_oos_runner import read_primary_oos_preflight
 
 router = APIRouter(prefix="/api/taiwan/quant", tags=["taiwan-quant"])
+
+
+@router.get("/a2b-status")
+def a2b_progress_status() -> dict[str, Any]:
+    """Small read-only A2b progress projection, independent of OOS data-health scans."""
+    worker = TaiwanHistoricalBackfillWorker()
+    classification = worker.status(start=CENSUS_START)["classification"]
+    return {
+        "completed": classification["completed_jobs"],
+        "pending": classification["pending_jobs"],
+        "failed": classification["failed_jobs"],
+        "total": classification["unique_first_seen_dates"],
+        "worker_status": worker.lock.owner_status(),
+    }
 
 
 def evaluation_product_response(

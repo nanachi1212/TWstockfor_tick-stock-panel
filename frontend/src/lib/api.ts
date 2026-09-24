@@ -1098,6 +1098,46 @@ export interface TaiwanQuantEvaluationStatus {
   ranking_modes: { live_current: string; historical_oos: string }
 }
 
+export interface TaiwanA2bProgress {
+  completed: number
+  pending: number
+  failed: number
+  total: number
+  worker_status: string
+}
+
+export interface TaiwanLiveQuantRunSummary {
+  model_key: string
+  session: string
+  snapshot_hash: string
+  frozen_at: string
+  signal_count: number
+}
+
+export interface TaiwanLiveQuantSignal {
+  symbol: string
+  score: number
+  rank: number
+  selected: boolean
+  reference_close: number
+  feature_percentiles: Record<string, number>
+}
+
+export interface TaiwanLiveQuantRun {
+  model_key: string
+  session: string
+  snapshot_hash: string
+  frozen_at: string
+  snapshot: {
+    signal_session: string
+    usage_scope: string
+    validation_state: string
+    model: { model_key: string; top_n: number; validation_state: string }
+    signals: TaiwanLiveQuantSignal[]
+    features: Array<Record<string, unknown> & { symbol: string }>
+  }
+}
+
 export interface TaiwanScreenerTranslation {
   request: TaiwanScreenerRequest | null
   recognized_conditions: string[]
@@ -3003,6 +3043,19 @@ export const api = {
       `/api/intraday/quotes?symbols=${encodeURIComponent(symbols.join(','))}&force=${force}`,
     ),
 
+  taiwanQuantLiveModels: () =>
+    request<{ configured_model: { model_key: string; top_n: number }; latest_operation: unknown }>(
+      '/api/taiwan/quant/live/models',
+    ),
+
+  taiwanQuantLiveRuns: (limit = 30) =>
+    request<{ runs: TaiwanLiveQuantRunSummary[] }>(`/api/taiwan/quant/live/runs?limit=${limit}`),
+
+  taiwanQuantLiveRun: (modelKey: string, session: string) =>
+    request<TaiwanLiveQuantRun>(
+      `/api/taiwan/quant/live/runs/${encodeURIComponent(modelKey)}/${encodeURIComponent(session)}`,
+    ),
+
   taiwanSearch: (query: string, limit = 20) =>
     request<{ results: TaiwanSearchResult[]; count: number }>(
       `/api/intraday/taiwan/search?q=${encodeURIComponent(query)}&limit=${limit}`,
@@ -3030,6 +3083,9 @@ export const api = {
 
   taiwanQuantEvaluation: () =>
     request<TaiwanQuantEvaluationStatus>('/api/taiwan/quant/evaluation'),
+
+  taiwanQuantA2bStatus: () =>
+    request<TaiwanA2bProgress>('/api/taiwan/quant/a2b-status'),
 
   taiwanScreenerTranslate: (query: string) =>
     request<TaiwanScreenerTranslation>('/api/taiwan/screener/translate', {
