@@ -94,6 +94,7 @@ export const QK = {
   alerts:               (source?: string) => ['alerts', source ?? ''] as const,
   taiwanRules:          ['taiwan-rules'] as const,
   taiwanQuotes:         (symbols: string) => ['taiwan-quotes', symbols] as const,
+  portfolioQuotes:      (symbols: string) => ['portfolio-quotes', symbols] as const,
   taiwanSearch:         (q: string) => ['taiwan-search', q] as const,
   taiwanStockDetail:    (symbol: string, days?: number) => ['taiwan-stock-detail', symbol, days ?? 120] as const,
   taiwanCurrentData:    (symbol: string) => ['taiwan-current-data', symbol] as const,

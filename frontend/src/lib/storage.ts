@@ -30,6 +30,9 @@ export const storage = {
   /** 自選列表列配置 */
   watchlistColumns:     kv<unknown[]>('watchlist_columns'),
 
+  /** Portfolio 成交紀錄，持倉與損益由成交資料重建 */
+  portfolioTransactions: kv<unknown[]>('portfolio_transactions'),
+
   /** 個股日K信息條指標配置 */
   stockInfoBarFields:   kv<unknown[]>('stock_info_bar_fields'),
 

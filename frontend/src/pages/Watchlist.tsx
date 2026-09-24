@@ -29,6 +29,7 @@ import { WatchlistGroupStatsBar } from '@/components/WatchlistGroupStatsBar'
 import { ExtensionSlot } from '@/extensions/ExtensionSlot'
 import { MIN_COMPARE_SYMBOLS, MAX_COMPARE_SYMBOLS } from '@/lib/taiwanCompareSymbols'
 import { DataQualityBadge } from '@/components/taiwan/TaiwanDataQuality'
+import { PortfolioTradeDialog } from '@/components/portfolio/Portfolio'
 
 // 分時列開放排序 (StockDataTable 實例級白名單; 表頭眼睛/刷新按鈕已 stopPropagation)
 const INTRADAY_SORTABLE_KEYS = new Set(['intraday'])
@@ -462,6 +463,7 @@ const StockCard = React.memo(function StockCard({
   candleRows,
   showCandle,
   onPreview,
+  onQuickBuy,
   onConfirmRemove,
   onCancelRemove,
   onRequestRemove,
@@ -479,6 +481,7 @@ const StockCard = React.memo(function StockCard({
   candleRows: KlineRow[]
   showCandle: boolean
   onPreview: (symbol: string, name: string) => void
+  onQuickBuy: (symbol: string, name: string, price: number | null) => void
   onConfirmRemove: (symbol: string) => void
   onCancelRemove: () => void
   onRequestRemove: (symbol: string) => void
@@ -542,6 +545,13 @@ const StockCard = React.memo(function StockCard({
               disabled={groupChangePending}
               onToggleMember={onToggleMember}
             />
+            <button
+              type="button"
+              onClick={event => { event.stopPropagation(); onQuickBuy(r.symbol, name ?? r.symbol, r.rt_price ?? r.close ?? null) }}
+              aria-label={`買入 ${r.symbol}`}
+              title="記錄買入"
+              className="rounded p-1 text-bull hover:bg-bull/10"
+            ><Plus className="h-3 w-3" /></button>
             <button
               onClick={() => onRequestRemove(r.symbol)}
               className="opacity-0 group-hover:opacity-100 text-muted hover:text-danger transition-all duration-150 p-0.5 rounded hover:bg-elevated"
@@ -678,6 +688,7 @@ export function Watchlist() {
   }
   // 分組卡片總覽: 臨時整頁模式, 不持久化; 關閉(含刷新)後回到原視圖設置
   const [groupCardsOpen, setGroupCardsOpen] = useState(false)
+  const [portfolioTrade, setPortfolioTrade] = useState<{ symbol: string; name: string; quote: number | null } | null>(null)
   // 分組統計條: 頂部圖形化分組漲跌概覽, 會話內開關, 不影響個股視圖設置
   const [groupStatsOpen, setGroupStatsOpen] = useState(false)
   const [dailyKChartVisible, setDailyKChartVisible] = useState(() => {
@@ -1260,6 +1271,7 @@ export function Watchlist() {
       candleRows={klineData[r.symbol] ?? EMPTY_KLINE}
       showCandle={dailyKVisible}
       onPreview={handleCardPreview}
+      onQuickBuy={(symbol, name, quote) => setPortfolioTrade({ symbol, name, quote })}
       onConfirmRemove={handleCardConfirmRemove}
       onCancelRemove={handleCardCancelRemove}
       onRequestRemove={handleCardRequestRemove}
@@ -1734,6 +1746,13 @@ export function Watchlist() {
                           ) : null}
                           {monitoredSymbols.has(r.symbol) && <span className="ml-2"><RealtimeDot /></span>}
                         </button>
+                        <button
+                          type="button"
+                          onClick={event => { event.stopPropagation(); setPortfolioTrade({ symbol: r.symbol, name: name ?? r.symbol, quote: r.rt_price ?? r.close ?? null }) }}
+                          aria-label={`買入 ${r.symbol}`}
+                          title="記錄買入並帶入此股票"
+                          className="shrink-0 rounded p-1 text-bull hover:bg-bull/10"
+                        ><Plus className="h-3 w-3" /></button>
                         {/* 刪除入口：從分組移除 + 從自選移除(二次確認) + 移到頂部 */}
                         <div className="ml-auto pl-1 shrink-0">
                           {confirmRemove === r.symbol ? (
@@ -1969,6 +1988,12 @@ export function Watchlist() {
         name={previewName}
         onClose={closePreview}
       />
+      {portfolioTrade && <PortfolioTradeDialog
+        symbol={portfolioTrade.symbol}
+        name={portfolioTrade.name}
+        quote={portfolioTrade.quote}
+        onClose={() => setPortfolioTrade(null)}
+      />}
 
       <DimensionMembersDialog
         target={dimensionTarget}
