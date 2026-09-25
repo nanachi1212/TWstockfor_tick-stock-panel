@@ -27,6 +27,15 @@ describe('notification channel settings', () => {
     expect(code).toContain('lineConfigured')
     expect(code).toContain('telegramConfigured')
   })
+
+  it('keeps external delivery under global settings instead of per-rule checkboxes', () => {
+    const ruleEditor = read('../../components/monitor/RuleEditor.tsx')
+    const pointAlert = read('../../components/stock-analysis/PriceAlertDialog.tsx')
+    expect(ruleEditor).toContain('使用全域通道選擇')
+    expect(ruleEditor).not.toContain('Webhook 推送')
+    expect(pointAlert).toContain('依全域通道設定發送')
+    expect(pointAlert).not.toContain('onChange={() => toggleChannel(channel.key)}')
+  })
 })
 
 describe('data source settings', () => {

@@ -338,7 +338,14 @@ def _evaluate_live_quant_alerts(freeze: dict[str, Any], ledger: LiveLedger, app_
     if events:
         quote_service = getattr(app_state, "quote_service", None)
         if quote_service is not None:
-            quote_service.push_alerts(events)
+            try:
+                quote_service.push_alerts(events)
+            except Exception as exc:
+                logger.warning("Failed to push Quant Top 10 alerts to SSE (%s)", type(exc).__name__)
+            try:
+                quote_service._maybe_send_webhook(events, None)
+            except Exception as exc:
+                logger.warning("Failed to dispatch Quant Top 10 external alerts (%s)", type(exc).__name__)
     return {"status": "available", "appended": len(events)}
 
 

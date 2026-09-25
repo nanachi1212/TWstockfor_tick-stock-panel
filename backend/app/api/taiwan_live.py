@@ -1,4 +1,5 @@
 """Read-only live contract. No caller-supplied session, importer or rerank API."""
+import logging
 import threading
 import time
 from datetime import date
@@ -10,6 +11,7 @@ from app.taiwan.quant.live_runner import CurrentLiveSource
 from app.taiwan.quant.live_store import LiveLedger
 
 router = APIRouter(prefix="/api/taiwan/quant/live", tags=["taiwan-live"])
+logger = logging.getLogger(__name__)
 
 _SESSION_CACHE_TTL = 120.0
 _SESSION_CACHE: tuple[float, str] | None = None
@@ -115,7 +117,14 @@ def evaluate_quant_alerts(request: Request):
     if events:
         quote_service = getattr(request.app.state, "quote_service", None)
         if quote_service:
-            quote_service.push_alerts(events)
+            try:
+                quote_service.push_alerts(events)
+            except Exception as exc:
+                logger.warning("Failed to push Quant Top 10 alerts to SSE (%s)", type(exc).__name__)
+            try:
+                quote_service._maybe_send_webhook(events, None)
+            except Exception as exc:
+                logger.warning("Failed to dispatch Quant Top 10 external alerts (%s)", type(exc).__name__)
     return {"ok": True, "status": "available", "alerts": events}
 
 

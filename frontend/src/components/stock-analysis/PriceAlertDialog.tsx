@@ -203,12 +203,6 @@ export function PriceAlertDialog({
     setMessageEdited(true)
   }
 
-  const toggleChannel = (channel: string) => {
-    setChannels(current => current.includes(channel)
-      ? current.filter(item => item !== channel)
-      : [...current, channel])
-  }
-
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/55 p-3 backdrop-blur-sm sm:p-4" {...backdrop}>
       <div role="dialog" aria-modal="true" aria-labelledby="price-alert-title" className="flex max-h-[88vh] w-full max-w-2xl flex-col overflow-hidden rounded-lg border border-border bg-surface shadow-2xl" onClick={event => event.stopPropagation()}>
@@ -322,22 +316,10 @@ export function PriceAlertDialog({
             </div>
 
             <div className="mt-4">
-              <span className="text-[11px] text-muted">通知渠道</span>
-              <div className="mt-2 flex flex-wrap gap-4">
-                <label className="inline-flex items-center gap-2 text-xs text-foreground">
-                  <input type="checkbox" checked disabled className="h-3.5 w-3.5 accent-sky-500" />站內
-                </label>
-                {([
-                  { key: 'line', label: 'LINE', configured: !!prefs?.line_configured },
-                  { key: 'telegram', label: 'Telegram', configured: !!prefs?.telegram_configured },
-                ]).map(channel => (
-                  <label key={channel.key} className={`inline-flex items-center gap-2 text-xs ${channel.configured ? 'text-foreground' : 'text-muted/60'}`}>
-                    <input type="checkbox" checked={channels.includes(channel.key)} disabled={!channel.configured} onChange={() => toggleChannel(channel.key)} className="h-3.5 w-3.5 accent-sky-500" />
-                    {channel.label}
-                    {!channel.configured && <span className="text-[9px]">未配置</span>}
-                  </label>
-                ))}
-              </div>
+              <p className="text-[11px] text-secondary">
+                站內提醒固定保留；LINE 與 Telegram 依全域通道設定發送。
+                <Link to="/settings?tab=monitoring" className="ml-1 text-sky-400 hover:text-sky-300">前往外部通知設定 →</Link>
+              </p>
             </div>
 
             {(alreadyReached || duplicate) && (
