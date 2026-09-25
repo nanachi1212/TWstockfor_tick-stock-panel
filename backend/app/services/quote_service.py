@@ -1420,14 +1420,22 @@ class QuoteService:
                 "strategy": "策略", "signal": "訊號", "price": "價格",
                 "market": "異動", "ladder": "連續漲停梯隊", "sector": "板塊",
             }
-            enqueued = 0
+            pending = []
             for ev in rule_events:
                 rule = rules.get(ev.get("rule_id"))
-                # A saved global list, including an empty App-only list, takes precedence.
-                # Older installations without it retain per-rule channel selections.
                 channels = global_channels if global_channels is not None else (rule.get("webhook_channels", []) if rule else [])
-                if not channels:
-                    continue
+                if channels:
+                    pending.append((ev, channels))
+
+            needs_line = any("line" in channels for _ev, channels in pending)
+            needs_telegram = any("telegram" in channels for _ev, channels in pending)
+            line_token = preferences.get_line_channel_access_token() if needs_line else ""
+            line_target = preferences.get_line_target_id() if needs_line else ""
+            telegram_token = preferences.get_telegram_bot_token() if needs_telegram else ""
+            telegram_chat = preferences.get_telegram_chat_id() if needs_telegram else ""
+
+            enqueued = 0
+            for ev, channels in pending:
                 title = source_labels.get(ev.get("source", ""), "提醒")
                 body = webhook_adapter.alert_message(ev)
                 event_id = str(ev.get("alert_id") or ev.get("dedup_key") or "|".join(
@@ -1436,8 +1444,6 @@ class QuoteService:
                 # The alert is already durable and in SSE before provider I/O begins.
                 if "line" in channels:
                     if _claim_external_delivery(event_id, "line"):
-                        line_token = preferences.get_line_channel_access_token()
-                        line_target = preferences.get_line_target_id()
                         if line_token and line_target:
                             _WEBHOOK_EXECUTOR.submit(webhook_adapter.send_line, line_token, line_target, title, body)
                         else:
@@ -1445,8 +1451,6 @@ class QuoteService:
                         enqueued += 1
                 if "telegram" in channels:
                     if _claim_external_delivery(event_id, "telegram"):
-                        telegram_token = preferences.get_telegram_bot_token()
-                        telegram_chat = preferences.get_telegram_chat_id()
                         if telegram_token and telegram_chat:
                             _WEBHOOK_EXECUTOR.submit(webhook_adapter.send_telegram, telegram_token, telegram_chat, title, body)
                         else:

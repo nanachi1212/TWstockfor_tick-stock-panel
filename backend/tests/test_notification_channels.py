@@ -6,6 +6,7 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 
 import httpx
+import pytest
 
 from app import secrets_store
 from app.api import settings as settings_api
@@ -195,6 +196,7 @@ def test_alert_message_includes_stock_and_trigger_but_omits_missing_quote():
         "name": "金居",
         "message": "跌破價格提醒",
         "price": None,
+        "rule_type": "price_below",
         "threshold": 450,
         "triggered_at": "2026-09-25T13:42:00+08:00",
         "quant_score": None,
@@ -202,9 +204,30 @@ def test_alert_message_includes_stock_and_trigger_but_omits_missing_quote():
 
     assert "8358.TWSE 金居" in message
     assert "跌破價格提醒" in message
-    assert "設定門檻: 450" in message
+    assert "設定門檻: 450元" in message
     assert "觸發時間: 2026-09-25 13:42" in message
     assert "目前價格" not in message
+
+
+@pytest.mark.parametrize(
+    ("rule_type", "threshold", "expected"),
+    [
+        ("change_pct_above", 5, "設定門檻: 5%"),
+        ("volume_above", 1000, "設定門檻: 1000股"),
+        ("volume_spike", 2.5, "設定門檻: 2.5倍"),
+        ("near_upper_limit", 3, "設定門檻: 3%"),
+    ],
+)
+def test_alert_message_preserves_taiwan_threshold_units(rule_type, threshold, expected):
+    message = webhook_adapter.alert_message({"rule_type": rule_type, "threshold": threshold})
+
+    assert expected in message
+
+
+def test_alert_message_omits_threshold_when_rule_unit_is_unknown():
+    message = webhook_adapter.alert_message({"rule_type": "unknown", "threshold": 5})
+
+    assert "設定門檻" not in message
 
 
 def test_alert_message_formats_quant_score_as_percentage():
@@ -288,6 +311,40 @@ def test_sector_alert_targets_have_distinct_delivery_dedupe_keys(monkeypatch):
     service._maybe_send_webhook(events, None)
 
     assert len(calls) == 2
+
+
+def test_global_alert_dispatch_reads_credentials_once_per_channel_batch(monkeypatch):
+    from app.services import quote_service
+
+    reads = {"token": 0, "target": 0}
+
+    def token():
+        reads["token"] += 1
+        return "fake-token"
+
+    def chat():
+        reads["target"] += 1
+        return "-1001"
+
+    class InlineExecutor:
+        def submit(self, _fn, *_args):
+            return None
+
+    monkeypatch.setattr(quote_service, "_WEBHOOK_EXECUTOR", InlineExecutor())
+    monkeypatch.setattr(quote_service, "_WEBHOOK_DISPATCHED", set())
+    monkeypatch.setattr(preferences, "get_external_notification_channels", lambda: ["telegram"])
+    monkeypatch.setattr(preferences, "get_telegram_bot_token", token)
+    monkeypatch.setattr(preferences, "get_telegram_chat_id", chat)
+    monkeypatch.setattr(webhook_adapter, "send_telegram", lambda *_args: True)
+    service = object.__new__(QuoteService)
+    events = [
+        {"alert_id": f"batch-{index}", "symbol": str(index), "message": "告警"}
+        for index in range(10)
+    ]
+
+    service._maybe_send_webhook(events, None)
+
+    assert reads == {"token": 1, "target": 1}
 
 
 def test_adapter_failure_status_and_logs_never_include_token(monkeypatch, caplog):

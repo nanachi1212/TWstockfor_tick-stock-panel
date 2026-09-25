@@ -72,11 +72,18 @@ def alert_message(event: dict) -> str:
         lines.append(f"目前價格: {price_number:g}")
 
     threshold = event.get("threshold")
-    if threshold is not None:
+    threshold_units = {
+        "price_above": "元", "price_below": "元",
+        "change_pct_above": "%", "change_pct_below": "%",
+        "volume_above": "股", "volume_spike": "倍",
+        "near_upper_limit": "%", "near_lower_limit": "%",
+    }
+    threshold_unit = threshold_units.get(str(event.get("rule_type") or ""))
+    if threshold is not None and threshold_unit:
         try:
             threshold_number = float(threshold)
             if math.isfinite(threshold_number):
-                lines.append(f"設定門檻: {threshold_number:g}")
+                lines.append(f"設定門檻: {threshold_number:g}{threshold_unit}")
         except (TypeError, ValueError):
             pass
 
