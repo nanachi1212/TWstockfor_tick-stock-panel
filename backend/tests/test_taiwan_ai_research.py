@@ -26,19 +26,28 @@ Comprehensive unit tests verifying:
 - No Auto-Triggering AI:
     * Detail and research-context endpoints do NOT invoke AI; only POST ai-research invokes AI.
 """
+import json
 from datetime import date
 from unittest.mock import AsyncMock, MagicMock, patch
-import json
+
 import pytest
 from fastapi.testclient import TestClient
 
 from app.main import app
 from app.taiwan.ai_research import (
+    _REPORT_CACHE,
+    _REPORT_CACHE_LOCK,
     TaiwanAIResearchResponse,
     TaiwanAIResearchService,
     build_evidence_registry,
 )
 from app.taiwan.research_context import TaiwanStockResearchContextService
+
+
+@pytest.fixture(autouse=True)
+def _clear_ai_research_cache():
+    with _REPORT_CACHE_LOCK:
+        _REPORT_CACHE.clear()
 
 
 @pytest.mark.asyncio
@@ -182,7 +191,8 @@ async def test_ai_provider_failure_graceful_handling():
 
         assert resp.status == "unavailable"
         assert resp.error_code == "provider_error"
-        assert "timeout" in (resp.error_message or "").lower()
+        assert resp.error_message == "AI 分析目前無法使用，請檢查 AI 設定或稍後重試。"  # noqa: RUF001
+        assert "timeout" not in (resp.error_message or "").lower()
         assert resp.report is None
 
 

@@ -29,7 +29,10 @@ function setup() {
   vi.mocked(api.watchlistAdd).mockResolvedValue({ ok: true } as any)
 }
 
-function Location() { return <span data-testid="location">{useLocation().pathname}</span> }
+function Location() {
+  const location = useLocation()
+  return <><span data-testid="location">{location.pathname}</span><span data-testid="location-state">{JSON.stringify(location.state)}</span></>
+}
 
 function renderSelection(initialPath = '/') {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
@@ -52,6 +55,7 @@ describe('TodaySelection', () => {
     expect(screen.queryByText('250.00%')).not.toBeInTheDocument()
     expect(screen.getAllByText('短期動能排名前段、中期動能排名前段、長期動能排名前段').length).toBeGreaterThan(0)
     expect(screen.getAllByRole('row')).toHaveLength(11)
+    expect(screen.getAllByRole('link', { name: 'AI 分析' })[0]).toHaveAttribute('href', '/stocks/2330.TWSE')
     expect(api.taiwanQuantEvaluation).toBeUndefined()
   })
 
@@ -63,6 +67,14 @@ describe('TodaySelection', () => {
     expect(await screen.findByRole('region', { name: 'Live Quant 摘要' })).toHaveTextContent('排名 #1')
     expect(screen.getByText(/分數 90.0%/)).toBeInTheDocument()
     expect(api.taiwanQuantLiveRun).toHaveBeenCalledTimes(1)
+  })
+
+  it('starts AI Research only through the visible Top 10 AI 分析 action', async () => {
+    setup()
+    renderSelection()
+    fireEvent.click((await screen.findAllByRole('link', { name: 'AI 分析' }))[0])
+    await waitFor(() => expect(screen.getByTestId('location')).toHaveTextContent('/stocks/2330.TWSE'))
+    expect(screen.getByTestId('location-state')).toHaveTextContent('"aiResearchRequested":true')
   })
 
   it('does not poll market quotes from stock-detail mode', async () => {

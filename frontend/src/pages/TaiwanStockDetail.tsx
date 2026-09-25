@@ -1,5 +1,5 @@
-import { useState, useMemo } from 'react'
-import { useParams, useNavigate } from 'react-router-dom'
+import { useState, useMemo, useEffect, useRef, useCallback } from 'react'
+import { useParams, useNavigate, useLocation } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import {
   ArrowLeft,
@@ -19,6 +19,7 @@ import {
   api,
   type TaiwanSearchResult,
   type TaiwanAIStockResearchReport,
+  type TaiwanAIResearchPersonalContext,
 } from '@/lib/api'
 import { QK } from '@/lib/queryKeys'
 import { cn } from '@/lib/cn'
@@ -31,6 +32,9 @@ import { WatchlistAddMenu } from '@/components/WatchlistAddMenu'
 import { useSafeBack } from '@/lib/useSafeBack'
 import { TodaySelection } from '@/components/quant/TodaySelection'
 import { PortfolioPanel } from '@/components/portfolio/Portfolio'
+import { useTodayQuantSelection } from '@/components/quant/TodaySelection'
+import { storage } from '@/lib/storage'
+import { buildPortfolioPositions, isPortfolioTransaction, type PortfolioTransaction } from '@/lib/portfolio'
 
 const RANGE_OPTIONS = [
   { label: '1 個月', days: 30 },
@@ -42,6 +46,10 @@ const RANGE_OPTIONS = [
 export function TaiwanStockDetail() {
   const { symbol: routeSymbol } = useParams<{ symbol: string }>()
   const navigate = useNavigate()
+  const location = useLocation()
+  const routeResearch = location.state as { aiResearchRequested?: boolean; alertId?: string } | null
+  const alertId = routeResearch?.alertId
+  const quantSelection = useTodayQuantSelection()
   const qc = useQueryClient()
   // DAILY_USE_CORE_UX_FIXES (P1-2): 個股詳細頁可從監控中心/台股選股/自選股/
   // StockPreview 等多處進入, 不再固定寫死「返回即時監控」→ /monitor。優先用
@@ -55,6 +63,7 @@ export function TaiwanStockDetail() {
   const [selectedRange, setSelectedRange] = useState<number>(180)
   const [isRuleEditorOpen, setIsRuleEditorOpen] = useState<boolean>(false)
   const [volUnit, setVolUnit] = useState<'lots' | 'shares'>('lots')
+  const autoAnalyzeStartedFor = useRef<string | null>(null)
 
   // Search state inside stock detail
   const [searchQuery, setSearchQuery] = useState('')
@@ -75,6 +84,15 @@ export function TaiwanStockDetail() {
     queryFn: api.watchlistList,
   })
   const inWatchlist = (watchlist.data?.symbols ?? []).some(s => s.symbol === symbol)
+  const alertContextQuery = useQuery({
+    queryKey: ['ai-research-alert', symbol, alertId],
+    queryFn: () => api.alertsList({ days: 7, limit: 500 }),
+    enabled: Boolean(alertId),
+    staleTime: 15_000,
+  })
+  const selectedAlert = alertId
+    ? alertContextQuery.data?.alerts.find(item => item.alert_id === alertId && item.symbol?.toUpperCase() === symbol)
+    : undefined
   const toggleWatchlist = useMutation({
     mutationFn: ({ action, groupId }: { action: 'add' | 'remove'; groupId?: string | null }) =>
       action === 'remove' ? api.watchlistRemove(symbol) : api.watchlistAdd(symbol, '', groupId),
@@ -96,6 +114,7 @@ export function TaiwanStockDetail() {
     queryFn: () => api.taiwanCurrentData(symbol),
     staleTime: 5 * 60_000,
   })
+  const data = detailQuery.data
 
   // Phase 7C: Structured Research Context Query
   const researchQuery = useQuery({
@@ -108,15 +127,83 @@ export function TaiwanStockDetail() {
   const [aiReport, setAiReport] = useState<TaiwanAIStockResearchReport | null>(null)
   const [isAiLoading, setIsAiLoading] = useState<boolean>(false)
   const [aiError, setAiError] = useState<string | null>(null)
+  const [aiProvider, setAiProvider] = useState<string | null>(null)
 
-  const handleGenerateAiReport = async () => {
+  const personalContext = useMemo(() => {
+    const context: TaiwanAIResearchPersonalContext = {}
+    if (!watchlist.isLoading && !watchlist.isError) context.watchlist = { included: inWatchlist }
+    const quote = data?.realtime
+    if (quote) {
+      context.quote = {
+        ...(typeof quote.last_price === 'number' ? { last_price: quote.last_price } : {}),
+        ...(typeof quote.change === 'number' ? { change: quote.change } : {}),
+        ...(typeof quote.change_pct === 'number' ? { change_pct: quote.change_pct } : {}),
+        ...(quote.quote_time ? { quote_time: quote.quote_time } : {}),
+        ...(quote.market_status ? { market_status: quote.market_status } : {}),
+        ...(quote.meta?.trade_date ? { trade_date: quote.meta.trade_date } : {}),
+        ...(quote.meta?.status ? { status: quote.meta.status } : {}),
+        ...(quote.meta?.source ? { source: quote.meta.source } : {}),
+        ...(typeof quote.meta?.is_stale === 'boolean' ? { is_stale: quote.meta.is_stale } : {}),
+      }
+    }
+    const signal = quantSelection.signals.find(item => item.symbol === symbol)
+    if (signal && quantSelection.validRun) {
+      context.quant = {
+        rank: signal.rank,
+        score: signal.score,
+        session: quantSelection.validRun.session,
+        feature_percentiles: Object.fromEntries(Object.entries(signal.feature_percentiles).filter(([, value]) => Number.isFinite(value))),
+      }
+    }
+    if (selectedAlert) context.alert = {
+      alert_id: selectedAlert.alert_id,
+      rule_name: selectedAlert.rule_name,
+      ...(typeof selectedAlert.rule_type === 'string' ? { rule_type: selectedAlert.rule_type } : {}),
+      ...(typeof selectedAlert.triggered_at === 'string' ? { triggered_at: selectedAlert.triggered_at } : {}),
+      ...(typeof selectedAlert.trigger_value === 'number' ? { trigger_value: selectedAlert.trigger_value } : {}),
+      ...(typeof selectedAlert.threshold === 'number' ? { threshold: selectedAlert.threshold } : {}),
+      message: selectedAlert.message,
+      source: selectedAlert.source,
+      ...(typeof selectedAlert.market_status === 'string' ? { market_status: selectedAlert.market_status } : {}),
+    }
+    try {
+      const raw = storage.portfolioTransactions.get([])
+      if (Array.isArray(raw) && raw.every(isPortfolioTransaction)) {
+        const position = buildPortfolioPositions(raw as PortfolioTransaction[]).find(item => item.symbol === symbol && item.shares > 0)
+        const currentPrice = data?.realtime?.last_price
+        if (position) {
+          const pnl = typeof currentPrice === 'number' ? currentPrice * position.shares - position.costBasis : undefined
+          context.portfolio = {
+            shares: position.shares,
+            average_cost: position.averageCost,
+            ...(typeof currentPrice === 'number' ? { current_price: currentPrice } : {}),
+            ...(pnl != null ? { unrealized_pnl: pnl, return_pct: position.costBasis ? pnl / position.costBasis * 100 : undefined } : {}),
+            ...(typeof data?.realtime?.change === 'number' ? { change: data.realtime.change } : {}),
+            ...(typeof data?.realtime?.change_pct === 'number' ? { change_pct: data.realtime.change_pct } : {}),
+          }
+        }
+      }
+    } catch {
+      // An unreadable local ledger stays unavailable and does not block stock analysis.
+    }
+    return context
+  }, [inWatchlist, watchlist.isLoading, watchlist.isError, quantSelection.signals, quantSelection.validRun, selectedAlert, symbol, data])
+
+  const handleGenerateAiReport = useCallback(async () => {
     setIsAiLoading(true)
     setAiError(null)
     try {
-      const res = await api.taiwanStockAIResearch(symbol)
+      const queryKey = ['taiwan-stock-ai-research', symbol, personalContext] as const
+      const res = await qc.fetchQuery({
+        queryKey,
+        queryFn: () => api.taiwanStockAIResearch(symbol, undefined, personalContext),
+        staleTime: 10 * 60_000,
+      })
+      setAiProvider(res.provider ?? null)
       if (res.status === 'success' && res.report) {
         setAiReport(res.report)
       } else {
+        await qc.removeQueries({ queryKey })
         setAiError(res.error_message || 'AI 研究報告生成失敗')
       }
     } catch (e: any) {
@@ -124,9 +211,20 @@ export function TaiwanStockDetail() {
     } finally {
       setIsAiLoading(false)
     }
-  }
+  }, [qc, symbol, personalContext])
 
-  const data = detailQuery.data
+  useEffect(() => {
+    const requestKey = `${symbol}:${alertId ?? ''}`
+    if (!routeResearch?.aiResearchRequested || autoAnalyzeStartedFor.current === requestKey || !detailQuery.isSuccess || watchlist.isLoading || quantSelection.loading) return
+    if (alertId && alertContextQuery.isLoading) return
+    autoAnalyzeStartedFor.current = requestKey
+    if (alertId && !selectedAlert) {
+      setAiError('找不到這筆提醒事件，股票資料仍可正常查看。')
+      return
+    }
+    void handleGenerateAiReport()
+  }, [routeResearch?.aiResearchRequested, detailQuery.isSuccess, alertId, alertContextQuery.isLoading, selectedAlert, symbol, handleGenerateAiReport, watchlist.isLoading, quantSelection.loading])
+
   const isLoading = detailQuery.isLoading
   const isError = detailQuery.isError
 
@@ -873,23 +971,24 @@ export function TaiwanStockDetail() {
             <Sparkles className="w-5 h-5 text-purple-400" />
             <div>
               <h3 className="font-semibold text-sm text-foreground flex items-center gap-2">
-                AI 客觀研究報告 (Grounded Research Interpretation)
+                AI Research Brief
                 <span className="text-[10px] bg-purple-950/60 border border-purple-800 text-purple-300 px-2 py-0.5 rounded font-mono">
-                  PROMPT v1 (無買賣推薦)
+                  依現有資料解讀
                 </span>
               </h3>
               <p className="text-[11px] text-muted">
-                僅依據上方結構化事實證據與異常診斷進行事實摘要與客觀解讀，絕不自創事實或提供進出場操作建議
+                僅整理系統目前可取得的結構化資料，不提供買賣建議
               </p>
+              {aiProvider && <p className="text-[10px] text-muted">本次使用：{aiProvider}</p>}
             </div>
           </div>
           <button
             type="button"
             onClick={handleGenerateAiReport}
-            disabled={isAiLoading}
+            disabled={isAiLoading || watchlist.isLoading || quantSelection.loading || Boolean(alertId && alertContextQuery.isLoading)}
             className={cn(
               "px-3.5 py-1.5 rounded-lg text-xs font-medium flex items-center justify-center gap-1.5 transition-colors border",
-              isAiLoading
+              isAiLoading || watchlist.isLoading || quantSelection.loading || Boolean(alertId && alertContextQuery.isLoading)
                 ? "bg-purple-950/40 border-purple-800/40 text-purple-400 cursor-not-allowed"
                 : "bg-purple-600 hover:bg-purple-500 text-white border-purple-500 shadow-sm"
             )}
@@ -902,7 +1001,7 @@ export function TaiwanStockDetail() {
             ) : (
               <>
                 <Sparkles className="w-3.5 h-3.5" />
-                {aiReport ? '重新生成 AI 研究報告' : '生成 AI 研究報告'}
+                {aiReport ? '重新分析' : 'AI 分析'}
               </>
             )}
           </button>
@@ -911,15 +1010,16 @@ export function TaiwanStockDetail() {
         {aiError && (
           <div className="p-3 bg-red-950/30 border border-red-900/50 rounded-lg text-xs text-red-400 flex items-center gap-2">
             <AlertTriangle className="w-4 h-4 shrink-0 text-red-400" />
-            <span>{aiError}</span>
+            <span className="flex-1">AI 分析目前無法使用：{aiError}</span>
+            <button type="button" onClick={() => navigate('/settings?tab=ai')} className="shrink-0 underline underline-offset-2">AI 設定</button>
           </div>
         )}
 
         {!aiReport && !isAiLoading && !aiError && (
           <div className="py-8 text-center text-muted text-xs border border-dashed border-border/40 rounded-xl bg-base/30">
             <Sparkles className="w-8 h-8 mx-auto mb-2 text-purple-400/40" />
-            <p className="font-medium text-foreground">尚未生成 AI 研究報告</p>
-            <p className="text-[11px] text-muted mt-1">點擊上方「生成 AI 研究報告」按鈕以進行封閉事實邊界之客觀解讀 (不自動呼叫)</p>
+            <p className="font-medium text-foreground">尚未分析</p>
+            <p className="text-[11px] text-muted mt-1">點擊「AI 分析」查看現況、主要訊號、風險與接下來的觀察點。</p>
           </div>
         )}
 
@@ -930,6 +1030,17 @@ export function TaiwanStockDetail() {
               <span className="text-[11px] font-semibold text-purple-300 block mb-1">【研究摘要】</span>
               <p className="text-foreground leading-relaxed text-xs">{aiReport.overview}</p>
             </div>
+
+            <BriefSection title="現況" text={[aiReport.price_technical_interpretation, aiReport.market_interpretation].filter(Boolean).join(' ')} />
+            <BriefSection title="為什麼值得注意" text={[aiReport.industry_interpretation, aiReport.institutional_interpretation, aiReport.margin_interpretation, aiReport.abnormal_diagnostics_interpretation].filter(Boolean).join(' ')} items={aiReport.key_observations.map(item => item.text)} />
+            <BriefSection title="我的部位" text={aiReport.portfolio_interpretation} />
+            <BriefSection title="提醒解讀" text={aiReport.alert_interpretation} />
+            <BriefSection title="風險" text={aiReport.risk_factors.length === 0 ? 'AI 未列出有資料支持的具體風險訊號。' : undefined} items={aiReport.risk_factors.map(item => item.text)} />
+            <BriefSection title="接下來觀察" text={(aiReport.watch_next ?? []).length === 0 ? '目前資料不足以列出具體觀察點。' : undefined} items={aiReport.watch_next ?? []} />
+
+            <details className="rounded-lg border border-border/40 bg-base/20 p-3">
+              <summary className="cursor-pointer text-[11px] font-medium text-muted">完整證據解讀與資料覆蓋</summary>
+              <div className="mt-3 space-y-4">
 
             {/* Sectional Interpretations Grid */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
@@ -1035,6 +1146,8 @@ export function TaiwanStockDetail() {
             <div className="p-2.5 bg-zinc-950/40 border border-zinc-800/60 rounded text-[10px] text-zinc-500 font-sans text-center">
               {aiReport.disclaimer}
             </div>
+              </div>
+            </details>
           </div>
         )}
       </div>
@@ -1050,5 +1163,16 @@ export function TaiwanStockDetail() {
         }}
       />
     </div>
+  )
+}
+
+function BriefSection({ title, text, items = [] }: { title: string; text?: string | null; items?: string[] }) {
+  if (!text && items.length === 0) return null
+  return (
+    <section className="rounded-lg border border-border/40 bg-base/40 p-3">
+      <h4 className="mb-1 text-[11px] font-semibold text-purple-300">{title}</h4>
+      {text && <p className="leading-relaxed text-foreground">{text}</p>}
+      {items.length > 0 && <ul className="mt-1 list-inside list-disc space-y-1 text-foreground">{items.slice(0, 4).map((item, index) => <li key={`${title}-${index}`}>{item}</li>)}</ul>}
+    </section>
   )
 }

@@ -380,7 +380,11 @@ async def generate_taiwan_stock_ai_research(
 
     svc = TaiwanAIResearchService()
     try:
-        return await svc.generate_report(symbol, target_date=target_dt)
+        return await svc.generate_report(
+            symbol,
+            target_date=target_dt,
+            personal_context=payload.personal_context if payload else None,
+        )
     except Exception as e:
         logger.exception("Failed to generate AI stock research report for %s: %s", symbol, e)
         raise HTTPException(

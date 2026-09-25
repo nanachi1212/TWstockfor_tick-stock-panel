@@ -12,6 +12,7 @@ import { cn } from '@/lib/cn'
 interface TaiwanAlertsListProps {
   alerts: (AlertEvent | TaiwanAlertEvent)[]
   onSelectSymbol?: (symbol: string) => void
+  onInterpretAlert?: (symbol: string, alertId: string) => void
 }
 
 const SEVERITY_CONFIG: Record<string, { bar: string; icon: any; iconCls: string; badgeCls: string; label: string }> = {
@@ -59,7 +60,7 @@ function formatAlertTime(ts: number | string | undefined): string {
   }
 }
 
-export function TaiwanAlertsList({ alerts, onSelectSymbol }: TaiwanAlertsListProps) {
+export function TaiwanAlertsList({ alerts, onSelectSymbol, onInterpretAlert }: TaiwanAlertsListProps) {
   if (!alerts || alerts.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center p-12 text-center text-muted">
@@ -132,6 +133,12 @@ export function TaiwanAlertsList({ alerts, onSelectSymbol }: TaiwanAlertsListPro
               <div className="text-foreground/90 font-medium leading-relaxed my-0.5">
                 {alert.message}
               </div>
+
+              {isTaiwan && alert.symbol && alert.alert_id && onInterpretAlert && (
+                <button type="button" onClick={() => onInterpretAlert(alert.symbol!, alert.alert_id!)} className="mt-1 self-start rounded border border-purple-500/30 px-2 py-1 text-[10px] font-medium text-purple-400 hover:bg-purple-500/10">
+                  AI 解讀
+                </button>
+              )}
 
               {/* 底部數值標籤 (若有) */}
               {((alert as any).trigger_value != null || alert.price != null || alert.change_pct != null) && (

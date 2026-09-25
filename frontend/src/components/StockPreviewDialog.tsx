@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { motion, AnimatePresence } from 'framer-motion'
-import { X, RefreshCw, Clock, LineChart, Star, RadioTower, Maximize2, Minimize2, Scale, ChevronDown, ExternalLink } from 'lucide-react'
+import { X, RefreshCw, Clock, LineChart, Star, RadioTower, Maximize2, Minimize2, Scale, ChevronDown, ExternalLink, Sparkles } from 'lucide-react'
 import { api } from '@/lib/api'
 import { QK } from '@/lib/queryKeys'
 import { cn } from '@/lib/cn'
@@ -379,6 +379,21 @@ export function StockPreviewDialog({ symbol, name, onClose, triggerInfo }: Props
                     aria-label={`查看 ${symbol} 完整個股頁`}
                   >
                     <ExternalLink className="h-4 w-4" />
+                  </button>
+                )}
+
+                {isTaiwanSymbol && (
+                  <button
+                    onClick={() => {
+                      const target = symbol!
+                      onClose()
+                      navigate(`/stocks/${encodeURIComponent(target)}`, { state: { aiResearchRequested: true } })
+                    }}
+                    className="p-1.5 rounded-btn text-purple-400 hover:bg-purple-500/10 hover:text-purple-300 transition-colors cursor-pointer"
+                    title="AI 分析"
+                    aria-label={`AI 分析 ${symbol}`}
+                  >
+                    <Sparkles className="h-4 w-4" />
                   </button>
                 )}
 
