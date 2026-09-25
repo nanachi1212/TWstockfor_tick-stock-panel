@@ -48,6 +48,7 @@ from app.taiwan.observed_universe import (
     candidate_sessions,
     census_coverage,
     first_observed_dates,
+    session_candidates,
 )
 from app.taiwan.providers.taiwan_values import TAIPEI
 from app.taiwan.realtime.calendar import TaiwanTradingCalendar, taipei_now
@@ -546,11 +547,11 @@ class TaiwanHistoricalBackfillWorker:
         # is not yet eligible, so it must not inflate the unresolved count.
         end = end or resolve_target_latest_trading_date(
             self.calendar, as_of_dt=taipei_now())
-        candidates = set(candidate_sessions(start, end))
-        total = len(candidates)
+        total = len(set(candidate_sessions(start, end)))
 
         census: dict[str, Any] = {}
         for exchange in ("TWSE", "TPEX"):
+            candidates = session_candidates(self.census_store, exchange, start, end)
             statuses = {day: state for day, state in
                         self.census_store.partition_statuses(exchange).items()
                         if day in candidates}
@@ -570,7 +571,8 @@ class TaiwanHistoricalBackfillWorker:
             confirmed_dates = self.census_store.confirmed_non_trading_dates(exchange)
             confirmed_dates.update(
                 day for day in candidates
-                if self.calendar.day_evidence(day, exchange).status == "non_trading")
+                if day not in statuses
+                and self.calendar.day_evidence(day, exchange).status == "non_trading")
             for day in sorted(candidates - sessions - confirmed_dates):
                 evidence = self.census_store.day_evidence(
                     exchange, day, calendar=self.calendar, failure=failures.get(day))

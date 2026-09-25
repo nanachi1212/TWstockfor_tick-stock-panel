@@ -168,12 +168,14 @@ def verify_empty_days(
                     store.write(exchange, day, [], confirmed_non_trading_source=source)
                 report["confirmed_non_trading"].append(day.isoformat())
         for day in sorted(d for d in sessions if d.weekday() >= 5 and start <= d <= end):
-            if store.has(exchange, day):
+            if store.has(exchange, day) and store.partition_status(exchange, day) != "empty_unknown":
                 continue
             report["weekend_sessions_missing"].append(day.isoformat())
             if apply and census_rows is not None:
                 rows = census_rows(day)
+                # An empty answer is stored as an unresolved partition: the session is
+                # official, so it stays in the readiness denominator until rows exist.
+                store.write(exchange, day, rows)
                 if rows:
-                    store.write(exchange, day, rows)
                     report["weekend_sessions_added"].append(day.isoformat())
     return report

@@ -9,11 +9,18 @@ a factor, a universe or a threshold.
 Symbols are computed in independent batches (the panel is quadratic in a
 symbol's history and its coverage table has ~35 exception rows per point), then
 re-cut by session so each published partition holds the whole cross-section.
+
+A session without an official price bar is not a feature row, and
+``build_factor_panel`` counts bars, not sessions. The only addition to its output
+is therefore a mask: a rolling factor whose lookback window (its published
+``min_history`` bars) is not made of consecutive exchange sessions is set to
+unavailable, with a coverage exception. Nothing is filled or recomputed.
 """
 from __future__ import annotations
 
 import json
 import multiprocessing
+import os
 import shutil
 import time
 from collections.abc import Sequence
@@ -25,8 +32,14 @@ import polars as pl
 
 from app.taiwan.backfill_worker import TaiwanHistoricalBackfillWorker
 from app.taiwan.corporate_actions import CorporateActionEvent
+from app.taiwan.providers.taiwan_values import market_close
 from app.taiwan.quant.evaluation_spec import PRIMARY_OOS_SPEC
-from app.taiwan.quant.panel import FactorPanel, build_factor_panel
+from app.taiwan.quant.panel import (
+    RELATIVE,
+    TECHNICAL,
+    FactorPanel,
+    build_factor_panel,
+)
 from app.taiwan.quant.primary_oos_runner import (
     PrimaryOosInputError,
     PrimaryOosNotReadyError,
@@ -35,23 +48,83 @@ from app.taiwan.quant.primary_oos_runner import (
     _primary_universe,
     usable_price_bar,
 )
-from app.taiwan.quant.storage import FactorPanelStore
+from app.taiwan.quant.storage import FactorPanelStore, _min_history
 from app.taiwan.quant_eligibility import PRIMARY_VERIFIED
 
 _OHLCV = ("open", "high", "low", "close", "volume", "amount")
 _DATES_PER_PUBLISH = 25
+#: Factors that read a rolling window of the symbol's own price/volume bars.
+_WINDOWED = tuple(name for name in (*TECHNICAL, "relative_volume", "adv20_twd", *RELATIVE)
+                  if _min_history(name) > 1)
+_COVERAGE_SCHEMA = {
+    "symbol": pl.String, "date": pl.Date, "factor": pl.String, "status": pl.String,
+    "as_of": pl.String, "available_at": pl.String, "reason": pl.String, "source": pl.String,
+}
 
 
-def _build_batch(args: tuple[pl.DataFrame, tuple[CorporateActionEvent, ...], str, Path]) -> str:
-    history, events, factor_version, out_dir = args
+def mask_missing_session_windows(
+    values: pl.DataFrame, sessions: Sequence[date],
+) -> tuple[pl.DataFrame, pl.DataFrame]:
+    """Unavailable where the factor's bar window skips an exchange session.
+
+    Returns the masked values and the coverage exceptions for every value that
+    was available before the mask. ``sessions`` is the exchange's session list.
+    """
+    index = {day: position for position, day in enumerate(sessions)}
+    frame = values.sort(["symbol", "date"]).with_columns(
+        pl.col("date").replace_strict(index, return_dtype=pl.Int64).alias("_session"))
+    masks = {
+        name: ((pl.col("_session") - pl.col("_session").shift(_min_history(name) - 1)
+                .over("symbol")) != _min_history(name) - 1)
+        for name in _WINDOWED
+    }
+    flagged = frame.select(
+        "symbol", "date",
+        *[(pl.col(name).is_not_null() & masks[name]).alias(name) for name in _WINDOWED],
+    )
+    closes = {day: market_close(day).isoformat() for day in frame["date"].unique().to_list()}
+    exceptions = []
+    for name in _WINDOWED:
+        rows = flagged.filter(pl.col(name)).select("symbol", "date")
+        if rows.height:
+            exceptions.append(rows.with_columns(
+                pl.lit(name).alias("factor"), pl.lit("data_insufficient").alias("status"),
+                pl.col("date").replace_strict(closes, return_dtype=pl.String).alias("as_of"),
+                pl.lit(None, dtype=pl.String).alias("available_at"),
+                pl.lit("missing_session_in_window").alias("reason"),
+                pl.lit("pit_adjusted_daily").alias("source"),
+            ).select(list(_COVERAGE_SCHEMA)))
+    masked = frame.with_columns(
+        [pl.when(masks[name]).then(None).otherwise(pl.col(name)).alias(name) for name in _WINDOWED]
+    ).drop("_session").sort(["date", "symbol"])
+    return masked, (pl.concat(exceptions) if exceptions else pl.DataFrame(schema=_COVERAGE_SCHEMA))
+
+
+def _write_parquet(frame: pl.DataFrame, path: Path) -> None:
+    temporary = path.with_suffix(".tmp")
+    frame.write_parquet(temporary)
+    os.replace(temporary, path)
+
+
+def _build_batch(
+    args: tuple[pl.DataFrame, tuple[CorporateActionEvent, ...], str, Path, list[date]],
+) -> str:
+    history, events, factor_version, out_dir, sessions = args
+    key = history["symbol"][0].replace(".", "_")
+    if (out_dir / f"done_{key}").exists():
+        return key
     panel = build_factor_panel(
         history, events=events, factor_version=factor_version,
         policy_version=PRIMARY_OOS_SPEC.policy_version, universe_tier=PRIMARY_VERIFIED,
     )
-    key = history["symbol"][0].replace(".", "_")
-    panel.values.write_parquet(out_dir / f"values_{key}.parquet")
-    if not panel.coverage.is_empty():
-        panel.coverage.write_parquet(out_dir / f"coverage_{key}.parquet")
+    values, masked = mask_missing_session_windows(panel.values, sessions)
+    coverage = (pl.concat([panel.coverage.select(
+                    [pl.col(name).cast(kind) for name, kind in _COVERAGE_SCHEMA.items()]), masked])
+                if not panel.coverage.is_empty() else masked)
+    _write_parquet(values, out_dir / f"values_{key}.parquet")
+    if not coverage.is_empty():
+        _write_parquet(coverage, out_dir / f"coverage_{key}.parquet")
+    (out_dir / f"done_{key}").write_text("ok", encoding="utf-8")
     return key
 
 
@@ -81,15 +154,30 @@ def build_primary_factor_panel(
     workers: int = 6,
     batch_size: int = 20,
 ) -> dict[str, int]:
-    """Build and publish the panel once the shared Primary gate is ready."""
+    """Build and publish the panel once the shared Primary gate is ready.
+
+    The shared worker lock is held from the input snapshot to the last published
+    partition, so a backfill or evidence run cannot change the stores midway.
+    """
     if preflight.readiness.status.value != "ready":
         raise PrimaryOosNotReadyError(preflight.readiness)
     store = store or FactorPanelStore()
     worker = worker or TaiwanHistoricalBackfillWorker()
+    worker.lock.acquire()
+    try:
+        return _build_locked(worker, store, events, workers, batch_size)
+    finally:
+        worker.lock.release()
+
+
+def _build_locked(
+    worker: TaiwanHistoricalBackfillWorker, store: FactorPanelStore,
+    events: tuple[CorporateActionEvent, ...] | None, workers: int, batch_size: int,
+) -> dict[str, int]:
     universe, _identity = _primary_universe(worker.census_store, worker.classification_store)
     members = universe.filter(
         (pl.col("instrument_type_status") == "verified") & (pl.col("instrument_type") == "stock")
-        & pl.col("observed_on_market")
+        & pl.col("price_bar_available")
     )
     if members.is_empty():
         raise PrimaryOosInputError("no verified historical Primary stock rows to materialize")
@@ -108,24 +196,27 @@ def build_primary_factor_panel(
         events, coverage = _action_snapshot(first, last, required_symbols=frozenset(symbols))
         if not coverage.covers(first, last):
             raise PrimaryOosInputError("corporate-action source coverage is incomplete")
+    sessions = sorted(worker.census_store.session_dates("TWSE"))
 
     # The batch results are hours of compute: keep them until every partition is
     # published, so an interrupted or failed publish resumes without recomputing.
     work = store.root.parent / "primary_panel_build"
     identity = {"rows": history.height, "symbols": len(symbols), "last_date": last.isoformat(),
-                "events": len(events), "factor_version": PRIMARY_OOS_SPEC.factor_version}
-    done = work / "_batches_complete.json"
-    if not (done.is_file() and json.loads(done.read_text(encoding="utf-8")) == identity):
+                "events": len(events), "sessions": len(sessions),
+                "factor_version": PRIMARY_OOS_SPEC.factor_version, "batch_size": batch_size}
+    marker = work / "_identity.json"
+    if not (marker.is_file() and json.loads(marker.read_text(encoding="utf-8")) == identity):
         shutil.rmtree(work, ignore_errors=True)
         work.mkdir(parents=True)
-        jobs = [(history.filter(pl.col("symbol").is_in(batch)), events,
-                 PRIMARY_OOS_SPEC.factor_version, work)
-                for batch in _batches(symbols, batch_size)]
-        # Polars is not fork-safe: a forked child can deadlock on its thread pool.
-        with ProcessPoolExecutor(max_workers=workers,
-                                 mp_context=multiprocessing.get_context("spawn")) as pool:
-            list(pool.map(_build_batch, jobs))
-        done.write_text(json.dumps(identity), encoding="utf-8")
+        marker.write_text(json.dumps(identity), encoding="utf-8")
+    jobs = [(history.filter(pl.col("symbol").is_in(batch)), events,
+             PRIMARY_OOS_SPEC.factor_version, work, sessions)
+            for batch in _batches(symbols, batch_size)]
+    # Polars is not fork-safe: a forked child can deadlock on its thread pool.
+    with ProcessPoolExecutor(max_workers=workers,
+                             mp_context=multiprocessing.get_context("spawn")) as pool:
+        list(pool.map(_build_batch, jobs))
+
     values = pl.scan_parquet(work / "values_*.parquet")
     coverage = (pl.scan_parquet(work / "coverage_*.parquet")
                 if any(work.glob("coverage_*.parquet")) else None)

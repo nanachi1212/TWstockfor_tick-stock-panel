@@ -259,8 +259,10 @@ def resolve_event_conflicts(events: Iterable[CorporateActionEvent]) -> tuple[Cor
     output = []
     for key in sorted(groups):
         group = list(groups[key].values())
-        real = [e for e in group if e.status != "provider_error"]
-        group = real or group  # a failed fetch is superseded by any real observation
+        # A failed fetch is superseded only by a real observation of the same source;
+        # another source's result says nothing about the request that failed.
+        answered = {e.source for e in group if e.status != "provider_error"}
+        group = [e for e in group if e.status != "provider_error" or e.source not in answered]
         if len(group) == 1:
             output.append(group[0])
         elif _equivalent_observations(group):
@@ -327,6 +329,13 @@ class CorporateActionStore:
 
     def read(self) -> tuple[CorporateActionEvent, ...]:
         return resolve_event_conflicts(self._read_observations())
+
+    def snapshot_digest(self) -> str:
+        """Identity of the stored observations; bound to the coverage marker."""
+        digest = hashlib.sha256()
+        for value in sorted(event.content_hash for event in self._read_observations()):
+            digest.update(value.encode("ascii"))
+        return digest.hexdigest()
 
     def save(self, events: Iterable[CorporateActionEvent]) -> int:
         incoming = tuple(events)

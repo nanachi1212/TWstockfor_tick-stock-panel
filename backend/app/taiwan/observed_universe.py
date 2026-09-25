@@ -334,7 +334,7 @@ def census_coverage(
     observed = sum(status == "observed" for status in statuses.values())
     confirmed = sum(
         statuses.get(day) == "confirmed_non_trading"
-        or (statuses.get(day) != "observed" and cal.day_evidence(day, exchange).status == "non_trading")
+        or (day not in statuses and cal.day_evidence(day, exchange).status == "non_trading")
         for day in candidates)
     unknown = sum(status == "empty_unknown" for status in statuses.values())
     expected = len(candidates) - confirmed
@@ -496,6 +496,22 @@ def candidate_sessions(start: date, end: date,
         if cal.is_trading_day(day) is not False:
             yield day
         day += timedelta(days=1)
+
+
+def session_candidates(
+    store: ObservedUniverseStore, exchange: str, start: date, end: date,
+    calendar: TaiwanTradingCalendar | None = None,
+) -> set[date]:
+    """Weekday candidates plus every weekend date that has a partition.
+
+    A weekend partition exists only because an official month table listed that
+    session (a make-up trading day); it stays in the denominator until it holds
+    rows, so an unrecovered Saturday cannot be skipped by the readiness gate.
+    """
+    return set(candidate_sessions(start, end, calendar)) | {
+        day for day in store.completed_dates(exchange)
+        if start <= day <= end and day.weekday() >= 5
+    }
 
 
 class ObservedUniverseCensus:

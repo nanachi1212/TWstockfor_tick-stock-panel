@@ -457,8 +457,10 @@ def test_priceless_official_row_is_not_evaluable_and_does_not_poison_later_windo
         "classification_status": "verified", "classification_source": "twse:isin_listed@x"}])
 
     universe, _ = _primary_universe(census, classifications)
-    flags = dict(zip(universe["date"], universe["observed_on_market"], strict=True))
-    assert flags[halted] is False and flags[sessions[31]] is True
+    observed = dict(zip(universe["date"], universe["observed_on_market"], strict=True))
+    priced = dict(zip(universe["date"], universe["price_bar_available"], strict=True))
+    assert observed[halted] is True  # still an official market observation
+    assert priced[halted] is False and priced[sessions[31]] is True
 
     worker = TaiwanHistoricalBackfillWorker(
         data_dir=tmp_path, census_store=census, classification_store=classifications)
@@ -470,6 +472,14 @@ def test_priceless_official_row_is_not_evaluable_and_does_not_poison_later_windo
                            universe_tier=PRIMARY_VERIFIED)
     assert halted not in panel.values["date"].to_list()
     assert set(panel.values["adjustment_status"].to_list()) == {"verified"}
+    # A window that skips the halted session is unavailable, not silently 5 bars long.
+    row = {r["date"]: r for r in panel.values.iter_rows(named=True)}
+    assert row[sessions[31]]["momentum_5d"] is None      # bars 26..31 skip session 30
+    assert row[sessions[35]]["momentum_5d"] is None      # window 30..35 still skips it
+    assert row[sessions[36]]["momentum_5d"] is not None  # 31..36: consecutive sessions again
+    assert row[sessions[29]]["momentum_5d"] is not None
+    masked = panel.coverage.filter(pl.col("reason") == "missing_session_in_window")
+    assert masked.filter(pl.col("factor") == "momentum_5d")["date"].sort().to_list() == sessions[31:36]
 
 
 def _health(verified: int, unknown: int):
@@ -635,3 +645,69 @@ def test_unresolved_symbol_never_enters_the_primary_universe_or_panel(tmp_path: 
                            policy_version=PRIMARY_OOS_SPEC.policy_version,
                            universe_tier=PRIMARY_VERIFIED)
     assert set(panel.values["symbol"].to_list()) == {"2330.TWSE"}
+
+
+def test_unrecovered_saturday_session_stays_in_the_readiness_denominator(tmp_path: Path) -> None:
+    from app.taiwan.observed_universe import census_coverage, session_candidates
+
+    store = ObservedUniverseStore(tmp_path)
+    friday, saturday = date(2016, 1, 29), date(2016, 1, 30)
+    _seed(store, "TWSE", [friday], [])
+    fetch = _fetcher({"FMTQIK": _twse_month(2016, 1, ["105/01/29", "105/01/30"])})
+    report = verify_empty_days(store, "TWSE", start=date(2016, 1, 1), end=date(2016, 1, 31),
+                               fetch=fetch, census_rows=lambda day: [])
+    assert report["weekend_sessions_missing"] == ["2016-01-30"]
+    assert store.partition_status("TWSE", saturday) == "empty_unknown"
+    candidates = session_candidates(store, "TWSE", date(2016, 1, 29), date(2016, 1, 31))
+    assert saturday in candidates
+    coverage = census_coverage(store, "TWSE", candidates)
+    assert coverage.unresolved_dates == 1 and coverage.trading_coverage_ratio == 0.5
+    # A later run that recovers rows completes it.
+    verify_empty_days(store, "TWSE", start=date(2016, 1, 1), end=date(2016, 1, 31), fetch=fetch,
+                      census_rows=lambda day: [{**ROW, "date": day}])
+    assert store.partition_status("TWSE", saturday) == "observed"
+    assert census_coverage(store, "TWSE", candidates).trading_coverage_ratio == 1.0
+
+
+def test_mixed_evidence_generations_and_unbound_action_markers_fail_closed(
+    tmp_path: Path, monkeypatch,
+) -> None:
+    from app.taiwan.corporate_actions import CorporateActionStore
+    from app.taiwan.quant import primary_oos_runner as runner
+
+    evidence = InstrumentEvidenceStore(tmp_path / "ev")
+    empty_registry = pl.DataFrame(schema={"code": pl.Utf8, "isin": pl.Utf8, "listing_date": pl.Date,
+                                          "section": pl.Utf8, "cfi": pl.Utf8, "registry": pl.Utf8})
+    for name, stamp in (("isin_listed", "t1"), ("isin_unlisted", "t1")):
+        evidence.save_registry(empty_registry, source_url="u", sha256="s", retrieved_at=stamp,
+                               registry=name)
+    evidence.save_termination(pl.DataFrame(schema={"code": pl.Utf8, "termination_date": pl.Date}),
+                              source_url="u", sha256="s", retrieved_at="t1")
+    evidence.save_company(pl.DataFrame(schema={"code": pl.Utf8, "listing_date": pl.Date}),
+                          source_url="u", sha256="s", retrieved_at="t2")  # another refresh
+    with pytest.raises(ValueError, match="different refreshes"):
+        evidence.load()
+    with pytest.raises(ValueError, match="different refreshes"):
+        evidence.load_company()
+
+    store = CorporateActionStore(tmp_path / "adj_factor")
+    monkeypatch.setattr(runner, "_fetch_actions", lambda a, b: (_event("2330.TWSE", "verified",
+                        previous_close=100.0, reference_price=90.0, factor=0.9,
+                        precision_method="t", event_type="cash_dividend"),))
+    runner._action_snapshot(date(2020, 1, 1), date(2020, 2, 1), store=store)
+    store.path.unlink()  # the marker survives without its event file (partial copy)
+    with pytest.raises(runner.PrimaryOosInputError, match="does not match"):
+        runner._action_snapshot(date(2020, 1, 1), date(2020, 2, 1), store=store)
+
+
+def test_provider_error_is_superseded_only_by_the_same_source() -> None:
+    from app.taiwan.corporate_actions import resolve_event_conflicts
+
+    failed = _event("2330.TWSE", "provider_error")
+    other_source = _event("2330.TWSE", "data_insufficient", source="TWTAUU",
+                          event_type="capital_reduction", reason="x")
+    kept = resolve_event_conflicts([failed, other_source])
+    # Another source's answer does not settle the failed request: both stay unusable.
+    assert len(kept) == 2 and all(e.status != "verified" for e in kept)
+    same_source = _event("2330.TWSE", "data_insufficient", reason="x")
+    assert resolve_event_conflicts([failed, same_source]) == (same_source,)

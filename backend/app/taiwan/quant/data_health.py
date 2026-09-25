@@ -283,7 +283,7 @@ def health_from_stores(
     from datetime import datetime
 
     from app.taiwan.backfill_worker import CENSUS_START
-    from app.taiwan.observed_universe import candidate_sessions
+    from app.taiwan.observed_universe import session_candidates
     from app.taiwan.providers.taiwan_values import TAIPEI
 
     census = census or ObservedUniverseStore()
@@ -291,9 +291,10 @@ def health_from_stores(
     start = start or CENSUS_START
     end = end or datetime.now(TAIPEI).date()
 
-    candidates = set(candidate_sessions(start, end))
-    twse_coverage = census_coverage(census, "TWSE", candidates)
-    tpex_coverage = census_coverage(census, "TPEX", candidates)
+    twse_coverage = census_coverage(
+        census, "TWSE", session_candidates(census, "TWSE", start, end))
+    tpex_coverage = census_coverage(
+        census, "TPEX", session_candidates(census, "TPEX", start, end))
 
     observations = census.read("TWSE").filter(pl.col("date").is_between(start, end))
     observed = {r["raw_code"]: r["date"] for r in observations.group_by("raw_code")

@@ -202,15 +202,26 @@ class InstrumentEvidenceStore:
             "retrieved_at": retrieved_at, "registry": "company",
         })
 
+    def _check_generation(self) -> None:
+        """All four snapshots must come from one refresh."""
+        stamps = set()
+        for name in ("isin_listed", "isin_unlisted", "termination", "company"):
+            path = self.root / f"{name}.parquet"
+            if not path.exists():
+                raise FileNotFoundError(f"instrument evidence snapshot is missing: {name}")
+            stamps.add((pq.read_metadata(path).metadata or {}).get(b"retrieved_at", b""))
+        if len(stamps) != 1:
+            raise ValueError("instrument evidence snapshots come from different refreshes; "
+                             "run --refresh-instrument-evidence again")
+
     def load_company(self) -> dict[str, date]:
-        path = self.root / "company.parquet"
-        if not path.exists():
-            raise FileNotFoundError("instrument evidence snapshot is missing: company")
-        frame = pl.read_parquet(path)
+        self._check_generation()
+        frame = pl.read_parquet(self.root / "company.parquet")
         return dict(zip(frame["code"], frame["listing_date"], strict=True))
 
     def load(self) -> tuple[pl.DataFrame, pl.DataFrame, dict[str, str]]:
         """Return (registry rows, termination rows, retrieved_at by registry)."""
+        self._check_generation()
         frames, stamps = [], {}
         for name in ("isin_listed", "isin_unlisted"):
             path = self.root / f"{name}.parquet"
