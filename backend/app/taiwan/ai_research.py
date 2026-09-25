@@ -389,25 +389,28 @@ def _sanitize_personal_context(value: dict[str, Any] | None) -> dict[str, dict[s
 
     quant_source = value.get("quant")
     if isinstance(quant_source, dict):
-        quant: dict[str, Any] = finite_numbers(quant_source, {"score"})
         status = quant_source.get("status")
+        selected = quant_source.get("selected")
+        quant: dict[str, Any] = {}
         if status in {"available", "no_valid_run", "unavailable"}:
             quant["status"] = status
-        if isinstance(quant_source.get("selected"), bool):
-            quant["selected"] = quant_source["selected"]
-        rank = quant_source.get("rank")
-        if isinstance(rank, int) and not isinstance(rank, bool) and rank > 0:
-            quant["rank"] = rank
-        session = quant_source.get("session")
-        if isinstance(session, str) and len(session) <= 20:
-            quant["session"] = session
-        features = quant_source.get("feature_percentiles")
-        if isinstance(features, dict):
-            safe_features = finite_numbers(features, {
-                "momentum_5d", "momentum_20d", "momentum_60d", "volatility_20d", "adv20_twd", "relative_volume",
-            })
-            if safe_features:
-                quant["feature_percentiles"] = safe_features
+        if isinstance(selected, bool):
+            quant["selected"] = selected
+        if status == "available" and selected is True:
+            quant.update(finite_numbers(quant_source, {"score"}))
+            rank = quant_source.get("rank")
+            if isinstance(rank, int) and not isinstance(rank, bool) and rank > 0:
+                quant["rank"] = rank
+            session = quant_source.get("session")
+            if isinstance(session, str) and len(session) <= 20:
+                quant["session"] = session
+            features = quant_source.get("feature_percentiles")
+            if isinstance(features, dict):
+                safe_features = finite_numbers(features, {
+                    "momentum_5d", "momentum_20d", "momentum_60d", "volatility_20d", "adv20_twd", "relative_volume",
+                })
+                if safe_features:
+                    quant["feature_percentiles"] = safe_features
         if quant:
             result["quant"] = quant
 

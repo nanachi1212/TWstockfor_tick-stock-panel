@@ -151,7 +151,7 @@ export function TaiwanStockDetail() {
     const context: TaiwanAIResearchPersonalContext = {}
     if (!watchlist.isLoading && !watchlist.isError) context.watchlist = { included: inWatchlist }
     const quote = data?.realtime
-    const verifiedQuote = quote?.meta?.source?.trim() && quote.meta.trade_date && quote.meta.status === 'available' && quote.meta.is_stale === false
+    const verifiedQuote = !detailQuery.isError && quote?.meta?.source?.trim() && quote.meta.trade_date && quote.meta.status === 'available' && quote.meta.is_stale === false
       ? quote
       : undefined
     if (verifiedQuote?.meta) {
@@ -171,9 +171,9 @@ export function TaiwanStockDetail() {
     const signal = quantSelection.signals.find(item => item.symbol === symbol)
     context.quant = {
       status: quantSelection.error ? 'unavailable' : quantSelection.validRun ? 'available' : 'no_valid_run',
-      selected: Boolean(signal && quantSelection.validRun),
+      selected: Boolean(!quantSelection.error && signal && quantSelection.validRun),
     }
-    if (signal && quantSelection.validRun) {
+    if (!quantSelection.error && signal && quantSelection.validRun) {
       Object.assign(context.quant, {
         rank: signal.rank,
         score: signal.score,
@@ -214,7 +214,7 @@ export function TaiwanStockDetail() {
       // An unreadable local ledger stays unavailable and does not block stock analysis.
     }
     return context
-  }, [inWatchlist, watchlist.isLoading, watchlist.isError, quantSelection.signals, quantSelection.validRun, quantSelection.error, selectedAlert, symbol, data, portfolioRevision])
+  }, [inWatchlist, watchlist.isLoading, watchlist.isError, quantSelection.signals, quantSelection.validRun, quantSelection.error, selectedAlert, symbol, data, detailQuery.isError, portfolioRevision])
 
   const handleGenerateAiReport = useCallback(async () => {
     if (toggleWatchlist.isPending || watchlist.isFetching) return
