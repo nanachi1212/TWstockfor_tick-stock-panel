@@ -280,7 +280,7 @@ function MarketOverviewCard({ latestDailyAsOf, marketStatusLoading }: { latestDa
   return (
     <section className="mb-1.5 rounded-card border border-accent/25 bg-surface/90 p-3 shadow-[0_1px_2px_hsl(var(--border)/0.4)] backdrop-blur-sm">
       <SectionTitle icon={TrendingUp} title="市場概況" hint={intel.data ? `資料交易日 ${intel.data.trade_date}` : undefined} />
-      {intel.isLoading ? (
+      {marketStatusLoading || intel.isLoading ? (
         <div className="flex items-center gap-2 py-4 text-xs text-muted">
           <Loader2 className="h-3.5 w-3.5 animate-spin" />正在讀取市場強弱資料…
         </div>
@@ -428,7 +428,7 @@ function IndustryStrengthCard({ latestDailyAsOf, marketStatusLoading }: { latest
   return (
     <section className="rounded-card border border-border bg-surface/80 p-2.5 shadow-[0_1px_2px_hsl(var(--border)/0.4)] backdrop-blur-sm">
       <SectionTitle icon={Layers} title="今日類股熱度" hint={ind.data ? `${ind.data.industries.length} 大類股 · 點擊查看成分股` : undefined} />
-      {ind.isLoading ? (
+      {marketStatusLoading || ind.isLoading ? (
         <div className="flex items-center gap-2 py-4 text-xs text-muted">
           <Loader2 className="h-3.5 w-3.5 animate-spin" />正在讀取產業資料…
         </div>
@@ -495,7 +495,12 @@ function MarketAnomalyCard({ snapshot, loading, error, alerts }: {
 // ===== A5: 我的觀察 =====
 // 自選清單是持久化資料，enriched 只負責補行情；兩者合併後即使某檔
 // 沒有今日排名或行情，也保留該檔，避免使用者的觀察標的靜默消失。
-function WatchlistQuickGlance({ onStockClick, anomalies }: { onStockClick: (symbol: string, name?: string) => void; anomalies: TaiwanAbnormalDiagnosticsSnapshot | undefined }) {
+function WatchlistQuickGlance({ onStockClick, anomalies, diagnosticsLoading, diagnosticsError }: {
+  onStockClick: (symbol: string, name?: string) => void
+  anomalies: TaiwanAbnormalDiagnosticsSnapshot | undefined
+  diagnosticsLoading: boolean
+  diagnosticsError: boolean
+}) {
   const qc = useQueryClient()
   const watchlist = useQuery({
     queryKey: QK.watchlist,
@@ -528,7 +533,8 @@ function WatchlistQuickGlance({ onStockClick, anomalies }: { onStockClick: (symb
   const attention = rows
     .sort((a, b) => Math.abs(b.change_pct ?? 0) - Math.abs(a.change_pct ?? 0))
   const rankedBySymbol = new Map(quant.signals.map(signal => [signal.symbol, signal]))
-  const anomalyBySymbol = new Map((anomalies?.data_quality.daily_status === 'current' ? anomalies.items : []).map(item => [item.symbol, item]))
+  const diagnosticsCurrent = anomalies?.data_quality.daily_status === 'current'
+  const anomalyBySymbol = new Map((diagnosticsCurrent ? anomalies.items : []).map(item => [item.symbol, item]))
   const todayTaipei = new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Taipei' })
   const watchlistAlerts = (alerts.data?.alerts ?? []).filter(event => {
     const eventDate = new Date(event.ts).toLocaleDateString('sv-SE', { timeZone: 'Asia/Taipei' })
@@ -540,10 +546,10 @@ function WatchlistQuickGlance({ onStockClick, anomalies }: { onStockClick: (symb
     <section className="rounded-card border border-border bg-surface/80 p-2.5 shadow-[0_1px_2px_hsl(var(--border)/0.4)] backdrop-blur-sm">
       <SectionTitle icon={Eye} title="我的觀察" hint={rows.length ? `${rows.length} 檔 · 行情 ${enriched.data?.as_of ?? '—'}` : undefined} />
       {rows.length > 0 && <div className="mb-1 flex flex-wrap gap-1 text-[9px] text-secondary">
-        <span className="rounded bg-elevated px-1.5 py-0.5">今日 Top 10 {rows.filter(row => rankedBySymbol.has(row.symbol)).length} 檔</span>
-        <span className="rounded bg-elevated px-1.5 py-0.5">新進 Top 10 {watchlistTop10Entries} 檔</span>
-        <span className="rounded bg-elevated px-1.5 py-0.5">異常 {rows.filter(row => (anomalyBySymbol.get(row.symbol)?.signal_count ?? 0) > 0).length} 檔 · {anomalies?.trade_date ?? '—'}</span>
-        <span className="rounded bg-elevated px-1.5 py-0.5">今日提醒 {alerts.isLoading ? '—' : alerts.isError ? 'unavailable' : `${watchlistAlerts.length} 則`}</span>
+        <span className="rounded bg-elevated px-1.5 py-0.5">今日 Top 10 {quant.loading ? '—' : quant.error || !quant.validRun ? 'unavailable' : `${rows.filter(row => rankedBySymbol.has(row.symbol)).length} 檔`}</span>
+        <span className="rounded bg-elevated px-1.5 py-0.5">新進 Top 10 {alerts.isPending ? '—' : alerts.isError ? 'unavailable' : `${watchlistTop10Entries} 檔`}</span>
+        <span className="rounded bg-elevated px-1.5 py-0.5">異常 {diagnosticsLoading ? '—' : diagnosticsError || !diagnosticsCurrent ? 'unavailable' : `${rows.filter(row => (anomalyBySymbol.get(row.symbol)?.signal_count ?? 0) > 0).length} 檔 · ${anomalies.trade_date}`}</span>
+        <span className="rounded bg-elevated px-1.5 py-0.5">今日提醒 {alerts.isPending ? '—' : alerts.isError ? 'unavailable' : `${watchlistAlerts.length} 則`}</span>
       </div>}
       {watchlist.isLoading || enriched.isLoading ? (
         <div className="flex items-center gap-2 py-4 text-xs text-muted">
@@ -698,13 +704,18 @@ export function Dashboard() {
 
       <div className="mb-1.5 grid grid-cols-1 gap-1.5 lg:grid-cols-2">
         <IndustryStrengthCard latestDailyAsOf={latestDailyAsOf} marketStatusLoading={marketDataStatus.isLoading} />
-        <MarketAnomalyCard snapshot={diagnostics.data} loading={diagnostics.isLoading} error={diagnostics.isError} alerts={todayAlerts.data?.alerts ?? []} />
+      <MarketAnomalyCard snapshot={diagnostics.data} loading={marketDataStatus.isLoading || diagnostics.isLoading} error={diagnostics.isError} alerts={todayAlerts.data?.alerts ?? []} />
       </div>
 
       <TodaySelection />
       <QuantEvaluationCard compact />
       <div className="mb-1.5"><PortfolioPanel /></div>
-      <WatchlistQuickGlance anomalies={diagnostics.data} onStockClick={(symbol, name) => setPreviewStock({ symbol, name })} />
+      <WatchlistQuickGlance
+        anomalies={diagnostics.data}
+        diagnosticsLoading={marketDataStatus.isLoading || diagnostics.isLoading}
+        diagnosticsError={diagnostics.isError}
+        onStockClick={(symbol, name) => setPreviewStock({ symbol, name })}
+      />
 
       <section className="mb-1.5 rounded-card border border-border bg-surface/80 p-1.5 shadow-[0_1px_2px_hsl(var(--border)/0.4)] backdrop-blur-sm transition-shadow hover:shadow-[0_2px_8px_hsl(var(--border)/0.5)]">
         <div className="mb-2 flex items-center justify-between gap-2">

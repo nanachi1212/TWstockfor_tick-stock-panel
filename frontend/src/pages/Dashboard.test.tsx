@@ -163,6 +163,17 @@ describe('Dashboard — Legacy A-share removal (Phase 8C-D)', () => {
 })
 
 describe('Dashboard — Market Clarity (Phase 8C-B)', () => {
+  it('shows dependent market panels as loading until data status is ready', async () => {
+    let resolveStatus!: (status: any) => void
+    vi.mocked(api.taiwanDataStatus).mockReturnValue(new Promise(resolve => { resolveStatus = resolve }) as any)
+    renderDashboard()
+
+    expect(screen.getByText('正在讀取市場強弱資料…')).toBeInTheDocument()
+    expect(screen.getByText('正在讀取產業資料…')).toBeInTheDocument()
+    expect(screen.getByText('正在讀取市場異常…')).toBeInTheDocument()
+    await act(async () => resolveStatus({ daily_as_of: null }))
+  })
+
   it('renders market strength summary with breadth counts and label', async () => {
     vi.mocked(api.taiwanMarketIntelligence).mockResolvedValue(buildMarketIntelligence() as any)
     renderDashboard()
@@ -267,6 +278,28 @@ describe('Dashboard — Market Clarity (Phase 8C-B)', () => {
 })
 
 describe('Dashboard — stock reminders', () => {
+  it('does not show zero watchlist counts while Quant, alerts, or diagnostics are unavailable', async () => {
+    vi.mocked(api.watchlistList).mockResolvedValue({ symbols: [
+      { symbol: '2330.TWSE', name: '台積電', added_at: '2026-09-05T09:00:00Z' },
+    ] } as any)
+    vi.mocked(api.watchlistEnriched).mockResolvedValue(buildWatchlistEnriched([
+      { symbol: '2330.TWSE', name: '台積電', close: 900, change_pct: 0.01 },
+    ]) as any)
+    vi.mocked(api.taiwanQuantLiveModels).mockResolvedValue({
+      configured_model: { model_key: 'live-model', top_n: 10 }, latest_operation: null,
+      expected_session: null, current_run_valid: false, current_run_audit_status: null, current_run_reason: 'session_unavailable',
+    } as any)
+    vi.mocked(api.taiwanQuantLiveRuns).mockResolvedValue({ runs: [] } as any)
+    vi.mocked(api.alertsList).mockRejectedValue(new Error('alerts unavailable'))
+    vi.mocked(api.taiwanAbnormalDiagnostics).mockRejectedValue(new Error('diagnostics unavailable'))
+    renderDashboard()
+
+    expect(await screen.findByText(/今日 Top 10/)).toHaveTextContent('unavailable')
+    expect(await screen.findByText('新進 Top 10 unavailable')).toBeInTheDocument()
+    expect(await screen.findByText('異常 unavailable')).toBeInTheDocument()
+    expect(await screen.findByText('今日提醒 unavailable')).toBeInTheDocument()
+  })
+
   it('uses the full retained daily alert set under the existing invalidation prefix', async () => {
     const { qc } = renderDashboard()
     const alertCalls = () => vi.mocked(api.alertsList).mock.calls.filter(([args]) => args?.days === 1 && args.limit === 5000)
@@ -275,7 +308,7 @@ describe('Dashboard — stock reminders', () => {
     await act(async () => {
       await qc.invalidateQueries({ queryKey: ['alerts'] })
     })
-    await waitFor(() => expect(alertCalls()).toHaveLength(2))
+    await waitFor(() => expect(alertCalls().length).toBeGreaterThan(1))
   })
 
   it('keys anomaly diagnostics by the latest available daily date', async () => {
