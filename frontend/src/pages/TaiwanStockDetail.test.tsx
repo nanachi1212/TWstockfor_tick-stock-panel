@@ -184,6 +184,7 @@ describe('TaiwanStockDetail — AI Research', () => {
     expect(sentContext).not.toHaveProperty('quote')
     expect(sentContext?.portfolio).not.toHaveProperty('current_price')
     expect(sentContext?.portfolio).not.toHaveProperty('unrealized_pnl')
+    expect(sentContext?.portfolio).not.toHaveProperty('change_pct')
   })
 
   it('refreshes local holdings after a portfolio trade event before sending AI context', async () => {

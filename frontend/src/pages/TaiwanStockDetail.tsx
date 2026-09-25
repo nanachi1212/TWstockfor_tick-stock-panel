@@ -154,7 +154,8 @@ export function TaiwanStockDetail() {
       context.quote = {
         ...(typeof verifiedQuote.last_price === 'number' ? { last_price: verifiedQuote.last_price } : {}),
         ...(typeof verifiedQuote.change === 'number' ? { change: verifiedQuote.change } : {}),
-        ...(typeof verifiedQuote.change_pct === 'number' ? { change_pct: verifiedQuote.change_pct } : {}),
+        // TaiwanRealtimeQuote.change_pct is expressed in percentage points (3.66 = 3.66%).
+        // Research evidence uses a fraction (0.0366), so avoid sending a conflicting duplicate.
         ...(verifiedQuote.quote_time ? { quote_time: verifiedQuote.quote_time } : {}),
         ...(verifiedQuote.market_status ? { market_status: verifiedQuote.market_status } : {}),
         trade_date: verifiedQuote.meta.trade_date!,
@@ -196,7 +197,7 @@ export function TaiwanStockDetail() {
             ...(typeof currentPrice === 'number' ? { current_price: currentPrice } : {}),
             ...(pnl != null ? { unrealized_pnl: pnl, return_pct: position.costBasis ? pnl / position.costBasis * 100 : undefined } : {}),
             ...(typeof verifiedQuote?.change === 'number' ? { change: verifiedQuote.change } : {}),
-            ...(typeof verifiedQuote?.change_pct === 'number' ? { change_pct: verifiedQuote.change_pct } : {}),
+            // Keep the realtime quote's percentage-point value out of this fraction-based context.
           }
         }
       }

@@ -113,6 +113,40 @@ async def test_ai_report_cache_hits_for_same_context_and_misses_when_context_cha
 
 
 @pytest.mark.asyncio
+async def test_portfolio_interpretation_requires_verified_price_and_pnl():
+    from tests.test_taiwan_stock_comparison import build_context
+
+    research_svc = MagicMock()
+    research_svc.get_research_context.return_value = build_context("2330.TWSE", "2330", "台積電")
+    diag_svc = MagicMock()
+    diag_svc.get_diagnostics.return_value = SimpleNamespace(items=[])
+    svc = TaiwanAIResearchService(research_svc=research_svc, diag_svc=diag_svc)
+    response_text = json.dumps({
+        "overview": "持倉測試。",
+        "portfolio_interpretation": "測試持倉解讀。",
+        "key_observations": [],
+        "risk_factors": [],
+        "watch_next": [],
+    }, ensure_ascii=False)
+    with patch("app.taiwan.ai_research.generate_ai_text", new_callable=AsyncMock, return_value=response_text):
+        missing_quote = await svc.generate_report(
+            "2330.TWSE", target_date=date(2026, 8, 28),
+            personal_context={"portfolio": {"shares": 10, "average_cost": 900}},
+        )
+        verified_quote = await svc.generate_report(
+            "2330.TWSE", target_date=date(2026, 8, 28),
+            personal_context={"portfolio": {
+                "shares": 10, "average_cost": 900, "current_price": 950, "unrealized_pnl": 500,
+            }},
+        )
+
+    assert missing_quote.report is not None
+    assert missing_quote.report.portfolio_interpretation is None
+    assert verified_quote.report is not None
+    assert verified_quote.report.portfolio_interpretation == "測試持倉解讀。"
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize(
     "symbol,expected_type",
     [

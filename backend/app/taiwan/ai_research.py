@@ -674,7 +674,11 @@ class TaiwanAIResearchService:
             abnormal_diagnostics_interpretation=parsed.get("abnormal_diagnostics_interpretation"),
             portfolio_interpretation=(
                 parsed.get("portfolio_interpretation")
-                if evidence_payload.get("personal_context", {}).get("portfolio") else None
+                if (
+                    isinstance(evidence_payload.get("personal_context", {}).get("portfolio"), dict)
+                    and isinstance(evidence_payload["personal_context"]["portfolio"].get("current_price"), (int, float))
+                    and isinstance(evidence_payload["personal_context"]["portfolio"].get("unrealized_pnl"), (int, float))
+                ) else None
             ),
             alert_interpretation=(
                 parsed.get("alert_interpretation")
