@@ -51,6 +51,7 @@ buckets (``taiwan:twse`` / ``taiwan:tpex``):
 from __future__ import annotations
 
 # ruff: noqa: RUF001 -- Official Chinese provider status must remain exact.
+import hashlib
 import json
 import logging
 import os
@@ -225,11 +226,17 @@ class ObservedUniverseStore:
     def _verification_path(self, exchange: str) -> Path:
         return self._data_dir / f"_month_verification_{exchange}.json"
 
+    def _partition_digest(self, exchange: str, start: date, end: date) -> str:
+        """Identity of the partitions a verification pass saw (a lost one must show)."""
+        days = sorted(d.isoformat() for d in self.completed_dates(exchange) if start <= d <= end)
+        return hashlib.sha256(",".join(days).encode("ascii")).hexdigest()
+
     def record_month_verification(self, exchange: str, start: date, end: date) -> None:
         """A clean, complete pass of the official month-table check for [start, end]."""
         temporary = self._verification_path(exchange).with_suffix(".tmp")
         temporary.write_text(json.dumps({
             "start": start.isoformat(), "end": end.isoformat(),
+            "partitions_sha256": self._partition_digest(exchange, start, end),
             "verified_at": datetime.now(TAIPEI).isoformat(),
         }), encoding="utf-8")
         os.replace(temporary, self._verification_path(exchange))
@@ -241,7 +248,9 @@ class ObservedUniverseStore:
             return False
         record = json.loads(path.read_text(encoding="utf-8"))
         done_start, done_end = date.fromisoformat(record["start"]), date.fromisoformat(record["end"])
-        return done_start <= start and done_end >= end
+        return (done_start <= start and done_end >= end
+                and record.get("partitions_sha256")
+                == self._partition_digest(exchange, done_start, done_end))
 
     def completed_dates(self, exchange: str) -> set[date]:
         root = self._data_dir / f"exchange={exchange}"

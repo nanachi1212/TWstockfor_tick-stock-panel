@@ -33,7 +33,7 @@ from typing import Any
 
 import polars as pl
 
-from app.taiwan.backfill_worker import TaiwanHistoricalBackfillWorker
+from app.taiwan.backfill_worker import TaiwanHistoricalBackfillWorker, WorkerLock
 from app.taiwan.corporate_actions import CorporateActionEvent
 from app.taiwan.quant.evaluation_spec import PRIMARY_OOS_SPEC
 from app.taiwan.quant.panel import FactorPanel, build_factor_panel
@@ -151,6 +151,19 @@ def build_primary_factor_panel(
         raise PrimaryOosNotReadyError(preflight.readiness)
     store = store or FactorPanelStore()
     worker = worker or TaiwanHistoricalBackfillWorker()
+    # One build at a time per workspace: the batch directory is shared state.
+    workspace_lock = WorkerLock(store.root.parent / "primary_panel_build.lock")
+    workspace_lock.acquire()
+    try:
+        return _build_guarded(worker, store, events, workers, batch_size)
+    finally:
+        workspace_lock.release()
+
+
+def _build_guarded(
+    worker: TaiwanHistoricalBackfillWorker, store: FactorPanelStore,
+    events: tuple[CorporateActionEvent, ...] | None, workers: int, batch_size: int,
+) -> dict[str, int]:
     # Snapshot under the lock, compute without it (hours), then revalidate the same
     # snapshot under the lock right before publishing: a store that changed in
     # between makes the build fail instead of publishing a mixed generation.

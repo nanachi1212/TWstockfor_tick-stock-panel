@@ -66,6 +66,21 @@ def _seed(store: ObservedUniverseStore, exchange: str, observed: list[date], emp
         store.write(exchange, day, [])
 
 
+def _weekdays(first: date, last: date) -> list[date]:
+    return [first + timedelta(days=n) for n in range((last - first).days + 1)
+            if (first + timedelta(days=n)).weekday() < 5]
+
+
+def _seed_span(store: ObservedUniverseStore, exchange: str, first: date, last: date,
+               observed: list[date], skip: tuple[date, ...] = ()) -> None:
+    """A partition for every weekday of the span: rows on ``observed``, empty otherwise."""
+    for day in _weekdays(first, last):
+        if day in skip:
+            continue
+        store.write(exchange, day,
+                    [{**ROW, "date": day, "exchange": exchange}] if day in observed else [])
+
+
 # ── Trading-day evidence ───────────────────────────────────────
 
 def test_absent_weekdays_are_confirmed_only_before_the_last_published_session(tmp_path: Path) -> None:
@@ -799,8 +814,9 @@ def test_resume_identity_changes_with_the_factor_implementation(monkeypatch) -> 
 
 def test_month_verification_marker_only_after_a_clean_complete_pass(tmp_path: Path) -> None:
     store = ObservedUniverseStore(tmp_path)
-    _seed(store, "TWSE", [date(2015, 2, 2), date(2015, 2, 26)], [date(2015, 2, 16)])
-    span = (date(2015, 2, 1), date(2015, 2, 28))
+    span = (date(2015, 2, 1), date(2015, 2, 26))
+    traded = [date(2015, 2, 2), date(2015, 2, 26)]
+    _seed_span(store, "TWSE", *span, observed=traded)
     good = _fetcher({"FMTQIK": _twse_month(2015, 2, ["104/02/02", "104/02/26"])})
     bad = _fetcher({"FMTQIK": {"stat": "很抱歉，沒有符合條件的資料!"}})
     verify_empty_days(store, "TWSE", start=span[0], end=span[1], fetch=bad,
@@ -814,6 +830,8 @@ def test_month_verification_marker_only_after_a_clean_complete_pass(tmp_path: Pa
     assert store.month_verification_covers("TWSE", *span)
     assert not store.month_verification_covers("TWSE", date(2015, 1, 1), span[1])
     assert not store.month_verification_covers("TWSE", span[0], date(2015, 4, 1))
+    store.partition_path("TWSE", date(2015, 2, 26)).unlink()   # a verified partition is lost
+    assert not store.month_verification_covers("TWSE", *span)
 
 
 def test_panel_build_fails_if_the_stores_change_while_it_computes(
@@ -890,8 +908,11 @@ def test_trailing_day_needs_the_official_schedule_and_the_marker_needs_the_exact
     from app.taiwan.trading_day_evidence import fetch_twse_closures
 
     store = ObservedUniverseStore(tmp_path)
-    _seed(store, "TWSE", [date(2026, 9, 23), date(2026, 9, 24)], [date(2026, 9, 25)])
+    days = _weekdays(date(2026, 9, 1), date(2026, 9, 24))
+    _seed_span(store, "TWSE", date(2026, 9, 1), date(2026, 9, 25), observed=days)
     month = _twse_month(2026, 9, ["115/09/23", "115/09/24"])
+    earlier = [[f"115/09/{d.day:02d}", "1"] for d in _weekdays(date(2026, 9, 1), date(2026, 9, 22))]
+    month["data"] = earlier + month["data"]   # published earlier in the month
     fetch = _fetcher({"FMTQIK": month})
     span = (date(2026, 9, 1), date(2026, 9, 25))
     first = verify_empty_days(store, "TWSE", start=span[0], end=span[1], fetch=fetch,
@@ -918,10 +939,11 @@ def test_official_weekday_without_a_partition_is_fetched_or_keeps_verification_o
     tmp_path: Path,
 ) -> None:
     store = ObservedUniverseStore(tmp_path)
-    monday, tuesday = date(2015, 2, 2), date(2015, 2, 3)
-    _seed(store, "TWSE", [monday], [])           # Tuesday's census request failed: no partition
+    tuesday = date(2015, 2, 3)
+    span = (date(2015, 2, 1), date(2015, 2, 3))
+    # Tuesday's census request failed: it is the only weekday without a partition.
+    _seed_span(store, "TWSE", *span, observed=[date(2015, 2, 2)], skip=(tuesday,))
     fetch = _fetcher({"FMTQIK": _twse_month(2015, 2, ["104/02/02", "104/02/03"])})
-    span = (date(2015, 2, 1), date(2015, 2, 28))
 
     def failing(day):
         raise RuntimeError("provider down")

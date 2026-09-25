@@ -25,7 +25,7 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Callable
-from datetime import date
+from datetime import date, timedelta
 from typing import Any
 
 from app.taiwan.observed_universe import ObservedUniverseStore
@@ -212,7 +212,13 @@ def verify_empty_days(
                     report["weekend_sessions_added"].append(day.isoformat())
                 else:
                     report["weekend_sessions_missing_open"].append(day.isoformat())
+    weekdays_without_partition = [
+        (start + timedelta(days=n)).isoformat() for n in range((end - start).days + 1)
+        if (start + timedelta(days=n)).weekday() < 5
+        and not store.has(exchange, start + timedelta(days=n))
+    ]
     clean = (
+        not weekdays_without_partition and
         not report["month_errors"] and not report["observed_conflicts"]
         and not report["after_last_published_session"]
         and not report["weekend_sessions_missing_open"]
