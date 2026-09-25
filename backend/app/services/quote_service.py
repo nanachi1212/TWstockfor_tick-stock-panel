@@ -1431,7 +1431,7 @@ class QuoteService:
                 title = source_labels.get(ev.get("source", ""), "提醒")
                 body = webhook_adapter.alert_message(ev)
                 event_id = str(ev.get("alert_id") or ev.get("dedup_key") or "|".join(
-                    str(ev.get(key) or "") for key in ("rule_id", "symbol", "type", "ts")
+                    str(ev.get(key) or "") for key in ("rule_id", "symbol", "sector_key", "type", "ts")
                 ))
                 # The alert is already durable and in SSE before provider I/O begins.
                 if "line" in channels:

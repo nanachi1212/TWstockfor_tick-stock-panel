@@ -260,6 +260,36 @@ def test_global_alert_dispatch_reaches_once_and_failure_does_not_escape(monkeypa
     assert len(calls) == 1
 
 
+def test_sector_alert_targets_have_distinct_delivery_dedupe_keys(monkeypatch):
+    from app.services import quote_service
+
+    calls = []
+
+    class InlineExecutor:
+        def submit(self, fn, *args):
+            calls.append(args)
+            fn(*args)
+
+    monkeypatch.setattr(quote_service, "_WEBHOOK_EXECUTOR", InlineExecutor())
+    monkeypatch.setattr(quote_service, "_WEBHOOK_DISPATCHED", set())
+    monkeypatch.setattr(preferences, "get_external_notification_channels", lambda: ["telegram"])
+    monkeypatch.setattr(preferences, "get_telegram_bot_token", lambda: "fake-token")
+    monkeypatch.setattr(preferences, "get_telegram_chat_id", lambda: "-1001")
+    monkeypatch.setattr(preferences, "get_line_channel_access_token", lambda: "")
+    monkeypatch.setattr(preferences, "get_line_target_id", lambda: "")
+    monkeypatch.setattr(webhook_adapter, "send_telegram", lambda *_args: True)
+    service = object.__new__(QuoteService)
+    events = [
+        {"rule_id": "sector-rule", "symbol": "", "sector_key": key,
+         "type": "sector_change_pct_up", "ts": 1000, "source": "sector", "name": key}
+        for key in ("industry:semiconductor", "concept:ai")
+    ]
+
+    service._maybe_send_webhook(events, None)
+
+    assert len(calls) == 2
+
+
 def test_adapter_failure_status_and_logs_never_include_token(monkeypatch, caplog):
     token = "123456:secret-bot-token"
 
