@@ -30,6 +30,11 @@ const PAGE_LABELS: Record<string, string> = {
 export function SettingsMonitoringPanel(_props: { highlight?: string } = {}) {
   const qc = useQueryClient()
   const { data: prefs } = usePreferences()
+  const { data: notificationStatus } = useQuery({
+    queryKey: QK.externalNotificationStatus,
+    queryFn: api.externalNotificationStatus,
+    refetchInterval: 5000,
+  })
   const { data: quoteStatus } = useQuoteStatus()
   const { data: intervalData } = useQuoteInterval()
   const updateInterval = useUpdateQuoteInterval()
@@ -45,7 +50,7 @@ export function SettingsMonitoringPanel(_props: { highlight?: string } = {}) {
   const refreshPages = prefs?.sse_refresh_pages ?? {}
   // 只有明確保存的全域通道才顯示為啟用，舊規則預設不代表全域設定。
   const externalChannels = prefs?.external_notification_channels ?? []
-  const externalStatus = prefs?.external_notification_status ?? {}
+  const externalStatus = notificationStatus?.external_notification_status ?? {}
   const deliveryStatusLabel = (channel: 'line' | 'telegram') => ({
     sent: '上次傳送成功',
     failed: '上次傳送失敗',
@@ -120,7 +125,7 @@ export function SettingsMonitoringPanel(_props: { highlight?: string } = {}) {
     onSuccess: () => {
       setLineTokenDraft('')
       toast('LINE Messaging API 設定已儲存', 'success')
-      qc.invalidateQueries({ queryKey: QK.preferences })
+      return qc.invalidateQueries({ queryKey: QK.preferences })
     },
   })
   const saveTelegram = useMutation({
@@ -129,9 +134,10 @@ export function SettingsMonitoringPanel(_props: { highlight?: string } = {}) {
     onSuccess: () => {
       setTelegramTokenDraft('')
       toast('Telegram Bot API 設定已儲存', 'success')
-      qc.invalidateQueries({ queryKey: QK.preferences })
+      return qc.invalidateQueries({ queryKey: QK.preferences })
     },
   })
+  const isSavingNotificationCredentials = saveLine.isPending || saveTelegram.isPending
   const testLine = useMutation({
     mutationFn: api.testLineMessaging,
     onSuccess: ({ ok }) => {
@@ -337,7 +343,7 @@ export function SettingsMonitoringPanel(_props: { highlight?: string } = {}) {
               >
                 <input
                   type="checkbox"
-                  disabled={isUpdatingExternalChannels}
+                  disabled={isUpdatingExternalChannels || isSavingNotificationCredentials}
                   checked={externalChannels.includes('line')}
                   onChange={event => { event.stopPropagation(); toggleDefaultChannel('line', event.target.checked) }}
                   onClick={event => event.stopPropagation()}
@@ -384,7 +390,7 @@ export function SettingsMonitoringPanel(_props: { highlight?: string } = {}) {
                         recipient: lineTargetDraft.trim(),
                         token: lineTokenDraft.trim() || undefined,
                       })}
-                      disabled={saveLine.isPending || (lineTargetDraft.trim() === lineTargetId && !lineTokenDraft.trim())}
+                      disabled={isUpdatingExternalChannels || saveLine.isPending || (lineTargetDraft.trim() === lineTargetId && !lineTokenDraft.trim())}
                       className="px-3 py-1.5 rounded-btn bg-accent text-base text-xs font-medium disabled:opacity-50 cursor-pointer hover:bg-accent/90 transition-colors"
                     >
                       {saveLine.isPending ? '儲存中…' : '儲存'}
@@ -399,7 +405,7 @@ export function SettingsMonitoringPanel(_props: { highlight?: string } = {}) {
                     {lineConfigured && (
                       <button
                         onClick={() => saveLine.mutate({ recipient: '', clearToken: true })}
-                        disabled={saveLine.isPending}
+                        disabled={isUpdatingExternalChannels || saveLine.isPending}
                         className="ml-auto px-2 py-1 text-[10px] text-danger disabled:opacity-50"
                       >
                         清除設定
@@ -472,7 +478,7 @@ export function SettingsMonitoringPanel(_props: { highlight?: string } = {}) {
               >
                 <input
                   type="checkbox"
-                  disabled={isUpdatingExternalChannels}
+                  disabled={isUpdatingExternalChannels || isSavingNotificationCredentials}
                   checked={externalChannels.includes('telegram')}
                   onChange={event => { event.stopPropagation(); toggleDefaultChannel('telegram', event.target.checked) }}
                   onClick={event => event.stopPropagation()}
@@ -519,7 +525,7 @@ export function SettingsMonitoringPanel(_props: { highlight?: string } = {}) {
                         recipient: telegramChatDraft.trim(),
                         token: telegramTokenDraft.trim() || undefined,
                       })}
-                      disabled={saveTelegram.isPending || (telegramChatDraft.trim() === telegramChatId && !telegramTokenDraft.trim())}
+                      disabled={isUpdatingExternalChannels || saveTelegram.isPending || (telegramChatDraft.trim() === telegramChatId && !telegramTokenDraft.trim())}
                       className="px-3 py-1.5 rounded-btn bg-accent text-base text-xs font-medium disabled:opacity-50 cursor-pointer hover:bg-accent/90 transition-colors"
                     >
                       {saveTelegram.isPending ? '儲存中…' : '儲存'}
@@ -534,7 +540,7 @@ export function SettingsMonitoringPanel(_props: { highlight?: string } = {}) {
                     {telegramConfigured && (
                       <button
                         onClick={() => saveTelegram.mutate({ recipient: '', clearToken: true })}
-                        disabled={saveTelegram.isPending}
+                        disabled={isUpdatingExternalChannels || saveTelegram.isPending}
                         className="ml-auto px-2 py-1 text-[10px] text-danger disabled:opacity-50"
                       >
                         清除設定

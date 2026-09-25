@@ -118,6 +118,12 @@ def test_global_external_channels_are_persisted_and_app_only_is_explicit(monkeyp
     assert "external_notification_channels" in json.loads(preferences_path.read_text(encoding="utf-8"))
 
 
+def test_notification_status_endpoint_returns_latest_delivery_state(monkeypatch):
+    monkeypatch.setattr(webhook_adapter, "delivery_status", lambda: {"line": "sent"})
+
+    assert settings_api.get_notification_status() == {"external_notification_status": {"line": "sent"}}
+
+
 def test_alert_message_includes_stock_and_trigger_but_omits_missing_quote():
     message = webhook_adapter.alert_message({
         "alert_id": "a1",
@@ -135,7 +141,23 @@ def test_alert_message_includes_stock_and_trigger_but_omits_missing_quote():
     assert "設定門檻: 450" in message
     assert "觸發時間: 2026-09-25 13:42" in message
     assert "目前價格" not in message
-    assert "Quant" not in message
+
+
+def test_alert_message_formats_quant_score_as_percentage():
+    message = webhook_adapter.alert_message({
+        "symbol": "2330.TWSE",
+        "message": "進入 Quant Top 10",
+        "quant_score": 0.91,
+    })
+
+    assert "Quant 分數: 91.0%" in message
+    assert "Quant: 0.91" not in message
+
+    message_with_score = webhook_adapter.alert_message({
+        "message": "Quant 分數 91.0%",
+        "quant_score": 0.91,
+    })
+    assert message_with_score.count("91.0%") == 1
 
 
 def test_global_alert_dispatch_reaches_once_and_failure_does_not_escape(monkeypatch):

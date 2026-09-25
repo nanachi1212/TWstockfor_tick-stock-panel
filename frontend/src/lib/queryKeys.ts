@@ -13,6 +13,7 @@ export const QK = {
   settings:       ['settings'] as const,
   version:        ['version'] as const,
   preferences:    ['preferences'] as const,
+  externalNotificationStatus: ['external-notification-status'] as const,
   dataSources:    ['data-sources'] as const,
   taiwanDataStatus: ['taiwan-data-status'] as const,
   taiwanQuantEvaluation: ['taiwan-quant-evaluation'] as const,

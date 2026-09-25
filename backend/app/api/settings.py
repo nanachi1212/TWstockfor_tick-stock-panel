@@ -492,6 +492,14 @@ def get_preferences() -> dict:
     }
 
 
+@router.get("/notification-status")
+def get_notification_status() -> dict:
+    """Return process-local external notification delivery status."""
+    from app.services import webhook_adapter
+
+    return {"external_notification_status": webhook_adapter.delivery_status()}
+
+
 @router.get("/data-sources")
 def list_data_sources() -> dict:
     """列出已加载的数据源 (内置 / 插件 / 用户自定义)。"""

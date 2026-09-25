@@ -85,7 +85,11 @@ def alert_message(event: dict) -> str:
         try:
             score_number = float(quant_score)
             if math.isfinite(score_number):
-                lines.append(f"Quant: {score_number:g}")
+                if event.get("quant_score") is not None:
+                    if "quant 分數" not in str(event.get("message") or "").casefold():
+                        lines.append(f"Quant 分數: {score_number * 100:.1f}%")
+                else:
+                    lines.append(f"Quant: {score_number:g}")
         except (TypeError, ValueError):
             pass
 

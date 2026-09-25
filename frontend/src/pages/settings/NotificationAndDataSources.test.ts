@@ -22,7 +22,9 @@ describe('notification channel settings', () => {
   it('disables both global channel controls while a preference update is pending', () => {
     const code = read('Monitoring.tsx')
     expect(code).toContain('isPending: isUpdatingExternalChannels')
-    expect(code.match(/disabled=\{isUpdatingExternalChannels\}/gu)).toHaveLength(2)
+    expect(code.match(/disabled=\{isUpdatingExternalChannels \|\| isSavingNotificationCredentials\}/gu)).toHaveLength(2)
+    expect(code).toContain('disabled={isUpdatingExternalChannels || saveLine.isPending')
+    expect(code).toContain('disabled={isUpdatingExternalChannels || saveTelegram.isPending')
   })
 
   it('does not display legacy rule defaults as saved global channels', () => {
@@ -30,6 +32,13 @@ describe('notification channel settings', () => {
     expect(code).toContain('prefs?.external_notification_channels ?? []')
     expect(code).not.toContain('prefs?.external_notification_channels ?? prefs?.webhook_default_channels')
     expect(code).toContain('尚未儲存全域通道')
+  })
+
+  it('refreshes delivery status independently of editable preferences', () => {
+    const code = read('Monitoring.tsx')
+    expect(code).toContain('queryKey: QK.externalNotificationStatus')
+    expect(code).toContain('queryFn: api.externalNotificationStatus')
+    expect(code).toContain('refetchInterval: 5000')
   })
 
   it('keeps masked token inputs and configured-state checks', () => {

@@ -2297,6 +2297,7 @@ export const api = {
     request<{ ok: boolean }>('/api/settings/ai', { method: 'DELETE' }),
 
   preferences: () => request<Preferences>('/api/settings/preferences'),
+  externalNotificationStatus: () => request<{ external_notification_status: Record<string, 'sent' | 'failed' | 'not_configured'> }>('/api/settings/notification-status'),
   dataSources: () => request<DataSourcesResponse>('/api/settings/data-sources'),
   dataSource: (name: string) => request<CustomSourceConfig>(`/api/settings/data-sources/${encodeURIComponent(name)}`),
   saveDataSource: (config: CustomSourceConfig) =>
