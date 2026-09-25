@@ -629,6 +629,9 @@ class TaiwanAIResearchService:
             parsed = _extract_json_object(raw_text)
             if not isinstance(parsed, dict):
                 raise ValueError("LLM did not return a valid JSON object dictionary.")
+            for field in ("portfolio_interpretation", "alert_interpretation"):
+                if parsed.get(field) is not None and not isinstance(parsed[field], str):
+                    raise ValueError(f"LLM returned a non-string value for {field}.")
         except Exception as e:
             logger.error("Failed to parse AI response for %s (%s)", symbol, type(e).__name__)
             return TaiwanAIResearchResponse(

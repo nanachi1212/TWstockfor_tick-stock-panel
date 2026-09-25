@@ -180,6 +180,38 @@ async def test_portfolio_interpretation_requires_verified_price_and_pnl():
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "field,value",
+    [("portfolio_interpretation", {"unexpected": True}), ("alert_interpretation", ["unexpected"])],
+)
+async def test_personal_interpretation_fields_reject_non_string_provider_output(field, value):
+    from tests.test_taiwan_stock_comparison import build_context
+
+    research_svc = MagicMock()
+    research_svc.get_research_context.return_value = build_context("2330.TWSE", "2330", "台積電")
+    diag_svc = MagicMock()
+    diag_svc.get_diagnostics.return_value = SimpleNamespace(items=[])
+    svc = TaiwanAIResearchService(research_svc=research_svc, diag_svc=diag_svc)
+    response_text = json.dumps({
+        "overview": "型別驗證。",
+        field: value,
+        "key_observations": [],
+        "risk_factors": [],
+        "watch_next": [],
+    }, ensure_ascii=False)
+    with patch("app.taiwan.ai_research.generate_ai_text", new_callable=AsyncMock, return_value=response_text):
+        response = await svc.generate_report(
+            "2330.TWSE", personal_context={
+                "portfolio": {"shares": 1, "average_cost": 100, "current_price": 101, "unrealized_pnl": 1},
+                "alert": {"alert_id": "alert-type-test", "trigger_value": 100},
+            },
+        )
+
+    assert response.status == "unavailable"
+    assert response.error_code == "invalid_output"
+
+
+@pytest.mark.asyncio
 async def test_historical_report_omits_current_personal_context():
     from tests.test_taiwan_stock_comparison import build_context
 

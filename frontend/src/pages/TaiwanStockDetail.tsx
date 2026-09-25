@@ -151,7 +151,7 @@ export function TaiwanStockDetail() {
     const context: TaiwanAIResearchPersonalContext = {}
     if (!watchlist.isLoading && !watchlist.isError) context.watchlist = { included: inWatchlist }
     const quote = data?.realtime
-    const verifiedQuote = !detailQuery.isError && quote?.meta?.source?.trim() && quote.meta.trade_date && quote.meta.status === 'available' && quote.meta.is_stale === false
+    const verifiedQuote = !detailQuery.isError && !detailQuery.isFetching && quote?.meta?.source?.trim() && quote.meta.trade_date && quote.meta.status === 'available' && quote.meta.is_stale === false
       ? quote
       : undefined
     if (verifiedQuote?.meta) {
@@ -214,7 +214,7 @@ export function TaiwanStockDetail() {
       // An unreadable local ledger stays unavailable and does not block stock analysis.
     }
     return context
-  }, [inWatchlist, watchlist.isLoading, watchlist.isError, quantSelection.signals, quantSelection.validRun, quantSelection.error, quantSelection.fetching, selectedAlert, symbol, data, detailQuery.isError, portfolioRevision])
+  }, [inWatchlist, watchlist.isLoading, watchlist.isError, quantSelection.signals, quantSelection.validRun, quantSelection.error, quantSelection.fetching, selectedAlert, symbol, data, detailQuery.isError, detailQuery.isFetching, portfolioRevision])
 
   const handleGenerateAiReport = useCallback(async () => {
     if (toggleWatchlist.isPending || watchlist.isFetching) return
