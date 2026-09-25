@@ -324,9 +324,15 @@ export function PortfolioPanel({ symbol, name, quote: detailQuote, change: detai
   const [reminder, setReminder] = useState<{ symbol: string; name: string; price?: number | null; quote?: TaiwanRealtimeQuote } | null>(null)
   const ledgerPositions = useMemo(() => buildPortfolioPositions(transactions), [transactions])
   const positions = useMemo(() => ledgerPositions.filter(position => position.shares > 0), [ledgerPositions])
-  const { signals } = useTodayQuantSelection()
-  const quantBySymbol = new Map(signals.map(signal => [signal.symbol, signal]))
+  const quant = useTodayQuantSelection()
+  const quantBySymbol = new Map(quant.signals.map(signal => [signal.symbol, signal]))
   const symbols = positions.map(position => position.symbol)
+  const portfolioAlerts = useQuery({
+    queryKey: QK.alertsToday,
+    queryFn: () => api.alertsList({ days: 1, limit: 5000 }),
+    enabled: !symbol && symbols.length > 0,
+    staleTime: 30_000,
+  })
   const quotesQuery = useQuery({
     queryKey: QK.portfolioQuotes(symbols.join(',')),
     queryFn: () => api.taiwanQuotes(symbols),
@@ -339,9 +345,11 @@ export function PortfolioPanel({ symbol, name, quote: detailQuote, change: detai
   const targetLedgerPosition = symbol ? ledgerPositions.find(position => position.symbol === symbol.toUpperCase()) : undefined
   const shownPositions = symbol ? (targetPosition ? [targetPosition] : []) : positions
   const quoteFetchFailed = symbol ? quoteUnavailable : quotesQuery.isError
+  const quotesLoading = !symbol && symbols.length > 0 && quotesQuery.isLoading
   const quoteFor = (position: typeof positions[number]): TaiwanRealtimeQuote | undefined => quotes.get(position.symbol)
   const hasMissingQuote = quoteFetchFailed || shownPositions.some(position => (symbol ? detailQuote : quoteFor(position)?.last_price) == null)
   const hasMissingDailyChange = positions.some(position => quotes.get(position.symbol)?.change == null)
+  const hasStaleDailyChange = positions.some(position => quotes.get(position.symbol)?.source_meta?.is_stale === true)
   const hasDegradedQuote = shownPositions.some(position => {
     const meta = symbol ? quoteMeta : quoteFor(position)?.source_meta
     const freshnessMeta = quoteFetchFailed && meta ? { ...meta, is_stale: true, status: 'stale' } : meta
@@ -352,6 +360,14 @@ export function PortfolioPanel({ symbol, name, quote: detailQuote, change: detai
   const totalMarket = positions.reduce((total, position) => total + (quotes.get(position.symbol)?.last_price ?? 0) * position.shares, 0)
   const totalUnrealized = totalMarket - totalCost
   const totalDailyChange = positions.reduce((total, position) => total + (quotes.get(position.symbol)?.change ?? 0) * position.shares, 0)
+  const dailyUpCount = positions.filter(position => (quotes.get(position.symbol)?.change ?? 0) > 0).length
+  const dailyDownCount = positions.filter(position => (quotes.get(position.symbol)?.change ?? 0) < 0).length
+  const quantTopCount = positions.filter(position => quantBySymbol.has(position.symbol)).length
+  const todayTaipei = new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Taipei' })
+  const portfolioAlertsToday = (portfolioAlerts.data?.alerts ?? []).filter(event => {
+    const eventDate = new Date(event.ts).toLocaleDateString('sv-SE', { timeZone: 'Asia/Taipei' })
+    return symbols.includes(event.symbol ?? '') && eventDate === todayTaipei
+  }).length
   const unavailableQuoteValue = quoteFetchFailed ? '行情更新失敗' : '報價不完整'
 
   return (
@@ -368,6 +384,9 @@ export function PortfolioPanel({ symbol, name, quote: detailQuote, change: detai
           <Summary label={hasDegradedQuote ? '未實現損益（含非即時報價）' : '未實現損益'} value={hasMissingQuote ? unavailableQuoteValue : money(totalUnrealized)} tone={hasMissingQuote ? null : totalUnrealized} />
           <Summary label={hasDegradedQuote ? '未實現報酬率（含非即時報價）' : '未實現報酬率'} value={hasMissingQuote || totalCost === 0 ? (hasMissingQuote ? unavailableQuoteValue : '—') : signedPct(totalUnrealized / totalCost * 100)} tone={hasMissingQuote ? null : totalUnrealized} />
           <Summary label={hasDegradedQuote ? '今日持股變化（含非即時報價）' : '今日持股變化'} value={hasMissingQuote ? unavailableQuoteValue : hasMissingDailyChange ? '報價不完整' : money(totalDailyChange)} tone={hasMissingQuote || hasMissingDailyChange ? null : totalDailyChange} />
+          <Summary label="今日上漲 / 下跌" value={quotesLoading ? '—' : quoteFetchFailed || hasMissingDailyChange || hasStaleDailyChange ? '資料不完整' : `${dailyUpCount} / ${dailyDownCount} 檔`} />
+          <Summary label="Quant Top 10 持股" value={quant.loading ? '—' : quant.error || !quant.validRun ? 'unavailable' : `${quantTopCount} 檔`} />
+          <Summary label="今日持股提醒" value={portfolioAlerts.isLoading ? '—' : portfolioAlerts.isError ? 'unavailable' : `${portfolioAlertsToday} 則`} />
         </div>
       )}
       {!symbol && quotesQuery.isLoading && positions.length > 0 && <p role="status" className="text-[11px] text-muted">正在載入持股報價…</p>}

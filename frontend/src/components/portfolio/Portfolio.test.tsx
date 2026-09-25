@@ -7,7 +7,7 @@ import { storage } from '@/lib/storage'
 import { PortfolioPanel } from './Portfolio'
 
 vi.mock('@/lib/api', () => ({ api: { taiwanQuotes: vi.fn(), taiwanTransactionTax: vi.fn(), taiwanPortfolioInstrument: vi.fn() } }))
-vi.mock('@/components/quant/TodaySelection', () => ({ useTodayQuantSelection: () => ({ signals: [] }) }))
+vi.mock('@/components/quant/TodaySelection', () => ({ useTodayQuantSelection: () => ({ signals: [], loading: false, error: false, validRun: null }) }))
 
 function renderPortfolio(props: Parameters<typeof PortfolioPanel>[0] = {}) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
@@ -46,6 +46,37 @@ afterEach(() => {
 })
 
 describe('Portfolio UI', () => {
+  it('shows Quant holdings as unavailable when there is no validated live run', async () => {
+    storage.portfolioTransactions.set([{
+      id: 'seed', symbol: '2330.TWSE', name: '台積電', side: 'buy', shares: 5,
+      price: 100, fee: 0, date: '2026-09-24', createdAt: '2026-09-24T00:00:00.000Z',
+    }])
+    vi.mocked(api.taiwanQuotes).mockResolvedValue({ quotes: [], count: 0 })
+    renderPortfolio()
+
+    const quantSummary = await screen.findByText('Quant Top 10 持股')
+    expect(quantSummary.parentElement).toHaveTextContent('unavailable')
+  })
+
+  it('counts complete closing snapshots in the daily up/down summary', async () => {
+    storage.portfolioTransactions.set([
+      { id: 'up', symbol: '2330.TWSE', name: '台積電', side: 'buy', shares: 1, price: 100, fee: 0, date: '2026-09-24', createdAt: '2026-09-24T00:00:00.000Z' },
+      { id: 'down', symbol: '2317.TWSE', name: '鴻海', side: 'buy', shares: 1, price: 100, fee: 0, date: '2026-09-24', createdAt: '2026-09-24T00:01:00.000Z' },
+    ])
+    const closingQuotes = { quotes: [
+      { symbol: '2330.TWSE', name: '台積電', last_price: 110, prev_close: 108, change: 2, change_pct: 1.85, source_meta: { freshness_class: 'eod_snapshot', is_stale: false } },
+      { symbol: '2317.TWSE', name: '鴻海', last_price: 99, prev_close: 100, change: -1, change_pct: -1, source_meta: { freshness_class: 'eod_snapshot', is_stale: false } },
+    ] as any, count: 2 }
+    let resolveQuotes!: (response: typeof closingQuotes) => void
+    vi.mocked(api.taiwanQuotes).mockReturnValueOnce(new Promise(resolve => { resolveQuotes = resolve }) as any)
+    renderPortfolio()
+
+    const summaryLabel = await screen.findByText('今日上漲 / 下跌')
+    expect(summaryLabel.parentElement).toHaveTextContent('—')
+    await act(async () => resolveQuotes(closingQuotes))
+    await waitFor(() => expect(screen.getByText('今日上漲 / 下跌').parentElement).toHaveTextContent('1 / 1 檔'))
+  })
+
   it('records a buy, displays quote-based portfolio totals, and restores the holding after remount', async () => {
     vi.mocked(api.taiwanQuotes).mockResolvedValue({ quotes: [{
       symbol: '2330.TWSE', name: '台積電', last_price: 110, prev_close: 108, change: 2,

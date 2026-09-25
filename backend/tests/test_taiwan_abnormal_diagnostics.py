@@ -125,9 +125,13 @@ def test_volume_spike_and_baseline_excludes_target():
         daily_store=mock_daily,
         security_master=mock_sm,
     )
-    snap = svc.get_diagnostics(target_date=d_curr, include_all=True)
+    snap = svc.get_diagnostics(target_date=d_curr, include_all=True, include_context_snapshots=True)
 
     assert len(snap.items) == 1
+    assert snap.market_snapshot is not None
+    assert snap.market_snapshot.trade_date == str(d_curr)
+    assert snap.industry_snapshot is not None
+    assert snap.industry_snapshot.trade_date == str(d_curr)
     item = snap.items[0]
     assert item.volume_ratio_5d == 3.0
 
@@ -843,12 +847,14 @@ def test_api_endpoint_zero_market_http_and_no_ai(taiwan_data_env):
     """Verify GET /api/taiwan/abnormal-diagnostics performs 0 HTTP calls and no AI provider calls."""
     client = TestClient(app, client=("127.0.0.1", 50000))
     with patch("urllib.request.urlopen") as mock_urlopen, patch("httpx.get") as mock_httpx_get, patch("httpx.post") as mock_httpx_post:
-        resp = client.get("/api/taiwan/abnormal-diagnostics?date=2026-08-28")
+        resp = client.get("/api/taiwan/abnormal-diagnostics?date=2026-08-28&include_context_snapshots=true")
         assert resp.status_code == 200
         data = resp.json()
         assert data["trade_date"] == "2026-08-28"
         assert "items" in data
         assert "data_quality" in data
+        assert data["market_snapshot"]["trade_date"] == "2026-08-28"
+        assert data["industry_snapshot"]["trade_date"] == "2026-08-28"
         assert mock_urlopen.call_count == 0
         assert mock_httpx_get.call_count == 0
         assert mock_httpx_post.call_count == 0

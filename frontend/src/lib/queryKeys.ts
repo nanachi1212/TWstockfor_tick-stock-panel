@@ -92,6 +92,7 @@ export const QK = {
   monitorRules:         ['monitor-rules'] as const,
   monitorRuleOptions:   ['monitor-rule-options'] as const,
   alerts:               (source?: string) => ['alerts', source ?? ''] as const,
+  alertsToday:          ['alerts', '', 'dashboard-today'] as const,
   taiwanRules:          ['taiwan-rules'] as const,
   taiwanQuotes:         (symbols: string) => ['taiwan-quotes', symbols] as const,
   portfolioQuotes:      (symbols: string) => ['portfolio-quotes', symbols] as const,

@@ -53,15 +53,22 @@ from __future__ import annotations
 import logging
 from datetime import date
 from typing import Any, Literal
-from pydantic import BaseModel, Field
+
 import polars as pl
+from pydantic import BaseModel, Field
 
 from app.taiwan.daily_store import TaiwanDailyStore
 from app.taiwan.daily_update import DatasetFreshnessStatus, resolve_target_latest_trading_date
-from app.taiwan.industry_intelligence import TaiwanIndustryIntelligenceService
+from app.taiwan.industry_intelligence import (
+    TaiwanIndustryIntelligenceService,
+    TaiwanIndustryIntelligenceSnapshot,
+)
 from app.taiwan.institutional_store import TaiwanInstitutionalStore
 from app.taiwan.margin_store import TaiwanMarginStore
-from app.taiwan.market_intelligence import TaiwanMarketIntelligenceService
+from app.taiwan.market_intelligence import (
+    TaiwanMarketIntelligenceService,
+    TaiwanMarketIntelligenceSnapshot,
+)
 from app.taiwan.realtime.calendar import TaiwanTradingCalendar, taipei_now
 from app.taiwan.universe import TaiwanSecurityMaster, get_security_master
 from app.taiwan.universe.service import UniverseType
@@ -163,6 +170,8 @@ class TaiwanAbnormalDiagnosticsSnapshot(BaseModel):
     items: list[TaiwanAbnormalDiagnosticItem]
     data_quality: DiagnosticsDataQuality
     provenance: list[str]
+    market_snapshot: TaiwanMarketIntelligenceSnapshot | None = None
+    industry_snapshot: TaiwanIndustryIntelligenceSnapshot | None = None
 
 
 # ── Service Implementation ────────────────────────────────────
@@ -216,6 +225,7 @@ class TaiwanAbnormalDiagnosticsService:
         industry_filter: str | None = None,
         exchange_filter: str | None = None,
         include_etfs: bool = False,
+        include_context_snapshots: bool = False,
     ) -> TaiwanAbnormalDiagnosticsSnapshot:
         """Run batch diagnostics across Taiwan universe for target_date with zero request-time HTTP.
 
@@ -697,6 +707,8 @@ class TaiwanAbnormalDiagnosticsService:
                 "taiwan_market_intelligence",
                 "taiwan_industry_intelligence",
             ],
+            market_snapshot=market_snap if include_context_snapshots else None,
+            industry_snapshot=ind_snap if include_context_snapshots else None,
         )
 
     def _empty_snapshot(self, target: date) -> TaiwanAbnormalDiagnosticsSnapshot:
