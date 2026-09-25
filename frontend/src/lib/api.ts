@@ -1531,6 +1531,8 @@ export interface TaiwanAbnormalDiagnosticsSnapshot {
     overall_status: 'complete' | 'partial' | 'unavailable'
   }
   provenance: string[]
+  market_snapshot?: TaiwanMarketIntelligenceSnapshot | null
+  industry_snapshot?: TaiwanIndustryIntelligenceSnapshot | null
 }
 
 export interface ObservationItem {
@@ -3186,6 +3188,7 @@ export const api = {
   taiwanAbnormalDiagnostics: (params?: {
     date?: string
     include_all?: boolean
+    include_context_snapshots?: boolean
     signal_type?: string
     industry?: string
     exchange?: string
@@ -3193,6 +3196,7 @@ export const api = {
     const q = new URLSearchParams()
     if (params?.date) q.set('date', params.date)
     if (params?.include_all !== undefined) q.set('include_all', String(params.include_all))
+    if (params?.include_context_snapshots !== undefined) q.set('include_context_snapshots', String(params.include_context_snapshots))
     if (params?.signal_type) q.set('signal_type', params.signal_type)
     if (params?.industry) q.set('industry', params.industry)
     if (params?.exchange) q.set('exchange', params.exchange)

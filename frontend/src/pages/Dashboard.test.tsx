@@ -65,12 +65,19 @@ function buildWatchlistEnriched(rows: any[]) {
   return { rows, as_of: '2026-09-05', elapsed_ms: 1 }
 }
 
-function buildDiagnostics(items: any[] = [], dailyStatus: 'current' | 'stale' | 'unavailable' = 'current') {
+function buildDiagnostics(
+  items: any[] = [],
+  dailyStatus: 'current' | 'stale' | 'unavailable' = 'current',
+  marketSnapshot: ReturnType<typeof buildMarketIntelligence> = buildMarketIntelligence(),
+  industrySnapshot: ReturnType<typeof buildIndustryIntelligence> = buildIndustryIntelligence([]),
+) {
   return {
     trade_date: '2026-09-05', generated_at: '2026-09-05T14:00:00+08:00', universe_count: 1000,
     diagnostic_count: items.length, items,
     data_quality: { target_trade_date: '2026-09-05', universe_supported_count: 1000, evaluated_symbol_count: 950, diagnostic_symbol_count: items.length, daily_status: dailyStatus, institutional_status: 'current', margin_status: 'current', overall_status: dailyStatus === 'current' ? 'complete' : 'partial' },
     provenance: [],
+    market_snapshot: marketSnapshot,
+    industry_snapshot: industrySnapshot,
   }
 }
 
@@ -175,7 +182,7 @@ describe('Dashboard — Market Clarity (Phase 8C-B)', () => {
   })
 
   it('renders market strength summary with breadth counts and label', async () => {
-    vi.mocked(api.taiwanMarketIntelligence).mockResolvedValue(buildMarketIntelligence() as any)
+    vi.mocked(api.taiwanAbnormalDiagnostics).mockResolvedValue(buildDiagnostics([], 'current', buildMarketIntelligence()) as any)
     renderDashboard()
 
     expect(await screen.findByText('市場概況')).toBeInTheDocument()
@@ -184,22 +191,34 @@ describe('Dashboard — Market Clarity (Phase 8C-B)', () => {
     expect(screen.getByText('600')).toBeInTheDocument()
     expect(screen.getByText('300')).toBeInTheDocument()
     expect(screen.getByText('提醒')).toBeInTheDocument()
+    expect(api.taiwanMarketIntelligence).not.toHaveBeenCalled()
+    expect(api.taiwanIndustryIntelligence).not.toHaveBeenCalled()
   })
 
   it('renders industry top/bottom strongest and weakest', async () => {
-    vi.mocked(api.taiwanIndustryIntelligence).mockResolvedValue(buildIndustryIntelligence([
+    vi.mocked(api.taiwanAbnormalDiagnostics).mockResolvedValue(buildDiagnostics([], 'current', buildMarketIntelligence(), buildIndustryIntelligence([
       buildIndustry('半導體業', 0.05),
       buildIndustry('金融保險業', 0.03),
       buildIndustry('鋼鐵工業', -0.04),
       buildIndustry('航運業', -0.02),
-    ]) as any)
+    ])) as any)
     renderDashboard()
 
-    expect(await screen.findByText('今日類股熱度')).toBeInTheDocument()
+    expect(await screen.findByText(/類股熱度/)).toBeInTheDocument()
     expect(await screen.findByText('半導體業')).toBeInTheDocument()
     expect(screen.getByText('金融保險業')).toBeInTheDocument()
     expect(screen.getByText('鋼鐵工業')).toBeInTheDocument()
     expect(screen.getByText('航運業')).toBeInTheDocument()
+  })
+
+  it('labels an older industry trade date as recent when daily status is current', async () => {
+    vi.mocked(api.taiwanAbnormalDiagnostics).mockResolvedValue(buildDiagnostics([], 'current', buildMarketIntelligence(), {
+      ...buildIndustryIntelligence([buildIndustry('半導體業', 0.05)]), trade_date: '2000-01-03',
+    }) as any)
+    renderDashboard()
+
+    expect(await screen.findByText('最近交易日類股熱度')).toBeInTheDocument()
+    expect(await screen.findByText(/資料交易日 2000-01-03/)).toBeInTheDocument()
   })
 
   it('empty watchlist shows a compact empty state with CTA, not a large empty table', async () => {
@@ -263,13 +282,11 @@ describe('Dashboard — Market Clarity (Phase 8C-B)', () => {
     await waitFor(() => expect(api.watchlistRemove).toHaveBeenCalledWith('2317.TWSE'))
   })
 
-  it('market/industry query failure does not crash the Dashboard', async () => {
-    vi.mocked(api.taiwanMarketIntelligence).mockRejectedValue(new Error('network error'))
-    vi.mocked(api.taiwanIndustryIntelligence).mockRejectedValue(new Error('network error'))
+  it('market panels show unavailable when the shared dashboard snapshot fails', async () => {
+    vi.mocked(api.taiwanAbnormalDiagnostics).mockRejectedValue(new Error('network error'))
     renderDashboard()
 
     expect(await screen.findByText('目前無法讀取市場強弱資料,不影響其他功能使用。')).toBeInTheDocument()
-    await waitFor(() => expect(api.taiwanIndustryIntelligence).toHaveBeenCalled())
     expect(await screen.findByText('目前無法讀取產業強弱資料,不影響其他功能使用。')).toBeInTheDocument()
     // 其餘區塊仍正常渲染, 未白屏
     expect(screen.getByText('提醒')).toBeInTheDocument()
@@ -311,17 +328,30 @@ describe('Dashboard — stock reminders', () => {
     await waitFor(() => expect(alertCalls().length).toBeGreaterThan(1))
   })
 
+  it('shows at most five Quant anomaly links and provides a link to Monitor', async () => {
+    vi.mocked(api.alertsList).mockResolvedValue({ alerts: Array.from({ length: 12 }, (_, index) => ({
+      ts: Date.now() - index, alert_id: `quant-${index}`, is_read: false, rule_id: `quant-rule-${index}`,
+      source: 'quant', type: 'quant_top10_enter', symbol: `23${index}0.TWSE`, name: `測試股${index}`, message: 'Quant Top 10',
+    })) } as any)
+    renderDashboard()
+
+    expect(await screen.findByText('新進 Quant Top 10 · 測試股0')).toBeInTheDocument()
+    expect(screen.getByText('新進 Quant Top 10 · 測試股4')).toBeInTheDocument()
+    expect(screen.queryByText('新進 Quant Top 10 · 測試股5')).not.toBeInTheDocument()
+    expect(screen.getByRole('link', { name: '還有 7 則 Quant 提醒 · 查看監控中心' })).toHaveAttribute('href', '/monitor')
+  })
+
   it('keys anomaly diagnostics by the latest available daily date', async () => {
     vi.mocked(api.taiwanDataStatus)
       .mockResolvedValueOnce({ daily_as_of: '2026-09-04' } as any)
       .mockResolvedValueOnce({ daily_as_of: '2026-09-05' } as any)
     const { qc } = renderDashboard()
 
-    await waitFor(() => expect(api.taiwanAbnormalDiagnostics).toHaveBeenCalledWith({ date: '2026-09-04' }))
+    await waitFor(() => expect(api.taiwanAbnormalDiagnostics).toHaveBeenCalledWith({ date: '2026-09-04', include_context_snapshots: true }))
     await act(async () => {
       await qc.invalidateQueries({ queryKey: ['taiwan-data-status'] })
     })
-    await waitFor(() => expect(api.taiwanAbnormalDiagnostics).toHaveBeenCalledWith({ date: '2026-09-05' }))
+    await waitFor(() => expect(api.taiwanAbnormalDiagnostics).toHaveBeenCalledWith({ date: '2026-09-05', include_context_snapshots: true }))
   })
 
   it('keeps mark-all-read available when older alerts are outside the latest page', async () => {
@@ -376,11 +406,9 @@ describe('Dashboard — Market data honesty (DAILY_USE_CORE_UX_FIXES P1-1)', () 
     vi.mocked(api.taiwanDataStatus).mockResolvedValueOnce({
       daily_as_of: '2026-09-04', target_latest_trading_date: '2026-09-05', daily_status: 'stale', daily_days_behind: 1,
     } as any)
-    vi.mocked(api.taiwanMarketIntelligence).mockResolvedValue(buildMarketIntelligence({ trade_date: '2026-09-04' }) as any)
-    vi.mocked(api.taiwanIndustryIntelligence).mockResolvedValue(buildIndustryIntelligence([buildIndustry('半導體業', 0.05)]) as any)
     vi.mocked(api.taiwanAbnormalDiagnostics).mockResolvedValue(buildDiagnostics([{
       symbol: '2330.TWSE', name: '台積電', signal_count: 1, change_pct: 0.06, signals: [{ type: 'PRICE_MOVE' }],
-    }]) as any)
+    }], 'stale', buildMarketIntelligence({ trade_date: '2026-09-04' }), buildIndustryIntelligence([buildIndustry('半導體業', 0.05)])) as any)
     vi.mocked(api.watchlistList).mockResolvedValue({ symbols: [
       { symbol: '2330.TWSE', name: '台積電', added_at: '2026-09-05T09:00:00Z' },
     ] } as any)
@@ -399,7 +427,7 @@ describe('Dashboard — Market data honesty (DAILY_USE_CORE_UX_FIXES P1-1)', () 
   })
 
   it('A. complete data renders normally, without the incomplete-data notice', async () => {
-    vi.mocked(api.taiwanMarketIntelligence).mockResolvedValue(buildMarketIntelligence() as any)
+    vi.mocked(api.taiwanAbnormalDiagnostics).mockResolvedValue(buildDiagnostics([], 'current', buildMarketIntelligence()) as any)
     renderDashboard()
 
     expect(await screen.findByText('市場概況')).toBeInTheDocument()
@@ -408,9 +436,9 @@ describe('Dashboard — Market data honesty (DAILY_USE_CORE_UX_FIXES P1-1)', () 
   })
 
   it('B. partial data shows a clear incomplete-data notice', async () => {
-    vi.mocked(api.taiwanMarketIntelligence).mockResolvedValue(buildMarketIntelligence({
+    vi.mocked(api.taiwanAbnormalDiagnostics).mockResolvedValue(buildDiagnostics([], 'current', buildMarketIntelligence({
       data_quality: { target_trade_date: '2026-09-09', previous_trade_date: '2026-09-03', overall_status: 'partial', universe_supported_symbols: 2375, daily_snapshot_symbols: 0, missing_symbols_count: 2375 },
-    }) as any)
+    })) as any)
     renderDashboard()
 
     expect(await screen.findByText(/日行情尚未完整/)).toBeInTheDocument()
@@ -419,14 +447,14 @@ describe('Dashboard — Market data honesty (DAILY_USE_CORE_UX_FIXES P1-1)', () 
   })
 
   it('C. partial data with all-zero totals still shows the notice, not a bare 0/0/0 result', async () => {
-    vi.mocked(api.taiwanMarketIntelligence).mockResolvedValue(buildMarketIntelligence({
+    vi.mocked(api.taiwanAbnormalDiagnostics).mockResolvedValue(buildDiagnostics([], 'current', buildMarketIntelligence({
       market_totals: {
         supported_count: 2375, snapshot_row_count: 0, traded_count: 0,
         advance_count: 0, decline_count: 0, flat_count: 0, uncompared_count: 0,
         upper_limit_count: 0, lower_limit_count: 0, turnover: 0,
       },
       data_quality: { target_trade_date: '2026-09-09', previous_trade_date: '2026-09-03', overall_status: 'partial', universe_supported_symbols: 2375, daily_snapshot_symbols: 0, missing_symbols_count: 2375 },
-    }) as any)
+    })) as any)
     renderDashboard()
 
     expect(await screen.findByText(/日行情尚未完整/)).toBeInTheDocument()
@@ -437,9 +465,9 @@ describe('Dashboard — Market data honesty (DAILY_USE_CORE_UX_FIXES P1-1)', () 
   it('D. strength label (偏強/偏弱/中性) is suppressed while data is incomplete, even if the ratio would otherwise qualify', async () => {
     // advance 600 / (600+300+50) ≈ 66.7% -> 若資料完整會判為偏強, 但這裡
     // overall_status = partial, 不應顯示任何 deterministic 強弱結論。
-    vi.mocked(api.taiwanMarketIntelligence).mockResolvedValue(buildMarketIntelligence({
+    vi.mocked(api.taiwanAbnormalDiagnostics).mockResolvedValue(buildDiagnostics([], 'current', buildMarketIntelligence({
       data_quality: { target_trade_date: '2026-09-09', previous_trade_date: '2026-09-03', overall_status: 'partial', universe_supported_symbols: 2375, daily_snapshot_symbols: 950, missing_symbols_count: 1425 },
-    }) as any)
+    })) as any)
     renderDashboard()
 
     expect(await screen.findByText(/日行情尚未完整/)).toBeInTheDocument()
@@ -449,8 +477,7 @@ describe('Dashboard — Market data honesty (DAILY_USE_CORE_UX_FIXES P1-1)', () 
   })
 
   it('labels unavailable indexes clearly and links sectors to the existing filtered screener', async () => {
-    vi.mocked(api.taiwanMarketIntelligence).mockResolvedValue(buildMarketIntelligence() as any)
-    vi.mocked(api.taiwanIndustryIntelligence).mockResolvedValue(buildIndustryIntelligence([buildIndustry('半導體業', 0.05)]) as any)
+    vi.mocked(api.taiwanAbnormalDiagnostics).mockResolvedValue(buildDiagnostics([], 'current', buildMarketIntelligence(), buildIndustryIntelligence([buildIndustry('半導體業', 0.05)])) as any)
     renderDashboard()
 
     expect(await screen.findAllByText('目前無可靠指數資料')).toHaveLength(2)
@@ -460,27 +487,24 @@ describe('Dashboard — Market data honesty (DAILY_USE_CORE_UX_FIXES P1-1)', () 
 
   it('uses the latest available daily date for market, sector and anomaly summaries', async () => {
     vi.mocked(api.taiwanDataStatus).mockResolvedValueOnce({ daily_as_of: '2026-09-04', daily_status: 'current' } as any)
-    vi.mocked(api.taiwanMarketIntelligence).mockResolvedValue(buildMarketIntelligence({ trade_date: '2026-09-04' }) as any)
-    vi.mocked(api.taiwanIndustryIntelligence).mockResolvedValue(buildIndustryIntelligence([]) as any)
+    vi.mocked(api.taiwanAbnormalDiagnostics).mockResolvedValue(buildDiagnostics([], 'current', buildMarketIntelligence({ trade_date: '2026-09-04' }), buildIndustryIntelligence([])) as any)
     renderDashboard()
 
     expect(await screen.findByText(/資料交易日 2026-09-04/)).toBeInTheDocument()
     await waitFor(() => {
-      expect(api.taiwanMarketIntelligence).toHaveBeenCalledWith('2026-09-04')
-      expect(api.taiwanIndustryIntelligence).toHaveBeenCalledWith({ date: '2026-09-04', sort_by: 'turnover', order: 'desc' })
-      expect(api.taiwanAbnormalDiagnostics).toHaveBeenCalledWith({ date: '2026-09-04' })
+      expect(api.taiwanAbnormalDiagnostics).toHaveBeenCalledWith({ date: '2026-09-04', include_context_snapshots: true })
     })
   })
 
   it('summarizes current daily breadth when only institutional or margin datasets are partial', async () => {
-    vi.mocked(api.taiwanMarketIntelligence).mockResolvedValue(buildMarketIntelligence({
+    vi.mocked(api.taiwanAbnormalDiagnostics).mockResolvedValue(buildDiagnostics([], 'current', buildMarketIntelligence({
       data_quality: {
         target_trade_date: '2026-09-05', previous_trade_date: '2026-09-04', overall_status: 'partial',
         daily: { dataset: 'daily', as_of: '2026-09-05', status: 'current', source: 'taiwan_daily_store' },
         indexes: { dataset: 'indexes', as_of: null, status: 'unavailable', source: 'taiwan_index_provider' },
         universe_supported_symbols: 1000, daily_snapshot_symbols: 980, missing_symbols_count: 20,
       },
-    }) as any)
+    })) as any)
     renderDashboard()
 
     expect(await screen.findByText('偏強')).toBeInTheDocument()

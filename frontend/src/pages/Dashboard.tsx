@@ -3,7 +3,7 @@ import { Link, useNavigate } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { motion } from 'framer-motion'
 import { Activity, ArrowUpRight, BellRing, Check, Database, Eye, Layers, Loader2, Star, Trash2, TrendingUp, X } from 'lucide-react'
-import { api, type AlertEvent, type IndexSnapshot, type IndustryMetrics, type TaiwanAbnormalDiagnosticsSnapshot } from '@/lib/api'
+import { api, type AlertEvent, type IndexSnapshot, type IndustryMetrics, type TaiwanAbnormalDiagnosticsSnapshot, type TaiwanMarketIntelligenceSnapshot, type TaiwanIndustryIntelligenceSnapshot } from '@/lib/api'
 import { QK } from '@/lib/queryKeys'
 import { fmtBigNum, fmtPct } from '@/lib/format'
 import { StockPreviewDialog } from '@/components/StockPreviewDialog'
@@ -247,13 +247,8 @@ function TaiwanBreadthBar({ advance, decline, flat }: { advance: number; decline
 
 type TaiwanDailyStatus = 'current' | 'stale' | 'unavailable'
 
-function MarketOverviewCard({ latestDailyAsOf, marketStatusLoading, marketDailyStatus }: { latestDailyAsOf: string | null; marketStatusLoading: boolean; marketDailyStatus: TaiwanDailyStatus }) {
-  const intel = useQuery({
-    queryKey: ['taiwanMarketIntelligence', latestDailyAsOf],
-    queryFn: () => api.taiwanMarketIntelligence(latestDailyAsOf ?? undefined),
-    staleTime: 5 * 60 * 1000,
-    enabled: !marketStatusLoading,
-  })
+function MarketOverviewCard({ snapshot, loading, error, marketDailyStatus }: { snapshot?: TaiwanMarketIntelligenceSnapshot | null; loading: boolean; error: boolean; marketDailyStatus: TaiwanDailyStatus }) {
+  const intel = { data: snapshot, isLoading: loading, isError: error }
   const totals = intel.data?.market_totals
   // 分母為 0 (全市場無漲跌平資料, 例如尚未下載當日資料) 時不可判讀強弱, ratio
   // 保持 null —— 避免把「無資料」誤判成「偏弱」而顯示假結論。
@@ -284,7 +279,7 @@ function MarketOverviewCard({ latestDailyAsOf, marketStatusLoading, marketDailyS
   return (
     <section className="mb-1.5 rounded-card border border-accent/25 bg-surface/90 p-3 shadow-[0_1px_2px_hsl(var(--border)/0.4)] backdrop-blur-sm">
       <SectionTitle icon={TrendingUp} title="市場概況" hint={intel.data ? `資料交易日 ${intel.data.trade_date}` : undefined} />
-      {marketStatusLoading || intel.isLoading ? (
+      {intel.isLoading ? (
         <div className="flex items-center gap-2 py-4 text-xs text-muted">
           <Loader2 className="h-3.5 w-3.5 animate-spin" />正在讀取市場強弱資料…
         </div>
@@ -418,14 +413,9 @@ function IndustryStrengthList({ title, rows, tone, quantBySymbol }: { title: str
   )
 }
 
-function IndustryStrengthCard({ latestDailyAsOf, marketStatusLoading, marketDailyStatus }: { latestDailyAsOf: string | null; marketStatusLoading: boolean; marketDailyStatus: TaiwanDailyStatus }) {
+function IndustryStrengthCard({ snapshot, loading, error, marketDailyStatus }: { snapshot?: TaiwanIndustryIntelligenceSnapshot | null; loading: boolean; error: boolean; marketDailyStatus: TaiwanDailyStatus }) {
   const quant = useTodayQuantSelection()
-  const ind = useQuery({
-    queryKey: ['taiwanIndustryIntelligence', latestDailyAsOf, 'turnover', 'desc'],
-    queryFn: () => api.taiwanIndustryIntelligence({ date: latestDailyAsOf ?? undefined, sort_by: 'turnover', order: 'desc' }),
-    staleTime: 5 * 60 * 1000,
-    enabled: !marketStatusLoading,
-  })
+  const ind = { data: snapshot, isLoading: loading, isError: error }
   const comparable = (ind.data?.industries ?? []).filter(i => i.average_change_pct != null)
   const sorted = [...comparable].sort((a, b) => (b.average_change_pct ?? 0) - (a.average_change_pct ?? 0))
   const topCount = Math.min(5, sorted.length)
@@ -433,11 +423,16 @@ function IndustryStrengthCard({ latestDailyAsOf, marketStatusLoading, marketDail
   const top = sorted.slice(0, topCount)
   const bottom = sorted.slice(sorted.length - bottomCount).reverse()
   const quantBySymbol = new Map(quant.signals.map(signal => [signal.symbol, signal.rank]))
+  const tradeDateIsToday = ind.data?.trade_date === new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Taipei' })
 
   return (
     <section className="rounded-card border border-border bg-surface/80 p-2.5 shadow-[0_1px_2px_hsl(var(--border)/0.4)] backdrop-blur-sm">
-      <SectionTitle icon={Layers} title={marketDailyStatus === 'current' ? '今日類股熱度' : '最近交易日類股熱度'} hint={ind.data ? `${ind.data.industries.length} 大類股 · 點擊查看成分股` : undefined} />
-      {marketStatusLoading || ind.isLoading ? (
+      <SectionTitle
+        icon={Layers}
+        title={tradeDateIsToday && marketDailyStatus === 'current' ? '今日類股熱度' : '最近交易日類股熱度'}
+        hint={ind.data ? `資料交易日 ${ind.data.trade_date} · ${ind.data.industries.length} 大類股` : undefined}
+      />
+      {ind.isLoading ? (
         <div className="flex items-center gap-2 py-4 text-xs text-muted">
           <Loader2 className="h-3.5 w-3.5 animate-spin" />正在讀取產業資料…
         </div>
@@ -475,6 +470,7 @@ function MarketAnomalyCard({ snapshot, loading, error, alerts, marketDailyStatus
     const eventDate = new Date(event.ts).toLocaleDateString('sv-SE', { timeZone: 'Asia/Taipei' })
     return event.source === 'quant' && ['quant_top10_enter', 'quant_top10_exit'].includes(event.type) && eventDate === todayTaipei
   })
+  const displayedQuantEvents = quantEvents.slice(0, 5)
   const signalLabel: Record<string, string> = {
     PRICE_MOVE: '單日大漲/跌', VOLUME_SPIKE: '爆量', TURNOVER_SPIKE: '成交額放大',
     FOREIGN_FLOW_SPIKE: '外資異常', TRUST_FLOW_SPIKE: '投信異常', DEALER_FLOW_SPIKE: '自營商異常',
@@ -494,12 +490,17 @@ function MarketAnomalyCard({ snapshot, loading, error, alerts, marketDailyStatus
                   <span className={`shrink-0 font-mono text-[10px] ${pctClass(item.change_pct)}`}>{fmtStockPct(item.change_pct)}</span>
                 </Link>
               ))}</div>}
-      {quantEvents.map(event => (
+      {displayedQuantEvents.map(event => (
         <Link key={`${event.ts}-${event.symbol}-${event.type}`} to={event.symbol ? `/stocks/${encodeURIComponent(event.symbol)}` : '/'} className="mt-1 flex items-center justify-between rounded-md border border-accent/20 bg-accent/5 px-2 py-1 text-[10px] hover:bg-accent/10">
           <span>{event.type === 'quant_top10_enter' ? '新進 Quant Top 10' : '跌出 Quant Top 10'} · {event.name ?? event.symbol}</span>
           <span className="font-mono text-muted">{event.symbol}</span>
         </Link>
       ))}
+      {quantEvents.length > displayedQuantEvents.length && (
+        <Link to="/monitor" className="mt-1 block text-right text-[10px] text-accent hover:underline">
+          還有 {quantEvents.length - displayedQuantEvents.length} 則 Quant 提醒 · 查看監控中心
+        </Link>
+      )}
       {snapshot && <div className="mt-1 text-[9px] text-muted">診斷狀態：{snapshot.data_quality.overall_status} · 日行情 {snapshot.data_quality.daily_status} · {snapshot.data_quality.evaluated_symbol_count} 檔</div>}
     </section>
   )
@@ -698,8 +699,8 @@ export function Dashboard() {
   const latestDailyAsOf = marketDataStatus.data?.daily_as_of ?? null
   const marketDailyStatus = marketDataStatus.data?.daily_status ?? 'unavailable'
   const diagnostics = useQuery({
-    queryKey: ['taiwanAbnormalDiagnostics', latestDailyAsOf, 'dashboard'],
-    queryFn: () => api.taiwanAbnormalDiagnostics({ date: latestDailyAsOf ?? undefined }),
+    queryKey: ['taiwanAbnormalDiagnostics', latestDailyAsOf, 'dashboard', 'context-snapshots'],
+    queryFn: () => api.taiwanAbnormalDiagnostics({ date: latestDailyAsOf ?? undefined, include_context_snapshots: true }),
     staleTime: 5 * 60 * 1000,
     enabled: !marketDataStatus.isLoading,
   })
@@ -715,10 +716,10 @@ export function Dashboard() {
           台股資料狀態卡保留在底部，供需要時確認資料新鮮度。
           (資料新鮮度) 移到最下層。Phase 8C-D: 中國 A 股 legacy 大盤看板整段已
           移除產品介面, Dashboard 全站僅剩台股內容, 不再有任何 legacy 開關。 */}
-      <MarketOverviewCard latestDailyAsOf={latestDailyAsOf} marketStatusLoading={marketDataStatus.isLoading} marketDailyStatus={marketDailyStatus} />
+      <MarketOverviewCard snapshot={diagnostics.data?.market_snapshot} loading={marketDataStatus.isLoading || diagnostics.isLoading} error={diagnostics.isError} marketDailyStatus={marketDailyStatus} />
 
       <div className="mb-1.5 grid grid-cols-1 gap-1.5 lg:grid-cols-2">
-        <IndustryStrengthCard latestDailyAsOf={latestDailyAsOf} marketStatusLoading={marketDataStatus.isLoading} marketDailyStatus={marketDailyStatus} />
+        <IndustryStrengthCard snapshot={diagnostics.data?.industry_snapshot} loading={marketDataStatus.isLoading || diagnostics.isLoading} error={diagnostics.isError} marketDailyStatus={marketDailyStatus} />
         <MarketAnomalyCard snapshot={diagnostics.data} loading={marketDataStatus.isLoading || diagnostics.isLoading} error={diagnostics.isError} alerts={todayAlerts.data?.alerts ?? []} marketDailyStatus={marketDailyStatus} />
       </div>
 

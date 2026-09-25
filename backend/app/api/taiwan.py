@@ -400,6 +400,7 @@ def get_taiwan_abnormal_diagnostics(
     signal_type: str | None = Query(None, description="依訊號類型篩選 (如 VOLUME_SPIKE, FOREIGN_FLOW_SPIKE 等)"),
     industry: str | None = Query(None, description="依產業篩選"),
     exchange: str | None = Query(None, description="依交易所篩選 (TWSE 或 TPEX)"),
+    include_context_snapshots: bool = Query(False, description="是否一併回傳市場與產業快照，供 Dashboard 共用同一批計算"),
 ):
     """取得台股全市場確定性異常異動與資金流向診斷快照 (純本地客觀計算，0 執行期外部請求)。"""
     from datetime import date as dt_date
@@ -418,6 +419,7 @@ def get_taiwan_abnormal_diagnostics(
             signal_filter=signal_type,
             industry_filter=industry,
             exchange_filter=exchange,
+            include_context_snapshots=include_context_snapshots,
         )
     except Exception as e:
         logger.exception("Failed to compute Taiwan abnormal diagnostics: %s", e)
