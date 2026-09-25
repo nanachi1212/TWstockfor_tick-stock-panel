@@ -331,14 +331,18 @@ uv run --frozen python -m scripts.taiwan_historical_backfill --verify-trading-da
 規則（fail-closed，`app/taiwan/trading_day_evidence.py`）：
 
 - 月表必須有效、非空、同月；月內每個已觀測分區都必須出現在月表，否則整月不動並回報衝突。
-- 已結束的月份視為完整，缺席的平日寫入 `confirmed_non_trading`（footer 記錄來源）；當月只信任到最後一個已發布交易日。
+- 已結束的月份視為完整，缺席的平日寫入 `confirmed_non_trading`（footer 記錄來源）；當月只信任到最後一個已發布交易日，
+  其後的平日需 TWSE 官方年度休市日表（`holidaySchedule`，2021 起）列為休市才確認，否則維持未解決。
+- 每個官方交易日若沒有分區（例如當日請求失敗）會重新抓取；抓不到就保持未完成。
+- 全部乾淨完成時寫入 `observed_universe/_month_verification_<EX>.json`（涵蓋區間與分區內容雜湊）；Primary readiness
+  要求該標記涵蓋到評估截止日，分區被替換或遺失都會使標記失效。
 - 月表列有、census 卻是空的平日，重新抓取，不當休市。
 - 週六補班交易日（月表有列、平日候選清單不會查詢）會被抓取並寫成一般觀測分區。
 
-2026-09-26 實跑：TWSE、TPEx 各 141 個月表，2,849 個已觀測分區 100% 與月表一致；209 個空平日確認休市；
+2026-09-26 實跑：TWSE、TPEx 各 141 個月表，全部已觀測分區（2,859）100% 與月表一致；209 個空平日確認休市；
 1 個交易日（2026-09-23）空分區重新抓取；補上 8 個週六交易日（2016-01-30、2016-06-04、2016-09-10、
-2017-02-18、2017-06-03、2017-09-30、2018-03-31、2018-12-22）。2026-09-25（中秋節，TWSE 假日表列為休市）
-要等下一個交易日發布後才會由月表確認，覆蓋率 99.96%。
+2017-02-18、2017-06-03、2017-09-30、2018-03-31、2018-12-22）。2026-09-25（中秋節）由 TWSE 官方假日表確認休市。
+TWSE 交易日覆蓋 2,859／2,859；TPEx 的 2026-09-25 要等月表發布下一個交易日（不影響 Primary）。
 
 ### 9.3 普通股 subtype（`--resolve-instrument-types [--refresh-instrument-evidence]`）
 
@@ -366,10 +370,17 @@ MOPS 只寫「甲種特別股」不列代號。取得方式：以臺證上一字
 - 分類 gate 只剩比例門檻（≥99%，未變）。先前「只要有 1 檔 industry-only 就阻擋」是尚無任何證據時的暫時停損，
   已移除；未解決代碼會寫入 OOS artifact 的 `unresolved_type_codes`。
 - 官方列若開高低收有 `--`（無成交、暫停）沒有價格 bar，不能作為特徵列，且一個缺 bar 會讓該股之後所有 PIT
-  視窗 `data_insufficient`。這類列仍留在 census，但 Primary universe 的 `observed_on_market` 只在有完整正價 bar 時為真
-  （真實資料 361／1,153 檔、9,995 列）。其 forward label 因缺 session 價格維持 `missing_session_price`，不會補值。
+  視窗 `data_insufficient`。這類列仍是市場觀測（`observed_on_market` 維持為真），另以 `price_bar_available` 表示可用價格
+  （真實資料 361／1,153 檔、9,995 列無價格）。其 forward label 因缺 session 價格維持 `missing_session_price`，不會補值。
+- 因子按「連續交易日段」計算：每檔股票在每個缺價 session 處切段，每段各自呼叫既有 `build_factor_panel`，
+  所以視窗、EWM 指標（RSI／MACD）與連續計數在缺口後重新暖機，不跨缺口。
 
 ### 9.5 公司行動覆蓋與 factor panel
+
+Primary OOS artifact 的 `provenance.data_health_policy` 固定記錄範圍
+（TWSE Primary verified universe under the predefined 99% data-health policy）、精確的分類覆蓋與交易日覆蓋、
+以及所有被排除的未解決代碼與原因（historical instrument subtype lacks authoritative official evidence）。
+
 
 - 五個官方來源（TWT49U、TWTAUU、TWTB8U、exDailyQ、revivt）一次抓完後存入 `CorporateActionStore`，並以
   `adj_factor/coverage.json` 記錄涵蓋區間；之後只補抓新區間。傳輸中斷（TPEx 常見）最多重試 3 次。
