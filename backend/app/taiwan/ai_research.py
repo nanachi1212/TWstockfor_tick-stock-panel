@@ -498,6 +498,10 @@ class TaiwanAIResearchService:
                 generated_at=now_iso,
             )
 
+        # Current holdings, alerts, quotes, and watchlist state have no complete
+        # point-in-time history, so never attach them to an explicitly dated report.
+        report_personal_context = None if target_date is not None else personal_context
+
         # Retrieve Phase 7D diagnostic item if available
         diag_item = None
         try:
@@ -517,7 +521,7 @@ class TaiwanAIResearchService:
             logger.warning("Diagnostics lookup failed for %s on %s: %s", symbol, ctx.as_of_date, e)
 
         # 2. Build Flattened Evidence Registry and Compact Payload
-        evidence_payload, registry_keys, missing_items = build_evidence_registry(ctx, diag_item, personal_context)
+        evidence_payload, registry_keys, missing_items = build_evidence_registry(ctx, diag_item, report_personal_context)
 
         cache_material = json.dumps({
             "prompt_version": PROMPT_VERSION,

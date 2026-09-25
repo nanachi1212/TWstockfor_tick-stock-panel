@@ -97,20 +97,19 @@ async def test_ai_report_cache_hits_for_same_context_and_misses_when_context_cha
         ],
     }, ensure_ascii=False)
     with patch("app.taiwan.ai_research.generate_ai_text", new_callable=AsyncMock, return_value=response_text) as mock_ai:
-        first = await svc.generate_report("2330.TWSE", target_date=date(2026, 8, 28), personal_context=personal_context)
-        cached = await svc.generate_report("2330.TWSE", target_date=date(2026, 8, 28), personal_context=personal_context)
+        first = await svc.generate_report("2330.TWSE", personal_context=personal_context)
+        cached = await svc.generate_report("2330.TWSE", personal_context=personal_context)
         changed = await svc.generate_report(
             "2330.TWSE",
-            target_date=date(2026, 8, 28),
             personal_context={"portfolio": {"shares": 100, "average_cost": 450, "current_price": 480}},
         )
         with patch("app.taiwan.ai_research.current_openai_reasoning_effort", return_value="low"):
             lower_effort = await svc.generate_report(
-                "2330.TWSE", target_date=date(2026, 8, 28), personal_context=personal_context,
+                "2330.TWSE", personal_context=personal_context,
             )
         with patch("app.taiwan.ai_research.current_openai_reasoning_effort", return_value="high"):
             higher_effort = await svc.generate_report(
-                "2330.TWSE", target_date=date(2026, 8, 28), personal_context=personal_context,
+                "2330.TWSE", personal_context=personal_context,
             )
         api_key = ["key-one"]
 
@@ -118,12 +117,14 @@ async def test_ai_report_cache_hits_for_same_context_and_misses_when_context_cha
             return api_key[0] if name == "ai_api_key" else fallback
 
         with patch("app.taiwan.ai_research.secrets_store.get_ai_config", side_effect=current_config_value):
+            with _REPORT_CACHE_LOCK:
+                _REPORT_CACHE.clear()
             first_credential = await svc.generate_report(
-                "2330.TWSE", target_date=date(2026, 8, 28), personal_context=personal_context,
+                "2330.TWSE", personal_context=personal_context,
             )
             api_key[0] = "key-two"
             second_credential = await svc.generate_report(
-                "2330.TWSE", target_date=date(2026, 8, 28), personal_context=personal_context,
+                "2330.TWSE", personal_context=personal_context,
             )
     assert first.status == cached.status == changed.status == "success"
     assert lower_effort.status == higher_effort.status == "success"
@@ -154,11 +155,11 @@ async def test_portfolio_interpretation_requires_verified_price_and_pnl():
     }, ensure_ascii=False)
     with patch("app.taiwan.ai_research.generate_ai_text", new_callable=AsyncMock, return_value=response_text):
         missing_quote = await svc.generate_report(
-            "2330.TWSE", target_date=date(2026, 8, 28),
+            "2330.TWSE",
             personal_context={"portfolio": {"shares": 10, "average_cost": 900}},
         )
         verified_quote = await svc.generate_report(
-            "2330.TWSE", target_date=date(2026, 8, 28),
+            "2330.TWSE",
             personal_context={"portfolio": {
                 "shares": 10, "average_cost": 900, "current_price": 950, "unrealized_pnl": 500,
             }},
@@ -168,6 +169,41 @@ async def test_portfolio_interpretation_requires_verified_price_and_pnl():
     assert missing_quote.report.portfolio_interpretation is None
     assert verified_quote.report is not None
     assert verified_quote.report.portfolio_interpretation == "測試持倉解讀。"
+
+
+@pytest.mark.asyncio
+async def test_historical_report_omits_current_personal_context():
+    from tests.test_taiwan_stock_comparison import build_context
+
+    research_svc = MagicMock()
+    research_svc.get_research_context.return_value = build_context("2330.TWSE", "2330", "台積電")
+    diag_svc = MagicMock()
+    diag_svc.get_diagnostics.return_value = SimpleNamespace(items=[])
+    svc = TaiwanAIResearchService(research_svc=research_svc, diag_svc=diag_svc)
+    response_text = json.dumps({
+        "overview": "歷史資料摘要。",
+        "portfolio_interpretation": "不應出現的目前持倉解讀。",
+        "alert_interpretation": "不應出現的目前提醒解讀。",
+        "key_observations": [],
+        "risk_factors": [],
+        "watch_next": [],
+    }, ensure_ascii=False)
+    with patch("app.taiwan.ai_research.generate_ai_text", new_callable=AsyncMock, return_value=response_text) as mock_ai:
+        response = await svc.generate_report(
+            "2330.TWSE", target_date=date(2026, 8, 28), personal_context={
+                "portfolio": {"shares": 10, "average_cost": 900, "current_price": 950, "unrealized_pnl": 500},
+                "alert": {"alert_id": "current-alert", "trigger_value": 899},
+                "watchlist": {"included": True},
+            },
+        )
+
+    assert response.report is not None
+    assert response.report.portfolio_interpretation is None
+    assert response.report.alert_interpretation is None
+    prompt = mock_ai.call_args.args[0][1]["content"]
+    assert "current-alert" not in prompt
+    assert '"shares"' not in prompt
+    assert '"included"' not in prompt
 
 
 @pytest.mark.asyncio

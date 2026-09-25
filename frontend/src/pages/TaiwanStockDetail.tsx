@@ -98,7 +98,7 @@ export function TaiwanStockDetail() {
   })
   const inWatchlist = (watchlist.data?.symbols ?? []).some(s => s.symbol === symbol)
   const alertContextQuery = useQuery({
-    queryKey: ['ai-research-alert', symbol, alertId],
+    queryKey: QK.alerts(undefined),
     queryFn: () => api.alertsList({ days: 7, limit: 500 }),
     enabled: Boolean(alertId),
     staleTime: 15_000,
