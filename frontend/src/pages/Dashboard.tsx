@@ -722,6 +722,18 @@ export function Dashboard() {
     staleTime: 5 * 60 * 1000,
     enabled: !marketDataStatus.isLoading,
   })
+  const marketFallback = useQuery({
+    queryKey: ['taiwanMarketIntelligence', latestDailyAsOf],
+    queryFn: () => api.taiwanMarketIntelligence(latestDailyAsOf ?? undefined),
+    staleTime: 5 * 60 * 1000,
+    enabled: diagnostics.isError,
+  })
+  const industryFallback = useQuery({
+    queryKey: ['taiwanIndustryIntelligence', latestDailyAsOf, 'turnover', 'desc'],
+    queryFn: () => api.taiwanIndustryIntelligence({ date: latestDailyAsOf ?? undefined, sort_by: 'turnover', order: 'desc' }),
+    staleTime: 5 * 60 * 1000,
+    enabled: diagnostics.isError,
+  })
   const todayAlerts = useQuery({
     queryKey: QK.alertsToday,
     queryFn: () => api.alertsList({ days: 1, limit: 5000 }),
@@ -734,10 +746,20 @@ export function Dashboard() {
           台股資料狀態卡保留在底部，供需要時確認資料新鮮度。
           (資料新鮮度) 移到最下層。Phase 8C-D: 中國 A 股 legacy 大盤看板整段已
           移除產品介面, Dashboard 全站僅剩台股內容, 不再有任何 legacy 開關。 */}
-      <MarketOverviewCard snapshot={diagnostics.data?.market_snapshot} loading={marketDataStatus.isLoading || diagnostics.isLoading} error={diagnostics.isError} marketDailyStatus={marketDailyStatus} />
+      <MarketOverviewCard
+        snapshot={diagnostics.data?.market_snapshot ?? (diagnostics.isError ? marketFallback.data : undefined)}
+        loading={marketDataStatus.isLoading || diagnostics.isLoading || (diagnostics.isError && marketFallback.isLoading)}
+        error={diagnostics.isError && marketFallback.isError}
+        marketDailyStatus={marketDailyStatus}
+      />
 
       <div className="mb-1.5 grid grid-cols-1 gap-1.5 lg:grid-cols-2">
-        <IndustryStrengthCard snapshot={diagnostics.data?.industry_snapshot} loading={marketDataStatus.isLoading || diagnostics.isLoading} error={diagnostics.isError} marketDailyStatus={marketDailyStatus} />
+        <IndustryStrengthCard
+          snapshot={diagnostics.data?.industry_snapshot ?? (diagnostics.isError ? industryFallback.data : undefined)}
+          loading={marketDataStatus.isLoading || diagnostics.isLoading || (diagnostics.isError && industryFallback.isLoading)}
+          error={diagnostics.isError && industryFallback.isError}
+          marketDailyStatus={marketDailyStatus}
+        />
         <MarketAnomalyCard snapshot={diagnostics.data} loading={marketDataStatus.isLoading || diagnostics.isLoading} error={diagnostics.isError} alerts={todayAlerts.data?.alerts ?? []} alertsLoading={todayAlerts.isLoading} alertsError={todayAlerts.isError} marketDailyStatus={marketDailyStatus} />
       </div>
 

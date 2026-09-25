@@ -292,6 +292,19 @@ describe('Dashboard — Market Clarity (Phase 8C-B)', () => {
     expect(screen.getByText('提醒')).toBeInTheDocument()
     expect(screen.getByText('台股資料狀態')).toBeInTheDocument()
   })
+
+  it('loads market and industry cards independently when diagnostics fail', async () => {
+    vi.mocked(api.taiwanAbnormalDiagnostics).mockRejectedValue(new Error('diagnostics unavailable'))
+    vi.mocked(api.taiwanMarketIntelligence).mockResolvedValue(buildMarketIntelligence() as any)
+    vi.mocked(api.taiwanIndustryIntelligence).mockResolvedValue(buildIndustryIntelligence([buildIndustry('半導體業', 0.05)]) as any)
+    renderDashboard()
+
+    expect(await screen.findByText('偏強')).toBeInTheDocument()
+    expect(await screen.findByText('半導體業')).toBeInTheDocument()
+    expect(api.taiwanMarketIntelligence).toHaveBeenCalled()
+    expect(api.taiwanIndustryIntelligence).toHaveBeenCalled()
+    expect(await screen.findByText('目前無法讀取市場異常資料。')).toBeInTheDocument()
+  })
 })
 
 describe('Dashboard — stock reminders', () => {

@@ -63,12 +63,17 @@ describe('Portfolio UI', () => {
       { id: 'up', symbol: '2330.TWSE', name: '台積電', side: 'buy', shares: 1, price: 100, fee: 0, date: '2026-09-24', createdAt: '2026-09-24T00:00:00.000Z' },
       { id: 'down', symbol: '2317.TWSE', name: '鴻海', side: 'buy', shares: 1, price: 100, fee: 0, date: '2026-09-24', createdAt: '2026-09-24T00:01:00.000Z' },
     ])
-    vi.mocked(api.taiwanQuotes).mockResolvedValue({ quotes: [
+    const closingQuotes = { quotes: [
       { symbol: '2330.TWSE', name: '台積電', last_price: 110, prev_close: 108, change: 2, change_pct: 1.85, source_meta: { freshness_class: 'eod_snapshot', is_stale: false } },
       { symbol: '2317.TWSE', name: '鴻海', last_price: 99, prev_close: 100, change: -1, change_pct: -1, source_meta: { freshness_class: 'eod_snapshot', is_stale: false } },
-    ] as any, count: 2 })
+    ] as any, count: 2 }
+    let resolveQuotes!: (response: typeof closingQuotes) => void
+    vi.mocked(api.taiwanQuotes).mockReturnValueOnce(new Promise(resolve => { resolveQuotes = resolve }) as any)
     renderPortfolio()
 
+    const summaryLabel = await screen.findByText('今日上漲 / 下跌')
+    expect(summaryLabel.parentElement).toHaveTextContent('—')
+    await act(async () => resolveQuotes(closingQuotes))
     await waitFor(() => expect(screen.getByText('今日上漲 / 下跌').parentElement).toHaveTextContent('1 / 1 檔'))
   })
 
