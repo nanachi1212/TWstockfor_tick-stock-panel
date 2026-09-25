@@ -114,8 +114,12 @@ def evaluate_quant_alerts(request: Request):
         if repo is None:
             raise HTTPException(status_code=503, detail="提醒儲存尚未就緒")
         formatted = format_notifications(events)
-        persisted_events.extend(formatted)
-        return alert_store.append_many(repo.store.data_dir, formatted)
+        accepted_ids = alert_store.append_many(repo.store.data_dir, formatted)
+        accepted_id_set = set(accepted_ids)
+        persisted_events.extend(
+            event for event in formatted if event.get("alert_id") in accepted_id_set
+        )
+        return accepted_ids
 
     events = get_monitor_engine().evaluate_quant_top10(
         signals,
@@ -123,8 +127,8 @@ def evaluate_quant_alerts(request: Request):
         available=True,
         persist_events=persist_events,
     )
-    if events:
-        output_events = persisted_events or format_notifications(events)
+    if persisted_events:
+        output_events = persisted_events
         if quote_service:
             try:
                 quote_service.push_alerts(output_events)
@@ -134,7 +138,7 @@ def evaluate_quant_alerts(request: Request):
                 quote_service._maybe_send_webhook(output_events, None)
             except Exception as exc:
                 logger.warning("Failed to dispatch Quant Top 10 external alerts (%s)", type(exc).__name__)
-    return {"ok": True, "status": "available", "alerts": persisted_events or events}
+    return {"ok": True, "status": "available", "alerts": persisted_events}
 
 
 @router.get("/runs/{model_key}/{session}")

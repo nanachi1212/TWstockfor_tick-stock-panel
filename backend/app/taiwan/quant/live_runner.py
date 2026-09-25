@@ -339,16 +339,20 @@ def _evaluate_live_quant_alerts(freeze: dict[str, Any], ledger: LiveLedger, app_
 
     def persist_events(pending):
         formatted = format_notifications(pending)
-        persisted_events.extend(formatted)
-        return alert_store.append_many(settings.data_dir, formatted)
+        accepted_ids = alert_store.append_many(settings.data_dir, formatted)
+        accepted_id_set = set(accepted_ids)
+        persisted_events.extend(
+            event for event in formatted if event.get("alert_id") in accepted_id_set
+        )
+        return accepted_ids
 
     events = get_monitor_engine().evaluate_quant_top10(
         signals,
         session,
         persist_events=persist_events,
     )
-    if events:
-        output_events = persisted_events or format_notifications(events)
+    if persisted_events:
+        output_events = persisted_events
         if quote_service is not None:
             try:
                 quote_service.push_alerts(output_events)

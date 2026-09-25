@@ -84,10 +84,11 @@ def test_live_quant_alerts_use_only_audited_frozen_snapshot(monkeypatch, taiwan_
     events = [{"alert_id": "event-1", "symbol": "2330.TWSE"}]
     engine = Mock()
     append = Mock()
+    append.return_value = [events[0]["alert_id"]]
 
     def evaluate(_signals, _session, *, persist_events):
-        persist_events(events)
-        return events
+        persisted_ids = persist_events(events)
+        return [event for event in events if event["alert_id"] in persisted_ids]
 
     engine.evaluate_quant_top10.side_effect = evaluate
     push = Mock()
@@ -185,12 +186,13 @@ def test_manual_quant_alert_evaluation_persists_before_committing_edges(monkeypa
 
     def evaluate(_signals, _session, *, available, persist_events):
         assert available is True
-        persist_events(events)
-        return events
+        persisted_ids = persist_events(events)
+        return [event for event in events if event["alert_id"] in persisted_ids]
 
     engine.evaluate_quant_top10.side_effect = evaluate
     data_dir = object()
     append = Mock()
+    append.return_value = [events[0]["alert_id"]]
     push = Mock()
     monkeypatch.setattr(taiwan_live, "_expected_session", lambda: session)
     monkeypatch.setattr(taiwan_live, "LiveLedger", lambda: ledger)
