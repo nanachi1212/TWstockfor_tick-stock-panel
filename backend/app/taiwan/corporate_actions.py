@@ -132,6 +132,25 @@ def _trunc2(value: Decimal) -> Decimal:
     return value.quantize(Decimal("0.01"), rounding=ROUND_DOWN)
 
 
+def _print_step(text: object) -> Decimal:
+    """Half a unit of the last printed decimal place; whole numbers are exact."""
+    exponent = _number(text).as_tuple().exponent
+    if not isinstance(exponent, int) or exponent >= 0:
+        return Decimal(0)
+    return Decimal(1).scaleb(exponent) / 2
+
+
+def _detail_reference_bounds(previous: Decimal, cash_text: object, free_text: object) -> tuple[Decimal, Decimal]:
+    """Reference-price interval implied by the printed precision of the detail inputs."""
+    cash, free = _number(cash_text), _number(free_text) / 1000
+    cash_step, free_step = _print_step(cash_text), _print_step(free_text) / 1000
+    candidates = [
+        (previous - cash + sign_c * cash_step) / (1 + free + sign_f * free_step)
+        for sign_c in (-1, 1) for sign_f in (-1, 1)
+    ]
+    return _trunc2(min(candidates)), max(candidates)
+
+
 def derive_factor(event: CorporateActionEvent) -> CorporateActionEvent:
     """Audit §2.2-2.4 only; never use the cash-subscription reference by mistake.
 
@@ -168,26 +187,42 @@ def derive_factor(event: CorporateActionEvent) -> CorporateActionEvent:
                 # from the two-decimal published reference (audit 0056/2330).
                 value = _number(raw.get("權值+息值"))
                 if value < 0:
-                    raise ValueError("negative rights/dividend value")
-                reference = previous - value
-                if _trunc2(reference) != published_ref:
-                    raise ValueError("high precision reference mismatch")
-                method = "twse_rights_value_high_precision"
+                    # A subscription price above the market makes the theoretical
+                    # rights value negative; the exchange then publishes the prior
+                    # close as the reference. Anything else stays unusable.
+                    if published_ref != previous:
+                        raise ValueError("negative rights/dividend value")
+                    reference = previous
+                    method = "twse_negative_rights_value_prior_close"
+                else:
+                    reference = previous - value
+                    if _trunc2(reference) != published_ref:
+                        raise ValueError("high precision reference mismatch")
+                    method = "twse_rights_value_high_precision"
             else:
                 detail = raw.get("detail")
                 if not isinstance(detail, dict):
                     raise ValueError("cash_subscription_requires_detail")
-                cash_decimal = _number(detail.get("(每股配發現金股利)除息"))
-                free_decimal = _number(detail.get("A. 按普通股股東持股比例每千股無償配股")) / 1000
+                cash_text = detail.get("(每股配發現金股利)除息")
+                free_text = detail.get("A. 按普通股股東持股比例每千股無償配股")
+                cash_decimal = _number(cash_text)
+                free_decimal = _number(free_text) / 1000
                 if cash_decimal < 0 or free_decimal < 0:
                     raise ValueError("negative dividend or share ratio")
                 reference = (previous - cash_decimal) / (1 + free_decimal)
+                method = "twse_detail_recomputed"
                 if _trunc2(reference) != published_ref:
-                    raise ValueError("detail reference mismatch")
+                    # The detail page prints its inputs with limited decimals. The
+                    # published reference must be reproducible from *some* value
+                    # that prints the same way, otherwise the event stays unusable.
+                    low, high = _detail_reference_bounds(previous, cash_text, free_text)
+                    if not low <= published_ref <= high:
+                        raise ValueError("detail reference mismatch")
+                    reference = published_ref
+                    method = "twse_detail_published_within_display_precision"
                 cash, free = float(cash_decimal), float(free_decimal)
                 kind = ("stock_dividend" if free > 0 else
                         "cash_dividend" if cash > 0 else "cash_capital_increase")
-                method = "twse_detail_recomputed"
         else:  # TPEx exDailyQ: 1250/1250 official references reproduced (§2.2).
             cash_decimal = _number(raw.get("現金股利"))
             free_decimal = _number(raw.get("每仟股無償配股")) / 1000
@@ -209,6 +244,13 @@ def derive_factor(event: CorporateActionEvent) -> CorporateActionEvent:
         return insufficient(event, str(exc))
 
 
+def _equivalent_observations(group: list[CorporateActionEvent]) -> bool:
+    keys = {(e.event_type, e.status, e.previous_close, e.reference_price, e.factor,
+             e.cash_dividend, e.free_share_ratio, e.reduction_ratio, e.precision_method)
+            for e in group}
+    return len(keys) == 1 and all(e.status == "verified" for e in group)
+
+
 def resolve_event_conflicts(events: Iterable[CorporateActionEvent]) -> tuple[CorporateActionEvent, ...]:
     """Identical observations dedup; ambiguous duplicates/revisions are unusable."""
     groups: dict[tuple[str, date], dict[str, CorporateActionEvent]] = defaultdict(dict)
@@ -217,11 +259,22 @@ def resolve_event_conflicts(events: Iterable[CorporateActionEvent]) -> tuple[Cor
     output = []
     for key in sorted(groups):
         group = list(groups[key].values())
+        # A failed fetch is superseded only by a real observation of the same source;
+        # another source's result says nothing about the request that failed.
+        answered = {e.source for e in group if e.status != "provider_error"}
+        group = [e for e in group if e.status != "provider_error" or e.source not in answered]
         if len(group) == 1:
             output.append(group[0])
+        elif _equivalent_observations(group):
+            # Repeated announcements of one event (different detail/report rows,
+            # same official price basis): keep one, deterministically.
+            output.append(replace(min(group, key=lambda e: e.content_hash),
+                                  revision_status="equivalent_observations"))
         else:
-            output.extend(replace(insufficient(e, "conflicting_event_or_revision"),
-                                  revision_status="conflict") for e in group)
+            # A failed request keeps its status so a retry can still find it.
+            output.extend(e if e.status == "provider_error" else replace(
+                insufficient(e, "conflicting_event_or_revision"), revision_status="conflict")
+                for e in group)
     return tuple(output)
 
 
@@ -278,6 +331,13 @@ class CorporateActionStore:
 
     def read(self) -> tuple[CorporateActionEvent, ...]:
         return resolve_event_conflicts(self._read_observations())
+
+    def snapshot_digest(self) -> str:
+        """Identity of the stored observations; bound to the coverage marker."""
+        digest = hashlib.sha256()
+        for value in sorted(event.content_hash for event in self._read_observations()):
+            digest.update(value.encode("ascii"))
+        return digest.hexdigest()
 
     def save(self, events: Iterable[CorporateActionEvent]) -> int:
         incoming = tuple(events)

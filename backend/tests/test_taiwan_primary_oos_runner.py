@@ -236,3 +236,62 @@ def test_failed_new_dataset_run_does_not_replace_previous_success(tmp_path, monk
         progress=inputs.preflight.a2b_progress,
         spec_hash=_spec().fingerprint,
     )["event_type"] == "failed"
+
+
+# ── Predefined 99% data-health policy with a few unresolved symbols ──────────
+
+def _policy_preflight(verified: int, unresolved: int, *, sessions: int = 2851,
+                      total_sessions: int = 2852):
+    total = verified + unresolved
+    counts = {
+        "verified_stock_count": verified, "unknown_count": unresolved,
+        "industry_only_unresolved_count": unresolved,
+        "primary_classification_denominator": total,
+        "primary_classification_ratio": verified / total,
+    }
+    health = evaluate_data_health(
+        census_sessions=sessions, census_total_sessions=total_sessions,
+        twse_codes_observed=total, twse_codes_classified=verified, classification=counts,
+    )
+    progress = {"completed_jobs": 478, "pending_jobs": 0, "failed_jobs": 0,
+                "unique_first_seen_dates": 478}
+    return PrimaryOosPreflight(health, progress, "idle", date(2026, 9, 25))
+
+
+@pytest.mark.parametrize(("verified", "unresolved", "sessions", "ready"), [
+    (1153, 2, 2851, True),      # 99.83% / 99.96%: the recorded real state
+    (990, 10, 2852, True),      # exactly 99% is enough (>=)
+    (989, 11, 2852, False),     # 98.9% classification
+    (1140, 20, 2851, False),    # 98.3% classification
+    (1153, 2, 2820, False),     # 98.9% trading-day coverage
+])
+def test_99_percent_policy_decides_readiness_not_the_existence_of_unresolved_codes(
+    verified, unresolved, sessions, ready,
+):
+    preflight = _policy_preflight(verified, unresolved, sessions=sessions)
+    assert (preflight.readiness.status.value == "ready") is ready
+    if not ready:
+        assert preflight.readiness.status.value == "blocked"
+        assert preflight.readiness.blocking_reasons
+
+
+def test_saved_provenance_records_exact_coverage_and_every_excluded_symbol(tmp_path):
+    preflight = _policy_preflight(1153, 2)
+    inputs = replace(_inputs(preflight), unresolved_type_codes=("2891A", "2833A"))
+    result = _run(tmp_path / "policy.sqlite3", inputs)
+    policy = result["provenance"]["data_health_policy"]
+    assert policy["scope"] == (
+        "TWSE Primary verified universe under the predefined 99% data-health policy")
+    assert result["provenance"]["claim_scope_description"] == policy["scope"]
+    assert policy["classification_coverage"] == pytest.approx(1153 / 1155)
+    assert policy["trading_day_coverage"] == pytest.approx(2851 / 2852)
+    assert policy["thresholds"] == {
+        "primary_oos_classification_ratio": 0.99, "primary_oos_census_ratio": 0.99}
+    assert policy["verified_stock_count"] == 1153 and policy["unresolved_count"] == 2
+    assert policy["excluded_unresolved_symbols"] == [
+        {"symbol": "2833A", "reason": "historical instrument subtype lacks authoritative official evidence"},
+        {"symbol": "2891A", "reason": "historical instrument subtype lacks authoritative official evidence"},
+    ]
+    assert result["provenance"]["unresolved_type_codes"] == ["2891A", "2833A"]
+    admitted = set(inputs.admission.matrix["symbol"].to_list())
+    assert not {"2833A.TWSE", "2891A.TWSE"} & admitted

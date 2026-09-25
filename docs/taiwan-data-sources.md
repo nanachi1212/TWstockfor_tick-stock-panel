@@ -377,3 +377,51 @@ Ranking compares only finite `available` values at one shared `query_at`.
 `missing`, `data_insufficient`, `unsupported`, and `malformed` observations are
 excluded rather than converted to zero or worst rank. Coverage reports totals
 for each status. ETFs are always unsupported for company fundamental factors.
+
+
+# Data Bundle 稽核（2026-09-26）
+
+目的：定義「基本資料快照 + 選用完整歷史包 + 增量更新」的最小配送方案。本輪只在隔離目錄驗證，**未公開上傳**，
+也不建立資料發布系統。授權欄是依下列官方頁面的稽核，不是法律意見；`授權未明` 表示不得假設可再散布。
+
+## 資料清單（以 2026-09-26 本機 `data/taiwan` 實測）
+
+| 資料 | 用途層級 | 來源 | 期間／筆數 | 格式 | 大小（實測） | 必要 metadata | 再散布依據 |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| `daily/` 日 K | 基本看盤／選股 | TWSE／TPEx 官方日行情（每日更新走 OpenAPI，歷史回補走站內月／日查詢） | 2024-01-02→2026-09-10、652 分區、1,416,933 列 | Parquet（zstd）：`symbol,date,open,high,low,close,volume,amount,quote_ts` | 33.2 MB（zip 32.4 MB） | 無 footer 契約；`security_master` 同包 | **混合**：OpenAPI 部分屬政府資料開放授權（見下），站內查詢部分授權未明；逐列來源未標記 |
+| `security_master.parquet` | 基本看盤／選股 | TWSE ISIN 一覽表、`t187ap47_L`、`t187ap03_L` | 2,376 檔（現況） | Parquet | 46 KB | 含 `source`、`updated_at` | `t187ap*` 屬 OpenAPI；ISIN 一覽表授權未明 |
+| `observed_universe/exchange=TWSE/`（含 `_month_verification_TWSE.json`） | 完整歷史／OOS | TWSE `MI_INDEX?type=ALLBUT0999` 歷史逐日 + 月表證據 | 2015-01-05→2026-09-24、3,070 分區（含 8 個週六交易日）、3,214,591 列 | Parquet（zstd） | 109.9 MB | **footer**：`taiwan_trading_day_evidence_v1`（空分區＝休市證據與來源）；不可只複製資料列 | 授權未明；2017-05 前明確不在開放資料集範圍 |
+| `historical_classification/` | 完整歷史／OOS | 由 `MI_INDEX` 類別表 + 官方登錄冊推導 | 478 個首次觀測日、541,615 列 | Parquet | 3.9 MB | **footer**：`taiwan_classification_contract=2`；`classification_source` 逐列記錄證據 | 衍生整理，依其來源；含 ISIN 者授權未明 |
+| `instrument_evidence/` | 完整歷史／OOS | ISIN 上市／未上市、`t187ap03_L`、終止上市公司 | 1,422／1,095／265 列 | Parquet | 0.03 MB | **footer**：來源 URL、SHA-256、取得時間 | `t187ap03_L`、終止上市公司屬 OpenAPI；ISIN 授權未明 |
+| `adj_factor/events.parquet` + `coverage.json` | 完整歷史／OOS | TWT49U、TWTAUU、TWTB8U、exDailyQ、revivt | 2015-01-05→2026-09-25、22,651 事件 | Parquet + JSON | 1.4 MB | `raw_fields`、`source_url`、`retrieved_at`、`status`；`coverage.json` 記錄涵蓋區間 | 站內查詢，授權未明 |
+| `observed_universe/exchange=TPEX/` | 選用（Secondary 實驗，Primary 不需要） | TPEx `dailyQuotes` 歷史逐日 | 2015-01-05→2026-09-24、3,070 分區、20,447,936 列 | Parquet（zstd） | 331.9 MB（zip 316.7 MB） | 同 TWSE 的 footer 證據 | 授權未明 |
+| `factors/`（未建立） | 衍生、可重建 | 由上列資料以既有程式計算 | 預估約 270 萬列 | Parquet | 未實測，不配送 | — | — |
+
+壓縮大小為實測：基本包 33.2 MB（deflate 32.4 MB）、TWSE 歷史包 115.2 MB（deflate 103.6 MB）、TPEx 選用包 331.9 MB
+（deflate 316.7 MB）；Parquet 已 zstd，再壓縮幾乎無效，所以用 zip STORED／DEFLATE 皆可。
+
+## 排除清單（不得進任何資料包）
+
+`live_quant/signals.sqlite3`（即時訊號帳本）、`monitor_rules*.json`、`backfill_worker_state.json`／`*.lock`／`*.guard`、
+`user_data/`（自選、偏好、策略覆寫）、持倉與交易紀錄、提醒、AI 對話與 `ai_cache/`、設定與 `secrets`／`.env`／金鑰、
+`logs/`、`backend.log`、`exports/`、`release-assets/`、`.pytest*`。FinMind 取得的任何資料（基本面、籌碼）預設同樣排除。
+
+## 授權核對摘要
+
+- TWSE 使用條款：站內內容未經書面同意不得重製、散布，**但 TWSE 已授權「政府資料開放平臺」提供公眾使用的資料不在此限**；引用須標示來源且不得任意增刪。條款另禁止以自動化程式下載站內資料（[TWSE 使用條款](https://www.twse.com.tw/zh/terms/use.html)）。
+- 政府資料開放授權條款第 1 版允許重製、散布、商業利用與再授權，須標示來源（[授權條款](https://data.gov.tw/license)）。TWSE 個股日成交資訊（STOCK_DAY_ALL）為該授權，且註明可用自動程式下載（[資料集 11549](https://data.gov.tw/dataset/11549)）。
+- 櫃買中心多數 OpenAPI 資料集採同一授權（[上櫃股票收盤行情](https://data.gov.tw/dataset/11371)）。
+- 交易資訊使用管理辦法／收費標準另有契約（[TWSE 說明](https://www.twse.com.tw/zh/products/information/use.html)）；本輪未取得該辦法全文，歷史逐日資料是否適用未確認。
+- FinMind：其「免責聲明與資料授權」頁的摘要為使用者取得的是**服務使用權，不含再散布、轉售或鏡像**；該頁為前端渲染，本輪無法取得原文，逐項授權需人工確認。**FinMind 使用權不能視為資料再散布權。**
+- 結論：只有明確為 OpenAPI／政府資料開放平臺的資料集可主張再散布；本 repo 的歷史逐日資料多來自站內查詢，**授權未明前不建議公開上傳**。可先以私人／同一使用者的多台電腦搬移，或只發布程式與 manifest 讓使用者自行回補。
+
+## 最小配送方案
+
+1. **程式碼不含資料**（現況）。
+2. **基本資料快照**：`daily/`（可縮短為近 250 個交易日，約 12 MB 為估計）+ `security_master.parquet`，附 manifest（路徑、bytes、SHA-256、來源、期間）。
+3. **選用完整歷史包**：TWSE 歷史包（`observed_universe/exchange=TWSE/`、`historical_classification/`、`instrument_evidence/`、`adj_factor/`），必須整包含 footer 一起複製並附 manifest 驗雜湊；TPEx 包另選。
+4. **增量更新**：解壓到 `<DATA_DIR>/taiwan` 後，用既有 `scripts.taiwan_historical_backfill`（續跑缺漏交易日、`--verify-trading-days`、`--resolve-instrument-types`）與每日 refresh 補到最新；factor panel 由 `--build-factor-panel` 重建，不配送。
+
+隔離目錄驗證（2026-09-26）：把基本包與 TWSE 歷史包解壓到暫存 `DATA_DIR`，4,207 個檔案雜湊與 manifest 全部一致；以既有
+`read_primary_oos_preflight()`、`TaiwanDailyStore.read_all()`、`CorporateActionStore().read()`、`InstrumentEvidenceStore().load()`
+讀取，資料健康度、分類計數、事件數（22,651）與正式目錄逐項相同（日 K 1,416,933 列）。

@@ -1,5 +1,9 @@
 # Taiwan Historical Backfill Worker（Background Data Lane）
 
+> **2026-09-26 資料證據補強**：`--verify-trading-days` 以官方月表確認空分區、`--resolve-instrument-types`
+> 以官方登錄冊補普通股 subtype，OOS CLI 新增 `--build-factor-panel`。做法、證據來源與剩餘缺口見文末
+> 「§9 2026-09-26 OOS 阻擋收斂」。
+
 > **2026-09-23 契約更新**：A2b 現為每日期 37 次請求（34 產業 + ETF + 受益證券 +
 > 存託憑證）。舊 35-request 分區維持可讀，worker queue 會列入 contract upgrade；
 > `jobs_needing_contract_upgrade` 顯示尚未升級數。本文下方舊數字為先前實測紀錄。
@@ -299,3 +303,91 @@ Secondary : TWSE + TPEx Observed Experimental
 ```
 
 **禁止**把兩者合併宣稱為「全台股 survivorship-free OOS」。
+
+
+---
+
+## 9. 2026-09-26 OOS 阻擋收斂（交易日證據、普通股 subtype、factor panel 入口）
+
+DATA_DIR 為 `settings.data_dir`（專案根 `data/`，可用環境變數覆蓋）；CLI、API、worker 都經
+`taiwan_data_root()` 取得同一個 `<DATA_DIR>/taiwan`。
+
+### 9.1 為什麼會出現 210 筆 unknown empty
+
+本機資料與另一台電腦的搬移包（`exports/taiwan_historical_backfill_2026-09-23.zip`，來源 commit
+`550d676`）逐檔位元組相同。包內 420 個空分區（TWSE／TPEx 各 210）**沒有任何 Parquet footer 證據**，
+但當時的程式只會把「footer 明列 `verified_holiday`」的空分區算成休市；沒有證據的空分區本來就是
+`empty_unknown`，重新讀取時不可能變成休市。官方端點對假日也只回空表，`--retry-empty` 無法補證據。
+
+### 9.2 交易日證據（`--verify-trading-days`）
+
+```bash
+cd backend
+uv run --frozen python -m scripts.taiwan_historical_backfill --verify-trading-days --dry-run
+uv run --frozen python -m scripts.taiwan_historical_backfill --verify-trading-days
+```
+
+來源為交易所每月一列的官方成交日表：TWSE `FMTQIK`（每日市場成交資訊）、TPEx `indexInfo/inx`（櫃買指數月查詢）。
+規則（fail-closed，`app/taiwan/trading_day_evidence.py`）：
+
+- 月表必須有效、非空、同月；月內每個已觀測分區都必須出現在月表，否則整月不動並回報衝突。
+- 已結束的月份視為完整，缺席的平日寫入 `confirmed_non_trading`（footer 記錄來源）；當月只信任到最後一個已發布交易日，
+  其後的平日需 TWSE 官方年度休市日表（`holidaySchedule`，2021 起）列為休市才確認，否則維持未解決。
+- 每個官方交易日若沒有分區（例如當日請求失敗）會重新抓取；抓不到就保持未完成。
+- 全部乾淨完成時寫入 `observed_universe/_month_verification_<EX>.json`（涵蓋區間與分區內容雜湊）；Primary readiness
+  要求該標記涵蓋到評估截止日，分區被替換或遺失都會使標記失效。
+- 月表列有、census 卻是空的平日，重新抓取，不當休市。
+- 週六補班交易日（月表有列、平日候選清單不會查詢）會被抓取並寫成一般觀測分區。
+
+2026-09-26 實跑：TWSE、TPEx 各 141 個月表，全部已觀測分區（2,859）100% 與月表一致；209 個空平日確認休市；
+1 個交易日（2026-09-23）空分區重新抓取；補上 8 個週六交易日（2016-01-30、2016-06-04、2016-09-10、
+2017-02-18、2017-06-03、2017-09-30、2018-03-31、2018-12-22）。2026-09-25（中秋節）由 TWSE 官方假日表確認休市。
+TWSE 交易日覆蓋 2,859／2,859；TPEx 的 2026-09-25 要等月表發布下一個交易日（不影響 Primary）。
+
+### 9.3 普通股 subtype（`--resolve-instrument-types [--refresh-instrument-evidence]`）
+
+產業表只證明「當日以某產業掛牌」，不證明普通股。`app/taiwan/instrument_evidence.py` 只用官方登錄冊，不看代碼格式、
+名稱或現況 master：
+
+| 來源 | 用途 |
+| --- | --- |
+| TWSE ISIN 一覽表（本國上市、`strMode=2`；本國未上市公開發行、`strMode=1`） | 代碼、ISIN、上市日、區塊（股票／創新板／特別股／ETN）、CFI；`ES*` 為普通股、`EP*/ER*/EF*` 為特別股 |
+| TWSE 上市公司基本資料 `t187ap03_L` | 公司上市日；證明公司在首次觀測日已持有該代碼（處理面額變更、換 ISIN 造成的上市日重設） |
+| TWSE 終止上市公司 | 已下市公司的主要上市股；只用於當日產業表有列的代碼，且終止日不得早於最後觀測日 |
+| TWSE `MI_INDEX` `029999`（ETN）、`TIB`（創新板）歷史表 | 只對前述來源仍未解決的代碼、在其首次觀測日各查一次 |
+| TWSE 公文公告（2017 起） | 主旨同時含「特別股」與逐字相符的代碼才算特別股證據；公司代號不算 |
+
+登錄冊是「證券本身的屬性」，所以上市日不得晚於首次觀測日才採用；ETF 240/240、TDR 10/10、受益證券 6/6 與既有歷史表結果
+完全一致。證據快照存於 `<DATA_DIR>/taiwan/instrument_evidence/`（footer 記錄來源 URL、SHA-256、取得時間）。
+
+2026-09-26 實跑：1,216 個未解碼代碼中 1,214 個取得證據（普通股 1,153、特別股 33、ETN 28…）。**剩 2 檔
+（2833A 台壽甲、2891A 中信特，皆 2015–2016 已下市特別股）找不到明列代號的官方文件**：公文公告 API 不含 2017 前，
+MOPS 只寫「甲種特別股」不列代號。取得方式：以臺證上一字 2015 年公文（台灣人壽股份轉換終止上市、中信金收回甲種特別股）
+確認代號後補證據。這 2 檔維持 unknown，不進 Primary 股票池。
+
+### 9.4 Primary OOS gate 與價格 bar
+
+- 分類 gate 只剩比例門檻（≥99%，未變）。先前「只要有 1 檔 industry-only 就阻擋」是尚無任何證據時的暫時停損，
+  已移除；未解決代碼會寫入 OOS artifact 的 `unresolved_type_codes`。
+- 官方列若開高低收有 `--`（無成交、暫停）沒有價格 bar，不能作為特徵列，且一個缺 bar 會讓該股之後所有 PIT
+  視窗 `data_insufficient`。這類列仍是市場觀測（`observed_on_market` 維持為真），另以 `price_bar_available` 表示可用價格
+  （真實資料 361／1,153 檔、9,995 列無價格）。其 forward label 因缺 session 價格維持 `missing_session_price`，不會補值。
+- 因子按「連續交易日段」計算：每檔股票在每個缺價 session 處切段，每段各自呼叫既有 `build_factor_panel`，
+  所以視窗、EWM 指標（RSI／MACD）與連續計數在缺口後重新暖機，不跨缺口。
+
+### 9.5 公司行動覆蓋與 factor panel
+
+Primary OOS artifact 的 `provenance.data_health_policy` 固定記錄範圍
+（TWSE Primary verified universe under the predefined 99% data-health policy）、精確的分類覆蓋與交易日覆蓋、
+以及所有被排除的未解決代碼與原因（historical instrument subtype lacks authoritative official evidence）。
+
+
+- 五個官方來源（TWT49U、TWTAUU、TWTB8U、exDailyQ、revivt）一次抓完後存入 `CorporateActionStore`，並以
+  `adj_factor/coverage.json` 記錄涵蓋區間；之後只補抓新區間。傳輸中斷（TPEx 常見）最多重試 3 次。
+- 22,651 筆事件中，普通股只有 5 筆需要修正契約：權值為負且官方參考價等於前收盤（2812、9935 → 因子 1）、
+  詳細頁輸入位數不足但官方參考價落在其顯示精度內（7610）、同一減資的多次公告經濟內容相同（3536、5906）。
+  其餘未驗證事件只屬特別股（詳細頁欄位不同）或 TPEx，不影響 Primary。
+- 1,153 檔 Primary 普通股的完整價格史以此事件快照調整皆為 `verified`。
+- `uv run --frozen python -m scripts.taiwan_primary_oos_evaluation --build-factor-panel` 用既有
+  `build_factor_panel`／`FactorPanelStore` 建立並發布 panel（僅在 readiness 通過時可用，分批多程序計算後按 session 發布）；
+  沒有第二套 runner 或 scorer。

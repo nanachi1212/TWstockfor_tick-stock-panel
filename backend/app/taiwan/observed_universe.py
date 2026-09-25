@@ -51,6 +51,7 @@ buckets (``taiwan:twse`` / ``taiwan:tpex``):
 from __future__ import annotations
 
 # ruff: noqa: RUF001 -- Official Chinese provider status must remain exact.
+import hashlib
 import json
 import logging
 import os
@@ -222,6 +223,38 @@ class ObservedUniverseStore:
         frames = [f for f in frames if f.height]
         return pl.concat(frames, how="diagonal_relaxed") if frames else pl.DataFrame(schema=_CENSUS_SCHEMA)
 
+    def _verification_path(self, exchange: str) -> Path:
+        return self._data_dir / f"_month_verification_{exchange}.json"
+
+    def _partition_digest(self, exchange: str, start: date, end: date) -> str:
+        """Identity of the partitions a verification pass saw (a lost one must show)."""
+        digest = hashlib.sha256()
+        for day in sorted(d for d in self.completed_dates(exchange) if start <= d <= end):
+            digest.update(day.isoformat().encode("ascii"))
+            digest.update(hashlib.sha256(self.partition_path(exchange, day).read_bytes()).digest())
+        return digest.hexdigest()
+
+    def record_month_verification(self, exchange: str, start: date, end: date) -> None:
+        """A clean, complete pass of the official month-table check for [start, end]."""
+        temporary = self._verification_path(exchange).with_suffix(".tmp")
+        temporary.write_text(json.dumps({
+            "start": start.isoformat(), "end": end.isoformat(),
+            "partitions_sha256": self._partition_digest(exchange, start, end),
+            "verified_at": datetime.now(TAIPEI).isoformat(),
+        }), encoding="utf-8")
+        os.replace(temporary, self._verification_path(exchange))
+
+    def month_verification_covers(self, exchange: str, start: date, end: date) -> bool:
+        """Whether a clean month-table pass covers ``start`` through ``end`` (exact date)."""
+        path = self._verification_path(exchange)
+        if not path.is_file():
+            return False
+        record = json.loads(path.read_text(encoding="utf-8"))
+        done_start, done_end = date.fromisoformat(record["start"]), date.fromisoformat(record["end"])
+        return (done_start <= start and done_end >= end
+                and record.get("partitions_sha256")
+                == self._partition_digest(exchange, done_start, done_end))
+
     def completed_dates(self, exchange: str) -> set[date]:
         root = self._data_dir / f"exchange={exchange}"
         if not root.exists():
@@ -334,7 +367,7 @@ def census_coverage(
     observed = sum(status == "observed" for status in statuses.values())
     confirmed = sum(
         statuses.get(day) == "confirmed_non_trading"
-        or (statuses.get(day) != "observed" and cal.day_evidence(day, exchange).status == "non_trading")
+        or (day not in statuses and cal.day_evidence(day, exchange).status == "non_trading")
         for day in candidates)
     unknown = sum(status == "empty_unknown" for status in statuses.values())
     expected = len(candidates) - confirmed
@@ -496,6 +529,22 @@ def candidate_sessions(start: date, end: date,
         if cal.is_trading_day(day) is not False:
             yield day
         day += timedelta(days=1)
+
+
+def session_candidates(
+    store: ObservedUniverseStore, exchange: str, start: date, end: date,
+    calendar: TaiwanTradingCalendar | None = None,
+) -> set[date]:
+    """Weekday candidates plus every weekend date that has a partition.
+
+    A weekend partition exists only because an official month table listed that
+    session (a make-up trading day); it stays in the denominator until it holds
+    rows, so an unrecovered Saturday cannot be skipped by the readiness gate.
+    """
+    return set(candidate_sessions(start, end, calendar)) | {
+        day for day in store.completed_dates(exchange)
+        if start <= day <= end and day.weekday() >= 5
+    }
 
 
 class ObservedUniverseCensus:

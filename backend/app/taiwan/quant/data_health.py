@@ -210,6 +210,7 @@ def evaluate_data_health(
     twse_codes_classified: int,
     thresholds: ReadinessThresholds | None = None,
     classification: dict[str, int | float] | None = None,
+    month_tables_verified: bool = True,
 ) -> DataHealth:
     """Grade readiness from plain counts, so it is trivially testable."""
     gates = thresholds or ReadinessThresholds()
@@ -240,10 +241,9 @@ def evaluate_data_health(
         training_blocked.append(
             f"TWSE classification coverage {classification_ratio:.1%} "
             f"< {gates.training_classification_ratio:.0%}")
-    if classification and classification.get("industry_only_unresolved_count", 0):
-        training_blocked.append(
-            "industry-table membership does not verify common/preferred share subtype; "
-            "authoritative historical common-stock evidence is data_insufficient")
+    # Industry-table membership alone never proves a subtype, so a code without
+    # registry evidence stays unknown: it is outside the Primary universe and
+    # counts against the classification ratio above. Only that ratio gates.
     blocked[ReadinessLevel.TRAINING.value] = training_blocked
     levels[ReadinessLevel.TRAINING.value] = not training_blocked
 
@@ -256,6 +256,10 @@ def evaluate_data_health(
         oos_blocked.append(
             f"TWSE classification coverage {classification_ratio:.1%} "
             f"< {gates.primary_oos_classification_ratio:.0%} required for a Primary OOS claim")
+    if not month_tables_verified:
+        oos_blocked.append(
+            "official trading-day month tables are not verified through the evaluated span; "
+            "run --verify-trading-days")
     blocked[ReadinessLevel.PRIMARY_OOS.value] = oos_blocked
     levels[ReadinessLevel.PRIMARY_OOS.value] = not oos_blocked
 
@@ -284,7 +288,7 @@ def health_from_stores(
     from datetime import datetime
 
     from app.taiwan.backfill_worker import CENSUS_START
-    from app.taiwan.observed_universe import candidate_sessions
+    from app.taiwan.observed_universe import session_candidates
     from app.taiwan.providers.taiwan_values import TAIPEI
 
     census = census or ObservedUniverseStore()
@@ -292,9 +296,10 @@ def health_from_stores(
     start = start or CENSUS_START
     end = end or datetime.now(TAIPEI).date()
 
-    candidates = set(candidate_sessions(start, end))
-    twse_coverage = census_coverage(census, "TWSE", candidates)
-    tpex_coverage = census_coverage(census, "TPEX", candidates)
+    twse_coverage = census_coverage(
+        census, "TWSE", session_candidates(census, "TWSE", start, end))
+    tpex_coverage = census_coverage(
+        census, "TPEX", session_candidates(census, "TPEX", start, end))
 
     observations = census.read("TWSE").filter(pl.col("date").is_between(start, end))
     observed = {r["raw_code"]: r["date"] for r in observations.group_by("raw_code")
@@ -310,6 +315,7 @@ def health_from_stores(
         twse_codes_classified=len(observed) - int(counts["unknown_count"]),
         thresholds=thresholds,
         classification=counts,
+        month_tables_verified=census.month_verification_covers("TWSE", start, end),
     )
     return replace(health, census_by_exchange={
         "TWSE": twse_coverage.describe(),

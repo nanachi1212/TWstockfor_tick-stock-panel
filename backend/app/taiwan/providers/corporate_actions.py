@@ -9,6 +9,8 @@ from datetime import date, datetime
 from decimal import Decimal, InvalidOperation
 from typing import Any
 
+import httpx
+
 from app.taiwan.corporate_actions import (
     SOURCE_EXCHANGE,
     CorporateActionEvent,
@@ -150,13 +152,23 @@ class CorporateActionProvider:
         if self._owns_client:
             self.client.close()
 
-    def _get(self, url: str) -> dict[str, Any]:
-        try:
-            response = self.client.get(url)
-            response.raise_for_status()
-            return json.loads(response.content.decode("utf-8-sig"))
-        except Exception as exc:
-            raise CorporateActionSourceError(f"corporate-action fetch failed: {type(exc).__name__}") from exc
+    def _get(self, url: str, attempts: int = 3) -> dict[str, Any]:
+        """GET + parse. TPEx drops large bodies mid-stream, so transport errors and
+        truncated JSON are retried a bounded number of times (each attempt takes its
+        own rate-limit slot); HTTP status errors are not."""
+        last: Exception | None = None
+        for _ in range(attempts):
+            try:
+                response = self.client.get(url)
+                response.raise_for_status()
+                return json.loads(response.content.decode("utf-8-sig"))
+            except (httpx.TransportError, json.JSONDecodeError, UnicodeDecodeError) as exc:
+                last = exc
+            except Exception as exc:
+                raise CorporateActionSourceError(
+                    f"corporate-action fetch failed: {type(exc).__name__}") from exc
+        raise CorporateActionSourceError(
+            f"corporate-action fetch failed: {type(last).__name__}") from last
 
     def fetch(self, source: str, start: date, end: date) -> tuple[CorporateActionEvent, ...]:
         if source not in SOURCE_URLS or start > end:

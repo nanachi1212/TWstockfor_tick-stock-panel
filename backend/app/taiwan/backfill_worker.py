@@ -31,6 +31,7 @@ from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
+import polars as pl
 import psutil
 
 from app.taiwan.daily_update import resolve_target_latest_trading_date
@@ -47,6 +48,7 @@ from app.taiwan.observed_universe import (
     candidate_sessions,
     census_coverage,
     first_observed_dates,
+    session_candidates,
 )
 from app.taiwan.providers.taiwan_values import TAIPEI
 from app.taiwan.realtime.calendar import TaiwanTradingCalendar, taipei_now
@@ -474,6 +476,69 @@ class TaiwanHistoricalBackfillWorker:
         finally:
             self.lock.release()
 
+    def verify_trading_days(
+        self, *, start: date = CENSUS_START, end: date | None = None,
+        force_unlock: bool = False, apply: bool = True,
+    ) -> dict[str, Any]:
+        """Settle unexplained-empty census days with official month tables."""
+        from app.taiwan.trading_day_evidence import fetch_twse_closures, verify_empty_days
+
+        latest = resolve_target_latest_trading_date(self.calendar, as_of_dt=taipei_now())
+        end = min(end or latest, latest)
+        try:
+            twse_closures = fetch_twse_closures(end.year)
+        except Exception:
+            twse_closures = frozenset()  # the schedule only adds evidence for trailing days
+        self.lock.acquire(force=force_unlock)
+        try:
+            census = self._census or ObservedUniverseCensus(
+                store=self.census_store, calendar=self.calendar)
+            try:
+                fetchers = {"TWSE": census.fetch_twse, "TPEX": census.fetch_tpex}
+                with ThreadPoolExecutor(max_workers=2) as pool:
+                    futures = {
+                        exchange: pool.submit(
+                            verify_empty_days, self.census_store, exchange,
+                            start=start, end=end, census_rows=fetchers[exchange],
+                            closures=twse_closures if exchange == "TWSE" else frozenset(),
+                            apply=apply)
+                        for exchange in ("TWSE", "TPEX")
+                    }
+                    return {exchange: future.result() for exchange, future in futures.items()}
+            finally:
+                if self._census is None:
+                    census.close()
+        finally:
+            self.lock.release()
+
+    def resolve_instrument_types(
+        self, *, refresh_evidence: bool = False, force_unlock: bool = False,
+    ) -> dict[str, Any]:
+        """Settle industry-only TWSE codes from official security registries."""
+        from app.taiwan.instrument_evidence import (
+            InstrumentEvidenceStore,
+            resolve_industry_only_codes,
+        )
+        from app.taiwan.instrument_evidence import (
+            refresh_evidence as download_evidence,
+        )
+
+        evidence = InstrumentEvidenceStore(self.data_dir / "instrument_evidence")
+        self.lock.acquire(force=force_unlock)
+        try:
+            counts = (download_evidence(evidence, today=taipei_now().date())
+                      if refresh_evidence else {})
+            observations = self.census_store.read("TWSE")
+            span = observations.group_by("raw_code").agg(
+                pl.col("date").min().alias("first"), pl.col("date").max().alias("last"))
+            first_seen = dict(zip(span["raw_code"], span["first"], strict=True))
+            last_seen = dict(zip(span["raw_code"], span["last"], strict=True))
+            result = resolve_industry_only_codes(
+                self.classification_store, first_seen, last_seen, evidence)
+            return {"evidence_downloaded": counts, **result}
+        finally:
+            self.lock.release()
+
     # ── status ─────────────────────────────────────────────────
 
     def status(self, *, start: date = CENSUS_START, end: date | None = None) -> dict[str, Any]:
@@ -487,11 +552,11 @@ class TaiwanHistoricalBackfillWorker:
         # is not yet eligible, so it must not inflate the unresolved count.
         end = end or resolve_target_latest_trading_date(
             self.calendar, as_of_dt=taipei_now())
-        candidates = set(candidate_sessions(start, end))
-        total = len(candidates)
+        total = len(set(candidate_sessions(start, end)))
 
         census: dict[str, Any] = {}
         for exchange in ("TWSE", "TPEX"):
+            candidates = session_candidates(self.census_store, exchange, start, end)
             statuses = {day: state for day, state in
                         self.census_store.partition_statuses(exchange).items()
                         if day in candidates}
@@ -511,7 +576,8 @@ class TaiwanHistoricalBackfillWorker:
             confirmed_dates = self.census_store.confirmed_non_trading_dates(exchange)
             confirmed_dates.update(
                 day for day in candidates
-                if self.calendar.day_evidence(day, exchange).status == "non_trading")
+                if day not in statuses
+                and self.calendar.day_evidence(day, exchange).status == "non_trading")
             for day in sorted(candidates - sessions - confirmed_dates):
                 evidence = self.census_store.day_evidence(
                     exchange, day, calendar=self.calendar, failure=failures.get(day))

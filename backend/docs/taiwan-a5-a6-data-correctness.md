@@ -1,5 +1,8 @@
 # A5.1 / A5.2 / A6 資料正確性契約
 
+> **2026-09-26 更新**：§18-§19 的 Primary 阻擋已由官方登錄冊證據收斂，見
+> [worker 文件 §9](taiwan-historical-backfill-worker.md)；本檔其餘契約不變。
+
 日期：2026-09-23。以目前程式、離線測試、A1/A1.5 audit 與本輪有限官方查詢為準。
 本輪沒有啟動 LongRun、正式 OOS、ML、Portfolio、UI，也沒有回寫既有市場資料。
 
