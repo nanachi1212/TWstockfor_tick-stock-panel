@@ -43,6 +43,19 @@ logger = logging.getLogger(__name__)
 # 这里 fire-and-forget,
 # 失败由 webhook_adapter 记 WARNING(可见), 但绝不阻塞热路径。
 _WEBHOOK_EXECUTOR = ThreadPoolExecutor(max_workers=2, thread_name_prefix="notification-push")
+_WEBHOOK_DISPATCH_LOCK = threading.Lock()
+_WEBHOOK_DISPATCHED: set[str] = set()
+
+
+def _claim_external_delivery(event_id: str, channel: str) -> bool:
+    dispatch_id = f"{event_id}:{channel}"
+    with _WEBHOOK_DISPATCH_LOCK:
+        if dispatch_id in _WEBHOOK_DISPATCHED:
+            return False
+        if len(_WEBHOOK_DISPATCHED) >= 20_000:
+            _WEBHOOK_DISPATCHED.clear()
+        _WEBHOOK_DISPATCHED.add(dispatch_id)
+    return True
 
 
 class QuoteSubscriber:
@@ -1395,63 +1408,58 @@ class QuoteService:
             return enriched_today
 
     def _maybe_send_webhook(self, rule_events: list[dict], engine) -> None:
-        """把告警推送到外部 IM (由规则 webhook_channels 指定渠道)。
-
-        - LINE / Telegram 任一已配置即生效 (两个都没配才跳过)
-        - 仅推送 webhook_channels 非空的规则触发的告警, 且只投递被勾选的渠道
-        - 失败静默, 不阻断主流程
-        - 去重: 复用 MonitorRuleEngine 的 cooldown, 此处不重复去重
-
-        注意: 用 rule_events (含 rule_id) 而非重建后的 all_alerts,
-        以便反查引擎规则判断是否启用推送。
-        """
+        """Dispatch persisted alert events; global channels override legacy rule opt-ins."""
         try:
             from app.services import preferences
             from app.services import webhook_adapter
 
-            line_token = preferences.get_line_channel_access_token()
-            line_target = preferences.get_line_target_id()
-            telegram_token = preferences.get_telegram_bot_token()
-            telegram_chat = preferences.get_telegram_chat_id()
-            if not (line_token and line_target) and not (telegram_token and telegram_chat):
-                return
+            global_channels = preferences.get_external_notification_channels()
 
-            # 反查规则, 过滤出启用推送的事件
-            source_labels = {
-                "strategy": "策略", "signal": "訊號",
-                "price": "價格", "market": "異動", "ladder": "連續漲停梯隊",
-                "sector": "板塊",
-            }
             rules = engine.rules if engine is not None else {}
-            enqueued = 0
+            source_labels = {
+                "strategy": "策略", "signal": "訊號", "price": "價格",
+                "market": "異動", "ladder": "連續漲停梯隊", "sector": "板塊",
+            }
+            pending = []
             for ev in rule_events:
                 rule = rules.get(ev.get("rule_id"))
-                # webhook_channels 指定命中的渠道 (['line'] / ['telegram'] / 两者 / []).
-                # 空列表 = 该规则不推送。仅推送「渠道已选 + 对应地址已配置」的组合。
-                channels = rule.get("webhook_channels") if rule else None
-                if not channels:
-                    continue
-                source = ev.get("source", "")
-                source_label = source_labels.get(source, source or "通知")
-                symbol = ev.get("symbol") or ""
-                name = ev.get("name") or ""
-                message = ev.get("message") or ""
-                title = source_label
-                body = f"{symbol} {name} {message}".strip() if symbol else (message or name)
-                # 提交到独立线程池, 不阻塞行情轮询线程 (webhook 慢/重试不拖累实时行情+告警)。
-                # 按渠道独立投递: LINE / Telegram 谁被勾选且已配置就推谁。
-                # 应用内 alerts.jsonl 记录与 SSE 已在前面完成, 不依赖 webhook 成败,
-                # 失败由 webhook_adapter 记 WARNING(可见)。
-                if line_token and line_target and "line" in channels:
-                    _WEBHOOK_EXECUTOR.submit(webhook_adapter.send_line, line_token, line_target, title, body)
-                    enqueued += 1
-                if telegram_token and telegram_chat and "telegram" in channels:
-                    _WEBHOOK_EXECUTOR.submit(webhook_adapter.send_telegram, telegram_token, telegram_chat, title, body)
-                    enqueued += 1
+                channels = global_channels if global_channels is not None else (rule.get("webhook_channels", []) if rule else [])
+                if channels:
+                    pending.append((ev, channels))
+
+            needs_line = any("line" in channels for _ev, channels in pending)
+            needs_telegram = any("telegram" in channels for _ev, channels in pending)
+            line_token = preferences.get_line_channel_access_token() if needs_line else ""
+            line_target = preferences.get_line_target_id() if needs_line else ""
+            telegram_token = preferences.get_telegram_bot_token() if needs_telegram else ""
+            telegram_chat = preferences.get_telegram_chat_id() if needs_telegram else ""
+
+            enqueued = 0
+            for ev, channels in pending:
+                title = source_labels.get(ev.get("source", ""), "提醒")
+                body = webhook_adapter.alert_message(ev)
+                event_id = str(ev.get("alert_id") or ev.get("dedup_key") or "|".join(
+                    str(ev.get(key) or "") for key in ("rule_id", "symbol", "sector_key", "type", "ts")
+                ))
+                # The alert is already durable and in SSE before provider I/O begins.
+                if "line" in channels:
+                    if _claim_external_delivery(event_id, "line"):
+                        if line_token and line_target:
+                            _WEBHOOK_EXECUTOR.submit(webhook_adapter.send_line, line_token, line_target, title, body)
+                        else:
+                            webhook_adapter.record_delivery_status("line", "not_configured")
+                        enqueued += 1
+                if "telegram" in channels:
+                    if _claim_external_delivery(event_id, "telegram"):
+                        if telegram_token and telegram_chat:
+                            _WEBHOOK_EXECUTOR.submit(webhook_adapter.send_telegram, telegram_token, telegram_chat, title, body)
+                        else:
+                            webhook_adapter.record_delivery_status("telegram", "not_configured")
+                        enqueued += 1
             if enqueued:
                 logger.info("Webhook 已提交 %d 条 (异步投递, 按渠道独立投递, 失败记 WARNING)", enqueued)
         except Exception as e:  # noqa: BLE001
-            logger.warning("Webhook 提交异常 (不影响告警主流程): %s", e)
+            logger.warning("外部提醒提交失敗 (%s)", type(e).__name__)
 
     def _maybe_send_system_notifications(self, all_alerts: list[dict]) -> None:
         """把告警转发到操作系统通知中心 (由 preferences 开关控制)。

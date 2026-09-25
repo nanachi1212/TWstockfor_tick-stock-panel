@@ -9,7 +9,6 @@ import { boardTag } from '@/components/stock-table/primitives'
 import { resolveWatchlistGroupColor } from '@/lib/watchlist-group-colors'
 import { SignalPicker } from '@/components/screener/SignalPicker'
 import { MONITOR_INTRADAY_SIGNAL_OPTIONS, SIGNAL_OPTIONS, cnSignal } from '@/lib/signals'
-import { usePreferences } from '@/lib/useSharedQueries'
 
 interface Props {
   /** 編輯現有規則;null=新建 */
@@ -77,12 +76,8 @@ const emptyRule = (preset?: Partial<MonitorRule>): MonitorRule => ({
 export function RuleEditor({ rule, preset, simple, onClose, onSaved }: Props) {
   const qc = useQueryClient()
   const options = useQuery({ queryKey: QK.monitorRuleOptions, queryFn: api.monitorRuleOptions })
-  const { data: prefs } = usePreferences()
-  const lineConfigured = !!prefs?.line_configured
-  const telegramConfigured = !!prefs?.telegram_configured
   const [editing] = useState(!!rule)
-  // 新建規則: 預填全局「默認推送渠道」(多選數組), preset 顯式指定時以 preset 為準。
-  // 編輯規則: 完全沿用規則自身配置, 不受默認值影響。
+  // Keep legacy rule destinations readable until a global destination is saved.
   const [draft, setDraft] = useState<MonitorRule>(() => {
     if (rule) {
       return {
@@ -96,7 +91,7 @@ export function RuleEditor({ rule, preset, simple, onClose, onSaved }: Props) {
     }
     const initial = {
       ...emptyRule(preset),
-      webhook_channels: preset?.webhook_channels ?? (prefs?.webhook_default_channels ?? []),
+      webhook_channels: preset?.webhook_channels ?? [],
     }
     if (initial.type === 'strategy' && !initial.notify_events) {
       initial.notify_events = [...DEFAULT_STRATEGY_NOTIFY_EVENTS]
@@ -340,13 +335,6 @@ export function RuleEditor({ rule, preset, simple, onClose, onSaved }: Props) {
       return { ...d, sector_targets: [...current, target] }
     })
   }
-
-  // 勾選/取消勾選某個推播渠道 (LINE / Telegram 各自獨立)
-  const toggleChannel = (ch: string) =>
-    setDraft(d => {
-      const cur = d.webhook_channels ?? []
-      return { ...d, webhook_channels: cur.includes(ch) ? cur.filter(c => c !== ch) : [...cur, ch] }
-    })
 
   const toggleStrategyEvent = (event: StrategyNotifyEvent) =>
     setDraft(d => {
@@ -1257,77 +1245,12 @@ export function RuleEditor({ rule, preset, simple, onClose, onSaved }: Props) {
         </label>
       </div>
 
-      {/* 外部推播 — LINE / Telegram */}
-      <div className="rounded-btn border border-border/40 bg-base/40 p-3 space-y-2">
-        <div className="flex items-center gap-1.5">
-          <span className="text-[11px] font-medium text-foreground">Webhook 推送</span>
-          <span className="text-[9px] text-muted">觸發時推送告警到外部</span>
-        </div>
-
-        {/* 渠道列表 */}
-        <div className="space-y-1.5">
-          {/* LINE Messaging API */}
-          <label className="flex items-center gap-2 cursor-pointer">
-            <input
-              type="checkbox"
-              checked={(draft.webhook_channels ?? []).includes('line')}
-              onChange={() => toggleChannel('line')}
-              className="h-3 w-3 accent-accent cursor-pointer"
-            />
-            <span className="text-[11px] text-foreground">LINE</span>
-            <span className="text-[9px] text-muted">Messaging API</span>
-            {(draft.webhook_channels ?? []).includes('line') && (
-              <span className={`ml-auto text-[9px] ${lineConfigured ? 'text-emerald-500' : 'text-warning'}`}>
-                {lineConfigured ? '已配置' : '未配置'}
-              </span>
-            )}
-          </label>
-
-          {/* Telegram Bot API */}
-          <label className="flex items-center gap-2 cursor-pointer">
-            <input
-              type="checkbox"
-              checked={(draft.webhook_channels ?? []).includes('telegram')}
-              onChange={() => toggleChannel('telegram')}
-              className="h-3 w-3 accent-accent cursor-pointer"
-            />
-            <span className="text-[11px] text-foreground">Telegram</span>
-            <span className="text-[9px] text-muted">Bot API</span>
-            {(draft.webhook_channels ?? []).includes('telegram') && (
-              <span className={`ml-auto text-[9px] ${telegramConfigured ? 'text-emerald-500' : 'text-warning'}`}>
-                {telegramConfigured ? '已配置' : '未配置'}
-              </span>
-            )}
-          </label>
-
-        </div>
-
-        {/* 勾選了某渠道但該渠道地址未配置 → 提示前往設置 */}
-        {(draft.webhook_channels ?? []).length > 0 && (() => {
-          const selected = draft.webhook_channels ?? []
-          const unconfigured: string[] = []
-          if (selected.includes('line') && !lineConfigured) unconfigured.push('LINE')
-          if (selected.includes('telegram') && !telegramConfigured) unconfigured.push('Telegram')
-          if (unconfigured.length === 0) return null
-          return (
-            <p className="text-[10px] leading-relaxed text-warning/80">
-              {unconfigured.join('、')}尚未配置,
-              <Link to="/settings?tab=monitoring" className="text-accent hover:text-accent/80">前往設定頁設定 →</Link>
-            </p>
-          )
-        })()}
-        {(draft.webhook_channels ?? []).length > 0 && (() => {
-          const selected = draft.webhook_channels ?? []
-          const ready: string[] = []
-          if (selected.includes('line') && lineConfigured) ready.push('LINE')
-          if (selected.includes('telegram') && telegramConfigured) ready.push('Telegram')
-          if (ready.length === 0) return null
-          return (
-            <p className="text-[10px] leading-relaxed text-muted">
-              命中本規則時,告警將推送到已配置的{ready.join(' + ')}。
-            </p>
-          )
-        })()}
+      {/* 外部提醒由全域設定控制，逐規則 channel 僅保留舊資料相容讀取。 */}
+      <div className="rounded-btn border border-border/40 bg-base/40 p-3">
+        <p className="text-[11px] text-secondary">
+          外部提醒使用「設定 → 監控」的全域通道選擇；未設定全域通道時，新規則預設只發送 App 內提醒。
+          <Link to="/settings?tab=monitoring" className="ml-1 text-accent hover:text-accent/80">前往外部通知設定 →</Link>
+        </p>
       </div>
 
       {error && <div className="rounded-btn border border-danger/30 bg-danger/5 px-3 py-2 text-xs text-danger">{error}</div>}

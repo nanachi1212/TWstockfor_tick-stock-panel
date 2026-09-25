@@ -29,7 +29,10 @@ def _request(tmp_path, quote_service=None):
 def test_manual_evaluation_persists_before_sse_push(tmp_path, monkeypatch):
     alert = _Alert()
     calls = []
-    quote_service = SimpleNamespace(push_alerts=lambda events: calls.append(("push", events)))
+    quote_service = SimpleNamespace(
+        push_alerts=lambda events: calls.append(("push", events)),
+        _maybe_send_webhook=lambda events, _engine: calls.append(("external", events)),
+    )
 
     class Engine:
         def evaluate_all(self, *, persist_events):
@@ -48,7 +51,7 @@ def test_manual_evaluation_persists_before_sse_push(tmp_path, monkeypatch):
 
     result = evaluate_taiwan_rules(_request(tmp_path, quote_service))
 
-    assert [call[0] for call in calls] == ["persist", "push"]
+    assert [call[0] for call in calls] == ["persist", "push", "external"]
     assert calls[0][1:] == (tmp_path, [{"alert_id": "alert-1", "symbol": "2330.TWSE"}])
     assert result["alerts_count"] == 1
 

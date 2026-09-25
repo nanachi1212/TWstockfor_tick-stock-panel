@@ -18,6 +18,7 @@ from fastapi.testclient import TestClient
 from app.api import taiwan_live
 from app.taiwan.corporate_actions import CorporateActionEvent, event_market_open
 from app.taiwan.providers.corporate_actions import SOURCE_URLS
+from app.taiwan.quant import live_runner
 from app.taiwan.quant.feature_manifest import FeatureManifest, training_matrix
 from app.taiwan.quant.live_contract import LiveModel, canonical_hash, latest_completed_session
 from app.taiwan.quant.live_outcomes import mature_live_outcomes
@@ -31,6 +32,87 @@ from app.taiwan.realtime.calendar import TAIPEI_TZ, TaiwanTradingCalendar
 
 DAY = date(2026, 9, 21)
 NOW = datetime(2026, 9, 21, 17, tzinfo=TAIPEI_TZ)
+
+
+def test_live_quant_alerts_are_persisted_before_sse_and_external_dispatch(monkeypatch, tmp_path):
+    from app.config import settings
+    from app.services import alert_store
+    from app.taiwan.realtime import monitor_engine as monitor_engine_module
+
+    event = {"alert_id": "quant-event", "symbol": "2330.TWSE", "message": "原始"}
+    calls = []
+    monkeypatch.setattr(settings, "data_dir", tmp_path)
+    monkeypatch.setattr(live_runner, "LiveModel", lambda: SimpleNamespace(key="model"))
+
+    class Ledger:
+        def read_run(self, _model_key, _session):
+            return {"audit_status": "ok", "session": "2026-09-21", "snapshot": {"signals": []}}
+
+    class Engine:
+        def evaluate_quant_top10(self, _signals, _session, *, persist_events):
+            accepted = persist_events([event])
+            assert accepted == [event["alert_id"]]
+            return [event]
+
+    monkeypatch.setattr(monitor_engine_module, "get_monitor_engine", lambda: Engine())
+    monkeypatch.setattr(
+        alert_store,
+        "append_many",
+        lambda _data_dir, events: calls.append(("persist", events)) or [event["alert_id"] for event in events],
+    )
+    quote_service = SimpleNamespace(
+        _format_extension_notifications=lambda events: [
+            {**item, "message": item["message"] + " [formatted]"} for item in events
+        ],
+        push_alerts=lambda events: calls.append(("push", events)),
+        _maybe_send_webhook=lambda events, _engine: calls.append(("external", events)),
+    )
+
+    result = live_runner._evaluate_live_quant_alerts(
+        {"status": "frozen", "session": "2026-09-21"}, Ledger(),
+        SimpleNamespace(quote_service=quote_service),
+    )
+
+    assert result == {"status": "available", "appended": 1}
+    assert [kind for kind, _events in calls] == ["persist", "push", "external"]
+    formatted = [{**event, "message": "原始 [formatted]"}]
+    assert all(events == formatted for _kind, events in calls)
+
+
+def test_live_quant_duplicate_alert_is_not_dispatched(monkeypatch, tmp_path):
+    from app.config import settings
+    from app.services import alert_store
+    from app.taiwan.realtime import monitor_engine as monitor_engine_module
+
+    event = {"alert_id": "duplicate-live-event", "symbol": "2330.TWSE"}
+    monkeypatch.setattr(settings, "data_dir", tmp_path)
+    monkeypatch.setattr(live_runner, "LiveModel", lambda: SimpleNamespace(key="model"))
+
+    class Ledger:
+        def read_run(self, _model_key, _session):
+            return {"audit_status": "ok", "session": "2026-09-21", "snapshot": {"signals": []}}
+
+    class Engine:
+        def evaluate_quant_top10(self, _signals, _session, *, persist_events):
+            accepted = persist_events([event])
+            return [item for item in [event] if item["alert_id"] in accepted]
+
+    calls = []
+    monkeypatch.setattr(monitor_engine_module, "get_monitor_engine", lambda: Engine())
+    monkeypatch.setattr(alert_store, "append_many", lambda _data_dir, _events: [])
+    quote_service = SimpleNamespace(
+        _format_extension_notifications=lambda events: events,
+        push_alerts=lambda events: calls.append(("push", events)),
+        _maybe_send_webhook=lambda events, _engine: calls.append(("external", events)),
+    )
+
+    result = live_runner._evaluate_live_quant_alerts(
+        {"status": "frozen", "session": "2026-09-21"}, Ledger(),
+        SimpleNamespace(quote_service=quote_service),
+    )
+
+    assert result == {"status": "available", "appended": 0}
+    assert calls == []
 
 
 def session_days(start, end):

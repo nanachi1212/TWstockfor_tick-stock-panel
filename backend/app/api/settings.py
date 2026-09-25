@@ -433,7 +433,7 @@ class MiningSchedulePrefs(BaseModel):
 @router.get("/preferences")
 def get_preferences() -> dict:
     """返回用户偏好设置。"""
-    from app.services import preferences
+    from app.services import preferences, webhook_adapter
     return {
         "realtime_quotes_enabled": preferences.get_realtime_quotes_enabled(),
         "realtime_allowed": _realtime_allowed(),
@@ -475,6 +475,8 @@ def get_preferences() -> dict:
         "telegram_chat_id": preferences.get_telegram_chat_id(),
         "telegram_bot_token_masked": secrets_store.mask(preferences.get_telegram_bot_token()),
         "telegram_configured": bool(preferences.get_telegram_chat_id() and preferences.get_telegram_bot_token()),
+        "external_notification_channels": preferences.get_external_notification_channels(),
+        "external_notification_status": webhook_adapter.delivery_status(),
         "webhook_enabled_default": preferences.get_webhook_enabled_default(),
         "webhook_default_channels": preferences.get_webhook_default_channels(),
         "sidebar_index_symbols": preferences.get_sidebar_index_symbols(),
@@ -488,6 +490,14 @@ def get_preferences() -> dict:
         "depth_finalize_time": preferences.get_depth_finalize_time(),
         **preferences.get_mining_schedule(),
     }
+
+
+@router.get("/notification-status")
+def get_notification_status() -> dict:
+    """Return process-local external notification delivery status."""
+    from app.services import webhook_adapter
+
+    return {"external_notification_status": webhook_adapter.delivery_status()}
 
 
 @router.get("/data-sources")
@@ -1085,6 +1095,18 @@ class NotificationChannelPrefsIn(BaseModel):
     clear_token: bool = False
 
 
+class ExternalNotificationChannelsIn(BaseModel):
+    channels: list[Literal["line", "telegram"]]
+
+
+@router.put("/preferences/external-notification-channels")
+def update_external_notification_channels(req: ExternalNotificationChannelsIn) -> dict:
+    from app.services import preferences
+
+    channels = preferences.set_external_notification_channels([str(channel) for channel in req.channels])
+    return {"external_notification_channels": channels}
+
+
 def _notification_channel_response(channel: str) -> dict:
     from app.services import preferences
 
@@ -1107,25 +1129,27 @@ def _notification_channel_response(channel: str) -> dict:
 
 @router.put("/preferences/line-messaging")
 def update_line_messaging(req: NotificationChannelPrefsIn) -> dict:
-    from app.services import preferences
+    from app.services import preferences, webhook_adapter
 
     preferences.set_line_target_id(req.recipient)
     if req.clear_token:
         preferences.set_line_channel_access_token("")
     elif req.token and req.token.strip():
         preferences.set_line_channel_access_token(req.token)
+    webhook_adapter.clear_delivery_status("line")
     return _notification_channel_response("line")
 
 
 @router.put("/preferences/telegram-bot")
 def update_telegram_bot(req: NotificationChannelPrefsIn) -> dict:
-    from app.services import preferences
+    from app.services import preferences, webhook_adapter
 
     preferences.set_telegram_chat_id(req.recipient)
     if req.clear_token:
         preferences.set_telegram_bot_token("")
     elif req.token and req.token.strip():
         preferences.set_telegram_bot_token(req.token)
+    webhook_adapter.clear_delivery_status("telegram")
     return _notification_channel_response("telegram")
 
 

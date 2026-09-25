@@ -62,7 +62,7 @@
 
 **AI 的兩個用途**:選股頁把中文條件翻譯成篩選欄位(純翻譯層,結果先預覽再填表,不直接出股)、多股比較頁對已呈現的數據做客觀解讀。兩者都要手動觸發,不設定 AI 完全不影響其他功能。
 
-**推播**:LINE Messaging API 與 Telegram Bot,可各自測試,並勾選作為新建規則的預設推播管道。
+**外部提醒**:在「設定 → 監控」儲存 LINE Messaging API 或 Telegram Bot 後，可先傳送測試訊息，再勾選全域外送通道；App 內提醒一律保留，可選 App only、加 LINE、加 Telegram 或兩者都加。只有 TWStock 後端執行並觸發提醒時才會發送；外部服務故障不影響 App 內提醒。憑證保存在本機 `data/user_data/secrets.json`，不會送到前端回應中。
 
 </details>
 

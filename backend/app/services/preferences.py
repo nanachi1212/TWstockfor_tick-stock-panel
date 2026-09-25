@@ -9,6 +9,7 @@ import copy
 import json
 import logging
 import re
+import threading
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
@@ -17,6 +18,7 @@ logger = logging.getLogger(__name__)
 # 文件仅在用户改设置时变化, 以 (mtime_ns, size) 签名判断是否重读。
 _cache: dict | None = None
 _cache_sig: tuple[int, int] | None = None
+_SAVE_LOCK = threading.RLock()
 
 
 def _path() -> Path:
@@ -28,12 +30,18 @@ def _path() -> Path:
 
 def _invalidate_cache() -> None:
     global _cache, _cache_sig
-    _cache = None
-    _cache_sig = None
+    with _SAVE_LOCK:
+        _cache = None
+        _cache_sig = None
 
 
 def load() -> dict:
     """读取 preferences.json (带 mtime 签名缓存)。返回深拷贝, 调用方可自由修改。"""
+    with _SAVE_LOCK:
+        return _load_unlocked()
+
+
+def _load_unlocked() -> dict:
     global _cache, _cache_sig
     p = _path()
     try:
@@ -56,13 +64,14 @@ def load() -> dict:
 
 def save(updates: dict) -> dict:
     """合并写入。返回新内容。"""
-    current = load()
-    current.update(updates)
-    _path().write_text(
-        json.dumps(current, indent=2, ensure_ascii=False), encoding="utf-8",
-    )
-    _invalidate_cache()
-    return current
+    with _SAVE_LOCK:
+        current = load()
+        current.update(updates)
+        _path().write_text(
+            json.dumps(current, indent=2, ensure_ascii=False), encoding="utf-8",
+        )
+        _invalidate_cache()
+        return current
 
 
 def get_realtime_quotes_enabled() -> bool:
@@ -118,12 +127,7 @@ def set_realtime_watchlist_symbols(symbols: list[str]) -> list[str]:  # noqa: AR
 
 def set_realtime_quote_interval(interval: float) -> float:
     """保存行情轮询间隔（不在此做 min/max 校验，由调用方按档位限制）。"""
-    current = load()
-    current["realtime_quote_interval"] = interval
-    _path().write_text(
-        json.dumps(current, indent=2, ensure_ascii=False), encoding="utf-8",
-    )
-    _invalidate_cache()
+    save({"realtime_quote_interval": interval})
     return interval
 
 
@@ -803,6 +807,24 @@ def set_webhook_default_channels(channels: list[str]) -> list[str]:
             seen.add(c)
             cleaned.append(c)
     save({"webhook_default_channels": cleaned})
+    return cleaned
+
+
+def get_external_notification_channels() -> list[str] | None:
+    """Return globally enabled external channels, or None for legacy per-rule mode."""
+    data = load()
+    if "external_notification_channels" not in data:
+        return None
+    raw = data.get("external_notification_channels")
+    if not isinstance(raw, list):
+        return []
+    return list(dict.fromkeys(c for c in raw if c in REVIEW_PUSH_CHANNELS))
+
+
+def set_external_notification_channels(channels: list[str]) -> list[str]:
+    """Save the global external alert destinations; an empty list means App only."""
+    cleaned = list(dict.fromkeys(c for c in (channels or []) if c in REVIEW_PUSH_CHANNELS))
+    save({"external_notification_channels": cleaned})
     return cleaned
 
 

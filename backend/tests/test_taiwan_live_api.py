@@ -46,6 +46,96 @@ def test_live_run_api_returns_not_found_without_substituting_other_ranking(monke
     assert exc.value.status_code == 404
 
 
+def test_manual_quant_alerts_are_persisted_before_sse_and_external_dispatch(monkeypatch, tmp_path):
+    from app.services import alert_store
+    from app.taiwan.realtime import monitor_engine as monitor_engine_module
+
+    event = {"alert_id": "quant-api-event", "symbol": "2330.TWSE", "message": "原始"}
+    calls = []
+    monkeypatch.setattr(taiwan_live, "_expected_session", lambda: "2026-09-24")
+    monkeypatch.setattr(taiwan_live, "LiveModel", lambda: SimpleNamespace(key="model"))
+
+    class Ledger:
+        def read_run(self, _model_key, _session):
+            return {"audit_status": "ok", "snapshot": {"signals": []}}
+
+        @staticmethod
+        def latest_operation():
+            return {"freeze": {"status": "frozen", "session": "2026-09-24"}}
+
+    class Engine:
+        def evaluate_quant_top10(self, _signals, _session, *, available, persist_events):
+            assert available is True
+            accepted = persist_events([event])
+            assert accepted == [event["alert_id"]]
+            return [event]
+
+    monkeypatch.setattr(taiwan_live, "LiveLedger", Ledger)
+    monkeypatch.setattr(monitor_engine_module, "get_monitor_engine", lambda: Engine())
+    monkeypatch.setattr(
+        alert_store,
+        "append_many",
+        lambda _data_dir, events: calls.append(("persist", events)) or [event["alert_id"] for event in events],
+    )
+    quote_service = SimpleNamespace(
+        _format_extension_notifications=lambda events: [
+            {**item, "message": item["message"] + " [formatted]"} for item in events
+        ],
+        push_alerts=lambda events: calls.append(("push", events)),
+        _maybe_send_webhook=lambda events, _engine: calls.append(("external", events)),
+    )
+    repo = SimpleNamespace(store=SimpleNamespace(data_dir=tmp_path))
+    request = SimpleNamespace(app=SimpleNamespace(state=SimpleNamespace(repo=repo, quote_service=quote_service)))
+
+    response = taiwan_live.evaluate_quant_alerts(request)
+
+    formatted = [{**event, "message": "原始 [formatted]"}]
+    assert response["alerts"] == formatted
+    assert [kind for kind, _events in calls] == ["persist", "push", "external"]
+    assert all(events == formatted for _kind, events in calls)
+
+
+def test_manual_quant_duplicate_alert_is_not_dispatched(monkeypatch, tmp_path):
+    from app.services import alert_store
+    from app.taiwan.realtime import monitor_engine as monitor_engine_module
+
+    event = {"alert_id": "duplicate-api-event", "symbol": "2330.TWSE"}
+    monkeypatch.setattr(taiwan_live, "_expected_session", lambda: "2026-09-24")
+    monkeypatch.setattr(taiwan_live, "LiveModel", lambda: SimpleNamespace(key="model"))
+
+    class Ledger:
+        def read_run(self, _model_key, _session):
+            return {"audit_status": "ok", "snapshot": {"signals": []}}
+
+        @staticmethod
+        def latest_operation():
+            return {"freeze": {"status": "frozen", "session": "2026-09-24"}}
+
+    class Engine:
+        def evaluate_quant_top10(self, _signals, _session, *, available, persist_events):
+            accepted = persist_events([event])
+            return [item for item in [event] if item["alert_id"] in accepted]
+
+    calls = []
+    monkeypatch.setattr(taiwan_live, "LiveLedger", Ledger)
+    monkeypatch.setattr(monitor_engine_module, "get_monitor_engine", lambda: Engine())
+    monkeypatch.setattr(alert_store, "append_many", lambda _data_dir, _events: [])
+    quote_service = SimpleNamespace(
+        _format_extension_notifications=lambda events: events,
+        push_alerts=lambda events: calls.append(("push", events)),
+        _maybe_send_webhook=lambda events, _engine: calls.append(("external", events)),
+    )
+    request = SimpleNamespace(app=SimpleNamespace(state=SimpleNamespace(
+        repo=SimpleNamespace(store=SimpleNamespace(data_dir=tmp_path)),
+        quote_service=quote_service,
+    )))
+
+    response = taiwan_live.evaluate_quant_alerts(request)
+
+    assert response["alerts"] == []
+    assert calls == []
+
+
 def test_live_models_marks_run_current_only_when_session_operation_and_audit_agree(monkeypatch):
     monkeypatch.setattr(taiwan_live, "_SESSION_CACHE", None)
     expected = date(2026, 9, 24)

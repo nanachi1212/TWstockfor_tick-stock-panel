@@ -1,4 +1,5 @@
 """Read-only live contract. No caller-supplied session, importer or rerank API."""
+import logging
 import threading
 import time
 from datetime import date
@@ -10,6 +11,7 @@ from app.taiwan.quant.live_runner import CurrentLiveSource
 from app.taiwan.quant.live_store import LiveLedger
 
 router = APIRouter(prefix="/api/taiwan/quant/live", tags=["taiwan-live"])
+logger = logging.getLogger(__name__)
 
 _SESSION_CACHE_TTL = 120.0
 _SESSION_CACHE: tuple[float, str] | None = None
@@ -95,6 +97,13 @@ def evaluate_quant_alerts(request: Request):
     from app.services import alert_store
     from app.taiwan.realtime.monitor_engine import get_monitor_engine
 
+    quote_service = getattr(request.app.state, "quote_service", None)
+    persisted_events = []
+
+    def format_notifications(events):
+        formatter = getattr(quote_service, "_format_extension_notifications", None)
+        return formatter(events) if callable(formatter) else events
+
     snapshot = run.get("snapshot") or {}
     signals = snapshot.get("signals")
     if not isinstance(signals, list):
@@ -104,7 +113,13 @@ def evaluate_quant_alerts(request: Request):
         repo = getattr(request.app.state, "repo", None)
         if repo is None:
             raise HTTPException(status_code=503, detail="提醒儲存尚未就緒")
-        return alert_store.append_many(repo.store.data_dir, events)
+        formatted = format_notifications(events)
+        accepted_ids = alert_store.append_many(repo.store.data_dir, formatted)
+        accepted_id_set = set(accepted_ids)
+        persisted_events.extend(
+            event for event in formatted if event.get("alert_id") in accepted_id_set
+        )
+        return accepted_ids
 
     events = get_monitor_engine().evaluate_quant_top10(
         signals,
@@ -112,11 +127,18 @@ def evaluate_quant_alerts(request: Request):
         available=True,
         persist_events=persist_events,
     )
-    if events:
-        quote_service = getattr(request.app.state, "quote_service", None)
+    if persisted_events:
+        output_events = persisted_events
         if quote_service:
-            quote_service.push_alerts(events)
-    return {"ok": True, "status": "available", "alerts": events}
+            try:
+                quote_service.push_alerts(output_events)
+            except Exception as exc:
+                logger.warning("Failed to push Quant Top 10 alerts to SSE (%s)", type(exc).__name__)
+            try:
+                quote_service._maybe_send_webhook(output_events, None)
+            except Exception as exc:
+                logger.warning("Failed to dispatch Quant Top 10 external alerts (%s)", type(exc).__name__)
+    return {"ok": True, "status": "available", "alerts": persisted_events}
 
 
 @router.get("/runs/{model_key}/{session}")

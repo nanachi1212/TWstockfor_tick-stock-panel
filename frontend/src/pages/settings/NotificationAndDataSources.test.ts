@@ -19,6 +19,31 @@ describe('notification channel settings', () => {
     expect(code).not.toMatch(/feishu|wecom|飛書|飛書|企業微信/iu)
   })
 
+  it('disables both global channel controls while a preference update is pending', () => {
+    const code = read('Monitoring.tsx')
+    expect(code).toContain('isPending: isUpdatingExternalChannels')
+    expect(code).toContain('isLoading: preferencesLoading')
+    expect(code.match(/disabled=\{preferencesLoading \|\| !prefs \|\| isUpdatingExternalChannels \|\| isSavingNotificationCredentials\}/gu)).toHaveLength(3)
+    expect(code).toContain('disabled={isUpdatingExternalChannels || saveLine.isPending')
+    expect(code).toContain('disabled={isUpdatingExternalChannels || saveTelegram.isPending')
+  })
+
+  it('does not display legacy rule defaults as saved global channels', () => {
+    const code = read('Monitoring.tsx')
+    expect(code).toContain('prefs?.external_notification_channels ?? []')
+    expect(code).not.toContain('prefs?.external_notification_channels ?? prefs?.webhook_default_channels')
+    expect(code).toContain('尚未儲存全域通道')
+    expect(code).toContain('只用 App 內提醒')
+    expect(code).toContain('onClick={() => updateExternalChannels([])}')
+  })
+
+  it('refreshes delivery status independently of editable preferences', () => {
+    const code = read('Monitoring.tsx')
+    expect(code).toContain('queryKey: QK.externalNotificationStatus')
+    expect(code).toContain('queryFn: api.externalNotificationStatus')
+    expect(code).toContain('refetchInterval: 5000')
+  })
+
   it('keeps masked token inputs and configured-state checks', () => {
     const code = read('Monitoring.tsx')
     expect(code).toContain('lineTokenMasked')
@@ -26,6 +51,17 @@ describe('notification channel settings', () => {
     expect(code).toContain('type="password"')
     expect(code).toContain('lineConfigured')
     expect(code).toContain('telegramConfigured')
+  })
+
+  it('keeps external delivery under global settings instead of per-rule checkboxes', () => {
+    const ruleEditor = read('../../components/monitor/RuleEditor.tsx')
+    const pointAlert = read('../../components/stock-analysis/PriceAlertDialog.tsx')
+    expect(ruleEditor).toContain('外部提醒使用「設定 → 監控」的全域通道選擇')
+    expect(ruleEditor).not.toContain('Webhook 推送')
+    expect(ruleEditor).not.toContain('prefs?.webhook_default_channels')
+    expect(pointAlert).toContain('新規則預設只發送站內提醒')
+    expect(pointAlert).not.toContain('prefs.webhook_default_channels')
+    expect(pointAlert).not.toContain('onChange={() => toggleChannel(channel.key)}')
   })
 })
 

@@ -29,7 +29,12 @@ const PAGE_LABELS: Record<string, string> = {
 
 export function SettingsMonitoringPanel(_props: { highlight?: string } = {}) {
   const qc = useQueryClient()
-  const { data: prefs } = usePreferences()
+  const { data: prefs, isLoading: preferencesLoading } = usePreferences()
+  const { data: notificationStatus } = useQuery({
+    queryKey: QK.externalNotificationStatus,
+    queryFn: api.externalNotificationStatus,
+    refetchInterval: 5000,
+  })
   const { data: quoteStatus } = useQuoteStatus()
   const { data: intervalData } = useQuoteInterval()
   const updateInterval = useUpdateQuoteInterval()
@@ -43,8 +48,14 @@ export function SettingsMonitoringPanel(_props: { highlight?: string } = {}) {
   // 滑塊本地草稿: 拖動時即時反饋, 停頓 2s 後落庫 (與行情輪詢滑塊一致)
   const [intradayIntervalDraft, setIntradayIntervalDraft] = useState(intradayInterval)
   const refreshPages = prefs?.sse_refresh_pages ?? {}
-  // 新建監控規則時默認勾選的推送渠道 (全局默認值數組, 單條規則可獨立修改)
-  const webhookDefaultChannels = prefs?.webhook_default_channels ?? []
+  // 只有明確保存的全域通道才顯示為啟用，舊規則預設不代表全域設定。
+  const externalChannels = prefs?.external_notification_channels ?? []
+  const externalStatus = notificationStatus?.external_notification_status ?? {}
+  const deliveryStatusLabel = (channel: 'line' | 'telegram') => ({
+    sent: '上次傳送成功',
+    failed: '上次傳送失敗',
+    not_configured: '已啟用但尚未設定',
+  }[externalStatus[channel] ?? ''] ?? '尚未傳送')
   const isRunning = quoteStatus?.running ?? false
   const isTrading = quoteStatus?.is_trading_hours ?? false
   // 管道/數據修正運行期間實時行情被臨時暫停 — 此時禁止開啟
@@ -96,13 +107,18 @@ export function SettingsMonitoringPanel(_props: { highlight?: string } = {}) {
     qc.invalidateQueries({ queryKey: QK.quoteStatus })
   }, [toggleQuote, qc])
 
-  // 勾選/取消勾選某個預設推播渠道 (LINE / Telegram 各自獨立)
+  const { mutateAsync: updateExternalChannels, isPending: isUpdatingExternalChannels } = useMutation({
+    mutationFn: api.updateExternalNotificationChannels,
+    onSuccess: () => qc.invalidateQueries({ queryKey: QK.preferences }),
+  })
+
+  // 勾選/取消勾選全域外部提醒通道。
   const toggleDefaultChannel = useCallback(async (ch: string, enabled: boolean) => {
-    const cur = prefs?.webhook_default_channels ?? []
+    if (!prefs) return
+    const cur = prefs.external_notification_channels ?? []
     const next = enabled ? [...cur, ch] : cur.filter(c => c !== ch)
-    await api.updateWebhookDefaultChannels(next)
-    qc.invalidateQueries({ queryKey: QK.preferences })
-  }, [qc, prefs])
+    await updateExternalChannels(next)
+  }, [prefs, updateExternalChannels])
 
   const saveLine = useMutation({
     mutationFn: ({ recipient, token, clearToken = false }: { recipient: string; token?: string; clearToken?: boolean }) =>
@@ -110,7 +126,7 @@ export function SettingsMonitoringPanel(_props: { highlight?: string } = {}) {
     onSuccess: () => {
       setLineTokenDraft('')
       toast('LINE Messaging API 設定已儲存', 'success')
-      qc.invalidateQueries({ queryKey: QK.preferences })
+      return qc.invalidateQueries({ queryKey: QK.preferences })
     },
   })
   const saveTelegram = useMutation({
@@ -119,16 +135,23 @@ export function SettingsMonitoringPanel(_props: { highlight?: string } = {}) {
     onSuccess: () => {
       setTelegramTokenDraft('')
       toast('Telegram Bot API 設定已儲存', 'success')
+      return qc.invalidateQueries({ queryKey: QK.preferences })
+    },
+  })
+  const isSavingNotificationCredentials = saveLine.isPending || saveTelegram.isPending
+  const testLine = useMutation({
+    mutationFn: api.testLineMessaging,
+    onSuccess: ({ ok }) => {
+      toast(ok ? 'LINE 測試通知已送出' : 'LINE 測試通知失敗', ok ? 'success' : 'error')
       qc.invalidateQueries({ queryKey: QK.preferences })
     },
   })
-  const testLine = useMutation({
-    mutationFn: api.testLineMessaging,
-    onSuccess: ({ ok }) => toast(ok ? 'LINE 測試通知已送出' : 'LINE 測試通知失敗', ok ? 'success' : 'error'),
-  })
   const testTelegram = useMutation({
     mutationFn: api.testTelegramBot,
-    onSuccess: ({ ok }) => toast(ok ? 'Telegram 測試通知已送出' : 'Telegram 測試通知失敗', ok ? 'success' : 'error'),
+    onSuccess: ({ ok }) => {
+      toast(ok ? 'Telegram 測試通知已送出' : 'Telegram 測試通知失敗', ok ? 'success' : 'error')
+      qc.invalidateQueries({ queryKey: QK.preferences })
+    },
   })
 
   useEffect(() => {
@@ -302,12 +325,26 @@ export function SettingsMonitoringPanel(_props: { highlight?: string } = {}) {
 
       {/* ========== 右列 ========== */}
       <div className="space-y-6">
-        {/* 外部推播渠道；告警落盤與 SSE 流程不依賴這些 API。 */}
-        <Card icon={Webhook} title="推播通知">
+        {/* 外部推播渠道；App 內提醒不依賴外部服務。 */}
+        <Card icon={Webhook} title="外部通知">
           <p className="text-xs text-secondary mb-3">
-            監控規則命中後,可把告警推送到外部。勾選管道作為<b className="text-foreground/80">新建規則的預設推播</b>,
-            單條規則仍可在編輯頁獨立修改。
+            App 內提醒會照常保存。選擇外送通道後，觸發的提醒也會送出；需保持 TWStock 後端執行。
           </p>
+          {prefs?.external_notification_channels == null && (
+            <div className="mb-3 flex flex-wrap items-center gap-2">
+              <p className="text-[10px] text-muted flex-1">
+                尚未儲存全域通道。升級前各規則仍依原通道設定；勾選後會套用至所有提醒。
+              </p>
+              <button
+                type="button"
+                disabled={preferencesLoading || !prefs || isUpdatingExternalChannels || isSavingNotificationCredentials}
+                onClick={() => updateExternalChannels([])}
+                className="shrink-0 rounded-btn border border-border px-2 py-1 text-[10px] text-secondary disabled:opacity-50"
+              >
+                只用 App 內提醒
+              </button>
+            </div>
+          )}
 
           <div className="space-y-2">
             <div className="rounded-btn border border-border/60 bg-base/40 overflow-hidden">
@@ -317,16 +354,17 @@ export function SettingsMonitoringPanel(_props: { highlight?: string } = {}) {
               >
                 <input
                   type="checkbox"
-                  checked={webhookDefaultChannels.includes('line')}
+                  disabled={preferencesLoading || !prefs || isUpdatingExternalChannels || isSavingNotificationCredentials}
+                  checked={externalChannels.includes('line')}
                   onChange={event => { event.stopPropagation(); toggleDefaultChannel('line', event.target.checked) }}
                   onClick={event => event.stopPropagation()}
-                  title="作為新建規則的預設推播管道"
+                  title="全域啟用 LINE 提醒"
                   className="h-3 w-3 accent-accent cursor-pointer"
                 />
                 <span className="text-[11px] font-medium text-foreground">LINE</span>
                 <span className="text-[9px] text-muted">Messaging API</span>
-                {webhookDefaultChannels.includes('line') && (
-                  <span className="rounded bg-accent/15 px-1 py-px text-[9px] text-accent">預設</span>
+                {externalChannels.includes('line') && (
+                  <span className="rounded bg-accent/15 px-1 py-px text-[9px] text-accent">啟用</span>
                 )}
                 <span className={`ml-auto text-[9px] ${lineConfigured ? 'text-emerald-500' : 'text-warning'}`}>
                   {lineConfigured ? '已設定' : '未設定'}
@@ -336,6 +374,7 @@ export function SettingsMonitoringPanel(_props: { highlight?: string } = {}) {
 
               {lineOpen && (
                 <div className="border-t border-border/60 bg-base/30 p-3">
+                  <p className="mb-2 text-[10px] text-secondary">{deliveryStatusLabel('line')}</p>
                   <label className="block space-y-1.5">
                     <span className="text-[11px] text-muted">Target ID（開發者 User ID / 群組 ID，非一般 LINE ID）</span>
                     <input
@@ -362,7 +401,7 @@ export function SettingsMonitoringPanel(_props: { highlight?: string } = {}) {
                         recipient: lineTargetDraft.trim(),
                         token: lineTokenDraft.trim() || undefined,
                       })}
-                      disabled={saveLine.isPending || (lineTargetDraft.trim() === lineTargetId && !lineTokenDraft.trim())}
+                      disabled={isUpdatingExternalChannels || saveLine.isPending || (lineTargetDraft.trim() === lineTargetId && !lineTokenDraft.trim())}
                       className="px-3 py-1.5 rounded-btn bg-accent text-base text-xs font-medium disabled:opacity-50 cursor-pointer hover:bg-accent/90 transition-colors"
                     >
                       {saveLine.isPending ? '儲存中…' : '儲存'}
@@ -377,7 +416,7 @@ export function SettingsMonitoringPanel(_props: { highlight?: string } = {}) {
                     {lineConfigured && (
                       <button
                         onClick={() => saveLine.mutate({ recipient: '', clearToken: true })}
-                        disabled={saveLine.isPending}
+                        disabled={isUpdatingExternalChannels || saveLine.isPending}
                         className="ml-auto px-2 py-1 text-[10px] text-danger disabled:opacity-50"
                       >
                         清除設定
@@ -450,16 +489,17 @@ export function SettingsMonitoringPanel(_props: { highlight?: string } = {}) {
               >
                 <input
                   type="checkbox"
-                  checked={webhookDefaultChannels.includes('telegram')}
+                  disabled={preferencesLoading || !prefs || isUpdatingExternalChannels || isSavingNotificationCredentials}
+                  checked={externalChannels.includes('telegram')}
                   onChange={event => { event.stopPropagation(); toggleDefaultChannel('telegram', event.target.checked) }}
                   onClick={event => event.stopPropagation()}
-                  title="作為新建規則的預設推播管道"
+                  title="全域啟用 Telegram 提醒"
                   className="h-3 w-3 accent-accent cursor-pointer"
                 />
                 <span className="text-[11px] font-medium text-foreground">Telegram</span>
                 <span className="text-[9px] text-muted">Bot API</span>
-                {webhookDefaultChannels.includes('telegram') && (
-                  <span className="rounded bg-accent/15 px-1 py-px text-[9px] text-accent">預設</span>
+                {externalChannels.includes('telegram') && (
+                  <span className="rounded bg-accent/15 px-1 py-px text-[9px] text-accent">啟用</span>
                 )}
                 <span className={`ml-auto text-[9px] ${telegramConfigured ? 'text-emerald-500' : 'text-warning'}`}>
                   {telegramConfigured ? '已設定' : '未設定'}
@@ -469,6 +509,7 @@ export function SettingsMonitoringPanel(_props: { highlight?: string } = {}) {
 
               {telegramOpen && (
                 <div className="border-t border-border/60 bg-base/30 p-3">
+                  <p className="mb-2 text-[10px] text-secondary">{deliveryStatusLabel('telegram')}</p>
                   <label className="block space-y-1.5">
                     <span className="text-[11px] text-muted">Chat ID</span>
                     <input
@@ -495,7 +536,7 @@ export function SettingsMonitoringPanel(_props: { highlight?: string } = {}) {
                         recipient: telegramChatDraft.trim(),
                         token: telegramTokenDraft.trim() || undefined,
                       })}
-                      disabled={saveTelegram.isPending || (telegramChatDraft.trim() === telegramChatId && !telegramTokenDraft.trim())}
+                      disabled={isUpdatingExternalChannels || saveTelegram.isPending || (telegramChatDraft.trim() === telegramChatId && !telegramTokenDraft.trim())}
                       className="px-3 py-1.5 rounded-btn bg-accent text-base text-xs font-medium disabled:opacity-50 cursor-pointer hover:bg-accent/90 transition-colors"
                     >
                       {saveTelegram.isPending ? '儲存中…' : '儲存'}
@@ -510,7 +551,7 @@ export function SettingsMonitoringPanel(_props: { highlight?: string } = {}) {
                     {telegramConfigured && (
                       <button
                         onClick={() => saveTelegram.mutate({ recipient: '', clearToken: true })}
-                        disabled={saveTelegram.isPending}
+                        disabled={isUpdatingExternalChannels || saveTelegram.isPending}
                         className="ml-auto px-2 py-1 text-[10px] text-danger disabled:opacity-50"
                       >
                         清除設定
