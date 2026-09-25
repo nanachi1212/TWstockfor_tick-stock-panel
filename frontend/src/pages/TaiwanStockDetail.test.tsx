@@ -267,6 +267,34 @@ describe('TaiwanStockDetail — AI Research', () => {
     expect(sentContext?.portfolio).not.toHaveProperty('change_pct')
   })
 
+  it('waits for the watchlist mutation and refresh before sending AI context', async () => {
+    vi.mocked(api.watchlistList)
+      .mockResolvedValueOnce({ symbols: [] })
+      .mockResolvedValueOnce({ symbols: [{ symbol: '2330.TWSE', added_at: '2026-09-25T10:00:00+08:00' }] })
+    let finishAdd: (() => void) | undefined
+    vi.mocked(api.watchlistAdd).mockImplementation(() => new Promise(resolve => {
+      finishAdd = () => resolve({ symbols: [] })
+    }))
+    vi.mocked(api.taiwanStockAIResearch).mockResolvedValue({
+      status: 'unavailable', error_message: 'AI 分析目前無法使用。', provider: 'Custom',
+      prompt_version: 'taiwan_stock_research_v1', generated_at: '2026-09-25T10:00:00+08:00', evidence_registry_keys: [],
+    })
+    renderAt(['/stocks/2330.TWSE'], 0)
+    const analyze = await screen.findByRole('button', { name: 'AI 分析' })
+    await waitFor(() => expect(analyze).toBeEnabled())
+
+    fireEvent.click(screen.getByRole('button', { name: '將 2330.TWSE 加入自選' }))
+    await waitFor(() => expect(vi.mocked(api.watchlistAdd)).toHaveBeenCalledTimes(1))
+    expect(analyze).toBeDisabled()
+    finishAdd?.()
+
+    await screen.findByRole('button', { name: '將 2330.TWSE 移出自選' })
+    await waitFor(() => expect(analyze).toBeEnabled())
+    fireEvent.click(analyze)
+    await waitFor(() => expect(vi.mocked(api.taiwanStockAIResearch)).toHaveBeenCalledTimes(1))
+    expect(vi.mocked(api.taiwanStockAIResearch).mock.calls[0][2]?.watchlist).toEqual({ included: true })
+  })
+
   it('consumes the AI navigation request so reload does not automatically re-run analysis', async () => {
     vi.mocked(api.taiwanStockAIResearch).mockResolvedValue({
       status: 'unavailable', error_message: 'AI 分析目前無法使用。', provider: 'Custom',

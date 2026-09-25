@@ -111,9 +111,11 @@ export function TaiwanStockDetail() {
   const toggleWatchlist = useMutation({
     mutationFn: ({ action, groupId }: { action: 'add' | 'remove'; groupId?: string | null }) =>
       action === 'remove' ? api.watchlistRemove(symbol) : api.watchlistAdd(symbol, '', groupId),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: QK.watchlist })
-      qc.invalidateQueries({ queryKey: ['watchlist-enriched'] })
+    onSuccess: async () => {
+      await Promise.all([
+        qc.invalidateQueries({ queryKey: QK.watchlist }),
+        qc.invalidateQueries({ queryKey: ['watchlist-enriched'] }),
+      ])
     },
   })
 
@@ -211,6 +213,7 @@ export function TaiwanStockDetail() {
   }, [inWatchlist, watchlist.isLoading, watchlist.isError, quantSelection.signals, quantSelection.validRun, selectedAlert, symbol, data, portfolioRevision])
 
   const handleGenerateAiReport = useCallback(async () => {
+    if (toggleWatchlist.isPending || watchlist.isFetching) return
     if (alertId && alertLookupError) {
       setAiError('提醒資料讀取失敗，請按重試提醒讀取後再分析。')
       await refetchAlertContext()
@@ -235,11 +238,11 @@ export function TaiwanStockDetail() {
     } finally {
       setIsAiLoading(false)
     }
-  }, [symbol, personalContext, alertId, alertLookupError, refetchAlertContext, selectedAlert])
+  }, [symbol, personalContext, alertId, alertLookupError, refetchAlertContext, selectedAlert, toggleWatchlist.isPending, watchlist.isFetching])
 
   useEffect(() => {
     const requestKey = `${symbol}:${alertId ?? ''}`
-    if (!routeResearch?.aiResearchRequested || autoAnalyzeStartedFor.current === requestKey || !detailQuery.isSuccess || watchlist.isLoading || quantSelection.loading) return
+    if (!routeResearch?.aiResearchRequested || autoAnalyzeStartedFor.current === requestKey || !detailQuery.isSuccess || watchlist.isLoading || watchlist.isFetching || toggleWatchlist.isPending || quantSelection.loading) return
     if (alertId && alertContextQuery.isLoading) return
     if (alertId && alertLookupError) {
       setAiError('提醒資料讀取失敗，請重試提醒讀取後再分析。')
@@ -261,7 +264,7 @@ export function TaiwanStockDetail() {
       return
     }
     void handleGenerateAiReport()
-  }, [routeResearch?.aiResearchRequested, detailQuery.isSuccess, alertId, alertContextQuery.isLoading, alertLookupError, selectedAlert, symbol, handleGenerateAiReport, watchlist.isLoading, quantSelection.loading, location.pathname, location.state, navigate])
+  }, [routeResearch?.aiResearchRequested, detailQuery.isSuccess, alertId, alertContextQuery.isLoading, alertLookupError, selectedAlert, symbol, handleGenerateAiReport, watchlist.isLoading, watchlist.isFetching, toggleWatchlist.isPending, quantSelection.loading, location.pathname, location.state, navigate])
 
   const isLoading = detailQuery.isLoading
   const isError = detailQuery.isError
@@ -1023,10 +1026,10 @@ export function TaiwanStockDetail() {
           <button
             type="button"
             onClick={handleGenerateAiReport}
-            disabled={isAiLoading || watchlist.isLoading || quantSelection.loading || Boolean(alertId && alertContextQuery.isLoading)}
+            disabled={isAiLoading || watchlist.isLoading || watchlist.isFetching || toggleWatchlist.isPending || quantSelection.loading || Boolean(alertId && alertContextQuery.isLoading)}
             className={cn(
               "px-3.5 py-1.5 rounded-lg text-xs font-medium flex items-center justify-center gap-1.5 transition-colors border",
-              isAiLoading || watchlist.isLoading || quantSelection.loading || Boolean(alertId && alertContextQuery.isLoading)
+              isAiLoading || watchlist.isLoading || watchlist.isFetching || toggleWatchlist.isPending || quantSelection.loading || Boolean(alertId && alertContextQuery.isLoading)
                 ? "bg-purple-950/40 border-purple-800/40 text-purple-400 cursor-not-allowed"
                 : "bg-purple-600 hover:bg-purple-500 text-white border-purple-500 shadow-sm"
             )}
