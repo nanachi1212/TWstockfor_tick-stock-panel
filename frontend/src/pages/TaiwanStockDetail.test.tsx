@@ -130,7 +130,7 @@ describe('TaiwanStockDetail — AI Research', () => {
       '2330.TWSE', undefined, expect.objectContaining({ watchlist: { included: false } }),
     )
     fireEvent.click(screen.getByRole('button', { name: '重新分析' }))
-    await waitFor(() => expect(vi.mocked(api.taiwanStockAIResearch)).toHaveBeenCalledTimes(1))
+    await waitFor(() => expect(vi.mocked(api.taiwanStockAIResearch)).toHaveBeenCalledTimes(2))
   })
 
   it('does not call AI merely because the stock detail URL is opened', async () => {
@@ -180,6 +180,10 @@ describe('TaiwanStockDetail — AI Research', () => {
       portfolio: expect.objectContaining({ shares: 10, average_cost: 900 }),
       alert: expect.objectContaining({ alert_id: 'alert-1', trigger_value: 899, message: '價格跌破 900' }),
     }))
+    const sentContext = vi.mocked(api.taiwanStockAIResearch).mock.calls[0][2]
+    expect(sentContext).not.toHaveProperty('quote')
+    expect(sentContext?.portfolio).not.toHaveProperty('current_price')
+    expect(sentContext?.portfolio).not.toHaveProperty('unrealized_pnl')
   })
 
   it('refreshes local holdings after a portfolio trade event before sending AI context', async () => {

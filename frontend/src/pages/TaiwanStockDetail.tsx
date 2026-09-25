@@ -147,17 +147,20 @@ export function TaiwanStockDetail() {
     const context: TaiwanAIResearchPersonalContext = {}
     if (!watchlist.isLoading && !watchlist.isError) context.watchlist = { included: inWatchlist }
     const quote = data?.realtime
-    if (quote) {
+    const verifiedQuote = quote?.meta?.source?.trim() && quote.meta.trade_date && quote.meta.status === 'available' && quote.meta.is_stale === false
+      ? quote
+      : undefined
+    if (verifiedQuote?.meta) {
       context.quote = {
-        ...(typeof quote.last_price === 'number' ? { last_price: quote.last_price } : {}),
-        ...(typeof quote.change === 'number' ? { change: quote.change } : {}),
-        ...(typeof quote.change_pct === 'number' ? { change_pct: quote.change_pct } : {}),
-        ...(quote.quote_time ? { quote_time: quote.quote_time } : {}),
-        ...(quote.market_status ? { market_status: quote.market_status } : {}),
-        ...(quote.meta?.trade_date ? { trade_date: quote.meta.trade_date } : {}),
-        ...(quote.meta?.status ? { status: quote.meta.status } : {}),
-        ...(quote.meta?.source ? { source: quote.meta.source } : {}),
-        ...(typeof quote.meta?.is_stale === 'boolean' ? { is_stale: quote.meta.is_stale } : {}),
+        ...(typeof verifiedQuote.last_price === 'number' ? { last_price: verifiedQuote.last_price } : {}),
+        ...(typeof verifiedQuote.change === 'number' ? { change: verifiedQuote.change } : {}),
+        ...(typeof verifiedQuote.change_pct === 'number' ? { change_pct: verifiedQuote.change_pct } : {}),
+        ...(verifiedQuote.quote_time ? { quote_time: verifiedQuote.quote_time } : {}),
+        ...(verifiedQuote.market_status ? { market_status: verifiedQuote.market_status } : {}),
+        trade_date: verifiedQuote.meta.trade_date!,
+        status: verifiedQuote.meta.status,
+        source: verifiedQuote.meta.source,
+        is_stale: false,
       }
     }
     const signal = quantSelection.signals.find(item => item.symbol === symbol)
@@ -184,7 +187,7 @@ export function TaiwanStockDetail() {
       const raw = storage.portfolioTransactions.get([])
       if (Array.isArray(raw) && raw.every(isPortfolioTransaction)) {
         const position = buildPortfolioPositions(raw as PortfolioTransaction[]).find(item => item.symbol === symbol && item.shares > 0)
-        const currentPrice = data?.realtime?.last_price
+        const currentPrice = verifiedQuote?.last_price
         if (position) {
           const pnl = typeof currentPrice === 'number' ? currentPrice * position.shares - position.costBasis : undefined
           context.portfolio = {
@@ -192,8 +195,8 @@ export function TaiwanStockDetail() {
             average_cost: position.averageCost,
             ...(typeof currentPrice === 'number' ? { current_price: currentPrice } : {}),
             ...(pnl != null ? { unrealized_pnl: pnl, return_pct: position.costBasis ? pnl / position.costBasis * 100 : undefined } : {}),
-            ...(typeof data?.realtime?.change === 'number' ? { change: data.realtime.change } : {}),
-            ...(typeof data?.realtime?.change_pct === 'number' ? { change_pct: data.realtime.change_pct } : {}),
+            ...(typeof verifiedQuote?.change === 'number' ? { change: verifiedQuote.change } : {}),
+            ...(typeof verifiedQuote?.change_pct === 'number' ? { change_pct: verifiedQuote.change_pct } : {}),
           }
         }
       }
@@ -207,17 +210,11 @@ export function TaiwanStockDetail() {
     setIsAiLoading(true)
     setAiError(null)
     try {
-      const queryKey = ['taiwan-stock-ai-research', symbol, personalContext] as const
-      const res = await qc.fetchQuery({
-        queryKey,
-        queryFn: () => api.taiwanStockAIResearch(symbol, undefined, personalContext),
-        staleTime: 10 * 60_000,
-      })
+      const res = await api.taiwanStockAIResearch(symbol, undefined, personalContext)
       setAiProvider(res.provider ?? null)
       if (res.status === 'success' && res.report) {
         setAiReport(res.report)
       } else {
-        await qc.removeQueries({ queryKey })
         setAiError(res.error_message || 'AI 研究報告生成失敗')
       }
     } catch (e: any) {
@@ -225,7 +222,7 @@ export function TaiwanStockDetail() {
     } finally {
       setIsAiLoading(false)
     }
-  }, [qc, symbol, personalContext])
+  }, [symbol, personalContext])
 
   useEffect(() => {
     const requestKey = `${symbol}:${alertId ?? ''}`
