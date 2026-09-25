@@ -509,8 +509,8 @@ function WatchlistQuickGlance({ onStockClick, anomalies }: { onStockClick: (symb
   })
   const quant = useTodayQuantSelection()
   const alerts = useQuery({
-    queryKey: ['dashboard-alerts-today'],
-    queryFn: () => api.alertsList({ days: 1, limit: 100 }),
+    queryKey: QK.alertsToday,
+    queryFn: () => api.alertsList({ days: 1, limit: 5000 }),
     enabled: !watchlist.isLoading,
     staleTime: 30_000,
   })
@@ -677,14 +677,14 @@ export function Dashboard() {
   })
   const latestDailyAsOf = marketDataStatus.data?.daily_as_of ?? null
   const diagnostics = useQuery({
-    queryKey: ['taiwanAbnormalDiagnostics', 'dashboard'],
+    queryKey: ['taiwanAbnormalDiagnostics', latestDailyAsOf, 'dashboard'],
     queryFn: () => api.taiwanAbnormalDiagnostics({ date: latestDailyAsOf ?? undefined }),
     staleTime: 5 * 60 * 1000,
     enabled: !marketDataStatus.isLoading,
   })
   const todayAlerts = useQuery({
-    queryKey: ['dashboard-alerts-today'],
-    queryFn: () => api.alertsList({ days: 1, limit: 100 }),
+    queryKey: QK.alertsToday,
+    queryFn: () => api.alertsList({ days: 1, limit: 5000 }),
     staleTime: 30_000,
   })
 

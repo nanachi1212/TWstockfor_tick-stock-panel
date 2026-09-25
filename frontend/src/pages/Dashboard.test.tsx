@@ -6,7 +6,7 @@
 // 涵蓋：市場強弱摘要、產業強弱 top/bottom、自選股快覽 (empty/populated)、
 // 市場或產業查詢失敗時 Dashboard 仍可渲染不白屏。
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { MemoryRouter, useLocation } from 'react-router-dom'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { Dashboard } from './Dashboard'
@@ -129,18 +129,18 @@ vi.mock('@/components/StockPreviewDialog', () => ({
   StockPreviewDialog: ({ symbol }: { symbol: string | null }) => <output data-testid="preview-symbol">{symbol}</output>,
 }))
 
-function renderDashboard() {
-  const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+function renderDashboard(qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })) {
   function CurrentPath() {
     return <output data-testid="current-path">{useLocation().pathname}</output>
   }
-  return render(
+  const result = render(
     <QueryClientProvider client={qc}>
       <MemoryRouter>
         <><CurrentPath /><Dashboard /></>
       </MemoryRouter>
     </QueryClientProvider>,
   )
+  return { qc, ...result }
 }
 
 afterEach(() => {
@@ -267,6 +267,30 @@ describe('Dashboard — Market Clarity (Phase 8C-B)', () => {
 })
 
 describe('Dashboard — stock reminders', () => {
+  it('uses the full retained daily alert set under the existing invalidation prefix', async () => {
+    const { qc } = renderDashboard()
+    const alertCalls = () => vi.mocked(api.alertsList).mock.calls.filter(([args]) => args?.days === 1 && args.limit === 5000)
+
+    await waitFor(() => expect(alertCalls()).toHaveLength(1))
+    await act(async () => {
+      await qc.invalidateQueries({ queryKey: ['alerts'] })
+    })
+    await waitFor(() => expect(alertCalls()).toHaveLength(2))
+  })
+
+  it('keys anomaly diagnostics by the latest available daily date', async () => {
+    vi.mocked(api.taiwanDataStatus)
+      .mockResolvedValueOnce({ daily_as_of: '2026-09-04' } as any)
+      .mockResolvedValueOnce({ daily_as_of: '2026-09-05' } as any)
+    const { qc } = renderDashboard()
+
+    await waitFor(() => expect(api.taiwanAbnormalDiagnostics).toHaveBeenCalledWith({ date: '2026-09-04' }))
+    await act(async () => {
+      await qc.invalidateQueries({ queryKey: ['taiwan-data-status'] })
+    })
+    await waitFor(() => expect(api.taiwanAbnormalDiagnostics).toHaveBeenCalledWith({ date: '2026-09-05' }))
+  })
+
   it('keeps mark-all-read available when older alerts are outside the latest page', async () => {
     vi.mocked(api.alertsList).mockResolvedValue({ alerts: Array.from({ length: 10 }, (_, index) => ({
       ts: Date.now() - index, alert_id: `read-${index}`, is_read: true,

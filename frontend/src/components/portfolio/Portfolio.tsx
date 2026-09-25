@@ -328,8 +328,8 @@ export function PortfolioPanel({ symbol, name, quote: detailQuote, change: detai
   const quantBySymbol = new Map(quant.signals.map(signal => [signal.symbol, signal]))
   const symbols = positions.map(position => position.symbol)
   const portfolioAlerts = useQuery({
-    queryKey: ['dashboard-alerts-today'],
-    queryFn: () => api.alertsList({ days: 1, limit: 100 }),
+    queryKey: QK.alertsToday,
+    queryFn: () => api.alertsList({ days: 1, limit: 5000 }),
     enabled: !symbol && symbols.length > 0,
     staleTime: 30_000,
   })
