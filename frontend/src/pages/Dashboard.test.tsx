@@ -341,6 +341,13 @@ describe('Dashboard — stock reminders', () => {
     expect(screen.getByRole('link', { name: '還有 7 則 Quant 提醒 · 查看監控中心' })).toHaveAttribute('href', '/monitor')
   })
 
+  it('shows an unavailable state when the Quant reminder query fails', async () => {
+    vi.mocked(api.alertsList).mockRejectedValue(new Error('alerts unavailable'))
+    renderDashboard()
+
+    expect(await screen.findByText('今日 Quant 提醒目前無法讀取。')).toBeInTheDocument()
+  })
+
   it('keys anomaly diagnostics by the latest available daily date', async () => {
     vi.mocked(api.taiwanDataStatus)
       .mockResolvedValueOnce({ daily_as_of: '2026-09-04' } as any)
@@ -531,5 +538,17 @@ describe('Dashboard — Market data honesty (DAILY_USE_CORE_UX_FIXES P1-1)', () 
 
     expect(await screen.findByText(/異常雷達資料 stale/)).toBeInTheDocument()
     expect(screen.queryByText('單日大漲/跌')).not.toBeInTheDocument()
+  })
+
+  it('does not claim no anomalies when some diagnostic datasets are unavailable', async () => {
+    const diagnostics = buildDiagnostics([])
+    diagnostics.data_quality.overall_status = 'partial'
+    diagnostics.data_quality.institutional_status = 'unavailable'
+    diagnostics.data_quality.margin_status = 'unavailable'
+    vi.mocked(api.taiwanAbnormalDiagnostics).mockResolvedValue(diagnostics as any)
+    renderDashboard()
+
+    expect(await screen.findByText('診斷資料不完整，部分異常規則無法判定。')).toBeInTheDocument()
+    expect(screen.queryByText('最近交易日沒有觸發異常規則。')).not.toBeInTheDocument()
   })
 })

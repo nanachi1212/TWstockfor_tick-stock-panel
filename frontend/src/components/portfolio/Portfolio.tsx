@@ -348,6 +348,7 @@ export function PortfolioPanel({ symbol, name, quote: detailQuote, change: detai
   const quoteFor = (position: typeof positions[number]): TaiwanRealtimeQuote | undefined => quotes.get(position.symbol)
   const hasMissingQuote = quoteFetchFailed || shownPositions.some(position => (symbol ? detailQuote : quoteFor(position)?.last_price) == null)
   const hasMissingDailyChange = positions.some(position => quotes.get(position.symbol)?.change == null)
+  const hasStaleDailyChange = positions.some(position => quotes.get(position.symbol)?.source_meta?.is_stale === true)
   const hasDegradedQuote = shownPositions.some(position => {
     const meta = symbol ? quoteMeta : quoteFor(position)?.source_meta
     const freshnessMeta = quoteFetchFailed && meta ? { ...meta, is_stale: true, status: 'stale' } : meta
@@ -382,7 +383,7 @@ export function PortfolioPanel({ symbol, name, quote: detailQuote, change: detai
           <Summary label={hasDegradedQuote ? '未實現損益（含非即時報價）' : '未實現損益'} value={hasMissingQuote ? unavailableQuoteValue : money(totalUnrealized)} tone={hasMissingQuote ? null : totalUnrealized} />
           <Summary label={hasDegradedQuote ? '未實現報酬率（含非即時報價）' : '未實現報酬率'} value={hasMissingQuote || totalCost === 0 ? (hasMissingQuote ? unavailableQuoteValue : '—') : signedPct(totalUnrealized / totalCost * 100)} tone={hasMissingQuote ? null : totalUnrealized} />
           <Summary label={hasDegradedQuote ? '今日持股變化（含非即時報價）' : '今日持股變化'} value={hasMissingQuote ? unavailableQuoteValue : hasMissingDailyChange ? '報價不完整' : money(totalDailyChange)} tone={hasMissingQuote || hasMissingDailyChange ? null : totalDailyChange} />
-          <Summary label="今日上漲 / 下跌" value={hasDegradedQuote || hasMissingDailyChange ? '資料不完整' : `${dailyUpCount} / ${dailyDownCount} 檔`} />
+          <Summary label="今日上漲 / 下跌" value={quoteFetchFailed || hasMissingDailyChange || hasStaleDailyChange ? '資料不完整' : `${dailyUpCount} / ${dailyDownCount} 檔`} />
           <Summary label="Quant Top 10 持股" value={quant.loading ? '—' : quant.error || !quant.validRun ? 'unavailable' : `${quantTopCount} 檔`} />
           <Summary label="今日持股提醒" value={portfolioAlerts.isLoading ? '—' : portfolioAlerts.isError ? 'unavailable' : `${portfolioAlertsToday} 則`} />
         </div>
