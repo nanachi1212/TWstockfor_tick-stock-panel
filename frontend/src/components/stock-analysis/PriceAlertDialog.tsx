@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { ArrowDown, ArrowUp, Bell, Check, ExternalLink, Loader2, Trash2, X } from 'lucide-react'
@@ -12,7 +12,6 @@ import {
   type PriceAlertDirection,
 } from '@/lib/price-alerts'
 import { QK } from '@/lib/queryKeys'
-import { usePreferences } from '@/lib/useSharedQueries'
 import { useDialogBackdrop } from '@/lib/useDialogBackdrop'
 
 interface Props {
@@ -43,7 +42,6 @@ export function PriceAlertDialog({
 }: Props) {
   const qc = useQueryClient()
   const backdrop = useDialogBackdrop(onClose)
-  const { data: prefs } = usePreferences()
   const levelsQuery = useQuery({
     queryKey: QK.stockLevels(symbol),
     queryFn: () => api.stockAnalysisLevels(symbol, 250),
@@ -65,9 +63,7 @@ export function PriceAlertDialog({
     ? ''
     : buildPriceAlertMessage(name, symbol, initialDirection, initialTargetValue))
   const [messageEdited, setMessageEdited] = useState(false)
-  const [channels, setChannels] = useState<string[]>([])
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null)
-  const channelsInitialized = useRef(false)
 
   const currentPrice = initialCurrentPrice != null && Number.isFinite(initialCurrentPrice) && initialCurrentPrice > 0
     ? initialCurrentPrice
@@ -99,15 +95,6 @@ export function PriceAlertDialog({
     setDirection(initial.value > currentPrice ? 'up' : 'down')
     setSelectedLabel(initial.label)
   }, [currentPrice, recommended, target])
-
-  useEffect(() => {
-    if (channelsInitialized.current || !prefs) return
-    channelsInitialized.current = true
-    const configured = new Set<string>()
-    if (prefs.line_configured) configured.add('line')
-    if (prefs.telegram_configured) configured.add('telegram')
-    setChannels((prefs.webhook_default_channels ?? []).filter(channel => configured.has(channel)))
-  }, [prefs])
 
   useEffect(() => {
     const closeOnEscape = (event: KeyboardEvent) => {
@@ -154,7 +141,7 @@ export function PriceAlertDialog({
       cooldown_seconds: cooldown,
       severity: 'warn',
       message: message.trim(),
-      webhook_channels: channels,
+      webhook_channels: [],
     }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: QK.monitorRules })
@@ -317,7 +304,7 @@ export function PriceAlertDialog({
 
             <div className="mt-4">
               <p className="text-[11px] text-secondary">
-                站內提醒固定保留；LINE 與 Telegram 依全域通道設定發送。
+                站內提醒固定保留；新規則預設只發送站內提醒，外部通道依全域設定選擇。
                 <Link to="/settings?tab=monitoring" className="ml-1 text-sky-400 hover:text-sky-300">前往外部通知設定 →</Link>
               </p>
             </div>

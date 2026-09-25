@@ -56,9 +56,11 @@ describe('notification channel settings', () => {
   it('keeps external delivery under global settings instead of per-rule checkboxes', () => {
     const ruleEditor = read('../../components/monitor/RuleEditor.tsx')
     const pointAlert = read('../../components/stock-analysis/PriceAlertDialog.tsx')
-    expect(ruleEditor).toContain('使用全域通道選擇')
+    expect(ruleEditor).toContain('外部提醒使用「設定 → 監控」的全域通道選擇')
     expect(ruleEditor).not.toContain('Webhook 推送')
-    expect(pointAlert).toContain('依全域通道設定發送')
+    expect(ruleEditor).not.toContain('prefs?.webhook_default_channels')
+    expect(pointAlert).toContain('新規則預設只發送站內提醒')
+    expect(pointAlert).not.toContain('prefs.webhook_default_channels')
     expect(pointAlert).not.toContain('onChange={() => toggleChannel(channel.key)}')
   })
 })

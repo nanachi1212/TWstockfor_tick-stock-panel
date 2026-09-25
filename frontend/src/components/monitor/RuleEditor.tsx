@@ -9,7 +9,6 @@ import { boardTag } from '@/components/stock-table/primitives'
 import { resolveWatchlistGroupColor } from '@/lib/watchlist-group-colors'
 import { SignalPicker } from '@/components/screener/SignalPicker'
 import { MONITOR_INTRADAY_SIGNAL_OPTIONS, SIGNAL_OPTIONS, cnSignal } from '@/lib/signals'
-import { usePreferences } from '@/lib/useSharedQueries'
 
 interface Props {
   /** 編輯現有規則;null=新建 */
@@ -77,7 +76,6 @@ const emptyRule = (preset?: Partial<MonitorRule>): MonitorRule => ({
 export function RuleEditor({ rule, preset, simple, onClose, onSaved }: Props) {
   const qc = useQueryClient()
   const options = useQuery({ queryKey: QK.monitorRuleOptions, queryFn: api.monitorRuleOptions })
-  const { data: prefs } = usePreferences()
   const [editing] = useState(!!rule)
   // Keep legacy rule destinations readable until a global destination is saved.
   const [draft, setDraft] = useState<MonitorRule>(() => {
@@ -93,7 +91,7 @@ export function RuleEditor({ rule, preset, simple, onClose, onSaved }: Props) {
     }
     const initial = {
       ...emptyRule(preset),
-      webhook_channels: preset?.webhook_channels ?? (prefs?.webhook_default_channels ?? []),
+      webhook_channels: preset?.webhook_channels ?? [],
     }
     if (initial.type === 'strategy' && !initial.notify_events) {
       initial.notify_events = [...DEFAULT_STRATEGY_NOTIFY_EVENTS]
@@ -1250,7 +1248,7 @@ export function RuleEditor({ rule, preset, simple, onClose, onSaved }: Props) {
       {/* 外部提醒由全域設定控制，逐規則 channel 僅保留舊資料相容讀取。 */}
       <div className="rounded-btn border border-border/40 bg-base/40 p-3">
         <p className="text-[11px] text-secondary">
-          LINE 與 Telegram 外部提醒使用全域通道選擇，這裡建立的規則會沿用「設定 → 監控」選擇。
+          外部提醒使用「設定 → 監控」的全域通道選擇；未設定全域通道時，新規則預設只發送 App 內提醒。
           <Link to="/settings?tab=monitoring" className="ml-1 text-accent hover:text-accent/80">前往外部通知設定 →</Link>
         </p>
       </div>
