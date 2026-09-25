@@ -187,6 +187,29 @@ describe('TaiwanStockDetail — AI Research', () => {
     expect(sentContext?.portfolio).not.toHaveProperty('change_pct')
   })
 
+  it('keeps an alert analysis request retryable when the alert lookup fails', async () => {
+    vi.mocked(api.alertsList)
+      .mockRejectedValueOnce(new Error('temporary alert lookup failure'))
+      .mockResolvedValueOnce({ alerts: [{
+        ts: 1, alert_id: 'alert-retry', source: 'twse:mis', type: 'price_below', symbol: '2330.TWSE', name: '台積電',
+        message: '價格跌破 900', price: 899, trigger_value: 899, threshold: 900, severity: 'warning',
+      }], total: 1 })
+    vi.mocked(api.taiwanStockAIResearch).mockResolvedValue({
+      status: 'unavailable', error_message: 'AI 分析目前無法使用。', provider: 'Custom',
+      prompt_version: 'taiwan_stock_research_v1', generated_at: '2026-09-25T10:00:00+08:00', evidence_registry_keys: [],
+    })
+    renderAt([{ pathname: '/stocks/2330.TWSE', state: { aiResearchRequested: true, alertId: 'alert-retry' } }], 0)
+
+    expect(await screen.findByText(/提醒資料讀取失敗/)).toBeInTheDocument()
+    expect(screen.getByTestId('location-state')).toHaveTextContent('aiResearchRequested')
+    fireEvent.click(screen.getByRole('button', { name: '重試提醒讀取' }))
+
+    await waitFor(() => expect(vi.mocked(api.taiwanStockAIResearch)).toHaveBeenCalledTimes(1))
+    expect(vi.mocked(api.taiwanStockAIResearch).mock.calls[0][2]?.alert).toEqual(expect.objectContaining({
+      alert_id: 'alert-retry', trigger_value: 899,
+    }))
+  })
+
   it('refreshes local holdings after a portfolio trade event before sending AI context', async () => {
     vi.mocked(api.taiwanStockAIResearch).mockResolvedValue({
       status: 'unavailable', error_message: 'AI 分析目前無法使用。', provider: 'Custom',

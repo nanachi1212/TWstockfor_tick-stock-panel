@@ -103,6 +103,8 @@ export function TaiwanStockDetail() {
     enabled: Boolean(alertId),
     staleTime: 15_000,
   })
+  const alertLookupError = alertContextQuery.isError
+  const refetchAlertContext = alertContextQuery.refetch
   const selectedAlert = alertId
     ? alertContextQuery.data?.alerts.find(item => item.alert_id === alertId && item.symbol?.toUpperCase() === symbol)
     : undefined
@@ -209,6 +211,15 @@ export function TaiwanStockDetail() {
   }, [inWatchlist, watchlist.isLoading, watchlist.isError, quantSelection.signals, quantSelection.validRun, selectedAlert, symbol, data, portfolioRevision])
 
   const handleGenerateAiReport = useCallback(async () => {
+    if (alertId && alertLookupError) {
+      setAiError('提醒資料讀取失敗，請按重試提醒讀取後再分析。')
+      await refetchAlertContext()
+      return
+    }
+    if (alertId && !selectedAlert) {
+      setAiError('找不到這筆提醒事件，股票資料仍可正常查看。')
+      return
+    }
     setIsAiLoading(true)
     setAiError(null)
     try {
@@ -224,12 +235,16 @@ export function TaiwanStockDetail() {
     } finally {
       setIsAiLoading(false)
     }
-  }, [symbol, personalContext])
+  }, [symbol, personalContext, alertId, alertLookupError, refetchAlertContext, selectedAlert])
 
   useEffect(() => {
     const requestKey = `${symbol}:${alertId ?? ''}`
     if (!routeResearch?.aiResearchRequested || autoAnalyzeStartedFor.current === requestKey || !detailQuery.isSuccess || watchlist.isLoading || quantSelection.loading) return
     if (alertId && alertContextQuery.isLoading) return
+    if (alertId && alertLookupError) {
+      setAiError('提醒資料讀取失敗，請重試提醒讀取後再分析。')
+      return
+    }
     autoAnalyzeStartedFor.current = requestKey
     if (routeResearch?.aiResearchRequested) {
       const nextState = location.state && typeof location.state === 'object'
@@ -246,7 +261,7 @@ export function TaiwanStockDetail() {
       return
     }
     void handleGenerateAiReport()
-  }, [routeResearch?.aiResearchRequested, detailQuery.isSuccess, alertId, alertContextQuery.isLoading, selectedAlert, symbol, handleGenerateAiReport, watchlist.isLoading, quantSelection.loading, location.pathname, location.state, navigate])
+  }, [routeResearch?.aiResearchRequested, detailQuery.isSuccess, alertId, alertContextQuery.isLoading, alertLookupError, selectedAlert, symbol, handleGenerateAiReport, watchlist.isLoading, quantSelection.loading, location.pathname, location.state, navigate])
 
   const isLoading = detailQuery.isLoading
   const isError = detailQuery.isError
@@ -1024,7 +1039,7 @@ export function TaiwanStockDetail() {
             ) : (
               <>
                 <Sparkles className="w-3.5 h-3.5" />
-                {aiReport ? '重新分析' : 'AI 分析'}
+                {alertId && alertContextQuery.isError ? '重試提醒讀取' : aiReport ? '重新分析' : 'AI 分析'}
               </>
             )}
           </button>

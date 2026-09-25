@@ -104,12 +104,36 @@ async def test_ai_report_cache_hits_for_same_context_and_misses_when_context_cha
             target_date=date(2026, 8, 28),
             personal_context={"portfolio": {"shares": 100, "average_cost": 450, "current_price": 480}},
         )
+        with patch("app.taiwan.ai_research.current_openai_reasoning_effort", return_value="low"):
+            lower_effort = await svc.generate_report(
+                "2330.TWSE", target_date=date(2026, 8, 28), personal_context=personal_context,
+            )
+        with patch("app.taiwan.ai_research.current_openai_reasoning_effort", return_value="high"):
+            higher_effort = await svc.generate_report(
+                "2330.TWSE", target_date=date(2026, 8, 28), personal_context=personal_context,
+            )
+        api_key = ["key-one"]
+
+        def current_config_value(name: str, fallback: object) -> object:
+            return api_key[0] if name == "ai_api_key" else fallback
+
+        with patch("app.taiwan.ai_research.secrets_store.get_ai_config", side_effect=current_config_value):
+            first_credential = await svc.generate_report(
+                "2330.TWSE", target_date=date(2026, 8, 28), personal_context=personal_context,
+            )
+            api_key[0] = "key-two"
+            second_credential = await svc.generate_report(
+                "2330.TWSE", target_date=date(2026, 8, 28), personal_context=personal_context,
+            )
     assert first.status == cached.status == changed.status == "success"
+    assert lower_effort.status == higher_effort.status == "success"
+    assert first_credential.status == second_credential.status == "success"
     assert first.report.watch_next == [ObservationItem(text="有引用的觀察點", evidence_refs=["price_context.close"])]
-    assert mock_ai.call_count == 2
+    assert mock_ai.call_count == 5
     first_prompt = mock_ai.call_args_list[0].args[0][1]["content"]
     assert '"shares": 100.0' in first_prompt
     assert '"current_price": 470.0' in first_prompt
+    assert all("key-one" not in call.args[0][1]["content"] and "key-two" not in call.args[0][1]["content"] for call in mock_ai.call_args_list)
 
 
 @pytest.mark.asyncio

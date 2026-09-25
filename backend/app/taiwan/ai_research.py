@@ -30,9 +30,16 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
+from app import secrets_store
+from app.config import settings
 from app.services.ai_provider import (
+    current_ai_context_window,
+    current_ai_max_output_tokens,
     current_ai_model,
     current_ai_provider,
+    current_codex_command,
+    current_codex_reasoning_effort,
+    current_openai_reasoning_effort,
     generate_ai_text,
 )
 from app.strategy.custom_signals_ai import _extract_json_object
@@ -516,6 +523,16 @@ class TaiwanAIResearchService:
             "prompt_version": PROMPT_VERSION,
             "provider": current_ai_provider(),
             "model": current_ai_model(),
+            "base_url": secrets_store.get_ai_config("ai_base_url", settings.ai_base_url),
+            # Only the one-way digest enters this local cache key; the raw credential never enters the model prompt.
+            "credential_fingerprint": hashlib.sha256(
+                str(secrets_store.get_ai_config("ai_api_key", settings.ai_api_key)).encode("utf-8")
+            ).hexdigest(),
+            "reasoning_effort": current_openai_reasoning_effort(),
+            "codex_command": current_codex_command(),
+            "codex_reasoning_effort": current_codex_reasoning_effort(),
+            "max_output_tokens": current_ai_max_output_tokens(),
+            "context_window": current_ai_context_window(),
             "evidence": evidence_payload,
         }, ensure_ascii=False, sort_keys=True, default=str)
         cache_key = hashlib.sha256(cache_material.encode("utf-8")).hexdigest()
