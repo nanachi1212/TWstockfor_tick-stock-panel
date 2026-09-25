@@ -22,7 +22,8 @@ describe('notification channel settings', () => {
   it('disables both global channel controls while a preference update is pending', () => {
     const code = read('Monitoring.tsx')
     expect(code).toContain('isPending: isUpdatingExternalChannels')
-    expect(code.match(/disabled=\{isUpdatingExternalChannels \|\| isSavingNotificationCredentials\}/gu)).toHaveLength(2)
+    expect(code).toContain('isLoading: preferencesLoading')
+    expect(code.match(/disabled=\{preferencesLoading \|\| !prefs \|\| isUpdatingExternalChannels \|\| isSavingNotificationCredentials\}/gu)).toHaveLength(3)
     expect(code).toContain('disabled={isUpdatingExternalChannels || saveLine.isPending')
     expect(code).toContain('disabled={isUpdatingExternalChannels || saveTelegram.isPending')
   })
@@ -32,6 +33,8 @@ describe('notification channel settings', () => {
     expect(code).toContain('prefs?.external_notification_channels ?? []')
     expect(code).not.toContain('prefs?.external_notification_channels ?? prefs?.webhook_default_channels')
     expect(code).toContain('尚未儲存全域通道')
+    expect(code).toContain('只用 App 內提醒')
+    expect(code).toContain('onClick={() => updateExternalChannels([])}')
   })
 
   it('refreshes delivery status independently of editable preferences', () => {

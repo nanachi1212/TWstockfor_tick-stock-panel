@@ -29,7 +29,7 @@ const PAGE_LABELS: Record<string, string> = {
 
 export function SettingsMonitoringPanel(_props: { highlight?: string } = {}) {
   const qc = useQueryClient()
-  const { data: prefs } = usePreferences()
+  const { data: prefs, isLoading: preferencesLoading } = usePreferences()
   const { data: notificationStatus } = useQuery({
     queryKey: QK.externalNotificationStatus,
     queryFn: api.externalNotificationStatus,
@@ -114,7 +114,8 @@ export function SettingsMonitoringPanel(_props: { highlight?: string } = {}) {
 
   // 勾選/取消勾選全域外部提醒通道。
   const toggleDefaultChannel = useCallback(async (ch: string, enabled: boolean) => {
-    const cur = prefs?.external_notification_channels ?? []
+    if (!prefs) return
+    const cur = prefs.external_notification_channels ?? []
     const next = enabled ? [...cur, ch] : cur.filter(c => c !== ch)
     await updateExternalChannels(next)
   }, [prefs, updateExternalChannels])
@@ -330,9 +331,19 @@ export function SettingsMonitoringPanel(_props: { highlight?: string } = {}) {
             App 內提醒會照常保存。選擇外送通道後，觸發的提醒也會送出；需保持 TWStock 後端執行。
           </p>
           {prefs?.external_notification_channels == null && (
-            <p className="text-[10px] text-muted mb-3">
-              尚未儲存全域通道。升級前各規則仍依原通道設定；在此勾選並儲存後，全域選擇會套用至所有提醒。
-            </p>
+            <div className="mb-3 flex flex-wrap items-center gap-2">
+              <p className="text-[10px] text-muted flex-1">
+                尚未儲存全域通道。升級前各規則仍依原通道設定；勾選後會套用至所有提醒。
+              </p>
+              <button
+                type="button"
+                disabled={preferencesLoading || !prefs || isUpdatingExternalChannels || isSavingNotificationCredentials}
+                onClick={() => updateExternalChannels([])}
+                className="shrink-0 rounded-btn border border-border px-2 py-1 text-[10px] text-secondary disabled:opacity-50"
+              >
+                只用 App 內提醒
+              </button>
+            </div>
           )}
 
           <div className="space-y-2">
@@ -343,7 +354,7 @@ export function SettingsMonitoringPanel(_props: { highlight?: string } = {}) {
               >
                 <input
                   type="checkbox"
-                  disabled={isUpdatingExternalChannels || isSavingNotificationCredentials}
+                  disabled={preferencesLoading || !prefs || isUpdatingExternalChannels || isSavingNotificationCredentials}
                   checked={externalChannels.includes('line')}
                   onChange={event => { event.stopPropagation(); toggleDefaultChannel('line', event.target.checked) }}
                   onClick={event => event.stopPropagation()}
@@ -478,7 +489,7 @@ export function SettingsMonitoringPanel(_props: { highlight?: string } = {}) {
               >
                 <input
                   type="checkbox"
-                  disabled={isUpdatingExternalChannels || isSavingNotificationCredentials}
+                  disabled={preferencesLoading || !prefs || isUpdatingExternalChannels || isSavingNotificationCredentials}
                   checked={externalChannels.includes('telegram')}
                   onChange={event => { event.stopPropagation(); toggleDefaultChannel('telegram', event.target.checked) }}
                   onClick={event => event.stopPropagation()}
