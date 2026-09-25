@@ -25,7 +25,7 @@ import multiprocessing
 import os
 import shutil
 import time
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from concurrent.futures import ProcessPoolExecutor
 from datetime import date
 from pathlib import Path
@@ -43,6 +43,7 @@ from app.taiwan.quant.primary_oos_runner import (
     PrimaryOosPreflight,
     _action_snapshot,
     _primary_universe,
+    read_primary_oos_preflight,
     usable_price_bar,
 )
 from app.taiwan.quant.storage import FactorPanelStore
@@ -142,6 +143,7 @@ def build_primary_factor_panel(
     worker: TaiwanHistoricalBackfillWorker | None = None,
     workers: int = 6,
     batch_size: int = 20,
+    preflight_reader: Callable[[], PrimaryOosPreflight] = read_primary_oos_preflight,
 ) -> dict[str, int]:
     """Build and publish the panel once the shared Primary gate is ready.
 
@@ -156,7 +158,7 @@ def build_primary_factor_panel(
     workspace_lock = WorkerLock(store.root.parent / "primary_panel_build.lock")
     workspace_lock.acquire()
     try:
-        return _build_guarded(worker, store, events, workers, batch_size)
+        return _build_guarded(worker, store, events, workers, batch_size, preflight_reader)
     finally:
         workspace_lock.release()
 
@@ -164,24 +166,34 @@ def build_primary_factor_panel(
 def _build_guarded(
     worker: TaiwanHistoricalBackfillWorker, store: FactorPanelStore,
     events: tuple[CorporateActionEvent, ...] | None, workers: int, batch_size: int,
+    preflight_reader: Callable[[], PrimaryOosPreflight],
 ) -> dict[str, int]:
     # Snapshot under the lock, compute without it (hours), then revalidate the same
     # snapshot under the lock right before publishing: a store that changed in
     # between makes the build fail instead of publishing a mixed generation.
     worker.lock.acquire()
     try:
+        _require_ready(preflight_reader)
         snapshot = _snapshot(worker, events)
     finally:
         worker.lock.release()
     _compute_batches(snapshot, store, workers, batch_size)
     worker.lock.acquire()
     try:
+        _require_ready(preflight_reader)
         if _snapshot(worker, snapshot["events"])["identity_inputs"] != snapshot["identity_inputs"]:
             raise PrimaryOosInputError(
                 "census or classification changed while the panel was computed; nothing was published")
         return _publish(snapshot, store)
     finally:
         worker.lock.release()
+
+
+def _require_ready(preflight_reader: Callable[[], PrimaryOosPreflight]) -> None:
+    """The gate is re-read from the stores under the lock, never trusted from a stale object."""
+    fresh = preflight_reader()
+    if fresh.readiness.status.value != "ready":
+        raise PrimaryOosNotReadyError(fresh.readiness)
 
 
 def _snapshot(

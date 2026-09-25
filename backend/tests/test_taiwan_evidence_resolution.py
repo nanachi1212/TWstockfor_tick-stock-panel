@@ -386,7 +386,8 @@ def test_factor_panel_entry_publishes_existing_calculation_for_verified_stocks_o
         data_dir=tmp_path, census_store=census, classification_store=classifications)
     store = FactorPanelStore(tmp_path / "factors")
 
-    built = build_primary_factor_panel(_preflight(), events=(), store=store, worker=worker, workers=1)
+    built = build_primary_factor_panel(_preflight(), events=(), store=store, worker=worker, workers=1,
+                               preflight_reader=_preflight)
 
     assert built == {"symbols": 1, "sessions": 70, "rows": 70}
     stored = store.read_all(factor_version=PRIMARY_OOS_SPEC.factor_version,
@@ -480,7 +481,8 @@ def test_priceless_official_row_is_not_evaluable_and_does_not_poison_later_windo
     worker = TaiwanHistoricalBackfillWorker(
         data_dir=tmp_path, census_store=census, classification_store=classifications)
     store = FactorPanelStore(tmp_path / "factors")
-    built = build_primary_factor_panel(_preflight(), events=(), store=store, worker=worker, workers=1)
+    built = build_primary_factor_panel(_preflight(), events=(), store=store, worker=worker, workers=1,
+                               preflight_reader=_preflight)
     assert built["rows"] == 69
     panel = store.read_all(factor_version=PRIMARY_OOS_SPEC.factor_version,
                            policy_version=PRIMARY_OOS_SPEC.policy_version,
@@ -599,7 +601,7 @@ def test_panel_is_not_published_when_any_adjustment_is_unverified(tmp_path: Path
                     reason="detail reference mismatch")
     with pytest.raises(PrimaryOosInputError):
         build_primary_factor_panel(_preflight(), events=(broken,), store=store,
-                                   worker=worker, workers=1)
+                                   worker=worker, workers=1, preflight_reader=_preflight)
     assert not any((tmp_path / "factors").rglob("values.parquet"))
 
 
@@ -658,7 +660,8 @@ def test_unresolved_symbol_never_enters_the_primary_universe_or_panel(tmp_path: 
     worker = TaiwanHistoricalBackfillWorker(
         data_dir=tmp_path, census_store=census, classification_store=classifications)
     store = FactorPanelStore(tmp_path / "factors")
-    build_primary_factor_panel(_preflight(), events=(), store=store, worker=worker, workers=1)
+    build_primary_factor_panel(_preflight(), events=(), store=store, worker=worker, workers=1,
+                               preflight_reader=_preflight)
     panel = store.read_all(factor_version=PRIMARY_OOS_SPEC.factor_version,
                            policy_version=PRIMARY_OOS_SPEC.policy_version,
                            universe_tier=PRIMARY_VERIFIED)
@@ -792,7 +795,8 @@ def test_panel_refuses_an_unresolved_empty_session_inside_its_span(tmp_path: Pat
         data_dir=tmp_path, census_store=census, classification_store=classifications)
     store = FactorPanelStore(tmp_path / "factors")
     with pytest.raises(PrimaryOosInputError, match="unresolved empty sessions"):
-        build_primary_factor_panel(_preflight(), events=(), store=store, worker=worker, workers=1)
+        build_primary_factor_panel(_preflight(), events=(), store=store, worker=worker, workers=1,
+                               preflight_reader=_preflight)
     assert not any((tmp_path / "factors").rglob("values.parquet"))
 
 
@@ -863,7 +867,8 @@ def test_panel_build_fails_if_the_stores_change_while_it_computes(
     store = FactorPanelStore(tmp_path / "factors")
     with pytest.raises(PrimaryOosInputError, match="changed while the panel was computed"):
         primary_panel.build_primary_factor_panel(_preflight(), events=(), store=store,
-                                                 worker=worker, workers=1)
+                                                 worker=worker, workers=1,
+                                                 preflight_reader=_preflight)
     assert not worker.lock.path.exists() if hasattr(worker.lock, "path") else True
 
 
@@ -992,3 +997,23 @@ def test_month_marker_notices_a_replaced_partition_and_legacy_rows_are_normalize
     report = resolve_industry_only_codes(classifications, {"2330": day}, {"2330": day},
                                          evidence, _NoSweep())
     assert report["considered"] == 1 and report["resolved"] == 1
+
+
+def test_panel_build_rereads_readiness_under_the_lock(tmp_path: Path) -> None:
+    from app.taiwan.backfill_worker import TaiwanHistoricalBackfillWorker
+    from app.taiwan.quant.data_health import evaluate_data_health
+    from app.taiwan.quant.primary_oos_runner import PrimaryOosNotReadyError, PrimaryOosPreflight
+    from app.taiwan.quant.primary_panel import build_primary_factor_panel
+    from app.taiwan.quant.storage import FactorPanelStore
+
+    def not_ready():
+        health = evaluate_data_health(census_sessions=10, census_total_sessions=10,
+                                      twse_codes_observed=10, twse_codes_classified=1)
+        return PrimaryOosPreflight(health, {"completed_jobs": 1, "pending_jobs": 0,
+                                            "failed_jobs": 0, "unique_first_seen_dates": 1},
+                                   "idle", date(2026, 9, 25))
+
+    worker = TaiwanHistoricalBackfillWorker(data_dir=tmp_path)
+    with pytest.raises(PrimaryOosNotReadyError):   # the caller's object says ready; the stores do not
+        build_primary_factor_panel(_preflight(), events=(), store=FactorPanelStore(tmp_path / "f"),
+                                   worker=worker, workers=1, preflight_reader=not_ready)

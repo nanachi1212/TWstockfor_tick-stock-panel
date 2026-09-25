@@ -304,8 +304,9 @@ def _action_snapshot(
     events = tuple(event for event in store.read() if start <= event.effective_date <= end)
     stale = _provider_errors(events, required_symbols)
     if stale:
-        for source, day in sorted({(e.source, e.effective_date) for e in stale}):
-            store.save(_fetch_actions_on(source, day))
+        replacements = [event for source, day in sorted({(e.source, e.effective_date) for e in stale})
+                        for event in _fetch_actions_on(source, day)]  # stage first, save once
+        store.save(replacements)
         if marker.is_file():
             record = json.loads(marker.read_text(encoding="utf-8"))
             _write_marker(store, marker, sources,
