@@ -348,6 +348,22 @@ describe('Dashboard — stock reminders', () => {
     expect(await screen.findByText('今日 Quant 提醒目前無法讀取。')).toBeInTheDocument()
   })
 
+  it('counts distinct watchlist symbols for Quant Top 10 entries', async () => {
+    vi.mocked(api.watchlistList).mockResolvedValue({ symbols: [
+      { symbol: '2330.TWSE', name: '台積電', added_at: '2026-09-05T09:00:00Z' },
+    ] } as any)
+    vi.mocked(api.watchlistEnriched).mockResolvedValue(buildWatchlistEnriched([
+      { symbol: '2330.TWSE', name: '台積電', close: 900, change_pct: 0.01 },
+    ]) as any)
+    vi.mocked(api.alertsList).mockResolvedValue({ alerts: [
+      { ts: Date.now(), alert_id: 'quant-rule-a', is_read: false, rule_id: 'rule-a', source: 'quant', type: 'quant_top10_enter', symbol: '2330.TWSE', name: '台積電' },
+      { ts: Date.now() - 1, alert_id: 'quant-rule-b', is_read: false, rule_id: 'rule-b', source: 'quant', type: 'quant_top10_enter', symbol: '2330.TWSE', name: '台積電' },
+    ] } as any)
+    renderDashboard()
+
+    expect(await screen.findByText('新進 Top 10 1 檔')).toBeInTheDocument()
+  })
+
   it('keys anomaly diagnostics by the latest available daily date', async () => {
     vi.mocked(api.taiwanDataStatus)
       .mockResolvedValueOnce({ daily_as_of: '2026-09-04' } as any)
@@ -541,6 +557,12 @@ describe('Dashboard — Market data honesty (DAILY_USE_CORE_UX_FIXES P1-1)', () 
   })
 
   it('does not claim no anomalies when some diagnostic datasets are unavailable', async () => {
+    vi.mocked(api.watchlistList).mockResolvedValue({ symbols: [
+      { symbol: '2330.TWSE', name: '台積電', added_at: '2026-09-05T09:00:00Z' },
+    ] } as any)
+    vi.mocked(api.watchlistEnriched).mockResolvedValue(buildWatchlistEnriched([
+      { symbol: '2330.TWSE', name: '台積電', close: 900, change_pct: 0.01 },
+    ]) as any)
     const diagnostics = buildDiagnostics([])
     diagnostics.data_quality.overall_status = 'partial'
     diagnostics.data_quality.institutional_status = 'unavailable'
@@ -550,5 +572,7 @@ describe('Dashboard — Market data honesty (DAILY_USE_CORE_UX_FIXES P1-1)', () 
 
     expect(await screen.findByText('診斷資料不完整，部分異常規則無法判定。')).toBeInTheDocument()
     expect(screen.queryByText('最近交易日沒有觸發異常規則。')).not.toBeInTheDocument()
+    expect(screen.getByText('異常 資料不完整')).toBeInTheDocument()
+    expect(screen.queryByText(/異常 \d+ 檔/)).not.toBeInTheDocument()
   })
 })

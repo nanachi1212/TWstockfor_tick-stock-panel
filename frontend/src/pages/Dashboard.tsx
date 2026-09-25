@@ -563,13 +563,17 @@ function WatchlistQuickGlance({ onStockClick, anomalies, diagnosticsLoading, dia
     .sort((a, b) => Math.abs(b.change_pct ?? 0) - Math.abs(a.change_pct ?? 0))
   const rankedBySymbol = new Map(quant.signals.map(signal => [signal.symbol, signal]))
   const diagnosticsCurrent = anomalies?.data_quality.daily_status === 'current' && marketDailyStatus === 'current'
-  const anomalyBySymbol = new Map((diagnosticsCurrent ? anomalies.items : []).map(item => [item.symbol, item]))
+  const diagnosticsComplete = diagnosticsCurrent && anomalies?.data_quality.overall_status === 'complete'
+  const anomalyBySymbol = new Map((diagnosticsComplete ? anomalies.items : []).map(item => [item.symbol, item]))
   const todayTaipei = new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Taipei' })
   const watchlistAlerts = (alerts.data?.alerts ?? []).filter(event => {
     const eventDate = new Date(event.ts).toLocaleDateString('sv-SE', { timeZone: 'Asia/Taipei' })
     return event.symbol && rowsBySymbol.has(event.symbol) && eventDate === todayTaipei
   })
-  const watchlistTop10Entries = watchlistAlerts.filter(event => event.source === 'quant' && event.type === 'quant_top10_enter').length
+  const watchlistTop10Entries = new Set(watchlistAlerts
+    .filter(event => event.source === 'quant' && event.type === 'quant_top10_enter')
+    .map(event => event.symbol)
+    .filter((symbol): symbol is string => Boolean(symbol))).size
 
   return (
     <section className="rounded-card border border-border bg-surface/80 p-2.5 shadow-[0_1px_2px_hsl(var(--border)/0.4)] backdrop-blur-sm">
@@ -577,7 +581,7 @@ function WatchlistQuickGlance({ onStockClick, anomalies, diagnosticsLoading, dia
       {rows.length > 0 && <div className="mb-1 flex flex-wrap gap-1 text-[9px] text-secondary">
         <span className="rounded bg-elevated px-1.5 py-0.5">今日 Top 10 {quant.loading ? '—' : quant.error || !quant.validRun ? 'unavailable' : `${rows.filter(row => rankedBySymbol.has(row.symbol)).length} 檔`}</span>
         <span className="rounded bg-elevated px-1.5 py-0.5">新進 Top 10 {alerts.isPending ? '—' : alerts.isError ? 'unavailable' : `${watchlistTop10Entries} 檔`}</span>
-        <span className="rounded bg-elevated px-1.5 py-0.5">異常 {diagnosticsLoading ? '—' : diagnosticsError || !diagnosticsCurrent ? 'unavailable' : `${rows.filter(row => (anomalyBySymbol.get(row.symbol)?.signal_count ?? 0) > 0).length} 檔 · ${anomalies.trade_date}`}</span>
+        <span className="rounded bg-elevated px-1.5 py-0.5">異常 {diagnosticsLoading ? '—' : diagnosticsError || !diagnosticsCurrent ? 'unavailable' : !diagnosticsComplete ? '資料不完整' : `${rows.filter(row => (anomalyBySymbol.get(row.symbol)?.signal_count ?? 0) > 0).length} 檔 · ${anomalies.trade_date}`}</span>
         <span className="rounded bg-elevated px-1.5 py-0.5">今日提醒 {alerts.isPending ? '—' : alerts.isError ? 'unavailable' : `${watchlistAlerts.length} 則`}</span>
       </div>}
       {watchlist.isLoading || enriched.isLoading ? (
