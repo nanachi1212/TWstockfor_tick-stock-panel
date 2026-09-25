@@ -153,6 +153,45 @@ async def test_ai_report_cache_hits_for_same_context_and_misses_when_context_cha
 
 
 @pytest.mark.asyncio
+async def test_provider_and_model_are_snapshotted_for_generation_and_cache_metadata():
+    from tests.test_taiwan_stock_comparison import build_context
+
+    research_svc = MagicMock()
+    research_svc.get_research_context.return_value = build_context("2330.TWSE", "2330", "台積電")
+    diag_svc = MagicMock()
+    diag_svc.get_diagnostics.return_value = SimpleNamespace(items=[])
+    svc = TaiwanAIResearchService(research_svc=research_svc, diag_svc=diag_svc)
+    config = {"provider": "Provider A", "model": "model-a"}
+    response_text = json.dumps({
+        "overview": "Provider 快照測試。",
+        "key_observations": [], "risk_factors": [], "watch_next": [],
+    }, ensure_ascii=False)
+
+    async def switch_provider_during_call(*_args, **_kwargs):
+        config.update(provider="Provider B", model="model-b")
+        return response_text
+
+    with (
+        patch("app.taiwan.ai_research.current_ai_provider", side_effect=lambda: config["provider"]),
+        patch("app.taiwan.ai_research.current_ai_model", side_effect=lambda: config["model"]),
+        patch("app.taiwan.ai_research.generate_ai_text", new_callable=AsyncMock, side_effect=switch_provider_during_call) as mock_ai,
+    ):
+        response = await svc.generate_report("2330.TWSE")
+        config.update(provider="Provider A", model="model-a")
+        cached = await svc.generate_report("2330.TWSE")
+
+    assert response.report is not None
+    assert response.report.provider == "Provider A"
+    assert response.report.model == "model-a"
+    assert cached.report is not None
+    assert cached.report.provider == "Provider A"
+    assert cached.report.model == "model-a"
+    assert mock_ai.await_count == 1
+    assert mock_ai.await_args.kwargs["provider"] == "Provider A"
+    assert mock_ai.await_args.kwargs["model"] == "model-a"
+
+
+@pytest.mark.asyncio
 async def test_portfolio_interpretation_requires_verified_price_and_pnl():
     from tests.test_taiwan_stock_comparison import build_context
 

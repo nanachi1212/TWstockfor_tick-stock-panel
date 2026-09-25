@@ -283,6 +283,8 @@ async def generate_ai_text(
     temperature: float | None = 0.3,
     max_tokens: int | None = 3000,
     timeout: float = 180.0,
+    provider: str | None = None,
+    model: str | None = None,
 ) -> str:
     """Return a complete AI response from the currently configured provider.
 
@@ -293,13 +295,18 @@ async def generate_ai_text(
     """
     max_tokens = _resolve_max_tokens(max_tokens)
     _check_input_budget(messages, max_tokens=max_tokens)
-    if is_codex_cli_provider():
-        return await _run_codex_cli(messages, max_tokens=max_tokens, timeout=max(timeout, 600.0))
+    codex_provider = is_codex_cli_provider(provider) if provider is not None else is_codex_cli_provider()
+    if codex_provider:
+        codex_kwargs = {"max_tokens": max_tokens, "timeout": max(timeout, 600.0)}
+        if model is not None:
+            codex_kwargs["model"] = model
+        return await _run_codex_cli(messages, **codex_kwargs)
+    openai_kwargs = {"temperature": temperature, "max_tokens": max_tokens, "timeout": timeout}
+    if model is not None:
+        openai_kwargs["model"] = model
     return await _run_openai_once(
         messages,
-        temperature=temperature,
-        max_tokens=max_tokens,
-        timeout=timeout,
+        **openai_kwargs,
     )
 
 
@@ -338,13 +345,14 @@ async def _run_openai_once(
     temperature: float | None,
     max_tokens: int | None,
     timeout: float,
+    model: str | None = None,
 ) -> str:
     ai_key = secrets_store.get_ai_key()
     if not ai_key:
         raise RuntimeError("AI API Key 未配置, 请在设置页配置")
 
     client = _openai_client(ai_key, timeout)
-    model = current_ai_model()
+    model = model if model is not None else current_ai_model()
     req_messages = list(messages)
     kwargs = _openai_kwargs(temperature=temperature, max_tokens=max_tokens)
     while True:
@@ -592,6 +600,7 @@ async def _run_codex_cli(
     *,
     max_tokens: int | None,
     timeout: float,
+    model: str | None = None,
 ) -> str:
     prompt = _codex_prompt(messages, max_tokens=max_tokens)
     run_path = Path(tempfile.mkdtemp(prefix="tickflow-codex-run-"))
@@ -616,7 +625,7 @@ async def _run_codex_cli(
             "--output-last-message",
             str(output_path),
         ]
-        model = current_ai_model().strip()
+        model = (model if model is not None else current_ai_model()).strip()
         if model:
             args.extend(["--model", model])
         args.extend(["--cd", str(workspace_path), "-"])

@@ -538,11 +538,13 @@ class TaiwanAIResearchService:
 
         # 2. Build Flattened Evidence Registry and Compact Payload
         evidence_payload, registry_keys, missing_items = build_evidence_registry(ctx, diag_item, report_personal_context)
+        provider_snapshot = current_ai_provider()
+        model_snapshot = current_ai_model()
 
         cache_material = json.dumps({
             "prompt_version": PROMPT_VERSION,
-            "provider": current_ai_provider(),
-            "model": current_ai_model(),
+            "provider": provider_snapshot,
+            "model": model_snapshot,
             "base_url": secrets_store.get_ai_config("ai_base_url", settings.ai_base_url),
             # Only the one-way digest enters this local cache key; the raw credential never enters the model prompt.
             "credential_fingerprint": hashlib.sha256(
@@ -614,6 +616,8 @@ class TaiwanAIResearchService:
                 temperature=0.1,
                 max_tokens=1600,
                 timeout=45.0,
+                provider=provider_snapshot,
+                model=model_snapshot,
             )
         except Exception as e:
             logger.warning("AI provider failed in stock research report for %s (%s)", symbol, type(e).__name__)
@@ -621,8 +625,8 @@ class TaiwanAIResearchService:
                 status="unavailable",
                 error_code="provider_error",
                 error_message="AI 分析目前無法使用，請檢查 AI 設定或稍後重試。",  # noqa: RUF001
-                provider=current_ai_provider(),
-                model=current_ai_model(),
+                provider=provider_snapshot,
+                model=model_snapshot,
                 prompt_version=PROMPT_VERSION,
                 evidence_as_of=ctx.as_of_date,
                 generated_at=now_iso,
@@ -643,8 +647,8 @@ class TaiwanAIResearchService:
                 status="unavailable",
                 error_code="invalid_output",
                 error_message="AI 回傳內容無法解析為合法 JSON 格式。",
-                provider=current_ai_provider(),
-                model=current_ai_model(),
+                provider=provider_snapshot,
+                model=model_snapshot,
                 prompt_version=PROMPT_VERSION,
                 evidence_as_of=ctx.as_of_date,
                 generated_at=now_iso,
@@ -697,8 +701,8 @@ class TaiwanAIResearchService:
         combined_missing = sorted(list(set(missing_items + [str(m).strip() for m in ai_missing if m])))
 
         # 7. Construct Final Grounded Report
-        curr_provider = current_ai_provider()
-        curr_model = current_ai_model()
+        curr_provider = provider_snapshot
+        curr_model = model_snapshot
 
         report = TaiwanAIStockResearchReport(
             symbol=ctx.symbol,
