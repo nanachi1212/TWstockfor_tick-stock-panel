@@ -50,7 +50,7 @@ def test_manual_quant_alerts_are_persisted_before_sse_and_external_dispatch(monk
     from app.services import alert_store
     from app.taiwan.realtime import monitor_engine as monitor_engine_module
 
-    event = {"alert_id": "quant-api-event", "symbol": "2330.TWSE"}
+    event = {"alert_id": "quant-api-event", "symbol": "2330.TWSE", "message": "原始"}
     calls = []
     monkeypatch.setattr(taiwan_live, "_expected_session", lambda: "2026-09-24")
     monkeypatch.setattr(taiwan_live, "LiveModel", lambda: SimpleNamespace(key="model"))
@@ -73,6 +73,9 @@ def test_manual_quant_alerts_are_persisted_before_sse_and_external_dispatch(monk
     monkeypatch.setattr(monitor_engine_module, "get_monitor_engine", lambda: Engine())
     monkeypatch.setattr(alert_store, "append_many", lambda _data_dir, events: calls.append(("persist", events)))
     quote_service = SimpleNamespace(
+        _format_extension_notifications=lambda events: [
+            {**item, "message": item["message"] + " [formatted]"} for item in events
+        ],
         push_alerts=lambda events: calls.append(("push", events)),
         _maybe_send_webhook=lambda events, _engine: calls.append(("external", events)),
     )
@@ -81,8 +84,10 @@ def test_manual_quant_alerts_are_persisted_before_sse_and_external_dispatch(monk
 
     response = taiwan_live.evaluate_quant_alerts(request)
 
-    assert response["alerts"] == [event]
+    formatted = [{**event, "message": "原始 [formatted]"}]
+    assert response["alerts"] == formatted
     assert [kind for kind, _events in calls] == ["persist", "push", "external"]
+    assert all(events == formatted for _kind, events in calls)
 
 
 def test_live_models_marks_run_current_only_when_session_operation_and_audit_agree(monkeypatch):

@@ -97,6 +97,9 @@ def evaluate_quant_alerts(request: Request):
     from app.services import alert_store
     from app.taiwan.realtime.monitor_engine import get_monitor_engine
 
+    quote_service = getattr(request.app.state, "quote_service", None)
+    persisted_events = []
+
     snapshot = run.get("snapshot") or {}
     signals = snapshot.get("signals")
     if not isinstance(signals, list):
@@ -106,7 +109,9 @@ def evaluate_quant_alerts(request: Request):
         repo = getattr(request.app.state, "repo", None)
         if repo is None:
             raise HTTPException(status_code=503, detail="提醒儲存尚未就緒")
-        return alert_store.append_many(repo.store.data_dir, events)
+        formatted = quote_service._format_extension_notifications(events) if quote_service else events
+        persisted_events.extend(formatted)
+        return alert_store.append_many(repo.store.data_dir, formatted)
 
     events = get_monitor_engine().evaluate_quant_top10(
         signals,
@@ -115,17 +120,19 @@ def evaluate_quant_alerts(request: Request):
         persist_events=persist_events,
     )
     if events:
-        quote_service = getattr(request.app.state, "quote_service", None)
+        output_events = persisted_events or (
+            quote_service._format_extension_notifications(events) if quote_service else events
+        )
         if quote_service:
             try:
-                quote_service.push_alerts(events)
+                quote_service.push_alerts(output_events)
             except Exception as exc:
                 logger.warning("Failed to push Quant Top 10 alerts to SSE (%s)", type(exc).__name__)
             try:
-                quote_service._maybe_send_webhook(events, None)
+                quote_service._maybe_send_webhook(output_events, None)
             except Exception as exc:
                 logger.warning("Failed to dispatch Quant Top 10 external alerts (%s)", type(exc).__name__)
-    return {"ok": True, "status": "available", "alerts": events}
+    return {"ok": True, "status": "available", "alerts": persisted_events or events}
 
 
 @router.get("/runs/{model_key}/{session}")

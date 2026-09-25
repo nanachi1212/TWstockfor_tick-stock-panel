@@ -330,20 +330,30 @@ def _evaluate_live_quant_alerts(freeze: dict[str, Any], ledger: LiveLedger, app_
     from app.services import alert_store
     from app.taiwan.realtime.monitor_engine import get_monitor_engine
 
+    quote_service = getattr(app_state, "quote_service", None)
+    persisted_events = []
+
+    def persist_events(pending):
+        formatted = quote_service._format_extension_notifications(pending) if quote_service else pending
+        persisted_events.extend(formatted)
+        return alert_store.append_many(settings.data_dir, formatted)
+
     events = get_monitor_engine().evaluate_quant_top10(
         signals,
         session,
-        persist_events=lambda pending: alert_store.append_many(settings.data_dir, pending),
+        persist_events=persist_events,
     )
     if events:
-        quote_service = getattr(app_state, "quote_service", None)
+        output_events = persisted_events or (
+            quote_service._format_extension_notifications(events) if quote_service else events
+        )
         if quote_service is not None:
             try:
-                quote_service.push_alerts(events)
+                quote_service.push_alerts(output_events)
             except Exception as exc:
                 logger.warning("Failed to push Quant Top 10 alerts to SSE (%s)", type(exc).__name__)
             try:
-                quote_service._maybe_send_webhook(events, None)
+                quote_service._maybe_send_webhook(output_events, None)
             except Exception as exc:
                 logger.warning("Failed to dispatch Quant Top 10 external alerts (%s)", type(exc).__name__)
     return {"status": "available", "appended": len(events)}

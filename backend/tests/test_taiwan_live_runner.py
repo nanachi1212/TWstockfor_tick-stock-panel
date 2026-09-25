@@ -39,7 +39,7 @@ def test_live_quant_alerts_are_persisted_before_sse_and_external_dispatch(monkey
     from app.services import alert_store
     from app.taiwan.realtime import monitor_engine as monitor_engine_module
 
-    event = {"alert_id": "quant-event", "symbol": "2330.TWSE"}
+    event = {"alert_id": "quant-event", "symbol": "2330.TWSE", "message": "原始"}
     calls = []
     monkeypatch.setattr(settings, "data_dir", tmp_path)
     monkeypatch.setattr(live_runner, "LiveModel", lambda: SimpleNamespace(key="model"))
@@ -56,6 +56,9 @@ def test_live_quant_alerts_are_persisted_before_sse_and_external_dispatch(monkey
     monkeypatch.setattr(monitor_engine_module, "get_monitor_engine", lambda: Engine())
     monkeypatch.setattr(alert_store, "append_many", lambda _data_dir, events: calls.append(("persist", events)))
     quote_service = SimpleNamespace(
+        _format_extension_notifications=lambda events: [
+            {**item, "message": item["message"] + " [formatted]"} for item in events
+        ],
         push_alerts=lambda events: calls.append(("push", events)),
         _maybe_send_webhook=lambda events, _engine: calls.append(("external", events)),
     )
@@ -67,6 +70,8 @@ def test_live_quant_alerts_are_persisted_before_sse_and_external_dispatch(monkey
 
     assert result == {"status": "available", "appended": 1}
     assert [kind for kind, _events in calls] == ["persist", "push", "external"]
+    formatted = [{**event, "message": "原始 [formatted]"}]
+    assert all(events == formatted for _kind, events in calls)
 
 
 def session_days(start, end):
