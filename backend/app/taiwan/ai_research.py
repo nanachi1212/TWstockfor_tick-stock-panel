@@ -416,8 +416,13 @@ def _sanitize_personal_context(value: dict[str, Any] | None) -> dict[str, dict[s
 
     alert_source = value.get("alert")
     if isinstance(alert_source, dict):
-        alert: dict[str, Any] = finite_numbers(alert_source, {"trigger_value", "threshold"})
-        for field in ("alert_id", "rule_name", "rule_type", "triggered_at", "message", "source", "market_status"):
+        alert: dict[str, Any] = finite_numbers(alert_source, {
+            "trigger_value", "threshold", "change_pct", "quant_rank", "quant_score",
+        })
+        for field in (
+            "alert_id", "rule_name", "rule_type", "triggered_at", "message", "source", "market_status",
+            "quant_status", "quant_session",
+        ):
             item = alert_source.get(field)
             limit = 500 if field == "message" else 100
             if isinstance(item, str) and len(item) <= limit:

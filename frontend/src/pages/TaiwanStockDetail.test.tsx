@@ -240,6 +240,25 @@ describe('TaiwanStockDetail — AI Research', () => {
     expect(sentContext?.portfolio).not.toHaveProperty('change_pct')
   })
 
+  it('normalizes a selected generic Quant alert into single-stock research context', async () => {
+    vi.mocked(api.alertsList).mockResolvedValue({ alerts: [{
+      ts: Date.parse('2026-09-25T10:05:00+08:00'), alert_id: 'quant-alert-1', source: 'quant',
+      type: 'quant_top10_enter', symbol: '2330.TWSE', name: '台積電', message: '進入 Quant 前十',
+      quant_status: '進入', quant_rank: 3, quant_score: 0.92, quant_session: '2026-09-25',
+    }], total: 1 })
+    vi.mocked(api.taiwanStockAIResearch).mockResolvedValue({
+      status: 'unavailable', error_message: 'AI 分析目前無法使用。', provider: 'Custom',
+      prompt_version: 'taiwan_stock_research_v1', generated_at: '2026-09-25T10:06:00+08:00', evidence_registry_keys: [],
+    })
+    renderAt([{ pathname: '/stocks/2330.TWSE', state: { aiResearchRequested: true, alertId: 'quant-alert-1' } }], 0)
+
+    await waitFor(() => expect(vi.mocked(api.taiwanStockAIResearch)).toHaveBeenCalledTimes(1))
+    expect(vi.mocked(api.taiwanStockAIResearch).mock.calls[0][2]?.alert).toEqual(expect.objectContaining({
+      alert_id: 'quant-alert-1', rule_type: 'quant_top10_enter', triggered_at: '2026-09-25T02:05:00.000Z',
+      quant_status: '進入', quant_rank: 3, quant_score: 0.92, quant_session: '2026-09-25',
+    }))
+  })
+
   it('keeps an alert analysis request retryable when the alert lookup fails', async () => {
     vi.mocked(api.alertsList)
       .mockRejectedValueOnce(new Error('temporary alert lookup failure'))

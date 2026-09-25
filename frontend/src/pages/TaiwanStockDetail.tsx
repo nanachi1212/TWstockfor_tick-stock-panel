@@ -182,12 +182,21 @@ export function TaiwanStockDetail() {
       })
     }
     if (selectedAlert) context.alert = {
-      alert_id: selectedAlert.alert_id,
-      rule_name: selectedAlert.rule_name,
-      ...(typeof selectedAlert.rule_type === 'string' ? { rule_type: selectedAlert.rule_type } : {}),
-      ...(typeof selectedAlert.triggered_at === 'string' ? { triggered_at: selectedAlert.triggered_at } : {}),
-      ...(typeof selectedAlert.trigger_value === 'number' ? { trigger_value: selectedAlert.trigger_value } : {}),
+      ...(typeof selectedAlert.alert_id === 'string' ? { alert_id: selectedAlert.alert_id } : {}),
+      ...(typeof selectedAlert.rule_name === 'string' ? { rule_name: selectedAlert.rule_name } : typeof selectedAlert.rule_id === 'string' ? { rule_name: selectedAlert.rule_id } : {}),
+      ...(typeof selectedAlert.rule_type === 'string' ? { rule_type: selectedAlert.rule_type } : typeof selectedAlert.type === 'string' ? { rule_type: selectedAlert.type } : {}),
+      ...(typeof selectedAlert.triggered_at === 'string'
+        ? { triggered_at: selectedAlert.triggered_at }
+        : typeof selectedAlert.ts === 'number' && Number.isFinite(selectedAlert.ts)
+          ? { triggered_at: new Date(selectedAlert.ts).toISOString() }
+          : {}),
+      ...(typeof selectedAlert.trigger_value === 'number' ? { trigger_value: selectedAlert.trigger_value } : typeof selectedAlert.price === 'number' ? { trigger_value: selectedAlert.price } : {}),
       ...(typeof selectedAlert.threshold === 'number' ? { threshold: selectedAlert.threshold } : {}),
+      ...(typeof selectedAlert.change_pct === 'number' ? { change_pct: selectedAlert.change_pct } : {}),
+      ...(typeof selectedAlert.quant_status === 'string' ? { quant_status: selectedAlert.quant_status } : {}),
+      ...(typeof selectedAlert.quant_rank === 'number' ? { quant_rank: selectedAlert.quant_rank } : {}),
+      ...(typeof selectedAlert.quant_score === 'number' ? { quant_score: selectedAlert.quant_score } : {}),
+      ...(typeof selectedAlert.quant_session === 'string' ? { quant_session: selectedAlert.quant_session } : {}),
       message: selectedAlert.message,
       source: selectedAlert.source,
       ...(typeof selectedAlert.market_status === 'string' ? { market_status: selectedAlert.market_status } : {}),
