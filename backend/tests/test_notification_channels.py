@@ -157,6 +157,23 @@ def test_preference_merge_writes_are_serialized(monkeypatch, tmp_path):
     assert saved["minute_intraday_refresh_interval"] == 9
 
 
+def test_preference_reads_wait_until_merge_write_finishes(monkeypatch, tmp_path):
+    _isolated_stores(monkeypatch, tmp_path)
+    started = threading.Event()
+
+    def read_preferences():
+        started.set()
+        return preferences.load()
+
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        with preferences._SAVE_LOCK:
+            future = pool.submit(read_preferences)
+            assert started.wait(timeout=1)
+            time.sleep(0.02)
+            assert not future.done()
+        assert future.result(timeout=1) == {}
+
+
 def test_notification_status_endpoint_returns_latest_delivery_state(monkeypatch):
     monkeypatch.setattr(webhook_adapter, "delivery_status", lambda: {"line": "sent"})
 

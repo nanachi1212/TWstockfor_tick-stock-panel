@@ -30,12 +30,18 @@ def _path() -> Path:
 
 def _invalidate_cache() -> None:
     global _cache, _cache_sig
-    _cache = None
-    _cache_sig = None
+    with _SAVE_LOCK:
+        _cache = None
+        _cache_sig = None
 
 
 def load() -> dict:
     """读取 preferences.json (带 mtime 签名缓存)。返回深拷贝, 调用方可自由修改。"""
+    with _SAVE_LOCK:
+        return _load_unlocked()
+
+
+def _load_unlocked() -> dict:
     global _cache, _cache_sig
     p = _path()
     try:
