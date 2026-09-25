@@ -11,10 +11,11 @@ symbol's history and its coverage table has ~35 exception rows per point), then
 re-cut by session so each published partition holds the whole cross-section.
 
 A session without an official price bar is not a feature row, and
-``build_factor_panel`` counts bars, not sessions. The only addition to its output
-is therefore a mask: a rolling factor whose lookback window (its published
-``min_history`` bars) is not made of consecutive exchange sessions is set to
-unavailable, with a coverage exception. Nothing is filled or recomputed.
+``build_factor_panel`` counts bars, not sessions. So each symbol's history is cut at
+every missing exchange session and every contiguous run goes through
+``build_factor_panel`` on its own: rolling windows, recursive (EWM) indicators and
+streaks all restart and warm up again after a gap instead of bridging it. Nothing is
+filled or masked after the fact.
 """
 from __future__ import annotations
 
@@ -34,14 +35,8 @@ import polars as pl
 
 from app.taiwan.backfill_worker import TaiwanHistoricalBackfillWorker
 from app.taiwan.corporate_actions import CorporateActionEvent
-from app.taiwan.providers.taiwan_values import market_close
 from app.taiwan.quant.evaluation_spec import PRIMARY_OOS_SPEC
-from app.taiwan.quant.panel import (
-    RELATIVE,
-    TECHNICAL,
-    FactorPanel,
-    build_factor_panel,
-)
+from app.taiwan.quant.panel import FactorPanel, build_factor_panel
 from app.taiwan.quant.primary_oos_runner import (
     PrimaryOosInputError,
     PrimaryOosNotReadyError,
@@ -50,88 +45,29 @@ from app.taiwan.quant.primary_oos_runner import (
     _primary_universe,
     usable_price_bar,
 )
-from app.taiwan.quant.storage import FactorPanelStore, _min_history
+from app.taiwan.quant.storage import FactorPanelStore
 from app.taiwan.quant_eligibility import PRIMARY_VERIFIED
 
 _OHLCV = ("open", "high", "low", "close", "volume", "amount")
 _DATES_PER_PUBLISH = 25
-#: Factors that read a rolling window of the symbol's own price/volume bars.
-_WINDOWED = tuple(name for name in (*TECHNICAL, "relative_volume", "adv20_twd", *RELATIVE)
-                  if _min_history(name) > 1)
-#: Recursive (EWM) factors never fully forget older bars, so their window is the memory
-#: horizon after which an older bar carries <0.1% weight, not their warm-up length.
-_MEMORY = {"rsi_14": 100, "macd_dif": 120, "macd_dea": 120, "macd_hist": 120,
-           "macd_hist_streak": 120}
+
+
+def split_at_session_gaps(history: pl.DataFrame, sessions: Sequence[date]) -> list[pl.DataFrame]:
+    """One frame per contiguous run of exchange sessions of each symbol."""
+    index = {day: position for position, day in enumerate(sessions)}
+    numbered = history.sort(["symbol", "date"]).with_columns(
+        pl.col("date").replace_strict(index, return_dtype=pl.Int64).alias("_session"))
+    numbered = numbered.with_columns(
+        (pl.col("_session").diff().over("symbol").fill_null(1) != 1).cum_sum().over("symbol")
+        .alias("_run"))
+    return [part.drop("_session", "_run")
+            for part in numbered.partition_by(["symbol", "_run"], maintain_order=True)]
+
+
 _COVERAGE_SCHEMA = {
     "symbol": pl.String, "date": pl.Date, "factor": pl.String, "status": pl.String,
     "as_of": pl.String, "available_at": pl.String, "reason": pl.String, "source": pl.String,
 }
-
-
-def _streak_crosses_gap(frame: pl.DataFrame) -> pl.Series:
-    """True where the |macd_hist_streak| most recent bars are not consecutive sessions."""
-    flags = [False] * frame.height
-    position = 0
-    for _symbol, rows in frame.group_by("symbol", maintain_order=True):
-        sessions = rows["_session"].to_list()
-        for offset, streak in enumerate(rows["macd_hist_streak"].to_list()):
-            if streak is None or streak == 0:
-                continue
-            span = int(abs(streak)) - 1
-            if span > offset or sessions[offset] - sessions[offset - span] != span:
-                flags[position + offset] = True
-        position += rows.height
-    return pl.Series("_streak_gap", flags, dtype=pl.Boolean)
-
-
-def mask_missing_session_windows(
-    values: pl.DataFrame, sessions: Sequence[date],
-) -> tuple[pl.DataFrame, pl.DataFrame]:
-    """Unavailable where the factor's bar window skips an exchange session.
-
-    Returns the masked values and the coverage exceptions for every value that
-    was available before the mask. ``sessions`` is the exchange's session list.
-    """
-    index = {day: position for position, day in enumerate(sessions)}
-    frame = values.sort(["symbol", "date"]).with_columns(
-        pl.col("date").replace_strict(index, return_dtype=pl.Int64).alias("_session"))
-    frame = frame.with_columns(pl.int_range(pl.len()).over("symbol").alias("_position"))
-    span = pl.col("_session") - pl.col("_session").first().over("symbol")
-
-    def window(name: str) -> int:
-        return max(_MEMORY.get(name, 0), _min_history(name))
-
-    masks = {
-        name: pl.when(pl.col("_position") >= window(name) - 1).then(
-            (pl.col("_session") - pl.col("_session").shift(window(name) - 1).over("symbol"))
-            != window(name) - 1
-        ).otherwise(span != pl.col("_position"))
-        for name in _WINDOWED
-    }
-    # macd_hist_streak counts back until the histogram changes sign, so its span is
-    # the value itself, not a fixed window: it must not reach across a session gap.
-    frame = frame.with_columns(_streak_crosses_gap(frame).alias("_streak_gap"))
-    masks["macd_hist_streak"] = masks["macd_hist_streak"] | pl.col("_streak_gap")
-    flagged = frame.select(
-        "symbol", "date",
-        *[(pl.col(name).is_not_null() & masks[name]).alias(name) for name in _WINDOWED],
-    )
-    closes = {day: market_close(day).isoformat() for day in frame["date"].unique().to_list()}
-    exceptions = []
-    for name in _WINDOWED:
-        rows = flagged.filter(pl.col(name)).select("symbol", "date")
-        if rows.height:
-            exceptions.append(rows.with_columns(
-                pl.lit(name).alias("factor"), pl.lit("data_insufficient").alias("status"),
-                pl.col("date").replace_strict(closes, return_dtype=pl.String).alias("as_of"),
-                pl.lit(None, dtype=pl.String).alias("available_at"),
-                pl.lit("missing_session_in_window").alias("reason"),
-                pl.lit("pit_adjusted_daily").alias("source"),
-            ).select(list(_COVERAGE_SCHEMA)))
-    masked = frame.with_columns(
-        [pl.when(masks[name]).then(None).otherwise(pl.col(name)).alias(name) for name in _WINDOWED]
-    ).drop("_session", "_position", "_streak_gap").sort(["date", "symbol"])
-    return masked, (pl.concat(exceptions) if exceptions else pl.DataFrame(schema=_COVERAGE_SCHEMA))
 
 
 def _code_fingerprint() -> str:
@@ -162,14 +98,17 @@ def _build_batch(
     key = history["symbol"][0].replace(".", "_")
     if (out_dir / f"done_{key}").exists():
         return key
-    panel = build_factor_panel(
-        history, events=events, factor_version=factor_version,
-        policy_version=PRIMARY_OOS_SPEC.policy_version, universe_tier=PRIMARY_VERIFIED,
-    )
-    values, masked = mask_missing_session_windows(panel.values, sessions)
-    coverage = (pl.concat([panel.coverage.select(
-                    [pl.col(name).cast(kind) for name, kind in _COVERAGE_SCHEMA.items()]), masked])
-                if not panel.coverage.is_empty() else masked)
+    parts = [
+        build_factor_panel(
+            run, events=events, factor_version=factor_version,
+            policy_version=PRIMARY_OOS_SPEC.policy_version, universe_tier=PRIMARY_VERIFIED,
+        )
+        for run in split_at_session_gaps(history, sessions)
+    ]
+    values = pl.concat([part.values for part in parts]).sort(["date", "symbol"])
+    coverages = [part.coverage.select([pl.col(name).cast(kind) for name, kind in _COVERAGE_SCHEMA.items()])
+                 for part in parts if not part.coverage.is_empty()]
+    coverage = pl.concat(coverages) if coverages else pl.DataFrame(schema=_COVERAGE_SCHEMA)
     _write_parquet(values, out_dir / f"values_{key}.parquet")
     if not coverage.is_empty():
         _write_parquet(coverage, out_dir / f"coverage_{key}.parquet")

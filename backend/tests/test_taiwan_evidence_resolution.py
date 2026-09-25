@@ -478,8 +478,11 @@ def test_priceless_official_row_is_not_evaluable_and_does_not_poison_later_windo
     assert row[sessions[35]]["momentum_5d"] is None      # window 30..35 still skips it
     assert row[sessions[36]]["momentum_5d"] is not None  # 31..36: consecutive sessions again
     assert row[sessions[29]]["momentum_5d"] is not None
-    masked = panel.coverage.filter(pl.col("reason") == "missing_session_in_window")
-    assert masked.filter(pl.col("factor") == "momentum_5d")["date"].sort().to_list() == sessions[31:36]
+    unavailable = panel.coverage.filter(
+        (pl.col("factor") == "momentum_5d") & (pl.col("date") > halted)
+        & (pl.col("date") <= sessions[35]))
+    assert unavailable["date"].sort().to_list() == sessions[31:36]
+    assert set(unavailable["status"].to_list()) == {"insufficient_history"}
 
 
 def _health(verified: int, unknown: int):
@@ -713,29 +716,6 @@ def test_provider_error_is_superseded_only_by_the_same_source() -> None:
     assert resolve_event_conflicts([failed, same_source]) == (same_source,)
 
 
-def test_streak_factor_never_reaches_across_a_missing_session() -> None:
-    from app.taiwan.quant.panel import FACTORS
-    from app.taiwan.quant.primary_panel import mask_missing_session_windows
-
-    sessions = [date(2020, 1, 1) + timedelta(days=n) for n in range(10)]
-    present = [0, 1, 2, 3, 4, 6, 7, 8]  # session 5 has no price bar
-    streaks = [1.0, 2.0, 3.0, 4.0, 5.0, 2.0, 3.0, 2.0]
-    frame = pl.DataFrame({
-        "symbol": ["1101.TWSE"] * len(present), "date": [sessions[i] for i in present],
-        **{name: [None] * len(present) for name in FACTORS},
-    }).with_columns(
-        pl.Series("macd_hist_streak", streaks, dtype=pl.Float64),
-        *[pl.col(name).cast(pl.Float64) for name in FACTORS if name != "macd_hist_streak"],
-    )
-    masked, exceptions = mask_missing_session_windows(frame, sessions)
-    result = dict(zip(masked["date"], masked["macd_hist_streak"], strict=True))
-    assert result[sessions[6]] is None      # streak 2 would count session 4 across the gap
-    assert result[sessions[7]] is None      # streak 3 spans sessions 4-7
-    # EWM state never forgets the pre-gap bars: unavailable until its memory horizon passes.
-    assert result[sessions[8]] is None
-    assert result[sessions[4]] == 5.0       # before the gap
-    assert set(exceptions["reason"].to_list()) == {"missing_session_in_window"}
-
 
 def test_failed_request_survives_a_cross_source_conflict_for_the_retry() -> None:
     from app.taiwan.corporate_actions import resolve_event_conflicts
@@ -816,25 +796,6 @@ def test_resume_identity_changes_with_the_factor_implementation(monkeypatch) -> 
     assert primary_panel._code_fingerprint() != before
 
 
-def test_recursive_indicators_stay_unavailable_after_a_gap_until_memory_expires() -> None:
-    from app.taiwan.quant.panel import FACTORS
-    from app.taiwan.quant.primary_panel import mask_missing_session_windows
-
-    sessions = [date(2018, 1, 1) + timedelta(days=n) for n in range(400)]
-    present = [i for i in range(300) if i != 50]  # one missing session at index 50
-    frame = pl.DataFrame({
-        "symbol": ["1101.TWSE"] * len(present), "date": [sessions[i] for i in present],
-        **{name: [1.0] * len(present) for name in FACTORS},
-    })
-    masked, _ = mask_missing_session_windows(frame, sessions)
-    rsi = dict(zip(masked["date"], masked["rsi_14"], strict=True))
-    ma5 = dict(zip(masked["date"], masked["ma5"], strict=True))
-    assert rsi[sessions[49]] == 1.0 and ma5[sessions[49]] == 1.0
-    assert rsi[sessions[100]] is None and rsi[sessions[149]] is None   # < 100 bars after the gap
-    assert rsi[sessions[151]] == 1.0                                    # memory horizon passed
-    assert ma5[sessions[56]] == 1.0                                     # 5-bar window is clean again
-    assert ma5[sessions[54]] is None
-
 
 def test_month_verification_marker_only_after_a_clean_complete_pass(tmp_path: Path) -> None:
     store = ObservedUniverseStore(tmp_path)
@@ -886,3 +847,68 @@ def test_panel_build_fails_if_the_stores_change_while_it_computes(
         primary_panel.build_primary_factor_panel(_preflight(), events=(), store=store,
                                                  worker=worker, workers=1)
     assert not worker.lock.path.exists() if hasattr(worker.lock, "path") else True
+
+
+def test_history_is_cut_at_every_missing_exchange_session() -> None:
+    from app.taiwan.quant.primary_panel import split_at_session_gaps
+
+    sessions = [date(2020, 1, 1) + timedelta(days=n) for n in range(10)]
+    present = [0, 1, 2, 3, 4, 6, 7, 8]  # session 5 has no price bar
+    frame = pl.DataFrame({"symbol": ["A.TWSE"] * 8 + ["B.TWSE"] * 3,
+                          "date": [sessions[i] for i in present] + sessions[:3],
+                          "close": [1.0] * 11})
+    runs = split_at_session_gaps(frame, sessions)
+    assert [(r["symbol"][0], r["date"].to_list()) for r in runs] == [
+        ("A.TWSE", sessions[0:5]), ("A.TWSE", sessions[6:9]), ("B.TWSE", sessions[0:3])]
+    assert all("_session" not in r.columns and "_run" not in r.columns for r in runs)
+
+
+def test_recursive_indicators_restart_and_warm_up_after_a_gap(tmp_path: Path) -> None:
+    from app.taiwan.quant.evaluation_spec import PRIMARY_OOS_SPEC
+    from app.taiwan.quant.primary_panel import _build_batch
+
+    sessions = [day for day in (date(2020, 1, 1) + timedelta(days=n) for n in range(150))
+                if day.weekday() < 5][:100]
+    rows = [r for i, r in enumerate(_stock_history(("2330",), sessions)) if i != 60]
+    history = pl.DataFrame(rows).select(
+        pl.concat_str([pl.col("raw_code"), pl.lit(".TWSE")]).alias("symbol"),
+        "date", "open", "high", "low", "close", "volume", "amount")
+    _build_batch((history, (), PRIMARY_OOS_SPEC.factor_version, tmp_path, sessions))
+    values = pl.read_parquet(tmp_path / "values_2330_TWSE.parquet")
+    row = {r["date"]: r for r in values.iter_rows(named=True)}
+    assert row[sessions[59]]["rsi_14"] is not None and row[sessions[59]]["macd_dif"] is not None
+    assert row[sessions[61]]["rsi_14"] is None          # restarted: warming up again
+    assert row[sessions[70]]["rsi_14"] is None and row[sessions[70]]["macd_dif"] is None
+    assert row[sessions[80]]["rsi_14"] is not None      # 15 bars after the gap
+    assert row[sessions[80]]["macd_dif"] is None        # MACD needs 35
+    assert row[sessions[97]]["macd_dif"] is not None
+
+
+def test_trailing_day_needs_the_official_schedule_and_the_marker_needs_the_exact_end(
+    tmp_path: Path,
+) -> None:
+    from app.taiwan.trading_day_evidence import fetch_twse_closures
+
+    store = ObservedUniverseStore(tmp_path)
+    _seed(store, "TWSE", [date(2026, 9, 23), date(2026, 9, 24)], [date(2026, 9, 25)])
+    month = _twse_month(2026, 9, ["115/09/23", "115/09/24"])
+    fetch = _fetcher({"FMTQIK": month})
+    span = (date(2026, 9, 1), date(2026, 9, 25))
+    first = verify_empty_days(store, "TWSE", start=span[0], end=span[1], fetch=fetch,
+                              census_rows=lambda day: [])
+    assert first["after_last_published_session"] == ["2026-09-25"]
+    assert not store.month_verification_covers("TWSE", *span)   # a lagging month is not clean
+
+    schedule = {"stat": "ok", "data": [
+        ["2026-09-25", "中秋節", "依規定放假1日。"],
+        ["2026-09-28", "孔子誕辰紀念日/ 教師節", "依規定放假1日。"],
+        ["2026-01-02", "國曆新年開始交易日", "國曆新年開始交易。"],
+        ["2022-01-27", "農曆春節前最後交易日", "1月27日市場無交易，僅辦理結算交割作業。"]]}
+    closures = fetch_twse_closures(2026, fetch=lambda url: schedule)
+    assert closures == {date(2026, 9, 25), date(2026, 9, 28), date(2022, 1, 27)}
+    verify_empty_days(store, "TWSE", start=span[0], end=span[1], fetch=fetch,
+                      census_rows=lambda day: [], closures=closures)
+    assert store.partition_status("TWSE", date(2026, 9, 25)) == "confirmed_non_trading"
+    assert store.day_evidence("TWSE", date(2026, 9, 25)).evidence_source == "twse:holidaySchedule"
+    assert store.month_verification_covers("TWSE", *span)
+    assert not store.month_verification_covers("TWSE", span[0], date(2026, 9, 26))  # exact date

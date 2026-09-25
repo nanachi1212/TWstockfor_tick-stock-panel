@@ -235,13 +235,13 @@ class ObservedUniverseStore:
         os.replace(temporary, self._verification_path(exchange))
 
     def month_verification_covers(self, exchange: str, start: date, end: date) -> bool:
-        """Whether a clean month-table pass covers ``start`` through the month of ``end``."""
+        """Whether a clean month-table pass covers ``start`` through ``end`` (exact date)."""
         path = self._verification_path(exchange)
         if not path.is_file():
             return False
         record = json.loads(path.read_text(encoding="utf-8"))
         done_start, done_end = date.fromisoformat(record["start"]), date.fromisoformat(record["end"])
-        return done_start <= start and (done_end.year, done_end.month) >= (end.year, end.month)
+        return done_start <= start and done_end >= end
 
     def completed_dates(self, exchange: str) -> set[date]:
         root = self._data_dir / f"exchange={exchange}"

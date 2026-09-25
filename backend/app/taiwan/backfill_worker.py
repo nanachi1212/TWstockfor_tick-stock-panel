@@ -481,10 +481,14 @@ class TaiwanHistoricalBackfillWorker:
         force_unlock: bool = False, apply: bool = True,
     ) -> dict[str, Any]:
         """Settle unexplained-empty census days with official month tables."""
-        from app.taiwan.trading_day_evidence import verify_empty_days
+        from app.taiwan.trading_day_evidence import fetch_twse_closures, verify_empty_days
 
         latest = resolve_target_latest_trading_date(self.calendar, as_of_dt=taipei_now())
         end = min(end or latest, latest)
+        try:
+            twse_closures = fetch_twse_closures(end.year)
+        except Exception:
+            twse_closures = frozenset()  # the schedule only adds evidence for trailing days
         self.lock.acquire(force=force_unlock)
         try:
             census = self._census or ObservedUniverseCensus(
@@ -496,6 +500,7 @@ class TaiwanHistoricalBackfillWorker:
                         exchange: pool.submit(
                             verify_empty_days, self.census_store, exchange,
                             start=start, end=end, census_rows=fetchers[exchange],
+                            closures=twse_closures if exchange == "TWSE" else frozenset(),
                             apply=apply)
                         for exchange in ("TWSE", "TPEX")
                     }

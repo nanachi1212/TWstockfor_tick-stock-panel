@@ -36,6 +36,9 @@ logger = logging.getLogger(__name__)
 TWSE_MONTH_URL = "https://www.twse.com.tw/rwd/zh/afterTrading/FMTQIK"
 TPEX_MONTH_URL = "https://www.tpex.org.tw/www/zh-tw/indexInfo/inx"
 
+TWSE_SCHEDULE_URL = "https://www.twse.com.tw/rwd/zh/holidaySchedule/holidaySchedule?date={year}&response=json"
+TWSE_SCHEDULE_SOURCE = "twse:holidaySchedule"
+_CLOSURE_WORDS = ("放假", "補假", "無交易", "不交易")
 TWSE_EVIDENCE_SOURCE = "twse:FMTQIK:month_table_absence"
 TPEX_EVIDENCE_SOURCE = "tpex:inx:month_table_absence"
 
@@ -103,6 +106,18 @@ def _months(start: date, end: date) -> list[tuple[int, int]]:
     return months
 
 
+def fetch_twse_closures(year: int, *, fetch: JsonFetcher = _fetch) -> frozenset[date]:
+    """Market closures in TWSE's official annual schedule (published from 2021)."""
+    payload = fetch(TWSE_SCHEDULE_URL.format(year=year))
+    if not isinstance(payload, dict) or str(payload.get("stat", "")).lower() != "ok":
+        raise MonthTableError("TWSE holiday schedule is not OK")
+    closures = set()
+    for row in payload.get("data") or []:
+        if any(word in str(row[2]) for word in _CLOSURE_WORDS):
+            closures.add(date.fromisoformat(str(row[0])))
+    return frozenset(closures)
+
+
 def verify_empty_days(
     store: ObservedUniverseStore,
     exchange: str,
@@ -111,6 +126,7 @@ def verify_empty_days(
     end: date,
     fetch: JsonFetcher = _fetch,
     census_rows: Callable[[date], list[dict[str, Any]]] | None = None,
+    closures: frozenset[date] = frozenset(),
     apply: bool = True,
 ) -> dict[str, Any]:
     """Reconcile the census with the official month tables.
@@ -162,8 +178,13 @@ def verify_empty_days(
                 if rows:
                     store.write(exchange, day, rows)
                     report["empty_session_recovered"].append(day.isoformat())
-            elif not month_complete and day > last_published:
+            elif not month_complete and day > last_published and day not in closures:
                 report["after_last_published_session"].append(day.isoformat())
+            elif not month_complete and day > last_published:
+                # Not yet in the month table, but an official schedule lists it as a closure.
+                if apply:
+                    store.write(exchange, day, [], confirmed_non_trading_source=TWSE_SCHEDULE_SOURCE)
+                report["confirmed_non_trading"].append(day.isoformat())
             else:
                 if apply:
                     store.write(exchange, day, [], confirmed_non_trading_source=source)
@@ -183,6 +204,7 @@ def verify_empty_days(
                     report["weekend_sessions_missing_open"].append(day.isoformat())
     clean = (
         not report["month_errors"] and not report["observed_conflicts"]
+        and not report["after_last_published_session"]
         and not report["weekend_sessions_missing_open"]
         and len(report["empty_but_official_session"]) == len(report["empty_session_recovered"])
     )
