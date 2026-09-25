@@ -12,9 +12,10 @@ re-cut by session so each published partition holds the whole cross-section.
 """
 from __future__ import annotations
 
+import json
 import multiprocessing
 import shutil
-import tempfile
+import time
 from collections.abc import Sequence
 from concurrent.futures import ProcessPoolExecutor
 from datetime import date
@@ -52,6 +53,19 @@ def _build_batch(args: tuple[pl.DataFrame, tuple[CorporateActionEvent, ...], str
     if not panel.coverage.is_empty():
         panel.coverage.write_parquet(out_dir / f"coverage_{key}.parquet")
     return key
+
+
+def _save_with_retry(store: FactorPanelStore, panel: FactorPanel, attempts: int = 5) -> None:
+    """Publishing is idempotent (identical partitions are skipped); on Windows a
+    scanner or indexer can briefly hold a freshly written directory."""
+    for attempt in range(1, attempts + 1):
+        try:
+            store.save(panel)
+            return
+        except PermissionError:
+            if attempt == attempts:
+                raise
+            time.sleep(2.0 * attempt)
 
 
 def _batches(symbols: Sequence[str], size: int) -> list[list[str]]:
@@ -95,8 +109,15 @@ def build_primary_factor_panel(
         if not coverage.covers(first, last):
             raise PrimaryOosInputError("corporate-action source coverage is incomplete")
 
-    work = Path(tempfile.mkdtemp(prefix="primary_panel_", dir=store.root.parent))
-    try:
+    # The batch results are hours of compute: keep them until every partition is
+    # published, so an interrupted or failed publish resumes without recomputing.
+    work = store.root.parent / "primary_panel_build"
+    identity = {"rows": history.height, "symbols": len(symbols), "last_date": last.isoformat(),
+                "events": len(events), "factor_version": PRIMARY_OOS_SPEC.factor_version}
+    done = work / "_batches_complete.json"
+    if not (done.is_file() and json.loads(done.read_text(encoding="utf-8")) == identity):
+        shutil.rmtree(work, ignore_errors=True)
+        work.mkdir(parents=True)
         jobs = [(history.filter(pl.col("symbol").is_in(batch)), events,
                  PRIMARY_OOS_SPEC.factor_version, work)
                 for batch in _batches(symbols, batch_size)]
@@ -104,29 +125,29 @@ def build_primary_factor_panel(
         with ProcessPoolExecutor(max_workers=workers,
                                  mp_context=multiprocessing.get_context("spawn")) as pool:
             list(pool.map(_build_batch, jobs))
-        values = pl.scan_parquet(work / "values_*.parquet")
-        coverage = (pl.scan_parquet(work / "coverage_*.parquet")
-                    if any(work.glob("coverage_*.parquet")) else None)
-        unverified = values.filter(
-            (pl.col("adjustment_status") != "verified") | (pl.col("usage_scope") != "pit_feature")
-        ).select(pl.col("symbol").unique()).collect()["symbol"].to_list()
-        if unverified:
-            raise PrimaryOosInputError(
-                f"PIT factor rows with unverified adjustment for {sorted(unverified)[:10]}; "
-                "nothing was published")
-        days = values.select("date").unique().sort("date").collect()["date"].to_list()
-        published = 0
-        for index in range(0, len(days), _DATES_PER_PUBLISH):
-            chunk: list[date] = days[index:index + _DATES_PER_PUBLISH]
-            value_frame = values.filter(pl.col("date").is_in(chunk)).collect().sort(["date", "symbol"])
-            coverage_frame = (coverage.filter(pl.col("date").is_in(chunk)).collect()
-                              .sort(["date", "symbol", "factor"])
-                              if coverage is not None else pl.DataFrame())
-            store.save(FactorPanel(
-                value_frame, coverage_frame, PRIMARY_OOS_SPEC.factor_version,
-                PRIMARY_OOS_SPEC.policy_version, PRIMARY_VERIFIED,
-            ))
-            published += len(chunk)
-        return {"symbols": len(symbols), "sessions": published, "rows": history.height}
-    finally:
-        shutil.rmtree(work, ignore_errors=True)
+        done.write_text(json.dumps(identity), encoding="utf-8")
+    values = pl.scan_parquet(work / "values_*.parquet")
+    coverage = (pl.scan_parquet(work / "coverage_*.parquet")
+                if any(work.glob("coverage_*.parquet")) else None)
+    unverified = values.filter(
+        (pl.col("adjustment_status") != "verified") | (pl.col("usage_scope") != "pit_feature")
+    ).select(pl.col("symbol").unique()).collect()["symbol"].to_list()
+    if unverified:
+        raise PrimaryOosInputError(
+            f"PIT factor rows with unverified adjustment for {sorted(unverified)[:10]}; "
+            "nothing was published")
+    days = values.select("date").unique().sort("date").collect()["date"].to_list()
+    published = 0
+    for index in range(0, len(days), _DATES_PER_PUBLISH):
+        chunk: list[date] = days[index:index + _DATES_PER_PUBLISH]
+        value_frame = values.filter(pl.col("date").is_in(chunk)).collect().sort(["date", "symbol"])
+        coverage_frame = (coverage.filter(pl.col("date").is_in(chunk)).collect()
+                          .sort(["date", "symbol", "factor"])
+                          if coverage is not None else pl.DataFrame())
+        _save_with_retry(store, FactorPanel(
+            value_frame, coverage_frame, PRIMARY_OOS_SPEC.factor_version,
+            PRIMARY_OOS_SPEC.policy_version, PRIMARY_VERIFIED,
+        ))
+        published += len(chunk)
+    shutil.rmtree(work, ignore_errors=True)
+    return {"symbols": len(symbols), "sessions": published, "rows": history.height}
