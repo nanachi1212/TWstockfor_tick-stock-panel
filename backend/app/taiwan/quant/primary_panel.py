@@ -12,6 +12,7 @@ re-cut by session so each published partition holds the whole cross-section.
 """
 from __future__ import annotations
 
+import multiprocessing
 import shutil
 import tempfile
 from collections.abc import Sequence
@@ -99,7 +100,9 @@ def build_primary_factor_panel(
         jobs = [(history.filter(pl.col("symbol").is_in(batch)), events,
                  PRIMARY_OOS_SPEC.factor_version, work)
                 for batch in _batches(symbols, batch_size)]
-        with ProcessPoolExecutor(max_workers=workers) as pool:
+        # Polars is not fork-safe: a forked child can deadlock on its thread pool.
+        with ProcessPoolExecutor(max_workers=workers,
+                                 mp_context=multiprocessing.get_context("spawn")) as pool:
             list(pool.map(_build_batch, jobs))
         values = pl.scan_parquet(work / "values_*.parquet")
         coverage = (pl.scan_parquet(work / "coverage_*.parquet")
