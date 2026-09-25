@@ -189,12 +189,22 @@ def verify_empty_days(
                 if apply:
                     store.write(exchange, day, [], confirmed_non_trading_source=source)
                 report["confirmed_non_trading"].append(day.isoformat())
-        for day in sorted(d for d in sessions if d.weekday() >= 5 and start <= d <= end):
-            if store.has(exchange, day) and store.partition_status(exchange, day) != "empty_unknown":
+        # Official sessions with no partition at all: Saturday make-up sessions the weekday
+        # candidate list never queries, and weekdays whose request failed. A weekend
+        # session that only has an empty partition is retried too.
+        for day in sorted(d for d in sessions if start <= d <= end):
+            if store.has(exchange, day) and (
+                    day.weekday() < 5 or store.partition_status(exchange, day) != "empty_unknown"):
                 continue
             report["weekend_sessions_missing"].append(day.isoformat())
             if apply and census_rows is not None:
-                rows = census_rows(day)
+                try:
+                    rows = census_rows(day)
+                except Exception as exc:
+                    logger.warning("%s %s official session could not be fetched: %s",
+                                   exchange, day, exc)
+                    report["weekend_sessions_missing_open"].append(day.isoformat())
+                    continue
                 # An empty answer is stored as an unresolved partition: the session is
                 # official, so it stays in the readiness denominator until rows exist.
                 store.write(exchange, day, rows)

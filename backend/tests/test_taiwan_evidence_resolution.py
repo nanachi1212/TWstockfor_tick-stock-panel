@@ -912,3 +912,26 @@ def test_trailing_day_needs_the_official_schedule_and_the_marker_needs_the_exact
     assert store.day_evidence("TWSE", date(2026, 9, 25)).evidence_source == "twse:holidaySchedule"
     assert store.month_verification_covers("TWSE", *span)
     assert not store.month_verification_covers("TWSE", span[0], date(2026, 9, 26))  # exact date
+
+
+def test_official_weekday_without_a_partition_is_fetched_or_keeps_verification_open(
+    tmp_path: Path,
+) -> None:
+    store = ObservedUniverseStore(tmp_path)
+    monday, tuesday = date(2015, 2, 2), date(2015, 2, 3)
+    _seed(store, "TWSE", [monday], [])           # Tuesday's census request failed: no partition
+    fetch = _fetcher({"FMTQIK": _twse_month(2015, 2, ["104/02/02", "104/02/03"])})
+    span = (date(2015, 2, 1), date(2015, 2, 28))
+
+    def failing(day):
+        raise RuntimeError("provider down")
+
+    report = verify_empty_days(store, "TWSE", start=span[0], end=span[1], fetch=fetch,
+                               census_rows=failing)
+    assert report["weekend_sessions_missing"] == ["2015-02-03"]
+    assert not store.has("TWSE", tuesday)
+    assert not store.month_verification_covers("TWSE", *span)
+    verify_empty_days(store, "TWSE", start=span[0], end=span[1], fetch=fetch,
+                      census_rows=lambda day: [{**ROW, "date": day}])
+    assert store.partition_status("TWSE", tuesday) == "observed"
+    assert store.month_verification_covers("TWSE", *span)
