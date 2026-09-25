@@ -25,6 +25,13 @@ describe('notification channel settings', () => {
     expect(code.match(/disabled=\{isUpdatingExternalChannels\}/gu)).toHaveLength(2)
   })
 
+  it('does not display legacy rule defaults as saved global channels', () => {
+    const code = read('Monitoring.tsx')
+    expect(code).toContain('prefs?.external_notification_channels ?? []')
+    expect(code).not.toContain('prefs?.external_notification_channels ?? prefs?.webhook_default_channels')
+    expect(code).toContain('尚未儲存全域通道')
+  })
+
   it('keeps masked token inputs and configured-state checks', () => {
     const code = read('Monitoring.tsx')
     expect(code).toContain('lineTokenMasked')

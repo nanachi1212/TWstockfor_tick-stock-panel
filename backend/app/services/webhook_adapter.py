@@ -21,8 +21,8 @@ _STATUS_LOCK = threading.Lock()
 _DELIVERY_STATUS: dict[str, str] = {}
 
 
-def _retry_after(response, *, telegram: bool = False) -> None:
-    """Retry one explicit 429 rejection after a short bounded delay."""
+def _retry_after(response, *, telegram: bool = False) -> bool:
+    """Wait and allow one retry only when the rate-limit delay fits the bound."""
     try:
         header_delay = response.headers.get("Retry-After")
     except (AttributeError, TypeError, ValueError):
@@ -40,7 +40,10 @@ def _retry_after(response, *, telegram: bool = False) -> None:
         delay = float(delay_value if delay_value is not None else 1)
     except (TypeError, ValueError):
         delay = 1
-    time.sleep(max(0, min(delay, 2)))
+    if not math.isfinite(delay) or delay > 2:
+        return False
+    time.sleep(max(0, delay))
+    return True
 
 
 def _message(title: str, body: str) -> str:
@@ -129,8 +132,7 @@ def send_line(channel_access_token: str, target_id: str, title: str, body: str) 
             json={"to": target, "messages": [{"type": "text", "text": text}]},
             timeout=5.0,
         )
-        if response.status_code == 429:
-            _retry_after(response)
+        if response.status_code == 429 and _retry_after(response):
             response = httpx.post(
                 LINE_PUSH_URL,
                 headers={"Authorization": f"Bearer {token}"},
@@ -162,8 +164,7 @@ def send_telegram(bot_token: str, chat_id: str, title: str, body: str) -> bool:
             json={"chat_id": chat, "text": text},
             timeout=5.0,
         )
-        if response.status_code == 429:
-            _retry_after(response, telegram=True)
+        if response.status_code == 429 and _retry_after(response, telegram=True):
             response = httpx.post(
                 f"{TELEGRAM_API_ROOT}/bot{token}/sendMessage",
                 json={"chat_id": chat, "text": text},

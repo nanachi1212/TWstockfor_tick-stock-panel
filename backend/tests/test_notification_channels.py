@@ -245,6 +245,28 @@ def test_telegram_rate_limit_uses_retry_after_from_response_body(monkeypatch):
     assert delays == [1.5]
 
 
+def test_telegram_rate_limit_skips_retry_when_requested_delay_exceeds_bound(monkeypatch):
+    calls = []
+    delays = []
+
+    class Response:
+        status_code = 429
+
+        def __init__(self):
+            self.headers = {}
+
+        @staticmethod
+        def json():
+            return {"ok": False, "parameters": {"retry_after": 5}}
+
+    monkeypatch.setattr(httpx, "post", lambda *args, **kwargs: calls.append((args, kwargs)) or Response())
+    monkeypatch.setattr(webhook_adapter.time, "sleep", delays.append)
+
+    assert not webhook_adapter.send_telegram("fake-token", "-1001", "標題", "內容")
+    assert len(calls) == 1
+    assert delays == []
+
+
 def test_disabled_global_channel_does_not_dispatch(monkeypatch):
     from app.services import quote_service
 

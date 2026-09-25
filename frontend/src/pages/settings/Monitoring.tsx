@@ -43,8 +43,8 @@ export function SettingsMonitoringPanel(_props: { highlight?: string } = {}) {
   // 滑塊本地草稿: 拖動時即時反饋, 停頓 2s 後落庫 (與行情輪詢滑塊一致)
   const [intradayIntervalDraft, setIntradayIntervalDraft] = useState(intradayInterval)
   const refreshPages = prefs?.sse_refresh_pages ?? {}
-  // 全域外部提醒出口；舊偏好尚未遷移時沿用原本的推播預設值作初始顯示。
-  const webhookDefaultChannels = prefs?.external_notification_channels ?? prefs?.webhook_default_channels ?? []
+  // 只有明確保存的全域通道才顯示為啟用，舊規則預設不代表全域設定。
+  const externalChannels = prefs?.external_notification_channels ?? []
   const externalStatus = prefs?.external_notification_status ?? {}
   const deliveryStatusLabel = (channel: 'line' | 'telegram') => ({
     sent: '上次傳送成功',
@@ -109,7 +109,7 @@ export function SettingsMonitoringPanel(_props: { highlight?: string } = {}) {
 
   // 勾選/取消勾選全域外部提醒通道。
   const toggleDefaultChannel = useCallback(async (ch: string, enabled: boolean) => {
-    const cur = prefs?.external_notification_channels ?? prefs?.webhook_default_channels ?? []
+    const cur = prefs?.external_notification_channels ?? []
     const next = enabled ? [...cur, ch] : cur.filter(c => c !== ch)
     await updateExternalChannels(next)
   }, [prefs, updateExternalChannels])
@@ -323,6 +323,11 @@ export function SettingsMonitoringPanel(_props: { highlight?: string } = {}) {
           <p className="text-xs text-secondary mb-3">
             App 內提醒會照常保存。選擇外送通道後，觸發的提醒也會送出；需保持 TWStock 後端執行。
           </p>
+          {prefs?.external_notification_channels == null && (
+            <p className="text-[10px] text-muted mb-3">
+              尚未儲存全域通道。升級前各規則仍依原通道設定；在此勾選並儲存後，全域選擇會套用至所有提醒。
+            </p>
+          )}
 
           <div className="space-y-2">
             <div className="rounded-btn border border-border/60 bg-base/40 overflow-hidden">
@@ -333,7 +338,7 @@ export function SettingsMonitoringPanel(_props: { highlight?: string } = {}) {
                 <input
                   type="checkbox"
                   disabled={isUpdatingExternalChannels}
-                  checked={webhookDefaultChannels.includes('line')}
+                  checked={externalChannels.includes('line')}
                   onChange={event => { event.stopPropagation(); toggleDefaultChannel('line', event.target.checked) }}
                   onClick={event => event.stopPropagation()}
                   title="全域啟用 LINE 提醒"
@@ -341,7 +346,7 @@ export function SettingsMonitoringPanel(_props: { highlight?: string } = {}) {
                 />
                 <span className="text-[11px] font-medium text-foreground">LINE</span>
                 <span className="text-[9px] text-muted">Messaging API</span>
-                {webhookDefaultChannels.includes('line') && (
+                {externalChannels.includes('line') && (
                   <span className="rounded bg-accent/15 px-1 py-px text-[9px] text-accent">啟用</span>
                 )}
                 <span className={`ml-auto text-[9px] ${lineConfigured ? 'text-emerald-500' : 'text-warning'}`}>
@@ -468,7 +473,7 @@ export function SettingsMonitoringPanel(_props: { highlight?: string } = {}) {
                 <input
                   type="checkbox"
                   disabled={isUpdatingExternalChannels}
-                  checked={webhookDefaultChannels.includes('telegram')}
+                  checked={externalChannels.includes('telegram')}
                   onChange={event => { event.stopPropagation(); toggleDefaultChannel('telegram', event.target.checked) }}
                   onClick={event => event.stopPropagation()}
                   title="全域啟用 Telegram 提醒"
@@ -476,7 +481,7 @@ export function SettingsMonitoringPanel(_props: { highlight?: string } = {}) {
                 />
                 <span className="text-[11px] font-medium text-foreground">Telegram</span>
                 <span className="text-[9px] text-muted">Bot API</span>
-                {webhookDefaultChannels.includes('telegram') && (
+                {externalChannels.includes('telegram') && (
                   <span className="rounded bg-accent/15 px-1 py-px text-[9px] text-accent">啟用</span>
                 )}
                 <span className={`ml-auto text-[9px] ${telegramConfigured ? 'text-emerald-500' : 'text-warning'}`}>
