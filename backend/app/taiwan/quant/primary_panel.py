@@ -62,6 +62,22 @@ _COVERAGE_SCHEMA = {
 }
 
 
+def _streak_crosses_gap(frame: pl.DataFrame) -> pl.Series:
+    """True where the |macd_hist_streak| most recent bars are not consecutive sessions."""
+    flags = [False] * frame.height
+    position = 0
+    for _symbol, rows in frame.group_by("symbol", maintain_order=True):
+        sessions = rows["_session"].to_list()
+        for offset, streak in enumerate(rows["macd_hist_streak"].to_list()):
+            if streak is None or streak == 0:
+                continue
+            span = int(abs(streak)) - 1
+            if span > offset or sessions[offset] - sessions[offset - span] != span:
+                flags[position + offset] = True
+        position += rows.height
+    return pl.Series("_streak_gap", flags, dtype=pl.Boolean)
+
+
 def mask_missing_session_windows(
     values: pl.DataFrame, sessions: Sequence[date],
 ) -> tuple[pl.DataFrame, pl.DataFrame]:
@@ -78,6 +94,10 @@ def mask_missing_session_windows(
                 .over("symbol")) != _min_history(name) - 1)
         for name in _WINDOWED
     }
+    # macd_hist_streak counts back until the histogram changes sign, so its span is
+    # the value itself, not a fixed window: it must not reach across a session gap.
+    frame = frame.with_columns(_streak_crosses_gap(frame).alias("_streak_gap"))
+    masks["macd_hist_streak"] = masks["macd_hist_streak"] | pl.col("_streak_gap")
     flagged = frame.select(
         "symbol", "date",
         *[(pl.col(name).is_not_null() & masks[name]).alias(name) for name in _WINDOWED],
@@ -96,7 +116,7 @@ def mask_missing_session_windows(
             ).select(list(_COVERAGE_SCHEMA)))
     masked = frame.with_columns(
         [pl.when(masks[name]).then(None).otherwise(pl.col(name)).alias(name) for name in _WINDOWED]
-    ).drop("_session").sort(["date", "symbol"])
+    ).drop("_session", "_streak_gap").sort(["date", "symbol"])
     return masked, (pl.concat(exceptions) if exceptions else pl.DataFrame(schema=_COVERAGE_SCHEMA))
 
 

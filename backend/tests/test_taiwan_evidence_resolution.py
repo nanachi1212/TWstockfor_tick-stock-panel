@@ -711,3 +711,38 @@ def test_provider_error_is_superseded_only_by_the_same_source() -> None:
     assert len(kept) == 2 and all(e.status != "verified" for e in kept)
     same_source = _event("2330.TWSE", "data_insufficient", reason="x")
     assert resolve_event_conflicts([failed, same_source]) == (same_source,)
+
+
+def test_streak_factor_never_reaches_across_a_missing_session() -> None:
+    from app.taiwan.quant.panel import FACTORS
+    from app.taiwan.quant.primary_panel import mask_missing_session_windows
+
+    sessions = [date(2020, 1, 1) + timedelta(days=n) for n in range(10)]
+    present = [0, 1, 2, 3, 4, 6, 7, 8]  # session 5 has no price bar
+    streaks = [1.0, 2.0, 3.0, 4.0, 5.0, 2.0, 3.0, 2.0]
+    frame = pl.DataFrame({
+        "symbol": ["1101.TWSE"] * len(present), "date": [sessions[i] for i in present],
+        **{name: [None] * len(present) for name in FACTORS},
+    }).with_columns(
+        pl.Series("macd_hist_streak", streaks, dtype=pl.Float64),
+        *[pl.col(name).cast(pl.Float64) for name in FACTORS if name != "macd_hist_streak"],
+    )
+    masked, exceptions = mask_missing_session_windows(frame, sessions)
+    result = dict(zip(masked["date"], masked["macd_hist_streak"], strict=True))
+    assert result[sessions[6]] is None      # streak 2 would count session 4 across the gap
+    assert result[sessions[7]] is None      # streak 3 spans sessions 4-7
+    assert result[sessions[8]] == 2.0       # 7-8: consecutive sessions
+    assert result[sessions[4]] == 5.0       # before the gap
+    assert set(exceptions["reason"].to_list()) == {"missing_session_in_window"}
+
+
+def test_failed_request_survives_a_cross_source_conflict_for_the_retry() -> None:
+    from app.taiwan.corporate_actions import resolve_event_conflicts
+
+    failed = _event("2330.TWSE", "provider_error")
+    other = _event("2330.TWSE", "verified", source="TWTAUU", event_type="capital_reduction",
+                   previous_close=10.0, reference_price=20.0, factor=2.0,
+                   precision_method="official_reference_ratio")
+    kept = {e.source: e for e in resolve_event_conflicts([failed, other])}
+    assert kept["TWT49U"].status == "provider_error"        # still visible to the stale retry
+    assert kept["TWTAUU"].status == "data_insufficient"     # same-day cross-source: unusable

@@ -271,8 +271,10 @@ def resolve_event_conflicts(events: Iterable[CorporateActionEvent]) -> tuple[Cor
             output.append(replace(min(group, key=lambda e: e.content_hash),
                                   revision_status="equivalent_observations"))
         else:
-            output.extend(replace(insufficient(e, "conflicting_event_or_revision"),
-                                  revision_status="conflict") for e in group)
+            # A failed request keeps its status so a retry can still find it.
+            output.extend(e if e.status == "provider_error" else replace(
+                insufficient(e, "conflicting_event_or_revision"), revision_status="conflict")
+                for e in group)
     return tuple(output)
 
 
