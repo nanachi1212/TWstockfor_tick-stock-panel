@@ -1543,6 +1543,7 @@ export interface TaiwanAIStockResearchReport {
   industry: string | null
   instrument_type: string
   evidence_as_of: string
+  personal_context_as_of?: string | null
   generated_at: string
   prompt_version: string
   overview: string
@@ -1553,8 +1554,11 @@ export interface TaiwanAIStockResearchReport {
   margin_interpretation?: string | null
   fundamentals_interpretation?: string | null
   abnormal_diagnostics_interpretation?: string | null
+  portfolio_interpretation?: string | null
+  alert_interpretation?: string | null
   key_observations: ObservationItem[]
   risk_factors: ObservationItem[]
+  watch_next?: ObservationItem[]
   missing_information: string[]
   disclaimer: string
 }
@@ -1570,6 +1574,14 @@ export interface TaiwanAIResearchResponse {
   evidence_as_of?: string | null
   generated_at: string
   evidence_registry_keys: string[]
+}
+
+export interface TaiwanAIResearchPersonalContext {
+  quote?: { last_price?: number; change?: number; change_pct?: number; quote_time?: string; market_status?: string; trade_date?: string; status?: string; source?: string; is_stale?: boolean }
+  portfolio?: { shares?: number; average_cost?: number; current_price?: number; unrealized_pnl?: number; return_pct?: number; change?: number; change_pct?: number }
+  watchlist?: { included: boolean }
+  quant?: { status: 'available' | 'no_valid_run' | 'unavailable'; selected: boolean; rank?: number; score?: number; session?: string; feature_percentiles?: Record<string, number> }
+  alert?: { alert_id?: string; rule_name?: string; rule_type?: string; triggered_at?: string; trigger_value?: number; threshold?: number; change_pct?: number; quant_status?: string; quant_rank?: number; quant_score?: number; quant_session?: string; message?: string; source?: string; market_status?: string }
 }
 
 // ── Phase 7G: Multi-Stock Objective Research Comparison ──────
@@ -3148,12 +3160,12 @@ export const api = {
         : `/api/taiwan/stocks/${encodeURIComponent(symbol)}/research-context`,
     ),
 
-  taiwanStockAIResearch: (symbol: string, date?: string) =>
+  taiwanStockAIResearch: (symbol: string, date?: string, personalContext?: TaiwanAIResearchPersonalContext) =>
     request<TaiwanAIResearchResponse>(
       `/api/taiwan/stocks/${encodeURIComponent(symbol)}/ai-research`,
       {
         method: 'POST',
-        body: JSON.stringify({ date: date || null }),
+        body: JSON.stringify({ date: date || null, ...(personalContext ? { personal_context: personalContext } : {}) }),
       },
     ),
 

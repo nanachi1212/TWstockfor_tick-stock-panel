@@ -1,4 +1,4 @@
-import { useMemo } from 'react'
+import { useEffect, useMemo } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
 import { ArrowUpRight, Loader2, RefreshCw, Star, TrendingUp } from 'lucide-react'
@@ -32,6 +32,7 @@ export interface TodayQuantSelectionData {
   signals: TaiwanLiveQuantSignal[]
   featureMap: Map<string, Record<string, unknown> & { symbol: string }>
   loading: boolean
+  fetching: boolean
   error: boolean
   refetch: () => void
 }
@@ -64,6 +65,7 @@ function useTodayQuantSelectionInternal() {
   const signals = validRun?.snapshot.signals ?? []
   const featureMap = useMemo(() => new Map((runData?.snapshot.features ?? []).map(item => [item.symbol, item])), [runData])
   const loading = models.isLoading || runs.isLoading || (!models.isError && !runs.isError && expectedRun && run.isLoading)
+  const fetching = models.isFetching || runs.isFetching || run.isFetching
   const error = models.isError || runs.isError || run.isError
 
   return {
@@ -73,6 +75,7 @@ function useTodayQuantSelectionInternal() {
     signals,
     featureMap,
     loading,
+    fetching,
     error,
     refetch: () => { void models.refetch(); void runs.refetch(); if (modelKey && latest) void run.refetch() },
   }
@@ -82,7 +85,7 @@ export function useTodayQuantSelection(): TodayQuantSelectionData {
   return useTodayQuantSelectionInternal()
 }
 
-export function TodaySelection({ symbol }: { symbol?: string }) {
+export function TodaySelection({ symbol, onResearchContext }: { symbol?: string; onResearchContext?: (context: { rank: number; score: number; session: string; feature_percentiles: Record<string, number> } | null) => void }) {
   const qc = useQueryClient()
   const selection = useTodayQuantSelection()
   const { latest, expectedRun, validRun, signals, featureMap, loading, error } = selection
@@ -110,6 +113,13 @@ export function TodaySelection({ symbol }: { symbol?: string }) {
     },
   })
   const selected = symbol ? signals.find(item => item.symbol === symbol) : null
+
+  useEffect(() => {
+    if (!symbol || loading) return
+    onResearchContext?.(selected && validRun
+      ? { rank: selected.rank, score: selected.score, session: validRun.session, feature_percentiles: selected.feature_percentiles }
+      : null)
+  }, [symbol, loading, selected, validRun, onResearchContext])
 
   if (symbol) {
     if (loading) return <div className="text-xs text-muted" role="status">正在載入 live Quant 排名…</div>
@@ -157,7 +167,7 @@ export function TodaySelection({ symbol }: { symbol?: string }) {
       {!loading && !error && validRun && signals.length > 0 ? (
         <div className="overflow-x-auto">
           <table className="w-full min-w-[760px] text-left text-xs">
-            <thead className="text-[10px] text-muted"><tr><th className="px-2 py-1">排名 / 標的</th><th className="px-2 py-1">現價 / 漲跌</th><th className="px-2 py-1">Quant 分數</th><th className="px-2 py-1">動能 5 / 20 / 60D</th><th className="px-2 py-1">波動 / 流動性 / 相對量</th><th className="px-2 py-1">入選原因</th><th className="px-2 py-1">自選</th></tr></thead>
+            <thead className="text-[10px] text-muted"><tr><th className="px-2 py-1">排名 / 標的</th><th className="px-2 py-1">現價 / 漲跌</th><th className="px-2 py-1">Quant 分數</th><th className="px-2 py-1">動能 5 / 20 / 60D</th><th className="px-2 py-1">波動 / 流動性 / 相對量</th><th className="px-2 py-1">入選原因</th><th className="px-2 py-1">自選</th><th className="px-2 py-1">研究</th></tr></thead>
             <tbody>{signals.slice(0, 10).map(item => {
               const quote = quoteMap.get(item.symbol)
               const features = featureMap.get(item.symbol)
@@ -178,6 +188,7 @@ export function TodaySelection({ symbol }: { symbol?: string }) {
                 <td className="px-2 py-2 text-secondary">{formatPct(finite(features?.volatility_20d))} / {adv20 == null ? '—' : `${(adv20 / 1_000_000).toFixed(0)}M`} / {finite(features?.relative_volume)?.toFixed(2) ?? '—'}</td>
                 <td className="max-w-[220px] px-2 py-2 text-secondary">{reason.join('、') || '既有動能選取條件'}</td>
                 <td className="px-2 py-2">{watchlistSymbols.has(item.symbol) ? <span className="text-[10px] text-muted">已加入</span> : <button type="button" aria-label={`將 ${item.symbol} 加入自選`} onClick={() => add.mutate(item.symbol)} disabled={add.isPending || watchlist.isError} className="inline-flex items-center gap-1 rounded border border-border px-1.5 py-1 text-[10px] hover:text-accent disabled:opacity-50"><Star className="h-3 w-3" />{watchlist.isError ? '自選不可用' : '加入'}</button>}</td>
+                <td className="px-2 py-2"><Link to={`/stocks/${encodeURIComponent(item.symbol)}`} state={{ aiResearchRequested: true }} className="whitespace-nowrap rounded border border-accent/30 px-1.5 py-1 text-[10px] text-accent hover:bg-accent/10">AI 分析</Link></td>
               </tr>
             })}</tbody>
           </table>

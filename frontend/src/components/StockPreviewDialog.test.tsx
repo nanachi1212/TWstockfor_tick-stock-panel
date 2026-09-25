@@ -3,7 +3,7 @@
 // 「有明確路徑離開空白預覽、進到完整個股頁」無關, 全部 mock 掉。
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { render, screen, fireEvent } from '@testing-library/react'
-import { MemoryRouter, Routes, Route } from 'react-router-dom'
+import { MemoryRouter, Routes, Route, useLocation } from 'react-router-dom'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { StockPreviewDialog } from './StockPreviewDialog'
 
@@ -35,12 +35,17 @@ function renderDialog(symbol = '2454.TWSE') {
       <MemoryRouter initialEntries={['/watchlist']}>
         <Routes>
           <Route path="/watchlist" element={<div>WATCHLIST PAGE (dialog host)</div>} />
-          <Route path="/stocks/:symbol" element={<div>STOCK DETAIL PAGE</div>} />
+          <Route path="/stocks/:symbol" element={<><div>STOCK DETAIL PAGE</div><RouteState /></>} />
         </Routes>
         <StockPreviewDialog symbol={symbol} name="聯發科" onClose={() => {}} />
       </MemoryRouter>
     </QueryClientProvider>,
   )
+}
+
+function RouteState() {
+  const location = useLocation()
+  return <span data-testid="route-state">{JSON.stringify(location.state)}</span>
 }
 
 afterEach(() => {
@@ -55,6 +60,13 @@ describe('StockPreviewDialog — 完整個股入口 (DAILY_USE_CORE_UX_FIXES P1-
     fireEvent.click(link)
 
     expect(await screen.findByText('STOCK DETAIL PAGE')).toBeInTheDocument()
+  })
+
+  it('provides a direct AI Research action for Taiwan stocks from the Watchlist preview', async () => {
+    renderDialog('2454.TWSE')
+    fireEvent.click(await screen.findByRole('button', { name: 'AI 分析 2454.TWSE' }))
+    expect(await screen.findByText('STOCK DETAIL PAGE')).toBeInTheDocument()
+    expect(screen.getByTestId('route-state')).toHaveTextContent('"aiResearchRequested":true')
   })
 
   it('不對非台股代碼顯示「查看完整個股」(該 route 僅支援台股, 與既有「加入比較」同一限制)', async () => {

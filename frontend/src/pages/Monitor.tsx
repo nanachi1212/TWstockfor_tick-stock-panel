@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { Plus, ListChecks, BellRing, Globe } from 'lucide-react'
 import { api, type TaiwanMonitorRule, type TaiwanRealtimeQuote } from '@/lib/api'
@@ -16,6 +17,7 @@ import { TaiwanRulesList } from '@/components/monitor/TaiwanRulesList'
 // RuleEditor.tsx 經 StockPreviewDialog 等處繼續重用)、Taiwan quote/monitor
 // merge 完全未動。Monitor 最終只剩台股即時監控一種畫面, 不再需要市場切換分頁。
 export function Monitor() {
+  const navigate = useNavigate()
   const [twEditorOpen, setTwEditorOpen] = useState(false)
   const [editingTwRule, setEditingTwRule] = useState<TaiwanMonitorRule | null>(null)
   const [presetTwQuote, setPresetTwQuote] = useState<TaiwanRealtimeQuote | null>(null)
@@ -88,7 +90,10 @@ export function Monitor() {
                 </div>
               </div>
               <div className="min-h-0 flex-1 overflow-auto p-3.5">
-                <TaiwanAlertsList alerts={alertsQuery.data?.alerts || []} />
+                <TaiwanAlertsList
+                  alerts={alertsQuery.data?.alerts || []}
+                  onInterpretAlert={(symbol, alertId) => navigate(`/stocks/${encodeURIComponent(symbol)}`, { state: { aiResearchRequested: true, alertId } })}
+                />
               </div>
             </section>
 

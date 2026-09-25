@@ -12,6 +12,7 @@ import tempfile
 import time
 import tomllib
 from collections.abc import AsyncIterator, Callable, Sequence
+from dataclasses import dataclass, field
 from pathlib import Path
 from types import TracebackType
 from urllib.parse import urlsplit, urlunsplit
@@ -67,6 +68,65 @@ _CODEX_ENV_ALLOWLIST = (
 )
 
 Message = dict[str, str]
+
+
+@dataclass(frozen=True)
+class AIProviderConfigSnapshot:
+    provider: str
+    model: str
+    api_key: str = field(repr=False)
+    base_url: str = ""
+    user_agent: str = ""
+    max_output_tokens: int = 0
+    context_window: int = 0
+    reasoning_effort: str = ""
+    codex_command: str = CODEX_DEFAULT_COMMAND
+    codex_reasoning_effort: str = ""
+
+
+def snapshot_ai_provider_config() -> AIProviderConfigSnapshot:
+    """Read provider settings once so an in-flight research call stays consistent."""
+    stored = secrets_store.load()
+
+    def configured(name: str, fallback: str) -> str:
+        value = stored.get(name)
+        return str(value if value else getattr(settings, name, fallback) or fallback)
+
+    def configured_int(name: str, fallback: int) -> int:
+        value = stored.get(name)
+        if value is None:
+            return int(getattr(settings, name, fallback) or fallback)
+        try:
+            return int(value)
+        except (TypeError, ValueError):
+            return int(getattr(settings, name, fallback) or fallback)
+
+    provider = configured("ai_provider", OPENAI_COMPAT_PROVIDER)
+    if provider == CODEX_CLI_PROVIDER:
+        model_value = stored.get("ai_codex_model")
+        if model_value is None:
+            model_value = stored.get("ai_model")
+        model = normalize_codex_model(str(model_value or ""))
+    else:
+        model = configured("ai_model", settings.ai_model)
+    if "ai_reasoning_effort" in stored:
+        reasoning_effort = str(stored.get("ai_reasoning_effort") or "").strip()
+    else:
+        reasoning_effort = OPENAI_DEFAULT_REASONING_EFFORT
+    return AIProviderConfigSnapshot(
+        provider=provider,
+        model=model,
+        api_key=str(stored.get("ai_api_key") or settings.ai_api_key or ""),
+        base_url=configured("ai_base_url", settings.ai_base_url),
+        user_agent=configured("ai_user_agent", settings.ai_user_agent),
+        max_output_tokens=configured_int("ai_max_output_tokens", settings.ai_max_output_tokens),
+        context_window=configured_int("ai_context_window", settings.ai_context_window),
+        reasoning_effort=reasoning_effort,
+        codex_command=normalize_codex_command(configured("ai_codex_command", settings.ai_codex_command), strict=False),
+        codex_reasoning_effort=normalize_codex_reasoning_effort(
+            str(stored.get("ai_codex_reasoning_effort", settings.ai_codex_reasoning_effort) or ""),
+        ),
+    )
 
 _ANSI_RE = re.compile(r"\x1b\[[0-9;?]*[ -/]*[@-~]")
 
@@ -143,7 +203,7 @@ def current_ai_context_window() -> int:
     return secrets_store.get_ai_config_int("ai_context_window", settings.ai_context_window)
 
 
-def _resolve_max_tokens(max_tokens: int | None) -> int | None:
+def _resolve_max_tokens(max_tokens: int | None, *, cap: int | None = None) -> int | None:
     """显式传入的 max_tokens 钳制到配置输出上限; None 保持 None。
 
     None = 不传该参数(推理型模型的思考 token 计入 max_tokens 预算,
@@ -151,7 +211,7 @@ def _resolve_max_tokens(max_tokens: int | None) -> int | None:
     """
     if max_tokens is None:
         return None
-    cap = current_ai_max_output_tokens()
+    cap = current_ai_max_output_tokens() if cap is None else cap
     return max(1, min(int(max_tokens), cap))
 
 
@@ -165,17 +225,24 @@ def _estimate_input_tokens(messages: Sequence[Message]) -> int:
     return max(1, total)
 
 
-def _check_input_budget(messages: Sequence[Message], *, max_tokens: int | None) -> None:
+def _check_input_budget(
+    messages: Sequence[Message],
+    *,
+    max_tokens: int | None,
+    context_window: int | None = None,
+    max_output_tokens: int | None = None,
+) -> None:
     """输入估算超出上下文窗口时给出明确报错, 避免上游 400 或静默截断。
 
     token 计数不精确, 仅作安全网: 用中/英文混合估算, 只有明显超窗才拒绝;
     用户可在 AI 设置里调大『上下文窗口』。max_tokens=None(输出放开)时用
     配置上限作输出预留估计。
     """
-    context_window = current_ai_context_window()
+    context_window = current_ai_context_window() if context_window is None else context_window
     if context_window <= 0:
         return
-    output_reserve = max_tokens if max_tokens is not None else current_ai_max_output_tokens()
+    configured_output_cap = current_ai_max_output_tokens() if max_output_tokens is None else max_output_tokens
+    output_reserve = max_tokens if max_tokens is not None else configured_output_cap
     est = _estimate_input_tokens(messages)
     if est + output_reserve > context_window:
         raise ValueError(
@@ -283,6 +350,9 @@ async def generate_ai_text(
     temperature: float | None = 0.3,
     max_tokens: int | None = 3000,
     timeout: float = 180.0,
+    provider: str | None = None,
+    model: str | None = None,
+    config_snapshot: AIProviderConfigSnapshot | None = None,
 ) -> str:
     """Return a complete AI response from the currently configured provider.
 
@@ -291,15 +361,35 @@ async def generate_ai_text(
     会挤占正文甚至全部吃光(正文 0 字 + finish=length), 长分析类调用应放开。
     显式传入的数值会被钳制到配置的输出上限 (AI 设置可调)。
     """
-    max_tokens = _resolve_max_tokens(max_tokens)
-    _check_input_budget(messages, max_tokens=max_tokens)
-    if is_codex_cli_provider():
-        return await _run_codex_cli(messages, max_tokens=max_tokens, timeout=max(timeout, 600.0))
+    max_tokens = _resolve_max_tokens(
+        max_tokens,
+        cap=config_snapshot.max_output_tokens if config_snapshot is not None else None,
+    )
+    _check_input_budget(
+        messages,
+        max_tokens=max_tokens,
+        context_window=config_snapshot.context_window if config_snapshot is not None else None,
+        max_output_tokens=config_snapshot.max_output_tokens if config_snapshot is not None else None,
+    )
+    if config_snapshot is not None:
+        provider = config_snapshot.provider
+        model = config_snapshot.model
+    codex_provider = is_codex_cli_provider(provider) if provider is not None else is_codex_cli_provider()
+    if codex_provider:
+        codex_kwargs = {"max_tokens": max_tokens, "timeout": max(timeout, 600.0)}
+        if model is not None:
+            codex_kwargs["model"] = model
+        if config_snapshot is not None:
+            codex_kwargs["config_snapshot"] = config_snapshot
+        return await _run_codex_cli(messages, **codex_kwargs)
+    openai_kwargs = {"temperature": temperature, "max_tokens": max_tokens, "timeout": timeout}
+    if model is not None:
+        openai_kwargs["model"] = model
+    if config_snapshot is not None:
+        openai_kwargs["config_snapshot"] = config_snapshot
     return await _run_openai_once(
         messages,
-        temperature=temperature,
-        max_tokens=max_tokens,
-        timeout=timeout,
+        **openai_kwargs,
     )
 
 
@@ -338,15 +428,24 @@ async def _run_openai_once(
     temperature: float | None,
     max_tokens: int | None,
     timeout: float,
+    model: str | None = None,
+    config_snapshot: AIProviderConfigSnapshot | None = None,
 ) -> str:
-    ai_key = secrets_store.get_ai_key()
+    ai_key = config_snapshot.api_key if config_snapshot is not None else secrets_store.get_ai_key()
     if not ai_key:
         raise RuntimeError("AI API Key 未配置, 请在设置页配置")
 
-    client = _openai_client(ai_key, timeout)
-    model = current_ai_model()
+    client = _openai_client(ai_key, timeout, config_snapshot=config_snapshot)
+    model = config_snapshot.model if config_snapshot is not None else (
+        model if model is not None else current_ai_model()
+    )
     req_messages = list(messages)
-    kwargs = _openai_kwargs(temperature=temperature, max_tokens=max_tokens)
+    kwargs = _openai_kwargs(
+        temperature=temperature,
+        max_tokens=max_tokens,
+        provider=config_snapshot.provider if config_snapshot is not None else None,
+        reasoning_effort=config_snapshot.reasoning_effort if config_snapshot is not None else None,
+    )
     while True:
         try:
             resp = await client.chat.completions.create(
@@ -418,13 +517,23 @@ async def _stream_openai(
         raise
 
 
-def _openai_client(api_key: str, timeout: float):
+def _openai_client(
+    api_key: str,
+    timeout: float,
+    *,
+    config_snapshot: AIProviderConfigSnapshot | None = None,
+):
     from openai import AsyncOpenAI
 
-    user_agent = secrets_store.get_ai_config("ai_user_agent", "") or settings.ai_user_agent
+    user_agent = config_snapshot.user_agent if config_snapshot is not None else (
+        secrets_store.get_ai_config("ai_user_agent", "") or settings.ai_user_agent
+    )
+    base_url = config_snapshot.base_url if config_snapshot is not None else (
+        secrets_store.get_ai_config("ai_base_url", settings.ai_base_url)
+    )
     return AsyncOpenAI(
         api_key=api_key,
-        base_url=normalize_openai_base_url(secrets_store.get_ai_config("ai_base_url", settings.ai_base_url)),
+        base_url=normalize_openai_base_url(base_url),
         timeout=timeout,
         max_retries=0,
         default_headers={"User-Agent": user_agent},
@@ -479,7 +588,13 @@ def _openai_retry_kwargs(exc: Exception, kwargs: dict) -> dict | None:
     return None
 
 
-def _openai_kwargs(*, temperature: float | None, max_tokens: int | None) -> dict:
+def _openai_kwargs(
+    *,
+    temperature: float | None,
+    max_tokens: int | None,
+    provider: str | None = None,
+    reasoning_effort: str | None = None,
+) -> dict:
     """Build OpenAI create() kwargs; optional parameters are omitted when empty.
 
     max_tokens=None 时不传 — 由服务端默认上限管理(推理模型的思考 token 也
@@ -490,8 +605,9 @@ def _openai_kwargs(*, temperature: float | None, max_tokens: int | None) -> dict
         kwargs["max_tokens"] = max_tokens
     if temperature is not None:
         kwargs["temperature"] = temperature
-    if current_ai_provider() == OPENAI_PROVIDER:
-        reasoning_effort = current_openai_reasoning_effort()
+    if (provider if provider is not None else current_ai_provider()) == OPENAI_PROVIDER:
+        if reasoning_effort is None:
+            reasoning_effort = current_openai_reasoning_effort()
         if reasoning_effort:
             kwargs["reasoning_effort"] = reasoning_effort
     return kwargs
@@ -592,6 +708,8 @@ async def _run_codex_cli(
     *,
     max_tokens: int | None,
     timeout: float,
+    model: str | None = None,
+    config_snapshot: AIProviderConfigSnapshot | None = None,
 ) -> str:
     prompt = _codex_prompt(messages, max_tokens=max_tokens)
     run_path = Path(tempfile.mkdtemp(prefix="tickflow-codex-run-"))
@@ -601,12 +719,19 @@ async def _run_codex_cli(
         codex_home_path.mkdir()
         workspace_path.mkdir()
         output_path = codex_home_path / "last-message.txt"
-        _prepare_codex_home(codex_home_path)
+        if config_snapshot is None:
+            _prepare_codex_home(codex_home_path)
+        else:
+            _prepare_codex_home(codex_home_path, config_snapshot=config_snapshot)
 
         # 不传 --ephemeral: 老版本 codex(如 0.58)无此参数, 传了直接报
         # unexpected argument; 会话隔离已由一次性临时 CODEX_HOME 保证(跑完即删)。
         args = [
-            *_codex_base_command(),
+            *(
+                _codex_base_command(config_snapshot.codex_command)
+                if config_snapshot is not None
+                else _codex_base_command()
+            ),
             "exec",
             "--sandbox",
             "read-only",
@@ -616,7 +741,10 @@ async def _run_codex_cli(
             "--output-last-message",
             str(output_path),
         ]
-        model = current_ai_model().strip()
+        model = (
+            config_snapshot.model if config_snapshot is not None
+            else model if model is not None else current_ai_model()
+        ).strip()
         if model:
             args.extend(["--model", model])
         args.extend(["--cd", str(workspace_path), "-"])
@@ -740,8 +868,8 @@ def _codex_prompt(messages: Sequence[Message], *, max_tokens: int | None) -> str
     return "\n".join(parts)
 
 
-def _codex_base_command() -> list[str]:
-    command = current_codex_command()
+def _codex_base_command(command: str | None = None) -> list[str]:
+    command = command if command is not None else current_codex_command()
     resolved = _resolve_command(command)
     if not resolved:
         raise RuntimeError(f"未找到 Codex CLI 命令: {command}")
@@ -824,20 +952,28 @@ def _resolve_windows_desktop_codex() -> str | None:
     return str(newest)
 
 
-def _prepare_codex_home(target: Path) -> None:
+def _prepare_codex_home(
+    target: Path,
+    *,
+    config_snapshot: AIProviderConfigSnapshot | None = None,
+) -> None:
     """Create an isolated CODEX_HOME that reuses auth but not fragile config."""
     source = _codex_home()
     auth_file = source / "auth.json"
     if auth_file.exists():
         shutil.copy2(auth_file, target / "auth.json")
-    _write_compatible_codex_config(target / "config.toml")
+    _write_compatible_codex_config(target / "config.toml", config_snapshot=config_snapshot)
 
 
 def _codex_home() -> Path:
     return Path(os.environ.get("CODEX_HOME") or Path.home() / ".codex")
 
 
-def _write_compatible_codex_config(path: Path) -> None:
+def _write_compatible_codex_config(
+    path: Path,
+    *,
+    config_snapshot: AIProviderConfigSnapshot | None = None,
+) -> None:
     config = _read_codex_config()
     lines: list[str] = []
     active_provider = _active_codex_provider(config)
@@ -849,12 +985,18 @@ def _write_compatible_codex_config(path: Path) -> None:
     if isinstance(openai_base_url, str) and openai_base_url:
         lines.append(_toml_string("openai_base_url", openai_base_url))
 
-    model = current_ai_model() or normalize_codex_model(str(config.get("model") or ""))
+    model = (
+        config_snapshot.model
+        if config_snapshot is not None
+        else current_ai_model() or normalize_codex_model(str(config.get("model") or ""))
+    )
     if model:
         lines.append(_toml_string("model", model))
 
-    effort = current_codex_reasoning_effort() or normalize_codex_reasoning_effort(
-        str(config.get("model_reasoning_effort") or "")
+    effort = (
+        config_snapshot.codex_reasoning_effort
+        if config_snapshot is not None
+        else current_codex_reasoning_effort() or normalize_codex_reasoning_effort(str(config.get("model_reasoning_effort") or ""))
     )
     if effort:
         lines.append(_toml_string("model_reasoning_effort", effort))
