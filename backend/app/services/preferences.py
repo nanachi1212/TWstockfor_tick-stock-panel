@@ -127,12 +127,7 @@ def set_realtime_watchlist_symbols(symbols: list[str]) -> list[str]:  # noqa: AR
 
 def set_realtime_quote_interval(interval: float) -> float:
     """保存行情轮询间隔（不在此做 min/max 校验，由调用方按档位限制）。"""
-    current = load()
-    current["realtime_quote_interval"] = interval
-    _path().write_text(
-        json.dumps(current, indent=2, ensure_ascii=False), encoding="utf-8",
-    )
-    _invalidate_cache()
+    save({"realtime_quote_interval": interval})
     return interval
 
 

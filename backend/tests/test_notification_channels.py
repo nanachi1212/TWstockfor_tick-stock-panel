@@ -174,6 +174,14 @@ def test_preference_reads_wait_until_merge_write_finishes(monkeypatch, tmp_path)
         assert future.result(timeout=1) == {}
 
 
+def test_quote_interval_setter_preserves_other_preferences(monkeypatch, tmp_path):
+    _isolated_stores(monkeypatch, tmp_path)
+    preferences.set_external_notification_channels(["line"])
+
+    assert preferences.set_realtime_quote_interval(12) == 12
+    assert preferences.get_external_notification_channels() == ["line"]
+
+
 def test_notification_status_endpoint_returns_latest_delivery_state(monkeypatch):
     monkeypatch.setattr(webhook_adapter, "delivery_status", lambda: {"line": "sent"})
 
