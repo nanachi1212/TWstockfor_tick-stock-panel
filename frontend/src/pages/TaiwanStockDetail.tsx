@@ -195,7 +195,8 @@ export function TaiwanStockDetail() {
             shares: position.shares,
             average_cost: position.averageCost,
             ...(typeof currentPrice === 'number' ? { current_price: currentPrice } : {}),
-            ...(pnl != null ? { unrealized_pnl: pnl, return_pct: position.costBasis ? pnl / position.costBasis * 100 : undefined } : {}),
+            // AI research percentages use fractions (0.05 = 5%), matching price_context returns.
+            ...(pnl != null ? { unrealized_pnl: pnl, return_pct: position.costBasis ? pnl / position.costBasis : undefined } : {}),
             ...(typeof verifiedQuote?.change === 'number' ? { change: verifiedQuote.change } : {}),
             // Keep the realtime quote's percentage-point value out of this fraction-based context.
           }

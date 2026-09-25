@@ -208,6 +208,37 @@ describe('TaiwanStockDetail — AI Research', () => {
     ))
   })
 
+  it('sends verified portfolio returns as decimal fractions and omits realtime percentage points', async () => {
+    const detailLoader = vi.mocked(api.taiwanStockDetail).getMockImplementation()
+    expect(detailLoader).toBeDefined()
+    const detail = await detailLoader!('2330.TWSE')
+    vi.mocked(api.taiwanStockDetail).mockResolvedValue({
+      ...detail,
+      realtime: {
+        ...detail.realtime, last_price: 105, change: 5, change_pct: 5, market_status: 'open',
+        meta: { source: 'twse:mis', trade_date: '2026-09-25', status: 'available', is_stale: false },
+      },
+    })
+    window.localStorage.setItem('portfolio_transactions', JSON.stringify([{
+      id: 'trade-verified', symbol: '2330.TWSE', name: '台積電', side: 'buy', shares: 10,
+      price: 100, fee: 0, tax: 0, date: '2026-09-24', tradeTime: '10:00', createdAt: '2026-09-24T10:00:00+08:00',
+    }]))
+    vi.mocked(api.taiwanStockAIResearch).mockResolvedValue({
+      status: 'unavailable', error_message: 'AI 分析目前無法使用。', provider: 'Custom',
+      prompt_version: 'taiwan_stock_research_v1', generated_at: '2026-09-25T10:00:00+08:00', evidence_registry_keys: [],
+    })
+    renderAt(['/stocks/2330.TWSE'], 0)
+    const analyze = await screen.findByRole('button', { name: 'AI 分析' })
+    await waitFor(() => expect(analyze).toBeEnabled())
+    fireEvent.click(analyze)
+
+    await waitFor(() => expect(vi.mocked(api.taiwanStockAIResearch)).toHaveBeenCalledTimes(1))
+    const sentContext = vi.mocked(api.taiwanStockAIResearch).mock.calls[0][2]
+    expect(sentContext?.quote).not.toHaveProperty('change_pct')
+    expect(sentContext?.portfolio?.return_pct).toBeCloseTo(0.05)
+    expect(sentContext?.portfolio).not.toHaveProperty('change_pct')
+  })
+
   it('consumes the AI navigation request so reload does not automatically re-run analysis', async () => {
     vi.mocked(api.taiwanStockAIResearch).mockResolvedValue({
       status: 'unavailable', error_message: 'AI 分析目前無法使用。', provider: 'Custom',
