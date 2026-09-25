@@ -228,8 +228,11 @@ class ObservedUniverseStore:
 
     def _partition_digest(self, exchange: str, start: date, end: date) -> str:
         """Identity of the partitions a verification pass saw (a lost one must show)."""
-        days = sorted(d.isoformat() for d in self.completed_dates(exchange) if start <= d <= end)
-        return hashlib.sha256(",".join(days).encode("ascii")).hexdigest()
+        digest = hashlib.sha256()
+        for day in sorted(d for d in self.completed_dates(exchange) if start <= d <= end):
+            digest.update(day.isoformat().encode("ascii"))
+            digest.update(hashlib.sha256(self.partition_path(exchange, day).read_bytes()).digest())
+        return digest.hexdigest()
 
     def record_month_verification(self, exchange: str, start: date, end: date) -> None:
         """A clean, complete pass of the official month-table check for [start, end]."""

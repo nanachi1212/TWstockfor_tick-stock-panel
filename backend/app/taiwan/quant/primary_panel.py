@@ -75,8 +75,9 @@ def _code_fingerprint() -> str:
     here = Path(__file__).resolve()
     taiwan = here.parents[1]
     digest = hashlib.sha256()
-    for path in (here, taiwan / "quant" / "panel.py", taiwan / "adjust.py",
-                 taiwan / "technical_indicators.py", taiwan / "corporate_actions.py"):
+    for path in (here, taiwan / "quant" / "panel.py", taiwan / "quant" / "evaluation_spec.py",
+                 taiwan / "adjust.py", taiwan / "technical_indicators.py",
+                 taiwan / "corporate_actions.py"):
         digest.update(path.read_bytes().replace(bytes([13, 10]), bytes([10])))
     return digest.hexdigest()
 
@@ -242,6 +243,7 @@ def _compute_batches(
         "factor_version": PRIMARY_OOS_SPEC.factor_version, "batch_size": batch_size,
         # Content digests: a same-sized correction must not reuse stale batches.
         **snapshot["identity_inputs"], "code": _code_fingerprint(),
+        "spec": PRIMARY_OOS_SPEC.fingerprint,
     }
     marker = work / "_identity.json"
     if not (marker.is_file() and json.loads(marker.read_text(encoding="utf-8")) == identity):

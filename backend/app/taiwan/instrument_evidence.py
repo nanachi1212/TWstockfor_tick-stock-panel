@@ -51,6 +51,7 @@ import pyarrow.parquet as pq
 from app.taiwan.historical_classification import (
     HistoricalClassificationStore,
     TwseHistoricalClassifier,
+    _with_type_contract,
 )
 from app.taiwan.providers.http import DEFAULT_USER_AGENT, fetch_json, throttle
 from app.taiwan.providers.taiwan_values import TAIPEI
@@ -400,7 +401,8 @@ def resolve_industry_only_codes(
     for code, day in first_seen.items():
         if not classifications.has(day):
             continue
-        mine = pl.read_parquet(classifications.partition_path(day)).filter(pl.col("code") == code)
+        mine = _with_type_contract(
+            pl.read_parquet(classifications.partition_path(day))).filter(pl.col("code") == code)
         if mine.height == 1 and mine["classification_status"][0] == "verified":
             continue
         if mine.height > 1:

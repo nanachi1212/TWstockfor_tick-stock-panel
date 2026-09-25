@@ -292,14 +292,14 @@ def _action_snapshot(
         new_range = (min(start, covered[0]), max(end, covered[1]))
     if gaps:
         # Stage every gap first: the store and its marker only ever advance together.
-        staged = [_fetch_actions(gap_start, gap_end) for gap_start, gap_end in gaps]
-        failed = _provider_errors([e for fetched in staged for e in fetched], required_symbols)
+        staged = [event for gap_start, gap_end in gaps
+                  for event in _fetch_actions(gap_start, gap_end)]
+        failed = _provider_errors(staged, required_symbols)
         if failed:
             raise PrimaryOosInputError(
                 "corporate-action detail requests failed for "
                 f"{sorted({e.symbol for e in failed})[:10]}; nothing was recorded as covered")
-        for fetched in staged:
-            store.save(fetched)
+        store.save(staged)  # one atomic replace for every staged gap
         _write_marker(store, marker, sources, new_range)
     events = tuple(event for event in store.read() if start <= event.effective_date <= end)
     stale = _provider_errors(events, required_symbols)

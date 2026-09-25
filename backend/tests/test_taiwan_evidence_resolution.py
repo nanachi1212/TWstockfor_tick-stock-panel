@@ -957,3 +957,38 @@ def test_official_weekday_without_a_partition_is_fetched_or_keeps_verification_o
                       census_rows=lambda day: [{**ROW, "date": day}])
     assert store.partition_status("TWSE", tuesday) == "observed"
     assert store.month_verification_covers("TWSE", *span)
+
+
+def test_month_marker_notices_a_replaced_partition_and_legacy_rows_are_normalized(
+    tmp_path: Path,
+) -> None:
+    store = ObservedUniverseStore(tmp_path / "census")
+    span = (date(2015, 2, 1), date(2015, 2, 3))
+    _seed_span(store, "TWSE", *span, observed=[date(2015, 2, 2), date(2015, 2, 3)])
+    verify_empty_days(store, "TWSE", start=span[0], end=span[1],
+                      fetch=_fetcher({"FMTQIK": _twse_month(2015, 2, ["104/02/02", "104/02/03"])}),
+                      census_rows=lambda day: [])
+    assert store.month_verification_covers("TWSE", *span)
+    store.write("TWSE", date(2015, 2, 3), [])          # same date, but no longer the verified rows
+    assert not store.month_verification_covers("TWSE", *span)
+
+    # A legacy partition says "verified" for an industry-only row; resolution must still see it.
+    classifications = HistoricalClassificationStore(tmp_path / "cls")
+    day = date(2015, 1, 5)
+    legacy = {**_industry_row("2330", day), "classification_status": "verified",
+              "instrument_type_status": "verified", "instrument_type": "stock"}
+    path = classifications.partition_path(day)
+    path.parent.mkdir(parents=True)
+    pl.DataFrame([legacy]).write_parquet(path)
+    evidence = InstrumentEvidenceStore(tmp_path / "ev")
+    listed = pl.DataFrame([{"code": "2330", "isin": "a", "listing_date": date(1994, 9, 5),
+                            "section": "股票", "cfi": "ESVUFR", "registry": "isin_listed"}])
+    for name, frame in (("isin_listed", listed), ("isin_unlisted", listed.head(0))):
+        evidence.save_registry(frame, source_url="u", sha256="s", retrieved_at="t", registry=name)
+    evidence.save_termination(pl.DataFrame(schema={"code": pl.Utf8, "termination_date": pl.Date}),
+                              source_url="u", sha256="s", retrieved_at="t")
+    evidence.save_company(pl.DataFrame(schema={"code": pl.Utf8, "listing_date": pl.Date}),
+                          source_url="u", sha256="s", retrieved_at="t")
+    report = resolve_industry_only_codes(classifications, {"2330": day}, {"2330": day},
+                                         evidence, _NoSweep())
+    assert report["considered"] == 1 and report["resolved"] == 1
