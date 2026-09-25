@@ -82,6 +82,9 @@ class TaiwanAIStockResearchReport(BaseModel):
     industry: str | None = None
     instrument_type: str = "stock"
     evidence_as_of: str
+    personal_context_as_of: str | None = Field(
+        None, description="本機持倉、自選、Quant 與提醒資料的擷取時間，與市場證據日期分開標示",
+    )
     generated_at: str
     prompt_version: str = PROMPT_VERSION
     provider: str | None = None
@@ -551,6 +554,8 @@ class TaiwanAIResearchService:
         # 3. Construct LLM Prompts
         user_prompt = f"""請依據以下封閉研究證據 JSON，為 {ctx.identity.name} ({ctx.identity.code}) 產出結構化客觀解讀報告。
 
+市場研究證據日期為 {ctx.as_of_date}。如包含個人脈絡，該資料代表本次分析時的目前狀態，不得描述成市場證據日期當時的歷史狀態；不得用目前持倉、自選或提醒推論歷史狀態。
+
 【合法引用鍵白名單 (Allowed evidence_refs)】:
 {json.dumps(sorted(list(registry_keys)), ensure_ascii=False)}
 
@@ -681,6 +686,7 @@ class TaiwanAIResearchService:
             industry=ctx.identity.industry,
             instrument_type=ctx.identity.instrument_type,
             evidence_as_of=ctx.as_of_date,
+            personal_context_as_of=(now_iso if evidence_payload.get("personal_context") else None),
             generated_at=now_iso,
             prompt_version=PROMPT_VERSION,
             provider=curr_provider,

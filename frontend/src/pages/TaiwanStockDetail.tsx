@@ -1063,6 +1063,10 @@ export function TaiwanStockDetail() {
 
         {aiReport && (
           <div className="space-y-4 text-xs">
+            <p className="text-[10px] text-muted">
+              市場證據截至 {aiReport.evidence_as_of}
+              {aiReport.personal_context_as_of && `；持倉、自選與提醒資料截至 ${aiReport.personal_context_as_of.replace('T', ' ')}`}
+            </p>
             {/* Overview */}
             <div className="bg-base/60 p-3.5 rounded-lg border border-border/50">
               <span className="text-[11px] font-semibold text-purple-300 block mb-1">【研究摘要】</span>

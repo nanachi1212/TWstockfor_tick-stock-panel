@@ -166,6 +166,7 @@ describe('TaiwanStockDetail — AI Research', () => {
       status: 'success', provider: 'Custom', prompt_version: 'taiwan_stock_research_v1', generated_at: '2026-09-25T10:00:00+08:00', evidence_registry_keys: [],
       report: {
         symbol: '2330.TWSE', code: '2330', name: '台積電', industry: null, instrument_type: 'stock', evidence_as_of: '2026-09-24',
+        personal_context_as_of: '2026-09-25T10:00:00+08:00',
         generated_at: '2026-09-25T10:00:00+08:00', prompt_version: 'taiwan_stock_research_v1', overview: '提醒測試摘要',
         portfolio_interpretation: '目前資料包含本機持倉成本。', alert_interpretation: '觸發價格提醒。',
         key_observations: [], risk_factors: [], watch_next: [], missing_information: [], disclaimer: '僅供資料解讀',
@@ -174,6 +175,10 @@ describe('TaiwanStockDetail — AI Research', () => {
     renderAt([{ pathname: '/stocks/2330.TWSE', state: { aiResearchRequested: true, alertId: 'alert-1' } }], 0)
 
     expect(await screen.findByText('提醒測試摘要')).toBeInTheDocument()
+    expect(screen.getByText((_, element) => (
+      element?.tagName === 'P'
+      && element.textContent?.replace(/\s+/g, ' ').includes('市場證據截至 2026-09-24；持倉、自選與提醒資料截至 2026-09-25 10:00:00+08:00') === true
+    ))).toBeInTheDocument()
     expect(screen.getByText('我的部位')).toBeInTheDocument()
     expect(screen.getByText('提醒解讀')).toBeInTheDocument()
     expect(vi.mocked(api.taiwanStockAIResearch)).toHaveBeenCalledWith('2330.TWSE', undefined, expect.objectContaining({

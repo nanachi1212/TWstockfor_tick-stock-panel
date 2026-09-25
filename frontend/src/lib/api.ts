@@ -1543,6 +1543,7 @@ export interface TaiwanAIStockResearchReport {
   industry: string | null
   instrument_type: string
   evidence_as_of: string
+  personal_context_as_of?: string | null
   generated_at: string
   prompt_version: string
   overview: string

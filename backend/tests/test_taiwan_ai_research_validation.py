@@ -167,6 +167,7 @@ async def test_portfolio_interpretation_requires_verified_price_and_pnl():
 
     assert missing_quote.report is not None
     assert missing_quote.report.portfolio_interpretation is None
+    assert missing_quote.report.personal_context_as_of is not None
     assert verified_quote.report is not None
     assert verified_quote.report.portfolio_interpretation == "測試持倉解讀。"
 
@@ -200,6 +201,7 @@ async def test_historical_report_omits_current_personal_context():
     assert response.report is not None
     assert response.report.portfolio_interpretation is None
     assert response.report.alert_interpretation is None
+    assert response.report.personal_context_as_of is None
     prompt = mock_ai.call_args.args[0][1]["content"]
     assert "current-alert" not in prompt
     assert '"shares"' not in prompt
