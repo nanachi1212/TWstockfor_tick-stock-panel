@@ -42,6 +42,7 @@ from app.main import app
 from app.taiwan.ai_research import (
     _REPORT_CACHE,
     _REPORT_CACHE_LOCK,
+    ObservationItem,
     TaiwanAIResearchResponse,
     TaiwanAIResearchService,
     _sanitize_personal_context,
@@ -85,7 +86,16 @@ async def test_ai_report_cache_hits_for_same_context_and_misses_when_context_cha
     diag_svc.get_diagnostics.return_value = SimpleNamespace(items=[])
     svc = TaiwanAIResearchService(research_svc=research_svc, diag_svc=diag_svc)
     personal_context = {"portfolio": {"shares": 100, "average_cost": 450, "current_price": 470}}
-    response_text = json.dumps({"overview": "價格高於持倉平均成本。", "key_observations": [], "risk_factors": []}, ensure_ascii=False)
+    response_text = json.dumps({
+        "overview": "價格高於持倉平均成本。",
+        "key_observations": [],
+        "risk_factors": [],
+        "watch_next": [
+            {"text": "有引用的觀察點", "evidence_refs": ["price_context.close"]},
+            {"text": "無效引用的觀察點", "evidence_refs": ["fake.secret"]},
+            {"text": "沒有引用的觀察點"},
+        ],
+    }, ensure_ascii=False)
     with patch("app.taiwan.ai_research.generate_ai_text", new_callable=AsyncMock, return_value=response_text) as mock_ai:
         first = await svc.generate_report("2330.TWSE", target_date=date(2026, 8, 28), personal_context=personal_context)
         cached = await svc.generate_report("2330.TWSE", target_date=date(2026, 8, 28), personal_context=personal_context)
@@ -95,6 +105,7 @@ async def test_ai_report_cache_hits_for_same_context_and_misses_when_context_cha
             personal_context={"portfolio": {"shares": 100, "average_cost": 450, "current_price": 480}},
         )
     assert first.status == cached.status == changed.status == "success"
+    assert first.report.watch_next == [ObservationItem(text="有引用的觀察點", evidence_refs=["price_context.close"])]
     assert mock_ai.call_count == 2
     first_prompt = mock_ai.call_args_list[0].args[0][1]["content"]
     assert '"shares": 100.0' in first_prompt

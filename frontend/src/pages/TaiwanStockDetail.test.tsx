@@ -3,8 +3,8 @@
 // 真的接上了它 —— 不再寫死「返回即時監控」文案/目的地, 且能在有可信 in-app
 // 來源(如監控中心)時正確返回該來源, 直接網址進入時安全落到台股選股 fallback。
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { render, screen, fireEvent, waitFor } from '@testing-library/react'
-import { MemoryRouter, Routes, Route } from 'react-router-dom'
+import { act, render, screen, fireEvent, waitFor } from '@testing-library/react'
+import { MemoryRouter, Routes, Route, useLocation } from 'react-router-dom'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { TaiwanStockDetail } from './TaiwanStockDetail'
 import { api } from '@/lib/api'
@@ -51,7 +51,7 @@ function renderAt(entries: (string | { pathname: string; state?: unknown })[], i
     <QueryClientProvider client={queryClient}>
       <MemoryRouter initialEntries={entries} initialIndex={initialIndex}>
         <Routes>
-          <Route path="/stocks/:symbol" element={<TaiwanStockDetail />} />
+          <Route path="/stocks/:symbol" element={<><TaiwanStockDetail /><LocationState /></>} />
           <Route path="/monitor" element={<div>MONITOR PAGE</div>} />
           <Route path="/taiwan-screener" element={<div>SCREENER PAGE</div>} />
           <Route path="/settings" element={<div>AI SETTINGS</div>} />
@@ -59,6 +59,11 @@ function renderAt(entries: (string | { pathname: string; state?: unknown })[], i
       </MemoryRouter>
     </QueryClientProvider>,
   )
+}
+
+function LocationState() {
+  const location = useLocation()
+  return <output data-testid="location-state">{JSON.stringify(location.state)}</output>
 }
 
 beforeEach(() => {
@@ -108,7 +113,7 @@ describe('TaiwanStockDetail — AI Research', () => {
       report: {
         symbol: '2330.TWSE', code: '2330', name: '台積電', industry: null, instrument_type: 'stock',
         evidence_as_of: '2026-09-24', generated_at: '2026-09-25T10:00:00+08:00', prompt_version: 'taiwan_stock_research_v1',
-        overview: 'AI 測試摘要', key_observations: [], risk_factors: [], watch_next: ['觀察下次已完成交易日資料'],
+        overview: 'AI 測試摘要', key_observations: [], risk_factors: [], watch_next: [{ text: '觀察下次已完成交易日資料', evidence_refs: ['price_context.close'] }],
         missing_information: [], disclaimer: '僅供資料解讀',
       },
     })
@@ -119,6 +124,7 @@ describe('TaiwanStockDetail — AI Research', () => {
     fireEvent.click(analyze)
 
     expect(await screen.findByText('AI 測試摘要')).toBeInTheDocument()
+    expect(await screen.findByText('觀察下次已完成交易日資料')).toBeInTheDocument()
     expect(screen.getByText('本次使用：Custom')).toBeInTheDocument()
     expect(vi.mocked(api.taiwanStockAIResearch)).toHaveBeenCalledWith(
       '2330.TWSE', undefined, expect.objectContaining({ watchlist: { included: false } }),
@@ -174,5 +180,38 @@ describe('TaiwanStockDetail — AI Research', () => {
       portfolio: expect.objectContaining({ shares: 10, average_cost: 900 }),
       alert: expect.objectContaining({ alert_id: 'alert-1', trigger_value: 899, message: '價格跌破 900' }),
     }))
+  })
+
+  it('refreshes local holdings after a portfolio trade event before sending AI context', async () => {
+    vi.mocked(api.taiwanStockAIResearch).mockResolvedValue({
+      status: 'unavailable', error_message: 'AI 分析目前無法使用。', provider: 'Custom',
+      prompt_version: 'taiwan_stock_research_v1', generated_at: '2026-09-25T10:00:00+08:00', evidence_registry_keys: [],
+    })
+    renderAt(['/stocks/2330.TWSE'], 0)
+    const analyze = await screen.findByRole('button', { name: 'AI 分析' })
+    await waitFor(() => expect(analyze).toBeEnabled())
+
+    window.localStorage.setItem('portfolio_transactions', JSON.stringify([{
+      id: 'trade-after-load', symbol: '2330.TWSE', name: '台積電', side: 'buy', shares: 4,
+      price: 950, fee: 0, tax: 0, date: '2026-09-25', tradeTime: '10:00', createdAt: '2026-09-25T10:00:00+08:00',
+    }]))
+    act(() => window.dispatchEvent(new Event('portfolio-transactions-changed')))
+    fireEvent.click(analyze)
+
+    await waitFor(() => expect(vi.mocked(api.taiwanStockAIResearch)).toHaveBeenCalledWith(
+      '2330.TWSE', undefined, expect.objectContaining({ portfolio: expect.objectContaining({ shares: 4, average_cost: 950 }) }),
+    ))
+  })
+
+  it('consumes the AI navigation request so reload does not automatically re-run analysis', async () => {
+    vi.mocked(api.taiwanStockAIResearch).mockResolvedValue({
+      status: 'unavailable', error_message: 'AI 分析目前無法使用。', provider: 'Custom',
+      prompt_version: 'taiwan_stock_research_v1', generated_at: '2026-09-25T10:00:00+08:00', evidence_registry_keys: [],
+    })
+    renderAt([{ pathname: '/stocks/2330.TWSE', state: { aiResearchRequested: true, returnTo: '/monitor' } }], 0)
+
+    await waitFor(() => expect(vi.mocked(api.taiwanStockAIResearch)).toHaveBeenCalledTimes(1))
+    await waitFor(() => expect(screen.getByTestId('location-state')).toHaveTextContent('"returnTo":"/monitor"'))
+    expect(screen.getByTestId('location-state')).not.toHaveTextContent('aiResearchRequested')
   })
 })

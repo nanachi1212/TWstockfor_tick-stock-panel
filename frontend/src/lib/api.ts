@@ -1557,7 +1557,7 @@ export interface TaiwanAIStockResearchReport {
   alert_interpretation?: string | null
   key_observations: ObservationItem[]
   risk_factors: ObservationItem[]
-  watch_next?: string[]
+  watch_next?: ObservationItem[]
   missing_information: string[]
   disclaimer: string
 }

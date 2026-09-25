@@ -36,6 +36,8 @@ import { useTodayQuantSelection } from '@/components/quant/TodaySelection'
 import { storage } from '@/lib/storage'
 import { buildPortfolioPositions, isPortfolioTransaction, type PortfolioTransaction } from '@/lib/portfolio'
 
+const PORTFOLIO_CHANGED_EVENT = 'portfolio-transactions-changed'
+
 const RANGE_OPTIONS = [
   { label: '1 個月', days: 30 },
   { label: '3 個月', days: 90 },
@@ -63,7 +65,18 @@ export function TaiwanStockDetail() {
   const [selectedRange, setSelectedRange] = useState<number>(180)
   const [isRuleEditorOpen, setIsRuleEditorOpen] = useState<boolean>(false)
   const [volUnit, setVolUnit] = useState<'lots' | 'shares'>('lots')
+  const [portfolioRevision, setPortfolioRevision] = useState(0)
   const autoAnalyzeStartedFor = useRef<string | null>(null)
+
+  useEffect(() => {
+    const refreshPortfolio = () => setPortfolioRevision(revision => revision + 1)
+    window.addEventListener(PORTFOLIO_CHANGED_EVENT, refreshPortfolio)
+    window.addEventListener('storage', refreshPortfolio)
+    return () => {
+      window.removeEventListener(PORTFOLIO_CHANGED_EVENT, refreshPortfolio)
+      window.removeEventListener('storage', refreshPortfolio)
+    }
+  }, [])
 
   // Search state inside stock detail
   const [searchQuery, setSearchQuery] = useState('')
@@ -130,6 +143,7 @@ export function TaiwanStockDetail() {
   const [aiProvider, setAiProvider] = useState<string | null>(null)
 
   const personalContext = useMemo(() => {
+    void portfolioRevision
     const context: TaiwanAIResearchPersonalContext = {}
     if (!watchlist.isLoading && !watchlist.isError) context.watchlist = { included: inWatchlist }
     const quote = data?.realtime
@@ -187,7 +201,7 @@ export function TaiwanStockDetail() {
       // An unreadable local ledger stays unavailable and does not block stock analysis.
     }
     return context
-  }, [inWatchlist, watchlist.isLoading, watchlist.isError, quantSelection.signals, quantSelection.validRun, selectedAlert, symbol, data])
+  }, [inWatchlist, watchlist.isLoading, watchlist.isError, quantSelection.signals, quantSelection.validRun, selectedAlert, symbol, data, portfolioRevision])
 
   const handleGenerateAiReport = useCallback(async () => {
     setIsAiLoading(true)
@@ -218,12 +232,22 @@ export function TaiwanStockDetail() {
     if (!routeResearch?.aiResearchRequested || autoAnalyzeStartedFor.current === requestKey || !detailQuery.isSuccess || watchlist.isLoading || quantSelection.loading) return
     if (alertId && alertContextQuery.isLoading) return
     autoAnalyzeStartedFor.current = requestKey
+    if (routeResearch?.aiResearchRequested) {
+      const nextState = location.state && typeof location.state === 'object'
+        ? { ...location.state as Record<string, unknown> }
+        : {}
+      delete nextState.aiResearchRequested
+      navigate(location.pathname, {
+        replace: true,
+        state: Object.keys(nextState).length > 0 ? nextState : null,
+      })
+    }
     if (alertId && !selectedAlert) {
       setAiError('找不到這筆提醒事件，股票資料仍可正常查看。')
       return
     }
     void handleGenerateAiReport()
-  }, [routeResearch?.aiResearchRequested, detailQuery.isSuccess, alertId, alertContextQuery.isLoading, selectedAlert, symbol, handleGenerateAiReport, watchlist.isLoading, quantSelection.loading])
+  }, [routeResearch?.aiResearchRequested, detailQuery.isSuccess, alertId, alertContextQuery.isLoading, selectedAlert, symbol, handleGenerateAiReport, watchlist.isLoading, quantSelection.loading, location.pathname, location.state, navigate])
 
   const isLoading = detailQuery.isLoading
   const isError = detailQuery.isError
@@ -1036,7 +1060,7 @@ export function TaiwanStockDetail() {
             <BriefSection title="我的部位" text={aiReport.portfolio_interpretation} />
             <BriefSection title="提醒解讀" text={aiReport.alert_interpretation} />
             <BriefSection title="風險" text={aiReport.risk_factors.length === 0 ? 'AI 未列出有資料支持的具體風險訊號。' : undefined} items={aiReport.risk_factors.map(item => item.text)} />
-            <BriefSection title="接下來觀察" text={(aiReport.watch_next ?? []).length === 0 ? '目前資料不足以列出具體觀察點。' : undefined} items={aiReport.watch_next ?? []} />
+            <BriefSection title="接下來觀察" text={(aiReport.watch_next ?? []).length === 0 ? '目前資料不足以列出具體觀察點。' : undefined} items={(aiReport.watch_next ?? []).map(item => item.text)} />
 
             <details className="rounded-lg border border-border/40 bg-base/20 p-3">
               <summary className="cursor-pointer text-[11px] font-medium text-muted">完整證據解讀與資料覆蓋</summary>
