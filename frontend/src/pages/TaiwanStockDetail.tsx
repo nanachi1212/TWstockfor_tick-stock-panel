@@ -181,6 +181,8 @@ export function TaiwanStockDetail() {
         feature_percentiles: Object.fromEntries(Object.entries(signal.feature_percentiles).filter(([, value]) => Number.isFinite(value))),
       })
     }
+    const alertRuleType = typeof selectedAlert?.rule_type === 'string' ? selectedAlert.rule_type : selectedAlert?.type
+    const alertPercentScale = typeof alertRuleType === 'string' && alertRuleType.includes('change_pct') ? 0.01 : 1
     if (selectedAlert) context.alert = {
       ...(typeof selectedAlert.alert_id === 'string' ? { alert_id: selectedAlert.alert_id } : {}),
       ...(typeof selectedAlert.rule_name === 'string' ? { rule_name: selectedAlert.rule_name } : typeof selectedAlert.rule_id === 'string' ? { rule_name: selectedAlert.rule_id } : {}),
@@ -190,9 +192,9 @@ export function TaiwanStockDetail() {
         : typeof selectedAlert.ts === 'number' && Number.isFinite(selectedAlert.ts)
           ? { triggered_at: new Date(selectedAlert.ts).toISOString() }
           : {}),
-      ...(typeof selectedAlert.trigger_value === 'number' ? { trigger_value: selectedAlert.trigger_value } : typeof selectedAlert.price === 'number' ? { trigger_value: selectedAlert.price } : {}),
-      ...(typeof selectedAlert.threshold === 'number' ? { threshold: selectedAlert.threshold } : {}),
-      ...(typeof selectedAlert.change_pct === 'number' ? { change_pct: selectedAlert.change_pct } : {}),
+      ...(typeof selectedAlert.trigger_value === 'number' ? { trigger_value: selectedAlert.trigger_value * alertPercentScale } : typeof selectedAlert.price === 'number' ? { trigger_value: selectedAlert.price } : {}),
+      ...(typeof selectedAlert.threshold === 'number' ? { threshold: selectedAlert.threshold * alertPercentScale } : {}),
+      ...(typeof selectedAlert.change_pct === 'number' ? { change_pct: selectedAlert.change_pct * alertPercentScale } : {}),
       ...(typeof selectedAlert.quant_status === 'string' ? { quant_status: selectedAlert.quant_status } : {}),
       ...(typeof selectedAlert.quant_rank === 'number' ? { quant_rank: selectedAlert.quant_rank } : {}),
       ...(typeof selectedAlert.quant_score === 'number' ? { quant_score: selectedAlert.quant_score } : {}),

@@ -259,6 +259,24 @@ describe('TaiwanStockDetail — AI Research', () => {
     }))
   })
 
+  it('normalizes Taiwan percentage alert values to research decimal fractions', async () => {
+    vi.mocked(api.alertsList).mockResolvedValue({ alerts: [{
+      ts: Date.parse('2026-09-25T10:05:00+08:00'), alert_id: 'pct-alert-1', source: 'twse:mis',
+      type: 'change_pct_above', rule_type: 'change_pct_above', symbol: '2330.TWSE', name: '台積電',
+      message: '漲幅超過門檻', change_pct: 3.66, trigger_value: 3.66, threshold: 2.5,
+    }], total: 1 })
+    vi.mocked(api.taiwanStockAIResearch).mockResolvedValue({
+      status: 'unavailable', error_message: 'AI 分析目前無法使用。', provider: 'Custom',
+      prompt_version: 'taiwan_stock_research_v1', generated_at: '2026-09-25T10:06:00+08:00', evidence_registry_keys: [],
+    })
+    renderAt([{ pathname: '/stocks/2330.TWSE', state: { aiResearchRequested: true, alertId: 'pct-alert-1' } }], 0)
+
+    await waitFor(() => expect(vi.mocked(api.taiwanStockAIResearch)).toHaveBeenCalledTimes(1))
+    expect(vi.mocked(api.taiwanStockAIResearch).mock.calls[0][2]?.alert).toEqual(expect.objectContaining({
+      rule_type: 'change_pct_above', change_pct: 0.0366, trigger_value: 0.0366, threshold: 0.025,
+    }))
+  })
+
   it('keeps an alert analysis request retryable when the alert lookup fails', async () => {
     vi.mocked(api.alertsList)
       .mockRejectedValueOnce(new Error('temporary alert lookup failure'))
