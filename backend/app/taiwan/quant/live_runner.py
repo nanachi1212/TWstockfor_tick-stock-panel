@@ -333,8 +333,12 @@ def _evaluate_live_quant_alerts(freeze: dict[str, Any], ledger: LiveLedger, app_
     quote_service = getattr(app_state, "quote_service", None)
     persisted_events = []
 
+    def format_notifications(pending):
+        formatter = getattr(quote_service, "_format_extension_notifications", None)
+        return formatter(pending) if callable(formatter) else pending
+
     def persist_events(pending):
-        formatted = quote_service._format_extension_notifications(pending) if quote_service else pending
+        formatted = format_notifications(pending)
         persisted_events.extend(formatted)
         return alert_store.append_many(settings.data_dir, formatted)
 
@@ -344,9 +348,7 @@ def _evaluate_live_quant_alerts(freeze: dict[str, Any], ledger: LiveLedger, app_
         persist_events=persist_events,
     )
     if events:
-        output_events = persisted_events or (
-            quote_service._format_extension_notifications(events) if quote_service else events
-        )
+        output_events = persisted_events or format_notifications(events)
         if quote_service is not None:
             try:
                 quote_service.push_alerts(output_events)

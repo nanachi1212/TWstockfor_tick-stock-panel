@@ -100,6 +100,10 @@ def evaluate_quant_alerts(request: Request):
     quote_service = getattr(request.app.state, "quote_service", None)
     persisted_events = []
 
+    def format_notifications(events):
+        formatter = getattr(quote_service, "_format_extension_notifications", None)
+        return formatter(events) if callable(formatter) else events
+
     snapshot = run.get("snapshot") or {}
     signals = snapshot.get("signals")
     if not isinstance(signals, list):
@@ -109,7 +113,7 @@ def evaluate_quant_alerts(request: Request):
         repo = getattr(request.app.state, "repo", None)
         if repo is None:
             raise HTTPException(status_code=503, detail="提醒儲存尚未就緒")
-        formatted = quote_service._format_extension_notifications(events) if quote_service else events
+        formatted = format_notifications(events)
         persisted_events.extend(formatted)
         return alert_store.append_many(repo.store.data_dir, formatted)
 
@@ -120,9 +124,7 @@ def evaluate_quant_alerts(request: Request):
         persist_events=persist_events,
     )
     if events:
-        output_events = persisted_events or (
-            quote_service._format_extension_notifications(events) if quote_service else events
-        )
+        output_events = persisted_events or format_notifications(events)
         if quote_service:
             try:
                 quote_service.push_alerts(output_events)
