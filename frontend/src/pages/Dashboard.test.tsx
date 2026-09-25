@@ -82,7 +82,7 @@ vi.mock('@/lib/api', () => ({
       margin_as_of: null,
       target_latest_trading_date: '2026-09-01',
       is_fully_current: false,
-      daily_status: 'unavailable',
+      daily_status: 'current',
       institutional_status: 'unavailable',
       margin_status: 'unavailable',
       daily_days_behind: 0,
@@ -165,7 +165,7 @@ describe('Dashboard — Legacy A-share removal (Phase 8C-D)', () => {
 describe('Dashboard — Market Clarity (Phase 8C-B)', () => {
   it('shows dependent market panels as loading until data status is ready', async () => {
     let resolveStatus!: (status: any) => void
-    vi.mocked(api.taiwanDataStatus).mockReturnValue(new Promise(resolve => { resolveStatus = resolve }) as any)
+    vi.mocked(api.taiwanDataStatus).mockReturnValueOnce(new Promise(resolve => { resolveStatus = resolve }) as any)
     renderDashboard()
 
     expect(screen.getByText('正在讀取市場強弱資料…')).toBeInTheDocument()
@@ -372,6 +372,32 @@ describe('Dashboard — stock reminders', () => {
 // DAILY_USE_CORE_UX_FIXES (P1-1) — 「今日市場強弱」不可把 data_quality
 // 不完整時的 0/0/0 當成正式市場結果呈現; 完整資料時(即使真的全 0)則照實顯示。
 describe('Dashboard — Market data honesty (DAILY_USE_CORE_UX_FIXES P1-1)', () => {
+  it('preserves stale daily status when all summaries are requested at the latest stored date', async () => {
+    vi.mocked(api.taiwanDataStatus).mockResolvedValueOnce({
+      daily_as_of: '2026-09-04', target_latest_trading_date: '2026-09-05', daily_status: 'stale', daily_days_behind: 1,
+    } as any)
+    vi.mocked(api.taiwanMarketIntelligence).mockResolvedValue(buildMarketIntelligence({ trade_date: '2026-09-04' }) as any)
+    vi.mocked(api.taiwanIndustryIntelligence).mockResolvedValue(buildIndustryIntelligence([buildIndustry('半導體業', 0.05)]) as any)
+    vi.mocked(api.taiwanAbnormalDiagnostics).mockResolvedValue(buildDiagnostics([{
+      symbol: '2330.TWSE', name: '台積電', signal_count: 1, change_pct: 0.06, signals: [{ type: 'PRICE_MOVE' }],
+    }]) as any)
+    vi.mocked(api.watchlistList).mockResolvedValue({ symbols: [
+      { symbol: '2330.TWSE', name: '台積電', added_at: '2026-09-05T09:00:00Z' },
+    ] } as any)
+    vi.mocked(api.watchlistEnriched).mockResolvedValue(buildWatchlistEnriched([
+      { symbol: '2330.TWSE', name: '台積電', close: 900, change_pct: 0.01 },
+    ]) as any)
+    renderDashboard()
+
+    expect(await screen.findByText(/日行情狀態 stale；以下為最近可用資料/)).toBeInTheDocument()
+    expect(screen.queryByText('偏強')).not.toBeInTheDocument()
+    expect(await screen.findByText('最近交易日類股熱度')).toBeInTheDocument()
+    expect(await screen.findByText(/日行情狀態 stale，資料交易日/)).toBeInTheDocument()
+    expect(screen.getByText(/異常雷達資料 stale/)).toBeInTheDocument()
+    expect(screen.queryByRole('link', { name: /台積電.*單日大漲\/跌/ })).not.toBeInTheDocument()
+    expect(await screen.findByText('異常 unavailable')).toBeInTheDocument()
+  })
+
   it('A. complete data renders normally, without the incomplete-data notice', async () => {
     vi.mocked(api.taiwanMarketIntelligence).mockResolvedValue(buildMarketIntelligence() as any)
     renderDashboard()
@@ -433,7 +459,7 @@ describe('Dashboard — Market data honesty (DAILY_USE_CORE_UX_FIXES P1-1)', () 
   })
 
   it('uses the latest available daily date for market, sector and anomaly summaries', async () => {
-    vi.mocked(api.taiwanDataStatus).mockResolvedValue({ daily_as_of: '2026-09-04' } as any)
+    vi.mocked(api.taiwanDataStatus).mockResolvedValueOnce({ daily_as_of: '2026-09-04', daily_status: 'current' } as any)
     vi.mocked(api.taiwanMarketIntelligence).mockResolvedValue(buildMarketIntelligence({ trade_date: '2026-09-04' }) as any)
     vi.mocked(api.taiwanIndustryIntelligence).mockResolvedValue(buildIndustryIntelligence([]) as any)
     renderDashboard()
