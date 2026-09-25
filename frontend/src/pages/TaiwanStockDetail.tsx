@@ -170,10 +170,10 @@ export function TaiwanStockDetail() {
     }
     const signal = quantSelection.signals.find(item => item.symbol === symbol)
     context.quant = {
-      status: quantSelection.error ? 'unavailable' : quantSelection.validRun ? 'available' : 'no_valid_run',
-      selected: Boolean(!quantSelection.error && signal && quantSelection.validRun),
+      status: quantSelection.error || quantSelection.fetching ? 'unavailable' : quantSelection.validRun ? 'available' : 'no_valid_run',
+      selected: Boolean(!quantSelection.error && !quantSelection.fetching && signal && quantSelection.validRun),
     }
-    if (!quantSelection.error && signal && quantSelection.validRun) {
+    if (!quantSelection.error && !quantSelection.fetching && signal && quantSelection.validRun) {
       Object.assign(context.quant, {
         rank: signal.rank,
         score: signal.score,
@@ -214,7 +214,7 @@ export function TaiwanStockDetail() {
       // An unreadable local ledger stays unavailable and does not block stock analysis.
     }
     return context
-  }, [inWatchlist, watchlist.isLoading, watchlist.isError, quantSelection.signals, quantSelection.validRun, quantSelection.error, selectedAlert, symbol, data, detailQuery.isError, portfolioRevision])
+  }, [inWatchlist, watchlist.isLoading, watchlist.isError, quantSelection.signals, quantSelection.validRun, quantSelection.error, quantSelection.fetching, selectedAlert, symbol, data, detailQuery.isError, portfolioRevision])
 
   const handleGenerateAiReport = useCallback(async () => {
     if (toggleWatchlist.isPending || watchlist.isFetching) return

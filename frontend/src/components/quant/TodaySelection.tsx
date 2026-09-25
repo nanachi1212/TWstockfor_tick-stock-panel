@@ -32,6 +32,7 @@ export interface TodayQuantSelectionData {
   signals: TaiwanLiveQuantSignal[]
   featureMap: Map<string, Record<string, unknown> & { symbol: string }>
   loading: boolean
+  fetching: boolean
   error: boolean
   refetch: () => void
 }
@@ -64,6 +65,7 @@ function useTodayQuantSelectionInternal() {
   const signals = validRun?.snapshot.signals ?? []
   const featureMap = useMemo(() => new Map((runData?.snapshot.features ?? []).map(item => [item.symbol, item])), [runData])
   const loading = models.isLoading || runs.isLoading || (!models.isError && !runs.isError && expectedRun && run.isLoading)
+  const fetching = models.isFetching || runs.isFetching || run.isFetching
   const error = models.isError || runs.isError || run.isError
 
   return {
@@ -73,6 +75,7 @@ function useTodayQuantSelectionInternal() {
     signals,
     featureMap,
     loading,
+    fetching,
     error,
     refetch: () => { void models.refetch(); void runs.refetch(); if (modelKey && latest) void run.refetch() },
   }
