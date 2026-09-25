@@ -43,8 +43,14 @@ export function SettingsMonitoringPanel(_props: { highlight?: string } = {}) {
   // 滑塊本地草稿: 拖動時即時反饋, 停頓 2s 後落庫 (與行情輪詢滑塊一致)
   const [intradayIntervalDraft, setIntradayIntervalDraft] = useState(intradayInterval)
   const refreshPages = prefs?.sse_refresh_pages ?? {}
-  // 新建監控規則時默認勾選的推送渠道 (全局默認值數組, 單條規則可獨立修改)
-  const webhookDefaultChannels = prefs?.webhook_default_channels ?? []
+  // 全域外部提醒出口；舊偏好尚未遷移時沿用原本的推播預設值作初始顯示。
+  const webhookDefaultChannels = prefs?.external_notification_channels ?? prefs?.webhook_default_channels ?? []
+  const externalStatus = prefs?.external_notification_status ?? {}
+  const deliveryStatusLabel = (channel: 'line' | 'telegram') => ({
+    sent: '上次傳送成功',
+    failed: '上次傳送失敗',
+    not_configured: '已啟用但尚未設定',
+  }[externalStatus[channel] ?? ''] ?? '尚未傳送')
   const isRunning = quoteStatus?.running ?? false
   const isTrading = quoteStatus?.is_trading_hours ?? false
   // 管道/數據修正運行期間實時行情被臨時暫停 — 此時禁止開啟
@@ -96,11 +102,11 @@ export function SettingsMonitoringPanel(_props: { highlight?: string } = {}) {
     qc.invalidateQueries({ queryKey: QK.quoteStatus })
   }, [toggleQuote, qc])
 
-  // 勾選/取消勾選某個預設推播渠道 (LINE / Telegram 各自獨立)
+  // 勾選/取消勾選全域外部提醒通道。
   const toggleDefaultChannel = useCallback(async (ch: string, enabled: boolean) => {
-    const cur = prefs?.webhook_default_channels ?? []
+    const cur = prefs?.external_notification_channels ?? prefs?.webhook_default_channels ?? []
     const next = enabled ? [...cur, ch] : cur.filter(c => c !== ch)
-    await api.updateWebhookDefaultChannels(next)
+    await api.updateExternalNotificationChannels(next)
     qc.invalidateQueries({ queryKey: QK.preferences })
   }, [qc, prefs])
 
@@ -124,11 +130,17 @@ export function SettingsMonitoringPanel(_props: { highlight?: string } = {}) {
   })
   const testLine = useMutation({
     mutationFn: api.testLineMessaging,
-    onSuccess: ({ ok }) => toast(ok ? 'LINE 測試通知已送出' : 'LINE 測試通知失敗', ok ? 'success' : 'error'),
+    onSuccess: ({ ok }) => {
+      toast(ok ? 'LINE 測試通知已送出' : 'LINE 測試通知失敗', ok ? 'success' : 'error')
+      qc.invalidateQueries({ queryKey: QK.preferences })
+    },
   })
   const testTelegram = useMutation({
     mutationFn: api.testTelegramBot,
-    onSuccess: ({ ok }) => toast(ok ? 'Telegram 測試通知已送出' : 'Telegram 測試通知失敗', ok ? 'success' : 'error'),
+    onSuccess: ({ ok }) => {
+      toast(ok ? 'Telegram 測試通知已送出' : 'Telegram 測試通知失敗', ok ? 'success' : 'error')
+      qc.invalidateQueries({ queryKey: QK.preferences })
+    },
   })
 
   useEffect(() => {
@@ -302,11 +314,10 @@ export function SettingsMonitoringPanel(_props: { highlight?: string } = {}) {
 
       {/* ========== 右列 ========== */}
       <div className="space-y-6">
-        {/* 外部推播渠道；告警落盤與 SSE 流程不依賴這些 API。 */}
-        <Card icon={Webhook} title="推播通知">
+        {/* 外部推播渠道；App 內提醒不依賴外部服務。 */}
+        <Card icon={Webhook} title="外部通知">
           <p className="text-xs text-secondary mb-3">
-            監控規則命中後,可把告警推送到外部。勾選管道作為<b className="text-foreground/80">新建規則的預設推播</b>,
-            單條規則仍可在編輯頁獨立修改。
+            App 內提醒會照常保存。選擇外送通道後，觸發的提醒也會送出；需保持 TWStock 後端執行。
           </p>
 
           <div className="space-y-2">
@@ -320,13 +331,13 @@ export function SettingsMonitoringPanel(_props: { highlight?: string } = {}) {
                   checked={webhookDefaultChannels.includes('line')}
                   onChange={event => { event.stopPropagation(); toggleDefaultChannel('line', event.target.checked) }}
                   onClick={event => event.stopPropagation()}
-                  title="作為新建規則的預設推播管道"
+                  title="全域啟用 LINE 提醒"
                   className="h-3 w-3 accent-accent cursor-pointer"
                 />
                 <span className="text-[11px] font-medium text-foreground">LINE</span>
                 <span className="text-[9px] text-muted">Messaging API</span>
                 {webhookDefaultChannels.includes('line') && (
-                  <span className="rounded bg-accent/15 px-1 py-px text-[9px] text-accent">預設</span>
+                  <span className="rounded bg-accent/15 px-1 py-px text-[9px] text-accent">啟用</span>
                 )}
                 <span className={`ml-auto text-[9px] ${lineConfigured ? 'text-emerald-500' : 'text-warning'}`}>
                   {lineConfigured ? '已設定' : '未設定'}
@@ -336,6 +347,7 @@ export function SettingsMonitoringPanel(_props: { highlight?: string } = {}) {
 
               {lineOpen && (
                 <div className="border-t border-border/60 bg-base/30 p-3">
+                  <p className="mb-2 text-[10px] text-secondary">{deliveryStatusLabel('line')}</p>
                   <label className="block space-y-1.5">
                     <span className="text-[11px] text-muted">Target ID（開發者 User ID / 群組 ID，非一般 LINE ID）</span>
                     <input
@@ -453,13 +465,13 @@ export function SettingsMonitoringPanel(_props: { highlight?: string } = {}) {
                   checked={webhookDefaultChannels.includes('telegram')}
                   onChange={event => { event.stopPropagation(); toggleDefaultChannel('telegram', event.target.checked) }}
                   onClick={event => event.stopPropagation()}
-                  title="作為新建規則的預設推播管道"
+                  title="全域啟用 Telegram 提醒"
                   className="h-3 w-3 accent-accent cursor-pointer"
                 />
                 <span className="text-[11px] font-medium text-foreground">Telegram</span>
                 <span className="text-[9px] text-muted">Bot API</span>
                 {webhookDefaultChannels.includes('telegram') && (
-                  <span className="rounded bg-accent/15 px-1 py-px text-[9px] text-accent">預設</span>
+                  <span className="rounded bg-accent/15 px-1 py-px text-[9px] text-accent">啟用</span>
                 )}
                 <span className={`ml-auto text-[9px] ${telegramConfigured ? 'text-emerald-500' : 'text-warning'}`}>
                   {telegramConfigured ? '已設定' : '未設定'}
@@ -469,6 +481,7 @@ export function SettingsMonitoringPanel(_props: { highlight?: string } = {}) {
 
               {telegramOpen && (
                 <div className="border-t border-border/60 bg-base/30 p-3">
+                  <p className="mb-2 text-[10px] text-secondary">{deliveryStatusLabel('telegram')}</p>
                   <label className="block space-y-1.5">
                     <span className="text-[11px] text-muted">Chat ID</span>
                     <input

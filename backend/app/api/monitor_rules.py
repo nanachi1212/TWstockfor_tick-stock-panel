@@ -839,6 +839,10 @@ def evaluate_taiwan_rules(request: Request):
                 quote_svc.push_alerts(alert_dicts)
             except Exception as e:
                 logger.warning("Failed to push Taiwan alerts to SSE: %s", e)
+            try:
+                quote_svc._maybe_send_webhook(alert_dicts, None)
+            except Exception as e:
+                logger.warning("Failed to dispatch Taiwan external alerts: %s", type(e).__name__)
 
     return {
         "ok": True,

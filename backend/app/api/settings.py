@@ -433,7 +433,7 @@ class MiningSchedulePrefs(BaseModel):
 @router.get("/preferences")
 def get_preferences() -> dict:
     """返回用户偏好设置。"""
-    from app.services import preferences
+    from app.services import preferences, webhook_adapter
     return {
         "realtime_quotes_enabled": preferences.get_realtime_quotes_enabled(),
         "realtime_allowed": _realtime_allowed(),
@@ -475,6 +475,8 @@ def get_preferences() -> dict:
         "telegram_chat_id": preferences.get_telegram_chat_id(),
         "telegram_bot_token_masked": secrets_store.mask(preferences.get_telegram_bot_token()),
         "telegram_configured": bool(preferences.get_telegram_chat_id() and preferences.get_telegram_bot_token()),
+        "external_notification_channels": preferences.get_external_notification_channels(),
+        "external_notification_status": webhook_adapter.delivery_status(),
         "webhook_enabled_default": preferences.get_webhook_enabled_default(),
         "webhook_default_channels": preferences.get_webhook_default_channels(),
         "sidebar_index_symbols": preferences.get_sidebar_index_symbols(),
@@ -1083,6 +1085,18 @@ class NotificationChannelPrefsIn(BaseModel):
     recipient: str = ""
     token: str | None = None
     clear_token: bool = False
+
+
+class ExternalNotificationChannelsIn(BaseModel):
+    channels: list[Literal["line", "telegram"]]
+
+
+@router.put("/preferences/external-notification-channels")
+def update_external_notification_channels(req: ExternalNotificationChannelsIn) -> dict:
+    from app.services import preferences
+
+    channels = preferences.set_external_notification_channels([str(channel) for channel in req.channels])
+    return {"external_notification_channels": channels}
 
 
 def _notification_channel_response(channel: str) -> dict:

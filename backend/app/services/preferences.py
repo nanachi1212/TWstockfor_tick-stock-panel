@@ -806,6 +806,24 @@ def set_webhook_default_channels(channels: list[str]) -> list[str]:
     return cleaned
 
 
+def get_external_notification_channels() -> list[str] | None:
+    """Return globally enabled external channels, or None for legacy per-rule mode."""
+    data = load()
+    if "external_notification_channels" not in data:
+        return None
+    raw = data.get("external_notification_channels")
+    if not isinstance(raw, list):
+        return []
+    return list(dict.fromkeys(c for c in raw if c in REVIEW_PUSH_CHANNELS))
+
+
+def set_external_notification_channels(channels: list[str]) -> list[str]:
+    """Save the global external alert destinations; an empty list means App only."""
+    cleaned = list(dict.fromkeys(c for c in (channels or []) if c in REVIEW_PUSH_CHANNELS))
+    save({"external_notification_channels": cleaned})
+    return cleaned
+
+
 def get_screener_auto_run() -> bool:
     """选股页进入时是否自动运行所有策略 (获取命中数)。默认开。"""
     return load().get("screener_auto_run", True)

@@ -2205,6 +2205,8 @@ export interface Preferences {
   wecom_bot_enabled?: boolean
   webhook_enabled_default?: boolean
   webhook_default_channels?: string[]
+  external_notification_channels?: string[] | null
+  external_notification_status?: Record<string, 'sent' | 'failed' | 'not_configured'>
   line_target_id?: string
   line_channel_access_token_masked?: string
   line_configured?: boolean
@@ -2471,6 +2473,11 @@ export const api = {
     }),
   updateWebhookDefaultChannels: (channels: string[]) =>
     request<{ webhook_default_channels: string[] }>('/api/settings/preferences/webhook-default-channels', {
+      method: 'PUT',
+      body: JSON.stringify({ channels }),
+    }),
+  updateExternalNotificationChannels: (channels: string[]) =>
+    request<{ external_notification_channels: string[] }>('/api/settings/preferences/external-notification-channels', {
       method: 'PUT',
       body: JSON.stringify({ channels }),
     }),
