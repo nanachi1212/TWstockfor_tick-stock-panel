@@ -121,6 +121,17 @@ def mask_missing_session_windows(
     return masked, (pl.concat(exceptions) if exceptions else pl.DataFrame(schema=_COVERAGE_SCHEMA))
 
 
+def _code_fingerprint() -> str:
+    """The algorithm files a batch depends on; a code change invalidates resumed batches."""
+    here = Path(__file__).resolve()
+    taiwan = here.parents[1]
+    digest = hashlib.sha256()
+    for path in (here, taiwan / "quant" / "panel.py", taiwan / "adjust.py",
+                 taiwan / "technical_indicators.py", taiwan / "corporate_actions.py"):
+        digest.update(path.read_bytes().replace(bytes([13, 10]), bytes([10])))
+    return digest.hexdigest()
+
+
 def _digest(text: str) -> str:
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
@@ -222,6 +233,14 @@ def _build_locked(
         if not coverage.covers(first, last):
             raise PrimaryOosInputError("corporate-action source coverage is incomplete")
     sessions = sorted(worker.census_store.session_dates("TWSE"))
+    unresolved = sorted(
+        day for day, status in worker.census_store.partition_statuses("TWSE").items()
+        if status == "empty_unknown" and first <= day <= last)
+    if unresolved:
+        # An official session without rows would make neighbouring bars look
+        # consecutive; recover it (or prove it a holiday) before publishing.
+        raise PrimaryOosInputError(
+            f"unresolved empty sessions inside the panel span: {[d.isoformat() for d in unresolved[:5]]}")
 
     # The batch results are hours of compute: keep them until every partition is
     # published, so an interrupted or failed publish resumes without recomputing.
@@ -234,6 +253,7 @@ def _build_locked(
                            + str(int(history.hash_rows(seed=2).sum()))),
         "events": _digest("".join(sorted(event.content_hash for event in events))),
         "sessions": _digest(",".join(day.isoformat() for day in sessions)),
+        "code": _code_fingerprint(),
     }
     marker = work / "_identity.json"
     if not (marker.is_file() and json.loads(marker.read_text(encoding="utf-8")) == identity):

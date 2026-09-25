@@ -771,3 +771,45 @@ def test_action_gaps_are_staged_so_store_and_marker_advance_together(
     assert (store.snapshot_digest() if store.path.exists() else None) == before
     monkeypatch.setattr(runner, "_fetch_actions", lambda a, b: ())
     runner._action_snapshot(date(2019, 12, 1), date(2020, 3, 1), store=store)  # retry works
+
+
+def test_panel_refuses_an_unresolved_empty_session_inside_its_span(tmp_path: Path) -> None:
+    from app.taiwan.backfill_worker import TaiwanHistoricalBackfillWorker
+    from app.taiwan.quant.primary_oos_runner import PrimaryOosInputError
+    from app.taiwan.quant.primary_panel import build_primary_factor_panel
+    from app.taiwan.quant.storage import FactorPanelStore
+
+    sessions = [day for day in (date(2020, 1, 1) + timedelta(days=n) for n in range(120))
+                if day.weekday() < 5][:40]
+    census = ObservedUniverseStore(tmp_path / "observed")
+    for day in sessions:
+        if day == sessions[20]:
+            census.write("TWSE", day, [])  # official session whose rows never arrived
+        else:
+            census.write("TWSE", day,
+                         [r for r in _stock_history(("2330",), sessions) if r["date"] == day])
+    classifications = HistoricalClassificationStore(tmp_path / "cls")
+    classifications.write(sessions[0], [{
+        **_industry_row("2330", sessions[0]), "instrument_type": "stock",
+        "classification_status": "verified", "classification_source": "twse:isin_listed@x"}])
+    worker = TaiwanHistoricalBackfillWorker(
+        data_dir=tmp_path, census_store=census, classification_store=classifications)
+    store = FactorPanelStore(tmp_path / "factors")
+    with pytest.raises(PrimaryOosInputError, match="unresolved empty sessions"):
+        build_primary_factor_panel(_preflight(), events=(), store=store, worker=worker, workers=1)
+    assert not any((tmp_path / "factors").rglob("values.parquet"))
+
+
+def test_resume_identity_changes_with_the_factor_implementation(monkeypatch) -> None:
+    from app.taiwan.quant import primary_panel
+
+    before = primary_panel._code_fingerprint()
+    assert before == primary_panel._code_fingerprint()
+    original = primary_panel.Path.read_bytes
+
+    def changed(self):
+        data = original(self)
+        return data + b"#" if self.name == "panel.py" else data
+
+    monkeypatch.setattr(primary_panel.Path, "read_bytes", changed)
+    assert primary_panel._code_fingerprint() != before
