@@ -18,6 +18,7 @@ unavailable, with a coverage exception. Nothing is filled or recomputed.
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import multiprocessing
 import os
@@ -118,6 +119,10 @@ def mask_missing_session_windows(
         [pl.when(masks[name]).then(None).otherwise(pl.col(name)).alias(name) for name in _WINDOWED]
     ).drop("_session", "_streak_gap").sort(["date", "symbol"])
     return masked, (pl.concat(exceptions) if exceptions else pl.DataFrame(schema=_COVERAGE_SCHEMA))
+
+
+def _digest(text: str) -> str:
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
 
 def _write_parquet(frame: pl.DataFrame, path: Path) -> None:
@@ -221,9 +226,15 @@ def _build_locked(
     # The batch results are hours of compute: keep them until every partition is
     # published, so an interrupted or failed publish resumes without recomputing.
     work = store.root.parent / "primary_panel_build"
-    identity = {"rows": history.height, "symbols": len(symbols), "last_date": last.isoformat(),
-                "events": len(events), "sessions": len(sessions),
-                "factor_version": PRIMARY_OOS_SPEC.factor_version, "batch_size": batch_size}
+    identity = {
+        "rows": history.height, "symbols": len(symbols), "last_date": last.isoformat(),
+        "factor_version": PRIMARY_OOS_SPEC.factor_version, "batch_size": batch_size,
+        # Content digests: a same-sized correction must not reuse stale batches.
+        "history": _digest(str(int(history.hash_rows(seed=1).sum()))
+                           + str(int(history.hash_rows(seed=2).sum()))),
+        "events": _digest("".join(sorted(event.content_hash for event in events))),
+        "sessions": _digest(",".join(day.isoformat() for day in sessions)),
+    }
     marker = work / "_identity.json"
     if not (marker.is_file() and json.loads(marker.read_text(encoding="utf-8")) == identity):
         shutil.rmtree(work, ignore_errors=True)

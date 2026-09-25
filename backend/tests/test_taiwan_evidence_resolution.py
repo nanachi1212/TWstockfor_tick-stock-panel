@@ -746,3 +746,28 @@ def test_failed_request_survives_a_cross_source_conflict_for_the_retry() -> None
     kept = {e.source: e for e in resolve_event_conflicts([failed, other])}
     assert kept["TWT49U"].status == "provider_error"        # still visible to the stale retry
     assert kept["TWTAUU"].status == "data_insufficient"     # same-day cross-source: unusable
+
+
+def test_action_gaps_are_staged_so_store_and_marker_advance_together(
+    tmp_path: Path, monkeypatch,
+) -> None:
+    from app.taiwan.corporate_actions import CorporateActionStore
+    from app.taiwan.quant import primary_oos_runner as runner
+
+    store = CorporateActionStore(tmp_path / "adj_factor")
+    monkeypatch.setattr(runner, "_fetch_actions", lambda a, b: ())
+    runner._action_snapshot(date(2020, 1, 10), date(2020, 2, 1), store=store)
+    before = store.snapshot_digest() if store.path.exists() else None
+
+    def fetch(start: date, end: date):
+        if start > date(2020, 2, 1):
+            raise RuntimeError("tail outage")
+        return (_event("2330.TWSE", "verified", previous_close=100.0, reference_price=90.0,
+                       factor=0.9, precision_method="t", event_type="cash_dividend"),)
+
+    monkeypatch.setattr(runner, "_fetch_actions", fetch)
+    with pytest.raises(RuntimeError):  # head gap succeeds, tail gap fails
+        runner._action_snapshot(date(2019, 12, 1), date(2020, 3, 1), store=store)
+    assert (store.snapshot_digest() if store.path.exists() else None) == before
+    monkeypatch.setattr(runner, "_fetch_actions", lambda a, b: ())
+    runner._action_snapshot(date(2019, 12, 1), date(2020, 3, 1), store=store)  # retry works
