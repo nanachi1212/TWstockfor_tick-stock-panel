@@ -34,6 +34,11 @@ def main(argv: list[str] | None = None) -> int:
         description="Run the formal TWSE Primary OOS evaluation after shared readiness gates pass.",
     )
     parser.add_argument("--json", action="store_true", help="print machine-readable output")
+    parser.add_argument("--build-factor-panel", action="store_true",
+                        help="materialize the historical Primary PIT factor panel with the existing "
+                             "panel/storage code (readiness-gated), then exit")
+    parser.add_argument("--workers", type=int, default=6,
+                        help="worker processes for --build-factor-panel")
     args = parser.parse_args(argv)
     try:
         preflight = read_primary_oos_preflight()
@@ -48,6 +53,16 @@ def main(argv: list[str] | None = None) -> int:
             "blocking_reasons": list(preflight.readiness.blocking_reasons),
         }, as_json=args.json)
         return 2
+    if args.build_factor_panel:
+        try:
+            from app.taiwan.quant.primary_panel import build_primary_factor_panel
+
+            built = build_primary_factor_panel(preflight, workers=args.workers)
+        except Exception as exc:
+            _emit({"status": "failed", "error_code": type(exc).__name__}, as_json=args.json)
+            return 1
+        _emit({"status": "factor_panel_available", **built}, as_json=args.json)
+        return 0
     try:
         result = run_primary_oos_evaluation(preflight)
     except PrimaryOosNotReadyError as exc:

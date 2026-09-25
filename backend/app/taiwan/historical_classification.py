@@ -175,6 +175,13 @@ class HistoricalClassificationStore:
             raise
         return frame.height
 
+    def merge(self, day: date, rows: list[dict[str, Any]]) -> int:
+        """Replace the rows of the given codes in an existing partition, keep the rest."""
+        path = self.partition_path(day)
+        kept = (pl.read_parquet(path).filter(~pl.col("code").is_in([r["code"] for r in rows]))
+                if path.exists() else pl.DataFrame(schema=_SCHEMA))
+        return self.write(day, [*kept.select(list(_SCHEMA)).to_dicts(), *rows])
+
     def completed_dates(self) -> set[date]:
         return {
             date.fromisoformat(p.name.removeprefix("date="))
@@ -254,6 +261,10 @@ class TwseHistoricalClassifier:
         return {
             str(row[index]).strip() for row in rows
         }
+
+    def codes_in_table(self, day: date, type_code: str) -> set[str]:
+        """Codes in one official historical MI_INDEX table (one request)."""
+        return self._codes(day, type_code)
 
     def classify_date(self, day: date) -> list[dict[str, Any]]:
         """Classify one session. Costs ``REQUESTS_PER_DATE`` requests."""

@@ -71,6 +71,16 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
                         help="skip the A2b classification phase")
     parser.add_argument("--retry-empty", action="store_true",
                         help="re-query completed empty_unknown census partitions")
+    parser.add_argument("--verify-trading-days", action="store_true",
+                        help="settle unexplained-empty census days against the official "
+                             "TWSE/TPEx monthly trading-day tables, then exit")
+    parser.add_argument("--resolve-instrument-types", action="store_true",
+                        help="settle industry-only TWSE codes from official ISIN / termination "
+                             "registries (plus 創新板/ETN historical tables), then exit")
+    parser.add_argument("--refresh-instrument-evidence", action="store_true",
+                        help="with --resolve-instrument-types: download the registries first")
+    parser.add_argument("--dry-run", action="store_true",
+                        help="with --verify-trading-days: report only, write nothing")
     parser.add_argument("--force-unlock", action="store_true",
                         help="drop an existing lock before starting (use only when "
                              "certain no other worker is running)")
@@ -91,6 +101,28 @@ def main(argv: list[str] | None = None) -> int:
     if args.status:
         print(json.dumps(worker.status(start=args.start, end=args.end),
                          ensure_ascii=False, indent=2))
+        return 0
+
+    if args.verify_trading_days:
+        try:
+            report = worker.verify_trading_days(
+                start=args.start, end=args.end, force_unlock=args.force_unlock,
+                apply=not args.dry_run)
+        except WorkerBusyError as exc:
+            logging.getLogger(__name__).info("%s", exc)
+            return 0
+        print(json.dumps(report, ensure_ascii=False, indent=2, default=str))
+        return 0
+
+    if args.resolve_instrument_types:
+        try:
+            report = worker.resolve_instrument_types(
+                refresh_evidence=args.refresh_instrument_evidence,
+                force_unlock=args.force_unlock)
+        except WorkerBusyError as exc:
+            logging.getLogger(__name__).info("%s", exc)
+            return 0
+        print(json.dumps(report, ensure_ascii=False, indent=2, default=str))
         return 0
 
     session_budget = UNLIMITED_BUDGET if args.long_run else args.daily_session_budget

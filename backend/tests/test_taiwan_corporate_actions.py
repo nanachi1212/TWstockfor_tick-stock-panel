@@ -256,3 +256,87 @@ def test_provider_only_fetches_detail_for_subscription_cases():
     events = CorporateActionProvider(Client()).fetch("TWT49U", date(2025, 3, 18), date(2025, 3, 18))
     assert len(calls) == 2
     assert all(e.status == "verified" for e in events)
+
+
+def _twse_event(**overrides):
+    return parsed(**overrides)
+
+
+def test_negative_rights_value_uses_prior_close_only_when_official_reference_equals_it():
+    event = derive_factor(_twse_event(**{
+        "股票代號": "2812", "除權息前收盤價": "9.94", "除權息參考價": "9.94",
+        "減除股利參考價": "9.94", "權值+息值": "-0.002826", "權/息": "權"}))
+    assert event.status == "verified" and event.factor == 1.0
+    assert event.precision_method == "twse_negative_rights_value_prior_close"
+    assert derive_factor(event) == event
+    moved = derive_factor(_twse_event(**{
+        "除權息前收盤價": "9.94", "除權息參考價": "9.90", "減除股利參考價": "9.90",
+        "權值+息值": "-0.002826"}))
+    assert moved.status == "data_insufficient" and moved.reason == "negative rights/dividend value"
+
+
+def _detail_event(published: str, cash: str = "0.5", free: str = "200.1"):
+    event = parsed(**{"股票代號": "7610", "除權息前收盤價": "2,650.00", "除權息參考價": "2,207.80",
+                      "減除股利參考價": published, "權值+息值": "468.983979"})
+    raw = json.loads(event.raw_fields)
+    raw["除權息參考價"] = "2,300.00"  # differs from the reduced reference -> detail path
+    raw["detail"] = {"(每股配發現金股利)除息": cash,
+                     "A. 按普通股股東持股比例每千股無償配股": free}
+    return replace(event, raw_fields=json.dumps(raw, ensure_ascii=False, sort_keys=True))
+
+
+def test_detail_reference_within_printed_precision_is_verified_but_far_values_are_not():
+    accepted = derive_factor(_detail_event("2,207.80"))
+    assert accepted.status == "verified"
+    assert accepted.precision_method == "twse_detail_published_within_display_precision"
+    assert accepted.reference_price == pytest.approx(2207.80)
+    assert accepted.factor == pytest.approx(2207.80 / 2650.0)
+    assert derive_factor(accepted) == accepted
+    rejected = derive_factor(_detail_event("2,150.00"))
+    assert rejected.status == "data_insufficient" and rejected.reason == "detail reference mismatch"
+    # Whole-number detail inputs are exact: no display-precision slack.
+    exact = derive_factor(_detail_event("2,207.80", cash="1", free="200"))
+    assert exact.status == "data_insufficient"
+
+
+def test_equivalent_announcements_collapse_but_real_conflicts_stay_unusable():
+    from app.taiwan.corporate_actions import resolve_event_conflicts
+
+    def reduction(detail: str, ref: str = "13.33"):
+        return derive_factor(parsed("TWTAUU", **{"股票代號": "3536", "恢復買賣日期": "104/03/20",
+                                                  "停止買賣前收盤價格": "6.58", "恢復買賣參考價": ref,
+                                                  "詳細資料": detail}))
+
+    same = resolve_event_conflicts([reduction("3536,20150107"), reduction("3536,20150113")])
+    assert len(same) == 1 and same[0].status == "verified"
+    assert same[0].revision_status == "equivalent_observations"
+    differing = resolve_event_conflicts([reduction("3536,20150107"), reduction("3536,20150113", "13.40")])
+    assert len(differing) == 2 and {e.reason for e in differing} == {"conflicting_event_or_revision"}
+
+
+def test_transport_flakiness_is_retried_but_http_errors_are_not():
+    import httpx
+
+    class Client:
+        def __init__(self, failures, error=None):
+            self.calls, self.failures, self.error = 0, failures, error
+
+        def get(self, _url):
+            self.calls += 1
+            if self.calls <= self.failures:
+                raise httpx.RemoteProtocolError("peer closed connection")
+            if self.error:
+                raise self.error
+            return type("R", (), {"content": b'{"stat":"OK"}', "raise_for_status": lambda self: None})()
+
+    flaky = Client(2)
+    assert CorporateActionProvider(client=flaky)._get("https://x.example") == {"stat": "OK"}
+    assert flaky.calls == 3
+    dead = Client(5)
+    with pytest.raises(CorporateActionSourceError):
+        CorporateActionProvider(client=dead)._get("https://x.example")
+    assert dead.calls == 3
+    http_error = Client(0, error=ValueError("HTTP 500"))
+    with pytest.raises(CorporateActionSourceError):
+        CorporateActionProvider(client=http_error)._get("https://x.example")
+    assert http_error.calls == 1

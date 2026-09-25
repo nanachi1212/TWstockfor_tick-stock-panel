@@ -2,11 +2,13 @@
 from __future__ import annotations
 
 import hashlib
+import json
+import os
 import subprocess
 import uuid
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -18,7 +20,7 @@ from app.taiwan.backfill_worker import (
     WorkerBusyError,
     WorkerLock,
 )
-from app.taiwan.corporate_actions import CorporateActionEvent, resolve_event_conflicts
+from app.taiwan.corporate_actions import CorporateActionEvent, CorporateActionStore
 from app.taiwan.historical_classification import HistoricalClassificationStore
 from app.taiwan.observed_universe import ObservedUniverseStore, first_observed_dates
 from app.taiwan.providers.corporate_actions import SOURCE_URLS, CorporateActionProvider
@@ -91,6 +93,7 @@ class PrimaryOosEvaluationInputs:
     action_coverage: Mapping[str, ActionCoverage]
     classification_identity: str
     latest_market_date: date
+    unresolved_type_codes: tuple[str, ...] = ()
 
 
 def read_primary_oos_preflight() -> PrimaryOosPreflight:
@@ -128,6 +131,20 @@ def _frame_digest(frame: pl.DataFrame, sort_by: tuple[str, ...]) -> str:
     return digest.hexdigest()
 
 
+def usable_price_bar() -> pl.Expr:
+    """An official row with a complete positive OHLC bar.
+
+    The exchange prints ``--`` for a day without a price (no trade, suspension).
+    Such a row is a market observation but has no bar to adjust, so it cannot be
+    a feature row; one missing bar would also invalidate every later PIT window
+    of that symbol. The row stays in the census; it just is not evaluable.
+    """
+    return pl.all_horizontal(
+        pl.col(name).is_not_null() & (pl.col(name) > 0) & pl.col(name).is_finite()
+        for name in ("open", "high", "low", "close")
+    )
+
+
 def _primary_universe(
     census: ObservedUniverseStore,
     classifications: HistoricalClassificationStore,
@@ -144,15 +161,15 @@ def _primary_universe(
         schema={"code": pl.String, "first_seen_date": pl.Date},
     )
     types_at_first_seen = classified.join(first_seen_frame, on="code", how="inner").filter(
-        pl.col("date") == pl.col("first_seen_date")
+        pl.col("classification_effective_from") == pl.col("first_seen_date")
     ).select("code", "instrument_type", "instrument_type_status")
     universe = (
-        observations.select("date", "raw_code").join(
+        observations.select("date", "raw_code", usable_price_bar().alias("has_price_bar")).join(
             types_at_first_seen, left_on="raw_code", right_on="code", how="left",
         )
         .with_columns(
             pl.concat_str([pl.col("raw_code"), pl.lit(".TWSE")]).alias("market_symbol"),
-            pl.lit(True).alias("observed_on_market"),
+            pl.col("has_price_bar").alias("observed_on_market"),
             pl.lit("TWSE").alias("exchange"),
             pl.col("instrument_type_status").fill_null("data_insufficient"),
         )
@@ -161,11 +178,11 @@ def _primary_universe(
         .unique(subset=["date", "market_symbol"], keep="first")
         .sort(["date", "market_symbol"])
     )
-    identity = _frame_digest(classified, ("date", "code"))
+    identity = _frame_digest(classified, ("classification_effective_from", "code"))
     return universe, identity
 
 
-def _action_snapshot(start: date, end: date) -> tuple[tuple[CorporateActionEvent, ...], ActionCoverage]:
+def _fetch_actions(start: date, end: date) -> tuple[CorporateActionEvent, ...]:
     provider = CorporateActionProvider()
     events: list[CorporateActionEvent] = []
     try:
@@ -173,10 +190,45 @@ def _action_snapshot(start: date, end: date) -> tuple[tuple[CorporateActionEvent
             events.extend(provider.fetch(source, start, end))
     finally:
         provider.close()
-    return (
-        resolve_event_conflicts(events),
-        ActionCoverage(start, end, "verified", tuple(sorted(SOURCE_URLS))),
-    )
+    return tuple(events)
+
+
+def _action_snapshot(
+    start: date, end: date, *, store: CorporateActionStore | None = None,
+) -> tuple[tuple[CorporateActionEvent, ...], ActionCoverage]:
+    """All five official corporate-action sources over [start, end].
+
+    A full-history pull costs hours of throttled detail requests, so completed
+    pulls are kept in the canonical ``CorporateActionStore`` next to a coverage
+    marker; later calls only fetch the uncovered head/tail. A failed pull raises
+    before anything is recorded, so a marker always means every source completed.
+    """
+    store = store or CorporateActionStore()
+    marker = store.path.with_name("coverage.json")
+    sources = sorted(SOURCE_URLS)
+    covered: tuple[date, date] | None = None
+    if marker.is_file():
+        record = json.loads(marker.read_text(encoding="utf-8"))
+        if record.get("sources") == sources:
+            covered = (date.fromisoformat(record["start"]), date.fromisoformat(record["end"]))
+    if covered is None:
+        gaps = [(start, end)]
+        new_range = (start, end)
+    else:
+        gaps = ([(start, covered[0] - timedelta(days=1))] if start < covered[0] else []) +                ([(covered[1] + timedelta(days=1), end)] if end > covered[1] else [])
+        new_range = (min(start, covered[0]), max(end, covered[1]))
+    if gaps:
+        for gap_start, gap_end in gaps:
+            store.save(_fetch_actions(gap_start, gap_end))
+        marker.parent.mkdir(parents=True, exist_ok=True)
+        temporary = marker.with_suffix(".tmp")
+        temporary.write_text(json.dumps({
+            "sources": sources, "start": new_range[0].isoformat(), "end": new_range[1].isoformat(),
+            "recorded_at": datetime.now(TAIPEI).isoformat(),
+        }), encoding="utf-8")
+        os.replace(temporary, marker)
+    events = tuple(event for event in store.read() if start <= event.effective_date <= end)
+    return events, ActionCoverage(start, end, "verified", tuple(sources))
 
 
 def load_primary_oos_inputs(expected: PrimaryOosPreflight) -> PrimaryOosEvaluationInputs:
@@ -213,6 +265,7 @@ def load_primary_oos_inputs(expected: PrimaryOosPreflight) -> PrimaryOosEvaluati
     primary_members = universe.filter(
         (pl.col("instrument_type_status") == "verified")
         & (pl.col("instrument_type") == "stock")
+        & pl.col("observed_on_market")
     )
     panel_keys = panel.values.select("date", pl.col("symbol").alias("market_symbol"))
     missing = primary_members.join(panel_keys, on=["date", "market_symbol"], how="anti")
@@ -263,6 +316,9 @@ def load_primary_oos_inputs(expected: PrimaryOosPreflight) -> PrimaryOosEvaluati
         action_coverage={"TWSE": coverage},
         classification_identity=classification_identity,
         latest_market_date=latest_market_date,
+        unresolved_type_codes=tuple(sorted(
+            universe.filter(pl.col("instrument_type_status") != "verified")["market_symbol"]
+            .str.removesuffix(".TWSE").unique().to_list())),
     )
 
 
@@ -425,6 +481,7 @@ def run_primary_oos_evaluation(
                         "dataset_identity": dataset_identity,
                         "latest_market_date": inputs.latest_market_date.isoformat(),
                         "a2b_classification_identity": inputs.classification_identity,
+                        "unresolved_type_codes": list(inputs.unresolved_type_codes),
                         "a2b": store.progress_snapshot(inputs.preflight.a2b_progress),
                         "data_health": inputs.preflight.data_health.describe(),
                         "horizons": list(spec.horizons),

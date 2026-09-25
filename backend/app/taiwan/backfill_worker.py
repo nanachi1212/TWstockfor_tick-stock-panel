@@ -31,6 +31,7 @@ from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
+import polars as pl
 import psutil
 
 from app.taiwan.daily_update import resolve_target_latest_trading_date
@@ -471,6 +472,64 @@ class TaiwanHistoricalBackfillWorker:
                     "elapsed_seconds": round(time.monotonic() - started, 1),
                     "stopped_early": bool(should_stop()),
                 }
+        finally:
+            self.lock.release()
+
+    def verify_trading_days(
+        self, *, start: date = CENSUS_START, end: date | None = None,
+        force_unlock: bool = False, apply: bool = True,
+    ) -> dict[str, Any]:
+        """Settle unexplained-empty census days with official month tables."""
+        from app.taiwan.trading_day_evidence import verify_empty_days
+
+        latest = resolve_target_latest_trading_date(self.calendar, as_of_dt=taipei_now())
+        end = min(end or latest, latest)
+        self.lock.acquire(force=force_unlock)
+        try:
+            census = self._census or ObservedUniverseCensus(
+                store=self.census_store, calendar=self.calendar)
+            try:
+                fetchers = {"TWSE": census.fetch_twse, "TPEX": census.fetch_tpex}
+                with ThreadPoolExecutor(max_workers=2) as pool:
+                    futures = {
+                        exchange: pool.submit(
+                            verify_empty_days, self.census_store, exchange,
+                            start=start, end=end, census_rows=fetchers[exchange],
+                            apply=apply)
+                        for exchange in ("TWSE", "TPEX")
+                    }
+                    return {exchange: future.result() for exchange, future in futures.items()}
+            finally:
+                if self._census is None:
+                    census.close()
+        finally:
+            self.lock.release()
+
+    def resolve_instrument_types(
+        self, *, refresh_evidence: bool = False, force_unlock: bool = False,
+    ) -> dict[str, Any]:
+        """Settle industry-only TWSE codes from official security registries."""
+        from app.taiwan.instrument_evidence import (
+            InstrumentEvidenceStore,
+            resolve_industry_only_codes,
+        )
+        from app.taiwan.instrument_evidence import (
+            refresh_evidence as download_evidence,
+        )
+
+        evidence = InstrumentEvidenceStore(self.data_dir / "instrument_evidence")
+        self.lock.acquire(force=force_unlock)
+        try:
+            counts = (download_evidence(evidence, today=taipei_now().date())
+                      if refresh_evidence else {})
+            observations = self.census_store.read("TWSE")
+            span = observations.group_by("raw_code").agg(
+                pl.col("date").min().alias("first"), pl.col("date").max().alias("last"))
+            first_seen = dict(zip(span["raw_code"], span["first"], strict=True))
+            last_seen = dict(zip(span["raw_code"], span["last"], strict=True))
+            result = resolve_industry_only_codes(
+                self.classification_store, first_seen, last_seen, evidence)
+            return {"evidence_downloaded": counts, **result}
         finally:
             self.lock.release()
 

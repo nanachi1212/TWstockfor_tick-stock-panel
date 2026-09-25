@@ -240,10 +240,9 @@ def evaluate_data_health(
         training_blocked.append(
             f"TWSE classification coverage {classification_ratio:.1%} "
             f"< {gates.training_classification_ratio:.0%}")
-    if classification and classification.get("industry_only_unresolved_count", 0):
-        training_blocked.append(
-            "industry-table membership does not verify common/preferred share subtype; "
-            "authoritative historical common-stock evidence is data_insufficient")
+    # Industry-table membership alone never proves a subtype, so a code without
+    # registry evidence stays unknown: it is outside the Primary universe and
+    # counts against the classification ratio above. Only that ratio gates.
     blocked[ReadinessLevel.TRAINING.value] = training_blocked
     levels[ReadinessLevel.TRAINING.value] = not training_blocked
 

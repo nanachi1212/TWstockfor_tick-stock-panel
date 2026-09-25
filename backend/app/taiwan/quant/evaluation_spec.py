@@ -78,7 +78,8 @@ class PrimaryOosEvaluationSpec:
             "horizons_sessions": list(self.horizons),
             "universe_policy": self.universe_policy.describe(),
             "pit_policy": {
-                "universe": "A2a observed TWSE membership joined to A2b first-observed-date type evidence",
+                "universe": ("A2a observed TWSE membership with a usable official OHLC bar, joined to "
+                          "A2b first-observed-date type evidence"),
                 "features": "usage_scope=pit_feature; adjustment anchored at each feature session close",
                 "labels": "separate evaluation-only forward adjusted close returns; never feature inputs",
                 "price_source": "A2a observed-universe raw daily observations (includes delisted history)",
