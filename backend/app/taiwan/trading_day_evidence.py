@@ -134,7 +134,8 @@ def verify_empty_days(
         "confirmed_non_trading": [], "observed_conflicts": [],
         "empty_but_official_session": [], "empty_session_recovered": [],
         "after_last_published_session": [],
-        "weekend_sessions_added": [], "weekend_sessions_missing": [], "month_errors": [],
+        "weekend_sessions_added": [], "weekend_sessions_missing": [],
+        "weekend_sessions_missing_open": [], "month_errors": [],
     }
     for year, month in _months(start, end):
         in_month = {day: status for day, status in statuses.items()
@@ -178,4 +179,13 @@ def verify_empty_days(
                 store.write(exchange, day, rows)
                 if rows:
                     report["weekend_sessions_added"].append(day.isoformat())
+                else:
+                    report["weekend_sessions_missing_open"].append(day.isoformat())
+    clean = (
+        not report["month_errors"] and not report["observed_conflicts"]
+        and not report["weekend_sessions_missing_open"]
+        and len(report["empty_but_official_session"]) == len(report["empty_session_recovered"])
+    )
+    if apply and census_rows is not None and clean:
+        store.record_month_verification(exchange, start, end)
     return report

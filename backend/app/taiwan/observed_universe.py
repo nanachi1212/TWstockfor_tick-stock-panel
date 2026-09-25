@@ -222,6 +222,27 @@ class ObservedUniverseStore:
         frames = [f for f in frames if f.height]
         return pl.concat(frames, how="diagonal_relaxed") if frames else pl.DataFrame(schema=_CENSUS_SCHEMA)
 
+    def _verification_path(self, exchange: str) -> Path:
+        return self._data_dir / f"_month_verification_{exchange}.json"
+
+    def record_month_verification(self, exchange: str, start: date, end: date) -> None:
+        """A clean, complete pass of the official month-table check for [start, end]."""
+        temporary = self._verification_path(exchange).with_suffix(".tmp")
+        temporary.write_text(json.dumps({
+            "start": start.isoformat(), "end": end.isoformat(),
+            "verified_at": datetime.now(TAIPEI).isoformat(),
+        }), encoding="utf-8")
+        os.replace(temporary, self._verification_path(exchange))
+
+    def month_verification_covers(self, exchange: str, start: date, end: date) -> bool:
+        """Whether a clean month-table pass covers ``start`` through the month of ``end``."""
+        path = self._verification_path(exchange)
+        if not path.is_file():
+            return False
+        record = json.loads(path.read_text(encoding="utf-8"))
+        done_start, done_end = date.fromisoformat(record["start"]), date.fromisoformat(record["end"])
+        return done_start <= start and (done_end.year, done_end.month) >= (end.year, end.month)
+
     def completed_dates(self, exchange: str) -> set[date]:
         root = self._data_dir / f"exchange={exchange}"
         if not root.exists():

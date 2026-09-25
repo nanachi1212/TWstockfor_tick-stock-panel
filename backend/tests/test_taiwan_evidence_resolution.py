@@ -731,7 +731,8 @@ def test_streak_factor_never_reaches_across_a_missing_session() -> None:
     result = dict(zip(masked["date"], masked["macd_hist_streak"], strict=True))
     assert result[sessions[6]] is None      # streak 2 would count session 4 across the gap
     assert result[sessions[7]] is None      # streak 3 spans sessions 4-7
-    assert result[sessions[8]] == 2.0       # 7-8: consecutive sessions
+    # EWM state never forgets the pre-gap bars: unavailable until its memory horizon passes.
+    assert result[sessions[8]] is None
     assert result[sessions[4]] == 5.0       # before the gap
     assert set(exceptions["reason"].to_list()) == {"missing_session_in_window"}
 
@@ -813,3 +814,75 @@ def test_resume_identity_changes_with_the_factor_implementation(monkeypatch) -> 
 
     monkeypatch.setattr(primary_panel.Path, "read_bytes", changed)
     assert primary_panel._code_fingerprint() != before
+
+
+def test_recursive_indicators_stay_unavailable_after_a_gap_until_memory_expires() -> None:
+    from app.taiwan.quant.panel import FACTORS
+    from app.taiwan.quant.primary_panel import mask_missing_session_windows
+
+    sessions = [date(2018, 1, 1) + timedelta(days=n) for n in range(400)]
+    present = [i for i in range(300) if i != 50]  # one missing session at index 50
+    frame = pl.DataFrame({
+        "symbol": ["1101.TWSE"] * len(present), "date": [sessions[i] for i in present],
+        **{name: [1.0] * len(present) for name in FACTORS},
+    })
+    masked, _ = mask_missing_session_windows(frame, sessions)
+    rsi = dict(zip(masked["date"], masked["rsi_14"], strict=True))
+    ma5 = dict(zip(masked["date"], masked["ma5"], strict=True))
+    assert rsi[sessions[49]] == 1.0 and ma5[sessions[49]] == 1.0
+    assert rsi[sessions[100]] is None and rsi[sessions[149]] is None   # < 100 bars after the gap
+    assert rsi[sessions[151]] == 1.0                                    # memory horizon passed
+    assert ma5[sessions[56]] == 1.0                                     # 5-bar window is clean again
+    assert ma5[sessions[54]] is None
+
+
+def test_month_verification_marker_only_after_a_clean_complete_pass(tmp_path: Path) -> None:
+    store = ObservedUniverseStore(tmp_path)
+    _seed(store, "TWSE", [date(2015, 2, 2), date(2015, 2, 26)], [date(2015, 2, 16)])
+    span = (date(2015, 2, 1), date(2015, 2, 28))
+    good = _fetcher({"FMTQIK": _twse_month(2015, 2, ["104/02/02", "104/02/26"])})
+    bad = _fetcher({"FMTQIK": {"stat": "很抱歉，沒有符合條件的資料!"}})
+    verify_empty_days(store, "TWSE", start=span[0], end=span[1], fetch=bad,
+                      census_rows=lambda day: [])
+    assert not store.month_verification_covers("TWSE", *span)
+    verify_empty_days(store, "TWSE", start=span[0], end=span[1], fetch=good, apply=False,
+                      census_rows=lambda day: [])
+    assert not store.month_verification_covers("TWSE", *span)   # a dry run proves nothing
+    verify_empty_days(store, "TWSE", start=span[0], end=span[1], fetch=good,
+                      census_rows=lambda day: [])
+    assert store.month_verification_covers("TWSE", *span)
+    assert not store.month_verification_covers("TWSE", date(2015, 1, 1), span[1])
+    assert not store.month_verification_covers("TWSE", span[0], date(2015, 4, 1))
+
+
+def test_panel_build_fails_if_the_stores_change_while_it_computes(
+    tmp_path: Path, monkeypatch,
+) -> None:
+    from app.taiwan.backfill_worker import TaiwanHistoricalBackfillWorker
+    from app.taiwan.quant import primary_panel
+    from app.taiwan.quant.primary_oos_runner import PrimaryOosInputError
+    from app.taiwan.quant.storage import FactorPanelStore
+
+    sessions = [day for day in (date(2020, 1, 1) + timedelta(days=n) for n in range(120))
+                if day.weekday() < 5][:41]
+    census = ObservedUniverseStore(tmp_path / "observed")
+    for day in sessions[:40]:
+        census.write("TWSE", day,
+                     [r for r in _stock_history(("2330",), sessions) if r["date"] == day])
+    classifications = HistoricalClassificationStore(tmp_path / "cls")
+    classifications.write(sessions[0], [{
+        **_industry_row("2330", sessions[0]), "instrument_type": "stock",
+        "classification_status": "verified", "classification_source": "twse:isin_listed@x"}])
+    worker = TaiwanHistoricalBackfillWorker(
+        data_dir=tmp_path, census_store=census, classification_store=classifications)
+
+    def concurrent_backfill(snapshot, store, workers, batch_size):
+        census.write("TWSE", sessions[40],
+                     [r for r in _stock_history(("2330",), sessions) if r["date"] == sessions[40]])
+
+    monkeypatch.setattr(primary_panel, "_compute_batches", concurrent_backfill)
+    store = FactorPanelStore(tmp_path / "factors")
+    with pytest.raises(PrimaryOosInputError, match="changed while the panel was computed"):
+        primary_panel.build_primary_factor_panel(_preflight(), events=(), store=store,
+                                                 worker=worker, workers=1)
+    assert not worker.lock.path.exists() if hasattr(worker.lock, "path") else True

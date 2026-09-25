@@ -210,6 +210,7 @@ def evaluate_data_health(
     twse_codes_classified: int,
     thresholds: ReadinessThresholds | None = None,
     classification: dict[str, int | float] | None = None,
+    month_tables_verified: bool = True,
 ) -> DataHealth:
     """Grade readiness from plain counts, so it is trivially testable."""
     gates = thresholds or ReadinessThresholds()
@@ -255,6 +256,10 @@ def evaluate_data_health(
         oos_blocked.append(
             f"TWSE classification coverage {classification_ratio:.1%} "
             f"< {gates.primary_oos_classification_ratio:.0%} required for a Primary OOS claim")
+    if not month_tables_verified:
+        oos_blocked.append(
+            "official trading-day month tables are not verified through the evaluated span; "
+            "run --verify-trading-days")
     blocked[ReadinessLevel.PRIMARY_OOS.value] = oos_blocked
     levels[ReadinessLevel.PRIMARY_OOS.value] = not oos_blocked
 
@@ -310,6 +315,7 @@ def health_from_stores(
         twse_codes_classified=len(observed) - int(counts["unknown_count"]),
         thresholds=thresholds,
         classification=counts,
+        month_tables_verified=census.month_verification_covers("TWSE", start, end),
     )
     return replace(health, census_by_exchange={
         "TWSE": twse_coverage.describe(),

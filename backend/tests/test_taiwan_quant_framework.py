@@ -254,6 +254,12 @@ def test_primary_twse_readiness_uses_confirmed_trading_denominator(
         primary_oos_classification_ratio=1.0,
     )
 
+    unverified = health_from_stores(
+        census, classification, start=closure_1, end=real_session, thresholds=thresholds)
+    assert unverified.is_ready(ReadinessLevel.PRIMARY_OOS) is False
+    assert any("month tables" in reason
+               for reason in unverified.blocked_reasons["ready_for_primary_oos"])
+    census.record_month_verification("TWSE", closure_1, real_session)
     health = health_from_stores(
         census, classification, start=closure_1, end=real_session,
         thresholds=thresholds)

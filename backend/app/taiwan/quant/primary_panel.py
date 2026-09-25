@@ -28,6 +28,7 @@ from collections.abc import Sequence
 from concurrent.futures import ProcessPoolExecutor
 from datetime import date
 from pathlib import Path
+from typing import Any
 
 import polars as pl
 
@@ -57,6 +58,10 @@ _DATES_PER_PUBLISH = 25
 #: Factors that read a rolling window of the symbol's own price/volume bars.
 _WINDOWED = tuple(name for name in (*TECHNICAL, "relative_volume", "adv20_twd", *RELATIVE)
                   if _min_history(name) > 1)
+#: Recursive (EWM) factors never fully forget older bars, so their window is the memory
+#: horizon after which an older bar carries <0.1% weight, not their warm-up length.
+_MEMORY = {"rsi_14": 100, "macd_dif": 120, "macd_dea": 120, "macd_hist": 120,
+           "macd_hist_streak": 120}
 _COVERAGE_SCHEMA = {
     "symbol": pl.String, "date": pl.Date, "factor": pl.String, "status": pl.String,
     "as_of": pl.String, "available_at": pl.String, "reason": pl.String, "source": pl.String,
@@ -90,9 +95,17 @@ def mask_missing_session_windows(
     index = {day: position for position, day in enumerate(sessions)}
     frame = values.sort(["symbol", "date"]).with_columns(
         pl.col("date").replace_strict(index, return_dtype=pl.Int64).alias("_session"))
+    frame = frame.with_columns(pl.int_range(pl.len()).over("symbol").alias("_position"))
+    span = pl.col("_session") - pl.col("_session").first().over("symbol")
+
+    def window(name: str) -> int:
+        return max(_MEMORY.get(name, 0), _min_history(name))
+
     masks = {
-        name: ((pl.col("_session") - pl.col("_session").shift(_min_history(name) - 1)
-                .over("symbol")) != _min_history(name) - 1)
+        name: pl.when(pl.col("_position") >= window(name) - 1).then(
+            (pl.col("_session") - pl.col("_session").shift(window(name) - 1).over("symbol"))
+            != window(name) - 1
+        ).otherwise(span != pl.col("_position"))
         for name in _WINDOWED
     }
     # macd_hist_streak counts back until the histogram changes sign, so its span is
@@ -117,7 +130,7 @@ def mask_missing_session_windows(
             ).select(list(_COVERAGE_SCHEMA)))
     masked = frame.with_columns(
         [pl.when(masks[name]).then(None).otherwise(pl.col(name)).alias(name) for name in _WINDOWED]
-    ).drop("_session", "_streak_gap").sort(["date", "symbol"])
+    ).drop("_session", "_position", "_streak_gap").sort(["date", "symbol"])
     return masked, (pl.concat(exceptions) if exceptions else pl.DataFrame(schema=_COVERAGE_SCHEMA))
 
 
@@ -199,17 +212,28 @@ def build_primary_factor_panel(
         raise PrimaryOosNotReadyError(preflight.readiness)
     store = store or FactorPanelStore()
     worker = worker or TaiwanHistoricalBackfillWorker()
+    # Snapshot under the lock, compute without it (hours), then revalidate the same
+    # snapshot under the lock right before publishing: a store that changed in
+    # between makes the build fail instead of publishing a mixed generation.
     worker.lock.acquire()
     try:
-        return _build_locked(worker, store, events, workers, batch_size)
+        snapshot = _snapshot(worker, events)
+    finally:
+        worker.lock.release()
+    _compute_batches(snapshot, store, workers, batch_size)
+    worker.lock.acquire()
+    try:
+        if _snapshot(worker, snapshot["events"])["identity_inputs"] != snapshot["identity_inputs"]:
+            raise PrimaryOosInputError(
+                "census or classification changed while the panel was computed; nothing was published")
+        return _publish(snapshot, store)
     finally:
         worker.lock.release()
 
 
-def _build_locked(
-    worker: TaiwanHistoricalBackfillWorker, store: FactorPanelStore,
-    events: tuple[CorporateActionEvent, ...] | None, workers: int, batch_size: int,
-) -> dict[str, int]:
+def _snapshot(
+    worker: TaiwanHistoricalBackfillWorker, events: tuple[CorporateActionEvent, ...] | None,
+) -> dict[str, Any]:
     universe, _identity = _primary_universe(worker.census_store, worker.classification_store)
     members = universe.filter(
         (pl.col("instrument_type_status") == "verified") & (pl.col("instrument_type") == "stock")
@@ -233,6 +257,13 @@ def _build_locked(
         if not coverage.covers(first, last):
             raise PrimaryOosInputError("corporate-action source coverage is incomplete")
     sessions = sorted(worker.census_store.session_dates("TWSE"))
+    inputs = {
+        "history": _digest(str(int(history.hash_rows(seed=1).sum()))
+                           + str(int(history.hash_rows(seed=2).sum()))),
+        "events": _digest("".join(sorted(event.content_hash for event in events))),
+        "sessions": _digest(",".join(day.isoformat() for day in sessions)),
+        "universe": _digest(str(int(universe.hash_rows(seed=1).sum()))),
+    }
     unresolved = sorted(
         day for day, status in worker.census_store.partition_statuses("TWSE").items()
         if status == "empty_unknown" and first <= day <= last)
@@ -242,18 +273,23 @@ def _build_locked(
         raise PrimaryOosInputError(
             f"unresolved empty sessions inside the panel span: {[d.isoformat() for d in unresolved[:5]]}")
 
+    return {"history": history, "symbols": symbols, "events": events, "sessions": sessions,
+            "last": last, "identity_inputs": inputs}
+
+
+def _compute_batches(
+    snapshot: dict[str, Any], store: FactorPanelStore, workers: int, batch_size: int,
+) -> None:
+    history, symbols = snapshot["history"], snapshot["symbols"]
+    events, sessions = snapshot["events"], snapshot["sessions"]
     # The batch results are hours of compute: keep them until every partition is
     # published, so an interrupted or failed publish resumes without recomputing.
     work = store.root.parent / "primary_panel_build"
     identity = {
-        "rows": history.height, "symbols": len(symbols), "last_date": last.isoformat(),
+        "rows": history.height, "symbols": len(symbols), "last_date": snapshot["last"].isoformat(),
         "factor_version": PRIMARY_OOS_SPEC.factor_version, "batch_size": batch_size,
         # Content digests: a same-sized correction must not reuse stale batches.
-        "history": _digest(str(int(history.hash_rows(seed=1).sum()))
-                           + str(int(history.hash_rows(seed=2).sum()))),
-        "events": _digest("".join(sorted(event.content_hash for event in events))),
-        "sessions": _digest(",".join(day.isoformat() for day in sessions)),
-        "code": _code_fingerprint(),
+        **snapshot["identity_inputs"], "code": _code_fingerprint(),
     }
     marker = work / "_identity.json"
     if not (marker.is_file() and json.loads(marker.read_text(encoding="utf-8")) == identity):
@@ -268,6 +304,10 @@ def _build_locked(
                              mp_context=multiprocessing.get_context("spawn")) as pool:
         list(pool.map(_build_batch, jobs))
 
+
+def _publish(snapshot: dict[str, Any], store: FactorPanelStore) -> dict[str, int]:
+    history, symbols = snapshot["history"], snapshot["symbols"]
+    work = store.root.parent / "primary_panel_build"
     values = pl.scan_parquet(work / "values_*.parquet")
     coverage = (pl.scan_parquet(work / "coverage_*.parquet")
                 if any(work.glob("coverage_*.parquet")) else None)
