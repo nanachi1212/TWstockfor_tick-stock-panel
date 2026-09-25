@@ -1017,3 +1017,13 @@ def test_panel_build_rereads_readiness_under_the_lock(tmp_path: Path) -> None:
     with pytest.raises(PrimaryOosNotReadyError):   # the caller's object says ready; the stores do not
         build_primary_factor_panel(_preflight(), events=(), store=FactorPanelStore(tmp_path / "f"),
                                    worker=worker, workers=1, preflight_reader=not_ready)
+
+
+def test_unresolved_codes_are_listed_without_the_market_suffix() -> None:
+    from app.taiwan.quant.primary_oos_runner import unresolved_type_codes
+
+    universe = pl.DataFrame({
+        "market_symbol": ["2330.TWSE", "2833A.TWSE", "2833A.TWSE", "2891A.TWSE"],
+        "instrument_type_status": ["verified", "data_insufficient", "data_insufficient",
+                                   "data_insufficient"]})
+    assert unresolved_type_codes(universe) == ("2833A", "2891A")

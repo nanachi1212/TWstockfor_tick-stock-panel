@@ -177,6 +177,12 @@ def usable_price_bar() -> pl.Expr:
     )
 
 
+def unresolved_type_codes(universe: pl.DataFrame) -> tuple[str, ...]:
+    """TWSE codes whose historical instrument type has no verified evidence."""
+    symbols = universe.filter(pl.col("instrument_type_status") != "verified")["market_symbol"]
+    return tuple(sorted({symbol.removesuffix(".TWSE") for symbol in symbols.to_list()}))
+
+
 def _primary_universe(
     census: ObservedUniverseStore,
     classifications: HistoricalClassificationStore,
@@ -408,9 +414,7 @@ def load_primary_oos_inputs(expected: PrimaryOosPreflight) -> PrimaryOosEvaluati
         rows_without_price_bar=int(universe.filter(
             (pl.col("instrument_type_status") == "verified")
             & (pl.col("instrument_type") == "stock") & ~pl.col("price_bar_available")).height),
-        unresolved_type_codes=tuple(sorted(
-            universe.filter(pl.col("instrument_type_status") != "verified")["market_symbol"]
-            .str.removesuffix(".TWSE").unique().to_list())),
+        unresolved_type_codes=unresolved_type_codes(universe),
     )
 
 
