@@ -28,6 +28,7 @@ from app.taiwan.providers.taiwan_values import TAIPEI
 from app.taiwan.quant.data_health import (
     DataHealth,
     QuantEvaluationReadiness,
+    ReadinessThresholds,
     health_from_stores,
     price_dataset_capability,
     quant_evaluation_readiness,
@@ -40,6 +41,36 @@ from app.taiwan.quant.live_contract import canonical_hash, canonical_json
 from app.taiwan.quant.storage import FactorPanelStore
 from app.taiwan.quant.training import TrainingMatrixResult, panel_training_matrix
 from app.taiwan.quant_eligibility import PRIMARY_VERIFIED
+
+CLAIM_SCOPE_DESCRIPTION = (
+    "TWSE Primary verified universe under the predefined 99% data-health policy"
+)
+UNRESOLVED_EXCLUSION_REASON = (
+    "historical instrument subtype lacks authoritative official evidence"
+)
+
+
+def data_health_policy_record(
+    health: DataHealth, unresolved_codes: Sequence[str],
+) -> dict[str, Any]:
+    """Exact coverage and every excluded unresolved code, for the saved artifact."""
+    thresholds = ReadinessThresholds()
+    classification = health.classification
+    return {
+        "scope": CLAIM_SCOPE_DESCRIPTION,
+        "thresholds": {
+            "primary_oos_classification_ratio": thresholds.primary_oos_classification_ratio,
+            "primary_oos_census_ratio": thresholds.primary_oos_census_ratio,
+        },
+        "classification_coverage": classification.get("primary_classification_ratio"),
+        "trading_day_coverage": health.census_ratio,
+        "verified_stock_count": classification.get("verified_stock_count"),
+        "unresolved_count": classification.get("unknown_count"),
+        "excluded_unresolved_symbols": [
+            {"symbol": code, "reason": UNRESOLVED_EXCLUSION_REASON}
+            for code in sorted(unresolved_codes)
+        ],
+    }
 
 
 class PrimaryOosNotReadyError(RuntimeError):
@@ -522,6 +553,9 @@ def run_primary_oos_evaluation(
                         "latest_market_date": inputs.latest_market_date.isoformat(),
                         "a2b_classification_identity": inputs.classification_identity,
                         "unresolved_type_codes": list(inputs.unresolved_type_codes),
+                        "claim_scope_description": CLAIM_SCOPE_DESCRIPTION,
+                        "data_health_policy": data_health_policy_record(
+                            inputs.preflight.data_health, inputs.unresolved_type_codes),
                         "a2b": store.progress_snapshot(inputs.preflight.a2b_progress),
                         "data_health": inputs.preflight.data_health.describe(),
                         "horizons": list(spec.horizons),

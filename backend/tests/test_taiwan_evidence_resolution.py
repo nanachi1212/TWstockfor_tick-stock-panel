@@ -598,3 +598,40 @@ def test_evidence_refresh_publishes_nothing_when_a_later_source_fails(tmp_path: 
                          fetch_bytes=lambda url: next(v for k, v in pages.items() if k in url),
                          fetch_payload=payload)
     assert not (tmp_path / "ev").exists() or not any((tmp_path / "ev").iterdir())
+
+
+def test_unresolved_symbol_never_enters_the_primary_universe_or_panel(tmp_path: Path) -> None:
+    from app.taiwan.backfill_worker import TaiwanHistoricalBackfillWorker
+    from app.taiwan.quant.evaluation_spec import PRIMARY_OOS_SPEC
+    from app.taiwan.quant.primary_oos_runner import _primary_universe
+    from app.taiwan.quant.primary_panel import build_primary_factor_panel
+    from app.taiwan.quant.storage import FactorPanelStore
+    from app.taiwan.quant_eligibility import PRIMARY_VERIFIED, eligible
+
+    sessions = [day for day in (date(2020, 1, 1) + timedelta(days=n) for n in range(120))
+                if day.weekday() < 5][:70]
+    census = ObservedUniverseStore(tmp_path / "observed")
+    for day in sessions:
+        census.write("TWSE", day, [r for r in _stock_history(("2330", "2833A"), sessions)
+                                   if r["date"] == day])
+    classifications = HistoricalClassificationStore(tmp_path / "cls")
+    classifications.write(sessions[0], [
+        {**_industry_row("2330", sessions[0]), "instrument_type": "stock",
+         "classification_status": "verified", "classification_source": "twse:isin_listed@x"},
+        _industry_row("2833A", sessions[0]),   # industry table only: subtype unproven
+    ])
+
+    universe, _ = _primary_universe(census, classifications)
+    unresolved = universe.filter(pl.col("market_symbol") == "2833A.TWSE")
+    assert set(unresolved["instrument_type_status"].to_list()) == {"data_insufficient"}
+    admitted = eligible(universe, PRIMARY_OOS_SPEC.universe_policy)
+    assert set(admitted["market_symbol"].to_list()) == {"2330.TWSE"}
+
+    worker = TaiwanHistoricalBackfillWorker(
+        data_dir=tmp_path, census_store=census, classification_store=classifications)
+    store = FactorPanelStore(tmp_path / "factors")
+    build_primary_factor_panel(_preflight(), events=(), store=store, worker=worker, workers=1)
+    panel = store.read_all(factor_version=PRIMARY_OOS_SPEC.factor_version,
+                           policy_version=PRIMARY_OOS_SPEC.policy_version,
+                           universe_tier=PRIMARY_VERIFIED)
+    assert set(panel.values["symbol"].to_list()) == {"2330.TWSE"}
