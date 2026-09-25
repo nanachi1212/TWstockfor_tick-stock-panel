@@ -1129,25 +1129,27 @@ def _notification_channel_response(channel: str) -> dict:
 
 @router.put("/preferences/line-messaging")
 def update_line_messaging(req: NotificationChannelPrefsIn) -> dict:
-    from app.services import preferences
+    from app.services import preferences, webhook_adapter
 
     preferences.set_line_target_id(req.recipient)
     if req.clear_token:
         preferences.set_line_channel_access_token("")
     elif req.token and req.token.strip():
         preferences.set_line_channel_access_token(req.token)
+    webhook_adapter.clear_delivery_status("line")
     return _notification_channel_response("line")
 
 
 @router.put("/preferences/telegram-bot")
 def update_telegram_bot(req: NotificationChannelPrefsIn) -> dict:
-    from app.services import preferences
+    from app.services import preferences, webhook_adapter
 
     preferences.set_telegram_chat_id(req.recipient)
     if req.clear_token:
         preferences.set_telegram_bot_token("")
     elif req.token and req.token.strip():
         preferences.set_telegram_bot_token(req.token)
+    webhook_adapter.clear_delivery_status("telegram")
     return _notification_channel_response("telegram")
 
 

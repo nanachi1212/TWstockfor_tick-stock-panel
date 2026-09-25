@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 import json
+import threading
+import time
+from concurrent.futures import ThreadPoolExecutor
 
 import httpx
 
@@ -37,6 +40,7 @@ def test_legacy_channels_are_filtered_without_deleting_other_preferences(monkeyp
 
 def test_notification_tokens_are_masked_and_stored_in_secrets(monkeypatch, tmp_path):
     _, secrets_path = _isolated_stores(monkeypatch, tmp_path)
+    webhook_adapter.record_delivery_status("line", "not_configured")
     response = settings_api.update_line_messaging(settings_api.NotificationChannelPrefsIn(
         recipient="U123",
         token="line-secret-token",
@@ -49,6 +53,7 @@ def test_notification_tokens_are_masked_and_stored_in_secrets(monkeypatch, tmp_p
     }
     assert "line-secret-token" not in str(response)
     assert json.loads(secrets_path.read_text(encoding="utf-8"))["line_channel_access_token"] == "line-secret-token"
+    assert "line" not in webhook_adapter.delivery_status()
 
     settings_api.update_line_messaging(settings_api.NotificationChannelPrefsIn(recipient="U456", token="   "))
     assert preferences.get_line_channel_access_token() == "line-secret-token"
@@ -116,6 +121,40 @@ def test_global_external_channels_are_persisted_and_app_only_is_explicit(monkeyp
     preferences._invalidate_cache()
     assert preferences.get_external_notification_channels() == []
     assert "external_notification_channels" in json.loads(preferences_path.read_text(encoding="utf-8"))
+
+
+def test_preference_merge_writes_are_serialized(monkeypatch, tmp_path):
+    preferences_path, _ = _isolated_stores(monkeypatch, tmp_path)
+    original_load = preferences.load
+    counter_lock = threading.Lock()
+    active_loads = 0
+    max_active_loads = 0
+
+    def tracked_load():
+        nonlocal active_loads, max_active_loads
+        with counter_lock:
+            active_loads += 1
+            max_active_loads = max(max_active_loads, active_loads)
+        try:
+            time.sleep(0.02)
+            return original_load()
+        finally:
+            with counter_lock:
+                active_loads -= 1
+
+    monkeypatch.setattr(preferences, "load", tracked_load)
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        futures = [
+            pool.submit(preferences.save, {"external_notification_channels": ["line"]}),
+            pool.submit(preferences.save, {"minute_intraday_refresh_interval": 9}),
+        ]
+        for future in futures:
+            future.result()
+
+    assert max_active_loads == 1
+    saved = json.loads(preferences_path.read_text(encoding="utf-8"))
+    assert saved["external_notification_channels"] == ["line"]
+    assert saved["minute_intraday_refresh_interval"] == 9
 
 
 def test_notification_status_endpoint_returns_latest_delivery_state(monkeypatch):

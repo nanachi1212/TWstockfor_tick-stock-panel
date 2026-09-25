@@ -115,6 +115,11 @@ def record_delivery_status(channel: str, status: str) -> None:
         _DELIVERY_STATUS[channel] = status
 
 
+def clear_delivery_status(channel: str) -> None:
+    with _STATUS_LOCK:
+        _DELIVERY_STATUS.pop(channel, None)
+
+
 def delivery_status() -> dict[str, str]:
     with _STATUS_LOCK:
         return dict(_DELIVERY_STATUS)

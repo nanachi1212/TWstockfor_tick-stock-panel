@@ -9,6 +9,7 @@ import copy
 import json
 import logging
 import re
+import threading
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
@@ -17,6 +18,7 @@ logger = logging.getLogger(__name__)
 # 文件仅在用户改设置时变化, 以 (mtime_ns, size) 签名判断是否重读。
 _cache: dict | None = None
 _cache_sig: tuple[int, int] | None = None
+_SAVE_LOCK = threading.RLock()
 
 
 def _path() -> Path:
@@ -56,13 +58,14 @@ def load() -> dict:
 
 def save(updates: dict) -> dict:
     """合并写入。返回新内容。"""
-    current = load()
-    current.update(updates)
-    _path().write_text(
-        json.dumps(current, indent=2, ensure_ascii=False), encoding="utf-8",
-    )
-    _invalidate_cache()
-    return current
+    with _SAVE_LOCK:
+        current = load()
+        current.update(updates)
+        _path().write_text(
+            json.dumps(current, indent=2, ensure_ascii=False), encoding="utf-8",
+        )
+        _invalidate_cache()
+        return current
 
 
 def get_realtime_quotes_enabled() -> bool:
