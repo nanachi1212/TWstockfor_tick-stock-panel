@@ -21,11 +21,24 @@ _STATUS_LOCK = threading.Lock()
 _DELIVERY_STATUS: dict[str, str] = {}
 
 
-def _retry_after(response) -> None:
+def _retry_after(response, *, telegram: bool = False) -> None:
     """Retry one explicit 429 rejection after a short bounded delay."""
     try:
-        delay = float(response.headers.get("Retry-After", 1))
+        header_delay = response.headers.get("Retry-After")
     except (AttributeError, TypeError, ValueError):
+        header_delay = None
+    delay_value = header_delay
+    if delay_value is None and telegram:
+        try:
+            payload = response.json()
+            parameters = payload.get("parameters") if isinstance(payload, dict) else None
+            if isinstance(parameters, dict):
+                delay_value = parameters.get("retry_after")
+        except (AttributeError, TypeError, ValueError):
+            pass
+    try:
+        delay = float(delay_value if delay_value is not None else 1)
+    except (TypeError, ValueError):
         delay = 1
     time.sleep(max(0, min(delay, 2)))
 
@@ -150,7 +163,7 @@ def send_telegram(bot_token: str, chat_id: str, title: str, body: str) -> bool:
             timeout=5.0,
         )
         if response.status_code == 429:
-            _retry_after(response)
+            _retry_after(response, telegram=True)
             response = httpx.post(
                 f"{TELEGRAM_API_ROOT}/bot{token}/sendMessage",
                 json={"chat_id": chat, "text": text},

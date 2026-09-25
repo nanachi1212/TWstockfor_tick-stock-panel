@@ -102,13 +102,17 @@ export function SettingsMonitoringPanel(_props: { highlight?: string } = {}) {
     qc.invalidateQueries({ queryKey: QK.quoteStatus })
   }, [toggleQuote, qc])
 
+  const { mutateAsync: updateExternalChannels, isPending: isUpdatingExternalChannels } = useMutation({
+    mutationFn: api.updateExternalNotificationChannels,
+    onSuccess: () => qc.invalidateQueries({ queryKey: QK.preferences }),
+  })
+
   // 勾選/取消勾選全域外部提醒通道。
   const toggleDefaultChannel = useCallback(async (ch: string, enabled: boolean) => {
     const cur = prefs?.external_notification_channels ?? prefs?.webhook_default_channels ?? []
     const next = enabled ? [...cur, ch] : cur.filter(c => c !== ch)
-    await api.updateExternalNotificationChannels(next)
-    qc.invalidateQueries({ queryKey: QK.preferences })
-  }, [qc, prefs])
+    await updateExternalChannels(next)
+  }, [prefs, updateExternalChannels])
 
   const saveLine = useMutation({
     mutationFn: ({ recipient, token, clearToken = false }: { recipient: string; token?: string; clearToken?: boolean }) =>
@@ -328,6 +332,7 @@ export function SettingsMonitoringPanel(_props: { highlight?: string } = {}) {
               >
                 <input
                   type="checkbox"
+                  disabled={isUpdatingExternalChannels}
                   checked={webhookDefaultChannels.includes('line')}
                   onChange={event => { event.stopPropagation(); toggleDefaultChannel('line', event.target.checked) }}
                   onClick={event => event.stopPropagation()}
@@ -462,6 +467,7 @@ export function SettingsMonitoringPanel(_props: { highlight?: string } = {}) {
               >
                 <input
                   type="checkbox"
+                  disabled={isUpdatingExternalChannels}
                   checked={webhookDefaultChannels.includes('telegram')}
                   onChange={event => { event.stopPropagation(); toggleDefaultChannel('telegram', event.target.checked) }}
                   onClick={event => event.stopPropagation()}

@@ -222,6 +222,29 @@ def test_rate_limit_retries_once_and_invalid_credentials_do_not_retry(monkeypatc
     assert len(calls) == 1
 
 
+def test_telegram_rate_limit_uses_retry_after_from_response_body(monkeypatch):
+    responses = [429, 200]
+    calls = []
+    delays = []
+
+    class Response:
+        def __init__(self, status_code):
+            self.status_code = status_code
+            self.headers = {}
+
+        def json(self):
+            if self.status_code == 429:
+                return {"ok": False, "parameters": {"retry_after": 1.5}}
+            return {"ok": True}
+
+    monkeypatch.setattr(httpx, "post", lambda *args, **kwargs: calls.append((args, kwargs)) or Response(responses.pop(0)))
+    monkeypatch.setattr(webhook_adapter.time, "sleep", delays.append)
+
+    assert webhook_adapter.send_telegram("fake-token", "-1001", "標題", "內容")
+    assert len(calls) == 2
+    assert delays == [1.5]
+
+
 def test_disabled_global_channel_does_not_dispatch(monkeypatch):
     from app.services import quote_service
 

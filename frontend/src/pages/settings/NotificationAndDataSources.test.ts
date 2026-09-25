@@ -19,6 +19,12 @@ describe('notification channel settings', () => {
     expect(code).not.toMatch(/feishu|wecom|飛書|飛書|企業微信/iu)
   })
 
+  it('disables both global channel controls while a preference update is pending', () => {
+    const code = read('Monitoring.tsx')
+    expect(code).toContain('isPending: isUpdatingExternalChannels')
+    expect(code.match(/disabled=\{isUpdatingExternalChannels\}/gu)).toHaveLength(2)
+  })
+
   it('keeps masked token inputs and configured-state checks', () => {
     const code = read('Monitoring.tsx')
     expect(code).toContain('lineTokenMasked')
