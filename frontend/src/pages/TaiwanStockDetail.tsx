@@ -182,7 +182,9 @@ export function TaiwanStockDetail() {
       })
     }
     const alertRuleType = typeof selectedAlert?.rule_type === 'string' ? selectedAlert.rule_type : selectedAlert?.type
-    const alertPercentScale = typeof alertRuleType === 'string' && alertRuleType.includes('change_pct') ? 0.01 : 1
+    const alertPercentScale = typeof alertRuleType === 'string' && (
+      alertRuleType.includes('change_pct') || alertRuleType === 'near_upper_limit' || alertRuleType === 'near_lower_limit'
+    ) ? 0.01 : 1
     if (selectedAlert) context.alert = {
       ...(typeof selectedAlert.alert_id === 'string' ? { alert_id: selectedAlert.alert_id } : {}),
       ...(typeof selectedAlert.rule_name === 'string' ? { rule_name: selectedAlert.rule_name } : typeof selectedAlert.rule_id === 'string' ? { rule_name: selectedAlert.rule_id } : {}),

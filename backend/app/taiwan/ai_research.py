@@ -19,6 +19,7 @@ Strict Boundaries & Design Directives:
 """
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import json
 import logging
@@ -30,17 +31,10 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
-from app import secrets_store
-from app.config import settings
 from app.services.ai_provider import (
-    current_ai_context_window,
-    current_ai_max_output_tokens,
-    current_ai_model,
-    current_ai_provider,
-    current_codex_command,
-    current_codex_reasoning_effort,
-    current_openai_reasoning_effort,
+    AIProviderConfigSnapshot,
     generate_ai_text,
+    snapshot_ai_provider_config,
 )
 from app.strategy.custom_signals_ai import _extract_json_object
 from app.taiwan.abnormal_diagnostics import (
@@ -60,7 +54,52 @@ DISCLAIMER_TEXT = "本報告僅依系統中可取得的結構化市場資料進�
 _REPORT_CACHE_TTL_SECONDS = 600
 _REPORT_CACHE_MAX_ENTRIES = 128
 _REPORT_CACHE: dict[str, tuple[float, TaiwanAIResearchResponse]] = {}
+_REPORT_INFLIGHT: dict[str, asyncio.Future[tuple[str | None, Exception | None]]] = {}
 _REPORT_CACHE_LOCK = threading.Lock()
+
+
+async def _shared_provider_response(
+    cache_key: str,
+    messages: list[dict[str, str]],
+    config_snapshot: AIProviderConfigSnapshot,
+) -> tuple[str | None, Exception | None]:
+    """Coalesce concurrent misses so one symbol/config pair invokes its provider once."""
+    loop = asyncio.get_running_loop()
+    with _REPORT_CACHE_LOCK:
+        pending = _REPORT_INFLIGHT.get(cache_key)
+        leader = pending is None
+        if pending is None:
+            pending = loop.create_future()
+            _REPORT_INFLIGHT[cache_key] = pending
+    if not leader:
+        return await asyncio.shield(pending)
+
+    try:
+        result: tuple[str | None, Exception | None] = (
+            await generate_ai_text(
+                messages,
+                temperature=0.1,
+                max_tokens=1600,
+                timeout=45.0,
+                config_snapshot=config_snapshot,
+            ),
+            None,
+        )
+    except Exception as exc:
+        result = (None, exc)
+    except BaseException:
+        with _REPORT_CACHE_LOCK:
+            if _REPORT_INFLIGHT.get(cache_key) is pending:
+                _REPORT_INFLIGHT.pop(cache_key, None)
+            if not pending.done():
+                pending.cancel()
+        raise
+    with _REPORT_CACHE_LOCK:
+        if _REPORT_INFLIGHT.get(cache_key) is pending:
+            _REPORT_INFLIGHT.pop(cache_key, None)
+        if not pending.done():
+            pending.set_result(result)
+    return result
 
 
 # ── Strong Typing & Pydantic Schemas ──────────────────────────
@@ -538,23 +577,23 @@ class TaiwanAIResearchService:
 
         # 2. Build Flattened Evidence Registry and Compact Payload
         evidence_payload, registry_keys, missing_items = build_evidence_registry(ctx, diag_item, report_personal_context)
-        provider_snapshot = current_ai_provider()
-        model_snapshot = current_ai_model()
+        config_snapshot = snapshot_ai_provider_config()
+        provider_snapshot = config_snapshot.provider
+        model_snapshot = config_snapshot.model
 
         cache_material = json.dumps({
             "prompt_version": PROMPT_VERSION,
             "provider": provider_snapshot,
             "model": model_snapshot,
-            "base_url": secrets_store.get_ai_config("ai_base_url", settings.ai_base_url),
+            "base_url": config_snapshot.base_url,
+            "user_agent": config_snapshot.user_agent,
             # Only the one-way digest enters this local cache key; the raw credential never enters the model prompt.
-            "credential_fingerprint": hashlib.sha256(
-                str(secrets_store.get_ai_config("ai_api_key", settings.ai_api_key)).encode("utf-8")
-            ).hexdigest(),
-            "reasoning_effort": current_openai_reasoning_effort(),
-            "codex_command": current_codex_command(),
-            "codex_reasoning_effort": current_codex_reasoning_effort(),
-            "max_output_tokens": current_ai_max_output_tokens(),
-            "context_window": current_ai_context_window(),
+            "credential_fingerprint": hashlib.sha256(config_snapshot.api_key.encode("utf-8")).hexdigest(),
+            "reasoning_effort": config_snapshot.reasoning_effort,
+            "codex_command": config_snapshot.codex_command,
+            "codex_reasoning_effort": config_snapshot.codex_reasoning_effort,
+            "max_output_tokens": config_snapshot.max_output_tokens,
+            "context_window": config_snapshot.context_window,
             "evidence": evidence_payload,
         }, ensure_ascii=False, sort_keys=True, default=str)
         cache_key = hashlib.sha256(cache_material.encode("utf-8")).hexdigest()
@@ -611,14 +650,11 @@ class TaiwanAIResearchService:
 
         # 4. Invoke AI Provider
         try:
-            raw_text = await generate_ai_text(
-                messages,
-                temperature=0.1,
-                max_tokens=1600,
-                timeout=45.0,
-                provider=provider_snapshot,
-                model=model_snapshot,
-            )
+            raw_text, provider_error = await _shared_provider_response(cache_key, messages, config_snapshot)
+            if provider_error is not None:
+                raise provider_error
+            if raw_text is None:
+                raise RuntimeError("AI provider returned no response")
         except Exception as e:
             logger.warning("AI provider failed in stock research report for %s (%s)", symbol, type(e).__name__)
             return TaiwanAIResearchResponse(

@@ -30,7 +30,9 @@ Comprehensive validation covering:
 7. Point-In-Time / No Look-Ahead:
    - Date D queries never receive D+1 data.
 """
+import asyncio
 import json
+from dataclasses import replace
 from datetime import date
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -39,18 +41,15 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app.main import app
+from app.services.ai_provider import AIProviderConfigSnapshot
 from app.taiwan.ai_research import (
     _REPORT_CACHE,
     _REPORT_CACHE_LOCK,
+    _REPORT_INFLIGHT,
     ObservationItem,
-    TaiwanAIResearchResponse,
     TaiwanAIResearchService,
     _sanitize_personal_context,
     build_evidence_registry,
-)
-from app.taiwan.research_context import (
-    TaiwanStockResearchContext,
-    TaiwanStockResearchContextService,
 )
 
 
@@ -58,6 +57,7 @@ from app.taiwan.research_context import (
 def _clear_ai_research_cache():
     with _REPORT_CACHE_LOCK:
         _REPORT_CACHE.clear()
+        _REPORT_INFLIGHT.clear()
 
 
 def test_personal_context_is_allowlisted_and_missing_values_stay_missing():
@@ -108,36 +108,31 @@ async def test_ai_report_cache_hits_for_same_context_and_misses_when_context_cha
             {"text": "沒有引用的觀察點"},
         ],
     }, ensure_ascii=False)
-    with patch("app.taiwan.ai_research.generate_ai_text", new_callable=AsyncMock, return_value=response_text) as mock_ai:
+    from app.services.ai_provider import snapshot_ai_provider_config
+
+    base_config = snapshot_ai_provider_config()
+    config_state = {"reasoning": base_config.reasoning_effort, "api_key": base_config.api_key}
+    def current_config_snapshot():
+        return replace(base_config, reasoning_effort=config_state["reasoning"], api_key=config_state["api_key"])
+
+    with (
+        patch("app.taiwan.ai_research.snapshot_ai_provider_config", side_effect=current_config_snapshot),
+        patch("app.taiwan.ai_research.generate_ai_text", new_callable=AsyncMock, return_value=response_text) as mock_ai,
+    ):
         first = await svc.generate_report("2330.TWSE", personal_context=personal_context)
         cached = await svc.generate_report("2330.TWSE", personal_context=personal_context)
         changed = await svc.generate_report(
             "2330.TWSE",
             personal_context={"portfolio": {"shares": 100, "average_cost": 450, "current_price": 480}},
         )
-        with patch("app.taiwan.ai_research.current_openai_reasoning_effort", return_value="low"):
-            lower_effort = await svc.generate_report(
-                "2330.TWSE", personal_context=personal_context,
-            )
-        with patch("app.taiwan.ai_research.current_openai_reasoning_effort", return_value="high"):
-            higher_effort = await svc.generate_report(
-                "2330.TWSE", personal_context=personal_context,
-            )
-        api_key = ["key-one"]
-
-        def current_config_value(name: str, fallback: object) -> object:
-            return api_key[0] if name == "ai_api_key" else fallback
-
-        with patch("app.taiwan.ai_research.secrets_store.get_ai_config", side_effect=current_config_value):
-            with _REPORT_CACHE_LOCK:
-                _REPORT_CACHE.clear()
-            first_credential = await svc.generate_report(
-                "2330.TWSE", personal_context=personal_context,
-            )
-            api_key[0] = "key-two"
-            second_credential = await svc.generate_report(
-                "2330.TWSE", personal_context=personal_context,
-            )
+        config_state["reasoning"] = "low"
+        lower_effort = await svc.generate_report("2330.TWSE", personal_context=personal_context)
+        config_state["reasoning"] = "high"
+        higher_effort = await svc.generate_report("2330.TWSE", personal_context=personal_context)
+        config_state["api_key"] = "key-one"
+        first_credential = await svc.generate_report("2330.TWSE", personal_context=personal_context)
+        config_state["api_key"] = "key-two"
+        second_credential = await svc.generate_report("2330.TWSE", personal_context=personal_context)
     assert first.status == cached.status == changed.status == "success"
     assert lower_effort.status == higher_effort.status == "success"
     assert first_credential.status == second_credential.status == "success"
@@ -161,34 +156,73 @@ async def test_provider_and_model_are_snapshotted_for_generation_and_cache_metad
     diag_svc = MagicMock()
     diag_svc.get_diagnostics.return_value = SimpleNamespace(items=[])
     svc = TaiwanAIResearchService(research_svc=research_svc, diag_svc=diag_svc)
-    config = {"provider": "Provider A", "model": "model-a"}
+    config = AIProviderConfigSnapshot(
+        provider="openai_compat", model="model-a", api_key="key-a", base_url="https://a.invalid/v1",
+        user_agent="test-agent-a", max_output_tokens=4000, context_window=8000,
+    )
+    other_config = AIProviderConfigSnapshot(
+        provider="openai_compat", model="model-b", api_key="key-b", base_url="https://b.invalid/v1",
+        user_agent="test-agent-b", max_output_tokens=4000, context_window=8000,
+    )
     response_text = json.dumps({
         "overview": "Provider 快照測試。",
         "key_observations": [], "risk_factors": [], "watch_next": [],
     }, ensure_ascii=False)
 
     async def switch_provider_during_call(*_args, **_kwargs):
-        config.update(provider="Provider B", model="model-b")
+        config_holder[0] = other_config
         return response_text
 
+    config_holder = [config]
+
     with (
-        patch("app.taiwan.ai_research.current_ai_provider", side_effect=lambda: config["provider"]),
-        patch("app.taiwan.ai_research.current_ai_model", side_effect=lambda: config["model"]),
+        patch("app.taiwan.ai_research.snapshot_ai_provider_config", side_effect=lambda: config_holder[0]),
         patch("app.taiwan.ai_research.generate_ai_text", new_callable=AsyncMock, side_effect=switch_provider_during_call) as mock_ai,
     ):
         response = await svc.generate_report("2330.TWSE")
-        config.update(provider="Provider A", model="model-a")
+        config_holder[0] = config
         cached = await svc.generate_report("2330.TWSE")
 
     assert response.report is not None
-    assert response.report.provider == "Provider A"
+    assert response.report.provider == "openai_compat"
     assert response.report.model == "model-a"
     assert cached.report is not None
-    assert cached.report.provider == "Provider A"
+    assert cached.report.provider == "openai_compat"
     assert cached.report.model == "model-a"
     assert mock_ai.await_count == 1
-    assert mock_ai.await_args.kwargs["provider"] == "Provider A"
-    assert mock_ai.await_args.kwargs["model"] == "model-a"
+    assert mock_ai.await_args.kwargs["config_snapshot"] is config
+
+
+@pytest.mark.asyncio
+async def test_concurrent_identical_reports_share_one_provider_call():
+    from tests.test_taiwan_stock_comparison import build_context
+
+    research_svc = MagicMock()
+    research_svc.get_research_context.return_value = build_context("2330.TWSE", "2330", "台積電")
+    diag_svc = MagicMock()
+    diag_svc.get_diagnostics.return_value = SimpleNamespace(items=[])
+    svc = TaiwanAIResearchService(research_svc=research_svc, diag_svc=diag_svc)
+    entered_provider = asyncio.Event()
+    release_provider = asyncio.Event()
+    response_text = json.dumps({
+        "overview": "並行快取測試。", "key_observations": [], "risk_factors": [], "watch_next": [],
+    }, ensure_ascii=False)
+
+    async def delayed_response(*_args, **_kwargs):
+        entered_provider.set()
+        await release_provider.wait()
+        return response_text
+
+    with patch("app.taiwan.ai_research.generate_ai_text", new_callable=AsyncMock, side_effect=delayed_response) as mock_ai:
+        leader = asyncio.create_task(svc.generate_report("2330.TWSE"))
+        await entered_provider.wait()
+        follower = asyncio.create_task(svc.generate_report("2330.TWSE"))
+        await asyncio.sleep(0)
+        release_provider.set()
+        first, second = await asyncio.gather(leader, follower)
+
+    assert first.status == second.status == "success"
+    assert mock_ai.await_count == 1
 
 
 @pytest.mark.asyncio

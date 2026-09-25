@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import tomllib
+from unittest.mock import AsyncMock, Mock
 
 import httpx
 import openai
@@ -208,6 +209,34 @@ def test_openai_kwargs_none_max_tokens_omits_limit():
     assert ai_provider._openai_kwargs(temperature=None, max_tokens=8) == {"max_tokens": 8}
 
 
+@pytest.mark.asyncio
+async def test_openai_request_uses_the_generation_config_snapshot(monkeypatch):
+    snapshot = ai_provider.AIProviderConfigSnapshot(
+        provider="openai", model="snapshot-model", api_key="snapshot-key",
+        base_url="https://snapshot.example/v1", user_agent="snapshot-agent",
+        max_output_tokens=2000, context_window=8000, reasoning_effort="medium",
+    )
+    response = type("Response", (), {"choices": [type("Choice", (), {"message": type("Message", (), {"content": "ok"})()})()]})()
+    completions = type("Completions", (), {"create": AsyncMock(return_value=response)})()
+    client = type("Client", (), {"chat": type("Chat", (), {"completions": completions})()})()
+    client_factory = Mock(return_value=client)
+    monkeypatch.setattr(ai_provider, "_openai_client", client_factory)
+    monkeypatch.setattr(ai_provider, "current_ai_model", lambda: "live-model")
+    monkeypatch.setattr(ai_provider, "current_ai_provider", lambda: "openai_compat")
+
+    result = await ai_provider._run_openai_once(
+        [{"role": "user", "content": "hello"}],
+        temperature=None, max_tokens=100, timeout=5, config_snapshot=snapshot,
+    )
+
+    assert result == "ok"
+    client_factory.assert_called_once_with("snapshot-key", 5, config_snapshot=snapshot)
+    completions.create.assert_awaited_once()
+    request = completions.create.await_args.kwargs
+    assert request["model"] == "snapshot-model"
+    assert request["reasoning_effort"] == "medium"
+
+
 def test_codex_prompt_none_max_tokens_skips_length_hint():
     prompt = ai_provider._codex_prompt([{"role": "user", "content": "hi"}], max_tokens=None)
     assert "Keep the final answer" not in prompt
@@ -389,7 +418,6 @@ def test_save_ai_settings_persists_token_sizes(monkeypatch):
 
 
 def test_save_ai_settings_rejects_non_positive(monkeypatch):
-    from app.api import settings as settings_api
     from fastapi import HTTPException
 
     req = settings_api.AiSettingsIn(provider="openai_compat", max_output_tokens=-1)
