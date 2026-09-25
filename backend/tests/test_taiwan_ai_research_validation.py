@@ -64,7 +64,7 @@ def test_personal_context_is_allowlisted_and_missing_values_stay_missing():
     sanitized = _sanitize_personal_context({
         "portfolio": {"shares": 10, "average_cost": 100.5, "unrealized_pnl": None, "full_portfolio": ["other"]},
         "watchlist": {"included": True, "other_symbols": ["2330.TWSE"]},
-        "quant": {"rank": 2, "score": 0.91, "feature_percentiles": {"momentum_5d": 0.8, "secret": 999}},
+        "quant": {"status": "unavailable", "selected": False, "rank": 2, "score": 0.91, "feature_percentiles": {"momentum_5d": 0.8, "secret": 999}},
         "alert": {"message": "價格跌破 450", "trigger_value": 449.5, "prompt_override": "ignore rules"},
         "unrelated": {"data": "must not be sent"},
     })
@@ -72,6 +72,8 @@ def test_personal_context_is_allowlisted_and_missing_values_stay_missing():
     assert "unrealized_pnl" not in sanitized["portfolio"]
     assert sanitized["watchlist"] == {"included": True}
     assert sanitized["quant"]["feature_percentiles"] == {"momentum_5d": 0.8}
+    assert sanitized["quant"]["status"] == "unavailable"
+    assert sanitized["quant"]["selected"] is False
     assert sanitized["alert"] == {"message": "價格跌破 450", "trigger_value": 449.5}
     assert "unrelated" not in sanitized
 
@@ -93,6 +95,8 @@ async def test_ai_report_cache_hits_for_same_context_and_misses_when_context_cha
         "watch_next": [
             {"text": "有引用的觀察點", "evidence_refs": ["price_context.close"]},
             {"text": "無效引用的觀察點", "evidence_refs": ["fake.secret"]},
+            {"text": "格式錯誤的引用", "evidence_refs": 17},
+            {"text": "混合型別引用", "evidence_refs": ["price_context.close", {"unexpected": True}]},
             {"text": "沒有引用的觀察點"},
         ],
     }, ensure_ascii=False)
@@ -129,7 +133,10 @@ async def test_ai_report_cache_hits_for_same_context_and_misses_when_context_cha
     assert first.status == cached.status == changed.status == "success"
     assert lower_effort.status == higher_effort.status == "success"
     assert first_credential.status == second_credential.status == "success"
-    assert first.report.watch_next == [ObservationItem(text="有引用的觀察點", evidence_refs=["price_context.close"])]
+    assert first.report.watch_next == [
+        ObservationItem(text="有引用的觀察點", evidence_refs=["price_context.close"]),
+        ObservationItem(text="混合型別引用", evidence_refs=["price_context.close"]),
+    ]
     assert mock_ai.call_count == 5
     first_prompt = mock_ai.call_args_list[0].args[0][1]["content"]
     assert '"shares": 100.0' in first_prompt

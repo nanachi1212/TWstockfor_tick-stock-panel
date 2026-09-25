@@ -1580,7 +1580,7 @@ export interface TaiwanAIResearchPersonalContext {
   quote?: { last_price?: number; change?: number; change_pct?: number; quote_time?: string; market_status?: string; trade_date?: string; status?: string; source?: string; is_stale?: boolean }
   portfolio?: { shares?: number; average_cost?: number; current_price?: number; unrealized_pnl?: number; return_pct?: number; change?: number; change_pct?: number }
   watchlist?: { included: boolean }
-  quant?: { rank: number; score: number; session: string; feature_percentiles: Record<string, number> }
+  quant?: { status: 'available' | 'no_valid_run' | 'unavailable'; selected: boolean; rank?: number; score?: number; session?: string; feature_percentiles?: Record<string, number> }
   alert?: { alert_id?: string; rule_name?: string; rule_type?: string; triggered_at?: string; trigger_value?: number; threshold?: number; message?: string; source?: string; market_status?: string }
 }
 

@@ -169,13 +169,17 @@ export function TaiwanStockDetail() {
       }
     }
     const signal = quantSelection.signals.find(item => item.symbol === symbol)
+    context.quant = {
+      status: quantSelection.error ? 'unavailable' : quantSelection.validRun ? 'available' : 'no_valid_run',
+      selected: Boolean(signal && quantSelection.validRun),
+    }
     if (signal && quantSelection.validRun) {
-      context.quant = {
+      Object.assign(context.quant, {
         rank: signal.rank,
         score: signal.score,
         session: quantSelection.validRun.session,
         feature_percentiles: Object.fromEntries(Object.entries(signal.feature_percentiles).filter(([, value]) => Number.isFinite(value))),
-      }
+      })
     }
     if (selectedAlert) context.alert = {
       alert_id: selectedAlert.alert_id,
@@ -210,7 +214,7 @@ export function TaiwanStockDetail() {
       // An unreadable local ledger stays unavailable and does not block stock analysis.
     }
     return context
-  }, [inWatchlist, watchlist.isLoading, watchlist.isError, quantSelection.signals, quantSelection.validRun, selectedAlert, symbol, data, portfolioRevision])
+  }, [inWatchlist, watchlist.isLoading, watchlist.isError, quantSelection.signals, quantSelection.validRun, quantSelection.error, selectedAlert, symbol, data, portfolioRevision])
 
   const handleGenerateAiReport = useCallback(async () => {
     if (toggleWatchlist.isPending || watchlist.isFetching) return
@@ -227,9 +231,9 @@ export function TaiwanStockDetail() {
     setAiError(null)
     try {
       const res = await api.taiwanStockAIResearch(symbol, undefined, personalContext)
-      setAiProvider(res.provider ?? null)
       if (res.status === 'success' && res.report) {
         setAiReport(res.report)
+        setAiProvider(res.provider ?? null)
       } else {
         setAiError(res.error_message || 'AI 研究報告生成失敗')
       }

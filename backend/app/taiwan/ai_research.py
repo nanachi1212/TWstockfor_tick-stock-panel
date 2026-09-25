@@ -390,6 +390,11 @@ def _sanitize_personal_context(value: dict[str, Any] | None) -> dict[str, dict[s
     quant_source = value.get("quant")
     if isinstance(quant_source, dict):
         quant: dict[str, Any] = finite_numbers(quant_source, {"score"})
+        status = quant_source.get("status")
+        if status in {"available", "no_valid_run", "unavailable"}:
+            quant["status"] = status
+        if isinstance(quant_source.get("selected"), bool):
+            quant["selected"] = quant_source["selected"]
         rank = quant_source.get("rank")
         if isinstance(rank, int) and not isinstance(rank, bool) and rank > 0:
             quant["rank"] = rank
@@ -636,6 +641,11 @@ class TaiwanAIResearchService:
             )
 
         # 6. Validate Evidence References & Strip Forbidden Fields
+        def valid_evidence_refs(value: Any) -> list[str]:
+            if not isinstance(value, list):
+                return []
+            return [ref for ref in value if isinstance(ref, str) and ref in registry_keys]
+
         validated_observations: list[ObservationItem] = []
         for obs in parsed.get("key_observations") or []:
             if not isinstance(obs, dict):
@@ -643,7 +653,7 @@ class TaiwanAIResearchService:
             text = str(obs.get("text") or "").strip()
             if not text:
                 continue
-            refs = [r for r in obs.get("evidence_refs") or [] if r in registry_keys]
+            refs = valid_evidence_refs(obs.get("evidence_refs"))
             if refs:  # Only keep observation if it has at least one valid evidence ref
                 validated_observations.append(ObservationItem(text=text, evidence_refs=refs))
 
@@ -654,7 +664,7 @@ class TaiwanAIResearchService:
             text = str(rsk.get("text") or "").strip()
             if not text:
                 continue
-            refs = [r for r in rsk.get("evidence_refs") or [] if r in registry_keys]
+            refs = valid_evidence_refs(rsk.get("evidence_refs"))
             if refs:
                 validated_risks.append(ObservationItem(text=text, evidence_refs=refs))
 
@@ -667,7 +677,7 @@ class TaiwanAIResearchService:
                 text = str(item.get("text") or "").strip()
                 if not text:
                     continue
-                refs = [ref for ref in item.get("evidence_refs") or [] if ref in registry_keys]
+                refs = valid_evidence_refs(item.get("evidence_refs"))
                 if refs:
                     validated_watch_next.append(ObservationItem(text=text, evidence_refs=refs))
 

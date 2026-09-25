@@ -129,6 +129,7 @@ describe('TaiwanStockDetail — AI Research', () => {
     expect(vi.mocked(api.taiwanStockAIResearch)).toHaveBeenCalledWith(
       '2330.TWSE', undefined, expect.objectContaining({ watchlist: { included: false } }),
     )
+    expect(vi.mocked(api.taiwanStockAIResearch).mock.calls[0][2]?.quant).toEqual({ status: 'no_valid_run', selected: false })
     fireEvent.click(screen.getByRole('button', { name: '重新分析' }))
     await waitFor(() => expect(vi.mocked(api.taiwanStockAIResearch)).toHaveBeenCalledTimes(2))
   })
@@ -137,6 +138,51 @@ describe('TaiwanStockDetail — AI Research', () => {
     renderAt(['/stocks/2330.TWSE'], 0)
     await screen.findByRole('button', { name: 'AI 分析' })
     expect(vi.mocked(api.taiwanStockAIResearch)).not.toHaveBeenCalled()
+  })
+
+  it('keeps the displayed report and provider label together when reanalysis fails', async () => {
+    vi.mocked(api.taiwanStockAIResearch)
+      .mockResolvedValueOnce({
+        status: 'success', provider: 'Provider A', prompt_version: 'taiwan_stock_research_v1',
+        generated_at: '2026-09-25T10:00:00+08:00', evidence_registry_keys: [],
+        report: {
+          symbol: '2330.TWSE', code: '2330', name: '台積電', industry: null, instrument_type: 'stock',
+          evidence_as_of: '2026-09-24', generated_at: '2026-09-25T10:00:00+08:00', prompt_version: 'taiwan_stock_research_v1',
+          overview: 'Provider A 摘要', key_observations: [], risk_factors: [], watch_next: [],
+          missing_information: [], disclaimer: '僅供資料解讀',
+        },
+      })
+      .mockResolvedValueOnce({
+        status: 'unavailable', provider: 'Provider B', error_message: 'Provider B 暫時無法使用。',
+        prompt_version: 'taiwan_stock_research_v1', generated_at: '2026-09-25T10:01:00+08:00', evidence_registry_keys: [],
+      })
+    renderAt(['/stocks/2330.TWSE'], 0)
+    const analyze = await screen.findByRole('button', { name: 'AI 分析' })
+    await waitFor(() => expect(analyze).toBeEnabled())
+    fireEvent.click(analyze)
+    expect(await screen.findByText('Provider A 摘要')).toBeInTheDocument()
+    expect(screen.getByText('本次使用：Provider A')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: '重新分析' }))
+
+    expect(await screen.findByText(/Provider B 暫時無法使用/)).toBeInTheDocument()
+    expect(screen.getByText('Provider A 摘要')).toBeInTheDocument()
+    expect(screen.getByText('本次使用：Provider A')).toBeInTheDocument()
+  })
+
+  it('sends explicit unavailable Quant status when the live Quant query fails', async () => {
+    vi.mocked(api.taiwanQuantLiveRuns).mockRejectedValue(new Error('Quant unavailable'))
+    vi.mocked(api.taiwanStockAIResearch).mockResolvedValue({
+      status: 'unavailable', error_message: 'AI 分析目前無法使用。', provider: 'Custom',
+      prompt_version: 'taiwan_stock_research_v1', generated_at: '2026-09-25T10:00:00+08:00', evidence_registry_keys: [],
+    })
+    renderAt(['/stocks/2330.TWSE'], 0)
+    const analyze = await screen.findByRole('button', { name: 'AI 分析' })
+    await waitFor(() => expect(analyze).toBeEnabled())
+    expect(await screen.findByText('Live Quant 摘要目前無法讀取。')).toBeInTheDocument()
+    fireEvent.click(analyze)
+    await waitFor(() => expect(vi.mocked(api.taiwanStockAIResearch)).toHaveBeenCalledTimes(1))
+    expect(vi.mocked(api.taiwanStockAIResearch).mock.calls[0][2]?.quant).toEqual({ status: 'unavailable', selected: false })
   })
 
   it('keeps stock detail usable and links to AI settings when the provider is unavailable', async () => {
