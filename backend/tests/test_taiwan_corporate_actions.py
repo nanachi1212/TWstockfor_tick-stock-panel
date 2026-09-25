@@ -340,3 +340,16 @@ def test_transport_flakiness_is_retried_but_http_errors_are_not():
     with pytest.raises(CorporateActionSourceError):
         CorporateActionProvider(client=http_error)._get("https://x.example")
     assert http_error.calls == 1
+
+
+def test_body_truncated_inside_a_multibyte_character_is_retried():
+    class Client:
+        calls = 0
+
+        def get(self, _url):
+            Client.calls += 1
+            body = (b'{"stat":"OK"}' if Client.calls > 1 else b'{"stat":"\xe8\xad')
+            return type("R", (), {"content": body, "raise_for_status": lambda self: None})()
+
+    assert CorporateActionProvider(client=Client())._get("https://x.example")["stat"] == "OK"
+    assert Client.calls == 2

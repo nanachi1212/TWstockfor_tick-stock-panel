@@ -162,7 +162,7 @@ class CorporateActionProvider:
                 response = self.client.get(url)
                 response.raise_for_status()
                 return json.loads(response.content.decode("utf-8-sig"))
-            except (httpx.TransportError, json.JSONDecodeError) as exc:
+            except (httpx.TransportError, json.JSONDecodeError, UnicodeDecodeError) as exc:
                 last = exc
             except Exception as exc:
                 raise CorporateActionSourceError(

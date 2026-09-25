@@ -259,6 +259,8 @@ def resolve_event_conflicts(events: Iterable[CorporateActionEvent]) -> tuple[Cor
     output = []
     for key in sorted(groups):
         group = list(groups[key].values())
+        real = [e for e in group if e.status != "provider_error"]
+        group = real or group  # a failed fetch is superseded by any real observation
         if len(group) == 1:
             output.append(group[0])
         elif _equivalent_observations(group):

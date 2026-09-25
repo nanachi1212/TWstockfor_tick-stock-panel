@@ -91,7 +91,7 @@ def build_primary_factor_panel(
         raise PrimaryOosInputError("A2a raw Primary daily prices are duplicated")
     first, last = history["date"].min(), history["date"].max()
     if events is None:
-        events, coverage = _action_snapshot(first, last)
+        events, coverage = _action_snapshot(first, last, required_symbols=frozenset(symbols))
         if not coverage.covers(first, last):
             raise PrimaryOosInputError("corporate-action source coverage is incomplete")
 
@@ -107,6 +107,13 @@ def build_primary_factor_panel(
         values = pl.scan_parquet(work / "values_*.parquet")
         coverage = (pl.scan_parquet(work / "coverage_*.parquet")
                     if any(work.glob("coverage_*.parquet")) else None)
+        unverified = values.filter(
+            (pl.col("adjustment_status") != "verified") | (pl.col("usage_scope") != "pit_feature")
+        ).select(pl.col("symbol").unique()).collect()["symbol"].to_list()
+        if unverified:
+            raise PrimaryOosInputError(
+                f"PIT factor rows with unverified adjustment for {sorted(unverified)[:10]}; "
+                "nothing was published")
         days = values.select("date").unique().sort("date").collect()["date"].to_list()
         published = 0
         for index in range(0, len(days), _DATES_PER_PUBLISH):

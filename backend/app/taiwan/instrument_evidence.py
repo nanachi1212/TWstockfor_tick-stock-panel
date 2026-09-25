@@ -234,25 +234,36 @@ def refresh_evidence(
 ) -> dict[str, int]:
     """Download the three official registries once and persist normalized snapshots."""
     stamp = datetime.now(TAIPEI).isoformat()
-    counts: dict[str, int] = {}
+
+    def digest_of(payload: Any) -> str:
+        return hashlib.sha256(
+            json.dumps(payload, sort_keys=True, ensure_ascii=False).encode()).hexdigest()
+
+    # Download and parse everything first; snapshots are written only when all
+    # four sources are valid, so a failure never mixes old and new generations.
+    registries = []
     for mode, registry in ((2, "isin_listed"), (1, "isin_unlisted")):
         url = ISIN_URL.format(mode=mode)
         raw = fetch_bytes(url)
-        frame = parse_isin_registry(raw, registry)
-        store.save_registry(frame, source_url=url, sha256=hashlib.sha256(raw).hexdigest(),
-                            retrieved_at=stamp, registry=registry)
+        registries.append((registry, url, parse_isin_registry(raw, registry),
+                           hashlib.sha256(raw).hexdigest()))
+    termination_url = TERMINATION_URL.format(end=today)
+    termination_payload = fetch_payload(termination_url)
+    termination = parse_termination(termination_payload)
+    company_payload = fetch_payload(COMPANY_URL)
+    company = parse_company(company_payload)
+
+    counts: dict[str, int] = {}
+    for registry, url, frame, sha in registries:
+        store.save_registry(frame, source_url=url, sha256=sha, retrieved_at=stamp,
+                            registry=registry)
         counts[registry] = frame.height
-    url = TERMINATION_URL.format(end=today)
-    payload = fetch_payload(url)
-    frame = parse_termination(payload)
-    digest = hashlib.sha256(json.dumps(payload, sort_keys=True, ensure_ascii=False).encode()).hexdigest()
-    store.save_termination(frame, source_url=url, sha256=digest, retrieved_at=stamp)
-    counts["termination"] = frame.height
-    payload = fetch_payload(COMPANY_URL)
-    frame = parse_company(payload)
-    digest = hashlib.sha256(json.dumps(payload, sort_keys=True, ensure_ascii=False).encode()).hexdigest()
-    store.save_company(frame, source_url=COMPANY_URL, sha256=digest, retrieved_at=stamp)
-    counts["company"] = frame.height
+    store.save_termination(termination, source_url=termination_url,
+                           sha256=digest_of(termination_payload), retrieved_at=stamp)
+    counts["termination"] = termination.height
+    store.save_company(company, source_url=COMPANY_URL, sha256=digest_of(company_payload),
+                       retrieved_at=stamp)
+    counts["company"] = company.height
     return counts
 
 

@@ -193,8 +193,24 @@ def _fetch_actions(start: date, end: date) -> tuple[CorporateActionEvent, ...]:
     return tuple(events)
 
 
+def _fetch_actions_on(source: str, day: date) -> tuple[CorporateActionEvent, ...]:
+    provider = CorporateActionProvider()
+    try:
+        return provider.fetch(source, day, day)
+    finally:
+        provider.close()
+
+
+def _provider_errors(
+    events: Sequence[CorporateActionEvent], required: frozenset[str] | None,
+) -> list[CorporateActionEvent]:
+    return [e for e in events if e.status == "provider_error"
+            and (required is None or e.symbol in required)]
+
+
 def _action_snapshot(
     start: date, end: date, *, store: CorporateActionStore | None = None,
+    required_symbols: frozenset[str] | None = None,
 ) -> tuple[tuple[CorporateActionEvent, ...], ActionCoverage]:
     """All five official corporate-action sources over [start, end].
 
@@ -202,6 +218,11 @@ def _action_snapshot(
     pulls are kept in the canonical ``CorporateActionStore`` next to a coverage
     marker; later calls only fetch the uncovered head/tail. A failed pull raises
     before anything is recorded, so a marker always means every source completed.
+
+    A ``provider_error`` event (failed detail request) is not a claim about the
+    event, and for a symbol in ``required_symbols`` it must never be recorded as
+    covered: the pull fails before anything is stored, and stale errors already in
+    the store are re-fetched for their own source and date.
     """
     store = store or CorporateActionStore()
     marker = store.path.with_name("coverage.json")
@@ -215,11 +236,20 @@ def _action_snapshot(
         gaps = [(start, end)]
         new_range = (start, end)
     else:
-        gaps = ([(start, covered[0] - timedelta(days=1))] if start < covered[0] else []) +                ([(covered[1] + timedelta(days=1), end)] if end > covered[1] else [])
+        gaps = (
+            ([(start, covered[0] - timedelta(days=1))] if start < covered[0] else [])
+            + ([(covered[1] + timedelta(days=1), end)] if end > covered[1] else [])
+        )
         new_range = (min(start, covered[0]), max(end, covered[1]))
     if gaps:
         for gap_start, gap_end in gaps:
-            store.save(_fetch_actions(gap_start, gap_end))
+            fetched = _fetch_actions(gap_start, gap_end)
+            failed = _provider_errors(fetched, required_symbols)
+            if failed:
+                raise PrimaryOosInputError(
+                    "corporate-action detail requests failed for "
+                    f"{sorted({e.symbol for e in failed})[:10]}; nothing was recorded as covered")
+            store.save(fetched)
         marker.parent.mkdir(parents=True, exist_ok=True)
         temporary = marker.with_suffix(".tmp")
         temporary.write_text(json.dumps({
@@ -228,6 +258,14 @@ def _action_snapshot(
         }), encoding="utf-8")
         os.replace(temporary, marker)
     events = tuple(event for event in store.read() if start <= event.effective_date <= end)
+    stale = _provider_errors(events, required_symbols)
+    if stale:
+        for source, day in sorted({(e.source, e.effective_date) for e in stale}):
+            store.save(_fetch_actions_on(source, day))
+        events = tuple(event for event in store.read() if start <= event.effective_date <= end)
+        if _provider_errors(events, required_symbols):
+            raise PrimaryOosInputError(
+                "corporate-action events for Primary symbols remain provider_error after a retry")
     return events, ActionCoverage(start, end, "verified", tuple(sources))
 
 
@@ -301,7 +339,9 @@ def load_primary_oos_inputs(expected: PrimaryOosPreflight) -> PrimaryOosEvaluati
     latest_market_date = max(daily["date"].to_list())
     first_feature_date = min(admission.matrix["date"].to_list())
     sessions = [day for day in sessions if first_feature_date <= day <= latest_market_date]
-    events, coverage = _action_snapshot(first_feature_date, latest_market_date)
+    events, coverage = _action_snapshot(
+        first_feature_date, latest_market_date,
+        required_symbols=frozenset(primary_members["market_symbol"].unique().to_list()))
     fresh_after_load = read_primary_oos_preflight()
     if fresh_after_load.context(PRIMARY_OOS_SPEC.fingerprint) != expected.context(PRIMARY_OOS_SPEC.fingerprint):
         raise PrimaryOosNotReadyError(fresh_after_load.readiness)

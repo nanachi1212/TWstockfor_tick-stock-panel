@@ -492,3 +492,109 @@ def test_classification_gate_is_the_ratio_not_a_single_unresolved_code() -> None
     assert any("classification coverage" in reason
                for reason in blocked.blocked_reasons["ready_for_primary_oos"])
     assert not _health(0, 1188).levels["ready_for_training"]  # industry-only alone never passes
+
+
+def _event(symbol: str, status: str, day: date = date(2020, 1, 6), **kw):
+    import datetime as dt
+
+    from app.taiwan.corporate_actions import CorporateActionEvent, event_market_open
+    from app.taiwan.providers.taiwan_values import TAIPEI
+
+    values = {"symbol": symbol, "exchange": "TWSE", "effective_date": day,
+              "effective_at": event_market_open(day), "event_type": "stock_dividend",
+              "previous_close": None, "reference_price": None, "factor": None,
+              "cash_dividend": None, "free_share_ratio": None, "reduction_ratio": None,
+              "source": "TWT49U", "source_url": "u",
+              "retrieved_at": dt.datetime(2026, 9, 26, tzinfo=TAIPEI),
+              "status": status,
+              "reason": "detail_provider_error" if status == "provider_error" else None}
+    values.update(kw)
+    return CorporateActionEvent(**values)
+
+
+def test_failed_fetch_never_conflicts_with_a_real_observation() -> None:
+    from app.taiwan.corporate_actions import resolve_event_conflicts
+
+    failed = _event("2330.TWSE", "provider_error")
+    real = _event("2330.TWSE", "data_insufficient", reason="cash_subscription_requires_detail")
+    assert resolve_event_conflicts([failed, real]) == (real,)
+    assert resolve_event_conflicts([failed]) == (failed,)
+
+
+def test_provider_errors_for_primary_symbols_are_never_recorded_as_covered(
+    tmp_path: Path, monkeypatch,
+) -> None:
+    from app.taiwan.corporate_actions import CorporateActionStore
+    from app.taiwan.quant import primary_oos_runner as runner
+
+    store = CorporateActionStore(tmp_path / "adj_factor")
+    marker = store.path.with_name("coverage.json")
+    monkeypatch.setattr(runner, "_fetch_actions",
+                        lambda a, b: (_event("2330.TWSE", "provider_error"),))
+    with pytest.raises(runner.PrimaryOosInputError):
+        runner._action_snapshot(date(2020, 1, 1), date(2020, 2, 1), store=store,
+                                required_symbols=frozenset({"2330.TWSE"}))
+    assert not marker.exists() and not store.path.exists()
+    # A preferred share outside the Primary universe may carry a permanent detail error.
+    runner._action_snapshot(date(2020, 1, 1), date(2020, 2, 1), store=store,
+                            required_symbols=frozenset({"1101.TWSE"}))
+    assert marker.exists()
+    # A symbol that later joins the Primary universe is healed by a single-date refetch.
+    monkeypatch.setattr(runner, "_fetch_actions_on", lambda source, day: (_event(
+        "2330.TWSE", "verified", previous_close=100.0, reference_price=90.0, factor=0.9,
+        precision_method="test", event_type="cash_dividend"),))
+    events, _ = runner._action_snapshot(date(2020, 1, 1), date(2020, 2, 1), store=store,
+                                        required_symbols=frozenset({"2330.TWSE"}))
+    assert [e.status for e in events] == ["verified"]
+
+
+def test_panel_is_not_published_when_any_adjustment_is_unverified(tmp_path: Path) -> None:
+    from app.taiwan.backfill_worker import TaiwanHistoricalBackfillWorker
+    from app.taiwan.quant.primary_oos_runner import PrimaryOosInputError
+    from app.taiwan.quant.primary_panel import build_primary_factor_panel
+    from app.taiwan.quant.storage import FactorPanelStore
+
+    sessions = [day for day in (date(2020, 1, 1) + timedelta(days=n) for n in range(120))
+                if day.weekday() < 5][:40]
+    census = ObservedUniverseStore(tmp_path / "observed")
+    for day in sessions:
+        census.write("TWSE", day,
+                     [r for r in _stock_history(("2330",), sessions) if r["date"] == day])
+    classifications = HistoricalClassificationStore(tmp_path / "cls")
+    classifications.write(sessions[0], [{
+        **_industry_row("2330", sessions[0]), "instrument_type": "stock",
+        "classification_status": "verified", "classification_source": "twse:isin_listed@x"}])
+    worker = TaiwanHistoricalBackfillWorker(
+        data_dir=tmp_path, census_store=census, classification_store=classifications)
+    store = FactorPanelStore(tmp_path / "factors")
+    broken = _event("2330.TWSE", "data_insufficient", day=sessions[20],
+                    reason="detail reference mismatch")
+    with pytest.raises(PrimaryOosInputError):
+        build_primary_factor_panel(_preflight(), events=(broken,), store=store,
+                                   worker=worker, workers=1)
+    assert not any((tmp_path / "factors").rglob("values.parquet"))
+
+
+def test_evidence_refresh_publishes_nothing_when_a_later_source_fails(tmp_path: Path) -> None:
+    from app.taiwan.instrument_evidence import refresh_evidence
+
+    sep = "\u3000"
+    listed = _isin_page(
+        [(" 股票 ",), (f"2330{sep}台積電", "TW0002330008", "1994/09/05", "上市", "半導體業",
+                     "ESVUFR", "")], "本國上市證券國際證券辨識號碼一覽表")
+    unlisted = _isin_page(
+        [(f"1111{sep}欣欣水泥", "TW0001111003", "1982/11/24", "水泥工業", "ESVUFR", "")],
+        "本國未上市，未上櫃公開發行證券，國際證券辨識號碼一覽表")
+    pages = {"strMode=2": listed, "strMode=1": unlisted}
+    store = InstrumentEvidenceStore(tmp_path / "ev")
+
+    def payload(url: str):
+        if "suspendListing" in url:
+            return {"status": "ok", "data": [["113/09/02", "中化", "1701"]]}
+        return []  # the company registry is unavailable
+
+    with pytest.raises(ValueError):
+        refresh_evidence(store, today=date(2026, 9, 26),
+                         fetch_bytes=lambda url: next(v for k, v in pages.items() if k in url),
+                         fetch_payload=payload)
+    assert not (tmp_path / "ev").exists() or not any((tmp_path / "ev").iterdir())
