@@ -3,7 +3,7 @@ import { Link, useNavigate } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { motion } from 'framer-motion'
 import { Activity, ArrowUpRight, BellRing, Check, Database, Eye, Layers, Loader2, Star, Trash2, TrendingUp, X } from 'lucide-react'
-import { api, type AlertEvent, type IndustryMetrics } from '@/lib/api'
+import { api, type AlertEvent, type IndexSnapshot, type IndustryMetrics, type TaiwanAbnormalDiagnosticsSnapshot } from '@/lib/api'
 import { QK } from '@/lib/queryKeys'
 import { fmtBigNum, fmtPct } from '@/lib/format'
 import { StockPreviewDialog } from '@/components/StockPreviewDialog'
@@ -245,11 +245,12 @@ function TaiwanBreadthBar({ advance, decline, flat }: { advance: number; decline
   )
 }
 
-function MarketStrengthCard() {
+function MarketOverviewCard({ latestDailyAsOf, marketStatusLoading }: { latestDailyAsOf: string | null; marketStatusLoading: boolean }) {
   const intel = useQuery({
-    queryKey: ['taiwanMarketIntelligence'],
-    queryFn: () => api.taiwanMarketIntelligence(),
+    queryKey: ['taiwanMarketIntelligence', latestDailyAsOf],
+    queryFn: () => api.taiwanMarketIntelligence(latestDailyAsOf ?? undefined),
     staleTime: 5 * 60 * 1000,
+    enabled: !marketStatusLoading,
   })
   const totals = intel.data?.market_totals
   // 分母為 0 (全市場無漲跌平資料, 例如尚未下載當日資料) 時不可判讀強弱, ratio
@@ -261,28 +262,64 @@ function MarketStrengthCard() {
   // 只是部分到位 —— 兩種情形都不該讓「偏強/偏弱/中性」這類 deterministic 結論
   // 顯示出來)。沿用 TaiwanScreener 既有判斷條件,不新增第二套完整性計算;只是
   // 把同一個既有 badge 樣式語意搬來這裡。
-  const dataIncomplete = intel.data ? intel.data.data_quality?.overall_status !== 'complete' : false
-  const label = dataIncomplete ? null : taiwanStrengthLabel(advanceRatio)
+  const dailyBreadthAvailable = Boolean(
+    intel.data?.data_quality.daily?.status === 'current'
+    && (totals?.snapshot_row_count ?? 0) > 0,
+  )
+  const dailyDataIncomplete = intel.data ? !dailyBreadthAvailable : false
+  const otherMarketDataIncomplete = Boolean(
+    intel.data && intel.data.data_quality.overall_status !== 'complete' && dailyBreadthAvailable,
+  )
+  const label = dailyBreadthAvailable ? taiwanStrengthLabel(advanceRatio) : null
+  const indexQuality = intel.data?.data_quality?.indexes
+  const indexRows: Array<{ label: string; index: IndexSnapshot | null }> = intel.data ? [
+    { label: '加權指數', index: intel.data.indexes.taiex },
+    { label: '上櫃指數', index: intel.data.indexes.tpex_index },
+  ] : []
 
   return (
-    <section className="mb-1.5 rounded-card border border-border bg-surface/80 p-2.5 shadow-[0_1px_2px_hsl(var(--border)/0.4)] backdrop-blur-sm">
-      <SectionTitle icon={TrendingUp} title="今日市場強弱" hint={intel.data ? `交易日 ${intel.data.trade_date}` : undefined} />
+    <section className="mb-1.5 rounded-card border border-accent/25 bg-surface/90 p-3 shadow-[0_1px_2px_hsl(var(--border)/0.4)] backdrop-blur-sm">
+      <SectionTitle icon={TrendingUp} title="市場概況" hint={intel.data ? `資料交易日 ${intel.data.trade_date}` : undefined} />
       {intel.isLoading ? (
         <div className="flex items-center gap-2 py-4 text-xs text-muted">
           <Loader2 className="h-3.5 w-3.5 animate-spin" />正在讀取市場強弱資料…
         </div>
-      ) : intel.isError || !totals ? (
+      ) : intel.isError || !intel.data || !totals ? (
         <p className="py-4 text-xs text-muted">目前無法讀取市場強弱資料,不影響其他功能使用。</p>
       ) : (
         <>
-          {dataIncomplete && (
+          {dailyDataIncomplete && (
             <div className="mb-1.5 rounded border border-warning/40 bg-warning/10 px-2 py-1 text-[11px] text-warning">
-              今日市場資料尚未完整，以下統計僅供參考
+              日行情尚未完整，漲跌與成交統計僅依目前可用資料顯示
               {intel.data?.data_quality?.previous_trade_date && (
                 <>；前一交易日：{intel.data.data_quality.previous_trade_date}</>
               )}
             </div>
           )}
+          {otherMarketDataIncomplete && (
+            <div className="mb-1.5 rounded border border-border bg-elevated/40 px-2 py-1 text-[10px] text-secondary">
+              日行情覆蓋 {totals.snapshot_row_count.toLocaleString()} / {totals.supported_count.toLocaleString()} 檔；法人或融資融券資料尚未完整。
+            </div>
+          )}
+          {intel.data.trade_date < new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Taipei' }) && (
+            <div className="mb-2 rounded border border-border bg-elevated/50 px-2 py-1 text-[11px] text-secondary">
+              目前使用最近可用交易日資料（{intel.data.trade_date}）
+            </div>
+          )}
+          <div className="mb-2 grid grid-cols-1 gap-1.5 sm:grid-cols-2">
+            {indexRows.map(({ label: indexLabel, index }) => (
+              <div key={indexLabel} className="rounded-md border border-border/50 bg-elevated/35 px-2.5 py-2">
+                <div className="text-[10px] text-muted">{indexLabel}</div>
+                {index?.close != null && index.status !== 'unavailable' ? (
+                  <div className="mt-0.5 flex flex-wrap items-baseline gap-x-2 font-mono text-xs">
+                    <span className="font-semibold text-foreground">{index.close.toLocaleString('zh-TW')}</span>
+                    <span className={pctClass(index.change_pct)}>{index.change == null ? '—' : `${index.change > 0 ? '+' : ''}${index.change.toLocaleString('zh-TW')}`} ({fmtStockPct(index.change_pct)})</span>
+                    <span className="text-[9px] text-muted">{index.trade_date ?? '—'}</span>
+                  </div>
+                ) : <div className="mt-0.5 text-xs text-muted">目前無可靠指數資料</div>}
+              </div>
+            ))}
+          </div>
           <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
             <span className="text-bull">漲 <span className="font-mono font-semibold">{totals.advance_count}</span></span>
             <span className="text-muted">平 <span className="font-mono">{totals.flat_count}</span></span>
@@ -316,6 +353,23 @@ function MarketStrengthCard() {
               <MiniMetric label="外資買賣超" value="—" />
             )}
           </div>
+          {totals.traded_count > 0 && label && (
+            <p className="mt-2 text-[11px] text-secondary">
+              {label === '偏強'
+                ? `多數股票上漲（${totals.advance_count} 漲、${totals.decline_count} 跌），市場廣度偏強。`
+                : label === '偏弱'
+                  ? `下跌家數較多（${totals.advance_count} 漲、${totals.decline_count} 跌），市場廣度偏弱。`
+                  : `漲跌家數接近（${totals.advance_count} 漲、${totals.decline_count} 跌），市場廣度中性。`}
+            </p>
+          )}
+          {dailyBreadthAvailable && intel.data.data_quality.missing_symbols_count > 0 && (
+            <p className="mt-1 text-[9px] text-muted">漲跌廣度只依當日有行情的標的計算，另有 {intel.data.data_quality.missing_symbols_count.toLocaleString()} 檔缺少行情。</p>
+          )}
+          <div className="mt-1 text-[9px] text-muted">
+            指數資料：{indexQuality?.status ?? 'unavailable'}
+            {indexQuality?.as_of ? ` · ${indexQuality.as_of}` : ''}
+            {' · '}市場資料狀態：{intel.data.data_quality.overall_status}
+          </div>
         </>
       )}
     </section>
@@ -328,14 +382,26 @@ function MarketStrengthCard() {
 // average_change_pct 對既有資料排序, 不新增 backend 計算。此 API 回傳的
 // industry 欄位本身已是可讀產業名稱 (34 大類股中文名), 非數字代碼, 無需額外
 // mapping(Phase 8C-C 已於 backend 修正 TPEx/TWSE 數字代碼正規化)。
-function IndustryStrengthList({ title, rows, tone }: { title: string; rows: IndustryMetrics[]; tone: 'bull' | 'bear' }) {
+function IndustryStrengthList({ title, rows, tone, quantBySymbol }: { title: string; rows: IndustryMetrics[]; tone: 'bull' | 'bear'; quantBySymbol: Map<string, number> }) {
   return (
     <div className="min-w-0 space-y-1">
       <div className={`text-[10px] font-medium ${tone === 'bull' ? 'text-bull' : 'text-bear'}`}>{title}</div>
       {rows.map(ind => (
-        <div key={ind.industry} className="flex items-center justify-between gap-2 rounded-md bg-elevated/40 px-2 py-1 text-[11px]">
-          <span className="truncate text-foreground" title={ind.industry}>{ind.industry}</span>
-          <span className={`shrink-0 font-mono font-semibold ${pctClass(ind.average_change_pct)}`}>{fmtStockPct(ind.average_change_pct)}</span>
+        <div key={ind.industry} className="rounded-md bg-elevated/40 px-2 py-1.5 text-[11px]">
+          <Link to={`/taiwan-screener?industry=${encodeURIComponent(ind.industry)}`} aria-label={`查看${ind.industry}類股股票`} className="block rounded hover:text-accent">
+            <div className="flex items-center justify-between gap-2">
+              <span className="truncate text-foreground" title={ind.industry}>{ind.industry}</span>
+              <span className={`shrink-0 font-mono font-semibold ${pctClass(ind.average_change_pct)}`}>{fmtStockPct(ind.average_change_pct)}</span>
+            </div>
+            <div className="mt-0.5 flex flex-wrap gap-x-2 text-[9px] text-muted">
+              <span>中位 {fmtStockPct(ind.median_change_pct)}</span>
+              <span>漲/跌 {ind.advance_count}/{ind.decline_count}</span>
+              <span>成交 {fmtBigNum(ind.turnover)}</span>
+              <span>占大盤 {(ind.turnover_share * 100).toFixed(1)}%</span>
+            </div>
+          </Link>
+          {ind.top_turnover.slice(0, 2).length > 0 && <div className="mt-0.5 flex gap-2 truncate text-[9px] text-secondary"><span className="shrink-0">活躍：</span>{ind.top_turnover.slice(0, 2).map(stock => <Link key={stock.symbol} to={`/stocks/${encodeURIComponent(stock.symbol)}`} className="truncate hover:text-accent">{stock.name} {fmtStockPct(stock.change_pct)}</Link>)}</div>}
+          {ind.top_turnover.some(stock => quantBySymbol.has(stock.symbol)) && <div className="mt-0.5 flex gap-2 truncate text-[9px] text-accent"><span className="shrink-0">Quant Top：</span>{ind.top_turnover.filter(stock => quantBySymbol.has(stock.symbol)).map(stock => <Link key={stock.symbol} to={`/stocks/${encodeURIComponent(stock.symbol)}`} className="truncate hover:underline">{stock.name} #{quantBySymbol.get(stock.symbol)}</Link>)}</div>}
         </div>
       ))}
       {rows.length === 0 && <div className="rounded border border-dashed border-border py-3 text-center text-[11px] text-muted">暫無資料</div>}
@@ -343,11 +409,13 @@ function IndustryStrengthList({ title, rows, tone }: { title: string; rows: Indu
   )
 }
 
-function IndustryStrengthCard() {
+function IndustryStrengthCard({ latestDailyAsOf, marketStatusLoading }: { latestDailyAsOf: string | null; marketStatusLoading: boolean }) {
+  const quant = useTodayQuantSelection()
   const ind = useQuery({
-    queryKey: ['taiwanIndustryIntelligence', 'turnover', 'desc'],
-    queryFn: () => api.taiwanIndustryIntelligence({ sort_by: 'turnover', order: 'desc' }),
+    queryKey: ['taiwanIndustryIntelligence', latestDailyAsOf, 'turnover', 'desc'],
+    queryFn: () => api.taiwanIndustryIntelligence({ date: latestDailyAsOf ?? undefined, sort_by: 'turnover', order: 'desc' }),
     staleTime: 5 * 60 * 1000,
+    enabled: !marketStatusLoading,
   })
   const comparable = (ind.data?.industries ?? []).filter(i => i.average_change_pct != null)
   const sorted = [...comparable].sort((a, b) => (b.average_change_pct ?? 0) - (a.average_change_pct ?? 0))
@@ -355,10 +423,11 @@ function IndustryStrengthCard() {
   const bottomCount = Math.min(5, Math.max(0, sorted.length - topCount))
   const top = sorted.slice(0, topCount)
   const bottom = sorted.slice(sorted.length - bottomCount).reverse()
+  const quantBySymbol = new Map(quant.signals.map(signal => [signal.symbol, signal.rank]))
 
   return (
     <section className="rounded-card border border-border bg-surface/80 p-2.5 shadow-[0_1px_2px_hsl(var(--border)/0.4)] backdrop-blur-sm">
-      <SectionTitle icon={Layers} title="產業強弱" hint={ind.data ? `${ind.data.industries.length} 大類股` : undefined} />
+      <SectionTitle icon={Layers} title="今日類股熱度" hint={ind.data ? `${ind.data.industries.length} 大類股 · 點擊查看成分股` : undefined} />
       {ind.isLoading ? (
         <div className="flex items-center gap-2 py-4 text-xs text-muted">
           <Loader2 className="h-3.5 w-3.5 animate-spin" />正在讀取產業資料…
@@ -369,10 +438,56 @@ function IndustryStrengthCard() {
         <p className="py-4 text-xs text-muted">目前尚無可比較的產業資料。</p>
       ) : (
         <div className="grid grid-cols-2 gap-2">
-          <IndustryStrengthList title="最強" rows={top} tone="bull" />
-          <IndustryStrengthList title="最弱" rows={bottom} tone="bear" />
+          <IndustryStrengthList title="最強" rows={top} tone="bull" quantBySymbol={quantBySymbol} />
+          <IndustryStrengthList title="最弱" rows={bottom} tone="bear" quantBySymbol={quantBySymbol} />
         </div>
       )}
+    </section>
+  )
+}
+
+function MarketAnomalyCard({ snapshot, loading, error, alerts }: {
+  snapshot?: TaiwanAbnormalDiagnosticsSnapshot
+  loading: boolean
+  error: boolean
+  alerts: AlertEvent[]
+}) {
+  const fresh = snapshot?.data_quality.daily_status === 'current'
+  const rows = fresh ? [...(snapshot?.items ?? [])]
+    .filter(item => item.signal_count > 0)
+    .sort((a, b) => b.signal_count - a.signal_count || Math.abs(b.change_pct ?? 0) - Math.abs(a.change_pct ?? 0))
+    .slice(0, 8) : []
+  const todayTaipei = new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Taipei' })
+  const quantEvents = alerts.filter(event => {
+    const eventDate = new Date(event.ts).toLocaleDateString('sv-SE', { timeZone: 'Asia/Taipei' })
+    return event.source === 'quant' && ['quant_top10_enter', 'quant_top10_exit'].includes(event.type) && eventDate === todayTaipei
+  })
+  const signalLabel: Record<string, string> = {
+    PRICE_MOVE: '單日大漲/跌', VOLUME_SPIKE: '爆量', TURNOVER_SPIKE: '成交額放大',
+    FOREIGN_FLOW_SPIKE: '外資異常', TRUST_FLOW_SPIKE: '投信異常', DEALER_FLOW_SPIKE: '自營商異常',
+    PRICE_FLOW_DIVERGENCE: '價量背離', RELATIVE_STRENGTH_OUTLIER: '相對強弱異常',
+    MARGIN_SURGE: '融資異常', SHORT_SURGE: '融券異常', SHORT_MARGIN_RATIO_SPIKE: '券資比異常',
+  }
+  return (
+    <section className="rounded-card border border-border bg-surface/80 p-2.5 shadow-[0_1px_2px_hsl(var(--border)/0.4)]">
+      <SectionTitle icon={Activity} title="市場異常" hint={snapshot ? `資料交易日 ${snapshot.trade_date}` : undefined} />
+      {loading ? <div className="py-4 text-xs text-muted">正在讀取市場異常…</div>
+        : error || !snapshot ? <div className="py-4 text-xs text-muted">目前無法讀取市場異常資料。</div>
+          : !fresh ? <div className="rounded border border-warning/40 bg-warning/10 px-2 py-2 text-[11px] text-warning">異常雷達資料 {snapshot.data_quality.daily_status}，不以過期行情判定今日異常。</div>
+            : rows.length === 0 ? <div className="py-4 text-xs text-muted">最近交易日沒有觸發異常規則。</div>
+              : <div className="space-y-1">{rows.map(item => (
+                <Link key={item.symbol} to={`/stocks/${encodeURIComponent(item.symbol)}`} className="flex w-full items-center justify-between gap-2 rounded-md bg-elevated/40 px-2 py-1.5 text-left hover:bg-elevated/80">
+                  <span className="min-w-0"><span className="text-[11px] font-medium text-foreground">{item.name}</span><span className="ml-1 font-mono text-[9px] text-muted">{item.symbol}</span><span className="ml-1 block truncate text-[9px] text-secondary">{item.signals.map(signal => signalLabel[signal.type] ?? signal.type).join('、')}</span></span>
+                  <span className={`shrink-0 font-mono text-[10px] ${pctClass(item.change_pct)}`}>{fmtStockPct(item.change_pct)}</span>
+                </Link>
+              ))}</div>}
+      {quantEvents.map(event => (
+        <Link key={`${event.ts}-${event.symbol}-${event.type}`} to={event.symbol ? `/stocks/${encodeURIComponent(event.symbol)}` : '/'} className="mt-1 flex items-center justify-between rounded-md border border-accent/20 bg-accent/5 px-2 py-1 text-[10px] hover:bg-accent/10">
+          <span>{event.type === 'quant_top10_enter' ? '新進 Quant Top 10' : '跌出 Quant Top 10'} · {event.name ?? event.symbol}</span>
+          <span className="font-mono text-muted">{event.symbol}</span>
+        </Link>
+      ))}
+      {snapshot && <div className="mt-1 text-[9px] text-muted">診斷狀態：{snapshot.data_quality.overall_status} · 日行情 {snapshot.data_quality.daily_status} · {snapshot.data_quality.evaluated_symbol_count} 檔</div>}
     </section>
   )
 }
@@ -380,7 +495,7 @@ function IndustryStrengthCard() {
 // ===== A5: 我的觀察 =====
 // 自選清單是持久化資料，enriched 只負責補行情；兩者合併後即使某檔
 // 沒有今日排名或行情，也保留該檔，避免使用者的觀察標的靜默消失。
-function WatchlistQuickGlance({ onStockClick }: { onStockClick: (symbol: string, name?: string) => void }) {
+function WatchlistQuickGlance({ onStockClick, anomalies }: { onStockClick: (symbol: string, name?: string) => void; anomalies: TaiwanAbnormalDiagnosticsSnapshot | undefined }) {
   const qc = useQueryClient()
   const watchlist = useQuery({
     queryKey: QK.watchlist,
@@ -393,6 +508,12 @@ function WatchlistQuickGlance({ onStockClick }: { onStockClick: (symbol: string,
     staleTime: 30_000,
   })
   const quant = useTodayQuantSelection()
+  const alerts = useQuery({
+    queryKey: ['dashboard-alerts-today'],
+    queryFn: () => api.alertsList({ days: 1, limit: 100 }),
+    enabled: !watchlist.isLoading,
+    staleTime: 30_000,
+  })
   const remove = useMutation({
     mutationFn: (symbol: string) => api.watchlistRemove(symbol),
     onSuccess: () => {
@@ -407,10 +528,23 @@ function WatchlistQuickGlance({ onStockClick }: { onStockClick: (symbol: string,
   const attention = rows
     .sort((a, b) => Math.abs(b.change_pct ?? 0) - Math.abs(a.change_pct ?? 0))
   const rankedBySymbol = new Map(quant.signals.map(signal => [signal.symbol, signal]))
+  const anomalyBySymbol = new Map((anomalies?.data_quality.daily_status === 'current' ? anomalies.items : []).map(item => [item.symbol, item]))
+  const todayTaipei = new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Taipei' })
+  const watchlistAlerts = (alerts.data?.alerts ?? []).filter(event => {
+    const eventDate = new Date(event.ts).toLocaleDateString('sv-SE', { timeZone: 'Asia/Taipei' })
+    return event.symbol && rowsBySymbol.has(event.symbol) && eventDate === todayTaipei
+  })
+  const watchlistTop10Entries = watchlistAlerts.filter(event => event.source === 'quant' && event.type === 'quant_top10_enter').length
 
   return (
     <section className="rounded-card border border-border bg-surface/80 p-2.5 shadow-[0_1px_2px_hsl(var(--border)/0.4)] backdrop-blur-sm">
-      <SectionTitle icon={Eye} title="我的觀察" hint={rows.length ? `${rows.length} 檔` : undefined} />
+      <SectionTitle icon={Eye} title="我的觀察" hint={rows.length ? `${rows.length} 檔 · 行情 ${enriched.data?.as_of ?? '—'}` : undefined} />
+      {rows.length > 0 && <div className="mb-1 flex flex-wrap gap-1 text-[9px] text-secondary">
+        <span className="rounded bg-elevated px-1.5 py-0.5">今日 Top 10 {rows.filter(row => rankedBySymbol.has(row.symbol)).length} 檔</span>
+        <span className="rounded bg-elevated px-1.5 py-0.5">新進 Top 10 {watchlistTop10Entries} 檔</span>
+        <span className="rounded bg-elevated px-1.5 py-0.5">異常 {rows.filter(row => (anomalyBySymbol.get(row.symbol)?.signal_count ?? 0) > 0).length} 檔 · {anomalies?.trade_date ?? '—'}</span>
+        <span className="rounded bg-elevated px-1.5 py-0.5">今日提醒 {alerts.isLoading ? '—' : alerts.isError ? 'unavailable' : `${watchlistAlerts.length} 則`}</span>
+      </div>}
       {watchlist.isLoading || enriched.isLoading ? (
         <div className="flex items-center gap-2 py-4 text-xs text-muted">
           <Loader2 className="h-3.5 w-3.5 animate-spin" />正在讀取自選股資料…
@@ -443,7 +577,8 @@ function WatchlistQuickGlance({ onStockClick }: { onStockClick: (symbol: string,
                   const summary = signal
                     ? `#${signal.rank} · Quant ${fmtStockPct(signal.score)} · ${selectionReasons(signal).slice(0, 1).join('') || '符合既有動能條件'}`
                     : quant.validRun ? '今日未進入 Top 10' : '今日 Quant 排名 unavailable'
-                  return <div className="max-w-[240px] truncate text-[9px] text-secondary">{summary}</div>
+                  const anomaly = anomalyBySymbol.get(r.symbol)
+                  return <div className="max-w-[240px] truncate text-[9px] text-secondary">{summary}{anomaly?.signal_count ? ` · 異常 ${anomaly.signal_count} 項` : ''}</div>
                 })()}
               </div>
               <Link to={`/stocks/${encodeURIComponent(r.symbol)}`} title="查看詳情" aria-label={`查看 ${r.symbol} 詳情`} className="inline-flex shrink-0 items-center gap-1 rounded border border-border px-1.5 py-1 text-[10px] text-muted hover:text-accent">
@@ -535,22 +670,41 @@ function TaiwanOverviewCard() {
 
 export function Dashboard() {
   const [previewStock, setPreviewStock] = useState<{symbol: string; name?: string; alert?: AlertEvent} | null>(null)
+  const marketDataStatus = useQuery({
+    queryKey: QK.taiwanDataStatus,
+    queryFn: api.taiwanDataStatus,
+    staleTime: 60_000,
+  })
+  const latestDailyAsOf = marketDataStatus.data?.daily_as_of ?? null
+  const diagnostics = useQuery({
+    queryKey: ['taiwanAbnormalDiagnostics', 'dashboard'],
+    queryFn: () => api.taiwanAbnormalDiagnostics({ date: latestDailyAsOf ?? undefined }),
+    staleTime: 5 * 60 * 1000,
+    enabled: !marketDataStatus.isLoading,
+  })
+  const todayAlerts = useQuery({
+    queryKey: ['dashboard-alerts-today'],
+    queryFn: () => api.alertsList({ days: 1, limit: 100 }),
+    staleTime: 30_000,
+  })
 
   return (
     <div className="min-h-full bg-base p-1.5">
-      {/* Phase 8C-B — Dashboard Market Clarity: 首頁第一印象為「今日市場強弱」,
-          其次為「產業強弱 + 自選股動態」, 監控事件摘要在下方, 台股資料狀態卡
+      {/* A8: 首頁先呈現市場概況，再顯示類股熱度與市場異常，接著今日選股、持倉、觀察與提醒。
+          台股資料狀態卡保留在底部，供需要時確認資料新鮮度。
           (資料新鮮度) 移到最下層。Phase 8C-D: 中國 A 股 legacy 大盤看板整段已
           移除產品介面, Dashboard 全站僅剩台股內容, 不再有任何 legacy 開關。 */}
-      <TodaySelection />
-      <div className="mb-1.5"><PortfolioPanel /></div>
-      <QuantEvaluationCard compact />
-      <MarketStrengthCard />
+      <MarketOverviewCard latestDailyAsOf={latestDailyAsOf} marketStatusLoading={marketDataStatus.isLoading} />
 
       <div className="mb-1.5 grid grid-cols-1 gap-1.5 lg:grid-cols-2">
-        <IndustryStrengthCard />
-        <WatchlistQuickGlance onStockClick={(symbol, name) => setPreviewStock({ symbol, name })} />
+        <IndustryStrengthCard latestDailyAsOf={latestDailyAsOf} marketStatusLoading={marketDataStatus.isLoading} />
+        <MarketAnomalyCard snapshot={diagnostics.data} loading={diagnostics.isLoading} error={diagnostics.isError} alerts={todayAlerts.data?.alerts ?? []} />
       </div>
+
+      <TodaySelection />
+      <QuantEvaluationCard compact />
+      <div className="mb-1.5"><PortfolioPanel /></div>
+      <WatchlistQuickGlance anomalies={diagnostics.data} onStockClick={(symbol, name) => setPreviewStock({ symbol, name })} />
 
       <section className="mb-1.5 rounded-card border border-border bg-surface/80 p-1.5 shadow-[0_1px_2px_hsl(var(--border)/0.4)] backdrop-blur-sm transition-shadow hover:shadow-[0_2px_8px_hsl(var(--border)/0.5)]">
         <div className="mb-2 flex items-center justify-between gap-2">

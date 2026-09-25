@@ -1225,6 +1225,8 @@ export interface TaiwanMarketIntelligenceSnapshot {
     target_trade_date: string
     previous_trade_date: string | null
     overall_status: 'complete' | 'partial' | 'unavailable'
+    daily: { dataset: string; as_of: string | null; status: 'current' | 'stale' | 'unavailable'; source: string }
+    indexes: { dataset: string; as_of: string | null; status: 'current' | 'stale' | 'unavailable'; source: string }
     universe_supported_symbols: number
     daily_snapshot_symbols: number
     missing_symbols_count: number

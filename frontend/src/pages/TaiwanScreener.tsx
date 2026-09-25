@@ -1,6 +1,6 @@
 import { useState, useMemo } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { Link, useNavigate } from 'react-router-dom'
+import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import {
   Filter,
   ArrowUp,
@@ -39,6 +39,7 @@ import { loadLastCompareSymbols, mergeSymbolIntoCompare } from '@/lib/taiwanComp
 
 export function TaiwanScreener() {
   const navigate = useNavigate()
+  const [searchParams] = useSearchParams()
   const qc = useQueryClient()
 
   // Phase 8C-A: 結果 row 直接操作 (自選/比較/監控) — 與 StockPreviewDialog /
@@ -68,7 +69,7 @@ export function TaiwanScreener() {
   // Filter states
   const [exchange, setExchange] = useState<'ALL' | 'TWSE' | 'TPEX'>('ALL')
   const [instrument, setInstrument] = useState<'ALL' | 'stock' | 'etf'>('ALL')
-  const [industry, setIndustry] = useState<string>('ALL')
+  const [industry, setIndustry] = useState<string>(() => searchParams.get('industry') || 'ALL')
   const [priceMin, setPriceMin] = useState<string>('')
   const [priceMax, setPriceMax] = useState<string>('')
   const [changePctMin, setChangePctMin] = useState<string>('')
