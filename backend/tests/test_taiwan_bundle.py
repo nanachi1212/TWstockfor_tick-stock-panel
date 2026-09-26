@@ -9,7 +9,9 @@ import polars as pl
 import pytest
 
 from app.taiwan.bundle import (
+    BundleFileEntry,
     BundleManifest,
+    _compute_sha256,
     build_core_bundle,
     build_historical_bundle,
     install_bundle,
@@ -378,5 +380,237 @@ def test_p2_reject_corrupt_daily_partition(tmp_path: Path):
     bad_daily.write_bytes(b"not a parquet file")
 
     out_zip = tmp_path / "bad_core.zip"
-    with pytest.raises(ValueError, match="Failed to read and validate daily partitions"):
+    with pytest.raises(ValueError, match="Failed to read and validate daily partition"):
         build_core_bundle(output_zip=out_zip, source_taiwan_dir=src_taiwan)
+
+
+# ── Regression tests for Codex Review (Commit 5fae05a Findings) ────────
+
+def test_p1_manifest_entry_enforces_exclusion_rules_and_allowlists(tmp_path: Path):
+    """P1 Finding 1: Enforce exclusion rules and bundle-type allowlists on manifest entries."""
+    # 1. Manifest declaring excluded target (live_quant/signals.sqlite3)
+    bad_zip = tmp_path / "malicious_live_quant.zip"
+    m_excluded = BundleManifest(
+        bundle_type="core",
+        package_name="exploit_live_quant",
+        created_at="2026-01-01T00:00:00Z",
+        data_through="2026-01-01",
+        files=[
+            {"path": "live_quant/signals.sqlite3", "size_bytes": 10, "sha256": "fakehash"}
+        ],
+    )
+    with zipfile.ZipFile(bad_zip, "w") as z:
+        z.writestr("manifest.json", m_excluded.model_dump_json())
+        z.writestr("data/taiwan/live_quant/signals.sqlite3", b"injection")
+
+    with pytest.raises(ValueError, match="Forbidden manifest entry matching exclusion pattern"):
+        verify_bundle(bad_zip)
+
+    # 2. Manifest declaring non-allowlisted file for Core Bundle
+    bad_core_zip = tmp_path / "bad_core_allowlist.zip"
+    m_core_disallowed = BundleManifest(
+        bundle_type="core",
+        package_name="bad_core",
+        created_at="2026-01-01T00:00:00Z",
+        data_through="2026-01-01",
+        files=[
+            {"path": "observed_universe/exchange=TWSE/date=2024-01-02/part.parquet", "size_bytes": 10, "sha256": "fakehash"}
+        ],
+    )
+    with zipfile.ZipFile(bad_core_zip, "w") as z:
+        z.writestr("manifest.json", m_core_disallowed.model_dump_json())
+        z.writestr("data/taiwan/observed_universe/exchange=TWSE/date=2024-01-02/part.parquet", b"data")
+
+    with pytest.raises(ValueError, match="not permitted in Core Bundle allowlist"):
+        verify_bundle(bad_core_zip)
+
+    # 3. Manifest declaring non-allowlisted file for Historical Bundle
+    bad_hist_zip = tmp_path / "bad_hist_allowlist.zip"
+    m_hist_disallowed = BundleManifest(
+        bundle_type="historical",
+        package_name="bad_hist",
+        created_at="2026-01-01T00:00:00Z",
+        data_through="2026-01-01",
+        files=[
+            {"path": "security_master.parquet", "size_bytes": 10, "sha256": "fakehash"}
+        ],
+    )
+    with zipfile.ZipFile(bad_hist_zip, "w") as z:
+        z.writestr("manifest.json", m_hist_disallowed.model_dump_json())
+        z.writestr("data/taiwan/security_master.parquet", b"data")
+
+    with pytest.raises(ValueError, match="not permitted in Historical Bundle allowlist"):
+        verify_bundle(bad_hist_zip)
+
+
+def test_p1_require_valid_twse_month_verification_marker(tmp_path: Path):
+    """P1 Finding 2: Require valid observed_universe/_month_verification_TWSE.json in Historical Bundle."""
+    src_taiwan = tmp_path / "src_taiwan"
+    twse_dir = src_taiwan / "observed_universe" / "exchange=TWSE"
+    twse_dir.mkdir(parents=True, exist_ok=True)
+    _create_mock_daily_partition(twse_dir / "date=2024-01-02" / "part.parquet", "2024-01-02")
+    _create_mock_daily_partition(src_taiwan / "historical_classification" / "date=2024-01-02" / "part.parquet", "2024-01-02")
+
+    ev_dir = src_taiwan / "instrument_evidence"
+    ev_dir.mkdir(parents=True, exist_ok=True)
+    (ev_dir / "evidence.parquet").write_bytes(b"dummy")
+
+    adj_dir = src_taiwan / "adj_factor"
+    adj_dir.mkdir(parents=True, exist_ok=True)
+    (adj_dir / "events.parquet").write_bytes(b"dummy")
+
+    out_zip = tmp_path / "hist.zip"
+
+    # Missing marker file
+    with pytest.raises(ValueError, match=r"Missing required _month_verification_TWSE\.json"):
+        build_historical_bundle(output_zip=out_zip, source_taiwan_dir=src_taiwan)
+
+    # Empty marker file
+    marker_file = src_taiwan / "observed_universe" / "_month_verification_TWSE.json"
+    marker_file.write_text("{}", encoding="utf-8")
+    with pytest.raises(ValueError, match=r"Invalid or empty _month_verification_TWSE\.json"):
+        build_historical_bundle(output_zip=out_zip, source_taiwan_dir=src_taiwan)
+
+
+def test_p1_propagate_rollback_failures_when_restore_fails(tmp_path: Path, monkeypatch):
+    """P1 Finding 3: Propagate rollback failure and preserve emergency backup if restore fails."""
+    src_taiwan = tmp_path / "src_taiwan"
+    _create_mock_security_master(src_taiwan / "security_master.parquet")
+    _create_mock_daily_partition(src_taiwan / "daily" / "date=2024-01-02" / "part.parquet", "2024-01-02")
+    _create_mock_daily_partition(src_taiwan / "daily" / "date=2024-01-03" / "part.parquet", "2024-01-03")
+
+    core_zip = tmp_path / "core.zip"
+    build_core_bundle(output_zip=core_zip, source_taiwan_dir=src_taiwan)
+
+    dest_taiwan = tmp_path / "live_taiwan"
+    dest_taiwan.mkdir(parents=True, exist_ok=True)
+    live_sec = dest_taiwan / "security_master.parquet"
+    live_sec.write_text("ORIGINAL_LIVE_SECURITY_MASTER", encoding="utf-8")
+
+    import shutil
+    orig_copy2 = shutil.copy2
+    stage = "commit"
+
+    def mock_copy2_failing_both(src, dst, *args, **kwargs):
+        nonlocal stage
+        # Fail commit on second daily partition
+        if stage == "commit" and "2024-01-02" in str(dst):
+            stage = "rollback"
+            raise OSError("Commit simulated I/O failure")
+        # In rollback, simulate copy2 also failing to restore live_sec
+        if stage == "rollback" and "security_master.parquet" in str(dst):
+            raise OSError("Rollback simulated I/O failure: cannot restore original file")
+        return orig_copy2(src, dst, *args, **kwargs)
+
+    monkeypatch.setattr(shutil, "copy2", mock_copy2_failing_both)
+
+    with pytest.raises(RuntimeError, match=r"CRITICAL: Bundle installation commit failed .* AND rollback FAILED"):
+        install_bundle(core_zip, target_taiwan_dir=dest_taiwan)
+
+    # Verify emergency backup directory was preserved in dest_taiwan
+    backups = list(dest_taiwan.glob(".unrecovered_backup_*"))
+    assert len(backups) == 1
+    assert (backups[0] / "security_master.parquet").exists()
+
+
+def test_p2_core_bundle_requires_at_least_one_daily_partition(tmp_path: Path):
+    """P2 Finding 4: Reject core bundle that only contains security_master without daily partitions."""
+    src_taiwan = tmp_path / "src_taiwan"
+    sec_p = src_taiwan / "security_master.parquet"
+    _create_mock_security_master(sec_p)
+
+    out_zip = tmp_path / "sec_only.zip"
+    manifest = BundleManifest(
+        bundle_type="core",
+        package_name="sec_only",
+        created_at="2026-01-01T00:00:00Z",
+        data_through="2026-01-01",
+        files=[
+            BundleFileEntry(path="security_master.parquet", size_bytes=sec_p.stat().st_size, sha256=_compute_sha256(sec_p))
+        ],
+    )
+    with zipfile.ZipFile(out_zip, "w") as z:
+        z.writestr("manifest.json", manifest.model_dump_json())
+        z.write(sec_p, "data/taiwan/security_master.parquet")
+
+    dest_taiwan = tmp_path / "dest_taiwan"
+    with pytest.raises(ValueError, match=r"Core bundle missing staged daily partitions"):
+        install_bundle(out_zip, target_taiwan_dir=dest_taiwan)
+
+
+def test_p2_validate_every_daily_partition_fails_when_later_partition_corrupt(tmp_path: Path):
+    """P2 Finding 5: Validate every daily partition and fail closed if a later partition is corrupt."""
+    src_taiwan = tmp_path / "src_taiwan"
+    _create_mock_security_master(src_taiwan / "security_master.parquet")
+    # First partition is valid
+    _create_mock_daily_partition(src_taiwan / "daily" / "date=2024-01-02" / "part.parquet", "2024-01-02")
+    # Second partition is corrupt
+    corrupt_part = src_taiwan / "daily" / "date=2024-01-03" / "part.parquet"
+    corrupt_part.parent.mkdir(parents=True, exist_ok=True)
+    corrupt_part.write_bytes(b"garbage non-parquet bytes")
+
+    out_zip = tmp_path / "bad_core.zip"
+    with pytest.raises(ValueError, match=r"Failed to read and validate daily partition .*date=2024-01-03"):
+        build_core_bundle(output_zip=out_zip, source_taiwan_dir=src_taiwan)
+
+
+def test_p2_reload_security_master_singleton_after_core_installation(tmp_path: Path, monkeypatch):
+    """P2 Finding 6: Invalidate/reload TaiwanSecurityMaster singleton so new master is immediately visible."""
+    from app.taiwan.universe import get_security_master
+
+    data_dir = tmp_path / "live_data" / "taiwan"
+    data_dir.mkdir(parents=True, exist_ok=True)
+
+    import app.taiwan.universe as universe_mod
+
+    # Point taiwan_data_root to data_dir and initialize clean singleton
+    monkeypatch.setattr("app.taiwan.data_root.taiwan_data_root", lambda: data_dir)
+    monkeypatch.setattr(universe_mod, "_default_master", None)
+
+    # 1. Prepare initial security_master with 1101 only
+    import polars as pl
+    initial_df = pl.DataFrame({
+        "symbol": ["1101.TWSE"],
+        "code": ["1101"],
+        "name": ["台泥 (Initial)"],
+        "exchange": ["TWSE"],
+        "instrument_type": ["stock"],
+        "listing_status": ["active"],
+        "industry": ["水泥工業"],
+        "is_supported": [True],
+    })
+    initial_df.write_parquet(data_dir / "security_master.parquet")
+
+    # Load into singleton
+    sec_master = get_security_master()
+    assert sec_master.get_instrument("1101.TWSE") is not None
+    assert sec_master.get_instrument("1101.TWSE").name == "台泥 (Initial)"
+    assert sec_master.get_instrument("2330.TWSE") is None
+
+    # 2. Build a Core bundle containing updated security_master with 2330 added
+    src_taiwan = tmp_path / "src_taiwan"
+    updated_df = pl.DataFrame({
+        "symbol": ["1101.TWSE", "2330.TWSE"],
+        "code": ["1101", "2330"],
+        "name": ["台泥 (Initial)", "台積電 (New)"],
+        "exchange": ["TWSE", "TWSE"],
+        "instrument_type": ["stock", "stock"],
+        "listing_status": ["active", "active"],
+        "industry": ["水泥工業", "半導體業"],
+        "is_supported": [True, True],
+    })
+    (src_taiwan / "security_master.parquet").parent.mkdir(parents=True, exist_ok=True)
+    updated_df.write_parquet(src_taiwan / "security_master.parquet")
+    _create_mock_daily_partition(src_taiwan / "daily" / "date=2024-01-02" / "part.parquet", "2024-01-02")
+
+    core_zip = tmp_path / "updated_core.zip"
+    build_core_bundle(output_zip=core_zip, source_taiwan_dir=src_taiwan)
+
+    # 3. Install core bundle
+    install_bundle(core_zip, target_taiwan_dir=data_dir)
+
+    # 4. Inquire singleton again — without restarting process, it must reflect the new master!
+    current_master = get_security_master()
+    inst_2330 = current_master.get_instrument("2330.TWSE")
+    assert inst_2330 is not None
+    assert inst_2330.name == "台積電 (New)"

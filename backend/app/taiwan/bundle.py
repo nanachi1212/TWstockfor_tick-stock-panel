@@ -36,13 +36,19 @@ logger = logging.getLogger(__name__)
 EXCLUDED_PATTERNS: tuple[str, ...] = (
     "*user_data*",
     "*signals.sqlite3*",
+    "*live_quant*",
     "*monitor_rules*",
     "*backfill_worker_state*",
     "*.lock*",
     "*.guard*",
     "*secrets*",
+    "*credentials*",
     "*.env*",
     "*ai_cache*",
+    "*ai_threads*",
+    "*alerts*",
+    "*portfolio*",
+    "*watchlist*",
     "*logs*",
     "*.log*",
     "*exports*",
@@ -106,6 +112,55 @@ def _is_excluded(rel_path: str) -> bool:
     return False
 
 
+def _validate_manifest_entry(entry_path: str, bundle_type: str) -> None:
+    """Validate that entry path is secure, not excluded, and belongs to the bundle type allowlist."""
+    norm = entry_path.replace("\\", "/").strip("/")
+    if not norm or entry_path.startswith(("/", "\\")) or ":" in entry_path:
+        raise ValueError(f"Insecure manifest file entry path: {entry_path}")
+    parts = norm.split("/")
+    if ".." in parts:
+        raise ValueError(f"Zip Slip path traversal detected in manifest entry: {entry_path}")
+
+    # P1 Finding 1: Exclusion list check
+    if _is_excluded(norm):
+        raise ValueError(f"Forbidden manifest entry matching exclusion pattern: {entry_path}")
+
+    # P1 Finding 1: Strict bundle-type allowlist
+    if bundle_type == "core":
+        if norm == "security_master.parquet":
+            return
+        if len(parts) == 3 and parts[0] == "daily" and parts[1].startswith("date=") and parts[2] == "part.parquet":
+            return
+        raise ValueError(f"File path '{entry_path}' not permitted in Core Bundle allowlist")
+
+    elif bundle_type == "historical":
+        if norm == "observed_universe/_month_verification_TWSE.json":
+            return
+        if (
+            len(parts) == 4
+            and parts[0] == "observed_universe"
+            and parts[1] == "exchange=TWSE"
+            and parts[2].startswith("date=")
+            and parts[3] == "part.parquet"
+        ):
+            return
+        if (
+            len(parts) == 3
+            and parts[0] == "historical_classification"
+            and parts[1].startswith("date=")
+            and parts[2] == "part.parquet"
+        ):
+            return
+        if len(parts) == 2 and parts[0] == "instrument_evidence" and norm.endswith(".parquet"):
+            return
+        if len(parts) == 2 and parts[0] == "adj_factor" and parts[1] in ("events.parquet", "coverage.json"):
+            return
+        raise ValueError(f"File path '{entry_path}' not permitted in Historical Bundle allowlist")
+
+    else:
+        raise ValueError(f"Unsupported bundle type: {bundle_type}")
+
+
 def build_core_bundle(
     output_zip: Path | None = None,
     source_taiwan_dir: Path | None = None,
@@ -151,23 +206,24 @@ def build_core_bundle(
     if not daily_files:
         raise ValueError(f"No daily partitions found in {daily_dir}")
 
-    # P2 Finding 5: Fail-closed validation for daily partitions readability
-    try:
-        sample_df = pl.read_parquet(daily_files[0])
-        if sample_df.is_empty():
-            raise ValueError(f"Sample daily partition is empty: {daily_files[0]}")
-        required_daily_cols = {"symbol", "date", "open", "high", "low", "close", "volume"}
-        missing_daily = required_daily_cols - set(sample_df.columns)
-        if missing_daily:
-            raise ValueError(
-                f"Daily partition missing required columns {sorted(missing_daily)}: {daily_files[0]}"
-            )
-        sample_len = len(sample_df)
-        total_rows = sample_len * len(daily_files)
-    except Exception as exc:
-        if isinstance(exc, ValueError):
-            raise
-        raise ValueError(f"Failed to read and validate daily partitions: {exc}") from exc
+    # P2 Finding 5: Fail-closed validation for every daily partition's readability and schema
+    required_daily_cols = {"symbol", "date", "open", "high", "low", "close", "volume"}
+    total_rows = 0
+    for p in daily_files:
+        try:
+            part_df = pl.read_parquet(p)
+            if part_df.is_empty():
+                raise ValueError(f"Daily partition is empty: {p}")
+            missing_daily = required_daily_cols - set(part_df.columns)
+            if missing_daily:
+                raise ValueError(
+                    f"Daily partition missing required columns {sorted(missing_daily)}: {p}"
+                )
+            total_rows += len(part_df)
+        except Exception as exc:
+            if isinstance(exc, ValueError):
+                raise
+            raise ValueError(f"Failed to read and validate daily partition {p}: {exc}") from exc
 
     # Gather file entries
     file_entries: list[BundleFileEntry] = []
@@ -314,10 +370,21 @@ def build_historical_bundle(
     files_to_pack: list[Path] = []
     files_to_pack.extend(twse_partitions)
 
-    # TWSE month verification
+    # P1 Finding 2: Require valid TWSE month-verification marker
     month_verif = src_dir / "observed_universe" / "_month_verification_TWSE.json"
-    if month_verif.exists():
-        files_to_pack.append(month_verif)
+    if not month_verif.exists():
+        raise ValueError(
+            f"Missing required _month_verification_TWSE.json in {src_dir / 'observed_universe'}; cannot build historical bundle"
+        )
+    try:
+        verif_data = json.loads(month_verif.read_text(encoding="utf-8"))
+        if not isinstance(verif_data, (dict, list)) or not verif_data:
+            raise ValueError(f"Invalid or empty _month_verification_TWSE.json in {month_verif}")
+    except Exception as exc:
+        if isinstance(exc, ValueError):
+            raise
+        raise ValueError(f"Failed to read/parse _month_verification_TWSE.json: {exc}") from exc
+    files_to_pack.append(month_verif)
 
     files_to_pack.extend(classif_partitions)
     files_to_pack.extend(evidence_files)
@@ -433,10 +500,9 @@ def verify_bundle(bundle_zip_path: Path) -> BundleManifest:
         # Every non-metadata member in the archive MUST be in manifest.files, and vice versa.
         declared_map: dict[str, BundleFileEntry] = {}
         for entry in manifest.files:
-            # P1 Finding 1: Disallow crafted entry paths inside manifest as well
+            # P1 Finding 1: Disallow crafted entry paths, exclusions, and non-allowlist paths
+            _validate_manifest_entry(entry.path, manifest.bundle_type)
             entry_norm = entry.path.replace("\\", "/").strip("/")
-            if not entry_norm or entry.path.startswith(("/", "\\")) or ":" in entry.path or ".." in entry_norm.split("/"):
-                raise ValueError(f"Insecure manifest file entry path: {entry.path}")
             zip_member_path = f"data/taiwan/{entry_norm}"
             declared_map[zip_member_path] = entry
 
@@ -515,9 +581,11 @@ def install_bundle(
 
         with zipfile.ZipFile(bundle_path, "r") as z:
             for entry in manifest.files:
+                # P1 Finding 1: Enforce exclusion rules and bundle-type allowlist
+                _validate_manifest_entry(entry.path, manifest.bundle_type)
+
                 # P1 Finding 1: Normalize and resolve relative path beneath destination
                 raw_rel = entry.path.replace("\\", "/")
-                # Strip leading slashes to prevent root-escape
                 clean_rel = raw_rel.strip("/")
                 if not clean_rel or ":" in clean_rel:
                     raise ValueError(f"Insecure member path detected: {entry.path}")
@@ -557,10 +625,35 @@ def install_bundle(
             sec_scan = pl.read_parquet(staged_sec)
             if sec_scan.is_empty():
                 raise ValueError("Staged security_master.parquet is empty")
+            # P2 Finding 4: Require daily partitions in every core bundle
+            staged_daily = list((stage_root / "daily").glob("date=*/part.parquet"))
+            if not staged_daily:
+                raise ValueError("Core bundle missing staged daily partitions (daily/date=*/part.parquet)")
+            try:
+                d_scan = pl.read_parquet(staged_daily[0])
+                if d_scan.is_empty():
+                    raise ValueError(f"Staged daily partition is empty: {staged_daily[0]}")
+            except Exception as exc:
+                if isinstance(exc, ValueError):
+                    raise
+                raise ValueError(f"Failed to read staged daily partition: {exc}") from exc
+
         elif manifest.bundle_type == "historical":
             staged_obs = stage_root / "observed_universe" / "exchange=TWSE"
             if not staged_obs.exists() or not list(staged_obs.glob("date=*/part.parquet")):
                 raise ValueError("Historical bundle missing staged TWSE census partitions")
+            # P1 Finding 2: Require valid TWSE month-verification marker
+            staged_verif = stage_root / "observed_universe" / "_month_verification_TWSE.json"
+            if not staged_verif.exists():
+                raise ValueError("Historical bundle missing required _month_verification_TWSE.json")
+            try:
+                verif_data = json.loads(staged_verif.read_text(encoding="utf-8"))
+                if not isinstance(verif_data, (dict, list)) or not verif_data:
+                    raise ValueError("Staged _month_verification_TWSE.json is empty or invalid JSON")
+            except Exception as exc:
+                if isinstance(exc, ValueError):
+                    raise
+                raise ValueError(f"Staged _month_verification_TWSE.json validation failed: {exc}") from exc
 
         # P2 Finding 3: Atomic commit with rollback
         # Prepare backup of existing live files in case a write fails midway
@@ -591,12 +684,17 @@ def install_bundle(
 
             except BaseException as commit_err:
                 logger.error("Commit failed during bundle install; rolling back live files: %s", commit_err)
+                unrecovered_restores: list[tuple[Path, Path, Exception]] = []
+                unrecovered_unlinks: list[tuple[Path, Exception]] = []
+
                 # Rollback step 1: restore backed up original files
                 for live_dest, backup_p in backed_up:
                     try:
                         shutil.copy2(backup_p, live_dest)
                     except Exception as rb_exc:
                         logger.critical("Rollback failure restoring %s: %s", live_dest, rb_exc)
+                        unrecovered_restores.append((live_dest, backup_p, rb_exc))
+
                 # Rollback step 2: remove newly created files
                 for new_file in created_new_live_files:
                     try:
@@ -604,7 +702,38 @@ def install_bundle(
                             new_file.unlink(missing_ok=True)
                     except Exception as rb_exc:
                         logger.critical("Rollback failure unlinking %s: %s", new_file, rb_exc)
-                raise RuntimeError(f"Bundle installation failed and was rolled back cleanly: {commit_err}") from commit_err
+                        unrecovered_unlinks.append((new_file, rb_exc))
+
+                # P1 Finding 3: Propagate rollback failure and preserve backups if rollback failed
+                if unrecovered_restores or unrecovered_unlinks:
+                    emergency_backup_path = dest_taiwan / f".unrecovered_backup_{uuid.uuid4().hex[:8]}"
+                    preserve_msg = ""
+                    try:
+                        shutil.copytree(backup_root, emergency_backup_path)
+                        preserve_msg = f" Original files preserved at: {emergency_backup_path}"
+                    except Exception as preserve_exc:
+                        preserve_msg = f" Could not copy backup directory ({preserve_exc}). Backups remain in: {backup_root}"
+
+                    restore_failures = [f"{p} ({err})" for p, _, err in unrecovered_restores]
+                    unlink_failures = [f"{p} ({err})" for p, err in unrecovered_unlinks]
+                    raise RuntimeError(
+                        f"CRITICAL: Bundle installation commit failed ({commit_err}) AND rollback FAILED. "
+                        f"Target directory is in an inconsistent state! "
+                        f"Failed restores: {restore_failures}; Failed unlinks: {unlink_failures}.{preserve_msg}"
+                    ) from commit_err
+
+                raise RuntimeError(
+                    f"Bundle installation failed and was rolled back cleanly: {commit_err}"
+                ) from commit_err
+
+    # P2 Finding 6: Invalidate/reload TaiwanSecurityMaster singleton upon core bundle installation
+    if manifest.bundle_type == "core":
+        try:
+            from app.taiwan.universe import reset_security_master
+
+            reset_security_master()
+        except Exception as exc:
+            logger.warning("Could not reset security master singleton: %s", exc)
 
     return {
         "ok": True,

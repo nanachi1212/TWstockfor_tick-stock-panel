@@ -458,7 +458,12 @@ class TaiwanBootstrapService:
         """Install a local verified bundle archive (Core or Historical)."""
         from app.taiwan.bundle import install_bundle
         dest_root = taiwan_data_root()
-        return install_bundle(bundle_path, target_taiwan_dir=dest_root, verify_checksums=True)
+        result = install_bundle(bundle_path, target_taiwan_dir=dest_root, verify_checksums=True)
+        if result.get("bundle_type") == "core":
+            from app.taiwan.universe import reset_security_master
+
+            reset_security_master()
+        return result
 
 
 _bootstrap_service_instance: TaiwanBootstrapService | None = None
