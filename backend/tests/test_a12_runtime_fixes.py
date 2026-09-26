@@ -222,9 +222,10 @@ def test_detail_service_price_limit_try_except_is_present():
     import ast
     import pathlib
 
-    src = pathlib.Path(
-        "F:/Projects/Codex project/tick-stock-panel/backend/app/taiwan/detail_service.py"
+    src = (
+        pathlib.Path(__file__).parent.parent / "app" / "taiwan" / "detail_service.py"
     ).read_text(encoding="utf-8")
+
 
     # Confirm both the call site and the fallback string are present
     assert "get_price_limit_pct" in src, "get_price_limit_pct call missing"
