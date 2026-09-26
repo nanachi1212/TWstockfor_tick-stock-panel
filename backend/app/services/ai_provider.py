@@ -70,6 +70,14 @@ _CODEX_ENV_ALLOWLIST = (
 Message = dict[str, str]
 
 
+class AIOutputTruncated(RuntimeError):
+    """Raised when the provider signals finish_reason='length' (max_tokens hit mid-output)."""
+
+    def __init__(self, partial_content: str = "", message: str = "AI 輸出因 token 上限截斷"):
+        super().__init__(message)
+        self.partial_content = partial_content
+
+
 @dataclass(frozen=True)
 class AIProviderConfigSnapshot:
     provider: str
@@ -464,7 +472,12 @@ async def _run_openai_once(
             raise
     if not resp.choices:
         return ""
-    return (resp.choices[0].message.content or "").strip()
+    choice = resp.choices[0]
+    content = (choice.message.content or "").strip()
+    finish_reason = str(getattr(choice, "finish_reason", None) or "").strip().lower()
+    if finish_reason == "length":
+        raise AIOutputTruncated(partial_content=content)
+    return content
 
 
 async def _stream_openai(

@@ -747,10 +747,18 @@ def get_selection_snapshot_detail(snapshot_id: str):
     from app.taiwan.selection_review_service import get_selection_review_service
 
     svc = get_selection_review_service()
-    detail = svc.get_snapshot_review(snapshot_id)
+    try:
+        detail = svc.get_snapshot_review(snapshot_id)
+    except Exception as e:
+        logger.exception("Failed to get snapshot review for %s: %s", snapshot_id, e)
+        raise HTTPException(status_code=500, detail=f"復盤計算失敗: {e}") from e
     if not detail:
         raise HTTPException(status_code=404, detail=f"找不到指定的選股快照: {snapshot_id}")
-    return detail.model_dump()
+    try:
+        return detail.model_dump()
+    except Exception as e:
+        logger.exception("Failed to serialize snapshot review for %s: %s", snapshot_id, e)
+        raise HTTPException(status_code=500, detail=f"復盤資料序列化失敗: {e}") from e
 
 
 @router.delete("/selection-review/snapshots/{snapshot_id}")

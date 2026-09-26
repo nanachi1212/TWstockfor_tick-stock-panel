@@ -3437,16 +3437,16 @@ export const api = {
     }),
 
   getFinMindPreference: () =>
-    request<{ enabled: boolean; has_token: boolean; token_masked: string }>('/api/preferences/finmind'),
+    request<{ enabled: boolean; has_token: boolean; token_masked: string }>('/api/settings/preferences/finmind'),
 
   updateFinMindPreference: (payload: { token?: string; enabled?: boolean; clear_token?: boolean }) =>
-    request<{ ok: boolean; enabled: boolean; has_token: boolean }>('/api/preferences/finmind', {
+    request<{ ok: boolean; enabled: boolean; has_token: boolean }>('/api/settings/preferences/finmind', {
       method: 'PUT',
       body: JSON.stringify(payload),
     }),
 
   testFinMindConnection: (token?: string) =>
-    request<{ ok: boolean; message: string; status_code?: number }>('/api/preferences/finmind/test', {
+    request<{ ok: boolean; message: string; status_code?: number }>('/api/settings/preferences/finmind/test', {
       method: 'POST',
       body: JSON.stringify({ token }),
     }),
