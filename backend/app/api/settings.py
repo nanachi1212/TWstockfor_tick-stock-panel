@@ -92,6 +92,10 @@ def get_settings() -> dict:
         "ai_user_agent": secrets_store.get_ai_config("ai_user_agent", settings.ai_user_agent),
         "ai_max_output_tokens": current_ai_max_output_tokens(),
         "ai_context_window": current_ai_context_window(),
+        # FinMind 台股基本面與籌碼
+        "finmind_token_masked": secrets_store.mask(preferences.get_finmind_token()),
+        "finmind_enabled": preferences.get_finmind_enabled(),
+        "has_finmind_token": bool(preferences.get_finmind_token()),
     }
 
 
@@ -1177,6 +1181,64 @@ def test_telegram_bot() -> dict:
         "Telegram Bot API 已成功連線。",
     )
     return {"ok": ok}
+
+
+class FinMindSettingsIn(BaseModel):
+    token: str | None = None
+    enabled: bool | None = None
+    clear_token: bool = False
+
+
+@router.get("/preferences/finmind")
+def get_finmind_settings() -> dict:
+    from app.services import preferences
+    token = preferences.get_finmind_token()
+    return {
+        "finmind_token_masked": secrets_store.mask(token),
+        "has_finmind_token": bool(token),
+        "finmind_enabled": preferences.get_finmind_enabled(),
+        "token_masked": secrets_store.mask(token),
+        "has_token": bool(token),
+        "enabled": preferences.get_finmind_enabled(),
+    }
+
+
+@router.put("/preferences/finmind")
+def update_finmind_settings(req: FinMindSettingsIn) -> dict:
+    from app.services import preferences
+    if req.clear_token:
+        preferences.set_finmind_token("")
+    elif req.token is not None and req.token.strip():
+        preferences.set_finmind_token(req.token.strip())
+
+    if req.enabled is not None:
+        preferences.set_finmind_enabled(req.enabled)
+
+    return get_finmind_settings()
+
+
+@router.post("/preferences/finmind/test")
+def test_finmind_connection() -> dict:
+    import re
+
+    from app.services import preferences
+    from app.taiwan.providers.finmind_provider import FinMindAdapter
+
+    token = preferences.get_finmind_token()
+    adapter = FinMindAdapter(token=token, timeout=10)
+    try:
+        # Test query for a benchmark stock (2330)
+        rows = adapter.fetch_dataset("TaiwanStockPrice", "2330", start_date="2026-01-01")
+        if rows:
+            return {"ok": True, "message": "FinMind API 連線成功, 已取得資料。"}
+        rev = adapter.fetch_month_revenue("2330", start_date="2025-01-01")
+        if rev:
+            return {"ok": True, "message": "FinMind API 連線成功, 已取得營收資料。"}
+        return {"ok": True, "message": "FinMind API 回應成功 (連線正常)。"}
+    except Exception as exc:
+        raw_msg = str(exc)
+        clean_msg = re.sub(r"token=[^&\s'\"]+", "token=***", raw_msg)
+        return {"ok": False, "message": f"FinMind 連線失敗: {clean_msg}"}
 
 
 class WebhookEnabledDefaultIn(BaseModel):

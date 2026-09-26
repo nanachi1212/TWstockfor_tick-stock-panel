@@ -19,17 +19,16 @@ NO request-time HTTP calls to external providers.
 from __future__ import annotations
 
 import logging
-from datetime import date, datetime
 from typing import Any, Literal
 
 import polars as pl
 from pydantic import BaseModel, Field
 
 from app.taiwan.daily_store import TaiwanDailyStore
+from app.taiwan.finmind_cache import FinMindCache
 from app.taiwan.institutional_store import TaiwanInstitutionalStore
 from app.taiwan.margin_store import TaiwanMarginStore
-from app.taiwan.market_rules import PriceLimitModel
-from app.taiwan.symbol import parse_symbol
+from app.taiwan.providers.taiwan_values import parse_number
 from app.taiwan.technical_indicators import MIN_BARS_RSI_14, wilder_rsi_expr
 from app.taiwan.universe import TaiwanSecurityMaster, get_security_master
 from app.taiwan.universe.models import MarketProfileBridge
@@ -46,6 +45,8 @@ SortField = Literal[
     "foreign_net", "foreign_net_5d", "investment_trust_net",
     "investment_trust_net_5d", "dealer_net",
     "margin_balance_change", "short_balance", "short_margin_ratio",
+    "pe", "pb", "dividend_yield", "revenue_yoy", "revenue_mom",
+    "latest_eps", "foreign_shareholding_ratio", "foreign_shareholding_change_20d", "quant_score",
 ]
 SortDir = Literal["asc", "desc"]
 
@@ -98,6 +99,29 @@ class TaiwanScreenerRequest(BaseModel):
     near_lower_limit: bool | None = None  # distance_to_lower <= 0.03
     distance_to_upper_limit_max: float | None = None
     distance_to_lower_limit_max: float | None = None
+
+    # Fundamentals (Valuation)
+    pe_min: float | None = None
+    pe_max: float | None = None
+    pb_min: float | None = None
+    pb_max: float | None = None
+    dividend_yield_min: float | None = None  # 3.0 = 3%
+
+    # Fundamentals (Revenue)
+    revenue_yoy_min: float | None = None  # 20.0 = 20%
+    revenue_mom_min: float | None = None  # 5.0 = 5%
+
+    # Fundamentals (Profitability)
+    eps_min: float | None = None
+    net_income_positive: bool | None = None
+
+    # Chips (Shareholding & Lending)
+    foreign_shareholding_ratio_min: float | None = None  # 20.0 = 20%
+    foreign_shareholding_change_20d_min: float | None = None  # 0.0 = 0%
+    securities_lending_anomaly_exclude: bool | None = None  # True: 排除異常暴增
+
+    # Quant Score
+    quant_score_min: float | None = None
 
     # Pagination & Sorting
     sort_by: SortField = "symbol"
@@ -155,11 +179,38 @@ class ScreenerResultItem(BaseModel):
     margin_date: str | None = None
     margin_status: str = "unavailable"
 
+    # Fundamentals (Valuation, Revenue, Profitability)
+    pe: float | None = None
+    pb: float | None = None
+    dividend_yield: float | None = None
+    revenue_yoy: float | None = None
+    revenue_mom: float | None = None
+    latest_eps: float | None = None
+
+    # Chips (Foreign shareholding & lending)
+    foreign_shareholding_ratio: float | None = None
+    foreign_shareholding_change_20d: float | None = None
+    securities_lending_anomaly: str | None = None
+
+    # Quant Score
+    quant_score: float | None = None
+
+    # Explanation of why the stock was selected
+    match_reasons: list[str] = Field(default_factory=list)
+
 
 class DataDatesInfo(BaseModel):
     daily_as_of: str | None = None
     institutional_as_of: str | None = None
     margin_as_of: str | None = None
+
+
+class ScreenerCoverageInfo(BaseModel):
+    total_universe: int = 0
+    screened_universe: int = 0
+    fundamental_cached_count: int = 0
+    chips_cached_count: int = 0
+    coverage_note: str = ""
 
 
 class TaiwanScreenerResponse(BaseModel):
@@ -171,6 +222,7 @@ class TaiwanScreenerResponse(BaseModel):
     sort_order: str
     data_dates: DataDatesInfo
     degraded_sections: list[str] = []
+    coverage_info: ScreenerCoverageInfo | None = None
 
 
 class TaiwanScreenerService:
@@ -182,11 +234,21 @@ class TaiwanScreenerService:
         daily_store: TaiwanDailyStore | None = None,
         institutional_store: TaiwanInstitutionalStore | None = None,
         margin_store: TaiwanMarginStore | None = None,
+        finmind_cache: FinMindCache | None = None,
+        fundamental_chips_service: Any | None = None,
     ) -> None:
         self.security_master = security_master or get_security_master()
         self.daily_store = daily_store or TaiwanDailyStore()
         self.institutional_store = institutional_store or TaiwanInstitutionalStore()
         self.margin_store = margin_store or TaiwanMarginStore()
+        self.cache = finmind_cache or FinMindCache()
+        self._fundamental_chips_service = fundamental_chips_service
+
+    def _get_fundamental_chips_service(self):
+        if self._fundamental_chips_service is None:
+            from app.taiwan.fundamental_chips_service import TaiwanFundamentalChipsService
+            self._fundamental_chips_service = TaiwanFundamentalChipsService(cache=self.cache)
+        return self._fundamental_chips_service
 
     def run(self, req: TaiwanScreenerRequest) -> TaiwanScreenerResponse:
         # Step 1: Universe from TaiwanSecurityMaster
@@ -229,6 +291,9 @@ class TaiwanScreenerService:
         # Step 6: Batch Join Institutional & Margin
         combined, inst_date, margin_date, degraded = self._join_institutional_margin(combined, valid_symbols)
 
+        # Step 6.5: Batch Join Cached Fundamentals & Chips
+        combined, fund_count, chips_count = self._join_cached_fundamentals_chips(combined, valid_symbols)
+
         # Step 7: Apply Strongly Typed Filters
         filtered = self._apply_filters(combined, req)
 
@@ -242,8 +307,21 @@ class TaiwanScreenerService:
         offset = (req.page - 1) * req.page_size
         paged_df = sorted_df.slice(offset, req.page_size)
 
-        # Step 11: Serialize items
-        items = self._build_items(paged_df)
+        # Step 11: Serialize items (with match reasons)
+        items = self._build_items(paged_df, req)
+
+        # Step 12: Coverage info
+        coverage_note = (
+            f"已篩選 {len(valid_symbols)} 檔標的; 基本面快取涵蓋 {fund_count} 檔, "
+            f"籌碼補強快取涵蓋 {chips_count} 檔。未快取之標的若設有相關篩選條件將安全排除。"
+        )
+        coverage_info = ScreenerCoverageInfo(
+            total_universe=len(valid_symbols),
+            screened_universe=len(valid_symbols),
+            fundamental_cached_count=fund_count,
+            chips_cached_count=chips_count,
+            coverage_note=coverage_note,
+        )
 
         return TaiwanScreenerResponse(
             items=items,
@@ -258,6 +336,7 @@ class TaiwanScreenerService:
                 margin_as_of=margin_date,
             ),
             degraded_sections=degraded,
+            coverage_info=coverage_info,
         )
 
     def _get_universe(self, exchange: ExchangeFilter, instrument: InstrumentFilter) -> pl.DataFrame:
@@ -470,6 +549,121 @@ class TaiwanScreenerService:
 
         return df, inst_date, margin_date, degraded
 
+    def _join_cached_fundamentals_chips(
+        self, df: pl.DataFrame, symbols: list[str]
+    ) -> tuple[pl.DataFrame, int, int]:
+        """Join cached fundamental metrics, extra chips, and quant scores safely from local store."""
+        symbols_set = set(symbols)
+        fc_svc = self._get_fundamental_chips_service()
+
+        cached_rev_syms = set(self.cache.list_cached_symbols("TaiwanStockMonthRevenue")) & symbols_set
+        cached_fin_syms = set(self.cache.list_cached_symbols("TaiwanStockFinancialStatements")) & symbols_set
+        cached_val_syms = set(self.cache.list_cached_symbols("TaiwanValuation")) & symbols_set
+        cached_share_syms = set(self.cache.list_cached_symbols("TaiwanStockShareholding")) & symbols_set
+        cached_lend_syms = set(self.cache.list_cached_symbols("TaiwanStockSecuritiesLending")) & symbols_set
+
+        fundamental_symbols = cached_rev_syms | cached_fin_syms | cached_val_syms
+        chips_symbols = cached_share_syms | cached_lend_syms
+
+        # Live Quant scores
+        quant_scores: dict[str, float] = {}
+        try:
+            from app.taiwan.quant.live_store import LiveLedger
+            ledger = LiveLedger()
+            runs = ledger.runs(limit=1)
+            if runs and runs[0] and "snapshot" in runs[0]:
+                signals = runs[0]["snapshot"].get("signals", [])
+                for s in signals:
+                    sym = s.get("symbol")
+                    score = s.get("score")
+                    if sym and score is not None:
+                        quant_scores[str(sym)] = float(score)
+        except Exception as e:
+            logger.debug("Failed to read live quant scores for screener: %s", e)
+
+        pe_map: dict[str, float | None] = {}
+        pb_map: dict[str, float | None] = {}
+        dy_map: dict[str, float | None] = {}
+        rev_yoy_map: dict[str, float | None] = {}
+        rev_mom_map: dict[str, float | None] = {}
+        eps_map: dict[str, float | None] = {}
+        net_inc_map: dict[str, float | None] = {}
+        share_ratio_map: dict[str, float | None] = {}
+        share_chg20_map: dict[str, float | None] = {}
+        lend_anomaly_map: dict[str, str | None] = {}
+
+        for sym in cached_val_syms:
+            cached = self.cache.get("TaiwanValuation", sym)
+            if cached and cached.get("data"):
+                d = cached["data"]
+                pe_map[sym] = parse_number(d.get("pe"))
+                pb_map[sym] = parse_number(d.get("pb"))
+                dy_map[sym] = parse_number(d.get("dividend_yield"))
+
+        for sym in cached_rev_syms:
+            cached = self.cache.get("TaiwanStockMonthRevenue", sym)
+            if cached and cached.get("data"):
+                rev_data = fc_svc._process_month_revenue(
+                    cached["data"], cached.get("data_date"), cached.get("fetched_at", "")
+                )
+                rev_yoy_map[sym] = rev_data.yoy
+                rev_mom_map[sym] = rev_data.mom
+
+        for sym in cached_fin_syms:
+            cached = self.cache.get("TaiwanStockFinancialStatements", sym)
+            if cached and cached.get("data"):
+                fin_data = fc_svc._process_financial_statements(
+                    cached["data"], cached.get("data_date"), cached.get("fetched_at", "")
+                )
+                eps_map[sym] = fin_data.latest_eps
+                net_inc_map[sym] = fin_data.net_income
+
+        for sym in cached_share_syms:
+            cached = self.cache.get("TaiwanStockShareholding", sym)
+            if cached and cached.get("data"):
+                sh_data = fc_svc._process_shareholding(
+                    cached["data"], cached.get("data_date"), cached.get("fetched_at", "")
+                )
+                share_ratio_map[sym] = sh_data.ratio
+                share_chg20_map[sym] = sh_data.change_20d
+
+        for sym in cached_lend_syms:
+            cached = self.cache.get("TaiwanStockSecuritiesLending", sym)
+            if cached and cached.get("data"):
+                sl_data = fc_svc._process_securities_lending(
+                    cached["data"], cached.get("data_date"), cached.get("fetched_at", "")
+                )
+                lend_anomaly_map[sym] = sl_data.anomaly_status
+
+        df_symbols = df["symbol"].to_list()
+        pes = [pe_map.get(s) for s in df_symbols]
+        pbs = [pb_map.get(s) for s in df_symbols]
+        dys = [dy_map.get(s) for s in df_symbols]
+        rev_yoys = [rev_yoy_map.get(s) for s in df_symbols]
+        rev_moms = [rev_mom_map.get(s) for s in df_symbols]
+        epss = [eps_map.get(s) for s in df_symbols]
+        net_incs = [net_inc_map.get(s) for s in df_symbols]
+        share_ratios = [share_ratio_map.get(s) for s in df_symbols]
+        share_chg20s = [share_chg20_map.get(s) for s in df_symbols]
+        lend_anomalies = [lend_anomaly_map.get(s) for s in df_symbols]
+        q_scores = [quant_scores.get(s) for s in df_symbols]
+
+        df = df.with_columns([
+            pl.Series("pe", pes, dtype=pl.Float64),
+            pl.Series("pb", pbs, dtype=pl.Float64),
+            pl.Series("dividend_yield", dys, dtype=pl.Float64),
+            pl.Series("revenue_yoy", rev_yoys, dtype=pl.Float64),
+            pl.Series("revenue_mom", rev_moms, dtype=pl.Float64),
+            pl.Series("latest_eps", epss, dtype=pl.Float64),
+            pl.Series("net_income", net_incs, dtype=pl.Float64),
+            pl.Series("foreign_shareholding_ratio", share_ratios, dtype=pl.Float64),
+            pl.Series("foreign_shareholding_change_20d", share_chg20s, dtype=pl.Float64),
+            pl.Series("securities_lending_anomaly", lend_anomalies, dtype=pl.String),
+            pl.Series("quant_score", q_scores, dtype=pl.Float64),
+        ])
+
+        return df, len(fundamental_symbols), len(chips_symbols)
+
     def _apply_filters(self, df: pl.DataFrame, req: TaiwanScreenerRequest) -> pl.DataFrame:
         """Apply strongly typed whitelist filters."""
         # Industry
@@ -565,6 +759,44 @@ class TaiwanScreenerService:
         if req.short_margin_ratio_max is not None:
             df = df.filter(pl.col("short_margin_ratio") <= req.short_margin_ratio_max)
 
+        # Valuation
+        if req.pe_min is not None:
+            df = df.filter(pl.col("pe") >= req.pe_min)
+        if req.pe_max is not None:
+            df = df.filter(pl.col("pe") <= req.pe_max)
+        if req.pb_min is not None:
+            df = df.filter(pl.col("pb") >= req.pb_min)
+        if req.pb_max is not None:
+            df = df.filter(pl.col("pb") <= req.pb_max)
+        if req.dividend_yield_min is not None:
+            df = df.filter(pl.col("dividend_yield") >= req.dividend_yield_min)
+
+        # Revenue
+        if req.revenue_yoy_min is not None:
+            df = df.filter(pl.col("revenue_yoy") >= req.revenue_yoy_min)
+        if req.revenue_mom_min is not None:
+            df = df.filter(pl.col("revenue_mom") >= req.revenue_mom_min)
+
+        # Profitability
+        if req.eps_min is not None:
+            df = df.filter(pl.col("latest_eps") >= req.eps_min)
+        if req.net_income_positive is True:
+            df = df.filter(pl.col("net_income") > 0)
+        elif req.net_income_positive is False:
+            df = df.filter(pl.col("net_income") <= 0)
+
+        # Chips
+        if req.foreign_shareholding_ratio_min is not None:
+            df = df.filter(pl.col("foreign_shareholding_ratio") >= req.foreign_shareholding_ratio_min)
+        if req.foreign_shareholding_change_20d_min is not None:
+            df = df.filter(pl.col("foreign_shareholding_change_20d") >= req.foreign_shareholding_change_20d_min)
+        if req.securities_lending_anomaly_exclude is True:
+            df = df.filter(pl.col("securities_lending_anomaly") != "surge")
+
+        # Quant Score
+        if req.quant_score_min is not None:
+            df = df.filter(pl.col("quant_score") >= req.quant_score_min)
+
         return df
 
     def _apply_sort(self, df: pl.DataFrame, sort_by: str, sort_order: str) -> pl.DataFrame:
@@ -578,9 +810,78 @@ class TaiwanScreenerService:
             return df.sort("symbol", descending=descending)
         return df.sort([sort_by, "symbol"], descending=[descending, False])
 
-    def _build_items(self, df: pl.DataFrame) -> list[ScreenerResultItem]:
+    def _build_items(
+        self, df: pl.DataFrame, req: TaiwanScreenerRequest | None = None
+    ) -> list[ScreenerResultItem]:
         items = []
         for r in df.iter_rows(named=True):
+            reasons: list[str] = []
+            if req:
+                # Revenue
+                rev_yoy = r.get("revenue_yoy")
+                if req.revenue_yoy_min is not None and rev_yoy is not None:
+                    reasons.append(f"營收年增 {rev_yoy:+.1f}%")
+                rev_mom = r.get("revenue_mom")
+                if req.revenue_mom_min is not None and rev_mom is not None:
+                    reasons.append(f"營收月增 {rev_mom:+.1f}%")
+
+                # Profitability
+                eps = r.get("latest_eps")
+                if req.eps_min is not None and eps is not None:
+                    reasons.append(f"最新季 EPS {eps:.2f}元")
+                if req.net_income_positive is True and r.get("net_income") is not None and r["net_income"] > 0:
+                    reasons.append("稅後淨利為正")
+
+                # Valuation
+                pe = r.get("pe")
+                if req.pe_max is not None and pe is not None:
+                    reasons.append(f"本益比 {pe:.1f}倍")
+                dy = r.get("dividend_yield")
+                if req.dividend_yield_min is not None and dy is not None:
+                    reasons.append(f"殖利率 {dy:.2f}%")
+                pb = r.get("pb")
+                if req.pb_max is not None and pb is not None:
+                    reasons.append(f"股價淨值比 {pb:.2f}倍")
+
+                # Chips
+                f_ratio = r.get("foreign_shareholding_ratio")
+                if req.foreign_shareholding_ratio_min is not None and f_ratio is not None:
+                    reasons.append(f"外資持股 {f_ratio:.1f}%")
+                f_chg20 = r.get("foreign_shareholding_change_20d")
+                if req.foreign_shareholding_change_20d_min is not None and f_chg20 is not None:
+                    reasons.append(f"外資持股20日變動 {f_chg20:+.2f}%")
+                if req.securities_lending_anomaly_exclude is True:
+                    sl_anomaly = r.get("securities_lending_anomaly")
+                    if sl_anomaly and sl_anomaly != "surge":
+                        reasons.append("借券無異常暴增")
+
+                # Quant Score
+                q_score = r.get("quant_score")
+                if req.quant_score_min is not None and q_score is not None:
+                    reasons.append(f"Quant 評分 {q_score:.1f}")
+
+                # Institutional
+                f_net = r.get("foreign_net")
+                if req.foreign_net_min is not None and f_net is not None:
+                    reasons.append(f"外資買超 {int(f_net):,}股")
+                it_net = r.get("investment_trust_net")
+                if req.investment_trust_net_min is not None and it_net is not None:
+                    reasons.append(f"投信買超 {int(it_net):,}股")
+
+                # Technical & Price Limits
+                if req.above_ma5 is True:
+                    reasons.append("突破5日線")
+                if req.above_ma20 is True:
+                    reasons.append("站上月線 (MA20)")
+                if req.near_upper_limit is True:
+                    dist = r.get("distance_to_upper_limit")
+                    if dist is not None:
+                        reasons.append(f"接近漲停 (距 {dist * 100:.1f}%)")
+                if req.rsi_14_min is not None and r.get("rsi_14") is not None:
+                    reasons.append(f"RSI(14) {r['rsi_14']:.1f}")
+                if req.momentum_5d_min is not None and r.get("momentum_5d") is not None:
+                    reasons.append(f"5日動能 {r['momentum_5d'] * 100:+.1f}%")
+
             items.append(ScreenerResultItem(
                 symbol=r["symbol"],
                 name=r.get("name") or r["symbol"],
@@ -617,8 +918,20 @@ class TaiwanScreenerService:
                 short_margin_ratio=r.get("short_margin_ratio"),
                 margin_date=r.get("margin_date"),
                 margin_status=r.get("margin_status") or "unavailable",
+                pe=r.get("pe"),
+                pb=r.get("pb"),
+                dividend_yield=r.get("dividend_yield"),
+                revenue_yoy=r.get("revenue_yoy"),
+                revenue_mom=r.get("revenue_mom"),
+                latest_eps=r.get("latest_eps"),
+                foreign_shareholding_ratio=r.get("foreign_shareholding_ratio"),
+                foreign_shareholding_change_20d=r.get("foreign_shareholding_change_20d"),
+                securities_lending_anomaly=r.get("securities_lending_anomaly"),
+                quant_score=r.get("quant_score"),
+                match_reasons=reasons,
             ))
         return items
+
 
     def _add_null_cols(self, df: pl.DataFrame, cols: list[str]) -> pl.DataFrame:
         for c in cols:

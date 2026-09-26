@@ -25,13 +25,19 @@ import {
   Scale,
   RadioTower,
   ChevronDown,
+  Bookmark,
+  Save,
+  Trash2,
+  Plus,
 } from 'lucide-react'
 import {
   api,
   type TaiwanScreenerRequest,
   type ScreenerResultItem,
   type TaiwanScreenerTranslation,
+  type TaiwanScreenerStrategy,
 } from '@/lib/api'
+
 import { QK } from '@/lib/queryKeys'
 import { WatchlistAddMenu } from '@/components/WatchlistAddMenu'
 import { TaiwanRuleEditorDialog } from '@/components/monitor/TaiwanRuleEditorDialog'
@@ -96,6 +102,155 @@ export function TaiwanScreener() {
   const [shortBalanceMinLots, setShortBalanceMinLots] = useState<string>('')
   const [shortMarginRatioMin, setShortMarginRatioMin] = useState<string>('')
 
+  // Fundamental & valuation filters (A10)
+  const [peMin, setPeMin] = useState<string>('')
+  const [peMax, setPeMax] = useState<string>('')
+  const [pbMin, setPbMin] = useState<string>('')
+  const [pbMax, setPbMax] = useState<string>('')
+  const [dividendYieldMin, setDividendYieldMin] = useState<string>('')
+  const [revenueYoyMin, setRevenueYoyMin] = useState<string>('')
+  const [revenueMomMin, setRevenueMomMin] = useState<string>('')
+  const [epsMin, setEpsMin] = useState<string>('')
+  const [netIncomePositive, setNetIncomePositive] = useState<boolean | null>(null)
+
+  // Extra Chips & Quant filters (A10)
+  const [foreignShareholdingRatioMin, setForeignShareholdingRatioMin] = useState<string>('')
+  const [foreignShareholdingChange20dMin, setForeignShareholdingChange20dMin] = useState<string>('')
+  const [securitiesLendingAnomalyExclude, setSecuritiesLendingAnomalyExclude] = useState<boolean>(false)
+  const [quantScoreMin, setQuantScoreMin] = useState<string>('')
+
+  // Strategy management states (A10)
+  const [selectedStrategyId, setSelectedStrategyId] = useState<string>('')
+  const [showSaveModal, setShowSaveModal] = useState<boolean>(false)
+  const [newStrategyName, setNewStrategyName] = useState<string>('')
+  const [newStrategyDesc, setNewStrategyDesc] = useState<string>('')
+
+  // Strategies query & mutations
+  const strategiesQuery = useQuery({
+    queryKey: ['taiwanScreenerStrategies'],
+    queryFn: () => api.taiwanScreenerListStrategies(),
+  })
+
+  const activeStrategy = useMemo<TaiwanScreenerStrategy | undefined>(() => {
+    return (strategiesQuery.data || []).find(s => s.id === selectedStrategyId)
+  }, [strategiesQuery.data, selectedStrategyId])
+
+  const createStrategyMutation = useMutation({
+    mutationFn: (data: { name: string; conditions: Record<string, unknown>; description?: string }) =>
+      api.taiwanScreenerCreateStrategy(data),
+    onSuccess: (newStrat) => {
+      qc.invalidateQueries({ queryKey: ['taiwanScreenerStrategies'] })
+      setSelectedStrategyId(newStrat.id)
+      setShowSaveModal(false)
+      setNewStrategyName('')
+      setNewStrategyDesc('')
+    },
+  })
+
+  const updateStrategyMutation = useMutation({
+    mutationFn: ({ id, data }: { id: string; data: { name: string; conditions: Record<string, unknown>; description?: string } }) =>
+      api.taiwanScreenerUpdateStrategy(id, data),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['taiwanScreenerStrategies'] })
+    },
+  })
+
+  const deleteStrategyMutation = useMutation({
+    mutationFn: (id: string) => api.taiwanScreenerDeleteStrategy(id),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['taiwanScreenerStrategies'] })
+      setSelectedStrategyId('')
+    },
+  })
+
+  const getCurrentConditions = () => {
+    const cond: Record<string, unknown> = {}
+    if (exchange !== 'ALL') cond.exchange = exchange
+    if (instrument !== 'ALL') cond.instrument = instrument
+    if (industry !== 'ALL') cond.industry = industry
+    if (priceMin) cond.price_min = parseFloat(priceMin)
+    if (priceMax) cond.price_max = parseFloat(priceMax)
+    if (changePctMin) cond.change_pct_min = parseFloat(changePctMin) / 100.0
+    if (changePctMax) cond.change_pct_max = parseFloat(changePctMax) / 100.0
+    if (volumeMinLots) cond.volume_min = parseFloat(volumeMinLots) * 1000.0
+    if (amountMinMln) cond.amount_min = parseFloat(amountMinMln) * 1_000_000.0
+    if (rsiMin) cond.rsi_14_min = parseFloat(rsiMin)
+    if (rsiMax) cond.rsi_14_max = parseFloat(rsiMax)
+    if (momentumMin) cond.momentum_5d_min = parseFloat(momentumMin) / 100.0
+    if (volRatioMin) cond.vol_ratio_5d_min = parseFloat(volRatioMin)
+    if (aboveMa5 !== null) cond.above_ma5 = aboveMa5
+    if (aboveMa20 !== null) cond.above_ma20 = aboveMa20
+    if (nearUpperLimit) cond.near_upper_limit = true
+    if (nearLowerLimit) cond.near_lower_limit = true
+    if (foreignNetMinLots) cond.foreign_net_min = parseFloat(foreignNetMinLots) * 1000.0
+    if (foreignNetMaxLots) cond.foreign_net_max = parseFloat(foreignNetMaxLots) * 1000.0
+    if (investmentTrustNetMinLots) cond.investment_trust_net_min = parseFloat(investmentTrustNetMinLots) * 1000.0
+    if (dealerNetMinLots) cond.dealer_net_min = parseFloat(dealerNetMinLots) * 1000.0
+    if (marginBalanceChangeMinLots) cond.margin_balance_change_min = parseFloat(marginBalanceChangeMinLots) * 1000.0
+    if (shortBalanceMinLots) cond.short_balance_min = parseFloat(shortBalanceMinLots) * 1000.0
+    if (shortMarginRatioMin) cond.short_margin_ratio_min = parseFloat(shortMarginRatioMin)
+    if (peMin) cond.pe_min = parseFloat(peMin)
+    if (peMax) cond.pe_max = parseFloat(peMax)
+    if (pbMin) cond.pb_min = parseFloat(pbMin)
+    if (pbMax) cond.pb_max = parseFloat(pbMax)
+    if (dividendYieldMin) cond.dividend_yield_min = parseFloat(dividendYieldMin)
+    if (revenueYoyMin) cond.revenue_yoy_min = parseFloat(revenueYoyMin)
+    if (revenueMomMin) cond.revenue_mom_min = parseFloat(revenueMomMin)
+    if (epsMin) cond.eps_min = parseFloat(epsMin)
+    if (netIncomePositive !== null) cond.net_income_positive = netIncomePositive
+    if (foreignShareholdingRatioMin) cond.foreign_shareholding_ratio_min = parseFloat(foreignShareholdingRatioMin)
+    if (foreignShareholdingChange20dMin) cond.foreign_shareholding_change_20d_min = parseFloat(foreignShareholdingChange20dMin)
+    if (securitiesLendingAnomalyExclude) cond.securities_lending_anomaly_exclude = true
+    if (quantScoreMin) cond.quant_score_min = parseFloat(quantScoreMin)
+    return cond
+  }
+
+  const handleSelectStrategy = (stratId: string) => {
+    setSelectedStrategyId(stratId)
+    if (!stratId) return
+    const strat = (strategiesQuery.data || []).find(s => s.id === stratId)
+    if (!strat) return
+    const c = strat.conditions as Record<string, any>
+    setExchange(c.exchange || 'ALL')
+    setInstrument(c.instrument || 'ALL')
+    setIndustry(c.industry || 'ALL')
+    setPriceMin(c.price_min != null ? String(c.price_min) : '')
+    setPriceMax(c.price_max != null ? String(c.price_max) : '')
+    setChangePctMin(c.change_pct_min != null ? String(c.change_pct_min * 100) : '')
+    setChangePctMax(c.change_pct_max != null ? String(c.change_pct_max * 100) : '')
+    setVolumeMinLots(c.volume_min != null ? String(c.volume_min / 1000) : '')
+    setAmountMinMln(c.amount_min != null ? String(c.amount_min / 1_000_000) : '')
+    setRsiMin(c.rsi_14_min != null ? String(c.rsi_14_min) : '')
+    setRsiMax(c.rsi_14_max != null ? String(c.rsi_14_max) : '')
+    setMomentumMin(c.momentum_5d_min != null ? String(c.momentum_5d_min * 100) : '')
+    setVolRatioMin(c.vol_ratio_5d_min != null ? String(c.vol_ratio_5d_min) : '')
+    setAboveMa5(c.above_ma5 !== undefined ? c.above_ma5 : null)
+    setAboveMa20(c.above_ma20 !== undefined ? c.above_ma20 : null)
+    setNearUpperLimit(Boolean(c.near_upper_limit))
+    setNearLowerLimit(Boolean(c.near_lower_limit))
+    setForeignNetMinLots(c.foreign_net_min != null ? String(c.foreign_net_min / 1000) : '')
+    setForeignNetMaxLots(c.foreign_net_max != null ? String(c.foreign_net_max / 1000) : '')
+    setInvestmentTrustNetMinLots(c.investment_trust_net_min != null ? String(c.investment_trust_net_min / 1000) : '')
+    setDealerNetMinLots(c.dealer_net_min != null ? String(c.dealer_net_min / 1000) : '')
+    setMarginBalanceChangeMinLots(c.margin_balance_change_min != null ? String(c.margin_balance_change_min / 1000) : '')
+    setShortBalanceMinLots(c.short_balance_min != null ? String(c.short_balance_min / 1000) : '')
+    setShortMarginRatioMin(c.short_margin_ratio_min != null ? String(c.short_margin_ratio_min) : '')
+    setPeMin(c.pe_min != null ? String(c.pe_min) : '')
+    setPeMax(c.pe_max != null ? String(c.pe_max) : '')
+    setPbMin(c.pb_min != null ? String(c.pb_min) : '')
+    setPbMax(c.pb_max != null ? String(c.pb_max) : '')
+    setDividendYieldMin(c.dividend_yield_min != null ? String(c.dividend_yield_min) : '')
+    setRevenueYoyMin(c.revenue_yoy_min != null ? String(c.revenue_yoy_min) : '')
+    setRevenueMomMin(c.revenue_mom_min != null ? String(c.revenue_mom_min) : '')
+    setEpsMin(c.eps_min != null ? String(c.eps_min) : '')
+    setNetIncomePositive(c.net_income_positive !== undefined ? c.net_income_positive : null)
+    setForeignShareholdingRatioMin(c.foreign_shareholding_ratio_min != null ? String(c.foreign_shareholding_ratio_min) : '')
+    setForeignShareholdingChange20dMin(c.foreign_shareholding_change_20d_min != null ? String(c.foreign_shareholding_change_20d_min) : '')
+    setSecuritiesLendingAnomalyExclude(Boolean(c.securities_lending_anomaly_exclude))
+    setQuantScoreMin(c.quant_score_min != null ? String(c.quant_score_min) : '')
+    setPage(1)
+  }
+
   // Phase 8C-C: 進階條件預設收合, 只在使用者展開後才顯示技術面/法人/籌碼與融資券
   const [showAdvanced, setShowAdvanced] = useState(false)
   // Phase 8C-C: 結果表格預設只顯示常用欄位, 其餘技術/法人細項欄位收進「更多欄位」
@@ -106,6 +261,7 @@ export function TaiwanScreener() {
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('asc')
   const [page, setPage] = useState<number>(1)
   const pageSize = 50
+
 
   // Natural-Language Translation State (Phase 6D)
   const [nlQuery, setNlQuery] = useState<string>('')
@@ -154,6 +310,19 @@ export function TaiwanScreener() {
     if (req.margin_balance_change_min !== undefined) setMarginBalanceChangeMinLots(req.margin_balance_change_min !== null ? String(req.margin_balance_change_min / 1000) : '')
     if (req.short_balance_min !== undefined) setShortBalanceMinLots(req.short_balance_min !== null ? String(req.short_balance_min / 1000) : '')
     if (req.short_margin_ratio_min !== undefined) setShortMarginRatioMin(req.short_margin_ratio_min !== null ? String(req.short_margin_ratio_min) : '')
+    if (req.pe_min !== undefined) setPeMin(req.pe_min !== null ? String(req.pe_min) : '')
+    if (req.pe_max !== undefined) setPeMax(req.pe_max !== null ? String(req.pe_max) : '')
+    if (req.pb_min !== undefined) setPbMin(req.pb_min !== null ? String(req.pb_min) : '')
+    if (req.pb_max !== undefined) setPbMax(req.pb_max !== null ? String(req.pb_max) : '')
+    if (req.dividend_yield_min !== undefined) setDividendYieldMin(req.dividend_yield_min !== null ? String(req.dividend_yield_min) : '')
+    if (req.revenue_yoy_min !== undefined) setRevenueYoyMin(req.revenue_yoy_min !== null ? String(req.revenue_yoy_min) : '')
+    if (req.revenue_mom_min !== undefined) setRevenueMomMin(req.revenue_mom_min !== null ? String(req.revenue_mom_min) : '')
+    if (req.eps_min !== undefined) setEpsMin(req.eps_min !== null ? String(req.eps_min) : '')
+    if (req.net_income_positive !== undefined) setNetIncomePositive(req.net_income_positive)
+    if (req.foreign_shareholding_ratio_min !== undefined) setForeignShareholdingRatioMin(req.foreign_shareholding_ratio_min !== null ? String(req.foreign_shareholding_ratio_min) : '')
+    if (req.foreign_shareholding_change_20d_min !== undefined) setForeignShareholdingChange20dMin(req.foreign_shareholding_change_20d_min !== null ? String(req.foreign_shareholding_change_20d_min) : '')
+    if (req.securities_lending_anomaly_exclude !== undefined) setSecuritiesLendingAnomalyExclude(Boolean(req.securities_lending_anomaly_exclude))
+    if (req.quant_score_min !== undefined) setQuantScoreMin(req.quant_score_min !== null ? String(req.quant_score_min) : '')
     setPage(1)
     setNlTranslation(null)
   }
@@ -183,6 +352,21 @@ export function TaiwanScreener() {
     setMarginBalanceChangeMinLots('')
     setShortBalanceMinLots('')
     setShortMarginRatioMin('')
+    // A10
+    setPeMin('')
+    setPeMax('')
+    setPbMin('')
+    setPbMax('')
+    setDividendYieldMin('')
+    setRevenueYoyMin('')
+    setRevenueMomMin('')
+    setEpsMin('')
+    setNetIncomePositive(null)
+    setForeignShareholdingRatioMin('')
+    setForeignShareholdingChange20dMin('')
+    setSecuritiesLendingAnomalyExclude(false)
+    setQuantScoreMin('')
+    setSelectedStrategyId('')
     setSortBy('symbol')
     setSortOrder('asc')
     setPage(1)
@@ -219,6 +403,21 @@ export function TaiwanScreener() {
       margin_balance_change_min: marginBalanceChangeMinLots ? parseFloat(marginBalanceChangeMinLots) * 1000.0 : null,
       short_balance_min: shortBalanceMinLots ? parseFloat(shortBalanceMinLots) * 1000.0 : null,
       short_margin_ratio_min: shortMarginRatioMin ? parseFloat(shortMarginRatioMin) : null,
+      // Fundamental & Valuation (A10)
+      pe_min: peMin ? parseFloat(peMin) : null,
+      pe_max: peMax ? parseFloat(peMax) : null,
+      pb_min: pbMin ? parseFloat(pbMin) : null,
+      pb_max: pbMax ? parseFloat(pbMax) : null,
+      dividend_yield_min: dividendYieldMin ? parseFloat(dividendYieldMin) : null,
+      revenue_yoy_min: revenueYoyMin ? parseFloat(revenueYoyMin) : null,
+      revenue_mom_min: revenueMomMin ? parseFloat(revenueMomMin) : null,
+      eps_min: epsMin ? parseFloat(epsMin) : null,
+      net_income_positive: netIncomePositive,
+      // Extra Chips & Quant (A10)
+      foreign_shareholding_ratio_min: foreignShareholdingRatioMin ? parseFloat(foreignShareholdingRatioMin) : null,
+      foreign_shareholding_change_20d_min: foreignShareholdingChange20dMin ? parseFloat(foreignShareholdingChange20dMin) : null,
+      securities_lending_anomaly_exclude: securitiesLendingAnomalyExclude || null,
+      quant_score_min: quantScoreMin ? parseFloat(quantScoreMin) : null,
       sort_by: sortBy,
       sort_order: sortOrder,
       page,
@@ -231,6 +430,8 @@ export function TaiwanScreener() {
     aboveMa5, aboveMa20, nearUpperLimit, nearLowerLimit,
     foreignNetMinLots, foreignNetMaxLots, investmentTrustNetMinLots, dealerNetMinLots,
     marginBalanceChangeMinLots, shortBalanceMinLots, shortMarginRatioMin,
+    peMin, peMax, pbMin, pbMax, dividendYieldMin, revenueYoyMin, revenueMomMin, epsMin, netIncomePositive,
+    foreignShareholdingRatioMin, foreignShareholdingChange20dMin, securitiesLendingAnomalyExclude, quantScoreMin,
     sortBy, sortOrder, page,
   ])
 
@@ -281,9 +482,8 @@ export function TaiwanScreener() {
   })
 
   const totalPages = data ? Math.ceil(data.total / data.page_size) : 1
-  // Phase 8C-C: 結果表格預設 8 個資料欄 + 操作欄 = 9; 展開「更多欄位」後為
-  // 完整 17 個資料欄 + 操作欄 = 18 (與 loading/error/empty 列的 colSpan 對齊)。
-  const resultColSpan = showMoreColumns ? 18 : 9
+  // 結果表格預設 9 個資料欄 + 操作欄 = 10; 展開「更多欄位」後為完整 22 個資料欄 + 操作欄 = 23。
+  const resultColSpan = showMoreColumns ? 23 : 10
 
   const handleSort = (col: string) => {
     if (sortBy === col) {
@@ -1044,6 +1244,95 @@ export function TaiwanScreener() {
         )}
       </div>
 
+      {/* Strategy Management Toolbar (A10) */}
+      <div className="bg-zinc-900/80 border border-zinc-800/90 rounded-xl p-4 flex flex-col md:flex-row md:items-center justify-between gap-3">
+        <div className="flex flex-wrap items-center gap-2">
+          <Bookmark className="w-4 h-4 text-purple-400 shrink-0" />
+          <span className="text-xs font-semibold text-zinc-200">選股策略範本</span>
+          <select
+            value={selectedStrategyId}
+            onChange={e => handleSelectStrategy(e.target.value)}
+            className="bg-zinc-950 border border-zinc-800 rounded-lg px-2.5 py-1.5 text-xs text-zinc-200 focus:outline-none focus:border-purple-500 max-w-xs"
+          >
+            <option value="">選擇策略範本或自訂策略...</option>
+            <optgroup label="內建精選策略">
+              {(strategiesQuery.data || []).filter(s => s.is_preset).map(s => (
+                <option key={s.id} value={s.id}>
+                  ⭐ {s.name}
+                </option>
+              ))}
+            </optgroup>
+            {(strategiesQuery.data || []).some(s => !s.is_preset) && (
+              <optgroup label="我的自訂策略">
+                {(strategiesQuery.data || []).filter(s => !s.is_preset).map(s => (
+                  <option key={s.id} value={s.id}>
+                    📁 {s.name}
+                  </option>
+                ))}
+              </optgroup>
+            )}
+          </select>
+
+          {activeStrategy && activeStrategy.description && (
+            <span className="text-[11px] text-zinc-400 hidden lg:inline max-w-sm truncate" title={activeStrategy.description}>
+              {activeStrategy.description}
+            </span>
+          )}
+        </div>
+
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => setShowSaveModal(true)}
+            className="inline-flex items-center gap-1 px-3 py-1.5 bg-purple-600/90 hover:bg-purple-600 text-white rounded-lg text-xs font-medium transition-colors shadow-sm"
+          >
+            <Plus className="w-3.5 h-3.5" />
+            另存為自訂策略
+          </button>
+
+          {activeStrategy && !activeStrategy.is_preset && (
+            <>
+              <button
+                type="button"
+                onClick={() => {
+                  if (window.confirm(`確定要將目前篩選條件覆蓋至「${activeStrategy.name}」嗎？`)) {
+                    updateStrategyMutation.mutate({
+                      id: activeStrategy.id,
+                      data: {
+                        name: activeStrategy.name,
+                        conditions: getCurrentConditions(),
+                        description: activeStrategy.description || undefined,
+                      },
+                    })
+                  }
+                }}
+                disabled={updateStrategyMutation.isPending}
+                className="inline-flex items-center gap-1 px-2.5 py-1.5 bg-zinc-800 hover:bg-zinc-700 text-zinc-200 rounded-lg text-xs font-medium transition-colors"
+                title="覆蓋儲存目前策略條件"
+              >
+                <Save className="w-3.5 h-3.5" />
+                覆蓋儲存
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  if (window.confirm(`確定要刪除自訂策略「${activeStrategy.name}」嗎？`)) {
+                    deleteStrategyMutation.mutate(activeStrategy.id)
+                  }
+                }}
+                disabled={deleteStrategyMutation.isPending}
+                className="inline-flex items-center gap-1 px-2.5 py-1.5 bg-red-950/40 hover:bg-red-900/60 border border-red-900/60 text-red-300 rounded-lg text-xs font-medium transition-colors"
+                title="刪除此自訂策略"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+                刪除
+              </button>
+            </>
+          )}
+        </div>
+      </div>
+
       {/* Quick Presets — Phase 8C-C: 少量真正有語意的常用篩選, 只組合現有 filter
           capability, 點擊直接更新既有 filter state (非第二套 screener 邏輯);
           再次點擊已套用的 preset 會清除該 preset 設定的欄位。 */}
@@ -1373,6 +1662,163 @@ export function TaiwanScreener() {
                 </div>
               </div>
             </div>
+
+            {/* 基本面與估值指標 (A10) */}
+            <div>
+              <h3 className="text-[11px] font-semibold text-zinc-500 uppercase tracking-wide mb-2">基本面與估值指標</h3>
+              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
+                <div>
+                  <label className="text-xs font-semibold text-zinc-400 block mb-1.5">本益比 (PE) 區間</label>
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="number"
+                      placeholder="最低 PE"
+                      value={peMin}
+                      onChange={e => { setPeMin(e.target.value); setPage(1) }}
+                      className="w-full bg-zinc-800 border border-zinc-700 rounded-md px-2.5 py-1.5 text-xs text-zinc-200 focus:outline-none focus:border-purple-500"
+                    />
+                    <span className="text-zinc-500">~</span>
+                    <input
+                      type="number"
+                      placeholder="最高 PE"
+                      value={peMax}
+                      onChange={e => { setPeMax(e.target.value); setPage(1) }}
+                      className="w-full bg-zinc-800 border border-zinc-700 rounded-md px-2.5 py-1.5 text-xs text-zinc-200 focus:outline-none focus:border-purple-500"
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="text-xs font-semibold text-zinc-400 block mb-1.5">股價淨值比 (PB) 區間</label>
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="number"
+                      placeholder="最低 PB"
+                      value={pbMin}
+                      onChange={e => { setPbMin(e.target.value); setPage(1) }}
+                      className="w-full bg-zinc-800 border border-zinc-700 rounded-md px-2.5 py-1.5 text-xs text-zinc-200 focus:outline-none focus:border-purple-500"
+                    />
+                    <span className="text-zinc-500">~</span>
+                    <input
+                      type="number"
+                      placeholder="最高 PB"
+                      value={pbMax}
+                      onChange={e => { setPbMax(e.target.value); setPage(1) }}
+                      className="w-full bg-zinc-800 border border-zinc-700 rounded-md px-2.5 py-1.5 text-xs text-zinc-200 focus:outline-none focus:border-purple-500"
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="text-xs font-semibold text-zinc-400 block mb-1.5">殖利率最低 (%)</label>
+                  <input
+                    type="number"
+                    placeholder="例: 4 (%)"
+                    value={dividendYieldMin}
+                    onChange={e => { setDividendYieldMin(e.target.value); setPage(1) }}
+                    className="w-full bg-zinc-800 border border-zinc-700 rounded-md px-2.5 py-1.5 text-xs text-zinc-200 focus:outline-none focus:border-purple-500"
+                  />
+                </div>
+
+                <div>
+                  <label className="text-xs font-semibold text-zinc-400 block mb-1.5">月營收成長率 (%)</label>
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="number"
+                      placeholder="YoY 最低 %"
+                      value={revenueYoyMin}
+                      onChange={e => { setRevenueYoyMin(e.target.value); setPage(1) }}
+                      className="w-full bg-zinc-800 border border-zinc-700 rounded-md px-2.5 py-1.5 text-xs text-zinc-200 focus:outline-none focus:border-purple-500"
+                    />
+                    <input
+                      type="number"
+                      placeholder="MoM 最低 %"
+                      value={revenueMomMin}
+                      onChange={e => { setRevenueMomMin(e.target.value); setPage(1) }}
+                      className="w-full bg-zinc-800 border border-zinc-700 rounded-md px-2.5 py-1.5 text-xs text-zinc-200 focus:outline-none focus:border-purple-500"
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="text-xs font-semibold text-zinc-400 block mb-1.5">近一季 EPS 最低 (元)</label>
+                  <input
+                    type="number"
+                    placeholder="例: 0.5 (元)"
+                    value={epsMin}
+                    onChange={e => { setEpsMin(e.target.value); setPage(1) }}
+                    className="w-full bg-zinc-800 border border-zinc-700 rounded-md px-2.5 py-1.5 text-xs text-zinc-200 focus:outline-none focus:border-purple-500"
+                  />
+                </div>
+
+                <div className="flex items-end">
+                  <button
+                    type="button"
+                    onClick={() => { setNetIncomePositive(prev => (prev === true ? null : true)); setPage(1) }}
+                    className={`w-full py-1.5 px-3 text-xs font-medium rounded-md border transition-all ${
+                      netIncomePositive === true
+                        ? 'bg-purple-600 border-purple-500 text-white'
+                        : 'bg-zinc-800/80 border-zinc-700 text-zinc-300 hover:bg-zinc-700'
+                    }`}
+                  >
+                    單季稅後淨利為正 (排除虧損)
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            {/* 進階籌碼與量化指標 (A10) */}
+            <div>
+              <h3 className="text-[11px] font-semibold text-zinc-500 uppercase tracking-wide mb-2">進階籌碼與量化多因子</h3>
+              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
+                <div>
+                  <label className="text-xs font-semibold text-zinc-400 block mb-1.5">外資持股比率最低 (%)</label>
+                  <input
+                    type="number"
+                    placeholder="例: 15 (%)"
+                    value={foreignShareholdingRatioMin}
+                    onChange={e => { setForeignShareholdingRatioMin(e.target.value); setPage(1) }}
+                    className="w-full bg-zinc-800 border border-zinc-700 rounded-md px-2.5 py-1.5 text-xs text-zinc-200 focus:outline-none focus:border-purple-500"
+                  />
+                </div>
+
+                <div>
+                  <label className="text-xs font-semibold text-zinc-400 block mb-1.5">外資20日持股增減 (%p)</label>
+                  <input
+                    type="number"
+                    placeholder="例: 1.5 (%p)"
+                    value={foreignShareholdingChange20dMin}
+                    onChange={e => { setForeignShareholdingChange20dMin(e.target.value); setPage(1) }}
+                    className="w-full bg-zinc-800 border border-zinc-700 rounded-md px-2.5 py-1.5 text-xs text-zinc-200 focus:outline-none focus:border-purple-500"
+                  />
+                </div>
+
+                <div className="flex items-end">
+                  <button
+                    type="button"
+                    onClick={() => { setSecuritiesLendingAnomalyExclude(prev => !prev); setPage(1) }}
+                    className={`w-full py-1.5 px-3 text-xs font-medium rounded-md border transition-all ${
+                      securitiesLendingAnomalyExclude
+                        ? 'bg-purple-600 border-purple-500 text-white'
+                        : 'bg-zinc-800/80 border-zinc-700 text-zinc-300 hover:bg-zinc-700'
+                    }`}
+                  >
+                    排除借券賣出暴增異常
+                  </button>
+                </div>
+
+                <div>
+                  <label className="text-xs font-semibold text-zinc-400 block mb-1.5">Quant 多因子評分最低 (0~100)</label>
+                  <input
+                    type="number"
+                    placeholder="例: 60"
+                    value={quantScoreMin}
+                    onChange={e => { setQuantScoreMin(e.target.value); setPage(1) }}
+                    className="w-full bg-zinc-800 border border-zinc-700 rounded-md px-2.5 py-1.5 text-xs text-zinc-200 focus:outline-none focus:border-purple-500"
+                  />
+                </div>
+              </div>
+            </div>
           </div>
         )}
 
@@ -1386,6 +1832,28 @@ export function TaiwanScreener() {
           </button>
         </div>
       </div>
+
+      {/* Coverage Info Banner (A10) */}
+      {data?.coverage_info && (
+        <div className="bg-purple-950/30 border border-purple-900/50 rounded-xl p-3.5 text-xs flex flex-col md:flex-row md:items-center justify-between gap-3 text-zinc-300">
+          <div className="flex items-center gap-2.5">
+            <div className="p-1.5 rounded-lg bg-purple-500/10 text-purple-400">
+              <Database className="w-4 h-4" />
+            </div>
+            <div>
+              <div className="font-semibold text-zinc-200">
+                全市場選股覆蓋說明
+              </div>
+              <p className="text-[11px] text-zinc-400 mt-0.5">
+                全市場標的 <strong className="text-zinc-200">{data.coverage_info.total_universe}</strong> 檔，本機快取基本面已覆蓋 <strong className="text-purple-400">{data.coverage_info.fundamental_cached_count}</strong> 檔、籌碼深度覆蓋 <strong className="text-purple-400">{data.coverage_info.chips_cached_count}</strong> 檔。
+              </p>
+            </div>
+          </div>
+          <div className="text-[11px] text-zinc-400 bg-zinc-950/60 border border-zinc-800/80 px-3 py-1.5 rounded-lg self-start md:self-center">
+            {data.coverage_info.coverage_note}
+          </div>
+        </div>
+      )}
 
       {/* Results Table Section */}
       <div className="bg-zinc-900 border border-zinc-800 rounded-xl overflow-hidden shadow-lg flex flex-col flex-1">
@@ -1446,6 +1914,7 @@ export function TaiwanScreener() {
                     {sortBy === 'foreign_net' && (sortOrder === 'asc' ? <ArrowUp className="w-3 h-3 text-purple-400" /> : <ArrowDown className="w-3 h-3 text-purple-400" />)}
                   </div>
                 </th>
+                <th className="py-3 px-3 font-semibold">入選理由 / 亮點</th>
                 {showMoreColumns && (
                 <>
                 <th className="py-3 px-3 font-semibold cursor-pointer hover:text-zinc-100 text-right" onClick={() => handleSort('investment_trust_net')}>
@@ -1490,6 +1959,30 @@ export function TaiwanScreener() {
                   <div className="flex items-center justify-end gap-1">
                     5日動量
                     {sortBy === 'momentum_5d' && (sortOrder === 'asc' ? <ArrowUp className="w-3 h-3 text-purple-400" /> : <ArrowDown className="w-3 h-3 text-purple-400" />)}
+                  </div>
+                </th>
+                <th className="py-3 px-3 font-semibold cursor-pointer hover:text-zinc-100 text-right" onClick={() => handleSort('pe')}>
+                  <div className="flex items-center justify-end gap-1">
+                    PE / PB
+                    {sortBy === 'pe' && (sortOrder === 'asc' ? <ArrowUp className="w-3 h-3 text-purple-400" /> : <ArrowDown className="w-3 h-3 text-purple-400" />)}
+                  </div>
+                </th>
+                <th className="py-3 px-3 font-semibold cursor-pointer hover:text-zinc-100 text-right" onClick={() => handleSort('revenue_yoy')}>
+                  <div className="flex items-center justify-end gap-1">
+                    營收 YoY
+                    {sortBy === 'revenue_yoy' && (sortOrder === 'asc' ? <ArrowUp className="w-3 h-3 text-purple-400" /> : <ArrowDown className="w-3 h-3 text-purple-400" />)}
+                  </div>
+                </th>
+                <th className="py-3 px-3 font-semibold cursor-pointer hover:text-zinc-100 text-right" onClick={() => handleSort('foreign_shareholding_ratio')}>
+                  <div className="flex items-center justify-end gap-1">
+                    外資持股比
+                    {sortBy === 'foreign_shareholding_ratio' && (sortOrder === 'asc' ? <ArrowUp className="w-3 h-3 text-purple-400" /> : <ArrowDown className="w-3 h-3 text-purple-400" />)}
+                  </div>
+                </th>
+                <th className="py-3 px-3 font-semibold cursor-pointer hover:text-zinc-100 text-right" onClick={() => handleSort('quant_score')}>
+                  <div className="flex items-center justify-end gap-1">
+                    Quant 分數
+                    {sortBy === 'quant_score' && (sortOrder === 'asc' ? <ArrowUp className="w-3 h-3 text-purple-400" /> : <ArrowDown className="w-3 h-3 text-purple-400" />)}
                   </div>
                 </th>
                 </>
@@ -1572,6 +2065,24 @@ export function TaiwanScreener() {
                       {formatSignedSharesLots(item.foreign_net)}
                     </td>
 
+                    {/* Match Reasons */}
+                    <td className="py-3 px-3">
+                      {item.match_reasons && item.match_reasons.length > 0 ? (
+                        <div className="flex flex-wrap gap-1 max-w-xs">
+                          {item.match_reasons.map((r, i) => (
+                            <span
+                              key={i}
+                              className="px-1.5 py-0.5 rounded text-[10px] bg-purple-950/70 border border-purple-800/60 text-purple-300 whitespace-nowrap"
+                            >
+                              {r}
+                            </span>
+                          ))}
+                        </div>
+                      ) : (
+                        <span className="text-zinc-500 text-[11px]">—</span>
+                      )}
+                    </td>
+
                     {showMoreColumns && (
                     <>
                     {/* Investment Trust Net (Lots) */}
@@ -1631,6 +2142,28 @@ export function TaiwanScreener() {
                     {/* 5d Momentum */}
                     <td className="py-3 px-3 text-right font-mono whitespace-nowrap">
                       {formatChangePct(item.momentum_5d)}
+                    </td>
+
+                    {/* PE / PB */}
+                    <td className="py-3 px-3 text-right font-mono text-zinc-300 whitespace-nowrap">
+                      <span>{item.pe != null ? item.pe.toFixed(1) : '—'}</span>
+                      <span className="text-zinc-600 mx-1">/</span>
+                      <span>{item.pb != null ? item.pb.toFixed(2) : '—'}</span>
+                    </td>
+
+                    {/* Revenue YoY */}
+                    <td className="py-3 px-3 text-right font-mono whitespace-nowrap">
+                      {item.revenue_yoy != null ? formatChangePct(item.revenue_yoy / 100.0) : '—'}
+                    </td>
+
+                    {/* Foreign Shareholding Ratio */}
+                    <td className="py-3 px-3 text-right font-mono text-zinc-300 whitespace-nowrap">
+                      {item.foreign_shareholding_ratio != null ? `${item.foreign_shareholding_ratio.toFixed(1)}%` : '—'}
+                    </td>
+
+                    {/* Quant Score */}
+                    <td className="py-3 px-3 text-right font-mono font-bold text-purple-400 whitespace-nowrap">
+                      {item.quant_score != null ? item.quant_score.toFixed(1) : '—'}
                     </td>
                     </>
                     )}
@@ -1747,6 +2280,88 @@ export function TaiwanScreener() {
         presetSymbol={monitorSymbol}
         onClose={() => setMonitorSymbol(null)}
       />
+
+      {/* Save Custom Strategy Modal (A10) */}
+      {showSaveModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4">
+          <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-5 w-full max-w-md shadow-2xl space-y-4">
+            <div className="flex items-center justify-between border-b border-zinc-800 pb-3">
+              <div className="flex items-center gap-2">
+                <Bookmark className="w-5 h-5 text-purple-400" />
+                <h3 className="text-sm font-semibold text-zinc-100">儲存自訂選股策略</h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowSaveModal(false)}
+                className="text-zinc-500 hover:text-zinc-300 text-sm"
+              >
+                ✕
+              </button>
+            </div>
+
+            <p className="text-xs text-zinc-400 leading-relaxed">
+              將目前的篩選條件（交易所、價量、技術面、法人、基本面估值與 Quant 分數等）儲存為專屬策略，未來可一鍵載入。
+            </p>
+
+            <div className="space-y-3">
+              <div>
+                <label className="text-xs font-medium text-zinc-300 block mb-1">
+                  策略名稱 <span className="text-red-400">*</span>
+                </label>
+                <input
+                  type="text"
+                  placeholder="例: 外資低估值營收成長股"
+                  value={newStrategyName}
+                  onChange={e => setNewStrategyName(e.target.value)}
+                  className="w-full bg-zinc-950 border border-zinc-800 focus:border-purple-500 rounded-lg px-3 py-2 text-xs text-zinc-200 placeholder-zinc-500 focus:outline-none"
+                />
+              </div>
+
+              <div>
+                <label className="text-xs font-medium text-zinc-300 block mb-1">
+                  策略說明 (選填)
+                </label>
+                <textarea
+                  placeholder="說明策略的投資邏輯或適用情境..."
+                  rows={3}
+                  value={newStrategyDesc}
+                  onChange={e => setNewStrategyDesc(e.target.value)}
+                  className="w-full bg-zinc-950 border border-zinc-800 focus:border-purple-500 rounded-lg px-3 py-2 text-xs text-zinc-200 placeholder-zinc-500 focus:outline-none"
+                />
+              </div>
+            </div>
+
+            <div className="flex items-center justify-end gap-2 pt-2 border-t border-zinc-800">
+              <button
+                type="button"
+                onClick={() => setShowSaveModal(false)}
+                className="px-3 py-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-300 text-xs font-medium transition-colors"
+              >
+                取消
+              </button>
+              <button
+                type="button"
+                disabled={!newStrategyName.trim() || createStrategyMutation.isPending}
+                onClick={() => {
+                  createStrategyMutation.mutate({
+                    name: newStrategyName.trim(),
+                    conditions: getCurrentConditions(),
+                    description: newStrategyDesc.trim() || undefined,
+                  })
+                }}
+                className="px-4 py-1.5 rounded-lg bg-purple-600 hover:bg-purple-500 disabled:opacity-50 text-white text-xs font-medium transition-colors flex items-center gap-1.5 shadow-sm"
+              >
+                {createStrategyMutation.isPending ? (
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                ) : (
+                  <Save className="w-3.5 h-3.5" />
+                )}
+                儲存策略
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

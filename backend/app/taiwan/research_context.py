@@ -37,6 +37,7 @@ from app.taiwan.daily_update import (
     resolve_target_latest_trading_date,
 )
 from app.taiwan.etf_data import TaiwanETFProfile, TaiwanETFSnapshot
+from app.taiwan.finmind_cache import FinMindCache
 from app.taiwan.fundamentals import FundamentalRecord, TaiwanFundamentalStore, latest_as_of
 from app.taiwan.industry_intelligence import (
     IndustryMetrics,
@@ -197,8 +198,29 @@ class FundamentalsContextEvidence(BaseModel):
     pe: float | None = None
     pb: float | None = None
     dividend_yield: float | None = None
+    latest_monthly_revenue: float | None = None
+    monthly_revenue_mom: float | None = None
     monthly_revenue_yoy: float | None = None
     latest_eps: float | None = None
+    operating_revenue: float | None = None
+    gross_profit: float | None = None
+    operating_income: float | None = None
+    net_income: float | None = None
+    meta: EvidenceMeta
+
+
+class OwnershipContextEvidence(BaseModel):
+    """Foreign shareholding and securities lending transactions (KNOWN)."""
+
+    status: str = "unavailable"  # available, unavailable
+    foreign_shareholding_ratio: float | None = None
+    foreign_shareholding_change_5d: float | None = None
+    foreign_shareholding_change_20d: float | None = None
+    foreign_shareholding_trend: str | None = None
+    securities_lending_latest_volume: int | None = None
+    securities_lending_volume_5d: int | None = None
+    securities_lending_volume_20d: int | None = None
+    securities_lending_anomaly: str | None = None
     meta: EvidenceMeta
 
 
@@ -281,6 +303,11 @@ class TaiwanStockResearchContext(BaseModel):
     institutional_context: InstitutionalContextEvidence
     margin_context: MarginContextEvidence
     fundamentals_context: FundamentalsContextEvidence
+    ownership_context: OwnershipContextEvidence = Field(
+        default_factory=lambda: OwnershipContextEvidence(
+            meta=EvidenceMeta(classification="MISSING", source="taiwan_ownership_store")
+        )
+    )
     etf_context: ETFContextEvidence
     market_rules_context: MarketRulesContextEvidence
     realtime_context: RealtimeContextEvidence
@@ -304,12 +331,14 @@ class TaiwanStockResearchContextService:
         security_master: TaiwanSecurityMaster | None = None,
         market_intel_svc: TaiwanMarketIntelligenceService | None = None,
         industry_intel_svc: TaiwanIndustryIntelligenceService | None = None,
+        finmind_cache: FinMindCache | None = None,
     ) -> None:
         self.calendar = calendar or TaiwanTradingCalendar()
         self.daily_store = daily_store or TaiwanDailyStore()
         self.inst_store = inst_store or TaiwanInstitutionalStore()
         self.margin_store = margin_store or TaiwanMarginStore()
         self.security_master = security_master or get_security_master()
+        self.finmind_cache = finmind_cache or FinMindCache()
         self.market_intel_svc = market_intel_svc or TaiwanMarketIntelligenceService(
             daily_store=self.daily_store,
             inst_store=self.inst_store,
@@ -683,21 +712,162 @@ class TaiwanStockResearchContextService:
 
         # 7. Fundamentals Context (Point-In-Time) OR ETF Context
         if inst.instrument_type == "stock":
-            fund_status = "unavailable"
             etf_evidence = ETFContextEvidence(
                 status="not_applicable",
                 meta=EvidenceMeta(classification="MISSING", source="taiwan_security_master"),
             )
+
+            # Offline read from cache
+            rev_cached = self.finmind_cache.get("TaiwanStockMonthRevenue", inst.symbol)
+            prof_cached = self.finmind_cache.get("TaiwanStockFinancialStatements", inst.symbol)
+
+            latest_rev = None
+            rev_mom = None
+            rev_yoy = None
+            as_of_period = None
+
+            if rev_cached and rev_cached.get("data"):
+                raw_rev = rev_cached["data"]
+                sorted_rev = sorted([r for r in raw_rev if r.get("date") and r.get("revenue") is not None], key=lambda x: str(x.get("date")))
+                if sorted_rev:
+                    latest_item = sorted_rev[-1]
+                    latest_rev = float(latest_item["revenue"])
+                    as_of_period = str(latest_item.get("date"))
+                    if len(sorted_rev) >= 2 and sorted_rev[-2].get("revenue"):
+                        p_val = float(sorted_rev[-2]["revenue"])
+                        if p_val > 0:
+                            rev_mom = round((latest_rev - p_val) / p_val * 100, 2)
+                    if len(sorted_rev) >= 13 and sorted_rev[-13].get("revenue"):
+                        y_val = float(sorted_rev[-13]["revenue"])
+                        if y_val > 0:
+                            rev_yoy = round((latest_rev - y_val) / y_val * 100, 2)
+
+            latest_eps = None
+            op_rev = None
+            gross_profit = None
+            op_income = None
+            net_income = None
+
+            if prof_cached and prof_cached.get("data"):
+                raw_prof = prof_cached["data"]
+                by_d = {}
+                for r in raw_prof:
+                    d = str(r.get("date") or "").strip()
+                    t = str(r.get("type") or "").strip()
+                    v = parse_number(r.get("value"))
+                    if d and t and v is not None:
+                        if d not in by_d:
+                            by_d[d] = {}
+                        by_d[d][t] = v
+                if by_d:
+                    latest_d = sorted(by_d.keys())[-1]
+                    m = by_d[latest_d]
+                    latest_eps = m.get("EPS")
+                    op_rev = m.get("Revenue") or m.get("OperatingRevenue")
+                    gross_profit = m.get("GrossProfit")
+                    op_income = m.get("OperatingIncome")
+                    net_income = m.get("IncomeAfterTaxes") or m.get("NetIncome")
+                    if not as_of_period:
+                        as_of_period = latest_d
+
+            fund_avail = any(v is not None for v in (latest_rev, rev_yoy, latest_eps, net_income))
             fund_evidence = FundamentalsContextEvidence(
-                status=fund_status,
+                status="available" if fund_avail else "unavailable",
+                as_of_period=as_of_period,
+                latest_monthly_revenue=latest_rev,
+                monthly_revenue_mom=rev_mom,
+                monthly_revenue_yoy=rev_yoy,
+                latest_eps=latest_eps,
+                operating_revenue=op_rev,
+                gross_profit=gross_profit,
+                operating_income=op_income,
+                net_income=net_income,
                 meta=EvidenceMeta(
-                    classification="MISSING",
-                    source="official_fundamentals_store",
+                    classification="KNOWN" if fund_avail else "MISSING",
+                    source="finmind_cache",
+                    as_of=as_of_period,
+                ),
+            )
+
+            # Ownership (Foreign Shareholding & Securities Lending)
+            fsh_cached = self.finmind_cache.get("TaiwanStockShareholding", inst.symbol)
+            sl_cached = self.finmind_cache.get("TaiwanStockSecuritiesLending", inst.symbol)
+
+            fsh_ratio = None
+            fsh_5d = None
+            fsh_20d = None
+            fsh_trend = None
+
+            if fsh_cached and fsh_cached.get("data"):
+                raw_fsh = sorted([r for r in fsh_cached["data"] if r.get("date") and r.get("ForeignInvestmentSharesRatio") is not None], key=lambda x: str(x.get("date")))
+                if raw_fsh:
+                    latest_f = raw_fsh[-1]
+                    fsh_ratio = float(latest_f["ForeignInvestmentSharesRatio"])
+                    if len(raw_fsh) >= 6:
+                        f_5 = float(raw_fsh[-6]["ForeignInvestmentSharesRatio"])
+                        fsh_5d = round(fsh_ratio - f_5, 2)
+                    if len(raw_fsh) >= 21:
+                        f_20 = float(raw_fsh[-21]["ForeignInvestmentSharesRatio"])
+                        fsh_20d = round(fsh_ratio - f_20, 2)
+                        fsh_trend = "increasing" if fsh_20d >= 0.5 else ("decreasing" if fsh_20d <= -0.5 else "flat")
+                    else:
+                        fsh_trend = "flat"
+
+            sl_latest = None
+            sl_5d = None
+            sl_20d = None
+            sl_anomaly = None
+
+            if sl_cached and sl_cached.get("data"):
+                daily_v = {}
+                for r in sl_cached["data"]:
+                    d = str(r.get("date") or "").strip()
+                    v = parse_number(r.get("volume")) or 0.0
+                    if d and v > 0:
+                        daily_v[d] = daily_v.get(d, 0) + int(v)
+                if daily_v:
+                    s_dates = sorted(daily_v.keys())
+                    sl_latest = daily_v[s_dates[-1]]
+                    sl_5d = sum(daily_v[d] for d in s_dates[-5:])
+                    sl_20d = sum(daily_v[d] for d in s_dates[-20:])
+                    if len(s_dates) >= 10:
+                        a20 = sl_20d / len(s_dates[-20:])
+                        a5 = sl_5d / len(s_dates[-5:])
+                        if a20 > 0:
+                            if a5 >= 2.0 * a20 and a5 >= 50000:
+                                sl_anomaly = "abnormal_increase"
+                            elif a5 <= 0.3 * a20:
+                                sl_anomaly = "abnormal_decrease"
+                            else:
+                                sl_anomaly = "normal"
+                        else:
+                            sl_anomaly = "normal"
+                    else:
+                        sl_anomaly = "normal"
+
+            own_avail = any(v is not None for v in (fsh_ratio, fsh_20d, sl_latest, sl_5d))
+            ownership_evidence = OwnershipContextEvidence(
+                status="available" if own_avail else "unavailable",
+                foreign_shareholding_ratio=fsh_ratio,
+                foreign_shareholding_change_5d=fsh_5d,
+                foreign_shareholding_change_20d=fsh_20d,
+                foreign_shareholding_trend=fsh_trend,
+                securities_lending_latest_volume=sl_latest,
+                securities_lending_volume_5d=sl_5d,
+                securities_lending_volume_20d=sl_20d,
+                securities_lending_anomaly=sl_anomaly,
+                meta=EvidenceMeta(
+                    classification="KNOWN" if own_avail else "MISSING",
+                    source="finmind_cache",
                 ),
             )
         else:
             # ETF
             fund_evidence = FundamentalsContextEvidence(
+                status="not_applicable",
+                meta=EvidenceMeta(classification="MISSING", source="taiwan_security_master"),
+            )
+            ownership_evidence = OwnershipContextEvidence(
                 status="not_applicable",
                 meta=EvidenceMeta(classification="MISSING", source="taiwan_security_master"),
             )
@@ -814,6 +984,7 @@ class TaiwanStockResearchContextService:
             institutional_context=inst_evidence,
             margin_context=margin_evidence,
             fundamentals_context=fund_evidence,
+            ownership_context=ownership_evidence,
             etf_context=etf_evidence,
             market_rules_context=market_rules_evidence,
             realtime_context=realtime_evidence,

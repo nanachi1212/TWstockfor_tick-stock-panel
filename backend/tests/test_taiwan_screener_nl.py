@@ -173,13 +173,13 @@ async def test_translate_vague_unsupported_condition():
 
 @pytest.mark.asyncio
 async def test_hallucinated_unknown_field_rejected():
-    """Model hallucinates pe_ratio or dividend_yield -> stripped and added to unsupported."""
+    """Model hallucinates pe_ratio or unknown_yield_min -> stripped and added to unsupported."""
     mock_llm_json = """
     {
       "request_fields": {
         "price_max": 100.0,
         "pe_ratio_max": 15.0,
-        "dividend_yield_min": 0.05
+        "unknown_yield_min": 0.05
       },
       "recognized_conditions": ["股價 ≤ 100 元"],
       "unsupported_conditions": [],
@@ -193,10 +193,11 @@ async def test_hallucinated_unknown_field_rejected():
 
         assert res.request is not None
         assert res.request.price_max == 100.0
-        # pe_ratio_max and dividend_yield_min are stripped
+        # pe_ratio_max and unknown_yield_min are stripped
         assert not hasattr(res.request, "pe_ratio_max")
         assert any("pe_ratio_max" in s for s in res.unsupported_conditions)
-        assert any("dividend_yield_min" in s for s in res.unsupported_conditions)
+        assert any("unknown_yield_min" in s for s in res.unsupported_conditions)
+
 
 
 @pytest.mark.asyncio
