@@ -562,3 +562,146 @@ def get_taiwan_industry_intelligence(
         logger.exception("Failed to compute Taiwan industry intelligence snapshot: %s", e)
         raise HTTPException(status_code=500, detail=f"產業情報快照生成失敗: {e}") from e
 
+
+# ── A11 Event Center, News & Sentiment Endpoints ───────────────
+
+
+@router.get("/events")
+def get_taiwan_events(
+    scope: str = Query("all", description="事件範圍: today, week, portfolio, watchlist, all"),
+    symbols: str | None = Query(None, description="逗號分隔的股票代號清單 (用於 portfolio / watchlist)"),
+    symbol: str | None = Query(None, description="單一股票代號"),
+    event_types: str | None = Query(None, description="逗號分隔的事件類型"),
+    severity: str | None = Query(None, description="嚴重等級過濾: info, attention, risk"),
+    date: str | None = Query(None, description="基準日期 (YYYY-MM-DD)"),
+    limit: int = Query(100, ge=1, le=500),
+):
+    """取得台股重大事件清單 (支援今日、本週、持股、自選與全市場範圍)。"""
+    from app.taiwan.events_service import get_event_service
+    from app.taiwan.realtime.calendar import taipei_today
+
+    target_dt = None
+    if date:
+        try:
+            target_dt = dt_date.fromisoformat(date)
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=f"無效的日期格式: {date}") from e
+
+    sym_list = [s.strip() for s in symbols.split(",") if s.strip()] if symbols else None
+    ev_type_list = [t.strip() for t in event_types.split(",") if t.strip()] if event_types else None
+
+    # Cast scope
+    valid_scopes = {"today", "week", "portfolio", "watchlist", "all"}
+    scope_cast = scope if scope in valid_scopes else "all"
+
+    # Cast severity
+    sev_cast = severity if severity in ("info", "attention", "risk") else None
+
+    svc = get_event_service()
+    try:
+        items = svc.get_events(
+            scope=scope_cast,  # type: ignore[arg-type]
+            symbols=sym_list,
+            symbol=symbol,
+            event_types=ev_type_list,
+            severity=sev_cast,  # type: ignore[arg-type]
+            target_date=target_dt,
+            limit=limit,
+        )
+        status, sources_status = svc.get_last_sources_status()
+        return {
+            "events": items,
+            "total": len(items),
+            "as_of_date": (target_dt or taipei_today()).isoformat(),
+            "status": status,
+            "sources_status": sources_status,
+        }
+    except Exception as e:
+        logger.exception("Failed to get market events: %s", e)
+        raise HTTPException(status_code=500, detail=f"事件取得失敗: {e}") from e
+
+
+@router.get("/events/candidates")
+def get_taiwan_event_candidates(
+    limit: int = Query(10, ge=1, le=50),
+):
+    """取得事件驅動值得查看標的 (如處置、注意、除權息、營收公布、重大風險)。"""
+    from app.taiwan.events_service import get_event_service
+    from app.taiwan.realtime.calendar import taipei_today
+
+    svc = get_event_service()
+    try:
+        candidates = svc.get_event_candidates(limit=limit)
+        return {
+            "candidates": candidates,
+            "as_of_date": taipei_today().isoformat(),
+            "total": len(candidates),
+        }
+    except Exception as e:
+        logger.exception("Failed to get event candidates: %s", e)
+        raise HTTPException(status_code=500, detail=f"事件候選股取得失敗: {e}") from e
+
+
+class CheckEventAlertsRequest(BaseModel):
+    symbols: list[str] = []
+
+
+@router.post("/alerts/check-events")
+def check_taiwan_event_alerts(
+    body: CheckEventAlertsRequest | None = None,
+):
+    """檢查並觸發持股或自選重大事件提醒 (處置、暫停、恢復、減資、下市、除權息)。"""
+    from app.taiwan.events_service import get_event_service
+
+    svc = get_event_service()
+    target_symbols = body.symbols if body else []
+    try:
+        triggered = svc.trigger_event_alerts(target_symbols)
+        return {
+            "triggered_count": len(triggered),
+            "triggered_alerts": triggered,
+            "status": "success",
+        }
+    except Exception as e:
+        logger.exception("Failed to check and trigger event alerts: %s", e)
+        raise HTTPException(status_code=500, detail=f"事件提醒檢查失敗: {e}") from e
+
+
+@router.get("/news/{symbol}")
+def get_taiwan_stock_news(
+    symbol: str,
+    limit: int = Query(15, ge=1, le=50),
+    refresh: bool = Query(False, description="是否強制重取"),
+):
+    """取得個股近期新聞 (使用 FinMind TaiwanStockNews，支援確定性去重與快取保護)。"""
+    from app.taiwan.news_service import get_news_service
+
+    svc = get_news_service()
+    try:
+        return svc.get_recent_news(symbol_or_code=symbol, limit=limit, force_refresh=refresh)
+    except Exception as e:
+        logger.exception("Failed to fetch stock news for %s: %s", symbol, e)
+        raise HTTPException(status_code=500, detail=f"新聞取得失敗: {e}") from e
+
+
+@router.get("/market-sentiment")
+def get_taiwan_market_sentiment(
+    date: str | None = Query(None, description="指定交易日 (YYYY-MM-DD)，預設為最新交易日"),
+):
+    """取得台股市場情緒綜合評估與客觀依據清單 (綜合現貨指數、市場廣度、三大法人與台指期貨選擇權籌碼)。"""
+    from app.taiwan.market_sentiment_service import get_market_sentiment_service
+
+    target_dt = None
+    if date:
+        try:
+            target_dt = dt_date.fromisoformat(date)
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=f"無效的日期格式: {date}") from e
+
+    svc = get_market_sentiment_service()
+    try:
+        return svc.get_market_sentiment(target_date=target_dt)
+    except Exception as e:
+        logger.exception("Failed to calculate market sentiment: %s", e)
+        raise HTTPException(status_code=500, detail=f"市場情緒計算失敗: {e}") from e
+

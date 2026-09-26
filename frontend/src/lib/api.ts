@@ -992,6 +992,11 @@ export interface TaiwanStockDetailResponse {
   overall_data_quality: 'good' | 'partial' | 'stale' | 'degraded' | string
   fundamentals?: TaiwanFundamentalData
   extra_chips?: TaiwanExtraChipsData
+  recent_events?: MarketEvent[]
+  recent_news?: TaiwanStockNewsItem[]
+  news_status?: 'available' | 'rate_limited' | 'auth_required' | 'unavailable' | string
+  news_status_message?: string | null
+  news_fetched_at?: string | null
 }
 
 
@@ -1093,6 +1098,12 @@ export interface TaiwanScreenerRequest {
 
   // Quant Score
   quant_score_min?: number | null
+
+  // A11: Events and Risk Filters
+  exclude_disposition?: boolean | null
+  exclude_suspended?: boolean | null
+  exclude_risk_events?: boolean | null
+  recent_revenue_or_earnings?: boolean | null
 
   sort_by?: string
   sort_order?: 'asc' | 'desc'
@@ -1614,6 +1625,122 @@ export interface TaiwanStockResearchContext {
     derived_fields_count: number
     missing_sections: string[]
   }
+  recent_events?: MarketEvent[]
+  recent_news?: TaiwanStockNewsItem[]
+}
+
+// ===== A11: Events, News & Market Sentiment =====
+
+export type MarketEventSeverity = 'info' | 'attention' | 'risk'
+
+export interface MarketEvent {
+  id: string
+  symbol: string
+  code: string
+  name: string
+  exchange: string
+  event_date: string
+  event_type: string
+  event_type_label: string
+  severity: MarketEventSeverity
+  title: string
+  summary: string
+  source: string
+  source_url?: string | null
+  retrieved_at: string
+  freshness: string
+  details?: Record<string, any>
+}
+
+export interface TaiwanEventsResponse {
+  events: MarketEvent[]
+  total: number
+  as_of_date: string
+  status: string
+  sources_status?: Record<string, string>
+}
+
+export interface TaiwanEventCandidate {
+  symbol: string
+  code: string
+  name: string
+  exchange: string
+  reason: string
+  tag: string
+  severity: MarketEventSeverity
+  event_date: string
+  event_type: string
+}
+
+export interface TaiwanEventCandidatesResponse {
+  candidates: TaiwanEventCandidate[]
+  as_of_date: string
+  total: number
+}
+
+export interface TaiwanStockNewsItem {
+  id: string
+  symbol: string
+  code: string
+  date: string
+  title: string
+  source: string
+  url: string
+  description?: string | null
+}
+
+export interface TaiwanStockNewsResponse {
+  symbol: string
+  code: string
+  items: TaiwanStockNewsItem[]
+  status: 'available' | 'unavailable' | 'rate_limited' | 'auth_required' | string
+  status_message?: string | null
+  fetched_at?: string | null
+}
+
+export interface MarketEvidenceItem {
+  id: string
+  category: 'spot' | 'futures' | 'options' | string
+  label: string
+  direction: 'bullish' | 'bearish' | 'neutral'
+  description: string
+  weight?: number
+  status?: string
+}
+
+export interface TaiwanMarketSentimentResponse {
+  as_of_date: string
+  sentiment: 'bullish' | 'neutral' | 'bearish' | 'mixed'
+  sentiment_label: string
+  summary: string
+  bullish_count: number
+  bearish_count: number
+  neutral_count: number
+  evidence: MarketEvidenceItem[]
+  spot_details: {
+    taiex?: { close?: number; change?: number; change_pct?: number; status?: string } | null
+    breadth?: { advance_count?: number; decline_count?: number; flat_count?: number; turnover?: number }
+    institutional?: { foreign_net?: number; total_net?: number; status?: string }
+    margin?: { margin_balance_change?: number; short_balance_change?: number; status?: string }
+  }
+  futures_details?: {
+    date?: string
+    long_oi?: number
+    short_oi?: number
+    net_oi?: number
+    prev_net_oi?: number
+    net_oi_change?: number
+  } | null
+  options_details?: {
+    date?: string
+    call_net_oi?: number
+    put_net_oi?: number
+    call_long_oi?: number
+    put_long_oi?: number
+  } | null
+  derivatives_status: 'available' | 'unavailable' | 'rate_limited' | 'auth_required' | string
+  derivatives_status_message?: string | null
+  fetched_at: string
 }
 
 export interface DiagnosticSignalEvidence {
@@ -1714,6 +1841,7 @@ export interface TaiwanAIStockResearchReport {
   abnormal_diagnostics_interpretation?: string | null
   portfolio_interpretation?: string | null
   alert_interpretation?: string | null
+  events_news_interpretation?: string | null
   key_observations: ObservationItem[]
   risk_factors: ObservationItem[]
   watch_next?: ObservationItem[]
@@ -3402,6 +3530,56 @@ export const api = {
     return request<TaiwanAbnormalDiagnosticsSnapshot>(
       qs ? `/api/taiwan/abnormal-diagnostics?${qs}` : '/api/taiwan/abnormal-diagnostics',
     )
+  },
+
+  taiwanEvents: (params?: {
+    scope?: 'today' | 'week' | 'portfolio' | 'watchlist' | 'all' | string
+    symbols?: string[]
+    symbol?: string
+    event_types?: string[]
+    severity?: string
+    date?: string
+    limit?: number
+  }) => {
+    const q = new URLSearchParams()
+    if (params?.scope) q.set('scope', params.scope)
+    if (params?.symbols?.length) q.set('symbols', params.symbols.join(','))
+    if (params?.symbol) q.set('symbol', params.symbol)
+    if (params?.event_types?.length) q.set('event_types', params.event_types.join(','))
+    if (params?.severity) q.set('severity', params.severity)
+    if (params?.date) q.set('date', params.date)
+    if (params?.limit) q.set('limit', String(params.limit))
+    const qs = q.toString()
+    return request<TaiwanEventsResponse>(qs ? `/api/taiwan/events?${qs}` : '/api/taiwan/events')
+  },
+
+  taiwanEventCandidates: (limit?: number) => {
+    const qs = limit ? `?limit=${limit}` : ''
+    return request<TaiwanEventCandidatesResponse>(`/api/taiwan/events/candidates${qs}`)
+  },
+
+  checkTaiwanEventAlerts: (symbols?: string[]) =>
+    request<{ triggered_count: number; triggered_alerts: any[]; status: string }>(
+      '/api/taiwan/alerts/check-events',
+      {
+        method: 'POST',
+        body: JSON.stringify({ symbols: symbols || [] }),
+      },
+    ),
+
+  taiwanStockNews: (symbol: string, limit?: number, forceRefresh?: boolean) => {
+    const q = new URLSearchParams()
+    if (limit) q.set('limit', String(limit))
+    if (forceRefresh) q.set('force_refresh', 'true')
+    const qs = q.toString()
+    return request<TaiwanStockNewsResponse>(
+      `/api/taiwan/news/${encodeURIComponent(symbol)}${qs ? `?${qs}` : ''}`,
+    )
+  },
+
+  taiwanMarketSentiment: (date?: string) => {
+    const qs = date ? `?date=${encodeURIComponent(date)}` : ''
+    return request<TaiwanMarketSentimentResponse>(`/api/taiwan/market-sentiment${qs}`)
   },
 
   taiwanRulesList: () =>

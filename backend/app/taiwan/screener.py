@@ -18,7 +18,9 @@ NO request-time HTTP calls to external providers.
 """
 from __future__ import annotations
 
+import contextlib
 import logging
+from datetime import date
 from typing import Any, Literal
 
 import polars as pl
@@ -29,6 +31,7 @@ from app.taiwan.finmind_cache import FinMindCache
 from app.taiwan.institutional_store import TaiwanInstitutionalStore
 from app.taiwan.margin_store import TaiwanMarginStore
 from app.taiwan.providers.taiwan_values import parse_number
+from app.taiwan.realtime.calendar import taipei_now
 from app.taiwan.technical_indicators import MIN_BARS_RSI_14, wilder_rsi_expr
 from app.taiwan.universe import TaiwanSecurityMaster, get_security_master
 from app.taiwan.universe.models import MarketProfileBridge
@@ -119,6 +122,12 @@ class TaiwanScreenerRequest(BaseModel):
     foreign_shareholding_ratio_min: float | None = None  # 20.0 = 20%
     foreign_shareholding_change_20d_min: float | None = None  # 0.0 = 0%
     securities_lending_anomaly_exclude: bool | None = None  # True: 排除異常暴增
+
+    # Event and Regulatory Filters (A11)
+    exclude_disposition: bool | None = None
+    exclude_suspended: bool | None = None
+    exclude_risk_events: bool | None = None
+    recent_revenue_or_earnings: bool | None = None
 
     # Quant Score
     quant_score_min: float | None = None
@@ -664,6 +673,49 @@ class TaiwanScreenerService:
 
         return df, len(fundamental_symbols), len(chips_symbols)
 
+
+    @staticmethod
+    def _is_recent_valid_revenue(cached: dict[str, Any] | None, ref_date: date) -> bool:
+        if not cached or cached.get("status") != "available":
+            return False
+        rows = cached.get("data")
+        if not isinstance(rows, list) or not rows:
+            return False
+        valid_dates: list[date] = []
+        for r in rows:
+            d_str = str(r.get("date") or "").strip()
+            if d_str:
+                with contextlib.suppress(Exception):
+                    valid_dates.append(date.fromisoformat(d_str[:10]))
+        if not valid_dates:
+            return False
+        past_dates = [d for d in valid_dates if d <= ref_date]
+        if not past_dates:
+            return False
+        latest_d = max(past_dates)
+        return 0 <= (ref_date - latest_d).days <= 65
+
+    @staticmethod
+    def _is_recent_valid_financials(cached: dict[str, Any] | None, ref_date: date) -> bool:
+        if not cached or cached.get("status") != "available":
+            return False
+        rows = cached.get("data")
+        if not isinstance(rows, list) or not rows:
+            return False
+        valid_dates: list[date] = []
+        for r in rows:
+            d_str = str(r.get("date") or "").strip()
+            if d_str:
+                with contextlib.suppress(Exception):
+                    valid_dates.append(date.fromisoformat(d_str[:10]))
+        if not valid_dates:
+            return False
+        past_dates = [d for d in valid_dates if d <= ref_date]
+        if not past_dates:
+            return False
+        latest_d = max(past_dates)
+        return 0 <= (ref_date - latest_d).days <= 135
+
     def _apply_filters(self, df: pl.DataFrame, req: TaiwanScreenerRequest) -> pl.DataFrame:
         """Apply strongly typed whitelist filters."""
         # Industry
@@ -796,6 +848,50 @@ class TaiwanScreenerService:
         # Quant Score
         if req.quant_score_min is not None:
             df = df.filter(pl.col("quant_score") >= req.quant_score_min)
+
+        # Event and Regulatory Filters (A11)
+        if (
+            req.exclude_disposition is True
+            or req.exclude_suspended is True
+            or req.exclude_risk_events is True
+            or req.recent_revenue_or_earnings is True
+        ):
+            from app.taiwan.events_service import get_event_service
+            event_svc = get_event_service()
+            all_syms = df["symbol"].to_list()
+            excluded_syms: set[str] = set()
+            keep_only_syms: set[str] | None = None
+
+            if req.recent_revenue_or_earnings is True:
+                keep_only_syms = set()
+                try:
+                    max_d_str = str(df["date"].drop_nulls().max())
+                    ref_date = date.fromisoformat(max_d_str[:10])
+                except Exception:
+                    ref_date = taipei_now().date()
+
+                for s in all_syms:
+                    code = s.split(".")[0]
+                    rev_cached = self.cache.get("TaiwanStockMonthRevenue", code) or self.cache.get("TaiwanStockMonthRevenue", s)
+                    fin_cached = self.cache.get("TaiwanStockFinancialStatements", code) or self.cache.get("TaiwanStockFinancialStatements", s)
+                    has_rev = self._is_recent_valid_revenue(rev_cached, ref_date)
+                    has_fin = self._is_recent_valid_financials(fin_cached, ref_date)
+                    if has_rev or has_fin:
+                        keep_only_syms.add(s)
+
+            for s in all_syms:
+                risk_status = event_svc.check_symbol_risk_status(s)
+                if req.exclude_disposition is True and risk_status["is_disposition"]:
+                    excluded_syms.add(s)
+                if req.exclude_suspended is True and risk_status["is_suspended"]:
+                    excluded_syms.add(s)
+                if req.exclude_risk_events is True and risk_status["has_risk_event"]:
+                    excluded_syms.add(s)
+
+            if excluded_syms:
+                df = df.filter(~pl.col("symbol").is_in(list(excluded_syms)))
+            if keep_only_syms is not None:
+                df = df.filter(pl.col("symbol").is_in(list(keep_only_syms)))
 
         return df
 

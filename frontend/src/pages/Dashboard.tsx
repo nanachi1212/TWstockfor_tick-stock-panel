@@ -14,6 +14,8 @@ import { cnSignal } from '@/lib/signals'
 import { strategyEventMeta, strategyName } from '@/lib/strategyMonitorEvents'
 import { boardTag } from '@/components/stock-table/primitives'
 import { PortfolioPanel } from '@/components/portfolio/Portfolio'
+import { MarketSentimentCard } from '@/components/dashboard/MarketSentimentCard'
+import { TodayEventsWidget } from '@/components/dashboard/TodayEventsWidget'
 
 function n(v: number | null | undefined) {
   return typeof v === 'number' && Number.isFinite(v) ? v : null
@@ -752,6 +754,12 @@ export function Dashboard() {
         error={diagnostics.isError && marketFallback.isError}
         marketDailyStatus={marketDailyStatus}
       />
+
+      {/* A11: 市場多空情緒依據與今日市場重要事件 */}
+      <div className="mb-1.5 grid grid-cols-1 gap-1.5 lg:grid-cols-2">
+        <MarketSentimentCard targetDate={latestDailyAsOf} />
+        <TodayEventsWidget />
+      </div>
 
       <div className="mb-1.5 grid grid-cols-1 gap-1.5 lg:grid-cols-2">
         <IndustryStrengthCard

@@ -29,6 +29,7 @@ import {
   Save,
   Trash2,
   Plus,
+  ShieldAlert,
 } from 'lucide-react'
 import {
   api,
@@ -119,6 +120,12 @@ export function TaiwanScreener() {
   const [securitiesLendingAnomalyExclude, setSecuritiesLendingAnomalyExclude] = useState<boolean>(false)
   const [quantScoreMin, setQuantScoreMin] = useState<string>('')
 
+  // Event & Risk filters (A11)
+  const [excludeDisposition, setExcludeDisposition] = useState<boolean>(false)
+  const [excludeSuspended, setExcludeSuspended] = useState<boolean>(false)
+  const [excludeRiskEvents, setExcludeRiskEvents] = useState<boolean>(false)
+  const [recentRevenueOrEarnings, setRecentRevenueOrEarnings] = useState<boolean>(false)
+
   // Strategy management states (A10)
   const [selectedStrategyId, setSelectedStrategyId] = useState<string>('')
   const [showSaveModal, setShowSaveModal] = useState<boolean>(false)
@@ -202,6 +209,10 @@ export function TaiwanScreener() {
     if (foreignShareholdingChange20dMin) cond.foreign_shareholding_change_20d_min = parseFloat(foreignShareholdingChange20dMin)
     if (securitiesLendingAnomalyExclude) cond.securities_lending_anomaly_exclude = true
     if (quantScoreMin) cond.quant_score_min = parseFloat(quantScoreMin)
+    if (excludeDisposition) cond.exclude_disposition = true
+    if (excludeSuspended) cond.exclude_suspended = true
+    if (excludeRiskEvents) cond.exclude_risk_events = true
+    if (recentRevenueOrEarnings) cond.recent_revenue_or_earnings = true
     return cond
   }
 
@@ -248,6 +259,10 @@ export function TaiwanScreener() {
     setForeignShareholdingChange20dMin(c.foreign_shareholding_change_20d_min != null ? String(c.foreign_shareholding_change_20d_min) : '')
     setSecuritiesLendingAnomalyExclude(Boolean(c.securities_lending_anomaly_exclude))
     setQuantScoreMin(c.quant_score_min != null ? String(c.quant_score_min) : '')
+    setExcludeDisposition(Boolean(c.exclude_disposition))
+    setExcludeSuspended(Boolean(c.exclude_suspended))
+    setExcludeRiskEvents(Boolean(c.exclude_risk_events))
+    setRecentRevenueOrEarnings(Boolean(c.recent_revenue_or_earnings))
     setPage(1)
   }
 
@@ -323,6 +338,10 @@ export function TaiwanScreener() {
     if (req.foreign_shareholding_change_20d_min !== undefined) setForeignShareholdingChange20dMin(req.foreign_shareholding_change_20d_min !== null ? String(req.foreign_shareholding_change_20d_min) : '')
     if (req.securities_lending_anomaly_exclude !== undefined) setSecuritiesLendingAnomalyExclude(Boolean(req.securities_lending_anomaly_exclude))
     if (req.quant_score_min !== undefined) setQuantScoreMin(req.quant_score_min !== null ? String(req.quant_score_min) : '')
+    if (req.exclude_disposition !== undefined) setExcludeDisposition(Boolean(req.exclude_disposition))
+    if (req.exclude_suspended !== undefined) setExcludeSuspended(Boolean(req.exclude_suspended))
+    if (req.exclude_risk_events !== undefined) setExcludeRiskEvents(Boolean(req.exclude_risk_events))
+    if (req.recent_revenue_or_earnings !== undefined) setRecentRevenueOrEarnings(Boolean(req.recent_revenue_or_earnings))
     setPage(1)
     setNlTranslation(null)
   }
@@ -366,6 +385,10 @@ export function TaiwanScreener() {
     setForeignShareholdingChange20dMin('')
     setSecuritiesLendingAnomalyExclude(false)
     setQuantScoreMin('')
+    setExcludeDisposition(false)
+    setExcludeSuspended(false)
+    setExcludeRiskEvents(false)
+    setRecentRevenueOrEarnings(false)
     setSelectedStrategyId('')
     setSortBy('symbol')
     setSortOrder('asc')
@@ -418,6 +441,10 @@ export function TaiwanScreener() {
       foreign_shareholding_change_20d_min: foreignShareholdingChange20dMin ? parseFloat(foreignShareholdingChange20dMin) : null,
       securities_lending_anomaly_exclude: securitiesLendingAnomalyExclude || null,
       quant_score_min: quantScoreMin ? parseFloat(quantScoreMin) : null,
+      exclude_disposition: excludeDisposition || null,
+      exclude_suspended: excludeSuspended || null,
+      exclude_risk_events: excludeRiskEvents || null,
+      recent_revenue_or_earnings: recentRevenueOrEarnings || null,
       sort_by: sortBy,
       sort_order: sortOrder,
       page,
@@ -432,6 +459,7 @@ export function TaiwanScreener() {
     marginBalanceChangeMinLots, shortBalanceMinLots, shortMarginRatioMin,
     peMin, peMax, pbMin, pbMax, dividendYieldMin, revenueYoyMin, revenueMomMin, epsMin, netIncomePositive,
     foreignShareholdingRatioMin, foreignShareholdingChange20dMin, securitiesLendingAnomalyExclude, quantScoreMin,
+    excludeDisposition, excludeSuspended, excludeRiskEvents, recentRevenueOrEarnings,
     sortBy, sortOrder, page,
   ])
 
@@ -1816,6 +1844,71 @@ export function TaiwanScreener() {
                     onChange={e => { setQuantScoreMin(e.target.value); setPage(1) }}
                     className="w-full bg-zinc-800 border border-zinc-700 rounded-md px-2.5 py-1.5 text-xs text-zinc-200 focus:outline-none focus:border-purple-500"
                   />
+                </div>
+              </div>
+            </div>
+
+            {/* 事件與風險過濾 (A11) */}
+            <div>
+              <h3 className="text-[11px] font-semibold text-zinc-500 uppercase tracking-wide mb-2 flex items-center gap-1.5">
+                <ShieldAlert className="w-3.5 h-3.5 text-rose-400" />
+                事件與風險過濾
+              </h3>
+              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
+                <div className="flex items-end">
+                  <button
+                    type="button"
+                    onClick={() => { setExcludeDisposition(prev => !prev); setPage(1) }}
+                    className={`w-full py-1.5 px-3 text-xs font-medium rounded-md border transition-all ${
+                      excludeDisposition
+                        ? 'bg-rose-600 border-rose-500 text-white'
+                        : 'bg-zinc-800/80 border-zinc-700 text-zinc-300 hover:bg-zinc-700'
+                    }`}
+                  >
+                    {excludeDisposition ? '✓ 已排除處置股' : '排除處置股 (TWSE/TPEx)'}
+                  </button>
+                </div>
+
+                <div className="flex items-end">
+                  <button
+                    type="button"
+                    onClick={() => { setExcludeSuspended(prev => !prev); setPage(1) }}
+                    className={`w-full py-1.5 px-3 text-xs font-medium rounded-md border transition-all ${
+                      excludeSuspended
+                        ? 'bg-rose-600 border-rose-500 text-white'
+                        : 'bg-zinc-800/80 border-zinc-700 text-zinc-300 hover:bg-zinc-700'
+                    }`}
+                  >
+                    {excludeSuspended ? '✓ 已排除暫停交易' : '排除暫停交易 (停牌)'}
+                  </button>
+                </div>
+
+                <div className="flex items-end">
+                  <button
+                    type="button"
+                    onClick={() => { setExcludeRiskEvents(prev => !prev); setPage(1) }}
+                    className={`w-full py-1.5 px-3 text-xs font-medium rounded-md border transition-all ${
+                      excludeRiskEvents
+                        ? 'bg-amber-600 border-amber-500 text-white'
+                        : 'bg-zinc-800/80 border-zinc-700 text-zinc-300 hover:bg-zinc-700'
+                    }`}
+                  >
+                    {excludeRiskEvents ? '✓ 已排除高風險事件' : '排除高風險事件 (重大警示)'}
+                  </button>
+                </div>
+
+                <div className="flex items-end">
+                  <button
+                    type="button"
+                    onClick={() => { setRecentRevenueOrEarnings(prev => !prev); setPage(1) }}
+                    className={`w-full py-1.5 px-3 text-xs font-medium rounded-md border transition-all ${
+                      recentRevenueOrEarnings
+                        ? 'bg-purple-600 border-purple-500 text-white'
+                        : 'bg-zinc-800/80 border-zinc-700 text-zinc-300 hover:bg-zinc-700'
+                    }`}
+                  >
+                    {recentRevenueOrEarnings ? '✓ 僅看近期營收/財報' : '僅看近期營收/財報公佈'}
+                  </button>
                 </div>
               </div>
             </div>

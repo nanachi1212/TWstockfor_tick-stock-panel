@@ -59,6 +59,7 @@ from app.taiwan.realtime.calendar import TaiwanTradingCalendar, taipei_now
 from app.taiwan.symbol import parse_symbol
 from app.taiwan.universe import TaiwanSecurityMaster, get_security_master
 from app.taiwan.universe.models import MarketProfileBridge, TaiwanInstrument
+from app.taiwan.providers.taiwan_values import parse_number
 
 logger = logging.getLogger(__name__)
 
@@ -319,6 +320,9 @@ class TaiwanStockResearchContext(BaseModel):
     monitor_context: MonitorContextEvidence
     data_quality: ResearchDataQuality
     evidence_summary: EvidenceSummaryCounts
+    recent_events: list[dict[str, Any]] = Field(default_factory=list, description="近期市場與公司重大事件 (A11)")
+    recent_news: list[dict[str, Any]] = Field(default_factory=list, description="近期媒體新聞報導 (A11)")
+    news_status: str = Field("available", description="新聞來源狀態: available, rate_limited, auth_required, unavailable")
 
 
 # ── Service Implementation ────────────────────────────────────
@@ -980,6 +984,61 @@ class TaiwanStockResearchContextService:
             missing_sections=missing_sections,
         )
 
+        # 12. Recent Events and News (A11)
+        latest_trading_day = resolve_target_latest_trading_date(self.calendar)
+        is_historical = target_date is not None and target_date < latest_trading_day
+
+        recent_events_payload: list[dict[str, Any]] = []
+        try:
+            from app.taiwan.events_service import get_event_service
+            event_svc = get_event_service()
+            if is_historical:
+                # PIT safe query: Only verifiable historical events known on or before target date
+                evs = event_svc.get_pit_events(symbol=inst.symbol, as_of=target, limit=10)
+            else:
+                evs = event_svc.get_events(scope="all", symbol=inst.symbol, limit=10)
+            recent_events_payload = [
+                {
+                    "event_date": e.event_date,
+                    "event_type": e.event_type,
+                    "event_type_label": e.event_type_label,
+                    "severity": e.severity,
+                    "title": e.title,
+                    "summary": e.summary,
+                    "source": e.source,
+                }
+                for e in evs
+            ]
+        except Exception as e:
+            logger.debug("Failed to assemble recent events for %s: %s", inst.symbol, e)
+
+        recent_news_payload: list[dict[str, Any]] = []
+        news_status = "available"
+        try:
+            from app.taiwan.news_service import get_news_service
+            news_svc = get_news_service()
+            news_res = news_svc.get_recent_news(inst.symbol, limit=8)
+            news_status = news_res.status
+            news_items = news_res.items
+            if is_historical:
+                # Filter out news published after historical target date
+                target_str = target.isoformat()
+                news_items = [n for n in news_items if str(n.date)[:10] <= target_str]
+
+            recent_news_payload = [
+                {
+                    "date": n.date,
+                    "title": n.title,
+                    "source": n.source,
+                    "url": n.url,
+                    "description": n.description,
+                }
+                for n in news_items
+            ]
+        except Exception as e:
+            logger.debug("Failed to assemble recent news for %s: %s", inst.symbol, e)
+            news_status = "unavailable"
+
         return TaiwanStockResearchContext(
             symbol=inst.symbol,
             generated_at=taipei_now().isoformat(),
@@ -999,4 +1058,8 @@ class TaiwanStockResearchContextService:
             monitor_context=monitor_evidence,
             data_quality=dq,
             evidence_summary=evidence_summary,
+            recent_events=recent_events_payload,
+            recent_news=recent_news_payload,
+            news_status=news_status,
         )
+
