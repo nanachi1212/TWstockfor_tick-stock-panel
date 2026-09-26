@@ -253,3 +253,130 @@ def test_install_bundle_rejects_user_data_path(tmp_path: Path):
     forbidden_dest = tmp_path / "data" / "user_data" / "taiwan"
     with pytest.raises(RuntimeError, match="Security violation: target path cannot be inside user_data"):
         install_bundle(core_zip, target_taiwan_dir=forbidden_dest)
+
+
+# ── Regression tests for Codex Review Findings ─────────────────────────
+
+def test_p1_reject_archive_members_omitted_from_manifest(tmp_path: Path):
+    """P1 Finding 2: Reject any archive member omitted from the manifest."""
+    src_taiwan = tmp_path / "src_taiwan"
+    _create_mock_security_master(src_taiwan / "security_master.parquet")
+    _create_mock_daily_partition(src_taiwan / "daily" / "date=2024-01-02" / "part.parquet", "2024-01-02")
+
+    out_zip = tmp_path / "core.zip"
+    build_core_bundle(output_zip=out_zip, source_taiwan_dir=src_taiwan)
+
+    # Inject an undeclared extra file into the archive
+    injected_zip = tmp_path / "injected.zip"
+    with zipfile.ZipFile(out_zip, "r") as z_in, zipfile.ZipFile(injected_zip, "w") as z_out:
+        for item in z_in.infolist():
+            z_out.writestr(item, z_in.read(item.filename))
+        z_out.writestr("data/taiwan/extra_untrusted.parquet", b"untrusted data")
+
+    with pytest.raises(ValueError, match="Untrusted archive member omitted from manifest"):
+        verify_bundle(injected_zip)
+
+
+def test_p1_resolve_every_archive_member_beneath_destination(tmp_path: Path):
+    """P1 Finding 1: Disallow crafted members that attempt to resolve outside destination."""
+    malicious_zip = tmp_path / "crafted_leading_slash.zip"
+    manifest = BundleManifest(
+        bundle_type="core",
+        package_name="crafted",
+        created_at="2026-01-01T00:00:00Z",
+        data_through="2026-01-01",
+        files=[
+            {"path": "/tmp/payload.parquet", "size_bytes": 7, "sha256": "35a9e381b1a27567549b5f8a6f783c167ebf809f1c4d6a9e367240484d8be802"}
+        ],
+    )
+    with zipfile.ZipFile(malicious_zip, "w") as z:
+        z.writestr("manifest.json", manifest.model_dump_json())
+        z.writestr("data/taiwan//tmp/payload.parquet", b"payload")
+
+    # verify_bundle must reject insecure member path
+    with pytest.raises(ValueError, match="Insecure manifest file entry path"):
+        verify_bundle(malicious_zip)
+
+
+def test_p2_stage_whole_bundle_and_rollback_on_failure(tmp_path: Path, monkeypatch):
+    """P2 Finding 3: Rollback cleanly if commit fails midway, leaving no mixed state."""
+    src_taiwan = tmp_path / "src_taiwan"
+    _create_mock_security_master(src_taiwan / "security_master.parquet")
+    _create_mock_daily_partition(src_taiwan / "daily" / "date=2024-01-02" / "part.parquet", "2024-01-02")
+    _create_mock_daily_partition(src_taiwan / "daily" / "date=2024-01-03" / "part.parquet", "2024-01-03")
+
+    core_zip = tmp_path / "core.zip"
+    build_core_bundle(output_zip=core_zip, source_taiwan_dir=src_taiwan)
+
+    # Prepare existing live data
+    dest_taiwan = tmp_path / "live_taiwan"
+    dest_taiwan.mkdir(parents=True, exist_ok=True)
+    live_sec = dest_taiwan / "security_master.parquet"
+    live_sec.write_text("ORIGINAL_LIVE_SECURITY_MASTER", encoding="utf-8")
+
+    # Simulate write failure during second file replacement
+    import shutil
+    orig_copy2 = shutil.copy2
+    call_count = 0
+
+    def mock_copy2_failing(src, dst, *args, **kwargs):
+        nonlocal call_count
+        call_count += 1
+        # Let security_master pass, but fail on the daily partition
+        if "2024-01-02" in str(dst):
+            raise OSError("Disk full simulation during commit")
+        return orig_copy2(src, dst, *args, **kwargs)
+
+    monkeypatch.setattr(shutil, "copy2", mock_copy2_failing)
+
+    with pytest.raises(RuntimeError, match="installation failed and was rolled back"):
+        install_bundle(core_zip, target_taiwan_dir=dest_taiwan)
+
+    # Live security_master must be restored to its original content
+    assert live_sec.read_text(encoding="utf-8") == "ORIGINAL_LIVE_SECURITY_MASTER"
+    # The failed daily partition must NOT exist
+    assert not (dest_taiwan / "daily" / "date=2024-01-02" / "part.parquet").exists()
+
+
+def test_p2_reject_historical_bundle_with_no_census_partitions(tmp_path: Path):
+    """P2 Finding 4: Reject historical bundle build when TWSE census partitions are missing."""
+    src_taiwan = tmp_path / "src_taiwan"
+    # Create required subdirectories but keep exchange=TWSE empty of date partitions
+    (src_taiwan / "observed_universe" / "exchange=TWSE").mkdir(parents=True, exist_ok=True)
+    (src_taiwan / "historical_classification").mkdir(parents=True, exist_ok=True)
+    (src_taiwan / "instrument_evidence").mkdir(parents=True, exist_ok=True)
+    (src_taiwan / "adj_factor").mkdir(parents=True, exist_ok=True)
+
+    out_zip = tmp_path / "empty_hist.zip"
+    with pytest.raises(ValueError, match="No TWSE census partitions found"):
+        build_historical_bundle(output_zip=out_zip, source_taiwan_dir=src_taiwan)
+
+
+def test_p2_reject_unreadable_security_master(tmp_path: Path):
+    """P2 Finding 5: Fail-closed when security_master.parquet is empty or unreadable."""
+    src_taiwan = tmp_path / "src_taiwan"
+    sec_path = src_taiwan / "security_master.parquet"
+    sec_path.parent.mkdir(parents=True, exist_ok=True)
+    # Write a zero-byte empty file
+    sec_path.write_bytes(b"")
+
+    _create_mock_daily_partition(src_taiwan / "daily" / "date=2024-01-02" / "part.parquet", "2024-01-02")
+
+    out_zip = tmp_path / "bad_core.zip"
+    with pytest.raises(ValueError, match=r"Failed to read and validate security_master\.parquet"):
+        build_core_bundle(output_zip=out_zip, source_taiwan_dir=src_taiwan)
+
+
+def test_p2_reject_corrupt_daily_partition(tmp_path: Path):
+    """P2 Finding 5: Fail-closed when daily partition is unreadable."""
+    src_taiwan = tmp_path / "src_taiwan"
+    _create_mock_security_master(src_taiwan / "security_master.parquet")
+
+    # Corrupt daily partition
+    bad_daily = src_taiwan / "daily" / "date=2024-01-02" / "part.parquet"
+    bad_daily.parent.mkdir(parents=True, exist_ok=True)
+    bad_daily.write_bytes(b"not a parquet file")
+
+    out_zip = tmp_path / "bad_core.zip"
+    with pytest.raises(ValueError, match="Failed to read and validate daily partitions"):
+        build_core_bundle(output_zip=out_zip, source_taiwan_dir=src_taiwan)

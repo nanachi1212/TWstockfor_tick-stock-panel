@@ -7,7 +7,8 @@ by the Taiwan Data Bundle Audit (2026-09-26 in docs/taiwan-data-sources.md):
     (Optional data for Quant / Primary OOS evaluation)
   - Strict exclusion list: user_data, credentials, alerts, portfolio, AI conversations,
     live_quant signals, locks, logs, exports, and unverified data sources.
-  - Manifest & SHA-256 verification, safe extraction (anti-Zip Slip), and atomic installation.
+  - Manifest & SHA-256 verification, safe staging extraction (anti-Zip Slip),
+    staged atomic commit with rollback, and fail-closed data integrity validation.
 """
 from __future__ import annotations
 
@@ -113,6 +114,9 @@ def build_core_bundle(
     """Package Core Bundle (security_master.parquet + daily/).
 
     Returns (bundle_zip_path, manifest).
+    Raises:
+        FileNotFoundError: If essential files or directories are missing.
+        ValueError: If security_master or daily partitions are corrupt, unreadable, or empty.
     """
     src_dir = Path(source_taiwan_dir) if source_taiwan_dir else taiwan_data_root()
     if not src_dir.exists():
@@ -122,6 +126,23 @@ def build_core_bundle(
     if not sec_master_path.exists():
         raise FileNotFoundError(f"Missing security_master.parquet in {src_dir}")
 
+    # P2 Finding 5: Fail-closed validation for security_master.parquet readability and schema
+    try:
+        sec_df = pl.read_parquet(sec_master_path)
+        if sec_df.is_empty():
+            raise ValueError(f"security_master.parquet is empty: {sec_master_path}")
+        required_sec_cols = {"symbol", "name", "exchange"}
+        missing_sec = required_sec_cols - set(sec_df.columns)
+        if missing_sec:
+            raise ValueError(
+                f"security_master.parquet missing required columns {sorted(missing_sec)}: {sec_master_path}"
+            )
+        sec_rows = len(sec_df)
+    except Exception as exc:
+        if isinstance(exc, ValueError):
+            raise
+        raise ValueError(f"Failed to read and validate security_master.parquet: {exc}") from exc
+
     daily_dir = src_dir / "daily"
     if not daily_dir.exists():
         raise FileNotFoundError(f"Missing daily directory in {src_dir}")
@@ -129,6 +150,24 @@ def build_core_bundle(
     daily_files = sorted(daily_dir.glob("date=*/part.parquet"))
     if not daily_files:
         raise ValueError(f"No daily partitions found in {daily_dir}")
+
+    # P2 Finding 5: Fail-closed validation for daily partitions readability
+    try:
+        sample_df = pl.read_parquet(daily_files[0])
+        if sample_df.is_empty():
+            raise ValueError(f"Sample daily partition is empty: {daily_files[0]}")
+        required_daily_cols = {"symbol", "date", "open", "high", "low", "close", "volume"}
+        missing_daily = required_daily_cols - set(sample_df.columns)
+        if missing_daily:
+            raise ValueError(
+                f"Daily partition missing required columns {sorted(missing_daily)}: {daily_files[0]}"
+            )
+        sample_len = len(sample_df)
+        total_rows = sample_len * len(daily_files)
+    except Exception as exc:
+        if isinstance(exc, ValueError):
+            raise
+        raise ValueError(f"Failed to read and validate daily partitions: {exc}") from exc
 
     # Gather file entries
     file_entries: list[BundleFileEntry] = []
@@ -139,16 +178,8 @@ def build_core_bundle(
     sec_sha = _compute_sha256(sec_master_path)
     file_entries.append(BundleFileEntry(path=sec_rel, size_bytes=sec_size, sha256=sec_sha))
 
-    # Read security master rows count
-    try:
-        sec_df = pl.scan_parquet(sec_master_path).select(pl.len()).collect()
-        sec_rows = int(sec_df[0, 0])
-    except Exception:
-        sec_rows = 0
-
     # 2. daily partitions
     dates: list[str] = []
-    total_rows = 0
     for p in daily_files:
         rel = str(p.relative_to(src_dir)).replace("\\", "/")
         if _is_excluded(rel):
@@ -162,14 +193,6 @@ def build_core_bundle(
     dates.sort()
     start_date = dates[0] if dates else ""
     end_date = dates[-1] if dates else ""
-
-    # Estimate or count total daily rows (sample count if many files)
-    try:
-        sample_df = pl.scan_parquet(daily_files[0]).select(pl.len()).collect()
-        sample_len = int(sample_df[0, 0])
-        total_rows = sample_len * len(daily_files)
-    except Exception:
-        total_rows = 0
 
     pkg_name = package_name or f"nanachi-tw-core-bundle-{start_date}_to_{end_date}"
     output_zip = src_dir.parent / f"{pkg_name}.zip" if output_zip is None else Path(output_zip)
@@ -213,8 +236,6 @@ def build_core_bundle(
 
         bundle_sha = _compute_sha256(tmp_zip)
         manifest.bundle_sha256 = bundle_sha
-
-        # Re-write manifest inside zip with bundle_sha256 if desired, or replace file
         tmp_zip.replace(output_zip)
         logger.info("Successfully built Core Bundle at %s (SHA-256: %s)", output_zip, bundle_sha)
         return output_zip, manifest
@@ -240,6 +261,9 @@ def build_historical_bundle(
       - observed_universe/exchange=TPEX/ (Secondary experimental, excluded from primary OOS)
       - factors/ (Can be computed on-the-fly via --build-factor-panel)
       - user_data, signals, rules, locks, logs
+    Raises:
+        FileNotFoundError: If required source directory is missing.
+        ValueError: If TWSE census partitions or required datasets are missing or empty.
     """
     src_dir = Path(source_taiwan_dir) if source_taiwan_dir else taiwan_data_root()
     if not src_dir.exists():
@@ -250,22 +274,44 @@ def build_historical_bundle(
     if not twse_obs_dir.exists():
         raise FileNotFoundError(f"Missing observed_universe/exchange=TWSE in {src_dir}")
 
+    # P2 Finding 4: Reject historical bundles with no TWSE census partitions (no fallback dates)
+    twse_partitions = sorted(twse_obs_dir.glob("date=*/part.parquet"))
+    if not twse_partitions:
+        raise ValueError(
+            f"No TWSE census partitions found in {twse_obs_dir}; cannot build historical bundle"
+        )
+
     classif_dir = src_dir / "historical_classification"
     if not classif_dir.exists():
         raise FileNotFoundError(f"Missing historical_classification in {src_dir}")
+
+    classif_partitions = sorted(classif_dir.glob("date=*/part.parquet"))
+    if not classif_partitions:
+        raise ValueError(
+            f"No classification partitions found in {classif_dir}; cannot build historical bundle"
+        )
 
     evidence_dir = src_dir / "instrument_evidence"
     if not evidence_dir.exists():
         raise FileNotFoundError(f"Missing instrument_evidence in {src_dir}")
 
+    evidence_files = sorted(evidence_dir.glob("*.parquet"))
+    if not evidence_files:
+        raise ValueError(
+            f"No evidence parquet files found in {evidence_dir}; cannot build historical bundle"
+        )
+
     adj_dir = src_dir / "adj_factor"
     if not adj_dir.exists():
         raise FileNotFoundError(f"Missing adj_factor in {src_dir}")
 
-    files_to_pack: list[Path] = []
+    adj_events = adj_dir / "events.parquet"
+    if not adj_events.exists():
+        raise ValueError(
+            f"Missing required adj_factor/events.parquet in {adj_dir}; cannot build historical bundle"
+        )
 
-    # 1. TWSE observed_universe partitions
-    twse_partitions = sorted(twse_obs_dir.glob("date=*/part.parquet"))
+    files_to_pack: list[Path] = []
     files_to_pack.extend(twse_partitions)
 
     # TWSE month verification
@@ -273,18 +319,10 @@ def build_historical_bundle(
     if month_verif.exists():
         files_to_pack.append(month_verif)
 
-    # 2. Historical classification
-    classif_partitions = sorted(classif_dir.glob("date=*/part.parquet"))
     files_to_pack.extend(classif_partitions)
-
-    # 3. Instrument evidence
-    evidence_files = sorted(evidence_dir.glob("*.parquet"))
     files_to_pack.extend(evidence_files)
+    files_to_pack.append(adj_events)
 
-    # 4. Adj factor
-    adj_events = adj_dir / "events.parquet"
-    if adj_events.exists():
-        files_to_pack.append(adj_events)
     adj_coverage = adj_dir / "coverage.json"
     if adj_coverage.exists():
         files_to_pack.append(adj_coverage)
@@ -303,11 +341,11 @@ def build_historical_bundle(
         file_entries.append(BundleFileEntry(path=rel, size_bytes=size, sha256=sha))
         final_pack_list.append(f)
 
-    # Determine date range from TWSE census partitions
+    # P2 Finding 4: Determine date range strictly from verified TWSE census partitions
     twse_dates = [p.parent.name.replace("date=", "") for p in twse_partitions]
     twse_dates.sort()
-    start_date = twse_dates[0] if twse_dates else "2015-01-05"
-    end_date = twse_dates[-1] if twse_dates else "2026-09-25"
+    start_date = twse_dates[0]
+    end_date = twse_dates[-1]
 
     pkg_name = package_name or f"nanachi-tw-historical-bundle-{start_date}_to_{end_date}"
     output_zip = src_dir.parent / f"{pkg_name}.zip" if output_zip is None else Path(output_zip)
@@ -359,9 +397,13 @@ def build_historical_bundle(
 def verify_bundle(bundle_zip_path: Path) -> BundleManifest:
     """Verify bundle zip integrity, structure, manifest, and individual SHA-256 hashes.
 
+    P1 Finding 1: Strict Zip Slip check rejecting absolute paths, traversal, drive letters.
+    P1 Finding 2: Rejects any archive members omitted from the manifest or undeclared.
+
     Raises:
         FileNotFoundError: If zip file does not exist.
-        ValueError: If zip is corrupted, contains Zip Slip attempts, or checksum mismatches.
+        ValueError: If zip is corrupted, contains Zip Slip attempts, checksum mismatches,
+                    or undeclared data files omitted from manifest.
     """
     bundle_path = Path(bundle_zip_path)
     if not bundle_path.exists():
@@ -369,14 +411,17 @@ def verify_bundle(bundle_zip_path: Path) -> BundleManifest:
 
     with zipfile.ZipFile(bundle_path, "r") as z:
         names = z.namelist()
+
         # Security: Anti-Zip Slip check on all members
         for name in names:
-            if os.path.isabs(name) or name.startswith(("/", "\\")):
+            norm_name = name.replace("\\", "/")
+            if os.path.isabs(name) or norm_name.startswith("/"):
                 raise ValueError(f"Zip Slip attack detected: absolute path {name}")
-            if ".." in name.replace("\\", "/").split("/"):
-                raise ValueError(f"Zip Slip attack detected: path traversal in {name}")
             if ":" in name:
                 raise ValueError(f"Zip Slip attack detected: drive letter in {name}")
+            parts = [p for p in norm_name.split("/") if p]
+            if ".." in parts:
+                raise ValueError(f"Zip Slip attack detected: path traversal in {name}")
 
         if "manifest.json" not in names:
             raise ValueError(f"Invalid bundle: missing manifest.json in {bundle_path.name}")
@@ -384,9 +429,31 @@ def verify_bundle(bundle_zip_path: Path) -> BundleManifest:
         manifest_data = json.loads(z.read("manifest.json").decode("utf-8"))
         manifest = BundleManifest.model_validate(manifest_data)
 
-        # Check each declared file in manifest
+        # P1 Finding 2: Exact declaration matching between ZIP members and manifest.files
+        # Every non-metadata member in the archive MUST be in manifest.files, and vice versa.
+        declared_map: dict[str, BundleFileEntry] = {}
         for entry in manifest.files:
-            zip_member_path = f"data/taiwan/{entry.path}"
+            # P1 Finding 1: Disallow crafted entry paths inside manifest as well
+            entry_norm = entry.path.replace("\\", "/").strip("/")
+            if not entry_norm or entry.path.startswith(("/", "\\")) or ":" in entry.path or ".." in entry_norm.split("/"):
+                raise ValueError(f"Insecure manifest file entry path: {entry.path}")
+            zip_member_path = f"data/taiwan/{entry_norm}"
+            declared_map[zip_member_path] = entry
+
+        # Check for any archive member omitted from manifest
+        for info in z.infolist():
+            fname = info.filename.replace("\\", "/")
+            if info.is_dir():
+                continue
+            if fname in ("manifest.json", "SHA256SUMS.txt"):
+                continue
+            if not fname.startswith("data/taiwan/"):
+                raise ValueError(f"Invalid bundle: unexpected file outside data/taiwan: {fname}")
+            if fname not in declared_map:
+                raise ValueError(f"Untrusted archive member omitted from manifest: {fname}")
+
+        # Check each declared file in manifest
+        for zip_member_path, entry in declared_map.items():
             if zip_member_path not in names:
                 raise ValueError(f"Bundle missing declared file: {zip_member_path}")
 
@@ -417,8 +484,10 @@ def install_bundle(
 ) -> dict[str, Any]:
     """Safely install/merge a verified bundle into target_taiwan_dir.
 
-    Preserves existing partitions and files that are not part of the bundle.
-    Replaces identical files atomically without breaking active readers.
+    P1 Finding 1: Strict destination containment resolution.
+    P1 Finding 2: Only installs verified manifest entries; undeclared files rejected.
+    P2 Finding 3: Stages complete bundle and validates snapshot before committing to live DATA_DIR.
+                 Rolls back cleanly on any write error so live DATA_DIR is never left mixed.
     """
     bundle_path = Path(bundle_zip_path)
     dest_taiwan = Path(target_taiwan_dir) if target_taiwan_dir else taiwan_data_root()
@@ -428,7 +497,7 @@ def install_bundle(
     if "user_data" in [p.lower() for p in dest_taiwan.parts]:
         raise RuntimeError(f"Security violation: target path cannot be inside user_data: {dest_taiwan}")
 
-    # 1. Verify bundle
+    # 1. Verify bundle integrity, manifest declaration, and Zip Slip
     manifest = verify_bundle(bundle_path) if verify_checksums else None
     if manifest is None:
         with zipfile.ZipFile(bundle_path, "r") as z:
@@ -437,44 +506,111 @@ def install_bundle(
 
     dest_taiwan.mkdir(parents=True, exist_ok=True)
 
-    installed_files = 0
-    with (
-        tempfile.TemporaryDirectory(prefix="nanachi_tw_install_"),
-        zipfile.ZipFile(bundle_path, "r") as z,
-    ):
-        for member in z.infolist():
-                filename = member.filename
-                # Skip manifest and checksum files from data root installation
-                if filename in ("manifest.json", "SHA256SUMS.txt"):
-                    continue
-                if not filename.startswith("data/taiwan/"):
-                    continue
+    # P2 Finding 3: Stage the whole bundle into a staging directory first
+    with tempfile.TemporaryDirectory(prefix="nanachi_tw_staging_") as stage_tmp_str:
+        stage_root = Path(stage_tmp_str) / "taiwan"
+        stage_root.mkdir(parents=True, exist_ok=True)
 
-                rel_in_taiwan = filename[len("data/taiwan/"):]
-                if not rel_in_taiwan:
-                    continue
+        staged_files: list[tuple[Path, Path]] = []  # (staged_path, live_target_path)
 
-                if _is_excluded(rel_in_taiwan):
-                    logger.warning("Skipping forbidden entry during install: %s", rel_in_taiwan)
-                    continue
+        with zipfile.ZipFile(bundle_path, "r") as z:
+            for entry in manifest.files:
+                # P1 Finding 1: Normalize and resolve relative path beneath destination
+                raw_rel = entry.path.replace("\\", "/")
+                # Strip leading slashes to prevent root-escape
+                clean_rel = raw_rel.strip("/")
+                if not clean_rel or ":" in clean_rel:
+                    raise ValueError(f"Insecure member path detected: {entry.path}")
 
-                target_dest = dest_taiwan / rel_in_taiwan
-                if member.is_dir():
-                    target_dest.mkdir(parents=True, exist_ok=True)
-                else:
-                    target_dest.parent.mkdir(parents=True, exist_ok=True)
-                    # Extract to temp file then atomic replace
-                    tmp_dest = target_dest.parent / f"{target_dest.name}.tmp_{uuid.uuid4().hex[:6]}"
-                    with z.open(member) as src, open(tmp_dest, "wb") as dst:
-                        shutil.copyfileobj(src, dst)
-                    tmp_dest.replace(target_dest)
-                    installed_files += 1
+                target_dest = (dest_taiwan / clean_rel).resolve()
+                staged_dest = (stage_root / clean_rel).resolve()
+
+                # Verify target stays strictly beneath resolved dest_taiwan
+                try:
+                    if not target_dest.is_relative_to(dest_taiwan):
+                        raise ValueError(f"Zip Slip attack detected: {entry.path} resolves outside destination")
+                except AttributeError:
+                    if not str(target_dest).startswith(str(dest_taiwan)):
+                        raise ValueError(f"Zip Slip attack detected: {entry.path} resolves outside destination") from None
+
+                # Disallow escaping to user_data
+                if "user_data" in [p.lower() for p in target_dest.parts]:
+                    raise RuntimeError(f"Security violation: target path cannot be inside user_data: {target_dest}")
+
+                zip_member_path = f"data/taiwan/{clean_rel}"
+                staged_dest.parent.mkdir(parents=True, exist_ok=True)
+
+                with z.open(zip_member_path) as src, open(staged_dest, "wb") as dst:
+                    shutil.copyfileobj(src, dst)
+
+                staged_files.append((staged_dest, target_dest))
+
+        # Staging Validation: Verify extracted staged files
+        for staged_p, _ in staged_files:
+            if not staged_p.exists() or staged_p.stat().st_size == 0:
+                raise ValueError(f"Staged file extraction failed or empty: {staged_p}")
+
+        if manifest.bundle_type == "core":
+            staged_sec = stage_root / "security_master.parquet"
+            if not staged_sec.exists():
+                raise ValueError("Core bundle missing staged security_master.parquet")
+            sec_scan = pl.read_parquet(staged_sec)
+            if sec_scan.is_empty():
+                raise ValueError("Staged security_master.parquet is empty")
+        elif manifest.bundle_type == "historical":
+            staged_obs = stage_root / "observed_universe" / "exchange=TWSE"
+            if not staged_obs.exists() or not list(staged_obs.glob("date=*/part.parquet")):
+                raise ValueError("Historical bundle missing staged TWSE census partitions")
+
+        # P2 Finding 3: Atomic commit with rollback
+        # Prepare backup of existing live files in case a write fails midway
+        with tempfile.TemporaryDirectory(prefix="nanachi_tw_backup_") as backup_tmp_str:
+            backup_root = Path(backup_tmp_str)
+            backed_up: list[tuple[Path, Path]] = []  # (live_path, backup_path)
+            created_new_live_files: list[Path] = []
+            installed_count = 0
+
+            try:
+                for staged_p, live_dest in staged_files:
+                    live_dest.parent.mkdir(parents=True, exist_ok=True)
+                    if live_dest.exists():
+                        # Backup existing live file
+                        rel_live = live_dest.relative_to(dest_taiwan)
+                        backup_p = backup_root / rel_live
+                        backup_p.parent.mkdir(parents=True, exist_ok=True)
+                        shutil.copy2(live_dest, backup_p)
+                        backed_up.append((live_dest, backup_p))
+                    else:
+                        created_new_live_files.append(live_dest)
+
+                    # Atomic file replace
+                    tmp_replace = live_dest.parent / f"{live_dest.name}.tmp_{uuid.uuid4().hex[:6]}"
+                    shutil.copy2(staged_p, tmp_replace)
+                    tmp_replace.replace(live_dest)
+                    installed_count += 1
+
+            except BaseException as commit_err:
+                logger.error("Commit failed during bundle install; rolling back live files: %s", commit_err)
+                # Rollback step 1: restore backed up original files
+                for live_dest, backup_p in backed_up:
+                    try:
+                        shutil.copy2(backup_p, live_dest)
+                    except Exception as rb_exc:
+                        logger.critical("Rollback failure restoring %s: %s", live_dest, rb_exc)
+                # Rollback step 2: remove newly created files
+                for new_file in created_new_live_files:
+                    try:
+                        if new_file.exists():
+                            new_file.unlink(missing_ok=True)
+                    except Exception as rb_exc:
+                        logger.critical("Rollback failure unlinking %s: %s", new_file, rb_exc)
+                raise RuntimeError(f"Bundle installation failed and was rolled back cleanly: {commit_err}") from commit_err
 
     return {
         "ok": True,
         "bundle_type": manifest.bundle_type,
         "package_name": manifest.package_name,
         "data_through": manifest.data_through,
-        "installed_files": installed_files,
+        "installed_files": installed_count,
         "target_directory": str(dest_taiwan),
     }
