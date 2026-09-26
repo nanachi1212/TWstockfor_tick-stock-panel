@@ -13,6 +13,7 @@ from app.taiwan.events_service import (
     MarketEvent,
     TaiwanEventService,
     parse_taiwan_date,
+    taipei_now,
 )
 from app.taiwan.market_intelligence import (
     DataQualityReport,
@@ -114,7 +115,7 @@ def test_events_service_severity_and_types():
 
 def test_events_service_filter_scopes():
     service = TaiwanEventService()
-    today_str = datetime.now().strftime("%Y-%m-%d")
+    today_str = taipei_now().strftime("%Y-%m-%d")
 
     events = [
         MarketEvent(
@@ -167,7 +168,7 @@ def test_events_service_filter_scopes():
 
 def test_events_service_candidates_and_risk_check():
     service = TaiwanEventService()
-    today_str = datetime.now().strftime("%Y-%m-%d")
+    today_str = taipei_now().strftime("%Y-%m-%d")
 
     events = [
         MarketEvent(
@@ -240,7 +241,7 @@ def test_events_service_candidates_and_risk_check():
 
 def test_events_service_trigger_alerts(tmp_path):
     service = TaiwanEventService()
-    today_str = datetime.now().strftime("%Y-%m-%d")
+    today_str = taipei_now().strftime("%Y-%m-%d")
 
     events = [
         MarketEvent(

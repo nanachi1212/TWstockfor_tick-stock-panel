@@ -1651,6 +1651,7 @@ export interface MarketEvent {
   source_url?: string | null
   retrieved_at: string
   freshness: string
+  is_resolvable?: boolean
   details?: Record<string, any>
 }
 
@@ -2347,6 +2348,8 @@ export interface AiKeyProfile {
   id: string
   name: string
   provider: string
+  base_url: string
+  model: string
   key_masked: string
   has_key: boolean
   active: boolean
@@ -2597,7 +2600,7 @@ export const api = {
   aiKeyProfiles: () =>
     request<{ profiles: AiKeyProfile[] }>('/api/settings/ai-key-profiles'),
 
-  aiKeyProfileCreate: (profile: { name: string; provider: string; api_key: string }) =>
+  aiKeyProfileCreate: (profile: { name: string; provider: string; api_key: string; base_url?: string; model?: string }) =>
     request<{ ok: boolean; profile: AiKeyProfile }>('/api/settings/ai-key-profiles', {
       method: 'POST',
       body: JSON.stringify(profile),

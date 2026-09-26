@@ -25,6 +25,8 @@ import {
 import { QK } from '@/lib/queryKeys'
 import { toast } from '@/components/Toast'
 import { cn } from '@/lib/cn'
+import { CopyButton } from '@/components/CopyButton'
+import { formatDailyBriefCopy, formatDailyBriefPrompt } from '@/lib/copy-formatters'
 
 export function DailyBrief() {
   const qc = useQueryClient()
@@ -140,6 +142,7 @@ export function DailyBrief() {
 
   const brief = activeHistoryBrief ? activeHistoryBrief.structured_brief : briefQuery.data
   const aiSummary = activeHistoryBrief ? activeHistoryBrief.ai_summary : liveAiSummary
+  const [includePortfolioInCopy, setIncludePortfolioInCopy] = useState<boolean>(false)
 
   const allCandidates: CandidateItem[] = useMemo(() => {
     if (!brief) return []
@@ -197,7 +200,170 @@ export function DailyBrief() {
         </div>
 
         {/* 右側操作群組 */}
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-3 flex-wrap">
+          {/* 複製資料與隱私開關 */}
+          {brief && (
+            <div className="flex items-center gap-2">
+              <label className="flex items-center gap-1.5 text-xs text-muted cursor-pointer select-none">
+                <input
+                  type="checkbox"
+                  checked={includePortfolioInCopy}
+                  onChange={e => setIncludePortfolioInCopy(e.target.checked)}
+                  className="rounded border-border bg-base text-accent focus:ring-accent"
+                />
+                <span>包含個人持股資料</span>
+              </label>
+              <CopyButton
+                label="複製資料"
+                getText={() => formatDailyBriefCopy({
+                  brief_date: brief.brief_date,
+                  evidence_date: (brief as any).evidence_date || brief.brief_date,
+                  market: brief.market ? {
+                    taiex_close: brief.market.taiex_close,
+                    change: brief.market.taiex_change,
+                    change_pct: brief.market.taiex_change_pct,
+                    turnover: brief.market.total_turnover,
+                    sentiment_label: brief.market.sentiment_label,
+                    foreign_net: brief.market.foreign_net,
+                    trust_net: brief.market.investment_trust_net,
+                    dealer_net: brief.market.dealer_net,
+                    advances: brief.market.advance_count,
+                    declines: brief.market.decline_count,
+                    unchanged: brief.market.flat_count,
+                    limit_up: brief.market.upper_limit_count,
+                    limit_down: brief.market.lower_limit_count,
+                  } : null,
+                  sectors: brief.market ? {
+                    strong: brief.market.strongest_sectors.map(s => ({ name: s.industry, change_pct: s.change_pct })),
+                    weak: brief.market.weakest_sectors.map(s => ({ name: s.industry, change_pct: s.change_pct })),
+                  } : null,
+                  portfolio: brief.portfolio ? {
+                    holdings_count: brief.portfolio.holdings_count,
+                    items: brief.portfolio.biggest_movers?.map(m => ({
+                      symbol: m.symbol,
+                      name: m.name,
+                      shares: m.shares,
+                      avg_cost: m.average_cost,
+                      close: m.close,
+                      change_pct: m.change_pct,
+                    })),
+                  } : null,
+                  includePortfolio: includePortfolioInCopy,
+                  watchlist: brief.watchlist?.quant_leaders?.map(w => ({
+                    symbol: w.symbol,
+                    name: w.name,
+                    close: w.close,
+                    change_pct: w.change_pct,
+                    quant_score: w.quant_score,
+                  })),
+                  candidates: allCandidates.map(c => ({
+                    symbol: c.symbol,
+                    name: c.name,
+                    score: c.quant_score,
+                    reason: c.match_reasons?.[0],
+                    close: c.close,
+                    change_pct: c.change_pct,
+                  })),
+                  events: (brief.events?.risk_events || []).concat(brief.events?.attention_events || []).map((e: any) => ({
+                    symbol: e.symbol,
+                    name: e.name,
+                    date: e.event_date,
+                    type: e.event_type_label,
+                    title: e.title || e.event_type_label,
+                  })),
+                  news: brief.news?.items?.map((n: any) => ({
+                    title: n.title,
+                    source: n.source,
+                    date: n.published_at,
+                  })),
+                  aiSummary: aiSummary ? [
+                    aiSummary.section_a_market,
+                    ...(aiSummary.section_b_key_changes ?? []),
+                    aiSummary.section_c_portfolio,
+                    aiSummary.section_d_watchlist,
+                    aiSummary.section_e_candidates,
+                    aiSummary.section_f_risks,
+                    aiSummary.section_g_tracking,
+                  ].filter(Boolean).join('\n\n') : null,
+                })}
+              />
+              <CopyButton
+                label="複製 AI 提示詞"
+                successLabel="已複製提示詞"
+                getText={() => formatDailyBriefPrompt({
+                  brief_date: brief.brief_date,
+                  evidence_date: (brief as any).evidence_date || brief.brief_date,
+                  market: brief.market ? {
+                    taiex_close: brief.market.taiex_close,
+                    change: brief.market.taiex_change,
+                    change_pct: brief.market.taiex_change_pct,
+                    turnover: brief.market.total_turnover,
+                    sentiment_label: brief.market.sentiment_label,
+                    foreign_net: brief.market.foreign_net,
+                    trust_net: brief.market.investment_trust_net,
+                    dealer_net: brief.market.dealer_net,
+                    advances: brief.market.advance_count,
+                    declines: brief.market.decline_count,
+                    unchanged: brief.market.flat_count,
+                    limit_up: brief.market.upper_limit_count,
+                    limit_down: brief.market.lower_limit_count,
+                  } : null,
+                  sectors: brief.market ? {
+                    strong: brief.market.strongest_sectors.map(s => ({ name: s.industry, change_pct: s.change_pct })),
+                    weak: brief.market.weakest_sectors.map(s => ({ name: s.industry, change_pct: s.change_pct })),
+                  } : null,
+                  portfolio: brief.portfolio ? {
+                    holdings_count: brief.portfolio.holdings_count,
+                    items: brief.portfolio.biggest_movers?.map(m => ({
+                      symbol: m.symbol,
+                      name: m.name,
+                      shares: m.shares,
+                      avg_cost: m.average_cost,
+                      close: m.close,
+                      change_pct: m.change_pct,
+                    })),
+                  } : null,
+                  includePortfolio: includePortfolioInCopy,
+                  watchlist: brief.watchlist?.quant_leaders?.map(w => ({
+                    symbol: w.symbol,
+                    name: w.name,
+                    close: w.close,
+                    change_pct: w.change_pct,
+                    quant_score: w.quant_score,
+                  })),
+                  candidates: allCandidates.map(c => ({
+                    symbol: c.symbol,
+                    name: c.name,
+                    score: c.quant_score,
+                    reason: c.match_reasons?.[0],
+                    close: c.close,
+                    change_pct: c.change_pct,
+                  })),
+                  events: (brief.events?.risk_events || []).concat(brief.events?.attention_events || []).map((e: any) => ({
+                    symbol: e.symbol,
+                    name: e.name,
+                    date: e.event_date,
+                    type: e.event_type_label,
+                    title: e.title || e.event_type_label,
+                  })),
+                  news: brief.news?.items?.map((n: any) => ({
+                    title: n.title,
+                    source: n.source,
+                    date: n.published_at,
+                  })),
+                  aiSummary: aiSummary ? [
+                    aiSummary.section_a_market,
+                    ...(aiSummary.section_b_key_changes ?? []),
+                    aiSummary.section_c_portfolio,
+                    aiSummary.section_d_watchlist,
+                    aiSummary.section_e_candidates,
+                    aiSummary.section_f_risks,
+                    aiSummary.section_g_tracking,
+                  ].filter(Boolean).join('\n\n') : null,
+                })}
+              />
+            </div>
+          )}
           {/* 歷史紀錄按鈕 */}
           <button
             onClick={() => setShowHistoryModal(true)}

@@ -88,6 +88,7 @@ class MarketEvent(BaseModel):
     retrieved_at: str = Field(..., description="資料檢索時間 ISO 字串")
     freshness: str = Field("fresh", description="資料新鮮度: fresh, cached, stale, unavailable")
     details: dict[str, Any] = Field(default_factory=dict, description="結構化細節")
+    is_resolvable: bool = Field(True, description="False 表示代碼無法在 security master 中解析，個股詳情導航不可用")
 
 
 class EventCandidatesResponse(BaseModel):
@@ -165,8 +166,13 @@ class TaiwanEventService:
         }
         self.last_status: str = "available"
 
-    def _resolve_symbol(self, raw_code: str, fallback_exchange: str = "TWSE") -> tuple[str, str, str, str]:
-        """Resolve raw code into (symbol, code, name, exchange)."""
+    def _resolve_symbol(self, raw_code: str, fallback_exchange: str = "TWSE") -> tuple[str, str, str, str, bool]:
+        """Resolve raw code into (symbol, code, name, exchange, is_resolvable).
+
+        is_resolvable=False when the code cannot be found in security master;
+        callers should set MarketEvent.is_resolvable accordingly to disable
+        broken stock-detail navigation in the frontend.
+        """
         code = str(raw_code).strip().upper()
         if "." in code:
             parts = code.split(".")
@@ -181,8 +187,8 @@ class TaiwanEventService:
 
         if inst:
             exch = inst.exchange.value if hasattr(inst.exchange, "value") else str(inst.exchange)
-            return inst.symbol, code, inst.name, exch
-        return f"{code}.{fallback_exchange}", code, code, fallback_exchange
+            return inst.symbol, code, inst.name, exch, True
+        return f"{code}.{fallback_exchange}", code, code, fallback_exchange, False
 
     def fetch_twse_punish_events(self) -> list[MarketEvent]:
         """Fetch TWSE disposition securities (處置股票)."""
@@ -207,7 +213,7 @@ class TaiwanEventService:
                 except Exception:
                     ev_date = taipei_now().date().isoformat()
 
-                symbol, clean_code, name, exchange = self._resolve_symbol(code, "TWSE")
+                symbol, clean_code, name, exchange, is_resolvable = self._resolve_symbol(code, "TWSE")
                 reasons = str(r.get("ReasonsOfDisposition") or "").strip()
                 period = str(r.get("DispositionPeriod") or "").strip()
                 measures = str(r.get("DispositionMeasures") or "").strip()
@@ -232,6 +238,7 @@ class TaiwanEventService:
                         source_url="https://www.twse.com.tw/rwd/zh/announcement/punish",
                         retrieved_at=now_iso,
                         freshness="fresh",
+                        is_resolvable=is_resolvable,
                         details={
                             "period": period,
                             "measures": measures,
@@ -269,7 +276,7 @@ class TaiwanEventService:
                 except Exception:
                     ev_date = taipei_now().date().isoformat()
 
-                symbol, clean_code, name, exchange = self._resolve_symbol(code, "TPEX")
+                symbol, clean_code, name, exchange, is_resolvable = self._resolve_symbol(code, "TPEX")
                 reasons = str(r.get("DispositionReasons") or "").strip()
                 period = str(r.get("DispositionPeriod") or "").strip()
                 cond = str(r.get("DisposalCondition") or "").strip()
@@ -293,6 +300,7 @@ class TaiwanEventService:
                         source_url="https://www.tpex.org.tw/openapi/v1/tpex_disposal_information",
                         retrieved_at=now_iso,
                         freshness="fresh",
+                        is_resolvable=is_resolvable,
                         details={
                             "period": period,
                             "reasons": reasons,
@@ -329,7 +337,7 @@ class TaiwanEventService:
                 except Exception:
                     ev_date = taipei_now().date().isoformat()
 
-                symbol, clean_code, name, exchange = self._resolve_symbol(code, "TWSE")
+                symbol, clean_code, name, exchange, is_resolvable = self._resolve_symbol(code, "TWSE")
                 info = str(r.get("TradingInfoForAttention") or "").strip()
 
                 event_id = hashlib.sha256(f"twse_notice_{clean_code}_{ev_date}".encode()).hexdigest()[:16]
@@ -350,6 +358,7 @@ class TaiwanEventService:
                         source_url="https://www.twse.com.tw/rwd/zh/announcement/notice",
                         retrieved_at=now_iso,
                         freshness="fresh",
+                        is_resolvable=is_resolvable,
                         details={"info": info},
                     )
                 )
@@ -382,7 +391,7 @@ class TaiwanEventService:
                 except Exception:
                     ev_date = taipei_now().date().isoformat()
 
-                symbol, clean_code, name, exchange = self._resolve_symbol(code, "TPEX")
+                symbol, clean_code, name, exchange, is_resolvable = self._resolve_symbol(code, "TPEX")
                 info = str(r.get("TradingInformation") or "").strip()
 
                 event_id = hashlib.sha256(f"tpex_warn_{clean_code}_{ev_date}".encode()).hexdigest()[:16]
@@ -403,6 +412,7 @@ class TaiwanEventService:
                         source_url="https://www.tpex.org.tw/openapi/v1/tpex_trading_warning_information",
                         retrieved_at=now_iso,
                         freshness="fresh",
+                        is_resolvable=is_resolvable,
                         details={"info": info},
                     )
                 )
@@ -441,7 +451,7 @@ class TaiwanEventService:
                 except Exception:
                     continue
 
-                symbol, clean_code, name, exchange = self._resolve_symbol(code, "TWSE")
+                symbol, clean_code, name, exchange, is_resolvable = self._resolve_symbol(code, "TWSE")
                 event_id = hashlib.sha256(f"twse_delist_{clean_code}_{ev_date}".encode()).hexdigest()[:16]
                 events.append(
                     MarketEvent(
@@ -460,6 +470,7 @@ class TaiwanEventService:
                         source_url="https://openapi.twse.com.tw/v1/company/suspendListingCsvAndHtml",
                         retrieved_at=now_iso,
                         freshness="fresh",
+                        is_resolvable=is_resolvable,
                         details={"delisting_date": ev_date},
                     )
                 )
@@ -492,7 +503,7 @@ class TaiwanEventService:
                 except Exception:
                     ev_date = taipei_now().date().isoformat()
 
-                symbol, clean_code, name, exchange = self._resolve_symbol(code, "TPEX")
+                symbol, clean_code, name, exchange, is_resolvable = self._resolve_symbol(code, "TPEX")
                 is_suspended = bool(str(r.get("SuspensionOfTrading") or "").strip())
                 is_altered = bool(str(r.get("AlteredTrading") or "").strip())
 
@@ -515,6 +526,7 @@ class TaiwanEventService:
                             source_url="https://www.tpex.org.tw/openapi/v1/tpex_cmode",
                             retrieved_at=now_iso,
                             freshness="fresh",
+                            is_resolvable=is_resolvable,
                             details={"raw": r},
                         )
                     )
@@ -537,6 +549,7 @@ class TaiwanEventService:
                             source_url="https://www.tpex.org.tw/openapi/v1/tpex_cmode",
                             retrieved_at=now_iso,
                             freshness="fresh",
+                            is_resolvable=is_resolvable,
                             details={"raw": r},
                         )
                     )
@@ -555,7 +568,7 @@ class TaiwanEventService:
             self.sources_status["corporate_actions"] = "available"
             events: list[MarketEvent] = []
             for a in actions:
-                symbol, code, name, exchange = self._resolve_symbol(a.symbol, a.exchange)
+                symbol, code, name, exchange, is_resolvable = self._resolve_symbol(a.symbol, a.exchange)
                 ev_date = a.effective_date.isoformat()
                 event_type = a.event_type
                 if event_type not in SEVERITY_BY_EVENT_TYPE:
@@ -598,6 +611,7 @@ class TaiwanEventService:
                         source_url=a.source_url,
                         retrieved_at=a.retrieved_at.isoformat() if a.retrieved_at else now_iso,
                         freshness="fresh",
+                        is_resolvable=is_resolvable,
                         details={
                             "previous_close": a.previous_close,
                             "reference_price": a.reference_price,
@@ -731,7 +745,7 @@ class TaiwanEventService:
 
         pit_events: list[MarketEvent] = []
         for a in actions:
-            a_sym, a_code, a_name, a_exch = self._resolve_symbol(a.symbol, a.exchange)
+            a_sym, a_code, a_name, a_exch, _is_resolvable_pit = self._resolve_symbol(a.symbol, a.exchange)
             if a_sym.upper() != clean_sym and a_code.upper() != clean_code and not clean_sym.startswith(a_code.upper()):
                 continue
 
@@ -788,6 +802,7 @@ class TaiwanEventService:
                     source_url=a.source_url,
                     retrieved_at=avail_dt.isoformat(),
                     freshness="fresh",
+                    is_resolvable=_is_resolvable_pit,
                     details={
                         "previous_close": a.previous_close,
                         "reference_price": a.reference_price,

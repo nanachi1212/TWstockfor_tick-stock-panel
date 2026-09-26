@@ -117,6 +117,8 @@ def list_profiles() -> list[dict]:
                 "id": pid,
                 "name": p.get("name", ""),
                 "provider": p.get("provider", "openai_compat"),
+                "base_url": p.get("base_url", ""),
+                "model": p.get("model", ""),
                 "key_masked": mask(key_raw),
                 "has_key": bool(key_raw),
                 "active": bool(p.get("active", False)),
@@ -154,7 +156,28 @@ def get_active_provider() -> str | None:
     return None
 
 
-def create_profile(name: str, provider: str, api_key: str) -> dict:
+def get_active_profile_config() -> dict | None:
+    """Return complete config of the active profile: {key, base_url, model, provider}.
+
+    Returns None if no active profile exists. Falls back to legacy storage if
+    profile lacks base_url/model (profiles created before this field was added).
+    """
+    with _lock:
+        profiles = _load_metadata()
+        secrets = _load_secrets()
+        for p in profiles:
+            if p.get("active"):
+                pid = str(p.get("id", ""))
+                return {
+                    "key": str(secrets.get(pid, "")),
+                    "provider": str(p.get("provider", "openai_compat")),
+                    "base_url": str(p.get("base_url", "")),
+                    "model": str(p.get("model", "")),
+                }
+    return None
+
+
+def create_profile(name: str, provider: str, api_key: str, *, base_url: str = "", model: str = "") -> dict:
     """Create a new profile. Returns metadata (no key)."""
     if not name.strip():
         raise ValueError("Profile name cannot be empty")
@@ -171,10 +194,11 @@ def create_profile(name: str, provider: str, api_key: str) -> dict:
         pid = f"aip_{uuid.uuid4().hex[:12]}"
         now = datetime.now(tz=UTC).isoformat()
         profile = {
-
             "id": pid,
             "name": name.strip()[:64],
             "provider": provider,
+            "base_url": base_url.strip(),
+            "model": model.strip(),
             "active": len(profiles) == 0,  # first profile auto-activated
             "created_at": now,
         }
@@ -188,6 +212,8 @@ def create_profile(name: str, provider: str, api_key: str) -> dict:
             "id": pid,
             "name": profile["name"],
             "provider": profile["provider"],
+            "base_url": profile["base_url"],
+            "model": profile["model"],
             "key_masked": mask(api_key),
             "has_key": True,
             "active": profile["active"],

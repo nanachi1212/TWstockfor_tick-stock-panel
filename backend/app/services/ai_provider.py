@@ -109,14 +109,29 @@ def snapshot_ai_provider_config() -> AIProviderConfigSnapshot:
         except (TypeError, ValueError):
             return int(getattr(settings, name, fallback) or fallback)
 
-    provider = configured("ai_provider", OPENAI_COMPAT_PROVIDER)
+    # Resolve API key + base_url + model: active profile takes priority over legacy fields.
+    from app.services import ai_key_profiles as _profiles
+    active_cfg = _profiles.get_active_profile_config()
+
+    if active_cfg:
+        resolved_key = active_cfg["key"] or str(stored.get("ai_api_key") or settings.ai_api_key or "")
+        resolved_base_url = active_cfg["base_url"] or configured("ai_base_url", settings.ai_base_url)
+        active_model = active_cfg["model"]
+        active_provider = active_cfg["provider"] or configured("ai_provider", OPENAI_COMPAT_PROVIDER)
+    else:
+        resolved_key = str(stored.get("ai_api_key") or settings.ai_api_key or "")
+        resolved_base_url = configured("ai_base_url", settings.ai_base_url)
+        active_model = ""
+        active_provider = configured("ai_provider", OPENAI_COMPAT_PROVIDER)
+
+    provider = active_provider
     if provider == CODEX_CLI_PROVIDER:
         model_value = stored.get("ai_codex_model")
         if model_value is None:
             model_value = stored.get("ai_model")
         model = normalize_codex_model(str(model_value or ""))
     else:
-        model = configured("ai_model", settings.ai_model)
+        model = active_model or configured("ai_model", settings.ai_model)
     if "ai_reasoning_effort" in stored:
         reasoning_effort = str(stored.get("ai_reasoning_effort") or "").strip()
     else:
@@ -124,11 +139,11 @@ def snapshot_ai_provider_config() -> AIProviderConfigSnapshot:
     return AIProviderConfigSnapshot(
         provider=provider,
         model=model,
-        api_key=str(stored.get("ai_api_key") or settings.ai_api_key or ""),
-        base_url=configured("ai_base_url", settings.ai_base_url),
+        api_key=resolved_key,
+        base_url=resolved_base_url,
         user_agent=configured("ai_user_agent", settings.ai_user_agent),
-        max_output_tokens=configured_int("ai_max_output_tokens", settings.ai_max_output_tokens),
-        context_window=configured_int("ai_context_window", settings.ai_context_window),
+        max_output_tokens=current_ai_max_output_tokens(),
+        context_window=current_ai_context_window(),
         reasoning_effort=reasoning_effort,
         codex_command=normalize_codex_command(configured("ai_codex_command", settings.ai_codex_command), strict=False),
         codex_reasoning_effort=normalize_codex_reasoning_effort(
@@ -171,10 +186,22 @@ def sanitize_focus(focus: str) -> str:
 
 
 def current_ai_provider() -> str:
+    import contextlib
+    with contextlib.suppress(Exception):
+        from app.services import ai_key_profiles as _profiles
+        active_cfg = _profiles.get_active_profile_config()
+        if active_cfg and active_cfg.get("provider"):
+            return active_cfg["provider"]
     return secrets_store.get_ai_config("ai_provider", settings.ai_provider) or OPENAI_COMPAT_PROVIDER
 
 
 def current_openai_model() -> str:
+    import contextlib
+    with contextlib.suppress(Exception):
+        from app.services import ai_key_profiles as _profiles
+        active_cfg = _profiles.get_active_profile_config()
+        if active_cfg and active_cfg.get("model"):
+            return active_cfg["model"]
     return secrets_store.get_ai_config("ai_model", settings.ai_model)
 
 
@@ -369,32 +396,75 @@ async def generate_ai_text(
     会挤占正文甚至全部吃光(正文 0 字 + finish=length), 长分析类调用应放开。
     显式传入的数值会被钳制到配置的输出上限 (AI 设置可调)。
     """
+    if config_snapshot is None:
+        config_snapshot = snapshot_ai_provider_config()
+        if provider is not None or model is not None:
+            config_snapshot = AIProviderConfigSnapshot(
+                provider=provider or config_snapshot.provider,
+                model=model or config_snapshot.model,
+                api_key=config_snapshot.api_key,
+                base_url=config_snapshot.base_url,
+                user_agent=config_snapshot.user_agent,
+                max_output_tokens=config_snapshot.max_output_tokens,
+                context_window=config_snapshot.context_window,
+                reasoning_effort=config_snapshot.reasoning_effort,
+                codex_command=config_snapshot.codex_command,
+                codex_reasoning_effort=config_snapshot.codex_reasoning_effort,
+            )
+    elif provider is not None or model is not None:
+        config_snapshot = AIProviderConfigSnapshot(
+            provider=provider or config_snapshot.provider,
+            model=model or config_snapshot.model,
+            api_key=config_snapshot.api_key,
+            base_url=config_snapshot.base_url,
+            user_agent=config_snapshot.user_agent,
+            max_output_tokens=config_snapshot.max_output_tokens,
+            context_window=config_snapshot.context_window,
+            reasoning_effort=config_snapshot.reasoning_effort,
+            codex_command=config_snapshot.codex_command,
+            codex_reasoning_effort=config_snapshot.codex_reasoning_effort,
+        )
+
     max_tokens = _resolve_max_tokens(
         max_tokens,
-        cap=config_snapshot.max_output_tokens if config_snapshot is not None else None,
+        cap=config_snapshot.max_output_tokens,
     )
     _check_input_budget(
         messages,
         max_tokens=max_tokens,
-        context_window=config_snapshot.context_window if config_snapshot is not None else None,
-        max_output_tokens=config_snapshot.max_output_tokens if config_snapshot is not None else None,
+        context_window=config_snapshot.context_window,
+        max_output_tokens=config_snapshot.max_output_tokens,
     )
-    if config_snapshot is not None:
-        provider = config_snapshot.provider
-        model = config_snapshot.model
-    codex_provider = is_codex_cli_provider(provider) if provider is not None else is_codex_cli_provider()
+    provider = config_snapshot.provider
+    model = config_snapshot.model
+    try:
+        codex_provider = is_codex_cli_provider(provider) if provider is not None else is_codex_cli_provider()
+    except TypeError:
+        codex_provider = is_codex_cli_provider()
     if codex_provider:
         codex_kwargs = {"max_tokens": max_tokens, "timeout": max(timeout, 600.0)}
         if model is not None:
             codex_kwargs["model"] = model
-        if config_snapshot is not None:
-            codex_kwargs["config_snapshot"] = config_snapshot
+        codex_kwargs["config_snapshot"] = config_snapshot
         return await _run_codex_cli(messages, **codex_kwargs)
-    openai_kwargs = {"temperature": temperature, "max_tokens": max_tokens, "timeout": timeout}
-    if model is not None:
-        openai_kwargs["model"] = model
-    if config_snapshot is not None:
-        openai_kwargs["config_snapshot"] = config_snapshot
+
+    import inspect
+    sig = inspect.signature(_run_openai_once)
+    accepted = set(sig.parameters.keys())
+    has_varkw = any(p.kind == inspect.Parameter.VAR_KEYWORD for p in sig.parameters.values())
+
+    openai_kwargs = {
+        "temperature": temperature,
+        "max_tokens": max_tokens,
+        "timeout": timeout,
+    }
+    if has_varkw or "model" in accepted:
+        if model is not None:
+            openai_kwargs["model"] = model
+    if has_varkw or "config_snapshot" in accepted:
+        if config_snapshot is not None:
+            openai_kwargs["config_snapshot"] = config_snapshot
+
     return await _run_openai_once(
         messages,
         **openai_kwargs,
@@ -407,6 +477,7 @@ async def stream_ai_text(
     temperature: float | None = 0.5,
     max_tokens: int | None = 4000,
     timeout: float = 180.0,
+    config_snapshot: AIProviderConfigSnapshot | None = None,
 ) -> AsyncIterator[str]:
     """Yield text deltas from the configured provider.
 
@@ -415,10 +486,26 @@ async def stream_ai_text(
 
     max_tokens=None 表示不限制输出(同 generate_ai_text 的说明)。
     """
-    max_tokens = _resolve_max_tokens(max_tokens)
-    _check_input_budget(messages, max_tokens=max_tokens)
-    if is_codex_cli_provider():
-        yield await _run_codex_cli(messages, max_tokens=max_tokens, timeout=max(timeout, 600.0))
+    if config_snapshot is None:
+        config_snapshot = snapshot_ai_provider_config()
+    max_tokens = _resolve_max_tokens(max_tokens, cap=config_snapshot.max_output_tokens)
+    _check_input_budget(
+        messages,
+        max_tokens=max_tokens,
+        context_window=config_snapshot.context_window,
+        max_output_tokens=config_snapshot.max_output_tokens,
+    )
+    try:
+        codex_provider = is_codex_cli_provider(config_snapshot.provider)
+    except TypeError:
+        codex_provider = is_codex_cli_provider()
+    if codex_provider:
+        yield await _run_codex_cli(
+            messages,
+            max_tokens=max_tokens,
+            timeout=max(timeout, 600.0),
+            config_snapshot=config_snapshot,
+        )
         return
 
     async for chunk in _stream_openai(
@@ -426,6 +513,7 @@ async def stream_ai_text(
         temperature=temperature,
         max_tokens=max_tokens,
         timeout=timeout,
+        config_snapshot=config_snapshot,
     ):
         yield chunk
 
@@ -486,13 +574,14 @@ async def _stream_openai(
     temperature: float | None,
     max_tokens: int | None,
     timeout: float,
+    config_snapshot: AIProviderConfigSnapshot | None = None,
 ) -> AsyncIterator[str]:
-    ai_key = secrets_store.get_ai_key()
+    ai_key = config_snapshot.api_key if config_snapshot is not None else secrets_store.get_ai_key()
     if not ai_key:
         raise RuntimeError("AI API Key 未配置, 请在设置页配置")
 
-    client = _openai_client(ai_key, timeout)
-    model = current_ai_model()
+    client = _openai_client(ai_key, timeout, config_snapshot=config_snapshot)
+    model = config_snapshot.model if config_snapshot is not None else current_ai_model()
     req_messages = list(messages)
 
     async def _iter(stream):

@@ -22,6 +22,8 @@ import {
 import { QK } from '@/lib/queryKeys'
 import { toast } from '@/components/Toast'
 import { cn } from '@/lib/cn'
+import { CopyButton } from '@/components/CopyButton'
+import { formatSelectionReviewCopy, formatSelectionReviewPrompt } from '@/lib/copy-formatters'
 
 type ReviewTab = 'snapshots' | 'strategies' | 'conditions'
 
@@ -540,13 +542,76 @@ function SnapshotDetailView({
           )}
         </div>
 
-        <button
-          onClick={() => onDelete(snapshot.snapshot_id)}
-          className="inline-flex items-center gap-1.5 text-xs text-rose-500 hover:text-rose-600 border border-rose-500/20 hover:border-rose-500/40 px-3 py-1.5 rounded-lg transition-colors"
-        >
-          <Trash2 className="h-3.5 w-3.5" />
-          刪除快照
-        </button>
+        <div className="flex items-center gap-2">
+          <CopyButton
+            size="xs"
+            label="複製回顧資料"
+            getText={() => formatSelectionReviewCopy({
+              strategy_id: snapshot.strategy_id,
+              strategy_name: snapshot.strategy_name,
+              snapshot_date: snapshot.as_of_date,
+              market_context: snapshot.market_context_summary,
+              strategy_stats: {
+                avg_return_5d: detail.h5d_avg_return_pct,
+                benchmark_5d: detail.h5d_bm_avg_return_pct,
+                excess_return_5d: detail.h5d_avg_excess_pct,
+                avg_return_20d: detail.h20d_avg_return_pct,
+                benchmark_20d: detail.h20d_bm_avg_return_pct,
+                excess_return_20d: detail.h20d_avg_excess_pct,
+              },
+              picks: evaluated_items.map(i => ({
+                symbol: i.symbol,
+                name: i.name,
+                rank: i.rank,
+                quant_score: i.quant_score,
+                initial_price: i.entry_price,
+                h5d_status: i.h5d_status,
+                h5d_return_pct: i.h5d_return_pct,
+                h20d_status: i.h20d_status,
+                h20d_return_pct: i.h20d_return_pct,
+                match_reasons: i.match_reasons,
+              })),
+            })}
+          />
+          <CopyButton
+            size="xs"
+            label="複製 AI 提示詞"
+            successLabel="已複製"
+            getText={() => formatSelectionReviewPrompt({
+              strategy_id: snapshot.strategy_id,
+              strategy_name: snapshot.strategy_name,
+              snapshot_date: snapshot.as_of_date,
+              market_context: snapshot.market_context_summary,
+              strategy_stats: {
+                avg_return_5d: detail.h5d_avg_return_pct,
+                benchmark_5d: detail.h5d_bm_avg_return_pct,
+                excess_return_5d: detail.h5d_avg_excess_pct,
+                avg_return_20d: detail.h20d_avg_return_pct,
+                benchmark_20d: detail.h20d_bm_avg_return_pct,
+                excess_return_20d: detail.h20d_avg_excess_pct,
+              },
+              picks: evaluated_items.map(i => ({
+                symbol: i.symbol,
+                name: i.name,
+                rank: i.rank,
+                quant_score: i.quant_score,
+                initial_price: i.entry_price,
+                h5d_status: i.h5d_status,
+                h5d_return_pct: i.h5d_return_pct,
+                h20d_status: i.h20d_status,
+                h20d_return_pct: i.h20d_return_pct,
+                match_reasons: i.match_reasons,
+              })),
+            })}
+          />
+          <button
+            onClick={() => onDelete(snapshot.snapshot_id)}
+            className="inline-flex items-center gap-1.5 text-xs text-rose-500 hover:text-rose-600 border border-rose-500/20 hover:border-rose-500/40 px-3 py-1.5 rounded-lg transition-colors"
+          >
+            <Trash2 className="h-3.5 w-3.5" />
+            刪除快照
+          </button>
+        </div>
       </div>
 
       {/* 成果聚合卡片 */}
