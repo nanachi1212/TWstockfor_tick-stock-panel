@@ -427,9 +427,12 @@ class QuoteService:
 
     @staticmethod
     def _current_tier() -> str:
-        """获取当前档位名（小写）。"""
+        """获取当前档位名（小写）。empty/unknown label → "" → _tier_min_interval 回退 DEFAULT_INTERVAL。"""
         from app.tickflow.policy import tier_label
-        return tier_label().split()[0].split("+")[0].strip().lower()
+        label = tier_label().strip()
+        if not label:
+            return ""
+        return label.split()[0].split("+")[0].strip().lower()
 
     @classmethod
     def realtime_mode(cls) -> str:
