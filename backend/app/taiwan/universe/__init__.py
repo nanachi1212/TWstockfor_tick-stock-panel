@@ -26,6 +26,15 @@ def get_security_master() -> TaiwanSecurityMaster:
     return _default_master
 
 
+def reset_security_master() -> bool:
+    """Reset or reload the default TaiwanSecurityMaster singleton. Returns True if successfully loaded."""
+    global _default_master
+    if _default_master is not None:
+        return _default_master.reload()
+    _default_master = TaiwanSecurityMaster()
+    return _default_master.load_cache()
+
+
 __all__ = [
     "MarketProfileBridge",
     "TaiwanInstrument",
@@ -34,4 +43,5 @@ __all__ = [
     "TwseInstrumentAdapter",
     "UniverseType",
     "get_security_master",
+    "reset_security_master",
 ]

@@ -131,6 +131,12 @@ class TaiwanSecurityMaster:
             logger.warning("Failed to load instruments cache %s: %s", target, e)
             return False
 
+    def reload(self) -> bool:
+        """Clear memory cache and reload instruments from disk cache."""
+        self._loaded = False
+        self._instruments.clear()
+        return self.load_cache()
+
     def ensure_loaded(self) -> None:
         """Ensure security master is populated (cache -> live)."""
         if self._loaded and self._instruments:
