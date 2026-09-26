@@ -233,4 +233,6 @@ class TaiwanStockDetailResponse(BaseModel):
     recent_alerts: List[TaiwanRecentAlert] = Field(default_factory=list)
     fundamentals: Optional[TaiwanFundamentalData] = None
     extra_chips: Optional[TaiwanExtraChipsData] = None
+    recent_events: list[Any] = Field(default_factory=list, description="近期市場與公司重大事件 (A11)")
+    recent_news: list[Any] = Field(default_factory=list, description="近期個股新聞 (A11)")
     overall_data_quality: str = Field("good", description="good, partial, stale, degraded")

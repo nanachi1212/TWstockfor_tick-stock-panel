@@ -101,6 +101,10 @@ export const QK = {
   taiwanStockDetail:    (symbol: string, days?: number) => ['taiwan-stock-detail', symbol, days ?? 120] as const,
   taiwanCurrentData:    (symbol: string) => ['taiwan-current-data', symbol] as const,
   taiwanCapabilities:   ['taiwan-capabilities'] as const,
+  taiwanEvents:         (scope?: string, symbols?: string, date?: string) => ['taiwan-events', scope ?? 'all', symbols ?? '', date ?? ''] as const,
+  taiwanEventCandidates:(limit?: number) => ['taiwan-event-candidates', limit ?? 10] as const,
+  taiwanStockNews:      (symbol: string, limit?: number) => ['taiwan-stock-news', symbol, limit ?? 15] as const,
+  taiwanMarketSentiment:(date?: string) => ['taiwan-market-sentiment', date ?? 'latest'] as const,
 
   // 市場環境(Regime) — 日級離線計算, 不進 SSE 刷新
   // Phase 8B-5.7: 僅保留仍有真實 consumer 的 regimeLatest(Mining)/

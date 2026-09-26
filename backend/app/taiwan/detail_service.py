@@ -172,6 +172,24 @@ class TaiwanStockDetailService:
         else:
             overall_quality = "degraded"
 
+        # 11. Recent Events and News (A11)
+        recent_events = []
+        try:
+            from app.taiwan.events_service import get_event_service
+            event_svc = get_event_service()
+            recent_events = event_svc.get_events(scope="all", symbol=symbol_str, limit=10)
+        except Exception as e:
+            logger.debug("Recent events aggregation error for %s: %s", symbol_str, e)
+
+        recent_news = []
+        try:
+            from app.taiwan.news_service import get_news_service
+            news_svc = get_news_service()
+            news_res = news_svc.get_recent_news(symbol_str, limit=10)
+            recent_news = news_res.items
+        except Exception as e:
+            logger.debug("Recent news aggregation error for %s: %s", symbol_str, e)
+
         return TaiwanStockDetailResponse(
             symbol=symbol_str,
             identity=identity,
@@ -186,6 +204,8 @@ class TaiwanStockDetailService:
             recent_alerts=recent_alerts,
             fundamentals=fundamentals_data,
             extra_chips=extra_chips_data,
+            recent_events=recent_events,
+            recent_news=recent_news,
             overall_data_quality=overall_quality,
         )
 

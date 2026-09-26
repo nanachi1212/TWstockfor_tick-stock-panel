@@ -14,6 +14,9 @@ import {
   Scale,
   Star,
   ChevronDown,
+  CalendarDays,
+  Newspaper,
+  ExternalLink,
 } from 'lucide-react'
 import {
   api,
@@ -1252,6 +1255,146 @@ export function TaiwanStockDetail() {
               </div>
             )}
           </div>
+
+          {/* 區塊 5: 重大事件與個股新聞 (A11) */}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+            {/* 左側: 近期重大事件 */}
+            <div className="rounded-2xl border border-border bg-surface p-4 flex flex-col justify-between">
+              <div>
+                <div className="flex items-center justify-between mb-3 border-b border-border/40 pb-2">
+                  <div className="flex items-center gap-2">
+                    <CalendarDays className="h-4 w-4 text-accent" />
+                    <h3 className="text-sm font-bold text-foreground">近期重大事件與警示</h3>
+                  </div>
+                  <span className="text-[10px] text-muted font-mono">
+                    {data.recent_events?.length ? `${data.recent_events.length} 則事件` : '無重大事件'}
+                  </span>
+                </div>
+
+                {data.recent_events && data.recent_events.length > 0 ? (
+                  <div className="space-y-2.5 max-h-80 overflow-y-auto pr-1">
+                    {data.recent_events.map((evt, idx) => (
+                      <div
+                        key={`${evt.event_date}-${evt.event_type}-${idx}`}
+                        className={cn(
+                          'rounded-xl p-3 border text-xs space-y-1.5 transition-colors',
+                          evt.severity === 'risk'
+                            ? 'bg-rose-500/10 border-rose-500/30'
+                            : evt.severity === 'attention'
+                            ? 'bg-amber-500/10 border-amber-500/30'
+                            : 'bg-base border-border/60'
+                        )}
+                      >
+                        <div className="flex items-center justify-between gap-2">
+                          <div className="flex items-center gap-1.5">
+                            <span
+                              className={cn(
+                                'px-1.5 py-0.5 rounded text-[10px] font-bold',
+                                evt.severity === 'risk'
+                                  ? 'bg-rose-500/20 text-rose-400'
+                                  : evt.severity === 'attention'
+                                  ? 'bg-amber-500/20 text-amber-400'
+                                  : 'bg-sky-500/20 text-sky-400'
+                              )}
+                            >
+                              {evt.event_type_label || evt.event_type}
+                            </span>
+                            <span className="font-semibold text-foreground">{evt.title}</span>
+                          </div>
+                          <span className="text-[10px] text-muted font-mono shrink-0">{evt.event_date}</span>
+                        </div>
+                        {evt.summary && (
+                          <p className="text-[11px] text-muted leading-relaxed">{evt.summary}</p>
+                        )}
+                        <div className="flex items-center justify-between text-[10px] text-muted/80 pt-1 border-t border-border/20">
+                          <span>來源: {evt.source}</span>
+                          <span className="font-mono">
+                            嚴重度: {evt.severity === 'risk' ? '🔴 高風險' : evt.severity === 'attention' ? '🟡 警示' : '🔵 一般'}
+                          </span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="py-12 text-center text-xs text-muted">
+                    <CalendarDays className="h-8 w-8 mx-auto mb-2 text-muted/40" />
+                    <p>近期無官方處置、注意股或除權息重大事件</p>
+                  </div>
+                )}
+              </div>
+              <div className="mt-3 pt-2 border-t border-border/40 text-[10px] text-muted flex items-center justify-between">
+                <span>官方公告事實：證交所/櫃買中心/公開資訊觀測站</span>
+                <button
+                  onClick={() => navigate('/events')}
+                  className="text-accent hover:underline cursor-pointer"
+                >
+                  前往事件中心 →
+                </button>
+              </div>
+            </div>
+
+            {/* 右側: 個股近期新聞 */}
+            <div className="rounded-2xl border border-border bg-surface p-4 flex flex-col justify-between">
+              <div>
+                <div className="flex items-center justify-between mb-3 border-b border-border/40 pb-2">
+                  <div className="flex items-center gap-2">
+                    <Newspaper className="h-4 w-4 text-sky-400" />
+                    <h3 className="text-sm font-bold text-foreground">個股近期新聞</h3>
+                  </div>
+                  <span className="text-[10px] text-muted font-mono">
+                    {data.recent_news?.length ? `${data.recent_news.length} 則新聞` : '無即時新聞'}
+                  </span>
+                </div>
+
+                {data.recent_news && data.recent_news.length > 0 ? (
+                  <div className="space-y-2.5 max-h-80 overflow-y-auto pr-1">
+                    {data.recent_news.map((item, idx) => (
+                      <div
+                        key={`${item.date}-${idx}`}
+                        className="rounded-xl bg-base p-3 border border-border/60 text-xs space-y-1 hover:border-accent/40 transition-colors"
+                      >
+                        <div className="flex items-start justify-between gap-2">
+                          <h4 className="font-semibold text-foreground text-xs leading-snug line-clamp-2">
+                            {item.title}
+                          </h4>
+                          {item.url && (
+                            <a
+                              href={item.url}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="text-muted hover:text-accent p-0.5 shrink-0 transition-colors"
+                              title="開啟原文"
+                            >
+                              <ExternalLink className="h-3.5 w-3.5" />
+                            </a>
+                          )}
+                        </div>
+                        {item.description && (
+                          <p className="text-[11px] text-muted line-clamp-2 leading-relaxed">
+                            {item.description}
+                          </p>
+                        )}
+                        <div className="flex items-center justify-between text-[10px] text-muted/80 pt-1 border-t border-border/20">
+                          <span>{item.source}</span>
+                          <span className="font-mono">{item.date?.replace('T', ' ')}</span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="py-12 text-center text-xs text-muted">
+                    <Newspaper className="h-8 w-8 mx-auto mb-2 text-muted/40" />
+                    <p>目前無近期相關新聞報導</p>
+                    <span className="text-[10px] mt-1 block text-muted/70">來源: FinMind（若未收錄或頻率限制則無內容）</span>
+                  </div>
+                )}
+              </div>
+              <div className="mt-3 pt-2 border-t border-border/40 text-[10px] text-muted flex items-center justify-between">
+                <span>新聞僅供背景脈絡參考，非代表官方確認事實</span>
+                <span>資訊來源: FinMind</span>
+              </div>
+            </div>
+          </div>
         </div>
       )}
 
@@ -1327,6 +1470,9 @@ export function TaiwanStockDetail() {
             </div>
 
             <BriefSection title="現況" text={[aiReport.price_technical_interpretation, aiReport.market_interpretation].filter(Boolean).join(' ')} />
+            {aiReport.events_news_interpretation && (
+              <BriefSection title="事件與新聞脈絡" text={aiReport.events_news_interpretation} />
+            )}
             <BriefSection title="為什麼值得注意" text={[aiReport.industry_interpretation, aiReport.institutional_interpretation, aiReport.margin_interpretation, aiReport.abnormal_diagnostics_interpretation].filter(Boolean).join(' ')} items={aiReport.key_observations.map(item => item.text)} />
             <BriefSection title="我的部位" text={aiReport.portfolio_interpretation} />
             <BriefSection title="提醒解讀" text={aiReport.alert_interpretation} />
@@ -1379,6 +1525,15 @@ export function TaiwanStockDetail() {
                 <div className="bg-base/40 p-3 rounded-lg border border-border/40 md:col-span-2">
                   <span className="text-[11px] font-semibold text-muted block mb-1">異常異動與資金流向解讀</span>
                   <p className="text-foreground text-[11px] leading-normal">{aiReport.abnormal_diagnostics_interpretation}</p>
+                </div>
+              )}
+              {aiReport.events_news_interpretation && (
+                <div className="bg-base/40 p-3 rounded-lg border border-border/40 md:col-span-2">
+                  <div className="flex items-center justify-between mb-1">
+                    <span className="text-[11px] font-semibold text-muted">重大事件與市場新聞解讀</span>
+                    <span className="text-[10px] text-purple-400 font-mono">官方事實 vs 新聞報導</span>
+                  </div>
+                  <p className="text-foreground text-[11px] leading-normal">{aiReport.events_news_interpretation}</p>
                 </div>
               )}
             </div>

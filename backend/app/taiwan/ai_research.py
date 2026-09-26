@@ -140,6 +140,7 @@ class TaiwanAIStockResearchReport(BaseModel):
     abnormal_diagnostics_interpretation: str | None = Field(None, description="異常異動量能與資金流向訊號解讀")
     portfolio_interpretation: str | None = Field(None, description="依使用者提供的本機持倉資料解讀")
     alert_interpretation: str | None = Field(None, description="依本次提醒的觸發資料解讀")
+    events_news_interpretation: str | None = Field(None, description="近期市場事件與媒體新聞脈絡客觀解讀 (明確區分官方事實與新聞報導)")
 
     # Structured insights and evidence validation
     key_observations: list[ObservationItem] = Field(default_factory=list, description="重點客觀觀察清單 (最多 5 項，均需引證)")
@@ -399,6 +400,14 @@ def build_evidence_registry(
         payload["abnormal_not_applicable_signals"] = diag_item.not_applicable_signals
         registry_keys.add("abnormal.not_applicable_signals")
 
+    # 9. Recent Events and News (A11)
+    if hasattr(ctx, "recent_events") and ctx.recent_events:
+        payload["recent_events"] = ctx.recent_events[:5]
+        registry_keys.update(["events.recent_count", "events.items"])
+    if hasattr(ctx, "recent_news") and ctx.recent_news:
+        payload["recent_news"] = ctx.recent_news[:5]
+        registry_keys.update(["news.recent_count", "news.items"])
+
     # Personal fields come from the user's local portfolio ledger and existing app APIs.
     # Keep this input compact and explicitly separate from deterministic market evidence.
     bounded = _sanitize_personal_context(personal_context)
@@ -544,6 +553,10 @@ SYSTEM_PROMPT = """你是一個客觀、確定性導向的「台股個股研究�
    - 允許客觀交叉比對，例如「月營收 YoY 成長，但外資持股近 20 日比例下降」，但只有資料明確呈現時才能陳述。
    - 嚴禁猜測財報或公告時間；missing 的欄位絕不猜測，也不得將 missing 當成 0。
    - 絕不重新計算權威 Quant score，絕不自動產生買賣交易指令。
+10. 官方事件資料 vs 新聞報導客觀區分 (A11)：
+   - 官方事件資料（如除權息、處置證券、減資、面額變更、月營收公布、財報公布）屬於官方/交易所核實之既定事實，得作為公司與市場動向之客觀依據。
+   - 新聞報導為外部媒體視角與市場脈絡，供解讀市場關注焦點，但絕對不得將新聞中的說法、傳聞、市場猜測或非官方預估升格為既定事實證明。
+   - 不得自己編造新聞或擴充新聞內容。
 """
 
 
@@ -662,6 +675,7 @@ class TaiwanAIResearchService:
   "abnormal_diagnostics_interpretation": "異常訊號客觀解讀",
   "portfolio_interpretation": "僅在提供持倉時說明成本、現價與損益關係",
   "alert_interpretation": "僅在提供提醒時說明觸發原因與同時可見訊號",
+  "events_news_interpretation": "客觀解讀近期公司/市場重大事件與媒體報導脈絡，嚴格區分官方事實與新聞報導",
   "key_observations": [
     {{"text": "觀察重點說明", "evidence_refs": ["合法的白名單鍵"]}}
   ],
@@ -705,7 +719,7 @@ class TaiwanAIResearchService:
             parsed = _extract_json_object(raw_text)
             if not isinstance(parsed, dict):
                 raise ValueError("LLM did not return a valid JSON object dictionary.")
-            for field in ("portfolio_interpretation", "alert_interpretation"):
+            for field in ("portfolio_interpretation", "alert_interpretation", "events_news_interpretation"):
                 if parsed.get(field) is not None and not isinstance(parsed[field], str):
                     raise ValueError(f"LLM returned a non-string value for {field}.")
         except Exception as e:
@@ -803,6 +817,7 @@ class TaiwanAIResearchService:
                 parsed.get("alert_interpretation")
                 if evidence_payload.get("personal_context", {}).get("alert") else None
             ),
+            events_news_interpretation=parsed.get("events_news_interpretation"),
             key_observations=validated_observations[:5],
             risk_factors=validated_risks,
             watch_next=validated_watch_next[:4],

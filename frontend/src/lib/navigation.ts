@@ -12,6 +12,7 @@ import {
   RadioTower,
   Filter,
   Scale,
+  CalendarDays,
   type LucideIcon,
 } from 'lucide-react'
 
@@ -51,6 +52,7 @@ export interface NavMeta {
 // 只調整陣列順序(即側欄/選單設定顯示順序)。
 export const CORE_NAV: readonly NavMeta[] = [
   { to: '/',                label: '看板',     icon: LayoutDashboard },
+  { to: '/events',          label: '事件中心', icon: CalendarDays },
   { to: '/taiwan-screener', label: '台股選股', icon: Filter },
   { to: '/watchlist',  label: '自選股',   icon: Star },
   { to: '/stocks/compare', label: '多股比較', icon: Scale },

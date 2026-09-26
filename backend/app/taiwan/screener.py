@@ -120,6 +120,12 @@ class TaiwanScreenerRequest(BaseModel):
     foreign_shareholding_change_20d_min: float | None = None  # 0.0 = 0%
     securities_lending_anomaly_exclude: bool | None = None  # True: 排除異常暴增
 
+    # Event and Regulatory Filters (A11)
+    exclude_disposition: bool | None = None
+    exclude_suspended: bool | None = None
+    exclude_risk_events: bool | None = None
+    recent_revenue_or_earnings: bool | None = None
+
     # Quant Score
     quant_score_min: float | None = None
 
@@ -796,6 +802,42 @@ class TaiwanScreenerService:
         # Quant Score
         if req.quant_score_min is not None:
             df = df.filter(pl.col("quant_score") >= req.quant_score_min)
+
+        # Event and Regulatory Filters (A11)
+        if (
+            req.exclude_disposition is True
+            or req.exclude_suspended is True
+            or req.exclude_risk_events is True
+            or req.recent_revenue_or_earnings is True
+        ):
+            from app.taiwan.events_service import get_event_service
+            event_svc = get_event_service()
+            all_syms = df["symbol"].to_list()
+            excluded_syms: set[str] = set()
+            keep_only_syms: set[str] | None = None
+
+            if req.recent_revenue_or_earnings is True:
+                keep_only_syms = set()
+                for s in all_syms:
+                    code = s.split(".")[0]
+                    has_rev = bool(self.cache.get("TaiwanStockMonthRevenue", code))
+                    has_fin = bool(self.cache.get("TaiwanStockFinancialStatements", code))
+                    if has_rev or has_fin:
+                        keep_only_syms.add(s)
+
+            for s in all_syms:
+                risk_status = event_svc.check_symbol_risk_status(s)
+                if req.exclude_disposition is True and risk_status["is_disposition"]:
+                    excluded_syms.add(s)
+                if req.exclude_suspended is True and risk_status["is_suspended"]:
+                    excluded_syms.add(s)
+                if req.exclude_risk_events is True and risk_status["has_risk_event"]:
+                    excluded_syms.add(s)
+
+            if excluded_syms:
+                df = df.filter(~pl.col("symbol").is_in(list(excluded_syms)))
+            if keep_only_syms is not None:
+                df = df.filter(pl.col("symbol").is_in(list(keep_only_syms)))
 
         return df
 

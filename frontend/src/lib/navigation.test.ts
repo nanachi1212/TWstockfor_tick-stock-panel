@@ -12,9 +12,10 @@ import * as navigationModule from './navigation'
 import { CORE_NAV } from './navigation'
 
 describe('CORE_NAV', () => {
-  it('orders pages to match 看市場→找股票→加自選→比較→監控', () => {
+  it('orders pages to match 看市場→事件中心→找股票→加自選→比較→監控', () => {
     expect(CORE_NAV.map(item => item.to)).toEqual([
       '/',
+      '/events',
       '/taiwan-screener',
       '/watchlist',
       '/stocks/compare',
@@ -22,13 +23,13 @@ describe('CORE_NAV', () => {
     ])
   })
 
-  it('keeps the same 5 route paths as before the reorder (no route added/removed)', () => {
+  it('keeps the 6 Taiwan core route paths including event center', () => {
     const paths = new Set(CORE_NAV.map(item => item.to))
-    expect(paths).toEqual(new Set(['/', '/watchlist', '/taiwan-screener', '/stocks/compare', '/monitor']))
+    expect(paths).toEqual(new Set(['/', '/events', '/watchlist', '/taiwan-screener', '/stocks/compare', '/monitor']))
   })
 
-  it('is the only exported nav array — CORE_NAV is exactly the 5 Taiwan core items', () => {
-    expect(CORE_NAV).toHaveLength(5)
+  it('is the only exported nav array — CORE_NAV has exactly 6 Taiwan core items', () => {
+    expect(CORE_NAV).toHaveLength(6)
   })
 })
 
