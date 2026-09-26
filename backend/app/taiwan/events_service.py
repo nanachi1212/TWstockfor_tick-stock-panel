@@ -114,6 +114,34 @@ def _cache_path() -> Path:
     return p / "regulatory_events.json"
 
 
+def _delivered_alerts_cache_path(data_dir: Path) -> Path:
+    p = data_dir / "taiwan" / "events_cache"
+    p.mkdir(parents=True, exist_ok=True)
+    return p / "delivered_event_alerts.json"
+
+
+def _load_delivered_alert_ids(data_dir: Path) -> set[str]:
+    path = _delivered_alerts_cache_path(data_dir)
+    if path.exists():
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+            if isinstance(data, list):
+                return set(data)
+        except Exception as e:
+            logger.warning("Failed to load delivered event alert ids: %s", e)
+    return set()
+
+
+def _save_delivered_alert_ids(data_dir: Path, ids: set[str]) -> None:
+    path = _delivered_alerts_cache_path(data_dir)
+    try:
+        tmp = path.with_suffix(".tmp")
+        tmp.write_text(json.dumps(sorted(ids), ensure_ascii=False, indent=2), encoding="utf-8")
+        tmp.replace(path)
+    except Exception as e:
+        logger.warning("Failed to save delivered event alert ids: %s", e)
+
+
 class TaiwanEventService:
     """Singleton service managing Taiwan market events."""
 
@@ -126,6 +154,16 @@ class TaiwanEventService:
         self.finmind_cache = finmind_cache or FinMindCache()
         self._memory_cache: dict[str, tuple[float, list[MarketEvent]]] = {}
         self._cache_ttl = 3600  # 1 hour cache for official announcements
+        self.sources_status: dict[str, str] = {
+            "twse_punish": "available",
+            "tpex_disposal": "available",
+            "twse_warning": "available",
+            "tpex_warning": "available",
+            "twse_delisting": "available",
+            "tpex_cmode": "available",
+            "corporate_actions": "available",
+        }
+        self.last_status: str = "available"
 
     def _resolve_symbol(self, raw_code: str, fallback_exchange: str = "TWSE") -> tuple[str, str, str, str]:
         """Resolve raw code into (symbol, code, name, exchange)."""
@@ -153,7 +191,9 @@ class TaiwanEventService:
         try:
             rows = fetch_json(url, timeout=8.0)
             if not isinstance(rows, list):
+                self.sources_status["twse_punish"] = "unavailable"
                 return []
+            self.sources_status["twse_punish"] = "available"
             events: list[MarketEvent] = []
             for r in rows:
                 if not isinstance(r, dict):
@@ -203,6 +243,7 @@ class TaiwanEventService:
             return events
         except Exception as e:
             logger.warning("Failed to fetch TWSE punish announcements: %s", e)
+            self.sources_status["twse_punish"] = "unavailable"
             return []
 
     def fetch_tpex_disposal_events(self) -> list[MarketEvent]:
@@ -212,7 +253,9 @@ class TaiwanEventService:
         try:
             rows = fetch_json(url, timeout=8.0)
             if not isinstance(rows, list):
+                self.sources_status["tpex_disposal"] = "unavailable"
                 return []
+            self.sources_status["tpex_disposal"] = "available"
             events: list[MarketEvent] = []
             for r in rows:
                 if not isinstance(r, dict):
@@ -260,6 +303,7 @@ class TaiwanEventService:
             return events
         except Exception as e:
             logger.warning("Failed to fetch TPEx disposal announcements: %s", e)
+            self.sources_status["tpex_disposal"] = "unavailable"
             return []
 
     def fetch_twse_warning_events(self) -> list[MarketEvent]:
@@ -269,7 +313,9 @@ class TaiwanEventService:
         try:
             rows = fetch_json(url, timeout=8.0)
             if not isinstance(rows, list):
+                self.sources_status["twse_warning"] = "unavailable"
                 return []
+            self.sources_status["twse_warning"] = "available"
             events: list[MarketEvent] = []
             for r in rows:
                 if not isinstance(r, dict):
@@ -310,6 +356,7 @@ class TaiwanEventService:
             return events
         except Exception as e:
             logger.warning("Failed to fetch TWSE warning announcements: %s", e)
+            self.sources_status["twse_warning"] = "unavailable"
             return []
 
     def fetch_tpex_warning_events(self) -> list[MarketEvent]:
@@ -319,7 +366,9 @@ class TaiwanEventService:
         try:
             rows = fetch_json(url, timeout=8.0)
             if not isinstance(rows, list):
+                self.sources_status["tpex_warning"] = "unavailable"
                 return []
+            self.sources_status["tpex_warning"] = "available"
             events: list[MarketEvent] = []
             for r in rows:
                 if not isinstance(r, dict):
@@ -360,6 +409,7 @@ class TaiwanEventService:
             return events
         except Exception as e:
             logger.warning("Failed to fetch TPEx warning announcements: %s", e)
+            self.sources_status["tpex_warning"] = "unavailable"
             return []
 
     def fetch_twse_delisting_events(self) -> list[MarketEvent]:
@@ -369,7 +419,9 @@ class TaiwanEventService:
         try:
             rows = fetch_json(url, timeout=8.0)
             if not isinstance(rows, list):
+                self.sources_status["twse_delisting"] = "unavailable"
                 return []
+            self.sources_status["twse_delisting"] = "available"
             events: list[MarketEvent] = []
             # Keep recent delistings (within current/recent years)
             current_year = taipei_now().year
@@ -414,6 +466,7 @@ class TaiwanEventService:
             return events
         except Exception as e:
             logger.warning("Failed to fetch TWSE delisting announcements: %s", e)
+            self.sources_status["twse_delisting"] = "unavailable"
             return []
 
     def fetch_tpex_cmode_events(self) -> list[MarketEvent]:
@@ -423,7 +476,9 @@ class TaiwanEventService:
         try:
             rows = fetch_json(url, timeout=8.0)
             if not isinstance(rows, list):
+                self.sources_status["tpex_cmode"] = "unavailable"
                 return []
+            self.sources_status["tpex_cmode"] = "available"
             events: list[MarketEvent] = []
             for r in rows:
                 if not isinstance(r, dict):
@@ -488,6 +543,7 @@ class TaiwanEventService:
             return events
         except Exception as e:
             logger.warning("Failed to fetch TPEx cmode announcements: %s", e)
+            self.sources_status["tpex_cmode"] = "unavailable"
             return []
 
     def get_corporate_action_events(self) -> list[MarketEvent]:
@@ -496,6 +552,7 @@ class TaiwanEventService:
         try:
             store = CorporateActionStore()
             actions = store.read()
+            self.sources_status["corporate_actions"] = "available"
             events: list[MarketEvent] = []
             for a in actions:
                 symbol, code, name, exchange = self._resolve_symbol(a.symbol, a.exchange)
@@ -554,7 +611,12 @@ class TaiwanEventService:
             return events
         except Exception as e:
             logger.warning("Failed to load corporate actions from store: %s", e)
+            self.sources_status["corporate_actions"] = "unavailable"
             return []
+
+    def get_last_sources_status(self) -> tuple[str, dict[str, str]]:
+        """Return the overall status and individual source statuses from the last query."""
+        return self.last_status, dict(self.sources_status)
 
     def get_all_regulatory_and_official_events(self, force_refresh: bool = False) -> list[MarketEvent]:
         """Fetch and aggregate all official events with local file caching."""
@@ -574,6 +636,9 @@ class TaiwanEventService:
                 saved_at = raw_json.get("saved_at", 0)
                 if now - saved_at < self._cache_ttl:
                     items = [MarketEvent(**it) for it in raw_json.get("events", [])]
+                    self.last_status = raw_json.get("status", "available")
+                    if "sources_status" in raw_json and isinstance(raw_json["sources_status"], dict):
+                        self.sources_status.update(raw_json["sources_status"])
                     self._memory_cache["official"] = (saved_at, items)
                     return items
             except Exception as e:
@@ -589,17 +654,45 @@ class TaiwanEventService:
         all_events.extend(self.fetch_tpex_cmode_events())
         all_events.extend(self.get_corporate_action_events())
 
+        avail_count = sum(1 for s in self.sources_status.values() if s == "available")
+        total_sources = len(self.sources_status)
+        if avail_count == total_sources:
+            overall_status = "available"
+        elif avail_count == 0:
+            overall_status = "unavailable"
+        else:
+            overall_status = "partial"
+        self.last_status = overall_status
+
         # Dedup by event ID
         deduped: dict[str, MarketEvent] = {}
         for ev in all_events:
             deduped[ev.id] = ev
         result = list(deduped.values())
 
+        if overall_status == "unavailable":
+            # Outage: Do NOT overwrite disk cache with empty data!
+            # If disk cache exists, load stale items as fallback with freshness="stale"
+            if cache_file.exists():
+                try:
+                    raw_json = json.loads(cache_file.read_text(encoding="utf-8"))
+                    cached_items = [MarketEvent(**it) for it in raw_json.get("events", [])]
+                    for it in cached_items:
+                        it.freshness = "stale"
+                    result = cached_items
+                except Exception as e:
+                    logger.warning("Failed to read stale fallback events cache from disk: %s", e)
+            # Memory cache set with 0 TTL so it retries on next query
+            self._memory_cache["official"] = (now - self._cache_ttl, result)
+            return result
+
         # Save to disk cache
         try:
             payload = {
                 "saved_at": now,
                 "count": len(result),
+                "status": overall_status,
+                "sources_status": self.sources_status,
                 "events": [ev.model_dump() for ev in result],
             }
             tmp = cache_file.with_suffix(".tmp")
@@ -610,6 +703,104 @@ class TaiwanEventService:
 
         self._memory_cache["official"] = (now, result)
         return result
+
+    def get_pit_events(
+        self,
+        symbol: str,
+        as_of: date,
+        limit: int = 10,
+    ) -> list[MarketEvent]:
+        """Fetch Point-in-Time (PIT) safe events for an explicit historical target date.
+
+        Strict PIT Rules:
+        - NEVER call live regulatory OpenAPI endpoints (punish, notice, delist, cmode)
+          which only reflect current/live market state and cannot prove historical status.
+        - Only include Corporate Actions from CorporateActionStore that have a verifiable
+          availability or retrieval timestamp <= as_of.
+        - If an event cannot prove it was known on or before as_of, fail-closed (exclude).
+        """
+        clean_sym = symbol.strip().upper()
+        clean_code = clean_sym.split(".")[0]
+
+        try:
+            store = CorporateActionStore()
+            actions = store.read()
+        except Exception as e:
+            logger.warning("Failed to read CorporateActionStore in get_pit_events: %s", e)
+            return []
+
+        pit_events: list[MarketEvent] = []
+        for a in actions:
+            a_sym, a_code, a_name, a_exch = self._resolve_symbol(a.symbol, a.exchange)
+            if a_sym.upper() != clean_sym and a_code.upper() != clean_code and not clean_sym.startswith(a_code.upper()):
+                continue
+
+            # Proven availability check:
+            # Must have availability timestamp or retrieval timestamp on or before as_of date
+            avail_dt = a.available_at or a.retrieved_at
+            if avail_dt is None:
+                # No verified timestamp -> fail-closed
+                continue
+            if avail_dt.date() > as_of:
+                # Discovered/retrieved after as_of -> fail-closed (cannot use future knowledge)
+                continue
+
+            # The event must also have an effective_date <= as_of (or be known by as_of)
+            if a.effective_date > as_of:
+                continue
+
+            ev_date = a.effective_date.isoformat()
+            event_type = a.event_type if a.event_type in SEVERITY_BY_EVENT_TYPE else "cash_dividend"
+
+            if event_type == "cash_dividend":
+                div = f"{a.cash_dividend:.2f} 元" if a.cash_dividend else ""
+                title = f"除息 {div}".strip()
+                summary = f"除息基準日參考價 {a.reference_price or '—'} 元，前收盤價 {a.previous_close or '—'} 元"
+            elif event_type == "stock_dividend":
+                ratio = f"{a.free_share_ratio * 100:.1f}%" if a.free_share_ratio else ""
+                title = f"除權配股 {ratio}".strip()
+                summary = f"除權基準日參考價 {a.reference_price or '—'} 元"
+            elif event_type == "capital_reduction":
+                title = "減資換發新股"
+                summary = f"減資恢復買賣參考價 {a.reference_price or '—'} 元"
+            elif event_type == "par_change":
+                title = "股票分割 / 面額變更"
+                summary = f"面額變更恢復買賣參考價 {a.reference_price or '—'} 元"
+            else:
+                title = f"公司行動 ({event_type})"
+                summary = f"參考價 {a.reference_price or '—'} 元"
+
+            event_id = hashlib.sha256(f"ca_{a_sym}_{ev_date}_{event_type}".encode()).hexdigest()[:16]
+            pit_events.append(
+                MarketEvent(
+                    id=f"evt_ca_{event_id}",
+                    symbol=a_sym,
+                    code=a_code,
+                    name=a_name,
+                    exchange=a_exch,
+                    event_date=ev_date,
+                    event_type=event_type,
+                    event_type_label=EVENT_TYPE_LABELS.get(event_type, event_type),
+                    severity=SEVERITY_BY_EVENT_TYPE.get(event_type, "info"),
+                    title=title,
+                    summary=summary,
+                    source=f"official:{a.source}",
+                    source_url=a.source_url,
+                    retrieved_at=avail_dt.isoformat(),
+                    freshness="fresh",
+                    details={
+                        "previous_close": a.previous_close,
+                        "reference_price": a.reference_price,
+                        "factor": a.factor,
+                        "cash_dividend": a.cash_dividend,
+                        "free_share_ratio": a.free_share_ratio,
+                        "status": a.status,
+                    },
+                )
+            )
+
+        pit_events.sort(key=lambda e: e.event_date, reverse=True)
+        return pit_events[:limit]
 
     def get_events(
         self,
@@ -831,13 +1022,37 @@ class TaiwanEventService:
             limit=100,
         )
 
+        delivered_ids = _load_delivered_alert_ids(data_dir)
         existing_alerts = alert_store.list_recent(data_dir, days=7, limit=1000)
-        existing_alert_ids = {str(a.get("alert_id")) for a in existing_alerts}
+        existing_alert_ids = {str(a.get("alert_id")) for a in existing_alerts} | delivered_ids
+
+        today = taipei_now().date()
+        today_str = today.isoformat()
+        min_date_str = (today - timedelta(days=3)).isoformat()
+        max_date_str = (today + timedelta(days=30)).isoformat()
 
         triggered: list[dict[str, Any]] = []
         prefs = preferences.load()
 
         for ev in target_events:
+            # Active disposition period check
+            is_active_disposition = False
+            if ev.event_type == "disposition":
+                period = ev.details.get("period", "")
+                if period:
+                    parts = re.split(r"[～~\-]", period)
+                    if len(parts) >= 2:
+                        try:
+                            p_start = parse_taiwan_date(parts[0].strip()).isoformat()
+                            p_end = parse_taiwan_date(parts[1].strip()).isoformat()
+                            if p_start <= today_str <= p_end:
+                                is_active_disposition = True
+                        except Exception:
+                            pass
+
+            if not is_active_disposition and (ev.event_date < min_date_str or ev.event_date > max_date_str):
+                continue  # historical event or too distant in future, skip!
+
             alert_id = f"evt_alert_{ev.id}"
             if alert_id in existing_alert_ids:
                 continue
@@ -870,6 +1085,10 @@ class TaiwanEventService:
                     webhook_adapter.send_telegram(tg_token, tg_chat, "【事件中心提醒】", body)
             triggered.append(alert_event)
             existing_alert_ids.add(alert_id)
+            delivered_ids.add(alert_id)
+
+        if triggered:
+            _save_delivered_alert_ids(data_dir, delivered_ids)
 
         return triggered
 

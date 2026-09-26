@@ -182,13 +182,21 @@ class TaiwanStockDetailService:
             logger.debug("Recent events aggregation error for %s: %s", symbol_str, e)
 
         recent_news = []
+        news_status = "available"
+        news_status_message = None
+        news_fetched_at = None
         try:
             from app.taiwan.news_service import get_news_service
             news_svc = get_news_service()
             news_res = news_svc.get_recent_news(symbol_str, limit=10)
             recent_news = news_res.items
+            news_status = news_res.status
+            news_status_message = news_res.status_message
+            news_fetched_at = news_res.fetched_at
         except Exception as e:
             logger.debug("Recent news aggregation error for %s: %s", symbol_str, e)
+            news_status = "unavailable"
+            news_status_message = str(e)
 
         return TaiwanStockDetailResponse(
             symbol=symbol_str,
@@ -206,6 +214,9 @@ class TaiwanStockDetailService:
             extra_chips=extra_chips_data,
             recent_events=recent_events,
             recent_news=recent_news,
+            news_status=news_status,
+            news_status_message=news_status_message,
+            news_fetched_at=news_fetched_at,
             overall_data_quality=overall_quality,
         )
 

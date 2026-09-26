@@ -994,6 +994,9 @@ export interface TaiwanStockDetailResponse {
   extra_chips?: TaiwanExtraChipsData
   recent_events?: MarketEvent[]
   recent_news?: TaiwanStockNewsItem[]
+  news_status?: 'available' | 'rate_limited' | 'auth_required' | 'unavailable' | string
+  news_status_message?: string | null
+  news_fetched_at?: string | null
 }
 
 

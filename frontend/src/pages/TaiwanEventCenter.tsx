@@ -331,6 +331,18 @@ export function TaiwanEventCenter() {
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
         {/* Left: Events Stream (2 Columns on large screens) */}
         <div className="lg:col-span-2 space-y-3">
+          {eventsQuery.data?.status === 'partial' && (
+            <div className="flex items-center gap-2 rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-xs text-amber-500">
+              <AlertTriangle className="h-4 w-4 shrink-0" />
+              <span>部分官方事件來源連線異常 (證交所或櫃買中心)，部分公告暫無法更新，已優先顯示可用來源。</span>
+            </div>
+          )}
+          {eventsQuery.data?.status === 'unavailable' && (
+            <div className="flex items-center gap-2 rounded-lg border border-rose-500/30 bg-rose-500/10 p-3 text-xs text-rose-500">
+              <ShieldAlert className="h-4 w-4 shrink-0" />
+              <span>官方事件來源連線中斷，目前無法取得即時公告，請稍候點擊重新整理。</span>
+            </div>
+          )}
           {eventsQuery.isLoading ? (
             <div className="flex flex-col items-center justify-center py-16 text-muted">
               <Loader2 className="h-6 w-6 animate-spin text-accent mb-2" />

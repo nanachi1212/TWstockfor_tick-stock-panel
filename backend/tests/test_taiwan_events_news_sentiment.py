@@ -681,3 +681,237 @@ def test_api_events_endpoints(client):
     sent_data = resp_sent.json()
     assert "sentiment" in sent_data
     assert "evidence" in sent_data
+
+
+# ---------------------------------------------------------------------------
+# 7. Regression Tests for Codex Review Findings on A11
+# ---------------------------------------------------------------------------
+def test_pit_historical_research_events_fail_closed():
+    """Finding 1: Explicit historical target_date must be PIT-safe."""
+    from datetime import date, datetime
+
+    from app.taiwan.corporate_actions import CorporateActionEvent
+    from app.taiwan.events_service import TaiwanEventService
+    from app.taiwan.providers.taiwan_values import TAIPEI
+
+    svc = TaiwanEventService()
+    hist_target = date(2024, 6, 1)
+
+    # 1. Action with available_at AFTER target date -> FAIL CLOSED (must not be included)
+    ca_future = CorporateActionEvent(
+        symbol="2330.TWSE",
+        exchange="TWSE",
+        effective_date=date(2024, 5, 15),
+        effective_at=datetime(2024, 5, 15, 9, 0, tzinfo=TAIPEI),
+        event_type="cash_dividend",
+        previous_close=500.0,
+        reference_price=495.0,
+        factor=0.99,
+        cash_dividend=5.0,
+        free_share_ratio=None,
+        reduction_ratio=None,
+        source="TWT49U",
+        source_url="",
+        retrieved_at=datetime(2024, 6, 15, 10, 0, tzinfo=TAIPEI),
+        available_at=None,
+    )
+
+    # 2. Action with retrieved_at BEFORE target date -> PIT SAFE (included)
+    ca_valid = CorporateActionEvent(
+        symbol="2330.TWSE",
+        exchange="TWSE",
+        effective_date=date(2024, 4, 15),
+        effective_at=datetime(2024, 4, 15, 9, 0, tzinfo=TAIPEI),
+        event_type="cash_dividend",
+        previous_close=500.0,
+        reference_price=495.0,
+        factor=0.99,
+        cash_dividend=5.0,
+        free_share_ratio=None,
+        reduction_ratio=None,
+        source="TWT49U",
+        source_url="",
+        retrieved_at=datetime(2024, 4, 10, 10, 0, tzinfo=TAIPEI),
+        available_at=None,
+    )
+
+    with patch("app.taiwan.events_service.CorporateActionStore.read", return_value=[ca_future, ca_valid]):
+        pit_evs = svc.get_pit_events("2330.TWSE", as_of=hist_target)
+        assert len(pit_evs) == 1
+        assert pit_evs[0].event_date == "2024-04-15"
+
+
+def test_event_alerts_window_and_permanent_dedup(tmp_path):
+    """Finding 2: Alerts must only process recent/upcoming window and remember delivered alerts permanently."""
+    from datetime import timedelta
+
+    from app.taiwan.events_service import MarketEvent, TaiwanEventService
+    from app.taiwan.realtime.calendar import taipei_now
+
+    today = taipei_now().date()
+    today_str = today.isoformat()
+    old_date = (today - timedelta(days=60)).isoformat()
+    upcoming_date = (today + timedelta(days=2)).isoformat()
+
+    ev_old = MarketEvent(
+        id="evt_old_1",
+        symbol="2330.TWSE",
+        code="2330",
+        name="台積電",
+        exchange="TWSE",
+        event_date=old_date,
+        event_type="cash_dividend",
+        event_type_label="除息",
+        severity="info",
+        title="舊除息",
+        summary="60天前除息",
+        source="test",
+        retrieved_at=today_str,
+        freshness="fresh",
+    )
+    ev_new = MarketEvent(
+        id="evt_new_1",
+        symbol="2330.TWSE",
+        code="2330",
+        name="台積電",
+        exchange="TWSE",
+        event_date=upcoming_date,
+        event_type="cash_dividend",
+        event_type_label="除息",
+        severity="info",
+        title="近期除息",
+        summary="即將除息",
+        source="test",
+        retrieved_at=today_str,
+        freshness="fresh",
+    )
+
+    svc = TaiwanEventService()
+    with patch.object(svc, "get_events", return_value=[ev_old, ev_new]):
+        # Run 1: Only ev_new should be triggered (ev_old skipped due to date window)
+        triggered1 = svc.trigger_event_alerts(["2330.TWSE"], data_dir=tmp_path)
+        assert len(triggered1) == 1
+        assert triggered1[0]["alert_id"] == "evt_alert_evt_new_1"
+
+        # Run 2: Even with empty AlertStore list_recent, delivered_event_alerts.json prevents duplicate
+        with patch("app.services.alert_store.list_recent", return_value=[]):
+            triggered2 = svc.trigger_event_alerts(["2330.TWSE"], data_dir=tmp_path)
+            assert len(triggered2) == 0
+
+
+def test_events_source_outage_partial_unavailable(tmp_path):
+    """Finding 3: Outage must yield partial or unavailable and protect disk cache."""
+    from app.taiwan.events_service import TaiwanEventService
+
+    svc = TaiwanEventService()
+    with patch.object(svc, "fetch_twse_punish_events", return_value=[]), \
+         patch.object(svc, "fetch_tpex_disposal_events", return_value=[]), \
+         patch.object(svc, "fetch_twse_warning_events", return_value=[]), \
+         patch.object(svc, "fetch_tpex_warning_events", return_value=[]), \
+         patch.object(svc, "fetch_twse_delisting_events", return_value=[]), \
+         patch.object(svc, "fetch_tpex_cmode_events", return_value=[]), \
+         patch.object(svc, "get_corporate_action_events", return_value=[]):
+
+        # Case 1: TPEx disposal fails
+        svc.sources_status["tpex_disposal"] = "unavailable"
+        with patch("app.taiwan.events_service._cache_path", return_value=tmp_path / "reg.json"):
+            svc.get_all_regulatory_and_official_events(force_refresh=True)
+            status, sources = svc.get_last_sources_status()
+            assert status == "partial"
+            assert sources["tpex_disposal"] == "unavailable"
+
+        # Case 2: All sources fail
+        for k in svc.sources_status:
+            svc.sources_status[k] = "unavailable"
+        with patch("app.taiwan.events_service._cache_path", return_value=tmp_path / "reg.json"):
+            svc.get_all_regulatory_and_official_events(force_refresh=True)
+            status, sources = svc.get_last_sources_status()
+            assert status == "unavailable"
+
+
+def test_market_sentiment_tx_txo_date_aware():
+    """Finding 4: TX/TXO cache and lookup must be date-aware and fail closed when date is missing."""
+    from datetime import date
+
+    from app.taiwan.market_sentiment_service import TaiwanMarketSentimentService
+
+    svc = TaiwanMarketSentimentService()
+    req_date = date(2026, 9, 26)
+
+    # Rows with older date only
+    older_rows = [
+        {
+            "institutional_investors": "外資及陸資",
+            "futures_id": "TX",
+            "date": "2026-09-25",
+            "long_open_interest_balance_volume": 10000,
+            "short_open_interest_balance_volume": 20000,
+        }
+    ]
+
+    # Parsing for 2026-09-26 must return None (do NOT substitute with 2026-09-25)
+    parsed = svc._parse_futures_rows(older_rows, target_date=req_date)
+    assert parsed is None
+
+    # Matching row must parse successfully
+    match_rows = [
+        *older_rows,
+        {
+            "institutional_investors": "外資及陸資",
+            "futures_id": "TX",
+            "date": "2026-09-26",
+            "long_open_interest_balance_volume": 12000,
+            "short_open_interest_balance_volume": 18000,
+        },
+    ]
+    parsed_match = svc._parse_futures_rows(match_rows, target_date=req_date)
+    assert parsed_match is not None
+    assert parsed_match["net_oi"] == -6000
+
+
+def test_screener_recent_revenue_earnings_validation():
+    """Finding 5: Screener recent_revenue_or_earnings must validate status and recent window."""
+    from datetime import date
+
+    from app.taiwan.screener import TaiwanScreenerService
+
+    ref_date = date(2026, 9, 26)
+
+    # Stale filing (> 65 days)
+    stale_rev = {
+        "status": "available",
+        "data": [{"date": "2026-07-01", "revenue": 100}],
+    }
+    assert TaiwanScreenerService._is_recent_valid_revenue(stale_rev, ref_date) is False
+
+    # Unavailable/Auth required status
+    auth_rev = {
+        "status": "auth_required",
+        "data": [{"date": "2026-09-01", "revenue": 100}],
+    }
+    assert TaiwanScreenerService._is_recent_valid_revenue(auth_rev, ref_date) is False
+
+    # Valid recent revenue (within 65 days)
+    valid_rev = {
+        "status": "available",
+        "data": [{"date": "2026-08-10", "revenue": 100}],
+    }
+    assert TaiwanScreenerService._is_recent_valid_revenue(valid_rev, ref_date) is True
+
+    # Valid recent financials (within 135 days)
+    valid_fin = {
+        "status": "available",
+        "data": [{"date": "2026-06-30", "type": "EPS", "value": 5.0}],
+    }
+    assert TaiwanScreenerService._is_recent_valid_financials(valid_fin, ref_date) is True
+
+
+def test_detail_news_availability_preservation():
+    """Finding 6: Stock Detail response must preserve news_status and error messages."""
+    from app.taiwan.detail_models import TaiwanStockDetailResponse
+
+    # Check model fields
+    assert "news_status" in TaiwanStockDetailResponse.model_fields
+    assert "news_status_message" in TaiwanStockDetailResponse.model_fields
+    assert "news_fetched_at" in TaiwanStockDetailResponse.model_fields
+

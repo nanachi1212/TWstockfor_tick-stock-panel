@@ -1342,7 +1342,15 @@ export function TaiwanStockDetail() {
                     <h3 className="text-sm font-bold text-foreground">個股近期新聞</h3>
                   </div>
                   <span className="text-[10px] text-muted font-mono">
-                    {data.recent_news?.length ? `${data.recent_news.length} 則新聞` : '無即時新聞'}
+                    {data.news_status === 'rate_limited'
+                      ? '頻率限制'
+                      : data.news_status === 'auth_required'
+                      ? '需 Token'
+                      : data.news_status === 'unavailable'
+                      ? '暫不可用'
+                      : data.recent_news?.length
+                      ? `${data.recent_news.length} 則新聞`
+                      : '無即時新聞'}
                   </span>
                 </div>
 
@@ -1384,8 +1392,33 @@ export function TaiwanStockDetail() {
                 ) : (
                   <div className="py-12 text-center text-xs text-muted">
                     <Newspaper className="h-8 w-8 mx-auto mb-2 text-muted/40" />
-                    <p>目前無近期相關新聞報導</p>
-                    <span className="text-[10px] mt-1 block text-muted/70">來源: FinMind（若未收錄或頻率限制則無內容）</span>
+                    {data.news_status === 'rate_limited' ? (
+                      <div>
+                        <p className="font-semibold text-amber-500">新聞來源已達頻率限制</p>
+                        <span className="text-[10px] mt-1 block text-muted/70">
+                          {data.news_status_message || 'FinMind API 查詢次數已達目前方案上限，請稍候重試'}
+                        </span>
+                      </div>
+                    ) : data.news_status === 'auth_required' ? (
+                      <div>
+                        <p className="font-semibold text-amber-500">需 FinMind Token / 權限</p>
+                        <span className="text-[10px] mt-1 block text-muted/70">
+                          {data.news_status_message || '目前資料來源設定需有效金鑰以查詢即時個股新聞'}
+                        </span>
+                      </div>
+                    ) : data.news_status === 'unavailable' ? (
+                      <div>
+                        <p className="font-semibold text-rose-500">新聞來源暫時無法連線</p>
+                        <span className="text-[10px] mt-1 block text-muted/70">
+                          {data.news_status_message || '外部新聞資料源暫時無回應，非代表確認無新聞'}
+                        </span>
+                      </div>
+                    ) : (
+                      <div>
+                        <p>近期無相關新聞報導</p>
+                        <span className="text-[10px] mt-1 block text-muted/70">資料來源: FinMind（該標的近期未有媒體收錄）</span>
+                      </div>
+                    )}
                   </div>
                 )}
               </div>

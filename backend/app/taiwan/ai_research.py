@@ -404,9 +404,10 @@ def build_evidence_registry(
     if hasattr(ctx, "recent_events") and ctx.recent_events:
         payload["recent_events"] = ctx.recent_events[:5]
         registry_keys.update(["events.recent_count", "events.items"])
-    if hasattr(ctx, "recent_news") and ctx.recent_news:
-        payload["recent_news"] = ctx.recent_news[:5]
-        registry_keys.update(["news.recent_count", "news.items"])
+    if hasattr(ctx, "recent_news"):
+        payload["recent_news"] = ctx.recent_news[:5] if ctx.recent_news else []
+        payload["news_status"] = getattr(ctx, "news_status", "available")
+        registry_keys.update(["news.recent_count", "news.items", "news.status"])
 
     # Personal fields come from the user's local portfolio ledger and existing app APIs.
     # Keep this input compact and explicitly separate from deterministic market evidence.
@@ -556,6 +557,7 @@ SYSTEM_PROMPT = """你是一個客觀、確定性導向的「台股個股研究�
 10. 官方事件資料 vs 新聞報導客觀區分 (A11)：
    - 官方事件資料（如除權息、處置證券、減資、面額變更、月營收公布、財報公布）屬於官方/交易所核實之既定事實，得作為公司與市場動向之客觀依據。
    - 新聞報導為外部媒體視角與市場脈絡，供解讀市場關注焦點，但絕對不得將新聞中的說法、傳聞、市場猜測或非官方預估升格為既定事實證明。
+   - 若新聞來源狀態 (news_status) 標示為 unavailable、rate_limited 或 auth_required，必須客觀陳述「新聞來源暫時無法連線或未提供」，嚴禁推論或宣稱「市場確認完全無相關新聞」或「新聞面平靜無事」。只有在 news_status 為 available 且新聞清單為空時，才可陳述「近期無相關媒體新聞收錄」。
    - 不得自己編造新聞或擴充新聞內容。
 """
 

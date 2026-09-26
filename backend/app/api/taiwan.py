@@ -608,11 +608,13 @@ def get_taiwan_events(
             target_date=target_dt,
             limit=limit,
         )
+        status, sources_status = svc.get_last_sources_status()
         return {
             "events": items,
             "total": len(items),
             "as_of_date": (target_dt or taipei_today()).isoformat(),
-            "status": "available",
+            "status": status,
+            "sources_status": sources_status,
         }
     except Exception as e:
         logger.exception("Failed to get market events: %s", e)

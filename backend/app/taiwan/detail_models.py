@@ -235,4 +235,7 @@ class TaiwanStockDetailResponse(BaseModel):
     extra_chips: Optional[TaiwanExtraChipsData] = None
     recent_events: list[Any] = Field(default_factory=list, description="近期市場與公司重大事件 (A11)")
     recent_news: list[Any] = Field(default_factory=list, description="近期個股新聞 (A11)")
+    news_status: str = Field("available", description="新聞來源狀態: available, rate_limited, auth_required, unavailable")
+    news_status_message: str | None = Field(None, description="新聞來源說明訊息")
+    news_fetched_at: str | None = Field(None, description="新聞資料擷取或基準時間")
     overall_data_quality: str = Field("good", description="good, partial, stale, degraded")

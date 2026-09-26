@@ -92,14 +92,18 @@ class TaiwanMarketSentimentService:
         """Fetch foreign TX futures positions (last 2 sessions for change calculation)."""
         dataset = "TaiwanFuturesInstitutionalInvestors"
         symbol = "TX"
+        symbol_key = f"TX_{target_date.isoformat()}"
 
-        # Check cache
-        cached = self.cache.get(dataset, symbol)
-        if cached and isinstance(cached.get("data"), list) and cached.get("data"):
-            rows = cached.get("data", [])
-            parsed = self._parse_futures_rows(rows)
-            if parsed:
-                return parsed, "available", None
+        # Check date-aware cache first, then fallback to symbol for legacy/test seeded caches
+        cached = self.cache.get(dataset, symbol_key) or self.cache.get(dataset, symbol)
+        if cached:
+            if cached.get("status") == "auth_required":
+                return None, "auth_required", "目前資料來源方案不提供期權資料 (需有效金鑰)"
+            if isinstance(cached.get("data"), list) and cached.get("data"):
+                rows = cached.get("data", [])
+                parsed = self._parse_futures_rows(rows, target_date=target_date)
+                if parsed:
+                    return parsed, "available", None
 
         start_date = (target_date - timedelta(days=7)).isoformat()
         end_date = target_date.isoformat()
@@ -113,13 +117,16 @@ class TaiwanMarketSentimentService:
                 raise_for_status=True,
             )
             if not rows:
-                return None, "unavailable", "近期無台指期三大法人數據"
+                return None, "unavailable", f"查無 {target_date.isoformat()} 近期台指期三大法人數據"
 
-            self.cache.set(dataset, symbol, rows, data_date=end_date, status="available")
-            parsed = self._parse_futures_rows(rows)
+            parsed = self._parse_futures_rows(rows, target_date=target_date)
+            if not parsed:
+                return None, "unavailable", f"查無 {target_date.isoformat()} 當日台指期外資部位"
+
+            self.cache.set(dataset, symbol_key, rows, data_date=end_date, status="available")
             return parsed, "available", None
         except FinMindAuthError:
-            self.cache.set(dataset, symbol, [], status="auth_required")
+            self.cache.set(dataset, symbol_key, [], status="auth_required")
             return None, "auth_required", "目前資料來源方案不提供期權資料 (需有效金鑰)"
         except FinMindRateLimitError:
             return None, "rate_limited", "期貨資料查詢已達頻率上限"
@@ -127,20 +134,31 @@ class TaiwanMarketSentimentService:
             logger.warning("Failed to fetch TX futures from FinMind: %s", e)
             return None, "unavailable", f"期貨資料暫不可用: {e}"
 
-    def _parse_futures_rows(self, rows: list[dict[str, Any]]) -> dict[str, Any] | None:
+    def _parse_futures_rows(
+        self, rows: list[dict[str, Any]], target_date: date | None = None
+    ) -> dict[str, Any] | None:
         """Parse raw futures rows to find foreign investor net OI and day-over-day change."""
+        target_date_str = target_date.isoformat() if target_date else None
         # Filter for foreign investors ('外資及陸資' or contains '外資')
         foreign_rows = [
             r for r in rows
             if "外資" in str(r.get("institutional_investors") or "")
             and str(r.get("futures_id") or "").upper() in ("TX", "TXF")
         ]
+        if target_date_str:
+            foreign_rows = [r for r in foreign_rows if str(r.get("date") or "")[:10] <= target_date_str]
         if not foreign_rows:
             return None
 
         # Sort by date ascending
         foreign_rows.sort(key=lambda r: str(r.get("date") or ""))
         latest = foreign_rows[-1]
+        latest_date_str = str(latest.get("date") or "")[:10]
+
+        # Strict target_date matching: never substitute missing target date with an older date!
+        if target_date_str and latest_date_str != target_date_str:
+            return None
+
         prev = foreign_rows[-2] if len(foreign_rows) >= 2 else None
 
         long_oi = int(latest.get("long_open_interest_balance_volume") or 0)
@@ -168,13 +186,17 @@ class TaiwanMarketSentimentService:
         """Fetch foreign TXO options positions."""
         dataset = "TaiwanOptionInstitutionalInvestors"
         symbol = "TXO"
+        symbol_key = f"TXO_{target_date.isoformat()}"
 
-        cached = self.cache.get(dataset, symbol)
-        if cached and isinstance(cached.get("data"), list) and cached.get("data"):
-            rows = cached.get("data", [])
-            parsed = self._parse_options_rows(rows)
-            if parsed:
-                return parsed, "available", None
+        cached = self.cache.get(dataset, symbol_key) or self.cache.get(dataset, symbol)
+        if cached:
+            if cached.get("status") == "auth_required":
+                return None, "auth_required", "目前資料來源方案不提供選擇權資料"
+            if isinstance(cached.get("data"), list) and cached.get("data"):
+                rows = cached.get("data", [])
+                parsed = self._parse_options_rows(rows, target_date=target_date)
+                if parsed:
+                    return parsed, "available", None
 
         start_date = (target_date - timedelta(days=7)).isoformat()
         end_date = target_date.isoformat()
@@ -188,13 +210,16 @@ class TaiwanMarketSentimentService:
                 raise_for_status=True,
             )
             if not rows:
-                return None, "unavailable", "近期無選擇權三大法人數據"
+                return None, "unavailable", f"查無 {target_date.isoformat()} 近期選擇權三大法人數據"
 
-            self.cache.set(dataset, symbol, rows, data_date=end_date, status="available")
-            parsed = self._parse_options_rows(rows)
+            parsed = self._parse_options_rows(rows, target_date=target_date)
+            if not parsed:
+                return None, "unavailable", f"查無 {target_date.isoformat()} 當日選擇權外資部位"
+
+            self.cache.set(dataset, symbol_key, rows, data_date=end_date, status="available")
             return parsed, "available", None
         except FinMindAuthError:
-            self.cache.set(dataset, symbol, [], status="auth_required")
+            self.cache.set(dataset, symbol_key, [], status="auth_required")
             return None, "auth_required", "目前資料來源方案不提供選擇權資料"
         except FinMindRateLimitError:
             return None, "rate_limited", "選擇權資料查詢已達頻率上限"
@@ -202,20 +227,25 @@ class TaiwanMarketSentimentService:
             logger.warning("Failed to fetch TXO options from FinMind: %s", e)
             return None, "unavailable", f"選擇權資料暫不可用: {e}"
 
-    def _parse_options_rows(self, rows: list[dict[str, Any]]) -> dict[str, Any] | None:
+    def _parse_options_rows(
+        self, rows: list[dict[str, Any]], target_date: date | None = None
+    ) -> dict[str, Any] | None:
         """Parse raw options rows to calculate foreign Call/Put net positions."""
+        target_date_str = target_date.isoformat() if target_date else None
         foreign_rows = [
             r for r in rows
             if "外資" in str(r.get("institutional_investors") or "")
             and str(r.get("option_id") or "").upper() in ("TXO",)
         ]
+        if target_date_str:
+            foreign_rows = [r for r in foreign_rows if str(r.get("date") or "")[:10] <= target_date_str]
         if not foreign_rows:
             return None
 
         # Group by date
         by_date: dict[str, list[dict[str, Any]]] = {}
         for r in foreign_rows:
-            d = str(r.get("date") or "")
+            d = str(r.get("date") or "")[:10]
             by_date.setdefault(d, []).append(r)
 
         sorted_dates = sorted(by_date.keys())
@@ -223,6 +253,10 @@ class TaiwanMarketSentimentService:
             return None
 
         latest_date = sorted_dates[-1]
+        # Strict target_date matching: never substitute missing target date with an older date!
+        if target_date_str and latest_date != target_date_str:
+            return None
+
         latest_items = by_date[latest_date]
 
         call_long = 0
