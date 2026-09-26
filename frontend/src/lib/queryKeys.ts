@@ -112,6 +112,17 @@ export const QK = {
   // Regime.tsx 一併移除。
   regimeLatest:         ['regime-latest'] as const,
   regimeCoverage:       ['regime-coverage'] as const,
+
+  // Selection Review (A12)
+  selectionSnapshots:   (strategyId?: string) => ['selection-snapshots', strategyId ?? 'all'] as const,
+  selectionSnapshotDetail: (snapshotId: string) => ['selection-snapshot-detail', snapshotId] as const,
+  selectionStrategyStats: ['selection-strategy-stats'] as const,
+  selectionConditionStats: ['selection-condition-stats'] as const,
+
+  // Daily Brief (A12)
+  dailyBrief:           (targetDate?: string) => ['daily-brief', targetDate ?? 'today'] as const,
+  dailyBriefHistory:    (limit?: number) => ['daily-brief-history', limit ?? 30] as const,
+  dailyBriefHistoryDetail: (briefId: string) => ['daily-brief-history-detail', briefId] as const,
 } as const
 
 // ===== SSE 應該 invalidate 的 key 前綴列表 =====

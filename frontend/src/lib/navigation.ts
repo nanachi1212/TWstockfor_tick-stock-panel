@@ -13,6 +13,8 @@ import {
   Filter,
   Scale,
   CalendarDays,
+  Sparkles,
+  History,
   type LucideIcon,
 } from 'lucide-react'
 
@@ -52,8 +54,10 @@ export interface NavMeta {
 // 只調整陣列順序(即側欄/選單設定顯示順序)。
 export const CORE_NAV: readonly NavMeta[] = [
   { to: '/',                label: '看板',     icon: LayoutDashboard },
+  { to: '/daily-brief',     label: '每日摘要', icon: Sparkles },
   { to: '/events',          label: '事件中心', icon: CalendarDays },
   { to: '/taiwan-screener', label: '台股選股', icon: Filter },
+  { to: '/selection-review',label: '選股復盤', icon: History },
   { to: '/watchlist',  label: '自選股',   icon: Star },
   { to: '/stocks/compare', label: '多股比較', icon: Scale },
   { to: '/monitor', label: '監控中心', icon: RadioTower },

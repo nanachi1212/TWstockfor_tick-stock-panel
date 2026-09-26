@@ -705,3 +705,198 @@ def get_taiwan_market_sentiment(
         logger.exception("Failed to calculate market sentiment: %s", e)
         raise HTTPException(status_code=500, detail=f"市場情緒計算失敗: {e}") from e
 
+
+# ── A12: Selection Review (選股復盤) ─────────────────────────────
+
+@router.post("/selection-review/snapshots")
+def save_selection_snapshot(body: dict[str, Any]):
+    """保存本次選股結果為不可變快照 (Point-in-time snapshot)。"""
+    from app.taiwan.selection_review_models import SaveSelectionSnapshotRequest
+    from app.taiwan.selection_review_service import get_selection_review_service
+
+    try:
+        req = SaveSelectionSnapshotRequest(**body)
+    except Exception as e:
+        raise HTTPException(status_code=422, detail=f"選股快照格式錯誤: {e}") from e
+
+    svc = get_selection_review_service()
+    try:
+        saved = svc.save_snapshot(req)
+        return saved.model_dump()
+    except Exception as e:
+        logger.exception("Failed to save selection snapshot: %s", e)
+        raise HTTPException(status_code=500, detail=f"快照儲存失敗: {e}") from e
+
+
+@router.get("/selection-review/snapshots")
+def list_selection_snapshots():
+    """取得所有已儲存的選股快照清單及 5D/20D 復盤進度。"""
+    from app.taiwan.selection_review_service import get_selection_review_service
+
+    svc = get_selection_review_service()
+    try:
+        return [s.model_dump() for s in svc.list_snapshots()]
+    except Exception as e:
+        logger.exception("Failed to list selection snapshots: %s", e)
+        raise HTTPException(status_code=500, detail=f"快照清單讀取失敗: {e}") from e
+
+
+@router.get("/selection-review/snapshots/{snapshot_id}")
+def get_selection_snapshot_detail(snapshot_id: str):
+    """取得特定快照的 1D/5D/20D 復盤評估明細與 Benchmark 比較。"""
+    from app.taiwan.selection_review_service import get_selection_review_service
+
+    svc = get_selection_review_service()
+    detail = svc.get_snapshot_review(snapshot_id)
+    if not detail:
+        raise HTTPException(status_code=404, detail=f"找不到指定的選股快照: {snapshot_id}")
+    return detail.model_dump()
+
+
+@router.delete("/selection-review/snapshots/{snapshot_id}")
+def delete_selection_snapshot(snapshot_id: str):
+    """刪除指定的選股快照。"""
+    from app.taiwan.selection_review_service import get_selection_review_service
+
+    svc = get_selection_review_service()
+    success = svc.delete_snapshot(snapshot_id)
+    if not success:
+        raise HTTPException(status_code=404, detail=f"找不到或無法刪除快照: {snapshot_id}")
+    return {"ok": True, "deleted_id": snapshot_id}
+
+
+@router.get("/selection-review/strategy-stats")
+def get_strategy_review_stats():
+    """取得各已儲存策略聚合之 5D/20D 勝率與平均報酬統計。"""
+    from app.taiwan.selection_review_service import get_selection_review_service
+
+    svc = get_selection_review_service()
+    try:
+        return [s.model_dump() for s in svc.get_strategy_reviews()]
+    except Exception as e:
+        logger.exception("Failed to get strategy review stats: %s", e)
+        raise HTTPException(status_code=500, detail=f"策略統計讀取失敗: {e}") from e
+
+
+@router.get("/selection-review/condition-stats")
+def get_condition_review_stats():
+    """依篩選條件/入選理由聚合之 5D/20D 敘述性統計 (不作因果推論)。"""
+    from app.taiwan.selection_review_service import get_selection_review_service
+
+    svc = get_selection_review_service()
+    try:
+        return [c.model_dump() for c in svc.get_condition_reviews()]
+    except Exception as e:
+        logger.exception("Failed to get condition review stats: %s", e)
+        raise HTTPException(status_code=500, detail=f"條件統計讀取失敗: {e}") from e
+
+
+# ── A12: Daily Brief (每日 AI 摘要) ──────────────────────────────
+
+@router.get("/daily-brief")
+def get_daily_brief(target_date: str | None = None):
+    """取得或建構今日台股客觀確定性簡報 (涵蓋大盤、強弱族群、持股與自選、新候選股、事件與新聞)。"""
+    from app.taiwan.daily_brief_service import get_daily_brief_service
+
+    svc = get_daily_brief_service()
+
+    target_dt = None
+    if target_date:
+        try:
+            target_dt = dt_date.fromisoformat(target_date)
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=f"無效的日期格式: {target_date}") from e
+
+    try:
+        brief = svc.build_deterministic_brief(target_date=target_dt)
+        return brief.model_dump()
+    except Exception as e:
+        logger.exception("Failed to build daily brief: %s", e)
+        raise HTTPException(status_code=500, detail=f"每日簡報彙整失敗: {e}") from e
+
+
+@router.post("/daily-brief/ai-summary")
+async def generate_daily_brief_ai_summary(body: dict[str, Any]):
+    """由使用者主動觸發，呼叫現有 AI Provider 生成嚴格 7 段式的每日市場摘要。"""
+    from app.taiwan.daily_brief_models import DeterministicDailyBrief
+    from app.taiwan.daily_brief_service import get_daily_brief_service
+
+    try:
+        brief = DeterministicDailyBrief(**body)
+    except Exception as e:
+        raise HTTPException(status_code=422, detail=f"結構化簡報資料格式不符: {e}") from e
+
+    svc = get_daily_brief_service()
+    try:
+        summary = await svc.generate_ai_summary(brief)
+        return summary.model_dump()
+    except Exception as e:
+        logger.warning("Daily brief AI summary generation failed: %s", e)
+        raise HTTPException(status_code=503, detail=f"AI 摘要生成暫時不可用，請確認 AI 設定或網路: {e}") from e
+
+
+class SaveDailyBriefPayload(BaseModel):
+    brief_id: str | None = None
+    brief_date: str | None = None
+    generated_at: str | None = None
+    data_as_of: str | None = None
+    structured_brief: dict[str, Any]
+    ai_summary: dict[str, Any] | None = None
+    ai_status: str = "not_generated"
+    ai_error: str | None = None
+
+
+@router.post("/daily-brief/save")
+def save_daily_brief_history(payload: SaveDailyBriefPayload):
+    """保存使用者確認的每日摘要歷史至本機 user_data。"""
+    from app.taiwan.daily_brief_models import DailyBriefAISummary, DeterministicDailyBrief
+    from app.taiwan.daily_brief_service import get_daily_brief_service
+
+    try:
+        brief = DeterministicDailyBrief(**payload.structured_brief)
+        ai_summary = DailyBriefAISummary(**payload.ai_summary) if payload.ai_summary else None
+    except Exception as e:
+        raise HTTPException(status_code=422, detail=f"儲存資料格式錯誤: {e}") from e
+
+    svc = get_daily_brief_service()
+    try:
+        saved = svc.save_brief(
+            brief=brief,
+            ai_summary=ai_summary,
+            ai_status=payload.ai_status,
+            ai_error=payload.ai_error,
+        )
+        return saved.model_dump()
+    except Exception as e:
+        logger.exception("Failed to persist daily brief: %s", e)
+        raise HTTPException(status_code=500, detail=f"每日摘要儲存失敗: {e}") from e
+
+
+@router.get("/daily-brief/history")
+def list_daily_brief_history(limit: int | None = None):
+    """取得歷史保存的每日摘要清單。"""
+    from app.taiwan.daily_brief_service import get_daily_brief_service
+
+    svc = get_daily_brief_service()
+    try:
+        briefs = svc.list_saved_briefs()
+        if limit is not None:
+            briefs = briefs[:limit]
+        return [b.model_dump() for b in briefs]
+    except Exception as e:
+        logger.exception("Failed to list daily brief history: %s", e)
+        raise HTTPException(status_code=500, detail=f"每日摘要歷史讀取失敗: {e}") from e
+
+
+@router.get("/daily-brief/history/{brief_id}")
+def get_daily_brief_history_detail(brief_id: str):
+    """讀取特定歷史每日摘要明細。"""
+    from app.taiwan.daily_brief_service import get_daily_brief_service
+
+    svc = get_daily_brief_service()
+    brief = svc.get_saved_brief(brief_id)
+    if not brief:
+        raise HTTPException(status_code=404, detail=f"找不到指定的每日摘要歷史: {brief_id}")
+    return brief.model_dump()
+
+
