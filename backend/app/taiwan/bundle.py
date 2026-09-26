@@ -21,7 +21,7 @@ import shutil
 import tempfile
 import uuid
 import zipfile
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from pathlib import Path
 from typing import Any, Literal
 
@@ -112,10 +112,158 @@ def _is_excluded(rel_path: str) -> bool:
     return False
 
 
-def _validate_manifest_entry(entry_path: str, bundle_type: str) -> None:
-    """Validate that entry path is secure, not excluded, and belongs to the bundle type allowlist."""
-    norm = entry_path.replace("\\", "/").strip("/")
-    if not norm or entry_path.startswith(("/", "\\")) or ":" in entry_path:
+# Full security master required schema directly matching TaiwanSecurityMaster.load_cache()
+SECURITY_MASTER_REQUIRED_COLUMNS: tuple[str, ...] = (
+    "symbol",
+    "code",
+    "name",
+    "exchange",
+    "instrument_type",
+    "listing_status",
+)
+
+DAILY_REQUIRED_COLUMNS: tuple[str, ...] = (
+    "symbol",
+    "date",
+    "open",
+    "high",
+    "low",
+    "close",
+    "volume",
+)
+
+REQUIRED_EVIDENCE_FILES: tuple[str, ...] = (
+    "isin_listed.parquet",
+    "isin_unlisted.parquet",
+    "termination.parquet",
+    "company.parquet",
+)
+
+
+def validate_security_master_table(path: Path) -> int:
+    """Validate security_master.parquet schema and non-emptiness.
+
+    Authoritative schema aligns directly with TaiwanSecurityMaster.load_cache() required fields.
+    Returns row count.
+    """
+    if not path.is_file():
+        raise FileNotFoundError(f"Missing security_master.parquet: {path}")
+    try:
+        sec_df = pl.read_parquet(path)
+    except Exception as exc:
+        raise ValueError(f"Failed to read and validate security_master.parquet: {exc}") from exc
+
+    if sec_df.is_empty():
+        raise ValueError(f"security_master.parquet is empty: {path}")
+
+    missing_sec = set(SECURITY_MASTER_REQUIRED_COLUMNS) - set(sec_df.columns)
+    if missing_sec:
+        raise ValueError(
+            f"security_master.parquet missing required columns {sorted(missing_sec)}: {path}"
+        )
+    return len(sec_df)
+
+
+def validate_daily_partition(path: Path) -> int:
+    """Validate a single daily partition file for readability, non-emptiness, and required schema.
+    Returns row count.
+    """
+    try:
+        part_df = pl.read_parquet(path)
+    except Exception as exc:
+        raise ValueError(f"Failed to read and validate daily partition {path}: {exc}") from exc
+
+    if part_df.is_empty():
+        raise ValueError(f"Daily partition is empty: {path}")
+
+    missing_cols = set(DAILY_REQUIRED_COLUMNS) - set(part_df.columns)
+    if missing_cols:
+        raise ValueError(
+            f"Daily partition missing required columns {sorted(missing_cols)}: {path}"
+        )
+    return len(part_df)
+
+
+def validate_daily_partitions(daily_dir: Path) -> int:
+    """Validate all daily partition files under daily_dir. Returns total row count."""
+    daily_files = sorted(daily_dir.glob("date=*/part.parquet"))
+    if not daily_files:
+        raise ValueError(f"No daily partitions found in {daily_dir}")
+    total_rows = 0
+    for p in daily_files:
+        total_rows += validate_daily_partition(p)
+    return total_rows
+
+
+def validate_instrument_evidence_snapshot(evidence_dir: Path) -> list[Path]:
+    """Validate complete instrument evidence snapshot according to InstrumentEvidenceStore contract."""
+    from app.taiwan.instrument_evidence import InstrumentEvidenceStore
+
+    store = InstrumentEvidenceStore(evidence_dir)
+    try:
+        store._check_generation()
+    except FileNotFoundError as fnf:
+        raise ValueError(f"Incomplete instrument evidence snapshot: {fnf}") from fnf
+    except Exception as exc:
+        raise ValueError(f"Invalid instrument evidence snapshot: {exc}") from exc
+
+    return [evidence_dir / name for name in REQUIRED_EVIDENCE_FILES]
+
+
+def validate_month_verification(observed_dir: Path, exchange: str = "TWSE") -> dict[str, Any]:
+    """Validate TWSE month-verification marker against ObservedUniverseStore authoritative contract."""
+    from app.taiwan.observed_universe import ObservedUniverseStore
+
+    store = ObservedUniverseStore(observed_dir)
+    path = store._verification_path(exchange)
+    if not path.is_file():
+        raise ValueError(f"Missing required month verification marker: {path.name}")
+
+    try:
+        record = json.loads(path.read_text(encoding="utf-8"))
+    except Exception as exc:
+        raise ValueError(f"Failed to parse {path.name} as JSON: {exc}") from exc
+
+    if not isinstance(record, dict):
+        raise ValueError(f"{path.name} must be a JSON object")
+
+    for field in ("start", "end", "partitions_sha256"):
+        if field not in record or not record[field]:
+            raise ValueError(f"{path.name} missing required field: {field}")
+
+    try:
+        start_d = date.fromisoformat(record["start"])
+        end_d = date.fromisoformat(record["end"])
+    except Exception as exc:
+        raise ValueError(f"Invalid ISO date in {path.name}: {exc}") from exc
+
+    if start_d > end_d:
+        raise ValueError(f"Invalid date range in {path.name}: start ({start_d}) > end ({end_d})")
+
+    expected_digest = store._partition_digest(exchange, start_d, end_d)
+    actual_digest = record["partitions_sha256"]
+    if actual_digest != expected_digest:
+        raise ValueError(
+            f"Digest mismatch in {path.name}: expected {expected_digest}, got {actual_digest}"
+        )
+    return record
+
+
+def _normalize_rel_path(raw_path: str) -> str:
+    """Normalize relative path, stripping redundant slashes, leading ./ and trailing slashes."""
+    parts = [p for p in raw_path.replace("\\", "/").split("/") if p and p != "."]
+    return "/".join(parts)
+
+
+def _validate_manifest_entry(entry_path: str, bundle_type: str) -> str:
+    """Validate that entry path is secure, not excluded, and belongs to the bundle type allowlist.
+
+    Returns the normalized relative path.
+    """
+    if entry_path.startswith(("/", "\\")) or ":" in entry_path:
+        raise ValueError(f"Insecure manifest file entry path: {entry_path}")
+    norm = _normalize_rel_path(entry_path)
+    if not norm:
         raise ValueError(f"Insecure manifest file entry path: {entry_path}")
     parts = norm.split("/")
     if ".." in parts:
@@ -128,14 +276,14 @@ def _validate_manifest_entry(entry_path: str, bundle_type: str) -> None:
     # P1 Finding 1: Strict bundle-type allowlist
     if bundle_type == "core":
         if norm == "security_master.parquet":
-            return
+            return norm
         if len(parts) == 3 and parts[0] == "daily" and parts[1].startswith("date=") and parts[2] == "part.parquet":
-            return
+            return norm
         raise ValueError(f"File path '{entry_path}' not permitted in Core Bundle allowlist")
 
     elif bundle_type == "historical":
         if norm == "observed_universe/_month_verification_TWSE.json":
-            return
+            return norm
         if (
             len(parts) == 4
             and parts[0] == "observed_universe"
@@ -143,18 +291,22 @@ def _validate_manifest_entry(entry_path: str, bundle_type: str) -> None:
             and parts[2].startswith("date=")
             and parts[3] == "part.parquet"
         ):
-            return
+            return norm
         if (
             len(parts) == 3
             and parts[0] == "historical_classification"
             and parts[1].startswith("date=")
             and parts[2] == "part.parquet"
         ):
-            return
-        if len(parts) == 2 and parts[0] == "instrument_evidence" and norm.endswith(".parquet"):
-            return
+            return norm
+        if len(parts) == 2 and parts[0] == "instrument_evidence":
+            if parts[1] in REQUIRED_EVIDENCE_FILES:
+                return norm
+            raise ValueError(
+                f"File '{entry_path}' not permitted: Historical Bundle requires exact official evidence snapshots {REQUIRED_EVIDENCE_FILES}"
+            )
         if len(parts) == 2 and parts[0] == "adj_factor" and parts[1] in ("events.parquet", "coverage.json"):
-            return
+            return norm
         raise ValueError(f"File path '{entry_path}' not permitted in Historical Bundle allowlist")
 
     else:
@@ -181,22 +333,7 @@ def build_core_bundle(
     if not sec_master_path.exists():
         raise FileNotFoundError(f"Missing security_master.parquet in {src_dir}")
 
-    # P2 Finding 5: Fail-closed validation for security_master.parquet readability and schema
-    try:
-        sec_df = pl.read_parquet(sec_master_path)
-        if sec_df.is_empty():
-            raise ValueError(f"security_master.parquet is empty: {sec_master_path}")
-        required_sec_cols = {"symbol", "name", "exchange"}
-        missing_sec = required_sec_cols - set(sec_df.columns)
-        if missing_sec:
-            raise ValueError(
-                f"security_master.parquet missing required columns {sorted(missing_sec)}: {sec_master_path}"
-            )
-        sec_rows = len(sec_df)
-    except Exception as exc:
-        if isinstance(exc, ValueError):
-            raise
-        raise ValueError(f"Failed to read and validate security_master.parquet: {exc}") from exc
+    sec_rows = validate_security_master_table(sec_master_path)
 
     daily_dir = src_dir / "daily"
     if not daily_dir.exists():
@@ -206,24 +343,8 @@ def build_core_bundle(
     if not daily_files:
         raise ValueError(f"No daily partitions found in {daily_dir}")
 
-    # P2 Finding 5: Fail-closed validation for every daily partition's readability and schema
-    required_daily_cols = {"symbol", "date", "open", "high", "low", "close", "volume"}
-    total_rows = 0
-    for p in daily_files:
-        try:
-            part_df = pl.read_parquet(p)
-            if part_df.is_empty():
-                raise ValueError(f"Daily partition is empty: {p}")
-            missing_daily = required_daily_cols - set(part_df.columns)
-            if missing_daily:
-                raise ValueError(
-                    f"Daily partition missing required columns {sorted(missing_daily)}: {p}"
-                )
-            total_rows += len(part_df)
-        except Exception as exc:
-            if isinstance(exc, ValueError):
-                raise
-            raise ValueError(f"Failed to read and validate daily partition {p}: {exc}") from exc
+    # Validate every daily partition and get exact total row count
+    total_rows = validate_daily_partitions(daily_dir)
 
     # Gather file entries
     file_entries: list[BundleFileEntry] = []
@@ -351,11 +472,8 @@ def build_historical_bundle(
     if not evidence_dir.exists():
         raise FileNotFoundError(f"Missing instrument_evidence in {src_dir}")
 
-    evidence_files = sorted(evidence_dir.glob("*.parquet"))
-    if not evidence_files:
-        raise ValueError(
-            f"No evidence parquet files found in {evidence_dir}; cannot build historical bundle"
-        )
+    # P2: Validate complete instrument evidence snapshot
+    evidence_files = validate_instrument_evidence_snapshot(evidence_dir)
 
     adj_dir = src_dir / "adj_factor"
     if not adj_dir.exists():
@@ -370,20 +488,9 @@ def build_historical_bundle(
     files_to_pack: list[Path] = []
     files_to_pack.extend(twse_partitions)
 
-    # P1 Finding 2: Require valid TWSE month-verification marker
+    # P1: Validate month verification marker against authoritative ObservedUniverseStore contract
+    validate_month_verification(src_dir / "observed_universe", exchange="TWSE")
     month_verif = src_dir / "observed_universe" / "_month_verification_TWSE.json"
-    if not month_verif.exists():
-        raise ValueError(
-            f"Missing required _month_verification_TWSE.json in {src_dir / 'observed_universe'}; cannot build historical bundle"
-        )
-    try:
-        verif_data = json.loads(month_verif.read_text(encoding="utf-8"))
-        if not isinstance(verif_data, (dict, list)) or not verif_data:
-            raise ValueError(f"Invalid or empty _month_verification_TWSE.json in {month_verif}")
-    except Exception as exc:
-        if isinstance(exc, ValueError):
-            raise
-        raise ValueError(f"Failed to read/parse _month_verification_TWSE.json: {exc}") from exc
     files_to_pack.append(month_verif)
 
     files_to_pack.extend(classif_partitions)
@@ -499,10 +606,13 @@ def verify_bundle(bundle_zip_path: Path) -> BundleManifest:
         # P1 Finding 2: Exact declaration matching between ZIP members and manifest.files
         # Every non-metadata member in the archive MUST be in manifest.files, and vice versa.
         declared_map: dict[str, BundleFileEntry] = {}
+        seen_normalized_paths: set[str] = set()
         for entry in manifest.files:
-            # P1 Finding 1: Disallow crafted entry paths, exclusions, and non-allowlist paths
-            _validate_manifest_entry(entry.path, manifest.bundle_type)
-            entry_norm = entry.path.replace("\\", "/").strip("/")
+            # P1: Disallow crafted entry paths, exclusions, and non-allowlist paths
+            entry_norm = _validate_manifest_entry(entry.path, manifest.bundle_type)
+            if entry_norm in seen_normalized_paths:
+                raise ValueError(f"Duplicate normalized manifest path detected: {entry.path}")
+            seen_normalized_paths.add(entry_norm)
             zip_member_path = f"data/taiwan/{entry_norm}"
             declared_map[zip_member_path] = entry
 
@@ -580,17 +690,15 @@ def install_bundle(
         staged_files: list[tuple[Path, Path]] = []  # (staged_path, live_target_path)
 
         with zipfile.ZipFile(bundle_path, "r") as z:
+            seen_staged_targets: set[Path] = set()
             for entry in manifest.files:
-                # P1 Finding 1: Enforce exclusion rules and bundle-type allowlist
-                _validate_manifest_entry(entry.path, manifest.bundle_type)
-
-                # P1 Finding 1: Normalize and resolve relative path beneath destination
-                raw_rel = entry.path.replace("\\", "/")
-                clean_rel = raw_rel.strip("/")
-                if not clean_rel or ":" in clean_rel:
-                    raise ValueError(f"Insecure member path detected: {entry.path}")
+                # P1: Enforce exclusion rules and bundle-type allowlist, get normalized relative path
+                clean_rel = _validate_manifest_entry(entry.path, manifest.bundle_type)
 
                 target_dest = (dest_taiwan / clean_rel).resolve()
+                if target_dest in seen_staged_targets:
+                    raise ValueError(f"Duplicate installation target path detected: {entry.path}")
+                seen_staged_targets.add(target_dest)
                 staged_dest = (stage_root / clean_rel).resolve()
 
                 # Verify target stays strictly beneath resolved dest_taiwan
@@ -619,41 +727,15 @@ def install_bundle(
                 raise ValueError(f"Staged file extraction failed or empty: {staged_p}")
 
         if manifest.bundle_type == "core":
-            staged_sec = stage_root / "security_master.parquet"
-            if not staged_sec.exists():
-                raise ValueError("Core bundle missing staged security_master.parquet")
-            sec_scan = pl.read_parquet(staged_sec)
-            if sec_scan.is_empty():
-                raise ValueError("Staged security_master.parquet is empty")
-            # P2 Finding 4: Require daily partitions in every core bundle
-            staged_daily = list((stage_root / "daily").glob("date=*/part.parquet"))
-            if not staged_daily:
-                raise ValueError("Core bundle missing staged daily partitions (daily/date=*/part.parquet)")
-            try:
-                d_scan = pl.read_parquet(staged_daily[0])
-                if d_scan.is_empty():
-                    raise ValueError(f"Staged daily partition is empty: {staged_daily[0]}")
-            except Exception as exc:
-                if isinstance(exc, ValueError):
-                    raise
-                raise ValueError(f"Failed to read staged daily partition: {exc}") from exc
+            validate_security_master_table(stage_root / "security_master.parquet")
+            validate_daily_partitions(stage_root / "daily")
 
         elif manifest.bundle_type == "historical":
             staged_obs = stage_root / "observed_universe" / "exchange=TWSE"
             if not staged_obs.exists() or not list(staged_obs.glob("date=*/part.parquet")):
                 raise ValueError("Historical bundle missing staged TWSE census partitions")
-            # P1 Finding 2: Require valid TWSE month-verification marker
-            staged_verif = stage_root / "observed_universe" / "_month_verification_TWSE.json"
-            if not staged_verif.exists():
-                raise ValueError("Historical bundle missing required _month_verification_TWSE.json")
-            try:
-                verif_data = json.loads(staged_verif.read_text(encoding="utf-8"))
-                if not isinstance(verif_data, (dict, list)) or not verif_data:
-                    raise ValueError("Staged _month_verification_TWSE.json is empty or invalid JSON")
-            except Exception as exc:
-                if isinstance(exc, ValueError):
-                    raise
-                raise ValueError(f"Staged _month_verification_TWSE.json validation failed: {exc}") from exc
+            validate_month_verification(stage_root / "observed_universe", exchange="TWSE")
+            validate_instrument_evidence_snapshot(stage_root / "instrument_evidence")
 
         # P2 Finding 3: Atomic commit with rollback
         # Prepare backup of existing live files in case a write fails midway
@@ -726,14 +808,17 @@ def install_bundle(
                     f"Bundle installation failed and was rolled back cleanly: {commit_err}"
                 ) from commit_err
 
-    # P2 Finding 6: Invalidate/reload TaiwanSecurityMaster singleton upon core bundle installation
+    # Invalidate/reload TaiwanSecurityMaster singleton upon core bundle installation; fail closed if reload fails
     if manifest.bundle_type == "core":
-        try:
-            from app.taiwan.universe import reset_security_master
+        from app.taiwan.universe import reset_security_master
 
-            reset_security_master()
+        try:
+            reload_ok = reset_security_master()
         except Exception as exc:
-            logger.warning("Could not reset security master singleton: %s", exc)
+            raise RuntimeError(f"Failed to reload security master singleton after core installation: {exc}") from exc
+
+        if not reload_ok:
+            raise RuntimeError("Failed to reload security master singleton: cache could not be loaded")
 
     return {
         "ok": True,

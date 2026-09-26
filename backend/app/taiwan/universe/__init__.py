@@ -26,14 +26,13 @@ def get_security_master() -> TaiwanSecurityMaster:
     return _default_master
 
 
-def reset_security_master() -> None:
-    """Reset or reload the default TaiwanSecurityMaster singleton."""
+def reset_security_master() -> bool:
+    """Reset or reload the default TaiwanSecurityMaster singleton. Returns True if successfully loaded."""
     global _default_master
     if _default_master is not None:
-        _default_master.reload()
-    else:
-        _default_master = TaiwanSecurityMaster()
-        _default_master.ensure_loaded()
+        return _default_master.reload()
+    _default_master = TaiwanSecurityMaster()
+    return _default_master.load_cache()
 
 
 __all__ = [

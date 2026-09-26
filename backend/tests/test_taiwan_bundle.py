@@ -1,6 +1,7 @@
 """Tests for Taiwan Market Data Bundle creation, verification, security boundaries, and installation."""
 from __future__ import annotations
 
+import json
 import zipfile
 from datetime import date
 from pathlib import Path
@@ -65,9 +66,11 @@ def _create_mock_historical_data(taiwan_dir: Path) -> None:
     for d in ["2024-01-02", "2024-01-03"]:
         _create_mock_census_partition(twse_dir / f"date={d}" / "part.parquet", d, "TWSE")
 
-    # TWSE month verification
-    month_verif = taiwan_dir / "observed_universe" / "_month_verification_TWSE.json"
-    month_verif.write_text('{"verified": true, "months": ["2024-01"]}', encoding="utf-8")
+    # Authoritative TWSE month verification
+    from app.taiwan.observed_universe import ObservedUniverseStore
+
+    obs_store = ObservedUniverseStore(taiwan_dir / "observed_universe")
+    obs_store.record_month_verification("TWSE", date(2024, 1, 2), date(2024, 1, 3))
 
     # TPEX observed universe (should be EXCLUDED)
     tpex_dir = taiwan_dir / "observed_universe" / "exchange=TPEX"
@@ -86,11 +89,16 @@ def _create_mock_historical_data(taiwan_dir: Path) -> None:
         })
         df.write_parquet(p)
 
-    # 3. Instrument evidence
+    # 3. Instrument evidence (all 4 required official snapshots with valid metadata generation)
     evidence_dir = taiwan_dir / "instrument_evidence"
     evidence_dir.mkdir(parents=True, exist_ok=True)
-    df_ev = pl.DataFrame({"code": ["2330"], "source": ["isin"]})
-    df_ev.write_parquet(evidence_dir / "isin_listed.parquet")
+    import pyarrow as pa
+    import pyarrow.parquet as pq
+
+    meta = {b"retrieved_at": b"2026-09-26T00:00:00"}
+    for name in ("isin_listed", "isin_unlisted", "termination", "company"):
+        tbl = pa.Table.from_pydict({"code": ["2330"], "date": ["2024-01-02"]}).replace_schema_metadata(meta)
+        pq.write_table(tbl, evidence_dir / f"{name}.parquet")
 
     # 4. Adj factor
     adj_dir = taiwan_dir / "adj_factor"
@@ -156,7 +164,7 @@ def test_build_historical_bundle_and_verify(tmp_path: Path):
     assert manifest.bundle_type == "historical"
     assert manifest.statistics["twse_census_partitions"] == 2
     assert manifest.statistics["classification_partitions"] == 2
-    assert manifest.statistics["evidence_tables"] == 1
+    assert manifest.statistics["evidence_tables"] == 4
 
     with zipfile.ZipFile(zip_path, "r") as z:
         names = z.namelist()
@@ -453,7 +461,13 @@ def test_p1_require_valid_twse_month_verification_marker(tmp_path: Path):
 
     ev_dir = src_taiwan / "instrument_evidence"
     ev_dir.mkdir(parents=True, exist_ok=True)
-    (ev_dir / "evidence.parquet").write_bytes(b"dummy")
+    import pyarrow as pa
+    import pyarrow.parquet as pq
+
+    meta = {b"retrieved_at": b"2026-09-26T00:00:00"}
+    for name in ("isin_listed", "isin_unlisted", "termination", "company"):
+        tbl = pa.Table.from_pydict({"code": ["2330"], "date": ["2024-01-02"]}).replace_schema_metadata(meta)
+        pq.write_table(tbl, ev_dir / f"{name}.parquet")
 
     adj_dir = src_taiwan / "adj_factor"
     adj_dir.mkdir(parents=True, exist_ok=True)
@@ -462,13 +476,13 @@ def test_p1_require_valid_twse_month_verification_marker(tmp_path: Path):
     out_zip = tmp_path / "hist.zip"
 
     # Missing marker file
-    with pytest.raises(ValueError, match=r"Missing required _month_verification_TWSE\.json"):
+    with pytest.raises(ValueError, match=r"Missing required month verification marker"):
         build_historical_bundle(output_zip=out_zip, source_taiwan_dir=src_taiwan)
 
     # Empty marker file
     marker_file = src_taiwan / "observed_universe" / "_month_verification_TWSE.json"
     marker_file.write_text("{}", encoding="utf-8")
-    with pytest.raises(ValueError, match=r"Invalid or empty _month_verification_TWSE\.json"):
+    with pytest.raises(ValueError, match=r"missing required field"):
         build_historical_bundle(output_zip=out_zip, source_taiwan_dir=src_taiwan)
 
 
@@ -534,7 +548,7 @@ def test_p2_core_bundle_requires_at_least_one_daily_partition(tmp_path: Path):
         z.write(sec_p, "data/taiwan/security_master.parquet")
 
     dest_taiwan = tmp_path / "dest_taiwan"
-    with pytest.raises(ValueError, match=r"Core bundle missing staged daily partitions"):
+    with pytest.raises(ValueError, match=r"No daily partitions found"):
         install_bundle(out_zip, target_taiwan_dir=dest_taiwan)
 
 
@@ -614,3 +628,191 @@ def test_p2_reload_security_master_singleton_after_core_installation(tmp_path: P
     inst_2330 = current_master.get_instrument("2330.TWSE")
     assert inst_2330 is not None
     assert inst_2330.name == "台積電 (New)"
+
+
+# ── Regression tests for Final Batch Review Findings ──────────────────
+
+def test_p1_reject_duplicate_normalized_manifest_paths_in_verify_and_install(tmp_path: Path):
+    """Batch Finding 1: Reject duplicate normalized manifest paths and protect rollback backups."""
+    src_taiwan = tmp_path / "src_taiwan"
+    _create_mock_security_master(src_taiwan / "security_master.parquet")
+    _create_mock_daily_partition(src_taiwan / "daily" / "date=2024-01-02" / "part.parquet", "2024-01-02")
+
+    # 1. Duplicate identical path in manifest
+    dup_zip = tmp_path / "dup.zip"
+    m_dup = BundleManifest(
+        bundle_type="core",
+        package_name="dup_pkg",
+        created_at="2026-01-01T00:00:00Z",
+        data_through="2024-01-02",
+        files=[
+            BundleFileEntry(path="daily/date=2024-01-02/part.parquet", size_bytes=10, sha256="abc"),
+            BundleFileEntry(path="daily/date=2024-01-02/part.parquet", size_bytes=10, sha256="abc"),
+        ],
+    )
+    with zipfile.ZipFile(dup_zip, "w") as z:
+        z.writestr("manifest.json", m_dup.model_dump_json())
+        z.writestr("data/taiwan/daily/date=2024-01-02/part.parquet", b"data")
+
+    with pytest.raises(ValueError, match=r"Duplicate normalized manifest path detected"):
+        verify_bundle(dup_zip)
+
+    # 2. Duplicate normalized path (e.g. redundant slash or dot)
+    dup_norm_zip = tmp_path / "dup_norm.zip"
+    m_dup_norm = BundleManifest(
+        bundle_type="core",
+        package_name="dup_norm_pkg",
+        created_at="2026-01-01T00:00:00Z",
+        data_through="2024-01-02",
+        files=[
+            BundleFileEntry(path="daily/date=2024-01-02/part.parquet", size_bytes=10, sha256="abc"),
+            BundleFileEntry(path="./daily/date=2024-01-02/part.parquet", size_bytes=10, sha256="abc"),
+        ],
+    )
+    with zipfile.ZipFile(dup_norm_zip, "w") as z:
+        z.writestr("manifest.json", m_dup_norm.model_dump_json())
+        z.writestr("data/taiwan/daily/date=2024-01-02/part.parquet", b"data")
+
+    with pytest.raises(ValueError, match=r"Duplicate normalized manifest path detected"):
+        verify_bundle(dup_norm_zip)
+
+    # 3. install_bundle with duplicate target path fails before commit without overwriting live files or backups
+    live_dest = tmp_path / "live_dest"
+    live_dest.mkdir(parents=True, exist_ok=True)
+    live_file = live_dest / "daily" / "date=2024-01-02" / "part.parquet"
+    live_file.parent.mkdir(parents=True, exist_ok=True)
+    live_file.write_text("LIVE_ORIGINAL_BYTES", encoding="utf-8")
+
+    with pytest.raises(ValueError, match=r"Duplicate normalized manifest path detected|Duplicate installation target path detected"):
+        install_bundle(dup_norm_zip, target_taiwan_dir=live_dest)
+
+    assert live_file.read_text(encoding="utf-8") == "LIVE_ORIGINAL_BYTES"
+
+
+def test_p2_installer_validates_every_staged_daily_partition(tmp_path: Path):
+    """Batch Finding 2: Installer staging validates all daily partitions before commit."""
+    src_taiwan = tmp_path / "src_taiwan"
+    _create_mock_security_master(src_taiwan / "security_master.parquet")
+    _create_mock_daily_partition(src_taiwan / "daily" / "date=2024-01-02" / "part.parquet", "2024-01-02")
+    _create_mock_daily_partition(src_taiwan / "daily" / "date=2024-01-03" / "part.parquet", "2024-01-03")
+
+    valid_core_zip = tmp_path / "core.zip"
+    build_core_bundle(output_zip=valid_core_zip, source_taiwan_dir=src_taiwan)
+
+    # Create crafted zip where first partition is valid, second partition is corrupted
+    crafted_zip = tmp_path / "crafted_second_part_bad.zip"
+    with zipfile.ZipFile(valid_core_zip, "r") as z_in, zipfile.ZipFile(crafted_zip, "w") as z_out:
+        for item in z_in.infolist():
+            if "date=2024-01-03" in item.filename:
+                # Corrupt the second partition
+                z_out.writestr(item.filename, b"corrupted bytes")
+            else:
+                z_out.writestr(item, z_in.read(item.filename))
+
+    live_dest = tmp_path / "live_dest"
+    live_dest.mkdir(parents=True, exist_ok=True)
+    sentinel = live_dest / "live_sentinel.txt"
+    sentinel.write_text("PRESERVED", encoding="utf-8")
+
+    # verify_checksums=False to test staging validation specifically
+    with pytest.raises(ValueError, match=r"Failed to read and validate daily partition"):
+        install_bundle(crafted_zip, target_taiwan_dir=live_dest, verify_checksums=False)
+
+    # Live destination was never touched / corrupted
+    assert sentinel.read_text(encoding="utf-8") == "PRESERVED"
+    assert not (live_dest / "security_master.parquet").exists()
+
+
+def test_p2_historical_bundle_requires_complete_instrument_evidence_snapshot(tmp_path: Path):
+    """Batch Finding 3: Historical bundle requires all 4 official snapshots from same generation."""
+    src_taiwan = tmp_path / "src_taiwan"
+    _create_mock_historical_data(src_taiwan)
+
+    # Remove one required snapshot
+    (src_taiwan / "instrument_evidence" / "termination.parquet").unlink()
+
+    out_zip = tmp_path / "hist.zip"
+    with pytest.raises(ValueError, match=r"Incomplete instrument evidence snapshot"):
+        build_historical_bundle(output_zip=out_zip, source_taiwan_dir=src_taiwan)
+
+    # Restore termination but with different generation timestamp
+    import pyarrow as pa
+    import pyarrow.parquet as pq
+    mismatched_meta = {b"retrieved_at": b"DIFFERENT_TIMESTAMP"}
+    tbl = pa.Table.from_pydict({"code": ["2330"], "date": ["2024-01-02"]}).replace_schema_metadata(mismatched_meta)
+    pq.write_table(tbl, src_taiwan / "instrument_evidence" / "termination.parquet")
+
+    with pytest.raises(ValueError, match=r"instrument evidence snapshots come from different refreshes"):
+        build_historical_bundle(output_zip=out_zip, source_taiwan_dir=src_taiwan)
+
+
+def test_p1_validate_real_month_verification_contract(tmp_path: Path):
+    """Batch Finding 4: Validate real month-verification contract (fields, dates, digest)."""
+    src_taiwan = tmp_path / "src_taiwan"
+    _create_mock_historical_data(src_taiwan)
+    verif_path = src_taiwan / "observed_universe" / "_month_verification_TWSE.json"
+    valid_record = json.loads(verif_path.read_text(encoding="utf-8"))
+
+    out_zip = tmp_path / "hist.zip"
+
+    # 1. Missing required field (partitions_sha256)
+    bad_rec = dict(valid_record)
+    del bad_rec["partitions_sha256"]
+    verif_path.write_text(json.dumps(bad_rec), encoding="utf-8")
+    with pytest.raises(ValueError, match=r"missing required field: partitions_sha256"):
+        build_historical_bundle(output_zip=out_zip, source_taiwan_dir=src_taiwan)
+
+    # 2. Invalid ISO date
+    bad_rec = dict(valid_record)
+    bad_rec["start"] = "2024/01/02"  # Not ISO
+    verif_path.write_text(json.dumps(bad_rec), encoding="utf-8")
+    with pytest.raises(ValueError, match=r"Invalid ISO date"):
+        build_historical_bundle(output_zip=out_zip, source_taiwan_dir=src_taiwan)
+
+    # 3. start > end
+    bad_rec = dict(valid_record)
+    bad_rec["start"] = "2024-01-05"
+    bad_rec["end"] = "2024-01-02"
+    verif_path.write_text(json.dumps(bad_rec), encoding="utf-8")
+    with pytest.raises(ValueError, match=r"Invalid date range"):
+        build_historical_bundle(output_zip=out_zip, source_taiwan_dir=src_taiwan)
+
+    # 4. Digest mismatch
+    bad_rec = dict(valid_record)
+    bad_rec["partitions_sha256"] = "0" * 64
+    verif_path.write_text(json.dumps(bad_rec), encoding="utf-8")
+    with pytest.raises(ValueError, match=r"Digest mismatch"):
+        build_historical_bundle(output_zip=out_zip, source_taiwan_dir=src_taiwan)
+
+
+def test_p2_validate_full_security_master_schema_and_enforce_successful_reload(tmp_path: Path, monkeypatch):
+    """Batch Finding 5: Validate full security master schema and fail closed if singleton reload fails."""
+    src_taiwan = tmp_path / "src_taiwan"
+    sec_p = src_taiwan / "security_master.parquet"
+    sec_p.parent.mkdir(parents=True, exist_ok=True)
+
+    # Missing listing_status and instrument_type
+    bad_df = pl.DataFrame({
+        "symbol": ["2330.TWSE"],
+        "code": ["2330"],
+        "name": ["台積電"],
+        "exchange": ["TWSE"],
+    })
+    bad_df.write_parquet(sec_p)
+    _create_mock_daily_partition(src_taiwan / "daily" / "date=2024-01-02" / "part.parquet", "2024-01-02")
+
+    out_zip = tmp_path / "bad_core.zip"
+    with pytest.raises(ValueError, match=r"security_master\.parquet missing required columns"):
+        build_core_bundle(output_zip=out_zip, source_taiwan_dir=src_taiwan)
+
+    # Test singleton reload failure causes install_bundle to fail closed
+    _create_mock_security_master(sec_p)
+    good_core_zip = tmp_path / "good_core.zip"
+    build_core_bundle(output_zip=good_core_zip, source_taiwan_dir=src_taiwan)
+
+    live_dest = tmp_path / "live_dest"
+    import app.taiwan.universe as universe_mod
+    monkeypatch.setattr(universe_mod, "reset_security_master", lambda: False)
+
+    with pytest.raises(RuntimeError, match=r"Failed to reload security master singleton: cache could not be loaded"):
+        install_bundle(good_core_zip, target_taiwan_dir=live_dest)
