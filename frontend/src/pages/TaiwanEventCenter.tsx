@@ -383,23 +383,33 @@ export function TaiwanEventCenter() {
                       <span className="font-mono text-xs text-muted">{ev.event_date}</span>
                     </div>
 
-                    <Link
-                      to={`/stocks/${encodeURIComponent(ev.symbol)}`}
-                      className="inline-flex items-center gap-1 text-xs font-semibold text-accent hover:underline"
-                    >
-                      <span>前往個股分析</span>
-                      <ArrowUpRight className="h-3.5 w-3.5" />
-                    </Link>
+                    {ev.is_resolvable !== false ? (
+                      <Link
+                        to={`/stocks/${encodeURIComponent(ev.symbol)}`}
+                        className="inline-flex items-center gap-1 text-xs font-semibold text-accent hover:underline"
+                      >
+                        <span>前往個股分析</span>
+                        <ArrowUpRight className="h-3.5 w-3.5" />
+                      </Link>
+                    ) : (
+                      <span className="inline-flex items-center gap-1 text-xs text-muted rounded bg-elevated px-2 py-0.5">
+                        商品資料不足
+                      </span>
+                    )}
                   </div>
 
                   {/* Stock Headline */}
                   <div className="mt-2 flex items-baseline gap-2">
-                    <Link
-                      to={`/stocks/${encodeURIComponent(ev.symbol)}`}
-                      className="text-base font-bold text-foreground hover:text-accent transition-colors"
-                    >
-                      {ev.name}
-                    </Link>
+                    {ev.is_resolvable !== false ? (
+                      <Link
+                        to={`/stocks/${encodeURIComponent(ev.symbol)}`}
+                        className="text-base font-bold text-foreground hover:text-accent transition-colors"
+                      >
+                        {ev.name}
+                      </Link>
+                    ) : (
+                      <span className="text-base font-bold text-foreground">{ev.name || ev.code}</span>
+                    )}
                     <span className="font-mono text-xs text-muted">{ev.code}</span>
                     <span className="text-[10px] text-muted">({ev.exchange})</span>
                   </div>

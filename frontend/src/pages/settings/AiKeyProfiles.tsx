@@ -47,19 +47,29 @@ export function AiKeyProfilesPanel() {
   const [newName, setNewName] = useState('')
   const [newProvider, setNewProvider] = useState('openai_compat')
   const [newKey, setNewKey] = useState('')
+  const [newBaseUrl, setNewBaseUrl] = useState('')
+  const [newModel, setNewModel] = useState('')
   const [showKey, setShowKey] = useState(false)
   const [testingId, setTestingId] = useState<string | null>(null)
   const [testResults, setTestResults] = useState<Record<string, { ok: boolean; msg: string }>>({})
 
   const createMut = useMutation({
     mutationFn: () =>
-      api.aiKeyProfileCreate({ name: newName.trim(), provider: newProvider, api_key: newKey.trim() }),
+      api.aiKeyProfileCreate({
+        name: newName.trim(),
+        provider: newProvider,
+        api_key: newKey.trim(),
+        base_url: newBaseUrl.trim(),
+        model: newModel.trim(),
+      }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: QK.aiKeyProfiles })
       qc.invalidateQueries({ queryKey: QK.settings })
       setAddOpen(false)
       setNewName('')
       setNewKey('')
+      setNewBaseUrl('')
+      setNewModel('')
       toast('已新增 AI Key Profile', 'success')
     },
     onError: (e: any) => toast(e.message || '新增失敗', 'error'),
@@ -183,10 +193,32 @@ export function AiKeyProfilesPanel() {
               Key 只存於本機後端，畫面只顯示遮罩值，不會寫入 log 或傳至第三方。
             </p>
           </div>
+          <div className="grid grid-cols-2 gap-2">
+            <div>
+              <label className="block text-[10px] font-semibold text-muted mb-1">Base URL（選填）</label>
+              <input
+                type="text"
+                placeholder="https://api.openai.com/v1"
+                value={newBaseUrl}
+                onChange={e => setNewBaseUrl(e.target.value)}
+                className={INPUT_CLS}
+              />
+            </div>
+            <div>
+              <label className="block text-[10px] font-semibold text-muted mb-1">Model（選填）</label>
+              <input
+                type="text"
+                placeholder="gpt-4o-mini"
+                value={newModel}
+                onChange={e => setNewModel(e.target.value)}
+                className={INPUT_CLS}
+              />
+            </div>
+          </div>
           <div className="flex gap-2 justify-end">
             <button
               type="button"
-              onClick={() => { setAddOpen(false); setNewName(''); setNewKey('') }}
+              onClick={() => { setAddOpen(false); setNewName(''); setNewKey(''); setNewBaseUrl(''); setNewModel('') }}
               className="rounded-lg border border-border/80 px-3 py-1.5 text-xs text-muted hover:bg-elevated hover:text-foreground cursor-pointer"
             >
               取消
@@ -240,10 +272,12 @@ export function AiKeyProfilesPanel() {
                       </span>
                     )}
                   </div>
-                  <div className="flex items-center gap-2 text-[10px] text-muted">
+                  <div className="flex items-center gap-2 text-[10px] text-muted flex-wrap">
                     <span>{PROVIDER_LABELS[p.provider] ?? p.provider}</span>
                     <span>·</span>
                     <span className="font-mono">{p.key_masked || '(無 key)'}</span>
+                    {p.model && <><span>·</span><span className="font-mono">{p.model}</span></>}
+                    {p.base_url && <><span>·</span><span className="font-mono truncate max-w-[120px]">{p.base_url}</span></>}
                   </div>
                   {testResult && (
                     <div className={cn(

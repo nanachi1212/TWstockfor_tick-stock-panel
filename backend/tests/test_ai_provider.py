@@ -18,6 +18,14 @@ from app.services.ai_provider import (
 )
 
 
+@pytest.fixture(autouse=True)
+def _isolate_ai_profiles(tmp_path, monkeypatch):
+    """Ensure tests in this module run in an isolated environment without local profiles."""
+    from app.services import ai_key_profiles
+    monkeypatch.setattr(ai_key_profiles, "_profiles_path", lambda: tmp_path / "empty_profiles.json")
+    monkeypatch.setattr(ai_key_profiles, "_secrets_path", lambda: tmp_path / "empty_secrets.json")
+
+
 def test_normalize_openai_base_url_adds_v1_for_root_gateway():
     assert normalize_openai_base_url("http://ai.zedbox.cn:8080") == "http://ai.zedbox.cn:8080/v1"
 

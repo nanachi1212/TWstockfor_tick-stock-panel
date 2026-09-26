@@ -25,7 +25,7 @@ import re
 from typing import Any
 from pydantic import BaseModel, Field
 
-from app.services.ai_provider import generate_ai_text
+from app.services.ai_provider import generate_ai_text, snapshot_ai_provider_config
 from app.strategy.custom_signals_ai import _extract_json_object
 from app.taiwan.screener import TaiwanScreenerRequest
 
@@ -153,6 +153,7 @@ class TaiwanScreenerTranslator:
                 temperature=0.0,
                 max_tokens=600,
                 timeout=30.0,
+                config_snapshot=snapshot_ai_provider_config(),
             )
         except Exception as e:
             logger.warning("AI provider call failed in screener translate: %s", e)

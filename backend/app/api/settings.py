@@ -376,6 +376,8 @@ class AiKeyProfileCreate(BaseModel):
     name: str
     provider: str = "openai_compat"
     api_key: str
+    base_url: str = ""
+    model: str = ""
 
 
 @router.get("/ai-key-profiles")
@@ -403,6 +405,8 @@ def create_ai_key_profile(req: AiKeyProfileCreate) -> dict:
             name=req.name.strip(),
             provider=req.provider or "openai_compat",
             api_key=req.api_key.strip(),
+            base_url=req.base_url.strip() if req.base_url else "",
+            model=req.model.strip() if req.model else "",
         )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
@@ -460,13 +464,17 @@ async def test_ai_key_profile(profile_id: str) -> dict:
         return {"ok": False, "error": "Profile has no stored key"}
 
     from app.config import settings as app_settings
+    from app.secrets_store import get_ai_config
     provider = meta.get("provider") or "openai_compat"
+    # Use profile-specific base_url and model; fall back to global settings.
+    profile_base_url = meta.get("base_url") or get_ai_config("ai_base_url", app_settings.ai_base_url)
+    profile_model = meta.get("model") or get_ai_config("ai_model", app_settings.ai_model) or "gpt-4o-mini"
     try:
         cfg = AIProviderConfigSnapshot(
             provider=provider,
-            model=app_settings.ai_model or "gpt-4o-mini",
+            model=profile_model,
             api_key=key,
-            base_url=app_settings.ai_base_url or "",
+            base_url=profile_base_url,
             max_output_tokens=20,
         )
         result = await generate_ai_text(

@@ -27,6 +27,8 @@ import {
 import { QK } from '@/lib/queryKeys'
 import { cn } from '@/lib/cn'
 import { loadLastCompareSymbols, mergeSymbolIntoCompare } from '@/lib/taiwanCompareSymbols'
+import { CopyButton } from '@/components/CopyButton'
+import { formatStockDetailCopy, formatStockDetailPrompt, type StockDetailCopyData } from '@/lib/copy-formatters'
 import { TaiwanRuleEditorDialog } from '@/components/monitor/TaiwanRuleEditorDialog'
 import { EChartsCandlestick, type OHLC } from '@/components/EChartsCandlestick'
 import { TaiwanReferenceData } from '@/components/taiwan/TaiwanReferenceData'
@@ -148,6 +150,7 @@ export function TaiwanStockDetail() {
   const [isAiLoading, setIsAiLoading] = useState<boolean>(false)
   const [aiError, setAiError] = useState<string | null>(null)
   const [aiProvider, setAiProvider] = useState<string | null>(null)
+  const [includePortfolioInCopy, setIncludePortfolioInCopy] = useState<boolean>(false)
 
   const personalContext = useMemo(() => {
     void portfolioRevision
@@ -1472,6 +1475,240 @@ export function TaiwanStockDetail() {
               </>
             )}
           </button>
+          <div className="flex flex-wrap items-center gap-3">
+            <label className="flex items-center gap-1.5 text-xs text-muted cursor-pointer select-none">
+              <input
+                type="checkbox"
+                checked={includePortfolioInCopy}
+                onChange={e => setIncludePortfolioInCopy(e.target.checked)}
+                className="rounded border-border bg-base text-purple-600 focus:ring-purple-500"
+              />
+              <span>包含個人持股資料</span>
+            </label>
+            <div className="flex gap-2">
+              <CopyButton
+                size="xs"
+                label="複製資料"
+                getText={() => {
+                  let portfolioPositions: StockDetailCopyData['portfolioPositions'] = null
+                  const raw = storage.portfolioTransactions.get([])
+                  if (Array.isArray(raw) && raw.every(isPortfolioTransaction)) {
+                    const pos = buildPortfolioPositions(raw as PortfolioTransaction[]).find(item => item.symbol === symbol && item.shares > 0)
+                    if (pos) {
+                      portfolioPositions = [{
+                        symbol: pos.symbol,
+                        shares: pos.shares,
+                        avg_cost: pos.averageCost,
+                        invested_amount: pos.costBasis,
+                        unrealized_pnl: pos.realizedPnl ?? undefined,
+                      }]
+                    }
+                  }
+                  return formatStockDetailCopy({
+                    symbol: symbol ?? '',
+                    name: data?.identity?.name ?? symbol ?? '',
+                    exchange: data?.identity?.exchange ?? null,
+                    instrument_type: data?.identity?.instrument_type ?? null,
+                    sector: data?.identity?.industry ?? null,
+                    data_as_of: aiReport?.evidence_as_of || data?.realtime?.quote_time || data?.realtime?.meta?.trade_date || data?.daily_history?.meta?.trade_date || null,
+                    freshness: data?.realtime?.meta?.status ?? data?.overall_data_quality ?? null,
+                    quote: data?.realtime ? {
+                      close: data.realtime.last_price,
+                      change: data.realtime.change,
+                      change_pct: data.realtime.change_pct,
+                      open: data.realtime.open,
+                      high: data.realtime.high,
+                      low: data.realtime.low,
+                      volume: data.realtime.volume,
+                      turnover: data.realtime.amount,
+                      quote_time: data.realtime.quote_time,
+                    } : null,
+                    quant: {
+                      score: quantSelection.signals.find(s => s.symbol === symbol)?.score ?? null,
+                      rank: quantSelection.signals.find(s => s.symbol === symbol)?.rank ?? null,
+                      reasons: data?.factors ? Object.keys(data.factors).filter(k => Boolean((data.factors as any)[k])) : null,
+                      factors: data?.factors ? (data.factors as any) : null,
+                    },
+                    valuation: data?.fundamentals?.valuation ? {
+                      pe: data.fundamentals.valuation.pe,
+                      pb: data.fundamentals.valuation.pb,
+                      dividend_yield: data.fundamentals.valuation.dividend_yield,
+                    } : null,
+                    fundamentals: data?.fundamentals ? {
+                      revenue_yoy: data.fundamentals.revenue?.yoy,
+                      revenue_mom: data.fundamentals.revenue?.mom,
+                      revenue_date: data.fundamentals.revenue?.latest_year_month,
+                      eps: data.fundamentals.profitability?.latest_eps,
+                      eps_date: data.fundamentals.profitability?.quarter,
+                      gross_margin: (data.fundamentals.profitability?.gross_profit != null && data.fundamentals.profitability?.operating_revenue)
+                        ? (data.fundamentals.profitability.gross_profit / data.fundamentals.profitability.operating_revenue) * 100
+                        : null,
+                      operating_margin: (data.fundamentals.profitability?.operating_income != null && data.fundamentals.profitability?.operating_revenue)
+                        ? (data.fundamentals.profitability.operating_income / data.fundamentals.profitability.operating_revenue) * 100
+                        : null,
+                      net_margin: (data.fundamentals.profitability?.net_income != null && data.fundamentals.profitability?.operating_revenue)
+                        ? (data.fundamentals.profitability.net_income / data.fundamentals.profitability.operating_revenue) * 100
+                        : null,
+                    } : null,
+                    institutional_flows: data?.institutional ? {
+                      foreign_buy_sell: data.institutional.foreign_net,
+                      trust_buy_sell: data.institutional.investment_trust_net,
+                      dealer_buy_sell: data.institutional.dealer_net,
+                      total_buy_sell: data.institutional.total_net,
+                      date: data.institutional.meta?.trade_date,
+                    } : null,
+                    foreign_shareholding: data?.extra_chips?.foreign_shareholding ? {
+                      ratio: data.extra_chips.foreign_shareholding.ratio,
+                      change_20d: data.extra_chips.foreign_shareholding.change_20d,
+                    } : null,
+                    margin_lending: data?.margin ? {
+                      margin_balance: data.margin.margin_balance,
+                      short_balance: data.margin.short_balance,
+                      lending_balance: data.extra_chips?.securities_lending?.latest_volume,
+                    } : null,
+                    market_context: data?.market_context ? {
+                      taiex_close: data.market_context.close,
+                      taiex_change_pct: data.market_context.change_pct,
+                      sentiment: data.market_context.benchmark_name,
+                    } : null,
+                    official_events: data?.recent_events?.map(ev => ({
+                      event_date: ev.event_date,
+                      event_type_label: ev.event_type_label,
+                      title: ev.title,
+                      summary: ev.summary,
+                      source: ev.source,
+                    })) ?? null,
+                    news: data?.recent_news?.map(n => ({
+                      published_at: n.date,
+                      title: n.title,
+                      source: n.source,
+                      summary: n.description,
+                    })) ?? null,
+                    portfolioPositions,
+                    includePortfolio: includePortfolioInCopy,
+                    aiReport: aiReport ? [
+                      aiReport.overview,
+                      aiReport.price_technical_interpretation,
+                      aiReport.market_interpretation,
+                      aiReport.events_news_interpretation,
+                      aiReport.risk_factors?.map(r => r.text).join(' ')
+                    ].filter(Boolean).join('\n\n') : null,
+                  })
+                }}
+              />
+              <CopyButton
+                size="xs"
+                label="複製 AI 提示詞"
+                successLabel="已複製提示詞"
+                getText={() => {
+                  let portfolioPositions: StockDetailCopyData['portfolioPositions'] = null
+                  const raw = storage.portfolioTransactions.get([])
+                  if (Array.isArray(raw) && raw.every(isPortfolioTransaction)) {
+                    const pos = buildPortfolioPositions(raw as PortfolioTransaction[]).find(item => item.symbol === symbol && item.shares > 0)
+                    if (pos) {
+                      portfolioPositions = [{
+                        symbol: pos.symbol,
+                        shares: pos.shares,
+                        avg_cost: pos.averageCost,
+                        invested_amount: pos.costBasis,
+                        unrealized_pnl: pos.realizedPnl ?? undefined,
+                      }]
+                    }
+                  }
+                  return formatStockDetailPrompt({
+                    symbol: symbol ?? '',
+                    name: data?.identity?.name ?? symbol ?? '',
+                    exchange: data?.identity?.exchange ?? null,
+                    instrument_type: data?.identity?.instrument_type ?? null,
+                    sector: data?.identity?.industry ?? null,
+                    data_as_of: aiReport?.evidence_as_of || data?.realtime?.quote_time || data?.realtime?.meta?.trade_date || data?.daily_history?.meta?.trade_date || null,
+                    freshness: data?.realtime?.meta?.status ?? data?.overall_data_quality ?? null,
+                    quote: data?.realtime ? {
+                      close: data.realtime.last_price,
+                      change: data.realtime.change,
+                      change_pct: data.realtime.change_pct,
+                      open: data.realtime.open,
+                      high: data.realtime.high,
+                      low: data.realtime.low,
+                      volume: data.realtime.volume,
+                      turnover: data.realtime.amount,
+                      quote_time: data.realtime.quote_time,
+                    } : null,
+                    quant: {
+                      score: quantSelection.signals.find(s => s.symbol === symbol)?.score ?? null,
+                      rank: quantSelection.signals.find(s => s.symbol === symbol)?.rank ?? null,
+                      reasons: data?.factors ? Object.keys(data.factors).filter(k => Boolean((data.factors as any)[k])) : null,
+                      factors: data?.factors ? (data.factors as any) : null,
+                    },
+                    valuation: data?.fundamentals?.valuation ? {
+                      pe: data.fundamentals.valuation.pe,
+                      pb: data.fundamentals.valuation.pb,
+                      dividend_yield: data.fundamentals.valuation.dividend_yield,
+                    } : null,
+                    fundamentals: data?.fundamentals ? {
+                      revenue_yoy: data.fundamentals.revenue?.yoy,
+                      revenue_mom: data.fundamentals.revenue?.mom,
+                      revenue_date: data.fundamentals.revenue?.latest_year_month,
+                      eps: data.fundamentals.profitability?.latest_eps,
+                      eps_date: data.fundamentals.profitability?.quarter,
+                      gross_margin: (data.fundamentals.profitability?.gross_profit != null && data.fundamentals.profitability?.operating_revenue)
+                        ? (data.fundamentals.profitability.gross_profit / data.fundamentals.profitability.operating_revenue) * 100
+                        : null,
+                      operating_margin: (data.fundamentals.profitability?.operating_income != null && data.fundamentals.profitability?.operating_revenue)
+                        ? (data.fundamentals.profitability.operating_income / data.fundamentals.profitability.operating_revenue) * 100
+                        : null,
+                      net_margin: (data.fundamentals.profitability?.net_income != null && data.fundamentals.profitability?.operating_revenue)
+                        ? (data.fundamentals.profitability.net_income / data.fundamentals.profitability.operating_revenue) * 100
+                        : null,
+                    } : null,
+                    institutional_flows: data?.institutional ? {
+                      foreign_buy_sell: data.institutional.foreign_net,
+                      trust_buy_sell: data.institutional.investment_trust_net,
+                      dealer_buy_sell: data.institutional.dealer_net,
+                      total_buy_sell: data.institutional.total_net,
+                      date: data.institutional.meta?.trade_date,
+                    } : null,
+                    foreign_shareholding: data?.extra_chips?.foreign_shareholding ? {
+                      ratio: data.extra_chips.foreign_shareholding.ratio,
+                      change_20d: data.extra_chips.foreign_shareholding.change_20d,
+                    } : null,
+                    margin_lending: data?.margin ? {
+                      margin_balance: data.margin.margin_balance,
+                      short_balance: data.margin.short_balance,
+                      lending_balance: data.extra_chips?.securities_lending?.latest_volume,
+                    } : null,
+                    market_context: data?.market_context ? {
+                      taiex_close: data.market_context.close,
+                      taiex_change_pct: data.market_context.change_pct,
+                      sentiment: data.market_context.benchmark_name,
+                    } : null,
+                    official_events: data?.recent_events?.map(ev => ({
+                      event_date: ev.event_date,
+                      event_type_label: ev.event_type_label,
+                      title: ev.title,
+                      summary: ev.summary,
+                      source: ev.source,
+                    })) ?? null,
+                    news: data?.recent_news?.map(n => ({
+                      published_at: n.date,
+                      title: n.title,
+                      source: n.source,
+                      summary: n.description,
+                    })) ?? null,
+                    portfolioPositions,
+                    includePortfolio: includePortfolioInCopy,
+                    aiReport: aiReport ? [
+                      aiReport.overview,
+                      aiReport.price_technical_interpretation,
+                      aiReport.market_interpretation,
+                      aiReport.events_news_interpretation,
+                      aiReport.risk_factors?.map(r => r.text).join(' ')
+                    ].filter(Boolean).join('\n\n') : null,
+                  })
+                }}
+              />
+            </div>
+          </div>
         </div>
 
         {aiError && (

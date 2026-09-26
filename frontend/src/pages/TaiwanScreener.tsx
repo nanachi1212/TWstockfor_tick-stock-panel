@@ -46,6 +46,8 @@ import { toast } from '@/components/Toast'
 import { WatchlistAddMenu } from '@/components/WatchlistAddMenu'
 import { TaiwanRuleEditorDialog } from '@/components/monitor/TaiwanRuleEditorDialog'
 import { loadLastCompareSymbols, mergeSymbolIntoCompare } from '@/lib/taiwanCompareSymbols'
+import { CopyButton } from '@/components/CopyButton'
+import { formatScreenerCopy, formatScreenerPrompt } from '@/lib/copy-formatters'
 
 export function TaiwanScreener() {
   const navigate = useNavigate()
@@ -2020,6 +2022,67 @@ export function TaiwanScreener() {
               <History className="w-3 h-3" />
               <span>選股復盤</span>
             </Link>
+            {data?.items?.length ? (
+              <>
+                <CopyButton
+                  size="xs"
+                  label="複製結果"
+                  getText={() => formatScreenerCopy({
+                    strategyName: activeStrategy?.name,
+                    as_of: data.data_dates?.daily_as_of,
+                    condition_summary: activeStrategy ? activeStrategy.description : '即時篩選條件',
+                    coverage: data.coverage_info ? {
+                      total_universe: data.coverage_info.total_universe,
+                      covered_count: data.coverage_info.screened_universe,
+                      coverage_pct: data.coverage_info.total_universe > 0 ? (data.coverage_info.screened_universe / data.coverage_info.total_universe) : null,
+                      insufficient_reason: data.coverage_info.coverage_note || null,
+                    } : null,
+                    total_selected: data.total ?? data.items?.length,
+                    results: data.items.map((it: ScreenerResultItem, idx: number) => ({
+                      symbol: it.symbol,
+                      name: it.name,
+                      price: it.close,
+                      change_pct: it.change_pct,
+                      score: it.quant_score,
+                      rank: idx + 1,
+                      match_reasons: it.match_reasons,
+                      fundamental_summary: it.revenue_yoy != null ? `營收年增 ${it.revenue_yoy.toFixed(1)}%` : null,
+                      chips_summary: it.foreign_net != null ? `外資買賣 ${(it.foreign_net / 1e3).toFixed(0)} 張` : null,
+                      event_risk_summary: null,
+                    })),
+                  })}
+                />
+                <CopyButton
+                  size="xs"
+                  label="複製 AI 提示詞"
+                  successLabel="已複製"
+                  getText={() => formatScreenerPrompt({
+                    strategyName: activeStrategy?.name,
+                    as_of: data.data_dates?.daily_as_of,
+                    condition_summary: activeStrategy ? activeStrategy.description : '即時篩選條件',
+                    coverage: data.coverage_info ? {
+                      total_universe: data.coverage_info.total_universe,
+                      covered_count: data.coverage_info.screened_universe,
+                      coverage_pct: data.coverage_info.total_universe > 0 ? (data.coverage_info.screened_universe / data.coverage_info.total_universe) : null,
+                      insufficient_reason: data.coverage_info.coverage_note || null,
+                    } : null,
+                    total_selected: data.total ?? data.items?.length,
+                    results: data.items.map((it: ScreenerResultItem, idx: number) => ({
+                      symbol: it.symbol,
+                      name: it.name,
+                      price: it.close,
+                      change_pct: it.change_pct,
+                      score: it.quant_score,
+                      rank: idx + 1,
+                      match_reasons: it.match_reasons,
+                      fundamental_summary: it.revenue_yoy != null ? `營收年增 ${it.revenue_yoy.toFixed(1)}%` : null,
+                      chips_summary: it.foreign_net != null ? `外資買賣 ${(it.foreign_net / 1e3).toFixed(0)} 張` : null,
+                      event_risk_summary: null,
+                    })),
+                  })}
+                />
+              </>
+            ) : null}
           </div>
           <button
             type="button"
