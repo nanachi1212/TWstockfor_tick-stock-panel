@@ -3795,6 +3795,60 @@ export const api = {
   /** 增量補齊已存在的歷史資料至最新交易日（不重新下載整包） */
   taiwanUpdateLatest: () =>
     request<TaiwanUpdateLatestResult>('/api/taiwan/bootstrap/update-latest', { method: 'POST' }),
+
+  // ===== Selection Review & Snapshot (A12) =====
+  selectionReview: {
+    saveSnapshot: (payload: SaveSelectionSnapshotRequest) =>
+      request<SelectionSnapshot>('/api/taiwan/selection-review/snapshots', {
+        method: 'POST',
+        body: JSON.stringify(payload),
+      }),
+    listSnapshots: (params?: { strategy_id?: string; limit?: number }) => {
+      const q = new URLSearchParams()
+      if (params?.strategy_id) q.set('strategy_id', params.strategy_id)
+      if (params?.limit) q.set('limit', String(params.limit))
+      const qs = q.toString()
+      return request<SnapshotListItem[]>(`/api/taiwan/selection-review/snapshots${qs ? `?${qs}` : ''}`)
+    },
+    getSnapshotDetail: (snapshotId: string) =>
+      request<SnapshotReviewDetail>(`/api/taiwan/selection-review/snapshots/${snapshotId}`),
+    deleteSnapshot: (snapshotId: string) =>
+      request<{ ok: boolean; deleted_id: string }>(`/api/taiwan/selection-review/snapshots/${snapshotId}`, {
+        method: 'DELETE',
+      }),
+    getStrategyStats: () =>
+      request<StrategyReviewStats[]>('/api/taiwan/selection-review/strategy-stats'),
+    getConditionStats: () =>
+      request<ConditionReviewStats[]>('/api/taiwan/selection-review/condition-stats'),
+  },
+
+  // ===== Daily Brief & AI Interpretation (A12) =====
+  dailyBrief: {
+    getDailyBrief: (params?: { target_date?: string }) => {
+      const q = new URLSearchParams()
+      if (params?.target_date) q.set('target_date', params.target_date)
+      const qs = q.toString()
+      return request<DeterministicDailyBrief>(`/api/taiwan/daily-brief${qs ? `?${qs}` : ''}`)
+    },
+    generateAiSummary: (deterministicBrief: DeterministicDailyBrief) =>
+      request<DailyBriefAISummary>('/api/taiwan/daily-brief/ai-summary', {
+        method: 'POST',
+        body: JSON.stringify(deterministicBrief),
+      }),
+    saveDailyBrief: (payload: SavedDailyBrief) =>
+      request<SavedDailyBrief>('/api/taiwan/daily-brief/save', {
+        method: 'POST',
+        body: JSON.stringify(payload),
+      }),
+    listHistory: (limit?: number) => {
+      const q = new URLSearchParams()
+      if (limit) q.set('limit', String(limit))
+      const qs = q.toString()
+      return request<SavedDailyBrief[]>(`/api/taiwan/daily-brief/history${qs ? `?${qs}` : ''}`)
+    },
+    getHistoryDetail: (briefId: string) =>
+      request<SavedDailyBrief>(`/api/taiwan/daily-brief/history/${briefId}`),
+  },
 }
 
 // ===== Taiwan Historical Bootstrap Interfaces =====
@@ -3953,3 +4007,262 @@ export interface DimensionMembersResult {
   limit: number
   rows: Record<string, any>[]
 }
+
+// ===== Selection Review & Snapshot Interfaces (A12) =====
+export type HorizonStatus = 'completed' | 'pending' | 'unavailable'
+
+export interface SelectionSnapshotItem {
+  symbol: string
+  name: string
+  rank: number
+  quant_score: number | null
+  match_reasons: string[]
+  strategy_conditions: Record<string, any>
+  price: number
+  fundamental_summary: string | null
+  chips_summary: string | null
+  event_risk_summary: string | null
+}
+
+export interface SelectionSnapshot {
+  snapshot_id: string
+  created_at: string
+  strategy_id: string
+  strategy_name: string
+  as_of_date: string
+  market_context_summary: string
+  selected_symbols: string[]
+  items: SelectionSnapshotItem[]
+}
+
+export interface SaveSelectionSnapshotRequest {
+  strategy_id: string
+  strategy_name: string
+  as_of_date: string
+  market_context_summary?: string
+  items: SelectionSnapshotItem[]
+}
+
+export interface HorizonReviewItem {
+  symbol: string
+  name: string
+  rank: number
+  entry_price: number
+  quant_score: number | null
+  match_reasons: string[]
+  fundamental_summary: string | null
+  chips_summary: string | null
+  event_risk_summary: string | null
+
+  h1d_price: number | null
+  h1d_return_pct: number | null
+  h1d_status: HorizonStatus
+  h1d_bm_return_pct: number | null
+  h1d_excess_pct: number | null
+
+  h5d_price: number | null
+  h5d_return_pct: number | null
+  h5d_status: HorizonStatus
+  h5d_bm_return_pct: number | null
+  h5d_excess_pct: number | null
+
+  h20d_price: number | null
+  h20d_return_pct: number | null
+  h20d_status: HorizonStatus
+  h20d_bm_return_pct: number | null
+  h20d_excess_pct: number | null
+
+  benchmark_symbol: string
+  benchmark_name: string
+}
+
+export interface SnapshotReviewDetail {
+  snapshot: SelectionSnapshot
+  evaluated_items: HorizonReviewItem[]
+  h5d_evaluated_count: number
+  h20d_evaluated_count: number
+  h5d_avg_return_pct: number | null
+  h20d_avg_return_pct: number | null
+  h5d_bm_avg_return_pct: number | null
+  h20d_bm_avg_return_pct: number | null
+  h5d_avg_excess_pct: number | null
+  h20d_avg_excess_pct: number | null
+}
+
+export interface SnapshotListItem {
+  snapshot_id: string
+  created_at: string
+  strategy_id: string
+  strategy_name: string
+  as_of_date: string
+  selected_count: number
+  h5d_evaluated_count: number
+  h20d_evaluated_count: number
+  h5d_avg_return_pct: number | null
+  h20d_avg_return_pct: number | null
+  h5d_bm_return_pct: number | null
+  h20d_bm_return_pct: number | null
+  h5d_excess_pct: number | null
+  h20d_excess_pct: number | null
+}
+
+export interface StrategyReviewStats {
+  strategy_id: string
+  strategy_name: string
+  snapshots_count: number
+  evaluated_picks_5d: number
+  evaluated_picks_20d: number
+  avg_return_5d: number | null
+  avg_return_20d: number | null
+  hit_rate_5d: number | null
+  hit_rate_20d: number | null
+  hit_rate_definition: string
+  bm_excess_5d: number | null
+  bm_excess_20d: number | null
+}
+
+export interface ConditionReviewStats {
+  condition_label: string
+  sample_count_5d: number
+  sample_count_20d: number
+  is_sample_sufficient: boolean
+  avg_return_5d: number | null
+  avg_return_20d: number | null
+  hit_rate_5d: number | null
+  hit_rate_20d: number | null
+  disclaimer: string
+}
+
+// ===== Daily Brief & AI Summary Interfaces (A12) =====
+export interface SectorSummaryItem {
+  industry: string
+  change_pct: number | null
+  turnover: number
+  advance_ratio: number | null
+}
+
+export interface MarketFactBrief {
+  trade_date: string
+  taiex_close: number | null
+  taiex_change: number | null
+  taiex_change_pct: number | null
+  advance_count: number
+  decline_count: number
+  flat_count: number
+  upper_limit_count: number
+  lower_limit_count: number
+  total_turnover: number
+  foreign_net: number | null
+  investment_trust_net: number | null
+  dealer_net: number | null
+  total_institutional_net: number | null
+  sentiment_label: string
+  sentiment_description: string
+  strongest_sectors: SectorSummaryItem[]
+  weakest_sectors: SectorSummaryItem[]
+}
+
+export interface PortfolioHoldingItem {
+  symbol: string
+  name: string
+  shares: number
+  average_cost: number
+  close: number | null
+  change_pct: number | null
+  quant_score: number | null
+  quant_rank: number | null
+  events: string[]
+  alerts: string[]
+}
+
+export interface PortfolioFactBrief {
+  holdings_count: number
+  biggest_movers: PortfolioHoldingItem[]
+  quant_changes: Record<string, any>[]
+  event_risks: Record<string, any>[]
+  active_alerts: Record<string, any>[]
+}
+
+export interface WatchlistFactItem {
+  symbol: string
+  name: string
+  close: number | null
+  change_pct: number | null
+  volume: number | null
+  vol_ratio_5d: number | null
+  quant_score: number | null
+  events: string[]
+}
+
+export interface WatchlistFactBrief {
+  items_count: number
+  quant_leaders: WatchlistFactItem[]
+  unusual_volume: WatchlistFactItem[]
+  events: Record<string, any>[]
+}
+
+export interface CandidateItem {
+  symbol: string
+  name: string
+  reason_type: 'new_top10' | 'dropped_top10' | 'strategy_match'
+  source_name: string
+  quant_score: number | null
+  rank: number | null
+  close: number | null
+  change_pct: number | null
+  match_reasons: string[]
+}
+
+export interface CandidateFactBrief {
+  new_top10: CandidateItem[]
+  dropped_top10: CandidateItem[]
+  strategy_matches: CandidateItem[]
+}
+
+export interface EventFactBrief {
+  risk_events: Record<string, any>[]
+  attention_events: Record<string, any>[]
+}
+
+export interface NewsFactBrief {
+  items: Record<string, any>[]
+}
+
+export interface DeterministicDailyBrief {
+  brief_date: string
+  generated_at: string
+  market: MarketFactBrief
+  portfolio: PortfolioFactBrief
+  watchlist: WatchlistFactBrief
+  candidates: CandidateFactBrief
+  events: EventFactBrief
+  news: NewsFactBrief
+}
+
+export interface DailyBriefAISummary {
+  section_a_market: string
+  section_b_key_changes: string[]
+  section_c_portfolio: string
+  section_d_watchlist: string
+  section_e_candidates: string
+  section_f_risks: string
+  section_g_tracking: string
+  evidence_sources: string[]
+}
+
+export interface SavedDailyBrief {
+  brief_id: string
+  brief_date: string
+  generated_at: string
+  data_as_of: string
+  structured_brief: DeterministicDailyBrief
+  ai_summary: DailyBriefAISummary | null
+  ai_status: 'success' | 'not_generated' | 'failed' | 'live_ai_not_tested'
+  ai_error: string | null
+}
+
+export interface CreateDailyBriefRequest {
+  target_date?: string | null
+  portfolio_holdings?: Record<string, any>[]
+}
+

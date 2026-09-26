@@ -15,6 +15,9 @@ function toast(msg: string, kind: 'error' | 'success' = 'error') {
   setTimeout(() => { _queue = _queue.filter(t => t.id !== item.id); _emit() }, 4000)
 }
 
+toast.success = (msg: string) => toast(msg, 'success')
+toast.error = (msg: string) => toast(msg, 'error')
+
 export { toast }
 
 // ===== Toast 容器 — 掛在 Layout 最頂層 =====
