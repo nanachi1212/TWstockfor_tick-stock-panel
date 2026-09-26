@@ -732,7 +732,7 @@ class TaiwanStockResearchContextService:
             as_of_period = None
 
             if rev_cached and rev_cached.get("data"):
-                raw_rev = filter_month_revenue_as_of(rev_cached["data"], target)
+                raw_rev = filter_month_revenue_as_of(rev_cached["data"], target_date)
                 sorted_rev = sorted([r for r in raw_rev if r.get("date") and r.get("revenue") is not None], key=lambda x: str(x.get("date")))
                 if sorted_rev:
                     latest_item = sorted_rev[-1]
@@ -754,7 +754,7 @@ class TaiwanStockResearchContextService:
             net_income = None
 
             if prof_cached and prof_cached.get("data"):
-                raw_prof = filter_financial_statements_as_of(prof_cached["data"], target)
+                raw_prof = filter_financial_statements_as_of(prof_cached["data"], target_date)
                 by_d = {}
                 for r in raw_prof:
                     d = str(r.get("date") or "").strip()

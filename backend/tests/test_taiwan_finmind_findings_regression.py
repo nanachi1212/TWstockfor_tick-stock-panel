@@ -1,16 +1,16 @@
-"""Comprehensive regression tests for PR #21 review findings:
-1. P1: Point-in-time (as-of) cutoff for FinMind evidence (Revenue, Financial Statements, Shareholding, Lending).
-2. P1: Foreign shareholding field name contract.
-3. P1: Lending anomaly enum alignment to 'surge'.
-4. P2: Dynamic token lifecycle update without restart.
-5. P2: Connection test failure preservation (401, 429, network, empty probes).
+"""Regression tests for PR #21 Codex review findings.
+
+Finding coverage:
+  P1 #4110472706  Phase-6G PIT: revenue/statements unavailable for historical as_of
+  P1 #4110472712  Foreign shareholding field name contract
+  P1 #4110472715  Lending anomaly enum alignment to 'surge'
+  P2 #4110472716  Dynamic token lifecycle update without restart
+  P2 #4110472717  Connection test failure preservation
 """
-import urllib.error
 from datetime import date
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import polars as pl
-import pytest
 
 from app.services import preferences
 from app.taiwan.detail_models import TaiwanExtraChipsData, TaiwanForeignShareholdingData
@@ -24,22 +24,17 @@ from app.taiwan.pit_cutoff import (
     filter_daily_records_as_of,
     filter_financial_statements_as_of,
     filter_month_revenue_as_of,
-    get_financial_statement_announcement_date,
-    get_revenue_announcement_date,
     resolve_as_of_date,
 )
 from app.taiwan.providers.finmind_provider import (
     FinMindAdapter,
     FinMindAuthError,
-    FinMindError,
     FinMindNetworkError,
     FinMindRateLimitError,
 )
-from app.taiwan.research_context import TaiwanStockResearchContextService
-
 
 # =====================================================================
-# 1. PIT Cutoff & Announcement Semantics
+# 1. Phase-6G PIT: Revenue / Statements fail-closed for historical as_of
 # =====================================================================
 
 def test_resolve_as_of_date():
@@ -50,95 +45,111 @@ def test_resolve_as_of_date():
     assert resolve_as_of_date("2026-08-05T12:00:00") == date(2026, 8, 5)
 
 
-def test_revenue_announcement_date_calculation():
-    # Statutory deadline: 10th of following month
-    row_with_ym = {"revenue_year": 2026, "revenue_month": 7}
-    assert get_revenue_announcement_date(row_with_ym) == date(2026, 8, 10)
-
-    # December revenue rolls over to January next year
-    row_dec = {"revenue_year": 2025, "revenue_month": 12}
-    assert get_revenue_announcement_date(row_dec) == date(2026, 1, 10)
-
-    # Inferred from reporting date 2026-07-01
-    row_date = {"date": "2026-07-01"}
-    assert get_revenue_announcement_date(row_date) == date(2026, 8, 10)
-
-    # Explicit announcement date takes precedence
-    row_explicit = {"date": "2026-07-01", "announcement_date": "2026-08-08"}
-    assert get_revenue_announcement_date(row_explicit) == date(2026, 8, 8)
-
-
-def test_financial_statement_announcement_date_calculation():
-    # Q1: ends 03-31 -> May 15
-    assert get_financial_statement_announcement_date({"date": "2026-03-31"}) == date(2026, 5, 15)
-    # Q2: ends 06-30 -> August 14
-    assert get_financial_statement_announcement_date({"date": "2026-06-30"}) == date(2026, 8, 14)
-    # Q3: ends 09-30 -> November 14
-    assert get_financial_statement_announcement_date({"date": "2026-09-30"}) == date(2026, 11, 14)
-    # Q4: ends 12-31 -> March 31 next year
-    assert get_financial_statement_announcement_date({"date": "2025-12-31"}) == date(2026, 3, 31)
-
-    # Explicit announcement date takes precedence
-    assert get_financial_statement_announcement_date({"date": "2026-06-30", "announcement_date": "2026-08-10"}) == date(2026, 8, 10)
-
-
-def test_filter_month_revenue_as_of_pit():
+def test_current_revenue_is_available():
+    """as_of=None (current/latest analysis): all rows returned unchanged."""
     rows = [
-        {"revenue_year": 2026, "revenue_month": 5, "revenue": 100, "date": "2026-05-01"},  # available 2026-06-10
-        {"revenue_year": 2026, "revenue_month": 6, "revenue": 110, "date": "2026-06-01"},  # available 2026-07-10
-        {"revenue_year": 2026, "revenue_month": 7, "revenue": 120, "date": "2026-07-01"},  # available 2026-08-10
-        {"revenue_year": 2026, "revenue_month": 8, "revenue": 130, "date": "2026-08-01"},  # available 2026-09-10
+        {"revenue_year": 2026, "revenue_month": 6, "revenue": 100, "date": "2026-06-01"},
+        {"revenue_year": 2026, "revenue_month": 7, "revenue": 120, "date": "2026-07-01"},
+        {"revenue_year": 2026, "revenue_month": 8, "revenue": 150, "date": "2026-08-01"},
     ]
-
-    # As of 2026-08-05: July revenue is NOT available yet (cutoff is 2026-08-10)
-    filtered = filter_month_revenue_as_of(rows, date(2026, 8, 5))
-    assert len(filtered) == 2
-    assert [r["revenue_month"] for r in filtered] == [5, 6]
-
-    # As of 2026-08-10: July revenue is now legally available
-    filtered_10 = filter_month_revenue_as_of(rows, date(2026, 8, 10))
-    assert len(filtered_10) == 3
-    assert [r["revenue_month"] for r in filtered_10] == [5, 6, 7]
-
-    # Current-date (as_of is None): all rows returned
-    assert len(filter_month_revenue_as_of(rows, None)) == 4
+    result = filter_month_revenue_as_of(rows, None)
+    assert len(result) == 3
+    assert result is rows  # same object, no copy
 
 
-def test_filter_financial_statements_as_of_pit():
+def test_historical_revenue_without_verified_availability_is_unavailable():
+    """as_of set to any historical date: returns [] (fail-closed, phase-6g).
+
+    TaiwanStockMonthRevenue has no verified record-level publication
+    timestamp, so no row can be proven available at any historical instant.
+    """
     rows = [
-        {"date": "2026-03-31", "type": "EPS", "value": 3.0},  # Q1, available 2026-05-15
-        {"date": "2026-06-30", "type": "EPS", "value": 3.5},  # Q2, available 2026-08-14
+        {"revenue_year": 2026, "revenue_month": 5, "revenue": 100, "date": "2026-05-01"},
+        {"revenue_year": 2026, "revenue_month": 6, "revenue": 110, "date": "2026-06-01"},
     ]
-
-    # As of 2026-07-01: Q2 period end is in the past, but NOT filed yet (available 2026-08-14)
-    filtered = filter_financial_statements_as_of(rows, date(2026, 7, 1))
-    assert len(filtered) == 1
-    assert filtered[0]["date"] == "2026-03-31"
-
-    # As of 2026-08-14: Q2 is available
-    filtered_q2 = filter_financial_statements_as_of(rows, date(2026, 8, 14))
-    assert len(filtered_q2) == 2
-
-    # Current-date (as_of is None)
-    assert len(filter_financial_statements_as_of(rows, None)) == 2
+    # Any historical date -> fail closed
+    assert filter_month_revenue_as_of(rows, date(2026, 8, 5)) == []
+    assert filter_month_revenue_as_of(rows, date(2026, 6, 11)) == []
+    assert filter_month_revenue_as_of(rows, date(2020, 1, 1)) == []
+    assert filter_month_revenue_as_of(rows, "2026-08-05") == []
 
 
-def test_filter_daily_records_as_of():
+def test_current_financial_statement_is_available():
+    """as_of=None (current/latest analysis): all rows returned unchanged."""
+    rows = [
+        {"date": "2026-03-31", "type": "EPS", "value": 3.0},
+        {"date": "2026-06-30", "type": "EPS", "value": 3.5},
+    ]
+    result = filter_financial_statements_as_of(rows, None)
+    assert len(result) == 2
+    assert result is rows
+
+
+def test_historical_financial_statement_without_verified_availability_is_unavailable():
+    """as_of set: returns [] (fail-closed, phase-6g).
+
+    TaiwanStockFinancialStatements rows carry no document identity or
+    revision ID that would prove availability at any historical instant.
+    """
+    rows = [
+        {"date": "2026-03-31", "type": "EPS", "value": 3.0},
+        {"date": "2026-06-30", "type": "EPS", "value": 3.5},
+    ]
+    assert filter_financial_statements_as_of(rows, date(2026, 7, 1)) == []
+    assert filter_financial_statements_as_of(rows, date(2026, 8, 14)) == []
+    assert filter_financial_statements_as_of(rows, date(2024, 1, 1)) == []
+
+
+def test_restated_value_does_not_backfill_history():
+    """Current corrected/restated value cannot be injected into historical context.
+
+    If a FinMind row currently shows a restated revenue figure, passing any
+    historical as_of date must return [] so the restated value never reaches
+    a historical research context.
+    """
+    rows_with_restatement = [
+        # Represents a row whose value may have been revised since original publication
+        {"revenue_year": 2025, "revenue_month": 7, "revenue": 999_000, "date": "2025-07-01"},
+    ]
+    # Any historical date -> fail closed; restated value is blocked
+    assert filter_month_revenue_as_of(rows_with_restatement, date(2025, 8, 15)) == []
+    assert filter_month_revenue_as_of(rows_with_restatement, date(2025, 9, 1)) == []
+
+
+def test_shareholding_date_cutoff_works():
+    """TaiwanStockShareholding: daily record date <= as_of cutoff (unchanged)."""
     rows = [
         {"date": "2026-08-01", "ForeignInvestmentSharesRatio": 70.0},
         {"date": "2026-08-05", "ForeignInvestmentSharesRatio": 71.0},
         {"date": "2026-08-10", "ForeignInvestmentSharesRatio": 72.0},
     ]
-    # As of 2026-08-05: 2026-08-10 row is excluded
     filtered = filter_daily_records_as_of(rows, date(2026, 8, 5))
     assert len(filtered) == 2
     assert [r["date"] for r in filtered] == ["2026-08-01", "2026-08-05"]
 
-    # Current date
+    # Current date: all rows
+    assert len(filter_daily_records_as_of(rows, None)) == 3
+
+
+def test_lending_date_cutoff_works():
+    """TaiwanStockSecuritiesLending: daily record date <= as_of cutoff (unchanged)."""
+    rows = [
+        {"date": "2026-08-01", "volume": 10000, "fee_rate": 1.0},
+        {"date": "2026-08-05", "volume": 20000, "fee_rate": 1.5},
+        {"date": "2026-08-10", "volume": 50000, "fee_rate": 2.0},
+    ]
+    filtered = filter_daily_records_as_of(rows, date(2026, 8, 5))
+    assert len(filtered) == 2
+    assert filtered[-1]["date"] == "2026-08-05"
+
+    # Current date: all rows
     assert len(filter_daily_records_as_of(rows, None)) == 3
 
 
 def test_fundamental_chips_service_pit_filtering():
+    """FundamentalChipsService: historical as_of yields unavailable for revenue;
+    current (as_of=None) still works normally.
+    """
     cache = FinMindCache()
     svc = TaiwanFundamentalChipsService(cache=cache)
 
@@ -149,17 +160,17 @@ def test_fundamental_chips_service_pit_filtering():
     ]
     cache.set("TaiwanStockMonthRevenue", "2330", raw_rev, status="available")
 
-    # Historical as-of 2026-08-05: only June revenue available (July available 08-10)
+    # Historical as_of: phase-6g -> fail closed -> unavailable
     rev_hist = svc.get_monthly_revenue("2330", as_of=date(2026, 8, 5))
-    assert rev_hist.meta.status == "available"
-    assert rev_hist.latest_revenue == 100.0
+    assert rev_hist.meta.status == "unavailable"
+    assert rev_hist.latest_revenue is None
 
-    # Historical as-of before any records: fails closed as unavailable
+    # Historical as_of before any records: also unavailable
     rev_early = svc.get_monthly_revenue("2330", as_of=date(2020, 1, 1))
     assert rev_early.meta.status == "unavailable"
     assert rev_early.latest_revenue is None
 
-    # Current-date query (as_of=None): gets latest August data
+    # Current-date query (as_of=None): gets latest August data normally
     rev_latest = svc.get_monthly_revenue("2330", as_of=None)
     assert rev_latest.latest_revenue == 150.0
 
@@ -172,7 +183,7 @@ def test_lending_anomaly_standardized_to_surge():
     cache = FinMindCache()
     svc = TaiwanFundamentalChipsService(cache=cache)
 
-    # Build 20 days of historical lending with baseline volume 1000, and last 5 days surge to 60000
+    # Baseline 15 days at volume 1000, then 5 days surge to 60000
     rows = []
     for day in range(1, 16):
         rows.append({"date": f"2026-08-{day:02d}", "volume": 1000, "fee_rate": 2.0})
@@ -183,7 +194,7 @@ def test_lending_anomaly_standardized_to_surge():
     # Must emit 'surge', NOT 'abnormal_increase'
     assert lending_data.anomaly_status == "surge"
 
-    # Verify screener filter excludes 'surge'
+    # Screener filter excludes 'surge'
     df = pl.DataFrame({
         "symbol": ["2330", "2317"],
         "securities_lending_anomaly": ["surge", "normal"],
@@ -218,14 +229,12 @@ def test_token_dynamic_lifecycle_without_restart(monkeypatch):
     svc = get_fundamental_chips_service()
     assert svc.finmind.token == ""
 
-    # User updates token in preferences
     preferences.set_finmind_token("test-new-token-abc")
     reset_fundamental_chips_service()
 
     svc_rebuilt = get_fundamental_chips_service()
     assert svc_rebuilt.finmind.token == "test-new-token-abc"
 
-    # User clears token
     preferences.set_finmind_token("")
     reset_fundamental_chips_service()
 
@@ -240,7 +249,6 @@ def test_token_dynamic_lifecycle_without_restart(monkeypatch):
 def test_connection_test_fails_on_empty_benchmark_probes():
     adapter = FinMindAdapter(token="invalid_dummy_token")
 
-    # Mock fetch_dataset to return empty list for both probes (simulating empty or failed fetch)
     with patch.object(adapter, "fetch_dataset", return_value=[]):
         res = adapter.test_connection(probe_symbol="2330")
         assert res["ok"] is False
@@ -256,7 +264,6 @@ def test_connection_test_captures_auth_error():
         assert res["ok"] is False
         assert res["error_type"] == "auth"
         assert "認證失敗" in res["message"]
-        # Token must NOT be exposed
         assert "bad_token" not in res["message"]
 
 
