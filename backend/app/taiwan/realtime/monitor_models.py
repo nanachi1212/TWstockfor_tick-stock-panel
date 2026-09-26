@@ -71,6 +71,10 @@ class TaiwanMonitorRule:
         hysteresis: Optional delta required for re-arming edge-triggered state.
         reference_volume: Optional baseline volume in SHARES for volume_spike rule.
         severity: Alert severity (INFO, WARNING, CRITICAL).
+        notify_channels: Per-rule external notification channels ('line', 'telegram').
+            Empty list = app-only notification. Channels are delivered regardless of
+            global external_notification_channels setting, but still require that the
+            corresponding credentials (LINE token/target or Telegram bot/chat) are configured.
         created_at: ISO timestamp when rule was created.
         updated_at: ISO timestamp when rule was last modified.
     """
@@ -84,6 +88,7 @@ class TaiwanMonitorRule:
     hysteresis: float | None = None
     reference_volume: int | None = None  # in SHARES
     severity: TaiwanAlertSeverity | str = TaiwanAlertSeverity.WARNING
+    notify_channels: list[str] = field(default_factory=list)
     created_at: str = field(default_factory=lambda: datetime.now().isoformat())
     updated_at: str = field(default_factory=lambda: datetime.now().isoformat())
 
@@ -109,6 +114,7 @@ class TaiwanMonitorRule:
             "hysteresis": self.hysteresis,
             "reference_volume": self.reference_volume,
             "severity": self.severity.value if isinstance(self.severity, TaiwanAlertSeverity) else str(self.severity),
+            "notify_channels": list(self.notify_channels),
             "created_at": self.created_at,
             "updated_at": self.updated_at,
         }
@@ -126,9 +132,11 @@ class TaiwanMonitorRule:
             hysteresis=float(data["hysteresis"]) if data.get("hysteresis") is not None else None,
             reference_volume=int(data["reference_volume"]) if data.get("reference_volume") is not None else None,
             severity=data.get("severity", TaiwanAlertSeverity.WARNING),
+            notify_channels=[str(c) for c in data.get("notify_channels", []) if c in ("line", "telegram")],
             created_at=str(data.get("created_at", datetime.now().isoformat())),
             updated_at=str(data.get("updated_at", datetime.now().isoformat())),
         )
+
 
 
 @dataclass(frozen=True)
@@ -152,6 +160,7 @@ class TaiwanAlertEvent:
     field_name: str
     dedup_key: str
     ts: int = 0  # Epoch timestamp in milliseconds for UI compatibility
+    notify_channels: tuple[str, ...] = ()  # Per-rule external channels from triggering rule
 
     def __post_init__(self) -> None:
         if self.ts == 0 and self.triggered_at:
@@ -177,8 +186,10 @@ class TaiwanAlertEvent:
             "field_name": self.field_name,
             "dedup_key": self.dedup_key,
             "ts": self.ts,
+            "notify_channels": list(self.notify_channels),
             # Compatibility fields with legacy SSE frontend schema
             "price": self.trigger_value if "price" in self.rule_type else None,
             "change_pct": self.trigger_value if "change_pct" in self.rule_type else None,
             "type": self.rule_type,
         }
+

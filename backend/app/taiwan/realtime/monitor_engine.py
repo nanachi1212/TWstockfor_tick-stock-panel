@@ -692,9 +692,11 @@ class TaiwanMonitorEngine:
             severity=sev,
             field_name=field_name,
             dedup_key=dedup_key,
+            notify_channels=tuple(rule.notify_channels),
         )
 
         return alert, EvaluationStatus.TRIGGERED, "Alert triggered successfully"
+
 
     def _build_message(
         self,

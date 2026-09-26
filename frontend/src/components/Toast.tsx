@@ -9,6 +9,7 @@ let _queue: ToastItem[] = []
 function _emit() { _listeners.forEach(fn => fn([..._queue])) }
 
 function toast(msg: string, kind: 'error' | 'success' = 'error') {
+  if (_queue.some(t => t.msg === msg && t.kind === kind)) return
   const item = { id: ++_id, msg, kind }
   _queue = [..._queue, item]
   _emit()

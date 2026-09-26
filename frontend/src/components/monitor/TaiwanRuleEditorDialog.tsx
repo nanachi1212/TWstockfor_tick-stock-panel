@@ -61,6 +61,7 @@ export function TaiwanRuleEditorDialog({
   const [refVolume, setRefVolume] = useState<number | ''>('')
   const [severity, setSeverity] = useState<'info' | 'warning' | 'critical'>('warning')
   const [volInputMode, setVolInputMode] = useState<'shares' | 'lots'>('lots')
+  const [notifyChannels, setNotifyChannels] = useState<string[]>([])
 
   // 主檔搜尋下拉狀態
   const [searchOpen, setSearchOpen] = useState(false)
@@ -88,6 +89,7 @@ export function TaiwanRuleEditorDialog({
       setRefVolume(rule.reference_volume ?? '')
       setSeverity(rule.severity as any)
       setVolInputMode(rule.rule_type === 'volume_above' && rule.threshold >= 1000 ? 'lots' : 'shares')
+      setNotifyChannels(rule.notify_channels ?? [])
       setErrorMessage(null)
     } else {
       const initSym = presetQuote?.symbol || presetSymbol || '2330.TWSE'
@@ -100,6 +102,7 @@ export function TaiwanRuleEditorDialog({
       setHysteresis('')
       setRefVolume('')
       setSeverity('warning')
+      setNotifyChannels([])
       setErrorMessage(null)
     }
   }, [rule, presetSymbol, presetName, presetPrice, presetQuote, open])
@@ -124,6 +127,7 @@ export function TaiwanRuleEditorDialog({
           hysteresis: hysteresis === '' ? null : Number(hysteresis),
           reference_volume: refVolume === '' ? null : Number(refVolume),
           severity,
+          notify_channels: notifyChannels,
         })
       } else {
         return api.taiwanRuleSave({
@@ -135,6 +139,7 @@ export function TaiwanRuleEditorDialog({
           hysteresis: hysteresis === '' ? null : Number(hysteresis),
           reference_volume: refVolume === '' ? null : Number(refVolume),
           severity,
+          notify_channels: notifyChannels,
         })
       }
     },
@@ -422,6 +427,53 @@ export function TaiwanRuleEditorDialog({
                 <option value="critical">緊急 (CRITICAL)</option>
               </select>
             </div>
+          </div>
+          {/* 通知渠道 (LINE / Telegram) */}
+          <div className="pt-1 border-t border-border/40">
+            <label className="block text-[11px] font-semibold text-foreground/80 mb-2">
+              觸發時通知目的地
+            </label>
+            <div className="flex flex-wrap gap-2 mb-2">
+              {[
+                { key: 'line', label: 'LINE', color: 'text-green-500' },
+                { key: 'telegram', label: 'Telegram', color: 'text-blue-400' },
+              ].map(ch => {
+                const checked = notifyChannels.includes(ch.key)
+                return (
+                  <button
+                    key={ch.key}
+                    type="button"
+                    onClick={() => setNotifyChannels(prev =>
+                      checked ? prev.filter(c => c !== ch.key) : [...prev, ch.key]
+                    )}
+                    className={cn(
+                      'flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-medium transition-all cursor-pointer',
+                      checked
+                        ? 'border-accent bg-accent/15 text-accent'
+                        : 'border-border/60 bg-surface text-muted hover:border-accent/40',
+                    )}
+                  >
+                    <span className={cn('w-2 h-2 rounded-full', checked ? 'bg-accent' : 'bg-border')} />
+                    {ch.label}
+                  </button>
+                )
+              })}
+              {notifyChannels.length === 0 && (
+                <span className="text-[10px] text-muted self-center">僅 App 內通知</span>
+              )}
+            </div>
+            <p className="text-[10px] text-muted leading-relaxed">
+              ① 「即時行情」必須開啟，觸發時才會評估並傳送提醒。
+              LINE / Telegram 需先在{' '}
+              <a
+                href="/settings?tab=monitoring"
+                className="text-accent underline underline-offset-2"
+                onClick={e => { e.preventDefault(); window.location.href = '/settings?tab=monitoring' }}
+              >
+                設定 → 監控 → 外部通知
+              </a>{' '}
+              設定憑證後方可使用。
+            </p>
           </div>
         </div>
 

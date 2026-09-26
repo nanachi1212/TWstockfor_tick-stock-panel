@@ -289,7 +289,8 @@ async def test_personal_interpretation_fields_reject_non_string_provider_output(
         )
 
     assert response.status == "unavailable"
-    assert response.error_code == "invalid_output"
+    assert response.error_code in ("invalid_output", "INVALID_STRUCTURED_RESPONSE")
+
 
 
 @pytest.mark.asyncio

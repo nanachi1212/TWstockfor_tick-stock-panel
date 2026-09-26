@@ -70,8 +70,20 @@ def get_tickflow_key() -> str:
 
 
 def get_ai_key() -> str:
-    """取当前 AI Key:secrets.json 优先,否则 .env。"""
+    """取当前 AI Key: 优先 active profile → secrets.json 单字段 → .env。
+
+    多 profile 激活时直接从 ai_key_profiles 读取激活 profile 的 key,
+    无需重启; 不存在任何 profile 时回退到旧的 ai_api_key 单字段行为。
+    """
+    import contextlib
+    with contextlib.suppress(Exception):
+        from app.services.ai_key_profiles import get_active_ai_key, has_any_profile
+        if has_any_profile():
+            key = get_active_ai_key()
+            if key:
+                return key
     val = load().get("ai_api_key")
+
     if val:
         return val
     from app.config import settings

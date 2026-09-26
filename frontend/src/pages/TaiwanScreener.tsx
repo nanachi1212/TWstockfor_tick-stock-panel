@@ -2172,7 +2172,15 @@ export function TaiwanScreener() {
               ) : !data || data.items.length === 0 ? (
                 <tr>
                   <td colSpan={resultColSpan} className="py-12 text-center text-zinc-500">
-                    <span>沒有符合當前條件的台股標的</span>
+                    {(foreignNetMinLots || foreignNetMaxLots || investmentTrustNetMinLots || dealerNetMinLots) &&
+                     !data?.data_dates?.institutional_as_of ? (
+                      <div className="space-y-1">
+                        <div className="text-amber-400 font-medium">法人籌碼資料尚未取得</div>
+                        <div className="text-xs text-zinc-500">請先下載台股法人資料後再試，或移除法人相關篩選條件。</div>
+                      </div>
+                    ) : (
+                      <span>沒有符合當前條件的台股標的</span>
+                    )}
                   </td>
                 </tr>
               ) : (

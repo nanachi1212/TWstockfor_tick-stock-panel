@@ -32,6 +32,7 @@ from typing import Any, Literal
 from pydantic import BaseModel, Field
 
 from app.services.ai_provider import (
+    AIOutputTruncated,
     AIProviderConfigSnapshot,
     generate_ai_text,
     snapshot_ai_provider_config,
@@ -74,17 +75,44 @@ async def _shared_provider_response(
     if not leader:
         return await asyncio.shield(pending)
 
+    _RETRY_MSG = (
+        "前次 JSON 輸出已超出 token 上限而截斷。"
+        "請以相同 JSON 結構重新輸出完整報告，"
+        "每個文字欄位縮短至不超過 60 字，"
+        "key_observations / risk_factors / watch_next 各限 3 項。"
+    )
+
     try:
         result: tuple[str | None, Exception | None] = (
             await generate_ai_text(
                 messages,
                 temperature=0.1,
-                max_tokens=1600,
-                timeout=45.0,
+                max_tokens=3500,
+                timeout=55.0,
                 config_snapshot=config_snapshot,
             ),
             None,
         )
+    except AIOutputTruncated as trunc_exc:
+        retry_messages = list(messages) + [
+            {"role": "assistant", "content": trunc_exc.partial_content},
+            {"role": "user", "content": _RETRY_MSG},
+        ]
+        try:
+            result = (
+                await generate_ai_text(
+                    retry_messages,
+                    temperature=0.1,
+                    max_tokens=3500,
+                    timeout=55.0,
+                    config_snapshot=config_snapshot,
+                ),
+                None,
+            )
+        except AIOutputTruncated:
+            result = (None, AIOutputTruncated("", "AI 回覆超過輸出長度限制，請重新產生。"))
+        except Exception as exc2:
+            result = (None, exc2)
     except Exception as exc:
         result = (None, exc)
     except BaseException:
@@ -704,10 +732,16 @@ class TaiwanAIResearchService:
                 raise RuntimeError("AI provider returned no response")
         except Exception as e:
             logger.warning("AI provider failed in stock research report for %s (%s)", symbol, type(e).__name__)
+            if isinstance(e, AIOutputTruncated):
+                _ec = "OUTPUT_TRUNCATED"
+                _em = "AI 回覆超過輸出長度限制，請重新產生。"
+            else:
+                _ec = "provider_error"
+                _em = "AI 分析目前無法使用，請檢查 AI 設定或稍後重試。"
             return TaiwanAIResearchResponse(
                 status="unavailable",
-                error_code="provider_error",
-                error_message="AI 分析目前無法使用，請檢查 AI 設定或稍後重試。",  # noqa: RUF001
+                error_code=_ec,
+                error_message=_em,
                 provider=provider_snapshot,
                 model=model_snapshot,
                 prompt_version=PROMPT_VERSION,
@@ -728,7 +762,7 @@ class TaiwanAIResearchService:
             logger.error("Failed to parse AI response for %s (%s)", symbol, type(e).__name__)
             return TaiwanAIResearchResponse(
                 status="unavailable",
-                error_code="invalid_output",
+                error_code="INVALID_STRUCTURED_RESPONSE",
                 error_message="AI 回傳內容無法解析為合法 JSON 格式。",
                 provider=provider_snapshot,
                 model=model_snapshot,

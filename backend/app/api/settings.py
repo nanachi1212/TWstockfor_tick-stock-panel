@@ -43,6 +43,27 @@ router = APIRouter(prefix="/api/settings", tags=["settings"])
 DEFAULT_PAID_ENDPOINT = "https://api.tickflow.org"
 
 
+def _ai_profile_count() -> int:
+    """Return number of AI key profiles, 0 on error."""
+    try:
+        from app.services.ai_key_profiles import list_profiles
+        return len(list_profiles())
+    except Exception:  # noqa: BLE001
+        return 0
+
+
+def _ai_active_profile_name() -> str | None:
+    """Return the name of the active AI key profile, or None."""
+    try:
+        from app.services.ai_key_profiles import list_profiles
+        for p in list_profiles():
+            if p.get("active"):
+                return str(p.get("name", ""))
+        return None
+    except Exception:  # noqa: BLE001
+        return None
+
+
 class TickflowKeyIn(BaseModel):
     api_key: str
 
@@ -96,6 +117,9 @@ def get_settings() -> dict:
         "finmind_token_masked": secrets_store.mask(preferences.get_finmind_token()),
         "finmind_enabled": preferences.get_finmind_enabled(),
         "has_finmind_token": bool(preferences.get_finmind_token()),
+        # AI Key Profiles
+        "ai_key_profiles_count": _ai_profile_count(),
+        "ai_key_active_profile_name": _ai_active_profile_name(),
     }
 
 
@@ -344,6 +368,123 @@ def clear_ai_settings() -> dict:
     settings.ai_context_window = 64000
 
     return {"ok": True}
+
+
+# ===== AI Key Profiles (Multiple Keys) =====
+
+class AiKeyProfileCreate(BaseModel):
+    name: str
+    provider: str = "openai_compat"
+    api_key: str
+
+
+@router.get("/ai-key-profiles")
+def list_ai_key_profiles() -> dict:
+    """List all AI key profiles (metadata only, no key values)."""
+    from app.services import ai_key_profiles
+    profiles = ai_key_profiles.list_profiles()
+    return {"profiles": profiles}
+
+
+@router.post("/ai-key-profiles")
+def create_ai_key_profile(req: AiKeyProfileCreate) -> dict:
+    """Create a new AI key profile.
+
+    Keys are stored securely server-side. Never returned to the frontend.
+    The first profile created is automatically set as active.
+    """
+    from app.services import ai_key_profiles
+    if not req.name.strip():
+        raise HTTPException(status_code=400, detail="Profile name cannot be empty")
+    if not req.api_key.strip():
+        raise HTTPException(status_code=400, detail="API key cannot be empty")
+    try:
+        profile = ai_key_profiles.create_profile(
+            name=req.name.strip(),
+            provider=req.provider or "openai_compat",
+            api_key=req.api_key.strip(),
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    return {"ok": True, "profile": profile}
+
+
+@router.post("/ai-key-profiles/{profile_id}/activate")
+def activate_ai_key_profile(profile_id: str) -> dict:
+    """Set a profile as the active AI key source.
+
+    The next AI request immediately uses the new key without restart.
+    """
+    from app.services import ai_key_profiles
+    ok = ai_key_profiles.set_active_profile(profile_id)
+    if not ok:
+        raise HTTPException(status_code=404, detail="Profile not found")
+    return {"ok": True, "active_profile_id": profile_id}
+
+
+@router.delete("/ai-key-profiles/{profile_id}")
+def delete_ai_key_profile(profile_id: str) -> dict:
+    """Delete a profile and its stored key.
+
+    If the deleted profile was active and other profiles exist, the first
+    remaining profile is automatically activated.
+    """
+    from app.services import ai_key_profiles
+    ok = ai_key_profiles.delete_profile(profile_id)
+    if not ok:
+        raise HTTPException(status_code=404, detail="Profile not found")
+    return {"ok": True}
+
+
+@router.post("/ai-key-profiles/{profile_id}/test")
+async def test_ai_key_profile(profile_id: str) -> dict:
+    """Test whether the profile's key can reach the AI provider.
+
+    Uses the profile's stored provider (or falls back to openai_compat).
+    Returns connectivity result without exposing the key or request content.
+    """
+    from app.services import ai_key_profiles
+    from app.services.ai_provider import generate_ai_text, AIProviderConfigSnapshot
+
+    profiles_meta = ai_key_profiles.list_profiles()
+    meta = next((p for p in profiles_meta if p["id"] == profile_id), None)
+    if meta is None:
+        raise HTTPException(status_code=404, detail="Profile not found")
+
+    # Load key from secrets storage via the module's internal lock
+    from app.services.ai_key_profiles import _load_secrets
+    secrets = _load_secrets()
+    key = secrets.get(profile_id, "")
+
+    if not key:
+        return {"ok": False, "error": "Profile has no stored key"}
+
+    from app.config import settings as app_settings
+    provider = meta.get("provider") or "openai_compat"
+    try:
+        cfg = AIProviderConfigSnapshot(
+            provider=provider,
+            model=app_settings.ai_model or "gpt-4o-mini",
+            api_key=key,
+            base_url=app_settings.ai_base_url or "",
+            max_output_tokens=20,
+        )
+        result = await generate_ai_text(
+            [{"role": "user", "content": "Reply with OK"}],
+            max_tokens=20,
+            temperature=0.0,
+            timeout=30.0,
+            config_snapshot=cfg,
+        )
+        return {
+            "ok": True,
+            "profile_id": profile_id,
+            "provider": provider,
+            "responded": bool(result),
+        }
+    except Exception as e:
+        msg = str(e)
+        return {"ok": False, "profile_id": profile_id, "error": msg}
 
 
 # ===== 偏好设置 =====

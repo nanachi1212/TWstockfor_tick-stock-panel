@@ -716,6 +716,8 @@ export interface TaiwanMonitorRule {
   hysteresis?: number | null
   reference_volume?: number | null     // In SHARES (股)
   severity: 'info' | 'warning' | 'critical'
+  /** Per-rule external notification channels ('line' | 'telegram') */
+  notify_channels?: string[]
   created_at?: string
   updated_at?: string
 }
@@ -2336,6 +2338,19 @@ export interface SettingsState {
   ai_user_agent: string
   ai_max_output_tokens?: number
   ai_context_window?: number
+  // AI Key Profiles
+  ai_key_profiles_count?: number
+  ai_key_active_profile_name?: string | null
+}
+
+export interface AiKeyProfile {
+  id: string
+  name: string
+  provider: string
+  key_masked: string
+  has_key: boolean
+  active: boolean
+  created_at: string
 }
 
 /** 保存 TickFlow Key 的響應(先探後存) */
@@ -2577,6 +2592,34 @@ export const api = {
   /** 一鍵清空 AI 配置(保留自定義 UA) */
   clearAiSettings: () =>
     request<{ ok: boolean }>('/api/settings/ai', { method: 'DELETE' }),
+
+  // ── AI Key Profiles ──────────────────────────────────────────────
+  aiKeyProfiles: () =>
+    request<{ profiles: AiKeyProfile[] }>('/api/settings/ai-key-profiles'),
+
+  aiKeyProfileCreate: (profile: { name: string; provider: string; api_key: string }) =>
+    request<{ ok: boolean; profile: AiKeyProfile }>('/api/settings/ai-key-profiles', {
+      method: 'POST',
+      body: JSON.stringify(profile),
+    }),
+
+  aiKeyProfileActivate: (profileId: string) =>
+    request<{ ok: boolean; active_profile_id: string }>(
+      `/api/settings/ai-key-profiles/${encodeURIComponent(profileId)}/activate`,
+      { method: 'POST', body: '{}' },
+    ),
+
+  aiKeyProfileDelete: (profileId: string) =>
+    request<{ ok: boolean }>(
+      `/api/settings/ai-key-profiles/${encodeURIComponent(profileId)}`,
+      { method: 'DELETE' },
+    ),
+
+  aiKeyProfileTest: (profileId: string) =>
+    request<{ ok: boolean; error?: string; provider?: string; responded?: boolean }>(
+      `/api/settings/ai-key-profiles/${encodeURIComponent(profileId)}/test`,
+      { method: 'POST', body: '{}' },
+    ),
 
   preferences: () => request<Preferences>('/api/settings/preferences'),
   externalNotificationStatus: () => request<{ external_notification_status: Record<string, 'sent' | 'failed' | 'not_configured'> }>('/api/settings/notification-status'),
@@ -3437,16 +3480,16 @@ export const api = {
     }),
 
   getFinMindPreference: () =>
-    request<{ enabled: boolean; has_token: boolean; token_masked: string }>('/api/preferences/finmind'),
+    request<{ enabled: boolean; has_token: boolean; token_masked: string }>('/api/settings/preferences/finmind'),
 
   updateFinMindPreference: (payload: { token?: string; enabled?: boolean; clear_token?: boolean }) =>
-    request<{ ok: boolean; enabled: boolean; has_token: boolean }>('/api/preferences/finmind', {
+    request<{ ok: boolean; enabled: boolean; has_token: boolean }>('/api/settings/preferences/finmind', {
       method: 'PUT',
       body: JSON.stringify(payload),
     }),
 
   testFinMindConnection: (token?: string) =>
-    request<{ ok: boolean; message: string; status_code?: number }>('/api/preferences/finmind/test', {
+    request<{ ok: boolean; message: string; status_code?: number }>('/api/settings/preferences/finmind/test', {
       method: 'POST',
       body: JSON.stringify({ token }),
     }),
@@ -3596,6 +3639,7 @@ export const api = {
     hysteresis?: number | null
     reference_volume?: number | null
     severity?: string
+    notify_channels?: string[]
   }) =>
     request<{ ok: boolean; rule: TaiwanMonitorRule }>('/api/monitor-rules/taiwan', {
       method: 'POST',

@@ -10,8 +10,10 @@ vi.mock('@/lib/api', () => ({
     saveAiSettings: vi.fn().mockResolvedValue({ ok: true, ai_provider: 'openai_compat' }),
     clearAiSettings: vi.fn().mockResolvedValue({ ok: true }),
     strategyAiTest: vi.fn().mockResolvedValue({ ok: true }),
+    aiKeyProfiles: vi.fn().mockResolvedValue({ profiles: [] }),
   },
 }))
+
 
 vi.mock('@/lib/useSharedQueries', () => ({
   useSettings: vi.fn(),

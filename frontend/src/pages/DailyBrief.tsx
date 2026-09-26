@@ -267,20 +267,26 @@ export function DailyBrief() {
               <span className="text-xs text-muted-foreground">加權指數收盤</span>
               <div className="flex items-baseline gap-2 mt-1">
                 <span className="text-xl font-bold font-mono">
-                  {brief.market.taiex_close?.toFixed(2) ?? '-'}
+                  {brief.market.taiex_close?.toFixed(2) ?? '—'}
                 </span>
-                <span
-                  className={cn(
-                    'text-xs font-semibold',
-                    (brief.market.taiex_change_pct ?? 0) >= 0 ? 'text-rose-500' : 'text-emerald-500',
-                  )}
-                >
-                  {(brief.market.taiex_change_pct ?? 0) >= 0 ? '+' : ''}
-                  {brief.market.taiex_change_pct?.toFixed(2) ?? '-'}%
-                </span>
+                {brief.market.taiex_change_pct != null ? (
+                  <span
+                    className={cn(
+                      'text-xs font-semibold',
+                      brief.market.taiex_change_pct >= 0 ? 'text-rose-500' : 'text-emerald-500',
+                    )}
+                  >
+                    {brief.market.taiex_change_pct >= 0 ? '+' : ''}
+                    {brief.market.taiex_change_pct.toFixed(2)}%
+                  </span>
+                ) : (
+                  <span className="text-xs text-muted-foreground">—</span>
+                )}
               </div>
               <div className="text-[11px] text-muted-foreground mt-1">
-                成交量：{((brief.market.total_turnover || 0) / 1e8).toFixed(1)} 億元
+                成交量：{brief.market.total_turnover > 0
+                  ? `${(brief.market.total_turnover / 1e8).toFixed(1)} 億元`
+                  : '—'}
               </div>
             </div>
 

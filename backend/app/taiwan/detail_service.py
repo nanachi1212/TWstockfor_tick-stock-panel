@@ -107,9 +107,15 @@ class TaiwanStockDetailService:
             )
 
         # 2. Canonical Price Limits via MarketProfileBridge
-        limit_pct = MarketProfileBridge.get_price_limit_pct(master_item) if master_item else 0.1
-        is_no_limit = limit_pct is None
-        rule_type = "無漲跌幅限制" if is_no_limit else f"±{int(limit_pct * 100)}%" if limit_pct else "普通股±10%"
+        # ValueError here means unconfirmed ETF (regulatory fail-closed); treat as unknown.
+        try:
+            limit_pct = MarketProfileBridge.get_price_limit_pct(master_item) if master_item else 0.1
+            is_no_limit = limit_pct is None
+            rule_type = "無漲跌幅限制" if is_no_limit else f"±{int(limit_pct * 100)}%" if limit_pct else "普通股±10%"
+        except ValueError:
+            limit_pct = None
+            is_no_limit = False
+            rule_type = "商品分類資料不足"
         price_limit = TaiwanStockPriceLimit(
             limit_up=None,
             limit_down=None,

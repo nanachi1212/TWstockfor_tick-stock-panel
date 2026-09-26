@@ -26,6 +26,7 @@ from typing import Any
 from app.config import settings
 from app.services import watchlist
 from app.services.ai_provider import (
+    AIOutputTruncated,
     AIProviderConfigSnapshot,
     generate_ai_text,
     snapshot_ai_provider_config,
@@ -410,13 +411,34 @@ class TaiwanDailyBriefService:
             {"role": "user", "content": f"以下是今日結構化台股市場與個人關注事實清單，請產出每日 AI 摘要：\n\n```json\n{user_content}\n```"},
         ]
 
-        text = await generate_ai_text(
-            messages=messages,
-            temperature=0.2,
-            max_tokens=1800,
-            timeout=45.0,
-            config_snapshot=config,
+        _BRIEF_RETRY_MSG = (
+            "前次輸出已超出 token 上限截斷。"
+            "請重新輸出完整 JSON，每個字串欄位縮短至 100 字以內，"
+            "section_b_key_changes 限 3 項，evidence_sources 限 3 項。"
         )
+        try:
+            text = await generate_ai_text(
+                messages=messages,
+                temperature=0.2,
+                max_tokens=3500,
+                timeout=55.0,
+                config_snapshot=config,
+            )
+        except AIOutputTruncated as trunc_exc:
+            retry_msgs = list(messages) + [
+                {"role": "assistant", "content": trunc_exc.partial_content},
+                {"role": "user", "content": _BRIEF_RETRY_MSG},
+            ]
+            try:
+                text = await generate_ai_text(
+                    messages=retry_msgs,
+                    temperature=0.2,
+                    max_tokens=3500,
+                    timeout=55.0,
+                    config_snapshot=config,
+                )
+            except AIOutputTruncated:
+                raise ValueError("AI 回覆超過輸出長度限制，請重新產生。")
 
         extracted = _extract_json_object(text)
         if not extracted or not isinstance(extracted, dict):

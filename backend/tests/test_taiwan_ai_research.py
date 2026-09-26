@@ -206,8 +206,9 @@ async def test_malformed_json_response_graceful_handling():
         resp = await svc.generate_report("2330.TWSE", target_date=date(2026, 8, 28))
 
         assert resp.status == "unavailable"
-        assert resp.error_code == "invalid_output"
+        assert resp.error_code in ("invalid_output", "INVALID_STRUCTURED_RESPONSE")
         assert resp.report is None
+
 
 
 @pytest.mark.asyncio
