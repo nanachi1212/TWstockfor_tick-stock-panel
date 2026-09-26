@@ -735,7 +735,7 @@ def list_selection_snapshots():
 
     svc = get_selection_review_service()
     try:
-        return {"snapshots": [s.model_dump() for s in svc.list_snapshots()]}
+        return [s.model_dump() for s in svc.list_snapshots()]
     except Exception as e:
         logger.exception("Failed to list selection snapshots: %s", e)
         raise HTTPException(status_code=500, detail=f"快照清單讀取失敗: {e}") from e
@@ -762,7 +762,7 @@ def delete_selection_snapshot(snapshot_id: str):
     success = svc.delete_snapshot(snapshot_id)
     if not success:
         raise HTTPException(status_code=404, detail=f"找不到或無法刪除快照: {snapshot_id}")
-    return {"status": "success", "snapshot_id": snapshot_id}
+    return {"ok": True, "deleted_id": snapshot_id}
 
 
 @router.get("/selection-review/strategy-stats")
@@ -772,7 +772,7 @@ def get_strategy_review_stats():
 
     svc = get_selection_review_service()
     try:
-        return {"strategies": [s.model_dump() for s in svc.get_strategy_reviews()]}
+        return [s.model_dump() for s in svc.get_strategy_reviews()]
     except Exception as e:
         logger.exception("Failed to get strategy review stats: %s", e)
         raise HTTPException(status_code=500, detail=f"策略統計讀取失敗: {e}") from e
@@ -785,7 +785,7 @@ def get_condition_review_stats():
 
     svc = get_selection_review_service()
     try:
-        return {"conditions": [c.model_dump() for c in svc.get_condition_reviews()]}
+        return [c.model_dump() for c in svc.get_condition_reviews()]
     except Exception as e:
         logger.exception("Failed to get condition review stats: %s", e)
         raise HTTPException(status_code=500, detail=f"條件統計讀取失敗: {e}") from e
@@ -793,62 +793,54 @@ def get_condition_review_stats():
 
 # ── A12: Daily Brief (每日 AI 摘要) ──────────────────────────────
 
-@router.post("/daily-brief")
-def get_daily_brief(body: dict[str, Any] | None = None):
+@router.get("/daily-brief")
+def get_daily_brief(target_date: str | None = None):
     """取得或建構今日台股客觀確定性簡報 (涵蓋大盤、強弱族群、持股與自選、新候選股、事件與新聞)。"""
-    from app.taiwan.daily_brief_models import CreateDailyBriefRequest
     from app.taiwan.daily_brief_service import get_daily_brief_service
 
-    req = CreateDailyBriefRequest(**(body or {}))
     svc = get_daily_brief_service()
 
     target_dt = None
-    if req.target_date:
+    if target_date:
         try:
-            target_dt = dt_date.fromisoformat(req.target_date)
+            target_dt = dt_date.fromisoformat(target_date)
         except ValueError as e:
-            raise HTTPException(status_code=400, detail=f"無效的日期格式: {req.target_date}") from e
+            raise HTTPException(status_code=400, detail=f"無效的日期格式: {target_date}") from e
 
     try:
-        brief = svc.build_deterministic_brief(target_date=target_dt, portfolio_holdings=req.portfolio_holdings)
+        brief = svc.build_deterministic_brief(target_date=target_dt)
         return brief.model_dump()
     except Exception as e:
         logger.exception("Failed to build daily brief: %s", e)
         raise HTTPException(status_code=500, detail=f"每日簡報彙整失敗: {e}") from e
 
 
-class GenerateAISummaryPayload(BaseModel):
-    brief: dict[str, Any]
-
-
 @router.post("/daily-brief/ai-summary")
-async def generate_daily_brief_ai_summary(payload: GenerateAISummaryPayload):
+async def generate_daily_brief_ai_summary(body: dict[str, Any]):
     """由使用者主動觸發，呼叫現有 AI Provider 生成嚴格 7 段式的每日市場摘要。"""
     from app.taiwan.daily_brief_models import DeterministicDailyBrief
     from app.taiwan.daily_brief_service import get_daily_brief_service
 
     try:
-        brief = DeterministicDailyBrief(**payload.brief)
+        brief = DeterministicDailyBrief(**body)
     except Exception as e:
         raise HTTPException(status_code=422, detail=f"結構化簡報資料格式不符: {e}") from e
 
     svc = get_daily_brief_service()
     try:
         summary = await svc.generate_ai_summary(brief)
-        return {"status": "success", "summary": summary.model_dump()}
+        return summary.model_dump()
     except Exception as e:
         logger.warning("Daily brief AI summary generation failed: %s", e)
-        # Graceful return with typed status
-        return {
-            "status": "failed",
-            "error": str(e),
-            "summary": None,
-            "fallback_note": "AI 摘要生成暫時不可用，請檢查 AI 設定或網路連接",
-        }
+        raise HTTPException(status_code=503, detail=f"AI 摘要生成暫時不可用，請確認 AI 設定或網路: {e}") from e
 
 
 class SaveDailyBriefPayload(BaseModel):
-    brief: dict[str, Any]
+    brief_id: str | None = None
+    brief_date: str | None = None
+    generated_at: str | None = None
+    data_as_of: str | None = None
+    structured_brief: dict[str, Any]
     ai_summary: dict[str, Any] | None = None
     ai_status: str = "not_generated"
     ai_error: str | None = None
@@ -861,7 +853,7 @@ def save_daily_brief_history(payload: SaveDailyBriefPayload):
     from app.taiwan.daily_brief_service import get_daily_brief_service
 
     try:
-        brief = DeterministicDailyBrief(**payload.brief)
+        brief = DeterministicDailyBrief(**payload.structured_brief)
         ai_summary = DailyBriefAISummary(**payload.ai_summary) if payload.ai_summary else None
     except Exception as e:
         raise HTTPException(status_code=422, detail=f"儲存資料格式錯誤: {e}") from e
@@ -881,14 +873,16 @@ def save_daily_brief_history(payload: SaveDailyBriefPayload):
 
 
 @router.get("/daily-brief/history")
-def list_daily_brief_history():
+def list_daily_brief_history(limit: int | None = None):
     """取得歷史保存的每日摘要清單。"""
     from app.taiwan.daily_brief_service import get_daily_brief_service
 
     svc = get_daily_brief_service()
     try:
         briefs = svc.list_saved_briefs()
-        return {"briefs": [b.model_dump() for b in briefs]}
+        if limit is not None:
+            briefs = briefs[:limit]
+        return [b.model_dump() for b in briefs]
     except Exception as e:
         logger.exception("Failed to list daily brief history: %s", e)
         raise HTTPException(status_code=500, detail=f"每日摘要歷史讀取失敗: {e}") from e

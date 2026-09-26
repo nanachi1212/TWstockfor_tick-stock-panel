@@ -357,7 +357,7 @@ def test_selection_review_api_endpoints(monkeypatch, review_service: TaiwanSelec
     # 2. List snapshots
     res_list = client.get("/api/taiwan/selection-review/snapshots")
     assert res_list.status_code == 200
-    assert any(s["snapshot_id"] == snapshot_id for s in res_list.json()["snapshots"])
+    assert any(s["snapshot_id"] == snapshot_id for s in res_list.json())
 
     # 3. Get snapshot detail
     res_detail = client.get(f"/api/taiwan/selection-review/snapshots/{snapshot_id}")
@@ -377,4 +377,4 @@ def test_selection_review_api_endpoints(monkeypatch, review_service: TaiwanSelec
     # 6. Delete snapshot
     res_del = client.delete(f"/api/taiwan/selection-review/snapshots/{snapshot_id}")
     assert res_del.status_code == 200
-    assert res_del.json()["status"] == "success"
+    assert res_del.json()["ok"] is True

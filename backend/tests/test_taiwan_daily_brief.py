@@ -125,17 +125,14 @@ def test_daily_brief_api_endpoints(monkeypatch, mock_daily_brief_service: Taiwan
     )
     client = TestClient(app, client=("127.0.0.1", 50000))
 
-    # 1. Post deterministic brief
-    res_brief = client.post(
-        "/api/taiwan/daily-brief",
-        json={"target_date": "2026-08-03", "portfolio_holdings": []},
-    )
+    # 1. GET deterministic brief (with query param)
+    res_brief = client.get("/api/taiwan/daily-brief?target_date=2026-08-03")
     assert res_brief.status_code == 200
     brief_data = res_brief.json()
     assert "market" in brief_data
     assert "candidates" in brief_data
 
-    # 2. On-demand AI generation
+    # 2. On-demand AI generation (send brief directly, receive DailyBriefAISummary directly)
     mock_ai_response = json.dumps({
         "section_a_market": "大盤持穩",
         "section_b_key_changes": ["變化A", "變化B", "變化C"],
@@ -150,27 +147,25 @@ def test_daily_brief_api_endpoints(monkeypatch, mock_daily_brief_service: Taiwan
         mock_gen.return_value = mock_ai_response
         res_ai = client.post(
             "/api/taiwan/daily-brief/ai-summary",
-            json={"brief": brief_data},
+            json=brief_data,
         )
         assert res_ai.status_code == 200
-        ai_result = res_ai.json()
-        assert ai_result["status"] == "success"
-        summary = ai_result["summary"]
+        summary = res_ai.json()
         assert summary["section_a_market"] == "大盤持穩"
 
-    # 3. Save to history
+    # 3. Save to history (use structured_brief key matching frontend)
     res_save = client.post(
         "/api/taiwan/daily-brief/save",
-        json={"brief": brief_data, "ai_summary": summary, "ai_status": "success"},
+        json={"structured_brief": brief_data, "ai_summary": summary, "ai_status": "success"},
     )
     assert res_save.status_code == 200
     saved_brief = res_save.json()
     brief_id = saved_brief["brief_id"]
 
-    # 4. List history
+    # 4. List history (returns array directly)
     res_hist = client.get("/api/taiwan/daily-brief/history")
     assert res_hist.status_code == 200
-    assert any(b["brief_id"] == brief_id for b in res_hist.json()["briefs"])
+    assert any(b["brief_id"] == brief_id for b in res_hist.json())
 
     # 5. Get history detail
     res_detail = client.get(f"/api/taiwan/daily-brief/history/{brief_id}")
