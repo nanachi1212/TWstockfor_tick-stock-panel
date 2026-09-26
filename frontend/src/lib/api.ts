@@ -962,7 +962,7 @@ export interface TaiwanSecuritiesLendingData {
   avg_fee_rate?: number | null
   volume_5d?: number | null
   volume_20d?: number | null
-  anomaly_status?: 'normal' | 'surge' | 'none' | string
+  anomaly_status?: 'normal' | 'surge' | 'drop' | 'unavailable' | string
   meta?: {
     source: string
     trade_date?: string | null
@@ -972,7 +972,8 @@ export interface TaiwanSecuritiesLendingData {
 }
 
 export interface TaiwanExtraChipsData {
-  shareholding?: TaiwanForeignShareholdingData
+  status?: 'available' | 'unavailable' | 'partial' | 'error' | string
+  foreign_shareholding?: TaiwanForeignShareholdingData
   securities_lending?: TaiwanSecuritiesLendingData
 }
 

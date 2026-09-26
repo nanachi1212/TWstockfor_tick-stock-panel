@@ -1021,7 +1021,7 @@ export function TaiwanStockDetail() {
                   </span>
                 </div>
                 <span className="text-[10px] text-muted font-mono">
-                  {data.extra_chips?.shareholding?.meta?.trade_date || data.extra_chips?.securities_lending?.meta?.trade_date || ''}
+                  {data.extra_chips?.foreign_shareholding?.meta?.trade_date || data.extra_chips?.securities_lending?.meta?.trade_date || ''}
                 </span>
               </div>
 
@@ -1030,28 +1030,28 @@ export function TaiwanStockDetail() {
                 <div className="flex items-center justify-between text-xs mb-2">
                   <span className="font-semibold text-foreground">外資持股比例</span>
                   <span className="font-mono font-bold text-base text-foreground">
-                    {data.extra_chips?.shareholding?.ratio != null ? `${data.extra_chips.shareholding.ratio.toFixed(2)}%` : '--'}
+                    {data.extra_chips?.foreign_shareholding?.ratio != null ? `${data.extra_chips.foreign_shareholding.ratio.toFixed(2)}%` : '--'}
                   </span>
                 </div>
                 <div className="grid grid-cols-3 gap-2 text-xs text-center font-mono">
                   <div className="bg-surface rounded-lg p-2 border border-border/40">
                     <div className="text-muted text-[10px] mb-0.5">近 5 日變化</div>
-                    <div className={cn('font-bold', (data.extra_chips?.shareholding?.change_5d || 0) >= 0 ? 'text-rose-500' : 'text-emerald-500')}>
-                      {data.extra_chips?.shareholding?.change_5d != null ? `${data.extra_chips.shareholding.change_5d >= 0 ? '+' : ''}${data.extra_chips.shareholding.change_5d.toFixed(2)}%` : '--'}
+                    <div className={cn('font-bold', (data.extra_chips?.foreign_shareholding?.change_5d || 0) >= 0 ? 'text-rose-500' : 'text-emerald-500')}>
+                      {data.extra_chips?.foreign_shareholding?.change_5d != null ? `${data.extra_chips.foreign_shareholding.change_5d >= 0 ? '+' : ''}${data.extra_chips.foreign_shareholding.change_5d.toFixed(2)}%` : '--'}
                     </div>
                   </div>
                   <div className="bg-surface rounded-lg p-2 border border-border/40">
                     <div className="text-muted text-[10px] mb-0.5">近 20 日變化</div>
-                    <div className={cn('font-bold', (data.extra_chips?.shareholding?.change_20d || 0) >= 0 ? 'text-rose-500' : 'text-emerald-500')}>
-                      {data.extra_chips?.shareholding?.change_20d != null ? `${data.extra_chips.shareholding.change_20d >= 0 ? '+' : ''}${data.extra_chips.shareholding.change_20d.toFixed(2)}%` : '--'}
+                    <div className={cn('font-bold', (data.extra_chips?.foreign_shareholding?.change_20d || 0) >= 0 ? 'text-rose-500' : 'text-emerald-500')}>
+                      {data.extra_chips?.foreign_shareholding?.change_20d != null ? `${data.extra_chips.foreign_shareholding.change_20d >= 0 ? '+' : ''}${data.extra_chips.foreign_shareholding.change_20d.toFixed(2)}%` : '--'}
                     </div>
                   </div>
                   <div className="bg-surface rounded-lg p-2 border border-border/40">
                     <div className="text-muted text-[10px] mb-0.5">持股趨勢</div>
                     <div className="font-medium text-foreground">
-                      {data.extra_chips?.shareholding?.trend === 'increasing' ? '🟢 持續增持' :
-                       data.extra_chips?.shareholding?.trend === 'decreasing' ? '🔴 持續減持' :
-                       data.extra_chips?.shareholding?.trend === 'flat' ? '⚪ 持平' : '--'}
+                      {data.extra_chips?.foreign_shareholding?.trend === 'increasing' ? '🟢 持續增持' :
+                       data.extra_chips?.foreign_shareholding?.trend === 'decreasing' ? '🔴 持續減持' :
+                       data.extra_chips?.foreign_shareholding?.trend === 'flat' ? '⚪ 持平' : '--'}
                     </div>
                   </div>
                 </div>

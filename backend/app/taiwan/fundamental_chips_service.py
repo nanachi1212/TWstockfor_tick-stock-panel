@@ -11,7 +11,7 @@ Orchestrates:
 from __future__ import annotations
 
 import logging
-from datetime import datetime
+from datetime import date, datetime
 from typing import Any
 
 from app.taiwan.detail_models import (
@@ -27,6 +27,11 @@ from app.taiwan.detail_models import (
 )
 from app.taiwan.finmind_cache import FinMindCache
 from app.taiwan.fundamentals import TaiwanOfficialFundamentals
+from app.taiwan.pit_cutoff import (
+    filter_daily_records_as_of,
+    filter_financial_statements_as_of,
+    filter_month_revenue_as_of,
+)
 from app.taiwan.providers.finmind_provider import FinMindAdapter
 from app.taiwan.providers.taiwan_values import TAIPEI, parse_number
 from app.taiwan.symbol import parse_symbol
@@ -45,12 +50,30 @@ class TaiwanFundamentalChipsService:
     ) -> None:
         self.cache = cache or FinMindCache()
         self.official = official_fundamentals or TaiwanOfficialFundamentals()
+        self._custom_adapter = finmind_adapter is not None
         if finmind_adapter is not None:
             self.finmind = finmind_adapter
         else:
             from app.services import preferences
             token = preferences.get_finmind_token()
             self.finmind = FinMindAdapter(token=token)
+
+    def _get_finmind_adapter(self) -> FinMindAdapter:
+        """Resolve current FinMind adapter dynamically to reflect credential changes without restart."""
+        if self._custom_adapter:
+            return self.finmind
+        from app.services import preferences
+        current_token = preferences.get_finmind_token()
+        if self.finmind.token != current_token:
+            self.finmind = FinMindAdapter(token=current_token)
+        return self.finmind
+
+    def _to_canonical_str(self, symbol: str) -> str:
+        """Safely normalize symbol to canonical format or fallback to raw string."""
+        try:
+            return parse_symbol(symbol).canonical
+        except Exception:
+            return str(symbol).strip()
 
     def _is_finmind_enabled(self) -> bool:
         from app.services import preferences
@@ -62,8 +85,7 @@ class TaiwanFundamentalChipsService:
 
     def get_valuation(self, symbol: str, exchange: str) -> TaiwanValuationData:
         """Fetch valuation from official TWSE/TPEx open data with cache fallback."""
-        canonical_sym = parse_symbol(symbol)
-        sym_str = canonical_sym.canonical
+        sym_str = self._to_canonical_str(symbol)
         now_iso = datetime.now(TAIPEI).isoformat()
 
         # Check cache
@@ -134,10 +156,9 @@ class TaiwanFundamentalChipsService:
     # 2. Monthly Revenue (TaiwanStockMonthRevenue)
     # ─────────────────────────────────────────────────────────────
 
-    def get_monthly_revenue(self, symbol: str) -> TaiwanRevenueData:
-        """Fetch monthly revenue via cache or FinMind."""
-        canonical_sym = parse_symbol(symbol)
-        sym_str = canonical_sym.canonical
+    def get_monthly_revenue(self, symbol: str, as_of: date | str | None = None) -> TaiwanRevenueData:
+        """Fetch monthly revenue via cache or FinMind with optional point-in-time cutoff."""
+        sym_str = self._to_canonical_str(symbol)
         dataset = "TaiwanStockMonthRevenue"
         now_iso = datetime.now(TAIPEI).isoformat()
 
@@ -158,8 +179,9 @@ class TaiwanFundamentalChipsService:
                 return TaiwanRevenueData(
                     meta=SectionMeta(source="finmind", fetched_at=now_iso, status="unavailable", fallback_reason="FinMind provider disabled")
                 )
-            # Query FinMind
-            raw_rows = self.finmind.fetch_month_revenue(sym_str)
+            # Query FinMind with active token adapter
+            adapter = self._get_finmind_adapter()
+            raw_rows = adapter.fetch_month_revenue(sym_str)
             if not raw_rows:
                 self.cache.set(dataset, sym_str, [], status="unavailable")
                 return TaiwanRevenueData(
@@ -170,10 +192,18 @@ class TaiwanFundamentalChipsService:
             self.cache.set(dataset, sym_str, raw_rows, data_date=latest_row_date, status="available")
             data_date = latest_row_date
 
-        # Process rows
-        return self._process_month_revenue(raw_rows, data_date, now_iso)
+        # Process rows with PIT cutoff
+        return self._process_month_revenue(raw_rows, data_date, now_iso, as_of=as_of)
 
-    def _process_month_revenue(self, rows: list[dict[str, Any]], data_date: str | None, fetched_at: str) -> TaiwanRevenueData:
+    def _process_month_revenue(
+        self,
+        rows: list[dict[str, Any]],
+        data_date: str | None,
+        fetched_at: str,
+        as_of: date | str | None = None,
+    ) -> TaiwanRevenueData:
+        # Enforce point-in-time cutoff
+        rows = filter_month_revenue_as_of(rows, as_of)
         if not rows:
             return TaiwanRevenueData(
                 meta=SectionMeta(source="finmind", fetched_at=fetched_at, status="unavailable")
@@ -257,10 +287,9 @@ class TaiwanFundamentalChipsService:
     # 3. Financial Statements (TaiwanStockFinancialStatements)
     # ─────────────────────────────────────────────────────────────
 
-    def get_financial_statements(self, symbol: str) -> TaiwanProfitabilityData:
-        """Fetch quarterly financial statement metrics via cache or FinMind."""
-        canonical_sym = parse_symbol(symbol)
-        sym_str = canonical_sym.canonical
+    def get_financial_statements(self, symbol: str, as_of: date | str | None = None) -> TaiwanProfitabilityData:
+        """Fetch quarterly financial statement metrics via cache or FinMind with optional point-in-time cutoff."""
+        sym_str = self._to_canonical_str(symbol)
         dataset = "TaiwanStockFinancialStatements"
         now_iso = datetime.now(TAIPEI).isoformat()
 
@@ -281,7 +310,8 @@ class TaiwanFundamentalChipsService:
                 return TaiwanProfitabilityData(
                     meta=SectionMeta(source="finmind", fetched_at=now_iso, status="unavailable", fallback_reason="FinMind provider disabled")
                 )
-            raw_rows = self.finmind.fetch_financial_statements(sym_str)
+            adapter = self._get_finmind_adapter()
+            raw_rows = adapter.fetch_financial_statements(sym_str)
             if not raw_rows:
                 self.cache.set(dataset, sym_str, [], status="unavailable")
                 return TaiwanProfitabilityData(
@@ -291,9 +321,17 @@ class TaiwanFundamentalChipsService:
             self.cache.set(dataset, sym_str, raw_rows, data_date=latest_row_date, status="available")
             data_date = latest_row_date
 
-        return self._process_financial_statements(raw_rows, data_date, now_iso)
+        return self._process_financial_statements(raw_rows, data_date, now_iso, as_of=as_of)
 
-    def _process_financial_statements(self, rows: list[dict[str, Any]], data_date: str | None, fetched_at: str) -> TaiwanProfitabilityData:
+    def _process_financial_statements(
+        self,
+        rows: list[dict[str, Any]],
+        data_date: str | None,
+        fetched_at: str,
+        as_of: date | str | None = None,
+    ) -> TaiwanProfitabilityData:
+        # Enforce point-in-time cutoff
+        rows = filter_financial_statements_as_of(rows, as_of)
         if not rows:
             return TaiwanProfitabilityData(
                 meta=SectionMeta(source="finmind", fetched_at=fetched_at, status="unavailable")
@@ -356,10 +394,9 @@ class TaiwanFundamentalChipsService:
     # 4. Foreign Shareholding (TaiwanStockShareholding)
     # ─────────────────────────────────────────────────────────────
 
-    def get_foreign_shareholding(self, symbol: str) -> TaiwanForeignShareholdingData:
-        """Fetch foreign investment shareholding ratio via cache or FinMind."""
-        canonical_sym = parse_symbol(symbol)
-        sym_str = canonical_sym.canonical
+    def get_foreign_shareholding(self, symbol: str, as_of: date | str | None = None) -> TaiwanForeignShareholdingData:
+        """Fetch foreign investment shareholding ratio via cache or FinMind with optional point-in-time cutoff."""
+        sym_str = self._to_canonical_str(symbol)
         dataset = "TaiwanStockShareholding"
         now_iso = datetime.now(TAIPEI).isoformat()
 
@@ -380,7 +417,8 @@ class TaiwanFundamentalChipsService:
                 return TaiwanForeignShareholdingData(
                     meta=SectionMeta(source="finmind", fetched_at=now_iso, status="unavailable", fallback_reason="FinMind provider disabled")
                 )
-            raw_rows = self.finmind.fetch_shareholding(sym_str)
+            adapter = self._get_finmind_adapter()
+            raw_rows = adapter.fetch_shareholding(sym_str)
             if not raw_rows:
                 self.cache.set(dataset, sym_str, [], status="unavailable")
                 return TaiwanForeignShareholdingData(
@@ -390,9 +428,17 @@ class TaiwanFundamentalChipsService:
             self.cache.set(dataset, sym_str, raw_rows, data_date=latest_row_date, status="available")
             data_date = latest_row_date
 
-        return self._process_shareholding(raw_rows, data_date, now_iso)
+        return self._process_shareholding(raw_rows, data_date, now_iso, as_of=as_of)
 
-    def _process_shareholding(self, rows: list[dict[str, Any]], data_date: str | None, fetched_at: str) -> TaiwanForeignShareholdingData:
+    def _process_shareholding(
+        self,
+        rows: list[dict[str, Any]],
+        data_date: str | None,
+        fetched_at: str,
+        as_of: date | str | None = None,
+    ) -> TaiwanForeignShareholdingData:
+        # Enforce point-in-time cutoff
+        rows = filter_daily_records_as_of(rows, as_of)
         if not rows:
             return TaiwanForeignShareholdingData(
                 meta=SectionMeta(source="finmind", fetched_at=fetched_at, status="unavailable")
@@ -450,10 +496,9 @@ class TaiwanFundamentalChipsService:
     # 5. Securities Lending (TaiwanStockSecuritiesLending)
     # ─────────────────────────────────────────────────────────────
 
-    def get_securities_lending(self, symbol: str) -> TaiwanSecuritiesLendingData:
-        """Fetch securities lending transaction details via cache or FinMind."""
-        canonical_sym = parse_symbol(symbol)
-        sym_str = canonical_sym.canonical
+    def get_securities_lending(self, symbol: str, as_of: date | str | None = None) -> TaiwanSecuritiesLendingData:
+        """Fetch securities lending transaction details via cache or FinMind with optional point-in-time cutoff."""
+        sym_str = self._to_canonical_str(symbol)
         dataset = "TaiwanStockSecuritiesLending"
         now_iso = datetime.now(TAIPEI).isoformat()
 
@@ -474,7 +519,8 @@ class TaiwanFundamentalChipsService:
                 return TaiwanSecuritiesLendingData(
                     meta=SectionMeta(source="finmind", fetched_at=now_iso, status="unavailable", fallback_reason="FinMind provider disabled")
                 )
-            raw_rows = self.finmind.fetch_securities_lending(sym_str)
+            adapter = self._get_finmind_adapter()
+            raw_rows = adapter.fetch_securities_lending(sym_str)
             if not raw_rows:
                 self.cache.set(dataset, sym_str, [], status="unavailable")
                 return TaiwanSecuritiesLendingData(
@@ -484,12 +530,20 @@ class TaiwanFundamentalChipsService:
             self.cache.set(dataset, sym_str, raw_rows, data_date=latest_row_date, status="available")
             data_date = latest_row_date
 
-        return self._process_securities_lending(raw_rows, data_date, now_iso)
+        return self._process_securities_lending(raw_rows, data_date, now_iso, as_of=as_of)
 
-    def _process_securities_lending(self, rows: list[dict[str, Any]], data_date: str | None, fetched_at: str) -> TaiwanSecuritiesLendingData:
+    def _process_securities_lending(
+        self,
+        rows: list[dict[str, Any]],
+        data_date: str | None,
+        fetched_at: str,
+        as_of: date | str | None = None,
+    ) -> TaiwanSecuritiesLendingData:
+        # Enforce point-in-time cutoff
+        rows = filter_daily_records_as_of(rows, as_of)
         if not rows:
             return TaiwanSecuritiesLendingData(
-                meta=SectionMeta(source="finmind", fetched_at=fetched_at, status="unavailable")
+                meta=SectionMeta(source="finmind:TaiwanStockSecuritiesLending", fetched_at=fetched_at, status="unavailable")
             )
 
         # Aggregate by date: daily_volume = sum(volume), fee_rate = weighted or avg
@@ -525,15 +579,16 @@ class TaiwanFundamentalChipsService:
         vol_20d = sum(daily_agg[d]["volume"] for d in recent_20_dates)
 
         # Anomaly detection: 5D daily average vs 20D daily average
+        # Standardized enum: 'surge' (abnormal spike), 'drop' (abnormal fall), 'normal'
         anomaly = "normal"
         if len(recent_20_dates) >= 10:
             avg_20d = vol_20d / len(recent_20_dates)
             avg_5d = vol_5d / len(recent_5_dates)
             if avg_20d > 0:
                 if avg_5d >= 2.0 * avg_20d and avg_5d >= 50000:
-                    anomaly = "abnormal_increase"
+                    anomaly = "surge"
                 elif avg_5d <= 0.3 * avg_20d:
-                    anomaly = "abnormal_decrease"
+                    anomaly = "drop"
 
         return TaiwanSecuritiesLendingData(
             latest_volume=latest_vol,
@@ -553,11 +608,16 @@ class TaiwanFundamentalChipsService:
     # Composite Methods
     # ─────────────────────────────────────────────────────────────
 
-    def get_fundamentals_bundle(self, symbol: str, exchange: str) -> TaiwanFundamentalData:
+    def get_fundamentals_bundle(
+        self,
+        symbol: str,
+        exchange: str,
+        as_of: date | str | None = None,
+    ) -> TaiwanFundamentalData:
         """Aggregate valuation, revenue, and profitability into unified fundamental bundle."""
         val = self.get_valuation(symbol, exchange)
-        rev = self.get_monthly_revenue(symbol)
-        prof = self.get_financial_statements(symbol)
+        rev = self.get_monthly_revenue(symbol, as_of=as_of)
+        prof = self.get_financial_statements(symbol, as_of=as_of)
 
         # Overall bundle status
         statuses = [val.meta.status if val.meta else "unavailable",
@@ -583,10 +643,14 @@ class TaiwanFundamentalChipsService:
             ),
         )
 
-    def get_extra_chips_bundle(self, symbol: str) -> TaiwanExtraChipsData:
+    def get_extra_chips_bundle(
+        self,
+        symbol: str,
+        as_of: date | str | None = None,
+    ) -> TaiwanExtraChipsData:
         """Aggregate foreign shareholding and securities lending into unified chips bundle."""
-        fsh = self.get_foreign_shareholding(symbol)
-        sl = self.get_securities_lending(symbol)
+        fsh = self.get_foreign_shareholding(symbol, as_of=as_of)
+        sl = self.get_securities_lending(symbol, as_of=as_of)
 
         f_status = fsh.meta.status if fsh.meta else "unavailable"
         s_status = sl.meta.status if sl.meta else "unavailable"
@@ -619,3 +683,14 @@ def get_fundamental_chips_service() -> TaiwanFundamentalChipsService:
     if _fundamental_chips_svc_singleton is None:
         _fundamental_chips_svc_singleton = TaiwanFundamentalChipsService()
     return _fundamental_chips_svc_singleton
+
+
+def reset_fundamental_chips_service() -> None:
+    """Reset the global fundamental chips service singleton.
+    
+    Ensures that when preferences (FinMind token, enabled state) change,
+    subsequent requests immediately rebuild the service and adapter with
+    new credentials.
+    """
+    global _fundamental_chips_svc_singleton
+    _fundamental_chips_svc_singleton = None

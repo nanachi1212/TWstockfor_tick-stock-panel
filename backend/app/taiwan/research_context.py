@@ -39,6 +39,11 @@ from app.taiwan.daily_update import (
 from app.taiwan.etf_data import TaiwanETFProfile, TaiwanETFSnapshot
 from app.taiwan.finmind_cache import FinMindCache
 from app.taiwan.fundamentals import FundamentalRecord, TaiwanFundamentalStore, latest_as_of
+from app.taiwan.pit_cutoff import (
+    filter_daily_records_as_of,
+    filter_financial_statements_as_of,
+    filter_month_revenue_as_of,
+)
 from app.taiwan.industry_intelligence import (
     IndustryMetrics,
     TaiwanIndustryIntelligenceService,
@@ -717,7 +722,7 @@ class TaiwanStockResearchContextService:
                 meta=EvidenceMeta(classification="MISSING", source="taiwan_security_master"),
             )
 
-            # Offline read from cache
+            # Offline read from cache with strict Point-in-Time as-of cutoff
             rev_cached = self.finmind_cache.get("TaiwanStockMonthRevenue", inst.symbol)
             prof_cached = self.finmind_cache.get("TaiwanStockFinancialStatements", inst.symbol)
 
@@ -727,7 +732,7 @@ class TaiwanStockResearchContextService:
             as_of_period = None
 
             if rev_cached and rev_cached.get("data"):
-                raw_rev = rev_cached["data"]
+                raw_rev = filter_month_revenue_as_of(rev_cached["data"], target)
                 sorted_rev = sorted([r for r in raw_rev if r.get("date") and r.get("revenue") is not None], key=lambda x: str(x.get("date")))
                 if sorted_rev:
                     latest_item = sorted_rev[-1]
@@ -749,7 +754,7 @@ class TaiwanStockResearchContextService:
             net_income = None
 
             if prof_cached and prof_cached.get("data"):
-                raw_prof = prof_cached["data"]
+                raw_prof = filter_financial_statements_as_of(prof_cached["data"], target)
                 by_d = {}
                 for r in raw_prof:
                     d = str(r.get("date") or "").strip()
@@ -789,7 +794,7 @@ class TaiwanStockResearchContextService:
                 ),
             )
 
-            # Ownership (Foreign Shareholding & Securities Lending)
+            # Ownership (Foreign Shareholding & Securities Lending) with PIT cutoff
             fsh_cached = self.finmind_cache.get("TaiwanStockShareholding", inst.symbol)
             sl_cached = self.finmind_cache.get("TaiwanStockSecuritiesLending", inst.symbol)
 
@@ -799,7 +804,8 @@ class TaiwanStockResearchContextService:
             fsh_trend = None
 
             if fsh_cached and fsh_cached.get("data"):
-                raw_fsh = sorted([r for r in fsh_cached["data"] if r.get("date") and r.get("ForeignInvestmentSharesRatio") is not None], key=lambda x: str(x.get("date")))
+                fsh_pit_rows = filter_daily_records_as_of(fsh_cached["data"], target)
+                raw_fsh = sorted([r for r in fsh_pit_rows if r.get("date") and r.get("ForeignInvestmentSharesRatio") is not None], key=lambda x: str(x.get("date")))
                 if raw_fsh:
                     latest_f = raw_fsh[-1]
                     fsh_ratio = float(latest_f["ForeignInvestmentSharesRatio"])
@@ -819,8 +825,9 @@ class TaiwanStockResearchContextService:
             sl_anomaly = None
 
             if sl_cached and sl_cached.get("data"):
+                sl_pit_rows = filter_daily_records_as_of(sl_cached["data"], target)
                 daily_v = {}
-                for r in sl_cached["data"]:
+                for r in sl_pit_rows:
                     d = str(r.get("date") or "").strip()
                     v = parse_number(r.get("volume")) or 0.0
                     if d and v > 0:
@@ -835,9 +842,9 @@ class TaiwanStockResearchContextService:
                         a5 = sl_5d / len(s_dates[-5:])
                         if a20 > 0:
                             if a5 >= 2.0 * a20 and a5 >= 50000:
-                                sl_anomaly = "abnormal_increase"
+                                sl_anomaly = "surge"
                             elif a5 <= 0.3 * a20:
-                                sl_anomaly = "abnormal_decrease"
+                                sl_anomaly = "drop"
                             else:
                                 sl_anomaly = "normal"
                         else:
@@ -859,6 +866,7 @@ class TaiwanStockResearchContextService:
                 meta=EvidenceMeta(
                     classification="KNOWN" if own_avail else "MISSING",
                     source="finmind_cache",
+                    as_of=str(target) if own_avail else None,
                 ),
             )
         else:

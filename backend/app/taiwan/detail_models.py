@@ -207,7 +207,7 @@ class TaiwanSecuritiesLendingData(BaseModel):
     avg_fee_rate: Optional[float] = Field(None, description="最新交易日借券平均成交費率 (%)")
     volume_5d: Optional[int] = Field(None, description="近5日借券成交總量 (股)")
     volume_20d: Optional[int] = Field(None, description="近20日借券成交總量 (股)")
-    anomaly_status: str = Field("normal", description="借券異常狀態: normal, abnormal_increase, abnormal_decrease, unavailable")
+    anomaly_status: str = Field("normal", description="借券異常狀態: normal, surge, drop, unavailable")
     meta: Optional[SectionMeta] = None
 
 
