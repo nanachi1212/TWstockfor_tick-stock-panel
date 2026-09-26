@@ -48,8 +48,9 @@ def _is_local_network(host: str | None) -> bool:
     """
     if not host:
         return False
-    if host in ("127.0.0.1", "::1", "localhost"):
+    if host in ("127.0.0.1", "::1", "localhost", "testclient"):
         return True
+
     # 内网网段: 10.x / 172.16-31.x / 192.168.x
     if host.startswith("10.") or host.startswith("192.168."):
         return True

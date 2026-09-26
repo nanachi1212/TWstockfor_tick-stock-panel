@@ -689,6 +689,7 @@ class TaiwanMonitorRuleCreate(BaseModel):
     hysteresis: float | None = None
     reference_volume: int | None = None
     severity: str = "warning"
+    notify_channels: list[str] = []  # 'line' | 'telegram'
 
 
 class TaiwanMonitorRuleUpdate(BaseModel):
@@ -699,6 +700,7 @@ class TaiwanMonitorRuleUpdate(BaseModel):
     hysteresis: float | None = None
     reference_volume: int | None = None
     severity: str | None = None
+    notify_channels: list[str] | None = None  # 'line' | 'telegram'
 
 
 @router.get("/taiwan")
@@ -729,6 +731,7 @@ def create_taiwan_rule(req: TaiwanMonitorRuleCreate):
         hysteresis=req.hysteresis,
         reference_volume=req.reference_volume,
         severity=req.severity,
+        notify_channels=[c for c in req.notify_channels if c in ("line", "telegram")],
     )
     engine = get_monitor_engine()
     if rule.rule_type == TaiwanRuleType.QUANT_TOP10_EXIT:
@@ -778,6 +781,8 @@ def update_taiwan_rule(rule_id: str, req: TaiwanMonitorRuleUpdate):
         updated_rule.reference_volume = req.reference_volume
     if req.severity is not None:
         updated_rule.severity = req.severity
+    if req.notify_channels is not None:
+        updated_rule.notify_channels = [c for c in req.notify_channels if c in ("line", "telegram")]
 
     if (req.enabled is True and not was_enabled
             and updated_rule.rule_type == TaiwanRuleType.QUANT_TOP10_EXIT):

@@ -7,6 +7,7 @@ import {
 import { useSettings } from '@/lib/useSharedQueries'
 import { api, type SettingsState } from '@/lib/api'
 import { QK } from '@/lib/queryKeys'
+import { AiKeyProfilesPanel } from './AiKeyProfiles'
 
 // 統一的輸入框樣式(與項目其他設置頁一致)
 const INPUT_CLS =
@@ -378,6 +379,10 @@ export function SettingsAIPanel() {
             清空
           </button>
         )}
+      </div>
+
+      <div className="pt-4 border-t border-border/40">
+        <AiKeyProfilesPanel />
       </div>
 
       {confirmClear && (

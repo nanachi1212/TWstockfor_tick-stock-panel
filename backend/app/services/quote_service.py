@@ -1423,7 +1423,15 @@ class QuoteService:
             pending = []
             for ev in rule_events:
                 rule = rules.get(ev.get("rule_id"))
-                channels = global_channels if global_channels is not None else (rule.get("webhook_channels", []) if rule else [])
+                if global_channels is not None:
+                    # Global setting always overrides per-rule config
+                    channels = global_channels
+                elif rule is not None:
+                    # Generic monitor rule: read from rule dict
+                    channels = rule.get("webhook_channels", [])
+                else:
+                    # Taiwan monitor rule: channels embedded in alert event dict
+                    channels = [c for c in ev.get("notify_channels", []) if c in ("line", "telegram")]
                 if channels:
                     pending.append((ev, channels))
 
