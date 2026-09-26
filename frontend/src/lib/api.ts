@@ -885,6 +885,98 @@ export interface TaiwanRecentAlertDetail {
   triggered_at: string
 }
 
+export interface TaiwanValuationData {
+  pe?: number | null
+  pb?: number | null
+  dividend_yield?: number | null
+  meta?: {
+    source: string
+    trade_date?: string | null
+    fetched_at?: string
+    status: string
+    is_stale?: boolean
+    fallback_reason?: string | null
+  }
+}
+
+export interface TaiwanMonthRevenueTrendItem {
+  date: string
+  year_month: string
+  revenue: number
+  mom?: number | null
+  yoy?: number | null
+}
+
+export interface TaiwanRevenueData {
+  latest_revenue?: number | null
+  latest_year_month?: string | null
+  mom?: number | null
+  yoy?: number | null
+  trend?: TaiwanMonthRevenueTrendItem[]
+  meta?: {
+    source: string
+    trade_date?: string | null
+    fetched_at?: string
+    status: string
+  }
+}
+
+export interface TaiwanProfitabilityData {
+  quarter?: string | null
+  latest_eps?: number | null
+  operating_revenue?: number | null
+  gross_profit?: number | null
+  operating_income?: number | null
+  net_income?: number | null
+  recent_eps?: Array<{ date: string; eps: number }>
+  meta?: {
+    source: string
+    trade_date?: string | null
+    fetched_at?: string
+    status: string
+  }
+}
+
+export interface TaiwanFundamentalData {
+  valuation?: TaiwanValuationData
+  revenue?: TaiwanRevenueData
+  profitability?: TaiwanProfitabilityData
+}
+
+export interface TaiwanForeignShareholdingData {
+  ratio?: number | null
+  shares?: number | null
+  change_5d?: number | null
+  change_20d?: number | null
+  trend?: 'increasing' | 'decreasing' | 'flat' | string
+  meta?: {
+    source: string
+    trade_date?: string | null
+    fetched_at?: string
+    status: string
+  }
+}
+
+export interface TaiwanSecuritiesLendingData {
+  latest_volume?: number | null
+  avg_fee_rate?: number | null
+  volume_5d?: number | null
+  volume_20d?: number | null
+  anomaly_status?: 'normal' | 'surge' | 'drop' | 'unavailable' | string
+  meta?: {
+    source: string
+    trade_date?: string | null
+    fetched_at?: string
+    status: string
+  }
+}
+
+export interface TaiwanExtraChipsData {
+  status?: 'available' | 'unavailable' | 'partial' | 'error' | string
+  foreign_shareholding?: TaiwanForeignShareholdingData
+  securities_lending?: TaiwanSecuritiesLendingData
+}
+
 export interface TaiwanStockDetailResponse {
   symbol: string
   identity: TaiwanStockIdentity
@@ -898,7 +990,10 @@ export interface TaiwanStockDetailResponse {
   monitor_summary: TaiwanMonitorSummaryDetail
   recent_alerts: TaiwanRecentAlertDetail[]
   overall_data_quality: 'good' | 'partial' | 'stale' | 'degraded' | string
+  fundamentals?: TaiwanFundamentalData
+  extra_chips?: TaiwanExtraChipsData
 }
+
 
 export type TaiwanUsageScope =
   | 'current_reference'
@@ -938,7 +1033,7 @@ export interface TaiwanCurrentDataResponse {
   sections: Record<string, TaiwanDataSection>
 }
 
-// ===== Taiwan Screener Types (Phase 6B) =====
+// ===== Taiwan Screener Types (Phase 6B & A10) =====
 export interface TaiwanScreenerRequest {
   exchange?: 'TWSE' | 'TPEX' | 'ALL'
   instrument?: 'stock' | 'etf' | 'ALL'
@@ -975,6 +1070,30 @@ export interface TaiwanScreenerRequest {
   near_lower_limit?: boolean | null
   distance_to_upper_limit_max?: number | null
   distance_to_lower_limit_max?: number | null
+
+  // Fundamentals (Valuation)
+  pe_min?: number | null
+  pe_max?: number | null
+  pb_min?: number | null
+  pb_max?: number | null
+  dividend_yield_min?: number | null
+
+  // Fundamentals (Revenue)
+  revenue_yoy_min?: number | null
+  revenue_mom_min?: number | null
+
+  // Fundamentals (Profitability)
+  eps_min?: number | null
+  net_income_positive?: boolean | null
+
+  // Chips (Foreign shareholding & Lending)
+  foreign_shareholding_ratio_min?: number | null
+  foreign_shareholding_change_20d_min?: number | null
+  securities_lending_anomaly_exclude?: boolean | null
+
+  // Quant Score
+  quant_score_min?: number | null
+
   sort_by?: string
   sort_order?: 'asc' | 'desc'
   page?: number
@@ -1017,6 +1136,29 @@ export interface ScreenerResultItem {
   short_margin_ratio?: number | null
   margin_date?: string | null
   margin_status?: string
+
+  // Fundamentals
+  pe?: number | null
+  pb?: number | null
+  dividend_yield?: number | null
+  revenue_yoy?: number | null
+  revenue_mom?: number | null
+  latest_eps?: number | null
+
+  // Chips & Quant
+  foreign_shareholding_ratio?: number | null
+  foreign_shareholding_change_20d?: number | null
+  securities_lending_anomaly?: string | null
+  quant_score?: number | null
+  match_reasons?: string[]
+}
+
+export interface ScreenerCoverageInfo {
+  total_universe: number
+  screened_universe: number
+  fundamental_cached_count: number
+  chips_cached_count: number
+  coverage_note: string
 }
 
 export interface TaiwanScreenerResponse {
@@ -1032,7 +1174,19 @@ export interface TaiwanScreenerResponse {
     margin_as_of?: string | null
   }
   degraded_sections: string[]
+  coverage_info?: ScreenerCoverageInfo | null
 }
+
+export interface TaiwanScreenerStrategy {
+  id: string
+  name: string
+  description?: string | null
+  conditions: Record<string, unknown>
+  is_preset: boolean
+  created_at: string
+  updated_at: string
+}
+
 
 export interface TaiwanDataStatus {
   daily_as_of: string | null
@@ -3133,6 +3287,42 @@ export const api = {
       method: 'POST',
       body: JSON.stringify(payload),
     }),
+
+  taiwanScreenerListStrategies: () =>
+    request<TaiwanScreenerStrategy[]>('/api/taiwan/screener/strategies'),
+
+  taiwanScreenerCreateStrategy: (payload: { name: string; conditions: Record<string, unknown>; description?: string }) =>
+    request<TaiwanScreenerStrategy>('/api/taiwan/screener/strategies', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
+
+  taiwanScreenerUpdateStrategy: (id: string, payload: { name: string; conditions: Record<string, unknown>; description?: string }) =>
+    request<TaiwanScreenerStrategy>(`/api/taiwan/screener/strategies/${encodeURIComponent(id)}`, {
+      method: 'PUT',
+      body: JSON.stringify(payload),
+    }),
+
+  taiwanScreenerDeleteStrategy: (id: string) =>
+    request<{ ok: boolean; deleted_id: string }>(`/api/taiwan/screener/strategies/${encodeURIComponent(id)}`, {
+      method: 'DELETE',
+    }),
+
+  getFinMindPreference: () =>
+    request<{ enabled: boolean; has_token: boolean; token_masked: string }>('/api/preferences/finmind'),
+
+  updateFinMindPreference: (payload: { token?: string; enabled?: boolean; clear_token?: boolean }) =>
+    request<{ ok: boolean; enabled: boolean; has_token: boolean }>('/api/preferences/finmind', {
+      method: 'PUT',
+      body: JSON.stringify(payload),
+    }),
+
+  testFinMindConnection: (token?: string) =>
+    request<{ ok: boolean; message: string; status_code?: number }>('/api/preferences/finmind/test', {
+      method: 'POST',
+      body: JSON.stringify({ token }),
+    }),
+
 
   taiwanDataStatus: () =>
     request<TaiwanDataStatus>('/api/taiwan/data-status'),

@@ -89,6 +89,9 @@ docs/zhihu/
 data/strategies/custom/
 
 # ===== 临时 / 调试产物 =====
+.pytest-*/
+backend/.pytest-*/
+.ai-memory.toml
 backend._recheck*.py
 backend/_verify*.py
 backend/_desktop_run.log
@@ -96,6 +99,8 @@ backend/_check*.py
 backend/__tmp_dbg*/
 backend/__tmp_test*/
 reports/tickflow_pro_probe/
+exports/
+release-assets/
 .cursor/debug-*.log
 
 # ===== Acceptance screenshots (local evidence, not versioned) =====

@@ -150,6 +150,74 @@ class TaiwanRecentAlert(BaseModel):
     triggered_at: str
 
 
+class TaiwanValuationData(BaseModel):
+    pe: Optional[float] = Field(None, description="本益比 PER")
+    pb: Optional[float] = Field(None, description="股價淨值比 PBR")
+    dividend_yield: Optional[float] = Field(None, description="殖利率 (%)")
+    meta: Optional[SectionMeta] = None
+
+
+class TaiwanMonthRevenueTrendItem(BaseModel):
+    date: str = Field(..., description="資料日期 YYYY-MM-DD")
+    year_month: str = Field(..., description="營收年月 YYYY-MM")
+    revenue: float = Field(..., description="月營收金額 (元)")
+    mom: Optional[float] = Field(None, description="月增率 MoM (%)")
+    yoy: Optional[float] = Field(None, description="年增率 YoY (%)")
+
+
+class TaiwanRevenueData(BaseModel):
+    latest_revenue: Optional[float] = Field(None, description="最新月營收金額 (元)")
+    latest_year_month: Optional[str] = Field(None, description="最新營收年月 YYYY-MM")
+    mom: Optional[float] = Field(None, description="月增率 MoM (%)")
+    yoy: Optional[float] = Field(None, description="年增率 YoY (%)")
+    trend: List[TaiwanMonthRevenueTrendItem] = Field(default_factory=list, description="近6-12個月營收趨勢")
+    meta: Optional[SectionMeta] = None
+
+
+class TaiwanProfitabilityData(BaseModel):
+    quarter: Optional[str] = Field(None, description="最新財報季度 YYYY-QX 或 YYYY-MM-DD")
+    latest_eps: Optional[float] = Field(None, description="最新單季 EPS")
+    operating_revenue: Optional[float] = Field(None, description="營業收入")
+    gross_profit: Optional[float] = Field(None, description="營業毛利")
+    operating_income: Optional[float] = Field(None, description="營業利益")
+    net_income: Optional[float] = Field(None, description="本期稅後淨利")
+    recent_eps: List[dict] = Field(default_factory=list, description="近期各季EPS摘要（非相加）")
+    meta: Optional[SectionMeta] = None
+
+
+class TaiwanFundamentalData(BaseModel):
+    status: str = Field("available", description="available, unavailable, partial, error")
+    valuation: TaiwanValuationData = Field(default_factory=TaiwanValuationData)
+    revenue: TaiwanRevenueData = Field(default_factory=TaiwanRevenueData)
+    profitability: TaiwanProfitabilityData = Field(default_factory=TaiwanProfitabilityData)
+    meta: Optional[SectionMeta] = None
+
+
+class TaiwanForeignShareholdingData(BaseModel):
+    ratio: Optional[float] = Field(None, description="外資持股比例 (%)")
+    shares: Optional[int] = Field(None, description="外資持股股數")
+    change_5d: Optional[float] = Field(None, description="近5日外資持股比例變化 (%pt)")
+    change_20d: Optional[float] = Field(None, description="近20日外資持股比例變化 (%pt)")
+    trend: str = Field("flat", description="外資持股趨勢: increasing, decreasing, flat")
+    meta: Optional[SectionMeta] = None
+
+
+class TaiwanSecuritiesLendingData(BaseModel):
+    latest_volume: Optional[int] = Field(None, description="最新交易日借券成交量 (股，借券成交明細，非借券餘額/融券)")
+    avg_fee_rate: Optional[float] = Field(None, description="最新交易日借券平均成交費率 (%)")
+    volume_5d: Optional[int] = Field(None, description="近5日借券成交總量 (股)")
+    volume_20d: Optional[int] = Field(None, description="近20日借券成交總量 (股)")
+    anomaly_status: str = Field("normal", description="借券異常狀態: normal, surge, drop, unavailable")
+    meta: Optional[SectionMeta] = None
+
+
+class TaiwanExtraChipsData(BaseModel):
+    status: str = Field("available", description="available, unavailable, partial, error")
+    foreign_shareholding: TaiwanForeignShareholdingData = Field(default_factory=TaiwanForeignShareholdingData)
+    securities_lending: TaiwanSecuritiesLendingData = Field(default_factory=TaiwanSecuritiesLendingData)
+    meta: Optional[SectionMeta] = None
+
+
 class TaiwanStockDetailResponse(BaseModel):
     """Unified, strongly-typed aggregation response for Taiwan Stock Research Workspace."""
     symbol: str
@@ -163,4 +231,6 @@ class TaiwanStockDetailResponse(BaseModel):
     market_context: TaiwanMarketContext
     monitor_summary: TaiwanMonitorSummary
     recent_alerts: List[TaiwanRecentAlert] = Field(default_factory=list)
+    fundamentals: Optional[TaiwanFundamentalData] = None
+    extra_chips: Optional[TaiwanExtraChipsData] = None
     overall_data_quality: str = Field("good", description="good, partial, stale, degraded")

@@ -765,6 +765,34 @@ def set_telegram_bot_token(token: str) -> str:
     return _set_notification_secret("telegram_bot_token", token)
 
 
+def get_finmind_token() -> str:
+    from app import secrets_store
+    val = secrets_store.load().get("finmind_token")
+    if val:
+        return str(val).strip()
+    import os
+    return os.environ.get("FINMIND_TOKEN", "").strip()
+
+
+def set_finmind_token(token: str) -> str:
+    from app import secrets_store
+    token = str(token or "").strip()
+    if token:
+        secrets_store.save({"finmind_token": token})
+    else:
+        secrets_store.clear("finmind_token")
+    return get_finmind_token()
+
+
+def get_finmind_enabled() -> bool:
+    return bool(load().get("finmind_enabled", False))
+
+
+def set_finmind_enabled(enabled: bool) -> bool:
+    save({"finmind_enabled": bool(enabled)})
+    return get_finmind_enabled()
+
+
 def get_webhook_enabled_default() -> bool:
     """新建监控规则时是否默认勾选推送 (老布尔, 已由 webhook_default_channels 取代)。
 

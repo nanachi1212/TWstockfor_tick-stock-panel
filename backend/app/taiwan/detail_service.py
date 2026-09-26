@@ -14,10 +14,8 @@ Orchestrates:
 """
 from __future__ import annotations
 
-import asyncio
-from datetime import date, datetime, timedelta
 import logging
-from typing import Any, Optional
+from datetime import datetime, timedelta
 
 from app.taiwan.detail_models import (
     SectionMeta,
@@ -37,13 +35,17 @@ from app.taiwan.detail_models import (
 from app.taiwan.enrichment.index import TaiwanIndexProvider
 from app.taiwan.enrichment.institutional import TaiwanInstitutionalProvider
 from app.taiwan.enrichment.margin import TaiwanMarginProvider
-from app.taiwan.universe.models import MarketProfileBridge
+from app.taiwan.fundamental_chips_service import (
+    TaiwanFundamentalChipsService,
+    get_fundamental_chips_service,
+)
 from app.taiwan.providers.hybrid_provider import TaiwanHybridProvider
 from app.taiwan.realtime.calendar import taipei_now
 from app.taiwan.realtime.monitor_engine import get_monitor_engine
 from app.taiwan.realtime.service import get_realtime_service
 from app.taiwan.symbol import TaiwanSymbol, parse_symbol
 from app.taiwan.universe import get_security_master
+from app.taiwan.universe.models import MarketProfileBridge
 
 logger = logging.getLogger(__name__)
 
@@ -57,11 +59,13 @@ class TaiwanStockDetailService:
         institutional_provider: TaiwanInstitutionalProvider | None = None,
         margin_provider: TaiwanMarginProvider | None = None,
         index_provider: TaiwanIndexProvider | None = None,
+        fundamental_chips_service: TaiwanFundamentalChipsService | None = None,
     ) -> None:
         self.hybrid_provider = hybrid_provider or TaiwanHybridProvider()
         self.institutional_provider = institutional_provider or TaiwanInstitutionalProvider()
         self.margin_provider = margin_provider or TaiwanMarginProvider()
         self.index_provider = index_provider or TaiwanIndexProvider()
+        self.fundamental_chips_service = fundamental_chips_service or get_fundamental_chips_service()
         self.security_master = get_security_master()
         self.realtime_service = get_realtime_service()
         self.monitor_engine = get_monitor_engine()
@@ -138,6 +142,20 @@ class TaiwanStockDetailService:
         # 10. Recent Alerts
         recent_alerts = self._aggregate_recent_alerts(symbol_str)
 
+        # 10. Fundamentals and Extra Chips (robust fallback: does not abort detail)
+        try:
+            exchange = identity.exchange
+            fundamentals_data = self.fundamental_chips_service.get_fundamentals_bundle(symbol_str, exchange)
+        except Exception as e:
+            logger.debug("Fundamentals aggregation error for %s: %s", symbol_str, e)
+            fundamentals_data = None
+
+        try:
+            extra_chips_data = self.fundamental_chips_service.get_extra_chips_bundle(symbol_str)
+        except Exception as e:
+            logger.debug("Extra chips aggregation error for %s: %s", symbol_str, e)
+            extra_chips_data = None
+
         # Determine overall quality
         sections_statuses = [
             realtime_data.meta.status if realtime_data.meta else "unknown",
@@ -166,6 +184,8 @@ class TaiwanStockDetailService:
             market_context=market_context,
             monitor_summary=monitor_summary,
             recent_alerts=recent_alerts,
+            fundamentals=fundamentals_data,
+            extra_chips=extra_chips_data,
             overall_data_quality=overall_quality,
         )
 
@@ -482,8 +502,8 @@ class TaiwanStockDetailService:
 
     def _aggregate_recent_alerts(self, symbol_str: str) -> list[TaiwanRecentAlert]:
         """Fetch recent alerts for this symbol."""
-        from app.services import alert_store
         from app.config import Settings
+        from app.services import alert_store
         alerts: list[TaiwanRecentAlert] = []
         try:
             settings = Settings()

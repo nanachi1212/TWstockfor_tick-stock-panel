@@ -8,8 +8,10 @@ from __future__ import annotations
 
 import logging
 from datetime import date as dt_date
+from typing import Any
 
 from fastapi import APIRouter, HTTPException, Query
+from pydantic import BaseModel
 
 from app.taiwan.abnormal_diagnostics import (
     TaiwanAbnormalDiagnosticsService,
@@ -66,6 +68,10 @@ from app.taiwan.screener_nl import (
     TaiwanScreenerTranslateQuery,
     TaiwanScreenerTranslation,
     TaiwanScreenerTranslator,
+)
+from app.taiwan.screener_strategy_store import (
+    TaiwanScreenerStrategy,
+    get_screener_strategy_store,
 )
 from app.taiwan.symbol import parse_symbol
 from app.taiwan.universe import MarketProfileBridge, get_security_master
@@ -449,6 +455,68 @@ async def translate_taiwan_screener_query(payload: TaiwanScreenerTranslateQuery)
     """將自然語言選股描述轉換為強型別 TaiwanScreenerRequest 條件 (純翻譯層，不直出股票)。"""
     translator = TaiwanScreenerTranslator()
     return await translator.translate(payload.query)
+
+
+class ScreenerStrategyCreateRequest(BaseModel):
+    name: str
+    conditions: dict[str, Any]
+    description: str | None = None
+
+
+class ScreenerStrategyUpdateRequest(BaseModel):
+    name: str
+    conditions: dict[str, Any]
+    description: str | None = None
+
+
+@router.get("/screener/strategies", response_model=list[TaiwanScreenerStrategy])
+def list_taiwan_screener_strategies():
+    """取得所有台股自訂與內建選股策略。"""
+    store = get_screener_strategy_store()
+    return store.list_strategies()
+
+
+@router.post("/screener/strategies", response_model=TaiwanScreenerStrategy)
+def create_taiwan_screener_strategy(payload: ScreenerStrategyCreateRequest):
+    """建立自訂台股選股策略。"""
+    if not payload.name.strip():
+        raise HTTPException(status_code=400, detail="策略名稱不可為空")
+    store = get_screener_strategy_store()
+    return store.save_strategy(
+        name=payload.name,
+        conditions=payload.conditions,
+        description=payload.description,
+    )
+
+
+@router.put("/screener/strategies/{strategy_id}", response_model=TaiwanScreenerStrategy)
+def update_taiwan_screener_strategy(strategy_id: str, payload: ScreenerStrategyUpdateRequest):
+    """更新自訂台股選股策略。"""
+    if strategy_id.startswith("preset_"):
+        raise HTTPException(status_code=400, detail="內建預設策略不可修改")
+    store = get_screener_strategy_store()
+    existing = store.get_strategy(strategy_id)
+    if not existing:
+        raise HTTPException(status_code=404, detail="找不到指定的策略")
+    return store.save_strategy(
+        name=payload.name,
+        conditions=payload.conditions,
+        description=payload.description,
+        strategy_id=strategy_id,
+    )
+
+
+@router.delete("/screener/strategies/{strategy_id}")
+def delete_taiwan_screener_strategy(strategy_id: str):
+    """刪除自訂台股選股策略。"""
+    if strategy_id.startswith("preset_"):
+        raise HTTPException(status_code=400, detail="內建預設策略不可刪除")
+    store = get_screener_strategy_store()
+    success = store.delete_strategy(strategy_id)
+    if not success:
+        raise HTTPException(status_code=404, detail="找不到指定的策略或該策略不可刪除")
+    return {"ok": True, "deleted_id": strategy_id}
+
 
 
 @router.get("/market-intelligence", response_model=TaiwanMarketIntelligenceSnapshot)

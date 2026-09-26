@@ -884,6 +884,239 @@ export function TaiwanStockDetail() {
             </div>
           </div>
 
+          {/* 區塊 3.5: 基本面概況與籌碼深度補強 */}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+            {/* 基本面概況 */}
+            <div className="rounded-2xl border border-border bg-surface p-4">
+              <div className="flex items-center justify-between mb-3">
+                <div className="flex items-center gap-2">
+                  <h3 className="text-sm font-bold text-foreground">基本面概況</h3>
+                  <span className="text-[10px] px-1.5 py-0.5 rounded bg-sky-500/10 text-sky-500 font-medium">
+                    官方估值 + 財報營收
+                  </span>
+                </div>
+                <span className="text-[10px] text-muted font-mono">
+                  {data.fundamentals?.valuation?.meta?.trade_date || data.fundamentals?.revenue?.meta?.trade_date || ''}
+                </span>
+              </div>
+
+              {/* 官方估值三指標 */}
+              <div className="grid grid-cols-3 gap-2 mb-3">
+                <div className="rounded-xl bg-base p-2.5 border border-border/60 text-center">
+                  <div className="text-[11px] text-muted mb-1">本益比 (PE)</div>
+                  <div className="font-mono font-bold text-sm text-foreground">
+                    {data.fundamentals?.valuation?.pe != null ? `${data.fundamentals.valuation.pe.toFixed(2)} 倍` : '--'}
+                  </div>
+                </div>
+                <div className="rounded-xl bg-base p-2.5 border border-border/60 text-center">
+                  <div className="text-[11px] text-muted mb-1">股價淨值比 (PB)</div>
+                  <div className="font-mono font-bold text-sm text-foreground">
+                    {data.fundamentals?.valuation?.pb != null ? `${data.fundamentals.valuation.pb.toFixed(2)} 倍` : '--'}
+                  </div>
+                </div>
+                <div className="rounded-xl bg-base p-2.5 border border-border/60 text-center">
+                  <div className="text-[11px] text-muted mb-1">殖利率</div>
+                  <div className="font-mono font-bold text-sm text-accent">
+                    {data.fundamentals?.valuation?.dividend_yield != null ? `${data.fundamentals.valuation.dividend_yield.toFixed(2)}%` : '--'}
+                  </div>
+                </div>
+              </div>
+
+              {/* 月營收摘要 */}
+              <div className="rounded-xl bg-base p-3 border border-border/60 mb-3">
+                <div className="flex items-center justify-between text-xs mb-2">
+                  <span className="font-semibold text-foreground">
+                    最新月營收 ({data.fundamentals?.revenue?.latest_year_month || '--'})
+                  </span>
+                  <span className="font-mono font-bold text-foreground">
+                    {data.fundamentals?.revenue?.latest_revenue != null
+                      ? `${(data.fundamentals.revenue.latest_revenue / 100_000_000).toFixed(2)} 億元`
+                      : '--'}
+                  </span>
+                </div>
+                <div className="flex items-center justify-between text-xs pt-1 border-t border-border/40">
+                  <div>
+                    <span className="text-muted mr-1.5">月增率 (MoM)</span>
+                    <span className={cn('font-mono font-semibold', (data.fundamentals?.revenue?.mom || 0) >= 0 ? 'text-rose-500' : 'text-emerald-500')}>
+                      {data.fundamentals?.revenue?.mom != null ? `${data.fundamentals.revenue.mom >= 0 ? '+' : ''}${data.fundamentals.revenue.mom.toFixed(2)}%` : '--'}
+                    </span>
+                  </div>
+                  <div>
+                    <span className="text-muted mr-1.5">年增率 (YoY)</span>
+                    <span className={cn('font-mono font-semibold', (data.fundamentals?.revenue?.yoy || 0) >= 0 ? 'text-rose-500' : 'text-emerald-500')}>
+                      {data.fundamentals?.revenue?.yoy != null ? `${data.fundamentals.revenue.yoy >= 0 ? '+' : ''}${data.fundamentals.revenue.yoy.toFixed(2)}%` : '--'}
+                    </span>
+                  </div>
+                </div>
+
+                {/* 近期月營收趨勢簡覽 */}
+                {data.fundamentals?.revenue?.trend && data.fundamentals.revenue.trend.length > 0 && (
+                  <div className="mt-2.5 pt-2 border-t border-border/40">
+                    <div className="text-[10px] text-muted mb-1.5">近 6 個月營收變化</div>
+                    <div className="grid grid-cols-6 gap-1 text-center font-mono">
+                      {data.fundamentals.revenue.trend.slice(-6).map((t, idx) => (
+                        <div key={idx} className="bg-surface rounded p-1 text-[10px]">
+                          <div className="text-muted text-[9px] truncate">{t.year_month.slice(2)}</div>
+                          <div className="text-foreground font-medium truncate">{(t.revenue / 100_000_000).toFixed(1)}億</div>
+                          <div className={cn('text-[9px]', (t.yoy || 0) >= 0 ? 'text-rose-500' : 'text-emerald-500')}>
+                            {t.yoy != null ? `${t.yoy >= 0 ? '+' : ''}${t.yoy.toFixed(0)}%` : '-'}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* 獲利能力摘要 */}
+              <div className="rounded-xl bg-base p-3 border border-border/60">
+                <div className="flex items-center justify-between text-xs mb-2">
+                  <span className="font-semibold text-foreground">
+                    財務季度獲利 ({data.fundamentals?.profitability?.quarter || '--'})
+                  </span>
+                  <span className="font-mono font-bold text-accent">
+                    EPS: {data.fundamentals?.profitability?.latest_eps != null ? `${data.fundamentals.profitability.latest_eps.toFixed(2)} 元` : '--'}
+                  </span>
+                </div>
+                <div className="grid grid-cols-2 gap-2 text-xs">
+                  <div className="flex justify-between">
+                    <span className="text-muted">營業利益</span>
+                    <span className="font-mono text-foreground">
+                      {data.fundamentals?.profitability?.operating_income != null
+                        ? `${(data.fundamentals.profitability.operating_income / 100_000_000).toFixed(2)} 億`
+                        : '--'}
+                    </span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-muted">稅後淨利</span>
+                    <span className="font-mono text-foreground">
+                      {data.fundamentals?.profitability?.net_income != null
+                        ? `${(data.fundamentals.profitability.net_income / 100_000_000).toFixed(2)} 億`
+                        : '--'}
+                    </span>
+                  </div>
+                </div>
+                {data.fundamentals?.profitability?.recent_eps && data.fundamentals.profitability.recent_eps.length > 0 && (
+                  <div className="mt-2 pt-2 border-t border-border/40 text-[11px] flex items-center justify-between">
+                    <span className="text-muted">近季 EPS:</span>
+                    <div className="flex gap-2 font-mono">
+                      {data.fundamentals.profitability.recent_eps.map((e, idx) => (
+                        <span key={idx} className="bg-surface px-1.5 py-0.5 rounded text-[10px]">
+                          {e.date.slice(2, 7)}: <b className="text-foreground">{e.eps.toFixed(2)}</b>
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* 籌碼深度補強 (外資持股 + 借券成交) */}
+            <div className="rounded-2xl border border-border bg-surface p-4">
+              <div className="flex items-center justify-between mb-3">
+                <div className="flex items-center gap-2">
+                  <h3 className="text-sm font-bold text-foreground">籌碼深度補強</h3>
+                  <span className="text-[10px] px-1.5 py-0.5 rounded bg-purple-500/10 text-purple-400 font-medium">
+                    外資持股 + 借券明細
+                  </span>
+                </div>
+                <span className="text-[10px] text-muted font-mono">
+                  {data.extra_chips?.foreign_shareholding?.meta?.trade_date || data.extra_chips?.securities_lending?.meta?.trade_date || ''}
+                </span>
+              </div>
+
+              {/* 外資持股比例卡片 */}
+              <div className="rounded-xl bg-base p-3 border border-border/60 mb-3">
+                <div className="flex items-center justify-between text-xs mb-2">
+                  <span className="font-semibold text-foreground">外資持股比例</span>
+                  <span className="font-mono font-bold text-base text-foreground">
+                    {data.extra_chips?.foreign_shareholding?.ratio != null ? `${data.extra_chips.foreign_shareholding.ratio.toFixed(2)}%` : '--'}
+                  </span>
+                </div>
+                <div className="grid grid-cols-3 gap-2 text-xs text-center font-mono">
+                  <div className="bg-surface rounded-lg p-2 border border-border/40">
+                    <div className="text-muted text-[10px] mb-0.5">近 5 日變化</div>
+                    <div className={cn('font-bold', (data.extra_chips?.foreign_shareholding?.change_5d || 0) >= 0 ? 'text-rose-500' : 'text-emerald-500')}>
+                      {data.extra_chips?.foreign_shareholding?.change_5d != null ? `${data.extra_chips.foreign_shareholding.change_5d >= 0 ? '+' : ''}${data.extra_chips.foreign_shareholding.change_5d.toFixed(2)}%` : '--'}
+                    </div>
+                  </div>
+                  <div className="bg-surface rounded-lg p-2 border border-border/40">
+                    <div className="text-muted text-[10px] mb-0.5">近 20 日變化</div>
+                    <div className={cn('font-bold', (data.extra_chips?.foreign_shareholding?.change_20d || 0) >= 0 ? 'text-rose-500' : 'text-emerald-500')}>
+                      {data.extra_chips?.foreign_shareholding?.change_20d != null ? `${data.extra_chips.foreign_shareholding.change_20d >= 0 ? '+' : ''}${data.extra_chips.foreign_shareholding.change_20d.toFixed(2)}%` : '--'}
+                    </div>
+                  </div>
+                  <div className="bg-surface rounded-lg p-2 border border-border/40">
+                    <div className="text-muted text-[10px] mb-0.5">持股趨勢</div>
+                    <div className="font-medium text-foreground">
+                      {data.extra_chips?.foreign_shareholding?.trend === 'increasing' ? '🟢 持續增持' :
+                       data.extra_chips?.foreign_shareholding?.trend === 'decreasing' ? '🔴 持續減持' :
+                       data.extra_chips?.foreign_shareholding?.trend === 'flat' ? '⚪ 持平' : '--'}
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* 借券成交明細卡片 */}
+              <div className="rounded-xl bg-base p-3 border border-border/60">
+                <div className="flex items-center justify-between text-xs mb-2">
+                  <div className="flex items-center gap-2">
+                    <span className="font-semibold text-foreground">借券成交明細</span>
+                    {data.extra_chips?.securities_lending?.anomaly_status === 'surge' ? (
+                      <span className="rounded-full bg-rose-500/15 border border-rose-500/30 text-rose-500 text-[10px] px-2 py-0.5 font-bold animate-pulse">
+                        ⚠️ 借券成交異常暴增
+                      </span>
+                    ) : data.extra_chips?.securities_lending?.anomaly_status === 'normal' ? (
+                      <span className="rounded-full bg-emerald-500/15 text-emerald-500 text-[10px] px-2 py-0.5 font-medium">
+                        狀態正常
+                      </span>
+                    ) : null}
+                  </div>
+                  <span className="text-[11px] text-muted">非融券餘額</span>
+                </div>
+
+                <div className="space-y-2 text-xs">
+                  <div className="flex items-center justify-between">
+                    <span className="text-muted">當日借券成交股數</span>
+                    <span className="font-mono font-medium text-foreground">
+                      {data.extra_chips?.securities_lending?.latest_volume != null
+                        ? `${data.extra_chips.securities_lending.latest_volume.toLocaleString()} 股`
+                        : '--'}
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-muted">平均借券費率</span>
+                    <span className="font-mono font-medium text-foreground">
+                      {data.extra_chips?.securities_lending?.avg_fee_rate != null
+                        ? `${data.extra_chips.securities_lending.avg_fee_rate.toFixed(2)}%`
+                        : '--'}
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-muted">近 5 日累計借券成交</span>
+                    <span className="font-mono font-medium text-foreground">
+                      {data.extra_chips?.securities_lending?.volume_5d != null
+                        ? `${data.extra_chips.securities_lending.volume_5d.toLocaleString()} 股`
+                        : '--'}
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-muted">近 20 日累計借券成交</span>
+                    <span className="font-mono font-medium text-foreground">
+                      {data.extra_chips?.securities_lending?.volume_20d != null
+                        ? `${data.extra_chips.securities_lending.volume_20d.toLocaleString()} 股`
+                        : '--'}
+                    </span>
+                  </div>
+                </div>
+                <div className="mt-3 pt-2 border-t border-border/40 text-[10px] text-muted flex items-center justify-between">
+                  <span>來源: FinMind (TaiwanStockSecuritiesLending)</span>
+                  <span>撮合借券明細</span>
+                </div>
+              </div>
+            </div>
+          </div>
+
           <TaiwanReferenceData
             response={currentDataQuery.data}
             isLoading={currentDataQuery.isLoading}
