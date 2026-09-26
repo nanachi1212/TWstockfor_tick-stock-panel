@@ -221,6 +221,15 @@ class TaiwanMarketIntelligenceService:
     def get_snapshot(self, target_date: date | None = None) -> TaiwanMarketIntelligenceSnapshot:
         """Build a deterministic Taiwan Market Intelligence Snapshot for target_date."""
         target = target_date or resolve_target_latest_trading_date(self.calendar)
+
+        # Pre-resolve daily availability so we can fall back gracefully when the
+        # resolved target date has no data (e.g. data is stale and not yet updated).
+        # Only fall back automatically when the caller did not supply an explicit date.
+        daily_available = self.daily_store.available_dates()
+        daily_as_of = max(daily_available) if daily_available else None
+        if target_date is None and daily_as_of is not None and daily_as_of < target:
+            target = daily_as_of
+
         prev_d = self.get_previous_trading_date(target)
 
         # 1. Load Security Master supported universe
@@ -236,8 +245,6 @@ class TaiwanMarketIntelligenceService:
         prev_daily = self.daily_store.read_range(supported_symbols, prev_d, prev_d) if prev_d else pl.DataFrame()
 
         # Check daily status
-        daily_available = self.daily_store.available_dates()
-        daily_as_of = max(daily_available) if daily_available else None
         daily_status: DatasetFreshnessStatus = (
             "current" if (daily_as_of and daily_as_of >= target)
             else ("stale" if daily_as_of else "unavailable")

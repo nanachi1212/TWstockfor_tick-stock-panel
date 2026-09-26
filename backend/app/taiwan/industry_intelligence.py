@@ -185,6 +185,15 @@ class TaiwanIndustryIntelligenceService:
     ) -> TaiwanIndustryIntelligenceSnapshot:
         """Build a deterministic Taiwan Industry Intelligence Snapshot for target_date."""
         target = target_date or resolve_target_latest_trading_date(self.calendar)
+
+        # Pre-resolve daily availability so we can fall back gracefully when the
+        # resolved target date has no data (e.g. data is stale and not yet updated).
+        # Only fall back automatically when the caller did not supply an explicit date.
+        daily_available = self.daily_store.available_dates()
+        daily_as_of = max(daily_available) if daily_available else None
+        if target_date is None and daily_as_of is not None and daily_as_of < target:
+            target = daily_as_of
+
         d_prev, d_5d, d_20d = self._resolve_lookback_dates(target)
 
         # 1. Base Universe: Active Supported Stocks only (ETFs excluded from industry rankings)
@@ -217,8 +226,6 @@ class TaiwanIndustryIntelligenceService:
         hist_20d = self.daily_store.read_range(symbols, d_20d, d_20d) if d_20d else pl.DataFrame()
 
         # Dataset Freshness
-        daily_available = self.daily_store.available_dates()
-        daily_as_of = max(daily_available) if daily_available else None
         daily_status: DatasetFreshnessStatus = (
             "current" if (daily_as_of and daily_as_of >= target)
             else ("stale" if daily_as_of else "unavailable")
