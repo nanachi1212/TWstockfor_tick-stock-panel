@@ -4239,6 +4239,9 @@ export interface SnapshotListItem {
   h1d_pending_count?: number
   h5d_pending_count?: number
   h20d_pending_count?: number
+  h1d_matured?: boolean
+  h5d_matured?: boolean
+  h20d_matured?: boolean
   h5d_avg_return_pct: number | null
   h20d_avg_return_pct: number | null
   h5d_bm_return_pct: number | null

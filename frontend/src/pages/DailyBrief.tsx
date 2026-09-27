@@ -74,8 +74,7 @@ export function DailyBrief() {
     const latest = latestForwardBatchQuery.data?.[0]
     if (!latest || latest.selected_count === 0) return null
     return (['20D', '5D', '1D'] as const).find(horizon => {
-      const pending = horizon === '20D' ? latest.h20d_pending_count : horizon === '5D' ? latest.h5d_pending_count : latest.h1d_pending_count
-      return pending === 0
+      return horizon === '20D' ? latest.h20d_matured : horizon === '5D' ? latest.h5d_matured : latest.h1d_matured
     }) ?? null
   }, [latestForwardBatchQuery.data])
 

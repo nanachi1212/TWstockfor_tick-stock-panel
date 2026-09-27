@@ -504,6 +504,10 @@ def test_missing_paper_entry_is_unavailable_while_benchmark_tracks(tmp_path, mon
     assert item.h5d_bm_status == item.h20d_bm_status == "pending"
     assert review.h5d_pending_count == 0
     assert review.h5d_unavailable_count == 1
+    stats = svc.get_forward_batch_stats()
+    assert stats.timeline[0].full_batch["1D"].matured is True
+    assert stats.timeline[0].full_batch["5D"].matured is False
+    assert stats.timeline[0].full_batch["20D"].matured is False
 
 
 def test_expired_unverified_calendar_is_unavailable_not_pending(tmp_path, monkeypatch):
@@ -744,7 +748,7 @@ def test_forward_performance_center_aggregates_immutable_cohorts_and_timeline(tm
     assert stats.batches_count == 2
     assert stats.picks_count == 5
     assert full.batch_count == 2
-    assert full.matured_batch_count == 1
+    assert full.matured_batch_count == 2
     assert full.pick_count == 5
     assert full.evaluable_count == 3
     assert full.pending_count == 1
@@ -763,7 +767,7 @@ def test_forward_performance_center_aggregates_immutable_cohorts_and_timeline(tm
     assert top10.unavailable_count == 1
     assert len(stats.timeline) == 2
     assert stats.timeline[0].source_date == "2026-08-03"
-    assert stats.timeline[0].full_batch["1D"].matured is False
+    assert stats.timeline[0].full_batch["1D"].matured is True
     assert stats.timeline[1].top10["1D"].average_return_pct == pytest.approx(-2.0)
 
 

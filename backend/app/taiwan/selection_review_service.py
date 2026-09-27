@@ -618,6 +618,13 @@ class TaiwanSelectionReviewService:
     def _cohort_items(items: list[HorizonReviewItem], cohort: str) -> list[HorizonReviewItem]:
         return items if cohort == "full_batch" else [item for item in items if item.rank <= 10]
 
+    def _is_forward_horizon_matured(self, snapshot: SelectionSnapshot, horizon: int) -> bool:
+        """Use the scheduled horizon date, independent of missing price data."""
+        source = date.fromisoformat(snapshot.source_data_date or snapshot.as_of_date)
+        sessions = self._get_forward_trading_days(source)
+        due = sessions[horizon - 1] if len(sessions) >= horizon else self._potential_horizon_due(source, horizon)
+        return taipei_now() >= market_close(due)
+
     def _cohort_stats(
         self,
         snapshots: list[SelectionSnapshot],
@@ -637,7 +644,7 @@ class TaiwanSelectionReviewService:
             picks += len(items)
             pending += sum(getattr(item, f"{prefix}_status") == "pending" for item in items)
             unavailable += sum(getattr(item, f"{prefix}_status") == "unavailable" for item in items)
-            if items and not any(getattr(item, f"{prefix}_status") == "pending" for item in items):
+            if items and self._is_forward_horizon_matured(review.snapshot, horizon):
                 matured_batches += 1
             for item in items:
                 raw_return = getattr(item, f"{prefix}_raw_return_pct")
@@ -1067,6 +1074,9 @@ class TaiwanSelectionReviewService:
                         h1d_pending_count=review.h1d_pending_count,
                         h5d_pending_count=review.h5d_pending_count,
                         h20d_pending_count=review.h20d_pending_count,
+                        h1d_matured=self._is_forward_horizon_matured(s, 1),
+                        h5d_matured=self._is_forward_horizon_matured(s, 5),
+                        h20d_matured=self._is_forward_horizon_matured(s, 20),
                         h5d_avg_return_pct=review.h5d_avg_return_pct,
                         h20d_avg_return_pct=review.h20d_avg_return_pct,
                         h5d_bm_return_pct=review.h5d_bm_avg_return_pct,

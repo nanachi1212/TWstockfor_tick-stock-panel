@@ -297,6 +297,9 @@ class SnapshotListItem(BaseModel):
     h1d_pending_count: int = 0
     h5d_pending_count: int = 0
     h20d_pending_count: int = 0
+    h1d_matured: bool = False
+    h5d_matured: bool = False
+    h20d_matured: bool = False
 
     h5d_avg_return_pct: float | None = None
     h20d_avg_return_pct: float | None = None
