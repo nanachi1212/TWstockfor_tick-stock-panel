@@ -58,6 +58,8 @@ class SelectionSnapshot(BaseModel):
     primary_observation_count: int | None = None
     missing_quote_count: int | None = None
     risk_unknown_count: int | None = None
+    risk_source_status: Literal["available", "partial", "unavailable"] | None = None
+    risk_source_as_of: str | None = None
 
 
 class SaveSelectionSnapshotRequest(BaseModel):
@@ -180,6 +182,8 @@ class SnapshotListItem(BaseModel):
     target_trade_date_status: Literal["confirmed", "scheduled_unverified"] | None = None
     rule_version: str | None = None
     evaluation_basis: Literal["reference_close", "next_open"] = "reference_close"
+    risk_source_status: Literal["available", "partial", "unavailable"] | None = None
+    risk_source_as_of: str | None = None
 
     h5d_evaluated_count: int = 0
     h20d_evaluated_count: int = 0

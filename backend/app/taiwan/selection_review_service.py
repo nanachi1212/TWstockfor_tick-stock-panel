@@ -78,6 +78,8 @@ class TaiwanSelectionReviewService:
             ObservedUniverseStore() if daily_store is None else None
         )
         self._lock = threading.Lock()
+        self._forward_cache_fingerprint: tuple | None = None
+        self._completed_forward_reviews: dict[str, SnapshotReviewDetail] = {}
 
     def _read_snapshots_raw(self) -> list[SelectionSnapshot]:
         if not self.path.exists():
@@ -200,6 +202,8 @@ class TaiwanSelectionReviewService:
             for snapshot in existing:
                 if snapshot.snapshot_id == batch_id:
                     return snapshot
+            # A queued writer can cross 09:00 while waiting for the process lock.
+            now = taipei_now()
             items = [SelectionSnapshotItem(
                 symbol=row.symbol, name=row.name, rank=index, price=row.close,
                 quant_score=row.quant_score, match_reasons=row.match_reasons,
@@ -226,6 +230,8 @@ class TaiwanSelectionReviewService:
                 eligible_total=screen.total, primary_observation_count=min(len(items), 10),
                 missing_quote_count=screen.missing_quote_count,
                 risk_unknown_count=screen.risk_unknown_count,
+                risk_source_status=screen.risk_source_status,
+                risk_source_as_of=screen.risk_source_as_of,
             )
             existing.append(snapshot)
             self._save_snapshots_raw(existing)
@@ -492,7 +498,28 @@ class TaiwanSelectionReviewService:
             batches = [s for s in self._read_snapshots_raw() if s.record_type == "forward_batch"]
         stats = ForwardBatchStats(batches_count=len(batches),
                                   picks_count=sum(len(s.items) for s in batches))
-        reviews = [self.get_snapshot_review(s.snapshot_id) for s in batches]
+        if not batches:
+            return stats
+        fingerprint = self._forward_review_inputs()
+        with self._lock:
+            if fingerprint != self._forward_cache_fingerprint:
+                self._completed_forward_reviews.clear()
+                self._forward_cache_fingerprint = fingerprint
+        reviews: list[SnapshotReviewDetail] = []
+        for snapshot in batches:
+            with self._lock:
+                review = self._completed_forward_reviews.get(snapshot.snapshot_id)
+            if review is None:
+                review = self._get_forward_batch_review(snapshot)
+                if all(
+                    getattr(item, f"h{horizon}d_status") == "completed"
+                    and getattr(item, f"h{horizon}d_bm_status") == "completed"
+                    for item in review.evaluated_items for horizon in (1, 5, 20)
+                ) and review.evaluated_items:
+                    with self._lock:
+                        if self._forward_cache_fingerprint == fingerprint:
+                            self._completed_forward_reviews[snapshot.snapshot_id] = review
+            reviews.append(review)
         for horizon in (1, 5, 20):
             prefix = f"h{horizon}d"
             items = [item for review in reviews if review for item in review.evaluated_items]
@@ -507,6 +534,26 @@ class TaiwanSelectionReviewService:
                     round(sum(value > 0 for value in returns) / len(returns) * 100, 1)
                     if returns else None)
         return stats
+
+    def _forward_review_inputs(self) -> tuple:
+        """Local data versions used to invalidate completed forward reviews."""
+        def file_versions(paths) -> tuple:
+            versions = []
+            for path in paths:
+                try:
+                    stat = path.stat()
+                    versions.append((str(path), stat.st_mtime_ns, stat.st_size))
+                except FileNotFoundError:
+                    continue
+            return tuple(sorted(versions))
+
+        daily = file_versions(self.daily_store._data_dir.glob("date=*/part.parquet"))
+        actions = file_versions((self.action_store.path,
+                                self.action_store.path.with_name("coverage.json")))
+        census = file_versions(self.census_store._data_dir.glob("exchange=*/date=*/part.parquet")) if self.census_store else ()
+        calendar = (tuple(sorted(self.calendar.known_holidays)),
+                    tuple(sorted(self.calendar.known_trading_days)))
+        return daily, actions, census, calendar
 
     def get_snapshot_review(self, snapshot_id: str) -> SnapshotReviewDetail | None:
         """Evaluate a snapshot across 1D, 5D, 20D horizons."""
@@ -712,6 +759,8 @@ class TaiwanSelectionReviewService:
                         target_trade_date_status=s.target_trade_date_status,
                         rule_version=s.rule_version,
                         evaluation_basis=s.evaluation_basis,
+                        risk_source_status=s.risk_source_status,
+                        risk_source_as_of=s.risk_source_as_of,
                         h5d_evaluated_count=review.h5d_evaluated_count,
                         h20d_evaluated_count=review.h20d_evaluated_count,
                         h5d_avg_return_pct=review.h5d_avg_return_pct,
@@ -738,6 +787,8 @@ class TaiwanSelectionReviewService:
                         target_trade_date_status=s.target_trade_date_status,
                         rule_version=s.rule_version,
                         evaluation_basis=s.evaluation_basis,
+                        risk_source_status=s.risk_source_status,
+                        risk_source_as_of=s.risk_source_as_of,
                     )
                 )
         return result

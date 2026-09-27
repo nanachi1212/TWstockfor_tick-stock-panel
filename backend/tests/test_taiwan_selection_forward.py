@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+from contextlib import contextmanager
 from datetime import UTC, date, datetime, time, timedelta
 from pathlib import Path
 from zoneinfo import ZoneInfo
@@ -95,6 +96,7 @@ class _FixedScreener:
             total=1, page=1, page_size=20, sort_by="trend_liquidity_v1",
             sort_order="desc", data_dates=DataDatesInfo(daily_as_of=self.source.isoformat()),
             risk_unknown_count=1, missing_quote_count=2,
+            risk_source_status="partial", risk_source_as_of="2026-08-03T14:00:00+00:00",
         )
 
 
@@ -110,6 +112,8 @@ def test_lock_is_server_owned_idempotent_and_undeletable(tmp_path, monkeypatch):
     assert first.primary_observation_count == 1
     assert first.risk_unknown_count == 1
     assert first.missing_quote_count == 2
+    assert first.risk_source_status == "partial"
+    assert first.risk_source_as_of == "2026-08-03T14:00:00+00:00"
     assert first.items[0].price == 101.0
     assert len(svc.list_snapshots()) == 1
     with pytest.raises(PermissionError):
@@ -140,6 +144,30 @@ def test_first_lock_after_target_open_is_rejected_but_existing_batch_is_idempote
     monkeypatch.setattr("app.taiwan.selection_review_service.taipei_now",
                         lambda: datetime.combine(sessions[0], time(12), ZoneInfo("Asia/Taipei")))
     assert svc.lock_forward_batch(_FixedScreener(source)) == original
+
+
+def test_lock_rechecks_time_after_waiting_for_write_guard(tmp_path, monkeypatch):
+    svc, source, sessions = _seed(tmp_path)
+    clock = [_clock(source)]
+    monkeypatch.setattr("app.taiwan.selection_review_service.taipei_now", lambda: clock[0])
+    acquired_time = [datetime.combine(sessions[0], time(9), ZoneInfo("Asia/Taipei"))]
+    original_guard = svc._write_guard
+
+    @contextmanager
+    def delayed_guard():
+        with original_guard():
+            clock[0] = acquired_time[0]
+            yield
+
+    monkeypatch.setattr(svc, "_write_guard", delayed_guard)
+    with pytest.raises(ValueError, match="已開盤"):
+        svc.lock_forward_batch(_FixedScreener(source))
+    assert svc.list_snapshots() == []
+
+    clock[0] = _clock(source)
+    acquired_time[0] = datetime.combine(sessions[0], time(8, 59), ZoneInfo("Asia/Taipei"))
+    batch = svc.lock_forward_batch(_FixedScreener(source))
+    assert batch.locked_at == acquired_time[0].isoformat()
 
 
 def test_abandoned_lock_sidecar_does_not_block_new_writes(tmp_path, monkeypatch):
@@ -260,6 +288,34 @@ def test_legacy_analytics_exclude_formal_batch_with_same_strategy(tmp_path, monk
     assert svc.get_forward_batch_stats().batches_count == 1
 
 
+def test_completed_forward_review_cache_invalidates_on_daily_change(tmp_path, monkeypatch):
+    svc, source, sessions = _seed(tmp_path)
+    monkeypatch.setattr("app.taiwan.selection_review_service.taipei_now", lambda: _clock(source))
+    svc.lock_forward_batch(_FixedScreener(source))
+    monkeypatch.setattr("app.taiwan.selection_review_service.taipei_now", lambda: _clock(sessions[-1]))
+    original_review = svc._get_forward_batch_review
+    calls = []
+
+    def counted_review(snapshot):
+        calls.append(snapshot.snapshot_id)
+        return original_review(snapshot)
+
+    monkeypatch.setattr(svc, "_get_forward_batch_review", counted_review)
+    first = svc.get_forward_batch_stats()
+    assert first.h20d_evaluated_count == 1
+    assert svc.get_forward_batch_stats() == first
+    assert len(calls) == 1
+
+    day = sessions[-1]
+    svc.daily_store.write_batch(pl.DataFrame([{
+        "symbol": "2330.TWSE", "date": day, "open": 100.0, "high": 103.0,
+        "low": 100.0, "close": 103.0, "volume": 1_000_000.0,
+        "amount": 103_000_000.0, "quote_ts": 0,
+    }]))
+    assert svc.get_forward_batch_stats().h20d_evaluated_count == 1
+    assert len(calls) == 2
+
+
 def test_research_hit_rate_uses_unrounded_return(tmp_path):
     svc, source, _ = _seed(tmp_path)
     svc.save_snapshot(SaveSelectionSnapshotRequest(
@@ -314,7 +370,7 @@ def test_trend_preset_filters_liquidity_risk_and_etf(tmp_path, monkeypatch):
 
     class Risk:
         def get_cached_regulatory_snapshot(self):
-            return [], "partial"
+            return [], "partial", "2026-08-28T14:00:00+00:00"
 
         def check_symbol_risk_status(self, symbol, target_date=None, events=None):
             assert target_date == sessions[-1]
@@ -332,6 +388,8 @@ def test_trend_preset_filters_liquidity_risk_and_etf(tmp_path, monkeypatch):
     assert response.items[0].risk_status == "unknown"
     assert response.items[0].amount == 50_000_000.0
     assert response.risk_unknown_count == 1
+    assert response.risk_source_status == "partial"
+    assert response.risk_source_as_of == "2026-08-28T14:00:00+00:00"
 
 
 def test_regulatory_cache_read_never_fetches_and_stale_is_unknown(tmp_path, monkeypatch):
@@ -348,22 +406,23 @@ def test_regulatory_cache_read_never_fetches_and_stale_is_unknown(tmp_path, monk
         retrieved_at="2026-08-28T15:00:00+08:00",
     )
     cache_file = tmp_path / "taiwan" / "events_cache" / "regulatory_events.json"
-    assert service.get_cached_regulatory_snapshot() == ([], "unavailable")
+    assert service.get_cached_regulatory_snapshot() == ([], "unavailable", None)
     assert not cache_file.exists()
     cache_file.parent.mkdir(parents=True)
     cache_file.write_text(json.dumps({
         "saved_at": datetime.now(UTC).timestamp(), "status": "available",
         "events": [event.model_dump()],
     }), encoding="utf-8")
-    events, status = service.get_cached_regulatory_snapshot()
+    events, status, as_of = service.get_cached_regulatory_snapshot()
     assert status == "available"
+    assert as_of is not None
     assert service.check_symbol_risk_status("8069.TPEX", date(2026, 8, 28), events)["is_disposition"]
     assert not service.check_symbol_risk_status("2330.TWSE", date(2026, 8, 28), events)["is_disposition"]
     cache_file.write_text(json.dumps({
         "saved_at": datetime.now(UTC).timestamp() - 3601, "status": "available",
         "events": [event.model_dump()],
     }), encoding="utf-8")
-    assert service.get_cached_regulatory_snapshot() == ([], "unavailable")
+    assert service.get_cached_regulatory_snapshot() == ([], "unavailable", None)
 
 
 def test_paper_return_uses_verified_cash_dividend_price_factor():

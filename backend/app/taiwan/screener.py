@@ -237,6 +237,8 @@ class TaiwanScreenerResponse(BaseModel):
     coverage_info: ScreenerCoverageInfo | None = None
     missing_quote_count: int = 0
     risk_unknown_count: int = 0
+    risk_source_status: Literal["available", "partial", "unavailable"] | None = None
+    risk_source_as_of: str | None = None
 
 
 class TaiwanScreenerService:
@@ -330,15 +332,19 @@ class TaiwanScreenerService:
         filtered = self._apply_filters(combined, req)
 
         risk_statuses: dict[str, str] = {}
+        risk_source_status: Literal["available", "partial", "unavailable"] | None = None
+        risk_source_as_of: str | None = None
         if req.preset == "trend_liquidity_v1":
             from app.taiwan.events_service import get_event_service
 
             try:
                 event_svc = get_event_service()
-                cached_events, overall_risk_status = event_svc.get_cached_regulatory_snapshot()
+                cached_events, risk_source_status, risk_source_as_of = (
+                    event_svc.get_cached_regulatory_snapshot()
+                )
             except Exception:
                 event_svc = None
-                cached_events, overall_risk_status = [], "unavailable"
+                cached_events, risk_source_status, risk_source_as_of = [], "unavailable", None
             excluded: set[str] = set()
             for symbol in filtered["symbol"].to_list():
                 try:
@@ -351,7 +357,7 @@ class TaiwanScreenerService:
                         excluded.add(symbol)
                     else:
                         risk_statuses[symbol] = (
-                            "clear" if overall_risk_status == "available" else "unknown"
+                            "clear" if risk_source_status == "available" else "unknown"
                         )
                 except Exception:
                     risk_statuses[symbol] = "unknown"
@@ -403,6 +409,8 @@ class TaiwanScreenerService:
             coverage_info=coverage_info,
             missing_quote_count=missing_quote_count if req.preset else 0,
             risk_unknown_count=sum(i.risk_status == "unknown" for i in items),
+            risk_source_status=risk_source_status,
+            risk_source_as_of=risk_source_as_of,
         )
 
     def _get_universe(self, exchange: ExchangeFilter, instrument: InstrumentFilter) -> pl.DataFrame:
