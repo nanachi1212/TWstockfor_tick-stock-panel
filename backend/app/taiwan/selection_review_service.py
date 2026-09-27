@@ -752,6 +752,8 @@ class TaiwanSelectionReviewService:
         by_strat: dict[str, list[SelectionSnapshot]] = {}
         strat_names: dict[str, str] = {}
         for s in raw_list:
+            if s.record_type != "research":
+                continue
             by_strat.setdefault(s.strategy_id, []).append(s)
             strat_names[s.strategy_id] = s.strategy_name
 
@@ -818,6 +820,8 @@ class TaiwanSelectionReviewService:
         cond_ret_20d: dict[str, list[float]] = {}
 
         for s in raw_list:
+            if s.record_type != "research":
+                continue
             rev = self.get_snapshot_review(s.snapshot_id)
             if not rev:
                 continue

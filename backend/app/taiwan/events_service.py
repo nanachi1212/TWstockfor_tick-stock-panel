@@ -632,6 +632,30 @@ class TaiwanEventService:
         """Return the overall status and individual source statuses from the last query."""
         return self.last_status, dict(self.sources_status)
 
+    def get_cached_regulatory_snapshot(self) -> tuple[list[MarketEvent], str]:
+        """Read a fresh official-event snapshot without refreshing external sources."""
+        now = datetime.now(UTC).timestamp()
+        cached = self._memory_cache.get("official")
+        if cached is not None and 0 <= now - cached[0] < self._cache_ttl:
+            return cached[1], self.last_status
+
+        cache_file = settings.data_dir / "taiwan" / "events_cache" / "regulatory_events.json"
+        if not cache_file.exists():
+            return [], "unavailable"
+        try:
+            raw = json.loads(cache_file.read_text(encoding="utf-8"))
+            saved_at = float(raw["saved_at"])
+            if not 0 <= now - saved_at < self._cache_ttl:
+                return [], "unavailable"
+            events = [MarketEvent(**item) for item in raw["events"]]
+            status = raw.get("status")
+            if status not in {"available", "partial"}:
+                return [], "unavailable"
+            return events, status
+        except (OSError, ValueError, TypeError, KeyError) as exc:
+            logger.warning("Failed to read cached regulatory snapshot: %s", exc)
+            return [], "unavailable"
+
     def get_all_regulatory_and_official_events(self, force_refresh: bool = False) -> list[MarketEvent]:
         """Fetch and aggregate all official events with local file caching."""
         cache_file = _cache_path()
@@ -960,10 +984,16 @@ class TaiwanEventService:
 
         return list(candidates_map.values())
 
-    def check_symbol_risk_status(self, symbol: str, target_date: date | None = None) -> dict[str, bool | str]:
+    def check_symbol_risk_status(
+        self, symbol: str, target_date: date | None = None,
+        events: list[MarketEvent] | None = None,
+    ) -> dict[str, bool | str]:
         """Check if a stock currently has disposition, suspension, or severe risk events."""
         clean = symbol.strip().upper()
-        events = self.get_events(scope="all", symbol=clean, limit=50)
+        if events is None:
+            events = self.get_events(scope="all", symbol=clean, limit=50)
+        else:
+            events = [ev for ev in events if ev.symbol.upper() == clean or ev.code.upper() == clean]
 
         is_disposition = False
         is_suspended = False

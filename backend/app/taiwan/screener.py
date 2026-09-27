@@ -335,21 +335,24 @@ class TaiwanScreenerService:
 
             try:
                 event_svc = get_event_service()
+                cached_events, overall_risk_status = event_svc.get_cached_regulatory_snapshot()
             except Exception:
                 event_svc = None
+                cached_events, overall_risk_status = [], "unavailable"
             excluded: set[str] = set()
             for symbol in filtered["symbol"].to_list():
                 try:
                     if event_svc is None:
                         raise RuntimeError("event service unavailable")
                     risk = event_svc.check_symbol_risk_status(
-                        symbol, target_date=date.fromisoformat(daily_as_of)
+                        symbol, target_date=date.fromisoformat(daily_as_of), events=cached_events
                     )
                     if risk["is_disposition"] or risk["is_suspended"]:
                         excluded.add(symbol)
                     else:
-                        overall, _ = event_svc.get_last_sources_status()
-                        risk_statuses[symbol] = "clear" if overall == "available" else "unknown"
+                        risk_statuses[symbol] = (
+                            "clear" if overall_risk_status == "available" else "unknown"
+                        )
                 except Exception:
                     risk_statuses[symbol] = "unknown"
             if excluded:

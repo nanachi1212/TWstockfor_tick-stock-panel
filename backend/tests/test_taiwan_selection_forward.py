@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import json
-from datetime import date, datetime, time, timedelta
+from datetime import UTC, date, datetime, time, timedelta
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
@@ -17,6 +17,7 @@ from app.taiwan.corporate_actions import (
     event_market_open,
 )
 from app.taiwan.daily_store import TaiwanDailyStore
+from app.taiwan.events_service import MarketEvent, TaiwanEventService
 from app.taiwan.providers.corporate_actions import SOURCE_URLS
 from app.taiwan.realtime.calendar import TaiwanTradingCalendar
 from app.taiwan.screener import (
@@ -239,6 +240,26 @@ def test_old_research_record_is_not_formal_batch(tmp_path, monkeypatch):
     assert svc.delete_snapshot(old.snapshot_id)
 
 
+def test_legacy_analytics_exclude_formal_batch_with_same_strategy(tmp_path, monkeypatch):
+    svc, source, sessions = _seed(tmp_path)
+    svc.save_snapshot(SaveSelectionSnapshotRequest(
+        strategy_id="trend_liquidity_v1", strategy_name="研究", as_of_date=source.isoformat(),
+        items=[SelectionSnapshotItem(symbol="2330.TWSE", name="台積電", rank=1,
+                                     price=101.0, match_reasons=["研究條件"])],
+    ))
+    monkeypatch.setattr("app.taiwan.selection_review_service.taipei_now", lambda: _clock(source))
+    svc.lock_forward_batch(_FixedScreener(source))
+    monkeypatch.setattr("app.taiwan.selection_review_service.taipei_now", lambda: _clock(sessions[-1]))
+
+    strategies = svc.get_strategy_reviews()
+    assert len(strategies) == 1
+    assert strategies[0].strategy_id == "trend_liquidity_v1"
+    assert strategies[0].snapshots_count == 1
+    assert strategies[0].evaluated_picks_5d == 1
+    assert [condition.condition_label for condition in svc.get_condition_reviews()] == ["研究條件"]
+    assert svc.get_forward_batch_stats().batches_count == 1
+
+
 def test_research_hit_rate_uses_unrounded_return(tmp_path):
     svc, source, _ = _seed(tmp_path)
     svc.save_snapshot(SaveSelectionSnapshotRequest(
@@ -292,12 +313,16 @@ def test_trend_preset_filters_liquidity_risk_and_etf(tmp_path, monkeypatch):
     store.write_batch(pl.DataFrame(rows))
 
     class Risk:
-        def check_symbol_risk_status(self, symbol, target_date=None):
+        def get_cached_regulatory_snapshot(self):
+            return [], "partial"
+
+        def check_symbol_risk_status(self, symbol, target_date=None, events=None):
             assert target_date == sessions[-1]
+            assert events == []
             return {"is_disposition": symbol == "8069.TPEX", "is_suspended": False}
 
-        def get_last_sources_status(self):
-            return "partial", {}
+        def get_events(self, **kwargs):
+            raise AssertionError("Screening must not fetch regulatory sources")
 
     monkeypatch.setattr("app.taiwan.events_service.get_event_service", lambda: Risk())
     response = TaiwanScreenerService(daily_store=store).run(
@@ -307,6 +332,38 @@ def test_trend_preset_filters_liquidity_risk_and_etf(tmp_path, monkeypatch):
     assert response.items[0].risk_status == "unknown"
     assert response.items[0].amount == 50_000_000.0
     assert response.risk_unknown_count == 1
+
+
+def test_regulatory_cache_read_never_fetches_and_stale_is_unknown(tmp_path, monkeypatch):
+    monkeypatch.setattr("app.taiwan.events_service.settings.data_dir", tmp_path)
+    service = object.__new__(TaiwanEventService)
+    service._memory_cache = {}
+    service._cache_ttl = 3600
+    service.last_status = "available"
+    monkeypatch.setattr(service, "get_events", lambda **kwargs: pytest.fail("Unexpected external fetch"))
+    event = MarketEvent(
+        id="disposition-8069", symbol="8069.TPEX", code="8069", name="元太",
+        exchange="TPEX", event_date="2026-08-28", event_type="disposition",
+        event_type_label="處置證券", title="處置", summary="處置", source="TPEX",
+        retrieved_at="2026-08-28T15:00:00+08:00",
+    )
+    cache_file = tmp_path / "taiwan" / "events_cache" / "regulatory_events.json"
+    assert service.get_cached_regulatory_snapshot() == ([], "unavailable")
+    assert not cache_file.exists()
+    cache_file.parent.mkdir(parents=True)
+    cache_file.write_text(json.dumps({
+        "saved_at": datetime.now(UTC).timestamp(), "status": "available",
+        "events": [event.model_dump()],
+    }), encoding="utf-8")
+    events, status = service.get_cached_regulatory_snapshot()
+    assert status == "available"
+    assert service.check_symbol_risk_status("8069.TPEX", date(2026, 8, 28), events)["is_disposition"]
+    assert not service.check_symbol_risk_status("2330.TWSE", date(2026, 8, 28), events)["is_disposition"]
+    cache_file.write_text(json.dumps({
+        "saved_at": datetime.now(UTC).timestamp() - 3601, "status": "available",
+        "events": [event.model_dump()],
+    }), encoding="utf-8")
+    assert service.get_cached_regulatory_snapshot() == ([], "unavailable")
 
 
 def test_paper_return_uses_verified_cash_dividend_price_factor():
