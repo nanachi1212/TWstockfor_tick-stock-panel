@@ -86,6 +86,14 @@ export function TaiwanScreener() {
     onMutate: () => setForwardPreview(null),
     onSuccess: setForwardPreview,
   })
+  const updateTaiwanDataMutation = useMutation({
+    mutationFn: api.taiwanUpdateLatest,
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: QK.taiwanDataStatus })
+      forwardPreviewMutation.mutate()
+      toast.success('資料更新完成，已重新檢查前瞻資料狀態')
+    },
+  })
   const lockForwardBatchMutation = useMutation({
     mutationFn: () => api.selectionReview.lockForwardBatch(),
     onSuccess: (batch) => {
@@ -102,7 +110,7 @@ export function TaiwanScreener() {
     status: forwardPreview.data_dates?.daily_as_of ? 'available' as const : 'unavailable' as const,
     targetTradeDate: forwardPreview.risk_target_date ?? null,
     targetTradeDateStatus: null,
-    lockAllowed: !!forwardPreview.items.length && forwardPreview.quote_coverage_status === 'verified' && forwardPreview.trend_adjustment_status === 'verified',
+    lockAllowed: !!forwardPreview.items.length && forwardPreview.quote_coverage_status === 'verified' && forwardPreview.trend_adjustment_status === 'verified' && forwardPreview.risk_source_status === 'available' && !forwardPreview.risk_unknown_count,
     candidates: forwardPreview.items.slice(0, 20).map((item, index) => ({
       symbol: item.symbol,
       name: item.name,
@@ -117,14 +125,14 @@ export function TaiwanScreener() {
       rank: index + 1,
     })),
     knownRisks: [
-      ...(forwardPreview.risk_source_status === 'unavailable' ? ['事件風險來源不可用'] : []),
+      ...(forwardPreview.risk_source_status !== 'available' ? [`事件風險資料：${forwardPreview.risk_source_status === 'partial' ? '部分來源未更新' : '未更新'}`] : []),
       ...(forwardPreview.risk_unknown_count ? [`${forwardPreview.risk_unknown_count} 檔事件風險未知`] : []),
     ],
     missingData: [
-      ...(forwardPreview.quote_coverage_status === 'unavailable' ? ['行情覆蓋無法驗證'] : []),
+      ...(forwardPreview.quote_coverage_status !== 'verified' ? ['行情覆蓋：未驗證'] : []),
       ...(forwardPreview.missing_quote_count ? [`${forwardPreview.missing_quote_count} 檔缺行情`] : []),
-      ...(forwardPreview.trend_adjustment_status !== 'verified' ? [`公司行動調整狀態：${forwardPreview.trend_adjustment_status ?? '未知'}`] : []),
-      ...(forwardPreview.degraded_sections ?? []),
+      ...(forwardPreview.trend_adjustment_status !== 'verified' ? [`公司行動：${forwardPreview.trend_adjustment_status ?? '未驗證'}`] : []),
+      ...(forwardPreview.degraded_sections ?? []).map(section => section === 'trend_history' ? '部分標的缺可用價格，已排除' : section),
     ],
   } : null
 
@@ -573,7 +581,7 @@ export function TaiwanScreener() {
     isLoading: isStatusLoading,
     isError: isStatusError,
   } = useQuery({
-    queryKey: ['taiwanDataStatus'],
+    queryKey: QK.taiwanDataStatus,
     queryFn: () => api.taiwanDataStatus(),
     staleTime: 5 * 60 * 1000,
   })
@@ -748,10 +756,11 @@ export function TaiwanScreener() {
 
       <SelectionForwardPanel
         preview={forwardPreviewView}
-        pending={forwardPreviewMutation.isPending || lockForwardBatchMutation.isPending}
+        pending={forwardPreviewMutation.isPending || lockForwardBatchMutation.isPending || updateTaiwanDataMutation.isPending}
         lockError={lockForwardBatchMutation.error instanceof Error ? lockForwardBatchMutation.error.message : null}
         dryRunError={forwardPreviewMutation.error instanceof Error ? forwardPreviewMutation.error.message : null}
         onDryRun={() => { lockForwardBatchMutation.reset(); forwardPreviewMutation.mutate() }}
+        onRefreshData={() => updateTaiwanDataMutation.mutate()}
         onLockOfficialBatch={() => lockForwardBatchMutation.mutate()}
       />
 

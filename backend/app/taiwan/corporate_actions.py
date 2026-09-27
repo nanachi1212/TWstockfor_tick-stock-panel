@@ -16,7 +16,7 @@ from collections import defaultdict
 from collections.abc import Iterable
 from dataclasses import asdict, dataclass, replace
 from datetime import date, datetime, time
-from decimal import ROUND_DOWN, Decimal, InvalidOperation
+from decimal import ROUND_DOWN, ROUND_HALF_UP, Decimal, InvalidOperation
 from pathlib import Path
 from typing import Any
 
@@ -230,11 +230,21 @@ def derive_factor(event: CorporateActionEvent) -> CorporateActionEvent:
                 raise ValueError("negative dividend or share ratio")
             reference = (previous - cash_decimal) / (1 + free_decimal)
             if _trunc2(reference) != published_ref:
-                raise ValueError("TPEx reference mismatch")
+                # TPEx currently publishes the two-decimal reference using
+                # half-up display rounding. Keep the audited truncation path,
+                # but accept the published rounded value only when it is the
+                # exact official two-decimal representation of the same
+                # dividend calculation.
+                rounded = reference.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+                if rounded != published_ref:
+                    raise ValueError("TPEx reference mismatch")
+                reference = published_ref
+                method = "tpex_dividend_fields_published_rounding"
+            else:
+                method = "tpex_dividend_fields_recomputed"
             cash, free = float(cash_decimal), float(free_decimal)
             kind = ("stock_dividend" if free > 0 else
                     "cash_dividend" if cash > 0 else "cash_capital_increase")
-            method = "tpex_dividend_fields_recomputed"
         if reference <= 0:
             raise ValueError("nonpositive derived reference")
         return replace(event, reference_price=float(reference), factor=float(reference / previous),
@@ -304,7 +314,7 @@ class CorporateActionStore:
             data_dir = taiwan_data_root() / "adj_factor"
         self.path = Path(data_dir) / "events.parquet"
 
-    def _read_observations(self) -> list[CorporateActionEvent]:
+    def _read_observations(self, *, migrate_parser_artifacts: bool = True) -> list[CorporateActionEvent]:
         if not self.path.exists():
             return []
         frame = pl.read_parquet(self.path)
@@ -326,7 +336,15 @@ class CorporateActionStore:
             if missing:
                 values.update(status="data_insufficient", factor=None,
                               reason="legacy_schema_missing:" + ",".join(sorted(missing)))
-            result.append(CorporateActionEvent(**values))
+            event = CorporateActionEvent(**values)
+            # The original TPEx parser used truncation for a subset of
+            # two-decimal official references.  Re-evaluate only that known
+            # parser artifact from its preserved raw fields; other
+            # data-insufficient events remain fail-closed.
+            if (migrate_parser_artifacts and event.status == "data_insufficient"
+                    and event.reason == "TPEx reference mismatch"):
+                event = derive_factor(replace(event, reason=None))
+            result.append(event)
         return result
 
     def read(self) -> tuple[CorporateActionEvent, ...]:
@@ -335,7 +353,8 @@ class CorporateActionStore:
     def snapshot_digest(self) -> str:
         """Identity of the stored observations; bound to the coverage marker."""
         digest = hashlib.sha256()
-        for value in sorted(event.content_hash for event in self._read_observations()):
+        for value in sorted(event.content_hash for event in self._read_observations(
+                migrate_parser_artifacts=False)):
             digest.update(value.encode("ascii"))
         return digest.hexdigest()
 

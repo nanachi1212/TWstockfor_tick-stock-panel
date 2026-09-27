@@ -135,6 +135,16 @@ def test_tpex_recompute_mismatch_fails_closed():
     assert derive_factor(parsed("exDailyQ", **{"現金股利": "3"})).status == "data_insufficient"
 
 
+def test_tpex_published_half_up_reference_is_verified():
+    event = derive_factor(parsed("exDailyQ", **{
+        "除權息前收盤價": "58", "除權息參考價": "55.24",
+        "減除股利參考價": "55.24", "現金股利": "0",
+        "每仟股無償配股": "50", "權/息": "除權"}))
+    assert event.status == "verified"
+    assert event.reference_price == 55.24
+    assert event.precision_method == "tpex_dividend_fields_published_rounding"
+
+
 def test_tpex_live_audited_3105_20250613_field_values():
     event = derive_factor(parsed("exDailyQ", **{
         "代號": "3105", "除權息前收盤價": "88.00", "除權息參考價": "87.00",

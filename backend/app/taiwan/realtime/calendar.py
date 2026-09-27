@@ -103,10 +103,11 @@ class TaiwanTradingCalendar:
         cursor = after + timedelta(days=1)
         for _ in range(30):
             evidence = self.day_evidence(cursor, "TWSE")
-            if (evidence.status == "non_trading"
-                    and evidence.evidence_source == "calendar_rule"
+            if (evidence.status in {"unresolved", "non_trading"}
                     and observed_evidence is not None):
-                evidence = observed_evidence(cursor)
+                observed = observed_evidence(cursor)
+                if evidence.status == "unresolved" or observed.status == "trading":
+                    evidence = observed
             if evidence.status != "non_trading":
                 return cursor
             cursor += timedelta(days=1)

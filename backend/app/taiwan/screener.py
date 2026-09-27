@@ -272,7 +272,11 @@ class TaiwanScreenerService:
         self._fundamental_chips_service = fundamental_chips_service
         self.action_store = action_store or CorporateActionStore()
         self.calendar = calendar or TaiwanTradingCalendar()
-        self.census_store = census_store
+        # Forward readiness depends on official observed-universe evidence.
+        # Keep the dependency injectable for tests, but use the authoritative
+        # local store by default so normal screening has the same evidence as
+        # the lock path.
+        self.census_store = census_store or ObservedUniverseStore()
 
     def _get_fundamental_chips_service(self):
         if self._fundamental_chips_service is None:
@@ -367,6 +371,8 @@ class TaiwanScreenerService:
 
         # Step 6: Batch Join Institutional & Margin
         combined, inst_date, margin_date, degraded = self._join_institutional_margin(combined, valid_symbols)
+        if req.preset == "trend_liquidity_v1" and trend_degraded_section:
+            degraded = [*degraded, trend_degraded_section]
 
         # Step 6.5: Batch Join Cached Fundamentals & Chips
         combined, fund_count, chips_count = self._join_cached_fundamentals_chips(combined, valid_symbols)
@@ -555,6 +561,7 @@ class TaiwanScreenerService:
         complete = (hist.group_by("symbol").agg(pl.col("date").n_unique().alias("days"))
                     .filter(pl.col("days") == len(dates))["symbol"].to_list())
         skipped = 0
+        adjustment_unverified = False
         hist = hist.filter(pl.col("symbol").is_in(complete))
         if hist.is_empty():
             return None, "unavailable", "trend_history"
@@ -572,11 +579,15 @@ class TaiwanScreenerService:
             )
             if adjusted.status != "verified":
                 skipped += 1
+                if any(event.status != "verified" for event in symbol_events):
+                    adjustment_unverified = True
                 continue
             adjusted_parts.append(adjusted.to_frame().select("symbol", "date", "close"))
         adjusted_hist = pl.concat(adjusted_parts).sort("symbol", "date")
         if adjusted_hist.is_empty():
-            return pl.DataFrame(), "partial" if skipped else "verified", None
+            return pl.DataFrame(), "partial" if adjustment_unverified else "verified", (
+                "trend_history" if skipped else None
+            )
         latest = (adjusted_hist.with_columns(
             pl.col("close").rolling_mean(20).over("symbol").alias("trend_ma20"),
             (pl.col("close") / pl.col("close").shift(5).over("symbol") - 1.0)
@@ -585,7 +596,9 @@ class TaiwanScreenerService:
             .filter(pl.col("date") == pl.col("_latest"))
             .select("symbol", pl.col("close").alias("trend_adjusted_close"),
                     "trend_ma20", "trend_momentum_5d"))
-        return latest, "partial" if skipped else "verified", None
+        return latest, "partial" if adjustment_unverified else "verified", (
+            "trend_history" if skipped else None
+        )
 
     def _recent_verified_sessions(self, as_of: date, count: int) -> list[date] | None:
         """Do not bridge an absent weekday that might be a lost daily partition."""
