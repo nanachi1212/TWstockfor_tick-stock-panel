@@ -578,7 +578,7 @@ class TaiwanSelectionReviewService:
         if cached and cached[0] == fingerprint:
             return cached[1]
         review = self._get_forward_batch_review(snapshot)
-        if review.evaluated_items and all(
+        if all(
             item.entry_status != "pending"
             and getattr(item, f"h{horizon}d_status") != "pending"
             and getattr(item, f"h{horizon}d_bm_status") != "pending"

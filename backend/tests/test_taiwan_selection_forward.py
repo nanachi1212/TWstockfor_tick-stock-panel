@@ -597,6 +597,30 @@ def test_unavailable_forward_review_cache_recovers_when_benchmark_arrives(tmp_pa
     assert next(iter(svc._completed_forward_reviews.values()))[1].evaluated_items[0].h20d_bm_status == "completed"
 
 
+def test_empty_formal_batch_review_is_cached(tmp_path, monkeypatch):
+    svc, source, sessions = _seed(tmp_path)
+    monkeypatch.setattr("app.taiwan.selection_review_service.taipei_now", lambda: _clock(source))
+
+    class EmptyScreener(_FixedScreener):
+        def run(self, request):
+            return super().run(request).model_copy(update={"items": [], "total": 0})
+
+    batch = svc.lock_forward_batch(EmptyScreener(source))
+    monkeypatch.setattr("app.taiwan.selection_review_service.taipei_now", lambda: _clock(sessions[-1]))
+    original_review = svc._get_forward_batch_review
+    calls = []
+
+    def counted_review(snapshot):
+        calls.append(snapshot.snapshot_id)
+        return original_review(snapshot)
+
+    monkeypatch.setattr(svc, "_get_forward_batch_review", counted_review)
+    assert svc.get_forward_batch_stats().picks_count == 0
+    assert len(svc.list_snapshots("forward_batch")) == 1
+    assert svc.get_snapshot_review(batch.snapshot_id).evaluated_items == []
+    assert calls == [batch.snapshot_id]
+
+
 def test_research_hit_rate_uses_unrounded_return(tmp_path):
     svc, source, _ = _seed(tmp_path)
     svc.save_snapshot(SaveSelectionSnapshotRequest(
