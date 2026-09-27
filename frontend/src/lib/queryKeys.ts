@@ -117,6 +117,9 @@ export const QK = {
   // Selection Review (A12)
   selectionSnapshots:   (strategyId?: string) => ['selection-snapshots', strategyId ?? 'all'] as const,
   selectionSnapshotDetail: (snapshotId: string) => ['selection-snapshot-detail', snapshotId] as const,
+  selectionForwardBatches: ['selection-forward-batches'] as const,
+  selectionForwardBatchDetail: (batchId: string) => ['selection-forward-batch-detail', batchId] as const,
+  selectionForwardStats: ['selection-forward-stats'] as const,
   selectionStrategyStats: ['selection-strategy-stats'] as const,
   selectionConditionStats: ['selection-condition-stats'] as const,
 

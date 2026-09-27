@@ -36,6 +36,7 @@ import {
 import {
   api,
   type TaiwanScreenerRequest,
+  type TaiwanScreenerResponse,
   type ScreenerResultItem,
   type TaiwanScreenerTranslation,
   type TaiwanScreenerStrategy,
@@ -48,6 +49,7 @@ import { TaiwanRuleEditorDialog } from '@/components/monitor/TaiwanRuleEditorDia
 import { loadLastCompareSymbols, mergeSymbolIntoCompare } from '@/lib/taiwanCompareSymbols'
 import { CopyButton } from '@/components/CopyButton'
 import { formatScreenerCopy, formatScreenerPrompt } from '@/lib/copy-formatters'
+import { SelectionForwardPanel } from '@/components/selection/SelectionForwardPanel'
 
 export function TaiwanScreener() {
   const navigate = useNavigate()
@@ -77,6 +79,54 @@ export function TaiwanScreener() {
     navigate(`/stocks/compare?symbols=${encodeURIComponent(merged.join(','))}`)
   }
   const [monitorSymbol, setMonitorSymbol] = useState<string | null>(null)
+  const [forwardPreview, setForwardPreview] = useState<TaiwanScreenerResponse | null>(null)
+
+  const forwardPreviewMutation = useMutation({
+    mutationFn: () => api.taiwanScreenerRun({ preset: 'trend_liquidity_v1' }),
+    onMutate: () => setForwardPreview(null),
+    onSuccess: setForwardPreview,
+  })
+  const lockForwardBatchMutation = useMutation({
+    mutationFn: () => api.selectionReview.lockForwardBatch(),
+    onSuccess: (batch) => {
+      qc.invalidateQueries({ queryKey: QK.selectionForwardBatches })
+      qc.invalidateQueries({ queryKey: QK.selectionForwardStats })
+      navigate(`/selection-review?tab=forward&batch_id=${encodeURIComponent(batch.snapshot_id)}`)
+    },
+  })
+
+  const forwardPreviewView = forwardPreview ? {
+    dataDate: forwardPreview.data_dates?.daily_as_of ?? null,
+    ruleVersion: 'trend_liquidity_v1',
+    rankingBasis: '5 日動能由高至低，同分依成交金額排序',
+    status: forwardPreview.data_dates?.daily_as_of ? 'available' as const : 'unavailable' as const,
+    targetTradeDate: forwardPreview.risk_target_date ?? null,
+    targetTradeDateStatus: null,
+    lockAllowed: !!forwardPreview.items.length && forwardPreview.quote_coverage_status === 'verified' && forwardPreview.trend_adjustment_status === 'verified',
+    candidates: forwardPreview.items.slice(0, 20).map((item, index) => ({
+      symbol: item.symbol,
+      name: item.name,
+      referencePrice: item.close ?? null,
+      knownRisks: item.risk_status === 'unknown' ? ['事件風險未知'] : [],
+      missingData: [
+        ...(item.close == null ? ['參考收盤價'] : []),
+        ...(item.quote_date == null ? ['行情日期'] : []),
+        ...(item.momentum_5d == null ? ['5 日動能'] : []),
+        ...(item.risk_status == null ? ['事件風險狀態'] : []),
+      ],
+      rank: index + 1,
+    })),
+    knownRisks: [
+      ...(forwardPreview.risk_source_status === 'unavailable' ? ['事件風險來源不可用'] : []),
+      ...(forwardPreview.risk_unknown_count ? [`${forwardPreview.risk_unknown_count} 檔事件風險未知`] : []),
+    ],
+    missingData: [
+      ...(forwardPreview.quote_coverage_status === 'unavailable' ? ['行情覆蓋無法驗證'] : []),
+      ...(forwardPreview.missing_quote_count ? [`${forwardPreview.missing_quote_count} 檔缺行情`] : []),
+      ...(forwardPreview.trend_adjustment_status !== 'verified' ? [`公司行動調整狀態：${forwardPreview.trend_adjustment_status ?? '未知'}`] : []),
+      ...(forwardPreview.degraded_sections ?? []),
+    ],
+  } : null
 
   // Filter states
   const [exchange, setExchange] = useState<'ALL' | 'TWSE' | 'TPEX'>('ALL')
@@ -695,6 +745,15 @@ export function TaiwanScreener() {
           </div>
         )}
       </div>
+
+      <SelectionForwardPanel
+        preview={forwardPreviewView}
+        pending={forwardPreviewMutation.isPending || lockForwardBatchMutation.isPending}
+        lockError={lockForwardBatchMutation.error instanceof Error ? lockForwardBatchMutation.error.message : null}
+        dryRunError={forwardPreviewMutation.error instanceof Error ? forwardPreviewMutation.error.message : null}
+        onDryRun={() => { lockForwardBatchMutation.reset(); forwardPreviewMutation.mutate() }}
+        onLockOfficialBatch={() => lockForwardBatchMutation.mutate()}
+      />
 
       {/* Data Operations Visibility Panel (Phase 6C) */}
       <div className="bg-zinc-900/90 border border-zinc-800 rounded-xl p-4 text-xs">

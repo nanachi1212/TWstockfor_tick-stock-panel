@@ -95,6 +95,8 @@ class HorizonReviewItem(BaseModel):
     event_risk_summary: str | None = None
 
     # 1D horizon (optional / bonus)
+    h1d_reference_close_return_pct: float | None = None
+    h1d_reference_close_status: HorizonStatus = "pending"
     h1d_price: float | None = None
     h1d_return_pct: float | None = None
     h1d_raw_return_pct: float | None = None
@@ -104,6 +106,8 @@ class HorizonReviewItem(BaseModel):
     h1d_excess_pct: float | None = None
 
     # 5D horizon
+    h5d_reference_close_return_pct: float | None = None
+    h5d_reference_close_status: HorizonStatus = "pending"
     h5d_price: float | None = None
     h5d_return_pct: float | None = None
     h5d_raw_return_pct: float | None = None
@@ -113,6 +117,8 @@ class HorizonReviewItem(BaseModel):
     h5d_excess_pct: float | None = None
 
     # 20D horizon
+    h20d_reference_close_return_pct: float | None = None
+    h20d_reference_close_status: HorizonStatus = "pending"
     h20d_price: float | None = None
     h20d_return_pct: float | None = None
     h20d_raw_return_pct: float | None = None
@@ -136,9 +142,24 @@ class SnapshotReviewDetail(BaseModel):
     evaluated_items: list[HorizonReviewItem] = Field(default_factory=list)
 
     h1d_evaluated_count: int = 0
+    h1d_avg_return_pct: float | None = None
+    h1d_bm_avg_return_pct: float | None = None
+    h1d_avg_excess_pct: float | None = None
+    h1d_bm_evaluated_count: int = 0
+    h1d_excess_evaluated_count: int = 0
+    h1d_reference_close_evaluated_count: int = 0
+    h1d_reference_close_avg_return_pct: float | None = None
 
     h5d_evaluated_count: int = 0
+    h5d_reference_close_evaluated_count: int = 0
+    h5d_reference_close_avg_return_pct: float | None = None
+    h5d_bm_evaluated_count: int = 0
+    h5d_excess_evaluated_count: int = 0
     h20d_evaluated_count: int = 0
+    h20d_reference_close_evaluated_count: int = 0
+    h20d_reference_close_avg_return_pct: float | None = None
+    h20d_bm_evaluated_count: int = 0
+    h20d_excess_evaluated_count: int = 0
 
     h5d_avg_return_pct: float | None = None
     h20d_avg_return_pct: float | None = None
@@ -163,14 +184,35 @@ class ForwardBatchStats(BaseModel):
     h1d_pending_count: int = 0
     h1d_unavailable_count: int = 0
     h1d_hit_rate_pct: float | None = None
+    h1d_avg_return_pct: float | None = None
+    h1d_bm_evaluated_count: int = 0
+    h1d_bm_avg_return_pct: float | None = None
+    h1d_excess_evaluated_count: int = 0
+    h1d_avg_excess_pct: float | None = None
+    h1d_reference_close_evaluated_count: int = 0
+    h1d_reference_close_avg_return_pct: float | None = None
     h5d_evaluated_count: int = 0
     h5d_pending_count: int = 0
     h5d_unavailable_count: int = 0
     h5d_hit_rate_pct: float | None = None
+    h5d_avg_return_pct: float | None = None
+    h5d_bm_evaluated_count: int = 0
+    h5d_bm_avg_return_pct: float | None = None
+    h5d_excess_evaluated_count: int = 0
+    h5d_avg_excess_pct: float | None = None
+    h5d_reference_close_evaluated_count: int = 0
+    h5d_reference_close_avg_return_pct: float | None = None
     h20d_evaluated_count: int = 0
     h20d_pending_count: int = 0
     h20d_unavailable_count: int = 0
     h20d_hit_rate_pct: float | None = None
+    h20d_avg_return_pct: float | None = None
+    h20d_bm_evaluated_count: int = 0
+    h20d_bm_avg_return_pct: float | None = None
+    h20d_excess_evaluated_count: int = 0
+    h20d_avg_excess_pct: float | None = None
+    h20d_reference_close_evaluated_count: int = 0
+    h20d_reference_close_avg_return_pct: float | None = None
     hit_rate_definition: str = "未四捨五入報酬率 > 0%"
 
 

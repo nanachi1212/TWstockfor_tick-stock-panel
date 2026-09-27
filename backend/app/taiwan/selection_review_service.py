@@ -409,6 +409,10 @@ class TaiwanSelectionReviewService:
             end: self._verified_action_events(target, end)
             for end in set(needed) if entry_valid and today >= market_close(end)
         }
+        reference_events_by_end = {
+            end: self._verified_action_events(source, end)
+            for end in set(needed) if today >= market_close(end)
+        }
         bm_returns: dict[date, float | None] = {}
         for end, events in events_by_end.items():
             bm_entry = prices.get(target, {}).get(DEFAULT_BENCHMARK_SYMBOL)
@@ -451,6 +455,32 @@ class TaiwanSelectionReviewService:
                 end = sessions[horizon - 1] if len(sessions) >= horizon and entry_valid else None
                 prefix = f"h{horizon}d"
                 due = end or self._potential_horizon_due(source, horizon)
+                reference_key = f"{prefix}_reference_close"
+                reference_end = prices.get(end, {}).get(pick.symbol) if end else None
+                reference_events = reference_events_by_end.get(end) if end else None
+                reference_expired = end is None and today >= market_close(due)
+                if target_closed or reference_expired:
+                    setattr(result, f"{reference_key}_status", "unavailable")
+                    result.status_reasons[reference_key] = (
+                        "scheduled_entry_day_closed" if target_closed else "trading_day_unverified"
+                    )
+                elif end is None or today < market_close(end):
+                    setattr(result, f"{reference_key}_status", "pending")
+                elif reference_end is None or reference_events is None:
+                    setattr(result, f"{reference_key}_status", "unavailable")
+                    result.status_reasons[reference_key] = (
+                        "missing_horizon_close" if reference_end is None
+                        else "corporate_action_coverage_unavailable"
+                    )
+                else:
+                    reference_return = self._reference_close_return(
+                        pick.symbol, source, end, pick.price, reference_end, reference_events,
+                    )
+                    setattr(result, f"{reference_key}_return_pct", reference_return)
+                    setattr(result, f"{reference_key}_status",
+                            "completed" if reference_return is not None else "unavailable")
+                    if reference_return is None:
+                        result.status_reasons[reference_key] = "price_adjustment_unavailable"
                 if target_closed or end is None or today < market_close(end):
                     unresolved_expired = end is None and today >= market_close(due)
                     setattr(result, f"{prefix}_status",
@@ -508,10 +538,23 @@ class TaiwanSelectionReviewService:
                          if getattr(item, f"{prefix}_bm_return_pct") is not None]
             excess = [getattr(item, f"{prefix}_excess_pct") for item in evaluated
                       if getattr(item, f"{prefix}_excess_pct") is not None]
+            reference_returns = [getattr(item, f"{prefix}_reference_close_return_pct") for item in evaluated
+                                 if getattr(item, f"{prefix}_reference_close_status") == "completed"]
+            setattr(detail, f"{prefix}_reference_close_evaluated_count", len(reference_returns))
+            setattr(detail, f"{prefix}_reference_close_avg_return_pct",
+                    round(sum(reference_returns) / len(reference_returns), 2) if reference_returns else None)
             if horizon == 1:
                 detail.h1d_evaluated_count = len(returns)
-            if horizon in (5, 20):
+            if horizon == 1:
+                detail.h1d_avg_return_pct = round(sum(returns) / len(returns), 2) if returns else None
+                detail.h1d_bm_evaluated_count = len(benchmark)
+                detail.h1d_bm_avg_return_pct = round(sum(benchmark) / len(benchmark), 2) if benchmark else None
+                detail.h1d_excess_evaluated_count = len(excess)
+                detail.h1d_avg_excess_pct = round(sum(excess) / len(excess), 2) if excess else None
+            else:
                 setattr(detail, f"{prefix}_evaluated_count", len(returns))
+                setattr(detail, f"{prefix}_bm_evaluated_count", len(benchmark))
+                setattr(detail, f"{prefix}_excess_evaluated_count", len(excess))
                 setattr(detail, f"{prefix}_avg_return_pct",
                         round(sum(returns) / len(returns), 2) if returns else None)
                 setattr(detail, f"{prefix}_bm_avg_return_pct",
@@ -523,6 +566,26 @@ class TaiwanSelectionReviewService:
             setattr(detail, f"{prefix}_unavailable_count",
                     sum(getattr(i, f"{prefix}_status") == "unavailable" for i in evaluated))
         return detail
+
+    @staticmethod
+    def _reference_close_return(symbol, start, end, reference_close, exit_row, events) -> float | None:
+        """Adjusted price return from the locked source close to the horizon close."""
+        try:
+            exit_close = exit_row.get("close") if exit_row else None
+            if (reference_close is None or exit_close is None
+                    or float(reference_close) <= 0 or float(exit_close) <= 0):
+                return None
+            frame = pl.DataFrame({
+                "symbol": [symbol, symbol], "date": [start, end],
+                "close": [float(reference_close), float(exit_close)],
+            }).with_columns(pl.col("date").cast(pl.Date))
+            adjusted = adjust_prices_as_of(frame, as_of=end, events=events, price_columns=("close",))
+            if adjusted.status != "verified":
+                return None
+            rows = adjusted.to_frame().sort("date")
+            return (float(rows["close"][-1]) / float(rows["close"][0]) - 1) * 100
+        except (ValueError, TypeError, ZeroDivisionError):
+            return None
 
     @staticmethod
     def _paper_return(symbol, start, end, entry, exit_row, events) -> float | None:
@@ -556,6 +619,13 @@ class TaiwanSelectionReviewService:
             items = [item for review in reviews if review for item in review.evaluated_items]
             returns = [getattr(item, f"{prefix}_raw_return_pct") for item in items
                        if getattr(item, f"{prefix}_status") == "completed"]
+            benchmark = [getattr(item, f"{prefix}_bm_return_pct") for item in items
+                         if getattr(item, f"{prefix}_bm_status") == "completed"
+                         and getattr(item, f"{prefix}_bm_return_pct") is not None]
+            excess = [getattr(item, f"{prefix}_excess_pct") for item in items
+                      if getattr(item, f"{prefix}_excess_pct") is not None]
+            reference_returns = [getattr(item, f"{prefix}_reference_close_return_pct") for item in items
+                                 if getattr(item, f"{prefix}_reference_close_status") == "completed"]
             setattr(stats, f"{prefix}_evaluated_count", len(returns))
             setattr(stats, f"{prefix}_pending_count",
                     sum(getattr(item, f"{prefix}_status") == "pending" for item in items))
@@ -564,6 +634,18 @@ class TaiwanSelectionReviewService:
             setattr(stats, f"{prefix}_hit_rate_pct",
                     round(sum(value > 0 for value in returns) / len(returns) * 100, 1)
                     if returns else None)
+            setattr(stats, f"{prefix}_avg_return_pct",
+                    round(sum(returns) / len(returns), 2) if returns else None)
+            setattr(stats, f"{prefix}_bm_evaluated_count", len(benchmark))
+            setattr(stats, f"{prefix}_bm_avg_return_pct",
+                    round(sum(benchmark) / len(benchmark), 2) if benchmark else None)
+            setattr(stats, f"{prefix}_excess_evaluated_count", len(excess))
+            setattr(stats, f"{prefix}_avg_excess_pct",
+                    round(sum(excess) / len(excess), 2) if excess else None)
+            setattr(stats, f"{prefix}_reference_close_evaluated_count", len(reference_returns))
+            setattr(stats, f"{prefix}_reference_close_avg_return_pct",
+                    round(sum(reference_returns) / len(reference_returns), 2)
+                    if reference_returns else None)
         return stats
 
     def _cached_forward_review(

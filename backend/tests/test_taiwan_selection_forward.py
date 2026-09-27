@@ -376,6 +376,8 @@ def test_horizon_does_not_slide_and_benchmark_missing_is_explicit(tmp_path, monk
     assert item.h1d_status == "completed"
     assert item.h1d_return_pct == 0.0
     assert item.h1d_raw_return_pct > 0
+    assert item.h1d_reference_close_status == "completed"
+    assert item.h1d_reference_close_return_pct == pytest.approx((100.004 / 101.0 - 1) * 100)
     assert item.h5d_status == "unavailable"
     assert item.h5d_return_pct is None
     assert item.h20d_status == "completed"
@@ -384,6 +386,9 @@ def test_horizon_does_not_slide_and_benchmark_missing_is_explicit(tmp_path, monk
     assert detail.h5d_unavailable_count == 1
     stats = svc.get_forward_batch_stats()
     assert stats.h1d_hit_rate_pct == 100.0
+    assert stats.h1d_avg_return_pct is not None
+    assert stats.h1d_reference_close_evaluated_count == 1
+    assert stats.h1d_bm_evaluated_count == 1
     assert stats.h5d_unavailable_count == 1
 
 

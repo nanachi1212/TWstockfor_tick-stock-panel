@@ -1,6 +1,6 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest'
 import { render, screen, waitFor, fireEvent } from '@testing-library/react'
-import { MemoryRouter } from 'react-router-dom'
+import { MemoryRouter, useNavigate } from 'react-router-dom'
 import { QueryClientProvider, QueryClient } from '@tanstack/react-query'
 import { SelectionReview } from './SelectionReview'
 import { api } from '@/lib/api'
@@ -10,6 +10,10 @@ vi.mock('@/lib/api', () => ({
     selectionReview: {
       listSnapshots: vi.fn(),
       getSnapshotDetail: vi.fn(),
+      listForwardBatches: vi.fn(),
+      getForwardBatchDetail: vi.fn(),
+      getForwardBatchStats: vi.fn(),
+      lockForwardBatch: vi.fn(),
       deleteSnapshot: vi.fn(),
       getStrategyStats: vi.fn(),
       getConditionStats: vi.fn(),
@@ -27,9 +31,90 @@ function createTestQueryClient() {
   })
 }
 
+function BackNavigationControl() {
+  const navigate = useNavigate()
+  return <button type="button" onClick={() => navigate(-1)}>返回前一頁</button>
+}
+
 describe('SelectionReview Page (A12)', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    vi.mocked(api.selectionReview.listSnapshots).mockResolvedValue([] as any)
+    vi.mocked(api.selectionReview.listForwardBatches).mockResolvedValue([] as any)
+    vi.mocked(api.selectionReview.getForwardBatchStats).mockResolvedValue({
+      batches_count: 0, picks_count: 0,
+      h1d_evaluated_count: 0, h1d_pending_count: 0, h1d_unavailable_count: 0, h1d_hit_rate_pct: null, h1d_avg_return_pct: null, h1d_bm_evaluated_count: 0, h1d_bm_avg_return_pct: null, h1d_excess_evaluated_count: 0, h1d_avg_excess_pct: null, h1d_reference_close_evaluated_count: 0, h1d_reference_close_avg_return_pct: null,
+      h5d_evaluated_count: 0, h5d_pending_count: 0, h5d_unavailable_count: 0, h5d_hit_rate_pct: null, h5d_avg_return_pct: null, h5d_bm_evaluated_count: 0, h5d_bm_avg_return_pct: null, h5d_excess_evaluated_count: 0, h5d_avg_excess_pct: null, h5d_reference_close_evaluated_count: 0, h5d_reference_close_avg_return_pct: null,
+      h20d_evaluated_count: 0, h20d_pending_count: 0, h20d_unavailable_count: 0, h20d_hit_rate_pct: null, h20d_avg_return_pct: null, h20d_bm_evaluated_count: 0, h20d_bm_avg_return_pct: null, h20d_excess_evaluated_count: 0, h20d_avg_excess_pct: null, h20d_reference_close_evaluated_count: 0, h20d_reference_close_avg_return_pct: null,
+      hit_rate_definition: '未四捨五入報酬率 > 0%',
+    } as any)
+  })
+
+  it('keeps official forward batches separate and does not offer delete or reselection', async () => {
+    const qc = createTestQueryClient()
+    render(
+      <QueryClientProvider client={qc}>
+        <MemoryRouter initialEntries={['/selection-review?tab=forward']}>
+          <SelectionReview />
+        </MemoryRouter>
+      </QueryClientProvider>,
+    )
+
+    expect(await screen.findByRole('heading', { name: '尚無正式前瞻批次' })).toBeInTheDocument()
+    expect(screen.getAllByText('尚無樣本')).toHaveLength(3)
+    expect(screen.queryByTitle('刪除快照')).not.toBeInTheDocument()
+  })
+
+  it('shows a retry state when the formal batch list request fails', async () => {
+    vi.mocked(api.selectionReview.listForwardBatches).mockRejectedValueOnce(new Error('offline')).mockResolvedValueOnce([] as any)
+    render(<QueryClientProvider client={createTestQueryClient()}><MemoryRouter initialEntries={['/selection-review?tab=forward']}><SelectionReview /></MemoryRouter></QueryClientProvider>)
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('尚無法確認是否有批次')
+    expect(screen.queryByRole('heading', { name: '尚無正式前瞻批次' })).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: '重新載入' }))
+    expect(await screen.findByRole('heading', { name: '尚無正式前瞻批次' })).toBeInTheDocument()
+  })
+
+  it('follows browser history changes to the URL-selected tab', async () => {
+    render(<QueryClientProvider client={createTestQueryClient()}><MemoryRouter initialEntries={['/selection-review?tab=snapshots', '/selection-review?tab=forward']}><BackNavigationControl /><SelectionReview /></MemoryRouter></QueryClientProvider>)
+
+    expect(await screen.findByRole('region', { name: '正式前瞻批次' })).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: '返回前一頁' }))
+    await waitFor(() => expect(screen.queryByRole('region', { name: '正式前瞻批次' })).not.toBeInTheDocument())
+  })
+
+  it('loads selected formal batch detail from the real forward batch query', async () => {
+    vi.mocked(api.selectionReview.listForwardBatches).mockResolvedValue([{
+      snapshot_id: 'forward_trend_liquidity_v1_20260925', created_at: '2026-09-25T08:00:00+08:00',
+      strategy_id: 'trend_liquidity_v1', strategy_name: '趨勢流動性 v1', as_of_date: '2026-09-25',
+      selected_count: 1, record_type: 'forward_batch', source_data_date: '2026-09-25',
+      target_trade_date: '2026-09-26', rule_version: 'trend_liquidity_v1',
+    }] as any)
+    vi.mocked(api.selectionReview.getForwardBatchDetail).mockResolvedValue({
+      snapshot: { snapshot_id: 'forward_trend_liquidity_v1_20260925', record_type: 'forward_batch', items: [{ symbol: '2330.TWSE', name: '台積電', rank: 1, price: 1000 }], locked_at: '2026-09-25T08:00:00+08:00', target_trade_date: '2026-09-28', target_trade_date_status: 'scheduled_unverified', rule_version: 'trend_liquidity_v1', price_adjustment: 'split_adjusted_price', cost_assumption: '未扣成本與滑價；紙上開盤價不保證成交' },
+      evaluated_items: [{
+        symbol: '2330.TWSE', name: '台積電', rank: 1, entry_price: 1000, paper_entry_price: 1010,
+        entry_status: 'completed', h1d_reference_close_return_pct: null, h1d_reference_close_status: 'pending', h1d_return_pct: null, h1d_status: 'pending', h1d_bm_return_pct: null, h1d_excess_pct: null,
+        h5d_reference_close_return_pct: null, h5d_reference_close_status: 'pending', h5d_return_pct: null, h5d_status: 'pending', h5d_bm_return_pct: null, h5d_excess_pct: null,
+        h20d_reference_close_return_pct: null, h20d_reference_close_status: 'pending', h20d_return_pct: null, h20d_status: 'pending', h20d_bm_return_pct: null, h20d_excess_pct: null,
+      }],
+      h1d_evaluated_count: 0, h1d_avg_return_pct: null, h1d_bm_avg_return_pct: null, h1d_avg_excess_pct: null, h1d_bm_evaluated_count: 0, h1d_excess_evaluated_count: 0, h1d_reference_close_evaluated_count: 0, h1d_reference_close_avg_return_pct: null, h1d_pending_count: 1, h1d_unavailable_count: 0,
+      h5d_evaluated_count: 0, h5d_pending_count: 1, h5d_unavailable_count: 0,
+      h20d_evaluated_count: 0, h20d_pending_count: 1, h20d_unavailable_count: 0,
+      h5d_reference_close_evaluated_count: 0, h5d_reference_close_avg_return_pct: null, h5d_bm_evaluated_count: 0, h5d_excess_evaluated_count: 0,
+      h20d_reference_close_evaluated_count: 0, h20d_reference_close_avg_return_pct: null, h20d_bm_evaluated_count: 0, h20d_excess_evaluated_count: 0,
+      h5d_avg_return_pct: null, h20d_avg_return_pct: null,
+      h5d_bm_avg_return_pct: null, h20d_bm_avg_return_pct: null,
+      h5d_avg_excess_pct: null, h20d_avg_excess_pct: null,
+    } as any)
+    render(<QueryClientProvider client={createTestQueryClient()}><MemoryRouter initialEntries={['/selection-review?tab=forward&batch_id=forward_trend_liquidity_v1_20260925']}><SelectionReview /></MemoryRouter></QueryClientProvider>)
+    expect(await screen.findByText('台積電 (2330.TWSE)')).toBeInTheDocument()
+    expect(api.selectionReview.getForwardBatchDetail).toHaveBeenCalledWith('forward_trend_liquidity_v1_20260925')
+    expect(api.selectionReview.getForwardBatchDetail).toHaveBeenCalledTimes(1)
+    expect(api.selectionReview.lockForwardBatch).not.toHaveBeenCalled()
+    expect(screen.getByLabelText('正式前瞻批次')).toHaveTextContent('1010.00')
+    expect(screen.getAllByText('追蹤中').length).toBeGreaterThan(0)
+    expect(screen.queryByText('0.00%')).not.toBeInTheDocument()
   })
 
   it('renders snapshot list and displays metrics correctly', async () => {
