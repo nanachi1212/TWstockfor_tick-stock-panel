@@ -204,3 +204,23 @@ def quant_evaluation_status() -> dict[str, Any]:
         evaluation_running=evaluation_running,
         latest_run_state=latest_run_state,
     )
+
+
+@router.get("/historical-pit/trend-liquidity-v1")
+def trend_liquidity_v1_historical_pit() -> dict[str, Any]:
+    """Latest recorded historical PIT artifact; never runs or estimates an evaluation."""
+    from app.taiwan.quant.selection_pit import (
+        TREND_LIQUIDITY_V1_PIT_SPEC,
+        HistoricalPitRunStore,
+        artifact_summary,
+    )
+
+    spec_hash = TREND_LIQUIDITY_V1_PIT_SPEC.fingerprint
+    artifact = HistoricalPitRunStore().latest_for_spec(spec_hash)
+    return {
+        "status": "available" if artifact is not None else "not_run",
+        "record_scope": "historical_pit",
+        "strategy_id": TREND_LIQUIDITY_V1_PIT_SPEC.strategy_id,
+        "spec_fingerprint": spec_hash,
+        "artifact": artifact_summary(artifact) if artifact is not None else None,
+    }
