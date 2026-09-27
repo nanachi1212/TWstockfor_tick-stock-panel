@@ -512,8 +512,9 @@ class TaiwanSelectionReviewService:
             if review is None:
                 review = self._get_forward_batch_review(snapshot)
                 if all(
-                    getattr(item, f"h{horizon}d_status") == "completed"
-                    and getattr(item, f"h{horizon}d_bm_status") == "completed"
+                    item.entry_status != "pending"
+                    and getattr(item, f"h{horizon}d_status") != "pending"
+                    and getattr(item, f"h{horizon}d_bm_status") != "pending"
                     for item in review.evaluated_items for horizon in (1, 5, 20)
                 ) and review.evaluated_items:
                     with self._lock:

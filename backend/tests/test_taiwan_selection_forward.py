@@ -316,6 +316,35 @@ def test_completed_forward_review_cache_invalidates_on_daily_change(tmp_path, mo
     assert len(calls) == 2
 
 
+def test_unavailable_forward_review_cache_recovers_when_benchmark_arrives(tmp_path, monkeypatch):
+    svc, source, sessions = _seed(tmp_path, missing_bm_20d=True)
+    monkeypatch.setattr("app.taiwan.selection_review_service.taipei_now", lambda: _clock(source))
+    svc.lock_forward_batch(_FixedScreener(source))
+    monkeypatch.setattr("app.taiwan.selection_review_service.taipei_now", lambda: _clock(sessions[-1]))
+    original_review = svc._get_forward_batch_review
+    calls = []
+
+    def counted_review(snapshot):
+        calls.append(snapshot.snapshot_id)
+        return original_review(snapshot)
+
+    monkeypatch.setattr(svc, "_get_forward_batch_review", counted_review)
+    first = svc.get_forward_batch_stats()
+    assert first.h20d_evaluated_count == 1
+    assert svc.get_forward_batch_stats() == first
+    assert len(calls) == 1
+
+    day = sessions[-1]
+    svc.daily_store.write_batch(pl.DataFrame([{
+        "symbol": "0050.TWSE", "date": day, "open": 50.0, "high": 51.0,
+        "low": 50.0, "close": 51.0, "volume": 1_000_000.0,
+        "amount": 51_000_000.0, "quote_ts": 0,
+    }]))
+    assert svc.get_forward_batch_stats().h20d_evaluated_count == 1
+    assert len(calls) == 2
+    assert next(iter(svc._completed_forward_reviews.values())).evaluated_items[0].h20d_bm_status == "completed"
+
+
 def test_research_hit_rate_uses_unrounded_return(tmp_path):
     svc, source, _ = _seed(tmp_path)
     svc.save_snapshot(SaveSelectionSnapshotRequest(
