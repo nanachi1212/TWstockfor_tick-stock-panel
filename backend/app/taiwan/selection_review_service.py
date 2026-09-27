@@ -545,23 +545,7 @@ class TaiwanSelectionReviewService:
         if not batches:
             return stats
         inputs = self._forward_review_inputs()
-        reviews: list[SnapshotReviewDetail] = []
-        for snapshot in batches:
-            fingerprint = self._forward_batch_fingerprint(snapshot, inputs)
-            with self._lock:
-                cached = self._completed_forward_reviews.get(snapshot.snapshot_id)
-            review = cached[1] if cached and cached[0] == fingerprint else None
-            if review is None:
-                review = self._get_forward_batch_review(snapshot)
-                if all(
-                    item.entry_status != "pending"
-                    and getattr(item, f"h{horizon}d_status") != "pending"
-                    and getattr(item, f"h{horizon}d_bm_status") != "pending"
-                    for item in review.evaluated_items for horizon in (1, 5, 20)
-                ) and review.evaluated_items:
-                    with self._lock:
-                        self._completed_forward_reviews[snapshot.snapshot_id] = (fingerprint, review)
-            reviews.append(review)
+        reviews = [self._cached_forward_review(snapshot, inputs) for snapshot in batches]
         for horizon in (1, 5, 20):
             prefix = f"h{horizon}d"
             items = [item for review in reviews if review for item in review.evaluated_items]
@@ -576,6 +560,28 @@ class TaiwanSelectionReviewService:
                     round(sum(value > 0 for value in returns) / len(returns) * 100, 1)
                     if returns else None)
         return stats
+
+    def _cached_forward_review(
+        self, snapshot: SelectionSnapshot, inputs: tuple | None = None,
+    ) -> SnapshotReviewDetail:
+        """Share completed formal reviews between stats, list and detail readers."""
+        fingerprint = self._forward_batch_fingerprint(
+            snapshot, inputs if inputs is not None else self._forward_review_inputs()
+        )
+        with self._lock:
+            cached = self._completed_forward_reviews.get(snapshot.snapshot_id)
+        if cached and cached[0] == fingerprint:
+            return cached[1]
+        review = self._get_forward_batch_review(snapshot)
+        if review.evaluated_items and all(
+            item.entry_status != "pending"
+            and getattr(item, f"h{horizon}d_status") != "pending"
+            and getattr(item, f"h{horizon}d_bm_status") != "pending"
+            for item in review.evaluated_items for horizon in (1, 5, 20)
+        ):
+            with self._lock:
+                self._completed_forward_reviews[snapshot.snapshot_id] = (fingerprint, review)
+        return review
 
     def _forward_review_inputs(self) -> tuple:
         """Read local versions once; each batch selects its own date window below."""
@@ -635,7 +641,7 @@ class TaiwanSelectionReviewService:
         if not snapshot:
             return None
         if snapshot.record_type == "forward_batch":
-            return self._get_forward_batch_review(snapshot)
+            return self._cached_forward_review(snapshot)
 
         try:
             as_of_dt = date.fromisoformat(snapshot.as_of_date)
@@ -806,17 +812,23 @@ class TaiwanSelectionReviewService:
             h20d_unavailable_count=sum(i.h20d_status == "unavailable" for i in evaluated_items),
         )
 
-    def list_snapshots(self) -> list[SnapshotListItem]:
-        """List all snapshots with summarized evaluation metrics."""
+    def list_snapshots(self, record_type: str | None = None) -> list[SnapshotListItem]:
+        """List snapshots with summarized evaluation metrics, optionally by record type."""
         with self._lock:
             raw_list = self._read_snapshots_raw()
+        if record_type is not None:
+            raw_list = [s for s in raw_list if s.record_type == record_type]
 
         # Sort newest first
         raw_list.sort(key=lambda s: s.created_at, reverse=True)
+        forward_inputs = self._forward_review_inputs() if any(
+            s.record_type == "forward_batch" for s in raw_list
+        ) else None
 
         result: list[SnapshotListItem] = []
         for s in raw_list:
-            review = self.get_snapshot_review(s.snapshot_id)
+            review = (self._cached_forward_review(s, forward_inputs)
+                      if s.record_type == "forward_batch" else self.get_snapshot_review(s.snapshot_id))
             if review:
                 result.append(
                     SnapshotListItem(

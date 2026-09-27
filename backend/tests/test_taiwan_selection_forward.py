@@ -522,6 +522,9 @@ def test_completed_forward_review_cache_invalidates_on_daily_change(tmp_path, mo
     assert first.h20d_evaluated_count == 1
     assert svc.get_forward_batch_stats() == first
     assert len(calls) == 1
+    assert len(svc.list_snapshots("forward_batch")) == 1
+    assert svc.get_snapshot_review(svc.list_snapshots("forward_batch")[0].snapshot_id)
+    assert len(calls) == 1
 
     unrelated_day = source + timedelta(days=120)
     svc.daily_store.write_batch(pl.DataFrame([{
@@ -595,6 +598,15 @@ def test_forward_api_contract(tmp_path, monkeypatch):
     assert first.status_code == second.status_code == 200
     assert first.json()["snapshot_id"] == second.json()["snapshot_id"]
     assert first.json()["evaluation_basis"] == "next_open"
+    assert client.get("/api/taiwan/selection-review/snapshots").json() == []
+    assert client.get("/api/taiwan/selection-review/snapshots/" + first.json()["snapshot_id"]).status_code == 404
+    formal_list = client.get("/api/taiwan/selection-review/forward-batches").json()
+    assert [item["snapshot_id"] for item in formal_list] == [first.json()["snapshot_id"]]
+    formal_detail = client.get(
+        "/api/taiwan/selection-review/forward-batches/" + first.json()["snapshot_id"]
+    )
+    assert formal_detail.status_code == 200
+    assert formal_detail.json()["snapshot"]["evaluation_basis"] == "next_open"
     assert client.delete("/api/taiwan/selection-review/snapshots/" + first.json()["snapshot_id"]).status_code == 409
     assert client.get("/api/taiwan/selection-review/forward-batches/stats").json()["batches_count"] == 1
 
