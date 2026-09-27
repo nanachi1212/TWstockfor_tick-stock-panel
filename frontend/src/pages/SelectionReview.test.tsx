@@ -30,6 +30,22 @@ function createTestQueryClient() {
 describe('SelectionReview Page (A12)', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    vi.mocked(api.selectionReview.listSnapshots).mockResolvedValue([] as any)
+  })
+
+  it('keeps official forward batches separate from research snapshots until the backend contract is available', async () => {
+    const qc = createTestQueryClient()
+    render(
+      <QueryClientProvider client={qc}>
+        <MemoryRouter initialEntries={['/selection-review?tab=forward']}>
+          <SelectionReview />
+        </MemoryRouter>
+      </QueryClientProvider>,
+    )
+
+    expect(await screen.findByRole('heading', { name: '正式前瞻批次資料尚未接通' })).toBeInTheDocument()
+    expect(screen.getByText(/不會把它們當成正式批次/)).toBeInTheDocument()
+    expect(screen.queryByTitle('刪除快照')).not.toBeInTheDocument()
   })
 
   it('renders snapshot list and displays metrics correctly', async () => {

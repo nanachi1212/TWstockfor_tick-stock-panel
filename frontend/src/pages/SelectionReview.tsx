@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useSearchParams } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import {
   History,
@@ -25,11 +25,13 @@ import { cn } from '@/lib/cn'
 import { CopyButton } from '@/components/CopyButton'
 import { formatSelectionReviewCopy, formatSelectionReviewPrompt } from '@/lib/copy-formatters'
 
-type ReviewTab = 'snapshots' | 'strategies' | 'conditions'
+type ReviewTab = 'snapshots' | 'forward' | 'strategies' | 'conditions'
 
 export function SelectionReview() {
   const qc = useQueryClient()
-  const [activeTab, setActiveTab] = useState<ReviewTab>('snapshots')
+  const [searchParams, setSearchParams] = useSearchParams()
+  const requestedTab = searchParams.get('tab')
+  const [activeTab, setActiveTab] = useState<ReviewTab>(requestedTab === 'forward' ? 'forward' : 'snapshots')
   const [selectedSnapshotId, setSelectedSnapshotId] = useState<string | null>(null)
   const [strategyFilter, setStrategyFilter] = useState<string>('all')
 
@@ -122,6 +124,7 @@ export function SelectionReview() {
           <button
             onClick={() => {
               setActiveTab('snapshots')
+              setSearchParams({})
               setSelectedSnapshotId(null)
             }}
             className={cn(
@@ -132,7 +135,23 @@ export function SelectionReview() {
             )}
           >
             <Layers className="h-4 w-4" />
-            快照復盤
+            研究快照
+          </button>
+          <button
+            onClick={() => {
+              setActiveTab('forward')
+              setSearchParams({ tab: 'forward' })
+              setSelectedSnapshotId(null)
+            }}
+            className={cn(
+              'px-3.5 py-1.5 rounded-md font-medium transition-all flex items-center gap-1.5',
+              activeTab === 'forward'
+                ? 'bg-background text-foreground shadow-sm'
+                : 'text-muted-foreground hover:text-foreground',
+            )}
+          >
+            <Clock className="h-4 w-4" />
+            正式前瞻批次
           </button>
           <button
             onClick={() => setActiveTab('strategies')}
@@ -160,6 +179,16 @@ export function SelectionReview() {
           </button>
         </div>
       </div>
+
+      {activeTab === 'forward' && (
+        <section aria-label="正式前瞻批次" className="rounded-xl border border-dashed border-border/70 bg-card/40 p-8 text-center">
+          <Clock className="mx-auto mb-3 h-9 w-9 text-muted-foreground/50" />
+          <h2 className="font-medium">正式前瞻批次資料尚未接通</h2>
+          <p className="mx-auto mt-2 max-w-lg text-xs text-muted-foreground">
+            核心 API 契約尚未提供。研究快照會留在「研究快照」分頁；此處不會把它們當成正式批次，也不提供重選或刪除操作。
+          </p>
+        </section>
+      )}
 
       {/* TAB 1: 快照復盤 (列表 or 詳情) */}
       {activeTab === 'snapshots' && (

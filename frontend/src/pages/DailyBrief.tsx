@@ -101,7 +101,7 @@ export function DailyBrief() {
     },
   })
 
-  // 6. 保存候選股為快照 Mutation
+  // 6. 保存候選股為研究快照；正式前瞻批次走獨立流程。
   const saveSnapshotMutation = useMutation({
     mutationFn: (candidates: CandidateItem[]) => {
       const today = briefQuery.data?.brief_date || new Date().toISOString().slice(0, 10)
@@ -676,16 +676,25 @@ export function DailyBrief() {
                 </p>
               </div>
 
-              {allCandidates.length > 0 && (
-                <button
-                  onClick={() => saveSnapshotMutation.mutate(allCandidates)}
-                  disabled={saveSnapshotMutation.isPending}
+              <div className="flex flex-wrap gap-2">
+                <Link
+                  to="/selection-review?tab=forward"
                   className="inline-flex items-center gap-1.5 text-xs font-medium bg-secondary text-secondary-foreground hover:bg-secondary/80 border border-border/60 px-3 py-1.5 rounded-lg transition-colors"
                 >
-                  <BookmarkPlus className="h-3.5 w-3.5" />
-                  <span>保存本次為選股快照</span>
-                </button>
-              )}
+                  <History className="h-3.5 w-3.5" />
+                  <span>查看最新正式前瞻批次</span>
+                </Link>
+                {allCandidates.length > 0 && (
+                  <button
+                    onClick={() => saveSnapshotMutation.mutate(allCandidates)}
+                    disabled={saveSnapshotMutation.isPending}
+                    className="inline-flex items-center gap-1.5 text-xs font-medium bg-secondary text-secondary-foreground hover:bg-secondary/80 border border-border/60 px-3 py-1.5 rounded-lg transition-colors"
+                  >
+                    <BookmarkPlus className="h-3.5 w-3.5" />
+                    <span>保存本次為研究快照</span>
+                  </button>
+                )}
+              </div>
             </div>
 
             {allCandidates.length === 0 ? (

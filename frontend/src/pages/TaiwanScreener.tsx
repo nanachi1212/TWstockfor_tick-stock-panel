@@ -48,6 +48,7 @@ import { TaiwanRuleEditorDialog } from '@/components/monitor/TaiwanRuleEditorDia
 import { loadLastCompareSymbols, mergeSymbolIntoCompare } from '@/lib/taiwanCompareSymbols'
 import { CopyButton } from '@/components/CopyButton'
 import { formatScreenerCopy, formatScreenerPrompt } from '@/lib/copy-formatters'
+import { SelectionForwardPanel } from '@/components/selection/SelectionForwardPanel'
 
 export function TaiwanScreener() {
   const navigate = useNavigate()
@@ -695,6 +696,8 @@ export function TaiwanScreener() {
           </div>
         )}
       </div>
+
+      <SelectionForwardPanel />
 
       {/* Data Operations Visibility Panel (Phase 6C) */}
       <div className="bg-zinc-900/90 border border-zinc-800 rounded-xl p-4 text-xs">
