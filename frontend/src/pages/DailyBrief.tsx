@@ -49,12 +49,6 @@ export function DailyBrief() {
     staleTime: 60_000,
   })
 
-  const forwardStatsQuery = useQuery({
-    queryKey: QK.selectionForwardStats,
-    queryFn: () => api.selectionReview.getForwardBatchStats(),
-    staleTime: 60_000,
-  })
-
   // 2. 歷史列表
   const historyQuery = useQuery({
     queryKey: QK.dailyBriefHistory(),
@@ -72,11 +66,18 @@ export function DailyBrief() {
     [watchlistQuery.data],
   )
 
-  const latestForwardTimeline = useMemo(() => {
-    const latestId = latestForwardBatchQuery.data?.[0]?.snapshot_id
-    return latestId ? forwardStatsQuery.data?.timeline?.find(item => item.snapshot_id === latestId) : undefined
-  }, [forwardStatsQuery.data, latestForwardBatchQuery.data])
-  const latestMaturedHorizon = (['20D', '5D', '1D'] as const).find(horizon => latestForwardTimeline?.full_batch?.[horizon]?.matured) ?? null
+  const cumulativeForwardN = useMemo(
+    () => latestForwardBatchQuery.data?.reduce((total, batch) => total + (batch.selected_count ?? 0), 0) ?? 0,
+    [latestForwardBatchQuery.data],
+  )
+  const latestMaturedHorizon = useMemo(() => {
+    const latest = latestForwardBatchQuery.data?.[0]
+    if (!latest || latest.selected_count === 0) return null
+    return (['20D', '5D', '1D'] as const).find(horizon => {
+      const pending = horizon === '20D' ? latest.h20d_pending_count : horizon === '5D' ? latest.h5d_pending_count : latest.h1d_pending_count
+      return pending === 0
+    }) ?? null
+  }, [latestForwardBatchQuery.data])
 
   // 加入/移除自選 Mutation
   const toggleWatchlistMutation = useMutation({
@@ -717,9 +718,9 @@ export function DailyBrief() {
               </div>
             </div>
 
-            {latestForwardBatchQuery.data?.[0] && forwardStatsQuery.data && (
+            {latestForwardBatchQuery.data?.[0] && (
               <div className="rounded-lg border border-border/60 bg-muted/20 p-3 text-xs">
-                <span className="font-medium">前瞻績效：</span>最新正式批次 {latestForwardBatchQuery.data[0].source_data_date ?? latestForwardBatchQuery.data[0].as_of_date}，已成熟至 {latestMaturedHorizon ?? '尚未成熟'}，目前 cumulative N {forwardStatsQuery.data.picks_count} 檔。
+                <span className="font-medium">前瞻績效：</span>最新正式批次 {latestForwardBatchQuery.data[0].source_data_date ?? latestForwardBatchQuery.data[0].as_of_date}，已成熟至 {latestMaturedHorizon ?? '尚未成熟'}，目前 cumulative N {cumulativeForwardN} 檔。
                 <Link to="/selection-review?tab=forward" className="ml-2 text-primary hover:underline">前往前瞻績效</Link>
               </div>
             )}

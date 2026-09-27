@@ -331,11 +331,12 @@ export function SelectionReview() {
               const timeline = forwardStatsQuery.data?.timeline?.find(item => item.snapshot_id === batch.snapshot_id)
               const maturedHorizon = (['20D', '5D', '1D'] as const).find(horizon => timeline?.full_batch?.[horizon]?.matured)
               const mainReturn = timeline?.full_batch?.['1D']?.average_return_pct ?? null
+              const timelineStatus = forwardStatsQuery.isError ? '績效統計暫不可用' : forwardStatsQuery.isLoading ? '績效統計載入中' : '績效統計尚未提供'
               return <button key={batch.snapshot_id} type="button" onClick={() => setSearchParams({ tab: 'forward', batch_id: batch.snapshot_id })} className="rounded-xl border border-border/60 bg-card p-4 text-left transition-colors hover:border-primary/50">
                 <span className="text-xs font-semibold text-primary">{batch.rule_version ?? '正式前瞻批次'}</span>
                 <span className="mt-2 block font-semibold">來源日期 {batch.source_data_date ?? batch.as_of_date}</span>
                 <span className="mt-1 block text-xs text-muted-foreground">預定進場 {batch.target_trade_date ?? '資料不足'} · {batch.selected_count} 檔</span>
-                <span className="mt-1 block text-xs text-muted-foreground">已成熟至 {maturedHorizon ?? '尚未成熟'} · 1D 平均報酬 {formatPct(mainReturn)}</span>
+                <span className="mt-1 block text-xs text-muted-foreground">{timeline ? `已成熟至 ${maturedHorizon ?? '尚未成熟'} · 1D 平均報酬 ${formatPct(mainReturn)}` : timelineStatus}</span>
                 <span className="mt-2 inline-flex items-center gap-1 text-xs text-primary">查看批次復盤 <ChevronRight className="h-3 w-3" /></span>
               </button>
             })}</div></div> : <div className="rounded-xl border border-dashed border-border/70 bg-card/40 p-8 text-center"><Clock className="mx-auto mb-3 h-9 w-9 text-muted-foreground/50" /><h2 className="font-medium">尚無正式前瞻批次</h2><p className="mt-2 text-xs text-muted-foreground">台股選股頁可在合適時段預覽並明確鎖定正式名單。</p><Link to="/taiwan-screener" className="mt-4 inline-flex items-center gap-1 text-xs text-primary">前往台股選股 <ChevronRight className="h-3 w-3" /></Link></div>}
