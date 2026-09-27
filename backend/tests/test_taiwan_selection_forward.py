@@ -19,6 +19,7 @@ from app.taiwan.corporate_actions import (
 )
 from app.taiwan.daily_store import TaiwanDailyStore
 from app.taiwan.events_service import MarketEvent, TaiwanEventService
+from app.taiwan.observed_universe import ObservedUniverseStore
 from app.taiwan.providers.corporate_actions import SOURCE_URLS
 from app.taiwan.realtime.calendar import TaiwanTradingCalendar
 from app.taiwan.screener import (
@@ -102,7 +103,7 @@ class _FixedScreener:
                                       risk_status="unknown")],
             total=1, page=1, page_size=20, sort_by="trend_liquidity_v1",
             sort_order="desc", data_dates=DataDatesInfo(daily_as_of=self.source.isoformat()),
-            risk_unknown_count=1, missing_quote_count=2,
+            risk_unknown_count=1, missing_quote_count=0, quote_coverage_status="verified",
             risk_source_status="partial", risk_source_as_of="2026-08-03T14:00:00+00:00",
             trend_indicator_basis="pit_adjusted", trend_adjustment_status="verified",
             risk_target_date=(self.source + timedelta(days=1)).isoformat(),
@@ -120,7 +121,7 @@ def test_lock_is_server_owned_idempotent_and_undeletable(tmp_path, monkeypatch):
     assert first.target_trade_date == sessions[0].isoformat()
     assert first.primary_observation_count == 1
     assert first.risk_unknown_count == 1
-    assert first.missing_quote_count == 2
+    assert first.missing_quote_count == 0
     assert first.risk_source_status == "partial"
     assert first.risk_source_as_of == "2026-08-03T14:00:00+00:00"
     assert first.risk_target_date == sessions[0].isoformat()
@@ -141,6 +142,86 @@ def test_formal_lock_rejects_unverified_trend_price_basis(tmp_path, monkeypatch)
     with pytest.raises(ValueError, match="公司行動來源覆蓋不足"):
         svc.lock_forward_batch(UnverifiedScreener(source))
     assert svc.list_snapshots() == []
+
+
+def test_formal_lock_rejects_unverified_latest_quote_coverage(tmp_path, monkeypatch):
+    svc, source, _ = _seed(tmp_path)
+    monkeypatch.setattr("app.taiwan.selection_review_service.taipei_now", lambda: _clock(source))
+
+    class IncompleteScreener(_FixedScreener):
+        def run(self, request):
+            return super().run(request).model_copy(update={
+                "missing_quote_count": 1, "quote_coverage_status": "unavailable",
+            })
+
+    with pytest.raises(ValueError, match="行情覆蓋無法驗證"):
+        svc.lock_forward_batch(IncompleteScreener(source))
+    assert svc.list_snapshots() == []
+
+
+def test_trend_history_never_bridges_missing_market_or_symbol_session(tmp_path):
+    sessions = _sessions(date(2026, 8, 3), 21, date(2026, 8, 7))
+    missing_day = sessions[-6]
+    store = TaiwanDailyStore(tmp_path / "daily")
+    store.write_batch(pl.DataFrame([{
+        "symbol": symbol, "date": day, "open": 100.0,
+        "high": 100.0, "low": 100.0, "close": 100.0,
+        "volume": 1_000_000.0, "amount": 100_000_000.0, "quote_ts": 0,
+    } for day in sessions for symbol in ("2330.TWSE", "2454.TWSE")
+        if not (day == missing_day and symbol == "2330.TWSE")]))
+    actions = CorporateActionStore(tmp_path / "adj_factor")
+    actions.save([])
+    actions.path.with_name("coverage.json").write_text(json.dumps({
+        "start": sessions[0].isoformat(), "end": sessions[-1].isoformat(),
+        "sources": sorted(SOURCE_URLS), "events_sha256": actions.snapshot_digest(),
+    }), encoding="utf-8")
+    calendar = TaiwanTradingCalendar(known_holidays={date(2026, 8, 7)},
+                                     known_trading_days=set(sessions))
+    screen = TaiwanScreenerService(daily_store=store, action_store=actions, calendar=calendar)
+    indicators, status, _ = screen._compute_trend_indicators(
+        ["2330.TWSE", "2454.TWSE"], sessions[-1]
+    )
+    assert status == "verified"
+    assert indicators["symbol"].to_list() == ["2454.TWSE"]
+
+    # A complete market session exists in the calendar but its partition is lost.
+    gap_store = TaiwanDailyStore(tmp_path / "gap_daily")
+    gap_store.write_batch(pl.DataFrame([{
+        "symbol": "2454.TWSE", "date": day, "open": 100.0,
+        "high": 100.0, "low": 100.0, "close": 100.0,
+        "volume": 1_000_000.0, "amount": 100_000_000.0, "quote_ts": 0,
+    } for day in sessions if day != missing_day]))
+    gap_screen = TaiwanScreenerService(daily_store=gap_store, action_store=actions,
+                                       calendar=calendar)
+    indicators, status, reason = gap_screen._compute_trend_indicators(
+        ["2454.TWSE"], sessions[-1]
+    )
+    assert indicators is None
+    assert (status, reason) == ("unavailable", "trend_history")
+
+
+def test_quote_coverage_distinguishes_official_absence_from_lost_quote(tmp_path):
+    as_of = date(2026, 8, 3)
+    census = ObservedUniverseStore(tmp_path / "census")
+    screen = TaiwanScreenerService(
+        daily_store=TaiwanDailyStore(tmp_path / "daily"), census_store=census,
+    )
+    universe = pl.DataFrame({"symbol": ["2330.TWSE", "2454.TWSE"]})
+    latest = pl.DataFrame({"symbol": ["2330.TWSE"], "date": [as_of]})
+    assert screen._quote_coverage_status(universe, latest, as_of) == "unavailable"
+
+    def official(code):
+        return dict(date=as_of, raw_code=code, exchange="TWSE", observed=True,
+                    raw_name=code, raw_source_category="stock", open=100.0,
+                    high=100.0, low=100.0, close=100.0, volume=1_000_000.0,
+                    amount=100_000_000.0, instrument_type=None,
+                    instrument_type_status="data_insufficient", source="TWSE",
+                    retrieved_at=_clock(as_of).isoformat())
+
+    census.write("TWSE", as_of, [official("2330")])
+    assert screen._quote_coverage_status(universe, latest, as_of) == "verified"
+    census.write("TWSE", as_of, [official("2330"), official("2454")])
+    assert screen._quote_coverage_status(universe, latest, as_of) == "unavailable"
 
 
 def test_corrupt_existing_snapshot_file_is_never_overwritten(tmp_path, monkeypatch):

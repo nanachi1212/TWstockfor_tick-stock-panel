@@ -20,7 +20,7 @@ from __future__ import annotations
 
 import contextlib
 import logging
-from datetime import date
+from datetime import date, timedelta
 from typing import Any, Literal
 
 import polars as pl
@@ -240,6 +240,7 @@ class TaiwanScreenerResponse(BaseModel):
     degraded_sections: list[str] = []
     coverage_info: ScreenerCoverageInfo | None = None
     missing_quote_count: int = 0
+    quote_coverage_status: Literal["verified", "unavailable"] | None = None
     risk_unknown_count: int = 0
     risk_source_status: Literal["available", "partial", "unavailable"] | None = None
     risk_source_as_of: str | None = None
@@ -322,13 +323,18 @@ class TaiwanScreenerService:
         missing_quote_count = len(valid_symbols) - latest_daily.filter(
             pl.col("date") == latest_daily["date"].max()
         ).height
+        quote_coverage_status = None
+        if req.preset == "trend_liquidity_v1":
+            quote_coverage_status = self._quote_coverage_status(
+                universe_df, latest_daily, date.fromisoformat(daily_as_of)
+            )
 
         # Step 3: Compute batch indicators (needs up to 30 trading days of history)
         df_indicators = self._compute_batch_indicators(valid_symbols)
         trend_adjustment_status: Literal["verified", "partial", "unavailable"] | None = None
         trend_indicators: pl.DataFrame | None = None
         if req.preset == "trend_liquidity_v1":
-            trend_indicators, trend_adjustment_status = self._compute_trend_indicators(
+            trend_indicators, trend_adjustment_status, trend_degraded_section = self._compute_trend_indicators(
                 valid_symbols, date.fromisoformat(daily_as_of)
             )
             if trend_indicators is None or trend_indicators.is_empty():
@@ -337,7 +343,8 @@ class TaiwanScreenerService:
                     sort_by="trend_liquidity_v1", sort_order="desc",
                     data_dates=DataDatesInfo(daily_as_of=daily_as_of),
                     missing_quote_count=missing_quote_count,
-                    degraded_sections=(["corporate_actions"] if trend_indicators is None else []),
+                    quote_coverage_status=quote_coverage_status,
+                    degraded_sections=([trend_degraded_section] if trend_degraded_section else []),
                     trend_indicator_basis="pit_adjusted",
                     trend_adjustment_status=trend_adjustment_status,
                     risk_target_date=risk_target_date.isoformat(),
@@ -452,6 +459,7 @@ class TaiwanScreenerService:
             degraded_sections=degraded,
             coverage_info=coverage_info,
             missing_quote_count=missing_quote_count if req.preset else 0,
+            quote_coverage_status=quote_coverage_status,
             risk_unknown_count=sum(i.risk_status == "unknown" for i in items),
             risk_source_status=risk_source_status,
             risk_source_as_of=risk_source_as_of,
@@ -530,24 +538,30 @@ class TaiwanScreenerService:
 
     def _compute_trend_indicators(
         self, symbols: list[str], as_of: date,
-    ) -> tuple[pl.DataFrame | None, Literal["verified", "partial", "unavailable"]]:
+    ) -> tuple[pl.DataFrame | None, Literal["verified", "partial", "unavailable"], str | None]:
         """Calculate the formal preset's trend signals on a verified PIT price basis."""
-        dates = [day for day in self.daily_store.available_dates() if day <= as_of]
-        if not dates:
-            return pl.DataFrame(), "verified"
-        start = dates[max(0, len(dates) - 35)]
+        dates = self._recent_verified_sessions(as_of, 20)
+        if dates is None:
+            return None, "unavailable", "trend_history"
+        start = dates[0]
         events = self.action_store.read_verified_window(start, as_of)
         if events is None:
-            return None, "unavailable"
+            return None, "unavailable", "corporate_actions"
         hist = self._normalize_daily_frame(self.daily_store.read_range(symbols, start, as_of))
         if hist.is_empty():
-            return pl.DataFrame(), "verified"
+            return None, "unavailable", "trend_history"
+        hist = hist.filter(pl.col("date").is_in(dates))
+        complete = (hist.group_by("symbol").agg(pl.col("date").n_unique().alias("days"))
+                    .filter(pl.col("days") == len(dates))["symbol"].to_list())
+        skipped = 0
+        hist = hist.filter(pl.col("symbol").is_in(complete))
+        if hist.is_empty():
+            return None, "unavailable", "trend_history"
         hist = hist.select("symbol", "date", "close").sort("symbol", "date")
         by_symbol: dict[str, list] = {}
         for event in events:
             by_symbol.setdefault(event.symbol, []).append(event)
         adjusted_parts = [hist.filter(~pl.col("symbol").is_in(list(by_symbol)))]
-        skipped = 0
         for symbol, symbol_events in by_symbol.items():
             subset = hist.filter(pl.col("symbol") == symbol)
             if subset.is_empty():
@@ -561,7 +575,7 @@ class TaiwanScreenerService:
             adjusted_parts.append(adjusted.to_frame().select("symbol", "date", "close"))
         adjusted_hist = pl.concat(adjusted_parts).sort("symbol", "date")
         if adjusted_hist.is_empty():
-            return pl.DataFrame(), "partial" if skipped else "verified"
+            return pl.DataFrame(), "partial" if skipped else "verified", None
         latest = (adjusted_hist.with_columns(
             pl.col("close").rolling_mean(20).over("symbol").alias("trend_ma20"),
             (pl.col("close") / pl.col("close").shift(5).over("symbol") - 1.0)
@@ -570,7 +584,51 @@ class TaiwanScreenerService:
             .filter(pl.col("date") == pl.col("_latest"))
             .select("symbol", pl.col("close").alias("trend_adjusted_close"),
                     "trend_ma20", "trend_momentum_5d"))
-        return latest, "partial" if skipped else "verified"
+        return latest, "partial" if skipped else "verified", None
+
+    def _recent_verified_sessions(self, as_of: date, count: int) -> list[date] | None:
+        """Do not bridge an absent weekday that might be a lost daily partition."""
+        available = set(self.daily_store.available_dates())
+        sessions: list[date] = []
+        cursor = as_of
+        for _ in range(90):
+            evidence = (self.census_store.day_evidence("TWSE", cursor, calendar=self.calendar)
+                        if self.census_store is not None
+                        else self.calendar.day_evidence(cursor, "TWSE"))
+            if evidence.status == "trading" or (evidence.status == "unresolved" and cursor in available):
+                sessions.append(cursor)
+                if len(sessions) == count:
+                    return list(reversed(sessions))
+            elif evidence.status == "unresolved":
+                return None
+            cursor -= timedelta(days=1)
+        return None
+
+    def _quote_coverage_status(
+        self, universe: pl.DataFrame, latest: pl.DataFrame, as_of: date,
+    ) -> Literal["verified", "unavailable"]:
+        """Prove missing quotes are genuinely absent from the official daily census."""
+        quoted = set(latest.filter(pl.col("date") == as_of)["symbol"].to_list())
+        missing = set(universe["symbol"].to_list()) - quoted
+        if not missing:
+            return "verified"
+        if self.census_store is None:
+            return "unavailable"
+        for exchange in ("TWSE", "TPEX"):
+            exchange_missing = {s for s in missing if s.endswith(f".{exchange}")}
+            if not exchange_missing:
+                continue
+            try:
+                evidence = self.census_store.day_evidence(exchange, as_of, calendar=self.calendar)
+                if evidence.status != "trading" or not self.census_store.has(exchange, as_of):
+                    return "unavailable"
+                official = pl.read_parquet(self.census_store.partition_path(exchange, as_of))
+            except (OSError, ValueError, pl.exceptions.PolarsError):
+                return "unavailable"
+            observed = {f"{code}.{exchange}" for code in official["raw_code"].to_list()}
+            if exchange_missing & observed:
+                return "unavailable"
+        return "verified"
 
     def _enrich_price_limits(self, df: pl.DataFrame) -> pl.DataFrame:
         """Enrich with tick-size aware price limits and distance metrics."""

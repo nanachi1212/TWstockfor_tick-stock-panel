@@ -57,6 +57,7 @@ class SelectionSnapshot(BaseModel):
     eligible_total: int | None = None
     primary_observation_count: int | None = None
     missing_quote_count: int | None = None
+    quote_coverage_status: Literal["verified", "unavailable"] | None = None
     risk_unknown_count: int | None = None
     risk_source_status: Literal["available", "partial", "unavailable"] | None = None
     risk_source_as_of: str | None = None

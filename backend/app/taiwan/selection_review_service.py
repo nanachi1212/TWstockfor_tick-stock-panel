@@ -193,6 +193,8 @@ class TaiwanSelectionReviewService:
         if (screen.trend_indicator_basis != "pit_adjusted"
                 or screen.trend_adjustment_status not in {"verified", "partial"}):
             raise ValueError("公司行動來源覆蓋不足。不能鎖定正式批次")
+        if screen.quote_coverage_status != "verified":
+            raise ValueError("來源行情覆蓋無法驗證。不能鎖定正式批次")
         if not screen.data_dates.daily_as_of:
             raise ValueError("沒有可鎖定的行情資料日期")
         source_day = date.fromisoformat(screen.data_dates.daily_as_of)
@@ -239,6 +241,7 @@ class TaiwanSelectionReviewService:
                 selected_symbols=[item.symbol for item in items], items=items,
                 eligible_total=screen.total, primary_observation_count=min(len(items), 10),
                 missing_quote_count=screen.missing_quote_count,
+                quote_coverage_status=screen.quote_coverage_status,
                 risk_unknown_count=screen.risk_unknown_count,
                 risk_source_status=screen.risk_source_status,
                 risk_source_as_of=screen.risk_source_as_of,
