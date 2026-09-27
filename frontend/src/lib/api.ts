@@ -4154,8 +4154,10 @@ export interface HorizonReviewItem {
   h1d_raw_return_pct?: number | null
   h1d_status: HorizonStatus
   h1d_bm_return_pct: number | null
+  h1d_raw_bm_return_pct?: number | null
   h1d_bm_status: HorizonStatus
   h1d_excess_pct: number | null
+  h1d_raw_excess_pct?: number | null
 
   h5d_price: number | null
   h5d_reference_close_return_pct?: number | null
@@ -4164,8 +4166,10 @@ export interface HorizonReviewItem {
   h5d_raw_return_pct?: number | null
   h5d_status: HorizonStatus
   h5d_bm_return_pct: number | null
+  h5d_raw_bm_return_pct?: number | null
   h5d_bm_status: HorizonStatus
   h5d_excess_pct: number | null
+  h5d_raw_excess_pct?: number | null
 
   h20d_price: number | null
   h20d_reference_close_return_pct?: number | null
@@ -4174,8 +4178,10 @@ export interface HorizonReviewItem {
   h20d_raw_return_pct?: number | null
   h20d_status: HorizonStatus
   h20d_bm_return_pct: number | null
+  h20d_raw_bm_return_pct?: number | null
   h20d_bm_status: HorizonStatus
   h20d_excess_pct: number | null
+  h20d_raw_excess_pct?: number | null
 
   benchmark_symbol: string
   benchmark_name: string
@@ -4218,6 +4224,7 @@ export interface SnapshotReviewDetail {
   h5d_unavailable_count?: number
   h20d_pending_count?: number
   h20d_unavailable_count?: number
+  cohorts?: Record<string, Record<'top10' | 'full_batch', ForwardCohortStats>>
 }
 
 export interface SnapshotListItem {
@@ -4229,6 +4236,12 @@ export interface SnapshotListItem {
   selected_count: number
   h5d_evaluated_count: number
   h20d_evaluated_count: number
+  h1d_pending_count?: number
+  h5d_pending_count?: number
+  h20d_pending_count?: number
+  h1d_matured?: boolean
+  h5d_matured?: boolean
+  h20d_matured?: boolean
   h5d_avg_return_pct: number | null
   h20d_avg_return_pct: number | null
   h5d_bm_return_pct: number | null
@@ -4286,6 +4299,47 @@ export interface ForwardBatchStats {
   h20d_reference_close_evaluated_count: number
   h20d_reference_close_avg_return_pct: number | null
   hit_rate_definition: string
+  horizons?: Record<string, Record<'top10' | 'full_batch', ForwardCohortStats>>
+  timeline?: ForwardBatchTimeline[]
+}
+
+export interface ForwardCohortStats {
+  batch_count: number
+  matured_batch_count: number
+  pick_count: number
+  evaluable_count: number
+  pending_count: number
+  unavailable_count: number
+  positive_return_count: number
+  hit_rate: number | null
+  average_return_pct: number | null
+  median_return_pct: number | null
+  benchmark_evaluable_count: number
+  average_benchmark_return_pct: number | null
+  excess_evaluable_count: number
+  average_excess_return_pct: number | null
+  median_excess_return_pct: number | null
+  beat_benchmark_count: number
+  beat_benchmark_rate: number | null
+}
+
+export interface ForwardTimelineMetric {
+  matured: boolean
+  evaluable_count: number
+  pending_count: number
+  unavailable_count: number
+  hit_rate: number | null
+  average_return_pct: number | null
+  average_excess_return_pct: number | null
+}
+
+export interface ForwardBatchTimeline {
+  snapshot_id: string
+  source_date: string
+  target_entry_date: string | null
+  candidate_count: number
+  top10: Record<string, ForwardTimelineMetric>
+  full_batch: Record<string, ForwardTimelineMetric>
 }
 
 export interface StrategyReviewStats {

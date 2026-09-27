@@ -19,6 +19,7 @@ import {
   type SnapshotListItem,
   type SnapshotReviewDetail,
   type ForwardBatchStats,
+  type ForwardCohortStats,
 } from '@/lib/api'
 import { QK } from '@/lib/queryKeys'
 import { toast } from '@/components/Toast'
@@ -26,6 +27,7 @@ import { cn } from '@/lib/cn'
 import { CopyButton } from '@/components/CopyButton'
 import { formatSelectionReviewCopy, formatSelectionReviewPrompt } from '@/lib/copy-formatters'
 import { SelectionForwardPanel, type SelectionForwardBatchReviewView } from '@/components/selection/SelectionForwardPanel'
+import { ForwardPerformanceChart } from '@/components/selection/ForwardPerformanceChart'
 
 type ReviewTab = 'snapshots' | 'forward' | 'strategies' | 'conditions'
 
@@ -39,6 +41,7 @@ function toForwardBatchReview(detail: SnapshotReviewDetail): SelectionForwardBat
       '20D': { referenceCloseReturnPct: detail.h20d_reference_close_avg_return_pct ?? null, referenceCloseEvaluableCount: detail.h20d_reference_close_evaluated_count ?? 0, paperReturnPct: detail.h20d_avg_return_pct, benchmark0050ReturnPct: detail.h20d_bm_avg_return_pct, benchmarkEvaluableCount: detail.h20d_bm_evaluated_count ?? 0, excessReturnPct: detail.h20d_avg_excess_pct, excessEvaluableCount: detail.h20d_excess_evaluated_count ?? 0,
         evaluableCount: detail.h20d_evaluated_count, trackingCount: detail.h20d_pending_count ?? 0, missingCount: detail.h20d_unavailable_count ?? 0 },
     },
+    cohorts: detail.cohorts as Record<'1D' | '5D' | '20D', { top10: ForwardCohortStats; full_batch: ForwardCohortStats }> | undefined,
     items: detail.evaluated_items.map(item => ({
       symbol: item.symbol, name: item.name,
       referencePrice: item.entry_price,
@@ -93,6 +96,35 @@ function excessStatus(stock: 'completed' | 'pending' | 'unavailable', benchmark:
 }
 
 function ForwardStats({ stats, formatPct }: { stats: ForwardBatchStats; formatPct: (value: number | null | undefined) => string }) {
+  if (stats.horizons) {
+    const horizons = ['1D', '5D', '20D'] as const
+    const renderCohort = (summary: ForwardCohortStats | undefined) => summary ? <dl className="mt-2 grid grid-cols-2 gap-y-1 text-xs">
+      <dt className="text-muted-foreground">命中率／N</dt><dd className="text-right">{formatRate(summary.hit_rate)}／{summary.evaluable_count}</dd>
+      <dt className="text-muted-foreground">平均／中位數報酬</dt><dd className="text-right">{formatPct(summary.average_return_pct)}／{formatPct(summary.median_return_pct)}</dd>
+      <dt className="text-muted-foreground">平均超額報酬</dt><dd className="text-right">{formatPct(summary.average_excess_return_pct)}</dd>
+      <dt className="text-muted-foreground">Beat 0050 rate</dt><dd className="text-right">{formatRate(summary.beat_benchmark_rate)}</dd>
+      <dt className="text-muted-foreground">待追蹤／不可評估</dt><dd className="text-right">{summary.pending_count}／{summary.unavailable_count}</dd>
+    </dl> : <p className="mt-2 text-xs text-muted-foreground">尚無樣本</p>
+    const full20 = stats.horizons['20D']?.full_batch
+    return <section aria-label="前瞻績效中心" className="space-y-3">
+      <div className="rounded-xl border border-primary/25 bg-card p-4">
+        <div className="flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
+          <div><h2 className="text-base font-semibold">Forward Selection Performance Center</h2><p className="mt-1 text-xs text-muted-foreground">策略：trend_liquidity_v1，僅統計正式 forward batch，不混入 research snapshot。</p></div>
+          <span className="text-[11px] text-muted-foreground">命中率與 Beat 0050 均排除 pending／unavailable</span>
+        </div>
+        <dl className="mt-4 grid grid-cols-2 gap-3 text-xs sm:grid-cols-4">
+          <div className="rounded-lg bg-muted/30 p-3"><dt className="text-muted-foreground">正式批次數</dt><dd className="mt-1 text-lg font-semibold">{stats.batches_count}</dd></div>
+          <div className="rounded-lg bg-muted/30 p-3"><dt className="text-muted-foreground">已成熟批次（20D）</dt><dd className="mt-1 text-lg font-semibold">{full20?.matured_batch_count ?? 0}</dd></div>
+          <div className="rounded-lg bg-muted/30 p-3"><dt className="text-muted-foreground">候選總數</dt><dd className="mt-1 text-lg font-semibold">{stats.picks_count}</dd></div>
+          <div className="rounded-lg bg-muted/30 p-3"><dt className="text-muted-foreground">20D 可評估數</dt><dd className="mt-1 text-lg font-semibold">{full20?.evaluable_count ?? 0}</dd></div>
+        </dl>
+      </div>
+      <div className="grid gap-3 md:grid-cols-3">
+        {horizons.map(horizon => <section key={horizon} className="rounded-xl border border-border/60 bg-card p-3"><h3 className="font-semibold">{horizon}</h3><div className="mt-2 grid gap-2 sm:grid-cols-2 md:grid-cols-1"><div><p className="text-xs font-medium">Top10</p>{renderCohort(stats.horizons?.[horizon]?.top10)}</div><div><p className="text-xs font-medium">Top20／整批</p>{renderCohort(stats.horizons?.[horizon]?.full_batch)}</div></div></section>)}
+      </div>
+      <ForwardPerformanceChart timeline={stats.timeline} />
+    </section>
+  }
   const horizons = [
     { label: '1D', evaluated: stats.h1d_evaluated_count, pending: stats.h1d_pending_count, missing: stats.h1d_unavailable_count, hitRate: stats.h1d_hit_rate_pct, paper: stats.h1d_avg_return_pct, bm: stats.h1d_bm_avg_return_pct, bmCount: stats.h1d_bm_evaluated_count, excess: stats.h1d_avg_excess_pct, excessCount: stats.h1d_excess_evaluated_count, reference: stats.h1d_reference_close_avg_return_pct, referenceCount: stats.h1d_reference_close_evaluated_count },
     { label: '5D', evaluated: stats.h5d_evaluated_count, pending: stats.h5d_pending_count, missing: stats.h5d_unavailable_count, hitRate: stats.h5d_hit_rate_pct, paper: stats.h5d_avg_return_pct, bm: stats.h5d_bm_avg_return_pct, bmCount: stats.h5d_bm_evaluated_count, excess: stats.h5d_avg_excess_pct, excessCount: stats.h5d_excess_evaluated_count, reference: stats.h5d_reference_close_avg_return_pct, referenceCount: stats.h5d_reference_close_evaluated_count },
@@ -102,6 +134,10 @@ function ForwardStats({ stats, formatPct }: { stats: ForwardBatchStats; formatPc
     <p className="text-xs font-medium">全部正式批次：{stats.batches_count} 批、{stats.picks_count} 檔，以下採後端整批統計</p>
     <div className="grid gap-2 md:grid-cols-3">{horizons.map(h => <section key={h.label} className="rounded-lg border border-border/60 bg-card p-3 text-xs"><h3 className="font-semibold">{h.label}</h3><dl className="mt-2 grid grid-cols-2 gap-y-1"><dt className="text-muted-foreground">參考收盤漲跌</dt><dd className="text-right">{formatPct(h.reference)}（{h.referenceCount} 檔）</dd><dt className="text-muted-foreground">紙上進場報酬</dt><dd className="text-right">{formatPct(h.paper)}</dd><dt className="text-muted-foreground">0050 同期報酬</dt><dd className="text-right">{formatPct(h.bm)}（{h.bmCount} 檔）</dd><dt className="text-muted-foreground">超額報酬</dt><dd className="text-right">{formatPct(h.excess)}（{h.excessCount} 檔）</dd><dt className="text-muted-foreground">可評估／追蹤／缺資料</dt><dd className="text-right">{h.evaluated}／{h.pending}／{h.missing}</dd><dt className="text-muted-foreground">後端命中率</dt><dd className="text-right">{h.hitRate == null ? (h.evaluated === 0 && h.pending > 0 ? '尚未到期' : h.evaluated === 0 && h.missing === 0 ? '尚無樣本' : '資料不足') : formatPct(h.hitRate)}</dd></dl></section>)}</div>
   </section>
+}
+
+function formatRate(value: number | null | undefined) {
+  return value == null ? '尚無樣本' : `${value.toFixed(1)}%`
 }
 
 export function SelectionReview() {
@@ -276,7 +312,9 @@ export function SelectionReview() {
 
       {activeTab === 'forward' && (
         <section aria-label="正式前瞻批次" className="space-y-4">
-          {forwardStatsQuery.data && <ForwardStats stats={forwardStatsQuery.data} formatPct={formatPct} />}
+          {forwardStatsQuery.isError ? (
+            <div role="alert" className="space-y-2 rounded-xl border border-destructive/30 p-4 text-sm"><p>前瞻績效統計載入失敗，尚無法確認累積表現。</p><button type="button" onClick={() => forwardStatsQuery.refetch()} className="text-primary underline">重新載入</button></div>
+          ) : forwardStatsQuery.data ? <ForwardStats stats={forwardStatsQuery.data} formatPct={formatPct} /> : null}
           {selectedForwardBatchId ? (
             <div className="space-y-3">
               <button type="button" onClick={() => setSearchParams({ tab: 'forward' })} className="text-xs text-primary hover:underline">返回正式批次清單</button>
@@ -289,14 +327,19 @@ export function SelectionReview() {
           ) : forwardBatchesQuery.isLoading ? <p className="py-8 text-center text-sm text-muted-foreground">載入正式批次…</p> : forwardBatchesQuery.isError ? (
             <div role="alert" className="space-y-2 rounded-lg border border-destructive/30 p-4 text-sm"><p>正式批次列表載入失敗，尚無法確認是否有批次。</p><button type="button" onClick={() => forwardBatchesQuery.refetch()} className="text-primary underline">重新載入</button></div>
           ) :
-            forwardBatchesQuery.data?.length ? <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-3">{forwardBatchesQuery.data.filter(batch => batch.record_type === 'forward_batch').map(batch => (
-              <button key={batch.snapshot_id} type="button" onClick={() => setSearchParams({ tab: 'forward', batch_id: batch.snapshot_id })} className="rounded-xl border border-border/60 bg-card p-4 text-left transition-colors hover:border-primary/50">
+            forwardBatchesQuery.data?.length ? <div className="space-y-2"><p className="text-xs font-semibold">最近正式批次</p><div className="grid gap-3 md:grid-cols-2 lg:grid-cols-3">{forwardBatchesQuery.data.filter(batch => batch.record_type === 'forward_batch').map(batch => {
+              const timeline = forwardStatsQuery.data?.timeline?.find(item => item.snapshot_id === batch.snapshot_id)
+              const maturedHorizon = (['20D', '5D', '1D'] as const).find(horizon => timeline?.full_batch?.[horizon]?.matured)
+              const mainReturn = timeline?.full_batch?.['1D']?.average_return_pct ?? null
+              const timelineStatus = forwardStatsQuery.isError ? '績效統計暫不可用' : forwardStatsQuery.isLoading ? '績效統計載入中' : '績效統計尚未提供'
+              return <button key={batch.snapshot_id} type="button" onClick={() => setSearchParams({ tab: 'forward', batch_id: batch.snapshot_id })} className="rounded-xl border border-border/60 bg-card p-4 text-left transition-colors hover:border-primary/50">
                 <span className="text-xs font-semibold text-primary">{batch.rule_version ?? '正式前瞻批次'}</span>
                 <span className="mt-2 block font-semibold">來源日期 {batch.source_data_date ?? batch.as_of_date}</span>
                 <span className="mt-1 block text-xs text-muted-foreground">預定進場 {batch.target_trade_date ?? '資料不足'} · {batch.selected_count} 檔</span>
+                <span className="mt-1 block text-xs text-muted-foreground">{timeline ? `已成熟至 ${maturedHorizon ?? '尚未成熟'} · 1D 平均報酬 ${formatPct(mainReturn)}` : timelineStatus}</span>
                 <span className="mt-2 inline-flex items-center gap-1 text-xs text-primary">查看批次復盤 <ChevronRight className="h-3 w-3" /></span>
               </button>
-            ))}</div> : <div className="rounded-xl border border-dashed border-border/70 bg-card/40 p-8 text-center"><Clock className="mx-auto mb-3 h-9 w-9 text-muted-foreground/50" /><h2 className="font-medium">尚無正式前瞻批次</h2><p className="mt-2 text-xs text-muted-foreground">台股選股頁可在合適時段預覽並明確鎖定正式名單。</p><Link to="/taiwan-screener" className="mt-4 inline-flex items-center gap-1 text-xs text-primary">前往台股選股 <ChevronRight className="h-3 w-3" /></Link></div>}
+            })}</div></div> : <div className="rounded-xl border border-dashed border-border/70 bg-card/40 p-8 text-center"><Clock className="mx-auto mb-3 h-9 w-9 text-muted-foreground/50" /><h2 className="font-medium">尚無正式前瞻批次</h2><p className="mt-2 text-xs text-muted-foreground">台股選股頁可在合適時段預覽並明確鎖定正式名單。</p><Link to="/taiwan-screener" className="mt-4 inline-flex items-center gap-1 text-xs text-primary">前往台股選股 <ChevronRight className="h-3 w-3" /></Link></div>}
         </section>
       )}
 

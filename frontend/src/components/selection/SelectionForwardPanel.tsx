@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { LockKeyhole, Play, RefreshCw, ShieldAlert } from 'lucide-react'
+import type { ForwardCohortStats } from '@/lib/api'
 
 /** UI view model only. Bind this to the backend contract when the core PR lands. */
 export interface SelectionForwardPreviewView {
@@ -33,6 +34,10 @@ export interface SelectionForwardBatchReviewView {
     evaluableCount: number
     trackingCount: number
     missingCount: number
+  }>
+  cohorts?: Record<'1D' | '5D' | '20D', {
+    top10: ForwardCohortStats
+    full_batch: ForwardCohortStats
   }>
   items: Array<{
     symbol: string
@@ -157,6 +162,31 @@ export function SelectionForwardPanel({ preview = null, onDryRun, onRefreshData,
               )
             })}
           </div>
+          {batchReview.cohorts && (
+            <div className="space-y-2">
+              <h4 className="text-sm font-semibold">本批次 cohort 統計，依 immutable rank 計算</h4>
+              <div className="grid gap-2 lg:grid-cols-3">
+                {(['1D', '5D', '20D'] as const).map(horizon => (
+                  <section key={horizon} className="rounded-lg border border-border/60 p-3 text-xs">
+                    <h5 className="font-semibold">{horizon}</h5>
+                    {(['top10', 'full_batch'] as const).map(cohort => {
+                      const summary = batchReview.cohorts?.[horizon]?.[cohort]
+                      return summary ? <div key={cohort} className="mt-2 border-t border-border/40 pt-2 first:border-t-0 first:pt-0">
+                        <p className="font-medium">{cohort === 'top10' ? 'Top10' : 'Top20／整批'}</p>
+                        <dl className="mt-1 grid grid-cols-2 gap-y-1">
+                          <dt className="text-muted-foreground">命中率／N</dt><dd className="text-right">{formatRate(summary.hit_rate)}／{summary.evaluable_count}</dd>
+                          <dt className="text-muted-foreground">平均／中位數報酬</dt><dd className="text-right">{formatPct(summary.average_return_pct)}／{formatPct(summary.median_return_pct)}</dd>
+                          <dt className="text-muted-foreground">平均 0050／超額</dt><dd className="text-right">{formatPct(summary.average_benchmark_return_pct)}／{formatPct(summary.average_excess_return_pct)}</dd>
+                          <dt className="text-muted-foreground">Beat 0050</dt><dd className="text-right">{formatRate(summary.beat_benchmark_rate)}（{summary.beat_benchmark_count}/{summary.excess_evaluable_count}）</dd>
+                          <dt className="text-muted-foreground">待追蹤／不可評估</dt><dd className="text-right">{summary.pending_count}／{summary.unavailable_count}</dd>
+                        </dl>
+                      </div> : null
+                    })}
+                  </section>
+                ))}
+              </div>
+            </div>
+          )}
           {batchReview.items.length > 10 && <button type="button" onClick={() => setShowBatchTop20(value => !value)} className="text-xs text-primary hover:underline">{showBatchTop20 ? '收合至 Top10' : '展開至 Top20'}，只改變明細顯示</button>}
           <div className="overflow-x-auto rounded-lg border border-border/60">
             <table className="w-full min-w-[980px] text-left text-xs">
@@ -173,6 +203,10 @@ export function SelectionForwardPanel({ preview = null, onDryRun, onRefreshData,
 function formatPct(value: number | null) {
   if (value === null) return '尚無可評估結果'
   return `${value > 0 ? '+' : ''}${value.toFixed(2)}%`
+}
+
+function formatRate(value: number | null) {
+  return value === null ? '尚無樣本' : `${value.toFixed(1)}%`
 }
 
 function formatEvaluation(value: { status: 'completed' | 'tracking' | 'missing'; returnPct: number | null; reason?: string }) {

@@ -21,6 +21,7 @@ import time
 import uuid
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
+from statistics import median
 
 import polars as pl
 
@@ -34,6 +35,9 @@ from app.taiwan.realtime.calendar import TaiwanTradingCalendar, taipei_now
 from app.taiwan.selection_review_models import (
     ConditionReviewStats,
     ForwardBatchStats,
+    ForwardBatchTimeline,
+    ForwardCohortStats,
+    ForwardTimelineMetric,
     HorizonReviewItem,
     HorizonStatus,
     SaveSelectionSnapshotRequest,
@@ -504,6 +508,7 @@ class TaiwanSelectionReviewService:
                 setattr(result, f"{prefix}_bm_status", "unavailable")
                 if bm_raw is not None:
                     setattr(result, f"{prefix}_bm_status", "completed")
+                    setattr(result, f"{prefix}_raw_bm_return_pct", bm_raw)
                     setattr(result, f"{prefix}_bm_return_pct", round(bm_raw, 2))
                 else:
                     result.status_reasons[f"{prefix}_benchmark"] = (
@@ -528,6 +533,7 @@ class TaiwanSelectionReviewService:
                 setattr(result, f"{prefix}_raw_return_pct", raw)
                 setattr(result, f"{prefix}_return_pct", round(raw, 2))
                 if bm_raw is not None:
+                    setattr(result, f"{prefix}_raw_excess_pct", raw - bm_raw)
                     setattr(result, f"{prefix}_excess_pct", round(raw - bm_raw, 2))
             evaluated.append(result)
 
@@ -567,6 +573,7 @@ class TaiwanSelectionReviewService:
                     sum(getattr(i, f"{prefix}_status") == "pending" for i in evaluated))
             setattr(detail, f"{prefix}_unavailable_count",
                     sum(getattr(i, f"{prefix}_status") == "unavailable" for i in evaluated))
+        detail.cohorts = self._build_batch_cohorts(detail)
         return detail
 
     @staticmethod
@@ -607,43 +614,178 @@ class TaiwanSelectionReviewService:
         except (ValueError, TypeError, ZeroDivisionError):
             return None
 
+    @staticmethod
+    def _cohort_items(items: list[HorizonReviewItem], cohort: str) -> list[HorizonReviewItem]:
+        return items if cohort == "full_batch" else [item for item in items if item.rank <= 10]
+
+    def _is_forward_horizon_matured(self, snapshot: SelectionSnapshot, horizon: int) -> bool:
+        """Use the scheduled horizon date, independent of missing price data."""
+        source = date.fromisoformat(snapshot.source_data_date or snapshot.as_of_date)
+        sessions = self._get_forward_trading_days(source)
+        return len(sessions) >= horizon and taipei_now() >= market_close(sessions[horizon - 1])
+
+    def _cohort_stats(
+        self,
+        snapshots: list[SelectionSnapshot],
+        reviews: list[SnapshotReviewDetail],
+        horizon: int,
+        cohort: str,
+        maturity_by_snapshot: dict[str, bool] | None = None,
+    ) -> ForwardCohortStats:
+        prefix = f"h{horizon}d"
+        picks = pending = unavailable = positive = 0
+        matured_batches = 0
+        returns: list[float] = []
+        benchmark: list[float] = []
+        excess: list[float] = []
+        beat_benchmark = 0
+        for review in reviews:
+            items = self._cohort_items(review.evaluated_items, cohort)
+            picks += len(items)
+            pending += sum(getattr(item, f"{prefix}_status") == "pending" for item in items)
+            unavailable += sum(getattr(item, f"{prefix}_status") == "unavailable" for item in items)
+            matured = (maturity_by_snapshot[review.snapshot.snapshot_id]
+                       if maturity_by_snapshot is not None
+                       else self._is_forward_horizon_matured(review.snapshot, horizon))
+            if items and matured:
+                matured_batches += 1
+            for item in items:
+                raw_return = getattr(item, f"{prefix}_raw_return_pct")
+                if getattr(item, f"{prefix}_status") == "completed" and raw_return is not None:
+                    returns.append(raw_return)
+                    positive += raw_return > 0
+                raw_benchmark = getattr(item, f"{prefix}_raw_bm_return_pct")
+                if getattr(item, f"{prefix}_bm_status") == "completed" and raw_benchmark is not None:
+                    benchmark.append(raw_benchmark)
+                raw_excess = getattr(item, f"{prefix}_raw_excess_pct")
+                if raw_excess is not None:
+                    excess.append(raw_excess)
+                if raw_return is not None and raw_benchmark is not None:
+                    beat_benchmark += raw_return > raw_benchmark
+
+        def average(values: list[float]) -> float | None:
+            return round(sum(values) / len(values), 2) if values else None
+
+        def med(values: list[float]) -> float | None:
+            return round(float(median(values)), 2) if values else None
+
+        return ForwardCohortStats(
+            batch_count=len(snapshots),
+            matured_batch_count=matured_batches,
+            pick_count=picks,
+            evaluable_count=len(returns),
+            pending_count=pending,
+            unavailable_count=unavailable,
+            positive_return_count=positive,
+            hit_rate=round(positive / len(returns) * 100, 1) if returns else None,
+            average_return_pct=average(returns),
+            median_return_pct=med(returns),
+            benchmark_evaluable_count=len(benchmark),
+            average_benchmark_return_pct=average(benchmark),
+            excess_evaluable_count=len(excess),
+            average_excess_return_pct=average(excess),
+            median_excess_return_pct=med(excess),
+            beat_benchmark_count=beat_benchmark,
+            beat_benchmark_rate=(round(beat_benchmark / len(excess) * 100, 1)
+                                 if excess else None),
+        )
+
+    def _build_batch_cohorts(self, review: SnapshotReviewDetail) -> dict[str, dict[str, ForwardCohortStats]]:
+        snapshot = review.snapshot
+        cohorts = {}
+        for horizon in (1, 5, 20):
+            maturity = {snapshot.snapshot_id: self._is_forward_horizon_matured(snapshot, horizon)}
+            cohorts[f"{horizon}D"] = {
+                "top10": self._cohort_stats([snapshot], [review], horizon, "top10", maturity),
+                "full_batch": self._cohort_stats([snapshot], [review], horizon, "full_batch", maturity),
+            }
+        return cohorts
+
+    def _timeline_metric(
+        self, review: SnapshotReviewDetail, snapshot: SelectionSnapshot, horizon: int, cohort: str,
+        matured: bool,
+    ) -> ForwardTimelineMetric:
+        summary = self._cohort_stats(
+            [snapshot], [review], horizon, cohort, {snapshot.snapshot_id: matured},
+        )
+        return ForwardTimelineMetric(
+            matured=summary.matured_batch_count == 1,
+            evaluable_count=summary.evaluable_count,
+            pending_count=summary.pending_count,
+            unavailable_count=summary.unavailable_count,
+            hit_rate=summary.hit_rate,
+            average_return_pct=summary.average_return_pct,
+            average_excess_return_pct=summary.average_excess_return_pct,
+        )
+
     def get_forward_batch_stats(self) -> ForwardBatchStats:
         with self._lock:
             batches = [s for s in self._read_snapshots_raw() if s.record_type == "forward_batch"]
-        stats = ForwardBatchStats(batches_count=len(batches),
-                                  picks_count=sum(len(s.items) for s in batches))
+        stats = ForwardBatchStats(
+            batches_count=len(batches),
+            picks_count=sum(len(s.items) for s in batches),
+        )
         if not batches:
             return stats
+
         inputs = self._forward_review_inputs()
         reviews = [self._cached_forward_review(snapshot, inputs) for snapshot in batches]
+        maturity_by_horizon = {
+            horizon: {
+                snapshot.snapshot_id: self._is_forward_horizon_matured(snapshot, horizon)
+                for snapshot in batches
+            }
+            for horizon in (1, 5, 20)
+        }
+        stats.horizons = {
+            f"{horizon}D": {
+                "top10": self._cohort_stats(
+                    batches, reviews, horizon, "top10", maturity_by_horizon[horizon],
+                ),
+                "full_batch": self._cohort_stats(
+                    batches, reviews, horizon, "full_batch", maturity_by_horizon[horizon],
+                ),
+            }
+            for horizon in (1, 5, 20)
+        }
+        stats.timeline = [
+            ForwardBatchTimeline(
+                snapshot_id=snapshot.snapshot_id,
+                source_date=snapshot.source_data_date or snapshot.as_of_date,
+                target_entry_date=snapshot.target_trade_date,
+                candidate_count=len(snapshot.items),
+                top10={str(horizon) + "D": self._timeline_metric(
+                           review, snapshot, horizon, "top10",
+                           maturity_by_horizon[horizon][snapshot.snapshot_id],
+                       )
+                       for horizon in (1, 5, 20)},
+                full_batch={str(horizon) + "D": self._timeline_metric(
+                                review, snapshot, horizon, "full_batch",
+                                maturity_by_horizon[horizon][snapshot.snapshot_id],
+                            )
+                            for horizon in (1, 5, 20)},
+            )
+            for snapshot, review in sorted(
+                zip(batches, reviews, strict=True),
+                key=lambda pair: (pair[0].source_data_date or pair[0].as_of_date,
+                                  pair[0].snapshot_id),
+            )
+        ]
         for horizon in (1, 5, 20):
             prefix = f"h{horizon}d"
-            items = [item for review in reviews if review for item in review.evaluated_items]
-            returns = [getattr(item, f"{prefix}_raw_return_pct") for item in items
-                       if getattr(item, f"{prefix}_status") == "completed"]
-            benchmark = [getattr(item, f"{prefix}_bm_return_pct") for item in items
-                         if getattr(item, f"{prefix}_bm_status") == "completed"
-                         and getattr(item, f"{prefix}_bm_return_pct") is not None]
-            excess = [getattr(item, f"{prefix}_excess_pct") for item in items
-                      if getattr(item, f"{prefix}_excess_pct") is not None]
+            full = stats.horizons[f"{horizon}D"]["full_batch"]
+            items = [item for review in reviews for item in review.evaluated_items]
             reference_returns = [getattr(item, f"{prefix}_reference_close_return_pct") for item in items
                                  if getattr(item, f"{prefix}_reference_close_status") == "completed"]
-            setattr(stats, f"{prefix}_evaluated_count", len(returns))
-            setattr(stats, f"{prefix}_pending_count",
-                    sum(getattr(item, f"{prefix}_status") == "pending" for item in items))
-            setattr(stats, f"{prefix}_unavailable_count",
-                    sum(getattr(item, f"{prefix}_status") == "unavailable" for item in items))
-            setattr(stats, f"{prefix}_hit_rate_pct",
-                    round(sum(value > 0 for value in returns) / len(returns) * 100, 1)
-                    if returns else None)
-            setattr(stats, f"{prefix}_avg_return_pct",
-                    round(sum(returns) / len(returns), 2) if returns else None)
-            setattr(stats, f"{prefix}_bm_evaluated_count", len(benchmark))
-            setattr(stats, f"{prefix}_bm_avg_return_pct",
-                    round(sum(benchmark) / len(benchmark), 2) if benchmark else None)
-            setattr(stats, f"{prefix}_excess_evaluated_count", len(excess))
-            setattr(stats, f"{prefix}_avg_excess_pct",
-                    round(sum(excess) / len(excess), 2) if excess else None)
+            setattr(stats, f"{prefix}_evaluated_count", full.evaluable_count)
+            setattr(stats, f"{prefix}_pending_count", full.pending_count)
+            setattr(stats, f"{prefix}_unavailable_count", full.unavailable_count)
+            setattr(stats, f"{prefix}_hit_rate_pct", full.hit_rate)
+            setattr(stats, f"{prefix}_avg_return_pct", full.average_return_pct)
+            setattr(stats, f"{prefix}_bm_evaluated_count", full.benchmark_evaluable_count)
+            setattr(stats, f"{prefix}_bm_avg_return_pct", full.average_benchmark_return_pct)
+            setattr(stats, f"{prefix}_excess_evaluated_count", full.excess_evaluable_count)
+            setattr(stats, f"{prefix}_avg_excess_pct", full.average_excess_return_pct)
             setattr(stats, f"{prefix}_reference_close_evaluated_count", len(reference_returns))
             setattr(stats, f"{prefix}_reference_close_avg_return_pct",
                     round(sum(reference_returns) / len(reference_returns), 2)
@@ -953,6 +1095,12 @@ class TaiwanSelectionReviewService:
                         trend_adjustment_status=s.trend_adjustment_status,
                         h5d_evaluated_count=review.h5d_evaluated_count,
                         h20d_evaluated_count=review.h20d_evaluated_count,
+                        h1d_pending_count=review.h1d_pending_count,
+                        h5d_pending_count=review.h5d_pending_count,
+                        h20d_pending_count=review.h20d_pending_count,
+                        h1d_matured=self._is_forward_horizon_matured(s, 1),
+                        h5d_matured=self._is_forward_horizon_matured(s, 5),
+                        h20d_matured=self._is_forward_horizon_matured(s, 20),
                         h5d_avg_return_pct=review.h5d_avg_return_pct,
                         h20d_avg_return_pct=review.h20d_avg_return_pct,
                         h5d_bm_return_pct=review.h5d_bm_avg_return_pct,

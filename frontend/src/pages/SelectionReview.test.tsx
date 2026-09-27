@@ -47,6 +47,7 @@ describe('SelectionReview Page (A12)', () => {
       h5d_evaluated_count: 0, h5d_pending_count: 0, h5d_unavailable_count: 0, h5d_hit_rate_pct: null, h5d_avg_return_pct: null, h5d_bm_evaluated_count: 0, h5d_bm_avg_return_pct: null, h5d_excess_evaluated_count: 0, h5d_avg_excess_pct: null, h5d_reference_close_evaluated_count: 0, h5d_reference_close_avg_return_pct: null,
       h20d_evaluated_count: 0, h20d_pending_count: 0, h20d_unavailable_count: 0, h20d_hit_rate_pct: null, h20d_avg_return_pct: null, h20d_bm_evaluated_count: 0, h20d_bm_avg_return_pct: null, h20d_excess_evaluated_count: 0, h20d_avg_excess_pct: null, h20d_reference_close_evaluated_count: 0, h20d_reference_close_avg_return_pct: null,
       hit_rate_definition: '未四捨五入報酬率 > 0%',
+      horizons: {}, timeline: [],
     } as any)
   })
 
@@ -60,9 +61,44 @@ describe('SelectionReview Page (A12)', () => {
       </QueryClientProvider>,
     )
 
-    expect(await screen.findByRole('heading', { name: '尚無正式前瞻批次' })).toBeInTheDocument()
-    expect(screen.getAllByText('尚無樣本')).toHaveLength(3)
+    expect(await screen.findByRole('heading', { name: 'Forward Selection Performance Center' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: '尚無正式前瞻批次' })).toBeInTheDocument()
     expect(screen.queryByTitle('刪除快照')).not.toBeInTheDocument()
+  })
+
+  it('renders cohort metrics with zero and pending values without changing the backend denominator', async () => {
+    const summary = {
+      batch_count: 1, matured_batch_count: 0, pick_count: 2, evaluable_count: 1,
+      pending_count: 1, unavailable_count: 0, positive_return_count: 0,
+      hit_rate: 0, average_return_pct: 0, median_return_pct: 0,
+      benchmark_evaluable_count: 1, average_benchmark_return_pct: -1,
+      excess_evaluable_count: 1, average_excess_return_pct: 1,
+      median_excess_return_pct: 1, beat_benchmark_count: 1, beat_benchmark_rate: 100,
+    }
+    vi.mocked(api.selectionReview.getForwardBatchStats).mockResolvedValue({
+      batches_count: 1, picks_count: 2, horizons: {
+        '1D': { top10: summary, full_batch: summary },
+        '5D': { top10: summary, full_batch: summary },
+        '20D': { top10: summary, full_batch: summary },
+      }, timeline: [],
+    } as any)
+    render(<QueryClientProvider client={createTestQueryClient()}><MemoryRouter initialEntries={['/selection-review?tab=forward']}><SelectionReview /></MemoryRouter></QueryClientProvider>)
+
+    expect(await screen.findByRole('heading', { name: 'Forward Selection Performance Center' })).toBeInTheDocument()
+    expect(screen.getAllByText('Top10').length).toBeGreaterThan(0)
+    expect(screen.getAllByText('Top20／整批').length).toBeGreaterThan(0)
+    expect(screen.getAllByText(/0\.00%/).length).toBeGreaterThan(0)
+    expect(screen.getAllByText('100.0%').length).toBeGreaterThan(0)
+    expect(screen.getByText('尚無正式前瞻批次')).toBeInTheDocument()
+  })
+
+  it('shows retry state when cumulative forward stats request fails', async () => {
+    vi.mocked(api.selectionReview.getForwardBatchStats).mockRejectedValueOnce(new Error('offline')).mockResolvedValueOnce({ batches_count: 0, picks_count: 0 } as any)
+    render(<QueryClientProvider client={createTestQueryClient()}><MemoryRouter initialEntries={['/selection-review?tab=forward']}><SelectionReview /></MemoryRouter></QueryClientProvider>)
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('前瞻績效統計載入失敗')
+    fireEvent.click(screen.getByRole('button', { name: '重新載入' }))
+    expect(await screen.findByRole('heading', { name: '尚無正式前瞻批次' })).toBeInTheDocument()
   })
 
   it('shows a retry state when the formal batch list request fails', async () => {
