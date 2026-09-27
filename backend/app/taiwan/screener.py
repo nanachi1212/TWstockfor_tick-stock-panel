@@ -404,7 +404,8 @@ class TaiwanScreenerService:
                     risk = event_svc.check_symbol_risk_status(
                         symbol, target_date=risk_target_date, events=cached_events
                     )
-                    if risk["is_disposition"] or risk["is_suspended"]:
+                    if (risk["is_disposition"] or risk["is_suspended"]
+                            or risk.get("has_risk_event", False)):
                         excluded.add(symbol)
                     else:
                         risk_statuses[symbol] = (

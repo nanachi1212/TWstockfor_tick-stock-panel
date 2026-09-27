@@ -670,6 +670,23 @@ def test_trend_preset_filters_liquidity_risk_and_etf(tmp_path, monkeypatch):
     assert response.trend_indicator_basis == "pit_adjusted"
     assert response.trend_adjustment_status == "verified"
 
+    class DelistingRisk(Risk):
+        def get_cached_regulatory_snapshot(self):
+            events, status, as_of = super().get_cached_regulatory_snapshot()
+            events.append(MarketEvent(
+                id="delisting-2330", symbol="2330.TWSE", code="2330", name="台積電",
+                exchange="TWSE", event_date=target.isoformat(), event_type="delisting",
+                event_type_label="終止上市", title="終止上市", summary="終止上市",
+                source="TWSE", retrieved_at=_clock(sessions[-1]).isoformat(),
+            ))
+            return events, status, as_of
+
+    monkeypatch.setattr("app.taiwan.events_service.get_event_service", lambda: DelistingRisk())
+    delisting = TaiwanScreenerService(daily_store=store, action_store=actions).run(
+        TaiwanScreenerRequest(preset="trend_liquidity_v1")
+    )
+    assert delisting.items == []
+
 
 def test_trend_preset_uses_verified_pit_close_after_cash_dividend(tmp_path, monkeypatch):
     sessions = _sessions(date(2026, 8, 3), 26, date(2026, 8, 7))
