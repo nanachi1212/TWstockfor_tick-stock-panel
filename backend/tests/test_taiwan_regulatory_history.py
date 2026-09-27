@@ -257,3 +257,21 @@ def test_identity_is_deterministic_and_tracks_every_response(tmp_path):
     two.write_cmode(date(2024, 6, 4), parse_tpex_cmode(
         _cmode(date(2024, 6, 4), ("4712", False, True)), date(2024, 6, 4)), META)
     assert one.digest() != two.digest()
+
+
+def test_failed_refresh_keeps_the_previous_partition(tmp_path, monkeypatch):
+    store = RegulatoryHistoryStore(tmp_path)
+    day = date(2024, 6, 3)
+    first = parse_tpex_cmode(_cmode(day, ("4712", False, True)), day)
+    store.write_cmode(day, first, _meta("2024-06-03"))
+    grown = parse_tpex_cmode(_cmode(day, ("4712", False, True), ("2724", True, False)), day)
+
+    def broken(*args, **kwargs):
+        raise OSError("disk full")
+
+    monkeypatch.setattr("app.taiwan.regulatory_history.pq.write_table", broken)
+    with pytest.raises(OSError):
+        store.write_cmode(day, grown, _meta("2024-06-04"))
+    kept = pl.read_parquet(store.cmode_path(day))
+    assert kept["code"].to_list() == ["4712"]
+    assert not list(store.cmode_path(day).parent.glob("*.tmp"))

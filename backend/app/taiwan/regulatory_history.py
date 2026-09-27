@@ -245,8 +245,7 @@ class RegulatoryHistoryStore:
             if stored == hashes and not refreshable:
                 return "unchanged"
             if refreshable and set(stored) <= set(hashes):
-                path.unlink()
-                self._write(path, frame, metadata)
+                self._replace(path, frame, metadata)
                 return "refreshed"
             record = {"stored": _hash(stored), "fetched": _hash(hashes),
                       "detected_at": datetime.now(TAIPEI).isoformat(),
@@ -254,6 +253,12 @@ class RegulatoryHistoryStore:
             self._conflict_path(path).write_text(json.dumps(record), encoding="utf-8")
             logger.warning("regulatory history revision conflict: %s", path.name)
             return "conflict"
+        self._replace(path, frame, metadata)
+        return "written"
+
+    @staticmethod
+    def _replace(path: Path, frame: pl.DataFrame, metadata: dict[str, str]) -> None:
+        """Atomic write; the previous file stays in place until the new one is complete."""
         path.parent.mkdir(parents=True, exist_ok=True)
         handle, temporary = tempfile.mkstemp(dir=str(path.parent), suffix=".tmp")
         os.close(handle)
@@ -265,7 +270,6 @@ class RegulatoryHistoryStore:
         except BaseException:
             Path(temporary).unlink(missing_ok=True)
             raise
-        return "written"
 
     def write_month(self, source: str, year: int, month: int, frame: pl.DataFrame,
                     metadata: dict[str, str]) -> str:
