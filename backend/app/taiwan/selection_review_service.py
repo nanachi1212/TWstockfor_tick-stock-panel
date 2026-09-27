@@ -553,7 +553,8 @@ class TaiwanSelectionReviewService:
         census = file_versions(self.census_store._data_dir.glob("exchange=*/date=*/part.parquet")) if self.census_store else ()
         calendar = (tuple(sorted(self.calendar.known_holidays)),
                     tuple(sorted(self.calendar.known_trading_days)))
-        return daily, actions, census, calendar
+        snapshots = file_versions((self.path,))
+        return snapshots, daily, actions, census, calendar
 
     def get_snapshot_review(self, snapshot_id: str) -> SnapshotReviewDetail | None:
         """Evaluate a snapshot across 1D, 5D, 20D horizons."""
