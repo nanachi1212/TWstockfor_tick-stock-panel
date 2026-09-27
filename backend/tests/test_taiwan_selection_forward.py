@@ -28,6 +28,7 @@ from app.taiwan.screener import (
     TaiwanScreenerResponse,
     TaiwanScreenerService,
 )
+from app.taiwan.screener_strategy_store import TaiwanScreenerStrategyStore
 from app.taiwan.selection_review_models import SaveSelectionSnapshotRequest, SelectionSnapshotItem
 from app.taiwan.selection_review_service import TaiwanSelectionReviewService
 
@@ -241,6 +242,18 @@ def test_whole_market_missing_session_keeps_fifth_day_fixed(tmp_path, monkeypatc
     assert review.evaluated_items[0].h5d_return_pct is None
 
 
+def test_observed_weekend_session_counts_as_trading_day(tmp_path):
+    svc, source, sessions = _seed(tmp_path)
+    saturday = date(2026, 8, 8)
+    svc.daily_store.write_batch(pl.DataFrame([{
+        "symbol": symbol, "date": saturday, "open": 100.0,
+        "high": 101.0, "low": 100.0, "close": 101.0,
+        "volume": 1_000_000.0, "amount": 101_000_000.0, "quote_ts": 0,
+    } for symbol in ("2330.TWSE", "0050.TWSE")]))
+    days = svc._get_forward_trading_days(source)
+    assert days[:5] == [sessions[0], sessions[1], sessions[2], saturday, sessions[3]]
+
+
 def test_pending_and_missing_action_coverage_are_distinct(tmp_path, monkeypatch):
     svc, source, sessions = _seed(tmp_path)
     monkeypatch.setattr("app.taiwan.selection_review_service.taipei_now", lambda: _clock(source))
@@ -420,6 +433,19 @@ def test_trend_sort_uses_amount_then_symbol():
                          "amount": [60_000_000, 60_000_000, 60_000_000, 70_000_000]})
     ordered = service._apply_sort(rows, "trend_liquidity_v1", "desc")
     assert ordered["symbol"].to_list() == ["C.TWSE", "D.TWSE", "A.TWSE", "B.TWSE"]
+
+
+def test_trend_preset_exposes_existing_screener_form_conditions(tmp_path):
+    strategy = TaiwanScreenerStrategyStore(path=tmp_path / "strategies.json").get_strategy(
+        "trend_liquidity_v1"
+    )
+    assert strategy is not None
+    assert strategy.conditions.items() >= {
+        "preset": "trend_liquidity_v1", "instrument": "stock",
+        "amount_min": 50_000_000, "above_ma20": True,
+        "momentum_5d_min": 0.0, "exclude_disposition": True,
+        "exclude_suspended": True,
+    }.items()
 
 
 def test_trend_preset_filters_liquidity_risk_and_etf(tmp_path, monkeypatch):

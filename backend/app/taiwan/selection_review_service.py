@@ -243,7 +243,14 @@ class TaiwanSelectionReviewService:
     def _next_potential_session(self, after: date) -> date:
         cursor = after + timedelta(days=1)
         for _ in range(30):
-            if self.calendar.day_evidence(cursor, "TWSE").status != "non_trading":
+            evidence = self.calendar.day_evidence(cursor, "TWSE")
+            if (evidence.status == "non_trading"
+                    and evidence.evidence_source == "calendar_rule"
+                    and self.census_store is not None):
+                evidence = self.census_store.day_evidence(
+                    "TWSE", cursor, calendar=self.calendar
+                )
+            if evidence.status != "non_trading":
                 return cursor
             cursor += timedelta(days=1)
         raise ValueError("無法確認下個預定交易日")
@@ -287,7 +294,21 @@ class TaiwanSelectionReviewService:
             evidence = self.calendar.day_evidence(cursor, "TWSE")
             if evidence.status == "unresolved" and self.census_store is not None:
                 evidence = self.census_store.day_evidence("TWSE", cursor, calendar=self.calendar)
+            elif (evidence.status == "non_trading"
+                  and evidence.evidence_source == "calendar_rule"
+                  and self.census_store is not None):
+                observed_evidence = self.census_store.day_evidence(
+                    "TWSE", cursor, calendar=self.calendar
+                )
+                if observed_evidence.status == "trading":
+                    evidence = observed_evidence
             if evidence.status == "non_trading":
+                if has_observation(cursor) and evidence.evidence_source == "calendar_rule":
+                    days.append(cursor)
+                    if len(days) == 20:
+                        break
+                    cursor += timedelta(days=1)
+                    continue
                 if has_observation(cursor):
                     break
                 cursor += timedelta(days=1)
