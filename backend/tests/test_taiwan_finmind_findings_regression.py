@@ -1,7 +1,7 @@
 """Regression tests for PR #21 Codex review findings.
 
 Finding coverage:
-  P1 #4110472706  Phase-6G PIT: revenue/statements unavailable for historical as_of
+  P1 #4110472706  Phase-6G PIT: revenue/statements require availability evidence
   P1 #4110472712  Foreign shareholding field name contract
   P1 #4110472715  Lending anomaly enum alignment to 'surge'
   P2 #4110472716  Dynamic token lifecycle update without restart
@@ -34,7 +34,7 @@ from app.taiwan.providers.finmind_provider import (
 )
 
 # =====================================================================
-# 1. Phase-6G PIT: Revenue / Statements fail-closed for historical as_of
+# 1. Phase-6G PIT: Revenue / Statements require availability evidence
 # =====================================================================
 
 def test_resolve_as_of_date():
@@ -58,7 +58,7 @@ def test_current_revenue_is_available():
 
 
 def test_historical_revenue_without_verified_availability_is_unavailable():
-    """as_of set to any historical date: returns [] (fail-closed, phase-6g).
+    """Rows without publication timestamps remain unavailable for historical as_of.
 
     TaiwanStockMonthRevenue has no verified record-level publication
     timestamp, so no row can be proven available at any historical instant.
@@ -72,6 +72,16 @@ def test_historical_revenue_without_verified_availability_is_unavailable():
     assert filter_month_revenue_as_of(rows, date(2026, 6, 11)) == []
     assert filter_month_revenue_as_of(rows, date(2020, 1, 1)) == []
     assert filter_month_revenue_as_of(rows, "2026-08-05") == []
+
+
+def test_historical_revenue_uses_provider_publication_timestamp():
+    rows = [
+        {"date": "2026-07-01", "revenue": 100, "create_time": "2026-08-10"},
+        {"date": "2026-08-01", "revenue": 110, "create_time": "2026-09-10"},
+        {"date": "2026-09-01", "revenue": 120, "create_time": "2026-10-10"},
+    ]
+    filtered = filter_month_revenue_as_of(rows, date(2026, 9, 24))
+    assert [row["date"] for row in filtered] == ["2026-07-01", "2026-08-01"]
 
 
 def test_current_financial_statement_is_available():

@@ -11,7 +11,7 @@ Orchestrates:
 from __future__ import annotations
 
 import logging
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from typing import Any
 
 from app.taiwan.detail_models import (
@@ -181,7 +181,9 @@ class TaiwanFundamentalChipsService:
                 )
             # Query FinMind with active token adapter
             adapter = self._get_finmind_adapter()
-            raw_rows = adapter.fetch_month_revenue(sym_str)
+            cutoff_date = date.fromisoformat(str(as_of)[:10]) if as_of else datetime.now(TAIPEI).date()
+            start_date = (cutoff_date - timedelta(days=550)).isoformat()
+            raw_rows = adapter.fetch_month_revenue(sym_str, start_date=start_date)
             if not raw_rows:
                 self.cache.set(dataset, sym_str, [], status="unavailable")
                 return TaiwanRevenueData(
@@ -194,6 +196,52 @@ class TaiwanFundamentalChipsService:
 
         # Process rows with PIT cutoff
         return self._process_month_revenue(raw_rows, data_date, now_iso, as_of=as_of)
+
+    def refresh_monthly_revenue_cache(
+        self, symbols: list[str], *, as_of: date | str | None = None
+    ) -> dict[str, Any]:
+        """Refresh expired monthly-revenue entries through the existing FinMind cache path."""
+        if not self._is_finmind_enabled():
+            return {
+                "status": "unavailable",
+                "reason": "FinMind provider disabled",
+                "symbols_requested": len(symbols),
+                "symbols_refreshed": 0,
+                "symbols_cached": 0,
+                "symbols_failed": 0,
+            }
+
+        refreshed = 0
+        cached = 0
+        failed = 0
+        errors: list[str] = []
+        for symbol in symbols:
+            canonical = self._to_canonical_str(symbol)
+            was_current = self.cache.get("TaiwanStockMonthRevenue", canonical) is not None
+            try:
+                result = self.get_monthly_revenue(canonical, as_of=as_of)
+                if result.meta and result.meta.status == "available":
+                    if was_current:
+                        cached += 1
+                    else:
+                        refreshed += 1
+                else:
+                    failed += 1
+            except Exception as exc:
+                failed += 1
+                if len(errors) < 10:
+                    errors.append(f"{canonical}: {type(exc).__name__}")
+
+        result: dict[str, Any] = {
+            "status": "available" if failed == 0 else ("partial" if refreshed or cached else "unavailable"),
+            "symbols_requested": len(symbols),
+            "symbols_refreshed": refreshed,
+            "symbols_cached": cached,
+            "symbols_failed": failed,
+        }
+        if errors:
+            result["errors"] = errors
+        return result
 
     def _process_month_revenue(
         self,

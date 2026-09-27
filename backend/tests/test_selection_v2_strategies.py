@@ -82,6 +82,42 @@ def test_readiness_reports_coverage_without_fabricating_candidates():
     assert apply_strategy(frame, "growth_trend_v1").is_empty()
 
 
+def test_official_institutional_status_is_available_but_nulls_stay_unavailable():
+    frame = _frame().with_columns(
+        pl.when(pl.col("institutional_status") == "available")
+        .then(pl.lit("official"))
+        .otherwise(pl.col("institutional_status"))
+        .alias("institutional_status")
+    )
+    readiness, reasons, coverage = strategy_readiness(
+        frame, "institutional_momentum_v1", quote_coverage_status="verified",
+        risk_source_status="available",
+    )
+    assert readiness == "ready"
+    assert reasons == []
+    assert coverage["institutional_available_count"] == 2
+    assert apply_strategy(frame, "institutional_momentum_v1").height == 2
+
+
+def test_consensus_readiness_distinguishes_unavailable_upstream_from_zero_hits():
+    frame = _frame().with_columns(pl.lit(0).cast(pl.Int64).alias("consensus_hit_count"))
+    readiness, reasons, coverage = strategy_readiness(
+        frame, "multi_factor_consensus_v1", quote_coverage_status="verified",
+        risk_source_status="available",
+    )
+    assert readiness == "ready"
+    assert reasons == []
+    assert coverage["objective_signal_count"] == 0
+
+    unavailable = frame.with_columns(pl.lit("unavailable").alias("institutional_status"))
+    readiness, reasons, _coverage = strategy_readiness(
+        unavailable, "multi_factor_consensus_v1", quote_coverage_status="verified",
+        risk_source_status="available",
+    )
+    assert readiness == "degraded"
+    assert "法人資料不可用" in reasons
+
+
 def _snapshot(strategy_id: str, snapshot_id: str) -> SelectionSnapshot:
     return SelectionSnapshot(
         snapshot_id=snapshot_id,

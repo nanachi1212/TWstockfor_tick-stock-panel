@@ -1209,6 +1209,7 @@ export interface TaiwanScreenerResponse {
   quote_coverage_status?: 'verified' | 'unavailable' | null
   risk_unknown_count?: number
   risk_source_status?: 'available' | 'partial' | 'unavailable' | null
+  risk_source_statuses?: Record<string, string>
   risk_source_as_of?: string | null
   risk_target_date?: string | null
   strategy_id?: string | null

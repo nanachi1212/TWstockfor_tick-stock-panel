@@ -80,7 +80,9 @@ def strategy_readiness(
     if risk_source_status != "available":
         reasons.append("事件風險來源未完整")
     if strategy_id == "institutional_momentum_v1":
-        available = frame.filter(pl.col("institutional_status") == "available").height
+        available = frame.filter(
+            pl.col("institutional_status").is_in(["available", "official"])
+        ).height
         coverage["institutional_available_count"] = available
         if available == 0:
             reasons.append("法人資料不可用")
@@ -98,20 +100,39 @@ def strategy_readiness(
         if available == 0:
             reasons.append("技術歷史資料不可用")
     elif strategy_id == "multi_factor_consensus_v1":
+        institutional_available = frame.filter(
+            pl.col("institutional_status").is_in(["available", "official"])
+        ).height
+        revenue_available = frame.filter(pl.col("revenue_status") == "available").height
+        technical_available = frame.filter(
+            pl.col("breakout_20d_strength").is_not_null()
+            | pl.col("breakout_60d_strength").is_not_null()
+        ).height
+        coverage["institutional_available_count"] = institutional_available
+        coverage["revenue_available_count"] = revenue_available
+        coverage["technical_history_count"] = technical_available
+        if institutional_available == 0:
+            reasons.append("法人資料不可用")
+        if revenue_available == 0:
+            reasons.append("月營收資料不可用")
+        if technical_available == 0:
+            reasons.append("技術歷史資料不可用")
         coverage["objective_signal_count"] = frame.filter(
             pl.col("consensus_hit_count") >= CONSENSUS_MIN_HITS
         ).height
     return ("ready" if not reasons else "degraded"), reasons, coverage
 
 
-def apply_strategy(frame: pl.DataFrame, strategy_id: str) -> pl.DataFrame:
-    """Add objective hit columns and filter a fixed v1 strategy."""
+def apply_strategy(
+    frame: pl.DataFrame, strategy_id: str, *, filter_candidates: bool = True
+) -> pl.DataFrame:
+    """Add objective hit columns and optionally filter a fixed v1 strategy."""
     if strategy_id not in STRATEGY_IDS:
         raise ValueError(f"不支援的選股策略: {strategy_id}")
     if strategy_id == "trend_liquidity_v1":
         return frame
 
-    available = pl.col("institutional_status") == "available"
+    available = pl.col("institutional_status").is_in(["available", "official"])
     institutional_hit = (
         available
         & (pl.col("foreign_net_5d") > 0)
@@ -162,6 +183,9 @@ def apply_strategy(frame: pl.DataFrame, strategy_id: str) -> pl.DataFrame:
             separator="、",
         ).alias("consensus_strategy_names")
     )
+
+    if not filter_candidates:
+        return frame
 
     if strategy_id == "institutional_momentum_v1":
         return frame.filter(pl.col("_v2_institutional_hit"))

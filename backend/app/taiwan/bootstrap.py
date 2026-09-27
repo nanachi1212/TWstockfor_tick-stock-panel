@@ -207,7 +207,12 @@ class TaiwanBootstrapService:
         """
         from app.taiwan.backfill_worker import TaiwanHistoricalBackfillWorker
         from app.taiwan.corporate_actions import CorporateActionStore
+        from app.taiwan.daily_update import TaiwanDailyUpdateService
         from app.taiwan.events_service import get_event_service
+        from app.taiwan.finmind_cache import FinMindCache
+        from app.taiwan.fundamental_chips_service import TaiwanFundamentalChipsService
+        from app.taiwan.institutional_store import TaiwanInstitutionalStore
+        from app.taiwan.margin_store import TaiwanMarginStore
         from app.taiwan.observed_universe import ObservedUniverseStore
         from app.taiwan.realtime.calendar import TaiwanTradingCalendar
         from app.taiwan.screener import TaiwanScreenerService
@@ -223,12 +228,46 @@ class TaiwanBootstrapService:
             "trend_adjustment_status": "unavailable",
             "corporate_action_coverage": {"status": "unavailable"},
             "regulatory_events": {"status": "unavailable", "sources": {}},
+            "market_data_refresh": {"status": "unavailable"},
+            "monthly_revenue": {"status": "unavailable"},
         }
         source_dates = [day for day in self.store.available_dates() if day <= target]
         if not source_dates:
             raise ValueError("本地尚無可用的 selection source date")
         source_day = source_dates[-1]
         readiness["source_date"] = source_day.isoformat()
+
+        try:
+            market_refresh = TaiwanDailyUpdateService(
+                daily_store=self.store,
+                inst_store=TaiwanInstitutionalStore(data_dir / "institutional"),
+                margin_store=TaiwanMarginStore(data_dir / "margin"),
+            ).run_update(
+                target_date=source_day, refresh_daily=False
+            )
+            readiness["market_data_refresh"] = market_refresh.model_dump()
+        except Exception as exc:
+            logger.warning("Selection market-data refresh warning: %s", exc)
+            readiness["market_data_refresh"] = {
+                "status": "unavailable", "error": str(exc),
+            }
+
+        try:
+            screener = TaiwanScreenerService(
+                daily_store=self.store, census_store=census_store, calendar=calendar,
+            )
+            universe = screener._get_universe("ALL", "stock")
+            revenue_refresh = TaiwanFundamentalChipsService(
+                cache=FinMindCache(cache_dir=data_dir / "finmind_cache")
+            ).refresh_monthly_revenue_cache(
+                universe["symbol"].to_list(), as_of=source_day
+            )
+            readiness["monthly_revenue"] = revenue_refresh
+        except Exception as exc:
+            logger.warning("Selection monthly-revenue refresh warning: %s", exc)
+            readiness["monthly_revenue"] = {
+                "status": "unavailable", "error": str(exc),
+            }
 
         try:
             # The annual official schedule is also needed for the upcoming
@@ -251,9 +290,6 @@ class TaiwanBootstrapService:
             readiness["observed_universe_status"] = (
                 "verified" if all(e.status == "trading" and census_store.has(exchange, source_day)
                                    for exchange, e in evidence.items()) else "unavailable"
-            )
-            screener = TaiwanScreenerService(
-                daily_store=self.store, census_store=census_store, calendar=calendar,
             )
             universe = screener._get_universe("ALL", "stock")
             latest_frame = screener._normalize_daily_frame(
@@ -330,11 +366,16 @@ class TaiwanBootstrapService:
                 "status": "unavailable", "sources": {}, "error": str(exc),
             }
 
+        market_status = readiness["market_data_refresh"].get("overall_status")
+        if market_status == "success":
+            market_status = "available"
         statuses = [
             readiness["observed_universe_status"],
             readiness["trend_adjustment_status"],
             readiness["corporate_action_coverage"]["status"],
             readiness["regulatory_events"]["status"],
+            market_status or "unavailable",
+            readiness["monthly_revenue"]["status"],
         ]
         readiness["status"] = "ready" if all(status == "verified" or status == "available"
                                               for status in statuses) else "partial"
