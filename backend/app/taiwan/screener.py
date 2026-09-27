@@ -26,6 +26,8 @@ from typing import Any, Literal
 import polars as pl
 from pydantic import BaseModel, Field
 
+from app.taiwan.adjust import adjust_prices_as_of
+from app.taiwan.corporate_actions import CorporateActionStore
 from app.taiwan.daily_store import TaiwanDailyStore
 from app.taiwan.finmind_cache import FinMindCache
 from app.taiwan.institutional_store import TaiwanInstitutionalStore
@@ -152,6 +154,7 @@ class ScreenerResultItem(BaseModel):
 
     # Quotes & Volumes
     close: float | None = None
+    trend_adjusted_close: float | None = None
     change_pct: float | None = None  # decimal: 0.05 = 5%
     volume: float | None = None  # shares
     amount: float | None = None  # TWD
@@ -239,6 +242,8 @@ class TaiwanScreenerResponse(BaseModel):
     risk_unknown_count: int = 0
     risk_source_status: Literal["available", "partial", "unavailable"] | None = None
     risk_source_as_of: str | None = None
+    trend_indicator_basis: Literal["raw", "pit_adjusted"] = "raw"
+    trend_adjustment_status: Literal["verified", "partial", "unavailable"] | None = None
 
 
 class TaiwanScreenerService:
@@ -252,6 +257,7 @@ class TaiwanScreenerService:
         margin_store: TaiwanMarginStore | None = None,
         finmind_cache: FinMindCache | None = None,
         fundamental_chips_service: Any | None = None,
+        action_store: CorporateActionStore | None = None,
     ) -> None:
         self.security_master = security_master or get_security_master()
         self.daily_store = daily_store or TaiwanDailyStore()
@@ -259,6 +265,7 @@ class TaiwanScreenerService:
         self.margin_store = margin_store or TaiwanMarginStore()
         self.cache = finmind_cache or FinMindCache()
         self._fundamental_chips_service = fundamental_chips_service
+        self.action_store = action_store or CorporateActionStore()
 
     def _get_fundamental_chips_service(self):
         if self._fundamental_chips_service is None:
@@ -303,6 +310,22 @@ class TaiwanScreenerService:
 
         # Step 3: Compute batch indicators (needs up to 30 trading days of history)
         df_indicators = self._compute_batch_indicators(valid_symbols)
+        trend_adjustment_status: Literal["verified", "partial", "unavailable"] | None = None
+        trend_indicators: pl.DataFrame | None = None
+        if req.preset == "trend_liquidity_v1":
+            trend_indicators, trend_adjustment_status = self._compute_trend_indicators(
+                valid_symbols, date.fromisoformat(daily_as_of)
+            )
+            if trend_indicators is None or trend_indicators.is_empty():
+                return TaiwanScreenerResponse(
+                    items=[], total=0, page=1, page_size=20,
+                    sort_by="trend_liquidity_v1", sort_order="desc",
+                    data_dates=DataDatesInfo(daily_as_of=daily_as_of),
+                    missing_quote_count=missing_quote_count,
+                    degraded_sections=(["corporate_actions"] if trend_indicators is None else []),
+                    trend_indicator_basis="pit_adjusted",
+                    trend_adjustment_status=trend_adjustment_status,
+                )
 
         # Step 4: Join Universe + Latest Daily + Indicators
         combined = universe_df.join(latest_daily, on="symbol", how="inner")
@@ -310,6 +333,11 @@ class TaiwanScreenerService:
             combined = combined.join(df_indicators, on="symbol", how="left")
         else:
             combined = self._add_null_cols(combined, ["change_pct", "ma5", "ma10", "ma20", "rsi_14", "momentum_5d", "vol_ratio_5d"])
+        if trend_indicators is not None:
+            combined = combined.join(trend_indicators, on="symbol", how="inner").with_columns(
+                pl.col("trend_ma20").alias("ma20"),
+                pl.col("trend_momentum_5d").alias("momentum_5d"),
+            ).drop("trend_ma20", "trend_momentum_5d")
 
         # Step 5: MarketProfile Price Limits & Distance Calculation
         combined = self._enrich_price_limits(combined)
@@ -411,6 +439,8 @@ class TaiwanScreenerService:
             risk_unknown_count=sum(i.risk_status == "unknown" for i in items),
             risk_source_status=risk_source_status,
             risk_source_as_of=risk_source_as_of,
+            trend_indicator_basis="pit_adjusted" if req.preset else "raw",
+            trend_adjustment_status=trend_adjustment_status,
         )
 
     def _get_universe(self, exchange: ExchangeFilter, instrument: InstrumentFilter) -> pl.DataFrame:
@@ -480,6 +510,50 @@ class TaiwanScreenerService:
             .select(["symbol", "change_pct", "ma5", "ma10", "ma20", "rsi_14", "momentum_5d", "vol_ratio_5d"])
         )
         return latest_inds
+
+    def _compute_trend_indicators(
+        self, symbols: list[str], as_of: date,
+    ) -> tuple[pl.DataFrame | None, Literal["verified", "partial", "unavailable"]]:
+        """Calculate the formal preset's trend signals on a verified PIT price basis."""
+        dates = [day for day in self.daily_store.available_dates() if day <= as_of]
+        if not dates:
+            return pl.DataFrame(), "verified"
+        start = dates[max(0, len(dates) - 35)]
+        events = self.action_store.read_verified_window(start, as_of)
+        if events is None:
+            return None, "unavailable"
+        hist = self._normalize_daily_frame(self.daily_store.read_range(symbols, start, as_of))
+        if hist.is_empty():
+            return pl.DataFrame(), "verified"
+        hist = hist.select("symbol", "date", "close").sort("symbol", "date")
+        by_symbol: dict[str, list] = {}
+        for event in events:
+            by_symbol.setdefault(event.symbol, []).append(event)
+        adjusted_parts = [hist.filter(~pl.col("symbol").is_in(list(by_symbol)))]
+        skipped = 0
+        for symbol, symbol_events in by_symbol.items():
+            subset = hist.filter(pl.col("symbol") == symbol)
+            if subset.is_empty():
+                continue
+            adjusted = adjust_prices_as_of(
+                subset, as_of=as_of, events=symbol_events, price_columns=("close",)
+            )
+            if adjusted.status != "verified":
+                skipped += 1
+                continue
+            adjusted_parts.append(adjusted.to_frame().select("symbol", "date", "close"))
+        adjusted_hist = pl.concat(adjusted_parts).sort("symbol", "date")
+        if adjusted_hist.is_empty():
+            return pl.DataFrame(), "partial" if skipped else "verified"
+        latest = (adjusted_hist.with_columns(
+            pl.col("close").rolling_mean(20).over("symbol").alias("trend_ma20"),
+            (pl.col("close") / pl.col("close").shift(5).over("symbol") - 1.0)
+            .alias("trend_momentum_5d"),
+        ).with_columns(pl.col("date").max().over("symbol").alias("_latest"))
+            .filter(pl.col("date") == pl.col("_latest"))
+            .select("symbol", pl.col("close").alias("trend_adjusted_close"),
+                    "trend_ma20", "trend_momentum_5d"))
+        return latest, "partial" if skipped else "verified"
 
     def _enrich_price_limits(self, df: pl.DataFrame) -> pl.DataFrame:
         """Enrich with tick-size aware price limits and distance metrics."""
@@ -833,7 +907,8 @@ class TaiwanScreenerService:
             df = df.filter(pl.col("close") <= pl.col("ma5"))
 
         if req.above_ma20 is True:
-            df = df.filter(pl.col("close") > pl.col("ma20"))
+            basis_close = pl.col("trend_adjusted_close") if req.preset else pl.col("close")
+            df = df.filter(basis_close > pl.col("ma20"))
         elif req.above_ma20 is False:
             df = df.filter(pl.col("close") <= pl.col("ma20"))
 
@@ -1052,6 +1127,7 @@ class TaiwanScreenerService:
                 instrument_type=r.get("instrument_type") or "stock",
                 industry=r.get("industry"),
                 close=r.get("close"),
+                trend_adjusted_close=r.get("trend_adjusted_close"),
                 change_pct=r.get("change_pct"),
                 volume=r.get("volume"),
                 amount=r.get("amount"),

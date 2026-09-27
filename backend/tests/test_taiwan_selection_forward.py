@@ -29,7 +29,11 @@ from app.taiwan.screener import (
     TaiwanScreenerService,
 )
 from app.taiwan.screener_strategy_store import TaiwanScreenerStrategyStore
-from app.taiwan.selection_review_models import SaveSelectionSnapshotRequest, SelectionSnapshotItem
+from app.taiwan.selection_review_models import (
+    SaveSelectionSnapshotRequest,
+    SelectionSnapshot,
+    SelectionSnapshotItem,
+)
 from app.taiwan.selection_review_service import TaiwanSelectionReviewService
 
 
@@ -100,6 +104,7 @@ class _FixedScreener:
             sort_order="desc", data_dates=DataDatesInfo(daily_as_of=self.source.isoformat()),
             risk_unknown_count=1, missing_quote_count=2,
             risk_source_status="partial", risk_source_as_of="2026-08-03T14:00:00+00:00",
+            trend_indicator_basis="pit_adjusted", trend_adjustment_status="verified",
         )
 
 
@@ -121,6 +126,19 @@ def test_lock_is_server_owned_idempotent_and_undeletable(tmp_path, monkeypatch):
     assert len(svc.list_snapshots()) == 1
     with pytest.raises(PermissionError):
         svc.delete_snapshot(first.snapshot_id)
+
+
+def test_formal_lock_rejects_unverified_trend_price_basis(tmp_path, monkeypatch):
+    svc, source, _ = _seed(tmp_path)
+    monkeypatch.setattr("app.taiwan.selection_review_service.taipei_now", lambda: _clock(source))
+
+    class UnverifiedScreener(_FixedScreener):
+        def run(self, request):
+            return super().run(request).model_copy(update={"trend_adjustment_status": "unavailable"})
+
+    with pytest.raises(ValueError, match="公司行動來源覆蓋不足"):
+        svc.lock_forward_batch(UnverifiedScreener(source))
+    assert svc.list_snapshots() == []
 
 
 def test_corrupt_existing_snapshot_file_is_never_overwritten(tmp_path, monkeypatch):
@@ -252,6 +270,29 @@ def test_observed_weekend_session_counts_as_trading_day(tmp_path):
     } for symbol in ("2330.TWSE", "0050.TWSE")]))
     days = svc._get_forward_trading_days(source)
     assert days[:5] == [sessions[0], sessions[1], sessions[2], saturday, sessions[3]]
+
+
+def test_observed_weekend_target_is_not_marked_closed(tmp_path, monkeypatch):
+    svc, _, _ = _seed(tmp_path)
+    saturday = date(2026, 8, 8)
+    svc.daily_store.write_batch(pl.DataFrame([{
+        "symbol": symbol, "date": saturday, "open": 100.0,
+        "high": 101.0, "low": 100.0, "close": 101.0,
+        "volume": 1_000_000.0, "amount": 101_000_000.0, "quote_ts": 0,
+    } for symbol in ("2330.TWSE", "0050.TWSE")]))
+    snapshot = SelectionSnapshot(
+        snapshot_id="weekend-forward", created_at=_clock(date(2026, 8, 6)).isoformat(),
+        strategy_id="trend_liquidity_v1", strategy_name="趨勢流動性 v1",
+        as_of_date="2026-08-06", source_data_date="2026-08-06",
+        target_trade_date=saturday.isoformat(), market_context_summary="",
+        record_type="forward_batch", evaluation_basis="next_open",
+        items=[SelectionSnapshotItem(symbol="2330.TWSE", name="台積電", rank=1, price=101.0)],
+    )
+    monkeypatch.setattr("app.taiwan.selection_review_service.taipei_now", lambda: _clock(saturday))
+    item = svc._get_forward_batch_review(snapshot).evaluated_items[0]
+    assert item.entry_status == "completed"
+    assert item.h1d_status == "completed"
+    assert item.h1d_bm_status == "completed"
 
 
 def test_pending_and_missing_action_coverage_are_distinct(tmp_path, monkeypatch):
@@ -462,6 +503,12 @@ def test_trend_preset_filters_liquidity_risk_and_etf(tmp_path, monkeypatch):
                          "high": close, "low": close, "close": close,
                          "volume": 1_000_000.0, "amount": amount, "quote_ts": 0})
     store.write_batch(pl.DataFrame(rows))
+    actions = CorporateActionStore(tmp_path / "adj_factor")
+    actions.save([])
+    actions.path.with_name("coverage.json").write_text(json.dumps({
+        "start": sessions[0].isoformat(), "end": sessions[-1].isoformat(),
+        "sources": sorted(SOURCE_URLS), "events_sha256": actions.snapshot_digest(),
+    }), encoding="utf-8")
 
     class Risk:
         def get_cached_regulatory_snapshot(self):
@@ -476,7 +523,7 @@ def test_trend_preset_filters_liquidity_risk_and_etf(tmp_path, monkeypatch):
             raise AssertionError("Screening must not fetch regulatory sources")
 
     monkeypatch.setattr("app.taiwan.events_service.get_event_service", lambda: Risk())
-    response = TaiwanScreenerService(daily_store=store).run(
+    response = TaiwanScreenerService(daily_store=store, action_store=actions).run(
         TaiwanScreenerRequest(preset="trend_liquidity_v1", page_size=200)
     )
     assert [item.symbol for item in response.items] == ["2330.TWSE"]
@@ -485,6 +532,58 @@ def test_trend_preset_filters_liquidity_risk_and_etf(tmp_path, monkeypatch):
     assert response.risk_unknown_count == 1
     assert response.risk_source_status == "partial"
     assert response.risk_source_as_of == "2026-08-28T14:00:00+00:00"
+    assert response.trend_indicator_basis == "pit_adjusted"
+    assert response.trend_adjustment_status == "verified"
+
+
+def test_trend_preset_uses_verified_pit_close_after_cash_dividend(tmp_path, monkeypatch):
+    sessions = _sessions(date(2026, 8, 3), 26, date(2026, 8, 7))
+    store = TaiwanDailyStore(tmp_path / "daily")
+    store.write_batch(pl.DataFrame([{
+        "symbol": "2330.TWSE", "date": day, "open": close,
+        "high": close, "low": close, "close": close,
+        "volume": 1_000_000.0, "amount": 60_000_000.0, "quote_ts": 0,
+    } for day in sessions for close in [92.0 if day == sessions[-1] else 100.0]]))
+    last = sessions[-1]
+    action = CorporateActionEvent(
+        symbol="2330.TWSE", exchange="TWSE", effective_date=last,
+        effective_at=event_market_open(last), event_type="cash_dividend",
+        previous_close=100.0, reference_price=90.0, factor=0.9,
+        cash_dividend=10.0, free_share_ratio=None, reduction_ratio=None,
+        source="TWT49U", source_url="https://www.twse.com.tw/",
+        retrieved_at=_clock(last), status="verified",
+        precision_method="official_reference_ratio",
+    )
+    actions = CorporateActionStore(tmp_path / "adj_factor")
+    actions.save([action])
+    actions.path.with_name("coverage.json").write_text(json.dumps({
+        "start": sessions[0].isoformat(), "end": last.isoformat(),
+        "sources": sorted(SOURCE_URLS), "events_sha256": actions.snapshot_digest(),
+    }), encoding="utf-8")
+
+    class Risk:
+        def get_cached_regulatory_snapshot(self):
+            return [], "available", _clock(last).isoformat()
+
+        def check_symbol_risk_status(self, symbol, target_date=None, events=None):
+            return {"is_disposition": False, "is_suspended": False}
+
+    monkeypatch.setattr("app.taiwan.events_service.get_event_service", lambda: Risk())
+    service = TaiwanScreenerService(daily_store=store, action_store=actions)
+    response = service.run(TaiwanScreenerRequest(preset="trend_liquidity_v1"))
+    assert response.trend_adjustment_status == "verified"
+    assert [item.symbol for item in response.items] == ["2330.TWSE"]
+    item = response.items[0]
+    assert item.close == 92.0
+    assert item.trend_adjusted_close == 92.0
+    assert item.ma20 < item.trend_adjusted_close
+    assert item.momentum_5d > 0
+
+    actions.path.with_name("coverage.json").unlink()
+    unavailable = service.run(TaiwanScreenerRequest(preset="trend_liquidity_v1"))
+    assert unavailable.items == []
+    assert unavailable.trend_adjustment_status == "unavailable"
+    assert "corporate_actions" in unavailable.degraded_sections
 
 
 def test_regulatory_cache_read_never_fetches_and_stale_is_unknown(tmp_path, monkeypatch):

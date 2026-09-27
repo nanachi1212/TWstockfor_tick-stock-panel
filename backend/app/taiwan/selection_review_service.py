@@ -28,7 +28,6 @@ from app.taiwan.adjust import adjust_prices_as_of
 from app.taiwan.corporate_actions import CorporateActionStore, event_market_open
 from app.taiwan.daily_store import TaiwanDailyStore
 from app.taiwan.observed_universe import ObservedUniverseStore
-from app.taiwan.providers.corporate_actions import SOURCE_URLS
 from app.taiwan.providers.taiwan_values import market_close
 from app.taiwan.realtime.calendar import TaiwanTradingCalendar, taipei_now
 from app.taiwan.selection_review_models import (
@@ -188,6 +187,9 @@ class TaiwanSelectionReviewService:
         screen = (screener or TaiwanScreenerService()).run(
             TaiwanScreenerRequest(preset=FORWARD_RULE_VERSION)
         )
+        if (screen.trend_indicator_basis != "pit_adjusted"
+                or screen.trend_adjustment_status not in {"verified", "partial"}):
+            raise ValueError("公司行動來源覆蓋不足。不能鎖定正式批次")
         if not screen.data_dates.daily_as_of:
             raise ValueError("沒有可鎖定的行情資料日期")
         source_day = date.fromisoformat(screen.data_dates.daily_as_of)
@@ -235,6 +237,8 @@ class TaiwanSelectionReviewService:
                 risk_unknown_count=screen.risk_unknown_count,
                 risk_source_status=screen.risk_source_status,
                 risk_source_as_of=screen.risk_source_as_of,
+                selection_indicator_basis=screen.trend_indicator_basis,
+                trend_adjustment_status=screen.trend_adjustment_status,
             )
             existing.append(snapshot)
             self._save_snapshots_raw(existing)
@@ -352,23 +356,7 @@ class TaiwanSelectionReviewService:
 
     def _verified_action_events(self, start: date, end: date):
         """Read the existing audited action snapshot without request-time downloads."""
-        marker = self.action_store.path.with_name("coverage.json")
-        if not marker.is_file() or not self.action_store.path.is_file():
-            return None
-        try:
-            record = json.loads(marker.read_text(encoding="utf-8"))
-            if (record.get("events_sha256") != self.action_store.snapshot_digest()
-                    or set(record.get("sources", ())) != set(SOURCE_URLS)
-                    or date.fromisoformat(record["start"]) > start
-                    or date.fromisoformat(record["end"]) < end):
-                return None
-            events = tuple(e for e in self.action_store.read()
-                           if start <= e.effective_date <= end)
-            if any(e.status == "provider_error" for e in events):
-                return None
-            return events
-        except (OSError, ValueError, KeyError, TypeError):
-            return None
+        return self.action_store.read_verified_window(start, end)
 
     def _get_forward_batch_review(self, snapshot: SelectionSnapshot) -> SnapshotReviewDetail:
         source = date.fromisoformat(snapshot.source_data_date or snapshot.as_of_date)
@@ -376,7 +364,9 @@ class TaiwanSelectionReviewService:
         sessions = self._get_forward_trading_days(source)
         symbols = [*(item.symbol for item in snapshot.items), DEFAULT_BENCHMARK_SYMBOL]
         entry_valid = bool(sessions and sessions[0] == target)
-        target_closed = self.calendar.day_evidence(target, "TWSE").status == "non_trading"
+        target_closed = (
+            not entry_valid and self.calendar.day_evidence(target, "TWSE").status == "non_trading"
+        )
         today = taipei_now()
         needed = [target, *(sessions[index - 1] for index in (5, 20) if len(sessions) >= index)]
         prices: dict[date, dict[str, dict]] = {}
@@ -801,6 +791,8 @@ class TaiwanSelectionReviewService:
                         evaluation_basis=s.evaluation_basis,
                         risk_source_status=s.risk_source_status,
                         risk_source_as_of=s.risk_source_as_of,
+                        selection_indicator_basis=s.selection_indicator_basis,
+                        trend_adjustment_status=s.trend_adjustment_status,
                         h5d_evaluated_count=review.h5d_evaluated_count,
                         h20d_evaluated_count=review.h20d_evaluated_count,
                         h5d_avg_return_pct=review.h5d_avg_return_pct,
@@ -829,6 +821,8 @@ class TaiwanSelectionReviewService:
                         evaluation_basis=s.evaluation_basis,
                         risk_source_status=s.risk_source_status,
                         risk_source_as_of=s.risk_source_as_of,
+                        selection_indicator_basis=s.selection_indicator_basis,
+                        trend_adjustment_status=s.trend_adjustment_status,
                     )
                 )
         return result
