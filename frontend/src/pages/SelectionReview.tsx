@@ -32,33 +32,49 @@ type ReviewTab = 'snapshots' | 'forward' | 'strategies' | 'conditions'
 function toForwardBatchReview(detail: SnapshotReviewDetail): SelectionForwardBatchReviewView {
   return {
     statistics: {
-      '1D': { paperReturnPct: null, benchmark0050ReturnPct: null, excessReturnPct: null,
+      '1D': { referenceCloseReturnPct: detail.h1d_reference_close_avg_return_pct ?? null, referenceCloseEvaluableCount: detail.h1d_reference_close_evaluated_count ?? 0, paperReturnPct: detail.h1d_avg_return_pct ?? null, benchmark0050ReturnPct: detail.h1d_bm_avg_return_pct ?? null, benchmarkEvaluableCount: detail.h1d_bm_evaluated_count ?? 0, excessReturnPct: detail.h1d_avg_excess_pct ?? null, excessEvaluableCount: detail.h1d_excess_evaluated_count ?? 0,
         evaluableCount: detail.h1d_evaluated_count ?? 0, trackingCount: detail.h1d_pending_count ?? 0, missingCount: detail.h1d_unavailable_count ?? 0 },
-      '5D': { paperReturnPct: detail.h5d_avg_return_pct, benchmark0050ReturnPct: detail.h5d_bm_avg_return_pct, excessReturnPct: detail.h5d_avg_excess_pct,
+      '5D': { referenceCloseReturnPct: detail.h5d_reference_close_avg_return_pct ?? null, referenceCloseEvaluableCount: detail.h5d_reference_close_evaluated_count ?? 0, paperReturnPct: detail.h5d_avg_return_pct, benchmark0050ReturnPct: detail.h5d_bm_avg_return_pct, benchmarkEvaluableCount: detail.h5d_bm_evaluated_count ?? 0, excessReturnPct: detail.h5d_avg_excess_pct, excessEvaluableCount: detail.h5d_excess_evaluated_count ?? 0,
         evaluableCount: detail.h5d_evaluated_count, trackingCount: detail.h5d_pending_count ?? 0, missingCount: detail.h5d_unavailable_count ?? 0 },
-      '20D': { paperReturnPct: detail.h20d_avg_return_pct, benchmark0050ReturnPct: detail.h20d_bm_avg_return_pct, excessReturnPct: detail.h20d_avg_excess_pct,
+      '20D': { referenceCloseReturnPct: detail.h20d_reference_close_avg_return_pct ?? null, referenceCloseEvaluableCount: detail.h20d_reference_close_evaluated_count ?? 0, paperReturnPct: detail.h20d_avg_return_pct, benchmark0050ReturnPct: detail.h20d_bm_avg_return_pct, benchmarkEvaluableCount: detail.h20d_bm_evaluated_count ?? 0, excessReturnPct: detail.h20d_avg_excess_pct, excessEvaluableCount: detail.h20d_excess_evaluated_count ?? 0,
         evaluableCount: detail.h20d_evaluated_count, trackingCount: detail.h20d_pending_count ?? 0, missingCount: detail.h20d_unavailable_count ?? 0 },
     },
     items: detail.evaluated_items.map(item => ({
       symbol: item.symbol, name: item.name,
       referencePrice: item.entry_price,
       paperEntryPrice: item.paper_entry_price ?? null,
+      paperEntryPriceStatus: reviewStatus(item.entry_status ?? 'pending'),
+      entryReason: item.status_reasons?.entry,
+      referenceCloseReturns: {
+        '1D': { status: reviewStatus(item.h1d_reference_close_status ?? 'pending'), returnPct: item.h1d_reference_close_return_pct ?? null, reason: item.status_reasons?.h1d_reference_close },
+        '5D': { status: reviewStatus(item.h5d_reference_close_status ?? 'pending'), returnPct: item.h5d_reference_close_return_pct ?? null, reason: item.status_reasons?.h5d_reference_close },
+        '20D': { status: reviewStatus(item.h20d_reference_close_status ?? 'pending'), returnPct: item.h20d_reference_close_return_pct ?? null, reason: item.status_reasons?.h20d_reference_close },
+      },
       paperEntryReturns: {
-        '1D': { status: reviewStatus(item.h1d_status), returnPct: item.h1d_return_pct },
-        '5D': { status: reviewStatus(item.h5d_status), returnPct: item.h5d_return_pct },
-        '20D': { status: reviewStatus(item.h20d_status), returnPct: item.h20d_return_pct },
+        '1D': { status: reviewStatus(item.h1d_status), returnPct: item.h1d_return_pct, reason: item.status_reasons?.h1d },
+        '5D': { status: reviewStatus(item.h5d_status), returnPct: item.h5d_return_pct, reason: item.status_reasons?.h5d },
+        '20D': { status: reviewStatus(item.h20d_status), returnPct: item.h20d_return_pct, reason: item.status_reasons?.h20d },
       },
       benchmarkReturns: {
-        '1D': { status: metricStatus(item.h1d_bm_status, item.h1d_bm_return_pct), returnPct: item.h1d_bm_return_pct },
-        '5D': { status: metricStatus(item.h5d_bm_status, item.h5d_bm_return_pct), returnPct: item.h5d_bm_return_pct },
-        '20D': { status: metricStatus(item.h20d_bm_status, item.h20d_bm_return_pct), returnPct: item.h20d_bm_return_pct },
+        '1D': { status: metricStatus(item.h1d_bm_status, item.h1d_bm_return_pct), returnPct: item.h1d_bm_return_pct, reason: item.status_reasons?.h1d_benchmark },
+        '5D': { status: metricStatus(item.h5d_bm_status, item.h5d_bm_return_pct), returnPct: item.h5d_bm_return_pct, reason: item.status_reasons?.h5d_benchmark },
+        '20D': { status: metricStatus(item.h20d_bm_status, item.h20d_bm_return_pct), returnPct: item.h20d_bm_return_pct, reason: item.status_reasons?.h20d_benchmark },
       },
       excessReturns: {
-        '1D': { status: metricStatus(item.h1d_status, item.h1d_excess_pct), returnPct: item.h1d_excess_pct },
-        '5D': { status: metricStatus(item.h5d_status, item.h5d_excess_pct), returnPct: item.h5d_excess_pct },
-        '20D': { status: metricStatus(item.h20d_status, item.h20d_excess_pct), returnPct: item.h20d_excess_pct },
+        '1D': { status: excessStatus(item.h1d_status, item.h1d_bm_status, item.h1d_excess_pct), returnPct: item.h1d_excess_pct, reason: item.status_reasons?.h1d_benchmark },
+        '5D': { status: excessStatus(item.h5d_status, item.h5d_bm_status, item.h5d_excess_pct), returnPct: item.h5d_excess_pct, reason: item.status_reasons?.h5d_benchmark },
+        '20D': { status: excessStatus(item.h20d_status, item.h20d_bm_status, item.h20d_excess_pct), returnPct: item.h20d_excess_pct, reason: item.status_reasons?.h20d_benchmark },
       },
     })),
+    metadata: {
+      lockedAt: detail.snapshot.locked_at ?? null,
+      targetTradeDate: detail.snapshot.target_trade_date ?? null,
+      targetTradeDateStatus: detail.snapshot.target_trade_date_status ?? null,
+      ruleVersion: detail.snapshot.rule_version ?? null,
+      selectedCount: detail.snapshot.items.length,
+      priceAdjustment: detail.snapshot.price_adjustment ?? null,
+      costAssumption: detail.snapshot.cost_assumption ?? null,
+    },
   }
 }
 
@@ -71,13 +87,21 @@ function metricStatus(status: 'completed' | 'pending' | 'unavailable' | undefine
   return 'completed'
 }
 
+function excessStatus(stock: 'completed' | 'pending' | 'unavailable', benchmark: 'completed' | 'pending' | 'unavailable', value: number | null) {
+  if (value !== null) return 'completed'
+  return stock === 'pending' || benchmark === 'pending' ? 'tracking' : 'missing'
+}
+
 function ForwardStats({ stats, formatPct }: { stats: ForwardBatchStats; formatPct: (value: number | null | undefined) => string }) {
   const horizons = [
-    { label: '1D', evaluated: stats.h1d_evaluated_count, pending: stats.h1d_pending_count, missing: stats.h1d_unavailable_count, hitRate: stats.h1d_hit_rate_pct },
-    { label: '5D', evaluated: stats.h5d_evaluated_count, pending: stats.h5d_pending_count, missing: stats.h5d_unavailable_count, hitRate: stats.h5d_hit_rate_pct },
-    { label: '20D', evaluated: stats.h20d_evaluated_count, pending: stats.h20d_pending_count, missing: stats.h20d_unavailable_count, hitRate: stats.h20d_hit_rate_pct },
+    { label: '1D', evaluated: stats.h1d_evaluated_count, pending: stats.h1d_pending_count, missing: stats.h1d_unavailable_count, hitRate: stats.h1d_hit_rate_pct, paper: stats.h1d_avg_return_pct, bm: stats.h1d_bm_avg_return_pct, bmCount: stats.h1d_bm_evaluated_count, excess: stats.h1d_avg_excess_pct, excessCount: stats.h1d_excess_evaluated_count, reference: stats.h1d_reference_close_avg_return_pct, referenceCount: stats.h1d_reference_close_evaluated_count },
+    { label: '5D', evaluated: stats.h5d_evaluated_count, pending: stats.h5d_pending_count, missing: stats.h5d_unavailable_count, hitRate: stats.h5d_hit_rate_pct, paper: stats.h5d_avg_return_pct, bm: stats.h5d_bm_avg_return_pct, bmCount: stats.h5d_bm_evaluated_count, excess: stats.h5d_avg_excess_pct, excessCount: stats.h5d_excess_evaluated_count, reference: stats.h5d_reference_close_avg_return_pct, referenceCount: stats.h5d_reference_close_evaluated_count },
+    { label: '20D', evaluated: stats.h20d_evaluated_count, pending: stats.h20d_pending_count, missing: stats.h20d_unavailable_count, hitRate: stats.h20d_hit_rate_pct, paper: stats.h20d_avg_return_pct, bm: stats.h20d_bm_avg_return_pct, bmCount: stats.h20d_bm_evaluated_count, excess: stats.h20d_avg_excess_pct, excessCount: stats.h20d_excess_evaluated_count, reference: stats.h20d_reference_close_avg_return_pct, referenceCount: stats.h20d_reference_close_evaluated_count },
   ]
-  return <div className="grid gap-2 md:grid-cols-3">{horizons.map(h => <section key={h.label} className="rounded-lg border border-border/60 bg-card p-3 text-xs"><h3 className="font-semibold">正式批次 {h.label}</h3><dl className="mt-2 grid grid-cols-2 gap-y-1"><dt className="text-muted-foreground">可評估筆數</dt><dd className="text-right">{h.evaluated}</dd><dt className="text-muted-foreground">追蹤中</dt><dd className="text-right">{h.pending}</dd><dt className="text-muted-foreground">缺資料</dt><dd className="text-right">{h.missing}</dd><dt className="text-muted-foreground">後端命中率</dt><dd className="text-right">{h.hitRate == null ? (h.evaluated === 0 && h.pending > 0 ? '尚未到期' : h.evaluated === 0 && h.missing === 0 ? '尚無樣本' : '資料不足') : formatPct(h.hitRate)}</dd></dl></section>)}</div>
+  return <section aria-label="全部正式批次統計" className="space-y-2">
+    <p className="text-xs font-medium">全部正式批次：{stats.batches_count} 批、{stats.picks_count} 檔，以下採後端整批統計</p>
+    <div className="grid gap-2 md:grid-cols-3">{horizons.map(h => <section key={h.label} className="rounded-lg border border-border/60 bg-card p-3 text-xs"><h3 className="font-semibold">{h.label}</h3><dl className="mt-2 grid grid-cols-2 gap-y-1"><dt className="text-muted-foreground">參考收盤漲跌</dt><dd className="text-right">{formatPct(h.reference)}（{h.referenceCount} 檔）</dd><dt className="text-muted-foreground">紙上進場報酬</dt><dd className="text-right">{formatPct(h.paper)}</dd><dt className="text-muted-foreground">0050 同期報酬</dt><dd className="text-right">{formatPct(h.bm)}（{h.bmCount} 檔）</dd><dt className="text-muted-foreground">超額報酬</dt><dd className="text-right">{formatPct(h.excess)}（{h.excessCount} 檔）</dd><dt className="text-muted-foreground">可評估／追蹤／缺資料</dt><dd className="text-right">{h.evaluated}／{h.pending}／{h.missing}</dd><dt className="text-muted-foreground">後端命中率</dt><dd className="text-right">{h.hitRate == null ? (h.evaluated === 0 && h.pending > 0 ? '尚未到期' : h.evaluated === 0 && h.missing === 0 ? '尚無樣本' : '資料不足') : formatPct(h.hitRate)}</dd></dl></section>)}</div>
+  </section>
 }
 
 export function SelectionReview() {

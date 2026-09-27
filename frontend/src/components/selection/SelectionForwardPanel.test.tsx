@@ -7,7 +7,9 @@ const previewFixture: SelectionForwardPreviewView = {
   dataDate: '2026-09-25',
   ruleVersion: 'trend_liquidity_v1',
   rankingBasis: '5 日動能由高至低，同分依成交金額排序',
-  status: 'pre_open',
+  status: 'available',
+  targetTradeDate: '2026-09-28',
+  targetTradeDateStatus: 'confirmed',
   lockAllowed: true,
   candidates: Array.from({ length: 22 }, (_, index) => ({
     symbol: `${2330 + index}.TWSE`,
@@ -22,19 +24,25 @@ const previewFixture: SelectionForwardPreviewView = {
 
 const batchReviewFixture: SelectionForwardBatchReviewView = {
   statistics: {
-    '1D': { paperReturnPct: 1.25, benchmark0050ReturnPct: 0.75, excessReturnPct: 0.5, evaluableCount: 8, trackingCount: 2, missingCount: 1 },
-    '5D': { paperReturnPct: null, benchmark0050ReturnPct: null, excessReturnPct: null, evaluableCount: 0, trackingCount: 8, missingCount: 3 },
-    '20D': { paperReturnPct: -0.5, benchmark0050ReturnPct: 0.1, excessReturnPct: -0.6, evaluableCount: 2, trackingCount: 4, missingCount: 5 },
+    '1D': { referenceCloseReturnPct: -1.1, referenceCloseEvaluableCount: 8, paperReturnPct: 1.25, benchmark0050ReturnPct: 0.75, benchmarkEvaluableCount: 8, excessReturnPct: 0.5, excessEvaluableCount: 8, evaluableCount: 8, trackingCount: 2, missingCount: 1 },
+    '5D': { referenceCloseReturnPct: null, referenceCloseEvaluableCount: 0, paperReturnPct: null, benchmark0050ReturnPct: null, benchmarkEvaluableCount: 0, excessReturnPct: null, excessEvaluableCount: 0, evaluableCount: 0, trackingCount: 8, missingCount: 3 },
+    '20D': { referenceCloseReturnPct: -0.4, referenceCloseEvaluableCount: 2, paperReturnPct: 0, benchmark0050ReturnPct: 0.1, benchmarkEvaluableCount: 2, excessReturnPct: -0.6, excessEvaluableCount: 2, evaluableCount: 2, trackingCount: 4, missingCount: 5 },
   },
   items: [{
     symbol: '2330.TWSE',
     name: '測試標的 台積電',
     referencePrice: 1000,
     paperEntryPrice: 1010,
+    paperEntryPriceStatus: 'completed',
+    referenceCloseReturns: {
+      '1D': { status: 'completed', returnPct: -1.1 },
+      '5D': { status: 'tracking', returnPct: null },
+      '20D': { status: 'missing', returnPct: null, reason: 'missing_horizon_close' },
+    },
     paperEntryReturns: {
       '1D': { status: 'completed', returnPct: 1.1 },
       '5D': { status: 'tracking', returnPct: null },
-      '20D': { status: 'missing', returnPct: null },
+      '20D': { status: 'completed', returnPct: -0.5 },
     },
     benchmarkReturns: {
       '1D': { status: 'completed', returnPct: 0.75 },
@@ -47,6 +55,7 @@ const batchReviewFixture: SelectionForwardBatchReviewView = {
       '20D': { status: 'missing', returnPct: null },
     },
   }],
+  metadata: { lockedAt: '2026-09-25T08:00:00+08:00', targetTradeDate: '2026-09-28', targetTradeDateStatus: 'scheduled_unverified', ruleVersion: 'trend_liquidity_v1', selectedCount: 20, priceAdjustment: 'split_adjusted_price', costAssumption: '未扣成本與滑價；紙上開盤價不保證成交' },
 }
 
 describe('SelectionForwardPanel', () => {
@@ -68,26 +77,31 @@ describe('SelectionForwardPanel', () => {
     expect(screen.getByText('產業集中')).toBeInTheDocument()
   })
 
-  it('disables official locking after market open and clearly marks the preview', () => {
-    render(<SelectionForwardPanel preview={{ ...previewFixture, status: 'market_open' }} onDryRun={vi.fn()} onLockOfficialBatch={vi.fn()} />)
+  it('does not infer a lock window from browser time and marks unverified scheduled dates', () => {
+    render(<SelectionForwardPanel preview={{ ...previewFixture, targetTradeDateStatus: 'scheduled_unverified' }} onDryRun={vi.fn()} onLockOfficialBatch={vi.fn()} />)
 
-    expect(screen.getByRole('status')).toHaveTextContent('已開盤')
-    expect(screen.getByRole('button', { name: '鎖定正式測試名單' })).toBeDisabled()
+    expect(screen.getByText('預定進場日').parentElement).toHaveTextContent('未確認')
+    expect(screen.getByRole('button', { name: '鎖定正式測試名單' })).toBeEnabled()
+    expect(screen.getByText(/鎖定時點與進場日期以後端核驗為準/)).toBeInTheDocument()
   })
 
   it('renders backend-supplied horizons, 0050 and paper-entry results without turning null into zero', () => {
     render(<SelectionForwardPanel preview={previewFixture} batchReview={batchReviewFixture} />)
 
     expect(screen.getByText('+1.25%')).toBeInTheDocument()
-    expect(screen.getAllByText('+0.75%')).toHaveLength(2)
-    expect(screen.getByText('+0.50%')).toBeInTheDocument()
+    expect(screen.getAllByText('+0.75%')).toHaveLength(1)
+    expect(screen.getByText(/\+0\.50%/)).toBeInTheDocument()
     expect(screen.getByText('+0.35%')).toBeInTheDocument()
+    expect(screen.getByText('0.00%')).toBeInTheDocument()
+    expect(screen.getByText('-0.50%')).toBeInTheDocument()
+    expect(screen.getAllByText(/-1\.10%/)).toHaveLength(2)
+    expect(screen.getByText(/鎖定時間/)).toBeInTheDocument()
+    expect(screen.getByText(/未扣成本與滑價/)).toBeInTheDocument()
     expect(screen.getAllByText('可評估筆數').map(label => label.nextElementSibling?.textContent)).toContain('8')
     expect(screen.getAllByText('追蹤中', { selector: 'td' }).length).toBeGreaterThan(0)
-    expect(screen.getAllByText('缺資料', { selector: 'td' }).length).toBeGreaterThan(0)
+    expect(screen.getAllByText('不可評估', { selector: 'td' }).length).toBeGreaterThan(0)
     expect(screen.getAllByText('1000')).toHaveLength(2)
     expect(screen.getAllByText('尚無可評估結果').length).toBeGreaterThan(0)
-    expect(screen.queryByText('0.00%')).not.toBeInTheDocument()
   })
 
   it('does not show fabricated candidates and allows an explicit dry-run request before a preview', () => {
@@ -96,5 +110,12 @@ describe('SelectionForwardPanel', () => {
     expect(screen.getByText('尚未載入候選資料')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: '乾跑預覽' })).toBeEnabled()
     expect(screen.getByRole('button', { name: '鎖定正式測試名單' })).toBeDisabled()
+  })
+
+  it('distinguishes a genuine zero-candidate preview from unavailable screening data', () => {
+    render(<SelectionForwardPanel preview={{ ...previewFixture, candidates: [], status: 'available' }} onDryRun={vi.fn()} onLockOfficialBatch={vi.fn()} />)
+    expect(screen.getByText('目前沒有可展示的候選標的，無法鎖定名單。')).toBeInTheDocument()
+    expect(screen.getByText('資料日期').parentElement).toHaveTextContent('2026-09-25')
+    expect(screen.queryByText('目前無法提供正式候選資料。')).not.toBeInTheDocument()
   })
 })

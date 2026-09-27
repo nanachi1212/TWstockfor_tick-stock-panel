@@ -4108,6 +4108,7 @@ export interface SelectionSnapshot {
   target_trade_date_status?: 'confirmed' | 'scheduled_unverified' | null
   rule_version?: string | null
   evaluation_basis?: 'reference_close' | 'next_open'
+  price_adjustment?: string
   cost_assumption?: string
   eligible_total?: number | null
   primary_observation_count?: number | null
@@ -4146,27 +4147,33 @@ export interface HorizonReviewItem {
   event_risk_summary: string | null
 
   h1d_price: number | null
+  h1d_reference_close_return_pct?: number | null
+  h1d_reference_close_status?: HorizonStatus
   h1d_return_pct: number | null
   h1d_raw_return_pct?: number | null
   h1d_status: HorizonStatus
   h1d_bm_return_pct: number | null
-  h1d_bm_status?: HorizonStatus
+  h1d_bm_status: HorizonStatus
   h1d_excess_pct: number | null
 
   h5d_price: number | null
+  h5d_reference_close_return_pct?: number | null
+  h5d_reference_close_status?: HorizonStatus
   h5d_return_pct: number | null
   h5d_raw_return_pct?: number | null
   h5d_status: HorizonStatus
   h5d_bm_return_pct: number | null
-  h5d_bm_status?: HorizonStatus
+  h5d_bm_status: HorizonStatus
   h5d_excess_pct: number | null
 
   h20d_price: number | null
+  h20d_reference_close_return_pct?: number | null
+  h20d_reference_close_status?: HorizonStatus
   h20d_return_pct: number | null
   h20d_raw_return_pct?: number | null
   h20d_status: HorizonStatus
   h20d_bm_return_pct: number | null
-  h20d_bm_status?: HorizonStatus
+  h20d_bm_status: HorizonStatus
   h20d_excess_pct: number | null
 
   benchmark_symbol: string
@@ -4189,8 +4196,23 @@ export interface SnapshotReviewDetail {
   h5d_avg_excess_pct: number | null
   h20d_avg_excess_pct: number | null
   h1d_evaluated_count?: number
+  h1d_avg_return_pct?: number | null
+  h1d_bm_avg_return_pct?: number | null
+  h1d_avg_excess_pct?: number | null
+  h1d_bm_evaluated_count?: number
+  h1d_excess_evaluated_count?: number
   h1d_pending_count?: number
   h1d_unavailable_count?: number
+  h1d_reference_close_evaluated_count?: number
+  h1d_reference_close_avg_return_pct?: number | null
+  h5d_reference_close_evaluated_count?: number
+  h5d_reference_close_avg_return_pct?: number | null
+  h5d_bm_evaluated_count?: number
+  h5d_excess_evaluated_count?: number
+  h20d_reference_close_evaluated_count?: number
+  h20d_reference_close_avg_return_pct?: number | null
+  h20d_bm_evaluated_count?: number
+  h20d_excess_evaluated_count?: number
   h5d_pending_count?: number
   h5d_unavailable_count?: number
   h20d_pending_count?: number
@@ -4233,14 +4255,35 @@ export interface ForwardBatchStats {
   h1d_pending_count: number
   h1d_unavailable_count: number
   h1d_hit_rate_pct: number | null
+  h1d_avg_return_pct: number | null
+  h1d_bm_evaluated_count: number
+  h1d_bm_avg_return_pct: number | null
+  h1d_excess_evaluated_count: number
+  h1d_avg_excess_pct: number | null
+  h1d_reference_close_evaluated_count: number
+  h1d_reference_close_avg_return_pct: number | null
   h5d_evaluated_count: number
   h5d_pending_count: number
   h5d_unavailable_count: number
   h5d_hit_rate_pct: number | null
+  h5d_avg_return_pct: number | null
+  h5d_bm_evaluated_count: number
+  h5d_bm_avg_return_pct: number | null
+  h5d_excess_evaluated_count: number
+  h5d_avg_excess_pct: number | null
+  h5d_reference_close_evaluated_count: number
+  h5d_reference_close_avg_return_pct: number | null
   h20d_evaluated_count: number
   h20d_pending_count: number
   h20d_unavailable_count: number
   h20d_hit_rate_pct: number | null
+  h20d_avg_return_pct: number | null
+  h20d_bm_evaluated_count: number
+  h20d_bm_avg_return_pct: number | null
+  h20d_excess_evaluated_count: number
+  h20d_avg_excess_pct: number | null
+  h20d_reference_close_evaluated_count: number
+  h20d_reference_close_avg_return_pct: number | null
   hit_rate_definition: string
 }
 

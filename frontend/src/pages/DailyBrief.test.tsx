@@ -16,6 +16,7 @@ vi.mock('@/lib/api', () => ({
     },
     selectionReview: {
       saveSnapshot: vi.fn(),
+      listForwardBatches: vi.fn(),
     },
     watchlistList: vi.fn(),
     watchlistAdd: vi.fn(),
@@ -116,6 +117,7 @@ describe('DailyBrief Page (A12)', () => {
     vi.clearAllMocks()
     vi.mocked(api.watchlistList).mockResolvedValue({ symbols: [] } as any)
     vi.mocked(api.dailyBrief.listHistory).mockResolvedValue([] as any)
+    vi.mocked(api.selectionReview.listForwardBatches).mockResolvedValue([] as any)
   })
 
   it('renders deterministic market facts and candidates correctly', async () => {
@@ -140,7 +142,21 @@ describe('DailyBrief Page (A12)', () => {
       expect(screen.getAllByText('台積電')[0]).toBeInTheDocument()
       expect(screen.getByText(/處置有價證券/)).toBeInTheDocument()
       expect(screen.getByText('尚未產生今日 AI 深度摘要')).toBeInTheDocument()
+      expect(screen.getByRole('link', { name: '尚無正式批次，查看狀態' })).toHaveAttribute('href', '/selection-review?tab=forward')
     })
+  })
+
+  it('links directly to the newest official forward batch without triggering AI', async () => {
+    vi.mocked(api.dailyBrief.getDailyBrief).mockResolvedValue(buildMockBrief() as any)
+    vi.mocked(api.selectionReview.listForwardBatches).mockResolvedValue([{
+      snapshot_id: 'forward_latest_1', record_type: 'forward_batch',
+    }] as any)
+
+    render(<QueryClientProvider client={createTestQueryClient()}><MemoryRouter><DailyBrief /></MemoryRouter></QueryClientProvider>)
+
+    const link = await screen.findByRole('link', { name: '查看最新正式前瞻批次' })
+    expect(link).toHaveAttribute('href', '/selection-review?tab=forward&batch_id=forward_latest_1')
+    expect(api.dailyBrief.generateAiSummary).not.toHaveBeenCalled()
   })
 
   it('generates on-demand 7-section AI interpretation upon user click', async () => {

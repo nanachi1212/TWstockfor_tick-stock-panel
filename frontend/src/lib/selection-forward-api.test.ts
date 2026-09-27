@@ -8,11 +8,11 @@ describe('selection forward API contract', () => {
     const fetchMock = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ items: [] }) })
     vi.stubGlobal('fetch', fetchMock)
 
-    await api.taiwanScreenerRun({ preset: 'trend_liquidity_v1', page: 1, page_size: 20 })
+    await api.taiwanScreenerRun({ preset: 'trend_liquidity_v1' })
 
     expect(fetchMock).toHaveBeenCalledWith('/api/taiwan/screener/run', expect.objectContaining({
       method: 'POST',
-      body: JSON.stringify({ preset: 'trend_liquidity_v1', page: 1, page_size: 20 }),
+      body: JSON.stringify({ preset: 'trend_liquidity_v1' }),
     }))
   })
 

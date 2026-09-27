@@ -690,7 +690,7 @@ export function DailyBrief() {
                   className="inline-flex items-center gap-1.5 text-xs font-medium bg-secondary text-secondary-foreground hover:bg-secondary/80 border border-border/60 px-3 py-1.5 rounded-lg transition-colors"
                 >
                   <History className="h-3.5 w-3.5" />
-                  <span>查看最新正式前瞻批次</span>
+                  <span>{latestForwardBatchQuery.isLoading ? '查詢正式批次…' : latestForwardBatchQuery.data?.[0] ? '查看最新正式前瞻批次' : '尚無正式批次，查看狀態'}</span>
                 </Link>
                 {allCandidates.length > 0 && (
                   <button

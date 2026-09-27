@@ -13,6 +13,7 @@ vi.mock('@/lib/api', () => ({
       listForwardBatches: vi.fn(),
       getForwardBatchDetail: vi.fn(),
       getForwardBatchStats: vi.fn(),
+      lockForwardBatch: vi.fn(),
       deleteSnapshot: vi.fn(),
       getStrategyStats: vi.fn(),
       getConditionStats: vi.fn(),
@@ -37,9 +38,9 @@ describe('SelectionReview Page (A12)', () => {
     vi.mocked(api.selectionReview.listForwardBatches).mockResolvedValue([] as any)
     vi.mocked(api.selectionReview.getForwardBatchStats).mockResolvedValue({
       batches_count: 0, picks_count: 0,
-      h1d_evaluated_count: 0, h1d_pending_count: 0, h1d_unavailable_count: 0, h1d_hit_rate_pct: null,
-      h5d_evaluated_count: 0, h5d_pending_count: 0, h5d_unavailable_count: 0, h5d_hit_rate_pct: null,
-      h20d_evaluated_count: 0, h20d_pending_count: 0, h20d_unavailable_count: 0, h20d_hit_rate_pct: null,
+      h1d_evaluated_count: 0, h1d_pending_count: 0, h1d_unavailable_count: 0, h1d_hit_rate_pct: null, h1d_avg_return_pct: null, h1d_bm_evaluated_count: 0, h1d_bm_avg_return_pct: null, h1d_excess_evaluated_count: 0, h1d_avg_excess_pct: null, h1d_reference_close_evaluated_count: 0, h1d_reference_close_avg_return_pct: null,
+      h5d_evaluated_count: 0, h5d_pending_count: 0, h5d_unavailable_count: 0, h5d_hit_rate_pct: null, h5d_avg_return_pct: null, h5d_bm_evaluated_count: 0, h5d_bm_avg_return_pct: null, h5d_excess_evaluated_count: 0, h5d_avg_excess_pct: null, h5d_reference_close_evaluated_count: 0, h5d_reference_close_avg_return_pct: null,
+      h20d_evaluated_count: 0, h20d_pending_count: 0, h20d_unavailable_count: 0, h20d_hit_rate_pct: null, h20d_avg_return_pct: null, h20d_bm_evaluated_count: 0, h20d_bm_avg_return_pct: null, h20d_excess_evaluated_count: 0, h20d_avg_excess_pct: null, h20d_reference_close_evaluated_count: 0, h20d_reference_close_avg_return_pct: null,
       hit_rate_definition: '未四捨五入報酬率 > 0%',
     } as any)
   })
@@ -55,7 +56,6 @@ describe('SelectionReview Page (A12)', () => {
     )
 
     expect(await screen.findByRole('heading', { name: '尚無正式前瞻批次' })).toBeInTheDocument()
-    expect(screen.getByText('正式批次 1D')).toBeInTheDocument()
     expect(screen.getAllByText('尚無樣本')).toHaveLength(3)
     expect(screen.queryByTitle('刪除快照')).not.toBeInTheDocument()
   })
@@ -68,23 +68,28 @@ describe('SelectionReview Page (A12)', () => {
       target_trade_date: '2026-09-26', rule_version: 'trend_liquidity_v1',
     }] as any)
     vi.mocked(api.selectionReview.getForwardBatchDetail).mockResolvedValue({
-      snapshot: { snapshot_id: 'forward_trend_liquidity_v1_20260925', record_type: 'forward_batch', items: [] },
+      snapshot: { snapshot_id: 'forward_trend_liquidity_v1_20260925', record_type: 'forward_batch', items: [{ symbol: '2330.TWSE', name: '台積電', rank: 1, price: 1000 }], locked_at: '2026-09-25T08:00:00+08:00', target_trade_date: '2026-09-28', target_trade_date_status: 'scheduled_unverified', rule_version: 'trend_liquidity_v1', price_adjustment: 'split_adjusted_price', cost_assumption: '未扣成本與滑價；紙上開盤價不保證成交' },
       evaluated_items: [{
         symbol: '2330.TWSE', name: '台積電', rank: 1, entry_price: 1000, paper_entry_price: 1010,
-        h1d_return_pct: null, h1d_status: 'pending', h1d_bm_return_pct: null, h1d_excess_pct: null,
-        h5d_return_pct: null, h5d_status: 'pending', h5d_bm_return_pct: null, h5d_excess_pct: null,
-        h20d_return_pct: null, h20d_status: 'pending', h20d_bm_return_pct: null, h20d_excess_pct: null,
+        entry_status: 'completed', h1d_reference_close_return_pct: null, h1d_reference_close_status: 'pending', h1d_return_pct: null, h1d_status: 'pending', h1d_bm_return_pct: null, h1d_excess_pct: null,
+        h5d_reference_close_return_pct: null, h5d_reference_close_status: 'pending', h5d_return_pct: null, h5d_status: 'pending', h5d_bm_return_pct: null, h5d_excess_pct: null,
+        h20d_reference_close_return_pct: null, h20d_reference_close_status: 'pending', h20d_return_pct: null, h20d_status: 'pending', h20d_bm_return_pct: null, h20d_excess_pct: null,
       }],
-      h1d_evaluated_count: 0, h1d_pending_count: 1, h1d_unavailable_count: 0,
+      h1d_evaluated_count: 0, h1d_avg_return_pct: null, h1d_bm_avg_return_pct: null, h1d_avg_excess_pct: null, h1d_bm_evaluated_count: 0, h1d_excess_evaluated_count: 0, h1d_reference_close_evaluated_count: 0, h1d_reference_close_avg_return_pct: null, h1d_pending_count: 1, h1d_unavailable_count: 0,
       h5d_evaluated_count: 0, h5d_pending_count: 1, h5d_unavailable_count: 0,
       h20d_evaluated_count: 0, h20d_pending_count: 1, h20d_unavailable_count: 0,
+      h5d_reference_close_evaluated_count: 0, h5d_reference_close_avg_return_pct: null, h5d_bm_evaluated_count: 0, h5d_excess_evaluated_count: 0,
+      h20d_reference_close_evaluated_count: 0, h20d_reference_close_avg_return_pct: null, h20d_bm_evaluated_count: 0, h20d_excess_evaluated_count: 0,
       h5d_avg_return_pct: null, h20d_avg_return_pct: null,
       h5d_bm_avg_return_pct: null, h20d_bm_avg_return_pct: null,
       h5d_avg_excess_pct: null, h20d_avg_excess_pct: null,
     } as any)
     render(<QueryClientProvider client={createTestQueryClient()}><MemoryRouter initialEntries={['/selection-review?tab=forward&batch_id=forward_trend_liquidity_v1_20260925']}><SelectionReview /></MemoryRouter></QueryClientProvider>)
     expect(await screen.findByText('台積電 (2330.TWSE)')).toBeInTheDocument()
-    expect(screen.getByText('1010')).toBeInTheDocument()
+    expect(api.selectionReview.getForwardBatchDetail).toHaveBeenCalledWith('forward_trend_liquidity_v1_20260925')
+    expect(api.selectionReview.getForwardBatchDetail).toHaveBeenCalledTimes(1)
+    expect(api.selectionReview.lockForwardBatch).not.toHaveBeenCalled()
+    expect(screen.getByLabelText('正式前瞻批次')).toHaveTextContent('1010.00')
     expect(screen.getAllByText('追蹤中').length).toBeGreaterThan(0)
     expect(screen.queryByText('0.00%')).not.toBeInTheDocument()
   })

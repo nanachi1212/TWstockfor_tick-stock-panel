@@ -82,7 +82,7 @@ export function TaiwanScreener() {
   const [forwardPreview, setForwardPreview] = useState<TaiwanScreenerResponse | null>(null)
 
   const forwardPreviewMutation = useMutation({
-    mutationFn: () => api.taiwanScreenerRun({ preset: 'trend_liquidity_v1', page: 1, page_size: 20 }),
+    mutationFn: () => api.taiwanScreenerRun({ preset: 'trend_liquidity_v1' }),
     onSuccess: setForwardPreview,
   })
   const lockForwardBatchMutation = useMutation({
@@ -94,27 +94,13 @@ export function TaiwanScreener() {
     },
   })
 
-  const toTaipeiNow = () => {
-    const parts = new Intl.DateTimeFormat('en-CA', {
-      timeZone: 'Asia/Taipei', year: 'numeric', month: '2-digit', day: '2-digit',
-      hour: '2-digit', minute: '2-digit', hourCycle: 'h23',
-    }).formatToParts(new Date())
-    return Object.fromEntries(parts.map(({ type, value }) => [type, value])) as Record<string, string>
-  }
-  const forwardDateParts = forwardPreview?.risk_target_date?.split('-')
-  const taipeiNow = toTaipeiNow()
-  const targetDate = taipeiNow.year && taipeiNow.month && taipeiNow.day
-    ? `${taipeiNow.year}-${taipeiNow.month}-${taipeiNow.day}`
-    : ''
-  const beforeForwardOpen = !!forwardDateParts && (
-    targetDate < forwardPreview!.risk_target_date! ||
-    (targetDate === forwardPreview!.risk_target_date! && `${taipeiNow.hour}:${taipeiNow.minute}` < '09:00')
-  )
   const forwardPreviewView = forwardPreview ? {
     dataDate: forwardPreview.data_dates?.daily_as_of ?? null,
     ruleVersion: 'trend_liquidity_v1',
     rankingBasis: '5 日動能由高至低，同分依成交金額排序',
-    status: forwardPreview.risk_target_date ? (beforeForwardOpen ? 'pre_open' as const : 'market_open' as const) : 'unavailable' as const,
+    status: forwardPreview.data_dates?.daily_as_of ? 'available' as const : 'unavailable' as const,
+    targetTradeDate: forwardPreview.risk_target_date ?? null,
+    targetTradeDateStatus: null,
     lockAllowed: !!forwardPreview.items.length && forwardPreview.quote_coverage_status === 'verified' && forwardPreview.trend_adjustment_status === 'verified',
     candidates: forwardPreview.items.slice(0, 20).map((item, index) => ({
       symbol: item.symbol,
@@ -125,6 +111,7 @@ export function TaiwanScreener() {
         ...(item.close == null ? ['參考收盤價'] : []),
         ...(item.quote_date == null ? ['行情日期'] : []),
         ...(item.momentum_5d == null ? ['5 日動能'] : []),
+        ...(item.risk_status == null ? ['事件風險狀態'] : []),
       ],
       rank: index + 1,
     })),
@@ -761,7 +748,8 @@ export function TaiwanScreener() {
       <SelectionForwardPanel
         preview={forwardPreviewView}
         pending={forwardPreviewMutation.isPending || lockForwardBatchMutation.isPending}
-        onDryRun={() => forwardPreviewMutation.mutate()}
+        lockError={lockForwardBatchMutation.error instanceof Error ? lockForwardBatchMutation.error.message : null}
+        onDryRun={() => { lockForwardBatchMutation.reset(); forwardPreviewMutation.mutate() }}
         onLockOfficialBatch={() => lockForwardBatchMutation.mutate()}
       />
 

@@ -228,7 +228,7 @@ describe('Daily forward selection actions', () => {
     renderScreener()
     const previewButton = await screen.findByRole('button', { name: '乾跑預覽' })
     fireEvent.click(previewButton)
-    await waitFor(() => expect(vi.mocked(api.taiwanScreenerRun)).toHaveBeenCalledWith({ preset: 'trend_liquidity_v1', page: 1, page_size: 20 }))
+    await waitFor(() => expect(vi.mocked(api.taiwanScreenerRun)).toHaveBeenCalledWith({ preset: 'trend_liquidity_v1' }))
     expect(await screen.findByText('2026-09-25')).toBeInTheDocument()
     expect(screen.getByText(/趨勢流動性 v1/)).toBeInTheDocument()
   })
@@ -249,6 +249,21 @@ describe('Daily forward selection actions', () => {
     fireEvent.click(lockButton)
     expect(await screen.findByTestId('forward-review-mock')).toHaveTextContent('forward_test')
     expect(api.selectionReview.lockForwardBatch).toHaveBeenCalledTimes(1)
+  })
+
+  it('shows the backend rejection reason and stays on the screener when lock is denied', async () => {
+    vi.mocked(api.taiwanScreenerRun).mockResolvedValueOnce(buildScreenerResponse() as any).mockResolvedValueOnce({
+      ...buildScreenerResponse(), data_dates: { daily_as_of: '2026-09-25' }, risk_target_date: '2026-09-30',
+      quote_coverage_status: 'verified', trend_adjustment_status: 'verified',
+    } as any)
+    vi.mocked(api.selectionReview.lockForwardBatch).mockRejectedValueOnce(new Error('預定進場日已開盤。不能事後建立正式前瞻批次'))
+    renderScreener()
+    fireEvent.click(await screen.findByRole('button', { name: '乾跑預覽' }))
+    const lockButton = await screen.findByRole('button', { name: '鎖定正式測試名單' })
+    await waitFor(() => expect(lockButton).toBeEnabled())
+    fireEvent.click(lockButton)
+    expect(await screen.findByRole('alert')).toHaveTextContent('預定進場日已開盤。不能事後建立正式前瞻批次')
+    expect(screen.queryByTestId('forward-review-mock')).not.toBeInTheDocument()
   })
 })
 
