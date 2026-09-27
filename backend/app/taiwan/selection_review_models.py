@@ -64,6 +64,10 @@ class SelectionSnapshot(BaseModel):
     risk_target_date: str | None = None
     selection_indicator_basis: Literal["raw", "pit_adjusted"] = "raw"
     trend_adjustment_status: Literal["verified", "partial", "unavailable"] | None = None
+    selection_action_coverage_start: str | None = None
+    selection_action_coverage_end: str | None = None
+    selection_action_events_sha256: str | None = None
+    selection_action_coverage_saved_at: str | None = None
 
 
 class SaveSelectionSnapshotRequest(BaseModel):

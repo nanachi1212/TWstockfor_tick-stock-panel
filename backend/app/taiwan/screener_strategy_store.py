@@ -32,27 +32,6 @@ class TaiwanScreenerStrategy(BaseModel):
 
 PRESET_STRATEGIES: list[TaiwanScreenerStrategy] = [
     TaiwanScreenerStrategy(
-        id="trend_liquidity_v1",
-        name="趨勢流動性 v1",
-        description="上市櫃普通股、成交金額至少五千萬元、收盤高於 MA20、五日動能為正。排除已確認停牌及處置",
-        conditions={
-            "preset": "trend_liquidity_v1",
-            "exchange": "ALL",
-            "instrument": "stock",
-            "amount_min": 50_000_000,
-            "above_ma20": True,
-            "momentum_5d_min": 0.0,
-            "exclude_disposition": True,
-            "exclude_suspended": True,
-            "sort_by": "trend_liquidity_v1",
-            "sort_order": "desc",
-            "page_size": 20,
-        },
-        is_preset=True,
-        created_at="2026-09-27T00:00:00Z",
-        updated_at="2026-09-27T00:00:00Z",
-    ),
-    TaiwanScreenerStrategy(
         id="preset_revenue_growth_quant",
         name="營收成長+Quant",
         description="月營收 YoY 成長逾 20%、成交量能充裕且具備成長動能",

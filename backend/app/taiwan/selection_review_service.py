@@ -12,6 +12,7 @@ Strict Guarantees:
 from __future__ import annotations
 
 import contextlib
+import hashlib
 import json
 import logging
 import os
@@ -77,8 +78,7 @@ class TaiwanSelectionReviewService:
             ObservedUniverseStore() if daily_store is None else None
         )
         self._lock = threading.Lock()
-        self._forward_cache_fingerprint: tuple | None = None
-        self._completed_forward_reviews: dict[str, SnapshotReviewDetail] = {}
+        self._completed_forward_reviews: dict[str, tuple[tuple, SnapshotReviewDetail]] = {}
 
     def _read_snapshots_raw(self) -> list[SelectionSnapshot]:
         if not self.path.exists():
@@ -184,6 +184,7 @@ class TaiwanSelectionReviewService:
         from app.taiwan.screener import TaiwanScreenerRequest, TaiwanScreenerService
 
         daily_generation = self._daily_generation()
+        action_evidence = self._action_coverage_evidence()
         screen = (screener or TaiwanScreenerService(
             daily_store=self.daily_store, calendar=self.calendar,
             census_store=self.census_store, action_store=self.action_store,
@@ -195,6 +196,8 @@ class TaiwanSelectionReviewService:
             raise ValueError("公司行動來源覆蓋不足。不能鎖定正式批次")
         if screen.quote_coverage_status != "verified":
             raise ValueError("來源行情覆蓋無法驗證。不能鎖定正式批次")
+        if action_evidence is None or self._action_coverage_evidence() != action_evidence:
+            raise ValueError("公司行動證據在選股期間已更新。不能鎖定正式批次")
         if not screen.data_dates.daily_as_of:
             raise ValueError("沒有可鎖定的行情資料日期")
         source_day = date.fromisoformat(screen.data_dates.daily_as_of)
@@ -212,6 +215,8 @@ class TaiwanSelectionReviewService:
                     return snapshot
             if self._daily_generation() != daily_generation:
                 raise ValueError("選股期間行情資料已更新。請重新執行鎖定")
+            if self._action_coverage_evidence() != action_evidence:
+                raise ValueError("公司行動證據在選股期間已更新。不能鎖定正式批次")
             # A queued writer can cross 09:00 while waiting for the process lock.
             now = taipei_now()
             items = [SelectionSnapshotItem(
@@ -248,10 +253,30 @@ class TaiwanSelectionReviewService:
                 risk_target_date=screen.risk_target_date,
                 selection_indicator_basis=screen.trend_indicator_basis,
                 trend_adjustment_status=screen.trend_adjustment_status,
+                selection_action_coverage_start=action_evidence["start"],
+                selection_action_coverage_end=action_evidence["end"],
+                selection_action_events_sha256=action_evidence["events_sha256"],
+                selection_action_coverage_saved_at=action_evidence["saved_at"],
             )
             existing.append(snapshot)
             self._save_snapshots_raw(existing)
             return snapshot
+
+    def _action_coverage_evidence(self) -> dict[str, str] | None:
+        """Capture the exact local action snapshot identity used for selection."""
+        marker = self.action_store.path.with_name("coverage.json")
+        try:
+            record = json.loads(marker.read_text(encoding="utf-8"))
+            start, end = date.fromisoformat(record["start"]), date.fromisoformat(record["end"])
+            digest = record["events_sha256"]
+            if (start > end or not isinstance(digest, str)
+                    or digest != self.action_store.snapshot_digest()):
+                return None
+            saved_at = datetime.fromtimestamp(marker.stat().st_mtime, UTC).isoformat()
+            return {"start": start.isoformat(), "end": end.isoformat(),
+                    "events_sha256": digest, "saved_at": saved_at}
+        except (OSError, ValueError, KeyError, TypeError):
+            return None
 
     def _next_potential_session(self, after: date) -> date:
         def observed(day: date):
@@ -519,15 +544,13 @@ class TaiwanSelectionReviewService:
                                   picks_count=sum(len(s.items) for s in batches))
         if not batches:
             return stats
-        fingerprint = self._forward_review_inputs()
-        with self._lock:
-            if fingerprint != self._forward_cache_fingerprint:
-                self._completed_forward_reviews.clear()
-                self._forward_cache_fingerprint = fingerprint
+        inputs = self._forward_review_inputs()
         reviews: list[SnapshotReviewDetail] = []
         for snapshot in batches:
+            fingerprint = self._forward_batch_fingerprint(snapshot, inputs)
             with self._lock:
-                review = self._completed_forward_reviews.get(snapshot.snapshot_id)
+                cached = self._completed_forward_reviews.get(snapshot.snapshot_id)
+            review = cached[1] if cached and cached[0] == fingerprint else None
             if review is None:
                 review = self._get_forward_batch_review(snapshot)
                 if all(
@@ -537,8 +560,7 @@ class TaiwanSelectionReviewService:
                     for item in review.evaluated_items for horizon in (1, 5, 20)
                 ) and review.evaluated_items:
                     with self._lock:
-                        if self._forward_cache_fingerprint == fingerprint:
-                            self._completed_forward_reviews[snapshot.snapshot_id] = review
+                        self._completed_forward_reviews[snapshot.snapshot_id] = (fingerprint, review)
             reviews.append(review)
         for horizon in (1, 5, 20):
             prefix = f"h{horizon}d"
@@ -556,25 +578,45 @@ class TaiwanSelectionReviewService:
         return stats
 
     def _forward_review_inputs(self) -> tuple:
-        """Local data versions used to invalidate completed forward reviews."""
+        """Read local versions once; each batch selects its own date window below."""
         def file_versions(paths) -> tuple:
             versions = []
             for path in paths:
                 try:
                     stat = path.stat()
-                    versions.append((str(path), stat.st_mtime_ns, stat.st_size))
+                    versions.append((path, stat.st_mtime_ns, stat.st_size))
                 except FileNotFoundError:
                     continue
-            return tuple(sorted(versions))
+            return tuple(versions)
 
-        daily = self._daily_generation()
+        daily = file_versions(self.daily_store._data_dir.glob("date=*/part.parquet"))
+        census = file_versions(self.census_store._data_dir.glob("exchange=*/date=*/part.parquet")) if self.census_store else ()
         actions = file_versions((self.action_store.path,
                                 self.action_store.path.with_name("coverage.json")))
-        census = file_versions(self.census_store._data_dir.glob("exchange=*/date=*/part.parquet")) if self.census_store else ()
-        calendar = (tuple(sorted(self.calendar.known_holidays)),
-                    tuple(sorted(self.calendar.known_trading_days)))
-        snapshots = file_versions((self.path,))
-        return snapshots, daily, actions, census, calendar
+        return daily, census, actions
+
+    def _forward_batch_fingerprint(self, snapshot: SelectionSnapshot, inputs: tuple) -> tuple:
+        """A later unrelated daily refresh must not evict an old terminal batch."""
+        source = date.fromisoformat(snapshot.source_data_date or snapshot.as_of_date)
+        end = source + timedelta(days=100)  # _get_forward_trading_days scans this range.
+
+        def in_window(path: Path) -> bool:
+            try:
+                day = date.fromisoformat(path.parent.name.removeprefix("date="))
+                return source <= day <= end
+            except ValueError:
+                return False
+
+        daily, census, actions = inputs
+        versions = tuple(sorted(
+            (str(path), mtime, size)
+            for path, mtime, size in (*daily, *census) if in_window(path)
+        ))
+        action_versions = tuple(sorted((str(path), mtime, size) for path, mtime, size in actions))
+        calendar = (tuple(sorted(d for d in self.calendar.known_holidays if source <= d <= end)),
+                    tuple(sorted(d for d in self.calendar.known_trading_days if source <= d <= end)))
+        snapshot_hash = hashlib.sha256(snapshot.model_dump_json().encode("utf-8")).hexdigest()
+        return snapshot_hash, versions, action_versions, calendar
 
     def _daily_generation(self) -> tuple:
         """Fingerprint the partitions consumed by the canonical screener."""

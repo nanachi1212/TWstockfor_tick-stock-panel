@@ -125,6 +125,10 @@ def test_lock_is_server_owned_idempotent_and_undeletable(tmp_path, monkeypatch):
     assert first.risk_source_status == "partial"
     assert first.risk_source_as_of == "2026-08-03T14:00:00+00:00"
     assert first.risk_target_date == sessions[0].isoformat()
+    assert first.selection_action_coverage_start == source.isoformat()
+    assert first.selection_action_coverage_end == sessions[-1].isoformat()
+    assert first.selection_action_events_sha256 == svc.action_store.snapshot_digest()
+    assert first.selection_action_coverage_saved_at is not None
     assert first.items[0].price == 101.0
     assert len(svc.list_snapshots()) == 1
     with pytest.raises(PermissionError):
@@ -156,6 +160,23 @@ def test_formal_lock_rejects_unverified_latest_quote_coverage(tmp_path, monkeypa
 
     with pytest.raises(ValueError, match="行情覆蓋無法驗證"):
         svc.lock_forward_batch(IncompleteScreener(source))
+    assert svc.list_snapshots() == []
+
+
+def test_formal_lock_rejects_action_evidence_changed_during_screen(tmp_path, monkeypatch):
+    svc, source, _ = _seed(tmp_path)
+    monkeypatch.setattr("app.taiwan.selection_review_service.taipei_now", lambda: _clock(source))
+
+    class ChangingScreener(_FixedScreener):
+        def run(self, request):
+            marker = svc.action_store.path.with_name("coverage.json")
+            coverage = json.loads(marker.read_text(encoding="utf-8"))
+            coverage["start"] = (source - timedelta(days=1)).isoformat()
+            marker.write_text(json.dumps(coverage), encoding="utf-8")
+            return super().run(request)
+
+    with pytest.raises(ValueError, match="公司行動證據在選股期間已更新"):
+        svc.lock_forward_batch(ChangingScreener(source))
     assert svc.list_snapshots() == []
 
 
@@ -416,9 +437,15 @@ def test_expired_unverified_calendar_is_unavailable_not_pending(tmp_path, monkey
         "high": 100.0, "low": 100.0, "close": 100.0,
         "volume": 1_000_000.0, "amount": 100_000_000.0, "quote_ts": 0,
     }]))
+    actions = CorporateActionStore(tmp_path / "adj_factor")
+    actions.save([])
+    actions.path.with_name("coverage.json").write_text(json.dumps({
+        "start": source.isoformat(), "end": source.isoformat(),
+        "sources": sorted(SOURCE_URLS), "events_sha256": actions.snapshot_digest(),
+    }), encoding="utf-8")
     svc = TaiwanSelectionReviewService(path=tmp_path / "snapshots.json",
                                        daily_store=store,
-                                       calendar=TaiwanTradingCalendar())
+                                       calendar=TaiwanTradingCalendar(), action_store=actions)
     monkeypatch.setattr("app.taiwan.selection_review_service.taipei_now", lambda: _clock(source))
     batch = svc.lock_forward_batch(_FixedScreener(source))
     monkeypatch.setattr("app.taiwan.selection_review_service.taipei_now",
@@ -483,6 +510,15 @@ def test_completed_forward_review_cache_invalidates_on_daily_change(tmp_path, mo
     assert svc.get_forward_batch_stats() == first
     assert len(calls) == 1
 
+    unrelated_day = source + timedelta(days=120)
+    svc.daily_store.write_batch(pl.DataFrame([{
+        "symbol": "2330.TWSE", "date": unrelated_day, "open": 100.0,
+        "high": 100.0, "low": 100.0, "close": 100.0,
+        "volume": 1_000_000.0, "amount": 100_000_000.0, "quote_ts": 0,
+    }]))
+    assert svc.get_forward_batch_stats() == first
+    assert len(calls) == 1
+
     day = sessions[-1]
     svc.daily_store.write_batch(pl.DataFrame([{
         "symbol": "2330.TWSE", "date": day, "open": 100.0, "high": 103.0,
@@ -519,7 +555,7 @@ def test_unavailable_forward_review_cache_recovers_when_benchmark_arrives(tmp_pa
     }]))
     assert svc.get_forward_batch_stats().h20d_evaluated_count == 1
     assert len(calls) == 2
-    assert next(iter(svc._completed_forward_reviews.values())).evaluated_items[0].h20d_bm_status == "completed"
+    assert next(iter(svc._completed_forward_reviews.values()))[1].evaluated_items[0].h20d_bm_status == "completed"
 
 
 def test_research_hit_rate_uses_unrounded_return(tmp_path):
@@ -559,17 +595,12 @@ def test_trend_sort_uses_amount_then_symbol():
     assert ordered["symbol"].to_list() == ["C.TWSE", "D.TWSE", "A.TWSE", "B.TWSE"]
 
 
-def test_trend_preset_exposes_existing_screener_form_conditions(tmp_path):
-    strategy = TaiwanScreenerStrategyStore(path=tmp_path / "strategies.json").get_strategy(
+def test_trend_preset_is_not_exposed_in_old_strategy_dropdown(tmp_path):
+    # The existing UI drops conditions.preset and would mislabel unfiltered picks.
+    assert TaiwanScreenerStrategyStore(path=tmp_path / "strategies.json").get_strategy(
         "trend_liquidity_v1"
-    )
-    assert strategy is not None
-    assert strategy.conditions.items() >= {
-        "preset": "trend_liquidity_v1", "instrument": "stock",
-        "amount_min": 50_000_000, "above_ma20": True,
-        "momentum_5d_min": 0.0, "exclude_disposition": True,
-        "exclude_suspended": True,
-    }.items()
+    ) is None
+    assert TaiwanScreenerRequest(preset="trend_liquidity_v1").preset == "trend_liquidity_v1"
 
 
 def test_trend_preset_filters_liquidity_risk_and_etf(tmp_path, monkeypatch):
