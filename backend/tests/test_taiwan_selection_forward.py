@@ -125,6 +125,33 @@ def test_corrupt_existing_snapshot_file_is_never_overwritten(tmp_path, monkeypat
     assert svc.path.read_text(encoding="utf-8") == "{broken"
 
 
+def test_first_lock_after_target_open_is_rejected_but_existing_batch_is_idempotent(
+    tmp_path, monkeypatch,
+):
+    svc, source, sessions = _seed(tmp_path)
+    monkeypatch.setattr("app.taiwan.selection_review_service.taipei_now",
+                        lambda: datetime.combine(sessions[0], time(12), ZoneInfo("Asia/Taipei")))
+    with pytest.raises(ValueError, match="已開盤"):
+        svc.lock_forward_batch(_FixedScreener(source))
+    assert svc.list_snapshots() == []
+    monkeypatch.setattr("app.taiwan.selection_review_service.taipei_now", lambda: _clock(source))
+    original = svc.lock_forward_batch(_FixedScreener(source))
+    monkeypatch.setattr("app.taiwan.selection_review_service.taipei_now",
+                        lambda: datetime.combine(sessions[0], time(12), ZoneInfo("Asia/Taipei")))
+    assert svc.lock_forward_batch(_FixedScreener(source)) == original
+
+
+def test_abandoned_lock_sidecar_does_not_block_new_writes(tmp_path, monkeypatch):
+    svc, source, _ = _seed(tmp_path)
+    svc.path.parent.mkdir(parents=True, exist_ok=True)
+    sidecar = svc.path.with_suffix(".lock")
+    sidecar.write_bytes(b"0")
+    monkeypatch.setattr("app.taiwan.selection_review_service.taipei_now", lambda: _clock(source))
+    batch = svc.lock_forward_batch(_FixedScreener(source))
+    assert batch.record_type == "forward_batch"
+    assert sidecar.exists()
+
+
 def test_horizon_does_not_slide_and_benchmark_missing_is_explicit(tmp_path, monkeypatch):
     svc, source, sessions = _seed(tmp_path, missing_stock_5d=True, missing_bm_20d=True)
     monkeypatch.setattr("app.taiwan.selection_review_service.taipei_now", lambda: _clock(source))

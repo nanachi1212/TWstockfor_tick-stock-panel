@@ -25,7 +25,7 @@ import polars as pl
 
 from app.config import settings
 from app.taiwan.adjust import adjust_prices_as_of
-from app.taiwan.corporate_actions import CorporateActionStore
+from app.taiwan.corporate_actions import CorporateActionStore, event_market_open
 from app.taiwan.daily_store import TaiwanDailyStore
 from app.taiwan.observed_universe import ObservedUniverseStore
 from app.taiwan.providers.corporate_actions import SOURCE_URLS
@@ -103,19 +103,38 @@ class TaiwanSelectionReviewService:
         """Serialize read-modify-write across API worker processes."""
         self.path.parent.mkdir(parents=True, exist_ok=True)
         lock_path = self.path.with_suffix(".lock")
-        for attempt in range(40):
+        # Keep the sidecar inode: unlinking it could split concurrent locks.
+        # The OS releases the byte/flock automatically if a worker is killed.
+        with lock_path.open("a+b") as stream:
+            stream.seek(0, os.SEEK_END)
+            if stream.tell() == 0:
+                stream.write(b"0")
+                stream.flush()
+            os.set_inheritable(stream.fileno(), False)
+            for attempt in range(40):
+                try:
+                    stream.seek(0)
+                    if os.name == "nt":
+                        import msvcrt
+
+                        msvcrt.locking(stream.fileno(), msvcrt.LK_NBLCK, 1)
+                    else:
+                        import fcntl
+
+                        fcntl.flock(stream.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+                    break
+                except OSError:
+                    if attempt == 39:
+                        raise RuntimeError("選股快照檔案寫入忙碌") from None
+                    time.sleep(0.05)
             try:
-                descriptor = os.open(lock_path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
-                os.close(descriptor)
-                break
-            except FileExistsError:
-                if attempt == 39:
-                    raise RuntimeError("選股快照檔案寫入忙碌") from None
-                time.sleep(0.05)
-        try:
-            yield
-        finally:
-            lock_path.unlink(missing_ok=True)
+                yield
+            finally:
+                stream.seek(0)
+                if os.name == "nt":
+                    msvcrt.locking(stream.fileno(), msvcrt.LK_UNLCK, 1)
+                else:
+                    fcntl.flock(stream.fileno(), fcntl.LOCK_UN)
 
     # ── Snapshot CRUD ───────────────────────────────────────────────
 
@@ -188,6 +207,8 @@ class TaiwanSelectionReviewService:
                 risk_status=row.risk_status, quote_status="available",
             ) for index, row in enumerate(screen.items[:20], start=1) if row.close is not None and row.close > 0]
             target = self._next_potential_session(source_day)
+            if now >= event_market_open(target):
+                raise ValueError("預定進場日已開盤。不能事後建立正式前瞻批次")
             snapshot = SelectionSnapshot(
                 snapshot_id=batch_id, created_at=now.astimezone(UTC).isoformat(),
                 locked_at=now.isoformat(),
