@@ -510,12 +510,13 @@ def test_loader_refuses_to_read_while_backfill_holds_the_lock(tmp_path, monkeypa
 # ── ledger, determinism, gate, API ──────────────────────────────
 
 
-def _preflight(ready: bool = True):
+def _preflight(ready: bool = True, census_sessions: int = 2859):
     readiness = SimpleNamespace(status=SimpleNamespace(value="ready" if ready else "blocked"),
                                 blocking_reasons=() if ready else ("census incomplete",),
                                 describe=lambda: {"status": "ready" if ready else "blocked"})
-    health = SimpleNamespace(describe=lambda: {"census_by_exchange": {"TWSE": {}, "TPEX": {}},
-                                               "classification": {}})
+    health = SimpleNamespace(describe=lambda: {
+        "census_by_exchange": {"TWSE": {"observed_trading_sessions": census_sessions}, "TPEX": {}},
+        "classification": {}})
     return SimpleNamespace(readiness=readiness, data_health=health)
 
 
@@ -538,6 +539,14 @@ def test_rerun_is_deterministic_and_recorded_apart_from_forward_batches(tmp_path
     assert again["result_fingerprint"] == recorded["result_fingerprint"]
     assert recorded["record_scope"] == "historical_pit"
     assert not (tmp_path / "user_data").exists()
+
+    readings = iter([_preflight(), _preflight(census_sessions=2860)])
+    changed = HistoricalPitRunStore(tmp_path / "changed.sqlite3")
+    with pytest.raises(TrendLiquidityV1PitInputError):
+        run_trend_liquidity_v1_pit_evaluation(
+            store=changed, loader=lambda: inputs, preflight_reader=lambda: next(readings),
+            code_sha="c" * 40)
+    assert changed.latest_for_spec(TREND_LIQUIDITY_V1_PIT_SPEC.fingerprint) is None
 
     with pytest.raises(PrimaryOosNotReadyError):
         run_trend_liquidity_v1_pit_evaluation(

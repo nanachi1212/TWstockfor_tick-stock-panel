@@ -804,12 +804,20 @@ def run_trend_liquidity_v1_pit_evaluation(
         read_primary_oos_preflight,
     )
 
-    preflight = (preflight_reader or read_primary_oos_preflight)()
+    reader = preflight_reader or read_primary_oos_preflight
+    preflight = reader()
     if preflight.readiness.status.value != "ready":
         raise PrimaryOosNotReadyError(preflight.readiness)
     store = store or HistoricalPitRunStore()
     with WorkerLock(store.path.with_name(".historical_pit.lock")):
         inputs = loader()
+        # The recorded coverage must describe the generation that was loaded.
+        fresh = reader()
+        if fresh.readiness.status.value != "ready":
+            raise PrimaryOosNotReadyError(fresh.readiness)
+        if fresh.data_health.describe() != preflight.data_health.describe():
+            raise TrendLiquidityV1PitInputError(
+                "data health changed while inputs were loading; rerun the evaluation")
         actual_sha = code_sha or _code_sha()
         code_fp = code_fingerprint()
         dataset_identity = canonical_hash(dict(inputs.identity))
