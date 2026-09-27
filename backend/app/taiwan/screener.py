@@ -595,7 +595,11 @@ class TaiwanScreenerService:
             evidence = (self.census_store.day_evidence("TWSE", cursor, calendar=self.calendar)
                         if self.census_store is not None
                         else self.calendar.day_evidence(cursor, "TWSE"))
-            if evidence.status == "trading" or (evidence.status == "unresolved" and cursor in available):
+            observed_session = cursor in available and (
+                evidence.status == "unresolved"
+                or (evidence.status == "non_trading" and evidence.evidence_source == "calendar_rule")
+            )
+            if evidence.status == "trading" or observed_session:
                 sessions.append(cursor)
                 if len(sessions) == count:
                     return list(reversed(sessions))

@@ -245,6 +245,19 @@ def test_quote_coverage_distinguishes_official_absence_from_lost_quote(tmp_path)
     assert screen._quote_coverage_status(universe, latest, as_of) == "unavailable"
 
 
+def test_trend_history_counts_observed_weekend_session(tmp_path):
+    weekdays = _sessions(date(2026, 8, 10), 20, date(2026, 8, 7))
+    weekend = weekdays[-1] + timedelta(days=1)
+    store = TaiwanDailyStore(tmp_path / "daily")
+    store.write_batch(pl.DataFrame([{
+        "symbol": "2330.TWSE", "date": day, "open": 100.0,
+        "high": 100.0, "low": 100.0, "close": 100.0,
+        "volume": 1_000_000.0, "amount": 100_000_000.0, "quote_ts": 0,
+    } for day in [*weekdays, weekend]]))
+    screen = TaiwanScreenerService(daily_store=store)
+    assert screen._recent_verified_sessions(weekend, 20) == [*weekdays[1:], weekend]
+
+
 def test_corrupt_existing_snapshot_file_is_never_overwritten(tmp_path, monkeypatch):
     svc, source, _ = _seed(tmp_path)
     svc.path.parent.mkdir(parents=True, exist_ok=True)
