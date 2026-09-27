@@ -655,11 +655,23 @@ def load_verified_actions(
 def load_trend_liquidity_v1_pit_inputs() -> HistoricalPitInputs:
     """Read A2a/A2b, the verified action snapshot and trading-day evidence."""
     from app.taiwan.backfill_worker import TaiwanHistoricalBackfillWorker
+
+    worker = TaiwanHistoricalBackfillWorker()
+    # Hold the shared backfill lock for every store read (as the Primary panel
+    # build does), so census and classification cannot change mid-snapshot.
+    # A running backfill makes this fail with WorkerBusyError instead of waiting.
+    worker.lock.acquire()
+    try:
+        return _load_locked(worker)
+    finally:
+        worker.lock.release()
+
+
+def _load_locked(worker: Any) -> HistoricalPitInputs:
     from app.taiwan.observed_universe import session_candidates
     from app.taiwan.quant.primary_oos_runner import _primary_universe
     from app.taiwan.realtime.calendar import TaiwanTradingCalendar
 
-    worker = TaiwanHistoricalBackfillWorker()
     census = worker.census_store
     universe, classification_identity = _primary_universe(census, worker.classification_store)
     sessions = sorted(census.session_dates("TWSE"))

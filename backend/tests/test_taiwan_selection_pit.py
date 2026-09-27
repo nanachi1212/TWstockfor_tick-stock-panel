@@ -33,6 +33,7 @@ from app.taiwan.quant.selection_pit import (
     build_artifact,
     evaluate_trend_liquidity_v1_history,
     horizon_metrics,
+    load_trend_liquidity_v1_pit_inputs,
     load_verified_actions,
     run_trend_liquidity_v1_pit_evaluation,
 )
@@ -491,6 +492,19 @@ def test_action_snapshot_replaced_while_loading_fails_closed(tmp_path):
     store.read = read_then_refresh.__get__(store)
     with pytest.raises(TrendLiquidityV1PitInputError):
         load_verified_actions(store)
+
+
+def test_loader_refuses_to_read_while_backfill_holds_the_lock(tmp_path, monkeypatch):
+    from app.taiwan.backfill_worker import TaiwanHistoricalBackfillWorker, WorkerBusyError
+
+    monkeypatch.setattr(settings, "data_dir", tmp_path)
+    worker = TaiwanHistoricalBackfillWorker()
+    worker.lock.acquire()
+    try:
+        with pytest.raises(WorkerBusyError):
+            load_trend_liquidity_v1_pit_inputs()
+    finally:
+        worker.lock.release()
 
 
 # ── ledger, determinism, gate, API ──────────────────────────────
