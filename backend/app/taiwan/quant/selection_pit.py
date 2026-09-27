@@ -36,6 +36,7 @@ import uuid
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta
+from itertools import pairwise
 from pathlib import Path
 from typing import Any
 
@@ -632,7 +633,8 @@ def code_fingerprint() -> str:
     for path in (Path(__file__).resolve(), taiwan / "screener.py", taiwan / "adjust.py",
                  taiwan / "corporate_actions.py", taiwan / "selection_review_service.py",
                  taiwan / "quant" / "primary_oos_runner.py", taiwan / "observed_universe.py",
-                 taiwan / "historical_classification.py", taiwan / "realtime" / "calendar.py"):
+                 taiwan / "historical_classification.py", taiwan / "realtime" / "calendar.py",
+                 taiwan / "regulatory_history.py", taiwan / "instrument_evidence.py"):
         digest.update(path.name.encode("utf-8"))
         digest.update(path.read_bytes().replace(b"\r\n", b"\n"))
     return digest.hexdigest()
@@ -685,7 +687,7 @@ def load_regulatory_evidence(
     observed = universe.filter(pl.col("price_bar_available")).group_by("date").agg(
         pl.col("market_symbol").str.split(".").list.first().alias("codes"))
     observed_codes = {row["date"]: frozenset(row["codes"]) for row in observed.iter_rows(named=True)}
-    pairs = list(zip(sessions[:-1], sessions[1:], strict=True))
+    pairs = list(pairwise(sessions))
     blockers, excluded = replay_regulatory_evidence(
         store, pairs, terminations=terminations, terminations_retrieved=retrieved,
         observed_codes=observed_codes)

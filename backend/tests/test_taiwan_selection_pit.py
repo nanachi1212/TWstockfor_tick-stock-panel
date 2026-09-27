@@ -31,6 +31,7 @@ from app.taiwan.quant.selection_pit import (
     RegulatoryEvidence,
     TrendLiquidityV1PitInputError,
     build_artifact,
+    code_fingerprint,
     evaluate_trend_liquidity_v1_history,
     horizon_metrics,
     load_trend_liquidity_v1_pit_inputs,
@@ -565,6 +566,20 @@ def test_rerun_is_deterministic_and_recorded_apart_from_forward_batches(tmp_path
             store=HistoricalPitRunStore(tmp_path / "blocked.sqlite3"), loader=lambda: inputs,
             preflight_reader=lambda: _preflight(False), code_sha="c" * 40)
     assert not (tmp_path / "blocked.sqlite3").exists()
+
+
+def test_code_fingerprint_covers_the_regulatory_replay(monkeypatch):
+    from pathlib import Path
+
+    original = Path.read_bytes
+    baseline = code_fingerprint()
+
+    def patched(self):
+        data = original(self)
+        return data + b"#changed" if self.name == "regulatory_history.py" else data
+
+    monkeypatch.setattr(Path, "read_bytes", patched)
+    assert code_fingerprint() != baseline
 
 
 def test_api_serves_only_recorded_summary(tmp_path, monkeypatch):
