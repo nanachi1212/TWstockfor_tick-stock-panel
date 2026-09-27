@@ -1337,7 +1337,7 @@ export interface TrendLiquidityV1HistoricalPitArtifact {
     twse_census?: { observed_trading_sessions?: number; expected_trading_sessions?: number; trading_coverage_ratio?: number } | null
     twse_classification?: { primary_classification_ratio?: number; verified_stock_count?: number; unknown_count?: number } | null
     corporate_actions?: { status: string; start?: string; end?: string } | null
-    regulatory?: string
+    regulatory?: string | { source: string; covered_entry_sessions: number }
     [key: string]: unknown
   }
   limitations: string[]

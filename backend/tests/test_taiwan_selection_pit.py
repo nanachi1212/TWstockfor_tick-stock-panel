@@ -456,6 +456,18 @@ def test_exchange_evidence_is_required_on_every_session():
     assert _picks(result, sessions[index]) == []
 
 
+def test_specific_regulatory_gaps_replace_the_generic_blocker():
+    sessions = _weekdays(date(2025, 1, 6), 45)
+    target = sessions[25]
+    regulatory = RegulatoryEvidence(
+        "fixture", frozenset(), {},
+        {target: ("regulatory_tpex_status_unavailable",)})
+    _, _, inputs = _forward_fixture(regulatory=regulatory)
+    counts = evaluate_trend_liquidity_v1_history(inputs)["reproducibility"]["blocker_session_counts"]
+    assert counts["regulatory_tpex_status_unavailable"] == 1
+    assert counts["regulatory_history_unavailable"] == 25  # sessions with no record at all
+
+
 def test_no_regulatory_history_means_no_strict_result_and_no_fake_metrics():
     _, _, inputs = _forward_fixture(regulatory=NO_REGULATORY_HISTORY,
                                     blocked={"TPEX"})

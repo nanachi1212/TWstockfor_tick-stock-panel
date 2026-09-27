@@ -46,6 +46,7 @@ from app.taiwan.providers.corporate_actions import SOURCE_URLS
 from app.taiwan.providers.taiwan_values import TAIPEI
 from app.taiwan.quant.evaluation_store import PrimaryOosRunStore
 from app.taiwan.quant.live_contract import canonical_hash, canonical_json
+from app.taiwan.regulatory_history import REGULATORY_BLOCKERS
 from app.taiwan.screener import (
     TREND_LIQUIDITY_V1_BATCH_SIZE,
     TREND_LIQUIDITY_V1_MIN_AMOUNT_TWD,
@@ -84,6 +85,7 @@ BLOCKERS: dict[str, str] = {
         "the TWSE census has no observed membership for this session",
     "tpex_market_session_unobserved":
         "the TPEx census has no observed membership for this session",
+    **REGULATORY_BLOCKERS,
 }
 
 #: v1 screens listed and OTC stocks together; both must be evidenced each session.
@@ -97,6 +99,16 @@ class RegulatoryEvidence:
     source: str
     covered_targets: frozenset[date] = frozenset()
     excluded_by_target: Mapping[date, frozenset[str]] = field(default_factory=dict)
+    #: Specific missing evidence per entry session; a target absent from both this
+    #: and ``covered_targets`` has no regulatory history at all.
+    blockers_by_target: Mapping[date, tuple[str, ...]] = field(default_factory=dict)
+
+    def blockers_for(self, target: date | None) -> tuple[str, ...]:
+        if target is not None and target in self.covered_targets:
+            return ()
+        if target is not None and self.blockers_by_target.get(target):
+            return tuple(self.blockers_by_target[target])
+        return ("regulatory_history_unavailable",)
 
 
 NO_REGULATORY_HISTORY = RegulatoryEvidence(
@@ -109,7 +121,7 @@ NO_REGULATORY_HISTORY = RegulatoryEvidence(
 class TrendLiquidityV1PitSpec:
     """Pinned methodology; any change requires a version bump."""
 
-    version: str = "trend-liquidity-v1-historical-pit-1"
+    version: str = "trend-liquidity-v1-historical-pit-2"
     strategy_id: str = FORWARD_RULE_VERSION
     horizons: tuple[int, ...] = (1, 5, 20)
     primary_cohort: int = 10
@@ -132,8 +144,11 @@ class TrendLiquidityV1PitSpec:
                 "trend": "PIT adjusted close > PIT adjusted MA20",
                 "momentum": "PIT adjusted 5-session momentum > 0",
                 "trend_window_sessions": TREND_LIQUIDITY_V1_TREND_SESSIONS,
-                "regulatory_exclusion": ("disposition active on the entry session, or a "
-                                         "suspension/delisting event on or before it"),
+                "regulatory_exclusion": (
+                    "disposition published on or before the source session whose period "
+                    "covers the entry session; TPEx suspension in the status list dated on "
+                    "the source session; TWSE termination effective on or before the entry "
+                    "session within the live two-calendar-year window"),
                 "ranking": "momentum_5d desc, then turnover desc, then symbol asc",
                 "batch_size": TREND_LIQUIDITY_V1_BATCH_SIZE,
                 "primary_cohort": self.primary_cohort,
@@ -305,8 +320,7 @@ def _select(evidence: _Evidence, index: int) -> dict[str, Any]:
         blockers.append(f"{exchange.lower()}_instrument_subtype_unresolved")
     if target is None:
         blockers.append("entry_session_not_observed")
-    if target is None or target not in evidence.inputs.regulatory.covered_targets:
-        blockers.append("regulatory_history_unavailable")
+    blockers.extend(evidence.inputs.regulatory.blockers_for(target))
     # A lost weekday before the next observed session would make that session a
     # wrong entry date, so the check runs through the entry session.
     if evidence.unresolved_between(window[0], target or source):
@@ -652,6 +666,51 @@ def load_verified_actions(
     return span, record, events
 
 
+def load_regulatory_evidence(
+    sessions: Sequence[date], universe: pl.DataFrame,
+) -> tuple[RegulatoryEvidence, dict[str, Any]]:
+    """Official regulatory history for every (source, entry) pair; changes fail closed."""
+    from app.taiwan.instrument_evidence import InstrumentEvidenceStore
+    from app.taiwan.regulatory_history import RegulatoryHistoryStore, replay_regulatory_evidence
+
+    store = RegulatoryHistoryStore()
+    before = store.digest()
+    try:
+        _registry, termination, stamps = InstrumentEvidenceStore().load()
+        terminations: dict[str, date] | None = dict(
+            zip(termination["code"], termination["termination_date"], strict=True))
+        retrieved: date | None = datetime.fromisoformat(stamps["termination"]).date()
+    except (FileNotFoundError, ValueError, KeyError):
+        terminations, retrieved = None, None
+    observed = universe.filter(pl.col("price_bar_available")).group_by("date").agg(
+        pl.col("market_symbol").str.split(".").list.first().alias("codes"))
+    observed_codes = {row["date"]: frozenset(row["codes"]) for row in observed.iter_rows(named=True)}
+    pairs = list(zip(sessions[:-1], sessions[1:], strict=True))
+    blockers, excluded = replay_regulatory_evidence(
+        store, pairs, terminations=terminations, terminations_retrieved=retrieved,
+        observed_codes=observed_codes)
+    if store.digest() != before:
+        raise TrendLiquidityV1PitInputError(
+            "regulatory history changed while loading; rerun the evaluation")
+    evidence = RegulatoryEvidence(
+        source=("official archives: TWSE punish, TPEx disposal, dated TPEx cmode lists, "
+                "TWSE termination list"),
+        covered_targets=frozenset(target for target, missing in blockers.items() if not missing),
+        # A code trades on one market at a time; the live lock resolves it the same way.
+        excluded_by_target={target: frozenset(f"{code}.{exchange}" for code in codes
+                                              for exchange in V1_EXCHANGES)
+                            for target, codes in excluded.items()},
+        blockers_by_target=blockers,
+    )
+    record = {
+        "regulatory_history_sha256": before,
+        "conflicts": store.conflicts(),
+        "termination_retrieved_at": stamps.get("termination") if terminations is not None else None,
+        "covered_entry_sessions": len(evidence.covered_targets),
+    }
+    return evidence, record
+
+
 def load_trend_liquidity_v1_pit_inputs() -> HistoricalPitInputs:
     """Read A2a/A2b, the verified action snapshot and trading-day evidence."""
     from app.taiwan.backfill_worker import TaiwanHistoricalBackfillWorker
@@ -692,6 +751,7 @@ def _load_locked(worker: Any) -> HistoricalPitInputs:
         "date", "open", "close", "amount",
     )
     span, action_record, events = load_verified_actions(CorporateActionStore())
+    regulatory, regulatory_record = load_regulatory_evidence(sessions, universe)
     tpex_sessions = frozenset(census.session_dates("TPEX"))
     verification = json.loads((census._verification_path("TWSE")).read_text(encoding="utf-8"))
     identity = {
@@ -706,7 +766,7 @@ def _load_locked(worker: Any) -> HistoricalPitInputs:
         "tpex_observed_sessions": len(tpex_sessions),
         "tpex_observed_sessions_sha256": canonical_hash(sorted(d.isoformat() for d in tpex_sessions)),
         "tpex_subtype_evidence": "blocked",
-        "regulatory_source": NO_REGULATORY_HISTORY.source,
+        "regulatory": regulatory_record,
         "unresolved_weekdays": len(unresolved),
         "unresolved_weekdays_sha256": canonical_hash(sorted(d.isoformat() for d in unresolved)),
     }
@@ -719,7 +779,7 @@ def _load_locked(worker: Any) -> HistoricalPitInputs:
         universe=universe.filter(pl.col("observed_on_market")),
         events=events,
         action_coverage=span,
-        regulatory=NO_REGULATORY_HISTORY,
+        regulatory=regulatory,
         blocked_exchanges=frozenset({"TPEX"}),
         unresolved_days=unresolved,
         identity=identity,
@@ -735,24 +795,29 @@ def _data_coverage(preflight: Any, inputs: HistoricalPitInputs) -> dict[str, Any
         "twse_classification": health["classification"] if health else None,
         "tpex_classification": "blocked: no official historical subtype source",
         "corporate_actions": inputs.identity.get("corporate_actions"),
-        "regulatory": inputs.regulatory.source,
+        "regulatory": {"source": inputs.regulatory.source,
+                       "covered_entry_sessions": len(inputs.regulatory.covered_targets)},
         "unresolved_weekdays": len(inputs.unresolved_days),
     }
 
 
 LIMITATIONS = (
-    "TPEx historical ordinary-stock subtype is BLOCKED; v1's universe cannot be rebuilt.",
-    "No point-in-time disposition/suspension/delisting archive exists before the entry "
-    "session; missing records are not treated as 'no risk'.",
+    "TPEx historical ordinary-stock subtype is BLOCKED. Official per-session tables separate "
+    "warrants/CBBCs (afterTrading/otc type=EW) and current ISIN registries give share class, "
+    "but issuers that left every registry and OTC-to-TWSE transfers have no official subtype "
+    "evidence (sampled 2015-2025: 28-93 such rows per session, 6-10 of them liquid).",
+    "Regulatory history is rebuilt from official archives with date-level publication: an "
+    "announcement dated on or before the source session is known at the cutoff, which is "
+    "the formal lock deadline before the entry session opens.",
     "Returns would be price returns normalized for corporate actions, not total return, "
     "before costs and slippage.",
     "A pick whose horizon price is missing (e.g. delisted) is unavailable, not -100%.",
 )
 
 FOLLOW_UP_DATA_WORK = (
-    "Separate data task: official historical disposition/suspension announcement backfill "
-    "with publication-time PIT semantics.",
-    "Separate data task: an official TPEx historical instrument-subtype source.",
+    "Separate data task: an official historical source for TPEx ordinary-stock subtype that "
+    "covers delisted issuers and OTC-to-TWSE transfers.",
+    "Secondary: 20 TWT49U corporate-action provider_error events; 2 unresolved TWSE subtypes.",
 )
 
 
