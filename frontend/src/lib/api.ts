@@ -1252,6 +1252,106 @@ export interface QuantEvaluationMetrics {
   }
 }
 
+/** Pick-level metrics of one horizon; every value is null when there is no sample. */
+export interface HistoricalPitHorizonMetrics {
+  n: number
+  pending: number
+  unavailable: number
+  hit_rate_pct: number | null
+  avg_return_pct: number | null
+  median_return_pct: number | null
+  benchmark_n: number
+  avg_benchmark_return_pct: number | null
+  excess_n: number
+  avg_excess_return_pct: number | null
+  median_excess_return_pct: number | null
+  beat_benchmark_rate_pct: number | null
+}
+
+export type HistoricalPitMetricBlock = Record<'1' | '5' | '20', HistoricalPitHorizonMetrics>
+
+export interface HistoricalPitCountDistribution {
+  sessions: number
+  min: number
+  p25: number
+  median: number
+  p75: number
+  max: number
+  mean: number
+  sessions_below_batch_size: number
+  sessions_with_zero: number
+}
+
+/** Historical PIT replay of trend_liquidity_v1; kept apart from forward batches. */
+export interface TrendLiquidityV1HistoricalPitArtifact {
+  artifact_type: string
+  record_scope: 'historical_pit'
+  strategy_id: string
+  spec_version: string
+  spec_fingerprint: string
+  code_fingerprint: string
+  code_sha: string
+  dataset_identity: string
+  result_fingerprint: string
+  generated_at: string
+  run_id: string | null
+  evaluation_range: {
+    verified_sessions: number
+    first_verified_session: string | null
+    last_verified_session: string | null
+    warmup_sessions: number
+    first_requested_session: string | null
+    last_requested_session: string | null
+    earliest_strict_session: string | null
+  }
+  reproducibility: {
+    requested_sessions: number
+    strict_fully_reproducible_sessions: number
+    excluded_sessions: number
+    blocker_session_counts: Record<string, number>
+    blocker_combination_counts: Record<string, number>
+    blocker_descriptions: Record<string, string>
+    excluded_session_ranges: Array<{ start: string; end: string; sessions: number; blockers: string[] }>
+  }
+  strict_result: {
+    status: 'no_strict_sample' | 'available'
+    claimable: boolean
+    strict_sessions: number
+    picks: number
+    message: string | null
+    candidate_count_distribution: HistoricalPitCountDistribution | null
+    top10: HistoricalPitMetricBlock | null
+    full_batch: HistoricalPitMetricBlock | null
+    rank_groups: Record<string, HistoricalPitMetricBlock> | null
+    by_year: Record<string, { sessions: number; top10: HistoricalPitMetricBlock; full_batch: HistoricalPitMetricBlock }> | null
+  }
+  degraded_diagnostics: {
+    diagnostic_only: true
+    claimable: false
+    label: string
+    sessions_computed: number
+    sessions_corporate_action_unverified: number
+    candidate_count_distribution: HistoricalPitCountDistribution | null
+  }
+  data_coverage: {
+    twse_census?: { observed_trading_sessions?: number; expected_trading_sessions?: number; trading_coverage_ratio?: number } | null
+    twse_classification?: { primary_classification_ratio?: number; verified_stock_count?: number; unknown_count?: number } | null
+    corporate_actions?: { status: string; start?: string; end?: string } | null
+    regulatory?: string
+    [key: string]: unknown
+  }
+  limitations: string[]
+  follow_up_data_work: string[]
+}
+
+export interface TrendLiquidityV1HistoricalPitResponse {
+  status: 'available' | 'not_run'
+  record_scope: 'historical_pit'
+  strategy_id: string
+  spec_fingerprint: string
+  artifact: TrendLiquidityV1HistoricalPitArtifact | null
+}
+
 export interface TaiwanQuantEvaluationStatus {
   status: 'ready' | 'processing' | 'blocked' | 'failed'
   generated_at: string
@@ -3517,6 +3617,8 @@ export const api = {
 
   taiwanQuantA2bStatus: () =>
     request<TaiwanA2bProgress>('/api/taiwan/quant/a2b-status'),
+  taiwanTrendLiquidityV1HistoricalPit: () =>
+    request<TrendLiquidityV1HistoricalPitResponse>('/api/taiwan/quant/historical-pit/trend-liquidity-v1'),
 
   taiwanScreenerTranslate: (query: string) =>
     request<TaiwanScreenerTranslation>('/api/taiwan/screener/translate', {

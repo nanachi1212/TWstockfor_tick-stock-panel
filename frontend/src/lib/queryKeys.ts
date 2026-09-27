@@ -122,6 +122,7 @@ export const QK = {
   selectionForwardStats: ['selection-forward-stats'] as const,
   selectionStrategyStats: ['selection-strategy-stats'] as const,
   selectionConditionStats: ['selection-condition-stats'] as const,
+  selectionHistoricalPit: ['selection-historical-pit', 'trend_liquidity_v1'] as const,
 
   // Daily Brief (A12)
   dailyBrief:           (targetDate?: string) => ['daily-brief', targetDate ?? 'today'] as const,

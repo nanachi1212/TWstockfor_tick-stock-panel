@@ -13,6 +13,7 @@ import {
   Layers,
   ChevronRight,
   ArrowLeft,
+  ShieldCheck,
 } from 'lucide-react'
 import {
   api,
@@ -27,9 +28,10 @@ import { cn } from '@/lib/cn'
 import { CopyButton } from '@/components/CopyButton'
 import { formatSelectionReviewCopy, formatSelectionReviewPrompt } from '@/lib/copy-formatters'
 import { SelectionForwardPanel, type SelectionForwardBatchReviewView } from '@/components/selection/SelectionForwardPanel'
+import { SelectionHistoricalPitPanel } from '@/components/selection/SelectionHistoricalPitPanel'
 import { ForwardPerformanceChart } from '@/components/selection/ForwardPerformanceChart'
 
-type ReviewTab = 'snapshots' | 'forward' | 'strategies' | 'conditions'
+type ReviewTab = 'snapshots' | 'forward' | 'historical' | 'strategies' | 'conditions'
 
 function toForwardBatchReview(detail: SnapshotReviewDetail): SelectionForwardBatchReviewView {
   return {
@@ -144,7 +146,7 @@ export function SelectionReview() {
   const qc = useQueryClient()
   const [searchParams, setSearchParams] = useSearchParams()
   const requestedTab = searchParams.get('tab')
-  const activeTab: ReviewTab = requestedTab === 'forward' || requestedTab === 'strategies' || requestedTab === 'conditions'
+  const activeTab: ReviewTab = requestedTab === 'forward' || requestedTab === 'historical' || requestedTab === 'strategies' || requestedTab === 'conditions'
     ? requestedTab
     : 'snapshots'
   const [selectedSnapshotId, setSelectedSnapshotId] = useState<string | null>(null)
@@ -182,6 +184,12 @@ export function SelectionReview() {
     queryKey: QK.selectionForwardBatchDetail(selectedForwardBatchId || ''),
     queryFn: () => selectedForwardBatchId ? api.selectionReview.getForwardBatchDetail(selectedForwardBatchId) : null,
     enabled: activeTab === 'forward' && !!selectedForwardBatchId,
+  })
+
+  const historicalPitQuery = useQuery({
+    queryKey: QK.selectionHistoricalPit,
+    queryFn: () => api.taiwanTrendLiquidityV1HistoricalPit(),
+    enabled: activeTab === 'historical',
   })
 
   // 3. 策略統計
@@ -252,7 +260,7 @@ export function SelectionReview() {
         </div>
 
         {/* 頁籤切換 */}
-        <div className="flex items-center bg-muted/60 p-1 rounded-lg border border-border/40 text-sm">
+        <div className="flex flex-wrap items-center bg-muted/60 p-1 rounded-lg border border-border/40 text-sm">
           <button
             onClick={() => {
               setSearchParams({})
@@ -282,6 +290,21 @@ export function SelectionReview() {
           >
             <Clock className="h-4 w-4" />
             正式前瞻批次
+          </button>
+          <button
+            onClick={() => {
+              setSearchParams({ tab: 'historical' })
+              setSelectedSnapshotId(null)
+            }}
+            className={cn(
+              'px-3.5 py-1.5 rounded-md font-medium transition-all flex items-center gap-1.5',
+              activeTab === 'historical'
+                ? 'bg-background text-foreground shadow-sm'
+                : 'text-muted-foreground hover:text-foreground',
+            )}
+          >
+            <ShieldCheck className="h-4 w-4" />
+            歷史 PIT 驗證
           </button>
           <button
             onClick={() => setSearchParams({ tab: 'strategies' })}
@@ -344,6 +367,14 @@ export function SelectionReview() {
       )}
 
       {/* TAB 1: 快照復盤 (列表 or 詳情) */}
+      {activeTab === 'historical' && (
+        <section aria-label="歷史 PIT 驗證" className="space-y-4">
+          {historicalPitQuery.isLoading ? <p className="py-8 text-center text-sm text-muted-foreground">載入歷史 PIT 驗證紀錄…</p> : historicalPitQuery.isError ? (
+            <div role="alert" className="space-y-2 rounded-lg border border-destructive/30 p-4 text-sm"><p>歷史 PIT 驗證紀錄載入失敗。</p><button type="button" onClick={() => historicalPitQuery.refetch()} className="text-primary underline">重新載入</button></div>
+          ) : historicalPitQuery.data ? <SelectionHistoricalPitPanel data={historicalPitQuery.data} /> : null}
+        </section>
+      )}
+
       {activeTab === 'snapshots' && (
         <div className="space-y-4">
           {selectedSnapshotId ? (

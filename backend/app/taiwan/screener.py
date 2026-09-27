@@ -57,6 +57,86 @@ SortField = Literal[
 ]
 SortDir = Literal["asc", "desc"]
 
+#: Frozen trend_liquidity_v1 parameters. Historical PIT evaluation imports these
+#: and the pure functions below, so live and historical selection share one rule.
+TREND_LIQUIDITY_V1_MIN_AMOUNT_TWD = 50_000_000
+TREND_LIQUIDITY_V1_TREND_SESSIONS = 20
+TREND_LIQUIDITY_V1_BATCH_SIZE = 20
+
+TrendAdjustmentStatus = Literal["verified", "partial", "unavailable"]
+
+
+def compute_trend_liquidity_v1_indicators(
+    hist: pl.DataFrame, dates: list[date], events, as_of: date,
+) -> tuple[pl.DataFrame | None, TrendAdjustmentStatus, str | None]:
+    """PIT-adjusted close, MA20 and 5-session momentum at ``as_of``.
+
+    ``hist`` holds raw daily rows (symbol, date, close) and ``dates`` the verified
+    sessions ending at ``as_of``; only symbols with a row on every session count.
+    ``events`` are the verified-coverage corporate actions inside that window.
+    """
+    if hist.is_empty():
+        return None, "unavailable", "trend_history"
+    hist = hist.filter(pl.col("date").is_in(dates))
+    complete = (hist.group_by("symbol").agg(pl.col("date").n_unique().alias("days"))
+                .filter(pl.col("days") == len(dates))["symbol"].to_list())
+    skipped = 0
+    adjustment_unverified = False
+    hist = hist.filter(pl.col("symbol").is_in(complete))
+    if hist.is_empty():
+        return None, "unavailable", "trend_history"
+    hist = hist.select("symbol", "date", "close").sort("symbol", "date")
+    by_symbol: dict[str, list] = {}
+    for event in events:
+        by_symbol.setdefault(event.symbol, []).append(event)
+    adjusted_parts = [hist.filter(~pl.col("symbol").is_in(list(by_symbol)))]
+    for symbol, symbol_events in by_symbol.items():
+        subset = hist.filter(pl.col("symbol") == symbol)
+        if subset.is_empty():
+            continue
+        adjusted = adjust_prices_as_of(
+            subset, as_of=as_of, events=symbol_events, price_columns=("close",)
+        )
+        if adjusted.status != "verified":
+            skipped += 1
+            if any(event.status != "verified" for event in symbol_events):
+                adjustment_unverified = True
+            continue
+        adjusted_parts.append(adjusted.to_frame().select("symbol", "date", "close"))
+    adjusted_hist = pl.concat(adjusted_parts).sort("symbol", "date")
+    if adjusted_hist.is_empty():
+        return pl.DataFrame(), "partial" if adjustment_unverified else "verified", (
+            "trend_history" if skipped else None
+        )
+    latest = (adjusted_hist.with_columns(
+        pl.col("close").rolling_mean(TREND_LIQUIDITY_V1_TREND_SESSIONS).over("symbol")
+        .alias("trend_ma20"),
+        (pl.col("close") / pl.col("close").shift(5).over("symbol") - 1.0)
+        .alias("trend_momentum_5d"),
+    ).with_columns(pl.col("date").max().over("symbol").alias("_latest"))
+        .filter(pl.col("date") == pl.col("_latest"))
+        .select("symbol", pl.col("close").alias("trend_adjusted_close"),
+                "trend_ma20", "trend_momentum_5d"))
+    return latest, "partial" if adjustment_unverified else "verified", (
+        "trend_history" if skipped else None
+    )
+
+
+def trend_liquidity_v1_candidates(frame: pl.DataFrame, as_of: date) -> pl.DataFrame:
+    """Price, liquidity and PIT trend rules; regulatory exclusion is applied separately."""
+    return frame.filter(
+        (pl.col("date") == as_of)
+        & (pl.col("momentum_5d") > 0)
+        & (pl.col("close") > 0)
+        & (pl.col("amount") >= TREND_LIQUIDITY_V1_MIN_AMOUNT_TWD)
+        & (pl.col("trend_adjusted_close") > pl.col("ma20"))
+    )
+
+
+def rank_trend_liquidity_v1(frame: pl.DataFrame) -> pl.DataFrame:
+    """5D momentum desc, turnover desc, symbol asc."""
+    return frame.sort(["momentum_5d", "amount", "symbol"], descending=[True, True, False])
+
 
 class TaiwanScreenerRequest(BaseModel):
     """Strongly typed Taiwan Screener Request Body."""
@@ -287,10 +367,11 @@ class TaiwanScreenerService:
     def run(self, req: TaiwanScreenerRequest) -> TaiwanScreenerResponse:
         if req.preset == "trend_liquidity_v1":
             req = req.model_copy(update={
-                "exchange": "ALL", "instrument": "stock", "amount_min": 50_000_000,
+                "exchange": "ALL", "instrument": "stock",
+                "amount_min": TREND_LIQUIDITY_V1_MIN_AMOUNT_TWD,
                 "above_ma20": True, "momentum_5d_min": 0.0,
                 "sort_by": "trend_liquidity_v1", "sort_order": "desc",
-                "page": 1, "page_size": 20,
+                "page": 1, "page_size": TREND_LIQUIDITY_V1_BATCH_SIZE,
             })
         # Step 1: Universe from TaiwanSecurityMaster
         universe_df = self._get_universe(req.exchange, req.instrument)
@@ -379,11 +460,7 @@ class TaiwanScreenerService:
 
         if req.preset == "trend_liquidity_v1":
             # A missing/stale quote or indicator cannot qualify as a fresh candidate.
-            combined = combined.filter(
-                (pl.col("date") == latest_daily["date"].max())
-                & (pl.col("momentum_5d") > 0)
-                & (pl.col("close") > 0)
-            )
+            combined = trend_liquidity_v1_candidates(combined, latest_daily["date"].max())
 
         # Step 7: Apply Strongly Typed Filters
         filtered = self._apply_filters(combined, req)
@@ -545,9 +622,9 @@ class TaiwanScreenerService:
 
     def _compute_trend_indicators(
         self, symbols: list[str], as_of: date,
-    ) -> tuple[pl.DataFrame | None, Literal["verified", "partial", "unavailable"], str | None]:
+    ) -> tuple[pl.DataFrame | None, TrendAdjustmentStatus, str | None]:
         """Calculate the formal preset's trend signals on a verified PIT price basis."""
-        dates = self._recent_verified_sessions(as_of, 20)
+        dates = self._recent_verified_sessions(as_of, TREND_LIQUIDITY_V1_TREND_SESSIONS)
         if dates is None:
             return None, "unavailable", "trend_history"
         start = dates[0]
@@ -555,50 +632,7 @@ class TaiwanScreenerService:
         if events is None:
             return None, "unavailable", "corporate_actions"
         hist = self._normalize_daily_frame(self.daily_store.read_range(symbols, start, as_of))
-        if hist.is_empty():
-            return None, "unavailable", "trend_history"
-        hist = hist.filter(pl.col("date").is_in(dates))
-        complete = (hist.group_by("symbol").agg(pl.col("date").n_unique().alias("days"))
-                    .filter(pl.col("days") == len(dates))["symbol"].to_list())
-        skipped = 0
-        adjustment_unverified = False
-        hist = hist.filter(pl.col("symbol").is_in(complete))
-        if hist.is_empty():
-            return None, "unavailable", "trend_history"
-        hist = hist.select("symbol", "date", "close").sort("symbol", "date")
-        by_symbol: dict[str, list] = {}
-        for event in events:
-            by_symbol.setdefault(event.symbol, []).append(event)
-        adjusted_parts = [hist.filter(~pl.col("symbol").is_in(list(by_symbol)))]
-        for symbol, symbol_events in by_symbol.items():
-            subset = hist.filter(pl.col("symbol") == symbol)
-            if subset.is_empty():
-                continue
-            adjusted = adjust_prices_as_of(
-                subset, as_of=as_of, events=symbol_events, price_columns=("close",)
-            )
-            if adjusted.status != "verified":
-                skipped += 1
-                if any(event.status != "verified" for event in symbol_events):
-                    adjustment_unverified = True
-                continue
-            adjusted_parts.append(adjusted.to_frame().select("symbol", "date", "close"))
-        adjusted_hist = pl.concat(adjusted_parts).sort("symbol", "date")
-        if adjusted_hist.is_empty():
-            return pl.DataFrame(), "partial" if adjustment_unverified else "verified", (
-                "trend_history" if skipped else None
-            )
-        latest = (adjusted_hist.with_columns(
-            pl.col("close").rolling_mean(20).over("symbol").alias("trend_ma20"),
-            (pl.col("close") / pl.col("close").shift(5).over("symbol") - 1.0)
-            .alias("trend_momentum_5d"),
-        ).with_columns(pl.col("date").max().over("symbol").alias("_latest"))
-            .filter(pl.col("date") == pl.col("_latest"))
-            .select("symbol", pl.col("close").alias("trend_adjusted_close"),
-                    "trend_ma20", "trend_momentum_5d"))
-        return latest, "partial" if adjustment_unverified else "verified", (
-            "trend_history" if skipped else None
-        )
+        return compute_trend_liquidity_v1_indicators(hist, dates, events, as_of)
 
     def _recent_verified_sessions(self, as_of: date, count: int) -> list[date] | None:
         """Do not bridge an absent weekday that might be a lost daily partition."""
@@ -1132,7 +1166,7 @@ class TaiwanScreenerService:
         """Sort with deterministic symbol ASC tie-breaker."""
         descending = sort_order == "desc"
         if sort_by == "trend_liquidity_v1":
-            return df.sort(["momentum_5d", "amount", "symbol"], descending=[True, True, False])
+            return rank_trend_liquidity_v1(df)
         if sort_by not in df.columns:
             sort_by = "symbol"
             descending = False
