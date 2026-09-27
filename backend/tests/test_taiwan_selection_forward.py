@@ -21,7 +21,7 @@ from app.taiwan.daily_store import TaiwanDailyStore
 from app.taiwan.events_service import MarketEvent, TaiwanEventService
 from app.taiwan.observed_universe import ObservedUniverseStore
 from app.taiwan.providers.corporate_actions import SOURCE_URLS
-from app.taiwan.realtime.calendar import TaiwanTradingCalendar
+from app.taiwan.realtime.calendar import TaiwanTradingCalendar, TradingDayEvidence
 from app.taiwan.screener import (
     DataDatesInfo,
     ScreenerResultItem,
@@ -100,11 +100,11 @@ class _FixedScreener:
             items=[ScreenerResultItem(symbol="2330.TWSE", name="台積電",
                                       exchange="TWSE", instrument_type="stock",
                                       close=101.0, amount=100_000_000, momentum_5d=0.03,
-                                      risk_status="unknown")],
+                                      risk_status="clear")],
             total=1, page=1, page_size=20, sort_by="trend_liquidity_v1",
             sort_order="desc", data_dates=DataDatesInfo(daily_as_of=self.source.isoformat()),
-            risk_unknown_count=1, missing_quote_count=0, quote_coverage_status="verified",
-            risk_source_status="partial", risk_source_as_of="2026-08-03T14:00:00+00:00",
+            risk_unknown_count=0, missing_quote_count=0, quote_coverage_status="verified",
+            risk_source_status="available", risk_source_as_of="2026-08-03T14:00:00+00:00",
             trend_indicator_basis="pit_adjusted", trend_adjustment_status="verified",
             risk_target_date=(self.source + timedelta(days=1)).isoformat(),
         )
@@ -120,9 +120,9 @@ def test_lock_is_server_owned_idempotent_and_undeletable(tmp_path, monkeypatch):
     assert first.record_type == "forward_batch"
     assert first.target_trade_date == sessions[0].isoformat()
     assert first.primary_observation_count == 1
-    assert first.risk_unknown_count == 1
+    assert first.risk_unknown_count == 0
     assert first.missing_quote_count == 0
-    assert first.risk_source_status == "partial"
+    assert first.risk_source_status == "available"
     assert first.risk_source_as_of == "2026-08-03T14:00:00+00:00"
     assert first.risk_target_date == sessions[0].isoformat()
     assert first.selection_action_coverage_start == source.isoformat()
@@ -169,6 +169,37 @@ def test_formal_lock_rejects_unverified_latest_quote_coverage(tmp_path, monkeypa
     with pytest.raises(ValueError, match="行情覆蓋無法驗證"):
         svc.lock_forward_batch(IncompleteScreener(source))
     assert svc.list_snapshots() == []
+
+
+def test_formal_lock_rejects_unknown_regulatory_risk(tmp_path, monkeypatch):
+    svc, source, _ = _seed(tmp_path)
+    monkeypatch.setattr("app.taiwan.selection_review_service.taipei_now", lambda: _clock(source))
+
+    class UnknownRiskScreener(_FixedScreener):
+        def run(self, request):
+            return super().run(request).model_copy(update={
+                "risk_unknown_count": 1, "risk_source_status": "partial",
+            })
+
+    with pytest.raises(ValueError, match="監管事件來源覆蓋不足"):
+        svc.lock_forward_batch(UnknownRiskScreener(source))
+    assert svc.list_snapshots() == []
+
+
+def test_next_session_uses_official_observed_evidence_for_unresolved_weekday():
+    calendar = TaiwanTradingCalendar()
+
+    def observed(day: date):
+        if day in {date(2026, 9, 25), date(2026, 9, 28)}:
+            return TradingDayEvidence(day, "TWSE", "non_trading", "twse:holidaySchedule",
+                                      "verified_holiday", _clock(day))
+        if day.weekday() >= 5:
+            return TradingDayEvidence(day, "TWSE", "non_trading", "calendar_rule",
+                                      "weekend", _clock(day))
+        return TradingDayEvidence(day, "TWSE", "trading", "twse:holidaySchedule",
+                                  "valid_market_rows", _clock(day))
+
+    assert calendar.next_potential_session(date(2026, 9, 24), observed) == date(2026, 9, 29)
 
 
 def test_formal_lock_rejects_action_evidence_changed_during_screen(tmp_path, monkeypatch):

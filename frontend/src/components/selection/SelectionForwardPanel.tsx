@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { LockKeyhole, Play, ShieldAlert } from 'lucide-react'
+import { LockKeyhole, Play, RefreshCw, ShieldAlert } from 'lucide-react'
 
 /** UI view model only. Bind this to the backend contract when the core PR lands. */
 export interface SelectionForwardPreviewView {
@@ -60,6 +60,7 @@ export interface SelectionForwardBatchReviewView {
 interface Props {
   preview?: SelectionForwardPreviewView | null
   onDryRun?: () => void
+  onRefreshData?: () => void
   onLockOfficialBatch?: () => void
   pending?: boolean
   batchReview?: SelectionForwardBatchReviewView | null
@@ -67,7 +68,7 @@ interface Props {
   dryRunError?: string | null
 }
 
-export function SelectionForwardPanel({ preview = null, onDryRun, onLockOfficialBatch, pending = false, batchReview = null, lockError = null, dryRunError = null }: Props) {
+export function SelectionForwardPanel({ preview = null, onDryRun, onRefreshData, onLockOfficialBatch, pending = false, batchReview = null, lockError = null, dryRunError = null }: Props) {
   const [showTop20, setShowTop20] = useState(false)
   const [showBatchTop20, setShowBatchTop20] = useState(false)
   const candidates = preview?.candidates.slice(0, showTop20 ? 20 : 10) ?? []
@@ -83,6 +84,9 @@ export function SelectionForwardPanel({ preview = null, onDryRun, onLockOfficial
         <div className="flex flex-wrap gap-2">
           <button type="button" onClick={onDryRun} disabled={!onDryRun || pending} className="inline-flex items-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-xs disabled:opacity-50">
             <Play className="h-3.5 w-3.5" />乾跑預覽
+          </button>
+          <button type="button" onClick={onRefreshData} disabled={!onRefreshData || pending} className="inline-flex items-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-xs disabled:opacity-50">
+            <RefreshCw className="h-3.5 w-3.5" />更新資料
           </button>
           <button type="button" onClick={onLockOfficialBatch} disabled={!preview || !onLockOfficialBatch || preview.status !== 'available' || !preview.lockAllowed || pending} className="inline-flex items-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-xs text-primary-foreground disabled:opacity-50">
             <LockKeyhole className="h-3.5 w-3.5" />鎖定正式測試名單

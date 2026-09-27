@@ -197,6 +197,8 @@ class TaiwanSelectionReviewService:
             raise ValueError("公司行動來源覆蓋不足。不能鎖定正式批次")
         if screen.quote_coverage_status != "verified":
             raise ValueError("來源行情覆蓋無法驗證。不能鎖定正式批次")
+        if screen.risk_source_status != "available" or screen.risk_unknown_count:
+            raise ValueError("監管事件來源覆蓋不足。不能鎖定正式批次")
         if action_evidence is None or self._action_coverage_evidence() != action_evidence:
             raise ValueError("公司行動證據在選股期間已更新。不能鎖定正式批次")
         if self._census_generation() != census_generation:

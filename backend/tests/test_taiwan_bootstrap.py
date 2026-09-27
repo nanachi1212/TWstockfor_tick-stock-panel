@@ -299,7 +299,10 @@ def test_update_to_latest_when_data_exists(tmp_path: Path, monkeypatch):
     mock_refresh = MagicMock()
     mock_refresh.refresh_dates.return_value = {"dates_fetched": 3}
 
-    svc = TaiwanBootstrapService(store=store, refresh_service=mock_refresh)
+    svc = TaiwanBootstrapService(
+        store=store, refresh_service=mock_refresh,
+        selection_readiness_refresher=lambda target: {"status": "ready", "target_date": target.isoformat()},
+    )
     res = svc.update_to_latest()
 
     assert res["ok"] is True

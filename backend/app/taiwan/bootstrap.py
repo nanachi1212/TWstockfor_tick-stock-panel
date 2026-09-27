@@ -13,9 +13,10 @@ import shutil
 import tempfile
 import threading
 import uuid
+from collections.abc import Callable
 from datetime import date, datetime, timedelta
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
 import httpx
 import polars as pl
@@ -187,11 +188,157 @@ class TaiwanBootstrapService:
         expected_sha256: str = EXPECTED_SHA256,
         store: TaiwanDailyStore | None = None,
         refresh_service: TaiwanDailyRefreshService | None = None,
+        selection_readiness_refresher: Callable[[date], dict[str, Any]] | None = None,
     ) -> None:
         self.download_url = download_url
         self.expected_sha256 = expected_sha256.lower()
         self.store = store or TaiwanDailyStore()
         self.refresh_service = refresh_service or TaiwanDailyRefreshService(store=self.store)
+        self.selection_readiness_refresher = (
+            selection_readiness_refresher or self._refresh_selection_readiness
+        )
+
+    def _refresh_selection_readiness(self, target: date) -> dict[str, Any]:
+        """Refresh the evidence required by the forward-selection lock.
+
+        This is deliberately part of the user-triggered update flow.  The
+        screener and lock paths remain local-only readers and never perform
+        provider HTTP requests.
+        """
+        from app.taiwan.backfill_worker import TaiwanHistoricalBackfillWorker
+        from app.taiwan.corporate_actions import CorporateActionStore
+        from app.taiwan.events_service import get_event_service
+        from app.taiwan.observed_universe import ObservedUniverseStore
+        from app.taiwan.realtime.calendar import TaiwanTradingCalendar
+        from app.taiwan.screener import TaiwanScreenerService
+        from app.taiwan.trading_day_evidence import TWSE_SCHEDULE_SOURCE, fetch_twse_closures
+
+        daily_dir = Path(self.store._data_dir)
+        data_dir = daily_dir.parent
+        calendar = TaiwanTradingCalendar()
+        census_store = ObservedUniverseStore(data_dir / "observed_universe")
+        readiness: dict[str, Any] = {
+            "target_date": target.isoformat(),
+            "quote_coverage_status": "unavailable",
+            "trend_adjustment_status": "unavailable",
+            "corporate_action_coverage": {"status": "unavailable"},
+            "regulatory_events": {"status": "unavailable", "sources": {}},
+        }
+        source_dates = [day for day in self.store.available_dates() if day <= target]
+        if not source_dates:
+            raise ValueError("本地尚無可用的 selection source date")
+        source_day = source_dates[-1]
+        readiness["source_date"] = source_day.isoformat()
+
+        try:
+            # The annual official schedule is also needed for the upcoming
+            # holiday gap, so future non-trading dates do not become a fake
+            # potential entry session.
+            closures = fetch_twse_closures(target.year)
+            for day in sorted(d for d in closures if target <= d <= target + timedelta(days=5)):
+                for exchange in ("TWSE", "TPEX"):
+                    current = census_store.day_evidence(exchange, day, calendar=calendar)
+                    if current.status == "unresolved":
+                        census_store.write(exchange, day, [],
+                                           confirmed_non_trading_source=TWSE_SCHEDULE_SOURCE)
+            readiness["observed_universe"] = TaiwanHistoricalBackfillWorker(
+                data_dir=data_dir, census_store=census_store, calendar=calendar,
+            ).run_census(start=source_day, end=source_day, session_budget=1)
+            evidence = {
+                exchange: census_store.day_evidence(exchange, source_day, calendar=calendar)
+                for exchange in ("TWSE", "TPEX")
+            }
+            readiness["observed_universe_status"] = (
+                "verified" if all(e.status == "trading" and census_store.has(exchange, source_day)
+                                   for exchange, e in evidence.items()) else "unavailable"
+            )
+            screener = TaiwanScreenerService(
+                daily_store=self.store, census_store=census_store, calendar=calendar,
+            )
+            universe = screener._get_universe("ALL", "stock")
+            latest_frame = screener._normalize_daily_frame(
+                self.store.read_latest_per_symbol(universe["symbol"].to_list())
+            )
+            readiness["quote_coverage_status"] = screener._quote_coverage_status(
+                universe, latest_frame, source_day,
+            )
+        except Exception as exc:
+            logger.warning("Selection observed-universe refresh warning: %s", exc)
+            readiness["observed_universe_status"] = "unavailable"
+            readiness["observed_universe_error"] = str(exc)
+
+        try:
+            available = [day for day in self.store.available_dates() if day <= source_day]
+            sessions = []
+            for day in sorted(available):
+                if all(
+                    census_store.day_evidence(exchange, day, calendar=calendar).status == "trading"
+                    and census_store.has(exchange, day)
+                    for exchange in ("TWSE", "TPEX")
+                ):
+                    sessions.append(day)
+            if len(sessions) < 20:
+                raise ValueError(f"verified trading-day evidence不足 20 個交易日，實得 {len(sessions)}")
+            start = sessions[-20]
+            action_store = CorporateActionStore(data_dir / "adj_factor")
+            events = action_store.read_verified_window(start, source_day)
+            if events is None or any(event.status != "verified" for event in events):
+                # Pull only when the local audited window is absent or still
+                # contains unresolved events.  The normal current-data path
+                # therefore does not import or invoke the heavyweight OOS
+                # runner when its canonical coverage is already sufficient.
+                from app.taiwan.quant.primary_oos_runner import _action_snapshot
+
+                events, coverage = _action_snapshot(start, source_day, store=action_store)
+                coverage_start, coverage_end = coverage.start, coverage.end
+                coverage_sources = list(coverage.sources)
+            else:
+                coverage_start, coverage_end = start, source_day
+                from app.taiwan.providers.corporate_actions import SOURCE_URLS
+
+                coverage_sources = sorted(SOURCE_URLS)
+            insufficient = sum(event.status != "verified" for event in events)
+            readiness["corporate_action_coverage"] = {
+                "status": "verified" if insufficient == 0 else "partial",
+                "start": coverage_start.isoformat(), "end": coverage_end.isoformat(),
+                "sources": coverage_sources, "event_count": len(events),
+                "insufficient_event_count": insufficient,
+                "saved_at": action_store.path.with_name("coverage.json").stat().st_mtime,
+            }
+            readiness["trend_adjustment_status"] = (
+                "verified" if insufficient == 0 else "partial"
+            )
+        except Exception as exc:
+            logger.warning("Selection corporate-action refresh warning: %s", exc)
+            readiness["corporate_action_coverage"] = {
+                "status": "unavailable", "error": str(exc),
+            }
+
+        try:
+            event_service = get_event_service()
+            event_service.get_all_regulatory_and_official_events(force_refresh=True)
+            status, sources = event_service.get_last_sources_status()
+            _events, cached_status, saved_at = event_service.get_cached_regulatory_snapshot()
+            readiness["regulatory_events"] = {
+                "status": cached_status, "saved_at": saved_at,
+                "source_statuses": sources,
+                "event_count": len(_events), "refresh_status": status,
+            }
+        except Exception as exc:
+            logger.warning("Selection regulatory-event refresh warning: %s", exc)
+            readiness["regulatory_events"] = {
+                "status": "unavailable", "sources": {}, "error": str(exc),
+            }
+
+        statuses = [
+            readiness["observed_universe_status"],
+            readiness["trend_adjustment_status"],
+            readiness["corporate_action_coverage"]["status"],
+            readiness["regulatory_events"]["status"],
+        ]
+        readiness["status"] = "ready" if all(status == "verified" or status == "available"
+                                              for status in statuses) else "partial"
+        return readiness
 
     def start_bootstrap(self, force: bool = False) -> str:
         """Start bootstrap process in a background thread."""
@@ -436,23 +583,27 @@ class TaiwanBootstrapService:
         target = resolve_target_latest_trading_date()
 
         if latest >= target:
-            return {
+            result = {
                 "ok": True,
                 "already_current": True,
                 "message": f"本地資料已是最新 ({latest})",
                 "dates_fetched": 0,
             }
+            result["selection_readiness"] = self.selection_readiness_refresher(target)
+            return result
 
         start = latest + timedelta(days=1)
         res = self.refresh_service.refresh_dates(start_date=start, end_date=target)
         fetched = res.get("dates_fetched", 0)
-        return {
+        result = {
             "ok": True,
             "already_current": False,
             "message": f"成功更新 {fetched} 個交易日 (最新至 {target})",
             "dates_fetched": fetched,
             "stats": res,
         }
+        result["selection_readiness"] = self.selection_readiness_refresher(target)
+        return result
 
     def install_local_bundle(self, bundle_path: Path) -> dict[str, Any]:
         """Install a local verified bundle archive (Core or Historical)."""

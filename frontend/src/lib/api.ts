@@ -3957,6 +3957,7 @@ export interface TaiwanUpdateLatestResult {
   message: string
   dates_fetched: number
   stats?: Record<string, any>
+  selection_readiness?: Record<string, any>
 }
 
 // ===== Pipeline =====
