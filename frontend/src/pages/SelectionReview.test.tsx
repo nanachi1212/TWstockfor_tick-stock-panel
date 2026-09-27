@@ -1,6 +1,6 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest'
 import { render, screen, waitFor, fireEvent } from '@testing-library/react'
-import { MemoryRouter } from 'react-router-dom'
+import { MemoryRouter, useNavigate } from 'react-router-dom'
 import { QueryClientProvider, QueryClient } from '@tanstack/react-query'
 import { SelectionReview } from './SelectionReview'
 import { api } from '@/lib/api'
@@ -31,6 +31,11 @@ function createTestQueryClient() {
   })
 }
 
+function BackNavigationControl() {
+  const navigate = useNavigate()
+  return <button type="button" onClick={() => navigate(-1)}>返回前一頁</button>
+}
+
 describe('SelectionReview Page (A12)', () => {
   beforeEach(() => {
     vi.clearAllMocks()
@@ -58,6 +63,24 @@ describe('SelectionReview Page (A12)', () => {
     expect(await screen.findByRole('heading', { name: '尚無正式前瞻批次' })).toBeInTheDocument()
     expect(screen.getAllByText('尚無樣本')).toHaveLength(3)
     expect(screen.queryByTitle('刪除快照')).not.toBeInTheDocument()
+  })
+
+  it('shows a retry state when the formal batch list request fails', async () => {
+    vi.mocked(api.selectionReview.listForwardBatches).mockRejectedValueOnce(new Error('offline')).mockResolvedValueOnce([] as any)
+    render(<QueryClientProvider client={createTestQueryClient()}><MemoryRouter initialEntries={['/selection-review?tab=forward']}><SelectionReview /></MemoryRouter></QueryClientProvider>)
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('尚無法確認是否有批次')
+    expect(screen.queryByRole('heading', { name: '尚無正式前瞻批次' })).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: '重新載入' }))
+    expect(await screen.findByRole('heading', { name: '尚無正式前瞻批次' })).toBeInTheDocument()
+  })
+
+  it('follows browser history changes to the URL-selected tab', async () => {
+    render(<QueryClientProvider client={createTestQueryClient()}><MemoryRouter initialEntries={['/selection-review?tab=snapshots', '/selection-review?tab=forward']}><BackNavigationControl /><SelectionReview /></MemoryRouter></QueryClientProvider>)
+
+    expect(await screen.findByRole('region', { name: '正式前瞻批次' })).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: '返回前一頁' }))
+    await waitFor(() => expect(screen.queryByRole('region', { name: '正式前瞻批次' })).not.toBeInTheDocument())
   })
 
   it('loads selected formal batch detail from the real forward batch query', async () => {

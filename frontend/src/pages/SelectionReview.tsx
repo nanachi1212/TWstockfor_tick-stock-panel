@@ -108,7 +108,9 @@ export function SelectionReview() {
   const qc = useQueryClient()
   const [searchParams, setSearchParams] = useSearchParams()
   const requestedTab = searchParams.get('tab')
-  const [activeTab, setActiveTab] = useState<ReviewTab>(requestedTab === 'forward' ? 'forward' : 'snapshots')
+  const activeTab: ReviewTab = requestedTab === 'forward' || requestedTab === 'strategies' || requestedTab === 'conditions'
+    ? requestedTab
+    : 'snapshots'
   const [selectedSnapshotId, setSelectedSnapshotId] = useState<string | null>(null)
   const selectedForwardBatchId = searchParams.get('batch_id')
   const [strategyFilter, setStrategyFilter] = useState<string>('all')
@@ -217,7 +219,6 @@ export function SelectionReview() {
         <div className="flex items-center bg-muted/60 p-1 rounded-lg border border-border/40 text-sm">
           <button
             onClick={() => {
-              setActiveTab('snapshots')
               setSearchParams({})
               setSelectedSnapshotId(null)
             }}
@@ -233,7 +234,6 @@ export function SelectionReview() {
           </button>
           <button
             onClick={() => {
-              setActiveTab('forward')
               setSearchParams({ tab: 'forward' })
               setSelectedSnapshotId(null)
             }}
@@ -248,7 +248,7 @@ export function SelectionReview() {
             正式前瞻批次
           </button>
           <button
-            onClick={() => setActiveTab('strategies')}
+            onClick={() => setSearchParams({ tab: 'strategies' })}
             className={cn(
               'px-3.5 py-1.5 rounded-md font-medium transition-all flex items-center gap-1.5',
               activeTab === 'strategies'
@@ -260,7 +260,7 @@ export function SelectionReview() {
             策略統計
           </button>
           <button
-            onClick={() => setActiveTab('conditions')}
+            onClick={() => setSearchParams({ tab: 'conditions' })}
             className={cn(
               'px-3.5 py-1.5 rounded-md font-medium transition-all flex items-center gap-1.5',
               activeTab === 'conditions'
@@ -280,11 +280,15 @@ export function SelectionReview() {
           {selectedForwardBatchId ? (
             <div className="space-y-3">
               <button type="button" onClick={() => setSearchParams({ tab: 'forward' })} className="text-xs text-primary hover:underline">返回正式批次清單</button>
-              {forwardBatchDetailQuery.isLoading ? <p className="py-8 text-center text-sm text-muted-foreground">載入正式批次復盤…</p> : forwardBatchDetailQuery.data ? (
+              {forwardBatchDetailQuery.isLoading ? <p className="py-8 text-center text-sm text-muted-foreground">載入正式批次復盤…</p> : forwardBatchDetailQuery.isError ? (
+                <div role="alert" className="space-y-2 rounded-lg border border-destructive/30 p-4 text-sm"><p>正式批次復盤載入失敗。</p><button type="button" onClick={() => forwardBatchDetailQuery.refetch()} className="text-primary underline">重新載入</button></div>
+              ) : forwardBatchDetailQuery.data ? (
                 <SelectionForwardPanel batchReview={toForwardBatchReview(forwardBatchDetailQuery.data)} />
               ) : <p role="status" className="py-8 text-center text-sm text-muted-foreground">找不到正式批次或目前無法載入。</p>}
             </div>
-          ) : forwardBatchesQuery.isLoading ? <p className="py-8 text-center text-sm text-muted-foreground">載入正式批次…</p> :
+          ) : forwardBatchesQuery.isLoading ? <p className="py-8 text-center text-sm text-muted-foreground">載入正式批次…</p> : forwardBatchesQuery.isError ? (
+            <div role="alert" className="space-y-2 rounded-lg border border-destructive/30 p-4 text-sm"><p>正式批次列表載入失敗，尚無法確認是否有批次。</p><button type="button" onClick={() => forwardBatchesQuery.refetch()} className="text-primary underline">重新載入</button></div>
+          ) :
             forwardBatchesQuery.data?.length ? <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-3">{forwardBatchesQuery.data.filter(batch => batch.record_type === 'forward_batch').map(batch => (
               <button key={batch.snapshot_id} type="button" onClick={() => setSearchParams({ tab: 'forward', batch_id: batch.snapshot_id })} className="rounded-xl border border-border/60 bg-card p-4 text-left transition-colors hover:border-primary/50">
                 <span className="text-xs font-semibold text-primary">{batch.rule_version ?? '正式前瞻批次'}</span>

@@ -83,6 +83,7 @@ export function TaiwanScreener() {
 
   const forwardPreviewMutation = useMutation({
     mutationFn: () => api.taiwanScreenerRun({ preset: 'trend_liquidity_v1' }),
+    onMutate: () => setForwardPreview(null),
     onSuccess: setForwardPreview,
   })
   const lockForwardBatchMutation = useMutation({
@@ -749,6 +750,7 @@ export function TaiwanScreener() {
         preview={forwardPreviewView}
         pending={forwardPreviewMutation.isPending || lockForwardBatchMutation.isPending}
         lockError={lockForwardBatchMutation.error instanceof Error ? lockForwardBatchMutation.error.message : null}
+        dryRunError={forwardPreviewMutation.error instanceof Error ? forwardPreviewMutation.error.message : null}
         onDryRun={() => { lockForwardBatchMutation.reset(); forwardPreviewMutation.mutate() }}
         onLockOfficialBatch={() => lockForwardBatchMutation.mutate()}
       />

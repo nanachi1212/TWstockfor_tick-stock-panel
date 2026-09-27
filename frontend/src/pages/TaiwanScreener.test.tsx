@@ -233,6 +233,15 @@ describe('Daily forward selection actions', () => {
     expect(screen.getByText(/趨勢流動性 v1/)).toBeInTheDocument()
   })
 
+  it('surfaces dry-run transport errors and permits retry', async () => {
+    vi.mocked(api.taiwanScreenerRun).mockResolvedValueOnce(buildScreenerResponse() as any).mockRejectedValueOnce(new Error('Network unavailable'))
+    renderScreener()
+
+    fireEvent.click(await screen.findByRole('button', { name: '乾跑預覽' }))
+    expect(await screen.findByRole('alert')).toHaveTextContent('乾跑預覽失敗：Network unavailable')
+    expect(screen.getByRole('button', { name: '乾跑預覽' })).toBeEnabled()
+  })
+
   it('locks only after the explicit click and navigates directly to the returned batch', async () => {
     vi.mocked(api.taiwanScreenerRun).mockResolvedValueOnce(buildScreenerResponse() as any).mockResolvedValueOnce({
       ...buildScreenerResponse(),

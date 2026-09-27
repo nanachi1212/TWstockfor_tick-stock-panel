@@ -159,6 +159,15 @@ describe('DailyBrief Page (A12)', () => {
     expect(api.dailyBrief.generateAiSummary).not.toHaveBeenCalled()
   })
 
+  it('does not present a failed official batch query as an empty result', async () => {
+    vi.mocked(api.dailyBrief.getDailyBrief).mockResolvedValue(buildMockBrief() as any)
+    vi.mocked(api.selectionReview.listForwardBatches).mockRejectedValueOnce(new Error('offline'))
+
+    render(<QueryClientProvider client={createTestQueryClient()}><MemoryRouter><DailyBrief /></MemoryRouter></QueryClientProvider>)
+
+    expect(await screen.findByRole('link', { name: '正式批次載入失敗，查看重試' })).toHaveAttribute('href', '/selection-review?tab=forward')
+  })
+
   it('generates on-demand 7-section AI interpretation upon user click', async () => {
     const mockBrief = buildMockBrief()
     const mockAiSummary = {

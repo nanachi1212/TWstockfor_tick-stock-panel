@@ -64,9 +64,10 @@ interface Props {
   pending?: boolean
   batchReview?: SelectionForwardBatchReviewView | null
   lockError?: string | null
+  dryRunError?: string | null
 }
 
-export function SelectionForwardPanel({ preview = null, onDryRun, onLockOfficialBatch, pending = false, batchReview = null, lockError = null }: Props) {
+export function SelectionForwardPanel({ preview = null, onDryRun, onLockOfficialBatch, pending = false, batchReview = null, lockError = null, dryRunError = null }: Props) {
   const [showTop20, setShowTop20] = useState(false)
   const [showBatchTop20, setShowBatchTop20] = useState(false)
   const candidates = preview?.candidates.slice(0, showTop20 ? 20 : 10) ?? []
@@ -88,6 +89,8 @@ export function SelectionForwardPanel({ preview = null, onDryRun, onLockOfficial
           </button>
         </div>
       </div>
+
+      {dryRunError && <p role="alert" className="rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-xs text-destructive">乾跑預覽失敗：{dryRunError}，可重新嘗試。</p>}
 
       {!preview ? (
         <div className="rounded-lg border border-dashed border-border/70 bg-muted/20 p-4 text-sm text-muted-foreground">
