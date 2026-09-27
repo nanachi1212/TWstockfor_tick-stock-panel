@@ -708,6 +708,42 @@ def get_taiwan_market_sentiment(
 
 # ── A12: Selection Review (選股復盤) ─────────────────────────────
 
+@router.post("/selection-review/forward-batches")
+def lock_selection_forward_batch():
+    """由後端選股並鎖定當日正式前瞻批次；重送回傳同一批次。"""
+    from app.taiwan.selection_review_service import get_selection_review_service
+
+    try:
+        return get_selection_review_service().lock_forward_batch().model_dump()
+    except ValueError as e:
+        raise HTTPException(status_code=409, detail=str(e)) from e
+
+
+@router.get("/selection-review/forward-batches/stats")
+def get_selection_forward_batch_stats():
+    from app.taiwan.selection_review_service import get_selection_review_service
+
+    return get_selection_review_service().get_forward_batch_stats().model_dump()
+
+
+@router.get("/selection-review/forward-batches")
+def list_selection_forward_batches():
+    from app.taiwan.selection_review_service import get_selection_review_service
+
+    return [s.model_dump() for s in get_selection_review_service().list_snapshots("forward_batch")]
+
+
+@router.get("/selection-review/forward-batches/{batch_id}")
+def get_selection_forward_batch_detail(batch_id: str):
+    from app.taiwan.selection_review_service import get_selection_review_service
+
+    svc = get_selection_review_service()
+    snapshot = svc.get_snapshot(batch_id)
+    if snapshot is None or snapshot.record_type != "forward_batch":
+        raise HTTPException(status_code=404, detail="找不到指定的正式前瞻批次")
+    detail = svc.get_snapshot_review(batch_id)
+    return detail.model_dump()
+
 @router.post("/selection-review/snapshots")
 def save_selection_snapshot(body: dict[str, Any]):
     """保存本次選股結果為不可變快照 (Point-in-time snapshot)。"""
@@ -735,7 +771,7 @@ def list_selection_snapshots():
 
     svc = get_selection_review_service()
     try:
-        return [s.model_dump() for s in svc.list_snapshots()]
+        return [s.model_dump() for s in svc.list_snapshots("research")]
     except Exception as e:
         logger.exception("Failed to list selection snapshots: %s", e)
         raise HTTPException(status_code=500, detail=f"快照清單讀取失敗: {e}") from e
@@ -748,7 +784,12 @@ def get_selection_snapshot_detail(snapshot_id: str):
 
     svc = get_selection_review_service()
     try:
+        snapshot = svc.get_snapshot(snapshot_id)
+        if snapshot is None or snapshot.record_type != "research":
+            raise HTTPException(status_code=404, detail=f"找不到指定的研究快照: {snapshot_id}")
         detail = svc.get_snapshot_review(snapshot_id)
+    except HTTPException:
+        raise
     except Exception as e:
         logger.exception("Failed to get snapshot review for %s: %s", snapshot_id, e)
         raise HTTPException(status_code=500, detail=f"復盤計算失敗: {e}") from e
@@ -767,7 +808,10 @@ def delete_selection_snapshot(snapshot_id: str):
     from app.taiwan.selection_review_service import get_selection_review_service
 
     svc = get_selection_review_service()
-    success = svc.delete_snapshot(snapshot_id)
+    try:
+        success = svc.delete_snapshot(snapshot_id)
+    except PermissionError as e:
+        raise HTTPException(status_code=409, detail=str(e)) from e
     if not success:
         raise HTTPException(status_code=404, detail=f"找不到或無法刪除快照: {snapshot_id}")
     return {"ok": True, "deleted_id": snapshot_id}

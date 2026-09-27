@@ -12,6 +12,7 @@ Operating Schedule:
 """
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
 from datetime import time as dt_time
@@ -93,6 +94,23 @@ class TaiwanTradingCalendar:
 
     def add_trading_day(self, d: date) -> None:
         self.known_trading_days.add(d)
+
+    def next_potential_session(
+        self, after: date,
+        observed_evidence: Callable[[date], TradingDayEvidence] | None = None,
+    ) -> date:
+        """Next scheduled session, allowing official census to override weekend rules."""
+        cursor = after + timedelta(days=1)
+        for _ in range(30):
+            evidence = self.day_evidence(cursor, "TWSE")
+            if (evidence.status == "non_trading"
+                    and evidence.evidence_source == "calendar_rule"
+                    and observed_evidence is not None):
+                evidence = observed_evidence(cursor)
+            if evidence.status != "non_trading":
+                return cursor
+            cursor += timedelta(days=1)
+        raise ValueError("無法確認下個預定交易日")
 
     def day_evidence(self, d: date, exchange: str) -> TradingDayEvidence:
         if d in self.known_holidays and d in self.known_trading_days:
