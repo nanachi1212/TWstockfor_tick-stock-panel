@@ -31,9 +31,11 @@ from app.taiwan.screener import (
 )
 from app.taiwan.screener_strategy_store import TaiwanScreenerStrategyStore
 from app.taiwan.selection_review_models import (
+    HorizonReviewItem,
     SaveSelectionSnapshotRequest,
     SelectionSnapshot,
     SelectionSnapshotItem,
+    SnapshotReviewDetail,
 )
 from app.taiwan.selection_review_service import TaiwanSelectionReviewService
 
@@ -483,6 +485,9 @@ def test_pending_and_missing_action_coverage_are_distinct(tmp_path, monkeypatch)
     after = svc.get_snapshot_review(batch.snapshot_id)
     assert after.evaluated_items[0].h1d_status == "unavailable"
     assert after.evaluated_items[0].h20d_status == "pending"
+    stats = svc.get_forward_batch_stats()
+    assert stats.timeline[0].full_batch["1D"].matured is True
+    assert stats.timeline[0].full_batch["20D"].matured is False
 
 
 def test_missing_paper_entry_is_unavailable_while_benchmark_tracks(tmp_path, monkeypatch):
@@ -666,6 +671,131 @@ def test_research_hit_rate_uses_unrounded_return(tmp_path):
     ))
     stats = next(s for s in svc.get_strategy_reviews() if s.strategy_id == "tiny_gain")
     assert stats.hit_rate_5d == 100.0
+
+
+def test_forward_performance_center_aggregates_immutable_cohorts_and_timeline(tmp_path, monkeypatch):
+    svc = TaiwanSelectionReviewService(path=tmp_path / "snapshots.json")
+    snapshots = [
+        SelectionSnapshot(
+            snapshot_id="forward-20260803", created_at="2026-08-03T08:00:00+08:00",
+            strategy_id="trend_liquidity_v1", strategy_name="趨勢流動性 v1",
+            as_of_date="2026-08-03", source_data_date="2026-08-03",
+            target_trade_date="2026-08-04", market_context_summary="",
+            record_type="forward_batch", evaluation_basis="next_open",
+            items=[
+                SelectionSnapshotItem(symbol="2330.TWSE", name="台積電", rank=1, price=100),
+                SelectionSnapshotItem(symbol="2317.TWSE", name="鴻海", rank=11, price=100),
+                SelectionSnapshotItem(symbol="2881.TWSE", name="富邦金", rank=12, price=100),
+            ],
+        ),
+        SelectionSnapshot(
+            snapshot_id="forward-20260804", created_at="2026-08-04T08:00:00+08:00",
+            strategy_id="trend_liquidity_v1", strategy_name="趨勢流動性 v1",
+            as_of_date="2026-08-04", source_data_date="2026-08-04",
+            target_trade_date="2026-08-05", market_context_summary="",
+            record_type="forward_batch", evaluation_basis="next_open",
+            items=[
+                SelectionSnapshotItem(symbol="2303.TWSE", name="聯電", rank=1, price=100),
+                SelectionSnapshotItem(symbol="2454.TWSE", name="聯發科", rank=2, price=100),
+            ],
+        ),
+        SelectionSnapshot(
+            snapshot_id="research-only", created_at="2026-08-04T08:00:00+08:00",
+            strategy_id="trend_liquidity_v1", strategy_name="研究快照",
+            as_of_date="2026-08-04", market_context_summary="",
+            items=[SelectionSnapshotItem(symbol="6505.TWSE", name="台塑化", rank=1, price=100)],
+        ),
+    ]
+    svc._save_snapshots_raw(snapshots)
+
+    def item(symbol, rank, status, raw_return=None, bm_status="completed", raw_bm=None):
+        raw_excess = raw_return - raw_bm if raw_return is not None and raw_bm is not None else None
+        return HorizonReviewItem(
+            symbol=symbol, name=symbol, rank=rank, entry_price=100,
+            h1d_status=status, h1d_raw_return_pct=raw_return,
+            h1d_return_pct=round(raw_return, 2) if raw_return is not None else None,
+            h1d_bm_status=bm_status, h1d_raw_bm_return_pct=raw_bm,
+            h1d_bm_return_pct=round(raw_bm, 2) if raw_bm is not None else None,
+            h1d_raw_excess_pct=raw_excess,
+            h1d_excess_pct=round(raw_excess, 2) if raw_excess is not None else None,
+        )
+
+    reviews = {
+        "forward-20260803": SnapshotReviewDetail(
+            snapshot=snapshots[0], evaluated_items=[
+                item("2330.TWSE", 1, "completed", 1.234, raw_bm=0.5),
+                item("2317.TWSE", 11, "completed", 0.0, raw_bm=0.1),
+                item("2881.TWSE", 12, "pending", bm_status="pending"),
+            ],
+        ),
+        "forward-20260804": SnapshotReviewDetail(
+            snapshot=snapshots[1], evaluated_items=[
+                item("2303.TWSE", 1, "completed", -2.0, raw_bm=-3.0),
+                item("2454.TWSE", 2, "unavailable", bm_status="unavailable"),
+            ],
+        ),
+    }
+    monkeypatch.setattr(svc, "_forward_review_inputs", lambda: ((), (), ()))
+    monkeypatch.setattr(svc, "_get_forward_batch_review", lambda snapshot: reviews[snapshot.snapshot_id])
+
+    stats = svc.get_forward_batch_stats()
+    full = stats.horizons["1D"]["full_batch"]
+    top10 = stats.horizons["1D"]["top10"]
+    assert stats.batches_count == 2
+    assert stats.picks_count == 5
+    assert full.batch_count == 2
+    assert full.matured_batch_count == 1
+    assert full.pick_count == 5
+    assert full.evaluable_count == 3
+    assert full.pending_count == 1
+    assert full.unavailable_count == 1
+    assert full.positive_return_count == 1
+    assert full.hit_rate == pytest.approx(33.3)
+    assert full.average_return_pct == pytest.approx(-0.26)
+    assert full.median_return_pct == pytest.approx(0.0)
+    assert full.average_benchmark_return_pct == pytest.approx(-0.8)
+    assert full.median_excess_return_pct == pytest.approx(0.73)
+    assert full.beat_benchmark_count == 2
+    assert full.beat_benchmark_rate == pytest.approx(66.7)
+    assert top10.pick_count == 3
+    assert top10.evaluable_count == 2
+    assert top10.pending_count == 0
+    assert top10.unavailable_count == 1
+    assert len(stats.timeline) == 2
+    assert stats.timeline[0].source_date == "2026-08-03"
+    assert stats.timeline[0].full_batch["1D"].matured is False
+    assert stats.timeline[1].top10["1D"].average_return_pct == pytest.approx(-2.0)
+
+
+def test_forward_performance_center_keeps_zero_and_empty_states_explicit(tmp_path, monkeypatch):
+    svc = TaiwanSelectionReviewService(path=tmp_path / "snapshots.json")
+    assert svc.get_forward_batch_stats().horizons == {}
+    snapshot = SelectionSnapshot(
+        snapshot_id="pending-only", created_at="2026-08-03T08:00:00+08:00",
+        strategy_id="trend_liquidity_v1", strategy_name="趨勢流動性 v1",
+        as_of_date="2026-08-03", source_data_date="2026-08-03",
+        target_trade_date="2026-08-04", market_context_summary="",
+        record_type="forward_batch", evaluation_basis="next_open",
+        items=[SelectionSnapshotItem(symbol="2330.TWSE", name="台積電", rank=1, price=100)],
+    )
+    review = SnapshotReviewDetail(snapshot=snapshot, evaluated_items=[HorizonReviewItem(
+        symbol="2330.TWSE", name="台積電", rank=1, entry_price=100,
+        h1d_status="completed", h1d_raw_return_pct=0.0, h1d_return_pct=0.0,
+        h1d_bm_status="unavailable",
+    )])
+    svc._save_snapshots_raw([snapshot])
+    monkeypatch.setattr(svc, "_forward_review_inputs", lambda: ((), (), ()))
+    monkeypatch.setattr(svc, "_get_forward_batch_review", lambda _: review)
+    stats = svc.get_forward_batch_stats()
+    summary = stats.horizons["1D"]["full_batch"]
+    assert summary.evaluable_count == 1
+    assert summary.average_return_pct == 0.0
+    assert summary.median_return_pct == 0.0
+    assert summary.hit_rate == 0.0
+    assert summary.beat_benchmark_count == 0
+    assert summary.beat_benchmark_rate is None
+    assert summary.benchmark_evaluable_count == 0
+    assert summary.excess_evaluable_count == 0
 
 
 def test_forward_api_contract(tmp_path, monkeypatch):
