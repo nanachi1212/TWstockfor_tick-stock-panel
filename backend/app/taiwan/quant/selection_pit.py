@@ -307,7 +307,9 @@ def _select(evidence: _Evidence, index: int) -> dict[str, Any]:
         blockers.append("entry_session_not_observed")
     if target is None or target not in evidence.inputs.regulatory.covered_targets:
         blockers.append("regulatory_history_unavailable")
-    if evidence.unresolved_between(window[0], source):
+    # A lost weekday before the next observed session would make that session a
+    # wrong entry date, so the check runs through the entry session.
+    if evidence.unresolved_between(window[0], target or source):
         blockers.append("trading_day_unverified")
         return {"source": source, "target": target, "blockers": blockers, "candidates": None}
     events = evidence.action_window(window[0], source)
@@ -610,11 +612,13 @@ class HistoricalPitRunStore(PrimaryOosRunStore):
 
 
 def code_fingerprint() -> str:
-    """The files that define selection, normalization and scoring."""
+    """The files that build the evidence and define selection, normalization and scoring."""
     taiwan = Path(__file__).resolve().parents[1]
     digest = hashlib.sha256()
     for path in (Path(__file__).resolve(), taiwan / "screener.py", taiwan / "adjust.py",
-                 taiwan / "corporate_actions.py", taiwan / "selection_review_service.py"):
+                 taiwan / "corporate_actions.py", taiwan / "selection_review_service.py",
+                 taiwan / "quant" / "primary_oos_runner.py", taiwan / "observed_universe.py",
+                 taiwan / "historical_classification.py", taiwan / "realtime" / "calendar.py"):
         digest.update(path.name.encode("utf-8"))
         digest.update(path.read_bytes().replace(b"\r\n", b"\n"))
     return digest.hexdigest()

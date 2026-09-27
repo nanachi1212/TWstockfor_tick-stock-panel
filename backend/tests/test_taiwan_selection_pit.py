@@ -365,12 +365,13 @@ def test_observed_saturday_session_counts_in_window_and_horizon():
 
 def test_unresolved_trading_day_blocks_session_and_forward_horizon():
     weekdays = _weekdays(date(2025, 1, 6), 46)
-    in_window, in_horizon = weekdays[21], weekdays[36]
-    for gap in (in_window, in_horizon):
+    # in_window: inside the trend window; before_entry: between source and entry.
+    in_window, before_entry, in_horizon = weekdays[21], weekdays[25], weekdays[36]
+    for gap in (in_window, before_entry, in_horizon):
         sessions, index, inputs = _forward_fixture(skip=frozenset({gap}))
         inputs = HistoricalPitInputs(**{**inputs.__dict__, "unresolved_days": frozenset({gap})})
         result = evaluate_trend_liquidity_v1_history(inputs)
-        if gap == in_window:
+        if gap != in_horizon:
             assert "trading_day_unverified" in result["reproducibility"]["blocker_session_counts"]
             assert _picks(result, sessions[index]) == []
         else:
