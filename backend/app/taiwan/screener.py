@@ -32,8 +32,9 @@ from app.taiwan.daily_store import TaiwanDailyStore
 from app.taiwan.finmind_cache import FinMindCache
 from app.taiwan.institutional_store import TaiwanInstitutionalStore
 from app.taiwan.margin_store import TaiwanMarginStore
+from app.taiwan.observed_universe import ObservedUniverseStore
 from app.taiwan.providers.taiwan_values import parse_number
-from app.taiwan.realtime.calendar import taipei_now
+from app.taiwan.realtime.calendar import TaiwanTradingCalendar, taipei_now
 from app.taiwan.technical_indicators import MIN_BARS_RSI_14, wilder_rsi_expr
 from app.taiwan.universe import TaiwanSecurityMaster, get_security_master
 from app.taiwan.universe.models import MarketProfileBridge
@@ -244,6 +245,7 @@ class TaiwanScreenerResponse(BaseModel):
     risk_source_as_of: str | None = None
     trend_indicator_basis: Literal["raw", "pit_adjusted"] = "raw"
     trend_adjustment_status: Literal["verified", "partial", "unavailable"] | None = None
+    risk_target_date: str | None = None
 
 
 class TaiwanScreenerService:
@@ -258,6 +260,8 @@ class TaiwanScreenerService:
         finmind_cache: FinMindCache | None = None,
         fundamental_chips_service: Any | None = None,
         action_store: CorporateActionStore | None = None,
+        calendar: TaiwanTradingCalendar | None = None,
+        census_store: ObservedUniverseStore | None = None,
     ) -> None:
         self.security_master = security_master or get_security_master()
         self.daily_store = daily_store or TaiwanDailyStore()
@@ -266,6 +270,8 @@ class TaiwanScreenerService:
         self.cache = finmind_cache or FinMindCache()
         self._fundamental_chips_service = fundamental_chips_service
         self.action_store = action_store or CorporateActionStore()
+        self.calendar = calendar or TaiwanTradingCalendar()
+        self.census_store = census_store
 
     def _get_fundamental_chips_service(self):
         if self._fundamental_chips_service is None:
@@ -304,6 +310,15 @@ class TaiwanScreenerService:
             )
 
         daily_as_of = str(latest_daily["date"].max()) if not latest_daily.is_empty() else None
+        risk_target_date: date | None = None
+        if req.preset == "trend_liquidity_v1":
+            def observed(day: date):
+                return self.census_store.day_evidence("TWSE", day, calendar=self.calendar)
+
+            risk_target_date = self.calendar.next_potential_session(
+                date.fromisoformat(daily_as_of),
+                observed if self.census_store is not None else None,
+            )
         missing_quote_count = len(valid_symbols) - latest_daily.filter(
             pl.col("date") == latest_daily["date"].max()
         ).height
@@ -325,6 +340,7 @@ class TaiwanScreenerService:
                     degraded_sections=(["corporate_actions"] if trend_indicators is None else []),
                     trend_indicator_basis="pit_adjusted",
                     trend_adjustment_status=trend_adjustment_status,
+                    risk_target_date=risk_target_date.isoformat(),
                 )
 
         # Step 4: Join Universe + Latest Daily + Indicators
@@ -379,7 +395,7 @@ class TaiwanScreenerService:
                     if event_svc is None:
                         raise RuntimeError("event service unavailable")
                     risk = event_svc.check_symbol_risk_status(
-                        symbol, target_date=date.fromisoformat(daily_as_of), events=cached_events
+                        symbol, target_date=risk_target_date, events=cached_events
                     )
                     if risk["is_disposition"] or risk["is_suspended"]:
                         excluded.add(symbol)
@@ -441,6 +457,7 @@ class TaiwanScreenerService:
             risk_source_as_of=risk_source_as_of,
             trend_indicator_basis="pit_adjusted" if req.preset else "raw",
             trend_adjustment_status=trend_adjustment_status,
+            risk_target_date=risk_target_date.isoformat() if risk_target_date else None,
         )
 
     def _get_universe(self, exchange: ExchangeFilter, instrument: InstrumentFilter) -> pl.DataFrame:

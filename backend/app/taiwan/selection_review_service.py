@@ -184,7 +184,10 @@ class TaiwanSelectionReviewService:
         from app.taiwan.screener import TaiwanScreenerRequest, TaiwanScreenerService
 
         daily_generation = self._daily_generation()
-        screen = (screener or TaiwanScreenerService()).run(
+        screen = (screener or TaiwanScreenerService(
+            daily_store=self.daily_store, calendar=self.calendar,
+            census_store=self.census_store, action_store=self.action_store,
+        )).run(
             TaiwanScreenerRequest(preset=FORWARD_RULE_VERSION)
         )
         if (screen.trend_indicator_basis != "pit_adjusted"
@@ -216,6 +219,8 @@ class TaiwanSelectionReviewService:
                 risk_status=row.risk_status, quote_status="available",
             ) for index, row in enumerate(screen.items[:20], start=1) if row.close is not None and row.close > 0]
             target = self._next_potential_session(source_day)
+            if screen.risk_target_date != target.isoformat():
+                raise ValueError("選股風險檢查日期與預定進場日不一致")
             if now >= event_market_open(target):
                 raise ValueError("預定進場日已開盤。不能事後建立正式前瞻批次")
             snapshot = SelectionSnapshot(
@@ -237,6 +242,7 @@ class TaiwanSelectionReviewService:
                 risk_unknown_count=screen.risk_unknown_count,
                 risk_source_status=screen.risk_source_status,
                 risk_source_as_of=screen.risk_source_as_of,
+                risk_target_date=screen.risk_target_date,
                 selection_indicator_basis=screen.trend_indicator_basis,
                 trend_adjustment_status=screen.trend_adjustment_status,
             )
@@ -245,19 +251,12 @@ class TaiwanSelectionReviewService:
             return snapshot
 
     def _next_potential_session(self, after: date) -> date:
-        cursor = after + timedelta(days=1)
-        for _ in range(30):
-            evidence = self.calendar.day_evidence(cursor, "TWSE")
-            if (evidence.status == "non_trading"
-                    and evidence.evidence_source == "calendar_rule"
-                    and self.census_store is not None):
-                evidence = self.census_store.day_evidence(
-                    "TWSE", cursor, calendar=self.calendar
-                )
-            if evidence.status != "non_trading":
-                return cursor
-            cursor += timedelta(days=1)
-        raise ValueError("無法確認下個預定交易日")
+        def observed(day: date):
+            return self.census_store.day_evidence("TWSE", day, calendar=self.calendar)
+
+        return self.calendar.next_potential_session(
+            after, observed if self.census_store is not None else None
+        )
 
     def delete_snapshot(self, snapshot_id: str) -> bool:
         """Delete a snapshot by ID."""
@@ -791,6 +790,7 @@ class TaiwanSelectionReviewService:
                         evaluation_basis=s.evaluation_basis,
                         risk_source_status=s.risk_source_status,
                         risk_source_as_of=s.risk_source_as_of,
+                        risk_target_date=s.risk_target_date,
                         selection_indicator_basis=s.selection_indicator_basis,
                         trend_adjustment_status=s.trend_adjustment_status,
                         h5d_evaluated_count=review.h5d_evaluated_count,
@@ -821,6 +821,7 @@ class TaiwanSelectionReviewService:
                         evaluation_basis=s.evaluation_basis,
                         risk_source_status=s.risk_source_status,
                         risk_source_as_of=s.risk_source_as_of,
+                        risk_target_date=s.risk_target_date,
                         selection_indicator_basis=s.selection_indicator_basis,
                         trend_adjustment_status=s.trend_adjustment_status,
                     )

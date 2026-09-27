@@ -105,6 +105,7 @@ class _FixedScreener:
             risk_unknown_count=1, missing_quote_count=2,
             risk_source_status="partial", risk_source_as_of="2026-08-03T14:00:00+00:00",
             trend_indicator_basis="pit_adjusted", trend_adjustment_status="verified",
+            risk_target_date=(self.source + timedelta(days=1)).isoformat(),
         )
 
 
@@ -122,6 +123,7 @@ def test_lock_is_server_owned_idempotent_and_undeletable(tmp_path, monkeypatch):
     assert first.missing_quote_count == 2
     assert first.risk_source_status == "partial"
     assert first.risk_source_as_of == "2026-08-03T14:00:00+00:00"
+    assert first.risk_target_date == sessions[0].isoformat()
     assert first.items[0].price == 101.0
     assert len(svc.list_snapshots()) == 1
     with pytest.raises(PermissionError):
@@ -456,7 +458,7 @@ def test_forward_api_contract(tmp_path, monkeypatch):
                         lambda: svc)
     monkeypatch.setattr("app.taiwan.selection_review_service.taipei_now", lambda: _clock(source))
     monkeypatch.setattr("app.taiwan.screener.TaiwanScreenerService",
-                        lambda: _FixedScreener(source))
+                        lambda **kwargs: _FixedScreener(source))
     client = TestClient(app, client=("127.0.0.1", 50000))
     first = client.post("/api/taiwan/selection-review/forward-batches")
     second = client.post("/api/taiwan/selection-review/forward-batches")
@@ -512,16 +514,23 @@ def test_trend_preset_filters_liquidity_risk_and_etf(tmp_path, monkeypatch):
 
     class Risk:
         def get_cached_regulatory_snapshot(self):
-            return [], "partial", "2026-08-28T14:00:00+00:00"
+            return [MarketEvent(
+                id="disposition-8069", symbol="8069.TPEX", code="8069", name="元太",
+                exchange="TPEX", event_date=target.isoformat(), event_type="disposition",
+                event_type_label="處置證券", title="處置", summary="處置", source="TPEX",
+                retrieved_at=_clock(sessions[-1]).isoformat(),
+            )], "partial", "2026-08-28T14:00:00+00:00"
 
         def check_symbol_risk_status(self, symbol, target_date=None, events=None):
-            assert target_date == sessions[-1]
-            assert events == []
-            return {"is_disposition": symbol == "8069.TPEX", "is_suspended": False}
+            assert target_date == target
+            return TaiwanEventService.check_symbol_risk_status(
+                self, symbol, target_date=target_date, events=events
+            )
 
         def get_events(self, **kwargs):
             raise AssertionError("Screening must not fetch regulatory sources")
 
+    target = TaiwanTradingCalendar().next_potential_session(sessions[-1])
     monkeypatch.setattr("app.taiwan.events_service.get_event_service", lambda: Risk())
     response = TaiwanScreenerService(daily_store=store, action_store=actions).run(
         TaiwanScreenerRequest(preset="trend_liquidity_v1", page_size=200)
@@ -532,6 +541,7 @@ def test_trend_preset_filters_liquidity_risk_and_etf(tmp_path, monkeypatch):
     assert response.risk_unknown_count == 1
     assert response.risk_source_status == "partial"
     assert response.risk_source_as_of == "2026-08-28T14:00:00+00:00"
+    assert response.risk_target_date == target.isoformat()
     assert response.trend_indicator_basis == "pit_adjusted"
     assert response.trend_adjustment_status == "verified"
 

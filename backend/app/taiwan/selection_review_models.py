@@ -60,6 +60,7 @@ class SelectionSnapshot(BaseModel):
     risk_unknown_count: int | None = None
     risk_source_status: Literal["available", "partial", "unavailable"] | None = None
     risk_source_as_of: str | None = None
+    risk_target_date: str | None = None
     selection_indicator_basis: Literal["raw", "pit_adjusted"] = "raw"
     trend_adjustment_status: Literal["verified", "partial", "unavailable"] | None = None
 
@@ -186,6 +187,7 @@ class SnapshotListItem(BaseModel):
     evaluation_basis: Literal["reference_close", "next_open"] = "reference_close"
     risk_source_status: Literal["available", "partial", "unavailable"] | None = None
     risk_source_as_of: str | None = None
+    risk_target_date: str | None = None
     selection_indicator_basis: Literal["raw", "pit_adjusted"] = "raw"
     trend_adjustment_status: Literal["verified", "partial", "unavailable"] | None = None
 
