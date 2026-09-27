@@ -67,7 +67,9 @@
 
 儲存（`<taiwan_data_root>/regulatory_history/`）：每個官方回應一個 Parquet，footer 保存
 `source_url / retrieved_at / raw_sha256`，每列有 `content_hash`。重抓內容不同時保留第一次觀測、寫入
-`*.conflict.json`，該分區不再算覆蓋（fail-closed）。整個 store 的 digest 進入 artifact 的 dataset identity。
+`*.conflict.json`，該分區不再算覆蓋（fail-closed）。
+月份分區只涵蓋到「取得日前一天」（上限為月底）；cmode 清單必須在其日期之後取得才算最終版。
+月中取得的月份與當日取得的 cmode 會在之後重抓：新回應保留所有舊列才替換並推進涵蓋日，否則記為 conflict。整個 store 的 digest 進入 artifact 的 dataset identity。
 不寫入 `user_data` 或正式前瞻批次。
 
 ## 5. TPEx historical subtype

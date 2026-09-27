@@ -223,13 +223,31 @@ class RegulatoryHistoryStore:
     def _conflict_path(self, path: Path) -> Path:
         return path.with_suffix(".conflict.json")
 
-    def _write(self, path: Path, frame: pl.DataFrame, metadata: dict[str, str]) -> str:
-        """Write once; an identical re-fetch is a no-op, a different one a conflict."""
+    @staticmethod
+    def retrieved_on(path: Path) -> date | None:
+        """Taipei calendar date the stored response was retrieved, if recorded."""
+        raw = (pq.read_metadata(path).metadata or {}).get(b"retrieved_at")
+        try:
+            return datetime.fromisoformat(raw.decode()).astimezone(TAIPEI).date() if raw else None
+        except ValueError:
+            return None
+
+    def _write(self, path: Path, frame: pl.DataFrame, metadata: dict[str, str], *,
+               refreshable: bool = False) -> str:
+        """Write once; a closed partition never changes, a different re-fetch is a conflict.
+
+        A ``refreshable`` partition was retrieved before its period closed; a later
+        response that keeps every stored row replaces it and advances its coverage.
+        """
         hashes = sorted(frame["content_hash"].to_list())
         if path.exists():
             stored = sorted(pl.read_parquet(path)["content_hash"].to_list())
-            if stored == hashes:
+            if stored == hashes and not refreshable:
                 return "unchanged"
+            if refreshable and set(stored) <= set(hashes):
+                path.unlink()
+                self._write(path, frame, metadata)
+                return "refreshed"
             record = {"stored": _hash(stored), "fetched": _hash(hashes),
                       "detected_at": datetime.now(TAIPEI).isoformat(),
                       "source_url": metadata.get("source_url")}
@@ -253,25 +271,42 @@ class RegulatoryHistoryStore:
                     metadata: dict[str, str]) -> str:
         if source not in ANNOUNCEMENT_SOURCES:
             raise ValueError("unknown announcement source")
-        return self._write(self.month_path(source, year, month), frame, metadata)
+        through = self.covered_months(source).get((year, month))
+        return self._write(self.month_path(source, year, month), frame, metadata,
+                           refreshable=through is not None and through < month_bounds(year, month)[1])
 
     def write_cmode(self, day: date, frame: pl.DataFrame, metadata: dict[str, str]) -> str:
-        return self._write(self.cmode_path(day), frame, metadata)
+        path = self.cmode_path(day)
+        retrieved = self.retrieved_on(path) if path.exists() else None
+        return self._write(path, frame, metadata,
+                           refreshable=retrieved is not None and retrieved <= day)
 
-    def covered_months(self, source: str) -> set[tuple[int, int]]:
+    def covered_months(self, source: str) -> dict[tuple[int, int], date]:
+        """Month -> last publication date the stored response can contain.
+
+        A response holds announcements published before the day it was retrieved,
+        and never beyond its own month.
+        """
         folder = self.root / f"source={source}"
-        months = set()
+        months: dict[tuple[int, int], date] = {}
         for path in folder.glob("month=*.parquet") if folder.exists() else ():
-            if not self._conflict_path(path).exists():
-                year, month = path.stem.removeprefix("month=").split("-")
-                months.add((int(year), int(month)))
+            retrieved = self.retrieved_on(path)
+            if self._conflict_path(path).exists() or retrieved is None:
+                continue
+            year, month = (int(part) for part in path.stem.removeprefix("month=").split("-"))
+            months[(year, month)] = min(month_bounds(year, month)[1], retrieved - timedelta(days=1))
         return months
 
     def cmode_dates(self) -> set[date]:
+        """Dates whose list was retrieved after that date ended (no intraday additions left)."""
         folder = self.root / "source=tpex_cmode"
-        return {date.fromisoformat(path.stem.removeprefix("date="))
-                for path in (folder.glob("date=*.parquet") if folder.exists() else ())
-                if not self._conflict_path(path).exists()}
+        dates = set()
+        for path in folder.glob("date=*.parquet") if folder.exists() else ():
+            day = date.fromisoformat(path.stem.removeprefix("date="))
+            retrieved = self.retrieved_on(path)
+            if not self._conflict_path(path).exists() and retrieved is not None and retrieved > day:
+                dates.add(day)
+        return dates
 
     def conflicts(self) -> list[str]:
         return sorted(str(p.relative_to(self.root)) for p in self.root.rglob("*.conflict.json")) \
@@ -317,12 +352,14 @@ def backfill_announcements(
     should_stop: Callable[[], bool] | None = None,
 ) -> dict[str, Any]:
     """Fetch every missing month for both disposition archives."""
-    report: dict[str, Any] = {"written": 0, "unchanged": 0, "conflict": 0, "errors": []}
+    report: dict[str, Any] = {"written": 0, "unchanged": 0, "refreshed": 0, "conflict": 0,
+                              "errors": []}
     year, month = start.year, start.month
     while (year, month) <= (end.year, end.month):
         first, last = month_bounds(year, month)
         for source in ANNOUNCEMENT_SOURCES:
-            if (year, month) in store.covered_months(source):
+            through = store.covered_months(source).get((year, month))
+            if through is not None and through >= last:
                 continue
             if should_stop is not None and should_stop():
                 return report
@@ -347,7 +384,8 @@ def backfill_cmode(
     should_stop: Callable[[], bool] | None = None,
 ) -> dict[str, Any]:
     """Fetch the dated cmode list for every verified session still missing."""
-    report: dict[str, Any] = {"written": 0, "unchanged": 0, "conflict": 0, "errors": []}
+    report: dict[str, Any] = {"written": 0, "unchanged": 0, "refreshed": 0, "conflict": 0,
+                              "errors": []}
     done = store.cmode_dates()
     for day in sessions:
         if day in done:
@@ -410,16 +448,22 @@ def replay_regulatory_evidence(
         if longest is not None and longest > DISPOSITION_LOOKBACK_DAYS:
             raise RegulatorySchemaError("a disposition period exceeds the coverage lookback")
     months = {source: store.covered_months(source) for source in ANNOUNCEMENT_SOURCES}
+
+    def disposition_covered(name: str, source: date, target: date) -> bool:
+        # Every month in the lookback must hold all announcements published by ``source``.
+        lookback = _months_between(target - timedelta(days=DISPOSITION_LOOKBACK_DAYS), target)
+        return all(months[name].get(month, date.min) >= min(source, month_bounds(*month)[1])
+                   for month in lookback)
+
     suspended = store.suspended_on(source for source, _ in pairs)
     rows = announcements.select("code", "published_date", "period_start", "period_end").rows()
     blockers: dict[date, tuple[str, ...]] = {}
     excluded: dict[date, frozenset[str]] = {}
     for source, target in pairs:
         missing = []
-        needed = _months_between(target - timedelta(days=DISPOSITION_LOOKBACK_DAYS), target)
-        if not needed <= months["twse_punish"]:
+        if not disposition_covered("twse_punish", source, target):
             missing.append("regulatory_twse_disposition_unavailable")
-        if not needed <= months["tpex_disposal"]:
+        if not disposition_covered("tpex_disposal", source, target):
             missing.append("regulatory_tpex_disposition_unavailable")
         if source not in suspended:
             missing.append("regulatory_tpex_status_unavailable")
