@@ -638,6 +638,20 @@ def _action_marker(store: CorporateActionStore) -> tuple[tuple[date, date] | Non
                   "sources": sorted(SOURCE_URLS), "events_sha256": record["events_sha256"]}
 
 
+def load_verified_actions(
+    store: CorporateActionStore,
+) -> tuple[tuple[date, date] | None, dict[str, Any], tuple[CorporateActionEvent, ...]]:
+    """Events plus the coverage record they belong to; a refresh mid-read fails closed."""
+    span, record = _action_marker(store)
+    if span is None:
+        return None, record, ()
+    events = tuple(store.read())
+    if _action_marker(store)[1] != record:
+        raise TrendLiquidityV1PitInputError(
+            "corporate-action snapshot changed while loading; rerun the evaluation")
+    return span, record, events
+
+
 def load_trend_liquidity_v1_pit_inputs() -> HistoricalPitInputs:
     """Read A2a/A2b, the verified action snapshot and trading-day evidence."""
     from app.taiwan.backfill_worker import TaiwanHistoricalBackfillWorker
@@ -665,9 +679,7 @@ def load_trend_liquidity_v1_pit_inputs() -> HistoricalPitInputs:
         pl.concat_str([pl.col("raw_code"), pl.lit(".TWSE")]).alias("symbol"),
         "date", "open", "close", "amount",
     )
-    actions = CorporateActionStore()
-    span, action_record = _action_marker(actions)
-    events = actions.read() if span is not None else ()
+    span, action_record, events = load_verified_actions(CorporateActionStore())
     tpex_sessions = frozenset(census.session_dates("TPEX"))
     verification = json.loads((census._verification_path("TWSE")).read_text(encoding="utf-8"))
     identity = {
@@ -686,11 +698,14 @@ def load_trend_liquidity_v1_pit_inputs() -> HistoricalPitInputs:
         "unresolved_weekdays": len(unresolved),
         "unresolved_weekdays_sha256": canonical_hash(sorted(d.isoformat() for d in unresolved)),
     }
+    # The recorded partition digest must still describe the rows read above.
+    if not census.month_verification_covers("TWSE", sessions[0], sessions[-1]):
+        raise TrendLiquidityV1PitInputError("TWSE census changed while loading; rerun the evaluation")
     return HistoricalPitInputs(
         sessions=tuple(sessions),
         prices=prices,
         universe=universe.filter(pl.col("observed_on_market")),
-        events=tuple(events),
+        events=events,
         action_coverage=span,
         regulatory=NO_REGULATORY_HISTORY,
         blocked_exchanges=frozenset({"TPEX"}),

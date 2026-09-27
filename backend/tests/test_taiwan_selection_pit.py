@@ -29,9 +29,11 @@ from app.taiwan.quant.selection_pit import (
     HistoricalPitInputs,
     HistoricalPitRunStore,
     RegulatoryEvidence,
+    TrendLiquidityV1PitInputError,
     build_artifact,
     evaluate_trend_liquidity_v1_history,
     horizon_metrics,
+    load_verified_actions,
     run_trend_liquidity_v1_pit_evaluation,
 )
 from app.taiwan.realtime.calendar import TaiwanTradingCalendar
@@ -467,6 +469,28 @@ def test_no_regulatory_history_means_no_strict_result_and_no_fake_metrics():
     assert diagnostics["claimable"] is False and diagnostics["diagnostic_only"] is True
     assert diagnostics["candidate_count_distribution"]["max"] >= 1
     assert "return" not in json.dumps(diagnostics["candidate_count_distribution"])
+
+
+def test_action_snapshot_replaced_while_loading_fails_closed(tmp_path):
+    day = date(2025, 1, 6)
+    store = CorporateActionStore(tmp_path / "adj_factor")
+    store.save([_event("2330.TWSE", day, "cash_dividend", 100.0, 90.0)])
+    store.path.with_name("coverage.json").write_text(json.dumps({
+        "start": day.isoformat(), "end": day.isoformat(), "sources": sorted(SOURCE_URLS),
+        "events_sha256": store.snapshot_digest()}), encoding="utf-8")
+    span, record, events = load_verified_actions(store)
+    assert span == (day, day) and record["status"] == "verified" and len(events) == 1
+
+    original = CorporateActionStore.read
+
+    def read_then_refresh(self):
+        rows = original(self)
+        self.save([_event("2317.TWSE", day, "cash_dividend", 50.0, 45.0)])
+        return rows
+
+    store.read = read_then_refresh.__get__(store)
+    with pytest.raises(TrendLiquidityV1PitInputError):
+        load_verified_actions(store)
 
 
 # ── ledger, determinism, gate, API ──────────────────────────────
