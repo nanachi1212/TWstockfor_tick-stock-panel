@@ -80,7 +80,14 @@ BLOCKERS: dict[str, str] = {
         "a weekday inside the trend window has no trading/non-trading evidence",
     "entry_session_not_observed":
         "no verified trading session exists yet after the source session",
+    "twse_market_session_unobserved":
+        "the TWSE census has no observed membership for this session",
+    "tpex_market_session_unobserved":
+        "the TPEx census has no observed membership for this session",
 }
+
+#: v1 screens listed and OTC stocks together; both must be evidenced each session.
+V1_EXCHANGES = ("TWSE", "TPEX")
 
 
 @dataclass(frozen=True)
@@ -203,8 +210,9 @@ class HistoricalPitInputs:
     #: Verified five-source coverage span, or None.
     action_coverage: tuple[date, date] | None
     regulatory: RegulatoryEvidence = NO_REGULATORY_HISTORY
-    #: Exchange -> sessions it traded on, where no subtype source exists at all.
-    blocked_type_sessions: Mapping[str, frozenset[date]] = field(default_factory=dict)
+    #: Exchanges with no historical subtype source; they block every session,
+    #: whether or not their census observed it.
+    blocked_exchanges: frozenset[str] = frozenset()
     #: Weekdays without trading or non-trading evidence.
     unresolved_days: frozenset[date] = frozenset()
     identity: Mapping[str, Any] = field(default_factory=dict)
@@ -281,12 +289,15 @@ def _select(evidence: _Evidence, index: int) -> dict[str, Any]:
     window = sessions[index - TREND_LIQUIDITY_V1_TREND_SESSIONS + 1:index + 1]
     target = sessions[index + 1] if index + 1 < len(sessions) else None
     blockers: list[str] = []
-    for exchange, traded in sorted(evidence.inputs.blocked_type_sessions.items()):
-        if source in traded:
-            blockers.append(f"{exchange.lower()}_instrument_subtype_blocked")
     universe = evidence.universe.get(source)
     if universe is None or universe.is_empty():
         raise ValueError(f"no observed universe for verified session {source}")
+    observed_exchanges = set(universe["exchange"].to_list())
+    for exchange in V1_EXCHANGES:
+        if exchange in evidence.inputs.blocked_exchanges:
+            blockers.append(f"{exchange.lower()}_instrument_subtype_blocked")
+        elif exchange not in observed_exchanges:
+            blockers.append(f"{exchange.lower()}_market_session_unobserved")
     unverified = universe.filter(pl.col("instrument_type_status") != "verified")
     if "price_bar_available" in unverified.columns:
         unverified = unverified.filter(pl.col("price_bar_available"))
@@ -658,10 +669,14 @@ def load_trend_liquidity_v1_pit_inputs() -> HistoricalPitInputs:
                                     "end": verification.get("end")},
         "a2b_classification_identity": classification_identity,
         "corporate_actions": action_record,
+        # Exact date sets, not counts: a corrected backfill that moves a date
+        # must change the run identity.
         "tpex_observed_sessions": len(tpex_sessions),
+        "tpex_observed_sessions_sha256": canonical_hash(sorted(d.isoformat() for d in tpex_sessions)),
         "tpex_subtype_evidence": "blocked",
         "regulatory_source": NO_REGULATORY_HISTORY.source,
         "unresolved_weekdays": len(unresolved),
+        "unresolved_weekdays_sha256": canonical_hash(sorted(d.isoformat() for d in unresolved)),
     }
     return HistoricalPitInputs(
         sessions=tuple(sessions),
@@ -670,7 +685,7 @@ def load_trend_liquidity_v1_pit_inputs() -> HistoricalPitInputs:
         events=tuple(events),
         action_coverage=span,
         regulatory=NO_REGULATORY_HISTORY,
-        blocked_type_sessions={"TPEX": tpex_sessions},
+        blocked_exchanges=frozenset({"TPEX"}),
         unresolved_days=unresolved,
         identity=identity,
     )

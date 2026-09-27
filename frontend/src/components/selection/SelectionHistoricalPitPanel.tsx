@@ -13,6 +13,8 @@ const BLOCKER_LABELS: Record<string, string> = {
   corporate_action_unverified: '趨勢窗內有未驗證公司行動',
   trading_day_unverified: '趨勢窗內有未驗證交易日',
   entry_session_not_observed: '來源日之後尚無已驗證交易日',
+  twse_market_session_unobserved: '上市當日無官方觀測名單',
+  tpex_market_session_unobserved: '上櫃當日無官方觀測名單',
 }
 
 const HORIZONS = [['1', '1D'], ['5', '5D'], ['20', '20D']] as const
@@ -117,7 +119,7 @@ export function SelectionHistoricalPitPanel({ data }: { data: TrendLiquidityV1Hi
         <h3 className="mb-2 text-sm font-semibold">排除原因（依 session 計數，可重疊）</h3>
         <ul className="space-y-1">{blockers.map(([code, count]) => (
           <li key={code} className="flex justify-between gap-3">
-            <span>{BLOCKER_LABELS[code] ?? code}<span className="ml-1 font-mono text-muted-foreground">{code}</span></span>
+            <span className="min-w-0">{BLOCKER_LABELS[code] ?? code}<span className="ml-1 break-all font-mono text-muted-foreground">{code}</span></span>
             <span className="shrink-0 font-medium">{count}</span>
           </li>
         ))}</ul>

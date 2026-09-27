@@ -95,7 +95,7 @@ def _inputs(sessions, bars, *, types=None, events=(), coverage="full", regulator
         events=tuple(events),
         action_coverage=(sessions[0], sessions[-1]) if coverage == "full" else coverage,
         regulatory=regulatory or RegulatoryEvidence("fixture", frozenset(sessions)),
-        blocked_type_sessions=blocked or {},
+        blocked_exchanges=frozenset(blocked or ()),
         unresolved_days=unresolved,
     )
 
@@ -405,20 +405,35 @@ def test_classification_is_never_back_applied_before_its_evidence_date(tmp_path)
 
 
 def test_unresolved_subtype_and_blocked_exchange_exclude_session():
-    sessions, _, inputs = _forward_fixture(types={"2412.TWSE": (None, "data_insufficient")})
+    _, _, inputs = _forward_fixture(types={"2412.TWSE": (None, "data_insufficient")})
     result = evaluate_trend_liquidity_v1_history(inputs)
     assert result["reproducibility"]["strict_fully_reproducible_sessions"] == 0
     assert "twse_instrument_subtype_unresolved" in result["reproducibility"]["blocker_session_counts"]
-    tpex = _forward_fixture(blocked={"TPEX": frozenset(sessions)})[2]
+    tpex = _forward_fixture(blocked={"TPEX"})[2]
     blocked = evaluate_trend_liquidity_v1_history(tpex)
     assert blocked["reproducibility"]["blocker_session_counts"][
         "tpex_instrument_subtype_blocked"] == blocked["reproducibility"]["requested_sessions"]
 
 
+def test_exchange_evidence_is_required_on_every_session():
+    # A blocked exchange blocks sessions its census never observed as well.
+    sessions, index, inputs = _forward_fixture(missing={("8069.TPEX", i) for i in range(45)},
+                                               blocked={"TPEX"})
+    result = evaluate_trend_liquidity_v1_history(inputs)
+    assert result["reproducibility"]["blocker_session_counts"][
+        "tpex_instrument_subtype_blocked"] == result["reproducibility"]["requested_sessions"]
+    # An unblocked exchange with no observed membership that session is not evidence of absence.
+    _, _, gap = _forward_fixture(missing={("8069.TPEX", index)})
+    result = evaluate_trend_liquidity_v1_history(gap)
+    assert result["reproducibility"]["blocker_session_counts"] == {
+        "entry_session_not_observed": 1, "regulatory_history_unavailable": 25,
+        "tpex_market_session_unobserved": 1}
+    assert _picks(result, sessions[index]) == []
+
+
 def test_no_regulatory_history_means_no_strict_result_and_no_fake_metrics():
-    sessions = _weekdays(date(2025, 1, 6), 45)
     _, _, inputs = _forward_fixture(regulatory=NO_REGULATORY_HISTORY,
-                                    blocked={"TPEX": frozenset(sessions)})
+                                    blocked={"TPEX"})
     result = evaluate_trend_liquidity_v1_history(inputs)
     strict = result["strict_result"]
     assert strict["status"] == "no_strict_sample" and strict["claimable"] is False
@@ -476,9 +491,8 @@ def test_api_serves_only_recorded_summary(tmp_path, monkeypatch):
     client = TestClient(app)
     empty = client.get("/api/taiwan/quant/historical-pit/trend-liquidity-v1").json()
     assert empty["status"] == "not_run" and empty["artifact"] is None
-    sessions = _weekdays(date(2025, 1, 6), 45)
     _, _, inputs = _forward_fixture(regulatory=NO_REGULATORY_HISTORY,
-                                    blocked={"TPEX": frozenset(sessions)})
+                                    blocked={"TPEX"})
     run_trend_liquidity_v1_pit_evaluation(
         loader=lambda: inputs, preflight_reader=_preflight, code_sha="d" * 40)
     body = client.get("/api/taiwan/quant/historical-pit/trend-liquidity-v1").json()
