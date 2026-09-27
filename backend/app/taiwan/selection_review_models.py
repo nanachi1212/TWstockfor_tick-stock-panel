@@ -102,8 +102,10 @@ class HorizonReviewItem(BaseModel):
     h1d_raw_return_pct: float | None = None
     h1d_status: HorizonStatus = "pending"
     h1d_bm_return_pct: float | None = None
+    h1d_raw_bm_return_pct: float | None = None
     h1d_bm_status: HorizonStatus = "pending"
     h1d_excess_pct: float | None = None
+    h1d_raw_excess_pct: float | None = None
 
     # 5D horizon
     h5d_reference_close_return_pct: float | None = None
@@ -113,8 +115,10 @@ class HorizonReviewItem(BaseModel):
     h5d_raw_return_pct: float | None = None
     h5d_status: HorizonStatus = "pending"
     h5d_bm_return_pct: float | None = None
+    h5d_raw_bm_return_pct: float | None = None
     h5d_bm_status: HorizonStatus = "pending"
     h5d_excess_pct: float | None = None
+    h5d_raw_excess_pct: float | None = None
 
     # 20D horizon
     h20d_reference_close_return_pct: float | None = None
@@ -124,8 +128,10 @@ class HorizonReviewItem(BaseModel):
     h20d_raw_return_pct: float | None = None
     h20d_status: HorizonStatus = "pending"
     h20d_bm_return_pct: float | None = None
+    h20d_raw_bm_return_pct: float | None = None
     h20d_bm_status: HorizonStatus = "pending"
     h20d_excess_pct: float | None = None
+    h20d_raw_excess_pct: float | None = None
 
     benchmark_symbol: str = "0050.TWSE"
     benchmark_name: str = "台灣50"
@@ -133,6 +139,51 @@ class HorizonReviewItem(BaseModel):
     entry_status: HorizonStatus = "pending"
     price_adjustment: str = "raw_reference_close"
     status_reasons: dict[str, str] = Field(default_factory=dict)
+
+
+class ForwardCohortStats(BaseModel):
+    """Aggregated descriptive metrics for one immutable rank cohort."""
+
+    batch_count: int = 0
+    matured_batch_count: int = 0
+    pick_count: int = 0
+    evaluable_count: int = 0
+    pending_count: int = 0
+    unavailable_count: int = 0
+    positive_return_count: int = 0
+    hit_rate: float | None = None
+    average_return_pct: float | None = None
+    median_return_pct: float | None = None
+    benchmark_evaluable_count: int = 0
+    average_benchmark_return_pct: float | None = None
+    excess_evaluable_count: int = 0
+    average_excess_return_pct: float | None = None
+    median_excess_return_pct: float | None = None
+    beat_benchmark_count: int = 0
+    beat_benchmark_rate: float | None = None
+
+
+class ForwardTimelineMetric(BaseModel):
+    """Per-batch horizon metric used by the Selection Review timeline."""
+
+    matured: bool = False
+    evaluable_count: int = 0
+    pending_count: int = 0
+    unavailable_count: int = 0
+    hit_rate: float | None = None
+    average_return_pct: float | None = None
+    average_excess_return_pct: float | None = None
+
+
+class ForwardBatchTimeline(BaseModel):
+    """One formal batch in the cumulative forward performance timeline."""
+
+    snapshot_id: str
+    source_date: str
+    target_entry_date: str | None = None
+    candidate_count: int = 0
+    top10: dict[str, ForwardTimelineMetric] = Field(default_factory=dict)
+    full_batch: dict[str, ForwardTimelineMetric] = Field(default_factory=dict)
 
 
 class SnapshotReviewDetail(BaseModel):
@@ -175,6 +226,7 @@ class SnapshotReviewDetail(BaseModel):
     h5d_unavailable_count: int = 0
     h20d_pending_count: int = 0
     h20d_unavailable_count: int = 0
+    cohorts: dict[str, dict[str, ForwardCohortStats]] = Field(default_factory=dict)
 
 
 class ForwardBatchStats(BaseModel):
@@ -214,6 +266,8 @@ class ForwardBatchStats(BaseModel):
     h20d_reference_close_evaluated_count: int = 0
     h20d_reference_close_avg_return_pct: float | None = None
     hit_rate_definition: str = "未四捨五入報酬率 > 0%"
+    horizons: dict[str, dict[str, ForwardCohortStats]] = Field(default_factory=dict)
+    timeline: list[ForwardBatchTimeline] = Field(default_factory=list)
 
 
 class SnapshotListItem(BaseModel):
@@ -240,6 +294,12 @@ class SnapshotListItem(BaseModel):
 
     h5d_evaluated_count: int = 0
     h20d_evaluated_count: int = 0
+    h1d_pending_count: int = 0
+    h5d_pending_count: int = 0
+    h20d_pending_count: int = 0
+    h1d_matured: bool = False
+    h5d_matured: bool = False
+    h20d_matured: bool = False
 
     h5d_avg_return_pct: float | None = None
     h20d_avg_return_pct: float | None = None

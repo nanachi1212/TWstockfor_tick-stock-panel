@@ -66,6 +66,18 @@ export function DailyBrief() {
     [watchlistQuery.data],
   )
 
+  const cumulativeForwardN = useMemo(
+    () => latestForwardBatchQuery.data?.reduce((total, batch) => total + (batch.selected_count ?? 0), 0) ?? 0,
+    [latestForwardBatchQuery.data],
+  )
+  const latestMaturedHorizon = useMemo(() => {
+    const latest = latestForwardBatchQuery.data?.[0]
+    if (!latest || latest.selected_count === 0) return null
+    return (['20D', '5D', '1D'] as const).find(horizon => {
+      return horizon === '20D' ? latest.h20d_matured : horizon === '5D' ? latest.h5d_matured : latest.h1d_matured
+    }) ?? null
+  }, [latestForwardBatchQuery.data])
+
   // 加入/移除自選 Mutation
   const toggleWatchlistMutation = useMutation({
     mutationFn: ({ symbol, action }: { symbol: string; action: 'add' | 'remove' }) =>
@@ -704,6 +716,13 @@ export function DailyBrief() {
                 )}
               </div>
             </div>
+
+            {latestForwardBatchQuery.data?.[0] && (
+              <div className="rounded-lg border border-border/60 bg-muted/20 p-3 text-xs">
+                <span className="font-medium">前瞻績效：</span>最新正式批次 {latestForwardBatchQuery.data[0].source_data_date ?? latestForwardBatchQuery.data[0].as_of_date}，已成熟至 {latestMaturedHorizon ?? '尚未成熟'}，目前 cumulative N {cumulativeForwardN} 檔。
+                <Link to="/selection-review?tab=forward" className="ml-2 text-primary hover:underline">前往前瞻績效</Link>
+              </div>
+            )}
 
             {allCandidates.length === 0 ? (
               <div className="text-center py-6 text-xs text-muted-foreground">

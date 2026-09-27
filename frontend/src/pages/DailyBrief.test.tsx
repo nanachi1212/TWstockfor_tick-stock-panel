@@ -17,6 +17,7 @@ vi.mock('@/lib/api', () => ({
     selectionReview: {
       saveSnapshot: vi.fn(),
       listForwardBatches: vi.fn(),
+      getForwardBatchStats: vi.fn(),
     },
     watchlistList: vi.fn(),
     watchlistAdd: vi.fn(),
@@ -118,6 +119,7 @@ describe('DailyBrief Page (A12)', () => {
     vi.mocked(api.watchlistList).mockResolvedValue({ symbols: [] } as any)
     vi.mocked(api.dailyBrief.listHistory).mockResolvedValue([] as any)
     vi.mocked(api.selectionReview.listForwardBatches).mockResolvedValue([] as any)
+    vi.mocked(api.selectionReview.getForwardBatchStats).mockResolvedValue({ batches_count: 0, picks_count: 0 } as any)
   })
 
   it('renders deterministic market facts and candidates correctly', async () => {
