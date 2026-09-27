@@ -184,6 +184,7 @@ class TaiwanSelectionReviewService:
         from app.taiwan.screener import TaiwanScreenerRequest, TaiwanScreenerService
 
         daily_generation = self._daily_generation()
+        census_generation = self._census_generation()
         action_evidence = self._action_coverage_evidence()
         screen = (screener or TaiwanScreenerService(
             daily_store=self.daily_store, calendar=self.calendar,
@@ -192,12 +193,14 @@ class TaiwanSelectionReviewService:
             TaiwanScreenerRequest(preset=FORWARD_RULE_VERSION)
         )
         if (screen.trend_indicator_basis != "pit_adjusted"
-                or screen.trend_adjustment_status not in {"verified", "partial"}):
+                or screen.trend_adjustment_status != "verified"):
             raise ValueError("公司行動來源覆蓋不足。不能鎖定正式批次")
         if screen.quote_coverage_status != "verified":
             raise ValueError("來源行情覆蓋無法驗證。不能鎖定正式批次")
         if action_evidence is None or self._action_coverage_evidence() != action_evidence:
             raise ValueError("公司行動證據在選股期間已更新。不能鎖定正式批次")
+        if self._census_generation() != census_generation:
+            raise ValueError("官方觀測資料在選股期間已更新。不能鎖定正式批次")
         if not screen.data_dates.daily_as_of:
             raise ValueError("沒有可鎖定的行情資料日期")
         source_day = date.fromisoformat(screen.data_dates.daily_as_of)
@@ -215,6 +218,8 @@ class TaiwanSelectionReviewService:
                     return snapshot
             if self._daily_generation() != daily_generation:
                 raise ValueError("選股期間行情資料已更新。請重新執行鎖定")
+            if self._census_generation() != census_generation:
+                raise ValueError("官方觀測資料在選股期間已更新。不能鎖定正式批次")
             if self._action_coverage_evidence() != action_evidence:
                 raise ValueError("公司行動證據在選股期間已更新。不能鎖定正式批次")
             # A queued writer can cross 09:00 while waiting for the process lock.
@@ -628,6 +633,18 @@ class TaiwanSelectionReviewService:
         """Fingerprint the partitions consumed by the canonical screener."""
         versions = []
         for path in self.daily_store._data_dir.glob("date=*/part.parquet"):
+            try:
+                stat = path.stat()
+                versions.append((str(path), stat.st_mtime_ns, stat.st_size, stat.st_ino))
+            except FileNotFoundError:
+                continue
+        return tuple(sorted(versions))
+
+    def _census_generation(self) -> tuple:
+        if self.census_store is None:
+            return ()
+        versions = []
+        for path in self.census_store._data_dir.glob("exchange=*/date=*/part.parquet"):
             try:
                 stat = path.stat()
                 versions.append((str(path), stat.st_mtime_ns, stat.st_size, stat.st_ino))

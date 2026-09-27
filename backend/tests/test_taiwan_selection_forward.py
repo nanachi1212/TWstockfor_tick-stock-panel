@@ -147,6 +147,14 @@ def test_formal_lock_rejects_unverified_trend_price_basis(tmp_path, monkeypatch)
         svc.lock_forward_batch(UnverifiedScreener(source))
     assert svc.list_snapshots() == []
 
+    class PartialScreener(_FixedScreener):
+        def run(self, request):
+            return super().run(request).model_copy(update={"trend_adjustment_status": "partial"})
+
+    with pytest.raises(ValueError, match="公司行動來源覆蓋不足"):
+        svc.lock_forward_batch(PartialScreener(source))
+    assert svc.list_snapshots() == []
+
 
 def test_formal_lock_rejects_unverified_latest_quote_coverage(tmp_path, monkeypatch):
     svc, source, _ = _seed(tmp_path)
@@ -176,6 +184,21 @@ def test_formal_lock_rejects_action_evidence_changed_during_screen(tmp_path, mon
             return super().run(request)
 
     with pytest.raises(ValueError, match="公司行動證據在選股期間已更新"):
+        svc.lock_forward_batch(ChangingScreener(source))
+    assert svc.list_snapshots() == []
+
+
+def test_formal_lock_rejects_census_changed_during_screen(tmp_path, monkeypatch):
+    svc, source, _ = _seed(tmp_path)
+    svc.census_store = ObservedUniverseStore(tmp_path / "census")
+    monkeypatch.setattr("app.taiwan.selection_review_service.taipei_now", lambda: _clock(source))
+
+    class ChangingScreener(_FixedScreener):
+        def run(self, request):
+            svc.census_store.write("TWSE", source, [], empty_response_rechecked=True)
+            return super().run(request)
+
+    with pytest.raises(ValueError, match="官方觀測資料在選股期間已更新"):
         svc.lock_forward_batch(ChangingScreener(source))
     assert svc.list_snapshots() == []
 
