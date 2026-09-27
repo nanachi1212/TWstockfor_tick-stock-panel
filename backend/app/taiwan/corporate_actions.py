@@ -339,6 +339,25 @@ class CorporateActionStore:
             digest.update(value.encode("ascii"))
         return digest.hexdigest()
 
+    def read_verified_window(self, start: date, end: date) -> tuple[CorporateActionEvent, ...] | None:
+        """Return locally covered actions, or None when source coverage is unverified."""
+        from app.taiwan.providers.corporate_actions import SOURCE_URLS
+
+        marker = self.path.with_name("coverage.json")
+        if not marker.is_file() or not self.path.is_file():
+            return None
+        try:
+            record = json.loads(marker.read_text(encoding="utf-8"))
+            if (record.get("events_sha256") != self.snapshot_digest()
+                    or set(record.get("sources", ())) != set(SOURCE_URLS)
+                    or date.fromisoformat(record["start"]) > start
+                    or date.fromisoformat(record["end"]) < end):
+                return None
+            events = tuple(e for e in self.read() if start <= e.effective_date <= end)
+            return None if any(e.status == "provider_error" for e in events) else events
+        except (OSError, ValueError, KeyError, TypeError):
+            return None
+
     def save(self, events: Iterable[CorporateActionEvent]) -> int:
         incoming = tuple(events)
         self.path.parent.mkdir(parents=True, exist_ok=True)
