@@ -214,6 +214,13 @@ class RegulatoryHistoryStore:
             root = taiwan_data_root() / "regulatory_history"
         self.root = Path(root)
 
+    def writer_lock(self):
+        """Cross-process owner lock: refreshes compare and replace under it."""
+        from app.taiwan.backfill_worker import WorkerLock
+
+        self.root.mkdir(parents=True, exist_ok=True)
+        return WorkerLock(self.root / ".writer.lock")
+
     def month_path(self, source: str, year: int, month: int) -> Path:
         return self.root / f"source={source}" / f"month={year:04d}-{month:02d}.parquet"
 
@@ -355,7 +362,15 @@ def backfill_announcements(
     store: RegulatoryHistoryStore, start: date, end: date, *, fetch: JsonFetcher,
     should_stop: Callable[[], bool] | None = None,
 ) -> dict[str, Any]:
-    """Fetch every missing month for both disposition archives."""
+    """Fetch every missing month for both disposition archives (one writer at a time)."""
+    with store.writer_lock():
+        return _backfill_announcements(store, start, end, fetch=fetch, should_stop=should_stop)
+
+
+def _backfill_announcements(
+    store: RegulatoryHistoryStore, start: date, end: date, *, fetch: JsonFetcher,
+    should_stop: Callable[[], bool] | None,
+) -> dict[str, Any]:
     report: dict[str, Any] = {"written": 0, "unchanged": 0, "refreshed": 0, "conflict": 0,
                               "errors": []}
     year, month = start.year, start.month
@@ -388,6 +403,14 @@ def backfill_cmode(
     should_stop: Callable[[], bool] | None = None,
 ) -> dict[str, Any]:
     """Fetch the dated cmode list for every verified session still missing."""
+    with store.writer_lock():
+        return _backfill_cmode(store, sessions, fetch=fetch, should_stop=should_stop)
+
+
+def _backfill_cmode(
+    store: RegulatoryHistoryStore, sessions: Sequence[date], *, fetch: JsonFetcher,
+    should_stop: Callable[[], bool] | None,
+) -> dict[str, Any]:
     report: dict[str, Any] = {"written": 0, "unchanged": 0, "refreshed": 0, "conflict": 0,
                               "errors": []}
     done = store.cmode_dates()

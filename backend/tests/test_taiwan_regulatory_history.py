@@ -275,3 +275,20 @@ def test_failed_refresh_keeps_the_previous_partition(tmp_path, monkeypatch):
     kept = pl.read_parquet(store.cmode_path(day))
     assert kept["code"].to_list() == ["4712"]
     assert not list(store.cmode_path(day).parent.glob("*.tmp"))
+
+
+def test_backfill_refuses_to_run_beside_another_writer(tmp_path):
+    from app.taiwan.backfill_worker import WorkerBusyError
+
+    store = RegulatoryHistoryStore(tmp_path)
+    lock = store.writer_lock()
+    lock.acquire()
+    try:
+        with pytest.raises(WorkerBusyError):
+            backfill_cmode(store, [date(2024, 6, 3)], fetch=lambda url: pytest.fail("fetched"))
+        with pytest.raises(WorkerBusyError):
+            backfill_announcements(store, date(2024, 6, 1), date(2024, 6, 30),
+                                   fetch=lambda url: pytest.fail("fetched"))
+    finally:
+        lock.release()
+    assert backfill_cmode(store, [], fetch=lambda url: pytest.fail("fetched"))["written"] == 0
