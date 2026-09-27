@@ -2,12 +2,13 @@ import { fireEvent, render, screen } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 import { SelectionForwardPanel, type SelectionForwardBatchReviewView, type SelectionForwardPreviewView } from './SelectionForwardPanel'
 
-// Layout-only fixture. Production remains empty until the backend contract is integrated.
+// Explicit test fixture; production data comes from the backend contract.
 const previewFixture: SelectionForwardPreviewView = {
   dataDate: '2026-09-25',
-  ruleVersion: 'trend-liquidity-v1',
-  rankingBasis: '趨勢強度與成交金額',
+  ruleVersion: 'trend_liquidity_v1',
+  rankingBasis: '5 日動能由高至低，同分依成交金額排序',
   status: 'pre_open',
+  lockAllowed: true,
   candidates: Array.from({ length: 22 }, (_, index) => ({
     symbol: `${2330 + index}.TWSE`,
     name: `測試標的 ${index + 1}`,
@@ -28,9 +29,20 @@ const batchReviewFixture: SelectionForwardBatchReviewView = {
   items: [{
     symbol: '2330.TWSE',
     name: '測試標的 台積電',
-    referencePriceChangePct: 2.4,
+    referencePrice: 1000,
+    paperEntryPrice: 1010,
     paperEntryReturns: {
       '1D': { status: 'completed', returnPct: 1.1 },
+      '5D': { status: 'tracking', returnPct: null },
+      '20D': { status: 'missing', returnPct: null },
+    },
+    benchmarkReturns: {
+      '1D': { status: 'completed', returnPct: 0.75 },
+      '5D': { status: 'tracking', returnPct: null },
+      '20D': { status: 'missing', returnPct: null },
+    },
+    excessReturns: {
+      '1D': { status: 'completed', returnPct: 0.35 },
       '5D': { status: 'tracking', returnPct: null },
       '20D': { status: 'missing', returnPct: null },
     },
@@ -42,8 +54,8 @@ describe('SelectionForwardPanel', () => {
     render(<SelectionForwardPanel preview={previewFixture} onDryRun={vi.fn()} onLockOfficialBatch={vi.fn()} />)
 
     expect(screen.getByText('資料日期').parentElement).toHaveTextContent('2026-09-25')
-    expect(screen.getByText('規則版本').parentElement).toHaveTextContent('trend-liquidity-v1')
-    expect(screen.getByText('排名依據').parentElement).toHaveTextContent('趨勢強度與成交金額')
+    expect(screen.getByText('規則版本').parentElement).toHaveTextContent('trend_liquidity_v1')
+    expect(screen.getByText('排名依據').parentElement).toHaveTextContent('5 日動能由高至低，同分依成交金額排序')
     expect(screen.getByText('候選 Top 10')).toBeInTheDocument()
     expect(screen.getByText('測試標的 10')).toBeInTheDocument()
     expect(screen.queryByText('測試標的 11')).not.toBeInTheDocument()
@@ -67,21 +79,22 @@ describe('SelectionForwardPanel', () => {
     render(<SelectionForwardPanel preview={previewFixture} batchReview={batchReviewFixture} />)
 
     expect(screen.getByText('+1.25%')).toBeInTheDocument()
-    expect(screen.getByText('+0.75%')).toBeInTheDocument()
+    expect(screen.getAllByText('+0.75%')).toHaveLength(2)
     expect(screen.getByText('+0.50%')).toBeInTheDocument()
+    expect(screen.getByText('+0.35%')).toBeInTheDocument()
     expect(screen.getAllByText('可評估筆數').map(label => label.nextElementSibling?.textContent)).toContain('8')
-    expect(screen.getByText('追蹤中', { selector: 'td' })).toBeInTheDocument()
-    expect(screen.getByText('缺資料', { selector: 'td' })).toBeInTheDocument()
-    expect(screen.getByText('+2.40%')).toBeInTheDocument()
+    expect(screen.getAllByText('追蹤中', { selector: 'td' }).length).toBeGreaterThan(0)
+    expect(screen.getAllByText('缺資料', { selector: 'td' }).length).toBeGreaterThan(0)
+    expect(screen.getAllByText('1000')).toHaveLength(2)
     expect(screen.getAllByText('尚無可評估結果').length).toBeGreaterThan(0)
     expect(screen.queryByText('0.00%')).not.toBeInTheDocument()
   })
 
-  it('does not show fabricated candidates or enable operations without an API result', () => {
-    render(<SelectionForwardPanel />)
+  it('does not show fabricated candidates and allows an explicit dry-run request before a preview', () => {
+    render(<SelectionForwardPanel onDryRun={vi.fn()} />)
 
-    expect(screen.getByText('等待核心 API 契約')).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: '乾跑預覽' })).toBeDisabled()
+    expect(screen.getByText('尚未載入候選資料')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '乾跑預覽' })).toBeEnabled()
     expect(screen.getByRole('button', { name: '鎖定正式測試名單' })).toBeDisabled()
   })
 })

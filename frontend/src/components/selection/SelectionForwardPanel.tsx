@@ -7,6 +7,7 @@ export interface SelectionForwardPreviewView {
   ruleVersion: string | null
   rankingBasis: string | null
   status: 'pre_open' | 'market_open' | 'unavailable'
+  lockAllowed?: boolean
   candidates: Array<{
     symbol: string
     name: string
@@ -30,8 +31,11 @@ export interface SelectionForwardBatchReviewView {
   items: Array<{
     symbol: string
     name: string
-    referencePriceChangePct: number | null
+    referencePrice: number | null
+    paperEntryPrice: number | null
     paperEntryReturns: Record<'1D' | '5D' | '20D', { status: 'completed' | 'tracking' | 'missing'; returnPct: number | null }>
+    benchmarkReturns: Record<'1D' | '5D' | '20D', { status: 'completed' | 'tracking' | 'missing'; returnPct: number | null }>
+    excessReturns: Record<'1D' | '5D' | '20D', { status: 'completed' | 'tracking' | 'missing'; returnPct: number | null }>
   }>
 }
 
@@ -56,10 +60,10 @@ export function SelectionForwardPanel({ preview = null, onDryRun, onLockOfficial
           <p className="mt-1 text-xs text-muted-foreground">趨勢流動性 v1，先預覽候選與資料狀態，再鎖定正式測試名單。</p>
         </div>
         <div className="flex flex-wrap gap-2">
-          <button type="button" onClick={onDryRun} disabled={!preview || !onDryRun || pending} className="inline-flex items-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-xs disabled:opacity-50">
+          <button type="button" onClick={onDryRun} disabled={!onDryRun || pending} className="inline-flex items-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-xs disabled:opacity-50">
             <Play className="h-3.5 w-3.5" />乾跑預覽
           </button>
-          <button type="button" onClick={onLockOfficialBatch} disabled={!preview || !onLockOfficialBatch || !preOpen || pending} className="inline-flex items-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-xs text-primary-foreground disabled:opacity-50">
+          <button type="button" onClick={onLockOfficialBatch} disabled={!preview || !onLockOfficialBatch || !preOpen || !preview.lockAllowed || pending} className="inline-flex items-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-xs text-primary-foreground disabled:opacity-50">
             <LockKeyhole className="h-3.5 w-3.5" />鎖定正式測試名單
           </button>
         </div>
@@ -67,8 +71,8 @@ export function SelectionForwardPanel({ preview = null, onDryRun, onLockOfficial
 
       {!preview ? (
         <div className="rounded-lg border border-dashed border-border/70 bg-muted/20 p-4 text-sm text-muted-foreground">
-          <p className="font-medium text-foreground">等待核心 API 契約</p>
-          <p className="mt-1 text-xs">尚未載入候選資料。正式操作會在後端提供排名、盤前鎖定與冪等保存契約後啟用。</p>
+          <p className="font-medium text-foreground">尚未載入候選資料</p>
+          <p className="mt-1 text-xs">使用乾跑預覽讀取後端候選與資料覆蓋，確認後才可鎖定正式批次。</p>
         </div>
       ) : (
         <>
@@ -80,6 +84,7 @@ export function SelectionForwardPanel({ preview = null, onDryRun, onLockOfficial
           {preview.status === 'unavailable' && (
             <p role="status" className="rounded-lg border border-border p-3 text-xs text-muted-foreground">目前無法提供正式候選資料。</p>
           )}
+          {preview.candidates.length === 0 && <p role="status" className="rounded-lg border border-border p-3 text-xs text-muted-foreground">目前沒有可展示的候選標的，無法鎖定名單。</p>}
           <dl className="grid grid-cols-1 gap-2 text-xs sm:grid-cols-3">
             <div><dt className="text-muted-foreground">資料日期</dt><dd className="mt-0.5 font-medium">{preview.dataDate ?? '資料不足'}</dd></div>
             <div><dt className="text-muted-foreground">規則版本</dt><dd className="mt-0.5 font-medium">{preview.ruleVersion ?? '資料不足'}</dd></div>
@@ -101,6 +106,7 @@ export function SelectionForwardPanel({ preview = null, onDryRun, onLockOfficial
               <p className="flex gap-2 rounded-lg bg-muted/40 p-3"><ShieldAlert className="h-4 w-4 shrink-0 text-muted-foreground" /><span><strong>資料不足：</strong>{preview.missingData.join('、') || '無'}</span></p>
             </div>
           )}
+          <p className="text-[11px] text-muted-foreground">候選取後端回傳的前 20 名；規則版本與排序依據以本次篩選契約標示。覆蓋不足時以資料狀態呈現，正式鎖定仍由後端驗證。</p>
         </>
       )}
       {batchReview && (
@@ -126,8 +132,8 @@ export function SelectionForwardPanel({ preview = null, onDryRun, onLockOfficial
           </div>
           <div className="overflow-x-auto rounded-lg border border-border/60">
             <table className="w-full min-w-[760px] text-left text-xs">
-              <thead className="bg-muted/40 text-muted-foreground"><tr><th className="px-3 py-2">標的</th><th className="px-3 py-2 text-right">參考價漲跌</th><th className="px-3 py-2 text-right">紙上進場 1D</th><th className="px-3 py-2 text-right">紙上進場 5D</th><th className="px-3 py-2 text-right">紙上進場 20D</th></tr></thead>
-              <tbody className="divide-y divide-border/40">{batchReview.items.map(item => <tr key={item.symbol}><td className="px-3 py-2">{item.name} ({item.symbol})</td><td className="px-3 py-2 text-right">{formatPct(item.referencePriceChangePct)}</td>{(['1D', '5D', '20D'] as const).map(horizon => <td key={horizon} className="px-3 py-2 text-right">{formatEvaluation(item.paperEntryReturns[horizon])}</td>)}</tr>)}</tbody>
+              <thead className="bg-muted/40 text-muted-foreground"><tr><th rowSpan={2} className="px-3 py-2">標的</th><th rowSpan={2} className="px-3 py-2 text-right">鎖定參考價</th><th rowSpan={2} className="px-3 py-2 text-right">紙上進場價</th>{(['1D', '5D', '20D'] as const).map(h => <th key={h} colSpan={3} className="px-3 py-2 text-center">{h}</th>)}</tr><tr>{(['1D', '5D', '20D'] as const).flatMap(h => [<th key={`${h}-return`} className="px-3 py-1 text-right">紙上</th>, <th key={`${h}-benchmark`} className="px-3 py-1 text-right">0050</th>, <th key={`${h}-excess`} className="px-3 py-1 text-right">超額</th>])}</tr></thead>
+              <tbody className="divide-y divide-border/40">{batchReview.items.map(item => <tr key={item.symbol}><td className="px-3 py-2">{item.name} ({item.symbol})</td><td className="px-3 py-2 text-right">{item.referencePrice ?? '資料不足'}</td><td className="px-3 py-2 text-right">{item.paperEntryPrice ?? '追蹤中'}</td>{(['1D', '5D', '20D'] as const).flatMap(horizon => [<td key={`${horizon}-return`} className="px-3 py-2 text-right">{formatEvaluation(item.paperEntryReturns[horizon])}</td>, <td key={`${horizon}-benchmark`} className="px-3 py-2 text-right">{formatEvaluation(item.benchmarkReturns[horizon])}</td>, <td key={`${horizon}-excess`} className="px-3 py-2 text-right">{formatEvaluation(item.excessReturns[horizon])}</td>])}</tr>)}</tbody>
             </table>
           </div>
         </div>

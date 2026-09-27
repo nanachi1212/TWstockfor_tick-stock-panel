@@ -1042,6 +1042,7 @@ export interface TaiwanCurrentDataResponse {
 
 // ===== Taiwan Screener Types (Phase 6B & A10) =====
 export interface TaiwanScreenerRequest {
+  preset?: 'trend_liquidity_v1'
   exchange?: 'TWSE' | 'TPEX' | 'ALL'
   instrument?: 'stock' | 'etf' | 'ALL'
   industry?: string | null
@@ -1120,6 +1121,7 @@ export interface ScreenerResultItem {
   instrument_type: string
   industry?: string | null
   close?: number | null
+  trend_adjusted_close?: number | null
   change_pct?: number | null
   volume?: number | null
   amount?: number | null
@@ -1164,6 +1166,7 @@ export interface ScreenerResultItem {
   securities_lending_anomaly?: string | null
   quant_score?: number | null
   match_reasons?: string[]
+  risk_status?: 'clear' | 'unknown' | null
 }
 
 export interface ScreenerCoverageInfo {
@@ -1188,6 +1191,14 @@ export interface TaiwanScreenerResponse {
   }
   degraded_sections: string[]
   coverage_info?: ScreenerCoverageInfo | null
+  missing_quote_count?: number
+  quote_coverage_status?: 'verified' | 'unavailable' | null
+  risk_unknown_count?: number
+  risk_source_status?: 'available' | 'partial' | 'unavailable' | null
+  risk_source_as_of?: string | null
+  risk_target_date?: string | null
+  trend_indicator_basis?: 'raw' | 'pit_adjusted'
+  trend_adjustment_status?: 'verified' | 'partial' | 'unavailable' | null
 }
 
 export interface TaiwanScreenerStrategy {
@@ -3845,6 +3856,14 @@ export const api = {
 
   // ===== Selection Review & Snapshot (A12) =====
   selectionReview: {
+    lockForwardBatch: () =>
+      request<SelectionSnapshot>('/api/taiwan/selection-review/forward-batches', { method: 'POST' }),
+    listForwardBatches: () =>
+      request<SnapshotListItem[]>('/api/taiwan/selection-review/forward-batches'),
+    getForwardBatchDetail: (batchId: string) =>
+      request<SnapshotReviewDetail>(`/api/taiwan/selection-review/forward-batches/${encodeURIComponent(batchId)}`),
+    getForwardBatchStats: () =>
+      request<ForwardBatchStats>('/api/taiwan/selection-review/forward-batches/stats'),
     saveSnapshot: (payload: SaveSelectionSnapshotRequest) =>
       request<SelectionSnapshot>('/api/taiwan/selection-review/snapshots', {
         method: 'POST',
@@ -4069,6 +4088,8 @@ export interface SelectionSnapshotItem {
   fundamental_summary: string | null
   chips_summary: string | null
   event_risk_summary: string | null
+  risk_status?: 'clear' | 'unknown' | null
+  quote_status?: 'available' | 'missing' | null
 }
 
 export interface SelectionSnapshot {
@@ -4080,6 +4101,28 @@ export interface SelectionSnapshot {
   market_context_summary: string
   selected_symbols: string[]
   items: SelectionSnapshotItem[]
+  record_type?: 'research' | 'forward_batch'
+  locked_at?: string | null
+  source_data_date?: string | null
+  target_trade_date?: string | null
+  target_trade_date_status?: 'confirmed' | 'scheduled_unverified' | null
+  rule_version?: string | null
+  evaluation_basis?: 'reference_close' | 'next_open'
+  cost_assumption?: string
+  eligible_total?: number | null
+  primary_observation_count?: number | null
+  missing_quote_count?: number | null
+  quote_coverage_status?: 'verified' | 'unavailable' | null
+  risk_unknown_count?: number | null
+  risk_source_status?: 'available' | 'partial' | 'unavailable' | null
+  risk_source_as_of?: string | null
+  risk_target_date?: string | null
+  selection_indicator_basis?: 'raw' | 'pit_adjusted'
+  trend_adjustment_status?: 'verified' | 'partial' | 'unavailable' | null
+  selection_action_coverage_start?: string | null
+  selection_action_coverage_end?: string | null
+  selection_action_events_sha256?: string | null
+  selection_action_coverage_saved_at?: string | null
 }
 
 export interface SaveSelectionSnapshotRequest {
@@ -4095,6 +4138,7 @@ export interface HorizonReviewItem {
   name: string
   rank: number
   entry_price: number
+  paper_entry_price?: number | null
   quant_score: number | null
   match_reasons: string[]
   fundamental_summary: string | null
@@ -4103,24 +4147,34 @@ export interface HorizonReviewItem {
 
   h1d_price: number | null
   h1d_return_pct: number | null
+  h1d_raw_return_pct?: number | null
   h1d_status: HorizonStatus
   h1d_bm_return_pct: number | null
+  h1d_bm_status?: HorizonStatus
   h1d_excess_pct: number | null
 
   h5d_price: number | null
   h5d_return_pct: number | null
+  h5d_raw_return_pct?: number | null
   h5d_status: HorizonStatus
   h5d_bm_return_pct: number | null
+  h5d_bm_status?: HorizonStatus
   h5d_excess_pct: number | null
 
   h20d_price: number | null
   h20d_return_pct: number | null
+  h20d_raw_return_pct?: number | null
   h20d_status: HorizonStatus
   h20d_bm_return_pct: number | null
+  h20d_bm_status?: HorizonStatus
   h20d_excess_pct: number | null
 
   benchmark_symbol: string
   benchmark_name: string
+  entry_date?: string | null
+  entry_status?: HorizonStatus
+  price_adjustment?: string
+  status_reasons?: Record<string, string>
 }
 
 export interface SnapshotReviewDetail {
@@ -4134,6 +4188,13 @@ export interface SnapshotReviewDetail {
   h20d_bm_avg_return_pct: number | null
   h5d_avg_excess_pct: number | null
   h20d_avg_excess_pct: number | null
+  h1d_evaluated_count?: number
+  h1d_pending_count?: number
+  h1d_unavailable_count?: number
+  h5d_pending_count?: number
+  h5d_unavailable_count?: number
+  h20d_pending_count?: number
+  h20d_unavailable_count?: number
 }
 
 export interface SnapshotListItem {
@@ -4151,6 +4212,36 @@ export interface SnapshotListItem {
   h20d_bm_return_pct: number | null
   h5d_excess_pct: number | null
   h20d_excess_pct: number | null
+  record_type?: 'research' | 'forward_batch'
+  locked_at?: string | null
+  source_data_date?: string | null
+  target_trade_date?: string | null
+  target_trade_date_status?: 'confirmed' | 'scheduled_unverified' | null
+  rule_version?: string | null
+  evaluation_basis?: 'reference_close' | 'next_open'
+  risk_source_status?: 'available' | 'partial' | 'unavailable' | null
+  risk_source_as_of?: string | null
+  risk_target_date?: string | null
+  selection_indicator_basis?: 'raw' | 'pit_adjusted'
+  trend_adjustment_status?: 'verified' | 'partial' | 'unavailable' | null
+}
+
+export interface ForwardBatchStats {
+  batches_count: number
+  picks_count: number
+  h1d_evaluated_count: number
+  h1d_pending_count: number
+  h1d_unavailable_count: number
+  h1d_hit_rate_pct: number | null
+  h5d_evaluated_count: number
+  h5d_pending_count: number
+  h5d_unavailable_count: number
+  h5d_hit_rate_pct: number | null
+  h20d_evaluated_count: number
+  h20d_pending_count: number
+  h20d_unavailable_count: number
+  h20d_hit_rate_pct: number | null
+  hit_rate_definition: string
 }
 
 export interface StrategyReviewStats {

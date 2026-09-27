@@ -21,6 +21,9 @@ vi.mock('@/lib/api', () => ({
     watchlistRemove: vi.fn(),
     watchlistGroups: vi.fn(),
     taiwanSearch: vi.fn(),
+    selectionReview: {
+      lockForwardBatch: vi.fn(),
+    },
   },
 }))
 
@@ -109,6 +112,7 @@ function renderScreener() {
             path="/stocks/:symbol"
             element={<StockDetailMock />}
           />
+          <Route path="/selection-review" element={<ForwardReviewMock />} />
         </Routes>
       </MemoryRouter>
     </QueryClientProvider>,
@@ -120,6 +124,11 @@ function StockDetailMock() {
   // Reads the matched :symbol via window.location since useParams needs the route context;
   // simplest robust signal for these tests is just a stable marker element.
   return <div data-testid="detail-mock">stock-detail-page</div>
+}
+
+function ForwardReviewMock() {
+  const [params] = useSearchParams()
+  return <div data-testid="forward-review-mock">{params.get('batch_id')}</div>
 }
 
 // Phase 8C-A: 驗證「加入比較」handoff 帶著 symbols query param 進入 /stocks/compare
@@ -160,6 +169,7 @@ beforeEach(() => {
   vi.mocked(api.watchlistRemove).mockResolvedValue({ symbols: [] } as any)
   vi.mocked(api.watchlistGroups).mockResolvedValue({ groups: [] } as any)
   vi.mocked(api.taiwanSearch).mockResolvedValue({ results: [] } as any)
+  vi.mocked(api.selectionReview.lockForwardBatch).mockResolvedValue({ snapshot_id: 'forward_test' } as any)
 })
 
 afterEach(() => {
@@ -198,6 +208,47 @@ describe('Abnormal diagnostics panel navigation (Phase 7K)', () => {
     await waitFor(() => expect(screen.getAllByText('2330.TWSE').length).toBeGreaterThan(0))
     const symbolLink = screen.getAllByRole('link', { name: '2330.TWSE' })[0]
     expect(symbolLink).toHaveAttribute('href', '/stocks/2330.TWSE')
+  })
+})
+
+describe('Daily forward selection actions', () => {
+  it('runs the named preset only after dry-run is clicked and exposes its returned data', async () => {
+    vi.mocked(api.taiwanScreenerRun).mockResolvedValueOnce(buildScreenerResponse() as any).mockResolvedValueOnce({
+      ...buildScreenerResponse(),
+      page_size: 20,
+      data_dates: { daily_as_of: '2026-09-25' },
+      risk_target_date: '2026-09-28',
+      missing_quote_count: 2,
+      quote_coverage_status: 'verified',
+      risk_unknown_count: 1,
+      risk_source_status: 'partial',
+      trend_adjustment_status: 'verified',
+      degraded_sections: [],
+    } as any)
+    renderScreener()
+    const previewButton = await screen.findByRole('button', { name: '乾跑預覽' })
+    fireEvent.click(previewButton)
+    await waitFor(() => expect(vi.mocked(api.taiwanScreenerRun)).toHaveBeenCalledWith({ preset: 'trend_liquidity_v1', page: 1, page_size: 20 }))
+    expect(await screen.findByText('2026-09-25')).toBeInTheDocument()
+    expect(screen.getByText(/趨勢流動性 v1/)).toBeInTheDocument()
+  })
+
+  it('locks only after the explicit click and navigates directly to the returned batch', async () => {
+    vi.mocked(api.taiwanScreenerRun).mockResolvedValueOnce(buildScreenerResponse() as any).mockResolvedValueOnce({
+      ...buildScreenerResponse(),
+      data_dates: { daily_as_of: '2026-09-25' },
+      risk_target_date: '2026-09-30',
+      quote_coverage_status: 'verified',
+      trend_adjustment_status: 'verified',
+    } as any)
+    renderScreener()
+    expect(api.selectionReview.lockForwardBatch).not.toHaveBeenCalled()
+    fireEvent.click(await screen.findByRole('button', { name: '乾跑預覽' }))
+    const lockButton = await screen.findByRole('button', { name: '鎖定正式測試名單' })
+    await waitFor(() => expect(lockButton).toBeEnabled())
+    fireEvent.click(lockButton)
+    expect(await screen.findByTestId('forward-review-mock')).toHaveTextContent('forward_test')
+    expect(api.selectionReview.lockForwardBatch).toHaveBeenCalledTimes(1)
   })
 })
 

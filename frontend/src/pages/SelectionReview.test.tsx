@@ -10,6 +10,9 @@ vi.mock('@/lib/api', () => ({
     selectionReview: {
       listSnapshots: vi.fn(),
       getSnapshotDetail: vi.fn(),
+      listForwardBatches: vi.fn(),
+      getForwardBatchDetail: vi.fn(),
+      getForwardBatchStats: vi.fn(),
       deleteSnapshot: vi.fn(),
       getStrategyStats: vi.fn(),
       getConditionStats: vi.fn(),
@@ -31,9 +34,17 @@ describe('SelectionReview Page (A12)', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     vi.mocked(api.selectionReview.listSnapshots).mockResolvedValue([] as any)
+    vi.mocked(api.selectionReview.listForwardBatches).mockResolvedValue([] as any)
+    vi.mocked(api.selectionReview.getForwardBatchStats).mockResolvedValue({
+      batches_count: 0, picks_count: 0,
+      h1d_evaluated_count: 0, h1d_pending_count: 0, h1d_unavailable_count: 0, h1d_hit_rate_pct: null,
+      h5d_evaluated_count: 0, h5d_pending_count: 0, h5d_unavailable_count: 0, h5d_hit_rate_pct: null,
+      h20d_evaluated_count: 0, h20d_pending_count: 0, h20d_unavailable_count: 0, h20d_hit_rate_pct: null,
+      hit_rate_definition: '未四捨五入報酬率 > 0%',
+    } as any)
   })
 
-  it('keeps official forward batches separate from research snapshots until the backend contract is available', async () => {
+  it('keeps official forward batches separate and does not offer delete or reselection', async () => {
     const qc = createTestQueryClient()
     render(
       <QueryClientProvider client={qc}>
@@ -43,9 +54,39 @@ describe('SelectionReview Page (A12)', () => {
       </QueryClientProvider>,
     )
 
-    expect(await screen.findByRole('heading', { name: '正式前瞻批次資料尚未接通' })).toBeInTheDocument()
-    expect(screen.getByText(/不會把它們當成正式批次/)).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: '尚無正式前瞻批次' })).toBeInTheDocument()
+    expect(screen.getByText('正式批次 1D')).toBeInTheDocument()
+    expect(screen.getAllByText('尚無樣本')).toHaveLength(3)
     expect(screen.queryByTitle('刪除快照')).not.toBeInTheDocument()
+  })
+
+  it('loads selected formal batch detail from the real forward batch query', async () => {
+    vi.mocked(api.selectionReview.listForwardBatches).mockResolvedValue([{
+      snapshot_id: 'forward_trend_liquidity_v1_20260925', created_at: '2026-09-25T08:00:00+08:00',
+      strategy_id: 'trend_liquidity_v1', strategy_name: '趨勢流動性 v1', as_of_date: '2026-09-25',
+      selected_count: 1, record_type: 'forward_batch', source_data_date: '2026-09-25',
+      target_trade_date: '2026-09-26', rule_version: 'trend_liquidity_v1',
+    }] as any)
+    vi.mocked(api.selectionReview.getForwardBatchDetail).mockResolvedValue({
+      snapshot: { snapshot_id: 'forward_trend_liquidity_v1_20260925', record_type: 'forward_batch', items: [] },
+      evaluated_items: [{
+        symbol: '2330.TWSE', name: '台積電', rank: 1, entry_price: 1000, paper_entry_price: 1010,
+        h1d_return_pct: null, h1d_status: 'pending', h1d_bm_return_pct: null, h1d_excess_pct: null,
+        h5d_return_pct: null, h5d_status: 'pending', h5d_bm_return_pct: null, h5d_excess_pct: null,
+        h20d_return_pct: null, h20d_status: 'pending', h20d_bm_return_pct: null, h20d_excess_pct: null,
+      }],
+      h1d_evaluated_count: 0, h1d_pending_count: 1, h1d_unavailable_count: 0,
+      h5d_evaluated_count: 0, h5d_pending_count: 1, h5d_unavailable_count: 0,
+      h20d_evaluated_count: 0, h20d_pending_count: 1, h20d_unavailable_count: 0,
+      h5d_avg_return_pct: null, h20d_avg_return_pct: null,
+      h5d_bm_avg_return_pct: null, h20d_bm_avg_return_pct: null,
+      h5d_avg_excess_pct: null, h20d_avg_excess_pct: null,
+    } as any)
+    render(<QueryClientProvider client={createTestQueryClient()}><MemoryRouter initialEntries={['/selection-review?tab=forward&batch_id=forward_trend_liquidity_v1_20260925']}><SelectionReview /></MemoryRouter></QueryClientProvider>)
+    expect(await screen.findByText('台積電 (2330.TWSE)')).toBeInTheDocument()
+    expect(screen.getByText('1010')).toBeInTheDocument()
+    expect(screen.getAllByText('追蹤中').length).toBeGreaterThan(0)
+    expect(screen.queryByText('0.00%')).not.toBeInTheDocument()
   })
 
   it('renders snapshot list and displays metrics correctly', async () => {

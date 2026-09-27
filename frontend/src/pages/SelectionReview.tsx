@@ -18,14 +18,67 @@ import {
   api,
   type SnapshotListItem,
   type SnapshotReviewDetail,
+  type ForwardBatchStats,
 } from '@/lib/api'
 import { QK } from '@/lib/queryKeys'
 import { toast } from '@/components/Toast'
 import { cn } from '@/lib/cn'
 import { CopyButton } from '@/components/CopyButton'
 import { formatSelectionReviewCopy, formatSelectionReviewPrompt } from '@/lib/copy-formatters'
+import { SelectionForwardPanel, type SelectionForwardBatchReviewView } from '@/components/selection/SelectionForwardPanel'
 
 type ReviewTab = 'snapshots' | 'forward' | 'strategies' | 'conditions'
+
+function toForwardBatchReview(detail: SnapshotReviewDetail): SelectionForwardBatchReviewView {
+  return {
+    statistics: {
+      '1D': { paperReturnPct: null, benchmark0050ReturnPct: null, excessReturnPct: null,
+        evaluableCount: detail.h1d_evaluated_count ?? 0, trackingCount: detail.h1d_pending_count ?? 0, missingCount: detail.h1d_unavailable_count ?? 0 },
+      '5D': { paperReturnPct: detail.h5d_avg_return_pct, benchmark0050ReturnPct: detail.h5d_bm_avg_return_pct, excessReturnPct: detail.h5d_avg_excess_pct,
+        evaluableCount: detail.h5d_evaluated_count, trackingCount: detail.h5d_pending_count ?? 0, missingCount: detail.h5d_unavailable_count ?? 0 },
+      '20D': { paperReturnPct: detail.h20d_avg_return_pct, benchmark0050ReturnPct: detail.h20d_bm_avg_return_pct, excessReturnPct: detail.h20d_avg_excess_pct,
+        evaluableCount: detail.h20d_evaluated_count, trackingCount: detail.h20d_pending_count ?? 0, missingCount: detail.h20d_unavailable_count ?? 0 },
+    },
+    items: detail.evaluated_items.map(item => ({
+      symbol: item.symbol, name: item.name,
+      referencePrice: item.entry_price,
+      paperEntryPrice: item.paper_entry_price ?? null,
+      paperEntryReturns: {
+        '1D': { status: reviewStatus(item.h1d_status), returnPct: item.h1d_return_pct },
+        '5D': { status: reviewStatus(item.h5d_status), returnPct: item.h5d_return_pct },
+        '20D': { status: reviewStatus(item.h20d_status), returnPct: item.h20d_return_pct },
+      },
+      benchmarkReturns: {
+        '1D': { status: metricStatus(item.h1d_bm_status, item.h1d_bm_return_pct), returnPct: item.h1d_bm_return_pct },
+        '5D': { status: metricStatus(item.h5d_bm_status, item.h5d_bm_return_pct), returnPct: item.h5d_bm_return_pct },
+        '20D': { status: metricStatus(item.h20d_bm_status, item.h20d_bm_return_pct), returnPct: item.h20d_bm_return_pct },
+      },
+      excessReturns: {
+        '1D': { status: metricStatus(item.h1d_status, item.h1d_excess_pct), returnPct: item.h1d_excess_pct },
+        '5D': { status: metricStatus(item.h5d_status, item.h5d_excess_pct), returnPct: item.h5d_excess_pct },
+        '20D': { status: metricStatus(item.h20d_status, item.h20d_excess_pct), returnPct: item.h20d_excess_pct },
+      },
+    })),
+  }
+}
+
+function reviewStatus(status: 'completed' | 'pending' | 'unavailable') {
+  return status === 'completed' ? 'completed' : status === 'pending' ? 'tracking' : 'missing'
+}
+
+function metricStatus(status: 'completed' | 'pending' | 'unavailable' | undefined, value: number | null) {
+  if (value === null) return status === 'pending' ? 'tracking' : 'missing'
+  return 'completed'
+}
+
+function ForwardStats({ stats, formatPct }: { stats: ForwardBatchStats; formatPct: (value: number | null | undefined) => string }) {
+  const horizons = [
+    { label: '1D', evaluated: stats.h1d_evaluated_count, pending: stats.h1d_pending_count, missing: stats.h1d_unavailable_count, hitRate: stats.h1d_hit_rate_pct },
+    { label: '5D', evaluated: stats.h5d_evaluated_count, pending: stats.h5d_pending_count, missing: stats.h5d_unavailable_count, hitRate: stats.h5d_hit_rate_pct },
+    { label: '20D', evaluated: stats.h20d_evaluated_count, pending: stats.h20d_pending_count, missing: stats.h20d_unavailable_count, hitRate: stats.h20d_hit_rate_pct },
+  ]
+  return <div className="grid gap-2 md:grid-cols-3">{horizons.map(h => <section key={h.label} className="rounded-lg border border-border/60 bg-card p-3 text-xs"><h3 className="font-semibold">正式批次 {h.label}</h3><dl className="mt-2 grid grid-cols-2 gap-y-1"><dt className="text-muted-foreground">可評估筆數</dt><dd className="text-right">{h.evaluated}</dd><dt className="text-muted-foreground">追蹤中</dt><dd className="text-right">{h.pending}</dd><dt className="text-muted-foreground">缺資料</dt><dd className="text-right">{h.missing}</dd><dt className="text-muted-foreground">後端命中率</dt><dd className="text-right">{h.hitRate == null ? (h.evaluated === 0 && h.pending > 0 ? '尚未到期' : h.evaluated === 0 && h.missing === 0 ? '尚無樣本' : '資料不足') : formatPct(h.hitRate)}</dd></dl></section>)}</div>
+}
 
 export function SelectionReview() {
   const qc = useQueryClient()
@@ -33,6 +86,7 @@ export function SelectionReview() {
   const requestedTab = searchParams.get('tab')
   const [activeTab, setActiveTab] = useState<ReviewTab>(requestedTab === 'forward' ? 'forward' : 'snapshots')
   const [selectedSnapshotId, setSelectedSnapshotId] = useState<string | null>(null)
+  const selectedForwardBatchId = searchParams.get('batch_id')
   const [strategyFilter, setStrategyFilter] = useState<string>('all')
 
   // 1. 快照列表
@@ -50,6 +104,22 @@ export function SelectionReview() {
     queryFn: () =>
       selectedSnapshotId ? api.selectionReview.getSnapshotDetail(selectedSnapshotId) : null,
     enabled: !!selectedSnapshotId,
+  })
+
+  const forwardBatchesQuery = useQuery({
+    queryKey: QK.selectionForwardBatches,
+    queryFn: () => api.selectionReview.listForwardBatches(),
+    enabled: activeTab === 'forward',
+  })
+  const forwardStatsQuery = useQuery({
+    queryKey: QK.selectionForwardStats,
+    queryFn: () => api.selectionReview.getForwardBatchStats(),
+    enabled: activeTab === 'forward',
+  })
+  const forwardBatchDetailQuery = useQuery({
+    queryKey: QK.selectionForwardBatchDetail(selectedForwardBatchId || ''),
+    queryFn: () => selectedForwardBatchId ? api.selectionReview.getForwardBatchDetail(selectedForwardBatchId) : null,
+    enabled: activeTab === 'forward' && !!selectedForwardBatchId,
   })
 
   // 3. 策略統計
@@ -181,12 +251,24 @@ export function SelectionReview() {
       </div>
 
       {activeTab === 'forward' && (
-        <section aria-label="正式前瞻批次" className="rounded-xl border border-dashed border-border/70 bg-card/40 p-8 text-center">
-          <Clock className="mx-auto mb-3 h-9 w-9 text-muted-foreground/50" />
-          <h2 className="font-medium">正式前瞻批次資料尚未接通</h2>
-          <p className="mx-auto mt-2 max-w-lg text-xs text-muted-foreground">
-            核心 API 契約尚未提供。研究快照會留在「研究快照」分頁；此處不會把它們當成正式批次，也不提供重選或刪除操作。
-          </p>
+        <section aria-label="正式前瞻批次" className="space-y-4">
+          {forwardStatsQuery.data && <ForwardStats stats={forwardStatsQuery.data} formatPct={formatPct} />}
+          {selectedForwardBatchId ? (
+            <div className="space-y-3">
+              <button type="button" onClick={() => setSearchParams({ tab: 'forward' })} className="text-xs text-primary hover:underline">返回正式批次清單</button>
+              {forwardBatchDetailQuery.isLoading ? <p className="py-8 text-center text-sm text-muted-foreground">載入正式批次復盤…</p> : forwardBatchDetailQuery.data ? (
+                <SelectionForwardPanel batchReview={toForwardBatchReview(forwardBatchDetailQuery.data)} />
+              ) : <p role="status" className="py-8 text-center text-sm text-muted-foreground">找不到正式批次或目前無法載入。</p>}
+            </div>
+          ) : forwardBatchesQuery.isLoading ? <p className="py-8 text-center text-sm text-muted-foreground">載入正式批次…</p> :
+            forwardBatchesQuery.data?.length ? <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-3">{forwardBatchesQuery.data.filter(batch => batch.record_type === 'forward_batch').map(batch => (
+              <button key={batch.snapshot_id} type="button" onClick={() => setSearchParams({ tab: 'forward', batch_id: batch.snapshot_id })} className="rounded-xl border border-border/60 bg-card p-4 text-left transition-colors hover:border-primary/50">
+                <span className="text-xs font-semibold text-primary">{batch.rule_version ?? '正式前瞻批次'}</span>
+                <span className="mt-2 block font-semibold">來源日期 {batch.source_data_date ?? batch.as_of_date}</span>
+                <span className="mt-1 block text-xs text-muted-foreground">預定進場 {batch.target_trade_date ?? '資料不足'} · {batch.selected_count} 檔</span>
+                <span className="mt-2 inline-flex items-center gap-1 text-xs text-primary">查看批次復盤 <ChevronRight className="h-3 w-3" /></span>
+              </button>
+            ))}</div> : <div className="rounded-xl border border-dashed border-border/70 bg-card/40 p-8 text-center"><Clock className="mx-auto mb-3 h-9 w-9 text-muted-foreground/50" /><h2 className="font-medium">尚無正式前瞻批次</h2><p className="mt-2 text-xs text-muted-foreground">台股選股頁可在合適時段預覽並明確鎖定正式名單。</p><Link to="/taiwan-screener" className="mt-4 inline-flex items-center gap-1 text-xs text-primary">前往台股選股 <ChevronRight className="h-3 w-3" /></Link></div>}
         </section>
       )}
 

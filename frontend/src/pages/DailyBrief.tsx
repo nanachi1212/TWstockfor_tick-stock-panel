@@ -43,6 +43,12 @@ export function DailyBrief() {
     queryFn: () => api.dailyBrief.getDailyBrief(),
   })
 
+  const latestForwardBatchQuery = useQuery({
+    queryKey: QK.selectionForwardBatches,
+    queryFn: () => api.selectionReview.listForwardBatches(),
+    staleTime: 60_000,
+  })
+
   // 2. 歷史列表
   const historyQuery = useQuery({
     queryKey: QK.dailyBriefHistory(),
@@ -678,7 +684,9 @@ export function DailyBrief() {
 
               <div className="flex flex-wrap gap-2">
                 <Link
-                  to="/selection-review?tab=forward"
+                  to={latestForwardBatchQuery.data?.[0]
+                    ? `/selection-review?tab=forward&batch_id=${encodeURIComponent(latestForwardBatchQuery.data[0].snapshot_id)}`
+                    : '/selection-review?tab=forward'}
                   className="inline-flex items-center gap-1.5 text-xs font-medium bg-secondary text-secondary-foreground hover:bg-secondary/80 border border-border/60 px-3 py-1.5 rounded-lg transition-colors"
                 >
                   <History className="h-3.5 w-3.5" />
