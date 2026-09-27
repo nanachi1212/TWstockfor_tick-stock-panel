@@ -622,8 +622,7 @@ class TaiwanSelectionReviewService:
         """Use the scheduled horizon date, independent of missing price data."""
         source = date.fromisoformat(snapshot.source_data_date or snapshot.as_of_date)
         sessions = self._get_forward_trading_days(source)
-        due = sessions[horizon - 1] if len(sessions) >= horizon else self._potential_horizon_due(source, horizon)
-        return taipei_now() >= market_close(due)
+        return len(sessions) >= horizon and taipei_now() >= market_close(sessions[horizon - 1])
 
     def _cohort_stats(
         self,
@@ -631,6 +630,7 @@ class TaiwanSelectionReviewService:
         reviews: list[SnapshotReviewDetail],
         horizon: int,
         cohort: str,
+        maturity_by_snapshot: dict[str, bool] | None = None,
     ) -> ForwardCohortStats:
         prefix = f"h{horizon}d"
         picks = pending = unavailable = positive = 0
@@ -644,7 +644,10 @@ class TaiwanSelectionReviewService:
             picks += len(items)
             pending += sum(getattr(item, f"{prefix}_status") == "pending" for item in items)
             unavailable += sum(getattr(item, f"{prefix}_status") == "unavailable" for item in items)
-            if items and self._is_forward_horizon_matured(review.snapshot, horizon):
+            matured = (maturity_by_snapshot[review.snapshot.snapshot_id]
+                       if maturity_by_snapshot is not None
+                       else self._is_forward_horizon_matured(review.snapshot, horizon))
+            if items and matured:
                 matured_batches += 1
             for item in items:
                 raw_return = getattr(item, f"{prefix}_raw_return_pct")
@@ -689,18 +692,22 @@ class TaiwanSelectionReviewService:
 
     def _build_batch_cohorts(self, review: SnapshotReviewDetail) -> dict[str, dict[str, ForwardCohortStats]]:
         snapshot = review.snapshot
-        return {
-            f"{horizon}D": {
-                "top10": self._cohort_stats([snapshot], [review], horizon, "top10"),
-                "full_batch": self._cohort_stats([snapshot], [review], horizon, "full_batch"),
+        cohorts = {}
+        for horizon in (1, 5, 20):
+            maturity = {snapshot.snapshot_id: self._is_forward_horizon_matured(snapshot, horizon)}
+            cohorts[f"{horizon}D"] = {
+                "top10": self._cohort_stats([snapshot], [review], horizon, "top10", maturity),
+                "full_batch": self._cohort_stats([snapshot], [review], horizon, "full_batch", maturity),
             }
-            for horizon in (1, 5, 20)
-        }
+        return cohorts
 
     def _timeline_metric(
         self, review: SnapshotReviewDetail, snapshot: SelectionSnapshot, horizon: int, cohort: str,
+        matured: bool,
     ) -> ForwardTimelineMetric:
-        summary = self._cohort_stats([snapshot], [review], horizon, cohort)
+        summary = self._cohort_stats(
+            [snapshot], [review], horizon, cohort, {snapshot.snapshot_id: matured},
+        )
         return ForwardTimelineMetric(
             matured=summary.matured_batch_count == 1,
             evaluable_count=summary.evaluable_count,
@@ -723,10 +730,21 @@ class TaiwanSelectionReviewService:
 
         inputs = self._forward_review_inputs()
         reviews = [self._cached_forward_review(snapshot, inputs) for snapshot in batches]
+        maturity_by_horizon = {
+            horizon: {
+                snapshot.snapshot_id: self._is_forward_horizon_matured(snapshot, horizon)
+                for snapshot in batches
+            }
+            for horizon in (1, 5, 20)
+        }
         stats.horizons = {
             f"{horizon}D": {
-                "top10": self._cohort_stats(batches, reviews, horizon, "top10"),
-                "full_batch": self._cohort_stats(batches, reviews, horizon, "full_batch"),
+                "top10": self._cohort_stats(
+                    batches, reviews, horizon, "top10", maturity_by_horizon[horizon],
+                ),
+                "full_batch": self._cohort_stats(
+                    batches, reviews, horizon, "full_batch", maturity_by_horizon[horizon],
+                ),
             }
             for horizon in (1, 5, 20)
         }
@@ -736,9 +754,15 @@ class TaiwanSelectionReviewService:
                 source_date=snapshot.source_data_date or snapshot.as_of_date,
                 target_entry_date=snapshot.target_trade_date,
                 candidate_count=len(snapshot.items),
-                top10={str(horizon) + "D": self._timeline_metric(review, snapshot, horizon, "top10")
+                top10={str(horizon) + "D": self._timeline_metric(
+                           review, snapshot, horizon, "top10",
+                           maturity_by_horizon[horizon][snapshot.snapshot_id],
+                       )
                        for horizon in (1, 5, 20)},
-                full_batch={str(horizon) + "D": self._timeline_metric(review, snapshot, horizon, "full_batch")
+                full_batch={str(horizon) + "D": self._timeline_metric(
+                                review, snapshot, horizon, "full_batch",
+                                maturity_by_horizon[horizon][snapshot.snapshot_id],
+                            )
                             for horizon in (1, 5, 20)},
             )
             for snapshot, review in sorted(

@@ -537,6 +537,7 @@ def test_expired_unverified_calendar_is_unavailable_not_pending(tmp_path, monkey
     assert review.evaluated_items[0].h5d_status == "unavailable"
     assert review.evaluated_items[0].h20d_status == "unavailable"
     assert review.evaluated_items[0].h20d_bm_status == "pending"
+    assert svc.get_forward_batch_stats().timeline[0].full_batch["20D"].matured is False
 
 
 def test_old_research_record_is_not_formal_batch(tmp_path, monkeypatch):
@@ -741,6 +742,10 @@ def test_forward_performance_center_aggregates_immutable_cohorts_and_timeline(tm
     }
     monkeypatch.setattr(svc, "_forward_review_inputs", lambda: ((), (), ()))
     monkeypatch.setattr(svc, "_get_forward_batch_review", lambda snapshot: reviews[snapshot.snapshot_id])
+    monkeypatch.setattr(
+        svc, "_is_forward_horizon_matured",
+        lambda snapshot, horizon: snapshot.snapshot_id == "forward-20260804" and horizon == 1,
+    )
 
     stats = svc.get_forward_batch_stats()
     full = stats.horizons["1D"]["full_batch"]
@@ -748,7 +753,7 @@ def test_forward_performance_center_aggregates_immutable_cohorts_and_timeline(tm
     assert stats.batches_count == 2
     assert stats.picks_count == 5
     assert full.batch_count == 2
-    assert full.matured_batch_count == 2
+    assert full.matured_batch_count == 1
     assert full.pick_count == 5
     assert full.evaluable_count == 3
     assert full.pending_count == 1
@@ -767,7 +772,7 @@ def test_forward_performance_center_aggregates_immutable_cohorts_and_timeline(tm
     assert top10.unavailable_count == 1
     assert len(stats.timeline) == 2
     assert stats.timeline[0].source_date == "2026-08-03"
-    assert stats.timeline[0].full_batch["1D"].matured is True
+    assert stats.timeline[0].full_batch["1D"].matured is False
     assert stats.timeline[1].top10["1D"].average_return_pct == pytest.approx(-2.0)
 
 
