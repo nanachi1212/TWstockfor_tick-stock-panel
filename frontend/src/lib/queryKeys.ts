@@ -117,9 +117,9 @@ export const QK = {
   // Selection Review (A12)
   selectionSnapshots:   (strategyId?: string) => ['selection-snapshots', strategyId ?? 'all'] as const,
   selectionSnapshotDetail: (snapshotId: string) => ['selection-snapshot-detail', snapshotId] as const,
-  selectionForwardBatches: ['selection-forward-batches'] as const,
+  selectionForwardBatches: (strategyId?: string) => ['selection-forward-batches', strategyId ?? 'all'] as const,
   selectionForwardBatchDetail: (batchId: string) => ['selection-forward-batch-detail', batchId] as const,
-  selectionForwardStats: ['selection-forward-stats'] as const,
+  selectionForwardStats: (strategyId?: string) => ['selection-forward-stats', strategyId ?? 'all'] as const,
   selectionStrategyStats: ['selection-strategy-stats'] as const,
   selectionConditionStats: ['selection-condition-stats'] as const,
   selectionHistoricalPit: ['selection-historical-pit', 'trend_liquidity_v1'] as const,

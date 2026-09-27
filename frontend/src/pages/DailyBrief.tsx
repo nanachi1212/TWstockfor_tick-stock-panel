@@ -44,7 +44,7 @@ export function DailyBrief() {
   })
 
   const latestForwardBatchQuery = useQuery({
-    queryKey: QK.selectionForwardBatches,
+    queryKey: QK.selectionForwardBatches(),
     queryFn: () => api.selectionReview.listForwardBatches(),
     staleTime: 60_000,
   })
@@ -67,7 +67,13 @@ export function DailyBrief() {
   )
 
   const cumulativeForwardN = useMemo(
-    () => latestForwardBatchQuery.data?.reduce((total, batch) => total + (batch.selected_count ?? 0), 0) ?? 0,
+    () => {
+      const latest = latestForwardBatchQuery.data?.[0]
+      if (!latest) return 0
+      return latestForwardBatchQuery.data
+        ?.filter(batch => batch.strategy_id === latest.strategy_id)
+        .reduce((total, batch) => total + (batch.selected_count ?? 0), 0) ?? 0
+    },
     [latestForwardBatchQuery.data],
   )
   const latestMaturedHorizon = useMemo(() => {
@@ -719,7 +725,7 @@ export function DailyBrief() {
 
             {latestForwardBatchQuery.data?.[0] && (
               <div className="rounded-lg border border-border/60 bg-muted/20 p-3 text-xs">
-                <span className="font-medium">前瞻績效：</span>最新正式批次 {latestForwardBatchQuery.data[0].source_data_date ?? latestForwardBatchQuery.data[0].as_of_date}，已成熟至 {latestMaturedHorizon ?? '尚未成熟'}，目前 cumulative N {cumulativeForwardN} 檔。
+                <span className="font-medium">前瞻績效：</span>{latestForwardBatchQuery.data[0].strategy_name ?? latestForwardBatchQuery.data[0].strategy_id} 最新正式批次 {latestForwardBatchQuery.data[0].source_data_date ?? latestForwardBatchQuery.data[0].as_of_date}，已成熟至 {latestMaturedHorizon ?? '尚未成熟'}，同策略 cumulative N {cumulativeForwardN} 檔。
                 <Link to="/selection-review?tab=forward" className="ml-2 text-primary hover:underline">前往前瞻績效</Link>
               </div>
             )}

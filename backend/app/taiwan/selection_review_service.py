@@ -47,6 +47,7 @@ from app.taiwan.selection_review_models import (
     SnapshotReviewDetail,
     StrategyReviewStats,
 )
+from app.taiwan.selection_v2 import is_supported_strategy, strategy_metadata
 
 logger = logging.getLogger(__name__)
 
@@ -156,6 +157,8 @@ class TaiwanSelectionReviewService:
             snapshot_id=snapshot_id,
             created_at=now_iso,
             strategy_id=req.strategy_id.strip(),
+            strategy_version=(req.strategy_id.strip().rsplit("_", 1)[-1]
+                              if req.strategy_id.strip().rsplit("_", 1)[-1].startswith("v") else None),
             strategy_name=req.strategy_name.strip() or "未命名策略",
             as_of_date=req.as_of_date.strip(),
             market_context_summary=req.market_context_summary.strip(),
@@ -183,9 +186,13 @@ class TaiwanSelectionReviewService:
                     return s
         return None
 
-    def lock_forward_batch(self, screener=None) -> SelectionSnapshot:
+    def lock_forward_batch(self, screener=None, strategy_id: str = FORWARD_RULE_VERSION) -> SelectionSnapshot:
         """Run the canonical screener server-side and lock one batch per source session."""
         from app.taiwan.screener import TaiwanScreenerRequest, TaiwanScreenerService
+
+        if not is_supported_strategy(strategy_id):
+            raise ValueError(f"不支援的正式前瞻策略: {strategy_id}")
+        metadata = strategy_metadata(strategy_id)
 
         daily_generation = self._daily_generation()
         census_generation = self._census_generation()
@@ -194,15 +201,20 @@ class TaiwanSelectionReviewService:
             daily_store=self.daily_store, calendar=self.calendar,
             census_store=self.census_store, action_store=self.action_store,
         )).run(
-            TaiwanScreenerRequest(preset=FORWARD_RULE_VERSION)
+            TaiwanScreenerRequest(preset=strategy_id)
         )
-        if (screen.trend_indicator_basis != "pit_adjusted"
-                or screen.trend_adjustment_status != "verified"):
+        if strategy_id == FORWARD_RULE_VERSION and (
+            screen.trend_indicator_basis != "pit_adjusted"
+            or screen.trend_adjustment_status != "verified"
+        ):
             raise ValueError("公司行動來源覆蓋不足。不能鎖定正式批次")
         if screen.quote_coverage_status != "verified":
             raise ValueError("來源行情覆蓋無法驗證。不能鎖定正式批次")
         if screen.risk_source_status != "available" or screen.risk_unknown_count:
             raise ValueError("監管事件來源覆蓋不足。不能鎖定正式批次")
+        if strategy_id in ("institutional_momentum_v1", "growth_trend_v1", "breakout_v1", "multi_factor_consensus_v1") and screen.strategy_readiness != "ready":
+            reason = "、".join(screen.strategy_readiness_reasons) or "策略資料覆蓋不足"
+            raise ValueError(f"策略 readiness 未達可鎖定狀態: {reason}")
         if action_evidence is None or self._action_coverage_evidence() != action_evidence:
             raise ValueError("公司行動證據在選股期間已更新。不能鎖定正式批次")
         if self._census_generation() != census_generation:
@@ -216,7 +228,7 @@ class TaiwanSelectionReviewService:
         completed_dates = [d for d in self.daily_store.available_dates() if market_close(d) <= now]
         if source_day != max(completed_dates, default=None):
             raise ValueError("選股來源日期與評估行情庫不一致")
-        batch_id = f"forward_{FORWARD_RULE_VERSION}_{source_day:%Y%m%d}"
+        batch_id = f"forward_{strategy_id}_{source_day:%Y%m%d}"
         with self._lock, self._write_guard():
             existing = self._read_snapshots_raw()
             for snapshot in existing:
@@ -233,7 +245,13 @@ class TaiwanSelectionReviewService:
             items = [SelectionSnapshotItem(
                 symbol=row.symbol, name=row.name, rank=index, price=row.close,
                 quant_score=row.quant_score, match_reasons=row.match_reasons,
-                strategy_conditions={"preset": FORWARD_RULE_VERSION},
+                strategy_conditions={
+                    "preset": strategy_id,
+                    "strategy_version": metadata["version"],
+                    "signals": row.strategy_signals,
+                    "consensus_hit_count": row.consensus_hit_count,
+                    "consensus_strategy_names": row.consensus_strategy_names,
+                },
                 risk_status=row.risk_status, quote_status="available",
             ) for index, row in enumerate(screen.items[:20], start=1) if row.close is not None and row.close > 0]
             target = self._next_potential_session(source_day)
@@ -244,9 +262,10 @@ class TaiwanSelectionReviewService:
             snapshot = SelectionSnapshot(
                 snapshot_id=batch_id, created_at=now.astimezone(UTC).isoformat(),
                 locked_at=now.isoformat(),
-                strategy_id=FORWARD_RULE_VERSION, strategy_name="趨勢流動性 v1",
+                strategy_id=strategy_id, strategy_version=metadata["version"],
+                strategy_name=metadata["name"],
                 as_of_date=source_day.isoformat(), source_data_date=source_day.isoformat(),
-                target_trade_date=target.isoformat(), rule_version=FORWARD_RULE_VERSION,
+                target_trade_date=target.isoformat(), rule_version=strategy_id,
                 target_trade_date_status=(
                     "confirmed" if self.calendar.day_evidence(target, "TWSE").status == "trading"
                     else "scheduled_unverified"
@@ -718,10 +737,21 @@ class TaiwanSelectionReviewService:
             average_excess_return_pct=summary.average_excess_return_pct,
         )
 
-    def get_forward_batch_stats(self) -> ForwardBatchStats:
+    def get_forward_batch_stats(self, strategy_id: str | None = None) -> ForwardBatchStats:
+        # An omitted selector is the frozen v1 compatibility view. Callers
+        # that want another strategy must opt in explicitly, so no endpoint
+        # silently combines hit rates across rule versions.
+        strategy_id = strategy_id or FORWARD_RULE_VERSION
         with self._lock:
             batches = [s for s in self._read_snapshots_raw() if s.record_type == "forward_batch"]
+        if strategy_id is not None:
+            if not is_supported_strategy(strategy_id):
+                raise ValueError(f"不支援的前瞻策略: {strategy_id}")
+            batches = [s for s in batches if s.strategy_id == strategy_id]
+        metadata = strategy_metadata(strategy_id) if strategy_id else None
         stats = ForwardBatchStats(
+            strategy_id=strategy_id,
+            strategy_name=metadata["name"] if metadata else None,
             batches_count=len(batches),
             picks_count=sum(len(s.items) for s in batches),
         )
@@ -1055,12 +1085,16 @@ class TaiwanSelectionReviewService:
             h20d_unavailable_count=sum(i.h20d_status == "unavailable" for i in evaluated_items),
         )
 
-    def list_snapshots(self, record_type: str | None = None) -> list[SnapshotListItem]:
+    def list_snapshots(
+        self, record_type: str | None = None, strategy_id: str | None = None,
+    ) -> list[SnapshotListItem]:
         """List snapshots with summarized evaluation metrics, optionally by record type."""
         with self._lock:
             raw_list = self._read_snapshots_raw()
         if record_type is not None:
             raw_list = [s for s in raw_list if s.record_type == record_type]
+        if strategy_id is not None:
+            raw_list = [s for s in raw_list if s.strategy_id == strategy_id]
 
         # Sort newest first
         raw_list.sort(key=lambda s: s.created_at, reverse=True)
@@ -1078,6 +1112,7 @@ class TaiwanSelectionReviewService:
                         snapshot_id=s.snapshot_id,
                         created_at=s.created_at,
                         strategy_id=s.strategy_id,
+                        strategy_version=s.strategy_version,
                         strategy_name=s.strategy_name,
                         as_of_date=s.as_of_date,
                         selected_count=len(s.items),
@@ -1115,6 +1150,7 @@ class TaiwanSelectionReviewService:
                         snapshot_id=s.snapshot_id,
                         created_at=s.created_at,
                         strategy_id=s.strategy_id,
+                        strategy_version=s.strategy_version,
                         strategy_name=s.strategy_name,
                         as_of_date=s.as_of_date,
                         selected_count=len(s.items),
