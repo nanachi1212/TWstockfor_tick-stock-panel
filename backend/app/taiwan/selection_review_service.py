@@ -14,7 +14,9 @@ from __future__ import annotations
 import contextlib
 import json
 import logging
+import os
 import threading
+import time
 import uuid
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
@@ -84,9 +86,10 @@ class TaiwanSelectionReviewService:
             raw = json.loads(self.path.read_text(encoding="utf-8"))
             if isinstance(raw, list):
                 return [SelectionSnapshot(**item) for item in raw]
+            raise ValueError("選股快照檔案格式錯誤")
         except Exception as e:
             logger.warning("Failed to load selection snapshots from %s: %s", self.path, e)
-        return []
+            raise ValueError("選股快照檔案無法讀取。已停止寫入以保留原檔") from e
 
     def _save_snapshots_raw(self, snapshots: list[SelectionSnapshot]) -> None:
         self.path.parent.mkdir(parents=True, exist_ok=True)
@@ -94,6 +97,25 @@ class TaiwanSelectionReviewService:
         payload = [s.model_dump() for s in snapshots]
         temp_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
         temp_path.replace(self.path)
+
+    @contextlib.contextmanager
+    def _write_guard(self):
+        """Serialize read-modify-write across API worker processes."""
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        lock_path = self.path.with_suffix(".lock")
+        for attempt in range(40):
+            try:
+                descriptor = os.open(lock_path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+                os.close(descriptor)
+                break
+            except FileExistsError:
+                if attempt == 39:
+                    raise RuntimeError("選股快照檔案寫入忙碌") from None
+                time.sleep(0.05)
+        try:
+            yield
+        finally:
+            lock_path.unlink(missing_ok=True)
 
     # ── Snapshot CRUD ───────────────────────────────────────────────
 
@@ -117,7 +139,7 @@ class TaiwanSelectionReviewService:
             items=req.items,
         )
 
-        with self._lock:
+        with self._lock, self._write_guard():
             existing = self._read_snapshots_raw()
             # Guard immutability: snapshot_id cannot collide
             for s in existing:
@@ -154,7 +176,7 @@ class TaiwanSelectionReviewService:
         if source_day != max(completed_dates, default=None):
             raise ValueError("選股來源日期與評估行情庫不一致")
         batch_id = f"forward_{FORWARD_RULE_VERSION}_{source_day:%Y%m%d}"
-        with self._lock:
+        with self._lock, self._write_guard():
             existing = self._read_snapshots_raw()
             for snapshot in existing:
                 if snapshot.snapshot_id == batch_id:
@@ -198,7 +220,7 @@ class TaiwanSelectionReviewService:
 
     def delete_snapshot(self, snapshot_id: str) -> bool:
         """Delete a snapshot by ID."""
-        with self._lock:
+        with self._lock, self._write_guard():
             existing = self._read_snapshots_raw()
             if any(s.snapshot_id == snapshot_id and s.record_type == "forward_batch" for s in existing):
                 raise PermissionError("正式前瞻批次已鎖定。不能刪除")
@@ -251,6 +273,18 @@ class TaiwanSelectionReviewService:
             cursor += timedelta(days=1)
         return days
 
+    def _potential_horizon_due(self, as_of: date, horizon: int) -> date:
+        """Earliest scheduled due date when some weekday evidence is unresolved."""
+        cursor = as_of
+        count = 0
+        for _ in range(120):
+            cursor += timedelta(days=1)
+            if self.calendar.day_evidence(cursor, "TWSE").status != "non_trading":
+                count += 1
+                if count == horizon:
+                    return cursor
+        raise ValueError("評估交易日超出支援範圍")
+
     def _get_close_prices(self, symbols: list[str], target_date: date) -> dict[str, float]:
         """Query close prices for a list of symbols on a given trade date."""
         df = self.daily_store.read_range(symbols, target_date, target_date)
@@ -298,6 +332,20 @@ class TaiwanSelectionReviewService:
         for session in set(needed):
             frame = self.daily_store.read_range(symbols, session, session)
             prices[session] = {row["symbol"]: row for row in frame.iter_rows(named=True)}
+        events_by_end = {
+            end: self._verified_action_events(target, end)
+            for end in set(needed) if entry_valid and today >= market_close(end)
+        }
+        bm_returns: dict[date, float | None] = {}
+        for end, events in events_by_end.items():
+            bm_entry = prices.get(target, {}).get(DEFAULT_BENCHMARK_SYMBOL)
+            bm_end = prices.get(end, {}).get(DEFAULT_BENCHMARK_SYMBOL)
+            bm_returns[end] = (
+                self._paper_return(DEFAULT_BENCHMARK_SYMBOL, target, end,
+                                   bm_entry, bm_end, events)
+                if bm_entry is not None and bm_end is not None and events is not None
+                else None
+            )
         evaluated: list[HorizonReviewItem] = []
         for pick in snapshot.items:
             entry_row = prices.get(target, {}).get(pick.symbol) if entry_valid else None
@@ -307,6 +355,7 @@ class TaiwanSelectionReviewService:
                 entry_open = None
             entry_status: HorizonStatus = (
                 "unavailable" if target_closed else
+                "unavailable" if not entry_valid and today >= market_close(target) else
                 "pending" if not entry_valid or today < market_close(target)
                 else "completed" if entry_open is not None else "unavailable"
             )
@@ -320,42 +369,58 @@ class TaiwanSelectionReviewService:
                 chips_summary=pick.chips_summary,
                 event_risk_summary=pick.event_risk_summary,
             )
+            if entry_status == "unavailable":
+                result.status_reasons["entry"] = (
+                    "scheduled_entry_day_closed" if target_closed else
+                    "trading_day_unverified" if not entry_valid else "missing_entry_open"
+                )
             for horizon in (1, 5, 20):
                 end = sessions[horizon - 1] if len(sessions) >= horizon and entry_valid else None
                 prefix = f"h{horizon}d"
+                due = end or self._potential_horizon_due(source, horizon)
                 if target_closed or end is None or today < market_close(end):
+                    unresolved_expired = end is None and today >= market_close(due)
                     setattr(result, f"{prefix}_status",
-                            "unavailable" if target_closed else "pending")
+                            "unavailable" if target_closed or unresolved_expired else "pending")
                     setattr(result, f"{prefix}_bm_status",
-                            "unavailable" if target_closed else "pending")
+                            "unavailable" if target_closed or unresolved_expired else "pending")
+                    if target_closed or unresolved_expired:
+                        result.status_reasons[prefix] = (
+                            "scheduled_entry_day_closed" if target_closed
+                            else "trading_day_unverified"
+                        )
                     continue
                 end_row = prices.get(end, {}).get(pick.symbol)
-                bm_entry = prices.get(target, {}).get(DEFAULT_BENCHMARK_SYMBOL)
-                bm_end = prices.get(end, {}).get(DEFAULT_BENCHMARK_SYMBOL)
-                events = self._verified_action_events(target, end)
+                events = events_by_end.get(end)
+                bm_raw = bm_returns.get(end)
                 setattr(result, f"{prefix}_bm_status", "unavailable")
+                if bm_raw is not None:
+                    setattr(result, f"{prefix}_bm_status", "completed")
+                    setattr(result, f"{prefix}_bm_return_pct", round(bm_raw, 2))
+                else:
+                    result.status_reasons[f"{prefix}_benchmark"] = (
+                        "corporate_action_coverage_unavailable" if events is None
+                        else "missing_or_invalid_benchmark_price"
+                    )
                 if entry_open is None or end_row is None or events is None:
                     setattr(result, f"{prefix}_status", "unavailable")
+                    result.status_reasons[prefix] = (
+                        "missing_entry_open" if entry_open is None else
+                        "missing_horizon_close" if end_row is None else
+                        "corporate_action_coverage_unavailable"
+                    )
                     continue
                 raw = self._paper_return(pick.symbol, target, end, entry_row, end_row, events)
                 if raw is None:
                     setattr(result, f"{prefix}_status", "unavailable")
+                    result.status_reasons[prefix] = "price_adjustment_unavailable"
                     continue
                 setattr(result, f"{prefix}_status", "completed")
                 setattr(result, f"{prefix}_price", float(end_row["close"]))
                 setattr(result, f"{prefix}_raw_return_pct", raw)
                 setattr(result, f"{prefix}_return_pct", round(raw, 2))
-                if bm_entry is not None and bm_end is not None:
-                    bm_raw = self._paper_return(DEFAULT_BENCHMARK_SYMBOL, target, end,
-                                                bm_entry, bm_end, events)
-                    if bm_raw is not None:
-                        setattr(result, f"{prefix}_bm_status", "completed")
-                        setattr(result, f"{prefix}_bm_return_pct", round(bm_raw, 2))
-                        setattr(result, f"{prefix}_excess_pct", round(raw - bm_raw, 2))
-                    else:
-                        setattr(result, f"{prefix}_bm_status", "unavailable")
-                else:
-                    setattr(result, f"{prefix}_bm_status", "unavailable")
+                if bm_raw is not None:
+                    setattr(result, f"{prefix}_excess_pct", round(raw - bm_raw, 2))
             evaluated.append(result)
 
         detail = SnapshotReviewDetail(snapshot=snapshot, evaluated_items=evaluated)
@@ -446,6 +511,12 @@ class TaiwanSelectionReviewService:
         d_5d = d_5d if d_5d and now_tpe >= market_close(d_5d) else None
         d_20d = d_20d if d_20d and now_tpe >= market_close(d_20d) else None
 
+        def missing_state(horizon: int, target: date | None) -> HorizonStatus:
+            if target is not None:
+                return "unavailable"
+            due = self._potential_horizon_due(as_of_dt, horizon)
+            return "unavailable" if now_tpe >= market_close(due) else "pending"
+
         symbols = [item.symbol for item in snapshot.items]
         all_symbols = list(set([*symbols, DEFAULT_BENCHMARK_SYMBOL]))
 
@@ -484,7 +555,7 @@ class TaiwanSelectionReviewService:
             h1_price: float | None = None
             h1_ret: float | None = None
             h1_raw: float | None = None
-            h1_status: HorizonStatus = "pending" if d_1d is None else "unavailable"
+            h1_status: HorizonStatus = missing_state(1, d_1d)
             h1_excess: float | None = None
             if d_1d is not None and item.symbol in prices_1d and entry_p > 0:
                 h1_price = prices_1d[item.symbol]
@@ -498,7 +569,7 @@ class TaiwanSelectionReviewService:
             h5_price: float | None = None
             h5_ret: float | None = None
             h5_raw: float | None = None
-            h5_status: HorizonStatus = "pending" if d_5d is None else "unavailable"
+            h5_status: HorizonStatus = missing_state(5, d_5d)
             h5_excess: float | None = None
             if d_5d is not None and item.symbol in prices_5d and entry_p > 0:
                 h5_price = prices_5d[item.symbol]
@@ -514,7 +585,7 @@ class TaiwanSelectionReviewService:
             h20_price: float | None = None
             h20_ret: float | None = None
             h20_raw: float | None = None
-            h20_status: HorizonStatus = "pending" if d_20d is None else "unavailable"
+            h20_status: HorizonStatus = missing_state(20, d_20d)
             h20_excess: float | None = None
             if d_20d is not None and item.symbol in prices_20d and entry_p > 0:
                 h20_price = prices_20d[item.symbol]
@@ -545,7 +616,7 @@ class TaiwanSelectionReviewService:
                     h1d_status=h1_status,
                     h1d_bm_return_pct=bm_ret_1d,
                     h1d_bm_status=("completed" if bm_ret_1d is not None else
-                                   "pending" if d_1d is None else "unavailable"),
+                                   missing_state(1, d_1d)),
                     h1d_excess_pct=h1_excess,
                     h5d_price=h5_price,
                     h5d_return_pct=h5_ret,
@@ -553,7 +624,7 @@ class TaiwanSelectionReviewService:
                     h5d_status=h5_status,
                     h5d_bm_return_pct=bm_ret_5d,
                     h5d_bm_status=("completed" if bm_ret_5d is not None else
-                                   "pending" if d_5d is None else "unavailable"),
+                                   missing_state(5, d_5d)),
                     h5d_excess_pct=h5_excess,
                     h20d_price=h20_price,
                     h20d_return_pct=h20_ret,
@@ -561,7 +632,7 @@ class TaiwanSelectionReviewService:
                     h20d_status=h20_status,
                     h20d_bm_return_pct=bm_ret_20d,
                     h20d_bm_status=("completed" if bm_ret_20d is not None else
-                                    "pending" if d_20d is None else "unavailable"),
+                                    missing_state(20, d_20d)),
                     h20d_excess_pct=h20_excess,
                     benchmark_symbol=DEFAULT_BENCHMARK_SYMBOL,
                     benchmark_name=DEFAULT_BENCHMARK_NAME,

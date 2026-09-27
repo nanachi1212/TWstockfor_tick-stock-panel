@@ -116,6 +116,7 @@ class HorizonReviewItem(BaseModel):
     entry_date: str | None = None
     entry_status: HorizonStatus = "pending"
     price_adjustment: str = "raw_reference_close"
+    status_reasons: dict[str, str] = Field(default_factory=dict)
 
 
 class SnapshotReviewDetail(BaseModel):

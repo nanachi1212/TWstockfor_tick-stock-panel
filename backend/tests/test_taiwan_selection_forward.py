@@ -115,6 +115,16 @@ def test_lock_is_server_owned_idempotent_and_undeletable(tmp_path, monkeypatch):
         svc.delete_snapshot(first.snapshot_id)
 
 
+def test_corrupt_existing_snapshot_file_is_never_overwritten(tmp_path, monkeypatch):
+    svc, source, _ = _seed(tmp_path)
+    svc.path.parent.mkdir(parents=True, exist_ok=True)
+    svc.path.write_text("{broken", encoding="utf-8")
+    monkeypatch.setattr("app.taiwan.selection_review_service.taipei_now", lambda: _clock(source))
+    with pytest.raises(ValueError, match="無法讀取"):
+        svc.lock_forward_batch(_FixedScreener(source))
+    assert svc.path.read_text(encoding="utf-8") == "{broken"
+
+
 def test_horizon_does_not_slide_and_benchmark_missing_is_explicit(tmp_path, monkeypatch):
     svc, source, sessions = _seed(tmp_path, missing_stock_5d=True, missing_bm_20d=True)
     monkeypatch.setattr("app.taiwan.selection_review_service.taipei_now", lambda: _clock(source))
@@ -164,6 +174,28 @@ def test_pending_and_missing_action_coverage_are_distinct(tmp_path, monkeypatch)
     after = svc.get_snapshot_review(batch.snapshot_id)
     assert after.evaluated_items[0].h1d_status == "unavailable"
     assert after.evaluated_items[0].h20d_status == "pending"
+
+
+def test_expired_unverified_calendar_is_unavailable_not_pending(tmp_path, monkeypatch):
+    store = TaiwanDailyStore(tmp_path / "daily")
+    source = date(2026, 8, 3)
+    store.write_batch(pl.DataFrame([{
+        "symbol": "2330.TWSE", "date": source, "open": 100.0,
+        "high": 100.0, "low": 100.0, "close": 100.0,
+        "volume": 1_000_000.0, "amount": 100_000_000.0, "quote_ts": 0,
+    }]))
+    svc = TaiwanSelectionReviewService(path=tmp_path / "snapshots.json",
+                                       daily_store=store,
+                                       calendar=TaiwanTradingCalendar())
+    monkeypatch.setattr("app.taiwan.selection_review_service.taipei_now", lambda: _clock(source))
+    batch = svc.lock_forward_batch(_FixedScreener(source))
+    monkeypatch.setattr("app.taiwan.selection_review_service.taipei_now",
+                        lambda: _clock(date(2026, 8, 12)))
+    review = svc.get_snapshot_review(batch.snapshot_id)
+    assert review.evaluated_items[0].entry_status == "unavailable"
+    assert review.evaluated_items[0].h1d_status == "unavailable"
+    assert review.evaluated_items[0].h5d_status == "unavailable"
+    assert review.evaluated_items[0].h20d_status == "pending"
 
 
 def test_old_research_record_is_not_formal_batch(tmp_path, monkeypatch):

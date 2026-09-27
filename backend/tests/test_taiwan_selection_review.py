@@ -13,7 +13,7 @@ Verifies:
 """
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, datetime
 from pathlib import Path
 
 import polars as pl
@@ -227,9 +227,11 @@ def test_horizon_review_and_benchmark(review_service: TaiwanSelectionReviewServi
     assert detail.h20d_avg_return_pct == pytest.approx(10.0, abs=0.01)
 
 
-def test_pending_horizon_when_dates_insufficient(tmp_path: Path):
+def test_pending_horizon_when_dates_insufficient(tmp_path: Path, monkeypatch):
     """When forward trading days are less than 5 or 20, status remains pending without crashing."""
     store = TaiwanDailyStore(tmp_path / "short_daily")
+    monkeypatch.setattr("app.taiwan.selection_review_service.taipei_now",
+                        lambda: datetime.fromisoformat("2026-09-03T15:00:00+08:00"))
     # Only 2 forward trading days
     dates = [date(2026, 9, 1), date(2026, 9, 2), date(2026, 9, 3)]
     rows = []
