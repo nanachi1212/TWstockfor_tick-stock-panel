@@ -50,6 +50,7 @@ SortField = Literal[
     "margin_balance_change", "short_balance", "short_margin_ratio",
     "pe", "pb", "dividend_yield", "revenue_yoy", "revenue_mom",
     "latest_eps", "foreign_shareholding_ratio", "foreign_shareholding_change_20d", "quant_score",
+    "trend_liquidity_v1",
 ]
 SortDir = Literal["asc", "desc"]
 
@@ -58,6 +59,7 @@ class TaiwanScreenerRequest(BaseModel):
     """Strongly typed Taiwan Screener Request Body."""
 
     exchange: ExchangeFilter = "ALL"
+    preset: Literal["trend_liquidity_v1"] | None = None
     instrument: InstrumentFilter = "ALL"
     industry: str | None = None  # None or specific industry name
 
@@ -206,6 +208,7 @@ class ScreenerResultItem(BaseModel):
 
     # Explanation of why the stock was selected
     match_reasons: list[str] = Field(default_factory=list)
+    risk_status: Literal["clear", "unknown"] | None = None
 
 
 class DataDatesInfo(BaseModel):
@@ -232,6 +235,8 @@ class TaiwanScreenerResponse(BaseModel):
     data_dates: DataDatesInfo
     degraded_sections: list[str] = []
     coverage_info: ScreenerCoverageInfo | None = None
+    missing_quote_count: int = 0
+    risk_unknown_count: int = 0
 
 
 class TaiwanScreenerService:
@@ -260,6 +265,13 @@ class TaiwanScreenerService:
         return self._fundamental_chips_service
 
     def run(self, req: TaiwanScreenerRequest) -> TaiwanScreenerResponse:
+        if req.preset == "trend_liquidity_v1":
+            req = req.model_copy(update={
+                "exchange": "ALL", "instrument": "stock", "amount_min": 50_000_000,
+                "above_ma20": True, "momentum_5d_min": 0.0,
+                "sort_by": "trend_liquidity_v1", "sort_order": "desc",
+                "page": 1, "page_size": 20,
+            })
         # Step 1: Universe from TaiwanSecurityMaster
         universe_df = self._get_universe(req.exchange, req.instrument)
         if universe_df.is_empty():
@@ -283,6 +295,9 @@ class TaiwanScreenerService:
             )
 
         daily_as_of = str(latest_daily["date"].max()) if not latest_daily.is_empty() else None
+        missing_quote_count = len(valid_symbols) - latest_daily.filter(
+            pl.col("date") == latest_daily["date"].max()
+        ).height
 
         # Step 3: Compute batch indicators (needs up to 30 trading days of history)
         df_indicators = self._compute_batch_indicators(valid_symbols)
@@ -303,8 +318,42 @@ class TaiwanScreenerService:
         # Step 6.5: Batch Join Cached Fundamentals & Chips
         combined, fund_count, chips_count = self._join_cached_fundamentals_chips(combined, valid_symbols)
 
+        if req.preset == "trend_liquidity_v1":
+            # A missing/stale quote or indicator cannot qualify as a fresh candidate.
+            combined = combined.filter(
+                (pl.col("date") == latest_daily["date"].max())
+                & (pl.col("momentum_5d") > 0)
+                & (pl.col("close") > 0)
+            )
+
         # Step 7: Apply Strongly Typed Filters
         filtered = self._apply_filters(combined, req)
+
+        risk_statuses: dict[str, str] = {}
+        if req.preset == "trend_liquidity_v1":
+            from app.taiwan.events_service import get_event_service
+
+            try:
+                event_svc = get_event_service()
+            except Exception:
+                event_svc = None
+            excluded: set[str] = set()
+            for symbol in filtered["symbol"].to_list():
+                try:
+                    if event_svc is None:
+                        raise RuntimeError("event service unavailable")
+                    risk = event_svc.check_symbol_risk_status(
+                        symbol, target_date=date.fromisoformat(daily_as_of)
+                    )
+                    if risk["is_disposition"] or risk["is_suspended"]:
+                        excluded.add(symbol)
+                    else:
+                        overall, _ = event_svc.get_last_sources_status()
+                        risk_statuses[symbol] = "clear" if overall == "available" else "unknown"
+                except Exception:
+                    risk_statuses[symbol] = "unknown"
+            if excluded:
+                filtered = filtered.filter(~pl.col("symbol").is_in(list(excluded)))
 
         # Step 8: Total count (before pagination)
         total = filtered.height
@@ -318,6 +367,9 @@ class TaiwanScreenerService:
 
         # Step 11: Serialize items (with match reasons)
         items = self._build_items(paged_df, req)
+        if req.preset == "trend_liquidity_v1":
+            for item in items:
+                item.risk_status = risk_statuses[item.symbol]
 
         # Step 12: Coverage info
         coverage_note = (
@@ -346,6 +398,8 @@ class TaiwanScreenerService:
             ),
             degraded_sections=degraded,
             coverage_info=coverage_info,
+            missing_quote_count=missing_quote_count if req.preset else 0,
+            risk_unknown_count=sum(i.risk_status == "unknown" for i in items),
         )
 
     def _get_universe(self, exchange: ExchangeFilter, instrument: InstrumentFilter) -> pl.DataFrame:
@@ -898,6 +952,8 @@ class TaiwanScreenerService:
     def _apply_sort(self, df: pl.DataFrame, sort_by: str, sort_order: str) -> pl.DataFrame:
         """Sort with deterministic symbol ASC tie-breaker."""
         descending = sort_order == "desc"
+        if sort_by == "trend_liquidity_v1":
+            return df.sort(["momentum_5d", "amount", "symbol"], descending=[True, True, False])
         if sort_by not in df.columns:
             sort_by = "symbol"
             descending = False

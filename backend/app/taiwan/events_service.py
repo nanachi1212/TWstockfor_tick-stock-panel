@@ -960,7 +960,7 @@ class TaiwanEventService:
 
         return list(candidates_map.values())
 
-    def check_symbol_risk_status(self, symbol: str) -> dict[str, bool | str]:
+    def check_symbol_risk_status(self, symbol: str, target_date: date | None = None) -> dict[str, bool | str]:
         """Check if a stock currently has disposition, suspension, or severe risk events."""
         clean = symbol.strip().upper()
         events = self.get_events(scope="all", symbol=clean, limit=50)
@@ -970,8 +970,10 @@ class TaiwanEventService:
         has_risk_event = False
         latest_risk_reason = ""
 
-        today_str = taipei_now().date().isoformat()
+        today_str = (target_date or taipei_now().date()).isoformat()
         for ev in events:
+            if ev.event_date > today_str:
+                continue
             if ev.event_type == "disposition":
                 # Check active period
                 period = ev.details.get("period", "")

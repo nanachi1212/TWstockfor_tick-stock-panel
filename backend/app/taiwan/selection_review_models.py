@@ -30,6 +30,8 @@ class SelectionSnapshotItem(BaseModel):
     fundamental_summary: str | None = Field(None, description="基本面摘要文字")
     chips_summary: str | None = Field(None, description="籌碼摘要文字")
     event_risk_summary: str | None = Field(None, description="事件風險摘要文字")
+    risk_status: Literal["clear", "unknown"] | None = None
+    quote_status: Literal["available", "missing"] | None = None
 
 
 class SelectionSnapshot(BaseModel):
@@ -43,6 +45,19 @@ class SelectionSnapshot(BaseModel):
     market_context_summary: str = Field(..., description="當時大盤環境摘要")
     selected_symbols: list[str] = Field(default_factory=list, description="入選代碼清單")
     items: list[SelectionSnapshotItem] = Field(default_factory=list, description="每檔入選標的明細快照")
+    record_type: Literal["research", "forward_batch"] = "research"
+    locked_at: str | None = None
+    source_data_date: str | None = None
+    target_trade_date: str | None = None
+    target_trade_date_status: Literal["confirmed", "scheduled_unverified"] | None = None
+    rule_version: str | None = None
+    evaluation_basis: Literal["reference_close", "next_open"] = "reference_close"
+    price_adjustment: str = "raw_reference_close"
+    cost_assumption: str = "未扣成本與滑價；紙上開盤價不保證成交"
+    eligible_total: int | None = None
+    primary_observation_count: int | None = None
+    missing_quote_count: int | None = None
+    risk_unknown_count: int | None = None
 
 
 class SaveSelectionSnapshotRequest(BaseModel):
@@ -62,6 +77,7 @@ class HorizonReviewItem(BaseModel):
     name: str
     rank: int
     entry_price: float
+    paper_entry_price: float | None = None
     quant_score: float | None = None
     match_reasons: list[str] = Field(default_factory=list)
     fundamental_summary: str | None = None
@@ -71,26 +87,35 @@ class HorizonReviewItem(BaseModel):
     # 1D horizon (optional / bonus)
     h1d_price: float | None = None
     h1d_return_pct: float | None = None
+    h1d_raw_return_pct: float | None = None
     h1d_status: HorizonStatus = "pending"
     h1d_bm_return_pct: float | None = None
+    h1d_bm_status: HorizonStatus = "pending"
     h1d_excess_pct: float | None = None
 
     # 5D horizon
     h5d_price: float | None = None
     h5d_return_pct: float | None = None
+    h5d_raw_return_pct: float | None = None
     h5d_status: HorizonStatus = "pending"
     h5d_bm_return_pct: float | None = None
+    h5d_bm_status: HorizonStatus = "pending"
     h5d_excess_pct: float | None = None
 
     # 20D horizon
     h20d_price: float | None = None
     h20d_return_pct: float | None = None
+    h20d_raw_return_pct: float | None = None
     h20d_status: HorizonStatus = "pending"
     h20d_bm_return_pct: float | None = None
+    h20d_bm_status: HorizonStatus = "pending"
     h20d_excess_pct: float | None = None
 
     benchmark_symbol: str = "0050.TWSE"
     benchmark_name: str = "台灣50"
+    entry_date: str | None = None
+    entry_status: HorizonStatus = "pending"
+    price_adjustment: str = "raw_reference_close"
 
 
 class SnapshotReviewDetail(BaseModel):
@@ -98,6 +123,8 @@ class SnapshotReviewDetail(BaseModel):
 
     snapshot: SelectionSnapshot
     evaluated_items: list[HorizonReviewItem] = Field(default_factory=list)
+
+    h1d_evaluated_count: int = 0
 
     h5d_evaluated_count: int = 0
     h20d_evaluated_count: int = 0
@@ -110,6 +137,30 @@ class SnapshotReviewDetail(BaseModel):
 
     h5d_avg_excess_pct: float | None = None
     h20d_avg_excess_pct: float | None = None
+    h1d_pending_count: int = 0
+    h1d_unavailable_count: int = 0
+    h5d_pending_count: int = 0
+    h5d_unavailable_count: int = 0
+    h20d_pending_count: int = 0
+    h20d_unavailable_count: int = 0
+
+
+class ForwardBatchStats(BaseModel):
+    batches_count: int = 0
+    picks_count: int = 0
+    h1d_evaluated_count: int = 0
+    h1d_pending_count: int = 0
+    h1d_unavailable_count: int = 0
+    h1d_hit_rate_pct: float | None = None
+    h5d_evaluated_count: int = 0
+    h5d_pending_count: int = 0
+    h5d_unavailable_count: int = 0
+    h5d_hit_rate_pct: float | None = None
+    h20d_evaluated_count: int = 0
+    h20d_pending_count: int = 0
+    h20d_unavailable_count: int = 0
+    h20d_hit_rate_pct: float | None = None
+    hit_rate_definition: str = "未四捨五入報酬率 > 0%"
 
 
 class SnapshotListItem(BaseModel):
@@ -121,6 +172,13 @@ class SnapshotListItem(BaseModel):
     strategy_name: str
     as_of_date: str
     selected_count: int
+    record_type: Literal["research", "forward_batch"] = "research"
+    locked_at: str | None = None
+    source_data_date: str | None = None
+    target_trade_date: str | None = None
+    target_trade_date_status: Literal["confirmed", "scheduled_unverified"] | None = None
+    rule_version: str | None = None
+    evaluation_basis: Literal["reference_close", "next_open"] = "reference_close"
 
     h5d_evaluated_count: int = 0
     h20d_evaluated_count: int = 0

@@ -708,6 +708,23 @@ def get_taiwan_market_sentiment(
 
 # ── A12: Selection Review (選股復盤) ─────────────────────────────
 
+@router.post("/selection-review/forward-batches")
+def lock_selection_forward_batch():
+    """由後端選股並鎖定當日正式前瞻批次；重送回傳同一批次。"""
+    from app.taiwan.selection_review_service import get_selection_review_service
+
+    try:
+        return get_selection_review_service().lock_forward_batch().model_dump()
+    except ValueError as e:
+        raise HTTPException(status_code=409, detail=str(e)) from e
+
+
+@router.get("/selection-review/forward-batches/stats")
+def get_selection_forward_batch_stats():
+    from app.taiwan.selection_review_service import get_selection_review_service
+
+    return get_selection_review_service().get_forward_batch_stats().model_dump()
+
 @router.post("/selection-review/snapshots")
 def save_selection_snapshot(body: dict[str, Any]):
     """保存本次選股結果為不可變快照 (Point-in-time snapshot)。"""
@@ -767,7 +784,10 @@ def delete_selection_snapshot(snapshot_id: str):
     from app.taiwan.selection_review_service import get_selection_review_service
 
     svc = get_selection_review_service()
-    success = svc.delete_snapshot(snapshot_id)
+    try:
+        success = svc.delete_snapshot(snapshot_id)
+    except PermissionError as e:
+        raise HTTPException(status_code=409, detail=str(e)) from e
     if not success:
         raise HTTPException(status_code=404, detail=f"找不到或無法刪除快照: {snapshot_id}")
     return {"ok": True, "deleted_id": snapshot_id}

@@ -1,0 +1,270 @@
+"""Fixed-session regression tests for the formal forward selection contract."""
+from __future__ import annotations
+
+import json
+from datetime import date, datetime, time, timedelta
+from pathlib import Path
+from zoneinfo import ZoneInfo
+
+import polars as pl
+import pytest
+from fastapi.testclient import TestClient
+
+from app.main import app
+from app.taiwan.corporate_actions import (
+    CorporateActionEvent,
+    CorporateActionStore,
+    event_market_open,
+)
+from app.taiwan.daily_store import TaiwanDailyStore
+from app.taiwan.providers.corporate_actions import SOURCE_URLS
+from app.taiwan.realtime.calendar import TaiwanTradingCalendar
+from app.taiwan.screener import (
+    DataDatesInfo,
+    ScreenerResultItem,
+    TaiwanScreenerRequest,
+    TaiwanScreenerResponse,
+    TaiwanScreenerService,
+)
+from app.taiwan.selection_review_models import SaveSelectionSnapshotRequest, SelectionSnapshotItem
+from app.taiwan.selection_review_service import TaiwanSelectionReviewService
+
+
+def _clock(day: date):
+    return datetime.combine(day, time(15), ZoneInfo("Asia/Taipei"))
+
+
+def _sessions(start: date, count: int, holiday: date) -> list[date]:
+    sessions = []
+    cursor = start
+    while len(sessions) < count:
+        if cursor.weekday() < 5 and cursor != holiday:
+            sessions.append(cursor)
+        cursor += timedelta(days=1)
+    return sessions
+
+
+def _seed(tmp_path: Path, *, missing_stock_5d=False, missing_bm_20d=False,
+          missing_session_5d=False):
+    source = date(2026, 8, 3)
+    holiday = date(2026, 8, 7)
+    sessions = _sessions(source + timedelta(days=1), 20, holiday)
+    store = TaiwanDailyStore(tmp_path / "daily")
+    rows = []
+    for day in [source, *sessions]:
+        if missing_session_5d and day == sessions[4]:
+            continue
+        for symbol in ("2330.TWSE", "0050.TWSE"):
+            if missing_stock_5d and day == sessions[4] and symbol == "2330.TWSE":
+                continue
+            if missing_bm_20d and day == sessions[19] and symbol == "0050.TWSE":
+                continue
+            opening = 100.0 if symbol == "2330.TWSE" else 50.0
+            closing = opening + (0.004 if day == sessions[0] else 1.0)
+            rows.append({"symbol": symbol, "date": day, "open": opening,
+                         "high": closing, "low": opening, "close": closing,
+                         "volume": 1_000_000.0, "amount": opening * 1_000_000.0,
+                         "quote_ts": 0})
+    store.write_batch(pl.DataFrame(rows))
+    actions = CorporateActionStore(tmp_path / "adj_factor")
+    actions.save([])
+    actions.path.with_name("coverage.json").write_text(json.dumps({
+        "start": source.isoformat(), "end": sessions[-1].isoformat(),
+        "sources": sorted(SOURCE_URLS), "events_sha256": actions.snapshot_digest(),
+    }), encoding="utf-8")
+    calendar = TaiwanTradingCalendar(known_holidays={holiday},
+                                     known_trading_days=set([source, *sessions]))
+    service = TaiwanSelectionReviewService(path=tmp_path / "user_data" / "snapshots.json",
+                                           daily_store=store, calendar=calendar,
+                                           action_store=actions)
+    return service, source, sessions
+
+
+class _FixedScreener:
+    def __init__(self, source: date):
+        self.source = source
+
+    def run(self, request: TaiwanScreenerRequest) -> TaiwanScreenerResponse:
+        assert request.preset == "trend_liquidity_v1"
+        return TaiwanScreenerResponse(
+            items=[ScreenerResultItem(symbol="2330.TWSE", name="台積電",
+                                      exchange="TWSE", instrument_type="stock",
+                                      close=101.0, amount=100_000_000, momentum_5d=0.03,
+                                      risk_status="unknown")],
+            total=1, page=1, page_size=20, sort_by="trend_liquidity_v1",
+            sort_order="desc", data_dates=DataDatesInfo(daily_as_of=self.source.isoformat()),
+            risk_unknown_count=1, missing_quote_count=2,
+        )
+
+
+def test_lock_is_server_owned_idempotent_and_undeletable(tmp_path, monkeypatch):
+    svc, source, sessions = _seed(tmp_path)
+    monkeypatch.setattr("app.taiwan.selection_review_service.taipei_now", lambda: _clock(source))
+    screen = _FixedScreener(source)
+    first = svc.lock_forward_batch(screen)
+    second = svc.lock_forward_batch(screen)
+    assert first == second
+    assert first.record_type == "forward_batch"
+    assert first.target_trade_date == sessions[0].isoformat()
+    assert first.primary_observation_count == 1
+    assert first.risk_unknown_count == 1
+    assert first.missing_quote_count == 2
+    assert first.items[0].price == 101.0
+    assert len(svc.list_snapshots()) == 1
+    with pytest.raises(PermissionError):
+        svc.delete_snapshot(first.snapshot_id)
+
+
+def test_horizon_does_not_slide_and_benchmark_missing_is_explicit(tmp_path, monkeypatch):
+    svc, source, sessions = _seed(tmp_path, missing_stock_5d=True, missing_bm_20d=True)
+    monkeypatch.setattr("app.taiwan.selection_review_service.taipei_now", lambda: _clock(source))
+    batch = svc.lock_forward_batch(_FixedScreener(source))
+    monkeypatch.setattr("app.taiwan.selection_review_service.taipei_now",
+                        lambda: _clock(sessions[-1]))
+    detail = svc.get_snapshot_review(batch.snapshot_id)
+    assert detail is not None
+    item = detail.evaluated_items[0]
+    assert item.paper_entry_price == 100.0
+    assert item.h1d_status == "completed"
+    assert item.h1d_return_pct == 0.0
+    assert item.h1d_raw_return_pct > 0
+    assert item.h5d_status == "unavailable"
+    assert item.h5d_return_pct is None
+    assert item.h20d_status == "completed"
+    assert item.h20d_bm_status == "unavailable"
+    assert item.h20d_excess_pct is None
+    assert detail.h5d_unavailable_count == 1
+    stats = svc.get_forward_batch_stats()
+    assert stats.h1d_hit_rate_pct == 100.0
+    assert stats.h5d_unavailable_count == 1
+
+
+def test_whole_market_missing_session_keeps_fifth_day_fixed(tmp_path, monkeypatch):
+    svc, source, sessions = _seed(tmp_path, missing_session_5d=True)
+    assert sessions[4] == date(2026, 8, 11)  # 8/7 is a confirmed holiday.
+    assert sessions[4] not in svc.daily_store.available_dates()
+    monkeypatch.setattr("app.taiwan.selection_review_service.taipei_now", lambda: _clock(source))
+    batch = svc.lock_forward_batch(_FixedScreener(source))
+    monkeypatch.setattr("app.taiwan.selection_review_service.taipei_now",
+                        lambda: _clock(sessions[5]))
+    review = svc.get_snapshot_review(batch.snapshot_id)
+    assert review.evaluated_items[0].h5d_status == "unavailable"
+    assert review.evaluated_items[0].h5d_return_pct is None
+
+
+def test_pending_and_missing_action_coverage_are_distinct(tmp_path, monkeypatch):
+    svc, source, sessions = _seed(tmp_path)
+    monkeypatch.setattr("app.taiwan.selection_review_service.taipei_now", lambda: _clock(source))
+    batch = svc.lock_forward_batch(_FixedScreener(source))
+    before = svc.get_snapshot_review(batch.snapshot_id)
+    assert before.evaluated_items[0].h1d_status == "pending"
+    svc.action_store.path.with_name("coverage.json").unlink()
+    monkeypatch.setattr("app.taiwan.selection_review_service.taipei_now",
+                        lambda: _clock(sessions[4]))
+    after = svc.get_snapshot_review(batch.snapshot_id)
+    assert after.evaluated_items[0].h1d_status == "unavailable"
+    assert after.evaluated_items[0].h20d_status == "pending"
+
+
+def test_old_research_record_is_not_formal_batch(tmp_path, monkeypatch):
+    svc, source, _ = _seed(tmp_path)
+    old = svc.save_snapshot(SaveSelectionSnapshotRequest(
+        strategy_id="old", strategy_name="研究", as_of_date=source.isoformat(),
+        items=[SelectionSnapshotItem(symbol="2330.TWSE", name="台積電", rank=1, price=101)],
+    ))
+    assert old.record_type == "research"
+    assert svc.get_forward_batch_stats().batches_count == 0
+    monkeypatch.setattr("app.taiwan.selection_review_service.taipei_now", lambda: _clock(source))
+    svc.lock_forward_batch(_FixedScreener(source))
+    assert svc.get_forward_batch_stats().batches_count == 1
+    assert svc.delete_snapshot(old.snapshot_id)
+
+
+def test_research_hit_rate_uses_unrounded_return(tmp_path):
+    svc, source, _ = _seed(tmp_path)
+    svc.save_snapshot(SaveSelectionSnapshotRequest(
+        strategy_id="tiny_gain", strategy_name="微幅上漲", as_of_date=source.isoformat(),
+        items=[SelectionSnapshotItem(symbol="2330.TWSE", name="台積電",
+                                     rank=1, price=100.996)],
+    ))
+    stats = next(s for s in svc.get_strategy_reviews() if s.strategy_id == "tiny_gain")
+    assert stats.hit_rate_5d == 100.0
+
+
+def test_forward_api_contract(tmp_path, monkeypatch):
+    svc, source, _ = _seed(tmp_path)
+    monkeypatch.setattr("app.taiwan.selection_review_service.get_selection_review_service",
+                        lambda: svc)
+    monkeypatch.setattr("app.taiwan.selection_review_service.taipei_now", lambda: _clock(source))
+    monkeypatch.setattr("app.taiwan.screener.TaiwanScreenerService",
+                        lambda: _FixedScreener(source))
+    client = TestClient(app, client=("127.0.0.1", 50000))
+    first = client.post("/api/taiwan/selection-review/forward-batches")
+    second = client.post("/api/taiwan/selection-review/forward-batches")
+    assert first.status_code == second.status_code == 200
+    assert first.json()["snapshot_id"] == second.json()["snapshot_id"]
+    assert first.json()["evaluation_basis"] == "next_open"
+    assert client.delete("/api/taiwan/selection-review/snapshots/" + first.json()["snapshot_id"]).status_code == 409
+    assert client.get("/api/taiwan/selection-review/forward-batches/stats").json()["batches_count"] == 1
+
+
+def test_trend_sort_uses_amount_then_symbol():
+    service = object.__new__(TaiwanScreenerService)
+    rows = pl.DataFrame({"symbol": ["B.TWSE", "C.TWSE", "A.TWSE", "D.TWSE"],
+                         "momentum_5d": [0.1, 0.2, 0.1, 0.1],
+                         "amount": [60_000_000, 60_000_000, 60_000_000, 70_000_000]})
+    ordered = service._apply_sort(rows, "trend_liquidity_v1", "desc")
+    assert ordered["symbol"].to_list() == ["C.TWSE", "D.TWSE", "A.TWSE", "B.TWSE"]
+
+
+def test_trend_preset_filters_liquidity_risk_and_etf(tmp_path, monkeypatch):
+    store = TaiwanDailyStore(tmp_path / "daily")
+    sessions = _sessions(date(2026, 8, 3), 26, date(2026, 8, 7))
+    rows = []
+    for index, session in enumerate(sessions):
+        for symbol, amount in (("2330.TWSE", 50_000_000.0),
+                               ("2454.TWSE", 49_999_999.0),
+                               ("8069.TPEX", 60_000_000.0),
+                               ("0050.TWSE", 80_000_000.0)):
+            close = 100.0 + index
+            rows.append({"symbol": symbol, "date": session, "open": close,
+                         "high": close, "low": close, "close": close,
+                         "volume": 1_000_000.0, "amount": amount, "quote_ts": 0})
+    store.write_batch(pl.DataFrame(rows))
+
+    class Risk:
+        def check_symbol_risk_status(self, symbol, target_date=None):
+            assert target_date == sessions[-1]
+            return {"is_disposition": symbol == "8069.TPEX", "is_suspended": False}
+
+        def get_last_sources_status(self):
+            return "partial", {}
+
+    monkeypatch.setattr("app.taiwan.events_service.get_event_service", lambda: Risk())
+    response = TaiwanScreenerService(daily_store=store).run(
+        TaiwanScreenerRequest(preset="trend_liquidity_v1", page_size=200)
+    )
+    assert [item.symbol for item in response.items] == ["2330.TWSE"]
+    assert response.items[0].risk_status == "unknown"
+    assert response.items[0].amount == 50_000_000.0
+    assert response.risk_unknown_count == 1
+
+
+def test_paper_return_uses_verified_cash_dividend_price_factor():
+    start = date(2026, 8, 4)
+    end = date(2026, 8, 5)
+    action = CorporateActionEvent(
+        symbol="2330.TWSE", exchange="TWSE", effective_date=end,
+        effective_at=event_market_open(end), event_type="cash_dividend",
+        previous_close=100.0, reference_price=90.0, factor=0.9,
+        cash_dividend=10.0, free_share_ratio=None, reduction_ratio=None,
+        source="TWT49U", source_url="https://www.twse.com.tw/",
+        retrieved_at=_clock(end), status="verified",
+        precision_method="official_reference_ratio",
+    )
+    value = TaiwanSelectionReviewService._paper_return(
+        "2330.TWSE", start, end,
+        {"open": 100.0, "close": 100.0},
+        {"open": 90.0, "close": 90.0}, [action],
+    )
+    assert value == pytest.approx(0.0)

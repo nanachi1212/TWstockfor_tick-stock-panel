@@ -16,17 +16,27 @@ import json
 import logging
 import threading
 import uuid
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 
+import polars as pl
+
 from app.config import settings
+from app.taiwan.adjust import adjust_prices_as_of
+from app.taiwan.corporate_actions import CorporateActionStore
 from app.taiwan.daily_store import TaiwanDailyStore
+from app.taiwan.observed_universe import ObservedUniverseStore
+from app.taiwan.providers.corporate_actions import SOURCE_URLS
+from app.taiwan.providers.taiwan_values import market_close
+from app.taiwan.realtime.calendar import TaiwanTradingCalendar, taipei_now
 from app.taiwan.selection_review_models import (
     ConditionReviewStats,
+    ForwardBatchStats,
     HorizonReviewItem,
     HorizonStatus,
     SaveSelectionSnapshotRequest,
     SelectionSnapshot,
+    SelectionSnapshotItem,
     SnapshotListItem,
     SnapshotReviewDetail,
     StrategyReviewStats,
@@ -36,6 +46,8 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_BENCHMARK_SYMBOL = "0050.TWSE"
 DEFAULT_BENCHMARK_NAME = "台灣50"
+FORWARD_RULE_VERSION = "trend_liquidity_v1"
+FORWARD_PRICE_ADJUSTMENT = "pit_price_normalized_cash_and_share_actions_not_total_return"
 SAMPLE_SUFFICIENT_THRESHOLD = 5
 
 
@@ -52,9 +64,17 @@ class TaiwanSelectionReviewService:
         self,
         path: Path | None = None,
         daily_store: TaiwanDailyStore | None = None,
+        calendar: TaiwanTradingCalendar | None = None,
+        action_store: CorporateActionStore | None = None,
+        census_store: ObservedUniverseStore | None = None,
     ) -> None:
         self.path = path or _storage_path()
         self.daily_store = daily_store or TaiwanDailyStore()
+        self.calendar = calendar or TaiwanTradingCalendar()
+        self.action_store = action_store or CorporateActionStore()
+        self.census_store = census_store if census_store is not None else (
+            ObservedUniverseStore() if daily_store is None else None
+        )
         self._lock = threading.Lock()
 
     def _read_snapshots_raw(self) -> list[SelectionSnapshot]:
@@ -117,10 +137,71 @@ class TaiwanSelectionReviewService:
                     return s
         return None
 
+    def lock_forward_batch(self, screener=None) -> SelectionSnapshot:
+        """Run the canonical screener server-side and lock one batch per source session."""
+        from app.taiwan.screener import TaiwanScreenerRequest, TaiwanScreenerService
+
+        screen = (screener or TaiwanScreenerService()).run(
+            TaiwanScreenerRequest(preset=FORWARD_RULE_VERSION)
+        )
+        if not screen.data_dates.daily_as_of:
+            raise ValueError("沒有可鎖定的行情資料日期")
+        source_day = date.fromisoformat(screen.data_dates.daily_as_of)
+        now = taipei_now()
+        if now < market_close(source_day):
+            raise ValueError("來源交易日尚未收盤。不能鎖定正式批次")
+        completed_dates = [d for d in self.daily_store.available_dates() if market_close(d) <= now]
+        if source_day != max(completed_dates, default=None):
+            raise ValueError("選股來源日期與評估行情庫不一致")
+        batch_id = f"forward_{FORWARD_RULE_VERSION}_{source_day:%Y%m%d}"
+        with self._lock:
+            existing = self._read_snapshots_raw()
+            for snapshot in existing:
+                if snapshot.snapshot_id == batch_id:
+                    return snapshot
+            items = [SelectionSnapshotItem(
+                symbol=row.symbol, name=row.name, rank=index, price=row.close,
+                quant_score=row.quant_score, match_reasons=row.match_reasons,
+                strategy_conditions={"preset": FORWARD_RULE_VERSION},
+                risk_status=row.risk_status, quote_status="available",
+            ) for index, row in enumerate(screen.items[:20], start=1) if row.close is not None and row.close > 0]
+            target = self._next_potential_session(source_day)
+            snapshot = SelectionSnapshot(
+                snapshot_id=batch_id, created_at=now.astimezone(UTC).isoformat(),
+                locked_at=now.isoformat(),
+                strategy_id=FORWARD_RULE_VERSION, strategy_name="趨勢流動性 v1",
+                as_of_date=source_day.isoformat(), source_data_date=source_day.isoformat(),
+                target_trade_date=target.isoformat(), rule_version=FORWARD_RULE_VERSION,
+                target_trade_date_status=(
+                    "confirmed" if self.calendar.day_evidence(target, "TWSE").status == "trading"
+                    else "scheduled_unverified"
+                ),
+                evaluation_basis="next_open", record_type="forward_batch",
+                price_adjustment=FORWARD_PRICE_ADJUSTMENT,
+                market_context_summary="正式前瞻批次。以鎖定後下一交易日開盤作紙上進場基準",
+                selected_symbols=[item.symbol for item in items], items=items,
+                eligible_total=screen.total, primary_observation_count=min(len(items), 10),
+                missing_quote_count=screen.missing_quote_count,
+                risk_unknown_count=screen.risk_unknown_count,
+            )
+            existing.append(snapshot)
+            self._save_snapshots_raw(existing)
+            return snapshot
+
+    def _next_potential_session(self, after: date) -> date:
+        cursor = after + timedelta(days=1)
+        for _ in range(30):
+            if self.calendar.day_evidence(cursor, "TWSE").status != "non_trading":
+                return cursor
+            cursor += timedelta(days=1)
+        raise ValueError("無法確認下個預定交易日")
+
     def delete_snapshot(self, snapshot_id: str) -> bool:
         """Delete a snapshot by ID."""
         with self._lock:
             existing = self._read_snapshots_raw()
+            if any(s.snapshot_id == snapshot_id and s.record_type == "forward_batch" for s in existing):
+                raise PermissionError("正式前瞻批次已鎖定。不能刪除")
             initial_len = len(existing)
             filtered = [s for s in existing if s.snapshot_id != snapshot_id]
             if len(filtered) < initial_len:
@@ -132,9 +213,43 @@ class TaiwanSelectionReviewService:
     # ── Horizon Evaluation & Review ────────────────────────────────
 
     def _get_forward_trading_days(self, as_of: date) -> list[date]:
-        """Fetch trading days strictly strictly following as_of from TaiwanDailyStore."""
-        avail = sorted(self.daily_store.available_dates())
-        return [d for d in avail if d > as_of]
+        """Resolve sessions from calendar evidence, never slide over missing prices."""
+        partitions = set(self.daily_store.available_dates())
+        observed: dict[date, bool] = {}
+
+        def has_observation(day: date) -> bool:
+            if day not in observed:
+                if day not in partitions:
+                    observed[day] = False
+                else:
+                    frame = self.daily_store.read_range(None, day, day)
+                    observed[day] = bool(not frame.is_empty() and frame.filter(
+                        pl.col("symbol").str.ends_with(".TWSE")
+                        & (pl.col("close") > 0) & (pl.col("volume") > 0)
+                    ).height)
+            return observed[day]
+
+        days: list[date] = []
+        cursor = as_of + timedelta(days=1)
+        for _ in range(100):
+            evidence = self.calendar.day_evidence(cursor, "TWSE")
+            if evidence.status == "unresolved" and self.census_store is not None:
+                evidence = self.census_store.day_evidence("TWSE", cursor, calendar=self.calendar)
+            if evidence.status == "non_trading":
+                if has_observation(cursor):
+                    break
+                cursor += timedelta(days=1)
+                continue
+            if evidence.status == "trading" or has_observation(cursor):
+                days.append(cursor)
+                if len(days) == 20:
+                    break
+            else:
+                # Unknown weekday could be a closure. Subsequent observed bars
+                # must not silently reassign horizon N to date N+1.
+                break
+            cursor += timedelta(days=1)
+        return days
 
     def _get_close_prices(self, symbols: list[str], target_date: date) -> dict[str, float]:
         """Query close prices for a list of symbols on a given trade date."""
@@ -150,11 +265,170 @@ class TaiwanSelectionReviewService:
                     result[sym] = float(close_val)
         return result
 
+    def _verified_action_events(self, start: date, end: date):
+        """Read the existing audited action snapshot without request-time downloads."""
+        marker = self.action_store.path.with_name("coverage.json")
+        if not marker.is_file() or not self.action_store.path.is_file():
+            return None
+        try:
+            record = json.loads(marker.read_text(encoding="utf-8"))
+            if (record.get("events_sha256") != self.action_store.snapshot_digest()
+                    or set(record.get("sources", ())) != set(SOURCE_URLS)
+                    or date.fromisoformat(record["start"]) > start
+                    or date.fromisoformat(record["end"]) < end):
+                return None
+            events = tuple(e for e in self.action_store.read()
+                           if start <= e.effective_date <= end)
+            if any(e.status == "provider_error" for e in events):
+                return None
+            return events
+        except (OSError, ValueError, KeyError, TypeError):
+            return None
+
+    def _get_forward_batch_review(self, snapshot: SelectionSnapshot) -> SnapshotReviewDetail:
+        source = date.fromisoformat(snapshot.source_data_date or snapshot.as_of_date)
+        target = date.fromisoformat(snapshot.target_trade_date or snapshot.as_of_date)
+        sessions = self._get_forward_trading_days(source)
+        symbols = [*(item.symbol for item in snapshot.items), DEFAULT_BENCHMARK_SYMBOL]
+        entry_valid = bool(sessions and sessions[0] == target)
+        target_closed = self.calendar.day_evidence(target, "TWSE").status == "non_trading"
+        today = taipei_now()
+        needed = [target, *(sessions[index - 1] for index in (5, 20) if len(sessions) >= index)]
+        prices: dict[date, dict[str, dict]] = {}
+        for session in set(needed):
+            frame = self.daily_store.read_range(symbols, session, session)
+            prices[session] = {row["symbol"]: row for row in frame.iter_rows(named=True)}
+        evaluated: list[HorizonReviewItem] = []
+        for pick in snapshot.items:
+            entry_row = prices.get(target, {}).get(pick.symbol) if entry_valid else None
+            entry_open = entry_row.get("open") if entry_row else None
+            entry_open = float(entry_open) if entry_open is not None else None
+            if entry_open is not None and entry_open <= 0:
+                entry_open = None
+            entry_status: HorizonStatus = (
+                "unavailable" if target_closed else
+                "pending" if not entry_valid or today < market_close(target)
+                else "completed" if entry_open is not None else "unavailable"
+            )
+            result = HorizonReviewItem(
+                symbol=pick.symbol, name=pick.name, rank=pick.rank,
+                entry_price=pick.price, paper_entry_price=entry_open,
+                entry_date=target.isoformat(), entry_status=entry_status,
+                price_adjustment=FORWARD_PRICE_ADJUSTMENT,
+                quant_score=pick.quant_score, match_reasons=pick.match_reasons,
+                fundamental_summary=pick.fundamental_summary,
+                chips_summary=pick.chips_summary,
+                event_risk_summary=pick.event_risk_summary,
+            )
+            for horizon in (1, 5, 20):
+                end = sessions[horizon - 1] if len(sessions) >= horizon and entry_valid else None
+                prefix = f"h{horizon}d"
+                if target_closed or end is None or today < market_close(end):
+                    setattr(result, f"{prefix}_status",
+                            "unavailable" if target_closed else "pending")
+                    setattr(result, f"{prefix}_bm_status",
+                            "unavailable" if target_closed else "pending")
+                    continue
+                end_row = prices.get(end, {}).get(pick.symbol)
+                bm_entry = prices.get(target, {}).get(DEFAULT_BENCHMARK_SYMBOL)
+                bm_end = prices.get(end, {}).get(DEFAULT_BENCHMARK_SYMBOL)
+                events = self._verified_action_events(target, end)
+                setattr(result, f"{prefix}_bm_status", "unavailable")
+                if entry_open is None or end_row is None or events is None:
+                    setattr(result, f"{prefix}_status", "unavailable")
+                    continue
+                raw = self._paper_return(pick.symbol, target, end, entry_row, end_row, events)
+                if raw is None:
+                    setattr(result, f"{prefix}_status", "unavailable")
+                    continue
+                setattr(result, f"{prefix}_status", "completed")
+                setattr(result, f"{prefix}_price", float(end_row["close"]))
+                setattr(result, f"{prefix}_raw_return_pct", raw)
+                setattr(result, f"{prefix}_return_pct", round(raw, 2))
+                if bm_entry is not None and bm_end is not None:
+                    bm_raw = self._paper_return(DEFAULT_BENCHMARK_SYMBOL, target, end,
+                                                bm_entry, bm_end, events)
+                    if bm_raw is not None:
+                        setattr(result, f"{prefix}_bm_status", "completed")
+                        setattr(result, f"{prefix}_bm_return_pct", round(bm_raw, 2))
+                        setattr(result, f"{prefix}_excess_pct", round(raw - bm_raw, 2))
+                    else:
+                        setattr(result, f"{prefix}_bm_status", "unavailable")
+                else:
+                    setattr(result, f"{prefix}_bm_status", "unavailable")
+            evaluated.append(result)
+
+        detail = SnapshotReviewDetail(snapshot=snapshot, evaluated_items=evaluated)
+        for horizon in (1, 5, 20):
+            prefix = f"h{horizon}d"
+            returns = [getattr(item, f"{prefix}_raw_return_pct") for item in evaluated
+                       if getattr(item, f"{prefix}_status") == "completed"]
+            benchmark = [getattr(item, f"{prefix}_bm_return_pct") for item in evaluated
+                         if getattr(item, f"{prefix}_bm_return_pct") is not None]
+            excess = [getattr(item, f"{prefix}_excess_pct") for item in evaluated
+                      if getattr(item, f"{prefix}_excess_pct") is not None]
+            if horizon == 1:
+                detail.h1d_evaluated_count = len(returns)
+            if horizon in (5, 20):
+                setattr(detail, f"{prefix}_evaluated_count", len(returns))
+                setattr(detail, f"{prefix}_avg_return_pct",
+                        round(sum(returns) / len(returns), 2) if returns else None)
+                setattr(detail, f"{prefix}_bm_avg_return_pct",
+                        round(sum(benchmark) / len(benchmark), 2) if benchmark else None)
+                setattr(detail, f"{prefix}_avg_excess_pct",
+                        round(sum(excess) / len(excess), 2) if excess else None)
+            setattr(detail, f"{prefix}_pending_count",
+                    sum(getattr(i, f"{prefix}_status") == "pending" for i in evaluated))
+            setattr(detail, f"{prefix}_unavailable_count",
+                    sum(getattr(i, f"{prefix}_status") == "unavailable" for i in evaluated))
+        return detail
+
+    @staticmethod
+    def _paper_return(symbol, start, end, entry, exit_row, events) -> float | None:
+        try:
+            frame = pl.DataFrame({
+                "symbol": [symbol] if start == end else [symbol, symbol],
+                "date": [start] if start == end else [start, end],
+                "open": [entry["open"]] if start == end else [entry["open"], exit_row["open"]],
+                "close": [exit_row["close"]] if start == end else [entry["close"], exit_row["close"]],
+            }).with_columns(pl.col("date").cast(pl.Date))
+            adjusted = adjust_prices_as_of(frame, as_of=end, events=events,
+                                           price_columns=("open", "close"))
+            if adjusted.status != "verified":
+                return None
+            rows = adjusted.to_frame().sort("date")
+            return (float(rows["close"][-1]) / float(rows["open"][0]) - 1) * 100
+        except (ValueError, TypeError, ZeroDivisionError):
+            return None
+
+    def get_forward_batch_stats(self) -> ForwardBatchStats:
+        with self._lock:
+            batches = [s for s in self._read_snapshots_raw() if s.record_type == "forward_batch"]
+        stats = ForwardBatchStats(batches_count=len(batches),
+                                  picks_count=sum(len(s.items) for s in batches))
+        reviews = [self.get_snapshot_review(s.snapshot_id) for s in batches]
+        for horizon in (1, 5, 20):
+            prefix = f"h{horizon}d"
+            items = [item for review in reviews if review for item in review.evaluated_items]
+            returns = [getattr(item, f"{prefix}_raw_return_pct") for item in items
+                       if getattr(item, f"{prefix}_status") == "completed"]
+            setattr(stats, f"{prefix}_evaluated_count", len(returns))
+            setattr(stats, f"{prefix}_pending_count",
+                    sum(getattr(item, f"{prefix}_status") == "pending" for item in items))
+            setattr(stats, f"{prefix}_unavailable_count",
+                    sum(getattr(item, f"{prefix}_status") == "unavailable" for item in items))
+            setattr(stats, f"{prefix}_hit_rate_pct",
+                    round(sum(value > 0 for value in returns) / len(returns) * 100, 1)
+                    if returns else None)
+        return stats
+
     def get_snapshot_review(self, snapshot_id: str) -> SnapshotReviewDetail | None:
         """Evaluate a snapshot across 1D, 5D, 20D horizons."""
         snapshot = self.get_snapshot(snapshot_id)
         if not snapshot:
             return None
+        if snapshot.record_type == "forward_batch":
+            return self._get_forward_batch_review(snapshot)
 
         try:
             as_of_dt = date.fromisoformat(snapshot.as_of_date)
@@ -167,6 +441,10 @@ class TaiwanSelectionReviewService:
         d_1d = forward_days[0] if len(forward_days) >= 1 else None
         d_5d = forward_days[4] if len(forward_days) >= 5 else None
         d_20d = forward_days[19] if len(forward_days) >= 20 else None
+        now_tpe = taipei_now()
+        d_1d = d_1d if d_1d and now_tpe >= market_close(d_1d) else None
+        d_5d = d_5d if d_5d and now_tpe >= market_close(d_5d) else None
+        d_20d = d_20d if d_20d and now_tpe >= market_close(d_20d) else None
 
         symbols = [item.symbol for item in snapshot.items]
         all_symbols = list(set([*symbols, DEFAULT_BENCHMARK_SYMBOL]))
@@ -205,11 +483,13 @@ class TaiwanSelectionReviewService:
             # 1D
             h1_price: float | None = None
             h1_ret: float | None = None
+            h1_raw: float | None = None
             h1_status: HorizonStatus = "pending" if d_1d is None else "unavailable"
             h1_excess: float | None = None
             if d_1d is not None and item.symbol in prices_1d and entry_p > 0:
                 h1_price = prices_1d[item.symbol]
-                h1_ret = round((h1_price - entry_p) / entry_p * 100.0, 2)
+                h1_raw = (h1_price - entry_p) / entry_p * 100.0
+                h1_ret = round(h1_raw, 2)
                 h1_status = "completed"
                 if bm_ret_1d is not None:
                     h1_excess = round(h1_ret - bm_ret_1d, 2)
@@ -217,13 +497,15 @@ class TaiwanSelectionReviewService:
             # 5D
             h5_price: float | None = None
             h5_ret: float | None = None
+            h5_raw: float | None = None
             h5_status: HorizonStatus = "pending" if d_5d is None else "unavailable"
             h5_excess: float | None = None
             if d_5d is not None and item.symbol in prices_5d and entry_p > 0:
                 h5_price = prices_5d[item.symbol]
-                h5_ret = round((h5_price - entry_p) / entry_p * 100.0, 2)
+                h5_raw = (h5_price - entry_p) / entry_p * 100.0
+                h5_ret = round(h5_raw, 2)
                 h5_status = "completed"
-                ret_5d_list.append(h5_ret)
+                ret_5d_list.append(h5_raw)
                 if bm_ret_5d is not None:
                     h5_excess = round(h5_ret - bm_ret_5d, 2)
                     excess_5d_list.append(h5_excess)
@@ -231,13 +513,15 @@ class TaiwanSelectionReviewService:
             # 20D
             h20_price: float | None = None
             h20_ret: float | None = None
+            h20_raw: float | None = None
             h20_status: HorizonStatus = "pending" if d_20d is None else "unavailable"
             h20_excess: float | None = None
             if d_20d is not None and item.symbol in prices_20d and entry_p > 0:
                 h20_price = prices_20d[item.symbol]
-                h20_ret = round((h20_price - entry_p) / entry_p * 100.0, 2)
+                h20_raw = (h20_price - entry_p) / entry_p * 100.0
+                h20_ret = round(h20_raw, 2)
                 h20_status = "completed"
-                ret_20d_list.append(h20_ret)
+                ret_20d_list.append(h20_raw)
                 if bm_ret_20d is not None:
                     h20_excess = round(h20_ret - bm_ret_20d, 2)
                     excess_20d_list.append(h20_excess)
@@ -248,6 +532,8 @@ class TaiwanSelectionReviewService:
                     name=item.name,
                     rank=item.rank,
                     entry_price=entry_p,
+                    entry_date=as_of_dt.isoformat(),
+                    entry_status="completed" if entry_p > 0 else "unavailable",
                     quant_score=item.quant_score,
                     match_reasons=item.match_reasons,
                     fundamental_summary=item.fundamental_summary,
@@ -255,18 +541,27 @@ class TaiwanSelectionReviewService:
                     event_risk_summary=item.event_risk_summary,
                     h1d_price=h1_price,
                     h1d_return_pct=h1_ret,
+                    h1d_raw_return_pct=h1_raw,
                     h1d_status=h1_status,
                     h1d_bm_return_pct=bm_ret_1d,
+                    h1d_bm_status=("completed" if bm_ret_1d is not None else
+                                   "pending" if d_1d is None else "unavailable"),
                     h1d_excess_pct=h1_excess,
                     h5d_price=h5_price,
                     h5d_return_pct=h5_ret,
+                    h5d_raw_return_pct=h5_raw,
                     h5d_status=h5_status,
                     h5d_bm_return_pct=bm_ret_5d,
+                    h5d_bm_status=("completed" if bm_ret_5d is not None else
+                                   "pending" if d_5d is None else "unavailable"),
                     h5d_excess_pct=h5_excess,
                     h20d_price=h20_price,
                     h20d_return_pct=h20_ret,
+                    h20d_raw_return_pct=h20_raw,
                     h20d_status=h20_status,
                     h20d_bm_return_pct=bm_ret_20d,
+                    h20d_bm_status=("completed" if bm_ret_20d is not None else
+                                    "pending" if d_20d is None else "unavailable"),
                     h20d_excess_pct=h20_excess,
                     benchmark_symbol=DEFAULT_BENCHMARK_SYMBOL,
                     benchmark_name=DEFAULT_BENCHMARK_NAME,
@@ -281,6 +576,7 @@ class TaiwanSelectionReviewService:
         return SnapshotReviewDetail(
             snapshot=snapshot,
             evaluated_items=evaluated_items,
+            h1d_evaluated_count=sum(i.h1d_status == "completed" for i in evaluated_items),
             h5d_evaluated_count=len(ret_5d_list),
             h20d_evaluated_count=len(ret_20d_list),
             h5d_avg_return_pct=avg_5d,
@@ -289,6 +585,12 @@ class TaiwanSelectionReviewService:
             h20d_bm_avg_return_pct=bm_ret_20d,
             h5d_avg_excess_pct=avg_excess_5d,
             h20d_avg_excess_pct=avg_excess_20d,
+            h1d_pending_count=sum(i.h1d_status == "pending" for i in evaluated_items),
+            h1d_unavailable_count=sum(i.h1d_status == "unavailable" for i in evaluated_items),
+            h5d_pending_count=sum(i.h5d_status == "pending" for i in evaluated_items),
+            h5d_unavailable_count=sum(i.h5d_status == "unavailable" for i in evaluated_items),
+            h20d_pending_count=sum(i.h20d_status == "pending" for i in evaluated_items),
+            h20d_unavailable_count=sum(i.h20d_status == "unavailable" for i in evaluated_items),
         )
 
     def list_snapshots(self) -> list[SnapshotListItem]:
@@ -311,6 +613,13 @@ class TaiwanSelectionReviewService:
                         strategy_name=s.strategy_name,
                         as_of_date=s.as_of_date,
                         selected_count=len(s.items),
+                        record_type=s.record_type,
+                        locked_at=s.locked_at,
+                        source_data_date=s.source_data_date,
+                        target_trade_date=s.target_trade_date,
+                        target_trade_date_status=s.target_trade_date_status,
+                        rule_version=s.rule_version,
+                        evaluation_basis=s.evaluation_basis,
                         h5d_evaluated_count=review.h5d_evaluated_count,
                         h20d_evaluated_count=review.h20d_evaluated_count,
                         h5d_avg_return_pct=review.h5d_avg_return_pct,
@@ -330,6 +639,13 @@ class TaiwanSelectionReviewService:
                         strategy_name=s.strategy_name,
                         as_of_date=s.as_of_date,
                         selected_count=len(s.items),
+                        record_type=s.record_type,
+                        locked_at=s.locked_at,
+                        source_data_date=s.source_data_date,
+                        target_trade_date=s.target_trade_date,
+                        target_trade_date_status=s.target_trade_date_status,
+                        rule_version=s.rule_version,
+                        evaluation_basis=s.evaluation_basis,
                     )
                 )
         return result
@@ -359,12 +675,12 @@ class TaiwanSelectionReviewService:
                 if not rev:
                     continue
                 for item in rev.evaluated_items:
-                    if item.h5d_status == "completed" and item.h5d_return_pct is not None:
-                        all_ret_5d.append(item.h5d_return_pct)
+                    if item.h5d_status == "completed" and item.h5d_raw_return_pct is not None:
+                        all_ret_5d.append(item.h5d_raw_return_pct)
                         if item.h5d_excess_pct is not None:
                             all_excess_5d.append(item.h5d_excess_pct)
-                    if item.h20d_status == "completed" and item.h20d_return_pct is not None:
-                        all_ret_20d.append(item.h20d_return_pct)
+                    if item.h20d_status == "completed" and item.h20d_raw_return_pct is not None:
+                        all_ret_20d.append(item.h20d_raw_return_pct)
                         if item.h20d_excess_pct is not None:
                             all_excess_20d.append(item.h20d_excess_pct)
 
@@ -419,10 +735,10 @@ class TaiwanSelectionReviewService:
                     cleaned_reason = reason.strip()
                     if not cleaned_reason:
                         continue
-                    if item.h5d_status == "completed" and item.h5d_return_pct is not None:
-                        cond_ret_5d.setdefault(cleaned_reason, []).append(item.h5d_return_pct)
-                    if item.h20d_status == "completed" and item.h20d_return_pct is not None:
-                        cond_ret_20d.setdefault(cleaned_reason, []).append(item.h20d_return_pct)
+                    if item.h5d_status == "completed" and item.h5d_raw_return_pct is not None:
+                        cond_ret_5d.setdefault(cleaned_reason, []).append(item.h5d_raw_return_pct)
+                    if item.h20d_status == "completed" and item.h20d_raw_return_pct is not None:
+                        cond_ret_20d.setdefault(cleaned_reason, []).append(item.h20d_raw_return_pct)
 
         all_conditions = set(cond_ret_5d.keys()) | set(cond_ret_20d.keys())
         stats: list[ConditionReviewStats] = []
