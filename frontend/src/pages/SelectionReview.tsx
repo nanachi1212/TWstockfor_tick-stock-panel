@@ -97,7 +97,18 @@ function excessStatus(stock: 'completed' | 'pending' | 'unavailable', benchmark:
   return stock === 'pending' || benchmark === 'pending' ? 'tracking' : 'missing'
 }
 
-function ForwardStats({ stats, formatPct }: { stats: ForwardBatchStats; formatPct: (value: number | null | undefined) => string }) {
+const FORWARD_STRATEGIES = [
+  { id: 'trend_liquidity_v1', name: '趨勢流動性 v1' },
+  { id: 'institutional_momentum_v1', name: '法人動能 v1' },
+  { id: 'growth_trend_v1', name: '成長趨勢 v1' },
+  { id: 'breakout_v1', name: '突破轉強 v1' },
+  { id: 'multi_factor_consensus_v1', name: '多策略共識 v1' },
+] as const
+
+function ForwardStats({ stats, formatPct, strategyId }: { stats: ForwardBatchStats; formatPct: (value: number | null | undefined) => string; strategyId: string }) {
+  if (stats.strategy_id && stats.batches_count === 0) {
+    return <section aria-label="前瞻績效中心" className="rounded-xl border border-dashed border-border/70 bg-card/40 p-8 text-center"><Clock className="mx-auto mb-3 h-9 w-9 text-muted-foreground/50" /><h2 className="font-medium">{FORWARD_STRATEGIES.find(item => item.id === strategyId)?.name ?? strategyId} 尚無正式前瞻批次</h2><p className="mt-2 text-xs text-muted-foreground">目前不顯示 0% 命中率，待使用者明確鎖定正式名單後才開始累積。</p><Link to="/taiwan-screener" className="mt-4 inline-flex items-center gap-1 text-xs text-primary">前往台股選股 <ChevronRight className="h-3 w-3" /></Link></section>
+  }
   if (stats.horizons) {
     const horizons = ['1D', '5D', '20D'] as const
     const renderCohort = (summary: ForwardCohortStats | undefined) => summary ? <dl className="mt-2 grid grid-cols-2 gap-y-1 text-xs">
@@ -111,7 +122,7 @@ function ForwardStats({ stats, formatPct }: { stats: ForwardBatchStats; formatPc
     return <section aria-label="前瞻績效中心" className="space-y-3">
       <div className="rounded-xl border border-primary/25 bg-card p-4">
         <div className="flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
-          <div><h2 className="text-base font-semibold">Forward Selection Performance Center</h2><p className="mt-1 text-xs text-muted-foreground">策略：trend_liquidity_v1，僅統計正式 forward batch，不混入 research snapshot。</p></div>
+          <div><h2 className="text-base font-semibold">Forward Selection Performance Center</h2><p className="mt-1 text-xs text-muted-foreground">策略：{stats.strategy_name ?? strategyId}，僅統計正式 forward batch，不混入 research snapshot。</p></div>
           <span className="text-[11px] text-muted-foreground">命中率與 Beat 0050 均排除 pending／unavailable</span>
         </div>
         <dl className="mt-4 grid grid-cols-2 gap-3 text-xs sm:grid-cols-4">
@@ -152,6 +163,7 @@ export function SelectionReview() {
   const [selectedSnapshotId, setSelectedSnapshotId] = useState<string | null>(null)
   const selectedForwardBatchId = searchParams.get('batch_id')
   const [strategyFilter, setStrategyFilter] = useState<string>('all')
+  const [forwardStrategy, setForwardStrategy] = useState<string>('trend_liquidity_v1')
 
   // 1. 快照列表
   const snapshotsQuery = useQuery({
@@ -171,13 +183,13 @@ export function SelectionReview() {
   })
 
   const forwardBatchesQuery = useQuery({
-    queryKey: QK.selectionForwardBatches,
-    queryFn: () => api.selectionReview.listForwardBatches(),
+    queryKey: QK.selectionForwardBatches(forwardStrategy),
+    queryFn: () => api.selectionReview.listForwardBatches(forwardStrategy),
     enabled: activeTab === 'forward',
   })
   const forwardStatsQuery = useQuery({
-    queryKey: QK.selectionForwardStats,
-    queryFn: () => api.selectionReview.getForwardBatchStats(),
+    queryKey: QK.selectionForwardStats(forwardStrategy),
+    queryFn: () => api.selectionReview.getForwardBatchStats(forwardStrategy),
     enabled: activeTab === 'forward',
   })
   const forwardBatchDetailQuery = useQuery({
@@ -335,9 +347,16 @@ export function SelectionReview() {
 
       {activeTab === 'forward' && (
         <section aria-label="正式前瞻批次" className="space-y-4">
+          <div className="flex flex-wrap items-center gap-3 rounded-xl border border-border/60 bg-card p-3">
+            <label htmlFor="forward-strategy" className="text-sm font-medium">績效策略</label>
+            <select id="forward-strategy" value={forwardStrategy} onChange={event => { setForwardStrategy(event.target.value); setSearchParams({ tab: 'forward' }) }} className="rounded-md border border-border bg-background px-3 py-1.5 text-sm">
+              {FORWARD_STRATEGIES.map(strategy => <option key={strategy.id} value={strategy.id}>{strategy.name}</option>)}
+            </select>
+            <span className="text-xs text-muted-foreground">每個 strategy_id 分開統計，不混入其他策略批次。</span>
+          </div>
           {forwardStatsQuery.isError ? (
             <div role="alert" className="space-y-2 rounded-xl border border-destructive/30 p-4 text-sm"><p>前瞻績效統計載入失敗，尚無法確認累積表現。</p><button type="button" onClick={() => forwardStatsQuery.refetch()} className="text-primary underline">重新載入</button></div>
-          ) : forwardStatsQuery.data ? <ForwardStats stats={forwardStatsQuery.data} formatPct={formatPct} /> : null}
+          ) : forwardStatsQuery.data ? <ForwardStats stats={forwardStatsQuery.data} strategyId={forwardStrategy} formatPct={formatPct} /> : null}
           {selectedForwardBatchId ? (
             <div className="space-y-3">
               <button type="button" onClick={() => setSearchParams({ tab: 'forward' })} className="text-xs text-primary hover:underline">返回正式批次清單</button>

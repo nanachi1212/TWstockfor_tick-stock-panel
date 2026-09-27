@@ -40,6 +40,7 @@ class SelectionSnapshot(BaseModel):
     snapshot_id: str = Field(..., description="唯一識別碼，格式如 snap_YYYYMMDD_HHMMSS_xxxx")
     created_at: str = Field(..., description="建立時間戳記 ISO 8601")
     strategy_id: str = Field(..., description="策略代號")
+    strategy_version: str | None = Field(None, description="固定策略版本")
     strategy_name: str = Field(..., description="策略名稱")
     as_of_date: str = Field(..., description="選股資料基準日 (YYYY-MM-DD 交易日)")
     market_context_summary: str = Field(..., description="當時大盤環境摘要")
@@ -230,6 +231,8 @@ class SnapshotReviewDetail(BaseModel):
 
 
 class ForwardBatchStats(BaseModel):
+    strategy_id: str | None = None
+    strategy_name: str | None = None
     batches_count: int = 0
     picks_count: int = 0
     h1d_evaluated_count: int = 0
@@ -276,6 +279,7 @@ class SnapshotListItem(BaseModel):
     snapshot_id: str
     created_at: str
     strategy_id: str
+    strategy_version: str | None = None
     strategy_name: str
     as_of_date: str
     selected_count: int

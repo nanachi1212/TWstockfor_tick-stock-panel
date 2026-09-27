@@ -33,6 +33,12 @@ function buildScreenerResponse() {
     page: 1,
     page_size: 50,
     data_dates: { daily_as_of: '2026-08-28', institutional_as_of: '2026-08-28', margin_as_of: '2026-08-28' },
+    quote_coverage_status: 'verified',
+    risk_unknown_count: 0,
+    risk_source_status: 'available',
+    trend_adjustment_status: 'verified',
+    strategy_id: 'trend_liquidity_v1',
+    strategy_readiness: 'ready',
     items: [
       {
         symbol: '2330.TWSE',

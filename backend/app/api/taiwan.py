@@ -708,29 +708,37 @@ def get_taiwan_market_sentiment(
 
 # ── A12: Selection Review (選股復盤) ─────────────────────────────
 
+class ForwardBatchLockRequest(BaseModel):
+    strategy_id: str = "trend_liquidity_v1"
+
+
 @router.post("/selection-review/forward-batches")
-def lock_selection_forward_batch():
+def lock_selection_forward_batch(body: ForwardBatchLockRequest | None = None):
     """由後端選股並鎖定當日正式前瞻批次；重送回傳同一批次。"""
     from app.taiwan.selection_review_service import get_selection_review_service
 
     try:
-        return get_selection_review_service().lock_forward_batch().model_dump()
+        strategy_id = body.strategy_id if body else "trend_liquidity_v1"
+        return get_selection_review_service().lock_forward_batch(strategy_id=strategy_id).model_dump()
     except ValueError as e:
         raise HTTPException(status_code=409, detail=str(e)) from e
 
 
 @router.get("/selection-review/forward-batches/stats")
-def get_selection_forward_batch_stats():
+def get_selection_forward_batch_stats(strategy_id: str | None = Query(default=None)):
     from app.taiwan.selection_review_service import get_selection_review_service
 
-    return get_selection_review_service().get_forward_batch_stats().model_dump()
+    try:
+        return get_selection_review_service().get_forward_batch_stats(strategy_id=strategy_id).model_dump()
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
 
 
 @router.get("/selection-review/forward-batches")
-def list_selection_forward_batches():
+def list_selection_forward_batches(strategy_id: str | None = Query(default=None)):
     from app.taiwan.selection_review_service import get_selection_review_service
 
-    return [s.model_dump() for s in get_selection_review_service().list_snapshots("forward_batch")]
+    return [s.model_dump() for s in get_selection_review_service().list_snapshots("forward_batch", strategy_id)]
 
 
 @router.get("/selection-review/forward-batches/{batch_id}")

@@ -1042,7 +1042,7 @@ export interface TaiwanCurrentDataResponse {
 
 // ===== Taiwan Screener Types (Phase 6B & A10) =====
 export interface TaiwanScreenerRequest {
-  preset?: 'trend_liquidity_v1'
+  preset?: 'trend_liquidity_v1' | 'institutional_momentum_v1' | 'growth_trend_v1' | 'breakout_v1' | 'multi_factor_consensus_v1'
   exchange?: 'TWSE' | 'TPEX' | 'ALL'
   instrument?: 'stock' | 'etf' | 'ALL'
   industry?: string | null
@@ -1138,11 +1138,18 @@ export interface ScreenerResultItem {
   rsi_14?: number | null
   momentum_5d?: number | null
   vol_ratio_5d?: number | null
+  ma60?: number | null
+  momentum_20d?: number | null
+  vol_ratio_20d?: number | null
+  momentum_acceleration?: number | null
+  breakout_20d_strength?: number | null
+  breakout_60d_strength?: number | null
   foreign_net?: number | null
   foreign_net_5d?: number | null
   investment_trust_net?: number | null
   investment_trust_net_5d?: number | null
   dealer_net?: number | null
+  institutional_flow_ratio_5d?: number | null
   institutional_date?: string | null
   institutional_status?: string
   margin_balance?: number | null
@@ -1158,6 +1165,8 @@ export interface ScreenerResultItem {
   dividend_yield?: number | null
   revenue_yoy?: number | null
   revenue_mom?: number | null
+  revenue_yoy_improving?: boolean | null
+  revenue_status?: string
   latest_eps?: number | null
 
   // Chips & Quant
@@ -1167,6 +1176,11 @@ export interface ScreenerResultItem {
   quant_score?: number | null
   match_reasons?: string[]
   risk_status?: 'clear' | 'unknown' | null
+  strategy_id?: string | null
+  strategy_version?: string | null
+  strategy_signals?: string[]
+  consensus_hit_count?: number | null
+  consensus_strategy_names?: string[]
 }
 
 export interface ScreenerCoverageInfo {
@@ -1197,6 +1211,12 @@ export interface TaiwanScreenerResponse {
   risk_source_status?: 'available' | 'partial' | 'unavailable' | null
   risk_source_as_of?: string | null
   risk_target_date?: string | null
+  strategy_id?: string | null
+  strategy_name?: string | null
+  strategy_version?: string | null
+  strategy_readiness?: 'ready' | 'degraded' | 'unavailable' | null
+  strategy_readiness_reasons?: string[]
+  strategy_coverage?: Record<string, number>
   trend_indicator_basis?: 'raw' | 'pit_adjusted'
   trend_adjustment_status?: 'verified' | 'partial' | 'unavailable' | null
 }
@@ -3958,14 +3978,17 @@ export const api = {
 
   // ===== Selection Review & Snapshot (A12) =====
   selectionReview: {
-    lockForwardBatch: () =>
-      request<SelectionSnapshot>('/api/taiwan/selection-review/forward-batches', { method: 'POST' }),
-    listForwardBatches: () =>
-      request<SnapshotListItem[]>('/api/taiwan/selection-review/forward-batches'),
+    lockForwardBatch: (strategyId = 'trend_liquidity_v1') =>
+      request<SelectionSnapshot>('/api/taiwan/selection-review/forward-batches', {
+        method: 'POST',
+        body: JSON.stringify({ strategy_id: strategyId }),
+      }),
+    listForwardBatches: (strategyId?: string) =>
+      request<SnapshotListItem[]>(`/api/taiwan/selection-review/forward-batches${strategyId ? `?strategy_id=${encodeURIComponent(strategyId)}` : ''}`),
     getForwardBatchDetail: (batchId: string) =>
       request<SnapshotReviewDetail>(`/api/taiwan/selection-review/forward-batches/${encodeURIComponent(batchId)}`),
-    getForwardBatchStats: () =>
-      request<ForwardBatchStats>('/api/taiwan/selection-review/forward-batches/stats'),
+    getForwardBatchStats: (strategyId?: string) =>
+      request<ForwardBatchStats>(`/api/taiwan/selection-review/forward-batches/stats${strategyId ? `?strategy_id=${encodeURIComponent(strategyId)}` : ''}`),
     saveSnapshot: (payload: SaveSelectionSnapshotRequest) =>
       request<SelectionSnapshot>('/api/taiwan/selection-review/snapshots', {
         method: 'POST',
@@ -4199,6 +4222,7 @@ export interface SelectionSnapshot {
   snapshot_id: string
   created_at: string
   strategy_id: string
+  strategy_version?: string | null
   strategy_name: string
   as_of_date: string
   market_context_summary: string
@@ -4333,6 +4357,7 @@ export interface SnapshotListItem {
   snapshot_id: string
   created_at: string
   strategy_id: string
+  strategy_version?: string | null
   strategy_name: string
   as_of_date: string
   selected_count: number
@@ -4365,6 +4390,8 @@ export interface SnapshotListItem {
 }
 
 export interface ForwardBatchStats {
+  strategy_id?: string | null
+  strategy_name?: string | null
   batches_count: number
   picks_count: number
   h1d_evaluated_count: number
