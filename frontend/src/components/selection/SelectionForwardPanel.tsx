@@ -113,7 +113,7 @@ export function SelectionForwardPanel({ preview = null, onDryRun, onRefreshData,
           {preview.status === 'unavailable' && (
             <p role="status" className="rounded-lg border border-border p-3 text-xs text-muted-foreground">目前無法提供正式候選資料。</p>
           )}
-          {preview.candidates.length === 0 && <p role="status" className="rounded-lg border border-border p-3 text-xs text-muted-foreground">目前沒有可展示的候選標的，無法鎖定名單。</p>}
+          {preview.candidates.length === 0 && <p role="status" className="rounded-lg border border-border p-3 text-xs text-muted-foreground">{preview.strategyReadiness === 'ready' ? '目前條件下沒有候選標的。' : '目前沒有可展示的候選標的，資料尚未準備完成。'}</p>}
           <dl className="grid grid-cols-1 gap-2 text-xs sm:grid-cols-4">
             <div><dt className="text-muted-foreground">策略 readiness</dt><dd className="mt-0.5 font-medium">{preview.strategyReadiness ?? '資料不足'}</dd></div>
             <div><dt className="text-muted-foreground">資料日期</dt><dd className="mt-0.5 font-medium">{preview.dataDate ?? '資料不足'}</dd></div>

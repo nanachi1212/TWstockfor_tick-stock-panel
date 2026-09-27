@@ -349,6 +349,7 @@ class TaiwanScreenerResponse(BaseModel):
     quote_coverage_status: Literal["verified", "unavailable"] | None = None
     risk_unknown_count: int = 0
     risk_source_status: Literal["available", "partial", "unavailable"] | None = None
+    risk_source_statuses: dict[str, str] = {}
     risk_source_as_of: str | None = None
     trend_indicator_basis: Literal["raw", "pit_adjusted"] = "raw"
     trend_adjustment_status: Literal["verified", "partial", "unavailable"] | None = None
@@ -517,12 +518,18 @@ class TaiwanScreenerService:
             degraded = [*degraded, trend_degraded_section]
 
         # Step 6.5: Batch Join Cached Fundamentals & Chips
-        combined, fund_count, chips_count = self._join_cached_fundamentals_chips(combined, valid_symbols)
+        combined, fund_count, chips_count = self._join_cached_fundamentals_chips(
+            combined,
+            valid_symbols,
+            as_of=(date.fromisoformat(daily_as_of) if req.preset in STRATEGY_IDS else None),
+        )
 
         if req.preset == "trend_liquidity_v1":
             # A missing/stale quote or indicator cannot qualify as a fresh candidate.
             combined = trend_liquidity_v1_candidates(combined, latest_daily["date"].max())
-        elif req.preset in V2_STRATEGY_IDS:
+        readiness_frame = combined
+        if req.preset in V2_STRATEGY_IDS:
+            readiness_frame = apply_strategy(combined, req.preset, filter_candidates=False)
             combined = apply_strategy(combined, req.preset)
 
         # Step 7: Apply Strongly Typed Filters
@@ -530,6 +537,7 @@ class TaiwanScreenerService:
 
         risk_statuses: dict[str, str] = {}
         risk_source_status: Literal["available", "partial", "unavailable"] | None = None
+        risk_source_statuses: dict[str, str] = {}
         risk_source_as_of: str | None = None
         if req.preset in STRATEGY_IDS:
             from app.taiwan.events_service import get_event_service
@@ -539,6 +547,14 @@ class TaiwanScreenerService:
                 cached_events, risk_source_status, risk_source_as_of = (
                     event_svc.get_cached_regulatory_snapshot()
                 )
+                get_sources_status = getattr(event_svc, "get_last_sources_status", None)
+                if callable(get_sources_status):
+                    _last_status, risk_source_statuses = get_sources_status()
+                if risk_source_status == "unavailable":
+                    risk_source_statuses = {
+                        source: "stale" if status == "available" else status
+                        for source, status in risk_source_statuses.items()
+                    }
             except Exception:
                 event_svc = None
                 cached_events, risk_source_status, risk_source_as_of = [], "unavailable", None
@@ -596,7 +612,7 @@ class TaiwanScreenerService:
         strategy_coverage: dict[str, int] = {}
         if req.preset in STRATEGY_IDS:
             readiness, readiness_reasons, strategy_coverage = strategy_readiness(
-                combined, req.preset,
+                readiness_frame, req.preset,
                 quote_coverage_status=quote_coverage_status,
                 risk_source_status=risk_source_status,
             )
@@ -619,6 +635,7 @@ class TaiwanScreenerService:
             quote_coverage_status=quote_coverage_status,
             risk_unknown_count=sum(i.risk_status == "unknown" for i in items),
             risk_source_status=risk_source_status,
+            risk_source_statuses=risk_source_statuses,
             risk_source_as_of=risk_source_as_of,
             trend_indicator_basis="pit_adjusted" if req.preset == "trend_liquidity_v1" else "raw",
             trend_adjustment_status=trend_adjustment_status,
@@ -903,7 +920,7 @@ class TaiwanScreenerService:
                 start = end - timedelta(days=14)
                 history = self.institutional_store.read_range(symbols, start, end)
                 if not history.is_empty():
-                    history = history.filter(pl.col("status") == "available")
+                    history = history.filter(pl.col("status").is_in(["available", "official"]))
                     latest_dates = sorted(history["date"].unique().to_list())[-5:]
                     history = history.filter(pl.col("date").is_in(latest_dates))
                     if len(latest_dates) == 5:
@@ -969,20 +986,19 @@ class TaiwanScreenerService:
         return df, inst_date, margin_date, degraded
 
     def _join_cached_fundamentals_chips(
-        self, df: pl.DataFrame, symbols: list[str]
+        self, df: pl.DataFrame, symbols: list[str], *, as_of: date | str | None = None
     ) -> tuple[pl.DataFrame, int, int]:
         """Join cached fundamental metrics, extra chips, and quant scores safely from local store."""
-        symbols_set = set(symbols)
         fc_svc = self._get_fundamental_chips_service()
 
-        cached_rev_syms = set(self.cache.list_cached_symbols("TaiwanStockMonthRevenue")) & symbols_set
-        cached_fin_syms = set(self.cache.list_cached_symbols("TaiwanStockFinancialStatements")) & symbols_set
-        cached_val_syms = set(self.cache.list_cached_symbols("TaiwanValuation")) & symbols_set
-        cached_share_syms = set(self.cache.list_cached_symbols("TaiwanStockShareholding")) & symbols_set
-        cached_lend_syms = set(self.cache.list_cached_symbols("TaiwanStockSecuritiesLending")) & symbols_set
+        cached_rev_keys = self._cached_symbol_keys("TaiwanStockMonthRevenue", symbols)
+        cached_fin_keys = self._cached_symbol_keys("TaiwanStockFinancialStatements", symbols)
+        cached_val_keys = self._cached_symbol_keys("TaiwanValuation", symbols)
+        cached_share_keys = self._cached_symbol_keys("TaiwanStockShareholding", symbols)
+        cached_lend_keys = self._cached_symbol_keys("TaiwanStockSecuritiesLending", symbols)
 
-        fundamental_symbols = cached_rev_syms | cached_fin_syms | cached_val_syms
-        chips_symbols = cached_share_syms | cached_lend_syms
+        fundamental_symbols = set(cached_rev_keys) | set(cached_fin_keys) | set(cached_val_keys)
+        chips_symbols = set(cached_share_keys) | set(cached_lend_keys)
 
         # Live Quant scores
         quant_scores: dict[str, float] = {}
@@ -1014,19 +1030,19 @@ class TaiwanScreenerService:
         share_chg20_map: dict[str, float | None] = {}
         lend_anomaly_map: dict[str, str | None] = {}
 
-        for sym in cached_val_syms:
-            cached = self.cache.get("TaiwanValuation", sym)
+        for sym, cache_key in cached_val_keys.items():
+            cached = self.cache.get("TaiwanValuation", cache_key)
             if cached and cached.get("data"):
                 d = cached["data"]
                 pe_map[sym] = parse_number(d.get("pe"))
                 pb_map[sym] = parse_number(d.get("pb"))
                 dy_map[sym] = parse_number(d.get("dividend_yield"))
 
-        for sym in cached_rev_syms:
-            cached = self.cache.get("TaiwanStockMonthRevenue", sym)
+        for sym, cache_key in cached_rev_keys.items():
+            cached = self.cache.get("TaiwanStockMonthRevenue", cache_key)
             if cached and cached.get("data"):
                 rev_data = fc_svc._process_month_revenue(
-                    cached["data"], cached.get("data_date"), cached.get("fetched_at", "")
+                    cached["data"], cached.get("data_date"), cached.get("fetched_at", ""), as_of=as_of
                 )
                 rev_yoy_map[sym] = rev_data.yoy
                 rev_mom_map[sym] = rev_data.mom
@@ -1039,8 +1055,8 @@ class TaiwanScreenerService:
                     rev_yoy_improvement_map[sym] = valid_yoy[-1] - valid_yoy[-2]
                     rev_yoy_improving_map[sym] = valid_yoy[-1] > valid_yoy[-2]
 
-        for sym in cached_fin_syms:
-            cached = self.cache.get("TaiwanStockFinancialStatements", sym)
+        for sym, cache_key in cached_fin_keys.items():
+            cached = self.cache.get("TaiwanStockFinancialStatements", cache_key)
             if cached and cached.get("data"):
                 fin_data = fc_svc._process_financial_statements(
                     cached["data"], cached.get("data_date"), cached.get("fetched_at", "")
@@ -1048,8 +1064,8 @@ class TaiwanScreenerService:
                 eps_map[sym] = fin_data.latest_eps
                 net_inc_map[sym] = fin_data.net_income
 
-        for sym in cached_share_syms:
-            cached = self.cache.get("TaiwanStockShareholding", sym)
+        for sym, cache_key in cached_share_keys.items():
+            cached = self.cache.get("TaiwanStockShareholding", cache_key)
             if cached and cached.get("data"):
                 sh_data = fc_svc._process_shareholding(
                     cached["data"], cached.get("data_date"), cached.get("fetched_at", "")
@@ -1057,8 +1073,8 @@ class TaiwanScreenerService:
                 share_ratio_map[sym] = sh_data.ratio
                 share_chg20_map[sym] = sh_data.change_20d
 
-        for sym in cached_lend_syms:
-            cached = self.cache.get("TaiwanStockSecuritiesLending", sym)
+        for sym, cache_key in cached_lend_keys.items():
+            cached = self.cache.get("TaiwanStockSecuritiesLending", cache_key)
             if cached and cached.get("data"):
                 sl_data = fc_svc._process_securities_lending(
                     cached["data"], cached.get("data_date"), cached.get("fetched_at", "")
@@ -1099,6 +1115,28 @@ class TaiwanScreenerService:
         ])
 
         return df, len(fundamental_symbols), len(chips_symbols)
+
+    def _cached_symbol_keys(self, dataset: str, symbols: list[str]) -> dict[str, str]:
+        """Resolve canonical symbols to valid cache keys without exchange ambiguity."""
+        cached_keys = set(self.cache.list_cached_symbols(dataset))
+        resolved: dict[str, str] = {}
+        raw_to_symbols: dict[str, list[str]] = {}
+        for symbol in symbols:
+            raw_to_symbols.setdefault(symbol.split(".", 1)[0], []).append(symbol)
+
+        for symbol in symbols:
+            candidates = [symbol]
+            raw_code = symbol.split(".", 1)[0]
+            if len(raw_to_symbols[raw_code]) == 1:
+                candidates.append(raw_code)
+            for cache_key in candidates:
+                if cache_key not in cached_keys:
+                    continue
+                payload = self.cache.get(dataset, cache_key)
+                if payload and payload.get("status") == "available" and payload.get("data"):
+                    resolved[symbol] = cache_key
+                    break
+        return resolved
 
 
     @staticmethod

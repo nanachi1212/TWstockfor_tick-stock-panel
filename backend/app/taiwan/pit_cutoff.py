@@ -59,20 +59,25 @@ def filter_month_revenue_as_of(
 ) -> list[dict[str, Any]]:
     """Return monthly revenue rows available for the given query context.
 
-    Phase 6G: TaiwanStockMonthRevenue aggregate rows have no verified
-    record-level publication timestamp or document identity.  Filing
-    deadlines (10th of the following month) are not a reliable availability
-    proof and may silently import corrections or restatements.
+    FinMind monthly-revenue rows carry ``create_time`` as the provider's
+    publication timestamp.  Use that timestamp for a historical cutoff;
+    rows without it remain unavailable rather than being inferred from a
+    filing deadline.
 
     - as_of is None  (current/latest analysis): all rows returned.
-    - as_of is set   (historical analysis): returns [] (fail-closed;
-      no verified availability evidence for any row).
+    - as_of is set   (historical analysis): keep only rows published by the
+      cutoff date.
     """
     if resolve_as_of_date(as_of) is None:
         # Current / latest analysis: pass all rows for downstream selection.
         return rows
-    # Historical query: no verified availability evidence -> fail closed.
-    return []
+    cutoff_str = resolve_as_of_date(as_of).strftime("%Y-%m-%d")
+    filtered: list[dict[str, Any]] = []
+    for row in rows:
+        published = str(row.get("create_time") or "").strip()[:10]
+        if published and published <= cutoff_str:
+            filtered.append(row)
+    return filtered
 
 
 def filter_financial_statements_as_of(

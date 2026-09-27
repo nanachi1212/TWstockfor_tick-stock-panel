@@ -145,7 +145,10 @@ export function TaiwanScreener() {
       ...(forwardPreview.quote_coverage_status !== 'verified' ? ['行情覆蓋：未驗證'] : []),
       ...(forwardPreview.missing_quote_count ? [`${forwardPreview.missing_quote_count} 檔缺行情`] : []),
       ...(forwardPreview.trend_adjustment_status !== 'verified' ? [`公司行動：${forwardPreview.trend_adjustment_status ?? '未驗證'}`] : []),
-      ...(forwardPreview.strategy_readiness !== 'ready' ? (forwardPreview.strategy_readiness_reasons ?? ['策略資料覆蓋不足']) : []),
+      ...(forwardPreview.strategy_readiness !== 'ready' ? (forwardPreview.strategy_readiness_reasons ?? ['策略資料覆蓋不足']).map(reason => reason === '法人資料不可用' ? '法人資料尚未準備' : reason === '月營收資料不可用' ? '月營收資料尚未準備' : reason) : []),
+      ...Object.entries(forwardPreview.risk_source_statuses ?? {})
+        .filter(([, status]) => status !== 'available')
+        .map(([source, status]) => `監管來源 ${source}：${status}`),
       ...(forwardPreview.degraded_sections ?? []).map(section => section === 'trend_history' ? '部分標的缺可用價格，已排除' : section),
     ],
   } : null
