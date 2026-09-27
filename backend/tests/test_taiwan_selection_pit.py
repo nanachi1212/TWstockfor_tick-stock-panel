@@ -237,6 +237,27 @@ def test_entry_is_next_open_and_horizons_use_exact_sessions():
     assert set(strict["by_year"]) == {"2025"}
 
 
+def test_strict_session_without_candidates_counts_in_its_year():
+    sessions = _weekdays(date(2025, 12, 1), 45)
+    source = next(i for i, d in enumerate(sessions) if d.year == 2026 and i >= 19)
+
+    def bars(symbol, index, day):
+        if symbol == "2330.TWSE" and day.year == 2025:
+            return 100.0 + index, 100.0 + index, 60e6
+        return _quiet(symbol, index, day)  # falling and illiquid: no candidate
+
+    covered = frozenset({sessions[source - 1], sessions[source + 1]})
+    result = evaluate_trend_liquidity_v1_history(_inputs(
+        sessions, bars, regulatory=RegulatoryEvidence("fixture", covered)))
+    strict = result["strict_result"]
+    assert strict["strict_sessions"] == 2
+    assert strict["candidate_count_distribution"]["sessions_with_zero"] == 1
+    assert {year: value["sessions"] for year, value in strict["by_year"].items()} == {
+        "2025": 1, "2026": 1}
+    assert strict["by_year"]["2026"]["full_batch"]["1"]["n"] == 0
+    assert strict["by_year"]["2026"]["full_batch"]["1"]["hit_rate_pct"] is None
+
+
 def test_missing_horizon_price_is_unavailable_and_never_slides():
     sessions, index, inputs = _forward_fixture(missing={("2330.TWSE", 29)})
     [pick] = _picks(evaluate_trend_liquidity_v1_history(inputs), sessions[index])

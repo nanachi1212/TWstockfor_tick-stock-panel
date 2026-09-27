@@ -454,7 +454,7 @@ def _ranges(records: Sequence[tuple[date, tuple[str, ...]]]) -> list[dict[str, A
     return ranges
 
 
-def _strict_result(picks: list[dict[str, Any]], counts: list[int], sessions: int,
+def _strict_result(picks: list[dict[str, Any]], counts: list[int], sessions: list[str],
                    spec: TrendLiquidityV1PitSpec) -> dict[str, Any]:
     if not sessions:
         return {
@@ -473,11 +473,15 @@ def _strict_result(picks: list[dict[str, Any]], counts: list[int], sessions: int
         return {str(h): horizon_metrics(rows, h) for h in spec.horizons}
 
     top = [p for p in picks if p["rank"] <= spec.primary_cohort]
-    years = sorted({p["source_session"][:4] for p in picks})
+    # Years and session counts come from the strict sessions themselves, so a
+    # strict session with no candidates still counts in its year.
+    sessions_by_year: dict[str, int] = {}
+    for day in sessions:
+        sessions_by_year[day[:4]] = sessions_by_year.get(day[:4], 0) + 1
     return {
         "status": "available",
         "claimable": True,
-        "strict_sessions": sessions,
+        "strict_sessions": len(sessions),
         "picks": len(picks),
         "message": None,
         "candidate_count_distribution": _distribution(counts),
@@ -486,10 +490,10 @@ def _strict_result(picks: list[dict[str, Any]], counts: list[int], sessions: int
         "rank_groups": {f"{low}-{high}": block([p for p in picks if low <= p["rank"] <= high])
                         for low, high in spec.rank_groups},
         "by_year": {year: {
-            "sessions": len({p["source_session"] for p in picks if p["source_session"][:4] == year}),
+            "sessions": count,
             "top10": block([p for p in top if p["source_session"][:4] == year]),
             "full_batch": block([p for p in picks if p["source_session"][:4] == year]),
-        } for year in years},
+        } for year, count in sorted(sessions_by_year.items())},
     }
 
 
@@ -560,7 +564,7 @@ def evaluate_trend_liquidity_v1_history(
             "blocker_descriptions": {k: BLOCKERS.get(k, k) for k in sorted(blocker_counts)},
             "excluded_session_ranges": _ranges(excluded),
         },
-        "strict_result": _strict_result(strict_picks, strict_counts, len(strict_sessions), spec),
+        "strict_result": _strict_result(strict_picks, strict_counts, strict_sessions, spec),
         "strict_picks": strict_picks,
         "degraded_diagnostics": {
             "diagnostic_only": True,
