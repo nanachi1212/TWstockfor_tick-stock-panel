@@ -47,7 +47,7 @@ def _sessions(start: date, count: int, holiday: date) -> list[date]:
 
 
 def _seed(tmp_path: Path, *, missing_stock_5d=False, missing_bm_20d=False,
-          missing_session_5d=False):
+          missing_session_5d=False, missing_stock_entry=False):
     source = date(2026, 8, 3)
     holiday = date(2026, 8, 7)
     sessions = _sessions(source + timedelta(days=1), 20, holiday)
@@ -57,6 +57,8 @@ def _seed(tmp_path: Path, *, missing_stock_5d=False, missing_bm_20d=False,
         if missing_session_5d and day == sessions[4]:
             continue
         for symbol in ("2330.TWSE", "0050.TWSE"):
+            if missing_stock_entry and day == sessions[0] and symbol == "2330.TWSE":
+                continue
             if missing_stock_5d and day == sessions[4] and symbol == "2330.TWSE":
                 continue
             if missing_bm_20d and day == sessions[19] and symbol == "0050.TWSE":
@@ -170,6 +172,27 @@ def test_lock_rechecks_time_after_waiting_for_write_guard(tmp_path, monkeypatch)
     assert batch.locked_at == acquired_time[0].isoformat()
 
 
+def test_lock_rejects_daily_partition_change_during_screening(tmp_path, monkeypatch):
+    svc, source, _ = _seed(tmp_path)
+    monkeypatch.setattr("app.taiwan.selection_review_service.taipei_now", lambda: _clock(source))
+    original_guard = svc._write_guard
+
+    @contextmanager
+    def refreshed_guard():
+        with original_guard():
+            svc.daily_store.write_batch(pl.DataFrame([{
+                "symbol": "2330.TWSE", "date": source, "open": 100.0,
+                "high": 105.0, "low": 100.0, "close": 105.0,
+                "volume": 1_000_000.0, "amount": 105_000_000.0, "quote_ts": 0,
+            }]))
+            yield
+
+    monkeypatch.setattr(svc, "_write_guard", refreshed_guard)
+    with pytest.raises(ValueError, match="行情資料已更新"):
+        svc.lock_forward_batch(_FixedScreener(source))
+    assert svc.list_snapshots() == []
+
+
 def test_abandoned_lock_sidecar_does_not_block_new_writes(tmp_path, monkeypatch):
     svc, source, _ = _seed(tmp_path)
     svc.path.parent.mkdir(parents=True, exist_ok=True)
@@ -232,6 +255,22 @@ def test_pending_and_missing_action_coverage_are_distinct(tmp_path, monkeypatch)
     assert after.evaluated_items[0].h20d_status == "pending"
 
 
+def test_missing_paper_entry_is_unavailable_while_benchmark_tracks(tmp_path, monkeypatch):
+    svc, source, sessions = _seed(tmp_path, missing_stock_entry=True)
+    monkeypatch.setattr("app.taiwan.selection_review_service.taipei_now", lambda: _clock(source))
+    batch = svc.lock_forward_batch(_FixedScreener(source))
+    monkeypatch.setattr("app.taiwan.selection_review_service.taipei_now", lambda: _clock(sessions[0]))
+    review = svc.get_snapshot_review(batch.snapshot_id)
+    assert review is not None
+    item = review.evaluated_items[0]
+    assert item.entry_status == "unavailable"
+    assert item.h1d_status == item.h5d_status == item.h20d_status == "unavailable"
+    assert item.h1d_bm_status == "completed"
+    assert item.h5d_bm_status == item.h20d_bm_status == "pending"
+    assert review.h5d_pending_count == 0
+    assert review.h5d_unavailable_count == 1
+
+
 def test_expired_unverified_calendar_is_unavailable_not_pending(tmp_path, monkeypatch):
     store = TaiwanDailyStore(tmp_path / "daily")
     source = date(2026, 8, 3)
@@ -251,7 +290,8 @@ def test_expired_unverified_calendar_is_unavailable_not_pending(tmp_path, monkey
     assert review.evaluated_items[0].entry_status == "unavailable"
     assert review.evaluated_items[0].h1d_status == "unavailable"
     assert review.evaluated_items[0].h5d_status == "unavailable"
-    assert review.evaluated_items[0].h20d_status == "pending"
+    assert review.evaluated_items[0].h20d_status == "unavailable"
+    assert review.evaluated_items[0].h20d_bm_status == "pending"
 
 
 def test_old_research_record_is_not_formal_batch(tmp_path, monkeypatch):

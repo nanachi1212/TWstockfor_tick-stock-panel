@@ -184,6 +184,7 @@ class TaiwanSelectionReviewService:
         """Run the canonical screener server-side and lock one batch per source session."""
         from app.taiwan.screener import TaiwanScreenerRequest, TaiwanScreenerService
 
+        daily_generation = self._daily_generation()
         screen = (screener or TaiwanScreenerService()).run(
             TaiwanScreenerRequest(preset=FORWARD_RULE_VERSION)
         )
@@ -202,6 +203,8 @@ class TaiwanSelectionReviewService:
             for snapshot in existing:
                 if snapshot.snapshot_id == batch_id:
                     return snapshot
+            if self._daily_generation() != daily_generation:
+                raise ValueError("選股期間行情資料已更新。請重新執行鎖定")
             # A queued writer can cross 09:00 while waiting for the process lock.
             now = taipei_now()
             items = [SelectionSnapshotItem(
@@ -408,10 +411,13 @@ class TaiwanSelectionReviewService:
                 if target_closed or end is None or today < market_close(end):
                     unresolved_expired = end is None and today >= market_close(due)
                     setattr(result, f"{prefix}_status",
-                            "unavailable" if target_closed or unresolved_expired else "pending")
+                            "unavailable" if entry_status == "unavailable" or target_closed
+                            or unresolved_expired else "pending")
                     setattr(result, f"{prefix}_bm_status",
                             "unavailable" if target_closed or unresolved_expired else "pending")
-                    if target_closed or unresolved_expired:
+                    if entry_status == "unavailable":
+                        result.status_reasons[prefix] = result.status_reasons["entry"]
+                    elif target_closed or unresolved_expired:
                         result.status_reasons[prefix] = (
                             "scheduled_entry_day_closed" if target_closed
                             else "trading_day_unverified"
@@ -548,7 +554,7 @@ class TaiwanSelectionReviewService:
                     continue
             return tuple(sorted(versions))
 
-        daily = file_versions(self.daily_store._data_dir.glob("date=*/part.parquet"))
+        daily = self._daily_generation()
         actions = file_versions((self.action_store.path,
                                 self.action_store.path.with_name("coverage.json")))
         census = file_versions(self.census_store._data_dir.glob("exchange=*/date=*/part.parquet")) if self.census_store else ()
@@ -556,6 +562,17 @@ class TaiwanSelectionReviewService:
                     tuple(sorted(self.calendar.known_trading_days)))
         snapshots = file_versions((self.path,))
         return snapshots, daily, actions, census, calendar
+
+    def _daily_generation(self) -> tuple:
+        """Fingerprint the partitions consumed by the canonical screener."""
+        versions = []
+        for path in self.daily_store._data_dir.glob("date=*/part.parquet"):
+            try:
+                stat = path.stat()
+                versions.append((str(path), stat.st_mtime_ns, stat.st_size, stat.st_ino))
+            except FileNotFoundError:
+                continue
+        return tuple(sorted(versions))
 
     def get_snapshot_review(self, snapshot_id: str) -> SnapshotReviewDetail | None:
         """Evaluate a snapshot across 1D, 5D, 20D horizons."""
