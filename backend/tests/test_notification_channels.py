@@ -106,6 +106,13 @@ def test_test_notification_uses_stored_credentials(monkeypatch):
     assert settings_api.test_telegram_bot() == {"ok": True}
     assert line_call[0][:2] == ("line-token", "U123")
     assert telegram_call[0][:2] == ("telegram-token", "-1001")
+    expected_title = "TWStock 通知測試"
+    expected_body = "這是一則測試訊息。若你收到這則訊息就代表通知設定成功。"
+    forbidden_simplified = ("测试", "消息", "通知设置", "成功发送", "价格", "触发")
+    assert line_call[0][2:] == (expected_title, expected_body)
+    assert telegram_call[0][2:] == (expected_title, expected_body)
+    for call in (line_call[0], telegram_call[0]):
+        assert all(word not in "\n".join(call[2:]) for word in forbidden_simplified)
 
 
 def test_global_external_channels_are_persisted_and_app_only_is_explicit(monkeypatch, tmp_path):
