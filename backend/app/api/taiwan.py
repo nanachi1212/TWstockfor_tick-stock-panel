@@ -73,12 +73,29 @@ from app.taiwan.screener_strategy_store import (
     TaiwanScreenerStrategy,
     get_screener_strategy_store,
 )
+from app.taiwan.social_sentiment import load_social_sentiment, load_social_sentiment_date
 from app.taiwan.symbol import parse_symbol
 from app.taiwan.universe import MarketProfileBridge, get_security_master
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/taiwan", tags=["taiwan"])
+
+
+@router.get("/social-sentiment")
+def get_taiwan_social_sentiment(target_date: str | None = Query(default=None)):
+    """讀取本地社群情緒結果，不在 request time 連線抓取外部來源。"""
+    if target_date:
+        try:
+            parsed_date = dt_date.fromisoformat(target_date)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=f"無效的日期格式: {target_date}") from exc
+        payload = load_social_sentiment_date(parsed_date)
+    else:
+        payload = load_social_sentiment()
+    if payload is None:
+        raise HTTPException(status_code=404, detail="尚未產生社群情緒結果")
+    return payload
 
 
 def _resolve_portfolio_instrument(symbol: str, trade_date: dt_date):
