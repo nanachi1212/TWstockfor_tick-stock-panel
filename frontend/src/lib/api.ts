@@ -1225,7 +1225,7 @@ export interface TaiwanScreenerResponse {
 
 /** Official monthly-revenue observations behind a strategy run (PIT audit). */
 export interface TaiwanRevenueEvidenceSummary {
-  status: 'available' | 'missing' | 'not_observed_before_cutoff' | 'stale'
+  status: 'available' | 'missing' | 'not_observed_before_cutoff' | 'stale' | 'incomplete'
   publication_basis: 'official_observation'
   cutoff: string
   first_observed_at: string | null

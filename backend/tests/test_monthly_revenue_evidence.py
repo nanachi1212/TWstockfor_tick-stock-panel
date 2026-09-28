@@ -16,6 +16,7 @@ from app.taiwan.monthly_revenue_evidence import (
     MonthlyRevenueEvidenceStore,
     RevenuePageSchemaError,
     decode_page,
+    expected_page_keys,
     page_url,
     parse_revenue_page,
     refresh_monthly_revenue_evidence,
@@ -64,9 +65,17 @@ def _record(store, period, rows, at, *, market="TWSE", kind="0", run_id="r1"):
     )
 
 
-def _seed(store, at=T0, pages=PAGES, run_id="r1"):
-    for period, rows in pages.items():
-        _record(store, period, rows, at, run_id=run_id)
+FILLER = [("9999", "填充", "1", "1")]
+
+
+def _seed(store, at=T0, pages=PAGES, run_id="r1", extra=None):
+    """Record the complete expected page set for CUTOFF (24 pages)."""
+    extra = extra or {}
+    for market, kind, period in expected_page_keys(CUTOFF):
+        rows = extra.get((market, kind, period))
+        if rows is None:
+            rows = pages.get(period, FILLER) if (market, kind) == ("TWSE", "0") else FILLER
+        _record(store, period, rows, at, market=market, kind=kind, run_id=run_id)
 
 
 # ── parsing ──────────────────────────────────────────────────────────────
@@ -150,7 +159,7 @@ def test_correction_is_visible_only_after_its_observation(tmp_path):
 
 def test_historical_revision_chronology_is_append_only(tmp_path):
     store = MonthlyRevenueEvidenceStore(tmp_path)
-    _record(store, "2026-08", [("2330", "台積電", "1,200", "1")], T0)
+    _seed(store)
     _record(store, "2026-08", [("2330", "台積電", "1,200", "1")], T0 + timedelta(days=1), run_id="r2")
     _record(store, "2026-08", [("2330", "台積電", "1,250", "1")], T0 + timedelta(days=2), run_id="r3")
     history = store.revisions("2330.TWSE", "2026-08")
@@ -180,10 +189,30 @@ def test_same_refresh_official_mismatch_fails_closed(tmp_path):
 
 def test_canonical_symbols_follow_board_not_code_shape(tmp_path):
     store = MonthlyRevenueEvidenceStore(tmp_path)
-    _record(store, "2026-08", [("6488", "環球晶", "10", "9")], T0, market="TPEX")
-    _record(store, "2026-08", [("1256", "鮮活果汁-KY", "5", "4")], T0, kind="1")
+    _seed(store, extra={
+        ("TPEX", "0", "2026-08"): [("6488", "環球晶", "10", "9")],
+        ("TWSE", "1", "2026-08"): [("1256", "鮮活果汁-KY", "5", "4")],
+    })
     evidence = store.evidence_as_of(CUTOFF)
-    assert set(evidence.rows_by_symbol) == {"6488.TPEX", "1256.TWSE"}
+    assert {"6488.TPEX", "1256.TWSE", "2330.TWSE", "9999.TPEX"} <= set(evidence.rows_by_symbol)
+    assert "6488.TWSE" not in evidence.rows_by_symbol and "1256.TPEX" not in evidence.rows_by_symbol
+
+
+def test_partial_page_set_is_incomplete_not_available(tmp_path):
+    store = MonthlyRevenueEvidenceStore(tmp_path)
+    for period, rows in PAGES.items():  # only one board / issuer kind
+        _record(store, period, rows, T0)
+    evidence = store.evidence_as_of(CUTOFF)
+    assert evidence.status == "incomplete"
+    assert evidence.rows_by_symbol == {}
+    assert len(evidence.missing_pages) == 20
+    assert "TPEX/0/2026-08" in evidence.missing_pages
+    _readiness, reasons, _ = strategy_readiness(
+        pl.DataFrame({"revenue_status": ["evidence_incomplete"]}), "growth_trend_v1",
+        quote_coverage_status="verified", risk_source_status="available",
+        revenue_evidence_status=evidence.status,
+    )
+    assert reasons == ["月營收官方 evidence 不完整（缺少應觀測頁面）"]
 
 
 def test_evidence_resolution_is_deterministic(tmp_path):

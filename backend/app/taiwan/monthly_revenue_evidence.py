@@ -52,7 +52,9 @@ WINDOW_MONTH_OFFSETS = (1, 2, 3, 13, 14, 15)
 REFETCH_AFTER = timedelta(hours=20)
 MAX_EVIDENCE_AGE = timedelta(days=4)
 
-EvidenceStatus = Literal["available", "missing", "not_observed_before_cutoff", "stale"]
+EvidenceStatus = Literal[
+    "available", "missing", "not_observed_before_cutoff", "stale", "incomplete",
+]
 FetchStatus = Literal["available", "not_published", "schema_changed", "error"]
 
 _CODE = re.compile(r"^[0-9]{4}[0-9A-Z]{0,2}$")
@@ -93,6 +95,7 @@ class RevenueEvidenceSnapshot:
     latest_observed_at: str | None = None
     page_count: int = 0
     stale_page_count: int = 0
+    missing_pages: list[str] = field(default_factory=list)
     digest: str | None = None
 
 
@@ -113,6 +116,12 @@ def shift_period(period: str, months: int) -> str:
 def window_periods(today: date) -> list[str]:
     current = month_period(today.year, today.month)
     return [shift_period(current, offset) for offset in WINDOW_MONTH_OFFSETS]
+
+
+def expected_page_keys(cutoff: datetime) -> list[tuple[str, str, str]]:
+    """Every board/issuer-kind/month page a complete snapshot needs at ``cutoff``."""
+    periods = window_periods(cutoff.astimezone(TAIPEI).date())
+    return [(m, k, p) for m in BOARDS for k in ISSUER_KINDS for p in periods]
 
 
 def page_url(market: str, kind: str, period: str) -> str:
@@ -322,6 +331,18 @@ class MonthlyRevenueEvidenceStore:
             return RevenueEvidenceSnapshot(
                 cutoff=cutoff, status="stale", first_observed_at=first_observed.isoformat(),
                 latest_observed_at=latest_observed, stale_page_count=stale,
+            )
+        # A partial page set would silently drop a board, issuer kind or
+        # comparison month, so it is not an available snapshot.
+        missing = [
+            f"{market}/{kind}/{period}" for market, kind, period in expected_page_keys(cutoff)
+            if (market, kind, period) not in chosen
+        ]
+        if missing:
+            return RevenueEvidenceSnapshot(
+                cutoff=cutoff, status="incomplete", first_observed_at=first_observed.isoformat(),
+                latest_observed_at=latest_observed, page_count=len(chosen),
+                stale_page_count=stale, missing_pages=missing,
             )
 
         rows_by_symbol: dict[str, list[dict[str, Any]]] = {}

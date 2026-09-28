@@ -683,6 +683,7 @@ class TaiwanScreenerService:
             "digest": evidence.digest,
             "page_count": evidence.page_count,
             "stale_page_count": evidence.stale_page_count,
+            "missing_pages": evidence.missing_pages[:24],
             "symbols_with_evidence": len(evidence.rows_by_symbol),
             "revenue_available_count": available.height,
             "revenue_yoy_improvement_count": available.filter(
@@ -1107,6 +1108,7 @@ class TaiwanScreenerService:
                 "missing": "evidence_missing",
                 "not_observed_before_cutoff": "publication_unknown",
                 "stale": "stale",
+                "incomplete": "evidence_incomplete",
             }.get(revenue_evidence.status)
             for sym in df["symbol"].to_list():
                 if evidence_status is not None:
