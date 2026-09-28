@@ -56,6 +56,7 @@ def test_stock_resolver_does_not_count_ordinary_short_names_without_context():
     resolver = StockMentionResolver(FakeSecurityMaster())
     assert resolver.resolve("全家都看好全世界") == {}
     assert resolver.resolve("全家股票值得研究") == {"5903": 1}
+    assert resolver.resolve("2025 年全家一起出遊") == {}
 
 
 def test_ptt_index_and_post_parser():
@@ -408,13 +409,14 @@ def test_ai_invalid_json_degrades_only_batch(tmp_path, monkeypatch):
 
 def test_volume_change_uses_exact_previous_calendar_day(tmp_path, monkeypatch):
     monkeypatch.setattr("app.services.ai_provider.ai_configured", lambda: False)
-    history_dir = tmp_path / "history"
-    history_dir.mkdir()
+    history_dir = tmp_path / "history" / "snapshots"
+    history_dir.mkdir(parents=True)
     for day, total in (("2026-09-28", 100), ("2026-09-27", 4), ("2026-09-26", 2)):
-        (history_dir / f"{day}.json").write_text(
+        (history_dir / f"{day}-pre_open.json").write_text(
             json.dumps(
                 {
                     "as_of": day,
+                    "snapshot_slot": "pre_open",
                     "window_hours": 24,
                     "sources": {"ptt": {"status": "available"}},
                     "rankings": [{"symbol": "2330.TWSE", "code": "2330", "total_mentions": total}],
@@ -432,12 +434,13 @@ def test_volume_change_uses_exact_previous_calendar_day(tmp_path, monkeypatch):
 
 
 def test_volume_change_requires_comparable_source_coverage(tmp_path):
-    history_dir = tmp_path / "history"
-    history_dir.mkdir()
-    (history_dir / "2026-09-27.json").write_text(
+    history_dir = tmp_path / "history" / "snapshots"
+    history_dir.mkdir(parents=True)
+    (history_dir / "2026-09-27-pre_open.json").write_text(
         json.dumps(
             {
                 "as_of": "2026-09-27",
+                "snapshot_slot": "pre_open",
                 "window_hours": 24,
                 "sources": {
                     "ptt": {"status": "available"},
@@ -462,12 +465,13 @@ def test_volume_change_requires_comparable_source_coverage(tmp_path):
 
 
 def test_volume_change_requires_matching_window(tmp_path):
-    history_dir = tmp_path / "history"
-    history_dir.mkdir()
-    (history_dir / "2026-09-27.json").write_text(
+    history_dir = tmp_path / "history" / "snapshots"
+    history_dir.mkdir(parents=True)
+    (history_dir / "2026-09-27-pre_open.json").write_text(
         json.dumps(
             {
                 "as_of": "2026-09-27",
+                "snapshot_slot": "pre_open",
                 "window_hours": 24,
                 "sources": {"ptt": {"status": "available"}},
                 "rankings": [{"symbol": "2330.TWSE", "code": "2330", "total_mentions": 4}],
@@ -484,6 +488,32 @@ def test_volume_change_requires_matching_window(tmp_path):
     assert payload["rankings"][0]["volume_change_24h"] is None
 
 
+def test_volume_change_uses_same_time_snapshot_slot(tmp_path):
+    history_dir = tmp_path / "history" / "snapshots"
+    history_dir.mkdir(parents=True)
+    for slot, total in (("pre_open", 4), ("after_close", 100)):
+        (history_dir / f"2026-09-27-{slot}.json").write_text(
+            json.dumps(
+                {
+                    "as_of": "2026-09-27",
+                    "snapshot_slot": slot,
+                    "window_hours": 24,
+                    "sources": {"ptt": {"status": "available"}},
+                    "rankings": [{"symbol": "2330.TWSE", "code": "2330", "total_mentions": total}],
+                }
+            ),
+            encoding="utf-8",
+        )
+    service = SocialSentimentService(
+        security_master=FakeSecurityMaster(),
+        collectors=(FakeCollector("ptt", [_post("ptt", "1", "2330 " * 8)], succeeded=True),),
+        output_dir=tmp_path,
+    )
+    payload = service.run(run_ai=False, now=datetime(2026, 9, 28, 8, 30, tzinfo=TAIPEI))
+    assert payload["snapshot_slot"] == "pre_open"
+    assert payload["rankings"][0]["volume_change_24h"] == 1.0
+
+
 def test_history_rerun_replaces_complete_same_day_snapshot(tmp_path, monkeypatch):
     monkeypatch.setattr("app.services.ai_provider.ai_configured", lambda: False)
     collector = FakeCollector(
@@ -497,11 +527,15 @@ def test_history_rerun_replaces_complete_same_day_snapshot(tmp_path, monkeypatch
     )
     now = datetime(2026, 9, 28, tzinfo=TAIPEI)
     first = service.run(run_ai=False, now=now)
+    with (tmp_path / "social_sentiment_history.csv").open(encoding="utf-8", newline="") as handle:
+        first_rows = list(csv.DictReader(handle))
+    assert [int(row["rank"]) for row in first_rows] == [1, 2]
     collector.posts = [_post("ptt", "1", "2330")]
     second = service.run(run_ai=False, now=now)
     with (tmp_path / "social_sentiment_history.csv").open(encoding="utf-8", newline="") as handle:
         rows = list(csv.DictReader(handle))
     assert {row["symbol"] for row in rows} == {"2330.TWSE"}
+    assert [int(row["rank"]) for row in rows] == [1]
     assert {row["symbol"] for row in first["rankings"]} == {"2330.TWSE", "2344.TWSE"}
     assert {row["symbol"] for row in second["rankings"]} == {"2330.TWSE"}
 
@@ -515,6 +549,14 @@ def test_output_json_is_valid_and_csv_contains_contract_fields(tmp_path, monkeyp
     )
     service.run(now=datetime(2026, 9, 28, tzinfo=UTC))
     data = json.loads((tmp_path / "latest.json").read_text(encoding="utf-8"))
-    csv_text = (tmp_path / "social_sentiment_history.csv").read_text(encoding="utf-8")
+    csv_path = tmp_path / "social_sentiment_history.csv"
+    csv_text = csv_path.read_text(encoding="utf-8")
     assert data["rankings"][0]["symbol"] == "2344.TWSE"
     assert "sentiment_score" in csv_text
+    assert data["snapshot_slot"] == "pre_open"
+    assert (tmp_path / "history" / "snapshots" / "2026-09-28-pre_open.json").exists()
+    with csv_path.open(encoding="utf-8", newline="") as handle:
+        row = next(csv.DictReader(handle))
+    assert row["snapshot_slot"] == "pre_open"
+    assert row["window_hours"] == "24"
+    assert json.loads(row["source_statuses"]) == {"dcard": "available"}

@@ -46,6 +46,10 @@ def _clean_html(value: str) -> str:
     return _SPACE_RE.sub(" ", value).strip()
 
 
+def _snapshot_slot(moment: datetime) -> str:
+    return "pre_open" if moment.hour < 12 else "after_close"
+
+
 def _parse_datetime(value: str) -> datetime | None:
     value = value.strip()
     if not value:
@@ -465,12 +469,11 @@ class StockMentionResolver:
     @staticmethod
     def _has_stock_context(text: str, start: int, end: int) -> bool:
         context = text[max(0, start - 12) : min(len(text), end + 12)]
-        return bool(
-            re.search(
-                r"股票|股價|代號|代碼|持有|買進|賣出|漲停|跌停|股東|公司|法人|\d{4,6}[A-Z]?",
-                context,
-            )
-        )
+        if re.search(r"股票|股價|代號|代碼|持有|買進|賣出|漲停|跌停|股東|公司|法人", context):
+            return True
+        before = text[max(0, start - 12) : start]
+        after = text[end : min(len(text), end + 12)]
+        return bool(re.search(r"\d{4,6}\s*$", before) or re.match(r"^\s*\d{4,6}(?:\s|$)", after))
 
     def _looks_like_year(self, text: str, start: int, end: int, code: str) -> bool:
         """Avoid treating bare calendar years as stock mentions.
@@ -483,11 +486,8 @@ class StockMentionResolver:
         context = text[max(0, start - 12) : min(len(text), end + 12)]
         if re.search(r"代號|股票|持有|買進|賣出|看好|看壞|做多|做空|漲停|跌停", context):
             return False
-        return not any(
-            info.name.upper() in context
-            for info in self._names
-            if len(info.name) >= 2
-        )
+        info = self.stocks.get(code)
+        return not info or info.name.upper() not in context
 
 
 @dataclass
@@ -535,7 +535,8 @@ class SocialSentimentService:
                 for code, count in resolver.resolve(post.text).items():
                     evidence[code].append((post, count))
 
-        previous_payload = self._load_previous_snapshot(now.date())
+        snapshot_slot = _snapshot_slot(now)
+        previous_payload = self._load_previous_snapshot(now.date(), snapshot_slot)
         previous = self._rows_from_snapshot(previous_payload)
         comparable_source_coverage = self._source_coverage_is_comparable(
             source_results, previous_payload, window_hours=window_hours
@@ -685,6 +686,7 @@ class SocialSentimentService:
             "schema_version": 1,
             "generated_at": now.isoformat(),
             "as_of": now.date().isoformat(),
+            "snapshot_slot": _snapshot_slot(now),
             "window_hours": window_hours,
             "sources": {
                 source: {
@@ -701,15 +703,19 @@ class SocialSentimentService:
             "rankings": rankings,
         }
 
-    def _load_previous_snapshot(self, as_of: date) -> dict[str, Any] | None:
-        history_dir = self._output_root() / "history"
+    def _load_previous_snapshot(self, as_of: date, snapshot_slot: str) -> dict[str, Any] | None:
+        history_dir = self._output_root() / "history" / "snapshots"
         previous_day = (as_of - timedelta(days=1)).isoformat()
-        path = history_dir / f"{previous_day}.json"
+        path = history_dir / f"{previous_day}-{snapshot_slot}.json"
         if not path.exists():
             return None
         try:
             payload = json.loads(path.read_text(encoding="utf-8"))
-            if not isinstance(payload, dict) or payload.get("as_of") != previous_day:
+            if (
+                not isinstance(payload, dict)
+                or payload.get("as_of") != previous_day
+                or payload.get("snapshot_slot") != snapshot_slot
+            ):
                 return None
             return payload
         except (OSError, ValueError, TypeError):
@@ -757,8 +763,11 @@ class SocialSentimentService:
         history_dir = root / "history"
         history_dir.mkdir(parents=True, exist_ok=True)
         day = str(payload["as_of"])
+        snapshot_slot = str(payload.get("snapshot_slot") or "")
         _atomic_write_json(root / "latest.json", payload)
         _atomic_write_json(history_dir / f"{day}.json", payload)
+        if snapshot_slot:
+            _atomic_write_json(history_dir / "snapshots" / f"{day}-{snapshot_slot}.json", payload)
         csv_path = root / "social_sentiment_history.csv"
         existing: dict[tuple[str, str], dict[str, Any]] = {}
         if csv_path.exists():
@@ -766,15 +775,36 @@ class SocialSentimentService:
                 for row in csv.DictReader(handle):
                     existing[(row.get("as_of", ""), row.get("symbol", ""))] = row
         fields = [
-            "as_of", "rank", "symbol", "code", "company_name", "ptt_mentions", "dcard_mentions",
+            "as_of", "generated_at", "snapshot_slot", "window_hours", "source_statuses", "rank", "symbol",
+            "code", "company_name", "ptt_mentions", "dcard_mentions",
             "total_mentions", "unique_posts", "engagement", "volume_change_24h", "bullish_count",
             "neutral_count", "bearish_count", "sentiment", "sentiment_score", "sentiment_confidence",
             "social_heat_score", "sentiment_reason",
         ]
         existing = {key: row for key, row in existing.items() if key[0] != day}
+        metadata = {
+            "generated_at": payload.get("generated_at"),
+            "snapshot_slot": snapshot_slot,
+            "window_hours": payload.get("window_hours"),
+            "source_statuses": json.dumps(
+                {
+                    source: data.get("status")
+                    for source, data in sorted(payload.get("sources", {}).items())
+                    if isinstance(data, dict)
+                },
+                ensure_ascii=False,
+                sort_keys=True,
+            ),
+        }
         for row in payload["rankings"]:
-            existing[(day, row["symbol"])] = {field: _csv_value(day, row, field) for field in fields}
-        rows = sorted(existing.values(), key=lambda item: (item["as_of"], int(item.get("rank") or 999999), item["symbol"]), reverse=True)
+            existing[(day, row["symbol"])] = {
+                field: _csv_value(day, row, field, metadata) for field in fields
+            }
+        rows = sorted(
+            existing.values(),
+            key=lambda item: (item["as_of"], -int(item.get("rank") or 999999), item["symbol"]),
+            reverse=True,
+        )
         fd, temp_name = tempfile.mkstemp(prefix="social-sentiment-", suffix=".csv", dir=root)
         os.close(fd)
         Path(temp_name).unlink(missing_ok=True)
@@ -789,8 +819,8 @@ class SocialSentimentService:
             temp_path.unlink(missing_ok=True)
 
 
-def _csv_value(day: str, row: dict[str, Any], field: str) -> str:
-    value = day if field == "as_of" else row.get(field)
+def _csv_value(day: str, row: dict[str, Any], field: str, metadata: dict[str, Any] | None = None) -> str:
+    value = day if field == "as_of" else (metadata or {}).get(field, row.get(field))
     return "" if value is None else str(value)
 
 

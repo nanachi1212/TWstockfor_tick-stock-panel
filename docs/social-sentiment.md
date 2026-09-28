@@ -20,6 +20,7 @@ pwsh -File .\scripts\run-social-sentiment.ps1 -Hours 6 -Pages 1 -NoAi
 
 - `latest.json`
 - `history/YYYY-MM-DD.json`
+- `history/snapshots/YYYY-MM-DD-pre_open.json` 與 `history/snapshots/YYYY-MM-DD-after_close.json`（同時段聲量比較基準）
 - `social_sentiment_history.csv`
 
 資料目錄遵循現有 `DATA_DIR` 設定；原始 PTT/Dcard 文章與留言不保存。
