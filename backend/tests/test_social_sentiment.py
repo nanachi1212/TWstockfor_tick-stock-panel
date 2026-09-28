@@ -197,6 +197,16 @@ def test_dcard_html_fallback_parser():
     assert posts[0].title == "台積電 2330 噴"
 
 
+def test_dcard_html_fallback_does_not_bypass_time_window():
+    markup = '<a href="/f/stock/p/123" class="post"><span>台積電 2330 噴</span></a>'
+    posts = parse_dcard_html(
+        markup,
+        forum="stock",
+        since=datetime(2026, 9, 28, 8, tzinfo=TAIPEI),
+    )
+    assert posts == []
+
+
 class FakeCollector:
     def __init__(
         self,
@@ -288,6 +298,35 @@ def test_ai_unavailable_fallback_and_output_files(tmp_path, monkeypatch):
     assert (tmp_path / "social_sentiment_history.csv").exists()
 
 
+def test_no_ai_run_is_explicitly_not_queried(tmp_path):
+    service = SocialSentimentService(
+        security_master=FakeSecurityMaster(),
+        collectors=(FakeCollector("ptt", [_post("ptt", "1", "2330")]),),
+        output_dir=tmp_path,
+    )
+    payload = service.run(run_ai=False, now=datetime(2026, 9, 28, tzinfo=TAIPEI))
+    assert payload["ai"]["status"] == "not_queried"
+
+
+def test_ai_partial_results_are_degraded(tmp_path, monkeypatch):
+    monkeypatch.setattr("app.services.ai_provider.ai_configured", lambda: True)
+
+    async def partial_generate(*args, **kwargs):
+        return '{"items":[{"symbol":"2330","sentiment":"bullish","score":0.5,"confidence":0.8,"bullish_count":1,"neutral_count":0,"bearish_count":0,"reason":"偏多"}]}'
+
+    monkeypatch.setattr("app.services.ai_provider.generate_ai_text", partial_generate)
+    service = SocialSentimentService(
+        security_master=FakeSecurityMaster(),
+        collectors=(
+            FakeCollector("ptt", [_post("ptt", "1", "2330"), _post("ptt", "2", "2344")]),
+        ),
+        output_dir=tmp_path,
+    )
+    payload = service.run(now=datetime(2026, 9, 28, tzinfo=TAIPEI))
+    assert payload["ai"]["status"] == "degraded"
+    assert payload["ai"]["analyzed_symbols"] == 1
+
+
 def test_ai_invalid_json_degrades_only_batch(tmp_path, monkeypatch):
     monkeypatch.setattr("app.services.ai_provider.ai_configured", lambda: True)
 
@@ -311,7 +350,13 @@ def test_volume_change_uses_exact_previous_calendar_day(tmp_path, monkeypatch):
     history_dir.mkdir()
     for day, total in (("2026-09-28", 100), ("2026-09-27", 4), ("2026-09-26", 2)):
         (history_dir / f"{day}.json").write_text(
-            json.dumps({"as_of": day, "rankings": [{"symbol": "2330.TWSE", "code": "2330", "total_mentions": total}]}),
+            json.dumps(
+                {
+                    "as_of": day,
+                    "sources": {"ptt": {"status": "available"}},
+                    "rankings": [{"symbol": "2330.TWSE", "code": "2330", "total_mentions": total}],
+                }
+            ),
             encoding="utf-8",
         )
     service = SocialSentimentService(
@@ -321,6 +366,35 @@ def test_volume_change_uses_exact_previous_calendar_day(tmp_path, monkeypatch):
     )
     payload = service.run(run_ai=False, now=datetime(2026, 9, 28, tzinfo=TAIPEI))
     assert payload["rankings"][0]["volume_change_24h"] == 1.0
+
+
+def test_volume_change_requires_comparable_source_coverage(tmp_path):
+    history_dir = tmp_path / "history"
+    history_dir.mkdir()
+    (history_dir / "2026-09-27.json").write_text(
+        json.dumps(
+            {
+                "as_of": "2026-09-27",
+                "sources": {
+                    "ptt": {"status": "available"},
+                    "dcard": {"status": "unavailable"},
+                },
+                "rankings": [{"symbol": "2330.TWSE", "code": "2330", "total_mentions": 4}],
+            }
+        ),
+        encoding="utf-8",
+    )
+    service = SocialSentimentService(
+        security_master=FakeSecurityMaster(),
+        collectors=(
+            FakeCollector("ptt", [_post("ptt", "1", "2330 " * 8)], succeeded=True),
+            FakeCollector("dcard", [_post("dcard", "2", "2344")], succeeded=True),
+        ),
+        output_dir=tmp_path,
+    )
+    payload = service.run(run_ai=False, now=datetime(2026, 9, 28, tzinfo=TAIPEI))
+    row = next(row for row in payload["rankings"] if row["code"] == "2330")
+    assert row["volume_change_24h"] is None
 
 
 def test_history_rerun_replaces_complete_same_day_snapshot(tmp_path, monkeypatch):

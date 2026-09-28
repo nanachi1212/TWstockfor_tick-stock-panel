@@ -380,6 +380,11 @@ def parse_dcard_html(
     not depend on browser automation and accepts whatever title text the page
     currently exposes around a public post link.
     """
+    # The public HTML fallback exposes no trustworthy publication timestamp.
+    # Keep it available for explicit unbounded parsing, but never let it bypass
+    # a caller's requested time window.
+    if since is not None:
+        return []
     posts: list[SocialPost] = []
     pattern = re.compile(
         rf'href="/f/{re.escape(forum)}/p/(?P<id>\d+)"[^>]*>(?P<title>.*?)</a>',
@@ -509,9 +514,18 @@ class SocialSentimentService:
                 for code, count in resolver.resolve(post.text).items():
                     evidence[code].append((post, count))
 
-        previous = self._load_previous_rows(now.date())
-        rankings = self._aggregate(evidence, resolver, previous)
-        ai_info = {"status": "unavailable", "batches": 0, "analyzed_symbols": 0, "errors": []}
+        previous_payload = self._load_previous_snapshot(now.date())
+        previous = self._rows_from_snapshot(previous_payload)
+        comparable_source_coverage = self._source_coverage_is_comparable(
+            source_results, previous_payload
+        )
+        rankings = self._aggregate(
+            evidence,
+            resolver,
+            previous,
+            comparable_source_coverage=comparable_source_coverage,
+        )
+        ai_info = {"status": "not_queried", "batches": 0, "analyzed_symbols": 0, "errors": []}
         if run_ai and rankings:
             ai_info = await self._apply_ai(rankings, evidence)
         payload = self._build_payload(now, window_hours, source_results, rankings, ai_info)
@@ -534,6 +548,8 @@ class SocialSentimentService:
         evidence: dict[str, list[tuple[SocialPost, int]]],
         resolver: StockMentionResolver,
         previous: dict[tuple[str, str], dict[str, Any]],
+        *,
+        comparable_source_coverage: bool,
     ) -> list[dict[str, Any]]:
         rows: list[dict[str, Any]] = []
         for code, items in evidence.items():
@@ -550,7 +566,11 @@ class SocialSentimentService:
             total = sum(source_mentions.values())
             prior = previous.get(("", info.symbol)) or previous.get(("", code))
             prior_total = int(prior["total_mentions"]) if prior and str(prior.get("total_mentions", "")).isdigit() else None
-            volume_change = None if prior_total in (None, 0) else round(total / prior_total - 1.0, 4)
+            volume_change = (
+                None
+                if not comparable_source_coverage or prior_total in (None, 0)
+                else round(total / prior_total - 1.0, 4)
+            )
             raw_heat = total + len(unique_posts) * 2 + engagement * 0.2 + max(volume_change or 0.0, 0.0) * 10
             rows.append(
                 {
@@ -623,7 +643,7 @@ class SocialSentimentService:
                 errors.append(f"batch {offset // 12 + 1}: {type(exc).__name__}")
                 logger.warning("Social sentiment AI batch failed: %s", type(exc).__name__)
         return {
-            "status": "available" if analyzed else "degraded",
+            "status": "available" if analyzed == len(rankings) and not errors else "degraded",
             "batches": batches,
             "analyzed_symbols": analyzed,
             "errors": errors,
@@ -660,23 +680,49 @@ class SocialSentimentService:
             "rankings": rankings,
         }
 
-    def _load_previous_rows(self, as_of: date) -> dict[tuple[str, str], dict[str, Any]]:
+    def _load_previous_snapshot(self, as_of: date) -> dict[str, Any] | None:
         history_dir = self._output_root() / "history"
-        rows: dict[tuple[str, str], dict[str, Any]] = {}
         previous_day = (as_of - timedelta(days=1)).isoformat()
         path = history_dir / f"{previous_day}.json"
         if not path.exists():
-            return rows
+            return None
         try:
             payload = json.loads(path.read_text(encoding="utf-8"))
-            if payload.get("as_of") != previous_day:
-                return rows
-            for row in payload.get("rankings", []):
-                rows.setdefault(("", str(row.get("symbol", ""))), row)
-                rows.setdefault(("", str(row.get("code", ""))), row)
+            if not isinstance(payload, dict) or payload.get("as_of") != previous_day:
+                return None
+            return payload
         except (OSError, ValueError, TypeError):
+            return None
+
+    @staticmethod
+    def _rows_from_snapshot(
+        payload: dict[str, Any] | None,
+    ) -> dict[tuple[str, str], dict[str, Any]]:
+        rows: dict[tuple[str, str], dict[str, Any]] = {}
+        if not payload:
             return rows
+        for row in payload.get("rankings", []):
+            if not isinstance(row, dict):
+                continue
+            rows.setdefault(("", str(row.get("symbol", ""))), row)
+            rows.setdefault(("", str(row.get("code", ""))), row)
         return rows
+
+    @staticmethod
+    def _source_coverage_is_comparable(
+        current: dict[str, SourceResult], previous: dict[str, Any] | None
+    ) -> bool:
+        if not previous or not isinstance(previous.get("sources"), dict):
+            return False
+        previous_sources = previous["sources"]
+        if set(previous_sources) != set(current):
+            return False
+        return all(
+            result.status == "available"
+            and isinstance(previous_sources[source], dict)
+            and previous_sources[source].get("status") == "available"
+            for source, result in current.items()
+        )
 
     def save(self, payload: dict[str, Any]) -> None:
         root = self._output_root()
