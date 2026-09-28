@@ -82,6 +82,27 @@
 
 Windows 不需要系統管理員權限,預設裝到 `D:\NanachiStockPanel`。使用者資料在安裝目錄下的 `data/`,覆蓋安裝不會遺失。
 
+### Windows 下載與簽章驗證
+
+Windows 發佈檔目前仍在建立正式程式碼簽章流程；在 SignPath Foundation
+核准並完成 CI 設定前，請把 Release 上的 Windows 檔案視為未簽章。只有本
+repository 的官方 Release 產物會納入未來簽章流程，測試版、Pull Request、
+分支 build 與本機自行打包的 EXE 不屬於已簽章官方產物。
+
+目前 `Nanachi台股看板.exe` 是本機 Launcher build artifact，尚未列入官方
+Release 資產；它也不應被視為已簽章檔案。正式發布前，Launcher 必須和其他
+Windows 產物一起納入核准的 CI 建置、簽章與驗證流程。
+
+下載後可在 PowerShell 檢查 Authenticode 狀態：
+
+```powershell
+Get-AuthenticodeSignature .\NanachiStockPanel-Setup-x64.exe
+```
+
+正式簽章啟用後，官方 Windows 產物必須顯示 `Status: Valid`，並確認
+`SignerCertificate` 與憑證鏈可信。若顯示 `NotSigned` 或驗證失敗，不要把它
+當成已簽章版本；請改用 GitHub Release 頁面的最新官方產物並查看發佈說明。
+
 ### 方式 B:Docker
 
 ```bash
