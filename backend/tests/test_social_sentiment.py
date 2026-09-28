@@ -1,17 +1,20 @@
 from __future__ import annotations
 
+import csv
 import json
 from datetime import UTC, datetime, timedelta
 
 import polars as pl
 
+from app.taiwan.providers.taiwan_values import TAIPEI
 from app.taiwan.social_sentiment import (
+    PTTStockCollector,
     SocialPost,
     SocialSentimentService,
     SourceResult,
     StockMentionResolver,
-    parse_dcard_posts,
     parse_dcard_html,
+    parse_dcard_posts,
     parse_ptt_index,
     parse_ptt_post,
 )
@@ -70,6 +73,111 @@ def test_ptt_index_and_post_parser():
     assert parsed.engagement == 3
 
 
+def test_ptt_post_parser_accepts_real_multi_token_push_classes():
+    markup = """
+    <span class="article-meta-tag">時間</span>
+    <span class="article-meta-value">Mon Sep 28 12:00:00 2026</span>
+    <div id="main-content">正文 2330
+      <div class="push"><span class="hl push-tag">推 </span>
+        <span class="push-userid">alice</span>
+        <span class="f3 push-content">: 好文</span>
+      </div>
+    </div>
+    """
+    parsed = parse_ptt_post(markup, post_id="M.real", url="https://ptt.cc/M.real.html")
+    assert parsed.comments == ("好文",)
+    assert parsed.engagement == 2
+    assert parsed.published_at == datetime(2026, 9, 28, 12, tzinfo=TAIPEI)
+
+
+class _FakeResponse:
+    def __init__(self, text: str):
+        self.text = text
+
+    def raise_for_status(self):
+        return None
+
+
+class _FakePttClient:
+    def __init__(self, responses: dict[str, str]):
+        self.responses = responses
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *args):
+        return None
+
+    def get(self, url: str):
+        return _FakeResponse(self.responses[url])
+
+
+def _ptt_index_entry(post_id: str, *, previous: str = "") -> str:
+    previous_link = f'<a class="btn wide" href="{previous}">‹ 上頁</a>' if previous else ""
+    return f"""
+    <div class="r-ent"><div class="title"><a href="/bbs/Stock/{post_id}.html">[標的] 台積電 2330</a></div>
+    <div class="meta"><div class="author">alice</div><div class="date"> 9/28</div></div></div>
+    {previous_link}
+    """
+
+
+def _ptt_post_with_time(post_id: str, timestamp: str) -> str:
+    return f"""
+    <span class="article-meta-tag">時間</span><span class="article-meta-value">{timestamp}</span>
+    <div id="main-content">正文 2330</div>
+    """
+
+
+def test_ptt_collector_filters_by_article_time_in_taipei_and_pages(monkeypatch):
+    first_index = _ptt_index_entry("M.new", previous="/bbs/Stock/index1.html")
+    second_index = _ptt_index_entry("M.old")
+    responses = {
+        "https://www.ptt.cc/bbs/Stock/index.html": first_index,
+        "https://www.ptt.cc/bbs/Stock/M.new.html": _ptt_post_with_time(
+            "M.new", "Mon Sep 28 07:00:00 2026"
+        ),
+        "https://www.ptt.cc/bbs/Stock/index1.html": second_index,
+        "https://www.ptt.cc/bbs/Stock/M.old.html": _ptt_post_with_time(
+            "M.old", "Mon Sep 28 05:00:00 2026"
+        ),
+    }
+    monkeypatch.setattr(
+        "app.taiwan.social_sentiment.httpx.Client",
+        lambda **kwargs: _FakePttClient(responses),
+    )
+    collector = PTTStockCollector(request_delay=0)
+    fetched = collector.fetch(since=datetime(2026, 9, 28, 6, tzinfo=TAIPEI), max_pages=2)
+    assert fetched.pages == 2
+    assert [post.post_id for post in fetched.posts] == ["M.new"]
+    assert fetched.posts[0].published_at.tzinfo == TAIPEI
+
+
+def test_source_success_with_no_posts_is_available_empty(tmp_path):
+    service = SocialSentimentService(
+        security_master=FakeSecurityMaster(),
+        collectors=(FakeCollector("ptt", succeeded=True),),
+        output_dir=tmp_path,
+    )
+    payload = service.run(run_ai=False, now=datetime(2026, 9, 28, tzinfo=UTC))
+    assert payload["sources"]["ptt"]["status"] == "available"
+    assert payload["sources"]["ptt"]["posts"] == 0
+
+
+def test_report_date_and_history_use_asia_taipei(tmp_path):
+    service = SocialSentimentService(
+        security_master=FakeSecurityMaster(),
+        collectors=(FakeCollector("ptt", succeeded=True),),
+        output_dir=tmp_path,
+    )
+    payload = service.run(
+        run_ai=False,
+        now=datetime(2026, 9, 27, 16, 30, tzinfo=UTC),
+    )
+    assert payload["as_of"] == "2026-09-28"
+    assert payload["generated_at"].endswith("+08:00")
+    assert (tmp_path / "history" / "2026-09-28.json").exists()
+
+
 def test_dcard_parser_normalizes_and_filters_old_posts():
     now = datetime(2026, 9, 28, 8, tzinfo=UTC)
     items = [
@@ -90,13 +198,26 @@ def test_dcard_html_fallback_parser():
 
 
 class FakeCollector:
-    def __init__(self, source: str, posts: list[SocialPost] | None = None, error: str | None = None):
+    def __init__(
+        self,
+        source: str,
+        posts: list[SocialPost] | None = None,
+        error: str | None = None,
+        succeeded: bool = False,
+    ):
         self.source = source
         self.posts = posts or []
         self.error = error
+        self.succeeded = succeeded
 
     def fetch(self, *, since, max_pages):
-        return SourceResult(self.source, self.posts, [self.error] if self.error else [], pages=1)
+        return SourceResult(
+            self.source,
+            self.posts,
+            [self.error] if self.error else [],
+            pages=1,
+            fetch_succeeded=self.succeeded,
+        )
 
 
 def _post(source: str, post_id: str, text: str, engagement: int = 2) -> SocialPost:
@@ -184,18 +305,44 @@ def test_ai_invalid_json_degrades_only_batch(tmp_path, monkeypatch):
     assert payload["rankings"][0]["sentiment"] == "unavailable"
 
 
-def test_history_rerun_upserts_same_day(tmp_path, monkeypatch):
+def test_volume_change_uses_exact_previous_calendar_day(tmp_path, monkeypatch):
     monkeypatch.setattr("app.services.ai_provider.ai_configured", lambda: False)
+    history_dir = tmp_path / "history"
+    history_dir.mkdir()
+    for day, total in (("2026-09-28", 100), ("2026-09-27", 4), ("2026-09-26", 2)):
+        (history_dir / f"{day}.json").write_text(
+            json.dumps({"as_of": day, "rankings": [{"symbol": "2330.TWSE", "code": "2330", "total_mentions": total}]}),
+            encoding="utf-8",
+        )
     service = SocialSentimentService(
         security_master=FakeSecurityMaster(),
-        collectors=(FakeCollector("ptt", [_post("ptt", "1", "2330")]),),
+        collectors=(FakeCollector("ptt", [_post("ptt", "1", "2330 " * 8)]),),
         output_dir=tmp_path,
     )
-    now = datetime(2026, 9, 28, tzinfo=UTC)
-    service.run(now=now)
-    service.run(now=now)
-    lines = (tmp_path / "social_sentiment_history.csv").read_text(encoding="utf-8").splitlines()
-    assert len(lines) == 2
+    payload = service.run(run_ai=False, now=datetime(2026, 9, 28, tzinfo=TAIPEI))
+    assert payload["rankings"][0]["volume_change_24h"] == 1.0
+
+
+def test_history_rerun_replaces_complete_same_day_snapshot(tmp_path, monkeypatch):
+    monkeypatch.setattr("app.services.ai_provider.ai_configured", lambda: False)
+    collector = FakeCollector(
+        "ptt",
+        [_post("ptt", "1", "2330"), _post("ptt", "2", "2344")],
+    )
+    service = SocialSentimentService(
+        security_master=FakeSecurityMaster(),
+        collectors=(collector,),
+        output_dir=tmp_path,
+    )
+    now = datetime(2026, 9, 28, tzinfo=TAIPEI)
+    first = service.run(run_ai=False, now=now)
+    collector.posts = [_post("ptt", "1", "2330")]
+    second = service.run(run_ai=False, now=now)
+    with (tmp_path / "social_sentiment_history.csv").open(encoding="utf-8", newline="") as handle:
+        rows = list(csv.DictReader(handle))
+    assert {row["symbol"] for row in rows} == {"2330.TWSE"}
+    assert {row["symbol"] for row in first["rankings"]} == {"2330.TWSE", "2344.TWSE"}
+    assert {row["symbol"] for row in second["rankings"]} == {"2330.TWSE"}
 
 
 def test_output_json_is_valid_and_csv_contains_contract_fields(tmp_path, monkeypatch):

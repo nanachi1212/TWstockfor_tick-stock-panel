@@ -16,13 +16,14 @@ import re
 import tempfile
 from collections import Counter, defaultdict
 from dataclasses import dataclass, field
-from datetime import UTC, date, datetime, timedelta
+from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Any, Protocol
 
 import httpx
 
 from app.config import settings
+from app.taiwan.providers.taiwan_values import TAIPEI
 
 logger = logging.getLogger(__name__)
 
@@ -51,13 +52,13 @@ def _parse_datetime(value: str) -> datetime | None:
         return None
     try:
         parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
-        return parsed if parsed.tzinfo else parsed.replace(tzinfo=UTC)
+        return parsed if parsed.tzinfo else parsed.replace(tzinfo=TAIPEI)
     except ValueError:
         pass
     for fmt in ("%a %b %d %H:%M:%S %Y", "%m/%d %H:%M"):
         try:
             parsed = datetime.strptime(value, fmt)
-            return parsed.replace(tzinfo=UTC)
+            return parsed.replace(tzinfo=TAIPEI)
         except ValueError:
             continue
     return None
@@ -86,12 +87,13 @@ class SourceResult:
     posts: list[SocialPost] = field(default_factory=list)
     errors: list[str] = field(default_factory=list)
     pages: int = 0
+    fetch_succeeded: bool = False
 
     @property
     def status(self) -> str:
-        if self.posts and self.errors:
+        if self.errors and (self.posts or self.fetch_succeeded):
             return "partial"
-        if self.posts:
+        if self.posts or self.fetch_succeeded:
             return "available"
         return "unavailable"
 
@@ -128,17 +130,13 @@ class PTTStockCollector:
                 for _ in range(max(1, max_pages)):
                     response = client.get(index_url)
                     response.raise_for_status()
+                    result.fetch_succeeded = True
                     entries = parse_ptt_index(response.text)
                     result.pages += 1
                     if not entries:
                         break
-                    oldest_seen: datetime | None = None
                     for entry in entries:
                         published = entry.get("published_at")
-                        if published and (oldest_seen is None or published < oldest_seen):
-                            oldest_seen = published
-                        if published and published < since:
-                            continue
                         try:
                             page = client.get(entry["url"])
                             page.raise_for_status()
@@ -150,12 +148,12 @@ class PTTStockCollector:
                                 fallback_title=entry["title"],
                                 fallback_published=published,
                             )
+                            if post.published_at is None or post.published_at < since:
+                                continue
                             result.posts.append(post)
                         except Exception as exc:  # noqa: BLE001 - isolate one PTT post
                             result.errors.append(f"post {entry['post_id']}: {type(exc).__name__}")
                     previous = entry.get("previous_url")
-                    if oldest_seen and oldest_seen < since:
-                        break
                     if not previous:
                         break
                     index_url = previous
@@ -201,6 +199,7 @@ class DcardCollector:
                         posts = response.json()
                         if not isinstance(posts, list):
                             raise ValueError("Dcard posts response is not a list")
+                        result.fetch_succeeded = True
                         result.pages += 1
                         parsed = parse_dcard_posts(posts, forum=forum, since=since)
                         for post in parsed:
@@ -226,6 +225,7 @@ class DcardCollector:
                         try:
                             fallback = client.get(f"https://www.dcard.tw/f/{forum}")
                             fallback.raise_for_status()
+                            result.fetch_succeeded = True
                             fallback_posts = parse_dcard_html(fallback.text, forum=forum, since=since)
                             result.posts.extend(fallback_posts)
                             if fallback_posts:
@@ -277,7 +277,11 @@ def parse_ptt_index(markup: str) -> list[dict[str, Any]]:
                 "author": author_match.group(1).strip() if author_match else None,
             }
         )
-    previous = re.search(r'<a class="btn wide" href="([^"]+)">上頁</a>', markup)
+    previous = re.search(
+        r'<a\b[^>]*href="([^"]+)"[^>]*>\s*(?:‹\s*)?上頁\s*</a>',
+        html.unescape(markup),
+        re.IGNORECASE,
+    )
     for entry in entries:
         entry["previous_url"] = f"{_PTT_BOARD}{html.unescape(previous.group(1))}" if previous else None
     return entries
@@ -308,8 +312,16 @@ def parse_ptt_post(
     engagement = 0
     for push in re.finditer(r'<div class="push">(.*?)(?=</div>\s*<div class="push">|</div>\s*</div>)', markup, re.DOTALL | re.IGNORECASE):
         part = push.group(1)
-        tag_match = re.search(r'class="push-tag"[^>]*>(.*?)</span>', part, re.DOTALL | re.IGNORECASE)
-        text_match = re.search(r'class="push-content"[^>]*>(.*?)</span>', part, re.DOTALL | re.IGNORECASE)
+        tag_match = re.search(
+            r'<span\b[^>]*class="[^"]*\bpush-tag\b[^"]*"[^>]*>(.*?)</span>',
+            part,
+            re.DOTALL | re.IGNORECASE,
+        )
+        text_match = re.search(
+            r'<span\b[^>]*class="[^"]*\bpush-content\b[^"]*"[^>]*>(.*?)</span>',
+            part,
+            re.DOTALL | re.IGNORECASE,
+        )
         text = _clean_html(text_match.group(1) if text_match else "").lstrip(":： ")
         if not text:
             continue
@@ -474,9 +486,10 @@ class SocialSentimentService:
     ) -> dict[str, Any]:
         if window_hours <= 0:
             raise ValueError("window_hours must be positive")
-        now = now or datetime.now(UTC)
+        now = now or datetime.now(TAIPEI)
         if now.tzinfo is None:
-            now = now.replace(tzinfo=UTC)
+            now = now.replace(tzinfo=TAIPEI)
+        now = now.astimezone(TAIPEI)
         since = now - timedelta(hours=window_hours)
         source_results: dict[str, SourceResult] = {}
         for collector in self._collectors():
@@ -496,7 +509,7 @@ class SocialSentimentService:
                 for code, count in resolver.resolve(post.text).items():
                     evidence[code].append((post, count))
 
-        previous = self._load_previous_rows()
+        previous = self._load_previous_rows(now.date())
         rankings = self._aggregate(evidence, resolver, previous)
         ai_info = {"status": "unavailable", "batches": 0, "analyzed_symbols": 0, "errors": []}
         if run_ai and rankings:
@@ -647,20 +660,22 @@ class SocialSentimentService:
             "rankings": rankings,
         }
 
-    def _load_previous_rows(self) -> dict[tuple[str, str], dict[str, Any]]:
+    def _load_previous_rows(self, as_of: date) -> dict[tuple[str, str], dict[str, Any]]:
         history_dir = self._output_root() / "history"
         rows: dict[tuple[str, str], dict[str, Any]] = {}
-        if not history_dir.exists():
+        previous_day = (as_of - timedelta(days=1)).isoformat()
+        path = history_dir / f"{previous_day}.json"
+        if not path.exists():
             return rows
-        files = sorted(history_dir.glob("*.json"), reverse=True)
-        for path in files[:30]:
-            try:
-                payload = json.loads(path.read_text(encoding="utf-8"))
-                for row in payload.get("rankings", []):
-                    rows.setdefault(("", str(row.get("symbol", ""))), row)
-                    rows.setdefault(("", str(row.get("code", ""))), row)
-            except (OSError, ValueError, TypeError):
-                continue
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+            if payload.get("as_of") != previous_day:
+                return rows
+            for row in payload.get("rankings", []):
+                rows.setdefault(("", str(row.get("symbol", ""))), row)
+                rows.setdefault(("", str(row.get("code", ""))), row)
+        except (OSError, ValueError, TypeError):
+            return rows
         return rows
 
     def save(self, payload: dict[str, Any]) -> None:
@@ -682,6 +697,7 @@ class SocialSentimentService:
             "neutral_count", "bearish_count", "sentiment", "sentiment_score", "sentiment_confidence",
             "social_heat_score", "sentiment_reason",
         ]
+        existing = {key: row for key, row in existing.items() if key[0] != day}
         for row in payload["rankings"]:
             existing[(day, row["symbol"])] = {field: _csv_value(day, row, field) for field in fields}
         rows = sorted(existing.values(), key=lambda item: (item["as_of"], int(item.get("rank") or 999999), item["symbol"]), reverse=True)
