@@ -1313,8 +1313,8 @@ def test_line_messaging() -> dict:
     ok = webhook_adapter.send_line(
         preferences.get_line_channel_access_token(),
         preferences.get_line_target_id(),
-        "測試通知",
-        "LINE Messaging API 已成功連線。",
+        "TWStock 通知測試",
+        "這是一則測試訊息。若你收到這則訊息就代表通知設定成功。",
     )
     return {"ok": ok}
 
@@ -1326,8 +1326,8 @@ def test_telegram_bot() -> dict:
     ok = webhook_adapter.send_telegram(
         preferences.get_telegram_bot_token(),
         preferences.get_telegram_chat_id(),
-        "測試通知",
-        "Telegram Bot API 已成功連線。",
+        "TWStock 通知測試",
+        "這是一則測試訊息。若你收到這則訊息就代表通知設定成功。",
     )
     return {"ok": ok}
 
