@@ -53,6 +53,27 @@ _METADATA: dict[str, dict[str, Any]] = {
 }
 
 
+REVENUE_EVIDENCE_REASONS = {
+    "missing": "月營收官方公告 evidence 缺失",
+    "not_observed_before_cutoff": "月營收官方公告時間無法證明早於選股 cutoff",
+    "stale": "月營收官方 evidence 已過期",
+    "incomplete": "月營收官方 evidence 不完整: 缺少應觀測頁面",
+}
+
+
+def _revenue_reasons(
+    available: int, evidence_status: str | None, mismatch_count: int
+) -> list[str]:
+    reasons: list[str] = []
+    if evidence_status is not None and evidence_status != "available":
+        reasons.append(REVENUE_EVIDENCE_REASONS.get(evidence_status, "月營收官方 evidence 狀態不明"))
+    elif available == 0:
+        reasons.append("月營收資料不可用")
+    if mismatch_count:
+        reasons.append(f"月營收官方來源數值不一致 {mismatch_count} 檔")
+    return reasons
+
+
 def is_supported_strategy(strategy_id: str | None) -> bool:
     return strategy_id in STRATEGY_IDS
 
@@ -69,6 +90,8 @@ def strategy_readiness(
     *,
     quote_coverage_status: str | None,
     risk_source_status: str | None,
+    revenue_evidence_status: str | None = None,
+    revenue_mismatch_count: int = 0,
 ) -> tuple[str, list[str], dict[str, int]]:
     """Return global readiness without turning missing data into candidates."""
     if strategy_id == "trend_liquidity_v1":
@@ -89,8 +112,7 @@ def strategy_readiness(
     elif strategy_id == "growth_trend_v1":
         available = frame.filter(pl.col("revenue_status") == "available").height
         coverage["revenue_available_count"] = available
-        if available == 0:
-            reasons.append("月營收資料不可用")
+        reasons.extend(_revenue_reasons(available, revenue_evidence_status, revenue_mismatch_count))
     elif strategy_id == "breakout_v1":
         available = frame.filter(
             pl.col("breakout_20d_strength").is_not_null()
@@ -113,8 +135,9 @@ def strategy_readiness(
         coverage["technical_history_count"] = technical_available
         if institutional_available == 0:
             reasons.append("法人資料不可用")
-        if revenue_available == 0:
-            reasons.append("月營收資料不可用")
+        reasons.extend(
+            _revenue_reasons(revenue_available, revenue_evidence_status, revenue_mismatch_count)
+        )
         if technical_available == 0:
             reasons.append("技術歷史資料不可用")
         coverage["objective_signal_count"] = frame.filter(

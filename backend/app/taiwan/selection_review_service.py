@@ -287,6 +287,9 @@ class TaiwanSelectionReviewService:
                 selection_action_coverage_end=action_evidence["end"],
                 selection_action_events_sha256=action_evidence["events_sha256"],
                 selection_action_coverage_saved_at=action_evidence["saved_at"],
+                revenue_evidence_status=(screen.revenue_evidence or {}).get("status"),
+                revenue_evidence_cutoff=(screen.revenue_evidence or {}).get("cutoff"),
+                revenue_evidence_digest=(screen.revenue_evidence or {}).get("digest"),
             )
             existing.append(snapshot)
             self._save_snapshots_raw(existing)
