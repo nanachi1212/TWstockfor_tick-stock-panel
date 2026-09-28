@@ -1218,8 +1218,23 @@ export interface TaiwanScreenerResponse {
   strategy_readiness?: 'ready' | 'degraded' | 'unavailable' | null
   strategy_readiness_reasons?: string[]
   strategy_coverage?: Record<string, number>
+  revenue_evidence?: TaiwanRevenueEvidenceSummary | null
   trend_indicator_basis?: 'raw' | 'pit_adjusted'
   trend_adjustment_status?: 'verified' | 'partial' | 'unavailable' | null
+}
+
+/** Official monthly-revenue observations behind a strategy run (PIT audit). */
+export interface TaiwanRevenueEvidenceSummary {
+  status: 'available' | 'missing' | 'not_observed_before_cutoff' | 'stale'
+  publication_basis: 'official_observation'
+  cutoff: string
+  first_observed_at: string | null
+  latest_observed_at: string | null
+  digest: string | null
+  latest_period: string | null
+  revenue_available_count: number
+  mismatch_count: number
+  status_counts: Record<string, number>
 }
 
 export interface TaiwanScreenerStrategy {

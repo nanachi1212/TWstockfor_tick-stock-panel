@@ -27,11 +27,15 @@ import polars as pl
 from pydantic import BaseModel, Field
 
 from app.taiwan.adjust import adjust_prices_as_of
-from app.taiwan.corporate_actions import CorporateActionStore
+from app.taiwan.corporate_actions import CorporateActionStore, event_market_open
 from app.taiwan.daily_store import TaiwanDailyStore
 from app.taiwan.finmind_cache import FinMindCache
 from app.taiwan.institutional_store import TaiwanInstitutionalStore
 from app.taiwan.margin_store import TaiwanMarginStore
+from app.taiwan.monthly_revenue_evidence import (
+    MonthlyRevenueEvidenceStore,
+    RevenueEvidenceSnapshot,
+)
 from app.taiwan.observed_universe import ObservedUniverseStore
 from app.taiwan.providers.taiwan_values import parse_number
 from app.taiwan.realtime.calendar import TaiwanTradingCalendar, taipei_now
@@ -360,6 +364,7 @@ class TaiwanScreenerResponse(BaseModel):
     strategy_readiness: Literal["ready", "degraded", "unavailable"] | None = None
     strategy_readiness_reasons: list[str] = []
     strategy_coverage: dict[str, int] = {}
+    revenue_evidence: dict[str, Any] | None = None
 
 
 class TaiwanScreenerService:
@@ -376,6 +381,7 @@ class TaiwanScreenerService:
         action_store: CorporateActionStore | None = None,
         calendar: TaiwanTradingCalendar | None = None,
         census_store: ObservedUniverseStore | None = None,
+        revenue_evidence_store: MonthlyRevenueEvidenceStore | None = None,
     ) -> None:
         self.security_master = security_master or get_security_master()
         self.daily_store = daily_store or TaiwanDailyStore()
@@ -390,6 +396,7 @@ class TaiwanScreenerService:
         # local store by default so normal screening has the same evidence as
         # the lock path.
         self.census_store = census_store or ObservedUniverseStore()
+        self.revenue_evidence_store = revenue_evidence_store or MonthlyRevenueEvidenceStore()
 
     def _get_fundamental_chips_service(self):
         if self._fundamental_chips_service is None:
@@ -458,6 +465,13 @@ class TaiwanScreenerService:
                 date.fromisoformat(daily_as_of),
                 observed if self.census_store is not None else None,
             )
+        revenue_evidence: RevenueEvidenceSnapshot | None = None
+        if risk_target_date is not None:
+            # Strategy data must have been public before the batch's entry
+            # session opens; only strictly earlier official observations count.
+            revenue_evidence = self.revenue_evidence_store.evidence_as_of(
+                event_market_open(risk_target_date)
+            )
         missing_quote_count = len(valid_symbols) - latest_daily.filter(
             pl.col("date") == latest_daily["date"].max()
         ).height
@@ -519,9 +533,7 @@ class TaiwanScreenerService:
 
         # Step 6.5: Batch Join Cached Fundamentals & Chips
         combined, fund_count, chips_count = self._join_cached_fundamentals_chips(
-            combined,
-            valid_symbols,
-            as_of=(date.fromisoformat(daily_as_of) if req.preset in STRATEGY_IDS else None),
+            combined, valid_symbols, revenue_evidence=revenue_evidence,
         )
 
         if req.preset == "trend_liquidity_v1":
@@ -615,6 +627,8 @@ class TaiwanScreenerService:
                 readiness_frame, req.preset,
                 quote_coverage_status=quote_coverage_status,
                 risk_source_status=risk_source_status,
+                revenue_evidence_status=revenue_evidence.status if revenue_evidence else None,
+                revenue_mismatch_count=len(revenue_evidence.mismatches) if revenue_evidence else 0,
             )
 
         return TaiwanScreenerResponse(
@@ -646,7 +660,42 @@ class TaiwanScreenerService:
             strategy_readiness=readiness,
             strategy_readiness_reasons=readiness_reasons,
             strategy_coverage=strategy_coverage,
+            revenue_evidence=(
+                self._revenue_evidence_summary(revenue_evidence, readiness_frame)
+                if revenue_evidence is not None else None
+            ),
         )
+
+    @staticmethod
+    def _revenue_evidence_summary(
+        evidence: RevenueEvidenceSnapshot, frame: pl.DataFrame
+    ) -> dict[str, Any]:
+        """Audit summary of the official revenue evidence behind this run."""
+        available = frame.filter(pl.col("revenue_status") == "available")
+        periods = available["revenue_latest_period"].drop_nulls().value_counts(sort=True)
+        latest_period = periods.row(0)[0] if periods.height else None
+        return {
+            "status": evidence.status,
+            "publication_basis": "official_observation",
+            "cutoff": evidence.cutoff.isoformat(),
+            "first_observed_at": evidence.first_observed_at,
+            "latest_observed_at": evidence.latest_observed_at,
+            "digest": evidence.digest,
+            "page_count": evidence.page_count,
+            "stale_page_count": evidence.stale_page_count,
+            "symbols_with_evidence": len(evidence.rows_by_symbol),
+            "revenue_available_count": available.height,
+            "revenue_yoy_improvement_count": available.filter(
+                pl.col("revenue_yoy_improving").is_not_null()
+            ).height,
+            "mismatch_count": len(evidence.mismatches),
+            "mismatch_symbols": sorted(evidence.mismatches)[:20],
+            "latest_period": latest_period,
+            "latest_period_count": periods.row(0)[1] if periods.height else 0,
+            "status_counts": dict(
+                frame["revenue_status"].value_counts(sort=True).iter_rows()
+            ),
+        }
 
     def _get_universe(self, exchange: ExchangeFilter, instrument: InstrumentFilter) -> pl.DataFrame:
         """Fetch strictly supported symbols from TaiwanSecurityMaster as a Polars DataFrame."""
@@ -986,12 +1035,21 @@ class TaiwanScreenerService:
         return df, inst_date, margin_date, degraded
 
     def _join_cached_fundamentals_chips(
-        self, df: pl.DataFrame, symbols: list[str], *, as_of: date | str | None = None
+        self, df: pl.DataFrame, symbols: list[str], *,
+        revenue_evidence: RevenueEvidenceSnapshot | None = None,
     ) -> tuple[pl.DataFrame, int, int]:
-        """Join cached fundamental metrics, extra chips, and quant scores safely from local store."""
+        """Join cached fundamental metrics, extra chips, and quant scores safely from local store.
+
+        Strategy runs pass ``revenue_evidence``: monthly revenue then comes only
+        from official observations made before the selection cutoff, and the
+        FinMind revenue cache is not consulted at all.
+        """
         fc_svc = self._get_fundamental_chips_service()
 
-        cached_rev_keys = self._cached_symbol_keys("TaiwanStockMonthRevenue", symbols)
+        cached_rev_keys = (
+            {} if revenue_evidence is not None
+            else self._cached_symbol_keys("TaiwanStockMonthRevenue", symbols)
+        )
         cached_fin_keys = self._cached_symbol_keys("TaiwanStockFinancialStatements", symbols)
         cached_val_keys = self._cached_symbol_keys("TaiwanValuation", symbols)
         cached_share_keys = self._cached_symbol_keys("TaiwanStockShareholding", symbols)
@@ -1024,6 +1082,7 @@ class TaiwanScreenerService:
         rev_yoy_improving_map: dict[str, bool | None] = {}
         rev_yoy_improvement_map: dict[str, float | None] = {}
         rev_status_map: dict[str, str] = {}
+        rev_period_map: dict[str, str | None] = {}
         eps_map: dict[str, float | None] = {}
         net_inc_map: dict[str, float | None] = {}
         share_ratio_map: dict[str, float | None] = {}
@@ -1038,22 +1097,47 @@ class TaiwanScreenerService:
                 pb_map[sym] = parse_number(d.get("pb"))
                 dy_map[sym] = parse_number(d.get("dividend_yield"))
 
+        revenue_rows: dict[str, tuple[list[dict[str, Any]], str | None, str]] = {}
         for sym, cache_key in cached_rev_keys.items():
             cached = self.cache.get("TaiwanStockMonthRevenue", cache_key)
             if cached and cached.get("data"):
-                rev_data = fc_svc._process_month_revenue(
-                    cached["data"], cached.get("data_date"), cached.get("fetched_at", ""), as_of=as_of
-                )
-                rev_yoy_map[sym] = rev_data.yoy
-                rev_mom_map[sym] = rev_data.mom
-                valid_yoy = [item.yoy for item in rev_data.trend if item.yoy is not None]
-                if rev_data.meta and rev_data.meta.status == "available" and rev_data.yoy is not None:
-                    rev_status_map[sym] = "available"
+                revenue_rows[sym] = (cached["data"], cached.get("data_date"), cached.get("fetched_at", ""))
+        if revenue_evidence is not None:
+            evidence_status = {
+                "missing": "evidence_missing",
+                "not_observed_before_cutoff": "publication_unknown",
+                "stale": "stale",
+            }.get(revenue_evidence.status)
+            for sym in df["symbol"].to_list():
+                if evidence_status is not None:
+                    rev_status_map[sym] = evidence_status
+                elif sym in revenue_evidence.mismatches:
+                    rev_status_map[sym] = "source_mismatch"
+                elif sym not in revenue_evidence.rows_by_symbol:
+                    rev_status_map[sym] = "evidence_missing"
                 else:
-                    rev_status_map[sym] = "unavailable"
-                if len(valid_yoy) >= 2:
-                    rev_yoy_improvement_map[sym] = valid_yoy[-1] - valid_yoy[-2]
-                    rev_yoy_improving_map[sym] = valid_yoy[-1] > valid_yoy[-2]
+                    revenue_rows[sym] = (
+                        revenue_evidence.rows_by_symbol[sym], None,
+                        revenue_evidence.latest_observed_at or "",
+                    )
+
+        for sym, (rows, data_date, fetched_at) in revenue_rows.items():
+            # PIT selection already happened for official evidence; the shared
+            # calculation below is the unchanged YoY/MoM definition.
+            rev_data = fc_svc._process_month_revenue(rows, data_date, fetched_at)
+            rev_yoy_map[sym] = rev_data.yoy
+            rev_mom_map[sym] = rev_data.mom
+            rev_period_map[sym] = rev_data.latest_year_month
+            valid_yoy = [item.yoy for item in rev_data.trend if item.yoy is not None]
+            if rev_data.meta and rev_data.meta.status == "available" and rev_data.yoy is not None:
+                rev_status_map[sym] = "available"
+            else:
+                rev_status_map[sym] = (
+                    "insufficient_history" if revenue_evidence is not None else "unavailable"
+                )
+            if len(valid_yoy) >= 2:
+                rev_yoy_improvement_map[sym] = valid_yoy[-1] - valid_yoy[-2]
+                rev_yoy_improving_map[sym] = valid_yoy[-1] > valid_yoy[-2]
 
         for sym, cache_key in cached_fin_keys.items():
             cached = self.cache.get("TaiwanStockFinancialStatements", cache_key)
@@ -1090,6 +1174,7 @@ class TaiwanScreenerService:
         rev_yoy_improving = [rev_yoy_improving_map.get(s) for s in df_symbols]
         rev_yoy_improvement = [rev_yoy_improvement_map.get(s) for s in df_symbols]
         rev_statuses = [rev_status_map.get(s, "unavailable") for s in df_symbols]
+        rev_periods = [rev_period_map.get(s) for s in df_symbols]
         epss = [eps_map.get(s) for s in df_symbols]
         net_incs = [net_inc_map.get(s) for s in df_symbols]
         share_ratios = [share_ratio_map.get(s) for s in df_symbols]
@@ -1106,6 +1191,7 @@ class TaiwanScreenerService:
             pl.Series("revenue_yoy_improving", rev_yoy_improving, dtype=pl.Boolean),
             pl.Series("revenue_yoy_improvement", rev_yoy_improvement, dtype=pl.Float64),
             pl.Series("revenue_status", rev_statuses, dtype=pl.String),
+            pl.Series("revenue_latest_period", rev_periods, dtype=pl.String),
             pl.Series("latest_eps", epss, dtype=pl.Float64),
             pl.Series("net_income", net_incs, dtype=pl.Float64),
             pl.Series("foreign_shareholding_ratio", share_ratios, dtype=pl.Float64),

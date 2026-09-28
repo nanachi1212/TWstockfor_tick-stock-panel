@@ -209,10 +209,12 @@ class TaiwanBootstrapService:
         from app.taiwan.corporate_actions import CorporateActionStore
         from app.taiwan.daily_update import TaiwanDailyUpdateService
         from app.taiwan.events_service import get_event_service
-        from app.taiwan.finmind_cache import FinMindCache
-        from app.taiwan.fundamental_chips_service import TaiwanFundamentalChipsService
         from app.taiwan.institutional_store import TaiwanInstitutionalStore
         from app.taiwan.margin_store import TaiwanMarginStore
+        from app.taiwan.monthly_revenue_evidence import (
+            MonthlyRevenueEvidenceStore,
+            refresh_monthly_revenue_evidence,
+        )
         from app.taiwan.observed_universe import ObservedUniverseStore
         from app.taiwan.realtime.calendar import TaiwanTradingCalendar
         from app.taiwan.screener import TaiwanScreenerService
@@ -253,16 +255,10 @@ class TaiwanBootstrapService:
             }
 
         try:
-            screener = TaiwanScreenerService(
-                daily_store=self.store, census_store=census_store, calendar=calendar,
+            # Official market-batch pages; provenance is the observation time.
+            readiness["monthly_revenue"] = refresh_monthly_revenue_evidence(
+                MonthlyRevenueEvidenceStore(data_dir / "monthly_revenue_evidence")
             )
-            universe = screener._get_universe("ALL", "stock")
-            revenue_refresh = TaiwanFundamentalChipsService(
-                cache=FinMindCache(cache_dir=data_dir / "finmind_cache")
-            ).refresh_monthly_revenue_cache(
-                universe["symbol"].to_list(), as_of=source_day
-            )
-            readiness["monthly_revenue"] = revenue_refresh
         except Exception as exc:
             logger.warning("Selection monthly-revenue refresh warning: %s", exc)
             readiness["monthly_revenue"] = {
@@ -290,6 +286,9 @@ class TaiwanBootstrapService:
             readiness["observed_universe_status"] = (
                 "verified" if all(e.status == "trading" and census_store.has(exchange, source_day)
                                    for exchange, e in evidence.items()) else "unavailable"
+            )
+            screener = TaiwanScreenerService(
+                daily_store=self.store, census_store=census_store, calendar=calendar,
             )
             universe = screener._get_universe("ALL", "stock")
             latest_frame = screener._normalize_daily_frame(

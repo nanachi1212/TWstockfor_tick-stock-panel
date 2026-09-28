@@ -69,6 +69,10 @@ class SelectionSnapshot(BaseModel):
     selection_action_coverage_end: str | None = None
     selection_action_events_sha256: str | None = None
     selection_action_coverage_saved_at: str | None = None
+    # Official monthly-revenue observations used by revenue-based strategies.
+    revenue_evidence_status: str | None = None
+    revenue_evidence_cutoff: str | None = None
+    revenue_evidence_digest: str | None = None
 
 
 class SaveSelectionSnapshotRequest(BaseModel):
