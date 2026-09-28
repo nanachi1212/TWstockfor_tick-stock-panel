@@ -20,7 +20,12 @@ from app.taiwan.corporate_actions import CorporateActionEvent, event_market_open
 from app.taiwan.providers.corporate_actions import SOURCE_URLS
 from app.taiwan.quant import live_runner
 from app.taiwan.quant.feature_manifest import FeatureManifest, training_matrix
-from app.taiwan.quant.live_contract import LiveModel, canonical_hash, latest_completed_session, signal_reason_metadata
+from app.taiwan.quant.live_contract import (
+    LiveModel,
+    canonical_hash,
+    latest_completed_session,
+    signal_reason_metadata,
+)
 from app.taiwan.quant.live_outcomes import mature_live_outcomes
 from app.taiwan.quant.live_runner import LiveInputs, build_live_batch, run_current_live
 from app.taiwan.quant.live_store import LiveConflictError, LiveLedger
@@ -181,6 +186,10 @@ def test_eod_to_ledger_preserves_missing_and_reuses_snapshot(inputs, environment
     assert snapshot["validation_state"] == "unvalidated"
     assert len(snapshot["signals"]) == 1
     assert snapshot["signals"][0]["symbol"] == "2330.TWSE"
+    assert snapshot["signals"][0]["name"] == "2330.TWSE"
+    assert snapshot["signals"][0]["reason_codes"]
+    assert snapshot["signals"][0]["reason_summary"]
+    assert snapshot["signals"][0]["rank"] == 1
     assert snapshot["signals"][0]["confidence"] is None
     assert all(row["margin_balance"] is None and row["foreign_net_1d"] is None
                and row["industry_rank"] is None for row in snapshot["features"])
