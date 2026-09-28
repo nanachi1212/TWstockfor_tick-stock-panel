@@ -101,6 +101,26 @@ cp .env.example .env
 
 自動檢查與安裝依賴、釋放連接埠、同時起前後端。後端 → <http://localhost:3018> · 前端 → <http://localhost:3011>。
 
+### 方式 D:Windows GUI Launcher
+
+Windows 使用者可執行 `dist/Nanachi台股看板.exe`，不需要開 PowerShell 或手動輸入網址。Launcher 會檢查 3018/3011 是否已有本專案服務，必要時啟動既有 backend 與 frontend，通過健康檢查後用 Windows 預設瀏覽器開啟 <http://localhost:3011>。關閉 GUI 時，只有 Launcher 自己啟動的服務可被停止，原本已在運行的服務會保留。
+
+Launcher 是開發版啟動器，執行時仍需要現有 repository/runtime，包括 `backend/.venv`、Node.js 與 pnpm；它不會把 FastAPI、React、`.env` 或 `data/` 打包進單一 EXE。建立 EXE：
+
+```powershell
+.\scripts\build-launcher.ps1
+# 若預設 backend/.venv 的 Python 沒有 Tcl/Tk，可改用含 Tk 的既有 Python：
+# .\scripts\build-launcher.ps1 -Python C:\Path\to\python.exe
+```
+
+可選擇建立桌面捷徑：
+
+```powershell
+.\scripts\install-launcher-shortcut.ps1
+```
+
+若 3011 或 3018 已被其他程式占用，Launcher 會顯示錯誤並避免終止對方程序。
+
 ### 跑起來後的第一次使用
 
 1. 面板要對外開放時,第一次會要求**設定存取密碼**。
