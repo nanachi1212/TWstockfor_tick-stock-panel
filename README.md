@@ -93,6 +93,12 @@ repository 的官方 Release 產物會納入未來簽章流程，測試版、Pul
 Release 資產；它也不應被視為已簽章檔案。正式發布前，Launcher 必須和其他
 Windows 產物一起納入核准的 CI 建置、簽章與驗證流程。
 
+Code signing is currently pending SignPath Foundation approval. Windows
+artifacts published before approval may remain unsigned.
+
+核准並啟用後：Free code signing provided by [SignPath.io](https://signpath.io/),
+certificate by [SignPath Foundation](https://signpath.org/)。
+
 下載後可在 PowerShell 檢查 Authenticode 狀態：
 
 ```powershell
@@ -102,6 +108,8 @@ Get-AuthenticodeSignature .\NanachiStockPanel-Setup-x64.exe
 正式簽章啟用後，官方 Windows 產物必須顯示 `Status: Valid`，並確認
 `SignerCertificate` 與憑證鏈可信。若顯示 `NotSigned` 或驗證失敗，不要把它
 當成已簽章版本；請改用 GitHub Release 頁面的最新官方產物並查看發佈說明。
+
+專案隱私政策見 [`PRIVACY.md`](PRIVACY.md)。
 
 ### 方式 B:Docker
 

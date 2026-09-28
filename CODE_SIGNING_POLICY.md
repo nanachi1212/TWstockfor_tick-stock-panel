@@ -18,6 +18,16 @@ The current release workflow is `.github/workflows/release.yml`. It builds the
 Windows installer from the repository source and publishes it as a GitHub
 Release asset. Signing is not active in that workflow yet.
 
+## Project eligibility and provenance
+
+- This is an individual-maintainer open-source project released under the MIT
+  license.
+- The official source repository is
+  `https://github.com/nanachi1212/TWstockfor_tick-stock-panel`.
+- Official Windows release artifacts must retain GitHub Actions build
+  provenance from this repository and may be signed only through the approved
+  CI path.
+
 ## Signing controls
 
 - Signing will be performed only by approved CI after the SignPath Foundation
