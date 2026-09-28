@@ -1,4 +1,5 @@
 """Official monthly-revenue PIT evidence (MOPS t21sc03 observations)."""
+# ruff: noqa: RUF001 -- fixtures mirror official full-width page text.
 from __future__ import annotations
 
 import inspect
@@ -212,7 +213,7 @@ def test_partial_page_set_is_incomplete_not_available(tmp_path):
         quote_coverage_status="verified", risk_source_status="available",
         revenue_evidence_status=evidence.status,
     )
-    assert reasons == ["月營收官方 evidence 不完整（缺少應觀測頁面）"]
+    assert reasons == ["月營收官方 evidence 不完整: 缺少應觀測頁面"]
 
 
 def test_evidence_resolution_is_deterministic(tmp_path):

@@ -57,7 +57,7 @@ REVENUE_EVIDENCE_REASONS = {
     "missing": "月營收官方公告 evidence 缺失",
     "not_observed_before_cutoff": "月營收官方公告時間無法證明早於選股 cutoff",
     "stale": "月營收官方 evidence 已過期",
-    "incomplete": "月營收官方 evidence 不完整（缺少應觀測頁面）",
+    "incomplete": "月營收官方 evidence 不完整: 缺少應觀測頁面",
 }
 
 
