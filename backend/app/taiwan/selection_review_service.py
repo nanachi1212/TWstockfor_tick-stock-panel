@@ -164,6 +164,7 @@ class TaiwanSelectionReviewService:
             market_context_summary=req.market_context_summary.strip(),
             selected_symbols=symbols,
             items=req.items,
+            source=req.source,
         )
 
         with self._lock, self._write_guard():
@@ -1117,6 +1118,7 @@ class TaiwanSelectionReviewService:
                         strategy_id=s.strategy_id,
                         strategy_version=s.strategy_version,
                         strategy_name=s.strategy_name,
+                        source=s.source,
                         as_of_date=s.as_of_date,
                         selected_count=len(s.items),
                         record_type=s.record_type,
@@ -1155,6 +1157,7 @@ class TaiwanSelectionReviewService:
                         strategy_id=s.strategy_id,
                         strategy_version=s.strategy_version,
                         strategy_name=s.strategy_name,
+                        source=s.source,
                         as_of_date=s.as_of_date,
                         selected_count=len(s.items),
                         record_type=s.record_type,
@@ -1175,7 +1178,7 @@ class TaiwanSelectionReviewService:
 
     # ── Strategy & Condition Analytics ──────────────────────────────
 
-    def get_strategy_reviews(self) -> list[StrategyReviewStats]:
+    def get_strategy_reviews(self, source: str | None = None) -> list[StrategyReviewStats]:
         """Aggregate performance for each saved strategy across all evaluated snapshots."""
         with self._lock:
             raw_list = self._read_snapshots_raw()
@@ -1183,7 +1186,7 @@ class TaiwanSelectionReviewService:
         by_strat: dict[str, list[SelectionSnapshot]] = {}
         strat_names: dict[str, str] = {}
         for s in raw_list:
-            if s.record_type != "research":
+            if s.record_type != "research" or (source is not None and s.source != source):
                 continue
             by_strat.setdefault(s.strategy_id, []).append(s)
             strat_names[s.strategy_id] = s.strategy_name

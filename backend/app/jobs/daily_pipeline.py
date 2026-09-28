@@ -951,6 +951,32 @@ def start_scheduler(repo: KlineRepository, capset: CapabilitySet) -> AsyncIOSche
         replace_existing=True,
     )
 
+    # 買點策略只讀本地已落盤資料與自選股設定，每個交易日盤中至少評估兩次。
+    # 外部通知沿用既有 alert/SSE/LINE/Telegram 管線，資料不足時由 evaluator fail closed。
+    def _scheduled_buy_point_evaluation():
+        try:
+            from app.api.buy_points import evaluate_watchlist
+
+            app_state = _get_app_state()
+            result = evaluate_watchlist(
+                repo.store.data_dir,
+                getattr(app_state, "quote_service", None),
+            )
+            logger.info("Scheduled Taiwan buy-point evaluation finished: signals=%d, triggered=%d", len(result["signals"]), len(result["triggered"]))
+        except Exception:
+            logger.exception("Scheduled Taiwan buy-point evaluation failed")
+
+    for hour in (10, 14):
+        scheduler.add_job(
+            _scheduled_buy_point_evaluation,
+            trigger=CronTrigger(day_of_week="mon-fri", hour=hour, minute=0, timezone="Asia/Taipei"),
+            id=f"taiwan_buy_point_evaluation_{hour:02d}",
+            misfire_grace_time=1800,
+            coalesce=True,
+            max_instances=1,
+            replace_existing=True,
+        )
+
     scheduler.start()
     logger.info("scheduler started; instruments@%02d:%02d, pipeline@%02d:%02d, depth@%02d:%02d mon-fri, taiwan@16:30",
                 inst_sched["hour"], inst_sched["minute"], sched["hour"], sched["minute"],

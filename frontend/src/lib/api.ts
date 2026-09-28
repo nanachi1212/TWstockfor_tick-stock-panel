@@ -1001,6 +1001,66 @@ export interface TaiwanStockDetailResponse {
   news_fetched_at?: string | null
 }
 
+// ===== A13: 買點策略與提醒 =====
+export type BuyPointStatus = 'waiting' | 'approaching' | 'triggered' | 'blocked' | 'unavailable'
+export interface BuyPointConditions {
+  quant_min?: number | null
+  pullback_min_pct?: number | null
+  pullback_max_pct?: number | null
+  breakout_window?: number | null
+  volume_multiplier?: number | null
+  revenue_yoy_min?: number | null
+  pe_min?: number | null
+  pe_max?: number | null
+  pb_min?: number | null
+  pb_max?: number | null
+  eps_min?: number | null
+  institutional_required?: boolean
+  foreign_shareholding_change_min?: number | null
+  max_price_extension_pct?: number | null
+  resonance_min_categories?: number
+  approaching_distance_pct?: number
+  cooldown_minutes?: number
+}
+export interface BuyPointRiskFilters {
+  exclude_disposition?: boolean
+  exclude_suspension?: boolean
+  exclude_delisting?: boolean
+  exclude_capital_reduction_critical?: boolean
+  exclude_regulatory_unknown?: boolean
+  exclude_severe_event?: boolean
+}
+export interface BuyPointStrategy {
+  id: string
+  name: string
+  description: string
+  category: string
+  enabled: boolean
+  preset: boolean
+  conditions: BuyPointConditions
+  risk_filters: BuyPointRiskFilters
+  alert_channels: string[]
+  created_at: string
+  updated_at: string
+  assigned_symbols?: string[]
+  assigned_count?: number
+}
+export interface BuyPointSignal {
+  strategy_id: string
+  symbol: string
+  name: string
+  detected_at: string
+  data_as_of?: string | null
+  status: BuyPointStatus
+  triggered_conditions: string[]
+  failed_conditions: string[]
+  risk_flags: string[]
+  price?: number | null
+  quant_score?: number | null
+  explanation: string
+  freshness: string
+}
+
 
 export type TaiwanUsageScope =
   | 'current_reference'
@@ -3643,6 +3703,42 @@ export const api = {
       `/api/taiwan/stocks/${encodeURIComponent(symbol)}?days=${days}`,
     ),
 
+  // ===== A13: Buy Point =====
+  buyPointPresets: () =>
+    request<{ presets: BuyPointStrategy[] }>('/api/taiwan/buy-points/presets'),
+  buyPointStrategies: () =>
+    request<{ strategies: BuyPointStrategy[] }>('/api/taiwan/buy-points/strategies'),
+  buyPointClone: (presetId: string, name?: string) =>
+    request<BuyPointStrategy>('/api/taiwan/buy-points/strategies/clone', {
+      method: 'POST', body: JSON.stringify({ preset_id: presetId, ...(name ? { name } : {}) }),
+    }),
+  buyPointCreate: (payload: { name: string; description?: string; category?: string; conditions?: BuyPointConditions; risk_filters?: BuyPointRiskFilters; alert_channels?: string[]; enabled?: boolean }) =>
+    request<BuyPointStrategy>('/api/taiwan/buy-points/strategies', { method: 'POST', body: JSON.stringify(payload) }),
+  buyPointUpdate: (id: string, payload: Partial<BuyPointStrategy>) =>
+    request<BuyPointStrategy>(`/api/taiwan/buy-points/strategies/${encodeURIComponent(id)}`, { method: 'PUT', body: JSON.stringify(payload) }),
+  buyPointDelete: (id: string) =>
+    request<{ ok: boolean; deleted_id: string }>(`/api/taiwan/buy-points/strategies/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+  buyPointAssignments: (symbol?: string) => {
+    const qs = symbol ? `?symbol=${encodeURIComponent(symbol)}` : ''
+    return request<{ assignments: Record<string, string[]> | string[] }>(`/api/taiwan/buy-points/assignments${qs}`)
+  },
+  buyPointAssign: (symbol: string, strategyIds: string[]) =>
+    request<{ symbol: string; strategy_ids: string[] }>(`/api/taiwan/buy-points/assignments/${encodeURIComponent(symbol)}`, { method: 'PUT', body: JSON.stringify({ strategy_ids: strategyIds }) }),
+  buyPointSignals: (symbol?: string) => {
+    const qs = symbol ? `?symbol=${encodeURIComponent(symbol)}` : ''
+    return request<{ signals: BuyPointSignal[]; as_of: string }>(`/api/taiwan/buy-points/signals${qs}`)
+  },
+  buyPointEvaluate: (symbol?: string) => {
+    const qs = symbol ? `?symbol=${encodeURIComponent(symbol)}` : ''
+    return request<{ signals: BuyPointSignal[]; triggered: AlertEvent[] }>(`/api/taiwan/buy-points/evaluate${qs}`, { method: 'POST' })
+  },
+  buyPointSummary: () =>
+    request<{ counts: Record<BuyPointStatus, number>; total: number }>('/api/taiwan/buy-points/summary'),
+  buyPointSnapshot: (strategyId: string, symbol: string) =>
+    request<Record<string, unknown>>('/api/taiwan/buy-points/snapshots', { method: 'POST', body: JSON.stringify({ strategy_id: strategyId, symbol }) }),
+  buyPointStats: () =>
+    request<{ stats: Record<string, unknown>[]; disclaimer: string }>('/api/taiwan/buy-points/stats'),
+
   taiwanCapabilities: () =>
     request<TaiwanDatasetCapability[]>('/api/taiwan/capabilities'),
 
@@ -4449,6 +4545,7 @@ export interface SnapshotListItem {
   risk_target_date?: string | null
   selection_indicator_basis?: 'raw' | 'pit_adjusted'
   trend_adjustment_status?: 'verified' | 'partial' | 'unavailable' | null
+  source?: 'Screener' | 'Buy Point' | string
 }
 
 export interface ForwardBatchStats {
