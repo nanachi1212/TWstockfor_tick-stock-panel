@@ -82,6 +82,35 @@
 
 Windows 不需要系統管理員權限,預設裝到 `D:\NanachiStockPanel`。使用者資料在安裝目錄下的 `data/`,覆蓋安裝不會遺失。
 
+### Windows 下載與簽章驗證
+
+Windows 發佈檔目前仍在建立正式程式碼簽章流程；在 SignPath Foundation
+核准並完成 CI 設定前，請把 Release 上的 Windows 檔案視為未簽章。只有本
+repository 的官方 Release 產物會納入未來簽章流程，測試版、Pull Request、
+分支 build 與本機自行打包的 EXE 不屬於已簽章官方產物。
+
+目前 `Nanachi台股看板.exe` 是本機 Launcher build artifact，尚未列入官方
+Release 資產；它也不應被視為已簽章檔案。正式發布前，Launcher 必須和其他
+Windows 產物一起納入核准的 CI 建置、簽章與驗證流程。
+
+Code signing is currently pending SignPath Foundation approval. Windows
+artifacts published before approval may remain unsigned.
+
+核准並啟用後：Free code signing provided by [SignPath.io](https://signpath.io/),
+certificate by [SignPath Foundation](https://signpath.org/)。
+
+下載後可在 PowerShell 檢查 Authenticode 狀態：
+
+```powershell
+Get-AuthenticodeSignature .\NanachiStockPanel-Setup-x64.exe
+```
+
+正式簽章啟用後，官方 Windows 產物必須顯示 `Status: Valid`，並確認
+`SignerCertificate` 與憑證鏈可信。若顯示 `NotSigned` 或驗證失敗，不要把它
+當成已簽章版本；請改用 GitHub Release 頁面的最新官方產物並查看發佈說明。
+
+專案隱私政策見 [`PRIVACY.md`](PRIVACY.md)。
+
 ### 方式 B:Docker
 
 ```bash
@@ -100,6 +129,26 @@ cp .env.example .env
 ```
 
 自動檢查與安裝依賴、釋放連接埠、同時起前後端。後端 → <http://localhost:3018> · 前端 → <http://localhost:3011>。
+
+### 方式 D:Windows GUI Launcher
+
+Windows 使用者可執行 `dist/Nanachi台股看板.exe`，不需要開 PowerShell 或手動輸入網址。Launcher 會檢查 3018/3011 是否已有本專案服務，必要時啟動既有 backend 與 frontend，通過健康檢查後用 Windows 預設瀏覽器開啟 <http://localhost:3011>。關閉 GUI 時，只有 Launcher 自己啟動的服務可被停止，原本已在運行的服務會保留。
+
+Launcher 是開發版啟動器，執行時仍需要現有 repository/runtime，包括 `backend/.venv`、Node.js 與 pnpm；它不會把 FastAPI、React、`.env` 或 `data/` 打包進單一 EXE。建立 EXE：
+
+```powershell
+.\scripts\build-launcher.ps1
+# 若預設 backend/.venv 的 Python 沒有 Tcl/Tk，可改用含 Tk 的既有 Python：
+# .\scripts\build-launcher.ps1 -Python C:\Path\to\python.exe
+```
+
+可選擇建立桌面捷徑：
+
+```powershell
+.\scripts\install-launcher-shortcut.ps1
+```
+
+若 3011 或 3018 已被其他程式占用，Launcher 會顯示錯誤並避免終止對方程序。
 
 ### 跑起來後的第一次使用
 

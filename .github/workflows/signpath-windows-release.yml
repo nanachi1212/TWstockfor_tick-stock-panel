@@ -1,0 +1,83 @@
+name: SignPath Windows release artifact
+
+# Readiness scaffold only. This reusable workflow is intentionally not called
+# by release.yml until SignPath Foundation approves and configures the project.
+# It has no push, pull_request, or workflow_dispatch trigger.
+
+on:
+  workflow_call:
+    inputs:
+      unsigned-artifact-name:
+        description: Existing GitHub Actions artifact containing the unsigned Windows file
+        required: true
+        type: string
+      unsigned-artifact-path:
+        description: File path inside the downloaded artifact
+        required: true
+        type: string
+      signed-artifact-name:
+        description: GitHub Actions artifact name for the signed output
+        required: true
+        type: string
+      signpath-organization-id:
+        description: SignPath organization ID supplied after approval
+        required: true
+        type: string
+      signpath-project-slug:
+        description: SignPath project slug supplied after approval
+        required: true
+        type: string
+      signpath-signing-policy-slug:
+        description: SignPath signing policy slug supplied after approval
+        required: true
+        type: string
+      signpath-artifact-configuration-slug:
+        description: Optional SignPath artifact configuration slug
+        required: false
+        type: string
+    secrets:
+      SIGNPATH_API_TOKEN:
+        required: true
+
+jobs:
+  sign:
+    # A caller must invoke this only from the official tag/release path.
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: windows-latest
+    permissions:
+      actions: read
+      contents: read
+    steps:
+      - name: Download unsigned artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ inputs.unsigned-artifact-name }}
+          path: unsigned
+
+      - name: Upload unsigned artifact for SignPath
+        id: upload-unsigned
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ inputs.unsigned-artifact-name }}-for-signing
+          path: unsigned/${{ inputs.unsigned-artifact-path }}
+
+      - name: Submit SignPath signing request
+        id: signpath
+        uses: signpath/github-action-submit-signing-request@v3
+        with:
+          api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
+          organization-id: ${{ inputs.signpath-organization-id }}
+          project-slug: ${{ inputs.signpath-project-slug }}
+          signing-policy-slug: ${{ inputs.signpath-signing-policy-slug }}
+          artifact-configuration-slug: ${{ inputs.signpath-artifact-configuration-slug }}
+          github-artifact-id: ${{ steps.upload-unsigned.outputs.artifact-id }}
+          github-token: ${{ github.token }}
+          wait-for-completion: true
+          output-artifact-directory: signed
+
+      - name: Publish signed artifact for release job
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ inputs.signed-artifact-name }}
+          path: signed
+
