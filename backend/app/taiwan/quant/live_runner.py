@@ -14,6 +14,7 @@ from app.taiwan.daily_store import TaiwanDailyStore
 from app.taiwan.observed_universe import ObservedUniverseCensus, ObservedUniverseStore
 from app.taiwan.providers.corporate_actions import SOURCE_URLS, CorporateActionProvider
 from app.taiwan.quant.baseline import rank_equal_weight_features
+from app.taiwan.quant.data_health import current_live_readiness
 from app.taiwan.quant.live_contract import (
     FEATURES,
     LIVE_CONTRACT,
@@ -222,16 +223,27 @@ def build_live_batch(inputs: LiveInputs, model: LiveModel) -> LiveSignalBatch:
         ranked = composite[row["symbol"]]
         score = ranked["score"]
         rows.append({"symbol": row["symbol"], "score": score,
+                     "momentum_20d": row["momentum_20d"],
                      "feature_percentiles": ranked["feature_percentiles"],
                      "selected": score >= model.min_rank and row["momentum_20d"] > 0})
     ordered = sorted(rows, key=lambda row: (-row["score"], row["symbol"]))
     for index, row in enumerate(ordered):
         row["rank"] = index + 1
     reference = dict(raw.filter(pl.col("date") == session).select("symbol", "close").iter_rows())
-    signals = [{**row, "reference_close": reference[row["symbol"]],
+    names = {
+        row["symbol"]: str(row.get("name") or "").strip()
+        for row in inputs.master.to_dicts()
+        if row.get("symbol")
+    }
+    signals = [{**row, "name": names.get(row["symbol"], ""),
+                "reference_close": reference[row["symbol"]],
                 "confidence": None, "confidence_status": "not_implemented",
                 "probability": None, "risk_assessment": None, "risk_status": "not_implemented"}
                for row in ordered if row["selected"]][:model.top_n]
+    if any(not signal.get("name") for signal in signals):
+        raise ValueError("security_master_name_unavailable")
+    from app.taiwan.quant.live_contract import signal_reason_metadata
+    signals = [{**signal, **signal_reason_metadata(signal, model)} for signal in signals]
     # Existing regime computes breadth; absent index history remains explicitly
     # data_insufficient and contributes no fabricated price/turnover observations.
     breadth_rows = usable.join(raw.filter(pl.col("date") == session).select("symbol", "close"), on="symbol")
@@ -257,6 +269,16 @@ def build_live_batch(inputs: LiveInputs, model: LiveModel) -> LiveSignalBatch:
         "raw_history_source": "taiwan_daily_store_raw+official_current_snapshot",
         "corporate_action_coverage": coverage,
         "corporate_actions": [event.to_dict() for event in inputs.events],
+        "live_readiness": current_live_readiness(
+            "verified",
+            checks={
+                "market_data": "verified",
+                "factor_data": "verified",
+                "trading_day": "verified",
+                "corporate_actions": "verified",
+                "session_completeness": "verified",
+            },
+        ),
         "usage_scope": "experimental_live", "validation_state": "unvalidated",
         "horizons": [1, 5, 20],
     }

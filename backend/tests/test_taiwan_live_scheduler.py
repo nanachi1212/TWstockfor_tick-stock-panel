@@ -35,6 +35,12 @@ def test_scheduler_market_refresh_is_complete_before_quant_failure(monkeypatch, 
     assert result.overall_status == "success"
     assert result.daily.status == "success"
     assert job.kwargs["max_instances"] == 1
+    trigger = job.kwargs["trigger"]
+    fields = {field.name: str(field) for field in trigger.fields}
+    assert fields["day_of_week"] == "mon-fri"
+    assert fields["hour"] == "16"
+    assert fields["minute"] == "30"
+    assert str(trigger.timezone) == "Asia/Taipei"
 
 
 def test_failed_daily_refresh_skips_quant_with_reason(monkeypatch, taiwan_data_env):

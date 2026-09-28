@@ -2,6 +2,15 @@
 
 本文件供 implementation 完成後做 targeted smoke test，不會建立新的 scheduler、migration 或外部資料流程。
 
+## Repository touch-points
+
+- 推薦來源與 orchestration：`backend/app/taiwan/quant/live_runner.py`，由 `backend/app/jobs/daily_pipeline.py` 既有 `taiwan_daily_update` job 在台灣時間 16:30、週一至週五、daily refresh 成功後呼叫。
+- Immutable authority：`backend/app/taiwan/quant/live_store.py` 的 `LiveLedger`，保存 `runs`、`conflicts`、`operations`、`observations` 與 `evaluations`；不可用嘗試只進 operation audit。
+- Outcome authority：`backend/app/taiwan/quant/live_outcomes.py`，使用 `LiveLedger.current_session()` 和既有 trading-day evidence 產生 1D/5D/20D。
+- Read API：`backend/app/api/taiwan_live.py` 的 `/models`、`/runs`、`/runs/{model_key}/{session}`，前端共用 `frontend/src/lib/api.ts` 與 `frontend/src/lib/queryKeys.ts`。
+- 使用者入口：Dashboard 的 `frontend/src/components/quant/TodaySelection.tsx`，以及 Selection Review 的 `frontend/src/components/selection/LiveRecommendationReview.tsx`。兩者都只讀 LiveLedger projection，不寫入 Selection Review JSON。
+- Readiness ownership：`backend/app/taiwan/quant/data_health.py` 的 `current_live_readiness()` 只投影 current-live runner 已完成的 gate evidence；`quant_evaluation_readiness()` 仍只屬於歷史 Primary OOS。
+
 ## 1. 確認固定執行與資料邊界
 
 1. 確認 backend scheduler 註冊 `taiwan_daily_update`，trigger 是 `Asia/Taipei` 16:30、週一至週五。
@@ -71,3 +80,12 @@ frontend/src/pages/Dashboard.test.tsx
 ```
 
 先執行受影響測試，再依 repository 的既有 CI 命令執行 backend/frontend targeted checks。這個 feature 的 plan 階段不執行 implementation、migration 或 production data refresh。
+
+## 驗證結果（2026-09-28）
+
+- Backend live targeted tests：68 passed（runner、ledger、outcomes、API、scheduler、smoke）。
+- Frontend targeted tests：56 passed（TodaySelection、SelectionReview、Dashboard）。
+- Backend Ruff：修改檔案全部通過。
+- Frontend TypeScript build、Vite production build：通過；Vite 僅保留既有 large chunk warning。
+- Frontend ESLint：0 errors、15 個既有 warnings。
+- `git diff --check`：通過。

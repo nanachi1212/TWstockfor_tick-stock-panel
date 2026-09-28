@@ -30,8 +30,9 @@ import { formatSelectionReviewCopy, formatSelectionReviewPrompt } from '@/lib/co
 import { SelectionForwardPanel, type SelectionForwardBatchReviewView } from '@/components/selection/SelectionForwardPanel'
 import { SelectionHistoricalPitPanel } from '@/components/selection/SelectionHistoricalPitPanel'
 import { ForwardPerformanceChart } from '@/components/selection/ForwardPerformanceChart'
+import { LiveRecommendationReview } from '@/components/selection/LiveRecommendationReview'
 
-type ReviewTab = 'snapshots' | 'forward' | 'historical' | 'strategies' | 'conditions'
+type ReviewTab = 'live' | 'snapshots' | 'forward' | 'historical' | 'strategies' | 'conditions'
 
 function toForwardBatchReview(detail: SnapshotReviewDetail): SelectionForwardBatchReviewView {
   return {
@@ -157,7 +158,7 @@ export function SelectionReview() {
   const qc = useQueryClient()
   const [searchParams, setSearchParams] = useSearchParams()
   const requestedTab = searchParams.get('tab')
-  const activeTab: ReviewTab = requestedTab === 'forward' || requestedTab === 'historical' || requestedTab === 'strategies' || requestedTab === 'conditions'
+  const activeTab: ReviewTab = requestedTab === 'live' || requestedTab === 'forward' || requestedTab === 'historical' || requestedTab === 'strategies' || requestedTab === 'conditions'
     ? requestedTab
     : 'snapshots'
   const [selectedSnapshotId, setSelectedSnapshotId] = useState<string | null>(null)
@@ -273,6 +274,7 @@ export function SelectionReview() {
 
         {/* 頁籤切換 */}
         <div className="flex flex-wrap items-center bg-muted/60 p-1 rounded-lg border border-border/40 text-sm">
+          <button onClick={() => { setSearchParams({ tab: 'live' }); setSelectedSnapshotId(null) }} className={cn('px-3.5 py-1.5 rounded-md font-medium transition-all flex items-center gap-1.5', activeTab === 'live' ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground')}><ShieldCheck className="h-4 w-4" />每日推薦</button>
           <button
             onClick={() => {
               setSearchParams({})
@@ -344,6 +346,8 @@ export function SelectionReview() {
           </button>
         </div>
       </div>
+
+      {activeTab === 'live' && <LiveRecommendationReview />}
 
       {activeTab === 'forward' && (
         <section aria-label="正式前瞻批次" className="space-y-4">

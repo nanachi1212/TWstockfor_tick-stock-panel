@@ -167,6 +167,20 @@ describe('Dashboard — Legacy A-share removal (Phase 8C-D)', () => {
     // legacy A 股 API 不應存在於 api mock 上, 更不會被呼叫
     expect((api as any).overviewMarket).toBeUndefined()
   })
+
+  it('keeps current-live unavailable visible instead of presenting an empty formal ranking', async () => {
+    vi.mocked(api.taiwanQuantLiveModels).mockResolvedValue({
+      configured_model: { model_key: 'live-model', top_n: 10 }, expected_session: '2026-09-05',
+      current_run_valid: false, current_run_audit_status: null, current_run_reason: 'daily_refresh_not_ready',
+      recommendation_status: 'unavailable', recommendation_reason: 'daily_refresh_not_ready',
+      live_readiness: { status: 'unavailable', source: 'current_live_gate', reasons: ['daily_refresh_not_ready'] },
+    } as any)
+    vi.mocked(api.taiwanQuantLiveRuns).mockResolvedValue({ runs: [] } as any)
+    renderDashboard()
+
+    expect(await screen.findByText(/目前尚無正式推薦/)).toBeInTheDocument()
+    expect(screen.getByText(/daily_refresh_not_ready/)).toBeInTheDocument()
+  })
 })
 
 describe('Dashboard — Market Clarity (Phase 8C-B)', () => {
