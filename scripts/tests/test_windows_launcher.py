@@ -26,6 +26,53 @@ def test_sanitize_displayed_logs_hides_credentials():
     assert "[已隱藏]" in result
 
 
+def test_displayed_logs_strip_ansi_sequences():
+    result = launcher.sanitize_log("\x1b[32mINFO\x1b[39m 200 OK\x1b[22m")
+    assert result == "INFO 200 OK"
+    assert "[32m" not in result
+    assert launcher.strip_ansi("[32mINFO[39m") == "INFO"
+
+
+def test_log_severity_filter_keeps_complete_log_and_excludes_info_by_default():
+    lines = [
+        "INFO 200 OK",
+        "WARNING parquet schema probe failed",
+        "ERROR provider unavailable",
+        "plain diagnostic line",
+    ]
+    assert launcher.filter_log_lines(lines) == lines[1:3]
+    assert launcher.filter_log_lines(lines, "all") == lines
+    assert launcher.filter_log_lines(lines, "error") == [lines[2]]
+
+
+def test_info_and_warning_do_not_mark_running_service_failed(tmp_path: Path):
+    manager = launcher.ServiceManager(tmp_path)
+    manager.backend.status = "運行中"
+    manager._append_log(manager.backend, "INFO 200 OK")
+    manager._append_log(manager.backend, "WARNING parquet schema probe failed")
+    assert manager.backend.status == "運行中"
+
+
+def test_process_exit_marks_running_service_failed(monkeypatch, tmp_path: Path):
+    manager = launcher.ServiceManager(tmp_path)
+    manager.backend.status = "運行中"
+    manager.backend.owned = True
+    manager.backend.process = SimpleNamespace(pid=123, poll=lambda: 1)
+    manager.refresh_runtime_states()
+    assert manager.backend.status == "錯誤"
+    assert "意外結束" in manager.backend.detail
+
+
+def test_health_failure_marks_existing_service_failed(monkeypatch, tmp_path: Path):
+    manager = launcher.ServiceManager(tmp_path)
+    manager.backend.status = "運行中"
+    manager.backend.owned = False
+    monkeypatch.setattr(launcher, "backend_ready", lambda: False)
+    manager.refresh_runtime_states()
+    assert manager.backend.status == "錯誤"
+    assert "健康檢查失敗" in manager.backend.detail
+
+
 def test_service_already_running_is_not_owned(monkeypatch, tmp_path: Path):
     manager = launcher.ServiceManager(tmp_path)
     monkeypatch.setattr(launcher, "port_is_open", lambda _port: True)

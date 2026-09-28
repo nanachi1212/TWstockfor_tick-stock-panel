@@ -26,6 +26,13 @@ FRONTEND_PORT = 3011
 FRONTEND_URL = f"http://localhost:{FRONTEND_PORT}"
 STARTUP_TIMEOUT_SECONDS = 60.0
 POLL_SECONDS = 0.5
+ANSI_ESCAPE_RE = re.compile(r"(?:\x1b)?\[[0-?]*[ -/]*[@-~]|\x1b\][^\x07]*(?:\x07|\x1b\\)|\x1b[()][0-2A-Z]")
+LOG_LEVEL_RE = re.compile(r"\b(DEBUG|INFO|NOTICE|WARNING|WARN|ERROR|CRITICAL|FATAL)\b", re.IGNORECASE)
+LOG_FILTERS = {
+    "全部": "all",
+    "警告": "warning",
+    "錯誤": "error",
+}
 
 
 class ProcessLike(Protocol):
@@ -64,6 +71,7 @@ def resolve_project_root(*, executable: Path | None = None, cwd: Path | None = N
 
 def sanitize_log(text: str) -> str:
     """Remove common credential-shaped values before showing child output."""
+    text = strip_ansi(text)
     patterns = (
         r"(?i)(api[_-]?key|token|password|secret|webhook)(\s*[=:]\s*)[^\s,;]+",
         r"(?i)(authorization\s*:\s*bearer\s+)[^\s]+",
@@ -72,6 +80,33 @@ def sanitize_log(text: str) -> str:
     for pattern in patterns:
         text = re.sub(pattern, lambda match: f"{match.group(1)}[已隱藏]", text)
     return text
+
+
+def strip_ansi(text: str) -> str:
+    """Remove terminal control sequences from display text only."""
+    return ANSI_ESCAPE_RE.sub("", text)
+
+
+def log_severity(line: str) -> str:
+    """Return a display severity without treating ordinary INFO as an error."""
+    match = LOG_LEVEL_RE.search(line)
+    if not match:
+        return "info"
+    level = match.group(1).upper()
+    if level in {"ERROR", "CRITICAL", "FATAL"}:
+        return "error"
+    if level in {"WARNING", "WARN"}:
+        return "warning"
+    return "info"
+
+
+def filter_log_lines(lines: list[str], selected: str = "warning") -> list[str]:
+    """Filter complete captured logs; ``warning`` includes warnings and errors."""
+    if selected == "all":
+        return list(lines)
+    if selected == "error":
+        return [line for line in lines if log_severity(line) == "error"]
+    return [line for line in lines if log_severity(line) in {"warning", "error"}]
 
 
 def _http_status(port: int, path: str, timeout: float = 1.5) -> tuple[int, str]:
@@ -166,10 +201,42 @@ class ServiceManager:
         self.backend = ServiceState("後端服務")
         self.frontend = ServiceState("前端服務")
         self._lock = threading.RLock()
+        self._monitor_stop = threading.Event()
+        self._monitor_thread: threading.Thread | None = None
 
     def _append_log(self, service: ServiceState, text: str) -> None:
         service.log_lines.extend(sanitize_log(text).splitlines())
-        service.log_lines = service.log_lines[-80:]
+
+    def refresh_runtime_states(self) -> None:
+        """Mark only actual process/health failures as runtime errors."""
+        checks = (
+            (self.backend, backend_ready),
+            (self.frontend, frontend_ready),
+        )
+        with self._lock:
+            for service, ready in checks:
+                if service.status != "運行中":
+                    continue
+                if service.owned and service.process is not None:
+                    exit_code = service.process.poll()
+                    if exit_code is not None:
+                        service.status = "錯誤"
+                        service.detail = f"{service.name}程序意外結束（exit code {exit_code}）"
+                        continue
+                if not ready():
+                    service.status = "錯誤"
+                    service.detail = f"{service.name}健康檢查失敗"
+
+    def _start_runtime_monitor(self) -> None:
+        if self._monitor_thread and self._monitor_thread.is_alive():
+            return
+        self._monitor_stop.clear()
+        self._monitor_thread = threading.Thread(target=self._monitor_runtime, daemon=True)
+        self._monitor_thread.start()
+
+    def _monitor_runtime(self) -> None:
+        while not self._monitor_stop.wait(1.0):
+            self.refresh_runtime_states()
 
     def _port_conflict(self, service: ServiceState, port: int, ready: Callable[[], bool]) -> str | None:
         if not port_is_open(port):
@@ -264,6 +331,7 @@ class ServiceManager:
         )
         if self.backend.status != "運行中":
             return
+        self._start_runtime_monitor()
         pnpm = shutil.which("pnpm")
         if not pnpm:
             self.frontend.status = "錯誤"
@@ -277,6 +345,7 @@ class ServiceManager:
         )
 
     def stop_owned(self) -> None:
+        self._monitor_stop.set()
         for service in (self.frontend, self.backend):
             process = service.process
             if service.owned and process and process.poll() is None:
@@ -326,7 +395,7 @@ class LauncherApp:
         tk.Button(buttons, text="開啟台股看板", command=self._open_dashboard).pack(side="left", padx=(0, 6))
         tk.Button(buttons, text="重新啟動服務", command=self._restart_async).pack(side="left", padx=6)
         tk.Button(buttons, text="停止服務", command=self._stop).pack(side="left", padx=6)
-        tk.Button(buttons, text="查看錯誤", command=self._show_errors).pack(side="left", padx=6)
+        tk.Button(buttons, text="查看日誌", command=self._show_logs).pack(side="left", padx=6)
 
     def _start_async(self) -> None:
         threading.Thread(target=self.manager.start, daemon=True).start()
@@ -342,6 +411,8 @@ class LauncherApp:
         webbrowser.open(FRONTEND_URL)
 
     def _refresh_ui(self) -> None:
+        # Runtime health checks run in the manager's daemon monitor so a slow
+        # or unavailable service cannot freeze the Tk event loop.
         backend = self.manager.backend
         frontend = self.manager.frontend
         self.backend_var.set(f"● 後端服務：{backend.status}" + (f"（{backend.detail}）" if backend.detail else ""))
@@ -354,10 +425,42 @@ class LauncherApp:
             self._open_dashboard()
         self.window.after(500, self._refresh_ui)
 
-    def _show_errors(self) -> None:
-        lines = self.manager.backend.log_lines + self.manager.frontend.log_lines
-        text = "\n".join(lines[-40:]) or "目前沒有可顯示的錯誤記錄。"
-        self.messagebox.showerror("Nanachi 台股看板錯誤", text)
+    def _show_logs(self) -> None:
+        import tkinter as tk
+
+        dialog = tk.Toplevel(self.window)
+        dialog.title("Nanachi 台股看板日誌")
+        dialog.geometry("900x520")
+        dialog.minsize(560, 320)
+
+        toolbar = tk.Frame(dialog, padx=10, pady=8)
+        toolbar.pack(fill="x")
+        tk.Label(toolbar, text="顯示：").pack(side="left")
+        selected = tk.StringVar(value="警告")
+        selector = tk.OptionMenu(toolbar, selected, *LOG_FILTERS.keys())
+        selector.pack(side="left")
+
+        text_widget = tk.Text(dialog, wrap="none", state="disabled")
+        text_widget.pack(side="left", fill="both", expand=True, padx=(10, 0), pady=(0, 10))
+        scrollbar = tk.Scrollbar(dialog, command=text_widget.yview)
+        scrollbar.pack(side="right", fill="y", padx=(0, 10), pady=(0, 10))
+        text_widget.configure(yscrollcommand=scrollbar.set)
+
+        def render(*_args) -> None:
+            lines = (
+                [f"[後端服務] {line}" for line in self.manager.backend.log_lines]
+                + [f"[前端服務] {line}" for line in self.manager.frontend.log_lines]
+            )
+            visible = filter_log_lines(lines, LOG_FILTERS[selected.get()])
+            value = "\n".join(visible) or "目前沒有符合條件的日誌。"
+            text_widget.configure(state="normal")
+            text_widget.delete("1.0", "end")
+            text_widget.insert("1.0", value)
+            text_widget.configure(state="disabled")
+            text_widget.see("end")
+
+        selected.trace_add("write", render)
+        render()
 
     def _close(self) -> None:
         owned = self.manager.backend.owned or self.manager.frontend.owned
