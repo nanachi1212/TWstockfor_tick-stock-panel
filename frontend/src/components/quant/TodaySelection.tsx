@@ -2,7 +2,7 @@ import { useEffect, useMemo } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
 import { ArrowUpRight, Loader2, RefreshCw, Star, TrendingUp } from 'lucide-react'
-import { api, type TaiwanLiveQuantSignal } from '@/lib/api'
+import { api, type TaiwanLiveQuantHorizonSummary, type TaiwanLiveQuantSignal } from '@/lib/api'
 import { QK } from '@/lib/queryKeys'
 
 function finite(value: unknown): number | null {
@@ -11,6 +11,15 @@ function finite(value: unknown): number | null {
 
 function formatPct(value: number | null, digits = 1) {
   return value == null ? '—' : `${(value * 100).toFixed(digits)}%`
+}
+
+function horizonLabel(summary: TaiwanLiveQuantHorizonSummary | undefined) {
+  if (!summary || summary.evaluated_count === 0) {
+    return `追蹤中 ${summary?.pending_count ?? 0}／不可評估 ${summary?.unavailable_count ?? 0}`
+  }
+  const rate = summary.hit_rate_pct == null ? '—' : `${summary.hit_rate_pct.toFixed(1)}%`
+  const average = summary.average_return_pct == null ? '—' : `${summary.average_return_pct >= 0 ? '+' : ''}${summary.average_return_pct.toFixed(2)}%`
+  return `命中率 ${rate}／${summary.evaluated_count}，平均 ${average}`
 }
 
 export function selectionReasons(signal: TaiwanLiveQuantSignal): string[] {
@@ -26,7 +35,7 @@ export function selectionReasons(signal: TaiwanLiveQuantSignal): string[] {
 }
 
 export interface TodayQuantSelectionData {
-  latest: { model_key: string; session: string; signal_count: number } | undefined
+  latest: { model_key: string; session: string; signal_count: number; recommendation_status?: string } | undefined
   expectedRun: boolean
   validRun: NonNullable<ReturnType<typeof useTodayQuantSelectionInternal>>['validRun']
   signals: TaiwanLiveQuantSignal[]
@@ -34,6 +43,9 @@ export interface TodayQuantSelectionData {
   loading: boolean
   fetching: boolean
   error: boolean
+  recommendationStatus: string
+  recommendationReason: string | null
+  liveReadiness: { status: string; source: string; reasons: string[] } | null
   refetch: () => void
 }
 
@@ -77,6 +89,9 @@ function useTodayQuantSelectionInternal() {
     loading,
     fetching,
     error,
+    recommendationStatus: models.data?.recommendation_status ?? (validRun ? 'formal_available' : 'unavailable'),
+    recommendationReason: models.data?.recommendation_reason ?? models.data?.current_run_reason ?? null,
+    liveReadiness: models.data?.live_readiness ?? null,
     refetch: () => { void models.refetch(); void runs.refetch(); if (modelKey && latest) void run.refetch() },
   }
 }
@@ -88,7 +103,7 @@ export function useTodayQuantSelection(): TodayQuantSelectionData {
 export function TodaySelection({ symbol, onResearchContext }: { symbol?: string; onResearchContext?: (context: { rank: number; score: number; session: string; feature_percentiles: Record<string, number> } | null) => void }) {
   const qc = useQueryClient()
   const selection = useTodayQuantSelection()
-  const { latest, expectedRun, validRun, signals, featureMap, loading, error } = selection
+  const { latest, expectedRun, validRun, signals, featureMap, loading, error, recommendationStatus, recommendationReason, liveReadiness } = selection
   const symbols = signals.map(item => item.symbol)
   const quotes = useQuery({
     queryKey: QK.taiwanQuotes(symbols.join(',')),
@@ -124,7 +139,7 @@ export function TodaySelection({ symbol, onResearchContext }: { symbol?: string;
   if (symbol) {
     if (loading) return <div className="text-xs text-muted" role="status">正在載入 live Quant 排名…</div>
     if (error) return <div className="text-xs text-muted" role="alert">Live Quant 摘要目前無法讀取。</div>
-    if (!expectedRun || !validRun) return <div className="text-xs text-muted" role="status">目前沒有通過交易日新鮮度與稽核檢查的 Live Quant 排名。</div>
+    if (!expectedRun || !validRun) return <div className="text-xs text-muted" role="status">目前沒有可用的正式 Live Quant 推薦（{recommendationReason || '資料尚未就緒'}）。</div>
     if (!selected) return null
     const features = featureMap.get(symbol)
     return (
@@ -153,14 +168,16 @@ export function TodaySelection({ symbol, onResearchContext }: { symbol?: string;
       <div className="mb-2 flex flex-wrap items-center gap-2">
         <TrendingUp className="h-4 w-4 text-accent" />
         <h2 className="text-sm font-semibold">今日 Quant 選股</h2>
-        <span className="rounded bg-accent/10 px-1.5 py-0.5 text-[10px] text-accent">{validRun ? 'Live current' : 'Live 排名待驗證'}</span>
-        <span className="text-[10px] text-muted">與 Primary OOS 歷史驗證分開</span>
-        {validRun && <span className="ml-auto text-[10px] text-muted">最近完成排名 {validRun.snapshot.signal_session}</span>}
+          <span className="rounded bg-accent/10 px-1.5 py-0.5 text-[10px] text-accent">{recommendationStatus === 'available_zero_candidates' ? '資料可用，0 檔候選' : recommendationStatus === 'tracking' ? '追蹤中' : validRun ? '正式可用' : '資料不可用'}</span>
+          <span className="text-[10px] text-muted">實驗性初測，不構成投資建議</span>
+        {validRun && <span className="ml-auto text-[10px] text-muted">推薦時間 {validRun.frozen_at} · 資料日期 {validRun.snapshot.signal_session}</span>}
       </div>
+
+      {validRun?.outcome_summary ? <div aria-label="每日推薦績效" className="mb-3 grid gap-2 text-[11px] sm:grid-cols-3">{(['1D', '5D', '20D'] as const).map(horizon => <div key={horizon} className="rounded border border-border/60 bg-surface/60 px-2 py-1.5"><span className="font-semibold">{horizon}</span><span className="ml-2 text-muted">{horizonLabel(validRun.outcome_summary?.[horizon])}</span></div>)}</div> : null}
 
       {loading ? <div className="flex items-center gap-2 py-5 text-xs text-muted" role="status"><Loader2 className="h-4 w-4 animate-spin" />讀取最新已完成的 live 排名…</div> : null}
       {error ? <div className="flex items-center justify-between gap-2 py-2 text-xs text-muted" role="alert"><span>Live Quant 或行情資料目前無法完整讀取，請稍後重試。</span><button type="button" onClick={() => { selection.refetch(); if (symbols.length) void quotes.refetch() }} className="inline-flex items-center gap-1"><RefreshCw className="h-3 w-3" />重試</button></div> : null}
-      {!loading && !error && !latest ? <p className="py-4 text-xs text-muted">目前尚無已完成的 live 排名；資料不足或非交易日不會以歷史 OOS 代替。</p> : null}
+      {!loading && !error && !latest ? <p className="py-4 text-xs text-muted">目前尚無已完成的 live 排名；資料不足或非交易日不會以歷史 OOS 代替。<span className="ml-1">目前尚無正式推薦</span>{liveReadiness?.reasons?.length ? `（${liveReadiness.reasons.join('、')}）` : ''}</p> : null}
       {!loading && !error && latest && !expectedRun ? <p className="py-4 text-xs text-muted">目前沒有符合預期交易日且通過稽核的新鮮 Live 排名；不顯示舊快照或歷史 OOS。</p> : null}
       {!loading && !error && expectedRun && !validRun ? <p className="py-4 text-xs text-muted">目前 Live 快照未通過稽核檢查，不顯示排名。</p> : null}
       {!loading && !error && expectedRun && latest && validRun && signals.length === 0 ? <p className="py-4 text-xs text-muted">{latest.session} 已完成 live 排名，但沒有符合既有選取門檻的標的。</p> : null}
@@ -181,12 +198,12 @@ export function TodaySelection({ symbol, onResearchContext }: { symbol?: string;
               const momentum = ['momentum_5d', 'momentum_20d', 'momentum_60d'].map(key => item.feature_percentiles[key])
               const reason = selectionReasons(item)
               return <tr key={item.symbol} className="border-t border-border/60 hover:bg-elevated/40">
-                <td className="px-2 py-2"><Link to={`/stocks/${encodeURIComponent(item.symbol)}`} className="font-medium text-foreground hover:text-accent"><span className="mr-1 text-muted">#{item.rank}</span>{quote?.name || item.symbol}<span className="ml-1 text-[10px] text-muted">{item.symbol}</span></Link></td>
-                <td className="px-2 py-2 font-mono">{current.toFixed(2)}<span className={`ml-1 ${percent == null || percent === 0 ? 'text-muted' : percent > 0 ? 'text-bull' : 'text-bear'}`}>{percent == null ? '' : `${percent.toFixed(2)}%`}</span><small className="ml-1 font-sans text-muted">{quoteLabel}</small></td>
+                <td className="px-2 py-2"><Link to={`/stocks/${encodeURIComponent(item.symbol)}`} className="font-medium text-foreground hover:text-accent"><span className="mr-1 text-muted">#{item.rank}</span>{item.name || quote?.name || item.symbol}<span className="ml-1 text-[10px] text-muted">{item.symbol}</span></Link></td>
+                <td className="px-2 py-2 font-mono">快照 {item.reference_close.toFixed(2)}<span className="ml-1 text-[10px] font-sans text-muted">{validRun.snapshot.signal_session}</span><div className="text-[10px] font-sans text-muted">目前 <span>{current.toFixed(2)}</span><span className={`ml-1 ${percent == null || percent === 0 ? 'text-muted' : percent > 0 ? 'text-bull' : 'text-bear'}`}>{percent == null ? '' : `${percent.toFixed(2)}%`}</span> · <span>{quoteLabel}</span></div></td>
                 <td className="px-2 py-2 font-mono">{formatPct(item.score)}</td>
                 <td className="px-2 py-2 font-mono">{momentum.map(value => formatPct(finite(value))).join(' / ')}</td>
                 <td className="px-2 py-2 text-secondary">{formatPct(finite(features?.volatility_20d))} / {adv20 == null ? '—' : `${(adv20 / 1_000_000).toFixed(0)}M`} / {finite(features?.relative_volume)?.toFixed(2) ?? '—'}</td>
-                <td className="max-w-[220px] px-2 py-2 text-secondary">{reason.join('、') || '既有動能選取條件'}</td>
+                <td className="max-w-[220px] px-2 py-2 text-secondary">{item.reason_summary || reason.join('、') || '既有動能選取條件'}</td>
                 <td className="px-2 py-2">{watchlistSymbols.has(item.symbol) ? <span className="text-[10px] text-muted">已加入</span> : <button type="button" aria-label={`將 ${item.symbol} 加入自選`} onClick={() => add.mutate(item.symbol)} disabled={add.isPending || watchlist.isError} className="inline-flex items-center gap-1 rounded border border-border px-1.5 py-1 text-[10px] hover:text-accent disabled:opacity-50"><Star className="h-3 w-3" />{watchlist.isError ? '自選不可用' : '加入'}</button>}</td>
                 <td className="px-2 py-2"><Link to={`/stocks/${encodeURIComponent(item.symbol)}`} state={{ aiResearchRequested: true }} className="whitespace-nowrap rounded border border-accent/30 px-1.5 py-1 text-[10px] text-accent hover:bg-accent/10">AI 分析</Link></td>
               </tr>

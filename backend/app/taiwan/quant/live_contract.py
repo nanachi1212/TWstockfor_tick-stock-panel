@@ -54,6 +54,33 @@ def canonical_hash(value: Any) -> str:
     return hashlib.sha256(canonical_json(value).encode("utf-8")).hexdigest()
 
 
+def signal_reason_metadata(signal: dict[str, Any], model: LiveModel) -> dict[str, Any]:
+    """Build stable, non-AI reasons from the frozen signal values."""
+    percentiles = signal.get("feature_percentiles") or {}
+    codes: list[str] = []
+    labels: list[str] = []
+    label_by_feature = {
+        "momentum_5d": "5D 動能排名前段",
+        "momentum_20d": "20D 動能排名前段",
+        "momentum_60d": "60D 動能排名前段",
+    }
+    for feature in FEATURES:
+        value = percentiles.get(feature)
+        if (isinstance(value, (int, float)) and not isinstance(value, bool)
+                and math.isfinite(value) and value >= model.min_rank):
+            codes.append(f"{feature}_percentile_ge_{model.min_rank:g}")
+            labels.append(label_by_feature[feature])
+    if signal.get("momentum_20d") is not None and signal["momentum_20d"] > 0:
+        codes.append("momentum_20d_positive")
+    rank = signal.get("rank")
+    if isinstance(rank, int) and rank <= model.top_n:
+        codes.append("ranked_top_10")
+        labels.append("進入既有 Top 10")
+    if not labels:
+        labels.append("符合既有 Live Quant 選取條件")
+    return {"reason_codes": codes, "reason_summary": "、".join(labels) + "。"}
+
+
 def latest_completed_session(now: datetime, evidence: EvidenceReader) -> date:
     """Publication cutoff matches daily_update (16:00 Taipei).
 

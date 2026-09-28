@@ -115,6 +115,53 @@ describe('TodaySelection', () => {
     expect(await screen.findByText('目前尚無已完成的 live 排名；資料不足或非交易日不會以歷史 OOS 代替。')).toBeInTheDocument()
   })
 
+  it('renders frozen candidate identity and deterministic reason separately from the quote', async () => {
+    setup()
+    vi.mocked(api.taiwanQuantLiveModels).mockResolvedValue({
+      configured_model: { model_key: 'live-model', top_n: 10 }, expected_session: '2026-09-23',
+      current_run_valid: true, current_run_audit_status: 'ok', recommendation_status: 'formal_available',
+      recommendation_reason: 'current', current_run_reason: 'current',
+    } as any)
+    vi.mocked(api.taiwanQuantLiveRun).mockResolvedValue({
+      model_key: 'live-model', session: '2026-09-23', snapshot_hash: 'abc', frozen_at: '2026-09-23T16:30:00+08:00', audit_status: 'ok',
+      recommendation_status: 'formal_available', snapshot: {
+        signal_session: '2026-09-23', usage_scope: 'experimental_live', validation_state: 'unvalidated',
+        model: { model_key: 'live-model', top_n: 10, validation_state: 'unvalidated' },
+        signals: [{ ...signals[0], name: '台積電', reason_codes: ['ranked_top_10'], reason_summary: '進入既有 Top 10。' }],
+        features: [{ symbol: signals[0].symbol, momentum_5d: 0.1, momentum_20d: 0.2, momentum_60d: 0.3, volatility_20d: 0.02, adv20_twd: 20_000_000, relative_volume: 1.4 }],
+      },
+    } as any)
+    renderSelection()
+    expect(await screen.findByText('進入既有 Top 10。')).toBeInTheDocument()
+    expect(screen.getByText(/快照 100\.00/)).toBeInTheDocument()
+    await waitFor(() => expect(screen.getAllByRole('row')[1]).toHaveTextContent('105.00'))
+  })
+
+  it('separates a valid zero-candidate run from unavailable readiness', async () => {
+    setup()
+    vi.mocked(api.taiwanQuantLiveModels).mockResolvedValue({
+      configured_model: { model_key: 'live-model', top_n: 10 }, expected_session: '2026-09-23',
+      current_run_valid: true, current_run_audit_status: 'ok', recommendation_status: 'available_zero_candidates',
+      recommendation_reason: 'current', current_run_reason: 'current',
+    } as any)
+    vi.mocked(api.taiwanQuantLiveRuns).mockResolvedValue({ runs: [{ model_key: 'live-model', session: '2026-09-23', snapshot_hash: 'abc', frozen_at: '2026-09-23T16:30:00+08:00', signal_count: 0, recommendation_status: 'available_zero_candidates' }] } as any)
+    vi.mocked(api.taiwanQuantLiveRun).mockResolvedValue({
+      model_key: 'live-model', session: '2026-09-23', snapshot_hash: 'abc', frozen_at: '2026-09-23T16:30:00+08:00', audit_status: 'ok', recommendation_status: 'available_zero_candidates',
+      snapshot: { signal_session: '2026-09-23', usage_scope: 'experimental_live', validation_state: 'unvalidated', model: { model_key: 'live-model', top_n: 10, validation_state: 'unvalidated' }, signals: [], features: [] },
+    } as any)
+    renderSelection()
+    expect(await screen.findByText(/已完成 live 排名，但沒有符合/)).toBeInTheDocument()
+
+    vi.mocked(api.taiwanQuantLiveModels).mockResolvedValue({
+      configured_model: { model_key: 'live-model', top_n: 10 }, expected_session: '2026-09-23',
+      current_run_valid: false, current_run_audit_status: null, recommendation_status: 'unavailable', recommendation_reason: 'daily_refresh_not_ready', current_run_reason: 'daily_refresh_not_ready',
+      live_readiness: { status: 'unavailable', source: 'current_live_gate', reasons: ['daily_refresh_not_ready'] },
+    } as any)
+    vi.mocked(api.taiwanQuantLiveRuns).mockResolvedValue({ runs: [] } as any)
+    renderSelection()
+    expect(await screen.findByText(/目前尚無正式推薦/)).toBeInTheDocument()
+  })
+
   it('fails closed when the latest run is older than the expected trading session', async () => {
     setup()
     vi.mocked(api.taiwanQuantLiveModels).mockResolvedValue({ configured_model: { model_key: 'live-model', top_n: 10 }, latest_operation: { status: 'blocked', session: '2026-09-23' }, expected_session: '2026-09-24', current_run_valid: false, current_run_audit_status: null, current_run_reason: 'live_run_missing' } as any)

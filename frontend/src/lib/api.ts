@@ -1437,15 +1437,35 @@ export interface TaiwanLiveQuantRunSummary {
   snapshot_hash: string
   frozen_at: string
   signal_count: number
+  audit_status?: string
+  recommendation_status?: 'formal_available' | 'available_zero_candidates' | 'unavailable' | 'tracking' | 'conflict'
+  recommendation_reason?: string
+  candidate_count?: number
+  live_readiness?: { status: string; source: string; reasons: string[]; checks?: Record<string, string> }
+  outcome_summary?: Record<string, TaiwanLiveQuantHorizonSummary>
+  horizons?: Record<string, TaiwanLiveQuantHorizonSummary>
+}
+
+export interface TaiwanLiveQuantHorizonSummary {
+  horizon: string
+  evaluated_count: number
+  pending_count: number
+  unavailable_count: number
+  hit_count: number
+  hit_rate_pct: number | null
+  average_return_pct: number | null
 }
 
 export interface TaiwanLiveQuantSignal {
   symbol: string
+  name?: string
   score: number
   rank: number
   selected: boolean
   reference_close: number
   feature_percentiles: Record<string, number>
+  reason_codes?: string[]
+  reason_summary?: string
 }
 
 export interface TaiwanLiveQuantRun {
@@ -1454,15 +1474,37 @@ export interface TaiwanLiveQuantRun {
   snapshot_hash: string
   frozen_at: string
   audit_status: string
+  recommendation_status?: 'formal_available' | 'available_zero_candidates' | 'unavailable' | 'tracking' | 'conflict'
+  recommendation_reason?: string
+  candidate_count?: number
+  live_readiness?: { status: string; source: string; reasons: string[]; checks?: Record<string, string> }
+  outcome_summary?: Record<string, TaiwanLiveQuantHorizonSummary>
   conflicts?: Array<Record<string, unknown>>
   snapshot: {
     signal_session: string
+    data_cutoff?: string
     usage_scope: string
     validation_state: string
-    model: { model_key: string; top_n: number; validation_state: string }
+    model: { model_key: string; version?: string; top_n: number; validation_state: string }
     signals: TaiwanLiveQuantSignal[]
     features: Array<Record<string, unknown> & { symbol: string }>
   }
+  outcomes?: TaiwanLiveQuantOutcome[]
+}
+
+export interface TaiwanLiveQuantOutcome {
+  symbol: string
+  name?: string | null
+  reference_close?: number | null
+  rank?: number | null
+  score?: number | null
+  reason_summary?: string | null
+  horizon: number
+  status: 'pending' | 'verified' | 'data_insufficient' | 'conflict'
+  value: number | null
+  end_session?: string | null
+  reason?: string | null
+  audit_status?: string
 }
 
 export interface TaiwanScreenerTranslation {
@@ -3575,6 +3617,10 @@ export const api = {
       current_run_valid: boolean
       current_run_audit_status: string | null
       current_run_reason: string
+      recommendation_status?: TaiwanLiveQuantRunSummary['recommendation_status']
+      recommendation_reason?: string
+      candidate_count?: number
+      live_readiness?: { status: string; source: string; reasons: string[]; checks?: Record<string, string> }
     }>(
       '/api/taiwan/quant/live/models',
     ),

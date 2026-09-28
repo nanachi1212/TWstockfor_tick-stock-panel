@@ -20,7 +20,12 @@ from app.taiwan.corporate_actions import CorporateActionEvent, event_market_open
 from app.taiwan.providers.corporate_actions import SOURCE_URLS
 from app.taiwan.quant import live_runner
 from app.taiwan.quant.feature_manifest import FeatureManifest, training_matrix
-from app.taiwan.quant.live_contract import LiveModel, canonical_hash, latest_completed_session
+from app.taiwan.quant.live_contract import (
+    LiveModel,
+    canonical_hash,
+    latest_completed_session,
+    signal_reason_metadata,
+)
 from app.taiwan.quant.live_outcomes import mature_live_outcomes
 from app.taiwan.quant.live_runner import LiveInputs, build_live_batch, run_current_live
 from app.taiwan.quant.live_store import LiveConflictError, LiveLedger
@@ -32,6 +37,21 @@ from app.taiwan.realtime.calendar import TAIPEI_TZ, TaiwanTradingCalendar
 
 DAY = date(2026, 9, 21)
 NOW = datetime(2026, 9, 21, 17, tzinfo=TAIPEI_TZ)
+
+
+def test_signal_reason_metadata_is_deterministic_and_uses_existing_policy_values():
+    signal = {
+        "rank": 1, "momentum_20d": 0.12,
+        "feature_percentiles": {"momentum_5d": 0.8, "momentum_20d": 0.65, "momentum_60d": 0.9},
+    }
+
+    metadata = signal_reason_metadata(signal, LiveModel())
+
+    assert metadata["reason_codes"] == [
+        "momentum_5d_percentile_ge_0.7", "momentum_60d_percentile_ge_0.7",
+        "momentum_20d_positive", "ranked_top_10",
+    ]
+    assert metadata["reason_summary"] == "5D 動能排名前段、60D 動能排名前段、進入既有 Top 10。"
 
 
 def test_live_quant_alerts_are_persisted_before_sse_and_external_dispatch(monkeypatch, tmp_path):
@@ -166,6 +186,10 @@ def test_eod_to_ledger_preserves_missing_and_reuses_snapshot(inputs, environment
     assert snapshot["validation_state"] == "unvalidated"
     assert len(snapshot["signals"]) == 1
     assert snapshot["signals"][0]["symbol"] == "2330.TWSE"
+    assert snapshot["signals"][0]["name"] == "2330.TWSE"
+    assert snapshot["signals"][0]["reason_codes"]
+    assert snapshot["signals"][0]["reason_summary"]
+    assert snapshot["signals"][0]["rank"] == 1
     assert snapshot["signals"][0]["confidence"] is None
     assert all(row["margin_balance"] is None and row["foreign_net_1d"] is None
                and row["industry_rank"] is None for row in snapshot["features"])
