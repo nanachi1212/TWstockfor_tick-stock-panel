@@ -246,7 +246,11 @@ The selection strategies use an observation ledger instead
 - The user-triggered update flow fetches the MOPS `t21sc03` pages for both
   boards and both issuer kinds for the latest three revenue months and their
   year-ago months (24 static pages, MOPS rate limit, pages already fetched
-  successfully within 20 hours are skipped). The screener never performs HTTP.
+  successfully within 20 hours are skipped). Near month end the window also
+  covers the month of `now + 4 days`, because the observation may serve a
+  next-month cutoff. The screener never performs HTTP.
+- A snapshot is `available` only when every expected page for the cutoff's
+  window has a fresh successful observation; otherwise it is `incomplete`.
 - Every fetch is appended to `fetches.jsonl` with market, issuer kind, revenue
   month, source URL, `retrieved_at`, `出表日期` (metadata only), raw-page
   SHA-256 and normalized-rows SHA-256. Rows and raw pages are

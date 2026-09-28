@@ -453,7 +453,12 @@ def refresh_monthly_revenue_evidence(
     store = store or MonthlyRevenueEvidenceStore()
     now = now or datetime.now(TAIPEI)
     run_id = f"{now.astimezone(TAIPEI):%Y%m%dT%H%M%S}-{uuid.uuid4().hex[:8]}"
-    periods = window_periods(now.astimezone(TAIPEI).date())
+    # An observation can serve cutoffs up to MAX_EVIDENCE_AGE later, which may
+    # fall in the next month (e.g. a month-end refresh for a next-month entry).
+    local = now.astimezone(TAIPEI)
+    periods = list(dict.fromkeys(
+        window_periods(local.date()) + window_periods((local + MAX_EVIDENCE_AGE).date())
+    ))
     owned = client is None
     client = client or taiwan_client(timeout=30.0, headers={"User-Agent": DEFAULT_USER_AGENT})
     summary: dict[str, Any] = {
