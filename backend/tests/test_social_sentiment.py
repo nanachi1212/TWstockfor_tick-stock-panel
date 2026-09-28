@@ -8,6 +8,7 @@ import polars as pl
 
 from app.taiwan.providers.taiwan_values import TAIPEI
 from app.taiwan.social_sentiment import (
+    DcardCollector,
     PTTStockCollector,
     SocialPost,
     SocialSentimentService,
@@ -28,6 +29,8 @@ class FakeSecurityMaster:
                 {"symbol": "2330.TWSE", "code": "2330", "name": "台積電", "instrument_type": "stock"},
                 {"symbol": "2344.TWSE", "code": "2344", "name": "華邦電", "instrument_type": "stock"},
                 {"symbol": "2025.TWSE", "code": "2025", "name": "千興", "instrument_type": "stock"},
+                {"symbol": "5903.TWSE", "code": "5903", "name": "全家", "instrument_type": "stock"},
+                {"symbol": "5347.TWSE", "code": "5347", "name": "世界", "instrument_type": "stock"},
             ]
         )
 
@@ -47,6 +50,12 @@ def test_stock_resolver_does_not_count_bare_year_but_keeps_adjacent_valid_code()
     resolver = StockMentionResolver(FakeSecurityMaster())
     assert resolver.resolve("2025 年營收展望") == {}
     assert resolver.resolve("2025 千興") == {"2025": 2}
+
+
+def test_stock_resolver_does_not_count_ordinary_short_names_without_context():
+    resolver = StockMentionResolver(FakeSecurityMaster())
+    assert resolver.resolve("全家都看好全世界") == {}
+    assert resolver.resolve("全家股票值得研究") == {"5903": 1}
 
 
 def test_ptt_index_and_post_parser():
@@ -90,6 +99,20 @@ def test_ptt_post_parser_accepts_real_multi_token_push_classes():
     assert parsed.published_at == datetime(2026, 9, 28, 12, tzinfo=TAIPEI)
 
 
+def test_ptt_post_parser_excludes_article_metadata_from_content():
+    markup = """
+    <div id="main-content">
+      <span class="article-meta-tag">標題</span><span class="article-meta-value">[標的] 台積電 2330</span>
+      <span class="article-meta-tag">時間</span><span class="article-meta-value">Mon Sep 28 12:00:00 2026</span>
+      正文 2330
+    </div>
+    """
+    parsed = parse_ptt_post(markup, post_id="M.meta", url="https://ptt.cc/M.meta.html")
+    assert parsed.title == "[標的] 台積電 2330"
+    assert parsed.content == "正文 2330"
+    assert parsed.text.count("台積電") == 1
+
+
 class _FakeResponse:
     def __init__(self, text: str):
         self.text = text
@@ -110,6 +133,24 @@ class _FakePttClient:
 
     def get(self, url: str):
         return _FakeResponse(self.responses[url])
+
+
+class _FakeDcardErrorResponse(_FakeResponse):
+    def raise_for_status(self):
+        raise RuntimeError("blocked")
+
+
+class _FakeDcardClient:
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *args):
+        return None
+
+    def get(self, url: str, **kwargs):
+        if "/service/api/v2/forums/" in url:
+            return _FakeDcardErrorResponse("")
+        return _FakeResponse('<a href="/f/stock/p/123"><span>台積電 2330</span></a>')
 
 
 def _ptt_index_entry(post_id: str, *, previous: str = "") -> str:
@@ -152,6 +193,18 @@ def test_ptt_collector_filters_by_article_time_in_taipei_and_pages(monkeypatch):
     assert fetched.posts[0].published_at.tzinfo == TAIPEI
 
 
+def test_dcard_undated_html_fallback_remains_unavailable(monkeypatch):
+    monkeypatch.setattr(
+        "app.taiwan.social_sentiment.httpx.Client",
+        lambda **kwargs: _FakeDcardClient(),
+    )
+    collector = DcardCollector(request_delay=0)
+    result = collector.fetch(since=datetime(2026, 9, 28, 6, tzinfo=TAIPEI), max_pages=1)
+    assert result.posts == []
+    assert result.fetch_succeeded is False
+    assert result.status == "unavailable"
+
+
 def test_source_success_with_no_posts_is_available_empty(tmp_path):
     service = SocialSentimentService(
         security_master=FakeSecurityMaster(),
@@ -188,6 +241,15 @@ def test_dcard_parser_normalizes_and_filters_old_posts():
     assert len(posts) == 1
     assert posts[0].url.endswith("/stock/p/1")
     assert posts[0].engagement == 5
+
+
+def test_dcard_parser_rejects_missing_timestamp_in_bounded_window():
+    posts = parse_dcard_posts(
+        [{"id": 3, "title": "缺時間", "excerpt": "2344"}],
+        forum="stock",
+        since=datetime(2026, 9, 28, 8, tzinfo=TAIPEI),
+    )
+    assert posts == []
 
 
 def test_dcard_html_fallback_parser():
@@ -353,6 +415,7 @@ def test_volume_change_uses_exact_previous_calendar_day(tmp_path, monkeypatch):
             json.dumps(
                 {
                     "as_of": day,
+                    "window_hours": 24,
                     "sources": {"ptt": {"status": "available"}},
                     "rankings": [{"symbol": "2330.TWSE", "code": "2330", "total_mentions": total}],
                 }
@@ -375,6 +438,7 @@ def test_volume_change_requires_comparable_source_coverage(tmp_path):
         json.dumps(
             {
                 "as_of": "2026-09-27",
+                "window_hours": 24,
                 "sources": {
                     "ptt": {"status": "available"},
                     "dcard": {"status": "unavailable"},
@@ -395,6 +459,29 @@ def test_volume_change_requires_comparable_source_coverage(tmp_path):
     payload = service.run(run_ai=False, now=datetime(2026, 9, 28, tzinfo=TAIPEI))
     row = next(row for row in payload["rankings"] if row["code"] == "2330")
     assert row["volume_change_24h"] is None
+
+
+def test_volume_change_requires_matching_window(tmp_path):
+    history_dir = tmp_path / "history"
+    history_dir.mkdir()
+    (history_dir / "2026-09-27.json").write_text(
+        json.dumps(
+            {
+                "as_of": "2026-09-27",
+                "window_hours": 24,
+                "sources": {"ptt": {"status": "available"}},
+                "rankings": [{"symbol": "2330.TWSE", "code": "2330", "total_mentions": 4}],
+            }
+        ),
+        encoding="utf-8",
+    )
+    service = SocialSentimentService(
+        security_master=FakeSecurityMaster(),
+        collectors=(FakeCollector("ptt", [_post("ptt", "1", "2330 " * 8)], succeeded=True),),
+        output_dir=tmp_path,
+    )
+    payload = service.run(run_ai=False, window_hours=6, now=datetime(2026, 9, 28, tzinfo=TAIPEI))
+    assert payload["rankings"][0]["volume_change_24h"] is None
 
 
 def test_history_rerun_replaces_complete_same_day_snapshot(tmp_path, monkeypatch):

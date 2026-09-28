@@ -225,10 +225,10 @@ class DcardCollector:
                         try:
                             fallback = client.get(f"https://www.dcard.tw/f/{forum}")
                             fallback.raise_for_status()
-                            result.fetch_succeeded = True
                             fallback_posts = parse_dcard_html(fallback.text, forum=forum, since=since)
                             result.posts.extend(fallback_posts)
                             if fallback_posts:
+                                result.fetch_succeeded = True
                                 result.pages += 1
                         except Exception as fallback_exc:  # noqa: BLE001 - fallback is optional
                             result.errors.append(f"forum {forum} fallback: {type(fallback_exc).__name__}")
@@ -307,6 +307,13 @@ def parse_ptt_post(
 
     content_match = re.search(r'<div id="main-content"[^>]*>(.*)', markup, re.DOTALL | re.IGNORECASE)
     body = content_match.group(1) if content_match else markup
+    body = re.sub(
+        r'<span\b[^>]*class="article-meta-tag"[^>]*>.*?</span>\s*'
+        r'<span\b[^>]*class="article-meta-value"[^>]*>.*?</span>',
+        " ",
+        body,
+        flags=re.DOTALL | re.IGNORECASE,
+    )
     body = re.split(r'<div class="push"', body, maxsplit=1, flags=re.IGNORECASE)[0]
     comments: list[str] = []
     engagement = 0
@@ -351,6 +358,8 @@ def parse_dcard_posts(
     posts: list[SocialPost] = []
     for item in items:
         published = _parse_datetime(str(item.get("createdAt") or ""))
+        if since and published is None:
+            continue
         if since and published and published < since:
             continue
         post_id = str(item.get("id") or "").strip()
@@ -446,10 +455,22 @@ class StockMentionResolver:
             if info and re.search(rf"(?<![A-Z]){alias}(?![A-Z])", normalized):
                 mentions[info.code] += 1
         for info in self._names:
-            count = normalized.count(info.name.upper())
-            if count:
-                mentions[info.code] += count
+            name = info.name.upper()
+            for match in re.finditer(re.escape(name), normalized):
+                if len(name) < 3 and not self._has_stock_context(normalized, match.start(), match.end()):
+                    continue
+                mentions[info.code] += 1
         return dict(mentions)
+
+    @staticmethod
+    def _has_stock_context(text: str, start: int, end: int) -> bool:
+        context = text[max(0, start - 12) : min(len(text), end + 12)]
+        return bool(
+            re.search(
+                r"股票|股價|代號|代碼|持有|買進|賣出|漲停|跌停|股東|公司|法人|\d{4,6}[A-Z]?",
+                context,
+            )
+        )
 
     def _looks_like_year(self, text: str, start: int, end: int, code: str) -> bool:
         """Avoid treating bare calendar years as stock mentions.
@@ -517,7 +538,7 @@ class SocialSentimentService:
         previous_payload = self._load_previous_snapshot(now.date())
         previous = self._rows_from_snapshot(previous_payload)
         comparable_source_coverage = self._source_coverage_is_comparable(
-            source_results, previous_payload
+            source_results, previous_payload, window_hours=window_hours
         )
         rankings = self._aggregate(
             evidence,
@@ -710,9 +731,16 @@ class SocialSentimentService:
 
     @staticmethod
     def _source_coverage_is_comparable(
-        current: dict[str, SourceResult], previous: dict[str, Any] | None
+        current: dict[str, SourceResult],
+        previous: dict[str, Any] | None,
+        *,
+        window_hours: int,
     ) -> bool:
-        if not previous or not isinstance(previous.get("sources"), dict):
+        if (
+            not previous
+            or previous.get("window_hours") != window_hours
+            or not isinstance(previous.get("sources"), dict)
+        ):
             return False
         previous_sources = previous["sources"]
         if set(previous_sources) != set(current):
