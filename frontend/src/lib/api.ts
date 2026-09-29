@@ -1059,6 +1059,7 @@ export interface BuyPointSignal {
   triggered_conditions: string[]
   failed_conditions: string[]
   risk_flags: string[]
+  risk_status: 'clear' | 'unknown'
   price?: number | null
   quant_score?: number | null
   explanation: string

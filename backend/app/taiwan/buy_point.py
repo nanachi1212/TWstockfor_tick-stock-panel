@@ -113,6 +113,7 @@ class BuyPointSignal(BaseModel):
     triggered_conditions: list[str] = Field(default_factory=list)
     failed_conditions: list[str] = Field(default_factory=list)
     risk_flags: list[str] = Field(default_factory=list)
+    risk_status: Literal["clear", "unknown"] = "unknown"
     price: float | None = None
     quant_score: float | None = None
     explanation: str
@@ -149,7 +150,7 @@ def builtin_presets() -> list[BuyPointStrategy]:
         _preset("earnings_confirmed", "財報確認型", "等獲利資料確認後觀察價格，不提前猜財報。", "基本面", BuyPointConditions(quant_min=60, eps_min=0, max_price_extension_pct=8)),
         _preset("value_growth", "低估值＋成長", "同時要求估值與成長，不因單純低本益比就提醒。", "估值／基本面", BuyPointConditions(quant_min=55, pe_min=0, pe_max=20, pb_min=0, pb_max=3, revenue_yoy_min=0, eps_min=0)),
         _preset("event_confirmed", "事件後確認", "正式事件發生後確認市場反應，不預測事件結果。", "事件", BuyPointConditions(quant_min=60, max_price_extension_pct=8)),
-        _preset("resonance", "多條件共振", "同時等待價格、Quant 與基本面／籌碼共振，訊號較少但條件較完整。", "綜合", BuyPointConditions(quant_min=70, pullback_min_pct=3, pullback_max_pct=6, breakout_window=20, resonance_min_categories=3)),
+        _preset("resonance", "多條件共振", "同時等待價格、Quant 與籌碼共振，訊號較少但條件較完整。", "綜合", BuyPointConditions(quant_min=70, pullback_min_pct=3, pullback_max_pct=6, breakout_window=20, institutional_required=True, resonance_min_categories=3)),
     ]
 
 
@@ -172,6 +173,8 @@ def _risk_gate(strategy: BuyPointStrategy, data: BuyPointMarketData) -> tuple[li
         missing.append("監管風險資料")
     elif strategy.risk_filters.exclude_regulatory_unknown and data.risk_data_available is False:
         missing.append("監管風險資料不可用")
+    elif strategy.risk_filters.exclude_regulatory_unknown and data.regulatory_unknown is not False:
+        missing.append("標的監管風險狀態")
     checks = (
         ("處置", data.disposition, strategy.risk_filters.exclude_disposition),
         ("暫停交易", data.suspended, strategy.risk_filters.exclude_suspension),
@@ -196,7 +199,27 @@ def evaluate_buy_point(strategy: BuyPointStrategy, data: BuyPointMarketData) -> 
     missing: list[str] = []
     risks, risk_missing = _risk_gate(strategy, data)
     missing.extend(risk_missing)
+    observed_risks = [
+        label
+        for label, active in (
+            ("處置", data.disposition),
+            ("暫停交易", data.suspended),
+            ("下市", data.delisted),
+            ("減資重大狀態", data.capital_reduction_critical),
+            ("重大事件風險", data.severe_event_risk),
+        )
+        if active is True
+    ]
+    risk_status: Literal["clear", "unknown"] = (
+        "clear"
+        if data.risk_data_available is True
+        and data.regulatory_unknown is False
+        and not observed_risks
+        else "unknown"
+    )
     c = strategy.conditions
+    near_failures: set[str] = set()
+    category_pass: dict[str, bool] = {}
 
     def require(label: str, actual: Any, predicate) -> bool:
         if actual is None:
@@ -207,11 +230,14 @@ def evaluate_buy_point(strategy: BuyPointStrategy, data: BuyPointMarketData) -> 
         return ok
 
     if c.quant_min is not None:
-        require(f"Quant >= {c.quant_min:g}", data.quant_score, lambda v: v >= c.quant_min)
+        quant_ok = require(f"Quant >= {c.quant_min:g}", data.quant_score, lambda v: v >= c.quant_min)
         if data.quant_universe is False:
             failed.append("仍在 Quant universe")
+            quant_ok = False
         elif data.quant_universe is None:
             missing.append("Quant universe")
+            quant_ok = False
+        category_pass["quant"] = quant_ok
 
     rows = _close_rows(data)
     closes = [_number(row.get("close")) for row in rows]
@@ -226,20 +252,26 @@ def evaluate_buy_point(strategy: BuyPointStrategy, data: BuyPointMarketData) -> 
             lower = c.pullback_min_pct if c.pullback_min_pct is not None else float("-inf")
             upper = c.pullback_max_pct if c.pullback_max_pct is not None else float("inf")
             ok = lower <= pullback <= upper
-            (triggered if ok else failed).append(f"回檔 {pullback:.1f}%")
+            pullback_label = f"回檔 {pullback:.1f}%"
+            (triggered if ok else failed).append(pullback_label)
+            category_pass["pullback"] = ok
             if not ok and c.approaching_distance_pct > 0:
                 near = lower - c.approaching_distance_pct <= pullback <= upper + c.approaching_distance_pct
                 if near:
                     triggered.append("接近回檔區")
+                    near_failures.add(pullback_label)
     if c.breakout_window is not None:
         if price is None or len(closes) < c.breakout_window + 1:
             missing.append(f"{c.breakout_window}D 高點")
         else:
             prior_high = max(closes[-c.breakout_window - 1:-1])
             ok = price >= prior_high
-            (triggered if ok else failed).append(f"突破 {c.breakout_window}D 高點")
+            breakout_label = f"突破 {c.breakout_window}D 高點"
+            (triggered if ok else failed).append(breakout_label)
+            category_pass["breakout"] = ok
             if not ok and prior_high > 0 and (prior_high - price) / prior_high * 100 <= c.approaching_distance_pct:
                 triggered.append("接近突破價")
+                near_failures.add(breakout_label)
     if c.volume_multiplier is not None:
         if data.volume is None or data.volume_average_20d is None or data.volume_average_20d <= 0:
             missing.append("成交量與 20D 均量")
@@ -248,8 +280,13 @@ def evaluate_buy_point(strategy: BuyPointStrategy, data: BuyPointMarketData) -> 
     if c.institutional_required:
         if not data.institutional_trend:
             missing.append("法人趨勢")
+            category_pass["institutional"] = False
         else:
-            require("法人由賣轉買或淨買超改善", data.institutional_trend, lambda v: len(v) >= 2 and v[-1] > v[0])
+            category_pass["institutional"] = require(
+                "法人由賣轉買或淨買超改善",
+                data.institutional_trend,
+                lambda v: len(v) >= 2 and v[-1] > v[0],
+            )
     if c.foreign_shareholding_change_min is not None:
         require(f"外資持股變化 >= {c.foreign_shareholding_change_min:g}", data.foreign_shareholding_change_20d, lambda v: v >= c.foreign_shareholding_change_min)
     if c.revenue_yoy_min is not None:
@@ -265,6 +302,21 @@ def evaluate_buy_point(strategy: BuyPointStrategy, data: BuyPointMarketData) -> 
     if strategy.id == "event_confirmed":
         require("正式事件已發生", data.positive_event, lambda v: v is True)
 
+    if strategy.id == "resonance" and not missing and not risks:
+        price_ok = category_pass.get("pullback", False) or category_pass.get("breakout", False)
+        passed_categories = sum((category_pass.get("quant", False), price_ok, category_pass.get("institutional", False)))
+        needed = max(1, c.resonance_min_categories)
+        price_labels = [label for label in failed if label.startswith(("回檔 ", "突破 "))]
+        failed = [label for label in failed if label not in price_labels]
+        if price_ok:
+            near_failures.difference_update(price_labels)
+            triggered = [label for label in triggered if not label.startswith("接近")]
+            triggered.append("價格回檔或突破成立")
+        else:
+            failed.append("價格回檔或突破")
+        resonance_label = f"共振類別 {passed_categories}/{needed}"
+        (triggered if passed_categories >= needed else failed).append(resonance_label)
+
     if risks:
         status: BuyPointStatus = "blocked"
         explanation = f"買點條件部分成立，但因 {', '.join(risks)} 暫不提醒。"
@@ -273,11 +325,12 @@ def evaluate_buy_point(strategy: BuyPointStrategy, data: BuyPointMarketData) -> 
         explanation = f"資料不足，暫不判定：{', '.join(dict.fromkeys(missing))}。"
     else:
         hard_fail = bool(failed)
-        near = any(label.startswith("接近") for label in triggered)
+        near = bool(near_failures)
+        non_near_failures = [label for label in failed if label not in near_failures]
         if not hard_fail:
             status = "triggered" if not near else "approaching"
         else:
-            status = "approaching" if near else "waiting"
+            status = "approaching" if near and not non_near_failures else "waiting"
         explanation = {
             "triggered": "條件已成立，提醒使用者自行研究與決定。",
             "approaching": "目前接近買點條件，尚未完全成立。",
@@ -287,7 +340,8 @@ def evaluate_buy_point(strategy: BuyPointStrategy, data: BuyPointMarketData) -> 
         strategy_id=strategy.id, symbol=data.symbol, name=data.name,
         detected_at=_now(), data_as_of=data.data_as_of, status=status,
         triggered_conditions=triggered, failed_conditions=failed + missing,
-        risk_flags=risks, price=price, quant_score=data.quant_score,
+        risk_flags=list(dict.fromkeys(observed_risks)), risk_status=risk_status,
+        price=price, quant_score=data.quant_score,
         explanation=explanation, freshness=data.freshness,
     )
 

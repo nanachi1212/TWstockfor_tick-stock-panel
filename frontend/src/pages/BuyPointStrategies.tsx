@@ -75,6 +75,7 @@ export function BuyPointStrategies() {
   const watchlist = useQuery({ queryKey: QK.watchlist, queryFn: api.watchlistList })
   const stats = useQuery({ queryKey: QK.buyPointStats, queryFn: api.buyPointStats })
   const allStrategies = strategies.data?.strategies ?? []
+  const watchSymbols = watchlist.data?.symbols ?? []
   const presets = allStrategies.filter(item => item.preset)
   const mine = allStrategies.filter(item => !item.preset)
   const selected = allStrategies.find(item => item.id === selectedStrategy)
@@ -86,12 +87,31 @@ export function BuyPointStrategies() {
   }
   const clone = useMutation({ mutationFn: (id: string) => api.buyPointClone(id), onSuccess: data => { invalidate(); setSelectedStrategy(data.id); toast('已複製為我的買點策略', 'success') } })
   const update = useMutation({ mutationFn: ({ id, enabled }: { id: string; enabled: boolean }) => api.buyPointUpdate(id, { enabled }), onSuccess: invalidate })
-  const assign = useMutation({ mutationFn: () => api.buyPointAssign(selectedStrategy!, selectedSymbols), onSuccess: () => { invalidate(); toast('已更新自選股買點策略', 'success') } })
+  const assign = useMutation({
+    mutationFn: async () => {
+      if (!selectedStrategy) return
+      const selected = new Set(selectedSymbols)
+      const updates = watchSymbols.flatMap<[string, string[]]>(item => {
+        const current = allStrategies
+          .filter(strategy => strategy.assigned_symbols?.includes(item.symbol))
+          .map(strategy => strategy.id)
+        const next = selected.has(item.symbol)
+          ? [...new Set([...current, selectedStrategy])]
+          : current.filter(id => id !== selectedStrategy)
+        return current.length === next.length && current.every(id => next.includes(id))
+          ? []
+          : [[item.symbol, next]]
+      })
+      for (const [symbol, strategyIds] of updates) {
+        await api.buyPointAssign(symbol, strategyIds)
+      }
+    },
+    onSuccess: () => { invalidate(); toast('已更新自選股買點策略', 'success') },
+  })
   const create = useMutation({ mutationFn: () => api.buyPointCreate({ name: customName, description: '使用者自訂的 typed 買點條件。', conditions: customConditions, alert_channels: ['app'] }), onSuccess: data => { invalidate(); setCustomOpen(false); setSelectedStrategy(data.id); toast('已建立自訂策略', 'success') } })
   const snapshot = useMutation({ mutationFn: ({ strategyId, symbol }: { strategyId: string; symbol: string }) => api.buyPointSnapshot(strategyId, symbol), onSuccess: () => toast('已保存至選股復盤，來源為 Buy Point', 'success') })
 
   const signalRows = useMemo(() => signals.data?.signals ?? [], [signals.data])
-  const watchSymbols = watchlist.data?.symbols ?? []
   const toggleSymbol = (symbol: string) => setSelectedSymbols(current => current.includes(symbol) ? current.filter(item => item !== symbol) : [...current, symbol])
   const chooseStrategy = (strategy: BuyPointStrategy) => {
     setSelectedStrategy(strategy.id)
