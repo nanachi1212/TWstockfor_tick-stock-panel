@@ -377,8 +377,8 @@ def test_quote_service_forwards_real_strategy_id(monkeypatch, tmp_path):
         "source": "strategy",
         "type": "buy_signal",
         "symbol": "A",
-        "name": "测试股票",
-        "message": "策略买入信号",
+        "name": "測試股票",
+        "message": "策略買入訊號",
         "price": 10.0,
         "change_pct": 0.01,
         "signals": ["signal_buy"],
@@ -411,7 +411,7 @@ def test_quote_service_forwards_real_strategy_id(monkeypatch, tmp_path):
 
         @staticmethod
         def get_instruments():
-            return pl.DataFrame({"symbol": ["A"], "name": ["测试股票"]})
+            return pl.DataFrame({"symbol": ["A"], "name": ["測試股票"]})
 
     monkeypatch.setattr(alert_store, "append_many", lambda *args: None)
     monkeypatch.setattr(preferences, "get_system_notify_enabled", lambda: False)
@@ -424,4 +424,7 @@ def test_quote_service_forwards_real_strategy_id(monkeypatch, tmp_path):
     with patch.object(QuoteService, "_is_continuous_trading", return_value=True):
         service._evaluate_monitors(pl.DataFrame(), None)
 
-    assert subscriber.pop()["alerts"][0]["strategy_id"] == "demo"
+    forwarded = subscriber.pop()["alerts"][0]
+    assert forwarded["strategy_id"] == "demo"
+    assert forwarded["name"] == "測試股票"
+    assert forwarded["message"] == "策略買入訊號"

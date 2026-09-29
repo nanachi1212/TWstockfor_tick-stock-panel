@@ -152,4 +152,4 @@ def test_api_save_and_list_group_rule(monkeypatch, tmp_path):
     watchlist.delete_group(group["id"])
     listed = monitor_rules_api.list_rules(req)
     rule = next(r for r in listed["rules"] if r["id"] == "r_grp")
-    assert "已删除" in rule["runtime_warning"]
+    assert "已刪除" in rule["runtime_warning"]
