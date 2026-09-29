@@ -1041,6 +1041,7 @@ export interface BuyPointStrategy {
   category: string
   enabled: boolean
   preset: boolean
+  source_preset_id?: string | null
   conditions: BuyPointConditions
   risk_filters: BuyPointRiskFilters
   alert_channels: string[]

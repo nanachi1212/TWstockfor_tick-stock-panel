@@ -57,6 +57,7 @@ class BuyPointStrategy(BaseModel):
     category: str
     enabled: bool = True
     preset: bool = False
+    source_preset_id: str | None = None
     conditions: BuyPointConditions = Field(default_factory=BuyPointConditions)
     risk_filters: BuyPointRiskFilters = Field(default_factory=BuyPointRiskFilters)
     alert_channels: list[Literal["app", "line", "telegram"]] = Field(default_factory=lambda: ["app"])
@@ -197,6 +198,8 @@ def evaluate_buy_point(strategy: BuyPointStrategy, data: BuyPointMarketData) -> 
     triggered: list[str] = []
     failed: list[str] = []
     missing: list[str] = []
+    if data.freshness != "daily_cached":
+        missing.append("日線資料新鮮度")
     risks, risk_missing = _risk_gate(strategy, data)
     missing.extend(risk_missing)
     observed_risks = [
@@ -245,7 +248,9 @@ def evaluate_buy_point(strategy: BuyPointStrategy, data: BuyPointMarketData) -> 
     price = data.price if data.price is not None else (closes[-1] if closes else None)
     recent_high = max(closes[-21:-1], default=None)
     if c.pullback_min_pct is not None or c.pullback_max_pct is not None:
-        if price is None or recent_high is None or recent_high <= 0:
+        if len(closes) < 21:
+            missing.append("20D 回檔資料")
+        elif price is None or recent_high is None or recent_high <= 0:
             missing.append("近期高點與價格")
         else:
             pullback = (recent_high - price) / recent_high * 100
@@ -299,10 +304,11 @@ def evaluate_buy_point(strategy: BuyPointStrategy, data: BuyPointMarketData) -> 
         require("PB 在設定範圍", data.pb, lambda v: (c.pb_min is None or v >= c.pb_min) and (c.pb_max is None or v <= c.pb_max))
     if c.max_price_extension_pct is not None:
         require(f"價格追高幅度 <= {c.max_price_extension_pct:g}%", data.price_extension_pct, lambda v: v <= c.max_price_extension_pct)
-    if strategy.id == "event_confirmed":
+    semantic_id = strategy.source_preset_id or strategy.id
+    if semantic_id == "event_confirmed":
         require("正式事件已發生", data.positive_event, lambda v: v is True)
 
-    if strategy.id == "resonance" and not missing and not risks:
+    if semantic_id == "resonance" and not missing and not risks:
         price_ok = category_pass.get("pullback", False) or category_pass.get("breakout", False)
         passed_categories = sum((category_pass.get("quant", False), price_ok, category_pass.get("institutional", False)))
         needed = max(1, c.resonance_min_categories)

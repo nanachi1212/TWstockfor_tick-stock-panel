@@ -5,7 +5,7 @@ from types import SimpleNamespace
 import pytest
 
 from app.api import buy_points
-from app.api.buy_points import SnapshotRequest
+from app.api.buy_points import CloneRequest, SnapshotRequest
 from app.taiwan.buy_point import (
     BuyPointConditions,
     BuyPointMarketData,
@@ -29,6 +29,7 @@ def strategy(**kwargs):
 
 
 def data(**kwargs):
+    kwargs.setdefault("freshness", "daily_cached")
     return BuyPointMarketData(
         symbol="2330.TWSE", name="台積電", risk_data_available=True,
         quant_universe=True, **kwargs,
@@ -81,6 +82,7 @@ def test_near_price_does_not_override_unrelated_failure():
 
 def test_resonance_accepts_either_price_branch():
     preset = next(item for item in builtin_presets() if item.id == "resonance")
+    preset = preset.model_copy(update={"id": "custom_resonance", "preset": False, "source_preset_id": "resonance"})
     closes = [{"close": 100.0}] * 20 + [{"close": 105.0}]
     signal = evaluate_buy_point(
         preset,
@@ -99,6 +101,50 @@ def test_resonance_accepts_either_price_branch():
     )
     assert signal.status == "triggered"
     assert "共振類別 3/3" in signal.triggered_conditions
+
+
+def test_pullback_requires_twenty_prior_trading_sessions():
+    signal = evaluate_buy_point(
+        strategy(pullback_min_pct=3, pullback_max_pct=6),
+        data(daily=[{"close": 100}, {"close": 95}], price=95),
+    )
+    assert signal.status == "unavailable"
+    assert "20D 回檔資料" in signal.failed_conditions
+
+
+def test_stale_daily_data_fails_closed_before_alert_status():
+    signal = evaluate_buy_point(
+        strategy(quant_min=60),
+        data(quant_score=80, freshness="stale"),
+    )
+    assert signal.status == "unavailable"
+    assert "日線資料新鮮度" in signal.failed_conditions
+
+
+def test_event_clone_keeps_event_confirmation_semantics():
+    preset = next(item for item in builtin_presets() if item.id == "event_confirmed")
+    clone = preset.model_copy(update={
+        "id": "custom_event", "preset": False, "source_preset_id": "event_confirmed",
+    })
+    signal = evaluate_buy_point(
+        clone,
+        data(
+            quant_score=80, price_extension_pct=0, positive_event=False,
+            regulatory_unknown=False, disposition=False, suspended=False,
+            delisted=False, capital_reduction_critical=False, severe_event_risk=False,
+        ),
+    )
+    assert signal.status == "waiting"
+    assert "正式事件已發生" in signal.failed_conditions
+
+
+def test_clone_endpoint_records_source_preset_identity(tmp_path: Path):
+    request = SimpleNamespace(app=SimpleNamespace(state=SimpleNamespace(
+        repo=SimpleNamespace(store=SimpleNamespace(data_dir=tmp_path)),
+    )))
+    cloned = buy_points.clone_strategy(CloneRequest(preset_id="event_confirmed"), request)
+    assert cloned["preset"] is False
+    assert cloned["source_preset_id"] == "event_confirmed"
 
 
 def test_risk_gate_blocks_even_when_conditions_pass():
@@ -165,7 +211,7 @@ def test_market_data_uses_prior_twenty_days_and_populates_preset_fields(monkeypa
     )
     result = buy_points._market_data(
         "2330.TWSE", item=item, event_service=EventService(), events=[event],
-        risk_source_status="available", load_screen=False,
+        risk_source_status="available", eligible_date="2026-09-21", load_screen=False,
     )
     assert result.volume_average_20d == 100
     assert result.price_extension_pct == 10
@@ -201,7 +247,7 @@ def test_signal_enrichment_covers_every_assigned_symbol(monkeypatch):
         "_market_data",
         lambda symbol, **_kwargs: BuyPointMarketData(
             symbol=symbol, quant_score=80, quant_universe=True,
-            risk_data_available=True, regulatory_unknown=False,
+            risk_data_available=True, regulatory_unknown=False, freshness="daily_cached",
         ),
     )
     signals = buy_points._signals_for_symbols(Store(), symbols)
@@ -256,13 +302,37 @@ def test_alert_requires_rearm_and_routes_through_existing_adapters(tmp_path: Pat
     assert len(appended) == 2
 
 
-def test_alert_state_is_not_advanced_when_persistence_fails(tmp_path: Path, monkeypatch):
+def test_duplicate_durable_claim_recovers_state_without_rerouting(tmp_path: Path, monkeypatch):
     store = BuyPointStrategyStore(tmp_path / "strategies.json")
     monkeypatch.setattr(buy_points.alert_store, "append_many", lambda _data_dir, _events: [])
-    with pytest.raises(RuntimeError, match="未完整持久化"):
+    assert buy_points._dispatch_alerts(tmp_path, None, store, [_triggered_signal()]) == []
+    assert store.state("quant_pullback:2330.TWSE") == "triggered"
+    assert store.last_triggered_at("quant_pullback:2330.TWSE") is not None
+
+
+def test_alert_state_is_not_advanced_when_persistence_raises(tmp_path: Path, monkeypatch):
+    store = BuyPointStrategyStore(tmp_path / "strategies.json")
+
+    def fail_append(_data_dir, _events):
+        raise OSError("disk full")
+
+    monkeypatch.setattr(buy_points.alert_store, "append_many", fail_append)
+    with pytest.raises(OSError, match="disk full"):
         buy_points._dispatch_alerts(tmp_path, None, store, [_triggered_signal()])
     assert store.state("quant_pullback:2330.TWSE") is None
     assert store.last_triggered_at("quant_pullback:2330.TWSE") is None
+
+
+def test_alert_transition_id_deduplicates_independent_callers(tmp_path: Path):
+    first_store = BuyPointStrategyStore(tmp_path / "first.json")
+    second_store = BuyPointStrategyStore(tmp_path / "second.json")
+    signal = _triggered_signal()
+    first = buy_points._dispatch_alerts(tmp_path, None, first_store, [signal])
+    second = buy_points._dispatch_alerts(tmp_path, None, second_store, [signal])
+    assert len(first) == 1
+    assert second == []
+    assert second_store.state("quant_pullback:2330.TWSE") == "triggered"
+    assert len(buy_points.alert_store.list_recent(tmp_path)) == 1
 
 
 def test_snapshot_rejects_stale_market_data(tmp_path: Path, monkeypatch):

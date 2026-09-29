@@ -7,6 +7,7 @@ the application's alert infrastructure.
 # ruff: noqa: RUF001 -- user-facing Traditional Chinese API messages.
 from __future__ import annotations
 
+import hashlib
 import logging
 import time
 import uuid
@@ -101,6 +102,7 @@ def _market_data(
     event_service: Any = None,
     events: list[Any] | None = None,
     risk_source_status: str | None = None,
+    eligible_date: str | None = None,
     *,
     load_screen: bool = True,
 ) -> BuyPointMarketData:
@@ -193,7 +195,11 @@ def _market_data(
         symbol=symbol,
         name=getattr(item, "name", "") or "",
         data_as_of=data_as_of,
-        freshness="daily_cached" if rows else "unavailable",
+        freshness=(
+            "daily_cached" if rows and data_as_of == eligible_date
+            else "stale" if rows and eligible_date is not None
+            else "unavailable"
+        ),
         price=price,
         quant_score=getattr(item, "quant_score", None),
         quant_universe=True if item is not None else None,
@@ -256,6 +262,13 @@ def _signals_for_symbols(store: BuyPointStrategyStore, symbols: list[str]) -> li
         events, risk_source_status, _risk_as_of = event_service.get_cached_regulatory_snapshot()
     except Exception as exc:
         logger.debug("buy-point regulatory evidence unavailable: %s", type(exc).__name__)
+    eligible_date: str | None = None
+    try:
+        from app.taiwan.daily_update import resolve_target_latest_trading_date
+
+        eligible_date = resolve_target_latest_trading_date().isoformat()
+    except Exception as exc:
+        logger.debug("buy-point eligible trading date unavailable: %s", type(exc).__name__)
     for symbol in symbols:
         data = _market_data(
             symbol,
@@ -263,6 +276,7 @@ def _signals_for_symbols(store: BuyPointStrategyStore, symbols: list[str]) -> li
             event_service=event_service,
             events=events,
             risk_source_status=risk_source_status,
+            eligible_date=eligible_date,
             load_screen=False,
         )
         for strategy_id in assignments.get(symbol, []):
@@ -280,7 +294,7 @@ def _dispatch_alerts(
 ) -> list[dict[str, Any]]:
     catalog = _catalog_map(store)
     emitted: list[dict[str, Any]] = []
-    emitted_state_keys: list[str] = []
+    emitted_state_keys: dict[str, str] = {}
     now_ms = int(time.time() * 1000)
     for signal in signals:
         if signal.status != "triggered":
@@ -295,8 +309,13 @@ def _dispatch_alerts(
             continue
         if last_triggered is not None and (time.time() - last_triggered) < cooldown_seconds:
             continue
+        transition_key = (
+            f"buy-point:{signal.strategy_id}:{signal.symbol}:"
+            f"after:{last_triggered!r}"
+        )
+        alert_id = "buy_point_" + hashlib.sha256(transition_key.encode("utf-8")).hexdigest()[:24]
         event = {
-            "alert_id": f"alert_{uuid.uuid4().hex}",
+            "alert_id": alert_id,
             "ts": now_ms,
             "rule_id": f"buy_point:{signal.strategy_id}",
             "rule_name": strategy.name,
@@ -310,33 +329,35 @@ def _dispatch_alerts(
             "signals": signal.triggered_conditions,
             "severity": "info",
             "notify_channels": [channel for channel in strategy.alert_channels if channel in {"line", "telegram"}],
-            "dedup_key": f"buy-point:{signal.strategy_id}:{signal.symbol}:triggered",
+            "dedup_key": transition_key,
             "buy_point_strategy_id": signal.strategy_id,
             "buy_point_risk_flags": signal.risk_flags,
         }
         emitted.append(event)
-        emitted_state_keys.append(state_key)
+        emitted_state_keys[alert_id] = state_key
 
     if not emitted:
         return []
     inserted_ids = alert_store.append_many(data_dir, emitted)
-    if len(inserted_ids) != len(emitted):
-        raise RuntimeError("買點提醒未完整持久化")
+    events_by_id = {event["alert_id"]: event for event in emitted}
+    inserted = [events_by_id[alert_id] for alert_id in inserted_ids if alert_id in events_by_id]
     triggered_at = time.time()
-    for state_key in emitted_state_keys:
+    for state_key in emitted_state_keys.values():
         store.set_state(state_key, "triggered")
         store.mark_triggered(state_key, triggered_at)
+    if not inserted:
+        return []
     if quote_service is not None:
         try:
-            quote_service.push_alerts(emitted)
+            quote_service.push_alerts(inserted)
         except Exception:
             logger.warning("買點提醒 SSE 推送失敗", exc_info=True)
         try:
-            quote_service._maybe_send_webhook(emitted, None)
+            quote_service._maybe_send_webhook(inserted, None)
         except Exception:
             logger.warning("買點提醒外部推播提交失敗", exc_info=True)
         app_events = [
-            event for event in emitted
+            event for event in inserted
             if "app" in catalog[event["buy_point_strategy_id"]].alert_channels
         ]
         if app_events:
@@ -344,7 +365,7 @@ def _dispatch_alerts(
                 quote_service._maybe_send_system_notifications(app_events)
             except Exception:
                 logger.debug("買點系統提醒失敗", exc_info=True)
-    return emitted
+    return inserted
 
 
 def evaluate_watchlist(
@@ -393,7 +414,7 @@ def clone_strategy(req: CloneRequest, request: Request):
     now = _now()
     custom = preset.model_copy(update={
         "id": f"custom_{uuid.uuid4().hex[:12]}", "name": req.name or f"我的{preset.name}",
-        "preset": False, "created_at": now, "updated_at": now,
+        "preset": False, "source_preset_id": preset.id, "created_at": now, "updated_at": now,
     })
     return store.save(custom).model_dump()
 
@@ -455,7 +476,7 @@ def list_signals(request: Request, symbol: str | None = Query(default=None)):
     store = _store(request)
     symbols = [symbol] if symbol else [str(row.get("symbol")) for row in watchlist.list_symbols() if row.get("symbol")]
     signals = _signals_for_symbols(store, symbols)
-    return {"signals": [signal.model_dump() for signal in signals], "as_of": date.today().isoformat()}
+    return {"signals": [signal.model_dump() for signal in signals], "as_of": taipei_today().isoformat()}
 
 
 @router.post("/evaluate")
