@@ -12,12 +12,12 @@ if (-not (Test-Path -LiteralPath $LauncherPath -PathType Leaf)) {
 }
 
 $desktop = [Environment]::GetFolderPath('Desktop')
-$shortcutPath = Join-Path $desktop 'Nanachi 台股看板.lnk'
+$shortcutPath = Join-Path $desktop 'Nanachi Windows Launcher.lnk'
 $shell = New-Object -ComObject WScript.Shell
 $shortcut = $shell.CreateShortcut($shortcutPath)
 $shortcut.TargetPath = $LauncherPath
 $shortcut.WorkingDirectory = Split-Path -Parent $LauncherPath
-$shortcut.Description = 'Nanachi 台股監控看板'
+$shortcut.Description = 'Nanachi 台股看板服務管理與除錯工具'
 $shortcut.IconLocation = "$LauncherPath,0"
 $shortcut.Save()
 Write-Host "已建立桌面捷徑: $shortcutPath"
