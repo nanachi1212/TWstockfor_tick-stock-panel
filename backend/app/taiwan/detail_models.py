@@ -18,7 +18,7 @@ from __future__ import annotations
 
 from typing import Any, List, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 
 class SectionMeta(BaseModel):
@@ -31,6 +31,20 @@ class SectionMeta(BaseModel):
     source_type: str | None = Field(None, description="資料來源類型")
     freshness_class: str | None = Field(None, description="canonical 行情新鮮度分類")
     is_realtime: bool | None = Field(None, description="來源是否確認為即時行情")
+    reason: str | None = Field(None, description="資料不可用或降級原因")
+    data_date: str | None = Field(None, description="資料日期；與 trade_date 相容")
+    freshness: str | None = Field(None, description="資料新鮮度或 availability 狀態")
+
+    @model_validator(mode="after")
+    def populate_availability_contract(self) -> SectionMeta:
+        """Expose one consistent availability contract without breaking old clients."""
+        if self.reason is None:
+            self.reason = self.fallback_reason
+        if self.data_date is None:
+            self.data_date = self.trade_date
+        if self.freshness is None:
+            self.freshness = self.freshness_class or ("stale" if self.is_stale else self.status)
+        return self
 
 
 class TaiwanStockIdentity(BaseModel):

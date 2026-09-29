@@ -314,7 +314,7 @@ class TaiwanFundamentalChipsService:
             if status != "available" or not raw_rows:
                 return TaiwanProfitabilityData(
                     meta=SectionMeta(
-                        source=f"finmind:{dataset}", fetched_at=cached.get("fetched_at"),
+                        source=f"finmind:{dataset}", trade_date=data_date, fetched_at=cached.get("fetched_at"),
                         status="unavailable", fallback_reason=self._cached_unavailable_reason(dataset, cached),
                     )
                 )
@@ -360,7 +360,7 @@ class TaiwanFundamentalChipsService:
         rows = filter_financial_statements_as_of(rows, as_of)
         if not rows:
             return TaiwanProfitabilityData(
-                meta=SectionMeta(source="finmind:TaiwanStockFinancialStatements", fetched_at=fetched_at,
+                meta=SectionMeta(source="finmind:TaiwanStockFinancialStatements", trade_date=data_date, fetched_at=fetched_at,
                                  status="unavailable", fallback_reason="no financial statements available as of cutoff")
             )
 
@@ -377,7 +377,7 @@ class TaiwanFundamentalChipsService:
 
         if not by_date:
             return TaiwanProfitabilityData(
-                meta=SectionMeta(source="finmind:TaiwanStockFinancialStatements", fetched_at=fetched_at,
+                meta=SectionMeta(source="finmind:TaiwanStockFinancialStatements", trade_date=data_date, fetched_at=fetched_at,
                                  status="unavailable", fallback_reason="financial statements contain no usable metrics")
             )
 
@@ -440,7 +440,7 @@ class TaiwanFundamentalChipsService:
             if status != "available" or not raw_rows:
                 return TaiwanForeignShareholdingData(
                     meta=SectionMeta(
-                        source=f"finmind:{dataset}", fetched_at=cached.get("fetched_at"),
+                        source=f"finmind:{dataset}", trade_date=data_date, fetched_at=cached.get("fetched_at"),
                         status="unavailable", fallback_reason=self._cached_unavailable_reason(dataset, cached),
                     )
                 )
@@ -486,7 +486,7 @@ class TaiwanFundamentalChipsService:
         rows = filter_daily_records_as_of(rows, as_of)
         if not rows:
             return TaiwanForeignShareholdingData(
-                meta=SectionMeta(source="finmind:TaiwanStockShareholding", fetched_at=fetched_at,
+                meta=SectionMeta(source="finmind:TaiwanStockShareholding", trade_date=data_date, fetched_at=fetched_at,
                                  status="unavailable", fallback_reason="no shareholding rows available as of cutoff")
             )
 
@@ -496,7 +496,7 @@ class TaiwanFundamentalChipsService:
         )
         if not sorted_rows:
             return TaiwanForeignShareholdingData(
-                meta=SectionMeta(source="finmind:TaiwanStockShareholding", fetched_at=fetched_at,
+                meta=SectionMeta(source="finmind:TaiwanStockShareholding", trade_date=data_date, fetched_at=fetched_at,
                                  status="unavailable", fallback_reason="shareholding rows contain no usable foreign ratio")
             )
 
@@ -560,7 +560,7 @@ class TaiwanFundamentalChipsService:
             if status != "available" or not raw_rows:
                 return TaiwanSecuritiesLendingData(
                     meta=SectionMeta(
-                        source=f"finmind:{dataset}", fetched_at=cached.get("fetched_at"),
+                        source=f"finmind:{dataset}", trade_date=data_date, fetched_at=cached.get("fetched_at"),
                         status="unavailable", fallback_reason=self._cached_unavailable_reason(dataset, cached),
                     )
                 )
@@ -606,7 +606,7 @@ class TaiwanFundamentalChipsService:
         rows = filter_daily_records_as_of(rows, as_of)
         if not rows:
             return TaiwanSecuritiesLendingData(
-                meta=SectionMeta(source="finmind:TaiwanStockSecuritiesLending", fetched_at=fetched_at,
+                meta=SectionMeta(source="finmind:TaiwanStockSecuritiesLending", trade_date=data_date, fetched_at=fetched_at,
                                  status="unavailable", fallback_reason="no securities lending rows available as of cutoff")
             )
 
@@ -625,7 +625,7 @@ class TaiwanFundamentalChipsService:
 
         if not daily_agg:
             return TaiwanSecuritiesLendingData(
-                meta=SectionMeta(source="finmind:TaiwanStockSecuritiesLending", fetched_at=fetched_at,
+                meta=SectionMeta(source="finmind:TaiwanStockSecuritiesLending", trade_date=data_date, fetched_at=fetched_at,
                                  status="unavailable", fallback_reason="securities lending rows contain no positive transaction volume")
             )
 

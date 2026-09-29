@@ -13,6 +13,7 @@ Verifies:
 from __future__ import annotations
 
 from datetime import date, datetime
+from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 import polars as pl
@@ -29,6 +30,7 @@ from app.taiwan.detail_service import TaiwanStockDetailService
 from app.taiwan.enrichment.models import SourceMeta
 from app.taiwan.realtime.calendar import TaiwanTradingCalendar
 from app.taiwan.realtime.models import TaiwanRealtimeQuote
+from app.taiwan.symbol import parse_symbol
 
 
 def _make_sample_quote(symbol: str, price: float, prev_close: float) -> TaiwanRealtimeQuote:
@@ -230,6 +232,131 @@ def test_recent_sessions_use_confirmed_partitions_not_calendar_offsets():
     ]
 
 
+def test_section_meta_exposes_explicit_availability_contract():
+    meta = SectionMeta(
+        source="finmind:dataset",
+        trade_date="2026-09-24",
+        status="unavailable",
+        fallback_reason="dataset returned no rows",
+    )
+    assert meta.reason == "dataset returned no rows"
+    assert meta.data_date == "2026-09-24"
+    assert meta.freshness == "unavailable"
+
+
+def test_institutional_fallback_uses_confirmed_sessions_across_holiday_gap():
+    svc = object.__new__(TaiwanStockDetailService)
+    svc._recent_confirmed_sessions = lambda count=5: [date(2026, 9, 29), date(2026, 9, 24)]
+    meta = SourceMeta(
+        source="tpex:daily_trade",
+        source_url="https://example.invalid",
+        fetched_at=datetime(2026, 9, 29, 20, 0),
+        trade_date=date(2026, 9, 24),
+        status="official",
+    )
+    flow = SimpleNamespace(
+        foreign_net=108263,
+        investment_trust_net=-76000,
+        dealer_net=646384,
+        computed_net=678647,
+        official_net=678647,
+        meta=meta,
+    )
+    svc.institutional_provider = MagicMock()
+    svc.institutional_provider.fetch_live_day.side_effect = lambda **kwargs: (
+        [flow] if kwargs["trade_date"] == date(2026, 9, 24) else []
+    )
+
+    result = svc._aggregate_institutional(parse_symbol("8358.TPEX"))
+
+    assert result.status == "available"
+    assert result.total_net == 678647
+    assert result.meta.source == "tpex:daily_trade"
+    assert result.meta.data_date == "2026-09-24"
+    assert [call.kwargs["trade_date"] for call in svc.institutional_provider.fetch_live_day.call_args_list] == [
+        date(2026, 9, 29), date(2026, 9, 24),
+    ]
+
+
+def test_institutional_prefers_persisted_rows_and_computes_rolling_shares():
+    svc = object.__new__(TaiwanStockDetailService)
+    svc._recent_confirmed_sessions = lambda count=5: [date(2026, 9, 29), date(2026, 9, 24)]
+    svc.institutional_store = MagicMock()
+    svc.institutional_store.read_range.return_value = pl.DataFrame(
+        {
+            "symbol": ["8358.TPEX", "8358.TPEX"],
+            "date": [date(2026, 9, 24), date(2026, 9, 29)],
+            "foreign_net": [108263, -2000],
+            "investment_trust_net": [-76000, 1000],
+            "dealer_net": [646384, 500],
+            "official_net": [678647, -500],
+            "computed_net": [678647, -500],
+            "source": ["tpex:daily_trade", "tpex:daily_trade"],
+        }
+    )
+    svc.institutional_provider = MagicMock()
+
+    result = svc._aggregate_institutional(parse_symbol("8358.TPEX"))
+
+    assert result.status == "available"
+    assert result.foreign_net == -2000
+    assert result.foreign_net_5d == 106263
+    assert result.investment_trust_net_5d == -75000
+    assert result.dealer_net_5d == 646884
+    assert result.meta.source == "tpex:daily_trade"
+    assert result.meta.data_date == "2026-09-29"
+    svc.institutional_provider.fetch_live_day.assert_not_called()
+
+
+def test_margin_fallback_uses_confirmed_sessions_and_tpex_unavailable_metadata():
+    svc = object.__new__(TaiwanStockDetailService)
+    svc._recent_confirmed_sessions = lambda count=5: [date(2026, 9, 29), date(2026, 9, 24)]
+    svc.margin_provider = MagicMock()
+    svc.margin_provider.fetch_live_day.return_value = []
+
+    result = svc._aggregate_margin(parse_symbol("8358.TPEX"))
+
+    assert result.status == "unavailable"
+    assert result.margin_balance is None
+    assert result.meta.source == "tpex:margin_balance"
+    assert result.meta.status == "unavailable"
+    assert result.meta.reason == "official margin/short source returned no row for 8358 across 2 confirmed sessions"
+    assert result.meta.data_date == "2026-09-29"
+    assert result.meta.freshness == "unavailable"
+    assert [call.kwargs["trade_date"] for call in svc.margin_provider.fetch_live_day.call_args_list] == [
+        date(2026, 9, 29), date(2026, 9, 24),
+    ]
+
+
+def test_margin_prefers_persisted_row_across_holiday_gap():
+    svc = object.__new__(TaiwanStockDetailService)
+    svc._recent_confirmed_sessions = lambda count=5: [date(2026, 9, 29), date(2026, 9, 24)]
+    svc.margin_store = MagicMock()
+    svc.margin_store.read_range.return_value = pl.DataFrame(
+        {
+            "symbol": ["8358.TPEX"],
+            "date": [date(2026, 9, 24)],
+            "margin_balance": [25572000],
+            "margin_change": [-417000],
+            "short_balance": [541000],
+            "short_change": [-10000],
+            "short_margin_ratio": [2.12],
+            "source": ["tpex:margin_balance"],
+        }
+    )
+    svc.margin_provider = MagicMock()
+
+    result = svc._aggregate_margin(parse_symbol("8358.TPEX"))
+
+    assert result.status == "available"
+    assert result.margin_balance == 25572000
+    assert result.short_balance == 541000
+    assert result.meta.status == "stale"
+    assert result.meta.data_date == "2026-09-24"
+    assert result.meta.reason == "latest persisted margin row predates the newest confirmed session"
+    svc.margin_provider.fetch_live_day.assert_not_called()
+
+
 def test_market_context_reads_matching_persisted_benchmark():
     svc = object.__new__(TaiwanStockDetailService)
     repo = MagicMock()
@@ -241,3 +368,20 @@ def test_market_context_reads_matching_persisted_benchmark():
     assert result.change_pct == pytest.approx(1.960784)
     assert result.meta.source == "persisted:kline_index_daily"
     assert repo.execute_all.call_args.args[1] == ["TPEX_INDEX"]
+
+
+def test_market_context_selects_taiex_and_reports_unavailable_contract():
+    svc = object.__new__(TaiwanStockDetailService)
+    repo = MagicMock()
+    repo.execute_all.return_value = []
+
+    result = svc._aggregate_market_context("TWSE", repo=repo)
+
+    assert result.benchmark_symbol == "TAIEX"
+    assert result.benchmark_name == "發行量加權股價指數"
+    assert result.close is None
+    assert result.meta.source == "persisted:kline_index_daily"
+    assert result.meta.status == "unavailable"
+    assert result.meta.reason == "persisted benchmark TAIEX is unavailable"
+    assert result.meta.freshness == "unavailable"
+    assert repo.execute_all.call_args.args[1] == ["TAIEX"]

@@ -84,6 +84,28 @@ describe('TodaySelection', () => {
     expect(api.taiwanQuotes).not.toHaveBeenCalled()
   })
 
+  it('uses the frozen full-universe ranking when the symbol is outside Top-N', async () => {
+    setup()
+    vi.mocked(api.taiwanQuantLiveRun).mockResolvedValue({
+      model_key: 'live-model', session: '2026-09-23', snapshot_hash: 'abc', frozen_at: '2026-09-23T16:00:00+08:00',
+      audit_status: 'ok',
+      snapshot: {
+        signal_session: '2026-09-23', usage_scope: 'experimental_live', validation_state: 'unvalidated',
+        model: { model_key: 'live-model', top_n: 10, validation_state: 'unvalidated' },
+        signals: signals.filter(item => item.symbol !== '2330.TWSE'),
+        ranking: [{ symbol: '2330.TWSE', score: 0.42, rank: 87, selected: false, momentum_20d: -0.03, feature_percentiles: { momentum_5d: 0.4, momentum_20d: 0.3, momentum_60d: 0.5 } }],
+        features: [{ symbol: '2330.TWSE', volatility_20d: 0.02, adv20_twd: 20_000_000, relative_volume: 1.4 }],
+      },
+    } as any)
+
+    renderSelection('/stocks/2330.TWSE')
+
+    const summary = await screen.findByRole('region', { name: 'Live Quant 摘要' })
+    expect(summary).toHaveTextContent('全市場排名，未入選 Top-N')
+    expect(summary).toHaveTextContent('排名 #87')
+    expect(summary).toHaveTextContent('分數 42.0%')
+  })
+
   it('adds a ranked symbol through the existing watchlist API', async () => {
     setup()
     renderSelection()

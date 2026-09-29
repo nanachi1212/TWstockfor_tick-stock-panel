@@ -12,6 +12,7 @@ import {
   sanitize,
   num,
   pct,
+  sharesAndLots,
   EXTERNAL_AI_PROMPT_FOOTER,
 } from './copy-formatters'
 
@@ -30,6 +31,12 @@ describe('copy-formatters helper sanitize & numbers', () => {
     expect(num(0)).toBe('0.00')
     expect(pct(null)).toBe('不可用 (unavailable)')
     expect(pct(0)).toBe('+0.00%')
+  })
+
+  it('labels canonical shares and only rounds the secondary lot display', () => {
+    expect(sharesAndLots(13_167_000)).toBe('13,167,000 股（13,167 張）')
+    expect(sharesAndLots(-2_708_654)).toBe('-2,708,654 股（約 -2,709 張）')
+    expect(sharesAndLots(null)).toBe('不可用 (unavailable)')
   })
 })
 
@@ -139,7 +146,7 @@ describe('formatStockDetailCopy & Prompt', () => {
     expect(text).toContain('收盤價：950.00 元')
     expect(text).toContain('成交量：35,000 股（35 張）')
     expect(text).toContain('成交金額：33,250,000 元')
-    expect(text).toContain('外資：5,200 股（5.2 張）')
+    expect(text).toContain('外資：5,200 股（約 5 張）')
     expect(text).toContain('借券最新成交量 85,000 股（85 張）')
     expect(text).toContain('發行量加權股價指數（TAIEX）')
     expect(text).not.toContain('借券賣出餘額')
@@ -187,6 +194,47 @@ describe('formatStockDetailCopy & Prompt', () => {
     expect(text).toContain('估值指標：不可用 (unavailable)')
     expect(text).toContain('營收與獲利：不可用 (unavailable)')
     expect(text).toContain('法人買賣超：不可用 (unavailable)')
+  })
+
+  it('Stock Detail: exports explicit unavailable metadata without relabeling units', () => {
+    const text = formatStockDetailCopy({
+      symbol: '8358.TPEX',
+      name: '金居',
+      quote: {
+        close: 100,
+        volume: 13_167_000,
+        turnover: null,
+        turnover_source: 'realtime+daily',
+        turnover_status: 'unavailable',
+        turnover_reason: 'no amount is available for the exact quote trade date',
+        turnover_as_of: '2026-09-29',
+        turnover_freshness: 'unavailable',
+      },
+      quant: {
+        score: null,
+        rank: null,
+        unavailable_reason: 'not in ranking universe',
+        meta: { source: 'live_quant:frozen_ranking', status: 'unavailable', reason: 'not in ranking universe', data_date: '2026-09-24', freshness: 'current_audited_snapshot' },
+      },
+      institutional_flows: {
+        foreign_buy_sell: -2_708_654,
+        meta: { source: 'tpex:daily_trade', status: 'available', data_date: '2026-09-24', freshness: 'available' },
+      },
+      margin_lending: {
+        margin_balance: null,
+        short_balance: null,
+        lending_latest_volume: null,
+        margin_meta: { source: 'tpex:margin_balance', status: 'unavailable', reason: 'no row', data_date: '2026-09-24', freshness: 'unavailable' },
+        lending_meta: { source: 'finmind:TaiwanStockSecuritiesLending', status: 'unavailable', reason: 'no rows', data_date: null, freshness: 'unavailable' },
+      },
+    })
+
+    expect(text).toContain('成交量：13,167,000 股（13,167 張）')
+    expect(text).toContain('成交金額：不可用 (unavailable)')
+    expect(text).toContain('source=realtime+daily | status=unavailable | reason=no amount is available for the exact quote trade date | data_date=2026-09-29 | freshness=unavailable')
+    expect(text).toContain('外資：-2,708,654 股（約 -2,709 張）')
+    expect(text).toContain('借券最新成交量 不可用 (unavailable)')
+    expect(text).not.toContain('借券賣出餘額')
   })
 })
 

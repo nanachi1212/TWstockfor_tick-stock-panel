@@ -314,17 +314,20 @@ def test_openai_kwargs_none_max_tokens_omits_limit():
 
 
 @pytest.mark.parametrize(
-    "base_url",
-    ["https://api.deepseek.com", "https://open.bigmodel.cn/api/paas/v4/"],
+    ("base_url", "model"),
+    [
+        ("https://api.deepseek.com", "deepseek-chat"),
+        ("https://open.bigmodel.cn/api/paas/v4/", "glm-4.7"),
+    ],
 )
-def test_structured_output_disables_thinking_only_for_verified_hosts(base_url):
+def test_structured_output_disables_thinking_only_for_verified_hosts(base_url, model):
     kwargs = ai_provider._openai_kwargs(
         temperature=0.1,
         max_tokens=3500,
         provider="openai_compat",
         structured_output=True,
         base_url=base_url,
-        model="model",
+        model=model,
     )
     assert kwargs["response_format"] == {"type": "json_object"}
     assert kwargs["extra_body"] == {"thinking": {"type": "disabled"}}
@@ -339,6 +342,17 @@ def test_structured_output_disables_thinking_only_for_verified_hosts(base_url):
     )
     assert "response_format" not in agnes
     assert "extra_body" not in agnes
+
+    unsupported_glm = ai_provider._openai_kwargs(
+        temperature=0.1,
+        max_tokens=3500,
+        provider="openai_compat",
+        structured_output=True,
+        base_url="https://open.bigmodel.cn/api/paas/v4/",
+        model="legacy-model",
+    )
+    assert "response_format" not in unsupported_glm
+    assert "extra_body" not in unsupported_glm
 
 
 @pytest.mark.asyncio
@@ -368,6 +382,51 @@ async def test_structured_response_parses_message_content_not_reasoning_content(
     kwargs = create.await_args.kwargs
     assert kwargs["response_format"] == {"type": "json_object"}
     assert kwargs["extra_body"] == {"thinking": {"type": "disabled"}}
+
+
+@pytest.mark.asyncio
+async def test_empty_message_content_is_a_typed_failure_and_log_is_secret_safe(monkeypatch, caplog):
+    response = SimpleNamespace(
+        choices=[SimpleNamespace(
+            finish_reason="stop",
+            message=SimpleNamespace(content="", reasoning_content="private reasoning text"),
+        )],
+        usage=SimpleNamespace(
+            completion_tokens=3500,
+            completion_tokens_details=SimpleNamespace(reasoning_tokens=3490),
+        ),
+    )
+    create = AsyncMock(return_value=response)
+    client = SimpleNamespace(chat=SimpleNamespace(completions=SimpleNamespace(create=create)))
+    monkeypatch.setattr(ai_provider, "_openai_client", lambda *args, **kwargs: client)
+    cfg = AIProviderConfigSnapshot(
+        provider="openai_compat",
+        model="deepseek-chat",
+        api_key="must-not-appear",
+        profile_name="DeepSeek",
+        base_url="https://api.deepseek.com/v1",
+    )
+
+    with (
+        caplog.at_level("INFO", logger="app.services.ai_provider"),
+        pytest.raises(ai_provider.AIEmptyContentError),
+    ):
+        await ai_provider.generate_ai_text(
+            [{"role": "user", "content": "private prompt must not appear"}],
+            max_tokens=3500,
+            config_snapshot=cfg,
+            structured_output=True,
+        )
+
+    log_text = caplog.text
+    assert "finish_reason=stop" in log_text
+    assert "completion_tokens=3500" in log_text
+    assert "reasoning_tokens=3490" in log_text
+    assert "content_length=0" in log_text
+    assert "retry_count=0" in log_text
+    assert "must-not-appear" not in log_text
+    assert "private prompt" not in log_text
+    assert "private reasoning text" not in log_text
 
 
 @pytest.mark.asyncio

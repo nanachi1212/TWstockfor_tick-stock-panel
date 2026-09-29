@@ -81,6 +81,10 @@ class AIOutputTruncated(RuntimeError):
         self.partial_content = partial_content
 
 
+class AIEmptyContentError(RuntimeError):
+    """Raised when a provider returns a completion choice without message.content."""
+
+
 @dataclass(frozen=True)
 class AIProviderConfigSnapshot:
     provider: str
@@ -589,7 +593,17 @@ async def _run_openai_once(
                 raise RuntimeError(_format_openai_error(exc)) from exc
             raise
     if not resp.choices:
-        return ""
+        logger.info(
+            "AI provider response profile=%s provider=%s model=%s http_status=200 finish_reason=%s completion_tokens=%s reasoning_tokens=%s content_length=0 reasoning_content_exists=False retry_count=%s",
+            config_snapshot.profile_name if config_snapshot is not None else "legacy",
+            config_snapshot.provider if config_snapshot is not None else current_ai_provider(),
+            model,
+            None,
+            None,
+            None,
+            request_attempt + provider_retry_count,
+        )
+        raise AIEmptyContentError("AI provider returned no completion choices")
     choice = resp.choices[0]
     content = (choice.message.content or "").strip()
     finish_reason = str(getattr(choice, "finish_reason", None) or "").strip().lower()
@@ -609,6 +623,8 @@ async def _run_openai_once(
     )
     if finish_reason == "length":
         raise AIOutputTruncated(partial_content=content)
+    if not content:
+        raise AIEmptyContentError("AI provider returned empty message.content")
     return content
 
 
@@ -852,7 +868,12 @@ def _openai_kwargs(
             kwargs["reasoning_effort"] = reasoning_effort
     if structured_output:
         hostname = (urlsplit(base_url).hostname or "").lower()
-        if hostname in {"api.deepseek.com", "open.bigmodel.cn"}:
+        normalized_model = model.strip().lower()
+        supports_fixed_json_task = (
+            hostname == "api.deepseek.com"
+            or (hostname == "open.bigmodel.cn" and normalized_model.startswith("glm-4.7"))
+        )
+        if supports_fixed_json_task:
             kwargs["response_format"] = {"type": "json_object"}
             kwargs["extra_body"] = {"thinking": {"type": "disabled"}}
     return kwargs

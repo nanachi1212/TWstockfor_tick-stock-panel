@@ -30,7 +30,7 @@ import { QK } from '@/lib/queryKeys'
 import { cn } from '@/lib/cn'
 import { loadLastCompareSymbols, mergeSymbolIntoCompare } from '@/lib/taiwanCompareSymbols'
 import { CopyButton } from '@/components/CopyButton'
-import { formatStockDetailCopy, formatStockDetailPrompt, type StockDetailCopyData } from '@/lib/copy-formatters'
+import { formatStockDetailCopy, formatStockDetailPrompt, type CopyAvailabilityMeta, type StockDetailCopyData } from '@/lib/copy-formatters'
 import { TaiwanRuleEditorDialog } from '@/components/monitor/TaiwanRuleEditorDialog'
 import { EChartsCandlestick, type OHLC } from '@/components/EChartsCandlestick'
 import { TaiwanReferenceData } from '@/components/taiwan/TaiwanReferenceData'
@@ -44,6 +44,33 @@ import { storage } from '@/lib/storage'
 import { buildPortfolioPositions, isPortfolioTransaction, type PortfolioTransaction } from '@/lib/portfolio'
 
 const PORTFOLIO_CHANGED_EVENT = 'portfolio-transactions-changed'
+
+type AvailabilityMetaInput = {
+  source?: string | null
+  status?: string | null
+  reason?: string | null
+  fallback_reason?: string | null
+  data_date?: string | null
+  trade_date?: string | null
+  freshness?: string | null
+  freshness_class?: string | null
+  is_stale?: boolean | null
+}
+
+function copyAvailabilityMeta(meta: AvailabilityMetaInput | null | undefined): CopyAvailabilityMeta {
+  return {
+    source: meta?.source ?? null,
+    status: meta?.status ?? 'unavailable',
+    reason: meta?.reason ?? meta?.fallback_reason ?? null,
+    data_date: meta?.data_date ?? meta?.trade_date ?? null,
+    freshness: meta?.freshness ?? meta?.freshness_class ?? (meta?.is_stale ? 'stale' : meta?.status ?? 'unavailable'),
+  }
+}
+
+function availabilityText(meta: AvailabilityMetaInput | null | undefined): string {
+  const normalized = copyAvailabilityMeta(meta)
+  return `來源 ${normalized.source ?? '不可用'}，狀態 ${normalized.status ?? 'unavailable'}，資料日 ${normalized.data_date ?? '不可用'}，新鮮度 ${normalized.freshness ?? 'unavailable'}，原因 ${normalized.reason ?? '未提供'}`
+}
 
 const RANGE_OPTIONS = [
   { label: '1 個月', days: 30 },
@@ -188,16 +215,17 @@ export function TaiwanStockDetail() {
       }
     }
     const signal = quantSelection.signals.find(item => item.symbol === symbol)
+    const ranked = signal ?? quantSelection.ranking.find(item => item.symbol === symbol)
     context.quant = {
       status: quantSelection.error || quantSelection.fetching ? 'unavailable' : quantSelection.validRun ? 'available' : 'no_valid_run',
       selected: Boolean(!quantSelection.error && !quantSelection.fetching && signal && quantSelection.validRun),
     }
-    if (!quantSelection.error && !quantSelection.fetching && signal && quantSelection.validRun) {
+    if (!quantSelection.error && !quantSelection.fetching && ranked && quantSelection.validRun) {
       Object.assign(context.quant, {
-        rank: signal.rank,
-        score: signal.score,
+        rank: ranked.rank,
+        score: ranked.score,
         session: quantSelection.validRun.session,
-        feature_percentiles: Object.fromEntries(Object.entries(signal.feature_percentiles).filter(([, value]) => Number.isFinite(value))),
+        feature_percentiles: Object.fromEntries(Object.entries(ranked.feature_percentiles).filter(([, value]) => Number.isFinite(value))),
       })
     }
     const alertRuleType = typeof selectedAlert?.rule_type === 'string' ? selectedAlert.rule_type : selectedAlert?.type
@@ -267,7 +295,7 @@ export function TaiwanStockDetail() {
       // An unreadable local ledger stays unavailable and does not block stock analysis.
     }
     return context
-  }, [inWatchlist, watchlist.isLoading, watchlist.isError, quantSelection.signals, quantSelection.validRun, quantSelection.error, quantSelection.fetching, selectedAlert, symbol, data, detailQuery.isError, detailQuery.isFetching, portfolioRevision, socialQuery.data, socialRow])
+  }, [inWatchlist, watchlist.isLoading, watchlist.isError, quantSelection.signals, quantSelection.ranking, quantSelection.validRun, quantSelection.error, quantSelection.fetching, selectedAlert, symbol, data, detailQuery.isError, detailQuery.isFetching, portfolioRevision, socialQuery.data, socialRow])
 
   const handleGenerateAiReport = useCallback(async () => {
     if (toggleWatchlist.isPending || watchlist.isFetching) return
@@ -354,17 +382,25 @@ export function TaiwanStockDetail() {
     }
     return `${shares.toLocaleString()} 股`
   }
+  const formatSignedVol = (shares: number | null | undefined) => (
+    shares == null ? '--' : `${shares >= 0 ? '+' : ''}${formatVol(shares)}`
+  )
 
-  const copyQuantSignal = quantSelection.signals.find(item => item.symbol === symbol)
+  const copyQuantSelectedSignal = quantSelection.signals.find(item => item.symbol === symbol)
+  const copyQuantSignal = copyQuantSelectedSignal ?? quantSelection.ranking.find(item => item.symbol === symbol)
   const copyQuantUnavailableReason = quantSelection.error || quantSelection.fetching
     ? 'Live Quant 資料目前無法讀取或仍在更新'
     : !quantSelection.validRun
       ? quantSelection.recommendationReason || '目前沒有有效 Live Quant run'
       : !copyQuantSignal
-        ? '目前有效 Live Quant run 未提供此標的評分'
+        ? '此標的未進入目前有效 Live Quant run 的可計分 universe'
         : null
   const copyQuantReasons = copyQuantSignal
-    ? (copyQuantSignal.reason_summary ? [copyQuantSignal.reason_summary] : selectionReasons(copyQuantSignal))
+    ? (copyQuantSelectedSignal?.reason_summary
+        ? [copyQuantSelectedSignal.reason_summary]
+        : copyQuantSelectedSignal
+          ? selectionReasons(copyQuantSelectedSignal)
+          : ['分數來自凍結的 full-universe ranking，未入選 Top-N'])
     : null
 
   return (
@@ -635,7 +671,7 @@ export function TaiwanStockDetail() {
                     </span>
                   </div>
                   {data.market_context.meta?.status !== 'available' && (
-                    <span className="mt-1 text-[10px] text-muted">{data.market_context.meta?.fallback_reason || '基準資料不可用'}</span>
+                    <span className="mt-1 text-[10px] text-muted">{availabilityText(data.market_context.meta)}</span>
                   )}
                 </div>
 
@@ -691,6 +727,7 @@ export function TaiwanStockDetail() {
                 <p className="font-mono font-medium mt-0.5" title={`${data.realtime.amount_meta?.source || '來源不可用'} | ${data.realtime.amount_meta?.trade_date || 'as_of 不可用'}`}>
                   {data.realtime.amount == null ? '--' : `${data.realtime.amount.toLocaleString()} 元`}
                 </p>
+                {data.realtime.amount == null && <p className="mt-0.5 text-[9px] text-muted">{availabilityText(data.realtime.amount_meta)}</p>}
               </div>
               <div>
                 <span className="text-muted text-[11px]">行情時間</span>
@@ -853,35 +890,31 @@ export function TaiwanStockDetail() {
                 <div className="space-y-2.5 text-xs">
                   <div className="flex items-center justify-between">
                     <span className="text-muted">外資及陸資</span>
-                    <span className={cn('font-mono font-bold', (data.institutional.foreign_net || 0) >= 0 ? 'text-rose-500' : 'text-emerald-500')}>
-                      {(data.institutional.foreign_net || 0) >= 0 ? '+' : ''}
-                      {formatVol(data.institutional.foreign_net)}
+                    <span className={cn('font-mono font-bold', data.institutional.foreign_net == null ? 'text-muted' : data.institutional.foreign_net >= 0 ? 'text-rose-500' : 'text-emerald-500')}>
+                      {formatSignedVol(data.institutional.foreign_net)}
                     </span>
                   </div>
                   <div className="flex items-center justify-between">
                     <span className="text-muted">投信基金</span>
-                    <span className={cn('font-mono font-bold', (data.institutional.investment_trust_net || 0) >= 0 ? 'text-rose-500' : 'text-emerald-500')}>
-                      {(data.institutional.investment_trust_net || 0) >= 0 ? '+' : ''}
-                      {formatVol(data.institutional.investment_trust_net)}
+                    <span className={cn('font-mono font-bold', data.institutional.investment_trust_net == null ? 'text-muted' : data.institutional.investment_trust_net >= 0 ? 'text-rose-500' : 'text-emerald-500')}>
+                      {formatSignedVol(data.institutional.investment_trust_net)}
                     </span>
                   </div>
                   <div className="flex items-center justify-between">
                     <span className="text-muted">自營商合計</span>
-                    <span className={cn('font-mono font-bold', (data.institutional.dealer_net || 0) >= 0 ? 'text-rose-500' : 'text-emerald-500')}>
-                      {(data.institutional.dealer_net || 0) >= 0 ? '+' : ''}
-                      {formatVol(data.institutional.dealer_net)}
+                    <span className={cn('font-mono font-bold', data.institutional.dealer_net == null ? 'text-muted' : data.institutional.dealer_net >= 0 ? 'text-rose-500' : 'text-emerald-500')}>
+                      {formatSignedVol(data.institutional.dealer_net)}
                     </span>
                   </div>
                   <div className="pt-2 border-t border-border flex items-center justify-between">
                     <span className="font-semibold text-foreground">三大法人合計</span>
-                    <span className={cn('font-mono font-bold text-sm', (data.institutional.total_net || 0) >= 0 ? 'text-rose-500' : 'text-emerald-500')}>
-                      {(data.institutional.total_net || 0) >= 0 ? '+' : ''}
-                      {formatVol(data.institutional.total_net)}
+                    <span className={cn('font-mono font-bold text-sm', data.institutional.total_net == null ? 'text-muted' : data.institutional.total_net >= 0 ? 'text-rose-500' : 'text-emerald-500')}>
+                      {formatSignedVol(data.institutional.total_net)}
                     </span>
                   </div>
                 </div>
               ) : (
-                <div className="py-8 text-center text-xs text-muted">目前暫無法人買賣超資料</div>
+                <div className="py-8 text-center text-xs text-muted">法人買賣超不可用：{availabilityText(data.institutional.meta)}</div>
               )}
             </div>
 
@@ -901,9 +934,8 @@ export function TaiwanStockDetail() {
                   </div>
                   <div className="flex items-center justify-between">
                     <span className="text-muted">融資增減</span>
-                    <span className={cn('font-mono font-bold', (data.margin.margin_change || 0) >= 0 ? 'text-rose-500' : 'text-emerald-500')}>
-                      {(data.margin.margin_change || 0) >= 0 ? '+' : ''}
-                      {formatVol(data.margin.margin_change)}
+                    <span className={cn('font-mono font-bold', data.margin.margin_change == null ? 'text-muted' : data.margin.margin_change >= 0 ? 'text-rose-500' : 'text-emerald-500')}>
+                      {formatSignedVol(data.margin.margin_change)}
                     </span>
                   </div>
                   <div className="flex items-center justify-between">
@@ -912,9 +944,8 @@ export function TaiwanStockDetail() {
                   </div>
                   <div className="flex items-center justify-between">
                     <span className="text-muted">融券增減</span>
-                    <span className={cn('font-mono font-bold', (data.margin.short_change || 0) >= 0 ? 'text-rose-500' : 'text-emerald-500')}>
-                      {(data.margin.short_change || 0) >= 0 ? '+' : ''}
-                      {formatVol(data.margin.short_change)}
+                    <span className={cn('font-mono font-bold', data.margin.short_change == null ? 'text-muted' : data.margin.short_change >= 0 ? 'text-rose-500' : 'text-emerald-500')}>
+                      {formatSignedVol(data.margin.short_change)}
                     </span>
                   </div>
                   <div className="pt-2 border-t border-border flex items-center justify-between">
@@ -925,7 +956,7 @@ export function TaiwanStockDetail() {
                   </div>
                 </div>
               ) : (
-                <div className="py-8 text-center text-xs text-muted">目前暫無資券籌碼資料</div>
+                <div className="py-8 text-center text-xs text-muted">融資融券不可用：{availabilityText(data.margin.meta)}</div>
               )}
             </div>
 
@@ -1093,7 +1124,7 @@ export function TaiwanStockDetail() {
                   </div>
                 </div>
                 {data.fundamentals?.profitability?.latest_eps == null && data.fundamentals?.profitability?.meta?.fallback_reason && (
-                  <p className="mt-2 text-[10px] text-muted">EPS 不可用：{data.fundamentals.profitability.meta.fallback_reason}</p>
+                  <p className="mt-2 text-[10px] text-muted">EPS 不可用：{availabilityText(data.fundamentals.profitability.meta)}</p>
                 )}
                 {data.fundamentals?.profitability?.recent_eps && data.fundamentals.profitability.recent_eps.length > 0 && (
                   <div className="mt-2 pt-2 border-t border-border/40 text-[11px] flex items-center justify-between">
@@ -1155,7 +1186,7 @@ export function TaiwanStockDetail() {
                   </div>
                 </div>
                 {data.extra_chips?.foreign_shareholding?.ratio == null && data.extra_chips?.foreign_shareholding?.meta?.fallback_reason && (
-                  <p className="mt-2 text-[10px] text-muted">外資持股不可用：{data.extra_chips.foreign_shareholding.meta.fallback_reason}</p>
+                  <p className="mt-2 text-[10px] text-muted">外資持股不可用：{availabilityText(data.extra_chips.foreign_shareholding.meta)}</p>
                 )}
               </div>
 
@@ -1212,7 +1243,7 @@ export function TaiwanStockDetail() {
                   </div>
                 </div>
                 {data.extra_chips?.securities_lending?.latest_volume == null && data.extra_chips?.securities_lending?.meta?.fallback_reason && (
-                  <p className="mt-2 text-[10px] text-muted">借券成交不可用：{data.extra_chips.securities_lending.meta.fallback_reason}</p>
+                  <p className="mt-2 text-[10px] text-muted">借券成交不可用：{availabilityText(data.extra_chips.securities_lending.meta)}</p>
                 )}
                 <div className="mt-3 pt-2 border-t border-border/40 text-[10px] text-muted flex items-center justify-between">
                   <span>來源: FinMind (TaiwanStockSecuritiesLending)</span>
@@ -1628,15 +1659,30 @@ export function TaiwanStockDetail() {
                       turnover: data.realtime.amount,
                       turnover_source: data.realtime.amount_meta?.source,
                       turnover_status: data.realtime.amount_meta?.status,
-                      turnover_as_of: data.realtime.amount_meta?.trade_date,
+                      turnover_as_of: data.realtime.amount_meta?.data_date ?? data.realtime.amount_meta?.trade_date,
+                      turnover_reason: data.realtime.amount_meta?.reason ?? data.realtime.amount_meta?.fallback_reason,
+                      turnover_freshness: data.realtime.amount_meta?.freshness ?? data.realtime.amount_meta?.freshness_class,
                       quote_time: data.realtime.quote_time,
                     } : null,
                     quant: {
                       score: copyQuantSignal?.score ?? null,
                       rank: copyQuantSignal?.rank ?? null,
                       reasons: copyQuantReasons,
-                      factors: data?.factors ? (data.factors as any) : null,
+                      factors: data?.factors ? {
+                        foreign_net_5d: data.factors.foreign_net_5d ?? null,
+                        investment_trust_net_5d: data.factors.investment_trust_net_5d ?? null,
+                        dealer_net_5d: data.factors.dealer_net_5d ?? null,
+                        margin_balance_change: data.factors.margin_balance_change ?? null,
+                        short_margin_ratio: data.factors.short_margin_ratio ?? null,
+                      } : null,
                       unavailable_reason: copyQuantUnavailableReason,
+                      meta: {
+                        source: 'live_quant:frozen_ranking',
+                        status: copyQuantSignal ? 'available' : 'unavailable',
+                        reason: copyQuantUnavailableReason,
+                        data_date: quantSelection.validRun?.session ?? null,
+                        freshness: quantSelection.validRun ? 'current_audited_snapshot' : 'unavailable',
+                      },
                     },
                     valuation: data?.fundamentals?.valuation ? {
                       pe: data.fundamentals.valuation.pe,
@@ -1659,6 +1705,7 @@ export function TaiwanStockDetail() {
                         ? (data.fundamentals.profitability.net_income / data.fundamentals.profitability.operating_revenue) * 100
                         : null,
                       unavailable_reason: data.fundamentals.profitability?.meta?.fallback_reason,
+                      meta: copyAvailabilityMeta(data.fundamentals.profitability?.meta),
                     } : null,
                     institutional_flows: data?.institutional ? {
                       foreign_buy_sell: data.institutional.foreign_net,
@@ -1666,16 +1713,20 @@ export function TaiwanStockDetail() {
                       dealer_buy_sell: data.institutional.dealer_net,
                       total_buy_sell: data.institutional.total_net,
                       date: data.institutional.meta?.trade_date,
+                      meta: copyAvailabilityMeta(data.institutional.meta),
                     } : null,
                     foreign_shareholding: data?.extra_chips?.foreign_shareholding ? {
                       ratio: data.extra_chips.foreign_shareholding.ratio,
                       change_20d: data.extra_chips.foreign_shareholding.change_20d,
                       unavailable_reason: data.extra_chips.foreign_shareholding.meta?.fallback_reason,
+                      meta: copyAvailabilityMeta(data.extra_chips.foreign_shareholding.meta),
                     } : null,
                     margin_lending: data?.margin ? {
                       margin_balance: data.margin.margin_balance,
                       short_balance: data.margin.short_balance,
                       lending_latest_volume: data.extra_chips?.securities_lending?.latest_volume,
+                      margin_meta: copyAvailabilityMeta(data.margin.meta),
+                      lending_meta: copyAvailabilityMeta(data.extra_chips?.securities_lending?.meta),
                     } : null,
                     market_context: data?.market_context ? {
                       benchmark_symbol: data.market_context.benchmark_symbol,
@@ -1685,6 +1736,7 @@ export function TaiwanStockDetail() {
                       as_of: data.market_context.meta?.trade_date,
                       status: data.market_context.meta?.status,
                       unavailable_reason: data.market_context.meta?.fallback_reason,
+                      meta: copyAvailabilityMeta(data.market_context.meta),
                     } : null,
                     official_events: data?.recent_events?.map(ev => ({
                       event_date: ev.event_date,
@@ -1749,15 +1801,30 @@ export function TaiwanStockDetail() {
                       turnover: data.realtime.amount,
                       turnover_source: data.realtime.amount_meta?.source,
                       turnover_status: data.realtime.amount_meta?.status,
-                      turnover_as_of: data.realtime.amount_meta?.trade_date,
+                      turnover_as_of: data.realtime.amount_meta?.data_date ?? data.realtime.amount_meta?.trade_date,
+                      turnover_reason: data.realtime.amount_meta?.reason ?? data.realtime.amount_meta?.fallback_reason,
+                      turnover_freshness: data.realtime.amount_meta?.freshness ?? data.realtime.amount_meta?.freshness_class,
                       quote_time: data.realtime.quote_time,
                     } : null,
                     quant: {
                       score: copyQuantSignal?.score ?? null,
                       rank: copyQuantSignal?.rank ?? null,
                       reasons: copyQuantReasons,
-                      factors: data?.factors ? (data.factors as any) : null,
+                      factors: data?.factors ? {
+                        foreign_net_5d: data.factors.foreign_net_5d ?? null,
+                        investment_trust_net_5d: data.factors.investment_trust_net_5d ?? null,
+                        dealer_net_5d: data.factors.dealer_net_5d ?? null,
+                        margin_balance_change: data.factors.margin_balance_change ?? null,
+                        short_margin_ratio: data.factors.short_margin_ratio ?? null,
+                      } : null,
                       unavailable_reason: copyQuantUnavailableReason,
+                      meta: {
+                        source: 'live_quant:frozen_ranking',
+                        status: copyQuantSignal ? 'available' : 'unavailable',
+                        reason: copyQuantUnavailableReason,
+                        data_date: quantSelection.validRun?.session ?? null,
+                        freshness: quantSelection.validRun ? 'current_audited_snapshot' : 'unavailable',
+                      },
                     },
                     valuation: data?.fundamentals?.valuation ? {
                       pe: data.fundamentals.valuation.pe,
@@ -1780,6 +1847,7 @@ export function TaiwanStockDetail() {
                         ? (data.fundamentals.profitability.net_income / data.fundamentals.profitability.operating_revenue) * 100
                         : null,
                       unavailable_reason: data.fundamentals.profitability?.meta?.fallback_reason,
+                      meta: copyAvailabilityMeta(data.fundamentals.profitability?.meta),
                     } : null,
                     institutional_flows: data?.institutional ? {
                       foreign_buy_sell: data.institutional.foreign_net,
@@ -1787,16 +1855,20 @@ export function TaiwanStockDetail() {
                       dealer_buy_sell: data.institutional.dealer_net,
                       total_buy_sell: data.institutional.total_net,
                       date: data.institutional.meta?.trade_date,
+                      meta: copyAvailabilityMeta(data.institutional.meta),
                     } : null,
                     foreign_shareholding: data?.extra_chips?.foreign_shareholding ? {
                       ratio: data.extra_chips.foreign_shareholding.ratio,
                       change_20d: data.extra_chips.foreign_shareholding.change_20d,
                       unavailable_reason: data.extra_chips.foreign_shareholding.meta?.fallback_reason,
+                      meta: copyAvailabilityMeta(data.extra_chips.foreign_shareholding.meta),
                     } : null,
                     margin_lending: data?.margin ? {
                       margin_balance: data.margin.margin_balance,
                       short_balance: data.margin.short_balance,
                       lending_latest_volume: data.extra_chips?.securities_lending?.latest_volume,
+                      margin_meta: copyAvailabilityMeta(data.margin.meta),
+                      lending_meta: copyAvailabilityMeta(data.extra_chips?.securities_lending?.meta),
                     } : null,
                     market_context: data?.market_context ? {
                       benchmark_symbol: data.market_context.benchmark_symbol,
@@ -1806,6 +1878,7 @@ export function TaiwanStockDetail() {
                       as_of: data.market_context.meta?.trade_date,
                       status: data.market_context.meta?.status,
                       unavailable_reason: data.market_context.meta?.fallback_reason,
+                      meta: copyAvailabilityMeta(data.market_context.meta),
                     } : null,
                     official_events: data?.recent_events?.map(ev => ({
                       event_date: ev.event_date,

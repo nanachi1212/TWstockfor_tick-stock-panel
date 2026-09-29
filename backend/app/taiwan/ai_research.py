@@ -32,6 +32,7 @@ from typing import Any, Literal
 from pydantic import BaseModel, Field
 
 from app.services.ai_provider import (
+    AIEmptyContentError,
     AIOutputTruncated,
     AIProviderConfigSnapshot,
     generate_ai_text,
@@ -75,7 +76,7 @@ async def _shared_provider_response(
     if not leader:
         return await asyncio.shield(pending)
 
-    _RETRY_MSG = (
+    truncated_retry_message = (
         "前次 JSON 輸出已超出 token 上限而截斷。"
         "請以相同 JSON 結構重新輸出完整報告，"
         "每個文字欄位縮短至不超過 60 字，"
@@ -95,10 +96,18 @@ async def _shared_provider_response(
             ),
             None,
         )
-    except AIOutputTruncated as trunc_exc:
-        retry_messages = list(messages) + [
-            {"role": "assistant", "content": trunc_exc.partial_content},
-            {"role": "user", "content": _RETRY_MSG},
+    except (AIOutputTruncated, AIEmptyContentError) as first_exc:
+        retry_message = truncated_retry_message if isinstance(first_exc, AIOutputTruncated) else (
+            "前次回覆的 message.content 為空。請直接輸出完整 JSON 物件,"
+            "不要輸出思考過程、Markdown 或其他文字。"
+        )
+        retry_messages = [
+            *messages,
+            {
+                "role": "assistant",
+                "content": first_exc.partial_content if isinstance(first_exc, AIOutputTruncated) else "",
+            },
+            {"role": "user", "content": retry_message},
         ]
         try:
             result = (
@@ -115,6 +124,8 @@ async def _shared_provider_response(
             )
         except AIOutputTruncated:
             result = (None, AIOutputTruncated("", "AI 回覆超過輸出長度限制，請重新產生。"))
+        except AIEmptyContentError:
+            result = (None, AIEmptyContentError("AI provider returned empty content twice"))
         except Exception as exc2:
             result = (None, exc2)
     except Exception as exc:
@@ -203,6 +214,38 @@ class TaiwanAIResearchResponse(BaseModel):
     evidence_as_of: str | None = None
     generated_at: str
     evidence_registry_keys: list[str] = Field(default_factory=list)
+
+
+def _validate_structured_research_payload(payload: dict[str, Any]) -> None:
+    """Validate provider JSON shape before tolerant evidence filtering."""
+    text_fields = (
+        "overview",
+        "market_interpretation",
+        "industry_interpretation",
+        "price_technical_interpretation",
+        "institutional_interpretation",
+        "margin_interpretation",
+        "fundamentals_interpretation",
+        "abnormal_diagnostics_interpretation",
+        "portfolio_interpretation",
+        "alert_interpretation",
+        "events_news_interpretation",
+    )
+    if "overview" not in payload:
+        raise ValueError("overview is required")
+    for field in text_fields:
+        value = payload.get(field)
+        if value is not None and not isinstance(value, str):
+            raise ValueError(f"{field} must be a string or null")
+    for field in ("key_observations", "risk_factors", "watch_next"):
+        value = payload.get(field, [])
+        if not isinstance(value, list):
+            raise ValueError(f"{field} must be a list")
+        # Item-level defects remain intentionally tolerant: the existing
+        # evidence filter below discards malformed objects and invalid refs.
+    missing = payload.get("missing_information", [])
+    if not isinstance(missing, list) or any(not isinstance(item, str) for item in missing):
+        raise ValueError("missing_information must be a string list")
 
 
 # ── Evidence Registry Builder & Payload Sanitizer ─────────────
@@ -756,6 +799,9 @@ class TaiwanAIResearchService:
             if isinstance(e, AIOutputTruncated):
                 _ec = "OUTPUT_TRUNCATED"
                 _em = "AI 回覆超過輸出長度限制，請重新產生。"
+            elif isinstance(e, AIEmptyContentError):
+                _ec = "EMPTY_CONTENT"
+                _em = "AI 服務未回傳可解析的正文內容，請重新產生。"
             else:
                 _ec = "provider_error"
                 _em = "AI 分析目前無法使用，請檢查 AI 設定或稍後重試。"
@@ -776,15 +822,28 @@ class TaiwanAIResearchService:
             parsed = _extract_json_object(raw_text)
             if not isinstance(parsed, dict):
                 raise ValueError("LLM did not return a valid JSON object dictionary.")
-            for field in ("portfolio_interpretation", "alert_interpretation", "events_news_interpretation"):
-                if parsed.get(field) is not None and not isinstance(parsed[field], str):
-                    raise ValueError(f"LLM returned a non-string value for {field}.")
         except Exception as e:
             logger.error("Failed to parse AI response for %s (%s)", symbol, type(e).__name__)
             return TaiwanAIResearchResponse(
                 status="unavailable",
                 error_code="INVALID_STRUCTURED_RESPONSE",
                 error_message="AI 回傳內容無法解析為合法 JSON 格式。",
+                provider=provider_snapshot,
+                model=model_snapshot,
+                prompt_version=PROMPT_VERSION,
+                evidence_as_of=ctx.as_of_date,
+                generated_at=now_iso,
+                evidence_registry_keys=sorted(list(registry_keys)),
+            )
+
+        try:
+            _validate_structured_research_payload(parsed)
+        except ValueError as exc:
+            logger.error("AI response schema validation failed for %s (%s)", symbol, type(exc).__name__)
+            return TaiwanAIResearchResponse(
+                status="unavailable",
+                error_code="STRUCTURED_SCHEMA_FAILED",
+                error_message="AI 回傳 JSON 不符合研究報告欄位規格。",
                 provider=provider_snapshot,
                 model=model_snapshot,
                 prompt_version=PROMPT_VERSION,
