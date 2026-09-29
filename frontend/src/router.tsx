@@ -28,6 +28,7 @@ const TaiwanEventCenter = lazy(() => import('./pages/TaiwanEventCenter').then(m 
 const DailyBrief = lazy(() => import('./pages/DailyBrief').then(m => ({ default: m.DailyBrief })))
 const SelectionReview = lazy(() => import('./pages/SelectionReview').then(m => ({ default: m.SelectionReview })))
 const SocialSentiment = lazy(() => import('./pages/SocialSentiment').then(m => ({ default: m.SocialSentiment })))
+const BuyPointStrategies = lazy(() => import('./pages/BuyPointStrategies').then(m => ({ default: m.BuyPointStrategies })))
 
 const CORE_ROUTE_PATHS = new Set([
   '/',
@@ -38,6 +39,7 @@ const CORE_ROUTE_PATHS = new Set([
   '/daily-brief',
   '/selection-review',
   '/social-sentiment',
+  '/buy-points',
   '/stocks/:symbol',
   '/stocks/compare',
   '/watchlist',
@@ -108,6 +110,7 @@ export const router = createBrowserRouter([
       { path: 'taiwan-screener', element: <TaiwanScreener /> },
       { path: 'selection-review', element: <SelectionReview /> },
       { path: 'social-sentiment', element: <SocialSentiment /> },
+      { path: 'buy-points', element: <BuyPointStrategies /> },
       { path: 'monitor', element: <Monitor /> },
       { path: 'branding', element: <Branding /> },
       { path: 'settings', element: <Settings /> },

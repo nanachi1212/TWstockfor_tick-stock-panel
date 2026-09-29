@@ -161,6 +161,7 @@ class TaiwanScreenerRequest(BaseModel):
     ] | None = None
     instrument: InstrumentFilter = "ALL"
     industry: str | None = None  # None or specific industry name
+    symbol_scope: list[str] | None = Field(default=None, exclude=True, repr=False)
 
     # Price & Volume filters
     price_min: float | None = None
@@ -425,6 +426,9 @@ class TaiwanScreenerService:
         metadata = strategy_metadata(strategy_id) if strategy_id else None
         # Step 1: Universe from TaiwanSecurityMaster
         universe_df = self._get_universe(req.exchange, req.instrument)
+        if req.symbol_scope is not None:
+            requested = list(dict.fromkeys(req.symbol_scope))
+            universe_df = universe_df.filter(pl.col("symbol").is_in(requested))
         if universe_df.is_empty():
             return TaiwanScreenerResponse(
                 items=[], total=0, page=req.page, page_size=req.page_size,

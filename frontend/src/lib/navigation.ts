@@ -16,6 +16,7 @@ import {
   Sparkles,
   History,
   MessageCircleMore,
+  BellRing,
   type LucideIcon,
 } from 'lucide-react'
 
@@ -60,6 +61,7 @@ export const CORE_NAV: readonly NavMeta[] = [
   { to: '/social-sentiment',label: '社群聲量', icon: MessageCircleMore },
   { to: '/taiwan-screener', label: '台股選股', icon: Filter },
   { to: '/selection-review',label: '選股復盤', icon: History },
+  { to: '/buy-points',      label: '買點策略', icon: BellRing },
   { to: '/watchlist',  label: '自選股',   icon: Star },
   { to: '/stocks/compare', label: '多股比較', icon: Scale },
   { to: '/monitor', label: '監控中心', icon: RadioTower },

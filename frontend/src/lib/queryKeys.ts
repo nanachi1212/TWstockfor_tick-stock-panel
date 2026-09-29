@@ -126,6 +126,12 @@ export const QK = {
   selectionConditionStats: ['selection-condition-stats'] as const,
   selectionHistoricalPit: ['selection-historical-pit', 'trend_liquidity_v1'] as const,
 
+  // Buy Point (A13)
+  buyPointStrategies: ['buy-point-strategies'] as const,
+  buyPointSignals: (symbol?: string) => ['buy-point-signals', symbol ?? 'watchlist'] as const,
+  buyPointSummary: ['buy-point-summary'] as const,
+  buyPointStats: ['buy-point-stats'] as const,
+
   // Daily Brief (A12)
   dailyBrief:           (targetDate?: string) => ['daily-brief', targetDate ?? 'today'] as const,
   dailyBriefHistory:    (limit?: number) => ['daily-brief-history', limit ?? 30] as const,
