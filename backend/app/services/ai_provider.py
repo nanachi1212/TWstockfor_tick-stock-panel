@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import os
 import re
 import shutil
@@ -26,6 +27,8 @@ CODEX_CLI_PROVIDER = "codex_cli"
 CODEX_DEFAULT_COMMAND = "codex"
 CODEX_SUPPORTED_REASONING_EFFORTS = {"none", "minimal", "low", "medium", "high", "xhigh"}
 OPENAI_DEFAULT_REASONING_EFFORT = "high"
+
+logger = logging.getLogger(__name__)
 
 _CODEX_ENV_ALLOWLIST = (
     "PATH",
@@ -83,6 +86,7 @@ class AIProviderConfigSnapshot:
     provider: str
     model: str
     api_key: str = field(repr=False)
+    profile_name: str = ""
     base_url: str = ""
     user_agent: str = ""
     max_output_tokens: int = 0
@@ -116,11 +120,13 @@ def snapshot_ai_provider_config() -> AIProviderConfigSnapshot:
 
     if active_cfg:
         resolved_key = active_cfg["key"]
+        profile_name = active_cfg.get("name", "")
         resolved_base_url = active_cfg["base_url"]
         active_model = active_cfg["model"]
         active_provider = active_cfg["provider"] or configured("ai_provider", OPENAI_COMPAT_PROVIDER)
     else:
         resolved_key = str(stored.get("ai_api_key") or settings.ai_api_key or "")
+        profile_name = "legacy"
         resolved_base_url = configured("ai_base_url", settings.ai_base_url)
         active_model = ""
         active_provider = configured("ai_provider", OPENAI_COMPAT_PROVIDER)
@@ -141,6 +147,7 @@ def snapshot_ai_provider_config() -> AIProviderConfigSnapshot:
         provider=provider,
         model=model,
         api_key=resolved_key,
+        profile_name=profile_name,
         base_url=resolved_base_url,
         user_agent=configured("ai_user_agent", settings.ai_user_agent),
         max_output_tokens=current_ai_max_output_tokens(),
@@ -389,6 +396,8 @@ async def generate_ai_text(
     provider: str | None = None,
     model: str | None = None,
     config_snapshot: AIProviderConfigSnapshot | None = None,
+    structured_output: bool = False,
+    request_attempt: int = 0,
 ) -> str:
     """Return a complete AI response from the currently configured provider.
 
@@ -404,6 +413,7 @@ async def generate_ai_text(
                 provider=provider or config_snapshot.provider,
                 model=model or config_snapshot.model,
                 api_key=config_snapshot.api_key,
+                profile_name=config_snapshot.profile_name,
                 base_url=config_snapshot.base_url,
                 user_agent=config_snapshot.user_agent,
                 max_output_tokens=config_snapshot.max_output_tokens,
@@ -417,6 +427,7 @@ async def generate_ai_text(
             provider=provider or config_snapshot.provider,
             model=model or config_snapshot.model,
             api_key=config_snapshot.api_key,
+            profile_name=config_snapshot.profile_name,
             base_url=config_snapshot.base_url,
             user_agent=config_snapshot.user_agent,
             max_output_tokens=config_snapshot.max_output_tokens,
@@ -459,12 +470,14 @@ async def generate_ai_text(
         "max_tokens": max_tokens,
         "timeout": timeout,
     }
-    if has_varkw or "model" in accepted:
-        if model is not None:
-            openai_kwargs["model"] = model
-    if has_varkw or "config_snapshot" in accepted:
-        if config_snapshot is not None:
-            openai_kwargs["config_snapshot"] = config_snapshot
+    if has_varkw or "structured_output" in accepted:
+        openai_kwargs["structured_output"] = structured_output
+    if has_varkw or "request_attempt" in accepted:
+        openai_kwargs["request_attempt"] = request_attempt
+    if (has_varkw or "model" in accepted) and model is not None:
+        openai_kwargs["model"] = model
+    if (has_varkw or "config_snapshot" in accepted) and config_snapshot is not None:
+        openai_kwargs["config_snapshot"] = config_snapshot
 
     return await _run_openai_once(
         messages,
@@ -527,6 +540,8 @@ async def _run_openai_once(
     timeout: float,
     model: str | None = None,
     config_snapshot: AIProviderConfigSnapshot | None = None,
+    structured_output: bool = False,
+    request_attempt: int = 0,
 ) -> str:
     ai_key = config_snapshot.api_key if config_snapshot is not None else secrets_store.get_ai_key()
     if not ai_key:
@@ -542,7 +557,11 @@ async def _run_openai_once(
         max_tokens=max_tokens,
         provider=config_snapshot.provider if config_snapshot is not None else None,
         reasoning_effort=config_snapshot.reasoning_effort if config_snapshot is not None else None,
+        structured_output=structured_output,
+        base_url=config_snapshot.base_url if config_snapshot is not None else "",
+        model=model,
     )
+    provider_retry_count = 0
     while True:
         try:
             resp = await client.chat.completions.create(
@@ -555,8 +574,18 @@ async def _run_openai_once(
             retry_kwargs = _openai_retry_kwargs(exc, kwargs)
             if retry_kwargs is not None:
                 kwargs = retry_kwargs
+                provider_retry_count += 1
                 continue
             if _is_openai_transport_error(exc):
+                logger.info(
+                    "AI provider request failed profile=%s provider=%s model=%s http_status=%s error_type=%s retry_count=%s",
+                    config_snapshot.profile_name if config_snapshot is not None else "legacy",
+                    config_snapshot.provider if config_snapshot is not None else current_ai_provider(),
+                    model,
+                    getattr(exc, "status_code", None),
+                    type(exc).__name__,
+                    request_attempt + provider_retry_count,
+                )
                 raise RuntimeError(_format_openai_error(exc)) from exc
             raise
     if not resp.choices:
@@ -564,6 +593,20 @@ async def _run_openai_once(
     choice = resp.choices[0]
     content = (choice.message.content or "").strip()
     finish_reason = str(getattr(choice, "finish_reason", None) or "").strip().lower()
+    usage = getattr(resp, "usage", None)
+    details = getattr(usage, "completion_tokens_details", None) if usage is not None else None
+    logger.info(
+        "AI provider response profile=%s provider=%s model=%s http_status=200 finish_reason=%s completion_tokens=%s reasoning_tokens=%s content_length=%s reasoning_content_exists=%s retry_count=%s",
+        config_snapshot.profile_name if config_snapshot is not None else "legacy",
+        config_snapshot.provider if config_snapshot is not None else current_ai_provider(),
+        model,
+        finish_reason or None,
+        getattr(usage, "completion_tokens", None),
+        getattr(details, "reasoning_tokens", None) if details is not None else None,
+        len(content),
+        bool(getattr(choice.message, "reasoning_content", None)),
+        request_attempt + provider_retry_count,
+    )
     if finish_reason == "length":
         raise AIOutputTruncated(partial_content=content)
     return content
@@ -788,6 +831,9 @@ def _openai_kwargs(
     max_tokens: int | None,
     provider: str | None = None,
     reasoning_effort: str | None = None,
+    structured_output: bool = False,
+    base_url: str = "",
+    model: str = "",
 ) -> dict:
     """Build OpenAI create() kwargs; optional parameters are omitted when empty.
 
@@ -804,6 +850,11 @@ def _openai_kwargs(
             reasoning_effort = current_openai_reasoning_effort()
         if reasoning_effort:
             kwargs["reasoning_effort"] = reasoning_effort
+    if structured_output:
+        hostname = (urlsplit(base_url).hostname or "").lower()
+        if hostname in {"api.deepseek.com", "open.bigmodel.cn"}:
+            kwargs["response_format"] = {"type": "json_object"}
+            kwargs["extra_body"] = {"thinking": {"type": "disabled"}}
     return kwargs
 
 

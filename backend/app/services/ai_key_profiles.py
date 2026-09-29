@@ -170,6 +170,7 @@ def get_active_profile_config() -> dict | None:
                 pid = str(p.get("id", ""))
                 return {
                     "key": str(secrets.get(pid, "")),
+                    "name": str(p.get("name", "")),
                     "provider": str(p.get("provider", "openai_compat")),
                     "base_url": str(p.get("base_url", "")),
                     "model": str(p.get("model", "")),
@@ -185,6 +186,7 @@ def get_profile_config(profile_id: str) -> dict | None:
             if profile.get("id") == profile_id:
                 return {
                     "key": str(secrets.get(profile_id, "")),
+                    "name": str(profile.get("name", "")),
                     "provider": str(profile.get("provider", "openai_compat")),
                     "base_url": str(profile.get("base_url", "")),
                     "model": str(profile.get("model", "")),

@@ -55,6 +55,7 @@ def test_get_active_profile_config_returns_complete_config(tmp_path):
 
     assert cfg is not None
     assert cfg["key"] == "free-key-xyz"
+    assert cfg["name"] == "agnes"
     assert cfg["base_url"] == "https://api.agnai.chat/v1"
     assert cfg["model"] == "agnes-2.5-flash"
     assert cfg["provider"] == "openai_compat"
@@ -216,8 +217,8 @@ async def test_test_ai_key_profile_uses_profile_specific_endpoint(tmp_path):
 
 
 def test_active_profile_does_not_fall_back_to_legacy_endpoint_or_model(tmp_path):
-    from app import secrets_store
     import app.services.ai_key_profiles as mod
+    from app import secrets_store
     from app.services.ai_provider import snapshot_ai_provider_config
 
     meta_path = tmp_path / "authoritative_profiles.json"

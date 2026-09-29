@@ -15,8 +15,9 @@ Orchestrates:
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime
 
+from app.taiwan.daily_store import TaiwanDailyStore
 from app.taiwan.detail_models import (
     SectionMeta,
     TaiwanDailyRow,
@@ -40,7 +41,7 @@ from app.taiwan.fundamental_chips_service import (
     get_fundamental_chips_service,
 )
 from app.taiwan.providers.hybrid_provider import TaiwanHybridProvider
-from app.taiwan.realtime.calendar import taipei_now
+from app.taiwan.realtime.calendar import TaiwanTradingCalendar, taipei_now
 from app.taiwan.realtime.monitor_engine import get_monitor_engine
 from app.taiwan.realtime.service import get_realtime_service
 from app.taiwan.symbol import TaiwanSymbol, parse_symbol
@@ -60,12 +61,16 @@ class TaiwanStockDetailService:
         margin_provider: TaiwanMarginProvider | None = None,
         index_provider: TaiwanIndexProvider | None = None,
         fundamental_chips_service: TaiwanFundamentalChipsService | None = None,
+        daily_store: TaiwanDailyStore | None = None,
+        trading_calendar: TaiwanTradingCalendar | None = None,
     ) -> None:
         self.hybrid_provider = hybrid_provider or TaiwanHybridProvider()
         self.institutional_provider = institutional_provider or TaiwanInstitutionalProvider()
         self.margin_provider = margin_provider or TaiwanMarginProvider()
         self.index_provider = index_provider or TaiwanIndexProvider()
         self.fundamental_chips_service = fundamental_chips_service or get_fundamental_chips_service()
+        self.daily_store = daily_store or TaiwanDailyStore()
+        self.trading_calendar = trading_calendar or TaiwanTradingCalendar()
         self.security_master = get_security_master()
         self.realtime_service = get_realtime_service()
         self.monitor_engine = get_monitor_engine()
@@ -74,6 +79,7 @@ class TaiwanStockDetailService:
         self,
         raw_symbol: str,
         days: int = 120,
+        repo=None,
     ) -> TaiwanStockDetailResponse:
         """Synchronous top-level entrypoint for stock detail aggregation."""
         canonical_sym = parse_symbol(raw_symbol)
@@ -129,6 +135,7 @@ class TaiwanStockDetailService:
 
         # 4. Daily Historical K-Line
         daily_data = self._aggregate_daily(symbol_str, days)
+        realtime_data = self._apply_same_session_amount_fallback(realtime_data, daily_data)
 
         # 5. Institutional Investors (Three Major Institutional Flow)
         institutional_data = self._aggregate_institutional(canonical_sym)
@@ -140,7 +147,7 @@ class TaiwanStockDetailService:
         factors_data = self._aggregate_factors(institutional_data, margin_data)
 
         # 8. Market Context Benchmark
-        market_context = self._aggregate_market_context(canonical_sym.exchange.value.upper())
+        market_context = self._aggregate_market_context(canonical_sym.exchange.value.upper(), repo=repo)
 
         # 9. Monitor Rules Summary
         monitor_summary = self._aggregate_monitor_summary(symbol_str)
@@ -333,19 +340,51 @@ class TaiwanStockDetailService:
             meta=SectionMeta(source="hybrid_daily", status="unavailable", is_stale=False),
         )
 
+    @staticmethod
+    def _apply_same_session_amount_fallback(
+        realtime: TaiwanStockRealtime,
+        daily: TaiwanHistoricalDaily,
+    ) -> TaiwanStockRealtime:
+        """Use daily amount only when its session exactly matches the quote trade date."""
+        if realtime.amount is not None:
+            realtime.amount_meta = realtime.meta
+            return realtime
+        quote_date = realtime.meta.trade_date if realtime.meta else None
+        match = next(
+            (row for row in daily.rows if row.date == quote_date and row.amount is not None),
+            None,
+        )
+        if match is not None:
+            realtime.amount = match.amount
+            realtime.amount_meta = SectionMeta(
+                source=daily.meta.source if daily.meta else "hybrid_daily",
+                trade_date=match.date,
+                fetched_at=daily.meta.fetched_at if daily.meta else None,
+                status="fallback",
+                is_stale=daily.meta.is_stale if daily.meta else False,
+                fallback_reason="realtime amount unavailable; using same-session daily amount",
+            )
+        else:
+            realtime.amount_meta = SectionMeta(
+                source="realtime+daily",
+                trade_date=quote_date,
+                status="unavailable",
+                is_stale=False,
+                fallback_reason="no amount is available for the exact quote trade date",
+            )
+        return realtime
+
+    def _recent_confirmed_sessions(self, count: int = 5) -> list:
+        for available_date in self.daily_store.available_dates():
+            self.trading_calendar.add_trading_day(available_date)
+        return self.trading_calendar.recent_confirmed_sessions(taipei_now().date(), count)
+
     def _aggregate_institutional(self, sym: TaiwanSymbol) -> TaiwanInstitutionalData:
         """Fetch institutional data for latest trading day, with safe timeout."""
         try:
-            # Look up recent days
-            t_now = taipei_now()
-            today = t_now.date()
             flows = []
-            trade_dt = today
-            # Scan back up to 5 days for latest trading day
-            for offset in range(5):
-                check_d = today - timedelta(days=offset)
-                if check_d.weekday() >= 5:  # Saturday/Sunday
-                    continue
+            trade_dt = None
+            for check_d in self._recent_confirmed_sessions():
                 try:
                     flows = self.institutional_provider.fetch_live_day(
                         exchange=sym.exchange.value.upper(),
@@ -364,7 +403,7 @@ class TaiwanStockDetailService:
                 total = f.computed_net if f.computed_net is not None else f.official_net
                 meta = SectionMeta(
                     source=f.meta.source if f.meta else "twse:t86",
-                    trade_date=trade_dt.isoformat(),
+                    trade_date=trade_dt.isoformat() if trade_dt else None,
                     fetched_at=f.meta.fetched_at.isoformat() if f.meta and f.meta.fetched_at else None,
                     status="available" if not f.meta.is_stale else "stale",
                     is_stale=f.meta.is_stale if f.meta else False,
@@ -391,14 +430,9 @@ class TaiwanStockDetailService:
     def _aggregate_margin(self, sym: TaiwanSymbol) -> TaiwanMarginData:
         """Fetch margin data for latest trading day, with safe timeout."""
         try:
-            t_now = taipei_now()
-            today = t_now.date()
             margins = []
-            trade_dt = today
-            for offset in range(5):
-                check_d = today - timedelta(days=offset)
-                if check_d.weekday() >= 5:
-                    continue
+            trade_dt = None
+            for check_d in self._recent_confirmed_sessions():
                 try:
                     margins = self.margin_provider.fetch_live_day(
                         exchange=sym.exchange.value.upper(),
@@ -416,7 +450,7 @@ class TaiwanStockDetailService:
                 m = margins[0]
                 meta = SectionMeta(
                     source=m.meta.source if m.meta else "twse:mi_margn",
-                    trade_date=trade_dt.isoformat(),
+                    trade_date=trade_dt.isoformat() if trade_dt else None,
                     fetched_at=m.meta.fetched_at.isoformat() if m.meta and m.meta.fetched_at else None,
                     status="available" if not m.meta.is_stale else "stale",
                     is_stale=m.meta.is_stale if m.meta else False,
@@ -469,8 +503,8 @@ class TaiwanStockDetailService:
             ),
         )
 
-    def _aggregate_market_context(self, exchange: str) -> TaiwanMarketContext:
-        """Fetch benchmark index info for market context."""
+    def _aggregate_market_context(self, exchange: str, repo=None) -> TaiwanMarketContext:
+        """Read the exchange benchmark from the existing persisted index store."""
         ex = exchange.upper()
         if ex == "TPEX":
             symbol = "TPEX_INDEX"
@@ -479,29 +513,41 @@ class TaiwanStockDetailService:
             symbol = "TAIEX"
             name = "發行量加權股價指數"
 
-        try:
-            # Look up recent index series
-            if ex == "TPEX":
-                indices = self.index_provider.parse_tpex_rows([])
-            else:
-                indices = self.index_provider.parse_taiex_rows([])
-            if indices:
-                latest = indices[-1]
-                return TaiwanMarketContext(
-                    benchmark_symbol=symbol,
-                    benchmark_name=name,
-                    close=latest.close,
-                    change=latest.change,
-                    change_pct=latest.change_pct,
-                    meta=SectionMeta(
-                        source=latest.meta.source if latest.meta else "twse:index",
-                        trade_date=latest.date.isoformat(),
-                        status="available",
-                        is_stale=False,
-                    ),
+        if repo is not None:
+            try:
+                rows = repo.execute_all(
+                    """
+                    SELECT date, close
+                    FROM kline_index_daily
+                    WHERE symbol = ?
+                    ORDER BY date DESC
+                    LIMIT 2
+                    """,
+                    [symbol],
                 )
-        except Exception:
-            pass
+                if rows:
+                    latest_date, latest_close = rows[0]
+                    previous_close = rows[1][1] if len(rows) > 1 else None
+                    change = None
+                    change_pct = None
+                    if latest_close is not None and previous_close not in (None, 0):
+                        change = float(latest_close) - float(previous_close)
+                        change_pct = change / float(previous_close) * 100
+                    return TaiwanMarketContext(
+                        benchmark_symbol=symbol,
+                        benchmark_name=name,
+                        close=float(latest_close) if latest_close is not None else None,
+                        change=change,
+                        change_pct=change_pct,
+                        meta=SectionMeta(
+                            source="persisted:kline_index_daily",
+                            trade_date=str(latest_date),
+                            status="available",
+                            is_stale=False,
+                        ),
+                    )
+            except Exception as exc:
+                logger.debug("Persisted benchmark unavailable for %s: %s", symbol, exc)
 
         return TaiwanMarketContext(
             benchmark_symbol=symbol,
@@ -509,7 +555,12 @@ class TaiwanStockDetailService:
             close=None,
             change=None,
             change_pct=None,
-            meta=SectionMeta(source="index_provider", status="unavailable", is_stale=False),
+            meta=SectionMeta(
+                source="persisted:kline_index_daily",
+                status="unavailable",
+                is_stale=False,
+                fallback_reason=f"persisted benchmark {symbol} is unavailable",
+            ),
         )
 
     def _aggregate_monitor_summary(self, symbol_str: str) -> TaiwanMonitorSummary:

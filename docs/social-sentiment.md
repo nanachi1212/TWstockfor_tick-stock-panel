@@ -27,13 +27,17 @@ pwsh -File .\scripts\run-social-sentiment.ps1 -Hours 6 -Pages 1 -NoAi
 
 ## Windows Task Scheduler
 
-安裝階段不會自動修改 Task Scheduler。可在 PowerShell 以系統管理員或目前使用者權限手動建立兩個任務：
+安裝階段不會自動修改 Task Scheduler。可在 PowerShell 以系統管理員或目前使用者權限手動建立兩個任務。背景任務必須同時設定 Task Scheduler 的 `Hidden`，並讓 `pwsh.exe` 使用 `-NoProfile -NonInteractive -WindowStyle Hidden`：
 
 ```powershell
 $root = (Resolve-Path .).Path
-schtasks /Create /TN "TickStock Social Sentiment PreOpen" /SC DAILY /ST 08:30 /TR "pwsh.exe -NoProfile -File `"$root\scripts\run-social-sentiment.ps1`"" /F
-schtasks /Create /TN "TickStock Social Sentiment AfterClose" /SC DAILY /ST 15:30 /TR "pwsh.exe -NoProfile -File `"$root\scripts\run-social-sentiment.ps1`"" /F
+$action = New-ScheduledTaskAction -Execute (Get-Command pwsh.exe).Source -Argument "-NoProfile -NonInteractive -WindowStyle Hidden -File `"$root\scripts\run-social-sentiment.ps1`"" -WorkingDirectory $root
+$settings = New-ScheduledTaskSettingsSet -Hidden
+Register-ScheduledTask -TaskName "TickStock Social Sentiment PreOpen" -Action $action -Trigger (New-ScheduledTaskTrigger -Daily -At 08:30) -Settings $settings -Description "TickStock pre-open social sentiment refresh" -Force
+Register-ScheduledTask -TaskName "TickStock Social Sentiment AfterClose" -Action $action -Trigger (New-ScheduledTaskTrigger -Daily -At 15:30) -Settings $settings -Description "TickStock after-close social sentiment refresh" -Force
 ```
+
+若另建 recovery 任務，其 `pwsh.exe` action 也必須使用相同三個背景旗標並設定 `Hidden`，避免互動式 PowerShell 視窗短暫顯示。
 
 ## API
 

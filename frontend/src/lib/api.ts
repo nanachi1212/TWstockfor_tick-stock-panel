@@ -801,6 +801,7 @@ export interface TaiwanStockRealtimeDetail {
   change_pct?: number | null
   volume?: number | null
   amount?: number | null
+  amount_meta?: TaiwanSectionMeta | null
   quote_time?: string | null
   market_status: string
   bid_price?: number | null
@@ -936,6 +937,7 @@ export interface TaiwanProfitabilityData {
     trade_date?: string | null
     fetched_at?: string
     status: string
+    fallback_reason?: string | null
   }
 }
 
@@ -956,6 +958,7 @@ export interface TaiwanForeignShareholdingData {
     trade_date?: string | null
     fetched_at?: string
     status: string
+    fallback_reason?: string | null
   }
 }
 
@@ -970,6 +973,7 @@ export interface TaiwanSecuritiesLendingData {
     trade_date?: string | null
     fetched_at?: string
     status: string
+    fallback_reason?: string | null
   }
 }
 

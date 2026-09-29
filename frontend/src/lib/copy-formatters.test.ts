@@ -51,6 +51,9 @@ describe('formatStockDetailCopy & Prompt', () => {
       low: 938,
       volume: 35000,
       turnover: 33250000,
+      turnover_source: 'official_daily',
+      turnover_status: 'fallback',
+      turnover_as_of: '2026-09-25',
       quote_time: '2026-09-25 13:30:00',
     },
     quant: {
@@ -88,12 +91,15 @@ describe('formatStockDetailCopy & Prompt', () => {
     margin_lending: {
       margin_balance: 15200,
       short_balance: 120,
-      lending_balance: 85000,
+      lending_latest_volume: 85000,
     },
     market_context: {
-      taiex_close: 22800,
-      taiex_change_pct: 0.8,
-      sentiment: '多頭強勢',
+      benchmark_symbol: 'TAIEX',
+      benchmark_name: '發行量加權股價指數',
+      close: 22800,
+      change_pct: 0.8,
+      as_of: '2026-09-25',
+      status: 'available',
     },
     official_events: [
       {
@@ -131,6 +137,12 @@ describe('formatStockDetailCopy & Prompt', () => {
     })
     expect(text).toContain('台積電（2330.TWSE）')
     expect(text).toContain('收盤價：950.00 元')
+    expect(text).toContain('成交量：35,000 股（35 張）')
+    expect(text).toContain('成交金額：33,250,000 元')
+    expect(text).toContain('外資：5,200 股（5.2 張）')
+    expect(text).toContain('借券最新成交量 85,000 股（85 張）')
+    expect(text).toContain('發行量加權股價指數（TAIEX）')
+    expect(text).not.toContain('借券賣出餘額')
     expect(text).toContain('官方事件 (Official Events)')
     expect(text).toContain('相關新聞 (News)')
     // Privacy protection: OFF must NEVER leak shares, avg_cost, or pnl
