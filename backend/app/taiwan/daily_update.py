@@ -21,6 +21,7 @@ from __future__ import annotations
 import logging
 from datetime import date, datetime, timedelta
 from typing import Any, Literal
+
 from pydantic import BaseModel, Field
 
 from app.taiwan.daily_refresh import TaiwanDailyRefreshService
@@ -31,7 +32,8 @@ from app.taiwan.institutional_margin_refresh import (
 )
 from app.taiwan.institutional_store import TaiwanInstitutionalStore
 from app.taiwan.margin_store import TaiwanMarginStore
-from app.taiwan.realtime.calendar import TaiwanTradingCalendar, taipei_now, taipei_today
+from app.taiwan.observed_universe import ObservedUniverseStore, is_potential_market_session
+from app.taiwan.realtime.calendar import TAIPEI_TZ, TaiwanTradingCalendar, taipei_now
 
 logger = logging.getLogger(__name__)
 
@@ -90,6 +92,7 @@ def resolve_target_latest_trading_date(
     as_of_dt: datetime | None = None,
     post_close_hour: int = DEFAULT_POST_CLOSE_HOUR,
     post_close_minute: int = DEFAULT_POST_CLOSE_MINUTE,
+    evidence_store: ObservedUniverseStore | None = None,
 ) -> date:
     """Resolve the latest trading date that should be available.
 
@@ -103,11 +106,13 @@ def resolve_target_latest_trading_date(
       - Never fabricates unconfirmed future dates.
     """
     cal = calendar or TaiwanTradingCalendar()
+    evidence = evidence_store or ObservedUniverseStore()
     dt = as_of_dt or taipei_now()
+    dt = dt.replace(tzinfo=TAIPEI_TZ) if dt.tzinfo is None else dt.astimezone(TAIPEI_TZ)
     cur = dt.date()
 
     # If current day is Saturday, Sunday, or confirmed holiday, step back
-    while cal.is_trading_day(cur) is False:
+    while not is_potential_market_session(cur, cal, evidence):
         cur -= timedelta(days=1)
 
     # If cur is today and we haven't reached market publication cutoff time, step back
@@ -115,7 +120,7 @@ def resolve_target_latest_trading_date(
         cutoff = dt.replace(hour=post_close_hour, minute=post_close_minute, second=0, microsecond=0)
         if dt < cutoff:
             cur -= timedelta(days=1)
-            while cal.is_trading_day(cur) is False:
+            while not is_potential_market_session(cur, cal, evidence):
                 cur -= timedelta(days=1)
 
     return cur
@@ -125,6 +130,7 @@ def resolve_missing_date_range(
     earliest_available: date | None,
     target_latest: date,
     calendar: TaiwanTradingCalendar | None = None,
+    evidence_store: ObservedUniverseStore | None = None,
 ) -> tuple[date, date] | None:
     """Determine the start and end dates needed to catch up.
 
@@ -137,9 +143,10 @@ def resolve_missing_date_range(
         return None
 
     cal = calendar or TaiwanTradingCalendar()
+    evidence = evidence_store or ObservedUniverseStore()
     # Find next candidate date
     cur = earliest_available + timedelta(days=1)
-    while cur <= target_latest and cal.is_trading_day(cur) is False:
+    while cur <= target_latest and not is_potential_market_session(cur, cal, evidence):
         cur += timedelta(days=1)
 
     if cur > target_latest:
@@ -159,20 +166,22 @@ class TaiwanDailyUpdateService:
         inst_service: TaiwanInstitutionalRefreshService | None = None,
         margin_service: TaiwanMarginRefreshService | None = None,
         calendar: TaiwanTradingCalendar | None = None,
+        evidence_store: ObservedUniverseStore | None = None,
     ) -> None:
         self.calendar = calendar or TaiwanTradingCalendar()
+        self.evidence_store = evidence_store or ObservedUniverseStore()
         self.daily_store = daily_store or TaiwanDailyStore()
         self.inst_store = inst_store or TaiwanInstitutionalStore()
         self.margin_store = margin_store or TaiwanMarginStore()
 
         self.daily_service = daily_service or TaiwanDailyRefreshService(
-            store=self.daily_store, calendar=self.calendar
+            store=self.daily_store, calendar=self.calendar, evidence_store=self.evidence_store,
         )
         self.inst_service = inst_service or TaiwanInstitutionalRefreshService(
-            store=self.inst_store, calendar=self.calendar
+            store=self.inst_store, calendar=self.calendar, evidence_store=self.evidence_store,
         )
         self.margin_service = margin_service or TaiwanMarginRefreshService(
-            store=self.margin_store, calendar=self.calendar
+            store=self.margin_store, calendar=self.calendar, evidence_store=self.evidence_store,
         )
 
     def _calc_dataset_status(self, as_of: date | None, target: date) -> tuple[DatasetFreshnessStatus, int]:
@@ -184,14 +193,16 @@ class TaiwanDailyUpdateService:
         days_behind = 0
         cur = as_of + timedelta(days=1)
         while cur <= target:
-            if self.calendar.is_trading_day(cur) is not False:
+            if is_potential_market_session(cur, self.calendar, self.evidence_store):
                 days_behind += 1
             cur += timedelta(days=1)
         return "stale", days_behind
 
     def get_freshness(self, target_date: date | None = None) -> FreshnessStatus:
         """Inspect and return current storage freshness across all 3 datasets."""
-        target = target_date or resolve_target_latest_trading_date(self.calendar)
+        target = target_date or resolve_target_latest_trading_date(
+            self.calendar, evidence_store=self.evidence_store,
+        )
         d_dates = self.daily_store.available_dates()
         i_dates = self.inst_store.available_dates()
         m_dates = self.margin_store.available_dates()
@@ -244,7 +255,9 @@ class TaiwanDailyUpdateService:
             Structured TaiwanDailyUpdateResult.
         """
         run_start = taipei_now()
-        target = target_date or resolve_target_latest_trading_date(self.calendar, as_of_dt=run_start)
+        target = target_date or resolve_target_latest_trading_date(
+            self.calendar, as_of_dt=run_start, evidence_store=self.evidence_store,
+        )
 
         # 1. Determine date ranges per dataset
         d_dates = self.daily_store.available_dates()
@@ -257,7 +270,9 @@ class TaiwanDailyUpdateService:
 
         # Determine overall target range
         min_available = min(filter(None, [d_max, i_max, m_max]), default=target)
-        overall_range = resolve_missing_date_range(min_available, target, self.calendar)
+        overall_range = resolve_missing_date_range(
+            min_available, target, self.calendar, self.evidence_store,
+        )
         start_bound = overall_range[0] if overall_range else target
         end_bound = target
 
@@ -273,7 +288,9 @@ class TaiwanDailyUpdateService:
             daily_stats.note = "Daily refresh skipped by caller configuration."
         else:
             try:
-                d_range = resolve_missing_date_range(d_max, target, self.calendar) if not force else (start_bound, end_bound)
+                d_range = resolve_missing_date_range(
+                    d_max, target, self.calendar, self.evidence_store,
+                ) if not force else (start_bound, end_bound)
                 if not d_range and not force:
                     daily_stats.status = "success"
                     daily_stats.dates_skipped = 1
@@ -311,7 +328,9 @@ class TaiwanDailyUpdateService:
         # 3. Institutional Refresh (TWSE + TPEx = 2 HTTP calls per date)
         inst_stats = DatasetRefreshStats()
         try:
-            i_range = resolve_missing_date_range(i_max, target, self.calendar) if not force else (start_bound, end_bound)
+            i_range = resolve_missing_date_range(
+                i_max, target, self.calendar, self.evidence_store,
+            ) if not force else (start_bound, end_bound)
             if not i_range and not force:
                 inst_stats.status = "success"
                 inst_stats.dates_skipped = 1
@@ -336,7 +355,9 @@ class TaiwanDailyUpdateService:
         # 4. Margin Refresh (TWSE + TPEx = 2 HTTP calls per date)
         margin_stats = DatasetRefreshStats()
         try:
-            m_range = resolve_missing_date_range(m_max, target, self.calendar) if not force else (start_bound, end_bound)
+            m_range = resolve_missing_date_range(
+                m_max, target, self.calendar, self.evidence_store,
+            ) if not force else (start_bound, end_bound)
             if not m_range and not force:
                 margin_stats.status = "success"
                 margin_stats.dates_skipped = 1
