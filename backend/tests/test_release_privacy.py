@@ -34,6 +34,7 @@ def test_private_path_and_portfolio_schema_fail_gate(tmp_path: Path):
 
 
 def test_credential_and_maintainer_path_fail_without_echoing_values(monkeypatch, tmp_path: Path):
+    monkeypatch.delenv("GITHUB_ACTIONS", raising=False)
     monkeypatch.setenv("USERNAME", "Maintainer")
     suspect = tmp_path / "metadata.json"
     suspect.write_text(
