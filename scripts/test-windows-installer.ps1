@@ -168,7 +168,10 @@ try {
     }
 
     $onlineProcess = Start-IsolatedApp -Offline $false
-    $incremental = Invoke-JsonApi -Path '/api/taiwan/bootstrap/update-latest' -Method POST -TimeoutSec 180
+    # The pinned public CI seed can trail the current market by multiple weeks.
+    # Keep the real end-to-end refresh and allow the official endpoints enough
+    # time to serve every missing trading day plus readiness evidence.
+    $incremental = Invoke-JsonApi -Path '/api/taiwan/bootstrap/update-latest' -Method POST -TimeoutSec 600
     if (-not $incremental.ok -or [int]$incremental.dates_fetched -gt 60) {
         throw 'Incremental refresh failed or attempted an unexpected historical backfill.'
     }
