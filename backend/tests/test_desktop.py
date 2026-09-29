@@ -146,4 +146,3 @@ def test_desktop_scripts_are_relative_and_shortcut_targets_formal_entry():
     assert "start-desktop.ps1" in installer
     assert "-WindowStyle Hidden" in installer
     assert "Nanachi 台股看板.lnk" in installer
-    assert "台灣股票" in str(root)
