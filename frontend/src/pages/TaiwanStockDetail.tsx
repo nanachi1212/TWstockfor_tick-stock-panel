@@ -23,6 +23,7 @@ import {
   type TaiwanSearchResult,
   type TaiwanAIStockResearchReport,
   type TaiwanAIResearchPersonalContext,
+  type BuyPointSignal,
 } from '@/lib/api'
 import { QK } from '@/lib/queryKeys'
 import { cn } from '@/lib/cn'
@@ -164,6 +165,11 @@ export function TaiwanStockDetail() {
     staleTime: 5 * 60_000,
   })
   const data = detailQuery.data
+  const buyPointQuery = useQuery({
+    queryKey: QK.buyPointSignals(symbol),
+    queryFn: () => api.buyPointSignals(symbol),
+    staleTime: 60_000,
+  })
 
   // Phase 7C: Structured Research Context Query
   const researchQuery = useQuery({
@@ -1191,6 +1197,12 @@ export function TaiwanStockDetail() {
             onRetry={() => currentDataQuery.refetch()}
           />
 
+          <BuyPointWatchPanel
+            signals={buyPointQuery.data?.signals ?? []}
+            loading={buyPointQuery.isLoading}
+            onRefresh={() => { void buyPointQuery.refetch() }}
+          />
+
           {/* 區塊 4: 監控規則與最近警報 */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             {/* 監控規則列表 */}
@@ -2015,6 +2027,17 @@ function BriefSection({ title, text, items = [] }: { title: string; text?: strin
       <h4 className="mb-1 text-[11px] font-semibold text-purple-300">{title}</h4>
       {text && <p className="leading-relaxed text-foreground">{text}</p>}
       {items.length > 0 && <ul className="mt-1 list-inside list-disc space-y-1 text-foreground">{items.slice(0, 4).map((item, index) => <li key={`${title}-${index}`}>{item}</li>)}</ul>}
+    </section>
+  )
+}
+
+function BuyPointWatchPanel({ signals, loading, onRefresh }: { signals: BuyPointSignal[]; loading: boolean; onRefresh: () => void }) {
+  const labels: Record<BuyPointSignal['status'], string> = { waiting: '等待', approaching: '接近', triggered: '已觸發', blocked: '風險阻擋', unavailable: '不可用' }
+  if (loading) return <section className="mb-4 rounded-2xl border border-border bg-surface p-4 text-xs text-muted">正在讀取買點觀察…</section>
+  return (
+    <section className="mb-4 rounded-2xl border border-border bg-surface p-4">
+      <div className="mb-3 flex items-center justify-between"><div><h3 className="text-sm font-bold text-foreground">買點觀察</h3><p className="mt-0.5 text-[10px] text-muted">deterministic 條件解釋，不替使用者做交易決定</p></div><button type="button" onClick={onRefresh} className="text-[10px] text-accent hover:underline">重新整理</button></div>
+      {signals.length === 0 ? <p className="py-3 text-center text-xs text-muted">此標的尚未套用買點策略。</p> : <div className="grid gap-2 md:grid-cols-2">{signals.map(signal => <div key={signal.strategy_id} className="rounded-xl border border-border/70 bg-base/50 p-2.5 text-xs"><div className="flex items-center justify-between gap-2"><span className="font-medium">{signal.strategy_id}</span><span className="rounded-full bg-elevated px-2 py-0.5 text-[10px]">{labels[signal.status]}</span></div><p className="mt-1 text-[11px] text-secondary">{signal.explanation}</p><div className="mt-1 text-[10px] text-muted">✓ {signal.triggered_conditions.join('、') || '無'}<br />✗ {signal.failed_conditions.join('、') || '無'}</div></div>)}</div>}
     </section>
   )
 }

@@ -12,20 +12,21 @@ import * as navigationModule from './navigation'
 import { CORE_NAV } from './navigation'
 
 describe('CORE_NAV', () => {
-  it('orders pages to match 看市場→每日摘要→事件中心→找股票→選股復盤→加自選→比較→監控', () => {
+  it('orders pages to match 看市場→每日摘要→事件中心→找股票→選股復盤→買點策略→加自選→比較→監控', () => {
     expect(CORE_NAV.map(item => item.to)).toEqual([
       '/',
       '/daily-brief',
       '/events',
       '/taiwan-screener',
       '/selection-review',
+      '/buy-points',
       '/watchlist',
       '/stocks/compare',
       '/monitor',
     ])
   })
 
-  it('keeps the 8 Taiwan core route paths including daily brief and selection review', () => {
+  it('keeps the 9 Taiwan core route paths including buy point strategies', () => {
     const paths = new Set(CORE_NAV.map(item => item.to))
     expect(paths).toEqual(
       new Set([
@@ -34,6 +35,7 @@ describe('CORE_NAV', () => {
         '/events',
         '/taiwan-screener',
         '/selection-review',
+        '/buy-points',
         '/watchlist',
         '/stocks/compare',
         '/monitor',
@@ -41,8 +43,8 @@ describe('CORE_NAV', () => {
     )
   })
 
-  it('is the only exported nav array — CORE_NAV has exactly 8 Taiwan core items', () => {
-    expect(CORE_NAV).toHaveLength(8)
+  it('is the only exported nav array — CORE_NAV has exactly 9 Taiwan core items', () => {
+    expect(CORE_NAV).toHaveLength(9)
   })
 })
 
