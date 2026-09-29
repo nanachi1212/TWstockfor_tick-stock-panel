@@ -95,6 +95,15 @@ class TaiwanTradingCalendar:
     def add_trading_day(self, d: date) -> None:
         self.known_trading_days.add(d)
 
+    def recent_confirmed_sessions(self, on_or_before: date, count: int) -> list[date]:
+        """Return newest confirmed sessions only; unresolved weekdays are excluded."""
+        if count <= 0:
+            return []
+        return sorted(
+            (d for d in self.known_trading_days if d <= on_or_before),
+            reverse=True,
+        )[:count]
+
     def next_potential_session(
         self, after: date,
         observed_evidence: Callable[[date], TradingDayEvidence] | None = None,

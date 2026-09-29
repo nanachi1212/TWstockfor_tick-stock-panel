@@ -423,6 +423,8 @@ class TaiwanDailyBriefService:
                 max_tokens=3500,
                 timeout=55.0,
                 config_snapshot=config,
+                structured_output=True,
+                request_attempt=0,
             )
         except AIOutputTruncated as trunc_exc:
             retry_msgs = list(messages) + [
@@ -436,6 +438,8 @@ class TaiwanDailyBriefService:
                     max_tokens=3500,
                     timeout=55.0,
                     config_snapshot=config,
+                    structured_output=True,
+                    request_attempt=1,
                 )
             except AIOutputTruncated:
                 raise ValueError("AI 回覆超過輸出長度限制，請重新產生。")

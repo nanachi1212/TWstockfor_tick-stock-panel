@@ -164,6 +164,8 @@ class TaiwanScreenerTranslator:
                     max_tokens=_INITIAL_MAX_TOKENS,
                     timeout=30.0,
                     config_snapshot=config_snapshot,
+                    structured_output=True,
+                    request_attempt=0,
                 )
             except AIOutputTruncated:
                 logger.info("NL screener output truncated; retrying once with a larger budget")
@@ -173,6 +175,8 @@ class TaiwanScreenerTranslator:
                     max_tokens=_TRUNCATION_RETRY_MAX_TOKENS,
                     timeout=30.0,
                     config_snapshot=config_snapshot,
+                    structured_output=True,
+                    request_attempt=1,
                 )
         except AIOutputTruncated:
             logger.warning("NL screener output remained truncated after one retry")

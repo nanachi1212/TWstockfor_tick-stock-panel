@@ -313,6 +313,63 @@ def test_openai_kwargs_none_max_tokens_omits_limit():
     assert ai_provider._openai_kwargs(temperature=None, max_tokens=8) == {"max_tokens": 8}
 
 
+@pytest.mark.parametrize(
+    "base_url",
+    ["https://api.deepseek.com", "https://open.bigmodel.cn/api/paas/v4/"],
+)
+def test_structured_output_disables_thinking_only_for_verified_hosts(base_url):
+    kwargs = ai_provider._openai_kwargs(
+        temperature=0.1,
+        max_tokens=3500,
+        provider="openai_compat",
+        structured_output=True,
+        base_url=base_url,
+        model="model",
+    )
+    assert kwargs["response_format"] == {"type": "json_object"}
+    assert kwargs["extra_body"] == {"thinking": {"type": "disabled"}}
+
+    agnes = ai_provider._openai_kwargs(
+        temperature=0.1,
+        max_tokens=3500,
+        provider="openai_compat",
+        structured_output=True,
+        base_url="https://apihub.agnes-ai.com/v1",
+        model="agnes-2.5-flash",
+    )
+    assert "response_format" not in agnes
+    assert "extra_body" not in agnes
+
+
+@pytest.mark.asyncio
+async def test_structured_response_parses_message_content_not_reasoning_content(monkeypatch):
+    response = SimpleNamespace(
+        choices=[SimpleNamespace(
+            finish_reason="stop",
+            message=SimpleNamespace(content='{"status":"ok"}', reasoning_content="private reasoning"),
+        )],
+        usage=SimpleNamespace(completion_tokens=8, completion_tokens_details=SimpleNamespace(reasoning_tokens=0)),
+    )
+    create = AsyncMock(return_value=response)
+    client = SimpleNamespace(chat=SimpleNamespace(completions=SimpleNamespace(create=create)))
+    monkeypatch.setattr(ai_provider, "_openai_client", lambda *args, **kwargs: client)
+    cfg = AIProviderConfigSnapshot(
+        provider="openai_compat", model="deepseek-flash", api_key="secret",
+        profile_name="deepseek", base_url="https://api.deepseek.com",
+        max_output_tokens=4000, context_window=16000,
+    )
+
+    result = await ai_provider.generate_ai_text(
+        [{"role": "user", "content": "json"}], max_tokens=3500,
+        config_snapshot=cfg, structured_output=True,
+    )
+
+    assert result == '{"status":"ok"}'
+    kwargs = create.await_args.kwargs
+    assert kwargs["response_format"] == {"type": "json_object"}
+    assert kwargs["extra_body"] == {"thinking": {"type": "disabled"}}
+
+
 @pytest.mark.asyncio
 async def test_openai_request_uses_the_generation_config_snapshot(monkeypatch):
     snapshot = ai_provider.AIProviderConfigSnapshot(
