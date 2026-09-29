@@ -13,6 +13,10 @@ import { QK } from '@/lib/queryKeys'
 vi.mock('@/lib/api', () => ({
   api: {
     taiwanSearch: vi.fn().mockResolvedValue({ results: [] }),
+    taiwanSocialSentiment: vi.fn().mockResolvedValue({
+      status: 'partial', as_of: '2026-09-29', generated_at: '2026-09-29T15:30:00+08:00', snapshot_slot: 'after_close',
+      sources: { ptt: { status: 'available' }, dcard: { status: 'unavailable' } }, rankings: [],
+    }),
     watchlistList: vi.fn().mockResolvedValue({ symbols: [] }),
     watchlistAdd: vi.fn(),
     watchlistRemove: vi.fn(),
@@ -70,6 +74,10 @@ function LocationState() {
 
 beforeEach(() => {
   window.history.replaceState(null, '')
+  vi.mocked(api.taiwanSocialSentiment).mockResolvedValue({
+    status: 'partial', as_of: '2026-09-29', generated_at: '2026-09-29T15:30:00+08:00', snapshot_slot: 'after_close',
+    sources: { ptt: { status: 'available' }, dcard: { status: 'unavailable' } }, rankings: [],
+  } as any)
 })
 
 afterEach(() => {
@@ -78,6 +86,23 @@ afterEach(() => {
 })
 
 describe('TaiwanStockDetail — back navigation (DAILY_USE_CORE_UX_FIXES P1-2)', () => {
+  it('shows the current stock social summary without turning blocked Dcard into zero', async () => {
+    vi.mocked(api.taiwanSocialSentiment).mockResolvedValue({
+      status: 'partial', as_of: '2026-09-29', generated_at: '2026-09-29T15:30:00+08:00', snapshot_slot: 'after_close',
+      sources: { ptt: { status: 'available' }, dcard: { status: 'unavailable' } },
+      rankings: [{
+        symbol: '2330.TWSE', code: '2330', company_name: '台積電', total_mentions: 10,
+        ptt_mentions: 10, dcard_mentions: 0, unique_posts: 3, engagement: 20,
+        social_heat_score: 60, volume_change_24h: null, sentiment: 'unavailable',
+        sentiment_status: 'unavailable', sentiment_score: null, sentiment_confidence: null,
+      }],
+    } as any)
+    renderAt(['/stocks/2330.TWSE'], 0)
+
+    expect(await screen.findByText('來源不可用')).toBeInTheDocument()
+    expect(screen.getByText('社群討論／AI 情緒分析，不是官方資料，也不會加入 Quant 分數。')).toBeInTheDocument()
+  })
+
   it('never shows the old hardcoded "返回即時監控" label', async () => {
     renderAt(['/stocks/2330.TWSE'], 0)
 
@@ -106,6 +131,11 @@ describe('TaiwanStockDetail — back navigation (DAILY_USE_CORE_UX_FIXES P1-2)',
 
 describe('TaiwanStockDetail — AI Research', () => {
   it('sends only this symbol context after the user clicks AI 分析 and renders the brief', async () => {
+    vi.mocked(api.taiwanSocialSentiment).mockResolvedValue({
+      status: 'partial', as_of: '2026-09-29', generated_at: '2026-09-29T15:30:00+08:00', snapshot_slot: 'after_close',
+      sources: { ptt: { status: 'available' }, dcard: { status: 'unavailable' } },
+      rankings: [{ symbol: '2330.TWSE', code: '2330', company_name: '台積電', total_mentions: 10, ptt_mentions: 10, dcard_mentions: 0, unique_posts: 3, engagement: 20, social_heat_score: 60, volume_change_24h: null, sentiment: 'bullish', sentiment_status: 'available', sentiment_score: 0.8, sentiment_confidence: 0.9 }],
+    } as any)
     vi.mocked(api.taiwanStockAIResearch).mockResolvedValue({
       status: 'success',
       provider: 'Custom',
@@ -132,6 +162,9 @@ describe('TaiwanStockDetail — AI Research', () => {
       '2330.TWSE', undefined, expect.objectContaining({ watchlist: { included: false } }),
     )
     expect(vi.mocked(api.taiwanStockAIResearch).mock.calls[0][2]?.quant).toEqual({ status: 'no_valid_run', selected: false })
+    expect(vi.mocked(api.taiwanStockAIResearch).mock.calls[0][2]?.social).toEqual(expect.objectContaining({
+      status: 'partial', total_mentions: 10, sentiment: 'bullish', source_coverage: 'ptt:available,dcard:unavailable',
+    }))
     fireEvent.click(screen.getByRole('button', { name: '重新分析' }))
     await waitFor(() => expect(vi.mocked(api.taiwanStockAIResearch)).toHaveBeenCalledTimes(2))
   })

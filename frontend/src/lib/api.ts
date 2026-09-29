@@ -2139,6 +2139,7 @@ export interface TaiwanAIResearchPersonalContext {
   watchlist?: { included: boolean }
   quant?: { status: 'available' | 'no_valid_run' | 'unavailable'; selected: boolean; rank?: number; score?: number; session?: string; feature_percentiles?: Record<string, number> }
   alert?: { alert_id?: string; rule_name?: string; rule_type?: string; triggered_at?: string; trigger_value?: number; threshold?: number; change_pct?: number; quant_status?: string; quant_rank?: number; quant_score?: number; quant_session?: string; message?: string; source?: string; market_status?: string }
+  social?: { as_of?: string; status?: string; total_mentions?: number; ptt_mentions?: number; dcard_mentions?: number; unique_posts?: number; engagement?: number; heat_score?: number; volume_change_24h?: number; sentiment?: string; sentiment_status?: string; sentiment_score?: number; confidence?: number; source_coverage?: string }
 }
 
 // ── Phase 7G: Multi-Stock Objective Research Comparison ──────
@@ -2811,6 +2812,64 @@ export interface StrategyAlertEvent {
   signals?: string[]
   /** ext 富化字段 (行業/概念等), 鍵為 "{configId}__{fieldName}" */
   [key: string]: unknown
+}
+
+export type SocialSentimentAvailability = 'available' | 'partial' | 'unavailable'
+
+export interface TaiwanSocialSentimentSource {
+  status: SocialSentimentAvailability
+  posts: number
+  comments: number
+  pages: number
+  errors: string[]
+}
+
+export interface TaiwanSocialSentimentRow {
+  rank: number
+  symbol: string
+  code: string
+  company_name: string
+  ptt_mentions: number
+  dcard_mentions: number
+  total_mentions: number
+  unique_posts: number
+  engagement: number
+  volume_change_24h: number | null
+  bullish_count: number
+  neutral_count: number
+  bearish_count: number
+  sentiment: 'bullish' | 'neutral' | 'bearish' | 'unavailable'
+  sentiment_status: 'available' | 'unavailable'
+  sentiment_score: number | null
+  sentiment_confidence: number | null
+  sentiment_reason: string | null
+  social_heat_score: number
+}
+
+export interface TaiwanSocialSentimentResponse {
+  schema_version: number
+  status: SocialSentimentAvailability
+  generated_at: string
+  as_of: string
+  snapshot_slot: 'pre_open' | 'after_close'
+  window_hours: number
+  sources: Record<string, TaiwanSocialSentimentSource>
+  identified_symbols: number
+  ai: {
+    status: 'available' | 'degraded' | 'unavailable' | 'not_queried'
+    batches: number
+    analyzed_symbols: number
+    errors: string[]
+  }
+  rankings: TaiwanSocialSentimentRow[]
+}
+
+export interface TaiwanSocialSentimentHistoryItem {
+  as_of: string
+  generated_at: string
+  snapshot_slot: 'pre_open' | 'after_close'
+  status: SocialSentimentAvailability
+  identified_symbols: number
 }
 
 // ===== API surface =====
@@ -3943,6 +4002,19 @@ export const api = {
     const qs = date ? `?date=${encodeURIComponent(date)}` : ''
     return request<TaiwanMarketSentimentResponse>(`/api/taiwan/market-sentiment${qs}`)
   },
+
+  taiwanSocialSentiment: (date?: string, snapshotSlot?: 'pre_open' | 'after_close') => {
+    const q = new URLSearchParams()
+    if (date) q.set('target_date', date)
+    if (snapshotSlot) q.set('snapshot_slot', snapshotSlot)
+    const qs = q.toString()
+    return request<TaiwanSocialSentimentResponse>(
+      qs ? `/api/taiwan/social-sentiment?${qs}` : '/api/taiwan/social-sentiment',
+    )
+  },
+
+  taiwanSocialSentimentHistory: (limit = 30) =>
+    request<{ items: TaiwanSocialSentimentHistoryItem[] }>(`/api/taiwan/social-sentiment/history?limit=${limit}`),
 
   taiwanRulesList: () =>
     request<{ rules: TaiwanMonitorRule[]; total: number }>('/api/monitor-rules/taiwan'),

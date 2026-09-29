@@ -1,5 +1,5 @@
 import { useState, useMemo, useEffect, useRef, useCallback } from 'react'
-import { useParams, useNavigate, useLocation } from 'react-router-dom'
+import { Link, useParams, useNavigate, useLocation } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import {
   ArrowLeft,
@@ -17,6 +17,7 @@ import {
   CalendarDays,
   Newspaper,
   ExternalLink,
+  MessageCircleMore,
 } from 'lucide-react'
 import {
   api,
@@ -164,7 +165,13 @@ export function TaiwanStockDetail() {
     queryFn: () => api.taiwanCurrentData(symbol),
     staleTime: 5 * 60_000,
   })
+  const socialQuery = useQuery({
+    queryKey: QK.taiwanSocialSentiment(),
+    queryFn: () => api.taiwanSocialSentiment(),
+    staleTime: 5 * 60_000,
+  })
   const data = detailQuery.data
+  const socialRow = socialQuery.data?.rankings.find(item => item.symbol === symbol)
   const buyPointQuery = useQuery({
     queryKey: QK.buyPointSignals(symbol),
     queryFn: () => api.buyPointSignals(symbol),
@@ -245,6 +252,27 @@ export function TaiwanStockDetail() {
       source: selectedAlert.source,
       ...(typeof selectedAlert.market_status === 'string' ? { market_status: selectedAlert.market_status } : {}),
     }
+    if (socialRow && socialQuery.data) {
+      const sourceCoverage = Object.entries(socialQuery.data.sources)
+        .map(([source, detail]) => `${source}:${detail.status}`)
+        .join(',')
+      context.social = {
+        as_of: socialQuery.data.as_of,
+        status: socialQuery.data.status,
+        total_mentions: socialRow.total_mentions,
+        ptt_mentions: socialRow.ptt_mentions,
+        dcard_mentions: socialRow.dcard_mentions,
+        unique_posts: socialRow.unique_posts,
+        engagement: socialRow.engagement,
+        heat_score: socialRow.social_heat_score,
+        ...(socialRow.volume_change_24h != null ? { volume_change_24h: socialRow.volume_change_24h } : {}),
+        sentiment: socialRow.sentiment,
+        sentiment_status: socialRow.sentiment_status,
+        ...(socialRow.sentiment_score != null ? { sentiment_score: socialRow.sentiment_score } : {}),
+        ...(socialRow.sentiment_confidence != null ? { confidence: socialRow.sentiment_confidence } : {}),
+        source_coverage: sourceCoverage,
+      }
+    }
     try {
       const raw = storage.portfolioTransactions.get([])
       if (Array.isArray(raw) && raw.every(isPortfolioTransaction)) {
@@ -267,7 +295,7 @@ export function TaiwanStockDetail() {
       // An unreadable local ledger stays unavailable and does not block stock analysis.
     }
     return context
-  }, [inWatchlist, watchlist.isLoading, watchlist.isError, quantSelection.signals, quantSelection.ranking, quantSelection.validRun, quantSelection.error, quantSelection.fetching, selectedAlert, symbol, data, detailQuery.isError, detailQuery.isFetching, portfolioRevision])
+  }, [inWatchlist, watchlist.isLoading, watchlist.isError, quantSelection.signals, quantSelection.ranking, quantSelection.validRun, quantSelection.error, quantSelection.fetching, selectedAlert, symbol, data, detailQuery.isError, detailQuery.isFetching, portfolioRevision, socialQuery.data, socialRow])
 
   const handleGenerateAiReport = useCallback(async () => {
     if (toggleWatchlist.isPending || watchlist.isFetching) return
@@ -709,6 +737,42 @@ export function TaiwanStockDetail() {
               </div>
             </div>
           </div>
+
+          <section className="rounded-2xl border border-border bg-surface p-4 shadow-sm">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div className="flex items-center gap-2">
+                <MessageCircleMore className="h-4 w-4 text-cyan-500" />
+                <h2 className="text-sm font-bold text-foreground">社群聲量</h2>
+                {socialQuery.data && <span className="font-mono text-[10px] text-muted">資料日期 {socialQuery.data.as_of}</span>}
+              </div>
+              <Link to="/social-sentiment" className="inline-flex min-h-9 items-center gap-1 rounded-lg border border-cyan-500/30 px-3 text-xs text-cyan-600 hover:bg-cyan-500/10 dark:text-cyan-400">
+                查看完整排行<ExternalLink className="h-3 w-3" />
+              </Link>
+            </div>
+            {socialQuery.isLoading ? (
+              <div className="mt-3 flex items-center gap-2 text-xs text-muted"><Loader2 className="h-3.5 w-3.5 animate-spin" />正在讀取社群資料…</div>
+            ) : socialQuery.isError ? (
+              <p className="mt-3 text-xs text-muted">社群聲量目前不可用，個股其他研究資料不受影響。</p>
+            ) : !socialRow ? (
+              <p className="mt-3 text-xs text-muted">目前快照未辨識到此股票的社群討論，這不代表真正零討論。</p>
+            ) : (
+              <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-5">
+                {[
+                  ['熱度', socialRow.social_heat_score.toFixed(1)],
+                  ['總聲量', socialRow.total_mentions.toLocaleString('zh-TW')],
+                  ['PTT', socialRow.ptt_mentions.toLocaleString('zh-TW')],
+                  ['Dcard', socialQuery.data?.sources.dcard?.status === 'unavailable' ? '來源不可用' : socialRow.dcard_mentions.toLocaleString('zh-TW')],
+                  ['AI 情緒', socialRow.sentiment_status === 'available' ? `${socialRow.sentiment} · ${Math.round((socialRow.sentiment_confidence ?? 0) * 100)}%` : '不可用'],
+                ].map(([label, value]) => (
+                  <div key={label} className="rounded-lg border border-border/60 bg-base p-2">
+                    <span className="block text-[10px] text-muted">{label}</span>
+                    <span className="text-xs font-medium text-foreground">{value}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+            <p className="mt-3 text-[10px] leading-relaxed text-muted">社群討論／AI 情緒分析，不是官方資料，也不會加入 Quant 分數。</p>
+          </section>
 
           {/* 區塊 2: K 線圖表與五檔盤口 (兩欄佈局) */}
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">

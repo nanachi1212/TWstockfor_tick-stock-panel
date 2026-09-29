@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import csv
 import json
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 
 import polars as pl
 
@@ -14,6 +14,9 @@ from app.taiwan.social_sentiment import (
     SocialSentimentService,
     SourceResult,
     StockMentionResolver,
+    list_social_sentiment_history,
+    load_social_sentiment,
+    load_social_sentiment_snapshot,
     parse_dcard_html,
     parse_dcard_posts,
     parse_ptt_index,
@@ -306,6 +309,7 @@ def test_source_failure_does_not_stop_other_source(tmp_path):
     payload = service.run(run_ai=False, now=datetime(2026, 9, 28, tzinfo=UTC))
     assert payload["sources"]["ptt"]["status"] == "unavailable"
     assert payload["sources"]["dcard"]["status"] == "available"
+    assert payload["status"] == "partial"
     assert payload["identified_symbols"] == 1
 
 
@@ -333,16 +337,21 @@ def test_ai_json_is_applied_without_leaking_raw_text(tmp_path, monkeypatch):
         output_dir=tmp_path,
     )
 
+    snapshot = object()
+
     async def fake_generate(messages, **kwargs):
         assert "2344" in messages[0]["content"]
+        assert kwargs["config_snapshot"] is snapshot
         return '{"items":[{"symbol":"2344","sentiment":"bullish","score":0.72,"confidence":0.86,"bullish_count":1,"neutral_count":0,"bearish_count":0,"reason":"看好記憶體"}]}'
 
     monkeypatch.setattr("app.services.ai_provider.ai_configured", lambda: True)
+    monkeypatch.setattr("app.services.ai_provider.snapshot_ai_provider_config", lambda: snapshot)
     monkeypatch.setattr("app.services.ai_provider.generate_ai_text", fake_generate)
     payload = service.run(now=datetime(2026, 9, 28, tzinfo=UTC))
     row = payload["rankings"][0]
     assert row["sentiment"] == "bullish"
     assert row["sentiment_score"] == 0.72
+    assert row["sentiment_status"] == "available"
     assert "2344 華邦電 看好" not in json.dumps(payload, ensure_ascii=False)
 
 
@@ -356,6 +365,7 @@ def test_ai_unavailable_fallback_and_output_files(tmp_path, monkeypatch):
     payload = service.run(now=datetime(2026, 9, 28, tzinfo=UTC))
     assert payload["ai"]["status"] == "unavailable"
     assert payload["rankings"][0]["sentiment_score"] is None
+    assert payload["rankings"][0]["sentiment_status"] == "unavailable"
     assert (tmp_path / "latest.json").exists()
     assert (tmp_path / "history" / "2026-09-28.json").exists()
     assert (tmp_path / "social_sentiment_history.csv").exists()
@@ -553,6 +563,7 @@ def test_output_json_is_valid_and_csv_contains_contract_fields(tmp_path, monkeyp
     csv_text = csv_path.read_text(encoding="utf-8")
     assert data["rankings"][0]["symbol"] == "2344.TWSE"
     assert "sentiment_score" in csv_text
+    assert "sentiment_status" in csv_text
     assert data["snapshot_slot"] == "pre_open"
     assert (tmp_path / "history" / "snapshots" / "2026-09-28-pre_open.json").exists()
     with csv_path.open(encoding="utf-8", newline="") as handle:
@@ -560,3 +571,64 @@ def test_output_json_is_valid_and_csv_contains_contract_fields(tmp_path, monkeyp
     assert row["snapshot_slot"] == "pre_open"
     assert row["window_hours"] == "24"
     assert json.loads(row["source_statuses"]) == {"dcard": "available"}
+
+
+def test_both_sources_unavailable_keeps_overall_unavailable(tmp_path):
+    service = SocialSentimentService(
+        security_master=FakeSecurityMaster(),
+        collectors=(FakeCollector("ptt", error="blocked"), FakeCollector("dcard", error="HTTP 403")),
+        output_dir=tmp_path,
+    )
+    payload = service.run(run_ai=False, now=datetime(2026, 9, 28, tzinfo=TAIPEI))
+    assert payload["status"] == "unavailable"
+    assert payload["rankings"] == []
+
+
+def test_snapshot_and_history_metadata_use_local_data_dir(tmp_path, monkeypatch):
+    monkeypatch.setattr("app.taiwan.social_sentiment.settings.data_dir", tmp_path)
+    snapshot_dir = tmp_path / "social_sentiment" / "history" / "snapshots"
+    snapshot_dir.mkdir(parents=True)
+    payload = {
+        "as_of": "2026-09-29",
+        "generated_at": "2026-09-29T15:30:00+08:00",
+        "snapshot_slot": "after_close",
+        "status": "partial",
+        "identified_symbols": 65,
+        "rankings": [],
+    }
+    (snapshot_dir / "2026-09-29-after_close.json").write_text(json.dumps(payload), encoding="utf-8")
+
+    assert load_social_sentiment_snapshot(date(2026, 9, 29), "after_close") == payload
+    assert list_social_sentiment_history() == [{
+        "as_of": "2026-09-29",
+        "generated_at": "2026-09-29T15:30:00+08:00",
+        "snapshot_slot": "after_close",
+        "status": "partial",
+        "identified_symbols": 65,
+    }]
+
+
+def test_load_legacy_snapshot_adds_product_ui_status_fields(tmp_path):
+    path = tmp_path / "legacy.json"
+    path.write_text(
+        json.dumps(
+            {
+                "sources": {
+                    "ptt": {"status": "available"},
+                    "dcard": {"status": "unavailable"},
+                },
+                "rankings": [
+                    {"symbol": "2330.TWSE", "sentiment_score": 0.6},
+                    {"symbol": "2344.TWSE", "sentiment_score": None},
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    payload = load_social_sentiment(path)
+
+    assert payload is not None
+    assert payload["status"] == "partial"
+    assert payload["rankings"][0]["sentiment_status"] == "available"
+    assert payload["rankings"][1]["sentiment_status"] == "unavailable"

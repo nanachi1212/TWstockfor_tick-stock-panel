@@ -619,10 +619,15 @@ class SocialSentimentService:
         return sorted(rows, key=lambda row: (-row["social_heat_score"], row["code"]))
 
     async def _apply_ai(self, rankings: list[dict[str, Any]], evidence: dict[str, list[tuple[SocialPost, int]]]) -> dict[str, Any]:
-        from app.services.ai_provider import ai_configured, generate_ai_text
+        from app.services.ai_provider import (
+            ai_configured,
+            generate_ai_text,
+            snapshot_ai_provider_config,
+        )
 
         if not ai_configured():
             return {"status": "unavailable", "batches": 0, "analyzed_symbols": 0, "errors": ["AI provider is not configured"]}
+        config_snapshot = snapshot_ai_provider_config()
         batches = 0
         analyzed = 0
         errors: list[str] = []
@@ -648,6 +653,7 @@ class SocialSentimentService:
                     temperature=0.1,
                     max_tokens=2500,
                     timeout=120,
+                    config_snapshot=config_snapshot,
                 )
                 items = _parse_ai_items(raw)
                 by_code = {str(item.get("symbol", "")).upper(): item for item in items}
@@ -681,9 +687,19 @@ class SocialSentimentService:
     ) -> dict[str, Any]:
         for rank, row in enumerate(rankings, 1):
             row["rank"] = rank
+            row["sentiment_status"] = "available" if row.get("sentiment_score") is not None else "unavailable"
             row.pop("_texts", None)
+        source_statuses = [result.status for result in source_results.values()]
+        overall_status = (
+            "unavailable"
+            if not source_statuses or all(status == "unavailable" for status in source_statuses)
+            else "available"
+            if all(status == "available" for status in source_statuses)
+            else "partial"
+        )
         return {
             "schema_version": 1,
+            "status": overall_status,
             "generated_at": now.isoformat(),
             "as_of": now.date().isoformat(),
             "snapshot_slot": _snapshot_slot(now),
@@ -779,7 +795,7 @@ class SocialSentimentService:
             "code", "company_name", "ptt_mentions", "dcard_mentions",
             "total_mentions", "unique_posts", "engagement", "volume_change_24h", "bullish_count",
             "neutral_count", "bearish_count", "sentiment", "sentiment_score", "sentiment_confidence",
-            "social_heat_score", "sentiment_reason",
+            "sentiment_status", "social_heat_score", "sentiment_reason",
         ]
         existing = {key: row for key, row in existing.items() if key[0] != day}
         metadata = {
@@ -873,10 +889,72 @@ def load_social_sentiment(path: Path | None = None) -> dict[str, Any] | None:
     if not target.exists():
         return None
     try:
-        return json.loads(target.read_text(encoding="utf-8"))
+        payload = json.loads(target.read_text(encoding="utf-8"))
     except (OSError, ValueError):
         return None
+    if not isinstance(payload, dict):
+        return None
+
+    # Keep snapshots written by the collector MVP readable after the additive
+    # product-UI fields were introduced.
+    source_statuses = [
+        detail.get("status")
+        for detail in payload.get("sources", {}).values()
+        if isinstance(detail, dict)
+    ]
+    payload.setdefault(
+        "status",
+        "unavailable"
+        if not source_statuses or all(status == "unavailable" for status in source_statuses)
+        else "available"
+        if all(status == "available" for status in source_statuses)
+        else "partial",
+    )
+    for row in payload.get("rankings", []):
+        if isinstance(row, dict):
+            row.setdefault(
+                "sentiment_status",
+                "available" if row.get("sentiment_score") is not None else "unavailable",
+            )
+    return payload
 
 
 def load_social_sentiment_date(target_date: date) -> dict[str, Any] | None:
     return load_social_sentiment(settings.data_dir / "social_sentiment" / "history" / f"{target_date.isoformat()}.json")
+
+
+def load_social_sentiment_snapshot(target_date: date, snapshot_slot: str) -> dict[str, Any] | None:
+    if snapshot_slot not in {"pre_open", "after_close"}:
+        return None
+    return load_social_sentiment(
+        settings.data_dir
+        / "social_sentiment"
+        / "history"
+        / "snapshots"
+        / f"{target_date.isoformat()}-{snapshot_slot}.json"
+    )
+
+
+def list_social_sentiment_history(limit: int = 30) -> list[dict[str, Any]]:
+    """Return compact local history metadata without exposing raw discussion text."""
+    root = settings.data_dir / "social_sentiment" / "history"
+    if not root.exists():
+        return []
+    entries: list[dict[str, Any]] = []
+    snapshot_paths = list((root / "snapshots").glob("????-??-??-*.json")) if (root / "snapshots").exists() else []
+    for path in sorted(snapshot_paths, reverse=True):
+        payload = load_social_sentiment(path)
+        if not payload:
+            continue
+        entries.append(
+            {
+                "as_of": payload.get("as_of"),
+                "generated_at": payload.get("generated_at"),
+                "snapshot_slot": payload.get("snapshot_slot"),
+                "status": payload.get("status"),
+                "identified_symbols": payload.get("identified_symbols", 0),
+            }
+        )
+        if len(entries) >= limit:
+            break
+    return entries

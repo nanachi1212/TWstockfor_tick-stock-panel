@@ -700,6 +700,41 @@ export function formatSelectionReviewPrompt(d: SelectionReviewCopyData): string 
   return `以下是台股選股策略復盤回顧資料：\n\n${data}\n\n${EXTERNAL_AI_PROMPT_FOOTER}`
 }
 
+export interface SocialSentimentCopyData {
+  as_of: string
+  generated_at: string
+  source_statuses: Record<string, string>
+  rankings: Array<{
+    rank: number
+    symbol: string
+    name: string
+    mentions: number
+    heat: number
+    sentiment: string
+    score: number | null
+    confidence: number | null
+  }>
+}
+
+export function formatSocialSentimentPrompt(d: SocialSentimentCopyData): string {
+  const lines = [
+    '# 台股社群聲量排行榜',
+    `- 資料日期：${sanitize(d.as_of)}`,
+    `- 產生時間：${sanitize(d.generated_at)}`,
+    `- 來源覆蓋：${Object.entries(d.source_statuses).map(([source, status]) => `${sanitize(source)}=${sanitize(status)}`).join('、')}`,
+    '',
+    '## 熱門標的',
+  ]
+  if (d.rankings.length === 0) lines.push('- 無可用排行資料')
+  for (const row of d.rankings) {
+    lines.push(
+      `${row.rank}. ${sanitize(row.name)}（${sanitize(row.symbol)}）：聲量 ${num(row.mentions, 0)}，熱度 ${num(row.heat)}，情緒 ${sanitize(row.sentiment)}，分數 ${num(row.score)}，信心 ${num(row.confidence)}`,
+    )
+  }
+  lines.push('', '> 社群討論可能有抽樣與群體偏誤，不代表公司基本面、官方資料或未來股價。')
+  return `以下是台股社群聲量資料，請把不可用來源視為缺資料，不得當成零討論：\n\n${lines.join('\n')}\n\n${EXTERNAL_AI_PROMPT_FOOTER}`
+}
+
 // ─── Clipboard Helper ────────────────────────────────────────────────────────
 
 export async function copyToClipboard(text: string): Promise<boolean> {
