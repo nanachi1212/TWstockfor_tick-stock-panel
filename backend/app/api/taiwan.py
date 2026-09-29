@@ -73,7 +73,12 @@ from app.taiwan.screener_strategy_store import (
     TaiwanScreenerStrategy,
     get_screener_strategy_store,
 )
-from app.taiwan.social_sentiment import load_social_sentiment, load_social_sentiment_date
+from app.taiwan.social_sentiment import (
+    list_social_sentiment_history,
+    load_social_sentiment,
+    load_social_sentiment_date,
+    load_social_sentiment_snapshot,
+)
 from app.taiwan.symbol import parse_symbol
 from app.taiwan.universe import MarketProfileBridge, get_security_master
 
@@ -83,19 +88,33 @@ router = APIRouter(prefix="/api/taiwan", tags=["taiwan"])
 
 
 @router.get("/social-sentiment")
-def get_taiwan_social_sentiment(target_date: str | None = Query(default=None)):
+def get_taiwan_social_sentiment(
+    target_date: str | None = Query(default=None),
+    snapshot_slot: str | None = Query(default=None),
+):
     """讀取本地社群情緒結果，不在 request time 連線抓取外部來源。"""
     if target_date:
         try:
             parsed_date = dt_date.fromisoformat(target_date)
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=f"無效的日期格式: {target_date}") from exc
-        payload = load_social_sentiment_date(parsed_date)
+        if snapshot_slot is not None and snapshot_slot not in {"pre_open", "after_close"}:
+            raise HTTPException(status_code=400, detail=f"無效的快照時段: {snapshot_slot}")
+        payload = (
+            load_social_sentiment_snapshot(parsed_date, snapshot_slot)
+            if snapshot_slot
+            else load_social_sentiment_date(parsed_date)
+        )
     else:
         payload = load_social_sentiment()
     if payload is None:
         raise HTTPException(status_code=404, detail="尚未產生社群情緒結果")
     return payload
+
+
+@router.get("/social-sentiment/history")
+def get_taiwan_social_sentiment_history(limit: int = Query(default=30, ge=1, le=120)):
+    return {"items": list_social_sentiment_history(limit)}
 
 
 def _resolve_portfolio_instrument(symbol: str, trade_date: dt_date):

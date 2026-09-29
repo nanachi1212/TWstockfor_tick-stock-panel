@@ -15,6 +15,7 @@ import {
   CalendarDays,
   Sparkles,
   History,
+  MessageCircleMore,
   type LucideIcon,
 } from 'lucide-react'
 
@@ -56,6 +57,7 @@ export const CORE_NAV: readonly NavMeta[] = [
   { to: '/',                label: '看板',     icon: LayoutDashboard },
   { to: '/daily-brief',     label: '每日摘要', icon: Sparkles },
   { to: '/events',          label: '事件中心', icon: CalendarDays },
+  { to: '/social-sentiment',label: '社群聲量', icon: MessageCircleMore },
   { to: '/taiwan-screener', label: '台股選股', icon: Filter },
   { to: '/selection-review',label: '選股復盤', icon: History },
   { to: '/watchlist',  label: '自選股',   icon: Star },

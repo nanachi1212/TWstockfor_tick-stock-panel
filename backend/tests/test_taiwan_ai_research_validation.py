@@ -70,6 +70,11 @@ def test_personal_context_is_allowlisted_and_missing_values_stay_missing():
             "rule_type": "quant_top10_enter", "triggered_at": "2026-09-25T10:00:00+00:00",
             "quant_status": "進入", "quant_rank": 2, "quant_score": 0.91, "quant_session": "2026-09-25",
         },
+        "social": {
+            "as_of": "2026-09-29", "status": "partial", "total_mentions": 12,
+            "heat_score": 34.5, "sentiment": "bullish", "sentiment_status": "available",
+            "source_coverage": "ptt:available,dcard:unavailable", "raw_posts": ["must not be sent"],
+        },
         "unrelated": {"data": "must not be sent"},
     })
     assert sanitized["portfolio"] == {"shares": 10.0, "average_cost": 100.5}
@@ -82,6 +87,11 @@ def test_personal_context_is_allowlisted_and_missing_values_stay_missing():
         "message": "Quant 進入前十", "trigger_value": 449.5, "rule_type": "quant_top10_enter",
         "triggered_at": "2026-09-25T10:00:00+00:00", "quant_status": "進入", "quant_rank": 2,
         "quant_score": 0.91, "quant_session": "2026-09-25",
+    }
+    assert sanitized["social"] == {
+        "as_of": "2026-09-29", "status": "partial", "total_mentions": 12.0,
+        "heat_score": 34.5, "sentiment": "bullish", "sentiment_status": "available",
+        "source_coverage": "ptt:available,dcard:unavailable",
     }
     assert "unrelated" not in sanitized
 

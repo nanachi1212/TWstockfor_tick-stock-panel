@@ -129,6 +129,10 @@ vi.mock('@/lib/api', () => ({
     taiwanIndustryIntelligence: vi.fn().mockResolvedValue(null),
     taiwanAbnormalDiagnostics: vi.fn().mockResolvedValue(buildDiagnostics()),
     watchlistEnriched: vi.fn().mockResolvedValue({ rows: [], as_of: null, elapsed_ms: 0 }),
+    taiwanSocialSentiment: vi.fn().mockResolvedValue({
+      status: 'partial', as_of: '2026-09-29', generated_at: '2026-09-29T15:30:00+08:00', snapshot_slot: 'after_close',
+      sources: { ptt: { status: 'available' }, dcard: { status: 'unavailable' } }, rankings: [],
+    }),
   },
 }))
 
@@ -184,6 +188,19 @@ describe('Dashboard — Legacy A-share removal (Phase 8C-D)', () => {
 })
 
 describe('Dashboard — Market Clarity (Phase 8C-B)', () => {
+  it('shows a compact social Top 5 card while preserving unavailable AI sentiment', async () => {
+    vi.mocked(api.taiwanSocialSentiment).mockResolvedValue({
+      status: 'partial', as_of: '2026-09-29', generated_at: '2026-09-29T15:30:00+08:00', snapshot_slot: 'after_close',
+      sources: { ptt: { status: 'available' }, dcard: { status: 'unavailable' } },
+      rankings: [{ symbol: '2330.TWSE', code: '2330', company_name: '台積電', social_heat_score: 88, total_mentions: 42, sentiment_status: 'unavailable' }],
+    } as any)
+    renderDashboard()
+
+    expect(await screen.findByText('社群熱門標的')).toBeInTheDocument()
+    expect(await screen.findByText(/情緒不可用/)).toBeInTheDocument()
+    expect(screen.getByText('社群聲量完整頁')).toBeInTheDocument()
+  })
+
   it('shows dependent market panels as loading until data status is ready', async () => {
     let resolveStatus!: (status: any) => void
     vi.mocked(api.taiwanDataStatus).mockReturnValueOnce(new Promise(resolve => { resolveStatus = resolve }) as any)
