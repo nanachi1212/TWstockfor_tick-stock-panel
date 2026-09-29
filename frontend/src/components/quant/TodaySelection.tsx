@@ -2,7 +2,7 @@ import { useEffect, useMemo } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
 import { ArrowUpRight, Loader2, RefreshCw, Star, TrendingUp } from 'lucide-react'
-import { api, type TaiwanLiveQuantHorizonSummary, type TaiwanLiveQuantSignal } from '@/lib/api'
+import { api, type TaiwanLiveQuantHorizonSummary, type TaiwanLiveQuantRank, type TaiwanLiveQuantSignal } from '@/lib/api'
 import { QK } from '@/lib/queryKeys'
 
 function finite(value: unknown): number | null {
@@ -22,7 +22,7 @@ function horizonLabel(summary: TaiwanLiveQuantHorizonSummary | undefined) {
   return `命中率 ${rate}／${summary.evaluated_count}，平均 ${average}`
 }
 
-export function selectionReasons(signal: TaiwanLiveQuantSignal): string[] {
+export function selectionReasons(signal: Pick<TaiwanLiveQuantSignal, 'feature_percentiles'>): string[] {
   const labels = [
     ['momentum_5d', '短期動能排名前段'],
     ['momentum_20d', '中期動能排名前段'],
@@ -39,6 +39,7 @@ export interface TodayQuantSelectionData {
   expectedRun: boolean
   validRun: NonNullable<ReturnType<typeof useTodayQuantSelectionInternal>>['validRun']
   signals: TaiwanLiveQuantSignal[]
+  ranking: TaiwanLiveQuantRank[]
   featureMap: Map<string, Record<string, unknown> & { symbol: string }>
   loading: boolean
   fetching: boolean
@@ -75,6 +76,7 @@ function useTodayQuantSelectionInternal() {
   const runData = run.data
   const validRun = expectedRun && runData && runData.session === models.data?.expected_session && runData.audit_status === 'ok' ? runData : null
   const signals = validRun?.snapshot.signals ?? []
+  const ranking = validRun?.snapshot.ranking ?? []
   const featureMap = useMemo(() => new Map((runData?.snapshot.features ?? []).map(item => [item.symbol, item])), [runData])
   const loading = models.isLoading || runs.isLoading || (!models.isError && !runs.isError && expectedRun && run.isLoading)
   const fetching = models.isFetching || runs.isFetching || run.isFetching
@@ -85,6 +87,7 @@ function useTodayQuantSelectionInternal() {
     expectedRun,
     validRun,
     signals,
+    ranking,
     featureMap,
     loading,
     fetching,
@@ -103,7 +106,7 @@ export function useTodayQuantSelection(): TodayQuantSelectionData {
 export function TodaySelection({ symbol, onResearchContext }: { symbol?: string; onResearchContext?: (context: { rank: number; score: number; session: string; feature_percentiles: Record<string, number> } | null) => void }) {
   const qc = useQueryClient()
   const selection = useTodayQuantSelection()
-  const { latest, expectedRun, validRun, signals, featureMap, loading, error, recommendationStatus, recommendationReason, liveReadiness } = selection
+  const { latest, expectedRun, validRun, signals, ranking, featureMap, loading, error, recommendationStatus, recommendationReason, liveReadiness } = selection
   const symbols = signals.map(item => item.symbol)
   const quotes = useQuery({
     queryKey: QK.taiwanQuotes(symbols.join(',')),
@@ -128,37 +131,38 @@ export function TodaySelection({ symbol, onResearchContext }: { symbol?: string;
     },
   })
   const selected = symbol ? signals.find(item => item.symbol === symbol) : null
+  const ranked = symbol ? (selected ?? ranking.find(item => item.symbol === symbol)) : null
 
   useEffect(() => {
     if (!symbol || loading) return
-    onResearchContext?.(selected && validRun
-      ? { rank: selected.rank, score: selected.score, session: validRun.session, feature_percentiles: selected.feature_percentiles }
+    onResearchContext?.(ranked && validRun
+      ? { rank: ranked.rank, score: ranked.score, session: validRun.session, feature_percentiles: ranked.feature_percentiles }
       : null)
-  }, [symbol, loading, selected, validRun, onResearchContext])
+  }, [symbol, loading, ranked, validRun, onResearchContext])
 
   if (symbol) {
     if (loading) return <div className="text-xs text-muted" role="status">正在載入 live Quant 排名…</div>
     if (error) return <div className="text-xs text-muted" role="alert">Live Quant 摘要目前無法讀取。</div>
     if (!expectedRun || !validRun) return <div className="text-xs text-muted" role="status">目前沒有可用的正式 Live Quant 推薦（{recommendationReason || '資料尚未就緒'}）。</div>
-    if (!selected) return null
+    if (!ranked) return <div className="text-xs text-muted" role="status">此標的未進入本次可計分 universe，沒有可用的 Live Quant 分數。</div>
     const features = featureMap.get(symbol)
     return (
       <section aria-label="Live Quant 摘要" className="rounded-xl border border-accent/20 bg-accent/5 p-3">
         <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
           <strong className="text-sm">Live Quant 摘要</strong>
-          <span className="rounded bg-accent/10 px-1.5 py-0.5 text-[10px] text-accent">即時排名，非 Primary OOS</span>
+          <span className="rounded bg-accent/10 px-1.5 py-0.5 text-[10px] text-accent">{selected ? 'Top-N 入選' : '全市場排名，未入選 Top-N'}</span>
           <span className="ml-auto text-[10px] text-muted">最近完成排名 {validRun.snapshot.signal_session}</span>
         </div>
         <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs">
-          <span>排名 #{selected.rank}</span><span>分數 {formatPct(selected.score, 1)}</span>
-          {Object.entries(selected.feature_percentiles).map(([key, value]) => (
+          <span>排名 #{ranked.rank}</span><span>分數 {formatPct(ranked.score, 1)}</span>
+          {Object.entries(ranked.feature_percentiles).map(([key, value]) => (
             <span key={key} className="text-secondary">{key.replace('momentum_', '')}D 動能 {formatPct(value)}</span>
           ))}
           <span className="text-secondary">20D 波動 {formatPct(finite(features?.volatility_20d))}</span>
           <span className="text-secondary">20D 日均成交額 {finite(features?.adv20_twd) == null ? '—' : `${(finite(features?.adv20_twd)! / 1_000_000).toFixed(0)} 百萬`}</span>
           <span className="text-secondary">相對量 {finite(features?.relative_volume)?.toFixed(2) ?? '—'}</span>
         </div>
-        <p className="mt-1.5 text-[11px] text-secondary">{selectionReasons(selected).join('、') || '入選條件符合既有動能規則'}。說明取自凍結快照因子百分位，未重新計分。</p>
+        <p className="mt-1.5 text-[11px] text-secondary">{selected ? (selectionReasons(selected).join('、') || '入選條件符合既有動能規則') : '此分數來自凍結的 full-universe ranking，未達 Top-N 入選結果'}。說明取自凍結快照因子百分位，未重新計分。</p>
       </section>
     )
   }
