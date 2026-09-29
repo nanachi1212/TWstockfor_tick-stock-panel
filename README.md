@@ -130,9 +130,19 @@ cp .env.example .env
 
 自動檢查與安裝依賴、釋放連接埠、同時起前後端。後端 → <http://localhost:3018> · 前端 → <http://localhost:3011>。
 
-### 方式 D:Windows GUI Launcher
+### 方式 D:Windows 正式桌面入口
 
-Windows 使用者可執行 `dist/Nanachi台股看板.exe`，不需要開 PowerShell 或手動輸入網址。Launcher 會檢查 3018/3011 是否已有本專案服務，必要時啟動既有 backend 與 frontend，通過健康檢查後用 Windows 預設瀏覽器開啟 <http://localhost:3011>。關閉 GUI 時，只有 Launcher 自己啟動的服務可被停止，原本已在運行的服務會保留。
+日常使用請安裝並雙擊桌面的 `Nanachi 台股看板`。它會以 pywebview 直接顯示 React 介面，重用已在 3018 運行的本專案 backend，或自行啟動 backend；關閉視窗時只停止本次自行啟動的服務。正式桌面入口使用既有 `frontend/dist`，不啟動 Vite、不需要 3011，也不依賴 `dev.ps1`。若尚未建立 production frontend，先在 `frontend` 執行一次 `pnpm build`。
+
+```powershell
+.\scripts\install-desktop-shortcut.ps1
+```
+
+捷徑會隱藏 PowerShell 視窗。啟動錯誤記錄在應用程式的 `desktop.log`；若 Python 環境尚未啟動，則記錄在 `%LOCALAPPDATA%\NanachiTaiwanStockPanel\desktop-launcher.log` 並顯示錯誤對話框。
+
+### 方式 E:Windows GUI Launcher（維護與除錯）
+
+`dist/Nanachi台股看板.exe` 保留為服務管理、log 檢視與 troubleshooting GUI。Launcher 會檢查 3018/3011 是否已有本專案服務，必要時啟動 backend 與 Vite frontend，通過健康檢查後用 Windows 預設瀏覽器開啟 <http://localhost:3011>。關閉 GUI 時，只有 Launcher 自己啟動的服務可被停止，原本已在運行的服務會保留。
 
 Launcher 是開發版啟動器，執行時仍需要現有 repository/runtime，包括 `backend/.venv`、Node.js 與 pnpm；它不會把 FastAPI、React、`.env` 或 `data/` 打包進單一 EXE。建立 EXE：
 
@@ -142,7 +152,7 @@ Launcher 是開發版啟動器，執行時仍需要現有 repository/runtime，�
 # .\scripts\build-launcher.ps1 -Python C:\Path\to\python.exe
 ```
 
-可選擇建立桌面捷徑：
+可選擇建立維護工具捷徑 `Nanachi Windows Launcher`：
 
 ```powershell
 .\scripts\install-launcher-shortcut.ps1
