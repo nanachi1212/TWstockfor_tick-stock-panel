@@ -90,6 +90,8 @@ async def _shared_provider_response(
                 max_tokens=3500,
                 timeout=55.0,
                 config_snapshot=config_snapshot,
+                structured_output=True,
+                request_attempt=0,
             ),
             None,
         )
@@ -106,6 +108,8 @@ async def _shared_provider_response(
                     max_tokens=3500,
                     timeout=55.0,
                     config_snapshot=config_snapshot,
+                    structured_output=True,
+                    request_attempt=1,
                 ),
                 None,
             )

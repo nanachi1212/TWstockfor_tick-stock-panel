@@ -801,6 +801,7 @@ export interface TaiwanStockRealtimeDetail {
   change_pct?: number | null
   volume?: number | null
   amount?: number | null
+  amount_meta?: TaiwanSectionMeta | null
   quote_time?: string | null
   market_status: string
   bid_price?: number | null
@@ -936,6 +937,7 @@ export interface TaiwanProfitabilityData {
     trade_date?: string | null
     fetched_at?: string
     status: string
+    fallback_reason?: string | null
   }
 }
 
@@ -956,6 +958,7 @@ export interface TaiwanForeignShareholdingData {
     trade_date?: string | null
     fetched_at?: string
     status: string
+    fallback_reason?: string | null
   }
 }
 
@@ -970,6 +973,7 @@ export interface TaiwanSecuritiesLendingData {
     trade_date?: string | null
     fetched_at?: string
     status: string
+    fallback_reason?: string | null
   }
 }
 
@@ -2855,6 +2859,12 @@ export const api = {
       body: JSON.stringify(profile),
     }),
 
+  aiKeyProfileUpdate: (profileId: string, profile: { name: string; provider: string; api_key?: string; base_url: string; model: string }) =>
+    request<{ ok: boolean; profile: AiKeyProfile }>(
+      `/api/settings/ai-key-profiles/${encodeURIComponent(profileId)}`,
+      { method: 'PATCH', body: JSON.stringify(profile) },
+    ),
+
   aiKeyProfileActivate: (profileId: string) =>
     request<{ ok: boolean; active_profile_id: string }>(
       `/api/settings/ai-key-profiles/${encodeURIComponent(profileId)}/activate`,
@@ -2868,7 +2878,7 @@ export const api = {
     ),
 
   aiKeyProfileTest: (profileId: string) =>
-    request<{ ok: boolean; error?: string; provider?: string; responded?: boolean }>(
+    request<{ ok: boolean; error?: string; error_code?: string; provider?: string; responded?: boolean }>(
       `/api/settings/ai-key-profiles/${encodeURIComponent(profileId)}/test`,
       { method: 'POST', body: '{}' },
     ),

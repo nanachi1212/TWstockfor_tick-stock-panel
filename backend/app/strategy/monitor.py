@@ -758,6 +758,7 @@ class MonitorRuleEngine:
             )
             event = {
                 "ts": int(now * 1000),
+                "triggered_at": _dt.datetime.fromtimestamp(now, _dt.UTC).isoformat(),
                 "rule_id": rule["id"],
                 "rule_name": rule.get("name", ""),
                 "strategy_id": None,
@@ -884,6 +885,7 @@ class MonitorRuleEngine:
 
             ev = {
                 "ts": int(now * 1000),
+                "triggered_at": _dt.datetime.fromtimestamp(now, _dt.UTC).isoformat(),
                 "rule_id": rule["id"],
                 "rule_name": rule.get("name", ""),
                 "strategy_id": rule.get("strategy_id") if rtype == "strategy" else None,
@@ -1288,6 +1290,7 @@ class MonitorRuleEngine:
 
             events.append({
                 "ts": int(now * 1000),
+                "triggered_at": _dt.datetime.fromtimestamp(now, _dt.UTC).isoformat(),
                 "rule_id": rule["id"],
                 "rule_name": rule.get("name", ""),
                 "source": "ladder",

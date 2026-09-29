@@ -14,6 +14,7 @@ from typing import Any
 import polars as pl
 
 from app.taiwan.daily_store import TaiwanDailyStore
+from app.taiwan.observed_universe import ObservedUniverseStore, is_potential_market_session
 from app.taiwan.providers.hybrid_provider import TaiwanHybridProvider
 from app.taiwan.providers.snapshot_provider import OfficialDailySnapshotAdapter
 from app.taiwan.realtime.calendar import TaiwanTradingCalendar
@@ -123,12 +124,14 @@ class TaiwanDailyRefreshService:
         provider: TaiwanHybridProvider | None = None,
         calendar: TaiwanTradingCalendar | None = None,
         snapshot_adapter: OfficialDailySnapshotAdapter | None = None,
+        evidence_store: ObservedUniverseStore | None = None,
         concurrency: int = DEFAULT_CONCURRENCY,
         start_date: str = DEFAULT_START_DATE,
     ) -> None:
         self._store = store or TaiwanDailyStore()
         self._provider = provider or TaiwanHybridProvider()
         self._calendar = calendar or TaiwanTradingCalendar()
+        self._evidence_store = evidence_store or ObservedUniverseStore()
         self._snapshot_adapter = snapshot_adapter or OfficialDailySnapshotAdapter()
         self._concurrency = concurrency
         self._start_date = date.fromisoformat(start_date)
@@ -157,7 +160,7 @@ class TaiwanDailyRefreshService:
 
         cur = start_date
         while cur <= end_date:
-            if self._calendar.is_trading_day(cur) is False:
+            if not is_potential_market_session(cur, self._calendar, self._evidence_store):
                 cur += timedelta(days=1)
                 continue
 

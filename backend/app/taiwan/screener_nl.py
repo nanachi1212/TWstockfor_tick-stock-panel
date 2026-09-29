@@ -19,13 +19,16 @@ Strict Boundaries & Constraints:
 """
 from __future__ import annotations
 
-import json
 import logging
-import re
 from typing import Any
+
 from pydantic import BaseModel, Field
 
-from app.services.ai_provider import generate_ai_text, snapshot_ai_provider_config
+from app.services.ai_provider import (
+    AIOutputTruncated,
+    generate_ai_text,
+    snapshot_ai_provider_config,
+)
 from app.strategy.custom_signals_ai import _extract_json_object
 from app.taiwan.screener import TaiwanScreenerRequest
 
@@ -96,7 +99,12 @@ SYSTEM_PROMPT = """你是一個嚴格的「台股選股條件結構化轉換編�
   "clarification_needed": true/false,
   "clarification_message": "若需要進一步說明時的引導訊息，否則為 null"
 }
+
+直接輸出單一個精簡 JSON 物件。禁止 Markdown、程式碼區塊、前言、解釋或結語。
 """
+
+_INITIAL_MAX_TOKENS = 600
+_TRUNCATION_RETRY_MAX_TOKENS = 1400
 
 
 def _validate_contradictory_ranges(fields: dict[str, Any]) -> list[str]:
@@ -147,22 +155,46 @@ class TaiwanScreenerTranslator:
             {"role": "user", "content": f"請解析以下選股條件並輸出 JSON：\n{cleaned_query}"},
         ]
 
+        config_snapshot = snapshot_ai_provider_config()
         try:
-            raw_text = await generate_ai_text(
-                messages,
-                temperature=0.0,
-                max_tokens=600,
-                timeout=30.0,
-                config_snapshot=snapshot_ai_provider_config(),
-            )
-        except Exception as e:
-            logger.warning("AI provider call failed in screener translate: %s", e)
+            try:
+                raw_text = await generate_ai_text(
+                    messages,
+                    temperature=0.0,
+                    max_tokens=_INITIAL_MAX_TOKENS,
+                    timeout=30.0,
+                    config_snapshot=config_snapshot,
+                    structured_output=True,
+                    request_attempt=0,
+                )
+            except AIOutputTruncated:
+                logger.info("NL screener output truncated; retrying once with a larger budget")
+                raw_text = await generate_ai_text(
+                    messages,
+                    temperature=0.0,
+                    max_tokens=_TRUNCATION_RETRY_MAX_TOKENS,
+                    timeout=30.0,
+                    config_snapshot=config_snapshot,
+                    structured_output=True,
+                    request_attempt=1,
+                )
+        except AIOutputTruncated:
+            logger.warning("NL screener output remained truncated after one retry")
             return TaiwanScreenerTranslation(
                 request=None,
                 recognized_conditions=[],
-                unsupported_conditions=[f"AI 翻譯服務暫時無法使用: {e}"],
+                unsupported_conditions=["AI 翻譯輸出超過長度限制"],
                 clarification_needed=True,
-                clarification_message=f"AI 解析模組暫不可用 ({e})，請使用手動篩選控制項。",
+                clarification_message="AI 解析結果過長，請簡化描述或使用手動篩選控制項。",
+            )
+        except Exception as e:
+            logger.warning("AI provider call failed in screener translate: %s", type(e).__name__)
+            return TaiwanScreenerTranslation(
+                request=None,
+                recognized_conditions=[],
+                unsupported_conditions=["AI 翻譯服務暫時無法使用"],
+                clarification_needed=True,
+                clarification_message="AI 解析模組暫不可用，請使用手動篩選控制項。",
             )
 
         try:

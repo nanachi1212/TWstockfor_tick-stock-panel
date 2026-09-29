@@ -323,6 +323,22 @@ class ObservedUniverseStore:
         return TradingDayEvidence(day, exchange, "unresolved", source, "unexplained_empty")
 
 
+def is_potential_market_session(
+    day: date,
+    calendar: TaiwanTradingCalendar,
+    store: ObservedUniverseStore,
+) -> bool:
+    """Keep a date unless both exchanges confirm it was closed.
+
+    Census evidence overrides weekday/weekend rules, including Saturday make-up
+    sessions. An unresolved weekday remains retryable as a missing session.
+    """
+    return any(
+        store.day_evidence(exchange, day, calendar=calendar).status != "non_trading"
+        for exchange in ("TWSE", "TPEX")
+    )
+
+
 @dataclass(frozen=True)
 class CensusCoverage:
     """Processing progress and observed trading coverage for one exchange."""

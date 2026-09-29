@@ -18,16 +18,21 @@ from unittest.mock import MagicMock
 import polars as pl
 import pytest
 
-from app.taiwan.detail_models import TaiwanStockDetailResponse
+from app.taiwan.detail_models import (
+    SectionMeta,
+    TaiwanDailyRow,
+    TaiwanHistoricalDaily,
+    TaiwanStockDetailResponse,
+    TaiwanStockRealtime,
+)
 from app.taiwan.detail_service import TaiwanStockDetailService
-from app.taiwan.enrichment.models import InstitutionalFlow, MarginTrading, MarketIndex, SourceMeta
-from app.taiwan.realtime.models import RealtimeStatus, TaiwanRealtimeQuote
-from app.taiwan.realtime.monitor_models import TaiwanAlertSeverity, TaiwanMonitorRule, TaiwanRuleType
-from app.taiwan.universe.models import TaiwanInstrument
+from app.taiwan.enrichment.models import SourceMeta
+from app.taiwan.realtime.calendar import TaiwanTradingCalendar
+from app.taiwan.realtime.models import TaiwanRealtimeQuote
 
 
 def _make_sample_quote(symbol: str, price: float, prev_close: float) -> TaiwanRealtimeQuote:
-    code, ex = symbol.split(".")
+    _, ex = symbol.split(".")
     meta = SourceMeta(
         source="twse:mis",
         source_url="https://mis.twse.com.tw/stock/api/getStockInfo.jsp",
@@ -186,3 +191,53 @@ def test_service_partial_failure_tolerance():
     assert res.institutional.status == "unavailable"
     assert res.margin.status == "unavailable"
     assert res.overall_data_quality == "degraded"
+
+
+def test_turnover_fallback_requires_exact_same_session():
+    quote = TaiwanStockRealtime(
+        amount=None,
+        meta=SectionMeta(source="twse:mis", trade_date="2026-09-24", status="available"),
+    )
+    daily = TaiwanHistoricalDaily(
+        rows=[TaiwanDailyRow(date="2026-09-24", open=10, high=11, low=9, close=10, volume=1000, amount=123456)],
+        meta=SectionMeta(source="official_daily", trade_date="2026-09-24", status="available"),
+    )
+    result = TaiwanStockDetailService._apply_same_session_amount_fallback(quote, daily)
+    assert result.amount == 123456
+    assert result.amount_meta.status == "fallback"
+    assert result.amount_meta.trade_date == "2026-09-24"
+
+    mismatch = TaiwanStockRealtime(
+        amount=None,
+        meta=SectionMeta(source="twse:mis", trade_date="2026-09-29", status="available"),
+    )
+    result = TaiwanStockDetailService._apply_same_session_amount_fallback(mismatch, daily)
+    assert result.amount is None
+    assert result.amount_meta.status == "unavailable"
+
+
+def test_recent_sessions_use_confirmed_partitions_not_calendar_offsets():
+    svc = object.__new__(TaiwanStockDetailService)
+    svc.daily_store = MagicMock()
+    svc.daily_store.available_dates.return_value = [
+        date(2026, 9, 21), date(2026, 9, 22), date(2026, 9, 23), date(2026, 9, 24), date(2026, 9, 29),
+    ]
+    svc.trading_calendar = TaiwanTradingCalendar(
+        known_holidays={date(2026, 9, 25), date(2026, 9, 28)},
+    )
+    assert svc._recent_confirmed_sessions() == [
+        date(2026, 9, 29), date(2026, 9, 24), date(2026, 9, 23), date(2026, 9, 22), date(2026, 9, 21),
+    ]
+
+
+def test_market_context_reads_matching_persisted_benchmark():
+    svc = object.__new__(TaiwanStockDetailService)
+    repo = MagicMock()
+    repo.execute_all.return_value = [(date(2026, 9, 24), 260.0), (date(2026, 9, 23), 255.0)]
+    result = svc._aggregate_market_context("TPEX", repo=repo)
+    assert result.benchmark_symbol == "TPEX_INDEX"
+    assert result.benchmark_name == "櫃買指數"
+    assert result.close == 260.0
+    assert result.change_pct == pytest.approx(1.960784)
+    assert result.meta.source == "persisted:kline_index_daily"
+    assert repo.execute_all.call_args.args[1] == ["TPEX_INDEX"]

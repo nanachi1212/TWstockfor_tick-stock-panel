@@ -10,7 +10,7 @@ import logging
 from datetime import date as dt_date
 from typing import Any
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, Request
 from pydantic import BaseModel
 
 from app.taiwan.abnormal_diagnostics import (
@@ -336,6 +336,7 @@ def get_taiwan_current_data(
 
 @router.get("/stocks/{symbol}", response_model=TaiwanStockDetailResponse)
 def get_taiwan_stock_detail(
+    request: Request,
     symbol: str,
     days: int = Query(120, ge=10, le=1000, description="歷史日 K 線根數"),
 ):
@@ -351,7 +352,7 @@ def get_taiwan_stock_detail(
 
     svc = get_taiwan_stock_detail_service()
     try:
-        return svc.get_stock_detail(symbol, days=days)
+        return svc.get_stock_detail(symbol, days=days, repo=getattr(request.app.state, "repo", None))
     except Exception as e:
         logger.exception("Failed to aggregate Taiwan stock detail for %s: %s", symbol, e)
         raise HTTPException(
