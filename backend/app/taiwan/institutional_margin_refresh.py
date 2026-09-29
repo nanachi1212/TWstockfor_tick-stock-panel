@@ -18,16 +18,13 @@ import polars as pl
 
 from app.taiwan.enrichment.institutional import (
     TaiwanInstitutionalProvider,
-    TwseInstitutionalAdapter,
-    TpexInstitutionalAdapter,
 )
 from app.taiwan.enrichment.margin import (
     TaiwanMarginProvider,
-    TwseMarginAdapter,
-    TpexMarginAdapter,
 )
 from app.taiwan.institutional_store import TaiwanInstitutionalStore
 from app.taiwan.margin_store import TaiwanMarginStore
+from app.taiwan.observed_universe import ObservedUniverseStore, is_potential_market_session
 from app.taiwan.providers.http import fetch_json
 from app.taiwan.realtime.calendar import TaiwanTradingCalendar
 
@@ -67,10 +64,12 @@ class TaiwanInstitutionalRefreshService:
         store: TaiwanInstitutionalStore | None = None,
         provider: TaiwanInstitutionalProvider | None = None,
         calendar: TaiwanTradingCalendar | None = None,
+        evidence_store: ObservedUniverseStore | None = None,
     ) -> None:
         self._store = store or TaiwanInstitutionalStore()
         self._provider = provider or TaiwanInstitutionalProvider()
         self._calendar = calendar or TaiwanTradingCalendar()
+        self._evidence_store = evidence_store or ObservedUniverseStore()
 
     def refresh_dates(
         self,
@@ -91,7 +90,7 @@ class TaiwanInstitutionalRefreshService:
         cur = start_date
         while cur <= end_date:
             # Skip confirmed non-trading days
-            if self._calendar.is_trading_day(cur) is False:
+            if not is_potential_market_session(cur, self._calendar, self._evidence_store):
                 cur += timedelta(days=1)
                 continue
 
@@ -170,10 +169,12 @@ class TaiwanMarginRefreshService:
         store: TaiwanMarginStore | None = None,
         provider: TaiwanMarginProvider | None = None,
         calendar: TaiwanTradingCalendar | None = None,
+        evidence_store: ObservedUniverseStore | None = None,
     ) -> None:
         self._store = store or TaiwanMarginStore()
         self._provider = provider or TaiwanMarginProvider()
         self._calendar = calendar or TaiwanTradingCalendar()
+        self._evidence_store = evidence_store or ObservedUniverseStore()
 
     def refresh_dates(
         self,
@@ -194,7 +195,7 @@ class TaiwanMarginRefreshService:
         cur = start_date
         while cur <= end_date:
             # Skip confirmed non-trading days
-            if self._calendar.is_trading_day(cur) is False:
+            if not is_potential_market_session(cur, self._calendar, self._evidence_store):
                 cur += timedelta(days=1)
                 continue
 

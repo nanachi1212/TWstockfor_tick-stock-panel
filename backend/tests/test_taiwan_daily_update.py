@@ -10,17 +10,25 @@ Covers:
 """
 from __future__ import annotations
 
-from datetime import date, datetime
+from datetime import UTC, date, datetime
+from pathlib import Path
 from unittest.mock import MagicMock
+
 import pytest
 from fastapi.testclient import TestClient
 
 from app.main import app
+from app.taiwan.daily_refresh import TaiwanDailyRefreshService
 from app.taiwan.daily_update import (
     TaiwanDailyUpdateService,
     resolve_missing_date_range,
     resolve_target_latest_trading_date,
 )
+from app.taiwan.institutional_margin_refresh import (
+    TaiwanInstitutionalRefreshService,
+    TaiwanMarginRefreshService,
+)
+from app.taiwan.observed_universe import ObservedUniverseStore, is_potential_market_session
 from app.taiwan.realtime.calendar import TAIPEI_TZ, TaiwanTradingCalendar
 
 
@@ -48,13 +56,159 @@ def test_date_resolution_weekday_after_cutoff():
     assert target == date(2026, 8, 31)
 
 
-def test_date_resolution_confirmed_holiday():
+def test_date_resolution_confirmed_holiday(tmp_path: Path):
     """Confirmed holiday resolves to previous available trading day."""
     holiday = date(2026, 9, 2)
     cal = TaiwanTradingCalendar(known_holidays={holiday})
     wed_evening = datetime(2026, 9, 2, 18, 0, tzinfo=TAIPEI_TZ)
-    target = resolve_target_latest_trading_date(calendar=cal, as_of_dt=wed_evening)
+    target = resolve_target_latest_trading_date(
+        calendar=cal, as_of_dt=wed_evening,
+        evidence_store=ObservedUniverseStore(tmp_path / "observed"),
+    )
     assert target == date(2026, 9, 1)
+
+
+def _september_closure_evidence(tmp_path: Path) -> ObservedUniverseStore:
+    store = ObservedUniverseStore(tmp_path / "observed")
+    for exchange in ("TWSE", "TPEX"):
+        for day in (date(2026, 9, 25), date(2026, 9, 28)):
+            store.write(exchange, day, [], confirmed_non_trading_source="twse:holidaySchedule")
+    return store
+
+
+def test_official_holiday_sequence_is_current_before_publication(tmp_path: Path):
+    evidence = _september_closure_evidence(tmp_path)
+    calendar = TaiwanTradingCalendar(known_trading_days={date(2026, 9, 24)})
+    assert [is_potential_market_session(date(2026, 9, day), calendar, evidence)
+            for day in (24, 25, 26, 27, 28)] == [True, False, False, False, False]
+    now = datetime(2026, 9, 29, 10, 0, tzinfo=TAIPEI_TZ)
+    assert resolve_target_latest_trading_date(calendar, now, evidence_store=evidence) == date(2026, 9, 24)
+    assert resolve_missing_date_range(date(2026, 9, 24), date(2026, 9, 28),
+                                      calendar, evidence) is None
+
+    stores = [MagicMock() for _ in range(3)]
+    for store in stores:
+        store.available_dates.return_value = [date(2026, 9, 24)]
+    svc = TaiwanDailyUpdateService(daily_store=stores[0], inst_store=stores[1],
+                                   margin_store=stores[2], calendar=calendar,
+                                   evidence_store=evidence)
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setattr("app.taiwan.daily_update.taipei_now", lambda: now)
+        status = svc.get_freshness()
+    assert status.target_latest_trading_date == "2026-09-24"
+    assert status.is_fully_current
+    assert (status.daily_status, status.institutional_status, status.margin_status) == (
+        "current", "current", "current",
+    )
+    assert (status.daily_days_behind, status.institutional_days_behind,
+            status.margin_days_behind) == (0, 0, 0)
+
+
+def test_real_trading_day_missing_after_cutoff_is_stale(tmp_path: Path):
+    evidence = _september_closure_evidence(tmp_path)
+    calendar = TaiwanTradingCalendar()
+    before = datetime(2026, 9, 29, 15, 59, tzinfo=TAIPEI_TZ)
+    after = datetime(2026, 9, 29, 16, 0, tzinfo=TAIPEI_TZ)
+    assert resolve_target_latest_trading_date(calendar, before, evidence_store=evidence) == date(2026, 9, 24)
+    assert resolve_target_latest_trading_date(calendar, after, evidence_store=evidence) == date(2026, 9, 29)
+    assert resolve_target_latest_trading_date(
+        calendar, datetime(2026, 9, 29, 7, 59, tzinfo=UTC),
+        evidence_store=evidence,
+    ) == date(2026, 9, 24)
+    assert resolve_target_latest_trading_date(
+        calendar, datetime(2026, 9, 29, 8, 0, tzinfo=UTC),
+        evidence_store=evidence,
+    ) == date(2026, 9, 29)
+    stores = [MagicMock() for _ in range(3)]
+    for store in stores:
+        store.available_dates.return_value = [date(2026, 9, 24)]
+    svc = TaiwanDailyUpdateService(daily_store=stores[0], inst_store=stores[1],
+                                   margin_store=stores[2], calendar=calendar,
+                                   evidence_store=evidence)
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setattr("app.taiwan.daily_update.taipei_now", lambda: after)
+        status = svc.get_freshness()
+    assert status.target_latest_trading_date == "2026-09-29"
+    assert status.daily_status == "stale"
+    assert status.daily_days_behind == 1
+
+
+def test_saturday_official_session_overrides_weekend(tmp_path: Path):
+    evidence = ObservedUniverseStore(tmp_path / "observed")
+    saturday = date(2026, 9, 26)
+    evidence.write("TWSE", saturday, [{
+        "date": saturday, "raw_code": "2330", "exchange": "TWSE", "observed": True,
+        "raw_name": "test", "raw_source_category": "stock",
+        "open": 100.0, "high": 100.0, "low": 100.0, "close": 100.0,
+        "volume": 1.0, "amount": 100.0, "instrument_type": None,
+        "instrument_type_status": "data_insufficient", "source": "test:official",
+        "retrieved_at": "2026-09-26T16:30:00+08:00",
+    }])
+    calendar = TaiwanTradingCalendar()
+    assert is_potential_market_session(saturday, calendar, evidence)
+    assert resolve_target_latest_trading_date(
+        calendar, datetime(2026, 9, 27, 10, 0, tzinfo=TAIPEI_TZ),
+        evidence_store=evidence,
+    ) == saturday
+
+
+def test_holiday_scheduler_does_not_fetch(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    evidence = _september_closure_evidence(tmp_path)
+    stores = [MagicMock() for _ in range(3)]
+    services = [MagicMock() for _ in range(3)]
+    for store in stores:
+        store.available_dates.return_value = [date(2026, 9, 24)]
+    svc = TaiwanDailyUpdateService(
+        daily_store=stores[0], inst_store=stores[1], margin_store=stores[2],
+        daily_service=services[0], inst_service=services[1], margin_service=services[2],
+        evidence_store=evidence,
+    )
+    monkeypatch.setattr("app.taiwan.daily_update.taipei_now",
+                        lambda: datetime(2026, 9, 28, 16, 30, tzinfo=TAIPEI_TZ))
+    result = svc.run_update()
+    assert result.target_latest_trading_date == "2026-09-24"
+    assert result.overall_status == "success"
+    for service in services:
+        service.refresh_dates.assert_not_called()
+
+
+def test_official_closure_is_skipped_by_all_incremental_fetchers(tmp_path: Path):
+    evidence = _september_closure_evidence(tmp_path)
+    calendar = TaiwanTradingCalendar()
+    services = (
+        TaiwanDailyRefreshService(store=MagicMock(), snapshot_adapter=MagicMock(),
+                                  calendar=calendar, evidence_store=evidence),
+        TaiwanInstitutionalRefreshService(store=MagicMock(), provider=MagicMock(),
+                                          calendar=calendar, evidence_store=evidence),
+        TaiwanMarginRefreshService(store=MagicMock(), provider=MagicMock(),
+                                   calendar=calendar, evidence_store=evidence),
+    )
+    for service in services:
+        service._store.available_dates.return_value = []
+        result = service.refresh_dates(date(2026, 9, 25), date(2026, 9, 28))
+        assert result["dates_requested"] == 0
+        assert result["failed_dates"] == []
+
+
+def test_data_status_api_uses_official_closures(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+):
+    evidence = _september_closure_evidence(tmp_path)
+    stores = [MagicMock() for _ in range(3)]
+    for store in stores:
+        store.available_dates.return_value = [date(2026, 9, 24)]
+    svc = TaiwanDailyUpdateService(daily_store=stores[0], inst_store=stores[1],
+                                   margin_store=stores[2], evidence_store=evidence)
+    monkeypatch.setattr("app.taiwan.daily_update.taipei_now",
+                        lambda: datetime(2026, 9, 29, 10, 0, tzinfo=TAIPEI_TZ))
+    monkeypatch.setattr("app.api.taiwan.TaiwanDailyUpdateService", lambda: svc)
+    client = TestClient(app, client=("127.0.0.1", 50000))
+    response = client.get("/api/taiwan/data-status")
+    assert response.status_code == 200
+    body = response.json()
+    assert body["daily_as_of"] == body["target_latest_trading_date"] == "2026-09-24"
+    assert body["daily_status"] == "current"
+    assert body["daily_days_behind"] == 0
 
 
 def test_catch_up_multiple_missing_trading_days():
