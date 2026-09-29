@@ -2795,6 +2795,12 @@ export const api = {
       body: JSON.stringify(profile),
     }),
 
+  aiKeyProfileUpdate: (profileId: string, profile: { name: string; provider: string; api_key?: string; base_url: string; model: string }) =>
+    request<{ ok: boolean; profile: AiKeyProfile }>(
+      `/api/settings/ai-key-profiles/${encodeURIComponent(profileId)}`,
+      { method: 'PATCH', body: JSON.stringify(profile) },
+    ),
+
   aiKeyProfileActivate: (profileId: string) =>
     request<{ ok: boolean; active_profile_id: string }>(
       `/api/settings/ai-key-profiles/${encodeURIComponent(profileId)}/activate`,
@@ -2808,7 +2814,7 @@ export const api = {
     ),
 
   aiKeyProfileTest: (profileId: string) =>
-    request<{ ok: boolean; error?: string; provider?: string; responded?: boolean }>(
+    request<{ ok: boolean; error?: string; error_code?: string; provider?: string; responded?: boolean }>(
       `/api/settings/ai-key-profiles/${encodeURIComponent(profileId)}/test`,
       { method: 'POST', body: '{}' },
     ),

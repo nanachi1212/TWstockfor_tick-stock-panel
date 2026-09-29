@@ -239,7 +239,7 @@ def complete_onboarding() -> dict:
 
 
 class AiSettingsIn(BaseModel):
-    provider: str = "openai_compat"
+    provider: str | None = None
     base_url: str = ""
     api_key: str | None = None
     model: str = ""
@@ -380,6 +380,14 @@ class AiKeyProfileCreate(BaseModel):
     model: str = ""
 
 
+class AiKeyProfileUpdate(BaseModel):
+    name: str
+    provider: str = "openai_compat"
+    api_key: str | None = None
+    base_url: str = ""
+    model: str = ""
+
+
 @router.get("/ai-key-profiles")
 def list_ai_key_profiles() -> dict:
     """List all AI key profiles (metadata only, no key values)."""
@@ -426,6 +434,26 @@ def activate_ai_key_profile(profile_id: str) -> dict:
     return {"ok": True, "active_profile_id": profile_id}
 
 
+@router.patch("/ai-key-profiles/{profile_id}")
+def update_ai_key_profile(profile_id: str, req: AiKeyProfileUpdate) -> dict:
+    """Update profile metadata and optionally replace its stored key."""
+    from app.services import ai_key_profiles
+    try:
+        profile = ai_key_profiles.update_profile(
+            profile_id,
+            name=req.name,
+            provider=req.provider or "openai_compat",
+            base_url=req.base_url,
+            model=req.model,
+            api_key=req.api_key,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    if profile is None:
+        raise HTTPException(status_code=404, detail="Profile not found")
+    return {"ok": True, "profile": profile}
+
+
 @router.delete("/ai-key-profiles/{profile_id}")
 def delete_ai_key_profile(profile_id: str) -> dict:
     """Delete a profile and its stored key.
@@ -448,51 +476,40 @@ async def test_ai_key_profile(profile_id: str) -> dict:
     Returns connectivity result without exposing the key or request content.
     """
     from app.services import ai_key_profiles
-    from app.services.ai_provider import generate_ai_text, AIProviderConfigSnapshot
+    from app.services.ai_provider import AIProviderConfigSnapshot, probe_openai_profile_connection
 
     profiles_meta = ai_key_profiles.list_profiles()
     meta = next((p for p in profiles_meta if p["id"] == profile_id), None)
     if meta is None:
         raise HTTPException(status_code=404, detail="Profile not found")
 
-    # Load key from secrets storage via the module's internal lock
-    from app.services.ai_key_profiles import _load_secrets
-    secrets = _load_secrets()
-    key = secrets.get(profile_id, "")
+    profile_config = ai_key_profiles.get_profile_config(profile_id)
+    if profile_config is None:
+        raise HTTPException(status_code=404, detail="Profile not found")
+    if not profile_config["key"]:
+        return {"ok": False, "error_code": "AUTH_ERROR", "error": "Profile has no stored key"}
 
-    if not key:
-        return {"ok": False, "error": "Profile has no stored key"}
-
-    from app.config import settings as app_settings
-    from app.secrets_store import get_ai_config
-    provider = meta.get("provider") or "openai_compat"
-    # Use profile-specific base_url and model; fall back to global settings.
-    profile_base_url = meta.get("base_url") or get_ai_config("ai_base_url", app_settings.ai_base_url)
-    profile_model = meta.get("model") or get_ai_config("ai_model", app_settings.ai_model) or "gpt-4o-mini"
-    try:
-        cfg = AIProviderConfigSnapshot(
-            provider=provider,
-            model=profile_model,
-            api_key=key,
-            base_url=profile_base_url,
-            max_output_tokens=20,
-        )
-        result = await generate_ai_text(
-            [{"role": "user", "content": "Reply with OK"}],
-            max_tokens=20,
-            temperature=0.0,
-            timeout=30.0,
-            config_snapshot=cfg,
-        )
-        return {
-            "ok": True,
-            "profile_id": profile_id,
-            "provider": provider,
-            "responded": bool(result),
-        }
-    except Exception as e:
-        msg = str(e)
-        return {"ok": False, "profile_id": profile_id, "error": msg}
+    provider = profile_config["provider"] or "openai_compat"
+    profile_base_url = profile_config["base_url"]
+    profile_model = profile_config["model"]
+    cfg = AIProviderConfigSnapshot(
+        provider=provider,
+        model=profile_model,
+        api_key=profile_config["key"],
+        base_url=profile_base_url,
+    )
+    result = await probe_openai_profile_connection(cfg)
+    logger.info(
+        "AI profile connection test profile_id=%s base_url=%s model=%s http_status=%s "
+        "finish_reason=%s output_tokens=%s",
+        profile_id,
+        profile_base_url,
+        profile_model,
+        result.get("http_status"),
+        result.get("finish_reason"),
+        result.get("output_tokens"),
+    )
+    return {"profile_id": profile_id, "provider": provider, **result}
 
 
 # ===== 偏好设置 =====

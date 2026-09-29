@@ -109,13 +109,14 @@ def snapshot_ai_provider_config() -> AIProviderConfigSnapshot:
         except (TypeError, ValueError):
             return int(getattr(settings, name, fallback) or fallback)
 
-    # Resolve API key + base_url + model: active profile takes priority over legacy fields.
+    # An active profile is the authoritative endpoint/model/credential source.
+    # Legacy fields are used only when no profile exists.
     from app.services import ai_key_profiles as _profiles
     active_cfg = _profiles.get_active_profile_config()
 
     if active_cfg:
-        resolved_key = active_cfg["key"] or str(stored.get("ai_api_key") or settings.ai_api_key or "")
-        resolved_base_url = active_cfg["base_url"] or configured("ai_base_url", settings.ai_base_url)
+        resolved_key = active_cfg["key"]
+        resolved_base_url = active_cfg["base_url"]
         active_model = active_cfg["model"]
         active_provider = active_cfg["provider"] or configured("ai_provider", OPENAI_COMPAT_PROVIDER)
     else:
@@ -131,7 +132,7 @@ def snapshot_ai_provider_config() -> AIProviderConfigSnapshot:
             model_value = stored.get("ai_model")
         model = normalize_codex_model(str(model_value or ""))
     else:
-        model = active_model or configured("ai_model", settings.ai_model)
+        model = active_model if active_cfg else configured("ai_model", settings.ai_model)
     if "ai_reasoning_effort" in stored:
         reasoning_effort = str(stored.get("ai_reasoning_effort") or "").strip()
     else:
@@ -566,6 +567,97 @@ async def _run_openai_once(
     if finish_reason == "length":
         raise AIOutputTruncated(partial_content=content)
     return content
+
+
+async def probe_openai_profile_connection(
+    config_snapshot: AIProviderConfigSnapshot,
+    *,
+    timeout: float = 30.0,
+) -> dict:
+    """Run a minimal OpenAI-compatible connection probe for one profile.
+
+    This intentionally bypasses research output validation and global token
+    settings. A structurally valid completion is connectivity success even when
+    reasoning consumed the 32-token budget and ``finish_reason`` is ``length``.
+    """
+    if not config_snapshot.api_key:
+        return {"ok": False, "error_code": "AUTH_ERROR", "error": "Profile has no stored key"}
+    if not config_snapshot.model:
+        return {"ok": False, "error_code": "INVALID_MODEL", "error": "Profile model is empty"}
+    if not config_snapshot.base_url and config_snapshot.provider != OPENAI_PROVIDER:
+        return {"ok": False, "error_code": "ENDPOINT_ERROR", "error": "Profile Base URL is empty"}
+
+    client = _openai_client(config_snapshot.api_key, timeout, config_snapshot=config_snapshot)
+    kwargs = _openai_kwargs(
+        temperature=0.0,
+        max_tokens=32,
+        provider=config_snapshot.provider,
+        reasoning_effort="",
+    )
+    try:
+        while True:
+            try:
+                response = await client.chat.completions.create(
+                    model=config_snapshot.model,
+                    messages=[{"role": "user", "content": "Reply exactly with: OK"}],
+                    **kwargs,
+                )
+                break
+            except Exception as exc:
+                retry_kwargs = _openai_retry_kwargs(exc, kwargs)
+                if retry_kwargs is not None:
+                    kwargs = retry_kwargs
+                    continue
+                raise
+    except Exception as exc:
+        status = getattr(exc, "status_code", None)
+        response = getattr(exc, "response", None)
+        if status is None and response is not None:
+            status = getattr(response, "status_code", None)
+        detail = _openai_error_detail(exc) or _format_openai_error(exc)
+        if config_snapshot.api_key:
+            detail = detail.replace(config_snapshot.api_key, "***")
+        detail_lower = detail.lower()
+        if status in (401, 403):
+            error_code = "AUTH_ERROR"
+        elif status == 400 and any(word in detail_lower for word in ("model", "模型", "not found")):
+            error_code = "INVALID_MODEL"
+        elif status == 404:
+            error_code = "ENDPOINT_ERROR"
+        elif status == 429:
+            error_code = "RATE_LIMITED"
+        elif status is not None and status >= 500:
+            error_code = "PROVIDER_UNAVAILABLE"
+        else:
+            error_code = "CONNECTION_ERROR"
+        return {
+            "ok": False,
+            "error_code": error_code,
+            "error": detail,
+            "http_status": status,
+            "finish_reason": None,
+            "output_tokens": 0,
+        }
+
+    if not getattr(response, "choices", None):
+        return {
+            "ok": False,
+            "error_code": "INVALID_RESPONSE",
+            "error": "Provider response did not contain a completion",
+            "http_status": 200,
+            "finish_reason": None,
+            "output_tokens": int(getattr(getattr(response, "usage", None), "completion_tokens", 0) or 0),
+        }
+    choice = response.choices[0]
+    finish_reason = str(getattr(choice, "finish_reason", None) or "")
+    output_tokens = int(getattr(getattr(response, "usage", None), "completion_tokens", 0) or 0)
+    return {
+        "ok": True,
+        "http_status": 200,
+        "finish_reason": finish_reason,
+        "output_tokens": output_tokens,
+        "responded": True,
+    }
 
 
 async def _stream_openai(

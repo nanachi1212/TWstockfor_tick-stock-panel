@@ -177,6 +177,21 @@ def get_active_profile_config() -> dict | None:
     return None
 
 
+def get_profile_config(profile_id: str) -> dict | None:
+    """Return one complete server-side profile config, including its secret."""
+    with _lock:
+        secrets = _load_secrets()
+        for profile in _load_metadata():
+            if profile.get("id") == profile_id:
+                return {
+                    "key": str(secrets.get(profile_id, "")),
+                    "provider": str(profile.get("provider", "openai_compat")),
+                    "base_url": str(profile.get("base_url", "")),
+                    "model": str(profile.get("model", "")),
+                }
+    return None
+
+
 def create_profile(name: str, provider: str, api_key: str, *, base_url: str = "", model: str = "") -> dict:
     """Create a new profile. Returns metadata (no key)."""
     if not name.strip():
@@ -218,6 +233,71 @@ def create_profile(name: str, provider: str, api_key: str, *, base_url: str = ""
             "has_key": True,
             "active": profile["active"],
             "created_at": now,
+        }
+
+
+def update_profile(
+    profile_id: str,
+    *,
+    name: str,
+    provider: str,
+    base_url: str,
+    model: str,
+    api_key: str | None = None,
+) -> dict | None:
+    """Update profile metadata and optionally replace its secret.
+
+    ``api_key=None`` preserves the existing secret. The operation is serialized
+    under the profile lock and rolls both files back if either write fails.
+    """
+    if not name.strip():
+        raise ValueError("Profile name cannot be empty")
+    valid_providers = {"openai_compat", "openai", "codex_cli"}
+    if provider not in valid_providers:
+        raise ValueError("Unsupported AI provider")
+    if api_key is not None and not api_key.strip():
+        raise ValueError("API key cannot be empty")
+
+    with _lock:
+        profiles = _load_metadata()
+        secrets = _load_secrets()
+        profile = next((p for p in profiles if p.get("id") == profile_id), None)
+        if profile is None:
+            return None
+
+        previous_profiles = [dict(p) for p in profiles]
+        previous_secrets = dict(secrets)
+        profile.update({
+            "name": name.strip()[:64],
+            "provider": provider,
+            "base_url": base_url.strip(),
+            "model": model.strip(),
+        })
+        if api_key is not None:
+            secrets[profile_id] = api_key.strip()
+
+        try:
+            _save_secrets(secrets)
+            _save_metadata(profiles)
+        except Exception:
+            # Best-effort rollback keeps metadata and credential from diverging.
+            with contextlib.suppress(Exception):
+                _save_secrets(previous_secrets)
+            with contextlib.suppress(Exception):
+                _save_metadata(previous_profiles)
+            raise
+
+        key_raw = secrets.get(profile_id, "")
+        return {
+            "id": profile_id,
+            "name": profile["name"],
+            "provider": profile["provider"],
+            "base_url": profile["base_url"],
+            "model": profile["model"],
+            "key_masked": mask(key_raw),
+            "has_key": bool(key_raw),
+            "active": bool(profile.get("active", False)),
+            "created_at": profile.get("created_at", ""),
         }
 
 
