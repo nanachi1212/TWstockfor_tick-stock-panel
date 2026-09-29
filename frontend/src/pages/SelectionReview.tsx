@@ -672,6 +672,9 @@ function SnapshotCard({
               </span>
               <span>•</span>
               <span>{item.selected_count} 檔標的</span>
+              {item.source === 'Buy Point' && (
+                <span className="rounded bg-accent/10 px-1.5 py-0.5 text-[10px] text-accent">買點策略</span>
+              )}
             </div>
           </div>
           <button

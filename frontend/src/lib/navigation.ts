@@ -15,6 +15,7 @@ import {
   CalendarDays,
   Sparkles,
   History,
+  BellRing,
   type LucideIcon,
 } from 'lucide-react'
 
@@ -58,6 +59,7 @@ export const CORE_NAV: readonly NavMeta[] = [
   { to: '/events',          label: '事件中心', icon: CalendarDays },
   { to: '/taiwan-screener', label: '台股選股', icon: Filter },
   { to: '/selection-review',label: '選股復盤', icon: History },
+  { to: '/buy-points', label: '買點策略', icon: BellRing },
   { to: '/watchlist',  label: '自選股',   icon: Star },
   { to: '/stocks/compare', label: '多股比較', icon: Scale },
   { to: '/monitor', label: '監控中心', icon: RadioTower },

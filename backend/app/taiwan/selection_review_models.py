@@ -47,6 +47,7 @@ class SelectionSnapshot(BaseModel):
     selected_symbols: list[str] = Field(default_factory=list, description="入選代碼清單")
     items: list[SelectionSnapshotItem] = Field(default_factory=list, description="每檔入選標的明細快照")
     record_type: Literal["research", "forward_batch"] = "research"
+    source: Literal["Screener", "Buy Point"] = "Screener"
     locked_at: str | None = None
     source_data_date: str | None = None
     target_trade_date: str | None = None
@@ -83,6 +84,7 @@ class SaveSelectionSnapshotRequest(BaseModel):
     as_of_date: str
     market_context_summary: str = ""
     items: list[SelectionSnapshotItem]
+    source: Literal["Screener", "Buy Point"] = "Screener"
 
 
 class HorizonReviewItem(BaseModel):
@@ -285,6 +287,7 @@ class SnapshotListItem(BaseModel):
     strategy_id: str
     strategy_version: str | None = None
     strategy_name: str
+    source: Literal["Screener", "Buy Point"] = "Screener"
     as_of_date: str
     selected_count: int
     record_type: Literal["research", "forward_batch"] = "research"
