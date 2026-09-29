@@ -237,6 +237,7 @@ class TaiwanMonitorEngine:
             ]
 
         events: list[dict] = []
+        triggered_at = taipei_now()
         with self._state_lock:
             prior_states = dict(self._trigger_states)
             prior_dirty = self._state_dirty
@@ -273,7 +274,8 @@ class TaiwanMonitorEngine:
                 ))
                 events.append({
                     "alert_id": f"tw_quant_{uuid.uuid5(uuid.NAMESPACE_URL, stable_event_key).hex}",
-                    "ts": int(time.time() * 1000),
+                    "triggered_at": triggered_at.isoformat(),
+                    "ts": int(triggered_at.timestamp() * 1000),
                     "rule_id": rule.rule_id,
                     "rule_name": rule.name,
                     "source": "quant",

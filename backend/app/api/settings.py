@@ -1327,11 +1327,12 @@ def update_telegram_bot(req: NotificationChannelPrefsIn) -> dict:
 def test_line_messaging() -> dict:
     from app.services import preferences, webhook_adapter
 
+    body = webhook_adapter.alert_message(webhook_adapter.build_test_alert_event())
     ok = webhook_adapter.send_line(
         preferences.get_line_channel_access_token(),
         preferences.get_line_target_id(),
-        "TWStock 通知測試",
-        "這是一則測試訊息。若你收到這則訊息就代表通知設定成功。",
+        "",
+        body,
     )
     return {"ok": ok}
 
@@ -1340,11 +1341,12 @@ def test_line_messaging() -> dict:
 def test_telegram_bot() -> dict:
     from app.services import preferences, webhook_adapter
 
+    body = webhook_adapter.alert_message(webhook_adapter.build_test_alert_event())
     ok = webhook_adapter.send_telegram(
         preferences.get_telegram_bot_token(),
         preferences.get_telegram_chat_id(),
-        "TWStock 通知測試",
-        "這是一則測試訊息。若你收到這則訊息就代表通知設定成功。",
+        "",
+        body,
     )
     return {"ok": ok}
 

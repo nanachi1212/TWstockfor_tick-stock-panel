@@ -1419,10 +1419,6 @@ class QuoteService:
             global_channels = preferences.get_external_notification_channels()
 
             rules = engine.rules if engine is not None else {}
-            source_labels = {
-                "strategy": "策略", "signal": "訊號", "price": "價格",
-                "market": "異動", "ladder": "連續漲停梯隊", "sector": "板塊",
-            }
             pending = []
             for ev in rule_events:
                 rule = rules.get(ev.get("rule_id"))
@@ -1447,7 +1443,6 @@ class QuoteService:
 
             enqueued = 0
             for ev, channels in pending:
-                title = source_labels.get(ev.get("source", ""), "提醒")
                 body = webhook_adapter.alert_message(ev)
                 event_id = str(ev.get("alert_id") or ev.get("dedup_key") or "|".join(
                     str(ev.get(key) or "") for key in ("rule_id", "symbol", "sector_key", "type", "ts")
@@ -1456,14 +1451,14 @@ class QuoteService:
                 if "line" in channels:
                     if _claim_external_delivery(event_id, "line"):
                         if line_token and line_target:
-                            _WEBHOOK_EXECUTOR.submit(webhook_adapter.send_line, line_token, line_target, title, body)
+                            _WEBHOOK_EXECUTOR.submit(webhook_adapter.send_line, line_token, line_target, "", body)
                         else:
                             webhook_adapter.record_delivery_status("line", "not_configured")
                         enqueued += 1
                 if "telegram" in channels:
                     if _claim_external_delivery(event_id, "telegram"):
                         if telegram_token and telegram_chat:
-                            _WEBHOOK_EXECUTOR.submit(webhook_adapter.send_telegram, telegram_token, telegram_chat, title, body)
+                            _WEBHOOK_EXECUTOR.submit(webhook_adapter.send_telegram, telegram_token, telegram_chat, "", body)
                         else:
                             webhook_adapter.record_delivery_status("telegram", "not_configured")
                         enqueued += 1

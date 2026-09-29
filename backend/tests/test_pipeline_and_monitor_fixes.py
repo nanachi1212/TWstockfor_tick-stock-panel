@@ -103,7 +103,7 @@ def test_apply_scope_sector_fails_closed():
     assert picked.height == 1
 
 
-def test_ladder_notification_uses_chinese_title_without_brand(monkeypatch):
+def test_ladder_notification_uses_single_formatter_title(monkeypatch):
     calls = []
 
     class CaptureExecutor:
@@ -131,5 +131,5 @@ def test_ladder_notification_uses_chinese_title_without_brand(monkeypatch):
         engine,
     )
 
-    assert [args[2] for _, args in calls] == ["連續漲停梯隊", "連續漲停梯隊"]
-    assert all("TickFlow" not in args[2] for _, args in calls)
+    assert [args[2] for _, args in calls] == ["", ""]
+    assert all(args[3].startswith("【TWStock 市場異動】") for _, args in calls)

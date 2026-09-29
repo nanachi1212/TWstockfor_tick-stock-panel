@@ -1104,6 +1104,7 @@ class TaiwanEventService:
             if alert_id in existing_alert_ids:
                 continue
 
+            triggered_at = datetime.now(UTC)
             alert_event = {
                 "alert_id": alert_id,
                 "symbol": ev.symbol,
@@ -1113,7 +1114,8 @@ class TaiwanEventService:
                 "rule_type": f"event_{ev.event_type}",
                 "severity": "critical" if ev.severity == "risk" else "warning",
                 "message": f"【{ev.event_type_label}】{ev.name} ({ev.code}): {ev.title}。{ev.summary}",
-                "ts": int(datetime.now(UTC).timestamp() * 1000),
+                "triggered_at": triggered_at.isoformat(),
+                "ts": int(triggered_at.timestamp() * 1000),
                 "source": "event_center",
                 "details": ev.details,
             }
@@ -1124,12 +1126,12 @@ class TaiwanEventService:
                 line_token = str(prefs.get("line_channel_access_token") or "")
                 line_target = str(prefs.get("line_user_id") or "")
                 if line_token and line_target:
-                    webhook_adapter.send_line(line_token, line_target, "【事件中心提醒】", body)
+                    webhook_adapter.send_line(line_token, line_target, "", body)
             if prefs.get("telegram_enabled"):
                 tg_token = str(prefs.get("telegram_bot_token") or "")
                 tg_chat = str(prefs.get("telegram_chat_id") or "")
                 if tg_token and tg_chat:
-                    webhook_adapter.send_telegram(tg_token, tg_chat, "【事件中心提醒】", body)
+                    webhook_adapter.send_telegram(tg_token, tg_chat, "", body)
             triggered.append(alert_event)
             existing_alert_ids.add(alert_id)
             delivered_ids.add(alert_id)
