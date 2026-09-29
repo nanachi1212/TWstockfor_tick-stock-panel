@@ -247,8 +247,13 @@ def audit_release_paths(
 ) -> PrivacyAuditReport:
     """Audit files without emitting detected secret values."""
     result = report or PrivacyAuditReport()
-    username = os.environ.get("USERNAME", "")
-    hostname = os.environ.get("COMPUTERNAME", "")
+    # GitHub-hosted runners legitimately embed their ephemeral runner profile
+    # in packaged dependency metadata. It is not maintainer personal data.
+    # Keep local maintainer profile/hostname detection outside that environment,
+    # while the invariant private-workspace and agent-config patterns still run.
+    is_github_runner = os.environ.get("GITHUB_ACTIONS", "").lower() == "true"
+    username = "" if is_github_runner else os.environ.get("USERNAME", "")
+    hostname = "" if is_github_runner else os.environ.get("COMPUTERNAME", "")
     files: list[Path] = []
     for root in paths:
         root = root.resolve()

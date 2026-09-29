@@ -47,3 +47,27 @@ def test_credential_and_maintainer_path_fail_without_echoing_values(monkeypatch,
     assert report.credentials_found > 0
     assert report.maintainer_paths_found > 0
     assert all("sk-example" not in finding["detail"] for finding in report.findings)
+
+
+def test_github_runner_profile_is_not_maintainer_personal_data(monkeypatch, tmp_path: Path):
+    monkeypatch.setenv("GITHUB_ACTIONS", "true")
+    monkeypatch.setenv("USERNAME", "runneradmin")
+    metadata = tmp_path / "metadata.txt"
+    metadata.write_text(
+        r"C:\Users\runneradmin\AppData\Local\pyinstaller\build",
+        encoding="utf-8",
+    )
+
+    report = audit_release_paths([metadata], scope="artifact")
+
+    assert report.result == "PASS"
+    assert report.maintainer_paths_found == 0
+
+    private_build = tmp_path / "private-build.txt"
+    private_build.write_text(
+        r"F:\Projects\Codex project\tick-stock-panel\backend",
+        encoding="utf-8",
+    )
+    private_report = audit_release_paths([private_build], scope="artifact")
+    assert private_report.result == "FAIL"
+    assert private_report.maintainer_paths_found > 0

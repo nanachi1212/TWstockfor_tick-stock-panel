@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import sys
 from pathlib import Path
 
@@ -29,8 +30,9 @@ def main() -> int:
     if args.artifact:
         audit_release_paths(args.artifact, scope="artifact", report=report)
     write_privacy_report(report, args.output)
-    assert_privacy_pass(report)
     print(args.output)
+    print(json.dumps(report.as_public_dict(), ensure_ascii=False, indent=2))
+    assert_privacy_pass(report)
     return 0
 
 
