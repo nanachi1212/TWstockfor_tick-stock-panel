@@ -14,15 +14,15 @@ Covers:
 - Contradictory range rejected
 - Zero external market provider HTTP calls during translation
 """
-import pytest
 from unittest.mock import AsyncMock, patch
+
+import pytest
 from fastapi.testclient import TestClient
 
 from app.main import app
-from app.taiwan.screener import TaiwanScreenerRequest
+from app.services.ai_provider import AIOutputTruncated
 from app.taiwan.screener_nl import (
     TaiwanScreenerTranslator,
-    TaiwanScreenerTranslation,
     _validate_contradictory_ranges,
 )
 
@@ -49,6 +49,76 @@ async def test_translate_foreign_net_min_units():
         assert res.request.foreign_net_min == 1_000_000.0
         assert "外資買超 ≥ 1,000 張" in res.recognized_conditions
         assert res.clarification_needed is False
+
+
+@pytest.mark.asyncio
+async def test_agnes_normal_success_does_not_retry():
+    mock_llm_json = """{
+      "request_fields": {"price_max": 100.0},
+      "recognized_conditions": ["股價 ≤ 100 元"],
+      "unsupported_conditions": [],
+      "clarification_needed": false,
+      "clarification_message": null
+    }"""
+    with patch("app.taiwan.screener_nl.generate_ai_text", new_callable=AsyncMock) as mock_ai:
+        mock_ai.return_value = mock_llm_json
+
+        res = await TaiwanScreenerTranslator().translate("股價低於100元")
+
+    assert res.request is not None
+    assert res.request.price_max == 100.0
+    assert mock_ai.await_count == 1
+    assert mock_ai.await_args.kwargs["max_tokens"] == 600
+
+
+@pytest.mark.asyncio
+async def test_glm_truncation_retries_once_then_succeeds():
+    mock_llm_json = """{
+      "request_fields": {"price_max": 100.0},
+      "recognized_conditions": ["股價 ≤ 100 元"],
+      "unsupported_conditions": [],
+      "clarification_needed": false,
+      "clarification_message": null
+    }"""
+    with patch("app.taiwan.screener_nl.generate_ai_text", new_callable=AsyncMock) as mock_ai:
+        mock_ai.side_effect = [AIOutputTruncated(partial_content='{\"request_fields\"'), mock_llm_json]
+
+        res = await TaiwanScreenerTranslator().translate("股價低於100元")
+
+    assert res.request is not None
+    assert res.request.price_max == 100.0
+    assert [call.kwargs["max_tokens"] for call in mock_ai.await_args_list] == [600, 1400]
+    assert mock_ai.await_args_list[0].kwargs["config_snapshot"] is mock_ai.await_args_list[1].kwargs["config_snapshot"]
+
+
+@pytest.mark.asyncio
+async def test_glm_retry_still_truncated_returns_clean_unavailable_without_secrets():
+    leaked_secret = "SENSITIVE_VALUE_SHOULD_NOT_LEAK"
+    with patch("app.taiwan.screener_nl.generate_ai_text", new_callable=AsyncMock) as mock_ai:
+        mock_ai.side_effect = [
+            AIOutputTruncated(partial_content=f'{{\"secret\":\"{leaked_secret}\"'),
+            AIOutputTruncated(partial_content=f'{{\"secret\":\"{leaked_secret}\"'),
+        ]
+
+        res = await TaiwanScreenerTranslator().translate("股價低於100元")
+
+    assert res.request is None
+    assert res.clarification_needed is True
+    assert mock_ai.await_count == 2
+    assert leaked_secret not in res.model_dump_json()
+
+
+@pytest.mark.asyncio
+async def test_malformed_json_is_not_retried_and_schema_validation_remains_enforced():
+    with patch("app.taiwan.screener_nl.generate_ai_text", new_callable=AsyncMock) as mock_ai:
+        mock_ai.return_value = '{"request_fields": {"price_max": "not-a-number"}'
+
+        res = await TaiwanScreenerTranslator().translate("股價低於100元")
+
+    assert res.request is None
+    assert res.clarification_needed is True
+    assert "合法 JSON" in (res.clarification_message or "")
+    assert mock_ai.await_count == 1
 
 
 @pytest.mark.asyncio
