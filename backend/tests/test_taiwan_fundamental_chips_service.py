@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from datetime import date
+
 from app.services import preferences
 from app.taiwan.finmind_cache import FinMindCache
 from app.taiwan.fundamental_chips_service import TaiwanFundamentalChipsService
@@ -37,6 +39,7 @@ def test_finmind_detail_datasets_use_bounded_start_dates(tmp_path, monkeypatch):
         finmind_adapter=adapter,
         cache=FinMindCache(tmp_path),
     )
+    monkeypatch.setattr(service, "_cutoff_date", lambda _as_of: date(2026, 9, 29))
 
     financial = service.get_financial_statements("8358.TPEX")
     shareholding = service.get_foreign_shareholding("8358.TPEX")

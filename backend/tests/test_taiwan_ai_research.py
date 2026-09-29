@@ -28,20 +28,18 @@ Comprehensive unit tests verifying:
 """
 import json
 from datetime import date
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 from fastapi.testclient import TestClient
 
 from app.main import app
+from app.services.ai_provider import AIEmptyContentError
 from app.taiwan.ai_research import (
     _REPORT_CACHE,
     _REPORT_CACHE_LOCK,
-    TaiwanAIResearchResponse,
     TaiwanAIResearchService,
-    build_evidence_registry,
 )
-from app.taiwan.research_context import TaiwanStockResearchContextService
 
 
 @pytest.fixture(autouse=True)
@@ -208,6 +206,38 @@ async def test_malformed_json_response_graceful_handling():
         assert resp.status == "unavailable"
         assert resp.error_code in ("invalid_output", "INVALID_STRUCTURED_RESPONSE")
         assert resp.report is None
+
+
+@pytest.mark.asyncio
+async def test_empty_provider_content_has_distinct_failure_code():
+    svc = TaiwanAIResearchService()
+
+    with patch("app.taiwan.ai_research.generate_ai_text", new_callable=AsyncMock) as mock_ai:
+        mock_ai.side_effect = AIEmptyContentError("empty message.content")
+        resp = await svc.generate_report("2330.TWSE", target_date=date(2026, 8, 28))
+
+    assert resp.status == "unavailable"
+    assert resp.error_code == "EMPTY_CONTENT"
+    assert resp.report is None
+
+
+@pytest.mark.asyncio
+async def test_valid_json_with_wrong_research_schema_is_rejected_separately():
+    svc = TaiwanAIResearchService()
+
+    with patch("app.taiwan.ai_research.generate_ai_text", new_callable=AsyncMock) as mock_ai:
+        mock_ai.return_value = json.dumps({
+            "overview": "客觀摘要",
+            "key_observations": "should be a list",
+            "risk_factors": [],
+            "watch_next": [],
+            "missing_information": [],
+        })
+        resp = await svc.generate_report("2330.TWSE", target_date=date(2026, 8, 28))
+
+    assert resp.status == "unavailable"
+    assert resp.error_code == "STRUCTURED_SCHEMA_FAILED"
+    assert resp.report is None
 
 
 

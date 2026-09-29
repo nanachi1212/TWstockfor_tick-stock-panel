@@ -40,6 +40,8 @@ from app.taiwan.fundamental_chips_service import (
     TaiwanFundamentalChipsService,
     get_fundamental_chips_service,
 )
+from app.taiwan.institutional_store import TaiwanInstitutionalStore
+from app.taiwan.margin_store import TaiwanMarginStore
 from app.taiwan.providers.hybrid_provider import TaiwanHybridProvider
 from app.taiwan.realtime.calendar import TaiwanTradingCalendar, taipei_now
 from app.taiwan.realtime.monitor_engine import get_monitor_engine
@@ -62,6 +64,8 @@ class TaiwanStockDetailService:
         index_provider: TaiwanIndexProvider | None = None,
         fundamental_chips_service: TaiwanFundamentalChipsService | None = None,
         daily_store: TaiwanDailyStore | None = None,
+        institutional_store: TaiwanInstitutionalStore | None = None,
+        margin_store: TaiwanMarginStore | None = None,
         trading_calendar: TaiwanTradingCalendar | None = None,
     ) -> None:
         self.hybrid_provider = hybrid_provider or TaiwanHybridProvider()
@@ -70,6 +74,8 @@ class TaiwanStockDetailService:
         self.index_provider = index_provider or TaiwanIndexProvider()
         self.fundamental_chips_service = fundamental_chips_service or get_fundamental_chips_service()
         self.daily_store = daily_store or TaiwanDailyStore()
+        self.institutional_store = institutional_store or TaiwanInstitutionalStore()
+        self.margin_store = margin_store or TaiwanMarginStore()
         self.trading_calendar = trading_calendar or TaiwanTradingCalendar()
         self.security_master = get_security_master()
         self.realtime_service = get_realtime_service()
@@ -337,7 +343,12 @@ class TaiwanStockDetailService:
         return TaiwanHistoricalDaily(
             status="unavailable",
             rows=[],
-            meta=SectionMeta(source="hybrid_daily", status="unavailable", is_stale=False),
+            meta=SectionMeta(
+                source="hybrid_daily",
+                status="unavailable",
+                is_stale=False,
+                fallback_reason="no persisted or provider daily rows are available for this symbol",
+            ),
         )
 
     @staticmethod
@@ -381,10 +392,67 @@ class TaiwanStockDetailService:
 
     def _aggregate_institutional(self, sym: TaiwanSymbol) -> TaiwanInstitutionalData:
         """Fetch institutional data for latest trading day, with safe timeout."""
+        source = "tpex:daily_trade" if sym.exchange.value.upper() == "TPEX" else "twse:t86"
+        try:
+            sessions = self._recent_confirmed_sessions()
+        except Exception as exc:
+            logger.debug("Confirmed institutional sessions unavailable for %s: %s", sym.canonical, exc)
+            sessions = []
+        store = getattr(self, "institutional_store", None)
+        if store is not None and sessions:
+            try:
+                persisted = store.read_range([sym.canonical], min(sessions), max(sessions))
+                rows = [
+                    row
+                    for row in persisted.iter_rows(named=True)
+                    if row.get("date") in set(sessions)
+                ]
+                if rows:
+                    rows_by_date = {row["date"]: row for row in rows}
+                    latest_date = next(session for session in sessions if session in rows_by_date)
+                    latest = rows_by_date[latest_date]
+                    rolling = [rows_by_date[d] for d in sessions if d in rows_by_date]
+
+                    def _rolling_sum(field: str) -> int | None:
+                        values = [row.get(field) for row in rolling]
+                        return sum(value for value in values if value is not None) if any(
+                            value is not None for value in values
+                        ) else None
+
+                    computed = latest.get("computed_net")
+                    total = computed if computed is not None else latest.get("official_net")
+                    is_stale = latest_date != sessions[0]
+                    return TaiwanInstitutionalData(
+                        status="available",
+                        foreign_net=latest.get("foreign_net"),
+                        investment_trust_net=latest.get("investment_trust_net"),
+                        dealer_net=latest.get("dealer_net"),
+                        total_net=total,
+                        foreign_net_5d=_rolling_sum("foreign_net"),
+                        investment_trust_net_5d=_rolling_sum("investment_trust_net"),
+                        dealer_net_5d=_rolling_sum("dealer_net"),
+                        trend=rolling,
+                        meta=SectionMeta(
+                            source=str(latest.get("source") or source),
+                            trade_date=latest_date.isoformat(),
+                            status="stale" if is_stale else "available",
+                            is_stale=is_stale,
+                            fallback_reason=(
+                                "latest persisted institutional row predates the newest confirmed session"
+                                if is_stale
+                                else None
+                            ),
+                        ),
+                    )
+            except Exception as exc:
+                logger.debug("Persisted institutional data unavailable for %s: %s", sym.canonical, exc)
+        attempted: list = []
+        failed = False
         try:
             flows = []
             trade_dt = None
-            for check_d in self._recent_confirmed_sessions():
+            for check_d in sessions:
+                attempted.append(check_d)
                 try:
                     flows = self.institutional_provider.fetch_live_day(
                         exchange=sym.exchange.value.upper(),
@@ -396,17 +464,19 @@ class TaiwanStockDetailService:
                         trade_dt = check_d
                         break
                 except Exception:
+                    failed = True
                     continue
 
             if flows:
                 f = flows[0]
                 total = f.computed_net if f.computed_net is not None else f.official_net
+                is_stale = bool(f.meta and f.meta.is_stale)
                 meta = SectionMeta(
-                    source=f.meta.source if f.meta else "twse:t86",
+                    source=f.meta.source if f.meta else source,
                     trade_date=trade_dt.isoformat() if trade_dt else None,
                     fetched_at=f.meta.fetched_at.isoformat() if f.meta and f.meta.fetched_at else None,
-                    status="available" if not f.meta.is_stale else "stale",
-                    is_stale=f.meta.is_stale if f.meta else False,
+                    status="stale" if is_stale else "available",
+                    is_stale=is_stale,
                 )
                 return TaiwanInstitutionalData(
                     status="available",
@@ -414,25 +484,94 @@ class TaiwanStockDetailService:
                     investment_trust_net=f.investment_trust_net,
                     dealer_net=f.dealer_net,
                     total_net=total,
-                    foreign_net_5d=f.foreign_net,  # 1-day fallback if rolling not precalculated
-                    investment_trust_net_5d=f.investment_trust_net,
-                    dealer_net_5d=f.dealer_net,
+                    # A single-session provider result is not a 5-session sum.
+                    # Keep rolling values unavailable until an authoritative
+                    # local rolling dataset supplies them.
+                    foreign_net_5d=None,
+                    investment_trust_net_5d=None,
+                    dealer_net_5d=None,
                     meta=meta,
                 )
         except Exception as e:
             logger.debug("Institutional aggregation skipped for %s: %s", sym.canonical, e)
+            failed = True
+
+        if not sessions:
+            reason = "no confirmed Taiwan trading session is available in the persisted daily store"
+        elif failed:
+            reason = (
+                f"official institutional flow lookup failed or returned no row for {sym.code} "
+                f"across {len(attempted)} confirmed sessions"
+            )
+        else:
+            reason = (
+                f"official institutional flow source returned no row for {sym.code} "
+                f"across {len(attempted)} confirmed sessions"
+            )
 
         return TaiwanInstitutionalData(
             status="unavailable",
-            meta=SectionMeta(source="twse:t86", status="unavailable", is_stale=False),
+            meta=SectionMeta(
+                source=source,
+                trade_date=attempted[0].isoformat() if attempted else None,
+                status="unavailable",
+                is_stale=False,
+                fallback_reason=reason,
+            ),
         )
 
     def _aggregate_margin(self, sym: TaiwanSymbol) -> TaiwanMarginData:
         """Fetch margin data for latest trading day, with safe timeout."""
+        source = "tpex:margin_balance" if sym.exchange.value.upper() == "TPEX" else "twse:mi_margn"
+        try:
+            sessions = self._recent_confirmed_sessions()
+        except Exception as exc:
+            logger.debug("Confirmed margin sessions unavailable for %s: %s", sym.canonical, exc)
+            sessions = []
+        store = getattr(self, "margin_store", None)
+        if store is not None and sessions:
+            try:
+                persisted = store.read_range([sym.canonical], min(sessions), max(sessions))
+                rows = [
+                    row
+                    for row in persisted.iter_rows(named=True)
+                    if row.get("date") in set(sessions)
+                ]
+                if rows:
+                    rows_by_date = {row["date"]: row for row in rows}
+                    latest_date = next(session for session in sessions if session in rows_by_date)
+                    latest = rows_by_date[latest_date]
+                    rolling = [rows_by_date[d] for d in sessions if d in rows_by_date]
+                    is_stale = latest_date != sessions[0]
+                    return TaiwanMarginData(
+                        status="available",
+                        margin_balance=latest.get("margin_balance"),
+                        margin_change=latest.get("margin_change"),
+                        short_balance=latest.get("short_balance"),
+                        short_change=latest.get("short_change"),
+                        short_margin_ratio=latest.get("short_margin_ratio"),
+                        trend=rolling,
+                        meta=SectionMeta(
+                            source=str(latest.get("source") or source),
+                            trade_date=latest_date.isoformat(),
+                            status="stale" if is_stale else "available",
+                            is_stale=is_stale,
+                            fallback_reason=(
+                                "latest persisted margin row predates the newest confirmed session"
+                                if is_stale
+                                else None
+                            ),
+                        ),
+                    )
+            except Exception as exc:
+                logger.debug("Persisted margin data unavailable for %s: %s", sym.canonical, exc)
+        attempted: list = []
+        failed = False
         try:
             margins = []
             trade_dt = None
-            for check_d in self._recent_confirmed_sessions():
+            for check_d in sessions:
+                attempted.append(check_d)
                 try:
                     margins = self.margin_provider.fetch_live_day(
                         exchange=sym.exchange.value.upper(),
@@ -444,16 +583,18 @@ class TaiwanStockDetailService:
                         trade_dt = check_d
                         break
                 except Exception:
+                    failed = True
                     continue
 
             if margins:
                 m = margins[0]
+                is_stale = bool(m.meta and m.meta.is_stale)
                 meta = SectionMeta(
-                    source=m.meta.source if m.meta else "twse:mi_margn",
+                    source=m.meta.source if m.meta else source,
                     trade_date=trade_dt.isoformat() if trade_dt else None,
                     fetched_at=m.meta.fetched_at.isoformat() if m.meta and m.meta.fetched_at else None,
-                    status="available" if not m.meta.is_stale else "stale",
-                    is_stale=m.meta.is_stale if m.meta else False,
+                    status="stale" if is_stale else "available",
+                    is_stale=is_stale,
                 )
                 return TaiwanMarginData(
                     status="available",
@@ -466,10 +607,30 @@ class TaiwanStockDetailService:
                 )
         except Exception as e:
             logger.debug("Margin aggregation skipped for %s: %s", sym.canonical, e)
+            failed = True
+
+        if not sessions:
+            reason = "no confirmed Taiwan trading session is available in the persisted daily store"
+        elif failed:
+            reason = (
+                f"official margin/short lookup failed or returned no row for {sym.code} "
+                f"across {len(attempted)} confirmed sessions"
+            )
+        else:
+            reason = (
+                f"official margin/short source returned no row for {sym.code} "
+                f"across {len(attempted)} confirmed sessions"
+            )
 
         return TaiwanMarginData(
             status="unavailable",
-            meta=SectionMeta(source="twse:mi_margn", status="unavailable", is_stale=False),
+            meta=SectionMeta(
+                source=source,
+                trade_date=attempted[0].isoformat() if attempted else None,
+                status="unavailable",
+                is_stale=False,
+                fallback_reason=reason,
+            ),
         )
 
     def _aggregate_factors(
@@ -485,7 +646,14 @@ class TaiwanStockDetailService:
         if not has_any:
             return TaiwanFactorsData(
                 status="unavailable",
-                meta=SectionMeta(source="factors_pipeline", status="unavailable", is_stale=False),
+                meta=SectionMeta(
+                    source="factors_pipeline",
+                    status="unavailable",
+                    is_stale=False,
+                    fallback_reason=(
+                        "institutional and margin inputs are unavailable; deterministic factors were not computed"
+                    ),
+                ),
             )
 
         return TaiwanFactorsData(

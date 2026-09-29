@@ -760,12 +760,15 @@ export interface TaiwanSearchResult {
 export interface TaiwanSectionMeta {
   source: string
   trade_date?: string | null
+  data_date?: string | null
   fetched_at?: string | null
   status: 'available' | 'unavailable' | 'stale' | 'fallback' | string
   is_stale: boolean
   fallback_reason?: string | null
+  reason?: string | null
   source_type?: string | null
   freshness_class?: string | null
+  freshness?: string | null
   is_realtime?: boolean | null
 }
 
@@ -1534,6 +1537,15 @@ export interface TaiwanLiveQuantSignal {
   reason_summary?: string
 }
 
+export interface TaiwanLiveQuantRank {
+  symbol: string
+  score: number
+  rank: number
+  selected: boolean
+  momentum_20d?: number | null
+  feature_percentiles: Record<string, number>
+}
+
 export interface TaiwanLiveQuantRun {
   model_key: string
   session: string
@@ -1552,6 +1564,7 @@ export interface TaiwanLiveQuantRun {
     usage_scope: string
     validation_state: string
     model: { model_key: string; version?: string; top_n: number; validation_state: string }
+    ranking?: TaiwanLiveQuantRank[]
     signals: TaiwanLiveQuantSignal[]
     features: Array<Record<string, unknown> & { symbol: string }>
   }
