@@ -71,6 +71,75 @@ def _ensure_data_dir_writable() -> None:
         raise
 
 
+def _install_bundled_release_seed():
+    """Install the read-only public seed on a pristine frozen profile.
+
+    Verification or installation failure is fail-safe for user data and does
+    not block the GUI.  The app starts with an explicit unavailable/stale data
+    state so an offline user can still reach settings and diagnostics.
+    """
+    from app.config import settings
+    from app.release_seed import SeedInstallResult, install_release_seed
+
+    if not getattr(sys, "frozen", False):
+        return SeedInstallResult(status="missing")
+    result = install_release_seed(settings.release_seed_bundle, settings.data_dir)
+    if result.status == "failed":
+        logger.error(
+            "bundled release seed rejected; startup continues without import: %s",
+            result.error,
+        )
+    elif result.status == "installed":
+        logger.info(
+            "bundled release seed installed: data_as_of=%s files=%d",
+            result.data_as_of,
+            result.installed_files,
+        )
+    else:
+        logger.info(
+            "bundled release seed not applied: status=%s existing=%s",
+            result.status,
+            result.latest_existing,
+        )
+    return result
+
+
+def _migrate_legacy_data_before_seed() -> None:
+    """Preserve old installed user data before a fresh profile can receive seed data."""
+    if not getattr(sys, "frozen", False):
+        return
+    from app.config import settings
+    from app.repository import migrate_legacy_desktop_data
+
+    migrate_legacy_desktop_data(settings.data_dir)
+
+
+def _start_seed_incremental_refresh(seed_result) -> threading.Thread | None:
+    """Refresh seed date to latest in background; network failure stays non-fatal."""
+    if seed_result.status != "installed" or not seed_result.needs_incremental:
+        return None
+
+    def refresh() -> None:
+        try:
+            from app.taiwan.bootstrap import get_bootstrap_service
+
+            result = get_bootstrap_service().update_to_latest()
+            logger.info("first-run seed incremental refresh completed: %s", result)
+        except Exception as exc:  # offline startup must remain usable
+            logger.warning(
+                "first-run seed incremental refresh unavailable; seed remains usable: %s",
+                exc,
+            )
+
+    thread = threading.Thread(
+        target=refresh,
+        daemon=True,
+        name="release-seed-incremental-refresh",
+    )
+    thread.start()
+    return thread
+
+
 def _acquire_single_instance() -> bool:
     """单实例锁。已运行返回 False (本进程应退出), 否则 True。
 
@@ -363,6 +432,9 @@ def main() -> int:
         _show_crash(f"{_APP_NAME} 啟動失敗", str(exc))
         return 1
 
+    _migrate_legacy_data_before_seed()
+    seed_result = _install_bundled_release_seed()
+
     # 单实例: 已运行则退出
     if not _acquire_single_instance():
         return 0
@@ -391,6 +463,8 @@ def main() -> int:
             server_thread.start()
             if not _wait_for_server(port, timeout=60.0):
                 raise RuntimeError("後端健康檢查逾時, 詳情請查看 desktop.log")
+
+        _start_seed_incremental_refresh(seed_result)
 
         if not _ui_ready(port):
             raise RuntimeError("backend 已啟動, 但 production React UI 尚未就緒")
