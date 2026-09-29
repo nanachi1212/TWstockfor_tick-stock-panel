@@ -25,7 +25,6 @@ from app.taiwan.bootstrap import (  # noqa: E402
     locate_taiwan_in_extracted,
     safe_extract_zip,
 )
-from app.taiwan.bundle import verify_bundle  # noqa: E402
 
 
 def _sha256(path: Path) -> str:
@@ -55,8 +54,9 @@ def main() -> int:
             urllib.request.urlretrieve(DOWNLOAD_URL, bundle)
         if _sha256(bundle).lower() != EXPECTED_SHA256.lower():
             raise RuntimeError("pinned public core bundle SHA256 mismatch")
-        verify_bundle(bundle)
-
+        # The pinned public download predates the current bundle manifest format.
+        # Its immutable SHA authenticates the input; safe extraction plus the
+        # release-seed allowlist/schema/checksum pass below validates the output.
         extracted = temp / "extracted"
         safe_extract_zip(bundle, extracted)
         source = locate_taiwan_in_extracted(extracted)
