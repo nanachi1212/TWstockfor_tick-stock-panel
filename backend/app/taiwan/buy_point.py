@@ -423,6 +423,23 @@ class BuyPointStrategyStore:
                 value = value.get("status")
             return str(value) if value is not None else None
 
+    def state_snapshot(self, key: str) -> tuple[str | None, float | None]:
+        """Read status and cooldown timestamp from one atomic file snapshot."""
+        with self._lock:
+            payload = self._read()
+            state_value = payload.get("states", {}).get(key)
+            if isinstance(state_value, dict):
+                state_value = state_value.get("status")
+            timestamp = payload.get("last_triggered", {}).get(key)
+            try:
+                last_triggered = float(timestamp)
+            except (TypeError, ValueError):
+                last_triggered = None
+            return (
+                str(state_value) if state_value is not None else None,
+                last_triggered,
+            )
+
     def set_state(self, key: str, state: str) -> None:
         with self._lock:
             payload = self._read()

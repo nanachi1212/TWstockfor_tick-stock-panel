@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import hashlib
 import logging
+import math
 import time
 import uuid
 from datetime import date, timedelta
@@ -125,7 +126,11 @@ def _market_data(
     prior_volume_rows = rows[-21:-1]
     volumes = [float(row["volume"]) for row in prior_volume_rows if row.get("volume") is not None]
     volume_average = sum(volumes) / len(volumes) if len(volumes) == 20 else None
-    price = float(last["close"]) if last.get("close") is not None else None
+    try:
+        parsed_price = float(last["close"]) if last.get("close") is not None else None
+    except (TypeError, ValueError):
+        parsed_price = None
+    price = parsed_price if parsed_price is not None and math.isfinite(parsed_price) else None
     ma20 = getattr(item, "ma20", None)
     price_extension = (
         (price - float(ma20)) / float(ma20) * 100
@@ -196,8 +201,8 @@ def _market_data(
         name=getattr(item, "name", "") or "",
         data_as_of=data_as_of,
         freshness=(
-            "daily_cached" if rows and data_as_of == eligible_date
-            else "stale" if rows and eligible_date is not None
+            "daily_cached" if rows and data_as_of == eligible_date and price is not None
+            else "stale" if rows and eligible_date is not None and data_as_of != eligible_date
             else "unavailable"
         ),
         price=price,
@@ -302,8 +307,7 @@ def _dispatch_alerts(
             continue
         strategy = catalog[signal.strategy_id]
         state_key = f"{signal.strategy_id}:{signal.symbol}"
-        previous = store.state(state_key)
-        last_triggered = store.last_triggered_at(state_key)
+        previous, last_triggered = store.state_snapshot(state_key)
         cooldown_seconds = max(0, strategy.conditions.cooldown_minutes) * 60
         if previous == "triggered":
             continue

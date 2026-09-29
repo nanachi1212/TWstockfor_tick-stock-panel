@@ -220,6 +220,30 @@ def test_market_data_uses_prior_twenty_days_and_populates_preset_fields(monkeypa
     assert result.regulatory_unknown is False
 
 
+def test_current_eligible_row_requires_finite_close(monkeypatch):
+    rows = [
+        {"date": f"2026-09-{day:02d}", "close": 100, "volume": 100}
+        for day in range(1, 21)
+    ] + [{"date": "2026-09-21", "close": None, "volume": 100}]
+    monkeypatch.setattr(buy_points, "_daily_data", lambda _symbol: (rows, "2026-09-21"))
+    result = buy_points._market_data(
+        "2330.TWSE",
+        item=SimpleNamespace(name="台積電", quant_score=80),
+        eligible_date="2026-09-21",
+        load_screen=False,
+    )
+    assert result.price is None
+    assert result.freshness == "unavailable"
+    result = result.model_copy(update={
+        "risk_data_available": True, "regulatory_unknown": False,
+        "disposition": False, "suspended": False, "delisted": False,
+        "capital_reduction_critical": False, "severe_event_risk": False,
+    })
+    signal = evaluate_buy_point(strategy(quant_min=60), result)
+    assert signal.status == "unavailable"
+    assert "日線資料新鮮度" in signal.failed_conditions
+
+
 def test_signal_enrichment_covers_every_assigned_symbol(monkeypatch):
     symbols = [f"{index:04d}.TWSE" for index in range(201)]
     scopes: list[list[str]] = []
@@ -333,6 +357,23 @@ def test_alert_transition_id_deduplicates_independent_callers(tmp_path: Path):
     assert second == []
     assert second_store.state("quant_pullback:2330.TWSE") == "triggered"
     assert len(buy_points.alert_store.list_recent(tmp_path)) == 1
+
+
+def test_state_snapshot_reads_status_and_cooldown_together(tmp_path: Path, monkeypatch):
+    store = BuyPointStrategyStore(tmp_path / "strategies.json")
+    reads = 0
+
+    def read_once():
+        nonlocal reads
+        reads += 1
+        return {
+            "states": {"quant_pullback:2330.TWSE": "waiting"},
+            "last_triggered": {"quant_pullback:2330.TWSE": 123.5},
+        }
+
+    monkeypatch.setattr(store, "_read", read_once)
+    assert store.state_snapshot("quant_pullback:2330.TWSE") == ("waiting", 123.5)
+    assert reads == 1
 
 
 def test_snapshot_rejects_stale_market_data(tmp_path: Path, monkeypatch):
