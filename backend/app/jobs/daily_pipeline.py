@@ -951,8 +951,8 @@ def start_scheduler(repo: KlineRepository, capset: CapabilitySet) -> AsyncIOSche
         replace_existing=True,
     )
 
-    # 買點策略只讀本地已落盤資料與自選股設定，每個交易日盤中至少評估兩次。
-    # 外部通知沿用既有 alert/SSE/LINE/Telegram 管線，資料不足時由 evaluator fail closed。
+    # 買點策略只讀本地已落盤資料與自選股設定, 每個交易日盤中至少評估兩次。
+    # 外部通知沿用既有 alert/SSE/LINE/Telegram 管線, 資料不足時由 evaluator fail closed。
     def _scheduled_buy_point_evaluation():
         try:
             from app.api.buy_points import evaluate_watchlist
