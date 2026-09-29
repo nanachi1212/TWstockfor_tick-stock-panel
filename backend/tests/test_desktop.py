@@ -5,6 +5,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 from app import __version__, desktop
+from app.release_seed import SeedInstallResult
 
 
 def _prepare_main(monkeypatch, *, port_open: bool, project_ready: bool) -> list[str]:
@@ -52,6 +53,20 @@ def test_existing_backend_is_reused_and_not_stopped(monkeypatch):
 
     assert desktop.main() == 0
     assert opened == ["http://127.0.0.1:3018/"]
+
+
+def test_legacy_migration_runs_before_seed_install(monkeypatch):
+    _prepare_main(monkeypatch, port_open=True, project_ready=True)
+    calls: list[str] = []
+    monkeypatch.setattr(desktop, "_migrate_legacy_data_before_seed", lambda: calls.append("migrate"))
+    monkeypatch.setattr(
+        desktop,
+        "_install_bundled_release_seed",
+        lambda: (calls.append("seed") or SeedInstallResult(status="missing")),
+    )
+
+    assert desktop.main() == 0
+    assert calls[:2] == ["migrate", "seed"]
 
 
 def test_foreign_port_owner_fails_without_starting_or_killing(monkeypatch):
@@ -132,6 +147,29 @@ def test_log_sanitizer_hides_credentials():
     assert result.count("[已隱藏]") == 3
 
 
+def test_offline_incremental_refresh_is_non_fatal(monkeypatch):
+    class OfflineBootstrap:
+        @staticmethod
+        def update_to_latest():
+            raise OSError("offline")
+
+    monkeypatch.setattr(
+        "app.taiwan.bootstrap.get_bootstrap_service",
+        lambda: OfflineBootstrap(),
+    )
+    thread = desktop._start_seed_incremental_refresh(
+        SeedInstallResult(
+            status="installed",
+            data_as_of="2026-09-29",
+            installed_files=2,
+            needs_incremental=True,
+        )
+    )
+    assert thread is not None
+    thread.join(timeout=5)
+    assert not thread.is_alive()
+
+
 def test_desktop_scripts_are_relative_and_shortcut_targets_formal_entry():
     root = Path(__file__).resolve().parents[2]
     start_script = (root / "scripts" / "start-desktop.ps1").read_text(encoding="utf-8")
@@ -146,3 +184,25 @@ def test_desktop_scripts_are_relative_and_shortcut_targets_formal_entry():
     assert "start-desktop.ps1" in installer
     assert "-WindowStyle Hidden" in installer
     assert "Nanachi 台股看板.lnk" in installer
+
+
+def test_packaging_uses_bundled_seed_and_per_user_data():
+    root = Path(__file__).resolve().parents[2]
+    spec = (root / "packaging" / "tickflow.spec").read_text(encoding="utf-8")
+    inno = (root / "packaging" / "tickflow.iss").read_text(encoding="utf-8")
+
+    assert 'RELEASE_SEED = ROOT / "release-assets"' in spec
+    assert 'datas += [(str(RELEASE_SEED), "release_seed")]' in spec
+    assert "DefaultDirName={localappdata}\\Programs\\NanachiStockPanel" in inno
+    assert "OutputBaseFilename=NanachiStockPanel-Setup-x64" in inno
+    assert "{localappdata}\\NanachiStockPanel\\data" in inno
+    assert "taskkill /F" not in inno
+    assert "MB_DEFBUTTON2" in inno
+    assert "[UninstallDelete]" not in inno.replace("; [UninstallDelete]", "")
+
+    release_workflow = (root / ".github" / "workflows" / "release.yml").read_text(
+        encoding="utf-8"
+    )
+    assert "prepare_release_seed.py" in release_workflow
+    assert "test-windows-installer.ps1" in release_workflow
+    assert "softprops/action-gh-release" not in release_workflow

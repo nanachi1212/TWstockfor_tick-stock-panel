@@ -11,9 +11,9 @@
 ;
 ; 設計決策:
 ;   - 裝到用戶目錄 {localappdata}\Programs\ (不彈 UAC, 不需管理員)
-;   - 用戶數據存在 {app}\data\ (與程序同處一個總目錄, 視覺直觀)
-;   - 卸載時詢問是否刪除用戶數據 ({app}\data\)
-;   - 覆蓋安裝(升級)不動 data\: Inno Setup 只寫程序文件, data 不在安裝清單
+;   - 用戶數據存在 {localappdata}\NanachiStockPanel\data\，與程式隔離
+;   - 卸載時可選擇刪除用戶數據，預設不刪
+;   - 覆蓋安裝(升級)不動 per-user data
 ;   - 桌面 + 開始菜單快捷方式
 ;   - 卸載入口 (控制面板可見)
 ; ===========================================================================
@@ -35,16 +35,14 @@ AppName={#MyAppName}
 AppVerName={#MyAppName} {#MyAppVersion}
 AppVersion={#MyAppVersion}
 AppPublisher={#MyAppPublisher}
-; 默認裝到 D 盤 (非系統盤), 用戶可在精靈中改任意位置
-; 若 D 盤不存在, [Code] 段 InitializeWizard 會自動回退到用戶目錄
-DefaultDirName=D:\NanachiStockPanel
+AppId=NanachiStockPanel
+DefaultDirName={localappdata}\Programs\NanachiStockPanel
 DefaultGroupName={#MyAppName}
 DisableProgramGroupPage=yes
 OutputDir=Output
-OutputBaseFilename=NanachiStockPanel-Setup-{#MyAppVersion}
+OutputBaseFilename=NanachiStockPanel-Setup-x64
 
 ; 關鍵: 不需要管理員權限, 永不彈 UAC
-; 裝到 D 盤普通目錄 (非 Program Files) 不需要管理員權限
 PrivilegesRequired=lowest
 ; 允許用戶在精靈中自由選擇安裝目錄
 DisableDirPage=no
@@ -64,6 +62,10 @@ UninstallDisplayIcon={app}\{#MyAppExeName}
 ; 卸載相關
 Uninstallable=yes
 CreateUninstallRegKey=yes
+CloseApplications=yes
+RestartApplications=no
+ArchitecturesAllowed=x64compatible
+ArchitecturesInstallIn64BitMode=x64compatible
 
 [Languages]
 ; 繁中語言包 ChineseTraditional.isl 內置在 packaging/ 下, 由本倉庫曾使用的
@@ -92,14 +94,7 @@ Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; Tasks: de
 ; 安裝完成後啟動應用
 Filename: "{app}\{#MyAppExeName}"; Description: "{cm:LaunchProgram,{#MyAppName}}"; Flags: nowait postinstall skipifsilent
 
-[UninstallRun]
-; 卸載前先關閉正在運行的應用 (否則 exe 被佔用刪不掉)
-Filename: "{cmd}"; Parameters: "/C taskkill /F /IM {#MyAppExeName}"; Flags: runhidden; RunOnceId: "KillApp"
-
-; [UninstallDelete] 故意不刪 {app}:
-; 用戶數據在 {app}\data\, 若這裡寫 Type: filesandordirs; Name: "{app}" 會連數據一起刪。
-; 卸載默認行為已足夠 —— Inno Setup 會刪除它安裝清單內的所有程序文件, 只留下運行時
-; 生成的 data\ 目錄。是否清理 data\ 由下方 [Code] 的卸載詢問邏輯決定。
+; [UninstallDelete] 故意不刪 per-user data。是否清理由 [Code] 的明確詢問控制。
 
 [Code]
 // ── 輔助函數: 判斷目錄是否為空 ─────────────────────────────────
@@ -126,43 +121,27 @@ begin
   end;
 end;
 
-// ── 啟動時: 若 D 盤不存在, 回退默認路徑到用戶目錄 ───────────────
-// 避免默認 D:\... 但系統沒 D 盤時精靈顯示無效路徑
 function InitializeSetup(): Boolean;
 begin
   Result := True;
 end;
 
-procedure InitializeWizard();
-var
-  DefaultDir: String;
-begin
-  // D 盤存在 → 用 D 盤; 否則回退用戶目錄 (無需管理員權限)
-  if not DirExists('D:\') then
-  begin
-    DefaultDir := ExpandConstant('{localappdata}\Programs\NanachiStockPanel');
-    WizardForm.DirEdit.Text := DefaultDir;
-  end;
-end;
-
 // ── 卸載時詢問是否刪除用戶數據 ─────────────────────────────────
-// 用戶數據在 {app}\data\ (策略/選股/回測/監控/行情), 與程序同處 {app} 總目錄。
-// Inno Setup 卸載默認只刪它裝過的程序文件, data\ 會被保留 (覆蓋安裝/常規卸載都不丟)。
-// 這裡僅在用戶明確「徹底卸載」時, 才詢問是否清理 data\ + {app} 空殼。
+// 用戶數據在 {localappdata}\NanachiStockPanel\data\，不屬於安裝清單。
+// 這裡僅在使用者明確選擇「是」時清理，預設按鈕為「否」。
 procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
 var
   DataDir, AppDir: String;
 begin
   if CurUninstallStep = usPostUninstall then
   begin
-    // {app}\data = 用戶數據目錄 (與程序同總目錄, 子文件夾)
-    DataDir := ExpandConstant('{app}\data');
+    DataDir := ExpandConstant('{localappdata}\NanachiStockPanel\data');
     if DirExists(DataDir) then
     begin
       if SuppressibleMsgBox(
           '是否同時刪除使用者資料？' + #13#10 + #13#10 +
           '位置：' + DataDir + #13#10 +
-          '內容：行情資料、選股結果、回測紀錄、監控規則等' + #13#10 + #13#10 +
+          '內容：公開行情快取、投資組合、自選股、設定、研究快照與監控規則等' + #13#10 + #13#10 +
           '選「是」徹底解除安裝，選「否」保留資料（重新安裝後可恢復）。',
           mbConfirmation, MB_YESNO or MB_DEFBUTTON2, IDNO) = IDYES then
       begin

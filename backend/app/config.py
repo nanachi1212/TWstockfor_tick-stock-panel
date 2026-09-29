@@ -5,6 +5,7 @@ import os
 import sys
 from pathlib import Path
 
+from platformdirs import user_data_path
 from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -22,24 +23,16 @@ def _user_data_root() -> Path:
 
     定位策略 (按优先级):
       1. 环境变量 DATA_DIR (pydantic-settings 自动注入到 settings.data_dir, 不在此处理)
-      2. 打包桌面版: exe 同级的 data/ 子目录 (<安装目录>/data/)
-         —— 与程序同处一个总目录 (用户选择的安装目录), 视觉直观, 便于备份/迁移。
+      2. 打包桌面版: %LOCALAPPDATA%/NanachiStockPanel/data
+         - 与程序安装目录隔离, 升级与卸载默认不触碰使用者数据。
       3. 非 frozen (开发模式): 项目根 data/
 
-    为什么不用 platformdirs 默认 (%LOCALAPPDATA%) 作为主路径:
-      - 落在 C 盘系统目录, 用户不易察觉, 占系统盘空间
-      - 用户期望「数据跟随程序」(便于备份/迁移)
-    为什么放 {app}/data (exe 旁的 data/) 而非 {app} 外的兄弟目录:
-      - 用户体验: 用户选了安装目录, 自然期望「程序和数据都在这」, 单一总目录更直观。
-      - 数据安全: Inno Setup 覆盖安装(升级)时只往 {app} 写新程序文件, 不会清空
-        目录里不在安装清单上的运行时文件 (data/ 即此类), 故覆盖安装不丢数据。
-        (注意: 卸载时需在 .iss 中豁免 data/, 见 packaging/tickflow.iss 的 [UninstallDelete]。)
-    旧版本数据迁移: 见 DataStore._migrate_legacy_data_dir(), 老用户首次启动自动搬迁。
+    旧版本安装目录内的 data/ 会由 DataStore._migrate_legacy_data_dir() 保守复制到
+    新位置; 来源保留, 不会因为迁移失败或升级安装而遗失。
     """
-    # 打包桌面版: exe 同级的 data/ 子目录 (与程序同一总目录, 覆盖安装不丢数据)
+    # 打包桌面版: 固定使用 per-user 可写目录, 绝不把 mutable data 放安装目录。
     if _IS_FROZEN:
-        exe_dir = Path(sys.executable).resolve().parent
-        return exe_dir / "data"
+        return user_data_path("NanachiStockPanel", appauthor=False) / "data"
 
     # 开发模式: 项目根 data/
     return _PROJECT_ROOT / "data"
@@ -124,7 +117,18 @@ class Settings(BaseSettings):
     tiers_yaml: Path = _RESOURCE_ROOT / "tiers.yaml" if _IS_FROZEN else _PROJECT_ROOT / "tiers.yaml"
 
     # 静态文件(前端 dist) — frozen: 资源目录的 static/; 非 frozen: frontend/dist
-    static_dir: Path = _RESOURCE_ROOT / "static" if _IS_FROZEN else (_PROJECT_ROOT / "frontend" / "dist")
+    static_dir: Path = (
+        _RESOURCE_ROOT / "static"
+        if _IS_FROZEN
+        else (_PROJECT_ROOT / "frontend" / "dist")
+    )
+
+    # 桌面 release seed - frozen: PyInstaller 只讀資源; 開發模式指向本機 build 產物。
+    release_seed_bundle: Path = (
+        _RESOURCE_ROOT / "release_seed" / "release-seed.zip"
+        if _IS_FROZEN
+        else _PROJECT_ROOT / "release-assets" / "release-seed" / "release-seed.zip"
+    )
 
     @model_validator(mode="after")
     def _resolve_paths(self) -> Settings:
