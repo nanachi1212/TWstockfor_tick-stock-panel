@@ -4,6 +4,8 @@ import json
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
+from datetime import UTC, datetime, timedelta
+from zoneinfo import ZoneInfo
 
 import httpx
 import pytest
@@ -101,13 +103,23 @@ def test_test_notification_uses_stored_credentials(monkeypatch):
     monkeypatch.setattr(preferences, "get_telegram_chat_id", lambda: "-1001")
     monkeypatch.setattr(webhook_adapter, "send_line", lambda *args: line_call.append(args) or True)
     monkeypatch.setattr(webhook_adapter, "send_telegram", lambda *args: telegram_call.append(args) or True)
+    fixed_event = webhook_adapter.build_test_alert_event(
+        datetime(2026, 9, 29, 10, 15, tzinfo=ZoneInfo("Asia/Taipei")),
+    )
+    monkeypatch.setattr(webhook_adapter, "build_test_alert_event", lambda: fixed_event)
 
     assert settings_api.test_line_messaging() == {"ok": True}
     assert settings_api.test_telegram_bot() == {"ok": True}
     assert line_call[0][:2] == ("line-token", "U123")
     assert telegram_call[0][:2] == ("telegram-token", "-1001")
-    expected_title = "TWStock 通知測試"
-    expected_body = "這是一則測試訊息。若你收到這則訊息就代表通知設定成功。"
+    expected_title = ""
+    expected_body = (
+        "【TWStock 策略提醒】\n\n"
+        "測試股票（A）\n\n"
+        "策略：測試買入策略\n"
+        "目前價格：10 元\n\n"
+        "觸發時間：2026-09-29 10:15"
+    )
     forbidden_simplified = ("测试", "消息", "通知设置", "成功发送", "价格", "触发")
     assert line_call[0][2:] == (expected_title, expected_body)
     assert telegram_call[0][2:] == (expected_title, expected_body)
@@ -199,7 +211,7 @@ def test_notification_status_endpoint_returns_latest_delivery_state(monkeypatch)
 def test_alert_message_includes_stock_and_trigger_but_omits_missing_quote():
     message = webhook_adapter.alert_message({
         "alert_id": "a1",
-        "symbol": "8358.TWSE",
+        "symbol": "8358.TPEX",
         "name": "金居",
         "message": "跌破價格提醒",
         "price": None,
@@ -209,20 +221,21 @@ def test_alert_message_includes_stock_and_trigger_but_omits_missing_quote():
         "quant_score": None,
     })
 
-    assert "8358.TWSE 金居" in message
+    assert message.startswith("【TWStock 價格提醒】")
+    assert "金居（8358.TPEX）" in message
     assert "跌破價格提醒" in message
-    assert "設定門檻: 450元" in message
-    assert "觸發時間: 2026-09-25 13:42" in message
+    assert "設定門檻：450 元" in message
+    assert "觸發時間：2026-09-25 13:42" in message
     assert "目前價格" not in message
 
 
 @pytest.mark.parametrize(
     ("rule_type", "threshold", "expected"),
     [
-        ("change_pct_above", 5, "設定門檻: 5%"),
-        ("volume_above", 1000, "設定門檻: 1000股"),
-        ("volume_spike", 2.5, "設定門檻: 2.5倍"),
-        ("near_upper_limit", 3, "設定門檻: 3%"),
+        ("change_pct_above", 5, "設定門檻：5%"),
+        ("volume_above", 1000, "設定門檻：1,000 股"),
+        ("volume_spike", 2.5, "設定門檻：2.5 倍"),
+        ("near_upper_limit", 3, "設定門檻：3%"),
     ],
 )
 def test_alert_message_preserves_taiwan_threshold_units(rule_type, threshold, expected):
@@ -244,7 +257,7 @@ def test_alert_message_formats_quant_score_as_percentage():
         "quant_score": 0.91,
     })
 
-    assert "Quant 分數: 91.0%" in message
+    assert "Quant 分數：91.0%" in message
     assert "Quant: 0.91" not in message
 
     message_with_score = webhook_adapter.alert_message({
@@ -252,6 +265,155 @@ def test_alert_message_formats_quant_score_as_percentage():
         "quant_score": 0.91,
     })
     assert message_with_score.count("91.0%") == 1
+
+
+def test_alert_message_prefers_iso_timestamp_and_converts_to_taipei():
+    message = webhook_adapter.alert_message({
+        "source": "signal",
+        "triggered_at": "2026-09-25T05:42:00Z",
+        "ts": 1_000_000_000,
+    })
+
+    assert "觸發時間：2026-09-25 13:42" in message
+    assert "2001-09" not in message
+
+
+def test_alert_message_falls_back_to_ts_when_iso_timestamp_is_invalid():
+    instant = datetime.now(UTC).replace(second=0, microsecond=0) - timedelta(minutes=1)
+    message = webhook_adapter.alert_message({
+        "source": "signal",
+        "triggered_at": "1970-01-01T00:00:00Z",
+        "ts": int(instant.timestamp()),
+    })
+
+    expected = instant.astimezone(ZoneInfo("Asia/Taipei")).strftime("觸發時間：%Y-%m-%d %H:%M")
+    assert expected in message
+    assert "1970" not in message
+
+
+def test_alert_message_supports_unix_seconds_and_milliseconds_consistently():
+    instant = datetime.now(UTC).replace(second=0, microsecond=0) - timedelta(minutes=1)
+    seconds_message = webhook_adapter.alert_message({"source": "signal", "ts": int(instant.timestamp())})
+    millis_message = webhook_adapter.alert_message({"source": "signal", "ts": int(instant.timestamp() * 1000)})
+    expected = instant.astimezone(ZoneInfo("Asia/Taipei")).strftime("觸發時間：%Y-%m-%d %H:%M")
+
+    assert expected in seconds_message
+    assert expected in millis_message
+    assert "1970" not in seconds_message
+    assert "1970" not in millis_message
+
+
+@pytest.mark.parametrize("timestamp", [0, 1, -1, 999_999_999])
+def test_alert_message_omits_zero_or_invalid_timestamp(timestamp):
+    message = webhook_adapter.alert_message({"source": "signal", "ts": timestamp})
+
+    assert "觸發時間" not in message
+    assert "1970" not in message
+
+
+def test_alert_message_omits_missing_or_implausible_future_timestamp():
+    no_timestamp = webhook_adapter.alert_message({"source": "signal"})
+    future = datetime.now(UTC) + timedelta(days=2)
+    future_timestamp = webhook_adapter.alert_message({"source": "signal", "ts": future.timestamp() * 1000})
+
+    assert "觸發時間" not in no_timestamp
+    assert "觸發時間" not in future_timestamp
+
+
+def test_strategy_alert_uses_rule_name_and_deduplicates_same_reason():
+    message = webhook_adapter.alert_message({
+        "source": "strategy",
+        "symbol": "2330.TWSE",
+        "name": "台積電",
+        "rule_name": "測試買入策略",
+        "strategy_name": "備用策略名稱",
+        "message": "測試買入策略",
+        "price": 168.5000000000,
+        "threshold": 160.0,
+        "triggered_at": "2026-09-25T13:42:00+08:00",
+    })
+
+    assert message.count("【TWStock 策略提醒】") == 1
+    assert "台積電（2330.TWSE）" in message
+    assert "策略：測試買入策略" in message
+    assert "原因：測試買入策略" not in message
+    assert "目前價格：168.5 元" in message
+    assert "設定門檻：160 元" in message
+
+
+@pytest.mark.parametrize(
+    ("event", "expected_stock"),
+    [
+        ({"symbol": "8358.TPEX", "name": ""}, "8358.TPEX"),
+        ({"symbol": "", "name": "金居"}, "金居"),
+        ({"symbol": "A", "name": "測試股票"}, "測試股票（A）"),
+    ],
+)
+def test_alert_message_stock_label_handles_missing_fields(event, expected_stock):
+    message = webhook_adapter.alert_message({"source": "price", **event})
+
+    assert expected_stock in message
+
+
+def test_buy_point_alert_is_concise_and_lists_reasons_and_risks():
+    message = webhook_adapter.alert_message({
+        "type": "buy_point",
+        "source": "strategy",
+        "symbol": "8358.TPEX",
+        "name": "金居",
+        "strategy_name": "趨勢買點",
+        "price": 498.0,
+        "trigger_reasons": ["站上 20 日線", "量能擴大", "價格突破"],
+        "risk_flags": ["近期波動偏高"],
+        "triggered_at": "2026-09-25T13:42:00+08:00",
+    })
+
+    assert message.startswith("【TWStock 買點提醒】")
+    assert "金居（8358.TPEX）" in message
+    assert "策略：趨勢買點\n狀態：已觸發" in message
+    assert "目前價格：498 元" in message
+    assert "觸發原因：\n• 站上 20 日線\n• 量能擴大\n• 價格突破" in message
+    assert "風險提示：\n• 近期波動偏高" in message
+
+
+def test_strategy_with_buy_point_id_uses_buy_point_format():
+    message = webhook_adapter.alert_message({
+        "source": "strategy",
+        "buy_point_strategy_id": "bp-1",
+        "rule_name": "回檔買點",
+    })
+
+    assert message.startswith("【TWStock 買點提醒】")
+    assert "狀態：已觸發" in message
+
+
+def test_price_alert_formats_price_percentage_and_canonical_volume_without_raw_floats():
+    message = webhook_adapter.alert_message({
+        "source": "price",
+        "symbol": "2330.TWSE",
+        "name": "台積電",
+        "message": "突破價格門檻",
+        "price": 10.00000000001,
+        "change_pct": 1.25000000001,
+        "volume": 1234567.0,
+        "volume_unit": "shares",
+    })
+
+    assert message.startswith("【TWStock 價格提醒】")
+    assert "目前價格：10 元" in message
+    assert "漲跌幅：1.25%" in message
+    assert "成交量：1,234,567 股" in message
+    assert "10.000000" not in message
+
+
+def test_alert_message_strips_embedded_twstock_title():
+    message = webhook_adapter.alert_message({
+        "source": "signal",
+        "message": "【TWStock 提醒】\n量價訊號已觸發",
+    })
+
+    assert message.count("【TWStock") == 1
+    assert "原因：量價訊號已觸發" in message
 
 
 def test_global_alert_dispatch_reaches_once_and_failure_does_not_escape(monkeypatch):
@@ -275,7 +437,8 @@ def test_global_alert_dispatch_reaches_once_and_failure_does_not_escape(monkeypa
     def fake_send(token, chat, title, body):
         assert token == "fake-token"
         assert chat == "-1001"
-        assert "2330.TWSE 台積電" in body
+        assert title == ""
+        assert "台積電（2330.TWSE）" in body
         raise TimeoutError("timed out")
 
     monkeypatch.setattr(webhook_adapter, "send_telegram", fake_send)

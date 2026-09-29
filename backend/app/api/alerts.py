@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import random
 import time
+from datetime import UTC, datetime
 from pathlib import Path
 
 from fastapi import APIRouter, HTTPException, Request
@@ -156,6 +157,7 @@ def seed_demo_alerts(request: Request, count: int = 12, recent: bool = True):
         ts = now_ms - (i * 30000) if recent else now_ms - random.randint(60, 4320) * 60 * 1000
         events.append({
             "ts": ts,
+            "triggered_at": datetime.fromtimestamp(ts / 1000, UTC).isoformat(),
             "rule_id": f"demo_rule_{i}",
             "rule_name": message,
             "source": source,

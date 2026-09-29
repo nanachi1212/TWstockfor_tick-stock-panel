@@ -10,7 +10,7 @@
 """
 from __future__ import annotations
 
-from app.services import quote_service
+from app.services import quote_service, webhook_adapter
 from app.strategy.intraday_signals import INTRADAY_SIGNAL_LABELS
 from app.strategy.monitor import _SIGNAL_CN, MonitorRuleEngine
 
@@ -123,18 +123,22 @@ def test_sector_message_traditional():
 
 
 # ── quote_service: webhook / 系統通知 source_labels dict ──────────────────
-def test_quote_service_source_labels_keys_unchanged_values_traditional():
+def test_external_alert_titles_are_traditional_and_source_ids_are_unchanged():
     import inspect
 
-    src = inspect.getsource(quote_service.QuoteService._maybe_send_webhook)
-    assert '"ladder": "連續漲停梯隊"' in src
-    assert '"signal": "訊號"' in src
-    assert '"price": "價格"' in src
-    assert '"market": "異動"' in src
-    assert '"sector": "板塊"' in src
-    # source 這一側 (dict key) 完全未變, 供規則反查
-    for key in ("strategy", "signal", "price", "market", "ladder", "sector"):
-        assert f'"{key}":' in src
+    expected = {
+        "strategy": "【TWStock 策略提醒】",
+        "signal": "【TWStock 訊號提醒】",
+        "price": "【TWStock 價格提醒】",
+        "market": "【TWStock 市場異動】",
+        "ladder": "【TWStock 市場異動】",
+        "sector": "【TWStock 市場異動】",
+    }
+    for source, title in expected.items():
+        message = webhook_adapter.alert_message({"source": source})
+        assert message.startswith(title)
+        assert message.count("【TWStock") == 1
+        _assert_no_simplified(message)
 
     src2 = inspect.getsource(quote_service.QuoteService._maybe_send_system_notifications)
     assert '"signal": "訊號"' in src2

@@ -5,7 +5,7 @@
 from __future__ import annotations
 
 import logging
-from datetime import date
+from datetime import UTC, date, datetime
 from pathlib import Path
 
 from fastapi import APIRouter, HTTPException, Request
@@ -620,6 +620,7 @@ def trigger_ladder(request: Request):
 
         rule_events.append({
             "ts": int(now * 1000),
+            "triggered_at": datetime.fromtimestamp(now, UTC).isoformat(),
             "rule_id": rule["id"],
             "rule_name": rule.get("name", ""),
             "source": "ladder",
