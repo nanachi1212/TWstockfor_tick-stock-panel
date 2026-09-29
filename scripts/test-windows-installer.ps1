@@ -102,7 +102,9 @@ function Stop-IsolatedApp {
     param([System.Diagnostics.Process]$Process)
     if ($Process.HasExited) { return }
     [void]$Process.CloseMainWindow()
-    if (-not $Process.WaitForExit(20000)) {
+    # On CI, WebView2 can outlive the backend shutdown log while it releases
+    # the isolated profile. Keep this a graceful close and wait for completion.
+    if (-not $Process.WaitForExit(60000)) {
         throw 'Desktop app did not exit after a normal window close.'
     }
     Start-Sleep -Milliseconds 500
