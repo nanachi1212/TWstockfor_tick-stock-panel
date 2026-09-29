@@ -9,6 +9,8 @@ import {
   Wifi,
   WifiOff,
   Star,
+  Pencil,
+  X,
 } from 'lucide-react'
 import { api, type AiKeyProfile } from '@/lib/api'
 import { QK } from '@/lib/queryKeys'
@@ -52,6 +54,13 @@ export function AiKeyProfilesPanel() {
   const [showKey, setShowKey] = useState(false)
   const [testingId, setTestingId] = useState<string | null>(null)
   const [testResults, setTestResults] = useState<Record<string, { ok: boolean; msg: string }>>({})
+  const [editing, setEditing] = useState<AiKeyProfile | null>(null)
+  const [editName, setEditName] = useState('')
+  const [editProvider, setEditProvider] = useState('openai_compat')
+  const [editBaseUrl, setEditBaseUrl] = useState('')
+  const [editModel, setEditModel] = useState('')
+  const [editKey, setEditKey] = useState('')
+  const [showEditKey, setShowEditKey] = useState(false)
 
   const createMut = useMutation({
     mutationFn: () =>
@@ -94,6 +103,38 @@ export function AiKeyProfilesPanel() {
     },
     onError: (e: any) => toast(e.message || '刪除失敗', 'error'),
   })
+
+  const updateMut = useMutation({
+    mutationFn: () => {
+      if (!editing) throw new Error('未選擇 Profile')
+      return api.aiKeyProfileUpdate(editing.id, {
+        name: editName.trim(),
+        provider: editProvider,
+        base_url: editBaseUrl.trim(),
+        model: editModel.trim(),
+        ...(editKey.trim() ? { api_key: editKey.trim() } : {}),
+      })
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: QK.aiKeyProfiles })
+      qc.invalidateQueries({ queryKey: QK.settings })
+      setEditing(null)
+      setEditKey('')
+      setShowEditKey(false)
+      toast('已更新 AI Key Profile', 'success')
+    },
+    onError: (e: any) => toast(e.message || '更新失敗', 'error'),
+  })
+
+  function openEdit(profile: AiKeyProfile) {
+    setEditing(profile)
+    setEditName(profile.name)
+    setEditProvider(profile.provider)
+    setEditBaseUrl(profile.base_url)
+    setEditModel(profile.model)
+    setEditKey('')
+    setShowEditKey(false)
+  }
 
   async function handleTest(id: string) {
     setTestingId(id)
@@ -277,7 +318,7 @@ export function AiKeyProfilesPanel() {
                     <span>·</span>
                     <span className="font-mono">{p.key_masked || '(無 key)'}</span>
                     {p.model && <><span>·</span><span className="font-mono">{p.model}</span></>}
-                    {p.base_url && <><span>·</span><span className="font-mono truncate max-w-[120px]">{p.base_url}</span></>}
+                    {p.base_url && <><span>·</span><span className="font-mono truncate max-w-[180px]" title={p.base_url}>{p.base_url}</span></>}
                   </div>
                   {testResult && (
                     <div className={cn(
@@ -303,6 +344,15 @@ export function AiKeyProfilesPanel() {
                     {isTesting ? <Loader2 className="h-2.5 w-2.5 animate-spin" /> : <Wifi className="h-2.5 w-2.5" />}
                     測試
                   </button>
+                  {/* Edit */}
+                  <button
+                    type="button"
+                    onClick={() => openEdit(p)}
+                    className="inline-flex items-center gap-1 rounded-lg border border-border/60 px-2 py-1 text-[10px] text-muted hover:border-accent/40 hover:text-accent transition-colors cursor-pointer"
+                  >
+                    <Pencil className="h-2.5 w-2.5" />
+                    編輯
+                  </button>
                   {/* Activate */}
                   {!p.active && (
                     <button
@@ -323,6 +373,7 @@ export function AiKeyProfilesPanel() {
                     className="inline-flex items-center gap-1 rounded-lg border border-rose-500/30 px-2 py-1 text-[10px] text-rose-500 hover:bg-rose-500/10 transition-colors cursor-pointer disabled:opacity-50"
                   >
                     <Trash2 className="h-2.5 w-2.5" />
+                    刪除
                   </button>
                 </div>
               </div>
@@ -330,6 +381,71 @@ export function AiKeyProfilesPanel() {
           )
         })}
       </div>
+
+      {editing && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center">
+          <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => setEditing(null)} />
+          <div role="dialog" aria-modal="true" aria-labelledby="edit-ai-profile-title" className="relative w-[92vw] max-w-lg rounded-card border border-border bg-base p-5 shadow-2xl">
+            <div className="mb-4 flex items-center justify-between">
+              <h4 id="edit-ai-profile-title" className="text-sm font-semibold text-foreground">編輯 AI Key Profile</h4>
+              <button type="button" aria-label="關閉" onClick={() => setEditing(null)} className="text-muted hover:text-foreground">
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+            <div className="space-y-3">
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                <div>
+                  <label className="mb-1 block text-[10px] font-semibold text-muted">Profile 名稱</label>
+                  <input aria-label="Profile 名稱" value={editName} onChange={e => setEditName(e.target.value)} className={INPUT_CLS} />
+                </div>
+                <div>
+                  <label className="mb-1 block text-[10px] font-semibold text-muted">Provider</label>
+                  <select aria-label="Provider" value={editProvider} onChange={e => setEditProvider(e.target.value)} className={INPUT_CLS + ' cursor-pointer'}>
+                    {Object.entries(PROVIDER_LABELS).map(([key, label]) => <option key={key} value={key}>{label}</option>)}
+                  </select>
+                </div>
+              </div>
+              <div>
+                <label className="mb-1 block text-[10px] font-semibold text-muted">Base URL</label>
+                <input aria-label="Base URL" value={editBaseUrl} onChange={e => setEditBaseUrl(e.target.value)} className={INPUT_CLS} />
+              </div>
+              <div>
+                <label className="mb-1 block text-[10px] font-semibold text-muted">Model</label>
+                <input aria-label="Model" value={editModel} onChange={e => setEditModel(e.target.value)} className={INPUT_CLS} />
+              </div>
+              <div>
+                <label className="mb-1 block text-[10px] font-semibold text-muted">API Key</label>
+                <div className="relative">
+                  <input
+                    aria-label="API Key"
+                    type={showEditKey ? 'text' : 'password'}
+                    value={editKey}
+                    onChange={e => setEditKey(e.target.value)}
+                    placeholder={`${editing.key_masked || '已儲存'} · 留空保留原 Key`}
+                    className={INPUT_CLS + ' pr-16'}
+                  />
+                  <button type="button" onClick={() => setShowEditKey(value => !value)} className="absolute right-2 top-1.5 px-1 text-[10px] text-muted hover:text-foreground">
+                    {showEditKey ? '隱藏' : '顯示'}
+                  </button>
+                </div>
+                <p className="mt-1 text-[10px] text-muted">後端不會回傳原始 Key；留空即保留目前憑證。</p>
+              </div>
+            </div>
+            <div className="mt-5 flex justify-end gap-2">
+              <button type="button" onClick={() => setEditing(null)} className="rounded-lg border border-border/80 px-3 py-1.5 text-xs text-muted hover:text-foreground">取消</button>
+              <button
+                type="button"
+                disabled={!editName.trim() || !editModel.trim() || (editProvider !== 'openai' && !editBaseUrl.trim()) || updateMut.isPending}
+                onClick={() => updateMut.mutate()}
+                className="inline-flex items-center gap-1.5 rounded-lg bg-accent px-3 py-1.5 text-xs font-semibold text-accent-foreground disabled:opacity-50"
+              >
+                {updateMut.isPending && <Loader2 className="h-3 w-3 animate-spin" />}
+                儲存
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

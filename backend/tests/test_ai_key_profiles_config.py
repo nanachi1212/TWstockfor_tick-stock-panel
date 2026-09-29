@@ -2,8 +2,8 @@
 from __future__ import annotations
 
 import json
-from pathlib import Path
 from unittest import mock
+
 import pytest
 
 
@@ -129,7 +129,7 @@ def test_legacy_profile_missing_base_url_defaults_to_empty(tmp_path):
 def test_two_profiles_switching_updates_active_config(tmp_path):
     """Switching active profile from A to B completely switches base_url, model, key."""
     import app.services.ai_key_profiles as mod
-    from app.services.ai_provider import snapshot_ai_provider_config, current_openai_model
+    from app.services.ai_provider import current_openai_model, snapshot_ai_provider_config
 
     meta_path = tmp_path / "dual_profiles.json"
     secrets_path = tmp_path / "dual_secrets.json"
@@ -139,7 +139,7 @@ def test_two_profiles_switching_updates_active_config(tmp_path):
         mock.patch.object(mod, "_secrets_path", lambda: secrets_path),
     ):
         # Create Profile A (Agnes)
-        prof_a = mod.create_profile(
+        mod.create_profile(
             name="Agnes Profile",
             provider="openai_compat",
             api_key="agnes-secret-key-111",
@@ -185,25 +185,66 @@ async def test_test_ai_key_profile_uses_profile_specific_endpoint(tmp_path):
         mock.patch.object(mod, "_profiles_path", lambda: meta_path),
         mock.patch.object(mod, "_secrets_path", lambda: secrets_path),
     ):
-        prof = mod.create_profile(
-            name="Test Agnes",
+        mod.create_profile(
+            name="Active Agnes",
             provider="openai_compat",
-            api_key="secret-key-999",
-            base_url="https://custom.endpoint.com/v1",
-            model="custom-model-pro",
+            api_key="active-secret-key",
+            base_url="https://active.example/v1",
+            model="active-model",
+        )
+        prof = mod.create_profile(
+            name="Inactive GLM",
+            provider="openai_compat",
+            api_key="glm-secret-key-999",
+            base_url="https://open.bigmodel.cn/api/paas/v4",
+            model="glm-4.7",
         )
 
-        with mock.patch("app.services.ai_provider.generate_ai_text") as mock_generate:
-            mock_generate.return_value = "OK"
+        with mock.patch("app.services.ai_provider.probe_openai_profile_connection") as mock_test:
+            mock_test.return_value = {
+                "ok": True, "responded": True, "http_status": 200,
+                "finish_reason": "length", "output_tokens": 32,
+            }
             res = await test_ai_key_profile(prof["id"])
             assert res["ok"] is True
             assert res["responded"] is True
 
-            call_kwargs = mock_generate.call_args.kwargs
-            cfg = call_kwargs["config_snapshot"]
-            assert cfg.base_url == "https://custom.endpoint.com/v1"
-            assert cfg.model == "custom-model-pro"
-            assert cfg.api_key == "secret-key-999"
+            cfg = mock_test.call_args.args[0]
+            assert cfg.base_url == "https://open.bigmodel.cn/api/paas/v4"
+            assert cfg.model == "glm-4.7"
+            assert cfg.api_key == "glm-secret-key-999"
+
+
+def test_active_profile_does_not_fall_back_to_legacy_endpoint_or_model(tmp_path):
+    from app import secrets_store
+    import app.services.ai_key_profiles as mod
+    from app.services.ai_provider import snapshot_ai_provider_config
+
+    meta_path = tmp_path / "authoritative_profiles.json"
+    secrets_path = tmp_path / "authoritative_secrets.json"
+    legacy_path = tmp_path / "legacy_secrets.json"
+    with (
+        mock.patch.object(mod, "_profiles_path", lambda: meta_path),
+        mock.patch.object(mod, "_secrets_path", lambda: secrets_path),
+        mock.patch.object(secrets_store, "_path", lambda: legacy_path),
+    ):
+        secrets_store.save({
+            "ai_api_key": "legacy-key",
+            "ai_base_url": "https://legacy.example/v1",
+            "ai_model": "legacy-model",
+        })
+        mod.create_profile(
+            name="Profile",
+            provider="openai_compat",
+            api_key="profile-key",
+            base_url="",
+            model="",
+        )
+        cfg = snapshot_ai_provider_config()
+
+    assert cfg.api_key == "profile-key"
+    assert cfg.base_url == ""
+    assert cfg.model == ""
 
 
 @pytest.mark.asyncio

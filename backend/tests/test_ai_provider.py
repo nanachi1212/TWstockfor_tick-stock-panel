@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import tomllib
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock
 
 import httpx
@@ -12,9 +13,11 @@ from app.api import settings as settings_api
 from app.config import settings
 from app.services import ai_provider
 from app.services.ai_provider import (
+    AIProviderConfigSnapshot,
     _format_openai_error,
     _is_temperature_rejected,
     normalize_openai_base_url,
+    probe_openai_profile_connection,
 )
 
 
@@ -28,6 +31,99 @@ def _isolate_ai_profiles(tmp_path, monkeypatch):
 
 def test_normalize_openai_base_url_adds_v1_for_root_gateway():
     assert normalize_openai_base_url("http://ai.zedbox.cn:8080") == "http://ai.zedbox.cn:8080/v1"
+
+
+@pytest.mark.asyncio
+async def test_glm_connection_probe_accepts_length_completion(monkeypatch):
+    create = AsyncMock(return_value=SimpleNamespace(
+        choices=[SimpleNamespace(
+            finish_reason="length",
+            message=SimpleNamespace(content=""),
+        )],
+        usage=SimpleNamespace(completion_tokens=32),
+    ))
+    client = SimpleNamespace(chat=SimpleNamespace(completions=SimpleNamespace(create=create)))
+    monkeypatch.setattr(ai_provider, "_openai_client", lambda *args, **kwargs: client)
+    cfg = AIProviderConfigSnapshot(
+        provider="openai_compat",
+        model="glm-4.7",
+        api_key="glm-test-secret",
+        base_url="https://open.bigmodel.cn/api/paas/v4",
+        max_output_tokens=1,
+    )
+
+    result = await probe_openai_profile_connection(cfg)
+
+    assert result == {
+        "ok": True,
+        "http_status": 200,
+        "finish_reason": "length",
+        "output_tokens": 32,
+        "responded": True,
+    }
+    kwargs = create.await_args.kwargs
+    assert kwargs["model"] == "glm-4.7"
+    assert kwargs["messages"] == [{"role": "user", "content": "Reply exactly with: OK"}]
+    assert kwargs["max_tokens"] == 32
+    assert kwargs["temperature"] == 0.0
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(("status", "detail", "error_code"), [
+    (401, "invalid api key", "AUTH_ERROR"),
+    (403, "forbidden", "AUTH_ERROR"),
+    (400, "invalid model glm-missing", "INVALID_MODEL"),
+    (404, "not found", "ENDPOINT_ERROR"),
+    (429, "rate limited", "RATE_LIMITED"),
+    (503, "unavailable", "PROVIDER_UNAVAILABLE"),
+])
+async def test_connection_probe_maps_provider_errors(monkeypatch, status, detail, error_code):
+    class ProviderError(Exception):
+        def __init__(self, message: str) -> None:
+            super().__init__(message)
+            self.status_code = status
+            self.body = {"error": {"message": detail}}
+
+    create = AsyncMock(side_effect=ProviderError(detail))
+    client = SimpleNamespace(chat=SimpleNamespace(completions=SimpleNamespace(create=create)))
+    monkeypatch.setattr(ai_provider, "_openai_client", lambda *args, **kwargs: client)
+    cfg = AIProviderConfigSnapshot(
+        provider="openai_compat",
+        model="model",
+        api_key="secret",
+        base_url="https://provider.example/v1",
+    )
+
+    result = await probe_openai_profile_connection(cfg)
+
+    assert result["ok"] is False
+    assert result["error_code"] == error_code
+    assert result["http_status"] == status
+
+
+@pytest.mark.asyncio
+async def test_connection_probe_never_returns_the_raw_key(monkeypatch):
+    secret = "secret-that-provider-echoed"
+
+    class ProviderError(Exception):
+        def __init__(self, message: str) -> None:
+            super().__init__(message)
+            self.status_code = 401
+            self.body = {"error": {"message": f"invalid credential {secret}"}}
+
+    create = AsyncMock(side_effect=ProviderError("invalid credential"))
+    client = SimpleNamespace(chat=SimpleNamespace(completions=SimpleNamespace(create=create)))
+    monkeypatch.setattr(ai_provider, "_openai_client", lambda *args, **kwargs: client)
+    cfg = AIProviderConfigSnapshot(
+        provider="openai_compat",
+        model="model",
+        api_key=secret,
+        base_url="https://provider.example/v1",
+    )
+
+    result = await probe_openai_profile_connection(cfg)
+
+    assert secret not in str(result)
 
 
 def test_normalize_openai_base_url_preserves_v1_base():

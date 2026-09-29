@@ -5,11 +5,13 @@ from fastapi import HTTPException
 
 from app.api.settings import (
     AiKeyProfileCreate,
+    AiKeyProfileUpdate,
     activate_ai_key_profile,
     create_ai_key_profile,
     delete_ai_key_profile,
     get_settings,
     list_ai_key_profiles,
+    update_ai_key_profile,
 )
 from app.services import ai_key_profiles
 
@@ -27,6 +29,8 @@ def clean_profiles(tmp_path, monkeypatch):
     from app import secrets_store
     sec_path = tmp_path / "secrets.json"
     monkeypatch.setattr(secrets_store, "_path", lambda: sec_path)
+    from app.config import settings
+    monkeypatch.setattr(settings, "ai_api_key", "")
 
 
 
@@ -142,3 +146,58 @@ def test_api_endpoints_ai_key_profiles(tmp_path, monkeypatch):
     with pytest.raises(HTTPException) as exc:
         delete_ai_key_profile("non_existent_id")
     assert exc.value.status_code == 404
+
+
+def test_update_profile_preserves_or_replaces_secret_without_leaking_raw_key():
+    profile = ai_key_profiles.create_profile(
+        name="GLM",
+        provider="openai_compat",
+        api_key="glm-original-secret-1234",
+        base_url="https://open.bigmodel.cn/api/paas/v4",
+        model="glm-4.7",
+    )
+
+    metadata_only = update_ai_key_profile(profile["id"], AiKeyProfileUpdate(
+        name="GLM General",
+        provider="openai_compat",
+        base_url="https://open.bigmodel.cn/api/paas/v4",
+        model="glm-4.7-plus",
+    ))
+    assert metadata_only["profile"]["name"] == "GLM General"
+    assert metadata_only["profile"]["model"] == "glm-4.7-plus"
+    assert "glm-original-secret-1234" not in str(metadata_only)
+    assert ai_key_profiles.get_active_ai_key() == "glm-original-secret-1234"
+
+    replaced = update_ai_key_profile(profile["id"], AiKeyProfileUpdate(
+        name="GLM General",
+        provider="openai_compat",
+        api_key="glm-replacement-secret-5678",
+        base_url="https://open.bigmodel.cn/api/paas/v4",
+        model="glm-4.7-plus",
+    ))
+    assert "glm-replacement-secret-5678" not in str(replaced)
+    assert ai_key_profiles.get_active_ai_key() == "glm-replacement-secret-5678"
+
+
+def test_updating_active_profile_changes_next_production_snapshot_immediately():
+    from app.services.ai_provider import snapshot_ai_provider_config
+
+    profile = ai_key_profiles.create_profile(
+        name="Active",
+        provider="openai_compat",
+        api_key="active-secret",
+        base_url="https://before.example/v1",
+        model="before-model",
+    )
+    ai_key_profiles.update_profile(
+        profile["id"],
+        name="Active",
+        provider="openai_compat",
+        base_url="https://after.example/v1",
+        model="after-model",
+    )
+
+    snapshot = snapshot_ai_provider_config()
+    assert snapshot.api_key == "active-secret"
+    assert snapshot.base_url == "https://after.example/v1"
+    assert snapshot.model == "after-model"
