@@ -16,6 +16,15 @@ from app.services import preferences, webhook_adapter
 from app.services.quote_service import QuoteService
 from app.strategy import monitor_rules
 
+_SYSTEM_SIMPLIFIED_TERMS = (
+    "测试", "买入", "卖出", "信号", "触发", "当前", "价格", "规则", "监控",
+    "数据", "状态", "设置", "删除", "新增", "默认", "刷新",
+)
+
+
+def _assert_system_zh_tw(text: str) -> None:
+    assert all(term not in text for term in _SYSTEM_SIMPLIFIED_TERMS)
+
 
 def _isolated_stores(monkeypatch, tmp_path):
     preferences_path = tmp_path / "preferences.json"
@@ -120,11 +129,10 @@ def test_test_notification_uses_stored_credentials(monkeypatch):
         "目前價格：10 元\n\n"
         "觸發時間：2026-09-29 10:15"
     )
-    forbidden_simplified = ("测试", "消息", "通知设置", "成功发送", "价格", "触发")
     assert line_call[0][2:] == (expected_title, expected_body)
     assert telegram_call[0][2:] == (expected_title, expected_body)
     for call in (line_call[0], telegram_call[0]):
-        assert all(word not in "\n".join(call[2:]) for word in forbidden_simplified)
+        _assert_system_zh_tw("\n".join(call[2:]))
 
 
 def test_global_external_channels_are_persisted_and_app_only_is_explicit(monkeypatch, tmp_path):
@@ -374,6 +382,18 @@ def test_buy_point_alert_is_concise_and_lists_reasons_and_risks():
     assert "目前價格：498 元" in message
     assert "觸發原因：\n• 站上 20 日線\n• 量能擴大\n• 價格突破" in message
     assert "風險提示：\n• 近期波動偏高" in message
+    _assert_system_zh_tw(message)
+
+
+def test_user_authored_message_is_not_force_converted():
+    custom_message = "用户自定义买入信号"
+    message = webhook_adapter.alert_message({
+        "source": "signal",
+        "symbol": "A",
+        "message": custom_message,
+    })
+
+    assert custom_message in message
 
 
 def test_strategy_with_buy_point_id_uses_buy_point_format():

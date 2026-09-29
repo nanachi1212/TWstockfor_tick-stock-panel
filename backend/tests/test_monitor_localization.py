@@ -10,14 +10,17 @@
 """
 from __future__ import annotations
 
+from app.api import alerts as alerts_api
+from app.api import monitor_rules as monitor_rules_api
 from app.services import quote_service, webhook_adapter
 from app.strategy.intraday_signals import INTRADAY_SIGNAL_LABELS
 from app.strategy.monitor import _SIGNAL_CN, MonitorRuleEngine
 
 # 常見簡體專用字 (與對應正體字不同形), 若出現在使用者可見文案中即代表殘留簡體。
 _SIMPLIFIED_MARKERS = (
-    "号", "现", "选", "进", "涨", "场", "软", "强", "势", "趋",
-    "买", "卖", "触", "价", "额", "换", "动", "态", "复", "声", "层",
+    "测", "试", "买", "卖", "号", "触", "现", "价", "规", "监", "数",
+    "状", "设", "删", "增", "默", "刷", "选", "进", "涨", "场", "软",
+    "强", "势", "趋", "额", "换", "动", "态", "复", "声", "层",
 )
 
 
@@ -66,6 +69,17 @@ def test_intraday_signal_labels_traditional_and_keys_unchanged():
     }
     for value in INTRADAY_SIGNAL_LABELS.values():
         _assert_no_simplified(value)
+
+
+def test_alert_and_monitor_demo_content_is_traditional():
+    for _symbol, name in alerts_api._DEMO_STOCKS:
+        _assert_no_simplified(name)
+    for _source, message, _signals, _severity in alerts_api._DEMO_TEMPLATES:
+        _assert_no_simplified(message)
+    for name, *_rest in monitor_rules_api._DEMO_RULES_TEMPLATE:
+        _assert_no_simplified(name)
+    for rule in monitor_rules_api._DEMO_STRATEGY_RULES:
+        _assert_no_simplified(rule["name"])
 
 
 # ── _format_conditions_text / _default_message: 顯示文案正體, event type 不變 ──

@@ -176,9 +176,9 @@ def get_options(request: Request):
             {"key": "critical", "label": "重要"},
         ],
         "directions": [
-            {"key": "entry", "label": "入场"},
-            {"key": "exit", "label": "出场"},
-            {"key": "both", "label": "出入都报"},
+            {"key": "entry", "label": "進場"},
+            {"key": "exit", "label": "出場"},
+            {"key": "both", "label": "進出場都提醒"},
         ],
         "intraday_signal_support": intraday_monitor_support(
             getattr(request.app.state, "capabilities", None),
@@ -213,7 +213,7 @@ def list_rules(request: Request):
         runtime_warning = str(support["reason"])
     elif len(pooled_symbols) > int(support["max_symbols"]):
         runtime_warning = (
-            f"分时监听标的池已超限: {len(pooled_symbols)}/{support['max_symbols']}"
+            f"分時監聽標的池已超限：{len(pooled_symbols)}/{support['max_symbols']}"
         )
     if runtime_warning:
         for rule in intraday_rules:
@@ -226,9 +226,9 @@ def list_rules(request: Request):
             missing = sector_service.missing_target_keys(rule.get("sector_targets", []))
             unavailable = sector_service.unavailable_target_keys(rule.get("sector_targets", []))
             if missing:
-                rule["runtime_warning"] = "部分板块数据已不存在, 请重新选择监控对象"
+                rule["runtime_warning"] = "部分板塊資料已不存在，請重新選擇監控對象"
             elif unavailable:
-                rule["runtime_warning"] = "所选指数未加入实时指数池, 请先在实时监控设置中启用"
+                rule["runtime_warning"] = "所選指數未加入即時指數池，請先在即時監控設定中啟用"
     # 分组作用域规则: 绑定的分组被删除 → 标注运行时警告 (引擎侧已 fail-closed 跳过)
     group_rules = [rule for rule in rules if rule.get("scope") == "watchlist_group"]
     if group_rules:
@@ -238,7 +238,7 @@ def list_rules(request: Request):
             existing_ids = {g["id"] for g in watchlist_service.list_groups()}
             for rule in group_rules:
                 if rule.get("group_id") not in existing_ids:
-                    rule["runtime_warning"] = "绑定的自选分组已删除, 规则已暂停监控, 编辑可重新选择"
+                    rule["runtime_warning"] = "綁定的自選分組已刪除，規則已暫停監控，編輯時可重新選擇"
         except Exception:  # noqa: BLE001
             pass
     # 按 created_at 倒序
@@ -259,7 +259,7 @@ def save_rule(req: RuleModel, request: Request):
         if capset is None or not capset.has(Cap.DEPTH5_BATCH):
             raise HTTPException(
                 status_code=403,
-                detail="封单监控需要 Pro+ 套餐 (批量五档能力),请升级后在「设置」页配置",
+                detail="封單監控需要 Pro+ 方案（批次五檔能力），請升級後在「設定」頁配置",
             )
     if rule.get("type") == "strategy":
         from app.strategy.engine import StrategyDataContext
@@ -297,16 +297,16 @@ def save_rule(req: RuleModel, request: Request):
         except Exception as e:  # noqa: BLE001
             raise HTTPException(status_code=503, detail=f"自选分组读取失败: {e}") from e
         if group_id not in group_ids:
-            raise HTTPException(status_code=400, detail="自选分组不存在或已被删除, 请重新选择")
+            raise HTTPException(status_code=400, detail="自選分組不存在或已被刪除，請重新選擇")
     if rule.get("type") == "sector":
         sector_service = getattr(request.app.state, "sector_monitor_service", None)
         if sector_service is None:
-            raise HTTPException(status_code=503, detail="板块监控服务未初始化")
+            raise HTTPException(status_code=503, detail="板塊監控服務未初始化")
         targets = rule.get("sector_targets", [])
         if sector_service.missing_target_keys(targets):
-            raise HTTPException(status_code=400, detail="所选板块数据已变化, 请重新选择")
+            raise HTTPException(status_code=400, detail="所選板塊資料已變更，請重新選擇")
         if sector_service.unavailable_target_keys(targets):
-            raise HTTPException(status_code=400, detail="所选指数未加入实时指数池, 请先在实时监控设置中启用")
+            raise HTTPException(status_code=400, detail="所選指數未加入即時指數池，請先在即時監控設定中啟用")
     if rule.get("enabled", True) and uses_intraday_signals(rule):
         from app.services.kline_sync import intraday_monitor_support
 
@@ -325,7 +325,7 @@ def save_rule(req: RuleModel, request: Request):
         if len(symbols) > max_symbols:
             raise HTTPException(
                 status_code=400,
-                detail=f"当前分时数据能力最多监听 {max_symbols} 只标的,当前规则合计 {len(symbols)} 只",
+                detail=f"目前分時資料能力最多監聽 {max_symbols} 只標的，目前規則合計 {len(symbols)} 只",
             )
     monitor_rules.save_one(_data_dir(request), rule)
     _sync_engine(request)
@@ -336,10 +336,10 @@ def save_rule(req: RuleModel, request: Request):
 @router.delete("/{rule_id}")
 def delete_rule(rule_id: str, request: Request):
     if not monitor_rules.ID_RE.match(rule_id):
-        raise HTTPException(status_code=400, detail="规则 id 非法")
+        raise HTTPException(status_code=400, detail="規則 id 非法")
     deleted = monitor_rules.delete_one(_data_dir(request), rule_id)
     if not deleted:
-        raise HTTPException(status_code=404, detail="规则不存在")
+        raise HTTPException(status_code=404, detail="規則不存在")
     _sync_engine(request)
     return {"ok": True}
 
@@ -373,29 +373,29 @@ def _demo_rule(rule_id: str, name: str, rtype: str, scope: str, symbols: list[st
 
 
 _DEMO_RULES_TEMPLATE = [
-    ("个股信号 · 茅台放量突破", "signal", "symbols", ["600519.SH"],
+    ("個股訊號 · 茅台放量突破", "signal", "symbols", ["600519.SH"],
      [{"field": "signal_volume_surge", "op": "truth"},
       {"field": "signal_n_day_high", "op": "truth"}], "or", "info"),
-    ("个股信号 · 宁德金叉", "signal", "symbols", ["300750.SZ"],
+    ("個股訊號 · 寧德金叉", "signal", "symbols", ["300750.SZ"],
      [{"field": "signal_ma_golden_5_20", "op": "truth"}], "or", "info"),
-    ("价格 · 平安跌幅监控", "price", "symbols", ["000001.SZ"],
+    ("價格 · 平安跌幅監控", "price", "symbols", ["000001.SZ"],
      [{"field": "change_pct", "op": "<", "value": -0.03}], "or", "warn", "warn"),
-    ("价格 · 比亚迪RSI超卖", "price", "symbols", ["002594.SZ"],
+    ("價格 · 比亞迪RSI超賣", "price", "symbols", ["002594.SZ"],
      [{"field": "rsi_14", "op": "<", "value": 30}], "and", "warn", "warn"),
-    ("市场异动 · 全市场涨停", "market", "all", [],
+    ("市場異動 · 全市場漲停", "market", "all", [],
      [{"field": "signal_limit_up", "op": "truth"}], "or", "critical", "critical"),
-    ("市场异动 · 全市场炸板", "market", "all", [],
+    ("市場異動 · 全市場炸板", "market", "all", [],
      [{"field": "signal_broken_limit_up", "op": "truth"}], "or", "warn", "warn"),
-    ("市场异动 · 跌幅超5%", "market", "all", [],
+    ("市場異動 · 跌幅超5%", "market", "all", [],
      [{"field": "change_pct", "op": "<", "value": -0.05}], "or", "warn", "warn"),
-    ("个股信号 · 茅台跌破MA20", "signal", "symbols", ["600519.SH"],
+    ("個股訊號 · 茅台跌破MA20", "signal", "symbols", ["600519.SH"],
      [{"field": "signal_ma20_breakdown", "op": "truth"}], "or", "info"),
 ]
 
 # 策略类型单独声明 (格式不同: 含 strategy_id + direction)
 _DEMO_STRATEGY_RULES: list[dict] = [
-    {"name": "策略监控 · 趋势突破", "strategy_id": "trend_breakout", "direction": "entry"},
-    {"name": "策略监控 · MACD金叉", "strategy_id": "macd_golden", "direction": "both"},
+    {"name": "策略監控 · 趨勢突破", "strategy_id": "trend_breakout", "direction": "entry"},
+    {"name": "策略監控 · MACD金叉", "strategy_id": "macd_golden", "direction": "both"},
 ]
 
 
@@ -440,14 +440,14 @@ def test_ladder(request: Request):
     engine = getattr(request.app.state, "monitor_engine", None)
 
     if not depth_svc:
-        raise HTTPException(status_code=503, detail="depth 服务未初始化")
+        raise HTTPException(status_code=503, detail="depth 服務尚未初始化")
     if not engine or not engine.has_rule_type("ladder"):
-        raise HTTPException(status_code=400, detail="无 ladder 类型监控规则")
+        raise HTTPException(status_code=400, detail="沒有 ladder 類型監控規則")
 
     # 最新交易日
     latest = repo.enriched_latest_date()
     if not latest:
-        raise HTTPException(status_code=400, detail="无 enriched 数据")
+        raise HTTPException(status_code=400, detail="沒有 enriched 資料")
 
     # 取涨停+跌停封单 {symbol: vol}
     sealed: dict[str, int] = {}
@@ -459,7 +459,7 @@ def test_ladder(request: Request):
                 sealed[sym] = vol
 
     if not sealed:
-        raise HTTPException(status_code=400, detail="无封单数据 (depth 未拉取或无涨停/跌停股)")
+        raise HTTPException(status_code=400, detail="沒有封單資料（depth 尚未取得或沒有漲停／跌停股）")
 
     # 取这些 symbol 的 close (算封单额用)
     enriched_today, _ = repo.get_enriched_latest()
@@ -485,7 +485,7 @@ def test_ladder(request: Request):
         metric = rule.get("metric", "sealed_vol")
         thr = rule.get("threshold", 0)
         direction = rule.get("direction", "up")
-        warn_label = "炸板预警" if direction == "up" else "翘板预警"
+        warn_label = "炸板預警" if direction == "up" else "翹板預警"
 
         # 取该 symbol 的封单数据
         cur_vol = sealed.get(sym) if sym else None
@@ -497,8 +497,8 @@ def test_ladder(request: Request):
         # 条件判断: 封单 > 0 且 比较值 <= 阈值
         if cur_val is not None and cur_val > 0 and cur_val <= thr:
             if metric == "sealed_amount":
-                sv_text = f"{cur_val / 1e4:.0f}万元"
-                th_text = f"{thr / 1e4:.0f}万元"
+                sv_text = f"{cur_val / 1e4:.0f}萬元"
+                th_text = f"{thr / 1e4:.0f}萬元"
             else:
                 sv_text = f"{cur_val:,.0f} 手"
                 th_text = f"{thr:,.0f} 手"
@@ -508,7 +508,7 @@ def test_ladder(request: Request):
                 "symbol": sym,
                 "name": sym,
                 "type": warn_label,
-                "message": f"{warn_label} · 封单 {sv_text} ≤ {th_text}",
+                "message": f"{warn_label} · 封單 {sv_text} ≤ {th_text}",
                 "severity": rule.get("severity", "warn"),
                 "sealed_value": cur_val,
                 "sealed_metric": metric,
@@ -516,8 +516,8 @@ def test_ladder(request: Request):
                 "current_sealed_amount": cur_amt,
             })
         else:
-            reason = "封单数据缺失" if cur_val is None else (
-                f"封单 {cur_val:,.0f} > 阈值 {thr:,.0f}" if cur_val > thr else "封单为 0"
+            reason = "封單資料缺失" if cur_val is None else (
+                f"封單 {cur_val:,.0f} > 門檻 {thr:,.0f}" if cur_val > thr else "封單為 0"
             )
             not_triggered.append({
                 "rule_id": rule["id"],
@@ -556,13 +556,13 @@ def trigger_ladder(request: Request):
     quote_svc = getattr(request.app.state, "quote_service", None)
 
     if not depth_svc:
-        raise HTTPException(status_code=503, detail="depth 服务未初始化")
+        raise HTTPException(status_code=503, detail="depth 服務尚未初始化")
     if not engine or not engine.has_rule_type("ladder"):
-        raise HTTPException(status_code=400, detail="无 ladder 类型监控规则")
+        raise HTTPException(status_code=400, detail="沒有 ladder 類型監控規則")
 
     latest = repo.enriched_latest_date()
     if not latest:
-        raise HTTPException(status_code=400, detail="无 enriched 数据")
+        raise HTTPException(status_code=400, detail="沒有 enriched 資料")
 
     # 取封单
     sealed: dict[str, int] = {}
@@ -573,7 +573,7 @@ def trigger_ladder(request: Request):
             if vol and vol > 0:
                 sealed[sym] = vol
     if not sealed:
-        raise HTTPException(status_code=400, detail="无封单数据")
+        raise HTTPException(status_code=400, detail="沒有封單資料")
 
     # 构造真实 rule_events (与 _evaluate_ladder 产出格式一致)
     import polars as pl
@@ -600,7 +600,7 @@ def trigger_ladder(request: Request):
         metric = rule.get("metric", "sealed_vol")
         thr = rule.get("threshold", 0)
         direction = rule.get("direction", "up")
-        warn_label = "炸板预警" if direction == "up" else "翘板预警"
+        warn_label = "炸板預警" if direction == "up" else "翹板預警"
 
         row = mock.filter(pl.col("symbol") == sym)
         if row.is_empty():
@@ -612,8 +612,8 @@ def trigger_ladder(request: Request):
             continue  # 不满足条件, 跳过
 
         if metric == "sealed_amount":
-            sv_text = f"{cur_val / 1e4:.0f}万元"
-            th_text = f"{thr / 1e4:.0f}万元"
+            sv_text = f"{cur_val / 1e4:.0f}萬元"
+            th_text = f"{thr / 1e4:.0f}萬元"
         else:
             sv_text = f"{cur_val:,.0f} 手"
             th_text = f"{thr:,.0f} 手"
@@ -627,7 +627,7 @@ def trigger_ladder(request: Request):
             "type": warn_label,
             "symbol": sym,
             "name": name_map.get(sym, sym),
-            "message": f"{warn_label} · 封单 {sv_text} ≤ {th_text}",
+            "message": f"{warn_label} · 封單 {sv_text} ≤ {th_text}",
             "price": close_v,
             "change_pct": row["change_pct"][0] if "change_pct" in row.columns else None,
             "signals": [],
@@ -639,7 +639,7 @@ def trigger_ladder(request: Request):
         })
 
     if not rule_events:
-        raise HTTPException(status_code=400, detail="当前无 ladder 规则满足触发条件 (封单均 > 阈值)")
+        raise HTTPException(status_code=400, detail="目前沒有 ladder 規則符合觸發條件（封單均 > 門檻）")
 
     # 1. 落盘到 alerts.jsonl
     try:
