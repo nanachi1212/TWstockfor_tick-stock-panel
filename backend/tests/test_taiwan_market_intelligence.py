@@ -288,6 +288,53 @@ def test_partial_state_reporting():
     assert dq.overall_status == "partial"
 
 
+def test_aggregate_partitions_match_the_dates_marked_current(monkeypatch):
+    expected = date(2026, 9, 30)
+    daily_day = date(2026, 9, 29)
+    monkeypatch.setattr(
+        "app.taiwan.market_intelligence.resolve_target_latest_trading_date",
+        lambda *_: expected,
+    )
+
+    mock_daily = MagicMock()
+    mock_daily.available_dates.return_value = [daily_day]
+    mock_daily.read_range.return_value = pl.DataFrame()
+
+    mock_inst = MagicMock()
+    mock_inst.available_dates.return_value = [expected]
+    mock_inst.read_range.return_value = pl.DataFrame({
+        "foreign_net": [10.0],
+        "investment_trust_net": [20.0],
+        "dealer_net": [30.0],
+    })
+
+    mock_margin = MagicMock()
+    mock_margin.available_dates.return_value = [expected]
+    mock_margin.read_range.return_value = pl.DataFrame({
+        "margin_balance": [1000.0],
+        "margin_change": [10.0],
+        "short_balance": [100.0],
+        "short_change": [1.0],
+    })
+    mock_sm = MagicMock()
+    mock_sm.to_dataframe.return_value = pl.DataFrame()
+
+    snapshot = TaiwanMarketIntelligenceService(
+        daily_store=mock_daily,
+        inst_store=mock_inst,
+        margin_store=mock_margin,
+        security_master=mock_sm,
+    ).get_snapshot()
+
+    assert snapshot.trade_date == daily_day.isoformat()
+    assert snapshot.institutional.trade_date == expected.isoformat()
+    assert snapshot.institutional.status == "current"
+    assert snapshot.margin.trade_date == expected.isoformat()
+    assert snapshot.margin.status == "current"
+    mock_inst.read_range.assert_called_once_with(None, expected, expected)
+    mock_margin.read_range.assert_called_once_with(None, expected, expected)
+
+
 def test_historical_snapshot_no_look_ahead():
     """Querying date D passes exact (target, target) to read_range, never reading D+1."""
     d_target = date(2026, 8, 20)

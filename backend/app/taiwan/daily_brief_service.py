@@ -168,7 +168,11 @@ class TaiwanDailyBriefService:
             trade_date=str(effective_date),
             taiex_close=taiex_obj.close if taiex_obj else None,
             taiex_change=taiex_obj.change if taiex_obj else None,
-            taiex_change_pct=taiex_obj.change_pct if taiex_obj else None,
+            taiex_change_pct=(
+                taiex_obj.change_pct * 100
+                if taiex_obj and taiex_obj.change_pct is not None
+                else None
+            ),
             advance_count=market_snap.market_totals.advance_count,
             decline_count=market_snap.market_totals.decline_count,
             flat_count=market_snap.market_totals.flat_count,

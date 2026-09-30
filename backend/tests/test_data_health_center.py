@@ -17,6 +17,7 @@ from app.taiwan.data_health_center import (
     DATASETS,
     DataHealthService,
     combined_status,
+    finmind_policy,
     normalize_status,
     safe_reason,
 )
@@ -389,6 +390,32 @@ def test_finmind_reader_aggregates_per_symbol_ttl_and_null_dates(monkeypatch):
     assert row["last_success"] == "2026-09-30T01:00:00+00:00"
 
 
+@pytest.mark.parametrize(
+    ("records", "expected_status"),
+    [
+        ([{"status": "error", "error_msg": "HTTP 503"}], "error"),
+        ([{"status": "unavailable"}], "unavailable"),
+        (
+            [
+                {"status": "unavailable"},
+                {"status": "available", "data_date": "2026-08-01"},
+            ],
+            "partial",
+        ),
+    ],
+)
+def test_finmind_reporting_cache_fails_closed_when_all_records_are_invalid(
+    records, expected_status,
+):
+    status, _ = finmind_policy(
+        "monthly_revenue",
+        records,
+        date(2026, 8, 1),
+        6 * 3600,
+    )
+    assert status == expected_status
+
+
 def test_persisted_benchmark_available_awaiting_and_missing(monkeypatch):
     from app.taiwan import daily_update, data_health_center
     from app.taiwan.benchmark_store import TaiwanBenchmarkStore
@@ -413,6 +440,52 @@ def test_persisted_benchmark_available_awaiting_and_missing(monkeypatch):
     assert taiex["status"] == "awaiting_publication"  # official OpenAPI lags one session
     assert taiex["data_date"] == "2026-09-29"
     assert DataHealthService()._index("tpex_index")["status"] == "current"
+
+
+def test_persisted_benchmark_failed_refresh_is_not_publication_lag(monkeypatch):
+    from app.taiwan import daily_update, data_health_center
+    from app.taiwan.benchmark_store import TaiwanBenchmarkStore
+
+    now = datetime(2026, 9, 30, 16, 40)
+    monkeypatch.setattr(data_health_center, "taipei_now", lambda: now)
+    monkeypatch.setattr(
+        daily_update,
+        "resolve_target_latest_trading_date",
+        lambda *a, **k: date(2026, 9, 30),
+    )
+    monkeypatch.setattr(
+        daily_update,
+        "read_last_run",
+        lambda *a, **k: {
+            "run_started_at": "2026-09-30T16:30:00+08:00",
+            "target_latest_trading_date": "2026-09-30",
+            "benchmark": {
+                "failed": [
+                    {
+                        "symbol": "TAIEX",
+                        "error": "HTTP 503 https://private.example?token=secret",
+                    }
+                ]
+            },
+        },
+    )
+    TaiwanBenchmarkStore().write(pl.DataFrame({
+        "symbol": ["TAIEX"],
+        "date": [date(2026, 9, 29)],
+        "open": [None],
+        "high": [None],
+        "low": [None],
+        "close": [47631.96],
+        "source": ["twse:MI_5MINS_HIST"],
+        "source_url": ["u"],
+        "retrieved_at": ["2026-09-29T16:30:00+08:00"],
+    }))
+
+    row = DataHealthService()._index("taiex")
+    assert row["status"] == "provider_error"
+    assert "HTTP 503" in row["reason"]
+    assert "private.example" not in row["reason"]
+    assert row["last_attempt"] == "2026-09-30T08:30:00+00:00"
 
 
 def test_security_master_offline_metadata_does_not_fetch(tmp_path):

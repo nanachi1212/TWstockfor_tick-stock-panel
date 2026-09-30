@@ -176,8 +176,13 @@ def finmind_policy(
         # Reporting cycle, not cache TTL: a quarter/month is current until the next is due.
         dated = [d for r in records if (d := data_date(r.get("data_date")))]
         behind = [d for d in dated if d < expected.isoformat()]
+        invalid_count = len(errors) + len(missing)
+        if invalid_count == len(records):
+            if errors:
+                return "error", safe_reason(errors[0].get("error_msg"))
+            return "unavailable", "快取沒有有效資料"
         if errors or missing:
-            return "partial", f"{len(errors) + len(missing)}/{len(records)} 檔快取沒有有效資料"
+            return "partial", f"{invalid_count}/{len(records)} 檔快取沒有有效資料"
         if not dated:
             return "unavailable", "快取沒有可判定期別的資料"
         if behind:
@@ -745,9 +750,10 @@ class DataHealthService:
     @staticmethod
     def _index(key: str) -> dict[str, Any]:
         from app.taiwan.benchmark_store import latest_benchmark
-        from app.taiwan.daily_update import resolve_target_latest_trading_date
+        from app.taiwan.daily_update import read_last_run, resolve_target_latest_trading_date
 
-        row = latest_benchmark("TAIEX" if key == "taiex" else "TPEX_INDEX")
+        symbol = "TAIEX" if key == "taiex" else "TPEX_INDEX"
+        row = latest_benchmark(symbol)
         if not row:
             return {
                 "status": "unavailable",
@@ -757,8 +763,16 @@ class DataHealthService:
             }
         target = resolve_target_latest_trading_date()
         day = row["date"]
+        run = read_last_run() or {}
+        benchmark = run.get("benchmark") or {}
+        failures = benchmark.get("failed") or []
+        failure = next(
+            (item for item in failures if item.get("symbol") in {symbol, None}),
+            None,
+        ) if run.get("target_latest_trading_date") == target.isoformat() else None
         status: HealthStatus = (
             "current" if day >= target
+            else "provider_error" if failure
             else "awaiting_publication" if target == taipei_now().date()
             and day >= target - timedelta(days=7)
             else "stale"
@@ -770,10 +784,13 @@ class DataHealthService:
             "freshness": f"官方指數日收盤；目標交易日 {target}",
             "reason": "已保存官方指數收盤"
             if status == "current"
+            else safe_reason(failure.get("error"), "本次官方指數更新失敗，原有資料保留")
+            if status == "provider_error" and failure
             else f"官方 OpenAPI 尚未提供 {target} 指數收盤；已保存最近官方收盤"
             if status == "awaiting_publication"
             else f"已保存的官方指數收盤早於目標交易日 {target}",
             "last_success": timestamp(row.get("retrieved_at")),
+            "last_attempt": timestamp(run.get("run_started_at")) if failure else None,
         }
 
 

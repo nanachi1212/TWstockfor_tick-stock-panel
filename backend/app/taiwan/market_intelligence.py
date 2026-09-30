@@ -363,9 +363,13 @@ class TaiwanMarketIntelligenceService:
         by_instrument = MarketInstrumentBreakdown(stock=stock_breadth, etf=etf_breadth)
 
         # 4. Institutional Aggregation (NO look-ahead)
-        inst_df = self.inst_store.read_range(None, target, target)
         inst_available = self.inst_store.available_dates()
-        inst_as_of = max(inst_available) if inst_available else None
+        inst_as_of = max((d for d in inst_available if d <= expected), default=None)
+        inst_df = (
+            self.inst_store.read_range(None, inst_as_of, inst_as_of)
+            if inst_as_of
+            else pl.DataFrame()
+        )
         inst_status: DatasetFreshnessStatus = (
             "current" if (inst_as_of and inst_as_of >= expected)
             else ("stale" if inst_as_of else "unavailable")
@@ -377,7 +381,7 @@ class TaiwanMarketIntelligenceService:
             d_net = float(inst_df["dealer_net"].sum() or 0.0)
             tot_net = f_net + it_net + d_net
             inst_agg = InstitutionalMarketAggregate(
-                trade_date=str(target),
+                trade_date=str(inst_as_of),
                 row_count=len(inst_df),
                 foreign_net=f_net,
                 investment_trust_net=it_net,
@@ -387,15 +391,19 @@ class TaiwanMarketIntelligenceService:
             )
         else:
             inst_agg = InstitutionalMarketAggregate(
-                trade_date=str(target) if inst_as_of else None,
+                trade_date=str(inst_as_of) if inst_as_of else None,
                 row_count=0,
                 status=inst_status,
             )
 
         # 5. Margin Aggregation (NO look-ahead)
-        m_df = self.margin_store.read_range(None, target, target)
         m_available = self.margin_store.available_dates()
-        m_as_of = max(m_available) if m_available else None
+        m_as_of = max((d for d in m_available if d <= expected), default=None)
+        m_df = (
+            self.margin_store.read_range(None, m_as_of, m_as_of)
+            if m_as_of
+            else pl.DataFrame()
+        )
         m_status: DatasetFreshnessStatus = (
             "current" if (m_as_of and m_as_of >= expected)
             else ("stale" if m_as_of else "unavailable")
@@ -410,7 +418,7 @@ class TaiwanMarketIntelligenceService:
             ratio = round((sb / mb * 100.0), 2) if mb > 0 else None
 
             margin_agg = MarginMarketAggregate(
-                trade_date=str(target),
+                trade_date=str(m_as_of),
                 row_count=len(m_df),
                 margin_balance=mb,
                 margin_balance_change=mc,
@@ -421,7 +429,7 @@ class TaiwanMarketIntelligenceService:
             )
         else:
             margin_agg = MarginMarketAggregate(
-                trade_date=str(target) if m_as_of else None,
+                trade_date=str(m_as_of) if m_as_of else None,
                 row_count=0,
                 status=m_status,
             )
