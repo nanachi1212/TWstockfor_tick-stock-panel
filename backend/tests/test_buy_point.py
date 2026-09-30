@@ -406,8 +406,10 @@ def test_snapshot_preserves_unknown_risk_without_inventing_clear(tmp_path: Path,
 
     class ReviewService:
         @staticmethod
-        def save_snapshot(request):
+        def save_snapshot(request, *, buy_point_definition):
             captured.append(request)
+            assert buy_point_definition["id"] == "quant_pullback"
+            assert "risk_filters" in buy_point_definition
             return SimpleNamespace(model_dump=lambda: {"snapshot_id": "saved"})
 
     monkeypatch.setattr(

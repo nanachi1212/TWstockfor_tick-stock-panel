@@ -92,7 +92,16 @@ class LiveLedger:
                     fcntl.flock(stream.fileno(), fcntl.LOCK_UN)
 
     @contextmanager
-    def _connect(self, outcomes: bool = False):
+    def _connect(self, outcomes: bool = False, *, read_only: bool = False):
+        if read_only:
+            path = self.root / ("outcomes.sqlite3" if outcomes else "signals.sqlite3")
+            db = sqlite3.connect(path.resolve().as_uri() + "?mode=ro", uri=True, timeout=30)
+            db.row_factory = sqlite3.Row
+            try:
+                yield db
+            finally:
+                db.close()
+            return
         self.root.mkdir(parents=True, exist_ok=True)
         db = sqlite3.connect(self.root / ("outcomes.sqlite3" if outcomes else "signals.sqlite3"),
                              timeout=30)
@@ -250,8 +259,8 @@ class LiveLedger:
         return {"status": "frozen", "session": session, "snapshot_hash": digest,
                 "signal_count": len(snapshot["signals"])}
 
-    def read_run(self, key: str, session: str) -> dict[str, Any] | None:
-        with self._connect() as db:
+    def read_run(self, key: str, session: str, *, read_only: bool = False) -> dict[str, Any] | None:
+        with self._connect(read_only=read_only) as db:
             row = db.execute("SELECT * FROM runs WHERE model_key=? AND session=?", (key, session)).fetchone()
             if row is None:
                 return None
@@ -357,9 +366,9 @@ class LiveLedger:
             db.execute("INSERT INTO operations VALUES (?,?)",
                        (self.clock().isoformat(), canonical_json(result)))
 
-    def outcome_runs(self) -> list[dict[str, Any]]:
+    def outcome_runs(self, *, read_only: bool = False) -> list[dict[str, Any]]:
         """Small projection; maturation must not deserialize years of features."""
-        with self._connect() as db:
+        with self._connect(read_only=read_only) as db:
             return [{"model_key": row["model_key"], "session": row["session"],
                      "signals": json.loads(row["signals"])} for row in db.execute(
                          """SELECT model_key,session,json_extract(snapshot,'$.signals') AS signals
@@ -430,12 +439,16 @@ class LiveLedger:
             return []
         return self.signal_outcomes(key, session, run["snapshot"].get("signals", []))
 
-    def signal_outcomes(self, key: str, session: str, signals: list[dict[str, Any]]) -> list[dict[str, Any]]:
-        with self._connect(outcomes=True) as db:
-            rows = db.execute("""SELECT * FROM observations WHERE model_key=? AND session=?
-                ORDER BY rowid""", (key, session)).fetchall()
-            evaluations = db.execute("""SELECT symbol,horizon,digest FROM evaluations
-                WHERE model_key=? AND session=? ORDER BY rowid""", (key, session)).fetchall()
+    def signal_outcomes(
+        self, key: str, session: str, signals: list[dict[str, Any]], *, read_only: bool = False,
+    ) -> list[dict[str, Any]]:
+        rows, evaluations = [], []
+        if not read_only or (self.root / "outcomes.sqlite3").exists():
+            with self._connect(outcomes=True, read_only=read_only) as db:
+                rows = db.execute("""SELECT * FROM observations WHERE model_key=? AND session=?
+                    ORDER BY rowid""", (key, session)).fetchall()
+                evaluations = db.execute("""SELECT symbol,horizon,digest FROM evaluations
+                    WHERE model_key=? AND session=? ORDER BY rowid""", (key, session)).fetchall()
         last = {(r["symbol"], r["horizon"]): r["digest"] for r in evaluations}
         payloads = {r["digest"]: json.loads(r["payload"]) for r in rows}
         result = []

@@ -84,6 +84,8 @@ class TaiwanSelectionReviewService:
         )
         self._lock = threading.Lock()
         self._completed_forward_reviews: dict[str, tuple[tuple, SnapshotReviewDetail]] = {}
+        self._action_window_cache: dict[tuple, tuple | None] = {}
+        self._action_window_version: tuple = ()
 
     def _read_snapshots_raw(self) -> list[SelectionSnapshot]:
         if not self.path.exists():
@@ -144,7 +146,9 @@ class TaiwanSelectionReviewService:
 
     # ── Snapshot CRUD ───────────────────────────────────────────────
 
-    def save_snapshot(self, req: SaveSelectionSnapshotRequest) -> SelectionSnapshot:
+    def save_snapshot(
+        self, req: SaveSelectionSnapshotRequest, *, buy_point_definition: dict | None = None,
+    ) -> SelectionSnapshot:
         """Save a new screener result snapshot. Guaranteed immutable once written."""
         now_dt = datetime.now(UTC)
         now_iso = now_dt.isoformat()
@@ -165,6 +169,14 @@ class TaiwanSelectionReviewService:
             selected_symbols=symbols,
             items=req.items,
             source=req.source,
+            cost_assumption=("未扣成本與滑價；訊號日參考收盤觀察報酬"  # noqa: RUF001
+                             if buy_point_definition is not None else
+                             "未扣成本與滑價；紙上開盤價不保證成交"),  # noqa: RUF001
+            observation_origin="a13_server_observed" if buy_point_definition is not None else None,
+            strategy_definition_digest=(hashlib.sha256(json.dumps(
+                buy_point_definition, sort_keys=True, ensure_ascii=False,
+                separators=(",", ":"), allow_nan=False,
+            ).encode("utf-8")).hexdigest() if buy_point_definition is not None else None),
         )
 
         with self._lock, self._write_guard():
@@ -186,6 +198,11 @@ class TaiwanSelectionReviewService:
                 if s.snapshot_id == snapshot_id:
                     return s
         return None
+
+    def read_snapshots(self) -> list[SelectionSnapshot]:
+        """Read one immutable selection set without calculating list-page metrics."""
+        with self._lock:
+            return self._read_snapshots_raw()
 
     def lock_forward_batch(self, screener=None, strategy_id: str = FORWARD_RULE_VERSION) -> SelectionSnapshot:
         """Run the canonical screener server-side and lock one batch per source session."""
@@ -324,8 +341,9 @@ class TaiwanSelectionReviewService:
         """Delete a snapshot by ID."""
         with self._lock, self._write_guard():
             existing = self._read_snapshots_raw()
-            if any(s.snapshot_id == snapshot_id and s.record_type == "forward_batch" for s in existing):
-                raise PermissionError("正式前瞻批次已鎖定。不能刪除")
+            if any(s.snapshot_id == snapshot_id and (s.record_type == "forward_batch"
+                   or s.observation_origin == "a13_server_observed") for s in existing):
+                raise PermissionError("前瞻觀察已鎖定。不能刪除")
             initial_len = len(existing)
             filtered = [s for s in existing if s.snapshot_id != snapshot_id]
             if len(filtered) < initial_len:
@@ -417,7 +435,22 @@ class TaiwanSelectionReviewService:
 
     def _verified_action_events(self, start: date, end: date):
         """Read the existing audited action snapshot without request-time downloads."""
-        return self.action_store.read_verified_window(start, end)
+        paths = (self.action_store.path, self.action_store.path.with_name("coverage.json"))
+        try:
+            version = tuple((p.stat().st_mtime_ns, p.stat().st_size) for p in paths)
+        except FileNotFoundError:
+            return None
+        with self._lock:
+            if version != self._action_window_version:
+                self._action_window_version = version
+                self._action_window_cache.clear()
+            if (start, end) in self._action_window_cache:
+                return self._action_window_cache[(start, end)]
+        events = self.action_store.read_verified_window(start, end)
+        with self._lock:
+            if version == self._action_window_version:
+                self._action_window_cache[(start, end)] = events
+        return events
 
     def _get_forward_batch_review(self, snapshot: SelectionSnapshot) -> SnapshotReviewDetail:
         source = date.fromisoformat(snapshot.source_data_date or snapshot.as_of_date)
@@ -483,6 +516,7 @@ class TaiwanSelectionReviewService:
             for horizon in (1, 5, 20):
                 end = sessions[horizon - 1] if len(sessions) >= horizon and entry_valid else None
                 prefix = f"h{horizon}d"
+                setattr(result, f"{prefix}_outcome_date", end.isoformat() if end else None)
                 due = end or self._potential_horizon_due(source, horizon)
                 reference_key = f"{prefix}_reference_close"
                 reference_end = prices.get(end, {}).get(pick.symbol) if end else None
@@ -829,23 +863,27 @@ class TaiwanSelectionReviewService:
     def _cached_forward_review(
         self, snapshot: SelectionSnapshot, inputs: tuple | None = None,
     ) -> SnapshotReviewDetail:
-        """Share completed formal reviews between stats, list and detail readers."""
+        """Share reviews; pending cache expires on price/evidence changes or market close."""
         fingerprint = self._forward_batch_fingerprint(
             snapshot, inputs if inputs is not None else self._forward_review_inputs()
         )
         with self._lock:
             cached = self._completed_forward_reviews.get(snapshot.snapshot_id)
-        if cached and cached[0] == fingerprint:
+        now = taipei_now()
+        phase = (now.date(), now >= market_close(now.date()))
+        if cached and cached[0] in (fingerprint, (fingerprint, phase)):
             return cached[1]
         review = self._get_forward_batch_review(snapshot)
-        if all(
+        terminal = all(
             item.entry_status != "pending"
             and getattr(item, f"h{horizon}d_status") != "pending"
             and getattr(item, f"h{horizon}d_bm_status") != "pending"
             for item in review.evaluated_items for horizon in (1, 5, 20)
-        ):
-            with self._lock:
-                self._completed_forward_reviews[snapshot.snapshot_id] = (fingerprint, review)
+        )
+        with self._lock:
+            self._completed_forward_reviews[snapshot.snapshot_id] = (
+                fingerprint if terminal else (fingerprint, phase), review,
+            )
         return review
 
     def _forward_review_inputs(self) -> tuple:
@@ -917,6 +955,10 @@ class TaiwanSelectionReviewService:
         snapshot = self.get_snapshot(snapshot_id)
         if not snapshot:
             return None
+        return self.review_snapshot(snapshot)
+
+    def review_snapshot(self, snapshot: SelectionSnapshot) -> SnapshotReviewDetail:
+        """Evaluate an already read immutable snapshot through the same review path."""
         if snapshot.record_type == "forward_batch":
             return self._cached_forward_review(snapshot)
 
@@ -956,14 +998,18 @@ class TaiwanSelectionReviewService:
         bm_ret_1d: float | None = None
         bm_ret_5d: float | None = None
         bm_ret_20d: float | None = None
+        bm_raw_returns: dict[int, float] = {}
 
         if bm_entry and bm_entry > 0:
             if d_1d and DEFAULT_BENCHMARK_SYMBOL in prices_1d:
-                bm_ret_1d = round((prices_1d[DEFAULT_BENCHMARK_SYMBOL] - bm_entry) / bm_entry * 100.0, 2)
+                bm_raw_returns[1] = (prices_1d[DEFAULT_BENCHMARK_SYMBOL] - bm_entry) / bm_entry * 100.0
+                bm_ret_1d = round(bm_raw_returns[1], 2)
             if d_5d and DEFAULT_BENCHMARK_SYMBOL in prices_5d:
-                bm_ret_5d = round((prices_5d[DEFAULT_BENCHMARK_SYMBOL] - bm_entry) / bm_entry * 100.0, 2)
+                bm_raw_returns[5] = (prices_5d[DEFAULT_BENCHMARK_SYMBOL] - bm_entry) / bm_entry * 100.0
+                bm_ret_5d = round(bm_raw_returns[5], 2)
             if d_20d and DEFAULT_BENCHMARK_SYMBOL in prices_20d:
-                bm_ret_20d = round((prices_20d[DEFAULT_BENCHMARK_SYMBOL] - bm_entry) / bm_entry * 100.0, 2)
+                bm_raw_returns[20] = (prices_20d[DEFAULT_BENCHMARK_SYMBOL] - bm_entry) / bm_entry * 100.0
+                bm_ret_20d = round(bm_raw_returns[20], 2)
 
         evaluated_items: list[HorizonReviewItem] = []
         ret_5d_list: list[float] = []
@@ -1039,7 +1085,10 @@ class TaiwanSelectionReviewService:
                     h1d_return_pct=h1_ret,
                     h1d_raw_return_pct=h1_raw,
                     h1d_status=h1_status,
+                    h1d_outcome_date=d_1d.isoformat() if d_1d else None,
                     h1d_bm_return_pct=bm_ret_1d,
+                    h1d_raw_bm_return_pct=bm_raw_returns.get(1),
+                    h1d_raw_excess_pct=(h1_raw - bm_raw_returns[1] if h1_raw is not None and 1 in bm_raw_returns else None),
                     h1d_bm_status=("completed" if bm_ret_1d is not None else
                                    missing_state(1, d_1d)),
                     h1d_excess_pct=h1_excess,
@@ -1047,7 +1096,10 @@ class TaiwanSelectionReviewService:
                     h5d_return_pct=h5_ret,
                     h5d_raw_return_pct=h5_raw,
                     h5d_status=h5_status,
+                    h5d_outcome_date=d_5d.isoformat() if d_5d else None,
                     h5d_bm_return_pct=bm_ret_5d,
+                    h5d_raw_bm_return_pct=bm_raw_returns.get(5),
+                    h5d_raw_excess_pct=(h5_raw - bm_raw_returns[5] if h5_raw is not None and 5 in bm_raw_returns else None),
                     h5d_bm_status=("completed" if bm_ret_5d is not None else
                                    missing_state(5, d_5d)),
                     h5d_excess_pct=h5_excess,
@@ -1055,7 +1107,10 @@ class TaiwanSelectionReviewService:
                     h20d_return_pct=h20_ret,
                     h20d_raw_return_pct=h20_raw,
                     h20d_status=h20_status,
+                    h20d_outcome_date=d_20d.isoformat() if d_20d else None,
                     h20d_bm_return_pct=bm_ret_20d,
+                    h20d_raw_bm_return_pct=bm_raw_returns.get(20),
+                    h20d_raw_excess_pct=(h20_raw - bm_raw_returns[20] if h20_raw is not None and 20 in bm_raw_returns else None),
                     h20d_bm_status=("completed" if bm_ret_20d is not None else
                                     missing_state(20, d_20d)),
                     h20d_excess_pct=h20_excess,
@@ -1122,6 +1177,7 @@ class TaiwanSelectionReviewService:
                         as_of_date=s.as_of_date,
                         selected_count=len(s.items),
                         record_type=s.record_type,
+                        observation_origin=s.observation_origin,
                         locked_at=s.locked_at,
                         source_data_date=s.source_data_date,
                         target_trade_date=s.target_trade_date,
@@ -1161,6 +1217,7 @@ class TaiwanSelectionReviewService:
                         as_of_date=s.as_of_date,
                         selected_count=len(s.items),
                         record_type=s.record_type,
+                        observation_origin=s.observation_origin,
                         locked_at=s.locked_at,
                         source_data_date=s.source_data_date,
                         target_trade_date=s.target_trade_date,

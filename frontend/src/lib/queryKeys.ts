@@ -125,6 +125,8 @@ export const QK = {
   selectionForwardBatchDetail: (batchId: string) => ['selection-forward-batch-detail', batchId] as const,
   selectionForwardStats: (strategyId?: string) => ['selection-forward-stats', strategyId ?? 'all'] as const,
   selectionStrategyStats: ['selection-strategy-stats'] as const,
+  strategyLab: (filters: object) => ['strategy-lab', filters] as const,
+  strategyLabObservations: (filters: object, offset: number) => ['strategy-lab-observations', filters, offset] as const,
   selectionConditionStats: ['selection-condition-stats'] as const,
   selectionHistoricalPit: ['selection-historical-pit', 'trend_liquidity_v1'] as const,
 

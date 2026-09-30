@@ -56,6 +56,8 @@ class SelectionSnapshot(BaseModel):
     evaluation_basis: Literal["reference_close", "next_open"] = "reference_close"
     price_adjustment: str = "raw_reference_close"
     cost_assumption: str = "未扣成本與滑價；紙上開盤價不保證成交"
+    observation_origin: Literal["a13_server_observed"] | None = None
+    strategy_definition_digest: str | None = None
     eligible_total: int | None = None
     primary_observation_count: int | None = None
     missing_quote_count: int | None = None
@@ -108,6 +110,7 @@ class HorizonReviewItem(BaseModel):
     h1d_return_pct: float | None = None
     h1d_raw_return_pct: float | None = None
     h1d_status: HorizonStatus = "pending"
+    h1d_outcome_date: str | None = None
     h1d_bm_return_pct: float | None = None
     h1d_raw_bm_return_pct: float | None = None
     h1d_bm_status: HorizonStatus = "pending"
@@ -121,6 +124,7 @@ class HorizonReviewItem(BaseModel):
     h5d_return_pct: float | None = None
     h5d_raw_return_pct: float | None = None
     h5d_status: HorizonStatus = "pending"
+    h5d_outcome_date: str | None = None
     h5d_bm_return_pct: float | None = None
     h5d_raw_bm_return_pct: float | None = None
     h5d_bm_status: HorizonStatus = "pending"
@@ -134,6 +138,7 @@ class HorizonReviewItem(BaseModel):
     h20d_return_pct: float | None = None
     h20d_raw_return_pct: float | None = None
     h20d_status: HorizonStatus = "pending"
+    h20d_outcome_date: str | None = None
     h20d_bm_return_pct: float | None = None
     h20d_raw_bm_return_pct: float | None = None
     h20d_bm_status: HorizonStatus = "pending"
@@ -291,6 +296,7 @@ class SnapshotListItem(BaseModel):
     as_of_date: str
     selected_count: int
     record_type: Literal["research", "forward_batch"] = "research"
+    observation_origin: Literal["a13_server_observed"] | None = None
     locked_at: str | None = None
     source_data_date: str | None = None
     target_trade_date: str | None = None
