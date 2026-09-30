@@ -7,6 +7,7 @@ import { DataHealthSummary } from '@/components/dashboard/DataHealthSummary'
 import { api, type DataHealthReport, type DataHealthJob } from '@/lib/api'
 import { CORE_NAV } from '@/lib/navigation'
 import { useDataHealthJobs } from '@/lib/useDataHealth'
+import { QK } from '@/lib/queryKeys'
 
 vi.mock('@/lib/api', () => ({ api: { dataHealth: vi.fn(), dataHealthJobs: vi.fn(), dataHealthAction: vi.fn() } }))
 
@@ -92,6 +93,21 @@ describe('資料健康中心', () => {
     expect(screen.getByText('正在讀取資料健康…')).toBeInTheDocument()
     expect(await screen.findByRole('alert')).toHaveTextContent('資料健康讀取失敗')
     expect(screen.queryByText('1 / 3 正常')).not.toBeInTheDocument()
+  })
+
+  it('invalidates Strategy Lab overview and drilldown after daily outcomes change', async () => {
+    vi.mocked(api.dataHealthJobs).mockResolvedValue([{ ...job, status: 'completed' }])
+    const client = mount()
+    const overviewKey = QK.strategyLab({ minimum_sample: 5, exchange: 'TPEX' })
+    const detailKey = QK.strategyLabObservations({ minimum_sample: 10, strategy_key: 'saved-identity' }, 50)
+    client.setQueryData(overviewKey, { sample_count: 5 })
+    client.setQueryData(detailKey, { total: 5 })
+    client.setQueryData(QK.settings, { marker: 'unchanged' })
+    await waitFor(() => {
+      expect(client.getQueryState(overviewKey)?.isInvalidated).toBe(true)
+      expect(client.getQueryState(detailKey)?.isInvalidated).toBe(true)
+    })
+    expect(client.getQueryState(QK.settings)?.isInvalidated).toBe(false)
   })
 
   it('disables actions when job tracking fails', async () => {
