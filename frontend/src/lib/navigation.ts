@@ -18,6 +18,7 @@ import {
   MessageCircleMore,
   BellRing,
   RefreshCw,
+  Database,
   type LucideIcon,
 } from 'lucide-react'
 
@@ -61,6 +62,7 @@ export const CORE_NAV: readonly NavMeta[] = [
   { to: '/events',          label: '事件中心', icon: CalendarDays },
   { to: '/social-sentiment',label: '社群聲量', icon: MessageCircleMore },
   { to: '/social-fetch',    label: '社群即時撈取', icon: RefreshCw },
+  { to: '/data-health',     label: '資料健康', icon: Database },
   { to: '/taiwan-screener', label: '台股選股', icon: Filter },
   { to: '/selection-review',label: '選股復盤', icon: History },
   { to: '/buy-points',      label: '買點策略', icon: BellRing },

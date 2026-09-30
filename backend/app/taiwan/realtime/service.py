@@ -69,6 +69,24 @@ class TaiwanRealtimeService:
         with self._lock:
             self._cache.clear()
 
+    def health_metadata(self) -> list[dict[str, Any]]:
+        """Read observed quote provenance without triggering provider requests."""
+        with self._lock:
+            quotes = [quote for _, quote in self._cache.values()]
+        now = taipei_now()
+        result = []
+        for quote in quotes:
+            meta = quote.source_meta.to_dict()
+            stamp = quote.quote_time
+            if stamp is not None:
+                stamp = stamp.replace(tzinfo=TAIPEI_TZ) if stamp.tzinfo is None else stamp
+                age = (now - stamp).total_seconds()
+                meta["is_stale"] = meta["is_stale"] or (
+                    age > self.freshness_policy.get_threshold_for_source(meta["source"])
+                )
+            result.append(meta)
+        return result
+
     def get_quotes(
         self,
         symbols: list[TaiwanSymbol | str],

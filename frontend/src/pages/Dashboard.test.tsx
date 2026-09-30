@@ -113,6 +113,7 @@ vi.mock('@/lib/api', () => ({
       ranking_modes: { live_current: '/api/taiwan/quant/live/models', historical_oos: '/api/taiwan/quant/evaluation' },
     }),
     taiwanQuantA2bStatus: vi.fn().mockResolvedValue({ completed: 232, pending: 246, failed: 0, total: 478, worker_status: 'running' }),
+    dataHealth: vi.fn().mockResolvedValue({ current_count: 12, total_count: 19, datasets: [], generated_at: '2026-09-30T10:00:00+08:00' }),
     taiwanQuantLiveModels: vi.fn().mockResolvedValue({ configured_model: { model_key: 'live-model', top_n: 10 }, latest_operation: null, expected_session: null, current_run_valid: false, current_run_audit_status: null, current_run_reason: 'session_unavailable' }),
     taiwanQuantLiveRuns: vi.fn().mockResolvedValue({ runs: [] }),
     taiwanQuantLiveRun: vi.fn(),

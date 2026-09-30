@@ -23,6 +23,7 @@ vi.mock('@/lib/api', () => ({
     alertsList: vi.fn().mockResolvedValue({ items: [], total: 0 }),
     intradayRefresh: vi.fn().mockResolvedValue({}),
     pipelineJobs: vi.fn().mockResolvedValue({ active_id: null }),
+    dataHealthJobs: vi.fn().mockResolvedValue([]),
   },
 }))
 

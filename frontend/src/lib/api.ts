@@ -2918,7 +2918,45 @@ export interface TaiwanSocialSentimentJob {
 }
 
 // ===== API surface =====
+export type DataHealthStatus = 'current' | 'stale' | 'partial' | 'unavailable' | 'updating' | 'error'
+export type DataHealthAction = 'update' | 'validate' | 'retry'
+export interface DatasetHealth {
+  id: string
+  name: string
+  status: DataHealthStatus
+  source: string | null
+  data_date: string | null
+  freshness: string
+  reason: string
+  last_attempt: string | null
+  last_success: string | null
+  actions: DataHealthAction[]
+}
+export interface DataHealthReport {
+  generated_at: string
+  datasets: DatasetHealth[]
+  current_count: number
+  total_count: number
+}
+export interface DataHealthJob {
+  job_id: string
+  dataset: string
+  action: DataHealthAction
+  affected_datasets: string[]
+  status: 'queued' | 'running' | 'completed' | 'partial' | 'failed'
+  queued_at: string
+  started_at: string | null
+  finished_at: string | null
+  reason: string | null
+}
+
 export const api = {
+  dataHealth: () => request<DataHealthReport>('/api/taiwan/data-health'),
+  dataHealthJobs: () => request<DataHealthJob[]>('/api/taiwan/data-health/jobs'),
+  dataHealthAction: (dataset: string, action: DataHealthAction) =>
+    request<DataHealthJob>(`/api/taiwan/data-health/${encodeURIComponent(dataset)}/actions`, {
+      method: 'POST', body: JSON.stringify({ action }),
+    }),
   health: () => request<{ status: string; version: string; mode: string }>('/health'),
 
   // ===== Auth (訪問認證) =====
