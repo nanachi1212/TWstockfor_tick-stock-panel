@@ -80,7 +80,8 @@ describe('SettingsBackupPanel — export', () => {
     localStorage.setItem('portfolio_transactions', '[{"symbol":"2330.TWSE"}]')
     localStorage.setItem('tf-theme', 'light')
     localStorage.setItem('unrelated', 'x')
-    fetchMock.mockResolvedValue(new Response(new Blob(['zip']), {
+    // Node Response and jsdom Blob belong to different runtimes; Response.blob() still exercises download.
+    fetchMock.mockResolvedValue(new Response('zip', {
       status: 200, headers: { 'Content-Disposition': 'attachment; filename="twstock-1.twstock-backup"' },
     }))
     renderPanel()
@@ -89,6 +90,7 @@ describe('SettingsBackupPanel — export', () => {
     fireEvent.click(screen.getByRole('button', { name: /建立備份/ }))
 
     await screen.findByText('已建立 twstock-1.twstock-backup')
+    expect(URL.createObjectURL).toHaveBeenCalledWith(expect.objectContaining({ size: 3 }))
     const body = JSON.parse(fetchMock.mock.calls[0][1].body)
     expect(body.categories).toEqual(['app_settings', 'ui_preferences', 'watchlist', 'portfolio'])
     expect(body.include_secrets).toBe(false)
