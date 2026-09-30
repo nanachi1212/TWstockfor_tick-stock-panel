@@ -119,6 +119,7 @@ class FinMindCache:
                     raise ValueError("invalid cache metadata")
                 item = {key: raw.get(key) for key in
                         ("status", "data_date", "fetched_at", "error_msg")}
+                item["symbol"] = symbol
                 if not raw.get("data") and item["status"] == "available":
                     item["status"] = "unavailable"
                 stamp = datetime.fromisoformat(str(item["fetched_at"]))
@@ -129,7 +130,7 @@ class FinMindCache:
                     item["status"] = "stale"
                 records.append(item)
             except (OSError, ValueError, TypeError):
-                records.append({"status": "error", "error_msg": "cache_metadata_invalid"})
+                records.append({"status": "error", "error_msg": "cache_metadata_invalid", "symbol": symbol})
         return records
 
     def clear(self, dataset: str | None = None, symbol: str | None = None) -> None:

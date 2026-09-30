@@ -27,6 +27,8 @@ from app.taiwan.providers.taiwan_values import TAIPEI
 
 logger = logging.getLogger(__name__)
 
+_NON_RETRYABLE_AI_STATUS = {401, 402, 403, 404}
+
 _PTT_INDEX = "https://www.ptt.cc/bbs/Stock/index.html"
 _PTT_BOARD = "https://www.ptt.cc"
 _DCARD_FORUMS = ("stock", "investment")
@@ -736,7 +738,7 @@ class SocialSentimentService:
     async def _apply_ai(self, rankings: list[dict[str, Any]], evidence: dict[str, list[tuple[SocialPost, int]]]) -> dict[str, Any]:
         from app.services.ai_provider import (
             ai_configured,
-            generate_ai_text,
+            generate_structured_ai_text,
             snapshot_ai_provider_config,
         )
 
@@ -746,10 +748,14 @@ class SocialSentimentService:
         batches = 0
         analyzed = 0
         errors: list[str] = []
-        for offset in range(0, len(rankings), 12):
-            batch = rankings[offset : offset + 12]
+        # Reasoning-capable gateways can spend most of a small output budget on
+        # hidden reasoning before emitting JSON. Keep each request bounded so a
+        # valid sentiment result has room to complete on Agnes as well as GLM.
+        batch_size = 4
+        for offset in range(0, len(rankings), batch_size):
+            batch = rankings[offset : offset + batch_size]
             prompt_items = [
-                {"symbol": row["code"], "company_name": row["company_name"], "texts": row["_texts"][:8]}
+                {"symbol": row["code"], "company_name": row["company_name"], "texts": row["_texts"][:4]}
                 for row in batch
             ]
             prompt = (
@@ -763,12 +769,17 @@ class SocialSentimentService:
             raw = ""
             try:
                 batches += 1
-                raw = await generate_ai_text(
+                raw = await generate_structured_ai_text(
                     [{"role": "user", "content": prompt}],
+                    truncated_retry_message=(
+                        "前次 JSON 輸出已超出 token 上限而截斷。請以相同 JSON 結構重新輸出完整結果，"
+                        "每個 reason 縮短至不超過 20 字。"
+                    ),
                     temperature=0.1,
-                    max_tokens=2500,
+                    max_tokens=3000,
                     timeout=120,
                     config_snapshot=config_snapshot,
+                    validate=_parse_ai_items,
                 )
                 items = _parse_ai_items(raw)
                 by_code = {str(item.get("symbol", "")).upper(): item for item in items}
@@ -783,10 +794,21 @@ class SocialSentimentService:
                         continue
                     analyzed += 1
             except Exception as exc:  # noqa: BLE001 - one batch must not fail the run
-                errors.append(f"batch {offset // 12 + 1}: {type(exc).__name__}")
-                logger.warning("Social sentiment AI batch failed: %s", type(exc).__name__)
+                # Keep only a safe HTTP status; provider text may echo request details.
+                http_status = getattr(exc.__cause__, "status_code", None) or getattr(exc, "status_code", None)
+                detail = f"HTTP {http_status}" if http_status else type(exc).__name__
+                errors.append(f"batch {offset // batch_size + 1}: {detail}")
+                logger.warning("Social sentiment AI batch failed: %s", detail)
+                if http_status in _NON_RETRYABLE_AI_STATUS:
+                    # Auth/billing failures repeat for every batch; stop spending calls.
+                    errors.append(f"remaining batches skipped after HTTP {http_status}")
+                    break
         return {
-            "status": "available" if analyzed == len(rankings) and not errors else "degraded",
+            "status": (
+                "available" if analyzed == len(rankings) and not errors
+                else "degraded" if analyzed
+                else "unavailable"
+            ),
             "batches": batches,
             "analyzed_symbols": analyzed,
             "errors": errors,

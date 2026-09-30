@@ -36,6 +36,7 @@ from app.services.ai_provider import (
     AIOutputTruncated,
     AIProviderConfigSnapshot,
     generate_ai_text,
+    generate_structured_ai_text,
     snapshot_ai_provider_config,
 )
 from app.strategy.custom_signals_ai import _extract_json_object
@@ -85,49 +86,17 @@ async def _shared_provider_response(
 
     try:
         result: tuple[str | None, Exception | None] = (
-            await generate_ai_text(
+            await generate_structured_ai_text(
                 messages,
+                truncated_retry_message=truncated_retry_message,
                 temperature=0.1,
                 max_tokens=3500,
                 timeout=55.0,
                 config_snapshot=config_snapshot,
-                structured_output=True,
-                request_attempt=0,
+                generate=generate_ai_text,
             ),
             None,
         )
-    except (AIOutputTruncated, AIEmptyContentError) as first_exc:
-        retry_message = truncated_retry_message if isinstance(first_exc, AIOutputTruncated) else (
-            "前次回覆的 message.content 為空。請直接輸出完整 JSON 物件,"
-            "不要輸出思考過程、Markdown 或其他文字。"
-        )
-        retry_messages = [
-            *messages,
-            {
-                "role": "assistant",
-                "content": first_exc.partial_content if isinstance(first_exc, AIOutputTruncated) else "",
-            },
-            {"role": "user", "content": retry_message},
-        ]
-        try:
-            result = (
-                await generate_ai_text(
-                    retry_messages,
-                    temperature=0.1,
-                    max_tokens=3500,
-                    timeout=55.0,
-                    config_snapshot=config_snapshot,
-                    structured_output=True,
-                    request_attempt=1,
-                ),
-                None,
-            )
-        except AIOutputTruncated:
-            result = (None, AIOutputTruncated("", "AI 回覆超過輸出長度限制，請重新產生。"))
-        except AIEmptyContentError:
-            result = (None, AIEmptyContentError("AI provider returned empty content twice"))
-        except Exception as exc2:
-            result = (None, exc2)
     except Exception as exc:
         result = (None, exc)
     except BaseException:

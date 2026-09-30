@@ -24,7 +24,8 @@ from app.taiwan.data_health_center import (
 from app.taiwan.realtime.calendar import taipei_now
 
 JobStatus = Literal["queued", "running", "completed", "partial", "failed"]
-DAILY = {"daily", "institutional", "margin"}
+# Benchmarks are refreshed by the same daily updater run (one single-flight group).
+DAILY = {"daily", "institutional", "margin", "taiex", "tpex_index"}
 SOCIAL = {"ptt", "social_ai"}
 
 
@@ -86,9 +87,14 @@ def execute_existing(dataset: str, action: HealthAction) -> tuple[JobStatus, str
         if result.overall_status == "failed":
             return "failed", "官方更新失敗，未取得有效資料；原有資料保留"
         rows = [r for r in get_health_snapshot().datasets if r.id in DAILY]
-        if result.overall_status == "partial" or any(r.status != "current" for r in rows):
+        waiting = [r.name for r in rows if r.status == "awaiting_publication"]
+        if result.overall_status == "partial" or any(
+            r.status not in {"current", "awaiting_publication"} for r in rows
+        ):
             return "partial", "更新已結束，部分交易日或交易所資料仍缺漏；原有資料保留"
-        return "completed", "既有日資料、法人與融資融券更新完成"
+        if waiting:
+            return "completed", f"更新完成；{'、'.join(waiting)} 等待官方發布，稍後自動補抓"
+        return "completed", "既有日資料、法人、融資融券與官方指數更新完成"
     if dataset in SOCIAL:
         from app.taiwan.social_sentiment_jobs import get_social_sentiment_job_manager
 

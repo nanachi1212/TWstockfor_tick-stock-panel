@@ -14,6 +14,7 @@ from __future__ import annotations
 import json
 from datetime import date
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -53,6 +54,39 @@ def test_build_deterministic_brief_structure(mock_daily_brief_service: TaiwanDai
     assert brief.candidates is not None
     assert brief.events is not None
     assert brief.news is not None
+
+
+def test_daily_brief_converts_benchmark_fraction_to_percentage_points(
+    mock_daily_brief_service: TaiwanDailyBriefService,
+):
+    market_snapshot = SimpleNamespace(
+        indexes=SimpleNamespace(
+            taiex=SimpleNamespace(close=101.0, change=1.0, change_pct=0.01),
+        ),
+        institutional=SimpleNamespace(
+            foreign_net=None,
+            investment_trust_net=None,
+            dealer_net=None,
+            total_net=None,
+        ),
+        market_totals=SimpleNamespace(
+            advance_count=0,
+            decline_count=0,
+            flat_count=0,
+            upper_limit_count=0,
+            lower_limit_count=0,
+            turnover=0.0,
+        ),
+    )
+    with patch(
+        "app.taiwan.daily_brief_service.TaiwanMarketIntelligenceService.get_snapshot",
+        return_value=market_snapshot,
+    ):
+        brief = mock_daily_brief_service.build_deterministic_brief(
+            target_date=date(2026, 8, 3),
+        )
+
+    assert brief.market.taiex_change_pct == pytest.approx(1.0)
 
 
 @pytest.mark.asyncio

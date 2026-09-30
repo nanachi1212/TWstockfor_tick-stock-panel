@@ -309,8 +309,8 @@ function MarketOverviewCard({ snapshot, loading, error, marketDailyStatus }: { s
           {dailyDataIncomplete && (
             <div className="mb-1.5 rounded border border-warning/40 bg-warning/10 px-2 py-1 text-[11px] text-warning">
               日行情尚未完整，漲跌與成交統計僅依目前可用資料顯示
-              {intel.data?.data_quality?.previous_trade_date && (
-                <>；前一交易日：{intel.data.data_quality.previous_trade_date}</>
+              {intel.data.data_quality.target_trade_date > intel.data.trade_date && (
+                <>；目標交易日 {intel.data.data_quality.target_trade_date} 尚未取得，以下為 {intel.data.trade_date} 資料</>
               )}
             </div>
           )}

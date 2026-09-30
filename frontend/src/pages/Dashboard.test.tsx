@@ -505,12 +505,15 @@ describe('Dashboard — Market data honesty (DAILY_USE_CORE_UX_FIXES P1-1)', () 
 
   it('B. partial data shows a clear incomplete-data notice', async () => {
     vi.mocked(api.taiwanAbnormalDiagnostics).mockResolvedValue(buildDiagnostics([], 'current', buildMarketIntelligence({
-      data_quality: { target_trade_date: '2026-09-09', previous_trade_date: '2026-09-03', overall_status: 'partial', universe_supported_symbols: 2375, daily_snapshot_symbols: 0, missing_symbols_count: 2375 },
+      trade_date: '2026-09-08',
+      data_quality: { target_trade_date: '2026-09-09', previous_trade_date: '2026-09-05', overall_status: 'partial', universe_supported_symbols: 2375, daily_snapshot_symbols: 0, missing_symbols_count: 2375 },
     })) as any)
     renderDashboard()
 
     expect(await screen.findByText(/日行情尚未完整/)).toBeInTheDocument()
-    expect(screen.getByText(/前一交易日：2026-09-03/)).toBeInTheDocument()
+    // One source of truth: the target day and the data day, never the data day's previous session.
+    expect(screen.getByText(/目標交易日 2026-09-09 尚未取得，以下為 2026-09-08 資料/)).toBeInTheDocument()
+    expect(screen.queryByText(/前一交易日/)).not.toBeInTheDocument()
     expect(screen.queryByText(/已知最新資料|最新資料日期|非今日實際行情/)).not.toBeInTheDocument()
   })
 

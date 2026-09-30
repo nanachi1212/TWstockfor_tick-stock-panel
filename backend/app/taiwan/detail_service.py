@@ -681,6 +681,26 @@ class TaiwanStockDetailService:
             symbol = "TAIEX"
             name = "發行量加權股價指數"
 
+        from app.taiwan.benchmark_store import latest_benchmark
+        from app.taiwan.daily_update import resolve_target_latest_trading_date
+
+        official = latest_benchmark(symbol)
+        if official:
+            return TaiwanMarketContext(
+                benchmark_symbol=symbol,
+                benchmark_name=name,
+                close=official["close"],
+                change=official["change"],
+                # This context reports percent points, not fractions.
+                change_pct=official["change_pct"] * 100 if official["change_pct"] is not None else None,
+                meta=SectionMeta(
+                    source=official["source"],
+                    trade_date=official["date"].isoformat(),
+                    status="available",
+                    is_stale=official["date"] < resolve_target_latest_trading_date(),
+                ),
+            )
+
         if repo is not None:
             try:
                 rows = repo.execute_all(

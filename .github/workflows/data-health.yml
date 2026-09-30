@@ -22,11 +22,11 @@ jobs:
       - run: uv python install 3.11
       - run: uv sync --frozen --extra dev --python 3.11
       - name: Ruff
-        run: uv run ruff check app/taiwan/data_health_center.py app/taiwan/data_health_jobs.py app/api/data_health.py app/taiwan/finmind_cache.py app/taiwan/selection_review_service.py tests/test_data_health_center.py
+        run: uv run ruff check app/taiwan/data_health_center.py app/taiwan/data_health_jobs.py app/api/data_health.py app/taiwan/finmind_cache.py app/taiwan/selection_review_service.py tests/test_data_health_center.py app/taiwan/benchmark_store.py app/taiwan/daily_update.py app/taiwan/institutional_margin_refresh.py tests/test_data_correctness_policies.py
       - name: Metadata/API type check
-        run: uv run mypy --follow-imports=silent app/taiwan/data_health_center.py app/taiwan/data_health_jobs.py app/api/data_health.py
+        run: uv run mypy --follow-imports=silent app/taiwan/data_health_center.py app/taiwan/data_health_jobs.py app/api/data_health.py app/taiwan/benchmark_store.py
       - name: Metadata and updater regression
-        run: uv run pytest -q tests/test_data_health_center.py tests/test_taiwan_daily_update.py tests/test_taiwan_daily_refresh.py tests/test_taiwan_selection_review.py tests/test_taiwan_realtime.py tests/test_taiwan_security_master.py tests/test_taiwan_market_intelligence.py tests/test_taiwan_social_sentiment_api.py -m 'not integration'
+        run: uv run pytest -q tests/test_data_health_center.py tests/test_data_correctness_policies.py tests/test_taiwan_institutional_margin.py tests/test_social_sentiment.py tests/test_taiwan_daily_update.py tests/test_taiwan_daily_refresh.py tests/test_taiwan_selection_review.py tests/test_taiwan_realtime.py tests/test_taiwan_security_master.py tests/test_taiwan_market_intelligence.py tests/test_taiwan_social_sentiment_api.py -m 'not integration'
 
   frontend:
     runs-on: ubuntu-latest

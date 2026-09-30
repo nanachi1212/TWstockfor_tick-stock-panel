@@ -17,6 +17,7 @@ from app.taiwan.data_health_center import (
     DATASETS,
     DataHealthService,
     combined_status,
+    finmind_policy,
     normalize_status,
     safe_reason,
 )
@@ -80,7 +81,8 @@ def test_aggregation_isolates_provider_failure_and_keeps_missing_null():
     assert rows["dcard"].data_date is None
     assert rows["dcard"].last_success is None
     assert rows["dcard"].actions == []
-    assert rows["taiex"].actions == []
+    # Benchmarks now have an official updater (the same daily run).
+    assert rows["taiex"].actions == ["validate", "retry"]
     assert "sk-private" not in snapshot.model_dump_json()
     assert "secret.example" not in snapshot.model_dump_json()
 
@@ -142,20 +144,26 @@ def test_finmind_metadata_expired_empty_corrupt_and_no_fetch(tmp_path):
     assert path.exists()  # health inspection retains expired evidence
 
 
-def test_daily_metadata_reuses_freshness_and_checks_exchange_coverage(monkeypatch):
+def test_daily_metadata_reuses_freshness_and_checks_exchange_coverage(monkeypatch, tmp_path):
     from app.taiwan import daily_update
 
     def store(symbols):
-        return SimpleNamespace(read_latest_date_rows=lambda: pl.DataFrame({"symbol": symbols}))
+        return SimpleNamespace(
+            read_latest_date_rows=lambda: pl.DataFrame({"symbol": symbols}),
+            _data_dir=tmp_path / "daily",
+        )
 
     freshness = SimpleNamespace(
         model_dump=lambda: {
             "daily_status": "current",
             "daily_as_of": "2026-09-29",
+            "daily_days_behind": 0,
             "institutional_status": "current",
             "institutional_as_of": "2026-09-29",
+            "institutional_days_behind": 0,
             "margin_status": "stale",
             "margin_as_of": "2026-09-28",
+            "margin_days_behind": 1,
             "target_latest_trading_date": "2026-09-29",
         }
     )
@@ -170,7 +178,9 @@ def test_daily_metadata_reuses_freshness_and_checks_exchange_coverage(monkeypatc
     assert rows["daily"]["status"] == "current"
     assert rows["institutional"]["status"] == "partial"
     assert rows["margin"]["status"] == "stale"
-    assert "last_success" not in rows["daily"]  # no invented timestamps
+    assert "TPEX" in rows["institutional"]["reason"]
+    assert rows["daily"]["last_success"] is None  # no partition, no invented timestamp
+    assert rows["daily"]["last_attempt"] is None  # no recorded updater run
 
     def fail_partition():
         raise ValueError("private partition path")
@@ -203,7 +213,7 @@ def test_social_403_is_reason_only_and_ai_degraded(monkeypatch):
         },
     )
     rows = DataHealthService()._social()
-    assert rows["dcard"]["status"] == "unavailable"
+    assert rows["dcard"]["status"] == "provider_error"
     assert "HTTP 403" in rows["dcard"]["reason"]
     assert rows["dcard"]["last_success"] is None
     assert rows["dcard"]["data_date"] is None
@@ -288,7 +298,7 @@ def test_action_whitelist_and_api(monkeypatch):
     app.include_router(data_health.router)
     client = TestClient(app)
     assert client.get("/api/taiwan/data-health").json()["total_count"] == 19
-    for dataset in ("dcard", "taiex", "financial", "quant_live"):
+    for dataset in ("dcard", "financial", "quant_live"):
         assert (
             client.post(
                 f"/api/taiwan/data-health/{dataset}/actions", json={"action": "retry"}
@@ -357,16 +367,21 @@ def test_ai_validation_invalidated_by_configuration_change(monkeypatch):
 
 
 def test_finmind_reader_aggregates_per_symbol_ttl_and_null_dates(monkeypatch):
+    from app.taiwan import data_health_center
+
+    monkeypatch.setattr(data_health_center, "etf_symbols", lambda: set())
     monkeypatch.setattr(
         FinMindCache,
         "health_metadata",
         lambda self, dataset: [
             {
+                "symbol": "2330.TWSE",
                 "status": "available",
                 "fetched_at": "2026-09-30T09:00:00+08:00",
                 "data_date": "2026-08-01",
             },
-            {"status": "unavailable", "fetched_at": "2026-09-30T02:00:00+00:00", "data_date": None},
+            {"symbol": "2454.TWSE", "status": "unavailable",
+             "fetched_at": "2026-09-30T02:00:00+00:00", "data_date": None},
         ],
     )
     row = DataHealthService()._finmind()["monthly_revenue"]
@@ -375,19 +390,102 @@ def test_finmind_reader_aggregates_per_symbol_ttl_and_null_dates(monkeypatch):
     assert row["last_success"] == "2026-09-30T01:00:00+00:00"
 
 
-def test_persisted_benchmark_uses_existing_metadata(monkeypatch):
-    from app.taiwan import market_intelligence
-
-    monkeypatch.setattr(
-        market_intelligence,
-        "persisted_index_snapshot",
-        lambda: SimpleNamespace(
-            taiex=SimpleNamespace(status="unavailable", trade_date="2026-09-30"),
-            tpex_index=SimpleNamespace(status="stale", trade_date="2026-09-28"),
+@pytest.mark.parametrize(
+    ("records", "expected_status"),
+    [
+        ([{"status": "error", "error_msg": "HTTP 503"}], "error"),
+        ([{"status": "unavailable"}], "unavailable"),
+        (
+            [
+                {"status": "unavailable"},
+                {"status": "available", "data_date": "2026-08-01"},
+            ],
+            "partial",
         ),
+    ],
+)
+def test_finmind_reporting_cache_fails_closed_when_all_records_are_invalid(
+    records, expected_status,
+):
+    status, _ = finmind_policy(
+        "monthly_revenue",
+        records,
+        date(2026, 8, 1),
+        6 * 3600,
     )
-    assert DataHealthService()._index("taiex")["data_date"] is None
-    assert DataHealthService()._index("tpex_index")["status"] == "stale"
+    assert status == expected_status
+
+
+def test_persisted_benchmark_available_awaiting_and_missing(monkeypatch):
+    from app.taiwan import daily_update, data_health_center
+    from app.taiwan.benchmark_store import TaiwanBenchmarkStore
+
+    now = datetime(2026, 9, 30, 16, 40)
+    monkeypatch.setattr(data_health_center, "taipei_now", lambda: now)
+    monkeypatch.setattr(
+        daily_update, "resolve_target_latest_trading_date", lambda *a, **k: date(2026, 9, 30)
+    )
+    missing = DataHealthService()._index("taiex")
+    assert missing["status"] == "unavailable" and missing.get("data_date") is None
+
+    TaiwanBenchmarkStore().write(pl.DataFrame({
+        "symbol": ["TAIEX", "TAIEX", "TPEX_INDEX"],
+        "date": [date(2026, 9, 24), date(2026, 9, 29), date(2026, 9, 30)],
+        "open": [None, None, 414.21], "high": [None, None, 419.03], "low": [None, None, 414.21],
+        "close": [48024.6, 47631.96, 417.07],
+        "source": ["twse:MI_5MINS_HIST", "twse:MI_5MINS_HIST", "tpex:tpex_index"],
+        "source_url": ["u", "u", "u"], "retrieved_at": ["2026-09-30T16:30:00+08:00"] * 3,
+    }))
+    taiex = DataHealthService()._index("taiex")
+    assert taiex["status"] == "awaiting_publication"  # official OpenAPI lags one session
+    assert taiex["data_date"] == "2026-09-29"
+    assert DataHealthService()._index("tpex_index")["status"] == "current"
+
+
+def test_persisted_benchmark_failed_refresh_is_not_publication_lag(monkeypatch):
+    from app.taiwan import daily_update, data_health_center
+    from app.taiwan.benchmark_store import TaiwanBenchmarkStore
+
+    now = datetime(2026, 9, 30, 16, 40)
+    monkeypatch.setattr(data_health_center, "taipei_now", lambda: now)
+    monkeypatch.setattr(
+        daily_update,
+        "resolve_target_latest_trading_date",
+        lambda *a, **k: date(2026, 9, 30),
+    )
+    monkeypatch.setattr(
+        daily_update,
+        "read_last_run",
+        lambda *a, **k: {
+            "run_started_at": "2026-09-30T16:30:00+08:00",
+            "target_latest_trading_date": "2026-09-30",
+            "benchmark": {
+                "failed": [
+                    {
+                        "symbol": "TAIEX",
+                        "error": "HTTP 503 https://private.example?token=secret",
+                    }
+                ]
+            },
+        },
+    )
+    TaiwanBenchmarkStore().write(pl.DataFrame({
+        "symbol": ["TAIEX"],
+        "date": [date(2026, 9, 29)],
+        "open": [None],
+        "high": [None],
+        "low": [None],
+        "close": [47631.96],
+        "source": ["twse:MI_5MINS_HIST"],
+        "source_url": ["u"],
+        "retrieved_at": ["2026-09-29T16:30:00+08:00"],
+    }))
+
+    row = DataHealthService()._index("taiex")
+    assert row["status"] == "provider_error"
+    assert "HTTP 503" in row["reason"]
+    assert "private.example" not in row["reason"]
+    assert row["last_attempt"] == "2026-09-30T08:30:00+00:00"
 
 
 def test_security_master_offline_metadata_does_not_fetch(tmp_path):
@@ -434,8 +532,17 @@ def test_selection_metadata_preserves_pending_and_unavailable(tmp_path, monkeypa
         lambda snapshot_id: SnapshotReviewDetail(snapshot=snapshot, evaluated_items=[item]),
     )
     rows = svc.health_metadata()
-    assert rows["selection_snapshot"]["status"] == "stale"
-    assert rows["selection_outcome"]["status"] == "partial"
+    # Snapshots are locked manually: an older one is "not run today", not stale.
+    assert rows["selection_snapshot"]["status"] == "not_run"
+    # Horizons not yet due are expected, not missing data.
+    assert rows["selection_outcome"]["status"] == "current"
+    done = item.model_copy(update={"h1d_status": "completed", "h1d_bm_status": "unavailable"})
+    monkeypatch.setattr(
+        svc,
+        "get_snapshot_review",
+        lambda snapshot_id: SnapshotReviewDetail(snapshot=snapshot, evaluated_items=[done]),
+    )
+    assert svc.health_metadata()["selection_outcome"]["status"] == "partial"
     monkeypatch.setattr(
         svc, "get_snapshot_review", lambda snapshot_id: SnapshotReviewDetail(snapshot=snapshot)
     )
@@ -446,7 +553,7 @@ def test_selection_metadata_preserves_pending_and_unavailable(tmp_path, monkeypa
 
     monkeypatch.setattr(svc, "get_snapshot_review", fail_review)
     rows = svc.health_metadata()
-    assert rows["selection_snapshot"]["status"] == "stale"
+    assert rows["selection_snapshot"]["status"] == "not_run"
     assert rows["selection_outcome"]["status"] == "error"
     assert "private" not in rows["selection_outcome"]["reason"]
 

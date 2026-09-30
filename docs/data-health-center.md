@@ -9,32 +9,42 @@
 | 資料集 | 聚合來源與判定 | 安全操作 |
 | --- | --- | --- |
 | Daily OHLC | `TaiwanDailyUpdateService.get_freshness()`、最新有效分區與交易所涵蓋 | 更新／重試、重新驗證 |
-| Realtime | `TaiwanRealtimeService` 已查詢行情的 provenance 與既有 freshness policy | 重新驗證 metadata |
+| Realtime | 每檔最新一次觀察；只在盤中以報價年齡判過期（與 `get_quotes` 同一規則），盤後最後成交即最新 | 重新驗證 metadata |
 | Institutional | 既有 freshness、最新法人分區、來源與 TWSE／TPEx 涵蓋 | 更新／重試、重新驗證 |
-| Margin / Short | 既有 freshness、最新融資融券分區與交易所涵蓋 | 更新／重試、重新驗證 |
-| Securities Lending | `FinMindCache` 已快取標的，沿用資料集 TTL | 重新驗證 metadata |
-| Financial Statements | 同上；報表期與抓取時間保持不同意義 | 重新驗證 metadata |
-| Monthly Revenue | 同上；月份與抓取時間保持不同意義 | 重新驗證 metadata |
+| Margin / Short | 同上；官方於當日晚間公布，16:30 後至晚間為「等待官方發布」，21:30／23:00 自動補抓 | 更新／重試、重新驗證 |
+| Securities Lending | `FinMindCache` 已快取標的，沿用資料集 TTL；日期為最近一筆借券成交（事件資料） | 重新驗證 metadata |
+| Financial Statements | 依法定申報期限判定應已公告期別；ETF 不適用，不計入 | 重新驗證 metadata |
+| Monthly Revenue | 依次月 10 日公告期限判定；ETF 不適用，不計入 | 重新驗證 metadata |
 | Foreign Shareholding | `FinMindCache` 已快取標的，沿用資料集 TTL | 重新驗證 metadata |
-| TAIEX | 與 Market Intelligence 共用 persisted benchmark metadata | 僅顯示原因 |
-| TPEX Index | 同上；即時指數不充當歷史 benchmark | 僅顯示原因 |
-| Trading Calendar | 兩交易所當日 `day_evidence`，未確認平日保持未知 | 重新驗證 metadata |
+| TAIEX | 官方 `MI_5MINS_HIST` OpenAPI，隨盤後更新存入 `taiwan/benchmark_index.parquet`；OpenAPI 晚一日時為「等待官方發布」 | 更新／重試（同日資料更新）、重新驗證 |
+| TPEX Index | 官方 `tpex_index` OpenAPI，同上；即時指數不充當歷史 benchmark | 更新／重試、重新驗證 |
+| Trading Calendar | 兩交易所當日 `day_evidence`；官方日行情分區本身也是交易日證據（與 Live Quant 同一規則） | 重新驗證 metadata |
 | Security Master | 既有本地證券主檔；未記錄更新頻率時保持 partial | 重新驗證 metadata |
 | Quant Live Run | `LiveLedger` 現行交易日、operation projection、run audit | 重新驗證；不手動凍結或改寫 run |
-| Selection snapshot | 最新不可變快照與既有目標交易日規則 | 重新驗證；不自動建立快照 |
-| Selection outcome | 既有 snapshot review 的 1D／5D／20D 與 benchmark 狀態 | 重新驗證；不生成缺失價格或報酬 |
+| Selection snapshot | 手動鎖定的快照；今日未鎖定為「尚未執行」，不是過期 | 重新驗證；不自動建立快照 |
+| Selection outcome | 未到期 horizon 屬正常；已到期但缺資料時列出阻擋原因 | 重新驗證；不生成缺失價格或報酬 |
 | PTT | 社群快照中的來源 availability 與日期 | 更新／重試、重新驗證 |
 | Dcard | 原始來源 status 與安全化的 HTTP 失敗原因 | 僅顯示原因，包括 HTTP 403 |
-| Social AI | 既有社群 AI status，包括 degraded | 更新／重試、重新驗證 |
+| Social AI | 社群 AI status；0 檔完成不算部分可用；保存安全的 HTTP 狀態碼 | 更新／重試、重新驗證 |
 | AI Provider/Profile | 現行設定及既有連線 probe | 重新驗證連線 |
 
-FinMind 的狀態只涵蓋已快取標的，不宣稱全市場涵蓋。顯示的資料日期為已快取標的中最舊日期；財報與月營收是否為最新已公告期，仍依既有 consumer 契約判定。未快取標的保持未查詢。
+FinMind 為按需快取（開啟個股頁時抓取），狀態只涵蓋已快取標的，不宣稱全市場涵蓋。財報與月營收依申報週期判定，不以快取 TTL 或「是否等於今天」判定。
 
 ## 狀態與原因
 
-六種健康狀態為 `current`、`stale`、`partial`、`unavailable`、`updating`、`error`。只有 `current` 計入看板正常數量。不同標的或交易所狀態不一致時為 `partial`；缺資料保持 `unavailable`，metadata 損壞或 run audit 衝突為 `error`。
+| 狀態 | 顯示 | 意義 |
+| --- | --- | --- |
+| `current` | 正常 | 符合該資料集自己的發布週期（唯一計入看板正常數） |
+| `partial` | 部分可用 | 部分交易所／標的缺漏，原因列出缺哪一邊 |
+| `awaiting_publication` | 等待官方發布 | 更新器已查詢，官方尚未公布（或 OpenAPI 晚一日） |
+| `stale` | 過期 | 超過該資料集應有的發布時點仍未取得 |
+| `provider_error` | 外部服務失敗 | 外部來源回 HTTP 4xx/5xx（例如 Dcard 403、AI 402） |
+| `not_run` | 尚未執行 | 排程尚未到（16:30）或需手動操作（選股鎖定、AI 驗證） |
+| `unavailable` | 資料缺失 | 本地沒有可用資料 |
+| `config_missing` | 設定缺失 | AI provider/profile 未設定 |
+| `updating` / `error` | 更新中 / 錯誤 | 背景任務執行中 / metadata 損壞或 audit 衝突 |
 
-過期日資料顯示既有 updater 所認定的目標交易日。無官方發布證據時，不直接斷言「官方尚未發布」，而顯示「官方未發布或前次更新未完成」。未知的市場日不能冒充確認的交易日。
+日資料、法人、融資融券的原因來自更新器最後一次執行紀錄（`taiwan/daily_update_last_run.json`）：官方回應為空時記為 pending，不寫分區、下次重試；只有一個交易所發布時同樣不寫入，避免把單邊資料當成完整。最後成功時間取最新分區寫入時間，不以目前時間代替。未知的市場日不能冒充確認的交易日。
 
 ## 背景任務與快取
 

@@ -340,7 +340,7 @@ def test_structured_output_disables_thinking_only_for_verified_hosts(base_url, m
         base_url="https://apihub.agnes-ai.com/v1",
         model="agnes-2.5-flash",
     )
-    assert "response_format" not in agnes
+    assert agnes["response_format"] == {"type": "json_object"}
     assert "extra_body" not in agnes
 
     unsupported_glm = ai_provider._openai_kwargs(
@@ -353,6 +353,76 @@ def test_structured_output_disables_thinking_only_for_verified_hosts(base_url, m
     )
     assert "response_format" not in unsupported_glm
     assert "extra_body" not in unsupported_glm
+
+
+@pytest.mark.asyncio
+async def test_structured_output_retries_malformed_json_once():
+    calls: list[tuple[list[dict[str, str]], int]] = []
+
+    async def generate(messages, **kwargs):
+        calls.append((messages, kwargs["request_attempt"]))
+        return '{"items":[' if len(calls) == 1 else '{"items":[]}'
+
+    result = await ai_provider.generate_structured_ai_text(
+        [{"role": "user", "content": "private prompt"}],
+        truncated_retry_message="shorten",
+        temperature=0.1,
+        max_tokens=100,
+        timeout=5,
+        generate=generate,
+        validate=ai_provider._validate_structured_json,
+    )
+
+    assert result == '{"items":[]}'
+    assert [attempt for _, attempt in calls] == [0, 1]
+    assert calls[1][0][-2]["content"] == '{"items":['
+    assert calls[1][0][-1]["content"] == ai_provider.INVALID_JSON_RETRY_MESSAGE
+
+
+@pytest.mark.asyncio
+async def test_structured_output_second_malformed_json_fails_closed():
+    calls: list[int] = []
+
+    async def generate(messages, **kwargs):
+        calls.append(kwargs["request_attempt"])
+        return "not-json"
+
+    with pytest.raises(ai_provider.AIStructuredOutputError, match="invalid JSON twice"):
+        await ai_provider.generate_structured_ai_text(
+            [{"role": "user", "content": "private prompt"}],
+            truncated_retry_message="shorten",
+            temperature=0.1,
+            max_tokens=100,
+            timeout=5,
+            generate=generate,
+            validate=ai_provider._validate_structured_json,
+        )
+
+    assert calls == [0, 1]
+
+
+@pytest.mark.asyncio
+async def test_structured_output_retries_empty_content_once():
+    calls: list[int] = []
+
+    async def generate(messages, **kwargs):
+        calls.append(kwargs["request_attempt"])
+        if len(calls) == 1:
+            raise ai_provider.AIEmptyContentError()
+        return '{"items":[]}'
+
+    result = await ai_provider.generate_structured_ai_text(
+        [{"role": "user", "content": "private prompt"}],
+        truncated_retry_message="shorten",
+        temperature=0.1,
+        max_tokens=100,
+        timeout=5,
+        generate=generate,
+        validate=ai_provider._validate_structured_json,
+    )
+
+    assert result == '{"items":[]}'
+    assert calls == [0, 1]
 
 
 @pytest.mark.asyncio
