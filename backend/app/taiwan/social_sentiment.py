@@ -1,8 +1,8 @@
 """PTT Stock 與 Dcard 台股社群聲量、情緒 MVP。
 
 這個模組刻意保持獨立：collector 只負責來源讀取，股票辨識只使用既有
-TaiwanSecurityMaster，AI 與檔案輸出則由 service 編排。原始文章不保存，
-避免把不必要的使用者資料帶進歷史資料；歷史研究先使用每日聚合結果。
+TaiwanSecurityMaster，AI 與檔案輸出則由 service 編排。排程快照只保存聚合
+結果；手動快照另外保存有上限的文章節錄與代表留言，供單次執行頁查閱。
 """
 from __future__ import annotations
 
@@ -39,6 +39,65 @@ _DEFAULT_HEADERS = {
 _CODE_RE = re.compile(r"(?<![\dA-Za-z])([0-9]{4,6}[A-Za-z]?)(?![\dA-Za-z])")
 _TAG_RE = re.compile(r"<[^>]+>")
 _SPACE_RE = re.compile(r"\s+")
+_VALID_TRIGGERS = {"pre_open", "after_close", "manual", "missed_schedule"}
+
+
+class SocialSentimentAlreadyRunningError(RuntimeError):
+    """Raised when another process already owns the Social Sentiment run lock."""
+
+
+class SocialSentimentRunLock:
+    """Small cross-process, non-blocking file lock shared by CLI and API runs."""
+
+    def __init__(self, path: Path) -> None:
+        self.path = Path(path)
+        self._handle: Any | None = None
+
+    @property
+    def acquired(self) -> bool:
+        return self._handle is not None
+
+    def acquire(self) -> bool:
+        if self.acquired:
+            return True
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        handle = self.path.open("a+b")
+        try:
+            if handle.seek(0, os.SEEK_END) == 0:
+                handle.write(b"0")
+                handle.flush()
+            handle.seek(0)
+            if os.name == "nt":
+                import msvcrt
+
+                msvcrt.locking(handle.fileno(), msvcrt.LK_NBLCK, 1)
+            else:
+                import fcntl
+
+                fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except (OSError, BlockingIOError):
+            handle.close()
+            return False
+        self._handle = handle
+        return True
+
+    def release(self) -> None:
+        handle = self._handle
+        if handle is None:
+            return
+        try:
+            handle.seek(0)
+            if os.name == "nt":
+                import msvcrt
+
+                msvcrt.locking(handle.fileno(), msvcrt.LK_UNLCK, 1)
+            else:
+                import fcntl
+
+                fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+        finally:
+            handle.close()
+            self._handle = None
 
 
 def _clean_html(value: str) -> str:
@@ -48,6 +107,21 @@ def _clean_html(value: str) -> str:
 
 def _snapshot_slot(moment: datetime) -> str:
     return "pre_open" if moment.hour < 12 else "after_close"
+
+
+def _resolve_trigger(trigger: str | None, moment: datetime) -> tuple[str, str]:
+    if trigger is None:
+        slot = _snapshot_slot(moment)
+        return slot, slot
+    if trigger not in _VALID_TRIGGERS:
+        raise ValueError(f"unsupported trigger: {trigger}")
+    if trigger == "manual":
+        return "manual", "manual"
+    if trigger == "missed_schedule":
+        return trigger, _snapshot_slot(moment)
+    cutoff = (9, 0) if trigger == "pre_open" else (16, 0)
+    actual = "missed_schedule" if (moment.hour, moment.minute) > cutoff else trigger
+    return actual, trigger
 
 
 def _parse_datetime(value: str) -> datetime | None:
@@ -509,14 +583,45 @@ class SocialSentimentService:
         max_pages: int = 3,
         now: datetime | None = None,
         run_ai: bool = True,
+        trigger: str | None = None,
+        run_lock: SocialSentimentRunLock | None = None,
     ) -> dict[str, Any]:
         if window_hours <= 0:
             raise ValueError("window_hours must be positive")
-        now = now or datetime.now(TAIPEI)
-        if now.tzinfo is None:
-            now = now.replace(tzinfo=TAIPEI)
-        now = now.astimezone(TAIPEI)
-        since = now - timedelta(hours=window_hours)
+        supplied_now = now is not None
+        started_at = now or datetime.now(TAIPEI)
+        if started_at.tzinfo is None:
+            started_at = started_at.replace(tzinfo=TAIPEI)
+        started_at = started_at.astimezone(TAIPEI)
+        actual_trigger, snapshot_slot = _resolve_trigger(trigger, started_at)
+        lock = run_lock or SocialSentimentRunLock(self._output_root() / "run.lock")
+        if not lock.acquired and not lock.acquire():
+            raise SocialSentimentAlreadyRunningError("social sentiment job is already running")
+        try:
+            return await self._run_pipeline(
+                window_hours=window_hours,
+                max_pages=max_pages,
+                started_at=started_at,
+                finished_at=started_at if supplied_now else None,
+                run_ai=run_ai,
+                trigger=actual_trigger,
+                snapshot_slot=snapshot_slot,
+            )
+        finally:
+            lock.release()
+
+    async def _run_pipeline(
+        self,
+        *,
+        window_hours: int,
+        max_pages: int,
+        started_at: datetime,
+        finished_at: datetime | None,
+        run_ai: bool,
+        trigger: str,
+        snapshot_slot: str,
+    ) -> dict[str, Any]:
+        since = started_at - timedelta(hours=window_hours)
         source_results: dict[str, SourceResult] = {}
         for collector in self._collectors():
             try:
@@ -535,8 +640,7 @@ class SocialSentimentService:
                 for code, count in resolver.resolve(post.text).items():
                     evidence[code].append((post, count))
 
-        snapshot_slot = _snapshot_slot(now)
-        previous_payload = self._load_previous_snapshot(now.date(), snapshot_slot)
+        previous_payload = self._load_previous_snapshot(started_at.date(), snapshot_slot)
         previous = self._rows_from_snapshot(previous_payload)
         comparable_source_coverage = self._source_coverage_is_comparable(
             source_results, previous_payload, window_hours=window_hours
@@ -550,7 +654,18 @@ class SocialSentimentService:
         ai_info = {"status": "not_queried", "batches": 0, "analyzed_symbols": 0, "errors": []}
         if run_ai and rankings:
             ai_info = await self._apply_ai(rankings, evidence)
-        payload = self._build_payload(now, window_hours, source_results, rankings, ai_info)
+        discussions = self._build_discussions(source_results, resolver) if trigger == "manual" else []
+        payload = self._build_payload(
+            started_at,
+            finished_at or datetime.now(TAIPEI),
+            window_hours,
+            source_results,
+            rankings,
+            ai_info,
+            trigger=trigger,
+            snapshot_slot=snapshot_slot,
+            discussions=discussions,
+        )
         self.save(payload)
         logger.info(
             "Social sentiment complete: ptt=%d, dcard=%d, symbols=%d, ai_batches=%d, output=%s",
@@ -677,13 +792,50 @@ class SocialSentimentService:
             "errors": errors,
         }
 
+    def _build_discussions(
+        self,
+        source_results: dict[str, SourceResult],
+        resolver: StockMentionResolver,
+    ) -> list[dict[str, Any]]:
+        discussions: list[dict[str, Any]] = []
+        for source, result in source_results.items():
+            for post in result.posts:
+                codes = sorted(resolver.resolve(post.text))
+                stocks = [resolver.stocks[code] for code in codes if code in resolver.stocks]
+                excerpt = (post.content or post.title).strip()[:500]
+                discussions.append(
+                    {
+                        "id": f"{source}:{post.post_id}",
+                        "source": source,
+                        "published_at": post.published_at.isoformat() if post.published_at else None,
+                        "symbols": [stock.symbol for stock in stocks],
+                        "stock_names": [stock.name for stock in stocks],
+                        "title": post.title[:300],
+                        "url": post.url,
+                        "excerpt": excerpt,
+                        "representative_comments": [comment[:220] for comment in post.comments[:3]],
+                        "comments_count": len(post.comments),
+                        "engagement": post.engagement,
+                    }
+                )
+        return sorted(
+            discussions,
+            key=lambda item: (item.get("published_at") or "", item["id"]),
+            reverse=True,
+        )
+
     def _build_payload(
         self,
-        now: datetime,
+        started_at: datetime,
+        finished_at: datetime,
         window_hours: int,
         source_results: dict[str, SourceResult],
         rankings: list[dict[str, Any]],
         ai_info: dict[str, Any],
+        *,
+        trigger: str,
+        snapshot_slot: str,
+        discussions: list[dict[str, Any]],
     ) -> dict[str, Any]:
         for rank, row in enumerate(rankings, 1):
             row["rank"] = rank
@@ -697,12 +849,21 @@ class SocialSentimentService:
             if all(status == "available" for status in source_statuses)
             else "partial"
         )
+        snapshot_id = (
+            f"{started_at.strftime('%Y-%m-%d-%H%M%S-%f')}-manual.json"
+            if trigger == "manual"
+            else f"{started_at.date().isoformat()}-{snapshot_slot}.json"
+        )
         return {
-            "schema_version": 1,
+            "schema_version": 2,
             "status": overall_status,
-            "generated_at": now.isoformat(),
-            "as_of": now.date().isoformat(),
-            "snapshot_slot": _snapshot_slot(now),
+            "generated_at": finished_at.isoformat(),
+            "started_at": started_at.isoformat(),
+            "finished_at": finished_at.isoformat(),
+            "as_of": started_at.date().isoformat(),
+            "trigger": trigger,
+            "snapshot_slot": snapshot_slot,
+            "snapshot_id": snapshot_id,
             "window_hours": window_hours,
             "sources": {
                 source: {
@@ -717,6 +878,7 @@ class SocialSentimentService:
             "identified_symbols": len(rankings),
             "ai": ai_info,
             "rankings": rankings,
+            "discussions": discussions,
         }
 
     def _load_previous_snapshot(self, as_of: date, snapshot_slot: str) -> dict[str, Any] | None:
@@ -780,10 +942,11 @@ class SocialSentimentService:
         history_dir.mkdir(parents=True, exist_ok=True)
         day = str(payload["as_of"])
         snapshot_slot = str(payload.get("snapshot_slot") or "")
+        snapshot_id = str(payload.get("snapshot_id") or "")
         _atomic_write_json(root / "latest.json", payload)
         _atomic_write_json(history_dir / f"{day}.json", payload)
-        if snapshot_slot:
-            _atomic_write_json(history_dir / "snapshots" / f"{day}-{snapshot_slot}.json", payload)
+        if snapshot_id:
+            _atomic_write_json(history_dir / "snapshots" / snapshot_id, payload)
         csv_path = root / "social_sentiment_history.csv"
         existing: dict[tuple[str, str], dict[str, Any]] = {}
         if csv_path.exists():
@@ -791,7 +954,8 @@ class SocialSentimentService:
                 for row in csv.DictReader(handle):
                     existing[(row.get("as_of", ""), row.get("symbol", ""))] = row
         fields = [
-            "as_of", "generated_at", "snapshot_slot", "window_hours", "source_statuses", "rank", "symbol",
+            "as_of", "generated_at", "started_at", "finished_at", "trigger", "snapshot_slot",
+            "window_hours", "source_statuses", "rank", "symbol",
             "code", "company_name", "ptt_mentions", "dcard_mentions",
             "total_mentions", "unique_posts", "engagement", "volume_change_24h", "bullish_count",
             "neutral_count", "bearish_count", "sentiment", "sentiment_score", "sentiment_confidence",
@@ -800,6 +964,9 @@ class SocialSentimentService:
         existing = {key: row for key, row in existing.items() if key[0] != day}
         metadata = {
             "generated_at": payload.get("generated_at"),
+            "started_at": payload.get("started_at"),
+            "finished_at": payload.get("finished_at"),
+            "trigger": payload.get("trigger"),
             "snapshot_slot": snapshot_slot,
             "window_hours": payload.get("window_hours"),
             "source_statuses": json.dumps(
@@ -910,6 +1077,11 @@ def load_social_sentiment(path: Path | None = None) -> dict[str, Any] | None:
         if all(status == "available" for status in source_statuses)
         else "partial",
     )
+    payload.setdefault("trigger", payload.get("snapshot_slot") or "unknown")
+    payload.setdefault("started_at", payload.get("generated_at"))
+    payload.setdefault("finished_at", payload.get("generated_at"))
+    payload.setdefault("snapshot_id", None)
+    payload.setdefault("discussions", [])
     for row in payload.get("rankings", []):
         if isinstance(row, dict):
             row.setdefault(
@@ -944,13 +1116,14 @@ def list_social_sentiment_history(limit: int = 30) -> list[dict[str, Any]]:
     snapshot_paths = list((root / "snapshots").glob("????-??-??-*.json")) if (root / "snapshots").exists() else []
     for path in sorted(snapshot_paths, reverse=True):
         payload = load_social_sentiment(path)
-        if not payload:
+        if not payload or payload.get("snapshot_slot") not in {"pre_open", "after_close"}:
             continue
         entries.append(
             {
                 "as_of": payload.get("as_of"),
                 "generated_at": payload.get("generated_at"),
                 "snapshot_slot": payload.get("snapshot_slot"),
+                "trigger": payload.get("trigger"),
                 "status": payload.get("status"),
                 "identified_symbols": payload.get("identified_symbols", 0),
             }

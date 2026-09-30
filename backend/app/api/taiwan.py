@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import logging
 from datetime import date as dt_date
-from typing import Any
+from typing import Any, Literal
 
 from fastapi import APIRouter, HTTPException, Query, Request
 from pydantic import BaseModel
@@ -79,6 +79,7 @@ from app.taiwan.social_sentiment import (
     load_social_sentiment_date,
     load_social_sentiment_snapshot,
 )
+from app.taiwan.social_sentiment_jobs import get_social_sentiment_job_manager
 from app.taiwan.symbol import parse_symbol
 from app.taiwan.universe import MarketProfileBridge, get_security_master
 
@@ -115,6 +116,40 @@ def get_taiwan_social_sentiment(
 @router.get("/social-sentiment/history")
 def get_taiwan_social_sentiment_history(limit: int = Query(default=30, ge=1, le=120)):
     return {"items": list_social_sentiment_history(limit)}
+
+
+class SocialSentimentRunRequest(BaseModel):
+    mode: Literal["manual"] = "manual"
+
+
+@router.post("/social-sentiment/run")
+def run_taiwan_social_sentiment(req: SocialSentimentRunRequest):
+    """Start the shared pipeline in a background thread and return immediately."""
+    return get_social_sentiment_job_manager().start_manual()
+
+
+@router.get("/social-sentiment/jobs/{job_id}")
+def get_taiwan_social_sentiment_job(
+    job_id: str,
+    source: str | None = Query(default=None),
+    symbol: str | None = Query(default=None, max_length=32),
+    q: str | None = Query(default=None, max_length=200),
+    offset: int = Query(default=0, ge=0),
+    limit: int = Query(default=50, ge=1, le=100),
+):
+    if source not in {None, "ptt", "dcard"}:
+        raise HTTPException(status_code=400, detail=f"無效的社群來源: {source}")
+    job = get_social_sentiment_job_manager().get_job(
+        job_id,
+        source=source,
+        symbol=symbol,
+        keyword=q,
+        offset=offset,
+        limit=limit,
+    )
+    if job is None:
+        raise HTTPException(status_code=404, detail=f"找不到任務 {job_id}")
+    return job
 
 
 def _resolve_portfolio_instrument(symbol: str, trade_date: dt_date):

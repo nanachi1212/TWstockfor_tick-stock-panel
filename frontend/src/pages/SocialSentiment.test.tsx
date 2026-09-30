@@ -10,8 +10,12 @@ const response = {
   schema_version: 1,
   status: 'partial' as const,
   generated_at: new Date().toISOString(),
+  started_at: new Date().toISOString(),
+  finished_at: new Date().toISOString(),
   as_of: '2026-09-29',
+  trigger: 'after_close' as const,
   snapshot_slot: 'after_close' as const,
+  snapshot_id: '2026-09-29-after_close.json',
   window_hours: 24,
   sources: {
     ptt: { status: 'available' as const, posts: 26, comments: 5894, pages: 3, errors: [] },
@@ -23,6 +27,7 @@ const response = {
     { rank: 1, symbol: '2330.TWSE', code: '2330', company_name: '台積電', ptt_mentions: 10, dcard_mentions: 0, total_mentions: 10, unique_posts: 3, engagement: 20, volume_change_24h: 0.5, bullish_count: 2, neutral_count: 1, bearish_count: 0, sentiment: 'bullish' as const, sentiment_status: 'available' as const, sentiment_score: 0.8, sentiment_confidence: 0.9, sentiment_reason: '偏多', social_heat_score: 60 },
     { rank: 2, symbol: '2317.TWSE', code: '2317', company_name: '鴻海', ptt_mentions: 20, dcard_mentions: 0, total_mentions: 20, unique_posts: 5, engagement: 30, volume_change_24h: null, bullish_count: 0, neutral_count: 0, bearish_count: 0, sentiment: 'unavailable' as const, sentiment_status: 'unavailable' as const, sentiment_score: null, sentiment_confidence: null, sentiment_reason: null, social_heat_score: 50 },
   ],
+  discussions: [],
 }
 
 vi.mock('@/lib/api', () => ({
@@ -52,6 +57,7 @@ describe('SocialSentiment', () => {
     const dcardColumn = screen.getAllByRole('cell').filter(cell => cell.textContent === '不可用')
     expect(dcardColumn.length).toBeGreaterThan(0)
     expect(screen.getByText('台積電')).toBeInTheDocument()
+    expect(screen.getByText(/來源：盤後排程/)).toBeInTheDocument()
   })
 
   it('sorts by mentions, filters AI rows, and opens row detail', async () => {
