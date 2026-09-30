@@ -18,12 +18,16 @@ Core Design Principles:
 """
 from __future__ import annotations
 
+import json
 import logging
+import os
 from datetime import date, datetime, timedelta
+from pathlib import Path
 from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
+from app.taiwan.benchmark_store import TaiwanBenchmarkStore
 from app.taiwan.daily_refresh import TaiwanDailyRefreshService
 from app.taiwan.daily_store import TaiwanDailyStore
 from app.taiwan.institutional_margin_refresh import (
@@ -50,6 +54,9 @@ class DatasetRefreshStats(BaseModel):
     dates_fetched: int = 0
     dates_skipped: int = 0
     failed_dates: list[dict[str, Any]] = Field(default_factory=list)
+    # Official feed answered but had no rows yet for one or both exchanges;
+    # nothing was persisted, so the date stays retryable.
+    pending_dates: list[dict[str, Any]] = Field(default_factory=list)
     rows_written: int = 0
     note: str | None = None
 
@@ -85,6 +92,7 @@ class TaiwanDailyUpdateResult(BaseModel):
     margin: DatasetRefreshStats
     freshness: FreshnessStatus
     overall_status: UpdateStatus
+    benchmark: dict[str, Any] | None = None
 
 
 def resolve_target_latest_trading_date(
@@ -167,7 +175,13 @@ class TaiwanDailyUpdateService:
         margin_service: TaiwanMarginRefreshService | None = None,
         calendar: TaiwanTradingCalendar | None = None,
         evidence_store: ObservedUniverseStore | None = None,
+        benchmark_store: TaiwanBenchmarkStore | None = None,
     ) -> None:
+        # Only the default production wiring refreshes benchmarks; callers that
+        # inject their own stores (tests, bootstrap) opt in explicitly.
+        self.benchmark_store = benchmark_store or (
+            TaiwanBenchmarkStore() if daily_store is None else None
+        )
         self.calendar = calendar or TaiwanTradingCalendar()
         self.evidence_store = evidence_store or ObservedUniverseStore()
         self.daily_store = daily_store or TaiwanDailyStore()
@@ -343,6 +357,7 @@ class TaiwanDailyUpdateService:
                 inst_stats.dates_skipped = res.get("dates_skipped", 0)
                 inst_stats.rows_written = res.get("total_rows_written", 0)
                 inst_stats.failed_dates = res.get("failed_dates", [])
+                inst_stats.pending_dates = res.get("pending_dates", [])
                 if inst_stats.failed_dates:
                     inst_stats.status = "failed" if inst_stats.dates_fetched == 0 else "partial"
                 else:
@@ -370,6 +385,7 @@ class TaiwanDailyUpdateService:
                 margin_stats.dates_skipped = res.get("dates_skipped", 0)
                 margin_stats.rows_written = res.get("total_rows_written", 0)
                 margin_stats.failed_dates = res.get("failed_dates", [])
+                margin_stats.pending_dates = res.get("pending_dates", [])
                 if margin_stats.failed_dates:
                     margin_stats.status = "failed" if margin_stats.dates_fetched == 0 else "partial"
                 else:
@@ -379,7 +395,16 @@ class TaiwanDailyUpdateService:
             margin_stats.status = "failed"
             margin_stats.failed_dates.append({"error": str(e)})
 
-        # 5. Evaluate Freshness and Overall Status
+        # 5. Official benchmark closes; independent of market-data status.
+        benchmark = None
+        if self.benchmark_store is not None:
+            try:
+                benchmark = self.benchmark_store.refresh()
+            except Exception as e:
+                logger.exception("Benchmark refresh failed: %s", e)
+                benchmark = {"rows_written": 0, "latest": {}, "failed": [{"error": str(e)[:200]}]}
+
+        # 6. Evaluate Freshness and Overall Status
         run_finish = taipei_now()
         freshness = self.get_freshness(target_date=target)
 
@@ -411,13 +436,39 @@ class TaiwanDailyUpdateService:
             margin=margin_stats,
             freshness=freshness,
             overall_status=overall_status,
+            benchmark=benchmark,
         )
+        self._record_run(result)
 
         logger.info(
             "TaiwanDailyUpdateService finished: overall_status=%s, daily=%s, inst=%s, margin=%s, is_fully_current=%s",
             overall_status, daily_stats.status, inst_stats.status, margin_stats.status, freshness.is_fully_current,
         )
         return result
+
+    def _record_run(self, result: TaiwanDailyUpdateResult) -> None:
+        """Persist the latest attempt so health checks see real updater outcomes."""
+        if not isinstance(getattr(self.daily_store, "_data_dir", None), (str, Path)):
+            return  # stand-in stores (tests) have no real location to record into
+        path = last_run_path(self.daily_store)
+        tmp = path.with_suffix(".tmp")
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            tmp.write_text(result.model_dump_json(exclude={"freshness"}), encoding="utf-8")
+            os.replace(tmp, path)
+        except OSError as e:
+            logger.warning("Could not record Taiwan daily update run: %s", e)
+
+
+def last_run_path(daily_store: TaiwanDailyStore | None = None) -> Path:
+    return Path((daily_store or TaiwanDailyStore())._data_dir).parent / "daily_update_last_run.json"
+
+
+def read_last_run(daily_store: TaiwanDailyStore | None = None) -> dict[str, Any] | None:
+    try:
+        return json.loads(last_run_path(daily_store).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
 
 
 def main():

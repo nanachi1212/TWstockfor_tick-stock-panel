@@ -919,7 +919,7 @@ def start_scheduler(repo: KlineRepository, capset: CapabilitySet) -> AsyncIOSche
     # 台股盘后增量更新 (Taiwan Full-Market Daily OHLCV + Institutional + Margin Update)
     # 每天 16:30 Asia/Taipei 触发。
     # 官方全市場快照端點極速更新：Daily (TWSE 1 + TPEx 1) + Inst (2) + Margin (2) = ~6 次 HTTP 請求 / 日
-    def _scheduled_taiwan_update():
+    def _scheduled_taiwan_update(evening: bool = False):
         try:
             from app.taiwan.daily_update import TaiwanDailyUpdateService
             svc = TaiwanDailyUpdateService()
@@ -928,6 +928,10 @@ def start_scheduler(repo: KlineRepository, capset: CapabilitySet) -> AsyncIOSche
                 "Scheduled Taiwan daily update finished: overall=%s, daily=%s, inst=%s, margin=%s",
                 result.overall_status, result.daily.status, result.institutional.status, result.margin.status,
             )
+            # Evening catch-up exists for margin (published in the evening); only a
+            # newly fetched daily date gives Quant anything new to freeze.
+            if evening and result.daily.dates_fetched == 0:
+                return
             # Quant is downstream and isolated: it must never roll back or
             # relabel the completed market-data refresh.
             try:
@@ -950,6 +954,20 @@ def start_scheduler(repo: KlineRepository, capset: CapabilitySet) -> AsyncIOSche
         max_instances=1,
         replace_existing=True,
     )
+
+    # 融資融券官方於「當日晚間」公布 (無固定時點), 16:30 批次必然取不到當日資料。
+    # 晚間沿用同一個增量更新器補抓; 已存在的日期不會重抓 (每次僅 ~2 次 HTTP)。
+    for hour, minute in ((21, 30), (23, 0)):
+        scheduler.add_job(
+            _scheduled_taiwan_update,
+            kwargs={"evening": True},
+            trigger=CronTrigger(day_of_week="mon-fri", hour=hour, minute=minute, timezone="Asia/Taipei"),
+            id=f"taiwan_evening_update_{hour:02d}{minute:02d}",
+            misfire_grace_time=1800,
+            coalesce=True,
+            max_instances=1,
+            replace_existing=True,
+        )
 
     # 買點策略只讀本地已落盤資料與自選股設定, 每個交易日盤中至少評估兩次。
     # 外部通知沿用既有 alert/SSE/LINE/Telegram 管線, 資料不足時由 evaluator fail closed。
@@ -978,7 +996,7 @@ def start_scheduler(repo: KlineRepository, capset: CapabilitySet) -> AsyncIOSche
         )
 
     scheduler.start()
-    logger.info("scheduler started; instruments@%02d:%02d, pipeline@%02d:%02d, depth@%02d:%02d mon-fri, taiwan@16:30",
+    logger.info("scheduler started; instruments@%02d:%02d, pipeline@%02d:%02d, depth@%02d:%02d mon-fri, taiwan@16:30 (+21:30/23:00 catch-up)",
                 inst_sched["hour"], inst_sched["minute"], sched["hour"], sched["minute"],
                 depth_sched["hour"], depth_sched["minute"])
     return scheduler

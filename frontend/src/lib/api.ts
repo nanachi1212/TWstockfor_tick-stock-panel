@@ -3019,6 +3019,7 @@ function strategyLabQuery(filters: StrategyLabFilters, offset?: number) {
 }
 
 export type DataHealthStatus = 'current' | 'stale' | 'partial' | 'unavailable' | 'updating' | 'error'
+  | 'awaiting_publication' | 'not_run' | 'provider_error' | 'config_missing'
 export type DataHealthAction = 'update' | 'validate' | 'retry'
 export interface DatasetHealth {
   id: string

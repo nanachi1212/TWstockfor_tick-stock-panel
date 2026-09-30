@@ -16,6 +16,7 @@ from collections.abc import AsyncIterator, Callable, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 from types import TracebackType
+from typing import Any
 from urllib.parse import urlsplit, urlunsplit
 
 from app import secrets_store
@@ -487,6 +488,50 @@ async def generate_ai_text(
         messages,
         **openai_kwargs,
     )
+
+
+EMPTY_CONTENT_RETRY_MESSAGE = (
+    "前次回覆的 message.content 為空。請直接輸出完整 JSON 物件,"
+    "不要輸出思考過程、Markdown 或其他文字。"
+)
+
+
+async def generate_structured_ai_text(
+    messages: Sequence[Message],
+    *,
+    truncated_retry_message: str,
+    temperature: float | None,
+    max_tokens: int | None,
+    timeout: float,
+    config_snapshot: AIProviderConfigSnapshot | None = None,
+    generate: Callable[..., Any] | None = None,
+) -> str:
+    """Structured JSON task with one controlled retry for truncation/empty content.
+
+    The retry keeps the partial output as context and asks for a shorter
+    complete JSON; a second failure raises instead of looping.
+    """
+    kwargs = {
+        "temperature": temperature, "max_tokens": max_tokens, "timeout": timeout,
+        "config_snapshot": config_snapshot, "structured_output": True,
+    }
+    # Callers may pass their module-level reference so existing seams stay patchable.
+    generate = generate or generate_ai_text
+    try:
+        return await generate(messages, request_attempt=0, **kwargs)
+    except (AIOutputTruncated, AIEmptyContentError) as first_exc:
+        truncated = isinstance(first_exc, AIOutputTruncated)
+        retry_messages = [
+            *messages,
+            {"role": "assistant", "content": first_exc.partial_content if truncated else ""},
+            {"role": "user", "content": truncated_retry_message if truncated else EMPTY_CONTENT_RETRY_MESSAGE},
+        ]
+        try:
+            return await generate(retry_messages, request_attempt=1, **kwargs)
+        except AIOutputTruncated:
+            raise AIOutputTruncated("", "AI 回覆超過輸出長度限制，請重新產生。") from None
+        except AIEmptyContentError:
+            raise AIEmptyContentError("AI provider returned empty content twice") from None
 
 
 async def stream_ai_text(

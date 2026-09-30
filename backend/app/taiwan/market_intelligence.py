@@ -113,12 +113,26 @@ class MarketIndexesSnapshot(BaseModel):
 
 
 def persisted_index_snapshot(target: date | None = None) -> MarketIndexesSnapshot:
-    """Existing offline benchmark projection, shared with the data health center."""
+    """Offline projection of persisted official benchmark closes (no network).
+
+    change_pct is a fraction; trade_date is the persisted close date,
+    which may be older than target while official publication lags.
+    """
+    from app.taiwan.benchmark_store import latest_benchmark
+
+    def snap(symbol: str, name: str) -> IndexSnapshot:
+        row = latest_benchmark(symbol)
+        if not row:
+            return IndexSnapshot(symbol=symbol, name=name, status="unavailable")
+        return IndexSnapshot(
+            symbol=symbol, name=name, trade_date=row["date"].isoformat(), close=row["close"],
+            change=row["change"], change_pct=row["change_pct"],
+            status="official_close" if target is None or row["date"] >= target else "stale",
+        )
+
     return MarketIndexesSnapshot(
-        taiex=IndexSnapshot(symbol="TAIEX", name="發行量加權股價指數",
-                            trade_date=str(target) if target else None, status="unavailable"),
-        tpex_index=IndexSnapshot(symbol="TPEX_INDEX", name="櫃買指數",
-                                trade_date=str(target) if target else None, status="unavailable"),
+        taiex=snap("TAIEX", "發行量加權股價指數"),
+        tpex_index=snap("TPEX_INDEX", "櫃買指數"),
     )
 
 
@@ -231,6 +245,10 @@ class TaiwanMarketIntelligenceService:
     def get_snapshot(self, target_date: date | None = None) -> TaiwanMarketIntelligenceSnapshot:
         """Build a deterministic Taiwan Market Intelligence Snapshot for target_date."""
         target = target_date or resolve_target_latest_trading_date(self.calendar)
+        # The resolved target stays the freshness reference even when the
+        # figures below fall back to the latest available day; comparing the
+        # fallback day with itself used to report stale data as current.
+        expected = target
 
         # Pre-resolve daily availability so we can fall back gracefully when the
         # resolved target date has no data (e.g. data is stale and not yet updated).
@@ -256,7 +274,7 @@ class TaiwanMarketIntelligenceService:
 
         # Check daily status
         daily_status: DatasetFreshnessStatus = (
-            "current" if (daily_as_of and daily_as_of >= target)
+            "current" if (daily_as_of and daily_as_of >= expected)
             else ("stale" if daily_as_of else "unavailable")
         )
 
@@ -349,7 +367,7 @@ class TaiwanMarketIntelligenceService:
         inst_available = self.inst_store.available_dates()
         inst_as_of = max(inst_available) if inst_available else None
         inst_status: DatasetFreshnessStatus = (
-            "current" if (inst_as_of and inst_as_of >= target)
+            "current" if (inst_as_of and inst_as_of >= expected)
             else ("stale" if inst_as_of else "unavailable")
         )
 
@@ -379,7 +397,7 @@ class TaiwanMarketIntelligenceService:
         m_available = self.margin_store.available_dates()
         m_as_of = max(m_available) if m_available else None
         m_status: DatasetFreshnessStatus = (
-            "current" if (m_as_of and m_as_of >= target)
+            "current" if (m_as_of and m_as_of >= expected)
             else ("stale" if m_as_of else "unavailable")
         )
 
@@ -410,7 +428,9 @@ class TaiwanMarketIntelligenceService:
 
         # 6. Indexes Integration (Pure offline / persisted fallback)
         # Note: In accordance with zero-HTTP acceptance rules, do not fetch network index data.
-        indexes_snapshot = persisted_index_snapshot(target)
+        indexes_snapshot = persisted_index_snapshot(expected)
+        index_dates = [i.trade_date for i in (indexes_snapshot.taiex, indexes_snapshot.tpex_index)
+                       if i and i.status != "unavailable" and i.trade_date]
 
         # 7. Data Quality & Overall Status
         dataset_statuses = [daily_status, inst_status, m_status]
@@ -422,7 +442,7 @@ class TaiwanMarketIntelligenceService:
             overall_status = "unavailable"
 
         dq = DataQualityReport(
-            target_trade_date=str(target),
+            target_trade_date=str(expected),
             previous_trade_date=str(prev_d) if prev_d else None,
             overall_status=overall_status,
             daily=DatasetQualityMeta(
@@ -445,9 +465,10 @@ class TaiwanMarketIntelligenceService:
             ),
             indexes=DatasetQualityMeta(
                 dataset="indexes",
-                as_of=None,
-                status="unavailable",
-                source="taiwan_index_provider",
+                as_of=min(index_dates) if index_dates else None,
+                status=("current" if index_dates and min(index_dates) >= str(expected)
+                        else "stale" if index_dates else "unavailable"),
+                source="taiwan_benchmark_store",
             ),
             universe_supported_symbols=supported_count,
             daily_snapshot_symbols=matched_symbols_count,

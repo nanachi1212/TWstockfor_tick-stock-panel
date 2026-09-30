@@ -5,12 +5,16 @@ import { api, type DataHealthAction, type DataHealthStatus } from '@/lib/api'
 import { QK } from '@/lib/queryKeys'
 import { useDataHealth } from '@/lib/useDataHealth'
 
+// 「等待官方發布」「尚未執行」是資料正常的時間差，不是故障；只有「正常」計入健康數。
 const statuses: Record<DataHealthStatus, string> = {
-  current: '正常', stale: '過期', partial: '部分可用', unavailable: '不可用', updating: '更新中', error: '錯誤',
+  current: '正常', partial: '部分可用', awaiting_publication: '等待官方發布', stale: '過期',
+  provider_error: '外部服務失敗', not_run: '尚未執行', unavailable: '資料缺失', config_missing: '設定缺失',
+  updating: '更新中', error: '錯誤',
 }
 const colors: Record<DataHealthStatus, string> = {
   current: 'text-emerald-600 dark:text-emerald-400', stale: 'text-warning', partial: 'text-warning',
-  unavailable: 'text-muted', updating: 'text-accent', error: 'text-danger',
+  awaiting_publication: 'text-secondary', not_run: 'text-secondary', provider_error: 'text-danger',
+  config_missing: 'text-warning', unavailable: 'text-muted', updating: 'text-accent', error: 'text-danger',
 }
 const actions: Record<DataHealthAction, string> = { update: '立即更新', validate: '重新驗證', retry: '重試' }
 const jobStatuses = { queued: '排隊中', running: '執行中', completed: '已完成', partial: '部分完成', failed: '失敗' }

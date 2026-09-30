@@ -56,6 +56,19 @@ def _fetch_json_with_retry(
     )
 
 
+def publication_gap(twse_rows: list[Any], tpex_rows: list[Any]) -> str | None:
+    """Official market-wide feeds publish per exchange; both are required per date.
+
+    Persisting one exchange would mark the date complete and the other exchange
+    would never be retried, so a one-sided day is reported as pending instead.
+    """
+    if twse_rows and tpex_rows:
+        return None
+    if not twse_rows and not tpex_rows:
+        return "official_not_published"
+    return "TWSE_not_published" if not twse_rows else "TPEX_not_published"
+
+
 class TaiwanInstitutionalRefreshService:
     """Refreshes institutional flows from official TWSE/TPEx endpoints into TaiwanInstitutionalStore."""
 
@@ -85,6 +98,7 @@ class TaiwanInstitutionalRefreshService:
             "dates_skipped": 0,
             "total_rows_written": 0,
             "failed_dates": [],
+            "pending_dates": [],
         }
 
         cur = start_date
@@ -113,8 +127,11 @@ class TaiwanInstitutionalRefreshService:
                     cur,
                     self._provider.tpex.build_url(cur),
                 )
+                gap = publication_gap(flows_twse, flows_tpex)
                 all_flows = flows_twse + flows_tpex
-                if all_flows:
+                if gap:
+                    stats["pending_dates"].append({"date": str(cur), "reason": gap})
+                else:
                     rows = [
                         {
                             "symbol": f.symbol,
@@ -147,8 +164,6 @@ class TaiwanInstitutionalRefreshService:
                     written = self._store.write_batch(df, partition_date=cur)
                     stats["total_rows_written"] += written
                     stats["dates_fetched"] += 1
-                else:
-                    stats["dates_skipped"] += 1
             except Exception as exc:
                 logger.warning("Institutional refresh failed for %s: %s", cur, exc)
                 stats["failed_dates"].append({"date": str(cur), "error": str(exc)})
@@ -190,6 +205,7 @@ class TaiwanMarginRefreshService:
             "dates_skipped": 0,
             "total_rows_written": 0,
             "failed_dates": [],
+            "pending_dates": [],
         }
 
         cur = start_date
@@ -218,8 +234,11 @@ class TaiwanMarginRefreshService:
                     cur,
                     self._provider.tpex.build_url(cur),
                 )
+                gap = publication_gap(margins_twse, margins_tpex)
                 all_margins = margins_twse + margins_tpex
-                if all_margins:
+                if gap:
+                    stats["pending_dates"].append({"date": str(cur), "reason": gap})
+                else:
                     rows = [
                         {
                             "symbol": m.symbol,
@@ -248,8 +267,6 @@ class TaiwanMarginRefreshService:
                     written = self._store.write_batch(df, partition_date=cur)
                     stats["total_rows_written"] += written
                     stats["dates_fetched"] += 1
-                else:
-                    stats["dates_skipped"] += 1
             except Exception as exc:
                 logger.warning("Margin refresh failed for %s: %s", cur, exc)
                 stats["failed_dates"].append({"date": str(cur), "error": str(exc)})

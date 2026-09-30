@@ -204,11 +204,14 @@ class TaiwanSelectionReviewService:
                     for key in ("selection_snapshot", "selection_outcome")}
         latest = max(snapshots, key=lambda item: item.created_at)
         common = {"source": "Selection Review", "data_date": latest.as_of_date,
-                  "freshness": "最新已保存快照的基準日，非今日選股保證"}
+                  "freshness": "手動鎖定的快照；日期為最新快照基準日"}
         target = resolve_target_latest_trading_date(self.calendar, evidence_store=self.census_store)
-        stale = date.fromisoformat(latest.as_of_date) < target
-        snapshot = {**common, "status": "stale" if stale else "current", "last_success": latest.created_at,
-                    "reason": "最新已保存快照早於目前目標交易日" if stale else "已保存不可變快照"}
+        # Snapshots are locked by the user on demand, never by a scheduler: an
+        # older snapshot is "not run today", not stale data.
+        behind = date.fromisoformat(latest.as_of_date) < target
+        snapshot = {**common, "status": "not_run" if behind else "current", "last_success": latest.created_at,
+                    "reason": f"今日（{target}）尚未手動鎖定選股快照；既有快照保留" if behind
+                    else "已保存不可變快照"}
         try:
             review = self.get_snapshot_review(latest.snapshot_id)
         except Exception:
@@ -218,14 +221,21 @@ class TaiwanSelectionReviewService:
         states = [getattr(item, f"h{horizon}d{kind}_status")
                   for item in review.evaluated_items for horizon in (1, 5, 20) for kind in ("", "_bm")
                   ] if review else []
-        if not states or all(state == "unavailable" for state in states):
-            status, reason = "unavailable", "尚無可用 outcome，資料或基準價格缺漏"
-        elif all(state == "completed" for state in states):
-            status, reason = "current", "既有 1D / 5D / 20D outcome 已完成"
+        pending = sum(state == "pending" for state in states)
+        codes = sorted({code for item in (review.evaluated_items if review else [])
+                        for code in item.status_reasons.values()})
+        if states and all(state == "pending" for state in states):
+            status, reason = "current", "所有 horizon 尚未到期，到期後自動計算"
+        elif not states or all(state in {"unavailable", "pending"} for state in states):
+            status, reason = "unavailable", "已到期 horizon 缺少價格或基準資料"
+        elif "unavailable" not in states:
+            status = "current"
+            reason = "已到期 horizon 均已完成" + (f"；{pending} 項尚未到期" if pending else "")
         else:
-            status, reason = "partial", "部分 horizon 尚未到期或價格／基準資料尚未齊全"
+            status, reason = "partial", "部分已到期 horizon 缺少價格或基準資料"
         return {"selection_snapshot": snapshot,
-                "selection_outcome": {**common, "status": status, "reason": reason}}
+                "selection_outcome": {**common, "status": status, "reason": reason,
+                                      "reason_codes": codes}}
 
     def get_snapshot(self, snapshot_id: str) -> SelectionSnapshot | None:
         """Find raw snapshot by ID without horizon recalculation."""

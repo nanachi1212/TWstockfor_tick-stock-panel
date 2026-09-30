@@ -418,7 +418,8 @@ def test_ai_invalid_json_degrades_only_batch(tmp_path, monkeypatch):
         output_dir=tmp_path,
     )
     payload = service.run(now=datetime(2026, 9, 28, tzinfo=UTC))
-    assert payload["ai"]["status"] == "degraded"
+    # The run survives, but zero analyzed symbols means AI is unavailable, not partial.
+    assert payload["ai"]["status"] == "unavailable"
     assert payload["rankings"][0]["sentiment"] == "unavailable"
 
 

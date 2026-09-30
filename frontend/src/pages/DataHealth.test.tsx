@@ -39,6 +39,26 @@ beforeEach(() => {
 })
 
 describe('資料健康中心', () => {
+  it('labels timing gaps and external failures distinctly and counts only current as healthy', async () => {
+    vi.mocked(api.dataHealth).mockResolvedValue({
+      generated_at: '2026-09-30T16:40:00+08:00', current_count: 1, total_count: 5,
+      datasets: [
+        { ...fixture.datasets[0] },
+        { ...fixture.datasets[1], status: 'awaiting_publication', reason: '融資融券官方於當日晚間公布' },
+        { id: 'social_ai', name: 'Social AI', status: 'provider_error', source: 'AI', data_date: null, freshness: '', reason: 'HTTP 402', last_attempt: null, last_success: null, actions: [] },
+        { id: 'selection_snapshot', name: 'Selection snapshot', status: 'not_run', source: 'Selection', data_date: '2026-09-29', freshness: '', reason: '今日尚未手動鎖定', last_attempt: null, last_success: null, actions: [] },
+        { id: 'ai_provider', name: 'AI Provider/Profile', status: 'config_missing', source: 'AI', data_date: null, freshness: '', reason: '尚未設定', last_attempt: null, last_success: null, actions: [] },
+      ],
+    })
+    mount()
+    const label = async (name: string) => within((await screen.findByRole('rowheader', { name })).closest('tr')!)
+    expect((await label('Margin / Short')).getByText('等待官方發布')).toBeInTheDocument()
+    expect((await label('Social AI')).getByText('外部服務失敗')).toBeInTheDocument()
+    expect((await label('Selection snapshot')).getByText('尚未執行')).toBeInTheDocument()
+    expect((await label('AI Provider/Profile')).getByText('設定缺失')).toBeInTheDocument()
+    expect(screen.getByText('1 / 5 正常')).toBeInTheDocument()
+  })
+
   it('renders dates, causes and missing metadata without zero or unsafe Dcard actions', async () => {
     mount()
     const dcard = (await screen.findByRole('rowheader', { name: 'Dcard' })).closest('tr')!
