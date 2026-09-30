@@ -77,6 +77,8 @@ describe('Strategy Lab forward experiments', () => {
     expect(boxes[4]).toBeDisabled()
     fireEvent.click(boxes[0])
     expect(boxes[4]).toBeEnabled()
+    fireEvent.change(screen.getByLabelText('Selection source'), { target: { value: 'Selection' } })
+    await waitFor(() => expect(screen.getByRole('heading', { name: '策略並排比較（0 / 4）' })).toBeInTheDocument())
   })
 
   it('drills down with provenance, stock detail and precise Selection Review link', async () => {
@@ -121,5 +123,14 @@ describe('Strategy Lab forward experiments', () => {
     expect(screen.getByRole('status')).toHaveTextContent('載入策略觀察')
     expect(await screen.findByRole('alert')).toHaveTextContent('策略觀察目前無法讀取')
     expect(screen.queryByRole('table', { name: '策略總覽' })).not.toBeInTheDocument()
+  })
+
+  it('shows an empty drilldown without a fabricated first row or invalid page range', async () => {
+    mount()
+    fireEvent.click(await screen.findByRole('button', { name: '策略 0' }))
+    expect(await screen.findByText('尚無個別觀察。')).toBeInTheDocument()
+    const detail = screen.getByRole('region', { name: '策略觀察明細' })
+    expect(within(detail).getByText('0 / 0')).toBeInTheDocument()
+    expect(within(detail).getByRole('button', { name: '下一頁' })).toBeDisabled()
   })
 })

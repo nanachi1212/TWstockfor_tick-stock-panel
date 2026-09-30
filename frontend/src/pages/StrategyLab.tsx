@@ -62,7 +62,7 @@ export function StrategyLab() {
   })
   const updateFilter = (key: keyof StrategyLabFilters, value: string | number) => {
     setFilters(previous => ({ ...previous, [key]: value === '' ? undefined : value }))
-    setOffset(0); setSelected(null)
+    setOffset(0); setSelected(null); setCompared([])
   }
   const data = overview.data
   const strategies = data?.strategies ?? []
@@ -110,7 +110,7 @@ export function StrategyLab() {
           <td className="p-3">{row.excess_pct === null ? '不可用' : pct(row.excess_pct)}</td>
           <td className="max-w-sm space-y-1 p-3"><p>{row.identity.source} · {row.identity.strategy_id} · {row.identity.version ?? '未保存版本'}</p><p>{row.evidence_label}</p><ReviewLink row={row} /><details><summary className="cursor-pointer text-primary">來源證據</summary><dl className="mt-2 space-y-1 break-all"><dt>snapshot id</dt><dd>{row.snapshot_id}</dd><dt>as_of</dt><dd>{row.as_of}</dd><dt>outcome date</dt><dd>{row.outcome_date ?? '未確認'}</dd><dt>strategy identity</dt><dd>{row.identity.key}</dd><dt>provenance</dt><dd><pre className="whitespace-pre-wrap break-all">{JSON.stringify(row.provenance, null, 2)}</pre></dd></dl></details></td>
         </tr>)}</tbody></table></div>
-        <div className="flex gap-3 text-sm"><button disabled={offset === 0} onClick={() => setOffset(previous => Math.max(0, previous - 50))}>上一頁</button><span>{offset + 1}–{Math.min(offset + 50, detail.data.total)} / {detail.data.total}</span><button disabled={offset + 50 >= detail.data.total} onClick={() => setOffset(previous => previous + 50)}>下一頁</button></div>
+        <div className="flex gap-3 text-sm"><button disabled={offset === 0} onClick={() => setOffset(previous => Math.max(0, previous - 50))}>上一頁</button><span>{detail.data.total === 0 ? '0 / 0' : `${offset + 1}–${Math.min(offset + 50, detail.data.total)} / ${detail.data.total}`}</span><button disabled={offset + 50 >= detail.data.total} onClick={() => setOffset(previous => previous + 50)}>下一頁</button></div>
       </>}
     </section>}
   </main>

@@ -112,6 +112,11 @@ def test_unclosed_horizon_pending_not_counted_and_missing_benchmark(tmp_path, mo
     assert stats["5D"].pending == stats["20D"].pending == 1
     assert stats["5D"].hit_rate_denominator == 0
 
+    now = now.replace(hour=12)
+    monkeypatch.setattr("app.taiwan.selection_review_service.taipei_now", lambda: now)
+    monkeypatch.setattr("app.taiwan.strategy_lab.taipei_now", lambda: now)
+    assert all(row.entry_price is None for row in lab.drilldown(LabFilters()).observations)
+
 
 def test_duplicate_snapshots_and_conflicting_snapshot_ids_fail_closed(tmp_path, monkeypatch):
     lab, snap, _ = _lab(tmp_path, monkeypatch)

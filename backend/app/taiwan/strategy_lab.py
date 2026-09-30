@@ -248,7 +248,8 @@ class StrategyLabService:
                     snapshot_id=snapshot.snapshot_id, symbol=symbol, name=pick.name,
                     signal_date=snapshot.as_of_date, as_of=snapshot.created_at,
                     entry_date=item.entry_date if item else None,
-                    entry_price=(item.paper_entry_price if snapshot.evaluation_basis == "next_open"
+                    entry_price=((item.paper_entry_price if item.entry_status == "completed" else None)
+                                 if snapshot.evaluation_basis == "next_open"
                                  else pick.price) if item else finite(pick.price),
                     outcome_date=end, horizon=horizon, status=state,
                     return_pct=raw if state == "matured" else None,
