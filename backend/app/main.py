@@ -17,6 +17,7 @@ from app.api import (
     backtest,
     buy_points,
     data,
+    data_health,
     ext_data,
     financials,
     intraday,
@@ -466,6 +467,7 @@ app.include_router(signals.router)
 app.include_router(monitor_rules.router)
 app.include_router(alerts.router)
 app.include_router(buy_points.router)
+app.include_router(data_health.router)
 app.include_router(taiwan.router)
 app.include_router(taiwan_live.router)
 app.include_router(taiwan_quant.router)

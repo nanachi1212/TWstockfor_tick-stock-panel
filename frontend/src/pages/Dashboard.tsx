@@ -16,6 +16,7 @@ import { boardTag } from '@/components/stock-table/primitives'
 import { PortfolioPanel } from '@/components/portfolio/Portfolio'
 import { MarketSentimentCard } from '@/components/dashboard/MarketSentimentCard'
 import { TodayEventsWidget } from '@/components/dashboard/TodayEventsWidget'
+import { DataHealthSummary } from '@/components/dashboard/DataHealthSummary'
 
 function n(v: number | null | undefined) {
   return typeof v === 'number' && Number.isFinite(v) ? v : null
@@ -969,6 +970,7 @@ export function Dashboard() {
       </div>
 
       <DashboardSocialSentimentWidget />
+      <DataHealthSummary />
       <div className="mb-1.5"><BuyPointSummaryCard /></div>
 
       <div className="mb-1.5 grid grid-cols-1 gap-1.5 lg:grid-cols-2">
