@@ -127,10 +127,13 @@ def test_pywebview_window_uses_formal_title_and_url(monkeypatch):
     fake_webview = SimpleNamespace(
         create_window=lambda *args, **kwargs: calls.append((args, kwargs)),
         start=lambda **kwargs: calls.append((("start",), kwargs)),
+        settings={"ALLOW_DOWNLOADS": False},
     )
     monkeypatch.setitem(sys.modules, "webview", fake_webview)
 
     desktop._open_window("http://127.0.0.1:3018/")
+
+    assert fake_webview.settings["ALLOW_DOWNLOADS"] is True  # 備份檔下載
 
     assert calls[0][0][:2] == ("Nanachi 台股看板", "http://127.0.0.1:3018/")
     assert calls[0][1]["width"] == 1440

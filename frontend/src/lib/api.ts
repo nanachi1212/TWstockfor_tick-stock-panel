@@ -2981,6 +2981,27 @@ export const api = {
     }),
 
   settings: () => request<SettingsState>('/api/settings'),
+
+  // ===== 備份與轉移 (.twstock-backup) =====
+  deviceTransferOptions: () => request<DeviceTransferOptions>('/api/device-transfer/options'),
+  deviceTransferPreview: (file: File) => {
+    const fd = new FormData()
+    fd.append('file', file)
+    return request<BackupPreview>('/api/device-transfer/preview', { method: 'POST', body: fd, quiet: true })
+  },
+  deviceTransferRestore: (file: File, categories: string[], password?: string) => {
+    const fd = new FormData()
+    fd.append('file', file)
+    fd.append('categories', categories.join(','))
+    if (password) fd.append('password', password)
+    return request<RestoreResult>('/api/device-transfer/restore', { method: 'POST', body: fd, quiet: true })
+  },
+  deviceTransferRollback: (restorePointId: string) =>
+    request<{ restore_point: string; files: number }>(
+      `/api/device-transfer/rollback/${encodeURIComponent(restorePointId)}`,
+      { method: 'POST', quiet: true },
+    ),
+
   saveTickflowKey: (api_key: string) =>
     request<SaveTickflowKeyResult>('/api/settings/tickflow-key', {
       method: 'POST',
@@ -4991,3 +5012,33 @@ export interface CreateDailyBriefRequest {
   portfolio_holdings?: Record<string, any>[]
 }
 
+
+// ===== 備份與轉移 =====
+export interface DeviceTransferOptions {
+  categories: { id: string; label: string; browser_keys: string[] }[]
+  presets: Record<string, string[]>
+  min_password_length: number
+  file_extension: string
+}
+
+export interface BackupPreview {
+  backup_version: number
+  app_version: string | null
+  current_app_version: string
+  version_match: boolean
+  created_at: string | null
+  source_machine: { os?: string }
+  file_count: number
+  categories: { id: string; label: string; file_count: number; compatible: boolean; issues: string[] }[]
+  secrets: { included: boolean; encrypted: boolean }
+  issues: string[]
+  compatible: boolean
+}
+
+export interface RestoreResult {
+  restore_point: string
+  categories: string[]
+  written: number
+  removed: number
+  browser_storage: Record<string, Record<string, string>>
+}

@@ -6,7 +6,7 @@
 import { useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { motion } from 'framer-motion'
-import { Database, Radio, SlidersHorizontal, Sparkles, Settings2, Zap, PanelLeftClose, PanelLeftOpen, Clock3 } from 'lucide-react'
+import { Database, Radio, SlidersHorizontal, Sparkles, Settings2, Zap, PanelLeftClose, PanelLeftOpen, Clock3, ArchiveRestore } from 'lucide-react'
 import { SettingsAIPanel } from './settings/AI'
 import { SettingsMonitoringPanel } from './settings/Monitoring'
 import { SettingsMenuSettingsPanel } from './settings/MenuSettings'
@@ -14,6 +14,7 @@ import { SettingsTimeoutPanel } from './settings/Timeout'
 import { SettingsSystemPanel } from './settings/System'
 import { SettingsCustomSignalsPanel } from './settings/CustomSignals'
 import { SettingsDataSourcesPanel } from './settings/DataSources'
+import { SettingsBackupPanel } from './settings/Backup'
 import { PageHeader } from '@/components/PageHeader'
 import { cn } from '@/lib/cn'
 
@@ -37,6 +38,7 @@ const TABS: readonly TabDef[] = [
   { key: 'timeout',    label: '逾時設定',   icon: Clock3,    panel: SettingsTimeoutPanel },
   { key: 'menus',      label: '選單設定',   icon: SlidersHorizontal, panel: SettingsMenuSettingsPanel },
   { key: 'system',     label: '系統設定',   icon: Settings2, panel: SettingsSystemPanel },
+  { key: 'backup',     label: '備份與轉移', icon: ArchiveRestore, panel: SettingsBackupPanel },
 ]
 
 type TabKey = (typeof TABS)[number]['key']
