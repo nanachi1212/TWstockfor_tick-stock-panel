@@ -40,6 +40,17 @@ function BackNavigationControl() {
 }
 
 describe('SelectionReview Page (A12)', () => {
+  it('opens the exact snapshot from a Strategy Lab link', async () => {
+    vi.mocked(api.selectionReview.getSnapshotDetail).mockResolvedValue(null as any)
+    render(<QueryClientProvider client={createTestQueryClient()}><MemoryRouter initialEntries={['/selection-review?snapshot_id=a13-snapshot']}><SelectionReview /></MemoryRouter></QueryClientProvider>)
+    await waitFor(() => expect(api.selectionReview.getSnapshotDetail).toHaveBeenCalledWith('a13-snapshot'))
+  })
+
+  it('loads the linked daily run even when it is outside the latest run list', async () => {
+    vi.mocked(api.taiwanQuantLiveRun).mockResolvedValue(undefined as any)
+    render(<QueryClientProvider client={createTestQueryClient()}><MemoryRouter initialEntries={['/selection-review?tab=live&model_key=prior-model&session=2026-08-03']}><SelectionReview /></MemoryRouter></QueryClientProvider>)
+    await waitFor(() => expect(api.taiwanQuantLiveRun).toHaveBeenCalledWith('prior-model', '2026-08-03'))
+  })
   beforeEach(() => {
     vi.clearAllMocks()
     vi.mocked(api.selectionReview.listSnapshots).mockResolvedValue([] as any)

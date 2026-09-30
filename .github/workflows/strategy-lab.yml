@@ -1,0 +1,50 @@
+name: Strategy Lab validation
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'backend/app/taiwan/strategy_lab.py'
+      - 'backend/app/api/strategy_lab.py'
+      - 'backend/tests/test_strategy_lab.py'
+      - 'frontend/**'
+      - '.github/workflows/strategy-lab.yml'
+
+jobs:
+  contracts:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          cache-dependency-glob: backend/uv.lock
+      - name: Install backend dependencies
+        working-directory: backend
+        run: uv sync --frozen --extra dev --python 3.11
+      - name: Ruff
+        working-directory: backend
+        run: uv run ruff check app/api/strategy_lab.py app/taiwan/strategy_lab.py app/taiwan/selection_review_models.py app/taiwan/selection_review_service.py app/taiwan/quant/live_store.py app/api/buy_points.py tests/test_strategy_lab.py tests/test_buy_point.py
+      - name: mypy
+        working-directory: backend
+        run: uv run mypy app/api/strategy_lab.py app/taiwan/strategy_lab.py --follow-imports=silent --ignore-missing-imports
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9.10.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: pnpm
+          cache-dependency-path: frontend/pnpm-lock.yaml
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: pnpm install --frozen-lockfile
+      - name: Frontend tests
+        working-directory: frontend
+        run: pnpm test
+      - name: ESLint
+        working-directory: frontend
+        run: pnpm lint
+      - name: TypeScript and build
+        working-directory: frontend
+        run: pnpm build

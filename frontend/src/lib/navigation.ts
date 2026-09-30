@@ -18,6 +18,7 @@ import {
   MessageCircleMore,
   BellRing,
   RefreshCw,
+  FlaskConical,
   Database,
   type LucideIcon,
 } from 'lucide-react'
@@ -65,6 +66,7 @@ export const CORE_NAV: readonly NavMeta[] = [
   { to: '/data-health',     label: '資料健康', icon: Database },
   { to: '/taiwan-screener', label: '台股選股', icon: Filter },
   { to: '/selection-review',label: '選股復盤', icon: History },
+  { to: '/strategy-lab',   label: '策略實驗室', icon: FlaskConical },
   { to: '/buy-points',      label: '買點策略', icon: BellRing },
   { to: '/watchlist',  label: '自選股',   icon: Star },
   { to: '/stocks/compare', label: '多股比較', icon: Scale },

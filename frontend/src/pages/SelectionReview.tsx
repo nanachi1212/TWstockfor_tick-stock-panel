@@ -161,10 +161,10 @@ export function SelectionReview() {
   const activeTab: ReviewTab = requestedTab === 'live' || requestedTab === 'forward' || requestedTab === 'historical' || requestedTab === 'strategies' || requestedTab === 'conditions'
     ? requestedTab
     : 'snapshots'
-  const [selectedSnapshotId, setSelectedSnapshotId] = useState<string | null>(null)
+  const [selectedSnapshotId, setSelectedSnapshotId] = useState<string | null>(searchParams.get('snapshot_id'))
   const selectedForwardBatchId = searchParams.get('batch_id')
   const [strategyFilter, setStrategyFilter] = useState<string>('all')
-  const [forwardStrategy, setForwardStrategy] = useState<string>('trend_liquidity_v1')
+  const [forwardStrategy, setForwardStrategy] = useState<string>(searchParams.get('strategy_id') ?? 'trend_liquidity_v1')
 
   // 1. 快照列表
   const snapshotsQuery = useQuery({
@@ -677,13 +677,13 @@ function SnapshotCard({
               )}
             </div>
           </div>
-          <button
+          {!item.observation_origin && <button
             onClick={onDelete}
             title="刪除快照"
             className="text-muted-foreground/60 hover:text-rose-500 p-1 rounded transition-colors"
           >
             <Trash2 className="h-4 w-4" />
-          </button>
+          </button>}
         </div>
 
         {/* 評估摘要指標 */}
@@ -843,13 +843,13 @@ function SnapshotDetailView({
               })),
             })}
           />
-          <button
+          {!snapshot.observation_origin && <button
             onClick={() => onDelete(snapshot.snapshot_id)}
             className="inline-flex items-center gap-1.5 text-xs text-rose-500 hover:text-rose-600 border border-rose-500/20 hover:border-rose-500/40 px-3 py-1.5 rounded-lg transition-colors"
           >
             <Trash2 className="h-3.5 w-3.5" />
             刪除快照
-          </button>
+          </button>}
         </div>
       </div>
 

@@ -27,6 +27,7 @@ const TaiwanScreener = lazy(() => import('./pages/TaiwanScreener').then(m => ({ 
 const TaiwanEventCenter = lazy(() => import('./pages/TaiwanEventCenter').then(m => ({ default: m.TaiwanEventCenter })))
 const DailyBrief = lazy(() => import('./pages/DailyBrief').then(m => ({ default: m.DailyBrief })))
 const SelectionReview = lazy(() => import('./pages/SelectionReview').then(m => ({ default: m.SelectionReview })))
+const StrategyLab = lazy(() => import('./pages/StrategyLab').then(m => ({ default: m.StrategyLab })))
 const SocialSentiment = lazy(() => import('./pages/SocialSentiment').then(m => ({ default: m.SocialSentiment })))
 const SocialFetch = lazy(() => import('./pages/SocialFetch').then(m => ({ default: m.SocialFetch })))
 const DataHealth = lazy(() => import('./pages/DataHealth').then(m => ({ default: m.DataHealth })))
@@ -40,6 +41,7 @@ const CORE_ROUTE_PATHS = new Set([
   '/events',
   '/daily-brief',
   '/selection-review',
+  '/strategy-lab',
   '/social-sentiment',
   '/social-fetch',
   '/data-health',
@@ -113,6 +115,7 @@ export const router = createBrowserRouter([
       { path: 'watchlist', element: <Watchlist /> },
       { path: 'taiwan-screener', element: <TaiwanScreener /> },
       { path: 'selection-review', element: <SelectionReview /> },
+      { path: 'strategy-lab', element: <StrategyLab /> },
       { path: 'social-sentiment', element: <SocialSentiment /> },
       { path: 'social-fetch', element: <SocialFetch /> },
       { path: 'data-health', element: <DataHealth /> },

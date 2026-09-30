@@ -127,6 +127,8 @@ export const QK = {
   selectionForwardBatchDetail: (batchId: string) => ['selection-forward-batch-detail', batchId] as const,
   selectionForwardStats: (strategyId?: string) => ['selection-forward-stats', strategyId ?? 'all'] as const,
   selectionStrategyStats: ['selection-strategy-stats'] as const,
+  strategyLab: (filters: object) => ['strategy-lab', filters] as const,
+  strategyLabObservations: (filters: object, offset: number) => ['strategy-lab-observations', filters, offset] as const,
   selectionConditionStats: ['selection-condition-stats'] as const,
   selectionHistoricalPit: ['selection-historical-pit', 'trend_liquidity_v1'] as const,
 
@@ -146,7 +148,7 @@ export const QK = {
 export const DATA_HEALTH_INVALIDATE_PREFIXES = {
   daily: ['data-health', 'taiwan-data-status', 'taiwan-stock-detail', 'taiwan-current-data',
     'taiwanStockResearchContext', 'taiwanAbnormalDiagnostics', 'taiwanMarketIntelligence',
-    'taiwanIndustryIntelligence', 'watchlist-', 'selection-', 'daily-brief', 'buy-point-'],
+    'taiwanIndustryIntelligence', 'watchlist-', 'selection-', 'strategy-lab', 'daily-brief', 'buy-point-'],
   social: ['data-health', 'taiwan-social-sentiment'],
   validate: ['data-health', 'settings'],
 } as const

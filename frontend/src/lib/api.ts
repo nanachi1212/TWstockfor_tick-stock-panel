@@ -2918,6 +2918,106 @@ export interface TaiwanSocialSentimentJob {
 }
 
 // ===== API surface =====
+export interface StrategyLabFilters {
+  minimum_sample: number
+  strategy_key?: string
+  source?: string
+  exchange?: string
+  industry?: string
+  market_regime?: string
+  liquidity_bucket?: string
+  risk_status?: string
+}
+
+export interface StrategyLabIdentity {
+  key: string
+  strategy_id: string
+  strategy_name: string
+  version: string | null
+  source: 'Selection' | 'A13 Buy Point' | 'Daily recommendation'
+  definition_digest: string | null
+  entry_basis: string
+  price_semantics: string
+  cost_assumption: string
+}
+
+export interface StrategyLabHorizon {
+  matured: number
+  pending: number
+  unavailable: number
+  hit_count: number
+  hit_rate_denominator: number
+  hit_rate_pct: number | null
+  average_return_pct: number | null
+  benchmark_n: number
+  excess_n: number
+  average_benchmark_return_pct: number | null
+  average_excess_pct: number | null
+  sample_sufficient: boolean
+  excess_sample_sufficient: boolean
+}
+
+export interface StrategyLabStats {
+  identity: StrategyLabIdentity
+  sample_count: number
+  snapshot_count: number
+  horizons: Record<string, StrategyLabHorizon>
+}
+
+export interface StrategyLabOverview {
+  evidence_label: string
+  historical_pit_status: string
+  hit_definition: string
+  unit: string
+  minimum_sample: number
+  sample_count: number
+  strategies: StrategyLabStats[]
+  strategy_options: StrategyLabIdentity[]
+  filter_options: Record<string, string[]>
+  slice_availability: Record<string, string>
+  duplicate_snapshots: number
+  duplicate_samples: number
+  integrity_conflicts: number
+  excluded_research_snapshots: number
+}
+
+export interface StrategyLabObservation {
+  observation_id: string
+  snapshot_id: string
+  symbol: string
+  name: string
+  signal_date: string
+  as_of: string
+  outcome_date: string | null
+  entry_date: string | null
+  entry_price: number | null
+  horizon: number
+  status: 'matured' | 'pending' | 'unavailable'
+  return_pct: number | null
+  benchmark_symbol: string | null
+  benchmark_return_pct: number | null
+  excess_pct: number | null
+  reason: string | null
+  benchmark_reason: string | null
+  identity: StrategyLabIdentity
+  evidence_label: string
+  provenance: Record<string, unknown>
+}
+
+export interface StrategyLabObservations {
+  total: number
+  offset: number
+  limit: number
+  observations: StrategyLabObservation[]
+}
+
+function strategyLabQuery(filters: StrategyLabFilters, offset?: number) {
+  const q = new URLSearchParams()
+  Object.entries(filters).forEach(([key, value]) => { if (value !== undefined && value !== '') q.set(key, String(value)) })
+  if (offset !== undefined) q.set('offset', String(offset))
+  return q.toString()
+}
+
 export type DataHealthStatus = 'current' | 'stale' | 'partial' | 'unavailable' | 'updating' | 'error'
 export type DataHealthAction = 'update' | 'validate' | 'retry'
 export interface DatasetHealth {
@@ -2951,6 +3051,10 @@ export interface DataHealthJob {
 }
 
 export const api = {
+  strategyLab: (filters: StrategyLabFilters) =>
+    request<StrategyLabOverview>(`/api/taiwan/strategy-lab?${strategyLabQuery(filters)}`),
+  strategyLabObservations: (filters: StrategyLabFilters, offset = 0) =>
+    request<StrategyLabObservations>(`/api/taiwan/strategy-lab/observations?${strategyLabQuery(filters, offset)}`),
   dataHealth: () => request<DataHealthReport>('/api/taiwan/data-health'),
   dataHealthJobs: () => request<DataHealthJob[]>('/api/taiwan/data-health/jobs'),
   dataHealthAction: (dataset: string, action: DataHealthAction) =>
@@ -4599,6 +4703,7 @@ export interface SelectionSnapshotItem {
 }
 
 export interface SelectionSnapshot {
+  observation_origin?: 'a13_server_observed' | null
   snapshot_id: string
   created_at: string
   strategy_id: string
@@ -4734,6 +4839,7 @@ export interface SnapshotReviewDetail {
 }
 
 export interface SnapshotListItem {
+  observation_origin?: 'a13_server_observed' | null
   snapshot_id: string
   created_at: string
   strategy_id: string

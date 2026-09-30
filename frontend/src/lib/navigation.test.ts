@@ -22,6 +22,7 @@ describe('CORE_NAV', () => {
       '/data-health',
       '/taiwan-screener',
       '/selection-review',
+      '/strategy-lab',
       '/buy-points',
       '/watchlist',
       '/stocks/compare',
@@ -29,7 +30,7 @@ describe('CORE_NAV', () => {
     ])
   })
 
-  it('keeps the 12 Taiwan core route paths including data health', () => {
+  it('keeps the 13 Taiwan core route paths including Strategy Lab and data health', () => {
     const paths = new Set(CORE_NAV.map(item => item.to))
     expect(paths).toEqual(
       new Set([
@@ -41,6 +42,7 @@ describe('CORE_NAV', () => {
         '/data-health',
         '/taiwan-screener',
         '/selection-review',
+        '/strategy-lab',
         '/buy-points',
         '/watchlist',
         '/stocks/compare',
@@ -49,8 +51,8 @@ describe('CORE_NAV', () => {
     )
   })
 
-  it('is the only exported nav array — CORE_NAV has exactly 12 Taiwan core items', () => {
-    expect(CORE_NAV).toHaveLength(12)
+  it('is the only exported nav array — CORE_NAV has exactly 13 Taiwan core items', () => {
+    expect(CORE_NAV).toHaveLength(13)
   })
 })
 

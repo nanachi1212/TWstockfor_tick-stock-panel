@@ -534,7 +534,7 @@ def save_snapshot(req: SnapshotRequest, request: Request):
             event_risk_summary="、".join(signal.risk_flags) or None,
             quote_status="available",
         )],
-    ))
+    ), buy_point_definition=strategy.model_dump())
     return saved.model_dump()
 
 
