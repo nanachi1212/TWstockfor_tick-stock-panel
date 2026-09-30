@@ -21,6 +21,13 @@ import { cn } from '@/lib/cn'
 type SortKey = 'social_heat_score' | 'total_mentions' | 'sentiment_score'
 
 const SOURCE_LABELS: Record<string, string> = { ptt: 'PTT', dcard: 'Dcard' }
+const TRIGGER_LABELS: Record<string, string> = {
+  pre_open: '盤前排程',
+  after_close: '盤後排程',
+  manual: '手動撈取',
+  missed_schedule: '錯過排程補跑',
+  unknown: '舊版資料',
+}
 
 function number(value: number | null | undefined, digits = 0) {
   return typeof value === 'number' && Number.isFinite(value)
@@ -134,6 +141,11 @@ export function SocialSentiment() {
                 )}
               </div>
               <p className="mt-1 text-xs leading-relaxed text-muted">社群討論與 AI 情緒分析僅供研究，可能有抽樣與群體偏誤，不代表公司基本面或買賣建議。</p>
+              {sentiment.data && (
+                <p className="mt-2 text-[11px] text-secondary">
+                  最後更新：{generatedAt?.toLocaleString('zh-TW', { hour12: false }) ?? '不可用'} · 來源：{TRIGGER_LABELS[sentiment.data.trigger] ?? '未知'}
+                </p>
+              )}
             </div>
             {sentiment.data && (
               <CopyButton
@@ -190,7 +202,7 @@ export function SocialSentiment() {
                   {SOURCE_LABELS[source] ?? source}：{data.status === 'available' ? `可用 · ${data.posts} 篇` : data.status === 'partial' ? '部分可用' : '目前來源不可用'}
                 </span>
               ))}
-              <span className="rounded-md border border-border bg-base px-2 py-1 text-muted">資料日期 {sentiment.data.as_of} · {sentiment.data.snapshot_slot === 'pre_open' ? '盤前' : '盤後'}</span>
+              <span className="rounded-md border border-border bg-base px-2 py-1 text-muted">資料日期 {sentiment.data.as_of} · {sentiment.data.snapshot_slot === 'pre_open' ? '盤前' : sentiment.data.snapshot_slot === 'after_close' ? '盤後' : '手動'}</span>
               {isStale && <span className="rounded-md border border-warning/30 bg-warning/5 px-2 py-1 text-warning">資料可能過期</span>}
             </div>
           )}

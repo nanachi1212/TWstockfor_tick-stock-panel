@@ -2850,8 +2850,12 @@ export interface TaiwanSocialSentimentResponse {
   schema_version: number
   status: SocialSentimentAvailability
   generated_at: string
+  started_at: string | null
+  finished_at: string | null
   as_of: string
-  snapshot_slot: 'pre_open' | 'after_close'
+  trigger: 'pre_open' | 'after_close' | 'manual' | 'missed_schedule' | 'unknown'
+  snapshot_slot: 'pre_open' | 'after_close' | 'manual'
+  snapshot_id: string | null
   window_hours: number
   sources: Record<string, TaiwanSocialSentimentSource>
   identified_symbols: number
@@ -2862,14 +2866,55 @@ export interface TaiwanSocialSentimentResponse {
     errors: string[]
   }
   rankings: TaiwanSocialSentimentRow[]
+  discussions?: TaiwanSocialSentimentDiscussion[]
 }
 
 export interface TaiwanSocialSentimentHistoryItem {
   as_of: string
   generated_at: string
   snapshot_slot: 'pre_open' | 'after_close'
+  trigger?: 'pre_open' | 'after_close' | 'missed_schedule' | 'unknown'
   status: SocialSentimentAvailability
   identified_symbols: number
+}
+
+export interface TaiwanSocialSentimentDiscussion {
+  id: string
+  source: 'ptt' | 'dcard'
+  published_at: string | null
+  symbols: string[]
+  stock_names: string[]
+  title: string
+  url: string
+  excerpt: string
+  representative_comments: string[]
+  comments_count: number
+  engagement: number
+}
+
+export type SocialSentimentJobStatus = 'queued' | 'running' | 'completed' | 'partial' | 'failed'
+
+export interface TaiwanSocialSentimentJob {
+  job_id: string
+  status: SocialSentimentJobStatus
+  started_at: string | null
+  finished_at: string | null
+  ptt_status: SocialSentimentAvailability | 'not_queried'
+  dcard_status: SocialSentimentAvailability | 'not_queried'
+  ai_status: 'available' | 'degraded' | 'unavailable' | 'not_queried'
+  posts: number
+  comments: number
+  symbols_identified: number
+  error_summary: string | null
+  snapshot_id: string | null
+  rankings: TaiwanSocialSentimentRow[]
+  discussions: {
+    items: TaiwanSocialSentimentDiscussion[]
+    total: number
+    offset: number
+    limit: number
+    has_more: boolean
+  }
 }
 
 // ===== API surface =====
@@ -4015,6 +4060,27 @@ export const api = {
 
   taiwanSocialSentimentHistory: (limit = 30) =>
     request<{ items: TaiwanSocialSentimentHistoryItem[] }>(`/api/taiwan/social-sentiment/history?limit=${limit}`),
+
+  taiwanSocialSentimentRun: (body: { mode: 'manual' }) =>
+    request<{ job_id: string | null; status: 'running' | 'already_running' }>(
+      '/api/taiwan/social-sentiment/run',
+      { method: 'POST', body: JSON.stringify(body) },
+    ),
+
+  taiwanSocialSentimentJob: (
+    jobId: string,
+    filters: { source?: string; symbol?: string; q?: string; offset?: number; limit?: number } = {},
+  ) => {
+    const query = new URLSearchParams()
+    if (filters.source) query.set('source', filters.source)
+    if (filters.symbol) query.set('symbol', filters.symbol)
+    if (filters.q) query.set('q', filters.q)
+    query.set('offset', String(filters.offset ?? 0))
+    query.set('limit', String(filters.limit ?? 50))
+    return request<TaiwanSocialSentimentJob>(
+      `/api/taiwan/social-sentiment/jobs/${encodeURIComponent(jobId)}?${query.toString()}`,
+    )
+  },
 
   taiwanRulesList: () =>
     request<{ rules: TaiwanMonitorRule[]; total: number }>('/api/monitor-rules/taiwan'),

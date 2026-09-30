@@ -2,15 +2,19 @@ from __future__ import annotations
 
 import csv
 import json
+import time
 from datetime import UTC, date, datetime, timedelta
 
 import polars as pl
+import pytest
 
 from app.taiwan.providers.taiwan_values import TAIPEI
 from app.taiwan.social_sentiment import (
     DcardCollector,
     PTTStockCollector,
     SocialPost,
+    SocialSentimentAlreadyRunningError,
+    SocialSentimentRunLock,
     SocialSentimentService,
     SourceResult,
     StockMentionResolver,
@@ -22,6 +26,7 @@ from app.taiwan.social_sentiment import (
     parse_ptt_index,
     parse_ptt_post,
 )
+from app.taiwan.social_sentiment_jobs import SocialSentimentJobManager
 
 
 class FakeSecurityMaster:
@@ -417,6 +422,126 @@ def test_ai_invalid_json_degrades_only_batch(tmp_path, monkeypatch):
     assert payload["rankings"][0]["sentiment"] == "unavailable"
 
 
+def test_manual_run_writes_immutable_snapshot_with_bounded_discussions(tmp_path):
+    post = SocialPost(
+        source="ptt",
+        post_id="M.manual",
+        url="https://www.ptt.cc/bbs/Stock/M.manual.html",
+        title="台積電 2330 討論",
+        content="看好台積電後續表現",
+        published_at=datetime(2026, 9, 30, 9, 30, tzinfo=TAIPEI),
+        comments=tuple(f"代表留言 {index}" for index in range(10)),
+        engagement=20,
+    )
+    service = SocialSentimentService(
+        security_master=FakeSecurityMaster(),
+        collectors=(FakeCollector("ptt", [post], succeeded=True),),
+        output_dir=tmp_path,
+    )
+
+    payload = service.run(
+        run_ai=False,
+        trigger="manual",
+        now=datetime(2026, 9, 30, 9, 38, 12, 123456, tzinfo=TAIPEI),
+    )
+
+    assert payload["trigger"] == "manual"
+    assert payload["snapshot_slot"] == "manual"
+    assert payload["started_at"].endswith("+08:00")
+    assert payload["finished_at"].endswith("+08:00")
+    assert len(payload["discussions"]) == 1
+    discussion = payload["discussions"][0]
+    assert discussion["symbols"] == ["2330.TWSE"]
+    assert discussion["comments_count"] == 10
+    assert discussion["representative_comments"] == ["代表留言 0", "代表留言 1", "代表留言 2"]
+    snapshots = list((tmp_path / "history" / "snapshots").glob("*-manual.json"))
+    assert len(snapshots) == 1
+    assert snapshots[0].name == payload["snapshot_id"]
+    assert not (tmp_path / "history" / "snapshots" / "2026-09-30-pre_open.json").exists()
+    assert "代表留言 9" not in snapshots[0].read_text(encoding="utf-8")
+
+
+def test_explicit_late_schedule_is_recorded_as_missed_schedule(tmp_path):
+    service = SocialSentimentService(
+        security_master=FakeSecurityMaster(),
+        collectors=(FakeCollector("ptt", [_post("ptt", "1", "2330")], succeeded=True),),
+        output_dir=tmp_path,
+    )
+
+    payload = service.run(
+        run_ai=False,
+        trigger="pre_open",
+        now=datetime(2026, 9, 30, 9, 31, tzinfo=TAIPEI),
+    )
+
+    assert payload["trigger"] == "missed_schedule"
+    assert payload["snapshot_slot"] == "pre_open"
+    assert (tmp_path / "history" / "snapshots" / "2026-09-30-pre_open.json").exists()
+
+
+def test_social_sentiment_lock_rejects_second_process_style_run(tmp_path):
+    lock = SocialSentimentRunLock(tmp_path / "run.lock")
+    assert lock.acquire() is True
+    service = SocialSentimentService(
+        security_master=FakeSecurityMaster(),
+        collectors=(FakeCollector("ptt", succeeded=True),),
+        output_dir=tmp_path,
+    )
+    try:
+        with pytest.raises(SocialSentimentAlreadyRunningError):
+            service.run(run_ai=False, trigger="manual")
+    finally:
+        lock.release()
+
+
+def test_manual_background_job_completes_partial_without_blocking_start(tmp_path, monkeypatch):
+    monkeypatch.setattr("app.services.ai_provider.ai_configured", lambda: False)
+    service = SocialSentimentService(
+        security_master=FakeSecurityMaster(),
+        collectors=(
+            FakeCollector("ptt", [_post("ptt", "1", "2330")], succeeded=True),
+            FakeCollector("dcard", error="HTTP 403"),
+        ),
+        output_dir=tmp_path,
+    )
+    manager = SocialSentimentJobManager(service_factory=lambda: service, output_dir=tmp_path)
+
+    started = manager.start_manual()
+
+    assert started["status"] == "running"
+    job = None
+    for _ in range(100):
+        job = manager.get_job(started["job_id"])
+        if job and job["status"] in {"completed", "partial", "failed"}:
+            break
+        time.sleep(0.01)
+    assert job is not None
+    assert job["status"] == "partial"
+    assert job["ptt_status"] == "available"
+    assert job["dcard_status"] == "unavailable"
+    assert job["ai_status"] == "unavailable"
+    assert job["symbols_identified"] == 1
+    assert job["snapshot_id"].endswith("-manual.json")
+
+
+def test_manual_job_response_does_not_expose_provider_secrets(tmp_path):
+    manager = SocialSentimentJobManager(output_dir=tmp_path)
+    manager._jobs["safe-job"] = {"job_id": "safe-job", "status": "completed"}
+    manager._payloads["safe-job"] = {
+        "rankings": [],
+        "discussions": [],
+        "ai": {"api_key": "sk-test-secret"},
+        "provider_config": {"token": "private-token"},
+    }
+
+    response = manager.get_job("safe-job")
+
+    assert response is not None
+    serialized = json.dumps(response)
+    assert "sk-test-secret" not in serialized
+    assert "private-token" not in serialized
+
+
 def test_volume_change_uses_exact_previous_calendar_day(tmp_path, monkeypatch):
     monkeypatch.setattr("app.services.ai_provider.ai_configured", lambda: False)
     history_dir = tmp_path / "history" / "snapshots"
@@ -598,11 +723,16 @@ def test_snapshot_and_history_metadata_use_local_data_dir(tmp_path, monkeypatch)
     }
     (snapshot_dir / "2026-09-29-after_close.json").write_text(json.dumps(payload), encoding="utf-8")
 
-    assert load_social_sentiment_snapshot(date(2026, 9, 29), "after_close") == payload
+    loaded = load_social_sentiment_snapshot(date(2026, 9, 29), "after_close")
+    assert loaded is not None
+    assert loaded["as_of"] == payload["as_of"]
+    assert loaded["trigger"] == "after_close"
+    assert loaded["discussions"] == []
     assert list_social_sentiment_history() == [{
         "as_of": "2026-09-29",
         "generated_at": "2026-09-29T15:30:00+08:00",
         "snapshot_slot": "after_close",
+        "trigger": "after_close",
         "status": "partial",
         "identified_symbols": 65,
     }]

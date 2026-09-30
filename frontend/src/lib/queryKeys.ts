@@ -108,6 +108,8 @@ export const QK = {
   taiwanMarketSentiment:(date?: string) => ['taiwan-market-sentiment', date ?? 'latest'] as const,
   taiwanSocialSentiment:(date?: string, snapshotSlot?: string) => ['taiwan-social-sentiment', date ?? 'latest', snapshotSlot ?? 'latest'] as const,
   taiwanSocialSentimentHistory: ['taiwan-social-sentiment-history'] as const,
+  taiwanSocialSentimentJob: (jobId: string, source?: string, symbol?: string, q?: string, offset?: number) =>
+    ['taiwan-social-sentiment-job', jobId, source ?? '', symbol ?? '', q ?? '', offset ?? 0] as const,
 
   // 市場環境(Regime) — 日級離線計算, 不進 SSE 刷新
   // Phase 8B-5.7: 僅保留仍有真實 consumer 的 regimeLatest(Mining)/
