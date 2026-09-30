@@ -399,6 +399,8 @@ def _open_window(url: str) -> None:
     """主线程: 用 pywebview 打开桌面窗口。"""
     import webview  # type: ignore[import-not-found]
 
+    # 設定 → 備份與轉移 需要把 .twstock-backup 存到使用者選的位置 (pywebview 預設禁止下載)。
+    webview.settings["ALLOW_DOWNLOADS"] = True
     webview.create_window(
         _APP_NAME,
         url,
