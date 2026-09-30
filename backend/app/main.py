@@ -17,6 +17,7 @@ from app.api import (
     backtest,
     buy_points,
     data,
+    device_transfer,
     ext_data,
     financials,
     intraday,
@@ -461,6 +462,7 @@ app.include_router(ext_data.router)
 app.include_router(financials.router)
 app.include_router(stock_analysis.router)
 app.include_router(settings_api.router)
+app.include_router(device_transfer.router)
 app.include_router(strategy.router)
 app.include_router(signals.router)
 app.include_router(monitor_rules.router)
