@@ -112,6 +112,16 @@ class MarketIndexesSnapshot(BaseModel):
     tpex_index: IndexSnapshot | None = None
 
 
+def persisted_index_snapshot(target: date | None = None) -> MarketIndexesSnapshot:
+    """Existing offline benchmark projection, shared with the data health center."""
+    return MarketIndexesSnapshot(
+        taiex=IndexSnapshot(symbol="TAIEX", name="發行量加權股價指數",
+                            trade_date=str(target) if target else None, status="unavailable"),
+        tpex_index=IndexSnapshot(symbol="TPEX_INDEX", name="櫃買指數",
+                                trade_date=str(target) if target else None, status="unavailable"),
+    )
+
+
 class DatasetQualityMeta(BaseModel):
     """Freshness and provenance metadata for a single dataset."""
 
@@ -400,20 +410,7 @@ class TaiwanMarketIntelligenceService:
 
         # 6. Indexes Integration (Pure offline / persisted fallback)
         # Note: In accordance with zero-HTTP acceptance rules, do not fetch network index data.
-        indexes_snapshot = MarketIndexesSnapshot(
-            taiex=IndexSnapshot(
-                symbol="TAIEX",
-                name="發行量加權股價指數",
-                trade_date=str(target),
-                status="unavailable",
-            ),
-            tpex_index=IndexSnapshot(
-                symbol="TPEX_INDEX",
-                name="櫃買指數",
-                trade_date=str(target),
-                status="unavailable",
-            ),
-        )
+        indexes_snapshot = persisted_index_snapshot(target)
 
         # 7. Data Quality & Overall Status
         dataset_statuses = [daily_status, inst_status, m_status]

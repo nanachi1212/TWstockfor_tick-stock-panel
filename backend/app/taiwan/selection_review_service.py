@@ -9,6 +9,7 @@ Strict Guarantees:
 - Descriptive condition analytics without causal claims or automated weight changes.
 - Stored exclusively in user_data/taiwan_selection_snapshots.json (private, non-bundled).
 """
+# ruff: noqa: RUF001
 from __future__ import annotations
 
 import contextlib
@@ -22,6 +23,7 @@ import uuid
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from statistics import median
+from typing import Any
 
 import polars as pl
 
@@ -169,9 +171,9 @@ class TaiwanSelectionReviewService:
             selected_symbols=symbols,
             items=req.items,
             source=req.source,
-            cost_assumption=("未扣成本與滑價；訊號日參考收盤觀察報酬"  # noqa: RUF001
+            cost_assumption=("未扣成本與滑價；訊號日參考收盤觀察報酬"
                              if buy_point_definition is not None else
-                             "未扣成本與滑價；紙上開盤價不保證成交"),  # noqa: RUF001
+                             "未扣成本與滑價；紙上開盤價不保證成交"),
             observation_origin="a13_server_observed" if buy_point_definition is not None else None,
             strategy_definition_digest=(hashlib.sha256(json.dumps(
                 buy_point_definition, sort_keys=True, ensure_ascii=False,
@@ -190,6 +192,40 @@ class TaiwanSelectionReviewService:
 
         logger.info("Saved selection snapshot %s for strategy %s (%d items)", snapshot_id, snapshot.strategy_id, len(symbols))
         return snapshot
+
+    def health_metadata(self) -> dict[str, dict[str, Any]]:
+        """Project the latest immutable snapshot and existing horizon evaluation only."""
+        from app.taiwan.daily_update import resolve_target_latest_trading_date
+        with self._lock:
+            snapshots = self._read_snapshots_raw()
+        if not snapshots:
+            return {key: {"status": "unavailable", "source": "Selection Review",
+                          "reason": "尚未保存選股快照"}
+                    for key in ("selection_snapshot", "selection_outcome")}
+        latest = max(snapshots, key=lambda item: item.created_at)
+        common = {"source": "Selection Review", "data_date": latest.as_of_date,
+                  "freshness": "最新已保存快照的基準日，非今日選股保證"}
+        target = resolve_target_latest_trading_date(self.calendar, evidence_store=self.census_store)
+        stale = date.fromisoformat(latest.as_of_date) < target
+        snapshot = {**common, "status": "stale" if stale else "current", "last_success": latest.created_at,
+                    "reason": "最新已保存快照早於目前目標交易日" if stale else "已保存不可變快照"}
+        try:
+            review = self.get_snapshot_review(latest.snapshot_id)
+        except Exception:
+            return {"selection_snapshot": snapshot,
+                    "selection_outcome": {**common, "status": "error",
+                                          "reason": "既有 outcome metadata 無法讀取，原有快照保留"}}
+        states = [getattr(item, f"h{horizon}d{kind}_status")
+                  for item in review.evaluated_items for horizon in (1, 5, 20) for kind in ("", "_bm")
+                  ] if review else []
+        if not states or all(state == "unavailable" for state in states):
+            status, reason = "unavailable", "尚無可用 outcome，資料或基準價格缺漏"
+        elif all(state == "completed" for state in states):
+            status, reason = "current", "既有 1D / 5D / 20D outcome 已完成"
+        else:
+            status, reason = "partial", "部分 horizon 尚未到期或價格／基準資料尚未齊全"
+        return {"selection_snapshot": snapshot,
+                "selection_outcome": {**common, "status": status, "reason": reason}}
 
     def get_snapshot(self, snapshot_id: str) -> SelectionSnapshot | None:
         """Find raw snapshot by ID without horizon recalculation."""

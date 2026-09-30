@@ -19,6 +19,7 @@ describe('CORE_NAV', () => {
       '/events',
       '/social-sentiment',
       '/social-fetch',
+      '/data-health',
       '/taiwan-screener',
       '/selection-review',
       '/strategy-lab',
@@ -29,7 +30,7 @@ describe('CORE_NAV', () => {
     ])
   })
 
-  it('keeps the 12 Taiwan core route paths including Strategy Lab', () => {
+  it('keeps the 13 Taiwan core route paths including Strategy Lab and data health', () => {
     const paths = new Set(CORE_NAV.map(item => item.to))
     expect(paths).toEqual(
       new Set([
@@ -38,6 +39,7 @@ describe('CORE_NAV', () => {
         '/events',
         '/social-sentiment',
         '/social-fetch',
+        '/data-health',
         '/taiwan-screener',
         '/selection-review',
         '/strategy-lab',
@@ -49,8 +51,8 @@ describe('CORE_NAV', () => {
     )
   })
 
-  it('is the only exported nav array — CORE_NAV has exactly 12 Taiwan core items', () => {
-    expect(CORE_NAV).toHaveLength(12)
+  it('is the only exported nav array — CORE_NAV has exactly 13 Taiwan core items', () => {
+    expect(CORE_NAV).toHaveLength(13)
   })
 })
 

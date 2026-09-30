@@ -17,6 +17,8 @@ export const QK = {
   aiKeyProfiles:  ['ai-key-profiles'] as const,
   dataSources:    ['data-sources'] as const,
   taiwanDataStatus: ['taiwan-data-status'] as const,
+  dataHealth: ['data-health'] as const,
+  dataHealthJobs: ['data-health-jobs'] as const,
   taiwanQuantEvaluation: ['taiwan-quant-evaluation'] as const,
   taiwanQuantA2bProgress: ['taiwan-quant-a2b-progress'] as const,
   taiwanQuantLiveModels: ['taiwan-quant-live-models'] as const,
@@ -140,6 +142,15 @@ export const QK = {
   dailyBrief:           (targetDate?: string) => ['daily-brief', targetDate ?? 'today'] as const,
   dailyBriefHistory:    (limit?: number) => ['daily-brief-history', limit ?? 30] as const,
   dailyBriefHistoryDetail: (briefId: string) => ['daily-brief-history-detail', briefId] as const,
+} as const
+
+// Health jobs reuse existing consumer caches even when the user leaves the health page.
+export const DATA_HEALTH_INVALIDATE_PREFIXES = {
+  daily: ['data-health', 'taiwan-data-status', 'taiwan-stock-detail', 'taiwan-current-data',
+    'taiwanStockResearchContext', 'taiwanAbnormalDiagnostics', 'taiwanMarketIntelligence',
+    'taiwanIndustryIntelligence', 'watchlist-', 'selection-', 'daily-brief', 'buy-point-'],
+  social: ['data-health', 'taiwan-social-sentiment'],
+  validate: ['data-health', 'settings'],
 } as const
 
 // ===== SSE 應該 invalidate 的 key 前綴列表 =====

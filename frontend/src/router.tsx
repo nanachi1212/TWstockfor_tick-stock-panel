@@ -30,6 +30,7 @@ const SelectionReview = lazy(() => import('./pages/SelectionReview').then(m => (
 const StrategyLab = lazy(() => import('./pages/StrategyLab').then(m => ({ default: m.StrategyLab })))
 const SocialSentiment = lazy(() => import('./pages/SocialSentiment').then(m => ({ default: m.SocialSentiment })))
 const SocialFetch = lazy(() => import('./pages/SocialFetch').then(m => ({ default: m.SocialFetch })))
+const DataHealth = lazy(() => import('./pages/DataHealth').then(m => ({ default: m.DataHealth })))
 const BuyPointStrategies = lazy(() => import('./pages/BuyPointStrategies').then(m => ({ default: m.BuyPointStrategies })))
 
 const CORE_ROUTE_PATHS = new Set([
@@ -43,6 +44,7 @@ const CORE_ROUTE_PATHS = new Set([
   '/strategy-lab',
   '/social-sentiment',
   '/social-fetch',
+  '/data-health',
   '/buy-points',
   '/stocks/:symbol',
   '/stocks/compare',
@@ -116,6 +118,7 @@ export const router = createBrowserRouter([
       { path: 'strategy-lab', element: <StrategyLab /> },
       { path: 'social-sentiment', element: <SocialSentiment /> },
       { path: 'social-fetch', element: <SocialFetch /> },
+      { path: 'data-health', element: <DataHealth /> },
       { path: 'buy-points', element: <BuyPointStrategies /> },
       { path: 'monitor', element: <Monitor /> },
       { path: 'branding', element: <Branding /> },
