@@ -748,10 +748,14 @@ class SocialSentimentService:
         batches = 0
         analyzed = 0
         errors: list[str] = []
-        for offset in range(0, len(rankings), 12):
-            batch = rankings[offset : offset + 12]
+        # Reasoning-capable gateways can spend most of a small output budget on
+        # hidden reasoning before emitting JSON. Keep each request bounded so a
+        # valid sentiment result has room to complete on Agnes as well as GLM.
+        batch_size = 4
+        for offset in range(0, len(rankings), batch_size):
+            batch = rankings[offset : offset + batch_size]
             prompt_items = [
-                {"symbol": row["code"], "company_name": row["company_name"], "texts": row["_texts"][:8]}
+                {"symbol": row["code"], "company_name": row["company_name"], "texts": row["_texts"][:4]}
                 for row in batch
             ]
             prompt = (
@@ -772,7 +776,7 @@ class SocialSentimentService:
                         "每個 reason 縮短至不超過 20 字。"
                     ),
                     temperature=0.1,
-                    max_tokens=2500,
+                    max_tokens=3000,
                     timeout=120,
                     config_snapshot=config_snapshot,
                 )
@@ -792,7 +796,7 @@ class SocialSentimentService:
                 # Keep only a safe HTTP status; provider text may echo request details.
                 http_status = getattr(exc.__cause__, "status_code", None) or getattr(exc, "status_code", None)
                 detail = f"HTTP {http_status}" if http_status else type(exc).__name__
-                errors.append(f"batch {offset // 12 + 1}: {detail}")
+                errors.append(f"batch {offset // batch_size + 1}: {detail}")
                 logger.warning("Social sentiment AI batch failed: %s", detail)
                 if http_status in _NON_RETRYABLE_AI_STATUS:
                     # Auth/billing failures repeat for every batch; stop spending calls.

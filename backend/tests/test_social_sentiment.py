@@ -360,6 +360,60 @@ def test_ai_json_is_applied_without_leaking_raw_text(tmp_path, monkeypatch):
     assert "2344 華邦電 看好" not in json.dumps(payload, ensure_ascii=False)
 
 
+def test_ai_batches_bound_reasoning_output_and_keep_all_symbols(tmp_path, monkeypatch):
+    codes = ["2330", "2344", "5903", "5347", "1101"]
+    names = {"2330": "�x�n�q", "2344": "�ب��q", "5903": "���a", "5347": "�@��", "1101": "�x��"}
+    posts = [_post("ptt", code, f"{code} {names[code]} �ݦn") for code in codes]
+
+    class FiveStockSecurityMaster(FakeSecurityMaster):
+        def to_dataframe(self, *, supported_only: bool):
+            return pl.concat(
+                [
+                    super().to_dataframe(supported_only=supported_only),
+                    pl.DataFrame([{"symbol": "1101.TWSE", "code": "1101", "name": "�x��", "instrument_type": "stock"}]),
+                ]
+            )
+
+    service = SocialSentimentService(
+        security_master=FiveStockSecurityMaster(),
+        collectors=(FakeCollector("ptt", posts),),
+        output_dir=tmp_path,
+    )
+    calls: list[tuple[str, dict]] = []
+
+    async def fake_generate(messages, **kwargs):
+        prompt = messages[0]["content"]
+        calls.append((prompt, kwargs))
+        items = [
+            {
+                "symbol": code,
+                "sentiment": "bullish",
+                "score": 0.5,
+                "confidence": 0.8,
+                "bullish_count": 1,
+                "neutral_count": 0,
+                "bearish_count": 0,
+                "reason": "�ݦn",
+            }
+            for code in codes
+            if f'\"symbol\": \"{code}\"' in prompt
+        ]
+        return json.dumps({"items": items})
+
+    monkeypatch.setattr("app.services.ai_provider.ai_configured", lambda: True)
+    monkeypatch.setattr("app.services.ai_provider.snapshot_ai_provider_config", lambda: object())
+    monkeypatch.setattr("app.services.ai_provider.generate_structured_ai_text", fake_generate)
+
+    payload = service.run(now=datetime(2026, 9, 28, tzinfo=UTC))
+
+    assert len(calls) == 2
+    assert all(kwargs["max_tokens"] == 3000 for _, kwargs in calls)
+    assert all(kwargs["truncated_retry_message"] for _, kwargs in calls)
+    assert [sum(f'\"symbol\": \"{code}\"' in prompt for code in codes) for prompt, _ in calls] == [4, 1]
+    assert payload["ai"]["status"] == "available"
+    assert payload["ai"]["analyzed_symbols"] == len(codes)
+
+
 def test_ai_unavailable_fallback_and_output_files(tmp_path, monkeypatch):
     monkeypatch.setattr("app.services.ai_provider.ai_configured", lambda: False)
     service = SocialSentimentService(
