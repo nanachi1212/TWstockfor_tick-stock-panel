@@ -779,6 +779,7 @@ class SocialSentimentService:
                     max_tokens=3000,
                     timeout=120,
                     config_snapshot=config_snapshot,
+                    validate=_parse_ai_items,
                 )
                 items = _parse_ai_items(raw)
                 by_code = {str(item.get("symbol", "")).upper(): item for item in items}

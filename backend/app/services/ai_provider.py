@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import os
 import re
@@ -74,7 +75,7 @@ _CODEX_ENV_ALLOWLIST = (
 Message = dict[str, str]
 
 
-class AIOutputTruncated(RuntimeError):
+class AIOutputTruncated(RuntimeError):  # noqa: N818 - public exception name is retained for compatibility
     """Raised when the provider signals finish_reason='length' (max_tokens hit mid-output)."""
 
     def __init__(self, partial_content: str = "", message: str = "AI 輸出因 token 上限截斷"):
@@ -84,6 +85,14 @@ class AIOutputTruncated(RuntimeError):
 
 class AIEmptyContentError(RuntimeError):
     """Raised when a provider returns a completion choice without message.content."""
+
+
+class AIStructuredOutputError(RuntimeError):
+    """Raised when a structured task returns malformed JSON."""
+
+    def __init__(self, invalid_content: str = "", message: str = "AI provider returned invalid JSON"):
+        super().__init__(message)
+        self.invalid_content = invalid_content
 
 
 @dataclass(frozen=True)
@@ -494,6 +503,24 @@ EMPTY_CONTENT_RETRY_MESSAGE = (
     "前次回覆的 message.content 為空。請直接輸出完整 JSON 物件,"
     "不要輸出思考過程、Markdown 或其他文字。"
 )
+INVALID_JSON_RETRY_MESSAGE = (
+    "前次回覆不是合法的完整 JSON。請直接重新輸出完整 JSON 物件,"
+    "不要輸出 Markdown、解釋或其他文字。"
+)
+
+
+def _validate_structured_json(raw: str) -> None:
+    """Accept a JSON object/array, including the fenced form used by legacy gateways."""
+    text = raw.strip().removeprefix("```json").removeprefix("```").removesuffix("```").strip()
+    start = min((idx for idx in (text.find("{"), text.find("[")) if idx >= 0), default=-1)
+    if start < 0:
+        raise AIStructuredOutputError(raw)
+    try:
+        payload, end = json.JSONDecoder().raw_decode(text[start:])
+    except ValueError:
+        raise AIStructuredOutputError(raw) from None
+    if not isinstance(payload, (dict, list)) or text[start + end :].strip():
+        raise AIStructuredOutputError(raw)
 
 
 async def generate_structured_ai_text(
@@ -505,33 +532,55 @@ async def generate_structured_ai_text(
     timeout: float,
     config_snapshot: AIProviderConfigSnapshot | None = None,
     generate: Callable[..., Any] | None = None,
+    validate: Callable[[str], Any] | None = None,
 ) -> str:
-    """Structured JSON task with one controlled retry for truncation/empty content.
+    """Structured JSON task with one controlled retry for an unusable response.
 
-    The retry keeps the partial output as context and asks for a shorter
-    complete JSON; a second failure raises instead of looping.
+    Truncated and empty responses always use the one-retry budget. When the
+    caller supplies ``validate``, malformed JSON shares that same budget. A
+    second unusable response raises instead of looping.
     """
-    kwargs = {
+    kwargs: dict[str, Any] = {
         "temperature": temperature, "max_tokens": max_tokens, "timeout": timeout,
         "config_snapshot": config_snapshot, "structured_output": True,
     }
     # Callers may pass their module-level reference so existing seams stay patchable.
     generate = generate or generate_ai_text
+
+    async def request(call_messages: Sequence[Message], attempt: int) -> str:
+        raw = await generate(call_messages, request_attempt=attempt, **kwargs)
+        if validate is not None:
+            try:
+                validate(raw)
+            except (KeyError, TypeError, ValueError):
+                raise AIStructuredOutputError(raw) from None
+        return raw
+
     try:
-        return await generate(messages, request_attempt=0, **kwargs)
-    except (AIOutputTruncated, AIEmptyContentError) as first_exc:
-        truncated = isinstance(first_exc, AIOutputTruncated)
+        return await request(messages, 0)
+    except (AIOutputTruncated, AIEmptyContentError, AIStructuredOutputError) as first_exc:
+        if isinstance(first_exc, AIOutputTruncated):
+            retry_content = first_exc.partial_content
+            retry_message = truncated_retry_message
+        elif isinstance(first_exc, AIStructuredOutputError):
+            retry_content = first_exc.invalid_content
+            retry_message = INVALID_JSON_RETRY_MESSAGE
+        else:
+            retry_content = ""
+            retry_message = EMPTY_CONTENT_RETRY_MESSAGE
         retry_messages = [
             *messages,
-            {"role": "assistant", "content": first_exc.partial_content if truncated else ""},
-            {"role": "user", "content": truncated_retry_message if truncated else EMPTY_CONTENT_RETRY_MESSAGE},
+            {"role": "assistant", "content": retry_content},
+            {"role": "user", "content": retry_message},
         ]
         try:
-            return await generate(retry_messages, request_attempt=1, **kwargs)
+            return await request(retry_messages, 1)
         except AIOutputTruncated:
-            raise AIOutputTruncated("", "AI 回覆超過輸出長度限制，請重新產生。") from None
+            raise AIOutputTruncated("", "AI 回覆超過輸出長度限制,請重新產生。") from None
         except AIEmptyContentError:
             raise AIEmptyContentError("AI provider returned empty content twice") from None
+        except AIStructuredOutputError:
+            raise AIStructuredOutputError("", "AI provider returned invalid JSON twice") from None
 
 
 async def stream_ai_text(
@@ -914,12 +963,17 @@ def _openai_kwargs(
     if structured_output:
         hostname = (urlsplit(base_url).hostname or "").lower()
         normalized_model = model.strip().lower()
-        supports_fixed_json_task = (
+        supports_response_format = (
             hostname == "api.deepseek.com"
             or (hostname == "open.bigmodel.cn" and normalized_model.startswith("glm-4.7"))
+            or hostname == "apihub.agnes-ai.com"
         )
-        if supports_fixed_json_task:
+        if supports_response_format:
             kwargs["response_format"] = {"type": "json_object"}
+        if (
+            hostname == "api.deepseek.com"
+            or (hostname == "open.bigmodel.cn" and normalized_model.startswith("glm-4.7"))
+        ):
             kwargs["extra_body"] = {"thinking": {"type": "disabled"}}
     return kwargs
 
