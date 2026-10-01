@@ -22,6 +22,7 @@ from app.taiwan.market_breadth_service import MarketBreadthValuationService
 from app.taiwan.market_valuation import calculate_valuation, refresh_valuation
 from app.taiwan.observed_universe import ObservedUniverseStore
 from app.taiwan.providers.taiwan_values import TAIPEI
+from app.taiwan.realtime.calendar import TaiwanTradingCalendar
 
 
 def sessions(count=280):
@@ -422,6 +423,63 @@ def test_valuation_section_never_reads_breadth_inputs_and_preserves_unavailable(
     benchmarks.read.assert_not_called()
     actions.read_verified_coverage.assert_not_called()
     assert all(call.args[1] == call.args[2] for call in daily.read_range.call_args_list)
+
+
+@pytest.mark.parametrize("section", ["breadth", "valuation", "all"])
+@pytest.mark.parametrize("now,latest,holidays,stale", [
+    ("2026-09-29T10:00", "2026-09-25", [], True),  # Missing Monday, not four natural days.
+    ("2026-09-29T15:59", "2026-09-28", [], False),
+    ("2026-09-29T16:00", "2026-09-28", [], True),
+    ("2026-09-29T16:00", "2026-09-29", [], False),
+    ("2026-09-28T10:00", "2026-09-25", [], False),
+    ("2026-09-27T18:00", "2026-09-25", [], False),
+    ("2026-10-06T18:00", "2026-09-30", ["2026-10-01", "2026-10-02", "2026-10-05", "2026-10-06"], False),
+    ("2026-10-06T18:00", "2026-09-30", ["2026-10-01", "2026-10-02", "2026-10-05"], True),
+])
+def test_latest_snapshot_freshness_uses_expected_session_and_publication_cutoff(
+        tmp_path, section, now, latest, holidays, stale):
+    latest = date.fromisoformat(latest)
+    daily, universe, benchmarks, actions, fundamentals = [MagicMock() for _ in range(5)]
+    daily.read_range.return_value = pl.DataFrame(bars([latest]))
+    universe.sessions.return_value = [latest]
+    universe.census = ObservedUniverseStore(tmp_path)
+    universe.as_of.return_value = pl.DataFrame(schema={"market_symbol": pl.String, "instrument_type": pl.String,
+                                                      "instrument_type_status": pl.String})
+    benchmarks.read.return_value = pl.DataFrame(schema={"symbol": pl.String, "date": pl.Date})
+    actions.read_verified_coverage.return_value = None
+    fundamentals.load.return_value = [record(latest)]
+    service = MarketBreadthValuationService(
+        daily=daily, universe=universe, benchmarks=benchmarks, actions=actions, fundamentals=fundamentals,
+        calendar=TaiwanTradingCalendar(known_holidays={date.fromisoformat(d) for d in holidays}))
+    with patch("app.taiwan.market_breadth_service.taipei_now",
+               return_value=datetime.fromisoformat(now).replace(tzinfo=TAIPEI)):
+        result = service.snapshot(market="TWSE", days=1, sections=section)
+    assert result.as_of == latest
+    assert result.stale is stale
+    assert result.status != "stale"
+    if section == "valuation":
+        universe.sessions.assert_not_called()
+        universe.as_of.assert_not_called()
+        actions.read_verified_coverage.assert_not_called()
+
+
+def test_valuation_freshness_honors_census_closures_and_exceptional_sessions(tmp_path):
+    daily, universe, fundamentals = [MagicMock() for _ in range(3)]
+    daily.read_range.return_value = pl.DataFrame(bars([date(2026, 9, 30)]))
+    census = universe.census = ObservedUniverseStore(tmp_path)
+    fundamentals.load.return_value = [record(date(2026, 9, 30))]
+    for day in (1, 2, 5, 6):
+        for exchange in ("TWSE", "TPEX"):
+            census.write(exchange, date(2026, 10, day), [], confirmed_non_trading_source="official:calendar")
+    service = MarketBreadthValuationService(daily=daily, universe=universe, fundamentals=fundamentals)
+    with patch("app.taiwan.market_breadth_service.taipei_now",
+               return_value=datetime(2026, 10, 6, 18, tzinfo=TAIPEI)):
+        assert not service.snapshot(sections="valuation").stale
+    # A verified Saturday session overrides the calendar's weekend rule.
+    service.calendar.add_trading_day(date(2026, 10, 3))
+    with patch("app.taiwan.market_breadth_service.taipei_now",
+               return_value=datetime(2026, 10, 6, 18, tzinfo=TAIPEI)):
+        assert service.snapshot(sections="valuation").stale
 
 
 def test_verified_coverage_process_reuse_invalidation_and_deletion(tmp_path):

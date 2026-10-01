@@ -73,6 +73,8 @@ generated_at 假造：價格 retrieved_at 為 null，狀態明示 unavailable；
 首次更新只建立最新官方估值快照，歷史 percentile 會顯示「歷史不足」，不回填猜測的歷史估值。
 明確指定日期沒有同日估值時回傳不可用；寬度若只有較早快照，保留實際 as_of 並標 stale。
 `status` 只描述 available/partial/unavailable，`stale` 為獨立布林值，不能覆蓋不可用狀態。
+未指定日期時，沿用 daily update 的交易日／census 證據與台北 16:00 盤後發布截止點判定 stale，
+跳過已確認休市日；未確認的平日仍視為應取得資料的候選日，不以自然日差推定新鮮度。
 歷史日期估值使用目前保存的最新 revision，非 Historical PIT，UI 明示此限制。
 讀取時不建立網路 fallback、不自動回算或覆蓋既有 runtime data。
 

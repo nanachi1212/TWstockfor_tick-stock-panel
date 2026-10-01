@@ -13,6 +13,7 @@ from pydantic import BaseModel, Field
 from app.taiwan.benchmark_store import TaiwanBenchmarkStore
 from app.taiwan.corporate_actions import CorporateActionEvent, CorporateActionStore
 from app.taiwan.daily_store import TaiwanDailyStore
+from app.taiwan.daily_update import resolve_target_latest_trading_date
 from app.taiwan.fundamentals import TaiwanFundamentalStore
 from app.taiwan.market_breadth import (
     BreadthWindowCache,
@@ -67,13 +68,19 @@ class MarketBreadthValuationService:
 
     def snapshot(self, as_of: date | None = None, market: Market = "composite",
                  days: int = 20, sections: Sections = "all") -> BreadthValuationResponse:
-        requested = as_of or taipei_now().date()
+        now = taipei_now()
+        requested = as_of or now.date()
         if not 1 <= days <= 60:
             raise ValueError("history must be between 1 and 60 sessions")
         if sections not in {"breadth", "valuation", "all"}:
             raise ValueError("unsupported research sections")
+        # Share daily-update's publication cutoff and census/calendar evidence.
+        # Unknown weekdays remain expected; only verified closures are skipped.
+        freshness_target = as_of or resolve_target_latest_trading_date(
+            calendar=self.calendar, as_of_dt=now, evidence_store=self.universe.census)
         if sections == "valuation":
-            return self._valuation_snapshot(requested, market, explicit_date=as_of is not None)
+            return self._valuation_snapshot(requested, market, explicit_date=as_of is not None,
+                                            freshness_target=freshness_target)
         start = requested - timedelta(days=550)
         prices = self.daily.read_range(None, start, requested)
         price_index: dict[str, dict[date, dict[str, Any]]] = {}
@@ -145,8 +152,7 @@ class MarketBreadthValuationService:
         response.latest = response.history[-1]
         response.as_of = targets[-1]
         # As-of is never silently substituted: old snapshots remain visibly stale.
-        response.stale = (as_of is not None and response.as_of != requested) or (
-            as_of is None and (requested - response.as_of).days > 4)
+        response.stale = response.as_of < freshness_target
         expected = set(prices.filter(pl.col("date") == response.as_of)["symbol"].to_list())
         if sections == "all":
             response.valuation = calculate_valuation(self.fundamentals.load(), day=response.as_of,
@@ -159,7 +165,7 @@ class MarketBreadthValuationService:
         return response
 
     def _valuation_snapshot(self, requested: date, market: Market, *,
-                            explicit_date: bool) -> BreadthValuationResponse:
+                            explicit_date: bool, freshness_target: date) -> BreadthValuationResponse:
         """Valuation reads saved fundamentals and one raw session, never breadth."""
         records = self.fundamentals.load()
         exchanges = {"TWSE", "TPEX"} if market == "composite" else {market}
@@ -170,7 +176,7 @@ class MarketBreadthValuationService:
         response = BreadthValuationResponse(
             generated_at=taipei_now().isoformat(), requested_as_of=requested, as_of=target,
             market=market, sections="valuation", status="unavailable",
-            stale=target is not None and not explicit_date and (requested - target).days > 4,
+            stale=target is not None and target < freshness_target,
             warnings=["無可驗證首次發布時間，僅供描述性歷史研究，不可接 Strategy Lab。",
                       "估值為同交易日個股中位數，不等於官方指數本益比。"])
         if target is not None:
