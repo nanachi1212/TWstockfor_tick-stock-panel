@@ -232,8 +232,11 @@ def test_extra_chips_foreign_shareholding_field_name():
 # 4. FinMind Token Lifecycle Dynamic Update
 # =====================================================================
 
-def test_token_dynamic_lifecycle_without_restart(monkeypatch):
-    monkeypatch.setenv("FINMIND_API_TOKEN", "")
+def test_token_dynamic_lifecycle_without_restart(monkeypatch, tmp_path):
+    from app.config import settings
+
+    monkeypatch.setattr(settings, "data_dir", tmp_path)
+    monkeypatch.setenv("FINMIND_TOKEN", "")
     reset_fundamental_chips_service()
 
     svc = get_fundamental_chips_service()
