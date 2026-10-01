@@ -104,7 +104,7 @@ export const QK = {
   taiwanStockDetail:    (symbol: string, days?: number) => ['taiwan-stock-detail', symbol, days ?? 120] as const,
   taiwanCurrentData:    (symbol: string) => ['taiwan-current-data', symbol] as const,
   taiwanCapabilities:   ['taiwan-capabilities'] as const,
-  taiwanEvents:         (scope?: string, symbols?: string, date?: string) => ['taiwan-events', scope ?? 'all', symbols ?? '', date ?? ''] as const,
+  taiwanEvents:         (scope?: string, symbols?: string, date?: string, eventType?: string) => ['taiwan-events', scope ?? 'all', symbols ?? '', date ?? '', eventType ?? 'all'] as const,
   taiwanEventCandidates:(limit?: number) => ['taiwan-event-candidates', limit ?? 10] as const,
   taiwanStockNews:      (symbol: string, limit?: number) => ['taiwan-stock-news', symbol, limit ?? 15] as const,
   taiwanMarketSentiment:(date?: string) => ['taiwan-market-sentiment', date ?? 'latest'] as const,

@@ -34,6 +34,7 @@ import { formatStockDetailCopy, formatStockDetailPrompt, type CopyAvailabilityMe
 import { TaiwanRuleEditorDialog } from '@/components/monitor/TaiwanRuleEditorDialog'
 import { EChartsCandlestick, type OHLC } from '@/components/EChartsCandlestick'
 import { TaiwanReferenceData } from '@/components/taiwan/TaiwanReferenceData'
+import { MopsEventEvidence } from '@/components/taiwan/MopsEventEvidence'
 import { DataQualityBadge, formatQuoteSource } from '@/components/taiwan/TaiwanDataQuality'
 import { WatchlistAddMenu } from '@/components/WatchlistAddMenu'
 import { useSafeBack } from '@/lib/useSafeBack'
@@ -1406,15 +1407,18 @@ export function TaiwanStockDetail() {
                     <h3 className="text-sm font-bold text-foreground">近期重大事件與警示</h3>
                   </div>
                   <span className="text-[10px] text-muted font-mono">
-                    {data.recent_events?.length ? `${data.recent_events.length} 則事件` : '無重大事件'}
+                    {data.recent_events?.length ? `${data.recent_events.length} 則事件` : '無符合條件的資料'}
                   </span>
                 </div>
 
+                {data.events_status && data.events_status !== 'available' && (
+                  <p className="mb-2 text-[11px] text-amber-500">事件來源不完整或公告時間證據不足，請查看各筆資料狀態。</p>
+                )}
                 {data.recent_events && data.recent_events.length > 0 ? (
                   <div className="space-y-2.5 max-h-80 overflow-y-auto pr-1">
                     {data.recent_events.map((evt, idx) => (
                       <div
-                        key={`${evt.event_date}-${evt.event_type}-${idx}`}
+                        key={evt.id || `${evt.event_date}-${evt.event_type}-${idx}`}
                         className={cn(
                           'rounded-xl p-3 border text-xs space-y-1.5 transition-colors',
                           evt.severity === 'risk'
@@ -1425,7 +1429,7 @@ export function TaiwanStockDetail() {
                         )}
                       >
                         <div className="flex items-center justify-between gap-2">
-                          <div className="flex items-center gap-1.5">
+                          <div className="flex flex-wrap items-center gap-1.5">
                             <span
                               className={cn(
                                 'px-1.5 py-0.5 rounded text-[10px] font-bold',
@@ -1445,8 +1449,9 @@ export function TaiwanStockDetail() {
                         {evt.summary && (
                           <p className="text-[11px] text-muted leading-relaxed">{evt.summary}</p>
                         )}
+                        <MopsEventEvidence event={evt} />
                         <div className="flex items-center justify-between text-[10px] text-muted/80 pt-1 border-t border-border/20">
-                          <span>來源: {evt.source}</span>
+                          <span>來源: {evt.source} {evt.source_url && <a href={evt.source_url} target="_blank" rel="noreferrer" className="text-accent hover:underline">官方資料</a>}</span>
                           <span className="font-mono">
                             嚴重度: {evt.severity === 'risk' ? '🔴 高風險' : evt.severity === 'attention' ? '🟡 警示' : '🔵 一般'}
                           </span>
@@ -1457,7 +1462,7 @@ export function TaiwanStockDetail() {
                 ) : (
                   <div className="py-12 text-center text-xs text-muted">
                     <CalendarDays className="h-8 w-8 mx-auto mb-2 text-muted/40" />
-                    <p>近期無官方處置、注意股或除權息重大事件</p>
+                    <p>已取得的事件資料中沒有符合條件的紀錄；來源不可用時無法確認是否有事件。</p>
                   </div>
                 )}
               </div>
