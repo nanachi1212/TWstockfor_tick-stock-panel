@@ -20,6 +20,7 @@ import {
   RefreshCw,
   FlaskConical,
   Database,
+  BarChart3,
   type LucideIcon,
 } from 'lucide-react'
 
@@ -59,6 +60,7 @@ export interface NavMeta {
 // 只調整陣列順序(即側欄/選單設定顯示順序)。
 export const CORE_NAV: readonly NavMeta[] = [
   { to: '/',                label: '看板',     icon: LayoutDashboard },
+  { to: '/market-research', label: '大盤研究', icon: BarChart3 },
   { to: '/daily-brief',     label: '每日摘要', icon: Sparkles },
   { to: '/events',          label: '事件中心', icon: CalendarDays },
   { to: '/social-sentiment',label: '社群聲量', icon: MessageCircleMore },

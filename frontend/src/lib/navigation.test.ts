@@ -15,6 +15,7 @@ describe('CORE_NAV', () => {
   it('orders pages to include the separate manual social fetch workflow', () => {
     expect(CORE_NAV.map(item => item.to)).toEqual([
       '/',
+      '/market-research',
       '/daily-brief',
       '/events',
       '/social-sentiment',
@@ -30,11 +31,12 @@ describe('CORE_NAV', () => {
     ])
   })
 
-  it('keeps the 13 Taiwan core route paths including Strategy Lab and data health', () => {
+  it('keeps the 14 Taiwan core route paths including market research', () => {
     const paths = new Set(CORE_NAV.map(item => item.to))
     expect(paths).toEqual(
       new Set([
         '/',
+        '/market-research',
         '/daily-brief',
         '/events',
         '/social-sentiment',
@@ -51,8 +53,8 @@ describe('CORE_NAV', () => {
     )
   })
 
-  it('is the only exported nav array — CORE_NAV has exactly 13 Taiwan core items', () => {
-    expect(CORE_NAV).toHaveLength(13)
+  it('is the only exported nav array — CORE_NAV has exactly 14 Taiwan core items', () => {
+    expect(CORE_NAV).toHaveLength(14)
   })
 })
 
