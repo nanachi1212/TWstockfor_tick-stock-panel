@@ -9,6 +9,49 @@ param(
 $ErrorActionPreference = 'Stop'
 $repoRoot = (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot '..')).Path
 
+# Shared by every validation job (passed as Start-Job -InitializationScript).
+$invokeStepInit = {
+    function Invoke-Step {
+        param(
+            [Parameter(Mandatory)]
+            [string]$Label,
+
+            [Parameter(Mandatory)]
+            [string]$FilePath,
+
+            [Parameter(Mandatory)]
+            [string[]]$Arguments
+        )
+
+        # A missing tool must fail the step instead of leaving a stale exit code.
+        Get-Command -Name $FilePath -ErrorAction Stop | Out-Null
+
+        $previousErrorActionPreference = $ErrorActionPreference
+        try {
+            # Windows PowerShell 5.1 promotes redirected native stderr to a
+            # terminating error under Stop; only the exit code decides failure.
+            $ErrorActionPreference = 'Continue'
+            $global:LASTEXITCODE = 0
+            $lines = @(& $FilePath @Arguments 2>&1)
+            $exitCode = $LASTEXITCODE
+        }
+        finally {
+            $ErrorActionPreference = $previousErrorActionPreference
+        }
+
+        foreach ($line in $lines) {
+            $output.Add([string]$line)
+        }
+
+        if ($null -eq $exitCode) {
+            $exitCode = 0
+        }
+        if ($exitCode -ne 0) {
+            throw "$Label failed, exit code: $exitCode"
+        }
+    }
+}
+
 function Get-GitNames {
     param(
         [Parameter(Mandatory)]
@@ -73,6 +116,7 @@ function Test-PathPattern {
 function Get-ChangeClassification {
     param(
         [Parameter(Mandatory)]
+        [AllowEmptyCollection()]
         [string[]]$Paths
     )
 
@@ -132,6 +176,7 @@ function Get-ChangeClassification {
 function Get-TestTargets {
     param(
         [Parameter(Mandatory)]
+        [AllowEmptyCollection()]
         [string[]]$Paths,
 
         [Parameter(Mandatory)]
@@ -148,6 +193,7 @@ function Get-TestTargets {
     )
 
     $targets = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
+    $unmapped = [System.Collections.Generic.List[string]]::new()
     $testRootPath = Join-Path $Root $TestRoot
 
     $sourceRootPath = Join-Path $Root $SourcePrefix
@@ -174,6 +220,7 @@ function Get-TestTargets {
             continue
         }
 
+        $matched = $false
         $candidateNames = @("test_$stem*", "${stem}.test.*", "${stem}.spec.*")
         foreach ($candidateName in $candidateNames) {
             if (-not (Test-Path -LiteralPath $testRootPath)) {
@@ -185,16 +232,25 @@ function Get-TestTargets {
                     $fileUri = [Uri]((Resolve-Path -LiteralPath $_.FullName).Path)
                     $relative = [Uri]::UnescapeDataString($sourceRootUri.MakeRelativeUri($fileUri).ToString()).Replace('/', '\')
                     [void]$targets.Add($relative)
+                    $matched = $true
                 }
+        }
+
+        if (-not $matched -and $path -match '\.(py|[cm]?[jt]sx?)$') {
+            $unmapped.Add($path)
         }
     }
 
-    return @($targets | Sort-Object)
+    [pscustomobject]@{
+        Targets  = @($targets | Sort-Object)
+        Unmapped = @($unmapped)
+    }
 }
 
 function Get-RuffTargets {
     param(
         [Parameter(Mandatory)]
+        [AllowEmptyCollection()]
         [string[]]$Paths,
 
         [string[]]$TestTargets,
@@ -224,32 +280,6 @@ function New-BackendJobScript {
         $ErrorActionPreference = 'Stop'
         $config = $ConfigJson | ConvertFrom-Json
         $output = [System.Collections.Generic.List[string]]::new()
-
-        function Invoke-Step {
-            param(
-                [Parameter(Mandatory)]
-                [string]$Label,
-
-                [Parameter(Mandatory)]
-                [string]$FilePath,
-
-                [Parameter(Mandatory)]
-                [string[]]$Arguments
-            )
-
-            $lines = @(& $FilePath @Arguments 2>&1)
-            foreach ($line in $lines) {
-                $output.Add([string]$line)
-            }
-
-            $exitCode = $LASTEXITCODE
-            if ($null -eq $exitCode) {
-                $exitCode = 0
-            }
-            if ($exitCode -ne 0) {
-                throw "$Label failed, exit code: $exitCode"
-            }
-        }
 
         try {
             Set-Location -LiteralPath (Join-Path $config.RepoRoot 'backend')
@@ -300,32 +330,6 @@ function New-FrontendJobScript {
         $ErrorActionPreference = 'Stop'
         $config = $ConfigJson | ConvertFrom-Json
         $output = [System.Collections.Generic.List[string]]::new()
-
-        function Invoke-Step {
-            param(
-                [Parameter(Mandatory)]
-                [string]$Label,
-
-                [Parameter(Mandatory)]
-                [string]$FilePath,
-
-                [Parameter(Mandatory)]
-                [string[]]$Arguments
-            )
-
-            $lines = @(& $FilePath @Arguments 2>&1)
-            foreach ($line in $lines) {
-                $output.Add([string]$line)
-            }
-
-            $exitCode = $LASTEXITCODE
-            if ($null -eq $exitCode) {
-                $exitCode = 0
-            }
-            if ($exitCode -ne 0) {
-                throw "$Label failed, exit code: $exitCode"
-            }
-        }
 
         try {
             Set-Location -LiteralPath (Join-Path $config.RepoRoot 'frontend')
@@ -395,14 +399,14 @@ function Invoke-CIJobs {
         $entries.Add([pscustomobject]@{
                 Name      = 'Backend'
                 StartedAt = Get-Date
-                Job       = Start-Job -ScriptBlock (New-BackendJobScript) -ArgumentList $config
+                Job       = Start-Job -InitializationScript $invokeStepInit -ScriptBlock (New-BackendJobScript) -ArgumentList $config
             })
     }
     if ($RunFrontend) {
         $entries.Add([pscustomobject]@{
                 Name      = 'Frontend'
                 StartedAt = Get-Date
-                Job       = Start-Job -ScriptBlock (New-FrontendJobScript) -ArgumentList $config
+                Job       = Start-Job -InitializationScript $invokeStepInit -ScriptBlock (New-FrontendJobScript) -ArgumentList $config
             })
     }
 
@@ -437,11 +441,13 @@ function Invoke-CIJobs {
     return 0
 }
 
-$changedPaths = Get-ChangedPaths
+$changedPaths = @(Get-ChangedPaths)
 $classification = Get-ChangeClassification -Paths $changedPaths
-$backendTests = Get-TestTargets -Paths $changedPaths -Root $repoRoot -TestRoot 'backend/tests' -SourcePrefix 'backend' -TestPathPrefix 'backend/tests/'
-$frontendTests = Get-TestTargets -Paths $changedPaths -Root $repoRoot -TestRoot 'frontend/src' -SourcePrefix 'frontend' -TestPathPrefix 'frontend/src/'
-$backendRuffTargets = Get-RuffTargets -Paths $changedPaths -TestTargets $backendTests -Root $repoRoot
+$backendSelection = Get-TestTargets -Paths $changedPaths -Root $repoRoot -TestRoot 'backend/tests' -SourcePrefix 'backend' -TestPathPrefix 'backend/tests/'
+$frontendSelection = Get-TestTargets -Paths $changedPaths -Root $repoRoot -TestRoot 'frontend/src' -SourcePrefix 'frontend' -TestPathPrefix 'frontend/src/'
+$backendTests = @($backendSelection.Targets)
+$frontendTests = @($frontendSelection.Targets)
+$backendRuffTargets = @(Get-RuffTargets -Paths $changedPaths -TestTargets $backendTests -Root $repoRoot)
 
 $validationMode = $Mode
 $runBackend = $false
@@ -504,6 +510,16 @@ if ($changedPaths.Count -gt 0) {
     }
 }
 
+# Fast only runs tests it can map by file name; surface what it cannot cover.
+$notTested = @()
+if ($validationMode -eq 'Fast') {
+    if ($runBackend) { $notTested += @($backendSelection.Unmapped) }
+    if ($runFrontend) { $notTested += @($frontendSelection.Unmapped) }
+}
+if ($notTested.Count -gt 0) {
+    Write-Host "[CI] NOT_TESTED (no targeted tests found): $($notTested -join ', ')" -ForegroundColor Yellow
+}
+
 if ($PlanOnly) {
     Write-Host '[CI] Plan only: no validation commands executed.'
     exit 0
@@ -527,6 +543,11 @@ $exitCode = Invoke-CIJobs `
 if ($exitCode -ne 0) {
     Write-Host '[CI] Result: FAIL' -ForegroundColor Red
     exit $exitCode
+}
+
+if ($notTested.Count -gt 0) {
+    Write-Host "[CI] Result: WARN (checks passed; $($notTested.Count) changed source file(s) NOT_TESTED)" -ForegroundColor Yellow
+    exit 0
 }
 
 Write-Host '[CI] Result: PASS' -ForegroundColor Green
