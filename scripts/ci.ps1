@@ -15,8 +15,19 @@ function Get-GitNames {
         [string[]]$Arguments
     )
 
-    $names = @(& git -C $repoRoot @Arguments 2>$null)
-    if ($LASTEXITCODE -ne 0) {
+    $previousErrorActionPreference = $ErrorActionPreference
+    try {
+        # Windows PowerShell 5.1 promotes native stderr to a terminating error
+        # under ErrorActionPreference=Stop, even when stderr is redirected.
+        $ErrorActionPreference = 'Continue'
+        $names = @(& git -C $repoRoot @Arguments 2>$null)
+        $gitExitCode = $LASTEXITCODE
+    }
+    finally {
+        $ErrorActionPreference = $previousErrorActionPreference
+    }
+
+    if ($gitExitCode -ne 0) {
         return @()
     }
 
@@ -67,9 +78,10 @@ function Get-ChangeClassification {
 
     $backend = @($Paths | Where-Object { $_ -match '^backend/' })
     $frontend = @($Paths | Where-Object { $_ -match '^frontend/' })
+    $operationGuideName = ([char]0x64cd).ToString() + [char]0x4f5c + [char]0x8aaa + [char]0x660e + [char]0x66f8 + '.md'
     $documentationOnly = @(
         $Paths | Where-Object {
-            $_ -match '^(README\.md|AGENTS\.md|CLAUDE\.md|CONTRIBUTING\.md|docs/|操作說明書\.md$)'
+            $_ -match '^(README\.md|AGENTS\.md|CLAUDE\.md|CONTRIBUTING\.md|docs/)' -or $_ -eq $operationGuideName
         }
     )
 
@@ -78,7 +90,7 @@ function Get-ChangeClassification {
         '(^|/)requirements[^/]*$',
         '(^|/)(uv\.lock|package\.json|pnpm-lock\.yaml|yarn\.lock|package-lock\.json)$',
         '^\.github/',
-        '^scripts/ci\.ps1$',
+        '^scripts/',
         '(^|/)(tsconfig[^/]*\.json|vite\.config\.[^/]+|vitest\.config\.[^/]+)$',
         '(^|/)(pytest\.ini|tox\.ini|conftest\.py)$',
         '(^|/)(migrations?|alembic)(/|$)',
@@ -95,7 +107,8 @@ function Get-ChangeClassification {
     $knownPath = @(
         $Paths | Where-Object {
             $_ -match '^(backend|frontend|scripts|\.github|packaging|docs|specs|data)/' -or
-            $_ -match '^(README\.md|AGENTS\.md|CLAUDE\.md|CONTRIBUTING\.md|操作說明書\.md|Dockerfile|docker-compose\.yml|dev\.ps1|VERSION|tiers\.yaml)$'
+            $_ -match '^(README\.md|AGENTS\.md|CLAUDE\.md|CONTRIBUTING\.md|Dockerfile|docker-compose\.yml|dev\.ps1|VERSION|tiers\.yaml)$' -or
+            $_ -eq $operationGuideName
         }
     )
     $unknown = @($Paths | Where-Object { $_ -notin $knownPath -and $_ -notin $documentationOnly })
@@ -136,13 +149,22 @@ function Get-TestTargets {
     $targets = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
     $testRootPath = Join-Path $Root $TestRoot
 
+    $sourceRootPath = Join-Path $Root $SourcePrefix
+    $sourceRootUri = [Uri]((Resolve-Path -LiteralPath $sourceRootPath).Path.TrimEnd('\') + '\')
+    $sourcePrefixPattern = "^$SourcePrefix/"
+    $testPrefixPattern = "^$TestPathPrefix"
+
     foreach ($path in $Paths) {
-        if ($path -notmatch "^$TestPathPrefix") {
+        if ($path -notmatch $sourcePrefixPattern) {
             continue
         }
 
-        if ($path -match '\.(test|spec)\.[^/]+$' -or $path -match '/tests/[^/]+\.py$') {
-            [void]$targets.Add(($path -replace "^$SourcePrefix/", '').Replace('/', '\'))
+        $isTestPath = $path -match $testPrefixPattern
+        if ($isTestPath -and ($path -match '\.(test|spec)\.[^/]+$' -or $path -match '/tests/[^/]+\.py$')) {
+            $testAbsolutePath = Join-Path $Root $path
+            if (Test-Path -LiteralPath $testAbsolutePath -PathType Leaf) {
+                [void]$targets.Add(($path -replace $sourcePrefixPattern, '').Replace('/', '\'))
+            }
             continue
         }
 
@@ -159,7 +181,8 @@ function Get-TestTargets {
 
             Get-ChildItem -LiteralPath $testRootPath -Recurse -File -Filter $candidateName |
                 ForEach-Object {
-                    $relative = [System.IO.Path]::GetRelativePath($Root, $_.FullName).Replace('/', '\')
+                    $fileUri = [Uri]((Resolve-Path -LiteralPath $_.FullName).Path)
+                    $relative = [Uri]::UnescapeDataString($sourceRootUri.MakeRelativeUri($fileUri).ToString()).Replace('/', '\')
                     [void]$targets.Add($relative)
                 }
         }
@@ -173,12 +196,16 @@ function Get-RuffTargets {
         [Parameter(Mandatory)]
         [string[]]$Paths,
 
-        [string[]]$TestTargets
+        [string[]]$TestTargets,
+
+        [Parameter(Mandatory)]
+        [string]$Root
     )
 
     $targets = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
     foreach ($path in $Paths) {
-        if ($path -match '^backend/.+\.py$') {
+        $absolutePath = Join-Path $Root $path
+        if ($path -match '^backend/.+\.py$' -and (Test-Path -LiteralPath $absolutePath -PathType Leaf)) {
             [void]$targets.Add(($path -replace '^backend/', '').Replace('/', '\'))
         }
     }
@@ -219,7 +246,7 @@ function New-BackendJobScript {
                 $exitCode = 0
             }
             if ($exitCode -ne 0) {
-                throw "$Label 失敗，exit code: $exitCode"
+                throw "$Label failed, exit code: $exitCode"
             }
         }
 
@@ -295,7 +322,7 @@ function New-FrontendJobScript {
                 $exitCode = 0
             }
             if ($exitCode -ne 0) {
-                throw "$Label 失敗，exit code: $exitCode"
+                throw "$Label failed, exit code: $exitCode"
             }
         }
 
@@ -413,7 +440,7 @@ $changedPaths = Get-ChangedPaths
 $classification = Get-ChangeClassification -Paths $changedPaths
 $backendTests = Get-TestTargets -Paths $changedPaths -Root $repoRoot -TestRoot 'backend/tests' -SourcePrefix 'backend' -TestPathPrefix 'backend/tests/'
 $frontendTests = Get-TestTargets -Paths $changedPaths -Root $repoRoot -TestRoot 'frontend/src' -SourcePrefix 'frontend' -TestPathPrefix 'frontend/src/'
-$backendRuffTargets = Get-RuffTargets -Paths $changedPaths -TestTargets $backendTests
+$backendRuffTargets = Get-RuffTargets -Paths $changedPaths -TestTargets $backendTests -Root $repoRoot
 
 $validationMode = $Mode
 $runBackend = $false
