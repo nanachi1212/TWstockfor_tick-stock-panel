@@ -104,6 +104,8 @@ export const QK = {
   taiwanStockDetail:    (symbol: string, days?: number) => ['taiwan-stock-detail', symbol, days ?? 120] as const,
   taiwanCurrentData:    (symbol: string) => ['taiwan-current-data', symbol] as const,
   taiwanCapabilities:   ['taiwan-capabilities'] as const,
+  institutionalStatistics: (date: string, window: number) => ['institutional-statistics', date || 'latest', window] as const,
+  industryRotation: (date: string) => ['industry-rotation', date || 'latest'] as const,
   taiwanEvents:         (scope?: string, symbols?: string, date?: string) => ['taiwan-events', scope ?? 'all', symbols ?? '', date ?? ''] as const,
   taiwanEventCandidates:(limit?: number) => ['taiwan-event-candidates', limit ?? 10] as const,
   taiwanStockNews:      (symbol: string, limit?: number) => ['taiwan-stock-news', symbol, limit ?? 15] as const,
@@ -148,7 +150,8 @@ export const QK = {
 export const DATA_HEALTH_INVALIDATE_PREFIXES = {
   daily: ['data-health', 'taiwan-data-status', 'taiwan-stock-detail', 'taiwan-current-data',
     'taiwanStockResearchContext', 'taiwanAbnormalDiagnostics', 'taiwanMarketIntelligence',
-    'taiwanIndustryIntelligence', 'watchlist-', 'selection-', 'strategy-lab', 'daily-brief', 'buy-point-'],
+    'taiwanIndustryIntelligence', 'institutional-statistics', 'industry-rotation', 'taiwanScreener',
+    'watchlist-', 'selection-', 'strategy-lab', 'daily-brief', 'buy-point-'],
   social: ['data-health', 'taiwan-social-sentiment'],
   validate: ['data-health', 'settings'],
 } as const
