@@ -1003,6 +1003,8 @@ export interface TaiwanStockDetailResponse {
   fundamentals?: TaiwanFundamentalData
   extra_chips?: TaiwanExtraChipsData
   recent_events?: MarketEvent[]
+  events_status?: string
+  events_sources_status?: Record<string, string>
   recent_news?: TaiwanStockNewsItem[]
   news_status?: 'available' | 'rate_limited' | 'auth_required' | 'unavailable' | string
   news_status_message?: string | null
@@ -1924,6 +1926,9 @@ export interface MarketEvent {
   source_url?: string | null
   retrieved_at: string
   freshness: string
+  published_at?: string | null
+  available_at?: string | null
+  status?: 'available' | 'data_insufficient' | string
   is_resolvable?: boolean
   details?: Record<string, any>
 }
@@ -4187,6 +4192,7 @@ export const api = {
     severity?: string
     date?: string
     limit?: number
+    refresh?: boolean
   }) => {
     const q = new URLSearchParams()
     if (params?.scope) q.set('scope', params.scope)
@@ -4196,6 +4202,7 @@ export const api = {
     if (params?.severity) q.set('severity', params.severity)
     if (params?.date) q.set('date', params.date)
     if (params?.limit) q.set('limit', String(params.limit))
+    if (params?.refresh) q.set('refresh', 'true')
     const qs = q.toString()
     return request<TaiwanEventsResponse>(qs ? `/api/taiwan/events?${qs}` : '/api/taiwan/events')
   },
