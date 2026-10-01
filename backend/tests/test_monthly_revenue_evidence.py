@@ -260,9 +260,12 @@ def test_refresh_is_market_batched_incremental_and_records_failures(tmp_path):
     assert second["skipped_fresh"] == 23 and second["status"] == "available"
 
 
-def test_month_end_refresh_covers_next_month_cutoff(tmp_path):
+def test_month_end_refresh_covers_next_month_cutoff(tmp_path, monkeypatch):
     store = MonthlyRevenueEvidenceStore(tmp_path)
     now = datetime(2026, 9, 30, 18, 0, tzinfo=TAIPEI)
+    clock = MagicMock(wraps=datetime)
+    clock.now.return_value = now
+    monkeypatch.setattr("app.taiwan.monthly_revenue_evidence.datetime", clock)
     client = _Client()
     summary = refresh_monthly_revenue_evidence(store, now=now, client=client)
     assert summary["periods"][:6] == window_periods(now.date())
@@ -270,6 +273,8 @@ def test_month_end_refresh_covers_next_month_cutoff(tmp_path):
     cutoff = datetime(2026, 10, 1, 9, 0, tzinfo=TAIPEI)
     evidence = store.evidence_as_of(cutoff)
     assert evidence.status == "available", evidence.missing_pages
+    assert evidence.first_observed_at == now.isoformat()
+    assert evidence.latest_observed_at == now.isoformat()
 
 
 # ── strategy definitions and screener integration ───────────────────────
