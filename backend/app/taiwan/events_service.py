@@ -23,6 +23,7 @@ import threading
 import uuid
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
+from time import monotonic
 from typing import Any, Literal
 
 from pydantic import BaseModel, Field
@@ -42,6 +43,8 @@ from app.taiwan.realtime.calendar import taipei_now
 from app.taiwan.universe import TaiwanSecurityMaster, get_security_master
 
 logger = logging.getLogger(__name__)
+
+MOPS_RETRY_BACKOFF_SECONDS = 300.0
 
 EventSeverity = Literal["info", "attention", "risk"]
 EventScope = Literal["today", "week", "portfolio", "watchlist", "all"]
@@ -186,6 +189,7 @@ class TaiwanEventService:
         self._mops_refreshing = False
         self._mops_cache: dict[str, Any] | None = None
         self._mops_sources_status: dict[str, str] = {}
+        self._mops_retry_after = 0.0
 
     def _resolve_symbol(self, raw_code: str, fallback_exchange: str = "TWSE") -> tuple[str, str, str, str, bool]:
         """Resolve raw code into (symbol, code, name, exchange, is_resolvable).
@@ -706,6 +710,12 @@ class TaiwanEventService:
                 self._mops_cache = snapshot
                 self._mops_sources_status = dict(snapshot["sources_status"])
                 return [MarketEvent.model_validate(item) for item in snapshot["events"]]
+            if not force_refresh and monotonic() < self._mops_retry_after:
+                # An all-source outage is process-local transient state. Keep
+                # serving the last observation as stale without persisting the
+                # failure or fanning out another request from each stock page.
+                return [MarketEvent.model_validate(item).model_copy(update={"freshness": "stale"})
+                        for item in (snapshot or {}).get("events", [])]
             if self._mops_refreshing:
                 # Another request owns the fetch; do not fan out to the sources.
                 self._mops_sources_status = {s: "stale" if snapshot else "unavailable" for s in (*OFFICIAL_FEEDS, CONFERENCE_SOURCE)}
@@ -756,10 +766,14 @@ class TaiwanEventService:
                 except OSError:
                     logger.warning("MOPS event cache could not be saved")
             else:
-                payload["saved_at"] = 0  # retry; never overwrite good disk state
+                payload["saved_at"] = 0  # never overwrite good disk state
             with self._mops_lock:
                 self._mops_cache = payload
                 self._mops_sources_status = statuses
+                self._mops_retry_after = (
+                    monotonic() + MOPS_RETRY_BACKOFF_SECONDS
+                    if all(s == "unavailable" for s in statuses.values()) else 0.0
+                )
             return events
         finally:
             with self._mops_lock:

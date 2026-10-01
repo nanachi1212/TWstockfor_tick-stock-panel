@@ -271,7 +271,9 @@ def test_cache_rollover_restart_and_source_outage_preserve_provenance(service, m
     assert rolled[0].retrieved_at == original[0].retrieved_at
     restarted = TaiwanEventService(security_master=MagicMock())
     assert restarted.get_mops_events()[0].id == original[0].id
+    calls = []
     def failure(*args):
+        calls.append(args)
         raise httpx.ConnectError("offline")
     monkeypatch.setattr(module, "fetch_official_events", failure)
     monkeypatch.setattr(module, "fetch_conferences", failure)
@@ -280,6 +282,61 @@ def test_cache_rollover_restart_and_source_outage_preserve_provenance(service, m
     assert stale[0].freshness == "stale"
     assert stale[0].published_at == original[0].published_at
     assert (tmp_path / "mops_events.json").read_bytes() == before
+    attempted = len(calls)
+    fallback = service.get_mops_events()
+    assert fallback[0].freshness == "stale"
+    assert fallback[0].retrieved_at == original[0].retrieved_at
+    assert len(calls) == attempted
+
+
+def test_all_source_failure_uses_memory_only_retry_backoff(service, monkeypatch, tmp_path):
+    from app.taiwan import events_service as module
+    clock = [100.0]
+    calls = []
+    monkeypatch.setattr(module, "monotonic", lambda: clock[0])
+    def failure(*args):
+        calls.append(args)
+        raise httpx.ConnectError("offline")
+    monkeypatch.setattr(module, "fetch_official_events", failure)
+    monkeypatch.setattr(module, "fetch_conferences", failure)
+
+    assert service.get_mops_events() == []
+    source_count = len(module.OFFICIAL_FEEDS) + 1
+    assert len(calls) == source_count
+    assert not (tmp_path / "mops_events.json").exists()
+    assert service._mops_retry_after == 100.0 + module.MOPS_RETRY_BACKOFF_SECONDS
+    source_statuses = service.get_product_sources_status()[1]
+    assert all(source_statuses[source] == "unavailable"
+               for source in (*module.OFFICIAL_FEEDS, module.CONFERENCE_SOURCE))
+
+    assert service.get_mops_events() == []
+    assert len(calls) == source_count
+    assert not (tmp_path / "mops_events.json").exists()
+
+
+def test_mops_retry_after_deadline_and_force_refresh_bypass(service, monkeypatch):
+    from app.taiwan import events_service as module
+    clock = [1_000.0]
+    calls = []
+    monkeypatch.setattr(module, "monotonic", lambda: clock[0])
+    def failure(*args):
+        calls.append(args)
+        raise httpx.ConnectError("offline")
+    monkeypatch.setattr(module, "fetch_official_events", failure)
+    monkeypatch.setattr(module, "fetch_conferences", failure)
+    source_count = len(module.OFFICIAL_FEEDS) + 1
+
+    assert service.get_mops_events() == []
+    assert len(calls) == source_count
+    clock[0] += module.MOPS_RETRY_BACKOFF_SECONDS - 0.001
+    assert service.get_mops_events() == []
+    assert len(calls) == source_count
+
+    clock[0] += 0.001
+    assert service.get_mops_events() == []
+    assert len(calls) == source_count * 2
+    assert service.get_mops_events(force_refresh=True) == []
+    assert len(calls) == source_count * 3
 
 
 def test_mops_is_product_opt_in_and_does_not_enter_historical_pit(service, monkeypatch):

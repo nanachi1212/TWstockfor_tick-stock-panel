@@ -75,6 +75,8 @@ Reuse audit 時 TWstock 沒有涵蓋本次三類事件的 adapter，因此新增
 
 資料取得不持有資料鎖。同時查詢不重複發出 MOPS 請求，刷新中可回傳明確 stale 保存資料。每來源完整驗證後才納入，部分來源失敗保留其舊事件與原取得時間，整體不可用不覆蓋磁碟保存資料。成功空日報與來源失敗分開，跨日仍保存歷史觀察。
 
+全部官方來源失敗後，process memory 記錄約 5 分鐘重試期限；期限內的個股頁共用 stale fallback，不重打來源，也不把失敗狀態寫進 disk cache。期限到期後可正常重試，使用者明確刷新（`force_refresh=true`）可立即繞過 backoff。process 重啟即清除期限，沒有新增 background retry 或持久化 failure marker。
+
 Cache 使用 `official-only-v1` 來源政策。讀取磁碟或記憶體快取時，先以官方 source／event_type 白名單排除未核准資料，再做 model validation、TTL、stale fallback 或保存。舊政策快取強制刷新，保留官方事件；未核准來源不回傳、不重新保存，也不重新標示成 MOPS 資料。官方來源全失敗時，仍不能讀回未核准事件。
 
 MOPS snapshot 在既有資料目錄內原子寫入並更新記憶體 cache，沒有新增 background writer／SSE producer。事件中心手動刷新後精確 invalidate 事件與 Stock Detail 的既有 TanStack Query 前綴。資料只寫 runtime directory，不放 release seed 或提交 Git。
