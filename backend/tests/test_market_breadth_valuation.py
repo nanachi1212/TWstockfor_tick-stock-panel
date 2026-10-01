@@ -137,6 +137,76 @@ def test_bad_identified_action_excludes_only_affected_symbol():
     assert got.metrics["ma60"].excluded_reason_counts == {"incomparable_corporate_action": 1}
 
 
+def test_request_windows_reuse_only_past_verified_prices_and_recompute_new_events():
+    from app.taiwan.adjust import adjust_prices_as_of
+    from app.taiwan.market_breadth import BreadthWindowCache
+
+    days = sessions(300)
+    rows = bars(days)
+    events = tuple(CorporateActionEvent(
+        "OLD.TWSE", "TWSE", d, event_market_open(d), "capital_reduction",
+        100, 50, 0.5, None, None, None, "TWTAUU", "https://www.twse.com.tw",
+        datetime(2026, 10, 1, tzinfo=TAIPEI), status="verified") for d in (days[100], days[-5]))
+    cache = BreadthWindowCache()
+    options = dict(actions_for_window=lambda a, b: tuple(e for e in events if a <= e.effective_date <= b))
+    expected = [breadth(rows, days, day=d, **options).model_dump() for d in days[-20:]]
+    with patch("app.taiwan.market_breadth.adjust_prices_as_of", wraps=adjust_prices_as_of) as normalize:
+        actual = [breadth(rows, days, day=d, window_cache=cache, **options).model_dump() for d in days[-20:]]
+    assert actual == expected
+    assert normalize.call_count == 2  # first anchor, then the newly effective event
+    # A caller going backwards must not reuse a later anchor's adjusted prices.
+    assert breadth(rows, days, day=days[-10], window_cache=cache, **options).model_dump() == expected[10]
+
+
+@pytest.mark.parametrize("fault", ["missing", "invalid_high", "invalid_close", "bad_event"])
+def test_request_window_cache_does_not_hide_later_gaps_or_bad_prices(fault):
+    from app.taiwan.market_breadth import BreadthWindowCache
+
+    days = sessions(285)
+    rows = bars(days)
+    event = CorporateActionEvent(
+        "OLD.TWSE", "TWSE", days[100], event_market_open(days[100]), "capital_reduction",
+        100, 50, 0.5, None, None, None, "TWTAUU", "https://www.twse.com.tw",
+        datetime(2026, 10, 1, tzinfo=TAIPEI), status="verified")
+    events = [event]
+    if fault == "missing":
+        rows.pop(-3)
+    elif fault.startswith("invalid"):
+        rows[-3]["high" if fault == "invalid_high" else "close"] = float("nan")
+    else:
+        events.append(replace(event, effective_date=days[-3], effective_at=event_market_open(days[-3]),
+                              status="provider_error", factor=None))
+    options = dict(actions_for_window=lambda a, b: tuple(e for e in events if a <= e.effective_date <= b))
+    cache = BreadthWindowCache()
+    for day in days[-6:]:
+        assert breadth(rows, days, day=day, window_cache=cache, **options).model_dump() == breadth(
+            rows, days, day=day, **options).model_dump()
+
+
+def test_event_serialization_preserves_existing_digest_contract():
+    import hashlib
+    from dataclasses import asdict
+
+    day = date(2026, 9, 29)
+    event = CorporateActionEvent(
+        "OLD.TWSE", "TWSE", day, event_market_open(day), "capital_reduction",
+        100, 50, 0.5, None, None, None, "TWTAUU", "https://www.twse.com.tw",
+        datetime(2026, 10, 1, tzinfo=TAIPEI), status="verified")
+    original = asdict(event)
+    assert event.to_dict() == original
+    for key in ("retrieved_at", "revision_status", "source_url"):
+        original.pop(key)
+    assert event.content_hash == hashlib.sha256(json.dumps(original, sort_keys=True, default=str).encode()).hexdigest()
+
+
+def test_bounded_census_sessions_do_not_open_unrelated_history(tmp_path):
+    store = ObservedUniverseStore(tmp_path)
+    bad = store.partition_path("TWSE", date(2020, 1, 1))
+    bad.parent.mkdir(parents=True)
+    bad.write_bytes(b"invalid parquet")
+    assert store.session_dates("TWSE", date(2026, 1, 1), date(2026, 1, 2)) == set()
+
+
 def test_verified_action_snapshot_checks_digest_bounds_and_generation(tmp_path, monkeypatch):
     from app.taiwan.corporate_actions import CorporateActionStore
     from app.taiwan.providers.corporate_actions import SOURCE_URLS
@@ -161,6 +231,8 @@ def test_verified_action_snapshot_checks_digest_bounds_and_generation(tmp_path, 
         marker.write_text("{}", encoding="utf8")
         return events
     monkeypatch.setattr(store, "read", concurrent_read)
+    # Invalidate the successful process snapshot before exercising a racing read.
+    marker.write_text(marker.read_text(encoding="utf8") + " ", encoding="utf8")
     assert store.read_verified_coverage() is None
 
 
@@ -292,6 +364,7 @@ def test_local_empty_service_and_api_validation_have_no_http(tmp_path):
     assert response.json()["status"] == "unavailable" and response.json()["latest"] is None
     assert client.get("/api/taiwan/market-research/breadth-valuation?market=invalid").status_code == 422
     assert client.get("/api/taiwan/market-research/breadth-valuation?days=61").status_code == 422
+    assert client.get("/api/taiwan/market-research/breadth-valuation?sections=invalid").status_code == 422
     assert client.get("/api/taiwan/market-research/breadth-valuation?as_of=bad").status_code == 422
     with patch("app.api.market_breadth.MarketBreadthValuationService", side_effect=OSError("private detail")):
         response = client.get("/api/taiwan/market-research/breadth-valuation")
@@ -305,7 +378,7 @@ def test_service_tracks_stale_target_and_does_not_use_current_master():
     universe.sessions.return_value = days
     universe.as_of.return_value = pl.DataFrame(schema={"market_symbol": pl.String, "instrument_type": pl.String,
                                                        "instrument_type_status": pl.String})
-    universe.census.read_range.return_value = pl.DataFrame(schema={"retrieved_at": pl.String})
+    universe.census.read_range.return_value = pl.DataFrame(schema={"date": pl.Date, "retrieved_at": pl.String})
     universe.census.day_evidence.return_value = MagicMock(status="non_trading")
     benchmarks.read.return_value = pl.DataFrame(schema={"symbol": pl.String, "date": pl.Date})
     actions.read_verified_coverage.return_value = (days[0], days[-1], ())
@@ -314,6 +387,66 @@ def test_service_tracks_stale_target_and_does_not_use_current_master():
                                            actions=actions, fundamentals=fundamentals)
     with patch("app.taiwan.universe.get_security_master", side_effect=AssertionError):
         got = service.snapshot(days[-1] + timedelta(days=1), "TWSE", 3)
-    assert got.as_of == days[-1] and got.stale and got.status == "stale"
+    assert got.as_of == days[-1] and got.stale and got.status == "partial"
     assert got.latest.metrics["ma20"].value == 1
     assert len(got.history) == 3 and got.latest.metrics["ad_line"].value == 3
+    universe.census.read_range.assert_called_once_with(None, days[-3], days[-1])
+    universe.classification.read.assert_called_once()
+    actions.read_verified_coverage.return_value = None
+    fundamentals.load.return_value = []
+    unavailable = service.snapshot(days[-1] + timedelta(days=1), "TWSE", 3)
+    assert unavailable.stale and unavailable.status == "unavailable"
+    assert all(m.value is None for m in unavailable.latest.metrics.values())
+
+
+def test_valuation_section_never_reads_breadth_inputs_and_preserves_unavailable():
+    daily, universe, benchmarks, actions, fundamentals = [MagicMock() for _ in range(5)]
+    day = date(2026, 9, 29)
+    daily.read_range.return_value = pl.DataFrame(bars([day]))
+    fundamentals.load.return_value = [record(day)]
+    service = MarketBreadthValuationService(daily=daily, universe=universe, benchmarks=benchmarks,
+                                           actions=actions, fundamentals=fundamentals)
+    with patch("app.taiwan.market_breadth_service.calculate_breadth", side_effect=AssertionError("breadth forbidden")):
+        got = service.snapshot(day, "TWSE", sections="valuation")
+        assert got.valuation.metrics["pe"].value == 20
+        assert got.status == "available" and got.sections == "valuation"
+        assert not got.history and got.latest is None
+        # Historical valuation must not silently substitute a saved earlier day.
+        missing = service.snapshot(day + timedelta(days=1), "TWSE", sections="valuation")
+        assert missing.as_of == day + timedelta(days=1)
+        assert missing.status == "unavailable" and missing.valuation.metrics["pe"].value is None
+    universe.sessions.assert_not_called()
+    universe.as_of.assert_not_called()
+    universe.census.read_range.assert_not_called()
+    universe.classification.read.assert_not_called()
+    benchmarks.read.assert_not_called()
+    actions.read_verified_coverage.assert_not_called()
+    assert all(call.args[1] == call.args[2] for call in daily.read_range.call_args_list)
+
+
+def test_verified_coverage_process_reuse_invalidation_and_deletion(tmp_path):
+    from concurrent.futures import ThreadPoolExecutor
+
+    from app.taiwan.corporate_actions import CorporateActionStore
+    from app.taiwan.providers.corporate_actions import SOURCE_URLS
+
+    store = CorporateActionStore(tmp_path)
+    store.save([])
+    marker = store.path.with_name("coverage.json")
+    payload = {"sources": list(SOURCE_URLS), "start": "2025-01-01", "end": "2026-09-29",
+               "events_sha256": store.snapshot_digest()}
+    marker.write_text(json.dumps(payload), encoding="utf8")
+    expected = store.read_verified_coverage()
+    with (patch.object(CorporateActionStore, "read", side_effect=AssertionError("same generation must reuse")),
+          ThreadPoolExecutor(max_workers=4) as pool):
+        assert list(pool.map(lambda _: CorporateActionStore(tmp_path).read_verified_coverage(), range(8))) == [expected] * 8
+    payload["end"] = "2026-09-30"
+    marker.write_text(json.dumps(payload), encoding="utf8")
+    assert store.read_verified_coverage()[1] == date(2026, 9, 30)
+    # Changed observations with an old digest cannot use the previous snapshot.
+    frame = pl.read_parquet(store.path)
+    frame.write_parquet(store.path, compression="uncompressed")
+    with patch.object(store, "snapshot_digest", return_value="different"):
+        assert store.read_verified_coverage() is None
+    marker.unlink()
+    assert store.read_verified_coverage() is None

@@ -12,13 +12,14 @@ import json
 import math
 import os
 import tempfile
-from collections import defaultdict
+import threading
+from collections import OrderedDict, defaultdict
 from collections.abc import Iterable
-from dataclasses import asdict, dataclass, replace
+from dataclasses import dataclass, fields, replace
 from datetime import date, datetime, time
 from decimal import ROUND_DOWN, ROUND_HALF_UP, Decimal, InvalidOperation
 from pathlib import Path
-from typing import Any
+from typing import Any, ClassVar
 
 import polars as pl
 
@@ -97,7 +98,9 @@ class CorporateActionEvent:
                 raise ValueError("unsupported verified event")
 
     def to_dict(self) -> dict[str, Any]:
-        return asdict(self)
+        # Every field is an immutable scalar (including date/datetime and the
+        # JSON string raw_fields). Deep-copying timestamps dominates bulk reads.
+        return {field.name: getattr(self, field.name) for field in fields(self)}
 
     @property
     def identity(self) -> tuple[str, date]:
@@ -308,6 +311,17 @@ class CorporateActionStore:
     A stale lock is an explicit error; it is never silently deleted.
     """
 
+    _coverage_lock: ClassVar[threading.Lock] = threading.Lock()
+    _coverage_cache: ClassVar[OrderedDict[
+        Path, tuple[tuple[int, ...], tuple[date, date, tuple[CorporateActionEvent, ...]]]
+    ]] = OrderedDict()
+
+    def _coverage_generation(self) -> tuple[int, ...]:
+        # Include the marker and replacement identity, not just event file mtime.
+        return tuple(value for path in (self.path, self.path.with_name("coverage.json"))
+                     for stat in (path.stat(),)
+                     for value in (stat.st_mtime_ns, stat.st_ctime_ns, stat.st_size, stat.st_ino))
+
     def __init__(self, data_dir: Path | None = None) -> None:
         if data_dir is None:
             from app.taiwan.data_root import taiwan_data_root
@@ -376,19 +390,33 @@ class CorporateActionStore:
         from app.taiwan.providers.corporate_actions import SOURCE_URLS
 
         marker = self.path.with_name("coverage.json")
-        if not marker.is_file() or not self.path.is_file():
-            return None
         try:
-            generation = (self.path.stat().st_mtime_ns, self.path.stat().st_size, marker.stat().st_mtime_ns)
+            key = self.path.resolve()
+            generation = self._coverage_generation()
+            with self._coverage_lock:
+                cached = self._coverage_cache.get(key)
+                if cached is not None and cached[0] == generation:
+                    self._coverage_cache.move_to_end(key)
+                else:
+                    self._coverage_cache.pop(key, None)
+                    cached = None
+            if cached is not None:
+                return cached[1] if generation == self._coverage_generation() else None
             record = json.loads(marker.read_text(encoding="utf-8"))
             first, last = date.fromisoformat(record["start"]), date.fromisoformat(record["end"])
             if (record.get("events_sha256") != self.snapshot_digest()
                     or set(record.get("sources", ())) != set(SOURCE_URLS) or first > last):
                 return None
             events = self.read()
-            if generation != (self.path.stat().st_mtime_ns, self.path.stat().st_size, marker.stat().st_mtime_ns):
+            if generation != self._coverage_generation():
                 return None
-            return first, last, events
+            coverage = (first, last, events)
+            with self._coverage_lock:
+                self._coverage_cache[key] = (generation, coverage)
+                self._coverage_cache.move_to_end(key)
+                while len(self._coverage_cache) > 8:
+                    self._coverage_cache.popitem(last=False)
+            return coverage
         except (OSError, ValueError, KeyError, TypeError):
             return None
 

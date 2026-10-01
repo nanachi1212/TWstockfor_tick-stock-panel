@@ -8,6 +8,7 @@ from app.taiwan.market_breadth_service import (
     BreadthValuationResponse,
     Market,
     MarketBreadthValuationService,
+    Sections,
     fundamental_store,
 )
 from app.taiwan.market_valuation import refresh_valuation
@@ -17,9 +18,10 @@ router = APIRouter()
 
 @router.get("/market-research/breadth-valuation", response_model=BreadthValuationResponse)
 def get_breadth_valuation(as_of: date | None = None, market: Market = "composite",
-                         days: int = Query(default=20, ge=1, le=60)) -> BreadthValuationResponse:
+                         days: int = Query(default=20, ge=1, le=60),
+                         sections: Sections = "all") -> BreadthValuationResponse:
     try:
-        return MarketBreadthValuationService().snapshot(as_of, market, days)
+        return MarketBreadthValuationService().snapshot(as_of, market, days, sections)
     except (OSError, ValueError, pl.exceptions.PolarsError) as exc:
         raise HTTPException(503, "Market research source data unavailable") from exc
 

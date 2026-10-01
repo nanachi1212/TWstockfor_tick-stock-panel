@@ -1,4 +1,5 @@
 export type ResearchMarket = 'TWSE' | 'TPEX' | 'composite'
+export type ResearchSections = 'breadth' | 'valuation' | 'all'
 
 export interface ResearchMetric {
   value: number | null
@@ -68,6 +69,7 @@ export interface BreadthValuationResponse {
   requested_as_of: string
   as_of: string | null
   market: ResearchMarket
+  sections: ResearchSections
   status: string
   stale: boolean
   history: MarketBreadthStats[]

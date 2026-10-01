@@ -4,7 +4,7 @@
 // Prod:同源(FastAPI 託管前端 dist)
 
 import { toast } from '@/components/Toast'
-import type { BreadthValuationResponse, ResearchMarket, ValuationRefreshResult } from './marketBreadthTypes'
+import type { BreadthValuationResponse, ResearchMarket, ResearchSections, ValuationRefreshResult } from './marketBreadthTypes'
 
 const BASE = ''
 
@@ -3057,8 +3057,8 @@ export interface DataHealthJob {
 }
 
 export const api = {
-  marketBreadthValuation: (asOf?: string, market: ResearchMarket = 'composite', days = 20) => {
-    const query = new URLSearchParams({ market, days: String(days) })
+  marketBreadthValuation: (asOf?: string, market: ResearchMarket = 'composite', days = 20, sections: ResearchSections = 'all') => {
+    const query = new URLSearchParams({ market, days: String(days), sections })
     if (asOf) query.set('as_of', asOf)
     return request<BreadthValuationResponse>(`/api/taiwan/market-research/breadth-valuation?${query}`)
   },

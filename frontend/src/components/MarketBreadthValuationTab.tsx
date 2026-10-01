@@ -7,6 +7,7 @@ import type { ResearchMarket, ResearchMetric, ValuationMetric } from '@/lib/mark
 export interface MarketBreadthValuationTabProps {
   asOf?: string
   market?: ResearchMarket
+  view?: 'breadth' | 'valuation' | 'all'
 }
 
 const labels: Record<string, string> = {
@@ -50,16 +51,16 @@ function MetricCard({ name, data, valuation = false }: { name: string; data: Res
   </article>
 }
 
-/** Agent A mounts this component inside the shared Market Research tab shell. */
-export function MarketBreadthValuationTab({ asOf, market: controlledMarket }: MarketBreadthValuationTabProps) {
+/** Shared shell context, with independent section queries so valuation stays fast. */
+export function MarketBreadthValuationTab({ asOf, market: controlledMarket, view = 'all' }: MarketBreadthValuationTabProps) {
   const [localMarket, setMarket] = useState<ResearchMarket>('composite')
   const [localDate, setDate] = useState('')
   const market = controlledMarket ?? localMarket
-  const selectedDate = asOf ?? (localDate || undefined)
+  const selectedDate = (asOf ?? localDate) || undefined
   const client = useQueryClient()
   const query = useQuery({
-    queryKey: QK.marketBreadthValuation(selectedDate, market),
-    queryFn: () => api.marketBreadthValuation(selectedDate, market),
+    queryKey: QK.marketBreadthValuation(selectedDate, market, 20, view),
+    queryFn: () => api.marketBreadthValuation(selectedDate, market, 20, view),
     staleTime: 60_000,
   })
   const refresh = useMutation({
@@ -75,10 +76,15 @@ export function MarketBreadthValuationTab({ asOf, market: controlledMarket }: Ma
       </select></label>}
       {asOf === undefined && <label>研究日期 <input type="date" aria-label="研究日期" value={localDate}
         onChange={e => setDate(e.target.value)} className="rounded border border-border bg-elevated text-foreground [color-scheme:light] dark:[color-scheme:dark] p-2" /></label>}
-      <button type="button" onClick={() => refresh.mutate()} disabled={refresh.isPending}
-        className="rounded border border-border px-3 py-2 disabled:opacity-50">{refresh.isPending ? '更新估值中…' : '更新官方估值'}</button>
+      <button type="button" onClick={() => void query.refetch()} disabled={query.isFetching}
+        className="rounded border border-border px-3 py-2 disabled:opacity-50">重新讀取</button>
+      {view !== 'breadth' && <button type="button" onClick={() => refresh.mutate()} disabled={refresh.isPending}
+        className="rounded border border-border px-3 py-2 disabled:opacity-50">{refresh.isPending ? '更新估值中…' : '更新官方估值'}</button>}
+      {query.isFetching && !query.isLoading && <span role="status" className="text-sm text-secondary">更新中…</span>}
     </div>
-    <p className="text-sm text-secondary">依可觀測日 K 計算的研究統計。涵蓋率為可觀測樣本的可計算比例，完整歷史普通股 universe 涵蓋率未知。</p>
+    <p className="text-sm text-secondary">{view === 'valuation'
+      ? '以目前保存的官方個股估值計算描述性統計。'
+      : '依可觀測日 K 計算的研究統計。涵蓋率為可觀測樣本的可計算比例，完整歷史普通股 universe 涵蓋率未知。'}</p>
     {refresh.isError && <p role="alert">估值更新失敗，請稍後重試。</p>}
     {refresh.data && <p role="status">估值更新：{statuses[refresh.data.status]}，保存 {refresh.data.records_saved} 筆。
       {refresh.data.failed.length > 0 && ` ${refresh.data.failed.map(f => f.market).join('、')} 官方來源未成功，保留原有資料。`}</p>}
@@ -91,8 +97,9 @@ export function MarketBreadthValuationTab({ asOf, market: controlledMarket }: Ma
       <div className="rounded-lg border border-border p-3 text-sm text-secondary">
         {data.warnings.map(text => <p key={text}>{text}</p>)}
       </div>
-      {!data.latest && <p>尚無可觀測日 K，請先完成台股資料更新。</p>}
-      {data.latest && <>
+      {view !== 'valuation' && !data.latest && <p>尚無可觀測日 K，請先完成台股資料更新。</p>}
+      {view === 'valuation' && !data.valuation && <p>尚無保存的官方估值，請更新官方估值。</p>}
+      {view !== 'valuation' && data.latest && <>
         {!!data.latest.missing_markets.length && <p className="text-sm">尚無 {data.latest.missing_markets.join('、')} 可觀測樣本，合併市場涵蓋不完整。</p>}
         <p className="text-sm">歷史普通股資格已驗證 {data.latest.eligibility_verified_count} 家，尚未驗證 {data.latest.eligibility_unknown_count} 家。
           漲 {data.latest.advances ?? '未知'} / 跌 {data.latest.declines ?? '未知'} / 平 {data.latest.unchanged ?? '未知'}。
@@ -100,10 +107,11 @@ export function MarketBreadthValuationTab({ asOf, market: controlledMarket }: Ma
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
           {Object.entries(data.latest.metrics).map(([name, value]) => <MetricCard key={name} name={name} data={value} />)}
         </div>
-      </>}
-      {data.valuation && <>
         <p className="text-sm text-secondary">價格來源：本地台股日 K，舊日 K 未保存可驗證的來源抓取時間。
-          歷史資格證據抓取時間：{data.latest?.eligibility_retrieved_at ?? '未知'}。</p>
+          歷史資格證據抓取時間：{data.latest.eligibility_retrieved_at ?? '未知'}。</p>
+      </>}
+      {view !== 'breadth' && data.valuation && <>
+        {selectedDate && <p className="text-sm text-secondary">歷史日期估值使用目前保存的最新 revision，非 Historical PIT。</p>}
         <h3 className="font-semibold">同交易日個股估值中位數</h3>
         <p className="text-sm text-secondary">缺失與非正本益比排除，不當成 0；合併市場需同日兩個交易所資料。Percentile 至少需要 20 個先前保存交易日，採相同口徑中位數的 ties midrank。</p>
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
@@ -111,7 +119,7 @@ export function MarketBreadthValuationTab({ asOf, market: controlledMarket }: Ma
         </div>
         <p className="break-words text-sm text-secondary">估值來源：{data.valuation.source.join('、') || '尚無同日官方估值'}；抓取時間：{data.valuation.retrieved_at ?? '未知'}；首次發布時間尚未驗證。</p>
       </>}
-      {!!data.history.length && <details>
+      {view !== 'valuation' && !!data.history.length && <details>
         <summary className="cursor-pointer">檢視逐日寬度與 A/D Line</summary>
         <div className="mt-2 overflow-x-auto"><table className="w-full text-sm">
           <caption className="text-left text-secondary">描述性歷史；A/D 數值僅在同一區段內比較。</caption>

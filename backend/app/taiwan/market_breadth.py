@@ -9,6 +9,7 @@ from __future__ import annotations
 import math
 from collections import Counter
 from collections.abc import Callable, Mapping, Sequence
+from dataclasses import dataclass, field
 from datetime import date, timedelta
 from typing import Any, Literal
 
@@ -20,6 +21,27 @@ from app.taiwan.corporate_actions import CorporateActionEvent
 
 OBSERVED_LABEL = "依可觀測日 K 計算的研究統計"
 MetricStatus = Literal["available", "partial", "unavailable"]
+
+
+@dataclass(frozen=True)
+class _VerifiedWindow:
+    start: date
+    end: date
+    columns: tuple[str, ...]
+    rows: dict[date, dict[str, Any]] = field(default_factory=dict)
+
+
+@dataclass
+class BreadthWindowCache:
+    """One immutable input snapshot only; never shared across requests/refreshes.
+
+    Successful raw validation can extend to later sessions. Adjusted windows
+    can extend only when no new event is effective; later anchors never serve
+    earlier dates. Failed windows are not cached, so shorter windows retry.
+    """
+
+    validated: dict[str, _VerifiedWindow] = field(default_factory=dict)
+    normalized: dict[str, _VerifiedWindow] = field(default_factory=dict)
 
 
 class ResearchMetric(BaseModel):
@@ -81,6 +103,7 @@ def calculate_breadth(
     actions_for_window: Callable[[date, date], tuple[CorporateActionEvent, ...] | None],
     source: list[str] | None = None, retrieved_at: str | None = None,
     prices_by_symbol: dict[str, dict[date, dict[str, Any]]] | None = None,
+    window_cache: BreadthWindowCache | None = None,
 ) -> MarketBreadthStats:
     prices: dict[str, dict[date, dict[str, Any]]] = prices_by_symbol if prices_by_symbol is not None else {}
     if prices_by_symbol is None:
@@ -95,51 +118,64 @@ def calculate_breadth(
     signs: list[float] = []
     missing_markets = [ex for ex in exchanges if not any(s.endswith(f".{ex}") for s in candidates)]
     event_windows: dict[date, dict[str, list[CorporateActionEvent]] | None] = {}
-    normalized_windows: dict[str, tuple[date, tuple[str, ...], dict[date, dict[str, Any]]]] = {}
+    cache = window_cache if window_cache is not None else BreadthWindowCache()
+    calendars = {ex: [d for d in sessions.get(ex, ()) if d <= day] for ex in exchanges}
     # A verified larger window at the same date anchor can serve a smaller
     # descriptive window. Failed windows never enter this per-request cache.
     for name, length in (("new_high_52w", 0), ("new_low_52w", 0), ("ma240", 240),
                          ("ma60", 60), ("ma20", 20), ("ad_net", 2)):
         values: list[float] = []
         reasons: Counter[str] = Counter()
+        expected_by_exchange: dict[str, list[date]] = {}
+        window_reasons: dict[str, str] = {}
+        for exchange, calendar in calendars.items():
+            if not calendar or calendar[-1] != day:
+                window_reasons[exchange] = "missing_target_session"
+                continue
+            if length:
+                expected = calendar[-length:]
+                if len(expected) < length:
+                    window_reasons[exchange] = "insufficient_history"
+                    continue
+            else:
+                boundary = day - timedelta(weeks=52)
+                prior = [d for d in calendar if d <= boundary]
+                if not prior:
+                    window_reasons[exchange] = "insufficient_history"
+                    continue
+                expected = [d for d in calendar if d >= prior[-1]]
+            if any(expected[0] <= d <= day for d in unresolved_days.get(exchange, set())):
+                window_reasons[exchange] = "calendar_unverified"
+            else:
+                expected_by_exchange[exchange] = expected
         for symbol in sorted(candidates):
             kind, type_status = eligibility.get(symbol, (None, "unknown"))
             if type_status == "verified" and kind != "stock":
                 reasons["not_ordinary_stock"] += 1
                 continue
             exchange = symbol.rsplit(".", 1)[-1]
-            calendar = [d for d in sessions.get(exchange, ()) if d <= day]
             bars = prices.get(symbol, {})
-            if not calendar or calendar[-1] != day:
-                reasons["missing_target_session"] += 1
+            if exchange in window_reasons:
+                reasons[window_reasons[exchange]] += 1
                 continue
-            if length:
-                expected = calendar[-length:]
-                if len(expected) < length:
-                    reasons["insufficient_history"] += 1
-                    continue
-            else:
-                # Cover 52 calendar weeks, including the boundary session, plus
-                # today's bar. A short IPO window must not claim a yearly high.
-                boundary = day - timedelta(weeks=52)
-                prior = [d for d in calendar if d <= boundary]
-                if not prior:
-                    reasons["insufficient_history"] += 1
-                    continue
-                expected = [d for d in calendar if d >= prior[-1]]
+            expected = expected_by_exchange[exchange]
             start = expected[0]
-            if any(start <= d <= day for d in unresolved_days.get(exchange, set())):
-                reasons["calendar_unverified"] += 1
-                continue
-            if any(d not in bars for d in expected):
+            columns = ("close",) if length else ("high", "low", "close")
+            checked = cache.validated.get(symbol)
+            remaining = expected
+            if (checked is not None and checked.start <= start and checked.end <= day
+                    and set(columns) <= set(checked.columns)):
+                remaining = [d for d in expected if d > checked.end]
+            if any(d not in bars for d in remaining):
                 first = min(bars) if bars else day
                 reasons["insufficient_history" if first > start else "missing_session_price"] += 1
                 continue
-            columns = ("close",) if length else ("high", "low", "close")
             if any(bars[d].get(c) is None or not math.isfinite(float(bars[d][c]))
-                   or float(bars[d][c]) <= 0 for d in expected for c in columns):
+                   or float(bars[d][c]) <= 0 for d in remaining for c in columns):
                 reasons["invalid_price"] += 1
                 continue
+            if remaining:
+                cache.validated[symbol] = _VerifiedWindow(start, day, columns)
             if start not in event_windows:
                 actions = actions_for_window(start, day)
                 grouped: dict[str, list[CorporateActionEvent]] = {}
@@ -155,9 +191,17 @@ def calculate_breadth(
             relevant = grouped_events.get(symbol, ())
             window = [bars[d] for d in expected]
             if relevant:
-                cached = normalized_windows.get(symbol)
-                if cached is not None and cached[0] <= start and set(columns) <= set(cached[1]):
-                    window = [cached[2][d] for d in expected]
+                cached = cache.normalized.get(symbol)
+                if (cached is not None and cached.start <= start and cached.end <= day
+                        and set(columns) <= set(cached.columns)
+                        and not any(cached.end < e.effective_date <= day for e in relevant)):
+                    # New raw bars after the last anchor need no adjustment when
+                    # no event became effective. Existing rows keep that anchor's
+                    # verified values, never values normalized at a future date.
+                    window = [cached.rows[d] if d <= cached.end else bars[d] for d in expected]
+                    if cached.end < day:
+                        cache.normalized[symbol] = _VerifiedWindow(
+                            start, day, columns, {r["date"]: r for r in window})
                 else:
                     adjusted = adjust_prices_as_of(pl.DataFrame(window), as_of=day,
                                                    events=relevant, price_columns=columns)
@@ -165,7 +209,7 @@ def calculate_breadth(
                         reasons["incomparable_corporate_action"] += 1
                         continue
                     window = adjusted.to_frame().sort("date").to_dicts()
-                    normalized_windows[symbol] = (start, columns, {r["date"]: r for r in window})
+                    cache.normalized[symbol] = _VerifiedWindow(start, day, columns, {r["date"]: r for r in window})
             current = float(window[-1]["close"])
             if name.startswith("ma"):
                 values.append(float(current > sum(float(r["close"]) for r in window) / length))

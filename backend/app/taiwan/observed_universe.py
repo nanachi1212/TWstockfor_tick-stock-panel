@@ -273,10 +273,17 @@ class ObservedUniverseStore:
             if p.name.startswith("date=") and (p / "part.parquet").exists()
         }
 
-    def session_dates(self, exchange: str) -> set[date]:
+    def session_dates(self, exchange: str, start: date | None = None,
+                      end: date | None = None) -> set[date]:
         """Completed dates that actually contained observations."""
-        return {day for day, status in self.partition_statuses(exchange).items()
-                if status == "observed"}
+        if start is None or end is None:
+            return {day for day, status in self.partition_statuses(exchange).items()
+                    if status == "observed" and (start is None or day >= start)
+                    and (end is None or day <= end)}
+        # Bounded research reads never stat/open unrelated historical partitions.
+        return {day for offset in range((end - start).days + 1)
+                if self.has(exchange, day := start + timedelta(days=offset))
+                and self.partition_status(exchange, day) == "observed"}
 
     def confirmed_non_trading_dates(self, exchange: str) -> set[date]:
         """Only empty partitions with recorded verification count as closures."""

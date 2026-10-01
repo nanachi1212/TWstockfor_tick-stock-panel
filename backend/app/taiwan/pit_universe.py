@@ -91,9 +91,9 @@ class PitUniverse:
         self.census = census or ObservedUniverseStore()
         self.classification = classification or HistoricalClassificationStore()
 
-    def _classification_frame(self, day: date) -> pl.DataFrame:
+    def _classification_frame(self, day: date, frame: pl.DataFrame | None = None) -> pl.DataFrame:
         """Latest classification per code by day, including unresolved revisions."""
-        frame = self.classification.read()
+        frame = self.classification.read() if frame is None else frame
         if frame.is_empty():
             return pl.DataFrame(schema={
                 "code": pl.Utf8, "exchange": pl.Utf8, "instrument_type": pl.Utf8,
@@ -109,17 +109,23 @@ class PitUniverse:
                     "classification_effective_from", "classification_status")
         )
 
-    def as_of(self, day: date, exchange: str | None = None) -> pl.DataFrame:
+    def as_of(self, day: date, exchange: str | None = None, *,
+              observed: pl.DataFrame | None = None,
+              classification: pl.DataFrame | None = None) -> pl.DataFrame:
         """Market truth for one session.
 
         A code is present iff the official snapshot contained it that day.
         Classification is attached where it exists; where it does not, the row
         keeps ``instrument_type_status='data_insufficient'`` rather than a guess.
+        Multi-session callers may supply request-local store frames; all date
+        and exchange filtering remains here, including classification cutoffs.
         """
-        observed = self.census.read_range(exchange, day, day)
+        observed = self.census.read_range(exchange, day, day) if observed is None else observed
         if observed.is_empty():
             return pl.DataFrame(schema={c: pl.Utf8 for c in UNIVERSE_COLUMNS})
         observed = observed.filter(pl.col("date") == day)
+        if exchange is not None:
+            observed = observed.filter(pl.col("exchange") == exchange)
         if observed.is_empty():
             return pl.DataFrame(schema={c: pl.Utf8 for c in UNIVERSE_COLUMNS})
 
@@ -135,7 +141,7 @@ class PitUniverse:
               .alias("listing_metadata_status"),
         )
 
-        classification = self._classification_frame(day)
+        classification = self._classification_frame(day, classification)
         if classification.is_empty():
             return truth.with_columns(
                 pl.lit(None, dtype=pl.Utf8).alias("instrument_type"),
@@ -156,5 +162,6 @@ class PitUniverse:
               .alias("instrument_type_status"),
         ).select(UNIVERSE_COLUMNS)
 
-    def sessions(self, exchange: str) -> list[date]:
-        return sorted(self.census.session_dates(exchange))
+    def sessions(self, exchange: str, start: date | None = None,
+                 end: date | None = None) -> list[date]:
+        return sorted(self.census.session_dates(exchange, start, end))

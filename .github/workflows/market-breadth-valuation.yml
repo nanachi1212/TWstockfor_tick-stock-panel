@@ -32,7 +32,7 @@ jobs:
       - name: mypy
         run: uv run mypy --follow-imports=silent --ignore-missing-imports app/taiwan/market_breadth.py app/taiwan/market_breadth_service.py app/taiwan/market_valuation.py app/api/market_breadth.py app/taiwan/fundamentals.py app/taiwan/corporate_actions.py app/taiwan/observed_universe.py app/taiwan/pit_universe.py
       - name: Research and data contract regression
-        run: uv run pytest -q tests/test_market_breadth_valuation.py tests/test_taiwan_pit_universe.py tests/test_taiwan_observed_universe.py tests/test_taiwan_fundamentals.py tests/test_taiwan_daily_store.py tests/test_taiwan_market_intelligence.py tests/test_taiwan_corporate_actions.py -m 'not integration'
+        run: uv run pytest -q tests/test_market_breadth_valuation.py tests/test_taiwan_pit_universe.py tests/test_taiwan_observed_universe.py tests/test_taiwan_fundamentals.py tests/test_taiwan_daily_store.py tests/test_taiwan_market_intelligence.py tests/test_taiwan_corporate_actions.py tests/test_taiwan_pit_adjustment.py tests/test_market_research.py -m 'not integration'
       - name: Diff and changed-file privacy gate
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}

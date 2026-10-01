@@ -26,7 +26,7 @@ function response(): BreadthValuationResponse {
     advances: 6, declines: 3, unchanged: 1, ad_segment_start: '2026-09-01',
   }
   return { contract_version: 1, generated_at: '2026-10-01T10:00:00+08:00', requested_as_of: '2026-09-30',
-    as_of: '2026-09-30', market: 'composite', status: 'partial', stale: false, history: [latest], latest,
+    as_of: '2026-09-30', market: 'composite', sections: 'all', status: 'partial', stale: false, history: [latest], latest,
     valuation: { market: 'composite', as_of: '2026-09-30', source: ['twse:valuation', 'tpex:valuation'],
       source_urls: [], retrieved_at: '2026-10-01T10:00:00+08:00', available_at: null,
       publication_time_status: 'unverified', usage_scope: 'descriptive_history', strategy_lab_eligible: false,
@@ -45,6 +45,32 @@ function mount(props = {}) {
 afterEach(() => { vi.resetAllMocks() })
 
 describe('MarketBreadthValuationTab', () => {
+  it('keeps breadth and valuation content in their respective shell tabs', async () => {
+    vi.mocked(api.marketBreadthValuation).mockResolvedValue(response())
+    const breadthView = mount({ view: 'breadth', asOf: '', market: 'composite' })
+    await screen.findByText('高於 MA20')
+    expect(screen.queryByText('個股本益比中位數')).not.toBeInTheDocument()
+    expect(screen.queryByLabelText('研究日期')).not.toBeInTheDocument()
+    expect(api.marketBreadthValuation).toHaveBeenCalledWith(undefined, 'composite', 20, 'breadth')
+    breadthView.unmount()
+    mount({ view: 'valuation' })
+    await screen.findByText('個股本益比中位數')
+    expect(screen.queryByText('高於 MA20')).not.toBeInTheDocument()
+    expect(screen.queryByText('檢視逐日寬度與 A/D Line')).not.toBeInTheDocument()
+  })
+
+  it('loads valuation while breadth is pending and labels historical revisions', async () => {
+    vi.mocked(api.marketBreadthValuation).mockImplementation((_date, _market, _days, sections) =>
+      sections === 'breadth' ? new Promise(() => {}) : Promise.resolve({ ...response(), sections: 'valuation', latest: null, history: [] }))
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    const view = render(<QueryClientProvider client={client}><MarketBreadthValuationTab asOf="2026-09-29" view="breadth" /></QueryClientProvider>)
+    expect(screen.getByText('載入大盤研究資料中…')).toBeInTheDocument()
+    view.rerender(<QueryClientProvider client={client}><MarketBreadthValuationTab asOf="2026-09-29" view="valuation" /></QueryClientProvider>)
+    await screen.findByText('個股本益比中位數')
+    expect(screen.getByText('歷史日期估值使用目前保存的最新 revision，非 Historical PIT。')).toBeInTheDocument()
+    expect(screen.queryByText(/尚無可觀測日 K/)).not.toBeInTheDocument()
+  })
+
   it('shows honest sample coverage, exclusions, descriptive scope, null rank and provenance', async () => {
     vi.mocked(api.marketBreadthValuation).mockResolvedValue(response())
     mount()
@@ -61,14 +87,14 @@ describe('MarketBreadthValuationTab', () => {
   it('changes context keys and forwards the shell date and market', async () => {
     vi.mocked(api.marketBreadthValuation).mockResolvedValue(response())
     const view = mount({ asOf: '2026-09-29', market: 'TWSE' })
-    await waitFor(() => expect(api.marketBreadthValuation).toHaveBeenCalledWith('2026-09-29', 'TWSE'))
+    await waitFor(() => expect(api.marketBreadthValuation).toHaveBeenCalledWith('2026-09-29', 'TWSE', 20, 'all'))
     expect(screen.queryByLabelText('研究市場')).not.toBeInTheDocument()
     view.unmount()
     mount()
     fireEvent.change(screen.getByLabelText('研究市場'), { target: { value: 'TPEX' } })
-    await waitFor(() => expect(api.marketBreadthValuation).toHaveBeenCalledWith(undefined, 'TPEX'))
+    await waitFor(() => expect(api.marketBreadthValuation).toHaveBeenCalledWith(undefined, 'TPEX', 20, 'all'))
     fireEvent.change(screen.getByLabelText('研究日期'), { target: { value: '2026-09-28' } })
-    await waitFor(() => expect(api.marketBreadthValuation).toHaveBeenCalledWith('2026-09-28', 'TPEX'))
+    await waitFor(() => expect(api.marketBreadthValuation).toHaveBeenCalledWith('2026-09-28', 'TPEX', 20, 'all'))
   })
 
   it('shows loading and unavailable data without inventing zeros', async () => {
@@ -83,7 +109,7 @@ describe('MarketBreadthValuationTab', () => {
 
   it('shows error and retry plus a stale snapshot warning', async () => {
     vi.mocked(api.marketBreadthValuation).mockRejectedValueOnce(new Error('unavailable'))
-    vi.mocked(api.marketBreadthValuation).mockResolvedValueOnce({ ...response(), stale: true, status: 'stale', requested_as_of: '2026-10-01' })
+    vi.mocked(api.marketBreadthValuation).mockResolvedValueOnce({ ...response(), stale: true, status: 'partial', requested_as_of: '2026-10-01' })
     mount()
     expect(await screen.findByRole('alert')).toHaveTextContent('大盤研究資料讀取失敗')
     fireEvent.click(screen.getByText('重試'))

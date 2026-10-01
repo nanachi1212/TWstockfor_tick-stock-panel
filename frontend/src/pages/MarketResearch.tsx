@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import ReactECharts from 'echarts-for-react'
+import { MarketBreadthValuationTab } from '@/components/MarketBreadthValuationTab'
 import { api } from '@/lib/api'
 import { QK } from '@/lib/queryKeys'
 import { useTheme } from '@/lib/theme'
@@ -91,6 +92,8 @@ export function MarketResearch() {
   const selected = params.get('tab') || 'institutional'
   const tab = MARKET_RESEARCH_TABS.find(t => t.id === selected) || MARKET_RESEARCH_TABS[0]
   const date = params.get('date') || ''
+  const rawMarket = params.get('market')
+  const researchMarket = rawMarket === 'TWSE' || rawMarket === 'TPEX' ? rawMarket : 'composite'
   const rawWindow = Number(params.get('window') || 5)
   const window = ([5, 10, 20, 45, 60].includes(rawWindow) ? rawWindow : 5) as InstitutionalWindow
   const [investor, setInvestor] = useState<Investor>('foreign')
@@ -106,12 +109,21 @@ export function MarketResearch() {
   const query = tab.id === 'rotation' ? rotation : institutional
   const inputClass = 'rounded-md border border-border bg-surface px-3 py-2 text-sm'
   return <div className="p-4 md:p-6 space-y-5 text-foreground">
-    <div><h1 className="text-xl font-semibold">大盤研究</h1><p className="mt-1 text-sm text-muted">法人籌碼與產業資金輪動</p></div>
+    <div><h1 className="text-xl font-semibold">大盤研究</h1><p className="mt-1 text-sm text-muted">法人籌碼、產業輪動、大盤寬度與估值</p></div>
     <div role="tablist" aria-label="大盤研究" className="flex flex-wrap gap-2 border-b border-border pb-3">
       {MARKET_RESEARCH_TABS.map(t => <button key={t.id} role="tab" aria-selected={tab.id === t.id} onClick={() => update('tab', t.id)} className={`rounded-md px-3 py-2 text-sm ${tab.id === t.id ? 'bg-accent/15 text-accent' : 'text-secondary hover:bg-elevated'}`}>{t.label}{!t.enabled && <span className="ml-1 text-[10px] text-muted">規劃中</span>}</button>)}
     </div>
     <div role="tabpanel" aria-label={tab.label} className="space-y-4">
-      {!tab.enabled ? <p className="rounded-lg border border-border p-8 text-muted">{tab.label}功能尚未提供，Phase 1 保留此分頁入口。</p> : <>
+      {tab.id === 'breadth' || tab.id === 'valuation' ? <>
+        <div className="flex flex-wrap items-center gap-3">
+          <label className="text-sm">研究日期 <input aria-label="研究日期" type="date" value={date} onChange={e => update('date', e.target.value)} className={inputClass} /></label>
+          <button className={inputClass} onClick={() => update('date', '')}>最新可觀測交易日</button>
+          <label className="text-sm">市場 <select aria-label="研究市場" value={researchMarket} onChange={e => update('market', e.target.value)} className={inputClass}>
+            <option value="composite">上市＋上櫃</option><option value="TWSE">上市 TWSE</option><option value="TPEX">上櫃 TPEx</option>
+          </select></label>
+        </div>
+        <MarketBreadthValuationTab asOf={date} market={researchMarket} view={tab.id} />
+      </> : <>
         <div className="flex flex-wrap items-center gap-3">
           <label className="text-sm">交易日 <input aria-label="交易日" type="date" value={date} onChange={e => update('date', e.target.value)} className={inputClass} /></label>
           <button className={inputClass} onClick={() => update('date', '')}>最新應有交易日</button>

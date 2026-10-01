@@ -8,8 +8,8 @@
 // ===== Query Key 工廠 =====
 
 export const QK = {
-  marketBreadthValuation: (asOf?: string, market = 'composite', days = 20) =>
-    ['market-breadth-valuation', asOf ?? 'latest', market, days] as const,
+  marketBreadthValuation: (asOf?: string, market = 'composite', days = 20, sections = 'all') =>
+    ['market-breadth-valuation', asOf ?? 'latest', market, days, sections] as const,
   // 全局 / 共享 (Layout 預取)
   capabilities:   ['capabilities'] as const,
   settings:       ['settings'] as const,
