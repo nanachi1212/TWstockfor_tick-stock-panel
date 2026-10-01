@@ -50,6 +50,7 @@ import { loadLastCompareSymbols, mergeSymbolIntoCompare } from '@/lib/taiwanComp
 import { CopyButton } from '@/components/CopyButton'
 import { formatScreenerCopy, formatScreenerPrompt } from '@/lib/copy-formatters'
 import { SelectionForwardPanel } from '@/components/selection/SelectionForwardPanel'
+import { INVESTOR_LABELS } from '@/lib/marketResearch'
 
 const FORWARD_STRATEGY_OPTIONS = [
   { id: 'trend_liquidity_v1', label: '趨勢流動性' },
@@ -177,6 +178,9 @@ export function TaiwanScreener() {
   const [foreignNetMaxLots, setForeignNetMaxLots] = useState<string>('')
   const [investmentTrustNetMinLots, setInvestmentTrustNetMinLots] = useState<string>('')
   const [dealerNetMinLots, setDealerNetMinLots] = useState<string>('')
+  const [streakInvestor, setStreakInvestor] = useState<'foreign' | 'investment_trust' | 'dealer'>('foreign')
+  const [streakDirection, setStreakDirection] = useState<'buy' | 'sell'>('buy')
+  const [streakMinDays, setStreakMinDays] = useState('')
 
   // Margin filters (UI in 張 -> backend in shares x1000, ratio: 10 = 10%)
   const [marginBalanceChangeMinLots, setMarginBalanceChangeMinLots] = useState<string>('')
@@ -273,6 +277,11 @@ export function TaiwanScreener() {
     if (foreignNetMaxLots) cond.foreign_net_max = parseFloat(foreignNetMaxLots) * 1000.0
     if (investmentTrustNetMinLots) cond.investment_trust_net_min = parseFloat(investmentTrustNetMinLots) * 1000.0
     if (dealerNetMinLots) cond.dealer_net_min = parseFloat(dealerNetMinLots) * 1000.0
+    if (streakMinDays) {
+      cond.streak_investor = streakInvestor
+      cond.streak_direction = streakDirection
+      cond.streak_min_days = Number(streakMinDays)
+    }
     if (marginBalanceChangeMinLots) cond.margin_balance_change_min = parseFloat(marginBalanceChangeMinLots) * 1000.0
     if (shortBalanceMinLots) cond.short_balance_min = parseFloat(shortBalanceMinLots) * 1000.0
     if (shortMarginRatioMin) cond.short_margin_ratio_min = parseFloat(shortMarginRatioMin)
@@ -323,6 +332,9 @@ export function TaiwanScreener() {
     setForeignNetMaxLots(c.foreign_net_max != null ? String(c.foreign_net_max / 1000) : '')
     setInvestmentTrustNetMinLots(c.investment_trust_net_min != null ? String(c.investment_trust_net_min / 1000) : '')
     setDealerNetMinLots(c.dealer_net_min != null ? String(c.dealer_net_min / 1000) : '')
+    setStreakInvestor(c.streak_investor || 'foreign')
+    setStreakDirection(c.streak_direction || 'buy')
+    setStreakMinDays(c.streak_min_days != null ? String(c.streak_min_days) : '')
     setMarginBalanceChangeMinLots(c.margin_balance_change_min != null ? String(c.margin_balance_change_min / 1000) : '')
     setShortBalanceMinLots(c.short_balance_min != null ? String(c.short_balance_min / 1000) : '')
     setShortMarginRatioMin(c.short_margin_ratio_min != null ? String(c.short_margin_ratio_min) : '')
@@ -402,6 +414,9 @@ export function TaiwanScreener() {
     if (req.foreign_net_max !== undefined) setForeignNetMaxLots(req.foreign_net_max !== null ? String(req.foreign_net_max / 1000) : '')
     if (req.investment_trust_net_min !== undefined) setInvestmentTrustNetMinLots(req.investment_trust_net_min !== null ? String(req.investment_trust_net_min / 1000) : '')
     if (req.dealer_net_min !== undefined) setDealerNetMinLots(req.dealer_net_min !== null ? String(req.dealer_net_min / 1000) : '')
+    if (req.streak_investor !== undefined) setStreakInvestor(req.streak_investor)
+    if (req.streak_direction !== undefined) setStreakDirection(req.streak_direction)
+    if (req.streak_min_days !== undefined) setStreakMinDays(req.streak_min_days != null ? String(req.streak_min_days) : '')
     if (req.margin_balance_change_min !== undefined) setMarginBalanceChangeMinLots(req.margin_balance_change_min !== null ? String(req.margin_balance_change_min / 1000) : '')
     if (req.short_balance_min !== undefined) setShortBalanceMinLots(req.short_balance_min !== null ? String(req.short_balance_min / 1000) : '')
     if (req.short_margin_ratio_min !== undefined) setShortMarginRatioMin(req.short_margin_ratio_min !== null ? String(req.short_margin_ratio_min) : '')
@@ -448,6 +463,9 @@ export function TaiwanScreener() {
     setForeignNetMaxLots('')
     setInvestmentTrustNetMinLots('')
     setDealerNetMinLots('')
+    setStreakInvestor('foreign')
+    setStreakDirection('buy')
+    setStreakMinDays('')
     setMarginBalanceChangeMinLots('')
     setShortBalanceMinLots('')
     setShortMarginRatioMin('')
@@ -503,6 +521,9 @@ export function TaiwanScreener() {
       foreign_net_max: foreignNetMaxLots ? parseFloat(foreignNetMaxLots) * 1000.0 : null,
       investment_trust_net_min: investmentTrustNetMinLots ? parseFloat(investmentTrustNetMinLots) * 1000.0 : null,
       dealer_net_min: dealerNetMinLots ? parseFloat(dealerNetMinLots) * 1000.0 : null,
+      streak_investor: streakInvestor,
+      streak_direction: streakDirection,
+      streak_min_days: streakMinDays ? Number(streakMinDays) : null,
       // Margin: UI lots (張) -> backend shares (x 1000), ratio: 10.0 = 10%
       margin_balance_change_min: marginBalanceChangeMinLots ? parseFloat(marginBalanceChangeMinLots) * 1000.0 : null,
       short_balance_min: shortBalanceMinLots ? parseFloat(shortBalanceMinLots) * 1000.0 : null,
@@ -537,6 +558,7 @@ export function TaiwanScreener() {
     volumeMinLots, amountMinMln, rsiMin, rsiMax, momentumMin, volRatioMin,
     aboveMa5, aboveMa20, nearUpperLimit, nearLowerLimit,
     foreignNetMinLots, foreignNetMaxLots, investmentTrustNetMinLots, dealerNetMinLots,
+    streakInvestor, streakDirection, streakMinDays,
     marginBalanceChangeMinLots, shortBalanceMinLots, shortMarginRatioMin,
     peMin, peMax, pbMin, pbMax, dividendYieldMin, revenueYoyMin, revenueMomMin, epsMin, netIncomePositive,
     foreignShareholdingRatioMin, foreignShareholdingChange20dMin, securitiesLendingAnomalyExclude, quantScoreMin,
@@ -1765,6 +1787,14 @@ export function TaiwanScreener() {
             {/* 法人 */}
             <div>
               <h3 className="text-[11px] font-semibold text-zinc-500 uppercase tracking-wide mb-2">法人</h3>
+              <div className="flex flex-wrap gap-3 mb-3 text-xs">
+                <select aria-label="連續買賣法人" value={streakInvestor} onChange={e => { setStreakInvestor(e.target.value as typeof streakInvestor); setPage(1) }} className="bg-zinc-800 border border-zinc-700 rounded-md px-2 py-1.5">
+                  <option value="foreign">外資</option><option value="investment_trust">投信</option><option value="dealer">自營商</option>
+                </select>
+                <select aria-label="連買或連賣" value={streakDirection} onChange={e => { setStreakDirection(e.target.value as typeof streakDirection); setPage(1) }} className="bg-zinc-800 border border-zinc-700 rounded-md px-2 py-1.5"><option value="buy">連買</option><option value="sell">連賣</option></select>
+                <label>至少 <input aria-label="法人連續交易日" type="number" min={1} max={60} step={1} placeholder="不限制" value={streakMinDays} onChange={e => { const value = e.target.value; if (value === '' || (/^\d+$/.test(value) && Number(value) >= 1 && Number(value) <= 60)) { setStreakMinDays(value); setPage(1) } }} className="w-24 bg-zinc-800 border border-zinc-700 rounded-md px-2 py-1.5" /> 交易日</label>
+                <span className="self-center text-zinc-500">最長 60 日，缺日／交易所資料不完整即中斷。</span>
+              </div>
               <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
                 <div>
                   <label className="text-xs font-semibold text-zinc-400 block mb-1.5">外資買賣超區間 (張)</label>
@@ -2372,7 +2402,14 @@ export function TaiwanScreener() {
                     </td>
 
                     {/* Name */}
-                    <td className="py-3 px-3 text-zinc-200 font-medium whitespace-nowrap">{item.name}</td>
+                    <td className="py-3 px-3 text-zinc-200 font-medium whitespace-nowrap">{item.name}
+                      {item.institutional_streak && <details className="text-[10px] font-normal text-zinc-400 mt-1">
+                        <summary className="cursor-pointer">{INVESTOR_LABELS[item.institutional_streak.investor]}連{item.institutional_streak.direction === 'buy' ? '買' : '賣'} {item.institutional_streak.value} 日 · {item.institutional_streak.status === 'available' ? '完整' : '部分資料'}</summary>
+                        <div>來源：{item.institutional_streak.source.join('、')}</div>
+                        <div>截至：{item.institutional_streak.as_of}（目標 {item.institutional_streak.date}）</div>
+                        <div>覆蓋：{item.institutional_streak.coverage.coverage_days}/{item.institutional_streak.coverage.expected_days} 日</div>
+                      </details>}
+                    </td>
 
                     {/* Exchange & Instrument */}
                     <td className="py-3 px-3 whitespace-nowrap">

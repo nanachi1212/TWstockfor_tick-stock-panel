@@ -20,9 +20,10 @@ from __future__ import annotations
 
 import logging
 from datetime import date
-from typing import Any, Literal
-from pydantic import BaseModel, Field
+from typing import Literal
+
 import polars as pl
+from pydantic import BaseModel, Field
 
 from app.taiwan.daily_store import TaiwanDailyStore
 from app.taiwan.daily_update import (
@@ -31,10 +32,34 @@ from app.taiwan.daily_update import (
 )
 from app.taiwan.institutional_store import TaiwanInstitutionalStore
 from app.taiwan.margin_store import TaiwanMarginStore
+from app.taiwan.observed_universe import ObservedUniverseStore
 from app.taiwan.realtime.calendar import TaiwanTradingCalendar, taipei_now
+from app.taiwan.research_metrics import ResearchMetric, research_metric, research_sessions
 from app.taiwan.universe import TaiwanSecurityMaster, get_security_master
 
 logger = logging.getLogger(__name__)
+
+
+def relative_strength(industry_return: float, market_return: float) -> float:
+    """Equal-weight industry return minus equal-weight market return (decimal)."""
+    return round(industry_return - market_return, 6)
+
+
+class IndustryRotationRow(BaseModel):
+    industry: str
+    relative_strength_5d: ResearchMetric
+    relative_strength_20d: ResearchMetric
+    turnover_share: ResearchMetric
+    average_turnover_share_20d: ResearchMetric
+    turnover_share_delta_pp: ResearchMetric
+
+
+class IndustryRotationSnapshot(BaseModel):
+    date: str
+    price_semantics: str = "raw_close"
+    benchmark: str = "active_supported_stocks_equal_weight"
+    delta_definition: str = "(current_turnover_share - mean_daily_turnover_share_20d) * 100"
+    industries: list[IndustryRotationRow]
 
 
 # ── Response Contract Models ──────────────────────────────────
@@ -146,12 +171,81 @@ class TaiwanIndustryIntelligenceService:
         margin_store: TaiwanMarginStore | None = None,
         calendar: TaiwanTradingCalendar | None = None,
         security_master: TaiwanSecurityMaster | None = None,
+        evidence_store: ObservedUniverseStore | None = None,
     ) -> None:
         self.calendar = calendar or TaiwanTradingCalendar()
         self.daily_store = daily_store or TaiwanDailyStore()
         self.inst_store = inst_store or TaiwanInstitutionalStore()
         self.margin_store = margin_store or TaiwanMarginStore()
         self.security_master = security_master or get_security_master()
+        self.evidence_store = evidence_store or ObservedUniverseStore()
+
+    def get_rotation(self, target_date: date | None = None) -> IndustryRotationSnapshot:
+        """Research view with strict session and denominator coverage; no HTTP.
+
+        Raw-close RS follows the existing industry intelligence price contract.
+        This is a current-universe view, not a Historical PIT evaluation.
+        """
+        target = target_date or resolve_target_latest_trading_date(self.calendar, evidence_store=self.evidence_store)
+        sessions = research_sessions(target, 21, set(self.daily_store.available_dates()), self.calendar, self.evidence_store)
+        master = self.security_master.to_dataframe(supported_only=True).filter(
+            (pl.col("listing_status") == "active") & (pl.col("instrument_type") == "stock")
+        ).with_columns(
+            pl.when(pl.col("industry").is_null() | (pl.col("industry").str.strip_chars() == ""))
+            .then(pl.lit("UNCLASSIFIED")).otherwise(pl.col("industry")).alias("industry")
+        )
+        hist = self.daily_store.read_range(master["symbol"].to_list(), sessions[0], target)
+        if not hist.is_empty():
+            hist = hist.filter(pl.col("date").is_in(sessions)).join(master.select("symbol", "industry"), on="symbol")
+        sources = ["taiwan_daily_store:raw_close", "TaiwanSecurityMaster:industry"]
+        rs: dict[int, dict[str, ResearchMetric]] = {5: {}, 20: {}}
+        for length in (5, 20):
+            dates = sessions[-length-1:]
+            window = hist.filter(pl.col("date").is_in(dates) & pl.col("close").is_finite() & (pl.col("close") > 0)) if not hist.is_empty() else hist
+            returns = pl.DataFrame()
+            if not window.is_empty():
+                returns = window.sort("date").group_by("symbol", "industry").agg(
+                    pl.col("date").n_unique().alias("days"),
+                    (pl.col("close").last() / pl.col("close").first() - 1).alias("return"),
+                ).filter(pl.col("days") == len(dates))
+            market_return = float(returns["return"].mean()) if not returns.is_empty() else None
+            for industry in master["industry"].unique().to_list():
+                expected = master.filter(pl.col("industry") == industry).height
+                subset = returns.filter(pl.col("industry") == industry) if not returns.is_empty() else returns
+                observations = window.filter(pl.col("industry") == industry) if not window.is_empty() else window
+                observed = set(observations["date"].to_list()) if not observations.is_empty() else set()
+                value = relative_strength(float(subset["return"].mean()), market_return) if not subset.is_empty() and market_return is not None else None
+                rs[length][industry] = research_metric(
+                    value, "decimal_return", target, dates, observed, expected, observations.height,
+                    sources, complete=subset.height == expected and returns.height == master.height,
+                )
+
+        # A missing security/exchange invalidates that day's market denominator.
+        amounts = hist.filter(pl.col("amount").is_finite() & (pl.col("amount") >= 0)) if not hist.is_empty() else hist
+        market_amounts = amounts.group_by("date").agg(
+            pl.col("symbol").n_unique().alias("n"), pl.col("amount").sum().alias("market_amount"),
+        ).filter((pl.col("n") == master.height) & (pl.col("market_amount") > 0)) if not amounts.is_empty() else pl.DataFrame()
+        shares = amounts.group_by("date", "industry").agg(pl.col("amount").sum()).join(
+            market_amounts, on="date", how="inner",
+        ).with_columns((pl.col("amount") / pl.col("market_amount")).alias("share")) if not market_amounts.is_empty() else pl.DataFrame()
+        rows = []
+        for industry in sorted(master["industry"].unique().to_list()):
+            expected = master.filter(pl.col("industry") == industry).height
+            sub = shares.filter((pl.col("industry") == industry) & pl.col("date").is_in(sessions[-20:])) if not shares.is_empty() else shares
+            observed = set(sub["date"].to_list()) if not sub.is_empty() else set()
+            current = sub.filter(pl.col("date") == target) if not sub.is_empty() else sub
+            current_value = float(current["share"][0]) if not current.is_empty() else None
+            average = float(sub["share"].mean()) if not sub.is_empty() else None
+            amount_sources = ["taiwan_daily_store:amount_TWD", "TaiwanSecurityMaster:industry"]
+            current_metric = research_metric(current_value, "ratio", target, [target], {target} if current_value is not None else set(), expected, expected if current_value is not None else 0, amount_sources)
+            average_metric = research_metric(average, "ratio", target, sessions[-20:], observed, expected, len(observed) * expected, amount_sources)
+            delta = (current_value - average) * 100 if current_value is not None and average is not None else None
+            delta_metric = research_metric(delta, "percentage_points", target, sessions[-20:], observed, expected, len(observed) * expected, amount_sources)
+            rows.append(IndustryRotationRow(
+                industry=industry, relative_strength_5d=rs[5][industry], relative_strength_20d=rs[20][industry],
+                turnover_share=current_metric, average_turnover_share_20d=average_metric, turnover_share_delta_pp=delta_metric,
+            ))
+        return IndustryRotationSnapshot(date=str(target), industries=rows)
 
     def _resolve_lookback_dates(self, target_date: date) -> tuple[date | None, date | None, date | None]:
         """Resolve previous trading day, 5-session lookback base date, and 20-session lookback base date.
@@ -411,7 +505,7 @@ class TaiwanIndustryIntelligenceService:
             rs_5d_cnt = len(comp_5d)
             if rs_5d_cnt > 0 and m_ret_5d is not None:
                 ind_5d_mean = float(comp_5d["return_5d"].mean())
-                rs_5d = round(ind_5d_mean - m_ret_5d, 6)
+                rs_5d = relative_strength(ind_5d_mean, m_ret_5d)
             else:
                 rs_5d = None
 
@@ -420,7 +514,7 @@ class TaiwanIndustryIntelligenceService:
             rs_20d_cnt = len(comp_20d)
             if rs_20d_cnt > 0 and m_ret_20d is not None:
                 ind_20d_mean = float(comp_20d["return_20d"].mean())
-                rs_20d = round(ind_20d_mean - m_ret_20d, 6)
+                rs_20d = relative_strength(ind_20d_mean, m_ret_20d)
             else:
                 rs_20d = None
 
