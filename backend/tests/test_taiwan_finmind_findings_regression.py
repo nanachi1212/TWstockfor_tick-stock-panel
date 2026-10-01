@@ -233,7 +233,8 @@ def test_extra_chips_foreign_shareholding_field_name():
 # =====================================================================
 
 def test_token_dynamic_lifecycle_without_restart(monkeypatch):
-    monkeypatch.setenv("FINMIND_API_TOKEN", "")
+    # preferences.get_finmind_token() 的環境變數後備是 FINMIND_TOKEN。
+    monkeypatch.delenv("FINMIND_TOKEN", raising=False)
     reset_fundamental_chips_service()
 
     svc = get_fundamental_chips_service()

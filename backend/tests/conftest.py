@@ -10,13 +10,43 @@
   - 寫入固定的日線 / 三大法人 / 融資券 partition, 交易日窗口以 2026-08-28 為最後一天。
 
 資料是刻意造的最小集合 (足以算出 MA20 / RSI14 / 5D、20D 報酬), 不依賴任何外部來源。
+
+另外, app.config 在 import 時就建立 settings: 會讀專案根 .env, data_dir 預設是專案根
+data/ (開發機的正式市場資料與 user_data/secrets.json)。下方在任何 app 模組被 import 前
+把兩者導到空的暫存位置, 讓本機與 GitHub clean runner 看到同樣的空環境。
 """
 from __future__ import annotations
 
+import logging
+import os
+import shutil
+import sys
+import tempfile
 from datetime import date, datetime, timedelta
+from pathlib import Path
 
-import polars as pl
-import pytest
+assert "app.config" not in sys.modules, "app.config imported before test isolation was applied"
+_TEST_DATA_DIR = Path(tempfile.mkdtemp(prefix="twstock-pytest-data-"))
+# 用 env 檔 (而非環境變數) 指定 DATA_DIR: 優先序與 clean runner 一致,
+# 測試自己傳 Settings(_env_file=...) 時仍可覆蓋。
+_TEST_ENV_FILE = _TEST_DATA_DIR / "test.env"
+_TEST_ENV_FILE.write_text(f"DATA_DIR={_TEST_DATA_DIR}\n", encoding="utf-8")
+os.environ["TICKFLOW_ENV_FILE"] = str(_TEST_ENV_FILE)
+for _name in ("DATA_DIR", "FINMIND_TOKEN"):
+    os.environ.pop(_name, None)
+
+import polars as pl  # noqa: E402
+import pytest  # noqa: E402
+
+
+def pytest_sessionfinish(session, exitstatus):
+    # app.main 會在 data_dir 開 backend.log; Windows 需先關檔才刪得掉暫存目錄。
+    root_logger = logging.getLogger()
+    for handler in list(root_logger.handlers):
+        if isinstance(handler, logging.FileHandler) and Path(handler.baseFilename).is_relative_to(_TEST_DATA_DIR):
+            root_logger.removeHandler(handler)
+            handler.close()
+    shutil.rmtree(_TEST_DATA_DIR, ignore_errors=True)
 
 # 台股資料 fixture 的錨定交易日 (與既有台股測試共用的 2026-08-28)。
 TAIWAN_FIXTURE_TARGET = date(2026, 8, 28)
