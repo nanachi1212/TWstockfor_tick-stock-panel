@@ -96,6 +96,7 @@ function Get-ChangeClassification {
         '(^|/)(migrations?|alembic)(/|$)',
         '^backend/app/api/',
         '^backend/app/(models|schemas)/',
+        '^backend/app/.*(contract|contracts|model|models|schema|schemas)',
         '^frontend/src/lib/(api|queryKeys)\.',
         '^frontend/src/extensions/types\.',
         '^docs/.*(contract|schema)',
@@ -160,7 +161,7 @@ function Get-TestTargets {
         }
 
         $isTestPath = $path -match $testPrefixPattern
-        if ($isTestPath -and ($path -match '\.(test|spec)\.[^/]+$' -or $path -match '/tests/[^/]+\.py$')) {
+        if ($isTestPath -and ($path -match '\.(test|spec)\.[^/]+$' -or $path -match '\.py$')) {
             $testAbsolutePath = Join-Path $Root $path
             if (Test-Path -LiteralPath $testAbsolutePath -PathType Leaf) {
                 [void]$targets.Add(($path -replace $sourcePrefixPattern, '').Replace('/', '\'))
