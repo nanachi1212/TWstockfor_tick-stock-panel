@@ -13,6 +13,8 @@ from typing import Any, Literal
 from fastapi import APIRouter, HTTPException, Query, Request
 from pydantic import BaseModel
 
+from app.api.market_breadth import router as market_breadth_router
+from app.api.market_research import router as market_research_router
 from app.taiwan.abnormal_diagnostics import (
     TaiwanAbnormalDiagnosticsService,
     TaiwanAbnormalDiagnosticsSnapshot,
@@ -86,6 +88,8 @@ from app.taiwan.universe import MarketProfileBridge, get_security_master
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/taiwan", tags=["taiwan"])
+router.include_router(market_breadth_router)
+router.include_router(market_research_router)
 
 
 @router.get("/social-sentiment")
@@ -647,6 +651,7 @@ def get_taiwan_events(
     severity: str | None = Query(None, description="嚴重等級過濾: info, attention, risk"),
     date: str | None = Query(None, description="基準日期 (YYYY-MM-DD)"),
     limit: int = Query(100, ge=1, le=500),
+    refresh: bool = Query(False, description="重新取得事件來源；失敗保留 stale 資料"),
 ):
     """取得台股重大事件清單 (支援今日、本週、持股、自選與全市場範圍)。"""
     from app.taiwan.events_service import get_event_service
@@ -679,8 +684,10 @@ def get_taiwan_events(
             severity=sev_cast,  # type: ignore[arg-type]
             target_date=target_dt,
             limit=limit,
+            include_mops=True,
+            force_refresh=refresh,
         )
-        status, sources_status = svc.get_last_sources_status()
+        status, sources_status = svc.get_product_sources_status()
         return {
             "events": items,
             "total": len(items),
