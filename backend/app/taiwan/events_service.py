@@ -19,8 +19,11 @@ import hashlib
 import json
 import logging
 import re
+import threading
+import uuid
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
+from time import monotonic
 from typing import Any, Literal
 
 from pydantic import BaseModel, Field
@@ -29,11 +32,19 @@ from app.config import settings
 from app.taiwan.corporate_actions import CorporateActionStore
 from app.taiwan.finmind_cache import FinMindCache
 from app.taiwan.providers.http import fetch_json
+from app.taiwan.providers.mops_events import (
+    CONFERENCE_SOURCE,
+    OFFICIAL_FEEDS,
+    fetch_conferences,
+    fetch_official_events,
+)
 from app.taiwan.providers.taiwan_values import parse_taiwan_date
 from app.taiwan.realtime.calendar import taipei_now
 from app.taiwan.universe import TaiwanSecurityMaster, get_security_master
 
 logger = logging.getLogger(__name__)
+
+MOPS_RETRY_BACKOFF_SECONDS = 300.0
 
 EventSeverity = Literal["info", "attention", "risk"]
 EventScope = Literal["today", "week", "portfolio", "watchlist", "all"]
@@ -51,6 +62,9 @@ SEVERITY_BY_EVENT_TYPE: dict[str, EventSeverity] = {
     "resume_trading": "attention",
     "suspended_trading": "risk",
     "delisting": "risk",
+    "material_information": "info",
+    "investor_conference": "info",
+    "insider_transfer_declaration": "info",
 }
 
 EVENT_TYPE_LABELS: dict[str, str] = {
@@ -66,6 +80,9 @@ EVENT_TYPE_LABELS: dict[str, str] = {
     "suspended_trading": "暫停交易",
     "resume_trading": "恢復交易",
     "delisting": "終止上市/下市",
+    "material_information": "重大訊息",
+    "investor_conference": "法人說明會",
+    "insider_transfer_declaration": "內部人持股轉讓申報",
 }
 
 
@@ -86,6 +103,9 @@ class MarketEvent(BaseModel):
     source: str = Field(..., description="官方或權威資料來源識別")
     source_url: str | None = Field(None, description="來源 URL")
     retrieved_at: str = Field(..., description="資料檢索時間 ISO 字串")
+    published_at: str | None = Field(default=None, description="可確認的官方公告時間，非事件或出表日期")
+    available_at: str | None = Field(default=None, description="有可靠公告證據才設定，否則 null")
+    status: str = Field(default="data_insufficient", description="公告可得時間證據: available / data_insufficient")
     freshness: str = Field("fresh", description="資料新鮮度: fresh, cached, stale, unavailable")
     details: dict[str, Any] = Field(default_factory=dict, description="結構化細節")
     is_resolvable: bool = Field(True, description="False 表示代碼無法在 security master 中解析，個股詳情導航不可用")
@@ -165,6 +185,11 @@ class TaiwanEventService:
             "corporate_actions": "available",
         }
         self.last_status: str = "available"
+        self._mops_lock = threading.Lock()
+        self._mops_refreshing = False
+        self._mops_cache: dict[str, Any] | None = None
+        self._mops_sources_status: dict[str, str] = {}
+        self._mops_retry_after = 0.0
 
     def _resolve_symbol(self, raw_code: str, fallback_exchange: str = "TWSE") -> tuple[str, str, str, str, bool]:
         """Resolve raw code into (symbol, code, name, exchange, is_resolvable).
@@ -632,6 +657,128 @@ class TaiwanEventService:
         """Return the overall status and individual source statuses from the last query."""
         return self.last_status, dict(self.sources_status)
 
+    def get_product_sources_status(self) -> tuple[str, dict[str, str]]:
+        """Product MOPS status remains independent of concurrent legacy queries."""
+        sources = dict(self.sources_status)
+        with self._mops_lock:
+            sources.update(self._mops_sources_status)
+        if all(s == "unavailable" for s in sources.values()):
+            return "unavailable", sources
+        if any(s != "available" for s in sources.values()):
+            return "partial", sources
+        return self.last_status, sources
+
+    def get_mops_events(self, force_refresh: bool = False) -> list[MarketEvent]:
+        """Product-only MOPS evidence in the existing Event Center cache directory.
+
+        Keep 90 days of observations across daily snapshot rollovers. A failed
+        source retains its last records explicitly as stale, including their
+        original retrieval times. This cache has no historical/as-of API.
+        """
+        cache_file = _cache_path().with_name("mops_events.json")
+        now = taipei_now()
+        with self._mops_lock:
+            snapshot = self._mops_cache
+        if snapshot is None and cache_file.exists():
+            try:
+                snapshot = json.loads(cache_file.read_text(encoding="utf-8"))
+            except (OSError, ValueError, TypeError, KeyError):
+                logger.warning("MOPS event cache could not be read")
+        if snapshot is not None:
+            try:
+                allowed = {source: contract[2] for source, contract in OFFICIAL_FEEDS.items()}
+                allowed[CONFERENCE_SOURCE] = "investor_conference"
+                raw_events = snapshot["events"]
+                raw_statuses = snapshot["sources_status"]
+                if not isinstance(raw_events, list) or not isinstance(raw_statuses, dict):
+                    raise ValueError("invalid MOPS snapshot")
+                # Reject retired/unapproved evidence before model validation,
+                # TTL handling, stale fallback, or writing a new snapshot.
+                approved = [item for item in raw_events if isinstance(item, dict) and
+                            item.get("source") in allowed and item.get("event_type") == allowed[item["source"]]]
+                for item in approved:
+                    MarketEvent.model_validate(item)
+                needs_refresh = snapshot.get("source_policy") != "official-only-v1" or len(approved) != len(raw_events) or set(raw_statuses) != set(allowed)
+                snapshot = {**snapshot, "events": approved,
+                            "sources_status": {s: raw_statuses.get(s, "not_queried") for s in allowed},
+                            "saved_at": 0 if needs_refresh else float(snapshot["saved_at"])}
+            except (ValueError, TypeError, KeyError):
+                logger.warning("MOPS event cache failed official-source validation")
+                snapshot = None
+        with self._mops_lock:
+            if snapshot and not force_refresh and 0 <= now.timestamp() - snapshot["saved_at"] < self._cache_ttl:
+                self._mops_cache = snapshot
+                self._mops_sources_status = dict(snapshot["sources_status"])
+                return [MarketEvent.model_validate(item) for item in snapshot["events"]]
+            if not force_refresh and monotonic() < self._mops_retry_after:
+                # An all-source outage is process-local transient state. Keep
+                # serving the last observation as stale without persisting the
+                # failure or fanning out another request from each stock page.
+                return [MarketEvent.model_validate(item).model_copy(update={"freshness": "stale"})
+                        for item in (snapshot or {}).get("events", [])]
+            if self._mops_refreshing:
+                # Another request owns the fetch; do not fan out to the sources.
+                self._mops_sources_status = {s: "stale" if snapshot else "unavailable" for s in (*OFFICIAL_FEEDS, CONFERENCE_SOURCE)}
+                return [MarketEvent.model_validate(item).model_copy(update={"freshness": "stale"}) for item in (snapshot or {}).get("events", [])]
+            self._mops_refreshing = True
+        try:
+            statuses: dict[str, str] = {}
+            fresh: list[MarketEvent] = []
+            for source in (*OFFICIAL_FEEDS, CONFERENCE_SOURCE):
+                try:
+                    if source == CONFERENCE_SOURCE:
+                        rows, status = fetch_conferences()
+                    else:
+                        rows, status = fetch_official_events(source), "available"
+                    source_events: list[MarketEvent] = []
+                    for row in rows:
+                        # Preserve the official board, including conferences.
+                        inst = self.security_master.get_instrument(row["symbol"])
+                        row["is_resolvable"] = inst is not None
+                        source_events.append(MarketEvent.model_validate(row))
+                    fresh.extend(source_events)
+                    statuses[source] = "data_insufficient" if status == "available" and any(r["status"] == "data_insufficient" for r in rows) else status
+                except Exception:
+                    logger.warning("MOPS event source unavailable: %s", source)
+                    statuses[source] = "unavailable"
+            cutoff = (now.date() - timedelta(days=90)).isoformat()
+            retained: dict[str, MarketEvent] = {}
+            for item in (snapshot or {}).get("events", []):
+                event = MarketEvent.model_validate(item)
+                if event.event_date < cutoff:
+                    continue
+                # Old daily records are historical observations, not refreshed
+                # filings. Even after a successful fetch their freshness is cached.
+                event.freshness = "stale" if statuses.get(event.source) == "unavailable" else "cached"
+                retained[event.id] = event
+            retained.update({event.id: event for event in fresh})
+            events = sorted(retained.values(), key=lambda e: (e.event_date, e.id), reverse=True)
+            payload = {
+                "saved_at": now.timestamp(), "sources_status": statuses,
+                "source_policy": "official-only-v1",
+                "events": [event.model_dump() for event in events],
+            }
+            if any(s != "unavailable" for s in statuses.values()):
+                temporary = cache_file.with_suffix(f".{uuid.uuid4().hex}.tmp")
+                try:
+                    temporary.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+                    temporary.replace(cache_file)
+                except OSError:
+                    logger.warning("MOPS event cache could not be saved")
+            else:
+                payload["saved_at"] = 0  # never overwrite good disk state
+            with self._mops_lock:
+                self._mops_cache = payload
+                self._mops_sources_status = statuses
+                self._mops_retry_after = (
+                    monotonic() + MOPS_RETRY_BACKOFF_SECONDS
+                    if all(s == "unavailable" for s in statuses.values()) else 0.0
+                )
+            return events
+        finally:
+            with self._mops_lock:
+                self._mops_refreshing = False
+
     def get_cached_regulatory_snapshot(self) -> tuple[list[MarketEvent], str, str | None]:
         """Read a fresh official-event snapshot without refreshing external sources."""
         now = datetime.now(UTC).timestamp()
@@ -850,9 +997,13 @@ class TaiwanEventService:
         severity: EventSeverity | None = None,
         target_date: date | None = None,
         limit: int = 200,
+        include_mops: bool = False,
+        force_refresh: bool = False,
     ) -> list[MarketEvent]:
         """Query normalized market events with scope and severity filtering."""
-        all_events = self.get_all_regulatory_and_official_events()
+        all_events = list(self.get_all_regulatory_and_official_events(force_refresh=force_refresh))
+        if include_mops:
+            all_events.extend(self.get_mops_events(force_refresh=force_refresh))
 
         ref_date = target_date or taipei_now().date()
         today_str = ref_date.isoformat()
@@ -869,7 +1020,7 @@ class TaiwanEventService:
             if target_symbols_set:
                 clean_sym = ev.symbol.upper()
                 clean_code = ev.code.upper()
-                if clean_sym not in target_symbols_set and clean_code not in target_symbols_set and not any(ts.startswith(clean_code) for ts in target_symbols_set):
+                if clean_sym not in target_symbols_set and clean_code not in target_symbols_set:
                     continue
 
             # Event type filter

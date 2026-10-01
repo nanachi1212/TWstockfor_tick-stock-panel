@@ -193,10 +193,13 @@ class TaiwanStockDetailService:
 
         # 11. Recent Events and News (A11)
         recent_events = []
+        events_status = "unavailable"
+        events_sources_status: dict[str, str] = {}
         try:
             from app.taiwan.events_service import get_event_service
             event_svc = get_event_service()
-            recent_events = event_svc.get_events(scope="all", symbol=symbol_str, limit=10)
+            recent_events = event_svc.get_events(scope="all", symbol=symbol_str, limit=30, include_mops=True)
+            events_status, events_sources_status = event_svc.get_product_sources_status()
         except Exception as e:
             logger.debug("Recent events aggregation error for %s: %s", symbol_str, e)
 
@@ -232,6 +235,8 @@ class TaiwanStockDetailService:
             fundamentals=fundamentals_data,
             extra_chips=extra_chips_data,
             recent_events=recent_events,
+            events_status=events_status,
+            events_sources_status=events_sources_status,
             recent_news=recent_news,
             news_status=news_status,
             news_status_message=news_status_message,

@@ -4,10 +4,16 @@ param()
 $ErrorActionPreference = 'Stop'
 $Root = Split-Path -Parent $PSScriptRoot
 $BackendDir = Join-Path $Root 'backend'
+$FrontendDir = Join-Path $Root 'frontend'
 $FallbackLogDir = Join-Path $env:LOCALAPPDATA 'NanachiTaiwanStockPanel'
 $FallbackLog = Join-Path $FallbackLogDir 'desktop-launcher.log'
 
 try {
+    . (Join-Path $PSScriptRoot 'frontend-build-freshness.ps1')
+    if (Test-RepositoryDevelopmentWorkspace -Root $Root) {
+        Ensure-FrontendBuildCurrent -FrontendDir $FrontendDir | Out-Null
+    }
+
     $Uv = Get-Command 'uv.exe' -ErrorAction Stop
     Push-Location $BackendDir
     try {

@@ -19,6 +19,7 @@ NO request-time HTTP calls to external providers.
 from __future__ import annotations
 
 import contextlib
+import json
 import logging
 from datetime import date, timedelta
 from typing import Any, Literal
@@ -190,6 +191,9 @@ class TaiwanScreenerRequest(BaseModel):
     investment_trust_net_max: float | None = None
     dealer_net_min: float | None = None
     dealer_net_max: float | None = None
+    streak_investor: Literal["foreign", "investment_trust", "dealer"] = "foreign"
+    streak_direction: Literal["buy", "sell"] = "buy"
+    streak_min_days: int | None = Field(default=None, ge=1, le=60)
 
     # Margin & Short
     margin_balance_change_min: float | None = None
@@ -289,6 +293,7 @@ class ScreenerResultItem(BaseModel):
     institutional_flow_ratio_5d: float | None = None
     institutional_date: str | None = None
     institutional_status: str = "unavailable"
+    institutional_streak: dict[str, Any] | None = None
 
     # Margin (shares & %)
     margin_balance: float | None = None
@@ -532,6 +537,8 @@ class TaiwanScreenerService:
         combined, inst_date, margin_date, degraded = self._join_institutional_margin(
             combined, valid_symbols, strategy_id=req.preset
         )
+        if req.streak_min_days is not None:
+            combined = self._join_institutional_streak(combined, req)
         if req.preset == "trend_liquidity_v1" and trend_degraded_section:
             degraded = [*degraded, trend_degraded_section]
 
@@ -1273,6 +1280,27 @@ class TaiwanScreenerService:
         latest_d = max(past_dates)
         return 0 <= (ref_date - latest_d).days <= 135
 
+    def _join_institutional_streak(self, df: pl.DataFrame, req: TaiwanScreenerRequest) -> pl.DataFrame:
+        from app.taiwan.institutional_statistics import TaiwanInstitutionalStatisticsService
+
+        target = df["date"].max()
+        snapshot = TaiwanInstitutionalStatisticsService(
+            self.institutional_store, self.daily_store, self.security_master,
+            self.calendar, self.census_store,
+        ).get_snapshot(target, 60)
+        values = []
+        for item in snapshot.securities:
+            metric = getattr(item.investors[req.streak_investor], f"{req.streak_direction}_streak")
+            values.append({"symbol": item.symbol, "_institutional_streak_days": metric.value,
+                           "_institutional_streak_meta": json.dumps({**metric.model_dump(), "investor": req.streak_investor, "direction": req.streak_direction})})
+        if not values:
+            return df.with_columns(pl.lit(None, dtype=pl.Float64).alias("_institutional_streak_days"))
+        return df.join(pl.DataFrame(values, schema={"symbol": pl.String, "_institutional_streak_days": pl.Float64,
+                                                  "_institutional_streak_meta": pl.String}), on="symbol", how="left").with_columns(
+            pl.when(pl.col("date") == target).then(pl.col("_institutional_streak_days"))
+            .otherwise(None).alias("_institutional_streak_days")
+        )
+
     def _apply_filters(self, df: pl.DataFrame, req: TaiwanScreenerRequest) -> pl.DataFrame:
         """Apply strongly typed whitelist filters."""
         # Industry
@@ -1342,6 +1370,8 @@ class TaiwanScreenerService:
             df = df.filter(pl.col("distance_to_lower_limit") <= req.distance_to_lower_limit_max)
 
         # Institutional
+        if req.streak_min_days is not None:
+            df = df.filter(pl.col("_institutional_streak_days") >= req.streak_min_days)
         if req.foreign_net_min is not None:
             df = df.filter(pl.col("foreign_net") >= req.foreign_net_min)
         if req.foreign_net_max is not None:
@@ -1611,6 +1641,7 @@ class TaiwanScreenerService:
                 institutional_flow_ratio_5d=r.get("institutional_flow_ratio_5d") if strategy_id else None,
                 institutional_date=r.get("institutional_date"),
                 institutional_status=r.get("institutional_status") or "unavailable",
+                institutional_streak=json.loads(r["_institutional_streak_meta"]) if r.get("_institutional_streak_meta") else None,
                 margin_balance=r.get("margin_balance"),
                 margin_balance_change=r.get("margin_balance_change"),
                 short_balance=r.get("short_balance"),

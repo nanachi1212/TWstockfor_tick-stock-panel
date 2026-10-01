@@ -117,6 +117,23 @@ def test_classification_is_not_back_applied_to_earlier_sessions(tmp_path: Path) 
     assert later["instrument_type_status"] == "verified"
 
 
+def test_preloaded_frames_preserve_per_day_exchange_and_revision_semantics(tmp_path: Path) -> None:
+    from unittest.mock import patch
+
+    universe = _universe(tmp_path)
+    universe.census.write("TWSE", D2, [_observation("2330", "TWSE", D2)])
+    universe.classification.write(D2, [_classification("2330", "etf", D2)])
+    expected = {d: universe.as_of(d, "TWSE").to_dicts() for d in (D1, D2)}
+    observed = universe.census.read_range(None, D1, D2)
+    classification = universe.classification.read()
+    with (patch.object(universe.census, "read_range", side_effect=AssertionError("must reuse")),
+          patch.object(universe.classification, "read", side_effect=AssertionError("must reuse"))):
+        for d in (D1, D2):
+            assert universe.as_of(d, "TWSE", observed=observed, classification=classification).to_dicts() == expected[d]
+    assert next(r for r in expected[D1] if r["code"] == "2330")["instrument_type"] == "stock"
+    assert expected[D2][0]["instrument_type"] == "etf"
+
+
 def test_current_industry_is_never_carried_into_the_universe(tmp_path: Path) -> None:
     """Probe §4.3: the official industry label is current, not point-in-time."""
     frame = _universe(tmp_path).as_of(D1)

@@ -8,6 +8,8 @@
 // ===== Query Key 工廠 =====
 
 export const QK = {
+  marketBreadthValuation: (asOf?: string, market = 'composite', days = 20, sections = 'all') =>
+    ['market-breadth-valuation', asOf ?? 'latest', market, days, sections] as const,
   // 全局 / 共享 (Layout 預取)
   capabilities:   ['capabilities'] as const,
   settings:       ['settings'] as const,
@@ -104,7 +106,9 @@ export const QK = {
   taiwanStockDetail:    (symbol: string, days?: number) => ['taiwan-stock-detail', symbol, days ?? 120] as const,
   taiwanCurrentData:    (symbol: string) => ['taiwan-current-data', symbol] as const,
   taiwanCapabilities:   ['taiwan-capabilities'] as const,
-  taiwanEvents:         (scope?: string, symbols?: string, date?: string) => ['taiwan-events', scope ?? 'all', symbols ?? '', date ?? ''] as const,
+  institutionalStatistics: (date: string, window: number) => ['institutional-statistics', date || 'latest', window] as const,
+  industryRotation: (date: string) => ['industry-rotation', date || 'latest'] as const,
+  taiwanEvents:         (scope?: string, symbols?: string, date?: string, eventType?: string) => ['taiwan-events', scope ?? 'all', symbols ?? '', date ?? '', eventType ?? 'all'] as const,
   taiwanEventCandidates:(limit?: number) => ['taiwan-event-candidates', limit ?? 10] as const,
   taiwanStockNews:      (symbol: string, limit?: number) => ['taiwan-stock-news', symbol, limit ?? 15] as const,
   taiwanMarketSentiment:(date?: string) => ['taiwan-market-sentiment', date ?? 'latest'] as const,
@@ -146,9 +150,10 @@ export const QK = {
 
 // Health jobs reuse existing consumer caches even when the user leaves the health page.
 export const DATA_HEALTH_INVALIDATE_PREFIXES = {
-  daily: ['data-health', 'taiwan-data-status', 'taiwan-stock-detail', 'taiwan-current-data',
+  daily: ['data-health', 'market-breadth-valuation', 'taiwan-data-status', 'taiwan-stock-detail', 'taiwan-current-data',
     'taiwanStockResearchContext', 'taiwanAbnormalDiagnostics', 'taiwanMarketIntelligence',
-    'taiwanIndustryIntelligence', 'watchlist-', 'selection-', 'strategy-lab', 'daily-brief', 'buy-point-'],
+    'taiwanIndustryIntelligence', 'institutional-statistics', 'industry-rotation', 'taiwanScreener',
+    'watchlist-', 'selection-', 'strategy-lab', 'daily-brief', 'buy-point-'],
   social: ['data-health', 'taiwan-social-sentiment'],
   validate: ['data-health', 'settings'],
 } as const
