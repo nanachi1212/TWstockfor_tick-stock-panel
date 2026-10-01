@@ -162,6 +162,19 @@ Launcher 是開發版啟動器，執行時仍需要現有 repository/runtime，�
 
 若 3011 或 3018 已被其他程式占用，Launcher 會顯示錯誤並避免終止對方程序。
 
+### 本機 CI 分流
+
+Windows / PowerShell 的本機驗證統一使用：
+
+```powershell
+.\scripts\ci.ps1 -Mode Fast
+.\scripts\ci.ps1 -Mode Auto
+.\scripts\ci.ps1 -Mode Full
+.\scripts\ci.ps1 -Mode Live
+```
+
+`Fast` 執行變更 Python 檔的 backend Ruff、frontend ESLint、TypeScript 檢查，以及可可靠對應到變更檔案的 targeted tests。`Auto` 讀取 `origin/main...HEAD`、staged/unstaged diff 與未追蹤檔案，backend-only 或 frontend-only 只驗證對應區域，兩者同時變更則並行驗證兩邊；API、schema、contract、依賴、CI、核心設定或未知範圍變更會升級為 `Full`。`Full` 對齊主要 GitHub CI correctness checks，包含 backend 完整離線測試、變更 Python 檔的 Ruff、frontend 完整測試、ESLint、TypeScript 與 production build。`Live` 才會執行既有 `pytest -m integration` 的真實外部服務 smoke tests，`Fast` 與 `Auto` 不會預設觸發 Live。
+
 ### 跑起來後的第一次使用
 
 1. 面板要對外開放時,第一次會要求**設定存取密碼**。
