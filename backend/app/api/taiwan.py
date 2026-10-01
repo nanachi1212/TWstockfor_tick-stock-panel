@@ -13,6 +13,7 @@ from typing import Any, Literal
 from fastapi import APIRouter, HTTPException, Query, Request
 from pydantic import BaseModel
 
+from app.api.market_breadth import router as market_breadth_router
 from app.api.market_research import router as market_research_router
 from app.taiwan.abnormal_diagnostics import (
     TaiwanAbnormalDiagnosticsService,
@@ -87,6 +88,7 @@ from app.taiwan.universe import MarketProfileBridge, get_security_master
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/taiwan", tags=["taiwan"])
+router.include_router(market_breadth_router)
 router.include_router(market_research_router)
 
 

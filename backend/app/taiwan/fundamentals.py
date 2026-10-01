@@ -7,10 +7,11 @@ verifiable publication time.  Such live records are retained with provenance but
 # ruff: noqa: RUF001 -- official field names contain full-width punctuation.
 from __future__ import annotations
 
+import hashlib
 import json
 import re
 from collections.abc import Iterable
-from dataclasses import asdict, dataclass, fields
+from dataclasses import asdict, dataclass, fields, replace
 from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Any
@@ -102,7 +103,7 @@ class FundamentalRecord:
 
     @classmethod
     def from_dict(cls, raw: dict[str, Any]) -> FundamentalRecord:
-        data = {field.name: raw.get(field.name) for field in fields(cls)}
+        data: dict[str, Any] = {field.name: raw.get(field.name) for field in fields(cls)}
         for name in ("published_at", "available_at", "retrieved_at"):
             data[name] = _datetime(data[name])
         return cls(**data)
@@ -124,13 +125,15 @@ def latest_as_of(
     *, dataset: str | None = None,
 ) -> FundamentalRecord | None:
     """Return the newest revision that was available strictly before query_at."""
-    query_at = _datetime(query_at)
+    cutoff = _datetime(query_at)
+    if cutoff is None:
+        raise ValueError("query_at must be a timezone-aware timestamp")
     eligible = [
         record for record in records
         if record.symbol == symbol
         and (dataset is None or record.dataset == dataset)
         and record.available_at is not None
-        and query_at > record.available_at
+        and cutoff > record.available_at
     ]
     if not eligible:
         return None
@@ -233,6 +236,36 @@ class TaiwanOfficialFundamentals:
             return self._insufficient(symbol, "valuation", "official ETF valuation capability unverified")
         path = "exchangeReport/BWIBBU_ALL" if exchange == "TWSE" else "tpex_mainboard_peratio_analysis"
         url, row, retrieved = self._company_row(symbol, exchange, path)
+        return self._valuation_record(symbol, exchange, url, row, retrieved)
+
+    def valuation_snapshot(self, exchange: str) -> list[FundamentalRecord]:
+        """One official request per exchange, sharing the individual-stock parser.
+
+        A trade date never establishes first-public availability. Empty or
+        ambiguous snapshots must not replace a previously saved observation.
+        """
+        if exchange not in {"TWSE", "TPEX"}:
+            raise ValueError("unsupported valuation exchange")
+        path = "exchangeReport/BWIBBU_ALL" if exchange == "TWSE" else "tpex_mainboard_peratio_analysis"
+        url, rows, retrieved = self._rows(exchange, path)
+        records = []
+        for row in rows:
+            code = str(row.get("Code") or row.get("SecuritiesCompanyCode") or "").strip()
+            if not code:
+                raise ValueError("valuation snapshot missing security identity")
+            record = self._valuation_record(f"{code}.{exchange}", exchange, url, row, retrieved)
+            # Preserve changed values as descriptive revisions in the existing
+            # append-only fundamental store, without fabricating publication.
+            digest = hashlib.sha256(json.dumps(record.values, sort_keys=True).encode()).hexdigest()
+            records.append(replace(record, revision=f"{record.revision}:{digest}"))
+        if not records or len({r.symbol for r in records}) != len(records):
+            raise ValueError("empty or duplicate valuation snapshot")
+        if len({r.period_end for r in records}) != 1:
+            raise ValueError("valuation snapshot mixes trade dates")
+        return records
+
+    def _valuation_record(self, symbol: str, exchange: str, url: str,
+                          row: dict[str, Any], retrieved: datetime) -> FundamentalRecord:
         raw_date = row.get("Date") or row.get("日期")
         trade_date = parse_taiwan_date(str(raw_date)).isoformat()
         values = {

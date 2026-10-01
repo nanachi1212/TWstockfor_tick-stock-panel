@@ -59,8 +59,8 @@ export interface IndustryRotationSnapshot {
 export const MARKET_RESEARCH_TABS = [
   { id: 'institutional', label: '法人統計', enabled: true },
   { id: 'rotation', label: '產業輪動', enabled: true },
-  { id: 'breadth', label: '大盤寬度', enabled: false },
-  { id: 'valuation', label: '估值', enabled: false },
+  { id: 'breadth', label: '大盤寬度', enabled: true },
+  { id: 'valuation', label: '估值', enabled: true },
 ] as const
 export type MarketResearchTab = typeof MARKET_RESEARCH_TABS[number]['id']
 

@@ -6,7 +6,7 @@ import { MarketResearch } from './MarketResearch'
 import { api } from '@/lib/api'
 import { rotationPoints, type ResearchMetric, type InvestorStatistics, type IndustryRotationRow } from '@/lib/marketResearch'
 
-vi.mock('@/lib/api', () => ({ api: { taiwanInstitutionalStatistics: vi.fn(), taiwanIndustryRotation: vi.fn() } }))
+vi.mock('@/lib/api', () => ({ api: { taiwanInstitutionalStatistics: vi.fn(), taiwanIndustryRotation: vi.fn(), marketBreadthValuation: vi.fn(), refreshMarketValuation: vi.fn() } }))
 vi.mock('echarts-for-react', () => ({ default: () => <div data-testid="rotation-chart" /> }))
 
 function metric(value: number | null, status: ResearchMetric['status'] = 'available'): ResearchMetric {
@@ -29,6 +29,7 @@ function mount(url = '/market-research') {
   render(<QueryClientProvider client={client}><MemoryRouter initialEntries={[url]}><MarketResearch /></MemoryRouter></QueryClientProvider>)
 }
 beforeEach(() => {
+  vi.mocked(api.marketBreadthValuation).mockResolvedValue({ contract_version: 1, generated_at: '', requested_as_of: '2026-09-30', as_of: null, market: 'composite', sections: 'all', status: 'unavailable', stale: false, history: [], latest: null, valuation: null, warnings: [], usage_scope: 'descriptive_history', strategy_lab_eligible: false })
   vi.mocked(api.taiwanInstitutionalStatistics).mockResolvedValue(snapshot())
   vi.mocked(api.taiwanIndustryRotation).mockResolvedValue({ date: '2026-09-30', price_semantics: 'raw_close', benchmark: 'active_supported_stocks_equal_weight', delta_definition: 'current-minus-20d-mean', industries: [industry()] })
 })
@@ -77,14 +78,31 @@ describe('Market research product UI', () => {
     fireEvent.click(screen.getByText('重試'))
     await screen.findByRole('link', { name: /台積電/ })
   })
-  it('provides rotation and reserved URL tabs without making unrelated requests', async () => {
+  it('mounts breadth and valuation in the existing shell with independent sections', async () => {
     mount('/market-research?tab=rotation')
     expect(await screen.findByTestId('rotation-chart')).toBeInTheDocument()
     expect(api.taiwanInstitutionalStatistics).not.toHaveBeenCalled()
     fireEvent.click(screen.getByRole('tab', { name: /大盤寬度/ }))
-    expect(screen.getByText('大盤寬度功能尚未提供，Phase 1 保留此分頁入口。')).toBeInTheDocument()
+    expect(await screen.findByText(/尚無可觀測日 K/)).toBeInTheDocument()
+    expect(api.marketBreadthValuation).toHaveBeenCalledWith(undefined, 'composite', 20, 'breadth')
+    expect(screen.queryByText('更新官方估值')).not.toBeInTheDocument()
     fireEvent.click(screen.getByRole('tab', { name: /估值/ }))
-    expect(screen.getByText('估值功能尚未提供，Phase 1 保留此分頁入口。')).toBeInTheDocument()
+    expect(screen.getByText('更新官方估值')).toBeInTheDocument()
+    await waitFor(() => expect(api.marketBreadthValuation).toHaveBeenLastCalledWith(undefined, 'composite', 20, 'valuation'))
+    expect(api.taiwanInstitutionalStatistics).not.toHaveBeenCalled()
+  })
+  it('preserves URL date and market across research tabs and resets to latest', async () => {
+    mount('/market-research?tab=breadth&date=2026-09-29&market=TWSE')
+    await waitFor(() => expect(api.marketBreadthValuation).toHaveBeenCalledWith('2026-09-29', 'TWSE', 20, 'breadth'))
+    fireEvent.change(screen.getByLabelText('研究市場'), { target: { value: 'TPEX' } })
+    await waitFor(() => expect(api.marketBreadthValuation).toHaveBeenLastCalledWith('2026-09-29', 'TPEX', 20, 'breadth'))
+    fireEvent.click(screen.getByRole('tab', { name: '估值' }))
+    expect(screen.getByLabelText('研究市場')).toHaveValue('TPEX')
+    expect(screen.getByLabelText('研究日期')).toHaveValue('2026-09-29')
+    fireEvent.click(screen.getByText('最新可觀測交易日'))
+    await waitFor(() => expect(api.marketBreadthValuation).toHaveBeenLastCalledWith(undefined, 'TPEX', 20, 'valuation'))
+    expect(api.taiwanInstitutionalStatistics).not.toHaveBeenCalled()
+    expect(api.taiwanIndustryRotation).not.toHaveBeenCalled()
   })
   it('omits incomplete points and keeps RS and percentage-point units separate', () => {
     expect(rotationPoints([industry(), industry('partial'), industry('unavailable')])).toEqual([{ name: '半導體業', value: [2, 5] }])
