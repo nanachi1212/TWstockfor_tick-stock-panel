@@ -116,7 +116,7 @@ class PitUniverse:
         Classification is attached where it exists; where it does not, the row
         keeps ``instrument_type_status='data_insufficient'`` rather than a guess.
         """
-        observed = self.census.read(exchange)
+        observed = self.census.read_range(exchange, day, day)
         if observed.is_empty():
             return pl.DataFrame(schema={c: pl.Utf8 for c in UNIVERSE_COLUMNS})
         observed = observed.filter(pl.col("date") == day)

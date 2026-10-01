@@ -217,8 +217,16 @@ class ObservedUniverseStore:
         return frame.height
 
     def read(self, exchange: str | None = None) -> pl.DataFrame:
+        return self.read_range(exchange)
+
+    def read_range(self, exchange: str | None = None,
+                   start: date | None = None, end: date | None = None) -> pl.DataFrame:
+        """Read a bounded session range without scanning unrelated history."""
         pattern = f"exchange={exchange}" if exchange else "exchange=*"
         files = sorted(self._data_dir.glob(f"{pattern}/date=*/part.parquet"))
+        files = [f for f in files
+                 if (start is None or date.fromisoformat(f.parent.name[5:]) >= start)
+                 and (end is None or date.fromisoformat(f.parent.name[5:]) <= end)]
         frames = [pl.read_parquet(f) for f in files]
         frames = [f for f in frames if f.height]
         return pl.concat(frames, how="diagonal_relaxed") if frames else pl.DataFrame(schema=_CENSUS_SCHEMA)

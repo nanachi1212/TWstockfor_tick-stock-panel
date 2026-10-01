@@ -4,6 +4,7 @@
 // Prod:同源(FastAPI 託管前端 dist)
 
 import { toast } from '@/components/Toast'
+import type { BreadthValuationResponse, ResearchMarket, ValuationRefreshResult } from './marketBreadthTypes'
 
 const BASE = ''
 
@@ -3052,6 +3053,14 @@ export interface DataHealthJob {
 }
 
 export const api = {
+  marketBreadthValuation: (asOf?: string, market: ResearchMarket = 'composite', days = 20) => {
+    const query = new URLSearchParams({ market, days: String(days) })
+    if (asOf) query.set('as_of', asOf)
+    return request<BreadthValuationResponse>(`/api/taiwan/market-research/breadth-valuation?${query}`)
+  },
+  refreshMarketValuation: () => request<ValuationRefreshResult>(
+    '/api/taiwan/market-research/breadth-valuation/refresh', { method: 'POST' },
+  ),
   strategyLab: (filters: StrategyLabFilters) =>
     request<StrategyLabOverview>(`/api/taiwan/strategy-lab?${strategyLabQuery(filters)}`),
   strategyLabObservations: (filters: StrategyLabFilters, offset = 0) =>

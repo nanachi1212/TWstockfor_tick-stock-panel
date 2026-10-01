@@ -8,6 +8,8 @@
 // ===== Query Key 工廠 =====
 
 export const QK = {
+  marketBreadthValuation: (asOf?: string, market = 'composite', days = 20) =>
+    ['market-breadth-valuation', asOf ?? 'latest', market, days] as const,
   // 全局 / 共享 (Layout 預取)
   capabilities:   ['capabilities'] as const,
   settings:       ['settings'] as const,
@@ -146,7 +148,7 @@ export const QK = {
 
 // Health jobs reuse existing consumer caches even when the user leaves the health page.
 export const DATA_HEALTH_INVALIDATE_PREFIXES = {
-  daily: ['data-health', 'taiwan-data-status', 'taiwan-stock-detail', 'taiwan-current-data',
+  daily: ['data-health', 'market-breadth-valuation', 'taiwan-data-status', 'taiwan-stock-detail', 'taiwan-current-data',
     'taiwanStockResearchContext', 'taiwanAbnormalDiagnostics', 'taiwanMarketIntelligence',
     'taiwanIndustryIntelligence', 'watchlist-', 'selection-', 'strategy-lab', 'daily-brief', 'buy-point-'],
   social: ['data-health', 'taiwan-social-sentiment'],

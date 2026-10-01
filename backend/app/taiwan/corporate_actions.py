@@ -89,6 +89,7 @@ class CorporateActionEvent:
             values = (self.previous_close, self.reference_price, self.factor)
             if any(v is None or not math.isfinite(v) or v <= 0 for v in values):
                 raise ValueError("verified factor requires positive finite prices and factor")
+            assert self.factor is not None and self.reference_price is not None and self.previous_close is not None
             if not math.isclose(self.factor, self.reference_price / self.previous_close,
                                 rel_tol=1e-12):
                 raise ValueError("factor disagrees with official price basis")
@@ -360,20 +361,34 @@ class CorporateActionStore:
 
     def read_verified_window(self, start: date, end: date) -> tuple[CorporateActionEvent, ...] | None:
         """Return locally covered actions, or None when source coverage is unverified."""
+        coverage = self.read_verified_coverage()
+        if coverage is None or coverage[0] > start or coverage[1] < end:
+            return None
+        events = tuple(e for e in coverage[2] if start <= e.effective_date <= end)
+        return None if any(e.status == "provider_error" for e in events) else events
+
+    def read_verified_coverage(self) -> tuple[date, date, tuple[CorporateActionEvent, ...]] | None:
+        """One immutable locally validated snapshot for multi-window consumers.
+
+        Coverage bounds remain independent of the event list. Callers must
+        check bounds and provider errors for every requested window.
+        """
         from app.taiwan.providers.corporate_actions import SOURCE_URLS
 
         marker = self.path.with_name("coverage.json")
         if not marker.is_file() or not self.path.is_file():
             return None
         try:
+            generation = (self.path.stat().st_mtime_ns, self.path.stat().st_size, marker.stat().st_mtime_ns)
             record = json.loads(marker.read_text(encoding="utf-8"))
+            first, last = date.fromisoformat(record["start"]), date.fromisoformat(record["end"])
             if (record.get("events_sha256") != self.snapshot_digest()
-                    or set(record.get("sources", ())) != set(SOURCE_URLS)
-                    or date.fromisoformat(record["start"]) > start
-                    or date.fromisoformat(record["end"]) < end):
+                    or set(record.get("sources", ())) != set(SOURCE_URLS) or first > last):
                 return None
-            events = tuple(e for e in self.read() if start <= e.effective_date <= end)
-            return None if any(e.status == "provider_error" for e in events) else events
+            events = self.read()
+            if generation != (self.path.stat().st_mtime_ns, self.path.stat().st_size, marker.stat().st_mtime_ns):
+                return None
+            return first, last, events
         except (OSError, ValueError, KeyError, TypeError):
             return None
 
