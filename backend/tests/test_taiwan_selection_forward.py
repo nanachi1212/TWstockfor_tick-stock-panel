@@ -255,6 +255,7 @@ def test_trend_history_never_bridges_missing_market_or_symbol_session(tmp_path):
     calendar = TaiwanTradingCalendar(known_holidays={date(2026, 8, 7)},
                                      known_trading_days=set(sessions))
     screen = TaiwanScreenerService(daily_store=store, action_store=actions, calendar=calendar)
+    screen.census_store = None
     indicators, status, _ = screen._compute_trend_indicators(
         ["2330.TWSE", "2454.TWSE"], sessions[-1]
     )
@@ -270,6 +271,7 @@ def test_trend_history_never_bridges_missing_market_or_symbol_session(tmp_path):
     } for day in sessions if day != missing_day]))
     gap_screen = TaiwanScreenerService(daily_store=gap_store, action_store=actions,
                                        calendar=calendar)
+    gap_screen.census_store = None
     indicators, status, reason = gap_screen._compute_trend_indicators(
         ["2454.TWSE"], sessions[-1]
     )

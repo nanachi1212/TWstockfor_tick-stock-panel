@@ -44,6 +44,14 @@
 - Taiwan backend 測試需注意其 working directory 與本機資料路徑語意。
 - 外部上游資料失敗必須與本次 regression 分開判定；不得虛報 CI 或審查結果。
 
+## Local CI Routing
+
+- 日常修改完成後預設執行 `.\scripts\ci.ps1 -Mode Auto`，依 Git 變更範圍執行最小充分驗證。
+- 只有 dependency/lockfile、schema/migration、shared contract、跨核心模組、大型重構或高 correctness 風險修改才使用 `.\scripts\ci.ps1 -Mode Full`。
+- Live 屬於需要外部服務或真實網路的獨立驗證，不因一般修改自動執行。
+- GitHub CI 已提供等價 Full 驗證時，本機不重複執行 Full。
+- Full 後的小修正只跑受影響的 targeted tests，除非修正改變核心共用行為。
+
 ## Context Routing
 
 除必讀的 `CONTRIBUTING.md` 外，只讀取任務涉及的領域文件：
