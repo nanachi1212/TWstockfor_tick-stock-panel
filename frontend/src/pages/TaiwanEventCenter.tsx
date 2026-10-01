@@ -21,7 +21,7 @@ import { toast } from '@/components/Toast'
 import { cn } from '@/lib/cn'
 import { storage } from '@/lib/storage'
 import { buildPortfolioPositions, isPortfolioTransaction, type PortfolioTransaction } from '@/lib/portfolio'
-import { MopsEventEvidence } from '@/components/taiwan/MopsEventEvidence'
+import { MopsConferenceAvailability, MopsEventEvidence } from '@/components/taiwan/MopsEventEvidence'
 
 type EventScope = 'today' | 'week' | 'portfolio' | 'watchlist' | 'all'
 
@@ -355,6 +355,7 @@ export function TaiwanEventCenter() {
               <span>部分事件來源不可用、清單不完整或公告時間證據不足，請查看個別事件的來源與時間狀態。</span>
             </div>
           )}
+          <MopsConferenceAvailability sources={eventsQuery.data?.sources_status} />
           {eventsQuery.data?.status === 'unavailable' && (
             <div className="flex items-center gap-2 rounded-lg border border-rose-500/30 bg-rose-500/10 p-3 text-xs text-rose-500">
               <ShieldAlert className="h-4 w-4 shrink-0" />

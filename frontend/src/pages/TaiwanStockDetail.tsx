@@ -34,7 +34,7 @@ import { formatStockDetailCopy, formatStockDetailPrompt, type CopyAvailabilityMe
 import { TaiwanRuleEditorDialog } from '@/components/monitor/TaiwanRuleEditorDialog'
 import { EChartsCandlestick, type OHLC } from '@/components/EChartsCandlestick'
 import { TaiwanReferenceData } from '@/components/taiwan/TaiwanReferenceData'
-import { MopsEventEvidence } from '@/components/taiwan/MopsEventEvidence'
+import { MopsConferenceAvailability, MopsEventEvidence } from '@/components/taiwan/MopsEventEvidence'
 import { DataQualityBadge, formatQuoteSource } from '@/components/taiwan/TaiwanDataQuality'
 import { WatchlistAddMenu } from '@/components/WatchlistAddMenu'
 import { useSafeBack } from '@/lib/useSafeBack'
@@ -1414,6 +1414,7 @@ export function TaiwanStockDetail() {
                 {data.events_status && data.events_status !== 'available' && (
                   <p className="mb-2 text-[11px] text-amber-500">事件來源不完整或公告時間證據不足，請查看各筆資料狀態。</p>
                 )}
+                <MopsConferenceAvailability sources={data.events_sources_status} />
                 {data.recent_events && data.recent_events.length > 0 ? (
                   <div className="space-y-2.5 max-h-80 overflow-y-auto pr-1">
                     {data.recent_events.map((evt, idx) => (

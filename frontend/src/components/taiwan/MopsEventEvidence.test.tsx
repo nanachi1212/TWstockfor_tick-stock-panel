@@ -1,7 +1,7 @@
 import { render, screen } from '@testing-library/react'
 import { describe, expect, it } from 'vitest'
 import type { MarketEvent } from '@/lib/api'
-import { MopsEventEvidence } from './MopsEventEvidence'
+import { MopsConferenceAvailability, MopsEventEvidence } from './MopsEventEvidence'
 
 const base: MarketEvent = {
   id: 'test', symbol: '2330.TWSE', code: '2330', name: '測試公司', exchange: 'TWSE',
@@ -30,6 +30,39 @@ describe('MOPS evidence shared by product surfaces', () => {
     expect(screen.getByRole('link', { name: '官方中文簡報' })).toHaveAttribute('href', 'https://mopsov.twse.com.tw/test.pdf')
     expect(screen.queryByRole('link', { name: /假簡報/ })).not.toBeInTheDocument()
     expect(screen.getByText(/舉行時間不等於公告時間/)).toBeInTheDocument()
+    expect(screen.getByText(/資料直接取自官方 MOPS/)).toBeInTheDocument()
+    expect(screen.queryByText(/ToAlpha/)).not.toBeInTheDocument()
+  })
+
+  it('preserves the official POST download form and multi-day schedule without submitting automatically', () => {
+    render(<MopsEventEvidence event={{ ...base, event_type: 'investor_conference', source: 'mops:conference:t100sb02_1', details: {
+      scheduled_date_display: '115/10/01 至 115/10/02', scheduled_time: '14:00', presentation_links: [{
+        label: '中文簡報', url: 'https://mopsov.twse.com.tw/server-java/FileDownLoad', method: 'POST',
+        parameters: { step: '9', filePath: '/home/html/nas/STR/', fileName: '233020261001M001.pdf', functionName: 't100sb02_1' },
+      }],
+    } }} />)
+    expect(screen.getByText(/115\/10\/01 至 115\/10\/02/)).toBeInTheDocument()
+    const form = screen.getByRole('button', { name: '官方中文簡報' }).closest('form')!
+    expect(form).toHaveAttribute('action', 'https://mopsov.twse.com.tw/server-java/FileDownLoad')
+    expect(form).toHaveAttribute('method', 'post')
+    expect(form).toHaveAttribute('target', '_blank')
+    expect(form.querySelector('input[name="fileName"]')).toHaveAttribute('value', '233020261001M001.pdf')
+    expect(form.querySelector('input[name="functionName"]')).toHaveAttribute('value', 't100sb02_1')
+  })
+
+  it('does not expose an unverified POST form', () => {
+    render(<MopsEventEvidence event={{ ...base, event_type: 'investor_conference', details: { presentation_links: [{
+      label: '中文簡報', url: 'https://mopsov.twse.com.tw/server-java/FileDownLoad', method: 'POST',
+      parameters: { fileName: '../private.pdf' },
+    }] } }} />)
+    expect(screen.queryByRole('button', { name: '官方中文簡報' })).not.toBeInTheDocument()
+    expect(screen.getByText('官方簡報連結尚未提供。')).toBeInTheDocument()
+  })
+
+  it('explicitly labels an unavailable official source and offers only the official query link', () => {
+    render(<MopsConferenceAvailability sources={{ 'mops:conference:t100sb02_1': 'unavailable' }} />)
+    expect(screen.getByRole('status')).toHaveTextContent('官方 MOPS 法說會資料目前不可用')
+    expect(screen.getByRole('link', { name: '前往官方查詢' })).toHaveAttribute('href', 'https://mopsov.twse.com.tw/mops/web/t100sb02_1')
   })
 
   it('shows missing slides and stale data explicitly, without causal claims', () => {

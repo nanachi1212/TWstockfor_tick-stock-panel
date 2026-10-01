@@ -1,8 +1,7 @@
 """MOPS event adapters, restricted to product evidence (never historical PIT).
 
 Reuse the Taiwan HTTP throttle/date/quantity contracts and dividend classifier.
-Official daily material/transfer feeds are authoritative; ToAlpha only relays
-the conference dataset for which this product has no existing adapter.
+Only official TWSE/TPEx/MOPS responses may supply event evidence.
 """
 # ruff: noqa: RUF001 -- official Traditional Chinese labels.
 from __future__ import annotations
@@ -11,15 +10,16 @@ import hashlib
 import json
 import re
 import unicodedata
-from collections.abc import Callable
-from datetime import datetime
+from dataclasses import dataclass, field
+from datetime import datetime, timedelta
+from html.parser import HTMLParser
 from typing import Any
 from urllib.parse import urlsplit
 
 import httpx
 
 from app.taiwan.dividend_events import MOPS_EVIDENCE_URL, classify_dividend_event
-from app.taiwan.providers.http import fetch_json, taiwan_client
+from app.taiwan.providers.http import DEFAULT_USER_AGENT, fetch_json, taiwan_client
 from app.taiwan.providers.taiwan_values import TAIPEI, parse_integer, parse_taiwan_date
 
 MOPS_EVENT_TYPES = {"material_information", "investor_conference", "insider_transfer_declaration"}
@@ -29,11 +29,11 @@ OFFICIAL_FEEDS = {
     "mops:transfer:TWSE": ("https://openapi.twse.com.tw/v1/opendata/t187ap12_L", "TWSE", "insider_transfer_declaration"),
     "mops:transfer:TPEX": ("https://www.tpex.org.tw/openapi/v1/mopsfin_t187ap12_O", "TPEX", "insider_transfer_declaration"),
 }
-CONFERENCE_SOURCE = "toalpha:mops:t100sb02_1"
-CONFERENCE_URL = "https://mops.twse.com.tw/mops/web/t100sb02_1"
-TOALPHA_URL = "https://toalpha.tw/mcp/mops"
+CONFERENCE_SOURCE = "mops:conference:t100sb02_1"
+CONFERENCE_URL = "https://mopsov.twse.com.tw/mops/web/t100sb02_1"
+CONFERENCE_QUERY_URL = "https://mopsov.twse.com.tw/mops/web/ajax_t100sb02_1"
 TRANSFER_URL = "https://mops.twse.com.tw/mops/web/t56sb21"
-MAX_RESPONSE_BYTES = 4 * 1024 * 1024
+MAX_RESPONSE_BYTES = 8 * 1024 * 1024
 
 # Verified common clauses of TWSE/TPEx art. 4 on 2026-10-01. Clauses outside
 # this map remain 'other'; market-specific later clauses are not guessed.
@@ -169,98 +169,193 @@ def fetch_official_events(source: str) -> list[dict[str, Any]]:
     return [normalize_official_row(row, source=source, exchange=exchange, event_type=event_type, retrieved=retrieved) for row in payload]
 
 
-def _rpc(client: httpx.Client, headers: dict[str, str], payload: dict[str, Any]) -> dict[str, Any]:
-    with client.stream("POST", TOALPHA_URL, json=payload, headers=headers) as response:
-        response.raise_for_status()
-        if response.headers.get("mcp-session-id"):
-            headers["Mcp-Session-Id"] = response.headers["mcp-session-id"]
-        chunks, size = [], 0
-        for chunk in response.iter_bytes():
-            size += len(chunk)
-            if size > MAX_RESPONSE_BYTES:
-                raise ValueError("ToAlpha response exceeds limit")
-            chunks.append(chunk)
-        raw = b"".join(chunks).decode("utf-8")
-        if "id" not in payload:
-            return {}
-        if "text/event-stream" in response.headers.get("content-type", ""):
-            messages = []
-            for block in raw.replace("\r\n", "\n").split("\n\n"):
-                data = "\n".join(line[5:].lstrip() for line in block.splitlines() if line.startswith("data:"))
-                if data:
-                    messages.append(json.loads(data))
-        else:
-            messages = [json.loads(raw)]
-        matches = [m for m in messages if isinstance(m, dict) and m.get("id") == payload["id"]]
-        if len(matches) != 1 or "error" in matches[0] or not isinstance(matches[0].get("result"), dict):
-            raise ValueError("ToAlpha RPC failed")
-        return dict(matches[0]["result"])
+CONFERENCE_HEADERS = [
+    "公司代號", "公司名稱", "召開法人說明會日期", "召開法人說明會時間", "召開法人說明會地點",
+    "法人說明會擇要訊息", "法人說明會簡報內容", "公司網站是否提供法人說明會相關資訊",
+    "影音連結資訊", "其他應敘明事項", "歷年法人說明會", "中文檔案", "英文檔案",
+]
 
 
-def fetch_conferences(
-    resolve: Callable[[str], tuple[str, str, str, str, bool]],
-    *, client: httpx.Client | None = None,
-) -> tuple[list[dict[str, Any]], str]:
-    """Port the existing mystocktracer bounded MCP transport; one allowed tool."""
+@dataclass
+class _ConferenceCell:
+    parts: list[str] = field(default_factory=list)
+    links: list[dict[str, str]] = field(default_factory=list)
+
+    @property
+    def text(self) -> str:
+        return " ".join("".join(self.parts).split())
+
+
+class _ConferenceTableParser(HTMLParser):
+    """Read the verified MOPS table/form contract; never execute scripts."""
+
+    def __init__(self) -> None:
+        super().__init__(convert_charrefs=True)
+        self.headers: list[str] = []
+        self.rows: list[list[_ConferenceCell]] = []
+        self.download_action = ""
+        self.download_fields: dict[str, str] = {}
+        self._download_form = False
+        self._table = False
+        self._table_count = 0
+        self._row: list[_ConferenceCell] | None = None
+        self._cell: _ConferenceCell | None = None
+        self._cell_tag = ""
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        values = {k: v or "" for k, v in attrs}
+        if tag == "form" and values.get("id") == "fm_fileDownload":
+            if self.download_action or values.get("method", "").lower() != "post":
+                raise ValueError("MOPS conference download form changed")
+            self._download_form = True
+            self.download_action = values.get("action", "")
+        if tag == "input" and self._download_form:
+            self.download_fields[values.get("name", "")] = values.get("value", "")
+        if tag == "table":
+            if self._table:
+                raise ValueError("MOPS conference nested table unsupported")
+            if values.get("id") == "myTable":
+                self._table = True
+                self._table_count += 1
+        if not self._table:
+            return
+        if tag == "tr":
+            if self._row is not None:
+                raise ValueError("MOPS conference row incomplete")
+            self._row = [] if values.get("data-type") == "body" else None
+            if values.get("class") in {"even", "odd"} and self._row is None:
+                raise ValueError("MOPS conference row marker changed")
+        if tag in {"td", "th"}:
+            if self._cell is not None:
+                raise ValueError("MOPS conference cell incomplete")
+            self._cell = _ConferenceCell()
+            self._cell_tag = tag
+        if tag == "a" and self._cell is not None:
+            self._cell.links.append(values)
+        if tag == "br" and self._cell is not None:
+            self._cell.parts.append("\n")
+
+    def handle_data(self, data: str) -> None:
+        if self._cell is not None:
+            self._cell.parts.append(data)
+
+    def handle_endtag(self, tag: str) -> None:
+        if tag == "form":
+            self._download_form = False
+        if tag == self._cell_tag and self._cell is not None:
+            if tag == "th":
+                self.headers.append(self._cell.text)
+            elif self._row is not None:
+                self._row.append(self._cell)
+            self._cell = None
+            self._cell_tag = ""
+        if tag == "tr" and self._row is not None:
+            if self._cell is not None or len(self._row) != 12 or len(self.rows) >= 10000:
+                raise ValueError("MOPS conference columns changed")
+            self.rows.append(self._row)
+            self._row = None
+        if tag == "table":
+            self._table = False
+
+    def validate(self) -> None:
+        if self._table_count != 1 or self._table or self._row is not None or self._cell is not None or self.headers != CONFERENCE_HEADERS:
+            raise ValueError("MOPS conference table missing or schema changed")
+        expected = {"step": "9", "filePath": "/home/html/nas/STR/", "fileName": "", "functionName": "t100sb02_1"}
+        if self.download_action != "/server-java/FileDownLoad" or self.download_fields != expected:
+            raise ValueError("MOPS conference official download contract changed")
+
+
+def _presentation_links(parser: _ConferenceTableParser, cells: list[_ConferenceCell]) -> list[dict[str, Any]]:
+    links: list[dict[str, Any]] = []
+    for label, cell in zip(("中文簡報", "英文簡報"), cells[6:8], strict=True):
+        for anchor in cell.links:
+            if url := official_link(anchor.get("href")):
+                links.append({"label": label, "url": url})
+                continue
+            # Preserve the actual POST form and returned filename. A GET URL
+            # is not verified for this official endpoint, so do not invent one.
+            match = re.fullmatch(
+                r'document\.fm_fileDownload\.fileName\.value="([A-Za-z0-9_.-]{1,120})";\s*document\.fm_fileDownload\.submit\(\);',
+                anchor.get("onclick", ""),
+            )
+            if not match or anchor.get("href") != "#":
+                raise ValueError("MOPS conference presentation link changed")
+            links.append({
+                "label": label, "url": "https://mopsov.twse.com.tw" + parser.download_action,
+                "method": "POST", "parameters": {**parser.download_fields, "fileName": match[1]},
+            })
+    return links
+
+
+def parse_conference_html(html: str, *, exchange: str, year: int, retrieved: datetime) -> list[dict[str, Any]]:
+    parser = _ConferenceTableParser()
+    parser.feed(html)
+    parser.close()
+    parser.validate()
+    events: list[dict[str, Any]] = []
+    for cells in parser.rows:
+        code, name, raw_date, clock, place, description = [cell.text for cell in cells[:6]]
+        if not re.fullmatch(r"[0-9]{4}[0-9A-Z]{0,2}", code) or not name or exchange not in {"TWSE", "TPEX"}:
+            raise ValueError("MOPS conference issuer invalid")
+        dates = re.split(r"\s+至\s+", raw_date)
+        if len(dates) not in {1, 2} or not all(re.fullmatch(r"\d{3}/\d{2}/\d{2}", d) for d in dates):
+            raise ValueError("MOPS conference date invalid")
+        start, end = parse_taiwan_date(dates[0]), parse_taiwan_date(dates[-1])
+        if start.year != year or end < start or not re.fullmatch(r"(?:[01]\d|2[0-3]):[0-5]\d", clock):
+            raise ValueError("MOPS conference schedule invalid")
+        events.append({
+            "id": _identity([CONFERENCE_SOURCE, exchange, code, start, end, clock, place]),
+            "symbol": f"{code}.{exchange}", "code": code, "name": name, "exchange": exchange,
+            "event_type": "investor_conference", "event_type_label": "法人說明會", "severity": "info",
+            "event_date": start.isoformat(), "title": f"法人說明會 {clock}", "summary": description,
+            "source": CONFERENCE_SOURCE, "source_url": CONFERENCE_URL, "retrieved_at": retrieved.isoformat(),
+            "freshness": "fresh", "published_at": None, "available_at": None, "status": "data_insufficient",
+            "details": {
+                "event_date_kind": "conference_date", "scheduled_time": clock, "place": place,
+                "scheduled_end_date": end.isoformat(), "scheduled_date_display": raw_date,
+                "presentation_links": _presentation_links(parser, cells), "provider": "MOPS",
+                "publication_evidence_url": CONFERENCE_QUERY_URL,
+                "query_parameters": {"TYPEK": "sii" if exchange == "TWSE" else "otc", "year": str(year - 1911)},
+                "publication_reason": "法說會日期時間是舉行時間，官方表格未提供可確認的公告時間。",
+            },
+        })
+    return events
+
+
+def fetch_conferences(*, client: httpx.Client | None = None) -> tuple[list[dict[str, Any]], str]:
+    """Direct official MOPS query, bounded to observed -90/+60 calendar days."""
+    now = datetime.now(TAIPEI)
+    start, end = now.date() - timedelta(days=90), now.date() + timedelta(days=60)
     owned = client is None
-    client = client or taiwan_client(timeout=8.0)
-    headers = {"Accept": "application/json, text/event-stream"}
+    client = client or taiwan_client(timeout=8.0, headers={"User-Agent": DEFAULT_USER_AGENT})
+    events: list[dict[str, Any]] = []
+    succeeded = failed = 0
     try:
-        initialized = _rpc(client, headers, {"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {
-            "protocolVersion": "2025-03-26", "capabilities": {}, "clientInfo": {"name": "twstock-events", "version": "1"},
-        }})
-        # Streamable HTTP permits stateless servers with no session header.
-        if initialized.get("protocolVersion") != "2025-03-26":
-            raise ValueError("ToAlpha protocol version unsupported")
-        headers["MCP-Protocol-Version"] = "2025-03-26"
-        _rpc(client, headers, {"jsonrpc": "2.0", "method": "notifications/initialized", "params": {}})
-        result = _rpc(client, headers, {"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": {
-            "name": "investor_conferences", "arguments": {"days_ahead": 60, "limit": 100},
-        }})
-        content = result.get("content")
-        if result.get("isError") or not isinstance(content, list) or len(content) != 1 or content[0].get("type") != "text":
-            raise ValueError("ToAlpha conference tool failed")
-        payload = json.loads(content[0]["text"])
-        rows = payload.get("rows")
-        count = payload.get("count")
-        if not isinstance(rows, list) or len(rows) > 100 or not isinstance(count, int) or count < len(rows):
-            raise ValueError("ToAlpha conference schema changed")
-        retrieved = datetime.now(TAIPEI)
-        events = [normalize_conference(row, resolve=resolve, retrieved=retrieved) for row in rows]
-        # Reaching the cap cannot prove completeness even if count equals limit.
-        status = "partial" if count > len(rows) or len(rows) == 100 else "available"
-        return events, status
+        for year in range(start.year, end.year + 1):
+            for board, exchange in (("sii", "TWSE"), ("otc", "TPEX")):
+                try:
+                    with client.stream("POST", CONFERENCE_QUERY_URL, data={
+                        "step": "1", "firstin": "ture", "off": "1", "TYPEK": board,
+                        "year": str(year - 1911), "month": "", "co_id": "",
+                    }, headers={"Referer": CONFERENCE_URL}) as response:
+                        response.raise_for_status()
+                        if "text/html" not in response.headers.get("content-type", ""):
+                            raise ValueError("MOPS conference response is not HTML")
+                        chunks: list[bytes] = []
+                        size = 0
+                        for chunk in response.iter_bytes():
+                            size += len(chunk)
+                            if size > MAX_RESPONSE_BYTES:
+                                raise ValueError("MOPS conference response exceeds limit")
+                            chunks.append(chunk)
+                        rows = parse_conference_html(b"".join(chunks).decode("utf-8"), exchange=exchange, year=year, retrieved=datetime.now(TAIPEI))
+                    events.extend(row for row in rows if row["event_date"] <= end.isoformat() and row["details"]["scheduled_end_date"] >= start.isoformat())
+                    succeeded += 1
+                except (httpx.HTTPError, ValueError):
+                    failed += 1
+        if not succeeded:
+            raise ValueError("Official MOPS conference source unavailable or schema unverified")
+        return events, "partial" if failed else "available"
     finally:
         if owned:
             client.close()
-
-
-def normalize_conference(
-    row: Any, *, resolve: Callable[[str], tuple[str, str, str, str, bool]], retrieved: datetime,
-) -> dict[str, Any]:
-    if not isinstance(row, dict) or not all(k in row for k in ("id", "date", "time", "place", "summary", "slide_zh", "slide_en")):
-        raise ValueError("ToAlpha conference row schema changed")
-    code = str(row["id"]).strip()
-    if not re.fullmatch(r"[0-9]{4}[0-9A-Z]{0,2}", code):
-        raise ValueError("ToAlpha conference issuer missing")
-    symbol, clean_code, name, exchange, resolvable = resolve(code)
-    event_date = parse_taiwan_date(str(row["date"])).isoformat()
-    clock = str(row["time"] or "").strip()
-    if clock and not re.fullmatch(r"(?:[01]\d|2[0-3]):[0-5]\d", clock):
-        raise ValueError("ToAlpha conference time invalid")
-    slides = [{"label": label, "url": url} for label, key in (("中文簡報", "slide_zh"), ("英文簡報", "slide_en")) if (url := official_link(row[key]))]
-    return {
-        "id": _identity([CONFERENCE_SOURCE, code, event_date, clock, row["place"]]),
-        "symbol": symbol, "code": clean_code, "name": name if resolvable else str(row.get("name") or code),
-        "exchange": exchange, "is_resolvable": resolvable,
-        "event_type": "investor_conference", "event_type_label": "法人說明會", "severity": "info",
-        "event_date": event_date, "title": f"法人說明會 {clock}".strip(), "summary": str(row["summary"])[:1200],
-        "source": CONFERENCE_SOURCE, "source_url": CONFERENCE_URL, "retrieved_at": retrieved.isoformat(),
-        "freshness": "fresh", "published_at": None, "available_at": None, "status": "data_insufficient",
-        "details": {
-            "event_date_kind": "conference_date", "scheduled_time": clock or None, "place": str(row["place"]),
-            "invited": row.get("invited"), "presentation_links": slides,
-            "provider": "ToAlpha", "upstream_source": "MOPS:t100sb02_1", "provider_url": "https://toalpha.tw/conference",
-            "publication_reason": "法說會日期時間是舉行時間，來源未提供可確認的公告時間。",
-        },
-    }

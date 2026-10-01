@@ -677,16 +677,30 @@ class TaiwanEventService:
             snapshot = self._mops_cache
         if snapshot is None and cache_file.exists():
             try:
-                raw = json.loads(cache_file.read_text(encoding="utf-8"))
-                # Validate every persisted event before using the snapshot.
-                for item in raw["events"]:
-                    MarketEvent.model_validate(item)
-                raw["saved_at"] = float(raw["saved_at"])
-                if not isinstance(raw["sources_status"], dict):
-                    raise ValueError("invalid source states")
-                snapshot = raw
+                snapshot = json.loads(cache_file.read_text(encoding="utf-8"))
             except (OSError, ValueError, TypeError, KeyError):
                 logger.warning("MOPS event cache could not be read")
+        if snapshot is not None:
+            try:
+                allowed = {source: contract[2] for source, contract in OFFICIAL_FEEDS.items()}
+                allowed[CONFERENCE_SOURCE] = "investor_conference"
+                raw_events = snapshot["events"]
+                raw_statuses = snapshot["sources_status"]
+                if not isinstance(raw_events, list) or not isinstance(raw_statuses, dict):
+                    raise ValueError("invalid MOPS snapshot")
+                # Reject retired/unapproved evidence before model validation,
+                # TTL handling, stale fallback, or writing a new snapshot.
+                approved = [item for item in raw_events if isinstance(item, dict) and
+                            item.get("source") in allowed and item.get("event_type") == allowed[item["source"]]]
+                for item in approved:
+                    MarketEvent.model_validate(item)
+                needs_refresh = snapshot.get("source_policy") != "official-only-v1" or len(approved) != len(raw_events) or set(raw_statuses) != set(allowed)
+                snapshot = {**snapshot, "events": approved,
+                            "sources_status": {s: raw_statuses.get(s, "not_queried") for s in allowed},
+                            "saved_at": 0 if needs_refresh else float(snapshot["saved_at"])}
+            except (ValueError, TypeError, KeyError):
+                logger.warning("MOPS event cache failed official-source validation")
+                snapshot = None
         with self._mops_lock:
             if snapshot and not force_refresh and 0 <= now.timestamp() - snapshot["saved_at"] < self._cache_ttl:
                 self._mops_cache = snapshot
@@ -703,16 +717,14 @@ class TaiwanEventService:
             for source in (*OFFICIAL_FEEDS, CONFERENCE_SOURCE):
                 try:
                     if source == CONFERENCE_SOURCE:
-                        rows, status = fetch_conferences(self._resolve_symbol)
+                        rows, status = fetch_conferences()
                     else:
                         rows, status = fetch_official_events(source), "available"
                     source_events: list[MarketEvent] = []
                     for row in rows:
-                        if source != CONFERENCE_SOURCE:
-                            # Preserve the source's board; never relabel an issuer
-                            # from an alternate exchange to make it resolvable.
-                            inst = self.security_master.get_instrument(row["symbol"])
-                            row["is_resolvable"] = inst is not None
+                        # Preserve the official board, including conferences.
+                        inst = self.security_master.get_instrument(row["symbol"])
+                        row["is_resolvable"] = inst is not None
                         source_events.append(MarketEvent.model_validate(row))
                     fresh.extend(source_events)
                     statuses[source] = "data_insufficient" if status == "available" and any(r["status"] == "data_insufficient" for r in rows) else status
@@ -733,6 +745,7 @@ class TaiwanEventService:
             events = sorted(retained.values(), key=lambda e: (e.event_date, e.id), reverse=True)
             payload = {
                 "saved_at": now.timestamp(), "sources_status": statuses,
+                "source_policy": "official-only-v1",
                 "events": [event.model_dump() for event in events],
             }
             if any(s != "unavailable" for s in statuses.values()):

@@ -289,7 +289,7 @@ observations exist.
 
 ## Dividend lifecycle stable event ingest (Phase 6D)
 
-一般重大訊息、法說會與內部人持股轉讓事前申報的產品事件契約，另見 [ToAlpha v2.1 Phase 3](toalpha-v2.1-phase3-mops-events.md)。它們沿用事件中心與個股詳情，不接 Historical PIT 或 Strategy Lab，也不覆寫本節股利生命週期或月營收的權威資料。
+一般重大訊息、法說會與內部人持股轉讓事前申報的產品事件契約，另見 [Phase 3 官方 MOPS 事件](toalpha-v2.1-phase3-mops-events.md)。重大訊息與事前轉讓申報採 TWSE／TPEx 官方 OpenAPI；法說會直接查詢 [官方 MOPS `t100sb02_1`](https://mopsov.twse.com.tw/mops/web/t100sb02_1)，來源為 `mops:conference:t100sb02_1`，保留日期範圍、時間、地點、擇要訊息及官方 POST 簡報表單。官方資料無法可靠解析時 fail closed、標示 unavailable，不使用第三方 fallback，亦不讀回舊第三方快取。ToAlpha 僅供產品功能參考，沒有其資料依賴。它們沿用事件中心與個股詳情，不接 Historical PIT 或 Strategy Lab，也不覆寫本節股利生命週期或月營收的權威資料。
 
 The official source is the MOPS historical material-information service:
 

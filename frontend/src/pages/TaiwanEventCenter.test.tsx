@@ -47,6 +47,13 @@ describe('Event Center MOPS integration', () => {
     expect(await screen.findByText(/官方事件來源連線中斷/)).toBeInTheDocument()
   })
 
+  it('reports an official conference outage even when other event sources remain available', async () => {
+    vi.mocked(api.taiwanEvents).mockResolvedValue({ ...response, sources_status: { 'mops:conference:t100sb02_1': 'unavailable' } })
+    renderPage()
+    expect(await screen.findByText(/官方 MOPS 法說會資料目前不可用/)).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: '前往官方查詢' })).toHaveAttribute('href', 'https://mopsov.twse.com.tw/mops/web/t100sb02_1')
+  })
+
   it('shows request failure and retains a retry action', async () => {
     vi.mocked(api.taiwanEvents).mockRejectedValue(new Error('offline'))
     renderPage()

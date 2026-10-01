@@ -88,7 +88,8 @@ afterEach(() => {
 describe('TaiwanStockDetail — back navigation (DAILY_USE_CORE_UX_FIXES P1-2)', () => {
   it('renders MOPS declaration evidence inside the existing stock event panel', async () => {
     const original = await api.taiwanStockDetail('2330.TWSE', 30)
-    vi.mocked(api.taiwanStockDetail).mockResolvedValueOnce({ ...original, events_status: 'partial', recent_events: [{
+    vi.mocked(api.taiwanStockDetail).mockResolvedValueOnce({ ...original, events_status: 'partial',
+      events_sources_status: { 'mops:conference:t100sb02_1': 'unavailable' }, recent_events: [{
       id: 'mops_test', symbol: '2330.TWSE', code: '2330', name: '台積電', exchange: 'TWSE',
       event_date: '2026-10-01', event_type: 'insider_transfer_declaration', event_type_label: '內部人持股轉讓申報',
       severity: 'info', title: '測試轉讓申報', summary: '預定轉讓', source: 'mops:transfer:TWSE',
@@ -99,6 +100,7 @@ describe('TaiwanStockDetail — back navigation (DAILY_USE_CORE_UX_FIXES P1-2)',
     expect(await screen.findByText('測試轉讓申報')).toBeInTheDocument()
     expect(screen.getByTestId('mops-evidence')).toHaveTextContent('不代表實際成交或已賣出')
     expect(screen.getByText(/事件來源不完整或公告時間證據不足/)).toBeInTheDocument()
+    expect(screen.getByText(/官方 MOPS 法說會資料目前不可用/)).toBeInTheDocument()
   })
   it('shows the current stock social summary without turning blocked Dcard into zero', async () => {
     vi.mocked(api.taiwanSocialSentiment).mockResolvedValue({
