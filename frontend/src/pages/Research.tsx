@@ -2,7 +2,7 @@ import { useMemo } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { AlertTriangle, GitCompareArrows, Loader2, Search } from 'lucide-react'
-import { api, type TaiwanAIResearchHistoryRecord } from '@/lib/api'
+import { api, researchPromptVersion, type TaiwanAIResearchHistoryRecord } from '@/lib/api'
 import { QK } from '@/lib/queryKeys'
 
 function recordsFrom(value: unknown): TaiwanAIResearchHistoryRecord[] {
@@ -12,7 +12,7 @@ function recordsFrom(value: unknown): TaiwanAIResearchHistoryRecord[] {
       ? ((value as { items?: unknown }).items ?? (value as { records?: unknown }).records)
       : []
   return Array.isArray(raw)
-    ? raw.filter((item): item is TaiwanAIResearchHistoryRecord => Boolean(item && typeof item === 'object' && typeof (item as { id?: unknown }).id === 'string'))
+    ? raw.filter((item): item is TaiwanAIResearchHistoryRecord => Boolean(item && typeof item === 'object' && typeof (item as { id?: unknown }).id === 'string' && ((item as { kind?: unknown }).kind == null || (item as { kind?: unknown }).kind === 'report')))
     : []
 }
 
@@ -30,7 +30,7 @@ export function Research() {
   const selectedId = params.get('id') ?? ''
   const firstCompareId = params.get('compare') ?? ''
   const secondCompareId = params.get('other') ?? ''
-  const filters = useMemo(() => ({ symbol: symbol || undefined, from: from || undefined, to: to || undefined, purpose: 'stock', limit: 100 }), [symbol, from, to])
+  const filters = useMemo(() => ({ symbol: symbol || undefined, from: from || undefined, to: to || undefined, purpose: 'research', limit: 100 }), [symbol, from, to])
   const historyQuery = useQuery({
     queryKey: QK.taiwanAIResearchHistory(filters),
     queryFn: () => api.taiwanAIResearchHistory(filters),
@@ -85,7 +85,7 @@ export function Research() {
               <div key={record.id} className={`rounded-lg border p-2 text-xs ${selected?.id === record.id ? 'border-accent bg-accent/5' : 'border-border/60'}`}>
                 <button type="button" onClick={() => selectRecord(record.id)} className="w-full text-left">
                   <div className="flex items-center justify-between gap-2"><span className="font-mono font-semibold">{record.symbol ?? '標的未提供'}</span><span className="text-[10px] text-muted">{record.saved_at ?? record.generated_at ?? '時間未提供'}</span></div>
-                  <div className="mt-1 text-[10px] text-muted">{record.provider ?? 'provider 未提供'} · {record.model ?? 'model 未提供'} · {record.prompt_version ?? '提示詞版本未提供'}</div>
+                  <div className="mt-1 text-[10px] text-muted">{record.provider ?? 'provider 未提供'} · {record.model ?? 'model 未提供'} · {researchPromptVersion(record) ?? '提示詞版本未提供'}</div>
                 </button>
                 <div className="mt-1 flex flex-wrap gap-1">
                   <button type="button" onClick={() => setFilters({ compare: record.id, ...(firstCompareId === record.id ? { other: '' } : {}) })} className="inline-flex items-center gap-1 text-[10px] text-purple-300 hover:underline"><GitCompareArrows className="h-3 w-3" />選為比較 A</button>
@@ -99,10 +99,10 @@ export function Research() {
           {selectedDetail && <article className="rounded-xl border border-border bg-surface p-4">
             <div className="flex flex-wrap items-center justify-between gap-2"><h2 className="text-sm font-semibold">研究詳情：{selectedDetail.symbol ?? '未提供標的'}</h2><span className="font-mono text-[10px] text-muted">{selectedDetail.id}</span></div>
             {detailQuery.isFetching && <p role="status" className="mt-1 text-[10px] text-muted">正在讀取完整紀錄…</p>}
-            <dl className="mt-3 grid grid-cols-2 gap-2 text-[10px] sm:grid-cols-4"><div><dt className="text-muted">Provider</dt><dd>{selectedDetail.provider ?? '未提供'}</dd></div><div><dt className="text-muted">Model</dt><dd>{selectedDetail.model ?? '未提供'}</dd></div><div><dt className="text-muted">提示詞版本</dt><dd>{selectedDetail.prompt_version ?? printable(selectedDetail.prompt_versions)}</dd></div><div><dt className="text-muted">保存時間</dt><dd>{selectedDetail.saved_at ?? selectedDetail.generated_at ?? '未提供'}</dd></div></dl>
+            <dl className="mt-3 grid grid-cols-2 gap-2 text-[10px] sm:grid-cols-4"><div><dt className="text-muted">Provider</dt><dd>{selectedDetail.provider ?? '未提供'}</dd></div><div><dt className="text-muted">Model</dt><dd>{selectedDetail.model ?? '未提供'}</dd></div><div><dt className="text-muted">提示詞版本</dt><dd>{researchPromptVersion(selectedDetail) ?? '未提供'}</dd></div><div><dt className="text-muted">保存時間</dt><dd>{selectedDetail.saved_at ?? selectedDetail.generated_at ?? '未提供'}</dd></div></dl>
             <div className="mt-3 rounded-lg border border-border/50 bg-base/30 p-3"><h3 className="text-xs font-semibold">報告</h3><pre className="mt-2 max-h-[28rem] overflow-auto whitespace-pre-wrap text-[11px] leading-relaxed text-secondary">{printable(selectedDetail.report ?? selectedDetail.response ?? selectedDetail)}</pre></div>
           </article>}
-          {(firstCompareId || secondCompareId) && <article className="rounded-xl border border-purple-500/30 bg-surface p-4"><h2 className="flex items-center gap-2 text-sm font-semibold"><GitCompareArrows className="h-4 w-4 text-purple-300" />研究比較</h2>{!firstCompareId || !secondCompareId ? <p className="mt-2 text-xs text-muted">請在左側各選一筆比較 A 與比較 B。</p> : compareQuery.isLoading ? <p role="status" className="mt-2 text-xs text-muted">正在取得確定性比較…</p> : compareQuery.isError ? <p role="alert" className="mt-2 text-xs text-muted">比較資料目前不可用。</p> : compareQuery.data ? <div className="mt-3 grid gap-3 md:grid-cols-3"><div className="rounded-lg border border-border/50 p-3"><h3 className="text-xs font-semibold">資料變化</h3><pre className="mt-2 whitespace-pre-wrap text-[10px] text-secondary">{printable(compareQuery.data.data_changes ?? compareQuery.data.current)}</pre></div><div className="rounded-lg border border-border/50 p-3"><h3 className="text-xs font-semibold">模型／提示詞變化</h3><pre className="mt-2 whitespace-pre-wrap text-[10px] text-secondary">{printable(compareQuery.data.model_prompt_changes)}</pre></div><div className="rounded-lg border border-border/50 p-3"><h3 className="text-xs font-semibold">解讀變化</h3><pre className="mt-2 whitespace-pre-wrap text-[10px] text-secondary">{printable(compareQuery.data.interpretation_changes ?? compareQuery.data.other)}</pre></div></div> : null}</article>}
+          {(firstCompareId || secondCompareId) && <article className="rounded-xl border border-purple-500/30 bg-surface p-4"><h2 className="flex items-center gap-2 text-sm font-semibold"><GitCompareArrows className="h-4 w-4 text-purple-300" />研究比較</h2>{!firstCompareId || !secondCompareId ? <p className="mt-2 text-xs text-muted">請在左側各選一筆比較 A 與比較 B。</p> : compareQuery.isLoading ? <p role="status" className="mt-2 text-xs text-muted">正在取得確定性比較…</p> : compareQuery.isError ? <p role="alert" className="mt-2 text-xs text-muted">比較資料目前不可用。</p> : compareQuery.data ? <div className="mt-3 grid gap-3 md:grid-cols-3"><div className="rounded-lg border border-border/50 p-3"><h3 className="text-xs font-semibold">資料變化</h3><pre className="mt-2 whitespace-pre-wrap text-[10px] text-secondary">{printable(compareQuery.data.evidence_data_changes)}</pre></div><div className="rounded-lg border border-border/50 p-3"><h3 className="text-xs font-semibold">模型／提示詞變化</h3><pre className="mt-2 whitespace-pre-wrap text-[10px] text-secondary">{printable(compareQuery.data.model_prompt_config_changes)}</pre></div><div className="rounded-lg border border-border/50 p-3"><h3 className="text-xs font-semibold">解讀變化</h3><pre className="mt-2 whitespace-pre-wrap text-[10px] text-secondary">{printable(compareQuery.data.interpretation_report_changes)}</pre></div></div> : null}</article>}
         </section>
       </div>}
     </main>

@@ -42,6 +42,14 @@ describe('portfolio accounting', () => {
     expect(summary.weight_of_registered_pct).toBeUndefined()
     expect(summary.registered_market_value).toBeUndefined()
   })
+
+  it('reports zero market value for an empty registered ledger without a weight', () => {
+    expect(registeredHoldingsSummary([], [])).toEqual({
+      registered_positions_count: 0,
+      quote_coverage: 'complete',
+      registered_market_value: 0,
+    })
+  })
   it('allows quick trade only for supported canonical Taiwan stocks and ETFs', () => {
     expect(isSupportedPortfolioInstrument({ symbol: '2330.TWSE', instrument_type: 'stock', is_supported: true })).toBe(true)
     expect(isSupportedPortfolioInstrument({ symbol: '0050.TWSE', instrument_type: 'etf', is_supported: true })).toBe(true)

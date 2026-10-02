@@ -73,11 +73,11 @@ export function registeredHoldingsSummary(
     registered_positions_count: registered.length,
     quote_coverage: complete ? 'complete' : 'partial',
   }
-  if (complete && total > 0) {
+  if (complete) {
     const focus = focusSymbol == null
       ? total
       : marketValues.find(item => item.position.symbol === focusSymbol)?.value
-    if (focus != null) result.weight_of_registered_pct = focus / total * 100
+    if (total > 0 && focus != null) result.weight_of_registered_pct = focus / total * 100
     result.registered_market_value = total
   }
   return result

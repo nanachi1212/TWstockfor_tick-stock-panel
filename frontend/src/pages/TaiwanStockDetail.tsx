@@ -18,7 +18,6 @@ import {
   Newspaper,
   ExternalLink,
   MessageCircleMore,
-  Save,
   GitCompareArrows,
 } from 'lucide-react'
 import {
@@ -27,6 +26,7 @@ import {
   type TaiwanAIStockResearchReport,
   type TaiwanAIResearchPersonalContext,
   type TaiwanAIResearchHistoryRecord,
+  researchPromptVersion,
   type BuyPointSignal,
 } from '@/lib/api'
 import { QK } from '@/lib/queryKeys'
@@ -90,7 +90,7 @@ function safeHistoryItems(value: unknown): TaiwanAIResearchHistoryRecord[] {
       ? ((value as { items?: unknown; records?: unknown }).items ?? (value as { records?: unknown }).records)
       : []
   if (!Array.isArray(raw)) return []
-  return raw.filter((item): item is TaiwanAIResearchHistoryRecord => Boolean(item && typeof item === 'object' && typeof (item as { id?: unknown }).id === 'string'))
+  return raw.filter((item): item is TaiwanAIResearchHistoryRecord => Boolean(item && typeof item === 'object' && typeof (item as { id?: unknown }).id === 'string' && ((item as { kind?: unknown }).kind == null || (item as { kind?: unknown }).kind === 'report')))
 }
 
 export function TaiwanStockDetail() {
@@ -340,8 +340,8 @@ export function TaiwanStockDetail() {
   }, [inWatchlist, watchlist.isLoading, watchlist.isError, quantSelection.signals, quantSelection.ranking, quantSelection.validRun, quantSelection.error, quantSelection.fetching, selectedAlert, symbol, data, detailQuery.isError, detailQuery.isFetching, portfolioRevision, socialQuery.data, socialRow, registeredPortfolioQuotesQuery.data])
 
   const historyQuery = useQuery({
-    queryKey: QK.taiwanAIResearchHistory({ symbol, purpose: 'stock', limit: 20 }),
-    queryFn: () => api.taiwanAIResearchHistory({ symbol, purpose: 'stock', limit: 20 }),
+    queryKey: QK.taiwanAIResearchHistory({ symbol, purpose: 'research', limit: 20 }),
+    queryFn: () => api.taiwanAIResearchHistory({ symbol, purpose: 'research', limit: 20 }),
     staleTime: 30_000,
   })
   const historyItems = useMemo(() => safeHistoryItems(historyQuery.data), [historyQuery.data])
@@ -353,23 +353,6 @@ export function TaiwanStockDetail() {
     queryFn: () => api.taiwanAIResearchHistoryCompare(compareBase!.id, comparePrevious!.id),
     enabled: Boolean(compareBase && comparePrevious),
   })
-  const saveResearchMutation = useMutation({
-    mutationFn: () => api.taiwanAIResearchHistorySave({
-      kind: 'report',
-      symbol,
-      purpose: 'stock',
-      provider: aiProvider,
-      model: aiModel,
-      prompt_version: aiReport?.prompt_version,
-      generated_at: aiReport?.generated_at,
-      report: aiReport,
-      response: { status: 'success', provider: aiProvider, report: aiReport },
-    }),
-    onSuccess: async () => {
-      await qc.invalidateQueries({ queryKey: ['taiwan-ai-research-history'] })
-    },
-  })
-
   const handleGenerateAiReport = useCallback(async () => {
     if (toggleWatchlist.isPending || watchlist.isFetching) return
     if (alertId && alertLookupError) {
@@ -389,6 +372,7 @@ export function TaiwanStockDetail() {
         setAiReport(res.report)
         setAiProvider(res.provider ?? null)
         setAiModel(res.model ?? null)
+        await qc.invalidateQueries({ queryKey: ['taiwan-ai-research-history'] })
       } else {
         setAiError(res.error_message || 'AI 研究報告生成失敗')
       }
@@ -397,7 +381,7 @@ export function TaiwanStockDetail() {
     } finally {
       setIsAiLoading(false)
     }
-  }, [symbol, personalContext, alertId, alertLookupError, refetchAlertContext, selectedAlert, toggleWatchlist.isPending, watchlist.isFetching])
+  }, [symbol, personalContext, alertId, alertLookupError, refetchAlertContext, selectedAlert, toggleWatchlist.isPending, watchlist.isFetching, qc])
 
   useEffect(() => {
     const requestKey = `${symbol}:${alertId ?? ''}`
@@ -1984,15 +1968,7 @@ export function TaiwanStockDetail() {
                   })
                 }}
               />
-              {aiReport && <button
-                type="button"
-                onClick={() => saveResearchMutation.mutate()}
-                disabled={saveResearchMutation.isPending}
-                className="inline-flex items-center gap-1 rounded-lg border border-purple-500/40 px-2 py-1 text-[11px] text-purple-300 hover:bg-purple-500/10 disabled:opacity-50"
-              >
-                <Save className="h-3 w-3" />
-                {saveResearchMutation.isPending ? '保存中…' : saveResearchMutation.isSuccess ? '已保存' : '保存研究紀錄'}
-              </button>}
+              {aiReport && <span className="text-[10px] text-muted">成功報告會自動保存，稍後可在研究歷史回看</span>}
             </div>
           </div>
         </div>
@@ -2001,7 +1977,7 @@ export function TaiwanStockDetail() {
           <div className="flex flex-wrap items-center justify-between gap-2">
             <div>
               <h4 className="text-xs font-semibold text-foreground">研究歷史</h4>
-              <p className="text-[10px] text-muted">保存後可回看 provider、模型與提示詞版本。</p>
+              <p className="text-[10px] text-muted">成功報告會自動保存，可回看 provider、模型與提示詞版本。</p>
             </div>
             {historyQuery.isFetching && <span role="status" className="text-[10px] text-muted">讀取中…</span>}
           </div>
@@ -2014,7 +1990,7 @@ export function TaiwanStockDetail() {
               {historyItems.slice(0, 8).map((item, index) => (
                 <div key={item.id} className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-border/40 px-2 py-1.5 text-[10px]">
                   <span className="font-mono text-muted">{item.saved_at ?? item.generated_at ?? item.id}</span>
-                  <span className="text-muted">{item.provider ?? 'provider 未提供'} · {item.model ?? 'model 未提供'} · {item.prompt_version ?? '提示詞版本未提供'}</span>
+                  <span className="text-muted">{item.provider ?? 'provider 未提供'} · {item.model ?? 'model 未提供'} · {researchPromptVersion(item) ?? '提示詞版本未提供'}</span>
                   {index > 0 && <button type="button" onClick={() => setComparePreviousId(item.id)} className="inline-flex items-center gap-1 text-purple-300 hover:underline"><GitCompareArrows className="h-3 w-3" />與較新紀錄比較</button>}
                 </div>
               ))}
@@ -2026,9 +2002,9 @@ export function TaiwanStockDetail() {
               {compareQuery.isLoading ? <p role="status" className="mt-1 text-[11px] text-muted">正在取得差異…</p>
                 : compareQuery.isError ? <p role="alert" className="mt-1 text-[11px] text-muted">比較目前不可用。</p>
                   : compareQuery.data ? <div className="mt-2 grid gap-2 md:grid-cols-3">
-                    <div><h5 className="font-semibold text-foreground">資料變化</h5><pre className="mt-1 whitespace-pre-wrap text-[10px] text-muted">{JSON.stringify(compareQuery.data.data_changes ?? compareQuery.data.current ?? {}, null, 2)}</pre></div>
-                    <div><h5 className="font-semibold text-foreground">模型／提示詞變化</h5><pre className="mt-1 whitespace-pre-wrap text-[10px] text-muted">{JSON.stringify(compareQuery.data.model_prompt_changes ?? {}, null, 2)}</pre></div>
-                    <div><h5 className="font-semibold text-foreground">解讀變化</h5><pre className="mt-1 whitespace-pre-wrap text-[10px] text-muted">{JSON.stringify(compareQuery.data.interpretation_changes ?? compareQuery.data.other ?? {}, null, 2)}</pre></div>
+                    <div><h5 className="font-semibold text-foreground">資料變化</h5><pre className="mt-1 whitespace-pre-wrap text-[10px] text-muted">{JSON.stringify(compareQuery.data.evidence_data_changes ?? {}, null, 2)}</pre></div>
+                    <div><h5 className="font-semibold text-foreground">模型／提示詞變化</h5><pre className="mt-1 whitespace-pre-wrap text-[10px] text-muted">{JSON.stringify(compareQuery.data.model_prompt_config_changes ?? {}, null, 2)}</pre></div>
+                    <div><h5 className="font-semibold text-foreground">解讀變化</h5><pre className="mt-1 whitespace-pre-wrap text-[10px] text-muted">{JSON.stringify(compareQuery.data.interpretation_report_changes ?? {}, null, 2)}</pre></div>
                   </div> : null}
             </div>
           )}

@@ -9,6 +9,10 @@ vi.mock('@/lib/api', () => ({ api: {
   taiwanAIResearchHistory: vi.fn(),
   taiwanAIResearchHistoryDetail: vi.fn(),
   taiwanAIResearchHistoryCompare: vi.fn(),
+}, researchPromptVersion: (record: { prompt_versions?: unknown; prompt_version?: unknown }) => {
+  const versions = record.prompt_versions
+  if (versions && typeof versions === 'object' && !Array.isArray(versions) && typeof (versions as Record<string, unknown>).research === 'string') return (versions as Record<string, string>).research
+  return typeof record.prompt_version === 'string' ? record.prompt_version : null
 } }))
 
 function mount(url = '/research') {
@@ -20,7 +24,7 @@ afterEach(() => { vi.clearAllMocks() })
 
 describe('Research history page', () => {
   it('handles loading and malformed legacy records as empty safely', async () => {
-    vi.mocked(api.taiwanAIResearchHistory).mockResolvedValue({ items: [{ id: 42 as unknown as string }, { id: 'ok', symbol: '2330.TWSE' }] })
+    vi.mocked(api.taiwanAIResearchHistory).mockResolvedValue([{ id: 42 as unknown as string }, { id: 'link', kind: 'link', symbol: '9999.TWSE' }, { id: 'ok', symbol: '2330.TWSE' }])
     vi.mocked(api.taiwanAIResearchHistoryDetail).mockResolvedValue({ id: 'ok', symbol: '2330.TWSE' })
     mount()
     expect(screen.getByRole('status')).toHaveTextContent('載入研究歷史')
@@ -34,7 +38,7 @@ describe('Research history page', () => {
       { id: 'b', symbol: '2330.TWSE', provider: 'p2' },
     ] })
     vi.mocked(api.taiwanAIResearchHistoryDetail).mockResolvedValue({ id: 'a', symbol: '2330.TWSE', report: { overview: 'ok' } })
-    vi.mocked(api.taiwanAIResearchHistoryCompare).mockResolvedValue({ data_changes: { close: [1, 2] }, model_prompt_changes: { model: true }, interpretation_changes: { overview: true } })
+    vi.mocked(api.taiwanAIResearchHistoryCompare).mockResolvedValue({ evidence_data_changes: { close: [1, 2] }, model_prompt_config_changes: { model: true }, interpretation_report_changes: { overview: true } })
     mount()
     await screen.findByRole('heading', { name: /研究詳情：2330\.TWSE/ })
     fireEvent.click(screen.getAllByText('選為比較 A')[1])

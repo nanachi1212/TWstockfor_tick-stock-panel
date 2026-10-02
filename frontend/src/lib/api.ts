@@ -2167,20 +2167,33 @@ export interface TaiwanAIResearchHistoryRecord {
   [key: string]: unknown
 }
 
-export interface TaiwanAIResearchHistoryListResponse {
+export interface TaiwanAIResearchHistoryListEnvelope {
   items?: TaiwanAIResearchHistoryRecord[]
   records?: TaiwanAIResearchHistoryRecord[]
   total?: number
   [key: string]: unknown
 }
 
+export type TaiwanAIResearchHistoryListResponse = TaiwanAIResearchHistoryRecord[] | TaiwanAIResearchHistoryListEnvelope
+
+export function researchPromptVersion(record: Pick<TaiwanAIResearchHistoryRecord, 'prompt_versions' | 'prompt_version'>): string | null {
+  const versions = record.prompt_versions
+  if (versions && typeof versions === 'object' && !Array.isArray(versions)) {
+    const research = (versions as Record<string, unknown>).research
+    if (typeof research === 'string' && research.trim()) return research
+  }
+  return typeof record.prompt_version === 'string' && record.prompt_version.trim()
+    ? record.prompt_version
+    : null
+}
+
 export interface TaiwanAIResearchHistoryCompareResponse {
   [key: string]: unknown
-  current?: TaiwanAIResearchHistoryRecord | Record<string, unknown> | null
-  other?: TaiwanAIResearchHistoryRecord | Record<string, unknown> | null
-  data_changes?: unknown
-  model_prompt_changes?: unknown
-  interpretation_changes?: unknown
+  left_id?: string
+  right_id?: string
+  evidence_data_changes?: unknown
+  model_prompt_config_changes?: unknown
+  interpretation_report_changes?: unknown
 }
 
 export interface TaiwanAIResearchPersonalContext {
@@ -4187,7 +4200,7 @@ export const api = {
       `/api/taiwan/stocks/${encodeURIComponent(symbol)}/ai-research`,
       {
         method: 'POST',
-        body: JSON.stringify({ date: date || null, ...(personalContext ? { personal_context: personalContext } : {}) }),
+        body: JSON.stringify({ date: date || null, purpose: 'research', ...(personalContext ? { personal_context: personalContext } : {}) }),
       },
     ),
 
@@ -4207,12 +4220,6 @@ export const api = {
 
   taiwanAIResearchHistoryCompare: (id: string, otherId: string) =>
     request<TaiwanAIResearchHistoryCompareResponse>(`/api/taiwan/ai-research/history/${encodeURIComponent(id)}/compare/${encodeURIComponent(otherId)}`),
-
-  taiwanAIResearchHistorySave: (payload: Record<string, unknown>) =>
-    request<TaiwanAIResearchHistoryRecord>('/api/taiwan/ai-research/history', {
-      method: 'POST',
-      body: JSON.stringify(payload),
-    }),
 
   taiwanStockCompare: (symbols: string[], date?: string) =>
     request<TaiwanStockComparisonResponse>('/api/taiwan/stocks/compare', {
