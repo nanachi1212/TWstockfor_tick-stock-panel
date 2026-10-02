@@ -389,12 +389,17 @@ export function TaiwanStockDetail() {
     setIsAiLoading(true)
     setAiError(null)
     try {
+      const isAddingFirstReview = requestedMode === 'advice'
+        && requestAdviceReview
+        && aiAdviceResponse?.review_status === 'not_requested'
       const res = requestedMode === 'advice'
         ? await api.taiwanStockAIResearch(symbol, undefined, personalContext, {
             purpose: 'advice',
             review: requestAdviceReview,
             strategyId: selectedAdviceStrategyId,
-            refresh: Boolean(aiAdviceResponse),
+            // Adding the first Review must reuse the frozen base Advice. Only an
+            // explicit subsequent regeneration bypasses both caches.
+            refresh: Boolean(aiAdviceResponse) && !isAddingFirstReview,
           })
         : await api.taiwanStockAIResearch(symbol, undefined, personalContext)
       if (requestedMode === 'advice' && isTaiwanAIAdviceResponse(res) && res.status === 'success' && res.advice) {

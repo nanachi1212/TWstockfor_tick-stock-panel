@@ -161,6 +161,43 @@ describe('TaiwanStockDetail — back navigation (DAILY_USE_CORE_UX_FIXES P1-2)',
 })
 
 describe('TaiwanStockDetail — AI Research', () => {
+  it('adds the first review without refreshing the frozen base Advice', async () => {
+    const advice = {
+      symbol: '2330.TWSE', strategy_id: 'pullback-v1', action: 'wait', summary: '先等待正式訊號。',
+      rationale: [], conditions: [], invalidation: [], data_gaps: [], selected_trade_plan: null,
+      buy_point_signal: { strategy_id: 'pullback-v1', symbol: '2330.TWSE', name: '台積電', detected_at: '2026-10-02T09:00:00+08:00', status: 'waiting', triggered_conditions: [], failed_conditions: [], risk_flags: [], risk_status: 'clear', explanation: '等待', freshness: 'current' },
+      evidence_as_of: '2026-10-01', prompt_version: 'taiwan_stock_advice_v1',
+    }
+    const base = {
+      status: 'success', provider: 'Custom', model: 'advice-model', prompt_version: 'taiwan_stock_advice_v1',
+      generated_at: '2026-10-02T10:00:00+08:00', started_at: '2026-10-02T09:59:00+08:00', completed_at: '2026-10-02T10:00:00+08:00',
+      evidence_as_of: '2026-10-01', evidence_registry_keys: [], run_id: 'advice-run-1', review_status: 'not_requested', advice,
+    }
+    vi.mocked(api.taiwanStockAIResearch)
+      .mockResolvedValueOnce(base as any)
+      .mockResolvedValueOnce({
+        ...base,
+        review_status: 'success', review_run_id: 'review-run-1',
+        review: { advice_run_id: 'advice-run-1', issues: [], no_material_issues: true, prompt_version: 'taiwan_stock_advice_review_v1' },
+      } as any)
+    renderAt(['/stocks/2330.TWSE'], 0)
+
+    fireEvent.change(await screen.findByLabelText('AI 分析模式'), { target: { value: 'advice' } })
+    await waitFor(() => expect(screen.getByRole('button', { name: '產生 AI 建議' })).toBeEnabled())
+    fireEvent.click(screen.getByLabelText('獨立複核'))
+    fireEvent.click(screen.getByRole('button', { name: '產生 AI 建議' }))
+    expect(await screen.findByText('先等待正式訊號。')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByLabelText('獨立複核'))
+    fireEvent.click(screen.getByRole('button', { name: '重新產生建議' }))
+    expect(await screen.findByText('獨立複核：未發現重大問題')).toBeInTheDocument()
+    expect(vi.mocked(api.taiwanStockAIResearch)).toHaveBeenNthCalledWith(
+      2,
+      '2330.TWSE', undefined, expect.any(Object),
+      { purpose: 'advice', review: true, strategyId: 'pullback-v1', refresh: false },
+    )
+  })
+
   it('renders formal advice prices only from the server-selected TradePlan', async () => {
     vi.mocked(api.buyPointStrategies).mockResolvedValue({ strategies: [
       { id: 'pullback-v1', name: '回檔策略', description: '', category: 'pullback', enabled: true, preset: false, conditions: {}, risk_filters: {}, alert_channels: [], created_at: '', updated_at: '' },
