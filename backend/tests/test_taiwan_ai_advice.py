@@ -26,6 +26,7 @@ from app.taiwan.ai_research import TaiwanAIResearchRequest
 from app.taiwan.ai_research_history import TaiwanAIResearchHistoryStore
 from app.taiwan.buy_point import BuyPointSignal, builtin_presets
 from app.taiwan.buy_point_service import BuyPointCandidate
+from app.taiwan.trade_plan import build_trade_plan
 
 
 def _signal(status="waiting") -> BuyPointSignal:
@@ -231,6 +232,73 @@ async def test_review_reuses_cached_base_and_limits_provider_to_two_calls(taiwan
     assert reviewed.response.review_status == "success"
     assert review_run is not None
     assert provider.await_count == 2
+
+
+@pytest.mark.asyncio
+async def test_advice_injects_only_bounded_same_plan_reflections(taiwan_data_env, tmp_path):
+    signal = _signal("triggered").model_copy(
+        update={"entry_zone_low": 95.0, "entry_zone_high": 98.0}
+    )
+    plan = build_trade_plan(
+        signal,
+        instrument_type="stock",
+        stop_reference_price=90.0,
+    )
+
+    class FakeBuyPointService:
+        def candidate(self, *args, **kwargs):
+            return BuyPointCandidate(
+                strategy=builtin_presets()[0],
+                strategy_definition_digest="strategy-digest",
+                signal=signal,
+                trade_plan=plan,
+            )
+
+    class FakeTrackingService:
+        def __init__(self):
+            self.calls = []
+
+        def select_reflections(self, plan_identity, **kwargs):
+            self.calls.append((plan_identity, kwargs))
+            return [
+                {
+                    "summary": "只保留同計畫已成熟教訓",
+                    "lessons": ["不要追價"],
+                    "completed_at": "2026-09-30T14:00:00+08:00",
+                    "outcome_digest": "outcome",
+                    "private": "must-not-leak",
+                }
+            ]
+
+    tracking = FakeTrackingService()
+    svc = TaiwanAIAdviceService(
+        tmp_path,
+        buy_point_svc=FakeBuyPointService(),
+        tracking_svc=tracking,
+    )
+    output = json.dumps(
+        {
+            "action": "buy",
+            "summary": "test",
+            "rationale": [],
+            "conditions": [],
+            "invalidation": [],
+            "data_gaps": [],
+            "selected_plan_instance_id": plan.plan_instance_id,
+        }
+    )
+    with (
+        patch("app.taiwan.ai_advice.snapshot_ai_provider_config", return_value=_provider_config()),
+        patch("app.taiwan.ai_advice._call_provider", new_callable=AsyncMock, return_value=output) as provider,
+    ):
+        run, _review = await svc.generate("2330.TWSE", strategy_id="quant_pullback")
+
+    assert run.response.status == "success"
+    assert tracking.calls[0][0] == plan.plan_identity
+    assert tracking.calls[0][1]["limit"] == 2
+    prompt = provider.await_args.args[0][1]["content"]
+    assert "只保留同計畫已成熟教訓" in prompt
+    assert "must-not-leak" not in prompt
 
 
 @pytest.mark.asyncio

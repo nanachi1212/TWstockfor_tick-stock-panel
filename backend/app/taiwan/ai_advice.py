@@ -33,7 +33,11 @@ from app.taiwan.ai_research import (
     build_evidence_registry,
 )
 from app.taiwan.buy_point import BuyPointSignal
-from app.taiwan.buy_point_service import BuyPointCandidate, BuyPointService
+from app.taiwan.buy_point_service import (
+    BuyPointCandidate,
+    BuyPointService,
+    strategy_definition_payload,
+)
 from app.taiwan.realtime.calendar import TAIPEI_TZ, TaiwanTradingCalendar, taipei_now
 from app.taiwan.research_context import TaiwanStockResearchContextService
 from app.taiwan.trade_plan import TradePlan
@@ -123,6 +127,7 @@ class TaiwanAIAdviceRun(BaseModel):
     source_snapshot_id: str | None = None
     source_snapshot_digest: str | None = None
     strategy_definition_digest: str | None = None
+    strategy_definition: dict[str, Any] = Field(default_factory=dict)
     trade_plan: TradePlan | None = None
     plan_identity: str | None = None
     plan_instance_id: str | None = None
@@ -223,6 +228,7 @@ def _advice_cache_key(
     evidence_digest: str,
     missing_items: list[str],
     candidate_plan_ids: list[str],
+    reflection_digest: str | None = None,
 ) -> str:
     material = {
         "prompt_version": ADVICE_PROMPT_VERSION,
@@ -235,6 +241,7 @@ def _advice_cache_key(
         "evidence_digest": evidence_digest,
         "missing_items": missing_items,
         "candidate_plan_ids": candidate_plan_ids,
+        "reflection_digest": reflection_digest,
         "generation_config": generation_config,
     }
     return hashlib.sha256(json.dumps(material, sort_keys=True).encode("utf-8")).hexdigest()
@@ -407,11 +414,13 @@ class TaiwanAIAdviceService:
         diag_svc: TaiwanAbnormalDiagnosticsService | None = None,
         calendar: TaiwanTradingCalendar | None = None,
         buy_point_svc: BuyPointService | None = None,
+        tracking_svc: Any | None = None,
     ) -> None:
         self.calendar = calendar or TaiwanTradingCalendar()
         self.research_svc = research_svc or TaiwanStockResearchContextService(calendar=self.calendar)
         self.diag_svc = diag_svc or TaiwanAbnormalDiagnosticsService(calendar=self.calendar)
         self.buy_point_svc = buy_point_svc or BuyPointService(data_dir)
+        self.tracking_svc = tracking_svc
 
     def _unavailable(self, code: str, message: str) -> TaiwanAIAdviceRun:
         now = taipei_now().isoformat()
@@ -501,6 +510,33 @@ class TaiwanAIAdviceService:
         strategy_payload = candidate.strategy.model_dump(
             mode="json", exclude={"created_at", "updated_at"}
         )
+        reflections: list[dict[str, Any]] = []
+        if candidate.trade_plan is not None:
+            try:
+                if self.tracking_svc is None:
+                    from app.taiwan.advice_tracking import get_advice_tracking_service
+
+                    tracking_svc = get_advice_tracking_service()
+                else:
+                    tracking_svc = self.tracking_svc
+                reflections = tracking_svc.select_reflections(
+                    candidate.trade_plan.plan_identity,
+                    decision_cutoff=started_at,
+                    view="raw",
+                    limit=2,
+                )
+            except Exception:
+                logger.warning("Advice reflections unavailable for %s", symbol, exc_info=True)
+        reflection_context = [
+            {
+                "summary": item.get("summary"),
+                "lessons": item.get("lessons") or [],
+                "completed_at": item.get("completed_at"),
+                "outcome_digest": item.get("outcome_digest"),
+            }
+            for item in reflections
+        ]
+        reflection_digest = _evidence_digest({"reflections": reflection_context})
         cache_key = _advice_cache_key(
             config=config,
             generation_config=generation_config,
@@ -510,6 +546,7 @@ class TaiwanAIAdviceService:
             evidence_digest=digest,
             missing_items=missing_items,
             candidate_plan_ids=[item["plan_instance_id"] for item in candidates],
+            reflection_digest=reflection_digest,
         )
 
         async def build_base() -> TaiwanAIAdviceRun:
@@ -519,6 +556,7 @@ class TaiwanAIAdviceService:
 證據：{json.dumps(evidence_payload, ensure_ascii=False, default=str)}
 策略：{json.dumps(strategy_payload, ensure_ascii=False)}
 伺服器候選計畫：{json.dumps(candidates, ensure_ascii=False, default=str)}
+同一交易計畫定義的已成熟歷史反思（最多 2 筆，僅供校準，不可改寫策略或價格）：{json.dumps(reflection_context, ensure_ascii=False)}
 已知缺口：{json.dumps(missing_items, ensure_ascii=False)}
 
 輸出純 JSON：
@@ -595,6 +633,7 @@ class TaiwanAIAdviceService:
                 source_snapshot_id=f"taiwan_research:{ctx.symbol}:{ctx.as_of_date}:{digest[:16]}",
                 source_snapshot_digest=digest,
                 strategy_definition_digest=candidate.strategy_definition_digest,
+                strategy_definition=strategy_definition_payload(candidate.strategy),
                 trade_plan=candidate.trade_plan,
                 plan_identity=(candidate.trade_plan.plan_identity if candidate.trade_plan else None),
                 plan_instance_id=(candidate.trade_plan.plan_instance_id if candidate.trade_plan else None),

@@ -42,6 +42,11 @@ def _legacy_id(record: dict[str, Any]) -> str:
     return f"legacy_{hashlib.sha256(_canonical(record).encode('utf-8')).hexdigest()[:24]}"
 
 
+def frozen_record_digest(record: dict[str, Any]) -> str:
+    """Digest one persisted JSON object without changing list or field semantics."""
+    return hashlib.sha256(_canonical(record).encode("utf-8")).hexdigest()
+
+
 def _normalize_record(value: Any) -> dict[str, Any]:
     if not isinstance(value, dict):
         raise AIResearchHistoryError("AI research history line must be a JSON object")
@@ -51,7 +56,9 @@ def _normalize_record(value: Any) -> dict[str, Any]:
     record.setdefault("run_id", None)
     record.setdefault("parent_id", None)
     record.setdefault("saved_at", record.get("generated_at"))
-    if record["kind"] not in {"report", "advice", "review", "link"}:
+    if record["kind"] not in {
+        "report", "advice", "review", "outcome", "reflection", "link"
+    }:
         # Future record kinds remain readable; operations that require a report reject them explicitly.
         record.setdefault("compatibility", {})
         record["compatibility"]["unsupported_kind"] = True
@@ -242,6 +249,7 @@ class TaiwanAIResearchHistoryStore:
                 "source_snapshot_id": run.source_snapshot_id,
                 "source_snapshot_digest": run.source_snapshot_digest,
                 "strategy_definition_digest": run.strategy_definition_digest,
+                "strategy_definition": run.strategy_definition,
                 "trade_plan": run.trade_plan.model_dump(mode="json") if run.trade_plan else None,
                 "plan_identity": run.plan_identity,
                 "plan_instance_id": run.plan_instance_id,
@@ -259,10 +267,20 @@ class TaiwanAIResearchHistoryStore:
         """Persist an independent Review once; it annotates but never rewrites Advice."""
         if review_run.advice_run_id != advice_run.run_id:
             raise AIResearchHistoryError("Review does not belong to the supplied advice")
+        review_payload = review_run.review.model_dump(mode="json")
+        review_material = {
+            "advice_run_id": advice_run.run_id,
+            "started_at": review_run.started_at,
+            "completed_at": review_run.completed_at,
+            "review": review_payload,
+        }
+        review_digest = frozen_record_digest(review_material)
         with self._lock:
             records = self._read_unlocked()
             for record in records:
                 if record.get("kind") == "review" and record.get("run_id") == review_run.run_id:
+                    if record.get("review_digest") not in {None, review_digest}:
+                        raise AIResearchHistoryError("Review run_id conflict")
                     return record
             parent = next(
                 (
@@ -274,6 +292,12 @@ class TaiwanAIResearchHistoryStore:
             )
             if parent is None:
                 raise AIResearchHistoryError("Advice must be persisted before its review")
+            if any(
+                record.get("kind") == "review"
+                and record.get("parent_id") == parent["id"]
+                for record in records
+            ):
+                raise AIResearchHistoryError("Advice already has a persisted Review")
             record = {
                 "id": f"review_{uuid.uuid4().hex}",
                 "kind": "review",
@@ -291,10 +315,144 @@ class TaiwanAIResearchHistoryStore:
                 "provider": review_run.provider,
                 "model": review_run.model,
                 "generation_config": review_run.generation_config,
-                "review": review_run.review.model_dump(mode="json"),
+                "advice_digest": frozen_record_digest(parent),
+                "review_digest": review_digest,
+                "review": review_payload,
             }
             self._append_unlocked(record)
             return record
+
+    def ensure_outcome(
+        self,
+        advice_id: str,
+        artifact: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Append one immutable evaluator result, idempotently by input digest."""
+        required = {
+            "input_digest", "outcome_digest", "evaluated_at", "evaluated_as_of",
+            "outcome_matured_at", "evaluator_digest", "outcome",
+        }
+        if required - set(artifact) or not isinstance(artifact.get("outcome"), dict):
+            raise AIResearchHistoryError("Outcome artifact is incomplete")
+        with self._lock:
+            records = self._read_unlocked()
+            parent = next(
+                (item for item in records if item.get("id") == advice_id),
+                None,
+            )
+            if parent is None or parent.get("kind") != "advice":
+                raise AIResearchHistoryError("Outcome parent must be a persisted Advice")
+            for item in records:
+                if (
+                    item.get("kind") == "outcome"
+                    and item.get("parent_id") == advice_id
+                    and item.get("input_digest") == artifact["input_digest"]
+                ):
+                    if item.get("outcome_digest") != artifact["outcome_digest"]:
+                        raise AIResearchHistoryError("Outcome input digest conflict")
+                    return item
+            terminal = {"triggered", "not_triggered", "undeterminable"}
+            new_status = artifact["outcome"].get("status")
+            for item in records:
+                existing = item.get("outcome")
+                if (
+                    item.get("kind") == "outcome"
+                    and item.get("parent_id") == advice_id
+                    and item.get("view", "raw") == artifact.get("view", "raw")
+                    and isinstance(existing, dict)
+                    and existing.get("status") in terminal
+                    and new_status in terminal
+                ):
+                    if item.get("terminal_digest") == artifact.get("terminal_digest"):
+                        return item
+                    if item.get("outcome_digest") == artifact["outcome_digest"]:
+                        return item
+                    raise AIResearchHistoryError("Conflicting terminal outcome")
+            record = {
+                "id": f"outcome_{uuid.uuid4().hex}",
+                "kind": "outcome",
+                "run_id": artifact["input_digest"],
+                "parent_id": advice_id,
+                "saved_at": taipei_now().isoformat(),
+                "symbol": parent.get("symbol"),
+                "purpose": "advice_outcome",
+                "strategy_id": parent.get("strategy_id"),
+                "plan_identity": parent.get("plan_identity"),
+                "plan_instance_id": parent.get("plan_instance_id"),
+                "advice_digest": frozen_record_digest(parent),
+                **artifact,
+            }
+            try:
+                _canonical(record)
+            except (TypeError, ValueError) as exc:
+                raise AIResearchHistoryError("Outcome artifact is not JSON serializable") from exc
+            self._append_unlocked(record)
+            return record
+
+    def ensure_reflection(
+        self,
+        advice_id: str,
+        outcome_id: str,
+        artifact: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Append one immutable reflection for an Advice outcome."""
+        required = {"reflection_digest", "completed_at", "summary", "lessons"}
+        if required - set(artifact) or not isinstance(artifact.get("lessons"), list):
+            raise AIResearchHistoryError("Reflection artifact is incomplete")
+        with self._lock:
+            records = self._read_unlocked()
+            advice = next(
+                (item for item in records if item.get("id") == advice_id),
+                None,
+            )
+            outcome = next(
+                (
+                    item for item in records
+                    if item.get("id") == outcome_id
+                    and item.get("kind") == "outcome"
+                    and item.get("parent_id") == advice_id
+                ),
+                None,
+            )
+            if advice is None or advice.get("kind") != "advice" or outcome is None:
+                raise AIResearchHistoryError("Reflection parents are invalid")
+            if artifact.get("advice_digest") != outcome.get("advice_digest"):
+                raise AIResearchHistoryError("Reflection Advice digest mismatch")
+            if artifact.get("outcome_digest") != outcome.get("outcome_digest"):
+                raise AIResearchHistoryError("Reflection outcome digest mismatch")
+            for item in records:
+                if item.get("kind") != "reflection" or item.get("outcome_id") != outcome_id:
+                    continue
+                if item.get("reflection_digest") != artifact["reflection_digest"]:
+                    raise AIResearchHistoryError("Reflection already exists with different content")
+                return item
+            record = {
+                "id": f"reflection_{uuid.uuid4().hex}",
+                "kind": "reflection",
+                "run_id": artifact["reflection_digest"],
+                "parent_id": advice_id,
+                "outcome_id": outcome_id,
+                "saved_at": taipei_now().isoformat(),
+                "symbol": advice.get("symbol"),
+                "purpose": "advice_reflection",
+                "strategy_id": advice.get("strategy_id"),
+                "plan_identity": advice.get("plan_identity"),
+                "plan_instance_id": advice.get("plan_instance_id"),
+                "advice_digest": artifact.get("advice_digest"),
+                "outcome_digest": artifact.get("outcome_digest"),
+                **artifact,
+            }
+            try:
+                _canonical(record)
+            except (TypeError, ValueError) as exc:
+                raise AIResearchHistoryError("Reflection artifact is not JSON serializable") from exc
+            self._append_unlocked(record)
+            return record
+
+    def all_records(self) -> list[dict[str, Any]]:
+        """Return a detached snapshot for deterministic domain joins."""
+        with self._lock:
+            return self._read_unlocked()
 
     def append_link(self, record_id: str, target: Any) -> dict[str, Any]:
         with self._lock:

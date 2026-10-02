@@ -19,6 +19,11 @@ from app.taiwan.abnormal_diagnostics import (
     TaiwanAbnormalDiagnosticsService,
     TaiwanAbnormalDiagnosticsSnapshot,
 )
+from app.taiwan.advice_tracking import (
+    AdviceView,
+    ReflectionCreate,
+    get_advice_tracking_service,
+)
 from app.taiwan.ai_advice import TaiwanAIAdviceResponse, TaiwanAIAdviceService
 from app.taiwan.ai_research import (
     TaiwanAIResearchRequest,
@@ -95,6 +100,11 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/taiwan", tags=["taiwan"])
 router.include_router(market_breadth_router)
 router.include_router(market_research_router)
+
+
+class AdviceOutcomeEvaluateRequest(BaseModel):
+    evaluated_as_of: dt_date
+    view: AdviceView = "raw"
 
 
 @router.get("/social-sentiment")
@@ -543,6 +553,57 @@ def compare_taiwan_ai_research_history(record_id: str, other_id: str):
         raise HTTPException(status_code=404, detail="找不到指定的 AI 研究歷史") from exc
     except AIResearchHistoryError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.get("/ai-research/history/{advice_id}/forward-status")
+def get_taiwan_advice_forward_status(
+    advice_id: str,
+    view: Annotated[AdviceView, Query()] = "raw",
+):
+    try:
+        return get_advice_tracking_service().forward_status(advice_id, view=view)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="找不到指定的 Advice") from exc
+
+
+@router.post("/ai-research/history/{advice_id}/evaluate-outcome")
+def evaluate_taiwan_advice_outcome(
+    advice_id: str,
+    payload: AdviceOutcomeEvaluateRequest,
+):
+    try:
+        return get_advice_tracking_service().evaluate_outcome(
+            advice_id,
+            evaluated_as_of=payload.evaluated_as_of,
+            view=payload.view,
+        )
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="找不到指定的 Advice") from exc
+    except (AIResearchHistoryError, ValueError) as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+@router.post("/ai-research/history/{advice_id}/reflection")
+def create_taiwan_advice_reflection(advice_id: str, payload: ReflectionCreate):
+    try:
+        return get_advice_tracking_service().create_reflection(advice_id, payload)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="找不到指定的 Advice") from exc
+    except AIResearchHistoryError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+@router.get("/ai-research/advice-statistics")
+def get_taiwan_advice_statistics(
+    plan_identity: Annotated[str, Query(min_length=1)],
+    view: Annotated[AdviceView, Query()] = "raw",
+    minimum_sample: Annotated[int, Query(ge=5, le=1000)] = 5,
+):
+    return get_advice_tracking_service().statistics(
+        plan_identity,
+        view=view,
+        minimum_sample=minimum_sample,
+    )
 
 
 @router.get("/abnormal-diagnostics", response_model=TaiwanAbnormalDiagnosticsSnapshot)

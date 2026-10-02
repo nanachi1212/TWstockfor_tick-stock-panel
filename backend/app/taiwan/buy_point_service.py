@@ -33,18 +33,21 @@ class BuyPointCandidate(BaseModel):
     plan_unavailable_reason: str | None = None
 
 
+def strategy_definition_payload(strategy: BuyPointStrategy) -> dict[str, Any]:
+    """Return behavior-affecting strategy material without catalogue timestamps."""
+    return {
+        "id": strategy.id,
+        "source_preset_id": strategy.source_preset_id,
+        "enabled": strategy.enabled,
+        "conditions": strategy.conditions.model_dump(mode="json"),
+        "risk_filters": strategy.risk_filters.model_dump(mode="json"),
+        "alert_channels": strategy.alert_channels,
+    }
+
+
 def strategy_definition_digest(strategy: BuyPointStrategy) -> str:
     """Hash only behavior-affecting fields, never generated catalogue timestamps."""
-    return canonical_hash(
-        {
-            "id": strategy.id,
-            "source_preset_id": strategy.source_preset_id,
-            "enabled": strategy.enabled,
-            "conditions": strategy.conditions.model_dump(mode="json"),
-            "risk_filters": strategy.risk_filters.model_dump(mode="json"),
-            "alert_channels": strategy.alert_channels,
-        }
-    )
+    return canonical_hash(strategy_definition_payload(strategy))
 
 
 def catalog_map(store: BuyPointStrategyStore) -> dict[str, BuyPointStrategy]:
