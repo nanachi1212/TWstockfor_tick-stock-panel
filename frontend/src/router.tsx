@@ -25,6 +25,7 @@ const TaiwanStockDetail = lazy(() => import('./pages/TaiwanStockDetail').then(m 
 const TaiwanStockCompare = lazy(() => import('./pages/TaiwanStockCompare').then(m => ({ default: m.TaiwanStockCompare })))
 const TaiwanScreener = lazy(() => import('./pages/TaiwanScreener').then(m => ({ default: m.TaiwanScreener })))
 const MarketResearch = lazy(() => import('./pages/MarketResearch').then(m => ({ default: m.MarketResearch })))
+const Research = lazy(() => import('./pages/Research').then(m => ({ default: m.Research })))
 const TaiwanEventCenter = lazy(() => import('./pages/TaiwanEventCenter').then(m => ({ default: m.TaiwanEventCenter })))
 const DailyBrief = lazy(() => import('./pages/DailyBrief').then(m => ({ default: m.DailyBrief })))
 const SelectionReview = lazy(() => import('./pages/SelectionReview').then(m => ({ default: m.SelectionReview })))
@@ -52,6 +53,7 @@ const CORE_ROUTE_PATHS = new Set([
   '/watchlist',
   '/taiwan-screener',
   '/market-research',
+  '/research',
   '/monitor',
   '/indices',
   '/branding',
@@ -117,6 +119,7 @@ export const router = createBrowserRouter([
       { path: 'watchlist', element: <Watchlist /> },
       { path: 'taiwan-screener', element: <TaiwanScreener /> },
       { path: 'market-research', element: <MarketResearch /> },
+      { path: 'research', element: <Research /> },
       { path: 'selection-review', element: <SelectionReview /> },
       { path: 'strategy-lab', element: <StrategyLab /> },
       { path: 'social-sentiment', element: <SocialSentiment /> },

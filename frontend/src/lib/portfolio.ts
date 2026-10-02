@@ -1,3 +1,5 @@
+import type { TaiwanRealtimeQuote } from './api'
+
 export type PortfolioSide = 'buy' | 'sell'
 
 export interface PortfolioTransaction {
@@ -33,6 +35,52 @@ export interface PortfolioTransactionInput {
   tax?: number
   date: string
   tradeTime: string
+}
+
+export interface RegisteredHoldingsSummary {
+  registered_positions_count: number
+  quote_coverage: 'complete' | 'partial'
+  weight_of_registered_pct?: number
+  registered_market_value?: number
+}
+
+type RegisteredQuote = Pick<TaiwanRealtimeQuote, 'symbol' | 'last_price'> | { symbol?: string; last_price?: number | null }
+
+/**
+ * Build the small, privacy-preserving portfolio context sent to research.
+ * A quote is usable only when its current price is a finite positive number;
+ * missing prices remain partial rather than being coerced to zero.
+ */
+export function registeredHoldingsSummary(
+  positions: readonly PortfolioPosition[],
+  quotes: readonly RegisteredQuote[] | ReadonlyMap<string, RegisteredQuote> | Record<string, RegisteredQuote | undefined>,
+  focusSymbol?: string,
+): RegisteredHoldingsSummary {
+  const registered = positions.filter(position => Number.isFinite(position.shares) && position.shares > 0)
+  const getQuote = (symbol: string): RegisteredQuote | undefined => {
+    if (Array.isArray(quotes)) return quotes.find(quote => quote.symbol === symbol)
+    if (quotes instanceof Map) return quotes.get(symbol)
+    return (quotes as Record<string, RegisteredQuote | undefined>)[symbol]
+  }
+  const marketValues = registered.map(position => {
+    const price = getQuote(position.symbol)?.last_price
+    const valid = typeof price === 'number' && Number.isFinite(price) && price > 0
+    return { position, value: valid ? price * position.shares : null }
+  })
+  const complete = registered.every(item => marketValues.find(value => value.position === item)?.value != null)
+  const total = marketValues.reduce<number>((sum, item) => sum + (item.value ?? 0), 0)
+  const result: RegisteredHoldingsSummary = {
+    registered_positions_count: registered.length,
+    quote_coverage: complete ? 'complete' : 'partial',
+  }
+  if (complete) {
+    const focus = focusSymbol == null
+      ? total
+      : marketValues.find(item => item.position.symbol === focusSymbol)?.value
+    if (total > 0 && focus != null) result.weight_of_registered_pct = focus / total * 100
+    result.registered_market_value = total
+  }
+  return result
 }
 
 export function isTaiwanPortfolioSymbol(symbol: string) {

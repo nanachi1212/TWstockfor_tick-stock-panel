@@ -111,6 +111,10 @@ export const QK = {
   taiwanEvents:         (scope?: string, symbols?: string, date?: string, eventType?: string) => ['taiwan-events', scope ?? 'all', symbols ?? '', date ?? '', eventType ?? 'all'] as const,
   taiwanEventCandidates:(limit?: number) => ['taiwan-event-candidates', limit ?? 10] as const,
   taiwanStockNews:      (symbol: string, limit?: number) => ['taiwan-stock-news', symbol, limit ?? 15] as const,
+  taiwanAIResearchHistory: (params?: { symbol?: string; from?: string; to?: string; purpose?: string; limit?: number }) =>
+    ['taiwan-ai-research-history', params ?? {}] as const,
+  taiwanAIResearchHistoryDetail: (id: string) => ['taiwan-ai-research-history-detail', id] as const,
+  taiwanAIResearchHistoryCompare: (id: string, otherId: string) => ['taiwan-ai-research-history-compare', id, otherId] as const,
   taiwanMarketSentiment:(date?: string) => ['taiwan-market-sentiment', date ?? 'latest'] as const,
   taiwanSocialSentiment:(date?: string, snapshotSlot?: string) => ['taiwan-social-sentiment', date ?? 'latest', snapshotSlot ?? 'latest'] as const,
   taiwanSocialSentimentHistory: ['taiwan-social-sentiment-history'] as const,

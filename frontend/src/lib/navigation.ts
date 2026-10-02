@@ -21,6 +21,7 @@ import {
   FlaskConical,
   Database,
   BarChart3,
+  BookOpen,
   type LucideIcon,
 } from 'lucide-react'
 
@@ -61,6 +62,7 @@ export interface NavMeta {
 export const CORE_NAV: readonly NavMeta[] = [
   { to: '/',                label: '看板',     icon: LayoutDashboard },
   { to: '/market-research', label: '大盤研究', icon: BarChart3 },
+  { to: '/research', label: '研究歷史', icon: BookOpen },
   { to: '/daily-brief',     label: '每日摘要', icon: Sparkles },
   { to: '/events',          label: '事件中心', icon: CalendarDays },
   { to: '/social-sentiment',label: '社群聲量', icon: MessageCircleMore },

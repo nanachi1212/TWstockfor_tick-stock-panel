@@ -3,6 +3,7 @@ import {
   buildPortfolioPositions,
   createPortfolioTransaction,
   isSupportedPortfolioInstrument,
+  registeredHoldingsSummary,
   type PortfolioTransaction,
 } from './portfolio'
 
@@ -11,6 +12,44 @@ function transaction(side: 'buy' | 'sell', shares: number, price: number, fee = 
 }
 
 describe('portfolio accounting', () => {
+  it('summarizes only positive holdings and reports complete quote weights', () => {
+    const positions = [
+      { symbol: '2330.TWSE', name: '台積電', shares: 10, costBasis: 1000, averageCost: 100, realizedPnl: 0 },
+      { symbol: '0050.TWSE', name: '元大台灣50', shares: 5, costBasis: 500, averageCost: 100, realizedPnl: 0 },
+      { symbol: '2317.TWSE', name: '鴻海', shares: 0, costBasis: 0, averageCost: 0, realizedPnl: 0 },
+      { symbol: '2882.TWSE', name: '國泰金', shares: -1, costBasis: 0, averageCost: 0, realizedPnl: 0 },
+    ]
+    const summary = registeredHoldingsSummary(positions, [
+      { symbol: '2330.TWSE', last_price: 120 },
+      { symbol: '0050.TWSE', last_price: 80 },
+    ], '2330.TWSE')
+    expect(summary).toEqual({
+      registered_positions_count: 2,
+      quote_coverage: 'complete',
+      weight_of_registered_pct: 75,
+      registered_market_value: 1600,
+    })
+  })
+
+  it('keeps count and partial coverage without inventing a weight', () => {
+    const positions = [
+      { symbol: '2330.TWSE', name: '台積電', shares: 10, costBasis: 1000, averageCost: 100, realizedPnl: 0 },
+      { symbol: '0050.TWSE', name: '元大台灣50', shares: 5, costBasis: 500, averageCost: 100, realizedPnl: 0 },
+    ]
+    const summary = registeredHoldingsSummary(positions, [{ symbol: '2330.TWSE', last_price: 120 }], '2330.TWSE')
+    expect(summary.registered_positions_count).toBe(2)
+    expect(summary.quote_coverage).toBe('partial')
+    expect(summary.weight_of_registered_pct).toBeUndefined()
+    expect(summary.registered_market_value).toBeUndefined()
+  })
+
+  it('reports zero market value for an empty registered ledger without a weight', () => {
+    expect(registeredHoldingsSummary([], [])).toEqual({
+      registered_positions_count: 0,
+      quote_coverage: 'complete',
+      registered_market_value: 0,
+    })
+  })
   it('allows quick trade only for supported canonical Taiwan stocks and ETFs', () => {
     expect(isSupportedPortfolioInstrument({ symbol: '2330.TWSE', instrument_type: 'stock', is_supported: true })).toBe(true)
     expect(isSupportedPortfolioInstrument({ symbol: '0050.TWSE', instrument_type: 'etf', is_supported: true })).toBe(true)
