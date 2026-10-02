@@ -30,7 +30,7 @@ from app.taiwan.buy_point_service import strategy_definition_payload
 from app.taiwan.observed_universe import ObservedUniverseStore
 from app.taiwan.quant.live_contract import canonical_hash
 from app.taiwan.realtime.calendar import TaiwanTradingCalendar
-from app.taiwan.trade_plan import TradePlanOutcome, build_trade_plan
+from app.taiwan.trade_plan import TradePlanEvaluation, TradePlanOutcome, build_trade_plan
 
 EVIDENCE_DAY = date(2026, 10, 1)
 FORWARD_DAY = date(2026, 10, 2)
@@ -116,6 +116,7 @@ def _save_review(
     store: TaiwanAIResearchHistoryStore,
     run: TaiwanAIAdviceRun,
     *,
+    started_at: str = "2026-10-01T14:01:01+08:00",
     completed_at: str = "2026-10-01T14:02:00+08:00",
     blocking: bool = False,
 ):
@@ -134,20 +135,33 @@ def _save_review(
             run_id=f"review-{run.run_id}-{completed_at}",
             advice_run_id=run.run_id,
             review=review,
-            started_at="2026-10-01T14:01:01+08:00",
+            started_at=started_at,
             completed_at=completed_at,
         ),
     )
 
 
 class FixedEvaluator:
-    def __init__(self, status: str = "triggered", gross_return_pct: float | None = 5.0):
+    def __init__(
+        self,
+        status: str = "triggered",
+        gross_return_pct: float | None = 5.0,
+        *,
+        bars_version: str = "bars-v1",
+        calendar_version: str = "calendar-v1",
+        actions_version: str = "actions-v1",
+        terminal_day: date = FORWARD_DAY,
+    ):
         self.status = status
         self.gross_return_pct = gross_return_pct
+        self.bars_version = bars_version
+        self.calendar_version = calendar_version
+        self.actions_version = actions_version
+        self.terminal_day = terminal_day
 
-    def evaluate(self, plan, *, evaluated_as_of):
-        terminal = FORWARD_DAY if self.status in {"triggered", "not_triggered", "undeterminable"} else None
-        return TradePlanOutcome(
+    def evaluate_with_provenance(self, plan, *, evaluated_as_of):
+        terminal = self.terminal_day if self.status in {"triggered", "not_triggered", "undeterminable"} else None
+        outcome = TradePlanOutcome(
             plan_identity=plan.plan_identity,
             plan_instance_id=plan.plan_instance_id,
             symbol=plan.symbol,
@@ -156,9 +170,21 @@ class FixedEvaluator:
             status=self.status,
             reason=None,
             price_adjustment_semantics=plan.price_adjustment_semantics,
-            exit_session=FORWARD_DAY if self.status == "triggered" else None,
+            exit_session=self.terminal_day if self.status == "triggered" else None,
             gross_return_pct=self.gross_return_pct if self.status == "triggered" else None,
             terminal_session=terminal,
+        )
+        bars = {"version": self.bars_version}
+        sessions = {"version": self.calendar_version}
+        actions = {"version": self.actions_version}
+        return TradePlanEvaluation(
+            outcome=outcome,
+            daily_bars_provenance=bars,
+            daily_bars_digest=canonical_hash(bars),
+            session_evidence_provenance=sessions,
+            session_evidence_digest=canonical_hash(sessions),
+            company_action_provenance=actions,
+            company_action_digest=canonical_hash(actions),
         )
 
 
@@ -212,6 +238,82 @@ def test_raw_and_reviewed_outcomes_remain_separate_cohorts(tmp_path):
     ).outcome_status_counts["triggered"] == 1
 
 
+def test_outcome_input_digest_covers_bars_calendar_actions_and_provenance(tmp_path):
+    service = _service(tmp_path)
+    digests = []
+    variants = (
+        FixedEvaluator(bars_version="bars-v2"),
+        FixedEvaluator(calendar_version="calendar-v2"),
+        FixedEvaluator(actions_version="actions-v2"),
+    )
+    for index, evaluator in enumerate(variants):
+        advice, _run, _plan_value = _save_advice(
+            service.history,
+            run_id=f"provenance-{index}",
+        )
+        service.evaluator = evaluator
+        record = service.evaluate_outcome(
+            advice["id"], evaluated_as_of=date(2026, 10, 5)
+        )
+        digests.append(record["input_digest"])
+        for prefix in ("daily_bars", "session_evidence", "company_action"):
+            assert canonical_hash(record[f"{prefix}_provenance"]) == record[f"{prefix}_digest"]
+    assert len(set(digests)) == 3
+
+
+def test_review_time_order_starts_after_advice_completion(tmp_path):
+    service = _service(tmp_path)
+    advice, run, _plan_value = _save_advice(service.history)
+    _save_review(
+        service.history,
+        run,
+        started_at="2026-10-01T13:59:00+08:00",
+        completed_at="2026-10-01T14:02:00+08:00",
+    )
+    status = service.forward_status(advice["id"], view="reviewed")
+    assert status.status == "unavailable"
+    assert "review_time_order_invalid" in status.reasons
+
+
+def test_reviewed_outcome_freezes_supporting_review_and_ignores_later_record(tmp_path):
+    service = _service(tmp_path)
+    advice, run, plan = _save_advice(service.history)
+    review = _save_review(service.history, run)
+    frozen = service.evaluate_outcome(
+        advice["id"], evaluated_as_of=date(2026, 10, 5), view="reviewed"
+    )
+    assert frozen["supporting_review_id"] == review["id"]
+    assert frozen["supporting_review_digest"] == review["review_digest"]
+
+    with pytest.raises(AIResearchHistoryError, match="already has"):
+        _save_review(
+            service.history,
+            run,
+            completed_at="2026-10-01T14:03:00+08:00",
+        )
+
+    later = dict(review)
+    later.update(
+        id="review_later_tampered",
+        run_id="review-later-tampered",
+        completed_at="2026-10-02T09:30:00+08:00",
+        review={
+            "advice_run_id": run.run_id,
+            "issues": [{"kind": "blocking", "text": "late", "evidence_refs": ["x"]}],
+            "no_material_issues": False,
+            "prompt_version": review["review"]["prompt_version"],
+        },
+        review_digest="tampered",
+    )
+    with service.history.path.open("a", encoding="utf-8", newline="") as stream:
+        stream.write(json.dumps(later, ensure_ascii=False, sort_keys=True) + "\n")
+
+    assert service.forward_status(advice["id"], view="reviewed").status == "unavailable"
+    stats = service.statistics(plan.plan_identity, view="reviewed")
+    assert stats.outcome_status_counts["triggered"] == 1
+    assert stats.integrity_conflicts == 0
+
+
 @pytest.mark.parametrize(
     ("mutation", "reason"),
     [
@@ -238,6 +340,21 @@ def test_forward_admission_fails_closed_for_naive_missing_provenance_and_plan_ta
     status = service.forward_status(advice["id"])
     assert status.status == "unavailable"
     assert reason in status.reasons
+
+
+def test_forward_admission_rejects_response_trade_plan_content_tamper(tmp_path):
+    service = _service(tmp_path)
+    advice, _run, _ = _save_advice(service.history)
+    rows = [json.loads(line) for line in service.history.path.read_text(encoding="utf-8").splitlines()]
+    rows[0]["response"]["advice"]["selected_trade_plan"]["stop_price"] = 89
+    service.history.path.write_text(
+        "".join(json.dumps(row, ensure_ascii=False) + "\n" for row in rows),
+        encoding="utf-8",
+    )
+    status = service.forward_status(advice["id"])
+    assert status.status == "unavailable"
+    assert "response_trade_plan_id_mismatch" in status.reasons
+    assert "response_trade_plan_mismatch" in status.reasons
 
 
 def test_forward_admission_rechecks_frozen_cutoff_against_current_census(tmp_path):
@@ -346,7 +463,7 @@ def test_statistics_deduplicates_plan_instances_and_excludes_conflicts(tmp_path)
     service = _service(tmp_path, gross_return_pct=5.0)
     first, _run, plan = _save_advice(service.history, run_id="duplicate-one")
     second, _run, _ = _save_advice(service.history, run_id="duplicate-two")
-    service.evaluate_outcome(first["id"], evaluated_as_of=date(2026, 10, 5))
+    service.evaluate_outcome(second["id"], evaluated_as_of=date(2026, 10, 5))
 
     deduplicated = service.statistics(plan.plan_identity)
     assert deduplicated.admitted_plan_instances == 1
@@ -354,11 +471,37 @@ def test_statistics_deduplicates_plan_instances_and_excludes_conflicts(tmp_path)
     assert deduplicated.integrity_conflicts == 0
 
     service.evaluator = FixedEvaluator("triggered", -5.0)
-    service.evaluate_outcome(second["id"], evaluated_as_of=date(2026, 10, 5))
+    service.evaluate_outcome(first["id"], evaluated_as_of=date(2026, 10, 5))
     conflicted = service.statistics(plan.plan_identity)
     assert conflicted.admitted_plan_instances == 0
     assert conflicted.integrity_conflicts == 1
     assert conflicted.win_rate_denominator == 0
+
+
+@pytest.mark.parametrize("tamper", ["gross_return", "outcome_digest"])
+def test_outcome_tamper_is_rejected_by_statistics_and_reflection(tmp_path, tamper):
+    service = _service(tmp_path)
+    advice, _run, plan = _save_advice(service.history)
+    outcome = service.evaluate_outcome(advice["id"], evaluated_as_of=date(2026, 10, 5))
+    rows = [json.loads(line) for line in service.history.path.read_text(encoding="utf-8").splitlines()]
+    persisted = next(item for item in rows if item.get("id") == outcome["id"])
+    if tamper == "gross_return":
+        persisted["outcome"]["gross_return_pct"] = 999
+    else:
+        persisted["outcome_digest"] = "0" * 64
+    service.history.path.write_text(
+        "".join(json.dumps(row, ensure_ascii=False) + "\n" for row in rows),
+        encoding="utf-8",
+    )
+
+    stats = service.statistics(plan.plan_identity)
+    assert stats.integrity_conflicts == 1
+    assert stats.win_rate_denominator == 0
+    with pytest.raises(AIResearchHistoryError, match="outcome_digest_mismatch"):
+        service.create_reflection(
+            advice["id"],
+            ReflectionCreate(outcome_id=outcome["id"], summary="must fail"),
+        )
 
 
 def test_reflections_are_immutable_cutoff_bound_same_plan_and_max_two(tmp_path):
@@ -412,6 +555,46 @@ def test_reflections_are_immutable_cutoff_bound_same_plan_and_max_two(tmp_path):
     )
     assert [item["summary"] for item in equal] == ["reflection 1", "reflection 0"]
     assert service.select_reflections(plan_identity, decision_cutoff="2026-10-06T09:00:00") == []
+
+
+def test_reflection_selection_orders_by_outcome_maturity_before_completion(tmp_path):
+    service = _service(tmp_path)
+    plan_identity = None
+    cases = (
+        (date(2026, 10, 2), "2026-10-06T10:00:00+08:00", "old-maturity"),
+        (date(2026, 10, 3), "2026-10-05T10:00:00+08:00", "mid-maturity"),
+        (date(2026, 10, 4), "2026-10-04T14:00:00+08:00", "new-maturity"),
+    )
+    for index, (terminal_day, reflection_completed, summary) in enumerate(cases):
+        advice, _run, plan = _save_advice(
+            service.history,
+            symbol=f"{2600 + index}.TWSE",
+        )
+        plan_identity = plan.plan_identity
+        service.evaluator = FixedEvaluator(terminal_day=terminal_day)
+        with patch(
+            "app.taiwan.advice_tracking.taipei_now",
+            return_value=datetime.fromisoformat(
+                f"{terminal_day.isoformat()}T14:00:00+08:00"
+            ),
+        ):
+            outcome = service.evaluate_outcome(
+                advice["id"], evaluated_as_of=terminal_day
+            )
+        with patch(
+            "app.taiwan.advice_tracking.taipei_now",
+            return_value=datetime.fromisoformat(reflection_completed),
+        ):
+            service.create_reflection(
+                advice["id"],
+                ReflectionCreate(outcome_id=outcome["id"], summary=summary),
+            )
+
+    selected = service.select_reflections(
+        plan_identity,
+        decision_cutoff="2026-10-07T09:00:00+08:00",
+    )
+    assert [item["summary"] for item in selected] == ["new-maturity", "mid-maturity"]
 
 
 def test_tracking_api_is_thin_and_preserves_history_get_compatibility(tmp_path, monkeypatch):

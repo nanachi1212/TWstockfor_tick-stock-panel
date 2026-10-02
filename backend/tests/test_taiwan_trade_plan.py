@@ -22,6 +22,7 @@ from app.taiwan.trade_plan import (
     TRADE_PLAN_VERSION,
     TradePlanEvaluator,
     build_trade_plan,
+    canonical_trade_plan_hashes,
     evaluate_trade_plan,
 )
 
@@ -120,6 +121,10 @@ def test_hashes_are_canonical_stable_and_symbol_specific():
     })
     assert first.price_adjustment_semantics == PRICE_ADJUSTMENT_SEMANTICS
     assert first.evidence_as_of == EVIDENCE
+    assert canonical_trade_plan_hashes(first) == (
+        first.plan_identity,
+        first.plan_instance_id,
+    )
 
 
 @pytest.mark.parametrize(
@@ -468,6 +473,31 @@ def test_store_evaluator_fails_closed_on_unresolved_session_evidence(tmp_path):
     outcome = evaluator.evaluate(_plan(), evaluated_as_of=date(2026, 9, 2))
     assert outcome.status == "data_insufficient"
     assert outcome.reason == "trading_session_evidence"
+
+
+def test_store_evaluator_exposes_hashed_exact_input_provenance(tmp_path):
+    evaluator = TradePlanEvaluator(
+        daily_store=TaiwanDailyStore(tmp_path / "daily-provenance"),
+        calendar=TaiwanTradingCalendar(),
+        action_store=CorporateActionStore(tmp_path / "actions-provenance"),
+    )
+    evaluation = evaluator.evaluate_with_provenance(
+        _plan(), evaluated_as_of=date(2026, 9, 2)
+    )
+
+    assert evaluation.outcome.status == "data_insufficient"
+    assert evaluation.daily_bars_digest == canonical_hash(
+        evaluation.daily_bars_provenance
+    )
+    assert evaluation.session_evidence_digest == canonical_hash(
+        evaluation.session_evidence_provenance
+    )
+    assert evaluation.company_action_digest == canonical_hash(
+        evaluation.company_action_provenance
+    )
+    assert evaluation.session_evidence_provenance["decisions"][0][
+        "calendar"
+    ]["status"] == "unresolved"
 
 
 def test_store_evaluator_preserves_terminal_result_before_later_evidence_gap(tmp_path):

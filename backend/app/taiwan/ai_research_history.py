@@ -292,6 +292,12 @@ class TaiwanAIResearchHistoryStore:
             )
             if parent is None:
                 raise AIResearchHistoryError("Advice must be persisted before its review")
+            if any(
+                record.get("kind") == "review"
+                and record.get("parent_id") == parent["id"]
+                for record in records
+            ):
+                raise AIResearchHistoryError("Advice already has a persisted Review")
             record = {
                 "id": f"review_{uuid.uuid4().hex}",
                 "kind": "review",

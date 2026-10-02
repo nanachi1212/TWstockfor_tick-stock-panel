@@ -7,9 +7,9 @@ places orders nor persists outcomes.
 from __future__ import annotations
 
 import math
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from datetime import date, timedelta
-from typing import Literal
+from typing import Any, Literal
 
 import polars as pl
 from pydantic import BaseModel, ConfigDict
@@ -101,6 +101,70 @@ class TradePlanOutcome(BaseModel):
     exit_reason: Literal["stop", "target", "max_holding"] | None = None
     gross_return_pct: float | None = None
     terminal_session: date | None = None
+
+
+class TradePlanEvaluation(BaseModel):
+    """Outcome plus the exact local inputs consumed by the evaluator."""
+
+    model_config = ConfigDict(frozen=True)
+
+    outcome: TradePlanOutcome
+    daily_bars_provenance: dict[str, Any]
+    daily_bars_digest: str
+    session_evidence_provenance: dict[str, Any]
+    session_evidence_digest: str
+    company_action_provenance: dict[str, Any]
+    company_action_digest: str
+
+
+PLAN_IDENTITY_FIELDS = (
+    "rule_version", "strategy_id", "entry_semantics", "fill_semantics",
+    "stop_method", "stop_lookback", "reward_risk_ratio", "entry_window_days",
+    "max_holding_days", "instrument_type", "price_adjustment_semantics",
+    "cost_assumption",
+)
+PLAN_INSTANCE_FIELDS = (
+    "symbol", "evidence_as_of", "reference_price", "reference_high",
+    "entry_zone_low", "entry_zone_high", "breakout_trigger", "stop_price",
+    "target_price",
+)
+
+
+def _field_value(value: Mapping[str, Any] | TradePlan, name: str) -> Any:
+    return value[name] if isinstance(value, Mapping) else getattr(value, name)
+
+
+def trade_plan_identity_material(value: Mapping[str, Any] | TradePlan) -> dict[str, Any]:
+    return {name: _field_value(value, name) for name in PLAN_IDENTITY_FIELDS}
+
+
+def trade_plan_instance_material(
+    value: Mapping[str, Any] | TradePlan,
+    *,
+    plan_identity: str,
+) -> dict[str, Any]:
+    return {
+        "plan_identity": plan_identity,
+        **{name: _field_value(value, name) for name in PLAN_INSTANCE_FIELDS},
+    }
+
+
+def canonical_trade_plan_hashes(plan: TradePlan) -> tuple[str, str]:
+    """Recompute the two canonical IDs from a frozen TradePlan."""
+    identity = canonical_hash(trade_plan_identity_material(plan))
+    return identity, canonical_hash(
+        trade_plan_instance_material(plan, plan_identity=identity)
+    )
+
+
+def _provenance_value(value: Any) -> Any:
+    if isinstance(value, float) and not math.isfinite(value):
+        return {"nonfinite": repr(value)}
+    if isinstance(value, dict):
+        return {key: _provenance_value(child) for key, child in value.items()}
+    if isinstance(value, list):
+        return [_provenance_value(child) for child in value]
+    return value
 
 
 def _tick_class(instrument_type: InstrumentType) -> TickSizeClass:
@@ -220,9 +284,8 @@ def build_trade_plan(
         "price_adjustment_semantics": price_adjustment_semantics,
         "cost_assumption": "gross",
     }
-    plan_identity = canonical_hash(definition)
+    plan_identity = canonical_hash(trade_plan_identity_material(definition))
     instance = {
-        "plan_identity": plan_identity,
         "symbol": signal.symbol,
         "evidence_as_of": evidence_as_of,
         "reference_price": reference_price,
@@ -247,7 +310,9 @@ def build_trade_plan(
         stop_price=stop_price,
         target_price=target_price,
         plan_identity=plan_identity,
-        plan_instance_id=canonical_hash(instance),
+        plan_instance_id=canonical_hash(
+            trade_plan_instance_material(instance, plan_identity=plan_identity)
+        ),
     )
 
 
@@ -520,12 +585,42 @@ class TradePlanEvaluator:
         self.calendar = calendar
         self.action_store = action_store
 
-    def evaluate(self, plan: TradePlan, *, evaluated_as_of: date) -> TradePlanOutcome:
+    @staticmethod
+    def _result(
+        outcome: TradePlanOutcome,
+        *,
+        bars: pl.DataFrame,
+        session_evidence: dict[str, Any],
+        action_provenance: dict[str, Any],
+    ) -> TradePlanEvaluation:
+        bars_provenance = {
+            "columns": list(bars.columns),
+            "rows": _provenance_value(bars.to_dicts()),
+        }
+        return TradePlanEvaluation(
+            outcome=outcome,
+            daily_bars_provenance=bars_provenance,
+            daily_bars_digest=canonical_hash(bars_provenance),
+            session_evidence_provenance=session_evidence,
+            session_evidence_digest=canonical_hash(session_evidence),
+            company_action_provenance=action_provenance,
+            company_action_digest=canonical_hash(action_provenance),
+        )
+
+    def evaluate_with_provenance(
+        self,
+        plan: TradePlan,
+        *,
+        evaluated_as_of: date,
+    ) -> TradePlanEvaluation:
         available = set(self.daily_store.available_dates())
         exchange = plan.symbol.rsplit(".", 1)[-1]
         if exchange not in {"TWSE", "TPEX"}:
-            return _outcome(
-                plan, evaluated_as_of, "data_insufficient", "canonical_symbol_required"
+            return self._result(
+                _outcome(plan, evaluated_as_of, "data_insufficient", "canonical_symbol_required"),
+                bars=pl.DataFrame(),
+                session_evidence={"exchange": exchange, "decisions": []},
+                action_provenance={"coverage_start": None, "coverage_end": None, "events": []},
             )
         observed: dict[date, bool] = {}
 
@@ -547,18 +642,24 @@ class TradePlanEvaluator:
             return observed[day]
 
         sessions: list[date] = []
+        decisions: list[dict[str, Any]] = []
         cursor = plan.evidence_as_of + timedelta(days=1)
         unresolved = False
         required_count = plan.entry_window_days + plan.max_holding_days - 1
         while cursor <= evaluated_as_of and len(sessions) < required_count:
             evidence = self.calendar.day_evidence(cursor, exchange)
-            if evidence.status == "trading" or (
-                has_exchange_observation(cursor)
-                and (
-                    evidence.status == "unresolved"
-                    or evidence.evidence_source == "calendar_rule"
-                )
+            observation = None
+            if evidence.status != "trading" and (
+                evidence.status == "unresolved" or evidence.evidence_source == "calendar_rule"
             ):
+                observation = has_exchange_observation(cursor)
+            admitted = evidence.status == "trading" or bool(observation)
+            decisions.append({
+                "calendar": evidence.describe(),
+                "exchange_observation": observation,
+                "admitted_as_session": admitted,
+            })
+            if admitted:
                 sessions.append(cursor)
             elif evidence.status == "unresolved":
                 unresolved = True
@@ -571,6 +672,18 @@ class TradePlanEvaluator:
         coverage_start, coverage_end, events = (
             coverage if coverage is not None else (None, None, ())
         )
+        session_provenance = {
+            "exchange": exchange,
+            "evaluated_as_of": evaluated_as_of,
+            "sessions": sessions,
+            "decisions": decisions,
+        }
+        action_provenance = {
+            "coverage_start": coverage_start,
+            "coverage_end": coverage_end,
+            "coverage_verified": coverage is not None or not sessions,
+            "events": [event.to_dict() for event in events],
+        }
         outcome = evaluate_trade_plan(
             plan,
             bars=bars,
@@ -581,8 +694,18 @@ class TradePlanEvaluator:
             company_action_coverage_start=coverage_start,
             company_action_coverage_end=coverage_end,
         )
-        if outcome.status != "immature" or not unresolved:
-            return outcome
-        return _outcome(
-            plan, evaluated_as_of, "data_insufficient", "trading_session_evidence"
+        if outcome.status == "immature" and unresolved:
+            outcome = _outcome(
+                plan, evaluated_as_of, "data_insufficient", "trading_session_evidence"
+            )
+        return self._result(
+            outcome,
+            bars=bars,
+            session_evidence=session_provenance,
+            action_provenance=action_provenance,
         )
+
+    def evaluate(self, plan: TradePlan, *, evaluated_as_of: date) -> TradePlanOutcome:
+        return self.evaluate_with_provenance(
+            plan, evaluated_as_of=evaluated_as_of
+        ).outcome
