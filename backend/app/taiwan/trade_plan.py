@@ -100,6 +100,7 @@ class TradePlanOutcome(BaseModel):
     exit_fill_price: float | None = None
     exit_reason: Literal["stop", "target", "max_holding"] | None = None
     gross_return_pct: float | None = None
+    terminal_session: date | None = None
 
 
 def _tick_class(instrument_type: InstrumentType) -> TickSizeClass:
@@ -362,7 +363,13 @@ def _evaluate_normalized_prefix(
     if entry_index is None:
         if len(sessions) < plan.entry_window_days:
             return _outcome(plan, evaluated_as_of, "immature", "entry_window_not_mature")
-        return _outcome(plan, evaluated_as_of, "not_triggered", "entry_window_elapsed")
+        return _outcome(
+            plan,
+            evaluated_as_of,
+            "not_triggered",
+            "entry_window_elapsed",
+            terminal_session=sessions[plan.entry_window_days - 1],
+        )
 
     assert entry_fill is not None and entry_at_open is not None
     entry_day = sessions[entry_index]
@@ -384,6 +391,7 @@ def _evaluate_normalized_prefix(
                 entry_session=entry_day,
                 entry_fill_price=entry_fill,
                 entry_at_open=entry_at_open,
+                terminal_session=sessions[index],
             )
         exit_reason: Literal["stop", "target"] | None = None
         exit_fill: float | None = None
@@ -407,6 +415,7 @@ def _evaluate_normalized_prefix(
                 exit_fill_price=exit_fill,
                 exit_reason=exit_reason,
                 gross_return_pct=(exit_fill / entry_fill - 1) * 100,
+                terminal_session=sessions[index],
             )
     if expiry_index >= len(rows_list):
         return _outcome(
@@ -431,6 +440,7 @@ def _evaluate_normalized_prefix(
         exit_fill_price=exit_fill,
         exit_reason="max_holding",
         gross_return_pct=(exit_fill / entry_fill - 1) * 100,
+        terminal_session=sessions[expiry_index],
     )
 
 
