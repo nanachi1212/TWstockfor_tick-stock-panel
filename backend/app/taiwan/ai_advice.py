@@ -2,12 +2,14 @@
 # ruff: noqa: RUF001 -- user-facing Traditional Chinese prompts and messages.
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import json
 import logging
 import threading
 import time
 import uuid
+from collections.abc import Awaitable, Callable
 from datetime import date, datetime
 from datetime import time as dt_time
 from pathlib import Path
@@ -45,6 +47,8 @@ _CACHE_TTL_SECONDS = 600
 _CACHE_MAX_ENTRIES = 128
 _ADVICE_CACHE: dict[str, tuple[float, TaiwanAIAdviceRun]] = {}
 _REVIEW_CACHE: dict[str, tuple[float, TaiwanAIReviewRun]] = {}
+_ADVICE_INFLIGHT: dict[str, asyncio.Future[TaiwanAIAdviceRun]] = {}
+_REVIEW_INFLIGHT: dict[str, asyncio.Future[TaiwanAIReviewRun]] = {}
 _CACHE_LOCK = threading.Lock()
 
 
@@ -156,6 +160,84 @@ def _cache_put(cache: dict[str, tuple[float, Any]], key: str, value: Any) -> Non
             oldest = min(cache, key=lambda item: cache[item][0])
             cache.pop(oldest, None)
         cache[key] = (time.monotonic(), value.model_copy(deep=True))
+
+
+async def _coalesced_run(
+    *,
+    cache: dict[str, tuple[float, Any]],
+    inflight: dict[str, asyncio.Future[Any]],
+    key: str,
+    refresh: bool,
+    build: Callable[[], Awaitable[Any]],
+    cacheable: Callable[[Any], bool] | None = None,
+) -> Any:
+    """Return one frozen run for concurrent misses of the same cache key."""
+    if not refresh:
+        cached = _cache_get(cache, key)
+        if cached is not None:
+            return cached
+    loop = asyncio.get_running_loop()
+    with _CACHE_LOCK:
+        pending = inflight.get(key)
+        leader = pending is None
+        if pending is None:
+            pending = loop.create_future()
+            inflight[key] = pending
+    if not leader:
+        shared = await asyncio.shield(pending)
+        return shared.model_copy(deep=True)
+    try:
+        result = await build()
+        if cacheable is None or cacheable(result):
+            _cache_put(cache, key, result)
+    except Exception as exc:
+        with _CACHE_LOCK:
+            if inflight.get(key) is pending:
+                inflight.pop(key, None)
+            if not pending.done():
+                pending.set_exception(exc)
+                pending.exception()
+        raise
+    except BaseException:
+        with _CACHE_LOCK:
+            if inflight.get(key) is pending:
+                inflight.pop(key, None)
+            if not pending.done():
+                pending.cancel()
+        raise
+    with _CACHE_LOCK:
+        if inflight.get(key) is pending:
+            inflight.pop(key, None)
+        if not pending.done():
+            pending.set_result(result.model_copy(deep=True))
+    return result
+
+
+def _advice_cache_key(
+    *,
+    config: AIProviderConfigSnapshot,
+    generation_config: dict[str, Any],
+    strategy_id: str,
+    strategy_definition_digest: str,
+    strategy_payload: dict[str, Any],
+    evidence_digest: str,
+    missing_items: list[str],
+    candidate_plan_ids: list[str],
+) -> str:
+    material = {
+        "prompt_version": ADVICE_PROMPT_VERSION,
+        "provider": config.provider,
+        "model": config.model,
+        "credential_fingerprint": hashlib.sha256(config.api_key.encode()).hexdigest(),
+        "strategy_id": strategy_id,
+        "strategy_definition_digest": strategy_definition_digest,
+        "strategy_prompt_digest": _evidence_digest(strategy_payload),
+        "evidence_digest": evidence_digest,
+        "missing_items": missing_items,
+        "candidate_plan_ids": candidate_plan_ids,
+        "generation_config": generation_config,
+    }
+    return hashlib.sha256(json.dumps(material, sort_keys=True).encode("utf-8")).hexdigest()
 
 
 async def _call_provider(
@@ -399,9 +481,11 @@ class TaiwanAIAdviceService:
         signal_evidence = candidate.signal.model_dump(mode="json")
         signal_evidence.pop("detected_at", None)
         evidence_payload["buy_point"] = signal_evidence
+        evidence_payload["missing_items"] = list(missing_items)
         registry_keys.update(
             {
                 "buy_point.status",
+                "buy_point.freshness",
                 "buy_point.triggered_conditions",
                 "buy_point.failed_conditions",
                 "buy_point.risk_flags",
@@ -414,25 +498,21 @@ class TaiwanAIAdviceService:
         config = snapshot_ai_provider_config()
         generation_config = _generation_config_metadata(config)
         digest = _evidence_digest(evidence_payload)
-        cache_material = {
-            "prompt_version": ADVICE_PROMPT_VERSION,
-            "provider": config.provider,
-            "model": config.model,
-            "credential_fingerprint": hashlib.sha256(config.api_key.encode()).hexdigest(),
-            "strategy_id": strategy_id,
-            "strategy_definition_digest": candidate.strategy_definition_digest,
-            "evidence_digest": digest,
-            "candidate_plan_ids": [item["plan_instance_id"] for item in candidates],
-            "generation_config": generation_config,
-        }
-        cache_key = hashlib.sha256(
-            json.dumps(cache_material, sort_keys=True).encode("utf-8")
-        ).hexdigest()
-        base_run = None if refresh else _cache_get(_ADVICE_CACHE, cache_key)
-        if base_run is None:
-            strategy_payload = candidate.strategy.model_dump(
-                mode="json", exclude={"created_at", "updated_at"}
-            )
+        strategy_payload = candidate.strategy.model_dump(
+            mode="json", exclude={"created_at", "updated_at"}
+        )
+        cache_key = _advice_cache_key(
+            config=config,
+            generation_config=generation_config,
+            strategy_id=strategy_id,
+            strategy_definition_digest=candidate.strategy_definition_digest,
+            strategy_payload=strategy_payload,
+            evidence_digest=digest,
+            missing_items=missing_items,
+            candidate_plan_ids=[item["plan_instance_id"] for item in candidates],
+        )
+
+        async def build_base() -> TaiwanAIAdviceRun:
             prompt = f"""請依封閉證據與伺服器候選交易計畫產出 Advice JSON，不得自行計算或改寫任何價格。
 
 允許引用鍵：{json.dumps(sorted(registry_keys), ensure_ascii=False)}
@@ -474,7 +554,7 @@ class TaiwanAIAdviceService:
                 logger.warning("Advice generation failed for %s (%s)", symbol, type(exc).__name__)
                 return self._unavailable(
                     "invalid_advice_response", "AI Advice 目前無法產生可驗證的結構化結果。"
-                ), None
+                )
             completed_at = taipei_now().isoformat()
             run_id = uuid.uuid4().hex
             response = TaiwanAIAdviceResponse(
@@ -522,7 +602,16 @@ class TaiwanAIAdviceService:
                 forward_cutoff=forward_cutoff,
                 generation_config=generation_config,
             )
-            _cache_put(_ADVICE_CACHE, cache_key, base_run)
+            return base_run
+
+        base_run = await _coalesced_run(
+            cache=_ADVICE_CACHE,
+            inflight=_ADVICE_INFLIGHT,
+            key=cache_key,
+            refresh=refresh,
+            build=build_base,
+            cacheable=lambda run: run.response.status == "success",
+        )
 
         if not review or base_run.response.status != "success" or base_run.response.advice is None:
             return base_run, None
@@ -536,8 +625,7 @@ class TaiwanAIAdviceService:
                 sort_keys=True,
             ).encode()
         ).hexdigest()
-        review_run = None if refresh else _cache_get(_REVIEW_CACHE, review_key)
-        if review_run is None:
+        async def build_review() -> TaiwanAIReviewRun:
             review_started = taipei_now().isoformat()
             review_prompt = f"""複核下列 frozen Advice，只回傳 issues/no_material_issues，不可重寫 Advice。
 允許引用鍵：{json.dumps(sorted(base_run.evidence_registry_keys), ensure_ascii=False)}
@@ -566,11 +654,7 @@ Advice：{json.dumps(base_run.response.advice.model_dump(mode='json'), ensure_as
                 )
             except Exception as exc:
                 logger.warning("Advice review failed for %s (%s)", symbol, type(exc).__name__)
-                failed = base_run.model_copy(deep=True)
-                failed.response.review_status = "unavailable"
-                failed.response.review_error_code = "invalid_review_response"
-                failed.response.review_error_message = "Advice 已保留，但獨立複核目前不可用。"
-                return failed, None
+                raise ValueError("invalid_review_response") from exc
             review_completed = taipei_now().isoformat()
             review_run = TaiwanAIReviewRun(
                 run_id=uuid.uuid4().hex,
@@ -582,7 +666,22 @@ Advice：{json.dumps(base_run.response.advice.model_dump(mode='json'), ensure_as
                 completed_at=review_completed,
                 generation_config=generation_config,
             )
-            _cache_put(_REVIEW_CACHE, review_key, review_run)
+            return review_run
+
+        try:
+            review_run = await _coalesced_run(
+                cache=_REVIEW_CACHE,
+                inflight=_REVIEW_INFLIGHT,
+                key=review_key,
+                refresh=refresh,
+                build=build_review,
+            )
+        except Exception:
+            failed = base_run.model_copy(deep=True)
+            failed.response.review_status = "unavailable"
+            failed.response.review_error_code = "invalid_review_response"
+            failed.response.review_error_message = "Advice 已保留，但獨立複核目前不可用。"
+            return failed, None
         result = base_run.model_copy(deep=True)
         result.response.review = review_run.review.model_copy(deep=True)
         result.response.review_status = "success"

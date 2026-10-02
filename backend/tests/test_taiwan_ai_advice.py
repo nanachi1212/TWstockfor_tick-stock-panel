@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 from datetime import date
 from types import SimpleNamespace
@@ -9,12 +10,15 @@ import pytest
 
 from app.taiwan.ai_advice import (
     _ADVICE_CACHE,
+    _ADVICE_INFLIGHT,
     _CACHE_LOCK,
     _REVIEW_CACHE,
+    _REVIEW_INFLIGHT,
     TaiwanAIAdviceResponse,
     TaiwanAIAdviceRun,
     TaiwanAIAdviceService,
     TaiwanAIReviewRun,
+    _advice_cache_key,
     _parse_advice,
     _parse_review,
 )
@@ -51,6 +55,52 @@ def _clear_advice_caches():
     with _CACHE_LOCK:
         _ADVICE_CACHE.clear()
         _REVIEW_CACHE.clear()
+        _ADVICE_INFLIGHT.clear()
+        _REVIEW_INFLIGHT.clear()
+
+
+def _provider_config():
+    return SimpleNamespace(
+        provider="test",
+        model="model",
+        api_key="secret",
+        base_url="https://example.test/v1",
+        profile_name=None,
+        user_agent=None,
+        reasoning_effort=None,
+        codex_reasoning_effort=None,
+        max_output_tokens=None,
+        context_window=None,
+        codex_command="codex",
+    )
+
+
+def test_advice_cache_key_covers_prompt_visible_strategy_and_missing_items():
+    common = {
+        "config": _provider_config(),
+        "generation_config": {"provider": "test", "model": "model"},
+        "strategy_id": "quant_pullback",
+        "strategy_definition_digest": "behavior",
+        "evidence_digest": "evidence",
+        "candidate_plan_ids": [],
+    }
+    original = _advice_cache_key(
+        **common,
+        strategy_payload={"name": "原名稱", "description": "原說明", "category": "價格"},
+        missing_items=["fundamentals"],
+    )
+    renamed = _advice_cache_key(
+        **common,
+        strategy_payload={"name": "新名稱", "description": "原說明", "category": "價格"},
+        missing_items=["fundamentals"],
+    )
+    different_missing = _advice_cache_key(
+        **common,
+        strategy_payload={"name": "原名稱", "description": "原說明", "category": "價格"},
+        missing_items=["institutional"],
+    )
+    assert original != renamed
+    assert original != different_missing
 
 
 def test_request_requires_strategy_for_advice_and_review_only_applies_to_advice():
@@ -164,19 +214,7 @@ async def test_review_reuses_cached_base_and_limits_provider_to_two_calls(taiwan
         ),
         json.dumps({"issues": [], "no_material_issues": True}),
     ]
-    config = SimpleNamespace(
-        provider="test",
-        model="model",
-        api_key="secret",
-        base_url="https://example.test/v1",
-        profile_name=None,
-        user_agent=None,
-        reasoning_effort=None,
-        codex_reasoning_effort=None,
-        max_output_tokens=None,
-        context_window=None,
-        codex_command="codex",
-    )
+    config = _provider_config()
     with (
         patch("app.taiwan.ai_advice.snapshot_ai_provider_config", return_value=config),
         patch("app.taiwan.ai_advice._call_provider", new_callable=AsyncMock, side_effect=outputs) as provider,
@@ -193,6 +231,82 @@ async def test_review_reuses_cached_base_and_limits_provider_to_two_calls(taiwan
     assert reviewed.response.review_status == "success"
     assert review_run is not None
     assert provider.await_count == 2
+
+
+@pytest.mark.asyncio
+async def test_concurrent_advice_review_coalesces_runs_and_history(
+    taiwan_data_env, tmp_path
+):
+    class FakeBuyPointService:
+        def candidate(self, *args, **kwargs):
+            return _candidate("waiting")
+
+    svc = TaiwanAIAdviceService(tmp_path, buy_point_svc=FakeBuyPointService())
+    provider_calls = 0
+
+    async def provider_output(*args, **kwargs):
+        nonlocal provider_calls
+        provider_calls += 1
+        call_number = provider_calls
+        await asyncio.sleep(0.05)
+        if call_number == 1:
+            return json.dumps(
+                {
+                    "action": "wait",
+                    "summary": "等待條件成立",
+                    "rationale": [],
+                    "conditions": [],
+                    "invalidation": [],
+                    "data_gaps": [],
+                    "selected_plan_instance_id": None,
+                },
+                ensure_ascii=False,
+            )
+        return json.dumps({"issues": [], "no_material_issues": True})
+
+    with (
+        patch(
+            "app.taiwan.ai_advice.snapshot_ai_provider_config",
+            return_value=_provider_config(),
+        ),
+        patch("app.taiwan.ai_advice._call_provider", side_effect=provider_output) as provider,
+    ):
+        results = await asyncio.gather(
+            *(
+                svc.generate("2330.TWSE", strategy_id="quant_pullback", review=True)
+                for _ in range(4)
+            )
+        )
+
+    advice_ids = {advice_run.run_id for advice_run, _review_run in results}
+    review_ids = {
+        review_run.run_id
+        for _advice_run, review_run in results
+        if review_run is not None
+    }
+    assert provider.call_count == provider_calls == 2
+    assert len(advice_ids) == 1
+    assert len(review_ids) == 1
+    assert {
+        advice_run.response.review_run_id for advice_run, _review_run in results
+    } == review_ids
+
+    first_advice, first_review = results[0]
+    assert first_review is not None
+    assert isinstance(first_advice.evidence_payload["missing_items"], list)
+    assert "buy_point.freshness" in first_advice.evidence_registry_keys
+    review_messages = provider.call_args_list[1].args[0]
+    assert '"missing_items"' in review_messages[1]["content"]
+    assert "buy_point.freshness" in review_messages[1]["content"]
+
+    store = TaiwanAIResearchHistoryStore(tmp_path / "coalesced-history.jsonl")
+    for advice_run, review_run in results:
+        assert review_run is not None
+        store.ensure_advice(advice_run)
+        store.ensure_review(advice_run, review_run)
+    records = store.list(limit=10)
+    assert [record["kind"] for record in records].count("advice") == 1
+    assert [record["kind"] for record in records].count("review") == 1
 
 
 def test_history_persists_advice_and_review_as_idempotent_supported_kinds(tmp_path):
