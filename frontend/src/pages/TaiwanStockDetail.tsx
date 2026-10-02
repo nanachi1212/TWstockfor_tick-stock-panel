@@ -24,8 +24,10 @@ import {
   api,
   type TaiwanSearchResult,
   type TaiwanAIStockResearchReport,
+  type TaiwanAIAdviceResponse,
   type TaiwanAIResearchPersonalContext,
   type TaiwanAIResearchHistoryRecord,
+  isTaiwanAIAdviceResponse,
   researchPromptVersion,
   type BuyPointSignal,
 } from '@/lib/api'
@@ -191,6 +193,11 @@ export function TaiwanStockDetail() {
     queryFn: () => api.buyPointSignals(symbol),
     staleTime: 60_000,
   })
+  const buyPointStrategiesQuery = useQuery({
+    queryKey: QK.buyPointStrategies,
+    queryFn: api.buyPointStrategies,
+    staleTime: 60_000,
+  })
 
   // Phase 7C: Structured Research Context Query
   const researchQuery = useQuery({
@@ -205,7 +212,18 @@ export function TaiwanStockDetail() {
   const [aiError, setAiError] = useState<string | null>(null)
   const [aiProvider, setAiProvider] = useState<string | null>(null)
   const [aiModel, setAiModel] = useState<string | null>(null)
+  const [aiMode, setAiMode] = useState<'research' | 'advice'>('research')
+  const [selectedAdviceStrategyId, setSelectedAdviceStrategyId] = useState('')
+  const [requestAdviceReview, setRequestAdviceReview] = useState(true)
+  const [aiAdviceResponse, setAiAdviceResponse] = useState<TaiwanAIAdviceResponse | null>(null)
   const [includePortfolioInCopy, setIncludePortfolioInCopy] = useState<boolean>(false)
+
+  useEffect(() => {
+    const strategies = buyPointStrategiesQuery.data?.strategies ?? []
+    if (strategies.length > 0 && !strategies.some(item => item.id === selectedAdviceStrategyId)) {
+      setSelectedAdviceStrategyId(strategies[0].id)
+    }
+  }, [buyPointStrategiesQuery.data, selectedAdviceStrategyId])
 
   const registeredPortfolio = useMemo(() => {
     void portfolioRevision
@@ -353,7 +371,7 @@ export function TaiwanStockDetail() {
     queryFn: () => api.taiwanAIResearchHistoryCompare(compareBase!.id, comparePrevious!.id),
     enabled: Boolean(compareBase && comparePrevious),
   })
-  const handleGenerateAiReport = useCallback(async () => {
+  const handleGenerateAiReport = useCallback(async (requestedMode: 'research' | 'advice' = aiMode) => {
     if (toggleWatchlist.isPending || watchlist.isFetching) return
     if (alertId && alertLookupError) {
       setAiError('提醒資料讀取失敗，請按重試提醒讀取後再分析。')
@@ -364,24 +382,40 @@ export function TaiwanStockDetail() {
       setAiError('找不到這筆提醒事件，股票資料仍可正常查看。')
       return
     }
+    if (requestedMode === 'advice' && !selectedAdviceStrategyId) {
+      setAiError('請先選擇買點策略，再產生 AI 建議。')
+      return
+    }
     setIsAiLoading(true)
     setAiError(null)
     try {
-      const res = await api.taiwanStockAIResearch(symbol, undefined, personalContext)
-      if (res.status === 'success' && res.report) {
+      const res = requestedMode === 'advice'
+        ? await api.taiwanStockAIResearch(symbol, undefined, personalContext, {
+            purpose: 'advice',
+            review: requestAdviceReview,
+            strategyId: selectedAdviceStrategyId,
+            refresh: Boolean(aiAdviceResponse),
+          })
+        : await api.taiwanStockAIResearch(symbol, undefined, personalContext)
+      if (requestedMode === 'advice' && isTaiwanAIAdviceResponse(res) && res.status === 'success' && res.advice) {
+        setAiAdviceResponse(res)
+        setAiProvider(res.provider ?? null)
+        setAiModel(res.model ?? null)
+        await qc.invalidateQueries({ queryKey: ['taiwan-ai-research-history'] })
+      } else if (requestedMode === 'research' && !isTaiwanAIAdviceResponse(res) && res.status === 'success' && res.report) {
         setAiReport(res.report)
         setAiProvider(res.provider ?? null)
         setAiModel(res.model ?? null)
         await qc.invalidateQueries({ queryKey: ['taiwan-ai-research-history'] })
       } else {
-        setAiError(res.error_message || 'AI 研究報告生成失敗')
+        setAiError(res.error_message || (requestedMode === 'advice' ? 'AI 建議生成失敗' : 'AI 研究報告生成失敗'))
       }
     } catch (e: any) {
       setAiError(e?.message || 'AI 服務調用失敗，請稍後重試')
     } finally {
       setIsAiLoading(false)
     }
-  }, [symbol, personalContext, alertId, alertLookupError, refetchAlertContext, selectedAlert, toggleWatchlist.isPending, watchlist.isFetching, qc])
+  }, [aiMode, selectedAdviceStrategyId, requestAdviceReview, aiAdviceResponse, symbol, personalContext, alertId, alertLookupError, refetchAlertContext, selectedAlert, toggleWatchlist.isPending, watchlist.isFetching, qc])
 
   useEffect(() => {
     const requestKey = `${symbol}:${alertId ?? ''}`
@@ -406,7 +440,7 @@ export function TaiwanStockDetail() {
       setAiError('找不到這筆提醒事件，股票資料仍可正常查看。')
       return
     }
-    void handleGenerateAiReport()
+    void handleGenerateAiReport('research')
   }, [routeResearch?.aiResearchRequested, detailQuery.isSuccess, alertId, alertContextQuery.isLoading, alertLookupError, selectedAlert, symbol, handleGenerateAiReport, watchlist.isLoading, watchlist.isFetching, toggleWatchlist.isPending, quantSelection.loading, location.pathname, location.state, navigate])
 
   const isLoading = detailQuery.isLoading
@@ -1633,31 +1667,85 @@ export function TaiwanStockDetail() {
         </div>
       )}
 
-      {/* Phase 7E: Grounded AI Stock Research Report (客觀事實解讀，無買賣推薦) */}
+      {/* Grounded AI research plus strategy-bound advice from the same backend route. */}
       <div className="bg-surface border border-purple-900/40 rounded-xl p-5 shadow-sm space-y-4">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-border/40 pb-3">
           <div className="flex items-center gap-2.5">
             <Sparkles className="w-5 h-5 text-purple-400" />
             <div>
               <h3 className="font-semibold text-sm text-foreground flex items-center gap-2">
-                AI Research Brief
+                {aiMode === 'advice' ? 'AI Strategy Advice' : 'AI Research Brief'}
                 <span className="text-[10px] bg-purple-950/60 border border-purple-800 text-purple-300 px-2 py-0.5 rounded font-mono">
-                  依現有資料解讀
+                  {aiMode === 'advice' ? '正式策略與 TradePlan' : '依現有資料解讀'}
                 </span>
               </h3>
               <p className="text-[11px] text-muted">
-                僅整理系統目前可取得的結構化資料，不提供買賣建議
+                {aiMode === 'advice' ? '依選定策略產生可複核建議；價位只採用後端正式 TradePlan' : '僅整理系統目前可取得的結構化資料，不提供買賣建議'}
               </p>
-              {(aiProvider || aiModel) && <p className="text-[10px] text-muted">本次使用：{aiProvider ?? 'provider 未提供'} · {aiModel ?? 'model 未提供'}</p>}
+              {(aiMode === 'advice' ? aiAdviceResponse?.provider || aiAdviceResponse?.model : aiProvider || aiModel) && (
+                <p className="text-[10px] text-muted">
+                  本次使用：{aiMode === 'advice' ? aiAdviceResponse?.provider ?? 'provider 未提供' : aiProvider ?? 'provider 未提供'} · {aiMode === 'advice' ? aiAdviceResponse?.model ?? 'model 未提供' : aiModel ?? 'model 未提供'}
+                </p>
+              )}
             </div>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <label className="text-[10px] text-muted">
+              <span className="sr-only">AI 分析模式</span>
+              <select
+                aria-label="AI 分析模式"
+                value={aiMode}
+                onChange={event => {
+                  setAiMode(event.target.value as 'research' | 'advice')
+                  setAiError(null)
+                }}
+                disabled={isAiLoading}
+                className="rounded-md border border-border bg-base px-2 py-1.5 text-xs text-foreground"
+              >
+                <option value="research">研究解讀</option>
+                <option value="advice">策略建議</option>
+              </select>
+            </label>
+            {aiMode === 'advice' && (
+              <>
+                <label className="text-[10px] text-muted">
+                  <span className="sr-only">建議策略</span>
+                  <select
+                    aria-label="建議策略"
+                    value={selectedAdviceStrategyId}
+                    onChange={event => {
+                      setSelectedAdviceStrategyId(event.target.value)
+                      setAiAdviceResponse(null)
+                      setAiError(null)
+                    }}
+                    disabled={isAiLoading || buyPointStrategiesQuery.isLoading || buyPointStrategiesQuery.isError}
+                    className="max-w-48 rounded-md border border-border bg-base px-2 py-1.5 text-xs text-foreground disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    {(buyPointStrategiesQuery.data?.strategies ?? []).map(strategy => (
+                      <option key={strategy.id} value={strategy.id}>{strategy.name}</option>
+                    ))}
+                  </select>
+                </label>
+                <label className="flex cursor-pointer select-none items-center gap-1.5 text-[10px] text-muted">
+                  <input
+                    type="checkbox"
+                    checked={requestAdviceReview}
+                    onChange={event => setRequestAdviceReview(event.target.checked)}
+                    disabled={isAiLoading}
+                    className="rounded border-border bg-base text-purple-600 focus:ring-purple-500"
+                  />
+                  獨立複核
+                </label>
+              </>
+            )}
           </div>
           <button
             type="button"
-            onClick={handleGenerateAiReport}
-            disabled={isAiLoading || watchlist.isLoading || watchlist.isFetching || toggleWatchlist.isPending || quantSelection.loading || Boolean(alertId && alertContextQuery.isLoading)}
+            onClick={() => { void handleGenerateAiReport() }}
+            disabled={isAiLoading || watchlist.isLoading || watchlist.isFetching || toggleWatchlist.isPending || quantSelection.loading || Boolean(alertId && alertContextQuery.isLoading) || Boolean(aiMode === 'advice' && (buyPointStrategiesQuery.isLoading || buyPointStrategiesQuery.isError || !selectedAdviceStrategyId))}
             className={cn(
               "px-3.5 py-1.5 rounded-lg text-xs font-medium flex items-center justify-center gap-1.5 transition-colors border",
-              isAiLoading || watchlist.isLoading || watchlist.isFetching || toggleWatchlist.isPending || quantSelection.loading || Boolean(alertId && alertContextQuery.isLoading)
+              isAiLoading || watchlist.isLoading || watchlist.isFetching || toggleWatchlist.isPending || quantSelection.loading || Boolean(alertId && alertContextQuery.isLoading) || Boolean(aiMode === 'advice' && (buyPointStrategiesQuery.isLoading || buyPointStrategiesQuery.isError || !selectedAdviceStrategyId))
                 ? "bg-purple-950/40 border-purple-800/40 text-purple-400 cursor-not-allowed"
                 : "bg-purple-600 hover:bg-purple-500 text-white border-purple-500 shadow-sm"
             )}
@@ -1670,7 +1758,11 @@ export function TaiwanStockDetail() {
             ) : (
               <>
                 <Sparkles className="w-3.5 h-3.5" />
-                {alertId && alertContextQuery.isError ? '重試提醒讀取' : aiReport ? '重新分析' : 'AI 分析'}
+                {alertId && alertContextQuery.isError
+                  ? '重試提醒讀取'
+                  : aiMode === 'advice'
+                    ? aiAdviceResponse ? '重新產生建議' : '產生 AI 建議'
+                    : aiReport ? '重新分析' : 'AI 分析'}
               </>
             )}
           </button>
@@ -2018,7 +2110,23 @@ export function TaiwanStockDetail() {
           </div>
         )}
 
-        {!aiReport && !isAiLoading && !aiError && (
+        {aiMode === 'advice' && buyPointStrategiesQuery.isError && (
+          <p role="alert" className="rounded-lg border border-amber-800/50 bg-amber-950/20 p-3 text-xs text-amber-300">
+            買點策略目前無法讀取，因此不能產生策略建議。
+          </p>
+        )}
+
+        {aiMode === 'advice' && !buyPointStrategiesQuery.isLoading && !buyPointStrategiesQuery.isError && (buyPointStrategiesQuery.data?.strategies.length ?? 0) === 0 && (
+          <p className="rounded-lg border border-dashed border-border/50 p-3 text-xs text-muted">
+            尚無可用的買點策略；請先建立或複製策略。
+          </p>
+        )}
+
+        {aiMode === 'advice' && aiAdviceResponse?.advice && (
+          <AIAdvicePanel response={aiAdviceResponse} />
+        )}
+
+        {aiMode === 'research' && !aiReport && !isAiLoading && !aiError && (
           <div className="py-8 text-center text-muted text-xs border border-dashed border-border/40 rounded-xl bg-base/30">
             <Sparkles className="w-8 h-8 mx-auto mb-2 text-purple-400/40" />
             <p className="font-medium text-foreground">尚未分析</p>
@@ -2026,7 +2134,15 @@ export function TaiwanStockDetail() {
           </div>
         )}
 
-        {aiReport && (
+        {aiMode === 'advice' && !aiAdviceResponse?.advice && !isAiLoading && !aiError && !buyPointStrategiesQuery.isError && (buyPointStrategiesQuery.data?.strategies.length ?? 0) > 0 && (
+          <div className="rounded-xl border border-dashed border-border/40 bg-base/30 py-8 text-center text-xs text-muted">
+            <Sparkles className="mx-auto mb-2 h-8 w-8 text-purple-400/40" />
+            <p className="font-medium text-foreground">尚未產生策略建議</p>
+            <p className="mt-1 text-[11px]">選擇買點策略後，系統會依正式訊號與 TradePlan 產生可複核建議。</p>
+          </div>
+        )}
+
+        {aiMode === 'research' && aiReport && (
           <div className="space-y-4 text-xs">
             <p className="text-[10px] text-muted">
               市場證據截至 {aiReport.evidence_as_of}
@@ -2182,6 +2298,133 @@ export function TaiwanStockDetail() {
         }}
       />
     </div>
+  )
+}
+
+const ADVICE_ACTION_LABELS = {
+  buy: '可依計畫進場',
+  wait: '等待條件',
+  no_chase: '不追價',
+  hold: '續抱觀察',
+  reduce: '降低部位',
+  exit: '退出',
+  no_view: '無法形成觀點',
+} as const
+
+const RATIONALE_KIND_LABELS = {
+  fact: '事實',
+  inference: '推論',
+  assumption: '假設',
+} as const
+
+function AIAdvicePanel({ response }: { response: TaiwanAIAdviceResponse }) {
+  const advice = response.advice!
+  const plan = advice.selected_trade_plan
+  const blockingIssues = response.review?.issues.filter(issue => issue.kind === 'blocking') ?? []
+
+  return (
+    <section className="space-y-3" aria-label="AI 策略建議">
+      <div className="rounded-lg border border-purple-700/40 bg-purple-950/20 p-3">
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="rounded-full bg-purple-500/15 px-2 py-0.5 text-[10px] font-semibold text-purple-300">
+            {ADVICE_ACTION_LABELS[advice.action]}
+          </span>
+          <span className="text-[10px] text-muted">策略 {advice.strategy_id} · 證據截至 {advice.evidence_as_of}</span>
+        </div>
+        <p className="mt-2 text-sm leading-relaxed text-foreground">{advice.summary}</p>
+      </div>
+
+      {response.review_status === 'success' && response.review && blockingIssues.length > 0 && (
+        <div role="alert" className="rounded-lg border border-red-700/60 bg-red-950/30 p-3 text-xs text-red-200">
+          <p className="font-semibold">獨立複核：不可採用</p>
+          <ul className="mt-1 list-inside list-disc space-y-1">
+            {blockingIssues.map((issue, index) => <li key={`blocking-${index}`}>{issue.text}</li>)}
+          </ul>
+        </div>
+      )}
+      {response.review_status === 'success' && response.review?.no_material_issues && blockingIssues.length === 0 && (
+        <div className="rounded-lg border border-emerald-700/40 bg-emerald-950/20 p-3 text-xs text-emerald-200">
+          獨立複核：未發現重大問題
+        </div>
+      )}
+      {response.review_status === 'success' && response.review && !response.review.no_material_issues && blockingIssues.length === 0 && response.review.issues.length > 0 && (
+        <div className="rounded-lg border border-amber-700/40 bg-amber-950/20 p-3 text-xs text-amber-200">
+          <p className="font-semibold">獨立複核提醒</p>
+          <ul className="mt-1 list-inside list-disc space-y-1">
+            {response.review.issues.map((issue, index) => <li key={`review-${index}`}>{issue.text}</li>)}
+          </ul>
+        </div>
+      )}
+      {response.review_status === 'unavailable' && (
+        <p role="alert" className="rounded-lg border border-amber-700/40 bg-amber-950/20 p-3 text-xs text-amber-200">
+          建議已產生，但獨立複核目前不可用：{response.review_error_message ?? '未提供原因'}
+        </p>
+      )}
+
+      <div className="grid gap-3 lg:grid-cols-2">
+        <section className="rounded-lg border border-border/50 bg-base/30 p-3">
+          <h4 className="text-xs font-semibold text-foreground">判斷依據</h4>
+          {advice.rationale.length === 0 ? <p className="mt-2 text-[11px] text-muted">沒有可列出的判斷依據。</p> : (
+            <ul className="mt-2 space-y-2">
+              {advice.rationale.map((item, index) => (
+                <li key={`rationale-${index}`} className="text-xs text-foreground">
+                  <span className="mr-1 rounded bg-elevated px-1.5 py-0.5 text-[10px] text-muted">{RATIONALE_KIND_LABELS[item.kind]}</span>
+                  {item.text}
+                  {item.evidence_refs.length > 0 && <span className="mt-0.5 block font-mono text-[10px] text-muted">證據：{item.evidence_refs.join('、')}</span>}
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
+        <section className="rounded-lg border border-border/50 bg-base/30 p-3">
+          <h4 className="text-xs font-semibold text-foreground">成立條件</h4>
+          <AdviceConditionList items={advice.conditions} emptyText="未列出額外成立條件。" />
+          <h4 className="mt-3 text-xs font-semibold text-foreground">失效條件</h4>
+          <AdviceConditionList items={advice.invalidation} emptyText="未列出額外失效條件。" />
+        </section>
+      </div>
+
+      <section className="rounded-lg border border-border/50 bg-base/30 p-3" aria-label="正式 TradePlan 價位">
+        <h4 className="text-xs font-semibold text-foreground">正式 TradePlan 價位</h4>
+        {plan ? (
+          <>
+            <dl className="mt-2 grid grid-cols-2 gap-2 text-xs sm:grid-cols-4">
+              <div><dt className="text-[10px] text-muted">計畫進場價</dt><dd className="font-mono text-foreground">{plan.planned_entry_price}</dd></div>
+              <div><dt className="text-[10px] text-muted">觸發價</dt><dd className="font-mono text-foreground">{plan.trigger_price}</dd></div>
+              <div><dt className="text-[10px] text-muted">停損價</dt><dd className="font-mono text-foreground">{plan.stop_price}</dd></div>
+              <div><dt className="text-[10px] text-muted">目標價</dt><dd className="font-mono text-foreground">{plan.target_price}</dd></div>
+            </dl>
+            {plan.entry_zone_low != null && plan.entry_zone_high != null && (
+              <p className="mt-2 text-[10px] text-muted">進場區間 {plan.entry_zone_low}–{plan.entry_zone_high}</p>
+            )}
+            <p className="mt-1 break-all font-mono text-[10px] text-muted">plan_instance_id: {plan.plan_instance_id}</p>
+          </>
+        ) : (
+          <p className="mt-2 text-[11px] text-muted">尚無可用的正式 TradePlan 價位；介面不推算替代價位。</p>
+        )}
+      </section>
+
+      <section className="rounded-lg border border-border/50 bg-base/30 p-3">
+        <h4 className="text-xs font-semibold text-foreground">資料缺口</h4>
+        {advice.data_gaps.length > 0
+          ? <ul className="mt-1 list-inside list-disc space-y-1 text-xs text-muted">{advice.data_gaps.map((item, index) => <li key={`gap-${index}`}>{item}</li>)}</ul>
+          : <p className="mt-1 text-[11px] text-muted">未列出額外資料缺口。</p>}
+      </section>
+    </section>
+  )
+}
+
+function AdviceConditionList({ items, emptyText }: { items: { text: string; evidence_refs: string[] }[]; emptyText: string }) {
+  if (items.length === 0) return <p className="mt-1 text-[11px] text-muted">{emptyText}</p>
+  return (
+    <ul className="mt-1 list-inside list-disc space-y-1 text-xs text-foreground">
+      {items.map((item, index) => (
+        <li key={`${item.text}-${index}`}>
+          {item.text}
+          {item.evidence_refs.length > 0 && <span className="ml-1 font-mono text-[10px] text-muted">({item.evidence_refs.join('、')})</span>}
+        </li>
+      ))}
+    </ul>
   )
 }
 

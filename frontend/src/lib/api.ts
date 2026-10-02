@@ -2143,6 +2143,111 @@ export interface TaiwanAIResearchResponse {
   evidence_registry_keys: string[]
 }
 
+export type TaiwanAIAdviceAction = 'buy' | 'wait' | 'no_chase' | 'hold' | 'reduce' | 'exit' | 'no_view'
+
+export interface TaiwanAIRationale {
+  kind: 'fact' | 'inference' | 'assumption'
+  text: string
+  evidence_refs: string[]
+}
+
+export interface TaiwanAIAdviceCondition {
+  text: string
+  evidence_refs: string[]
+}
+
+export interface TaiwanTradePlan {
+  rule_version: 'trade_plan_v1'
+  strategy_id: string
+  symbol: string
+  evidence_as_of: string
+  instrument_type: 'stock' | 'etf'
+  price_adjustment_semantics: string
+  cost_assumption: 'gross'
+  entry_semantics: 'pullback_limit' | 'breakout_stop'
+  fill_semantics: 'first_low_lte_limit_fill_min_open_limit' | 'first_high_gte_trigger_fill_max_open_trigger'
+  trigger_price: number
+  planned_entry_price: number
+  reference_price: number
+  reference_high?: number | null
+  entry_zone_low?: number | null
+  entry_zone_high?: number | null
+  breakout_trigger?: number | null
+  stop_method: string
+  stop_lookback: number
+  stop_price: number
+  stop_trigger_semantics: 'daily_low_lte_stop_gap_open_else_stop'
+  reward_risk_ratio: number
+  target_price: number
+  target_trigger_semantics: 'daily_high_gte_target_gap_open_else_target'
+  entry_window_days: number
+  max_holding_days: number
+  plan_identity: string
+  plan_instance_id: string
+}
+
+export interface TaiwanAIAdvice {
+  symbol: string
+  strategy_id: string
+  action: TaiwanAIAdviceAction
+  summary: string
+  rationale: TaiwanAIRationale[]
+  conditions: TaiwanAIAdviceCondition[]
+  invalidation: TaiwanAIAdviceCondition[]
+  data_gaps: string[]
+  buy_point_signal: BuyPointSignal
+  selected_trade_plan: TaiwanTradePlan | null
+  evidence_as_of: string
+  prompt_version: string
+}
+
+export interface TaiwanAIReviewIssue {
+  kind: 'blocking' | 'note'
+  text: string
+  evidence_refs: string[]
+}
+
+export interface TaiwanAIReview {
+  advice_run_id: string
+  issues: TaiwanAIReviewIssue[]
+  no_material_issues: boolean
+  prompt_version: string
+}
+
+export interface TaiwanAIAdviceResponse {
+  status: 'success' | 'unavailable' | 'error'
+  error_code?: string | null
+  error_message?: string | null
+  advice?: TaiwanAIAdvice | null
+  review?: TaiwanAIReview | null
+  review_status: 'not_requested' | 'success' | 'unavailable'
+  review_error_code?: string | null
+  review_error_message?: string | null
+  provider?: string | null
+  model?: string | null
+  prompt_version: string
+  evidence_as_of?: string | null
+  run_id: string
+  review_run_id?: string | null
+  started_at: string
+  completed_at: string
+  generated_at: string
+  evidence_registry_keys: string[]
+}
+
+export type TaiwanAIResearchRouteResponse = TaiwanAIResearchResponse | TaiwanAIAdviceResponse
+
+export function isTaiwanAIAdviceResponse(response: TaiwanAIResearchRouteResponse): response is TaiwanAIAdviceResponse {
+  return 'advice' in response || 'review_status' in response
+}
+
+export interface TaiwanAIResearchRequestOptions {
+  purpose?: 'research' | 'advice' | 'alert'
+  review?: boolean
+  strategyId?: string | null
+  refresh?: boolean
+}
+
 /** Persisted research records are intentionally tolerant: older records may
  * omit provider/model, evidence, or the structured report envelope. */
 export interface TaiwanAIResearchHistoryRecord {
@@ -4195,12 +4300,19 @@ export const api = {
         : `/api/taiwan/stocks/${encodeURIComponent(symbol)}/research-context`,
     ),
 
-  taiwanStockAIResearch: (symbol: string, date?: string, personalContext?: TaiwanAIResearchPersonalContext) =>
-    request<TaiwanAIResearchResponse>(
+  taiwanStockAIResearch: (symbol: string, date?: string, personalContext?: TaiwanAIResearchPersonalContext, options?: TaiwanAIResearchRequestOptions) =>
+    request<TaiwanAIResearchRouteResponse>(
       `/api/taiwan/stocks/${encodeURIComponent(symbol)}/ai-research`,
       {
         method: 'POST',
-        body: JSON.stringify({ date: date || null, purpose: 'research', ...(personalContext ? { personal_context: personalContext } : {}) }),
+        body: JSON.stringify({
+          date: date || null,
+          purpose: options?.purpose ?? 'research',
+          ...(personalContext ? { personal_context: personalContext } : {}),
+          ...(options?.review != null ? { review: options.review } : {}),
+          ...(options?.strategyId ? { strategy_id: options.strategyId } : {}),
+          ...(options?.refresh != null ? { refresh: options.refresh } : {}),
+        }),
       },
     ),
 
