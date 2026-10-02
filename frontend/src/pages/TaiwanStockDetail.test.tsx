@@ -11,6 +11,9 @@ import { api } from '@/lib/api'
 import { QK } from '@/lib/queryKeys'
 
 vi.mock('@/lib/api', () => ({
+  isTaiwanAIAdviceResponse: (response: Record<string, unknown>) => 'advice' in response || 'review_status' in response,
+  researchPromptVersion: (record: { prompt_versions?: Record<string, unknown>; prompt_version?: string }) =>
+    typeof record.prompt_versions?.research === 'string' ? record.prompt_versions.research : record.prompt_version ?? null,
   api: {
     taiwanSearch: vi.fn().mockResolvedValue({ results: [] }),
     taiwanSocialSentiment: vi.fn().mockResolvedValue({
@@ -41,6 +44,12 @@ vi.mock('@/lib/api', () => ({
     taiwanCurrentData: vi.fn().mockResolvedValue(null),
     taiwanStockResearchContext: vi.fn().mockResolvedValue(null),
     taiwanStockAIResearch: vi.fn(),
+    buyPointStrategies: vi.fn().mockResolvedValue({
+      strategies: [{
+        id: 'pullback-v1', name: '回檔策略', description: '', category: 'pullback', enabled: true, preset: false,
+        conditions: {}, risk_filters: {}, alert_channels: [], created_at: '', updated_at: '',
+      }],
+    }),
     alertsList: vi.fn().mockResolvedValue({ alerts: [], total: 0 }),
     taiwanQuantLiveModels: vi.fn().mockResolvedValue({
       configured_model: { model_key: 'test', top_n: 10 }, latest_operation: null, expected_session: null,
@@ -74,6 +83,12 @@ function LocationState() {
 
 beforeEach(() => {
   window.history.replaceState(null, '')
+  vi.mocked(api.buyPointStrategies).mockResolvedValue({
+    strategies: [{
+      id: 'pullback-v1', name: '回檔策略', description: '', category: 'pullback', enabled: true, preset: false,
+      conditions: {}, risk_filters: {}, alert_channels: [], created_at: '', updated_at: '',
+    }],
+  })
   vi.mocked(api.taiwanSocialSentiment).mockResolvedValue({
     status: 'partial', as_of: '2026-09-29', generated_at: '2026-09-29T15:30:00+08:00', snapshot_slot: 'after_close',
     sources: { ptt: { status: 'available' }, dcard: { status: 'unavailable' } }, rankings: [],
@@ -146,6 +161,123 @@ describe('TaiwanStockDetail — back navigation (DAILY_USE_CORE_UX_FIXES P1-2)',
 })
 
 describe('TaiwanStockDetail — AI Research', () => {
+  it('adds the first review without refreshing the frozen base Advice', async () => {
+    const advice = {
+      symbol: '2330.TWSE', strategy_id: 'pullback-v1', action: 'wait', summary: '先等待正式訊號。',
+      rationale: [], conditions: [], invalidation: [], data_gaps: [], selected_trade_plan: null,
+      buy_point_signal: { strategy_id: 'pullback-v1', symbol: '2330.TWSE', name: '台積電', detected_at: '2026-10-02T09:00:00+08:00', status: 'waiting', triggered_conditions: [], failed_conditions: [], risk_flags: [], risk_status: 'clear', explanation: '等待', freshness: 'current' },
+      evidence_as_of: '2026-10-01', prompt_version: 'taiwan_stock_advice_v1',
+    }
+    const base = {
+      status: 'success', provider: 'Custom', model: 'advice-model', prompt_version: 'taiwan_stock_advice_v1',
+      generated_at: '2026-10-02T10:00:00+08:00', started_at: '2026-10-02T09:59:00+08:00', completed_at: '2026-10-02T10:00:00+08:00',
+      evidence_as_of: '2026-10-01', evidence_registry_keys: [], run_id: 'advice-run-1', review_status: 'not_requested', advice,
+    }
+    vi.mocked(api.taiwanStockAIResearch)
+      .mockResolvedValueOnce(base as any)
+      .mockResolvedValueOnce({
+        ...base,
+        review_status: 'success', review_run_id: 'review-run-1',
+        review: { advice_run_id: 'advice-run-1', issues: [], no_material_issues: true, prompt_version: 'taiwan_stock_advice_review_v1' },
+      } as any)
+    renderAt(['/stocks/2330.TWSE'], 0)
+
+    fireEvent.change(await screen.findByLabelText('AI 分析模式'), { target: { value: 'advice' } })
+    await waitFor(() => expect(screen.getByRole('button', { name: '產生 AI 建議' })).toBeEnabled())
+    fireEvent.click(screen.getByLabelText('獨立複核'))
+    fireEvent.click(screen.getByRole('button', { name: '產生 AI 建議' }))
+    expect(await screen.findByText('先等待正式訊號。')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByLabelText('獨立複核'))
+    fireEvent.click(screen.getByRole('button', { name: '重新產生建議' }))
+    expect(await screen.findByText('獨立複核：未發現重大問題')).toBeInTheDocument()
+    expect(vi.mocked(api.taiwanStockAIResearch)).toHaveBeenNthCalledWith(
+      2,
+      '2330.TWSE', undefined, expect.any(Object),
+      { purpose: 'advice', review: true, strategyId: 'pullback-v1', refresh: false },
+    )
+  })
+
+  it('renders formal advice prices only from the server-selected TradePlan', async () => {
+    vi.mocked(api.buyPointStrategies).mockResolvedValue({ strategies: [
+      { id: 'pullback-v1', name: '回檔策略', description: '', category: 'pullback', enabled: true, preset: false, conditions: {}, risk_filters: {}, alert_channels: [], created_at: '', updated_at: '' },
+      { id: 'breakout-v1', name: '突破策略', description: '', category: 'breakout', enabled: true, preset: false, conditions: {}, risk_filters: {}, alert_channels: [], created_at: '', updated_at: '' },
+    ] })
+    vi.mocked(api.taiwanStockAIResearch).mockResolvedValue({
+      status: 'success', provider: 'Custom', model: 'advice-model', prompt_version: 'taiwan_stock_advice_v1',
+      generated_at: '2026-10-02T10:00:00+08:00', started_at: '2026-10-02T09:59:00+08:00', completed_at: '2026-10-02T10:00:00+08:00',
+      evidence_as_of: '2026-10-01', evidence_registry_keys: [], run_id: 'advice-run-1', review_status: 'success', review_run_id: 'review-run-1',
+      advice: {
+        symbol: '2330.TWSE', strategy_id: 'pullback-v1', action: 'buy', summary: '條件已滿足，可依正式計畫評估。',
+        rationale: [{ kind: 'fact', text: '買點訊號已觸發', evidence_refs: ['buy_point.status'] }],
+        conditions: [{ text: '價格維持正式進場條件', evidence_refs: ['trade_plan.trigger_price'] }],
+        invalidation: [{ text: '跌破正式停損價', evidence_refs: ['trade_plan.stop_price'] }],
+        data_gaps: [],
+        buy_point_signal: { strategy_id: 'pullback-v1', symbol: '2330.TWSE', name: '台積電', detected_at: '2026-10-02T09:00:00+08:00', status: 'triggered', triggered_conditions: [], failed_conditions: [], risk_flags: [], risk_status: 'clear', explanation: '觸發', freshness: 'current' },
+        selected_trade_plan: {
+          rule_version: 'trade_plan_v1', strategy_id: 'pullback-v1', symbol: '2330.TWSE', evidence_as_of: '2026-10-01', instrument_type: 'stock',
+          price_adjustment_semantics: 'pit_price_normalized_cash_and_share_actions_not_total_return', cost_assumption: 'gross',
+          entry_semantics: 'pullback_limit', fill_semantics: 'first_low_lte_limit_fill_min_open_limit', trigger_price: 998,
+          planned_entry_price: 995, reference_price: 1000, entry_zone_low: 990, entry_zone_high: 998,
+          stop_method: 'swing_low', stop_lookback: 20, stop_price: 950, stop_trigger_semantics: 'daily_low_lte_stop_gap_open_else_stop',
+          reward_risk_ratio: 2, target_price: 1085, target_trigger_semantics: 'daily_high_gte_target_gap_open_else_target', entry_window_days: 5, max_holding_days: 20,
+          plan_identity: 'plan-identity', plan_instance_id: 'plan-instance-1',
+        },
+        evidence_as_of: '2026-10-01', prompt_version: 'taiwan_stock_advice_v1',
+      },
+      review: { advice_run_id: 'advice-run-1', issues: [], no_material_issues: true, prompt_version: 'taiwan_stock_advice_review_v1' },
+    } as any)
+    renderAt(['/stocks/2330.TWSE'], 0)
+
+    fireEvent.change(await screen.findByLabelText('AI 分析模式'), { target: { value: 'advice' } })
+    await waitFor(() => expect(screen.getByLabelText('建議策略')).toHaveValue('pullback-v1'))
+    await waitFor(() => expect(screen.getByRole('button', { name: '產生 AI 建議' })).toBeEnabled())
+    fireEvent.click(screen.getByRole('button', { name: '產生 AI 建議' }))
+
+    expect(await screen.findByText('條件已滿足，可依正式計畫評估。')).toBeInTheDocument()
+    const plan = screen.getByRole('region', { name: '正式 TradePlan 價位' })
+    expect(plan).toHaveTextContent('計畫進場價995')
+    expect(plan).toHaveTextContent('觸發價998')
+    expect(plan).toHaveTextContent('停損價950')
+    expect(plan).toHaveTextContent('目標價1085')
+    expect(screen.getByText('獨立複核：未發現重大問題')).toBeInTheDocument()
+    expect(screen.queryByText(/confidence|信心/i)).not.toBeInTheDocument()
+    expect(vi.mocked(api.taiwanStockAIResearch)).toHaveBeenCalledWith(
+      '2330.TWSE', undefined, expect.any(Object),
+      { purpose: 'advice', review: true, strategyId: 'pullback-v1', refresh: false },
+    )
+
+    fireEvent.change(screen.getByLabelText('建議策略'), { target: { value: 'breakout-v1' } })
+    expect(screen.queryByText('條件已滿足，可依正式計畫評估。')).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '產生 AI 建議' })).toBeEnabled()
+  })
+
+  it('marks blocking review as unusable and never invents prices without a selected TradePlan', async () => {
+    vi.mocked(api.taiwanStockAIResearch).mockResolvedValue({
+      status: 'success', provider: 'Custom', prompt_version: 'taiwan_stock_advice_v1', generated_at: '2026-10-02T10:00:00+08:00',
+      started_at: '2026-10-02T09:59:00+08:00', completed_at: '2026-10-02T10:00:00+08:00', evidence_as_of: '2026-10-01',
+      evidence_registry_keys: [], run_id: 'advice-run-2', review_status: 'success', review_run_id: 'review-run-2',
+      advice: {
+        symbol: '2330.TWSE', strategy_id: 'pullback-v1', action: 'no_view', summary: '資料不足，不能形成可採用建議。',
+        rationale: [], conditions: [], invalidation: [], data_gaps: ['正式計畫不可用'], selected_trade_plan: null,
+        buy_point_signal: { strategy_id: 'pullback-v1', symbol: '2330.TWSE', name: '台積電', detected_at: '2026-10-02T09:00:00+08:00', status: 'unavailable', triggered_conditions: [], failed_conditions: [], risk_flags: [], risk_status: 'unknown', explanation: '不可用', freshness: 'unavailable' },
+        evidence_as_of: '2026-10-01', prompt_version: 'taiwan_stock_advice_v1',
+      },
+      review: { advice_run_id: 'advice-run-2', issues: [{ kind: 'blocking', text: '訊號狀態不可用，禁止採用。', evidence_refs: ['buy_point.status'] }], no_material_issues: false, prompt_version: 'taiwan_stock_advice_review_v1' },
+    } as any)
+    renderAt(['/stocks/2330.TWSE'], 0)
+
+    fireEvent.change(await screen.findByLabelText('AI 分析模式'), { target: { value: 'advice' } })
+    await waitFor(() => expect(screen.getByRole('button', { name: '產生 AI 建議' })).toBeEnabled())
+    fireEvent.click(screen.getByRole('button', { name: '產生 AI 建議' }))
+
+    const blockingReview = (await screen.findByText('獨立複核：不可採用')).closest('[role="alert"]')
+    expect(blockingReview).toHaveTextContent('獨立複核：不可採用')
+    expect(blockingReview).toHaveTextContent('訊號狀態不可用，禁止採用。')
+    expect(screen.getByRole('region', { name: '正式 TradePlan 價位' })).toHaveTextContent('介面不推算替代價位')
+    expect(screen.queryByText(/計畫進場價|停損價|目標價/)).not.toBeInTheDocument()
+  })
+
   it('sends only this symbol context after the user clicks AI 分析 and renders the brief', async () => {
     vi.mocked(api.taiwanSocialSentiment).mockResolvedValue({
       status: 'partial', as_of: '2026-09-29', generated_at: '2026-09-29T15:30:00+08:00', snapshot_slot: 'after_close',

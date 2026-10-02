@@ -32,7 +32,7 @@ from datetime import date
 from typing import Any, Literal
 from urllib.parse import urlsplit, urlunsplit
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 from app.services.ai_provider import (
     AIEmptyContentError,
@@ -178,8 +178,22 @@ class TaiwanAIResearchRequest(BaseModel):
 
     date: str | None = Field(None, description="指定交易日 (YYYY-MM-DD)，預設為最新完成交易日")
     personal_context: dict[str, Any] | None = Field(None, description="限本次研究使用的持倉、自選、Quant 與提醒結構化資料")
-    purpose: str = Field("research", min_length=1, max_length=80, description="本次研究用途")
+    purpose: Literal["research", "advice", "alert"] = Field(
+        "research", description="本次用途；alert 僅保留舊版研究相容性"
+    )
+    review: bool = Field(False, description="Advice 成功後是否另行產生獨立複核 artifact")
+    strategy_id: str | None = Field(
+        None, min_length=1, max_length=120, description="Advice 必填的買點策略 ID"
+    )
     refresh: bool = Field(False, description="略過本機研究快取並產生新的 run artifact")
+
+    @model_validator(mode="after")
+    def validate_purpose_fields(self) -> TaiwanAIResearchRequest:
+        if self.purpose == "advice" and not self.strategy_id:
+            raise ValueError("strategy_id is required for advice")
+        if self.purpose != "advice" and self.review:
+            raise ValueError("review is only available for advice")
+        return self
 
 
 class TaiwanAIResearchResponse(BaseModel):
