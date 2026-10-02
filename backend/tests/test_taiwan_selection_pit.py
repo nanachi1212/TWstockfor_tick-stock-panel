@@ -31,6 +31,7 @@ from app.taiwan.quant.selection_pit import (
     RegulatoryEvidence,
     TrendLiquidityV1PitInputError,
     build_artifact,
+    code_fingerprint,
     evaluate_trend_liquidity_v1_history,
     horizon_metrics,
     load_trend_liquidity_v1_pit_inputs,
@@ -456,6 +457,18 @@ def test_exchange_evidence_is_required_on_every_session():
     assert _picks(result, sessions[index]) == []
 
 
+def test_specific_regulatory_gaps_replace_the_generic_blocker():
+    sessions = _weekdays(date(2025, 1, 6), 45)
+    target = sessions[25]
+    regulatory = RegulatoryEvidence(
+        "fixture", frozenset(), {},
+        {target: ("regulatory_tpex_status_unavailable",)})
+    _, _, inputs = _forward_fixture(regulatory=regulatory)
+    counts = evaluate_trend_liquidity_v1_history(inputs)["reproducibility"]["blocker_session_counts"]
+    assert counts["regulatory_tpex_status_unavailable"] == 1
+    assert counts["regulatory_history_unavailable"] == 25  # sessions with no record at all
+
+
 def test_no_regulatory_history_means_no_strict_result_and_no_fake_metrics():
     _, _, inputs = _forward_fixture(regulatory=NO_REGULATORY_HISTORY,
                                     blocked={"TPEX"})
@@ -553,6 +566,20 @@ def test_rerun_is_deterministic_and_recorded_apart_from_forward_batches(tmp_path
             store=HistoricalPitRunStore(tmp_path / "blocked.sqlite3"), loader=lambda: inputs,
             preflight_reader=lambda: _preflight(False), code_sha="c" * 40)
     assert not (tmp_path / "blocked.sqlite3").exists()
+
+
+def test_code_fingerprint_covers_the_regulatory_replay(monkeypatch):
+    from pathlib import Path
+
+    original = Path.read_bytes
+    baseline = code_fingerprint()
+
+    def patched(self):
+        data = original(self)
+        return data + b"#changed" if self.name == "regulatory_history.py" else data
+
+    monkeypatch.setattr(Path, "read_bytes", patched)
+    assert code_fingerprint() != baseline
 
 
 def test_api_serves_only_recorded_summary(tmp_path, monkeypatch):

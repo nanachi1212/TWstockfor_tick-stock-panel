@@ -9,6 +9,11 @@ const BLOCKER_LABELS: Record<string, string> = {
   tpex_instrument_subtype_blocked: '上櫃歷史普通股身份無官方 PIT 來源',
   twse_instrument_subtype_unresolved: '上市歷史證券型別未驗證',
   regulatory_history_unavailable: '進場日前的處置／停牌／下市歷史紀錄不存在',
+  regulatory_twse_disposition_unavailable: '上市處置公告歷史未涵蓋進場日回溯區間',
+  regulatory_tpex_disposition_unavailable: '上櫃處置公告歷史未涵蓋進場日回溯區間',
+  regulatory_tpex_status_unavailable: '來源日沒有已驗證的上櫃變更交易／停止交易清單',
+  regulatory_termination_unavailable: '終止上市清單未在進場日之後取得',
+  regulatory_publication_time_unproven: '終止上市生效日在來源日之後，無法證明當時已公告',
   corporate_action_coverage_unavailable: '公司行動覆蓋未涵蓋 20 日趨勢窗',
   corporate_action_unverified: '趨勢窗內有未驗證公司行動',
   trading_day_unverified: '趨勢窗內有未驗證交易日',
@@ -134,7 +139,7 @@ export function SelectionHistoricalPitPanel({ data }: { data: TrendLiquidityV1Hi
           <dt className="text-muted-foreground">上市普通股型別覆蓋</dt><dd>{ratio(coverage.twse_classification?.primary_classification_ratio)}</dd>
           <dt className="text-muted-foreground">公司行動覆蓋</dt><dd>{coverage.corporate_actions?.status === 'verified' ? `${coverage.corporate_actions.start} ～ ${coverage.corporate_actions.end}` : '未驗證'}</dd>
           <dt className="text-muted-foreground">上櫃普通股型別</dt><dd>無官方歷史來源（blocked）</dd>
-          <dt className="text-muted-foreground">監管事件歷史</dt><dd>無 PIT 歷史紀錄</dd>
+          <dt className="text-muted-foreground">監管事件歷史</dt><dd>{typeof coverage.regulatory === 'object' && coverage.regulatory ? `官方歷史公告；完整覆蓋 ${coverage.regulatory.covered_entry_sessions} 個進場日` : '無 PIT 歷史紀錄'}</dd>
         </dl>
       </section>
 

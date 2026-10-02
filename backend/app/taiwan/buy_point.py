@@ -116,6 +116,10 @@ class BuyPointSignal(BaseModel):
     risk_flags: list[str] = Field(default_factory=list)
     risk_status: Literal["clear", "unknown"] = "unknown"
     price: float | None = None
+    reference_high: float | None = None
+    entry_zone_low: float | None = None
+    entry_zone_high: float | None = None
+    breakout_trigger: float | None = None
     quant_score: float | None = None
     explanation: str
     freshness: str
@@ -247,15 +251,23 @@ def evaluate_buy_point(strategy: BuyPointStrategy, data: BuyPointMarketData) -> 
     closes = [v for v in closes if v is not None]
     price = data.price if data.price is not None else (closes[-1] if closes else None)
     recent_high = max(closes[-21:-1], default=None)
+    reference_high: float | None = None
+    entry_zone_low: float | None = None
+    entry_zone_high: float | None = None
+    breakout_trigger: float | None = None
     if c.pullback_min_pct is not None or c.pullback_max_pct is not None:
         if len(closes) < 21:
             missing.append("20D 回檔資料")
         elif price is None or recent_high is None or recent_high <= 0:
             missing.append("近期高點與價格")
         else:
+            reference_high = recent_high
             pullback = (recent_high - price) / recent_high * 100
             lower = c.pullback_min_pct if c.pullback_min_pct is not None else float("-inf")
             upper = c.pullback_max_pct if c.pullback_max_pct is not None else float("inf")
+            if c.pullback_min_pct is not None and c.pullback_max_pct is not None:
+                entry_zone_low = recent_high * (1 - c.pullback_max_pct / 100)
+                entry_zone_high = recent_high * (1 - c.pullback_min_pct / 100)
             ok = lower <= pullback <= upper
             pullback_label = f"回檔 {pullback:.1f}%"
             (triggered if ok else failed).append(pullback_label)
@@ -270,6 +282,7 @@ def evaluate_buy_point(strategy: BuyPointStrategy, data: BuyPointMarketData) -> 
             missing.append(f"{c.breakout_window}D 高點")
         else:
             prior_high = max(closes[-c.breakout_window - 1:-1])
+            breakout_trigger = prior_high
             ok = price >= prior_high
             breakout_label = f"突破 {c.breakout_window}D 高點"
             (triggered if ok else failed).append(breakout_label)
@@ -347,7 +360,9 @@ def evaluate_buy_point(strategy: BuyPointStrategy, data: BuyPointMarketData) -> 
         detected_at=_now(), data_as_of=data.data_as_of, status=status,
         triggered_conditions=triggered, failed_conditions=failed + missing,
         risk_flags=list(dict.fromkeys(observed_risks)), risk_status=risk_status,
-        price=price, quant_score=data.quant_score,
+        price=price, reference_high=reference_high,
+        entry_zone_low=entry_zone_low, entry_zone_high=entry_zone_high,
+        breakout_trigger=breakout_trigger, quant_score=data.quant_score,
         explanation=explanation, freshness=data.freshness,
     )
 
