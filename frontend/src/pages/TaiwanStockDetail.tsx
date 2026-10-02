@@ -1968,7 +1968,7 @@ export function TaiwanStockDetail() {
                   })
                 }}
               />
-              {aiReport && <span className="text-[10px] text-muted">成功報告會自動保存，稍後可在研究歷史回看</span>}
+              {aiReport && <span className="text-[10px] text-muted">成功報告會自動儲存，稍後可在研究歷史回看</span>}
             </div>
           </div>
         </div>
@@ -1977,14 +1977,14 @@ export function TaiwanStockDetail() {
           <div className="flex flex-wrap items-center justify-between gap-2">
             <div>
               <h4 className="text-xs font-semibold text-foreground">研究歷史</h4>
-              <p className="text-[10px] text-muted">成功報告會自動保存，可回看 provider、模型與提示詞版本。</p>
+              <p className="text-[10px] text-muted">成功報告會自動儲存，可回看 provider、模型與提示詞版本。</p>
             </div>
             {historyQuery.isFetching && <span role="status" className="text-[10px] text-muted">讀取中…</span>}
           </div>
           {historyQuery.isError ? (
             <p role="alert" className="mt-2 text-[11px] text-muted">研究歷史目前不可用，個股 AI 分析仍可使用。</p>
           ) : historyItems.length === 0 ? (
-            <p className="mt-2 text-[11px] text-muted">尚無保存的研究紀錄。</p>
+            <p className="mt-2 text-[11px] text-muted">尚無儲存的研究紀錄。</p>
           ) : (
             <div className="mt-2 space-y-1.5">
               {historyItems.slice(0, 8).map((item, index) => (
