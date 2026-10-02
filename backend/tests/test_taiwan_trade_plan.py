@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 from datetime import date, datetime
+from types import SimpleNamespace
 
 import polars as pl
 import pytest
 
+from app.taiwan.adjust import adjust_prices_as_of
 from app.taiwan.buy_point import BuyPointSignal
 from app.taiwan.corporate_actions import (
     CorporateActionEvent,
@@ -363,6 +365,89 @@ def test_verified_company_action_normalizes_plan_and_prices():
     assert outcome.price_adjustment_semantics == PRICE_ADJUSTMENT_SEMANTICS
 
 
+def test_raw_corporate_action_window_adjusts_once_and_rejects_preadjusted_input():
+    plan = _plan(max_holding_days=2)
+    entry_day, expiry_day = date(2026, 9, 2), date(2026, 9, 3)
+    action = CorporateActionEvent(
+        symbol="2330.TWSE",
+        exchange="TWSE",
+        effective_date=expiry_day,
+        effective_at=event_market_open(expiry_day),
+        event_type="stock_dividend",
+        previous_close=100.0,
+        reference_price=50.0,
+        factor=0.5,
+        cash_dividend=0.0,
+        free_share_ratio=1.0,
+        reduction_ratio=None,
+        source="TWT49U",
+        source_url="https://example.test",
+        retrieved_at=datetime(2026, 9, 2, 14, tzinfo=TAIPEI),
+        status="verified",
+        precision_method="official_reference_price",
+    )
+    raw = _bars([
+        (entry_day, 95.0, 99.0, 94.0, 96.0),
+        (expiry_day, 48.0, 50.0, 47.0, 49.0),
+    ])
+    outcome = evaluate_trade_plan(
+        plan,
+        bars=raw,
+        sessions=[entry_day, expiry_day],
+        evaluated_as_of=expiry_day,
+        company_actions=[action],
+    )
+    assert (outcome.status, outcome.entry_fill_price) == ("triggered", 47.5)
+    assert (outcome.exit_reason, outcome.exit_fill_price) == ("max_holding", 49.0)
+
+    preadjusted = adjust_prices_as_of(
+        raw,
+        as_of=expiry_day,
+        events=[action],
+        price_columns=("open", "high", "low", "close"),
+    ).to_frame()
+    rejected = evaluate_trade_plan(
+        plan,
+        bars=preadjusted,
+        sessions=[entry_day, expiry_day],
+        evaluated_as_of=expiry_day,
+        company_actions=[action],
+    )
+    assert (rejected.status, rejected.reason) == (
+        "data_insufficient", "daily_or_adjustment_data",
+    )
+
+
+def test_terminal_outcome_ignores_later_missing_bar_but_required_bar_still_fails():
+    entry_day, missing_day = date(2026, 9, 2), date(2026, 9, 3)
+    bars = _bars([(entry_day, 95.0, 99.0, 94.0, 96.0)])
+    completed = evaluate_trade_plan(
+        _plan(max_holding_days=1),
+        bars=bars,
+        sessions=[entry_day],
+        evaluated_as_of=entry_day,
+    )
+    advanced = evaluate_trade_plan(
+        _plan(max_holding_days=1),
+        bars=bars,
+        sessions=[entry_day, missing_day],
+        evaluated_as_of=missing_day,
+    )
+    comparable = {"entry_session", "entry_fill_price", "entry_at_open", "exit_session",
+                  "exit_fill_price", "exit_reason", "gross_return_pct", "status", "reason"}
+    assert advanced.model_dump(include=comparable) == completed.model_dump(include=comparable)
+
+    required = evaluate_trade_plan(
+        _plan(max_holding_days=2),
+        bars=bars,
+        sessions=[entry_day, missing_day],
+        evaluated_as_of=missing_day,
+    )
+    assert (required.status, required.reason) == (
+        "data_insufficient", "daily_or_adjustment_data",
+    )
+
+
 def test_evidence_as_of_is_strict_session_boundary():
     plan = _plan()
     with pytest.raises(ValueError, match="after evidence_as_of"):
@@ -383,3 +468,40 @@ def test_store_evaluator_fails_closed_on_unresolved_session_evidence(tmp_path):
     outcome = evaluator.evaluate(_plan(), evaluated_as_of=date(2026, 9, 2))
     assert outcome.status == "data_insufficient"
     assert outcome.reason == "trading_session_evidence"
+
+
+def test_store_evaluator_preserves_terminal_result_before_later_evidence_gap(tmp_path):
+    entry_day, later_day = date(2026, 9, 2), date(2026, 9, 3)
+
+    def store_at(path, *, include_later):
+        store = TaiwanDailyStore(path)
+        days = [entry_day, later_day] if include_later else [entry_day]
+        store.write_batch(pl.DataFrame([
+            {
+                "symbol": "2330.TWSE", "date": day, "open": 95.0,
+                "high": 99.0, "low": 94.0, "close": 96.0,
+                "volume": 1_000_000.0, "amount": 96_000_000.0, "quote_ts": 0,
+            }
+            for day in days
+        ]))
+        return store
+
+    action_store = SimpleNamespace(
+        read_verified_coverage=lambda: (EVIDENCE, entry_day, ()),
+    )
+    plan = _plan(max_holding_days=1)
+    unresolved = TradePlanEvaluator(
+        daily_store=store_at(tmp_path / "unresolved", include_later=False),
+        calendar=TaiwanTradingCalendar(known_trading_days={entry_day}),
+        action_store=action_store,
+    ).evaluate(plan, evaluated_as_of=later_day)
+    assert (unresolved.status, unresolved.exit_session) == ("triggered", entry_day)
+
+    later_coverage_gap = TradePlanEvaluator(
+        daily_store=store_at(tmp_path / "coverage_gap", include_later=True),
+        calendar=TaiwanTradingCalendar(known_trading_days={entry_day, later_day}),
+        action_store=action_store,
+    ).evaluate(plan, evaluated_as_of=later_day)
+    assert (later_coverage_gap.status, later_coverage_gap.exit_session) == (
+        "triggered", entry_day,
+    )

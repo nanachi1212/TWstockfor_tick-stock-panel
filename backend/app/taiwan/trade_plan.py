@@ -14,7 +14,7 @@ from typing import Literal
 import polars as pl
 from pydantic import BaseModel, ConfigDict
 
-from app.taiwan.adjust import adjust_prices_as_of
+from app.taiwan.adjust import PROVENANCE_COLUMNS, adjust_prices_as_of
 from app.taiwan.buy_point import BuyPointSignal
 from app.taiwan.corporate_actions import CorporateActionEvent, CorporateActionStore
 from app.taiwan.daily_store import TaiwanDailyStore
@@ -277,7 +277,8 @@ def _normalized_window(
     events: Sequence[CorporateActionEvent],
 ) -> tuple[pl.DataFrame, float] | None:
     required = {"symbol", "date", "open", "high", "low", "close"}
-    if not required <= set(bars.columns):
+    columns = set(bars.columns)
+    if not required <= columns or columns.intersection(PROVENANCE_COLUMNS):
         return None
     try:
         frame = bars.select(sorted(required)).with_columns(
@@ -329,34 +330,14 @@ def _normalized_window(
     return normalized.filter(pl.col("date") != plan.evidence_as_of), factor
 
 
-def evaluate_trade_plan(
+def _evaluate_normalized_prefix(
     plan: TradePlan,
     *,
-    bars: pl.DataFrame,
-    sessions: Sequence[date],
+    frame: pl.DataFrame,
+    factor: float,
+    sessions: list[date],
     evaluated_as_of: date,
-    company_actions: Sequence[CorporateActionEvent] = (),
-    company_action_coverage_verified: bool = True,
 ) -> TradePlanOutcome:
-    """Evaluate one plan over confirmed, consecutive post-evidence sessions."""
-    if evaluated_as_of < plan.evidence_as_of:
-        raise ValueError("evaluated_as_of cannot precede evidence_as_of")
-    ordered = list(sessions)
-    if (
-        ordered != sorted(set(ordered))
-        or any(day <= plan.evidence_as_of or day > evaluated_as_of for day in ordered)
-    ):
-        raise ValueError("sessions must be unique, ordered, and after evidence_as_of")
-    required_count = plan.entry_window_days + plan.max_holding_days - 1
-    ordered = ordered[:required_count]
-    if not ordered:
-        return _outcome(plan, evaluated_as_of, "immature", "entry_window_not_mature")
-    if not company_action_coverage_verified:
-        return _outcome(plan, evaluated_as_of, "data_insufficient", "corporate_action_coverage")
-    normalized = _normalized_window(plan, bars, ordered, company_actions)
-    if normalized is None:
-        return _outcome(plan, evaluated_as_of, "data_insufficient", "daily_or_adjustment_data")
-    frame, factor = normalized
     levels = {
         "trigger": plan.trigger_price * factor,
         "stop": plan.stop_price * factor,
@@ -379,12 +360,12 @@ def evaluate_trade_plan(
             entry_at_open = row["open"] >= levels["trigger"]
             break
     if entry_index is None:
-        if len(ordered) < plan.entry_window_days:
+        if len(sessions) < plan.entry_window_days:
             return _outcome(plan, evaluated_as_of, "immature", "entry_window_not_mature")
         return _outcome(plan, evaluated_as_of, "not_triggered", "entry_window_elapsed")
 
     assert entry_fill is not None and entry_at_open is not None
-    entry_day = ordered[entry_index]
+    entry_day = sessions[entry_index]
     expiry_index = entry_index + plan.max_holding_days - 1
     for index in range(entry_index, min(expiry_index, len(rows_list) - 1) + 1):
         row = rows_list[index]
@@ -422,7 +403,7 @@ def evaluate_trade_plan(
                 entry_session=entry_day,
                 entry_fill_price=entry_fill,
                 entry_at_open=entry_at_open,
-                exit_session=ordered[index],
+                exit_session=sessions[index],
                 exit_fill_price=exit_fill,
                 exit_reason=exit_reason,
                 gross_return_pct=(exit_fill / entry_fill - 1) * 100,
@@ -446,11 +427,73 @@ def evaluate_trade_plan(
         entry_session=entry_day,
         entry_fill_price=entry_fill,
         entry_at_open=entry_at_open,
-        exit_session=ordered[expiry_index],
+        exit_session=sessions[expiry_index],
         exit_fill_price=exit_fill,
         exit_reason="max_holding",
         gross_return_pct=(exit_fill / entry_fill - 1) * 100,
     )
+
+
+def evaluate_trade_plan(
+    plan: TradePlan,
+    *,
+    bars: pl.DataFrame,
+    sessions: Sequence[date],
+    evaluated_as_of: date,
+    company_actions: Sequence[CorporateActionEvent] = (),
+    company_action_coverage_verified: bool = True,
+    company_action_coverage_start: date | None = None,
+    company_action_coverage_end: date | None = None,
+) -> TradePlanOutcome:
+    """Evaluate only the consecutive evidence prefix needed for a terminal outcome."""
+    if evaluated_as_of < plan.evidence_as_of:
+        raise ValueError("evaluated_as_of cannot precede evidence_as_of")
+    ordered = list(sessions)
+    if (
+        ordered != sorted(set(ordered))
+        or any(day <= plan.evidence_as_of or day > evaluated_as_of for day in ordered)
+    ):
+        raise ValueError("sessions must be unique, ordered, and after evidence_as_of")
+    required_count = plan.entry_window_days + plan.max_holding_days - 1
+    ordered = ordered[:required_count]
+    if not ordered:
+        return _outcome(plan, evaluated_as_of, "immature", "entry_window_not_mature")
+
+    latest = _outcome(plan, evaluated_as_of, "immature", "entry_window_not_mature")
+    for length in range(1, len(ordered) + 1):
+        prefix = ordered[:length]
+        current = prefix[-1]
+        coverage_missing = (
+            not company_action_coverage_verified
+            or (
+                company_action_coverage_start is not None
+                and company_action_coverage_start > plan.evidence_as_of
+            )
+            or (
+                company_action_coverage_end is not None
+                and company_action_coverage_end < current
+            )
+        )
+        if coverage_missing:
+            return _outcome(
+                plan, evaluated_as_of, "data_insufficient", "corporate_action_coverage"
+            )
+        normalized = _normalized_window(plan, bars, prefix, company_actions)
+        if normalized is None:
+            return _outcome(
+                plan, evaluated_as_of, "data_insufficient", "daily_or_adjustment_data"
+            )
+        frame, factor = normalized
+        latest = _evaluate_normalized_prefix(
+            plan,
+            frame=frame,
+            factor=factor,
+            sessions=prefix,
+            evaluated_as_of=evaluated_as_of,
+        )
+        if latest.status != "immature":
+            return latest
+    return latest
 
 
 class TradePlanEvaluator:
@@ -511,21 +554,25 @@ class TradePlanEvaluator:
                 unresolved = True
                 break
             cursor += timedelta(days=1)
-        if unresolved:
-            return _outcome(
-                plan, evaluated_as_of, "data_insufficient", "trading_session_evidence"
-            )
         bars = self.daily_store.read_range(
             [plan.symbol], sessions[0] if sessions else None, sessions[-1] if sessions else None
         )
-        events = self.action_store.read_verified_window(
-            plan.evidence_as_of, sessions[-1]
-        ) if sessions else ()
-        return evaluate_trade_plan(
+        coverage = self.action_store.read_verified_coverage() if sessions else None
+        coverage_start, coverage_end, events = (
+            coverage if coverage is not None else (None, None, ())
+        )
+        outcome = evaluate_trade_plan(
             plan,
             bars=bars,
             sessions=sessions,
             evaluated_as_of=evaluated_as_of,
-            company_actions=events or (),
-            company_action_coverage_verified=events is not None,
+            company_actions=events,
+            company_action_coverage_verified=coverage is not None or not sessions,
+            company_action_coverage_start=coverage_start,
+            company_action_coverage_end=coverage_end,
+        )
+        if outcome.status != "immature" or not unresolved:
+            return outcome
+        return _outcome(
+            plan, evaluated_as_of, "data_insufficient", "trading_session_evidence"
         )
