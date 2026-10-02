@@ -16,6 +16,7 @@ describe('CORE_NAV', () => {
     expect(CORE_NAV.map(item => item.to)).toEqual([
       '/',
       '/market-research',
+      '/research',
       '/daily-brief',
       '/events',
       '/social-sentiment',
@@ -37,6 +38,7 @@ describe('CORE_NAV', () => {
       new Set([
         '/',
         '/market-research',
+        '/research',
         '/daily-brief',
         '/events',
         '/social-sentiment',
@@ -53,8 +55,8 @@ describe('CORE_NAV', () => {
     )
   })
 
-  it('is the only exported nav array — CORE_NAV has exactly 14 Taiwan core items', () => {
-    expect(CORE_NAV).toHaveLength(14)
+  it('is the only exported nav array — CORE_NAV has exactly 15 Taiwan core items', () => {
+    expect(CORE_NAV).toHaveLength(15)
   })
 })
 

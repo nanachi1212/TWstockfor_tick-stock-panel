@@ -2143,9 +2143,62 @@ export interface TaiwanAIResearchResponse {
   evidence_registry_keys: string[]
 }
 
+/** Persisted research records are intentionally tolerant: older records may
+ * omit provider/model, evidence, or the structured report envelope. */
+export interface TaiwanAIResearchHistoryRecord {
+  id: string
+  kind?: string | null
+  run_id?: string | null
+  parent_id?: string | null
+  saved_at?: string | null
+  symbol?: string | null
+  purpose?: string | null
+  started_at?: string | null
+  completed_at?: string | null
+  generated_at?: string | null
+  provider?: string | null
+  model?: string | null
+  prompt_version?: string | null
+  prompt_versions?: Record<string, unknown> | string[] | null
+  evidence_payload?: unknown
+  evidence_digest?: string | null
+  report?: TaiwanAIStockResearchReport | Record<string, unknown> | null
+  response?: TaiwanAIResearchResponse | Record<string, unknown> | null
+  [key: string]: unknown
+}
+
+export interface TaiwanAIResearchHistoryListEnvelope {
+  items?: TaiwanAIResearchHistoryRecord[]
+  records?: TaiwanAIResearchHistoryRecord[]
+  total?: number
+  [key: string]: unknown
+}
+
+export type TaiwanAIResearchHistoryListResponse = TaiwanAIResearchHistoryRecord[] | TaiwanAIResearchHistoryListEnvelope
+
+export function researchPromptVersion(record: Pick<TaiwanAIResearchHistoryRecord, 'prompt_versions' | 'prompt_version'>): string | null {
+  const versions = record.prompt_versions
+  if (versions && typeof versions === 'object' && !Array.isArray(versions)) {
+    const research = (versions as Record<string, unknown>).research
+    if (typeof research === 'string' && research.trim()) return research
+  }
+  return typeof record.prompt_version === 'string' && record.prompt_version.trim()
+    ? record.prompt_version
+    : null
+}
+
+export interface TaiwanAIResearchHistoryCompareResponse {
+  [key: string]: unknown
+  left_id?: string
+  right_id?: string
+  evidence_data_changes?: unknown
+  model_prompt_config_changes?: unknown
+  interpretation_report_changes?: unknown
+}
+
 export interface TaiwanAIResearchPersonalContext {
   quote?: { last_price?: number; change?: number; change_pct?: number; quote_time?: string; market_status?: string; trade_date?: string; status?: string; source?: string; is_stale?: boolean }
-  portfolio?: { shares?: number; average_cost?: number; current_price?: number; unrealized_pnl?: number; return_pct?: number; change?: number; change_pct?: number }
+  portfolio?: { shares?: number; average_cost?: number; current_price?: number; unrealized_pnl?: number; return_pct?: number; change?: number; change_pct?: number; registered_positions_count?: number; quote_coverage?: 'complete' | 'partial'; weight_of_registered_pct?: number; registered_market_value?: number }
   watchlist?: { included: boolean }
   quant?: { status: 'available' | 'no_valid_run' | 'unavailable'; selected: boolean; rank?: number; score?: number; session?: string; feature_percentiles?: Record<string, number> }
   alert?: { alert_id?: string; rule_name?: string; rule_type?: string; triggered_at?: string; trigger_value?: number; threshold?: number; change_pct?: number; quant_status?: string; quant_rank?: number; quant_score?: number; quant_session?: string; message?: string; source?: string; market_status?: string }
@@ -4147,9 +4200,26 @@ export const api = {
       `/api/taiwan/stocks/${encodeURIComponent(symbol)}/ai-research`,
       {
         method: 'POST',
-        body: JSON.stringify({ date: date || null, ...(personalContext ? { personal_context: personalContext } : {}) }),
+        body: JSON.stringify({ date: date || null, purpose: 'research', ...(personalContext ? { personal_context: personalContext } : {}) }),
       },
     ),
+
+  taiwanAIResearchHistory: (params?: { symbol?: string; from?: string; to?: string; purpose?: string; limit?: number }) => {
+    const query = new URLSearchParams()
+    if (params?.symbol) query.set('symbol', params.symbol)
+    if (params?.from) query.set('from', params.from)
+    if (params?.to) query.set('to', params.to)
+    if (params?.purpose) query.set('purpose', params.purpose)
+    if (params?.limit != null) query.set('limit', String(params.limit))
+    const suffix = query.toString()
+    return request<TaiwanAIResearchHistoryListResponse>(`/api/taiwan/ai-research/history${suffix ? `?${suffix}` : ''}`)
+  },
+
+  taiwanAIResearchHistoryDetail: (id: string) =>
+    request<TaiwanAIResearchHistoryRecord>(`/api/taiwan/ai-research/history/${encodeURIComponent(id)}`),
+
+  taiwanAIResearchHistoryCompare: (id: string, otherId: string) =>
+    request<TaiwanAIResearchHistoryCompareResponse>(`/api/taiwan/ai-research/history/${encodeURIComponent(id)}/compare/${encodeURIComponent(otherId)}`),
 
   taiwanStockCompare: (symbols: string[], date?: string) =>
     request<TaiwanStockComparisonResponse>('/api/taiwan/stocks/compare', {
