@@ -511,9 +511,36 @@ def _sanitize_personal_context(value: dict[str, Any] | None) -> dict[str, dict[s
         return result
 
     result: dict[str, dict[str, Any]] = {}
-    portfolio = finite_numbers(value.get("portfolio"), {
+    portfolio_source = value.get("portfolio")
+    portfolio = finite_numbers(portfolio_source, {
         "shares", "average_cost", "current_price", "unrealized_pnl", "return_pct", "change", "change_pct",
     })
+    if isinstance(portfolio_source, dict):
+        registered_positions_count = portfolio_source.get("registered_positions_count")
+        if (
+            isinstance(registered_positions_count, int)
+            and not isinstance(registered_positions_count, bool)
+            and registered_positions_count >= 0
+        ):
+            portfolio["registered_positions_count"] = registered_positions_count
+
+        quote_coverage = portfolio_source.get("quote_coverage")
+        if quote_coverage in {"complete", "partial"}:
+            portfolio["quote_coverage"] = quote_coverage
+
+        registered_market_value = finite_numbers(
+            portfolio_source,
+            {"registered_market_value"},
+        ).get("registered_market_value")
+        if registered_market_value is not None and registered_market_value >= 0:
+            portfolio["registered_market_value"] = registered_market_value
+
+        if quote_coverage == "complete":
+            weight = finite_numbers(portfolio_source, {"weight_of_registered_pct"}).get(
+                "weight_of_registered_pct"
+            )
+            if weight is not None and 0 <= weight <= 100:
+                portfolio["weight_of_registered_pct"] = weight
     if portfolio:
         result["portfolio"] = portfolio
 
@@ -632,6 +659,8 @@ SYSTEM_PROMPT = """你是一個客觀、確定性導向的「台股個股研究�
    - 必須嚴格輸出純 JSON 物件，符合指定之綱要結構，不得包含任何 Markdown 外框或閒聊文字。
  8. 個人情境:
    - personal_context 僅依提供的單股行情快照、持倉、自選、Quant 快照、該股提醒事件與社群聲量解讀; 缺少欄位不得補值, 行情標示 stale 時必須標明資料偏舊。
+   - weight_of_registered_pct 僅代表「占已登錄持股市值」，絕非占總資產、淨資產或完整投資組合；quote_coverage 不是 complete 時不得推算或暗示此比例。
+   - 不得從持倉摘要或任何缺失欄位推論現金、銀行存款、對話、記憶或其他未提供資產。
    - social 僅代表社群討論與 AI 情緒分析，可能有抽樣與群體偏誤，不是官方資料、公司事實或未來股價證據。
    - 不重新計算或改寫 Quant 分數與排名, 也不提供買賣決策。
    - watch_next 僅列出 2 至 4 項附有效 evidence_refs 的觀察項目, 不推測新聞或未來事件。
@@ -883,6 +912,7 @@ class TaiwanAIResearchService:
         user_prompt = f"""請依據以下封閉研究證據 JSON，為 {ctx.identity.name} ({ctx.identity.code}) 產出結構化客觀解讀報告。
 
 市場研究證據日期為 {ctx.as_of_date}。如包含個人脈絡，該資料代表本次分析時的目前狀態，不得描述成市場證據日期當時的歷史狀態；不得用目前持倉、自選或提醒推論歷史狀態。
+若提供 weight_of_registered_pct，該百分比嚴格僅為「占已登錄持股市值」，不是總資產、淨資產或完整投資組合比例；不得推論未提供的現金、銀行存款、對話、記憶或其他資產。
 
 【合法引用鍵白名單 (Allowed evidence_refs)】:
 {json.dumps(sorted(list(registry_keys)), ensure_ascii=False)}

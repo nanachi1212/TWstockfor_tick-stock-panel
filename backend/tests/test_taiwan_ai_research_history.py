@@ -18,12 +18,15 @@ from app.services.ai_provider import AIProviderConfigSnapshot
 from app.taiwan.ai_research import (
     _REPORT_CACHE,
     _REPORT_CACHE_LOCK,
+    SYSTEM_PROMPT,
     TaiwanAIResearchResponse,
     TaiwanAIResearchRun,
     TaiwanAIResearchService,
     TaiwanAIStockResearchReport,
     _evidence_digest,
     _generation_config_metadata,
+    _sanitize_personal_context,
+    build_evidence_registry,
 )
 from app.taiwan.ai_research_history import (
     AIResearchHistoryError,
@@ -159,6 +162,162 @@ async def test_cache_hit_preserves_run_and_completion_while_refresh_creates_new_
     assert refreshed.run_id != first.run_id
     assert first.response.generated_at == first.response.completed_at
     assert first.response.report.generated_at == first.response.report.completed_at
+
+
+def test_portfolio_summary_sanitizer_enforces_coverage_and_asset_boundary():
+    complete = _sanitize_personal_context({
+        "portfolio": {
+            "registered_positions_count": 3,
+            "quote_coverage": "complete",
+            "registered_market_value": 250_000,
+            "weight_of_registered_pct": 40.5,
+            "cash": 900_000,
+            "bank_balance": 1_000_000,
+            "chat": "secret",
+            "memory": "secret",
+            "total_assets": 1_250_000,
+        }
+    })
+    assert complete == {
+        "portfolio": {
+            "registered_positions_count": 3,
+            "quote_coverage": "complete",
+            "registered_market_value": 250_000.0,
+            "weight_of_registered_pct": 40.5,
+        }
+    }
+
+    partial = _sanitize_personal_context({
+        "portfolio": {
+            "registered_positions_count": 3,
+            "quote_coverage": "partial",
+            "registered_market_value": 200_000,
+            "weight_of_registered_pct": 99,
+        }
+    })
+    assert partial == {
+        "portfolio": {
+            "registered_positions_count": 3,
+            "quote_coverage": "partial",
+            "registered_market_value": 200_000.0,
+        }
+    }
+
+    missing_coverage = _sanitize_personal_context({
+        "portfolio": {
+            "registered_positions_count": 3,
+            "registered_market_value": 200_000,
+            "weight_of_registered_pct": 40,
+            "cash": 800_000,
+        }
+    })
+    assert missing_coverage == {
+        "portfolio": {
+            "registered_positions_count": 3,
+            "registered_market_value": 200_000.0,
+        }
+    }
+
+
+def test_portfolio_summary_sanitizer_rejects_invalid_values():
+    result = _sanitize_personal_context({
+        "portfolio": {
+            "registered_positions_count": -1,
+            "quote_coverage": "complete",
+            "registered_market_value": -0.01,
+            "weight_of_registered_pct": float("inf"),
+        }
+    })
+    assert result == {"portfolio": {"quote_coverage": "complete"}}
+
+    out_of_range = _sanitize_personal_context({
+        "portfolio": {
+            "quote_coverage": "complete",
+            "weight_of_registered_pct": 100.01,
+        }
+    })
+    assert out_of_range == {"portfolio": {"quote_coverage": "complete"}}
+
+
+def test_portfolio_summary_is_frozen_in_evidence_only_after_sanitizing():
+    from tests.test_taiwan_stock_comparison import build_context
+
+    context = build_context("2330.TWSE", "2330", "台積電")
+    payload, registry_keys, _ = build_evidence_registry(
+        context,
+        None,
+        {
+            "portfolio": {
+                "registered_positions_count": 2,
+                "quote_coverage": "partial",
+                "registered_market_value": 125_000,
+                "weight_of_registered_pct": 88,
+                "cash": 500_000,
+            }
+        },
+    )
+
+    assert payload["personal_context"]["portfolio"] == {
+        "registered_positions_count": 2,
+        "quote_coverage": "partial",
+        "registered_market_value": 125_000.0,
+    }
+    assert "personal.portfolio.registered_market_value" in registry_keys
+    assert "personal.portfolio.weight_of_registered_pct" not in registry_keys
+    assert "personal.portfolio.cash" not in registry_keys
+
+
+@pytest.mark.asyncio
+async def test_research_prompts_define_registered_weight_without_total_asset_inference():
+    from tests.test_taiwan_stock_comparison import build_context
+
+    with _REPORT_CACHE_LOCK:
+        _REPORT_CACHE.clear()
+    research_svc = MagicMock()
+    research_svc.get_research_context.return_value = build_context(
+        "2330.TWSE", "2330", "台積電"
+    )
+    diag_svc = MagicMock()
+    diag_svc.get_diagnostics.return_value = SimpleNamespace(items=[])
+    service = TaiwanAIResearchService(research_svc=research_svc, diag_svc=diag_svc)
+    response_text = json.dumps({
+        "overview": "持股占比測試",
+        "key_observations": [],
+        "risk_factors": [],
+        "watch_next": [],
+    })
+    personal_context = {
+        "portfolio": {
+            "registered_positions_count": 2,
+            "quote_coverage": "complete",
+            "registered_market_value": 250_000,
+            "weight_of_registered_pct": 40,
+            "cash": 500_000,
+        }
+    }
+
+    with patch(
+        "app.taiwan.ai_research.generate_ai_text",
+        new_callable=AsyncMock,
+        return_value=response_text,
+    ) as ai:
+        run = await service.generate_run(
+            "2330.TWSE",
+            personal_context=personal_context,
+            refresh=True,
+        )
+
+    assert run.evidence_payload["personal_context"]["portfolio"] == {
+        "registered_positions_count": 2,
+        "quote_coverage": "complete",
+        "registered_market_value": 250_000.0,
+        "weight_of_registered_pct": 40.0,
+    }
+    messages = ai.await_args.args[0]
+    assert "占已登錄持股市值" in SYSTEM_PROMPT
+    assert "占已登錄持股市值" in messages[1]["content"]
+    assert "不是總資產" in messages[1]["content"]
+    assert "現金、銀行存款、對話、記憶" in messages[1]["content"]
 
 
 @pytest.mark.asyncio
