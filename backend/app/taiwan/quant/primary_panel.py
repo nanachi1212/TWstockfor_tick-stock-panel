@@ -94,19 +94,35 @@ def _write_parquet(frame: pl.DataFrame, path: Path) -> None:
 
 
 def _build_batch(
-    args: tuple[pl.DataFrame, tuple[CorporateActionEvent, ...], str, Path, list[date]],
+    args: tuple[
+        pl.DataFrame, tuple[CorporateActionEvent, ...], str, Path, list[date],
+    ] | tuple[
+        pl.DataFrame, tuple[CorporateActionEvent, ...], str, Path, list[date], tuple[date, ...],
+    ],
 ) -> str:
-    history, events, factor_version, out_dir, sessions = args
+    history, events, factor_version, out_dir, sessions = args[:5]
+    target_dates = frozenset(args[5]) if len(args) == 6 else None
     key = history["symbol"][0].replace(".", "_")
     if (out_dir / f"done_{key}").exists():
         return key
-    parts = [
-        build_factor_panel(
-            run, events=events, factor_version=factor_version,
-            policy_version=PRIMARY_OOS_SPEC.policy_version, universe_tier=PRIMARY_VERIFIED,
-        )
-        for run in split_at_session_gaps(history, sessions)
-    ]
+    parts = []
+    for run in split_at_session_gaps(history, sessions):
+        days = (run["date"].to_list() if target_dates is None
+                else [day for day in run["date"].to_list() if day in target_dates])
+        if target_dates is None:
+            parts.append(build_factor_panel(
+                run, events=events, factor_version=factor_version,
+                policy_version=PRIMARY_OOS_SPEC.policy_version, universe_tier=PRIMARY_VERIFIED,
+            ))
+        else:
+            parts.extend(build_factor_panel(
+                run, events=events, factor_version=factor_version,
+                policy_version=PRIMARY_OOS_SPEC.policy_version, universe_tier=PRIMARY_VERIFIED,
+                as_of=day,
+            ) for day in days)
+    if not parts:
+        (out_dir / f"done_{key}").write_text("ok", encoding="utf-8")
+        return key
     values = pl.concat([part.values for part in parts]).sort(["date", "symbol"])
     coverages = [part.coverage.select([pl.col(name).cast(kind) for name, kind in _COVERAGE_SCHEMA.items()])
                  for part in parts if not part.coverage.is_empty()]
@@ -177,14 +193,17 @@ def _build_guarded(
         snapshot = _snapshot(worker, events)
     finally:
         worker.lock.release()
-    _compute_batches(snapshot, store, workers, batch_size)
+    has_output = _compute_batches(snapshot, store, workers, batch_size)
     worker.lock.acquire()
     try:
         _require_ready(preflight_reader)
         if _snapshot(worker, snapshot["events"])["identity_inputs"] != snapshot["identity_inputs"]:
             raise PrimaryOosInputError(
                 "census or classification changed while the panel was computed; nothing was published")
-        return _publish(snapshot, store)
+        return (_publish(snapshot, store) if has_output else {
+            "symbols": len(snapshot["symbols"]), "sessions": 0,
+            "rows": snapshot["history"].height,
+        })
     finally:
         worker.lock.release()
 
@@ -217,6 +236,8 @@ def _snapshot(
     if history.select(pl.struct("symbol", "date").is_duplicated().any()).item():
         raise PrimaryOosInputError("A2a raw Primary daily prices are duplicated")
     first, last = history["date"].min(), history["date"].max()
+    if not isinstance(first, date) or not isinstance(last, date):
+        raise PrimaryOosInputError("Primary daily price span is unavailable")
     if events is None:
         events, coverage = _action_snapshot(first, last, required_symbols=frozenset(symbols))
         if not coverage.covers(first, last):
@@ -238,15 +259,70 @@ def _snapshot(
         raise PrimaryOosInputError(
             f"unresolved empty sessions inside the panel span: {[d.isoformat() for d in unresolved[:5]]}")
 
+    expected_rows_by_day = {
+        row["date"]: row["len"]
+        for row in members.group_by("date").len().iter_rows(named=True)
+    }
     return {"history": history, "symbols": symbols, "events": events, "sessions": sessions,
-            "last": last, "identity_inputs": inputs}
+            "last": last, "expected_rows_by_day": expected_rows_by_day,
+            "identity_inputs": inputs}
+
+
+def _trailing_target_dates(
+    snapshot: dict[str, Any], store: FactorPanelStore,
+) -> tuple[date, ...] | None:
+    """Return safe append-only dates, or ``None`` when a full build is required.
+
+    Existing partitions are reused only when every stored date has exactly the
+    expected Primary row count and every missing date is strictly after the
+    stored tail. An interior gap can change later rolling/recursive features, so
+    it must never be patched as an append.
+    """
+    root = (store.root / f"factor_version={PRIMARY_OOS_SPEC.factor_version}"
+            / f"policy_version={PRIMARY_OOS_SPEC.policy_version}"
+            / f"universe_tier={PRIMARY_VERIFIED}")
+    value_paths = sorted(root.glob("date=*/values.parquet"))
+    if not value_paths:
+        return None
+    incomplete = [path.parent.name for path in value_paths
+                  if not (path.parent / "coverage.parquet").is_file()]
+    if incomplete:
+        raise PrimaryOosInputError(
+            f"existing PIT factor partitions are incomplete: {incomplete[:5]}")
+    actual = {
+        row["date"]: row["len"]
+        for row in (
+            pl.scan_parquet(value_paths).group_by("date").len().collect()
+            .iter_rows(named=True)
+        )
+    }
+    expected: dict[date, int] = snapshot["expected_rows_by_day"]
+    inconsistent = sorted(
+        day for day, count in actual.items() if expected.get(day) != count
+    )
+    if inconsistent:
+        raise PrimaryOosInputError(
+            "existing PIT factor partitions do not match the verified Primary universe on "
+            f"{[day.isoformat() for day in inconsistent[:5]]}; use a new factor version")
+    missing = tuple(sorted(set(expected) - set(actual)))
+    if missing and missing[0] <= max(actual):
+        raise PrimaryOosInputError(
+            "PIT factor panel has a non-trailing date gap; a safe append is impossible")
+    return missing
 
 
 def _compute_batches(
     snapshot: dict[str, Any], store: FactorPanelStore, workers: int, batch_size: int,
-) -> None:
+) -> bool:
     history, symbols = snapshot["history"], snapshot["symbols"]
     events, sessions = snapshot["events"], snapshot["sessions"]
+    target_dates = _trailing_target_dates(snapshot, store)
+    if target_dates == ():
+        return False
+    job_symbols = symbols
+    if target_dates is not None:
+        job_symbols = sorted(
+            history.filter(pl.col("date").is_in(target_dates))["symbol"].unique().to_list())
     # The batch results are hours of compute: keep them until every partition is
     # published, so an interrupted or failed publish resumes without recomputing.
     work = store.root.parent / "primary_panel_build"
@@ -256,19 +332,24 @@ def _compute_batches(
         # Content digests: a same-sized correction must not reuse stale batches.
         **snapshot["identity_inputs"], "code": _code_fingerprint(),
         "spec": PRIMARY_OOS_SPEC.fingerprint,
+        "target_dates": ([day.isoformat() for day in target_dates]
+                         if target_dates is not None else None),
     }
     marker = work / "_identity.json"
     if not (marker.is_file() and json.loads(marker.read_text(encoding="utf-8")) == identity):
         shutil.rmtree(work, ignore_errors=True)
         work.mkdir(parents=True)
         marker.write_text(json.dumps(identity), encoding="utf-8")
-    jobs = [(history.filter(pl.col("symbol").is_in(batch)), events,
-             PRIMARY_OOS_SPEC.factor_version, work, sessions)
-            for batch in _batches(symbols, batch_size)]
+    jobs = [(
+        history.filter(pl.col("symbol").is_in(batch)), events,
+        PRIMARY_OOS_SPEC.factor_version, work, sessions,
+        *((target_dates,) if target_dates is not None else ()),
+    ) for batch in _batches(job_symbols, batch_size)]
     # Polars is not fork-safe: a forked child can deadlock on its thread pool.
     with ProcessPoolExecutor(max_workers=workers,
                              mp_context=multiprocessing.get_context("spawn")) as pool:
         list(pool.map(_build_batch, jobs))
+    return True
 
 
 def _publish(snapshot: dict[str, Any], store: FactorPanelStore) -> dict[str, int]:
