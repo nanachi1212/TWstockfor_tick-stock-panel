@@ -18,12 +18,15 @@ import {
   Newspaper,
   ExternalLink,
   MessageCircleMore,
+  Save,
+  GitCompareArrows,
 } from 'lucide-react'
 import {
   api,
   type TaiwanSearchResult,
   type TaiwanAIStockResearchReport,
   type TaiwanAIResearchPersonalContext,
+  type TaiwanAIResearchHistoryRecord,
   type BuyPointSignal,
 } from '@/lib/api'
 import { QK } from '@/lib/queryKeys'
@@ -42,7 +45,7 @@ import { TodaySelection, selectionReasons } from '@/components/quant/TodaySelect
 import { PortfolioPanel } from '@/components/portfolio/Portfolio'
 import { useTodayQuantSelection } from '@/components/quant/TodaySelection'
 import { storage } from '@/lib/storage'
-import { buildPortfolioPositions, isPortfolioTransaction, type PortfolioTransaction } from '@/lib/portfolio'
+import { buildPortfolioPositions, isPortfolioTransaction, registeredHoldingsSummary, type PortfolioTransaction, type PortfolioPosition } from '@/lib/portfolio'
 
 const PORTFOLIO_CHANGED_EVENT = 'portfolio-transactions-changed'
 
@@ -79,6 +82,16 @@ const RANGE_OPTIONS = [
   { label: '6 個月', days: 180 },
   { label: '1 年', days: 360 },
 ]
+
+function safeHistoryItems(value: unknown): TaiwanAIResearchHistoryRecord[] {
+  const raw = Array.isArray(value)
+    ? value
+    : value && typeof value === 'object'
+      ? ((value as { items?: unknown; records?: unknown }).items ?? (value as { records?: unknown }).records)
+      : []
+  if (!Array.isArray(raw)) return []
+  return raw.filter((item): item is TaiwanAIResearchHistoryRecord => Boolean(item && typeof item === 'object' && typeof (item as { id?: unknown }).id === 'string'))
+}
 
 export function TaiwanStockDetail() {
   const { symbol: routeSymbol } = useParams<{ symbol: string }>()
@@ -191,7 +204,28 @@ export function TaiwanStockDetail() {
   const [isAiLoading, setIsAiLoading] = useState<boolean>(false)
   const [aiError, setAiError] = useState<string | null>(null)
   const [aiProvider, setAiProvider] = useState<string | null>(null)
+  const [aiModel, setAiModel] = useState<string | null>(null)
   const [includePortfolioInCopy, setIncludePortfolioInCopy] = useState<boolean>(false)
+
+  const registeredPortfolio = useMemo(() => {
+    void portfolioRevision
+    try {
+      const raw = storage.portfolioTransactions.get([])
+      if (Array.isArray(raw) && raw.every(isPortfolioTransaction)) {
+        return buildPortfolioPositions(raw as PortfolioTransaction[]).filter(item => item.shares > 0)
+      }
+    } catch {
+      // Keep the personal context unavailable when a local ledger is malformed.
+    }
+    return [] as PortfolioPosition[]
+  }, [portfolioRevision])
+  const registeredPortfolioSymbols = registeredPortfolio.map(item => item.symbol).join(',')
+  const registeredPortfolioQuotesQuery = useQuery({
+    queryKey: QK.portfolioQuotes(registeredPortfolioSymbols),
+    queryFn: () => api.taiwanQuotes(registeredPortfolio.map(item => item.symbol)),
+    enabled: registeredPortfolio.length > 0,
+    staleTime: 15_000,
+  })
 
   const personalContext = useMemo(() => {
     void portfolioRevision
@@ -277,11 +311,17 @@ export function TaiwanStockDetail() {
     try {
       const raw = storage.portfolioTransactions.get([])
       if (Array.isArray(raw) && raw.every(isPortfolioTransaction)) {
-        const position = buildPortfolioPositions(raw as PortfolioTransaction[]).find(item => item.symbol === symbol && item.shares > 0)
+        const positions = buildPortfolioPositions(raw as PortfolioTransaction[]).filter(item => item.shares > 0)
         const currentPrice = verifiedQuote?.last_price
-        if (position) {
-          const pnl = typeof currentPrice === 'number' ? currentPrice * position.shares - position.costBasis : undefined
+        const quoteMap = new Map<string, { symbol: string; last_price: number | null }>((registeredPortfolioQuotesQuery.data?.quotes ?? []).map(item => [item.symbol, { symbol: item.symbol, last_price: item.last_price }] as const))
+        if (verifiedQuote) quoteMap.set(symbol, { symbol, last_price: verifiedQuote.last_price ?? null })
+        const summary = registeredHoldingsSummary(positions, quoteMap, symbol)
+        const position = positions.find(item => item.symbol === symbol)
+        if (position || summary.registered_positions_count > 0) {
+          const pnl = position && typeof currentPrice === 'number' ? currentPrice * position.shares - position.costBasis : undefined
           context.portfolio = {
+            ...summary,
+            ...(position ? {
             shares: position.shares,
             average_cost: position.averageCost,
             ...(typeof currentPrice === 'number' ? { current_price: currentPrice } : {}),
@@ -289,6 +329,7 @@ export function TaiwanStockDetail() {
             ...(pnl != null ? { unrealized_pnl: pnl, return_pct: position.costBasis ? pnl / position.costBasis : undefined } : {}),
             ...(typeof verifiedQuote?.change === 'number' ? { change: verifiedQuote.change } : {}),
             // Keep the realtime quote's percentage-point value out of this fraction-based context.
+            } : {}),
           }
         }
       }
@@ -296,7 +337,38 @@ export function TaiwanStockDetail() {
       // An unreadable local ledger stays unavailable and does not block stock analysis.
     }
     return context
-  }, [inWatchlist, watchlist.isLoading, watchlist.isError, quantSelection.signals, quantSelection.ranking, quantSelection.validRun, quantSelection.error, quantSelection.fetching, selectedAlert, symbol, data, detailQuery.isError, detailQuery.isFetching, portfolioRevision, socialQuery.data, socialRow])
+  }, [inWatchlist, watchlist.isLoading, watchlist.isError, quantSelection.signals, quantSelection.ranking, quantSelection.validRun, quantSelection.error, quantSelection.fetching, selectedAlert, symbol, data, detailQuery.isError, detailQuery.isFetching, portfolioRevision, socialQuery.data, socialRow, registeredPortfolioQuotesQuery.data])
+
+  const historyQuery = useQuery({
+    queryKey: QK.taiwanAIResearchHistory({ symbol, purpose: 'stock', limit: 20 }),
+    queryFn: () => api.taiwanAIResearchHistory({ symbol, purpose: 'stock', limit: 20 }),
+    staleTime: 30_000,
+  })
+  const historyItems = useMemo(() => safeHistoryItems(historyQuery.data), [historyQuery.data])
+  const [comparePreviousId, setComparePreviousId] = useState<string | null>(null)
+  const comparePrevious = historyItems.find(item => item.id === comparePreviousId)
+  const compareBase = comparePrevious && historyItems.find(item => item.id !== comparePrevious.id)
+  const compareQuery = useQuery({
+    queryKey: QK.taiwanAIResearchHistoryCompare(compareBase?.id ?? '', comparePrevious?.id ?? ''),
+    queryFn: () => api.taiwanAIResearchHistoryCompare(compareBase!.id, comparePrevious!.id),
+    enabled: Boolean(compareBase && comparePrevious),
+  })
+  const saveResearchMutation = useMutation({
+    mutationFn: () => api.taiwanAIResearchHistorySave({
+      kind: 'report',
+      symbol,
+      purpose: 'stock',
+      provider: aiProvider,
+      model: aiModel,
+      prompt_version: aiReport?.prompt_version,
+      generated_at: aiReport?.generated_at,
+      report: aiReport,
+      response: { status: 'success', provider: aiProvider, report: aiReport },
+    }),
+    onSuccess: async () => {
+      await qc.invalidateQueries({ queryKey: ['taiwan-ai-research-history'] })
+    },
+  })
 
   const handleGenerateAiReport = useCallback(async () => {
     if (toggleWatchlist.isPending || watchlist.isFetching) return
@@ -316,6 +388,7 @@ export function TaiwanStockDetail() {
       if (res.status === 'success' && res.report) {
         setAiReport(res.report)
         setAiProvider(res.provider ?? null)
+        setAiModel(res.model ?? null)
       } else {
         setAiError(res.error_message || 'AI 研究報告生成失敗')
       }
@@ -1591,7 +1664,7 @@ export function TaiwanStockDetail() {
               <p className="text-[11px] text-muted">
                 僅整理系統目前可取得的結構化資料，不提供買賣建議
               </p>
-              {aiProvider && <p className="text-[10px] text-muted">本次使用：{aiProvider}</p>}
+              {(aiProvider || aiModel) && <p className="text-[10px] text-muted">本次使用：{aiProvider ?? 'provider 未提供'} · {aiModel ?? 'model 未提供'}</p>}
             </div>
           </div>
           <button
@@ -1911,9 +1984,55 @@ export function TaiwanStockDetail() {
                   })
                 }}
               />
+              {aiReport && <button
+                type="button"
+                onClick={() => saveResearchMutation.mutate()}
+                disabled={saveResearchMutation.isPending}
+                className="inline-flex items-center gap-1 rounded-lg border border-purple-500/40 px-2 py-1 text-[11px] text-purple-300 hover:bg-purple-500/10 disabled:opacity-50"
+              >
+                <Save className="h-3 w-3" />
+                {saveResearchMutation.isPending ? '保存中…' : saveResearchMutation.isSuccess ? '已保存' : '保存研究紀錄'}
+              </button>}
             </div>
           </div>
         </div>
+
+        <section className="rounded-lg border border-border/50 bg-base/20 p-3" aria-label="AI 研究歷史">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div>
+              <h4 className="text-xs font-semibold text-foreground">研究歷史</h4>
+              <p className="text-[10px] text-muted">保存後可回看 provider、模型與提示詞版本。</p>
+            </div>
+            {historyQuery.isFetching && <span role="status" className="text-[10px] text-muted">讀取中…</span>}
+          </div>
+          {historyQuery.isError ? (
+            <p role="alert" className="mt-2 text-[11px] text-muted">研究歷史目前不可用，個股 AI 分析仍可使用。</p>
+          ) : historyItems.length === 0 ? (
+            <p className="mt-2 text-[11px] text-muted">尚無保存的研究紀錄。</p>
+          ) : (
+            <div className="mt-2 space-y-1.5">
+              {historyItems.slice(0, 8).map((item, index) => (
+                <div key={item.id} className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-border/40 px-2 py-1.5 text-[10px]">
+                  <span className="font-mono text-muted">{item.saved_at ?? item.generated_at ?? item.id}</span>
+                  <span className="text-muted">{item.provider ?? 'provider 未提供'} · {item.model ?? 'model 未提供'} · {item.prompt_version ?? '提示詞版本未提供'}</span>
+                  {index > 0 && <button type="button" onClick={() => setComparePreviousId(item.id)} className="inline-flex items-center gap-1 text-purple-300 hover:underline"><GitCompareArrows className="h-3 w-3" />與較新紀錄比較</button>}
+                </div>
+              ))}
+            </div>
+          )}
+          {comparePrevious && (
+            <div className="mt-3 rounded-md border border-purple-500/30 bg-purple-500/5 p-2">
+              <p className="text-[10px] text-muted">比較 {compareBase?.id ?? '較新紀錄'} 與 {comparePrevious.id}</p>
+              {compareQuery.isLoading ? <p role="status" className="mt-1 text-[11px] text-muted">正在取得差異…</p>
+                : compareQuery.isError ? <p role="alert" className="mt-1 text-[11px] text-muted">比較目前不可用。</p>
+                  : compareQuery.data ? <div className="mt-2 grid gap-2 md:grid-cols-3">
+                    <div><h5 className="font-semibold text-foreground">資料變化</h5><pre className="mt-1 whitespace-pre-wrap text-[10px] text-muted">{JSON.stringify(compareQuery.data.data_changes ?? compareQuery.data.current ?? {}, null, 2)}</pre></div>
+                    <div><h5 className="font-semibold text-foreground">模型／提示詞變化</h5><pre className="mt-1 whitespace-pre-wrap text-[10px] text-muted">{JSON.stringify(compareQuery.data.model_prompt_changes ?? {}, null, 2)}</pre></div>
+                    <div><h5 className="font-semibold text-foreground">解讀變化</h5><pre className="mt-1 whitespace-pre-wrap text-[10px] text-muted">{JSON.stringify(compareQuery.data.interpretation_changes ?? compareQuery.data.other ?? {}, null, 2)}</pre></div>
+                  </div> : null}
+            </div>
+          )}
+        </section>
 
         {aiError && (
           <div className="p-3 bg-red-950/30 border border-red-900/50 rounded-lg text-xs text-red-400 flex items-center gap-2">
@@ -1948,7 +2067,7 @@ export function TaiwanStockDetail() {
               <BriefSection title="事件與新聞脈絡" text={aiReport.events_news_interpretation} />
             )}
             <BriefSection title="為什麼值得注意" text={[aiReport.industry_interpretation, aiReport.institutional_interpretation, aiReport.margin_interpretation, aiReport.abnormal_diagnostics_interpretation].filter(Boolean).join(' ')} items={aiReport.key_observations.map(item => item.text)} />
-            <BriefSection title="我的部位" text={aiReport.portfolio_interpretation} />
+            <BriefSection title="我的部位（占已登錄持股市值）" text={aiReport.portfolio_interpretation} />
             <BriefSection title="提醒解讀" text={aiReport.alert_interpretation} />
             <BriefSection title="風險" text={aiReport.risk_factors.length === 0 ? 'AI 未列出有資料支持的具體風險訊號。' : undefined} items={aiReport.risk_factors.map(item => item.text)} />
             <BriefSection title="接下來觀察" text={(aiReport.watch_next ?? []).length === 0 ? '目前資料不足以列出具體觀察點。' : undefined} items={(aiReport.watch_next ?? []).map(item => item.text)} />
