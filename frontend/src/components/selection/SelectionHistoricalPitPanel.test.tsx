@@ -85,6 +85,15 @@ describe('SelectionHistoricalPitPanel', () => {
     expect(screen.queryByText('沒有產生可宣稱有效的 v1 歷史績效。')).not.toBeInTheDocument()
   })
 
+  it('names specific regulatory gaps and official coverage', () => {
+    const data = response()
+    data.artifact!.reproducibility.blocker_session_counts = { regulatory_tpex_status_unavailable: 3, tpex_instrument_subtype_blocked: 2840 }
+    data.artifact!.data_coverage.regulatory = { source: 'official archives', covered_entry_sessions: 2830 }
+    render(<SelectionHistoricalPitPanel data={data} />)
+    expect(screen.getByText(/來源日沒有已驗證的上櫃變更交易／停止交易清單/)).toBeInTheDocument()
+    expect(screen.getByText('官方歷史公告；完整覆蓋 2830 個進場日')).toBeInTheDocument()
+  })
+
   it('explains that nothing is computed before a recorded run exists', () => {
     render(<SelectionHistoricalPitPanel data={{ ...response(), status: 'not_run', artifact: null }} />)
     expect(screen.getByRole('status')).toHaveTextContent('尚未記錄歷史 PIT 驗證')
