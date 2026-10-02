@@ -112,6 +112,26 @@ def test_pullback_requires_twenty_prior_trading_sessions():
     assert "20D 回檔資料" in signal.failed_conditions
 
 
+def test_pullback_and_breakout_expose_exact_plan_evidence():
+    closes = [{"close": 100.0}] * 20 + [{"close": 95.0}]
+    pullback = evaluate_buy_point(
+        strategy(pullback_min_pct=3, pullback_max_pct=6),
+        data(daily=closes, price=95),
+    )
+    assert pullback.reference_high == 100.0
+    assert pullback.entry_zone_low == 94.0
+    assert pullback.entry_zone_high == 97.0
+    assert pullback.breakout_trigger is None
+
+    breakout = evaluate_buy_point(
+        strategy(breakout_window=5),
+        data(daily=[{"close": value} for value in [95, 96, 97, 98, 99, 100]], price=100),
+    )
+    assert breakout.breakout_trigger == 99.0
+    assert breakout.entry_zone_low is None
+    assert breakout.entry_zone_high is None
+
+
 def test_stale_daily_data_fails_closed_before_alert_status():
     signal = evaluate_buy_point(
         strategy(quant_min=60),
