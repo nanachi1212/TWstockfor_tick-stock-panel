@@ -1,7 +1,10 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
+import io
 import json
+import zipfile
 from datetime import datetime
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -10,6 +13,8 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app.main import app
+from app.services import device_transfer
+from app.services.ai_provider import AIProviderConfigSnapshot
 from app.taiwan.ai_research import (
     _REPORT_CACHE,
     _REPORT_CACHE_LOCK,
@@ -18,6 +23,7 @@ from app.taiwan.ai_research import (
     TaiwanAIResearchService,
     TaiwanAIStockResearchReport,
     _evidence_digest,
+    _generation_config_metadata,
 )
 from app.taiwan.ai_research_history import (
     AIResearchHistoryError,
@@ -271,3 +277,48 @@ def test_legacy_response_models_keep_generated_at_compatibility():
     assert legacy.run_id is None
     assert legacy.started_at is None
     assert legacy.completed_at is None
+
+
+def test_persisted_generation_config_and_backup_exclude_credentials(tmp_path):
+    api_key = "sk-DistinctiveResearchHistorySecret123456"
+    key_digest = hashlib.sha256(api_key.encode("utf-8")).hexdigest()
+    config = AIProviderConfigSnapshot(
+        provider="openai_compat",
+        model="model-private-test",
+        api_key=api_key,
+        profile_name="test-profile",
+        base_url=(
+            "https://history-user:history-pass@example.invalid:8443/v1"
+            "?token=query-secret#fragment-secret"
+        ),
+        user_agent="test-agent",
+        max_output_tokens=4096,
+        context_window=8192,
+    )
+    metadata = _generation_config_metadata(config)
+    assert metadata["base_url"] == "https://example.invalid:8443/v1"
+    assert "credential_fingerprint" not in metadata
+
+    user_dir = tmp_path / "user_data"
+    run = _run("private-config")
+    run.generation_config = metadata
+    store = TaiwanAIResearchHistoryStore(user_dir / "taiwan_ai_research_history.jsonl")
+    store.ensure_report(run)
+    history_text = store.path.read_text(encoding="utf-8")
+
+    archive = device_transfer.build_backup(["history"], browser_storage={}, user_dir=user_dir)
+    with zipfile.ZipFile(io.BytesIO(archive)) as backup:
+        backup_history = backup.read(
+            "files/history/taiwan_ai_research_history.jsonl"
+        ).decode("utf-8")
+
+    serialized = json.dumps(metadata, sort_keys=True) + history_text + backup_history
+    for forbidden in (
+        api_key,
+        key_digest,
+        "history-user",
+        "history-pass",
+        "query-secret",
+        "fragment-secret",
+    ):
+        assert forbidden not in serialized

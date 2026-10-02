@@ -30,6 +30,7 @@ import time
 import uuid
 from datetime import date
 from typing import Any, Literal
+from urllib.parse import urlsplit, urlunsplit
 
 from pydantic import BaseModel, Field
 
@@ -659,18 +660,34 @@ def _evidence_digest(payload: dict[str, Any]) -> str:
 
 def _generation_config_metadata(config: AIProviderConfigSnapshot) -> dict[str, Any]:
     """Return comparable generation settings without persisting credentials or machine paths."""
+    try:
+        parsed_base_url = urlsplit(config.base_url)
+        hostname = parsed_base_url.hostname
+        if not parsed_base_url.scheme or not hostname:
+            safe_base_url = ""
+        else:
+            host = f"[{hostname}]" if ":" in hostname else hostname
+            port = f":{parsed_base_url.port}" if parsed_base_url.port is not None else ""
+            safe_base_url = urlunsplit((
+                parsed_base_url.scheme,
+                f"{host}{port}",
+                parsed_base_url.path,
+                "",
+                "",
+            ))
+    except ValueError:
+        safe_base_url = ""
     return {
         "provider": config.provider,
         "model": config.model,
         "profile_name": config.profile_name,
-        "base_url": config.base_url,
+        "base_url": safe_base_url,
         "user_agent": config.user_agent,
         "reasoning_effort": config.reasoning_effort,
         "codex_reasoning_effort": config.codex_reasoning_effort,
         "max_output_tokens": config.max_output_tokens,
         "context_window": config.context_window,
         "codex_command_fingerprint": hashlib.sha256(config.codex_command.encode("utf-8")).hexdigest(),
-        "credential_fingerprint": hashlib.sha256(config.api_key.encode("utf-8")).hexdigest(),
     }
 
 
