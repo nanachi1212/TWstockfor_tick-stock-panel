@@ -24,9 +24,15 @@ const Dev = lazy(() => import('./pages/Dev').then(m => ({ default: m.Dev })))
 const TaiwanStockDetail = lazy(() => import('./pages/TaiwanStockDetail').then(m => ({ default: m.TaiwanStockDetail })))
 const TaiwanStockCompare = lazy(() => import('./pages/TaiwanStockCompare').then(m => ({ default: m.TaiwanStockCompare })))
 const TaiwanScreener = lazy(() => import('./pages/TaiwanScreener').then(m => ({ default: m.TaiwanScreener })))
+const MarketResearch = lazy(() => import('./pages/MarketResearch').then(m => ({ default: m.MarketResearch })))
 const TaiwanEventCenter = lazy(() => import('./pages/TaiwanEventCenter').then(m => ({ default: m.TaiwanEventCenter })))
 const DailyBrief = lazy(() => import('./pages/DailyBrief').then(m => ({ default: m.DailyBrief })))
 const SelectionReview = lazy(() => import('./pages/SelectionReview').then(m => ({ default: m.SelectionReview })))
+const StrategyLab = lazy(() => import('./pages/StrategyLab').then(m => ({ default: m.StrategyLab })))
+const SocialSentiment = lazy(() => import('./pages/SocialSentiment').then(m => ({ default: m.SocialSentiment })))
+const SocialFetch = lazy(() => import('./pages/SocialFetch').then(m => ({ default: m.SocialFetch })))
+const DataHealth = lazy(() => import('./pages/DataHealth').then(m => ({ default: m.DataHealth })))
+const BuyPointStrategies = lazy(() => import('./pages/BuyPointStrategies').then(m => ({ default: m.BuyPointStrategies })))
 
 const CORE_ROUTE_PATHS = new Set([
   '/',
@@ -36,10 +42,16 @@ const CORE_ROUTE_PATHS = new Set([
   '/events',
   '/daily-brief',
   '/selection-review',
+  '/strategy-lab',
+  '/social-sentiment',
+  '/social-fetch',
+  '/data-health',
+  '/buy-points',
   '/stocks/:symbol',
   '/stocks/compare',
   '/watchlist',
   '/taiwan-screener',
+  '/market-research',
   '/monitor',
   '/indices',
   '/branding',
@@ -104,7 +116,13 @@ export const router = createBrowserRouter([
       { path: 'daily-brief', element: <DailyBrief /> },
       { path: 'watchlist', element: <Watchlist /> },
       { path: 'taiwan-screener', element: <TaiwanScreener /> },
+      { path: 'market-research', element: <MarketResearch /> },
       { path: 'selection-review', element: <SelectionReview /> },
+      { path: 'strategy-lab', element: <StrategyLab /> },
+      { path: 'social-sentiment', element: <SocialSentiment /> },
+      { path: 'social-fetch', element: <SocialFetch /> },
+      { path: 'data-health', element: <DataHealth /> },
+      { path: 'buy-points', element: <BuyPointStrategies /> },
       { path: 'monitor', element: <Monitor /> },
       { path: 'branding', element: <Branding /> },
       { path: 'settings', element: <Settings /> },

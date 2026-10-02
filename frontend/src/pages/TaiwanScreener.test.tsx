@@ -33,6 +33,12 @@ function buildScreenerResponse() {
     page: 1,
     page_size: 50,
     data_dates: { daily_as_of: '2026-08-28', institutional_as_of: '2026-08-28', margin_as_of: '2026-08-28' },
+    quote_coverage_status: 'verified',
+    risk_unknown_count: 0,
+    risk_source_status: 'available',
+    trend_adjustment_status: 'verified',
+    strategy_id: 'trend_liquidity_v1',
+    strategy_readiness: 'ready',
     items: [
       {
         symbol: '2330.TWSE',
@@ -174,6 +180,26 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.clearAllMocks()
+})
+
+describe('Institutional streak conditions', () => {
+  it('sends the selected investor, direction and trading days and resets them', async () => {
+    renderScreener()
+    await screen.findByRole('link', { name: /台積電/ })
+    fireEvent.click(screen.getByText(/進階條件（技術面/))
+    fireEvent.change(screen.getByLabelText('連續買賣法人'), { target: { value: 'investment_trust' } })
+    fireEvent.change(screen.getByLabelText('連買或連賣'), { target: { value: 'sell' } })
+    fireEvent.change(screen.getByLabelText('法人連續交易日'), { target: { value: '10' } })
+    await waitFor(() => expect(api.taiwanScreenerRun).toHaveBeenLastCalledWith(expect.objectContaining({ streak_investor: 'investment_trust', streak_direction: 'sell', streak_min_days: 10 })))
+    fireEvent.change(screen.getByLabelText('法人連續交易日'), { target: { value: '61' } })
+    expect(screen.getByLabelText('法人連續交易日')).toHaveValue(10)
+    fireEvent.click(screen.getByText('重置所有篩選'))
+    expect(screen.getByLabelText('法人連續交易日')).toHaveValue(null)
+    expect(screen.getByLabelText('連續買賣法人')).toHaveValue('foreign')
+    expect(screen.getByLabelText('連買或連賣')).toHaveValue('buy')
+    fireEvent.change(screen.getByLabelText('法人連續交易日'), { target: { value: '3' } })
+    await waitFor(() => expect(api.taiwanScreenerRun).toHaveBeenLastCalledWith(expect.objectContaining({ streak_investor: 'foreign', streak_direction: 'buy', streak_min_days: 3 })))
+  })
 })
 
 describe('Abnormal diagnostics panel navigation (Phase 7K)', () => {

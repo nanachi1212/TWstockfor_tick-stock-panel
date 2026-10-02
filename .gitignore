@@ -105,6 +105,7 @@ backend/__tmp_test*/
 reports/tickflow_pro_probe/
 exports/
 release-assets/
+installer-final-report.txt
 .cursor/debug-*.log
 
 # ===== Acceptance screenshots (local evidence, not versioned) =====

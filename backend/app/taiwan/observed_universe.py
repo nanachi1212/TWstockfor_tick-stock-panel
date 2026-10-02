@@ -217,8 +217,16 @@ class ObservedUniverseStore:
         return frame.height
 
     def read(self, exchange: str | None = None) -> pl.DataFrame:
+        return self.read_range(exchange)
+
+    def read_range(self, exchange: str | None = None,
+                   start: date | None = None, end: date | None = None) -> pl.DataFrame:
+        """Read a bounded session range without scanning unrelated history."""
         pattern = f"exchange={exchange}" if exchange else "exchange=*"
         files = sorted(self._data_dir.glob(f"{pattern}/date=*/part.parquet"))
+        files = [f for f in files
+                 if (start is None or date.fromisoformat(f.parent.name[5:]) >= start)
+                 and (end is None or date.fromisoformat(f.parent.name[5:]) <= end)]
         frames = [pl.read_parquet(f) for f in files]
         frames = [f for f in frames if f.height]
         return pl.concat(frames, how="diagonal_relaxed") if frames else pl.DataFrame(schema=_CENSUS_SCHEMA)
@@ -265,10 +273,17 @@ class ObservedUniverseStore:
             if p.name.startswith("date=") and (p / "part.parquet").exists()
         }
 
-    def session_dates(self, exchange: str) -> set[date]:
+    def session_dates(self, exchange: str, start: date | None = None,
+                      end: date | None = None) -> set[date]:
         """Completed dates that actually contained observations."""
-        return {day for day, status in self.partition_statuses(exchange).items()
-                if status == "observed"}
+        if start is None or end is None:
+            return {day for day, status in self.partition_statuses(exchange).items()
+                    if status == "observed" and (start is None or day >= start)
+                    and (end is None or day <= end)}
+        # Bounded research reads never stat/open unrelated historical partitions.
+        return {day for offset in range((end - start).days + 1)
+                if self.has(exchange, day := start + timedelta(days=offset))
+                and self.partition_status(exchange, day) == "observed"}
 
     def confirmed_non_trading_dates(self, exchange: str) -> set[date]:
         """Only empty partitions with recorded verification count as closures."""
@@ -321,6 +336,22 @@ class ObservedUniverseStore:
                                       metadata[_CONFIRMATION_SOURCE_KEY].decode("utf-8"),
                                       "verified_holiday")
         return TradingDayEvidence(day, exchange, "unresolved", source, "unexplained_empty")
+
+
+def is_potential_market_session(
+    day: date,
+    calendar: TaiwanTradingCalendar,
+    store: ObservedUniverseStore,
+) -> bool:
+    """Keep a date unless both exchanges confirm it was closed.
+
+    Census evidence overrides weekday/weekend rules, including Saturday make-up
+    sessions. An unresolved weekday remains retryable as a missing session.
+    """
+    return any(
+        store.day_evidence(exchange, day, calendar=calendar).status != "non_trading"
+        for exchange in ("TWSE", "TPEX")
+    )
 
 
 @dataclass(frozen=True)

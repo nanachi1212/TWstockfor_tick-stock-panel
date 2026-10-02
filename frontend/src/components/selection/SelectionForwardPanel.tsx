@@ -2,9 +2,11 @@ import { useState } from 'react'
 import { LockKeyhole, Play, RefreshCw, ShieldAlert } from 'lucide-react'
 import type { ForwardCohortStats } from '@/lib/api'
 
-/** UI view model only. Bind this to the backend contract when the core PR lands. */
+/** UI view model for the backend's immutable forward-batch contract. */
 export interface SelectionForwardPreviewView {
   dataDate: string | null
+  strategyName?: string | null
+  strategyReadiness?: string | null
   ruleVersion: string | null
   rankingBasis: string | null
   status: 'available' | 'unavailable'
@@ -84,7 +86,7 @@ export function SelectionForwardPanel({ preview = null, onDryRun, onRefreshData,
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div>
           <h2 id="selection-forward-title" className="text-base font-semibold">每日候選股前瞻測試</h2>
-          <p className="mt-1 text-xs text-muted-foreground">趨勢流動性 v1，先預覽候選與資料狀態，再鎖定正式測試名單。</p>
+          <p className="mt-1 text-xs text-muted-foreground">{preview?.strategyName ?? '趨勢流動性 v1'}，先預覽候選與資料狀態，再鎖定正式測試名單。</p>
         </div>
         <div className="flex flex-wrap gap-2">
           <button type="button" onClick={onDryRun} disabled={!onDryRun || pending} className="inline-flex items-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-xs disabled:opacity-50">
@@ -111,8 +113,9 @@ export function SelectionForwardPanel({ preview = null, onDryRun, onRefreshData,
           {preview.status === 'unavailable' && (
             <p role="status" className="rounded-lg border border-border p-3 text-xs text-muted-foreground">目前無法提供正式候選資料。</p>
           )}
-          {preview.candidates.length === 0 && <p role="status" className="rounded-lg border border-border p-3 text-xs text-muted-foreground">目前沒有可展示的候選標的，無法鎖定名單。</p>}
+          {preview.candidates.length === 0 && <p role="status" className="rounded-lg border border-border p-3 text-xs text-muted-foreground">{preview.strategyReadiness === 'ready' ? '資料完整，但本期沒有符合條件標的。' : '目前沒有可展示的候選標的，資料尚未準備完成。'}</p>}
           <dl className="grid grid-cols-1 gap-2 text-xs sm:grid-cols-4">
+            <div><dt className="text-muted-foreground">策略 readiness</dt><dd className="mt-0.5 font-medium">{preview.strategyReadiness ?? '資料不足'}</dd></div>
             <div><dt className="text-muted-foreground">資料日期</dt><dd className="mt-0.5 font-medium">{preview.dataDate ?? '資料不足'}</dd></div>
             <div><dt className="text-muted-foreground">規則版本</dt><dd className="mt-0.5 font-medium">{preview.ruleVersion ?? '資料不足'}</dd></div>
             <div><dt className="text-muted-foreground">排名依據</dt><dd className="mt-0.5 font-medium">{preview.rankingBasis ?? '資料不足'}</dd></div>

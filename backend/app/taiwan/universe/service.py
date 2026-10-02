@@ -137,6 +137,21 @@ class TaiwanSecurityMaster:
         self._instruments.clear()
         return self.load_cache()
 
+    def health_metadata(self) -> dict[str, Any]:
+        """Inspect the persisted reference snapshot; never invoke ensure_loaded/live IO."""
+        if not self.cache_path.exists():
+            return {"status": "unavailable", "reason": "security_master_missing"}
+        rows = pl.read_parquet(self.cache_path, columns=["exchange", "source", "updated_at"])
+        if rows.is_empty():
+            return {"status": "unavailable", "reason": "security_master_missing"}
+        complete = {"TWSE", "TPEX"}.issubset(set(rows["exchange"].to_list()))
+        return {
+            "status": "available" if complete else "partial",
+            "source": sorted(set(rows["source"].drop_nulls().to_list())),
+            "fetched_at": rows["updated_at"].drop_nulls().max(),
+            "reason": "reference_snapshot" if complete else "exchange_missing",
+        }
+
     def ensure_loaded(self) -> None:
         """Ensure security master is populated (cache -> live)."""
         if self._loaded and self._instruments:

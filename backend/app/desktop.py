@@ -5,17 +5,20 @@
   打包后:   双击可执行文件即可
 
 职责:
-  1. 单实例锁 — 已运行则聚焦已有窗口并退出
-  2. 选可用端口 — 从 settings.port 起, 被占则递增
-  3. 后台线程起 uvicorn (仅监听 127.0.0.1, 不暴露外网)
-  4. 主线程起 pywebview 窗口渲染前端
-  5. 窗口关闭 → 优雅停止 uvicorn → 进程退出
+  1. 单实例锁 — 已运行则不建立重复窗口
+  2. 复用 3018 上通过身份检查的既有 backend, 不停止外部服务
+  3. 需要时在后台线程启动 owned uvicorn (仅监听 127.0.0.1)
+  4. 确认 production frontend ready 后用 pywebview 渲染 React UI
+  5. 窗口关闭 → 只优雅停止 owned uvicorn → 进程退出
 
 不含: 业务逻辑、配置持久化、监控告警 (全在 app.main 里)。
 """
 from __future__ import annotations
 
+import json
 import logging
+import os
+import re
 import socket
 import sys
 import threading
@@ -25,9 +28,28 @@ from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
-_APP_NAME = "Nanachi 的台股監控看板"
+_APP_NAME = "Nanachi 台股看板"
+_API_TITLE = "Nanachi 的台股監控看板"
 _BASE_PORT = 3018
-_PORT_PROBE_RANGE = 50  # 从 3018 起最多试 50 个端口
+_SHUTDOWN_TIMEOUT = 15.0
+
+_SECRET_PATTERNS = (
+    r"(?i)(api[_-]?key|token|password|secret|webhook)(\s*[=:]\s*)[^\s,;]+",
+    r"(?i)(authorization\s*:\s*bearer\s+)[^\s]+",
+    r"(?i)(x-api-key\s*:\s*)[^\s]+",
+)
+
+
+def _sanitize_log(text: str) -> str:
+    """遮蔽常見 credential 形狀, 避免桌面 log 與錯誤框洩漏密鑰。"""
+    for pattern in _SECRET_PATTERNS:
+        text = re.sub(pattern, lambda match: f"{match.group(1)}[已隱藏]", text)
+    return text
+
+
+class _SanitizingFormatter(logging.Formatter):
+    def format(self, record: logging.LogRecord) -> str:
+        return _sanitize_log(super().format(record))
 
 
 def _ensure_data_dir_writable() -> None:
@@ -44,9 +66,78 @@ def _ensure_data_dir_writable() -> None:
         probe = data_root / ".write_probe"
         probe.write_text("ok", encoding="utf-8")
         probe.unlink(missing_ok=True)
-    except Exception as e:  # noqa: BLE001
+    except Exception as e:
         logger.error("数据目录不可写, 桌面版无法运行: %s (%s)", data_root, e)
         raise
+
+
+def _install_bundled_release_seed():
+    """Install the read-only public seed on a pristine frozen profile.
+
+    Verification or installation failure is fail-safe for user data and does
+    not block the GUI.  The app starts with an explicit unavailable/stale data
+    state so an offline user can still reach settings and diagnostics.
+    """
+    from app.config import settings
+    from app.release_seed import SeedInstallResult, install_release_seed
+
+    if not getattr(sys, "frozen", False):
+        return SeedInstallResult(status="missing")
+    result = install_release_seed(settings.release_seed_bundle, settings.data_dir)
+    if result.status == "failed":
+        logger.error(
+            "bundled release seed rejected; startup continues without import: %s",
+            result.error,
+        )
+    elif result.status == "installed":
+        logger.info(
+            "bundled release seed installed: data_as_of=%s files=%d",
+            result.data_as_of,
+            result.installed_files,
+        )
+    else:
+        logger.info(
+            "bundled release seed not applied: status=%s existing=%s",
+            result.status,
+            result.latest_existing,
+        )
+    return result
+
+
+def _migrate_legacy_data_before_seed() -> None:
+    """Preserve old installed user data before a fresh profile can receive seed data."""
+    if not getattr(sys, "frozen", False):
+        return
+    from app.config import settings
+    from app.repository import migrate_legacy_desktop_data
+
+    migrate_legacy_desktop_data(settings.data_dir)
+
+
+def _start_seed_incremental_refresh(seed_result) -> threading.Thread | None:
+    """Refresh seed date to latest in background; network failure stays non-fatal."""
+    if seed_result.status != "installed" or not seed_result.needs_incremental:
+        return None
+
+    def refresh() -> None:
+        try:
+            from app.taiwan.bootstrap import get_bootstrap_service
+
+            result = get_bootstrap_service().update_to_latest()
+            logger.info("first-run seed incremental refresh completed: %s", result)
+        except Exception as exc:  # offline startup must remain usable
+            logger.warning(
+                "first-run seed incremental refresh unavailable; seed remains usable: %s",
+                exc,
+            )
+
+    thread = threading.Thread(
+        target=refresh,
+        daemon=True,
+        name="release-seed-incremental-refresh",
+    )
+    thread.start()
+    return thread
 
 
 def _acquire_single_instance() -> bool:
@@ -58,22 +149,25 @@ def _acquire_single_instance() -> bool:
     from app.config import settings
 
     lock_path = settings.data_dir / ".desktop.lock"
-    if lock_path.exists():
-        # 软检测: 写入进程 PID, 若该 PID 已不存在则视为残留锁, 允许接管
+    for _attempt in range(2):
         try:
-            pid_str = lock_path.read_text(encoding="utf-8").strip()
-            pid = int(pid_str) if pid_str.isdigit() else None
-        except Exception:  # noqa: BLE001
-            pid = None
-
-        if pid is not None and _pid_alive(pid):
-            logger.warning("检测到已有实例运行 (PID %d), 本进程退出", pid)
-            return False
-        # 残留锁: 清理后继续
-        logger.info("清理残留单实例锁 (PID %s 已不存在)", pid)
-
-    lock_path.write_text(str(_current_pid()), encoding="utf-8")
-    return True
+            fd = os.open(lock_path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+        except FileExistsError:
+            try:
+                pid_str = lock_path.read_text(encoding="utf-8").strip()
+                pid = int(pid_str) if pid_str.isdigit() else None
+            except Exception:
+                pid = None
+            if pid is not None and _pid_alive(pid):
+                logger.warning("检测到已有实例运行 (PID %d), 本进程退出", pid)
+                return False
+            logger.info("清理残留单实例锁 (PID %s 已不存在)", pid)
+            lock_path.unlink(missing_ok=True)
+            continue
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            handle.write(str(_current_pid()))
+        return True
+    return False
 
 
 def _release_single_instance() -> None:
@@ -81,8 +175,9 @@ def _release_single_instance() -> None:
 
     lock_path = settings.data_dir / ".desktop.lock"
     try:
-        lock_path.unlink(missing_ok=True)
-    except Exception:  # noqa: BLE001
+        if lock_path.read_text(encoding="utf-8").strip() == str(_current_pid()):
+            lock_path.unlink(missing_ok=True)
+    except Exception:
         pass
 
 
@@ -100,8 +195,6 @@ def _guard_streams() -> None:
     修法: console=False 下把 stdout/stderr 换成丢弃写入的空对象 (devnull),
     让 logging / reconfigure / 任何 print 都安全落地。console=True 不动 (有真控制台)。
     """
-    import os
-
     class _NullStream:
         """丢弃所有写入的空流 (替代 None 的 stdout/stderr)。"""
         def write(self, _s): return 0
@@ -140,10 +233,10 @@ def _setup_logging() -> None:
             errors="replace",    # 容错: 对齐 __init__.py 的 stderr 重配, 避免中文/emoji 触发 UnicodeEncodeError
         )
         handler.setFormatter(
-            logging.Formatter("%(asctime)s [%(levelname)s] %(name)s: %(message)s")
+            _SanitizingFormatter("%(asctime)s [%(levelname)s] %(name)s: %(message)s")
         )
         logging.getLogger().addHandler(handler)
-    except Exception as e:  # noqa: BLE001
+    except Exception as e:
         # 日志落盘失败不阻断启动 (开发模式 data_dir 可能不可写)
         logger.warning("日志文件初始化失败, 仅输出到 stderr: %s", e)
 
@@ -161,8 +254,8 @@ def _show_crash(title: str, text: str) -> None:
         try:
             import ctypes
 
-            ctypes.windll.user32.MessageBoxW(0, text, title, 0x10)
-        except Exception as e:  # noqa: BLE001
+            ctypes.windll.user32.MessageBoxW(0, _sanitize_log(text), title, 0x10)
+        except Exception as e:
             logger.error("弹框失败 (已写日志文件): %s", e)
     else:
         logger.error("%s: %s", title, text)
@@ -193,32 +286,17 @@ def _current_pid() -> int:
     return os.getpid()
 
 
-def _find_free_port(start: int, count: int = _PORT_PROBE_RANGE) -> int:
-    """从 start 起找第一个可用端口。全部被占则返回 start (交给 uvicorn 报错)。"""
-    for port in range(start, start + count):
-        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-            s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-            try:
-                s.bind(("127.0.0.1", port))
-                return port
-            except OSError:
-                continue
-    return start
+def _port_is_open(port: int) -> bool:
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        sock.settimeout(0.25)
+        return sock.connect_ex(("127.0.0.1", port)) == 0
 
 
-def _run_uvmicorn(port: int, ready_event: threading.Event) -> None:
-    """后台线程: 启动 uvicorn 服务。ready_event 在线程退出时置位 (通知主线程)。"""
+def _create_server(port: int):
+    """建立既有 FastAPI app 的 uvicorn server, 不複製 routing。"""
     import uvicorn
 
-    try:
-        # 延迟 import app, 确保配置层已就绪 (frozen 检测在 config.py 导入时完成)
-        # 放进 try: app.main 模块导入 (含 app.api.* 一长串 import) 若失败,
-        # 异常必须落到 except 记录, 否则主线程只看到「后端超时」而查无 traceback。
-        from app.main import app
-    except Exception:
-        logger.exception("后端模块导入失败 (app.main 或其依赖)")
-        ready_event.set()
-        return
+    from app.main import app
 
     config = uvicorn.Config(
         app,
@@ -228,13 +306,11 @@ def _run_uvmicorn(port: int, ready_event: threading.Event) -> None:
         access_log=False,    # 桌面版不需要访问日志
         loop="auto",
     )
-    server = uvicorn.Server(config)
+    return uvicorn.Server(config)
 
-    # 线程结束时通知主线程 (无论正常退出还是异常)
-    def _signal_done(*exc):
-        ready_event.set()
-    server.config.callback_notify = None  # 不用 notify 机制
 
+def _run_uvicorn(server, done_event: threading.Event) -> None:
+    """背景執行 owned uvicorn, 退出時通知 lifecycle 管理端。"""
     try:
         server.run()
     except Exception:
@@ -243,7 +319,37 @@ def _run_uvmicorn(port: int, ready_event: threading.Event) -> None:
         # 真正的崩溃原因 (如某个原生库加载失败 / 缺 hidden import) 永远看不到。
         logger.exception("uvicorn 后端启动/运行失败")
     finally:
-        ready_event.set()
+        done_event.set()
+
+
+def _read_json(port: int, path: str) -> dict | None:
+    import urllib.error
+    import urllib.request
+
+    try:
+        with urllib.request.urlopen(f"http://127.0.0.1:{port}{path}", timeout=2) as response:
+            if response.status != 200:
+                return None
+            payload = json.loads(response.read().decode("utf-8"))
+            return payload if isinstance(payload, dict) else None
+    except (urllib.error.URLError, OSError, UnicodeError, ValueError):
+        return None
+
+
+def _project_backend_ready(port: int = _BASE_PORT) -> bool:
+    """以 health 與 OpenAPI 身分共同確認 3018 是本專案 backend。"""
+    from app import __version__
+
+    health = _read_json(port, "/health")
+    schema = _read_json(port, "/openapi.json")
+    return bool(
+        health
+        and health.get("status") == "ok"
+        and health.get("version") == __version__
+        and schema
+        and schema.get("info", {}).get("title") == _API_TITLE
+        and schema.get("info", {}).get("version") == __version__
+    )
 
 
 def _wait_for_server(port: int, timeout: float = 60.0) -> bool:
@@ -251,27 +357,51 @@ def _wait_for_server(port: int, timeout: float = 60.0) -> bool:
 
     比 monkey-patch uvicorn 内部方法更健壮, 不依赖版本内部实现。
     """
-    import urllib.request
-    import urllib.error
-
-    url = f"http://127.0.0.1:{port}/health"
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
-        try:
-            with urllib.request.urlopen(url, timeout=2) as r:
-                if r.status == 200:
-                    return True
-        except (urllib.error.URLError, ConnectionError, OSError):
-            pass
+        if _project_backend_ready(port):
+            return True
         time.sleep(0.5)
     return False
+
+
+def _frontend_dist_ready() -> bool:
+    from app.config import settings
+
+    static_dir = Path(settings.static_dir)
+    return (static_dir / "index.html").is_file() and (static_dir / "assets").is_dir()
+
+
+def _ui_ready(port: int = _BASE_PORT) -> bool:
+    import urllib.error
+    import urllib.request
+
+    try:
+        with urllib.request.urlopen(f"http://127.0.0.1:{port}/", timeout=2) as response:
+            body = response.read(8192).decode("utf-8", errors="replace").lower()
+            return response.status == 200 and "<html" in body and 'id="root"' in body
+    except (urllib.error.URLError, OSError):
+        return False
+
+
+def _stop_owned_server(server, thread: threading.Thread) -> bool:
+    """只停止本次 desktop entry 建立的 uvicorn, 並等待 thread 結束。"""
+    server.should_exit = True
+    thread.join(timeout=_SHUTDOWN_TIMEOUT)
+    if thread.is_alive():
+        logger.warning("後端未在 %.0f 秒內停止, 要求 uvicorn 強制結束", _SHUTDOWN_TIMEOUT)
+        server.force_exit = True
+        thread.join(timeout=5.0)
+    return not thread.is_alive()
 
 
 def _open_window(url: str) -> None:
     """主线程: 用 pywebview 打开桌面窗口。"""
     import webview  # type: ignore[import-not-found]
 
-    window = webview.create_window(
+    # 設定 → 備份與轉移 需要把 .twstock-backup 存到使用者選的位置 (pywebview 預設禁止下載)。
+    webview.settings["ALLOW_DOWNLOADS"] = True
+    webview.create_window(
         _APP_NAME,
         url,
         width=1440,
@@ -299,37 +429,52 @@ def main() -> int:
 
     try:
         _ensure_data_dir_writable()
-    except Exception:
+    except Exception as exc:
         # 数据目录不可写是致命错误, 无法继续
+        _show_crash(f"{_APP_NAME} 啟動失敗", str(exc))
         return 1
+
+    _migrate_legacy_data_before_seed()
+    seed_result = _install_bundled_release_seed()
 
     # 单实例: 已运行则退出
     if not _acquire_single_instance():
         return 0
 
+    server = None
+    server_thread = None
     try:
-        port = _find_free_port(_BASE_PORT)
-        logger.info("桌面版后端将监听 127.0.0.1:%d", port)
+        if not _frontend_dist_ready():
+            raise RuntimeError("找不到 frontend/dist, 請先執行 frontend 的 pnpm build")
 
-        # 后台线程起 uvicorn
-        ready = threading.Event()
-        server_thread = threading.Thread(
-            target=_run_uvmicorn, args=(port, ready), daemon=True,
-            name="uvicorn",
-        )
-        server_thread.start()
+        port = _BASE_PORT
+        if _port_is_open(port):
+            if not _project_backend_ready(port):
+                raise RuntimeError(f"連接埠 {port} 已被其他程式使用, 未啟動也未終止該程序")
+            logger.info("使用既有本專案 backend: 127.0.0.1:%d", port)
+        else:
+            logger.info("啟動 desktop entry owned backend: 127.0.0.1:%d", port)
+            server = _create_server(port)
+            done = threading.Event()
+            server_thread = threading.Thread(
+                target=_run_uvicorn,
+                args=(server, done),
+                daemon=False,
+                name="uvicorn-desktop-owned",
+            )
+            server_thread.start()
+            if not _wait_for_server(port, timeout=60.0):
+                raise RuntimeError("後端健康檢查逾時, 詳情請查看 desktop.log")
 
-        # 轮询 health 接口等后端就绪 (含 lifespan 初始化, 最多 60s)
-        if not _wait_for_server(port, timeout=60.0):
-            logger.error("后端启动超时, 桌面版退出")
-            _release_single_instance()
-            return 1
+        _start_seed_incremental_refresh(seed_result)
 
-        url = f"http://127.0.0.1:{port}"
+        if not _ui_ready(port):
+            raise RuntimeError("backend 已啟動, 但 production React UI 尚未就緒")
+
+        url = f"http://127.0.0.1:{port}/"
         logger.info("打开桌面窗口: %s", url)
         _open_window(url)
 
-        # 窗口关闭后, 进程退出 (daemon 线程会被回收)
         logger.info("窗口已关闭, 桌面版退出")
         return 0
     except KeyboardInterrupt:
@@ -342,6 +487,11 @@ def main() -> int:
         _show_crash(f"{_APP_NAME} 啟動失敗", traceback.format_exc())
         return 1
     finally:
+        if server is not None and server_thread is not None:
+            if _stop_owned_server(server, server_thread):
+                logger.info("本次 desktop entry 啟動的 backend 已停止")
+            else:
+                logger.error("本次 desktop entry 啟動的 backend 未能在期限內停止")
         _release_single_instance()
 
 

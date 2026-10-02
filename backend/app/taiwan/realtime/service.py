@@ -69,6 +69,36 @@ class TaiwanRealtimeService:
         with self._lock:
             self._cache.clear()
 
+    def health_metadata(self) -> list[dict[str, Any]]:
+        """Read observed quote provenance without triggering provider requests."""
+        with self._lock:
+            # Cache keys are session-scoped; only the newest observation per
+            # symbol describes the current state (an intraday stale entry must
+            # not outlive a newer post-close quote).
+            latest: dict[str, TaiwanRealtimeQuote] = {}
+            for _, quote in self._cache.values():
+                seen = latest.get(quote.symbol)
+                if seen is None or str(quote.source_meta.fetched_at) >= str(seen.source_meta.fetched_at):
+                    latest[quote.symbol] = quote
+            quotes = list(latest.values())
+        now = taipei_now()
+        # Same rule as get_quotes(): quote age only matters during the open
+        # session; after the close the last match time is the latest price.
+        session = self.trading_calendar.get_market_status(now, require_verified_trading_day=True)
+        in_session = session in (MarketStatus.OPEN, MarketStatus.SCHEDULED_OPEN_UNVERIFIED)
+        result = []
+        for quote in quotes:
+            meta = quote.source_meta.to_dict()
+            stamp = quote.quote_time
+            if stamp is not None and in_session:
+                stamp = stamp.replace(tzinfo=TAIPEI_TZ) if stamp.tzinfo is None else stamp
+                age = (now - stamp).total_seconds()
+                meta["is_stale"] = meta["is_stale"] or (
+                    age > self.freshness_policy.get_threshold_for_source(meta["source"])
+                )
+            result.append(meta)
+        return result
+
     def get_quotes(
         self,
         symbols: list[TaiwanSymbol | str],

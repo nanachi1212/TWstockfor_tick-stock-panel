@@ -145,7 +145,7 @@ class WorkerLock:
             age = time.time() - self.path.stat().st_mtime
         except FileNotFoundError:
             return False
-        return age > self.max_age.total_seconds()
+        return age >= self.max_age.total_seconds()
 
     def acquire(self, *, force: bool = False) -> None:
         self.path.parent.mkdir(parents=True, exist_ok=True)

@@ -113,6 +113,7 @@ vi.mock('@/lib/api', () => ({
       ranking_modes: { live_current: '/api/taiwan/quant/live/models', historical_oos: '/api/taiwan/quant/evaluation' },
     }),
     taiwanQuantA2bStatus: vi.fn().mockResolvedValue({ completed: 232, pending: 246, failed: 0, total: 478, worker_status: 'running' }),
+    dataHealth: vi.fn().mockResolvedValue({ current_count: 12, total_count: 19, datasets: [], generated_at: '2026-09-30T10:00:00+08:00' }),
     taiwanQuantLiveModels: vi.fn().mockResolvedValue({ configured_model: { model_key: 'live-model', top_n: 10 }, latest_operation: null, expected_session: null, current_run_valid: false, current_run_audit_status: null, current_run_reason: 'session_unavailable' }),
     taiwanQuantLiveRuns: vi.fn().mockResolvedValue({ runs: [] }),
     taiwanQuantLiveRun: vi.fn(),
@@ -129,6 +130,10 @@ vi.mock('@/lib/api', () => ({
     taiwanIndustryIntelligence: vi.fn().mockResolvedValue(null),
     taiwanAbnormalDiagnostics: vi.fn().mockResolvedValue(buildDiagnostics()),
     watchlistEnriched: vi.fn().mockResolvedValue({ rows: [], as_of: null, elapsed_ms: 0 }),
+    taiwanSocialSentiment: vi.fn().mockResolvedValue({
+      status: 'partial', as_of: '2026-09-29', generated_at: '2026-09-29T15:30:00+08:00', snapshot_slot: 'after_close',
+      sources: { ptt: { status: 'available' }, dcard: { status: 'unavailable' } }, rankings: [],
+    }),
   },
 }))
 
@@ -167,9 +172,36 @@ describe('Dashboard — Legacy A-share removal (Phase 8C-D)', () => {
     // legacy A 股 API 不應存在於 api mock 上, 更不會被呼叫
     expect((api as any).overviewMarket).toBeUndefined()
   })
+
+  it('keeps current-live unavailable visible instead of presenting an empty formal ranking', async () => {
+    vi.mocked(api.taiwanQuantLiveModels).mockResolvedValue({
+      configured_model: { model_key: 'live-model', top_n: 10 }, expected_session: '2026-09-05',
+      current_run_valid: false, current_run_audit_status: null, current_run_reason: 'daily_refresh_not_ready',
+      recommendation_status: 'unavailable', recommendation_reason: 'daily_refresh_not_ready',
+      live_readiness: { status: 'unavailable', source: 'current_live_gate', reasons: ['daily_refresh_not_ready'] },
+    } as any)
+    vi.mocked(api.taiwanQuantLiveRuns).mockResolvedValue({ runs: [] } as any)
+    renderDashboard()
+
+    expect(await screen.findByText(/目前尚無正式推薦/)).toBeInTheDocument()
+    expect(screen.getByText(/daily_refresh_not_ready/)).toBeInTheDocument()
+  })
 })
 
 describe('Dashboard — Market Clarity (Phase 8C-B)', () => {
+  it('shows a compact social Top 5 card while preserving unavailable AI sentiment', async () => {
+    vi.mocked(api.taiwanSocialSentiment).mockResolvedValue({
+      status: 'partial', as_of: '2026-09-29', generated_at: '2026-09-29T15:30:00+08:00', snapshot_slot: 'after_close',
+      sources: { ptt: { status: 'available' }, dcard: { status: 'unavailable' } },
+      rankings: [{ symbol: '2330.TWSE', code: '2330', company_name: '台積電', social_heat_score: 88, total_mentions: 42, sentiment_status: 'unavailable' }],
+    } as any)
+    renderDashboard()
+
+    expect(await screen.findByText('社群熱門標的')).toBeInTheDocument()
+    expect(await screen.findByText(/情緒不可用/)).toBeInTheDocument()
+    expect(screen.getByText('社群聲量完整頁')).toBeInTheDocument()
+  })
+
   it('shows dependent market panels as loading until data status is ready', async () => {
     let resolveStatus!: (status: any) => void
     vi.mocked(api.taiwanDataStatus).mockReturnValueOnce(new Promise(resolve => { resolveStatus = resolve }) as any)
@@ -473,12 +505,15 @@ describe('Dashboard — Market data honesty (DAILY_USE_CORE_UX_FIXES P1-1)', () 
 
   it('B. partial data shows a clear incomplete-data notice', async () => {
     vi.mocked(api.taiwanAbnormalDiagnostics).mockResolvedValue(buildDiagnostics([], 'current', buildMarketIntelligence({
-      data_quality: { target_trade_date: '2026-09-09', previous_trade_date: '2026-09-03', overall_status: 'partial', universe_supported_symbols: 2375, daily_snapshot_symbols: 0, missing_symbols_count: 2375 },
+      trade_date: '2026-09-08',
+      data_quality: { target_trade_date: '2026-09-09', previous_trade_date: '2026-09-05', overall_status: 'partial', universe_supported_symbols: 2375, daily_snapshot_symbols: 0, missing_symbols_count: 2375 },
     })) as any)
     renderDashboard()
 
     expect(await screen.findByText(/日行情尚未完整/)).toBeInTheDocument()
-    expect(screen.getByText(/前一交易日：2026-09-03/)).toBeInTheDocument()
+    // One source of truth: the target day and the data day, never the data day's previous session.
+    expect(screen.getByText(/目標交易日 2026-09-09 尚未取得，以下為 2026-09-08 資料/)).toBeInTheDocument()
+    expect(screen.queryByText(/前一交易日/)).not.toBeInTheDocument()
     expect(screen.queryByText(/已知最新資料|最新資料日期|非今日實際行情/)).not.toBeInTheDocument()
   })
 

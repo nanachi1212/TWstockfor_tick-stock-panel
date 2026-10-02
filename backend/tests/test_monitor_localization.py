@@ -10,14 +10,17 @@
 """
 from __future__ import annotations
 
-from app.services import quote_service
+from app.api import alerts as alerts_api
+from app.api import monitor_rules as monitor_rules_api
+from app.services import quote_service, webhook_adapter
 from app.strategy.intraday_signals import INTRADAY_SIGNAL_LABELS
 from app.strategy.monitor import _SIGNAL_CN, MonitorRuleEngine
 
 # 常見簡體專用字 (與對應正體字不同形), 若出現在使用者可見文案中即代表殘留簡體。
 _SIMPLIFIED_MARKERS = (
-    "号", "现", "选", "进", "涨", "场", "软", "强", "势", "趋",
-    "买", "卖", "触", "价", "额", "换", "动", "态", "复", "声", "层",
+    "测", "试", "买", "卖", "号", "触", "现", "价", "规", "监", "数",
+    "状", "设", "删", "增", "默", "刷", "选", "进", "涨", "场", "软",
+    "强", "势", "趋", "额", "换", "动", "态", "复", "声", "层",
 )
 
 
@@ -66,6 +69,17 @@ def test_intraday_signal_labels_traditional_and_keys_unchanged():
     }
     for value in INTRADAY_SIGNAL_LABELS.values():
         _assert_no_simplified(value)
+
+
+def test_alert_and_monitor_demo_content_is_traditional():
+    for _symbol, name in alerts_api._DEMO_STOCKS:
+        _assert_no_simplified(name)
+    for _source, message, _signals, _severity in alerts_api._DEMO_TEMPLATES:
+        _assert_no_simplified(message)
+    for name, *_rest in monitor_rules_api._DEMO_RULES_TEMPLATE:
+        _assert_no_simplified(name)
+    for rule in monitor_rules_api._DEMO_STRATEGY_RULES:
+        _assert_no_simplified(rule["name"])
 
 
 # ── _format_conditions_text / _default_message: 顯示文案正體, event type 不變 ──
@@ -123,18 +137,22 @@ def test_sector_message_traditional():
 
 
 # ── quote_service: webhook / 系統通知 source_labels dict ──────────────────
-def test_quote_service_source_labels_keys_unchanged_values_traditional():
+def test_external_alert_titles_are_traditional_and_source_ids_are_unchanged():
     import inspect
 
-    src = inspect.getsource(quote_service.QuoteService._maybe_send_webhook)
-    assert '"ladder": "連續漲停梯隊"' in src
-    assert '"signal": "訊號"' in src
-    assert '"price": "價格"' in src
-    assert '"market": "異動"' in src
-    assert '"sector": "板塊"' in src
-    # source 這一側 (dict key) 完全未變, 供規則反查
-    for key in ("strategy", "signal", "price", "market", "ladder", "sector"):
-        assert f'"{key}":' in src
+    expected = {
+        "strategy": "【TWStock 策略提醒】",
+        "signal": "【TWStock 訊號提醒】",
+        "price": "【TWStock 價格提醒】",
+        "market": "【TWStock 市場異動】",
+        "ladder": "【TWStock 市場異動】",
+        "sector": "【TWStock 市場異動】",
+    }
+    for source, title in expected.items():
+        message = webhook_adapter.alert_message({"source": source})
+        assert message.startswith(title)
+        assert message.count("【TWStock") == 1
+        _assert_no_simplified(message)
 
     src2 = inspect.getsource(quote_service.QuoteService._maybe_send_system_notifications)
     assert '"signal": "訊號"' in src2

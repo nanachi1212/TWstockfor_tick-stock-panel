@@ -8,11 +8,13 @@ from __future__ import annotations
 
 import logging
 from datetime import date as dt_date
-from typing import Any
+from typing import Any, Literal
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, Request
 from pydantic import BaseModel
 
+from app.api.market_breadth import router as market_breadth_router
+from app.api.market_research import router as market_research_router
 from app.taiwan.abnormal_diagnostics import (
     TaiwanAbnormalDiagnosticsService,
     TaiwanAbnormalDiagnosticsSnapshot,
@@ -73,12 +75,85 @@ from app.taiwan.screener_strategy_store import (
     TaiwanScreenerStrategy,
     get_screener_strategy_store,
 )
+from app.taiwan.social_sentiment import (
+    list_social_sentiment_history,
+    load_social_sentiment,
+    load_social_sentiment_date,
+    load_social_sentiment_snapshot,
+)
+from app.taiwan.social_sentiment_jobs import get_social_sentiment_job_manager
 from app.taiwan.symbol import parse_symbol
 from app.taiwan.universe import MarketProfileBridge, get_security_master
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/taiwan", tags=["taiwan"])
+router.include_router(market_breadth_router)
+router.include_router(market_research_router)
+
+
+@router.get("/social-sentiment")
+def get_taiwan_social_sentiment(
+    target_date: str | None = Query(default=None),
+    snapshot_slot: str | None = Query(default=None),
+):
+    """讀取本地社群情緒結果，不在 request time 連線抓取外部來源。"""
+    if target_date:
+        try:
+            parsed_date = dt_date.fromisoformat(target_date)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=f"無效的日期格式: {target_date}") from exc
+        if snapshot_slot is not None and snapshot_slot not in {"pre_open", "after_close"}:
+            raise HTTPException(status_code=400, detail=f"無效的快照時段: {snapshot_slot}")
+        payload = (
+            load_social_sentiment_snapshot(parsed_date, snapshot_slot)
+            if snapshot_slot
+            else load_social_sentiment_date(parsed_date)
+        )
+    else:
+        payload = load_social_sentiment()
+    if payload is None:
+        raise HTTPException(status_code=404, detail="尚未產生社群情緒結果")
+    return payload
+
+
+@router.get("/social-sentiment/history")
+def get_taiwan_social_sentiment_history(limit: int = Query(default=30, ge=1, le=120)):
+    return {"items": list_social_sentiment_history(limit)}
+
+
+class SocialSentimentRunRequest(BaseModel):
+    mode: Literal["manual"] = "manual"
+
+
+@router.post("/social-sentiment/run")
+def run_taiwan_social_sentiment(req: SocialSentimentRunRequest):
+    """Start the shared pipeline in a background thread and return immediately."""
+    return get_social_sentiment_job_manager().start_manual()
+
+
+@router.get("/social-sentiment/jobs/{job_id}")
+def get_taiwan_social_sentiment_job(
+    job_id: str,
+    source: str | None = Query(default=None),
+    symbol: str | None = Query(default=None, max_length=32),
+    q: str | None = Query(default=None, max_length=200),
+    offset: int = Query(default=0, ge=0),
+    limit: int = Query(default=50, ge=1, le=100),
+):
+    if source not in {None, "ptt", "dcard"}:
+        raise HTTPException(status_code=400, detail=f"無效的社群來源: {source}")
+    job = get_social_sentiment_job_manager().get_job(
+        job_id,
+        source=source,
+        symbol=symbol,
+        keyword=q,
+        offset=offset,
+        limit=limit,
+    )
+    if job is None:
+        raise HTTPException(status_code=404, detail=f"找不到任務 {job_id}")
+    return job
 
 
 def _resolve_portfolio_instrument(symbol: str, trade_date: dt_date):
@@ -319,6 +394,7 @@ def get_taiwan_current_data(
 
 @router.get("/stocks/{symbol}", response_model=TaiwanStockDetailResponse)
 def get_taiwan_stock_detail(
+    request: Request,
     symbol: str,
     days: int = Query(120, ge=10, le=1000, description="歷史日 K 線根數"),
 ):
@@ -334,7 +410,7 @@ def get_taiwan_stock_detail(
 
     svc = get_taiwan_stock_detail_service()
     try:
-        return svc.get_stock_detail(symbol, days=days)
+        return svc.get_stock_detail(symbol, days=days, repo=getattr(request.app.state, "repo", None))
     except Exception as e:
         logger.exception("Failed to aggregate Taiwan stock detail for %s: %s", symbol, e)
         raise HTTPException(
@@ -575,6 +651,7 @@ def get_taiwan_events(
     severity: str | None = Query(None, description="嚴重等級過濾: info, attention, risk"),
     date: str | None = Query(None, description="基準日期 (YYYY-MM-DD)"),
     limit: int = Query(100, ge=1, le=500),
+    refresh: bool = Query(False, description="重新取得事件來源；失敗保留 stale 資料"),
 ):
     """取得台股重大事件清單 (支援今日、本週、持股、自選與全市場範圍)。"""
     from app.taiwan.events_service import get_event_service
@@ -607,8 +684,10 @@ def get_taiwan_events(
             severity=sev_cast,  # type: ignore[arg-type]
             target_date=target_dt,
             limit=limit,
+            include_mops=True,
+            force_refresh=refresh,
         )
-        status, sources_status = svc.get_last_sources_status()
+        status, sources_status = svc.get_product_sources_status()
         return {
             "events": items,
             "total": len(items),
@@ -708,29 +787,37 @@ def get_taiwan_market_sentiment(
 
 # ── A12: Selection Review (選股復盤) ─────────────────────────────
 
+class ForwardBatchLockRequest(BaseModel):
+    strategy_id: str = "trend_liquidity_v1"
+
+
 @router.post("/selection-review/forward-batches")
-def lock_selection_forward_batch():
+def lock_selection_forward_batch(body: ForwardBatchLockRequest | None = None):
     """由後端選股並鎖定當日正式前瞻批次；重送回傳同一批次。"""
     from app.taiwan.selection_review_service import get_selection_review_service
 
     try:
-        return get_selection_review_service().lock_forward_batch().model_dump()
+        strategy_id = body.strategy_id if body else "trend_liquidity_v1"
+        return get_selection_review_service().lock_forward_batch(strategy_id=strategy_id).model_dump()
     except ValueError as e:
         raise HTTPException(status_code=409, detail=str(e)) from e
 
 
 @router.get("/selection-review/forward-batches/stats")
-def get_selection_forward_batch_stats():
+def get_selection_forward_batch_stats(strategy_id: str | None = Query(default=None)):
     from app.taiwan.selection_review_service import get_selection_review_service
 
-    return get_selection_review_service().get_forward_batch_stats().model_dump()
+    try:
+        return get_selection_review_service().get_forward_batch_stats(strategy_id=strategy_id).model_dump()
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
 
 
 @router.get("/selection-review/forward-batches")
-def list_selection_forward_batches():
+def list_selection_forward_batches(strategy_id: str | None = Query(default=None)):
     from app.taiwan.selection_review_service import get_selection_review_service
 
-    return [s.model_dump() for s in get_selection_review_service().list_snapshots("forward_batch")]
+    return [s.model_dump() for s in get_selection_review_service().list_snapshots("forward_batch", strategy_id)]
 
 
 @router.get("/selection-review/forward-batches/{batch_id}")

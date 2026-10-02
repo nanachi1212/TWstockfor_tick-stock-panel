@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import tomllib
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock
 
 import httpx
@@ -12,9 +13,11 @@ from app.api import settings as settings_api
 from app.config import settings
 from app.services import ai_provider
 from app.services.ai_provider import (
+    AIProviderConfigSnapshot,
     _format_openai_error,
     _is_temperature_rejected,
     normalize_openai_base_url,
+    probe_openai_profile_connection,
 )
 
 
@@ -28,6 +31,99 @@ def _isolate_ai_profiles(tmp_path, monkeypatch):
 
 def test_normalize_openai_base_url_adds_v1_for_root_gateway():
     assert normalize_openai_base_url("http://ai.zedbox.cn:8080") == "http://ai.zedbox.cn:8080/v1"
+
+
+@pytest.mark.asyncio
+async def test_glm_connection_probe_accepts_length_completion(monkeypatch):
+    create = AsyncMock(return_value=SimpleNamespace(
+        choices=[SimpleNamespace(
+            finish_reason="length",
+            message=SimpleNamespace(content=""),
+        )],
+        usage=SimpleNamespace(completion_tokens=32),
+    ))
+    client = SimpleNamespace(chat=SimpleNamespace(completions=SimpleNamespace(create=create)))
+    monkeypatch.setattr(ai_provider, "_openai_client", lambda *args, **kwargs: client)
+    cfg = AIProviderConfigSnapshot(
+        provider="openai_compat",
+        model="glm-4.7",
+        api_key="glm-test-secret",
+        base_url="https://open.bigmodel.cn/api/paas/v4",
+        max_output_tokens=1,
+    )
+
+    result = await probe_openai_profile_connection(cfg)
+
+    assert result == {
+        "ok": True,
+        "http_status": 200,
+        "finish_reason": "length",
+        "output_tokens": 32,
+        "responded": True,
+    }
+    kwargs = create.await_args.kwargs
+    assert kwargs["model"] == "glm-4.7"
+    assert kwargs["messages"] == [{"role": "user", "content": "Reply exactly with: OK"}]
+    assert kwargs["max_tokens"] == 32
+    assert kwargs["temperature"] == 0.0
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(("status", "detail", "error_code"), [
+    (401, "invalid api key", "AUTH_ERROR"),
+    (403, "forbidden", "AUTH_ERROR"),
+    (400, "invalid model glm-missing", "INVALID_MODEL"),
+    (404, "not found", "ENDPOINT_ERROR"),
+    (429, "rate limited", "RATE_LIMITED"),
+    (503, "unavailable", "PROVIDER_UNAVAILABLE"),
+])
+async def test_connection_probe_maps_provider_errors(monkeypatch, status, detail, error_code):
+    class ProviderError(Exception):
+        def __init__(self, message: str) -> None:
+            super().__init__(message)
+            self.status_code = status
+            self.body = {"error": {"message": detail}}
+
+    create = AsyncMock(side_effect=ProviderError(detail))
+    client = SimpleNamespace(chat=SimpleNamespace(completions=SimpleNamespace(create=create)))
+    monkeypatch.setattr(ai_provider, "_openai_client", lambda *args, **kwargs: client)
+    cfg = AIProviderConfigSnapshot(
+        provider="openai_compat",
+        model="model",
+        api_key="secret",
+        base_url="https://provider.example/v1",
+    )
+
+    result = await probe_openai_profile_connection(cfg)
+
+    assert result["ok"] is False
+    assert result["error_code"] == error_code
+    assert result["http_status"] == status
+
+
+@pytest.mark.asyncio
+async def test_connection_probe_never_returns_the_raw_key(monkeypatch):
+    secret = "secret-that-provider-echoed"
+
+    class ProviderError(Exception):
+        def __init__(self, message: str) -> None:
+            super().__init__(message)
+            self.status_code = 401
+            self.body = {"error": {"message": f"invalid credential {secret}"}}
+
+    create = AsyncMock(side_effect=ProviderError("invalid credential"))
+    client = SimpleNamespace(chat=SimpleNamespace(completions=SimpleNamespace(create=create)))
+    monkeypatch.setattr(ai_provider, "_openai_client", lambda *args, **kwargs: client)
+    cfg = AIProviderConfigSnapshot(
+        provider="openai_compat",
+        model="model",
+        api_key=secret,
+        base_url="https://provider.example/v1",
+    )
+
+    result = await probe_openai_profile_connection(cfg)
+
+    assert secret not in str(result)
 
 
 def test_normalize_openai_base_url_preserves_v1_base():
@@ -215,6 +311,192 @@ def test_openai_kwargs_none_max_tokens_omits_limit():
 
     # 显式数值仍正常下发(策略标题生成等小任务依赖)
     assert ai_provider._openai_kwargs(temperature=None, max_tokens=8) == {"max_tokens": 8}
+
+
+@pytest.mark.parametrize(
+    ("base_url", "model"),
+    [
+        ("https://api.deepseek.com", "deepseek-chat"),
+        ("https://open.bigmodel.cn/api/paas/v4/", "glm-4.7"),
+    ],
+)
+def test_structured_output_disables_thinking_only_for_verified_hosts(base_url, model):
+    kwargs = ai_provider._openai_kwargs(
+        temperature=0.1,
+        max_tokens=3500,
+        provider="openai_compat",
+        structured_output=True,
+        base_url=base_url,
+        model=model,
+    )
+    assert kwargs["response_format"] == {"type": "json_object"}
+    assert kwargs["extra_body"] == {"thinking": {"type": "disabled"}}
+
+    agnes = ai_provider._openai_kwargs(
+        temperature=0.1,
+        max_tokens=3500,
+        provider="openai_compat",
+        structured_output=True,
+        base_url="https://apihub.agnes-ai.com/v1",
+        model="agnes-2.5-flash",
+    )
+    assert agnes["response_format"] == {"type": "json_object"}
+    assert "extra_body" not in agnes
+
+    unsupported_glm = ai_provider._openai_kwargs(
+        temperature=0.1,
+        max_tokens=3500,
+        provider="openai_compat",
+        structured_output=True,
+        base_url="https://open.bigmodel.cn/api/paas/v4/",
+        model="legacy-model",
+    )
+    assert "response_format" not in unsupported_glm
+    assert "extra_body" not in unsupported_glm
+
+
+@pytest.mark.asyncio
+async def test_structured_output_retries_malformed_json_once():
+    calls: list[tuple[list[dict[str, str]], int]] = []
+
+    async def generate(messages, **kwargs):
+        calls.append((messages, kwargs["request_attempt"]))
+        return '{"items":[' if len(calls) == 1 else '{"items":[]}'
+
+    result = await ai_provider.generate_structured_ai_text(
+        [{"role": "user", "content": "private prompt"}],
+        truncated_retry_message="shorten",
+        temperature=0.1,
+        max_tokens=100,
+        timeout=5,
+        generate=generate,
+        validate=ai_provider._validate_structured_json,
+    )
+
+    assert result == '{"items":[]}'
+    assert [attempt for _, attempt in calls] == [0, 1]
+    assert calls[1][0][-2]["content"] == '{"items":['
+    assert calls[1][0][-1]["content"] == ai_provider.INVALID_JSON_RETRY_MESSAGE
+
+
+@pytest.mark.asyncio
+async def test_structured_output_second_malformed_json_fails_closed():
+    calls: list[int] = []
+
+    async def generate(messages, **kwargs):
+        calls.append(kwargs["request_attempt"])
+        return "not-json"
+
+    with pytest.raises(ai_provider.AIStructuredOutputError, match="invalid JSON twice"):
+        await ai_provider.generate_structured_ai_text(
+            [{"role": "user", "content": "private prompt"}],
+            truncated_retry_message="shorten",
+            temperature=0.1,
+            max_tokens=100,
+            timeout=5,
+            generate=generate,
+            validate=ai_provider._validate_structured_json,
+        )
+
+    assert calls == [0, 1]
+
+
+@pytest.mark.asyncio
+async def test_structured_output_retries_empty_content_once():
+    calls: list[int] = []
+
+    async def generate(messages, **kwargs):
+        calls.append(kwargs["request_attempt"])
+        if len(calls) == 1:
+            raise ai_provider.AIEmptyContentError()
+        return '{"items":[]}'
+
+    result = await ai_provider.generate_structured_ai_text(
+        [{"role": "user", "content": "private prompt"}],
+        truncated_retry_message="shorten",
+        temperature=0.1,
+        max_tokens=100,
+        timeout=5,
+        generate=generate,
+        validate=ai_provider._validate_structured_json,
+    )
+
+    assert result == '{"items":[]}'
+    assert calls == [0, 1]
+
+
+@pytest.mark.asyncio
+async def test_structured_response_parses_message_content_not_reasoning_content(monkeypatch):
+    response = SimpleNamespace(
+        choices=[SimpleNamespace(
+            finish_reason="stop",
+            message=SimpleNamespace(content='{"status":"ok"}', reasoning_content="private reasoning"),
+        )],
+        usage=SimpleNamespace(completion_tokens=8, completion_tokens_details=SimpleNamespace(reasoning_tokens=0)),
+    )
+    create = AsyncMock(return_value=response)
+    client = SimpleNamespace(chat=SimpleNamespace(completions=SimpleNamespace(create=create)))
+    monkeypatch.setattr(ai_provider, "_openai_client", lambda *args, **kwargs: client)
+    cfg = AIProviderConfigSnapshot(
+        provider="openai_compat", model="deepseek-flash", api_key="secret",
+        profile_name="deepseek", base_url="https://api.deepseek.com",
+        max_output_tokens=4000, context_window=16000,
+    )
+
+    result = await ai_provider.generate_ai_text(
+        [{"role": "user", "content": "json"}], max_tokens=3500,
+        config_snapshot=cfg, structured_output=True,
+    )
+
+    assert result == '{"status":"ok"}'
+    kwargs = create.await_args.kwargs
+    assert kwargs["response_format"] == {"type": "json_object"}
+    assert kwargs["extra_body"] == {"thinking": {"type": "disabled"}}
+
+
+@pytest.mark.asyncio
+async def test_empty_message_content_is_a_typed_failure_and_log_is_secret_safe(monkeypatch, caplog):
+    response = SimpleNamespace(
+        choices=[SimpleNamespace(
+            finish_reason="stop",
+            message=SimpleNamespace(content="", reasoning_content="private reasoning text"),
+        )],
+        usage=SimpleNamespace(
+            completion_tokens=3500,
+            completion_tokens_details=SimpleNamespace(reasoning_tokens=3490),
+        ),
+    )
+    create = AsyncMock(return_value=response)
+    client = SimpleNamespace(chat=SimpleNamespace(completions=SimpleNamespace(create=create)))
+    monkeypatch.setattr(ai_provider, "_openai_client", lambda *args, **kwargs: client)
+    cfg = AIProviderConfigSnapshot(
+        provider="openai_compat",
+        model="deepseek-chat",
+        api_key="must-not-appear",
+        profile_name="DeepSeek",
+        base_url="https://api.deepseek.com/v1",
+    )
+
+    with (
+        caplog.at_level("INFO", logger="app.services.ai_provider"),
+        pytest.raises(ai_provider.AIEmptyContentError),
+    ):
+        await ai_provider.generate_ai_text(
+            [{"role": "user", "content": "private prompt must not appear"}],
+            max_tokens=3500,
+            config_snapshot=cfg,
+            structured_output=True,
+        )
+
+    log_text = caplog.text
+    assert "finish_reason=stop" in log_text
+    assert "completion_tokens=3500" in log_text
+    assert "reasoning_tokens=3490" in log_text
+    assert "content_length=0" in log_text
+    assert "retry_count=0" in log_text
+    assert "must-not-appear" not in log_text
+    assert "private prompt" not in log_text
+    assert "private reasoning text" not in log_text
 
 
 @pytest.mark.asyncio

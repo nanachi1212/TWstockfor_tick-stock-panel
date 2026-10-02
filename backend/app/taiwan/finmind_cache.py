@@ -108,6 +108,31 @@ class FinMindCache:
             return []
         return [f.stem for f in d.glob("*.json")]
 
+    def health_metadata(self, dataset: str) -> list[dict[str, Any]]:
+        """Inspect persisted metadata including expired entries, without fetching or clearing."""
+        records = []
+        for symbol in self.list_cached_symbols(dataset):
+            path = self.cache_dir / dataset / f"{symbol}.json"
+            try:
+                raw = json.loads(path.read_text(encoding="utf-8"))
+                if not isinstance(raw, dict):
+                    raise ValueError("invalid cache metadata")
+                item = {key: raw.get(key) for key in
+                        ("status", "data_date", "fetched_at", "error_msg")}
+                item["symbol"] = symbol
+                if not raw.get("data") and item["status"] == "available":
+                    item["status"] = "unavailable"
+                stamp = datetime.fromisoformat(str(item["fetched_at"]))
+                stamp = stamp.replace(tzinfo=UTC) if stamp.tzinfo is None else stamp
+                if item["status"] == "available" and (
+                    datetime.now(UTC) - stamp
+                ).total_seconds() >= DATASET_TTL.get(dataset, 6 * 3600):
+                    item["status"] = "stale"
+                records.append(item)
+            except (OSError, ValueError, TypeError):
+                records.append({"status": "error", "error_msg": "cache_metadata_invalid", "symbol": symbol})
+        return records
+
     def clear(self, dataset: str | None = None, symbol: str | None = None) -> None:
         """Clear cached entries."""
         if dataset and symbol:

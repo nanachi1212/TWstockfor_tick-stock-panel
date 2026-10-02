@@ -12,28 +12,40 @@ import * as navigationModule from './navigation'
 import { CORE_NAV } from './navigation'
 
 describe('CORE_NAV', () => {
-  it('orders pages to match 看市場→每日摘要→事件中心→找股票→選股復盤→加自選→比較→監控', () => {
+  it('orders pages to include the separate manual social fetch workflow', () => {
     expect(CORE_NAV.map(item => item.to)).toEqual([
       '/',
+      '/market-research',
       '/daily-brief',
       '/events',
+      '/social-sentiment',
+      '/social-fetch',
+      '/data-health',
       '/taiwan-screener',
       '/selection-review',
+      '/strategy-lab',
+      '/buy-points',
       '/watchlist',
       '/stocks/compare',
       '/monitor',
     ])
   })
 
-  it('keeps the 8 Taiwan core route paths including daily brief and selection review', () => {
+  it('keeps the 14 Taiwan core route paths including market research', () => {
     const paths = new Set(CORE_NAV.map(item => item.to))
     expect(paths).toEqual(
       new Set([
         '/',
+        '/market-research',
         '/daily-brief',
         '/events',
+        '/social-sentiment',
+        '/social-fetch',
+        '/data-health',
         '/taiwan-screener',
         '/selection-review',
+        '/strategy-lab',
+        '/buy-points',
         '/watchlist',
         '/stocks/compare',
         '/monitor',
@@ -41,8 +53,8 @@ describe('CORE_NAV', () => {
     )
   })
 
-  it('is the only exported nav array — CORE_NAV has exactly 8 Taiwan core items', () => {
-    expect(CORE_NAV).toHaveLength(8)
+  it('is the only exported nav array — CORE_NAV has exactly 14 Taiwan core items', () => {
+    expect(CORE_NAV).toHaveLength(14)
   })
 })
 

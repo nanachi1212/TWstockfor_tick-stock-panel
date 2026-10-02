@@ -15,6 +15,12 @@ import {
   CalendarDays,
   Sparkles,
   History,
+  MessageCircleMore,
+  BellRing,
+  RefreshCw,
+  FlaskConical,
+  Database,
+  BarChart3,
   type LucideIcon,
 } from 'lucide-react'
 
@@ -54,10 +60,16 @@ export interface NavMeta {
 // 只調整陣列順序(即側欄/選單設定顯示順序)。
 export const CORE_NAV: readonly NavMeta[] = [
   { to: '/',                label: '看板',     icon: LayoutDashboard },
+  { to: '/market-research', label: '大盤研究', icon: BarChart3 },
   { to: '/daily-brief',     label: '每日摘要', icon: Sparkles },
   { to: '/events',          label: '事件中心', icon: CalendarDays },
+  { to: '/social-sentiment',label: '社群聲量', icon: MessageCircleMore },
+  { to: '/social-fetch',    label: '社群即時撈取', icon: RefreshCw },
+  { to: '/data-health',     label: '資料健康', icon: Database },
   { to: '/taiwan-screener', label: '台股選股', icon: Filter },
   { to: '/selection-review',label: '選股復盤', icon: History },
+  { to: '/strategy-lab',   label: '策略實驗室', icon: FlaskConical },
+  { to: '/buy-points',      label: '買點策略', icon: BellRing },
   { to: '/watchlist',  label: '自選股',   icon: Star },
   { to: '/stocks/compare', label: '多股比較', icon: Scale },
   { to: '/monitor', label: '監控中心', icon: RadioTower },

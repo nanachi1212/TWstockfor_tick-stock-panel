@@ -2,7 +2,7 @@ import { useState, type ReactNode } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { motion } from 'framer-motion'
-import { Activity, ArrowUpRight, BellRing, Check, Database, Eye, History, Layers, Loader2, Sparkles, Star, Trash2, TrendingUp, X } from 'lucide-react'
+import { Activity, ArrowUpRight, BellRing, Check, Database, Eye, History, Layers, Loader2, MessageCircleMore, Sparkles, Star, Trash2, TrendingUp, X } from 'lucide-react'
 import { api, type AlertEvent, type IndexSnapshot, type IndustryMetrics, type TaiwanAbnormalDiagnosticsSnapshot, type TaiwanMarketIntelligenceSnapshot, type TaiwanIndustryIntelligenceSnapshot } from '@/lib/api'
 import { QK } from '@/lib/queryKeys'
 import { fmtBigNum, fmtPct } from '@/lib/format'
@@ -16,6 +16,7 @@ import { boardTag } from '@/components/stock-table/primitives'
 import { PortfolioPanel } from '@/components/portfolio/Portfolio'
 import { MarketSentimentCard } from '@/components/dashboard/MarketSentimentCard'
 import { TodayEventsWidget } from '@/components/dashboard/TodayEventsWidget'
+import { DataHealthSummary } from '@/components/dashboard/DataHealthSummary'
 
 function n(v: number | null | undefined) {
   return typeof v === 'number' && Number.isFinite(v) ? v : null
@@ -48,6 +49,22 @@ function SectionTitle({ icon: Icon, title, hint }: { icon: typeof Activity; titl
       </div>
       {hint && <span className="font-mono text-[10px] text-muted">{hint}</span>}
     </div>
+  )
+}
+
+function BuyPointSummaryCard() {
+  const summary = useQuery({
+    queryKey: QK.buyPointSummary,
+    queryFn: () => api.buyPointSummary(),
+    enabled: typeof api.buyPointSummary === 'function',
+    staleTime: 60_000,
+  })
+  const counts = summary.data?.counts
+  return (
+    <section className="rounded-card border border-border bg-surface/80 p-2 shadow-[0_1px_2px_hsl(var(--border)/0.4)]">
+      <div className="flex items-center justify-between"><SectionTitle icon={BellRing} title="今日買點提醒" hint="研究提醒" /><Link to="/buy-points" className="text-[10px] text-accent hover:underline">查看買點策略</Link></div>
+      <div className="grid grid-cols-3 gap-1.5 text-center text-[10px]"><div className="rounded bg-bull/10 p-1.5 text-bull">已觸發<br /><span className="font-mono text-sm">{counts?.triggered ?? '—'}</span></div><div className="rounded bg-warning/10 p-1.5 text-warning">接近<br /><span className="font-mono text-sm">{counts?.approaching ?? '—'}</span></div><div className="rounded bg-danger/10 p-1.5 text-danger">風險阻擋<br /><span className="font-mono text-sm">{counts?.blocked ?? '—'}</span></div></div>
+    </section>
   )
 }
 
@@ -292,8 +309,8 @@ function MarketOverviewCard({ snapshot, loading, error, marketDailyStatus }: { s
           {dailyDataIncomplete && (
             <div className="mb-1.5 rounded border border-warning/40 bg-warning/10 px-2 py-1 text-[11px] text-warning">
               日行情尚未完整，漲跌與成交統計僅依目前可用資料顯示
-              {intel.data?.data_quality?.previous_trade_date && (
-                <>；前一交易日：{intel.data.data_quality.previous_trade_date}</>
+              {intel.data.data_quality.target_trade_date > intel.data.trade_date && (
+                <>；目標交易日 {intel.data.data_quality.target_trade_date} 尚未取得，以下為 {intel.data.trade_date} 資料</>
               )}
             </div>
           )}
@@ -854,6 +871,46 @@ function DashboardSelectionReviewWidget() {
   )
 }
 
+function DashboardSocialSentimentWidget() {
+  const social = useQuery({
+    queryKey: QK.taiwanSocialSentiment(),
+    queryFn: () => api.taiwanSocialSentiment(),
+    staleTime: 5 * 60 * 1000,
+  })
+  const rows = social.data?.rankings.slice(0, 5) ?? []
+
+  return (
+    <section className="mb-2.5 rounded-card border border-border bg-surface/85 p-3 shadow-sm backdrop-blur-sm">
+      <div className="mb-2 flex items-center justify-between border-b border-border/60 pb-2">
+        <div className="flex items-center gap-1.5">
+          <span className="h-3.5 w-1 rounded-full bg-gradient-to-b from-cyan-400 to-cyan-400/40" />
+          <MessageCircleMore className="h-4 w-4 text-cyan-500" />
+          <h2 className="text-xs font-bold text-foreground">社群熱門標的</h2>
+          {social.data?.status === 'partial' && <span className="rounded bg-warning/10 px-1.5 py-0.5 text-[10px] font-semibold text-warning">部分來源</span>}
+        </div>
+        <Link to="/social-sentiment" className="inline-flex items-center gap-1 text-[11px] font-medium text-cyan-600 hover:underline dark:text-cyan-400">
+          社群聲量完整頁<ArrowUpRight className="h-3 w-3" />
+        </Link>
+      </div>
+      {social.isLoading ? (
+        <div className="flex items-center justify-center gap-2 py-4 text-xs text-muted"><Loader2 className="h-3.5 w-3.5 animate-spin" />正在讀取社群聲量…</div>
+      ) : social.isError || rows.length === 0 ? (
+        <p className="py-3 text-center text-xs text-muted">社群聲量尚未就緒，排行榜不以零值代替。</p>
+      ) : (
+        <div className="space-y-1.5">
+          {rows.map(row => (
+            <Link key={row.symbol} to={`/stocks/${encodeURIComponent(row.symbol)}`} className="grid min-h-9 grid-cols-[1fr_auto_auto] items-center gap-3 rounded-lg border border-border/40 bg-base/40 px-2 text-xs hover:border-cyan-500/30">
+              <span className="min-w-0 truncate font-medium text-foreground">{row.company_name} <span className="font-mono text-[10px] text-muted">{row.code}</span></span>
+              <span className="font-mono text-cyan-600 dark:text-cyan-400">熱度 {row.social_heat_score.toFixed(1)}</span>
+              <span className="font-mono text-muted">{row.total_mentions} 則 · {row.sentiment_status === 'available' ? row.sentiment : '情緒不可用'}</span>
+            </Link>
+          ))}
+        </div>
+      )}
+    </section>
+  )
+}
+
 export function Dashboard() {
   const [previewStock, setPreviewStock] = useState<{symbol: string; name?: string; alert?: AlertEvent} | null>(null)
   const marketDataStatus = useQuery({
@@ -911,6 +968,10 @@ export function Dashboard() {
         <DashboardDailyBriefWidget />
         <DashboardSelectionReviewWidget />
       </div>
+
+      <DashboardSocialSentimentWidget />
+      <DataHealthSummary />
+      <div className="mb-1.5"><BuyPointSummaryCard /></div>
 
       <div className="mb-1.5 grid grid-cols-1 gap-1.5 lg:grid-cols-2">
         <IndustryStrengthCard

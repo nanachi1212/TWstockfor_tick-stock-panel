@@ -6,6 +6,28 @@ from app.taiwan import daily_update
 from app.taiwan.quant import live_runner
 
 
+def test_instruments_schedule_refreshes_security_master(monkeypatch, tmp_path):
+    from app.services import instrument_sync
+    from app.taiwan import universe
+
+    repo = Mock()
+    repo.store.data_dir = tmp_path
+    master = Mock()
+    master.load_from_adapters.return_value = 12
+    master.health_metadata.return_value = {"status": "available"}
+    monkeypatch.setattr(instrument_sync, "sync_instruments", lambda _data_dir: 5)
+    monkeypatch.setattr(universe, "get_security_master", lambda: master)
+    monkeypatch.setattr(daily_pipeline, "_refresh_instruments_view", lambda _repo: None)
+    monkeypatch.setattr(daily_pipeline, "_invalidate", lambda _name: None)
+
+    result = daily_pipeline.run_instruments_sync(repo)
+
+    assert result["instruments_rows"] == 5
+    assert result["security_master"] == {"status": "available", "rows": 12}
+    master.load_from_adapters.assert_called_once_with()
+    master.save_cache.assert_called_once_with()
+
+
 def test_scheduler_market_refresh_is_complete_before_quant_failure(monkeypatch, taiwan_data_env):
     scheduler = Mock()
     monkeypatch.setattr(daily_pipeline, "AsyncIOScheduler", lambda **kwargs: scheduler)
@@ -18,23 +40,34 @@ def test_scheduler_market_refresh_is_complete_before_quant_failure(monkeypatch, 
         events.append("refresh_finished")
         return result
 
+    def research_refresh():
+        events.append("research_finished")
+        return {"corporate_actions": {"status": "verified"}, "valuation": {"status": "available"}}
+
     def quant(value, *, app_state=None):
         assert value is result
         assert app_state is daily_pipeline._app_state_ref
-        assert events == ["refresh_finished"]
+        assert events == ["refresh_finished", "research_finished"]
         events.append("quant_failed")
         raise RuntimeError("quant disk full")
 
     monkeypatch.setattr(daily_update, "TaiwanDailyUpdateService",
                         lambda: SimpleNamespace(run_update=refresh))
+    monkeypatch.setattr(daily_pipeline, "_refresh_after_close_research", research_refresh)
     monkeypatch.setattr(live_runner, "run_live_after_refresh", quant)
     daily_pipeline.start_scheduler(Mock(), Mock())
     job = next(call for call in scheduler.add_job.call_args_list if call.kwargs["id"] == "taiwan_daily_update")
     job.args[0]()
-    assert events == ["refresh_finished", "quant_failed"]
+    assert events == ["refresh_finished", "research_finished", "quant_failed"]
     assert result.overall_status == "success"
     assert result.daily.status == "success"
     assert job.kwargs["max_instances"] == 1
+    trigger = job.kwargs["trigger"]
+    fields = {field.name: str(field) for field in trigger.fields}
+    assert fields["day_of_week"] == "mon-fri"
+    assert fields["hour"] == "16"
+    assert fields["minute"] == "30"
+    assert str(trigger.timezone) == "Asia/Taipei"
 
 
 def test_failed_daily_refresh_skips_quant_with_reason(monkeypatch, taiwan_data_env):

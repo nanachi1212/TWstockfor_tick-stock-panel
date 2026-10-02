@@ -1,11 +1,11 @@
-name: 桌面客戶端發佈
+name: 桌面客戶端未簽章構建
 
 # 觸發方式: 手動 (workflow_dispatch)。
 # 在 GitHub Actions 頁面點 "Run workflow", 選擇要構建的平台,
-# 構建完成後自動創建/更新 Release 並上傳安裝包。
+# 構建完成後只上傳 Actions artifact，不建立公開 GitHub Release。
 #
 # 為什麼不用 tag 自動觸發:
-#   - 多平台並行構建, mac/linux 未就緒時會自動失敗汙染 Release
+#   - 多平台並行構建, mac/linux 未就緒時不應建立不完整 Release
 #   - 手動觸發可精確控制 "今天只發 Windows, 明天補 mac"
 #   - 版本號固定從倉庫根目錄 VERSION 讀取
 #
@@ -19,13 +19,9 @@ on:
         description: '要構建的平台 (逗號分隔: windows,macos,linux)'
         required: true
         default: 'windows'
-      prerelease:
-        description: '是否為預發佈 (勾選則標記為 Pre-release)'
-        type: boolean
-        default: false
 
 permissions:
-  contents: write   # 創建 Release 需要寫權限
+  contents: read
 
 jobs:
   # 第一步: 過濾出本次要構建的平台
@@ -34,7 +30,6 @@ jobs:
     outputs:
       matrix: ${{ steps.filter.outputs.matrix }}
       version: ${{ steps.version.outputs.version }}
-      release_tag: ${{ steps.version.outputs.release_tag }}
     steps:
       - name: 檢出代碼
         uses: actions/checkout@v4
@@ -44,7 +39,6 @@ jobs:
         run: |
           python3 scripts/check_version.py
           RELEASE_TAG=$(tr -d '\r\n' < VERSION)
-          echo "release_tag=$RELEASE_TAG" >> "$GITHUB_OUTPUT"
           echo "version=${RELEASE_TAG#v}" >> "$GITHUB_OUTPUT"
 
       - id: filter
@@ -124,6 +118,10 @@ jobs:
         working-directory: backend
         run: uv pip install pyinstaller
 
+      - name: 建立公開 release seed 並執行 Privacy Gate
+        working-directory: backend
+        run: uv run python ../scripts/prepare_release_seed.py
+
       - name: 生成 macOS 圖標 (僅 macOS)
         if: matrix.platform == 'macos'
         # icon.ico 已入庫 (Windows 直接用), 但 icon.icns 未入庫 (macOS 專用產物)。
@@ -172,9 +170,19 @@ jobs:
           $ver = '${{ needs.prepare.outputs.version }}'
           echo "版本號: $ver"
           ISCC.exe "/DMyAppVersion=$ver" packaging/tickflow.iss
-          # 把生成的 Setup.exe 移到工作區根 (Release 上傳用)
-          Move-Item packaging/Output/NanachiStockPanel-Setup-$ver.exe ${{ matrix.artifact }} -Force
+          Copy-Item packaging/Output/NanachiStockPanel-Setup-x64.exe ${{ matrix.artifact }} -Force
         shell: pwsh
+
+      - name: Windows clean-install / offline / incremental / privacy smoke
+        if: matrix.platform == 'windows'
+        shell: pwsh
+        run: |
+          $seedAudit = Get-ChildItem release-assets/release-seed -Directory -Filter 'audit-staging-*' | Select-Object -First 1
+          ./scripts/test-windows-installer.ps1 `
+            -InstallerPath packaging/Output/NanachiStockPanel-Setup-x64.exe `
+            -SeedAuditPath $seedAudit.FullName `
+            -PyInstallerDist backend/dist/NanachiStockPanel `
+            -PrivacyReport release-assets/installer-smoke/release-privacy-audit.json
 
       - name: 生成 DMG (macOS)
         if: matrix.platform == 'macos'
@@ -206,40 +214,8 @@ jobs:
           cd backend/dist
           tar -czf ../../${{ matrix.artifact }} NanachiStockPanel
 
-      - name: 上傳產物為構建產物 (備查)
+      - name: 上傳未簽章構建產物 (Privacy Gate 通過後)
         uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.artifact }}
           path: ${{ matrix.artifact }}
-
-      - name: 上傳到 GitHub Release
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: ${{ needs.prepare.outputs.release_tag }}
-          name: ${{ needs.prepare.outputs.release_tag }}
-          files: ${{ matrix.artifact }}
-          prerelease: ${{ github.event.inputs.prerelease }}
-          generate_release_notes: true   # 自動從 commit 生成 changelog
-          body: |
-            ## 桌面應用程式 ${{ needs.prepare.outputs.release_tag }}
-
-            ### ⬇️ 下載
-
-            | 平台 | 檔案 | 下載 |
-            | :--- | :--- | :--- |
-            | **Windows x64** | `NanachiStockPanel-Setup-x64.exe` | [⬇️ 立即下載](https://github.com/${{ github.repository }}/releases/download/${{ needs.prepare.outputs.release_tag }}/NanachiStockPanel-Setup-x64.exe) |
-            | **macOS (Apple Silicon / M 系列晶片)** | `NanachiStockPanel-macos-arm64.dmg` | [⬇️ 立即下載](https://github.com/${{ github.repository }}/releases/download/${{ needs.prepare.outputs.release_tag }}/NanachiStockPanel-macos-arm64.dmg) |
-            | **Linux** | `NanachiStockPanel-linux-x64.tar.gz` | [⬇️ 立即下載](https://github.com/${{ github.repository }}/releases/download/${{ needs.prepare.outputs.release_tag }}/NanachiStockPanel-linux-x64.tar.gz) |
-
-            > 💡 點「立即下載」可直接取得, 不必捲到頁面底部的附件區。
-            > 🍎 **macOS 僅提供 Apple Silicon (M 系列晶片) 版本**: 點左上角  → 「關於這台 Mac」, 看「晶片」一項是否為 Apple; Intel 晶片的 Mac 暫不支援 (上游 polars 已停止發佈 Intel wheel)。
-
-            ### 📋 使用說明
-            - **Windows**: 下載後雙擊執行, 依安裝精靈操作(不需系統管理員權限), 會自動建立桌面與開始功能表捷徑
-            - **macOS**: 雙擊 dmg 開啟, 將 NanachiStockPanel 拖進 Applications 資料夾; 首次啟動需按右鍵→開啟(繞過 Gatekeeper)
-            - **Linux**: 解壓縮後執行可執行檔
-            - 資料存放在安裝目錄下的 `data/` 子資料夾, 解除安裝後重新安裝不會遺失
-            - 內建 Polars 相容核心, 新舊 CPU (無 AVX2) 都可執行
-            - 內含純 Polars 回測引擎; 不含 vectorbt 回測(為控制體積)
-            - 系統通知: 設定 → 即時監控 → 系統通知
-            - 檢查更新: 設定 → 系統設定 → 關於

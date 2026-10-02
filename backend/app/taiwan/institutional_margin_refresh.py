@@ -18,16 +18,13 @@ import polars as pl
 
 from app.taiwan.enrichment.institutional import (
     TaiwanInstitutionalProvider,
-    TwseInstitutionalAdapter,
-    TpexInstitutionalAdapter,
 )
 from app.taiwan.enrichment.margin import (
     TaiwanMarginProvider,
-    TwseMarginAdapter,
-    TpexMarginAdapter,
 )
 from app.taiwan.institutional_store import TaiwanInstitutionalStore
 from app.taiwan.margin_store import TaiwanMarginStore
+from app.taiwan.observed_universe import ObservedUniverseStore, is_potential_market_session
 from app.taiwan.providers.http import fetch_json
 from app.taiwan.realtime.calendar import TaiwanTradingCalendar
 
@@ -59,6 +56,19 @@ def _fetch_json_with_retry(
     )
 
 
+def publication_gap(twse_rows: list[Any], tpex_rows: list[Any]) -> str | None:
+    """Official market-wide feeds publish per exchange; both are required per date.
+
+    Persisting one exchange would mark the date complete and the other exchange
+    would never be retried, so a one-sided day is reported as pending instead.
+    """
+    if twse_rows and tpex_rows:
+        return None
+    if not twse_rows and not tpex_rows:
+        return "official_not_published"
+    return "TWSE_not_published" if not twse_rows else "TPEX_not_published"
+
+
 class TaiwanInstitutionalRefreshService:
     """Refreshes institutional flows from official TWSE/TPEx endpoints into TaiwanInstitutionalStore."""
 
@@ -67,10 +77,12 @@ class TaiwanInstitutionalRefreshService:
         store: TaiwanInstitutionalStore | None = None,
         provider: TaiwanInstitutionalProvider | None = None,
         calendar: TaiwanTradingCalendar | None = None,
+        evidence_store: ObservedUniverseStore | None = None,
     ) -> None:
         self._store = store or TaiwanInstitutionalStore()
         self._provider = provider or TaiwanInstitutionalProvider()
         self._calendar = calendar or TaiwanTradingCalendar()
+        self._evidence_store = evidence_store or ObservedUniverseStore()
 
     def refresh_dates(
         self,
@@ -86,12 +98,13 @@ class TaiwanInstitutionalRefreshService:
             "dates_skipped": 0,
             "total_rows_written": 0,
             "failed_dates": [],
+            "pending_dates": [],
         }
 
         cur = start_date
         while cur <= end_date:
             # Skip confirmed non-trading days
-            if self._calendar.is_trading_day(cur) is False:
+            if not is_potential_market_session(cur, self._calendar, self._evidence_store):
                 cur += timedelta(days=1)
                 continue
 
@@ -114,8 +127,11 @@ class TaiwanInstitutionalRefreshService:
                     cur,
                     self._provider.tpex.build_url(cur),
                 )
+                gap = publication_gap(flows_twse, flows_tpex)
                 all_flows = flows_twse + flows_tpex
-                if all_flows:
+                if gap:
+                    stats["pending_dates"].append({"date": str(cur), "reason": gap})
+                else:
                     rows = [
                         {
                             "symbol": f.symbol,
@@ -148,8 +164,6 @@ class TaiwanInstitutionalRefreshService:
                     written = self._store.write_batch(df, partition_date=cur)
                     stats["total_rows_written"] += written
                     stats["dates_fetched"] += 1
-                else:
-                    stats["dates_skipped"] += 1
             except Exception as exc:
                 logger.warning("Institutional refresh failed for %s: %s", cur, exc)
                 stats["failed_dates"].append({"date": str(cur), "error": str(exc)})
@@ -170,10 +184,12 @@ class TaiwanMarginRefreshService:
         store: TaiwanMarginStore | None = None,
         provider: TaiwanMarginProvider | None = None,
         calendar: TaiwanTradingCalendar | None = None,
+        evidence_store: ObservedUniverseStore | None = None,
     ) -> None:
         self._store = store or TaiwanMarginStore()
         self._provider = provider or TaiwanMarginProvider()
         self._calendar = calendar or TaiwanTradingCalendar()
+        self._evidence_store = evidence_store or ObservedUniverseStore()
 
     def refresh_dates(
         self,
@@ -189,12 +205,13 @@ class TaiwanMarginRefreshService:
             "dates_skipped": 0,
             "total_rows_written": 0,
             "failed_dates": [],
+            "pending_dates": [],
         }
 
         cur = start_date
         while cur <= end_date:
             # Skip confirmed non-trading days
-            if self._calendar.is_trading_day(cur) is False:
+            if not is_potential_market_session(cur, self._calendar, self._evidence_store):
                 cur += timedelta(days=1)
                 continue
 
@@ -217,8 +234,11 @@ class TaiwanMarginRefreshService:
                     cur,
                     self._provider.tpex.build_url(cur),
                 )
+                gap = publication_gap(margins_twse, margins_tpex)
                 all_margins = margins_twse + margins_tpex
-                if all_margins:
+                if gap:
+                    stats["pending_dates"].append({"date": str(cur), "reason": gap})
+                else:
                     rows = [
                         {
                             "symbol": m.symbol,
@@ -247,8 +267,6 @@ class TaiwanMarginRefreshService:
                     written = self._store.write_batch(df, partition_date=cur)
                     stats["total_rows_written"] += written
                     stats["dates_fetched"] += 1
-                else:
-                    stats["dates_skipped"] += 1
             except Exception as exc:
                 logger.warning("Margin refresh failed for %s: %s", cur, exc)
                 stats["failed_dates"].append({"date": str(cur), "error": str(exc)})

@@ -12,13 +12,14 @@ import json
 import math
 import os
 import tempfile
-from collections import defaultdict
+import threading
+from collections import OrderedDict, defaultdict
 from collections.abc import Iterable
-from dataclasses import asdict, dataclass, replace
+from dataclasses import dataclass, fields, replace
 from datetime import date, datetime, time
 from decimal import ROUND_DOWN, ROUND_HALF_UP, Decimal, InvalidOperation
 from pathlib import Path
-from typing import Any
+from typing import Any, ClassVar
 
 import polars as pl
 
@@ -89,6 +90,7 @@ class CorporateActionEvent:
             values = (self.previous_close, self.reference_price, self.factor)
             if any(v is None or not math.isfinite(v) or v <= 0 for v in values):
                 raise ValueError("verified factor requires positive finite prices and factor")
+            assert self.factor is not None and self.reference_price is not None and self.previous_close is not None
             if not math.isclose(self.factor, self.reference_price / self.previous_close,
                                 rel_tol=1e-12):
                 raise ValueError("factor disagrees with official price basis")
@@ -96,7 +98,9 @@ class CorporateActionEvent:
                 raise ValueError("unsupported verified event")
 
     def to_dict(self) -> dict[str, Any]:
-        return asdict(self)
+        # Every field is an immutable scalar (including date/datetime and the
+        # JSON string raw_fields). Deep-copying timestamps dominates bulk reads.
+        return {field.name: getattr(self, field.name) for field in fields(self)}
 
     @property
     def identity(self) -> tuple[str, date]:
@@ -307,6 +311,17 @@ class CorporateActionStore:
     A stale lock is an explicit error; it is never silently deleted.
     """
 
+    _coverage_lock: ClassVar[threading.Lock] = threading.Lock()
+    _coverage_cache: ClassVar[OrderedDict[
+        Path, tuple[tuple[int, ...], tuple[date, date, tuple[CorporateActionEvent, ...]]]
+    ]] = OrderedDict()
+
+    def _coverage_generation(self) -> tuple[int, ...]:
+        # Include the marker and replacement identity, not just event file mtime.
+        return tuple(value for path in (self.path, self.path.with_name("coverage.json"))
+                     for stat in (path.stat(),)
+                     for value in (stat.st_mtime_ns, stat.st_ctime_ns, stat.st_size, stat.st_ino))
+
     def __init__(self, data_dir: Path | None = None) -> None:
         if data_dir is None:
             from app.taiwan.data_root import taiwan_data_root
@@ -360,20 +375,48 @@ class CorporateActionStore:
 
     def read_verified_window(self, start: date, end: date) -> tuple[CorporateActionEvent, ...] | None:
         """Return locally covered actions, or None when source coverage is unverified."""
+        coverage = self.read_verified_coverage()
+        if coverage is None or coverage[0] > start or coverage[1] < end:
+            return None
+        events = tuple(e for e in coverage[2] if start <= e.effective_date <= end)
+        return None if any(e.status == "provider_error" for e in events) else events
+
+    def read_verified_coverage(self) -> tuple[date, date, tuple[CorporateActionEvent, ...]] | None:
+        """One immutable locally validated snapshot for multi-window consumers.
+
+        Coverage bounds remain independent of the event list. Callers must
+        check bounds and provider errors for every requested window.
+        """
         from app.taiwan.providers.corporate_actions import SOURCE_URLS
 
         marker = self.path.with_name("coverage.json")
-        if not marker.is_file() or not self.path.is_file():
-            return None
         try:
+            key = self.path.resolve()
+            generation = self._coverage_generation()
+            with self._coverage_lock:
+                cached = self._coverage_cache.get(key)
+                if cached is not None and cached[0] == generation:
+                    self._coverage_cache.move_to_end(key)
+                else:
+                    self._coverage_cache.pop(key, None)
+                    cached = None
+            if cached is not None:
+                return cached[1] if generation == self._coverage_generation() else None
             record = json.loads(marker.read_text(encoding="utf-8"))
+            first, last = date.fromisoformat(record["start"]), date.fromisoformat(record["end"])
             if (record.get("events_sha256") != self.snapshot_digest()
-                    or set(record.get("sources", ())) != set(SOURCE_URLS)
-                    or date.fromisoformat(record["start"]) > start
-                    or date.fromisoformat(record["end"]) < end):
+                    or set(record.get("sources", ())) != set(SOURCE_URLS) or first > last):
                 return None
-            events = tuple(e for e in self.read() if start <= e.effective_date <= end)
-            return None if any(e.status == "provider_error" for e in events) else events
+            events = self.read()
+            if generation != self._coverage_generation():
+                return None
+            coverage = (first, last, events)
+            with self._coverage_lock:
+                self._coverage_cache[key] = (generation, coverage)
+                self._coverage_cache.move_to_end(key)
+                while len(self._coverage_cache) > 8:
+                    self._coverage_cache.popitem(last=False)
+            return coverage
         except (OSError, ValueError, KeyError, TypeError):
             return None
 

@@ -168,7 +168,11 @@ class TaiwanDailyBriefService:
             trade_date=str(effective_date),
             taiex_close=taiex_obj.close if taiex_obj else None,
             taiex_change=taiex_obj.change if taiex_obj else None,
-            taiex_change_pct=taiex_obj.change_pct if taiex_obj else None,
+            taiex_change_pct=(
+                taiex_obj.change_pct * 100
+                if taiex_obj and taiex_obj.change_pct is not None
+                else None
+            ),
             advance_count=market_snap.market_totals.advance_count,
             decline_count=market_snap.market_totals.decline_count,
             flat_count=market_snap.market_totals.flat_count,
@@ -423,6 +427,8 @@ class TaiwanDailyBriefService:
                 max_tokens=3500,
                 timeout=55.0,
                 config_snapshot=config,
+                structured_output=True,
+                request_attempt=0,
             )
         except AIOutputTruncated as trunc_exc:
             retry_msgs = list(messages) + [
@@ -436,6 +442,8 @@ class TaiwanDailyBriefService:
                     max_tokens=3500,
                     timeout=55.0,
                     config_snapshot=config,
+                    structured_output=True,
+                    request_attempt=1,
                 )
             except AIOutputTruncated:
                 raise ValueError("AI 回覆超過輸出長度限制，請重新產生。")

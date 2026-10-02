@@ -80,7 +80,38 @@
 | macOS(Apple Silicon) | `NanachiStockPanel-macos-arm64.dmg` |
 | Linux | `NanachiStockPanel-linux-x64.tar.gz` |
 
-Windows 不需要系統管理員權限,預設裝到 `D:\NanachiStockPanel`。使用者資料在安裝目錄下的 `data/`,覆蓋安裝不會遺失。
+Windows 不需要系統管理員權限。下載 `NanachiStockPanel-Setup-x64.exe` 後雙擊安裝，安裝程式會建立開始功能表與桌面捷徑；雙擊 `Nanachi 的台股監控看板` 即可使用，不需要 Python、Node.js、repository 或另外下載歷史資料包。
+
+安裝包內含經公開資料 allowlist 與 checksum 驗證的台股 seed。第一次啟動會把 seed 原子複製到 `%LOCALAPPDATA%\NanachiStockPanel\data`，再於背景從 seed 日期增量更新到最近已確認交易日；離線時仍可使用 seed，介面會如實顯示資料過期。覆蓋安裝與預設解除安裝都會保留使用者資料。
+
+### Windows 下載與簽章驗證
+
+Windows 發佈檔目前仍在建立正式程式碼簽章流程；在 SignPath Foundation
+核准並完成 CI 設定前，請把 Release 上的 Windows 檔案視為未簽章。只有本
+repository 的官方 Release 產物會納入未來簽章流程，測試版、Pull Request、
+分支 build 與本機自行打包的 EXE 不屬於已簽章官方產物。
+
+目前 `Nanachi台股看板.exe` 是本機 Launcher build artifact，尚未列入官方
+Release 資產；它也不應被視為已簽章檔案。正式發布前，Launcher 必須和其他
+Windows 產物一起納入核准的 CI 建置、簽章與驗證流程。
+
+Code signing is currently pending SignPath Foundation approval. Windows
+artifacts published before approval may remain unsigned.
+
+核准並啟用後：Free code signing provided by [SignPath.io](https://signpath.io/),
+certificate by [SignPath Foundation](https://signpath.org/)。
+
+下載後可在 PowerShell 檢查 Authenticode 狀態：
+
+```powershell
+Get-AuthenticodeSignature .\NanachiStockPanel-Setup-x64.exe
+```
+
+正式簽章啟用後，官方 Windows 產物必須顯示 `Status: Valid`，並確認
+`SignerCertificate` 與憑證鏈可信。若顯示 `NotSigned` 或驗證失敗，不要把它
+當成已簽章版本；請改用 GitHub Release 頁面的最新官方產物並查看發佈說明。
+
+專案隱私政策見 [`PRIVACY.md`](PRIVACY.md)。
 
 ### 方式 B:Docker
 
@@ -101,12 +132,55 @@ cp .env.example .env
 
 自動檢查與安裝依賴、釋放連接埠、同時起前後端。後端 → <http://localhost:3018> · 前端 → <http://localhost:3011>。
 
+### 方式 D:Windows 正式桌面入口
+
+日常使用請安裝並雙擊桌面的 `Nanachi 台股看板`。它會以 pywebview 直接顯示 React 介面，重用已在 3018 運行的本專案 backend，或自行啟動 backend；關閉視窗時只停止本次自行啟動的服務。正式桌面入口使用既有 `frontend/dist`，不啟動 Vite、不需要 3011，也不依賴 `dev.ps1`。若尚未建立 production frontend，先在 `frontend` 執行一次 `pnpm build`。
+
+```powershell
+.\scripts\install-desktop-shortcut.ps1
+```
+
+捷徑會隱藏 PowerShell 視窗。啟動錯誤記錄在應用程式的 `desktop.log`；若 Python 環境尚未啟動，則記錄在 `%LOCALAPPDATA%\NanachiTaiwanStockPanel\desktop-launcher.log` 並顯示錯誤對話框。
+
+### 方式 E:Windows GUI Launcher（維護與除錯）
+
+`dist/Nanachi台股看板.exe` 保留為服務管理、log 檢視與 troubleshooting GUI。Launcher 會檢查 3018/3011 是否已有本專案服務，必要時啟動 backend 與 Vite frontend，通過健康檢查後用 Windows 預設瀏覽器開啟 <http://localhost:3011>。關閉 GUI 時，只有 Launcher 自己啟動的服務可被停止，原本已在運行的服務會保留。
+
+Launcher 是開發版啟動器，執行時仍需要現有 repository/runtime，包括 `backend/.venv`、Node.js 與 pnpm；它不會把 FastAPI、React、`.env` 或 `data/` 打包進單一 EXE。建立 EXE：
+
+```powershell
+.\scripts\build-launcher.ps1
+# 若預設 backend/.venv 的 Python 沒有 Tcl/Tk，可改用含 Tk 的既有 Python：
+# .\scripts\build-launcher.ps1 -Python C:\Path\to\python.exe
+```
+
+可選擇建立維護工具捷徑 `Nanachi Windows Launcher`：
+
+```powershell
+.\scripts\install-launcher-shortcut.ps1
+```
+
+若 3011 或 3018 已被其他程式占用，Launcher 會顯示錯誤並避免終止對方程序。
+
+### 本機 CI 分流
+
+Windows / PowerShell 的本機驗證統一使用：
+
+```powershell
+.\scripts\ci.ps1 -Mode Fast
+.\scripts\ci.ps1 -Mode Auto
+.\scripts\ci.ps1 -Mode Full
+.\scripts\ci.ps1 -Mode Live
+```
+
+`Fast` 執行變更 Python 檔的 backend Ruff、frontend ESLint、TypeScript 檢查，以及可可靠對應到變更檔案的 targeted tests；變更的原始碼找不到對應測試時會列為 `NOT_TESTED`，最終結果顯示 `WARN`（檢查通過但測試未覆蓋），不會自動升級成 `Full`。`Auto` 讀取 `origin/main...HEAD`、staged/unstaged diff 與未追蹤檔案，backend-only 或 frontend-only 只驗證對應區域，兩者同時變更則並行驗證兩邊；API、schema、contract、依賴、CI、核心設定或未知範圍變更會升級為 `Full`。`Full` 對齊主要 GitHub CI correctness checks，包含 backend 完整離線測試、變更 Python 檔的 Ruff、frontend 完整測試、ESLint、TypeScript 與 production build。`Live` 才會執行既有 `pytest -m integration` 的真實外部服務 smoke tests，`Fast` 與 `Auto` 不會預設觸發 Live。
+
 ### 跑起來後的第一次使用
 
 1. 面板要對外開放時,第一次會要求**設定存取密碼**。
 2. 走完引導(使用須知 → 歡迎 → 台股資料狀態 → 完成),過程不需要填任何金鑰。
-3. 到 **設定 → 資料來源 → 台股歷史日 K 資料庫**,下載歷史資料包(見下一節)。
-4. 回到**看板**看今天的市場,到**台股選股**掃出候選,加進**自選股**,在**監控中心**建規則。
+3. 直接回到**看板**查看 seed 市場資料；程式會在背景增量補到最近已確認交易日。
+4. 到**台股選股**掃出候選,加進**自選股**,在**監控中心**建規則。
 
 完整逐頁操作見 [操作說明書](./操作說明書.md)。
 
@@ -118,9 +192,9 @@ cp .env.example .env
 
 在「設定 → 資料來源」可以逐個資料集指定提供方;沒有個別設定的一律由台灣官方資料源提供。
 
-### 歷史日 K 資料包
+### 歷史日 K 資料包（進階／修復用途）
 
-即時報價隨時可抓,但歷史日 K 要先在本機建立。逐日回補太慢,所以整理好的資料包放在 GitHub Release:
+Windows 安裝包已內含啟動與一般研究功能需要的公開 seed，第一次使用不需要另外下載資料包。下列獨立資料包保留給進階研究、資料修復或手動重新匯入：
 
 | 項目 | 內容 |
 | :--- | :--- |
@@ -129,7 +203,7 @@ cp .env.example .env
 | 大小 | 約 31 MB |
 | 校驗 | 下載後自動比對 SHA256 |
 
-在「設定 → 資料來源 → 台股歷史日 K 資料庫」點下載即可,流程會自動走完下載、校驗、解壓縮、匯入,最後**補上資料包結束日之後到最近交易日的缺口**。
+在「設定 → 資料來源 → 台股歷史日 K 資料庫」可手動下載；流程會驗證 SHA256、解壓與匯入，再補上資料包結束日之後到最近交易日的缺口。它不是 Windows 安裝版首次使用的必要步驟。
 
 ### 資料更新
 

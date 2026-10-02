@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import asyncio
+import json
+import logging
 import os
 import re
 import shutil
@@ -15,6 +17,7 @@ from collections.abc import AsyncIterator, Callable, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 from types import TracebackType
+from typing import Any
 from urllib.parse import urlsplit, urlunsplit
 
 from app import secrets_store
@@ -26,6 +29,8 @@ CODEX_CLI_PROVIDER = "codex_cli"
 CODEX_DEFAULT_COMMAND = "codex"
 CODEX_SUPPORTED_REASONING_EFFORTS = {"none", "minimal", "low", "medium", "high", "xhigh"}
 OPENAI_DEFAULT_REASONING_EFFORT = "high"
+
+logger = logging.getLogger(__name__)
 
 _CODEX_ENV_ALLOWLIST = (
     "PATH",
@@ -70,7 +75,7 @@ _CODEX_ENV_ALLOWLIST = (
 Message = dict[str, str]
 
 
-class AIOutputTruncated(RuntimeError):
+class AIOutputTruncated(RuntimeError):  # noqa: N818 - public exception name is retained for compatibility
     """Raised when the provider signals finish_reason='length' (max_tokens hit mid-output)."""
 
     def __init__(self, partial_content: str = "", message: str = "AI 輸出因 token 上限截斷"):
@@ -78,11 +83,24 @@ class AIOutputTruncated(RuntimeError):
         self.partial_content = partial_content
 
 
+class AIEmptyContentError(RuntimeError):
+    """Raised when a provider returns a completion choice without message.content."""
+
+
+class AIStructuredOutputError(RuntimeError):
+    """Raised when a structured task returns malformed JSON."""
+
+    def __init__(self, invalid_content: str = "", message: str = "AI provider returned invalid JSON"):
+        super().__init__(message)
+        self.invalid_content = invalid_content
+
+
 @dataclass(frozen=True)
 class AIProviderConfigSnapshot:
     provider: str
     model: str
     api_key: str = field(repr=False)
+    profile_name: str = ""
     base_url: str = ""
     user_agent: str = ""
     max_output_tokens: int = 0
@@ -109,17 +127,20 @@ def snapshot_ai_provider_config() -> AIProviderConfigSnapshot:
         except (TypeError, ValueError):
             return int(getattr(settings, name, fallback) or fallback)
 
-    # Resolve API key + base_url + model: active profile takes priority over legacy fields.
+    # An active profile is the authoritative endpoint/model/credential source.
+    # Legacy fields are used only when no profile exists.
     from app.services import ai_key_profiles as _profiles
     active_cfg = _profiles.get_active_profile_config()
 
     if active_cfg:
-        resolved_key = active_cfg["key"] or str(stored.get("ai_api_key") or settings.ai_api_key or "")
-        resolved_base_url = active_cfg["base_url"] or configured("ai_base_url", settings.ai_base_url)
+        resolved_key = active_cfg["key"]
+        profile_name = active_cfg.get("name", "")
+        resolved_base_url = active_cfg["base_url"]
         active_model = active_cfg["model"]
         active_provider = active_cfg["provider"] or configured("ai_provider", OPENAI_COMPAT_PROVIDER)
     else:
         resolved_key = str(stored.get("ai_api_key") or settings.ai_api_key or "")
+        profile_name = "legacy"
         resolved_base_url = configured("ai_base_url", settings.ai_base_url)
         active_model = ""
         active_provider = configured("ai_provider", OPENAI_COMPAT_PROVIDER)
@@ -131,7 +152,7 @@ def snapshot_ai_provider_config() -> AIProviderConfigSnapshot:
             model_value = stored.get("ai_model")
         model = normalize_codex_model(str(model_value or ""))
     else:
-        model = active_model or configured("ai_model", settings.ai_model)
+        model = active_model if active_cfg else configured("ai_model", settings.ai_model)
     if "ai_reasoning_effort" in stored:
         reasoning_effort = str(stored.get("ai_reasoning_effort") or "").strip()
     else:
@@ -140,6 +161,7 @@ def snapshot_ai_provider_config() -> AIProviderConfigSnapshot:
         provider=provider,
         model=model,
         api_key=resolved_key,
+        profile_name=profile_name,
         base_url=resolved_base_url,
         user_agent=configured("ai_user_agent", settings.ai_user_agent),
         max_output_tokens=current_ai_max_output_tokens(),
@@ -388,6 +410,8 @@ async def generate_ai_text(
     provider: str | None = None,
     model: str | None = None,
     config_snapshot: AIProviderConfigSnapshot | None = None,
+    structured_output: bool = False,
+    request_attempt: int = 0,
 ) -> str:
     """Return a complete AI response from the currently configured provider.
 
@@ -403,6 +427,7 @@ async def generate_ai_text(
                 provider=provider or config_snapshot.provider,
                 model=model or config_snapshot.model,
                 api_key=config_snapshot.api_key,
+                profile_name=config_snapshot.profile_name,
                 base_url=config_snapshot.base_url,
                 user_agent=config_snapshot.user_agent,
                 max_output_tokens=config_snapshot.max_output_tokens,
@@ -416,6 +441,7 @@ async def generate_ai_text(
             provider=provider or config_snapshot.provider,
             model=model or config_snapshot.model,
             api_key=config_snapshot.api_key,
+            profile_name=config_snapshot.profile_name,
             base_url=config_snapshot.base_url,
             user_agent=config_snapshot.user_agent,
             max_output_tokens=config_snapshot.max_output_tokens,
@@ -458,17 +484,103 @@ async def generate_ai_text(
         "max_tokens": max_tokens,
         "timeout": timeout,
     }
-    if has_varkw or "model" in accepted:
-        if model is not None:
-            openai_kwargs["model"] = model
-    if has_varkw or "config_snapshot" in accepted:
-        if config_snapshot is not None:
-            openai_kwargs["config_snapshot"] = config_snapshot
+    if has_varkw or "structured_output" in accepted:
+        openai_kwargs["structured_output"] = structured_output
+    if has_varkw or "request_attempt" in accepted:
+        openai_kwargs["request_attempt"] = request_attempt
+    if (has_varkw or "model" in accepted) and model is not None:
+        openai_kwargs["model"] = model
+    if (has_varkw or "config_snapshot" in accepted) and config_snapshot is not None:
+        openai_kwargs["config_snapshot"] = config_snapshot
 
     return await _run_openai_once(
         messages,
         **openai_kwargs,
     )
+
+
+EMPTY_CONTENT_RETRY_MESSAGE = (
+    "前次回覆的 message.content 為空。請直接輸出完整 JSON 物件,"
+    "不要輸出思考過程、Markdown 或其他文字。"
+)
+INVALID_JSON_RETRY_MESSAGE = (
+    "前次回覆不是合法的完整 JSON。請直接重新輸出完整 JSON 物件,"
+    "不要輸出 Markdown、解釋或其他文字。"
+)
+
+
+def _validate_structured_json(raw: str) -> None:
+    """Accept a JSON object/array, including the fenced form used by legacy gateways."""
+    text = raw.strip().removeprefix("```json").removeprefix("```").removesuffix("```").strip()
+    start = min((idx for idx in (text.find("{"), text.find("[")) if idx >= 0), default=-1)
+    if start < 0:
+        raise AIStructuredOutputError(raw)
+    try:
+        payload, end = json.JSONDecoder().raw_decode(text[start:])
+    except ValueError:
+        raise AIStructuredOutputError(raw) from None
+    if not isinstance(payload, (dict, list)) or text[start + end :].strip():
+        raise AIStructuredOutputError(raw)
+
+
+async def generate_structured_ai_text(
+    messages: Sequence[Message],
+    *,
+    truncated_retry_message: str,
+    temperature: float | None,
+    max_tokens: int | None,
+    timeout: float,
+    config_snapshot: AIProviderConfigSnapshot | None = None,
+    generate: Callable[..., Any] | None = None,
+    validate: Callable[[str], Any] | None = None,
+) -> str:
+    """Structured JSON task with one controlled retry for an unusable response.
+
+    Truncated and empty responses always use the one-retry budget. When the
+    caller supplies ``validate``, malformed JSON shares that same budget. A
+    second unusable response raises instead of looping.
+    """
+    kwargs: dict[str, Any] = {
+        "temperature": temperature, "max_tokens": max_tokens, "timeout": timeout,
+        "config_snapshot": config_snapshot, "structured_output": True,
+    }
+    # Callers may pass their module-level reference so existing seams stay patchable.
+    generate = generate or generate_ai_text
+
+    async def request(call_messages: Sequence[Message], attempt: int) -> str:
+        raw = await generate(call_messages, request_attempt=attempt, **kwargs)
+        if validate is not None:
+            try:
+                validate(raw)
+            except (KeyError, TypeError, ValueError):
+                raise AIStructuredOutputError(raw) from None
+        return raw
+
+    try:
+        return await request(messages, 0)
+    except (AIOutputTruncated, AIEmptyContentError, AIStructuredOutputError) as first_exc:
+        if isinstance(first_exc, AIOutputTruncated):
+            retry_content = first_exc.partial_content
+            retry_message = truncated_retry_message
+        elif isinstance(first_exc, AIStructuredOutputError):
+            retry_content = first_exc.invalid_content
+            retry_message = INVALID_JSON_RETRY_MESSAGE
+        else:
+            retry_content = ""
+            retry_message = EMPTY_CONTENT_RETRY_MESSAGE
+        retry_messages = [
+            *messages,
+            {"role": "assistant", "content": retry_content},
+            {"role": "user", "content": retry_message},
+        ]
+        try:
+            return await request(retry_messages, 1)
+        except AIOutputTruncated:
+            raise AIOutputTruncated("", "AI 回覆超過輸出長度限制,請重新產生。") from None
+        except AIEmptyContentError:
+            raise AIEmptyContentError("AI provider returned empty content twice") from None
+        except AIStructuredOutputError:
+            raise AIStructuredOutputError("", "AI provider returned invalid JSON twice") from None
 
 
 async def stream_ai_text(
@@ -526,6 +638,8 @@ async def _run_openai_once(
     timeout: float,
     model: str | None = None,
     config_snapshot: AIProviderConfigSnapshot | None = None,
+    structured_output: bool = False,
+    request_attempt: int = 0,
 ) -> str:
     ai_key = config_snapshot.api_key if config_snapshot is not None else secrets_store.get_ai_key()
     if not ai_key:
@@ -541,7 +655,11 @@ async def _run_openai_once(
         max_tokens=max_tokens,
         provider=config_snapshot.provider if config_snapshot is not None else None,
         reasoning_effort=config_snapshot.reasoning_effort if config_snapshot is not None else None,
+        structured_output=structured_output,
+        base_url=config_snapshot.base_url if config_snapshot is not None else "",
+        model=model,
     )
+    provider_retry_count = 0
     while True:
         try:
             resp = await client.chat.completions.create(
@@ -554,18 +672,145 @@ async def _run_openai_once(
             retry_kwargs = _openai_retry_kwargs(exc, kwargs)
             if retry_kwargs is not None:
                 kwargs = retry_kwargs
+                provider_retry_count += 1
                 continue
             if _is_openai_transport_error(exc):
+                logger.info(
+                    "AI provider request failed profile=%s provider=%s model=%s http_status=%s error_type=%s retry_count=%s",
+                    config_snapshot.profile_name if config_snapshot is not None else "legacy",
+                    config_snapshot.provider if config_snapshot is not None else current_ai_provider(),
+                    model,
+                    getattr(exc, "status_code", None),
+                    type(exc).__name__,
+                    request_attempt + provider_retry_count,
+                )
                 raise RuntimeError(_format_openai_error(exc)) from exc
             raise
     if not resp.choices:
-        return ""
+        logger.info(
+            "AI provider response profile=%s provider=%s model=%s http_status=200 finish_reason=%s completion_tokens=%s reasoning_tokens=%s content_length=0 reasoning_content_exists=False retry_count=%s",
+            config_snapshot.profile_name if config_snapshot is not None else "legacy",
+            config_snapshot.provider if config_snapshot is not None else current_ai_provider(),
+            model,
+            None,
+            None,
+            None,
+            request_attempt + provider_retry_count,
+        )
+        raise AIEmptyContentError("AI provider returned no completion choices")
     choice = resp.choices[0]
     content = (choice.message.content or "").strip()
     finish_reason = str(getattr(choice, "finish_reason", None) or "").strip().lower()
+    usage = getattr(resp, "usage", None)
+    details = getattr(usage, "completion_tokens_details", None) if usage is not None else None
+    logger.info(
+        "AI provider response profile=%s provider=%s model=%s http_status=200 finish_reason=%s completion_tokens=%s reasoning_tokens=%s content_length=%s reasoning_content_exists=%s retry_count=%s",
+        config_snapshot.profile_name if config_snapshot is not None else "legacy",
+        config_snapshot.provider if config_snapshot is not None else current_ai_provider(),
+        model,
+        finish_reason or None,
+        getattr(usage, "completion_tokens", None),
+        getattr(details, "reasoning_tokens", None) if details is not None else None,
+        len(content),
+        bool(getattr(choice.message, "reasoning_content", None)),
+        request_attempt + provider_retry_count,
+    )
     if finish_reason == "length":
         raise AIOutputTruncated(partial_content=content)
+    if not content:
+        raise AIEmptyContentError("AI provider returned empty message.content")
     return content
+
+
+async def probe_openai_profile_connection(
+    config_snapshot: AIProviderConfigSnapshot,
+    *,
+    timeout: float = 30.0,
+) -> dict:
+    """Run a minimal OpenAI-compatible connection probe for one profile.
+
+    This intentionally bypasses research output validation and global token
+    settings. A structurally valid completion is connectivity success even when
+    reasoning consumed the 32-token budget and ``finish_reason`` is ``length``.
+    """
+    if not config_snapshot.api_key:
+        return {"ok": False, "error_code": "AUTH_ERROR", "error": "Profile has no stored key"}
+    if not config_snapshot.model:
+        return {"ok": False, "error_code": "INVALID_MODEL", "error": "Profile model is empty"}
+    if not config_snapshot.base_url and config_snapshot.provider != OPENAI_PROVIDER:
+        return {"ok": False, "error_code": "ENDPOINT_ERROR", "error": "Profile Base URL is empty"}
+
+    client = _openai_client(config_snapshot.api_key, timeout, config_snapshot=config_snapshot)
+    kwargs = _openai_kwargs(
+        temperature=0.0,
+        max_tokens=32,
+        provider=config_snapshot.provider,
+        reasoning_effort="",
+    )
+    try:
+        while True:
+            try:
+                response = await client.chat.completions.create(
+                    model=config_snapshot.model,
+                    messages=[{"role": "user", "content": "Reply exactly with: OK"}],
+                    **kwargs,
+                )
+                break
+            except Exception as exc:
+                retry_kwargs = _openai_retry_kwargs(exc, kwargs)
+                if retry_kwargs is not None:
+                    kwargs = retry_kwargs
+                    continue
+                raise
+    except Exception as exc:
+        status = getattr(exc, "status_code", None)
+        response = getattr(exc, "response", None)
+        if status is None and response is not None:
+            status = getattr(response, "status_code", None)
+        detail = _openai_error_detail(exc) or _format_openai_error(exc)
+        if config_snapshot.api_key:
+            detail = detail.replace(config_snapshot.api_key, "***")
+        detail_lower = detail.lower()
+        if status in (401, 403):
+            error_code = "AUTH_ERROR"
+        elif status == 400 and any(word in detail_lower for word in ("model", "模型", "not found")):
+            error_code = "INVALID_MODEL"
+        elif status == 404:
+            error_code = "ENDPOINT_ERROR"
+        elif status == 429:
+            error_code = "RATE_LIMITED"
+        elif status is not None and status >= 500:
+            error_code = "PROVIDER_UNAVAILABLE"
+        else:
+            error_code = "CONNECTION_ERROR"
+        return {
+            "ok": False,
+            "error_code": error_code,
+            "error": detail,
+            "http_status": status,
+            "finish_reason": None,
+            "output_tokens": 0,
+        }
+
+    if not getattr(response, "choices", None):
+        return {
+            "ok": False,
+            "error_code": "INVALID_RESPONSE",
+            "error": "Provider response did not contain a completion",
+            "http_status": 200,
+            "finish_reason": None,
+            "output_tokens": int(getattr(getattr(response, "usage", None), "completion_tokens", 0) or 0),
+        }
+    choice = response.choices[0]
+    finish_reason = str(getattr(choice, "finish_reason", None) or "")
+    output_tokens = int(getattr(getattr(response, "usage", None), "completion_tokens", 0) or 0)
+    return {
+        "ok": True,
+        "http_status": 200,
+        "finish_reason": finish_reason,
+        "output_tokens": output_tokens,
+        "responded": True,
+    }
 
 
 async def _stream_openai(
@@ -696,6 +941,9 @@ def _openai_kwargs(
     max_tokens: int | None,
     provider: str | None = None,
     reasoning_effort: str | None = None,
+    structured_output: bool = False,
+    base_url: str = "",
+    model: str = "",
 ) -> dict:
     """Build OpenAI create() kwargs; optional parameters are omitted when empty.
 
@@ -712,6 +960,21 @@ def _openai_kwargs(
             reasoning_effort = current_openai_reasoning_effort()
         if reasoning_effort:
             kwargs["reasoning_effort"] = reasoning_effort
+    if structured_output:
+        hostname = (urlsplit(base_url).hostname or "").lower()
+        normalized_model = model.strip().lower()
+        supports_response_format = (
+            hostname == "api.deepseek.com"
+            or (hostname == "open.bigmodel.cn" and normalized_model.startswith("glm-4.7"))
+            or hostname == "apihub.agnes-ai.com"
+        )
+        if supports_response_format:
+            kwargs["response_format"] = {"type": "json_object"}
+        if (
+            hostname == "api.deepseek.com"
+            or (hostname == "open.bigmodel.cn" and normalized_model.startswith("glm-4.7"))
+        ):
+            kwargs["extra_body"] = {"thinking": {"type": "disabled"}}
     return kwargs
 
 

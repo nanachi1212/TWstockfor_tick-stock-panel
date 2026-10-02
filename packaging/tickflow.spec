@@ -33,6 +33,11 @@ FRONTEND_DIST = str(ROOT / "frontend" / "dist")
 TIERS_YAML = str(ROOT / "tiers.yaml")
 VERSION_FILE = str(ROOT / "VERSION")
 BUILTIN_STRATEGIES = str(ROOT / "backend" / "app" / "strategy" / "builtin")
+RELEASE_SEED = ROOT / "release-assets" / "release-seed" / "release-seed.zip"
+if not RELEASE_SEED.is_file():
+    raise FileNotFoundError(
+        "Missing release seed. Run scripts/build_release_seed.py before PyInstaller."
+    )
 # 圖標按平台選: Windows 用 .ico, macOS 用 .icns (PyInstaller 對 .ico 在
 # mac 上靜默忽略, 不換格式 Dock/Finder 會顯示通用圖標)。兩者都由
 # packaging/generate_icon.py 一併生成。
@@ -44,8 +49,26 @@ datas = []
 binaries = []
 hiddenimports = []
 
+
+def _runtime_submodule(name):
+    """Exclude dependency test helpers from the production runtime."""
+    return not name.startswith(("pyarrow.tests", "polars.testing"))
+
+
 for pkg in ("polars", "pyarrow", "duckdb", "fastexcel"):
-    d, b, h = collect_all(pkg)
+    d, b, h = collect_all(
+        pkg,
+        filter_submodules=_runtime_submodule,
+        exclude_datas=[
+            "tests",
+            "tests/**",
+            "testing",
+            "testing/**",
+            "**/*.pxd",
+            "**/*.pyx",
+            "**/*.lib",
+        ],
+    )
     datas += d
     binaries += b
     hiddenimports += h
@@ -61,7 +84,7 @@ for pkg in ("_polars_runtime_32", "_polars_runtime_compat"):
         hiddenimports += rt_h
 
 # Polars 新 ABI 運行時由加載器選擇，需顯式收集子模塊。
-hiddenimports += collect_submodules("polars")
+hiddenimports += collect_submodules("polars", filter=_runtime_submodule)
 
 # ── pywebview 平台後端 (動態導入, PyInstaller 默認抓不到) ────────────
 hiddenimports += collect_submodules("webview")
@@ -116,8 +139,15 @@ datas += [(FRONTEND_DIST, "static")]
 datas += [(TIERS_YAML, ".")]
 # VERSION → 包根 (app.__version__ 與 UI 的唯一版本來源)
 datas += [(VERSION_FILE, ".")]
-# 內置策略 → app/strategy/builtin/ (importlib 動態加載, 不能進 PYZ)
-datas += [(BUILTIN_STRATEGIES, "app/strategy/builtin")]
+# 內置策略 → app/strategy/builtin/ (importlib 動態加載, 不能進 PYZ)。
+# 逐檔 allowlist，避免把本機 __pycache__ 與其中的絕對 build path 打進產物。
+datas += [
+    (str(strategy_file), "app/strategy/builtin")
+    for strategy_file in Path(BUILTIN_STRATEGIES).glob("*.py")
+]
+# 公開市場 release seed → release_seed/release-seed.zip。
+# first-run 只讀取此來源並原子複製到 per-user data_dir。
+datas += [(str(RELEASE_SEED), "release_seed")]
 
 # ── 排除不需要的重型依賴 (主包不含 vectorbt 回測鏈) ──────────────────
 excludes = [
@@ -135,6 +165,8 @@ excludes = [
     "pytest_asyncio",
     "ruff",
     "mypy",
+    "pyarrow.tests",
+    "polars.testing",
 ]
 
 a = Analysis(

@@ -28,5 +28,7 @@ describe('router — Legacy A-share route removal (Phase 8C-D)', () => {
     expect(allPaths).toContain('taiwan-screener')
     expect(allPaths).toContain('monitor')
     expect(allPaths).toContain('stocks/compare')
+    expect(allPaths).toContain('social-fetch')
+    expect(allPaths).toContain('strategy-lab')
   })
 })

@@ -114,8 +114,14 @@ describe('SelectionForwardPanel', () => {
 
   it('distinguishes a genuine zero-candidate preview from unavailable screening data', () => {
     render(<SelectionForwardPanel preview={{ ...previewFixture, candidates: [], status: 'available' }} onDryRun={vi.fn()} onLockOfficialBatch={vi.fn()} />)
-    expect(screen.getByText('目前沒有可展示的候選標的，無法鎖定名單。')).toBeInTheDocument()
+    expect(screen.getByText('目前沒有可展示的候選標的，資料尚未準備完成。')).toBeInTheDocument()
     expect(screen.getByText('資料日期').parentElement).toHaveTextContent('2026-09-25')
     expect(screen.queryByText('目前無法提供正式候選資料。')).not.toBeInTheDocument()
+  })
+
+  it('states that complete data can still yield zero candidates', () => {
+    render(<SelectionForwardPanel preview={{ ...previewFixture, candidates: [], strategyReadiness: 'ready' }} onDryRun={vi.fn()} />)
+    expect(screen.getByText('資料完整，但本期沒有符合條件標的。')).toBeInTheDocument()
+    expect(screen.queryByText('目前沒有可展示的候選標的，資料尚未準備完成。')).not.toBeInTheDocument()
   })
 })

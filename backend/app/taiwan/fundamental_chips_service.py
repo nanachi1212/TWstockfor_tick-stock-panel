@@ -11,7 +11,7 @@ Orchestrates:
 from __future__ import annotations
 
 import logging
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from typing import Any
 
 from app.taiwan.detail_models import (
@@ -32,7 +32,7 @@ from app.taiwan.pit_cutoff import (
     filter_financial_statements_as_of,
     filter_month_revenue_as_of,
 )
-from app.taiwan.providers.finmind_provider import FinMindAdapter
+from app.taiwan.providers.finmind_provider import FinMindAdapter, FinMindError
 from app.taiwan.providers.taiwan_values import TAIPEI, parse_number
 from app.taiwan.symbol import parse_symbol
 
@@ -78,6 +78,14 @@ class TaiwanFundamentalChipsService:
     def _is_finmind_enabled(self) -> bool:
         from app.services import preferences
         return preferences.get_finmind_enabled()
+
+    @staticmethod
+    def _cutoff_date(as_of: date | str | None) -> date:
+        return date.fromisoformat(str(as_of)[:10]) if as_of else datetime.now(TAIPEI).date()
+
+    @staticmethod
+    def _cached_unavailable_reason(dataset: str, cached: dict[str, Any]) -> str:
+        return str(cached.get("error_msg") or f"{dataset} cached response is unavailable")
 
     # ─────────────────────────────────────────────────────────────
     # 1. Valuation (Official Primary)
@@ -181,7 +189,9 @@ class TaiwanFundamentalChipsService:
                 )
             # Query FinMind with active token adapter
             adapter = self._get_finmind_adapter()
-            raw_rows = adapter.fetch_month_revenue(sym_str)
+            cutoff_date = date.fromisoformat(str(as_of)[:10]) if as_of else datetime.now(TAIPEI).date()
+            start_date = (cutoff_date - timedelta(days=550)).isoformat()
+            raw_rows = adapter.fetch_month_revenue(sym_str, start_date=start_date)
             if not raw_rows:
                 self.cache.set(dataset, sym_str, [], status="unavailable")
                 return TaiwanRevenueData(
@@ -303,7 +313,10 @@ class TaiwanFundamentalChipsService:
             status = cached.get("status", "available")
             if status != "available" or not raw_rows:
                 return TaiwanProfitabilityData(
-                    meta=SectionMeta(source="finmind", fetched_at=cached.get("fetched_at"), status="unavailable")
+                    meta=SectionMeta(
+                        source=f"finmind:{dataset}", trade_date=data_date, fetched_at=cached.get("fetched_at"),
+                        status="unavailable", fallback_reason=self._cached_unavailable_reason(dataset, cached),
+                    )
                 )
         else:
             if not self._is_finmind_enabled():
@@ -311,11 +324,24 @@ class TaiwanFundamentalChipsService:
                     meta=SectionMeta(source="finmind", fetched_at=now_iso, status="unavailable", fallback_reason="FinMind provider disabled")
                 )
             adapter = self._get_finmind_adapter()
-            raw_rows = adapter.fetch_financial_statements(sym_str)
-            if not raw_rows:
-                self.cache.set(dataset, sym_str, [], status="unavailable")
+            start_date = (self._cutoff_date(as_of) - timedelta(days=5 * 366)).isoformat()
+            try:
+                raw_rows = adapter.fetch_financial_statements(
+                    sym_str, start_date=start_date, raise_for_status=True,
+                )
+            except FinMindError as exc:
+                reason = f"{dataset} request failed: {exc}"
+                self.cache.set(dataset, sym_str, [], status="error", error_msg=reason)
                 return TaiwanProfitabilityData(
-                    meta=SectionMeta(source="finmind", fetched_at=now_iso, status="unavailable")
+                    meta=SectionMeta(source=f"finmind:{dataset}", fetched_at=now_iso,
+                                     status="unavailable", fallback_reason=reason)
+                )
+            if not raw_rows:
+                reason = f"{dataset} returned no rows"
+                self.cache.set(dataset, sym_str, [], status="unavailable", error_msg=reason)
+                return TaiwanProfitabilityData(
+                    meta=SectionMeta(source=f"finmind:{dataset}", fetched_at=now_iso,
+                                     status="unavailable", fallback_reason=reason)
                 )
             latest_row_date = raw_rows[-1].get("date") if raw_rows else None
             self.cache.set(dataset, sym_str, raw_rows, data_date=latest_row_date, status="available")
@@ -334,7 +360,8 @@ class TaiwanFundamentalChipsService:
         rows = filter_financial_statements_as_of(rows, as_of)
         if not rows:
             return TaiwanProfitabilityData(
-                meta=SectionMeta(source="finmind", fetched_at=fetched_at, status="unavailable")
+                meta=SectionMeta(source="finmind:TaiwanStockFinancialStatements", trade_date=data_date, fetched_at=fetched_at,
+                                 status="unavailable", fallback_reason="no financial statements available as of cutoff")
             )
 
         # Group by date
@@ -350,7 +377,8 @@ class TaiwanFundamentalChipsService:
 
         if not by_date:
             return TaiwanProfitabilityData(
-                meta=SectionMeta(source="finmind", fetched_at=fetched_at, status="unavailable")
+                meta=SectionMeta(source="finmind:TaiwanStockFinancialStatements", trade_date=data_date, fetched_at=fetched_at,
+                                 status="unavailable", fallback_reason="financial statements contain no usable metrics")
             )
 
         # Sort dates ascending
@@ -387,6 +415,7 @@ class TaiwanFundamentalChipsService:
                 trade_date=data_date or latest_date,
                 fetched_at=fetched_at,
                 status=status,
+                fallback_reason="latest financial statement contains no EPS" if latest_eps is None else None,
             ),
         )
 
@@ -410,7 +439,10 @@ class TaiwanFundamentalChipsService:
             status = cached.get("status", "available")
             if status != "available" or not raw_rows:
                 return TaiwanForeignShareholdingData(
-                    meta=SectionMeta(source="finmind", fetched_at=cached.get("fetched_at"), status="unavailable")
+                    meta=SectionMeta(
+                        source=f"finmind:{dataset}", trade_date=data_date, fetched_at=cached.get("fetched_at"),
+                        status="unavailable", fallback_reason=self._cached_unavailable_reason(dataset, cached),
+                    )
                 )
         else:
             if not self._is_finmind_enabled():
@@ -418,11 +450,24 @@ class TaiwanFundamentalChipsService:
                     meta=SectionMeta(source="finmind", fetched_at=now_iso, status="unavailable", fallback_reason="FinMind provider disabled")
                 )
             adapter = self._get_finmind_adapter()
-            raw_rows = adapter.fetch_shareholding(sym_str)
-            if not raw_rows:
-                self.cache.set(dataset, sym_str, [], status="unavailable")
+            start_date = (self._cutoff_date(as_of) - timedelta(days=180)).isoformat()
+            try:
+                raw_rows = adapter.fetch_shareholding(
+                    sym_str, start_date=start_date, raise_for_status=True,
+                )
+            except FinMindError as exc:
+                reason = f"{dataset} request failed: {exc}"
+                self.cache.set(dataset, sym_str, [], status="error", error_msg=reason)
                 return TaiwanForeignShareholdingData(
-                    meta=SectionMeta(source="finmind", fetched_at=now_iso, status="unavailable")
+                    meta=SectionMeta(source=f"finmind:{dataset}", fetched_at=now_iso,
+                                     status="unavailable", fallback_reason=reason)
+                )
+            if not raw_rows:
+                reason = f"{dataset} returned no rows"
+                self.cache.set(dataset, sym_str, [], status="unavailable", error_msg=reason)
+                return TaiwanForeignShareholdingData(
+                    meta=SectionMeta(source=f"finmind:{dataset}", fetched_at=now_iso,
+                                     status="unavailable", fallback_reason=reason)
                 )
             latest_row_date = raw_rows[-1].get("date") if raw_rows else None
             self.cache.set(dataset, sym_str, raw_rows, data_date=latest_row_date, status="available")
@@ -441,7 +486,8 @@ class TaiwanFundamentalChipsService:
         rows = filter_daily_records_as_of(rows, as_of)
         if not rows:
             return TaiwanForeignShareholdingData(
-                meta=SectionMeta(source="finmind", fetched_at=fetched_at, status="unavailable")
+                meta=SectionMeta(source="finmind:TaiwanStockShareholding", trade_date=data_date, fetched_at=fetched_at,
+                                 status="unavailable", fallback_reason="no shareholding rows available as of cutoff")
             )
 
         sorted_rows = sorted(
@@ -450,7 +496,8 @@ class TaiwanFundamentalChipsService:
         )
         if not sorted_rows:
             return TaiwanForeignShareholdingData(
-                meta=SectionMeta(source="finmind", fetched_at=fetched_at, status="unavailable")
+                meta=SectionMeta(source="finmind:TaiwanStockShareholding", trade_date=data_date, fetched_at=fetched_at,
+                                 status="unavailable", fallback_reason="shareholding rows contain no usable foreign ratio")
             )
 
         latest = sorted_rows[-1]
@@ -512,7 +559,10 @@ class TaiwanFundamentalChipsService:
             status = cached.get("status", "available")
             if status != "available" or not raw_rows:
                 return TaiwanSecuritiesLendingData(
-                    meta=SectionMeta(source="finmind", fetched_at=cached.get("fetched_at"), status="unavailable")
+                    meta=SectionMeta(
+                        source=f"finmind:{dataset}", trade_date=data_date, fetched_at=cached.get("fetched_at"),
+                        status="unavailable", fallback_reason=self._cached_unavailable_reason(dataset, cached),
+                    )
                 )
         else:
             if not self._is_finmind_enabled():
@@ -520,11 +570,24 @@ class TaiwanFundamentalChipsService:
                     meta=SectionMeta(source="finmind", fetched_at=now_iso, status="unavailable", fallback_reason="FinMind provider disabled")
                 )
             adapter = self._get_finmind_adapter()
-            raw_rows = adapter.fetch_securities_lending(sym_str)
-            if not raw_rows:
-                self.cache.set(dataset, sym_str, [], status="unavailable")
+            start_date = (self._cutoff_date(as_of) - timedelta(days=180)).isoformat()
+            try:
+                raw_rows = adapter.fetch_securities_lending(
+                    sym_str, start_date=start_date, raise_for_status=True,
+                )
+            except FinMindError as exc:
+                reason = f"{dataset} request failed: {exc}"
+                self.cache.set(dataset, sym_str, [], status="error", error_msg=reason)
                 return TaiwanSecuritiesLendingData(
-                    meta=SectionMeta(source="finmind", fetched_at=now_iso, status="unavailable")
+                    meta=SectionMeta(source=f"finmind:{dataset}", fetched_at=now_iso,
+                                     status="unavailable", fallback_reason=reason)
+                )
+            if not raw_rows:
+                reason = f"{dataset} returned no rows"
+                self.cache.set(dataset, sym_str, [], status="unavailable", error_msg=reason)
+                return TaiwanSecuritiesLendingData(
+                    meta=SectionMeta(source=f"finmind:{dataset}", fetched_at=now_iso,
+                                     status="unavailable", fallback_reason=reason)
                 )
             latest_row_date = raw_rows[-1].get("date") if raw_rows else None
             self.cache.set(dataset, sym_str, raw_rows, data_date=latest_row_date, status="available")
@@ -543,7 +606,8 @@ class TaiwanFundamentalChipsService:
         rows = filter_daily_records_as_of(rows, as_of)
         if not rows:
             return TaiwanSecuritiesLendingData(
-                meta=SectionMeta(source="finmind:TaiwanStockSecuritiesLending", fetched_at=fetched_at, status="unavailable")
+                meta=SectionMeta(source="finmind:TaiwanStockSecuritiesLending", trade_date=data_date, fetched_at=fetched_at,
+                                 status="unavailable", fallback_reason="no securities lending rows available as of cutoff")
             )
 
         # Aggregate by date: daily_volume = sum(volume), fee_rate = weighted or avg
@@ -561,7 +625,8 @@ class TaiwanFundamentalChipsService:
 
         if not daily_agg:
             return TaiwanSecuritiesLendingData(
-                meta=SectionMeta(source="finmind:TaiwanStockSecuritiesLending", fetched_at=fetched_at, status="unavailable")
+                meta=SectionMeta(source="finmind:TaiwanStockSecuritiesLending", trade_date=data_date, fetched_at=fetched_at,
+                                 status="unavailable", fallback_reason="securities lending rows contain no positive transaction volume")
             )
 
         sorted_dates = sorted(daily_agg.keys())

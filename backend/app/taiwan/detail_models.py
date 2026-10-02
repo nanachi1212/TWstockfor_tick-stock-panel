@@ -17,7 +17,8 @@ Covers:
 from __future__ import annotations
 
 from typing import Any, List, Optional
-from pydantic import BaseModel, Field
+
+from pydantic import BaseModel, Field, model_validator
 
 
 class SectionMeta(BaseModel):
@@ -30,6 +31,20 @@ class SectionMeta(BaseModel):
     source_type: str | None = Field(None, description="資料來源類型")
     freshness_class: str | None = Field(None, description="canonical 行情新鮮度分類")
     is_realtime: bool | None = Field(None, description="來源是否確認為即時行情")
+    reason: str | None = Field(None, description="資料不可用或降級原因")
+    data_date: str | None = Field(None, description="資料日期；與 trade_date 相容")
+    freshness: str | None = Field(None, description="資料新鮮度或 availability 狀態")
+
+    @model_validator(mode="after")
+    def populate_availability_contract(self) -> SectionMeta:
+        """Expose one consistent availability contract without breaking old clients."""
+        if self.reason is None:
+            self.reason = self.fallback_reason
+        if self.data_date is None:
+            self.data_date = self.trade_date
+        if self.freshness is None:
+            self.freshness = self.freshness_class or ("stale" if self.is_stale else self.status)
+        return self
 
 
 class TaiwanStockIdentity(BaseModel):
@@ -64,6 +79,7 @@ class TaiwanStockRealtime(BaseModel):
     change_pct: Optional[float] = Field(None, description="今日漲跌百分比")
     volume: Optional[int] = Field(None, description="累積成交量 (股)")
     amount: Optional[float] = Field(None, description="累積成交金額 (元)")
+    amount_meta: Optional[SectionMeta] = Field(None, description="成交金額來源與 as_of；可為同交易日 daily fallback")
     quote_time: Optional[str] = Field(None, description="行情時間戳記 ISO 字串 (Asia/Taipei)")
     market_status: str = Field("closed", description="市場狀態: open, closed, pre_open, non_trading_day")
     bid_price: Optional[float] = Field(None, description="買一價")
@@ -234,6 +250,8 @@ class TaiwanStockDetailResponse(BaseModel):
     fundamentals: Optional[TaiwanFundamentalData] = None
     extra_chips: Optional[TaiwanExtraChipsData] = None
     recent_events: list[Any] = Field(default_factory=list, description="近期市場與公司重大事件 (A11)")
+    events_status: str = Field(default="not_queried", description="近期事件來源查詢狀態")
+    events_sources_status: dict[str, str] = Field(default_factory=dict, description="逐來源事件查詢狀態")
     recent_news: list[Any] = Field(default_factory=list, description="近期個股新聞 (A11)")
     news_status: str = Field("available", description="新聞來源狀態: available, rate_limited, auth_required, unavailable")
     news_status_message: str | None = Field(None, description="新聞來源說明訊息")

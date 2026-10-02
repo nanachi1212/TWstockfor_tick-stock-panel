@@ -15,6 +15,7 @@ import {
   useToggleRealtimeQuotes,
 } from '@/lib/useSharedMutations'
 import { QK } from '@/lib/queryKeys'
+import { useDataHealthJobs } from '@/lib/useDataHealth'
 import {
   Settings,
   DatabaseZap,
@@ -129,6 +130,7 @@ function AIConfigBadge({ configured, model }: { configured?: boolean; model?: st
 }
 
 export function Layout() {
+  useDataHealthJobs()
   // ===== 共享 hooks (替代內聯 useQuery) =====
   const { data: settingsState } = useSettings()
   const { data: versionData } = useVersion()

@@ -18,6 +18,9 @@ vi.mock('@/lib/api', () => ({
       getStrategyStats: vi.fn(),
       getConditionStats: vi.fn(),
     },
+    taiwanQuantLiveModels: vi.fn(),
+    taiwanQuantLiveRuns: vi.fn(),
+    taiwanQuantLiveRun: vi.fn(),
   },
 }))
 
@@ -37,6 +40,17 @@ function BackNavigationControl() {
 }
 
 describe('SelectionReview Page (A12)', () => {
+  it('opens the exact snapshot from a Strategy Lab link', async () => {
+    vi.mocked(api.selectionReview.getSnapshotDetail).mockResolvedValue(null as any)
+    render(<QueryClientProvider client={createTestQueryClient()}><MemoryRouter initialEntries={['/selection-review?snapshot_id=a13-snapshot']}><SelectionReview /></MemoryRouter></QueryClientProvider>)
+    await waitFor(() => expect(api.selectionReview.getSnapshotDetail).toHaveBeenCalledWith('a13-snapshot'))
+  })
+
+  it('loads the linked daily run even when it is outside the latest run list', async () => {
+    vi.mocked(api.taiwanQuantLiveRun).mockResolvedValue(undefined as any)
+    render(<QueryClientProvider client={createTestQueryClient()}><MemoryRouter initialEntries={['/selection-review?tab=live&model_key=prior-model&session=2026-08-03']}><SelectionReview /></MemoryRouter></QueryClientProvider>)
+    await waitFor(() => expect(api.taiwanQuantLiveRun).toHaveBeenCalledWith('prior-model', '2026-08-03'))
+  })
   beforeEach(() => {
     vi.clearAllMocks()
     vi.mocked(api.selectionReview.listSnapshots).mockResolvedValue([] as any)
@@ -49,6 +63,46 @@ describe('SelectionReview Page (A12)', () => {
       hit_rate_definition: '未四捨五入報酬率 > 0%',
       horizons: {}, timeline: [],
     } as any)
+    vi.mocked(api.taiwanQuantLiveRuns).mockResolvedValue({ runs: [] } as any)
+    vi.mocked(api.taiwanQuantLiveModels).mockResolvedValue({ recommendation_status: 'unavailable', recommendation_reason: 'live_run_missing' } as any)
+  })
+
+  it('shows immutable live recommendation status and strict-positive horizon outcomes', async () => {
+    vi.mocked(api.taiwanQuantLiveRuns).mockResolvedValue({ runs: [{
+      model_key: 'live-model', session: '2026-09-23', snapshot_hash: 'hash',
+      frozen_at: '2026-09-23T16:30:00+08:00', signal_count: 1,
+      recommendation_status: 'tracking',
+    }] } as any)
+    vi.mocked(api.taiwanQuantLiveRun).mockResolvedValue({
+      model_key: 'live-model', session: '2026-09-23', snapshot_hash: 'hash', frozen_at: '2026-09-23T16:30:00+08:00',
+      audit_status: 'ok', recommendation_status: 'tracking', recommendation_reason: 'current',
+      snapshot: { signal_session: '2026-09-23', data_cutoff: '2026-09-23T17:00:00+08:00', usage_scope: 'experimental_live', validation_state: 'unvalidated', model: { version: 'v1', top_n: 10, validation_state: 'unvalidated' },
+        signals: [{ symbol: '2330.TWSE', name: '台積電', rank: 1, score: 0.9, selected: true, reference_close: 100, feature_percentiles: {}, reason_summary: '進入既有 Top 10。' }], features: [] },
+      outcome_summary: {
+        '1D': { horizon: '1D', evaluated_count: 1, pending_count: 0, unavailable_count: 0, hit_count: 1, hit_rate_pct: 100, average_return_pct: 2 },
+        '5D': { horizon: '5D', evaluated_count: 0, pending_count: 1, unavailable_count: 0, hit_count: 0, hit_rate_pct: null, average_return_pct: null },
+        '20D': { horizon: '20D', evaluated_count: 0, pending_count: 1, unavailable_count: 0, hit_count: 0, hit_rate_pct: null, average_return_pct: null },
+      }, outcomes: [{ symbol: '2330.TWSE', horizon: 1, status: 'verified', value: 0.02, reason: null }],
+    } as any)
+    render(<QueryClientProvider client={createTestQueryClient()}><MemoryRouter initialEntries={['/selection-review?tab=live']}><SelectionReview /></MemoryRouter></QueryClientProvider>)
+
+    expect(await screen.findByRole('heading', { name: '每日推薦與命中率' })).toBeInTheDocument()
+    expect((await screen.findAllByText('追蹤中')).length).toBeGreaterThan(0)
+    fireEvent.click(screen.getByRole('button', { name: /2026-09-23/ }))
+    expect(await screen.findByRole('link', { name: /台積電/ })).toBeInTheDocument()
+    expect(await screen.findByText('100.0%／1')).toBeInTheDocument()
+    expect(screen.getAllByText('追蹤中').length).toBeGreaterThan(0)
+  })
+
+  it('shows current-live unavailable status separately from an available zero-candidate run', async () => {
+    vi.mocked(api.taiwanQuantLiveModels).mockResolvedValue({
+      recommendation_status: 'unavailable', recommendation_reason: 'daily_refresh_not_ready',
+      live_readiness: { status: 'unavailable', source: 'current_live_gate', reasons: ['daily_refresh_not_ready'] },
+    } as any)
+    render(<QueryClientProvider client={createTestQueryClient()}><MemoryRouter initialEntries={['/selection-review?tab=live']}><SelectionReview /></MemoryRouter></QueryClientProvider>)
+
+    expect(await screen.findByText(/資料不可用（daily_refresh_not_ready）/)).toBeInTheDocument()
+    expect(screen.getByText('尚無正式推薦快照；資料不足時不以歷史結果代替。')).toBeInTheDocument()
   })
 
   it('keeps official forward batches separate and does not offer delete or reselection', async () => {

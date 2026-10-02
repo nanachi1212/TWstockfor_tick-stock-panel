@@ -4,6 +4,7 @@
 // Prod:同源(FastAPI 託管前端 dist)
 
 import { toast } from '@/components/Toast'
+import type { BreadthValuationResponse, ResearchMarket, ResearchSections, ValuationRefreshResult } from './marketBreadthTypes'
 
 const BASE = ''
 
@@ -760,12 +761,15 @@ export interface TaiwanSearchResult {
 export interface TaiwanSectionMeta {
   source: string
   trade_date?: string | null
+  data_date?: string | null
   fetched_at?: string | null
   status: 'available' | 'unavailable' | 'stale' | 'fallback' | string
   is_stale: boolean
   fallback_reason?: string | null
+  reason?: string | null
   source_type?: string | null
   freshness_class?: string | null
+  freshness?: string | null
   is_realtime?: boolean | null
 }
 
@@ -801,6 +805,7 @@ export interface TaiwanStockRealtimeDetail {
   change_pct?: number | null
   volume?: number | null
   amount?: number | null
+  amount_meta?: TaiwanSectionMeta | null
   quote_time?: string | null
   market_status: string
   bid_price?: number | null
@@ -936,6 +941,7 @@ export interface TaiwanProfitabilityData {
     trade_date?: string | null
     fetched_at?: string
     status: string
+    fallback_reason?: string | null
   }
 }
 
@@ -956,6 +962,7 @@ export interface TaiwanForeignShareholdingData {
     trade_date?: string | null
     fetched_at?: string
     status: string
+    fallback_reason?: string | null
   }
 }
 
@@ -970,6 +977,7 @@ export interface TaiwanSecuritiesLendingData {
     trade_date?: string | null
     fetched_at?: string
     status: string
+    fallback_reason?: string | null
   }
 }
 
@@ -995,10 +1003,74 @@ export interface TaiwanStockDetailResponse {
   fundamentals?: TaiwanFundamentalData
   extra_chips?: TaiwanExtraChipsData
   recent_events?: MarketEvent[]
+  events_status?: string
+  events_sources_status?: Record<string, string>
   recent_news?: TaiwanStockNewsItem[]
   news_status?: 'available' | 'rate_limited' | 'auth_required' | 'unavailable' | string
   news_status_message?: string | null
   news_fetched_at?: string | null
+}
+
+// ===== A13: 買點策略與提醒 =====
+export type BuyPointStatus = 'waiting' | 'approaching' | 'triggered' | 'blocked' | 'unavailable'
+export interface BuyPointConditions {
+  quant_min?: number | null
+  pullback_min_pct?: number | null
+  pullback_max_pct?: number | null
+  breakout_window?: number | null
+  volume_multiplier?: number | null
+  revenue_yoy_min?: number | null
+  pe_min?: number | null
+  pe_max?: number | null
+  pb_min?: number | null
+  pb_max?: number | null
+  eps_min?: number | null
+  institutional_required?: boolean
+  foreign_shareholding_change_min?: number | null
+  max_price_extension_pct?: number | null
+  resonance_min_categories?: number
+  approaching_distance_pct?: number
+  cooldown_minutes?: number
+}
+export interface BuyPointRiskFilters {
+  exclude_disposition?: boolean
+  exclude_suspension?: boolean
+  exclude_delisting?: boolean
+  exclude_capital_reduction_critical?: boolean
+  exclude_regulatory_unknown?: boolean
+  exclude_severe_event?: boolean
+}
+export interface BuyPointStrategy {
+  id: string
+  name: string
+  description: string
+  category: string
+  enabled: boolean
+  preset: boolean
+  source_preset_id?: string | null
+  conditions: BuyPointConditions
+  risk_filters: BuyPointRiskFilters
+  alert_channels: string[]
+  created_at: string
+  updated_at: string
+  assigned_symbols?: string[]
+  assigned_count?: number
+}
+export interface BuyPointSignal {
+  strategy_id: string
+  symbol: string
+  name: string
+  detected_at: string
+  data_as_of?: string | null
+  status: BuyPointStatus
+  triggered_conditions: string[]
+  failed_conditions: string[]
+  risk_flags: string[]
+  risk_status: 'clear' | 'unknown'
+  price?: number | null
+  quant_score?: number | null
+  explanation: string
+  freshness: string
 }
 
 
@@ -1042,7 +1114,7 @@ export interface TaiwanCurrentDataResponse {
 
 // ===== Taiwan Screener Types (Phase 6B & A10) =====
 export interface TaiwanScreenerRequest {
-  preset?: 'trend_liquidity_v1'
+  preset?: 'trend_liquidity_v1' | 'institutional_momentum_v1' | 'growth_trend_v1' | 'breakout_v1' | 'multi_factor_consensus_v1'
   exchange?: 'TWSE' | 'TPEX' | 'ALL'
   instrument?: 'stock' | 'etf' | 'ALL'
   industry?: string | null
@@ -1068,6 +1140,9 @@ export interface TaiwanScreenerRequest {
   investment_trust_net_max?: number | null
   dealer_net_min?: number | null
   dealer_net_max?: number | null
+  streak_investor?: 'foreign' | 'investment_trust' | 'dealer'
+  streak_direction?: 'buy' | 'sell'
+  streak_min_days?: number | null
   margin_balance_change_min?: number | null
   margin_balance_change_max?: number | null
   short_balance_min?: number | null
@@ -1138,13 +1213,21 @@ export interface ScreenerResultItem {
   rsi_14?: number | null
   momentum_5d?: number | null
   vol_ratio_5d?: number | null
+  ma60?: number | null
+  momentum_20d?: number | null
+  vol_ratio_20d?: number | null
+  momentum_acceleration?: number | null
+  breakout_20d_strength?: number | null
+  breakout_60d_strength?: number | null
   foreign_net?: number | null
   foreign_net_5d?: number | null
   investment_trust_net?: number | null
   investment_trust_net_5d?: number | null
   dealer_net?: number | null
+  institutional_flow_ratio_5d?: number | null
   institutional_date?: string | null
   institutional_status?: string
+  institutional_streak?: (import('./marketResearch').ResearchMetric & { investor: import('./marketResearch').Investor; direction: 'buy' | 'sell' }) | null
   margin_balance?: number | null
   margin_balance_change?: number | null
   short_balance?: number | null
@@ -1158,6 +1241,8 @@ export interface ScreenerResultItem {
   dividend_yield?: number | null
   revenue_yoy?: number | null
   revenue_mom?: number | null
+  revenue_yoy_improving?: boolean | null
+  revenue_status?: string
   latest_eps?: number | null
 
   // Chips & Quant
@@ -1167,6 +1252,11 @@ export interface ScreenerResultItem {
   quant_score?: number | null
   match_reasons?: string[]
   risk_status?: 'clear' | 'unknown' | null
+  strategy_id?: string | null
+  strategy_version?: string | null
+  strategy_signals?: string[]
+  consensus_hit_count?: number | null
+  consensus_strategy_names?: string[]
 }
 
 export interface ScreenerCoverageInfo {
@@ -1195,10 +1285,32 @@ export interface TaiwanScreenerResponse {
   quote_coverage_status?: 'verified' | 'unavailable' | null
   risk_unknown_count?: number
   risk_source_status?: 'available' | 'partial' | 'unavailable' | null
+  risk_source_statuses?: Record<string, string>
   risk_source_as_of?: string | null
   risk_target_date?: string | null
+  strategy_id?: string | null
+  strategy_name?: string | null
+  strategy_version?: string | null
+  strategy_readiness?: 'ready' | 'degraded' | 'unavailable' | null
+  strategy_readiness_reasons?: string[]
+  strategy_coverage?: Record<string, number>
+  revenue_evidence?: TaiwanRevenueEvidenceSummary | null
   trend_indicator_basis?: 'raw' | 'pit_adjusted'
   trend_adjustment_status?: 'verified' | 'partial' | 'unavailable' | null
+}
+
+/** Official monthly-revenue observations behind a strategy run (PIT audit). */
+export interface TaiwanRevenueEvidenceSummary {
+  status: 'available' | 'missing' | 'not_observed_before_cutoff' | 'stale' | 'incomplete'
+  publication_basis: 'official_observation'
+  cutoff: string
+  first_observed_at: string | null
+  latest_observed_at: string | null
+  digest: string | null
+  latest_period: string | null
+  revenue_available_count: number
+  mismatch_count: number
+  status_counts: Record<string, number>
 }
 
 export interface TaiwanScreenerStrategy {
@@ -1401,14 +1513,43 @@ export interface TaiwanLiveQuantRunSummary {
   snapshot_hash: string
   frozen_at: string
   signal_count: number
+  audit_status?: string
+  recommendation_status?: 'formal_available' | 'available_zero_candidates' | 'unavailable' | 'tracking' | 'conflict'
+  recommendation_reason?: string
+  candidate_count?: number
+  live_readiness?: { status: string; source: string; reasons: string[]; checks?: Record<string, string> }
+  outcome_summary?: Record<string, TaiwanLiveQuantHorizonSummary>
+  horizons?: Record<string, TaiwanLiveQuantHorizonSummary>
+}
+
+export interface TaiwanLiveQuantHorizonSummary {
+  horizon: string
+  evaluated_count: number
+  pending_count: number
+  unavailable_count: number
+  hit_count: number
+  hit_rate_pct: number | null
+  average_return_pct: number | null
 }
 
 export interface TaiwanLiveQuantSignal {
   symbol: string
+  name?: string
   score: number
   rank: number
   selected: boolean
   reference_close: number
+  feature_percentiles: Record<string, number>
+  reason_codes?: string[]
+  reason_summary?: string
+}
+
+export interface TaiwanLiveQuantRank {
+  symbol: string
+  score: number
+  rank: number
+  selected: boolean
+  momentum_20d?: number | null
   feature_percentiles: Record<string, number>
 }
 
@@ -1418,15 +1559,38 @@ export interface TaiwanLiveQuantRun {
   snapshot_hash: string
   frozen_at: string
   audit_status: string
+  recommendation_status?: 'formal_available' | 'available_zero_candidates' | 'unavailable' | 'tracking' | 'conflict'
+  recommendation_reason?: string
+  candidate_count?: number
+  live_readiness?: { status: string; source: string; reasons: string[]; checks?: Record<string, string> }
+  outcome_summary?: Record<string, TaiwanLiveQuantHorizonSummary>
   conflicts?: Array<Record<string, unknown>>
   snapshot: {
     signal_session: string
+    data_cutoff?: string
     usage_scope: string
     validation_state: string
-    model: { model_key: string; top_n: number; validation_state: string }
+    model: { model_key: string; version?: string; top_n: number; validation_state: string }
+    ranking?: TaiwanLiveQuantRank[]
     signals: TaiwanLiveQuantSignal[]
     features: Array<Record<string, unknown> & { symbol: string }>
   }
+  outcomes?: TaiwanLiveQuantOutcome[]
+}
+
+export interface TaiwanLiveQuantOutcome {
+  symbol: string
+  name?: string | null
+  reference_close?: number | null
+  rank?: number | null
+  score?: number | null
+  reason_summary?: string | null
+  horizon: number
+  status: 'pending' | 'verified' | 'data_insufficient' | 'conflict'
+  value: number | null
+  end_session?: string | null
+  reason?: string | null
+  audit_status?: string
 }
 
 export interface TaiwanScreenerTranslation {
@@ -1762,6 +1926,9 @@ export interface MarketEvent {
   source_url?: string | null
   retrieved_at: string
   freshness: string
+  published_at?: string | null
+  available_at?: string | null
+  status?: 'available' | 'data_insufficient' | string
   is_resolvable?: boolean
   details?: Record<string, any>
 }
@@ -1982,6 +2149,7 @@ export interface TaiwanAIResearchPersonalContext {
   watchlist?: { included: boolean }
   quant?: { status: 'available' | 'no_valid_run' | 'unavailable'; selected: boolean; rank?: number; score?: number; session?: string; feature_percentiles?: Record<string, number> }
   alert?: { alert_id?: string; rule_name?: string; rule_type?: string; triggered_at?: string; trigger_value?: number; threshold?: number; change_pct?: number; quant_status?: string; quant_rank?: number; quant_score?: number; quant_session?: string; message?: string; source?: string; market_status?: string }
+  social?: { as_of?: string; status?: string; total_mentions?: number; ptt_mentions?: number; dcard_mentions?: number; unique_posts?: number; engagement?: number; heat_score?: number; volume_change_24h?: number; sentiment?: string; sentiment_status?: string; sentiment_score?: number; confidence?: number; source_coverage?: string }
 }
 
 // ── Phase 7G: Multi-Stock Objective Research Comparison ──────
@@ -2656,8 +2824,266 @@ export interface StrategyAlertEvent {
   [key: string]: unknown
 }
 
+export type SocialSentimentAvailability = 'available' | 'partial' | 'unavailable'
+
+export interface TaiwanSocialSentimentSource {
+  status: SocialSentimentAvailability
+  posts: number
+  comments: number
+  pages: number
+  errors: string[]
+}
+
+export interface TaiwanSocialSentimentRow {
+  rank: number
+  symbol: string
+  code: string
+  company_name: string
+  ptt_mentions: number
+  dcard_mentions: number
+  total_mentions: number
+  unique_posts: number
+  engagement: number
+  volume_change_24h: number | null
+  bullish_count: number
+  neutral_count: number
+  bearish_count: number
+  sentiment: 'bullish' | 'neutral' | 'bearish' | 'unavailable'
+  sentiment_status: 'available' | 'unavailable'
+  sentiment_score: number | null
+  sentiment_confidence: number | null
+  sentiment_reason: string | null
+  social_heat_score: number
+}
+
+export interface TaiwanSocialSentimentResponse {
+  schema_version: number
+  status: SocialSentimentAvailability
+  generated_at: string
+  started_at: string | null
+  finished_at: string | null
+  as_of: string
+  trigger: 'pre_open' | 'after_close' | 'manual' | 'missed_schedule' | 'unknown'
+  snapshot_slot: 'pre_open' | 'after_close' | 'manual'
+  snapshot_id: string | null
+  window_hours: number
+  sources: Record<string, TaiwanSocialSentimentSource>
+  identified_symbols: number
+  ai: {
+    status: 'available' | 'degraded' | 'unavailable' | 'not_queried'
+    batches: number
+    analyzed_symbols: number
+    errors: string[]
+  }
+  rankings: TaiwanSocialSentimentRow[]
+  discussions?: TaiwanSocialSentimentDiscussion[]
+}
+
+export interface TaiwanSocialSentimentHistoryItem {
+  as_of: string
+  generated_at: string
+  snapshot_slot: 'pre_open' | 'after_close'
+  trigger?: 'pre_open' | 'after_close' | 'missed_schedule' | 'unknown'
+  status: SocialSentimentAvailability
+  identified_symbols: number
+}
+
+export interface TaiwanSocialSentimentDiscussion {
+  id: string
+  source: 'ptt' | 'dcard'
+  published_at: string | null
+  symbols: string[]
+  stock_names: string[]
+  title: string
+  url: string
+  excerpt: string
+  representative_comments: string[]
+  comments_count: number
+  engagement: number
+}
+
+export type SocialSentimentJobStatus = 'queued' | 'running' | 'completed' | 'partial' | 'failed'
+
+export interface TaiwanSocialSentimentJob {
+  job_id: string
+  status: SocialSentimentJobStatus
+  started_at: string | null
+  finished_at: string | null
+  ptt_status: SocialSentimentAvailability | 'not_queried'
+  dcard_status: SocialSentimentAvailability | 'not_queried'
+  ai_status: 'available' | 'degraded' | 'unavailable' | 'not_queried'
+  posts: number
+  comments: number
+  symbols_identified: number
+  error_summary: string | null
+  snapshot_id: string | null
+  rankings: TaiwanSocialSentimentRow[]
+  discussions: {
+    items: TaiwanSocialSentimentDiscussion[]
+    total: number
+    offset: number
+    limit: number
+    has_more: boolean
+  }
+}
+
 // ===== API surface =====
+export interface StrategyLabFilters {
+  minimum_sample: number
+  strategy_key?: string
+  source?: string
+  exchange?: string
+  industry?: string
+  market_regime?: string
+  liquidity_bucket?: string
+  risk_status?: string
+}
+
+export interface StrategyLabIdentity {
+  key: string
+  strategy_id: string
+  strategy_name: string
+  version: string | null
+  source: 'Selection' | 'A13 Buy Point' | 'Daily recommendation'
+  definition_digest: string | null
+  entry_basis: string
+  price_semantics: string
+  cost_assumption: string
+}
+
+export interface StrategyLabHorizon {
+  matured: number
+  pending: number
+  unavailable: number
+  hit_count: number
+  hit_rate_denominator: number
+  hit_rate_pct: number | null
+  average_return_pct: number | null
+  benchmark_n: number
+  excess_n: number
+  average_benchmark_return_pct: number | null
+  average_excess_pct: number | null
+  sample_sufficient: boolean
+  excess_sample_sufficient: boolean
+}
+
+export interface StrategyLabStats {
+  identity: StrategyLabIdentity
+  sample_count: number
+  snapshot_count: number
+  horizons: Record<string, StrategyLabHorizon>
+}
+
+export interface StrategyLabOverview {
+  evidence_label: string
+  historical_pit_status: string
+  hit_definition: string
+  unit: string
+  minimum_sample: number
+  sample_count: number
+  strategies: StrategyLabStats[]
+  strategy_options: StrategyLabIdentity[]
+  filter_options: Record<string, string[]>
+  slice_availability: Record<string, string>
+  duplicate_snapshots: number
+  duplicate_samples: number
+  integrity_conflicts: number
+  excluded_research_snapshots: number
+}
+
+export interface StrategyLabObservation {
+  observation_id: string
+  snapshot_id: string
+  symbol: string
+  name: string
+  signal_date: string
+  as_of: string
+  outcome_date: string | null
+  entry_date: string | null
+  entry_price: number | null
+  horizon: number
+  status: 'matured' | 'pending' | 'unavailable'
+  return_pct: number | null
+  benchmark_symbol: string | null
+  benchmark_return_pct: number | null
+  excess_pct: number | null
+  reason: string | null
+  benchmark_reason: string | null
+  identity: StrategyLabIdentity
+  evidence_label: string
+  provenance: Record<string, unknown>
+}
+
+export interface StrategyLabObservations {
+  total: number
+  offset: number
+  limit: number
+  observations: StrategyLabObservation[]
+}
+
+function strategyLabQuery(filters: StrategyLabFilters, offset?: number) {
+  const q = new URLSearchParams()
+  Object.entries(filters).forEach(([key, value]) => { if (value !== undefined && value !== '') q.set(key, String(value)) })
+  if (offset !== undefined) q.set('offset', String(offset))
+  return q.toString()
+}
+
+export type DataHealthStatus = 'current' | 'stale' | 'partial' | 'unavailable' | 'updating' | 'error'
+  | 'awaiting_publication' | 'not_run' | 'provider_error' | 'config_missing'
+export type DataHealthAction = 'update' | 'validate' | 'retry'
+export interface DatasetHealth {
+  id: string
+  name: string
+  status: DataHealthStatus
+  source: string | null
+  data_date: string | null
+  freshness: string
+  reason: string
+  last_attempt: string | null
+  last_success: string | null
+  actions: DataHealthAction[]
+}
+export interface DataHealthReport {
+  generated_at: string
+  datasets: DatasetHealth[]
+  current_count: number
+  total_count: number
+}
+export interface DataHealthJob {
+  job_id: string
+  dataset: string
+  action: DataHealthAction
+  affected_datasets: string[]
+  status: 'queued' | 'running' | 'completed' | 'partial' | 'failed'
+  queued_at: string
+  started_at: string | null
+  finished_at: string | null
+  reason: string | null
+}
+
 export const api = {
+  marketBreadthValuation: (asOf?: string, market: ResearchMarket = 'composite', days = 20, sections: ResearchSections = 'all') => {
+    const query = new URLSearchParams({ market, days: String(days), sections })
+    if (asOf) query.set('as_of', asOf)
+    return request<BreadthValuationResponse>(`/api/taiwan/market-research/breadth-valuation?${query}`)
+  },
+  refreshMarketValuation: () => request<ValuationRefreshResult>(
+    '/api/taiwan/market-research/breadth-valuation/refresh', { method: 'POST' },
+  ),
+  taiwanInstitutionalStatistics: (date?: string, window: import('./marketResearch').InstitutionalWindow = 5) =>
+    request<import('./marketResearch').InstitutionalStatisticsSnapshot>(`/api/taiwan/institutional-statistics?window=${window}${date ? `&date=${encodeURIComponent(date)}` : ''}`),
+  taiwanIndustryRotation: (date?: string) =>
+    request<import('./marketResearch').IndustryRotationSnapshot>(`/api/taiwan/industry-rotation${date ? `?date=${encodeURIComponent(date)}` : ''}`),
+  strategyLab: (filters: StrategyLabFilters) =>
+    request<StrategyLabOverview>(`/api/taiwan/strategy-lab?${strategyLabQuery(filters)}`),
+  strategyLabObservations: (filters: StrategyLabFilters, offset = 0) =>
+    request<StrategyLabObservations>(`/api/taiwan/strategy-lab/observations?${strategyLabQuery(filters, offset)}`),
+  dataHealth: () => request<DataHealthReport>('/api/taiwan/data-health'),
+  dataHealthJobs: () => request<DataHealthJob[]>('/api/taiwan/data-health/jobs'),
+  dataHealthAction: (dataset: string, action: DataHealthAction) =>
+    request<DataHealthJob>(`/api/taiwan/data-health/${encodeURIComponent(dataset)}/actions`, {
+      method: 'POST', body: JSON.stringify({ action }),
+    }),
   health: () => request<{ status: string; version: string; mode: string }>('/health'),
 
   // ===== Auth (訪問認證) =====
@@ -2682,6 +3108,27 @@ export const api = {
     }),
 
   settings: () => request<SettingsState>('/api/settings'),
+
+  // ===== 備份與轉移 (.twstock-backup) =====
+  deviceTransferOptions: () => request<DeviceTransferOptions>('/api/device-transfer/options'),
+  deviceTransferPreview: (file: File) => {
+    const fd = new FormData()
+    fd.append('file', file)
+    return request<BackupPreview>('/api/device-transfer/preview', { method: 'POST', body: fd, quiet: true })
+  },
+  deviceTransferRestore: (file: File, categories: string[], password?: string) => {
+    const fd = new FormData()
+    fd.append('file', file)
+    fd.append('categories', categories.join(','))
+    if (password) fd.append('password', password)
+    return request<RestoreResult>('/api/device-transfer/restore', { method: 'POST', body: fd, quiet: true })
+  },
+  deviceTransferRollback: (restorePointId: string) =>
+    request<{ restore_point: string; files: number }>(
+      `/api/device-transfer/rollback/${encodeURIComponent(restorePointId)}`,
+      { method: 'POST', quiet: true },
+    ),
+
   saveTickflowKey: (api_key: string) =>
     request<SaveTickflowKeyResult>('/api/settings/tickflow-key', {
       method: 'POST',
@@ -2717,6 +3164,12 @@ export const api = {
       body: JSON.stringify(profile),
     }),
 
+  aiKeyProfileUpdate: (profileId: string, profile: { name: string; provider: string; api_key?: string; base_url: string; model: string }) =>
+    request<{ ok: boolean; profile: AiKeyProfile }>(
+      `/api/settings/ai-key-profiles/${encodeURIComponent(profileId)}`,
+      { method: 'PATCH', body: JSON.stringify(profile) },
+    ),
+
   aiKeyProfileActivate: (profileId: string) =>
     request<{ ok: boolean; active_profile_id: string }>(
       `/api/settings/ai-key-profiles/${encodeURIComponent(profileId)}/activate`,
@@ -2730,7 +3183,7 @@ export const api = {
     ),
 
   aiKeyProfileTest: (profileId: string) =>
-    request<{ ok: boolean; error?: string; provider?: string; responded?: boolean }>(
+    request<{ ok: boolean; error?: string; error_code?: string; provider?: string; responded?: boolean }>(
       `/api/settings/ai-key-profiles/${encodeURIComponent(profileId)}/test`,
       { method: 'POST', body: '{}' },
     ),
@@ -3539,6 +3992,10 @@ export const api = {
       current_run_valid: boolean
       current_run_audit_status: string | null
       current_run_reason: string
+      recommendation_status?: TaiwanLiveQuantRunSummary['recommendation_status']
+      recommendation_reason?: string
+      candidate_count?: number
+      live_readiness?: { status: string; source: string; reasons: string[]; checks?: Record<string, string> }
     }>(
       '/api/taiwan/quant/live/models',
     ),
@@ -3560,6 +4017,42 @@ export const api = {
     request<TaiwanStockDetailResponse>(
       `/api/taiwan/stocks/${encodeURIComponent(symbol)}?days=${days}`,
     ),
+
+  // ===== A13: Buy Point =====
+  buyPointPresets: () =>
+    request<{ presets: BuyPointStrategy[] }>('/api/taiwan/buy-points/presets'),
+  buyPointStrategies: () =>
+    request<{ strategies: BuyPointStrategy[] }>('/api/taiwan/buy-points/strategies'),
+  buyPointClone: (presetId: string, name?: string) =>
+    request<BuyPointStrategy>('/api/taiwan/buy-points/strategies/clone', {
+      method: 'POST', body: JSON.stringify({ preset_id: presetId, ...(name ? { name } : {}) }),
+    }),
+  buyPointCreate: (payload: { name: string; description?: string; category?: string; conditions?: BuyPointConditions; risk_filters?: BuyPointRiskFilters; alert_channels?: string[]; enabled?: boolean }) =>
+    request<BuyPointStrategy>('/api/taiwan/buy-points/strategies', { method: 'POST', body: JSON.stringify(payload) }),
+  buyPointUpdate: (id: string, payload: Partial<BuyPointStrategy>) =>
+    request<BuyPointStrategy>(`/api/taiwan/buy-points/strategies/${encodeURIComponent(id)}`, { method: 'PUT', body: JSON.stringify(payload) }),
+  buyPointDelete: (id: string) =>
+    request<{ ok: boolean; deleted_id: string }>(`/api/taiwan/buy-points/strategies/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+  buyPointAssignments: (symbol?: string) => {
+    const qs = symbol ? `?symbol=${encodeURIComponent(symbol)}` : ''
+    return request<{ assignments: Record<string, string[]> | string[] }>(`/api/taiwan/buy-points/assignments${qs}`)
+  },
+  buyPointAssign: (symbol: string, strategyIds: string[]) =>
+    request<{ symbol: string; strategy_ids: string[] }>(`/api/taiwan/buy-points/assignments/${encodeURIComponent(symbol)}`, { method: 'PUT', body: JSON.stringify({ strategy_ids: strategyIds }) }),
+  buyPointSignals: (symbol?: string) => {
+    const qs = symbol ? `?symbol=${encodeURIComponent(symbol)}` : ''
+    return request<{ signals: BuyPointSignal[]; as_of: string }>(`/api/taiwan/buy-points/signals${qs}`)
+  },
+  buyPointEvaluate: (symbol?: string) => {
+    const qs = symbol ? `?symbol=${encodeURIComponent(symbol)}` : ''
+    return request<{ signals: BuyPointSignal[]; triggered: AlertEvent[] }>(`/api/taiwan/buy-points/evaluate${qs}`, { method: 'POST' })
+  },
+  buyPointSummary: () =>
+    request<{ counts: Record<BuyPointStatus, number>; total: number }>('/api/taiwan/buy-points/summary'),
+  buyPointSnapshot: (strategyId: string, symbol: string) =>
+    request<Record<string, unknown>>('/api/taiwan/buy-points/snapshots', { method: 'POST', body: JSON.stringify({ strategy_id: strategyId, symbol }) }),
+  buyPointStats: () =>
+    request<{ stats: Record<string, unknown>[]; disclaimer: string }>('/api/taiwan/buy-points/stats'),
 
   taiwanCapabilities: () =>
     request<TaiwanDatasetCapability[]>('/api/taiwan/capabilities'),
@@ -3699,6 +4192,7 @@ export const api = {
     severity?: string
     date?: string
     limit?: number
+    refresh?: boolean
   }) => {
     const q = new URLSearchParams()
     if (params?.scope) q.set('scope', params.scope)
@@ -3708,6 +4202,7 @@ export const api = {
     if (params?.severity) q.set('severity', params.severity)
     if (params?.date) q.set('date', params.date)
     if (params?.limit) q.set('limit', String(params.limit))
+    if (params?.refresh) q.set('refresh', 'true')
     const qs = q.toString()
     return request<TaiwanEventsResponse>(qs ? `/api/taiwan/events?${qs}` : '/api/taiwan/events')
   },
@@ -3739,6 +4234,40 @@ export const api = {
   taiwanMarketSentiment: (date?: string) => {
     const qs = date ? `?date=${encodeURIComponent(date)}` : ''
     return request<TaiwanMarketSentimentResponse>(`/api/taiwan/market-sentiment${qs}`)
+  },
+
+  taiwanSocialSentiment: (date?: string, snapshotSlot?: 'pre_open' | 'after_close') => {
+    const q = new URLSearchParams()
+    if (date) q.set('target_date', date)
+    if (snapshotSlot) q.set('snapshot_slot', snapshotSlot)
+    const qs = q.toString()
+    return request<TaiwanSocialSentimentResponse>(
+      qs ? `/api/taiwan/social-sentiment?${qs}` : '/api/taiwan/social-sentiment',
+    )
+  },
+
+  taiwanSocialSentimentHistory: (limit = 30) =>
+    request<{ items: TaiwanSocialSentimentHistoryItem[] }>(`/api/taiwan/social-sentiment/history?limit=${limit}`),
+
+  taiwanSocialSentimentRun: (body: { mode: 'manual' }) =>
+    request<{ job_id: string | null; status: 'running' | 'already_running' }>(
+      '/api/taiwan/social-sentiment/run',
+      { method: 'POST', body: JSON.stringify(body) },
+    ),
+
+  taiwanSocialSentimentJob: (
+    jobId: string,
+    filters: { source?: string; symbol?: string; q?: string; offset?: number; limit?: number } = {},
+  ) => {
+    const query = new URLSearchParams()
+    if (filters.source) query.set('source', filters.source)
+    if (filters.symbol) query.set('symbol', filters.symbol)
+    if (filters.q) query.set('q', filters.q)
+    query.set('offset', String(filters.offset ?? 0))
+    query.set('limit', String(filters.limit ?? 50))
+    return request<TaiwanSocialSentimentJob>(
+      `/api/taiwan/social-sentiment/jobs/${encodeURIComponent(jobId)}?${query.toString()}`,
+    )
   },
 
   taiwanRulesList: () =>
@@ -3958,14 +4487,17 @@ export const api = {
 
   // ===== Selection Review & Snapshot (A12) =====
   selectionReview: {
-    lockForwardBatch: () =>
-      request<SelectionSnapshot>('/api/taiwan/selection-review/forward-batches', { method: 'POST' }),
-    listForwardBatches: () =>
-      request<SnapshotListItem[]>('/api/taiwan/selection-review/forward-batches'),
+    lockForwardBatch: (strategyId = 'trend_liquidity_v1') =>
+      request<SelectionSnapshot>('/api/taiwan/selection-review/forward-batches', {
+        method: 'POST',
+        body: JSON.stringify({ strategy_id: strategyId }),
+      }),
+    listForwardBatches: (strategyId?: string) =>
+      request<SnapshotListItem[]>(`/api/taiwan/selection-review/forward-batches${strategyId ? `?strategy_id=${encodeURIComponent(strategyId)}` : ''}`),
     getForwardBatchDetail: (batchId: string) =>
       request<SnapshotReviewDetail>(`/api/taiwan/selection-review/forward-batches/${encodeURIComponent(batchId)}`),
-    getForwardBatchStats: () =>
-      request<ForwardBatchStats>('/api/taiwan/selection-review/forward-batches/stats'),
+    getForwardBatchStats: (strategyId?: string) =>
+      request<ForwardBatchStats>(`/api/taiwan/selection-review/forward-batches/stats${strategyId ? `?strategy_id=${encodeURIComponent(strategyId)}` : ''}`),
     saveSnapshot: (payload: SaveSelectionSnapshotRequest) =>
       request<SelectionSnapshot>('/api/taiwan/selection-review/snapshots', {
         method: 'POST',
@@ -4196,9 +4728,11 @@ export interface SelectionSnapshotItem {
 }
 
 export interface SelectionSnapshot {
+  observation_origin?: 'a13_server_observed' | null
   snapshot_id: string
   created_at: string
   strategy_id: string
+  strategy_version?: string | null
   strategy_name: string
   as_of_date: string
   market_context_summary: string
@@ -4330,9 +4864,11 @@ export interface SnapshotReviewDetail {
 }
 
 export interface SnapshotListItem {
+  observation_origin?: 'a13_server_observed' | null
   snapshot_id: string
   created_at: string
   strategy_id: string
+  strategy_version?: string | null
   strategy_name: string
   as_of_date: string
   selected_count: number
@@ -4362,9 +4898,12 @@ export interface SnapshotListItem {
   risk_target_date?: string | null
   selection_indicator_basis?: 'raw' | 'pit_adjusted'
   trend_adjustment_status?: 'verified' | 'partial' | 'unavailable' | null
+  source?: 'Screener' | 'Buy Point' | string
 }
 
 export interface ForwardBatchStats {
+  strategy_id?: string | null
+  strategy_name?: string | null
   batches_count: number
   picks_count: number
   h1d_evaluated_count: number
@@ -4604,3 +5143,33 @@ export interface CreateDailyBriefRequest {
   portfolio_holdings?: Record<string, any>[]
 }
 
+
+// ===== 備份與轉移 =====
+export interface DeviceTransferOptions {
+  categories: { id: string; label: string; browser_keys: string[] }[]
+  presets: Record<string, string[]>
+  min_password_length: number
+  file_extension: string
+}
+
+export interface BackupPreview {
+  backup_version: number
+  app_version: string | null
+  current_app_version: string
+  version_match: boolean
+  created_at: string | null
+  source_machine: { os?: string }
+  file_count: number
+  categories: { id: string; label: string; file_count: number; compatible: boolean; issues: string[] }[]
+  secrets: { included: boolean; encrypted: boolean }
+  issues: string[]
+  compatible: boolean
+}
+
+export interface RestoreResult {
+  restore_point: string
+  categories: string[]
+  written: number
+  removed: number
+  browser_storage: Record<string, Record<string, string>>
+}

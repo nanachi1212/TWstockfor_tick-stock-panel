@@ -268,3 +268,77 @@ def test_live_models_reuses_bounded_expected_session_evidence(monkeypatch):
     third = taiwan_live.live_models()
     assert third["expected_session"] == "2026-09-24"
     assert calls == {"source": 2, "session": 2}
+
+
+def test_live_models_distinguishes_available_zero_candidates_from_unavailable(monkeypatch):
+    monkeypatch.setattr(taiwan_live, "_SESSION_CACHE", None)
+    expected = date(2026, 9, 24)
+
+    class Source:
+        evidence = object()
+
+        def close(self):
+            pass
+
+    ledger = SimpleNamespace(
+        current_session=lambda: expected,
+        latest_operation=lambda: {"freeze": {"status": "frozen", "session": expected.isoformat()}},
+        read_run=lambda _model_key, _session: {
+            "audit_status": "ok", "snapshot": {"signals": [], "live_readiness": {
+                "status": "verified", "source": "current_live_gate", "reasons": [],
+            }},
+        },
+        models=lambda: [],
+    )
+    monkeypatch.setattr(taiwan_live, "CurrentLiveSource", Source)
+    monkeypatch.setattr(taiwan_live, "LiveLedger", lambda evidence=None: ledger)
+
+    response = taiwan_live.live_models()
+
+    assert response["current_run_valid"] is True
+    assert response["recommendation_status"] == "available_zero_candidates"
+    assert response["candidate_count"] == 0
+
+
+def test_live_models_projects_refresh_failure_as_unavailable_not_zero(monkeypatch):
+    monkeypatch.setattr(taiwan_live, "_SESSION_CACHE", None)
+    expected = date(2026, 9, 24)
+
+    class Source:
+        evidence = object()
+
+        def close(self):
+            pass
+
+    ledger = SimpleNamespace(
+        current_session=lambda: expected,
+        latest_operation=lambda: {"status": "skipped", "reason": "daily_refresh_not_ready"},
+        read_run=lambda _model_key, _session: None,
+        models=lambda: [],
+    )
+    monkeypatch.setattr(taiwan_live, "CurrentLiveSource", Source)
+    monkeypatch.setattr(taiwan_live, "LiveLedger", lambda evidence=None: ledger)
+
+    response = taiwan_live.live_models()
+
+    assert response["current_run_valid"] is False
+    assert response["recommendation_status"] == "unavailable"
+    assert response["recommendation_reason"] == "daily_refresh_not_ready"
+    assert response["live_readiness"]["reasons"] == ["daily_refresh_not_ready"]
+
+
+def test_live_runs_exposes_horizon_summaries_without_recomputing_ranking(monkeypatch):
+    summary = {"1D": {"horizon": "1D", "evaluated_count": 1, "pending_count": 0,
+                       "unavailable_count": 0, "hit_count": 1, "hit_rate_pct": 100.0,
+                       "average_return_pct": 1.25}}
+    ledger = SimpleNamespace(list_runs=lambda limit: [{
+        "model_key": "live-model", "session": "2026-09-23", "snapshot_hash": "hash",
+        "frozen_at": "2026-09-23T16:30:00+08:00", "signal_count": 1,
+        "recommendation_status": "tracking", "outcome_summary": summary,
+    }])
+    monkeypatch.setattr(taiwan_live, "LiveLedger", lambda: ledger)
+
+    response = taiwan_live.live_runs(limit=30)
+
+    assert response["runs"][0]["outcome_summary"]["1D"]["hit_rate_pct"] == 100.0
+    assert response["runs"][0]["recommendation_status"] == "tracking"

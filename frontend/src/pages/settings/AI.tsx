@@ -60,10 +60,11 @@ export function SettingsAIPanel() {
   const draftsInitialized = useRef(false)
 
   const isOpenAIProvider = provider === OPENAI_PROVIDER
+  const hasProfiles = (s?.ai_key_profiles_count ?? 0) > 0
   const configured = s?.ai_configured ?? s?.has_ai_key
   const selectedPreset = PRESETS.find(p => p.label === selectedPresetLabel) ?? PRESETS[0]
-  const configTitle = isOpenAIProvider ? 'OpenAI 設定' : '自訂設定'
-  const canSave = !!baseUrl.trim() && !!model.trim()
+  const configTitle = hasProfiles ? '全域進階生成設定' : (isOpenAIProvider ? 'OpenAI 設定' : '自訂設定')
+  const canSave = hasProfiles || (!!baseUrl.trim() && !!model.trim())
 
   useEffect(() => {
     if (!s) return
@@ -94,7 +95,11 @@ export function SettingsAIPanel() {
     setContextWindow(String(s?.ai_context_window ?? 64000))
   }, [s])
 
-  const payload = () => ({
+  const payload = () => hasProfiles ? {
+    user_agent: customUa ? userAgent : '',
+    max_output_tokens: toPositiveInt(maxOutputTokens),
+    context_window: toPositiveInt(contextWindow),
+  } : {
     provider,
     base_url: baseUrl,
     api_key: apiKey || undefined,
@@ -103,7 +108,7 @@ export function SettingsAIPanel() {
     user_agent: customUa ? userAgent : '',
     max_output_tokens: toPositiveInt(maxOutputTokens),
     context_window: toPositiveInt(contextWindow),
-  })
+  }
 
   const save = useMutation({
     mutationFn: () => api.saveAiSettings(payload()),
@@ -112,11 +117,13 @@ export function SettingsAIPanel() {
       setApiKey('')
       qc.setQueryData<SettingsState>(QK.settings, prev => prev ? {
         ...prev,
-        ai_provider: result.ai_provider ?? provider,
-        ai_base_url: baseUrl,
-        ai_model: result.ai_model ?? model,
-        ai_openai_model: result.ai_openai_model ?? model,
-        ai_reasoning_effort: result.ai_reasoning_effort ?? reasoningEffort,
+        ...(!hasProfiles ? {
+          ai_provider: result.ai_provider ?? provider,
+          ai_base_url: baseUrl,
+          ai_model: result.ai_model ?? model,
+          ai_openai_model: result.ai_openai_model ?? model,
+          ai_reasoning_effort: result.ai_reasoning_effort ?? reasoningEffort,
+        } : {}),
         ai_configured: result.ai_configured ?? (apiKey ? true : prev.ai_configured),
         ai_max_output_tokens: result.ai_max_output_tokens ?? toPositiveInt(maxOutputTokens),
         ai_context_window: result.ai_context_window ?? toPositiveInt(contextWindow),
@@ -255,7 +262,11 @@ export function SettingsAIPanel() {
         )}
       </Card>
 
-      <Card icon={Zap} title="快速預設">
+      <div className="rounded-card border border-border bg-surface p-5">
+        <AiKeyProfilesPanel />
+      </div>
+
+      {!hasProfiles && <Card icon={Zap} title="快速預設">
         <div className="flex flex-wrap items-start gap-2">
           {PRESETS.map(p => (
             <button key={p.label} onClick={() => handlePreset(p)} aria-pressed={selectedPreset.label === p.label}
@@ -280,7 +291,7 @@ export function SettingsAIPanel() {
             )}
           </div>
         )}
-      </Card>
+      </Card>}
 
       <Card
         icon={Settings2}
@@ -293,6 +304,12 @@ export function SettingsAIPanel() {
         }
       >
         <div className="space-y-4">
+          {hasProfiles && (
+            <div className="rounded-lg border border-accent/20 bg-accent/[0.04] px-3 py-2 text-[11px] text-secondary">
+              端點、模型與 API Key 請在上方 AI Key Profiles 編輯；此區只管理所有 Profile 共用的生成設定。
+            </div>
+          )}
+          {!hasProfiles && <>
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <Field label="API 位址">
               <input type="text" value={baseUrl} onChange={e => handleBaseUrlChange(e.target.value)} placeholder="https://api.example.com/v1" className={INPUT_CLS} />
@@ -331,6 +348,7 @@ export function SettingsAIPanel() {
           </Field>
 
           <div className="border-t border-border/20" />
+          </>}
 
           <div className="space-y-2">
             <div className="flex items-center justify-between">
@@ -364,25 +382,21 @@ export function SettingsAIPanel() {
       <div className="rounded-card border border-amber-400/20 bg-amber-400/[0.04] px-4 py-3 flex items-start gap-3">
         <Shield className="h-4 w-4 text-amber-400/70 mt-0.5 shrink-0" />
         <div className="text-[11px] text-amber-400/70 leading-relaxed">
-          API Key 僅儲存在本機專案檔案中,不會上傳到任何伺服器。請妥善保管。
+          API Key 僅儲存在本機後端，前端只接收遮罩值，不會顯示原始憑證。
         </div>
       </div>
 
       <div className="flex gap-2">
         <button onClick={() => save.mutate()} disabled={save.isPending || !canSave} className="flex-1 h-10 rounded-xl bg-accent text-white text-sm font-semibold flex items-center justify-center gap-2 hover:bg-accent/90 disabled:opacity-40 transition-all">
           {save.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : saved ? <Check className="h-4 w-4" /> : <Save className="h-4 w-4" />}
-          {save.isPending ? '儲存中…' : saved ? '已儲存' : '儲存設定'}
+          {save.isPending ? '儲存中…' : saved ? '已儲存' : (hasProfiles ? '儲存全域設定' : '儲存設定')}
         </button>
-        {configured && (
+        {configured && !hasProfiles && (
           <button onClick={() => setConfirmClear(true)} disabled={clear.isPending} className="h-10 px-4 rounded-xl bg-elevated text-secondary hover:text-danger text-sm flex items-center justify-center gap-1.5 hover:bg-elevated/80 disabled:opacity-50 transition-all shrink-0" title="Clear AI provider configuration">
             <Trash2 className="h-4 w-4" />
             清空
           </button>
         )}
-      </div>
-
-      <div className="pt-4 border-t border-border/40">
-        <AiKeyProfilesPanel />
       </div>
 
       {confirmClear && (

@@ -155,6 +155,30 @@ class QuantEvaluationReadiness:
         return {"status": self.status.value, "blocking_reasons": list(self.blocking_reasons)}
 
 
+def current_live_readiness(
+    status: str,
+    reasons: tuple[str, ...] | list[str] = (),
+    *,
+    checks: dict[str, str] | None = None,
+) -> dict[str, Any]:
+    """Project the existing current-live gate without using historical OOS rules.
+
+    The live runner already owns the market, factor, session, and corporate-action
+    checks.  This helper only gives their result one additive API shape; it does
+    not introduce another threshold or infer readiness from candidate count.
+    """
+    normalized_status = "verified" if status == "verified" else "unavailable"
+    unique_reasons = list(dict.fromkeys(str(reason) for reason in reasons if reason))
+    projection: dict[str, Any] = {
+        "status": normalized_status,
+        "source": "current_live_gate",
+        "reasons": unique_reasons,
+    }
+    if checks:
+        projection["checks"] = dict(checks)
+    return projection
+
+
 def quant_evaluation_readiness(
     data_health: DataHealth | None,
     classification_progress: dict[str, int] | None,

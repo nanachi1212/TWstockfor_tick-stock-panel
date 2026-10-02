@@ -223,7 +223,73 @@ also exposed no new stable exact-time identity. No production availability was
 upgraded; the evidence and rejection matrix are recorded in
 [`taiwan-fundamentals-availability-phase-6g.md`](taiwan-fundamentals-availability-phase-6g.md).
 
+## Monthly revenue official observation evidence (Selection v2)
+
+Re-verified on 2026-09-28: no official monthly-revenue interface exposes a
+per-record publication time or revision identifier.
+
+| Official interface | Content | Time fields | Revision history |
+| --- | --- | --- | --- |
+| TWSE `t187ap05_L`, TPEx `mopsfin_t187ap05_O` | current month only; current / previous / year-ago month, thousand TWD | `出表日期` (whole table; `1150917` for 2026-08) | none |
+| MOPS `t21sc03` static pages (`/nas/t21/{sii,otc}/t21sc03_{rocY}_{M}_{0,1}.html`) | every month since 2013; domestic `_0` and foreign `_1` issuers, thousand TWD | `出表日期` = page regeneration date (recent months daily, old months periodically) | none; pages show the latest corrected values |
+| MOPS per-company `t05st10_ifrs` (legacy and JSON API) | one issuer-month | response `datetime` is query time | none |
+
+`出表日期`, HTTP `Last-Modified`, the revenue month, the statutory 10th-day
+deadline and FinMind `date`/`create_time` are therefore not publication
+evidence (FinMind `create_time` only starts on 2026-04-21 and is the time a row
+entered FinMind's database).
+
+The selection strategies use an observation ledger instead
+(`app/taiwan/monthly_revenue_evidence.py`, runtime data under
+`data/taiwan/monthly_revenue_evidence/`):
+
+- The user-triggered update flow fetches the MOPS `t21sc03` pages for both
+  boards and both issuer kinds for the latest three revenue months and their
+  year-ago months (24 static pages, MOPS rate limit, pages already fetched
+  successfully within 20 hours are skipped). Near month end the window also
+  covers the month of `now + 4 days`, because the observation may serve a
+  next-month cutoff. The screener never performs HTTP.
+- A snapshot is `available` only when every expected page for the cutoff's
+  window has a fresh successful observation; otherwise it is `incomplete`.
+- Every fetch is appended to `fetches.jsonl` with market, issuer kind, revenue
+  month, source URL, `retrieved_at`, `出表日期` (metadata only), raw-page
+  SHA-256 and normalized-rows SHA-256. Rows and raw pages are
+  content-addressed and never rewritten.
+- `retrieved_at` is the evidence: an official value is known to have been public
+  at the moment it was observed. A value is usable only when
+  `cutoff > retrieved_at`; equality is unavailable. Nothing is back-dated.
+- The selection cutoff is the open (09:00 Asia/Taipei) of the batch's entry
+  session, the same deadline `lock_forward_batch` enforces. For the 2026-09-24
+  source session the entry session is 2026-09-29 (09-25 and 09-28 are market
+  holidays).
+- Revisions: each page resolves to its latest successful fetch before the
+  cutoff, so a later correction never replaces the value visible earlier. A
+  changed value gets a new `revision_seq` with its own first-observed time.
+  Corrections that happened before the first observation cannot be
+  distinguished from originals and are labelled `first_observed`.
+- Freshness: a page whose latest fetch before the cutoff is older than four days
+  is stale and ignored. With no fetch at all the status is `missing`; with
+  fetches only at or after the cutoff it is `not_observed_before_cutoff`.
+- Mismatch: within one refresh the month-M page's `上月營收` must equal the
+  month M-1 page's `當月營收`; a disagreement drops that issuer's revenue
+  (`source_mismatch`) and degrades readiness.
+- Units: official cells are thousand TWD and are stored as integers; the
+  strategy input is `revenue = thousand * 1000`. Blank or `-` cells stay null.
+- YoY uses each month's own page value, not the `去年當月營收` column, because
+  the latter is a restated comparable figure (2026-08: 25 of 992 TWSE issuers
+  differ from their 2025-08 page value, e.g. 2608).
+- FinMind is not used for strategy revenue. The detail page and general
+  screener filters keep their existing FinMind cache path.
+
+This evidence is forward-only: history before the first observation
+(2026-09-28 in the development data set) has no strict PIT revenue evidence.
+The loader (`MonthlyRevenueEvidenceStore.evidence_as_of(cutoff)` and
+`revisions(symbol, period)`) is reusable by historical evaluation once enough
+observations exist.
+
 ## Dividend lifecycle stable event ingest (Phase 6D)
+
+一般重大訊息、法說會與內部人持股轉讓事前申報的產品事件契約，另見 [Phase 3 官方 MOPS 事件](toalpha-v2.1-phase3-mops-events.md)。重大訊息與事前轉讓申報採 TWSE／TPEx 官方 OpenAPI；法說會直接查詢 [官方 MOPS `t100sb02_1`](https://mopsov.twse.com.tw/mops/web/t100sb02_1)，來源為 `mops:conference:t100sb02_1`，保留日期範圍、時間、地點、擇要訊息及官方 POST 簡報表單。官方資料無法可靠解析時 fail closed、標示 unavailable，不使用第三方 fallback，亦不讀回舊第三方快取。ToAlpha 僅供產品功能參考，沒有其資料依賴。它們沿用事件中心與個股詳情，不接 Historical PIT 或 Strategy Lab，也不覆寫本節股利生命週期或月營收的權威資料。
 
 The official source is the MOPS historical material-information service:
 

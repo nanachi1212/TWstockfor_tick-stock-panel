@@ -19,6 +19,7 @@ NO request-time HTTP calls to external providers.
 from __future__ import annotations
 
 import contextlib
+import json
 import logging
 from datetime import date, timedelta
 from typing import Any, Literal
@@ -27,14 +28,26 @@ import polars as pl
 from pydantic import BaseModel, Field
 
 from app.taiwan.adjust import adjust_prices_as_of
-from app.taiwan.corporate_actions import CorporateActionStore
+from app.taiwan.corporate_actions import CorporateActionStore, event_market_open
 from app.taiwan.daily_store import TaiwanDailyStore
 from app.taiwan.finmind_cache import FinMindCache
 from app.taiwan.institutional_store import TaiwanInstitutionalStore
 from app.taiwan.margin_store import TaiwanMarginStore
+from app.taiwan.monthly_revenue_evidence import (
+    MonthlyRevenueEvidenceStore,
+    RevenueEvidenceSnapshot,
+)
 from app.taiwan.observed_universe import ObservedUniverseStore
 from app.taiwan.providers.taiwan_values import parse_number
 from app.taiwan.realtime.calendar import TaiwanTradingCalendar, taipei_now
+from app.taiwan.selection_v2 import (
+    STRATEGY_IDS,
+    V2_STRATEGY_IDS,
+    apply_strategy,
+    rank_strategy,
+    strategy_metadata,
+    strategy_readiness,
+)
 from app.taiwan.technical_indicators import MIN_BARS_RSI_14, wilder_rsi_expr
 from app.taiwan.universe import TaiwanSecurityMaster, get_security_master
 from app.taiwan.universe.models import MarketProfileBridge
@@ -53,7 +66,8 @@ SortField = Literal[
     "margin_balance_change", "short_balance", "short_margin_ratio",
     "pe", "pb", "dividend_yield", "revenue_yoy", "revenue_mom",
     "latest_eps", "foreign_shareholding_ratio", "foreign_shareholding_change_20d", "quant_score",
-    "trend_liquidity_v1",
+    "trend_liquidity_v1", "institutional_momentum_v1", "growth_trend_v1",
+    "breakout_v1", "multi_factor_consensus_v1",
 ]
 SortDir = Literal["asc", "desc"]
 
@@ -142,9 +156,13 @@ class TaiwanScreenerRequest(BaseModel):
     """Strongly typed Taiwan Screener Request Body."""
 
     exchange: ExchangeFilter = "ALL"
-    preset: Literal["trend_liquidity_v1"] | None = None
+    preset: Literal[
+        "trend_liquidity_v1", "institutional_momentum_v1", "growth_trend_v1",
+        "breakout_v1", "multi_factor_consensus_v1",
+    ] | None = None
     instrument: InstrumentFilter = "ALL"
     industry: str | None = None  # None or specific industry name
+    symbol_scope: list[str] | None = Field(default=None, exclude=True, repr=False)
 
     # Price & Volume filters
     price_min: float | None = None
@@ -173,6 +191,9 @@ class TaiwanScreenerRequest(BaseModel):
     investment_trust_net_max: float | None = None
     dealer_net_min: float | None = None
     dealer_net_max: float | None = None
+    streak_investor: Literal["foreign", "investment_trust", "dealer"] = "foreign"
+    streak_direction: Literal["buy", "sell"] = "buy"
+    streak_min_days: int | None = Field(default=None, ge=1, le=60)
 
     # Margin & Short
     margin_balance_change_min: float | None = None
@@ -256,6 +277,12 @@ class ScreenerResultItem(BaseModel):
     rsi_14: float | None = None
     momentum_5d: float | None = None
     vol_ratio_5d: float | None = None
+    ma60: float | None = None
+    momentum_20d: float | None = None
+    vol_ratio_20d: float | None = None
+    momentum_acceleration: float | None = None
+    breakout_20d_strength: float | None = None
+    breakout_60d_strength: float | None = None
 
     # Institutional (shares)
     foreign_net: float | None = None
@@ -263,8 +290,10 @@ class ScreenerResultItem(BaseModel):
     investment_trust_net: float | None = None
     investment_trust_net_5d: float | None = None
     dealer_net: float | None = None
+    institutional_flow_ratio_5d: float | None = None
     institutional_date: str | None = None
     institutional_status: str = "unavailable"
+    institutional_streak: dict[str, Any] | None = None
 
     # Margin (shares & %)
     margin_balance: float | None = None
@@ -280,6 +309,8 @@ class ScreenerResultItem(BaseModel):
     dividend_yield: float | None = None
     revenue_yoy: float | None = None
     revenue_mom: float | None = None
+    revenue_yoy_improving: bool | None = None
+    revenue_status: str = "unavailable"
     latest_eps: float | None = None
 
     # Chips (Foreign shareholding & lending)
@@ -293,6 +324,11 @@ class ScreenerResultItem(BaseModel):
     # Explanation of why the stock was selected
     match_reasons: list[str] = Field(default_factory=list)
     risk_status: Literal["clear", "unknown"] | None = None
+    strategy_id: str | None = None
+    strategy_version: str | None = None
+    strategy_signals: list[str] = Field(default_factory=list)
+    consensus_hit_count: int | None = None
+    consensus_strategy_names: list[str] = Field(default_factory=list)
 
 
 class DataDatesInfo(BaseModel):
@@ -323,10 +359,18 @@ class TaiwanScreenerResponse(BaseModel):
     quote_coverage_status: Literal["verified", "unavailable"] | None = None
     risk_unknown_count: int = 0
     risk_source_status: Literal["available", "partial", "unavailable"] | None = None
+    risk_source_statuses: dict[str, str] = {}
     risk_source_as_of: str | None = None
     trend_indicator_basis: Literal["raw", "pit_adjusted"] = "raw"
     trend_adjustment_status: Literal["verified", "partial", "unavailable"] | None = None
     risk_target_date: str | None = None
+    strategy_id: str | None = None
+    strategy_name: str | None = None
+    strategy_version: str | None = None
+    strategy_readiness: Literal["ready", "degraded", "unavailable"] | None = None
+    strategy_readiness_reasons: list[str] = []
+    strategy_coverage: dict[str, int] = {}
+    revenue_evidence: dict[str, Any] | None = None
 
 
 class TaiwanScreenerService:
@@ -343,6 +387,7 @@ class TaiwanScreenerService:
         action_store: CorporateActionStore | None = None,
         calendar: TaiwanTradingCalendar | None = None,
         census_store: ObservedUniverseStore | None = None,
+        revenue_evidence_store: MonthlyRevenueEvidenceStore | None = None,
     ) -> None:
         self.security_master = security_master or get_security_master()
         self.daily_store = daily_store or TaiwanDailyStore()
@@ -357,6 +402,7 @@ class TaiwanScreenerService:
         # local store by default so normal screening has the same evidence as
         # the lock path.
         self.census_store = census_store or ObservedUniverseStore()
+        self.revenue_evidence_store = revenue_evidence_store or MonthlyRevenueEvidenceStore()
 
     def _get_fundamental_chips_service(self):
         if self._fundamental_chips_service is None:
@@ -373,13 +419,31 @@ class TaiwanScreenerService:
                 "sort_by": "trend_liquidity_v1", "sort_order": "desc",
                 "page": 1, "page_size": TREND_LIQUIDITY_V1_BATCH_SIZE,
             })
+        elif req.preset in V2_STRATEGY_IDS:
+            req = req.model_copy(update={
+                "exchange": "ALL", "instrument": "stock",
+                "amount_min": 50_000_000,
+                "sort_by": req.preset, "sort_order": "desc",
+                "page": 1, "page_size": 20,
+                "above_ma20": None, "momentum_5d_min": None,
+            })
+        strategy_id = req.preset
+        metadata = strategy_metadata(strategy_id) if strategy_id else None
         # Step 1: Universe from TaiwanSecurityMaster
         universe_df = self._get_universe(req.exchange, req.instrument)
+        if req.symbol_scope is not None:
+            requested = list(dict.fromkeys(req.symbol_scope))
+            universe_df = universe_df.filter(pl.col("symbol").is_in(requested))
         if universe_df.is_empty():
             return TaiwanScreenerResponse(
                 items=[], total=0, page=req.page, page_size=req.page_size,
                 sort_by=req.sort_by, sort_order=req.sort_order,
                 data_dates=DataDatesInfo(),
+                strategy_id=strategy_id,
+                strategy_name=metadata["name"] if metadata else None,
+                strategy_version=metadata["version"] if metadata else None,
+                strategy_readiness="unavailable" if strategy_id else None,
+                strategy_readiness_reasons=["標的資料不可用"] if strategy_id else [],
             )
 
         valid_symbols = universe_df["symbol"].to_list()
@@ -393,11 +457,16 @@ class TaiwanScreenerService:
                 items=[], total=0, page=req.page, page_size=req.page_size,
                 sort_by=req.sort_by, sort_order=req.sort_order,
                 data_dates=DataDatesInfo(),
+                strategy_id=strategy_id,
+                strategy_name=metadata["name"] if metadata else None,
+                strategy_version=metadata["version"] if metadata else None,
+                strategy_readiness="unavailable" if strategy_id else None,
+                strategy_readiness_reasons=["行情資料不可用"] if strategy_id else [],
             )
 
         daily_as_of = str(latest_daily["date"].max()) if not latest_daily.is_empty() else None
         risk_target_date: date | None = None
-        if req.preset == "trend_liquidity_v1":
+        if req.preset in STRATEGY_IDS:
             def observed(day: date):
                 return self.census_store.day_evidence("TWSE", day, calendar=self.calendar)
 
@@ -405,17 +474,26 @@ class TaiwanScreenerService:
                 date.fromisoformat(daily_as_of),
                 observed if self.census_store is not None else None,
             )
+        revenue_evidence: RevenueEvidenceSnapshot | None = None
+        if risk_target_date is not None:
+            # Strategy data must have been public before the batch's entry
+            # session opens; only strictly earlier official observations count.
+            revenue_evidence = self.revenue_evidence_store.evidence_as_of(
+                event_market_open(risk_target_date)
+            )
         missing_quote_count = len(valid_symbols) - latest_daily.filter(
             pl.col("date") == latest_daily["date"].max()
         ).height
         quote_coverage_status = None
-        if req.preset == "trend_liquidity_v1":
+        if req.preset in STRATEGY_IDS:
             quote_coverage_status = self._quote_coverage_status(
                 universe_df, latest_daily, date.fromisoformat(daily_as_of)
             )
 
         # Step 3: Compute batch indicators (needs up to 30 trading days of history)
-        df_indicators = self._compute_batch_indicators(valid_symbols)
+        df_indicators = self._compute_batch_indicators(
+            valid_symbols, extended=req.preset in V2_STRATEGY_IDS
+        )
         trend_adjustment_status: Literal["verified", "partial", "unavailable"] | None = None
         trend_indicators: pl.DataFrame | None = None
         if req.preset == "trend_liquidity_v1":
@@ -433,6 +511,11 @@ class TaiwanScreenerService:
                     trend_indicator_basis="pit_adjusted",
                     trend_adjustment_status=trend_adjustment_status,
                     risk_target_date=risk_target_date.isoformat(),
+                    strategy_id=strategy_id,
+                    strategy_name=metadata["name"] if metadata else None,
+                    strategy_version=metadata["version"] if metadata else None,
+                    strategy_readiness="unavailable",
+                    strategy_readiness_reasons=[trend_degraded_section] if trend_degraded_section else ["趨勢資料不可用"],
                 )
 
         # Step 4: Join Universe + Latest Daily + Indicators
@@ -451,24 +534,35 @@ class TaiwanScreenerService:
         combined = self._enrich_price_limits(combined)
 
         # Step 6: Batch Join Institutional & Margin
-        combined, inst_date, margin_date, degraded = self._join_institutional_margin(combined, valid_symbols)
+        combined, inst_date, margin_date, degraded = self._join_institutional_margin(
+            combined, valid_symbols, strategy_id=req.preset
+        )
+        if req.streak_min_days is not None:
+            combined = self._join_institutional_streak(combined, req)
         if req.preset == "trend_liquidity_v1" and trend_degraded_section:
             degraded = [*degraded, trend_degraded_section]
 
         # Step 6.5: Batch Join Cached Fundamentals & Chips
-        combined, fund_count, chips_count = self._join_cached_fundamentals_chips(combined, valid_symbols)
+        combined, fund_count, chips_count = self._join_cached_fundamentals_chips(
+            combined, valid_symbols, revenue_evidence=revenue_evidence,
+        )
 
         if req.preset == "trend_liquidity_v1":
             # A missing/stale quote or indicator cannot qualify as a fresh candidate.
             combined = trend_liquidity_v1_candidates(combined, latest_daily["date"].max())
+        readiness_frame = combined
+        if req.preset in V2_STRATEGY_IDS:
+            readiness_frame = apply_strategy(combined, req.preset, filter_candidates=False)
+            combined = apply_strategy(combined, req.preset)
 
         # Step 7: Apply Strongly Typed Filters
         filtered = self._apply_filters(combined, req)
 
         risk_statuses: dict[str, str] = {}
         risk_source_status: Literal["available", "partial", "unavailable"] | None = None
+        risk_source_statuses: dict[str, str] = {}
         risk_source_as_of: str | None = None
-        if req.preset == "trend_liquidity_v1":
+        if req.preset in STRATEGY_IDS:
             from app.taiwan.events_service import get_event_service
 
             try:
@@ -476,6 +570,14 @@ class TaiwanScreenerService:
                 cached_events, risk_source_status, risk_source_as_of = (
                     event_svc.get_cached_regulatory_snapshot()
                 )
+                get_sources_status = getattr(event_svc, "get_last_sources_status", None)
+                if callable(get_sources_status):
+                    _last_status, risk_source_statuses = get_sources_status()
+                if risk_source_status == "unavailable":
+                    risk_source_statuses = {
+                        source: "stale" if status == "available" else status
+                        for source, status in risk_source_statuses.items()
+                    }
             except Exception:
                 event_svc = None
                 cached_events, risk_source_status, risk_source_as_of = [], "unavailable", None
@@ -511,9 +613,9 @@ class TaiwanScreenerService:
 
         # Step 11: Serialize items (with match reasons)
         items = self._build_items(paged_df, req)
-        if req.preset == "trend_liquidity_v1":
+        if req.preset in STRATEGY_IDS:
             for item in items:
-                item.risk_status = risk_statuses[item.symbol]
+                item.risk_status = risk_statuses.get(item.symbol)
 
         # Step 12: Coverage info
         coverage_note = (
@@ -527,6 +629,18 @@ class TaiwanScreenerService:
             chips_cached_count=chips_count,
             coverage_note=coverage_note,
         )
+
+        readiness = None
+        readiness_reasons: list[str] = []
+        strategy_coverage: dict[str, int] = {}
+        if req.preset in STRATEGY_IDS:
+            readiness, readiness_reasons, strategy_coverage = strategy_readiness(
+                readiness_frame, req.preset,
+                quote_coverage_status=quote_coverage_status,
+                risk_source_status=risk_source_status,
+                revenue_evidence_status=revenue_evidence.status if revenue_evidence else None,
+                revenue_mismatch_count=len(revenue_evidence.mismatches) if revenue_evidence else 0,
+            )
 
         return TaiwanScreenerResponse(
             items=items,
@@ -546,11 +660,54 @@ class TaiwanScreenerService:
             quote_coverage_status=quote_coverage_status,
             risk_unknown_count=sum(i.risk_status == "unknown" for i in items),
             risk_source_status=risk_source_status,
+            risk_source_statuses=risk_source_statuses,
             risk_source_as_of=risk_source_as_of,
-            trend_indicator_basis="pit_adjusted" if req.preset else "raw",
+            trend_indicator_basis="pit_adjusted" if req.preset == "trend_liquidity_v1" else "raw",
             trend_adjustment_status=trend_adjustment_status,
             risk_target_date=risk_target_date.isoformat() if risk_target_date else None,
+            strategy_id=strategy_id,
+            strategy_name=metadata["name"] if metadata else None,
+            strategy_version=metadata["version"] if metadata else None,
+            strategy_readiness=readiness,
+            strategy_readiness_reasons=readiness_reasons,
+            strategy_coverage=strategy_coverage,
+            revenue_evidence=(
+                self._revenue_evidence_summary(revenue_evidence, readiness_frame)
+                if revenue_evidence is not None else None
+            ),
         )
+
+    @staticmethod
+    def _revenue_evidence_summary(
+        evidence: RevenueEvidenceSnapshot, frame: pl.DataFrame
+    ) -> dict[str, Any]:
+        """Audit summary of the official revenue evidence behind this run."""
+        available = frame.filter(pl.col("revenue_status") == "available")
+        periods = available["revenue_latest_period"].drop_nulls().value_counts(sort=True)
+        latest_period = periods.row(0)[0] if periods.height else None
+        return {
+            "status": evidence.status,
+            "publication_basis": "official_observation",
+            "cutoff": evidence.cutoff.isoformat(),
+            "first_observed_at": evidence.first_observed_at,
+            "latest_observed_at": evidence.latest_observed_at,
+            "digest": evidence.digest,
+            "page_count": evidence.page_count,
+            "stale_page_count": evidence.stale_page_count,
+            "missing_pages": evidence.missing_pages[:24],
+            "symbols_with_evidence": len(evidence.rows_by_symbol),
+            "revenue_available_count": available.height,
+            "revenue_yoy_improvement_count": available.filter(
+                pl.col("revenue_yoy_improving").is_not_null()
+            ).height,
+            "mismatch_count": len(evidence.mismatches),
+            "mismatch_symbols": sorted(evidence.mismatches)[:20],
+            "latest_period": latest_period,
+            "latest_period_count": periods.row(0)[1] if periods.height else 0,
+            "status_counts": dict(
+                frame["revenue_status"].value_counts(sort=True).iter_rows()
+            ),
+        }
 
     def _get_universe(self, exchange: ExchangeFilter, instrument: InstrumentFilter) -> pl.DataFrame:
         """Fetch strictly supported symbols from TaiwanSecurityMaster as a Polars DataFrame."""
@@ -574,14 +731,16 @@ class TaiwanScreenerService:
 
         return df.select(["symbol", "name", "exchange", "instrument_type", "industry"]).unique(subset=["symbol"])
 
-    def _compute_batch_indicators(self, symbols: list[str]) -> pl.DataFrame:
+    def _compute_batch_indicators(self, symbols: list[str], *, extended: bool = False) -> pl.DataFrame:
         """Compute rolling indicators from past daily store records in a single batch."""
         available_dates = self.daily_store.available_dates()
         if len(available_dates) < 2:
             return pl.DataFrame()
 
-        # Look back up to 35 available partition dates
-        start_d = available_dates[max(0, len(available_dates) - 35)]
+        # v1 keeps its existing 35-session window. v2 needs 60 sessions for
+        # the fixed breakout and MA60 observations.
+        lookback = 65 if extended else 35
+        start_d = available_dates[max(0, len(available_dates) - lookback)]
         end_d = available_dates[-1]
 
         hist = self._normalize_daily_frame(self.daily_store.read_range(symbols, start_d, end_d))
@@ -592,14 +751,32 @@ class TaiwanScreenerService:
         hist = hist.sort(["symbol", "date"])
 
         # Compute per-symbol metrics using Polars window functions
-        hist = hist.with_columns([
+        expressions = [
             (pl.col("close") / pl.col("close").shift(1).over("symbol") - 1.0).alias("change_pct"),
             pl.col("close").rolling_mean(5).over("symbol").alias("ma5"),
             pl.col("close").rolling_mean(10).over("symbol").alias("ma10"),
             pl.col("close").rolling_mean(20).over("symbol").alias("ma20"),
             (pl.col("close") / pl.col("close").shift(5).over("symbol") - 1.0).alias("momentum_5d"),
             (pl.col("volume") / pl.col("volume").rolling_mean(5).over("symbol")).alias("vol_ratio_5d"),
-        ])
+        ]
+        if extended:
+            prior_volume_20 = pl.col("volume").shift(1).rolling_mean(20).over("symbol")
+            prior_high_20 = pl.col("high").shift(1).rolling_max(20).over("symbol")
+            prior_high_60 = pl.col("high").shift(1).rolling_max(60).over("symbol")
+            expressions.extend([
+                pl.col("close").rolling_mean(60).over("symbol").alias("ma60"),
+                (pl.col("close") / pl.col("close").shift(20).over("symbol") - 1.0).alias("momentum_20d"),
+                (pl.col("volume") / prior_volume_20).alias("vol_ratio_20d"),
+                (pl.col("close") / prior_high_20 - 1.0).alias("breakout_20d_strength"),
+                (pl.col("close") / prior_high_60 - 1.0).alias("breakout_60d_strength"),
+            ])
+        hist = hist.with_columns(expressions)
+        if extended:
+            hist = hist.with_columns([
+                (pl.col("close") - pl.col("ma20")).alias("_ma20_distance"),
+                (pl.col("momentum_5d") - pl.col("momentum_5d").shift(1).over("symbol"))
+                .alias("momentum_acceleration"),
+            ])
 
         # RSI 14 — canonical Wilder smoothing, shared with the technical panel.
         # This used to be an SMA-based variant, which gave the same symbol two
@@ -613,10 +790,16 @@ class TaiwanScreenerService:
         )
 
         # Keep only the latest row per symbol
+        columns = ["symbol", "change_pct", "ma5", "ma10", "ma20", "rsi_14", "momentum_5d", "vol_ratio_5d"]
+        if extended:
+            columns.extend([
+                "ma60", "momentum_20d", "vol_ratio_20d", "momentum_acceleration",
+                "breakout_20d_strength", "breakout_60d_strength",
+            ])
         latest_inds = (
             hist.with_columns(pl.col("date").max().over("symbol").alias("_max_d"))
             .filter(pl.col("date") == pl.col("_max_d"))
-            .select(["symbol", "change_pct", "ma5", "ma10", "ma20", "rsi_14", "momentum_5d", "vol_ratio_5d"])
+            .select(columns)
         )
         return latest_inds
 
@@ -755,7 +938,7 @@ class TaiwanScreenerService:
         ])
 
     def _join_institutional_margin(
-        self, df: pl.DataFrame, symbols: list[str]
+        self, df: pl.DataFrame, symbols: list[str], strategy_id: str | None = None,
     ) -> tuple[pl.DataFrame, str | None, str | None, list[str]]:
         """Join institutional and margin metadata safely via Polars batch join."""
         degraded = []
@@ -790,8 +973,47 @@ class TaiwanScreenerService:
                 "institutional_date", "institutional_status"
             ])
 
-        # 5-day rolling placeholders (or calculated if history present)
-        if "foreign_net_5d" not in df.columns:
+        # Keep v1's existing placeholder fields unchanged. v2 explicitly opts
+        # into a verified five-session institutional aggregate.
+        if strategy_id in V2_STRATEGY_IDS:
+            try:
+                end = date.fromisoformat(str(df["date"].max()))
+                start = end - timedelta(days=14)
+                history = self.institutional_store.read_range(symbols, start, end)
+                if not history.is_empty():
+                    history = history.filter(pl.col("status").is_in(["available", "official"]))
+                    latest_dates = sorted(history["date"].unique().to_list())[-5:]
+                    history = history.filter(pl.col("date").is_in(latest_dates))
+                    if len(latest_dates) == 5:
+                        five_day = history.group_by("symbol").agg([
+                            pl.col("foreign_net").cast(pl.Float64, strict=False).sum().alias("foreign_net_5d"),
+                            pl.col("investment_trust_net").cast(pl.Float64, strict=False).sum().alias("investment_trust_net_5d"),
+                            pl.col("dealer_net").cast(pl.Float64, strict=False).sum().alias("dealer_net_5d"),
+                        ]).with_columns(
+                            (pl.col("foreign_net_5d") + pl.col("investment_trust_net_5d")
+                             + pl.col("dealer_net_5d")).alias("institutional_flow_5d")
+                        )
+                        df = df.join(five_day, on="symbol", how="left").with_columns(
+                            (pl.col("institutional_flow_5d") / pl.col("volume")).alias("institutional_flow_ratio_5d")
+                        ).drop("institutional_flow_5d")
+                    else:
+                        df = self._add_null_cols(df, [
+                            "foreign_net_5d", "investment_trust_net_5d", "dealer_net_5d",
+                            "institutional_flow_ratio_5d",
+                        ])
+                else:
+                    df = self._add_null_cols(df, [
+                        "foreign_net_5d", "investment_trust_net_5d", "dealer_net_5d",
+                        "institutional_flow_ratio_5d",
+                    ])
+            except Exception as e:
+                logger.warning("Five-day institutional aggregate failed in screener: %s", e)
+                degraded.append("institutional_v2")
+                df = self._add_null_cols(df, [
+                    "foreign_net_5d", "investment_trust_net_5d", "dealer_net_5d",
+                    "institutional_flow_ratio_5d",
+                ])
+        elif "foreign_net_5d" not in df.columns:
             df = self._add_null_cols(df, ["foreign_net_5d", "investment_trust_net_5d"])
 
         # 2. Batch read latest margin
@@ -825,20 +1047,28 @@ class TaiwanScreenerService:
         return df, inst_date, margin_date, degraded
 
     def _join_cached_fundamentals_chips(
-        self, df: pl.DataFrame, symbols: list[str]
+        self, df: pl.DataFrame, symbols: list[str], *,
+        revenue_evidence: RevenueEvidenceSnapshot | None = None,
     ) -> tuple[pl.DataFrame, int, int]:
-        """Join cached fundamental metrics, extra chips, and quant scores safely from local store."""
-        symbols_set = set(symbols)
+        """Join cached fundamental metrics, extra chips, and quant scores safely from local store.
+
+        Strategy runs pass ``revenue_evidence``: monthly revenue then comes only
+        from official observations made before the selection cutoff, and the
+        FinMind revenue cache is not consulted at all.
+        """
         fc_svc = self._get_fundamental_chips_service()
 
-        cached_rev_syms = set(self.cache.list_cached_symbols("TaiwanStockMonthRevenue")) & symbols_set
-        cached_fin_syms = set(self.cache.list_cached_symbols("TaiwanStockFinancialStatements")) & symbols_set
-        cached_val_syms = set(self.cache.list_cached_symbols("TaiwanValuation")) & symbols_set
-        cached_share_syms = set(self.cache.list_cached_symbols("TaiwanStockShareholding")) & symbols_set
-        cached_lend_syms = set(self.cache.list_cached_symbols("TaiwanStockSecuritiesLending")) & symbols_set
+        cached_rev_keys = (
+            {} if revenue_evidence is not None
+            else self._cached_symbol_keys("TaiwanStockMonthRevenue", symbols)
+        )
+        cached_fin_keys = self._cached_symbol_keys("TaiwanStockFinancialStatements", symbols)
+        cached_val_keys = self._cached_symbol_keys("TaiwanValuation", symbols)
+        cached_share_keys = self._cached_symbol_keys("TaiwanStockShareholding", symbols)
+        cached_lend_keys = self._cached_symbol_keys("TaiwanStockSecuritiesLending", symbols)
 
-        fundamental_symbols = cached_rev_syms | cached_fin_syms | cached_val_syms
-        chips_symbols = cached_share_syms | cached_lend_syms
+        fundamental_symbols = set(cached_rev_keys) | set(cached_fin_keys) | set(cached_val_keys)
+        chips_symbols = set(cached_share_keys) | set(cached_lend_keys)
 
         # Live Quant scores
         quant_scores: dict[str, float] = {}
@@ -861,31 +1091,69 @@ class TaiwanScreenerService:
         dy_map: dict[str, float | None] = {}
         rev_yoy_map: dict[str, float | None] = {}
         rev_mom_map: dict[str, float | None] = {}
+        rev_yoy_improving_map: dict[str, bool | None] = {}
+        rev_yoy_improvement_map: dict[str, float | None] = {}
+        rev_status_map: dict[str, str] = {}
+        rev_period_map: dict[str, str | None] = {}
         eps_map: dict[str, float | None] = {}
         net_inc_map: dict[str, float | None] = {}
         share_ratio_map: dict[str, float | None] = {}
         share_chg20_map: dict[str, float | None] = {}
         lend_anomaly_map: dict[str, str | None] = {}
 
-        for sym in cached_val_syms:
-            cached = self.cache.get("TaiwanValuation", sym)
+        for sym, cache_key in cached_val_keys.items():
+            cached = self.cache.get("TaiwanValuation", cache_key)
             if cached and cached.get("data"):
                 d = cached["data"]
                 pe_map[sym] = parse_number(d.get("pe"))
                 pb_map[sym] = parse_number(d.get("pb"))
                 dy_map[sym] = parse_number(d.get("dividend_yield"))
 
-        for sym in cached_rev_syms:
-            cached = self.cache.get("TaiwanStockMonthRevenue", sym)
+        revenue_rows: dict[str, tuple[list[dict[str, Any]], str | None, str]] = {}
+        for sym, cache_key in cached_rev_keys.items():
+            cached = self.cache.get("TaiwanStockMonthRevenue", cache_key)
             if cached and cached.get("data"):
-                rev_data = fc_svc._process_month_revenue(
-                    cached["data"], cached.get("data_date"), cached.get("fetched_at", "")
-                )
-                rev_yoy_map[sym] = rev_data.yoy
-                rev_mom_map[sym] = rev_data.mom
+                revenue_rows[sym] = (cached["data"], cached.get("data_date"), cached.get("fetched_at", ""))
+        if revenue_evidence is not None:
+            evidence_status = {
+                "missing": "evidence_missing",
+                "not_observed_before_cutoff": "publication_unknown",
+                "stale": "stale",
+                "incomplete": "evidence_incomplete",
+            }.get(revenue_evidence.status)
+            for sym in df["symbol"].to_list():
+                if evidence_status is not None:
+                    rev_status_map[sym] = evidence_status
+                elif sym in revenue_evidence.mismatches:
+                    rev_status_map[sym] = "source_mismatch"
+                elif sym not in revenue_evidence.rows_by_symbol:
+                    rev_status_map[sym] = "evidence_missing"
+                else:
+                    revenue_rows[sym] = (
+                        revenue_evidence.rows_by_symbol[sym], None,
+                        revenue_evidence.latest_observed_at or "",
+                    )
 
-        for sym in cached_fin_syms:
-            cached = self.cache.get("TaiwanStockFinancialStatements", sym)
+        for sym, (rows, data_date, fetched_at) in revenue_rows.items():
+            # PIT selection already happened for official evidence; the shared
+            # calculation below is the unchanged YoY/MoM definition.
+            rev_data = fc_svc._process_month_revenue(rows, data_date, fetched_at)
+            rev_yoy_map[sym] = rev_data.yoy
+            rev_mom_map[sym] = rev_data.mom
+            rev_period_map[sym] = rev_data.latest_year_month
+            valid_yoy = [item.yoy for item in rev_data.trend if item.yoy is not None]
+            if rev_data.meta and rev_data.meta.status == "available" and rev_data.yoy is not None:
+                rev_status_map[sym] = "available"
+            else:
+                rev_status_map[sym] = (
+                    "insufficient_history" if revenue_evidence is not None else "unavailable"
+                )
+            if len(valid_yoy) >= 2:
+                rev_yoy_improvement_map[sym] = valid_yoy[-1] - valid_yoy[-2]
+                rev_yoy_improving_map[sym] = valid_yoy[-1] > valid_yoy[-2]
+
+        for sym, cache_key in cached_fin_keys.items():
+            cached = self.cache.get("TaiwanStockFinancialStatements", cache_key)
             if cached and cached.get("data"):
                 fin_data = fc_svc._process_financial_statements(
                     cached["data"], cached.get("data_date"), cached.get("fetched_at", "")
@@ -893,8 +1161,8 @@ class TaiwanScreenerService:
                 eps_map[sym] = fin_data.latest_eps
                 net_inc_map[sym] = fin_data.net_income
 
-        for sym in cached_share_syms:
-            cached = self.cache.get("TaiwanStockShareholding", sym)
+        for sym, cache_key in cached_share_keys.items():
+            cached = self.cache.get("TaiwanStockShareholding", cache_key)
             if cached and cached.get("data"):
                 sh_data = fc_svc._process_shareholding(
                     cached["data"], cached.get("data_date"), cached.get("fetched_at", "")
@@ -902,8 +1170,8 @@ class TaiwanScreenerService:
                 share_ratio_map[sym] = sh_data.ratio
                 share_chg20_map[sym] = sh_data.change_20d
 
-        for sym in cached_lend_syms:
-            cached = self.cache.get("TaiwanStockSecuritiesLending", sym)
+        for sym, cache_key in cached_lend_keys.items():
+            cached = self.cache.get("TaiwanStockSecuritiesLending", cache_key)
             if cached and cached.get("data"):
                 sl_data = fc_svc._process_securities_lending(
                     cached["data"], cached.get("data_date"), cached.get("fetched_at", "")
@@ -916,6 +1184,10 @@ class TaiwanScreenerService:
         dys = [dy_map.get(s) for s in df_symbols]
         rev_yoys = [rev_yoy_map.get(s) for s in df_symbols]
         rev_moms = [rev_mom_map.get(s) for s in df_symbols]
+        rev_yoy_improving = [rev_yoy_improving_map.get(s) for s in df_symbols]
+        rev_yoy_improvement = [rev_yoy_improvement_map.get(s) for s in df_symbols]
+        rev_statuses = [rev_status_map.get(s, "unavailable") for s in df_symbols]
+        rev_periods = [rev_period_map.get(s) for s in df_symbols]
         epss = [eps_map.get(s) for s in df_symbols]
         net_incs = [net_inc_map.get(s) for s in df_symbols]
         share_ratios = [share_ratio_map.get(s) for s in df_symbols]
@@ -929,6 +1201,10 @@ class TaiwanScreenerService:
             pl.Series("dividend_yield", dys, dtype=pl.Float64),
             pl.Series("revenue_yoy", rev_yoys, dtype=pl.Float64),
             pl.Series("revenue_mom", rev_moms, dtype=pl.Float64),
+            pl.Series("revenue_yoy_improving", rev_yoy_improving, dtype=pl.Boolean),
+            pl.Series("revenue_yoy_improvement", rev_yoy_improvement, dtype=pl.Float64),
+            pl.Series("revenue_status", rev_statuses, dtype=pl.String),
+            pl.Series("revenue_latest_period", rev_periods, dtype=pl.String),
             pl.Series("latest_eps", epss, dtype=pl.Float64),
             pl.Series("net_income", net_incs, dtype=pl.Float64),
             pl.Series("foreign_shareholding_ratio", share_ratios, dtype=pl.Float64),
@@ -938,6 +1214,28 @@ class TaiwanScreenerService:
         ])
 
         return df, len(fundamental_symbols), len(chips_symbols)
+
+    def _cached_symbol_keys(self, dataset: str, symbols: list[str]) -> dict[str, str]:
+        """Resolve canonical symbols to valid cache keys without exchange ambiguity."""
+        cached_keys = set(self.cache.list_cached_symbols(dataset))
+        resolved: dict[str, str] = {}
+        raw_to_symbols: dict[str, list[str]] = {}
+        for symbol in symbols:
+            raw_to_symbols.setdefault(symbol.split(".", 1)[0], []).append(symbol)
+
+        for symbol in symbols:
+            candidates = [symbol]
+            raw_code = symbol.split(".", 1)[0]
+            if len(raw_to_symbols[raw_code]) == 1:
+                candidates.append(raw_code)
+            for cache_key in candidates:
+                if cache_key not in cached_keys:
+                    continue
+                payload = self.cache.get(dataset, cache_key)
+                if payload and payload.get("status") == "available" and payload.get("data"):
+                    resolved[symbol] = cache_key
+                    break
+        return resolved
 
 
     @staticmethod
@@ -981,6 +1279,27 @@ class TaiwanScreenerService:
             return False
         latest_d = max(past_dates)
         return 0 <= (ref_date - latest_d).days <= 135
+
+    def _join_institutional_streak(self, df: pl.DataFrame, req: TaiwanScreenerRequest) -> pl.DataFrame:
+        from app.taiwan.institutional_statistics import TaiwanInstitutionalStatisticsService
+
+        target = df["date"].max()
+        snapshot = TaiwanInstitutionalStatisticsService(
+            self.institutional_store, self.daily_store, self.security_master,
+            self.calendar, self.census_store,
+        ).get_snapshot(target, 60)
+        values = []
+        for item in snapshot.securities:
+            metric = getattr(item.investors[req.streak_investor], f"{req.streak_direction}_streak")
+            values.append({"symbol": item.symbol, "_institutional_streak_days": metric.value,
+                           "_institutional_streak_meta": json.dumps({**metric.model_dump(), "investor": req.streak_investor, "direction": req.streak_direction})})
+        if not values:
+            return df.with_columns(pl.lit(None, dtype=pl.Float64).alias("_institutional_streak_days"))
+        return df.join(pl.DataFrame(values, schema={"symbol": pl.String, "_institutional_streak_days": pl.Float64,
+                                                  "_institutional_streak_meta": pl.String}), on="symbol", how="left").with_columns(
+            pl.when(pl.col("date") == target).then(pl.col("_institutional_streak_days"))
+            .otherwise(None).alias("_institutional_streak_days")
+        )
 
     def _apply_filters(self, df: pl.DataFrame, req: TaiwanScreenerRequest) -> pl.DataFrame:
         """Apply strongly typed whitelist filters."""
@@ -1051,6 +1370,8 @@ class TaiwanScreenerService:
             df = df.filter(pl.col("distance_to_lower_limit") <= req.distance_to_lower_limit_max)
 
         # Institutional
+        if req.streak_min_days is not None:
+            df = df.filter(pl.col("_institutional_streak_days") >= req.streak_min_days)
         if req.foreign_net_min is not None:
             df = df.filter(pl.col("foreign_net") >= req.foreign_net_min)
         if req.foreign_net_max is not None:
@@ -1167,6 +1488,8 @@ class TaiwanScreenerService:
         descending = sort_order == "desc"
         if sort_by == "trend_liquidity_v1":
             return rank_trend_liquidity_v1(df)
+        if sort_by in V2_STRATEGY_IDS:
+            return rank_strategy(df, sort_by)
         if sort_by not in df.columns:
             sort_by = "symbol"
             descending = False
@@ -1181,6 +1504,39 @@ class TaiwanScreenerService:
         items = []
         for r in df.iter_rows(named=True):
             reasons: list[str] = []
+            strategy_signals: list[str] = []
+            strategy_id = req.preset if req and req.preset in STRATEGY_IDS else None
+            if strategy_id == "institutional_momentum_v1":
+                strategy_signals = [
+                    "5日外資淨買超" if r.get("foreign_net_5d") is not None else "法人資料不可用",
+                    "5日投信淨買超" if r.get("investment_trust_net_5d") is not None else "法人資料不可用",
+                    "法人流量/成交量達固定門檻" if r.get("institutional_flow_ratio_5d") is not None else "法人流量不可用",
+                    "收盤站上 MA20" if r.get("ma20") is not None else "MA20 不可用",
+                    "成交金額達流動性門檻" if r.get("amount") is not None else "成交金額不可用",
+                ]
+                reasons.extend(strategy_signals)
+            elif strategy_id == "growth_trend_v1":
+                strategy_signals = [
+                    f"月營收 YoY {r['revenue_yoy']:+.1f}%" if r.get("revenue_yoy") is not None else "月營收資料不可用",
+                    "YoY 改善" if r.get("revenue_yoy_improving") is True else "YoY 趨勢資料不足",
+                    "收盤站上 MA20/MA60" if r.get("ma60") is not None else "MA60 不可用",
+                    "5D/20D 動能為正" if r.get("momentum_20d") is not None else "20D 動能不可用",
+                    "成交金額達流動性門檻" if r.get("amount") is not None else "成交金額不可用",
+                ]
+                reasons.extend(strategy_signals)
+            elif strategy_id == "breakout_v1":
+                strategy_signals = [
+                    "突破 20D/60D 高點",
+                    "20D 量比達固定門檻" if r.get("vol_ratio_20d") is not None else "20D 量能不可用",
+                    "動能加速度為正" if r.get("momentum_acceleration") is not None else "動能歷史不足",
+                    "收盤站上 MA20" if r.get("ma20") is not None else "MA20 不可用",
+                    "成交金額達流動性門檻" if r.get("amount") is not None else "成交金額不可用",
+                ]
+                reasons.extend(strategy_signals)
+            elif strategy_id == "multi_factor_consensus_v1":
+                names = [name for name in (r.get("consensus_strategy_names") or "").split("、") if name]
+                strategy_signals = [f"命中 {r.get('consensus_hit_count') or 0}/3 策略", *names]
+                reasons.extend(strategy_signals)
             if req:
                 # Revenue
                 rev_yoy = r.get("revenue_yoy")
@@ -1271,13 +1627,21 @@ class TaiwanScreenerService:
                 rsi_14=r.get("rsi_14"),
                 momentum_5d=r.get("momentum_5d"),
                 vol_ratio_5d=r.get("vol_ratio_5d"),
+                ma60=r.get("ma60") if strategy_id else None,
+                momentum_20d=r.get("momentum_20d") if strategy_id else None,
+                vol_ratio_20d=r.get("vol_ratio_20d") if strategy_id else None,
+                momentum_acceleration=r.get("momentum_acceleration") if strategy_id else None,
+                breakout_20d_strength=r.get("breakout_20d_strength") if strategy_id else None,
+                breakout_60d_strength=r.get("breakout_60d_strength") if strategy_id else None,
                 foreign_net=r.get("foreign_net"),
                 foreign_net_5d=r.get("foreign_net_5d"),
                 investment_trust_net=r.get("investment_trust_net"),
                 investment_trust_net_5d=r.get("investment_trust_net_5d"),
                 dealer_net=r.get("dealer_net"),
+                institutional_flow_ratio_5d=r.get("institutional_flow_ratio_5d") if strategy_id else None,
                 institutional_date=r.get("institutional_date"),
                 institutional_status=r.get("institutional_status") or "unavailable",
+                institutional_streak=json.loads(r["_institutional_streak_meta"]) if r.get("_institutional_streak_meta") else None,
                 margin_balance=r.get("margin_balance"),
                 margin_balance_change=r.get("margin_balance_change"),
                 short_balance=r.get("short_balance"),
@@ -1289,12 +1653,22 @@ class TaiwanScreenerService:
                 dividend_yield=r.get("dividend_yield"),
                 revenue_yoy=r.get("revenue_yoy"),
                 revenue_mom=r.get("revenue_mom"),
+                revenue_yoy_improving=r.get("revenue_yoy_improving") if strategy_id else None,
+                revenue_status=r.get("revenue_status") if strategy_id else "unavailable",
                 latest_eps=r.get("latest_eps"),
                 foreign_shareholding_ratio=r.get("foreign_shareholding_ratio"),
                 foreign_shareholding_change_20d=r.get("foreign_shareholding_change_20d"),
                 securities_lending_anomaly=r.get("securities_lending_anomaly"),
                 quant_score=r.get("quant_score"),
                 match_reasons=reasons,
+                strategy_id=strategy_id,
+                strategy_version=(strategy_metadata(strategy_id)["version"] if strategy_id else None),
+                strategy_signals=strategy_signals,
+                consensus_hit_count=r.get("consensus_hit_count") if strategy_id else None,
+                consensus_strategy_names=(
+                    [name for name in (r.get("consensus_strategy_names") or "").split("、") if name]
+                    if strategy_id == "multi_factor_consensus_v1" else []
+                ),
             ))
         return items
 

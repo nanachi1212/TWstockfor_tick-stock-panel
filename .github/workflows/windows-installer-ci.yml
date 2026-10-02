@@ -1,0 +1,78 @@
+name: Windows Installer CI
+
+on:
+  pull_request:
+    paths:
+      - 'backend/app/config.py'
+      - 'backend/app/desktop.py'
+      - 'backend/app/release_*.py'
+      - 'backend/tests/test_desktop.py'
+      - 'backend/tests/test_release_*.py'
+      - 'frontend/**'
+      - 'packaging/**'
+      - 'scripts/build-windows-installer.ps1'
+      - 'scripts/test-windows-installer.ps1'
+      - 'scripts/*release_seed.py'
+      - 'scripts/release_privacy_audit.py'
+      - '.github/workflows/windows-installer-ci.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-and-smoke:
+    runs-on: windows-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: pnpm
+          cache-dependency-path: frontend/pnpm-lock.yaml
+
+      - name: Install and build frontend
+        working-directory: frontend
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm build
+
+      - uses: astral-sh/setup-uv@v3
+        with:
+          enable-cache: true
+
+      - name: Install Python and backend dependencies
+        working-directory: backend
+        run: |
+          uv python install 3.12
+          uv sync --extra desktop --extra legacy-cpu
+          uv pip install pyinstaller
+
+      - name: Build pinned public release seed and run seed privacy gate
+        working-directory: backend
+        run: uv run python ../scripts/prepare_release_seed.py
+
+      - name: Install Inno Setup
+        run: choco install innosetup -y --no-progress
+
+      - name: Build installer, run clean-install smoke, and scan unpacked artifact
+        shell: pwsh
+        run: ./scripts/build-windows-installer.ps1 -SkipFrontendBuild
+
+      - name: Upload unsigned installer only after privacy and smoke PASS
+        uses: actions/upload-artifact@v4
+        with:
+          name: NanachiStockPanel-Setup-x64-unsigned
+          path: |
+            packaging/Output/NanachiStockPanel-Setup-x64.exe
+            release-assets/installer-build-result.json
+            release-assets/installer-smoke/release-privacy-audit.json
+            release-assets/installer-smoke/smoke-result.json
+          if-no-files-found: error
+          retention-days: 14

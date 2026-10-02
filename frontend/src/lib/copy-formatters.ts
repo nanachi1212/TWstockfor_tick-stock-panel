@@ -57,7 +57,33 @@ export function pct(v: unknown, decimals = 2, fallback = '不可用 (unavailable
   return `${n >= 0 ? '+' : ''}${n.toFixed(decimals)}%`
 }
 
+export function sharesAndLots(v: unknown, fallback = '不可用 (unavailable)'): string {
+  if (v === null || v === undefined || v === '') return fallback
+  const shares = Number(v)
+  if (!Number.isFinite(shares)) return fallback
+  const lots = shares / 1000
+  const lotsLabel = Number.isInteger(lots)
+    ? lots.toLocaleString('en-US')
+    : `約 ${Math.round(lots).toLocaleString('en-US')}`
+  return `${shares.toLocaleString('en-US', { maximumFractionDigits: 0 })} 股（${lotsLabel} 張）`
+}
+
+export function twd(v: unknown, fallback = '不可用 (unavailable)'): string {
+  if (v === null || v === undefined || v === '') return fallback
+  const amount = Number(v)
+  if (!Number.isFinite(amount)) return fallback
+  return `${amount.toLocaleString('en-US', { maximumFractionDigits: 0 })} 元`
+}
+
 // ─── 1. Stock Detail Formatter ───────────────────────────────────────────────
+
+export interface CopyAvailabilityMeta {
+  source?: string | null
+  status?: string | null
+  reason?: string | null
+  data_date?: string | null
+  freshness?: string | null
+}
 
 export interface StockDetailCopyData {
   symbol: string
@@ -76,6 +102,11 @@ export interface StockDetailCopyData {
     low?: number | null
     volume?: number | null
     turnover?: number | null
+    turnover_source?: string | null
+    turnover_status?: string | null
+    turnover_as_of?: string | null
+    turnover_reason?: string | null
+    turnover_freshness?: string | null
     quote_time?: string | null
   } | null
   quant?: {
@@ -83,6 +114,8 @@ export interface StockDetailCopyData {
     rank?: number | null
     reasons?: string[] | null
     factors?: Record<string, number | null> | null
+    unavailable_reason?: string | null
+    meta?: CopyAvailabilityMeta | null
   } | null
   valuation?: {
     pe?: number | null
@@ -98,6 +131,8 @@ export interface StockDetailCopyData {
     gross_margin?: number | null
     operating_margin?: number | null
     net_margin?: number | null
+    unavailable_reason?: string | null
+    meta?: CopyAvailabilityMeta | null
   } | null
   institutional_flows?: {
     foreign_buy_sell?: number | null
@@ -105,20 +140,30 @@ export interface StockDetailCopyData {
     dealer_buy_sell?: number | null
     total_buy_sell?: number | null
     date?: string | null
+    meta?: CopyAvailabilityMeta | null
   } | null
   foreign_shareholding?: {
     ratio?: number | null
     change_20d?: number | null
+    unavailable_reason?: string | null
+    meta?: CopyAvailabilityMeta | null
   } | null
   margin_lending?: {
     margin_balance?: number | null
     short_balance?: number | null
-    lending_balance?: number | null
+    lending_latest_volume?: number | null
+    margin_meta?: CopyAvailabilityMeta | null
+    lending_meta?: CopyAvailabilityMeta | null
   } | null
   market_context?: {
-    taiex_close?: number | null
-    taiex_change_pct?: number | null
-    sentiment?: string | null
+    benchmark_symbol?: string | null
+    benchmark_name?: string | null
+    close?: number | null
+    change_pct?: number | null
+    as_of?: string | null
+    status?: string | null
+    unavailable_reason?: string | null
+    meta?: CopyAvailabilityMeta | null
   } | null
   technical_summary?: string | null
   official_events?: Array<{
@@ -148,6 +193,9 @@ export interface StockDetailCopyData {
 
 export function formatStockDetailCopy(d: StockDetailCopyData): string {
   const lines: string[] = []
+  const availability = (label: string, meta: CopyAvailabilityMeta | null | undefined) => {
+    lines.push(`- ${label} metadata：source=${sanitize(meta?.source)} | status=${sanitize(meta?.status)} | reason=${sanitize(meta?.reason)} | data_date=${sanitize(meta?.data_date)} | freshness=${sanitize(meta?.freshness)}`)
+  }
   lines.push(`# 個股資料：${sanitize(d.name)}（${sanitize(d.symbol)}）`)
   lines.push(`- 市場：${sanitize(d.exchange ?? 'TWSE/TPEX')} | 類別：${sanitize(d.instrument_type ?? '股票')} | 產業：${sanitize(d.sector)}`)
   lines.push(`- 資料日期 (as_of)：${sanitize(d.data_as_of)} | 資料狀態：${sanitize(d.freshness ?? 'fresh')}`)
@@ -159,7 +207,8 @@ export function formatStockDetailCopy(d: StockDetailCopyData): string {
     lines.push(`- 收盤價：${num(d.quote.close)} 元`)
     lines.push(`- 漲跌幅：${pct(d.quote.change_pct)}（漲跌：${num(d.quote.change)} 元）`)
     lines.push(`- 開高低：開盤 ${num(d.quote.open)} | 最高 ${num(d.quote.high)} | 最低 ${num(d.quote.low)}`)
-    lines.push(`- 成交量：${num(d.quote.volume, 0)} 張 | 成交金額：${num(d.quote.turnover, 0)} 千元`)
+    lines.push(`- 成交量：${sharesAndLots(d.quote.volume)} | 成交金額：${twd(d.quote.turnover)}`)
+    lines.push(`- 成交金額 metadata：source=${sanitize(d.quote.turnover_source)} | status=${sanitize(d.quote.turnover_status)} | reason=${sanitize(d.quote.turnover_reason)} | data_date=${sanitize(d.quote.turnover_as_of)} | freshness=${sanitize(d.quote.turnover_freshness)}`)
     if (d.quote.quote_time) lines.push(`- 行情時間戳：${sanitize(d.quote.quote_time)}`)
   } else {
     lines.push('- 即時行情：不可用 (unavailable)')
@@ -183,8 +232,10 @@ export function formatStockDetailCopy(d: StockDetailCopyData): string {
         lines.push(`  - ${k}: ${num(v)}`)
       }
     }
+    availability('量化評分', d.quant.meta)
   } else {
-    lines.push('- 量化評分：不可用 (unavailable)')
+    lines.push(`- 量化評分：不可用 (unavailable) | 原因：${sanitize(d.quant?.unavailable_reason)}`)
+    availability('量化評分', d.quant?.meta)
   }
   lines.push('')
 
@@ -198,6 +249,8 @@ export function formatStockDetailCopy(d: StockDetailCopyData): string {
   if (d.fundamentals) {
     lines.push(`- 營收年增率 (YoY)：${pct(d.fundamentals.revenue_yoy)} | 月增率 (MoM)：${pct(d.fundamentals.revenue_mom)}${d.fundamentals.revenue_date ? ` (${d.fundamentals.revenue_date})` : ''}`)
     lines.push(`- 每股盈餘 (EPS)：${num(d.fundamentals.eps)} 元${d.fundamentals.eps_date ? ` (${d.fundamentals.eps_date})` : ''}`)
+    if (d.fundamentals.eps == null) lines.push(`- EPS 不可用原因：${sanitize(d.fundamentals.unavailable_reason)}`)
+    availability('EPS', d.fundamentals.meta)
     if (d.fundamentals.gross_margin != null || d.fundamentals.operating_margin != null || d.fundamentals.net_margin != null) {
       lines.push(`- 獲利能力：毛利率 ${pct(d.fundamentals.gross_margin)} | 營業利益率 ${pct(d.fundamentals.operating_margin)} | 稅後淨利率 ${pct(d.fundamentals.net_margin)}`)
     }
@@ -208,28 +261,38 @@ export function formatStockDetailCopy(d: StockDetailCopyData): string {
 
   // 籌碼面
   lines.push('## 籌碼面資訊')
-  if (d.institutional_flows) {
+  if (d.institutional_flows && [d.institutional_flows.foreign_buy_sell, d.institutional_flows.trust_buy_sell, d.institutional_flows.dealer_buy_sell, d.institutional_flows.total_buy_sell].some(value => value != null)) {
     const f = d.institutional_flows
     lines.push(`- 三大法人買賣超${f.date ? ` (${f.date})` : ''}：`)
-    lines.push(`  - 外資：${num(f.foreign_buy_sell, 0)} 張`)
-    lines.push(`  - 投信：${num(f.trust_buy_sell, 0)} 張`)
-    lines.push(`  - 自營商：${num(f.dealer_buy_sell, 0)} 張`)
-    lines.push(`  - 合計買賣超：${num(f.total_buy_sell, 0)} 張`)
+    lines.push(`  - 外資：${sharesAndLots(f.foreign_buy_sell)}`)
+    lines.push(`  - 投信：${sharesAndLots(f.trust_buy_sell)}`)
+    lines.push(`  - 自營商：${sharesAndLots(f.dealer_buy_sell)}`)
+    lines.push(`  - 合計買賣超：${sharesAndLots(f.total_buy_sell)}`)
   } else {
-    lines.push('- 法人買賣超：不可用 (unavailable)')
+    lines.push(`- 法人買賣超：不可用 (unavailable) | 原因：${sanitize(d.institutional_flows?.meta?.reason)}`)
   }
+  availability('法人買賣超', d.institutional_flows?.meta)
   if (d.foreign_shareholding) {
     lines.push(`- 外資持股比例：${pct(d.foreign_shareholding.ratio)} | 外資20日持股變動：${pct(d.foreign_shareholding.change_20d)}`)
+    if (d.foreign_shareholding.ratio == null) lines.push(`- 外資持股不可用原因：${sanitize(d.foreign_shareholding.unavailable_reason)}`)
+    availability('外資持股', d.foreign_shareholding.meta)
   }
   if (d.margin_lending) {
-    lines.push(`- 信用與借券：融資餘額 ${num(d.margin_lending.margin_balance, 0)} 張 | 融券餘額 ${num(d.margin_lending.short_balance, 0)} 張 | 借券賣出餘額 ${num(d.margin_lending.lending_balance, 0)} 張`)
+    lines.push(`- 信用與借券：融資餘額 ${sharesAndLots(d.margin_lending.margin_balance)} | 融券餘額 ${sharesAndLots(d.margin_lending.short_balance)} | 借券最新成交量 ${sharesAndLots(d.margin_lending.lending_latest_volume)}`)
+    availability('融資融券', d.margin_lending.margin_meta)
+    availability('借券成交量', d.margin_lending.lending_meta)
   }
   lines.push('')
 
   // 市場環境
   if (d.market_context) {
     lines.push('## 市場環境')
-    lines.push(`- 加權指數收盤：${num(d.market_context.taiex_close)} (${pct(d.market_context.taiex_change_pct)}) | 市場情緒：${sanitize(d.market_context.sentiment)}`)
+    lines.push(`- ${sanitize(d.market_context.benchmark_name)}（${sanitize(d.market_context.benchmark_symbol)}）：${num(d.market_context.close)} 點 (${pct(d.market_context.change_pct)})`)
+    availability('市場基準', d.market_context.meta ?? {
+      status: d.market_context.status,
+      reason: d.market_context.unavailable_reason,
+      data_date: d.market_context.as_of,
+    })
     lines.push('')
   }
 
@@ -635,6 +698,41 @@ export function formatSelectionReviewCopy(d: SelectionReviewCopyData): string {
 export function formatSelectionReviewPrompt(d: SelectionReviewCopyData): string {
   const data = formatSelectionReviewCopy(d)
   return `以下是台股選股策略復盤回顧資料：\n\n${data}\n\n${EXTERNAL_AI_PROMPT_FOOTER}`
+}
+
+export interface SocialSentimentCopyData {
+  as_of: string
+  generated_at: string
+  source_statuses: Record<string, string>
+  rankings: Array<{
+    rank: number
+    symbol: string
+    name: string
+    mentions: number
+    heat: number
+    sentiment: string
+    score: number | null
+    confidence: number | null
+  }>
+}
+
+export function formatSocialSentimentPrompt(d: SocialSentimentCopyData): string {
+  const lines = [
+    '# 台股社群聲量排行榜',
+    `- 資料日期：${sanitize(d.as_of)}`,
+    `- 產生時間：${sanitize(d.generated_at)}`,
+    `- 來源覆蓋：${Object.entries(d.source_statuses).map(([source, status]) => `${sanitize(source)}=${sanitize(status)}`).join('、')}`,
+    '',
+    '## 熱門標的',
+  ]
+  if (d.rankings.length === 0) lines.push('- 無可用排行資料')
+  for (const row of d.rankings) {
+    lines.push(
+      `${row.rank}. ${sanitize(row.name)}（${sanitize(row.symbol)}）：聲量 ${num(row.mentions, 0)}，熱度 ${num(row.heat)}，情緒 ${sanitize(row.sentiment)}，分數 ${num(row.score)}，信心 ${num(row.confidence)}`,
+    )
+  }
+  lines.push('', '> 社群討論可能有抽樣與群體偏誤，不代表公司基本面、官方資料或未來股價。')
+  return `以下是台股社群聲量資料，請把不可用來源視為缺資料，不得當成零討論：\n\n${lines.join('\n')}\n\n${EXTERNAL_AI_PROMPT_FOOTER}`
 }
 
 // ─── Clipboard Helper ────────────────────────────────────────────────────────

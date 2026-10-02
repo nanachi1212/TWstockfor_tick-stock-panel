@@ -8,6 +8,8 @@
 // ===== Query Key 工廠 =====
 
 export const QK = {
+  marketBreadthValuation: (asOf?: string, market = 'composite', days = 20, sections = 'all') =>
+    ['market-breadth-valuation', asOf ?? 'latest', market, days, sections] as const,
   // 全局 / 共享 (Layout 預取)
   capabilities:   ['capabilities'] as const,
   settings:       ['settings'] as const,
@@ -17,6 +19,8 @@ export const QK = {
   aiKeyProfiles:  ['ai-key-profiles'] as const,
   dataSources:    ['data-sources'] as const,
   taiwanDataStatus: ['taiwan-data-status'] as const,
+  dataHealth: ['data-health'] as const,
+  dataHealthJobs: ['data-health-jobs'] as const,
   taiwanQuantEvaluation: ['taiwan-quant-evaluation'] as const,
   taiwanQuantA2bProgress: ['taiwan-quant-a2b-progress'] as const,
   taiwanQuantLiveModels: ['taiwan-quant-live-models'] as const,
@@ -102,10 +106,16 @@ export const QK = {
   taiwanStockDetail:    (symbol: string, days?: number) => ['taiwan-stock-detail', symbol, days ?? 120] as const,
   taiwanCurrentData:    (symbol: string) => ['taiwan-current-data', symbol] as const,
   taiwanCapabilities:   ['taiwan-capabilities'] as const,
-  taiwanEvents:         (scope?: string, symbols?: string, date?: string) => ['taiwan-events', scope ?? 'all', symbols ?? '', date ?? ''] as const,
+  institutionalStatistics: (date: string, window: number) => ['institutional-statistics', date || 'latest', window] as const,
+  industryRotation: (date: string) => ['industry-rotation', date || 'latest'] as const,
+  taiwanEvents:         (scope?: string, symbols?: string, date?: string, eventType?: string) => ['taiwan-events', scope ?? 'all', symbols ?? '', date ?? '', eventType ?? 'all'] as const,
   taiwanEventCandidates:(limit?: number) => ['taiwan-event-candidates', limit ?? 10] as const,
   taiwanStockNews:      (symbol: string, limit?: number) => ['taiwan-stock-news', symbol, limit ?? 15] as const,
   taiwanMarketSentiment:(date?: string) => ['taiwan-market-sentiment', date ?? 'latest'] as const,
+  taiwanSocialSentiment:(date?: string, snapshotSlot?: string) => ['taiwan-social-sentiment', date ?? 'latest', snapshotSlot ?? 'latest'] as const,
+  taiwanSocialSentimentHistory: ['taiwan-social-sentiment-history'] as const,
+  taiwanSocialSentimentJob: (jobId: string, source?: string, symbol?: string, q?: string, offset?: number) =>
+    ['taiwan-social-sentiment-job', jobId, source ?? '', symbol ?? '', q ?? '', offset ?? 0] as const,
 
   // 市場環境(Regime) — 日級離線計算, 不進 SSE 刷新
   // Phase 8B-5.7: 僅保留仍有真實 consumer 的 regimeLatest(Mining)/
@@ -117,17 +127,35 @@ export const QK = {
   // Selection Review (A12)
   selectionSnapshots:   (strategyId?: string) => ['selection-snapshots', strategyId ?? 'all'] as const,
   selectionSnapshotDetail: (snapshotId: string) => ['selection-snapshot-detail', snapshotId] as const,
-  selectionForwardBatches: ['selection-forward-batches'] as const,
+  selectionForwardBatches: (strategyId?: string) => ['selection-forward-batches', strategyId ?? 'all'] as const,
   selectionForwardBatchDetail: (batchId: string) => ['selection-forward-batch-detail', batchId] as const,
-  selectionForwardStats: ['selection-forward-stats'] as const,
+  selectionForwardStats: (strategyId?: string) => ['selection-forward-stats', strategyId ?? 'all'] as const,
   selectionStrategyStats: ['selection-strategy-stats'] as const,
+  strategyLab: (filters: object) => ['strategy-lab', filters] as const,
+  strategyLabObservations: (filters: object, offset: number) => ['strategy-lab-observations', filters, offset] as const,
   selectionConditionStats: ['selection-condition-stats'] as const,
   selectionHistoricalPit: ['selection-historical-pit', 'trend_liquidity_v1'] as const,
+
+  // Buy Point (A13)
+  buyPointStrategies: ['buy-point-strategies'] as const,
+  buyPointSignals: (symbol?: string) => ['buy-point-signals', symbol ?? 'watchlist'] as const,
+  buyPointSummary: ['buy-point-summary'] as const,
+  buyPointStats: ['buy-point-stats'] as const,
 
   // Daily Brief (A12)
   dailyBrief:           (targetDate?: string) => ['daily-brief', targetDate ?? 'today'] as const,
   dailyBriefHistory:    (limit?: number) => ['daily-brief-history', limit ?? 30] as const,
   dailyBriefHistoryDetail: (briefId: string) => ['daily-brief-history-detail', briefId] as const,
+} as const
+
+// Health jobs reuse existing consumer caches even when the user leaves the health page.
+export const DATA_HEALTH_INVALIDATE_PREFIXES = {
+  daily: ['data-health', 'market-breadth-valuation', 'taiwan-data-status', 'taiwan-stock-detail', 'taiwan-current-data',
+    'taiwanStockResearchContext', 'taiwanAbnormalDiagnostics', 'taiwanMarketIntelligence',
+    'taiwanIndustryIntelligence', 'institutional-statistics', 'industry-rotation', 'taiwanScreener',
+    'watchlist-', 'selection-', 'strategy-lab', 'daily-brief', 'buy-point-'],
+  social: ['data-health', 'taiwan-social-sentiment'],
+  validate: ['data-health', 'settings'],
 } as const
 
 // ===== SSE 應該 invalidate 的 key 前綴列表 =====

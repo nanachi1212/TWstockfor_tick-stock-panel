@@ -40,12 +40,14 @@ class SelectionSnapshot(BaseModel):
     snapshot_id: str = Field(..., description="唯一識別碼，格式如 snap_YYYYMMDD_HHMMSS_xxxx")
     created_at: str = Field(..., description="建立時間戳記 ISO 8601")
     strategy_id: str = Field(..., description="策略代號")
+    strategy_version: str | None = Field(None, description="固定策略版本")
     strategy_name: str = Field(..., description="策略名稱")
     as_of_date: str = Field(..., description="選股資料基準日 (YYYY-MM-DD 交易日)")
     market_context_summary: str = Field(..., description="當時大盤環境摘要")
     selected_symbols: list[str] = Field(default_factory=list, description="入選代碼清單")
     items: list[SelectionSnapshotItem] = Field(default_factory=list, description="每檔入選標的明細快照")
     record_type: Literal["research", "forward_batch"] = "research"
+    source: Literal["Screener", "Buy Point"] = "Screener"
     locked_at: str | None = None
     source_data_date: str | None = None
     target_trade_date: str | None = None
@@ -54,6 +56,8 @@ class SelectionSnapshot(BaseModel):
     evaluation_basis: Literal["reference_close", "next_open"] = "reference_close"
     price_adjustment: str = "raw_reference_close"
     cost_assumption: str = "未扣成本與滑價；紙上開盤價不保證成交"
+    observation_origin: Literal["a13_server_observed"] | None = None
+    strategy_definition_digest: str | None = None
     eligible_total: int | None = None
     primary_observation_count: int | None = None
     missing_quote_count: int | None = None
@@ -68,6 +72,10 @@ class SelectionSnapshot(BaseModel):
     selection_action_coverage_end: str | None = None
     selection_action_events_sha256: str | None = None
     selection_action_coverage_saved_at: str | None = None
+    # Official monthly-revenue observations used by revenue-based strategies.
+    revenue_evidence_status: str | None = None
+    revenue_evidence_cutoff: str | None = None
+    revenue_evidence_digest: str | None = None
 
 
 class SaveSelectionSnapshotRequest(BaseModel):
@@ -78,6 +86,7 @@ class SaveSelectionSnapshotRequest(BaseModel):
     as_of_date: str
     market_context_summary: str = ""
     items: list[SelectionSnapshotItem]
+    source: Literal["Screener", "Buy Point"] = "Screener"
 
 
 class HorizonReviewItem(BaseModel):
@@ -101,6 +110,7 @@ class HorizonReviewItem(BaseModel):
     h1d_return_pct: float | None = None
     h1d_raw_return_pct: float | None = None
     h1d_status: HorizonStatus = "pending"
+    h1d_outcome_date: str | None = None
     h1d_bm_return_pct: float | None = None
     h1d_raw_bm_return_pct: float | None = None
     h1d_bm_status: HorizonStatus = "pending"
@@ -114,6 +124,7 @@ class HorizonReviewItem(BaseModel):
     h5d_return_pct: float | None = None
     h5d_raw_return_pct: float | None = None
     h5d_status: HorizonStatus = "pending"
+    h5d_outcome_date: str | None = None
     h5d_bm_return_pct: float | None = None
     h5d_raw_bm_return_pct: float | None = None
     h5d_bm_status: HorizonStatus = "pending"
@@ -127,6 +138,7 @@ class HorizonReviewItem(BaseModel):
     h20d_return_pct: float | None = None
     h20d_raw_return_pct: float | None = None
     h20d_status: HorizonStatus = "pending"
+    h20d_outcome_date: str | None = None
     h20d_bm_return_pct: float | None = None
     h20d_raw_bm_return_pct: float | None = None
     h20d_bm_status: HorizonStatus = "pending"
@@ -230,6 +242,8 @@ class SnapshotReviewDetail(BaseModel):
 
 
 class ForwardBatchStats(BaseModel):
+    strategy_id: str | None = None
+    strategy_name: str | None = None
     batches_count: int = 0
     picks_count: int = 0
     h1d_evaluated_count: int = 0
@@ -276,10 +290,13 @@ class SnapshotListItem(BaseModel):
     snapshot_id: str
     created_at: str
     strategy_id: str
+    strategy_version: str | None = None
     strategy_name: str
+    source: Literal["Screener", "Buy Point"] = "Screener"
     as_of_date: str
     selected_count: int
     record_type: Literal["research", "forward_batch"] = "research"
+    observation_origin: Literal["a13_server_observed"] | None = None
     locked_at: str | None = None
     source_data_date: str | None = None
     target_trade_date: str | None = None

@@ -112,7 +112,7 @@ def test_screener_cached_fundamentals_and_chips(tmp_path: Path):
 
     # Mock Universe & Daily store
     mock_universe_df = pl.DataFrame({
-        "symbol": ["2330", "2317"],
+        "symbol": ["2330.TWSE", "2317.TWSE"],
         "name": ["台積電", "鴻海"],
         "exchange": ["TWSE", "TWSE"],
         "instrument_type": ["stock", "stock"],
@@ -125,7 +125,7 @@ def test_screener_cached_fundamentals_and_chips(tmp_path: Path):
     mock_security_master.get_instrument.return_value = None
 
     mock_daily_df = pl.DataFrame({
-        "symbol": ["2330", "2317"],
+        "symbol": ["2330.TWSE", "2317.TWSE"],
         "date": ["2026-08-20", "2026-08-20"],
         "open": [950.0, 180.0],
         "high": [960.0, 182.0],
@@ -166,7 +166,7 @@ def test_screener_cached_fundamentals_and_chips(tmp_path: Path):
     # 2330 mom is (220 - 200) / 200 = 10% >= 5%
     # 2317 has no cache -> filtered out
     assert resp1.total == 1
-    assert resp1.items[0].symbol == "2330"
+    assert resp1.items[0].symbol == "2330.TWSE"
     assert resp1.items[0].revenue_mom is not None
     assert any("營收月增" in r for r in resp1.items[0].match_reasons)
     assert resp1.coverage_info is not None
@@ -177,14 +177,14 @@ def test_screener_cached_fundamentals_and_chips(tmp_path: Path):
     req2 = TaiwanScreenerRequest(foreign_shareholding_ratio_min=70.0)
     resp2 = svc.run(req2)
     assert resp2.total == 1
-    assert resp2.items[0].symbol == "2330"
+    assert resp2.items[0].symbol == "2330.TWSE"
     assert any("外資持股" in r for r in resp2.items[0].match_reasons)
 
     # Test 3: Valuation filter (pe_max: 20.0)
     req3 = TaiwanScreenerRequest(pe_max=20.0)
     resp3 = svc.run(req3)
     assert resp3.total == 1
-    assert resp3.items[0].symbol == "2330"
+    assert resp3.items[0].symbol == "2330.TWSE"
     assert resp3.items[0].pe == 18.5
     assert any("本益比" in r for r in resp3.items[0].match_reasons)
 

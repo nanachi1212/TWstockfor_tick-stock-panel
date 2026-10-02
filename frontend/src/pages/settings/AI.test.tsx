@@ -11,6 +11,7 @@ vi.mock('@/lib/api', () => ({
     clearAiSettings: vi.fn().mockResolvedValue({ ok: true }),
     strategyAiTest: vi.fn().mockResolvedValue({ ok: true }),
     aiKeyProfiles: vi.fn().mockResolvedValue({ profiles: [] }),
+    aiKeyProfileUpdate: vi.fn(),
   },
 }))
 
@@ -122,5 +123,30 @@ describe('SettingsAIPanel quick presets', () => {
     })
     expect(payload).not.toHaveProperty('codex_command')
     expect(payload).not.toHaveProperty('codex_reasoning_effort')
+  })
+
+  it('moves endpoint credentials to Profiles when profiles exist', async () => {
+    renderPanel(settings({
+      ai_key_profiles_count: 1,
+      has_ai_key: true,
+      ai_configured: true,
+      ai_user_agent: 'test-agent',
+      ai_max_output_tokens: 8192,
+      ai_context_window: 64000,
+    }))
+
+    expect(await screen.findByText('全域進階生成設定')).toBeInTheDocument()
+    expect(screen.getByText(/端點、模型與 API Key 請在上方 AI Key Profiles 編輯/)).toBeInTheDocument()
+    expect(screen.queryByPlaceholderText('https://api.example.com/v1')).not.toBeInTheDocument()
+    expect(screen.queryByPlaceholderText('your-model-id')).not.toBeInTheDocument()
+    expect(screen.queryByPlaceholderText('sk-...')).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: '儲存全域設定' }))
+    await waitFor(() => expect(api.saveAiSettings).toHaveBeenCalledTimes(1))
+    const payload = vi.mocked(api.saveAiSettings).mock.calls[0][0]
+    expect(payload).not.toHaveProperty('provider')
+    expect(payload).not.toHaveProperty('base_url')
+    expect(payload).not.toHaveProperty('model')
+    expect(payload).not.toHaveProperty('api_key')
   })
 })

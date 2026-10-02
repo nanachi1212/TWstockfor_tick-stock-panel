@@ -16,6 +16,7 @@ describe('notification channel settings', () => {
     expect(code).toContain("'line'")
     expect(code).toContain("'telegram'")
     expect(code).toContain('測試通知')
+    expect(code).not.toMatch(/测试|消息|通知设置|成功发送|价格|触发/u)
     expect(code).not.toMatch(/feishu|wecom|飛書|飛書|企業微信/iu)
   })
 

@@ -17,6 +17,7 @@ from pathlib import Path
 from typing import Any
 
 from app.taiwan.providers.taiwan_values import market_close
+from app.taiwan.quant.data_health import current_live_readiness
 from app.taiwan.quant.live_contract import (
     HORIZONS,
     LIVE_CONTRACT,
@@ -91,7 +92,16 @@ class LiveLedger:
                     fcntl.flock(stream.fileno(), fcntl.LOCK_UN)
 
     @contextmanager
-    def _connect(self, outcomes: bool = False):
+    def _connect(self, outcomes: bool = False, *, read_only: bool = False):
+        if read_only:
+            path = self.root / ("outcomes.sqlite3" if outcomes else "signals.sqlite3")
+            db = sqlite3.connect(path.resolve().as_uri() + "?mode=ro", uri=True, timeout=30)
+            db.row_factory = sqlite3.Row
+            try:
+                yield db
+            finally:
+                db.close()
+            return
         self.root.mkdir(parents=True, exist_ok=True)
         db = sqlite3.connect(self.root / ("outcomes.sqlite3" if outcomes else "signals.sqlite3"),
                              timeout=30)
@@ -249,8 +259,8 @@ class LiveLedger:
         return {"status": "frozen", "session": session, "snapshot_hash": digest,
                 "signal_count": len(snapshot["signals"])}
 
-    def read_run(self, key: str, session: str) -> dict[str, Any] | None:
-        with self._connect() as db:
+    def read_run(self, key: str, session: str, *, read_only: bool = False) -> dict[str, Any] | None:
+        with self._connect(read_only=read_only) as db:
             row = db.execute("SELECT * FROM runs WHERE model_key=? AND session=?", (key, session)).fetchone()
             if row is None:
                 return None
@@ -278,19 +288,87 @@ class LiveLedger:
 
     def list_runs(self, limit: int = 30) -> list[dict[str, Any]]:
         with self._connect() as db:
-            return [dict(row) for row in db.execute(
+            rows = [dict(row) for row in db.execute(
                 """SELECT model_key,session,digest AS snapshot_hash,frozen_at,
                     json_array_length(snapshot,'$.signals') AS signal_count
                    FROM runs ORDER BY session DESC LIMIT ?""", (min(max(limit, 1), 100),))]
+        result = []
+        for row in rows:
+            run = self.read_run(row["model_key"], row["session"])
+            projection = self.run_projection(row["model_key"], row["session"]) or {}
+            result.append({**row, "audit_status": run.get("audit_status") if run else "unavailable",
+                           **projection, "horizons": projection.get("outcome_summary", {})})
+        return result
+
+    @staticmethod
+    def horizon_summary(outcomes: list[dict[str, Any]], horizon: int) -> dict[str, Any]:
+        rows = [row for row in outcomes if row.get("horizon") == horizon]
+        verified = [row for row in rows if row.get("status") == "verified" and
+                    isinstance(row.get("value"), (int, float)) and
+                    not isinstance(row.get("value"), bool)]
+        pending = sum(row.get("status") == "pending" for row in rows)
+        unavailable = sum(row.get("status") in {"data_insufficient", "conflict"} for row in rows)
+        hits = sum(row["value"] > 0 for row in verified)
+        values = [float(row["value"]) for row in verified]
+        return {
+            "horizon": f"{horizon}D", "evaluated_count": len(values),
+            "pending_count": pending, "unavailable_count": unavailable,
+            "hit_count": hits,
+            "hit_rate_pct": (hits / len(values) * 100) if values else None,
+            "average_return_pct": (sum(values) / len(values) * 100) if values else None,
+        }
+
+    @classmethod
+    def recommendation_projection(cls, run: dict[str, Any] | None) -> dict[str, Any]:
+        if not run:
+            return {"recommendation_status": "unavailable", "recommendation_reason": "live_run_missing",
+                    "candidate_count": 0, "live_readiness": current_live_readiness(
+                        "unavailable", ["live_run_missing"])}
+        snapshot = run.get("snapshot") or {}
+        signals = snapshot.get("signals") or []
+        if run.get("audit_status") == "conflict":
+            status = "conflict"
+        else:
+            status = "available_zero_candidates" if not signals else "formal_available"
+        readiness = snapshot.get("live_readiness") or current_live_readiness("verified")
+        return {"recommendation_status": status, "recommendation_reason": "current" if status != "conflict" else "audit_conflict",
+                "candidate_count": len(signals), "live_readiness": readiness}
+
+    @staticmethod
+    def operation_projection(operation: dict[str, Any] | None, expected_session: str | None) -> dict[str, Any]:
+        """Map the latest audit operation to a read-only current-live state."""
+        if not operation:
+            return {"status": "unavailable", "reason": "live_run_missing",
+                    "live_readiness": current_live_readiness("unavailable", ["live_run_missing"])}
+        freeze = operation.get("freeze") if isinstance(operation.get("freeze"), dict) else operation
+        status = freeze.get("status")
+        session = freeze.get("session")
+        if status in {"frozen", "noop"} and session == expected_session:
+            return {"status": status, "reason": "current", "live_readiness": current_live_readiness("verified")}
+        reason = freeze.get("reason") or "operation_not_current_success"
+        return {"status": status or "unavailable", "reason": reason,
+                "live_readiness": current_live_readiness("unavailable", [reason])}
+
+    def run_projection(self, key: str, session: str) -> dict[str, Any] | None:
+        run = self.read_run(key, session)
+        if run is None:
+            return None
+        outcomes = self.outcomes(key, session)
+        summary = {f"{h}D": self.horizon_summary(outcomes, h) for h in HORIZONS}
+        projection = self.recommendation_projection(run)
+        if projection["recommendation_status"] == "formal_available" and any(
+                item["pending_count"] for item in summary.values()):
+            projection["recommendation_status"] = "tracking"
+        return {**projection, "outcome_summary": summary}
 
     def record_operation(self, result: dict[str, Any]) -> None:
         with self._connect() as db:
             db.execute("INSERT INTO operations VALUES (?,?)",
                        (self.clock().isoformat(), canonical_json(result)))
 
-    def outcome_runs(self) -> list[dict[str, Any]]:
+    def outcome_runs(self, *, read_only: bool = False) -> list[dict[str, Any]]:
         """Small projection; maturation must not deserialize years of features."""
-        with self._connect() as db:
+        with self._connect(read_only=read_only) as db:
             return [{"model_key": row["model_key"], "session": row["session"],
                      "signals": json.loads(row["signals"])} for row in db.execute(
                          """SELECT model_key,session,json_extract(snapshot,'$.signals') AS signals
@@ -359,14 +437,18 @@ class LiveLedger:
         run = self.read_run(key, session)
         if run is None:
             return []
-        return self.signal_outcomes(key, session, run["snapshot"]["signals"])
+        return self.signal_outcomes(key, session, run["snapshot"].get("signals", []))
 
-    def signal_outcomes(self, key: str, session: str, signals: list[dict[str, Any]]) -> list[dict[str, Any]]:
-        with self._connect(outcomes=True) as db:
-            rows = db.execute("""SELECT * FROM observations WHERE model_key=? AND session=?
-                ORDER BY rowid""", (key, session)).fetchall()
-            evaluations = db.execute("""SELECT symbol,horizon,digest FROM evaluations
-                WHERE model_key=? AND session=? ORDER BY rowid""", (key, session)).fetchall()
+    def signal_outcomes(
+        self, key: str, session: str, signals: list[dict[str, Any]], *, read_only: bool = False,
+    ) -> list[dict[str, Any]]:
+        rows, evaluations = [], []
+        if not read_only or (self.root / "outcomes.sqlite3").exists():
+            with self._connect(outcomes=True, read_only=read_only) as db:
+                rows = db.execute("""SELECT * FROM observations WHERE model_key=? AND session=?
+                    ORDER BY rowid""", (key, session)).fetchall()
+                evaluations = db.execute("""SELECT symbol,horizon,digest FROM evaluations
+                    WHERE model_key=? AND session=? ORDER BY rowid""", (key, session)).fetchall()
         last = {(r["symbol"], r["horizon"]): r["digest"] for r in evaluations}
         payloads = {r["digest"]: json.loads(r["payload"]) for r in rows}
         result = []
@@ -378,7 +460,11 @@ class LiveLedger:
                 value = verified[0] if verified else matches[-1] if matches else {
                     "status": "pending", "value": None, "reason": "horizon_not_mature"}
                 evaluated = payloads.get(last.get((signal["symbol"], horizon)), value)
-                result.append({"symbol": signal["symbol"], "horizon": horizon, **value,
+                result.append({"horizon": horizon, **value,
+                               "symbol": signal["symbol"], "name": signal.get("name"),
+                               "reference_close": signal.get("reference_close"),
+                               "rank": signal.get("rank"), "score": signal.get("score"),
+                               "reason_summary": signal.get("reason_summary"),
                                "status": "conflict" if len(verified) > 1 else value["status"],
                                "audit_status": ("conflict" if len(verified) > 1 else
                                                 "recheck_unavailable" if verified and

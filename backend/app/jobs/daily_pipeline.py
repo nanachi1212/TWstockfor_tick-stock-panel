@@ -103,11 +103,77 @@ def run_instruments_sync(repo: KlineRepository) -> dict:
     rows = instrument_sync.sync_instruments(repo.store.data_dir)
     _refresh_instruments_view(repo)
     _invalidate("instruments")
+    security_master: dict[str, object]
+    try:
+        from app.taiwan.universe import get_security_master
+
+        master = get_security_master()
+        master_rows = master.load_from_adapters()
+        if master_rows:
+            master.save_cache()
+        else:
+            # An empty upstream response must not replace a usable in-memory
+            # master with an empty universe.
+            master.reload()
+        security_master = {**master.health_metadata(), "rows": master_rows}
+        logger.info("Security Master refreshed: rows=%s status=%s", master_rows,
+                    security_master.get("status"))
+    except Exception as exc:
+        logger.warning("Security Master refresh failed; preserving existing cache: %s", exc)
+        try:
+            master.reload()
+        except Exception:
+            pass
+        security_master = {"status": "stale", "reason": "refresh_failed"}
     # 维表更新后重建 enriched 缓存 (clear + refresh, 与设置页「清理并刷新」同等效果)
     if rows > 0:
         repo.clear_cache()
         repo.refresh_cache()
-    return {"instruments_rows": rows}
+    return {"instruments_rows": rows, "security_master": security_master}
+
+
+def _refresh_after_close_research() -> dict[str, object]:
+    """Extend audited corporate-action coverage and append valuation history.
+
+    This uses the existing audited corporate-action updater and valuation store;
+    the scheduled job only fetches the uncovered tail and never bootstraps a
+    missing full history implicitly.
+    """
+    result: dict[str, object] = {}
+    try:
+        from app.taiwan.corporate_actions import CorporateActionStore
+        from app.taiwan.daily_update import resolve_target_latest_trading_date
+        from app.taiwan.quant.primary_oos_runner import _action_snapshot
+
+        store = CorporateActionStore()
+        target = resolve_target_latest_trading_date()
+        coverage = store.read_verified_coverage()
+        if coverage is None:
+            result["corporate_actions"] = {"status": "unavailable", "reason": "coverage_unverified"}
+        elif coverage[1] < target:
+            _action_snapshot(coverage[0], target, store=store)
+            coverage = store.read_verified_coverage()
+            result["corporate_actions"] = {
+                "status": "verified" if coverage is not None and coverage[1] >= target else "partial",
+                "end": coverage[1].isoformat() if coverage else None,
+            }
+        else:
+            result["corporate_actions"] = {
+                "status": "verified", "end": coverage[1].isoformat(),
+            }
+    except Exception as exc:
+        logger.warning("Scheduled corporate-action coverage refresh failed: %s", exc)
+        result["corporate_actions"] = {"status": "unavailable", "reason": "refresh_failed"}
+
+    try:
+        from app.taiwan.market_breadth_service import fundamental_store
+        from app.taiwan.market_valuation import refresh_valuation
+
+        result["valuation"] = refresh_valuation(fundamental_store())
+    except Exception as exc:
+        logger.warning("Scheduled valuation refresh failed: %s", exc)
+        result["valuation"] = {"status": "unavailable", "reason": "refresh_failed"}
+    return result
 
 
 def run_now(
@@ -919,7 +985,7 @@ def start_scheduler(repo: KlineRepository, capset: CapabilitySet) -> AsyncIOSche
     # 台股盘后增量更新 (Taiwan Full-Market Daily OHLCV + Institutional + Margin Update)
     # 每天 16:30 Asia/Taipei 触发。
     # 官方全市場快照端點極速更新：Daily (TWSE 1 + TPEx 1) + Inst (2) + Margin (2) = ~6 次 HTTP 請求 / 日
-    def _scheduled_taiwan_update():
+    def _scheduled_taiwan_update(evening: bool = False):
         try:
             from app.taiwan.daily_update import TaiwanDailyUpdateService
             svc = TaiwanDailyUpdateService()
@@ -928,6 +994,12 @@ def start_scheduler(repo: KlineRepository, capset: CapabilitySet) -> AsyncIOSche
                 "Scheduled Taiwan daily update finished: overall=%s, daily=%s, inst=%s, margin=%s",
                 result.overall_status, result.daily.status, result.institutional.status, result.margin.status,
             )
+            if not evening:
+                logger.info("Scheduled Taiwan research refresh: %s", _refresh_after_close_research())
+            # Evening catch-up exists for margin (published in the evening); only a
+            # newly fetched daily date gives Quant anything new to freeze.
+            if evening and result.daily.dates_fetched == 0:
+                return
             # Quant is downstream and isolated: it must never roll back or
             # relabel the completed market-data refresh.
             try:
@@ -951,8 +1023,48 @@ def start_scheduler(repo: KlineRepository, capset: CapabilitySet) -> AsyncIOSche
         replace_existing=True,
     )
 
+    # 融資融券官方於「當日晚間」公布 (無固定時點), 16:30 批次必然取不到當日資料。
+    # 晚間沿用同一個增量更新器補抓; 已存在的日期不會重抓 (每次僅 ~2 次 HTTP)。
+    for hour, minute in ((21, 30), (23, 0)):
+        scheduler.add_job(
+            _scheduled_taiwan_update,
+            kwargs={"evening": True},
+            trigger=CronTrigger(day_of_week="mon-fri", hour=hour, minute=minute, timezone="Asia/Taipei"),
+            id=f"taiwan_evening_update_{hour:02d}{minute:02d}",
+            misfire_grace_time=1800,
+            coalesce=True,
+            max_instances=1,
+            replace_existing=True,
+        )
+
+    # 買點策略只讀本地已落盤資料與自選股設定, 每個交易日盤中至少評估兩次。
+    # 外部通知沿用既有 alert/SSE/LINE/Telegram 管線, 資料不足時由 evaluator fail closed。
+    def _scheduled_buy_point_evaluation():
+        try:
+            from app.api.buy_points import evaluate_watchlist
+
+            app_state = _get_app_state()
+            result = evaluate_watchlist(
+                repo.store.data_dir,
+                getattr(app_state, "quote_service", None),
+            )
+            logger.info("Scheduled Taiwan buy-point evaluation finished: signals=%d, triggered=%d", len(result["signals"]), len(result["triggered"]))
+        except Exception:
+            logger.exception("Scheduled Taiwan buy-point evaluation failed")
+
+    for hour in (10, 14):
+        scheduler.add_job(
+            _scheduled_buy_point_evaluation,
+            trigger=CronTrigger(day_of_week="mon-fri", hour=hour, minute=0, timezone="Asia/Taipei"),
+            id=f"taiwan_buy_point_evaluation_{hour:02d}",
+            misfire_grace_time=1800,
+            coalesce=True,
+            max_instances=1,
+            replace_existing=True,
+        )
+
     scheduler.start()
-    logger.info("scheduler started; instruments@%02d:%02d, pipeline@%02d:%02d, depth@%02d:%02d mon-fri, taiwan@16:30",
+    logger.info("scheduler started; instruments@%02d:%02d, pipeline@%02d:%02d, depth@%02d:%02d mon-fri, taiwan@16:30 (+21:30/23:00 catch-up)",
                 inst_sched["hour"], inst_sched["minute"], sched["hour"], sched["minute"],
                 depth_sched["hour"], depth_sched["minute"])
     return scheduler
