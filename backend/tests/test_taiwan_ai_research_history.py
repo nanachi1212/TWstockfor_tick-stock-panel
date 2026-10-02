@@ -1,0 +1,273 @@
+from __future__ import annotations
+
+import asyncio
+import json
+from datetime import datetime
+from types import SimpleNamespace
+from unittest.mock import AsyncMock, MagicMock, patch
+
+import pytest
+from fastapi.testclient import TestClient
+
+from app.main import app
+from app.taiwan.ai_research import (
+    _REPORT_CACHE,
+    _REPORT_CACHE_LOCK,
+    TaiwanAIResearchResponse,
+    TaiwanAIResearchRun,
+    TaiwanAIResearchService,
+    TaiwanAIStockResearchReport,
+    _evidence_digest,
+)
+from app.taiwan.ai_research_history import (
+    AIResearchHistoryError,
+    TaiwanAIResearchHistoryStore,
+)
+
+
+def _run(
+    run_id: str,
+    *,
+    symbol: str = "2330.TWSE",
+    purpose: str = "research",
+    close: float = 100.0,
+    overview: str = "客觀摘要",
+    model: str = "model-a",
+) -> TaiwanAIResearchRun:
+    completed = "2026-10-02T10:01:00+08:00"
+    report = TaiwanAIStockResearchReport(
+        symbol=symbol,
+        code=symbol.split(".")[0],
+        name="台積電",
+        evidence_as_of="2026-10-01",
+        started_at="2026-10-02T10:00:00+08:00",
+        completed_at=completed,
+        generated_at=completed,
+        overview=overview,
+    )
+    response = TaiwanAIResearchResponse(
+        status="success",
+        report=report,
+        provider="openai_compat",
+        model=model,
+        evidence_as_of="2026-10-01",
+        run_id=run_id,
+        started_at="2026-10-02T10:00:00+08:00",
+        completed_at=completed,
+        generated_at=completed,
+        evidence_registry_keys=["price_context.close"],
+    )
+    evidence = {"identity": {"symbol": symbol}, "price_context": {"close": close}}
+    return TaiwanAIResearchRun(
+        run_id=run_id,
+        purpose=purpose,
+        response=response,
+        evidence_payload=evidence,
+        evidence_registry_keys=["price_context.close"],
+        evidence_digest=_evidence_digest(evidence),
+        generation_config={"provider": "openai_compat", "model": model, "reasoning_effort": "medium"},
+    )
+
+
+def test_history_save_restart_read_and_idempotent_ensure_report(tmp_path):
+    path = tmp_path / "user_data" / "taiwan_ai_research_history.jsonl"
+    store = TaiwanAIResearchHistoryStore(path)
+    run = _run("run-one")
+
+    first = store.ensure_report(run)
+    repeated = store.ensure_report(run)
+    restarted = TaiwanAIResearchHistoryStore(path)
+
+    assert repeated == first
+    assert len(path.read_text(encoding="utf-8").splitlines()) == 1
+    assert restarted.get(first["id"])["evidence_payload"] == run.evidence_payload
+    assert restarted.get(first["id"])["evidence_digest"] == run.evidence_digest
+    link = restarted.append_link(first["id"], {"type": "future_review", "id": "review-1"})
+    assert link["parent_id"] == first["id"]
+    assert link["run_id"] == run.run_id
+
+
+def test_history_ignores_only_truncated_final_line(tmp_path):
+    path = tmp_path / "history.jsonl"
+    store = TaiwanAIResearchHistoryStore(path)
+    saved = store.ensure_report(_run("run-one"))
+    with path.open("ab") as stream:
+        stream.write(b'{"id":"truncated"')
+
+    assert TaiwanAIResearchHistoryStore(path).get(saved["id"])["run_id"] == "run-one"
+
+    recovered = TaiwanAIResearchHistoryStore(path).ensure_report(_run("run-two"))
+    assert TaiwanAIResearchHistoryStore(path).get(recovered["id"])["run_id"] == "run-two"
+    assert "truncated" not in path.read_text(encoding="utf-8")
+
+    path.write_bytes(b'{"id":bad}\n' + path.read_bytes())
+    with pytest.raises(AIResearchHistoryError, match="line 1"):
+        TaiwanAIResearchHistoryStore(path).list()
+
+
+def test_compare_separates_evidence_generation_and_interpretation_without_ai(tmp_path):
+    store = TaiwanAIResearchHistoryStore(tmp_path / "history.jsonl")
+    left = store.ensure_report(_run("left", close=100, overview="摘要 A", model="model-a"))
+    right = store.ensure_report(_run("right", close=101, overview="摘要 B", model="model-b"))
+
+    with patch("app.taiwan.ai_research.generate_ai_text", new_callable=AsyncMock) as ai:
+        result = store.compare(left["id"], right["id"])
+
+    assert ai.await_count == 0
+    evidence = result["evidence_data_changes"]
+    assert evidence["changed"] is True and evidence["digest_changed"] is True
+    assert [item["path"] for item in evidence["field_changes"]] == ["price_context.close"]
+    assert result["model_prompt_config_changes"]["changed"] is True
+    assert result["interpretation_report_changes"]["changed"] is True
+
+
+@pytest.mark.asyncio
+async def test_cache_hit_preserves_run_and_completion_while_refresh_creates_new_run():
+    from tests.test_taiwan_stock_comparison import build_context
+
+    with _REPORT_CACHE_LOCK:
+        _REPORT_CACHE.clear()
+    research_svc = MagicMock()
+    research_svc.get_research_context.return_value = build_context("2330.TWSE", "2330", "台積電")
+    diag_svc = MagicMock()
+    diag_svc.get_diagnostics.return_value = SimpleNamespace(items=[])
+    service = TaiwanAIResearchService(research_svc=research_svc, diag_svc=diag_svc)
+    response_text = json.dumps({
+        "overview": "快取測試", "key_observations": [], "risk_factors": [], "watch_next": [],
+    })
+
+    with patch(
+        "app.taiwan.ai_research.generate_ai_text",
+        new_callable=AsyncMock,
+        return_value=response_text,
+    ) as ai:
+        first = await service.generate_run("2330.TWSE")
+        cached = await service.generate_run("2330.TWSE")
+        refreshed = await service.generate_run("2330.TWSE", refresh=True)
+
+    assert ai.await_count == 2
+    assert cached.run_id == first.run_id
+    assert cached.response.completed_at == first.response.completed_at
+    assert cached.evidence_payload == first.evidence_payload
+    assert cached.evidence_digest == first.evidence_digest
+    assert refreshed.run_id != first.run_id
+    assert first.response.generated_at == first.response.completed_at
+    assert first.response.report.generated_at == first.response.report.completed_at
+
+
+@pytest.mark.asyncio
+async def test_concurrent_miss_shares_one_artifact_identity():
+    from tests.test_taiwan_stock_comparison import build_context
+
+    with _REPORT_CACHE_LOCK:
+        _REPORT_CACHE.clear()
+    research_svc = MagicMock()
+    research_svc.get_research_context.return_value = build_context("2330.TWSE", "2330", "台積電")
+    diag_svc = MagicMock()
+    diag_svc.get_diagnostics.return_value = SimpleNamespace(items=[])
+    service = TaiwanAIResearchService(research_svc=research_svc, diag_svc=diag_svc)
+    entered = asyncio.Event()
+    release = asyncio.Event()
+
+    async def delayed(*_args, **_kwargs):
+        entered.set()
+        await release.wait()
+        return json.dumps({
+            "overview": "並行 artifact", "key_observations": [], "risk_factors": [], "watch_next": [],
+        })
+
+    with patch("app.taiwan.ai_research.generate_ai_text", new_callable=AsyncMock, side_effect=delayed) as ai:
+        leader = asyncio.create_task(service.generate_run("2330.TWSE"))
+        await entered.wait()
+        follower = asyncio.create_task(service.generate_run("2330.TWSE"))
+        await asyncio.sleep(0)
+        release.set()
+        first, second = await asyncio.gather(leader, follower)
+
+    assert ai.await_count == 1
+    assert first.run_id == second.run_id
+    assert first.response.completed_at == second.response.completed_at
+
+
+def test_history_api_list_detail_compare_and_filters(tmp_path, monkeypatch):
+    store = TaiwanAIResearchHistoryStore(tmp_path / "history.jsonl")
+    times = iter([
+        datetime.fromisoformat("2026-10-01T10:00:00+08:00"),
+        datetime.fromisoformat("2026-10-02T10:00:00+08:00"),
+    ])
+    with patch("app.taiwan.ai_research_history.taipei_now", side_effect=lambda: next(times)):
+        first = store.ensure_report(_run("one", purpose="alert"))
+        second = store.ensure_report(_run("two", symbol="0050.TWSE", purpose="research", close=101))
+    monkeypatch.setattr("app.api.taiwan.get_ai_research_history_store", lambda: store)
+    client = TestClient(app, client=("127.0.0.1", 50000))
+
+    filtered = client.get(
+        "/api/taiwan/ai-research/history",
+        params={"symbol": "2330.TWSE", "purpose": "alert", "from": "2026-10-01", "to": "2026-10-01", "limit": 1},
+    )
+    assert filtered.status_code == 200
+    assert [item["id"] for item in filtered.json()] == [first["id"]]
+    detail = client.get(f"/api/taiwan/ai-research/history/{second['id']}")
+    assert detail.status_code == 200 and detail.json()["run_id"] == "two"
+    compared = client.get(
+        f"/api/taiwan/ai-research/history/{first['id']}/compare/{second['id']}"
+    )
+    assert compared.status_code == 200
+    assert compared.json()["evidence_data_changes"]["changed"] is True
+    assert client.get("/api/taiwan/ai-research/history/missing").status_code == 404
+
+
+def test_generation_api_persists_the_frozen_run_and_forwards_refresh(tmp_path, monkeypatch):
+    store = TaiwanAIResearchHistoryStore(tmp_path / "history.jsonl")
+    frozen = _run("api-run", purpose="alert", close=123.0)
+    calls = []
+
+    class FakeService:
+        async def generate_run(self, symbol, **kwargs):
+            calls.append((symbol, kwargs))
+            return frozen
+
+    monkeypatch.setattr("app.api.taiwan.TaiwanAIResearchService", FakeService)
+    monkeypatch.setattr("app.api.taiwan.get_ai_research_history_store", lambda: store)
+    client = TestClient(app, client=("127.0.0.1", 50000))
+
+    response = client.post(
+        "/api/taiwan/stocks/2330.TWSE/ai-research",
+        json={"purpose": "alert", "refresh": True},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["run_id"] == "api-run"
+    assert calls == [("2330.TWSE", {
+        "target_date": None,
+        "personal_context": None,
+        "purpose": "alert",
+        "refresh": True,
+    })]
+    [saved] = store.list()
+    assert saved["evidence_payload"] == frozen.evidence_payload
+    assert saved["evidence_digest"] == frozen.evidence_digest
+
+
+def test_legacy_missing_metadata_is_readable_and_compare_is_explicitly_unavailable(tmp_path):
+    path = tmp_path / "history.jsonl"
+    path.write_text(json.dumps({"id": "legacy", "report": {"overview": "old"}}) + "\n", encoding="utf-8")
+    store = TaiwanAIResearchHistoryStore(path)
+
+    legacy = store.get("legacy")
+    assert legacy["compatibility"]["missing_fields"] == ["run_id", "saved_at"]
+    current = store.ensure_report(_run("current"))
+    compared = store.compare("legacy", current["id"])
+    assert compared["evidence_data_changes"]["available"] is False
+
+
+def test_legacy_response_models_keep_generated_at_compatibility():
+    legacy = TaiwanAIResearchResponse.model_validate({
+        "status": "unavailable",
+        "generated_at": "2026-09-30T10:00:00+08:00",
+    })
+
+    assert legacy.generated_at == "2026-09-30T10:00:00+08:00"
+    assert legacy.run_id is None
+    assert legacy.started_at is None
+    assert legacy.completed_at is None

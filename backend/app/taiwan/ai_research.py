@@ -17,6 +17,7 @@ Strict Boundaries & Design Directives:
 - Zero-HTTP at Request Time for Market Data: All evidence is assembled locally.
 - Historical Point-in-Time: Supports target_date D without look-ahead.
 """
+# ruff: noqa: RUF001 -- user-facing Traditional Chinese prompts and messages.
 from __future__ import annotations
 
 import asyncio
@@ -26,6 +27,7 @@ import logging
 import math
 import threading
 import time
+import uuid
 from datetime import date
 from typing import Any, Literal
 
@@ -52,12 +54,17 @@ from app.taiwan.research_context import (
 
 logger = logging.getLogger(__name__)
 
-PROMPT_VERSION = "taiwan_stock_research_v1"
+RESEARCH_PROMPT_VERSION = "taiwan_stock_research_v1"
+ADVICE_PROMPT_VERSION = "taiwan_stock_advice_v1"
+REVIEW_PROMPT_VERSION = "taiwan_stock_review_v1"
+# Backward-compatible name used by the existing response contract and consumers.
+PROMPT_VERSION = RESEARCH_PROMPT_VERSION
 DISCLAIMER_TEXT = "本報告僅依系統中可取得的結構化市場資料進行整理與客觀解讀，不構成任何投資建議、買賣建議、價格預測或報酬保證。"
 _REPORT_CACHE_TTL_SECONDS = 600
 _REPORT_CACHE_MAX_ENTRIES = 128
-_REPORT_CACHE: dict[str, tuple[float, TaiwanAIResearchResponse]] = {}
+_REPORT_CACHE: dict[str, tuple[float, TaiwanAIResearchRun]] = {}
 _REPORT_INFLIGHT: dict[str, asyncio.Future[tuple[str | None, Exception | None]]] = {}
+_REPORT_ACTIVE_RUNS: dict[str, dict[str, str | None]] = {}
 _REPORT_CACHE_LOCK = threading.Lock()
 
 
@@ -136,6 +143,8 @@ class TaiwanAIStockResearchReport(BaseModel):
     personal_context_as_of: str | None = Field(
         None, description="本機持倉、自選、Quant 與提醒資料的擷取時間，與市場證據日期分開標示",
     )
+    started_at: str | None = None
+    completed_at: str | None = None
     generated_at: str
     prompt_version: str = PROMPT_VERSION
     provider: str | None = None
@@ -168,6 +177,8 @@ class TaiwanAIResearchRequest(BaseModel):
 
     date: str | None = Field(None, description="指定交易日 (YYYY-MM-DD)，預設為最新完成交易日")
     personal_context: dict[str, Any] | None = Field(None, description="限本次研究使用的持倉、自選、Quant 與提醒結構化資料")
+    purpose: str = Field("research", min_length=1, max_length=80, description="本次研究用途")
+    refresh: bool = Field(False, description="略過本機研究快取並產生新的 run artifact")
 
 
 class TaiwanAIResearchResponse(BaseModel):
@@ -181,8 +192,23 @@ class TaiwanAIResearchResponse(BaseModel):
     model: str | None = None
     prompt_version: str = PROMPT_VERSION
     evidence_as_of: str | None = None
+    run_id: str | None = None
+    started_at: str | None = None
+    completed_at: str | None = None
     generated_at: str
     evidence_registry_keys: list[str] = Field(default_factory=list)
+
+
+class TaiwanAIResearchRun(BaseModel):
+    """Frozen generation artifact used by cache and persistence without evidence re-fetch."""
+
+    run_id: str
+    purpose: str = "research"
+    response: TaiwanAIResearchResponse
+    evidence_payload: dict[str, Any] = Field(default_factory=dict)
+    evidence_registry_keys: list[str] = Field(default_factory=list)
+    evidence_digest: str
+    generation_config: dict[str, Any] = Field(default_factory=dict)
 
 
 def _validate_structured_research_payload(payload: dict[str, Any]) -> None:
@@ -626,6 +652,62 @@ SYSTEM_PROMPT = """你是一個客觀、確定性導向的「台股個股研究�
 # ── AI Research Service ───────────────────────────────────────
 
 
+def _evidence_digest(payload: dict[str, Any]) -> str:
+    canonical = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"), default=str)
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
+def _generation_config_metadata(config: AIProviderConfigSnapshot) -> dict[str, Any]:
+    """Return comparable generation settings without persisting credentials or machine paths."""
+    return {
+        "provider": config.provider,
+        "model": config.model,
+        "profile_name": config.profile_name,
+        "base_url": config.base_url,
+        "user_agent": config.user_agent,
+        "reasoning_effort": config.reasoning_effort,
+        "codex_reasoning_effort": config.codex_reasoning_effort,
+        "max_output_tokens": config.max_output_tokens,
+        "context_window": config.context_window,
+        "codex_command_fingerprint": hashlib.sha256(config.codex_command.encode("utf-8")).hexdigest(),
+        "credential_fingerprint": hashlib.sha256(config.api_key.encode("utf-8")).hexdigest(),
+    }
+
+
+def _finalize_run(
+    response: TaiwanAIResearchResponse,
+    *,
+    run_id: str,
+    purpose: str,
+    started_at: str,
+    evidence_payload: dict[str, Any],
+    registry_keys: set[str] | list[str],
+    generation_config: dict[str, Any] | None = None,
+    completed_at: str | None = None,
+) -> TaiwanAIResearchRun:
+    completed_at = completed_at or taipei_now().isoformat()
+    response.run_id = run_id
+    response.started_at = started_at
+    response.completed_at = completed_at
+    response.generated_at = completed_at
+    keys = sorted(registry_keys)
+    response.evidence_registry_keys = keys
+    if response.report is not None:
+        response.report.started_at = started_at
+        response.report.completed_at = completed_at
+        response.report.generated_at = completed_at
+    frozen_payload = json.loads(json.dumps(evidence_payload, ensure_ascii=False, default=str))
+    return TaiwanAIResearchRun(
+        run_id=run_id,
+        purpose=purpose,
+        response=response,
+        evidence_payload=frozen_payload,
+        evidence_registry_keys=keys,
+        evidence_digest=_evidence_digest(frozen_payload),
+        generation_config=dict(generation_config or {}),
+    )
+
+
 class TaiwanAIResearchService:
     """Coordinates deterministic evidence assembly, AI interpretation, and evidence ref validation."""
 
@@ -644,20 +726,51 @@ class TaiwanAIResearchService:
         symbol: str,
         target_date: date | None = None,
         personal_context: dict[str, Any] | None = None,
+        purpose: str = "research",
+        refresh: bool = False,
+        bypass_cache: bool = False,
     ) -> TaiwanAIResearchResponse:
+        run = await self.generate_run(
+            symbol,
+            target_date=target_date,
+            personal_context=personal_context,
+            purpose=purpose,
+            refresh=refresh,
+            bypass_cache=bypass_cache,
+        )
+        return run.response
+
+    async def generate_run(
+        self,
+        symbol: str,
+        target_date: date | None = None,
+        personal_context: dict[str, Any] | None = None,
+        purpose: str = "research",
+        refresh: bool = False,
+        bypass_cache: bool = False,
+    ) -> TaiwanAIResearchRun:
         """Assembles deterministic evidence and generates a grounded AI research report."""
-        now_iso = taipei_now().isoformat()
+        started_at = taipei_now().isoformat()
+        run_id = uuid.uuid4().hex
+        now_iso = started_at
 
         # 1. Assemble Deterministic Evidence Context (Phase 7C & 7D)
         try:
             ctx = self.research_svc.get_research_context(symbol, target_date=target_date)
         except Exception as e:
             logger.error("Failed to assemble research context for %s (%s)", symbol, type(e).__name__)
-            return TaiwanAIResearchResponse(
-                status="unavailable",
-                error_code="context_assembly_failed",
-                error_message="目前無法組裝該標的研究資料，請稍後重試。",  # noqa: RUF001
-                generated_at=now_iso,
+            return _finalize_run(
+                TaiwanAIResearchResponse(
+                    status="unavailable",
+                    error_code="context_assembly_failed",
+                    error_message="目前無法組裝該標的研究資料，請稍後重試。",
+                    generated_at=now_iso,
+                ),
+                run_id=run_id,
+                purpose=purpose,
+                started_at=started_at,
+                evidence_payload={},
+                registry_keys=[],
             )
 
         # Current holdings, alerts, quotes, and watchlist state have no complete
@@ -687,6 +800,26 @@ class TaiwanAIResearchService:
         config_snapshot = snapshot_ai_provider_config()
         provider_snapshot = config_snapshot.provider
         model_snapshot = config_snapshot.model
+        generation_config = _generation_config_metadata(config_snapshot)
+
+        def complete(response: TaiwanAIResearchResponse) -> TaiwanAIResearchRun:
+            shared_completed_at = None
+            if not (refresh or bypass_cache):
+                with _REPORT_CACHE_LOCK:
+                    active = _REPORT_ACTIVE_RUNS.get(cache_key)
+                    if active is not None:
+                        active["completed_at"] = active["completed_at"] or taipei_now().isoformat()
+                        shared_completed_at = active["completed_at"]
+            return _finalize_run(
+                response,
+                run_id=run_id,
+                purpose=purpose,
+                started_at=started_at,
+                evidence_payload=evidence_payload,
+                registry_keys=registry_keys,
+                generation_config=generation_config,
+                completed_at=shared_completed_at,
+            )
 
         cache_material = json.dumps({
             "prompt_version": PROMPT_VERSION,
@@ -701,16 +834,33 @@ class TaiwanAIResearchService:
             "codex_reasoning_effort": config_snapshot.codex_reasoning_effort,
             "max_output_tokens": config_snapshot.max_output_tokens,
             "context_window": config_snapshot.context_window,
+            "purpose": purpose,
             "evidence": evidence_payload,
         }, ensure_ascii=False, sort_keys=True, default=str)
         cache_key = hashlib.sha256(cache_material.encode("utf-8")).hexdigest()
         now = time.monotonic()
-        with _REPORT_CACHE_LOCK:
-            cached = _REPORT_CACHE.get(cache_key)
-            if cached and now - cached[0] < _REPORT_CACHE_TTL_SECONDS:
-                return cached[1].model_copy(deep=True)
-            if cached:
-                _REPORT_CACHE.pop(cache_key, None)
+        if not (refresh or bypass_cache):
+            with _REPORT_CACHE_LOCK:
+                cached = _REPORT_CACHE.get(cache_key)
+                if cached and now - cached[0] < _REPORT_CACHE_TTL_SECONDS:
+                    return cached[1].model_copy(deep=True)
+                if cached:
+                    _REPORT_CACHE.pop(cache_key, None)
+                    _REPORT_ACTIVE_RUNS.pop(cache_key, None)
+                active = _REPORT_ACTIVE_RUNS.get(cache_key)
+                if active and active["completed_at"] is not None:
+                    _REPORT_ACTIVE_RUNS.pop(cache_key, None)
+                    active = None
+                if active is None:
+                    _REPORT_ACTIVE_RUNS[cache_key] = {
+                        "run_id": run_id,
+                        "started_at": started_at,
+                        "completed_at": None,
+                    }
+                else:
+                    run_id = str(active["run_id"])
+                    started_at = str(active["started_at"])
+                now_iso = started_at
 
         # 3. Construct LLM Prompts
         user_prompt = f"""請依據以下封閉研究證據 JSON，為 {ctx.identity.name} ({ctx.identity.code}) 產出結構化客觀解讀報告。
@@ -758,7 +908,8 @@ class TaiwanAIResearchService:
 
         # 4. Invoke AI Provider
         try:
-            raw_text, provider_error = await _shared_provider_response(cache_key, messages, config_snapshot)
+            provider_cache_key = f"{cache_key}:{run_id}" if refresh or bypass_cache else cache_key
+            raw_text, provider_error = await _shared_provider_response(provider_cache_key, messages, config_snapshot)
             if provider_error is not None:
                 raise provider_error
             if raw_text is None:
@@ -774,7 +925,7 @@ class TaiwanAIResearchService:
             else:
                 _ec = "provider_error"
                 _em = "AI 分析目前無法使用，請檢查 AI 設定或稍後重試。"
-            return TaiwanAIResearchResponse(
+            return complete(TaiwanAIResearchResponse(
                 status="unavailable",
                 error_code=_ec,
                 error_message=_em,
@@ -784,7 +935,7 @@ class TaiwanAIResearchService:
                 evidence_as_of=ctx.as_of_date,
                 generated_at=now_iso,
                 evidence_registry_keys=sorted(list(registry_keys)),
-            )
+            ))
 
         # 5. Extract and Validate JSON
         try:
@@ -793,7 +944,7 @@ class TaiwanAIResearchService:
                 raise ValueError("LLM did not return a valid JSON object dictionary.")
         except Exception as e:
             logger.error("Failed to parse AI response for %s (%s)", symbol, type(e).__name__)
-            return TaiwanAIResearchResponse(
+            return complete(TaiwanAIResearchResponse(
                 status="unavailable",
                 error_code="INVALID_STRUCTURED_RESPONSE",
                 error_message="AI 回傳內容無法解析為合法 JSON 格式。",
@@ -803,13 +954,13 @@ class TaiwanAIResearchService:
                 evidence_as_of=ctx.as_of_date,
                 generated_at=now_iso,
                 evidence_registry_keys=sorted(list(registry_keys)),
-            )
+            ))
 
         try:
             _validate_structured_research_payload(parsed)
         except ValueError as exc:
             logger.error("AI response schema validation failed for %s (%s)", symbol, type(exc).__name__)
-            return TaiwanAIResearchResponse(
+            return complete(TaiwanAIResearchResponse(
                 status="unavailable",
                 error_code="STRUCTURED_SCHEMA_FAILED",
                 error_message="AI 回傳 JSON 不符合研究報告欄位規格。",
@@ -819,7 +970,7 @@ class TaiwanAIResearchService:
                 evidence_as_of=ctx.as_of_date,
                 generated_at=now_iso,
                 evidence_registry_keys=sorted(list(registry_keys)),
-            )
+            ))
 
         # 6. Validate Evidence References & Strip Forbidden Fields
         def valid_evidence_refs(value: Any) -> list[str]:
@@ -920,9 +1071,11 @@ class TaiwanAIResearchService:
             generated_at=now_iso,
             evidence_registry_keys=sorted(list(registry_keys)),
         )
+        run = complete(response)
         with _REPORT_CACHE_LOCK:
             if len(_REPORT_CACHE) >= _REPORT_CACHE_MAX_ENTRIES:
                 oldest = min(_REPORT_CACHE, key=lambda key: _REPORT_CACHE[key][0])
                 _REPORT_CACHE.pop(oldest, None)
-            _REPORT_CACHE[cache_key] = (time.monotonic(), response.model_copy(deep=True))
-        return response
+                _REPORT_ACTIVE_RUNS.pop(oldest, None)
+            _REPORT_CACHE[cache_key] = (time.monotonic(), run.model_copy(deep=True))
+        return run
