@@ -47,6 +47,13 @@ def _make_profile(user_dir: Path) -> Path:
     _write_json(user_dir / "taiwan_buy_point_strategies.json", {"strategies": [{"id": "b1"}]})
     _write_json(user_dir / "taiwan_selection_snapshots.json", [{"id": "s1"}])
     (user_dir / "alerts.jsonl").write_text('{"id": "a1"}\n', encoding="utf-8")
+    (user_dir / "taiwan_ai_research_history.jsonl").write_text(
+        json.dumps({
+            "id": "research-1", "kind": "report", "run_id": "run-1", "parent_id": None,
+            "saved_at": "2026-10-02T10:00:00+08:00", "evidence_digest": "digest-1",
+        }) + "\n",
+        encoding="utf-8",
+    )
     pl.DataFrame({
         "symbol": ["2330.TWSE", "8069.TPEX"], "added_at": ["2026-09-01", "2026-09-02"],
         "note": [None, "觀察"], "group_ids": [["g1"], []],
@@ -243,6 +250,19 @@ def test_portfolio_and_watchlist_round_trip(home, office):
     assert pl.read_parquet(office / "watchlist.parquet")["symbol"].to_list() == ["2330.TWSE", "8069.TPEX"]
     assert (office / "watchlist_groups.json").read_bytes() == (home / "watchlist_groups.json").read_bytes()
     assert result["browser_storage"] == {"portfolio": BROWSER["portfolio"]}
+
+
+def test_research_history_round_trip_preserves_ids_and_evidence_digest(home, office):
+    blob = dt.build_backup(["history"], browser_storage={}, user_dir=home)
+    result = dt.restore(blob, ["history"], user_dir=office)
+
+    restored = json.loads(
+        (office / "taiwan_ai_research_history.jsonl").read_text(encoding="utf-8").strip()
+    )
+    assert restored["id"] == "research-1"
+    assert restored["run_id"] == "run-1"
+    assert restored["evidence_digest"] == "digest-1"
+    assert result["written"] >= 1
 
 
 def test_restore_replaces_selected_category_only(home, office):

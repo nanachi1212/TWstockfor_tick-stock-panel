@@ -90,7 +90,8 @@ CATEGORIES: dict[str, Category] = {
     "portfolio": Category("投資組合", browser_keys=("portfolio_transactions",)),
     "selection_review": Category("選股回顧快照", ("taiwan_selection_snapshots.json",)),
     "history": Category("提醒與摘要歷史", (
-        "alerts.jsonl", "taiwan_daily_briefs.json", "research_candidates.json",
+        "alerts.jsonl", "taiwan_ai_research_history.jsonl", "taiwan_daily_briefs.json",
+        "research_candidates.json",
     )),
 }
 SECRETS_CATEGORY = "secrets"

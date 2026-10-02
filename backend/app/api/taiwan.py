@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import logging
 from datetime import date as dt_date
-from typing import Any, Literal
+from typing import Annotated, Any, Literal
 
 from fastapi import APIRouter, HTTPException, Query, Request
 from pydantic import BaseModel
@@ -23,6 +23,10 @@ from app.taiwan.ai_research import (
     TaiwanAIResearchRequest,
     TaiwanAIResearchResponse,
     TaiwanAIResearchService,
+)
+from app.taiwan.ai_research_history import (
+    AIResearchHistoryError,
+    get_ai_research_history_store,
 )
 from app.taiwan.bootstrap import (
     BootstrapJobState,
@@ -462,17 +466,59 @@ async def generate_taiwan_stock_ai_research(
 
     svc = TaiwanAIResearchService()
     try:
-        return await svc.generate_report(
+        run = await svc.generate_run(
             symbol,
             target_date=target_dt,
             personal_context=payload.personal_context if payload else None,
+            purpose=payload.purpose if payload else "research",
+            refresh=payload.refresh if payload else False,
         )
+        if run.response.status == "success":
+            get_ai_research_history_store().ensure_report(run)
+        return run.response
     except Exception as e:
         logger.exception("Failed to generate AI stock research report for %s: %s", symbol, e)
         raise HTTPException(
             status_code=500,
             detail=f"AI 研究報告生成失敗: {e}",
         ) from e
+
+
+@router.get("/ai-research/history")
+def list_taiwan_ai_research_history(
+    symbol: str | None = Query(None),
+    from_date: Annotated[dt_date | None, Query(alias="from")] = None,
+    to_date: Annotated[dt_date | None, Query(alias="to")] = None,
+    purpose: str | None = Query(None),
+    limit: int = Query(100, ge=1, le=500),
+):
+    """List locally persisted research artifacts without invoking AI."""
+    return get_ai_research_history_store().list(
+        symbol=symbol,
+        from_date=from_date,
+        to_date=to_date,
+        purpose=purpose,
+        limit=limit,
+    )
+
+
+@router.get("/ai-research/history/{record_id}")
+def get_taiwan_ai_research_history(record_id: str):
+    record = get_ai_research_history_store().get(record_id)
+    if record is None:
+        raise HTTPException(status_code=404, detail="找不到指定的 AI 研究歷史")
+    return record
+
+
+@router.get("/ai-research/history/{record_id}/compare/{other_id}")
+def compare_taiwan_ai_research_history(record_id: str, other_id: str):
+    """Compare frozen evidence, generation configuration, and interpretation deterministically."""
+    try:
+        return get_ai_research_history_store().compare(record_id, other_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="找不到指定的 AI 研究歷史") from exc
+    except AIResearchHistoryError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @router.get("/abnormal-diagnostics", response_model=TaiwanAbnormalDiagnosticsSnapshot)
