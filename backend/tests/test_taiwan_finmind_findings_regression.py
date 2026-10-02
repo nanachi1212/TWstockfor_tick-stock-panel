@@ -236,7 +236,8 @@ def test_token_dynamic_lifecycle_without_restart(monkeypatch, tmp_path):
     from app.config import settings
 
     monkeypatch.setattr(settings, "data_dir", tmp_path)
-    monkeypatch.setenv("FINMIND_TOKEN", "")
+    # preferences.get_finmind_token() 的環境變數後備是 FINMIND_TOKEN。
+    monkeypatch.delenv("FINMIND_TOKEN", raising=False)
     reset_fundamental_chips_service()
 
     svc = get_fundamental_chips_service()
