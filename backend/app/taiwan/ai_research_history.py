@@ -9,7 +9,7 @@ import uuid
 from contextlib import suppress
 from datetime import date, datetime
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from app.config import settings
 from app.taiwan.ai_research import (
@@ -19,6 +19,9 @@ from app.taiwan.ai_research import (
     TaiwanAIResearchRun,
 )
 from app.taiwan.realtime.calendar import taipei_now
+
+if TYPE_CHECKING:
+    from app.taiwan.ai_advice import TaiwanAIAdviceRun, TaiwanAIReviewRun
 
 HISTORY_FILE_NAME = "taiwan_ai_research_history.jsonl"
 
@@ -48,7 +51,7 @@ def _normalize_record(value: Any) -> dict[str, Any]:
     record.setdefault("run_id", None)
     record.setdefault("parent_id", None)
     record.setdefault("saved_at", record.get("generated_at"))
-    if record["kind"] not in {"report", "link"}:
+    if record["kind"] not in {"report", "advice", "review", "link"}:
         # Future record kinds remain readable; operations that require a report reject them explicitly.
         record.setdefault("compatibility", {})
         record["compatibility"]["unsupported_kind"] = True
@@ -187,6 +190,108 @@ class TaiwanAIResearchHistoryStore:
                 "evidence_registry_keys": list(run.evidence_registry_keys),
                 "evidence_payload": run.evidence_payload,
                 "response": response,
+            }
+            self._append_unlocked(record)
+            return record
+
+    def ensure_advice(self, run: TaiwanAIAdviceRun) -> dict[str, Any]:
+        """Persist one frozen successful Advice without embedding its optional Review."""
+        if run.response.status != "success" or run.response.advice is None:
+            raise AIResearchHistoryError("Only successful advice can be persisted")
+        with self._lock:
+            records = self._read_unlocked()
+            for record in records:
+                if record.get("kind") == "advice" and record.get("run_id") == run.run_id:
+                    return record
+            response = run.response.model_copy(deep=True)
+            response.review = None
+            response.review_status = "not_requested"
+            response.review_run_id = None
+            response.review_error_code = None
+            response.review_error_message = None
+            saved_at = taipei_now().isoformat()
+            advice = response.advice
+            assert advice is not None
+            record = {
+                "id": f"advice_{uuid.uuid4().hex}",
+                "kind": "advice",
+                "run_id": run.run_id,
+                "parent_id": None,
+                "saved_at": saved_at,
+                "symbol": advice.symbol,
+                "purpose": "advice",
+                "strategy_id": advice.strategy_id,
+                "evidence_as_of": response.evidence_as_of,
+                "evidence_cutoff": run.evidence_cutoff,
+                "started_at": response.started_at,
+                "completed_at": response.completed_at,
+                "generated_at": response.generated_at,
+                "forward_cutoff": run.forward_cutoff,
+                "prompt_versions": {
+                    "research": RESEARCH_PROMPT_VERSION,
+                    "advice": ADVICE_PROMPT_VERSION,
+                    "review": REVIEW_PROMPT_VERSION,
+                },
+                "provider": response.provider,
+                "model": response.model,
+                "generation_config": run.generation_config,
+                "evidence_digest": run.evidence_digest,
+                "evidence_registry_keys": list(run.evidence_registry_keys),
+                "evidence_payload": run.evidence_payload,
+                "evidence_admission_provenance": run.evidence_admission_provenance,
+                "source_snapshot_id": run.source_snapshot_id,
+                "source_snapshot_digest": run.source_snapshot_digest,
+                "strategy_definition_digest": run.strategy_definition_digest,
+                "trade_plan": run.trade_plan.model_dump(mode="json") if run.trade_plan else None,
+                "plan_identity": run.plan_identity,
+                "plan_instance_id": run.plan_instance_id,
+                "selected_plan_instance_id": run.selected_plan_instance_id,
+                "response": response.model_dump(mode="json"),
+            }
+            self._append_unlocked(record)
+            return record
+
+    def ensure_review(
+        self,
+        advice_run: TaiwanAIAdviceRun,
+        review_run: TaiwanAIReviewRun,
+    ) -> dict[str, Any]:
+        """Persist an independent Review once; it annotates but never rewrites Advice."""
+        if review_run.advice_run_id != advice_run.run_id:
+            raise AIResearchHistoryError("Review does not belong to the supplied advice")
+        with self._lock:
+            records = self._read_unlocked()
+            for record in records:
+                if record.get("kind") == "review" and record.get("run_id") == review_run.run_id:
+                    return record
+            parent = next(
+                (
+                    record
+                    for record in records
+                    if record.get("kind") == "advice" and record.get("run_id") == advice_run.run_id
+                ),
+                None,
+            )
+            if parent is None:
+                raise AIResearchHistoryError("Advice must be persisted before its review")
+            record = {
+                "id": f"review_{uuid.uuid4().hex}",
+                "kind": "review",
+                "run_id": review_run.run_id,
+                "parent_id": parent["id"],
+                "advice_run_id": advice_run.run_id,
+                "saved_at": taipei_now().isoformat(),
+                "symbol": parent.get("symbol"),
+                "purpose": "advice_review",
+                "evidence_as_of": parent.get("evidence_as_of"),
+                "started_at": review_run.started_at,
+                "completed_at": review_run.completed_at,
+                "generated_at": review_run.completed_at,
+                "prompt_versions": parent.get("prompt_versions"),
+                "provider": review_run.provider,
+                "model": review_run.model,
+                "generation_config": review_run.generation_config,
+                "review": review_run.review.model_dump(mode="json"),
             }
             self._append_unlocked(record)
             return record

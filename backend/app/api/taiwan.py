@@ -19,6 +19,7 @@ from app.taiwan.abnormal_diagnostics import (
     TaiwanAbnormalDiagnosticsService,
     TaiwanAbnormalDiagnosticsSnapshot,
 )
+from app.taiwan.ai_advice import TaiwanAIAdviceResponse, TaiwanAIAdviceService
 from app.taiwan.ai_research import (
     TaiwanAIResearchRequest,
     TaiwanAIResearchResponse,
@@ -450,12 +451,16 @@ def get_taiwan_stock_research_context(
         ) from e
 
 
-@router.post("/stocks/{symbol}/ai-research", response_model=TaiwanAIResearchResponse)
+@router.post(
+    "/stocks/{symbol}/ai-research",
+    response_model=TaiwanAIResearchResponse | TaiwanAIAdviceResponse,
+)
 async def generate_taiwan_stock_ai_research(
     symbol: str,
+    request: Request,
     payload: TaiwanAIResearchRequest | None = None,
 ):
-    """依據本地確定性事實證據生成台股客觀 AI 個股研究報告 (封閉事實邊界、無買賣推薦、0 市場 HTTP)。"""
+    """依本地封閉證據生成 Research，或伺服器買點/交易計畫約束的 Advice。"""
     from datetime import date as dt_date
     target_dt = None
     if payload and payload.date:
@@ -464,8 +469,27 @@ async def generate_taiwan_stock_ai_research(
         except ValueError as e:
             raise HTTPException(status_code=400, detail=f"無效的日期格式: {payload.date}，請使用 YYYY-MM-DD") from e
 
-    svc = TaiwanAIResearchService()
     try:
+        if payload is not None and payload.purpose == "advice":
+            assert payload.strategy_id is not None
+            data_dir = request.app.state.repo.store.data_dir
+            advice_svc = TaiwanAIAdviceService(data_dir)
+            advice_run, review_run = await advice_svc.generate(
+                symbol,
+                strategy_id=payload.strategy_id,
+                target_date=target_dt,
+                personal_context=payload.personal_context,
+                review=payload.review,
+                refresh=payload.refresh,
+            )
+            if advice_run.response.status == "success":
+                history = get_ai_research_history_store()
+                history.ensure_advice(advice_run)
+                if review_run is not None:
+                    history.ensure_review(advice_run, review_run)
+            return advice_run.response
+
+        svc = TaiwanAIResearchService()
         run = await svc.generate_run(
             symbol,
             target_date=target_dt,
