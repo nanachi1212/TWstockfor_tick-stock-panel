@@ -4,6 +4,7 @@
 // Prod:同源(FastAPI 託管前端 dist)
 
 import { toast } from '@/components/Toast'
+import type { BreadthValuationResponse, ResearchMarket, ResearchSections, ValuationRefreshResult } from './marketBreadthTypes'
 
 const BASE = ''
 
@@ -1002,6 +1003,8 @@ export interface TaiwanStockDetailResponse {
   fundamentals?: TaiwanFundamentalData
   extra_chips?: TaiwanExtraChipsData
   recent_events?: MarketEvent[]
+  events_status?: string
+  events_sources_status?: Record<string, string>
   recent_news?: TaiwanStockNewsItem[]
   news_status?: 'available' | 'rate_limited' | 'auth_required' | 'unavailable' | string
   news_status_message?: string | null
@@ -1137,6 +1140,9 @@ export interface TaiwanScreenerRequest {
   investment_trust_net_max?: number | null
   dealer_net_min?: number | null
   dealer_net_max?: number | null
+  streak_investor?: 'foreign' | 'investment_trust' | 'dealer'
+  streak_direction?: 'buy' | 'sell'
+  streak_min_days?: number | null
   margin_balance_change_min?: number | null
   margin_balance_change_max?: number | null
   short_balance_min?: number | null
@@ -1221,6 +1227,7 @@ export interface ScreenerResultItem {
   institutional_flow_ratio_5d?: number | null
   institutional_date?: string | null
   institutional_status?: string
+  institutional_streak?: (import('./marketResearch').ResearchMetric & { investor: import('./marketResearch').Investor; direction: 'buy' | 'sell' }) | null
   margin_balance?: number | null
   margin_balance_change?: number | null
   short_balance?: number | null
@@ -1919,6 +1926,9 @@ export interface MarketEvent {
   source_url?: string | null
   retrieved_at: string
   freshness: string
+  published_at?: string | null
+  available_at?: string | null
+  status?: 'available' | 'data_insufficient' | string
   is_resolvable?: boolean
   details?: Record<string, any>
 }
@@ -3052,6 +3062,18 @@ export interface DataHealthJob {
 }
 
 export const api = {
+  marketBreadthValuation: (asOf?: string, market: ResearchMarket = 'composite', days = 20, sections: ResearchSections = 'all') => {
+    const query = new URLSearchParams({ market, days: String(days), sections })
+    if (asOf) query.set('as_of', asOf)
+    return request<BreadthValuationResponse>(`/api/taiwan/market-research/breadth-valuation?${query}`)
+  },
+  refreshMarketValuation: () => request<ValuationRefreshResult>(
+    '/api/taiwan/market-research/breadth-valuation/refresh', { method: 'POST' },
+  ),
+  taiwanInstitutionalStatistics: (date?: string, window: import('./marketResearch').InstitutionalWindow = 5) =>
+    request<import('./marketResearch').InstitutionalStatisticsSnapshot>(`/api/taiwan/institutional-statistics?window=${window}${date ? `&date=${encodeURIComponent(date)}` : ''}`),
+  taiwanIndustryRotation: (date?: string) =>
+    request<import('./marketResearch').IndustryRotationSnapshot>(`/api/taiwan/industry-rotation${date ? `?date=${encodeURIComponent(date)}` : ''}`),
   strategyLab: (filters: StrategyLabFilters) =>
     request<StrategyLabOverview>(`/api/taiwan/strategy-lab?${strategyLabQuery(filters)}`),
   strategyLabObservations: (filters: StrategyLabFilters, offset = 0) =>
@@ -4170,6 +4192,7 @@ export const api = {
     severity?: string
     date?: string
     limit?: number
+    refresh?: boolean
   }) => {
     const q = new URLSearchParams()
     if (params?.scope) q.set('scope', params.scope)
@@ -4179,6 +4202,7 @@ export const api = {
     if (params?.severity) q.set('severity', params.severity)
     if (params?.date) q.set('date', params.date)
     if (params?.limit) q.set('limit', String(params.limit))
+    if (params?.refresh) q.set('refresh', 'true')
     const qs = q.toString()
     return request<TaiwanEventsResponse>(qs ? `/api/taiwan/events?${qs}` : '/api/taiwan/events')
   },

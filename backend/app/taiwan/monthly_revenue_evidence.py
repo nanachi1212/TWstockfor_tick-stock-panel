@@ -482,7 +482,7 @@ def refresh_monthly_revenue_evidence(
                         page = parse_revenue_page(decode_page(raw), period=period)
                         store.record_fetch(
                             run_id=run_id, market=market, kind=kind, period=period,
-                            retrieved_at=datetime.now(TAIPEI), status=page.status,
+                            retrieved_at=now, status=page.status,
                             raw=raw, page=page,
                         )
                         summary["fetched"] += 1
@@ -491,7 +491,7 @@ def refresh_monthly_revenue_evidence(
                         status: FetchStatus = "schema_changed" if isinstance(exc, RevenuePageSchemaError) else "error"
                         store.record_fetch(
                             run_id=run_id, market=market, kind=kind, period=period,
-                            retrieved_at=datetime.now(TAIPEI), status=status, raw=raw,
+                            retrieved_at=now, status=status, raw=raw,
                             error=f"{type(exc).__name__}: {exc}"[:300],
                         )
                         summary["failed"] += 1

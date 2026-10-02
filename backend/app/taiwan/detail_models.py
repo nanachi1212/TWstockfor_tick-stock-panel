@@ -250,6 +250,8 @@ class TaiwanStockDetailResponse(BaseModel):
     fundamentals: Optional[TaiwanFundamentalData] = None
     extra_chips: Optional[TaiwanExtraChipsData] = None
     recent_events: list[Any] = Field(default_factory=list, description="近期市場與公司重大事件 (A11)")
+    events_status: str = Field(default="not_queried", description="近期事件來源查詢狀態")
+    events_sources_status: dict[str, str] = Field(default_factory=dict, description="逐來源事件查詢狀態")
     recent_news: list[Any] = Field(default_factory=list, description="近期個股新聞 (A11)")
     news_status: str = Field("available", description="新聞來源狀態: available, rate_limited, auth_required, unavailable")
     news_status_message: str | None = Field(None, description="新聞來源說明訊息")

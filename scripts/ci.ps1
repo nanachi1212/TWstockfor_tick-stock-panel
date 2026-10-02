@@ -1,554 +1,601 @@
 [CmdletBinding()]
 param(
-    [ValidateSet('Fast', 'Auto', 'Full', 'Live')]
+    [ValidateSet('Auto', 'Fast', 'Full', 'Live')]
     [string]$Mode = 'Auto',
 
+    # Optional deterministic override for CI-script checks. When omitted, Auto
+    # reads unstaged, staged, untracked, and origin/main...HEAD changes.
+    [string[]]$ChangedPath,
+
+    # Print the selected plan without executing validation commands.
     [switch]$PlanOnly
 )
 
+Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
-$repoRoot = (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot '..')).Path
 
-# Shared by every validation job (passed as Start-Job -InitializationScript).
-$invokeStepInit = {
-    function Invoke-Step {
-        param(
-            [Parameter(Mandatory)]
-            [string]$Label,
+$RepoRoot = Split-Path -Parent $PSScriptRoot
+$BackendRoot = Join-Path $RepoRoot 'backend'
+$FrontendRoot = Join-Path $RepoRoot 'frontend'
+$ScriptPath = $MyInvocation.MyCommand.Path
+$CiCache = Join-Path $RepoRoot '.uv'
+$CiTemp = Join-Path $RepoRoot '.pytest-ci-tmp'
+New-Item -ItemType Directory -Force -Path $CiCache, $CiTemp | Out-Null
+$env:UV_CACHE_DIR = $CiCache
+$env:TEMP = $CiTemp
+$env:TMP = $CiTemp
 
-            [Parameter(Mandatory)]
-            [string]$FilePath,
+function Normalize-RepoPath {
+    param([Parameter(Mandatory)][string]$Path)
 
-            [Parameter(Mandatory)]
-            [string[]]$Arguments
-        )
-
-        # A missing tool must fail the step instead of leaving a stale exit code.
-        Get-Command -Name $FilePath -ErrorAction Stop | Out-Null
-
-        $previousErrorActionPreference = $ErrorActionPreference
-        try {
-            # Windows PowerShell 5.1 promotes redirected native stderr to a
-            # terminating error under Stop; only the exit code decides failure.
-            $ErrorActionPreference = 'Continue'
-            $global:LASTEXITCODE = 0
-            $lines = @(& $FilePath @Arguments 2>&1)
-            $exitCode = $LASTEXITCODE
-        }
-        finally {
-            $ErrorActionPreference = $previousErrorActionPreference
-        }
-
-        foreach ($line in $lines) {
-            $output.Add([string]$line)
-        }
-
-        if ($null -eq $exitCode) {
-            $exitCode = 0
-        }
-        if ($exitCode -ne 0) {
-            throw "$Label failed, exit code: $exitCode"
-        }
-    }
+    return (($Path -replace '\\', '/') -replace '^\./', '').Trim()
 }
 
-function Get-GitNames {
-    param(
-        [Parameter(Mandatory)]
-        [string[]]$Arguments
-    )
+function Get-GitPathLines {
+    param([Parameter(Mandatory)][string[]]$Arguments)
 
-    $previousErrorActionPreference = $ErrorActionPreference
-    try {
-        # Windows PowerShell 5.1 promotes native stderr to a terminating error
-        # under ErrorActionPreference=Stop, even when stderr is redirected.
-        $ErrorActionPreference = 'Continue'
-        $names = @(& git -C $repoRoot @Arguments 2>$null)
-        $gitExitCode = $LASTEXITCODE
-    }
-    finally {
-        $ErrorActionPreference = $previousErrorActionPreference
-    }
-
-    if ($gitExitCode -ne 0) {
+    $lines = @(& git -C $RepoRoot @Arguments 2>$null)
+    if ($LASTEXITCODE -ne 0) {
         return @()
     }
 
     return @(
-        $names |
-            ForEach-Object { ([string]$_).Trim().Replace('\', '/') } |
+        $lines |
+            ForEach-Object { Normalize-RepoPath -Path ([string]$_) } |
             Where-Object { $_ }
     )
 }
 
 function Get-ChangedPaths {
+    if ($null -ne $ChangedPath -and $ChangedPath.Count -gt 0) {
+        return @(
+            $ChangedPath |
+                ForEach-Object { Normalize-RepoPath -Path $_ } |
+                Where-Object { $_ } |
+                Sort-Object -Unique
+        )
+    }
+
     $paths = [System.Collections.Generic.List[string]]::new()
-
-    if ((Get-GitNames -Arguments @('rev-parse', '--verify', 'origin/main')).Count -gt 0) {
-        Get-GitNames -Arguments @('diff', '--name-only', 'origin/main...HEAD') | ForEach-Object { $paths.Add($_) }
-    }
-
-    Get-GitNames -Arguments @('diff', '--name-only') | ForEach-Object { $paths.Add($_) }
-    Get-GitNames -Arguments @('diff', '--cached', '--name-only') | ForEach-Object { $paths.Add($_) }
-    Get-GitNames -Arguments @('ls-files', '--others', '--exclude-standard') | ForEach-Object { $paths.Add($_) }
-
-    return @($paths | Sort-Object -Unique)
-}
-
-function Test-PathPattern {
-    param(
-        [Parameter(Mandatory)]
-        [string]$Path,
-
-        [Parameter(Mandatory)]
-        [string[]]$Patterns
-    )
-
-    foreach ($pattern in $Patterns) {
-        if ($Path -match $pattern) {
-            return $true
-        }
-    }
-
-    return $false
-}
-
-function Get-ChangeClassification {
-    param(
-        [Parameter(Mandatory)]
-        [AllowEmptyCollection()]
-        [string[]]$Paths
-    )
-
-    $backend = @($Paths | Where-Object { $_ -match '^backend/' })
-    $frontend = @($Paths | Where-Object { $_ -match '^frontend/' })
-    $operationGuideName = ([char]0x64cd).ToString() + [char]0x4f5c + [char]0x8aaa + [char]0x660e + [char]0x66f8 + '.md'
-    $documentationOnly = @(
-        $Paths | Where-Object {
-            $_ -match '^(README\.md|AGENTS\.md|CLAUDE\.md|CONTRIBUTING\.md|docs/)' -or $_ -eq $operationGuideName
-        }
-    )
-
-    $fullPatterns = @(
-        '(^|/)pyproject\.toml$',
-        '(^|/)requirements[^/]*$',
-        '(^|/)(uv\.lock|package\.json|pnpm-lock\.yaml|yarn\.lock|package-lock\.json)$',
-        '^\.github/',
-        '^scripts/',
-        '(^|/)(tsconfig[^/]*\.json|vite\.config\.[^/]+|vitest\.config\.[^/]+)$',
-        '(^|/)(pytest\.ini|tox\.ini|conftest\.py)$',
-        '(^|/)(migrations?|alembic)(/|$)',
-        '^backend/app/api/',
-        '^backend/app/(models|schemas)/',
-        '^backend/app/.*(contract|contracts|model|models|schema|schemas)',
-        '^frontend/src/lib/(api|queryKeys)\.',
-        '^frontend/src/extensions/types\.',
-        '^docs/.*(contract|schema)',
-        '^(Dockerfile|docker-compose\.yml|dev\.ps1)$',
-        '^packaging/'
-    )
-
-    $requiresFull = @($Paths | Where-Object { Test-PathPattern -Path $_ -Patterns $fullPatterns }).Count -gt 0
-    $knownPath = @(
-        $Paths | Where-Object {
-            $_ -match '^(backend|frontend|scripts|\.github|packaging|docs|specs|data)/' -or
-            $_ -match '^(README\.md|AGENTS\.md|CLAUDE\.md|CONTRIBUTING\.md|Dockerfile|docker-compose\.yml|dev\.ps1|VERSION|tiers\.yaml)$' -or
-            $_ -eq $operationGuideName
-        }
-    )
-    $unknown = @($Paths | Where-Object { $_ -notin $knownPath -and $_ -notin $documentationOnly })
-
-    if ($unknown.Count -gt 0) {
-        $requiresFull = $true
-    }
-
-    [pscustomobject]@{
-        Backend           = $backend.Count -gt 0
-        Frontend          = $frontend.Count -gt 0
-        RequiresFull      = $requiresFull
-        DocumentationOnly = $Paths.Count -gt 0 -and $documentationOnly.Count -eq $Paths.Count
-        BackendPaths      = $backend
-        FrontendPaths     = $frontend
-        UnknownPaths      = $unknown
-    }
-}
-
-function Get-TestTargets {
-    param(
-        [Parameter(Mandatory)]
-        [AllowEmptyCollection()]
-        [string[]]$Paths,
-
-        [Parameter(Mandatory)]
-        [string]$Root,
-
-        [Parameter(Mandatory)]
-        [string]$TestRoot,
-
-        [Parameter(Mandatory)]
-        [string]$SourcePrefix,
-
-        [Parameter(Mandatory)]
-        [string]$TestPathPrefix
-    )
-
-    $targets = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
-    $unmapped = [System.Collections.Generic.List[string]]::new()
-    $testRootPath = Join-Path $Root $TestRoot
-
-    $sourceRootPath = Join-Path $Root $SourcePrefix
-    $sourceRootUri = [Uri]((Resolve-Path -LiteralPath $sourceRootPath).Path.TrimEnd('\') + '\')
-    $sourcePrefixPattern = "^$SourcePrefix/"
-    $testPrefixPattern = "^$TestPathPrefix"
-
-    foreach ($path in $Paths) {
-        if ($path -notmatch $sourcePrefixPattern) {
-            continue
-        }
-
-        $isTestPath = $path -match $testPrefixPattern
-        if ($isTestPath -and ($path -match '\.(test|spec)\.[^/]+$' -or $path -match '\.py$')) {
-            $testAbsolutePath = Join-Path $Root $path
-            if (Test-Path -LiteralPath $testAbsolutePath -PathType Leaf) {
-                [void]$targets.Add(($path -replace $sourcePrefixPattern, '').Replace('/', '\'))
+    foreach ($argumentSet in @(
+        @('diff', '--name-only', '--diff-filter=ACDMRTUXB'),
+        @('diff', '--cached', '--name-only', '--diff-filter=ACDMRTUXB'),
+        @('ls-files', '--others', '--exclude-standard')
+    )) {
+        foreach ($path in (Get-GitPathLines -Arguments $argumentSet)) {
+            if (-not $paths.Contains($path)) {
+                $paths.Add($path)
             }
-            continue
         }
+    }
 
-        $stem = [System.IO.Path]::GetFileNameWithoutExtension($path)
-        if (-not $stem) {
-            continue
-        }
-
-        $matched = $false
-        $candidateNames = @("test_$stem*", "${stem}.test.*", "${stem}.spec.*")
-        foreach ($candidateName in $candidateNames) {
-            if (-not (Test-Path -LiteralPath $testRootPath)) {
-                continue
+    $originMain = @(& git -C $RepoRoot rev-parse --verify origin/main 2>$null)
+    if ($LASTEXITCODE -eq 0) {
+        foreach ($path in (Get-GitPathLines -Arguments @('diff', '--name-only', 'origin/main...HEAD'))) {
+            if (-not $paths.Contains($path)) {
+                $paths.Add($path)
             }
-
-            Get-ChildItem -LiteralPath $testRootPath -Recurse -File -Filter $candidateName |
-                ForEach-Object {
-                    $fileUri = [Uri]((Resolve-Path -LiteralPath $_.FullName).Path)
-                    $relative = [Uri]::UnescapeDataString($sourceRootUri.MakeRelativeUri($fileUri).ToString()).Replace('/', '\')
-                    [void]$targets.Add($relative)
-                    $matched = $true
-                }
-        }
-
-        if (-not $matched -and $path -match '\.(py|[cm]?[jt]sx?)$') {
-            $unmapped.Add($path)
         }
     }
-
-    [pscustomobject]@{
-        Targets  = @($targets | Sort-Object)
-        Unmapped = @($unmapped)
+    else {
+        Write-Warning '找不到 origin/main，已略過 origin/main...HEAD 變更。'
     }
+
+    return @($paths | Sort-Object)
 }
 
-function Get-RuffTargets {
+function Test-AnyPath {
     param(
-        [Parameter(Mandatory)]
-        [AllowEmptyCollection()]
-        [string[]]$Paths,
-
-        [string[]]$TestTargets,
-
-        [Parameter(Mandatory)]
-        [string]$Root
+        [Parameter(Mandatory)][AllowEmptyCollection()][string[]]$Paths,
+        [Parameter(Mandatory)][string]$Pattern
     )
 
-    $targets = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
-    foreach ($path in $Paths) {
-        $absolutePath = Join-Path $Root $path
-        if ($path -match '^backend/.+\.py$' -and (Test-Path -LiteralPath $absolutePath -PathType Leaf)) {
-            [void]$targets.Add(($path -replace '^backend/', '').Replace('/', '\'))
-        }
-    }
-    foreach ($target in $TestTargets) {
-        [void]$targets.Add($target)
-    }
-
-    return @($targets | Sort-Object)
+    return [bool]($Paths | Where-Object { $_ -match $Pattern } | Select-Object -First 1)
 }
 
-function New-BackendJobScript {
-    return {
-        param([string]$ConfigJson)
+function Get-ChangeProfile {
+    param([Parameter(Mandatory)][AllowEmptyCollection()][string[]]$Paths)
 
+    $backend = Test-AnyPath -Paths $Paths -Pattern '^(backend/(app|tests|scripts)/.*\.(py|pyi)|backend/pyproject\.toml|backend/uv\.lock)$'
+    $frontend = Test-AnyPath -Paths $Paths -Pattern '^frontend/'
+    $dependency = Test-AnyPath -Paths $Paths -Pattern '(^|/)(uv\.lock|pyproject\.toml|requirements[^/]*\.txt|poetry\.lock|package\.json|pnpm-lock\.yaml|package-lock\.json|yarn\.lock|bun\.lockb)$'
+    $schemaOrMigration = Test-AnyPath -Paths $Paths -Pattern '(^|/)(schema|schemas|migrations?|contracts?)(/|\.|$)|(^|/).*\.(sql|graphql|gql)$'
+    $sharedContract = Test-AnyPath -Paths $Paths -Pattern '^(backend/app/api/|backend/app/(core|tickflow|data_providers)/|frontend/src/(lib/api\.|lib/queryKeys\.|types/|extensions/)|shared/|contracts/)'
+    $scriptOrWorkflow = Test-AnyPath -Paths $Paths -Pattern '^(scripts/|\.github/workflows/)'
+    $documentation = Test-AnyPath -Paths $Paths -Pattern '(^|/)(README|CONTRIBUTING|AGENTS)(\.|$)|^(docs|specs)/|\.(md|mdx|rst|txt)$'
+
+    $highRisk = $dependency -or $schemaOrMigration -or $sharedContract
+    $code = $backend -or $frontend
+
+    return [pscustomobject]@{
+        Backend = $backend
+        Frontend = $frontend
+        Dependency = $dependency
+        SchemaOrMigration = $schemaOrMigration
+        SharedContract = $sharedContract
+        ScriptOrWorkflow = $scriptOrWorkflow
+        Documentation = $documentation
+        HighRisk = $highRisk
+        Code = $code
+    }
+}
+
+function Get-RelativeRepoPath {
+    param([Parameter(Mandatory)][string]$FullPath)
+
+    return (Resolve-Path -LiteralPath $FullPath).Path.Substring($RepoRoot.Length + 1) -replace '\\', '/'
+}
+
+function Add-PathIfExists {
+    param(
+        [Parameter(Mandatory)][AllowEmptyCollection()][System.Collections.Generic.List[string]]$Target,
+        [Parameter(Mandatory)][string]$Path
+    )
+
+    if ((Test-Path -LiteralPath $Path -PathType Leaf) -and -not $Target.Contains($Path)) {
+        $Target.Add($Path)
+    }
+}
+
+function Get-BackendTestFiles {
+    param([Parameter(Mandatory)][AllowEmptyCollection()][string[]]$Paths)
+
+    $testRoot = Join-Path $BackendRoot 'tests'
+    $allTests = @(Get-ChildItem -LiteralPath $testRoot -Recurse -File -Filter 'test_*.py')
+    $selected = [System.Collections.Generic.List[string]]::new()
+    $fallbackRequired = $false
+
+    foreach ($path in $Paths | Where-Object { $_ -match '^backend/' }) {
+        if ($path -match '^backend/tests/(.+\.py)$') {
+            $candidate = Join-Path $BackendRoot ($Matches[1] -replace '/', '\\')
+            Add-PathIfExists -Target $selected -Path $candidate
+            continue
+        }
+
+        if ($path -notmatch '^backend/app/.+\.pyi?$') {
+            continue
+        }
+
+        $leaf = [IO.Path]::GetFileNameWithoutExtension($path)
+        $directoryParts = @((($path -split '/') | Where-Object { $_ -and $_ -notin @('backend', 'app', 'api') }))
+        $domain = if ($directoryParts.Count -gt 1) { $directoryParts[$directoryParts.Count - 2] } else { '' }
+        $baseNames = [System.Collections.Generic.List[string]]::new()
+        $baseNames.Add($leaf)
+        if ($leaf.EndsWith('s')) { $baseNames.Add($leaf.Substring(0, $leaf.Length - 1)) }
+        foreach ($suffix in @('_service', '_store', '_models', '_model', '_client', '_manager', '_engine', '_provider', '_repository', '_routes', '_api', '_job', '_jobs', '_scheduler', '_runner', '_config', '_settings')) {
+            if ($leaf.EndsWith($suffix)) {
+                $baseNames.Add($leaf.Substring(0, $leaf.Length - $suffix.Length))
+            }
+        }
+
+        $matches = @($allTests | Where-Object {
+            $testName = $_.BaseName.Substring(5)
+            ($baseNames | Where-Object { $testName -eq $_ -or $testName -eq "$domain`_$($_)" })
+        })
+        foreach ($match in $matches) {
+            Add-PathIfExists -Target $selected -Path $match.FullName
+        }
+
+        if ($matches.Count -eq 0) {
+            $significantTokens = @($leaf -split '_' | Where-Object { $_.Length -ge 4 -and $_ -notin @('data', 'main', 'test') })
+            $tokenMatches = @($allTests | Where-Object {
+                $testName = $_.BaseName.ToLowerInvariant()
+                [bool]($significantTokens | Where-Object { $testName.Contains($_.ToLowerInvariant()) })
+            })
+            foreach ($match in $tokenMatches) {
+                Add-PathIfExists -Target $selected -Path $match.FullName
+            }
+        }
+
+        if ($matches.Count -eq 0 -and $selected.Count -eq 0) {
+            $fallbackRequired = $true
+        }
+    }
+
+    if ($fallbackRequired) {
+        return [pscustomobject]@{ Files = @(); Fallback = $true }
+    }
+
+    return [pscustomobject]@{ Files = @($selected | Sort-Object); Fallback = $false }
+}
+
+function Get-FrontendTestFiles {
+    param([Parameter(Mandatory)][AllowEmptyCollection()][string[]]$Paths)
+
+    $srcRoot = Join-Path $FrontendRoot 'src'
+    $allTests = @(Get-ChildItem -LiteralPath $srcRoot -Recurse -File | Where-Object { $_.Name -match '\.(test|spec)\.[cm]?[jt]sx?$' })
+    $selected = [System.Collections.Generic.List[string]]::new()
+    $fallbackRequired = $false
+
+    foreach ($path in $Paths | Where-Object { $_ -match '^frontend/' }) {
+        if ($path -match '^frontend/src/.+\.(test|spec)\.[cm]?[jt]sx?$') {
+            $candidate = Join-Path $RepoRoot ($path -replace '/', '\\')
+            Add-PathIfExists -Target $selected -Path $candidate
+            continue
+        }
+
+        if ($path -notmatch '^frontend/src/.+\.[cm]?[jt]sx?$') {
+            continue
+        }
+
+        $leaf = [IO.Path]::GetFileNameWithoutExtension($path)
+        $matches = @($allTests | Where-Object {
+            $_.BaseName -match "^$([regex]::Escape($leaf))\.(test|spec)$" -or
+            $_.BaseName -match "$([regex]::Escape($leaf))\.(test|spec)$"
+        })
+        foreach ($match in $matches) {
+            Add-PathIfExists -Target $selected -Path $match.FullName
+        }
+        if ($matches.Count -eq 0) {
+            $fallbackRequired = $true
+        }
+    }
+
+    if ($fallbackRequired) {
+        return [pscustomobject]@{ Files = @(); Fallback = $true }
+    }
+
+    return [pscustomobject]@{ Files = @($selected | Sort-Object); Fallback = $false }
+}
+
+function Get-FrontendBuildNeeded {
+    param(
+        [Parameter(Mandatory)][AllowEmptyCollection()][string[]]$Paths,
+        [Parameter(Mandatory)][bool]$Full
+    )
+
+    if ($Full) { return $true }
+
+    return Test-AnyPath -Paths $Paths -Pattern '^frontend/(package\.json|pnpm-lock\.yaml|tsconfig[^/]*\.json|vite\.config\.|postcss\.config\.|tailwind\.config\.|src/(main\.|router\.|lib/|pages/|extensions/|.*\.(css|scss)))'
+}
+
+function Add-Lane {
+    param(
+        [Parameter(Mandatory)][AllowEmptyCollection()][System.Collections.Generic.List[string]]$Lanes,
+        [Parameter(Mandatory)][string]$Lane
+    )
+
+    if (-not $Lanes.Contains($Lane)) { $Lanes.Add($Lane) }
+}
+
+function Get-Lanes {
+    param(
+        [Parameter(Mandatory)][string]$SelectedMode,
+        [Parameter(Mandatory)]$Profile,
+        [Parameter(Mandatory)][AllowEmptyCollection()][string[]]$Paths
+    )
+
+    $lanes = [System.Collections.Generic.List[string]]::new()
+    if ($SelectedMode -eq 'Live') {
+        Add-Lane -Lanes $lanes -Lane 'backend-live-integration'
+        return @($lanes)
+    }
+
+    if ($SelectedMode -eq 'Full' -or ($SelectedMode -eq 'Auto' -and $Profile.HighRisk)) {
+        Add-Lane -Lanes $lanes -Lane 'backend-full'
+        Add-Lane -Lanes $lanes -Lane 'frontend-full'
+        return @($lanes)
+    }
+
+    $hasScriptChange = $Profile.ScriptOrWorkflow
+    if ($Profile.Backend) { Add-Lane -Lanes $lanes -Lane 'backend-fast' }
+    if ($Profile.Frontend) { Add-Lane -Lanes $lanes -Lane 'frontend-fast' }
+
+    if ($lanes.Count -eq 0 -and $hasScriptChange) {
+        Add-Lane -Lanes $lanes -Lane 'ci-script-check'
+    }
+    if ($lanes.Count -eq 0 -and -not $Profile.Documentation) {
+        Add-Lane -Lanes $lanes -Lane 'no-code-change'
+    }
+
+    return @($lanes)
+}
+
+function Invoke-ExternalStep {
+    param(
+        [Parameter(Mandatory)][string]$Name,
+        [Parameter(Mandatory)][string]$WorkingDirectory,
+        [Parameter(Mandatory)][string]$FilePath,
+        [Parameter(Mandatory)][string[]]$Arguments
+    )
+
+    $started = Get-Date
+    try {
+        Push-Location -LiteralPath $WorkingDirectory
+        $output = @(& $FilePath @Arguments 2>&1)
+        $exitCode = $LASTEXITCODE
+    }
+    catch {
+        $output = @($_.Exception.Message)
+        $exitCode = 1
+    }
+    finally {
+        Pop-Location
+    }
+
+    return [pscustomobject]@{
+        Name = $Name
+        Passed = ($exitCode -eq 0)
+        ExitCode = $exitCode
+        Duration = ((Get-Date) - $started).TotalSeconds
+        Output = ($output | Out-String).Trim()
+    }
+}
+
+function Start-DomainValidationJob {
+    param(
+        [Parameter(Mandatory)][ValidateSet('backend', 'frontend')][string]$Domain,
+        [Parameter(Mandatory)][ValidateSet('Fast', 'Full')][string]$ValidationMode,
+        [Parameter(Mandatory)][AllowEmptyCollection()][string[]]$Paths,
+        [Parameter(Mandatory)][AllowEmptyCollection()][string[]]$BackendTests,
+        [Parameter(Mandatory)][AllowEmptyCollection()][string[]]$FrontendTests,
+        [Parameter(Mandatory)][bool]$FrontendBuild
+    )
+
+    $jobScript = {
+        param($Root, $DomainName, $RunMode, $Changed, $BackendTestList, $FrontendTestList, $BuildFrontend)
+
+        Set-StrictMode -Version Latest
         $ErrorActionPreference = 'Stop'
-        $config = $ConfigJson | ConvertFrom-Json
-        $output = [System.Collections.Generic.List[string]]::new()
+        $backend = Join-Path $Root 'backend'
+        $frontend = Join-Path $Root 'frontend'
 
-        try {
-            Set-Location -LiteralPath (Join-Path $config.RepoRoot 'backend')
-            if ($config.InstallDependencies -eq $true -or -not (Test-Path -LiteralPath '.venv')) {
-                Invoke-Step -Label 'Backend dependency sync' -FilePath 'uv' -Arguments @('sync', '--frozen', '--extra', 'dev')
+        function Run-Step {
+            param([string]$Name, [string]$Directory, [string]$Command, [string[]]$Arguments)
+            $started = Get-Date
+            try {
+                Push-Location -LiteralPath $Directory
+                $output = @(& $Command @Arguments 2>&1)
+                $exitCode = $LASTEXITCODE
             }
+            catch {
+                $output = @($_.Exception.Message)
+                $exitCode = 1
+            }
+            finally {
+                Pop-Location
+            }
+            [pscustomobject]@{
+                Name = $Name
+                Passed = ($exitCode -eq 0)
+                ExitCode = $exitCode
+                Duration = ((Get-Date) - $started).TotalSeconds
+                Output = ($output | Out-String).Trim()
+            }
+        }
 
-            if ($config.ValidationMode -eq 'Live') {
-                Invoke-Step -Label 'Backend integration tests' -FilePath 'uv' -Arguments @('run', 'pytest', '-q', '-m', 'integration')
+        $results = [System.Collections.Generic.List[object]]::new()
+        if ($DomainName -eq 'backend') {
+            $ruffTargets = @()
+            if ($RunMode -eq 'Full') {
+                $ruffTargets = @('app', 'tests')
             }
             else {
-                $ruffTargets = @($config.BackendRuffTargets | Where-Object { $_ })
-                if ($ruffTargets.Count -gt 0) {
-                    $ruffArguments = @('run', 'ruff', 'check') + $ruffTargets
-                    Invoke-Step -Label 'Backend Ruff' -FilePath 'uv' -Arguments $ruffArguments
+                $ruffTargets = @($Changed | Where-Object { $_ -match '^backend/.+\.pyi?$' } | ForEach-Object { $_.Substring(8) })
+                if ($ruffTargets.Count -eq 0) { $ruffTargets = @('app') }
+            }
+            if ($RunMode -ne 'Full') {
+                # ext_data.py predates the current RUF/SIM/B policy and still has
+                # unrelated baseline findings. Keep basic correctness linting for
+                # that touched legacy file without weakening other targets.
+                $legacyRuffTargets = @($ruffTargets | Where-Object { $_ -eq 'app/services/ext_data.py' })
+                $standardRuffTargets = @($ruffTargets | Where-Object { $_ -ne 'app/services/ext_data.py' })
+                if ($standardRuffTargets.Count -gt 0) {
+                    $results.Add((Run-Step -Name 'Backend Ruff' -Directory $backend -Command 'uv' -Arguments (@('run', '--frozen', '--extra', 'dev', 'ruff', 'check') + $standardRuffTargets)))
                 }
-                else {
-                    $output.Add('[CI] Backend: no changed Python files selected for Ruff')
-                }
-                if ($config.ValidationMode -eq 'Full') {
-                    Invoke-Step -Label 'Backend full tests' -FilePath 'uv' -Arguments @('run', 'pytest', '-q', '-m', 'not integration')
-                }
-                else {
-                    $targets = @($config.BackendTests | Where-Object { $_ })
-                    if ($targets.Count -gt 0) {
-                        $pytestArguments = @('run', 'pytest', '-q') + $targets + @('-m', 'not integration')
-                        Invoke-Step -Label 'Backend targeted tests' -FilePath 'uv' -Arguments $pytestArguments
-                    }
-                    else {
-                        $output.Add('[CI] Backend: no reliable targeted tests selected')
-                    }
+                if ($legacyRuffTargets.Count -gt 0) {
+                    $legacyArgs = @('run', '--frozen', '--extra', 'dev', 'ruff', 'check', '--select', 'E,F,I,N,UP', '--ignore', 'E501') + $legacyRuffTargets
+                    $results.Add((Run-Step -Name 'Backend Ruff (legacy baseline scope)' -Directory $backend -Command 'uv' -Arguments $legacyArgs))
                 }
             }
 
-            [pscustomobject]@{ ExitCode = 0; Output = @($output) }
+            $pytestArgs = @('run', '--frozen', '--extra', 'dev', 'pytest', '-q')
+            if ($BackendTestList.Count -gt 0) {
+                $pytestArgs += @($BackendTestList | ForEach-Object { $_.Substring($backend.Length + 1) })
+            }
+            $pytestArgs += @('-m', 'not integration')
+            $testName = if ($BackendTestList.Count -gt 0) { 'Backend related pytest' } else { 'Backend pytest fallback (not integration)' }
+            $results.Add((Run-Step -Name $testName -Directory $backend -Command 'uv' -Arguments $pytestArgs))
         }
-        catch {
-            $output.Add([string]$_)
-            [pscustomobject]@{ ExitCode = 1; Output = @($output) }
-        }
-    }
-}
-
-function New-FrontendJobScript {
-    return {
-        param([string]$ConfigJson)
-
-        $ErrorActionPreference = 'Stop'
-        $config = $ConfigJson | ConvertFrom-Json
-        $output = [System.Collections.Generic.List[string]]::new()
-
-        try {
-            Set-Location -LiteralPath (Join-Path $config.RepoRoot 'frontend')
-            if ($config.InstallDependencies -eq $true -or -not (Test-Path -LiteralPath 'node_modules')) {
-                Invoke-Step -Label 'Frontend dependency install' -FilePath 'pnpm' -Arguments @('install', '--frozen-lockfile')
+        else {
+            $eslintTargets = @($Changed | Where-Object { $_ -match '^frontend/src/.+\.(c|m)?[jt]sx?$' } | ForEach-Object { $_.Substring(9) })
+            if ($RunMode -eq 'Full' -or $eslintTargets.Count -eq 0) {
+                $eslintTargets = @('.')
             }
 
-            if ($config.ValidationMode -eq 'Full') {
-                Invoke-Step -Label 'Frontend tests' -FilePath 'pnpm' -Arguments @('test')
-                Invoke-Step -Label 'Frontend ESLint' -FilePath 'pnpm' -Arguments @('lint')
-                Invoke-Step -Label 'Frontend TypeScript and production build' -FilePath 'pnpm' -Arguments @('build')
+            $eslintCommand = Join-Path $frontend 'node_modules\.bin\eslint.cmd'
+            $eslintArguments = $eslintTargets
+            if (-not (Test-Path -LiteralPath $eslintCommand -PathType Leaf)) {
+                $eslintCommand = 'pnpm'
+                $eslintArguments = @('exec', 'eslint') + $eslintTargets
+            }
+            $results.Add((Run-Step -Name 'Frontend ESLint' -Directory $frontend -Command $eslintCommand -Arguments $eslintArguments))
+
+            $tscCommand = Join-Path $frontend 'node_modules\.bin\tsc.cmd'
+            $tscArguments = @('--noEmit', '--pretty', 'false')
+            if (-not (Test-Path -LiteralPath $tscCommand -PathType Leaf)) {
+                $tscCommand = 'pnpm'
+                $tscArguments = @('exec', 'tsc') + $tscArguments
+            }
+            $results.Add((Run-Step -Name 'Frontend TypeScript' -Directory $frontend -Command $tscCommand -Arguments $tscArguments))
+
+            $vitestCommand = Join-Path $frontend 'node_modules\.bin\vitest.cmd'
+            $vitestArgs = @('run')
+            if ($FrontendTestList.Count -gt 0) {
+                $vitestArgs += @($FrontendTestList | ForEach-Object { $_.Substring($frontend.Length + 1) })
+                $testName = 'Frontend related tests'
             }
             else {
-                Invoke-Step -Label 'Frontend ESLint' -FilePath 'pnpm' -Arguments @('lint')
-                Invoke-Step -Label 'Frontend TypeScript check' -FilePath 'pnpm' -Arguments @('exec', 'tsc', '-b')
-                $targets = @($config.FrontendTests | Where-Object { $_ })
-                if ($targets.Count -gt 0) {
-                    $testArguments = @('exec', 'vitest', 'run') + $targets
-                    Invoke-Step -Label 'Frontend targeted tests' -FilePath 'pnpm' -Arguments $testArguments
+                $testName = 'Frontend tests fallback (full mock suite)'
+            }
+            if (-not (Test-Path -LiteralPath $vitestCommand -PathType Leaf)) {
+                $vitestCommand = 'pnpm'
+                $vitestArgs = @('test', '--') + $vitestArgs
+            }
+            $results.Add((Run-Step -Name $testName -Directory $frontend -Command $vitestCommand -Arguments $vitestArgs))
+
+            if ($BuildFrontend) {
+                $viteCommand = Join-Path $frontend 'node_modules\.bin\vite.cmd'
+                if ((Test-Path -LiteralPath $tscCommand -PathType Leaf) -and (Test-Path -LiteralPath $viteCommand -PathType Leaf)) {
+                    $results.Add((Run-Step -Name 'Frontend build TypeScript' -Directory $frontend -Command $tscCommand -Arguments @('-b')))
+                    $results.Add((Run-Step -Name 'Frontend Vite build' -Directory $frontend -Command $viteCommand -Arguments @('build')))
                 }
                 else {
-                    $output.Add('[CI] Frontend: no reliable targeted tests selected')
+                    $results.Add((Run-Step -Name 'Frontend build' -Directory $frontend -Command 'pnpm' -Arguments @('build')))
                 }
             }
-
-            [pscustomobject]@{ ExitCode = 0; Output = @($output) }
         }
-        catch {
-            $output.Add([string]$_)
-            [pscustomobject]@{ ExitCode = 1; Output = @($output) }
-        }
+        return @($results)
     }
+
+    $jobCommand = Get-Command Start-ThreadJob -ErrorAction SilentlyContinue
+    if ($null -ne $jobCommand) {
+        return & $jobCommand.Name -ScriptBlock $jobScript -ArgumentList $RepoRoot, $Domain, $ValidationMode, $Paths, $BackendTests, $FrontendTests, $FrontendBuild
+    }
+    return Start-Job -ScriptBlock $jobScript -ArgumentList $RepoRoot, $Domain, $ValidationMode, $Paths, $BackendTests, $FrontendTests, $FrontendBuild
 }
 
-function Invoke-CIJobs {
-    param(
-        [Parameter(Mandatory)]
-        [bool]$RunBackend,
+function Invoke-ScriptCheck {
+    param([Parameter(Mandatory)][string[]]$Paths)
 
-        [Parameter(Mandatory)]
-        [bool]$RunFrontend,
+    $errors = $null
+    $tokens = $null
+    [System.Management.Automation.Language.Parser]::ParseFile($ScriptPath, [ref]$tokens, [ref]$errors) | Out-Null
+    if ($errors.Count -gt 0) {
+        return [pscustomobject]@{ Name = 'CI script syntax'; Passed = $false; Duration = 0; Output = ($errors | ForEach-Object { $_.Message }) -join [Environment]::NewLine }
+    }
 
-        [Parameter(Mandatory)]
-        [string]$ValidationMode,
-
-        [string[]]$BackendTests,
-
-        [string[]]$FrontendTests,
-
-        [string[]]$BackendRuffTargets,
-
-        [Parameter(Mandatory)]
-        [bool]$InstallDependencies
+    $probeCases = @(
+        @{ Path = 'backend/app/example.py'; Expected = 'backend-fast' },
+        @{ Path = 'frontend/src/example.tsx'; Expected = 'frontend-fast' },
+        @{ Path = 'backend/pyproject.toml'; Expected = 'backend-full' },
+        @{ Path = 'README.md'; Expected = '無需執行程式驗證' }
     )
-
-    $config = @{
-        RepoRoot            = $repoRoot
-        ValidationMode      = $ValidationMode
-        InstallDependencies = $InstallDependencies
-        BackendTests        = @($BackendTests)
-        FrontendTests       = @($FrontendTests)
-        BackendRuffTargets  = @($BackendRuffTargets)
-    } | ConvertTo-Json -Compress
-
-    $entries = [System.Collections.Generic.List[object]]::new()
-    if ($RunBackend) {
-        $entries.Add([pscustomobject]@{
-                Name      = 'Backend'
-                StartedAt = Get-Date
-                Job       = Start-Job -InitializationScript $invokeStepInit -ScriptBlock (New-BackendJobScript) -ArgumentList $config
-            })
-    }
-    if ($RunFrontend) {
-        $entries.Add([pscustomobject]@{
-                Name      = 'Frontend'
-                StartedAt = Get-Date
-                Job       = Start-Job -InitializationScript $invokeStepInit -ScriptBlock (New-FrontendJobScript) -ArgumentList $config
-            })
-    }
-
-    $failed = $false
-    foreach ($entry in $entries) {
-        Wait-Job -Job $entry.Job | Out-Null
-        $records = @(Receive-Job -Job $entry.Job -ErrorAction SilentlyContinue)
-        $jobState = $entry.Job.State
-        Remove-Job -Job $entry.Job -Force
-        $record = $records | Where-Object { $_.PSObject.Properties.Name -contains 'ExitCode' } | Select-Object -Last 1
-        $elapsed = [math]::Round(((Get-Date) - $entry.StartedAt).TotalSeconds, 1)
-
-        if ($null -eq $record -or [int]$record.ExitCode -ne 0) {
-            $failed = $true
-            Write-Host ("[CI] {0}: FAIL ({1:n1}s)" -f $entry.Name, $elapsed) -ForegroundColor Red
-            if ($record -and $record.Output) {
-                $record.Output | ForEach-Object { Write-Host $_ }
-            }
-            elseif ($jobState -eq 'Failed') {
-                Write-Host ("[CI] {0} job ended in state Failed" -f $entry.Name)
+    foreach ($probe in $probeCases) {
+        $probeOutput = @(& $PSHOME\pwsh.exe -NoProfile -File $ScriptPath -Mode Auto -ChangedPath $probe.Path -PlanOnly 2>&1)
+        if ($LASTEXITCODE -ne 0 -or -not (($probeOutput -join [Environment]::NewLine) -match [regex]::Escape($probe.Expected))) {
+            return [pscustomobject]@{
+                Name = 'CI script plan probes'
+                Passed = $false
+                Duration = 0
+                Output = "Probe '$($probe.Path)' did not select '$($probe.Expected)'.`n$($probeOutput -join [Environment]::NewLine)"
             }
         }
-        else {
-            Write-Host ("[CI] {0}: PASS ({1:n1}s)" -f $entry.Name, $elapsed) -ForegroundColor Green
-        }
     }
 
-    if ($failed) {
-        return 1
-    }
-
-    return 0
+    return [pscustomobject]@{ Name = 'CI script syntax and plan probes'; Passed = $true; Duration = 0; Output = '' }
 }
 
-$changedPaths = @(Get-ChangedPaths)
-$classification = Get-ChangeClassification -Paths $changedPaths
-$backendSelection = Get-TestTargets -Paths $changedPaths -Root $repoRoot -TestRoot 'backend/tests' -SourcePrefix 'backend' -TestPathPrefix 'backend/tests/'
-$frontendSelection = Get-TestTargets -Paths $changedPaths -Root $repoRoot -TestRoot 'frontend/src' -SourcePrefix 'frontend' -TestPathPrefix 'frontend/src/'
-$backendTests = @($backendSelection.Targets)
-$frontendTests = @($frontendSelection.Targets)
-$backendRuffTargets = @(Get-RuffTargets -Paths $changedPaths -TestTargets $backendTests -Root $repoRoot)
+function Write-CompactFailureOutput {
+    param([Parameter(Mandatory)][string]$Output)
 
-$validationMode = $Mode
-$runBackend = $false
-$runFrontend = $false
-
-switch ($Mode) {
-    'Fast' {
-        $validationMode = 'Fast'
-        $runBackend = $true
-        $runFrontend = $true
+    $lines = @($Output -split "`r?`n")
+    if ($lines.Count -gt 80) {
+        Write-Output "失敗輸出已截短，僅顯示最後 80 行："
+        $lines = @($lines | Select-Object -Last 80)
     }
-    'Auto' {
-        if ($classification.RequiresFull) {
-            $validationMode = 'Full'
-            $runBackend = $true
-            $runFrontend = $true
-        }
-        elseif ($classification.Backend -or $classification.Frontend) {
-            $validationMode = 'Fast'
-            $runBackend = $classification.Backend
-            $runFrontend = $classification.Frontend
-        }
-        else {
-            $validationMode = 'Fast'
-            $runBackend = $true
-            $runFrontend = $true
-        }
-    }
-    'Full' {
-        $validationMode = 'Full'
-        $runBackend = $true
-        $runFrontend = $true
-    }
-    'Live' {
-        $validationMode = 'Live'
-        $runBackend = $true
-    }
+    Write-Output ($lines -join [Environment]::NewLine)
 }
 
-$areas = [System.Collections.Generic.List[string]]::new()
-if ($classification.Backend) { $areas.Add('backend') }
-if ($classification.Frontend) { $areas.Add('frontend') }
-if ($classification.RequiresFull) { $areas.Add('full-escalation') }
-if ($areas.Count -eq 0) { $areas.Add('none') }
+$changed = @(Get-ChangedPaths)
+$profile = Get-ChangeProfile -Paths $changed
+$lanes = @(Get-Lanes -SelectedMode $Mode -Profile $profile -Paths $changed)
+$backendTests = if ($profile.Backend) { Get-BackendTestFiles -Paths $changed } else { [pscustomobject]@{ Files = @(); Fallback = $false } }
+$frontendTests = if ($profile.Frontend) { Get-FrontendTestFiles -Paths $changed } else { [pscustomobject]@{ Files = @(); Fallback = $false } }
+$frontendBuild = Get-FrontendBuildNeeded -Paths $changed -Full ($Mode -eq 'Full' -or ($Mode -eq 'Auto' -and $profile.HighRisk))
 
-Write-Host "[CI] Mode: $Mode"
-Write-Host "[CI] Changed areas: $($areas -join ', ')"
-if ($Mode -eq 'Auto') {
-    Write-Host "[CI] Selected validation: $validationMode"
+Write-Output "Mode: $Mode"
+Write-Output "變更檔案: $($changed.Count) 個"
+if ($changed.Count -gt 0) {
+    $displayPaths = @($changed | Select-Object -First 20)
+    Write-Output ("變更摘要: " + ($displayPaths -join ', ') + $(if ($changed.Count -gt 20) { ' ...' } else { '' }))
 }
-if ($changedPaths.Count -gt 0) {
-    if ($PlanOnly) {
-        Write-Host "[CI] Changed files: $($changedPaths -join ', ')"
-    }
-    if ($backendTests.Count -gt 0) {
-        Write-Host "[CI] Backend targeted tests: $($backendTests -join ', ')"
-    }
-    if ($frontendTests.Count -gt 0) {
-        Write-Host "[CI] Frontend targeted tests: $($frontendTests -join ', ')"
-    }
+$changeTypes = [System.Collections.Generic.List[string]]::new()
+foreach ($entry in @(
+    @{ Name = 'backend/Python'; Value = $profile.Backend },
+    @{ Name = 'frontend/TS/TSX'; Value = $profile.Frontend },
+    @{ Name = 'dependency/lockfile'; Value = $profile.Dependency },
+    @{ Name = 'schema/migration'; Value = $profile.SchemaOrMigration },
+    @{ Name = 'shared API/核心模組'; Value = $profile.SharedContract },
+    @{ Name = 'scripts/workflow'; Value = $profile.ScriptOrWorkflow },
+    @{ Name = '文件'; Value = $profile.Documentation }
+)) {
+    if ($entry.Value) { $changeTypes.Add($entry.Name) }
 }
-
-# Fast only runs tests it can map by file name; surface what it cannot cover.
-$notTested = @()
-if ($validationMode -eq 'Fast') {
-    if ($runBackend) { $notTested += @($backendSelection.Unmapped) }
-    if ($runFrontend) { $notTested += @($frontendSelection.Unmapped) }
-}
-if ($notTested.Count -gt 0) {
-    Write-Host "[CI] NOT_TESTED (no targeted tests found): $($notTested -join ', ')" -ForegroundColor Yellow
-}
+Write-Output ("變更類型: " + $(if ($changeTypes.Count) { $changeTypes -join ', ' } else { '未分類或無變更' }))
+Write-Output ("Validation lanes: " + $(if ($lanes.Count) { $lanes -join ', ' } else { '無需執行程式驗證' }))
+if ($profile.Backend -and $backendTests.Fallback) { Write-Output 'Backend tests: 找不到明確對應測試，將使用非 integration backend fallback。' }
+if ($profile.Frontend -and $frontendTests.Fallback) { Write-Output 'Frontend tests: 找不到明確對應測試，將使用完整 mock suite fallback。' }
+if ($profile.Frontend -and $frontendBuild -and $Mode -ne 'Full') { Write-Output 'Frontend build: 本次變更觸及入口、共享模組、頁面、設定或樣式，納入 build。' }
 
 if ($PlanOnly) {
-    Write-Host '[CI] Plan only: no validation commands executed.'
+    Write-Output 'PlanOnly: 未執行 validation commands。'
     exit 0
 }
 
-$dependencyChanged = @(
-    $changedPaths | Where-Object {
-        $_ -match '(^|/)(pyproject\.toml|uv\.lock|requirements[^/]*|package\.json|pnpm-lock\.yaml|yarn\.lock|package-lock\.json)$'
+$results = [System.Collections.Generic.List[object]]::new()
+$startedAll = Get-Date
+$jobs = [System.Collections.Generic.List[object]]::new()
+
+try {
+    foreach ($lane in $lanes) {
+        switch ($lane) {
+            'backend-fast' {
+                $jobs.Add((Start-DomainValidationJob -Domain backend -ValidationMode Fast -Paths $changed -BackendTests $backendTests.Files -FrontendTests @() -FrontendBuild $false))
+            }
+            'frontend-fast' {
+                $jobs.Add((Start-DomainValidationJob -Domain frontend -ValidationMode Fast -Paths $changed -BackendTests @() -FrontendTests $frontendTests.Files -FrontendBuild $frontendBuild))
+            }
+            'backend-full' {
+                $jobs.Add((Start-DomainValidationJob -Domain backend -ValidationMode Full -Paths $changed -BackendTests @() -FrontendTests @() -FrontendBuild $false))
+            }
+            'frontend-full' {
+                $jobs.Add((Start-DomainValidationJob -Domain frontend -ValidationMode Full -Paths $changed -BackendTests @() -FrontendTests @() -FrontendBuild $true))
+            }
+            'backend-live-integration' {
+                $results.Add((Invoke-ExternalStep -Name 'Backend live integration' -WorkingDirectory $BackendRoot -FilePath 'uv' -Arguments @('run', '--frozen', '--extra', 'dev', 'pytest', '-q', '-m', 'integration')))
+            }
+            'ci-script-check' {
+                $results.Add((Invoke-ScriptCheck -Paths $changed))
+            }
+            'no-code-change' {
+                $results.Add([pscustomobject]@{ Name = 'No code validation needed'; Passed = $true; Duration = 0; Output = '' })
+            }
+        }
     }
-).Count -gt 0
-$installDependencies = $dependencyChanged
-$exitCode = Invoke-CIJobs `
-    -RunBackend $runBackend `
-    -RunFrontend $runFrontend `
-    -ValidationMode $validationMode `
-    -BackendTests $backendTests `
-    -FrontendTests $frontendTests `
-    -BackendRuffTargets $backendRuffTargets `
-    -InstallDependencies $installDependencies
 
-if ($exitCode -ne 0) {
-    Write-Host '[CI] Result: FAIL' -ForegroundColor Red
-    exit $exitCode
+    if ($jobs.Count -gt 0) {
+        Wait-Job -Job $jobs | Out-Null
+        foreach ($job in $jobs) {
+            foreach ($result in @(Receive-Job -Job $job)) {
+                $results.Add($result)
+            }
+            Remove-Job -Job $job -Force
+        }
+    }
+}
+catch {
+    $results.Add([pscustomobject]@{ Name = 'CI runner'; Passed = $false; Duration = 0; Output = $_.Exception.Message })
+    foreach ($job in $jobs) {
+        Remove-Job -Job $job -Force -ErrorAction SilentlyContinue
+    }
 }
 
-if ($notTested.Count -gt 0) {
-    Write-Host "[CI] Result: WARN (checks passed; $($notTested.Count) changed source file(s) NOT_TESTED)" -ForegroundColor Yellow
+foreach ($result in $results) {
+    $status = if ($result.Passed) { 'PASS' } else { 'FAIL' }
+    $duration = '{0:N1}s' -f [double]$result.Duration
+    Write-Output ("[$status] $($result.Name) ($duration)")
+    if (-not $result.Passed -and $result.Output) {
+        Write-CompactFailureOutput -Output $result.Output
+    }
+}
+
+$failed = @($results | Where-Object { -not $_.Passed })
+$totalDuration = '{0:N1}s' -f ((Get-Date) - $startedAll).TotalSeconds
+if ($failed.Count -eq 0) {
+    Write-Output "總結果: PASS ($totalDuration)"
     exit 0
 }
 
-Write-Host '[CI] Result: PASS' -ForegroundColor Green
-exit 0
+Write-Output "總結果: FAIL，$($failed.Count) 個 lane 失敗 ($totalDuration)"
+exit 1

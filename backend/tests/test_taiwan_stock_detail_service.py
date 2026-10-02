@@ -178,10 +178,12 @@ def test_service_partial_failure_tolerance():
     mock_inst = MagicMock()
     mock_inst.fetch_live_day.side_effect = RuntimeError("TWSE T86 timeout")
     svc.institutional_provider = mock_inst
+    svc.institutional_store = None
 
     mock_margin = MagicMock()
     mock_margin.fetch_live_day.side_effect = RuntimeError("MI_MARGN timeout")
     svc.margin_provider = mock_margin
+    svc.margin_store = None
 
     # Service should still return complete valid response with status='unavailable'
     res = svc.get_stock_detail("2330.TWSE")

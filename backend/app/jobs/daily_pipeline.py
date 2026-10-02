@@ -103,11 +103,77 @@ def run_instruments_sync(repo: KlineRepository) -> dict:
     rows = instrument_sync.sync_instruments(repo.store.data_dir)
     _refresh_instruments_view(repo)
     _invalidate("instruments")
+    security_master: dict[str, object]
+    try:
+        from app.taiwan.universe import get_security_master
+
+        master = get_security_master()
+        master_rows = master.load_from_adapters()
+        if master_rows:
+            master.save_cache()
+        else:
+            # An empty upstream response must not replace a usable in-memory
+            # master with an empty universe.
+            master.reload()
+        security_master = {**master.health_metadata(), "rows": master_rows}
+        logger.info("Security Master refreshed: rows=%s status=%s", master_rows,
+                    security_master.get("status"))
+    except Exception as exc:
+        logger.warning("Security Master refresh failed; preserving existing cache: %s", exc)
+        try:
+            master.reload()
+        except Exception:
+            pass
+        security_master = {"status": "stale", "reason": "refresh_failed"}
     # 维表更新后重建 enriched 缓存 (clear + refresh, 与设置页「清理并刷新」同等效果)
     if rows > 0:
         repo.clear_cache()
         repo.refresh_cache()
-    return {"instruments_rows": rows}
+    return {"instruments_rows": rows, "security_master": security_master}
+
+
+def _refresh_after_close_research() -> dict[str, object]:
+    """Extend audited corporate-action coverage and append valuation history.
+
+    This uses the existing audited corporate-action updater and valuation store;
+    the scheduled job only fetches the uncovered tail and never bootstraps a
+    missing full history implicitly.
+    """
+    result: dict[str, object] = {}
+    try:
+        from app.taiwan.corporate_actions import CorporateActionStore
+        from app.taiwan.daily_update import resolve_target_latest_trading_date
+        from app.taiwan.quant.primary_oos_runner import _action_snapshot
+
+        store = CorporateActionStore()
+        target = resolve_target_latest_trading_date()
+        coverage = store.read_verified_coverage()
+        if coverage is None:
+            result["corporate_actions"] = {"status": "unavailable", "reason": "coverage_unverified"}
+        elif coverage[1] < target:
+            _action_snapshot(coverage[0], target, store=store)
+            coverage = store.read_verified_coverage()
+            result["corporate_actions"] = {
+                "status": "verified" if coverage is not None and coverage[1] >= target else "partial",
+                "end": coverage[1].isoformat() if coverage else None,
+            }
+        else:
+            result["corporate_actions"] = {
+                "status": "verified", "end": coverage[1].isoformat(),
+            }
+    except Exception as exc:
+        logger.warning("Scheduled corporate-action coverage refresh failed: %s", exc)
+        result["corporate_actions"] = {"status": "unavailable", "reason": "refresh_failed"}
+
+    try:
+        from app.taiwan.market_breadth_service import fundamental_store
+        from app.taiwan.market_valuation import refresh_valuation
+
+        result["valuation"] = refresh_valuation(fundamental_store())
+    except Exception as exc:
+        logger.warning("Scheduled valuation refresh failed: %s", exc)
+        result["valuation"] = {"status": "unavailable", "reason": "refresh_failed"}
+    return result
 
 
 def run_now(
@@ -928,6 +994,8 @@ def start_scheduler(repo: KlineRepository, capset: CapabilitySet) -> AsyncIOSche
                 "Scheduled Taiwan daily update finished: overall=%s, daily=%s, inst=%s, margin=%s",
                 result.overall_status, result.daily.status, result.institutional.status, result.margin.status,
             )
+            if not evening:
+                logger.info("Scheduled Taiwan research refresh: %s", _refresh_after_close_research())
             # Evening catch-up exists for margin (published in the evening); only a
             # newly fetched daily date gives Quant anything new to freeze.
             if evening and result.daily.dates_fetched == 0:

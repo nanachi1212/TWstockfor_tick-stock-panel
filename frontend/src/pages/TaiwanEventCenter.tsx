@@ -21,6 +21,7 @@ import { toast } from '@/components/Toast'
 import { cn } from '@/lib/cn'
 import { storage } from '@/lib/storage'
 import { buildPortfolioPositions, isPortfolioTransaction, type PortfolioTransaction } from '@/lib/portfolio'
+import { MopsConferenceAvailability, MopsEventEvidence } from '@/components/taiwan/MopsEventEvidence'
 
 type EventScope = 'today' | 'week' | 'portfolio' | 'watchlist' | 'all'
 
@@ -95,14 +96,27 @@ export function TaiwanEventCenter() {
 
   // Events query
   const eventsQuery = useQuery({
-    queryKey: QK.taiwanEvents(activeScope, targetSymbols?.join(','), undefined),
+    queryKey: QK.taiwanEvents(activeScope, targetSymbols?.join(','), undefined, typeFilter),
     queryFn: () =>
       api.taiwanEvents({
         scope: activeScope,
         symbols: targetSymbols,
         limit: 300,
+        event_types: typeFilter === 'all' ? undefined : [typeFilter],
       }),
     staleTime: 5 * 60 * 1000,
+  })
+
+  const refreshEvents = useMutation({
+    mutationFn: () => api.taiwanEvents({
+      scope: activeScope, symbols: targetSymbols, limit: 300,
+      event_types: typeFilter === 'all' ? undefined : [typeFilter], refresh: true,
+    }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: QK.taiwanEvents().slice(0, 1) })
+      void qc.invalidateQueries({ queryKey: QK.taiwanStockDetail('').slice(0, 1) })
+    },
+    onError: () => toast('事件重新整理失敗，請稍後重試', 'error'),
   })
 
   // Event candidates query
@@ -180,22 +194,22 @@ export function TaiwanEventCenter() {
             <CalendarDays className="h-5 w-5 text-accent" />
             <h1 className="text-lg font-bold text-foreground tracking-tight">台股事件中心</h1>
             <span className="rounded bg-accent/10 px-2 py-0.5 text-xs font-semibold text-accent">
-              A11 官方資料源
+              官方事件與 MOPS 資料
             </span>
           </div>
           <p className="mt-1 text-xs text-secondary">
-            整合證交所／櫃買中心官方處置股、注意股、暫停交易、減資、面額變更與除權息公告，100% 確定性權威追蹤。
+            整合官方市場事件、MOPS 重大訊息、法說會與內部人持股轉讓申報，保留來源與公告時間證據。
           </p>
         </div>
 
         <div className="flex items-center gap-2">
           <button
             type="button"
-            onClick={() => void eventsQuery.refetch()}
-            disabled={eventsQuery.isFetching}
+            onClick={() => refreshEvents.mutate()}
+            disabled={eventsQuery.isFetching || refreshEvents.isPending}
             className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-surface px-3 py-1.5 text-xs font-medium text-foreground hover:bg-elevated transition-colors disabled:opacity-50"
           >
-            <RefreshCw className={cn('h-3.5 w-3.5', eventsQuery.isFetching && 'animate-spin')} />
+            <RefreshCw className={cn('h-3.5 w-3.5', (eventsQuery.isFetching || refreshEvents.isPending) && 'animate-spin')} />
             重新整理
           </button>
           <button
@@ -238,7 +252,7 @@ export function TaiwanEventCenter() {
       </div>
 
       {/* Filter Toolbar */}
-      <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between rounded-card border border-border bg-surface/60 p-3 text-xs">
+      <div className="flex flex-col gap-3 md:flex-row md:flex-wrap md:items-center md:justify-between rounded-card border border-border bg-surface/60 p-3 text-xs">
         {/* Severity Filter Pills */}
         <div className="flex flex-wrap items-center gap-1.5">
           <span className="text-muted mr-1">嚴重等級：</span>
@@ -248,7 +262,7 @@ export function TaiwanEventCenter() {
             className={cn(
               'rounded-md px-2.5 py-1 text-xs transition-colors',
               severityFilter === 'all'
-                ? 'bg-foreground text-background font-semibold'
+                ? 'bg-accent text-white font-semibold'
                 : 'bg-elevated text-secondary hover:text-foreground',
             )}
           >
@@ -296,13 +310,17 @@ export function TaiwanEventCenter() {
         </div>
 
         {/* Search input & Event Type Selector */}
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <select
+            aria-label="事件類型"
             value={typeFilter}
             onChange={e => setTypeFilter(e.target.value)}
             className="rounded-md border border-border bg-base px-2.5 py-1 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-accent"
           >
             <option value="all">全部事件類型</option>
+            <option value="material_information">重大訊息</option>
+            <option value="investor_conference">法人說明會</option>
+            <option value="insider_transfer_declaration">內部人持股轉讓申報</option>
             <option value="disposition">處置證券</option>
             <option value="warning">注意股票</option>
             <option value="suspended_trading">暫停交易</option>
@@ -334,9 +352,10 @@ export function TaiwanEventCenter() {
           {eventsQuery.data?.status === 'partial' && (
             <div className="flex items-center gap-2 rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-xs text-amber-500">
               <AlertTriangle className="h-4 w-4 shrink-0" />
-              <span>部分官方事件來源連線異常 (證交所或櫃買中心)，部分公告暫無法更新，已優先顯示可用來源。</span>
+              <span>部分事件來源不可用、清單不完整或公告時間證據不足，請查看個別事件的來源與時間狀態。</span>
             </div>
           )}
+          <MopsConferenceAvailability sources={eventsQuery.data?.sources_status} />
           {eventsQuery.data?.status === 'unavailable' && (
             <div className="flex items-center gap-2 rounded-lg border border-rose-500/30 bg-rose-500/10 p-3 text-xs text-rose-500">
               <ShieldAlert className="h-4 w-4 shrink-0" />
@@ -358,7 +377,7 @@ export function TaiwanEventCenter() {
               <div className="text-sm font-medium text-foreground">目前範圍無相關事件</div>
               <p className="mt-1 text-xs text-muted">
                 {activeScope === 'portfolio' || activeScope === 'watchlist'
-                  ? '您的持股或自選股清單目前均無處置、注意或重大除權息事件。'
+                  ? '已取得的資料中沒有符合條件的持股或自選股事件。'
                   : '目前沒有符合篩選條件的市場事件。'}
               </p>
             </div>
@@ -372,7 +391,7 @@ export function TaiwanEventCenter() {
                   className="rounded-card border border-border bg-surface/85 p-3.5 shadow-sm transition-all hover:border-accent/40 hover:shadow-md"
                 >
                   <div className="flex items-start justify-between gap-3">
-                    <div className="flex items-center gap-2">
+                    <div className="flex flex-wrap items-center gap-2">
                       <span className={cn('inline-flex items-center gap-1 rounded-md border px-2 py-0.5 text-[11px] font-semibold', sevConfig.badgeCls)}>
                         <IconComp className="h-3 w-3" />
                         {sevConfig.label}
@@ -421,6 +440,7 @@ export function TaiwanEventCenter() {
                   <div className="mt-1 text-xs text-secondary leading-relaxed bg-elevated/30 rounded p-2 border border-border/40">
                     {ev.summary}
                   </div>
+                  <MopsEventEvidence event={ev} />
 
                   {/* Source & Provenance Footer */}
                   <div className="mt-2.5 flex items-center justify-between text-[10px] text-muted">
@@ -501,6 +521,8 @@ export function TaiwanEventCenter() {
               台股事件中心資料原則
             </div>
             <ul className="list-disc pl-4 space-y-1 text-[11px]">
+              <li><strong>申報與成交分開</strong>：內部人持股轉讓申報只表示預定轉讓，不代表實際成交或已賣出。</li>
+              <li><strong>時間證據</strong>：公告時間無法確認時保留空值，不做公告後幾小時分析；法說會簡報僅提供官方連結，不自動下載。</li>
               <li>
                 <strong>官方事實權威</strong>：處置股與注意股直接串接台灣證券交易所（TWSE）與櫃買中心（TPEx）開放資料，無第三方二手扭曲。
               </li>
