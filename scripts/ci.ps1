@@ -18,12 +18,33 @@ $RepoRoot = Split-Path -Parent $PSScriptRoot
 $BackendRoot = Join-Path $RepoRoot 'backend'
 $FrontendRoot = Join-Path $RepoRoot 'frontend'
 $ScriptPath = $MyInvocation.MyCommand.Path
-$CiCache = Join-Path $RepoRoot '.uv'
-$CiTemp = Join-Path $RepoRoot '.pytest-ci-tmp'
+$CiRunRoot = Join-Path ([System.IO.Path]::GetTempPath()) ("tick-stock-panel-ci-" + [guid]::NewGuid().ToString('N'))
+$CiCache = Join-Path $CiRunRoot 'uv-cache'
+$CiTemp = Join-Path $CiRunRoot 'pytest-temp'
 New-Item -ItemType Directory -Force -Path $CiCache, $CiTemp | Out-Null
+$CiProcessDirectory = Join-Path $CiTemp ("ci-processes-" + [guid]::NewGuid().ToString('N'))
+New-Item -ItemType Directory -Force -Path $CiProcessDirectory | Out-Null
 $env:UV_CACHE_DIR = $CiCache
 $env:TEMP = $CiTemp
 $env:TMP = $CiTemp
+$env:TMPDIR = $CiTemp
+$TrivyExcludedDirs = @(
+    '**/.git',
+    '**/.pytest-*',
+    '**/.uv*',
+    '**/.mypy_cache',
+    '**/.ruff_cache',
+    '**/.pytest_cache',
+    '**/build',
+    '**/dist',
+    'data',
+    'exports',
+    'gui-test-screenshots',
+    'release-assets',
+    '**/node_modules',
+    '**/.venv'
+)
+$TrivyExcludedDirs = @($TrivyExcludedDirs | Sort-Object -Unique)
 
 function Normalize-RepoPath {
     param([Parameter(Mandatory)][string]$Path)
@@ -271,6 +292,10 @@ function Get-Lanes {
         return @($lanes)
     }
 
+    if ($SelectedMode -eq 'Auto' -and $Profile.Dependency) {
+        Add-Lane -Lanes $lanes -Lane 'trivy-dependency'
+    }
+
     if ($SelectedMode -eq 'Full' -or ($SelectedMode -eq 'Auto' -and $Profile.HighRisk)) {
         Add-Lane -Lanes $lanes -Lane 'backend-full'
         Add-Lane -Lanes $lanes -Lane 'frontend-full'
@@ -322,6 +347,61 @@ function Invoke-ExternalStep {
     }
 }
 
+function Stop-CiProcessTree {
+    param([Parameter(Mandatory)][string]$ProcessDirectory)
+
+    if (-not (Test-Path -LiteralPath $ProcessDirectory -PathType Container)) { return }
+
+    $processes = @(Get-CimInstance Win32_Process -ErrorAction SilentlyContinue)
+    $childrenByParent = @{}
+    foreach ($process in $processes) {
+        $parentId = [string]$process.ParentProcessId
+        if (-not $childrenByParent.ContainsKey($parentId)) {
+            $childrenByParent[$parentId] = [System.Collections.Generic.List[object]]::new()
+        }
+        $childrenByParent[$parentId].Add($process)
+    }
+
+    $targets = [System.Collections.Generic.List[object]]::new()
+    foreach ($metadataPath in @(Get-ChildItem -LiteralPath $ProcessDirectory -Filter '*.json' -File -ErrorAction SilentlyContinue)) {
+        try {
+            $metadata = Get-Content -LiteralPath $metadataPath.FullName -Raw | ConvertFrom-Json
+            $queue = [System.Collections.Generic.Queue[object]]::new()
+            $root = $processes | Where-Object { $_.ProcessId -eq [int]$metadata.ProcessId } | Select-Object -First 1
+            if ($null -eq $root) {
+                $root = [pscustomobject]@{ ProcessId = [int]$metadata.ProcessId }
+            }
+            $queue.Enqueue([pscustomobject]@{ Process = $root; Depth = 0 })
+            while ($queue.Count -gt 0) {
+                $entry = $queue.Dequeue()
+                $targets.Add($entry)
+                foreach ($child in @($childrenByParent[[string]$entry.Process.ProcessId])) {
+                    $queue.Enqueue([pscustomobject]@{ Process = $child; Depth = $entry.Depth + 1 })
+                }
+            }
+        }
+        catch {
+            Write-Warning "無法讀取 CI process metadata '$($metadataPath.Name)'：$($_.Exception.Message)"
+        }
+    }
+
+    foreach ($target in @($targets | Sort-Object -Property @(
+        @{ Expression = { $_.Depth }; Descending = $true },
+        @{ Expression = { $_.Process.ProcessId }; Descending = $false }
+    ))) {
+        try {
+            $running = Get-Process -Id $target.Process.ProcessId -ErrorAction SilentlyContinue
+            if ($null -ne $running) {
+                Stop-Process -Id $running.Id -Force -ErrorAction Stop
+                Write-Output "已清理本次 CI process tree PID $($running.Id)"
+            }
+        }
+        catch {
+            Write-Warning "無法清理 CI process PID $($target.Process.ProcessId)：$($_.Exception.Message)"
+        }
+    }
+}
+
 function Start-DomainValidationJob {
     param(
         [Parameter(Mandatory)][ValidateSet('backend', 'frontend')][string]$Domain,
@@ -329,39 +409,102 @@ function Start-DomainValidationJob {
         [Parameter(Mandatory)][AllowEmptyCollection()][string[]]$Paths,
         [Parameter(Mandatory)][AllowEmptyCollection()][string[]]$BackendTests,
         [Parameter(Mandatory)][AllowEmptyCollection()][string[]]$FrontendTests,
-        [Parameter(Mandatory)][bool]$FrontendBuild
+        [Parameter(Mandatory)][bool]$FrontendBuild,
+        [Parameter(Mandatory)][string]$ProcessDirectory
     )
 
     $jobScript = {
-        param($Root, $DomainName, $RunMode, $Changed, $BackendTestList, $FrontendTestList, $BuildFrontend)
+        param($Root, $DomainName, $RunMode, $Changed, $BackendTestList, $FrontendTestList, $BuildFrontend, $RunProcessDirectory)
 
         Set-StrictMode -Version Latest
         $ErrorActionPreference = 'Stop'
         $backend = Join-Path $Root 'backend'
         $frontend = Join-Path $Root 'frontend'
 
-        function Run-Step {
-            param([string]$Name, [string]$Directory, [string]$Command, [string[]]$Arguments)
-            $started = Get-Date
+        function Emit-ProcessOutput {
+            param(
+                [Parameter(Mandatory)][string]$Name,
+                [Parameter(Mandatory)][string]$Stream,
+                [Parameter(Mandatory)][string]$Path,
+                [Parameter(Mandatory)][ref]$Offset,
+                [Parameter(Mandatory)][AllowEmptyCollection()][System.Collections.Generic.List[string]]$Lines
+            )
+
+            if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) { return }
+            $fileHandle = $null
+            $textReader = $null
             try {
-                Push-Location -LiteralPath $Directory
-                $output = @(& $Command @Arguments 2>&1)
-                $exitCode = $LASTEXITCODE
+                $fileHandle = [IO.File]::Open($Path, [IO.FileMode]::Open, [IO.FileAccess]::Read, [IO.FileShare]::ReadWrite)
+                if ($fileHandle.Length -le $Offset.Value) { return }
+                $fileHandle.Position = $Offset.Value
+                $textReader = [IO.StreamReader]::new($fileHandle, [Text.Encoding]::UTF8, $true)
+                $delta = $textReader.ReadToEnd()
+                $Offset.Value = $fileHandle.Position
+            }
+            finally {
+                if ($null -ne $textReader) { $textReader.Dispose() }
+                elseif ($null -ne $fileHandle) { $fileHandle.Dispose() }
+            }
+            foreach ($line in @($delta -split "`r?`n")) {
+                if (-not $line) { continue }
+                $Lines.Add($line)
+                Write-Output ([pscustomobject]@{
+                    CiLiveOutput = $true
+                    Name = $Name
+                    Stream = $Stream
+                    Line = $line
+                })
+            }
+        }
+
+        function Run-Step {
+            param([string]$Name, [string]$Directory, [string]$Command, [string[]]$Arguments, [System.Collections.Generic.List[object]]$Results)
+            $started = Get-Date
+            $runId = [guid]::NewGuid().ToString('N')
+            $stdoutPath = Join-Path $RunProcessDirectory "$runId.stdout.log"
+            $stderrPath = Join-Path $RunProcessDirectory "$runId.stderr.log"
+            $metadataPath = Join-Path $RunProcessDirectory "$runId.json"
+            $outputLines = [System.Collections.Generic.List[string]]::new()
+            $process = $null
+            $stdoutOffset = 0
+            $stderrOffset = 0
+            try {
+                $startArguments = @($Arguments | ForEach-Object {
+                    if ($_ -match '[\s"]') { '"' + ($_ -replace '"', '\\"') + '"' } else { $_ }
+                })
+                $process = Start-Process -FilePath $Command -ArgumentList $startArguments -WorkingDirectory $Directory -RedirectStandardOutput $stdoutPath -RedirectStandardError $stderrPath -PassThru -WindowStyle Hidden
+                Set-Content -LiteralPath $metadataPath -Value (@{
+                    ProcessId = $process.Id
+                    Name = $Name
+                    Command = $Command
+                    StartedUtc = [DateTime]::UtcNow.ToString('O')
+                } | ConvertTo-Json) -Encoding utf8
+                while (-not $process.HasExited) {
+                    Emit-ProcessOutput -Name $Name -Stream 'stdout' -Path $stdoutPath -Offset ([ref]$stdoutOffset) -Lines $outputLines
+                    Emit-ProcessOutput -Name $Name -Stream 'stderr' -Path $stderrPath -Offset ([ref]$stderrOffset) -Lines $outputLines
+                    Start-Sleep -Milliseconds 100
+                }
+                $process.WaitForExit()
+                Emit-ProcessOutput -Name $Name -Stream 'stdout' -Path $stdoutPath -Offset ([ref]$stdoutOffset) -Lines $outputLines
+                Emit-ProcessOutput -Name $Name -Stream 'stderr' -Path $stderrPath -Offset ([ref]$stderrOffset) -Lines $outputLines
+                $exitCode = $process.ExitCode
             }
             catch {
-                $output = @($_.Exception.Message)
+                $outputLines.Add($_.Exception.Message)
+                Write-Output ([pscustomobject]@{ CiLiveOutput = $true; Name = $Name; Stream = 'runner'; Line = $_.Exception.Message })
                 $exitCode = 1
             }
             finally {
-                Pop-Location
+                if ($null -ne $process) { $process.Dispose() }
+                Remove-Item -LiteralPath $metadataPath, $stdoutPath, $stderrPath -Force -ErrorAction SilentlyContinue
             }
-            [pscustomobject]@{
+            $Results.Add([pscustomobject]@{
                 Name = $Name
                 Passed = ($exitCode -eq 0)
                 ExitCode = $exitCode
                 Duration = ((Get-Date) - $started).TotalSeconds
-                Output = ($output | Out-String).Trim()
-            }
+                Output = ($outputLines -join [Environment]::NewLine).Trim()
+            }) | Out-Null
         }
 
         $results = [System.Collections.Generic.List[object]]::new()
@@ -381,11 +524,11 @@ function Start-DomainValidationJob {
                 $legacyRuffTargets = @($ruffTargets | Where-Object { $_ -eq 'app/services/ext_data.py' })
                 $standardRuffTargets = @($ruffTargets | Where-Object { $_ -ne 'app/services/ext_data.py' })
                 if ($standardRuffTargets.Count -gt 0) {
-                    $results.Add((Run-Step -Name 'Backend Ruff' -Directory $backend -Command 'uv' -Arguments (@('run', '--frozen', '--extra', 'dev', 'ruff', 'check') + $standardRuffTargets)))
+                    Run-Step -Name 'Backend Ruff' -Directory $backend -Command 'uv' -Arguments (@('run', '--frozen', '--extra', 'dev', 'ruff', 'check') + $standardRuffTargets) -Results $results
                 }
                 if ($legacyRuffTargets.Count -gt 0) {
                     $legacyArgs = @('run', '--frozen', '--extra', 'dev', 'ruff', 'check', '--select', 'E,F,I,N,UP', '--ignore', 'E501') + $legacyRuffTargets
-                    $results.Add((Run-Step -Name 'Backend Ruff (legacy baseline scope)' -Directory $backend -Command 'uv' -Arguments $legacyArgs))
+                    Run-Step -Name 'Backend Ruff (legacy baseline scope)' -Directory $backend -Command 'uv' -Arguments $legacyArgs -Results $results
                 }
             }
 
@@ -395,7 +538,7 @@ function Start-DomainValidationJob {
             }
             $pytestArgs += @('-m', 'not integration')
             $testName = if ($BackendTestList.Count -gt 0) { 'Backend related pytest' } else { 'Backend pytest fallback (not integration)' }
-            $results.Add((Run-Step -Name $testName -Directory $backend -Command 'uv' -Arguments $pytestArgs))
+            Run-Step -Name $testName -Directory $backend -Command 'uv' -Arguments $pytestArgs -Results $results
         }
         else {
             $eslintTargets = @($Changed | Where-Object { $_ -match '^frontend/src/.+\.(c|m)?[jt]sx?$' } | ForEach-Object { $_.Substring(9) })
@@ -409,7 +552,7 @@ function Start-DomainValidationJob {
                 $eslintCommand = 'pnpm'
                 $eslintArguments = @('exec', 'eslint') + $eslintTargets
             }
-            $results.Add((Run-Step -Name 'Frontend ESLint' -Directory $frontend -Command $eslintCommand -Arguments $eslintArguments))
+            Run-Step -Name 'Frontend ESLint' -Directory $frontend -Command $eslintCommand -Arguments $eslintArguments -Results $results
 
             $tscCommand = Join-Path $frontend 'node_modules\.bin\tsc.cmd'
             $tscArguments = @('--noEmit', '--pretty', 'false')
@@ -417,7 +560,7 @@ function Start-DomainValidationJob {
                 $tscCommand = 'pnpm'
                 $tscArguments = @('exec', 'tsc') + $tscArguments
             }
-            $results.Add((Run-Step -Name 'Frontend TypeScript' -Directory $frontend -Command $tscCommand -Arguments $tscArguments))
+            Run-Step -Name 'Frontend TypeScript' -Directory $frontend -Command $tscCommand -Arguments $tscArguments -Results $results
 
             $vitestCommand = Join-Path $frontend 'node_modules\.bin\vitest.cmd'
             $vitestArgs = @('run')
@@ -432,27 +575,23 @@ function Start-DomainValidationJob {
                 $vitestCommand = 'pnpm'
                 $vitestArgs = @('test', '--') + $vitestArgs
             }
-            $results.Add((Run-Step -Name $testName -Directory $frontend -Command $vitestCommand -Arguments $vitestArgs))
+            Run-Step -Name $testName -Directory $frontend -Command $vitestCommand -Arguments $vitestArgs -Results $results
 
             if ($BuildFrontend) {
                 $viteCommand = Join-Path $frontend 'node_modules\.bin\vite.cmd'
                 if ((Test-Path -LiteralPath $tscCommand -PathType Leaf) -and (Test-Path -LiteralPath $viteCommand -PathType Leaf)) {
-                    $results.Add((Run-Step -Name 'Frontend build TypeScript' -Directory $frontend -Command $tscCommand -Arguments @('-b')))
-                    $results.Add((Run-Step -Name 'Frontend Vite build' -Directory $frontend -Command $viteCommand -Arguments @('build')))
+                    Run-Step -Name 'Frontend build TypeScript' -Directory $frontend -Command $tscCommand -Arguments @('-b') -Results $results
+                    Run-Step -Name 'Frontend Vite build' -Directory $frontend -Command $viteCommand -Arguments @('build') -Results $results
                 }
                 else {
-                    $results.Add((Run-Step -Name 'Frontend build' -Directory $frontend -Command 'pnpm' -Arguments @('build')))
+                    Run-Step -Name 'Frontend build' -Directory $frontend -Command 'pnpm' -Arguments @('build') -Results $results
                 }
             }
         }
         return @($results)
     }
 
-    $jobCommand = Get-Command Start-ThreadJob -ErrorAction SilentlyContinue
-    if ($null -ne $jobCommand) {
-        return & $jobCommand.Name -ScriptBlock $jobScript -ArgumentList $RepoRoot, $Domain, $ValidationMode, $Paths, $BackendTests, $FrontendTests, $FrontendBuild
-    }
-    return Start-Job -ScriptBlock $jobScript -ArgumentList $RepoRoot, $Domain, $ValidationMode, $Paths, $BackendTests, $FrontendTests, $FrontendBuild
+    return Start-Job -ScriptBlock $jobScript -ArgumentList $RepoRoot, $Domain, $ValidationMode, $Paths, $BackendTests, $FrontendTests, $FrontendBuild, $ProcessDirectory
 }
 
 function Invoke-ScriptCheck {
@@ -486,6 +625,38 @@ function Invoke-ScriptCheck {
     return [pscustomobject]@{ Name = 'CI script syntax and plan probes'; Passed = $true; Duration = 0; Output = '' }
 }
 
+function Invoke-TrivyDependencyScan {
+    $trivy = Get-Command trivy -ErrorAction SilentlyContinue
+    if ($null -eq $trivy) {
+        $localTrivy = Join-Path $env:LOCALAPPDATA 'Programs\Trivy\trivy.exe'
+        if (Test-Path -LiteralPath $localTrivy -PathType Leaf) {
+            $trivyPath = $localTrivy
+        }
+        else {
+            return [pscustomobject]@{
+                Name = 'Trivy dependency scan'
+                Passed = $false
+                ExitCode = 1
+                Duration = 0
+                Output = '找不到 trivy 執行檔。請先安裝 Trivy 並加入 PATH。'
+            }
+        }
+    }
+    else {
+        $trivyPath = $trivy.Source
+    }
+
+    $arguments = [System.Collections.Generic.List[string]]::new()
+    foreach ($argument in @('fs', '.', '--severity', 'HIGH,CRITICAL', '--exit-code', '1')) {
+        $arguments.Add($argument)
+    }
+    foreach ($directory in $TrivyExcludedDirs) {
+        $arguments.Add('--skip-dirs')
+        $arguments.Add($directory)
+    }
+    return Invoke-ExternalStep -Name 'Trivy dependency scan' -WorkingDirectory $RepoRoot -FilePath $trivyPath -Arguments $arguments.ToArray()
+}
+
 function Write-CompactFailureOutput {
     param([Parameter(Mandatory)][string]$Output)
 
@@ -495,6 +666,42 @@ function Write-CompactFailureOutput {
         $lines = @($lines | Select-Object -Last 80)
     }
     Write-Output ($lines -join [Environment]::NewLine)
+}
+
+function Receive-CiJobItems {
+    param(
+        [Parameter(Mandatory)]$Job,
+        [Parameter(Mandatory)][AllowEmptyCollection()][System.Collections.Generic.List[object]]$Results,
+        [switch]$Final
+    )
+
+    $resultCountBefore = $Results.Count
+    foreach ($item in @(Receive-Job -Job $Job -ErrorAction SilentlyContinue)) {
+        if ($item.PSObject.Properties.Name -contains 'CiLiveOutput') {
+            Write-Output ("[$($item.Name)/$($item.Stream)] $($item.Line)")
+            continue
+        }
+        if ($null -ne $item.PSObject.Properties['Passed']) {
+            $Results.Add($item)
+            if ($null -eq $Job.PSObject.Properties['CiResultSeen']) {
+                $Job | Add-Member -MemberType NoteProperty -Name CiResultSeen -Value $true
+            }
+        }
+    }
+    if ($Final -and $Job.State -in @('Completed', 'Failed', 'Stopped') -and $null -eq $Job.PSObject.Properties['CiResultSeen']) {
+        $child = $Job.ChildJobs | Select-Object -First 1
+        $reason = if ($null -ne $child) { $child.JobStateInfo.Reason } else { $null }
+        $childErrors = if ($null -ne $child) { @($child.Error | ForEach-Object { $_.ToString() }) } else { @() }
+        $jobState = [string]$Job.State
+        $childState = if ($null -ne $child) { [string]$child.State } else { 'no-child' }
+        $message = if ($null -ne $reason) { $reason.Exception.Message } elseif (@($childErrors).Count -gt 0) { $childErrors -join [Environment]::NewLine } else { "CI validation job completed without a result (job=$jobState, child=$childState)." }
+        $Results.Add([pscustomobject]@{ Name = 'CI validation job'; Passed = $false; ExitCode = 1; Duration = 0; Output = $message })
+    }
+}
+
+trap {
+    Stop-CiProcessTree -ProcessDirectory $CiProcessDirectory
+    throw
 }
 
 $changed = @(Get-ChangedPaths)
@@ -540,17 +747,20 @@ $jobs = [System.Collections.Generic.List[object]]::new()
 try {
     foreach ($lane in $lanes) {
         switch ($lane) {
+            'trivy-dependency' {
+                $results.Add((Invoke-TrivyDependencyScan))
+            }
             'backend-fast' {
-                $jobs.Add((Start-DomainValidationJob -Domain backend -ValidationMode Fast -Paths $changed -BackendTests $backendTests.Files -FrontendTests @() -FrontendBuild $false))
+                $jobs.Add((Start-DomainValidationJob -Domain backend -ValidationMode Fast -Paths $changed -BackendTests $backendTests.Files -FrontendTests @() -FrontendBuild $false -ProcessDirectory $CiProcessDirectory))
             }
             'frontend-fast' {
-                $jobs.Add((Start-DomainValidationJob -Domain frontend -ValidationMode Fast -Paths $changed -BackendTests @() -FrontendTests $frontendTests.Files -FrontendBuild $frontendBuild))
+                $jobs.Add((Start-DomainValidationJob -Domain frontend -ValidationMode Fast -Paths $changed -BackendTests @() -FrontendTests $frontendTests.Files -FrontendBuild $frontendBuild -ProcessDirectory $CiProcessDirectory))
             }
             'backend-full' {
-                $jobs.Add((Start-DomainValidationJob -Domain backend -ValidationMode Full -Paths $changed -BackendTests @() -FrontendTests @() -FrontendBuild $false))
+                $jobs.Add((Start-DomainValidationJob -Domain backend -ValidationMode Full -Paths $changed -BackendTests @() -FrontendTests @() -FrontendBuild $false -ProcessDirectory $CiProcessDirectory))
             }
             'frontend-full' {
-                $jobs.Add((Start-DomainValidationJob -Domain frontend -ValidationMode Full -Paths $changed -BackendTests @() -FrontendTests @() -FrontendBuild $true))
+                $jobs.Add((Start-DomainValidationJob -Domain frontend -ValidationMode Full -Paths $changed -BackendTests @() -FrontendTests @() -FrontendBuild $true -ProcessDirectory $CiProcessDirectory))
             }
             'backend-live-integration' {
                 $results.Add((Invoke-ExternalStep -Name 'Backend live integration' -WorkingDirectory $BackendRoot -FilePath 'uv' -Arguments @('run', '--frozen', '--extra', 'dev', 'pytest', '-q', '-m', 'integration')))
@@ -564,14 +774,24 @@ try {
         }
     }
 
-    if ($jobs.Count -gt 0) {
-        Wait-Job -Job $jobs | Out-Null
+    while (@($jobs | Where-Object { $_.State -in @('NotStarted', 'Running') }).Count -gt 0) {
         foreach ($job in $jobs) {
-            foreach ($result in @(Receive-Job -Job $job)) {
-                $results.Add($result)
-            }
-            Remove-Job -Job $job -Force
+            Receive-CiJobItems -Job $job -Results $results
         }
+        Start-Sleep -Milliseconds 200
+    }
+    foreach ($job in $jobs) {
+        Receive-CiJobItems -Job $job -Results $results -Final
+        Remove-Job -Job $job -Force
+    }
+    if ($jobs.Count -gt 0 -and $results.Count -eq 0) {
+        $results.Add([pscustomobject]@{
+            Name = 'CI runner'
+            Passed = $false
+            ExitCode = 1
+            Duration = 0
+            Output = 'Validation jobs completed without returning a result.'
+        })
     }
 }
 catch {
@@ -579,6 +799,17 @@ catch {
     foreach ($job in $jobs) {
         Remove-Job -Job $job -Force -ErrorAction SilentlyContinue
     }
+}
+finally {
+    foreach ($job in $jobs) {
+        if ($job.State -in @('NotStarted', 'Running')) {
+            Stop-Job -Job $job -Force -ErrorAction SilentlyContinue
+        }
+        Remove-Job -Job $job -Force -ErrorAction SilentlyContinue
+    }
+    Stop-CiProcessTree -ProcessDirectory $CiProcessDirectory
+    Remove-Item -LiteralPath $CiProcessDirectory -Recurse -Force -ErrorAction SilentlyContinue
+    Remove-Item -LiteralPath $CiRunRoot -Recurse -Force -ErrorAction SilentlyContinue
 }
 
 foreach ($result in $results) {

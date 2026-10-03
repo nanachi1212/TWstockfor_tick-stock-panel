@@ -35,7 +35,7 @@ dependencies = [
     "plyer>=2.1",                 # 系统通知跨平台兜底 (macOS/Linux)
     # Watchlist screenshot OCR (Tesseract)
     "pytesseract>=0.3.10",
-    "Pillow>=10.0",
+    "Pillow>=12.3.0",
     "cryptography>=44",
 ]
 
