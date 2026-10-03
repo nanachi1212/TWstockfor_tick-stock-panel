@@ -325,6 +325,36 @@ def test_unknown_empty_and_unprocessed_weekday_remain_in_quant_denominator(
     assert health.primary_census_ratio == 1 / 3
 
 
+def test_data_health_default_end_uses_latest_publishable_session(
+    tmp_path, monkeypatch,
+) -> None:
+    from app.taiwan.historical_classification import HistoricalClassificationStore
+    from app.taiwan.observed_universe import ObservedUniverseStore
+
+    census = ObservedUniverseStore(tmp_path / "observed_universe")
+    classification = HistoricalClassificationStore(tmp_path / "cls")
+    publishable = date(2026, 10, 1)
+    census.write("TWSE", publishable, [], confirmed_non_trading_source="test:closure")
+    census.record_month_verification("TWSE", publishable, publishable)
+    monkeypatch.setattr(
+        "app.taiwan.daily_update.resolve_target_latest_trading_date",
+        lambda **_kwargs: publishable,
+    )
+
+    health = health_from_stores(
+        census,
+        classification,
+        start=publishable,
+        thresholds=ReadinessThresholds(factor_compute_sessions=0),
+    )
+
+    assert health.census_by_exchange["TWSE"]["candidate_dates"] == 1
+    assert not any(
+        "month tables" in reason
+        for reason in health.blocked_reasons.get("ready_for_primary_oos", ())
+    )
+
+
 def test_data_health_feeds_the_eligibility_resolver() -> None:
     health = evaluate_data_health(
         census_sessions=50, census_total_sessions=3000,

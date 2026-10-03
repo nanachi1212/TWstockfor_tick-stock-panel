@@ -309,16 +309,14 @@ def health_from_stores(
     thresholds: ReadinessThresholds | None = None,
 ) -> DataHealth:
     """Grade readiness from the live staging stores."""
-    from datetime import datetime
-
     from app.taiwan.backfill_worker import CENSUS_START
+    from app.taiwan.daily_update import resolve_target_latest_trading_date
     from app.taiwan.observed_universe import session_candidates
-    from app.taiwan.providers.taiwan_values import TAIPEI
 
     census = census or ObservedUniverseStore()
     classification = classification or HistoricalClassificationStore()
     start = start or CENSUS_START
-    end = end or datetime.now(TAIPEI).date()
+    end = end or resolve_target_latest_trading_date(evidence_store=census)
 
     twse_coverage = census_coverage(
         census, "TWSE", session_candidates(census, "TWSE", start, end))

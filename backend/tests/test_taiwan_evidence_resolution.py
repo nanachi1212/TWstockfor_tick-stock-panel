@@ -6,6 +6,7 @@ Offline only. Payloads mirror the official responses recorded in the probes
 """
 from __future__ import annotations
 
+import shutil
 from datetime import date, timedelta
 from pathlib import Path
 
@@ -400,6 +401,89 @@ def test_factor_panel_entry_publishes_existing_calculation_for_verified_stocks_o
     direct = build_factor_panel(history, events=(), policy_version=PRIMARY_OOS_SPEC.policy_version,
                                 universe_tier=PRIMARY_VERIFIED)
     assert stored.values.equals(direct.values, null_equal=True)
+
+
+def test_factor_panel_appends_only_new_trailing_sessions(tmp_path: Path) -> None:
+    from app.taiwan.backfill_worker import TaiwanHistoricalBackfillWorker
+    from app.taiwan.quant.evaluation_spec import PRIMARY_OOS_SPEC
+    from app.taiwan.quant.panel import build_factor_panel
+    from app.taiwan.quant.primary_panel import build_primary_factor_panel
+    from app.taiwan.quant.storage import FactorPanelStore
+    from app.taiwan.quant_eligibility import PRIMARY_VERIFIED
+
+    sessions = [day for day in (date(2020, 1, 1) + timedelta(days=n) for n in range(120))
+                if day.weekday() < 5][:70]
+    rows = _stock_history(("2330",), sessions)
+    census = ObservedUniverseStore(tmp_path / "observed")
+    for day in sessions[:65]:
+        census.write("TWSE", day, [row for row in rows if row["date"] == day])
+    classifications = HistoricalClassificationStore(tmp_path / "cls")
+    classifications.write(sessions[0], [{
+        **_industry_row("2330", sessions[0]), "instrument_type": "stock",
+        "classification_status": "verified", "classification_source": "twse:isin_listed@x"}])
+    worker = TaiwanHistoricalBackfillWorker(
+        data_dir=tmp_path, census_store=census, classification_store=classifications)
+    store = FactorPanelStore(tmp_path / "factors")
+    build_primary_factor_panel(_preflight(), events=(), store=store, worker=worker, workers=1,
+                               preflight_reader=_preflight)
+    existing_partition = (store.root / "factor_version=tw-factors-v1"
+                          / "policy_version=v1" / "universe_tier=primary_verified"
+                          / f"date={sessions[20].isoformat()}")
+    existing_bytes = {
+        name: (existing_partition / name).read_bytes()
+        for name in ("values.parquet", "coverage.parquet")
+    }
+
+    for day in sessions[65:]:
+        census.write("TWSE", day, [row for row in rows if row["date"] == day])
+    appended = build_primary_factor_panel(
+        _preflight(), events=(), store=store, worker=worker, workers=1,
+        preflight_reader=_preflight)
+
+    assert appended == {"symbols": 1, "sessions": 5, "rows": 70}
+    assert all((existing_partition / name).read_bytes() == content
+               for name, content in existing_bytes.items())
+    stored = store.read_all(factor_version=PRIMARY_OOS_SPEC.factor_version,
+                            policy_version=PRIMARY_OOS_SPEC.policy_version,
+                            universe_tier=PRIMARY_VERIFIED)
+    history = pl.DataFrame(rows).select(
+        pl.concat_str([pl.col("raw_code"), pl.lit(".TWSE")]).alias("symbol"),
+        "date", "open", "high", "low", "close", "volume", "amount").sort("date")
+    direct = build_factor_panel(history, events=(), policy_version=PRIMARY_OOS_SPEC.policy_version,
+                                universe_tier=PRIMARY_VERIFIED)
+    assert stored.values.equals(direct.values, null_equal=True)
+    assert stored.coverage.equals(direct.coverage, null_equal=True)
+
+
+def test_factor_panel_refuses_to_append_an_interior_partition_gap(tmp_path: Path) -> None:
+    from app.taiwan.backfill_worker import TaiwanHistoricalBackfillWorker
+    from app.taiwan.quant.primary_oos_runner import PrimaryOosInputError
+    from app.taiwan.quant.primary_panel import build_primary_factor_panel
+    from app.taiwan.quant.storage import FactorPanelStore
+
+    sessions = [day for day in (date(2020, 1, 1) + timedelta(days=n) for n in range(60))
+                if day.weekday() < 5][:30]
+    rows = _stock_history(("2330",), sessions)
+    census = ObservedUniverseStore(tmp_path / "observed")
+    for day in sessions:
+        census.write("TWSE", day, [row for row in rows if row["date"] == day])
+    classifications = HistoricalClassificationStore(tmp_path / "cls")
+    classifications.write(sessions[0], [{
+        **_industry_row("2330", sessions[0]), "instrument_type": "stock",
+        "classification_status": "verified", "classification_source": "twse:isin_listed@x"}])
+    worker = TaiwanHistoricalBackfillWorker(
+        data_dir=tmp_path, census_store=census, classification_store=classifications)
+    store = FactorPanelStore(tmp_path / "factors")
+    build_primary_factor_panel(_preflight(), events=(), store=store, worker=worker, workers=1,
+                               preflight_reader=_preflight)
+    gap = (store.root / "factor_version=tw-factors-v1" / "policy_version=v1"
+           / "universe_tier=primary_verified" / f"date={sessions[10].isoformat()}")
+    shutil.rmtree(gap)
+
+    with pytest.raises(PrimaryOosInputError, match="non-trailing date gap"):
+        build_primary_factor_panel(
+            _preflight(), events=(), store=store, worker=worker, workers=1,
+            preflight_reader=_preflight)
 
 
 def test_action_snapshot_reuses_completed_pulls_and_fetches_only_new_tail(
