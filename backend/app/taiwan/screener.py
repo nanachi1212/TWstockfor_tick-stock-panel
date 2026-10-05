@@ -484,6 +484,10 @@ class TaiwanScreenerService:
             revenue_evidence = self.revenue_evidence_store.evidence_as_of(
                 event_market_open(risk_target_date)
             )
+        elif req.extended_factors:
+            # Current-state consumers use the same official observations,
+            # restricted to those already made before this query.
+            revenue_evidence = self.revenue_evidence_store.evidence_as_of(taipei_now())
         missing_quote_count = len(valid_symbols) - latest_daily.filter(
             pl.col("date") == latest_daily["date"].max()
         ).height

@@ -425,3 +425,23 @@ def test_refresh_is_picked_up_without_restart(tmp_path, _no_network):
     assert service.run(TaiwanScreenerRequest(preset="growth_trend_v1")).strategy_readiness == "degraded"
     _seed(store)
     assert service.run(TaiwanScreenerRequest(preset="growth_trend_v1")).strategy_readiness == "ready"
+
+
+def test_extended_factors_use_official_evidence_observed_before_now(tmp_path, _no_network, monkeypatch):
+    store = MonthlyRevenueEvidenceStore(tmp_path / "evidence")
+    _seed(store)
+    service, _ = _screener(tmp_path, store)
+    monkeypatch.setattr("app.taiwan.screener.taipei_now", lambda: CUTOFF)
+    items = {
+        item.symbol: item
+        for item in service.run(TaiwanScreenerRequest(extended_factors=True, sort_by="symbol")).items
+    }
+    assert items["2330.TWSE"].revenue_status == "available"
+    assert items["2330.TWSE"].revenue_yoy == 20.0
+    # Official evidence wins over the conflicting FinMind cache.
+    assert items["2454.TWSE"].revenue_yoy is not None and items["2454.TWSE"].revenue_yoy < 0
+
+    monkeypatch.setattr("app.taiwan.screener.taipei_now", lambda: T0 - timedelta(hours=1))
+    early = service.run(TaiwanScreenerRequest(extended_factors=True, sort_by="symbol")).items
+    assert {item.revenue_status for item in early} == {"publication_unknown"}
+    assert all(item.revenue_yoy is None for item in early)
