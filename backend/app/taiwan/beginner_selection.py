@@ -924,8 +924,7 @@ class BeginnerSelectionService:
             return None
         return None if events is None else {event.symbol for event in events}
 
-    @staticmethod
-    def _risk_context() -> tuple[Any, list[Any]] | None:
+    def _risk_context(self) -> tuple[Any, list[Any], Any, Any] | None:
         try:
             from app.taiwan.events_service import get_event_service
 
@@ -934,15 +933,33 @@ class BeginnerSelectionService:
         except Exception as exc:
             logger.debug("beginner regulatory evidence unavailable: %s", type(exc).__name__)
             return None
-        return (svc, events) if status == "available" else None
+        if status != "available":
+            return None
+        return (
+            svc,
+            events,
+            getattr(self.screener, "calendar", None),
+            getattr(self.screener, "census_store", None),
+        )
 
     @staticmethod
-    def _risk_for(symbol: str, as_of: date, ctx: tuple[Any, list[Any]] | None):
+    def _risk_for(symbol: str, as_of: date, ctx: tuple[Any, list[Any], Any, Any] | None):
         if ctx is None:
             return "unavailable", None, None
-        svc, events = ctx
+        svc, events, calendar, census_store = ctx
         try:
-            risk = svc.check_symbol_risk_status(symbol, target_date=as_of, events=events)
+            if calendar is None:
+                return "unavailable", None, None
+
+            def observed(day: date):
+                if census_store is None:
+                    return calendar.day_evidence(day, "TWSE")
+                return census_store.day_evidence("TWSE", day, calendar=calendar)
+
+            risk_target_date = calendar.next_potential_session(as_of, observed)
+            risk = svc.check_symbol_risk_status(
+                symbol, target_date=risk_target_date, events=events
+            )
         except Exception:
             return "unavailable", None, None
         code = symbol.split(".", 1)[0].upper()

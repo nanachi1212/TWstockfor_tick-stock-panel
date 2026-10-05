@@ -152,6 +152,97 @@ def test_unavailable_is_not_zero():
     assert _dims(zero)["capital_flow"].status == "neutral"
 
 
+class _RiskService:
+    def __init__(self):
+        self.targets = []
+
+    def check_symbol_risk_status(self, symbol, target_date=None, events=None):
+        del symbol
+        self.targets.append(target_date)
+        target = target_date.isoformat()
+        active = any(
+            event.event_type == "disposition" and event.event_date <= target
+            for event in events or []
+        )
+        return {
+            "is_disposition": active,
+            "is_suspended": False,
+            "has_risk_event": False,
+            "risk_reason": "處置" if active else "",
+        }
+
+
+class _CensusEvidence:
+    def __init__(self, calendar, make_up_day=None, fail=False):
+        self.calendar = calendar
+        self.make_up_day = make_up_day
+        self.fail = fail
+
+    def day_evidence(self, exchange, day, *, calendar):
+        del exchange, calendar
+        if self.fail:
+            raise RuntimeError("evidence unavailable")
+        if day == self.make_up_day:
+            from app.taiwan.realtime.calendar import TradingDayEvidence
+
+            return TradingDayEvidence(day, "TWSE", "trading", "census", "make_up_session")
+        return self.calendar.day_evidence(day, "TWSE")
+
+
+def _risk_event(event_date):
+    return SimpleNamespace(
+        event_type="disposition", event_date=event_date.isoformat(),
+        symbol="2330.TWSE", code="2330",
+    )
+
+
+def test_beginner_risk_uses_next_potential_session_and_fails_closed():
+    from app.taiwan.realtime.calendar import TaiwanTradingCalendar
+
+    quote_date = date(2026, 10, 5)
+    next_session = date(2026, 10, 7)
+    calendar = TaiwanTradingCalendar(known_holidays={date(2026, 10, 6)})
+    census = _CensusEvidence(calendar)
+
+    for event_date, expected in (
+        (quote_date, "flagged"),
+        (next_session, "flagged"),
+        (date(2026, 10, 8), "clear"),
+    ):
+        service = _RiskService()
+        result = BeginnerSelectionService._risk_for(
+            "2330.TWSE", quote_date,
+            (service, [_risk_event(event_date)], calendar, census),
+        )
+        assert result[0] == expected
+        assert service.targets == [next_session]
+
+    assert BeginnerSelectionService._risk_for(
+        "2330.TWSE", quote_date, (_RiskService(), [], None, census)
+    )[0] == "unavailable"
+    assert BeginnerSelectionService._risk_for(
+        "2330.TWSE", quote_date, (_RiskService(), [], calendar, _CensusEvidence(calendar, fail=True))
+    )[0] == "unavailable"
+
+
+def test_beginner_risk_respects_census_make_up_session():
+    from app.taiwan.realtime.calendar import TaiwanTradingCalendar
+
+    quote_date = date(2026, 10, 9)
+    make_up_day = date(2026, 10, 17)
+    calendar = TaiwanTradingCalendar(known_holidays={
+        date(2026, 10, 12), date(2026, 10, 13), date(2026, 10, 14),
+        date(2026, 10, 15), date(2026, 10, 16),
+    })
+    service = _RiskService()
+    result = BeginnerSelectionService._risk_for(
+        "2330.TWSE", quote_date,
+        (service, [_risk_event(make_up_day)], calendar, _CensusEvidence(calendar, make_up_day)),
+    )
+    assert result[0] == "flagged"
+    assert service.targets == [make_up_day]
+
+
 def test_missing_trade_plan_never_invents_prices():
     candidate, _ = evaluate_candidate(_facts(recent_corporate_action=True), FAVORABLE)
     assert candidate.trade_plan is None
@@ -348,6 +439,50 @@ def test_selection_snapshot_invalidates_when_source_identity_changes(monkeypatch
         bs.clear_beginner_selection_snapshot()
 
     assert calls == 2
+
+
+def test_selection_snapshot_invalidates_regulatory_and_institutional_sources(monkeypatch, tmp_path):
+    bs.clear_beginner_selection_snapshot()
+    monkeypatch.setattr(BeginnerSelectionService, "_eligible_date", staticmethod(lambda: AS_OF))
+    monkeypatch.setattr(BeginnerSelectionService, "_risk_context", staticmethod(lambda: None))
+    data_root = tmp_path / "data"
+    monkeypatch.setattr("app.config.settings.data_dir", data_root)
+    svc = BeginnerSelectionService(screener=_FakeScreener([_item("2330.TWSE")]))
+
+    daily_dir = tmp_path / "daily"
+    daily_dir.mkdir()
+    (daily_dir / "daily.marker").write_text("daily", encoding="utf-8")
+    svc.screener.daily_store._data_dir = daily_dir
+    institutional_dir = tmp_path / "institutional"
+    institutional_dir.mkdir()
+    svc.screener.institutional_store = SimpleNamespace(_data_dir=institutional_dir)
+    partition = institutional_dir / "date=2026-10-05"
+    partition.mkdir()
+    part_file = partition / "part.parquet"
+    part_file.write_text("before", encoding="utf-8")
+    regulatory_file = data_root / "taiwan" / "events_cache" / "regulatory_events.json"
+    regulatory_file.parent.mkdir(parents=True)
+    regulatory_file.write_text("before", encoding="utf-8")
+
+    calls = 0
+    original = BeginnerSelectionService._build_snapshot
+
+    def counted(self, key):
+        nonlocal calls
+        calls += 1
+        return original(self, key)
+
+    monkeypatch.setattr(BeginnerSelectionService, "_build_snapshot", counted)
+    try:
+        svc.build(limit=5)
+        regulatory_file.write_text("after", encoding="utf-8")
+        svc.build(limit=5)
+        part_file.write_text("after", encoding="utf-8")
+        svc.build(limit=5)
+    finally:
+        bs.clear_beginner_selection_snapshot()
+
+    assert calls == 3
 
 
 def test_selection_evidence_is_compact_and_frozen(monkeypatch):

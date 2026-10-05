@@ -21,6 +21,7 @@ from __future__ import annotations
 import tempfile
 from datetime import date, timedelta
 from pathlib import Path
+from types import SimpleNamespace
 
 import polars as pl
 import pytest
@@ -30,7 +31,6 @@ from app.main import app
 from app.taiwan.daily_store import TaiwanDailyStore
 from app.taiwan.screener import (
     TaiwanScreenerRequest,
-    TaiwanScreenerResponse,
     TaiwanScreenerService,
 )
 from app.taiwan.universe import get_security_master
@@ -168,6 +168,69 @@ class TestTaiwanScreenerCore:
         # change_pct is decimal (0.05 = 5%)
         assert abs(tsmc.change_pct) < 0.5
 
+    def test_five_day_institutional_flow_requires_complete_symbol_coverage(self):
+        required_dates = [
+            date(2026, 9, 29), date(2026, 9, 30), date(2026, 10, 1),
+            date(2026, 10, 2), date(2026, 10, 5),
+        ]
+        rows = []
+        for symbol in ("A.TWSE", "B.TWSE", "C.TWSE", "D.TWSE", "E.TWSE"):
+            symbol_dates = required_dates if symbol != "B.TWSE" else required_dates[:-1]
+            for day in symbol_dates:
+                rows.append({
+                    "symbol": symbol,
+                    "date": day,
+                    "foreign_net": 10,
+                    "investment_trust_net": 20,
+                    "dealer_net": 30,
+                    "status": (
+                        "unavailable" if symbol == "C.TWSE" and day == required_dates[2]
+                        else "official" if symbol == "A.TWSE" and day == required_dates[0]
+                        else "available"
+                    ),
+                })
+        history = pl.DataFrame(rows)
+        latest = history.filter(pl.col("date") == required_dates[-1]).with_columns(
+            pl.lit("available").alias("status")
+        )
+
+        service = TaiwanScreenerService(
+            security_master=SimpleNamespace(),
+            daily_store=SimpleNamespace(),
+            institutional_store=SimpleNamespace(
+                read_latest_per_symbol=lambda symbols: latest.filter(pl.col("symbol").is_in(symbols)),
+                read_range=lambda symbols, start, end: history.filter(
+                    pl.col("symbol").is_in(symbols)
+                    & (pl.col("date") >= start)
+                    & (pl.col("date") <= end)
+                ),
+            ),
+            margin_store=SimpleNamespace(read_latest_per_symbol=lambda symbols: pl.DataFrame()),
+        )
+        base = pl.DataFrame({
+            "symbol": ["A.TWSE", "B.TWSE", "C.TWSE", "D.TWSE", "E.TWSE"],
+            "date": [required_dates[-1]] * 5,
+            "volume": [1000.0, 1000.0, 1000.0, None, 0.0],
+        })
+
+        joined, _inst_date, _margin_date, _degraded = service._join_institutional_margin(
+            base, base["symbol"].to_list(), five_day_flow=True
+        )
+        result = {row["symbol"]: row for row in joined.iter_rows(named=True)}
+
+        assert result["A.TWSE"]["foreign_net_5d"] == 50.0
+        assert result["A.TWSE"]["investment_trust_net_5d"] == 100.0
+        assert result["A.TWSE"]["dealer_net_5d"] == 150.0
+        assert result["A.TWSE"]["institutional_flow_ratio_5d"] == 0.3
+        for symbol in ("B.TWSE", "C.TWSE"):
+            assert result[symbol]["foreign_net_5d"] is None
+            assert result[symbol]["investment_trust_net_5d"] is None
+            assert result[symbol]["dealer_net_5d"] is None
+            assert result[symbol]["institutional_flow_ratio_5d"] is None
+        for symbol in ("D.TWSE", "E.TWSE"):
+            assert result[symbol]["foreign_net_5d"] == 50.0
+            assert result[symbol]["institutional_flow_ratio_5d"] is None
+
     def test_above_ma5_filter(self, screener_service):
         req = TaiwanScreenerRequest(above_ma5=True)
         res = screener_service.run(req)
@@ -264,8 +327,6 @@ class TestTaiwanScreenerCore:
 
     def test_zero_provider_http_calls_during_run(self, monkeypatch, screener_service):
         """Running the screener MUST NOT make any provider or HTTP calls."""
-        from urllib.request import urlopen
-
         def _forbidden_urlopen(*args, **kwargs):
             pytest.fail("Network call forbidden during screener execution!")
 
