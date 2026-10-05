@@ -345,6 +345,34 @@ def _item(symbol: str, **kw):
     return SimpleNamespace(**base)
 
 
+def test_collect_keeps_complete_institutional_totals_without_flow_ratio(monkeypatch):
+    item = _item(
+        "2330.TWSE", foreign_net_5d=10.0, investment_trust_net_5d=20.0,
+        dealer_net_5d=-5.0, institutional_status="official", institutional_date=AS_OF,
+        revenue_latest_period="2026-08", financials_as_of="2026-06-30",
+        valuation_as_of=AS_OF,
+    )
+    service = BeginnerSelectionService(screener=_FakeScreener([item]))
+    monkeypatch.setattr(service, "_eligible_date", lambda: AS_OF)
+    monkeypatch.setattr(service, "_market", lambda _as_of: FAVORABLE)
+    monkeypatch.setattr(service, "_trend", lambda _symbols, _as_of: {item.symbol: (99.0, 95.0, 0.02)})
+    monkeypatch.setattr(service, "_recent_actions", lambda _as_of: set())
+    monkeypatch.setattr(service, "_risk_context", lambda: None)
+    monkeypatch.setattr(service, "_daily_rows", lambda _symbols, _as_of: {})
+    monkeypatch.setattr(service, "_technical_metrics", lambda _symbols, _as_of: {})
+    monkeypatch.setattr(service, "_social", lambda _as_of: {
+        "status": "available", "dcard_status": "available", "mentions": {},
+    })
+    monkeypatch.setattr(service, "_risk_for", lambda *_args: ("clear", None, False))
+    _market, facts, _amounts, _gaps, _count = service._collect([item.symbol])
+    metrics = facts[0].technical_metrics
+    assert metrics["institutional_complete_sessions"] == 5
+    assert metrics["quote_freshness"] == "current"
+    assert metrics["revenue_as_of"] == "2026-08"
+    assert metrics["financials_as_of"] == "2026-06-30"
+    assert metrics["valuation_as_of"] == AS_OF
+
+
 def test_service_degrades_when_critical_evidence_missing(monkeypatch):
     monkeypatch.setattr(BeginnerSelectionService, "_market", lambda self, as_of: FAVORABLE)
     monkeypatch.setattr(BeginnerSelectionService, "_eligible_date", staticmethod(lambda: AS_OF))
@@ -380,7 +408,9 @@ def test_selection_snapshot_reuses_full_and_symbol_results(monkeypatch):
         bs.clear_beginner_selection_snapshot()
 
     assert calls == 1
-    assert single.candidate.model_dump() == first.not_selected[0].model_dump()
+    assert single.candidate.selection_state == first.not_selected[0].selection_state
+    assert single.candidate.trade_plan == first.not_selected[0].trade_plan
+    assert single.candidate.fx_context is not None
     assert second.not_selected[0].model_dump() == first.not_selected[0].model_dump()
 
 
@@ -493,7 +523,10 @@ def test_selection_evidence_is_compact_and_frozen(monkeypatch):
     assert payload["version"] == BEGINNER_SELECTION_VERSION
     assert payload["semantics"] == "deterministic_screening_priority_not_return_forecast"
     assert payload["selection_state"] == "skip"
+    assert payload["technical_panel"] is not None
+    assert payload["technical_panel"]["inner_outer"]["status"] == "data_insufficient"
     assert {f"beginner_selection.{k}" for k in ("selection_state", "signal_strength")} <= bs.BEGINNER_EVIDENCE_REGISTRY_KEYS
+    assert "beginner_selection.technical_panel.support.support_zone_low" in bs.BEGINNER_EVIDENCE_REGISTRY_KEYS
 
 
 def test_api_routes(monkeypatch):

@@ -12,6 +12,13 @@ from app.taiwan.realtime.calendar import (
     taipei_now,
     taipei_today,
 )
+from app.taiwan.realtime.fugle_provider import (
+    FugleAggregatesObservation,
+    FugleAggregatesProvider,
+    FugleAggregatesSnapshot,
+    get_fugle_aggregates_provider,
+    parse_fugle_aggregates_message,
+)
 from app.taiwan.realtime.mis_provider import TwseMisRealtimeProvider, to_mis_channel
 from app.taiwan.realtime.models import (
     MarketStatus,
@@ -33,6 +40,9 @@ from app.taiwan.realtime.yahoo_provider import YahooRealtimeProvider, to_yahoo_t
 
 __all__ = [
     "EvaluationStatus",
+    "FugleAggregatesObservation",
+    "FugleAggregatesProvider",
+    "FugleAggregatesSnapshot",
     "MarketStatus",
     "RealtimeFreshnessPolicy",
     "RealtimeStatus",
@@ -48,10 +58,12 @@ __all__ = [
     "TwseMisRealtimeProvider",
     "YahooRealtimeProvider",
     "get_market_status",
+    "get_fugle_aggregates_provider",
     "get_monitor_engine",
     "get_realtime_service",
     "taipei_now",
     "taipei_today",
+    "parse_fugle_aggregates_message",
     "to_mis_channel",
     "to_yahoo_ticker",
 ]

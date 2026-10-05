@@ -43,6 +43,8 @@ DATASETS = {
     "dcard": "Dcard",
     "social_ai": "Social AI",
     "ai_provider": "AI Provider/Profile",
+    "fugle": "Fugle Intraday",
+    "frankfurter": "Frankfurter FX",
 }
 REASONS = {
     # Updater outcomes from the daily_update last-run record; most specific first.
@@ -329,6 +331,11 @@ class DatasetHealth(BaseModel):
     name: str
     status: HealthStatus = "unavailable"
     source: str | None = None
+    provider: str | None = None
+    enabled: bool | None = None
+    auth_configured: bool | None = None
+    as_of: str | None = None
+    error: str | None = None
     data_date: str | None = None
     freshness: str = "未知"
     reason: str = "尚未查詢或尚未保存 metadata"
@@ -418,7 +425,21 @@ class DataHealthService:
             "ai_provider": self._ai,
             "taiex": lambda: self._index("taiex"),
             "tpex_index": lambda: self._index("tpex_index"),
+            "fugle": self._fugle,
+            "frankfurter": self._frankfurter,
         }
+
+    @staticmethod
+    def _fugle() -> dict[str, Any]:
+        from app.taiwan.realtime.fugle_provider import get_fugle_aggregates_provider
+
+        return get_fugle_aggregates_provider().health_metadata()
+
+    @staticmethod
+    def _frankfurter() -> dict[str, Any]:
+        from app.taiwan.providers.fx_context import get_frankfurter_fx_provider
+
+        return get_frankfurter_fx_provider().health_metadata()
 
     def _daily(self) -> dict[str, dict[str, Any]]:
         from app.taiwan.daily_update import TaiwanDailyUpdateService, read_last_run

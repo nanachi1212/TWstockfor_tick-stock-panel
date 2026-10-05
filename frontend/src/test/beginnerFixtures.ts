@@ -26,9 +26,93 @@ export function beginnerCandidate(symbol: string, overrides: Partial<BeginnerCan
     ],
     trade_plan: {
       rule_version: 'trade_plan_v1', entry_semantics: 'pullback_limit', entry_zone_low: 94, entry_zone_high: 97,
-      breakout_trigger: 100, stop_price: 88.2, evidence_as_of: '2026-09-30', plan_identity: 'abc',
+      reference_high: 100, breakout_trigger: 100, stop_price: 88.2, evidence_as_of: '2026-09-30', plan_identity: 'abc',
     },
     plan_unavailable_reason: null,
+    technical_panel: {
+      summary: '趨勢偏強，已接近上方壓力。等待回檔，不追價。', current_price: 99,
+      support: {
+        status: 'available', current_price: 99, support_zone_low: 94, support_zone_high: 97,
+        resistance: 100, invalidation: 88.2, support_distance_low_pct: -5.05,
+        support_distance_high_pct: -2.02, resistance_distance_pct: 1.01,
+        explanation: '支撐、壓力與失效位沿用正式 TradePlan。', source: 'trade_plan',
+        as_of: '2026-09-30', freshness: 'current',
+      },
+      resistance: {
+        status: 'available', current_price: 99, support_zone_low: 94, support_zone_high: 97,
+        resistance: 100, invalidation: 88.2, support_distance_low_pct: -5.05,
+        support_distance_high_pct: -2.02, resistance_distance_pct: 1.01,
+        explanation: '支撐、壓力與失效位沿用正式 TradePlan。', source: 'trade_plan',
+        as_of: '2026-09-30', freshness: 'current',
+      },
+      invalidation: {
+        status: 'available', current_price: 99, support_zone_low: 94, support_zone_high: 97,
+        resistance: 100, invalidation: 88.2, support_distance_low_pct: -5.05,
+        support_distance_high_pct: -2.02, resistance_distance_pct: 1.01,
+        explanation: '支撐、壓力與失效位沿用正式 TradePlan。', source: 'trade_plan',
+        as_of: '2026-09-30', freshness: 'current',
+      },
+      moving_averages: {
+        status: 'available', state: 'strong', ma5: 98, ma20: 95, ma60: 90,
+        bullish_alignment: true, explanation: '現價站在 5 日、20 日、60 日均線之上，中短期趨勢目前偏強。短、中期均線依序向上（多頭排列）。',
+        source: 'pit_adjusted_daily', as_of: '2026-09-30', freshness: 'current',
+      },
+      inner_outer: {
+        status: 'data_insufficient', outer_pct: null, inner_pct: null,
+        last_price: null, trade_volume: null, trade_value: null, bids: [], asks: [],
+        explanation: '目前沒有可靠的即時內外盤資料。', source: 'none', as_of: '2026-09-30', freshness: 'unavailable',
+        disclaimer: '內外盤反映成交主動性，不等於真正買方／賣方人數，不能單獨作為買賣依據。',
+      },
+      volume: {
+        status: 'available', today_volume: 2_000_000, average_20d: 1_500_000, ratio: 1.33,
+        pattern: 'price_up_volume_up', explanation: '股價上漲且成交量同步放大，今天的上漲有較多成交參與。',
+        source: 'taiwan_daily_store', as_of: '2026-09-30', freshness: 'current',
+      },
+      institutional: {
+        status: 'available', state: 'buy', total_net_5d: 500_000, foreign_net_5d: 400_000,
+        investment_trust_net_5d: 80_000, dealer_net_5d: 20_000, complete_sessions: 5,
+        explanation: '近 5 個交易日法人整體偏買，其中以外資買超為主。', source: 'taiwan_institutional_store',
+        as_of: '2026-09-30', freshness: 'latest_official',
+      },
+      margin: {
+        status: 'available', margin_state: 'increase_fast', short_state: 'stable', margin_balance: 10_300_000,
+        margin_change: 300_000, short_balance: 1_000_000, short_change: 5_000,
+        explanation: '融資快速增加，融券變化不大。近期融資增加較快，短線籌碼可能較擁擠。',
+        source: 'taiwan_margin_store', as_of: '2026-09-30', freshness: 'latest_official',
+      },
+      relative_strength: {
+        status: 'available', state: 'stronger', period_sessions: 20, stock_return_pct: 12,
+        benchmark_return_pct: 3, excess_return_pct: 9, benchmark_symbol: '0050.TWSE',
+        explanation: '這檔最近表現明顯強於大盤。', source: 'pit_adjusted_daily+0050',
+        as_of: '2026-09-30', freshness: 'current',
+      },
+      range_position: {
+        status: 'available', low_20d: 82, high_20d: 100, position_pct: 94,
+        explanation: '現價位於近 20 日區間約 94% 的位置。已接近近期高位，現在追價的安全空間較小。',
+        source: 'pit_adjusted_daily', as_of: '2026-09-30', freshness: 'current',
+      },
+      volatility: {
+        status: 'available', level: 'normal', atr_14: 3, atr_pct: 3.03,
+        explanation: '近期每天上下震盪幅度一般。', source: 'pit_adjusted_daily',
+        as_of: '2026-09-30', freshness: 'current',
+      },
+      market_context: {
+        status: 'available', market_state: 'favorable', industry_state: 'strong', industry: '半導體業',
+        explanation: '大盤環境偏正向，所屬類股相對強。', source: 'market_intelligence+industry_intelligence',
+        as_of: '2026-09-30', freshness: 'current',
+      },
+      fundamentals: {
+        status: 'available', revenue_yoy_pct: 20, revenue_mom_pct: 5, eps: 8, pe: 18,
+        warning: null, explanation: '月營收年增 +20.0%、月增 +5.0%、EPS 8。',
+        source: 'screener.fundamentals', as_of: '2026-09-30', freshness: 'latest_available',
+      },
+      key_risks: [
+        { code: 'near_resistance', text: '現價已接近上方壓力，追價空間有限。', source: 'trade_plan' },
+        { code: 'margin_crowded', text: '融資增加較快，短線籌碼可能較擁擠。', source: 'taiwan_margin_store' },
+      ],
+    },
+    intraday_context: null,
+    fx_context: null,
     ...overrides,
   }
 }
@@ -48,6 +132,7 @@ export function beginnerSelection(count = 7, overrides: Partial<BeginnerSelectio
     not_selected: [
       beginnerCandidate('2330.TWSE', {
         name: '台積電', rank: null, selection_state: 'skip', signal_strength: 'weak', reasons: [], trade_plan: null,
+        technical_panel: null,
         exclusion_reasons: [{ reason_code: 'quote_stale', evidence_key: 'eligibility.quote_date', direction: 'negative', display_text: '行情停在 2026-09-29，不是最新交易日，資料過舊。' }],
         action_summary: '行情停在 2026-09-29，不是最新交易日，資料過舊。', invalidation: null,
       }),

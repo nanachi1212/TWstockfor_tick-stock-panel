@@ -415,7 +415,7 @@ def test_healthy_count_counts_only_current():
     readers["daily"] = lambda: {"status": "current"}
     readers["ptt"] = lambda: {"status": "not_run"}
     report = DataHealthService(readers).snapshot()
-    assert (report.current_count, report.total_count) == (1, 19)
+    assert (report.current_count, report.total_count) == (1, len(DATASETS))
 
 
 def test_market_intelligence_fallback_keeps_true_target_and_stale_status(tmp_path, monkeypatch):

@@ -27,6 +27,7 @@ import { toast } from '@/components/Toast'
 import { cn } from '@/lib/cn'
 import { CopyButton } from '@/components/CopyButton'
 import { formatDailyBriefCopy, formatDailyBriefPrompt } from '@/lib/copy-formatters'
+import { ExternalContextCard } from '@/components/ExternalContextCard'
 
 export function DailyBrief() {
   const qc = useQueryClient()
@@ -438,6 +439,8 @@ export function DailyBrief() {
           )}
         </div>
       </div>
+
+      <ExternalContextCard />
 
       {briefQuery.isLoading ? (
         <div className="text-center py-20 text-sm text-muted-foreground">彙整今日客觀數據中...</div>

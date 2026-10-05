@@ -1100,6 +1100,20 @@ def get_beginner_selection_symbol(symbol: str):
         raise HTTPException(status_code=500, detail="個股初學者結論彙整失敗") from e
 
 
+@router.get("/external-context")
+def get_external_context(symbol: str | None = None):
+    """Optional market context. Provider failures never fail Taiwan core APIs."""
+    from app.taiwan.external_context import ExternalContextService
+
+    canonical = None
+    if symbol:
+        try:
+            canonical = parse_symbol(symbol).canonical
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=f"無效的台股代號: {symbol}") from exc
+    return ExternalContextService().get(canonical).model_dump(mode="json")
+
+
 # ── A12: Daily Brief (每日 AI 摘要) ──────────────────────────────
 
 @router.get("/daily-brief")

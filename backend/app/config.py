@@ -75,6 +75,9 @@ class Settings(BaseSettings):
     # TickFlow
     tickflow_api_key: str = Field(default="", description="留空启用 free 模式")
 
+    # Optional intraday provider. Fugle never replaces official/PIT data sources.
+    fugle_api_key: str = Field(default="", repr=False)
+
     # AI
     ai_provider: str = "openai_compat"
     ai_base_url: str = "https://api.zhaji.dev/v1"
