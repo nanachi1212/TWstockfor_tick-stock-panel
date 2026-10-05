@@ -145,6 +145,8 @@ export const QK = {
   buyPointStrategies: ['buy-point-strategies'] as const,
   buyPointSignals: (symbol?: string) => ['buy-point-signals', symbol ?? 'watchlist'] as const,
   buyPointSummary: ['buy-point-summary'] as const,
+  beginnerSelection: ['beginner-selection'] as const,
+  beginnerSelectionSymbol: (symbol: string) => ['beginner-selection', 'symbol', symbol] as const,
   buyPointStats: ['buy-point-stats'] as const,
 
   // Daily Brief (A12)

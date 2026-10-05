@@ -8,6 +8,7 @@
 //   nav_hidden 偏好機制(可拖曳排序、可個別顯示/隱藏)。
 import {
   Star,
+  Compass,
   LayoutDashboard,
   RadioTower,
   Filter,
@@ -62,6 +63,7 @@ export interface NavMeta {
 // 只調整陣列順序(即側欄/選單設定顯示順序)。
 export const CORE_NAV: readonly NavMeta[] = [
   { to: '/',                label: '看板',     icon: LayoutDashboard },
+  { to: '/picks',           label: '今日選股', icon: Compass },
   { to: '/market-research', label: '大盤研究', icon: BarChart3 },
   { to: '/research', label: '研究歷史', icon: BookOpen },
   { to: '/daily-brief',     label: '每日摘要', icon: Sparkles },

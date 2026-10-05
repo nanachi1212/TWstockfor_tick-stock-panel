@@ -163,6 +163,9 @@ class TaiwanScreenerRequest(BaseModel):
     instrument: InstrumentFilter = "ALL"
     industry: str | None = None  # None or specific industry name
     symbol_scope: list[str] | None = Field(default=None, exclude=True, repr=False)
+    # Internal callers (beginner selection) opt into the verified five-session
+    # institutional flow and revenue status without applying a preset filter.
+    extended_factors: bool = Field(default=False, exclude=True, repr=False)
 
     # Price & Volume filters
     price_min: float | None = None
@@ -535,7 +538,8 @@ class TaiwanScreenerService:
 
         # Step 6: Batch Join Institutional & Margin
         combined, inst_date, margin_date, degraded = self._join_institutional_margin(
-            combined, valid_symbols, strategy_id=req.preset
+            combined, valid_symbols, strategy_id=req.preset,
+            five_day_flow=req.extended_factors,
         )
         if req.streak_min_days is not None:
             combined = self._join_institutional_streak(combined, req)
@@ -939,6 +943,7 @@ class TaiwanScreenerService:
 
     def _join_institutional_margin(
         self, df: pl.DataFrame, symbols: list[str], strategy_id: str | None = None,
+        five_day_flow: bool = False,
     ) -> tuple[pl.DataFrame, str | None, str | None, list[str]]:
         """Join institutional and margin metadata safely via Polars batch join."""
         degraded = []
@@ -975,7 +980,7 @@ class TaiwanScreenerService:
 
         # Keep v1's existing placeholder fields unchanged. v2 explicitly opts
         # into a verified five-session institutional aggregate.
-        if strategy_id in V2_STRATEGY_IDS:
+        if strategy_id in V2_STRATEGY_IDS or five_day_flow:
             try:
                 end = date.fromisoformat(str(df["date"].max()))
                 start = end - timedelta(days=14)
@@ -1506,6 +1511,7 @@ class TaiwanScreenerService:
             reasons: list[str] = []
             strategy_signals: list[str] = []
             strategy_id = req.preset if req and req.preset in STRATEGY_IDS else None
+            extended = bool(strategy_id) or bool(req and req.extended_factors)
             if strategy_id == "institutional_momentum_v1":
                 strategy_signals = [
                     "5日外資淨買超" if r.get("foreign_net_5d") is not None else "法人資料不可用",
@@ -1638,7 +1644,7 @@ class TaiwanScreenerService:
                 investment_trust_net=r.get("investment_trust_net"),
                 investment_trust_net_5d=r.get("investment_trust_net_5d"),
                 dealer_net=r.get("dealer_net"),
-                institutional_flow_ratio_5d=r.get("institutional_flow_ratio_5d") if strategy_id else None,
+                institutional_flow_ratio_5d=r.get("institutional_flow_ratio_5d") if extended else None,
                 institutional_date=r.get("institutional_date"),
                 institutional_status=r.get("institutional_status") or "unavailable",
                 institutional_streak=json.loads(r["_institutional_streak_meta"]) if r.get("_institutional_streak_meta") else None,
@@ -1654,7 +1660,7 @@ class TaiwanScreenerService:
                 revenue_yoy=r.get("revenue_yoy"),
                 revenue_mom=r.get("revenue_mom"),
                 revenue_yoy_improving=r.get("revenue_yoy_improving") if strategy_id else None,
-                revenue_status=r.get("revenue_status") if strategy_id else "unavailable",
+                revenue_status=r.get("revenue_status") if extended else "unavailable",
                 latest_eps=r.get("latest_eps"),
                 foreign_shareholding_ratio=r.get("foreign_shareholding_ratio"),
                 foreign_shareholding_change_20d=r.get("foreign_shareholding_change_20d"),

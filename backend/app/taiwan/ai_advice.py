@@ -32,6 +32,7 @@ from app.taiwan.ai_research import (
     _generation_config_metadata,
     build_evidence_registry,
 )
+from app.taiwan.beginner_selection import BEGINNER_EVIDENCE_REGISTRY_KEYS
 from app.taiwan.buy_point import BuyPointSignal
 from app.taiwan.buy_point_service import (
     BuyPointCandidate,
@@ -449,6 +450,7 @@ class TaiwanAIAdviceService:
         personal_context: dict[str, Any] | None = None,
         review: bool = False,
         refresh: bool = False,
+        selection_evidence: dict[str, Any] | None = None,
     ) -> tuple[TaiwanAIAdviceRun, TaiwanAIReviewRun | None]:
         if target_date is not None:
             return self._unavailable(
@@ -490,6 +492,9 @@ class TaiwanAIAdviceService:
         signal_evidence = candidate.signal.model_dump(mode="json")
         signal_evidence.pop("detected_at", None)
         evidence_payload["buy_point"] = signal_evidence
+        if selection_evidence is not None:
+            evidence_payload["beginner_selection"] = selection_evidence
+            registry_keys.update(BEGINNER_EVIDENCE_REGISTRY_KEYS)
         evidence_payload["missing_items"] = list(missing_items)
         registry_keys.update(
             {

@@ -479,6 +479,13 @@ async def generate_taiwan_stock_ai_research(
         except ValueError as e:
             raise HTTPException(status_code=400, detail=f"無效的日期格式: {payload.date}，請使用 YYYY-MM-DD") from e
 
+    selection = None
+    if target_dt is None:
+        import asyncio
+
+        from app.taiwan.beginner_selection import selection_evidence
+
+        selection = await asyncio.to_thread(selection_evidence, symbol)
     try:
         if payload is not None and payload.purpose == "advice":
             assert payload.strategy_id is not None
@@ -491,6 +498,7 @@ async def generate_taiwan_stock_ai_research(
                 personal_context=payload.personal_context,
                 review=payload.review,
                 refresh=payload.refresh,
+                selection_evidence=selection,
             )
             if advice_run.response.status == "success":
                 history = get_ai_research_history_store()
@@ -506,6 +514,7 @@ async def generate_taiwan_stock_ai_research(
             personal_context=payload.personal_context if payload else None,
             purpose=payload.purpose if payload else "research",
             refresh=payload.refresh if payload else False,
+            selection_evidence=selection,
         )
         if run.response.status == "success":
             get_ai_research_history_store().ensure_report(run)
@@ -1059,6 +1068,36 @@ def get_condition_review_stats():
     except Exception as e:
         logger.exception("Failed to get condition review stats: %s", e)
         raise HTTPException(status_code=500, detail=f"條件統計讀取失敗: {e}") from e
+
+
+# ── Beginner Stock Picker v1 (今日選股) ─────────────────────────
+
+@router.get("/beginner-selection")
+def get_beginner_selection(limit: Annotated[int, Query(ge=1, le=20)] = 20):
+    """確定性、可解釋的初學者今日選股；排序不是報酬預測，AI 不參與排名。"""
+    from app.taiwan.beginner_selection import BeginnerSelectionService
+
+    try:
+        return BeginnerSelectionService().build(limit=limit).model_dump(mode="json")
+    except Exception as e:
+        logger.exception("Failed to build beginner selection: %s", e)
+        raise HTTPException(status_code=500, detail="今日選股資料彙整失敗") from e
+
+
+@router.get("/beginner-selection/stocks/{symbol}")
+def get_beginner_selection_symbol(symbol: str):
+    """單一股票的初學者結論：為什麼值得看、或為什麼沒被選。"""
+    from app.taiwan.beginner_selection import BeginnerSelectionService
+
+    try:
+        canonical = parse_symbol(symbol).canonical
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=f"無效的台股代號: {symbol}") from exc
+    try:
+        return BeginnerSelectionService().evaluate_symbol(canonical).model_dump(mode="json")
+    except Exception as e:
+        logger.exception("Failed to evaluate beginner selection for %s: %s", symbol, e)
+        raise HTTPException(status_code=500, detail="個股初學者結論彙整失敗") from e
 
 
 # ── A12: Daily Brief (每日 AI 摘要) ──────────────────────────────

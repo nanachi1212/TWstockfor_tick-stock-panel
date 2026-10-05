@@ -27,6 +27,7 @@ const TaiwanScreener = lazy(() => import('./pages/TaiwanScreener').then(m => ({ 
 const MarketResearch = lazy(() => import('./pages/MarketResearch').then(m => ({ default: m.MarketResearch })))
 const Research = lazy(() => import('./pages/Research').then(m => ({ default: m.Research })))
 const TaiwanEventCenter = lazy(() => import('./pages/TaiwanEventCenter').then(m => ({ default: m.TaiwanEventCenter })))
+const BeginnerPicks = lazy(() => import('./pages/BeginnerPicks').then(m => ({ default: m.BeginnerPicks })))
 const DailyBrief = lazy(() => import('./pages/DailyBrief').then(m => ({ default: m.DailyBrief })))
 const SelectionReview = lazy(() => import('./pages/SelectionReview').then(m => ({ default: m.SelectionReview })))
 const StrategyLab = lazy(() => import('./pages/StrategyLab').then(m => ({ default: m.StrategyLab })))
@@ -117,6 +118,7 @@ export const router = createBrowserRouter([
       { path: 'stocks/compare', element: <TaiwanStockCompare /> },
       { path: 'stocks/:symbol', element: <TaiwanStockDetail /> },
       { path: 'events', element: <TaiwanEventCenter /> },
+      { path: 'picks', element: <BeginnerPicks /> },
       { path: 'daily-brief', element: <DailyBrief /> },
       { path: 'watchlist', element: <Watchlist /> },
       { path: 'taiwan-screener', element: <TaiwanScreener /> },
