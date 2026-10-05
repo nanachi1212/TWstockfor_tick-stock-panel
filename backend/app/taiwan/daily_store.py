@@ -14,6 +14,7 @@ import os
 import tempfile
 import threading
 from collections import defaultdict
+from contextlib import suppress
 from datetime import date
 from pathlib import Path
 from typing import Any
@@ -26,7 +27,6 @@ from app.taiwan.providers.base import (
     SourceMetadata,
     VolumeUnit,
 )
-from app.taiwan.providers.normalizer import normalize_taiwan_daily
 
 logger = logging.getLogger(__name__)
 
@@ -146,10 +146,8 @@ class TaiwanDailyStore:
                 Path(tmp_path).replace(target)
                 logger.debug("Wrote %d rows to %s", df.height, target)
             except BaseException:
-                try:
+                with suppress(OSError):
                     Path(tmp_path).unlink(missing_ok=True)
-                except OSError:
-                    pass
                 raise
 
             return df.height
@@ -183,6 +181,12 @@ class TaiwanDailyStore:
 
         Results are sorted by symbol ASC, date ASC.
         """
+        if symbols:
+            latest = self.latest_date()
+            if latest is not None:
+                latest_df = self.read_range(symbols, latest, latest)
+                if set(latest_df["symbol"].to_list()) >= set(symbols):
+                    return latest_df.sort(["symbol", "date"])
         df = self.read_all(symbols)
         if df.is_empty():
             return df

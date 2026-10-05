@@ -16,9 +16,9 @@ import os
 import tempfile
 import threading
 from collections import defaultdict
+from contextlib import suppress
 from datetime import date
 from pathlib import Path
-from typing import Any
 
 import polars as pl
 
@@ -184,16 +184,14 @@ class TaiwanMarginStore:
                     try:
                         os.replace(tmp_path, target)
                         break
-                    except OSError as exc:
+                    except OSError:
                         if attempt == retries - 1:
                             raise
                         import time
                         time.sleep(0.05 * (attempt + 1))
             except BaseException:
-                try:
+                with suppress(OSError):
                     Path(tmp_path).unlink(missing_ok=True)
-                except OSError:
-                    pass
                 raise
 
             return new_df.height
@@ -211,6 +209,12 @@ class TaiwanMarginStore:
 
     def read_latest_per_symbol(self, symbols: list[str] | None = None) -> pl.DataFrame:
         """Return the latest available row for each symbol."""
+        if symbols:
+            latest = self.latest_date()
+            if latest is not None:
+                latest_df = self.read_range(symbols, latest, latest)
+                if set(latest_df["symbol"].to_list()) >= set(symbols):
+                    return latest_df.sort(["symbol", "date"])
         df = self.read_all(symbols)
         if df.is_empty():
             return df

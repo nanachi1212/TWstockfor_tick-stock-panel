@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import json
 import re
+import time
+from concurrent.futures import ThreadPoolExecutor
 from datetime import date, timedelta
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
@@ -264,6 +266,88 @@ def test_service_degrades_when_critical_evidence_missing(monkeypatch):
     one = svc.evaluate_symbol("9999.TWSE").candidate
     assert one.selection_state == "skip"
     assert "instrument_unsupported" in {r.reason_code for r in one.exclusion_reasons}
+
+
+def test_selection_snapshot_reuses_full_and_symbol_results(monkeypatch):
+    bs.clear_beginner_selection_snapshot()
+    key = (BEGINNER_SELECTION_VERSION, AS_OF, ("test",))
+    monkeypatch.setattr(BeginnerSelectionService, "_cache_key", lambda self: key)
+    calls = 0
+    original = BeginnerSelectionService._build_snapshot
+
+    def counted(self, snapshot_key):
+        nonlocal calls
+        calls += 1
+        return original(self, snapshot_key)
+
+    monkeypatch.setattr(BeginnerSelectionService, "_build_snapshot", counted)
+    try:
+        first = BeginnerSelectionService(screener=_FakeScreener([_item("2330.TWSE")])).build(limit=5)
+        second = BeginnerSelectionService(screener=_FakeScreener([_item("2330.TWSE")])).build(limit=5)
+        single = BeginnerSelectionService(screener=_FakeScreener([_item("2330.TWSE")])).evaluate_symbol("2330.TWSE")
+    finally:
+        bs.clear_beginner_selection_snapshot()
+
+    assert calls == 1
+    assert single.candidate.model_dump() == first.not_selected[0].model_dump()
+    assert second.not_selected[0].model_dump() == first.not_selected[0].model_dump()
+
+
+def test_selection_snapshot_single_flight(monkeypatch):
+    bs.clear_beginner_selection_snapshot()
+    key = (BEGINNER_SELECTION_VERSION, AS_OF, ("single-flight",))
+    monkeypatch.setattr(BeginnerSelectionService, "_cache_key", lambda self: key)
+    calls = 0
+    original = BeginnerSelectionService._build_snapshot
+
+    def slow_counted(self, snapshot_key):
+        nonlocal calls
+        calls += 1
+        time.sleep(0.05)
+        return original(self, snapshot_key)
+
+    monkeypatch.setattr(BeginnerSelectionService, "_build_snapshot", slow_counted)
+    try:
+        with ThreadPoolExecutor(max_workers=3) as pool:
+            results = list(pool.map(
+                lambda _: BeginnerSelectionService(
+                    screener=_FakeScreener([_item("2330.TWSE")])
+                ).build(limit=5),
+                range(3),
+            ))
+    finally:
+        bs.clear_beginner_selection_snapshot()
+
+    assert calls == 1
+    assert [result.not_selected[0].symbol for result in results] == ["2330.TWSE"] * 3
+
+
+def test_selection_snapshot_invalidates_when_source_identity_changes(monkeypatch, tmp_path):
+    bs.clear_beginner_selection_snapshot()
+    monkeypatch.setattr(BeginnerSelectionService, "_eligible_date", staticmethod(lambda: AS_OF))
+    svc = BeginnerSelectionService(screener=_FakeScreener([_item("2330.TWSE")]))
+    source_dir = tmp_path / "daily"
+    source_dir.mkdir()
+    source = source_dir / "source.marker"
+    source.write_text("before", encoding="utf-8")
+    svc.screener.daily_store._data_dir = source_dir
+    calls = 0
+    original = BeginnerSelectionService._build_snapshot
+
+    def counted(self, key):
+        nonlocal calls
+        calls += 1
+        return original(self, key)
+
+    monkeypatch.setattr(BeginnerSelectionService, "_build_snapshot", counted)
+    try:
+        svc.build(limit=5)
+        source.write_text("after", encoding="utf-8")
+        svc.build(limit=5)
+    finally:
+        bs.clear_beginner_selection_snapshot()
+
+    assert calls == 2
 
 
 def test_selection_evidence_is_compact_and_frozen(monkeypatch):
