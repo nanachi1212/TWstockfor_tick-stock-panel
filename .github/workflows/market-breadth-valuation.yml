@@ -14,6 +14,9 @@ on:
       - 'backend/tests/test_market_breadth_valuation.py'
       - '.github/workflows/market-breadth-valuation.yml'
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 jobs:
   research-contract:
     runs-on: ubuntu-latest

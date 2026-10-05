@@ -8,7 +8,10 @@ on:
       - 'backend/app/release_*.py'
       - 'backend/tests/test_desktop.py'
       - 'backend/tests/test_release_*.py'
-      - 'frontend/**'
+      - 'frontend/package.json'
+      - 'frontend/pnpm-lock.yaml'
+      - 'frontend/vite.config.*'
+      - 'frontend/tsconfig*.json'
       - 'packaging/**'
       - 'scripts/build-windows-installer.ps1'
       - 'scripts/test-windows-installer.ps1'
@@ -17,6 +20,9 @@ on:
       - '.github/workflows/windows-installer-ci.yml'
   workflow_dispatch:
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 permissions:
   contents: read
 
