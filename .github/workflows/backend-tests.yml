@@ -6,6 +6,10 @@ on:
   push:
     branches: [main]
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 env:
   UV_PYTHON: "3.11"
 
@@ -18,18 +22,46 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Detect backend-relevant changes
+        id: scope
+        shell: bash
+        working-directory: .
+        run: |
+          if [[ "${{ github.event_name }}" != "pull_request" ]]; then
+            echo "backend=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          git diff --name-only "${{ github.event.pull_request.base.sha }}" HEAD > "$RUNNER_TEMP/changed-paths.txt"
+          if grep -Eq '^(backend/|shared/|contracts/|\.github/workflows/backend-tests\.yml$)' "$RUNNER_TEMP/changed-paths.txt"; then
+            echo "backend=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "backend=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: No backend changes
+        if: steps.scope.outputs.backend != 'true'
+        working-directory: .
+        run: echo "No backend-relevant changes; required Backend Tests check passes without running pytest."
 
       - name: Install uv
+        if: steps.scope.outputs.backend == 'true'
         uses: astral-sh/setup-uv@v5
         with:
           enable-cache: true
           cache-dependency-glob: backend/uv.lock
 
       - name: Set up Python 3.11
+        if: steps.scope.outputs.backend == 'true'
         run: uv python install 3.11
 
       - name: Install dependencies
+        if: steps.scope.outputs.backend == 'true'
         run: uv sync --frozen --extra dev
 
       - name: Run pytest
+        if: steps.scope.outputs.backend == 'true'
         run: uv run pytest -q -m "not integration"
