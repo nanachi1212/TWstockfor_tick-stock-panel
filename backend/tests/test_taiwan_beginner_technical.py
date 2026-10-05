@@ -172,6 +172,10 @@ def test_margin_uses_latest_official_date_and_rejects_stale_status():
     assert stale.status == "data_insufficient"
     assert stale.margin_state == "unavailable"
 
+    no_shorts = _panel(metrics=_metrics(short_balance=0, short_change=0)).margin
+    assert no_shorts.status == "available"
+    assert no_shorts.short_state == "stable"
+
 
 def test_relative_strength_range_position_volatility_and_extreme_yoy_warning():
     panel = _panel(metrics=_metrics(revenue_yoy=250.0))

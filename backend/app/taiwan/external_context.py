@@ -5,6 +5,7 @@ from typing import Any
 
 from pydantic import BaseModel
 
+from app.taiwan.beginner_technical import fugle_inner_outer_evidence
 from app.taiwan.providers.external_models import ExternalProviderResult, ExternalStatus
 from app.taiwan.providers.fx_context import get_frankfurter_fx_provider
 from app.taiwan.realtime.fugle_provider import get_fugle_aggregates_provider
@@ -25,6 +26,7 @@ def intraday_context(symbol: str | None = None) -> ExternalProviderResult:
         provider.request_symbols([symbol])
         observation = provider.observe(symbol)
         snapshot = observation.snapshot
+        evidence = fugle_inner_outer_evidence(observation)
         data: dict[str, Any] | None = None
         if snapshot is not None:
             data = {
@@ -36,6 +38,7 @@ def intraday_context(symbol: str | None = None) -> ExternalProviderResult:
                 "trade_volume_at_ask": snapshot.trade_volume_at_ask,
                 "bids": snapshot.bids,
                 "asks": snapshot.asks,
+                "inner_outer": evidence.model_dump(mode="json"),
             }
         status: ExternalStatus
         if observation.status == "available":

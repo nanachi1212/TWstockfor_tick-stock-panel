@@ -109,6 +109,8 @@ describe('Beginner Stock Picker', () => {
     }
     for (const label of ['結論', '理由', '下一步']) expect(screen.getByText(label)).toBeInTheDocument()
     expect(screen.getByText('支撐區')).toBeInTheDocument()
+    expect(screen.getByText('最近收盤價')).toBeInTheDocument()
+    expect(within(screen.getByRole('region', { name: '價格位置' })).getByText(/資料日 2026-09-30/)).toBeInTheDocument()
     expect(screen.getByText('壓力位')).toBeInTheDocument()
     expect(screen.getByText('目前沒有可靠的即時內外盤資料。')).toBeInTheDocument()
     expect(screen.getByText('個股 20 日')).toBeInTheDocument()
@@ -157,8 +159,7 @@ describe('Beginner Stock Picker', () => {
   })
 
   it('shows Fugle inner/outer ratios and timestamp, and hides stale ratios', async () => {
-    const live = beginnerCandidate('2330.TWSE')
-    live.technical_panel!.inner_outer = {
+    const liveInnerOuter = {
       status: 'available', outer_pct: 63, inner_pct: 37,
       last_price: 1200, trade_volume: 1000, trade_value: 1_200_000,
       bids: [[1195, 10]], asks: [[1200, 20]],
@@ -169,20 +170,31 @@ describe('Beginner Stock Picker', () => {
     }
     vi.mocked(api.beginnerSelectionSymbol).mockResolvedValue({
       version: 'beginner-selection-v1', generated_at: '', market: beginnerSelection().market,
-      candidate: live, disclaimer: '',
+      candidate: beginnerCandidate('2330.TWSE'), disclaimer: '',
+    })
+    vi.mocked(api.taiwanExternalContext).mockResolvedValue({
+      ...emptyExternalContext,
+      intraday_context: {
+        ...unavailableExternal, status: 'available', freshness: 'realtime',
+        data: { inner_outer: liveInnerOuter }, error_reason: null,
+      },
     })
     const { unmount } = renderWith(<BeginnerStockView symbol="2330.TWSE" advanced={false} onToggleAdvanced={() => {}} />)
     expect(await screen.findByText('63.0%')).toBeInTheDocument()
     expect(screen.getByText('37.0%')).toBeInTheDocument()
     expect(screen.getByText('資料時間：13:28:42')).toBeInTheDocument()
+    expect(screen.getByText('盤中即時價')).toBeInTheDocument()
     unmount()
 
-    const stale = beginnerCandidate('2330.TWSE')
-    stale.technical_panel!.inner_outer.freshness = 'stale'
-    stale.technical_panel!.inner_outer.explanation = 'Fugle aggregates 資料已過期，暫不顯示內外盤比例。'
-    vi.mocked(api.beginnerSelectionSymbol).mockResolvedValue({
-      version: 'beginner-selection-v1', generated_at: '', market: beginnerSelection().market,
-      candidate: stale, disclaimer: '',
+    vi.mocked(api.taiwanExternalContext).mockResolvedValue({
+      ...emptyExternalContext,
+      intraday_context: {
+        ...unavailableExternal, status: 'stale', freshness: 'stale',
+        data: { inner_outer: {
+          ...liveInnerOuter, status: 'data_insufficient', freshness: 'stale',
+          explanation: 'Fugle aggregates 資料已過期，暫不顯示內外盤比例。',
+        } }, error_reason: 'stale',
+      },
     })
     renderWith(<BeginnerStockView symbol="2330.TWSE" advanced={false} onToggleAdvanced={() => {}} />)
     expect(await screen.findByText('即時買賣力道資料已過期')).toBeInTheDocument()

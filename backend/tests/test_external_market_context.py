@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
+from types import SimpleNamespace
 
+from app.taiwan import external_context
 from app.taiwan.beginner_technical import fugle_inner_outer_evidence
 from app.taiwan.providers.fx_context import (
     FRANKFURTER_SOURCE,
@@ -79,6 +81,23 @@ def test_fugle_valid_payload_uses_official_inner_outer_and_market_depth():
     assert evidence.inner_pct == 40
     assert evidence.outer_pct == 60
     assert evidence.last_price == 1200
+
+
+def test_lightweight_context_reuses_beginner_inner_outer_evidence(monkeypatch):
+    snapshot = parse_fugle_aggregates_message(_fugle_payload())
+    observation = SimpleNamespace(status="available", snapshot=snapshot)
+    provider = SimpleNamespace(
+        enabled=True,
+        request_symbols=lambda _symbols: None,
+        observe=lambda _symbol: observation,
+    )
+    monkeypatch.setattr(external_context, "get_fugle_aggregates_provider", lambda: provider)
+
+    result = external_context.intraday_context("2330.TWSE")
+
+    assert result.status == "available"
+    assert result.data["inner_outer"]["inner_pct"] == 40
+    assert result.data["inner_outer"]["outer_pct"] == 60
 
 
 def test_fugle_zero_volume_and_stale_timestamp_fail_closed():

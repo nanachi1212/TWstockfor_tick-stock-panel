@@ -421,6 +421,8 @@ def _institutional(inputs: dict[str, Any]) -> InstitutionalEvidence:
 def _balance_state(balance: float | None, change: float | None) -> ChipState:
     if balance is None or change is None:
         return "unavailable"
+    if balance == 0 and change == 0:
+        return "stable"
     prior = balance - change
     if prior <= 0:
         return "unavailable"

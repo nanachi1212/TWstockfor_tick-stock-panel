@@ -10,6 +10,7 @@ import {
   type BeginnerMarketSummary,
   type BeginnerSelectionState,
   type BeginnerSignalStrength,
+  type BeginnerTechnicalPanel,
 } from '@/lib/api'
 import { QK } from '@/lib/queryKeys'
 import { cn } from '@/lib/cn'
@@ -269,17 +270,19 @@ export function BeginnerStockView({
     queryKey: QK.beginnerSelectionSymbol(symbol),
     queryFn: () => api.beginnerSelectionSymbol(symbol),
     staleTime: 5 * 60 * 1000,
-    refetchInterval: 5000,
   })
   const contextQuery = useQuery({
     queryKey: ['external-context', symbol],
     queryFn: () => api.taiwanExternalContext(symbol),
     staleTime: 24 * 60 * 60 * 1000,
+    refetchInterval: query => query.state.data?.intraday_context.error_reason === 'config_missing' ? false : 5000,
   })
   const candidate = query.data?.candidate
   const skipped = candidate?.selection_state === 'skip'
   const panel = candidate?.technical_panel
-  const innerOuterTime = panel ? formatTaipeiTime(panel.inner_outer.as_of) : null
+  const liveInnerOuter = contextQuery.data?.intraday_context.data?.inner_outer as BeginnerTechnicalPanel['inner_outer'] | undefined
+  const innerOuter = liveInnerOuter ?? panel?.inner_outer
+  const innerOuterTime = formatTaipeiTime(innerOuter?.as_of ?? null)
   const fxContext = contextQuery.data?.fx_context ?? candidate?.fx_context
   const fxSummary = typeof fxContext?.data?.summary === 'string'
     ? fxContext.data.summary : null
@@ -299,7 +302,7 @@ export function BeginnerStockView({
       </div>
       {query.isLoading && <p className="mt-2 flex items-center gap-2 text-xs text-muted"><Loader2 className="h-3.5 w-3.5 animate-spin" /> 整理結論中…</p>}
       {query.isError && <p className="mt-2 text-xs text-danger">初學者結論暫時無法讀取，可展開進階資料查看原始數據。</p>}
-      {candidate && panel && (
+      {candidate && panel && innerOuter && (
         <div className="mt-3 grid min-w-0 grid-cols-1 gap-3 lg:grid-cols-2 xl:grid-cols-4">
           <TechnicalSection number="①" title="現在怎麼做">
             <div className="flex flex-wrap items-center gap-2">
@@ -323,7 +326,8 @@ export function BeginnerStockView({
           <TechnicalSection number="②" title="價格位置">
             <dl className="grid grid-cols-[5.25rem_minmax(0,1fr)] gap-x-2 gap-y-1 text-sm">
               <dt className="text-muted">支撐區</dt><dd className="min-w-0 font-mono text-foreground">{panel.support.support_zone_low == null || panel.support.support_zone_high == null ? '資料不足' : `${formatPrice(panel.support.support_zone_low)}～${formatPrice(panel.support.support_zone_high)}`}</dd>
-              <dt className="text-muted">現價</dt><dd className="font-mono text-foreground">{formatPrice(panel.current_price)}</dd>
+              <dt className="text-muted">最近收盤價</dt><dd className="font-mono text-foreground">{formatPrice(panel.current_price)}{candidate.as_of && <span className="ml-1 text-[10px] text-muted">（資料日 {candidate.as_of}）</span>}</dd>
+              {innerOuter.status === 'available' && innerOuter.last_price != null && <><dt className="text-muted">盤中即時價</dt><dd className="font-mono text-foreground">{formatPrice(innerOuter.last_price)}{innerOuterTime && <span className="ml-1 text-[10px] text-muted">（{innerOuterTime}）</span>}</dd></>}
               <dt className="text-muted">壓力位</dt><dd className="font-mono text-foreground">{formatPrice(panel.resistance.resistance)}</dd>
               <dt className="text-muted">失效位置</dt><dd className="font-mono text-warning">{formatPrice(panel.invalidation.invalidation)}</dd>
             </dl>
@@ -345,21 +349,21 @@ export function BeginnerStockView({
           </TechnicalSection>
 
           <TechnicalSection number="④" title="買賣力道">
-            {panel.inner_outer.status === 'available' ? (
+            {innerOuter.status === 'available' ? (
               <>
                 <div className="grid grid-cols-2 gap-2 text-center">
-                  <div className="rounded-md bg-emerald-500/10 p-2"><div className="text-xs text-muted">外盤</div><div className="text-lg font-semibold text-emerald-600 dark:text-emerald-400">{panel.inner_outer.outer_pct?.toFixed(1)}%</div></div>
-                  <div className="rounded-md bg-warning/10 p-2"><div className="text-xs text-muted">內盤</div><div className="text-lg font-semibold text-warning">{panel.inner_outer.inner_pct?.toFixed(1)}%</div></div>
+                  <div className="rounded-md bg-emerald-500/10 p-2"><div className="text-xs text-muted">外盤</div><div className="text-lg font-semibold text-emerald-600 dark:text-emerald-400">{innerOuter.outer_pct?.toFixed(1)}%</div></div>
+                  <div className="rounded-md bg-warning/10 p-2"><div className="text-xs text-muted">內盤</div><div className="text-lg font-semibold text-warning">{innerOuter.inner_pct?.toFixed(1)}%</div></div>
                 </div>
-                <p className="mt-2 text-sm font-medium text-foreground">{panel.inner_outer.explanation}</p>
+                <p className="mt-2 text-sm font-medium text-foreground">{innerOuter.explanation}</p>
                 {innerOuterTime && <p className="mt-1 text-xs text-muted">資料時間：{innerOuterTime}</p>}
               </>
-            ) : panel.inner_outer.freshness === 'stale' ? (
+            ) : innerOuter.freshness === 'stale' ? (
               <p className="text-sm text-warning">即時買賣力道資料已過期</p>
             ) : (
-              <p className="text-sm text-muted">{panel.inner_outer.explanation}</p>
+              <p className="text-sm text-muted">{innerOuter.explanation}</p>
             )}
-            <p className="mt-1 break-words text-[11px] leading-relaxed text-muted">{panel.inner_outer.disclaimer}</p>
+            <p className="mt-1 break-words text-[11px] leading-relaxed text-muted">{innerOuter.disclaimer}</p>
             <div className="mt-2 border-t border-border/50 pt-2">
               <p className="text-xs text-muted">今日成交量 {formatShares(panel.volume.today_volume)} · 20 日均量 {formatShares(panel.volume.average_20d)}</p>
               <p className="text-xs text-muted">量比 {panel.volume.ratio == null ? '資料不足' : `${panel.volume.ratio.toFixed(2)} 倍`}</p>
@@ -430,7 +434,7 @@ export function BeginnerStockView({
             ))}
           </ul>
           {candidate.data_gaps.length > 0 && <p className="mt-1 break-words text-[11px] text-muted">資料缺口：{candidate.data_gaps.join('；')}</p>}
-          {panel && (
+          {panel && innerOuter && (
             <dl className="mt-3 grid grid-cols-2 gap-x-3 gap-y-1 rounded-md bg-base/50 p-2 text-xs text-muted sm:grid-cols-4">
               <dt>MA5</dt><dd className="font-mono text-foreground">{formatPrice(panel.moving_averages.ma5)}</dd>
               <dt>MA20</dt><dd className="font-mono text-foreground">{formatPrice(panel.moving_averages.ma20)}</dd>
@@ -440,10 +444,10 @@ export function BeginnerStockView({
               <dt>融資增減</dt><dd className="font-mono text-foreground">{formatShares(panel.margin.margin_change)}</dd>
               <dt>融券增減</dt><dd className="font-mono text-foreground">{formatShares(panel.margin.short_change)}</dd>
               <dt>技術來源</dt><dd className="break-all font-mono text-[10px] text-foreground">{panel.moving_averages.source}</dd>
-              <dt>即時價 / 成交量</dt><dd className="font-mono text-foreground">{formatPrice(panel.inner_outer.last_price)} / {formatShares(panel.inner_outer.trade_volume)}</dd>
-              <dt>成交值</dt><dd className="font-mono text-foreground">{panel.inner_outer.trade_value == null ? '資料不足' : panel.inner_outer.trade_value.toLocaleString('zh-TW')}</dd>
-              <dt>五檔委買</dt><dd className="font-mono text-[10px] text-foreground">{panel.inner_outer.bids.length ? panel.inner_outer.bids.map(([p, s]) => `${p}/${s}`).join(' · ') : '資料不足'}</dd>
-              <dt>五檔委賣</dt><dd className="font-mono text-[10px] text-foreground">{panel.inner_outer.asks.length ? panel.inner_outer.asks.map(([p, s]) => `${p}/${s}`).join(' · ') : '資料不足'}</dd>
+              <dt>即時價 / 成交量</dt><dd className="font-mono text-foreground">{formatPrice(innerOuter.last_price)} / {formatShares(innerOuter.trade_volume)}</dd>
+              <dt>成交值</dt><dd className="font-mono text-foreground">{innerOuter.trade_value == null ? '資料不足' : innerOuter.trade_value.toLocaleString('zh-TW')}</dd>
+              <dt>五檔委買</dt><dd className="font-mono text-[10px] text-foreground">{innerOuter.bids.length ? innerOuter.bids.map(([p, s]) => `${p}/${s}`).join(' · ') : '資料不足'}</dd>
+              <dt>五檔委賣</dt><dd className="font-mono text-[10px] text-foreground">{innerOuter.asks.length ? innerOuter.asks.map(([p, s]) => `${p}/${s}`).join(' · ') : '資料不足'}</dd>
             </dl>
           )}
         </div>
