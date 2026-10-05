@@ -14,7 +14,10 @@ from __future__ import annotations
 
 import logging
 import math
+import threading
+from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
+from pathlib import Path
 from typing import Any, Literal
 
 from pydantic import BaseModel, Field
@@ -197,6 +200,13 @@ class BeginnerSymbolResponse(BaseModel):
     market: MarketSummary
     candidate: BeginnerCandidate
     disclaimer: str = "訊號強度代表目前條件符合程度，不代表上漲機率。"
+
+
+@dataclass(frozen=True)
+class BeginnerSelectionSnapshot:
+    key: tuple[Any, ...]
+    response: BeginnerSelectionResponse
+    candidates_by_symbol: dict[str, BeginnerCandidate]
 
 
 class BeginnerFacts(BaseModel):
@@ -621,6 +631,39 @@ def _now() -> str:
     return datetime.now(UTC).isoformat()
 
 
+_SNAPSHOT_CONDITION = threading.Condition()
+_SNAPSHOT: BeginnerSelectionSnapshot | None = None
+_SNAPSHOT_BUILDING = False
+
+
+def _path_generation(path: Path | None) -> tuple[Any, ...] | None:
+    """Return a cheap file identity for cache invalidation."""
+    if path is None:
+        return None
+    try:
+        path = Path(path)
+        if path.is_file():
+            stat = path.stat()
+            return (str(path), stat.st_mtime_ns, stat.st_ctime_ns, stat.st_size)
+        if not path.is_dir():
+            return (str(path), "missing")
+        files = []
+        for item in path.rglob("*"):
+            if item.is_file():
+                stat = item.stat()
+                files.append((str(item.relative_to(path)), stat.st_mtime_ns, stat.st_ctime_ns, stat.st_size))
+        return (str(path), tuple(sorted(files)))
+    except OSError:
+        return (str(path), "unavailable")
+
+
+def clear_beginner_selection_snapshot() -> None:
+    """Clear the process-local snapshot. Intended for tests and controlled refreshes."""
+    global _SNAPSHOT
+    with _SNAPSHOT_CONDITION:
+        _SNAPSHOT = None
+
+
 class BeginnerSelectionService:
     """Collects existing deterministic evidence and applies the pure v1 rules."""
 
@@ -632,7 +675,17 @@ class BeginnerSelectionService:
         self.screener = screener
 
     def build(self, limit: int = 20) -> BeginnerSelectionResponse:
-        market, facts, amounts, gaps, universe = self._collect(None)
+        key = self._cache_key()
+        snapshot = self._get_or_build_snapshot(key) if key is not None else self._build_snapshot(None)
+        return snapshot.response.model_copy(deep=True, update={
+            "generated_at": _now(),
+            "candidates": snapshot.response.candidates[:limit],
+            "not_selected": snapshot.response.not_selected[:limit],
+        })
+
+    def _build_snapshot(self, key: tuple[Any, ...] | None) -> BeginnerSelectionSnapshot:
+        eligible_date = key[1] if key is not None and len(key) > 1 else None
+        market, facts, amounts, gaps, universe = self._collect(None, eligible_date=eligible_date)
         evaluated = [evaluate_candidate(f, market) for f in facts]
         ranked = rank_candidates(evaluated, amounts)
         skipped = sorted(
@@ -643,20 +696,110 @@ class BeginnerSelectionService:
         status: Literal["ready", "degraded", "unavailable"] = (
             "unavailable" if not facts else "degraded" if gaps or eligible == 0 else "ready"
         )
-        return BeginnerSelectionResponse(
+        response = BeginnerSelectionResponse(
             status=status, as_of=market.as_of, generated_at=_now(), market=market,
-            candidates=ranked[:limit], not_selected=skipped[:limit],
+            candidates=ranked, not_selected=skipped,
             universe_count=universe, eligible_count=eligible, data_gaps=gaps,
         )
+        return BeginnerSelectionSnapshot(
+            key=key or ("uncached",),
+            response=response,
+            candidates_by_symbol={candidate.symbol: candidate for candidate in [*ranked, *skipped]},
+        )
 
-    def evaluate_symbol(self, symbol: str) -> BeginnerSymbolResponse:
+    def _cache_key(self) -> tuple[Any, ...] | None:
+        daily_dir = getattr(getattr(self.screener, "daily_store", None), "_data_dir", None)
+        if daily_dir is None:
+            return None
+        try:
+            from app.config import settings
+
+            taiwan_root = Path(settings.data_dir) / "taiwan"
+            cache_dir = getattr(getattr(self.screener, "cache", None), "cache_dir", None)
+            paths: list[Path | None] = [
+                Path(daily_dir),
+                getattr(getattr(self.screener, "institutional_store", None), "_data_dir", None),
+                getattr(getattr(self.screener, "margin_store", None), "_data_dir", None),
+                getattr(getattr(self.screener, "security_master", None), "cache_path", None),
+                getattr(getattr(self.screener, "action_store", None), "path", None),
+                getattr(getattr(self.screener, "revenue_evidence_store", None), "ledger", None),
+                taiwan_root / "events_cache" / "regulatory_events.json",
+                Path(settings.data_dir) / "social_sentiment" / "latest.json",
+            ]
+            if cache_dir is not None:
+                paths.extend(Path(cache_dir) / dataset for dataset in (
+                    "TaiwanStockMonthRevenue",
+                    "TaiwanStockFinancialStatements",
+                    "TaiwanValuation",
+                    "TaiwanStockShareholding",
+                    "TaiwanStockSecuritiesLending",
+                ))
+            generations = tuple(generation for path in paths if (generation := _path_generation(path)) is not None)
+            return (BEGINNER_SELECTION_VERSION, self._eligible_date(), generations) if generations else None
+        except Exception as exc:
+            logger.debug("beginner selection cache key unavailable: %s", type(exc).__name__)
+            return None
+
+    def _get_cached_snapshot(self, key: tuple[Any, ...]) -> BeginnerSelectionSnapshot | None:
+        global _SNAPSHOT
+        with _SNAPSHOT_CONDITION:
+            while _SNAPSHOT_BUILDING:
+                _SNAPSHOT_CONDITION.wait()
+            return _SNAPSHOT if _SNAPSHOT is not None and _SNAPSHOT.key == key else None
+
+    def _get_or_build_snapshot(self, key: tuple[Any, ...]) -> BeginnerSelectionSnapshot:
+        global _SNAPSHOT, _SNAPSHOT_BUILDING
+        with _SNAPSHOT_CONDITION:
+            while True:
+                if _SNAPSHOT is not None and _SNAPSHOT.key == key:
+                    return _SNAPSHOT
+                if not _SNAPSHOT_BUILDING:
+                    _SNAPSHOT_BUILDING = True
+                    break
+                _SNAPSHOT_CONDITION.wait()
+        try:
+            snapshot = self._build_snapshot(key)
+        except Exception:
+            with _SNAPSHOT_CONDITION:
+                _SNAPSHOT_BUILDING = False
+                _SNAPSHOT_CONDITION.notify_all()
+            raise
+        with _SNAPSHOT_CONDITION:
+            _SNAPSHOT = snapshot
+            _SNAPSHOT_BUILDING = False
+            _SNAPSHOT_CONDITION.notify_all()
+        return snapshot
+
+    def _snapshot_candidate(self, symbol: str) -> BeginnerSymbolResponse | None:
+        key = self._cache_key()
+        if key is None:
+            return None
+        snapshot = self._get_cached_snapshot(key)
+        if snapshot is None:
+            return None
+        candidate = snapshot.candidates_by_symbol.get(symbol)
+        if candidate is None:
+            return None
+        return BeginnerSymbolResponse(
+            generated_at=_now(),
+            market=snapshot.response.market.model_copy(deep=True),
+            candidate=candidate.model_copy(deep=True),
+        )
+
+    def _build_uncached_symbol(self, symbol: str) -> BeginnerSymbolResponse:
         market, facts, _amounts, _gaps, _universe = self._collect([symbol])
         target = facts[0] if facts else BeginnerFacts(symbol=symbol, in_universe=False)
         candidate, _score = evaluate_candidate(target, market)
         return BeginnerSymbolResponse(generated_at=_now(), market=market, candidate=candidate)
 
-    # The collectors below only read local stores; failures degrade to unavailable.
-    def _collect(self, scope: list[str] | None):
+    def evaluate_symbol(self, symbol: str) -> BeginnerSymbolResponse:
+        cached = self._snapshot_candidate(symbol)
+        if cached is not None:
+            return cached
+        return self._build_uncached_symbol(symbol)
+
+    def _collect(self, scope: list[str] | None, *, eligible_date: str | None = None):
+        # The collectors below only read local stores; failures degrade to unavailable.
         from app.taiwan.screener import TaiwanScreenerRequest
 
         req = TaiwanScreenerRequest(
@@ -670,7 +813,7 @@ class BeginnerSelectionService:
         items = screen.items
         as_of = screen.data_dates.daily_as_of
         gaps: list[str] = []
-        eligible_date = self._eligible_date()
+        eligible_date = eligible_date if eligible_date is not None else self._eligible_date()
         market = self._market(as_of)
         if as_of is not None and as_of != eligible_date:
             gaps.append(f"行情停在 {as_of}，尚未更新到最新交易日")
