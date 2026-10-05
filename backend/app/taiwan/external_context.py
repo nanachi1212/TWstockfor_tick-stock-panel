@@ -7,6 +7,8 @@ from pydantic import BaseModel
 
 from app.taiwan.beginner_technical import fugle_inner_outer_evidence
 from app.taiwan.providers.external_models import ExternalProviderResult, ExternalStatus
+from app.taiwan.providers.finbridge import get_finbridge_provider
+from app.taiwan.providers.fred_macro import get_fred_macro_provider
 from app.taiwan.providers.fx_context import get_frankfurter_fx_provider
 from app.taiwan.realtime.fugle_provider import get_fugle_aggregates_provider
 
@@ -14,6 +16,8 @@ from app.taiwan.realtime.fugle_provider import get_fugle_aggregates_provider
 class ExternalContextResponse(BaseModel):
     intraday_context: ExternalProviderResult
     fx_context: ExternalProviderResult
+    macro_context: ExternalProviderResult
+    secondary_cross_checks: ExternalProviderResult
 
 
 def intraday_context(symbol: str | None = None) -> ExternalProviderResult:
@@ -61,7 +65,12 @@ def intraday_context(symbol: str | None = None) -> ExternalProviderResult:
 
 
 class ExternalContextService:
-    def get(self, symbol: str | None = None) -> ExternalContextResponse:
+    def get(
+        self,
+        symbol: str | None = None,
+        *,
+        official: dict[str, float | None] | None = None,
+    ) -> ExternalContextResponse:
         try:
             intraday = intraday_context(symbol)
         except Exception:
@@ -74,4 +83,26 @@ class ExternalContextService:
             fx = ExternalProviderResult.unavailable(
                 "frankfurter:v2:provider:CBC", "provider_unavailable",
             )
-        return ExternalContextResponse(intraday_context=intraday, fx_context=fx)
+        try:
+            macro = get_fred_macro_provider().get_context()
+        except Exception:
+            macro = ExternalProviderResult.unavailable(
+                "fred:series_observations", "provider_unavailable",
+            )
+        if symbol:
+            try:
+                secondary = get_finbridge_provider().cross_check(symbol, official=official or {})
+            except Exception:
+                secondary = ExternalProviderResult.unavailable(
+                    "finbridge:rest:tw", "provider_unavailable",
+                )
+        else:
+            secondary = ExternalProviderResult.unavailable(
+                "finbridge:rest:tw", "symbol_required",
+            )
+        return ExternalContextResponse(
+            intraday_context=intraday,
+            fx_context=fx,
+            macro_context=macro,
+            secondary_cross_checks=secondary,
+        )

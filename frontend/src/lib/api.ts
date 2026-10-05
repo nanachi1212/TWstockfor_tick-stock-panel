@@ -3333,6 +3333,8 @@ export interface ExternalProviderResult {
 export interface ExternalContextResponse {
   intraday_context: ExternalProviderResult
   fx_context: ExternalProviderResult
+  macro_context: ExternalProviderResult
+  secondary_cross_checks: ExternalProviderResult
 }
 
 export interface BeginnerPriceLevelsEvidence {
@@ -3501,6 +3503,8 @@ export interface BeginnerCandidate {
   technical_panel: BeginnerTechnicalPanel | null
   intraday_context: ExternalProviderResult | null
   fx_context: ExternalProviderResult | null
+  macro_context: ExternalProviderResult | null
+  secondary_cross_checks: ExternalProviderResult | null
 }
 
 export interface BeginnerMarketSummary {

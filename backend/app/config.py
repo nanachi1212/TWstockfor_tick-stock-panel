@@ -77,6 +77,8 @@ class Settings(BaseSettings):
 
     # Optional intraday provider. Fugle never replaces official/PIT data sources.
     fugle_api_key: str = Field(default="", repr=False)
+    fred_api_key: str = Field(default="", repr=False)
+    finbridge_api_key: str = Field(default="", repr=False)
 
     # AI
     ai_provider: str = "openai_compat"

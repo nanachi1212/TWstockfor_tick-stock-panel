@@ -113,6 +113,8 @@ export function beginnerCandidate(symbol: string, overrides: Partial<BeginnerCan
     },
     intraday_context: null,
     fx_context: null,
+    macro_context: null,
+    secondary_cross_checks: null,
     ...overrides,
   }
 }

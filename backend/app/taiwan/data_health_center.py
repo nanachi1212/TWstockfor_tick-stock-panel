@@ -45,6 +45,8 @@ DATASETS = {
     "ai_provider": "AI Provider/Profile",
     "fugle": "Fugle Intraday",
     "frankfurter": "Frankfurter FX",
+    "fred": "FRED Macro",
+    "finbridge": "FinBridge Cross-check",
 }
 REASONS = {
     # Updater outcomes from the daily_update last-run record; most specific first.
@@ -427,6 +429,8 @@ class DataHealthService:
             "tpex_index": lambda: self._index("tpex_index"),
             "fugle": self._fugle,
             "frankfurter": self._frankfurter,
+            "fred": self._fred,
+            "finbridge": self._finbridge,
         }
 
     @staticmethod
@@ -440,6 +444,18 @@ class DataHealthService:
         from app.taiwan.providers.fx_context import get_frankfurter_fx_provider
 
         return get_frankfurter_fx_provider().health_metadata()
+
+    @staticmethod
+    def _fred() -> dict[str, Any]:
+        from app.taiwan.providers.fred_macro import get_fred_macro_provider
+
+        return get_fred_macro_provider().health_metadata()
+
+    @staticmethod
+    def _finbridge() -> dict[str, Any]:
+        from app.taiwan.providers.finbridge import get_finbridge_provider
+
+        return get_finbridge_provider().health_metadata()
 
     def _daily(self) -> dict[str, dict[str, Any]]:
         from app.taiwan.daily_update import TaiwanDailyUpdateService, read_last_run
