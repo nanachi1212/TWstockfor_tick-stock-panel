@@ -22,6 +22,8 @@ const unavailableExternal = {
 const emptyExternalContext = {
   intraday_context: unavailableExternal,
   fx_context: unavailableExternal,
+  macro_context: unavailableExternal,
+  secondary_cross_checks: unavailableExternal,
 }
 
 function LocationProbe() {
@@ -139,6 +141,26 @@ describe('Beginner Stock Picker', () => {
     expect(await screen.findByText('為什麼沒被選？')).toBeInTheDocument()
     expect(screen.getAllByText('暫時略過').length).toBeGreaterThan(0)
     expect(screen.queryByText(/觀察區/)).not.toBeInTheDocument()
+  })
+
+  it('shows required FRED attribution with macro data on stock detail', async () => {
+    vi.mocked(api.beginnerSelectionSymbol).mockResolvedValue({
+      version: 'beginner-selection-v1', generated_at: '', market: beginnerSelection().market,
+      candidate: beginnerCandidate('2330.TWSE'), disclaimer: '',
+    })
+    vi.mocked(api.taiwanExternalContext).mockResolvedValue({
+      ...emptyExternalContext,
+      macro_context: {
+        ...unavailableExternal, status: 'available', freshness: 'daily_cache',
+        data: { summary: '全球環境：測試。' }, error_reason: null,
+      },
+    })
+    renderWith(<BeginnerStockView symbol="2330.TWSE" advanced={false} onToggleAdvanced={() => {}} />)
+    expect(await screen.findByText('全球環境：測試。')).toBeInTheDocument()
+    expect(screen.getByText(/This product uses the FRED® API/)).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'FRED API Terms of Use' })).toHaveAttribute(
+      'href', 'https://fred.stlouisfed.org/docs/api/terms_of_use.html',
+    )
   })
 
   it('loads optional FX context independently on stock detail', async () => {

@@ -14,6 +14,7 @@ import {
 } from '@/lib/api'
 import { QK } from '@/lib/queryKeys'
 import { cn } from '@/lib/cn'
+import { FredAttribution } from '@/components/ExternalContextCard'
 
 export const STATE_LABEL: Record<BeginnerSelectionState, string> = {
   watch: '值得關注',
@@ -284,8 +285,14 @@ export function BeginnerStockView({
   const innerOuter = liveInnerOuter ?? panel?.inner_outer
   const innerOuterTime = formatTaipeiTime(innerOuter?.as_of ?? null)
   const fxContext = contextQuery.data?.fx_context ?? candidate?.fx_context
-  const fxSummary = typeof fxContext?.data?.summary === 'string'
-    ? fxContext.data.summary : null
+  const macroContext = contextQuery.data?.macro_context ?? candidate?.macro_context
+  const secondaryContext = contextQuery.data?.secondary_cross_checks ?? candidate?.secondary_cross_checks
+  const fxSummary = typeof fxContext?.data?.summary === 'string' ? fxContext.data.summary : null
+  const macroSummary = typeof macroContext?.data?.summary === 'string' ? macroContext.data.summary : null
+  const secondaryData = secondaryContext?.data
+  const crossCheck = secondaryData && typeof secondaryData.cross_check === 'object' && secondaryData.cross_check !== null
+    ? secondaryData.cross_check as Record<string, unknown> : null
+  const crossCheckStatus = typeof crossCheck?.status === 'string' ? crossCheck.status : 'unavailable'
   return (
     <section aria-label="這檔股票現在怎麼看" className="rounded-2xl border border-accent/30 bg-surface p-4 shadow-sm">
       <div className="flex flex-wrap items-center justify-between gap-2">
@@ -395,12 +402,18 @@ export function BeginnerStockView({
             <p className="mt-2 text-xs text-muted">所屬類股：<span className="text-foreground">{panel.market_context.industry_state === 'strong' ? '相對強' : panel.market_context.industry_state === 'neutral' ? '中性' : '資料不足'}</span></p>
             <p className="break-words text-xs text-muted">{panel.market_context.explanation}</p>
             {fxSummary && <p className="mt-2 border-t border-border/50 pt-2 text-xs text-muted">{fxSummary}</p>}
+            {macroSummary && <p className="mt-2 border-t border-border/50 pt-2 text-xs text-muted">{macroSummary}</p>}
+            {macroContext?.data != null && <FredAttribution />}
           </TechnicalSection>
 
           <TechnicalSection number="⑦" title="基本面">
             <p className="break-words text-sm text-foreground">{panel.fundamentals.explanation}</p>
             {panel.fundamentals.warning && <p className="mt-2 break-words rounded-md bg-warning/10 p-2 text-xs text-warning">{panel.fundamentals.warning}</p>}
             {panel.fundamentals.pe != null && <p className="mt-1 text-xs text-muted">本益比 {panel.fundamentals.pe.toFixed(1)}</p>}
+            {crossCheckStatus === 'matched' && <p className="mt-2 text-xs text-emerald-600 dark:text-emerald-400">第二來源與官方資料一致</p>}
+            {crossCheckStatus === 'partial' && <p className="mt-2 text-xs text-muted">第二來源僅完成部分比對，未比對欄位維持不可用</p>}
+            {crossCheckStatus === 'mismatch' && <p className="mt-2 text-xs text-warning">第二來源與官方資料不一致，請以官方資料為準</p>}
+            {secondaryContext?.error_reason === 'config_missing' && <p className="mt-2 text-xs text-muted">FinBridge 未設定 API Key，第二來源比對維持不可用。</p>}
           </TechnicalSection>
 
           <TechnicalSection number="⑧" title="主要風險">
@@ -448,6 +461,8 @@ export function BeginnerStockView({
               <dt>成交值</dt><dd className="font-mono text-foreground">{innerOuter.trade_value == null ? '資料不足' : innerOuter.trade_value.toLocaleString('zh-TW')}</dd>
               <dt>五檔委買</dt><dd className="font-mono text-[10px] text-foreground">{innerOuter.bids.length ? innerOuter.bids.map(([p, s]) => `${p}/${s}`).join(' · ') : '資料不足'}</dd>
               <dt>五檔委賣</dt><dd className="font-mono text-[10px] text-foreground">{innerOuter.asks.length ? innerOuter.asks.map(([p, s]) => `${p}/${s}`).join(' · ') : '資料不足'}</dd>
+              <dt>FRED series</dt><dd className="break-all font-mono text-[10px] text-foreground">{macroContext?.data?.series ? JSON.stringify(macroContext.data.series) : '資料不足'}</dd>
+              <dt>第二來源比對</dt><dd className="break-all font-mono text-[10px] text-foreground">{secondaryContext?.data ? JSON.stringify(secondaryContext.data) : '資料不足'}</dd>
             </dl>
           )}
         </div>

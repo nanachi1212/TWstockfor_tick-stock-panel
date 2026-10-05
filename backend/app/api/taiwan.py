@@ -1111,7 +1111,17 @@ def get_external_context(symbol: str | None = None):
             canonical = parse_symbol(symbol).canonical
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=f"無效的台股代號: {symbol}") from exc
-    return ExternalContextService().get(canonical).model_dump(mode="json")
+    official: dict[str, float | None] = {}
+    if canonical:
+        try:
+            from app.taiwan.beginner_selection import BeginnerSelectionService
+
+            panel = BeginnerSelectionService().evaluate_symbol(canonical).candidate.technical_panel
+            if panel is not None:
+                official = {"pe": panel.fundamentals.pe, "eps": panel.fundamentals.eps}
+        except Exception as exc:
+            logger.debug("External cross-check official evidence unavailable: %s", type(exc).__name__)
+    return ExternalContextService().get(canonical, official=official).model_dump(mode="json")
 
 
 # ── A12: Daily Brief (每日 AI 摘要) ──────────────────────────────

@@ -171,6 +171,8 @@ class BeginnerCandidate(BaseModel):
     technical_panel: BeginnerTechnicalPanel | None = None
     intraday_context: ExternalProviderResult | None = None
     fx_context: ExternalProviderResult | None = None
+    macro_context: ExternalProviderResult | None = None
+    secondary_cross_checks: ExternalProviderResult | None = None
 
 
 class MarketSummary(BaseModel):
@@ -869,6 +871,31 @@ class BeginnerSelectionService:
             copied.intraday_context = ExternalProviderResult.unavailable(
                 "fugle_marketdata:websocket:aggregates", "provider_unavailable",
             )
+        try:
+            from app.taiwan.providers.fred_macro import get_fred_macro_provider
+
+            copied.macro_context = get_fred_macro_provider().cached_context()
+        except Exception as exc:
+            logger.debug("beginner macro context unavailable: %s", type(exc).__name__)
+            copied.macro_context = ExternalProviderResult.unavailable(
+                "fred:series_observations", "provider_unavailable",
+            )
+        try:
+            from app.taiwan.providers.finbridge import get_finbridge_provider
+
+            fundamentals = copied.technical_panel.fundamentals if copied.technical_panel else None
+            copied.secondary_cross_checks = get_finbridge_provider().cached_cross_check(
+                copied.symbol,
+                official={
+                    "pe": fundamentals.pe if fundamentals else None,
+                    "eps": fundamentals.eps if fundamentals else None,
+                },
+            )
+        except Exception as exc:
+            logger.debug("beginner secondary cross-check unavailable: %s", type(exc).__name__)
+            copied.secondary_cross_checks = ExternalProviderResult.unavailable(
+                "finbridge:rest:tw", "provider_unavailable",
+            )
         return copied
 
     def _collect(self, scope: list[str] | None, *, eligible_date: str | None = None):
@@ -1281,6 +1308,8 @@ BEGINNER_EVIDENCE_REGISTRY_KEYS = frozenset({
     "beginner_selection.technical_panel.key_risks",
     "beginner_selection.intraday_context",
     "beginner_selection.fx_context",
+    "beginner_selection.macro_context",
+    "beginner_selection.secondary_cross_checks",
 })
 
 
@@ -1314,4 +1343,11 @@ def selection_evidence(symbol: str, service: BeginnerSelectionService | None = N
             candidate.intraday_context.model_dump() if candidate.intraday_context else None
         ),
         "fx_context": candidate.fx_context.model_dump() if candidate.fx_context else None,
+        "macro_context": (
+            candidate.macro_context.model_dump() if candidate.macro_context else None
+        ),
+        "secondary_cross_checks": (
+            candidate.secondary_cross_checks.model_dump()
+            if candidate.secondary_cross_checks else None
+        ),
     }
