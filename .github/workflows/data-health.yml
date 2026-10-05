@@ -7,9 +7,11 @@ on:
       - 'backend/app/taiwan/data_health*'
       - 'backend/app/api/data_health.py'
       - 'backend/tests/test_data_health_center.py'
-      - 'frontend/**'
       - '.github/workflows/data-health.yml'
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 jobs:
   metadata-contract:
     runs-on: ubuntu-latest
