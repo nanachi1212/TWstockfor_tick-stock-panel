@@ -146,6 +146,25 @@ class PrimaryOosRunStore:
             if db is not None:
                 db.close()
 
+    def successful_run(self, run_id: str) -> dict[str, Any] | None:
+        """Read one immutable successful artifact by its explicit run ID."""
+        if not isinstance(run_id, str) or not run_id:
+            raise ValueError("run_id must be a non-empty string")
+        for event in self._read_events():
+            if event["run_id"] != run_id or event["event_type"] != "succeeded":
+                continue
+            payload = json.loads(event["payload_json"])
+            artifact = payload.get("artifact")
+            if not isinstance(artifact, dict):
+                raise RuntimeError("successful Primary OOS event has no artifact")
+            return {
+                "run_id": event["run_id"],
+                "identity_key": event["identity_key"],
+                "recorded_at": event["recorded_at"],
+                "artifact": artifact,
+            }
+        return None
+
     def latest_success(
         self, *, health: DataHealth, progress: Mapping[str, int], spec_hash: str,
     ) -> dict[str, Any] | None:
