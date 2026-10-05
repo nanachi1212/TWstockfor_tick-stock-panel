@@ -123,7 +123,8 @@ class FrankfurterFxProvider:
             except Exception:
                 if cached is not None:
                     result = cached.model_copy(update={
-                        "status": "stale", "freshness": "stale", "error_reason": "provider_unavailable",
+                        "status": "stale", "freshness": "stale",
+                        "retrieved_at": retrieved_at, "error_reason": "provider_unavailable",
                     })
                 else:
                     result = ExternalProviderResult.unavailable(FRANKFURTER_SOURCE, "provider_unavailable")
@@ -132,6 +133,20 @@ class FrankfurterFxProvider:
             if result.data is not None:
                 write_json_cache(self.cache_path, result.model_dump(mode="json"))
             return result.model_copy(deep=True)
+
+    def cached_context(self, *, now: datetime | None = None) -> ExternalProviderResult:
+        """Return immediately for core request paths; never perform network I/O."""
+        current = now or datetime.now(UTC)
+        with self._lock:
+            cached = self._memory or self._read_cache()
+            if cached is None:
+                return ExternalProviderResult.unavailable(FRANKFURTER_SOURCE, "not_queried")
+            self._memory = cached
+            if self._cache_is_fresh(cached, current):
+                return cached.model_copy(deep=True)
+            return cached.model_copy(deep=True, update={
+                "status": "stale", "freshness": "stale", "error_reason": "cache_expired",
+            })
 
     def health_metadata(self) -> dict[str, Any]:
         result = self._memory or self._read_cache()

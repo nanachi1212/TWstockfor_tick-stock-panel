@@ -316,7 +316,10 @@ class ScreenerResultItem(BaseModel):
     revenue_mom: float | None = None
     revenue_yoy_improving: bool | None = None
     revenue_status: str = "unavailable"
+    revenue_latest_period: str | None = None
     latest_eps: float | None = None
+    financials_as_of: str | None = None
+    valuation_as_of: str | None = None
 
     # Chips (Foreign shareholding & lending)
     foreign_shareholding_ratio: float | None = None
@@ -1135,6 +1138,8 @@ class TaiwanScreenerService:
         rev_status_map: dict[str, str] = {}
         rev_period_map: dict[str, str | None] = {}
         eps_map: dict[str, float | None] = {}
+        financials_as_of_map: dict[str, str | None] = {}
+        valuation_as_of_map: dict[str, str | None] = {}
         net_inc_map: dict[str, float | None] = {}
         share_ratio_map: dict[str, float | None] = {}
         share_chg20_map: dict[str, float | None] = {}
@@ -1147,6 +1152,7 @@ class TaiwanScreenerService:
                 pe_map[sym] = parse_number(d.get("pe"))
                 pb_map[sym] = parse_number(d.get("pb"))
                 dy_map[sym] = parse_number(d.get("dividend_yield"))
+                valuation_as_of_map[sym] = cached.get("data_date")
 
         revenue_rows: dict[str, tuple[list[dict[str, Any]], str | None, str]] = {}
         for sym, cache_key in cached_rev_keys.items():
@@ -1199,6 +1205,7 @@ class TaiwanScreenerService:
                 )
                 eps_map[sym] = fin_data.latest_eps
                 net_inc_map[sym] = fin_data.net_income
+                financials_as_of_map[sym] = fin_data.quarter
 
         for sym, cache_key in cached_share_keys.items():
             cached = self.cache.get("TaiwanStockShareholding", cache_key)
@@ -1228,6 +1235,8 @@ class TaiwanScreenerService:
         rev_statuses = [rev_status_map.get(s, "unavailable") for s in df_symbols]
         rev_periods = [rev_period_map.get(s) for s in df_symbols]
         epss = [eps_map.get(s) for s in df_symbols]
+        financials_as_of = [financials_as_of_map.get(s) for s in df_symbols]
+        valuation_as_of = [valuation_as_of_map.get(s) for s in df_symbols]
         net_incs = [net_inc_map.get(s) for s in df_symbols]
         share_ratios = [share_ratio_map.get(s) for s in df_symbols]
         share_chg20s = [share_chg20_map.get(s) for s in df_symbols]
@@ -1245,6 +1254,8 @@ class TaiwanScreenerService:
             pl.Series("revenue_status", rev_statuses, dtype=pl.String),
             pl.Series("revenue_latest_period", rev_periods, dtype=pl.String),
             pl.Series("latest_eps", epss, dtype=pl.Float64),
+            pl.Series("financials_as_of", financials_as_of, dtype=pl.String),
+            pl.Series("valuation_as_of", valuation_as_of, dtype=pl.String),
             pl.Series("net_income", net_incs, dtype=pl.Float64),
             pl.Series("foreign_shareholding_ratio", share_ratios, dtype=pl.Float64),
             pl.Series("foreign_shareholding_change_20d", share_chg20s, dtype=pl.Float64),
@@ -1697,7 +1708,10 @@ class TaiwanScreenerService:
                 revenue_mom=r.get("revenue_mom"),
                 revenue_yoy_improving=r.get("revenue_yoy_improving") if strategy_id else None,
                 revenue_status=r.get("revenue_status") if extended else "unavailable",
+                revenue_latest_period=r.get("revenue_latest_period"),
                 latest_eps=r.get("latest_eps"),
+                financials_as_of=r.get("financials_as_of"),
+                valuation_as_of=r.get("valuation_as_of"),
                 foreign_shareholding_ratio=r.get("foreign_shareholding_ratio"),
                 foreign_shareholding_change_20d=r.get("foreign_shareholding_change_20d"),
                 securities_lending_anomaly=r.get("securities_lending_anomaly"),

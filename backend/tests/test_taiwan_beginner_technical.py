@@ -65,8 +65,12 @@ def _metrics(**overrides):
         "revenue_yoy": 25.0,
         "revenue_mom": 3.0,
         "revenue_status": "available",
+        "revenue_as_of": "2026-08",
         "eps": 8.0,
+        "financials_as_of": "2026-06-30",
         "pe": 18.0,
+        "valuation_as_of": AS_OF,
+        "quote_freshness": "current",
     }
     values.update(overrides)
     return values
@@ -176,6 +180,27 @@ def test_relative_strength_range_position_volatility_and_extreme_yoy_warning():
     assert panel.range_position.position_pct == pytest.approx(85.7)
     assert panel.volatility.level == "normal"
     assert panel.fundamentals.warning is not None
+
+
+def test_stale_quote_marks_daily_technical_evidence_stale():
+    panel = _panel(metrics=_metrics(quote_freshness="stale"))
+    assert panel.support.freshness == "stale"
+    assert panel.moving_averages.freshness == "stale"
+    assert panel.volume.freshness == "stale"
+    assert panel.relative_strength.freshness == "stale"
+    assert panel.range_position.freshness == "stale"
+    assert panel.volatility.freshness == "stale"
+
+
+def test_fundamentals_keep_pe_only_and_separate_source_dates():
+    panel = _panel(metrics=_metrics(
+        revenue_status="unavailable", revenue_yoy=None, revenue_mom=None, eps=None,
+    ))
+    assert panel.fundamentals.status == "available"
+    assert panel.fundamentals.pe == 18.0
+    assert panel.fundamentals.revenue_as_of == "2026-08"
+    assert panel.fundamentals.financials_as_of == "2026-06-30"
+    assert panel.fundamentals.valuation_as_of == AS_OF
 
 
 def test_missing_benchmark_stays_unavailable_and_key_risks_are_limited():

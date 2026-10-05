@@ -151,7 +151,10 @@ def test_frankfurter_uses_daily_cache_and_provider_failure_returns_stale(tmp_pat
     assert first.status == second.status == "available"
     assert len(calls) == 1
 
+    broken_calls = []
+
     def broken(*_args, **_kwargs):
+        broken_calls.append(1)
         raise TimeoutError("offline")
 
     fallback = FrankfurterFxProvider(cache_path=tmp_path / "fx.json", fetcher=broken)
@@ -160,3 +163,17 @@ def test_frankfurter_uses_daily_cache_and_provider_failure_returns_stale(tmp_pat
     assert result.status == "stale"
     assert result.data is not None
     assert result.error_reason == "provider_unavailable"
+    assert fallback.get_context(now=future).status == "stale"
+    assert len(broken_calls) == 1
+
+
+def test_frankfurter_cached_context_never_fetches_on_core_request_path(tmp_path):
+    calls = []
+    provider = FrankfurterFxProvider(
+        cache_path=tmp_path / "missing.json",
+        fetcher=lambda *_args, **_kwargs: calls.append(1),
+    )
+    result = provider.cached_context()
+    assert result.status == "unavailable"
+    assert result.error_reason == "not_queried"
+    assert calls == []

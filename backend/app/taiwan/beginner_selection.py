@@ -832,7 +832,7 @@ class BeginnerSelectionService:
         try:
             from app.taiwan.providers.fx_context import get_frankfurter_fx_provider
 
-            return get_frankfurter_fx_provider().get_context()
+            return get_frankfurter_fx_provider().cached_context()
         except Exception as exc:
             logger.debug("beginner FX context unavailable: %s", type(exc).__name__)
             return ExternalProviderResult.unavailable(
@@ -928,8 +928,7 @@ class BeginnerSelectionService:
                 "investment_trust_net_5d": institutional_5d[1],
                 "dealer_net_5d": institutional_5d[2],
                 "institutional_complete_sessions": (
-                    5 if all(value is not None for value in institutional_5d)
-                    and getattr(item, "institutional_flow_ratio_5d", None) is not None else 0
+                    5 if all(value is not None for value in institutional_5d) else 0
                 ),
                 "institutional_as_of": getattr(item, "institutional_date", None),
                 "institutional_status": getattr(item, "institutional_status", "unavailable"),
@@ -944,6 +943,12 @@ class BeginnerSelectionService:
                 "eps": getattr(item, "latest_eps", None),
                 "pe": getattr(item, "pe", None),
                 "revenue_status": getattr(item, "revenue_status", "unavailable"),
+                "revenue_as_of": getattr(item, "revenue_latest_period", None),
+                "financials_as_of": getattr(item, "financials_as_of", None),
+                "valuation_as_of": getattr(item, "valuation_as_of", None),
+                "quote_freshness": (
+                    "current" if item.quote_date == eligible_date else "stale"
+                ),
             })
             facts.append(BeginnerFacts(
                 symbol=item.symbol, name=item.name, industry=item.industry,

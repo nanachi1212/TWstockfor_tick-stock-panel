@@ -166,6 +166,9 @@ class FundamentalsEvidence(BaseModel):
     explanation: str
     source: str = "screener.fundamentals"
     as_of: str | None = None
+    revenue_as_of: str | None = None
+    financials_as_of: str | None = None
+    valuation_as_of: str | None = None
     freshness: str = "unavailable"
 
 
@@ -272,8 +275,12 @@ def _pct(value: float | None, base: float | None) -> float | None:
     return round((value / base - 1.0) * 100.0, 2)
 
 
+def _daily_freshness(inputs: dict[str, Any]) -> str:
+    return "stale" if inputs.get("quote_freshness") == "stale" else "current"
+
+
 def _price_evidence(
-    current: float | None, plan: Any, as_of: str | None,
+    current: float | None, plan: Any, as_of: str | None, freshness: str,
 ) -> tuple[PriceLevelsEvidence, PriceLevelsEvidence, PriceLevelsEvidence]:
     if current is None or plan is None:
         unavailable = PriceLevelsEvidence(
@@ -304,7 +311,7 @@ def _price_evidence(
             explanation=explanation,
             source="trade_plan",
             as_of=getattr(plan, "evidence_as_of", as_of),
-            freshness="current",
+            freshness=freshness,
         )
 
     support = evidence(
@@ -348,7 +355,7 @@ def _moving_averages(inputs: dict[str, Any], as_of: str | None) -> MovingAverage
     return MovingAverageEvidence(
         status="available", state=state, ma5=round(ma5, 4), ma20=round(ma20, 4),
         ma60=round(ma60, 4), bullish_alignment=alignment, explanation=text,
-        as_of=as_of, freshness="current",
+        as_of=as_of, freshness=_daily_freshness(inputs),
     )
 
 
@@ -375,7 +382,7 @@ def _volume(inputs: dict[str, Any], as_of: str | None) -> VolumeEvidence:
         pattern, text = "neutral", "股價變化不大，量價關係目前中性。"
     return VolumeEvidence(
         status="available", today_volume=today, average_20d=average, ratio=round(ratio, 2),
-        pattern=pattern, explanation=text, as_of=as_of, freshness="current",
+        pattern=pattern, explanation=text, as_of=as_of, freshness=_daily_freshness(inputs),
     )
 
 
@@ -467,7 +474,7 @@ def _relative(inputs: dict[str, Any], as_of: str | None) -> RelativeStrengthEvid
     return RelativeStrengthEvidence(
         status="available", state=state, stock_return_pct=stock,
         benchmark_return_pct=benchmark, excess_return_pct=excess,
-        explanation=text, as_of=as_of, freshness="current",
+        explanation=text, as_of=as_of, freshness=_daily_freshness(inputs),
     )
 
 
@@ -483,7 +490,7 @@ def _range_position(inputs: dict[str, Any], as_of: str | None) -> RangePositionE
         text += "已接近近期高位，現在追價的安全空間較小。"
     return RangePositionEvidence(
         status="available", low_20d=low, high_20d=high, position_pct=position,
-        explanation=text, as_of=as_of, freshness="current",
+        explanation=text, as_of=as_of, freshness=_daily_freshness(inputs),
     )
 
 
@@ -504,7 +511,7 @@ def _volatility(inputs: dict[str, Any], current: float | None, as_of: str | None
     }[level]
     return VolatilityEvidence(
         status="available", level=level, atr_14=atr, atr_pct=atr_pct,
-        explanation=text, as_of=as_of, freshness="current",
+        explanation=text, as_of=as_of, freshness=_daily_freshness(inputs),
     )
 
 
@@ -535,9 +542,16 @@ def _fundamentals(inputs: dict[str, Any], as_of: str | None) -> FundamentalsEvid
     mom = _finite(inputs.get("revenue_mom")) if revenue_available else None
     eps = _finite(inputs.get("eps"))
     pe = _finite(inputs.get("pe"))
-    if yoy is None and mom is None and eps is None:
+    revenue_as_of = str(inputs["revenue_as_of"]) if inputs.get("revenue_as_of") else None
+    financials_as_of = str(inputs["financials_as_of"]) if inputs.get("financials_as_of") else None
+    valuation_as_of = str(inputs["valuation_as_of"]) if inputs.get("valuation_as_of") else None
+    dated = [value for value in (revenue_as_of, financials_as_of, valuation_as_of) if value]
+    evidence_as_of = max(dated, default=as_of)
+    if yoy is None and mom is None and eps is None and pe is None:
         return FundamentalsEvidence(
-            status="data_insufficient", explanation="月營收與 EPS 資料不足。", as_of=as_of,
+            status="data_insufficient", explanation="月營收、EPS 與本益比資料不足。",
+            as_of=evidence_as_of, revenue_as_of=revenue_as_of,
+            financials_as_of=financials_as_of, valuation_as_of=valuation_as_of,
         )
     warning = "年增幅很大，可能也受到去年同期基期影響，不能只看單一百分比。" if yoy is not None and yoy > 200 else None
     parts = []
@@ -547,10 +561,14 @@ def _fundamentals(inputs: dict[str, Any], as_of: str | None) -> FundamentalsEvid
         parts.append(f"月增 {mom:+.1f}%")
     if eps is not None:
         parts.append(f"EPS {eps:g}")
+    if pe is not None:
+        parts.append(f"本益比 {pe:g}")
     return FundamentalsEvidence(
         status="available", revenue_yoy_pct=yoy, revenue_mom_pct=mom, eps=eps, pe=pe,
         warning=warning, explanation="、".join(parts) + "。",
-        as_of=as_of, freshness="latest_available",
+        as_of=evidence_as_of, revenue_as_of=revenue_as_of,
+        financials_as_of=financials_as_of, valuation_as_of=valuation_as_of,
+        freshness="latest_available",
     )
 
 
@@ -628,7 +646,9 @@ def build_beginner_technical_panel(
 ) -> BeginnerTechnicalPanel:
     """Build display evidence without changing the selection decision."""
     current = _finite(current_price)
-    support, resistance, invalidation = _price_evidence(current, plan, as_of)
+    support, resistance, invalidation = _price_evidence(
+        current, plan, as_of, _daily_freshness(metrics),
+    )
     averages = _moving_averages(metrics, as_of)
     inner_outer = InnerOuterEvidence()
     volume = _volume(metrics, as_of)
