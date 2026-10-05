@@ -25,6 +25,9 @@ function kv<T>(key: string, throwOnWriteError = false, throwOnReadError = false)
 }
 
 export const storage = {
+  /** 個股頁是否展開進階資料（預設初學者模式） */
+  stockDetailAdvanced:  kv<boolean>('stock-detail-advanced'),
+
   /** 查詢輪詢 / SSE 配置 */
   queryConfig:          kv<unknown>('tf-stocks-query-config'),
 

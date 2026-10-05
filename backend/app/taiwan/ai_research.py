@@ -47,6 +47,7 @@ from app.taiwan.abnormal_diagnostics import (
     TaiwanAbnormalDiagnosticItem,
     TaiwanAbnormalDiagnosticsService,
 )
+from app.taiwan.beginner_selection import BEGINNER_EVIDENCE_REGISTRY_KEYS
 from app.taiwan.realtime.calendar import TaiwanTradingCalendar, taipei_now
 from app.taiwan.research_context import (
     TaiwanStockResearchContext,
@@ -690,6 +691,10 @@ SYSTEM_PROMPT = """你是一個客觀、確定性導向的「台股個股研究�
    - 新聞報導為外部媒體視角與市場脈絡，供解讀市場關注焦點，但絕對不得將新聞中的說法、傳聞、市場猜測或非官方預估升格為既定事實證明。
    - 若新聞來源狀態 (news_status) 標示為 unavailable、rate_limited 或 auth_required，必須客觀陳述「新聞來源暫時無法連線或未提供」，嚴禁推論或宣稱「市場確認完全無相關新聞」或「新聞面平靜無事」。只有在 news_status 為 available 且新聞清單為空時，才可陳述「近期無相關媒體新聞收錄」。
    - 不得自己編造新聞或擴充新聞內容。
+11. 初學者選股結果 (beginner_selection)：
+   - beginner_selection 是系統以固定規則產生的確定性篩選優先度，不是報酬預測，也不是 AI 結論。
+   - 不得更改、重排或重新評分 selection_state 與 signal_strength，也不得產生新的價位。
+   - 若其他證據顯示不同看法，只能以「補充解讀」陳述並引用對應證據鍵，不得宣稱原選股結果錯誤或應被取代。
 """
 
 
@@ -808,6 +813,7 @@ class TaiwanAIResearchService:
         purpose: str = "research",
         refresh: bool = False,
         bypass_cache: bool = False,
+        selection_evidence: dict[str, Any] | None = None,
     ) -> TaiwanAIResearchRun:
         """Assembles deterministic evidence and generates a grounded AI research report."""
         started_at = taipei_now().isoformat()
@@ -857,6 +863,10 @@ class TaiwanAIResearchService:
 
         # 2. Build Flattened Evidence Registry and Compact Payload
         evidence_payload, registry_keys, missing_items = build_evidence_registry(ctx, diag_item, report_personal_context)
+        # Deterministic beginner selection is current-state evidence only.
+        if selection_evidence is not None and target_date is None:
+            evidence_payload["beginner_selection"] = selection_evidence
+            registry_keys.update(BEGINNER_EVIDENCE_REGISTRY_KEYS)
         config_snapshot = snapshot_ai_provider_config()
         provider_snapshot = config_snapshot.provider
         model_snapshot = config_snapshot.model

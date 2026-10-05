@@ -16,6 +16,7 @@ vi.mock('@/lib/api', () => ({
     typeof record.prompt_versions?.research === 'string' ? record.prompt_versions.research : record.prompt_version ?? null,
   api: {
     taiwanSearch: vi.fn().mockResolvedValue({ results: [] }),
+    beginnerSelectionSymbol: vi.fn().mockRejectedValue(new Error('not mocked')),
     taiwanSocialSentiment: vi.fn().mockResolvedValue({
       status: 'partial', as_of: '2026-09-29', generated_at: '2026-09-29T15:30:00+08:00', snapshot_slot: 'after_close',
       sources: { ptt: { status: 'available' }, dcard: { status: 'unavailable' } }, rankings: [],
@@ -83,6 +84,8 @@ function LocationState() {
 
 beforeEach(() => {
   window.history.replaceState(null, '')
+  // Existing assertions target the advanced panels; beginner default is covered separately.
+  localStorage.setItem('stock-detail-advanced', 'true')
   vi.mocked(api.buyPointStrategies).mockResolvedValue({
     strategies: [{
       id: 'pullback-v1', name: '回檔策略', description: '', category: 'pullback', enabled: true, preset: false,
@@ -619,5 +622,23 @@ describe('TaiwanStockDetail — AI Research', () => {
     await waitFor(() => expect(vi.mocked(api.taiwanStockAIResearch)).toHaveBeenCalledTimes(1))
     await waitFor(() => expect(screen.getByTestId('location-state')).toHaveTextContent('"returnTo":"/monitor"'))
     expect(screen.getByTestId('location-state')).not.toHaveTextContent('aiResearchRequested')
+  })
+})
+
+describe('TaiwanStockDetail — beginner-first progressive disclosure', () => {
+  it('shows the beginner conclusion first and hides raw panels until expanded', async () => {
+    localStorage.removeItem('stock-detail-advanced')
+    const { beginnerCandidate, beginnerSelection } = await import('@/test/beginnerFixtures')
+    vi.mocked(api.beginnerSelectionSymbol).mockResolvedValue({
+      version: 'beginner-selection-v1', generated_at: '', market: beginnerSelection().market,
+      candidate: beginnerCandidate('2330.TWSE'), disclaimer: '',
+    })
+    renderAt(['/stocks/2330.TWSE'], 0)
+    expect(await screen.findByText('這檔股票現在怎麼看？')).toBeInTheDocument()
+    expect(await screen.findByText(/觀察區：94～97/)).toBeInTheDocument()
+    expect(screen.queryByRole('heading', { level: 1, name: '台積電' })).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: /展開進階資料/ }))
+    expect(await screen.findByRole('heading', { level: 1, name: '台積電' })).toBeInTheDocument()
+    expect(localStorage.getItem('stock-detail-advanced')).toBe('true')
   })
 })

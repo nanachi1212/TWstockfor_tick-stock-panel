@@ -6,7 +6,7 @@
 // 涵蓋：市場強弱摘要、產業強弱 top/bottom、自選股快覽 (empty/populated)、
 // 市場或產業查詢失敗時 Dashboard 仍可渲染不白屏。
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { MemoryRouter, useLocation } from 'react-router-dom'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { Dashboard } from './Dashboard'
@@ -83,6 +83,7 @@ function buildDiagnostics(
 
 vi.mock('@/lib/api', () => ({
   api: {
+    beginnerSelection: vi.fn().mockRejectedValue(new Error('not mocked')),
     taiwanDataStatus: vi.fn().mockResolvedValue({
       daily_as_of: null,
       institutional_as_of: null,
@@ -622,5 +623,17 @@ describe('Dashboard — Market data honesty (DAILY_USE_CORE_UX_FIXES P1-1)', () 
     expect(screen.queryByText('最近交易日沒有觸發異常規則。')).not.toBeInTheDocument()
     expect(screen.getByText('異常 資料不完整')).toBeInTheDocument()
     expect(screen.queryByText(/異常 \d+ 檔/)).not.toBeInTheDocument()
+  })
+})
+
+describe('Dashboard — Beginner Stock Picker', () => {
+  it('puts today picks first with at most five cards', async () => {
+    const { beginnerSelection } = await import('@/test/beginnerFixtures')
+    vi.mocked(api.beginnerSelection).mockResolvedValue(beginnerSelection(8))
+    renderDashboard()
+    expect(await screen.findByText('今天市場怎麼看？')).toBeInTheDocument()
+    const section = screen.getByRole('region', { name: '今日選股' })
+    expect(within(section).getAllByRole('article')).toHaveLength(5)
+    expect(within(section).getByRole('link', { name: '查看全部' })).toHaveAttribute('href', '/picks')
   })
 })

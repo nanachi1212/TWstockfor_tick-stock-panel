@@ -3279,6 +3279,95 @@ export interface DataHealthJob {
   reason: string | null
 }
 
+// ── Beginner Stock Picker v1 (今日選股) ──
+export type BeginnerSelectionState = 'watch' | 'wait_pullback' | 'wait_breakout' | 'no_chase' | 'skip'
+export type BeginnerSignalStrength = 'weak' | 'medium' | 'strong'
+export type BeginnerDirection = 'positive' | 'neutral' | 'negative' | 'unavailable'
+export type BeginnerMarketState = 'favorable' | 'neutral' | 'cautious' | 'unavailable'
+
+export interface BeginnerEvidenceReason {
+  reason_code: string
+  evidence_key: string
+  direction: BeginnerDirection
+  display_text: string
+}
+
+export interface BeginnerDimension {
+  key: string
+  label: string
+  status: BeginnerDirection
+  explanation: string
+  evidence: Record<string, unknown>
+  source: string
+}
+
+export interface BeginnerPlanLevels {
+  rule_version: string
+  entry_semantics: string
+  entry_zone_low: number | null
+  entry_zone_high: number | null
+  breakout_trigger: number | null
+  stop_price: number
+  evidence_as_of: string
+  plan_identity: string
+}
+
+export interface BeginnerCandidate {
+  symbol: string
+  name: string
+  industry: string | null
+  close: number | null
+  as_of: string | null
+  rank: number | null
+  selection_state: BeginnerSelectionState
+  signal_strength: BeginnerSignalStrength
+  reasons: BeginnerEvidenceReason[]
+  risks: BeginnerEvidenceReason[]
+  exclusion_reasons: BeginnerEvidenceReason[]
+  action_summary: string
+  invalidation: string | null
+  evidence_status: 'complete' | 'partial' | 'insufficient'
+  data_gaps: string[]
+  dimensions: BeginnerDimension[]
+  trade_plan: BeginnerPlanLevels | null
+  plan_unavailable_reason: string | null
+}
+
+export interface BeginnerMarketSummary {
+  state: BeginnerMarketState
+  headline: string
+  explanation: string
+  guidance: string
+  as_of: string | null
+  advance_count: number | null
+  decline_count: number | null
+  strongest_industries: string[]
+  source: string
+}
+
+export interface BeginnerSelectionResponse {
+  version: string
+  status: 'ready' | 'degraded' | 'unavailable'
+  as_of: string | null
+  generated_at: string
+  market: BeginnerMarketSummary
+  candidates: BeginnerCandidate[]
+  not_selected: BeginnerCandidate[]
+  universe_count: number
+  eligible_count: number
+  data_gaps: string[]
+  evidence_policy: { critical: string[]; optional: string[] }
+  disclaimer: string
+}
+
+export interface BeginnerSymbolResponse {
+  version: string
+  generated_at: string
+  market: BeginnerMarketSummary
+  candidate: BeginnerCandidate
+  disclaimer: string
+}
+
 export const api = {
   marketBreadthValuation: (asOf?: string, market: ResearchMarket = 'composite', days = 20, sections: ResearchSections = 'all') => {
     const query = new URLSearchParams({ market, days: String(days), sections })
@@ -4265,6 +4354,10 @@ export const api = {
     const qs = symbol ? `?symbol=${encodeURIComponent(symbol)}` : ''
     return request<{ signals: BuyPointSignal[]; triggered: AlertEvent[] }>(`/api/taiwan/buy-points/evaluate${qs}`, { method: 'POST' })
   },
+  beginnerSelection: (limit = 20) =>
+    request<BeginnerSelectionResponse>(`/api/taiwan/beginner-selection?limit=${limit}`),
+  beginnerSelectionSymbol: (symbol: string) =>
+    request<BeginnerSymbolResponse>(`/api/taiwan/beginner-selection/stocks/${encodeURIComponent(symbol)}`),
   buyPointSummary: () =>
     request<{ counts: Record<BuyPointStatus, number>; total: number }>('/api/taiwan/buy-points/summary'),
   buyPointSnapshot: (strategyId: string, symbol: string) =>

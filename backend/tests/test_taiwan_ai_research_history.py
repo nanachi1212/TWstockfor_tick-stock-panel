@@ -394,6 +394,10 @@ def test_generation_api_persists_the_frozen_run_and_forwards_refresh(tmp_path, m
 
     monkeypatch.setattr("app.api.taiwan.TaiwanAIResearchService", FakeService)
     monkeypatch.setattr("app.api.taiwan.get_ai_research_history_store", lambda: store)
+    selection = {"selection_state": "watch"}
+    monkeypatch.setattr(
+        "app.taiwan.beginner_selection.selection_evidence", lambda symbol: selection
+    )
     client = TestClient(app, client=("127.0.0.1", 50000))
 
     response = client.post(
@@ -408,6 +412,7 @@ def test_generation_api_persists_the_frozen_run_and_forwards_refresh(tmp_path, m
         "personal_context": None,
         "purpose": "alert",
         "refresh": True,
+        "selection_evidence": selection,
     })]
     [saved] = store.list()
     assert saved["evidence_payload"] == frozen.evidence_payload

@@ -17,6 +17,7 @@ import { PortfolioPanel } from '@/components/portfolio/Portfolio'
 import { MarketSentimentCard } from '@/components/dashboard/MarketSentimentCard'
 import { TodayEventsWidget } from '@/components/dashboard/TodayEventsWidget'
 import { DataHealthSummary } from '@/components/dashboard/DataHealthSummary'
+import { BeginnerDashboardWidget } from '@/components/beginner/BeginnerPicker'
 
 function n(v: number | null | undefined) {
   return typeof v === 'number' && Number.isFinite(v) ? v : null
@@ -950,6 +951,8 @@ export function Dashboard() {
           台股資料狀態卡保留在底部，供需要時確認資料新鮮度。
           (資料新鮮度) 移到最下層。Phase 8C-D: 中國 A 股 legacy 大盤看板整段已
           移除產品介面, Dashboard 全站僅剩台股內容, 不再有任何 legacy 開關。 */}
+      {/* Beginner Stock Picker v1: 第一屏先回答「今天適不適合選股、看哪幾檔、現在怎麼做」。 */}
+      <BeginnerDashboardWidget />
       <MarketOverviewCard
         snapshot={diagnostics.data?.market_snapshot ?? (diagnostics.isError ? marketFallback.data : undefined)}
         loading={marketDataStatus.isLoading || diagnostics.isLoading || (diagnostics.isError && marketFallback.isLoading)}

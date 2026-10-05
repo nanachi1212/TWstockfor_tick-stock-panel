@@ -45,6 +45,7 @@ import { WatchlistAddMenu } from '@/components/WatchlistAddMenu'
 import { useSafeBack } from '@/lib/useSafeBack'
 import { TodaySelection, selectionReasons } from '@/components/quant/TodaySelection'
 import { PortfolioPanel } from '@/components/portfolio/Portfolio'
+import { BeginnerStockView } from '@/components/beginner/BeginnerPicker'
 import { useTodayQuantSelection } from '@/components/quant/TodaySelection'
 import { storage } from '@/lib/storage'
 import { buildPortfolioPositions, isPortfolioTransaction, registeredHoldingsSummary, type PortfolioTransaction, type PortfolioPosition } from '@/lib/portfolio'
@@ -117,6 +118,14 @@ export function TaiwanStockDetail() {
   const [volUnit, setVolUnit] = useState<'lots' | 'shares'>('lots')
   const [portfolioRevision, setPortfolioRevision] = useState(0)
   const autoAnalyzeStartedFor = useRef<string | null>(null)
+  // Beginner Stock Picker v1: 第一屏只給結論；原始數據收在「展開進階資料」。
+  const [showAdvanced, setShowAdvanced] = useState<boolean>(() => storage.stockDetailAdvanced.get(false))
+  const toggleAdvanced = useCallback(() => {
+    setShowAdvanced(prev => {
+      storage.stockDetailAdvanced.set(!prev)
+      return !prev
+    })
+  }, [])
 
   useEffect(() => {
     const refreshPortfolio = () => setPortfolioRevision(revision => revision + 1)
@@ -503,8 +512,8 @@ export function TaiwanStockDetail() {
   return (
     <div className="flex flex-col min-h-screen bg-base text-foreground pb-12">
       {/* 頂部導航列與搜尋 */}
-      <div className="sticky top-0 z-30 flex items-center justify-between border-b border-border bg-surface/90 px-4 py-2.5 backdrop-blur-md">
-        <div className="flex items-center gap-3">
+      <div className="sticky top-0 z-30 flex flex-wrap items-center justify-between gap-2 border-b border-border bg-surface/90 px-4 py-2.5 backdrop-blur-md">
+        <div className="flex min-w-0 flex-wrap items-center gap-3">
           <button
             onClick={goBack}
             className="flex items-center gap-1.5 rounded-lg border border-border/80 bg-base px-2.5 py-1 text-xs font-medium text-muted hover:border-accent/50 hover:text-foreground transition-all cursor-pointer"
@@ -513,7 +522,7 @@ export function TaiwanStockDetail() {
             <span>返回</span>
           </button>
           <div className="h-4 w-px bg-border" />
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <span className="text-xs font-mono font-bold text-accent">{symbol}</span>
             <span className="text-sm font-semibold">{data?.identity?.name || '--'}</span>
             <span className="rounded bg-elevated px-1.5 py-0.5 text-[10px] font-mono text-muted">
@@ -589,7 +598,7 @@ export function TaiwanStockDetail() {
               }}
               onFocus={() => setIsSearchOpen(true)}
               placeholder="搜尋台股代號或名稱..."
-              className="w-48 sm:w-64 rounded-lg border border-border bg-base pl-8 pr-3 py-1 text-xs text-foreground placeholder:text-muted focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent"
+              className="w-40 sm:w-64 rounded-lg border border-border bg-base pl-8 pr-3 py-1 text-xs text-foreground placeholder:text-muted focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent"
             />
           </div>
 
@@ -645,8 +654,13 @@ export function TaiwanStockDetail() {
         </div>
       </div>
 
+      {/* Beginner Stock Picker v1: 結論不依賴個股工作台資料，先獨立顯示。 */}
+      <div className="px-4 pt-4 max-w-7xl mx-auto w-full">
+        <BeginnerStockView symbol={symbol} advanced={showAdvanced} onToggleAdvanced={toggleAdvanced} />
+      </div>
+
       {/* 載入與錯誤處理 */}
-      {isLoading && (
+      {isLoading && showAdvanced && (
         <div className="flex flex-1 items-center justify-center p-24">
           <div className="flex flex-col items-center gap-3 text-muted">
             <RefreshCw className="h-6 w-6 animate-spin text-accent" />
@@ -671,6 +685,7 @@ export function TaiwanStockDetail() {
 
       {data && !isLoading && (
         <div className="px-4 py-4 space-y-4 max-w-7xl mx-auto w-full">
+          {showAdvanced && (<>
           <TodaySelection symbol={symbol} />
           <PortfolioPanel
             symbol={symbol}
@@ -1669,6 +1684,7 @@ export function TaiwanStockDetail() {
               </div>
             </div>
           </div>
+          </>)}
         </div>
       )}
 
