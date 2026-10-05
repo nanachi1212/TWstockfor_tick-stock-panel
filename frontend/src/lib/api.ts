@@ -3254,6 +3254,11 @@ export interface DatasetHealth {
   name: string
   status: DataHealthStatus
   source: string | null
+  provider?: string | null
+  enabled?: boolean | null
+  auth_configured?: boolean | null
+  as_of?: string | null
+  error?: string | null
   data_date: string | null
   freshness: string
   reason: string
@@ -3306,10 +3311,172 @@ export interface BeginnerPlanLevels {
   entry_semantics: string
   entry_zone_low: number | null
   entry_zone_high: number | null
+  reference_high: number | null
   breakout_trigger: number | null
   stop_price: number
   evidence_as_of: string
   plan_identity: string
+}
+
+export type BeginnerTechnicalStatus = 'available' | 'unavailable' | 'data_insufficient'
+
+export interface ExternalProviderResult {
+  source: string
+  status: 'available' | 'partial' | 'unavailable' | 'stale'
+  as_of: string | null
+  retrieved_at: string | null
+  freshness: string
+  data: Record<string, unknown> | null
+  error_reason: string | null
+}
+
+export interface ExternalContextResponse {
+  intraday_context: ExternalProviderResult
+  fx_context: ExternalProviderResult
+}
+
+export interface BeginnerPriceLevelsEvidence {
+  status: BeginnerTechnicalStatus
+  current_price: number | null
+  support_zone_low: number | null
+  support_zone_high: number | null
+  resistance: number | null
+  invalidation: number | null
+  support_distance_low_pct: number | null
+  support_distance_high_pct: number | null
+  resistance_distance_pct: number | null
+  explanation: string
+  source: string
+  as_of: string | null
+  freshness: string
+}
+
+export interface BeginnerTechnicalPanel {
+  summary: string
+  current_price: number | null
+  support: BeginnerPriceLevelsEvidence
+  resistance: BeginnerPriceLevelsEvidence
+  invalidation: BeginnerPriceLevelsEvidence
+  moving_averages: {
+    status: BeginnerTechnicalStatus
+    state: 'strong' | 'neutral' | 'weak' | 'unavailable'
+    ma5: number | null
+    ma20: number | null
+    ma60: number | null
+    bullish_alignment: boolean | null
+    explanation: string
+    source: string
+    as_of: string | null
+    freshness: string
+  }
+  inner_outer: {
+    status: BeginnerTechnicalStatus
+    outer_pct: number | null
+    inner_pct: number | null
+    last_price: number | null
+    trade_volume: number | null
+    trade_value: number | null
+    bids: Array<[number, number]>
+    asks: Array<[number, number]>
+    explanation: string
+    source: string
+    as_of: string | null
+    freshness: string
+    disclaimer: string
+  }
+  volume: {
+    status: BeginnerTechnicalStatus
+    today_volume: number | null
+    average_20d: number | null
+    ratio: number | null
+    pattern: 'price_up_volume_up' | 'price_up_volume_down' | 'price_down_volume_up' | 'price_down_volume_down' | 'neutral' | 'unavailable'
+    explanation: string
+    source: string
+    as_of: string | null
+    freshness: string
+  }
+  institutional: {
+    status: BeginnerTechnicalStatus
+    state: 'buy' | 'neutral' | 'sell' | 'increase_fast' | 'decrease' | 'stable' | 'unavailable'
+    total_net_5d: number | null
+    foreign_net_5d: number | null
+    investment_trust_net_5d: number | null
+    dealer_net_5d: number | null
+    complete_sessions: number
+    explanation: string
+    source: string
+    as_of: string | null
+    freshness: string
+  }
+  margin: {
+    status: BeginnerTechnicalStatus
+    margin_state: 'buy' | 'neutral' | 'sell' | 'increase_fast' | 'decrease' | 'stable' | 'unavailable'
+    short_state: 'buy' | 'neutral' | 'sell' | 'increase_fast' | 'decrease' | 'stable' | 'unavailable'
+    margin_balance: number | null
+    margin_change: number | null
+    short_balance: number | null
+    short_change: number | null
+    explanation: string
+    source: string
+    as_of: string | null
+    freshness: string
+  }
+  relative_strength: {
+    status: BeginnerTechnicalStatus
+    state: 'stronger' | 'similar' | 'weaker' | 'unavailable'
+    period_sessions: number
+    stock_return_pct: number | null
+    benchmark_return_pct: number | null
+    excess_return_pct: number | null
+    benchmark_symbol: string
+    explanation: string
+    source: string
+    as_of: string | null
+    freshness: string
+  }
+  range_position: {
+    status: BeginnerTechnicalStatus
+    low_20d: number | null
+    high_20d: number | null
+    position_pct: number | null
+    explanation: string
+    source: string
+    as_of: string | null
+    freshness: string
+  }
+  volatility: {
+    status: BeginnerTechnicalStatus
+    level: 'low' | 'normal' | 'high' | 'unavailable'
+    atr_14: number | null
+    atr_pct: number | null
+    explanation: string
+    source: string
+    as_of: string | null
+    freshness: string
+  }
+  market_context: {
+    status: BeginnerTechnicalStatus
+    market_state: string
+    industry_state: 'strong' | 'neutral' | 'unavailable'
+    industry: string | null
+    explanation: string
+    source: string
+    as_of: string | null
+    freshness: string
+  }
+  fundamentals: {
+    status: BeginnerTechnicalStatus
+    revenue_yoy_pct: number | null
+    revenue_mom_pct: number | null
+    eps: number | null
+    pe: number | null
+    warning: string | null
+    explanation: string
+    source: string
+    as_of: string | null
+    freshness: string
+  }
+  key_risks: Array<{ code: string; text: string; source: string }>
 }
 
 export interface BeginnerCandidate {
@@ -3331,6 +3498,9 @@ export interface BeginnerCandidate {
   dimensions: BeginnerDimension[]
   trade_plan: BeginnerPlanLevels | null
   plan_unavailable_reason: string | null
+  technical_panel: BeginnerTechnicalPanel | null
+  intraday_context: ExternalProviderResult | null
+  fx_context: ExternalProviderResult | null
 }
 
 export interface BeginnerMarketSummary {
@@ -4358,6 +4528,8 @@ export const api = {
     request<BeginnerSelectionResponse>(`/api/taiwan/beginner-selection?limit=${limit}`),
   beginnerSelectionSymbol: (symbol: string) =>
     request<BeginnerSymbolResponse>(`/api/taiwan/beginner-selection/stocks/${encodeURIComponent(symbol)}`),
+  taiwanExternalContext: (symbol?: string) =>
+    request<ExternalContextResponse>(`/api/taiwan/external-context${symbol ? `?symbol=${encodeURIComponent(symbol)}` : ''}`),
   buyPointSummary: () =>
     request<{ counts: Record<BuyPointStatus, number>; total: number }>('/api/taiwan/buy-points/summary'),
   buyPointSnapshot: (strategyId: string, symbol: string) =>

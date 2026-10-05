@@ -22,6 +22,12 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
+from app.taiwan.beginner_technical import (
+    BeginnerTechnicalPanel,
+    build_beginner_technical_panel,
+    fugle_inner_outer_evidence,
+    with_inner_outer_evidence,
+)
 from app.taiwan.buy_point import (
     BuyPointConditions,
     BuyPointMarketData,
@@ -30,6 +36,7 @@ from app.taiwan.buy_point import (
     BuyPointStrategy,
     evaluate_buy_point,
 )
+from app.taiwan.providers.external_models import ExternalProviderResult
 from app.taiwan.screener import TREND_LIQUIDITY_V1_MIN_AMOUNT_TWD
 from app.taiwan.selection_v2 import INSTITUTIONAL_FLOW_RATIO_MIN
 from app.taiwan.trade_plan import build_trade_plan
@@ -135,6 +142,7 @@ class PlanLevels(BaseModel):
     entry_semantics: str
     entry_zone_low: float | None = None
     entry_zone_high: float | None = None
+    reference_high: float | None = None
     breakout_trigger: float | None = None
     stop_price: float
     evidence_as_of: str
@@ -160,6 +168,9 @@ class BeginnerCandidate(BaseModel):
     dimensions: list[DimensionEvidence] = Field(default_factory=list)
     trade_plan: PlanLevels | None = None
     plan_unavailable_reason: str | None = None
+    technical_panel: BeginnerTechnicalPanel | None = None
+    intraday_context: ExternalProviderResult | None = None
+    fx_context: ExternalProviderResult | None = None
 
 
 class MarketSummary(BaseModel):
@@ -238,6 +249,7 @@ class BeginnerFacts(BaseModel):
     social_status: Literal["available", "partial", "unavailable"] = "unavailable"
     social_mentions: int | None = None
     dcard_status: str | None = None
+    technical_metrics: dict[str, Any] = Field(default_factory=dict)
 
 
 # ── Pure rules ───────────────────────────────────────────────────
@@ -523,7 +535,8 @@ def _plan(facts: BeginnerFacts, state: SelectionState, signal: BuyPointSignal | 
     return PlanLevels(
         rule_version=plan.rule_version, entry_semantics=plan.entry_semantics,
         entry_zone_low=plan.entry_zone_low, entry_zone_high=plan.entry_zone_high,
-        breakout_trigger=plan.breakout_trigger, stop_price=plan.stop_price,
+        reference_high=plan.reference_high, breakout_trigger=plan.breakout_trigger,
+        stop_price=plan.stop_price,
         evidence_as_of=plan.evidence_as_of.isoformat(), plan_identity=plan.plan_identity,
     ), None
 
@@ -589,7 +602,7 @@ def evaluate_candidate(
     evidence_status: Literal["complete", "partial", "insufficient"] = (
         "insufficient" if failures else "partial" if gaps else "complete"
     )
-    return BeginnerCandidate(
+    candidate = BeginnerCandidate(
         symbol=facts.symbol, name=facts.name, industry=facts.industry,
         close=_finite(facts.close), as_of=facts.quote_date,
         selection_state=state,
@@ -600,7 +613,17 @@ def evaluate_candidate(
         action_summary=action_summary, invalidation=invalidation,
         evidence_status=evidence_status, data_gaps=gaps, dimensions=dims,
         trade_plan=plan, plan_unavailable_reason=plan_reason,
-    ), score
+    )
+    regulatory_risk = (
+        f"目前有{facts.risk_reason or '處置或暫停交易'}等風險。"
+        if facts.risk_status == "flagged" else None
+    )
+    candidate.technical_panel = build_beginner_technical_panel(
+        current_price=_finite(facts.close), as_of=facts.quote_date, plan=plan,
+        metrics=facts.technical_metrics, market=market, industry=facts.industry,
+        action_summary=action_summary, regulatory_risk=regulatory_risk,
+    )
+    return candidate, score
 
 
 def level_signal(facts: BeginnerFacts) -> BuyPointSignal | None:
@@ -677,11 +700,16 @@ class BeginnerSelectionService:
     def build(self, limit: int = 20) -> BeginnerSelectionResponse:
         key = self._cache_key()
         snapshot = self._get_or_build_snapshot(key) if key is not None else self._build_snapshot(None)
-        return snapshot.response.model_copy(deep=True, update={
+        response = snapshot.response.model_copy(deep=True, update={
             "generated_at": _now(),
             "candidates": snapshot.response.candidates[:limit],
             "not_selected": snapshot.response.not_selected[:limit],
         })
+        # External context is an overlay only. It cannot enter the cached rank,
+        # selection state, TradePlan, or any scoring input.
+        visible = response.candidates[:6]
+        self._request_intraday([candidate.symbol for candidate in visible])
+        return response
 
     def _build_snapshot(self, key: tuple[Any, ...] | None) -> BeginnerSelectionSnapshot:
         eligible_date = key[1] if key is not None and len(key) > 1 else None
@@ -794,9 +822,54 @@ class BeginnerSelectionService:
 
     def evaluate_symbol(self, symbol: str) -> BeginnerSymbolResponse:
         cached = self._snapshot_candidate(symbol)
-        if cached is not None:
-            return cached
-        return self._build_uncached_symbol(symbol)
+        response = cached if cached is not None else self._build_uncached_symbol(symbol)
+        self._request_intraday([response.candidate.symbol])
+        response.candidate = self._with_external(response.candidate, fx=self._fx_context())
+        return response
+
+    @staticmethod
+    def _fx_context() -> ExternalProviderResult:
+        try:
+            from app.taiwan.providers.fx_context import get_frankfurter_fx_provider
+
+            return get_frankfurter_fx_provider().get_context()
+        except Exception as exc:
+            logger.debug("beginner FX context unavailable: %s", type(exc).__name__)
+            return ExternalProviderResult.unavailable(
+                "frankfurter:v2:provider:CBC", "provider_unavailable",
+            )
+
+    @staticmethod
+    def _request_intraday(symbols: list[str]) -> None:
+        try:
+            from app.taiwan.realtime.fugle_provider import get_fugle_aggregates_provider
+
+            get_fugle_aggregates_provider().request_symbols(symbols)
+        except Exception as exc:
+            logger.debug("beginner Fugle subscription unavailable: %s", type(exc).__name__)
+
+    @staticmethod
+    def _with_external(
+        candidate: BeginnerCandidate, *, fx: ExternalProviderResult,
+    ) -> BeginnerCandidate:
+        copied = candidate.model_copy(deep=True, update={"fx_context": fx.model_copy(deep=True)})
+        try:
+            from app.taiwan.external_context import intraday_context
+            from app.taiwan.realtime.fugle_provider import get_fugle_aggregates_provider
+
+            observation = get_fugle_aggregates_provider().observe(copied.symbol)
+            copied.intraday_context = intraday_context(copied.symbol)
+            if copied.technical_panel is not None:
+                copied.technical_panel = with_inner_outer_evidence(
+                    copied.technical_panel,
+                    fugle_inner_outer_evidence(observation),
+                )
+        except Exception as exc:
+            logger.debug("beginner intraday context unavailable: %s", type(exc).__name__)
+            copied.intraday_context = ExternalProviderResult.unavailable(
+                "fugle_marketdata:websocket:aggregates", "provider_unavailable",
+            )
+        return copied
 
     def _collect(self, scope: list[str] | None, *, eligible_date: str | None = None):
         # The collectors below only read local stores; failures degrade to unavailable.
@@ -833,6 +906,7 @@ class BeginnerSelectionService:
         if risk_ctx is None:
             gaps.append("事件風險資料不可用")
         daily = self._daily_rows(symbols, as_of_date)
+        technical = self._technical_metrics(symbols, as_of_date)
         social = self._social(as_of_date)
         if social["status"] == "unavailable":
             gaps.append("市場討論來源目前不可用")
@@ -843,6 +917,34 @@ class BeginnerSelectionService:
         for item in items:
             t = trend.get(item.symbol) if trend is not None else None
             risk_status, risk_reason, attention = self._risk_for(item.symbol, as_of_date, risk_ctx)
+            technical_metrics = dict(technical.get(item.symbol, {}))
+            institutional_5d = (
+                getattr(item, "foreign_net_5d", None),
+                getattr(item, "investment_trust_net_5d", None),
+                getattr(item, "dealer_net_5d", None),
+            )
+            technical_metrics.update({
+                "foreign_net_5d": institutional_5d[0],
+                "investment_trust_net_5d": institutional_5d[1],
+                "dealer_net_5d": institutional_5d[2],
+                "institutional_complete_sessions": (
+                    5 if all(value is not None for value in institutional_5d)
+                    and getattr(item, "institutional_flow_ratio_5d", None) is not None else 0
+                ),
+                "institutional_as_of": getattr(item, "institutional_date", None),
+                "institutional_status": getattr(item, "institutional_status", "unavailable"),
+                "margin_balance": getattr(item, "margin_balance", None),
+                "margin_change": getattr(item, "margin_balance_change", None),
+                "short_balance": getattr(item, "short_balance", None),
+                "short_change": getattr(item, "short_balance_change", None),
+                "margin_as_of": getattr(item, "margin_date", None),
+                "margin_status": getattr(item, "margin_status", "unavailable"),
+                "revenue_yoy": getattr(item, "revenue_yoy", None),
+                "revenue_mom": getattr(item, "revenue_mom", None),
+                "eps": getattr(item, "latest_eps", None),
+                "pe": getattr(item, "pe", None),
+                "revenue_status": getattr(item, "revenue_status", "unavailable"),
+            })
             facts.append(BeginnerFacts(
                 symbol=item.symbol, name=item.name, industry=item.industry,
                 instrument_type=item.instrument_type, quote_date=item.quote_date,
@@ -859,6 +961,7 @@ class BeginnerSelectionService:
                 social_status=social["status"],
                 social_mentions=(social["mentions"].get(item.symbol, 0) if social["status"] != "unavailable" else None),
                 dcard_status=social["dcard_status"],
+                technical_metrics=technical_metrics,
             ))
         amounts = {item.symbol: float(item.amount) for item in items if item.amount is not None}
         return market, facts, amounts, gaps, len(items)
@@ -993,6 +1096,120 @@ class BeginnerSelectionService:
             })
         return out
 
+    def _technical_metrics(self, symbols: list[str], as_of: date) -> dict[str, dict[str, Any]]:
+        """Reuse the canonical PIT factor panel for current beginner evidence."""
+        try:
+            import polars as pl
+
+            from app.taiwan.adjust import adjust_prices_as_of
+            from app.taiwan.providers.taiwan_values import market_close
+            from app.taiwan.quant.panel import build_factor_panel
+
+            store = self.screener.daily_store
+            dates = [day for day in store.available_dates() if day <= as_of]
+            if len(dates) < 2:
+                return {}
+            start = dates[max(0, len(dates) - 65)]
+            benchmark_symbol = "0050.TWSE"
+            history = store.read_range([*symbols, benchmark_symbol], start, as_of)
+            if history is None or history.is_empty():
+                return {}
+            events = self.screener.action_store.read_verified_window(start, as_of)
+            if events is None:
+                return {}
+
+            benchmark_raw = history.filter(pl.col("symbol") == benchmark_symbol)
+            market = pl.DataFrame()
+            if not benchmark_raw.is_empty():
+                adjusted_benchmark = adjust_prices_as_of(
+                    benchmark_raw, as_of=as_of, events=events,
+                )
+                if adjusted_benchmark.status == "verified":
+                    market = pl.DataFrame([
+                        {
+                            "date": row["date"],
+                            "close": row["close"],
+                            "available_at": market_close(row["date"]),
+                        }
+                        for row in adjusted_benchmark.to_frame().select("date", "close").iter_rows(named=True)
+                    ])
+
+            stock_history = history.filter(pl.col("symbol").is_in(symbols))
+            if stock_history.is_empty():
+                return {}
+            factor_panel = build_factor_panel(
+                stock_history,
+                events=events,
+                policy_version="beginner-technical-v1",
+                universe_tier="current_live_verified",
+                market=market,
+                as_of=as_of,
+            )
+            factor_rows = {
+                row["symbol"]: row for row in factor_panel.values.iter_rows(named=True)
+            }
+            result: dict[str, dict[str, Any]] = {}
+            for symbol in symbols:
+                row = factor_rows.get(symbol)
+                if row is None:
+                    continue
+                metrics: dict[str, Any] = {
+                    "adjusted_close": None,
+                    "ma5": row.get("ma5"),
+                    "ma20": row.get("ma20"),
+                    "ma60": row.get("ma60"),
+                    "atr_14": row.get("atr_14"),
+                    "volume_ratio_20d": row.get("relative_volume"),
+                    "stock_return_20d": (
+                        row["stock_return_20d"] * 100.0
+                        if row.get("stock_return_20d") is not None else None
+                    ),
+                    "benchmark_return_20d": (
+                        row["market_return_20d"] * 100.0
+                        if row.get("market_return_20d") is not None else None
+                    ),
+                    "relative_return_20d": (
+                        row["relative_to_market_20d"] * 100.0
+                        if row.get("relative_to_market_20d") is not None else None
+                    ),
+                }
+                raw_series = stock_history.filter(pl.col("symbol") == symbol).sort("date")
+                adjusted = adjust_prices_as_of(raw_series, as_of=as_of, events=events)
+                if adjusted.status == "verified":
+                    bars = adjusted.to_frame().sort("date").to_dicts()
+                    if bars:
+                        current = _finite(bars[-1].get("close"))
+                        metrics["adjusted_close"] = current
+                        metrics["today_volume"] = _finite(bars[-1].get("volume"))
+                        if len(bars) >= 2:
+                            previous = _finite(bars[-2].get("close"))
+                            metrics["price_change_pct"] = (
+                                (current / previous - 1.0) * 100.0
+                                if current is not None and previous is not None and previous > 0 else None
+                            )
+                        recent = bars[-20:]
+                        lows = [_finite(bar.get("low")) for bar in recent]
+                        highs = [_finite(bar.get("high")) for bar in recent]
+                        if len(recent) == 20 and all(value is not None for value in [*lows, *highs]):
+                            low = min(value for value in lows if value is not None)
+                            high = max(value for value in highs if value is not None)
+                            metrics["low_20d"] = low
+                            metrics["high_20d"] = high
+                            metrics["range_position_pct"] = (
+                                (current - low) / (high - low) * 100.0
+                                if current is not None and high > low else None
+                            )
+                ratio = _finite(metrics.get("volume_ratio_20d"))
+                today_volume = _finite(metrics.get("today_volume"))
+                metrics["average_volume_20d"] = (
+                    today_volume / ratio if today_volume is not None and ratio is not None and ratio > 0 else None
+                )
+                result[symbol] = metrics
+            return result
+        except Exception as exc:
+            logger.debug("beginner technical evidence unavailable: %s", type(exc).__name__)
+            return {}
+
     @staticmethod
     def _social(as_of: date) -> dict[str, Any]:
         unavailable: dict[str, Any] = {"status": "unavailable", "dcard_status": None, "mentions": {}}
@@ -1027,6 +1244,38 @@ BEGINNER_EVIDENCE_REGISTRY_KEYS = frozenset({
     "beginner_selection.risks",
     "beginner_selection.action_summary",
     "beginner_selection.invalidation",
+    "beginner_selection.technical_panel.summary",
+    "beginner_selection.technical_panel.current_price",
+    "beginner_selection.technical_panel.support.support_zone_low",
+    "beginner_selection.technical_panel.support.support_zone_high",
+    "beginner_selection.technical_panel.resistance.resistance",
+    "beginner_selection.technical_panel.invalidation.invalidation",
+    "beginner_selection.technical_panel.moving_averages.state",
+    "beginner_selection.technical_panel.moving_averages.ma5",
+    "beginner_selection.technical_panel.moving_averages.ma20",
+    "beginner_selection.technical_panel.moving_averages.ma60",
+    "beginner_selection.technical_panel.inner_outer.status",
+    "beginner_selection.technical_panel.volume.ratio",
+    "beginner_selection.technical_panel.volume.pattern",
+    "beginner_selection.technical_panel.institutional.state",
+    "beginner_selection.technical_panel.institutional.total_net_5d",
+    "beginner_selection.technical_panel.margin.margin_state",
+    "beginner_selection.technical_panel.margin.short_state",
+    "beginner_selection.technical_panel.relative_strength.stock_return_pct",
+    "beginner_selection.technical_panel.relative_strength.benchmark_return_pct",
+    "beginner_selection.technical_panel.relative_strength.excess_return_pct",
+    "beginner_selection.technical_panel.range_position.position_pct",
+    "beginner_selection.technical_panel.volatility.level",
+    "beginner_selection.technical_panel.volatility.atr_pct",
+    "beginner_selection.technical_panel.market_context.market_state",
+    "beginner_selection.technical_panel.market_context.industry_state",
+    "beginner_selection.technical_panel.fundamentals.revenue_yoy_pct",
+    "beginner_selection.technical_panel.fundamentals.revenue_mom_pct",
+    "beginner_selection.technical_panel.fundamentals.eps",
+    "beginner_selection.technical_panel.fundamentals.pe",
+    "beginner_selection.technical_panel.key_risks",
+    "beginner_selection.intraday_context",
+    "beginner_selection.fx_context",
 })
 
 
@@ -1053,4 +1302,11 @@ def selection_evidence(symbol: str, service: BeginnerSelectionService | None = N
         "evidence_status": candidate.evidence_status,
         "data_gaps": candidate.data_gaps,
         "trade_plan": candidate.trade_plan.model_dump() if candidate.trade_plan else None,
+        "technical_panel": (
+            candidate.technical_panel.model_dump() if candidate.technical_panel else None
+        ),
+        "intraday_context": (
+            candidate.intraday_context.model_dump() if candidate.intraday_context else None
+        ),
+        "fx_context": candidate.fx_context.model_dump() if candidate.fx_context else None,
     }

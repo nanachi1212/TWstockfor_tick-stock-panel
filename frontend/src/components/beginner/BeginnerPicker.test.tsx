@@ -82,7 +82,7 @@ describe('Beginner Stock Picker', () => {
     expect(screen.getAllByText('資料不足').length).toBeGreaterThan(0)
   })
 
-  it('stock view is beginner-first and reveals evidence sources only when advanced', async () => {
+  it('stock view shows all eight beginner sections and reveals raw evidence only when advanced', async () => {
     vi.mocked(api.beginnerSelectionSymbol).mockResolvedValue({
       version: 'beginner-selection-v1', generated_at: '', market: beginnerSelection().market,
       candidate: beginnerCandidate('2330.TWSE'), disclaimer: '',
@@ -90,7 +90,16 @@ describe('Beginner Stock Picker', () => {
     const onToggle = vi.fn()
     const { rerender } = renderWith(<BeginnerStockView symbol="2330.TWSE" advanced={false} onToggleAdvanced={onToggle} />)
     expect(await screen.findByText('結論')).toBeInTheDocument()
-    for (const label of ['結論', '理由', '主要風險', '下一步']) expect(screen.getByText(label)).toBeInTheDocument()
+    for (const label of ['現在怎麼做', '價格位置', '趨勢與均線', '買賣力道', '資金籌碼', '相對強弱', '基本面', '主要風險']) {
+      expect(screen.getByRole('region', { name: label })).toBeInTheDocument()
+    }
+    for (const label of ['結論', '理由', '下一步']) expect(screen.getByText(label)).toBeInTheDocument()
+    expect(screen.getByText('支撐區')).toBeInTheDocument()
+    expect(screen.getByText('壓力位')).toBeInTheDocument()
+    expect(screen.getByText('目前沒有可靠的即時內外盤資料。')).toBeInTheDocument()
+    expect(screen.getByText('個股 20 日')).toBeInTheDocument()
+    expect(screen.queryByText('MA5')).not.toBeInTheDocument()
+    expect(screen.queryByText(/RSI|MACD|KD|Bollinger|DMI|ADX|OBV|Fibonacci|Elliott/i)).not.toBeInTheDocument()
     expect(screen.queryByText(/screener\.trend_pit/)).not.toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: /展開進階資料/ }))
     expect(onToggle).toHaveBeenCalled()
@@ -100,6 +109,7 @@ describe('Beginner Stock Picker', () => {
       </QueryClientProvider>,
     )
     expect(await screen.findByText(/screener\.trend_pit/)).toBeInTheDocument()
+    expect(screen.getByText('MA5')).toBeInTheDocument()
     expect(screen.getByText('市場討論')).toBeInTheDocument()
     expect(screen.getByText('來源目前不可用。')).toBeInTheDocument()
   })
@@ -113,5 +123,51 @@ describe('Beginner Stock Picker', () => {
     expect(await screen.findByText('為什麼沒被選？')).toBeInTheDocument()
     expect(screen.getAllByText('暫時略過').length).toBeGreaterThan(0)
     expect(screen.queryByText(/觀察區/)).not.toBeInTheDocument()
+  })
+
+  it('shows Fugle inner/outer ratios and timestamp, and hides stale ratios', async () => {
+    const live = beginnerCandidate('2330.TWSE')
+    live.technical_panel!.inner_outer = {
+      status: 'available', outer_pct: 63, inner_pct: 37,
+      last_price: 1200, trade_volume: 1000, trade_value: 1_200_000,
+      bids: [[1195, 10]], asks: [[1200, 20]],
+      explanation: '內盤 37.0%、外盤 63.0%，外盤較強。',
+      source: 'fugle_marketdata:websocket:aggregates',
+      as_of: '2026-10-05T13:28:42+08:00', freshness: 'realtime',
+      disclaimer: '內外盤反映成交主動性，不等於真正買方／賣方人數，不能單獨作為買賣依據。',
+    }
+    vi.mocked(api.beginnerSelectionSymbol).mockResolvedValue({
+      version: 'beginner-selection-v1', generated_at: '', market: beginnerSelection().market,
+      candidate: live, disclaimer: '',
+    })
+    const { unmount } = renderWith(<BeginnerStockView symbol="2330.TWSE" advanced={false} onToggleAdvanced={() => {}} />)
+    expect(await screen.findByText('63.0%')).toBeInTheDocument()
+    expect(screen.getByText('37.0%')).toBeInTheDocument()
+    expect(screen.getByText('資料時間：13:28:42')).toBeInTheDocument()
+    unmount()
+
+    const stale = beginnerCandidate('2330.TWSE')
+    stale.technical_panel!.inner_outer.freshness = 'stale'
+    stale.technical_panel!.inner_outer.explanation = 'Fugle aggregates 資料已過期，暫不顯示內外盤比例。'
+    vi.mocked(api.beginnerSelectionSymbol).mockResolvedValue({
+      version: 'beginner-selection-v1', generated_at: '', market: beginnerSelection().market,
+      candidate: stale, disclaimer: '',
+    })
+    renderWith(<BeginnerStockView symbol="2330.TWSE" advanced={false} onToggleAdvanced={() => {}} />)
+    expect(await screen.findByText('即時買賣力道資料已過期')).toBeInTheDocument()
+    expect(screen.queryByText('63.0%')).not.toBeInTheDocument()
+  })
+
+  it.each([390, 1440])('renders the complete first screen at %ipx', async width => {
+    Object.defineProperty(window, 'innerWidth', { configurable: true, value: width })
+    fireEvent(window, new Event('resize'))
+    vi.mocked(api.beginnerSelectionSymbol).mockResolvedValue({
+      version: 'beginner-selection-v1', generated_at: '', market: beginnerSelection().market,
+      candidate: beginnerCandidate('2330.TWSE'), disclaimer: '',
+    })
+    renderWith(<BeginnerStockView symbol="2330.TWSE" advanced={false} onToggleAdvanced={() => {}} />)
+    expect(await screen.findByRole('region', { name: '現在怎麼做' })).toBeInTheDocument()
+    expect(screen.getAllByRole('region')).toHaveLength(9)
+    expect(screen.getByRole('region', { name: '這檔股票現在怎麼看' }).className).not.toMatch(/min-w-\[/)
   })
 })

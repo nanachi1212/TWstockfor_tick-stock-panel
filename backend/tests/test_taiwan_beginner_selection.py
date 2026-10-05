@@ -380,7 +380,9 @@ def test_selection_snapshot_reuses_full_and_symbol_results(monkeypatch):
         bs.clear_beginner_selection_snapshot()
 
     assert calls == 1
-    assert single.candidate.model_dump() == first.not_selected[0].model_dump()
+    assert single.candidate.selection_state == first.not_selected[0].selection_state
+    assert single.candidate.trade_plan == first.not_selected[0].trade_plan
+    assert single.candidate.fx_context is not None
     assert second.not_selected[0].model_dump() == first.not_selected[0].model_dump()
 
 
@@ -493,7 +495,10 @@ def test_selection_evidence_is_compact_and_frozen(monkeypatch):
     assert payload["version"] == BEGINNER_SELECTION_VERSION
     assert payload["semantics"] == "deterministic_screening_priority_not_return_forecast"
     assert payload["selection_state"] == "skip"
+    assert payload["technical_panel"] is not None
+    assert payload["technical_panel"]["inner_outer"]["status"] == "data_insufficient"
     assert {f"beginner_selection.{k}" for k in ("selection_state", "signal_strength")} <= bs.BEGINNER_EVIDENCE_REGISTRY_KEYS
+    assert "beginner_selection.technical_panel.support.support_zone_low" in bs.BEGINNER_EVIDENCE_REGISTRY_KEYS
 
 
 def test_api_routes(monkeypatch):

@@ -293,6 +293,7 @@ class ScreenerResultItem(BaseModel):
     investment_trust_net: float | None = None
     investment_trust_net_5d: float | None = None
     dealer_net: float | None = None
+    dealer_net_5d: float | None = None
     institutional_flow_ratio_5d: float | None = None
     institutional_date: str | None = None
     institutional_status: str = "unavailable"
@@ -302,6 +303,7 @@ class ScreenerResultItem(BaseModel):
     margin_balance: float | None = None
     margin_balance_change: float | None = None
     short_balance: float | None = None
+    short_balance_change: float | None = None
     short_margin_ratio: float | None = None  # 10.0 = 10%
     margin_date: str | None = None
     margin_status: str = "unavailable"
@@ -1062,6 +1064,7 @@ class TaiwanScreenerService:
                     pl.col("margin_balance").cast(pl.Float64, strict=False).alias("margin_balance"),
                     pl.col("margin_change").cast(pl.Float64, strict=False).alias("margin_balance_change"),
                     pl.col("short_balance").cast(pl.Float64, strict=False).alias("short_balance"),
+                    pl.col("short_change").cast(pl.Float64, strict=False).alias("short_balance_change"),
                     pl.col("short_margin_ratio").cast(pl.Float64, strict=False).alias("short_margin_ratio"),
                     pl.col("date").cast(pl.String).alias("margin_date"),
                     pl.col("status").alias("margin_status"),
@@ -1069,14 +1072,14 @@ class TaiwanScreenerService:
                 df = df.join(margin_join, on="symbol", how="left")
             else:
                 df = self._add_null_cols(df, [
-                    "margin_balance", "margin_balance_change", "short_balance", "short_margin_ratio",
+                    "margin_balance", "margin_balance_change", "short_balance", "short_balance_change", "short_margin_ratio",
                     "margin_date", "margin_status"
                 ])
         except Exception as e:
             logger.warning("Batch read margin failed in screener: %s", e)
             degraded.append("margin")
             df = self._add_null_cols(df, [
-                "margin_balance", "margin_balance_change", "short_balance", "short_margin_ratio",
+                "margin_balance", "margin_balance_change", "short_balance", "short_balance_change", "short_margin_ratio",
                 "margin_date", "margin_status"
             ])
 
@@ -1675,6 +1678,7 @@ class TaiwanScreenerService:
                 investment_trust_net=r.get("investment_trust_net"),
                 investment_trust_net_5d=r.get("investment_trust_net_5d"),
                 dealer_net=r.get("dealer_net"),
+                dealer_net_5d=r.get("dealer_net_5d"),
                 institutional_flow_ratio_5d=r.get("institutional_flow_ratio_5d") if extended else None,
                 institutional_date=r.get("institutional_date"),
                 institutional_status=r.get("institutional_status") or "unavailable",
@@ -1682,6 +1686,7 @@ class TaiwanScreenerService:
                 margin_balance=r.get("margin_balance"),
                 margin_balance_change=r.get("margin_balance_change"),
                 short_balance=r.get("short_balance"),
+                short_balance_change=r.get("short_balance_change"),
                 short_margin_ratio=r.get("short_margin_ratio"),
                 margin_date=r.get("margin_date"),
                 margin_status=r.get("margin_status") or "unavailable",

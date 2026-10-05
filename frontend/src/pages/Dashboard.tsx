@@ -18,6 +18,7 @@ import { MarketSentimentCard } from '@/components/dashboard/MarketSentimentCard'
 import { TodayEventsWidget } from '@/components/dashboard/TodayEventsWidget'
 import { DataHealthSummary } from '@/components/dashboard/DataHealthSummary'
 import { BeginnerDashboardWidget } from '@/components/beginner/BeginnerPicker'
+import { ExternalContextCard } from '@/components/ExternalContextCard'
 
 function n(v: number | null | undefined) {
   return typeof v === 'number' && Number.isFinite(v) ? v : null
@@ -953,6 +954,7 @@ export function Dashboard() {
           移除產品介面, Dashboard 全站僅剩台股內容, 不再有任何 legacy 開關。 */}
       {/* Beginner Stock Picker v1: 第一屏先回答「今天適不適合選股、看哪幾檔、現在怎麼做」。 */}
       <BeginnerDashboardWidget />
+      <div className="mb-1.5"><ExternalContextCard compact /></div>
       <MarketOverviewCard
         snapshot={diagnostics.data?.market_snapshot ?? (diagnostics.isError ? marketFallback.data : undefined)}
         loading={marketDataStatus.isLoading || diagnostics.isLoading || (diagnostics.isError && marketFallback.isLoading)}

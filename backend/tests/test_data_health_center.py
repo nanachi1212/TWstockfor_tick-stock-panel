@@ -74,7 +74,7 @@ def test_aggregation_isolates_provider_failure_and_keeps_missing_null():
     readers["margin"] = lambda: {"status": "stale", "data_date": "2026-09-29", "source": "official"}
     readers["financial"] = broken
     snapshot = DataHealthService(readers).snapshot()
-    assert len(snapshot.datasets) == 19
+    assert len(snapshot.datasets) == len(DATASETS)
     rows = {row.id: row for row in snapshot.datasets}
     assert rows["margin"].data_date == "2026-09-29"
     assert rows["financial"].status == "error"
@@ -92,7 +92,7 @@ def test_summary_counts_only_current():
     readers["daily"] = lambda: {"status": "current"}
     snapshot = DataHealthService(readers).snapshot()
     assert snapshot.current_count == 1
-    assert snapshot.total_count == 19
+    assert snapshot.total_count == len(DATASETS)
     assert combined_status(["current", "unavailable"]) == "partial"
     assert combined_status([]) == "unavailable"
 
@@ -297,7 +297,7 @@ def test_action_whitelist_and_api(monkeypatch):
     app = FastAPI()
     app.include_router(data_health.router)
     client = TestClient(app)
-    assert client.get("/api/taiwan/data-health").json()["total_count"] == 19
+    assert client.get("/api/taiwan/data-health").json()["total_count"] == len(DATASETS)
     for dataset in ("dcard", "financial", "quant_live"):
         assert (
             client.post(
@@ -361,9 +361,11 @@ def test_ai_validation_invalidated_by_configuration_change(monkeypatch):
     )
     job = manager.start("ai_provider", "validate")
     wait_job(manager, job.job_id)
-    assert manager.snapshot().datasets[-1].status == "current"
+    rows = {row.id: row for row in manager.snapshot().datasets}
+    assert rows["ai_provider"].status == "current"
     revision[0] = "second"
-    assert manager.snapshot().datasets[-1].status == "unavailable"
+    rows = {row.id: row for row in manager.snapshot().datasets}
+    assert rows["ai_provider"].status == "unavailable"
 
 
 def test_finmind_reader_aggregates_per_symbol_ttl_and_null_dates(monkeypatch):
@@ -593,7 +595,7 @@ def test_full_metadata_aggregation_never_fetches_market_or_ai(taiwan_data_env, m
     monkeypatch.setattr(ai_provider, "generate_ai_text", no_http)
     monkeypatch.setattr(selection_review_service, "_service_instance", None)
     snapshot = DataHealthService().snapshot()
-    assert snapshot.total_count == 19
+    assert snapshot.total_count == len(DATASETS)
     assert all(row.status != "error" for row in snapshot.datasets)
     daily = next(row for row in snapshot.datasets if row.id == "daily")
     assert daily.data_date == taiwan_data_env["target"].isoformat()
@@ -607,6 +609,8 @@ def test_ai_failure_does_not_survive_configuration_change(monkeypatch):
     monkeypatch.setattr(data_health_jobs, "_ai_revision", lambda: revision[0])
     manager = HealthJobManager(runner=lambda dataset, action: ("failed", "連線失敗"), reader=report)
     wait_job(manager, manager.start("ai_provider", "validate").job_id)
-    assert manager.snapshot().datasets[-1].status == "error"
+    rows = {row.id: row for row in manager.snapshot().datasets}
+    assert rows["ai_provider"].status == "error"
     revision[0] = "second"
-    assert manager.snapshot().datasets[-1].status == "unavailable"
+    rows = {row.id: row for row in manager.snapshot().datasets}
+    assert rows["ai_provider"].status == "unavailable"

@@ -71,10 +71,14 @@ export function DataHealth() {
         <table className="w-full min-w-[950px] text-sm text-left">
           <thead className="bg-elevated"><tr>{['資料集', '狀態', '來源 / 資料日期', '新鮮度 / 原因', '最後嘗試', '最後成功', '安全操作'].map(label => <th key={label} className="p-3 font-medium">{label}</th>)}</tr></thead>
           <tbody>{rows.map(row => <tr key={row.id} className="border-t border-border align-top bg-surface">
-            <th scope="row" className="p-3 font-medium">{row.name}</th>
+            <th scope="row" className="p-3 font-medium">
+              <div>{row.name}</div>
+              {row.provider && <div className="text-xs font-normal text-muted">{row.provider}</div>}
+              {row.enabled != null && <div className="text-xs font-normal text-muted">{row.enabled ? 'enabled' : 'disabled'} · {row.auth_configured ? 'auth configured' : 'auth not configured'}</div>}
+            </th>
             <td className={`p-3 ${colors[row.status]}`}><span>{statuses[row.status]}</span><div className="text-xs">{row.status}</div></td>
-            <td className="p-3"><div>{row.source ?? '未知'}</div><div className="text-muted">{row.data_date ?? '未知'}</div></td>
-            <td className="p-3 max-w-sm break-words"><div className="text-muted text-xs mb-1">{row.freshness}</div>{row.reason}</td>
+            <td className="p-3"><div>{row.source ?? '未知'}</div><div className="text-muted">{row.as_of ?? row.data_date ?? '未知'}</div></td>
+            <td className="p-3 max-w-sm break-words"><div className="text-muted text-xs mb-1">{row.freshness}</div>{row.reason}{row.error && <div className="mt-1 text-xs text-danger">{row.error}</div>}</td>
             <td className="p-3 text-xs"><time dateTime={row.last_attempt ?? undefined}>{localTime(row.last_attempt)}</time></td>
             <td className="p-3 text-xs"><time dateTime={row.last_success ?? undefined}>{localTime(row.last_success)}</time></td>
             <td className="p-3"><div className="flex flex-wrap gap-2">{row.actions.map(kind => <button type="button" key={kind} aria-label={`${row.name} ${actions[kind]}`} disabled={action.isPending || busy.has(row.id) || row.status === 'updating' || jobs.isLoading || jobs.isError}
