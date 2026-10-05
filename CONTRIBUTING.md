@@ -356,3 +356,19 @@ PR 描述必須包含：
 - 完成後檢查 `git diff` 和 `git status`，準確說明改了什麼、驗證了什麼、仍有什麼風險。
 
 遵循本指南的衡量標準不是文檔寫得多，而是：改動範圍更小、金融口徑有證據、插件邊界不被繞過、測試能真實復現問題、複審結論可執行，且相同問題不再反覆返工。
+## Agent review and CI efficiency
+
+Use the repository workflow below for agent-authored pull requests.
+
+1. Run `.\scripts\ci.ps1 -Mode Auto` once after the implementation is ready. Accept the lanes selected by `Auto`.
+2. Request Codex review at most once per pull request by default. Use `.\scripts\request-codex-review.ps1 -Pr <number>` instead of posting `@codex review` directly.
+3. Collect all findings from that review. Fix valid findings in one batch.
+4. After review fixes, run targeted validation for the changed behavior. Run `Auto` one more time only when the routing rules require broader validation.
+5. Do not request Codex review again after the fix batch. Wait for required GitHub CI and finish the pull request.
+6. An exceptional re-review is allowed only when the review-fix batch materially changes security/authentication, schema or migration behavior, release/signing behavior, or a shared contract. State the reason and use `request-codex-review.ps1 -Force`.
+7. Pull-request workflows use concurrency cancellation. A newer commit on the same pull request cancels obsolete in-progress runs. Main-branch and manual release runs are not canceled by this policy.
+8. Generic `frontend/**` changes use the dedicated `Frontend Tests` workflow. They do not trigger Data Health, Strategy Lab, or Windows Installer by themselves.
+9. Windows Installer CI is reserved for desktop/release/packaging code and frontend dependency or build-configuration changes. Normal TS/TSX/CSS UI edits rely on Frontend Tests.
+10. Frontend-only pull requests still emit the required Backend Tests status, but they take a lightweight no-backend path instead of running pytest. Backend and shared-contract changes still run the full backend suite.
+
+This policy prevents `review -> fix -> review -> fix` loops and prevents old CI runs from consuming time after a newer commit supersedes them.
