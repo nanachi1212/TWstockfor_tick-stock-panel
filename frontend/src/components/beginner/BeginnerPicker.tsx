@@ -269,14 +269,20 @@ export function BeginnerStockView({
     queryKey: QK.beginnerSelectionSymbol(symbol),
     queryFn: () => api.beginnerSelectionSymbol(symbol),
     staleTime: 5 * 60 * 1000,
-    refetchInterval: query => ['waiting', 'stale'].includes(query.state.data?.candidate.intraday_context?.error_reason ?? '') ? 5000 : false,
+    refetchInterval: 5000,
+  })
+  const contextQuery = useQuery({
+    queryKey: ['external-context', symbol],
+    queryFn: () => api.taiwanExternalContext(symbol),
+    staleTime: 24 * 60 * 60 * 1000,
   })
   const candidate = query.data?.candidate
   const skipped = candidate?.selection_state === 'skip'
   const panel = candidate?.technical_panel
   const innerOuterTime = panel ? formatTaipeiTime(panel.inner_outer.as_of) : null
-  const fxSummary = typeof candidate?.fx_context?.data?.summary === 'string'
-    ? candidate.fx_context.data.summary : null
+  const fxContext = contextQuery.data?.fx_context ?? candidate?.fx_context
+  const fxSummary = typeof fxContext?.data?.summary === 'string'
+    ? fxContext.data.summary : null
   return (
     <section aria-label="這檔股票現在怎麼看" className="rounded-2xl border border-accent/30 bg-surface p-4 shadow-sm">
       <div className="flex flex-wrap items-center justify-between gap-2">

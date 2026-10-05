@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { fireEvent, render, screen, within } from '@testing-library/react'
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
@@ -11,8 +11,18 @@ vi.mock('@/lib/api', () => ({
   api: {
     beginnerSelection: vi.fn(),
     beginnerSelectionSymbol: vi.fn(),
+    taiwanExternalContext: vi.fn(),
   },
 }))
+
+const unavailableExternal = {
+  source: 'test', status: 'unavailable' as const, as_of: null, retrieved_at: null,
+  freshness: 'unavailable', data: null, error_reason: 'not_queried',
+}
+const emptyExternalContext = {
+  intraday_context: unavailableExternal,
+  fx_context: unavailableExternal,
+}
 
 function LocationProbe() {
   const location = useLocation()
@@ -33,6 +43,10 @@ function renderWith(ui: React.ReactNode) {
 }
 
 describe('Beginner Stock Picker', () => {
+  beforeEach(() => {
+    vi.mocked(api.taiwanExternalContext).mockResolvedValue(emptyExternalContext)
+  })
+
   it('dashboard shows market summary, at most 5 cards, view-all link and the strength disclaimer', async () => {
     vi.mocked(api.beginnerSelection).mockResolvedValue(beginnerSelection(7))
     renderWith(<BeginnerDashboardWidget />)
@@ -123,6 +137,23 @@ describe('Beginner Stock Picker', () => {
     expect(await screen.findByText('為什麼沒被選？')).toBeInTheDocument()
     expect(screen.getAllByText('暫時略過').length).toBeGreaterThan(0)
     expect(screen.queryByText(/觀察區/)).not.toBeInTheDocument()
+  })
+
+  it('loads optional FX context independently on stock detail', async () => {
+    vi.mocked(api.beginnerSelectionSymbol).mockResolvedValue({
+      version: 'beginner-selection-v1', generated_at: '', market: beginnerSelection().market,
+      candidate: beginnerCandidate('2330.TWSE'), disclaimer: '',
+    })
+    vi.mocked(api.taiwanExternalContext).mockResolvedValue({
+      ...emptyExternalContext,
+      fx_context: {
+        ...unavailableExternal, status: 'available', freshness: 'daily',
+        data: { summary: '匯率環境：獨立載入。' }, error_reason: null,
+      },
+    })
+    renderWith(<BeginnerStockView symbol="2330.TWSE" advanced={false} onToggleAdvanced={() => {}} />)
+    expect(await screen.findByText('匯率環境：獨立載入。')).toBeInTheDocument()
+    expect(api.taiwanExternalContext).toHaveBeenCalledWith('2330.TWSE')
   })
 
   it('shows Fugle inner/outer ratios and timestamp, and hides stale ratios', async () => {

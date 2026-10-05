@@ -68,12 +68,12 @@ def test_fugle_valid_payload_uses_official_inner_outer_and_market_depth():
     snapshot = parse_fugle_aggregates_message(_fugle_payload())
     assert snapshot is not None
     assert snapshot.symbol == "2330.TWSE"
-    assert snapshot.trade_volume_at_bid == 40
-    assert snapshot.trade_volume_at_ask == 60
+    assert snapshot.trade_volume_at_bid == 40_000
+    assert snapshot.trade_volume_at_ask == 60_000
     assert snapshot.last_price == 1200
-    assert snapshot.trade_volume == 1_000
+    assert snapshot.trade_volume == 1_000_000
     assert snapshot.trade_value == 1_200_000
-    assert snapshot.bids == ((1195.0, 10.0),)
+    assert snapshot.bids == ((1195.0, 10_000.0),)
     evidence = fugle_inner_outer_evidence(type("Observation", (), {"status": "available", "snapshot": snapshot})())
     assert evidence.status == "available"
     assert evidence.inner_pct == 40

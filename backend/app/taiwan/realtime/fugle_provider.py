@@ -20,6 +20,7 @@ logger = logging.getLogger(__name__)
 
 FUGLE_STOCK_STREAM_URL = "wss://api.fugle.tw/marketdata/v1.0/stock/streaming"
 FUGLE_AGGREGATES_SOURCE = "fugle_marketdata:websocket:aggregates"
+FUGLE_REGULAR_LOT_SIZE = 1_000
 
 FugleObservationStatus = Literal["disabled", "waiting", "stale", "available"]
 
@@ -91,7 +92,7 @@ def _depth(value: Any) -> tuple[tuple[float, float], ...]:
         price = _number(row.get("price"))
         size = _number(row.get("size"))
         if price is not None and size is not None:
-            levels.append((price, size))
+            levels.append((price, size * FUGLE_REGULAR_LOT_SIZE))
     return tuple(levels)
 
 
@@ -140,10 +141,13 @@ def parse_fugle_aggregates_message(
         symbol=f"{raw_symbol}.{suffix}",
         trade_date=trade_date,
         observed_at=observed_at,
-        trade_volume_at_bid=inner,
-        trade_volume_at_ask=outer,
+        trade_volume_at_bid=inner * FUGLE_REGULAR_LOT_SIZE,
+        trade_volume_at_ask=outer * FUGLE_REGULAR_LOT_SIZE,
         last_price=_number(data.get("lastPrice")),
-        trade_volume=_number(total.get("tradeVolume")),
+        trade_volume=(
+            volume * FUGLE_REGULAR_LOT_SIZE
+            if (volume := _number(total.get("tradeVolume"))) is not None else None
+        ),
         trade_value=_number(total.get("tradeValue")),
         bids=_depth(data.get("bids")),
         asks=_depth(data.get("asks")),
