@@ -163,8 +163,17 @@ def test_frankfurter_uses_daily_cache_and_provider_failure_returns_stale(tmp_pat
     assert result.status == "stale"
     assert result.data is not None
     assert result.error_reason == "provider_unavailable"
+    assert result.retrieved_at == first.retrieved_at
+    assert fallback.health_metadata()["last_attempt"] == future.isoformat()
+    assert fallback.health_metadata()["last_success"] == first.retrieved_at
     assert fallback.get_context(now=future).status == "stale"
     assert len(broken_calls) == 1
+
+    invalid = FrankfurterFxProvider(cache_path=tmp_path / "fx.json", fetcher=lambda *_a, **_k: [])
+    invalid_result = invalid.get_context(now=future + timedelta(days=1))
+    assert invalid_result.status == "stale"
+    assert invalid_result.data == first.data
+    assert invalid_result.error_reason == "missing_rates"
 
 
 def test_frankfurter_cached_context_never_fetches_on_core_request_path(tmp_path):

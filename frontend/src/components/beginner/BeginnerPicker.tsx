@@ -269,7 +269,7 @@ export function BeginnerStockView({
     queryKey: QK.beginnerSelectionSymbol(symbol),
     queryFn: () => api.beginnerSelectionSymbol(symbol),
     staleTime: 5 * 60 * 1000,
-    refetchInterval: query => query.state.data?.candidate.intraday_context?.error_reason === 'waiting' ? 5000 : false,
+    refetchInterval: query => ['waiting', 'stale'].includes(query.state.data?.candidate.intraday_context?.error_reason ?? '') ? 5000 : false,
   })
   const candidate = query.data?.candidate
   const skipped = candidate?.selection_state === 'skip'

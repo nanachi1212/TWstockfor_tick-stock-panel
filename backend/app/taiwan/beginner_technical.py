@@ -536,7 +536,7 @@ def _market(inputs: dict[str, Any], market: Any, industry: str | None) -> Techni
     )
 
 
-def _fundamentals(inputs: dict[str, Any], as_of: str | None) -> FundamentalsEvidence:
+def _fundamentals(inputs: dict[str, Any]) -> FundamentalsEvidence:
     revenue_available = inputs.get("revenue_status") == "available"
     yoy = _finite(inputs.get("revenue_yoy")) if revenue_available else None
     mom = _finite(inputs.get("revenue_mom")) if revenue_available else None
@@ -546,7 +546,7 @@ def _fundamentals(inputs: dict[str, Any], as_of: str | None) -> FundamentalsEvid
     financials_as_of = str(inputs["financials_as_of"]) if inputs.get("financials_as_of") else None
     valuation_as_of = str(inputs["valuation_as_of"]) if inputs.get("valuation_as_of") else None
     dated = [value for value in (revenue_as_of, financials_as_of, valuation_as_of) if value]
-    evidence_as_of = max(dated, default=as_of)
+    evidence_as_of = max(dated, default=None)
     if yoy is None and mom is None and eps is None and pe is None:
         return FundamentalsEvidence(
             status="data_insufficient", explanation="月營收、EPS 與本益比資料不足。",
@@ -568,7 +568,7 @@ def _fundamentals(inputs: dict[str, Any], as_of: str | None) -> FundamentalsEvid
         warning=warning, explanation="、".join(parts) + "。",
         as_of=evidence_as_of, revenue_as_of=revenue_as_of,
         financials_as_of=financials_as_of, valuation_as_of=valuation_as_of,
-        freshness="latest_available",
+        freshness="latest_available" if dated else "source_date_unavailable",
     )
 
 
@@ -658,7 +658,7 @@ def build_beginner_technical_panel(
     position = _range_position(metrics, as_of)
     volatility = _volatility(metrics, current, as_of)
     market_context = _market(metrics, market, industry)
-    fundamentals = _fundamentals(metrics, metrics.get("fundamentals_as_of"))
+    fundamentals = _fundamentals(metrics)
     summary_parts = [{"strong": "趨勢偏強", "neutral": "趨勢中性", "weak": "趨勢偏弱"}.get(averages.state, "趨勢資料不足")]
     if resistance.resistance_distance_pct is not None and 0 <= resistance.resistance_distance_pct <= 3:
         summary_parts.append("已接近上方壓力")

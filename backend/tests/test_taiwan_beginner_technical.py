@@ -201,6 +201,7 @@ def test_fundamentals_keep_pe_only_and_separate_source_dates():
     assert panel.fundamentals.revenue_as_of == "2026-08"
     assert panel.fundamentals.financials_as_of == "2026-06-30"
     assert panel.fundamentals.valuation_as_of == AS_OF
+    assert panel.fundamentals.as_of == AS_OF
 
 
 def test_missing_benchmark_stays_unavailable_and_key_risks_are_limited():

@@ -21,6 +21,7 @@ from app.taiwan.providers.http import fetch_json
 FRANKFURTER_SOURCE = "frankfurter:v2:provider:CBC"
 FRANKFURTER_URL = "https://api.frankfurter.dev/v2/providers/cbc/rates"
 FX_CACHE_TTL = timedelta(hours=24)
+FX_RETRY_TTL = timedelta(minutes=5)
 FX_STALE_AFTER = timedelta(days=7)
 _PAIRS = ("USD/TWD", "JPY/TWD", "EUR/TWD")
 
@@ -102,6 +103,7 @@ class FrankfurterFxProvider:
         self.fetcher = fetcher
         self._lock = threading.Lock()
         self._memory: ExternalProviderResult | None = None
+        self._last_attempt: datetime | None = None
 
     def get_context(self, *, now: datetime | None = None) -> ExternalProviderResult:
         current = now or datetime.now(UTC)
@@ -110,25 +112,34 @@ class FrankfurterFxProvider:
             if cached is not None and self._cache_is_fresh(cached, current):
                 self._memory = cached
                 return cached.model_copy(deep=True)
+            if self._last_attempt is not None and current - self._last_attempt < FX_RETRY_TTL:
+                return (cached or ExternalProviderResult.unavailable(
+                    FRANKFURTER_SOURCE, "provider_unavailable",
+                )).model_copy(deep=True)
             start = (current.date() - timedelta(days=120)).isoformat()
             url = FRANKFURTER_URL + "?" + urlencode({
                 "from": start, "base": "USD", "quotes": "TWD,JPY,EUR",
             })
             retrieved_at = current.isoformat()
+            self._last_attempt = current
             try:
                 result = normalize_cbc_rates(
                     self.fetcher(url, timeout=20.0, max_attempts=3),
                     retrieved_at=retrieved_at,
                 )
+                if result.data is None and cached is not None:
+                    result = cached.model_copy(update={
+                        "status": "stale", "freshness": "stale",
+                        "error_reason": result.error_reason or "invalid_response",
+                    })
             except Exception:
                 if cached is not None:
                     result = cached.model_copy(update={
                         "status": "stale", "freshness": "stale",
-                        "retrieved_at": retrieved_at, "error_reason": "provider_unavailable",
+                        "error_reason": "provider_unavailable",
                     })
                 else:
                     result = ExternalProviderResult.unavailable(FRANKFURTER_SOURCE, "provider_unavailable")
-                    result.retrieved_at = retrieved_at
             self._memory = result
             if result.data is not None:
                 write_json_cache(self.cache_path, result.model_dump(mode="json"))
@@ -142,6 +153,8 @@ class FrankfurterFxProvider:
             if cached is None:
                 return ExternalProviderResult.unavailable(FRANKFURTER_SOURCE, "not_queried")
             self._memory = cached
+            if cached.data is None:
+                return cached.model_copy(deep=True)
             if self._cache_is_fresh(cached, current):
                 return cached.model_copy(deep=True)
             return cached.model_copy(deep=True, update={
@@ -162,7 +175,7 @@ class FrankfurterFxProvider:
             "source": result.source, "data_date": result.as_of, "as_of": result.as_of,
             "freshness": result.freshness,
             "reason": result.error_reason or "CBC 每日匯率 context 可用",
-            "last_attempt": result.retrieved_at,
+            "last_attempt": self._last_attempt.isoformat() if self._last_attempt else result.retrieved_at,
             "last_success": result.retrieved_at if result.data is not None else None,
             "error": result.error_reason,
         }
