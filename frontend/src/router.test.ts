@@ -30,5 +30,6 @@ describe('router — Legacy A-share route removal (Phase 8C-D)', () => {
     expect(allPaths).toContain('stocks/compare')
     expect(allPaths).toContain('social-fetch')
     expect(allPaths).toContain('strategy-lab')
+    expect(allPaths).toContain('model')
   })
 })

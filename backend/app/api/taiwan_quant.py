@@ -21,6 +21,7 @@ from app.taiwan.quant.data_health import (
 from app.taiwan.quant.evaluation_spec import PRIMARY_OOS_SPEC
 from app.taiwan.quant.evaluation_store import PrimaryOosRunStore
 from app.taiwan.quant.primary_oos_runner import read_primary_oos_preflight
+from app.taiwan.quant.primary_v2_status import model_validation_status
 
 router = APIRouter(prefix="/api/taiwan/quant", tags=["taiwan-quant"])
 
@@ -204,6 +205,12 @@ def quant_evaluation_status() -> dict[str, Any]:
         evaluation_running=evaluation_running,
         latest_run_state=latest_run_state,
     )
+
+
+@router.get("/model-status")
+def quant_model_status() -> dict[str, Any]:
+    """Return saved V1 evidence and V2 confirmatory readiness without evaluation."""
+    return model_validation_status()
 
 
 @router.get("/historical-pit/trend-liquidity-v1")

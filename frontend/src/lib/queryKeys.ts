@@ -22,6 +22,7 @@ export const QK = {
   dataHealth: ['data-health'] as const,
   dataHealthJobs: ['data-health-jobs'] as const,
   taiwanQuantEvaluation: ['taiwan-quant-evaluation'] as const,
+  taiwanModelValidationStatus: ['taiwan-model-validation-status'] as const,
   taiwanQuantA2bProgress: ['taiwan-quant-a2b-progress'] as const,
   taiwanQuantLiveModels: ['taiwan-quant-live-models'] as const,
   taiwanQuantLiveRuns: ['taiwan-quant-live-runs'] as const,
