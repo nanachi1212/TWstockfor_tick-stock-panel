@@ -1499,6 +1499,66 @@ export interface TaiwanQuantEvaluationStatus {
   ranking_modes: { live_current: string; historical_oos: string }
 }
 
+export interface TaiwanModelValidationStatus {
+  current_model: {
+    candidate_key: string
+    model_identity: string
+    factor_set: string[]
+    evaluation_status: 'historical_baseline_available' | 'artifact_unavailable'
+  }
+  primary_oos: {
+    run_id: string
+    period: { start: string; end: string }
+    dataset_identity: string
+    readiness: 'available' | 'unavailable'
+    artifact_created_at: string | null
+    horizons: Record<string, {
+      mean_ic: number | null
+      median_ic: number | null
+      positive_ic_ratio: number | null
+      top_bucket_return: number | null
+      universe_return: number | null
+      bottom_bucket_return: number | null
+      top_minus_universe: number | null
+      long_short: number | null
+      benchmark_symbol: string | null
+      benchmark_return: number | null
+      top_minus_benchmark: number | null
+      valid_benchmark_dates: number
+      valid_date_count: number | null
+    }>
+  }
+  diagnostics: {
+    status: 'available' | 'unavailable'
+    diagnostics_identity: string | null
+    negative_ic: boolean | null
+    regime_instability: boolean | null
+    conclusion: string
+  }
+  v2: {
+    preregistration_id: string
+    candidate_status: 'development_candidates'
+    candidates: Array<{
+      candidate_key: string
+      model_identity: string
+      factor_set: string[]
+      factor_directions: Record<string, string>
+      weights: Record<string, number>
+    }>
+    confirmatory_window: {
+      start_session: string | null
+      required_decision_sessions: number
+      observed_decision_sessions: number
+      block_end_session: string | null
+      horizons: number[]
+      label_maturity: Record<string, boolean>
+      label_end_sessions: Record<string, string | null>
+      status: 'waiting_for_sessions' | 'waiting_for_labels' | 'ready' | 'evaluated'
+    }
+  }
+  lightgbm: { status: 'NOT_YET' }
+}
+
 export interface TaiwanA2bProgress {
   completed: number
   pending: number
@@ -4265,6 +4325,9 @@ export const api = {
 
   taiwanQuantEvaluation: () =>
     request<TaiwanQuantEvaluationStatus>('/api/taiwan/quant/evaluation'),
+
+  taiwanModelValidationStatus: () =>
+    request<TaiwanModelValidationStatus>('/api/taiwan/quant/model-status'),
 
   taiwanQuantA2bStatus: () =>
     request<TaiwanA2bProgress>('/api/taiwan/quant/a2b-status'),

@@ -22,6 +22,7 @@ import {
   Database,
   BarChart3,
   BookOpen,
+  BrainCircuit,
   type LucideIcon,
 } from 'lucide-react'
 
@@ -68,6 +69,7 @@ export const CORE_NAV: readonly NavMeta[] = [
   { to: '/social-sentiment',label: '社群聲量', icon: MessageCircleMore },
   { to: '/social-fetch',    label: '社群即時撈取', icon: RefreshCw },
   { to: '/data-health',     label: '資料健康', icon: Database },
+  { to: '/model',           label: '模型驗證', icon: BrainCircuit },
   { to: '/taiwan-screener', label: '台股選股', icon: Filter },
   { to: '/selection-review',label: '選股復盤', icon: History },
   { to: '/strategy-lab',   label: '策略實驗室', icon: FlaskConical },
