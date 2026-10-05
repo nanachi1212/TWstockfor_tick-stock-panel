@@ -990,11 +990,27 @@ class TaiwanScreenerService:
                 start = end - timedelta(days=14)
                 history = self.institutional_store.read_range(symbols, start, end)
                 if not history.is_empty():
-                    history = history.filter(pl.col("status").is_in(["available", "official"]))
-                    latest_dates = sorted(history["date"].unique().to_list())[-5:]
-                    history = history.filter(pl.col("date").is_in(latest_dates))
-                    if len(latest_dates) == 5:
-                        five_day = history.group_by("symbol").agg([
+                    required_dates = sorted(history["date"].drop_nulls().unique().to_list())[-5:]
+                    history = history.filter(pl.col("date").is_in(required_dates))
+                    if len(required_dates) == 5:
+                        valid_history = history.filter(
+                            pl.col("status").is_in(["available", "official"])
+                        )
+                        complete_symbols = (
+                            valid_history.group_by("symbol")
+                            .agg([
+                                pl.len().alias("_valid_rows"),
+                                pl.col("date").n_unique().alias("_valid_sessions"),
+                            ])
+                            .filter(
+                                (pl.col("_valid_rows") == len(required_dates))
+                                & (pl.col("_valid_sessions") == len(required_dates))
+                            )["symbol"]
+                            .to_list()
+                        )
+                        five_day = valid_history.filter(
+                            pl.col("symbol").is_in(complete_symbols)
+                        ).group_by("symbol").agg([
                             pl.col("foreign_net").cast(pl.Float64, strict=False).sum().alias("foreign_net_5d"),
                             pl.col("investment_trust_net").cast(pl.Float64, strict=False).sum().alias("investment_trust_net_5d"),
                             pl.col("dealer_net").cast(pl.Float64, strict=False).sum().alias("dealer_net_5d"),
@@ -1002,9 +1018,20 @@ class TaiwanScreenerService:
                             (pl.col("foreign_net_5d") + pl.col("investment_trust_net_5d")
                              + pl.col("dealer_net_5d")).alias("institutional_flow_5d")
                         )
-                        df = df.join(five_day, on="symbol", how="left").with_columns(
-                            (pl.col("institutional_flow_5d") / pl.col("volume")).alias("institutional_flow_ratio_5d")
-                        ).drop("institutional_flow_5d")
+                        df = df.join(five_day, on="symbol", how="left")
+                        if "volume" in df.columns:
+                            volume = pl.col("volume").cast(pl.Float64, strict=False)
+                            df = df.with_columns(
+                                pl.when(volume.is_not_null() & (volume > 0))
+                                .then(pl.col("institutional_flow_5d") / volume)
+                                .otherwise(None)
+                                .alias("institutional_flow_ratio_5d")
+                            )
+                        else:
+                            df = df.with_columns(
+                                pl.lit(None, dtype=pl.Float64).alias("institutional_flow_ratio_5d")
+                            )
+                        df = df.drop("institutional_flow_5d")
                     else:
                         df = self._add_null_cols(df, [
                             "foreign_net_5d", "investment_trust_net_5d", "dealer_net_5d",
