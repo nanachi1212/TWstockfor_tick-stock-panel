@@ -1,6 +1,8 @@
 from datetime import date
 from types import SimpleNamespace
 
+import polars as pl
+
 from app.taiwan.enrichment.models import InstitutionalFlow, SourceMeta
 from app.taiwan.institutional_margin_refresh import TaiwanInstitutionalRefreshService
 from app.taiwan.institutional_store import TaiwanInstitutionalStore
@@ -51,3 +53,24 @@ def test_persisted_official_history_remains_valid_for_session_windows(tmp_path):
 
     assert result["dates_fetched"] == 1
     assert set(store.read_all()["status"].to_list()) == {"official"}
+
+
+def test_existing_complete_official_rows_are_normalized_on_read(tmp_path):
+    store = TaiwanInstitutionalStore(tmp_path / "institutional")
+    store.write_batch(
+        pl.DataFrame(
+            {
+                "symbol": ["2330.TWSE", "9999.TWSE"],
+                "date": [date(2026, 10, 1)] * 2,
+                "foreign_net": [5, 5],
+                "investment_trust_net": [1, 1],
+                "dealer_net": [2, 2],
+                "status": ["stale", "stale"],
+                "source": ["twse:t86", "unknown"],
+            }
+        )
+    )
+
+    statuses = dict(store.read_all().select("symbol", "status").iter_rows())
+
+    assert statuses == {"2330.TWSE": "official", "9999.TWSE": "stale"}
