@@ -46,11 +46,13 @@
 
 ## Local CI Routing
 
-- 日常修改完成後預設執行 `.\scripts\ci.ps1 -Mode Auto`，依 Git 變更範圍執行最小充分驗證。
-- 只有 dependency/lockfile、schema/migration、shared contract、跨核心模組、大型重構或高 correctness 風險修改才使用 `.\scripts\ci.ps1 -Mode Full`。
+- Codex 每次完成程式碼修改後，預設自動執行 `.\scripts\ci.ps1 -Mode Auto`，不需要另外提醒；依 Git 變更範圍執行最小充分驗證。
+- `Auto` PASS 即視為一般修改的本機驗證完成，不得再重複執行相同的 lint、test 或 build。
+- 只有 dependency/lockfile、schema/migration、shared contract、跨核心模組、大型重構、高 correctness 風險，或 `Auto` 依現有分流規則判定需要 Full 時，才升級執行 `.\scripts\ci.ps1 -Mode Full`。
+- 文件或純文字修改依 `Auto` 現有分流規則處理，不強制執行完整測試。
 - Live 屬於需要外部服務或真實網路的獨立驗證，不因一般修改自動執行。
 - GitHub CI 已提供等價 Full 驗證時，本機不重複執行 Full。
-- Full 後的小修正只跑受影響的 targeted tests，除非修正改變核心共用行為。
+- 已執行一次 Full 後的小修正只跑受影響的 targeted 驗證或 `Auto`；除非修正本身再次影響核心共用行為，否則不得重跑 Full。
 
 ## Context Routing
 
