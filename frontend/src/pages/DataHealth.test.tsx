@@ -137,6 +137,16 @@ describe('資料健康中心', () => {
     expect(screen.getByRole('button', { name: 'Daily OHLC 立即更新' })).toBeDisabled()
   })
 
+  it('invalidates picker, stock evidence and comparator together after official daily updates', async () => {
+    vi.mocked(api.dataHealthJobs).mockResolvedValue([{ ...job, status: 'completed' }])
+    const client = mount()
+    const keys = [QK.beginnerSelection, QK.beginnerSelectionSymbol('2330.TWSE'), QK.beginnerComparison(['2330.TWSE', '2317.TWSE'])]
+    keys.forEach(key => client.setQueryData(key, { marker: 'previous snapshot' }))
+    client.setQueryData(QK.settings, { marker: 'unchanged' })
+    await waitFor(() => keys.forEach(key => expect(client.getQueryState(key)?.isInvalidated).toBe(true)))
+    expect(client.getQueryState(QK.settings)?.isInvalidated).toBe(false)
+  })
+
   it('Dashboard displays only the health summary link and Sidebar registers the route', async () => {
     mount(<DataHealthSummary />)
     expect(await screen.findByRole('link', { name: '資料健康 1 / 3 正常' })).toHaveAttribute('href', '/data-health')

@@ -28,6 +28,7 @@ const MarketResearch = lazy(() => import('./pages/MarketResearch').then(m => ({ 
 const Research = lazy(() => import('./pages/Research').then(m => ({ default: m.Research })))
 const TaiwanEventCenter = lazy(() => import('./pages/TaiwanEventCenter').then(m => ({ default: m.TaiwanEventCenter })))
 const BeginnerPicks = lazy(() => import('./pages/BeginnerPicks').then(m => ({ default: m.BeginnerPicks })))
+const BeginnerComparison = lazy(() => import('./pages/BeginnerComparison').then(m => ({ default: m.BeginnerComparison })))
 const DailyBrief = lazy(() => import('./pages/DailyBrief').then(m => ({ default: m.DailyBrief })))
 const SelectionReview = lazy(() => import('./pages/SelectionReview').then(m => ({ default: m.SelectionReview })))
 const StrategyLab = lazy(() => import('./pages/StrategyLab').then(m => ({ default: m.StrategyLab })))
@@ -53,6 +54,8 @@ const CORE_ROUTE_PATHS = new Set([
   '/buy-points',
   '/stocks/:symbol',
   '/stocks/compare',
+  '/picks',
+  '/picks/compare',
   '/watchlist',
   '/taiwan-screener',
   '/market-research',
@@ -119,6 +122,7 @@ export const router = createBrowserRouter([
       { path: 'stocks/:symbol', element: <TaiwanStockDetail /> },
       { path: 'events', element: <TaiwanEventCenter /> },
       { path: 'picks', element: <BeginnerPicks /> },
+      { path: 'picks/compare', element: <BeginnerComparison /> },
       { path: 'daily-brief', element: <DailyBrief /> },
       { path: 'watchlist', element: <Watchlist /> },
       { path: 'taiwan-screener', element: <TaiwanScreener /> },

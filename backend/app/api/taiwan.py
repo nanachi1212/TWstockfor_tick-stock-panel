@@ -1084,6 +1084,22 @@ def get_beginner_selection(limit: Annotated[int, Query(ge=1, le=20)] = 20):
         raise HTTPException(status_code=500, detail="今日選股資料彙整失敗") from e
 
 
+@router.get("/beginner-selection/compare")
+def get_beginner_selection_comparison(symbols: str = Query(...)):
+    """比較 2 至 5 檔股票既有確定性證據，保留今日選股原排名。"""
+    from app.taiwan.beginner_comparator import build_comparison, validate_symbols
+
+    try:
+        canonical = validate_symbols(symbols)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    try:
+        return build_comparison(canonical).model_dump(mode="json")
+    except Exception as exc:
+        logger.exception("Failed to compare beginner selection: %s", exc)
+        raise HTTPException(status_code=500, detail="股票比較資料彙整失敗") from exc
+
+
 @router.get("/beginner-selection/stocks/{symbol}")
 def get_beginner_selection_symbol(symbol: str):
     """單一股票的初學者結論：為什麼值得看、或為什麼沒被選。"""

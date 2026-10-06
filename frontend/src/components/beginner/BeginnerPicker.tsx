@@ -1,5 +1,5 @@
-import { useState } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
+import { useRef, useState } from 'react'
+import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { ArrowUpRight, ChevronDown, ChevronUp, Compass, Loader2, Sparkles } from 'lucide-react'
 import {
@@ -129,7 +129,10 @@ function ReasonList({ items, empty, tone }: { items: string[]; empty: string; to
   )
 }
 
-export function PickCard({ candidate }: { candidate: BeginnerCandidate }) {
+export function PickCard({ candidate, comparison }: {
+  candidate: BeginnerCandidate
+  comparison?: { checked: boolean; disabled: boolean; onToggle: () => void }
+}) {
   const navigate = useNavigate()
   const href = `/stocks/${encodeURIComponent(candidate.symbol)}`
   return (
@@ -137,6 +140,14 @@ export function PickCard({ candidate }: { candidate: BeginnerCandidate }) {
       aria-label={`${candidate.name} ${candidate.symbol}`}
       className="flex min-w-0 flex-col gap-2 rounded-card border border-border bg-surface/85 p-3"
     >
+      {comparison && (
+        <label className="flex min-h-9 cursor-pointer items-center gap-2 text-xs text-foreground">
+          <input type="checkbox" checked={comparison.checked} disabled={comparison.disabled}
+            onChange={comparison.onToggle} aria-label={`比較 ${candidate.name || candidate.symbol} ${candidate.symbol}`}
+            className="h-4 w-4 accent-accent" />
+          加入比較
+        </label>
+      )}
       <header className="flex min-w-0 items-start justify-between gap-2">
         <div className="min-w-0">
           <p className="truncate text-sm font-semibold text-foreground">{candidate.name || candidate.symbol}</p>
@@ -181,6 +192,46 @@ export function PickCard({ candidate }: { candidate: BeginnerCandidate }) {
         </button>
       </div>
     </article>
+  )
+}
+
+export function PickComparisonList({ candidates, compact = false }: { candidates: BeginnerCandidate[]; compact?: boolean }) {
+  const [params, setParams] = useSearchParams()
+  const navigate = useNavigate()
+  const navigating = useRef(false)
+  const [opening, setOpening] = useState(false)
+  const available = new Set(candidates.map(c => c.symbol))
+  const selected = [...new Set((params.get('compare') ?? '').split(','))].filter(s => available.has(s)).slice(0, 5)
+  const toggle = (symbol: string) => {
+    const next = selected.includes(symbol) ? selected.filter(s => s !== symbol) : [...selected, symbol]
+    if (next.length > 5) return
+    setParams(prev => {
+      const updated = new URLSearchParams(prev)
+      if (next.length) updated.set('compare', next.join(','))
+      else updated.delete('compare')
+      return updated
+    }, { replace: true })
+  }
+  return (
+    <div className="space-y-2">
+      <div className="flex flex-wrap items-center justify-between gap-2 rounded-card border border-accent/25 bg-surface p-3">
+        <p className="text-xs text-muted" role="status">已選 {selected.length} / 5 檔 · 請勾選 2 至 5 檔{selected.length === 5 && '，已達上限'}</p>
+        <button type="button" disabled={selected.length < 2 || opening}
+          className="min-h-9 rounded-md bg-accent px-3 text-xs font-semibold text-white disabled:cursor-not-allowed disabled:opacity-40"
+          onClick={() => {
+            if (navigating.current || selected.length < 2) return
+            navigating.current = true
+            setOpening(true)
+            navigate(`/picks/compare?${new URLSearchParams({ symbols: [...selected].sort().join(',') })}`)
+          }}>比較這些股票</button>
+      </div>
+      <div className={cn('grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3', compact ? 'gap-1.5' : 'gap-2')}>
+        {candidates.map(c => <PickCard key={c.symbol} candidate={c} comparison={{
+          checked: selected.includes(c.symbol), disabled: opening || (selected.length === 5 && !selected.includes(c.symbol)),
+          onToggle: () => toggle(c.symbol),
+        }} />)}
+      </div>
+    </div>
   )
 }
 
@@ -247,9 +298,7 @@ export function BeginnerDashboardWidget() {
           {data.candidates.length === 0 ? (
             <EmptyPicks gaps={data.data_gaps} />
           ) : (
-            <div className="grid grid-cols-1 gap-1.5 md:grid-cols-2 xl:grid-cols-3">
-              {data.candidates.slice(0, 5).map(c => <PickCard key={c.symbol} candidate={c} />)}
-            </div>
+            <PickComparisonList candidates={data.candidates.slice(0, 5)} compact />
           )}
           <p className="px-0.5 text-[11px] text-muted">{STRENGTH_DISCLAIMER}</p>
         </>
