@@ -262,6 +262,18 @@ class TaiwanInstitutionalStore:
         return (
             pl.concat(frames, how="diagonal_relaxed")
             .unique(subset=["symbol", "date"], keep="last")
+            .with_columns(
+                pl.when(
+                    (pl.col("status") == "stale")
+                    & pl.col("source").is_in(["twse:t86", "tpex:daily_trade"])
+                    & pl.col("foreign_net").is_not_null()
+                    & pl.col("investment_trust_net").is_not_null()
+                    & pl.col("dealer_net").is_not_null()
+                )
+                .then(pl.lit("official"))
+                .otherwise(pl.col("status"))
+                .alias("status")
+            )
             .sort(["symbol", "date"])
         )
 

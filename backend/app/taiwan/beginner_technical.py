@@ -57,7 +57,7 @@ class InnerOuterEvidence(BaseModel):
     source: str = "none"
     as_of: str | None = None
     freshness: str = "unavailable"
-    disclaimer: str = "內外盤反映成交主動性，不等於真正買方／賣方人數，不能單獨作為買賣依據。"
+    disclaimer: str = "內外盤代表成交主動方向，不等於真正的買方與賣方人數，不能單獨作為買賣依據。"
 
 
 VolumePattern = Literal[
