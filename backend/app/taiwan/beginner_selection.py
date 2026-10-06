@@ -1146,9 +1146,10 @@ class BeginnerSelectionService:
             history = store.read_range([*symbols, benchmark_symbol], start, as_of)
             if history is None or history.is_empty():
                 return {}
-            events = self.screener.action_store.read_verified_window(start, as_of)
-            if events is None:
+            coverage = self.screener.action_store.read_verified_coverage()
+            if coverage is None or coverage[0] > start or coverage[1] < as_of:
                 return {}
+            events = tuple(event for event in coverage[2] if start <= event.effective_date <= as_of)
 
             benchmark_raw = history.filter(pl.col("symbol") == benchmark_symbol)
             market = pl.DataFrame()

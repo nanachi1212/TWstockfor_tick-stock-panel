@@ -242,7 +242,9 @@ def test_service_reuses_pit_factor_panel_for_ma_volume_atr_and_0050():
 
     screener = SimpleNamespace(
         daily_store=Daily(),
-        action_store=SimpleNamespace(read_verified_window=lambda start, end: ()),
+        action_store=SimpleNamespace(
+            read_verified_coverage=lambda: (sessions[0], sessions[-1], ()),
+        ),
     )
     metrics = BeginnerSelectionService(screener=screener)._technical_metrics(
         ["2330.TWSE"], sessions[-1]
