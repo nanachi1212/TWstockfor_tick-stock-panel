@@ -148,4 +148,51 @@ describe('beginner comparator', () => {
     fireEvent.click(screen.getByRole('button', { name: '更新比較' }))
     expect(await screen.findByText('資料不足或沒有可支持的條件差異，不追加優先理由。')).toBeInTheDocument()
   })
+
+  it.each(['available', 'waiting', 'stale'] as const)('does not periodically reload full comparison for %s Fugle context; refresh stays manual', async state => {
+    const data = comparison()
+    data.candidates[0].intraday_context = {
+      source: 'fugle_marketdata:websocket:aggregates', status: state === 'waiting' ? 'unavailable' : state,
+      as_of: '2026-09-30T13:20:00+08:00', retrieved_at: null, freshness: state, data: null,
+      error_reason: state === 'available' ? null : state,
+    }
+    vi.mocked(api.beginnerComparison).mockResolvedValue(data)
+    // Keep notification/waitFor timeouts real; only simulate periodic work.
+    vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] })
+    const view = renderRoute('/picks/compare?symbols=1101.TWSE,2330.TWSE,9999.TWSE')
+    try {
+      await screen.findByText('這幾檔怎麼選？')
+      await act(async () => { await vi.advanceTimersByTimeAsync(20_000) })
+      expect(api.beginnerComparison).toHaveBeenCalledTimes(1)
+      fireEvent.click(screen.getByRole('button', { name: '更新比較' }))
+      await waitFor(() => expect(api.beginnerComparison).toHaveBeenCalledTimes(2))
+      expect(screen.getByText('① 觀察股')).toBeInTheDocument()
+    } finally {
+      view.unmount()
+      vi.useRealTimers()
+    }
+  })
+
+  it('keeps eligibility failures visible alongside deduplicated technical risks when a panel exists', async () => {
+    const data = comparison()
+    const failures = ['行情資料過舊，請先更新。', '除權息資料無法驗證。', '無法確認處置與暫停交易風險。']
+    const absent = data.candidates[2]
+    absent.exclusion_reasons = failures.map((text, i) => ({
+      reason_code: ['quote_stale', 'corporate_action_unverified', 'risk_unverified'][i],
+      evidence_key: 'eligibility', direction: 'negative', display_text: text,
+    }))
+    absent.technical_panel = structuredClone(data.candidates[1].technical_panel)
+    absent.technical_panel!.key_risks = [
+      { code: 'duplicate_failure', text: failures[0], source: 'fixture' },
+      { code: 'near_resistance', text: '現價已接近上方壓力，追價空間有限。', source: 'trade_plan' },
+    ]
+    vi.mocked(api.beginnerComparison).mockResolvedValue(data)
+    renderRoute('/picks/compare?symbols=1101.TWSE,2330.TWSE,9999.TWSE')
+    const card = await screen.findByRole('article', { name: '缺資料股 9999.TWSE 比較' })
+    const risks = within(card).getByRole('region', { name: '主要風險' })
+    failures.forEach(text => expect(within(risks).getAllByText(`• ${text}`)).toHaveLength(1))
+    expect(within(risks).getByText('• 現價已接近上方壓力，追價空間有限。')).toBeInTheDocument()
+    expect(within(card).getByText('資料不足 · 暫不評價')).toBeInTheDocument()
+    expect(within(card).getByText(/未列入原排名/)).toBeInTheDocument()
+  })
 })

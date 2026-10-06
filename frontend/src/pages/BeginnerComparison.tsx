@@ -103,6 +103,10 @@ function SummaryRows({ panel, candidate }: { panel: BeginnerTechnicalPanel | nul
 
 function ComparisonCard({ candidate, insufficient }: { candidate: BeginnerCandidate; insufficient: boolean }) {
   const panel = candidate.technical_panel
+  const riskTexts = [...new Set([
+    ...candidate.exclusion_reasons.map(reason => reason.display_text),
+    ...(panel?.key_risks.map(risk => risk.text) ?? []),
+  ])]
   return (
     <article aria-label={`${candidate.name || candidate.symbol} ${candidate.symbol} 比較`} className="min-w-0 space-y-3 rounded-card border border-border bg-surface p-3 text-foreground [overflow-wrap:anywhere]">
       <header className="flex flex-wrap items-start justify-between gap-2">
@@ -118,12 +122,12 @@ function ComparisonCard({ candidate, insufficient }: { candidate: BeginnerCandid
       <SummaryRows panel={panel} candidate={candidate} />
       <section aria-label="主要風險">
         <p className="text-xs font-semibold text-muted">主要風險</p>
-        <ul className="mt-1 space-y-1 text-xs text-warning">{(panel?.key_risks.map(r => r.text) ?? candidate.exclusion_reasons.map(r => r.display_text)).map(text => <li key={text}>• {text}</li>)}</ul>
-        {!panel && candidate.exclusion_reasons.length === 0 && <p className="text-xs text-muted">資料不足，無法確認風險。</p>}
+        <ul className="mt-1 space-y-1 text-xs text-warning">{riskTexts.map(text => <li key={text}>• {text}</li>)}</ul>
+        {riskTexts.length === 0 && <p className="text-xs text-muted">資料不足，無法確認風險。</p>}
       </section>
       <section aria-label="即時力道" className="text-xs text-muted">
-        <p>{panel?.inner_outer.status === 'available' ? `即時力道：${panel.inner_outer.explanation}` : '即時力道不可用'}</p>
-        {panel?.inner_outer.status === 'available' && <p className="mt-1">資料時間 {panel.inner_outer.as_of ?? missing} · 僅補充盤中背景</p>}
+        <p>{panel?.inner_outer.status === 'available' ? `即時力道快照：${panel.inner_outer.explanation}` : '即時力道不可用'}</p>
+        {panel?.inner_outer.status === 'available' && <p className="mt-1">資料時間 {panel.inner_outer.as_of ?? missing} · 僅補充盤中背景；按「更新比較」讀取最新快照。</p>}
       </section>
       <AdvancedEvidence candidate={candidate} />
     </article>
@@ -174,9 +178,7 @@ export function BeginnerComparison() {
   const query = useQuery({
     queryKey: QK.beginnerComparison(symbols), queryFn: () => api.beginnerComparison([...symbols].sort()),
     enabled: valid, staleTime: 5 * 60 * 1000, retry: false,
-    refetchInterval: query => query.state.data?.candidates.some(c => c.intraday_context && (
-      c.intraday_context.status === 'available' || c.intraday_context.error_reason === 'waiting' || c.intraday_context.status === 'stale'
-    )) ? 5000 : false,
+    // Manual refresh captures Fugle context without putting history generation scans on a timer.
   })
   return (
     <div className="min-h-full min-w-0 bg-base p-2 sm:p-3">
