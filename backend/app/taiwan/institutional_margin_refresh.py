@@ -155,7 +155,14 @@ class TaiwanInstitutionalRefreshService:
                             "official_net": f.official_net,
                             "computed_net": f.computed_net,
                             "has_discrepancy": f.has_discrepancy,
-                            "status": f.meta.status if f.meta else "official",
+                            # A successfully parsed historical exchange payload is still
+                            # valid official evidence.  Adapter age describes recency to
+                            # today; it must not invalidate a past session in a 5-day window.
+                            "status": (
+                                "official"
+                                if f.meta and f.meta.status == "stale"
+                                else (f.meta.status if f.meta else "official")
+                            ),
                             "source": f.meta.source if f.meta else "official",
                         }
                         for f in all_flows
