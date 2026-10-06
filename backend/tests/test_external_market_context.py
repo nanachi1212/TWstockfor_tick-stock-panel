@@ -61,7 +61,9 @@ def test_fugle_key_missing_is_unavailable_and_never_connects():
     calls = []
     provider = FugleAggregatesProvider(api_key="", connect_factory=lambda *a, **k: calls.append(1))
     provider.request_symbols(["2330.TWSE"])
-    assert provider.observe("2330.TWSE").status == "disabled"
+    observation = provider.observe("2330.TWSE")
+    assert observation.status == "disabled"
+    assert fugle_inner_outer_evidence(observation).explanation == "目前沒有可靠的即時內外盤資料。"
     assert provider.health_metadata()["status"] == "config_missing"
     assert calls == []
 

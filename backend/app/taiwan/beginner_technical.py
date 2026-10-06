@@ -203,7 +203,7 @@ def fugle_inner_outer_evidence(observation: Any) -> InnerOuterEvidence:
     status = getattr(observation, "status", "disabled")
     snapshot = getattr(observation, "snapshot", None)
     unavailable = {
-        "disabled": "未設定 FUGLE_API_KEY，內外盤維持資料不足。",
+        "disabled": "目前沒有可靠的即時內外盤資料。",
         "waiting": "Fugle aggregates 尚未收到可靠的即時內外盤資料。",
         "stale": "Fugle aggregates 資料已過期，暫不顯示內外盤比例。",
     }

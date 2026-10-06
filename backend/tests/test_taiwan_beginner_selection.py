@@ -10,6 +10,7 @@ from datetime import date, timedelta
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
+import polars as pl
 import pytest
 from fastapi.testclient import TestClient
 
@@ -371,6 +372,57 @@ def test_collect_keeps_complete_institutional_totals_without_flow_ratio(monkeypa
     assert metrics["revenue_as_of"] == "2026-08"
     assert metrics["financials_as_of"] == "2026-06-30"
     assert metrics["valuation_as_of"] == AS_OF
+
+
+def test_technical_metrics_isolates_unverified_corporate_action_by_symbol():
+    from app.taiwan.corporate_actions import CorporateActionEvent, event_market_open
+
+    dates = [date(2026, 7, 1) + timedelta(days=day) for day in range(65)]
+    rows = [
+        {
+            "symbol": symbol, "date": day, "open": close, "high": close + 1,
+            "low": close - 1, "close": close, "volume": 1_000 + index,
+            "amount": (1_000 + index) * close,
+        }
+        for symbol, base in (("2330.TWSE", 100.0), ("8112A.TWSE", 40.0), ("0050.TWSE", 50.0))
+        for index, day in enumerate(dates)
+        for close in (base + index,)
+    ]
+    history = pl.DataFrame(rows).with_columns(pl.col("date").cast(pl.Date))
+
+    class DailyStore:
+        @staticmethod
+        def available_dates():
+            return dates
+
+        @staticmethod
+        def read_range(symbols, start, end):
+            return history.filter(
+                pl.col("symbol").is_in(symbols) & pl.col("date").is_between(start, end)
+            )
+
+    unresolved = CorporateActionEvent(
+        symbol="8112A.TWSE", exchange="TWSE", effective_date=dates[30],
+        effective_at=event_market_open(dates[30]), event_type="stock_dividend",
+        previous_close=47.4, reference_price=45.37, factor=None,
+        cash_dividend=None, free_share_ratio=None, reduction_ratio=None,
+        source="TWT49U", source_url="https://example.invalid",
+        retrieved_at=event_market_open(dates[-1]), status="provider_error",
+        reason="detail_provider_error",
+    )
+    action_store = SimpleNamespace(
+        read_verified_window=lambda *_args: None,
+        read_verified_coverage=lambda: (dates[0], dates[-1], (unresolved,)),
+    )
+    service = BeginnerSelectionService(screener=SimpleNamespace(
+        daily_store=DailyStore(), action_store=action_store,
+    ))
+
+    metrics = service._technical_metrics(["2330.TWSE", "8112A.TWSE"], dates[-1])
+
+    assert metrics["2330.TWSE"]["ma60"] is not None
+    assert metrics["2330.TWSE"]["relative_return_20d"] is not None
+    assert metrics["8112A.TWSE"]["ma60"] is None
 
 
 def test_service_degrades_when_critical_evidence_missing(monkeypatch):
