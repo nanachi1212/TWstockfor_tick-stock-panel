@@ -3,7 +3,6 @@ name: Windows Installer CI
 on:
   pull_request:
     paths:
-      - 'backend/app/config.py'
       - 'backend/app/desktop.py'
       - 'backend/app/release_*.py'
       - 'backend/tests/test_desktop.py'
@@ -49,7 +48,7 @@ jobs:
           pnpm install --frozen-lockfile
           pnpm build
 
-      - uses: astral-sh/setup-uv@v3
+      - uses: astral-sh/setup-uv@v5
         with:
           enable-cache: true
 
@@ -57,7 +56,7 @@ jobs:
         working-directory: backend
         run: |
           uv python install 3.12
-          uv sync --extra desktop --extra legacy-cpu
+          uv sync --frozen --extra desktop --extra legacy-cpu
           uv pip install pyinstaller
 
       - name: Build pinned public release seed and run seed privacy gate
