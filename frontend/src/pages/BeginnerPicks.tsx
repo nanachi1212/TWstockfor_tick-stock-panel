@@ -3,7 +3,7 @@ import {
   EmptyPicks,
   MarketSummaryCard,
   NotSelectedList,
-  PickCard,
+  PickComparisonList,
   STRENGTH_DISCLAIMER,
   useBeginnerSelection,
 } from '@/components/beginner/BeginnerPicker'
@@ -29,9 +29,7 @@ export function BeginnerPicks() {
             {data.candidates.length === 0 ? (
               <EmptyPicks gaps={data.data_gaps} />
             ) : (
-              <div className="grid grid-cols-1 gap-2 md:grid-cols-2 xl:grid-cols-3">
-                {data.candidates.map(c => <PickCard key={c.symbol} candidate={c} />)}
-              </div>
+              <PickComparisonList candidates={data.candidates} />
             )}
             <NotSelectedList items={data.not_selected} />
             <p className="text-[11px] text-muted">

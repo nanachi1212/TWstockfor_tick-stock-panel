@@ -3476,6 +3476,9 @@ export interface BeginnerTechnicalPanel {
     explanation: string
     source: string
     as_of: string | null
+    revenue_as_of?: string | null
+    financials_as_of?: string | null
+    valuation_as_of?: string | null
     freshness: string
   }
   key_risks: Array<{ code: string; text: string; source: string }>
@@ -3539,6 +3542,21 @@ export interface BeginnerSymbolResponse {
   generated_at: string
   market: BeginnerMarketSummary
   candidate: BeginnerCandidate
+  disclaimer: string
+}
+
+export interface BeginnerComparisonResponse {
+  version: string
+  generated_at: string
+  as_of: string | null
+  market: BeginnerMarketSummary
+  candidates: BeginnerCandidate[]
+  groups: Array<{
+    key: 'observe' | 'wait' | 'avoid' | 'insufficient'
+    label: string
+    symbols: string[]
+  }>
+  differences: Array<{ higher_symbol: string; lower_symbol: string; reasons: string[] }>
   disclaimer: string
 }
 
@@ -4532,6 +4550,8 @@ export const api = {
     request<BeginnerSelectionResponse>(`/api/taiwan/beginner-selection?limit=${limit}`),
   beginnerSelectionSymbol: (symbol: string) =>
     request<BeginnerSymbolResponse>(`/api/taiwan/beginner-selection/stocks/${encodeURIComponent(symbol)}`),
+  beginnerComparison: (symbols: string[]) =>
+    request<BeginnerComparisonResponse>(`/api/taiwan/beginner-selection/compare?${new URLSearchParams({ symbols: symbols.join(',') })}`),
   taiwanExternalContext: (symbol?: string) =>
     request<ExternalContextResponse>(`/api/taiwan/external-context${symbol ? `?symbol=${encodeURIComponent(symbol)}` : ''}`),
   buyPointSummary: () =>

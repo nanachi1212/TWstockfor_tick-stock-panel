@@ -147,6 +147,7 @@ export const QK = {
   buyPointSummary: ['buy-point-summary'] as const,
   beginnerSelection: ['beginner-selection'] as const,
   beginnerSelectionSymbol: (symbol: string) => ['beginner-selection', 'symbol', symbol] as const,
+  beginnerComparison: (symbols: string[]) => ['beginner-selection', 'compare', [...symbols].sort()] as const,
   buyPointStats: ['buy-point-stats'] as const,
 
   // Daily Brief (A12)
@@ -160,7 +161,7 @@ export const DATA_HEALTH_INVALIDATE_PREFIXES = {
   daily: ['data-health', 'market-breadth-valuation', 'taiwan-data-status', 'taiwan-stock-detail', 'taiwan-current-data',
     'taiwanStockResearchContext', 'taiwanAbnormalDiagnostics', 'taiwanMarketIntelligence',
     'taiwanIndustryIntelligence', 'institutional-statistics', 'industry-rotation', 'taiwanScreener',
-    'watchlist-', 'selection-', 'strategy-lab', 'daily-brief', 'buy-point-'],
+    'watchlist-', 'selection-', 'beginner-selection', 'strategy-lab', 'daily-brief', 'buy-point-'],
   social: ['data-health', 'taiwan-social-sentiment'],
   validate: ['data-health', 'settings'],
 } as const

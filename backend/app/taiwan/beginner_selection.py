@@ -15,7 +15,7 @@ from __future__ import annotations
 import logging
 import math
 import threading
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from typing import Any, Literal
@@ -777,18 +777,24 @@ class BeginnerSelectionService:
                 _SNAPSHOT_CONDITION.wait()
             return _SNAPSHOT if _SNAPSHOT is not None and _SNAPSHOT.key == key else None
 
-    def _get_or_build_snapshot(self, key: tuple[Any, ...]) -> BeginnerSelectionSnapshot:
+    def _get_or_build_snapshot(
+        self, key: tuple[Any, ...], symbols: list[str] | None = None,
+    ) -> BeginnerSelectionSnapshot:
         global _SNAPSHOT, _SNAPSHOT_BUILDING
         with _SNAPSHOT_CONDITION:
             while True:
-                if _SNAPSHOT is not None and _SNAPSHOT.key == key:
+                if _SNAPSHOT is not None and _SNAPSHOT.key == key and all(
+                    symbol in _SNAPSHOT.candidates_by_symbol for symbol in symbols or []
+                ):
                     return _SNAPSHOT
                 if not _SNAPSHOT_BUILDING:
                     _SNAPSHOT_BUILDING = True
                     break
                 _SNAPSHOT_CONDITION.wait()
         try:
-            snapshot = self._build_snapshot(key)
+            snapshot = _SNAPSHOT if _SNAPSHOT is not None and _SNAPSHOT.key == key else self._build_snapshot(key)
+            if symbols:
+                snapshot = self._extend_snapshot(snapshot, symbols)
         except Exception:
             with _SNAPSHOT_CONDITION:
                 _SNAPSHOT_BUILDING = False
@@ -799,6 +805,39 @@ class BeginnerSelectionService:
             _SNAPSHOT_BUILDING = False
             _SNAPSHOT_CONDITION.notify_all()
         return snapshot
+
+    def _extend_snapshot(
+        self, snapshot: BeginnerSelectionSnapshot, symbols: list[str],
+    ) -> BeginnerSelectionSnapshot:
+        missing = [symbol for symbol in symbols if symbol not in snapshot.candidates_by_symbol]
+        if not missing:
+            return snapshot
+        eligible_date = snapshot.key[1] if len(snapshot.key) > 1 else self._eligible_date()
+        _market, facts, _amounts, _gaps, _universe = self._collect(missing, eligible_date=eligible_date)
+        facts_by_symbol = {fact.symbol: fact for fact in facts}
+        candidates = dict(snapshot.candidates_by_symbol)
+        for symbol in missing:
+            fact = facts_by_symbol.get(symbol, BeginnerFacts(symbol=symbol, in_universe=False))
+            # Out-of-pool evidence uses the same market/date and has no pool rank.
+            candidates[symbol], _score = evaluate_candidate(fact, snapshot.response.market)
+        return replace(snapshot, candidates_by_symbol=candidates)
+
+    def evaluate_symbols(self, symbols: list[str]) -> BeginnerSelectionResponse:
+        """Batch comparison evidence from one shared deterministic snapshot.
+
+        Additional symbols extend the existing process-local snapshot atomically;
+        they never enter the authoritative selection pool or acquire a new rank.
+        """
+        key = self._cache_key()
+        snapshot = (
+            self._get_or_build_snapshot(key, symbols)
+            if key is not None else self._extend_snapshot(self._build_snapshot(None), symbols)
+        )
+        return snapshot.response.model_copy(deep=True, update={
+            "generated_at": _now(),
+            "candidates": [snapshot.candidates_by_symbol[symbol].model_copy(deep=True) for symbol in symbols],
+            "not_selected": [],
+        })
 
     def _snapshot_candidate(self, symbol: str) -> BeginnerSymbolResponse | None:
         key = self._cache_key()
