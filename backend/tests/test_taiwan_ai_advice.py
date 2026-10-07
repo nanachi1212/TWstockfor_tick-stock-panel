@@ -428,3 +428,12 @@ def test_history_persists_advice_and_review_as_idempotent_supported_kinds(tmp_pa
     assert all("unsupported_kind" not in record.get("compatibility", {}) for record in records)
     assert review_record["parent_id"] == advice_record["id"]
     assert "eligible" not in advice_record
+
+
+def test_call_provider_reaches_structured_helper_with_required_arguments():
+    """其他測試都 mock 掉 _call_provider; 這裡走真實路徑, 確保必要參數齊全。"""
+    from app.taiwan import ai_advice
+
+    with patch("app.taiwan.ai_advice.generate_ai_text", new_callable=AsyncMock, return_value='{"action":"wait"}'):
+        raw = asyncio.run(ai_advice._call_provider([{"role": "user", "content": "x"}], SimpleNamespace()))
+    assert json.loads(raw) == {"action": "wait"}

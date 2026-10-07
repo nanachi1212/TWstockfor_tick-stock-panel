@@ -835,7 +835,11 @@ async def _stream_openai(
             if delta and delta.content:
                 yield delta.content
 
-    kwargs = _openai_kwargs(temperature=temperature, max_tokens=max_tokens)
+    kwargs = _openai_kwargs(
+        temperature=temperature,
+        max_tokens=max_tokens,
+        base_url=config_snapshot.base_url if config_snapshot is not None else "",
+    )
     while True:
         try:
             stream = await client.chat.completions.create(
@@ -935,6 +939,9 @@ def _openai_retry_kwargs(exc: Exception, kwargs: dict) -> dict | None:
     return None
 
 
+_LOCAL_LLM_HOSTS = frozenset({"127.0.0.1", "localhost", "::1", "host.docker.internal"})
+
+
 def _openai_kwargs(
     *,
     temperature: float | None,
@@ -960,8 +967,12 @@ def _openai_kwargs(
             reasoning_effort = current_openai_reasoning_effort()
         if reasoning_effort:
             kwargs["reasoning_effort"] = reasoning_effort
+    hostname = (urlsplit(base_url).hostname or "").lower()
+    if hostname in _LOCAL_LLM_HOSTS:
+        # Local Qwen-style models otherwise spend the token budget thinking and truncate.
+        kwargs["reasoning_effort"] = "none"  # LM Studio
+        kwargs["extra_body"] = {"chat_template_kwargs": {"enable_thinking": False}}  # llama.cpp
     if structured_output:
-        hostname = (urlsplit(base_url).hostname or "").lower()
         normalized_model = model.strip().lower()
         supports_response_format = (
             hostname == "api.deepseek.com"

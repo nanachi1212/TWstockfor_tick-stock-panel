@@ -254,6 +254,11 @@ async def _call_provider(
 ) -> str:
     return await generate_structured_ai_text(
         messages,
+        truncated_retry_message=(
+            "前次 JSON 輸出已超出 token 上限而截斷。"
+            "請以相同 JSON 結構重新輸出完整 Advice，每個文字欄位不超過 60 字，"
+            "rationale / conditions / invalidation 各限 3 項。"
+        ),
         temperature=0.1,
         max_tokens=3000,
         timeout=55.0,
