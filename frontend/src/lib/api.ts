@@ -2849,6 +2849,11 @@ export interface SettingsState {
   // AI Key Profiles
   ai_key_profiles_count?: number
   ai_key_active_profile_name?: string | null
+  auto_ai_explain_enabled?: boolean
+  auto_ai_explain_last_run?: {
+    status: string; ran_at?: string; reason?: string
+    generated?: string[]; skipped?: string[]; failed?: Record<string, string>
+  } | null
 }
 
 export interface AiKeyProfile {
@@ -3875,6 +3880,15 @@ export const api = {
       method: 'PUT',
       body: JSON.stringify(cfg),
     }),
+  updateAutoAiExplain: (enabled: boolean) =>
+    request<{ auto_ai_explain_enabled: boolean }>('/api/settings/preferences/auto-ai-explain', {
+      method: 'PUT',
+      body: JSON.stringify({ enabled }),
+    }),
+  taiwanStoredAIExplain: (symbol: string, minAsOf?: string | null) =>
+    request<{ response: TaiwanAIResearchResponse | null }>(
+      `/api/taiwan/stocks/${encodeURIComponent(symbol)}/ai-explain${minAsOf ? `?min_as_of=${encodeURIComponent(minAsOf)}` : ''}`,
+    ),
   updateSystemNotify: (enabled: boolean) =>
     request<{ system_notify_enabled: boolean }>('/api/settings/preferences/system-notify', {
       method: 'PUT',

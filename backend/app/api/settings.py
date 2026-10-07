@@ -73,6 +73,7 @@ def get_settings() -> dict:
     """返回当前配置概况(Key 脱敏)。"""
     from app.config import settings
     from app.services import preferences
+    from app.taiwan import auto_ai_explain
     from app.services.ai_provider import (
         ai_configured,
         current_ai_model,
@@ -120,6 +121,8 @@ def get_settings() -> dict:
         # AI Key Profiles
         "ai_key_profiles_count": _ai_profile_count(),
         "ai_key_active_profile_name": _ai_active_profile_name(),
+        "auto_ai_explain_enabled": auto_ai_explain.is_enabled(),
+        "auto_ai_explain_last_run": auto_ai_explain.last_run(),
     }
 
 
@@ -1245,6 +1248,13 @@ class QuoteIntervalIn(BaseModel):
 
 class SystemNotifyPrefsIn(BaseModel):
     enabled: bool
+
+
+@router.put("/preferences/auto-ai-explain")
+def update_auto_ai_explain(req: SystemNotifyPrefsIn) -> dict:
+    """盤後自動 AI 說明開關 (預設關閉)；開啟後每日資料就緒時為雷達前 5 檔產生並保存。"""
+    from app.taiwan import auto_ai_explain
+    return {"auto_ai_explain_enabled": auto_ai_explain.set_enabled(req.enabled)}
 
 
 @router.put("/preferences/system-notify")

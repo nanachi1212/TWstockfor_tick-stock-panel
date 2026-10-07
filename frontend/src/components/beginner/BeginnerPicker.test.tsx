@@ -19,6 +19,7 @@ vi.mock('@/lib/api', () => ({
     syncPlanRules: vi.fn(),
     taiwanRulesList: vi.fn(),
     taiwanStockAIResearch: vi.fn(),
+    taiwanStoredAIExplain: vi.fn(),
   },
 }))
 
@@ -69,6 +70,7 @@ describe('Beginner Stock Picker', () => {
     vi.mocked(api.watchlistAdd).mockResolvedValue({ symbols: [] } as any)
     vi.mocked(api.syncPlanRules).mockResolvedValue({ created: 0, removed: 0, skipped: [] })
     vi.mocked(api.taiwanRulesList).mockResolvedValue({ rules: [], total: 0 })
+    vi.mocked(api.taiwanStoredAIExplain).mockResolvedValue({ response: null })
   })
 
   it('dashboard shows market summary, at most 5 cards, view-all link and the strength disclaimer', async () => {
@@ -110,6 +112,18 @@ describe('Beginner Stock Picker', () => {
     expect(api.taiwanStockAIResearch).toHaveBeenCalledWith('2330.TWSE')
     expect(screen.getByTestId('location')).not.toHaveTextContent('/stocks/')
     expect(screen.getByText('等待回檔')).toBeInTheDocument()
+  })
+
+  it('AI explanation stored after close is shown without calling the LLM', async () => {
+    vi.mocked(api.taiwanStoredAIExplain).mockResolvedValue({ response: {
+      status: 'success', model: 'local-model', prompt_version: 'v1', generated_at: '', evidence_registry_keys: [],
+      report: { evidence_as_of: '2026-10-07', overview: '盤後已產生的說明。', risk_factors: [], watch_next: [] },
+    } as any })
+    renderWith(<PickCard candidate={beginnerCandidate('2330.TWSE')} />)
+    fireEvent.click(screen.getByRole('button', { name: /AI 白話說明/ }))
+    expect(await screen.findByText('盤後已產生的說明。')).toBeInTheDocument()
+    expect(screen.getByText(/盤後自動產生/)).toBeInTheDocument()
+    expect(api.taiwanStockAIResearch).not.toHaveBeenCalled()
   })
 
   it('AI failure tells the user what to do next and can retry', async () => {

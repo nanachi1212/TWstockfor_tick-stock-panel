@@ -255,6 +255,12 @@ def current_ai_max_output_tokens() -> int:
     return secrets_store.get_ai_config_int("ai_max_output_tokens", settings.ai_max_output_tokens)
 
 
+def current_ai_request_timeout() -> float:
+    """单次 AI 请求逾时(秒): secrets.json 优先, 否则 config 默认; 非正数回退默认。"""
+    value = secrets_store.get_ai_config_int("ai_request_timeout", 0) or settings.ai_request_timeout
+    return float(value) if value > 0 else settings.ai_request_timeout
+
+
 def current_ai_context_window() -> int:
     """当前 AI 输入上下文窗口上限 (约 token): secrets.json 优先, 否则 config 默认。"""
     return secrets_store.get_ai_config_int("ai_context_window", settings.ai_context_window)

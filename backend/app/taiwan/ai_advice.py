@@ -19,6 +19,7 @@ from pydantic import BaseModel, Field
 
 from app.services.ai_provider import (
     AIProviderConfigSnapshot,
+    current_ai_request_timeout,
     generate_ai_text,
     generate_structured_ai_text,
     snapshot_ai_provider_config,
@@ -261,7 +262,7 @@ async def _call_provider(
         ),
         temperature=0.1,
         max_tokens=3000,
-        timeout=55.0,
+        timeout=current_ai_request_timeout(),
         config_snapshot=config_snapshot,
         generate=generate_ai_text,
     )
