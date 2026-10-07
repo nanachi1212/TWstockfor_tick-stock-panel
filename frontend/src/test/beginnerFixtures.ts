@@ -1,4 +1,4 @@
-import type { BeginnerCandidate, BeginnerSelectionResponse } from '@/lib/api'
+import type { BeginnerCandidate, BeginnerRadarResponse, BeginnerSelectionResponse, RadarItem } from '@/lib/api'
 
 export function beginnerCandidate(symbol: string, overrides: Partial<BeginnerCandidate> = {}): BeginnerCandidate {
   return {
@@ -144,6 +144,26 @@ export function beginnerSelection(count = 7, overrides: Partial<BeginnerSelectio
     data_gaps: ['Dcard 來源目前不可用'],
     evidence_policy: { critical: ['quote'], optional: ['social_attention'] },
     disclaimer: '訊號強度代表目前條件符合程度，不代表上漲機率。',
+    ...overrides,
+  }
+}
+
+export function beginnerRadar(items: RadarItem[], overrides: Partial<BeginnerRadarResponse> = {}): BeginnerRadarResponse {
+  const selection = beginnerSelection(0)
+  return {
+    version: 'entry-radar-v1',
+    selection_version: selection.version,
+    status: 'ready',
+    as_of: selection.as_of,
+    generated_at: selection.generated_at,
+    market_session: 'open',
+    market: selection.market,
+    items,
+    not_selected: selection.not_selected,
+    universe_count: 200,
+    eligible_count: 150,
+    data_gaps: [],
+    disclaimer: '雷達只比對現價和計畫價位，不是買賣指令，也不代表上漲機率。',
     ...overrides,
   }
 }

@@ -3537,6 +3537,40 @@ export interface BeginnerSelectionResponse {
   disclaimer: string
 }
 
+export type RadarLiveStatus =
+  | 'in_zone' | 'near_zone' | 'below_zone' | 'breakout' | 'near_breakout' | 'waiting' | 'below_stop' | 'unavailable'
+export type RadarSource = 'pick' | 'holding' | 'watchlist'
+
+export interface RadarLive {
+  status: RadarLiveStatus
+  label: string
+  price: number | null
+  quote_time: string | null
+  note: string | null
+}
+
+export interface RadarItem {
+  candidate: BeginnerCandidate
+  sources: RadarSource[]
+  live: RadarLive
+}
+
+export interface BeginnerRadarResponse {
+  version: string
+  selection_version: string
+  status: 'ready' | 'degraded' | 'unavailable'
+  as_of: string | null
+  generated_at: string
+  market_session: string
+  market: BeginnerMarketSummary
+  items: RadarItem[]
+  not_selected: BeginnerCandidate[]
+  universe_count: number
+  eligible_count: number
+  data_gaps: string[]
+  disclaimer: string
+}
+
 export interface BeginnerSymbolResponse {
   version: string
   generated_at: string
@@ -4550,6 +4584,8 @@ export const api = {
     request<BeginnerSelectionResponse>(`/api/taiwan/beginner-selection?limit=${limit}`),
   beginnerSelectionSymbol: (symbol: string) =>
     request<BeginnerSymbolResponse>(`/api/taiwan/beginner-selection/stocks/${encodeURIComponent(symbol)}`),
+  beginnerRadar: (holdings: string[]) =>
+    request<BeginnerRadarResponse>(`/api/taiwan/beginner-selection/radar?${new URLSearchParams({ holdings: holdings.join(',') })}`),
   beginnerComparison: (symbols: string[]) =>
     request<BeginnerComparisonResponse>(`/api/taiwan/beginner-selection/compare?${new URLSearchParams({ symbols: symbols.join(',') })}`),
   taiwanExternalContext: (symbol?: string) =>

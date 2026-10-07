@@ -146,6 +146,7 @@ export const QK = {
   buyPointSignals: (symbol?: string) => ['buy-point-signals', symbol ?? 'watchlist'] as const,
   buyPointSummary: ['buy-point-summary'] as const,
   beginnerSelection: ['beginner-selection'] as const,
+  beginnerRadar: (holdings: string[]) => ['beginner-selection', 'radar', [...holdings].sort()] as const,
   beginnerSelectionSymbol: (symbol: string) => ['beginner-selection', 'symbol', symbol] as const,
   beginnerComparison: (symbols: string[]) => ['beginner-selection', 'compare', [...symbols].sort()] as const,
   buyPointStats: ['buy-point-stats'] as const,

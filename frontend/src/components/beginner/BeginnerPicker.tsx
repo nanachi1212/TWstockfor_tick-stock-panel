@@ -11,6 +11,9 @@ import {
   type BeginnerSelectionState,
   type BeginnerSignalStrength,
   type BeginnerTechnicalPanel,
+  type RadarLive,
+  type RadarLiveStatus,
+  type RadarSource,
 } from '@/lib/api'
 import { QK } from '@/lib/queryKeys'
 import { cn } from '@/lib/cn'
@@ -129,9 +132,46 @@ function ReasonList({ items, empty, tone }: { items: string[]; empty: string; to
   )
 }
 
-export function PickCard({ candidate, comparison }: {
+const LIVE_CLASS: Record<RadarLiveStatus, string> = {
+  in_zone: 'border-accent/40 bg-accent/10 text-accent',
+  breakout: 'border-accent/40 bg-accent/10 text-accent',
+  near_zone: 'border-warning/40 bg-warning/10 text-warning',
+  near_breakout: 'border-warning/40 bg-warning/10 text-warning',
+  below_zone: 'border-warning/40 bg-warning/10 text-warning',
+  below_stop: 'border-danger/40 bg-danger/10 text-danger',
+  waiting: 'border-border bg-elevated text-muted',
+  unavailable: 'border-border bg-elevated text-muted',
+}
+
+const SOURCE_LABEL: Record<Exclude<RadarSource, 'pick'>, string> = { holding: '持股', watchlist: '自選' }
+
+function RadarStrip({ live, plan }: { live: RadarLive; plan: BeginnerCandidate['trade_plan'] }) {
+  const time = formatTaipeiTime(live.quote_time)
+  return (
+    <div className="rounded-md border border-border/70 bg-base/60 p-2" aria-label="盤中狀態">
+      <div className="flex flex-wrap items-center gap-2">
+        <span className={cn('inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-semibold', LIVE_CLASS[live.status])}>{live.label}</span>
+        {live.price != null && (
+          <span className="font-mono text-xs text-foreground">現價 {formatPrice(live.price)}{time && <span className="ml-1 text-[10px] text-muted">（{time}）</span>}</span>
+        )}
+      </div>
+      {live.note && <p className="mt-1 break-words text-[11px] text-muted">{live.note}</p>}
+      {plan && (
+        <dl className="mt-1.5 grid grid-cols-[3.5rem_minmax(0,1fr)] gap-x-2 gap-y-0.5 text-xs">
+          {plan.entry_semantics === 'breakout_stop'
+            ? <><dt className="text-muted">突破價</dt><dd className="font-mono text-foreground">{formatPrice(plan.breakout_trigger)}</dd></>
+            : <><dt className="text-muted">承接區</dt><dd className="font-mono text-foreground">{formatPrice(plan.entry_zone_low)}～{formatPrice(plan.entry_zone_high)}</dd></>}
+          <dt className="text-muted">失效位</dt><dd className="font-mono text-warning">{formatPrice(plan.stop_price)}</dd>
+        </dl>
+      )}
+    </div>
+  )
+}
+
+export function PickCard({ candidate, comparison, radar }: {
   candidate: BeginnerCandidate
   comparison?: { checked: boolean; disabled: boolean; onToggle: () => void }
+  radar?: { live: RadarLive; sources: RadarSource[] }
 }) {
   const navigate = useNavigate()
   const href = `/stocks/${encodeURIComponent(candidate.symbol)}`
@@ -151,7 +191,12 @@ export function PickCard({ candidate, comparison }: {
       <header className="flex min-w-0 items-start justify-between gap-2">
         <div className="min-w-0">
           <p className="truncate text-sm font-semibold text-foreground">{candidate.name || candidate.symbol}</p>
-          <p className="font-mono text-[11px] text-muted">{candidate.symbol}</p>
+          <p className="font-mono text-[11px] text-muted">
+            {candidate.symbol}
+            {radar?.sources.filter((s): s is Exclude<RadarSource, 'pick'> => s !== 'pick').map(s => (
+              <span key={s} className="ml-1.5 rounded bg-elevated px-1 py-px font-sans text-[10px] text-foreground">{SOURCE_LABEL[s]}</span>
+            ))}
+          </p>
         </div>
         <div className="flex flex-col items-end gap-1">
           <StateBadge state={candidate.selection_state} />
@@ -160,6 +205,7 @@ export function PickCard({ candidate, comparison }: {
           )}
         </div>
       </header>
+      {radar && <RadarStrip live={radar.live} plan={candidate.trade_plan} />}
       {candidate.selection_state !== 'skip' && (
         <div>
           <p className="mb-0.5 text-[11px] font-semibold text-muted">為什麼被選中</p>
@@ -195,12 +241,13 @@ export function PickCard({ candidate, comparison }: {
   )
 }
 
-export function PickComparisonList({ candidates, compact = false }: { candidates: BeginnerCandidate[]; compact?: boolean }) {
+/** Comparison selection kept in the URL (`?compare=`), shared by the pick list and the entry radar. */
+export function useCompareSelection(symbols: string[]) {
   const [params, setParams] = useSearchParams()
   const navigate = useNavigate()
   const navigating = useRef(false)
   const [opening, setOpening] = useState(false)
-  const available = new Set(candidates.map(c => c.symbol))
+  const available = new Set(symbols)
   const selected = [...new Set((params.get('compare') ?? '').split(','))].filter(s => available.has(s)).slice(0, 5)
   const toggle = (symbol: string) => {
     const next = selected.includes(symbol) ? selected.filter(s => s !== symbol) : [...selected, symbol]
@@ -212,24 +259,37 @@ export function PickComparisonList({ candidates, compact = false }: { candidates
       return updated
     }, { replace: true })
   }
+  const open = () => {
+    if (navigating.current || selected.length < 2) return
+    navigating.current = true
+    setOpening(true)
+    navigate(`/picks/compare?${new URLSearchParams({ symbols: [...selected].sort().join(',') })}`)
+  }
+  const comparisonFor = (symbol: string) => ({
+    checked: selected.includes(symbol), disabled: opening || (selected.length === 5 && !selected.includes(symbol)),
+    onToggle: () => toggle(symbol),
+  })
+  return { selected, opening, open, comparisonFor }
+}
+
+export function CompareBar({ selected, opening, open }: { selected: string[]; opening: boolean; open: () => void }) {
+  return (
+    <div className="flex flex-wrap items-center justify-between gap-2 rounded-card border border-accent/25 bg-surface p-3">
+      <p className="text-xs text-muted" role="status">已選 {selected.length} / 5 檔 · 請勾選 2 至 5 檔{selected.length === 5 && '，已達上限'}</p>
+      <button type="button" disabled={selected.length < 2 || opening}
+        className="min-h-9 rounded-md bg-accent px-3 text-xs font-semibold text-white disabled:cursor-not-allowed disabled:opacity-40"
+        onClick={open}>比較這些股票</button>
+    </div>
+  )
+}
+
+export function PickComparisonList({ candidates, compact = false }: { candidates: BeginnerCandidate[]; compact?: boolean }) {
+  const compare = useCompareSelection(candidates.map(c => c.symbol))
   return (
     <div className="space-y-2">
-      <div className="flex flex-wrap items-center justify-between gap-2 rounded-card border border-accent/25 bg-surface p-3">
-        <p className="text-xs text-muted" role="status">已選 {selected.length} / 5 檔 · 請勾選 2 至 5 檔{selected.length === 5 && '，已達上限'}</p>
-        <button type="button" disabled={selected.length < 2 || opening}
-          className="min-h-9 rounded-md bg-accent px-3 text-xs font-semibold text-white disabled:cursor-not-allowed disabled:opacity-40"
-          onClick={() => {
-            if (navigating.current || selected.length < 2) return
-            navigating.current = true
-            setOpening(true)
-            navigate(`/picks/compare?${new URLSearchParams({ symbols: [...selected].sort().join(',') })}`)
-          }}>比較這些股票</button>
-      </div>
+      <CompareBar {...compare} />
       <div className={cn('grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3', compact ? 'gap-1.5' : 'gap-2')}>
-        {candidates.map(c => <PickCard key={c.symbol} candidate={c} comparison={{
-          checked: selected.includes(c.symbol), disabled: opening || (selected.length === 5 && !selected.includes(c.symbol)),
-          onToggle: () => toggle(c.symbol),
-        }} />)}
+        {candidates.map(c => <PickCard key={c.symbol} candidate={c} comparison={compare.comparisonFor(c.symbol)} />)}
       </div>
     </div>
   )

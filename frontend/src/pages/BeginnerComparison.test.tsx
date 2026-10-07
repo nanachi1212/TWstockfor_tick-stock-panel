@@ -3,12 +3,12 @@ import { act, fireEvent, render, screen, waitFor, within } from '@testing-librar
 import { MemoryRouter, Route, Routes, useLocation, useNavigate } from 'react-router-dom'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { api, type BeginnerComparisonResponse } from '@/lib/api'
-import { beginnerCandidate, beginnerSelection } from '@/test/beginnerFixtures'
+import { beginnerCandidate, beginnerRadar, beginnerSelection } from '@/test/beginnerFixtures'
 import { BeginnerComparison } from './BeginnerComparison'
 import { BeginnerPicks } from './BeginnerPicks'
 import { BeginnerDashboardWidget } from '@/components/beginner/BeginnerPicker'
 
-vi.mock('@/lib/api', () => ({ api: { beginnerComparison: vi.fn(), beginnerSelection: vi.fn() } }))
+vi.mock('@/lib/api', () => ({ api: { beginnerComparison: vi.fn(), beginnerSelection: vi.fn(), beginnerRadar: vi.fn() } }))
 
 function comparison(): BeginnerComparisonResponse {
   const watch = beginnerCandidate('1101.TWSE', { name: '觀察股', rank: 2, selection_state: 'watch', signal_strength: 'medium' })
@@ -50,6 +50,9 @@ describe('beginner comparator', () => {
   beforeEach(() => {
     vi.mocked(api.beginnerComparison).mockReset().mockResolvedValue(comparison())
     vi.mocked(api.beginnerSelection).mockReset().mockResolvedValue(beginnerSelection())
+    vi.mocked(api.beginnerRadar).mockReset().mockResolvedValue(beginnerRadar(beginnerSelection().candidates.map(candidate => ({
+      candidate, sources: ['pick'], live: { status: 'waiting', label: '尚未到位', price: null, quote_time: null, note: null },
+    }))))
   })
 
   it.each([
@@ -119,7 +122,7 @@ describe('beginner comparator', () => {
     fireEvent.click(screen.getByRole('button', { name: '測試返回' }))
     await screen.findByRole('button', { name: '比較這些股票' })
     expect(screen.getAllByRole('checkbox').filter(input => (input as HTMLInputElement).checked)).toHaveLength(5)
-    expect(api.beginnerSelection).toHaveBeenCalledTimes(1)
+    expect(dashboard ? api.beginnerSelection : api.beginnerRadar).toHaveBeenCalledTimes(1)
     fireEvent.click(screen.getByRole('button', { name: '比較這些股票' }))
     await screen.findByText('這幾檔怎麼選？')
     expect(api.beginnerComparison).toHaveBeenCalledTimes(1)
