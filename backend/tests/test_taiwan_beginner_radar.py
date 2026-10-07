@@ -109,6 +109,14 @@ def test_fresh_quote_inside_plan_zone():
     live = radar_live(candidate, _quote(price=plan.entry_zone_high))
     assert live.status == "in_zone" and live.label == "已進承接區"
     assert live.price == plan.entry_zone_high and live.quote_time
+    assert (live.source, live.source_status, live.freshness_class) == (
+        "twse:mis", RealtimeStatus.REALTIME.value, "best_effort_near_realtime")
+
+
+def test_refused_quote_keeps_its_provenance_and_missing_quote_has_none():
+    live = radar_live(_pick(), _quote(freshness_class="delayed_15m"))
+    assert live.status == "unavailable" and live.freshness_class == "delayed_15m" and live.source == "twse:mis"
+    assert radar_live(_pick(), None).source is None
 
 
 def test_candidate_without_plan_keeps_price_but_no_status():
@@ -121,10 +129,10 @@ def test_candidate_without_plan_keeps_price_but_no_status():
 # ── symbol parsing ──
 
 def test_parse_holdings_dedupes_and_rejects_invalid():
-    assert parse_holdings(" 2330.twse,2330.TWSE,,8069.TPEX ") == ["2330.TWSE", "8069.TPEX"]
-    assert parse_holdings("") == []
+    assert parse_holdings([" 2330.twse", "2330.TWSE", "", "8069.TPEX "]) == ["2330.TWSE", "8069.TPEX"]
+    assert parse_holdings([]) == []
     with pytest.raises(ValueError):
-        parse_holdings("2330.TWSE,600519.SH")
+        parse_holdings(["2330.TWSE", "600519.SH"])
 
 
 def test_watchlist_keeps_taiwan_symbols_only():
@@ -191,13 +199,55 @@ def test_quote_failure_degrades_to_unavailable_with_gap():
     assert result.items[0].live.status == "unavailable"
     assert "即時報價暫時不可用" in result.data_gaps
     assert result.market_session == "closed"
+    assert result.status == "degraded", "a ready selection without live quotes is a degraded radar"
+
+
+@pytest.mark.parametrize(("quotes", "gap"), [
+    (lambda symbols: {}, "即時報價暫時不可用"),
+    (lambda symbols: {symbols[0]: _quote(symbol=symbols[0])}, "1 檔股票沒有即時報價"),
+])
+def test_missing_or_partial_quotes_degrade_status(quotes, gap):
+    result = build_radar(_FakeService(_picks()), holdings=["2317.TWSE"], watchlist=[], get_quotes=quotes,
+                         market_session=lambda: "closed")
+    assert result.status == "degraded" and gap in result.data_gaps
+
+
+def test_full_quote_coverage_keeps_selection_status():
+    result = build_radar(_FakeService(_picks()), holdings=[], watchlist=[],
+                         get_quotes=lambda symbols: {s: _quote(symbol=s) for s in symbols},
+                         market_session=lambda: "closed")
+    assert result.status == "ready"
 
 
 # ── API ──
 
 def test_api_rejects_invalid_holdings():
-    response = TestClient(app).get("/api/taiwan/beginner-selection/radar", params={"holdings": "abc"})
+    response = TestClient(app).post("/api/taiwan/beginner-selection/radar", json={"holdings": ["abc"]})
     assert response.status_code == 400
+
+
+def test_api_does_not_accept_holdings_in_the_query_string():
+    response = TestClient(app).get("/api/taiwan/beginner-selection/radar", params={"holdings": "2330.TWSE"})
+    assert "entry-radar-v1" not in response.text  # GET never reaches the radar (SPA fallback or 405)
+
+
+def test_api_session_fallback_requires_a_verified_trading_day(monkeypatch):
+    calls = []
+
+    def fake_status(now, **kwargs):
+        calls.append(kwargs)
+        return MarketStatus.SCHEDULED_OPEN_UNVERIFIED
+
+    def fake_build(service, *, holdings, watchlist, get_quotes, market_session):
+        return build_radar(_FakeService(_picks()), holdings=[], watchlist=[],
+                           get_quotes=lambda symbols: {}, market_session=market_session)
+
+    monkeypatch.setattr(radar, "build_radar", fake_build)
+    monkeypatch.setattr("app.taiwan.realtime.get_market_status", fake_status)
+    monkeypatch.setattr("app.services.watchlist.list_symbols", lambda: [])
+    body = TestClient(app).post("/api/taiwan/beginner-selection/radar", json={}).json()
+    assert calls == [{"require_verified_trading_day": True}]
+    assert body["market_session"] == "scheduled_open_unverified"
 
 
 def test_api_passes_parsed_holdings_and_taiwan_watchlist(monkeypatch):
@@ -211,7 +261,7 @@ def test_api_passes_parsed_holdings_and_taiwan_watchlist(monkeypatch):
     monkeypatch.setattr(radar, "build_radar", fake_build)
     monkeypatch.setattr("app.services.watchlist.list_symbols",
                         lambda: [{"symbol": "2454.TWSE"}, {"symbol": "600519.SH"}])
-    response = TestClient(app).get("/api/taiwan/beginner-selection/radar", params={"holdings": "2317.twse"})
+    response = TestClient(app).post("/api/taiwan/beginner-selection/radar", json={"holdings": ["2317.twse"]})
     assert response.status_code == 200
     assert seen == {"holdings": ["2317.TWSE"], "watchlist": ["2454.TWSE"]}
     body = response.json()

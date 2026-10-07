@@ -1,6 +1,6 @@
 import { QK } from '@/lib/queryKeys'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { api } from '@/lib/api'
@@ -88,7 +88,7 @@ describe('Beginner Stock Picker', () => {
   })
 
   it('full page lists radar items and explains why others were not selected', async () => {
-    const live = { status: 'waiting' as const, label: '尚未到位', price: 99, quote_time: null, note: null }
+    const live = { status: 'waiting' as const, label: '尚未到位', price: 99, quote_time: null, note: null, source: null, source_status: null, freshness_class: null }
     vi.mocked(api.beginnerRadar).mockResolvedValue(beginnerRadar(
       beginnerSelection(12).candidates.map(candidate => ({ candidate, sources: ['pick' as const], live })),
       { data_gaps: ['Dcard 來源目前不可用'] },
@@ -110,7 +110,7 @@ describe('Beginner Stock Picker', () => {
     vi.mocked(api.beginnerRadar).mockResolvedValue(beginnerRadar([
       {
         candidate: beginnerCandidate('2330.TWSE', { rank: 1 }), sources: ['pick'],
-        live: { status: 'in_zone', label: '已進承接區', price: 96, quote_time: '2026-10-07T10:15:00+08:00', note: null },
+        live: { status: 'in_zone', label: '已進承接區', price: 96, quote_time: '2026-10-07T10:15:00+08:00', note: null, source: null, source_status: null, freshness_class: null },
       },
       {
         candidate: beginnerCandidate('2317.TWSE', {
@@ -118,7 +118,7 @@ describe('Beginner Stock Picker', () => {
           exclusion_reasons: [{ reason_code: 'trend_not_ready', evidence_key: 'trend', direction: 'negative', display_text: '趨勢偏弱，暫時略過。' }],
         }),
         sources: ['holding'],
-        live: { status: 'unavailable', label: '無盤中判斷', price: 101, quote_time: null, note: '這檔目前不提供計畫價位。' },
+        live: { status: 'unavailable', label: '無盤中判斷', price: 101, quote_time: null, note: '這檔目前不提供計畫價位。', source: null, source_status: null, freshness_class: null },
       },
     ]))
     renderWith(<BeginnerPicks />)
@@ -131,6 +131,49 @@ describe('Beginner Stock Picker', () => {
     expect(within(own).getByText('這檔目前不提供計畫價位。')).toBeInTheDocument()
     expect(api.beginnerRadar).toHaveBeenCalledWith(['2317.TWSE'])
     localStorage.removeItem('portfolio_transactions')
+  })
+
+  const buy = (id: string, symbol: string) => ({
+    id, symbol, name: symbol, side: 'buy', shares: 1000, price: 100, fee: 0,
+    date: '2026-09-01', tradeTime: '10:00', createdAt: '2026-09-01T02:00:00.000Z',
+  })
+
+  it('radar rejects an invalid ledger instead of sending partial holdings', async () => {
+    localStorage.setItem('portfolio_transactions', JSON.stringify([buy('t1', '2317.TWSE'), { id: 'broken' }]))
+    vi.mocked(api.beginnerRadar).mockReset().mockResolvedValue(beginnerRadar([]))
+    renderWith(<BeginnerPicks />)
+    expect(await screen.findByRole('alert')).toHaveTextContent(/持股無法讀取，雷達暫不顯示持股/)
+    expect(api.beginnerRadar).toHaveBeenCalledWith([])
+    localStorage.removeItem('portfolio_transactions')
+  })
+
+  it('radar refreshes holdings when the ledger changes', async () => {
+    localStorage.setItem('portfolio_transactions', JSON.stringify([buy('t1', '2317.TWSE')]))
+    vi.mocked(api.beginnerRadar).mockReset().mockResolvedValue(beginnerRadar([]))
+    renderWith(<BeginnerPicks />)
+    await waitFor(() => expect(api.beginnerRadar).toHaveBeenCalledWith(['2317.TWSE']))
+    localStorage.setItem('portfolio_transactions', JSON.stringify([buy('t1', '2317.TWSE'), buy('t2', '2454.TWSE')]))
+    act(() => { window.dispatchEvent(new Event('portfolio-transactions-changed')) })
+    await waitFor(() => expect(api.beginnerRadar).toHaveBeenCalledWith(['2317.TWSE', '2454.TWSE']))
+    localStorage.removeItem('portfolio_transactions')
+  })
+
+  it('skipped radar card lists every exclusion reason and the quote source', async () => {
+    const reason = (code: string, text: string) => ({ reason_code: code, evidence_key: code, direction: 'negative' as const, display_text: text })
+    vi.mocked(api.beginnerRadar).mockReset().mockResolvedValue(beginnerRadar([{
+      candidate: beginnerCandidate('2317.TWSE', {
+        rank: null, selection_state: 'skip', reasons: [], trade_plan: null,
+        exclusion_reasons: [reason('quote_stale', '行情資料過舊。'), reason('risk_unverified', '無法確認是否為處置股票。')],
+      }),
+      sources: ['watchlist'],
+      live: { status: 'unavailable', label: '無盤中判斷', price: 101, quote_time: null, note: '目前不是盤中時段。', source: 'twse:mis', source_status: 'realtime', freshness_class: 'best_effort_near_realtime' },
+    }]))
+    renderWith(<BeginnerPicks />)
+    const own = await screen.findByRole('region', { name: '你的股票：暫不操作' })
+    expect(within(own).getByText('為什麼暫不操作')).toBeInTheDocument()
+    expect(within(own).getByText('行情資料過舊。')).toBeInTheDocument()
+    expect(within(own).getByText('無法確認是否為處置股票。')).toBeInTheDocument()
+    expect(within(own).getByText(/報價來源：twse:mis/)).toBeInTheDocument()
   })
 
   it('empty selection is honest instead of padding the list', async () => {
@@ -288,7 +331,7 @@ describe('Beginner Stock Picker', () => {
     vi.mocked(api.syncPlanRules).mockResolvedValue({ created: 2, removed: 0, skipped: [] })
 
     const candidate = beginnerCandidate('2330.TWSE')
-    const live = { status: 'in_zone' as const, label: '已進承接區', price: 96, quote_time: null, note: null }
+    const live = { status: 'in_zone' as const, label: '已進承接區', price: 96, quote_time: null, note: null, source: null, source_status: null, freshness_class: null }
     const { client } = renderWith(<PickCard candidate={candidate} radar={{ live, sources: ['pick'] }} />)
     const invalidate = vi.spyOn(client, 'invalidateQueries')
 
@@ -309,7 +352,7 @@ describe('Beginner Stock Picker', () => {
   })
 
   it('chip 自動監控中 shows only for watchlist stocks with a plan', async () => {
-    const live = { status: 'waiting' as const, label: '尚未到位', price: 100, quote_time: null, note: null }
+    const live = { status: 'waiting' as const, label: '尚未到位', price: 100, quote_time: null, note: null, source: null, source_status: null, freshness_class: null }
 
     // Case 1: Watchlist stock with plan -> shows chip
     const withPlan = beginnerCandidate('2330.TWSE', {
@@ -349,7 +392,7 @@ describe('Beginner Stock Picker', () => {
   })
   it('retries only sync after watchlist add succeeded but sync failed', async () => {
     vi.mocked(api.syncPlanRules).mockRejectedValueOnce(new Error('PRICE_BELOW'))
-    const live = { status: 'waiting' as const, label: '尚未到位', price: 100, quote_time: null, note: null }
+    const live = { status: 'waiting' as const, label: '尚未到位', price: 100, quote_time: null, note: null, source: null, source_status: null, freshness_class: null }
     renderWith(<PickCard candidate={beginnerCandidate('2330.TWSE')} radar={{ live, sources: ['pick'] }} />)
     fireEvent.click(screen.getByRole('button', { name: '加入自選並自動監控' }))
     expect(await screen.findByRole('alert')).toHaveTextContent('已加入自選，但自動監控同步失敗')
@@ -363,7 +406,7 @@ describe('Beginner Stock Picker', () => {
 
   it('does not sync if watchlist add fails', async () => {
     vi.mocked(api.watchlistAdd).mockRejectedValueOnce(new Error('network error'))
-    const live = { status: 'waiting' as const, label: '尚未到位', price: 100, quote_time: null, note: null }
+    const live = { status: 'waiting' as const, label: '尚未到位', price: 100, quote_time: null, note: null, source: null, source_status: null, freshness_class: null }
     renderWith(<PickCard candidate={beginnerCandidate('2330.TWSE')} radar={{ live, sources: ['pick'] }} />)
     fireEvent.click(screen.getByRole('button', { name: '加入自選並自動監控' }))
     expect(await screen.findByRole('alert')).toHaveTextContent('加入自選失敗')
@@ -375,7 +418,7 @@ describe('Beginner Stock Picker', () => {
     vi.mocked(api.syncPlanRules).mockResolvedValueOnce({
       created: 0, removed: 0, skipped: [{ symbol: '2330.TWSE', reason: 'trade_plan_unavailable' }],
     })
-    const live = { status: 'waiting' as const, label: '尚未到位', price: 100, quote_time: null, note: null }
+    const live = { status: 'waiting' as const, label: '尚未到位', price: 100, quote_time: null, note: null, source: null, source_status: null, freshness_class: null }
     renderWith(<PickCard candidate={beginnerCandidate('2330.TWSE')} radar={{ live, sources: ['pick'] }} />)
     fireEvent.click(screen.getByRole('button', { name: '加入自選並自動監控' }))
     expect(await screen.findByRole('alert')).toHaveTextContent('目前沒有可用的承接計畫')

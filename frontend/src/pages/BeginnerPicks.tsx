@@ -8,7 +8,7 @@ import {
 import { EntryRadarBoard, useEntryRadar } from '@/components/beginner/EntryRadar'
 
 export function BeginnerPicks() {
-  const query = useEntryRadar()
+  const { query, ledgerError } = useEntryRadar()
   const data = query.data
   return (
     <div className="min-h-full bg-base p-2 sm:p-3">
@@ -21,6 +21,9 @@ export function BeginnerPicks() {
           <p className="flex items-center gap-2 text-xs text-muted"><Loader2 className="h-3.5 w-3.5 animate-spin" /> 正在整理今天的雷達…</p>
         )}
         {query.isError && <p className="text-xs text-danger">承接雷達暫時無法讀取，請稍後再試。</p>}
+        {ledgerError && (
+          <p role="alert" className="rounded-md bg-warning/10 p-2 text-xs text-warning">持股無法讀取，雷達暫不顯示持股：{ledgerError}</p>
+        )}
         {data && (
           <>
             <MarketSummaryCard market={data.market} />

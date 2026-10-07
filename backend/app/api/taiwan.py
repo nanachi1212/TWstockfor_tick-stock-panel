@@ -11,7 +11,7 @@ from datetime import date as dt_date
 from typing import Annotated, Any, Literal
 
 from fastapi import APIRouter, HTTPException, Query, Request
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from app.api.market_breadth import router as market_breadth_router
 from app.api.market_research import router as market_research_router
@@ -1084,8 +1084,13 @@ def get_beginner_selection(limit: Annotated[int, Query(ge=1, le=20)] = 20):
         raise HTTPException(status_code=500, detail="今日選股資料彙整失敗") from e
 
 
-@router.get("/beginner-selection/radar")
-def get_beginner_entry_radar(holdings: str = Query("", max_length=2000)):
+class BeginnerRadarRequest(BaseModel):
+    # Holdings are user-sensitive: they travel in the body, never in the URL or access log.
+    holdings: list[str] = Field(default_factory=list, max_length=200)
+
+
+@router.post("/beginner-selection/radar")
+def get_beginner_entry_radar(req: BeginnerRadarRequest):
     """每日承接雷達：今日選股＋持股＋自選股，比對盤中現價與計畫價位。"""
     from app.services import watchlist
     from app.taiwan.beginner_radar import build_radar, parse_holdings, taiwan_symbols
@@ -1093,7 +1098,7 @@ def get_beginner_entry_radar(holdings: str = Query("", max_length=2000)):
     from app.taiwan.realtime import get_market_status, get_realtime_service, taipei_now
 
     try:
-        held = parse_holdings(holdings)
+        held = parse_holdings(req.holdings)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     try:
@@ -1102,7 +1107,8 @@ def get_beginner_entry_radar(holdings: str = Query("", max_length=2000)):
             holdings=held,
             watchlist=taiwan_symbols(row.get("symbol") for row in watchlist.list_symbols()),
             get_quotes=lambda symbols: get_realtime_service().get_quotes(symbols),
-            market_session=lambda: get_market_status(taipei_now()).value,
+            # Without a quote, "open" needs a verified trading day (holidays, closures).
+            market_session=lambda: get_market_status(taipei_now(), require_verified_trading_day=True).value,
         ).model_dump(mode="json")
     except Exception as exc:
         logger.exception("Failed to build entry radar: %s", exc)

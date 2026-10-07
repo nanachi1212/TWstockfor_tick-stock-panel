@@ -156,6 +156,9 @@ function RadarStrip({ live, plan }: { live: RadarLive; plan: BeginnerCandidate['
         )}
       </div>
       {live.note && <p className="mt-1 break-words text-[11px] text-muted">{live.note}</p>}
+      {live.source && (
+        <p className="mt-0.5 break-all text-[10px] text-muted">報價來源：{live.source}{live.freshness_class && `・${live.freshness_class}`}</p>
+      )}
       {plan && (
         <dl className="mt-1.5 grid grid-cols-[3.5rem_minmax(0,1fr)] gap-x-2 gap-y-0.5 text-xs">
           {plan.entry_semantics === 'breakout_stop'
@@ -251,10 +254,15 @@ export function PickCard({ candidate, comparison, radar }: {
         </div>
       </header>
       {radar && <RadarStrip live={radar.live} plan={candidate.trade_plan} />}
-      {candidate.selection_state !== 'skip' && (
+      {candidate.selection_state !== 'skip' ? (
         <div>
           <p className="mb-0.5 text-[11px] font-semibold text-muted">為什麼被選中</p>
           <ReasonList items={candidate.reasons.map(r => r.display_text)} empty="沒有明確的正向理由。" tone="reason" />
+        </div>
+      ) : (
+        <div>
+          <p className="mb-0.5 text-[11px] font-semibold text-muted">為什麼暫不操作</p>
+          <ReasonList items={candidate.exclusion_reasons.map(r => r.display_text)} empty={candidate.action_summary} tone="risk" />
         </div>
       )}
       <div>

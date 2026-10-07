@@ -73,6 +73,10 @@ class RadarLive(BaseModel):
     price: float | None = None
     quote_time: str | None = None
     note: str | None = None
+    # Provenance of the quote behind this result; None when no quote was received.
+    source: str | None = None
+    source_status: str | None = None
+    freshness_class: str | None = None
 
 
 class RadarItem(BaseModel):
@@ -97,9 +101,9 @@ class RadarResponse(BaseModel):
     disclaimer: str = "雷達只比對現價和計畫價位，不是買賣指令，也不代表上漲機率。"
 
 
-def parse_holdings(raw: str) -> list[str]:
-    """Validate the comma-separated holdings sent by the client (trust boundary)."""
-    symbols = [s.strip().upper() for s in raw.split(",") if s.strip()]
+def parse_holdings(raw: list[str]) -> list[str]:
+    """Validate the holdings sent by the client (trust boundary)."""
+    symbols = [s.strip().upper() for s in raw if s.strip()]
     for symbol in symbols:
         if not _TAIWAN_SYMBOL.fullmatch(symbol):
             raise ValueError(f"無效的台股代號：{symbol}")
@@ -139,6 +143,13 @@ def _unavailable(note: str, price: float | None = None, quote_time: str | None =
 def radar_live(candidate: BeginnerCandidate, quote: TaiwanRealtimeQuote | None) -> RadarLive:
     if quote is None:
         return _unavailable("目前拿不到即時報價。")
+    meta = quote.source_meta
+    return _judge(candidate, quote).model_copy(update={
+        "source": meta.source, "source_status": meta.status, "freshness_class": meta.freshness_class,
+    })
+
+
+def _judge(candidate: BeginnerCandidate, quote: TaiwanRealtimeQuote) -> RadarLive:
     blocked = quote_quality_gate(quote)
     if blocked is not None:
         return _unavailable(_GATE_NOTE.get(blocked[0], "即時報價不可用。"))
@@ -191,10 +202,15 @@ def build_radar(
         logger.warning("entry radar quotes unavailable: %s", type(exc).__name__)
         quotes = {}
         gaps.append("即時報價暫時不可用")
+    missing = sum(1 for c in candidates if c.symbol not in quotes)
+    if missing and "即時報價暫時不可用" not in gaps:
+        gaps.append(f"{missing} 檔股票沒有即時報價" if quotes else "即時報價暫時不可用")
     session = next((q.market_status for q in quotes.values()), None) or market_session()
+    # Missing live quotes are a degraded radar even when the end-of-day selection is ready.
+    status = "degraded" if missing and selection.status == "ready" else selection.status
 
     return RadarResponse(
-        status=selection.status,
+        status=status,
         as_of=selection.as_of,
         generated_at=datetime.now(UTC).isoformat(),
         market_session=session,
