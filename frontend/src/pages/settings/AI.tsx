@@ -380,6 +380,7 @@ export function SettingsAIPanel() {
       </Card>
 
       <AutoAiExplainCard />
+      <EventAiExplainCard />
 
       <div className="rounded-card border border-amber-400/20 bg-amber-400/[0.04] px-4 py-3 flex items-start gap-3">
         <Shield className="h-4 w-4 text-amber-400/70 mt-0.5 shrink-0" />
@@ -420,6 +421,27 @@ export function SettingsAIPanel() {
           </div>
         </div>
       )}
+    </div>
+  )
+}
+
+function EventAiExplainCard() {
+  const qc = useQueryClient()
+  const enabled = Boolean(useSettings().data?.event_ai_explain_enabled)
+  const toggle = useMutation({
+    mutationFn: () => api.updateEventAiExplain(!enabled),
+    onSuccess: () => qc.invalidateQueries({ queryKey: QK.settings }),
+  })
+  return (
+    <div className="rounded-card border border-border bg-surface/60 px-4 py-3 space-y-1.5" aria-label="提醒後 AI 解讀">
+      <div className="flex items-center justify-between gap-3">
+        <div className="min-w-0">
+          <p className="text-sm font-medium text-foreground">提醒觸發後附上 AI 解讀</p>
+          <p className="text-[11px] text-muted">自動監控的承接／突破／失效提醒會先照原樣送出；開啟後，AI 另外補一則「發生什麼、為什麼重要、接下來看什麼」，送到同樣的通道。AI 不可用時只是不補，不影響原本提醒。</p>
+        </div>
+        <Toggle checked={enabled} onChange={() => !toggle.isPending && toggle.mutate()} />
+      </div>
+      {toggle.isError && <p role="alert" className="text-[11px] text-danger">儲存失敗，請稍後再試。</p>}
     </div>
   )
 }

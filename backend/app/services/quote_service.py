@@ -1250,6 +1250,14 @@ class QuoteService:
             emitted_rule_events = rule_events + persisted_taiwan_events
             if emitted_rule_events:
                 self._maybe_send_webhook(emitted_rule_events, engine)
+            if persisted_taiwan_events:
+                # AI follow-up for plan alerts (default off); after the rule-based push, never blocking it.
+                try:
+                    from app.taiwan import event_ai_explain
+
+                    event_ai_explain.submit(persisted_taiwan_events)
+                except Exception as e:  # noqa: BLE001
+                    logger.warning("事件 AI 解讀提交失敗 (%s)", type(e).__name__)
 
         except Exception as e:  # noqa: BLE001
             logger.warning("监控评估失败: %s", e)

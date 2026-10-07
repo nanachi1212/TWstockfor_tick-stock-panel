@@ -2850,6 +2850,7 @@ export interface SettingsState {
   ai_key_profiles_count?: number
   ai_key_active_profile_name?: string | null
   auto_ai_explain_enabled?: boolean
+  event_ai_explain_enabled?: boolean
   auto_ai_explain_last_run?: {
     status: string; ran_at?: string; reason?: string
     generated?: string[]; skipped?: string[]; failed?: Record<string, string>
@@ -3879,6 +3880,11 @@ export const api = {
     }>('/api/settings/preferences/realtime-monitor', {
       method: 'PUT',
       body: JSON.stringify(cfg),
+    }),
+  updateEventAiExplain: (enabled: boolean) =>
+    request<{ event_ai_explain_enabled: boolean }>('/api/settings/preferences/event-ai-explain', {
+      method: 'PUT',
+      body: JSON.stringify({ enabled }),
     }),
   updateAutoAiExplain: (enabled: boolean) =>
     request<{ auto_ai_explain_enabled: boolean }>('/api/settings/preferences/auto-ai-explain', {
