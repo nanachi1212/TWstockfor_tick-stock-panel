@@ -183,8 +183,19 @@ export function PickCard({ candidate, comparison, radar }: {
 
   const [addedToWatchlist, setAddedToWatchlist] = useState(false)
   const inWatchlist = addedToWatchlist || Boolean(radar?.sources.includes('watchlist'))
-  const isAutoWatched = inWatchlist && Boolean(candidate.trade_plan) && !syncError && !isAdding
-  const canAddAndAutoWatch = Boolean(radar) && !inWatchlist
+  // The badge follows the real monitor rules (shared query with the Monitor page),
+  // not just "in watchlist + has a plan".
+  const rulesQuery = useQuery({
+    queryKey: QK.taiwanRules,
+    queryFn: () => api.taiwanRulesList(),
+    enabled: Boolean(radar && inWatchlist && candidate.trade_plan),
+  })
+  const planRules = (rulesQuery.data?.rules ?? []).filter(rule => rule.source === 'trade_plan'
+    && rule.symbol === candidate.symbol && rule.plan_identity === candidate.trade_plan?.plan_identity)
+  const isAutoWatched = !isAdding && planRules.some(rule => rule.enabled)
+  // Retry only when no rule exists; rules the user turned off stay off (sync keeps them off).
+  const canAddAndAutoWatch = Boolean(radar && candidate.trade_plan)
+    && (!inWatchlist || (rulesQuery.isSuccess && planRules.length === 0))
 
   const handleAddAndAutoWatch = async () => {
     if (isAdding) return

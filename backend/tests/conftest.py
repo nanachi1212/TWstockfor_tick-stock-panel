@@ -262,6 +262,15 @@ def taiwan_security_master_offline(tmp_path_factory, monkeypatch):
     return master
 
 
+@pytest.fixture(autouse=True)
+def no_auto_watch_background_sync(monkeypatch):
+    """Watchlist API writes start an Auto Watch re-sync thread that writes the real
+    monitor rule file. Tests never do that; the Auto Watch tests re-enable it explicitly."""
+    from app.api import watchlist as watchlist_api
+
+    monkeypatch.setattr(watchlist_api, "_resync_auto_watch", lambda: None)
+
+
 @pytest.fixture
 def taiwan_data_env(tmp_path, monkeypatch):
     """Hermetic 台股資料環境: tmp data_dir + 預先落盤的 master / 日線 / 法人 / 融資券。

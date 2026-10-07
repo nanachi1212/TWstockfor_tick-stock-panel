@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import threading
+import time
 from dataclasses import replace
 from datetime import date, datetime
 from types import SimpleNamespace
@@ -11,8 +13,9 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from app.api.monitor_rules import router
+from app.api.watchlist import _resync_auto_watch as real_resync_auto_watch
 from app.jobs import daily_pipeline
-from app.taiwan import daily_update
+from app.taiwan import auto_watch, daily_update
 from app.taiwan.beginner_selection import BeginnerCandidate, PlanLevels
 from app.taiwan.enrichment.models import SourceMeta
 from app.taiwan.realtime.calendar import TAIPEI_TZ
@@ -61,6 +64,7 @@ def engine(tmp_path, monkeypatch):
                         lambda **_kwargs: date(2026, 8, 28))
     monkeypatch.setattr("app.taiwan.realtime.monitor_engine.taipei_now",
                         lambda: datetime(2026, 8, 31, 10, tzinfo=TAIPEI_TZ))
+    monkeypatch.setattr(auto_watch, "watched_symbols", lambda: frozenset(instruments))
     return TaiwanMonitorEngine(realtime_service=Mock(), storage_path=tmp_path / "rules.json")
 
 
@@ -233,7 +237,7 @@ def test_breakout_and_stop_messages(engine):
     breakout = engine.evaluate_all(force_quotes={"2330.TWSE": quote(1060)})
     assert len(breakout) == 1
     assert "突破 1,060" in breakout[0].message
-    stop = engine.evaluate_all(force_quotes={"2330.TWSE": quote(985)})
+    stop = engine.evaluate_all(force_quotes={"2330.TWSE": quote(984)})  # 跌破 = strictly below 985
     assert len(stop) == 1
     assert "跌破失效位 985" in stop[0].message
     assert stop[0].severity == "critical"
@@ -308,3 +312,157 @@ def test_scheduler_sync_only_after_success_and_quant_failure_is_isolated(monkeyp
     job = next(call for call in scheduler.add_job.call_args_list if call.kwargs["id"] == "taiwan_daily_update")
     job.args[0]()
     assert events == (["update", "sync"] if status == "success" else ["update"])
+
+
+# ── PR #91 review regressions ──
+
+def _fired(engine, price):
+    return sorted(alert.rule_name for alert in engine.evaluate_all(force_quotes={"2330.TWSE": quote(price)}))
+
+
+@pytest.mark.parametrize(("price", "expected"), [
+    (1050, ["進入承接區"]),   # zone top
+    (1020, ["進入承接區"]),   # zone bottom
+    (1051, []),               # above the zone
+    (1019, []),               # below the zone, stop not broken
+    (985, []),                # touching the stop is not a break
+    (984, ["跌破失效位"]),    # below the stop: stop only
+])
+def test_pullback_entry_fires_only_inside_the_zone(engine, price, expected):
+    engine.sync_plan_rules([candidate()])
+    assert _fired(engine, price) == expected
+
+
+@pytest.mark.parametrize(("price", "expected"), [(1030, ["進入承接區"]), (1029, ["跌破失效位"])])
+def test_stop_inside_the_zone_never_fires_together_with_entry(engine, price, expected):
+    engine.sync_plan_rules([candidate(stop_price=1030)])
+    assert _fired(engine, price) == expected
+
+
+def test_disabled_plan_rule_stays_disabled_after_resync(engine):
+    engine.sync_plan_rules([candidate()])
+    entry = next(rule for rule in engine.list_rules() if rule.name == "進入承接區")
+    assert engine.set_rule_enabled(entry.rule_id, False)
+    engine.sync_plan_rules([candidate(entry_zone_high=1045, plan_identity="revised")])
+    rules = {rule.name: rule for rule in engine.list_rules()}
+    assert rules["進入承接區"].enabled is False and rules["跌破失效位"].enabled is True
+    restarted = TaiwanMonitorEngine(realtime_service=Mock(), storage_path=engine.storage_path)
+    assert {rule.name: rule.enabled for rule in restarted.list_rules()} == {"進入承接區": False, "跌破失效位": True}
+    assert _fired(engine, 1030) == []
+
+
+def test_older_concurrent_sync_cannot_overwrite_newer_watchlist(engine, monkeypatch):
+    from app.services import watchlist
+    from app.taiwan.beginner_selection import BeginnerSelectionService
+
+    current = [{"symbol": "2330.TWSE"}]
+    first_evaluating, release_first = threading.Event(), threading.Event()
+
+    def evaluate(_self, symbols):
+        if symbols == ["2330.TWSE"]:
+            first_evaluating.set()
+            assert release_first.wait(timeout=5)
+        return SimpleNamespace(candidates=[candidate(symbol) for symbol in symbols])
+
+    monkeypatch.setattr(watchlist, "list_symbols", lambda: list(current))
+    monkeypatch.setattr(BeginnerSelectionService, "evaluate_symbols", evaluate)
+    monkeypatch.setattr("app.taiwan.realtime.monitor_engine.get_monitor_engine", lambda: engine)
+
+    older = threading.Thread(target=auto_watch.sync_watchlist_plans)
+    older.start()
+    assert first_evaluating.wait(timeout=5)
+    current[:] = [{"symbol": "8069.TPEX"}]           # the user changes the watchlist meanwhile
+    newer = threading.Thread(target=auto_watch.sync_watchlist_plans)
+    newer.start()
+    time.sleep(0.05)
+    release_first.set()
+    older.join(timeout=5)
+    newer.join(timeout=5)
+    assert {rule.symbol for rule in engine.list_rules()} == {"8069.TPEX"}
+
+
+def _wait_for_background_sync():
+    deadline = time.monotonic() + 5
+    while auto_watch._worker is not None and time.monotonic() < deadline:
+        time.sleep(0.01)
+    assert auto_watch._worker is None
+
+
+def test_watchlist_removal_blocks_alerts_and_removes_rules(engine, monkeypatch):
+    from app.services import watchlist
+
+    engine.sync_plan_rules([candidate()])
+    watched = {"2330.TWSE"}
+    monkeypatch.setattr(auto_watch, "watched_symbols", lambda: frozenset(watched))
+    watched.clear()                                   # removed; background sync not run yet
+    assert _fired(engine, 1030) == []
+    entry = next(rule for rule in engine.list_rules() if rule.name == "進入承接區")
+    alert, status, _ = engine.evaluate_single_rule(entry, quote(1030))
+    assert alert is None and status == EvaluationStatus.NOT_APPLICABLE
+
+    monkeypatch.setattr(watchlist, "list_symbols", lambda: [])
+    monkeypatch.setattr("app.taiwan.realtime.monitor_engine.get_monitor_engine", lambda: engine)
+    auto_watch.request_sync()
+    _wait_for_background_sync()
+    assert engine.list_rules() == []
+
+
+def test_unreadable_watchlist_blocks_plan_alerts_but_not_manual_rules(engine, monkeypatch):
+    engine.sync_plan_rules([candidate()])
+    engine.add_rule(TaiwanMonitorRule("manual", "手動", "2330.TWSE", "price_below", 1100))
+    monkeypatch.setattr(auto_watch, "watched_symbols", Mock(side_effect=OSError("watchlist unreadable")))
+    assert _fired(engine, 1030) == ["手動"]
+
+
+def test_watched_symbols_follow_the_watchlist_revision(monkeypatch):
+    from app.services import watchlist
+
+    rows, revision = [{"symbol": "2330.TWSE"}, {"symbol": "AAPL"}], [1]
+    monkeypatch.setattr(watchlist, "list_symbols", lambda: list(rows))
+    monkeypatch.setattr(watchlist, "revision", lambda: revision[0])
+    monkeypatch.setattr(auto_watch, "_watched", None)
+    assert auto_watch.watched_symbols() == {"2330.TWSE"}
+    rows.clear()
+    assert auto_watch.watched_symbols() == {"2330.TWSE"}  # same revision: cached
+    revision[0] = 2
+    assert auto_watch.watched_symbols() == frozenset()
+
+
+def test_membership_endpoints_request_a_background_sync(monkeypatch):
+    from app.api import watchlist as watchlist_api
+    from app.services import watchlist
+
+    requested = Mock()
+    monkeypatch.setattr(watchlist_api, "_resync_auto_watch", real_resync_auto_watch)  # conftest disables it
+    monkeypatch.setattr(auto_watch, "request_sync", requested)
+    monkeypatch.setattr(watchlist_api, "_with_names", lambda rows, _request: rows)
+    monkeypatch.setattr(watchlist, "add", lambda *_args: [])
+    monkeypatch.setattr(watchlist, "add_batch", lambda *_args: ([], 1))
+    monkeypatch.setattr(watchlist, "remove", lambda _symbol: [])
+    monkeypatch.setattr(watchlist, "clear", lambda: 1)
+    monkeypatch.setattr(watchlist, "add_to_group", lambda *_args: [])
+    request = SimpleNamespace()
+    watchlist_api.add_one(watchlist_api.AddRequest(symbol="2330.TWSE"), request)
+    watchlist_api.add_batch(watchlist_api.BatchAddRequest(symbols=["2330.TWSE"]), request)
+    watchlist_api.remove_one("2330.TWSE", request)
+    watchlist_api.clear_all()
+    watchlist_api.add_member("g1", "2330.TWSE", request)   # group label only: no sync
+    assert requested.call_count == 4
+
+
+def test_background_sync_requests_coalesce(monkeypatch):
+    runs, started, release = [], threading.Event(), threading.Event()
+
+    def slow_sync():
+        runs.append(1)
+        started.set()
+        assert release.wait(timeout=5)
+
+    monkeypatch.setattr(auto_watch, "sync_watchlist_plans", slow_sync)
+    auto_watch.request_sync()
+    assert started.wait(timeout=5)
+    for _ in range(5):                                  # a burst while the first run is busy
+        auto_watch.request_sync()
+    release.set()
+    _wait_for_background_sync()
+    assert len(runs) == 2

@@ -17,8 +17,18 @@ vi.mock('@/lib/api', () => ({
     watchlistList: vi.fn(),
     watchlistAdd: vi.fn(),
     syncPlanRules: vi.fn(),
+    taiwanRulesList: vi.fn(),
   },
 }))
+
+/** Auto Watch rules for one symbol/plan, as GET /api/monitor-rules/taiwan returns them. */
+function planRules(candidate: { symbol: string; trade_plan: { plan_identity: string } | null }, enabled: [boolean, boolean]) {
+  const base = { symbol: candidate.symbol, source: 'trade_plan' as const, plan_identity: candidate.trade_plan?.plan_identity ?? null }
+  return { total: 2, rules: [
+    { ...base, rule_id: 'entry', name: '進入承接區', rule_type: 'price_below', threshold: 97, enabled: enabled[0], cooldown_seconds: 21600, severity: 'warning' },
+    { ...base, rule_id: 'stop', name: '跌破失效位', rule_type: 'price_below', threshold: 90, enabled: enabled[1], cooldown_seconds: 21600, severity: 'critical' },
+  ] } as Awaited<ReturnType<typeof api.taiwanRulesList>>
+}
 
 const unavailableExternal = {
   source: 'test', status: 'unavailable' as const, as_of: null, retrieved_at: null,
@@ -57,6 +67,7 @@ describe('Beginner Stock Picker', () => {
     vi.mocked(api.watchlistList).mockResolvedValue({ symbols: [] })
     vi.mocked(api.watchlistAdd).mockResolvedValue({ symbols: [] } as any)
     vi.mocked(api.syncPlanRules).mockResolvedValue({ created: 0, removed: 0, skipped: [] })
+    vi.mocked(api.taiwanRulesList).mockResolvedValue({ rules: [], total: 0 })
   })
 
   it('dashboard shows market summary, at most 5 cards, view-all link and the strength disclaimer', async () => {
@@ -339,6 +350,7 @@ describe('Beginner Stock Picker', () => {
     expect(addButton).toBeInTheDocument()
     expect(screen.queryByText('自動監控中')).not.toBeInTheDocument()
 
+    vi.mocked(api.taiwanRulesList).mockResolvedValue(planRules(candidate, [true, true]))  // created by the sync
     fireEvent.click(addButton)
 
     await waitFor(() => {
@@ -351,22 +363,43 @@ describe('Beginner Stock Picker', () => {
     expect(await screen.findByText('自動監控中')).toBeInTheDocument()
   })
 
-  it('chip 自動監控中 shows only for watchlist stocks with a plan', async () => {
+  it('chip 自動監控中 follows the actual enabled Auto Watch rules', async () => {
     const live = { status: 'waiting' as const, label: '尚未到位', price: 100, quote_time: null, note: null, source: null, source_status: null, freshness_class: null }
-
-    // Case 1: Watchlist stock with plan -> shows chip
     const withPlan = beginnerCandidate('2330.TWSE', {
       trade_plan: {
         rule_version: 'v1', entry_semantics: 'pullback_limit', entry_zone_low: 94, entry_zone_high: 97,
         reference_high: 100, breakout_trigger: 100, stop_price: 88, evidence_as_of: '2026-10-07', plan_identity: 'id1',
       },
     })
-    const { unmount: unmount1 } = renderWith(
-      <PickCard candidate={withPlan} radar={{ live, sources: ['watchlist'] }} />
-    )
-    expect(screen.getByText('自動監控中')).toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: /加入自選並自動監控/ })).not.toBeInTheDocument()
-    unmount1()
+    const renderWatched = async (rules: Awaited<ReturnType<typeof api.taiwanRulesList>>) => {
+      vi.mocked(api.taiwanRulesList).mockResolvedValue(rules)
+      const view = renderWith(<PickCard candidate={withPlan} radar={{ live, sources: ['watchlist'] }} />)
+      await waitFor(() => expect(api.taiwanRulesList).toHaveBeenCalled())
+      return view
+    }
+
+    // Watchlist + plan but no rule yet (never synced, or rules deleted): no badge, offer a retry.
+    let view = await renderWatched({ rules: [], total: 0 })
+    expect(await screen.findByRole('button', { name: '重試自動監控' })).toBeInTheDocument()
+    expect(screen.queryByText('自動監控中')).not.toBeInTheDocument()
+    view.unmount()
+
+    // Rules exist but the user turned them off in Monitor: no badge, and no retry (sync keeps them off).
+    view = await renderWatched(planRules(withPlan, [false, false]))
+    await waitFor(() => expect(screen.queryByRole('button', { name: /自動監控/ })).not.toBeInTheDocument())
+    expect(screen.queryByText('自動監控中')).not.toBeInTheDocument()
+    view.unmount()
+
+    // Rules for an older plan do not count.
+    view = await renderWatched(planRules({ ...withPlan, trade_plan: { ...withPlan.trade_plan!, plan_identity: 'old' } }, [true, true]))
+    expect(await screen.findByRole('button', { name: '重試自動監控' })).toBeInTheDocument()
+    expect(screen.queryByText('自動監控中')).not.toBeInTheDocument()
+    view.unmount()
+
+    // At least one enabled rule for the current plan: badge.
+    view = await renderWatched(planRules(withPlan, [false, true]))
+    expect(await screen.findByText('自動監控中')).toBeInTheDocument()
+    view.unmount()
 
     // Case 2: Watchlist stock WITHOUT plan (trade_plan: null) -> does NOT show chip
     const withoutPlan = beginnerCandidate('2317.TWSE', { trade_plan: null })
@@ -398,6 +431,7 @@ describe('Beginner Stock Picker', () => {
     expect(await screen.findByRole('alert')).toHaveTextContent('已加入自選，但自動監控同步失敗')
     expect(screen.queryByText('自動監控中')).not.toBeInTheDocument()
     expect(document.body.textContent).not.toContain('PRICE_BELOW')
+    vi.mocked(api.taiwanRulesList).mockResolvedValue(planRules(beginnerCandidate('2330.TWSE'), [true, true]))
     fireEvent.click(screen.getByRole('button', { name: '重試自動監控' }))
     expect(await screen.findByText('自動監控中')).toBeInTheDocument()
     expect(api.watchlistAdd).toHaveBeenCalledOnce()

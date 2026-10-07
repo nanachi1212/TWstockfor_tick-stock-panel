@@ -37,8 +37,23 @@ from app.taiwan.universe.models import MarketProfileBridge, TaiwanInstrument
 
 logger = logging.getLogger(__name__)
 
+# Auto Watch rule name -> the live_plan_status() value that fires it.
+_PLAN_ROLE_STATUS = {"進入承接區": "in_zone", "突破": "breakout", "跌破失效位": "below_stop"}
+
 if TYPE_CHECKING:
     from app.taiwan.beginner_selection import BeginnerCandidate
+
+
+def _watched_plan_symbols() -> frozenset[str]:
+    """Current Taiwan watchlist. A plan rule for any other symbol must not fire,
+    even before the background re-sync has removed it."""
+    from app.taiwan import auto_watch
+
+    try:
+        return auto_watch.watched_symbols()
+    except Exception as exc:
+        logger.warning("Auto Watch watchlist unavailable: %s", type(exc).__name__)
+        return frozenset()  # fail closed: no plan alert without a readable watchlist
 
 
 def quote_quality_gate(quote: TaiwanRealtimeQuote) -> tuple[EvaluationStatus, str] | None:
@@ -207,6 +222,10 @@ class TaiwanMonitorEngine:
                 raise ValueError("Auto Watch rule ID conflicts with a manual rule")
             removed = sum(rule.source == "trade_plan" for rule in self._rules.values())
             replacement = {**manual, **prepared}
+            for rule_id, rule in prepared.items():
+                # Stable IDs carry the user's on/off choice across re-syncs.
+                if (previous := self._rules.get(rule_id)) is not None:
+                    rule.enabled = previous.enabled
             self._save_rules_locked(replacement)
             self._rules = replacement
         return {"created": len(prepared), "removed": removed, "skipped": skipped}
@@ -513,6 +532,8 @@ class TaiwanMonitorEngine:
 
         alerts: list[TaiwanAlertEvent] = []
         cur_mono = time.monotonic() if now_mono is None else now_mono
+        # Read outside the locks (disk I/O); only plan rules depend on it.
+        watched = _watched_plan_symbols() if any(r.source == "trade_plan" for r in active_rules) else frozenset()
 
         with self._rules_lock, self._state_lock:
             prior_states = dict(self._trigger_states)
@@ -524,8 +545,10 @@ class TaiwanMonitorEngine:
                     # Rules can be replaced while the batched quote request is running.
                     if self._rules.get(rule.rule_id) is not rule or not rule.enabled:
                         continue
+                    if rule.source == "trade_plan" and rule.symbol not in watched:
+                        continue
                     quote = quotes.get(rule.symbol)
-                    alert, _status, _reason = self.evaluate_single_rule(
+                    alert, _status, _reason = self._evaluate_single_rule_locked(
                         rule, quote, now_mono=cur_mono, persist_state=False,
                     )
                     if alert:
@@ -584,6 +607,8 @@ class TaiwanMonitorEngine:
         *,
         persist_state: bool = True,
     ) -> tuple[TaiwanAlertEvent | None, EvaluationStatus, str]:
+        if rule.source == "trade_plan" and rule.symbol not in _watched_plan_symbols():
+            return None, EvaluationStatus.NOT_APPLICABLE, "Symbol is no longer in the watchlist"
         with self._rules_lock, self._state_lock:
             if rule.source == "trade_plan" and self._rules.get(rule.rule_id) is not rule:
                 return None, EvaluationStatus.SKIPPED_STALE_DATA, "Plan rule has been replaced"
@@ -721,6 +746,15 @@ class TaiwanMonitorEngine:
 
         elif rtype in (TaiwanRuleType.QUANT_TOP10_ENTER, TaiwanRuleType.QUANT_TOP10_EXIT):
             return None, EvaluationStatus.SKIPPED_MISSING_FIELD, "Quant rank is evaluated from a verified live snapshot"
+
+        if rule.source == "trade_plan":
+            # The entry radar's price classification decides, so the entry alert needs
+            # the frozen zone (not just "below the top") and never fires with the stop.
+            from app.taiwan.beginner_radar import live_plan_status
+
+            wanted = _PLAN_ROLE_STATUS.get(rule.name)
+            is_condition_met = (wanted is not None and rule.plan_levels is not None
+                                and live_plan_status(rule.plan_levels, quote.last_price) == wanted)
 
         # Deduplication & Cooldown Gate
         dedup_key = f"{rule.rule_id}:{rule.symbol}:{rtype.value}"
