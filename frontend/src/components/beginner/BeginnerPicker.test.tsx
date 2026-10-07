@@ -18,6 +18,7 @@ vi.mock('@/lib/api', () => ({
     watchlistAdd: vi.fn(),
     syncPlanRules: vi.fn(),
     taiwanRulesList: vi.fn(),
+    taiwanStockAIResearch: vi.fn(),
   },
 }))
 
@@ -92,10 +93,35 @@ describe('Beginner Stock Picker', () => {
     expect(card.textContent).not.toMatch(/ma20|rsi|flow_ratio|\/100/i)
   })
 
-  it('AI button opens the stock page and requests research without re-ranking', () => {
+  it('AI button explains inline without leaving the card or re-ranking', async () => {
+    vi.mocked(api.taiwanStockAIResearch).mockResolvedValue({
+      status: 'success', model: 'local-model', prompt_version: 'v1', generated_at: '', evidence_registry_keys: [],
+      report: {
+        evidence_as_of: '2026-10-07', overview: '股價偏強但離高點近。',
+        risk_factors: [{ text: 'RSI 偏高，短線可能震盪。', evidence_refs: [] }],
+        watch_next: [{ text: '觀察是否回到承接區。', evidence_refs: [] }],
+      },
+    } as any)
     renderWith(<PickCard candidate={beginnerCandidate('2330.TWSE')} />)
-    fireEvent.click(screen.getByRole('button', { name: /AI 深入分析/ }))
-    expect(screen.getByTestId('location')).toHaveTextContent('/stocks/2330.TWSE|{"aiResearchRequested":true}')
+    fireEvent.click(screen.getByRole('button', { name: /AI 白話說明/ }))
+    expect(await screen.findByText('股價偏強但離高點近。')).toBeInTheDocument()
+    expect(screen.getByText('RSI 偏高，短線可能震盪。')).toBeInTheDocument()
+    expect(screen.getByText('觀察是否回到承接區。')).toBeInTheDocument()
+    expect(api.taiwanStockAIResearch).toHaveBeenCalledWith('2330.TWSE')
+    expect(screen.getByTestId('location')).not.toHaveTextContent('/stocks/')
+    expect(screen.getByText('等待回檔')).toBeInTheDocument()
+  })
+
+  it('AI failure tells the user what to do next and can retry', async () => {
+    vi.mocked(api.taiwanStockAIResearch).mockResolvedValue({
+      status: 'unavailable', error_code: 'AI_UNAVAILABLE', error_message: null, report: null,
+      prompt_version: 'v1', generated_at: '', evidence_registry_keys: [],
+    } as any)
+    renderWith(<PickCard candidate={beginnerCandidate('2330.TWSE')} />)
+    fireEvent.click(screen.getByRole('button', { name: /AI 白話說明/ }))
+    expect(await screen.findByRole('alert')).toHaveTextContent('設定 → AI')
+    fireEvent.click(screen.getByRole('button', { name: '重試' }))
+    await waitFor(() => expect(api.taiwanStockAIResearch).toHaveBeenCalledTimes(2))
   })
 
   it('full page lists radar items and explains why others were not selected', async () => {

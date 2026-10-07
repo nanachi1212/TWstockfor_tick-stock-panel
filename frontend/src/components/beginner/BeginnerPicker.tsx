@@ -14,6 +14,7 @@ import {
   type RadarLive,
   type RadarLiveStatus,
   type RadarSource,
+  type TaiwanAIResearchResponse,
 } from '@/lib/api'
 import { QK } from '@/lib/queryKeys'
 import { cn } from '@/lib/cn'
@@ -143,6 +144,49 @@ const LIVE_CLASS: Record<RadarLiveStatus, string> = {
   unavailable: 'border-border bg-elevated text-muted',
 }
 
+const AI_SETUP_HINT = '請到「設定 → AI」確認模型服務已開啟後重試。'
+
+/** Plain-language AI reading of the same evidence; it never changes the rule-based group or plan levels. */
+function AiExplain({ symbol }: { symbol: string }) {
+  const query = useQuery({
+    queryKey: QK.beginnerAiExplain(symbol),
+    queryFn: () => api.taiwanStockAIResearch(symbol) as Promise<TaiwanAIResearchResponse>,
+    staleTime: Infinity,
+    retry: false,
+  })
+  const report = query.data?.status === 'success' ? query.data.report : null
+  return (
+    <div className="rounded-md border border-purple-500/30 bg-purple-500/5 p-2" aria-label="AI 白話說明">
+      {query.isFetching && !report ? (
+        <p className="flex items-center gap-1.5 text-xs text-muted"><Loader2 className="h-3 w-3 animate-spin" /> AI 正在整理說明，本機模型約需 10～60 秒…</p>
+      ) : report ? (
+        <div className="space-y-1.5">
+          <p className="break-words text-xs text-foreground">{report.overview}</p>
+          <div>
+            <p className="mb-0.5 text-[11px] font-semibold text-muted">主要風險</p>
+            <ReasonList items={report.risk_factors.slice(0, 3).map(r => r.text)} empty="AI 沒有列出明顯風險。" tone="risk" />
+          </div>
+          <div>
+            <p className="mb-0.5 text-[11px] font-semibold text-muted">接下來看什麼</p>
+            <ReasonList items={(report.watch_next ?? []).slice(0, 3).map(r => r.text)} empty="AI 沒有列出觀察重點。" tone="reason" />
+          </div>
+          <p className="text-[10px] text-muted">資料截至 {report.evidence_as_of}・{query.data?.model}・AI 只做解讀，不改變上面的分組與價位。</p>
+        </div>
+      ) : (
+        <div className="flex flex-wrap items-center gap-2">
+          <p role="alert" className="min-w-0 break-words text-xs text-danger">
+            AI 說明暫時無法產生。{query.data?.error_message || AI_SETUP_HINT}
+          </p>
+          <button type="button" onClick={() => void query.refetch()}
+            className="inline-flex min-h-8 items-center rounded-md border border-border px-2.5 text-xs text-foreground hover:border-accent/50">
+            重試
+          </button>
+        </div>
+      )}
+    </div>
+  )
+}
+
 const SOURCE_LABEL: Record<Exclude<RadarSource, 'pick'>, string> = { holding: '持股', watchlist: '自選' }
 
 function RadarStrip({ live, plan }: { live: RadarLive; plan: BeginnerCandidate['trade_plan'] }) {
@@ -176,8 +220,8 @@ export function PickCard({ candidate, comparison, radar }: {
   comparison?: { checked: boolean; disabled: boolean; onToggle: () => void }
   radar?: { live: RadarLive; sources: RadarSource[] }
 }) {
-  const navigate = useNavigate()
   const qc = useQueryClient()
+  const [aiOpen, setAiOpen] = useState(false)
   const [isAdding, setIsAdding] = useState(false)
   const [syncError, setSyncError] = useState<string | null>(null)
 
@@ -295,10 +339,11 @@ export function PickCard({ candidate, comparison, radar }: {
         </Link>
         <button
           type="button"
-          onClick={() => navigate(href, { state: { aiResearchRequested: true } })}
+          onClick={() => setAiOpen(open => !open)}
+          aria-expanded={aiOpen}
           className="inline-flex min-h-8 items-center gap-1 rounded-md border border-purple-500/30 px-2.5 text-xs text-purple-400 hover:bg-purple-500/10"
         >
-          <Sparkles className="h-3 w-3" /> AI 深入分析
+          <Sparkles className="h-3 w-3" /> {aiOpen ? '收起 AI 說明' : 'AI 白話說明'}
         </button>
         {(canAddAndAutoWatch || (inWatchlist && syncError) || isAdding) && (
           <button
@@ -315,6 +360,7 @@ export function PickCard({ candidate, comparison, radar }: {
       {syncError && (
         <p role="alert" className="break-words text-[11px] text-danger">{syncError}</p>
       )}
+      {aiOpen && <AiExplain symbol={candidate.symbol} />}
     </article>
   )
 }
