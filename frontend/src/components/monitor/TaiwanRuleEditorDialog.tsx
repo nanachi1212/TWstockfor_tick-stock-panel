@@ -363,10 +363,14 @@ export function TaiwanRuleEditorDialog({
             <div className="relative">
               <input
                 type="number"
+                disabled={rule?.source === 'trade_plan'}
                 step={ruleType.includes('pct') || ruleType.includes('near') ? '0.1' : '1'}
                 value={threshold}
                 onChange={e => setThreshold(parseFloat(e.target.value) || 0)}
-                className="w-full rounded-lg border border-border bg-elevated/40 px-3 py-2 pr-14 text-xs font-mono font-semibold focus:border-accent focus:outline-none"
+                className={cn(
+                  "w-full rounded-lg border border-border bg-elevated/40 px-3 py-2 pr-14 text-xs font-mono font-semibold focus:border-accent focus:outline-none",
+                  rule?.source === 'trade_plan' && "opacity-60 cursor-not-allowed"
+                )}
               />
               <span className="absolute right-3 top-2 text-[11px] text-muted font-medium pointer-events-none">
                 {ruleType === 'volume_above'
@@ -374,6 +378,9 @@ export function TaiwanRuleEditorDialog({
                   : RULE_TYPE_OPTIONS.find(o => o.key === ruleType)?.unit}
               </span>
             </div>
+            {rule?.source === 'trade_plan' && (
+              <p className="mt-1 text-[11px] text-warning">自動監控價位由承接雷達計算，不可手動修改</p>
+            )}
           </div>}
 
           {/* 爆量專用: 基準參考成交量 */}

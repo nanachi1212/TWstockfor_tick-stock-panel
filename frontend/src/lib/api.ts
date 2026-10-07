@@ -721,6 +721,16 @@ export interface TaiwanMonitorRule {
   notify_channels?: string[]
   created_at?: string
   updated_at?: string
+  source?: 'manual' | 'trade_plan'
+  plan_identity?: string | null
+  plan_as_of?: string | null
+  plan_levels?: BeginnerPlanLevels | null
+}
+
+export interface TaiwanPlanSyncResult {
+  created: number
+  removed: number
+  skipped: Array<{ symbol: string; reason: string }>
 }
 
 export interface TaiwanAlertEvent {
@@ -3547,6 +3557,9 @@ export interface RadarLive {
   price: number | null
   quote_time: string | null
   note: string | null
+  source: string | null
+  source_status: string | null
+  freshness_class: string | null
 }
 
 export interface RadarItem {
@@ -4585,7 +4598,10 @@ export const api = {
   beginnerSelectionSymbol: (symbol: string) =>
     request<BeginnerSymbolResponse>(`/api/taiwan/beginner-selection/stocks/${encodeURIComponent(symbol)}`),
   beginnerRadar: (holdings: string[]) =>
-    request<BeginnerRadarResponse>(`/api/taiwan/beginner-selection/radar?${new URLSearchParams({ holdings: holdings.join(',') })}`),
+    // Holdings go in the body: they must not appear in URLs, history or access logs.
+    request<BeginnerRadarResponse>('/api/taiwan/beginner-selection/radar', {
+      method: 'POST', body: JSON.stringify({ holdings }),
+    }),
   beginnerComparison: (symbols: string[]) =>
     request<BeginnerComparisonResponse>(`/api/taiwan/beginner-selection/compare?${new URLSearchParams({ symbols: symbols.join(',') })}`),
   taiwanExternalContext: (symbol?: string) =>
@@ -4877,6 +4893,11 @@ export const api = {
       '/api/monitor-rules/taiwan/evaluate',
       { method: 'POST' },
     ),
+
+  syncPlanRules: () =>
+    request<TaiwanPlanSyncResult>('/api/monitor-rules/taiwan/sync-plans', {
+      method: 'POST',
+    }),
 
 
   /** 模擬觸發 ladder 封單監控 (Dev 調試, 不落盤不推送) */

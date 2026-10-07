@@ -1,4 +1,8 @@
 import type { TaiwanRealtimeQuote } from './api'
+import { storage } from './storage'
+
+/** Window event fired after the browser ledger is written (same tab); other tabs get storage. */
+export const PORTFOLIO_CHANGED = 'portfolio-transactions-changed'
 
 export type PortfolioSide = 'buy' | 'sell'
 
@@ -224,4 +228,18 @@ export function createPortfolioTransaction(
   // bought later in the ledger.
   buildPortfolioPositions([...transactions, transaction])
   return transaction
+}
+
+/** Read and validate the whole browser ledger; any invalid entry rejects the ledger instead of dropping rows. */
+export function readPortfolioLedger(): { transactions: PortfolioTransaction[]; error: string | null } {
+  try {
+    const saved = storage.portfolioTransactions.get([])
+    if (!Array.isArray(saved) || !saved.every(isPortfolioTransaction)) {
+      return { transactions: [], error: '成交紀錄格式錯誤，已停止計算持倉。請先保留瀏覽器資料並修復紀錄。' }
+    }
+    buildPortfolioPositions(saved)
+    return { transactions: saved, error: null }
+  } catch {
+    return { transactions: [], error: '無法讀取或驗證成交紀錄，已停止計算持倉。原始資料仍保留在瀏覽器中。' }
+  }
 }

@@ -1010,6 +1010,13 @@ def start_scheduler(repo: KlineRepository, capset: CapabilitySet) -> AsyncIOSche
                 ))
             except Exception:
                 logger.exception("Taiwan live quant failed; market refresh remains complete")
+            if result.overall_status == "success" and result.daily.status == "success":
+                try:
+                    from app.taiwan.auto_watch import sync_watchlist_plans
+
+                    logger.info("Taiwan Auto Watch sync: %s", sync_watchlist_plans())
+                except Exception:
+                    logger.exception("Taiwan Auto Watch sync failed; old rules remain")
         except Exception as e:
             logger.exception("Scheduled Taiwan daily update job failed: %s", e)
 

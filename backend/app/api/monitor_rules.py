@@ -755,6 +755,18 @@ def create_taiwan_rule(req: TaiwanMonitorRuleCreate):
     return {"ok": True, "rule": rule.to_dict()}
 
 
+@router.post("/taiwan/sync-plans")
+def sync_taiwan_plan_rules():
+    """Replace Auto Watch rules from the user's Taiwan watchlist (no request body)."""
+    from app.taiwan.auto_watch import sync_watchlist_plans
+
+    try:
+        return sync_watchlist_plans()
+    except Exception as exc:
+        logger.exception("Taiwan Auto Watch sync failed")
+        raise HTTPException(status_code=503, detail="自動監控同步失敗，原有規則已保留") from exc  # noqa: RUF001
+
+
 @router.patch("/taiwan/{rule_id}")
 def update_taiwan_rule(rule_id: str, req: TaiwanMonitorRuleUpdate):
     """更新或启用/停用指定台股监控规则。"""

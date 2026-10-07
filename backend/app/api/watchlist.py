@@ -72,6 +72,13 @@ def _with_names(rows: list[dict], request: Request) -> list[dict]:
         return rows
 
 
+def _resync_auto_watch() -> None:
+    # Membership changed: refresh Auto Watch rules in the background (the request does not wait).
+    from app.taiwan.auto_watch import request_sync
+
+    request_sync()
+
+
 @router.get("")
 def list_all(request: Request):
     return {"symbols": _with_names(watchlist.list_symbols(), request)}
@@ -83,6 +90,7 @@ def add_one(req: AddRequest, request: Request):
         rows = watchlist.add(req.symbol, req.note, req.group_id)
     except ValueError as e:
         raise HTTPException(400, str(e)) from e
+    _resync_auto_watch()
     return {"symbols": _with_names(rows, request)}
 
 
@@ -92,6 +100,7 @@ def add_batch(req: BatchAddRequest, request: Request):
         rows, added = watchlist.add_batch(req.symbols, req.note, req.group_id)
     except ValueError as e:
         raise HTTPException(400, str(e)) from e
+    _resync_auto_watch()
     return {"symbols": _with_names(rows, request), "added": added}
 
 
@@ -239,6 +248,7 @@ def remove_member(group_id: str, symbol: str, request: Request):
 @router.delete("/{symbol}")
 def remove_one(symbol: str, request: Request):
     rows = watchlist.remove(symbol)
+    _resync_auto_watch()
     return {"symbols": _with_names(rows, request)}
 
 
@@ -246,6 +256,7 @@ def remove_one(symbol: str, request: Request):
 def clear_all():
     """清空自选列表。"""
     count = watchlist.clear()
+    _resync_auto_watch()
     return {"removed": count}
 
 

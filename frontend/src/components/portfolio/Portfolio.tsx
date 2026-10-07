@@ -14,12 +14,12 @@ import {
   isTaiwanPortfolioSymbol,
   isPortfolioTransaction,
   nowTaipeiTime,
+  PORTFOLIO_CHANGED,
+  readPortfolioLedger,
   todayTaipeiDate,
   type PortfolioSide,
-  type PortfolioTransaction,
 } from '@/lib/portfolio'
 
-const PORTFOLIO_CHANGED = 'portfolio-transactions-changed'
 const PORTFOLIO_LOCK_DB = 'tick-stock-panel-portfolio-lock'
 const PORTFOLIO_LOCK_STORE = 'locks'
 
@@ -90,21 +90,9 @@ function withPortfolioWriteLock<T>(operation: () => T): Promise<T> {
   return withIndexedDbPortfolioLock(operation)
 }
 
-function readTransactions(): { transactions: PortfolioTransaction[]; error: string | null } {
-  try {
-    const saved = storage.portfolioTransactions.get([])
-    if (!Array.isArray(saved) || !saved.every(isPortfolioTransaction)) {
-      return { transactions: [], error: '成交紀錄格式錯誤，已停止計算持倉。請先保留瀏覽器資料並修復紀錄。' }
-    }
-    buildPortfolioPositions(saved)
-    return { transactions: saved, error: null }
-  } catch {
-    return { transactions: [], error: '無法讀取或驗證成交紀錄，已停止計算持倉。原始資料仍保留在瀏覽器中。' }
-  }
-}
 
 function usePortfolioTransactions() {
-  const [ledger, setLedger] = useState(readTransactions)
+  const [ledger, setLedger] = useState(readPortfolioLedger)
   const migratingIds = useRef(new Set<string>())
   useEffect(() => {
     const legacySells = ledger.transactions.filter(transaction => transaction.side === 'sell' && transaction.tax == null
@@ -151,7 +139,7 @@ function usePortfolioTransactions() {
     })
   }, [ledger.transactions])
   useEffect(() => {
-    const refresh = () => setLedger(readTransactions())
+    const refresh = () => setLedger(readPortfolioLedger())
     window.addEventListener(PORTFOLIO_CHANGED, refresh)
     window.addEventListener('storage', refresh)
     return () => {
@@ -164,7 +152,7 @@ function usePortfolioTransactions() {
 
 async function commitTransaction(input: Parameters<typeof createPortfolioTransaction>[0]) {
   await withPortfolioWriteLock(() => {
-    const ledger = readTransactions()
+    const ledger = readPortfolioLedger()
     if (ledger.error) throw new Error(ledger.error)
     const transaction = createPortfolioTransaction(input, ledger.transactions)
     storage.portfolioTransactions.set([...ledger.transactions, transaction])

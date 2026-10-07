@@ -51,7 +51,7 @@ describe('beginner comparator', () => {
     vi.mocked(api.beginnerComparison).mockReset().mockResolvedValue(comparison())
     vi.mocked(api.beginnerSelection).mockReset().mockResolvedValue(beginnerSelection())
     vi.mocked(api.beginnerRadar).mockReset().mockResolvedValue(beginnerRadar(beginnerSelection().candidates.map(candidate => ({
-      candidate, sources: ['pick'], live: { status: 'waiting', label: '尚未到位', price: null, quote_time: null, note: null },
+      candidate, sources: ['pick'], live: { status: 'waiting', label: '尚未到位', price: null, quote_time: null, note: null, source: null, source_status: null, freshness_class: null },
     }))))
   })
 
