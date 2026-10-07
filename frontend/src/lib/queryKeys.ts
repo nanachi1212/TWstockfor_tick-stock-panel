@@ -151,6 +151,8 @@ export const QK = {
   beginnerRadar: (holdings: string[]) => ['beginner-selection', 'radar', [...holdings].sort()] as const,
   beginnerSelectionSymbol: (symbol: string) => ['beginner-selection', 'symbol', symbol] as const,
   beginnerComparison: (symbols: string[]) => ['beginner-selection', 'compare', [...symbols].sort()] as const,
+  // Separate root: data-refresh invalidation must not silently re-run the LLM.
+  beginnerAiExplain: (symbol: string) => ['beginner-ai-explain', symbol] as const,
   buyPointStats: ['buy-point-stats'] as const,
 
   // Daily Brief (A12)
