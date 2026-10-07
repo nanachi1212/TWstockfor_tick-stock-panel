@@ -379,6 +379,8 @@ export function SettingsAIPanel() {
         </div>
       </Card>
 
+      <AutoAiExplainCard />
+
       <div className="rounded-card border border-amber-400/20 bg-amber-400/[0.04] px-4 py-3 flex items-start gap-3">
         <Shield className="h-4 w-4 text-amber-400/70 mt-0.5 shrink-0" />
         <div className="text-[11px] text-amber-400/70 leading-relaxed">
@@ -417,6 +419,41 @@ export function SettingsAIPanel() {
             </div>
           </div>
         </div>
+      )}
+    </div>
+  )
+}
+
+function AutoAiExplainCard() {
+  const qc = useQueryClient()
+  const s = useSettings().data
+  const enabled = Boolean(s?.auto_ai_explain_enabled)
+  const toggle = useMutation({
+    mutationFn: () => api.updateAutoAiExplain(!enabled),
+    onSuccess: () => qc.invalidateQueries({ queryKey: QK.settings }),
+  })
+  const last = s?.auto_ai_explain_last_run
+  const failed = Object.entries(last?.failed ?? {})
+  return (
+    <div className="rounded-card border border-border bg-surface/60 px-4 py-3 space-y-1.5" aria-label="盤後自動 AI 說明">
+      <div className="flex items-center justify-between gap-3">
+        <div className="min-w-0">
+          <p className="text-sm font-medium text-foreground">盤後自動產生 AI 說明</p>
+          <p className="text-[11px] text-muted">每日資料更新完成後，自動為今日選股前 5 檔產生 AI 白話說明並保存；同一份資料不重複產生。需要本機或雲端 AI 已可用，後端沒開時不會執行。</p>
+        </div>
+        <Toggle checked={enabled} onChange={() => !toggle.isPending && toggle.mutate()} />
+      </div>
+      {toggle.isError && <p role="alert" className="text-[11px] text-danger">儲存失敗，請稍後再試。</p>}
+      {enabled && (
+        <p className="text-[11px] text-muted">
+          {!last ? '尚未執行；下一次資料更新完成後會自動開始。'
+            : last.status === 'no_candidates' ? `上次執行（${last.ran_at}）：今日沒有可用候選，未產生。`
+            : last.status === 'error' ? `上次執行（${last.ran_at}）失敗：${last.reason ?? '未知錯誤'}。`
+            : `上次執行（${last.ran_at}）：新產生 ${last.generated?.length ?? 0} 檔、已有紀錄略過 ${last.skipped?.length ?? 0} 檔、失敗 ${failed.length} 檔。`}
+        </p>
+      )}
+      {enabled && failed.length > 0 && (
+        <p className="text-[11px] text-warning">失敗：{failed.map(([sym, why]) => `${sym}（${why}）`).join('、')}。可到今日選股卡片按「AI 白話說明」重試。</p>
       )}
     </div>
   )

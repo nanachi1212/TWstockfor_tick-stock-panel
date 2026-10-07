@@ -99,6 +99,8 @@ class Settings(BaseSettings):
     # 默认 8192 高于所有现有任务 (最多 4500), 避免默认配置反而截断长报告; 可在 AI 设置里调整。
     ai_max_output_tokens: int = 8192
     ai_context_window: int = 64000
+    # 單次 AI 請求逾時秒數；本機小顯卡較慢時調大 (環境變數 AI_REQUEST_TIMEOUT 或 secrets.json 的 ai_request_timeout)。
+    ai_request_timeout: float = 55.0
 
     # Server
     host: str = "0.0.0.0"
@@ -147,6 +149,8 @@ class Settings(BaseSettings):
             raise ValueError("backtest_matrix_cache_prewarm_years must be positive")
         if self.ai_max_output_tokens <= 0:
             raise ValueError("ai_max_output_tokens must be positive")
+        if self.ai_request_timeout <= 0:
+            raise ValueError("ai_request_timeout must be positive")
         if self.ai_context_window <= 0:
             raise ValueError("ai_context_window must be positive")
         return self

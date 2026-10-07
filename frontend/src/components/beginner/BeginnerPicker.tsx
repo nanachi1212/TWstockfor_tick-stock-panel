@@ -147,10 +147,15 @@ const LIVE_CLASS: Record<RadarLiveStatus, string> = {
 const AI_SETUP_HINT = '請到「設定 → AI」確認模型服務已開啟後重試。'
 
 /** Plain-language AI reading of the same evidence; it never changes the rule-based group or plan levels. */
-function AiExplain({ symbol }: { symbol: string }) {
+function AiExplain({ symbol, asOf }: { symbol: string; asOf?: string | null }) {
   const query = useQuery({
     queryKey: QK.beginnerAiExplain(symbol),
-    queryFn: () => api.taiwanStockAIResearch(symbol) as Promise<TaiwanAIResearchResponse>,
+    // Prefer an explanation already stored (after-close auto run); only then call the LLM.
+    queryFn: async () => {
+      const stored = await api.taiwanStoredAIExplain(symbol, asOf).catch(() => null)
+      if (stored?.response) return { ...stored.response, stored: true }
+      return api.taiwanStockAIResearch(symbol) as Promise<TaiwanAIResearchResponse>
+    },
     staleTime: Infinity,
     retry: false,
   })
@@ -170,7 +175,7 @@ function AiExplain({ symbol }: { symbol: string }) {
             <p className="mb-0.5 text-[11px] font-semibold text-muted">接下來看什麼</p>
             <ReasonList items={(report.watch_next ?? []).slice(0, 3).map(r => r.text)} empty="AI 沒有列出觀察重點。" tone="reason" />
           </div>
-          <p className="text-[10px] text-muted">資料截至 {report.evidence_as_of}・{query.data?.model}・AI 只做解讀，不改變上面的分組與價位。</p>
+          <p className="text-[10px] text-muted">資料截至 {report.evidence_as_of}・生成於 {(query.data?.generated_at ?? '').slice(0, 16).replace('T', ' ')}・{query.data?.model}・{(query.data as { stored?: boolean } | undefined)?.stored ? '盤後自動產生' : '剛剛產生'}・AI 只做解讀，不改變上面的分組與價位。</p>
         </div>
       ) : (
         <div className="flex flex-wrap items-center gap-2">
@@ -360,7 +365,7 @@ export function PickCard({ candidate, comparison, radar }: {
       {syncError && (
         <p role="alert" className="break-words text-[11px] text-danger">{syncError}</p>
       )}
-      {aiOpen && <AiExplain symbol={candidate.symbol} />}
+      {aiOpen && <AiExplain symbol={candidate.symbol} asOf={candidate.as_of} />}
     </article>
   )
 }

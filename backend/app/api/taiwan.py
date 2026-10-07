@@ -461,6 +461,18 @@ def get_taiwan_stock_research_context(
         ) from e
 
 
+@router.get("/stocks/{symbol}/ai-explain")
+def get_stored_ai_explain(symbol: str, min_as_of: str | None = None) -> dict:
+    """Latest stored (e.g. after-close auto) research for a radar card; no LLM call."""
+    from app.taiwan.auto_ai_explain import stored_explanation
+
+    try:
+        canonical = parse_symbol(symbol).canonical
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    return {"response": stored_explanation(canonical, min_as_of)}
+
+
 @router.post(
     "/stocks/{symbol}/ai-research",
     response_model=TaiwanAIResearchResponse | TaiwanAIAdviceResponse,

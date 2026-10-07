@@ -1017,6 +1017,12 @@ def start_scheduler(repo: KlineRepository, capset: CapabilitySet) -> AsyncIOSche
                     logger.info("Taiwan Auto Watch sync: %s", sync_watchlist_plans())
                 except Exception:
                     logger.exception("Taiwan Auto Watch sync failed; old rules remain")
+                try:
+                    from app.taiwan.auto_ai_explain import run_auto_explain
+
+                    logger.info("Taiwan auto AI explain: %s", run_auto_explain())
+                except Exception:
+                    logger.exception("Taiwan auto AI explain failed")
         except Exception as e:
             logger.exception("Scheduled Taiwan daily update job failed: %s", e)
 
