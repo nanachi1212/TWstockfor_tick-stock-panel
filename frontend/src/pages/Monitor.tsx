@@ -122,6 +122,9 @@ export function Monitor() {
               </div>
               <div className="min-h-0 flex-1 overflow-auto p-3.5">
                 <TaiwanRulesList
+                  isLoading={twRulesQuery.isPending}
+                  isError={twRulesQuery.isError}
+                  onRetry={() => { void twRulesQuery.refetch() }}
                   rules={twRules}
                   onEdit={(r) => {
                     setEditingTwRule(r)

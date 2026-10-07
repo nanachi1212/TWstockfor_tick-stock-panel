@@ -1,7 +1,7 @@
 import { useRef, useState } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
-import { useQuery } from '@tanstack/react-query'
-import { ArrowUpRight, ChevronDown, ChevronUp, Compass, Loader2, Sparkles } from 'lucide-react'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { ArrowUpRight, ChevronDown, ChevronUp, Compass, Loader2, Plus, Sparkles } from 'lucide-react'
 import {
   api,
   type BeginnerCandidate,
@@ -174,6 +174,46 @@ export function PickCard({ candidate, comparison, radar }: {
   radar?: { live: RadarLive; sources: RadarSource[] }
 }) {
   const navigate = useNavigate()
+  const qc = useQueryClient()
+  const [isAdding, setIsAdding] = useState(false)
+  const [syncError, setSyncError] = useState<string | null>(null)
+
+  const [addedToWatchlist, setAddedToWatchlist] = useState(false)
+  const inWatchlist = addedToWatchlist || Boolean(radar?.sources.includes('watchlist'))
+  const isAutoWatched = inWatchlist && Boolean(candidate.trade_plan) && !syncError && !isAdding
+  const canAddAndAutoWatch = Boolean(radar) && !inWatchlist
+
+  const handleAddAndAutoWatch = async () => {
+    if (isAdding) return
+    setIsAdding(true)
+    setSyncError(null)
+    let added = inWatchlist
+    try {
+      if (!added) {
+        await api.watchlistAdd(candidate.symbol, '')
+        added = true
+        setAddedToWatchlist(true)
+      }
+      const result = await api.syncPlanRules()
+      if (result.skipped.some(item => item.symbol === candidate.symbol)) {
+        setSyncError('已加入自選，目前沒有可用的承接計畫。請稍後重試自動監控。')
+      }
+    } catch {
+      setSyncError(added
+        ? '已加入自選，但自動監控同步失敗。請重試自動監控。'
+        : '加入自選失敗，請稍後再試。')
+    } finally {
+      if (added) {
+        await Promise.all([
+          qc.invalidateQueries({ queryKey: QK.beginnerRadarRoot }),
+          qc.invalidateQueries({ queryKey: QK.taiwanRules }),
+          qc.invalidateQueries({ queryKey: QK.watchlist }),
+        ])
+      }
+      setIsAdding(false)
+    }
+  }
+
   const href = `/stocks/${encodeURIComponent(candidate.symbol)}`
   return (
     <article
@@ -191,12 +231,17 @@ export function PickCard({ candidate, comparison, radar }: {
       <header className="flex min-w-0 items-start justify-between gap-2">
         <div className="min-w-0">
           <p className="truncate text-sm font-semibold text-foreground">{candidate.name || candidate.symbol}</p>
-          <p className="font-mono text-[11px] text-muted">
-            {candidate.symbol}
+          <div className="flex flex-wrap items-center gap-1 font-mono text-[11px] text-muted">
+            <span>{candidate.symbol}</span>
             {radar?.sources.filter((s): s is Exclude<RadarSource, 'pick'> => s !== 'pick').map(s => (
               <span key={s} className="ml-1.5 rounded bg-elevated px-1 py-px font-sans text-[10px] text-foreground">{SOURCE_LABEL[s]}</span>
             ))}
-          </p>
+            {isAutoWatched && (
+              <span className="inline-flex items-center rounded-full bg-emerald-500/10 px-2 py-0.5 font-sans text-[10px] font-semibold text-emerald-600 dark:text-emerald-400 border border-emerald-500/30">
+                自動監控中
+              </span>
+            )}
+          </div>
         </div>
         <div className="flex flex-col items-end gap-1">
           <StateBadge state={candidate.selection_state} />
@@ -236,7 +281,21 @@ export function PickCard({ candidate, comparison, radar }: {
         >
           <Sparkles className="h-3 w-3" /> AI 深入分析
         </button>
+        {(canAddAndAutoWatch || (inWatchlist && syncError) || isAdding) && (
+          <button
+            type="button"
+            onClick={handleAddAndAutoWatch}
+            disabled={isAdding}
+            className="inline-flex min-h-8 items-center gap-1 rounded-md bg-accent/10 border border-accent/40 px-2.5 text-xs font-semibold text-accent hover:bg-accent/20 transition-colors disabled:opacity-50 cursor-pointer"
+          >
+            {isAdding ? <Loader2 className="h-3 w-3 animate-spin" /> : <Plus className="h-3 w-3" />}
+            {isAdding ? '同步中…' : inWatchlist ? '重試自動監控' : '加入自選並自動監控'}
+          </button>
+        )}
       </div>
+      {syncError && (
+        <p role="alert" className="break-words text-[11px] text-danger">{syncError}</p>
+      )}
     </article>
   )
 }

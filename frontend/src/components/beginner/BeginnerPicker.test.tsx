@@ -1,5 +1,6 @@
+import { QK } from '@/lib/queryKeys'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { fireEvent, render, screen, within } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { api } from '@/lib/api'
@@ -13,6 +14,9 @@ vi.mock('@/lib/api', () => ({
     beginnerRadar: vi.fn(),
     beginnerSelectionSymbol: vi.fn(),
     taiwanExternalContext: vi.fn(),
+    watchlistList: vi.fn(),
+    watchlistAdd: vi.fn(),
+    syncPlanRules: vi.fn(),
   },
 }))
 
@@ -34,7 +38,7 @@ function LocationProbe() {
 
 function renderWith(ui: React.ReactNode) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
-  return render(
+  const rendered = render(
     <QueryClientProvider client={client}>
       <MemoryRouter initialEntries={['/']}>
         <Routes>
@@ -43,11 +47,16 @@ function renderWith(ui: React.ReactNode) {
       </MemoryRouter>
     </QueryClientProvider>,
   )
+  return { ...rendered, client }
 }
 
 describe('Beginner Stock Picker', () => {
   beforeEach(() => {
+    vi.clearAllMocks()
     vi.mocked(api.taiwanExternalContext).mockResolvedValue(emptyExternalContext)
+    vi.mocked(api.watchlistList).mockResolvedValue({ symbols: [] })
+    vi.mocked(api.watchlistAdd).mockResolvedValue({ symbols: [] } as any)
+    vi.mocked(api.syncPlanRules).mockResolvedValue({ created: 0, removed: 0, skipped: [] })
   })
 
   it('dashboard shows market summary, at most 5 cards, view-all link and the strength disclaimer', async () => {
@@ -272,4 +281,105 @@ describe('Beginner Stock Picker', () => {
     expect(screen.getAllByRole('region')).toHaveLength(9)
     expect(screen.getByRole('region', { name: '這檔股票現在怎麼看' }).className).not.toMatch(/min-w-\[/)
   })
+
+  it('radar card for a pick not in watchlist shows button which calls watchlistAdd and syncPlanRules', async () => {
+    vi.mocked(api.watchlistList).mockResolvedValue({ symbols: [] })
+    vi.mocked(api.watchlistAdd).mockResolvedValue({ symbols: [] } as any)
+    vi.mocked(api.syncPlanRules).mockResolvedValue({ created: 2, removed: 0, skipped: [] })
+
+    const candidate = beginnerCandidate('2330.TWSE')
+    const live = { status: 'in_zone' as const, label: '已進承接區', price: 96, quote_time: null, note: null }
+    const { client } = renderWith(<PickCard candidate={candidate} radar={{ live, sources: ['pick'] }} />)
+    const invalidate = vi.spyOn(client, 'invalidateQueries')
+
+    const addButton = screen.getByRole('button', { name: /加入自選並自動監控/ })
+    expect(addButton).toBeInTheDocument()
+    expect(screen.queryByText('自動監控中')).not.toBeInTheDocument()
+
+    fireEvent.click(addButton)
+
+    await waitFor(() => {
+      expect(api.watchlistAdd).toHaveBeenCalledWith('2330.TWSE', '')
+      expect(api.syncPlanRules).toHaveBeenCalledTimes(1)
+      expect(vi.mocked(api.watchlistAdd).mock.invocationCallOrder[0]).toBeLessThan(vi.mocked(api.syncPlanRules).mock.invocationCallOrder[0])
+      expect(invalidate).toHaveBeenCalledWith({ queryKey: QK.beginnerRadarRoot })
+      expect(invalidate).toHaveBeenCalledWith({ queryKey: QK.taiwanRules })
+    })
+    expect(await screen.findByText('自動監控中')).toBeInTheDocument()
+  })
+
+  it('chip 自動監控中 shows only for watchlist stocks with a plan', async () => {
+    const live = { status: 'waiting' as const, label: '尚未到位', price: 100, quote_time: null, note: null }
+
+    // Case 1: Watchlist stock with plan -> shows chip
+    const withPlan = beginnerCandidate('2330.TWSE', {
+      trade_plan: {
+        rule_version: 'v1', entry_semantics: 'pullback_limit', entry_zone_low: 94, entry_zone_high: 97,
+        reference_high: 100, breakout_trigger: 100, stop_price: 88, evidence_as_of: '2026-10-07', plan_identity: 'id1',
+      },
+    })
+    const { unmount: unmount1 } = renderWith(
+      <PickCard candidate={withPlan} radar={{ live, sources: ['watchlist'] }} />
+    )
+    expect(screen.getByText('自動監控中')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /加入自選並自動監控/ })).not.toBeInTheDocument()
+    unmount1()
+
+    // Case 2: Watchlist stock WITHOUT plan (trade_plan: null) -> does NOT show chip
+    const withoutPlan = beginnerCandidate('2317.TWSE', { trade_plan: null })
+    const { unmount: unmount2 } = renderWith(
+      <PickCard candidate={withoutPlan} radar={{ live, sources: ['watchlist'] }} />
+    )
+    expect(screen.queryByText('自動監控中')).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /加入自選並自動監控/ })).not.toBeInTheDocument()
+    unmount2()
+
+    // Case 3: Pick not in watchlist with plan -> does NOT show chip, shows button
+    const pickNotWatchlist = beginnerCandidate('2454.TWSE', {
+      trade_plan: {
+        rule_version: 'v1', entry_semantics: 'pullback_limit', entry_zone_low: 1000, entry_zone_high: 1050,
+        reference_high: 1100, breakout_trigger: 1100, stop_price: 950, evidence_as_of: '2026-10-07', plan_identity: 'id2',
+      },
+    })
+    renderWith(
+      <PickCard candidate={pickNotWatchlist} radar={{ live, sources: ['pick'] }} />
+    )
+    expect(screen.queryByText('自動監控中')).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /加入自選並自動監控/ })).toBeInTheDocument()
+  })
+  it('retries only sync after watchlist add succeeded but sync failed', async () => {
+    vi.mocked(api.syncPlanRules).mockRejectedValueOnce(new Error('PRICE_BELOW'))
+    const live = { status: 'waiting' as const, label: '尚未到位', price: 100, quote_time: null, note: null }
+    renderWith(<PickCard candidate={beginnerCandidate('2330.TWSE')} radar={{ live, sources: ['pick'] }} />)
+    fireEvent.click(screen.getByRole('button', { name: '加入自選並自動監控' }))
+    expect(await screen.findByRole('alert')).toHaveTextContent('已加入自選，但自動監控同步失敗')
+    expect(screen.queryByText('自動監控中')).not.toBeInTheDocument()
+    expect(document.body.textContent).not.toContain('PRICE_BELOW')
+    fireEvent.click(screen.getByRole('button', { name: '重試自動監控' }))
+    expect(await screen.findByText('自動監控中')).toBeInTheDocument()
+    expect(api.watchlistAdd).toHaveBeenCalledOnce()
+    expect(api.syncPlanRules).toHaveBeenCalledTimes(2)
+  })
+
+  it('does not sync if watchlist add fails', async () => {
+    vi.mocked(api.watchlistAdd).mockRejectedValueOnce(new Error('network error'))
+    const live = { status: 'waiting' as const, label: '尚未到位', price: 100, quote_time: null, note: null }
+    renderWith(<PickCard candidate={beginnerCandidate('2330.TWSE')} radar={{ live, sources: ['pick'] }} />)
+    fireEvent.click(screen.getByRole('button', { name: '加入自選並自動監控' }))
+    expect(await screen.findByRole('alert')).toHaveTextContent('加入自選失敗')
+    expect(api.syncPlanRules).not.toHaveBeenCalled()
+    expect(screen.getByRole('button', { name: '加入自選並自動監控' })).toBeEnabled()
+  })
+
+  it('does not claim auto watch is active when sync skips the selected stock', async () => {
+    vi.mocked(api.syncPlanRules).mockResolvedValueOnce({
+      created: 0, removed: 0, skipped: [{ symbol: '2330.TWSE', reason: 'trade_plan_unavailable' }],
+    })
+    const live = { status: 'waiting' as const, label: '尚未到位', price: 100, quote_time: null, note: null }
+    renderWith(<PickCard candidate={beginnerCandidate('2330.TWSE')} radar={{ live, sources: ['pick'] }} />)
+    fireEvent.click(screen.getByRole('button', { name: '加入自選並自動監控' }))
+    expect(await screen.findByRole('alert')).toHaveTextContent('目前沒有可用的承接計畫')
+    expect(screen.queryByText('自動監控中')).not.toBeInTheDocument()
+  })
+
 })

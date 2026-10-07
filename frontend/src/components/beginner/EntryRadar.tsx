@@ -41,19 +41,19 @@ export function useEntryRadar() {
 export function EntryRadarBoard({ items }: { items: RadarItem[] }) {
   const compare = useCompareSelection(items.map(item => item.candidate.symbol))
   return (
-    <div className="space-y-2">
+    <div className="min-w-0 space-y-2">
       <CompareBar {...compare} />
       {GROUPS.map(group => {
         const groupItems = items.filter(item => item.candidate.selection_state === group.state)
         if (groupItems.length === 0) return null
         return (
-          <section key={group.state} aria-label={group.title} className="space-y-1.5">
+          <section key={group.state} aria-label={group.title} className="min-w-0 space-y-1.5">
             <div className="flex flex-wrap items-baseline gap-x-2 px-0.5">
               <span className={`inline-block h-2.5 w-2.5 rounded-full ${group.tone}`} aria-hidden />
               <h2 className="text-sm font-semibold text-foreground">{group.title}（{groupItems.length}）</h2>
               <p className="text-xs text-muted">{group.hint}</p>
             </div>
-            <div className="grid grid-cols-1 gap-2 md:grid-cols-2 xl:grid-cols-3">
+            <div className="grid min-w-0 grid-cols-1 gap-2 md:grid-cols-2 xl:grid-cols-3">
               {groupItems.map(item => (
                 <PickCard key={item.candidate.symbol} candidate={item.candidate}
                   comparison={compare.comparisonFor(item.candidate.symbol)}

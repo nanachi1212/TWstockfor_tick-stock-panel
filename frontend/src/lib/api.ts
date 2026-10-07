@@ -721,6 +721,16 @@ export interface TaiwanMonitorRule {
   notify_channels?: string[]
   created_at?: string
   updated_at?: string
+  source?: 'manual' | 'trade_plan'
+  plan_identity?: string | null
+  plan_as_of?: string | null
+  plan_levels?: BeginnerPlanLevels | null
+}
+
+export interface TaiwanPlanSyncResult {
+  created: number
+  removed: number
+  skipped: Array<{ symbol: string; reason: string }>
 }
 
 export interface TaiwanAlertEvent {
@@ -4877,6 +4887,11 @@ export const api = {
       '/api/monitor-rules/taiwan/evaluate',
       { method: 'POST' },
     ),
+
+  syncPlanRules: () =>
+    request<TaiwanPlanSyncResult>('/api/monitor-rules/taiwan/sync-plans', {
+      method: 'POST',
+    }),
 
 
   /** 模擬觸發 ladder 封單監控 (Dev 調試, 不落盤不推送) */
