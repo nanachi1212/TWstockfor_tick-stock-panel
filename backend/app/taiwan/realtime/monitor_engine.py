@@ -13,12 +13,14 @@ from __future__ import annotations
 
 import json
 import logging
+import math
 import threading
 import time
 import uuid
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from datetime import datetime
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from app.taiwan.realtime.calendar import MarketStatus, taipei_now
 from app.taiwan.realtime.models import RealtimeStatus, TaiwanRealtimeQuote
@@ -34,6 +36,9 @@ from app.taiwan.universe import get_security_master
 from app.taiwan.universe.models import MarketProfileBridge, TaiwanInstrument
 
 logger = logging.getLogger(__name__)
+
+if TYPE_CHECKING:
+    from app.taiwan.beginner_selection import BeginnerCandidate
 
 
 def quote_quality_gate(quote: TaiwanRealtimeQuote) -> tuple[EvaluationStatus, str] | None:
@@ -83,7 +88,7 @@ class TaiwanMonitorEngine:
         self.alert_handler = alert_handler
 
         self._rules: dict[str, TaiwanMonitorRule] = {}
-        self._rules_lock = threading.Lock()
+        self._rules_lock = threading.RLock()
 
         # Deduplication & Cooldown runtime states
         # dedup_key -> is_currently_triggered (bool)
@@ -133,12 +138,78 @@ class TaiwanMonitorEngine:
     def save_rules(self) -> None:
         """Persist in-memory rules to JSON file."""
         with self._rules_lock:
-            self.storage_path.parent.mkdir(parents=True, exist_ok=True)
-            serializable = [rule.to_dict() for rule in self._rules.values()]
-            self.storage_path.write_text(
-                json.dumps(serializable, ensure_ascii=False, indent=2),
-                encoding="utf-8",
-            )
+            self._save_rules_locked(self._rules)
+
+    def _save_rules_locked(self, rules: dict[str, TaiwanMonitorRule]) -> None:
+        """Publish one complete rule snapshot; callers hold the rule lock."""
+        self.storage_path.parent.mkdir(parents=True, exist_ok=True)
+        temporary = self.storage_path.with_suffix(self.storage_path.suffix + ".tmp")
+        temporary.write_text(
+            json.dumps([rule.to_dict() for rule in rules.values()], ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+        temporary.replace(self.storage_path)
+
+    def sync_plan_rules(self, plans: Iterable[BeginnerCandidate]) -> dict:
+        """Atomically replace managed rules, preserving all manual rule values."""
+        prepared: dict[str, TaiwanMonitorRule] = {}
+        skipped: list[dict[str, str]] = []
+        for candidate in plans:
+            plan = candidate.trade_plan
+            if plan is None:
+                skipped.append({"symbol": candidate.symbol, "reason": candidate.plan_unavailable_reason or "目前沒有可用的計畫價位"})
+                continue
+            try:
+                if not plan.plan_identity:
+                    raise ValueError("計畫缺少識別資訊")
+                if plan.entry_semantics == "pullback_limit":
+                    if (plan.entry_zone_low is None or plan.entry_zone_high is None
+                            or not math.isfinite(plan.entry_zone_low)
+                            or plan.entry_zone_low <= 0
+                            or plan.entry_zone_low > plan.entry_zone_high):
+                        raise ValueError("承接區價位不完整")
+                    entry_type, entry_price, entry_name = TaiwanRuleType.PRICE_BELOW, plan.entry_zone_high, "進入承接區"
+                elif plan.entry_semantics == "breakout_stop":
+                    entry_type, entry_price, entry_name = TaiwanRuleType.PRICE_ABOVE, plan.breakout_trigger, "突破"
+                else:
+                    raise ValueError("計畫進場方式不支援")
+                if (entry_price is None or not math.isfinite(entry_price) or entry_price <= 0
+                        or not math.isfinite(plan.stop_price) or plan.stop_price <= 0
+                        or plan.stop_price >= entry_price):
+                    raise ValueError("計畫價位不完整或失效位不低於進場價")
+                instrument = get_security_master().get_instrument(candidate.symbol)
+                if instrument is None or instrument.instrument_type != "stock":
+                    raise ValueError("僅支援已確認的台股個股")
+                pair = []
+                for role, name, rtype, threshold, severity, channels in (
+                    ("entry", entry_name, entry_type, entry_price, "warning", ["telegram"]),
+                    ("stop", "跌破失效位", TaiwanRuleType.PRICE_BELOW, plan.stop_price, "critical", ["telegram", "line"]),
+                ):
+                    # Stable symbol/role IDs preserve session dedup across plan revisions.
+                    rule = TaiwanMonitorRule(
+                        rule_id=f"tw_plan_{uuid.uuid5(uuid.NAMESPACE_URL, candidate.symbol + ':' + role).hex}",
+                        name=name, symbol=candidate.symbol, rule_type=rtype, threshold=threshold,
+                        cooldown_seconds=6 * 3600, severity=severity, notify_channels=channels,
+                        source="trade_plan", plan_identity=plan.plan_identity,
+                        plan_as_of=plan.evidence_as_of, plan_levels=plan.model_copy(deep=True),
+                    )
+                    self.validate_rule(rule)
+                    pair.append(rule)
+                prepared.update((rule.rule_id, rule) for rule in pair)
+            except ValueError:
+                skipped.append({"symbol": candidate.symbol, "reason": "計畫價位或個股資料不完整，無法建立提醒"})  # noqa: RUF001
+
+        # Evaluate and replace under the same lock order. A failed disk publication
+        # leaves the old in-memory snapshot and session state untouched.
+        with self._rules_lock, self._state_lock:
+            manual = {key: rule for key, rule in self._rules.items() if rule.source == "manual"}
+            if manual.keys() & prepared.keys():
+                raise ValueError("Auto Watch rule ID conflicts with a manual rule")
+            removed = sum(rule.source == "trade_plan" for rule in self._rules.values())
+            replacement = {**manual, **prepared}
+            self._save_rules_locked(replacement)
+            self._rules = replacement
+        return {"created": len(prepared), "removed": removed, "skipped": skipped}
 
     def get_rule(self, rule_id: str) -> TaiwanMonitorRule | None:
         with self._rules_lock:
@@ -443,13 +514,16 @@ class TaiwanMonitorEngine:
         alerts: list[TaiwanAlertEvent] = []
         cur_mono = time.monotonic() if now_mono is None else now_mono
 
-        with self._state_lock:
+        with self._rules_lock, self._state_lock:
             prior_states = dict(self._trigger_states)
             prior_fire_times = dict(self._last_fire_time)
             prior_dirty = self._state_dirty
             events_persisted = False
             try:
                 for rule in active_rules:
+                    # Rules can be replaced while the batched quote request is running.
+                    if self._rules.get(rule.rule_id) is not rule or not rule.enabled:
+                        continue
                     quote = quotes.get(rule.symbol)
                     alert, _status, _reason = self.evaluate_single_rule(
                         rule, quote, now_mono=cur_mono, persist_state=False,
@@ -510,6 +584,19 @@ class TaiwanMonitorEngine:
         *,
         persist_state: bool = True,
     ) -> tuple[TaiwanAlertEvent | None, EvaluationStatus, str]:
+        with self._rules_lock, self._state_lock:
+            if rule.source == "trade_plan" and self._rules.get(rule.rule_id) is not rule:
+                return None, EvaluationStatus.SKIPPED_STALE_DATA, "Plan rule has been replaced"
+            return self._evaluate_single_rule_locked(rule, quote, now_mono, persist_state=persist_state)
+
+    def _evaluate_single_rule_locked(
+        self,
+        rule: TaiwanMonitorRule,
+        quote: TaiwanRealtimeQuote | None,
+        now_mono: float | None = None,
+        *,
+        persist_state: bool = True,
+    ) -> tuple[TaiwanAlertEvent | None, EvaluationStatus, str]:
         """Evaluate one rule against a quote adhering strictly to quality and status gates.
 
         Returns:
@@ -526,6 +613,21 @@ class TaiwanMonitorEngine:
         blocked = quote_quality_gate(quote)
         if blocked is not None:
             return None, *blocked
+
+        if rule.source == "trade_plan":
+            try:
+                from app.taiwan.daily_update import resolve_target_latest_trading_date
+
+                target = resolve_target_latest_trading_date(as_of_dt=now_dt).isoformat()
+            except Exception:
+                return None, EvaluationStatus.SKIPPED_STALE_DATA, "Latest completed session unavailable"
+            if rule.plan_as_of != target:
+                return None, EvaluationStatus.SKIPPED_STALE_DATA, "Plan is not from the latest completed session"
+            if (rule.plan_levels is None or rule.plan_identity != rule.plan_levels.plan_identity
+                    or rule.plan_as_of != rule.plan_levels.evidence_as_of):
+                return None, EvaluationStatus.SKIPPED_MISSING_FIELD, "Frozen plan metadata unavailable"
+            if quote.last_price is None or not math.isfinite(quote.last_price) or quote.last_price <= 0:
+                return None, EvaluationStatus.SKIPPED_MISSING_FIELD, "Live price unavailable"
 
         # Gate 4: Price Limit Applicability & Calculation
         sec_master = get_security_master()
@@ -622,6 +724,10 @@ class TaiwanMonitorEngine:
 
         # Deduplication & Cooldown Gate
         dedup_key = f"{rule.rule_id}:{rule.symbol}:{rtype.value}"
+        if rule.source == "trade_plan":
+            # Persist a session latch rather than a monotonic timestamp, which
+            # cannot survive restart. Entry/stop roles each fire at most once.
+            dedup_key = f"{rule.rule_id}:{rule.symbol}:{now_dt.date().isoformat()}"
 
         with self._state_lock:
             prev_triggered = self._trigger_states.get(dedup_key, False)
@@ -645,7 +751,7 @@ class TaiwanMonitorEngine:
                 else:
                     should_rearm = prev_triggered
 
-                if prev_triggered and should_rearm:
+                if prev_triggered and should_rearm and rule.source != "trade_plan":
                     self._trigger_states[dedup_key] = False
                     if persist_state:
                         try:
@@ -722,6 +828,21 @@ class TaiwanMonitorEngine:
         value: float,
     ) -> str:
         rtype = rule.rule_type if isinstance(rule.rule_type, TaiwanRuleType) else TaiwanRuleType(rule.rule_type)
+
+        if rule.source == "trade_plan" and rule.plan_levels is not None:
+            plan = rule.plan_levels
+
+            def price(number: float) -> str:
+                return f"{number:,.2f}".rstrip("0").rstrip(".")
+
+            if rule.name == "進入承接區":
+                detail = f"進入承接區 {price(plan.entry_zone_low)}～{price(plan.entry_zone_high)}"  # noqa: RUF001
+            elif rule.name == "突破":
+                detail = f"突破 {price(plan.breakout_trigger)}"
+            else:
+                detail = f"跌破失效位 {price(plan.stop_price)}"
+            code = rule.symbol.split(".", 1)[0]
+            return f"{code} {name} {detail}，現價 {price(value)}；跌破 {price(plan.stop_price)} 理由失效。（觀察提醒，不是下單）"  # noqa: RUF001
 
         if rtype == TaiwanRuleType.PRICE_ABOVE:
             return f"{name} ({rule.symbol}) 現價 {value:.2f} 已突破設定閾值 {rule.threshold:.2f}"

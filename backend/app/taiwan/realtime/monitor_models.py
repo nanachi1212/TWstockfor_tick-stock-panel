@@ -11,11 +11,14 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import date, datetime
 from enum import Enum
-from typing import Any
+from typing import TYPE_CHECKING, Any, Literal
 
 from app.taiwan.symbol import parse_symbol
+
+if TYPE_CHECKING:
+    from app.taiwan.beginner_selection import PlanLevels
 
 RULE_ID_RE = re.compile(r"^[a-zA-Z0-9_\-]{1,64}$")
 
@@ -91,8 +94,17 @@ class TaiwanMonitorRule:
     notify_channels: list[str] = field(default_factory=list)
     created_at: str = field(default_factory=lambda: datetime.now().isoformat())
     updated_at: str = field(default_factory=lambda: datetime.now().isoformat())
+    source: Literal["manual", "trade_plan"] = "manual"
+    plan_identity: str | None = None
+    plan_as_of: str | None = None
+    # Frozen authoritative levels keep beginner explanations intact after restart.
+    plan_levels: PlanLevels | None = None
 
     def __post_init__(self) -> None:
+        if self.source not in ("manual", "trade_plan"):
+            raise ValueError("source must be manual or trade_plan")
+        if self.plan_as_of is not None and date.fromisoformat(self.plan_as_of).isoformat() != self.plan_as_of:
+            raise ValueError("plan_as_of must be an ISO date (YYYY-MM-DD)")
         if isinstance(self.rule_type, str):
             self.rule_type = TaiwanRuleType(self.rule_type)
         if isinstance(self.severity, str):
@@ -117,10 +129,19 @@ class TaiwanMonitorRule:
             "notify_channels": list(self.notify_channels),
             "created_at": self.created_at,
             "updated_at": self.updated_at,
+            "source": self.source,
+            "plan_identity": self.plan_identity,
+            "plan_as_of": self.plan_as_of,
+            "plan_levels": self.plan_levels.model_dump(mode="json") if self.plan_levels else None,
         }
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> TaiwanMonitorRule:
+        levels = None
+        if data.get("plan_levels") is not None:
+            from app.taiwan.beginner_selection import PlanLevels
+
+            levels = PlanLevels.model_validate(data["plan_levels"])
         return cls(
             rule_id=str(data["rule_id"]),
             name=str(data["name"]),
@@ -135,6 +156,10 @@ class TaiwanMonitorRule:
             notify_channels=[str(c) for c in data.get("notify_channels", []) if c in ("line", "telegram")],
             created_at=str(data.get("created_at", datetime.now().isoformat())),
             updated_at=str(data.get("updated_at", datetime.now().isoformat())),
+            source=data.get("source", "manual"),
+            plan_identity=data.get("plan_identity"),
+            plan_as_of=data.get("plan_as_of"),
+            plan_levels=levels,
         )
 
 
