@@ -4,12 +4,13 @@ import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { api } from '@/lib/api'
 import { BeginnerPicks } from '@/pages/BeginnerPicks'
-import { beginnerCandidate, beginnerSelection } from '@/test/beginnerFixtures'
+import { beginnerCandidate, beginnerRadar, beginnerSelection } from '@/test/beginnerFixtures'
 import { BeginnerDashboardWidget, BeginnerStockView, PickCard } from './BeginnerPicker'
 
 vi.mock('@/lib/api', () => ({
   api: {
     beginnerSelection: vi.fn(),
+    beginnerRadar: vi.fn(),
     beginnerSelectionSymbol: vi.fn(),
     taiwanExternalContext: vi.fn(),
   },
@@ -77,14 +78,50 @@ describe('Beginner Stock Picker', () => {
     expect(screen.getByTestId('location')).toHaveTextContent('/stocks/2330.TWSE|{"aiResearchRequested":true}')
   })
 
-  it('full page lists picks and explains why others were not selected', async () => {
-    vi.mocked(api.beginnerSelection).mockResolvedValue(beginnerSelection(12))
+  it('full page lists radar items and explains why others were not selected', async () => {
+    const live = { status: 'waiting' as const, label: '尚未到位', price: 99, quote_time: null, note: null }
+    vi.mocked(api.beginnerRadar).mockResolvedValue(beginnerRadar(
+      beginnerSelection(12).candidates.map(candidate => ({ candidate, sources: ['pick' as const], live })),
+      { data_gaps: ['Dcard 來源目前不可用'] },
+    ))
     renderWith(<BeginnerPicks />)
-    expect(screen.getByRole('heading', { name: '今日選股' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: '每日承接雷達' })).toBeInTheDocument()
     expect(await screen.findAllByRole('article')).toHaveLength(12)
+    expect(screen.getByRole('heading', { name: '等拉回（12）' })).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: /為什麼沒選/ }))
     expect(screen.getByText('行情停在 2026-09-29，不是最新交易日，資料過舊。')).toBeInTheDocument()
     expect(screen.getByText(/Dcard 來源目前不可用/)).toBeInTheDocument()
+  })
+
+  it('radar groups by state, shows live status, plan levels and own-stock source', async () => {
+    localStorage.setItem('portfolio_transactions', JSON.stringify([{
+      id: 't1', symbol: '2317.TWSE', name: '鴻海', side: 'buy', shares: 1000, price: 100, fee: 0,
+      date: '2026-09-01', tradeTime: '10:00', createdAt: '2026-09-01T02:00:00.000Z',
+    }]))
+    vi.mocked(api.beginnerRadar).mockResolvedValue(beginnerRadar([
+      {
+        candidate: beginnerCandidate('2330.TWSE', { rank: 1 }), sources: ['pick'],
+        live: { status: 'in_zone', label: '已進承接區', price: 96, quote_time: '2026-10-07T10:15:00+08:00', note: null },
+      },
+      {
+        candidate: beginnerCandidate('2317.TWSE', {
+          name: '鴻海', rank: null, selection_state: 'skip', reasons: [], trade_plan: null,
+          exclusion_reasons: [{ reason_code: 'trend_not_ready', evidence_key: 'trend', direction: 'negative', display_text: '趨勢偏弱，暫時略過。' }],
+        }),
+        sources: ['holding'],
+        live: { status: 'unavailable', label: '無盤中判斷', price: 101, quote_time: null, note: '這檔目前不提供計畫價位。' },
+      },
+    ]))
+    renderWith(<BeginnerPicks />)
+    const pullback = await screen.findByRole('region', { name: '等拉回' })
+    expect(within(pullback).getByText('已進承接區')).toBeInTheDocument()
+    expect(within(pullback).getByText('承接區')).toBeInTheDocument()
+    expect(within(pullback).getByText('失效位')).toBeInTheDocument()
+    const own = screen.getByRole('region', { name: '你的股票：暫不操作' })
+    expect(within(own).getByText('持股')).toBeInTheDocument()
+    expect(within(own).getByText('這檔目前不提供計畫價位。')).toBeInTheDocument()
+    expect(api.beginnerRadar).toHaveBeenCalledWith(['2317.TWSE'])
+    localStorage.removeItem('portfolio_transactions')
   })
 
   it('empty selection is honest instead of padding the list', async () => {

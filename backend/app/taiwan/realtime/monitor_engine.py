@@ -35,6 +35,30 @@ from app.taiwan.universe.models import MarketProfileBridge, TaiwanInstrument
 
 logger = logging.getLogger(__name__)
 
+
+def quote_quality_gate(quote: TaiwanRealtimeQuote) -> tuple[EvaluationStatus, str] | None:
+    """Return the skip status when a quote must not drive a live decision.
+
+    Alerts and the beginner entry radar share this gate, so a quote that cannot
+    trigger an alert also cannot show a live entry status.
+    """
+    # Market Status Gate (only the regular verified OPEN session)
+    if quote.market_status == MarketStatus.SCHEDULED_OPEN_UNVERIFIED.value:
+        return EvaluationStatus.SKIPPED_MARKET_UNVERIFIED, "Market session is scheduled but unverified"
+    if quote.market_status != MarketStatus.OPEN.value:
+        return EvaluationStatus.SKIPPED_MARKET_CLOSED, f"Market session is not open ({quote.market_status})"
+
+    # Data Quality Gate (stale check, daily fallback, delayed check)
+    meta = quote.source_meta
+    if meta.is_stale:
+        return EvaluationStatus.SKIPPED_STALE_DATA, "Quote is stale"
+    if meta.status == RealtimeStatus.DAILY_FALLBACK.value or meta.source_type == "local_store":
+        return EvaluationStatus.SKIPPED_DAILY_FALLBACK, "Quote fell back to daily cached storage"
+    if meta.freshness_class in ("delayed_15m", "unknown") or "delayed" in meta.freshness_class:
+        return EvaluationStatus.SKIPPED_DELAYED_SOURCE, f"Quote feed is delayed ({meta.freshness_class})"
+    return None
+
+
 class TaiwanMonitorEngine:
     """Intraday Real-time Alert & Rule Evaluation Engine for Taiwan Markets."""
 
@@ -498,20 +522,10 @@ class TaiwanMonitorEngine:
         if quote is None:
             return None, EvaluationStatus.SKIPPED_MISSING_FIELD, "No quote available"
 
-        # Gate 2: Market Status Gate (Only regular verified OPEN session)
-        if quote.market_status == MarketStatus.SCHEDULED_OPEN_UNVERIFIED.value:
-            return None, EvaluationStatus.SKIPPED_MARKET_UNVERIFIED, "Market session is scheduled but unverified"
-        if quote.market_status != MarketStatus.OPEN.value:
-            return None, EvaluationStatus.SKIPPED_MARKET_CLOSED, f"Market session is not open ({quote.market_status})"
-
-        # Gate 3: Data Quality Gate (Stale check, Daily fallback, Delayed check)
-        meta = quote.source_meta
-        if meta.is_stale:
-            return None, EvaluationStatus.SKIPPED_STALE_DATA, "Quote is stale"
-        if meta.status == RealtimeStatus.DAILY_FALLBACK.value or meta.source_type == "local_store":
-            return None, EvaluationStatus.SKIPPED_DAILY_FALLBACK, "Quote fell back to daily cached storage"
-        if meta.freshness_class in ("delayed_15m", "unknown") or "delayed" in meta.freshness_class:
-            return None, EvaluationStatus.SKIPPED_DELAYED_SOURCE, f"Quote feed is delayed ({meta.freshness_class})"
+        # Gates 2-3: Market Status and Data Quality
+        blocked = quote_quality_gate(quote)
+        if blocked is not None:
+            return None, *blocked
 
         # Gate 4: Price Limit Applicability & Calculation
         sec_master = get_security_master()
@@ -688,8 +702,8 @@ class TaiwanMonitorEngine:
             trigger_value=trigger_value,
             threshold=rule.threshold,
             message=message,
-            source=meta.source,
-            source_status=meta.status,
+            source=quote.source_meta.source,
+            source_status=quote.source_meta.status,
             market_status=quote.market_status,
             severity=sev,
             field_name=field_name,

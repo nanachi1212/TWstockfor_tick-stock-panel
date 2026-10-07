@@ -1084,6 +1084,31 @@ def get_beginner_selection(limit: Annotated[int, Query(ge=1, le=20)] = 20):
         raise HTTPException(status_code=500, detail="今日選股資料彙整失敗") from e
 
 
+@router.get("/beginner-selection/radar")
+def get_beginner_entry_radar(holdings: str = Query("", max_length=2000)):
+    """每日承接雷達：今日選股＋持股＋自選股，比對盤中現價與計畫價位。"""
+    from app.services import watchlist
+    from app.taiwan.beginner_radar import build_radar, parse_holdings, taiwan_symbols
+    from app.taiwan.beginner_selection import BeginnerSelectionService
+    from app.taiwan.realtime import get_market_status, get_realtime_service, taipei_now
+
+    try:
+        held = parse_holdings(holdings)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    try:
+        return build_radar(
+            BeginnerSelectionService(),
+            holdings=held,
+            watchlist=taiwan_symbols(row.get("symbol") for row in watchlist.list_symbols()),
+            get_quotes=lambda symbols: get_realtime_service().get_quotes(symbols),
+            market_session=lambda: get_market_status(taipei_now()).value,
+        ).model_dump(mode="json")
+    except Exception as exc:
+        logger.exception("Failed to build entry radar: %s", exc)
+        raise HTTPException(status_code=500, detail="承接雷達資料彙整失敗") from exc
+
+
 @router.get("/beginner-selection/compare")
 def get_beginner_selection_comparison(symbols: str = Query(...)):
     """比較 2 至 5 檔股票既有確定性證據，保留今日選股原排名。"""
