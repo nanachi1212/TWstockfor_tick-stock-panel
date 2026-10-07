@@ -57,7 +57,8 @@ def _prompt(event: dict[str, Any], plan: dict[str, Any] | None) -> list[dict[str
     )}
     return [
         {"role": "system", "content": "你是台股提醒的白話解讀助手。只能依提供的事實與既有計畫說明，不可預測漲跌、"
-                                      "不可給買賣指示、不可自行產生新的價位。每個欄位不超過 60 字。"},
+                                      "不可給買賣指示、不可自行產生新的價位。提到現價時只能用提醒事實的 trigger_value，"
+                                      "計畫資料裡的收盤價是前一日資料，不可當作現價。每個欄位不超過 60 字。"},
         {"role": "user", "content": (
             f"提醒事實：{json.dumps(facts, ensure_ascii=False, default=str)}\n"
             f"既有計畫與規則判斷：{json.dumps(plan, ensure_ascii=False, default=str)}\n\n"
