@@ -881,3 +881,18 @@ async def test_codex_exec_args_exclude_ephemeral(monkeypatch):
     assert "--ephemeral" not in args
     assert "exec" in args and "--skip-git-repo-check" in args
     assert args[args.index("--model") + 1] == "gpt-5.6-sol"
+
+
+def test_openai_kwargs_disable_thinking_for_local_llm_only():
+    """本機 LM Studio / llama.cpp 關閉思考, 避免思考 token 吃光輸出上限而截斷。"""
+    local = ai_provider._openai_kwargs(
+        temperature=None, max_tokens=1000, provider="openai_compat",
+        reasoning_effort="", base_url="http://127.0.0.1:1234/v1",
+    )
+    assert local["reasoning_effort"] == "none"
+    assert local["extra_body"] == {"chat_template_kwargs": {"enable_thinking": False}}
+    remote = ai_provider._openai_kwargs(
+        temperature=None, max_tokens=1000, provider="openai_compat",
+        reasoning_effort="", base_url="https://apihub.agnes-ai.com/v1",
+    )
+    assert "reasoning_effort" not in remote and "extra_body" not in remote
