@@ -323,7 +323,7 @@ def test_taiwan_bootstrap_api_endpoints(monkeypatch):
     assert "trading_days" in data
     assert "needs_bootstrap" in data
     assert "asset_info" in data
-    assert data["asset_info"]["approx_size_mb"] == 31
+    assert data["asset_info"]["approx_size_mb"] == 51
 
     # 2. bootstrap run and job status
     from app.taiwan.bootstrap import BootstrapJobState
