@@ -132,8 +132,8 @@ export function TaiwanStockCompare() {
 
   const comparisonErrorMessage =
     comparisonQuery.error instanceof Error ? comparisonQuery.error.message : '比較資料載入失敗，請重試'
-  const fmtPct = (v: number | null | undefined) => (v == null ? 'N/A（不適用）' : `${(v * 100).toFixed(2)}%`)
-  const fmtNum = (v: number | null | undefined, digits = 2) => (v == null ? 'N/A（不適用）' : v.toFixed(digits))
+  const fmtPct = (v: number | null | undefined) => (v == null ? '資料不足' : `${(v * 100).toFixed(2)}%`)
+  const fmtNum = (v: number | null | undefined, digits = 2) => (v == null ? '資料不足' : v.toFixed(digits))
 
   // 資料新鮮度提示文字（單行、非儀表板）：依 comparison_date 與 daily_as_of
   // 之關係，明確區分「最新」「歷史比較」「要求日期超出本機範圍」「非交易日」
@@ -369,7 +369,7 @@ export function TaiwanStockCompare() {
                         {data.instruments.map(inst => (
                           <td key={inst.symbol} className="py-2 px-3 font-mono">
                             {inst.context.institutional_context.foreign_net_1d == null
-                              ? 'N/A（不適用）'
+                              ? '資料不足'
                               : inst.context.institutional_context.foreign_net_1d.toLocaleString()}
                           </td>
                         ))}

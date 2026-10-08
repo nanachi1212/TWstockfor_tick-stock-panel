@@ -59,8 +59,8 @@ function buildContext(symbol: string, name: string, opts: Partial<any> = {}) {
       return_20d: 0.02,
     },
     technical_context: { rsi14: 55 },
-    institutional_context: { foreign_net_1d: opts.foreign_net_1d ?? 0 },
-    fundamentals_context: { status: opts.fundamentals_status ?? 'available', pe: 18 },
+    institutional_context: { foreign_net_1d: 'foreign_net_1d' in opts ? opts.foreign_net_1d : 0 },
+    fundamentals_context: { status: opts.fundamentals_status ?? 'available', pe: 'pe' in opts ? opts.pe : 18 },
     etf_context: { leverage_multiplier: opts.leverage_multiplier ?? null },
   }
 }
@@ -285,6 +285,17 @@ describe('refresh persistence', () => {
 })
 
 describe('AI never auto-triggers', () => {
+  it('shows a missing stock value as 資料不足, never as 不適用', async () => {
+    const response = buildComparisonResponse(['2330.TWSE', '2881.TWSE'])
+    response.instruments[0].context = buildContext('2330.TWSE', '2330.TWSE', { pe: null, foreign_net_1d: null }) as any
+    vi.mocked(api.taiwanStockCompare).mockResolvedValue(response as any)
+    renderAt('/stocks/compare?symbols=2330.TWSE,2881.TWSE')
+    await waitForComparisonLoaded()
+
+    expect((await screen.findAllByText('資料不足')).length).toBeGreaterThanOrEqual(2)
+    expect(screen.queryByText(/N\/A（不適用）/)).not.toBeInTheDocument()
+  })
+
   it('does not call taiwanStockCompareAIResearch on mount or after deterministic data loads', async () => {
     renderAt('/stocks/compare?symbols=2330.TWSE,2881.TWSE')
     await waitFor(() => expect(api.taiwanStockCompare).toHaveBeenCalled())
