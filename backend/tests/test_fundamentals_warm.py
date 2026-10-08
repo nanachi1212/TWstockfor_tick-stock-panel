@@ -135,3 +135,18 @@ def test_failed_refetch_keeps_last_good_copy_with_its_real_date(monkeypatch, tmp
 
 def test_warm_lock_reclaims_a_dead_owner_before_the_next_daily_run():
     assert fundamentals_warm.LOCK_MAX_AGE.total_seconds() < 24 * 3600
+
+
+def test_lock_left_by_a_dead_process_is_reclaimed_immediately(monkeypatch, tmp_path):
+    import json as _json
+
+    lock_path = tmp_path / "warm.lock"
+    lock_path.write_text(_json.dumps({"pid": 2_000_000_000, "token": "dead",
+                                      "process_created_at": 1.0}), encoding="utf-8")
+    monkeypatch.setattr(fundamentals_warm, "_lock_path", lambda: lock_path)
+    fake = _FakeService()
+    monkeypatch.setattr(
+        "app.taiwan.fundamental_chips_service.get_fundamental_chips_service", lambda: fake)
+
+    assert fundamentals_warm.warm_fundamentals(["2330.TWSE"])["status"] == "ok"
+    assert not lock_path.exists()  # released after the run

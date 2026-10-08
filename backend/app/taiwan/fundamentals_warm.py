@@ -57,7 +57,9 @@ def warm_fundamentals(symbols: list[str] | None = None) -> dict[str, Any]:
 
     lock = WorkerLock(_lock_path(), max_age=LOCK_MAX_AGE)
     try:
-        lock.acquire()
+        # A recorded owner confirmed dead (crash/kill) is reclaimed at once; a live or
+        # unverifiable owner still blocks (acquire re-checks liveness under its guard).
+        lock.acquire(force=lock.owner_status() == "stale")
     except WorkerBusyError:
         return {"status": "busy", "reason": "another fundamentals warm is running"}
     try:
