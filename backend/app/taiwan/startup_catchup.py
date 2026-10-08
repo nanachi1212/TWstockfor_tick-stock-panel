@@ -43,7 +43,7 @@ def needs_catchup() -> tuple[bool, str]:
 
 
 def _run(app_state: Any) -> None:
-    from app.taiwan.daily_update import TaiwanDailyUpdateService
+    from app.jobs import daily_pipeline
 
     try:
         need, reason = needs_catchup()
@@ -51,25 +51,15 @@ def _run(app_state: Any) -> None:
             _LAST.update(status="skipped", reason=reason)
             logger.info("startup catch-up skipped: %s", reason)
             return
-        logger.info("startup catch-up: daily data stale (%s); running incremental update", reason)
-        result = TaiwanDailyUpdateService().run_update(refresh_daily=True)
-        _LAST.update(
-            status=result.overall_status,
-            daily=result.daily.status,
-            target=result.target_latest_trading_date,
-        )
-        logger.info("startup catch-up finished: overall=%s daily=%s", result.overall_status, result.daily.status)
-        if result.overall_status == "success" and result.daily.status == "success":
-            try:
-                from app.taiwan.auto_watch import sync_watchlist_plans
-
-                sync_watchlist_plans()
-            except Exception:
-                logger.exception("startup catch-up: Auto Watch sync failed; old rules remain")
-            qs = getattr(app_state, "quote_service", None)
-            if qs is not None and hasattr(qs, "_broadcast_quote_updated"):
-                with contextlib.suppress(Exception):
-                    qs._broadcast_quote_updated()
+        logger.info("startup catch-up: daily data stale (%s); running the shared post-close update chain", reason)
+        # 與 16:30 排程同一條流程 (資料更新 + 研究視圖 + Quant + Auto Watch + 自動 AI 說明 + 收盤推播)
+        daily_pipeline.set_app_state(app_state)
+        daily_pipeline.run_taiwan_update(trigger="startup_catchup")
+        _LAST.update(status="ran", reason=reason)
+        qs = getattr(app_state, "quote_service", None)
+        if qs is not None and hasattr(qs, "_broadcast_quote_updated"):
+            with contextlib.suppress(Exception):
+                qs._broadcast_quote_updated()
     except Exception as exc:
         _LAST.update(status="error", reason=type(exc).__name__)
         logger.warning("startup catch-up failed: %s", exc)

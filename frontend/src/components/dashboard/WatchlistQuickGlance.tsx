@@ -37,7 +37,8 @@ export function WatchlistQuickGlance({ onStockClick, anomalies, diagnosticsLoadi
     mutationFn: (symbol: string) => api.watchlistRemove(symbol),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: QK.watchlist })
-      qc.invalidateQueries({ queryKey: QK.watchlistEnriched() })
+      // 前綴匹配: 實際 key 為 ['watchlist-enriched', ''], QK.watchlistEnriched()(= undefined) 對不上
+      qc.invalidateQueries({ queryKey: ['watchlist-enriched'] })
     },
   })
   const rowsBySymbol = new Map<string, any>()

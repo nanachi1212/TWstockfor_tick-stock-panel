@@ -475,6 +475,7 @@ async def generate_ai_text(
             codex_reasoning_effort=config_snapshot.codex_reasoning_effort,
         )
 
+    timeout = warmup_timeout(timeout, config_snapshot)
     max_tokens = _resolve_max_tokens(
         max_tokens,
         cap=config_snapshot.max_output_tokens,

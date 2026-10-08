@@ -73,9 +73,27 @@ def _read(data_dir: Path | None = None) -> list[dict[str, Any]]:
     return rows
 
 
+def _dedupe(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """同一則說明 (symbol + record_id) 重複按只算最後一次; 沒帶 record_id 的每筆都算。"""
+    out: list[dict[str, Any]] = []
+    index: dict[tuple[str, str], int] = {}
+    for row in rows:
+        rid = row.get("record_id")
+        if not rid:
+            out.append(row)
+            continue
+        key = (str(row.get("symbol") or ""), str(rid))
+        if key in index:
+            out[index[key]] = row
+        else:
+            index[key] = len(out)
+            out.append(row)
+    return out
+
+
 def summary(data_dir: Path | None = None, limit_recent: int = 20) -> dict[str, Any]:
     """整體與各模型的準／不準計數, 以及最近幾筆回饋。"""
-    rows = _read(data_dir)
+    rows = _dedupe(_read(data_dir))
     by_model: dict[str, dict[str, int]] = defaultdict(lambda: {"helpful": 0, "not_helpful": 0})
     total = {"helpful": 0, "not_helpful": 0}
     for row in rows:

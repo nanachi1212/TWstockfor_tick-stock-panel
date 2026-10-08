@@ -19,7 +19,8 @@ export function DashboardDailyBriefWidget() {
 
   const brief = briefQuery.data
   const latestSaved = historyQuery.data?.[0]
-  const hasAi = !!latestSaved?.ai_summary
+  // 只有同一個 brief_date 的已保存 AI 摘要才算「今日」; 否則顯示確定性 fallback, 不拿昨天的文字配今天的日期
+  const hasAi = !!latestSaved?.ai_summary && !!brief && latestSaved.brief_date === brief.brief_date
 
   return (
     <section className="mb-2.5 rounded-card border border-border bg-surface/85 p-3 shadow-sm backdrop-blur-sm">

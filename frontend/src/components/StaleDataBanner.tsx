@@ -21,12 +21,18 @@ export function StaleDataBanner() {
   })
   const update = useMutation({
     mutationFn: api.taiwanUpdateLatest,
-    onSuccess: () => {
+    onSuccess: (res) => {
       qc.invalidateQueries({ queryKey: QK.taiwanDataStatus })
       qc.invalidateQueries({ queryKey: ['beginner-selection'] })
       qc.invalidateQueries({ queryKey: ['taiwanAbnormalDiagnostics'] })
       qc.invalidateQueries({ queryKey: ['taiwanMarketIntelligence'] })
-      toast.success('台股資料已更新到最近交易日')
+      // 端點在上游部分失敗時仍回 200: 要看 ok / failed_dates / 實際抓到幾天, 不能一律報成功
+      const failed = Array.isArray(res?.stats?.failed_dates) ? res.stats.failed_dates.length : 0
+      if (!res?.ok || failed > 0 || (!res.already_current && res.dates_fetched === 0)) {
+        toast.error(`更新未完成：${res?.message || '上游資料來源暫時無法取得'}${failed ? `（${failed} 個交易日失敗）` : ''}`)
+        return
+      }
+      toast.success(res.already_current ? '台股資料已是最新' : '台股資料已更新到最近交易日')
     },
     onError: (err: Error) => toast.error('更新失敗：' + (err.message || '請稍後再試')),
   })

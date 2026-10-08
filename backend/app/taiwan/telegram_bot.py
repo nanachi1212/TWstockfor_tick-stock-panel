@@ -51,7 +51,8 @@ def _fmt_price(value: float | None) -> str:
 
 
 def _fmt_pct(value: float | None) -> str:
-    return "—" if value is None else f"{value * 100:+.2f}%"
+    # 即時報價契約: change_pct 已是百分點 (1.2 = +1.20%), 直接格式化
+    return "—" if value is None else f"{value:+.2f}%"
 
 
 def _resolve_symbol(code: str) -> str | None:
@@ -74,6 +75,7 @@ def answer_symbol(code: str) -> str:
     if symbol is None:
         return f"找不到代號 {code}。請確認是上市或上櫃股票／ETF。"
     lines: list[str] = []
+    candidate_as_of: str | None = None
     quote = get_realtime_service().get_quotes([symbol]).get(symbol)
     if quote is not None and quote.last_price is not None:
         when = quote.quote_time.strftime("%m/%d %H:%M") if quote.quote_time else ""
@@ -82,6 +84,7 @@ def answer_symbol(code: str) -> str:
         lines.append(f"{symbol}：目前沒有報價資料。")
     try:
         candidate = BeginnerSelectionService().evaluate_symbol(symbol).candidate
+        candidate_as_of = getattr(candidate, "as_of", None)
         state = _STATE_LABEL.get(str(candidate.selection_state), str(candidate.selection_state))
         lines.append(f"規則判斷：{state}。{candidate.action_summary}")
         plan = candidate.trade_plan
@@ -97,13 +100,15 @@ def answer_symbol(code: str) -> str:
         logger.debug("telegram query: selection unavailable for %s: %s", symbol, type(exc).__name__)
         lines.append("今日計畫資料不足。")
     try:
-        stored = stored_explanation(symbol, None)
+        # 只接受證據日期不早於今日規則結果的 AI 說明; 沒有規則結果就不附 AI (避免舊研究配新報價)
+        stored = stored_explanation(symbol, candidate_as_of) if candidate_as_of else None
         report = (stored or {}).get("report") if isinstance(stored, dict) else None
         if isinstance(report, dict):
             answer = report.get("beginner_answer") or {}
             one_liner = (answer.get("can_buy") if isinstance(answer, dict) else None) or report.get("overview")
             if one_liner:
-                lines.append(f"AI 一句話：{str(one_liner)[:120]}")
+                as_of = str(report.get("evidence_as_of") or candidate_as_of or "")
+                lines.append(f"AI 一句話（資料截至 {as_of}）：{str(one_liner)[:120]}" if as_of else f"AI 一句話：{str(one_liner)[:120]}")
     except Exception:
         pass
     lines.append("規則整理，非投資建議。")
@@ -169,10 +174,14 @@ class TelegramQueryBot:
         self._thread: threading.Thread | None = None
         self._stop = threading.Event()
         self._offset: int | None = None
+        self._offset_token: str | None = None
 
     def start(self) -> bool:
         if self._thread is not None and self._thread.is_alive():
-            return False
+            if not self._stop.is_set():
+                return False
+            # 剛 stop() 又 start(): 等舊的長輪詢結束再換新執行緒, 否則新設定永遠不會被接起
+            self._thread.join(timeout=_POLL_TIMEOUT_S + 15)
         if not (preferences.get_telegram_bot_token() and preferences.get_telegram_chat_id()):
             logger.info("telegram query bot not started: token or chat_id missing")
             return False
@@ -196,6 +205,10 @@ class TelegramQueryBot:
             if not token or not chat_id:
                 time.sleep(10.0)
                 continue
+            if token != self._offset_token:
+                # 換了 bot token 就是另一個 bot, 舊 offset 無意義 (會跳過新 bot 的訊息)
+                self._offset = None
+                self._offset_token = token
             try:
                 params: dict[str, Any] = {"timeout": _POLL_TIMEOUT_S, "allowed_updates": '["message"]'}
                 if self._offset is not None:

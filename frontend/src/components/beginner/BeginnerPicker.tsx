@@ -183,7 +183,7 @@ function AiExplain({ symbol, asOf }: { symbol: string; asOf?: string | null }) {
             <ReasonList items={(report.watch_next ?? []).slice(0, 3).map(r => r.text)} empty="AI 沒有列出觀察重點。" tone="reason" />
           </div>
           <p className="text-[10px] text-muted">資料截至 {report.evidence_as_of}・生成於 {(query.data?.generated_at ?? '').slice(0, 16).replace('T', ' ')}・{query.data?.model}・{(query.data as { stored?: boolean } | undefined)?.stored ? '盤後自動產生' : '剛剛產生'}・AI 只做解讀，不改變上面的分組與價位。</p>
-          <AiFeedbackButtons symbol={symbol} model={query.data?.model ?? null} />
+          <AiFeedbackButtons symbol={symbol} model={query.data?.model ?? null} recordId={`${report.evidence_as_of}:${query.data?.generated_at ?? report.generated_at}`} />
         </div>
       ) : (
         <div className="flex flex-wrap items-center gap-2">
@@ -201,10 +201,11 @@ function AiExplain({ symbol, asOf }: { symbol: string; asOf?: string | null }) {
 }
 
 /** 一鍵回報這則 AI 說明準不準；只做統計，不影響任何結果。 */
-function AiFeedbackButtons({ symbol, model }: { symbol: string; model: string | null }) {
+function AiFeedbackButtons({ symbol, model, recordId }: { symbol: string; model: string | null; recordId: string }) {
   const [sent, setSent] = useState<boolean | null>(null)
   const feedback = useMutation({
-    mutationFn: (helpful: boolean) => api.taiwanAiFeedback({ symbol, helpful, model }),
+    // recordId 讓同一則說明重複按只算最後一次 (後端依 symbol + record_id 去重)
+    mutationFn: (helpful: boolean) => api.taiwanAiFeedback({ symbol, helpful, model, record_id: recordId }),
     onSuccess: (_result, helpful) => setSent(helpful),
   })
   if (sent !== null) {

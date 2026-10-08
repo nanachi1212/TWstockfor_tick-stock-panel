@@ -85,11 +85,64 @@ def _refresh_single_view(repo: KlineRepository, name: str) -> None:
             f"CREATE OR REPLACE VIEW {name} AS "
             f"SELECT * FROM read_parquet('{path}', union_by_name=true)"
         )
-    except Exception as e:  # noqa: BLE001
+    except Exception as e:
         logger.warning("refresh view %s failed: %s", name, e)
 
 
-def start_scheduler(repo: KlineRepository, capset: CapabilitySet) -> AsyncIOScheduler:  # noqa: ARG001
+def run_taiwan_update(evening: bool = False, *, trigger: str = "scheduled") -> None:
+    """台股盤後更新 + 後續鏈 (研究視圖、Quant、Auto Watch、自動 AI 說明、收盤推播)。
+
+    16:30/晚間排程與啟動補更新共用這一條, 避免補更新只刷資料卻漏掉盤後產出。
+    """
+    try:
+        from app.taiwan.daily_update import TaiwanDailyUpdateService
+        svc = TaiwanDailyUpdateService()
+        result = svc.run_update(refresh_daily=True)
+        logger.info(
+            "Taiwan daily update (%s) finished: overall=%s, daily=%s, inst=%s, margin=%s",
+            trigger, result.overall_status, result.daily.status, result.institutional.status, result.margin.status,
+        )
+        if not evening:
+            logger.info("Scheduled Taiwan research refresh: %s", _refresh_after_close_research())
+        # Evening catch-up exists for margin (published in the evening); only a
+        # newly fetched daily date gives Quant anything new to freeze.
+        if evening and result.daily.dates_fetched == 0:
+            return
+        # Quant is downstream and isolated: it must never roll back or
+        # relabel the completed market-data refresh.
+        try:
+            from app.taiwan.quant.live_runner import run_live_after_refresh
+
+            logger.info("Taiwan experimental live quant: %s", run_live_after_refresh(
+                result, app_state=_app_state_ref,
+            ))
+        except Exception:
+            logger.exception("Taiwan live quant failed; market refresh remains complete")
+        if result.overall_status == "success" and result.daily.status == "success":
+            try:
+                from app.taiwan.auto_watch import sync_watchlist_plans
+
+                logger.info("Taiwan Auto Watch sync: %s", sync_watchlist_plans())
+            except Exception:
+                logger.exception("Taiwan Auto Watch sync failed; old rules remain")
+            try:
+                from app.taiwan.auto_ai_explain import run_auto_explain
+
+                logger.info("Taiwan auto AI explain: %s", run_auto_explain())
+            except Exception:
+                logger.exception("Taiwan auto AI explain failed")
+            try:
+                from app.taiwan import push_digest
+
+                logger.info("Taiwan push digest (evening): %s",
+                            push_digest.run("evening", result.freshness.daily_as_of))
+            except Exception:
+                logger.exception("Taiwan evening push digest failed")
+    except Exception as e:
+        logger.exception("Taiwan daily update job (%s) failed: %s", trigger, e)
+
+
+def start_scheduler(repo: KlineRepository, capset: CapabilitySet) -> AsyncIOScheduler:
     """啟動排程器 (Asia/Taipei)。
 
     工作日 16:30 台股盤後增量更新 (+21:30/23:00 融資融券補抓)、10:00/14:00 買點評估。
@@ -98,54 +151,8 @@ def start_scheduler(repo: KlineRepository, capset: CapabilitySet) -> AsyncIOSche
 
     # 台股盘后增量更新 (Taiwan Full-Market Daily OHLCV + Institutional + Margin Update)
     # 每天 16:30 Asia/Taipei 触发。
-    # 官方全市場快照端點極速更新：Daily (TWSE 1 + TPEx 1) + Inst (2) + Margin (2) = ~6 次 HTTP 請求 / 日
-    def _scheduled_taiwan_update(evening: bool = False):
-        try:
-            from app.taiwan.daily_update import TaiwanDailyUpdateService
-            svc = TaiwanDailyUpdateService()
-            result = svc.run_update(refresh_daily=True)
-            logger.info(
-                "Scheduled Taiwan daily update finished: overall=%s, daily=%s, inst=%s, margin=%s",
-                result.overall_status, result.daily.status, result.institutional.status, result.margin.status,
-            )
-            if not evening:
-                logger.info("Scheduled Taiwan research refresh: %s", _refresh_after_close_research())
-            # Evening catch-up exists for margin (published in the evening); only a
-            # newly fetched daily date gives Quant anything new to freeze.
-            if evening and result.daily.dates_fetched == 0:
-                return
-            # Quant is downstream and isolated: it must never roll back or
-            # relabel the completed market-data refresh.
-            try:
-                from app.taiwan.quant.live_runner import run_live_after_refresh
-
-                logger.info("Taiwan experimental live quant: %s", run_live_after_refresh(
-                    result, app_state=_app_state_ref,
-                ))
-            except Exception:
-                logger.exception("Taiwan live quant failed; market refresh remains complete")
-            if result.overall_status == "success" and result.daily.status == "success":
-                try:
-                    from app.taiwan.auto_watch import sync_watchlist_plans
-
-                    logger.info("Taiwan Auto Watch sync: %s", sync_watchlist_plans())
-                except Exception:
-                    logger.exception("Taiwan Auto Watch sync failed; old rules remain")
-                try:
-                    from app.taiwan.auto_ai_explain import run_auto_explain
-
-                    logger.info("Taiwan auto AI explain: %s", run_auto_explain())
-                except Exception:
-                    logger.exception("Taiwan auto AI explain failed")
-                try:
-                    from app.taiwan import push_digest
-
-                    logger.info("Taiwan push digest (evening): %s",
-                                push_digest.run("evening", result.freshness.daily_as_of))
-                except Exception:
-                    logger.exception("Taiwan evening push digest failed")
-        except Exception as e:
-            logger.exception("Scheduled Taiwan daily update job failed: %s", e)
+    # 官方全市場快照端點極速更新: Daily (TWSE 1 + TPEx 1) + Inst (2) + Margin (2) = ~6 次 HTTP 請求 / 日
+    _scheduled_taiwan_update = run_taiwan_update
 
     scheduler.add_job(
         _scheduled_taiwan_update,
@@ -201,9 +208,14 @@ def start_scheduler(repo: KlineRepository, capset: CapabilitySet) -> AsyncIOSche
     def _scheduled_morning_digest() -> None:
         try:
             from app.taiwan import push_digest
-            from app.taiwan.realtime import get_market_status, taipei_now
+            from app.taiwan.realtime import get_realtime_service, taipei_now
 
-            if get_market_status(taipei_now(), require_verified_trading_day=True).value == "non_trading_day":
+            # 用即時服務的交易日曆 (含已知假日); 08:45 尚無第一方報價可驗證, 所以只排除確定非交易日,
+            # 文字本身帶資料日期 (as_of), 不會把舊資料當成今天。
+            status = get_realtime_service().trading_calendar.get_market_status(
+                taipei_now(), require_verified_trading_day=True,
+            ).value
+            if status == "non_trading_day":
                 return
             logger.info("Taiwan push digest (morning): %s", push_digest.run("morning"))
         except Exception:

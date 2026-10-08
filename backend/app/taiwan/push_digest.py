@@ -10,7 +10,6 @@
 from __future__ import annotations
 
 import logging
-from datetime import date
 from typing import Any
 
 from app.services import preferences, webhook_adapter
@@ -50,9 +49,10 @@ def _fmt_price(value: float | None) -> str:
 
 
 def _fmt_pct(value: float | None) -> str:
+    # 即時報價契約: change_pct 已是百分點 (3.4 = +3.40%), 直接格式化
     if value is None:
         return "—"
-    return f"{value * 100:+.2f}%"
+    return f"{value:+.2f}%"
 
 
 _STATE_LABEL = {
@@ -100,22 +100,24 @@ def build_morning_text() -> str:
 def build_evening_text(as_of: str | None = None) -> str:
     """盤後一句話: 自選股今天怎麼了 (以官方收盤快照為準)。"""
     from app.services import watchlist
-    from app.taiwan.realtime import get_realtime_service
+    from app.taiwan.realtime import get_realtime_service, taipei_now
 
     symbols = [
         str(row.get("symbol") or "")
         for row in watchlist.list_symbols()
         if str(row.get("symbol") or "").upper().endswith((".TWSE", ".TPEX"))
     ]
-    lines = [f"【收盤一句話】{as_of or date.today().isoformat()}"]
+    lines = [f"【收盤一句話】{as_of or taipei_now().date().isoformat()}"]
     if not symbols:
         lines.append("你還沒有加入自選股。到「今日選股」卡片一鍵加入後，明天收盤就會收到摘要。")
         lines.append(_FOOTER)
         return "\n".join(lines)
-    quotes = get_realtime_service().get_quotes(symbols[:_MAX_WATCHLIST * 3])
+    # 只摘要實際查過報價的子集; 超出的檔數明確標示, 不把沒查的當成「無報價」
+    queried = symbols[:_MAX_WATCHLIST * 3]
+    quotes = get_realtime_service().get_quotes(queried)
     rows: list[tuple[str, str, float | None, float | None]] = []
     missing: list[str] = []
-    for symbol in symbols:
+    for symbol in queried:
         q = quotes.get(symbol)
         if q is None or q.last_price is None:
             missing.append(symbol.split(".")[0])
@@ -132,6 +134,8 @@ def build_evening_text(as_of: str | None = None) -> str:
             lines.append(f"…其餘 {len(rows) - _MAX_WATCHLIST} 檔請開看板查看")
     if missing:
         lines.append("今日無報價：" + "、".join(missing[:8]))
+    if len(symbols) > len(queried):
+        lines.append(f"自選股超過 {len(queried)} 檔，其餘 {len(symbols) - len(queried)} 檔未納入本則摘要")
     lines.append(_FOOTER)
     return "\n".join(lines)
 

@@ -34,7 +34,7 @@ def _plan(entry="pullback"):
 def _candidate(symbol="2330.TWSE", name="台積電", state="observable", plan=None):
     plan = _plan() if plan is None else plan
     return SimpleNamespace(
-        symbol=symbol, name=name, selection_state=state, trade_plan=plan,
+        symbol=symbol, name=name, selection_state=state, trade_plan=plan, as_of="2026-10-08",
         action_summary="站上均線且量能放大，可觀察承接。", invalidation="跌破 90 視為失效。",
     )
 
@@ -56,6 +56,7 @@ class _FakeSelectionService:
 
 
 def _quote(symbol, price, pct, name="台積電", source="twse_mis", stale=False):
+    """pct 為百分點 (與 TaiwanRealtimeQuote.change_pct 契約一致: 4.5 = +4.50%)。"""
     return SimpleNamespace(
         symbol=symbol, name=name, last_price=price, change_pct=pct,
         quote_time=datetime(2026, 10, 8, 10, 5), source_meta=SimpleNamespace(source=source, is_stale=stale),
@@ -93,7 +94,7 @@ def test_evening_text_sorts_watchlist_and_reports_missing(monkeypatch):
     monkeypatch.setattr(watchlist, "list_symbols", lambda: [
         {"symbol": "2330.TWSE"}, {"symbol": "2454.TWSE"}, {"symbol": "600000.SH"}, {"symbol": "0050.TWSE"},
     ])
-    quotes = {"2330.TWSE": _quote("2330.TWSE", 1000.0, -0.012), "2454.TWSE": _quote("2454.TWSE", 1200.0, 0.034, "聯發科")}
+    quotes = {"2330.TWSE": _quote("2330.TWSE", 1000.0, -1.2), "2454.TWSE": _quote("2454.TWSE", 1200.0, 3.4, "聯發科")}
     monkeypatch.setattr(rt, "get_realtime_service", lambda: SimpleNamespace(get_quotes=lambda symbols: quotes))
     text = push_digest.build_evening_text("2026-10-08")
     lines = text.split("\n")
@@ -145,9 +146,9 @@ def test_anomaly_scan_flags_once_per_direction(monkeypatch, isolated_prefs, tmp_
     appended: list[list[dict]] = []
     monkeypatch.setattr(alert_store, "append_many", lambda data_dir, events: appended.append(events) or [])
     quotes = {
-        "2330.TWSE": _quote("2330.TWSE", 1000.0, 0.045),
-        "2454.TWSE": _quote("2454.TWSE", 1200.0, -0.01, "聯發科"),
-        "0050.TWSE": _quote("0050.TWSE", 200.0, 0.08, "元大台灣50", stale=True),  # 非即時來源不報
+        "2330.TWSE": _quote("2330.TWSE", 1000.0, 4.5),
+        "2454.TWSE": _quote("2454.TWSE", 1200.0, -1.0, "聯發科"),
+        "0050.TWSE": _quote("0050.TWSE", 200.0, 8.0, "元大台灣50", stale=True),  # 非即時來源不報
     }
     _patch_anomaly_env(monkeypatch, quotes)
     app_state = SimpleNamespace(repo=SimpleNamespace(store=SimpleNamespace(data_dir=tmp_path)), quote_service=None)
@@ -156,16 +157,17 @@ def test_anomaly_scan_flags_once_per_direction(monkeypatch, isolated_prefs, tmp_
     assert first["status"] == "ok" and first["symbols"] == ["2330.TWSE"]
     assert appended[0][0]["message"].startswith("自選股大漲 +4.50%")
     assert appended[0][0]["source"] == "watchlist_anomaly"
+    assert isinstance(appended[0][0]["ts"], int) and appended[0][0]["ts"] > 1_600_000_000_000  # 毫秒 epoch
     # 同一天同方向不重複
     assert watchlist_anomaly.scan(app_state) == {"status": "ok", "flagged": 0}
     # 反向才再提醒
-    quotes["2330.TWSE"] = _quote("2330.TWSE", 900.0, -0.05)
+    quotes["2330.TWSE"] = _quote("2330.TWSE", 900.0, -5.0)
     assert watchlist_anomaly.scan(app_state)["symbols"] == ["2330.TWSE"]
 
 
 def test_anomaly_scan_skips_outside_open_session(monkeypatch, isolated_prefs):
     watchlist_anomaly.set_enabled(True)
-    _patch_anomaly_env(monkeypatch, {"2330.TWSE": _quote("2330.TWSE", 1000.0, 0.09)}, status="closed")
+    _patch_anomaly_env(monkeypatch, {"2330.TWSE": _quote("2330.TWSE", 1000.0, 9.0)}, status="closed")
     assert watchlist_anomaly.scan(None) == {"status": "market_closed"}
 
 
@@ -200,17 +202,20 @@ def test_answer_symbol_combines_quote_plan_and_ai(monkeypatch):
         search=lambda q, limit=5: [{"symbol": "2330.TWSE", "code": "2330", "name": "台積電"}],
     ))
     monkeypatch.setattr(rt, "get_realtime_service", lambda: SimpleNamespace(
-        get_quotes=lambda symbols: {"2330.TWSE": _quote("2330.TWSE", 1000.0, 0.012)},
+        get_quotes=lambda symbols: {"2330.TWSE": _quote("2330.TWSE", 1000.0, 1.2)},
     ))
     monkeypatch.setattr(bs, "BeginnerSelectionService", lambda: _FakeSelectionService())
-    monkeypatch.setattr(auto, "stored_explanation", lambda symbol, min_as_of: {
-        "report": {"beginner_answer": {"can_buy": "規則判斷可觀察，尚未進承接區。"}, "overview": "略"},
+    seen = []
+    monkeypatch.setattr(auto, "stored_explanation", lambda symbol, min_as_of: seen.append(min_as_of) or {
+        "report": {"beginner_answer": {"can_buy": "規則判斷可觀察，尚未進承接區。"}, "overview": "略",
+                   "evidence_as_of": "2026-10-08"},
     })
     text = telegram_bot.answer_symbol("2330")
     assert "台積電（2330）現價 1000（+1.20%）" in text
     assert "規則判斷：可觀察。" in text
     assert "承接區 95.00～98.00／失效位 90.00" in text
-    assert "AI 一句話：規則判斷可觀察" in text
+    assert "AI 一句話（資料截至 2026-10-08）：規則判斷可觀察" in text
+    assert seen == ["2026-10-08"]  # 以今日規則結果的 as_of 作為最低證據日期
 
 
 def test_answer_symbol_unknown_code(monkeypatch):
@@ -224,6 +229,31 @@ def test_bot_does_not_start_without_credentials(monkeypatch):
     monkeypatch.setattr(preferences, "get_telegram_bot_token", lambda: "")
     monkeypatch.setattr(preferences, "get_telegram_chat_id", lambda: "42")
     assert telegram_bot.TelegramQueryBot().start() is False
+
+
+def test_evening_text_only_summarises_queried_symbols(monkeypatch):
+    import app.taiwan.realtime as rt
+    from app.services import watchlist
+
+    symbols = [f"{1000 + i}.TWSE" for i in range(35)]
+    monkeypatch.setattr(watchlist, "list_symbols", lambda: [{"symbol": s} for s in symbols])
+    asked = []
+    monkeypatch.setattr(rt, "get_realtime_service", lambda: SimpleNamespace(
+        get_quotes=lambda syms: asked.append(list(syms)) or {s: _quote(s, 10.0, 0.5, name=s) for s in syms},
+    ))
+    text = push_digest.build_evening_text("2026-10-08")
+    assert asked == [symbols[:30]]
+    assert "自選 30 檔" in text
+    assert "今日無報價" not in text  # 沒查的不能當成無報價
+    assert "其餘 5 檔未納入本則摘要" in text
+
+
+def test_feedback_summary_counts_last_vote_per_explanation(tmp_path):
+    ai_feedback.record(symbol="2330.TWSE", helpful=True, record_id="r1", model="m", data_dir=tmp_path)
+    ai_feedback.record(symbol="2330.TWSE", helpful=False, record_id="r1", model="m", data_dir=tmp_path)
+    ai_feedback.record(symbol="2454.TWSE", helpful=True, model="m", data_dir=tmp_path)
+    s = ai_feedback.summary(data_dir=tmp_path)
+    assert (s["total"], s["helpful"], s["not_helpful"]) == (2, 1, 1)
 
 
 # ── ai_feedback ──────────────────────────────────────────────────────────
@@ -240,6 +270,26 @@ def test_feedback_record_and_summary(tmp_path):
     assert len(s["recent"][1]["note"]) == 200
     with pytest.raises(ValueError):
         ai_feedback.record(symbol="  ", helpful=True, data_dir=tmp_path)
+
+
+# ── ai_research: 新手三問只能轉述規則 ───────────────────────────────────
+
+
+def test_grounded_beginner_answer_rejects_invented_stop_and_buy_calls():
+    from app.taiwan.ai_research import _grounded_beginner_answer
+
+    selection = {"selection_state": "avoid", "action_summary": "量能不足，不符合承接條件。",
+                 "invalidation": "跌破 90 視為失效。", "trade_plan": {"stop_price": 90.0}}
+    out = _grounded_beginner_answer(
+        {"can_buy": "可以買，現在就進場。", "stop_loss": "停損設在 85 元。", "give_up": ""}, selection,
+    )
+    assert out.stop_loss == "計畫失效位 90.00：收盤跌破就離場。"  # 停損沒引用計畫價位 → 退回規則句
+    assert out.can_buy.startswith("規則判斷為「不追」")
+    assert out.give_up == "跌破 90 視為失效。"
+    kept = _grounded_beginner_answer({"can_buy": "規則判斷不追。", "stop_loss": "計畫失效位 90.00 元。", "give_up": "x"}, selection)
+    assert kept.stop_loss == "計畫失效位 90.00 元。"
+    none_plan = _grounded_beginner_answer({"stop_loss": "停損 85"}, {"selection_state": "observable", "trade_plan": None})
+    assert none_plan.stop_loss.startswith("目前計畫價位資料不足")
 
 
 # ── startup_catchup ──────────────────────────────────────────────────────

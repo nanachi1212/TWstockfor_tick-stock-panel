@@ -34,6 +34,7 @@ from urllib.parse import urlsplit, urlunsplit
 
 from pydantic import BaseModel, Field, model_validator
 
+from app.services.ai_json import _extract_json_object
 from app.services.ai_provider import (
     AIEmptyContentError,
     AIOutputTruncated,
@@ -43,7 +44,6 @@ from app.services.ai_provider import (
     generate_structured_ai_text,
     snapshot_ai_provider_config,
 )
-from app.services.ai_json import _extract_json_object
 from app.taiwan.abnormal_diagnostics import (
     TaiwanAbnormalDiagnosticItem,
     TaiwanAbnormalDiagnosticsService,
@@ -135,11 +135,46 @@ class ObservationItem(BaseModel):
 
 
 class BeginnerAnswer(BaseModel):
-    """新手三問：固定轉述規則結果 (不產生新價位、不給買賣指示)。"""
+    """新手三問: 固定轉述規則結果 (不產生新價位、不給買賣指示)。"""
 
     can_buy: str = Field("", description="現在能不能買：依 beginner_selection 的狀態與前提轉述")
     stop_loss: str = Field("", description="停損在哪：直接引用 trade_plan.stop_price；無計畫則說明不足")
     give_up: str = Field("", description="什麼情況該放棄：依 invalidation 與 risks 說明")
+
+
+def _fmt_plan_price(value: Any) -> str | None:
+    try:
+        v = float(value)
+    except (TypeError, ValueError):
+        return None
+    return f"{v:.2f}" if v < 1000 else f"{v:.0f}"
+
+
+def _grounded_beginner_answer(raw: dict[str, Any], selection: dict[str, Any]) -> BeginnerAnswer:
+    """新手三問只允許轉述規則結果: 停損句必須引用 trade_plan.stop_price, 否則改用確定性句子。
+
+    can_buy / give_up 是對 selection_state / invalidation 的白話轉述, 保留 AI 文字但在
+    規則狀態為「不追」時不得出現買進字眼; 違反則退回規則原句。
+    """
+    plan = selection.get("trade_plan") if isinstance(selection.get("trade_plan"), dict) else None
+    stop_price = plan.get("stop_price") if plan else None
+    stop_text = str(raw.get("stop_loss") or "").strip()[:120]
+    if stop_price is not None:
+        shown = _fmt_plan_price(stop_price)
+        candidates = {shown, str(stop_price), f"{float(stop_price):g}"} - {None}
+        if not any(c in stop_text for c in candidates):
+            stop_text = f"計畫失效位 {shown}：收盤跌破就離場。"
+    else:
+        stop_text = "目前計畫價位資料不足，沒有可引用的停損位。"
+
+    state = str(selection.get("selection_state") or "")
+    can_buy = str(raw.get("can_buy") or "").strip()[:120]
+    if state == "avoid" and any(w in can_buy for w in ("可以買", "可買", "建議買", "進場", "買進")):
+        can_buy = f"規則判斷為「不追」：{selection.get('action_summary') or '目前不符合承接或突破條件。'}"[:120]
+    give_up = str(raw.get("give_up") or "").strip()[:120]
+    if not give_up and selection.get("invalidation"):
+        give_up = str(selection["invalidation"])[:120]
+    return BeginnerAnswer(can_buy=can_buy, stop_loss=stop_text, give_up=give_up)
 
 
 class TaiwanAIStockResearchReport(BaseModel):
@@ -1107,11 +1142,7 @@ class TaiwanAIResearchService:
         if evidence_payload.get("beginner_selection") is not None:
             raw_answer = parsed.get("beginner_answer")
             if isinstance(raw_answer, dict):
-                beginner_answer = BeginnerAnswer(
-                    can_buy=str(raw_answer.get("can_buy") or "").strip()[:120],
-                    stop_loss=str(raw_answer.get("stop_loss") or "").strip()[:120],
-                    give_up=str(raw_answer.get("give_up") or "").strip()[:120],
-                )
+                beginner_answer = _grounded_beginner_answer(raw_answer, evidence_payload["beginner_selection"])
 
         # Merge deterministic missing items with AI reported missing items
         ai_missing = parsed.get("missing_information") or []

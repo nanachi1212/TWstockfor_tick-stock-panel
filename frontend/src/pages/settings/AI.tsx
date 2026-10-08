@@ -436,9 +436,14 @@ function AiQuickEnableCard() {
   const enableAll = useMutation({
     mutationFn: async () => {
       await api.updateAutoAiExplain(true)
-      await api.updateEventAiExplain(true)
+      try {
+        await api.updateEventAiExplain(true)
+      } catch (err) {
+        // 第一步已成功: 讓設定頁重抓, 開關會如實顯示「盤後 AI 說明」已開、「提醒後 AI 解讀」未開
+        throw new Error('「盤後自動 AI 說明」已開啟，但「提醒後 AI 解讀」開啟失敗：' + ((err as Error).message || '請稍後再試'), { cause: err })
+      }
     },
-    onSuccess: () => qc.invalidateQueries({ queryKey: QK.settings }),
+    onSettled: () => qc.invalidateQueries({ queryKey: QK.settings }),
   })
   if (!configured || !bothOff) return null
   return (
@@ -451,7 +456,7 @@ function AiQuickEnableCard() {
         className="inline-flex min-h-8 items-center rounded-btn bg-accent px-3 text-xs font-medium text-base disabled:opacity-50">
         {enableAll.isPending ? '開啟中…' : '一鍵開啟'}
       </button>
-      {enableAll.isError && <p role="alert" className="text-[11px] text-danger">開啟失敗，請稍後再試。</p>}
+      {enableAll.isError && <p role="alert" className="text-[11px] text-danger">{enableAll.error?.message || '開啟失敗，請稍後再試。'}</p>}
     </div>
   )
 }
