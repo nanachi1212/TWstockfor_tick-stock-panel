@@ -2,19 +2,14 @@
 from __future__ import annotations
 
 import logging
-import math
 import time
-from datetime import date
 
-import anyio
 import polars as pl
-from fastapi import APIRouter, File, HTTPException, Query, Request, UploadFile
+from fastapi import APIRouter, HTTPException, Query, Request
 from pydantic import BaseModel
 
-from app.db_safe import is_valid_ext_ident, quote_ident
+from app.db_safe import is_valid_ext_ident
 from app.services import watchlist
-from app.services.watchlist_ocr import import_watchlist_image
-from app.services.watchlist_ocr.provider import get_ocr_provider
 
 logger = logging.getLogger(__name__)
 
@@ -29,8 +24,6 @@ _IMPORT_IMAGE_TYPES = {
     "image/bmp",
     "image/gif",
 }
-# OCR 独立并发上限：避免多张大图同时解码 + 多 Tesseract 子进程
-_OCR_LIMITER = anyio.CapacityLimiter(2)
 
 
 class AddRequest(BaseModel):
@@ -156,51 +149,6 @@ def clear_group(group_id: str, request: Request):
     except KeyError as e:
         raise HTTPException(404, "自选分组不存在") from e
     return {"symbols": _with_names(rows, request)}
-
-
-@router.get("/ocr-status")
-def ocr_status():
-    """当前 OCR 引擎是否可用（前端可据此提示安装依赖）。"""
-    provider = get_ocr_provider()
-    return {"provider": provider.name, "available": provider.available()}
-
-
-@router.post("/import-image")
-async def import_from_image(request: Request, file: UploadFile = File(...)):
-    """从自选截图识别股票代码，返回候选列表（不自动写入自选）。"""
-    content_type = (file.content_type or "").split(";")[0].strip().lower()
-    filename = (file.filename or "").lower()
-    # 严格白名单：不接受任意 image/*（如 image/svg+xml）
-    ok_type = content_type in _IMPORT_IMAGE_TYPES
-    ok_ext = filename.endswith((".jpg", ".jpeg", ".png", ".webp", ".bmp", ".gif"))
-    if not ok_type and not ok_ext:
-        raise HTTPException(400, "仅支持 JPG / PNG / WebP / BMP / GIF 图片")
-
-    data = await file.read()
-    if not data:
-        raise HTTPException(400, "空文件")
-    if len(data) > _MAX_IMPORT_IMAGE_BYTES:
-        raise HTTPException(400, "图片过大（上限 12MB）")
-
-    existing = {r["symbol"] for r in watchlist.list_symbols()}
-    data_dir = request.app.state.repo.store.data_dir
-    try:
-        # OCR 为同步 CPU/子进程；独立 limiter 限制并发，避免卡住事件循环（行情 SSE 等）
-        result = await anyio.to_thread.run_sync(
-            lambda: import_watchlist_image(data, data_dir, existing_symbols=existing),
-            limiter=_OCR_LIMITER,
-        )
-    except ValueError as e:
-        raise HTTPException(400, str(e)) from e
-    except RuntimeError as e:
-        raise HTTPException(503, str(e)) from e
-    except Exception as e:  # noqa: BLE001
-        logger.exception("watchlist import-image failed")
-        raise HTTPException(500, f"识别失败: {e}") from e
-
-    # 响应不回传整段 raw_text（可能很长）；调试时可开 query，这里默认省略
-    result.pop("raw_text", None)
-    return result
 
 
 @router.post("/{symbol}/top")
@@ -388,53 +336,6 @@ def watchlist_enriched(
         # 选择内置需要的列
         keep = [c for c in _WATCHLIST_COLS + ["name", "float_shares", "asset_type"] if c in df.columns]
         df = df.select(keep)
-
-        # 动态 JOIN 扩展数据表
-        if ext_specs:
-            db = repo.store.db
-            data_dir = repo.store.data_dir
-            from app.services.ext_data import ExtConfigStore
-            from app.api.ext_data import _read_ext_dataframe
-
-            ext_store = ExtConfigStore(data_dir)
-            configs = {c.id: c for c in ext_store.load_all()}
-
-            for config_id, field_name in ext_specs:
-                view_name = f"ext_{config_id}"
-                ext_col_name = f"{config_id}__{field_name}"
-                try:
-                    # 扩展时序数据必须只取最新分区；否则一个 symbol 会按历史分区数被 JOIN 放大。
-                    cfg = configs.get(config_id)
-                    if cfg:
-                        ext_df, _ = _read_ext_dataframe(cfg, data_dir)
-                    else:
-                        ext_df = pl.from_arrow(db.query(
-                            f"SELECT symbol, {quote_ident(field_name)} FROM {view_name}"
-                        ).arrow())
-                    if not ext_df.is_empty() and "symbol" in ext_df.columns:
-                        ext_df = (
-                            ext_df
-                            .select(["symbol", field_name])
-                            .unique(subset=["symbol"], keep="last")
-                            .rename({field_name: ext_col_name})
-                        )
-                        df = df.join(ext_df.select(["symbol", ext_col_name]), on="symbol", how="left")
-                except Exception:
-                    # view 不存在或字段不存在，尝试直接读 parquet
-                    cfg = configs.get(config_id)
-                    if cfg:
-                        try:
-                            ext_df, _ = _read_ext_dataframe(cfg, data_dir)
-                            if not ext_df.is_empty() and "symbol" in ext_df.columns and field_name in ext_df.columns:
-                                ext_df = (
-                                    ext_df
-                                    .select(["symbol", field_name])
-                                    .unique(subset=["symbol"], keep="last")
-                                    .rename({field_name: ext_col_name})
-                                )
-                                df = df.join(ext_df, on="symbol", how="left")
-                        except Exception as e2:
-                            logger.debug("ext join fallback failed for %s.%s: %s", config_id, field_name, e2)
 
         # sanitize NaN / Inf
         float_cols = [c for c in df.columns if df[c].dtype.is_float()]

@@ -18,9 +18,6 @@ import {
 } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
 import { X, GripVertical, Plus, ChevronDown, ChevronRight, Database, Settings2, Search, Eye, EyeOff } from 'lucide-react'
-import { api } from '@/lib/api'
-import { useQuery } from '@tanstack/react-query'
-import { QK } from '@/lib/queryKeys'
 import type { ColumnConfig, ColumnGroup, ExtColumnDisplayConfig, CandleColumnConfig, IntradayColumnConfig } from '@/lib/list-columns'
 import { resolveCandleConfig, resolveIntradayConfig } from '@/lib/list-columns'
 import { useDialogBackdrop } from '@/lib/useDialogBackdrop'
@@ -150,12 +147,6 @@ export function ListColumnCustomizer({
   showExtColumns = true,
   showStandaloneToggle = false,
 }: ListColumnCustomizerProps) {
-  const extSchema = useQuery({
-    queryKey: QK.extDataSchemaAll,
-    queryFn: api.extDataSchemaAll,
-    enabled: open && showExtColumns,
-    staleTime: 60_000,
-  })
   const backdrop = useDialogBackdrop(onClose)
 
   const [searchQuery, setSearchQuery] = useState('')
@@ -294,7 +285,7 @@ export function ListColumnCustomizer({
     })
   }, [])
 
-  const extTables = extSchema.data?.items ?? []
+  const extTables: { id: string; label: string; mode: string; columns: { name: string; label: string; type: string }[] }[] = []
   const extTableLabelMap = new Map(extTables.map(t => [t.id, t.label]))
 
   const query = searchQuery.trim().toLowerCase()
@@ -878,11 +869,6 @@ export function ListColumnCustomizer({
                 </div>
               )}
 
-              {showExtColumns && extTables.length === 0 && extSchema.isSuccess && (
-                <div className="text-xs text-muted text-center py-4">
-                  暫無擴展資料表，可在「資料」頁面建立
-                </div>
-              )}
             </div>
           </motion.div>
         </div>

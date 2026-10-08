@@ -26,9 +26,8 @@ cp .env.example .env       # 按需填 TICKFLOW_API_KEY(留空 = None 模式)
 
 ```bash
 # 後端
-cd backend && uv sync --extra backtest   # 含回測依賴
+cd backend && uv sync
 # 老 CPU: uv sync --extra legacy-cpu
-# 老 CPU + 回測: uv sync --extra legacy-cpu --extra backtest
 uv run uvicorn app.main:app --reload --port 3018
 
 # 前端
@@ -54,7 +53,6 @@ Docker 採用兩階段構建,前端 dist 拷進後端鏡像,**單容器**運行,
 > - **默認行為**:`docker compose up --build` 構建出的鏡像**不含** stock-sdk,插件不可用。
 > - **如確需啟用**(自行承擔合規責任):
 >   ```bash
->   docker compose build --build-arg INCLUDE_STOCKSDK=1
 >   docker compose up -d
 >   ```
 > - 啟用後鏡像會額外內置 Node.js 運行時並預裝 stock-sdk 依賴,插件開箱即用。
@@ -78,14 +76,9 @@ docker compose up --build -d
 
 ```ini
 BACKEND_EXTRAS=legacy-cpu          # 兼容老 CPU
-BACKEND_EXTRAS=legacy-cpu backtest # 兼容老 CPU + 回測依賴
 ```
 
 手動啟動源碼時，也可以在 `backend/` 目錄直接執行 `uv sync --extra legacy-cpu`。不要設置 `POLARS_SKIP_CPU_CHECK`，它只會隱藏警告，實際執行不支持的指令時仍可能崩潰。
-
-### 回測依賴說明
-
-vectorbt → numba 體積較大,作為可選 extras(`uv sync --extra backtest`)。macOS / Intel 無預構建 wheel 時需 `brew install cmake` 現場編譯。
 
 ---
 

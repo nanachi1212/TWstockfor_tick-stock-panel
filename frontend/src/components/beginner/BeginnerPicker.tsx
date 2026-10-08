@@ -166,6 +166,13 @@ function AiExplain({ symbol, asOf }: { symbol: string; asOf?: string | null }) {
         <p className="flex items-center gap-1.5 text-xs text-muted"><Loader2 className="h-3 w-3 animate-spin" /> AI 正在整理說明，本機模型約需 10～60 秒…</p>
       ) : report ? (
         <div className="space-y-1.5">
+          {report.beginner_answer && (
+            <dl className="grid grid-cols-[6.5rem_minmax(0,1fr)] gap-x-2 gap-y-1 rounded-md border border-purple-500/20 bg-base/60 p-2 text-xs" aria-label="新手三問">
+              <dt className="font-semibold text-purple-300">現在能不能買</dt><dd className="break-words text-foreground">{report.beginner_answer.can_buy || '—'}</dd>
+              <dt className="font-semibold text-purple-300">停損在哪</dt><dd className="break-words text-foreground">{report.beginner_answer.stop_loss || '—'}</dd>
+              <dt className="font-semibold text-purple-300">什麼情況該放棄</dt><dd className="break-words text-foreground">{report.beginner_answer.give_up || '—'}</dd>
+            </dl>
+          )}
           <p className="break-words text-xs text-foreground">{report.overview}</p>
           <div>
             <p className="mb-0.5 text-[11px] font-semibold text-muted">主要風險</p>

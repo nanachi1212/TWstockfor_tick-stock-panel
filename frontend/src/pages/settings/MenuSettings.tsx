@@ -22,7 +22,7 @@ import { Link } from 'react-router-dom'
 import { api } from '@/lib/api'
 import { QK } from '@/lib/queryKeys'
 import { usePreferences } from '@/lib/useSharedQueries'
-import { CORE_NAV } from '@/lib/navigation'
+import { ALL_NAV } from '@/lib/navigation'
 
 interface NavEntry {
   id: string
@@ -31,11 +31,8 @@ interface NavEntry {
   visible: boolean
 }
 
-// Phase 8B-2.1 — 台股核心功能清單改由 @/lib/navigation.ts 的 CORE_NAV 產生,
-// 與 Layout.tsx 的 sidebar 共用同一份 metadata(不再各自維護一份易漂移的清單)。
-// 中國 A 股 legacy 功能(ASHARE_LEGACY_NAV)不在這裡 —— 它們不是獨立的核心
-// menu item, 改用下方「中國 A 股功能」小節的總開關 + 個別顯示管理。
-const BUILTIN_PAGES: NavEntry[] = CORE_NAV.map(n => ({
+// 內建頁面清單與側欄共用 @/lib/navigation.ts 的 ALL_NAV (核心 + 進階)。
+const BUILTIN_PAGES: NavEntry[] = ALL_NAV.map(n => ({
   id: n.to, label: n.label, type: 'builtin' as const, visible: true,
 }))
 

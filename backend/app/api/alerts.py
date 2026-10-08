@@ -34,15 +34,6 @@ def list_alerts(
     events = alert_store.list_recent(
         _data_dir(request), days=days, limit=limit, source=source, type=type,
     )
-    if ext_columns and events:
-        try:
-            from app.api.screener import _load_ext_value_maps, _rows_with_ext
-            repo = request.app.state.repo
-            value_maps = _load_ext_value_maps(repo, ext_columns)
-            if value_maps:
-                events = _rows_with_ext(events, value_maps)
-        except Exception:  # noqa: BLE001
-            pass
     total = alert_store.count(_data_dir(request))
     return {"alerts": events, "total": total}
 

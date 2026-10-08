@@ -25,7 +25,6 @@ services:
       - CODEX_DOCKER_HOST=host.docker.internal
     volumes:
       - ./data:/app/data
-      - ./tiers.yaml:/app/tiers.yaml:ro
       # 保留原始 dotenv 值供首次密碼初始化讀取，避免 Compose 展開密碼中的 $VAR。
       - ./.env:/app/.env:ro
       # 複用主機 Codex 登錄態；後端只讀後複製到單次請求的臨時 CODEX_HOME。

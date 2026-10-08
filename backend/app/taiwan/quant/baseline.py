@@ -7,7 +7,6 @@ from typing import TypedDict
 
 import polars as pl
 
-from app.backtest.factor import FactorBacktestService
 from app.taiwan.quant.training import TrainingMatrixResult
 from app.taiwan.quant.validation.folds import PurgedFold
 
@@ -30,6 +29,21 @@ class BaselineDryRun:
     usage_scope: str = "experimental_only"
     status: str = "dry_run_only"
 
+
+
+def _calc_rank_ic(panel: pl.DataFrame, factor_col: str) -> pl.DataFrame:
+    """每個截面日的 Rank IC (因子值 rank 與下期報酬 rank 的相關係數)。"""
+    return (
+        panel.filter(pl.col("_next_return").is_not_null())
+        .group_by("date")
+        .agg(
+            pl.corr(
+                pl.col(factor_col).rank(method="average"),
+                pl.col("_next_return").rank(method="average"),
+            ).alias("ic")
+        )
+        .sort("date")
+    )
 
 def deterministic_percentiles(values: dict[str, float]) -> dict[str, float]:
     ordered = sorted(values, key=lambda symbol: (values[symbol], symbol))
@@ -106,8 +120,7 @@ def run_baseline_dry_run(
         sliced = train.filter(pl.col(feature).is_not_null() & pl.col(label_col).is_not_null())
         if not sliced.height:
             continue
-        ic_frame = FactorBacktestService._calc_ic(
-            sliced.rename({label_col: "_next_return"}), feature)
+        ic_frame = _calc_rank_ic(sliced.rename({label_col: "_next_return"}), feature)
         ics = [float(x) for x in ic_frame["ic"].to_list() if x is not None and math.isfinite(x)]
         if not ics:
             continue

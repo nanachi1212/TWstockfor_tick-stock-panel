@@ -7,7 +7,6 @@ import polars as pl
 import pytest
 
 from app.api import kline
-from app.backtest.matrix import load_market_data_matrix_from_parquet
 from app.indicators import pipeline
 from app.price_limits import (
     numpy_limit_price,
@@ -75,43 +74,6 @@ def test_polars_and_numpy_limit_prices_use_identical_half_up_rounding():
     assert numpy_limit_price(previous, limits, up=False)[0] == pytest.approx(17.96)
 
 
-def test_matrix_uses_date_specific_st_limits_across_change(tmp_path):
-    root = tmp_path / "market"
-    rows = [
-        (date(2026, 7, 2), 10.0),
-        (date(2026, 7, 3), 10.5),
-        (date(2026, 7, 6), 11.03),
-    ]
-    for trade_date, close in rows:
-        partition = root / f"date={trade_date.isoformat()}"
-        partition.mkdir(parents=True)
-        pl.DataFrame({
-            "symbol": ["600001.SH"],
-            "date": [trade_date],
-            "open": [close],
-            "high": [close],
-            "low": [close],
-            "close": [close],
-            "raw_close": [close],
-            "volume": [1000.0],
-        }).write_parquet(partition / "part.parquet")
-
-    market = load_market_data_matrix_from_parquet(
-        root,
-        rows[0][0],
-        rows[-1][0],
-        field_columns={"raw_close", "price_limit_pct"},
-        instruments=pl.DataFrame({
-            "symbol": ["600001.SH"],
-            "name": ["*ST主板"],
-        }),
-        cache_root=tmp_path / "cache",
-    )
-    np.testing.assert_allclose(
-        market.field("price_limit_pct")[:, 0],
-        np.array([0.05, 0.05, 0.10], dtype=np.float32),
-    )
-    assert market.limit_up_locked[:, 0].tolist() == [0, 1, 0]
 
 
 class _InstrumentRepo:

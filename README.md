@@ -145,26 +145,6 @@ cp .env.example .env
 
 捷徑會隱藏 PowerShell 視窗。啟動錯誤記錄在應用程式的 `desktop.log`；若 Python 環境尚未啟動，則記錄在 `%LOCALAPPDATA%\NanachiTaiwanStockPanel\desktop-launcher.log` 並顯示錯誤對話框。
 
-### 方式 E:Windows GUI Launcher（維護與除錯）
-
-`dist/Nanachi台股看板.exe` 保留為服務管理、log 檢視與 troubleshooting GUI。Launcher 會檢查 3018/3011 是否已有本專案服務，必要時啟動 backend 與 Vite frontend，通過健康檢查後用 Windows 預設瀏覽器開啟 <http://localhost:3011>。關閉 GUI 時，只有 Launcher 自己啟動的服務可被停止，原本已在運行的服務會保留。
-
-Launcher 是開發版啟動器，執行時仍需要現有 repository/runtime，包括 `backend/.venv`、Node.js 與 pnpm；它不會把 FastAPI、React、`.env` 或 `data/` 打包進單一 EXE。建立 EXE：
-
-```powershell
-.\scripts\build-launcher.ps1
-# 若預設 backend/.venv 的 Python 沒有 Tcl/Tk，可改用含 Tk 的既有 Python：
-# .\scripts\build-launcher.ps1 -Python C:\Path\to\python.exe
-```
-
-可選擇建立維護工具捷徑 `Nanachi Windows Launcher`：
-
-```powershell
-.\scripts\install-launcher-shortcut.ps1
-```
-
-若 3011 或 3018 已被其他程式占用，Launcher 會顯示錯誤並避免終止對方程序。
-
 ### 本機 CI 分流
 
 Windows / PowerShell 的本機驗證統一使用：
@@ -185,7 +165,7 @@ Windows / PowerShell 的本機驗證統一使用：
 3. 直接回到**看板**查看 seed 市場資料；程式會在背景增量補到最近已確認交易日。
 4. 到**台股選股**掃出候選,加進**自選股**,在**監控中心**建規則。
 
-完整逐頁操作見 [操作說明書](./操作說明書.md)。
+新手請先看 [五分鐘上手](./快速上手.md)；完整逐頁操作見 [操作說明書](./docs/操作說明書.md)。
 
 ---
 
@@ -248,14 +228,16 @@ AI_API_KEY=                    # 選配;留空 = 關閉 AI 功能
 
 | 文件 | 內容 |
 | :--- | :--- |
-| [操作說明書](./操作說明書.md) | **逐頁操作、推播設定、資料更新、常見問題、資料與隱私** |
+| [快速上手](./快速上手.md) | **五分鐘上手：安裝、看懂第一頁、加自選、開提醒** |
+| [docs/操作說明書.md](./docs/操作說明書.md) | 逐頁操作、推播設定、資料更新、常見問題、資料與隱私 |
 | [docs/deployment.md](./docs/deployment.md) | 部署方式(Dev / Docker / GitHub Actions)、舊 CPU 相容、更新程式、存取密碼 |
 | [docs/configuration.md](./docs/configuration.md) | 所有 `.env` 設定項詳解 |
 | [docs/taiwan-market-overview.md](./docs/taiwan-market-overview.md) | 台股(TWSE/TPEx)模組開發者指南:啟動、測試、本地資料位置 |
 | [docs/taiwan-data-sources.md](./docs/taiwan-data-sources.md) | 台股資料來源與端點說明 |
 | [docs/custom-data-source.md](./docs/custom-data-source.md) | 自訂資料來源接入、YAML 設定與 mock 聯調範例 |
 | [docs/plugin-development.md](./docs/plugin-development.md) | 資料來源插件開發規範 |
-| [docs/secondary-development.md](./docs/secondary-development.md) | 二次開發、前端插槽、後端策略介面 |
+| [docs/secondary-development.md](./docs/secondary-development.md) | 二次開發、前端插槽、後端擴展點 |
+| [docs/archive/](./docs/archive/) | 歷史階段報告與研究紀錄（唯讀保存，不再維護） |
 | [CONTRIBUTING.md](./CONTRIBUTING.md) | 貢獻、AI 開發與複審規範 |
 
 ---

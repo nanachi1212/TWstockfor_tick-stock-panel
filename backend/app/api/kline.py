@@ -33,15 +33,13 @@ from __future__ import annotations
 import logging
 import math
 from datetime import date, timedelta
-from functools import lru_cache
 from typing import Annotated, Literal, Optional
 
 from fastapi import APIRouter, HTTPException, Query, Request
 
-from app.indicators.pipeline import compute_enriched, compute_enriched_single
+from app.indicators.pipeline import compute_enriched
 from app.market_time import cn_now, cn_today
 from app.price_limits import is_risk_warning_name, price_limit_pct
-from app.db_safe import is_valid_ext_ident
 from app.services import kline_sync
 
 logger = logging.getLogger(__name__)
@@ -60,53 +58,6 @@ def _minute_allowed(capset) -> bool:
     if error is not None:
         logger.warning("minute provider resolution failed while checking access: %s", error)
     return not fallback
-
-
-@lru_cache(maxsize=8192)
-def _name_pinyin_keys(name: str) -> tuple[str, ...]:
-    """返回中文名称所有可能的拼音首字母串 (多音字展开为笛卡尔积)。
-
-    '平安银行' -> ('PAYH',); '重庆百货' -> ('CQBH', 'CQMH', 'ZQBH', 'ZQMH')。
-    非汉字字符原样保留: '万科A' -> ('WKA',)。
-    股票名总量有限且不变, lru_cache 命中后单次查询 ≈ dict 查找, 全市场遍历 < 1ms。
-    """
-    from pypinyin import pinyin, Style
-    if not name:
-        return ()
-    keys = [""]
-    for group in pinyin(name, style=Style.FIRST_LETTER, heteronym=True):
-        keys = [k + g.upper() for k in keys for g in group]
-    return tuple(keys)
-
-
-def _init_pinyin_dict() -> None:
-    """加载 A 股高频多音字地名/词组词典, 使常见误读也能命中。
-
-    pypinyin 默认词典对部分地名取常见读音 (如「重」→ chóng), 补充后「重庆」
-    同时接受 zhòng/qìng (zq) 与 chóng/qīng (cq) 两种首字母, 与同花顺行为一致。
-    幂等: 多次调用安全。
-    """
-    try:
-        from pypinyin import load_phrases_dict
-        # value 用二维 list: 每个字给一个或多个读音
-        load_phrases_dict({
-            "重庆": [["zhòng", "chóng"], ["qīng"]],
-            "长安": [["cháng", "zhǎng"], ["ān"]],
-            "长春": [["cháng", "zhǎng"], ["chūn"]],
-            "长沙": [["cháng", "zhǎng"], ["shā"]],
-            "长城": [["cháng", "zhǎng"], ["chéng"]],
-            "长江": [["cháng", "zhǎng"], ["jiāng"]],
-        })
-    except Exception as exc:  # noqa: BLE001
-        logger.warning("pypinyin phrases dict load failed (polyphone coverage may degrade): %s", exc)
-
-
-_init_pinyin_dict()
-
-
-def _match_pinyin(name: str, keyword: str) -> bool:
-    """keyword 是否匹配 name 任一拼音首字母串的前缀 (支持多音字)。"""
-    return any(k.startswith(keyword) for k in _name_pinyin_keys(name))
 
 
 def _search_taiwan_instruments(q: str, limit: int) -> list[dict]:
@@ -155,7 +106,6 @@ def _search_ashare_instruments(request: Request, q: str, limit: int, asset_types
     df = pl.concat(parts, how="vertical")
 
     keyword = q.strip().upper()
-    is_pinyin_query = keyword.isalpha() and keyword.isascii()
 
     # code/symbol 前缀优先，再 name 包含匹配
     prefix_mask = (
@@ -168,7 +118,7 @@ def _search_ashare_instruments(request: Request, q: str, limit: int, asset_types
         | pl.col("name").str.contains(keyword, literal=True)
     )
 
-    # 分层匹配: ① code/symbol 前缀 → ② 拼音首字母前缀(纯字母输入) → ③ 包含匹配
+    # 分层匹配: ① code/symbol 前缀 → ② 包含匹配
     prefix_hits = df.filter(prefix_mask).head(limit)
     if prefix_hits.height >= limit:
         matched = prefix_hits
@@ -177,20 +127,7 @@ def _search_ashare_instruments(request: Request, q: str, limit: int, asset_types
         seen = set(prefix_hits["symbol"].to_list()) if prefix_hits.height else set()
         remaining = limit - prefix_hits.height
 
-        # ② 拼音首字母前缀: 仅纯字母输入触发 (如 payh → 平安银行); 中文/代码输入零开销跳过
-        if is_pinyin_query and remaining > 0:
-            pinyin_rows = []
-            for row in df.filter(~pl.col("symbol").is_in(seen)).iter_rows(named=True):
-                if _match_pinyin(row["name"], keyword):
-                    pinyin_rows.append(row)
-                    if len(pinyin_rows) >= remaining:
-                        break
-            if pinyin_rows:
-                collected.append(pl.DataFrame(pinyin_rows))
-                seen.update(r["symbol"] for r in pinyin_rows)
-                remaining -= len(pinyin_rows)
-
-        # ③ 包含匹配补充
+        # ② 包含匹配补充
         if remaining > 0:
             contain_hits = df.filter(contains_mask & ~pl.col("symbol").is_in(seen)).head(remaining)
             if contain_hits.height:
@@ -465,43 +402,8 @@ def get_daily(
     return _attach_ext(resp, repo, symbol, ext_columns)
 
 
-def _attach_ext(resp: dict, repo, symbol: str, ext_columns: Optional[str]) -> dict:
-    """按 ext_columns 规格为单只股票 LEFT JOIN 扩展数据，平铺到 stock_info['ext']。
-
-    key 形如 "{config_id}__{field_name}"，与自选列表 enriched 接口保持一致。
-    委托 screener._load_ext_value_maps 取值: 复用其 (路径,mtime) 签名缓存,
-    个股弹窗每秒重拉时不再重复读 ext parquet; 任何 ext 表/字段缺失都静默跳过。
-    """
-    if not ext_columns or not ext_columns.strip():
-        return resp
-
-    specs: list[tuple[str, str]] = []
-    for part in ext_columns.split(","):
-        part = part.strip()
-        if "." not in part:
-            continue
-        config_id, field_name = part.split(".", 1)
-        config_id, field_name = config_id.strip(), field_name.strip()
-        if config_id and field_name and is_valid_ext_ident(config_id):
-            specs.append((config_id, field_name))
-    if not specs:
-        return resp
-
-    try:
-        from app.api.screener import _load_ext_value_maps
-        value_maps = _load_ext_value_maps(repo, ext_columns)
-    except Exception:  # noqa: BLE001
-        value_maps = {}
-
-    ext_values: dict = {}
-    for config_id, field_name in specs:
-        ext_col_name = f"{config_id}__{field_name}"
-        vmap = value_maps.get(ext_col_name) or {}
-        ext_values[ext_col_name] = vmap.get(symbol)
-
-    stock_info = dict(resp.get("stock_info") or {})
-    stock_info["ext"] = ext_values
-    resp["stock_info"] = stock_info
+def _attach_ext(resp: dict, repo, symbol: str, ext_columns: Optional[str]) -> dict:  # noqa: ARG001
+    """ext 擴充欄位為已移除的 A 股功能; 保留簽名, 直接回傳原回應。"""
     return resp
 
 

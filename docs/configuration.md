@@ -12,15 +12,7 @@
 
 資料集的提供方在面板 **設定 → 資料來源** 逐項切換;沒有個別指定的資料集一律由台灣官方資料源提供。系統同時支援插件化接入第三方資料來源(YAML 宣告自有介面見 [custom-data-source.md](./custom-data-source.md),插件開發見 [plugin-development.md](./plugin-development.md))。
 
-歷史日 K 需要先在本機建立,做法見 [操作說明書 → 歷史日 K 與 GitHub Release 資料包](../操作說明書.md#15-歷史日-k-與-github-release-資料包)。
-
-### 選配:舊 TickFlow 資料來源
-
-```ini
-TICKFLOW_API_KEY=              # 選配;一般台股使用者留空即可
-```
-
-這是專案原本的 A 股資料來源,台股功能不依賴它。只有在你確實要接這個來源時才需要填,留空不影響任何台股功能。
+歷史日 K 需要先在本機建立,做法見 [操作說明書 → 歷史日 K 與 GitHub Release 資料包](./操作說明書.md#15-歷史日-k-與-github-release-資料包)。
 
 ---
 

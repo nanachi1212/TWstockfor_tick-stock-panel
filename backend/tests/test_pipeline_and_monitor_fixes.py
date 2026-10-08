@@ -4,14 +4,9 @@
 """
 from __future__ import annotations
 
-import polars as pl
-import pytest
 
-from app.services import pipeline_jobs, preferences, quote_service
+from app.services import pipeline_jobs, preferences
 from app.services.pipeline_jobs import JobStore
-from app.services.quote_service import QuoteService
-from app.strategy import monitor_rules
-from app.strategy.monitor import MonitorRuleEngine
 
 # ── JobStore 单飞 ────────────────────────────────────────────────────────
 
@@ -76,60 +71,3 @@ def _base_price_rule(scope: str) -> dict:
         "logic": "and",
         "scope": scope,
     }
-
-
-def test_validate_rejects_sector_scope():
-    with pytest.raises(ValueError):
-        monitor_rules.validate(_base_price_rule("sector"))
-
-
-def test_validate_accepts_symbols_scope():
-    rule = _base_price_rule("symbols")
-    rule["symbols"] = ["600000.SH"]
-    monitor_rules.validate(rule)  # 不应抛
-
-
-def test_apply_scope_sector_fails_closed():
-    """历史遗留 sector 规则在评估时应返回空(绝不退化为全市场)。"""
-    df = pl.DataFrame({"symbol": ["600000.SH", "000001.SZ"], "close": [10.0, 20.0]})
-    out = MonitorRuleEngine._apply_scope(df, {"id": "r_old", "scope": "sector"})
-    assert out.is_empty()
-
-    # 对照: scope=all 返回全量, symbols 过滤子集
-    assert MonitorRuleEngine._apply_scope(df, {"scope": "all"}).height == 2
-    picked = MonitorRuleEngine._apply_scope(
-        df, {"scope": "symbols", "symbols": ["600000.SH"]}
-    )
-    assert picked.height == 1
-
-
-def test_ladder_notification_uses_single_formatter_title(monkeypatch):
-    calls = []
-
-    class CaptureExecutor:
-        def submit(self, fn, *args):
-            calls.append((fn, args))
-
-    monkeypatch.setattr(quote_service, "_WEBHOOK_EXECUTOR", CaptureExecutor())
-    monkeypatch.setattr("app.services.preferences.get_line_channel_access_token", lambda: "line-token")
-    monkeypatch.setattr("app.services.preferences.get_line_target_id", lambda: "line-target")
-    monkeypatch.setattr("app.services.preferences.get_telegram_bot_token", lambda: "telegram-token")
-    monkeypatch.setattr("app.services.preferences.get_telegram_chat_id", lambda: "telegram-chat")
-
-    engine = type("Engine", (), {
-        "rules": {"r_ladder": {"webhook_channels": ["line", "telegram"]}},
-    })()
-    QuoteService._maybe_send_webhook(
-        object.__new__(QuoteService),
-        [{
-            "rule_id": "r_ladder",
-            "source": "ladder",
-            "symbol": "600000.SH",
-            "name": "浦发银行",
-            "message": "炸板预警",
-        }],
-        engine,
-    )
-
-    assert [args[2] for _, args in calls] == ["", ""]
-    assert all(args[3].startswith("【TWStock 市場異動】") for _, args in calls)

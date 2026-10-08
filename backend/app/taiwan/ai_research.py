@@ -43,7 +43,7 @@ from app.services.ai_provider import (
     generate_structured_ai_text,
     snapshot_ai_provider_config,
 )
-from app.strategy.custom_signals_ai import _extract_json_object
+from app.services.ai_json import _extract_json_object
 from app.taiwan.abnormal_diagnostics import (
     TaiwanAbnormalDiagnosticItem,
     TaiwanAbnormalDiagnosticsService,

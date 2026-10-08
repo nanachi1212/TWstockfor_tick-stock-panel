@@ -30,9 +30,7 @@ block_cipher = None
 # ── 資源路徑基準: 項目根 (spec 文件在 packaging/ 下) ──────────────────
 ROOT = Path(SPECPATH).parent
 FRONTEND_DIST = str(ROOT / "frontend" / "dist")
-TIERS_YAML = str(ROOT / "tiers.yaml")
 VERSION_FILE = str(ROOT / "VERSION")
-BUILTIN_STRATEGIES = str(ROOT / "backend" / "app" / "strategy" / "builtin")
 RELEASE_SEED = ROOT / "release-assets" / "release-seed" / "release-seed.zip"
 if not RELEASE_SEED.is_file():
     raise FileNotFoundError(
@@ -135,16 +133,8 @@ for pkg in (
 # ── 隨包資源 (只讀, 放進 _MEIPASS) ────────────────────────────────────
 # 前端 dist → static/ (config.py frozen 模式讀 _MEIPASS/static)
 datas += [(FRONTEND_DIST, "static")]
-# tiers.yaml → 包根 (config.py frozen 模式讀 _MEIPASS/tiers.yaml)
-datas += [(TIERS_YAML, ".")]
 # VERSION → 包根 (app.__version__ 與 UI 的唯一版本來源)
 datas += [(VERSION_FILE, ".")]
-# 內置策略 → app/strategy/builtin/ (importlib 動態加載, 不能進 PYZ)。
-# 逐檔 allowlist，避免把本機 __pycache__ 與其中的絕對 build path 打進產物。
-datas += [
-    (str(strategy_file), "app/strategy/builtin")
-    for strategy_file in Path(BUILTIN_STRATEGIES).glob("*.py")
-]
 # 公開市場 release seed → release_seed/release-seed.zip。
 # first-run 只讀取此來源並原子複製到 per-user data_dir。
 datas += [(str(RELEASE_SEED), "release_seed")]

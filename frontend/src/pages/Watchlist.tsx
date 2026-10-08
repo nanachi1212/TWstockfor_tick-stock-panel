@@ -3,7 +3,7 @@ import { useSearchParams, useNavigate } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useVirtualizer } from '@tanstack/react-virtual'
 import { motion, AnimatePresence } from 'framer-motion'
-import { Trash2, RefreshCw, Star, X, Search, LayoutGrid, List, Rows3, BarChart3, Settings2, Plus, Check, Filter, Eye, EyeOff, Minus, ChevronsUp, Clock, RotateCcw, ImagePlus, FolderOpen, FolderMinus, FolderPlus, Scale, Bell } from 'lucide-react'
+import { Trash2, RefreshCw, Star, X, Search, LayoutGrid, List, Rows3, BarChart3, Settings2, Plus, Check, Filter, Eye, EyeOff, Minus, ChevronsUp, Clock, RotateCcw, FolderOpen, FolderMinus, FolderPlus, Scale, Bell } from 'lucide-react'
 import { api, type KlineRow, type MinuteKlineRow, type WatchlistGroup, type WatchlistGroupColor } from '@/lib/api'
 import { QK } from '@/lib/queryKeys'
 import { storage } from '@/lib/storage'
@@ -11,13 +11,6 @@ import { fmtPrice, fmtPct, fmtBigNum, priceColorClass, formatExtNumber } from '@
 import { computeGroupPcts, loadGroupStatsConfig, type GroupStatsConfigPatch } from '@/lib/watchlistGroupStats'
 import { PageHeader } from '@/components/PageHeader'
 import { EmptyState } from '@/components/EmptyState'
-import { StockPreviewDialog } from '@/components/StockPreviewDialog'
-import {
-  DimensionMembersDialog,
-  dimensionKindForSourceField,
-  type DimensionMembersTarget,
-} from '@/components/DimensionMembersDialog'
-import { WatchlistImportDialog } from '@/components/WatchlistImportDialog'
 import { WatchlistAddMenu } from '@/components/WatchlistAddMenu'
 import {
   WatchlistGroupBar,
@@ -35,7 +28,6 @@ import { isSupportedPortfolioInstrument } from '@/lib/portfolio'
 
 // 分時列開放排序 (StockDataTable 實例級白名單; 表頭眼睛/刷新按鈕已 stopPropagation)
 const INTRADAY_SORTABLE_KEYS = new Set(['intraday'])
-import { getOcrInstallHint } from '@/lib/ocrInstallHint'
 import { ColumnCustomizer } from '@/components/ColumnCustomizer'
 import { StockDataTable } from '@/components/stock-table/StockDataTable'
 import { VIRTUAL_LIST_THRESHOLD, useParentScroll } from '@/components/virtual-list/useParentScroll'
@@ -187,15 +179,12 @@ function renderExtCell(
   col: ColumnConfig,
   expandedCells: Set<string>,
   onToggleExpand: (key: string) => void,
-  onDimensionClick: (target: DimensionMembersTarget) => void,
 ): React.ReactNode {
   if (col.source.type !== 'ext') return null
   const { configId, fieldName } = col.source
   const val = r[`${configId}__${fieldName}`]
   const cellKey = `${r.symbol}::${col.id}`
   const expanded = expandedCells.has(cellKey)
-  const sourceField = `${configId}.${fieldName}`
-  const dimensionKind = dimensionKindForSourceField(sourceField)
 
   const style: React.CSSProperties = {}
   if (col.extDisplay?.maxWidth) {
@@ -219,7 +208,7 @@ function renderExtCell(
         expanded,
         () => onToggleExpand(cellKey),
         false,
-        dimensionKind ? value => onDimensionClick({ kind: dimensionKind, value, sourceField }) : undefined,
+        undefined,
       )}
     </td>
   )
@@ -473,7 +462,6 @@ const StockCard = React.memo(function StockCard({
   extCols,
   expandedCells,
   onToggleExpand,
-  onDimensionClick,
   isMonitored,
   groups,
   onToggleMember,
@@ -491,7 +479,6 @@ const StockCard = React.memo(function StockCard({
   extCols: ColumnConfig[]
   expandedCells: Set<string>
   onToggleExpand: (key: string) => void
-  onDimensionClick: (target: DimensionMembersTarget) => void
   isMonitored?: boolean
   groups: WatchlistGroup[]
   onToggleMember: (symbol: string, groupId: string, member: boolean) => void
@@ -614,8 +601,6 @@ const StockCard = React.memo(function StockCard({
 
             const cellKey = `${r.symbol}::${col.id}`
             const expanded = expandedCells.has(cellKey)
-            const sourceField = `${configId}.${fieldName}`
-            const dimensionKind = dimensionKindForSourceField(sourceField)
 
             return (
               <span key={col.id} title={col.label}>
@@ -627,7 +612,7 @@ const StockCard = React.memo(function StockCard({
                     expanded,
                     () => onToggleExpand(cellKey),
                     true,
-                    dimensionKind ? value => onDimensionClick({ kind: dimensionKind, value, sourceField }) : undefined,
+                    undefined,
                   )}
                 </span>
               </span>
@@ -703,7 +688,6 @@ export function Watchlist() {
   // 列配置 — 從後端/localStorage 異步加載
   const [columns, setColumns] = useState<ColumnConfig[]>([...BUILTIN_COLUMNS])
   const [customizerOpen, setCustomizerOpen] = useState(false)
-  const [importOpen, setImportOpen] = useState(false)
   const [searchParams] = useSearchParams()
   const initialGroup = (searchParams.get('group') as WatchlistGroupFilter | null) ?? 'all'
   const [selectedGroup, setSelectedGroup] = useState<WatchlistGroupFilter>(initialGroup)
@@ -712,33 +696,12 @@ export function Watchlist() {
     const g = (searchParams.get('group') as WatchlistGroupFilter | null) ?? 'all'
     setSelectedGroup(g)
   }, [searchParams])
-  const [ocrAvailable, setOcrAvailable] = useState<boolean | null>(null)
-  const [ocrInstallHint, setOcrInstallHint] = useState('')
   const columnsLoaded = useRef(false)
 
   useEffect(() => {
     if (columnsLoaded.current) return
     columnsLoaded.current = true
     loadColumnConfig().then(setColumns)
-  }, [])
-
-  useEffect(() => {
-    let cancelled = false
-    void api.watchlistOcrStatus().then(
-      res => {
-        if (cancelled) return
-        setOcrAvailable(res.available)
-        if (!res.available) setOcrInstallHint(getOcrInstallHint())
-      },
-      () => {
-        if (cancelled) return
-        setOcrAvailable(false)
-        setOcrInstallHint(getOcrInstallHint())
-      },
-    )
-    return () => {
-      cancelled = true
-    }
   }, [])
 
   const handleColumnsChange = useCallback((next: ColumnConfig[]) => {
@@ -809,15 +772,8 @@ export function Watchlist() {
       return next
     })
   }, [])
-  const [previewSymbol, setPreviewSymbol] = useState<string | null>(null)
-  const [previewName, setPreviewName] = useState<string>('')
   const [reminderTarget, setReminderTarget] = useState<{ symbol: string; name: string; price: number | null } | null>(null)
-  const [dimensionTarget, setDimensionTarget] = useState<DimensionMembersTarget | null>(null)
   const [expandedCells, setExpandedCells] = useState<Set<string>>(new Set())
-  const closePreview = useCallback(() => {
-    setPreviewSymbol(null)
-    setPreviewName('')
-  }, [])
 
   const handleToggleExpand = useCallback((cellKey: string) => {
     setExpandedCells(prev => {
@@ -1025,9 +981,9 @@ export function Watchlist() {
   const [confirmRemove, setConfirmRemove] = useState<string | null>(null)
 
   // 穩定的 per-symbol 回調 (供 memo 化的 StockCard 使用, 避免每次渲染都傳新引用)
-  const handleCardPreview = useCallback((sym: string, name: string) => {
-    setPreviewSymbol(sym); setPreviewName(name)
-  }, [])
+  const handleCardPreview = useCallback((sym: string, _name: string) => {
+    navigate(`/stocks/${encodeURIComponent(sym)}`)
+  }, [navigate])
   const handleCardConfirmRemove = useCallback((sym: string) => {
     remove.mutate(sym); setConfirmRemove(null)
   }, [remove])
@@ -1084,9 +1040,6 @@ export function Watchlist() {
     if (selectedGroup === 'ungrouped') return rowsWithGroup.filter(row => row.group_ids.length === 0)
     return rowsWithGroup.filter(row => row.group_ids.includes(selectedGroup))
   }, [groupBySymbol, rows, selectedGroup])
-  const activeGroup = activeGroupId
-    ? groups.find(group => group.id === activeGroupId)
-    : undefined
   const watchlistContentLoading = list.isLoading || (allSymbols.length > 0 && enriched.isLoading)
 
   // 實時監控圓點: 僅 Free/低檔 "按自選股實時監控" 模式 (mode === 'watchlist') 下顯示;
@@ -1282,7 +1235,6 @@ export function Watchlist() {
       extCols={visibleExtCols}
       expandedCells={expandedCells}
       onToggleExpand={handleToggleExpand}
-      onDimensionClick={setDimensionTarget}
       isMonitored={monitoredSymbols.has(r.symbol)}
       groups={groups}
       onToggleMember={handleToggleMember}
@@ -1350,7 +1302,7 @@ export function Watchlist() {
               </button>
             )}
             <StockSearchBox
-              onPreview={(sym, name) => { setPreviewSymbol(sym); setPreviewName(name) }}
+              onPreview={handleCardPreview}
               existingBySymbol={groupBySymbol}
               groups={groups}
               onAdd={(symbol, groupId) => addMutation.mutate({ symbol, groupId })}
@@ -1359,21 +1311,6 @@ export function Watchlist() {
               addPending={addMutation.isPending}
               memberPending={addGroupMember.isPending || removeGroupMember.isPending}
             />
-            <button
-              onClick={() => {
-                if (ocrAvailable === false) return
-                setImportOpen(true)
-              }}
-              disabled={ocrAvailable === false}
-              className="inline-flex items-center justify-center h-8 w-8 rounded-btn bg-elevated hover:bg-elevated/80 text-secondary hover:text-foreground transition-colors duration-150 ease-smooth disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-elevated disabled:hover:text-secondary"
-              title={
-                ocrAvailable === false
-                  ? ocrInstallHint || getOcrInstallHint()
-                  : '從截圖匯入自選'
-              }
-            >
-              <ImagePlus className="h-4 w-4" />
-            </button>
             <div className="w-px h-5 bg-border" />
             {/* 視圖 */}
             <button
@@ -1706,7 +1643,7 @@ export function Watchlist() {
               renderCell={(r: any, col: ColumnConfig) => {
                 // ext 列
                 if (col.source.type === 'ext') {
-                  return renderExtCell(r, col, expandedCells, handleToggleExpand, setDimensionTarget)
+                  return renderExtCell(r, col, expandedCells, handleToggleExpand)
                 }
                 const key = col.source.key
                 const price = r.rt_price ?? r.close
@@ -1731,7 +1668,7 @@ export function Watchlist() {
                         />
                         <button
                           type="button"
-                          onClick={() => { setPreviewSymbol(r.symbol); setPreviewName(name ?? '') }}
+                          onClick={() => handleCardPreview(r.symbol, name ?? '')}
                           className="flex items-center gap-1 text-left min-w-0"
                         >
                           <span className="font-mono text-foreground text-xs group-hover:text-accent transition-colors duration-150">
@@ -1993,11 +1930,6 @@ export function Watchlist() {
         onClose={() => setCustomizerOpen(false)}
       />
 
-      <StockPreviewDialog
-        symbol={previewSymbol}
-        name={previewName}
-        onClose={closePreview}
-      />
       <TaiwanRuleEditorDialog open={!!reminderTarget} rule={null} presetSymbol={reminderTarget?.symbol} presetName={reminderTarget?.name} presetPrice={reminderTarget?.price} onClose={() => setReminderTarget(null)} />
       {portfolioTrade && <PortfolioTradeDialog
         symbol={portfolioTrade.symbol}
@@ -2006,23 +1938,7 @@ export function Watchlist() {
         onClose={() => setPortfolioTrade(null)}
       />}
 
-      <DimensionMembersDialog
-        target={dimensionTarget}
-        onClose={() => setDimensionTarget(null)}
-        onStockClick={(symbol, name) => {
-          setDimensionTarget(null)
-          setPreviewSymbol(symbol)
-          setPreviewName(name ?? '')
-        }}
-      />
 
-      <WatchlistImportDialog
-        open={importOpen}
-        onClose={() => setImportOpen(false)}
-        groupId={activeGroupId}
-        groupName={activeGroup?.name}
-        groupColor={activeGroup?.color}
-      />
     </div>
   )
 }

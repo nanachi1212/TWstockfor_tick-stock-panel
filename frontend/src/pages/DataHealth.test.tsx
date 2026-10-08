@@ -5,7 +5,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { DataHealth } from './DataHealth'
 import { DataHealthSummary } from '@/components/dashboard/DataHealthSummary'
 import { api, type DataHealthReport, type DataHealthJob } from '@/lib/api'
-import { CORE_NAV } from '@/lib/navigation'
+import { ALL_NAV } from '@/lib/navigation'
 import { useDataHealthJobs } from '@/lib/useDataHealth'
 import { QK } from '@/lib/queryKeys'
 
@@ -151,6 +151,6 @@ describe('資料健康中心', () => {
     mount(<DataHealthSummary />)
     expect(await screen.findByRole('link', { name: '資料健康 1 / 3 正常' })).toHaveAttribute('href', '/data-health')
     expect(screen.queryByRole('table')).not.toBeInTheDocument()
-    expect(CORE_NAV.find(item => item.to === '/data-health')?.label).toBe('資料健康')
+    expect(ALL_NAV.find(item => item.to === '/data-health')?.label).toBe('資料健康')
   })
 })
