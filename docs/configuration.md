@@ -85,7 +85,7 @@ AUTH_PASSWORD='你的密碼'  # 至少 6 位;僅首次生效,已設過則不覆�
 BACKEND_EXTRAS=             # 留空默認;legacy-cpu 兼容老 CPU
 ```
 
-老 CPU 無 AVX2/FMA 支持時設為 `legacy-cpu`,會給 Polars 切到 `rtcompat` 運行時;需回測則 `legacy-cpu backtest`。Docker 構建和 `./dev.sh` / `.\dev.ps1` 都會讀取此值並同步依賴。詳見 [deployment.md → 老 CPU 兼容](./deployment.md#老-cpu-兼容avx2fma-缺失)。
+老 CPU 無 AVX2/FMA 支持時設為 `legacy-cpu`,會給 Polars 切到 `rtcompat` 運行時。Docker 構建和 `./dev.sh` / `.\dev.ps1` 都會讀取此值並同步依賴。詳見 [deployment.md → 老 CPU 兼容](./deployment.md#老-cpu-兼容avx2fma-缺失)。
 
 ---
 
