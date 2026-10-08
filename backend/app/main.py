@@ -129,6 +129,16 @@ async def _application_lifespan(app: FastAPI):
         logger.warning("scheduler not started: %s", e)
         app.state.scheduler = None
 
+    # 啟動補更新 (錯過 16:30 時補跑一次) 與 Telegram 反向查詢機器人 (預設關閉)。
+    try:
+        from app.taiwan import startup_catchup, telegram_bot
+
+        startup_catchup.schedule(app.state)
+        if telegram_bot.is_enabled():
+            telegram_bot.get_bot().start()
+    except Exception as e:  # noqa: BLE001
+        logger.warning("startup catch-up / telegram bot init failed: %s", e)
+
     # 源码内二次开发启动钩子: 仅暴露稳定只读上下文, 单个扩展失败不影响核心启动。
     extension_registry = app.state.extension_registry
     start_backend_extensions(
@@ -141,6 +151,12 @@ async def _application_lifespan(app: FastAPI):
     finally:
         if app.state.scheduler:
             app.state.scheduler.shutdown(wait=False)
+        try:
+            from app.taiwan import telegram_bot
+
+            telegram_bot.get_bot().stop()
+        except Exception:  # noqa: BLE001
+            pass
         qs = getattr(app.state, "quote_service", None)
         if qs:
             qs.stop()

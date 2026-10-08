@@ -407,6 +407,24 @@ def ai_configured(provider: str | None = None) -> bool:
     return bool(secrets_store.get_ai_key())
 
 
+# ── 本機模型暖機: 同一程序內第一次呼叫某個本機模型時, 逾時放寬到兩倍 (上限 300 秒) ──
+_WARMED_UP: set[str] = set()
+
+
+def _is_local_base_url(base_url: str | None) -> bool:
+    url = (base_url or "").lower()
+    return any(host in url for host in ("127.0.0.1", "localhost", "0.0.0.0", "host.docker.internal"))
+
+
+def warmup_timeout(timeout: float, config_snapshot: AIProviderConfigSnapshot) -> float:
+    """首檔含模型載入會明顯變慢; 第一次呼叫本機模型時給雙倍逾時, 之後恢復設定值。"""
+    key = f"{config_snapshot.base_url}|{config_snapshot.model}"
+    if key in _WARMED_UP or not _is_local_base_url(config_snapshot.base_url):
+        return timeout
+    _WARMED_UP.add(key)
+    return max(timeout, min(timeout * 2, 300.0))
+
+
 async def generate_ai_text(
     messages: Sequence[Message],
     *,
@@ -606,6 +624,7 @@ async def stream_ai_text(
     """
     if config_snapshot is None:
         config_snapshot = snapshot_ai_provider_config()
+    timeout = warmup_timeout(timeout, config_snapshot)
     max_tokens = _resolve_max_tokens(max_tokens, cap=config_snapshot.max_output_tokens)
     _check_input_budget(
         messages,

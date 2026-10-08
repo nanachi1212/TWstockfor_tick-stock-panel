@@ -13,6 +13,7 @@ import {
   usePreferences,
   useQuoteStatus,
   useQuoteInterval,
+  useSettings,
 } from '@/lib/useSharedQueries'
 import { useUpdateQuoteInterval, useToggleRealtimeQuotes } from '@/lib/useSharedMutations'
 import { api } from '@/lib/api'
@@ -325,6 +326,13 @@ export function SettingsMonitoringPanel(_props: { highlight?: string } = {}) {
 
       {/* ========== 右列 ========== */}
       <div className="space-y-6">
+        <PushExtrasCard
+          prefs={prefs}
+          disabled={preferencesLoading || !prefs}
+          hasChannels={externalChannels.length > 0}
+          telegramConfigured={telegramConfigured}
+        />
+
         {/* 外部推播渠道；App 內提醒不依賴外部服務。 */}
         <Card icon={Webhook} title="外部通知">
           <p className="text-xs text-secondary mb-3">
@@ -624,6 +632,93 @@ export function SettingsMonitoringPanel(_props: { highlight?: string } = {}) {
   )
 }
 
+
+// ===== 一句話推播 / 自選異常 / Telegram 查詢 =====
+
+function PushExtrasCard({ prefs, disabled, hasChannels, telegramConfigured }: {
+  prefs: ReturnType<typeof usePreferences>['data']
+  disabled: boolean
+  hasChannels: boolean
+  telegramConfigured: boolean
+}) {
+  const qc = useQueryClient()
+  const settings = useSettings().data
+  const invalidate = () => qc.invalidateQueries({ queryKey: QK.settings })
+  const digest = useMutation({ mutationFn: api.updatePushDigest, onSuccess: invalidate })
+  const digestTest = useMutation({
+    mutationFn: api.testPushDigest,
+    onSuccess: r => toast(r.status === 'sent' ? '已送出測試一句話' : `未送出：${r.reason ?? r.status}`, r.status === 'sent' ? 'success' : 'error'),
+  })
+  const anomaly = useMutation({ mutationFn: api.updateWatchlistAnomaly, onSuccess: invalidate })
+  const telegram = useMutation({ mutationFn: api.updateTelegramQuery, onSuccess: invalidate })
+  const [thresholdDraft, setThresholdDraft] = useState<string>('')
+  const threshold = settings?.watchlist_anomaly_threshold_pct ?? 3
+  const last = settings?.push_digest_last_run
+  void prefs
+  return (
+    <Card icon={BookOpen} title="一句話推播與自選異常">
+      <p className="text-xs text-secondary mb-2">
+        三個功能都走下方勾選的 LINE／Telegram 通道，預設關閉；後端沒開就不會送。
+      </p>
+      {!hasChannels && (
+        <p className="mb-2 rounded-btn border border-warning/30 bg-warning/10 px-2 py-1 text-[10px] text-warning">
+          尚未勾選任何外送通道，開啟後也不會收到推播。
+        </p>
+      )}
+      <ToggleRow
+        label="早晚各一則「今日一句話」"
+        desc="08:45 推市場強弱與今日候選；16:30 資料更新後推自選股今天怎麼了"
+        checked={Boolean(settings?.push_digest_enabled)}
+        disabled={disabled || digest.isPending}
+        onChange={v => digest.mutate(v)}
+      />
+      {settings?.push_digest_enabled && (
+        <div className="mb-2 flex flex-wrap items-center gap-2 pl-1">
+          <button type="button" disabled={digestTest.isPending} onClick={() => digestTest.mutate('morning')}
+            className="px-2 py-1 rounded-btn bg-elevated text-[10px] text-secondary disabled:opacity-50">試送早安</button>
+          <button type="button" disabled={digestTest.isPending} onClick={() => digestTest.mutate('evening')}
+            className="px-2 py-1 rounded-btn bg-elevated text-[10px] text-secondary disabled:opacity-50">試送收盤</button>
+          {last && <span className="text-[10px] text-muted">上次：{last.kind === 'morning' ? '早安' : '收盤'}・{last.status}{last.ran_at ? `・${last.ran_at.slice(0, 16).replace('T', ' ')}` : ''}</span>}
+        </div>
+      )}
+      <ToggleRow
+        label="自選股盤中異常摘要"
+        desc={`盤中每 5 分鐘掃一次自選股，漲跌幅超過 ${threshold}% 就提醒；同一天同方向只提醒一次`}
+        checked={Boolean(settings?.watchlist_anomaly_enabled)}
+        disabled={disabled || anomaly.isPending}
+        onChange={v => anomaly.mutate({ enabled: v })}
+      />
+      {settings?.watchlist_anomaly_enabled && (
+        <div className="mb-2 flex items-center gap-2 pl-1 text-[10px] text-muted">
+          <span>門檻</span>
+          <input
+            type="number" min={1} max={10} step={0.5}
+            value={thresholdDraft === '' ? String(threshold) : thresholdDraft}
+            onChange={e => setThresholdDraft(e.target.value)}
+            onBlur={() => {
+              const v = parseFloat(thresholdDraft)
+              setThresholdDraft('')
+              if (Number.isFinite(v) && v !== threshold) anomaly.mutate({ threshold_pct: Math.min(10, Math.max(1, v)) })
+            }}
+            className="h-7 w-16 rounded-btn border border-border bg-base px-2 text-xs font-mono text-foreground focus:outline-none focus:border-accent/50"
+            aria-label="自選異常門檻（百分比）"
+          />
+          <span>%（1～10）</span>
+        </div>
+      )}
+      <ToggleRow
+        label="Telegram 反向查詢"
+        desc={telegramConfigured ? '在 Telegram 輸入代號（例 2330）回傳現價、計畫價位與 AI 一句話；/picks 今日候選、/watch 自選' : '請先在下方「外部通知」設定 Telegram Bot 與 Chat ID'}
+        checked={Boolean(settings?.telegram_query_enabled)}
+        disabled={disabled || telegram.isPending || !telegramConfigured}
+        onChange={v => telegram.mutate(v)}
+      />
+      {(digest.isError || anomaly.isError || telegram.isError) && (
+        <p role="alert" className="text-[11px] text-danger">儲存失敗，請稍後再試。</p>
+      )}
+    </Card>
+  )
+}
 
 // ===== ToggleRow =====
 

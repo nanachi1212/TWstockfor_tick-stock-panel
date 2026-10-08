@@ -2863,6 +2863,21 @@ export interface SettingsState {
     status: string; ran_at?: string; reason?: string
     generated?: string[]; skipped?: string[]; failed?: Record<string, string>
   } | null
+  // 推播與查詢 (預設全部關閉)
+  push_digest_enabled?: boolean
+  push_digest_last_run?: { kind: string; status: string; ran_at?: string; channels?: string[]; reason?: string; preview?: string } | null
+  watchlist_anomaly_enabled?: boolean
+  watchlist_anomaly_threshold_pct?: number
+  telegram_query_enabled?: boolean
+}
+
+export interface AiFeedbackSummary {
+  total: number
+  helpful: number
+  not_helpful: number
+  helpful_ratio: number | null
+  models: { model: string; helpful: number; not_helpful: number; helpful_ratio: number | null }[]
+  recent: { ts: string; symbol: string; model: string | null; helpful: boolean; note: string | null }[]
 }
 
 export interface AiKeyProfile {
@@ -3862,6 +3877,29 @@ export const api = {
       method: 'PUT',
       body: JSON.stringify(cfg),
     }),
+  updatePushDigest: (enabled: boolean) =>
+    request<{ push_digest_enabled: boolean }>('/api/settings/preferences/push-digest', {
+      method: 'PUT',
+      body: JSON.stringify({ enabled }),
+    }),
+  testPushDigest: (kind: 'morning' | 'evening') =>
+    request<{ status: string; channels?: string[]; reason?: string }>(`/api/settings/preferences/push-digest/test?kind=${kind}`, { method: 'POST' }),
+  updateWatchlistAnomaly: (body: { enabled?: boolean; threshold_pct?: number }) =>
+    request<{ watchlist_anomaly_enabled: boolean; watchlist_anomaly_threshold_pct: number }>('/api/settings/preferences/watchlist-anomaly', {
+      method: 'PUT',
+      body: JSON.stringify(body),
+    }),
+  updateTelegramQuery: (enabled: boolean) =>
+    request<{ telegram_query_enabled: boolean; bot_started: boolean }>('/api/settings/preferences/telegram-query', {
+      method: 'PUT',
+      body: JSON.stringify({ enabled }),
+    }),
+  taiwanAiFeedback: (body: { symbol: string; helpful: boolean; record_id?: string | null; model?: string | null; note?: string }) =>
+    request<{ ts: string; symbol: string; helpful: boolean }>('/api/taiwan/ai-research/feedback', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+  taiwanAiFeedbackSummary: () => request<AiFeedbackSummary>('/api/taiwan/ai-research/feedback-summary'),
   updateEventAiExplain: (enabled: boolean) =>
     request<{ event_ai_explain_enabled: boolean }>('/api/settings/preferences/event-ai-explain', {
       method: 'PUT',

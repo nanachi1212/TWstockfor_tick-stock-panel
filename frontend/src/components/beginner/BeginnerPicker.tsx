@@ -1,7 +1,7 @@
 import { useRef, useState } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
-import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { ArrowUpRight, ChevronDown, ChevronUp, Compass, Loader2, Plus, Sparkles } from 'lucide-react'
+import { useQuery, useQueryClient, useMutation } from '@tanstack/react-query'
+import { ArrowUpRight, ChevronDown, ChevronUp, Compass, Loader2, Plus, Sparkles, ThumbsUp, ThumbsDown } from 'lucide-react'
 import {
   api,
   type BeginnerCandidate,
@@ -183,6 +183,7 @@ function AiExplain({ symbol, asOf }: { symbol: string; asOf?: string | null }) {
             <ReasonList items={(report.watch_next ?? []).slice(0, 3).map(r => r.text)} empty="AI 沒有列出觀察重點。" tone="reason" />
           </div>
           <p className="text-[10px] text-muted">資料截至 {report.evidence_as_of}・生成於 {(query.data?.generated_at ?? '').slice(0, 16).replace('T', ' ')}・{query.data?.model}・{(query.data as { stored?: boolean } | undefined)?.stored ? '盤後自動產生' : '剛剛產生'}・AI 只做解讀，不改變上面的分組與價位。</p>
+          <AiFeedbackButtons symbol={symbol} model={query.data?.model ?? null} />
         </div>
       ) : (
         <div className="flex flex-wrap items-center gap-2">
@@ -195,6 +196,32 @@ function AiExplain({ symbol, asOf }: { symbol: string; asOf?: string | null }) {
           </button>
         </div>
       )}
+    </div>
+  )
+}
+
+/** 一鍵回報這則 AI 說明準不準；只做統計，不影響任何結果。 */
+function AiFeedbackButtons({ symbol, model }: { symbol: string; model: string | null }) {
+  const [sent, setSent] = useState<boolean | null>(null)
+  const feedback = useMutation({
+    mutationFn: (helpful: boolean) => api.taiwanAiFeedback({ symbol, helpful, model }),
+    onSuccess: (_result, helpful) => setSent(helpful),
+  })
+  if (sent !== null) {
+    return <p className="text-[10px] text-muted" role="status">已記錄：{sent ? '準' : '不準'}。累積一週後可到「設定 → AI」看哪個模型比較準。</p>
+  }
+  return (
+    <div className="flex items-center gap-1.5 text-[10px] text-muted" aria-label="AI 說明回饋">
+      <span>這則說明準嗎？</span>
+      <button type="button" disabled={feedback.isPending} onClick={() => feedback.mutate(true)}
+        className="inline-flex min-h-6 items-center gap-1 rounded border border-border px-1.5 hover:border-accent/50 hover:text-foreground disabled:opacity-50">
+        <ThumbsUp className="h-3 w-3" /> 準
+      </button>
+      <button type="button" disabled={feedback.isPending} onClick={() => feedback.mutate(false)}
+        className="inline-flex min-h-6 items-center gap-1 rounded border border-border px-1.5 hover:border-danger/50 hover:text-foreground disabled:opacity-50">
+        <ThumbsDown className="h-3 w-3" /> 不準
+      </button>
+      {feedback.isError && <span className="text-danger">送出失敗</span>}
     </div>
   )
 }

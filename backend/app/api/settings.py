@@ -73,7 +73,7 @@ def get_settings() -> dict:
     """返回当前配置概况(Key 脱敏)。"""
     from app.config import settings
     from app.services import preferences
-    from app.taiwan import auto_ai_explain, event_ai_explain
+    from app.taiwan import auto_ai_explain, event_ai_explain, push_digest, telegram_bot, watchlist_anomaly
     from app.services.ai_provider import (
         ai_configured,
         current_ai_model,
@@ -124,6 +124,12 @@ def get_settings() -> dict:
         "auto_ai_explain_enabled": auto_ai_explain.is_enabled(),
         "auto_ai_explain_last_run": auto_ai_explain.last_run(),
         "event_ai_explain_enabled": event_ai_explain.is_enabled(),
+        # 推播與查詢 (預設全部關閉)
+        "push_digest_enabled": push_digest.is_enabled(),
+        "push_digest_last_run": push_digest.last_run(),
+        "watchlist_anomaly_enabled": watchlist_anomaly.is_enabled(),
+        "watchlist_anomaly_threshold_pct": watchlist_anomaly.threshold_pct(),
+        "telegram_query_enabled": telegram_bot.is_enabled(),
     }
 
 
@@ -1060,6 +1066,53 @@ def update_event_ai_explain(req: SystemNotifyPrefsIn) -> dict:
     """提醒觸發後的 AI 解讀開關 (預設關閉)；規則事實提醒一律先送，AI 解讀隨後另發。"""
     from app.taiwan import event_ai_explain
     return {"event_ai_explain_enabled": event_ai_explain.set_enabled(req.enabled)}
+
+
+@router.put("/preferences/push-digest")
+def update_push_digest(req: SystemNotifyPrefsIn) -> dict:
+    """早晚各一則「今日一句話」推播開關 (預設關閉)；走全域 LINE / Telegram 通道。"""
+    from app.taiwan import push_digest
+    return {"push_digest_enabled": push_digest.set_enabled(req.enabled)}
+
+
+@router.post("/preferences/push-digest/test")
+def test_push_digest(kind: str = "morning") -> dict:
+    """立即送一則早／晚一句話到已勾選的通道 (需已開啟推播與通道)。"""
+    from app.taiwan import push_digest
+    if kind not in ("morning", "evening"):
+        raise HTTPException(status_code=400, detail="kind 只能是 morning 或 evening")
+    if not push_digest.is_enabled():
+        raise HTTPException(status_code=409, detail="請先開啟「早晚一句話推播」")
+    return push_digest.run(kind)
+
+
+class WatchlistAnomalyPrefsIn(BaseModel):
+    enabled: bool | None = None
+    threshold_pct: float | None = Field(default=None, ge=1.0, le=10.0)
+
+
+@router.put("/preferences/watchlist-anomaly")
+def update_watchlist_anomaly(req: WatchlistAnomalyPrefsIn) -> dict:
+    """自選股盤中異常摘要 (預設關閉)：漲跌幅超過門檻即提醒，同一天同方向只提醒一次。"""
+    from app.taiwan import watchlist_anomaly
+    if req.enabled is not None:
+        watchlist_anomaly.set_enabled(req.enabled)
+    if req.threshold_pct is not None:
+        watchlist_anomaly.set_threshold_pct(req.threshold_pct)
+    return {
+        "watchlist_anomaly_enabled": watchlist_anomaly.is_enabled(),
+        "watchlist_anomaly_threshold_pct": watchlist_anomaly.threshold_pct(),
+    }
+
+
+@router.put("/preferences/telegram-query")
+def update_telegram_query(req: SystemNotifyPrefsIn) -> dict:
+    """Telegram 反向查詢開關 (預設關閉)：在 Telegram 輸入代號即回傳現價與計畫價位。"""
+    from app.taiwan import telegram_bot
+    enabled = telegram_bot.set_enabled(req.enabled)
+    bot = telegram_bot.get_bot()
+    started = bot.start() if enabled else (bot.stop() or False)
+    return {"telegram_query_enabled": enabled, "bot_started": bool(started)}
 
 
 @router.put("/preferences/system-notify")

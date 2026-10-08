@@ -137,6 +137,13 @@ def start_scheduler(repo: KlineRepository, capset: CapabilitySet) -> AsyncIOSche
                     logger.info("Taiwan auto AI explain: %s", run_auto_explain())
                 except Exception:
                     logger.exception("Taiwan auto AI explain failed")
+                try:
+                    from app.taiwan import push_digest
+
+                    logger.info("Taiwan push digest (evening): %s",
+                                push_digest.run("evening", result.freshness.daily_as_of))
+                except Exception:
+                    logger.exception("Taiwan evening push digest failed")
         except Exception as e:
             logger.exception("Scheduled Taiwan daily update job failed: %s", e)
 
@@ -189,6 +196,49 @@ def start_scheduler(repo: KlineRepository, capset: CapabilitySet) -> AsyncIOSche
             max_instances=1,
             replace_existing=True,
         )
+
+    # 盤前一句話推播 (預設關閉, 由 push_digest.is_enabled 控制); 非交易日略過。
+    def _scheduled_morning_digest() -> None:
+        try:
+            from app.taiwan import push_digest
+            from app.taiwan.realtime import get_market_status, taipei_now
+
+            if get_market_status(taipei_now(), require_verified_trading_day=True).value == "non_trading_day":
+                return
+            logger.info("Taiwan push digest (morning): %s", push_digest.run("morning"))
+        except Exception:
+            logger.exception("Taiwan morning push digest failed")
+
+    scheduler.add_job(
+        _scheduled_morning_digest,
+        trigger=CronTrigger(day_of_week="mon-fri", hour=8, minute=45, timezone="Asia/Taipei"),
+        id="taiwan_morning_digest",
+        misfire_grace_time=1200,
+        coalesce=True,
+        max_instances=1,
+        replace_existing=True,
+    )
+
+    # 自選股盤中異常摘要: 連續競價時段每 5 分鐘掃一次 (預設關閉)。
+    def _scheduled_watchlist_anomaly() -> None:
+        try:
+            from app.taiwan import watchlist_anomaly
+
+            outcome = watchlist_anomaly.scan(_get_app_state())
+            if outcome.get("flagged"):
+                logger.info("Taiwan watchlist anomaly: %s", outcome)
+        except Exception:
+            logger.exception("Taiwan watchlist anomaly scan failed")
+
+    scheduler.add_job(
+        _scheduled_watchlist_anomaly,
+        trigger=CronTrigger(day_of_week="mon-fri", hour="9-13", minute="*/5", timezone="Asia/Taipei"),
+        id="taiwan_watchlist_anomaly",
+        misfire_grace_time=120,
+        coalesce=True,
+        max_instances=1,
+        replace_existing=True,
+    )
 
     scheduler.start()
     logger.info("scheduler started; taiwan@16:30 (+21:30/23:00 catch-up), buy-points@10:00/14:00 mon-fri")
