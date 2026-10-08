@@ -212,7 +212,8 @@ export function SocialSentiment() {
           <div className="flex items-center justify-center gap-2 rounded-card border border-border bg-surface p-12 text-sm text-muted"><Loader2 className="h-4 w-4 animate-spin" />正在讀取社群聲量…</div>
         ) : sentiment.isError ? (
           <div className="rounded-card border border-danger/30 bg-danger/5 p-8 text-center text-sm text-muted">
-            <CircleAlert className="mx-auto mb-2 h-6 w-6 text-danger" />社群聲量資料目前無法讀取。
+            <CircleAlert className="mx-auto mb-2 h-6 w-6 text-danger" />社群聲量資料目前無法讀取：{sentiment.error.message}
+            <div className="mt-1 text-xs">若尚未產生，請到 <Link to="/social-fetch" className="text-primary underline">社群即時撈取</Link> 執行一次。</div>
             <button type="button" onClick={() => sentiment.refetch()} className="mx-auto mt-3 flex min-h-9 items-center gap-1 rounded-lg border border-border px-3 text-xs text-foreground"><RefreshCw className="h-3 w-3" />重試</button>
           </div>
         ) : rows.length === 0 ? (

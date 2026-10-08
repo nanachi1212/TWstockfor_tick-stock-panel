@@ -104,6 +104,26 @@ describe('SelectionForwardPanel', () => {
     expect(screen.getAllByText('尚無可評估結果').length).toBeGreaterThan(0)
   })
 
+  it('adds visible candidates to the watchlist and compares the top five', () => {
+    const add = vi.fn()
+    const compare = vi.fn()
+    const first = previewFixture.candidates[0].symbol
+    render(<SelectionForwardPanel preview={previewFixture} watchlistSymbols={new Set([first])} onAddToWatchlist={add} onCompare={compare} />)
+
+    expect(screen.getAllByText('已在自選')).toHaveLength(1)
+    fireEvent.click(screen.getByRole('button', { name: /全部加入自選（9）/ }))
+    expect(add).toHaveBeenCalledWith(previewFixture.candidates.slice(1, 10).map(item => item.symbol))
+    fireEvent.click(screen.getAllByRole('button', { name: '加自選' })[0])
+    expect(add).toHaveBeenLastCalledWith([previewFixture.candidates[1].symbol])
+    fireEvent.click(screen.getByRole('button', { name: /比較前 5 檔/ }))
+    expect(compare).toHaveBeenCalledWith(previewFixture.candidates.slice(0, 5).map(item => item.symbol))
+  })
+
+  it('hides row actions when the host page provides none', () => {
+    render(<SelectionForwardPanel preview={previewFixture} />)
+    expect(screen.queryByRole('button', { name: '加自選' })).not.toBeInTheDocument()
+  })
+
   it('does not show fabricated candidates and allows an explicit dry-run request before a preview', () => {
     render(<SelectionForwardPanel onDryRun={vi.fn()} />)
 

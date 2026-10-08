@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { LockKeyhole, Play, RefreshCw, ShieldAlert } from 'lucide-react'
+import { LockKeyhole, Play, RefreshCw, Scale, ShieldAlert, Star } from 'lucide-react'
 import type { ForwardCohortStats } from '@/lib/api'
 
 /** UI view model for the backend's immutable forward-batch contract. */
@@ -73,13 +73,18 @@ interface Props {
   batchReview?: SelectionForwardBatchReviewView | null
   lockError?: string | null
   dryRunError?: string | null
+  /** Optional row actions for the preview list; hidden when the host page does not provide them. */
+  watchlistSymbols?: ReadonlySet<string>
+  onAddToWatchlist?: (symbols: string[]) => void
+  onCompare?: (symbols: string[]) => void
 }
 
-export function SelectionForwardPanel({ preview = null, onDryRun, onRefreshData, onLockOfficialBatch, pending = false, batchReview = null, lockError = null, dryRunError = null }: Props) {
+export function SelectionForwardPanel({ preview = null, onDryRun, onRefreshData, onLockOfficialBatch, pending = false, batchReview = null, lockError = null, dryRunError = null, watchlistSymbols, onAddToWatchlist, onCompare }: Props) {
   const [showTop20, setShowTop20] = useState(false)
   const [showBatchTop20, setShowBatchTop20] = useState(false)
   const candidates = preview?.candidates.slice(0, showTop20 ? 20 : 10) ?? []
   const batchItems = batchReview?.items.slice(0, showBatchTop20 ? 20 : 10) ?? []
+  const notInWatchlist = candidates.map(item => item.symbol).filter(symbol => !watchlistSymbols?.has(symbol))
 
   return (
     <section aria-labelledby="selection-forward-title" className="rounded-xl border border-primary/25 bg-card p-4 space-y-4">
@@ -123,12 +128,24 @@ export function SelectionForwardPanel({ preview = null, onDryRun, onRefreshData,
           </dl>
           <div className="flex items-center justify-between text-xs">
             <span className="font-medium">候選 Top {candidates.length}</span>
-            {preview.candidates.length > 10 && <button type="button" onClick={() => setShowTop20(value => !value)} className="text-primary hover:underline">{showTop20 ? '收合至 Top10' : '展開至 Top20'}</button>}
+            <div className="flex items-center gap-3">
+              {onAddToWatchlist && candidates.length > 0 && (
+                <button type="button" onClick={() => onAddToWatchlist(notInWatchlist)} disabled={notInWatchlist.length === 0} className="inline-flex items-center gap-1 text-primary hover:underline disabled:text-muted-foreground disabled:no-underline">
+                  <Star className="h-3 w-3" />{notInWatchlist.length ? `全部加入自選（${notInWatchlist.length}）` : '已全部在自選'}
+                </button>
+              )}
+              {onCompare && candidates.length > 1 && (
+                <button type="button" onClick={() => onCompare(candidates.slice(0, 5).map(item => item.symbol))} className="inline-flex items-center gap-1 text-primary hover:underline">
+                  <Scale className="h-3 w-3" />比較前 {Math.min(5, candidates.length)} 檔
+                </button>
+              )}
+              {preview.candidates.length > 10 && <button type="button" onClick={() => setShowTop20(value => !value)} className="text-primary hover:underline">{showTop20 ? '收合至 Top10' : '展開至 Top20'}</button>}
+            </div>
           </div>
           <div className="overflow-x-auto rounded-lg border border-border/60">
             <table className="w-full min-w-[580px] text-left text-xs">
-              <thead className="bg-muted/40 text-muted-foreground"><tr><th className="px-3 py-2">排名</th><th className="px-3 py-2">標的</th><th className="px-3 py-2 text-right">參考價</th><th className="px-3 py-2">已知風險</th><th className="px-3 py-2">資料不足</th></tr></thead>
-              <tbody className="divide-y divide-border/40">{candidates.map((item, index) => <tr key={item.symbol}><td className="px-3 py-2 font-mono">{index + 1}</td><td className="px-3 py-2">{item.name} <span className="text-muted-foreground">({item.symbol})</span></td><td className="px-3 py-2 text-right">{item.referencePrice ?? '資料不足'}</td><td className="px-3 py-2">{item.knownRisks.length ? item.knownRisks.join('、') : '無已知風險標記'}</td><td className="px-3 py-2">{item.missingData.length ? item.missingData.join('、') : '無'}</td></tr>)}</tbody>
+              <thead className="bg-muted/40 text-muted-foreground"><tr><th className="px-3 py-2">排名</th><th className="px-3 py-2">標的</th><th className="px-3 py-2 text-right">參考價</th><th className="px-3 py-2">已知風險</th><th className="px-3 py-2">資料不足</th>{onAddToWatchlist && <th className="px-3 py-2">操作</th>}</tr></thead>
+              <tbody className="divide-y divide-border/40">{candidates.map((item, index) => <tr key={item.symbol}><td className="px-3 py-2 font-mono">{index + 1}</td><td className="px-3 py-2">{item.name} <span className="text-muted-foreground">({item.symbol})</span></td><td className="px-3 py-2 text-right">{item.referencePrice ?? '資料不足'}</td><td className="px-3 py-2">{item.knownRisks.length ? item.knownRisks.join('、') : '無已知風險標記'}</td><td className="px-3 py-2">{item.missingData.length ? item.missingData.join('、') : '無'}</td>{onAddToWatchlist && <td className="px-3 py-2">{watchlistSymbols?.has(item.symbol) ? <span className="text-muted-foreground">已在自選</span> : <button type="button" onClick={() => onAddToWatchlist([item.symbol])} className="text-primary hover:underline">加自選</button>}</td>}</tr>)}</tbody>
             </table>
           </div>
           {(preview.knownRisks.length > 0 || preview.missingData.length > 0) && (

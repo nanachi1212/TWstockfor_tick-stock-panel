@@ -1128,6 +1128,7 @@ export interface TaiwanScreenerRequest {
   exchange?: 'TWSE' | 'TPEX' | 'ALL'
   instrument?: 'stock' | 'etf' | 'ALL'
   industry?: string | null
+  keyword?: string | null
   price_min?: number | null
   price_max?: number | null
   change_pct_min?: number | null

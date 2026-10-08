@@ -209,6 +209,8 @@ def derive_factor(event: CorporateActionEvent) -> CorporateActionEvent:
                     raise ValueError("cash_subscription_requires_detail")
                 cash_text = detail.get("(每股配發現金股利)除息")
                 free_text = detail.get("A. 按普通股股東持股比例每千股無償配股")
+                if free_text is None:  # preferred-share class label, same per-thousand meaning
+                    free_text = detail.get("F. 按特別股股東持股比例每千股無償配股")
                 cash_decimal = _number(cash_text)
                 free_decimal = _number(free_text) / 1000
                 if cash_decimal < 0 or free_decimal < 0:

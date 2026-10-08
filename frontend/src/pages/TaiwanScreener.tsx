@@ -84,6 +84,14 @@ export function TaiwanScreener() {
       qc.invalidateQueries({ queryKey: ['watchlist-enriched'] })
     },
   })
+  const addManyToWatchlist = useMutation({
+    mutationFn: (symbols: string[]) => api.watchlistBatchAdd(symbols),
+    onSuccess: result => {
+      toast(`已加入自選 ${result.added} 檔`, 'success')
+      qc.invalidateQueries({ queryKey: QK.watchlist })
+      qc.invalidateQueries({ queryKey: ['watchlist-enriched'] })
+    },
+  })
   const handleAddToCompare = (symbol: string) => {
     const merged = mergeSymbolIntoCompare(loadLastCompareSymbols(), symbol)
     navigate(`/stocks/compare?symbols=${encodeURIComponent(merged.join(','))}`)
@@ -158,6 +166,7 @@ export function TaiwanScreener() {
   const [exchange, setExchange] = useState<'ALL' | 'TWSE' | 'TPEX'>('ALL')
   const [instrument, setInstrument] = useState<'ALL' | 'stock' | 'etf'>('ALL')
   const [industry, setIndustry] = useState<string>(() => searchParams.get('industry') || 'ALL')
+  const [keyword, setKeyword] = useState<string>('')
   const [priceMin, setPriceMin] = useState<string>('')
   const [priceMax, setPriceMax] = useState<string>('')
   const [changePctMin, setChangePctMin] = useState<string>('')
@@ -396,6 +405,7 @@ export function TaiwanScreener() {
     if (req.exchange) setExchange(req.exchange)
     if (req.instrument) setInstrument(req.instrument)
     if (req.industry !== undefined) setIndustry(req.industry || 'ALL')
+    if (req.keyword !== undefined) setKeyword(req.keyword ?? '')
     if (req.price_min !== undefined) setPriceMin(req.price_min !== null ? String(req.price_min) : '')
     if (req.price_max !== undefined) setPriceMax(req.price_max !== null ? String(req.price_max) : '')
     if (req.change_pct_min !== undefined) setChangePctMin(req.change_pct_min !== null ? String(req.change_pct_min * 100) : '')
@@ -445,6 +455,7 @@ export function TaiwanScreener() {
     setExchange('ALL')
     setInstrument('ALL')
     setIndustry('ALL')
+    setKeyword('')
     setPriceMin('')
     setPriceMax('')
     setChangePctMin('')
@@ -500,6 +511,7 @@ export function TaiwanScreener() {
       exchange,
       instrument,
       industry: industry !== 'ALL' ? industry : null,
+      keyword: keyword.trim() || null,
       price_min: priceMin ? parseFloat(priceMin) : null,
       price_max: priceMax ? parseFloat(priceMax) : null,
       // change_pct: UI percent to decimal (e.g. 5% -> 0.05)
@@ -554,7 +566,7 @@ export function TaiwanScreener() {
     }
     return p
   }, [
-    exchange, instrument, industry, priceMin, priceMax, changePctMin, changePctMax,
+    exchange, instrument, industry, keyword, priceMin, priceMax, changePctMin, changePctMax,
     volumeMinLots, amountMinMln, rsiMin, rsiMax, momentumMin, volRatioMin,
     aboveMa5, aboveMa20, nearUpperLimit, nearLowerLimit,
     foreignNetMinLots, foreignNetMaxLots, investmentTrustNetMinLots, dealerNetMinLots,
@@ -828,6 +840,9 @@ export function TaiwanScreener() {
         onDryRun={() => { lockForwardBatchMutation.reset(); forwardPreviewMutation.mutate() }}
         onRefreshData={() => updateTaiwanDataMutation.mutate()}
         onLockOfficialBatch={() => lockForwardBatchMutation.mutate()}
+        watchlistSymbols={watchlistSymbols}
+        onAddToWatchlist={symbols => { if (symbols.length) addManyToWatchlist.mutate(symbols) }}
+        onCompare={symbols => navigate(`/stocks/compare?symbols=${encodeURIComponent(symbols.join(','))}`)}
       />
 
       {/* Data Operations Visibility Panel (Phase 6C) */}
@@ -1650,7 +1665,20 @@ export function TaiwanScreener() {
           </div>
         </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+          <div>
+            <label htmlFor="screener-keyword" className="text-xs font-semibold text-zinc-400 block mb-1.5">名稱／代號關鍵字</label>
+            <input
+              id="screener-keyword"
+              type="text"
+              maxLength={20}
+              placeholder="例: 正2、金控、2330"
+              value={keyword}
+              onChange={e => { setKeyword(e.target.value); setPage(1) }}
+              className="w-full bg-zinc-800 border border-zinc-700 rounded-md px-2.5 py-1.5 text-xs text-zinc-200 focus:outline-none focus:border-purple-500"
+            />
+          </div>
+
           <div>
             <label className="text-xs font-semibold text-zinc-400 block mb-1.5">最低成交量 (張)</label>
             <input

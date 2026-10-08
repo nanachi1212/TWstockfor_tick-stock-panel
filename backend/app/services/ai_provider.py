@@ -977,7 +977,13 @@ def _openai_kwargs(
     if hostname in _LOCAL_LLM_HOSTS:
         # Local Qwen-style models otherwise spend the token budget thinking and truncate.
         kwargs["reasoning_effort"] = "none"  # LM Studio
-        kwargs["extra_body"] = {"chat_template_kwargs": {"enable_thinking": False}}  # llama.cpp
+        kwargs["top_p"] = 0.95
+        # top_k / repeat_penalty are not OpenAI SDK params; they must ride in extra_body.
+        kwargs["extra_body"] = {
+            "chat_template_kwargs": {"enable_thinking": False},  # llama.cpp
+            "top_k": 20,
+            "repeat_penalty": 1.0,
+        }
     if structured_output:
         normalized_model = model.strip().lower()
         supports_response_format = (

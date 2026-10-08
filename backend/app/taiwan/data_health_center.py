@@ -169,6 +169,17 @@ def expected_revenue_date(today: date) -> date:
     return first if today.day > 10 else (first - timedelta(days=1)).replace(day=1)
 
 
+def _previous_daily_session() -> date | None:
+    """Session before the latest stored daily date (one-session publication lag)."""
+    try:
+        from app.taiwan.daily_store import TaiwanDailyStore
+
+        sessions = sorted(TaiwanDailyStore().available_dates())
+    except Exception:
+        return None
+    return (sessions[-2] if len(sessions) > 1 else sessions[-1]) if sessions else None
+
+
 def finmind_policy(
     key: str, records: list[dict[str, Any]], expected: date | None, ttl_seconds: int
 ) -> tuple[HealthStatus, str]:
@@ -530,6 +541,7 @@ class DataHealthService:
         cache = FinMindCache()
         etfs = etf_symbols()
         today = taipei_now().date()
+        chips_floor = _previous_daily_session()
         result = {}
         for key, dataset in (
             ("financial", "TaiwanStockFinancialStatements"),
@@ -542,9 +554,10 @@ class DataHealthService:
             expected = (
                 expected_financial_period(today) if key == "financial"
                 else expected_revenue_date(today) if key == "monthly_revenue"
-                else None
+                # Daily chips are cached for days; judge them by data date, not by cache age.
+                else chips_floor
             )
-            if expected is not None:
+            if key in {"financial", "monthly_revenue"}:
                 # ETFs publish neither statements nor monthly revenue: not applicable.
                 records = [r for r in records if r.get("symbol") not in etfs]
             status, reason = finmind_policy(

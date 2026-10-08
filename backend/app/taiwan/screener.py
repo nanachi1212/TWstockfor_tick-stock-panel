@@ -152,6 +152,11 @@ def rank_trend_liquidity_v1(frame: pl.DataFrame) -> pl.DataFrame:
     return frame.sort(["momentum_5d", "amount", "symbol"], descending=[True, True, False])
 
 
+def _chip_date_current(cached: dict[str, Any], floor: str | None) -> bool:
+    data_date = str(cached.get("data_date") or "")[:10]
+    return bool(floor and data_date and data_date >= floor)
+
+
 class TaiwanScreenerRequest(BaseModel):
     """Strongly typed Taiwan Screener Request Body."""
 
@@ -162,6 +167,8 @@ class TaiwanScreenerRequest(BaseModel):
     ] | None = None
     instrument: InstrumentFilter = "ALL"
     industry: str | None = None  # None or specific industry name
+    # Code or name fragment typed by the user (e.g. "正2", "金控", "2330"); literal, case-insensitive.
+    keyword: str | None = Field(default=None, max_length=20)
     symbol_scope: list[str] | None = Field(default=None, exclude=True, repr=False)
     # Internal callers (beginner selection) opt into the verified five-session
     # institutional flow and revenue status without applying a preset filter.
@@ -1110,7 +1117,11 @@ class TaiwanScreenerService:
         cached_lend_keys = self._cached_symbol_keys("TaiwanStockSecuritiesLending", symbols)
 
         fundamental_symbols = set(cached_rev_keys) | set(cached_fin_keys) | set(cached_val_keys)
-        chips_symbols = set(cached_share_keys) | set(cached_lend_keys)
+        # Daily chip datasets stay cached for days (weekend bridge); only the latest session, or the
+        # one before it (publication lag), may feed a filter. Older values are excluded, not reused.
+        sessions = sorted(self.daily_store.available_dates())
+        chips_floor = (sessions[-2] if len(sessions) > 1 else sessions[-1]).isoformat() if sessions else None
+        chips_symbols: set[str] = set()
 
         # Live Quant scores
         quant_scores: dict[str, float] = {}
@@ -1209,7 +1220,8 @@ class TaiwanScreenerService:
 
         for sym, cache_key in cached_share_keys.items():
             cached = self.cache.get("TaiwanStockShareholding", cache_key)
-            if cached and cached.get("data"):
+            if cached and cached.get("data") and _chip_date_current(cached, chips_floor):
+                chips_symbols.add(sym)
                 sh_data = fc_svc._process_shareholding(
                     cached["data"], cached.get("data_date"), cached.get("fetched_at", "")
                 )
@@ -1218,7 +1230,8 @@ class TaiwanScreenerService:
 
         for sym, cache_key in cached_lend_keys.items():
             cached = self.cache.get("TaiwanStockSecuritiesLending", cache_key)
-            if cached and cached.get("data"):
+            if cached and cached.get("data") and _chip_date_current(cached, chips_floor):
+                chips_symbols.add(sym)
                 sl_data = fc_svc._process_securities_lending(
                     cached["data"], cached.get("data_date"), cached.get("fetched_at", "")
                 )
@@ -1356,6 +1369,13 @@ class TaiwanScreenerService:
         # Industry
         if req.industry and req.industry != "ALL":
             df = df.filter(pl.col("industry") == req.industry)
+
+        keyword = (req.keyword or "").strip().lower()
+        if keyword:
+            df = df.filter(
+                pl.col("name").fill_null("").str.to_lowercase().str.contains(keyword, literal=True)
+                | pl.col("symbol").str.to_lowercase().str.starts_with(keyword)
+            )
 
         # Price
         if req.price_min is not None:

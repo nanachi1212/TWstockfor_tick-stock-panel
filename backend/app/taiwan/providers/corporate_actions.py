@@ -38,6 +38,8 @@ _FIELDS = {
 }
 _CASH_DETAIL = "(每股配發現金股利)除息"
 _FREE_DETAIL = "A. 按普通股股東持股比例每千股無償配股"
+# Preferred shares (e.g. 1312A) publish the same per-thousand free-share figure under their class label.
+_PREFERRED_FREE_DETAIL = "F. 按特別股股東持股比例每千股無償配股"
 
 
 class CorporateActionSourceError(ValueError):
@@ -83,12 +85,16 @@ def _optional_number(raw: object) -> float | None:
 
 def parse_detail(payload: dict[str, Any], code: str) -> dict[str, Any]:
     """Strip only the official cash-per-share and shares-per-thousand unit suffixes."""
-    rows = _rows(payload, ("股票代號", _CASH_DETAIL, _FREE_DETAIL))
+    fields = payload.get("fields") if isinstance(payload, dict) else None
+    free_key = (_PREFERRED_FREE_DETAIL
+                if isinstance(fields, list) and _PREFERRED_FREE_DETAIL in fields and _FREE_DETAIL not in fields
+                else _FREE_DETAIL)
+    rows = _rows(payload, ("股票代號", _CASH_DETAIL, free_key))
     if len(rows) != 1 or str(rows[0]["股票代號"]).strip() != code:
         raise CorporateActionSourceError("duplicate/mismatched TWSE detail identity")
     row = rows[0]
     parsed = {}
-    for key, unit in ((_CASH_DETAIL, "元／股"), (_FREE_DETAIL, "股")):
+    for key, unit in ((_CASH_DETAIL, "元／股"), (free_key, "股")):
         raw = str(row[key]).strip()
         value = raw.removesuffix(unit).strip()
         if _optional_number(value) is None:
