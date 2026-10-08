@@ -1,9 +1,6 @@
 # 兩階段構建:前端 dist 拷進後端鏡像,單容器運行
 # 可選:構建網絡無法直連官方源時,傳入 --build-arg USE_CN_MIRROR=1 啟用國內鏡像
-# 可選:stock-sdk 插件默認不打包(它抓取第三方財經網站接口,存在版權與反爬風險)。
-#       如確需啟用,傳入 --build-arg INCLUDE_STOCKSDK=1 顯式開啟,使用風險自負。
 ARG USE_CN_MIRROR=1
-ARG INCLUDE_STOCKSDK=0
 ARG NPM_REGISTRY=https://registry.npmmirror.com
 ARG PYPI_INDEX=https://pypi.tuna.tsinghua.edu.cn/simple
 # 備用 PyPI 源:主源同步延遲/故障時自動兜底(阿里雲與清華互為補充)
@@ -28,25 +25,6 @@ RUN pnpm install --frozen-lockfile || pnpm install
 COPY frontend/ ./
 RUN pnpm build
 
-# === Stage 1b: stock-sdk 插件依賴(可選,默認跳過) ===
-# ⚠️ 合規提示: stock-sdk 通過 node bridge.mjs 抓取第三方財經網站(如東方財富)的行情接口,
-#    未經對方授權,可能違反其服務條款並涉及交易所行情版權。默認不打包(INCLUDE_STOCKSDK=0)。
-#    如確需啟用,構建時傳 --build-arg INCLUDE_STOCKSDK=1,即視為使用者知悉並自行承擔合規責任。
-# INCLUDE_STOCKSDK=0 時,本 stage 僅產出空 node_modules 目錄,保證後續 COPY 不報錯。
-FROM node:20-bookworm-slim AS stocksdk-builder
-ARG USE_CN_MIRROR=1
-ARG NPM_REGISTRY=https://registry.npmmirror.com
-ARG INCLUDE_STOCKSDK=0
-WORKDIR /build
-RUN if [ "$USE_CN_MIRROR" = "1" ]; then npm config set registry "$NPM_REGISTRY"; fi
-COPY backend/app/plugins/stocksdk/package.json backend/app/plugins/stocksdk/package-lock.json ./
-# INCLUDE_STOCKSDK=1 時安裝依賴;=0 時僅建空目錄,使最終鏡像不含 stock-sdk 依賴
-RUN if [ "$INCLUDE_STOCKSDK" = "1" ]; then \
-      (npm ci || npm install); \
-    else \
-      mkdir -p /build/node_modules; \
-    fi
-
 # === Stage 1c: Codex CLI ===
 # 固定版本保證鏡像可復現；只複製安裝產物到運行鏡像，不保留 npm。
 FROM node:20-bookworm-slim AS codex-builder
@@ -68,23 +46,7 @@ ARG USE_CN_MIRROR=1
 ARG PYPI_INDEX=https://pypi.tuna.tsinghua.edu.cn/simple
 ARG PYPI_FALLBACK=https://mirrors.aliyun.com/pypi/simple
 ARG BACKEND_EXTRAS=
-ARG INCLUDE_STOCKSDK=0
 WORKDIR /app
-
-# Node.js 運行時: 僅在啟用 stock-sdk 插件時安裝(供 node bridge.mjs 使用)。
-# Codex CLI 從官方 npm 包提取原生二進制，不依賴運行時 Node.js。
-# bookworm 自帶 nodejs 18.19, 滿足插件 engines>=18; --no-install-recommends 精簡,
-# 自帶 libnode/libc-ares 等全部動態依賴, 無需手動補庫。
-# 國內構建走 apt mirror 已在 debian 鏡像sources.list 配好, 無需額外換源。
-# tesseract-ocr: 自選截圖導入（始終安裝）; nodejs: 僅 INCLUDE_STOCKSDK=1 時安裝
-RUN apt-get update \
-    && apt-get install -y --no-install-recommends tesseract-ocr tesseract-ocr-eng \
-    && if [ "$INCLUDE_STOCKSDK" = "1" ]; then \
-         apt-get install -y --no-install-recommends nodejs \
-         && node --version; \
-       fi \
-    && rm -rf /var/lib/apt/lists/* \
-    && tesseract --version
 
 # 安裝 uv(快) —— 國內鏡像下三重兜底:主源 → 備用源 → 官方源,
 # 任一成功即可,避免單一鏡像同步延遲/故障導致構建失敗。
@@ -115,17 +77,10 @@ RUN if [ "$USE_CN_MIRROR" = "1" ]; then \
 # Backend code
 # 注意:Docker 裡 WORKDIR=/app, 而 config.py 的 _PROJECT_ROOT 是按開發佈局
 # (<root>/backend/app/) 推導的, 容器內會錯算到 /。這裡用環境變量顯式指定
-# 三個關鍵路徑, 確保 static / tiers / data 都指向容器內正確位置。
+# 關鍵路徑, 確保 static / data 都指向容器內正確位置。
 COPY VERSION /app/VERSION
 COPY backend/app ./app
-# stock-sdk 插件依賴: 從 stocksdk-builder 拷入。
-# INCLUDE_STOCKSDK=0(默認) 時, stocksdk-builder 產出空目錄,此處拷入空目錄,
-# 即最終鏡像不含 stock-sdk 依賴,插件默認不可用。
-# COPY --from 不受 .dockerignore 的 **/node_modules 規則影響。
-COPY --from=stocksdk-builder /build/node_modules ./app/plugins/stocksdk/node_modules
-COPY tiers.yaml /app/tiers.yaml
 ENV STATIC_DIR=/app/static \
-    TIERS_YAML=/app/tiers.yaml \
     DATA_DIR=/app/data \
     TICKFLOW_ENV_FILE=/app/.env
 

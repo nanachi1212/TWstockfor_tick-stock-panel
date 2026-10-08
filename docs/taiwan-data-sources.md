@@ -164,7 +164,7 @@ capital-event sources did not provide a uniform exact-time, effective-date, and
 revision chain suitable for historical ingest. Taiwan historical turnover now
 fails closed when no verified PIT float denominator exists. The source matrix and
 live samples are recorded in
-[`taiwan-share-capital-phase-6h.md`](taiwan-share-capital-phase-6h.md).
+[`taiwan-share-capital-phase-6h.md`](archive/taiwan-share-capital-phase-6h.md).
 
 ## Official fundamentals availability investigation (Phase 6C.1)
 
@@ -221,7 +221,7 @@ timestamps were reproducible for 2330, 6488, and 2881, but the aggregate rows
 still exposed no document or revision identifier. Monthly revenue and valuation
 also exposed no new stable exact-time identity. No production availability was
 upgraded; the evidence and rejection matrix are recorded in
-[`taiwan-fundamentals-availability-phase-6g.md`](taiwan-fundamentals-availability-phase-6g.md).
+[`taiwan-fundamentals-availability-phase-6g.md`](archive/taiwan-fundamentals-availability-phase-6g.md).
 
 ## Monthly revenue official observation evidence (Selection v2)
 
@@ -289,7 +289,7 @@ observations exist.
 
 ## Dividend lifecycle stable event ingest (Phase 6D)
 
-一般重大訊息、法說會與內部人持股轉讓事前申報的產品事件契約，另見 [Phase 3 官方 MOPS 事件](toalpha-v2.1-phase3-mops-events.md)。重大訊息與事前轉讓申報採 TWSE／TPEx 官方 OpenAPI；法說會直接查詢 [官方 MOPS `t100sb02_1`](https://mopsov.twse.com.tw/mops/web/t100sb02_1)，來源為 `mops:conference:t100sb02_1`，保留日期範圍、時間、地點、擇要訊息及官方 POST 簡報表單。官方資料無法可靠解析時 fail closed、標示 unavailable，不使用第三方 fallback，亦不讀回舊第三方快取。ToAlpha 僅供產品功能參考，沒有其資料依賴。它們沿用事件中心與個股詳情，不接 Historical PIT 或 Strategy Lab，也不覆寫本節股利生命週期或月營收的權威資料。
+一般重大訊息、法說會與內部人持股轉讓事前申報的產品事件契約，另見 [Phase 3 官方 MOPS 事件](archive/toalpha-v2.1-phase3-mops-events.md)。重大訊息與事前轉讓申報採 TWSE／TPEx 官方 OpenAPI；法說會直接查詢 [官方 MOPS `t100sb02_1`](https://mopsov.twse.com.tw/mops/web/t100sb02_1)，來源為 `mops:conference:t100sb02_1`，保留日期範圍、時間、地點、擇要訊息及官方 POST 簡報表單。官方資料無法可靠解析時 fail closed、標示 unavailable，不使用第三方 fallback，亦不讀回舊第三方快取。ToAlpha 僅供產品功能參考，沒有其資料依賴。它們沿用事件中心與個股詳情，不接 Historical PIT 或 Strategy Lab，也不覆寫本節股利生命週期或月營收的權威資料。
 
 The official source is the MOPS historical material-information service:
 
@@ -389,7 +389,7 @@ the genuine TPEx ETF `006201` through the official ETF information-center API.
 These sources remain reference-only because none supplies an exact publication
 timestamp, approved `available_at`, and stable revision identity. No ETF history
 provider or store was added. The endpoint and rejection evidence is recorded in
-[`taiwan-etf-history-phase-6i.md`](taiwan-etf-history-phase-6i.md).
+[`taiwan-etf-history-phase-6i.md`](archive/taiwan-etf-history-phase-6i.md).
 
 ## Current/reference product surface (Phase 6J)
 

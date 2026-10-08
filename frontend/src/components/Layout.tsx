@@ -5,6 +5,7 @@ import { motion } from 'framer-motion'
 import { useQuoteStream, useQuoteStreamStatus } from '@/lib/useQuoteStream'
 import { ToastContainer, toast } from '@/components/Toast'
 import { AlertToastContainer } from '@/components/AlertToast'
+import { StaleDataBanner } from '@/components/StaleDataBanner'
 import {
   useSettings,
   usePreferences,
@@ -41,7 +42,7 @@ import { toggleTheme, useTheme } from '@/lib/theme'
 import { setCurrentTotal as setAlertTotal, useUnreadAlerts } from '@/lib/monitorBadge'
 import { ExtensionSlot } from '@/extensions/ExtensionSlot'
 import { getFrontendExtensionNavigation } from '@/extensions/registry'
-import { CORE_NAV as nav } from '@/lib/navigation'
+import { ALL_NAV as nav, ADVANCED_NAV, ADVANCED_GROUP_ID, isAdvancedNavPath } from '@/lib/navigation'
 import type { LucideIcon } from 'lucide-react'
 
 // 品牌色 — 只用於 logo / brand 區域,不影響功能語義色
@@ -345,7 +346,26 @@ export function Layout() {
     : allNav
 
   const hiddenIds = new Set(prefs?.nav_hidden ?? [])
-  const visibleNavItems = navItems.filter(n => !hiddenIds.has(n.to))
+  const advancedIds = new Set(ADVANCED_NAV.map(n => n.to))
+  const coreNavItems = navItems.filter(n => !hiddenIds.has(n.to) && !advancedIds.has(n.to))
+  const advancedNavItems = navItems.filter(n => !hiddenIds.has(n.to) && advancedIds.has(n.to))
+  // 進階功能群組: 預設收合; 進入進階頁面時自動展開, 狀態記在 localStorage。
+  const [advancedOpen, setAdvancedOpen] = useState<boolean>(() => {
+    try { return localStorage.getItem('tf-nav-advanced') === '1' } catch { return false }
+  })
+  useEffect(() => {
+    if (isAdvancedNavPath(location.pathname)) setAdvancedOpen(true)
+  }, [location.pathname])
+  const toggleAdvanced = () => {
+    setAdvancedOpen(v => {
+      const next = !v
+      try { localStorage.setItem('tf-nav-advanced', next ? '1' : '0') } catch {}
+      return next
+    })
+  }
+  const visibleNavItems: NavItem[] = advancedNavItems.length > 0
+    ? [...coreNavItems, { to: ADVANCED_GROUP_ID, label: '進階功能', icon: ChevronRight }, ...(advancedOpen ? advancedNavItems : [])]
+    : coreNavItems
 
   const handleToggle = async (enabled: boolean) => {
     // 開啟時重新校驗實時權限 (以 quote_status 的數據源無關判定為準)
@@ -425,6 +445,26 @@ export function Layout() {
 
         <nav className="flex-1 min-h-0 overflow-y-auto px-2 py-3 space-y-0.5">
           {visibleNavItems.map(({ to, label, icon: Icon, badge }) => {
+            if (to === ADVANCED_GROUP_ID) {
+              return (
+                <button
+                  key={to}
+                  type="button"
+                  onClick={toggleAdvanced}
+                  title={navCollapsed ? label : undefined}
+                  className={cn(
+                    'group mt-2 flex w-full items-center rounded-btn text-[11px] font-medium uppercase tracking-wider text-muted transition-colors hover:text-foreground',
+                    navCollapsed ? 'justify-center px-0 py-1.5' : 'gap-2 px-3 py-1.5',
+                  )}
+                >
+                  {advancedOpen
+                    ? <ChevronDown className="h-3.5 w-3.5 shrink-0" />
+                    : <ChevronRight className="h-3.5 w-3.5 shrink-0" />}
+                  {!navCollapsed && <span className="flex-1 text-left">{label}</span>}
+                  {!navCollapsed && <span className="font-mono text-[10px]">{advancedNavItems.length}</span>}
+                </button>
+              )
+            }
             // 「自選」項 — 開啟分組側欄且未整體收起時, 渲染為可展開父項 + 二級分組
             const isWatchlistExpandable = to === '/watchlist' && groupsInNav && !navCollapsed && watchlistGroups.length > 0
             return (
@@ -713,6 +753,7 @@ export function Layout() {
         transition={{ duration: 0.25, ease: [0.16, 1, 0.3, 1] }}
         className="h-full overflow-auto scrollbar-gutter-stable"
       >
+        <StaleDataBanner />
         {streamStatus === 'reconnecting' && (
           <div
             role="status"

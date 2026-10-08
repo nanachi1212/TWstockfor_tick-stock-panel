@@ -7,8 +7,7 @@ const read = (relativePath: string) => readFileSync(resolve(__dirname, relativeP
 describe('notification channel settings', () => {
   const notificationFiles = [
     'Monitoring.tsx',
-    '../../components/monitor/RuleEditor.tsx',
-    '../../components/stock-analysis/PriceAlertDialog.tsx',
+    '../../components/monitor/TaiwanRuleEditorDialog.tsx',
   ]
 
   it('shows only LINE and Telegram external channels', () => {
@@ -54,21 +53,11 @@ describe('notification channel settings', () => {
     expect(code).toContain('telegramConfigured')
   })
 
-  it('keeps external delivery under global settings instead of per-rule checkboxes', () => {
-    const ruleEditor = read('../../components/monitor/RuleEditor.tsx')
-    const pointAlert = read('../../components/stock-analysis/PriceAlertDialog.tsx')
-    expect(ruleEditor).toContain('外部提醒使用「設定 → 監控」的全域通道選擇')
-    expect(ruleEditor).not.toContain('Webhook 推送')
-    expect(ruleEditor).not.toContain('prefs?.webhook_default_channels')
-    expect(pointAlert).toContain('新規則預設只發送站內提醒')
-    expect(pointAlert).not.toContain('prefs.webhook_default_channels')
-    expect(pointAlert).not.toContain('onChange={() => toggleChannel(channel.key)}')
-  })
 })
 
 describe('data source settings', () => {
   it('removes TickFlow registration and tier upsell UI', () => {
-    const code = read('DataSources.tsx') + read('Keys.tsx')
+    const code = read('DataSources.tsx')
     expect(code).not.toContain('tickflow.org/auth/register')
     expect(code).not.toMatch(/Starter\+|Pro\+|Expert\+|訂閱檔位|已適配全檔位/u)
   })

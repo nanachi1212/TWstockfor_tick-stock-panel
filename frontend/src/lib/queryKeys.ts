@@ -61,12 +61,6 @@ export const QK = {
   // Backtest
   backtestStatus:       ['backtest-status'] as const,
   factorColumns:        ['backtest-factor-columns'] as const,
-  miningRuns:           ['backtest-mining-runs'] as const,
-  miningAvailability:   (assetType: string, profile: string, start: string, end: string) =>
-                          ['backtest-mining-availability', assetType, profile, start, end] as const,
-  miningRun:            (id: string) => ['backtest-mining-run', id] as const,
-  miningResult:         (id: string) => ['backtest-mining-result', id] as const,
-  miningConfig:         ['backtest-mining-config'] as const,
   researchCandidates:  ['research-candidates'] as const,
   strategyLinkOptions: (assetType?: 'stock' | 'etf') => assetType
     ? ['strategy-link-options', assetType] as const
@@ -89,11 +83,8 @@ export const QK = {
                              ['kline-minute-range', symbol, days] as const,
 
   // Schema
-  extDataSchemaAll:     ['ext-data-schema-all'] as const,
 
   // Custom Signals
-  customSignals:        ['custom-signals'] as const,
-  customSignalsOptions: ['custom-signals-options'] as const,
 
   // Monitor (監控規則 + 觸發記錄)
   monitorRules:         ['monitor-rules'] as const,

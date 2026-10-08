@@ -34,6 +34,7 @@ from urllib.parse import urlsplit, urlunsplit
 
 from pydantic import BaseModel, Field, model_validator
 
+from app.services.ai_json import _extract_json_object
 from app.services.ai_provider import (
     AIEmptyContentError,
     AIOutputTruncated,
@@ -43,7 +44,6 @@ from app.services.ai_provider import (
     generate_structured_ai_text,
     snapshot_ai_provider_config,
 )
-from app.strategy.custom_signals_ai import _extract_json_object
 from app.taiwan.abnormal_diagnostics import (
     TaiwanAbnormalDiagnosticItem,
     TaiwanAbnormalDiagnosticsService,
@@ -134,6 +134,49 @@ class ObservationItem(BaseModel):
     evidence_refs: list[str] = Field(default_factory=list, description="所引用之有效證據鍵清單")
 
 
+class BeginnerAnswer(BaseModel):
+    """新手三問: 固定轉述規則結果 (不產生新價位、不給買賣指示)。"""
+
+    can_buy: str = Field("", description="現在能不能買：依 beginner_selection 的狀態與前提轉述")
+    stop_loss: str = Field("", description="停損在哪：直接引用 trade_plan.stop_price；無計畫則說明不足")
+    give_up: str = Field("", description="什麼情況該放棄：依 invalidation 與 risks 說明")
+
+
+def _fmt_plan_price(value: Any) -> str | None:
+    try:
+        v = float(value)
+    except (TypeError, ValueError):
+        return None
+    return f"{v:.2f}" if v < 1000 else f"{v:.0f}"
+
+
+def _grounded_beginner_answer(raw: dict[str, Any], selection: dict[str, Any]) -> BeginnerAnswer:
+    """新手三問只允許轉述規則結果: 停損句必須引用 trade_plan.stop_price, 否則改用確定性句子。
+
+    can_buy / give_up 是對 selection_state / invalidation 的白話轉述, 保留 AI 文字但在
+    規則狀態為「不追」時不得出現買進字眼; 違反則退回規則原句。
+    """
+    plan = selection.get("trade_plan") if isinstance(selection.get("trade_plan"), dict) else None
+    stop_price = plan.get("stop_price") if plan else None
+    stop_text = str(raw.get("stop_loss") or "").strip()[:120]
+    if stop_price is not None:
+        shown = _fmt_plan_price(stop_price)
+        candidates = {shown, str(stop_price), f"{float(stop_price):g}"} - {None}
+        if not any(c in stop_text for c in candidates):
+            stop_text = f"計畫失效位 {shown}：收盤跌破就離場。"
+    else:
+        stop_text = "目前計畫價位資料不足，沒有可引用的停損位。"
+
+    state = str(selection.get("selection_state") or "")
+    can_buy = str(raw.get("can_buy") or "").strip()[:120]
+    if state == "avoid" and any(w in can_buy for w in ("可以買", "可買", "建議買", "進場", "買進")):
+        can_buy = f"規則判斷為「不追」：{selection.get('action_summary') or '目前不符合承接或突破條件。'}"[:120]
+    give_up = str(raw.get("give_up") or "").strip()[:120]
+    if not give_up and selection.get("invalidation"):
+        give_up = str(selection["invalidation"])[:120]
+    return BeginnerAnswer(can_buy=can_buy, stop_loss=stop_text, give_up=give_up)
+
+
 class TaiwanAIStockResearchReport(BaseModel):
     """Strongly-typed grounded AI stock research report structure."""
 
@@ -170,6 +213,7 @@ class TaiwanAIStockResearchReport(BaseModel):
     key_observations: list[ObservationItem] = Field(default_factory=list, description="重點客觀觀察清單 (最多 5 項，均需引證)")
     risk_factors: list[ObservationItem] = Field(default_factory=list, description="客觀數據所揭示之風險特徵 (均需引證)")
     watch_next: list[ObservationItem] = Field(default_factory=list, description="依目前證據可追蹤且附有效引用的具體觀察項目")
+    beginner_answer: BeginnerAnswer | None = Field(None, description="新手三問 (僅在提供 beginner_selection 時產生)")
     missing_information: list[str] = Field(default_factory=list, description="確定性揭示之系統缺失或未覆蓋項目")
 
     disclaimer: str = Field(default=DISCLAIMER_TEXT, description="固定免責聲明")
@@ -698,6 +742,7 @@ SYSTEM_PROMPT = """你是一個客觀、確定性導向的「台股個股研究�
    - technical_panel 是凍結的確定性證據。不得改寫支撐、壓力、失效位、均線、量比、法人值或其他數值。
    - intraday_context、fx_context、macro_context 與 secondary_cross_checks 也是凍結證據。只能解釋，不得覆寫官方數字、排名或 TradePlan；secondary provider 不得取代 primary truth。
    - 若其他證據顯示不同看法，只能以「補充解讀」陳述並引用對應證據鍵，不得宣稱原選股結果錯誤或應被取代。
+   - 若要求輸出 beginner_answer，三個欄位各一句話、不超過 60 字，只能轉述上述規則結果：can_buy 轉述 selection_state 與 action_summary 的前提，stop_loss 直接引用 trade_plan.stop_price，give_up 轉述 invalidation 與 risks。不得自行給買賣指示或新價位。
 """
 
 
@@ -936,6 +981,12 @@ class TaiwanAIResearchService:
                 now_iso = started_at
 
         # 3. Construct LLM Prompts
+        beginner_schema = (
+            ',\n  "beginner_answer": {"can_buy": "一句話回答現在能不能買：只能轉述 beginner_selection.selection_state 與 action_summary 及其前提，不得自行判斷或給買賣指示", '
+            '"stop_loss": "一句話回答停損在哪：直接引用 beginner_selection.trade_plan.stop_price，沒有計畫就說明計畫價位不足", '
+            '"give_up": "一句話回答什麼情況該放棄：依 beginner_selection.invalidation 與 risks 說明"}'
+            if evidence_payload.get("beginner_selection") is not None else ""
+        )
         user_prompt = f"""請依據以下封閉研究證據 JSON，為 {ctx.identity.name} ({ctx.identity.code}) 產出結構化客觀解讀報告。
 
 市場研究證據日期為 {ctx.as_of_date}。如包含個人脈絡，該資料代表本次分析時的目前狀態，不得描述成市場證據日期當時的歷史狀態；不得用目前持倉、自選或提醒推論歷史狀態。
@@ -972,7 +1023,7 @@ class TaiwanAIResearchService:
   "missing_information": ["需涵蓋上述之缺失項目說明"],
   "watch_next": [
     {{"text": "目前資料支持的具體觀察點", "evidence_refs": ["合法的白名單鍵"]}}
-  ]
+  ]{beginner_schema}
 }}"""
 
         messages = [
@@ -1087,6 +1138,12 @@ class TaiwanAIResearchService:
                 if refs:
                     validated_watch_next.append(ObservationItem(text=text, evidence_refs=refs))
 
+        beginner_answer: BeginnerAnswer | None = None
+        if evidence_payload.get("beginner_selection") is not None:
+            raw_answer = parsed.get("beginner_answer")
+            if isinstance(raw_answer, dict):
+                beginner_answer = _grounded_beginner_answer(raw_answer, evidence_payload["beginner_selection"])
+
         # Merge deterministic missing items with AI reported missing items
         ai_missing = parsed.get("missing_information") or []
         combined_missing = sorted(list(set(missing_items + [str(m).strip() for m in ai_missing if m])))
@@ -1131,6 +1188,7 @@ class TaiwanAIResearchService:
             key_observations=validated_observations[:5],
             risk_factors=validated_risks,
             watch_next=validated_watch_next[:4],
+            beginner_answer=beginner_answer,
             missing_information=combined_missing,
             disclaimer=DISCLAIMER_TEXT,
         )

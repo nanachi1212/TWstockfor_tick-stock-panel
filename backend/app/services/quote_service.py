@@ -34,7 +34,6 @@ import polars as pl
 
 from app.market_time import cn_now, cn_today
 from app.parquet import scan_daily_parquet
-from app.strategy.intraday_signals import IntradaySignalEvaluator
 
 logger = logging.getLogger(__name__)
 
@@ -166,14 +165,6 @@ def _persist_last_fetch(fetched_at_ms: float) -> None:
         logger.debug("last_fetch_ms 持久化失败 (不影响行情): %s", e)
 
 
-def _monitor_name_map(repo) -> dict[str, str]:
-    """监控回填用的 symbol → name 映射 (股票 + ETF + 指数, 股票优先)。
-
-    走 repo.get_name_map() 的进程内 memo (三份 instruments 维表刷新时失效),
-    避免每轮监控对 ~7000 行维表 iter_rows 重建。过滤空名称与旧行为一致。
-    """
-    return {s: n for s, n in repo.get_name_map().items() if n}
-
 
 class QuoteService:
     """全局实时行情服务 — 单例。"""
@@ -206,7 +197,6 @@ class QuoteService:
         self._repo = None          # 延迟注入, 避免循环导入
         # SSE 订阅者集合: 每个 /stream 连接一个 QuoteSubscriber, 事件广播到所有订阅者
         self._subscribers: set[QuoteSubscriber] = set()
-        self._strategy_monitor = None            # 延迟注入
         self._app_state = None                   # 延迟注入 (FastAPI app.state)
 
         # 拉取元信息 (给 SSE / status 用)
@@ -223,8 +213,6 @@ class QuoteService:
         self._index_symbol_count: int = 0
         self._etf_symbol_count: int = 0
         self._index_quotes_cache: pl.DataFrame | None = None
-        self._intraday_signal_evaluator = IntradaySignalEvaluator()
-        self._intraday_signal_bucket: dict[str, str] = {}
         # 午休/收盘最终同步状态: 到边界后必须成功拉取一版行情, 再进入休盘态。
         self._final_sync_done: set[tuple[date, str]] = set()
         self._final_sync_failed: dict[tuple[date, str], str] = {}
@@ -341,7 +329,7 @@ class QuoteService:
         self._repo = repo
 
     def set_app_state(self, app_state) -> None:
-        """注入 FastAPI app.state, 用于获取 strategy_monitor 等单例。"""
+        """注入 FastAPI app.state (repo / extension registry 等單例)。"""
         self._app_state = app_state
 
     def set_interval(self, interval: float) -> float:
@@ -378,13 +366,6 @@ class QuoteService:
             return list(self._subscribers)
 
     def _broadcast_quote_updated(self) -> None:
-        # 实时行情刷新后清空总览聚合缓存, 使看板 (overview-market) 在 SSE 触发的
-        # 重取中拿到最新指数/聚合值。与 _broadcast 同时进行, 与侧栏 /intraday/indices
-        # (无缓存, 直读实时缓存) 行为对齐, 避免看板落后于侧栏。
-        # 延迟导入规避 services <-> api 层循环依赖。
-        from app.api.overview import invalidate_overview_cache
-
-        invalidate_overview_cache()
         for sub in self._snapshot_subscribers():
             sub.notify_quote()
 
@@ -622,14 +603,6 @@ class QuoteService:
             all_index_symbols = set(self._repo.get_index_symbol_set()) if self._repo else set()
             core_index_symbols = set(preferences.get_realtime_index_symbols() or self.CORE_INDEX_SYMBOLS)
             all_index_symbols.update(core_index_symbols)
-            # 指数监控规则标的并入轮询 (mode=core 时 quotes.get 显式拉取覆盖; mode=all 被 CN_Index 全覆盖)
-            monitor_index_symbols: set[str] = set()
-            engine = getattr(self._app_state, "monitor_engine", None) if self._app_state else None
-            if engine:
-                for _r in list(engine.rules.values()):
-                    if _r.get("enabled", True) and _r.get("asset_type") == "index" and _r.get("scope") == "symbols":
-                        monitor_index_symbols.update(s for s in _r.get("symbols", []) if s)
-            all_index_symbols.update(monitor_index_symbols)
             all_etf_symbols = set()
             if self._repo:
                 etf_inst = self._repo.get_etf_instruments()
@@ -652,7 +625,7 @@ class QuoteService:
                 logger.info("全市场行情拉取完成: %d 条 (%.2fs)", len(resp), time.perf_counter() - _u0)
             if preferences.get_realtime_pull_index() and preferences.get_realtime_index_mode() == "core":
                 _i0 = time.perf_counter()
-                _core_syms = sorted(core_index_symbols | monitor_index_symbols)
+                _core_syms = sorted(core_index_symbols)
                 resp.extend(tf.quotes.get(symbols=_core_syms) or [])
                 logger.info("核心指数行情拉取完成: %d 只 (%.2fs)", len(_core_syms), time.perf_counter() - _i0)
         except Exception as e:  # noqa: BLE001
@@ -760,22 +733,6 @@ class QuoteService:
             self._flush_live_enriched(daily_df, quote_extra, asset_type="stock")
         if not etf_daily_df.is_empty() and self._repo:
             self._flush_live_enriched(etf_daily_df, etf_quote_extra, asset_type="etf")
-        # ---- 指数: 仅有指数监控规则时才写盘 (无规则零成本) ----
-        # mode=all (完整 CN_Index universe) → flush 覆盖; mode=core (部分标的) → merge 不截断分区
-        engine = getattr(self._app_state, "monitor_engine", None) if self._app_state else None
-        if engine and engine.has_asset_rules("index") and self._repo:
-            index_daily_df = self._build_daily(index_records)
-            if not index_daily_df.is_empty():
-                use_flush = preferences.get_realtime_index_mode() == "all"
-                try:
-                    if use_flush:
-                        self._repo.flush_live_daily_asset("index", index_daily_df)
-                    else:
-                        self._repo.merge_live_daily_asset("index", index_daily_df)
-                except Exception as e:  # noqa: BLE001
-                    logger.warning("指数日K写盘失败: %s", e)
-                self._flush_live_enriched(index_daily_df, self._build_quote_extra(index_records), asset_type="index", merge=not use_flush)
-
         # ---- 通知 SSE ----
         self._broadcast_quote_updated()
 
@@ -791,14 +748,6 @@ class QuoteService:
         from app.tickflow.rate_limits import chunked, resolve_limit, sleep_between_batches
 
         symbols = preferences.get_realtime_watchlist_symbols()
-        # 指数监控规则标的并入轮询 (与股票共享 batch 额度)
-        engine = getattr(self._app_state, "monitor_engine", None) if self._app_state else None
-        if engine:
-            for _r in list(engine.rules.values()):
-                if _r.get("enabled", True) and _r.get("asset_type") == "index" and _r.get("scope") == "symbols":
-                    for _s in _r.get("symbols", []):
-                        if _s and _s not in symbols:
-                            symbols.append(_s)
         if not symbols:
             logger.info("自选实时未配置标的, 跳过行情拉取")
             return
@@ -1095,169 +1044,69 @@ class QuoteService:
     # 策略监控
     # ================================================================
 
-    def _evaluate_monitors(self, daily_df: pl.DataFrame, quote_extra: pl.DataFrame | None) -> None:
-        """行情更新后评估统一监控规则引擎,并刷新策略结果缓存。"""
+    def _evaluate_monitors(self, daily_df: pl.DataFrame, quote_extra: pl.DataFrame | None) -> None:  # noqa: ARG002
+        """行情更新後評估台股即時監控規則, 落盤、SSE 廣播並送外部提醒。"""
         try:
-            # 仅在「交易日 + 连续竞价时段」评估监控 —— 避开集合竞价指示价、盘前/收盘后
-            # 缓冲。轮询窗口(_is_trading_hours)更宽是为盘前预热/收盘捕捉, 但告警不应
-            # 基于这些非连续竞价价格。
+            # 僅在「交易日 + 連續競價時段」評估監控, 避開集合競價與盤後緩衝。
             if not self._is_continuous_trading():
                 return
-            # 获取 enriched 数据 (刚算好的)
-            enriched_today, enriched_date = self.get_enriched_today()
-            # 股票快照就绪 = 非空 + 日期为当日。未就绪时仅跳过股票轮,
-            # ETF/指数轮有各自的空表+日期守卫, 不受影响 (纯指数行情/自选场景可独立评估)。
-            stock_ready = (not enriched_today.is_empty()) and (enriched_date == cn_today())
-            if not stock_ready:
-                logger.debug("股票快照未就绪(空=%s, 日期=%s), 跳过股票轮",
-                             enriched_today.is_empty(), enriched_date)
+            if not self._app_state:
+                return
+
+            persisted_taiwan_events: list[dict] = []
+            try:
+                from app.taiwan.realtime.monitor_engine import get_monitor_engine
+                tw_engine = get_monitor_engine()
+                if tw_engine.list_rules():
+                    def persist_taiwan_alerts(alerts):
+                        events = self._format_extension_notifications(
+                            [alert.to_dict() for alert in alerts],
+                        )
+                        from app.services import alert_store
+                        alert_store.append_many(
+                            self._app_state.repo.store.data_dir, events,
+                        )
+                        persisted_taiwan_events.extend(events)
+
+                    tw_engine.evaluate_all(persist_events=persist_taiwan_alerts)
+            except Exception as e:  # noqa: BLE001
+                logger.warning("台股监控评估失败: %s", e)
+
+            if not persisted_taiwan_events:
+                return
 
             all_alerts: list[dict] = []
-            rule_events: list[dict] = []
-            persisted_taiwan_events: list[dict] = []
-            engine = None
-
-            # 通用监控规则评估 (统一引擎: signal/price/market/strategy)
-            if self._app_state:
-                engine = getattr(self._app_state, "monitor_engine", None)
-                if engine and engine.rule_count > 0:
-                    # 预构建 symbol → name 映射 (enriched 已 drop name 列, 引擎触发时回填用)。
-                    # 股票 + ETF + 指数三表合并走 _monitor_name_map -> repo.get_name_map()
-                    # 的进程内 memo, 避免每轮监控对 ~7000 行维表 iter_rows 重建。
-                    try:
-                        name_map = _monitor_name_map(self._app_state.repo)
-                        if name_map:
-                            engine.set_name_map(name_map)
-                    except Exception as e:  # noqa: BLE001
-                        logger.debug("name_map 构建失败 (不影响监控): %s", e)
-                    # 股票轮: 快照未就绪时跳过 (ladder 封单也依赖股票快照日期, 一并跳过)
-                    if stock_ready:
-                        eval_df = enriched_today
-                        if engine.has_rule_type("ladder"):
-                            eval_df = self._inject_sealed_vol(enriched_today, enriched_date)
-                        eval_df = self._inject_intraday_signals(eval_df, engine, "stock")
-                        rule_events = engine.evaluate(eval_df, asset_type="stock")
-                        if engine.consume_strategy_result_updates():
-                            self.notify_strategy_results_updated()
-                    if engine.has_rule_type("sector"):
-                        rule_events += engine.evaluate_sectors(
-                            enriched_today if stock_ready else pl.DataFrame(),
-                            self.get_index_quotes(),
-                        )
-                    # ETF 规则轮: 股票快照不含 ETF, 用 ETF enriched 快照单独评估。
-                    # 独立 try —— ETF 轮任何异常都不得丢弃本轮已算出的股票告警。
-                    # refresh=False —— 不在轮询线程上触发 ETF 冷缓存的同步重算 (缓存由 ETF 实时
-                    # flush 焐热; 未焐热说明无 ETF 实时数据, 跳过本轮 ETF 评估)。
-                    if engine.has_asset_rules("etf") and self._repo is not None:
-                        try:
-                            etf_enriched, _ = self._repo.get_enriched_latest_asset("etf", refresh=False)
-                            if not etf_enriched.is_empty():
-                                etf_enriched = self._inject_intraday_signals(etf_enriched, engine, "etf")
-                                rule_events = rule_events + engine.evaluate(
-                                    etf_enriched, asset_type="etf", reset_strategy_results=False,
-                                )
-                        except Exception as e:  # noqa: BLE001
-                            logger.warning("ETF 监控评估失败 (不影响股票告警): %s", e)
-                    # 指数规则轮: 复刻 ETF 轮。快照由指数实时 flush 焐热;
-                    # refresh=False 冷缓存不同步重算; 显式日期守卫防陈旧 parquet 误告警
-                    # (ETF 轮靠空表隐式跳过, 指数轮更显式, 行为等价)。
-                    if engine.has_asset_rules("index") and self._repo is not None:
-                        try:
-                            index_enriched, index_date = self._repo.get_enriched_latest_asset("index", refresh=False)
-                            if not index_enriched.is_empty() and index_date == cn_today():
-                                index_enriched = self._inject_intraday_signals(index_enriched, engine, "index")
-                                rule_events = rule_events + engine.evaluate(
-                                    index_enriched, asset_type="index", reset_strategy_results=False,
-                                )
-                        except Exception as e:  # noqa: BLE001
-                            logger.warning("指数监控评估失败 (不影响股票/ETF 告警): %s", e)
-
-                    # 台湾市场实时规则轮: 独立评估 TaiwanMonitorEngine 并汇总告警
-                    try:
-                        from app.taiwan.realtime.monitor_engine import get_monitor_engine
-                        tw_engine = get_monitor_engine()
-                        if tw_engine.list_rules():
-                            def persist_taiwan_alerts(alerts):
-                                events = self._format_extension_notifications(
-                                    [alert.to_dict() for alert in alerts],
-                                )
-                                from app.services import alert_store
-                                alert_store.append_many(
-                                    self._app_state.repo.store.data_dir, events,
-                                )
-                                persisted_taiwan_events.extend(events)
-
-                            tw_engine.evaluate_all(persist_events=persist_taiwan_alerts)
-                    except Exception as e:  # noqa: BLE001
-                        logger.warning("台股监控评估失败 (不影响其他告警): %s", e)
-
-                    if rule_events:
-                        rule_events = self._format_extension_notifications(rule_events)
-                        # 落盘到 alerts.jsonl
-                        try:
-                            from app.services import alert_store
-                            alert_store.append_many(
-                                self._app_state.repo.store.data_dir, rule_events,
-                            )
-                        except Exception as e:  # noqa: BLE001
-                            logger.warning("告警落盘失败: %s", e)
-                    emitted_rule_events = rule_events + persisted_taiwan_events
-                    if emitted_rule_events:
-                        # 转为 SSE 推送格式 (兼容旧 alert schema)
-                        for ev in emitted_rule_events:
-                            alert = {
-                                "source": ev["source"],
-                                "type": ev["type"],
-                                "rule_id": ev.get("rule_id"),
-                                "strategy_id": ev.get("strategy_id") if ev["source"] == "strategy" else None,
-                                "symbol": ev["symbol"],
-                                "name": ev["name"],
-                                "message": ev["message"],
-                                "price": ev["price"],
-                                "change_pct": ev["change_pct"],
-                                "signals": ev["signals"],
-                                "severity": ev.get("severity", "info"),
-                                "conditions": ev.get("conditions") or [],
-                                "logic": ev.get("logic") or "and",
-                            }
-                            for key in (
-                                "sector_kind", "sector_key", "sector_name",
-                                "sector_source_field", "sector_value", "sector_level",
-                                "window_change_pct", "coverage_ratio", "valid_count",
-                                "total_count", "up_count", "down_count", "leader",
-                            ):
-                                if key in ev:
-                                    alert[key] = ev[key]
-                            all_alerts.append(alert)
-
-            # 策略页实时回显: 不写文件 (实时行情每轮更新 enriched, 写文件会被 read_cache
-            # 的 mtime 校验判过期, 反复读不到)。监控引擎本轮已算出的结果存在内存
-            # (latest_strategy_results), 由 /api/screener/cached 端点直接叠加读取。
+            for ev in persisted_taiwan_events:
+                all_alerts.append({
+                    "source": ev["source"],
+                    "type": ev["type"],
+                    "rule_id": ev.get("rule_id"),
+                    "strategy_id": None,
+                    "symbol": ev["symbol"],
+                    "name": ev["name"],
+                    "message": ev["message"],
+                    "price": ev["price"],
+                    "change_pct": ev["change_pct"],
+                    "signals": ev["signals"],
+                    "severity": ev.get("severity", "info"),
+                    "conditions": ev.get("conditions") or [],
+                    "logic": ev.get("logic") or "and",
+                })
 
             # 广播到所有 SSE 订阅者 (背压保护在订阅者队列内做)
-            if all_alerts:
-                # 按 symbol 富化行业/概念 ext 字段, 使 toast + 触发记录统一展示板块标签。
-                self._enrich_alerts_ext(all_alerts)
-                self._broadcast_alerts(all_alerts)
-                logger.info("监控评估完成: %d 条通知", len(all_alerts))
+            self._broadcast_alerts(all_alerts)
+            logger.info("监控评估完成: %d 条通知", len(all_alerts))
+            # 系统通知 (可选通道, 由 preferences 开关控制)。
+            self._maybe_send_system_notifications(all_alerts)
+            # 外部推播 (LINE / Telegram)。
+            self._maybe_send_webhook(persisted_taiwan_events, None)
+            # AI follow-up for plan alerts (default off); after the rule-based push, never blocking it.
+            try:
+                from app.taiwan import event_ai_explain
 
-                # 系统通知 (可选通道, 由 preferences 开关控制)。
-                # cooldown 去重已在 MonitorRuleEngine 做过, 这里只负责转发。
-                self._maybe_send_system_notifications(all_alerts)
-
-            # 外部推播 (由规则 webhook_channels 指定渠道)。
-            # 紧随系统通知, 同样静默降级不阻断主流程。
-            emitted_rule_events = rule_events + persisted_taiwan_events
-            if emitted_rule_events:
-                self._maybe_send_webhook(emitted_rule_events, engine)
-            if persisted_taiwan_events:
-                # AI follow-up for plan alerts (default off); after the rule-based push, never blocking it.
-                try:
-                    from app.taiwan import event_ai_explain
-
-                    event_ai_explain.submit(persisted_taiwan_events)
-                except Exception as e:  # noqa: BLE001
-                    logger.warning("事件 AI 解讀提交失敗 (%s)", type(e).__name__)
+                event_ai_explain.submit(persisted_taiwan_events)
+            except Exception as e:  # noqa: BLE001
+                logger.warning("事件 AI 解讀提交失敗 (%s)", type(e).__name__)
 
         except Exception as e:  # noqa: BLE001
             logger.warning("监控评估失败: %s", e)
@@ -1297,126 +1146,6 @@ class QuoteService:
                     )
             formatted_events.append(formatted)
         return formatted_events
-
-    def _enrich_alerts_ext(self, alerts: list[dict]) -> None:
-        """就地给告警事件按 symbol 追加行业/概念 ext 字段。
-
-        读 preferences.get_monitor_ext_fields() 取字段配置, 用 screener._load_ext_value_maps
-        (带 parquet mtime 缓存) 富化。富化失败静默降级 (告警照常推送, 只是没标签)。
-        每条事件新增 {configId}__{fieldName} 键 (与 watchlist/screener 输出约定一致)。
-        """
-        if not alerts or not self._app_state or self._repo is None:
-            return
-        try:
-            from app.services import preferences
-            fields = preferences.get_monitor_ext_fields()
-            # 新结构 {field, maxTags, hiddenIndices}, 后端只需 .field
-            parts = []
-            for key in ("concept", "industry"):
-                item = fields.get(key)
-                if isinstance(item, dict) and item.get("field"):
-                    parts.append(item["field"])
-                elif isinstance(item, str) and item:
-                    parts.append(item)  # 兼容旧格式
-            if not parts:
-                return
-            ext_columns = ",".join(parts)
-            from app.api.screener import _load_ext_value_maps
-            value_maps = _load_ext_value_maps(self._repo, ext_columns)
-            if not value_maps:
-                return
-            for ev in alerts:
-                sym = ev.get("symbol")
-                if not sym:
-                    continue
-                for out_col, vmap in value_maps.items():
-                    ev[out_col] = vmap.get(str(sym))
-        except Exception as e:  # noqa: BLE001
-            logger.debug("告警 ext 富化失败 (不影响推送): %s", e)
-
-    def _inject_intraday_signals(self, enriched: pl.DataFrame, engine, asset_type: str) -> pl.DataFrame:
-        """每分钟为分时信号规则批量获取一次数据并注入临时布尔列。"""
-        get_symbols = getattr(engine, "intraday_signal_symbols", None)
-        if not callable(get_symbols):
-            return enriched
-        symbols = get_symbols(asset_type)
-        if not symbols:
-            return enriched
-
-        now = cn_now()
-        bucket = now.strftime("%Y%m%d%H%M")
-        if self._intraday_signal_bucket.get(asset_type) == bucket:
-            return self._intraday_signal_evaluator.inject(enriched, [])
-        self._intraday_signal_bucket[asset_type] = bucket
-
-        from app.services.kline_sync import (
-            fetch_intraday_monitor_batch,
-            intraday_monitor_support,
-        )
-
-        capset = getattr(self._app_state, "capabilities", None)
-        support = intraday_monitor_support(capset)
-        if not support["available"] or len(symbols) > int(support["max_symbols"]):
-            return self._intraday_signal_evaluator.inject(enriched, [])
-
-        minute_df = fetch_intraday_monitor_batch(sorted(symbols), capset, now=now)
-        prev_close: dict[str, float] = {}
-        available_cols = set(enriched.columns)
-        for row in enriched.filter(pl.col("symbol").is_in(sorted(symbols))).iter_rows(named=True):
-            symbol = str(row.get("symbol") or "")
-            reference = row.get("prev_close") if "prev_close" in available_cols else None
-            if reference is None and "close" in available_cols and "change_pct" in available_cols:
-                close = row.get("close")
-                change_pct = row.get("change_pct")
-                if close is not None and change_pct is not None and float(change_pct) > -1:
-                    reference = float(close) / (1.0 + float(change_pct))
-            if symbol and reference is not None:
-                prev_close[symbol] = float(reference)
-
-        signals = self._intraday_signal_evaluator.evaluate(
-            minute_df,
-            symbols=symbols,
-            prev_close=prev_close,
-            asset_type=asset_type,
-            now=now,
-        )
-        return self._intraday_signal_evaluator.inject(enriched, signals)
-
-    def _inject_sealed_vol(self, enriched_today: pl.DataFrame, enriched_date) -> pl.DataFrame:
-        """从 depth_service 取封单量, 作为临时列 _sealed_vol 注入 enriched 副本。
-
-        涨停封单(买一量) + 跌停封单(卖一量)合并, 供 ladder 规则评估。
-        depth 未就绪时返回原 df (不注入, ladder 规则安全降级不触发)。
-        """
-        try:
-            depth_svc = getattr(self._app_state, "depth_service", None)
-            if not depth_svc:
-                return enriched_today
-            # enriched_date 可能是 date 或字符串, 统一为 date
-            from datetime import date as date_cls
-            target_date = enriched_date if isinstance(enriched_date, date_cls) else date_cls.fromisoformat(str(enriched_date))
-            # 取涨停 + 跌停封单, 合并 {symbol: vol}
-            up_map = depth_svc.get_sealed_map(target_date, is_down=False)
-            down_map = depth_svc.get_sealed_map(target_date, is_down=True)
-            sealed: dict[str, int] = {}
-            for m in (up_map, down_map):
-                for sym, info in m.items():
-                    vol = (info or {}).get("vol")
-                    if vol and vol > 0:
-                        sealed[sym] = vol  # 后者覆盖前者 (同 symbol 不可能在涨跌停都封单)
-            if not sealed:
-                return enriched_today
-            # 构造 (symbol, _sealed_vol) DataFrame, join 到 enriched 副本
-            sealed_df = pl.DataFrame({
-                "symbol": list(sealed.keys()),
-                "_sealed_vol": list(sealed.values()),
-            })
-            # 若已有残留列先移除 (避免重复 join 报错)
-            df = enriched_today.drop("_sealed_vol") if "_sealed_vol" in enriched_today.columns else enriched_today
-            return df.join(sealed_df, on="symbol", how="left")
-        except Exception as e:  # noqa: BLE001
-            logger.debug("封单注入失败 (ladder 规则将不触发): %s", e)
-            return enriched_today
 
     def _maybe_send_webhook(self, rule_events: list[dict], engine) -> None:
         """Dispatch persisted alert events; global channels override legacy rule opt-ins."""
@@ -1495,7 +1224,7 @@ class QuoteService:
                 source = ev.get("source", "")
                 source_label = {
                     "strategy": "策略", "signal": "訊號",
-                    "price": "價格", "market": "異動", "sector": "板塊",
+                    "price": "價格", "market": "異動",
                 }.get(source, source or "通知")
 
                 name = ev.get("name") or ""
@@ -1512,11 +1241,6 @@ class QuoteService:
                 notify_adapter.notify(title, body)
         except Exception as e:  # noqa: BLE001
             logger.debug("系统通知发送异常 (不影响告警主流程): %s", e)
-
-    @staticmethod
-    def _get_strategy_monitor():
-        """获取 StrategyMonitorService — 不再使用, 改用 _app_state 注入。"""
-        return None
 
     # ================================================================
     # enriched 增量计算

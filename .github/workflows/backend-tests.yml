@@ -43,8 +43,7 @@ jobs:
 
           git diff --name-only "$base_sha" "$GITHUB_SHA" > "$RUNNER_TEMP/changed-paths.txt"
           if grep -Eq '^(shared/|contracts/|\.github/workflows/backend-tests\.yml$)' "$RUNNER_TEMP/changed-paths.txt" \
-            || grep -E '^backend/' "$RUNNER_TEMP/changed-paths.txt" | grep -Ev '(^|/)docs/|\.md$' \
-            || grep -Eq '^backend/app/strategy/prompts/[^/]+\.md$' "$RUNNER_TEMP/changed-paths.txt"; then
+            || grep -E '^backend/' "$RUNNER_TEMP/changed-paths.txt" | grep -Ev '(^|/)docs/|\.md$'; then
             echo "backend=true" >> "$GITHUB_OUTPUT"
           else
             echo "backend=false" >> "$GITHUB_OUTPUT"

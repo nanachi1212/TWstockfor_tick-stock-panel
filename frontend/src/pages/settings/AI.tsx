@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
-import { useMutation, useQueryClient } from '@tanstack/react-query'
+import { useMutation, useQueryClient, useQuery } from '@tanstack/react-query'
 import {
   Save, Loader2, Check, Wifi, WifiOff, Eye, EyeOff, Shield,
   Shuffle, Plug, Zap, Settings2, ExternalLink, Trash2,
@@ -379,8 +379,10 @@ export function SettingsAIPanel() {
         </div>
       </Card>
 
+      <AiQuickEnableCard />
       <AutoAiExplainCard />
       <EventAiExplainCard />
+      <AiFeedbackSummaryCard />
 
       <div className="rounded-card border border-amber-400/20 bg-amber-400/[0.04] px-4 py-3 flex items-start gap-3">
         <Shield className="h-4 w-4 text-amber-400/70 mt-0.5 shrink-0" />
@@ -420,6 +422,66 @@ export function SettingsAIPanel() {
             </div>
           </div>
         </div>
+      )}
+    </div>
+  )
+}
+
+/** AI 剛設定好、兩個自動功能都還關著時，給一個一鍵全開的入口，不然大部分 AI 價值看不到。 */
+function AiQuickEnableCard() {
+  const qc = useQueryClient()
+  const s = useSettings().data
+  const configured = Boolean(s?.ai_configured ?? s?.has_ai_key)
+  const bothOff = !s?.auto_ai_explain_enabled && !s?.event_ai_explain_enabled
+  const enableAll = useMutation({
+    mutationFn: async () => {
+      await api.updateAutoAiExplain(true)
+      try {
+        await api.updateEventAiExplain(true)
+      } catch (err) {
+        // 第一步已成功: 讓設定頁重抓, 開關會如實顯示「盤後 AI 說明」已開、「提醒後 AI 解讀」未開
+        throw new Error('「盤後自動 AI 說明」已開啟，但「提醒後 AI 解讀」開啟失敗：' + ((err as Error).message || '請稍後再試'), { cause: err })
+      }
+    },
+    onSettled: () => qc.invalidateQueries({ queryKey: QK.settings }),
+  })
+  if (!configured || !bothOff) return null
+  return (
+    <div className="rounded-card border border-accent/40 bg-accent/5 px-4 py-3 flex flex-wrap items-center gap-3" aria-label="一鍵開啟 AI 自動功能">
+      <div className="min-w-0 flex-1">
+        <p className="text-sm font-medium text-foreground">AI 已可用，建議開啟兩個自動功能</p>
+        <p className="text-[11px] text-muted">盤後自動為今日選股產生白話說明；提醒觸發後附上 AI 解讀。都只在背景補充說明，不影響規則與提醒本身。</p>
+      </div>
+      <button type="button" disabled={enableAll.isPending} onClick={() => enableAll.mutate()}
+        className="inline-flex min-h-8 items-center rounded-btn bg-accent px-3 text-xs font-medium text-base disabled:opacity-50">
+        {enableAll.isPending ? '開啟中…' : '一鍵開啟'}
+      </button>
+      {enableAll.isError && <p role="alert" className="text-[11px] text-danger">{enableAll.error?.message || '開啟失敗，請稍後再試。'}</p>}
+    </div>
+  )
+}
+
+/** 各模型「準／不準」統計：來自今日選股卡片上的一鍵回饋。 */
+function AiFeedbackSummaryCard() {
+  const summary = useQuery({ queryKey: ['taiwan-ai-feedback-summary'], queryFn: api.taiwanAiFeedbackSummary, staleTime: 60_000 })
+  const data = summary.data
+  return (
+    <div className="rounded-card border border-border bg-surface/60 px-4 py-3 space-y-1.5" aria-label="AI 說明回饋統計">
+      <p className="text-sm font-medium text-foreground">AI 說明準不準（你的回饋）</p>
+      {!data || data.total === 0 ? (
+        <p className="text-[11px] text-muted">還沒有回饋。到「今日選股」卡片展開 AI 白話說明，按「準」或「不準」就會累積到這裡。</p>
+      ) : (
+        <>
+          <p className="text-[11px] text-muted">共 {data.total} 次回饋，{Math.round((data.helpful_ratio ?? 0) * 100)}% 覺得準。</p>
+          <ul className="space-y-0.5 text-[11px]">
+            {data.models.map(m => (
+              <li key={m.model} className="flex items-center justify-between gap-2">
+                <span className="truncate font-mono text-foreground">{m.model}</span>
+                <span className="shrink-0 text-muted">準 {m.helpful}・不準 {m.not_helpful}{m.helpful_ratio != null && `・${Math.round(m.helpful_ratio * 100)}%`}</span>
+              </li>
+            ))}
+          </ul>
+        </>
       )}
     </div>
   )

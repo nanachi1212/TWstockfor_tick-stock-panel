@@ -26,9 +26,8 @@ cp .env.example .env       # 按需填 TICKFLOW_API_KEY(留空 = None 模式)
 
 ```bash
 # 後端
-cd backend && uv sync --extra backtest   # 含回測依賴
+cd backend && uv sync
 # 老 CPU: uv sync --extra legacy-cpu
-# 老 CPU + 回測: uv sync --extra legacy-cpu --extra backtest
 uv run uvicorn app.main:app --reload --port 3018
 
 # 前端
@@ -54,7 +53,6 @@ Docker 採用兩階段構建,前端 dist 拷進後端鏡像,**單容器**運行,
 > - **默認行為**:`docker compose up --build` 構建出的鏡像**不含** stock-sdk,插件不可用。
 > - **如確需啟用**(自行承擔合規責任):
 >   ```bash
->   docker compose build --build-arg INCLUDE_STOCKSDK=1
 >   docker compose up -d
 >   ```
 > - 啟用後鏡像會額外內置 Node.js 運行時並預裝 stock-sdk 依賴,插件開箱即用。
@@ -78,14 +76,9 @@ docker compose up --build -d
 
 ```ini
 BACKEND_EXTRAS=legacy-cpu          # 兼容老 CPU
-BACKEND_EXTRAS=legacy-cpu backtest # 兼容老 CPU + 回測依賴
 ```
 
 手動啟動源碼時，也可以在 `backend/` 目錄直接執行 `uv sync --extra legacy-cpu`。不要設置 `POLARS_SKIP_CPU_CHECK`，它只會隱藏警告，實際執行不支持的指令時仍可能崩潰。
-
-### 回測依賴說明
-
-vectorbt → numba 體積較大,作為可選 extras(`uv sync --extra backtest`)。macOS / Intel 無預構建 wheel 時需 `brew install cmake` 現場編譯。
 
 ---
 
@@ -97,7 +90,7 @@ vectorbt → numba 體積較大,作為可選 extras(`uv sync --extra backtest`)�
 git pull
 ```
 
-**整個 `data/` 目錄都不納入 git** —— 行情日K、三大法人、融資融券、基本面、自選清單與分組、監控規則與觸發記錄,全部是程式執行時產生或拉取的使用者資料,`git pull` 物理上無法影響它們。新使用者首次啟動後,請到面板 **設定 → 資料來源 → 台股歷史日 K 資料庫** 下載歷史資料包(GitHub Release `data-daily-2026-09-10`, 範圍 2024-01-02 ～ 2026-09-10),之後的日常更新由排程自動處理。
+**整個 `data/` 目錄都不納入 git** —— 行情日K、三大法人、融資融券、基本面、自選清單與分組、監控規則與觸發記錄,全部是程式執行時產生或拉取的使用者資料,`git pull` 物理上無法影響它們。新使用者首次啟動後,請到面板 **設定 → 資料來源 → 台股歷史日 K 資料庫** 下載歷史資料包(GitHub Release `data-daily-2026-10-07`, 範圍 2024-01-02 ～ 2026-10-07),之後的日常更新由排程自動處理。
 
 > ⚠️ **切勿使用以下命令"解決衝突"或"清理",它們會一次性刪光 `data/` 下所有未被 git 跟蹤的數據:**
 > - `git clean -fdx`(最危險,會刪掉所有 `.gitignore` 忽略的文件)

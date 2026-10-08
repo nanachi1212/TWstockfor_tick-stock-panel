@@ -1,31 +1,11 @@
 from types import SimpleNamespace
 from unittest.mock import Mock
 
+import pytest
+
 from app.jobs import daily_pipeline
-from app.taiwan import daily_update
+from app.taiwan import daily_update, selection_review_service
 from app.taiwan.quant import live_runner
-
-
-def test_instruments_schedule_refreshes_security_master(monkeypatch, tmp_path):
-    from app.services import instrument_sync
-    from app.taiwan import universe
-
-    repo = Mock()
-    repo.store.data_dir = tmp_path
-    master = Mock()
-    master.load_from_adapters.return_value = 12
-    master.health_metadata.return_value = {"status": "available"}
-    monkeypatch.setattr(instrument_sync, "sync_instruments", lambda _data_dir: 5)
-    monkeypatch.setattr(universe, "get_security_master", lambda: master)
-    monkeypatch.setattr(daily_pipeline, "_refresh_instruments_view", lambda _repo: None)
-    monkeypatch.setattr(daily_pipeline, "_invalidate", lambda _name: None)
-
-    result = daily_pipeline.run_instruments_sync(repo)
-
-    assert result["instruments_rows"] == 5
-    assert result["security_master"] == {"status": "available", "rows": 12}
-    master.load_from_adapters.assert_called_once_with()
-    master.save_cache.assert_called_once_with()
 
 
 def test_scheduler_market_refresh_is_complete_before_quant_failure(monkeypatch, taiwan_data_env):
@@ -55,6 +35,7 @@ def test_scheduler_market_refresh_is_complete_before_quant_failure(monkeypatch, 
                         lambda: SimpleNamespace(run_update=refresh))
     monkeypatch.setattr(daily_pipeline, "_refresh_after_close_research", research_refresh)
     monkeypatch.setattr(live_runner, "run_live_after_refresh", quant)
+    monkeypatch.setattr(selection_review_service, "lock_daily_forward_batches", Mock())
     daily_pipeline.start_scheduler(Mock(), Mock())
     job = next(call for call in scheduler.add_job.call_args_list if call.kwargs["id"] == "taiwan_daily_update")
     job.args[0]()
@@ -242,3 +223,55 @@ def test_manual_quant_alert_evaluation_persists_before_committing_edges(monkeypa
     assert result == {"ok": True, "status": "available", "alerts": events}
     append.assert_called_once_with(data_dir, events)
     push.assert_called_once_with(events)
+
+
+@pytest.mark.parametrize("ready,lock_fails", [(True, False), (True, True), (False, False)])
+def test_after_close_forward_lock_preserves_ai_and_push_chain(monkeypatch, ready, lock_fails):
+    from app.taiwan import auto_ai_explain, auto_watch, push_digest, selection_review_service
+
+    events = []
+    status = "success" if ready else "partial"
+    result = SimpleNamespace(
+        overall_status=status, daily=SimpleNamespace(status=status),
+        institutional=SimpleNamespace(status=status), margin=SimpleNamespace(status=status),
+        freshness=SimpleNamespace(daily_as_of="2026-10-08"),
+    )
+    monkeypatch.setattr(daily_update, "TaiwanDailyUpdateService",
+                        lambda: SimpleNamespace(run_update=lambda **kwargs: result))
+    monkeypatch.setattr(daily_pipeline, "_refresh_after_close_research", lambda: events.append("research"))
+    monkeypatch.setattr(live_runner, "run_live_after_refresh", lambda *args, **kwargs: events.append("quant"))
+    monkeypatch.setattr(auto_watch, "sync_watchlist_plans", lambda: events.append("watch"))
+
+    def lock():
+        events.append("lock")
+        if lock_fails:
+            raise RuntimeError("lock unavailable")
+
+    monkeypatch.setattr(selection_review_service, "lock_daily_forward_batches", lock)
+    monkeypatch.setattr(auto_ai_explain, "run_auto_explain", lambda: events.append("ai"))
+    push = Mock(side_effect=lambda *args: events.append("push"))
+    monkeypatch.setattr(push_digest, "run", push)
+    daily_pipeline.run_taiwan_update(trigger="startup_catchup")
+    assert events == (["research", "quant", "watch", "lock", "ai", "push"] if ready else ["research", "quant"])
+    if ready:
+        push.assert_called_once_with("evening", "2026-10-08")
+    else:
+        push.assert_not_called()
+
+
+def test_fundamentals_warm_is_registered_at_1730(monkeypatch):
+    from app.taiwan import fundamentals_warm
+
+    scheduler = Mock()
+    monkeypatch.setattr(daily_pipeline, "AsyncIOScheduler", lambda **kwargs: scheduler)
+    warm = Mock(return_value={"status": "ok"})
+    monkeypatch.setattr(fundamentals_warm, "warm_fundamentals", warm)
+    daily_pipeline.start_scheduler(Mock(), Mock())
+    job = next(call for call in scheduler.add_job.call_args_list if call.kwargs["id"] == "taiwan_fundamentals_warm")
+    fields = {field.name: str(field) for field in job.kwargs["trigger"].fields}
+    assert (fields["day_of_week"], fields["hour"], fields["minute"]) == ("mon-fri", "17", "30")
+    assert str(job.kwargs["trigger"].timezone) == "Asia/Taipei"
+    assert job.kwargs["max_instances"] == 1
+    warm.assert_not_called()
+    job.args[0]()
+    warm.assert_called_once_with()

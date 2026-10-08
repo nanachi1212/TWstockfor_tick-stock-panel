@@ -14,7 +14,6 @@ from app import secrets_store
 from app.api import settings as settings_api
 from app.services import preferences, webhook_adapter
 from app.services.quote_service import QuoteService
-from app.strategy import monitor_rules
 
 _SYSTEM_SIMPLIFIED_TERMS = (
     "测试", "买入", "卖出", "信号", "触发", "当前", "价格", "规则", "监控",
@@ -44,7 +43,6 @@ def test_legacy_channels_are_filtered_without_deleting_other_preferences(monkeyp
     })
 
     assert preferences.get_webhook_default_channels() == ["line", "telegram"]
-    assert monitor_rules.normalize({"webhook_channels": ["wecom", "telegram"]})["webhook_channels"] == ["telegram"]
     persisted = json.loads(preferences_path.read_text(encoding="utf-8"))
     assert persisted["feishu_webhook_url"] == "legacy-value"
     assert persisted["nav_order"] == ["market", "watchlist"]
