@@ -480,7 +480,7 @@ def test_social_ai_only_analyses_hottest_symbols(monkeypatch):
     seen = []
 
     async def ok(messages, **kwargs):
-        data = _json.loads(messages[-1]["content"].split("資料：", 1)[1])
+        data = _json.loads(messages[-1]["content"].split("資料\uff1a", 1)[1])
         seen.extend(item["symbol"] for item in data)
         return _json.dumps({"items": [
             {"symbol": item["symbol"], "sentiment": "neutral", "score": 0.0, "confidence": 0.5,
