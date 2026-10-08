@@ -152,8 +152,9 @@ async def _application_lifespan(app: FastAPI):
         if app.state.scheduler:
             app.state.scheduler.shutdown(wait=False)
         try:
-            from app.taiwan import telegram_bot
+            from app.taiwan import startup_catchup, telegram_bot
 
+            startup_catchup.cancel()
             telegram_bot.get_bot().stop()
         except Exception:  # noqa: BLE001
             pass

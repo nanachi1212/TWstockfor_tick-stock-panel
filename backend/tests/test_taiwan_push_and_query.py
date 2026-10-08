@@ -263,3 +263,13 @@ def test_needs_catchup_skips_during_session_and_when_current(monkeypatch):
         get_freshness=lambda: SimpleNamespace(daily_status="stale", daily_as_of="2026-10-06"),
     ))
     assert startup_catchup.needs_catchup() == (True, "daily_stale:2026-10-06")
+
+
+def test_schedule_is_skipped_under_pytest_and_never_hits_network(monkeypatch):
+    # pytest 會設 PYTEST_CURRENT_TEST; 啟動補跑不得在測試環境排程 (會連網並寫入共用資料目錄)。
+    startup_catchup._STARTED.clear()
+    startup_catchup._LAST.clear()
+    assert startup_catchup.schedule(SimpleNamespace(), delay_seconds=0) is False
+    assert startup_catchup._STARTED.is_set() is False
+    assert startup_catchup.last_result() == {"status": "skipped", "reason": "pytest"}
+    startup_catchup.cancel()

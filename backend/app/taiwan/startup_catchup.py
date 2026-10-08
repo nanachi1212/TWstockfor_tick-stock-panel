@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import contextlib
 import logging
+import os
 import threading
 from typing import Any
 
@@ -19,6 +20,7 @@ logger = logging.getLogger(__name__)
 
 _STARTED = threading.Event()
 _LAST: dict[str, Any] = {}
+_TIMER: threading.Timer | None = None
 
 
 def last_result() -> dict[str, Any]:
@@ -74,11 +76,26 @@ def _run(app_state: Any) -> None:
 
 
 def schedule(app_state: Any, delay_seconds: float = 20.0) -> bool:
-    """啟動後延遲執行一次；重複呼叫無效。"""
+    """啟動後延遲執行一次；重複呼叫無效。
+
+    pytest 啟動 app 時不排程: 補跑會真的連網並寫入共用資料目錄, 污染其他測試。
+    """
+    global _TIMER
     if _STARTED.is_set():
         return False
+    if os.environ.get("PYTEST_CURRENT_TEST"):
+        _LAST.update(status="skipped", reason="pytest")
+        return False
     _STARTED.set()
-    timer = threading.Timer(delay_seconds, _run, args=(app_state,))
-    timer.daemon = True
-    timer.start()
+    _TIMER = threading.Timer(delay_seconds, _run, args=(app_state,))
+    _TIMER.daemon = True
+    _TIMER.start()
     return True
+
+
+def cancel() -> None:
+    """關閉程序時取消尚未執行的補跑 (已開始執行的不中斷)。"""
+    global _TIMER
+    if _TIMER is not None:
+        _TIMER.cancel()
+        _TIMER = None
