@@ -229,7 +229,7 @@ function StatusCards({ job }: { job: TaiwanSocialSentimentJob }) {
     ['工作狀態', statusLabel(job.status)],
     ['PTT', statusLabel(job.ptt_status)],
     ['Dcard', job.dcard_status === 'unavailable' ? 'Dcard：目前來源不可用' : statusLabel(job.dcard_status)],
-    ['AI 情緒', statusLabel(job.ai_status)],
+    ['AI 情緒', statusLabel(job.ai_status) + (job.ai_skipped_symbols ? `（熱度較低的 ${job.ai_skipped_symbols} 檔未分析）` : '')],
     ['開始時間', dateTime(job.started_at)],
     ['完成時間', dateTime(job.finished_at)],
     ['本次抓取文章數', job.posts.toLocaleString('zh-TW')],

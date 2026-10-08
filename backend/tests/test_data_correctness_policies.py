@@ -490,4 +490,5 @@ def test_social_ai_only_analyses_hottest_symbols(monkeypatch):
     info = _run_ai(monkeypatch, ok, rankings=AI_SENTIMENT_MAX_SYMBOLS + 5)
     assert seen == [f"{1000 + i}" for i in range(AI_SENTIMENT_MAX_SYMBOLS)]
     assert info["analyzed_symbols"] == AI_SENTIMENT_MAX_SYMBOLS
-    assert info["skipped_symbols"] == 5 and info["status"] == "available"
+    assert info["skipped_symbols"] == 5
+    assert info["status"] == "degraded"  # skipped tail is partial coverage, not complete

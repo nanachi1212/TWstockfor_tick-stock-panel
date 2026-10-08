@@ -809,7 +809,7 @@ class SocialSentimentService:
                     break
         return {
             "status": (
-                "available" if analyzed == len(targets) and not errors
+                "available" if analyzed == len(rankings) and not errors
                 else "degraded" if analyzed
                 else "unavailable"
             ),

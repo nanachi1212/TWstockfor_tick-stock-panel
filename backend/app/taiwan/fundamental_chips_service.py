@@ -91,6 +91,20 @@ class TaiwanFundamentalChipsService:
     # 1. Valuation (Official Primary)
     # ─────────────────────────────────────────────────────────────
 
+    def prime_valuation_cache(self, exchange: str) -> int:
+        """Fill the per-symbol valuation cache from one official snapshot request."""
+        records = self.official.valuation_snapshot(exchange)
+        for record in records:
+            vals = record.values or {}
+            pe, pb, dy = vals.get("pe"), vals.get("pb"), vals.get("dividend_yield")
+            self.cache.set(
+                "TaiwanValuation", self._to_canonical_str(record.symbol),
+                {"pe": pe, "pb": pb, "dividend_yield": dy},
+                data_date=record.period_end or None,
+                status="available" if (pe is not None or pb is not None or dy is not None) else "unavailable",
+            )
+        return len(records)
+
     def get_valuation(self, symbol: str, exchange: str) -> TaiwanValuationData:
         """Fetch valuation from official TWSE/TPEx open data with cache fallback."""
         sym_str = self._to_canonical_str(symbol)

@@ -1,8 +1,8 @@
-import pytest
 from datetime import date
 from types import SimpleNamespace
 
 import polars as pl
+import pytest
 
 from app.taiwan.finmind_cache import FinMindCache
 from app.taiwan.fundamental_chips_service import TaiwanFundamentalChipsService
