@@ -26,9 +26,9 @@ For the exact symbol/market-rule/tax/settlement semantics, see
 field actually comes from, see
 [taiwan-data-sources.md](./taiwan-data-sources.md). ETF NAV/distribution and
 fundamentals-availability edge cases are covered in
-[taiwan-etf-history-phase-6i.md](./taiwan-etf-history-phase-6i.md),
-[taiwan-fundamentals-availability-phase-6g.md](./taiwan-fundamentals-availability-phase-6g.md),
-and [taiwan-share-capital-phase-6h.md](./taiwan-share-capital-phase-6h.md).
+[taiwan-etf-history-phase-6i.md](./archive/taiwan-etf-history-phase-6i.md),
+[taiwan-fundamentals-availability-phase-6g.md](./archive/taiwan-fundamentals-availability-phase-6g.md),
+and [taiwan-share-capital-phase-6h.md](./archive/taiwan-share-capital-phase-6h.md).
 
 ## Running the app
 

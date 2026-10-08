@@ -610,8 +610,8 @@ def status(request: Request) -> dict:
         "storage": _get_storage(data_dir),
 
         # 调度
-        "next_instruments_run": _next_cron_run(scheduler, "pre_market_instruments"),
-        "next_pipeline_run":    _next_cron_run(scheduler, "daily_pipeline"),
+        "next_instruments_run": None,
+        "next_pipeline_run":    _next_cron_run(scheduler, "taiwan_daily_update"),
         "last_instruments_run": _last_finished("instruments"),
         "last_pipeline_run":    _last_finished("pipeline"),
         "checked_at": datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z"),
@@ -638,10 +638,5 @@ def refresh_cache(request: Request) -> dict:
     repo = request.app.state.repo
     repo.clear_cache()
     repo.refresh_cache()
-    # 清除 Overview 总览聚合结果缓存 + Screener 历史 TTL 缓存
-    from app.api.overview import invalidate_overview_cache
-    invalidate_overview_cache()
-    from app.services.screener import ScreenerService
-    ScreenerService.clear_history_cache()
     logger.info("refresh-cache: Polars 缓存已重建")
     return {"ok": True}

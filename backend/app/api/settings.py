@@ -21,7 +21,7 @@ import logging
 from typing import Literal
 
 from fastapi import APIRouter, HTTPException, Request
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, Field
 
 from app import secrets_store
 from app.data_providers.custom.config import MAX_TIMEOUT
@@ -73,7 +73,7 @@ def get_settings() -> dict:
     """返回当前配置概况(Key 脱敏)。"""
     from app.config import settings
     from app.services import preferences
-    from app.taiwan import auto_ai_explain, event_ai_explain
+    from app.taiwan import auto_ai_explain, event_ai_explain, push_digest, telegram_bot, watchlist_anomaly
     from app.services.ai_provider import (
         ai_configured,
         current_ai_model,
@@ -124,6 +124,12 @@ def get_settings() -> dict:
         "auto_ai_explain_enabled": auto_ai_explain.is_enabled(),
         "auto_ai_explain_last_run": auto_ai_explain.last_run(),
         "event_ai_explain_enabled": event_ai_explain.is_enabled(),
+        # 推播與查詢 (預設全部關閉)
+        "push_digest_enabled": push_digest.is_enabled(),
+        "push_digest_last_run": push_digest.last_run(),
+        "watchlist_anomaly_enabled": watchlist_anomaly.is_enabled(),
+        "watchlist_anomaly_threshold_pct": watchlist_anomaly.threshold_pct(),
+        "telegram_query_enabled": telegram_bot.is_enabled(),
     }
 
 
@@ -596,14 +602,6 @@ class CustomSourceTestIn(BaseModel):
     config: CustomSourceIn | None = None
 
 
-class MiningSchedulePrefs(BaseModel):
-    model_config = ConfigDict(extra="forbid", strict=True)
-
-    mining_schedule_enabled: bool
-    mining_schedule_weekday: int = Field(ge=0, le=4)
-    mining_budget_profile: Literal["balanced", "strict"]
-
-
 @router.get("/preferences")
 def get_preferences() -> dict:
     """返回用户偏好设置。"""
@@ -613,7 +611,6 @@ def get_preferences() -> dict:
         "realtime_allowed": _realtime_allowed(),
         "indices_nav_pinned": preferences.get_indices_nav_pinned(),
         "watchlist_groups_in_nav": preferences.get_watchlist_groups_in_nav(),
-        "show_ashare_legacy_features": preferences.get_show_ashare_legacy_features(),
         "minute_sync_enabled": preferences.get_minute_sync_enabled(),
         "minute_sync_days": preferences.get_minute_sync_days(),
         "minute_sync_segment_days": preferences.get_minute_sync_segment_days(),
@@ -626,22 +623,10 @@ def get_preferences() -> dict:
         "data_source_long_job_timeout_s": preferences.get_data_source_long_job_timeout_s(),
         "realtime_watchlist_symbols": preferences.get_realtime_watchlist_symbols(),
         **preferences.get_realtime_quote_scope(),
-        "pipeline_pull_a_share": preferences.get_pipeline_pull_a_share(),
-        "pipeline_pull_etf": preferences.get_pipeline_pull_etf(),
-        "pipeline_pull_index": preferences.get_pipeline_pull_index(),
-        "pipeline_regime_enabled": preferences.get_pipeline_regime_enabled(),
-        "regime_batch_days": preferences.get_regime_batch_days(),
-        "regime_warmup_days": preferences.get_regime_warmup_days(),
-        "pipeline_index_symbols": preferences.get_pipeline_index_symbols(),
-        "pipeline_schedule": preferences.get_pipeline_schedule(),
-        "instruments_schedule": preferences.get_instruments_schedule(),
         "enriched_batch_size": preferences.get_enriched_batch_size(),
         "index_daily_batch_size": preferences.get_index_daily_batch_size(),
         "watchlist_columns": preferences.get_watchlist_columns(),
-        "screener_result_columns": preferences.get_screener_result_columns(),
         "sse_refresh_pages": preferences.get_sse_refresh_pages(),
-        "strategy_monitor_enabled": preferences.get_strategy_monitor_enabled(),
-        "strategy_monitor_ids": preferences.get_strategy_monitor_ids(),
         "system_notify_enabled": preferences.get_system_notify_enabled(),
         "line_target_id": preferences.get_line_target_id(),
         "line_channel_access_token_masked": secrets_store.mask(preferences.get_line_channel_access_token()),
@@ -656,13 +641,8 @@ def get_preferences() -> dict:
         "sidebar_index_symbols": preferences.get_sidebar_index_symbols(),
         "minute_intraday_refresh": preferences.get_minute_intraday_refresh(),
         "minute_intraday_refresh_interval": preferences.get_minute_intraday_refresh_interval(),
-        "monitor_ext_fields": preferences.get_monitor_ext_fields(),
         "nav_order": preferences.get_nav_order(),
         "nav_hidden": preferences.get_nav_hidden(),
-        "screener_auto_run": preferences.get_screener_auto_run(),
-        "depth_polling_interval": preferences.get_depth_polling_interval(),
-        "depth_finalize_time": preferences.get_depth_finalize_time(),
-        **preferences.get_mining_schedule(),
     }
 
 
@@ -894,18 +874,6 @@ def update_data_source_job_timeouts(req: DataSourceJobTimeoutPrefs) -> dict:
     return req.model_dump()
 
 
-@router.put("/preferences/mining-schedule")
-def update_mining_schedule(req: MiningSchedulePrefs) -> dict:
-    """一次更新周度自动 mining 配置。"""
-    from app.services import preferences
-
-    return preferences.set_mining_schedule(
-        req.mining_schedule_enabled,
-        req.mining_schedule_weekday,
-        req.mining_budget_profile,
-    )
-
-
 @router.get("/preferences/watchlist-columns")
 def get_watchlist_columns() -> dict:
     """返回自选列表列配置。"""
@@ -944,23 +912,6 @@ def update_watchlist_columns(req: dict) -> dict:
     from app.services import preferences
     columns = req.get("columns", [])
     saved = preferences.set_watchlist_columns(columns)
-    return {"columns": saved}
-
-
-@router.get("/preferences/screener-result-columns")
-def get_screener_result_columns() -> dict:
-    """返回策略结果列表列配置。"""
-    from app.services import preferences
-    cols = preferences.get_screener_result_columns()
-    return {"columns": cols}
-
-
-@router.put("/preferences/screener-result-columns")
-def update_screener_result_columns(req: dict) -> dict:
-    """保存策略结果列表列配置。"""
-    from app.services import preferences
-    columns = req.get("columns", [])
-    saved = preferences.set_screener_result_columns(columns)
     return {"columns": saved}
 
 
@@ -1019,31 +970,6 @@ def update_realtime_quotes(req: RealtimeQuotesPrefs, request: Request) -> dict:
     if req.realtime_quotes_enabled and qs and qs.is_paused():
         # 管道/数据修正运行期间禁止开启实时行情 — 防止写盘竞态
         raise HTTPException(status_code=409, detail="数据同步运行中，实时行情已临时暂停，请稍后再开启")
-    if req.realtime_quotes_enabled:
-        # 历史完整性门禁: 检测到最近交易日的盘中快照/缺口时禁止开启 —
-        # 实时 flush 写出"今天"分区后, 盘后管道的"只刷今天"分支会让停机日的
-        # 半日快照永久留存。同时自动创建修复任务, 修完即可正常开启。
-        from app.services import data_integrity
-
-        repo = getattr(request.app.state, "repo", None)
-        if repo is not None:
-            try:
-                issues = data_integrity.scan_recent_integrity(repo.store.data_dir)
-            except Exception:  # noqa: BLE001
-                issues = []
-            earliest = data_integrity.earliest_issue_day(issues)
-            if issues and data_integrity.within_auto_repair_window(earliest):
-                job_id, is_new = data_integrity.launch_integrity_repair(
-                    request.app.state, earliest, "realtime_gate",
-                )
-                if job_id is not None:
-                    detail = (
-                        f"检测到{data_integrity.describe_issues(issues)}，"
-                        + ("已自动创建修复任务，完成后即可开启实时行情"
-                           if is_new else "修复任务正在进行中，请稍后再开启")
-                        + f"（任务 {job_id}）"
-                    )
-                    raise HTTPException(status_code=409, detail=detail)
     if req.realtime_quotes_enabled and qs and qs.realtime_mode() == "watchlist" and not preferences.get_realtime_watchlist_symbols():
         preferences.save({"realtime_quotes_enabled": False})
         return {"realtime_quotes_enabled": False, "realtime_allowed": True, "mode": "watchlist", "error": "watchlist_empty"}
@@ -1102,145 +1028,22 @@ def update_watchlist_groups_in_nav(req: WatchlistGroupsInNavPrefs) -> dict:
     return {"watchlist_groups_in_nav": req.watchlist_groups_in_nav}
 
 
-class ShowAshareLegacyFeaturesPrefs(BaseModel):
-    show_ashare_legacy_features: bool
-
-
-@router.put("/preferences/show-ashare-legacy-features")
-def update_show_ashare_legacy_features(req: ShowAshareLegacyFeaturesPrefs) -> dict:
-    """保存是否显示中国 A 股 legacy 功能区块开关(默认关闭, Phase 8B-2)。
-
-    只影响导航展示, 不影响功能本身: route/component/backend 全部原样保留。"""
-    from app.services import preferences
-    preferences.save({"show_ashare_legacy_features": req.show_ashare_legacy_features})
-    return {"show_ashare_legacy_features": req.show_ashare_legacy_features}
-
-
 class RealtimeMonitorConfigIn(BaseModel):
     sse_refresh_pages: dict[str, bool] | None = None
-    strategy_monitor_enabled: bool | None = None
-    strategy_monitor_ids: list[str] | None = None
     sidebar_index_symbols: list[str] | None = None
-    screener_auto_run: bool | None = None
     minute_intraday_refresh: bool | None = None
     minute_intraday_refresh_interval: int | None = None
-    monitor_ext_fields: dict | None = None
 
 
 @router.put("/preferences/realtime-monitor")
 def update_realtime_monitor_config(req: RealtimeMonitorConfigIn, request: Request) -> dict:
-    """更新实时监控配置。策略监控统一迁移为 MonitorRule,由监控引擎评估。"""
+    """更新實時監控設定 (SSE 刷新頁面、側欄指數、分時刷新)。"""
     from app.services import preferences
 
     cfg = req.model_dump(exclude_none=True)
     result = preferences.set_realtime_monitor_config(cfg)
 
-    # 策略监控开关/池变化 → 同步迁移为 type=strategy 规则 + reload 引擎
-    if req.strategy_monitor_ids is not None or req.strategy_monitor_enabled is not None:
-        monitor_engine = getattr(request.app.state, "monitor_engine", None)
-        strategy_engine = getattr(request.app.state, "strategy_engine", None)
-        data_dir = request.app.state.repo.store.data_dir
-        if monitor_engine is not None and strategy_engine is not None:
-            from app.strategy import monitor_rules as mr_store
-            try:
-                if preferences.get_strategy_monitor_enabled():
-                    ids = preferences.get_strategy_monitor_ids()
-                    names = {s.id: s.name for s in strategy_engine.list_strategies()}
-                    mr_store.migrate_strategy_monitors(data_dir, ids, names)
-                else:
-                    # 关闭策略监控: 停用所有策略规则
-                    mr_store.migrate_strategy_monitors(data_dir, [], {})
-                # reload 规则到引擎
-                monitor_engine.set_rules(mr_store.load_all(data_dir))
-            except Exception:
-                pass
-
     return result
-
-
-class PipelinePullTypesIn(BaseModel):
-    """盘后管道拉取内容开关(A股 / ETF / 指数 独立控制)。"""
-    pipeline_pull_a_share: bool | None = None
-    pipeline_pull_etf: bool | None = None
-    pipeline_pull_index: bool | None = None
-
-
-@router.put("/preferences/pipeline-pull-types")
-def update_pipeline_pull_types(req: PipelinePullTypesIn) -> dict:
-    """更新盘后管道拉取内容开关。"""
-    from app.services import preferences
-    cfg = req.model_dump(exclude_none=True)
-    return preferences.set_pipeline_pull_types(cfg)
-
-
-class PipelineRegimeEnabledIn(BaseModel):
-    """盘后管道是否自动计算市场环境(regime)。"""
-    pipeline_regime_enabled: bool
-
-
-@router.put("/preferences/pipeline-regime-enabled")
-def update_pipeline_regime_enabled(req: PipelineRegimeEnabledIn) -> dict:
-    """更新盘后管道 regime 自动计算开关。"""
-    from app.services import preferences
-    preferences.save({"pipeline_regime_enabled": bool(req.pipeline_regime_enabled)})
-    return {"pipeline_regime_enabled": preferences.get_pipeline_regime_enabled()}
-
-
-class RegimeBatchParamsIn(BaseModel):
-    """regime 全量回填分批参数(控制内存峰值)。"""
-    batch_days: int | None = None
-    warmup_days: int | None = None
-
-
-@router.put("/preferences/regime-batch-params")
-def update_regime_batch_params(req: RegimeBatchParamsIn) -> dict:
-    """更新 regime 分批参数。仅在传入字段时保存对应项(支持部分更新)。"""
-    from app.services import preferences
-    updates: dict = {}
-    if req.batch_days is not None:
-        updates["regime_batch_days"] = req.batch_days
-    if req.warmup_days is not None:
-        updates["regime_warmup_days"] = req.warmup_days
-    if updates:
-        preferences.save(updates)
-    return {
-        "regime_batch_days": preferences.get_regime_batch_days(),
-        "regime_warmup_days": preferences.get_regime_warmup_days(),
-    }
-
-
-class PipelineIndexSymbolsIn(BaseModel):
-    """指数自定义拉取代码(逗号/换行/空格分隔,空串表示全量)。"""
-    symbols: str = ""
-
-
-class MainlineFilterIn(BaseModel):
-    """市场主线过滤配置(宽基/风格标签按成员数过滤 + 名称黑名单 + ST 剔除开关)。"""
-
-    min_members: int | None = None
-    max_members: int | None = None
-    blacklist: list[str] | str | None = None
-    exclude_st: bool | None = None
-
-
-@router.put("/preferences/mainline-filter")
-def update_mainline_filter(req: MainlineFilterIn) -> dict:
-    """更新市场主线过滤配置。部分更新; 修改后需重算主线(POST /api/regime/mainline/recompute)生效。
-
-    exclude_st 同步控制市场环境(regime)统计口径 — 切换后需全量重算 regime。
-    """
-    from app.services import preferences
-
-    payload = req.model_dump()
-    return preferences.set_mainline_filter_config(payload)
-
-
-@router.put("/preferences/pipeline-index-symbols")
-def update_pipeline_index_symbols(req: PipelineIndexSymbolsIn) -> dict:
-    """保存指数自定义拉取代码。"""
-    from app.services import preferences
-    symbols = preferences.set_pipeline_index_symbols(req.symbols)
-    return {"pipeline_index_symbols": symbols}
 
 
 class QuoteIntervalIn(BaseModel):
@@ -1263,6 +1066,53 @@ def update_event_ai_explain(req: SystemNotifyPrefsIn) -> dict:
     """提醒觸發後的 AI 解讀開關 (預設關閉)；規則事實提醒一律先送，AI 解讀隨後另發。"""
     from app.taiwan import event_ai_explain
     return {"event_ai_explain_enabled": event_ai_explain.set_enabled(req.enabled)}
+
+
+@router.put("/preferences/push-digest")
+def update_push_digest(req: SystemNotifyPrefsIn) -> dict:
+    """早晚各一則「今日一句話」推播開關 (預設關閉)；走全域 LINE / Telegram 通道。"""
+    from app.taiwan import push_digest
+    return {"push_digest_enabled": push_digest.set_enabled(req.enabled)}
+
+
+@router.post("/preferences/push-digest/test")
+def test_push_digest(kind: str = "morning") -> dict:
+    """立即送一則早／晚一句話到已勾選的通道 (需已開啟推播與通道)。"""
+    from app.taiwan import push_digest
+    if kind not in ("morning", "evening"):
+        raise HTTPException(status_code=400, detail="kind 只能是 morning 或 evening")
+    if not push_digest.is_enabled():
+        raise HTTPException(status_code=409, detail="請先開啟「早晚一句話推播」")
+    return push_digest.run(kind)
+
+
+class WatchlistAnomalyPrefsIn(BaseModel):
+    enabled: bool | None = None
+    threshold_pct: float | None = Field(default=None, ge=1.0, le=10.0)
+
+
+@router.put("/preferences/watchlist-anomaly")
+def update_watchlist_anomaly(req: WatchlistAnomalyPrefsIn) -> dict:
+    """自選股盤中異常摘要 (預設關閉)：漲跌幅超過門檻即提醒，同一天同方向只提醒一次。"""
+    from app.taiwan import watchlist_anomaly
+    if req.enabled is not None:
+        watchlist_anomaly.set_enabled(req.enabled)
+    if req.threshold_pct is not None:
+        watchlist_anomaly.set_threshold_pct(req.threshold_pct)
+    return {
+        "watchlist_anomaly_enabled": watchlist_anomaly.is_enabled(),
+        "watchlist_anomaly_threshold_pct": watchlist_anomaly.threshold_pct(),
+    }
+
+
+@router.put("/preferences/telegram-query")
+def update_telegram_query(req: SystemNotifyPrefsIn) -> dict:
+    """Telegram 反向查詢開關 (預設關閉)：在 Telegram 輸入代號即回傳現價與計畫價位。"""
+    from app.taiwan import telegram_bot
+    enabled = telegram_bot.set_enabled(req.enabled)
+    bot = telegram_bot.get_bot()
+    started = bot.start() if enabled else (bot.stop() or False)
+    return {"telegram_query_enabled": enabled, "bot_started": bool(started)}
 
 
 @router.put("/preferences/system-notify")

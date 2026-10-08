@@ -138,9 +138,6 @@ vi.mock('@/lib/api', () => ({
   },
 }))
 
-vi.mock('@/components/StockPreviewDialog', () => ({
-  StockPreviewDialog: ({ symbol }: { symbol: string | null }) => <output data-testid="preview-symbol">{symbol}</output>,
-}))
 
 function renderDashboard(qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })) {
   function CurrentPath() {
@@ -453,7 +450,7 @@ describe('Dashboard — stock reminders', () => {
     expect(vi.mocked(api.alertsMarkRead).mock.calls[0][0]).toBe('alert-1')
   })
 
-  it('previews non-Taiwan alert symbols instead of routing them to Taiwan detail', async () => {
+  it('routes any alert symbol to the stock detail page', async () => {
     vi.mocked(api.alertsList).mockResolvedValue({ alerts: [
       { ts: Date.now(), alert_id: 'alert-cn', is_read: false, rule_id: 'rule-cn',
         source: 'price', type: 'price_above', symbol: '600519.SH', name: '貴州茅台',
@@ -463,8 +460,7 @@ describe('Dashboard — stock reminders', () => {
 
     fireEvent.click(await screen.findByTitle('預覽 600519.SH 個股資料'))
 
-    expect(screen.getByTestId('current-path')).toHaveTextContent('/')
-    expect(screen.getByTestId('preview-symbol')).toHaveTextContent('600519.SH')
+    expect(screen.getByTestId('current-path')).toHaveTextContent('/stocks/600519.SH')
   })
 })
 

@@ -1292,3 +1292,38 @@ def get_daily_brief_history_detail(brief_id: str):
     return brief.model_dump()
 
 
+
+
+# ── AI 說明回饋 (準／不準) ─────────────────────────────────────
+
+
+class AIFeedbackIn(BaseModel):
+    symbol: str = Field(min_length=1, max_length=20)
+    helpful: bool
+    record_id: str | None = Field(default=None, max_length=80)
+    model: str | None = Field(default=None, max_length=120)
+    note: str | None = Field(default=None, max_length=200)
+
+
+@router.post("/ai-research/feedback")
+def post_ai_feedback(req: AIFeedbackIn):
+    """記錄使用者對 AI 白話說明的「準／不準」回饋；只做統計，不影響任何 AI 結果。"""
+    from app.taiwan import ai_feedback
+
+    try:
+        return ai_feedback.record(
+            symbol=req.symbol, helpful=req.helpful, record_id=req.record_id,
+            model=req.model, note=req.note,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except OSError as exc:
+        raise HTTPException(status_code=503, detail="回饋儲存失敗") from exc
+
+
+@router.get("/ai-research/feedback-summary")
+def get_ai_feedback_summary():
+    """各模型準／不準統計與最近回饋。"""
+    from app.taiwan import ai_feedback
+
+    return ai_feedback.summary()

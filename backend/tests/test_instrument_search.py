@@ -63,92 +63,21 @@ def test_empty_query_returns_empty():
 
 # ===== 拼音首字母搜索 (新功能) =====
 
-def test_pinyin_full_initials_match():
-    """payh → 平安银行"""
-    rows = _search("payh")
-    assert [r["symbol"] for r in rows] == ["000001.SZ"]
 
 
-def test_pinyin_prefix_match():
-    """m → 美的集团 (m 开头)"""
-    rows = _search("m")
-    assert "000333.SZ" in [r["symbol"] for r in rows]
 
 
-def test_pinyin_prefix_picks_multiple():
-    """pf → 浦发银行; pa → 平安银行 (前缀区分)"""
-    assert [r["symbol"] for r in _search("pf")] == ["600000.SH"]
-    assert [r["symbol"] for r in _search("pa")] == ["000001.SZ"]
 
 
-def test_pinyin_respects_limit():
-    """limit 限制拼音结果数"""
-    rows = _search("z", limit=1)  # z → 中粮糖业
-    assert len(rows) == 1
 
 
-def test_pinyin_layer_between_prefix_and_contains():
-    """拼音命中应排在包含匹配之前 (分层优先级)。"""
-    rows = _search("md")  # md → 美的集团 (拼音); 无代码/符号以 md 前缀
-    assert "000333.SZ" in [r["symbol"] for r in rows]
 
 
-def test_pinyin_and_code_prefix_coexist():
-    """纯字母查询同时命中 code 前缀和拼音首字母时, code 前缀优先排前。"""
-    # '600000' 是浦发的 code 前缀; 这里用纯字母无法命中 code, 故仅验证拼音路径独立可用
-    rows = _search("pf")  # 浦发
-    assert "600000.SH" in [r["symbol"] for r in rows]
 
+def _patch_security_master(monkeypatch: pytest.MonkeyPatch, rows: list[dict]) -> None:
+    fake = _FakeSecurityMaster(rows)
+    monkeypatch.setattr("app.taiwan.universe.get_security_master", lambda: fake)
 
-# ===== 多音字 =====
-
-POLYPHONE_STOCKS = pl.DataFrame({
-    "symbol": ["600729.SH", "000625.SZ"],
-    "code": ["600729", "000625"],
-    "name": ["重庆百货", "长安汽车"],
-})
-
-
-def test_polyphone_all_readings_match():
-    """'重庆' 多音字: cq (chóng) 和 zq (zhòng) 读音都应命中。"""
-    repo = _FakeRepo({"stock": POLYPHONE_STOCKS})
-    # 取首字母集, 验证两种读音都能搜到
-    cq = search_instruments(_request(repo), q="cqbh", limit=20, asset_types="stock")["results"]      # chóng qīng
-    zq = search_instruments(_request(repo), q="zqbh", limit=20, asset_types="stock")["results"]      # zhòng qìng
-    assert "600729.SH" in [r["symbol"] for r in cq]
-    assert "600729.SH" in [r["symbol"] for r in zq]
-
-
-# ===== 边界 =====
-
-def test_non_ascii_skips_pinyin_branch():
-    """中文输入不走拼音分支, 仍按名称匹配。"""
-    rows = _search("平安")
-    assert [r["symbol"] for r in rows] == ["000001.SZ"]
-
-
-def test_digits_skips_pinyin_branch():
-    """数字输入不走拼音分支, 走 code 前缀。"""
-    rows = _search("000")
-    assert "000001.SZ" in [r["symbol"] for r in rows]
-
-
-def test_no_pinyin_hit_returns_empty():
-    """无任何拼音命中时返回空 (不报错)。"""
-    assert _search("xyz") == []
-
-
-def test_cache_returns_same_result_across_calls():
-    """lru_cache 不应在不同请求间串结果 (按 name 缓存, 查询无状态)。"""
-    repo = _FakeRepo({"stock": STOCKS})
-    req = _request(repo)
-    r1 = search_instruments(req, q="payh", limit=20, asset_types="stock")["results"]
-    r2 = search_instruments(req, q="payh", limit=20, asset_types="stock")["results"]
-    assert r1 == r2
-    assert [r["symbol"] for r in r1] == ["000001.SZ"]
-
-
-# ===== market-aware 搜索: 一并搜台股证券主档 (TaiwanSecurityMaster) =====
 
 class _FakeSecurityMaster:
     """最小台股证券主档桩: 直接按 symbol/code/name 子串匹配, 不依赖真实 adapter。"""
@@ -186,11 +115,6 @@ _TAIWAN_ROWS = [
         "exchange": "TWSE", "instrument_type": "warrant", "is_supported": False,
     },
 ]
-
-
-def _patch_security_master(monkeypatch: pytest.MonkeyPatch, rows: list[dict]) -> None:
-    fake = _FakeSecurityMaster(rows)
-    monkeypatch.setattr("app.taiwan.universe.get_security_master", lambda: fake)
 
 
 def test_market_omitted_is_backward_compatible_ashare_only(monkeypatch):

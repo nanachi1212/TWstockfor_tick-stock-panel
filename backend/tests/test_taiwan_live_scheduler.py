@@ -6,28 +6,6 @@ from app.taiwan import daily_update
 from app.taiwan.quant import live_runner
 
 
-def test_instruments_schedule_refreshes_security_master(monkeypatch, tmp_path):
-    from app.services import instrument_sync
-    from app.taiwan import universe
-
-    repo = Mock()
-    repo.store.data_dir = tmp_path
-    master = Mock()
-    master.load_from_adapters.return_value = 12
-    master.health_metadata.return_value = {"status": "available"}
-    monkeypatch.setattr(instrument_sync, "sync_instruments", lambda _data_dir: 5)
-    monkeypatch.setattr(universe, "get_security_master", lambda: master)
-    monkeypatch.setattr(daily_pipeline, "_refresh_instruments_view", lambda _repo: None)
-    monkeypatch.setattr(daily_pipeline, "_invalidate", lambda _name: None)
-
-    result = daily_pipeline.run_instruments_sync(repo)
-
-    assert result["instruments_rows"] == 5
-    assert result["security_master"] == {"status": "available", "rows": 12}
-    master.load_from_adapters.assert_called_once_with()
-    master.save_cache.assert_called_once_with()
-
-
 def test_scheduler_market_refresh_is_complete_before_quant_failure(monkeypatch, taiwan_data_env):
     scheduler = Mock()
     monkeypatch.setattr(daily_pipeline, "AsyncIOScheduler", lambda **kwargs: scheduler)

@@ -57,11 +57,7 @@ def _run_fetch(svc, tf, watchlist: list[str], capset: CapabilitySet):
 
 def test_watchlist_batch_respects_capability_limit():
     """6 symbols / batch 5 → 分 2 批请求, 不整轮失败。"""
-    engine_rules = {
-        "r_idx": {"enabled": True, "asset_type": "index", "scope": "symbols",
-                  "symbols": ["000001.SH"]},
-    }
-    svc = _make_svc(engine_rules)
+    svc = _make_svc({})
 
     tf = MagicMock()
     tf.quotes.get.return_value = [
@@ -70,28 +66,24 @@ def test_watchlist_batch_respects_capability_limit():
     capset = CapabilitySet({Cap.QUOTE_BY_SYMBOL: CapabilityLimits(batch=5, rpm=60)})
 
     _run_fetch(svc, tf,
-               ["600000.SH", "600001.SH", "600002.SH", "600003.SH", "600004.SH"],
+               ["600000.SH", "600001.SH", "600002.SH", "600003.SH", "600004.SH", "600005.SH"],
                capset)
 
-    # 5 股票 + 1 指数 = 6 symbols, batch 5 → 2 批
+    # 6 symbols, batch 5 → 2 批
     assert tf.quotes.get.call_count == 2
     first_batch = tf.quotes.get.call_args_list[0][1]["symbols"]
     second_batch = tf.quotes.get.call_args_list[1][1]["symbols"]
     assert len(first_batch) == 5
     assert len(second_batch) == 1
-    assert "000001.SH" in second_batch
+    assert "600005.SH" in second_batch
 
 
 def test_watchlist_batch_partial_failure_keeps_other_batches():
     """某一批拉取失败不影响其他批次 (已有股票实时刷新不丢失)。"""
-    engine_rules = {
-        "r_idx": {"enabled": True, "asset_type": "index", "scope": "symbols",
-                  "symbols": ["000001.SH"]},
-    }
-    svc = _make_svc(engine_rules)
+    svc = _make_svc({})
 
     tf = MagicMock()
-    # 第一批 (股票) 成功, 第二批 (指数) 失败
+    # 第一批成功, 第二批失败
     tf.quotes.get.side_effect = [
         [{"symbol": "600000.SH", "last_price": 10.0, "prev_close": 9.9, "ext": {}}],
         ConnectionError("timeout"),
@@ -99,7 +91,7 @@ def test_watchlist_batch_partial_failure_keeps_other_batches():
     capset = CapabilitySet({Cap.QUOTE_BY_SYMBOL: CapabilityLimits(batch=5, rpm=60)})
 
     _run_fetch(svc, tf,
-               ["600000.SH", "600001.SH", "600002.SH", "600003.SH", "600004.SH"],
+               ["600000.SH", "600001.SH", "600002.SH", "600003.SH", "600004.SH", "600005.SH"],
                capset)
 
     # 两批都被尝试 (第二批失败不阻断)

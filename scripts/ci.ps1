@@ -39,7 +39,6 @@ $TrivyExcludedDirs = @(
     '**/dist',
     'data',
     'exports',
-    'gui-test-screenshots',
     'release-assets',
     '**/node_modules',
     '**/.venv'

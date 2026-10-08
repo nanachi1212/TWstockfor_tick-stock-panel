@@ -1,7 +1,7 @@
 import { useRef, useState } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
-import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { ArrowUpRight, ChevronDown, ChevronUp, Compass, Loader2, Plus, Sparkles } from 'lucide-react'
+import { useQuery, useQueryClient, useMutation } from '@tanstack/react-query'
+import { ArrowUpRight, ChevronDown, ChevronUp, Compass, Loader2, Plus, Sparkles, ThumbsUp, ThumbsDown } from 'lucide-react'
 import {
   api,
   type BeginnerCandidate,
@@ -166,6 +166,13 @@ function AiExplain({ symbol, asOf }: { symbol: string; asOf?: string | null }) {
         <p className="flex items-center gap-1.5 text-xs text-muted"><Loader2 className="h-3 w-3 animate-spin" /> AI 正在整理說明，本機模型約需 10～60 秒…</p>
       ) : report ? (
         <div className="space-y-1.5">
+          {report.beginner_answer && (
+            <dl className="grid grid-cols-[6.5rem_minmax(0,1fr)] gap-x-2 gap-y-1 rounded-md border border-purple-500/20 bg-base/60 p-2 text-xs" aria-label="新手三問">
+              <dt className="font-semibold text-purple-300">現在能不能買</dt><dd className="break-words text-foreground">{report.beginner_answer.can_buy || '—'}</dd>
+              <dt className="font-semibold text-purple-300">停損在哪</dt><dd className="break-words text-foreground">{report.beginner_answer.stop_loss || '—'}</dd>
+              <dt className="font-semibold text-purple-300">什麼情況該放棄</dt><dd className="break-words text-foreground">{report.beginner_answer.give_up || '—'}</dd>
+            </dl>
+          )}
           <p className="break-words text-xs text-foreground">{report.overview}</p>
           <div>
             <p className="mb-0.5 text-[11px] font-semibold text-muted">主要風險</p>
@@ -176,6 +183,7 @@ function AiExplain({ symbol, asOf }: { symbol: string; asOf?: string | null }) {
             <ReasonList items={(report.watch_next ?? []).slice(0, 3).map(r => r.text)} empty="AI 沒有列出觀察重點。" tone="reason" />
           </div>
           <p className="text-[10px] text-muted">資料截至 {report.evidence_as_of}・生成於 {(query.data?.generated_at ?? '').slice(0, 16).replace('T', ' ')}・{query.data?.model}・{(query.data as { stored?: boolean } | undefined)?.stored ? '盤後自動產生' : '剛剛產生'}・AI 只做解讀，不改變上面的分組與價位。</p>
+          <AiFeedbackButtons symbol={symbol} model={query.data?.model ?? null} recordId={`${report.evidence_as_of}:${query.data?.generated_at ?? report.generated_at}`} />
         </div>
       ) : (
         <div className="flex flex-wrap items-center gap-2">
@@ -188,6 +196,33 @@ function AiExplain({ symbol, asOf }: { symbol: string; asOf?: string | null }) {
           </button>
         </div>
       )}
+    </div>
+  )
+}
+
+/** 一鍵回報這則 AI 說明準不準；只做統計，不影響任何結果。 */
+function AiFeedbackButtons({ symbol, model, recordId }: { symbol: string; model: string | null; recordId: string }) {
+  const [sent, setSent] = useState<boolean | null>(null)
+  const feedback = useMutation({
+    // recordId 讓同一則說明重複按只算最後一次 (後端依 symbol + record_id 去重)
+    mutationFn: (helpful: boolean) => api.taiwanAiFeedback({ symbol, helpful, model, record_id: recordId }),
+    onSuccess: (_result, helpful) => setSent(helpful),
+  })
+  if (sent !== null) {
+    return <p className="text-[10px] text-muted" role="status">已記錄：{sent ? '準' : '不準'}。累積一週後可到「設定 → AI」看哪個模型比較準。</p>
+  }
+  return (
+    <div className="flex items-center gap-1.5 text-[10px] text-muted" aria-label="AI 說明回饋">
+      <span>這則說明準嗎？</span>
+      <button type="button" disabled={feedback.isPending} onClick={() => feedback.mutate(true)}
+        className="inline-flex min-h-6 items-center gap-1 rounded border border-border px-1.5 hover:border-accent/50 hover:text-foreground disabled:opacity-50">
+        <ThumbsUp className="h-3 w-3" /> 準
+      </button>
+      <button type="button" disabled={feedback.isPending} onClick={() => feedback.mutate(false)}
+        className="inline-flex min-h-6 items-center gap-1 rounded border border-border px-1.5 hover:border-danger/50 hover:text-foreground disabled:opacity-50">
+        <ThumbsDown className="h-3 w-3" /> 不準
+      </button>
+      {feedback.isError && <span className="text-danger">送出失敗</span>}
     </div>
   )
 }

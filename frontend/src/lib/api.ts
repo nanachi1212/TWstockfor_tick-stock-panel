@@ -2196,8 +2196,16 @@ export interface TaiwanAIStockResearchReport {
   key_observations: ObservationItem[]
   risk_factors: ObservationItem[]
   watch_next?: ObservationItem[]
+  /** 新手三問：固定回答「現在能不能買、停損在哪、什麼情況該放棄」；只解釋規則結果，不產生新價位。 */
+  beginner_answer?: BeginnerAnswer | null
   missing_information: string[]
   disclaimer: string
+}
+
+export interface BeginnerAnswer {
+  can_buy: string
+  stop_loss: string
+  give_up: string
 }
 
 export interface TaiwanAIResearchResponse {
@@ -2855,6 +2863,21 @@ export interface SettingsState {
     status: string; ran_at?: string; reason?: string
     generated?: string[]; skipped?: string[]; failed?: Record<string, string>
   } | null
+  // 推播與查詢 (預設全部關閉)
+  push_digest_enabled?: boolean
+  push_digest_last_run?: { kind: string; status: string; ran_at?: string; channels?: string[]; reason?: string; preview?: string } | null
+  watchlist_anomaly_enabled?: boolean
+  watchlist_anomaly_threshold_pct?: number
+  telegram_query_enabled?: boolean
+}
+
+export interface AiFeedbackSummary {
+  total: number
+  helpful: number
+  not_helpful: number
+  helpful_ratio: number | null
+  models: { model: string; helpful: number; not_helpful: number; helpful_ratio: number | null }[]
+  recent: { ts: string; symbol: string; model: string | null; helpful: boolean; note: string | null }[]
 }
 
 export interface AiKeyProfile {
@@ -3651,14 +3674,6 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ password }),
     }),
-  authLogout: () =>
-    request<{ ok: boolean }>('/api/auth/logout', { method: 'POST' }),
-  authChangePassword: (oldPassword: string, newPassword: string) =>
-    request<{ ok: boolean }>('/api/auth/change-password', {
-      method: 'POST',
-      body: JSON.stringify({ old_password: oldPassword, new_password: newPassword }),
-    }),
-
   settings: () => request<SettingsState>('/api/settings'),
 
   // ===== 備份與轉移 (.twstock-backup) =====
@@ -3681,15 +3696,6 @@ export const api = {
       { method: 'POST', quiet: true },
     ),
 
-  saveTickflowKey: (api_key: string) =>
-    request<SaveTickflowKeyResult>('/api/settings/tickflow-key', {
-      method: 'POST',
-      body: JSON.stringify({ api_key }),
-    }),
-  clearTickflowKey: () =>
-    request<any>('/api/settings/tickflow-key', { method: 'DELETE' }),
-
-  /** 標記首次使用嚮導完成（持久化到後端 preferences） */
   completeOnboarding: () =>
     request<{ ok: boolean; onboarding_completed: boolean }>(
       '/api/settings/onboarding/complete', { method: 'POST' },
@@ -3808,20 +3814,10 @@ export const api = {
   // updatePipelineRegimeEnabled/updateRegimeBatchParams 隨已刪除的
   // Data.tsx(A 股資料管理頁)一併移除 —— 對應 backend 設定端點未動,
   // 屬 POSSIBLE_ORPHAN_BACKEND_API, 留待之後統一的 Dead Backend API Sweep。
-  updatePipelineIndexSymbols: (symbols: string) =>
-    request<{ pipeline_index_symbols: string }>('/api/settings/preferences/pipeline-index-symbols', {
-      method: 'PUT',
-      body: JSON.stringify({ symbols }),
-    }),
   updateRealtimeQuotes: (enabled: boolean) =>
     request<{ realtime_quotes_enabled: boolean; realtime_allowed?: boolean; mode?: string; error?: string }>('/api/settings/preferences/realtime-quotes', {
       method: 'PUT',
       body: JSON.stringify({ realtime_quotes_enabled: enabled }),
-    }),
-  updateRealtimeQuoteScope: (cfg: Partial<Pick<Preferences, 'realtime_pull_stock' | 'realtime_pull_etf' | 'realtime_pull_index' | 'realtime_index_mode' | 'realtime_index_symbols'>>) =>
-    request<Partial<Preferences>>('/api/settings/preferences/realtime-quote-scope', {
-      method: 'PUT',
-      body: JSON.stringify(cfg),
     }),
   updateWatchlistGroupsInNav: (enabled: boolean) =>
     request<{ watchlist_groups_in_nav: boolean }>('/api/settings/preferences/watchlist-groups-in-nav', {
@@ -3881,6 +3877,29 @@ export const api = {
       method: 'PUT',
       body: JSON.stringify(cfg),
     }),
+  updatePushDigest: (enabled: boolean) =>
+    request<{ push_digest_enabled: boolean }>('/api/settings/preferences/push-digest', {
+      method: 'PUT',
+      body: JSON.stringify({ enabled }),
+    }),
+  testPushDigest: (kind: 'morning' | 'evening') =>
+    request<{ status: string; channels?: string[]; reason?: string }>(`/api/settings/preferences/push-digest/test?kind=${kind}`, { method: 'POST' }),
+  updateWatchlistAnomaly: (body: { enabled?: boolean; threshold_pct?: number }) =>
+    request<{ watchlist_anomaly_enabled: boolean; watchlist_anomaly_threshold_pct: number }>('/api/settings/preferences/watchlist-anomaly', {
+      method: 'PUT',
+      body: JSON.stringify(body),
+    }),
+  updateTelegramQuery: (enabled: boolean) =>
+    request<{ telegram_query_enabled: boolean; bot_started: boolean }>('/api/settings/preferences/telegram-query', {
+      method: 'PUT',
+      body: JSON.stringify({ enabled }),
+    }),
+  taiwanAiFeedback: (body: { symbol: string; helpful: boolean; record_id?: string | null; model?: string | null; note?: string }) =>
+    request<{ ts: string; symbol: string; helpful: boolean }>('/api/taiwan/ai-research/feedback', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+  taiwanAiFeedbackSummary: () => request<AiFeedbackSummary>('/api/taiwan/ai-research/feedback-summary'),
   updateEventAiExplain: (enabled: boolean) =>
     request<{ event_ai_explain_enabled: boolean }>('/api/settings/preferences/event-ai-explain', {
       method: 'PUT',
@@ -3895,46 +3914,6 @@ export const api = {
     request<{ response: TaiwanAIResearchResponse | null }>(
       `/api/taiwan/stocks/${encodeURIComponent(symbol)}/ai-explain${minAsOf ? `?min_as_of=${encodeURIComponent(minAsOf)}` : ''}`,
     ),
-  updateSystemNotify: (enabled: boolean) =>
-    request<{ system_notify_enabled: boolean }>('/api/settings/preferences/system-notify', {
-      method: 'PUT',
-      body: JSON.stringify({ enabled }),
-    }),
-  updateFeishuWebhook: (url: string, secret: string = '') =>
-    request<{ feishu_webhook_url: string; feishu_webhook_secret: string }>('/api/settings/preferences/feishu-webhook', {
-      method: 'PUT',
-      body: JSON.stringify({ url, secret }),
-    }),
-  updateWecomWebhook: (url: string) =>
-    request<{ wecom_webhook_url: string }>('/api/settings/preferences/wecom-webhook', {
-      method: 'PUT',
-      body: JSON.stringify({ url }),
-    }),
-  updateWecomBot: (botId: string, secret: string, enabled: boolean = true) =>
-    request<{
-      wecom_bot_id: string
-      wecom_bot_secret: string
-      wecom_bot_enabled: boolean
-      wecom_bot_status: WecomBotStatus
-    }>('/api/settings/preferences/wecom-bot', {
-      method: 'PUT',
-      body: JSON.stringify({ bot_id: botId, secret, enabled }),
-    }),
-  toggleWecomBot: (enabled: boolean) =>
-    request<{ wecom_bot_enabled: boolean; wecom_bot_status: WecomBotStatus }>('/api/settings/preferences/wecom-bot-toggle', {
-      method: 'PUT',
-      body: JSON.stringify({ enabled }),
-    }),
-  updateWebhookDefault: (enabled: boolean) =>
-    request<{ webhook_enabled_default: boolean }>('/api/settings/preferences/webhook-enabled-default', {
-      method: 'PUT',
-      body: JSON.stringify({ enabled }),
-    }),
-  updateWebhookDefaultChannels: (channels: string[]) =>
-    request<{ webhook_default_channels: string[] }>('/api/settings/preferences/webhook-default-channels', {
-      method: 'PUT',
-      body: JSON.stringify({ channels }),
-    }),
   updateExternalNotificationChannels: (channels: string[]) =>
     request<{ external_notification_channels: string[] }>('/api/settings/preferences/external-notification-channels', {
       method: 'PUT',
@@ -3954,16 +3933,6 @@ export const api = {
     request<{ ok: boolean }>('/api/settings/preferences/line-messaging/test', { method: 'POST' }),
   testTelegramBot: () =>
     request<{ ok: boolean }>('/api/settings/preferences/telegram-bot/test', { method: 'POST' }),
-  updateDepthPollingInterval: (interval: number) =>
-    request<{ depth_polling_interval: number }>('/api/settings/preferences/depth-polling-interval', {
-      method: 'PUT',
-      body: JSON.stringify({ interval }),
-    }),
-  updateDepthFinalizeTime: (hour: number, minute: number) =>
-    request<{ hour: number; minute: number }>('/api/settings/preferences/depth-finalize-time', {
-      method: 'PUT',
-      body: JSON.stringify({ hour, minute }),
-    }),
   saveNavOrder: (nav_order: string[]) =>
     request<{ nav_order: string[] }>('/api/settings/preferences/nav-order', {
       method: 'PUT',
@@ -3986,17 +3955,8 @@ export const api = {
   // 策略結果列表列配置
   screenerResultColumns: () =>
     request<{ columns: any[] | null }>('/api/settings/preferences/screener-result-columns'),
-  updateScreenerResultColumns: (columns: any[]) =>
-    request<{ columns: any[] }>('/api/settings/preferences/screener-result-columns', {
-      method: 'PUT',
-      body: JSON.stringify({ columns }),
-    }),
-
   capabilities: () => request<CapabilitiesResponse>('/api/capabilities'),
   version: () => request<{ version: string }>('/api/data/version'),
-  redetectCapabilities: () =>
-    request<CapabilitiesResponse>('/api/capabilities/redetect', { method: 'POST' }),
-
   klineDaily: (symbol: string, days = 120, dateRange?: { start: string; end: string }, extColumns?: string) =>
     request<{
       symbol: string
@@ -4031,11 +3991,6 @@ export const api = {
     ),
 
   /** 批量查股票名稱 (傳入 symbol 列表, 返回 {symbol: name}) */
-  instrumentNames: (symbols: string[]) =>
-    request<{ names: Record<string, string> }>('/api/kline/instruments/names', {
-      method: 'POST',
-      body: JSON.stringify(symbols),
-    }),
   klineMinute: (symbol: string, date?: string) =>
     request<{
       symbol: string
@@ -4061,27 +4016,6 @@ export const api = {
     }>(
       `/api/kline/minute-range?symbol=${encodeURIComponent(symbol)}&days=${days}`,
     ),
-  syncMinuteSingle: (symbol: string, days?: number) =>
-    request<{ status: string; symbol: string; rows: number }>('/api/kline/sync_minute_single', {
-      method: 'POST',
-      body: JSON.stringify({ symbol, ...(days != null ? { days } : {}) }),
-    }),
-  // Phase 8B-5.8: syncIndexDaily/syncMinute/clearMinute/extendHistory/
-  // repairDaily/rebuildEnriched 隨已刪除的 Data.tsx 一併移除(僅該頁使用)。
-  // Phase 8B-5.18: 對應 backend POST /api/index/sync_daily 已確認 zero 消費者
-  // 並整組刪除, 連同僅有此一路由的 backend/app/api/indices.py 一併移除;
-  // index_sync service(daily_pipeline.py 真實直接呼叫)完全未動。
-  // Phase 8B-5.19: 對應 backend POST /api/kline/sync_minute、clear_minute、
-  // extend_history、repair_daily、rebuild_enriched 已確認 zero 消費者並整組
-  // 刪除(見 backend/app/api/kline.py)。sync_minute_single(本檔上方,個股分時圖
-  // 用)完全未動, 與被刪的 batch sync_minute 是不同端點。kline_sync.py/
-  // data_integrity.py/repair_daily.py/extend_history.py/run_pipeline 均未動,
-  // daily_pipeline.py 自身的分鐘K同步流程(stage label "sync_minute")亦不受影響。
-  // Phase 8B-FINAL: syncSymbol(對應 backend POST /api/kline/sync)已確認 zero
-  // 消費者並與其 backend handler 一併刪除, 避免留下「前端方法已死但 backend
-  // route 仍公開」的半殘狀態; 與其同源的 sync_and_persist_daily_batch 服務
-  // (daily_pipeline.py/extend_history.py 真實使用)完全未動。
-
   watchlistList: () => request<{ symbols: WatchlistEntry[] }>('/api/watchlist'),
   watchlistAdd: (symbol: string, note = '', groupId?: string | null) =>
     request<{ symbols: WatchlistEntry[] }>('/api/watchlist', {
@@ -4120,11 +4054,6 @@ export const api = {
       `/api/watchlist/groups/${encodeURIComponent(groupId)}/clear`,
       { method: 'POST' },
     ),
-  watchlistSetGroup: (symbol: string, groupId: string | null) =>
-    request<{ symbols: WatchlistEntry[] }>(
-      `/api/watchlist/${encodeURIComponent(symbol)}/group`,
-      { method: 'PUT', body: JSON.stringify({ group_id: groupId }) },
-    ),
   watchlistGroupAddMember: (groupId: string, symbol: string) =>
     request<{ symbols: WatchlistEntry[] }>(
       `/api/watchlist/groups/${encodeURIComponent(groupId)}/members/${encodeURIComponent(symbol)}`,
@@ -4135,18 +4064,6 @@ export const api = {
       `/api/watchlist/groups/${encodeURIComponent(groupId)}/members/${encodeURIComponent(symbol)}`,
       { method: 'DELETE' },
     ),
-  watchlistOcrStatus: () =>
-    request<{ provider: string; available: boolean }>('/api/watchlist/ocr-status'),
-  watchlistImportImage: (file: File, signal?: AbortSignal, quiet = false) => {
-    const fd = new FormData()
-    fd.append('file', file)
-    return request<WatchlistImportResult>('/api/watchlist/import-image', {
-      method: 'POST',
-      body: fd,
-      signal,
-      quiet,
-    })
-  },
   watchlistRemove: (symbol: string) =>
     request<{ symbols: WatchlistEntry[] }>(
       `/api/watchlist/${encodeURIComponent(symbol)}`,
@@ -4173,20 +4090,6 @@ export const api = {
     )
     return { presets: data.strategies, load_errors: data.load_errors }
   },
-  screenerRunPreset: (strategy_id: string, pool?: string[], asOf?: string, extColumns?: string, assetType: 'stock' | 'etf' = 'stock') =>
-    request<ScreenerResult>('/api/screener/run_preset', {
-      method: 'POST',
-      body: JSON.stringify({ strategy_id, pool, as_of: asOf ?? null, ext_columns: extColumns || null, asset_type: assetType }),
-    }),
-  screenerRunCustom: (conditions: string[], orderBy?: string, limit = 30, pool?: string[], extColumns?: string, assetType: 'stock' | 'etf' = 'stock') =>
-    request<ScreenerResult>('/api/screener/run', {
-      method: 'POST',
-      body: JSON.stringify({ conditions, order_by: orderBy, limit, pool, ext_columns: extColumns || null, asset_type: assetType }),
-    }),
-  screenerRunAll: (asOf?: string, strategyIds?: string[], assetType: 'stock' | 'etf' = 'stock') =>
-    request<{ as_of: string | null; results: Record<string, ScreenerResultSummary> }>(
-      '/api/screener/run_all', { method: 'POST', body: JSON.stringify({ as_of: asOf ?? null, strategy_ids: strategyIds ?? null, asset_type: assetType, timeframe: '1d', summary_only: true }) },
-    ),
   screenerCachedSummary: () =>
     request<ScreenerCachedSummary>('/api/screener/cached-summary'),
   screenerCachedResult: (strategyId: string, extColumns?: string) =>
@@ -4212,67 +4115,10 @@ export const api = {
   // regimeCoverage 已是 Phase 8B-5.8 刪除 /data 頁後的既有 orphan, 不屬本次
   // 範圍, 不動。
   regimeCoverage: () => request<RegimeCoverage>('/api/regime/coverage'),
-  mainlineFilterUpdate: (payload: { min_members?: number; max_members?: number; blacklist?: string[]; exclude_st?: boolean }) =>
-    request<MainlineFilter>('/api/settings/preferences/mainline-filter', {
-      method: 'PUT',
-      body: JSON.stringify(payload),
-    }),
-
-
   backtestStatus: () => request<{ available: boolean }>('/api/backtest/status'),
-
-  backtestRun: (payload: {
-    symbols: string[]
-    entries: string[]
-    exits: string[]
-    start?: string
-    end?: string
-    stop_loss_pct?: number
-    max_hold_days?: number
-    matching?: 'close_t' | 'open_t+1'
-    asset_type?: 'stock' | 'etf' | 'index'
-  }) =>
-    request<BacktestResult>('/api/backtest/run', {
-      method: 'POST',
-      body: JSON.stringify(payload),
-    }),
 
   factorColumns: () =>
     request<{ columns: FactorColumn[] }>('/api/backtest/factor/columns'),
-
-  factorRun: (payload: {
-    factor_name: string
-    symbols?: string[] | null
-    start?: string | null
-    end?: string | null
-    n_groups?: number
-    rebalance?: 'daily' | 'weekly' | 'monthly'
-    weight?: 'equal' | 'factor_weight'
-    fees_pct?: number
-    slippage_bps?: number
-    asset_type?: 'stock' | 'etf' | 'index'
-  }) =>
-    request<FactorBacktestResult>('/api/backtest/factor/run', {
-      method: 'POST',
-      body: JSON.stringify(payload),
-    }),
-
-  factorBatch: (payload: {
-    factor_names: string[]
-    symbols?: string[] | null
-    start?: string | null
-    end?: string | null
-    n_groups?: number
-    rebalance?: 'daily' | 'weekly' | 'monthly'
-    weight?: 'equal' | 'factor_weight'
-    fees_pct?: number
-    slippage_bps?: number
-    asset_type?: 'stock' | 'etf' | 'index'
-  }) =>
-    request<FactorBatchResult>('/api/backtest/factor/batch', {
-      method: 'POST',
-      body: JSON.stringify(payload),
-    }),
 
   miningRuns: () =>
     request<{ items: MiningRun[] }>('/api/backtest/mining/runs'),
@@ -4297,92 +4143,15 @@ export const api = {
   miningRun: (runId: string) =>
     request<MiningRun>(`/api/backtest/mining/runs/${encodeURIComponent(runId)}`),
 
-  miningStart: (payload: MiningRequestV1) =>
-    request<MiningRun>('/api/backtest/mining/runs', {
-      method: 'POST',
-      body: JSON.stringify(payload),
-    }),
-
   miningResult: (runId: string) =>
     request<MiningResult>(`/api/backtest/mining/runs/${encodeURIComponent(runId)}/result`),
-
-  miningCancel: (runId: string) =>
-    request<MiningRun>(`/api/backtest/mining/runs/${encodeURIComponent(runId)}/cancel`, {
-      method: 'POST',
-    }),
-
-  miningPromote: (runId: string, signature: string) =>
-    request<ResearchCandidate>(
-      `/api/backtest/mining/runs/${encodeURIComponent(runId)}/candidates/${encodeURIComponent(signature)}/promote`,
-      { method: 'POST' },
-    ),
-
-  miningPublish: (runId: string, signature: string) =>
-    request<{ ok: boolean; strategy_id: string }>(
-      `/api/backtest/mining/runs/${encodeURIComponent(runId)}/candidates/${encodeURIComponent(signature)}/publish`,
-      { method: 'POST' },
-    ),
 
   miningConfig: () =>
     request<MiningScheduleConfig>('/api/backtest/mining/config'),
 
-  updateMiningConfig: (payload: Partial<MiningScheduleConfig>) =>
-    request<MiningScheduleConfig>('/api/backtest/mining/config', {
-      method: 'PATCH',
-      body: JSON.stringify(payload),
-    }),
-
   researchCandidates: () =>
     request<{ items: ResearchCandidate[] }>('/api/backtest/candidates'),
 
-  researchCandidateCreate: (payload: ResearchCandidateCreate) =>
-    request<ResearchCandidate>('/api/backtest/candidates', {
-      method: 'POST',
-      body: JSON.stringify(payload),
-    }),
-
-  researchCandidateUpdate: (
-    id: string,
-    payload: { name?: string; status?: ResearchCandidateStatus },
-  ) =>
-    request<ResearchCandidate>(`/api/backtest/candidates/${encodeURIComponent(id)}`, {
-      method: 'PATCH',
-      body: JSON.stringify(payload),
-    }),
-
-  researchCandidateDelete: (id: string) =>
-    request<{ ok: boolean }>(`/api/backtest/candidates/${encodeURIComponent(id)}`, {
-      method: 'DELETE',
-    }),
-
-  strategyBacktestRun: (payload: {
-    strategy_id: string
-    symbols?: string[] | null
-    start?: string | null
-    end?: string | null
-    params?: Record<string, any> | null
-    overrides?: Record<string, any> | null
-    matching?: 'close_t' | 'open_t+1'
-    entry_fill?: 'close_t' | 'open_t+1' | null
-    exit_fill?: 'close_t' | 'open_t+1' | 'signal_next_minute' | null
-    fees_pct?: number
-    commission_pct?: number
-    stamp_tax_pct?: number
-    slippage_bps?: number
-    max_positions?: number
-    initial_capital?: number
-    position_sizing?: 'equal' | 'score_weight'
-    asset_type?: 'stock' | 'etf' | 'index'
-    minute_fill?: boolean
-  }) =>
-    request<StrategyBacktestResult>('/api/backtest/strategy/run', {
-      method: 'POST',
-      body: JSON.stringify(payload),
-    }),
-
-  pipelineRun: () => request<{ job_id: string; reused: boolean }>(
-    '/api/pipeline/run', { method: 'POST' },
-  ),
   pipelineJob: (id: string) => request<PipelineJob>(`/api/pipeline/jobs/${id}`),
   pipelineJobs: (limit = 20) =>
     request<{ active_id: string | null; jobs: PipelineJobSummary[] }>(
@@ -4390,32 +4159,6 @@ export const api = {
     ),
 
   dataStatus: () => request<DataStatus>('/api/data/status'),
-  refreshCache: () => request<{ ok: boolean }>('/api/data/refresh-cache', { method: 'POST' }),
-
-  // Phase 8B-5.8: dataClear/enrichedSchema/testEndpoint/listEndpoints/
-  // switchEndpoint 隨已刪除的 Data.tsx + EndpointTestDialog.tsx 一併移除
-  // (僅供該頁使用)。
-  // Phase 8B-5.18: 對應 backend POST /api/data/clear、GET /api/data/schema/{table}
-  // 已確認 zero 消費者並整組刪除(見 backend/app/api/data.py)。testEndpoint/
-  // listEndpoints/switchEndpoint 對應的 backend 端點暫未動, 留待後續獨立 Phase。
-
-  // ===== 擴展數據 =====
-  // Phase 8B-5.8: extDataCreate/Update/Delete/Upload(建立/編輯/刪除/上傳
-  // 擴充資料源, 由已刪除的 CreateExtDialog/EditExtDialog/ExtDataStatCard
-  // 使用)隨 Data.tsx 一併移除。
-  // Phase 8B-5.12: analysisMenus/analysisMenu/analysisMenuSave/Reorder/Delete
-  // (自訂分析選單建構器, 隨已刪除的 Analysis.tsx/AnalysisDetail.tsx/ExtPages.tsx
-  // 一併移除)。
-  // Phase 8B-5.16: extDataList/extDataRows/extDataIngest/extDataPresetFetch
-  // 經 8B-5.13/8B-5.15 兩輪 audit 確認 zero 前端/後端/scheduler/腳本消費者,
-  // 對應 backend CRUD/upload/ingest/pull-config/pull-test/pull-run/
-  // fix-symbol/detect-fields/detect-url/list/schema/{id}/presets-fetch 端點
-  // 整組移除(見 backend/app/api/ext_data.py)。extDataSchemaAll/
-  // dimensionMembers(唯讀 schema 發現 + 維度成員鑽取)仍是 ListColumnCustomizer/
-  // DimensionMembersDialog/Monitor/Watchlist/Dashboard/Screener 的真實消費者,
-  // 完整保留。ExtConfigStore/_read_ext_dataframe/PullScheduler/ext_presets.py
-  // 均未變更。
-
   dimensionMembers: (id: string, opts: { field: string; value: string; date?: string; limit?: number }) => {
     const qs = new URLSearchParams({ field: opts.field, value: opts.value })
     if (opts.date) qs.set('date', opts.date)
@@ -4428,95 +4171,9 @@ export const api = {
 
   // ===== Financials =====
   // Phase 8B-5.3: 僅保留 financialMetrics —— 見上方 FinancialMetricRecord 註釋。
-  financialMetrics: (symbol?: string) =>
-    request<{ data: FinancialMetricRecord[] }>(
-      `/api/financials/metrics${symbol ? `?symbol=${encodeURIComponent(symbol)}` : ''}`,
-    ),
-
-  // ===== 個股分析 =====
-  // Phase 8B-5.6B: 僅保留 stockAnalysisLevels(PriceAlertDialog 價格提醒 +
-  // 關鍵價位持續使用)—— AI 長篇個股研究報告 workflow(analyze/reports CRUD)
-  // 已隨其唯一消費者(已刪除的 StockAnalysis.tsx 頁面 + stockAnalysisStore)
-  // 一併移除,詳見 Phase 8B-5.6A audit。
-  stockAnalysisLevels: (symbol: string, days = 120) =>
-    request<StockLevels>(`/api/stock-analysis/levels?symbol=${encodeURIComponent(symbol)}&days=${days}`),
-
-  // Phase 8B-5.11: 大盤覆盤(reviewReportsList/Save/Delete/reviewStream)
-  // 隨已刪除的 Review.tsx(盤後檢討頁)一併移除 —— 純 A 股 AI 長篇復盤
-  // workflow, 對台股無意義。GET /api/overview/market(Dashboard A 股選配
-  // 板塊仍用)、market_overview_builder、depth_service 完全未動。
-
-  // ===== Strategy Engine =====
-  strategyList: (assetType?: 'stock' | 'etf', timeframe = '1d') => {
-    const params = new URLSearchParams()
-    if (assetType) params.set('asset_type', assetType)
-    if (timeframe) params.set('timeframe', timeframe)
-    const qs = params.toString()
-    return request<{ strategies: StrategyDetail[]; load_errors?: StrategyLoadError[] }>(
-      `/api/strategies${qs ? `?${qs}` : ''}`,
-    )
-  },
-
-  strategyGet: (id: string) =>
-    request<StrategyDetail>(`/api/strategies/${id}`),
-
-  strategyRun: (strategyId: string, params?: Record<string, any>, asOf?: string, pool?: string[]) =>
-    request<ScreenerResult>('/api/strategies/run', {
-      method: 'POST',
-      body: JSON.stringify({ strategy_id: strategyId, params, as_of: asOf ?? null, pool }),
-    }),
-
-  strategyRunAll: (asOf?: string) =>
-    request<{ as_of: string | null; results: Record<string, { total: number; as_of: string }> }>(
-      '/api/strategies/run-all',
-      { method: 'POST', body: JSON.stringify({ as_of: asOf ?? null }) },
-    ),
-
-  strategySaveConfig: (strategyId: string, overrides: Record<string, any>) =>
-    request<{ ok: boolean }>('/api/strategies/config', {
-      method: 'POST',
-      body: JSON.stringify({ strategy_id: strategyId, overrides }),
-    }),
-
-  strategyPatchConfig: (strategyId: string, overrides: Record<string, any>) =>
-    request<{ ok: boolean }>('/api/strategies/config', {
-      method: 'PATCH',
-      body: JSON.stringify({ strategy_id: strategyId, overrides }),
-    }),
-
-  strategyResetConfig: (strategyId: string) =>
-    request<{ ok: boolean }>(`/api/strategies/config/${strategyId}`, { method: 'DELETE' }),
-
-  /** 刪除自定義策略（內置策略不可刪除） */
-  strategyDelete: (strategyId: string) =>
-    request<{ ok: boolean }>(`/api/strategies/${strategyId}`, { method: 'DELETE' }),
-
-  strategyReload: () =>
-    request<{ ok: boolean; count: number }>('/api/strategies/reload', { method: 'POST' }),
-
-  // ===== Custom Signals (自定義信號) =====
-  customSignalsList: () =>
-    request<{ signals: CustomSignal[] }>('/api/custom-signals'),
-
   customSignalsOptions: () =>
     request<CustomSignalOptions>('/api/custom-signals/options'),
 
-  customSignalSave: (signal: CustomSignal) =>
-    request<{ ok: boolean; signal: CustomSignal }>('/api/custom-signals', {
-      method: 'POST',
-      body: JSON.stringify(signal),
-    }),
-
-  customSignalDelete: (id: string) =>
-    request<{ ok: boolean }>(`/api/custom-signals/${encodeURIComponent(id)}`, { method: 'DELETE' }),
-
-  customSignalsAiGenerate: (description: string) =>
-    request<CustomSignalAIGenerateResult>('/api/custom-signals/ai/generate', {
-      method: 'POST',
-      body: JSON.stringify({ description }),
-    }),
-
-  // ===== Monitor Rules (監控規則) =====
   monitorRulesList: () =>
     request<{ rules: MonitorRule[] }>('/api/monitor-rules'),
 
@@ -4585,8 +4242,6 @@ export const api = {
     ),
 
   // ===== A13: Buy Point =====
-  buyPointPresets: () =>
-    request<{ presets: BuyPointStrategy[] }>('/api/taiwan/buy-points/presets'),
   buyPointStrategies: () =>
     request<{ strategies: BuyPointStrategy[] }>('/api/taiwan/buy-points/strategies'),
   buyPointClone: (presetId: string, name?: string) =>
@@ -4597,21 +4252,11 @@ export const api = {
     request<BuyPointStrategy>('/api/taiwan/buy-points/strategies', { method: 'POST', body: JSON.stringify(payload) }),
   buyPointUpdate: (id: string, payload: Partial<BuyPointStrategy>) =>
     request<BuyPointStrategy>(`/api/taiwan/buy-points/strategies/${encodeURIComponent(id)}`, { method: 'PUT', body: JSON.stringify(payload) }),
-  buyPointDelete: (id: string) =>
-    request<{ ok: boolean; deleted_id: string }>(`/api/taiwan/buy-points/strategies/${encodeURIComponent(id)}`, { method: 'DELETE' }),
-  buyPointAssignments: (symbol?: string) => {
-    const qs = symbol ? `?symbol=${encodeURIComponent(symbol)}` : ''
-    return request<{ assignments: Record<string, string[]> | string[] }>(`/api/taiwan/buy-points/assignments${qs}`)
-  },
   buyPointAssign: (symbol: string, strategyIds: string[]) =>
     request<{ symbol: string; strategy_ids: string[] }>(`/api/taiwan/buy-points/assignments/${encodeURIComponent(symbol)}`, { method: 'PUT', body: JSON.stringify({ strategy_ids: strategyIds }) }),
   buyPointSignals: (symbol?: string) => {
     const qs = symbol ? `?symbol=${encodeURIComponent(symbol)}` : ''
     return request<{ signals: BuyPointSignal[]; as_of: string }>(`/api/taiwan/buy-points/signals${qs}`)
-  },
-  buyPointEvaluate: (symbol?: string) => {
-    const qs = symbol ? `?symbol=${encodeURIComponent(symbol)}` : ''
-    return request<{ signals: BuyPointSignal[]; triggered: AlertEvent[] }>(`/api/taiwan/buy-points/evaluate${qs}`, { method: 'POST' })
   },
   beginnerSelection: (limit = 20) =>
     request<BeginnerSelectionResponse>(`/api/taiwan/beginner-selection?limit=${limit}`),
@@ -4908,12 +4553,6 @@ export const api = {
       method: 'DELETE',
     }),
 
-  taiwanEvaluateRules: () =>
-    request<{ ok: boolean; evaluated_rules: number; alerts_count: number; alerts: TaiwanAlertEvent[] }>(
-      '/api/monitor-rules/taiwan/evaluate',
-      { method: 'POST' },
-    ),
-
   syncPlanRules: () =>
     request<TaiwanPlanSyncResult>('/api/monitor-rules/taiwan/sync-plans', {
       method: 'POST',
@@ -4967,9 +4606,6 @@ export const api = {
   alertsClear: () =>
     request<{ ok: boolean; cleared: number }>('/api/alerts', { method: 'DELETE' }),
 
-  alertDelete: (ts: number) =>
-    request<{ ok: boolean }>(`/api/alerts/${ts}`, { method: 'DELETE' }),
-
   alertsMarkRead: (alertId: string) =>
     request<{ ok: boolean }>(`/api/alerts/${encodeURIComponent(alertId)}/read`, { method: 'PATCH' }),
 
@@ -4984,10 +4620,6 @@ export const api = {
     request<{ ok: boolean; generated: number }>(`/api/alerts/seed?count=${count}&recent=${recent}`, { method: 'POST' }),
 
   /** 檢查 AI 配置狀態 */
-  strategyAiStatus: () =>
-    request<{ configured: boolean; has_key: boolean; has_model: boolean; provider?: string }>('/api/strategies/ai/status'),
-
-  /** 測試 AI 連通性 */
   strategyAiTest: () =>
     request<{ ok: boolean; error?: string; model?: string; response?: string; usage?: { prompt: number; completion: number } }>(
       '/api/strategies/ai/test',
@@ -4995,92 +4627,6 @@ export const api = {
     ),
 
   /** 獲取策略源文件內容 */
-  strategyGetSource: (id: string) =>
-    request<{ code: string; source: string }>(`/api/strategies/${id}/source`),
-  strategyBuild: (step: number, payload: Record<string, any>) =>
-    request<StrategyBuildResult>(
-      '/api/strategies/build',
-      { method: 'POST', body: JSON.stringify({ step, ...payload }) },
-    ),
-
-  async *strategyBuildStream(step: number, payload: Record<string, any>): AsyncGenerator<StrategyBuildStreamEvent> {
-    const res = await fetch('/api/strategies/build/stream', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ step, ...payload }),
-    })
-    if (!res.ok) {
-      let detail = ''
-      try { const j = JSON.parse(await res.text()); detail = j.detail ?? j.message ?? '' } catch { /* ignore */ }
-      const msg = detail || `${res.status} ${res.statusText}`
-      toast(msg, 'error')
-      throw new Error(msg)
-    }
-    if (!res.body) throw new Error('響應無 body')
-
-    const reader = res.body.getReader()
-    const decoder = new TextDecoder()
-    let buf = ''
-    for (;;) {
-      const { done, value } = await reader.read()
-      if (done) break
-      buf += decoder.decode(value, { stream: true })
-      const lines = buf.split('\n')
-      buf = lines.pop() ?? ''
-      for (const line of lines) {
-        const s = line.trim()
-        if (!s) continue
-        try { yield JSON.parse(s) } catch { /* ignore */ }
-      }
-    }
-    if (buf.trim()) {
-      try { yield JSON.parse(buf.trim()) } catch { /* ignore */ }
-    }
-  },
-
-  strategyValidateCode: (payload: { code: string; strategy_id?: string; name?: string; description?: string }) =>
-    request<StrategyBuildResult>('/api/strategies/code/validate', {
-      method: 'POST',
-      body: JSON.stringify(payload),
-    }),
-
-  strategySaveCodeV2: (payload: {
-    strategy_id: string
-    code: string
-    target_source: 'ai' | 'custom'
-    mode: 'create' | 'update'
-    name?: string
-    description?: string
-  }) =>
-    request<StrategyCodeSaveResult>('/api/strategies/code/save', {
-      method: 'POST',
-      body: JSON.stringify(payload),
-    }),
-
-  /** 創建/更新疊加策略(composite): 聲明式引用多個子策略 */
-  strategySaveComposite: (payload: {
-    strategy_id: string
-    name: string
-    description?: string
-    children: { strategy_id: string; weight: number }[]
-    merge_mode: 'union' | 'intersect'
-    min_confirm?: number
-    mode: 'create' | 'update'
-  }) =>
-    request<StrategyCodeSaveResult>('/api/strategies/composite/save', {
-      method: 'POST',
-      body: JSON.stringify(payload),
-    }),
-
-  /** 保存 AI 生成的策略文件 */
-  strategySaveCode: (strategyId: string, code: string, meta?: { name?: string; description?: string }) =>
-    request<{ ok: boolean; path: string }>('/api/strategies/ai/save', {
-      method: 'POST',
-      body: JSON.stringify({ strategy_id: strategyId, code, name: meta?.name ?? '', description: meta?.description ?? '' }),
-    }),
-
-  // ===== Taiwan Historical Data & Bootstrap =====
-  /** 獲取台股歷史日 K 本地存儲狀態與 Bootstrap 需求 */
   taiwanHistoryStatus: () =>
     request<TaiwanHistoryStatus>('/api/taiwan/history-status'),
 

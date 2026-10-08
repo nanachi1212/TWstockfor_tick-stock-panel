@@ -3,7 +3,6 @@
 數據源插件是可選的行情數據來源(stock-sdk、akshare 等),作為獨立模塊放在
 `backend/app/plugins/` 下。用戶**手動安裝依賴**後才可用(開發模式);不安裝完全不影響主功能。
 
-> ⚠️ **Docker 默認不打包 stock-sdk**(合規考慮:它抓取第三方財經網站接口,存在版權與反爬風險)。如需在 Docker 中啟用,構建時傳 `--build-arg INCLUDE_STOCKSDK=1`,使用風險自負。下方"手動安裝依賴"適用於開發模式及自定義 Docker 構建。
 
 ## 快速上手
 
@@ -34,7 +33,7 @@ install_hint: "pip install xxx"          # 未裝依賴時顯示的安裝提示
 #### api_key_env(界面配置 API Key)
 
 聲明 `api_key_env` 的插件可以在設置頁的數據源卡片中直接填寫 Key, 對齊
-TickFlow 的「先探後存」語義:
+既有「先探後存」語義:
 
 1. entry 模塊需提供模塊級 `probe_api_key(key) -> (ok, reason)`,
    後端用候選 Key 實探一次, **無效不落盤**
@@ -51,7 +50,6 @@ TickFlow 的「先探後存」語義:
 | `python` | 純 Python 依賴, `pip install` | akshare、tushare |
 | `node` | 需要 Node.js 運行時, `npm install` | stock-sdk(Docker 默認不打包,見 [deployment.md](./deployment.md)) |
 
-> stock-sdk 在 Docker 中默認不打包(合規考慮);如需啟用,構建時傳 `--build-arg INCLUDE_STOCKSDK=1`,開發模式下需手動 `npm install`。
 | `none` | 無額外依賴 | 純 HTTP API 源 |
 
 `runtime` 字段當前僅用於 UI 展示, 實際依賴檢測由 `check` 函數負責。
@@ -104,14 +102,14 @@ class MyProvider:
         """全市場實時快照: 返回 list[dict], 每行含 symbol/last_price/prev_close/open/high/low/volume"""
 
     def get_instruments(self, asset_type="stock") -> list[dict]:
-        """標的維表(可選): 返回 tickflow Instrument 形狀的行, 供 instrument_sync 複用 flatten"""
+        """標的維表(可選): 返回 tickflow Instrument 形狀的行, 供標的維表同步複用 flatten"""
 ```
 
 ### config.datasets 的作用
 
 `provider_has_dataset(name, dataset)` 通過 `dataset in provider.config.datasets` 判斷。
 這是 services 層路由的關鍵: 用戶在設置頁選了插件, 但某數據集未聲明時, 該數據集
-自動回退 TickFlow。
+自動回退預設的台灣官方資料源。
 
 ```python
 class MyConfig:
@@ -120,16 +118,7 @@ class MyConfig:
 
 ## 現有插件參考
 
-- **`backend/app/plugins/fuyao/`** — 同花順官方 REST 數據源(runtime: none, 純 HTTP 零依賴)
-  - 當前提供 `realtime`(A 股全市場快照, 分頁拉取); Key 在設置頁卡片直接配置(先探後存), 或 `.env` 配 `FUYAO_API_KEY`
-  - `client.py` — httpx 客戶端(X-api-key 認證 + 統一信封解包 + 分頁)
-  - `provider.py` — Provider 實現(字段映射、百分數→小數制單位轉換、軟失敗、Key 探測)
-  - 單位口徑注意: 扶搖 `price_change_ratio_pct` 為百分數數值(1.74 = +1.74%),
-    內部 `change_pct` 契約為小數制, provider 內顯式 / 100(見 CONTRIBUTING §3.1)
-- **`backend/app/plugins/stocksdk/`** — Node 型插件, 通過 subprocess 橋接調用 stock-sdk
-  - `bridge.py` — Python↔Node 橋接 + availability 檢測
-  - `bridge.mjs` — Node 端(併發池、重試、SDK 解析)
-  - `provider.py` — Provider 實現(歸一化、分批、錯誤降級)
+目前倉庫內沒有內建插件；下列目錄結構與 `plugin.yaml` 規範即為新插件的範本。
 
 ## 路由機制(無需關心, 僅參考)
 

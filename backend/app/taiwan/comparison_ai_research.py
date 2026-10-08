@@ -38,7 +38,7 @@ from app.services.ai_provider import (
     current_ai_provider,
     generate_ai_text,
 )
-from app.strategy.custom_signals_ai import _extract_json_object
+from app.services.ai_json import _extract_json_object
 from app.taiwan.ai_research import ObservationItem, build_evidence_registry
 from app.taiwan.comparison import (
     MAX_COMPARE_SYMBOLS,
