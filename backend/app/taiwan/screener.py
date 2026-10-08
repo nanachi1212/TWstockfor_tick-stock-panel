@@ -1120,7 +1120,7 @@ class TaiwanScreenerService:
         # Daily chip datasets stay cached for days (weekend bridge); only the latest session, or the
         # one before it (publication lag), may feed a filter. Older values are excluded, not reused.
         sessions = sorted(self.daily_store.available_dates())
-        chips_floor = (sessions[-2] if len(sessions) > 1 else sessions[-1]).isoformat() if sessions else None
+        chips_floor = str(sessions[-2] if len(sessions) > 1 else sessions[-1])[:10] if sessions else None
         chips_symbols: set[str] = set()
 
         # Live Quant scores
@@ -1135,7 +1135,9 @@ class TaiwanScreenerService:
                     sym = s.get("symbol")
                     score = s.get("score")
                     if sym and score is not None:
-                        quant_scores[str(sym)] = float(score)
+                        # Live signals carry a 0-1 cross-sectional rank; every screener consumer
+                        # (UI "0~100", templates, buy-point quant_min) uses a 0-100 score.
+                        quant_scores[str(sym)] = float(score) * 100.0
         except Exception as e:
             logger.debug("Failed to read live quant scores for screener: %s", e)
 

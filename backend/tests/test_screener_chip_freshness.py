@@ -1,3 +1,4 @@
+import pytest
 from datetime import date
 from types import SimpleNamespace
 
@@ -33,3 +34,25 @@ def test_daily_chip_values_older_than_previous_session_are_not_filtered_on(tmp_p
     assert ratios["2317.TWSE"] is not None  # one-session publication lag
     assert ratios["2454.TWSE"] is None      # cached but stale: never reused as current
     assert chips_count == 2
+
+
+def test_live_quant_rank_is_exposed_on_the_0_to_100_scale(tmp_path, monkeypatch):
+    from app.taiwan.quant import live_store
+
+    class FakeLedger:
+        def runs(self, limit):
+            return [{"snapshot": {"signals": [{"symbol": "2330.TWSE", "score": 0.975}]}}]
+
+    monkeypatch.setattr(live_store, "LiveLedger", FakeLedger)
+    cache = FinMindCache(tmp_path)
+    svc = TaiwanScreenerService.__new__(TaiwanScreenerService)
+    svc.cache = cache
+    svc._fundamental_chips_service = TaiwanFundamentalChipsService(cache=cache)
+    svc.daily_store = SimpleNamespace(available_dates=lambda: [date(2026, 10, 7)])
+
+    out, _, _ = svc._join_cached_fundamentals_chips(
+        pl.DataFrame({"symbol": ["2330.TWSE", "2317.TWSE"]}), ["2330.TWSE", "2317.TWSE"])
+
+    scores = dict(zip(out["symbol"], out["quant_score"], strict=True))
+    assert scores["2330.TWSE"] == pytest.approx(97.5)  # passes a template quant_score_min of 70
+    assert scores["2317.TWSE"] is None
