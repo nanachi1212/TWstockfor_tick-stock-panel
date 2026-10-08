@@ -31,12 +31,12 @@ logger = logging.getLogger(__name__)
 
 # Canonical GitHub Release metadata
 GITHUB_REPO = "nanachi1212/TWstockfor_tick-stock-panel"
-RELEASE_TAG = "data-daily-2026-09-10"
-ASSET_NAME = "nanachi-tw-daily-2024-01-02_to_2026-09-10.zip"
-EXPECTED_SHA256 = "42e9535214197309f515750e3bc69c58eb6a81b7d8f4eed06e1d363216fa8358"
+RELEASE_TAG = "data-daily-2026-10-07"
+ASSET_NAME = "nanachi-tw-daily-2024-01-02_to_2026-10-07.zip"
+EXPECTED_SHA256 = "74df9c2eea30723094fd81381a16415e9ee03950262a5d67dc29ec8895c5cae1"
 DOWNLOAD_URL = f"https://github.com/{GITHUB_REPO}/releases/download/{RELEASE_TAG}/{ASSET_NAME}"
-ASSET_APPROX_SIZE_MB = 31
-DATASET_DATE_RANGE = "2024-01-02 ~ 2026-09-10"
+ASSET_APPROX_SIZE_MB = 51
+DATASET_DATE_RANGE = "2024-01-02 ~ 2026-10-07"
 
 
 class TaiwanHistoryStatus(BaseModel):
@@ -461,7 +461,7 @@ class TaiwanBootstrapService:
                     status="downloading",
                     stage="下載中",
                     progress=0,
-                    message="正在從 GitHub Release 下載歷史資料包 (約 31 MiB)...",
+                    message="正在從 GitHub Release 下載歷史資料包 (約 51 MiB)...",
                 )
 
                 hasher = hashlib.sha256()
