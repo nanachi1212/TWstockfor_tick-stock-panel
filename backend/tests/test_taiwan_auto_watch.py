@@ -294,7 +294,7 @@ def test_sync_api_and_get_contract_with_empty_watchlist(engine, monkeypatch):
 
 @pytest.mark.parametrize("status", ["success", "partial", "failed"])
 def test_scheduler_sync_only_after_success_and_quant_failure_is_isolated(monkeypatch, status):
-    from app.taiwan import auto_watch
+    from app.taiwan import auto_watch, selection_review_service
     from app.taiwan.quant import live_runner
 
     scheduler = Mock()
@@ -308,6 +308,7 @@ def test_scheduler_sync_only_after_success_and_quant_failure_is_isolated(monkeyp
     monkeypatch.setattr(daily_pipeline, "_refresh_after_close_research", lambda: {})
     monkeypatch.setattr(live_runner, "run_live_after_refresh", Mock(side_effect=RuntimeError("quant failed")))
     monkeypatch.setattr(auto_watch, "sync_watchlist_plans", lambda: events.append("sync") or {})
+    monkeypatch.setattr(selection_review_service, "lock_daily_forward_batches", Mock())
     daily_pipeline.start_scheduler(Mock(), Mock())
     job = next(call for call in scheduler.add_job.call_args_list if call.kwargs["id"] == "taiwan_daily_update")
     job.args[0]()

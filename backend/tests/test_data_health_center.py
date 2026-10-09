@@ -131,7 +131,7 @@ def test_finmind_metadata_expired_empty_corrupt_and_no_fetch(tmp_path):
     cache.set(dataset, "2330.TWSE", [{"date": "2026-08-01"}], data_date="2026-08-01")
     path = tmp_path / dataset / "2330.TWSE.json"
     raw = json.loads(path.read_text())
-    raw["fetched_at"] = (datetime.now(UTC) - timedelta(days=2)).isoformat()
+    raw["fetched_at"] = (datetime.now(UTC) - timedelta(days=4)).isoformat()
     path.write_text(json.dumps(raw))
     cache.set(dataset, "2317.TWSE", [], status="available")
     (tmp_path / dataset / "bad.json").write_text("invalid")
@@ -614,3 +614,18 @@ def test_ai_failure_does_not_survive_configuration_change(monkeypatch):
     revision[0] = "second"
     rows = {row.id: row for row in manager.snapshot().datasets}
     assert rows["ai_provider"].status == "unavailable"
+
+
+def test_daily_chips_health_uses_data_date_not_cache_age(monkeypatch, tmp_path):
+    from app.taiwan import data_health_center, finmind_cache
+
+    cache = FinMindCache(tmp_path)
+    cache.set("TaiwanStockShareholding", "2330.TWSE", [{"date": "2026-10-07"}], data_date="2026-10-07")
+    cache.set("TaiwanStockShareholding", "2454.TWSE", [{"date": "2026-10-01"}], data_date="2026-10-01")
+    monkeypatch.setattr(finmind_cache, "FinMindCache", lambda: cache)
+    monkeypatch.setattr(data_health_center, "_previous_daily_session", lambda: date(2026, 10, 6))
+    monkeypatch.setattr(data_health_center, "etf_symbols", lambda: set())
+
+    row = DataHealthService()._finmind()["foreign_shareholding"]
+    assert row["status"] == "stale"  # fresh cache entry, but its data date is behind
+    assert "1/2" in row["reason"]

@@ -126,6 +126,12 @@ def run_taiwan_update(evening: bool = False, *, trigger: str = "scheduled") -> N
             except Exception:
                 logger.exception("Taiwan Auto Watch sync failed; old rules remain")
             try:
+                from app.taiwan.selection_review_service import lock_daily_forward_batches
+
+                logger.info("Taiwan forward batches: %s", lock_daily_forward_batches())
+            except Exception:
+                logger.exception("Taiwan forward batch lock failed")
+            try:
                 from app.taiwan.auto_ai_explain import run_auto_explain
 
                 logger.info("Taiwan auto AI explain: %s", run_auto_explain())
@@ -158,6 +164,25 @@ def start_scheduler(repo: KlineRepository, capset: CapabilitySet) -> AsyncIOSche
         _scheduled_taiwan_update,
         trigger=CronTrigger(day_of_week="mon-fri", hour=16, minute=30, timezone="Asia/Taipei"),
         id="taiwan_daily_update",
+        misfire_grace_time=3600,
+        coalesce=True,
+        max_instances=1,
+        replace_existing=True,
+    )
+
+    # 選股器的基本面/籌碼條件只讀本機快取; 收盤後替流動性足夠的普通股預熱 (FinMind 限流, 約數小時)。
+    def _scheduled_fundamentals_warm():
+        try:
+            from app.taiwan.fundamentals_warm import warm_fundamentals
+
+            logger.info("Taiwan fundamentals warm: %s", warm_fundamentals())
+        except Exception:
+            logger.exception("Taiwan fundamentals warm failed")
+
+    scheduler.add_job(
+        _scheduled_fundamentals_warm,
+        trigger=CronTrigger(day_of_week="mon-fri", hour=17, minute=30, timezone="Asia/Taipei"),
+        id="taiwan_fundamentals_warm",
         misfire_grace_time=3600,
         coalesce=True,
         max_instances=1,

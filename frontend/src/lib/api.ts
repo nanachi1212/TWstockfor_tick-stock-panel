@@ -1128,6 +1128,7 @@ export interface TaiwanScreenerRequest {
   exchange?: 'TWSE' | 'TPEX' | 'ALL'
   instrument?: 'stock' | 'etf' | 'ALL'
   industry?: string | null
+  keyword?: string | null
   price_min?: number | null
   price_max?: number | null
   change_pct_min?: number | null
@@ -3169,6 +3170,8 @@ export interface TaiwanSocialSentimentJob {
   ptt_status: SocialSentimentAvailability | 'not_queried'
   dcard_status: SocialSentimentAvailability | 'not_queried'
   ai_status: 'available' | 'degraded' | 'unavailable' | 'not_queried'
+  /** Lower-heat symbols intentionally left without AI sentiment (kept as unavailable). */
+  ai_skipped_symbols?: number
   posts: number
   comments: number
   symbols_identified: number

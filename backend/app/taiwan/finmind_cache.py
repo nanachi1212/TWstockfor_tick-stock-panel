@@ -18,10 +18,12 @@ logger = logging.getLogger(__name__)
 
 # Default Cache TTLs in seconds
 DATASET_TTL: dict[str, int] = {
-    "TaiwanStockMonthRevenue": 24 * 3600,       # 24 hours
+    # Published at most once per trading day and re-warmed after close
+    # (app.taiwan.fundamentals_warm); 84 hours bridges a weekend. data_date keeps freshness visible.
+    "TaiwanStockMonthRevenue": 84 * 3600,
     "TaiwanStockFinancialStatements": 7 * 86400, # 7 days
-    "TaiwanStockShareholding": 6 * 3600,        # 6 hours
-    "TaiwanStockSecuritiesLending": 6 * 3600,   # 6 hours
+    "TaiwanStockShareholding": 84 * 3600,
+    "TaiwanStockSecuritiesLending": 84 * 3600,
 }
 NEGATIVE_TTL = 900  # 15 minutes for unavailable or error responses
 

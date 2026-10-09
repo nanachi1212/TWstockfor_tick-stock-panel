@@ -124,3 +124,28 @@ def test_missing_security_master_does_not_crash_the_endpoint():
 
     assert res.status_code == 200
     assert res.json()["quotes"][0]["name"] == "TAIWAN SEMICONDUCTOR MANUFACTUR..."
+
+
+def test_unconfirmed_etf_limit_does_not_fail_quotes_or_search():
+    """未確認 ETF 的漲跌幅查詢會 raise ValueError; 報價與搜尋都要留下該檔、限制標成未知, 不能 500。"""
+    unconfirmed = patch(
+        "app.taiwan.universe.models.MarketProfileBridge.get_price_limit_pct",
+        side_effect=ValueError("unconfirmed ETF"),
+    )
+    fake_rt_service = MagicMock()
+    fake_rt_service.get_quotes.return_value = {"00633L.TWSE": _fake_quote("00633L.TWSE", "X")}
+    fake_sec_master = MagicMock()
+    fake_sec_master.get_instrument.return_value = _fake_instrument("00633L.TWSE", "富邦上証正2")
+    fake_sec_master.search.return_value = [{"symbol": "00633L.TWSE", "name": "富邦上証正2"}]
+
+    with patch("app.api.intraday.get_realtime_service", return_value=fake_rt_service), \
+         patch("app.taiwan.universe.get_security_master", return_value=fake_sec_master), \
+         unconfirmed:
+        quotes = client.get("/api/intraday/quotes", params={"symbols": "00633L.TWSE"})
+        search = client.get("/api/intraday/taiwan/search", params={"q": "正2"})
+
+    assert quotes.status_code == 200
+    assert quotes.json()["quotes"][0]["is_no_limit"] is False
+    assert search.status_code == 200
+    item = search.json()["results"][0]
+    assert item["price_limit_pct"] is None and item["is_no_limit"] is False

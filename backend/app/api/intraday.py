@@ -134,11 +134,14 @@ def get_quotes(
         limit_pct = None
         is_no_limit = False
         if inst:
-            limit_pct = MarketProfileBridge.get_price_limit_pct(inst)
-            if limit_pct is None:
-                is_no_limit = True
-            elif q.prev_close is not None:
-                limit_up, limit_down = MarketProfileBridge.calc_limits(q.prev_close, inst)
+            try:
+                limit_pct = MarketProfileBridge.get_price_limit_pct(inst)
+                if limit_pct is None:
+                    is_no_limit = True
+                elif q.prev_close is not None:
+                    limit_up, limit_down = MarketProfileBridge.calc_limits(q.prev_close, inst)
+            except ValueError:
+                pass  # unconfirmed ETF metadata: limits unknown, not "no limit"
         d["limit_up"] = limit_up
         d["limit_down"] = limit_down
         d["price_limit_pct"] = limit_pct
@@ -176,8 +179,12 @@ def search_taiwan_instruments(
         limit_pct = None
         is_no_limit = False
         if inst and inst.is_supported:
-            limit_pct = MarketProfileBridge.get_price_limit_pct(inst)
-            is_no_limit = (limit_pct is None)
+            try:
+                limit_pct = MarketProfileBridge.get_price_limit_pct(inst)
+                is_no_limit = (limit_pct is None)
+            except ValueError:
+                # Unconfirmed ETF metadata: the limit is unknown, not "no limit"; keep it in results.
+                pass
         item["price_limit_pct"] = limit_pct
         item["is_no_limit"] = is_no_limit
         enriched.append(item)

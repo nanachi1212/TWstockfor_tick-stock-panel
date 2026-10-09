@@ -120,6 +120,39 @@ def test_pure_cash_subscription_does_not_create_a_fake_return():
     assert result.event_type == "cash_capital_increase"
 
 
+_PREFERRED_FIELDS = ["股票代號", "股票名稱", "(每股配發現金股利)除息", "(增資配股) 除權",
+                     "F. 按特別股股東持股比例每千股無償配股", "G. 按特別股股東持股比例每千股有償認股",
+                     "每股認購金額"]
+
+
+@pytest.mark.parametrize("code,day,prev,ex_ref,published,value,cash,factor", [
+    # Official TWSE 2026 samples: preferred-share subscription with and without a cash dividend.
+    ("1312A", "115年06月11日", "22.20", "22.37", "22.20", "-0.170421", "0", 1.0),
+    ("8112A", "115年07月06日", "47.40", "44.12", "45.37", "3.272454", "2.025", (47.40 - 2.025) / 47.40),
+])
+def test_preferred_share_subscription_detail_uses_class_free_share_field(
+    code, day, prev, ex_ref, published, value, cash, factor,
+):
+    event = parsed(**{"股票代號": code, "資料日期": day, "除權息前收盤價": prev,
+                      "除權息參考價": ex_ref, "減除股利參考價": published,
+                      "權值+息值": value, "權/息": "權息"})
+    detail = {"stat": "ok", "fields": _PREFERRED_FIELDS,
+              "data": [[f"{code} ", "x", f"{cash} 元／股", "", "0 股", "57.94 股", "66 元／股"]]}
+    parsed_detail = parse_detail(detail, code)
+    assert parsed_detail["detail"] == {"(每股配發現金股利)除息": cash,
+                                       "F. 按特別股股東持股比例每千股無償配股": "0"}
+    raw = json.loads(event.raw_fields) | parsed_detail
+    result = derive_factor(replace(event, raw_fields=json.dumps(raw)))
+    assert result.status == "verified"
+    assert result.factor == pytest.approx(factor)
+
+
+def test_detail_with_neither_free_share_field_still_fails_closed():
+    fields = ["股票代號", "(每股配發現金股利)除息", "G. 按特別股股東持股比例每千股有償認股"]
+    with pytest.raises(CorporateActionSourceError):
+        parse_detail({"fields": fields, "data": [["1312A", "0 元／股", "284.04 股"]]}, "1312A")
+
+
 @pytest.mark.parametrize("field,value", [
     ("除權息前收盤價", None), ("除權息前收盤價", "-"), ("除權息前收盤價", "0"),
     ("除權息前收盤價", "NaN"), ("減除股利參考價", "-"), ("權值+息值", "-"),

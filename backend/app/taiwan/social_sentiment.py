@@ -28,6 +28,9 @@ from app.taiwan.providers.taiwan_values import TAIPEI
 logger = logging.getLogger(__name__)
 
 _NON_RETRYABLE_AI_STATUS = {401, 402, 403, 404}
+# Rankings arrive hottest-first; the cold tail (1-2 mentions) is not worth a slow local-LLM batch.
+# ponytail: fixed cap, make it a preference if users want the full tail analysed.
+AI_SENTIMENT_MAX_SYMBOLS = 40
 
 _PTT_INDEX = "https://www.ptt.cc/bbs/Stock/index.html"
 _PTT_BOARD = "https://www.ptt.cc"
@@ -752,8 +755,9 @@ class SocialSentimentService:
         # hidden reasoning before emitting JSON. Keep each request bounded so a
         # valid sentiment result has room to complete on Agnes as well as GLM.
         batch_size = 4
-        for offset in range(0, len(rankings), batch_size):
-            batch = rankings[offset : offset + batch_size]
+        targets = rankings[:AI_SENTIMENT_MAX_SYMBOLS]
+        for offset in range(0, len(targets), batch_size):
+            batch = targets[offset : offset + batch_size]
             prompt_items = [
                 {"symbol": row["code"], "company_name": row["company_name"], "texts": row["_texts"][:4]}
                 for row in batch
@@ -811,6 +815,7 @@ class SocialSentimentService:
             ),
             "batches": batches,
             "analyzed_symbols": analyzed,
+            "skipped_symbols": len(rankings) - len(targets),
             "errors": errors,
         }
 

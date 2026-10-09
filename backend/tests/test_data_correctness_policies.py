@@ -470,3 +470,25 @@ def test_selection_outcome_reason_names_the_blocking_evidence(monkeypatch):
         }))
     row = DataHealthService()._selection()["selection_outcome"]
     assert "公司行動" in row["reason"] and "reason_codes" not in row
+
+
+def test_social_ai_only_analyses_hottest_symbols(monkeypatch):
+    import json as _json
+
+    from app.taiwan.social_sentiment import AI_SENTIMENT_MAX_SYMBOLS
+
+    seen = []
+
+    async def ok(messages, **kwargs):
+        data = _json.loads(messages[-1]["content"].split("資料\uff1a", 1)[1])
+        seen.extend(item["symbol"] for item in data)
+        return _json.dumps({"items": [
+            {"symbol": item["symbol"], "sentiment": "neutral", "score": 0.0, "confidence": 0.5,
+             "bullish_count": 0, "neutral_count": 1, "bearish_count": 0, "reason": "r"}
+            for item in data]})
+
+    info = _run_ai(monkeypatch, ok, rankings=AI_SENTIMENT_MAX_SYMBOLS + 5)
+    assert seen == [f"{1000 + i}" for i in range(AI_SENTIMENT_MAX_SYMBOLS)]
+    assert info["analyzed_symbols"] == AI_SENTIMENT_MAX_SYMBOLS
+    assert info["skipped_symbols"] == 5
+    assert info["status"] == "degraded"  # skipped tail is partial coverage, not complete

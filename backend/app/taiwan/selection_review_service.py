@@ -1419,3 +1419,34 @@ def get_selection_review_service() -> TaiwanSelectionReviewService:
         if _service_instance is None:
             _service_instance = TaiwanSelectionReviewService()
         return _service_instance
+
+
+def lock_daily_forward_batches(
+    service: TaiwanSelectionReviewService | None = None, *, refresh_events: bool = True,
+) -> dict[str, str]:
+    """After-close: lock today's forward batch for every strategy (idempotent per session).
+
+    A strategy whose evidence gate fails stays unlocked with its reason; it never blocks the others.
+    """
+    from app.taiwan.selection_v2 import STRATEGY_IDS
+
+    svc = service or get_selection_review_service()
+    result: dict[str, str] = {}
+    if refresh_events:
+        # The lock gate needs a regulatory snapshot younger than its 1-hour cache, which the
+        # after-close market refresh does not touch (same refresh the manual update runs).
+        try:
+            from app.taiwan.events_service import get_event_service
+
+            get_event_service().get_all_regulatory_and_official_events(force_refresh=True)
+        except Exception as exc:  # the gate then fails closed per strategy
+            logger.warning("regulatory refresh before forward lock failed: %s", type(exc).__name__)
+    for strategy_id in STRATEGY_IDS:
+        try:
+            result[strategy_id] = svc.lock_forward_batch(strategy_id=strategy_id).snapshot_id
+        except ValueError as exc:
+            result[strategy_id] = f"skipped: {exc}"
+        except Exception as exc:  # one strategy must not stop the rest
+            logger.exception("forward batch lock failed for %s", strategy_id)
+            result[strategy_id] = f"failed: {type(exc).__name__}"
+    return result
