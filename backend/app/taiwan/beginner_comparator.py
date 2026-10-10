@@ -59,8 +59,10 @@ class BeginnerComparisonResponse(BaseModel):
 
 def validate_symbols(raw: str) -> list[str]:
     symbols = raw.split(",")
-    if not 2 <= len(symbols) <= 5:
-        raise ValueError("請選擇 2 至 5 檔股票比較。")
+    from app.taiwan.comparison import MAX_COMPARE_SYMBOLS
+
+    if not 2 <= len(symbols) <= MAX_COMPARE_SYMBOLS:
+        raise ValueError(f"請選擇 2 至 {MAX_COMPARE_SYMBOLS} 檔股票比較。")
     for symbol in symbols:
         if not re.fullmatch(r"[0-9]{4,6}[A-Z]?\.(?:TWSE|TPEX)", symbol):
             raise ValueError(f"無效的台股代號：{symbol}")

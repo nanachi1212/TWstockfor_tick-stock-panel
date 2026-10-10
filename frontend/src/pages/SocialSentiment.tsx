@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react'
-import { useQuery } from '@tanstack/react-query'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
 import {
   ArrowDown,
@@ -85,6 +85,11 @@ export function SocialSentiment() {
     staleTime: 5 * 60_000,
   })
   const watchlist = useQuery({ queryKey: QK.watchlist, queryFn: api.watchlistList, staleTime: 60_000 })
+  const qc = useQueryClient()
+  const addWatch = useMutation({
+    mutationFn: (symbol: string) => api.watchlistAdd(symbol),
+    onSuccess: () => qc.invalidateQueries({ queryKey: QK.watchlist }),
+  })
 
   const watchlistSet = useMemo(
     () => new Set((watchlist.data?.symbols ?? []).map(item => item.symbol)),
@@ -224,7 +229,7 @@ export function SocialSentiment() {
               <table className="w-full min-w-[1120px] text-left text-xs">
                 <thead className="border-b border-border bg-elevated/40 text-[11px] text-muted">
                   <tr>
-                    {['排名', '股票', '總聲量', 'PTT', 'Dcard', '討論串', '互動', '熱度', '24h 變化', '偏多', '中性', '偏空', '情緒分數', '信心', '狀態'].map(label => <th key={label} className="px-3 py-2 font-medium">{label}</th>)}
+                    {['排名', '股票', '總聲量', 'PTT', 'Dcard', '討論串', '互動', '熱度', '24h 變化', '偏多', '中性', '偏空', '情緒分數', '信心', '狀態', '操作'].map(label => <th key={label} className="px-3 py-2 font-medium">{label}</th>)}
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-border/60">
@@ -251,6 +256,12 @@ export function SocialSentiment() {
                         <td className={cn('px-3 py-2 font-mono', sentimentClass(row.sentiment))}>{row.sentiment_score == null ? '不可用' : row.sentiment_score.toFixed(2)}</td>
                         <td className="px-3 py-2 font-mono">{row.sentiment_confidence == null ? '不可用' : `${(row.sentiment_confidence * 100).toFixed(0)}%`}</td>
                         <td className="px-3 py-2"><span className={sentimentClass(row.sentiment)}>{sentimentLabel(row.sentiment)}</span></td>
+                        <td className="whitespace-nowrap px-3 py-2 text-xs">
+                          <Link to={`/stocks/${encodeURIComponent(row.symbol)}`} className="mr-3 text-accent hover:underline">個股</Link>
+                          {watchlistSet.has(row.symbol)
+                            ? <span className="text-muted">已自選</span>
+                            : <button type="button" disabled={addWatch.isPending} onClick={() => addWatch.mutate(row.symbol)} className="text-accent hover:underline disabled:opacity-50">加自選</button>}
+                        </td>
                       </tr>
                     )
                   })}

@@ -514,15 +514,15 @@ def test_request_schema_rejects_six_symbols():
     from app.taiwan.comparison import TaiwanStockCompareRequest
 
     with pytest.raises(Exception):
-        TaiwanStockCompareRequest(symbols=[f"S{i}.TWSE" for i in range(6)])
+        TaiwanStockCompareRequest(symbols=[f"S{i}.TWSE" for i in range(MAX_COMPARE_SYMBOLS + 1)])
 
 
 def test_request_schema_accepts_boundary_counts():
     from app.taiwan.comparison import TaiwanStockCompareRequest
 
     TaiwanStockCompareRequest(symbols=["A.TWSE", "B.TWSE"])  # min=2
-    TaiwanStockCompareRequest(symbols=[f"S{i}.TWSE" for i in range(MAX_COMPARE_SYMBOLS)])  # max=5
-    assert MIN_COMPARE_SYMBOLS == 2 and MAX_COMPARE_SYMBOLS == 5
+    TaiwanStockCompareRequest(symbols=[f"S{i}.TWSE" for i in range(MAX_COMPARE_SYMBOLS)])  # max=10
+    assert MIN_COMPARE_SYMBOLS == 2 and MAX_COMPARE_SYMBOLS == 10
 
 
 # ── API Routing Regression (route-collision fix) ───────────────

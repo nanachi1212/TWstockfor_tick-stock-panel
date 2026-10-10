@@ -66,7 +66,7 @@ describe('ModelValidation', () => {
     expect(screen.getByText('40 / 63')).toBeInTheDocument()
     expect(screen.getByText('尚未證明穩定 Alpha')).toBeInTheDocument()
     expect(screen.getByText('primary_v2_momentum_60d')).toBeInTheDocument()
-    expect(screen.getByText('NOT_YET')).toBeInTheDocument()
+    expect(screen.getByText('尚未啟用')).toBeInTheDocument()
     expect(screen.queryByText(/預測準確率/)).not.toBeInTheDocument()
   })
 
@@ -81,9 +81,9 @@ describe('ModelValidation', () => {
     } as any)
     renderPage()
 
-    expect(await screen.findByText('OOS artifact 不可用')).toBeInTheDocument()
-    expect(screen.getByText('正式 artifact 不可用')).toBeInTheDocument()
-    expect(screen.getByText(/Diagnostics artifact 不可用/)).toBeInTheDocument()
+    expect(await screen.findByText('樣本外成績不可用')).toBeInTheDocument()
+    expect(screen.getByText('正式成績不可用')).toBeInTheDocument()
+    expect(screen.getByText(/健康檢查資料不可用/)).toBeInTheDocument()
     expect(screen.getAllByText('—').length).toBeGreaterThan(0)
   })
 })

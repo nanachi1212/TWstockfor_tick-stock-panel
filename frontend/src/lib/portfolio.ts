@@ -240,44 +240,73 @@ export interface PortfolioImportRow {
   date: string
 }
 
-function splitImportLine(line: string): string[] {
-  if (line.includes('\t')) return line.split('\t').map(cell => cell.trim())
-  const cells: string[] = []
+/** CSV/TSV 解析: 支援引號內逗號與換行 (券商/試算表備註常見)。分隔符依第一行判斷。 */
+function parseDelimited(text: string): string[][] {
+  const delimiter = (text.split('\n', 1)[0] ?? '').includes('\t') ? '\t' : ','
+  const rows: string[][] = []
+  let row: string[] = []
   let cell = ''
   let quoted = false
-  for (const ch of line) {
-    if (ch === '"') quoted = !quoted
-    else if (ch === ',' && !quoted) { cells.push(cell.trim()); cell = '' }
-    else cell += ch
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i]
+    if (quoted) {
+      if (ch !== '"') cell += ch
+      else if (text[i + 1] === '"') { cell += '"'; i++ }
+      else quoted = false
+    } else if (ch === '"') quoted = true
+    else if (ch === delimiter) { row.push(cell.trim()); cell = '' }
+    else if (ch === '\n' || ch === '\r') {
+      if (ch === '\r' && text[i + 1] === '\n') i++
+      row.push(cell.trim()); rows.push(row); row = []; cell = ''
+    } else cell += ch
   }
-  cells.push(cell.trim())
-  return cells
+  if (cell || row.length) { row.push(cell.trim()); rows.push(row) }
+  return rows
 }
 
 const importNumber = (value: string | undefined) => Number((value ?? '').replace(/[,\s]/g, ''))
 
+// 表頭關鍵字 → 欄位；沒有表頭時用預設順序 代號,名稱,股數,均價,總成本,日期。
+const IMPORT_HEADERS = {
+  code: /代號|代碼|^code$|^symbol$/i,
+  name: /名稱|^name$/i,
+  shares: /股數|^shares$/i,
+  price: /均價|^price$/i,
+  cost: /總成本|^cost$/i,
+  date: /日期|^date$/i,
+} as const
+type ImportColumn = keyof typeof IMPORT_HEADERS
+
 /**
- * 解析貼上的持股表：每行「代號,名稱,股數,均價[,總成本][,日期]」(逗號或 Tab 分隔)。
- * 非代號開頭的行(表頭/小計)略過；股數 0 的已出清列略過。總成本 − 股數×均價 視為手續費。
+ * 解析持股表 (券商匯出、Google/Excel 試算表、手打皆可)。
+ * 非代號列(小計/現金/表頭)與股數 0 或 N/A 的列略過。總成本 − 股數×均價 視為手續費。
  */
 export function parsePortfolioImport(text: string, defaultDate: string): { rows: PortfolioImportRow[]; errors: string[] } {
   const rows: PortfolioImportRow[] = []
   const errors: string[] = []
-  text.split(/\r?\n/).forEach((raw, index) => {
-    const cells = splitImportLine(raw.replace(/^\uFEFF/, ''))
-    const code = (cells[0] ?? '').toUpperCase().replace(/\.(TWSE|TPEX)$/, '')
+  let columns: Record<ImportColumn, number> = { code: 0, name: 1, shares: 2, price: 3, cost: 4, date: 5 }
+  parseDelimited(text.replace(/^\uFEFF/, '')).forEach((cells, index) => {
+    const header = Object.fromEntries(
+      (Object.keys(IMPORT_HEADERS) as ImportColumn[]).map(key => [key, cells.findIndex(cell => IMPORT_HEADERS[key].test(cell))]),
+    ) as Record<ImportColumn, number>
+    if (header.code >= 0 && header.shares >= 0) { columns = header; return }
+    const at = (key: ImportColumn) => (columns[key] >= 0 ? cells[columns[key]] : undefined)
+    const code = (at('code') ?? '').toUpperCase().replace(/\.(TWSE|TPEX)$/, '')
     if (!/^\d{2,6}[A-Z]?$/.test(code)) return
-    const shares = importNumber(cells[2])
-    const price = importNumber(cells[3])
+    const sharesText = (at('shares') ?? '').trim()
+    if (!sharesText || /^n\/?a$/i.test(sharesText)) return
+    const shares = importNumber(sharesText)
+    const price = importNumber(at('price'))
     if (shares === 0) return
     if (!Number.isInteger(shares) || shares < 0 || !Number.isFinite(price) || price <= 0) {
-      errors.push(`第 ${index + 1} 行 ${code}：股數或均價不是有效數字`)
+      errors.push(`第 ${index + 1} 列 ${code}：股數或均價不是有效數字`)
       return
     }
-    const cost = importNumber(cells[4])
-    const fee = cells[4] && Number.isFinite(cost) ? Math.max(0, Math.round((cost - shares * price) * 100) / 100) : 0
-    const date = /^\d{4}-\d{2}-\d{2}$/.test(cells[5] ?? '') ? cells[5] : defaultDate
-    rows.push({ code, name: cells[1] ?? '', shares, price, fee, date })
+    const cost = importNumber(at('cost'))
+    const fee = at('cost') && Number.isFinite(cost) ? Math.max(0, Math.round((cost - shares * price) * 100) / 100) : 0
+    const rawDate = (at('date') ?? '').replace(/\//g, '-')
+    const date = /^\d{4}-\d{2}-\d{2}$/.test(rawDate) ? rawDate : defaultDate
+    rows.push({ code, name: at('name') ?? '', shares, price, fee, date })
   })
   return { rows, errors }
 }

@@ -33,7 +33,7 @@ import httpx
 
 from app.taiwan.providers.http import taiwan_client
 from app.taiwan.universe.industry_classification import resolve_industry_name
-from app.taiwan.universe.models import TaiwanInstrument
+from app.taiwan.universe.models import OFFICIAL_ORDINARY_ETF_TYPES, TaiwanInstrument
 
 logger = logging.getLogger(__name__)
 
@@ -423,7 +423,6 @@ def _official_twse_etf_directory() -> list[TaiwanInstrument]:
             raise ValueError(f"official directory schema changed: {TWSE_ETF_PRODUCTS_URL}")
         scope = {"是": "foreign", "否": "domestic"}.get(str(row.get("是否包含國外成分股", "")).strip(), "unknown")
         fund_type = str(row.get("基金類型", "")).strip()
-        ordinary_types = {"國內成分證券指數股票型基金", "國外成分證券指數股票型基金"}
         category = "foreign_equity" if scope == "foreign" else "domestic_equity" if scope == "domestic" else "unknown"
         code = str(code).strip()
         instruments.append(TaiwanInstrument(
@@ -431,7 +430,7 @@ def _official_twse_etf_directory() -> list[TaiwanInstrument]:
             listing_status="active", listing_date=str(row.get("上市日期") or "").strip() or None,
             isin=None, industry=None, cfi_code=None, raw_category=fund_type, is_supported=True,
             source="TWSE_OPENAPI", updated_at=now, etf_category=category,
-            classification_source="official_metadata" if fund_type in ordinary_types else None,
+            classification_source="official_metadata" if fund_type in OFFICIAL_ORDINARY_ETF_TYPES else None,
             underlying_scope=scope,
         ))
     return instruments

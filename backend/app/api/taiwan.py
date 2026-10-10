@@ -218,6 +218,35 @@ def _resolve_portfolio_instrument(symbol: str, trade_date: dt_date):
     return canonical, instrument, tax_class, trading_day
 
 
+@router.get("/portfolio-import/files")
+def list_portfolio_import_files(source: Literal["onedrive", "gdrive"]):
+    """列出 OneDrive / Google Drive 同步資料夾內檔名像持股表的 CSV。"""
+    from app.services import portfolio_import
+
+    roots = portfolio_import.cloud_roots()[source]
+    return {"roots": [str(r) for r in roots], "files": portfolio_import.list_files(source)}
+
+
+class PortfolioImportReadIn(BaseModel):
+    path: str | None = None
+    sheet_url: str | None = None
+
+
+@router.post("/portfolio-import/read")
+def read_portfolio_import(payload: PortfolioImportReadIn):
+    """回傳持股檔文字 (同步資料夾檔案或公開 Google 試算表)，由前端解析。"""
+    from app.services import portfolio_import
+
+    try:
+        if payload.sheet_url:
+            return {"text": portfolio_import.fetch_google_sheet(payload.sheet_url)}
+        if payload.path:
+            return {"text": portfolio_import.read_file(payload.path)}
+    except (PermissionError, ValueError) as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    raise HTTPException(status_code=400, detail="請選擇檔案或貼上試算表網址")
+
+
 @router.get("/portfolio-instrument")
 def get_taiwan_portfolio_instrument(symbol: str, trade_date: dt_date):
     """Validate a portfolio symbol and trade date using Taiwan's security master and calendar."""
