@@ -173,6 +173,19 @@ describe('parsePortfolioImport', () => {
     ])
   })
 
+  it('maps broker/sheet headers, multi-line notes and skips summary rows', () => {
+    const text = [
+      '﻿帳戶分佈,證券代號,證券名稱,持有股數,成交均價,持有總成本,資料日期,備註',
+      '嘉義帳戶,00919,群益台灣精選高息,"25,000",23.76,"594,846",2026/09/30,"第一行',
+      '第二行，含逗號"',
+      '年度績效,2024,含股息已實現獲利,N/A,N/A,-156026,,',
+      '綜合資金池,CASH,現有銀行現金,1,587948,587948,,',
+    ].join('\r\n')
+    const { rows, errors } = parsePortfolioImport(text, '2026-10-09')
+    expect(errors).toEqual([])
+    expect(rows).toEqual([{ code: '00919', name: '群益台灣精選高息', shares: 25000, price: 23.76, fee: 846, date: '2026-09-30' }])
+  })
+
   it('accepts lettered ETF symbols in the ledger', () => {
     expect(isTaiwanPortfolioSymbol('00981A.TWSE')).toBe(true)
     expect(isTaiwanPortfolioSymbol('2330')).toBe(false)
