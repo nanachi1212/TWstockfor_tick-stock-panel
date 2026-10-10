@@ -38,7 +38,7 @@ import { cn } from '@/lib/cn'
 import { resolveWatchlistGroupColor } from '@/lib/watchlist-group-colors'
 import { computeGroupPcts, groupPctColor, groupPctTitle } from '@/lib/watchlistGroupStats'
 import { fmtPct } from '@/lib/format'
-import { toggleTheme, useTheme } from '@/lib/theme'
+import { cycleFontScale, getFontScale, toggleTheme, useTheme } from '@/lib/theme'
 import { setCurrentTotal as setAlertTotal, useUnreadAlerts } from '@/lib/monitorBadge'
 import { ExtensionSlot } from '@/extensions/ExtensionSlot'
 import { getFrontendExtensionNavigation } from '@/extensions/registry'
@@ -63,6 +63,20 @@ function ThemeToggle() {
       title={dark ? '切換到亮色模式' : '切換到暗色模式'}
     >
       {dark ? <Sun className="h-4 w-4 shrink-0" /> : <Moon className="h-4 w-4 shrink-0" />}
+    </button>
+  )
+}
+
+/** 字級切換 — 100% → 110% → 125% → 140% 循環, 見 lib/theme.ts */
+function FontScaleToggle() {
+  const [scale, setScale] = useState(getFontScale)
+  return (
+    <button
+      onClick={() => setScale(cycleFontScale())}
+      className="flex items-center justify-center rounded-btn p-2 text-xs font-semibold text-foreground/80 transition-colors duration-150 ease-smooth hover:bg-elevated hover:text-foreground cursor-pointer"
+      title={`字級 ${Math.round(scale * 100)}%（點擊切換大小）`}
+    >
+      字{Math.round(scale * 100)}
     </button>
   )
 }
@@ -106,7 +120,18 @@ function DataSourceBadge({ providerName }: { providerName: string }) {
 }
 
 function AIConfigBadge({ configured, model }: { configured?: boolean; model?: string }) {
-  const descText = configured ? (model || '已接入模型') : '接入策略生成模型'
+  // 實際連線檢查 (不花 token): 綠=可用、紅=異常 (例如本機模型沒載入)、黃=未設定
+  const { data: aiStatus } = useQuery({
+    queryKey: ['aiStatus', model],
+    queryFn: api.aiStatus,
+    enabled: !!configured,
+    refetchInterval: 60_000,
+    staleTime: 30_000,
+  })
+  const descText = configured ? `${model || '已接入模型'}${aiStatus ? `（${aiStatus.reason}）` : ''}` : '接入策略生成模型'
+  const dotClass = !configured || aiStatus?.status === 'unconfigured'
+    ? 'bg-warning'
+    : aiStatus?.status === 'error' ? 'bg-red-500 animate-pulse' : aiStatus?.status === 'ok' ? 'bg-emerald-500' : 'bg-muted'
   return (
     <NavLink
       to="/settings?tab=ai"
@@ -125,7 +150,7 @@ function AIConfigBadge({ configured, model }: { configured?: boolean; model?: st
           <span className="ml-auto text-[11px] font-mono leading-none text-muted">未設定</span>
         </>
       )}
-      <span className={`h-1.5 w-1.5 rounded-full shrink-0 ${configured ? 'bg-bear' : 'bg-warning'}`} />
+      <span className={`h-1.5 w-1.5 rounded-full shrink-0 ${dotClass}`} />
     </NavLink>
   )
 }
@@ -392,8 +417,11 @@ export function Layout() {
 
   return (
     <div
-      className="h-screen grid bg-base text-foreground overflow-hidden transition-[grid-template-columns] duration-200 ease-smooth"
-      style={{ gridTemplateColumns: navCollapsed ? '3.5rem 1fr' : '14rem 1fr' }}
+      className="grid bg-base text-foreground overflow-hidden transition-[grid-template-columns] duration-200 ease-smooth"
+      style={{
+        gridTemplateColumns: navCollapsed ? '3.5rem 1fr' : '14rem 1fr',
+        height: 'calc(100vh / var(--ui-zoom, 1))',
+      }}
     >
       <aside className="border-r border-border bg-surface flex flex-col h-full min-h-0 overflow-hidden">
         <div className={cn('border-b border-border shrink-0', navCollapsed ? 'px-2 pt-3 pb-2' : 'px-4 pt-4 pb-3')}>
@@ -712,6 +740,7 @@ export function Layout() {
         <div className={cn('border-t border-border py-3 shrink-0', navCollapsed ? 'px-2 flex flex-col items-center gap-1' : 'px-2')}>
           <div className={navCollapsed ? 'flex flex-col items-center gap-1' : 'flex items-center gap-1'}>
             <ThemeToggle />
+            <FontScaleToggle />
             <NavLink
               to="/settings"
               title={navCollapsed ? '設定' : undefined}

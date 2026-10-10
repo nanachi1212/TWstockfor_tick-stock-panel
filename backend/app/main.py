@@ -139,6 +139,14 @@ async def _application_lifespan(app: FastAPI):
     except Exception as e:  # noqa: BLE001
         logger.warning("startup catch-up / telegram bot init failed: %s", e)
 
+    # 本機 LM Studio: 開看板時自動把模型載入 (背景執行，不擋啟動)。
+    try:
+        from app.services.ai_health import start_local_model_autoload
+
+        start_local_model_autoload()
+    except Exception as e:  # noqa: BLE001
+        logger.warning("local AI autoload not started: %s", e)
+
     # 源码内二次开发启动钩子: 仅暴露稳定只读上下文, 单个扩展失败不影响核心启动。
     extension_registry = app.state.extension_registry
     start_backend_extensions(

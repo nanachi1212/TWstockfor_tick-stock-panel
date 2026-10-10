@@ -71,7 +71,7 @@ class Category:
 CATEGORIES: dict[str, Category] = {
     "app_settings": Category("App 設定", ("preferences.json", "ai_key_profiles.json")),
     "ui_preferences": Category("介面偏好", browser_keys=(
-        "tf-theme", "tf-nav-collapsed", "tf-settings-nav-collapsed", "tf-stocks-query-config",
+        "tf-theme", "tf-font-scale", "tf-nav-collapsed", "tf-settings-nav-collapsed", "tf-stocks-query-config",
         "monitor_badge_enabled", "alert_toast_enabled", "alert_toast_max", "alert_sound_enabled",
         "alert_sound", "voice_broadcast_enabled", "voice_broadcast_rate", "voice_broadcast_voice",
         "strategy-pool", "watchlist_columns", "stock_info_bar_fields", "stock_volume_compare",

@@ -88,7 +88,8 @@ export function registeredHoldingsSummary(
 }
 
 export function isTaiwanPortfolioSymbol(symbol: string) {
-  return /^\d{2,6}\.(TWSE|TPEX)$/i.test(symbol.trim())
+  // 主動式/槓桿 ETF 代號帶英文尾碼，例如 00981A、00631L。
+  return /^\d{2,6}[A-Z]?\.(TWSE|TPEX)$/i.test(symbol.trim())
 }
 
 export function isSupportedPortfolioInstrument(value: {
@@ -228,6 +229,57 @@ export function createPortfolioTransaction(
   // bought later in the ledger.
   buildPortfolioPositions([...transactions, transaction])
   return transaction
+}
+
+export interface PortfolioImportRow {
+  code: string
+  name: string
+  shares: number
+  price: number
+  fee: number
+  date: string
+}
+
+function splitImportLine(line: string): string[] {
+  if (line.includes('\t')) return line.split('\t').map(cell => cell.trim())
+  const cells: string[] = []
+  let cell = ''
+  let quoted = false
+  for (const ch of line) {
+    if (ch === '"') quoted = !quoted
+    else if (ch === ',' && !quoted) { cells.push(cell.trim()); cell = '' }
+    else cell += ch
+  }
+  cells.push(cell.trim())
+  return cells
+}
+
+const importNumber = (value: string | undefined) => Number((value ?? '').replace(/[,\s]/g, ''))
+
+/**
+ * 解析貼上的持股表：每行「代號,名稱,股數,均價[,總成本][,日期]」(逗號或 Tab 分隔)。
+ * 非代號開頭的行(表頭/小計)略過；股數 0 的已出清列略過。總成本 − 股數×均價 視為手續費。
+ */
+export function parsePortfolioImport(text: string, defaultDate: string): { rows: PortfolioImportRow[]; errors: string[] } {
+  const rows: PortfolioImportRow[] = []
+  const errors: string[] = []
+  text.split(/\r?\n/).forEach((raw, index) => {
+    const cells = splitImportLine(raw.replace(/^\uFEFF/, ''))
+    const code = (cells[0] ?? '').toUpperCase().replace(/\.(TWSE|TPEX)$/, '')
+    if (!/^\d{2,6}[A-Z]?$/.test(code)) return
+    const shares = importNumber(cells[2])
+    const price = importNumber(cells[3])
+    if (shares === 0) return
+    if (!Number.isInteger(shares) || shares < 0 || !Number.isFinite(price) || price <= 0) {
+      errors.push(`第 ${index + 1} 行 ${code}：股數或均價不是有效數字`)
+      return
+    }
+    const cost = importNumber(cells[4])
+    const fee = cells[4] && Number.isFinite(cost) ? Math.max(0, Math.round((cost - shares * price) * 100) / 100) : 0
+    const date = /^\d{4}-\d{2}-\d{2}$/.test(cells[5] ?? '') ? cells[5] : defaultDate
+    rows.push({ code, name: cells[1] ?? '', shares, price, fee, date })
+  })
+  return { rows, errors }
 }
 
 /** Read and validate the whole browser ledger; any invalid entry rejects the ledger instead of dropping rows. */

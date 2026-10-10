@@ -195,6 +195,19 @@ async def test_ai_provider_failure_graceful_handling():
 
 
 @pytest.mark.asyncio
+async def test_ai_provider_user_facing_error_is_shown():
+    """ai_provider RuntimeError text (e.g. LM Studio has no model loaded) reaches the user."""
+    svc = TaiwanAIResearchService()
+
+    with patch("app.taiwan.ai_research.generate_ai_text", new_callable=AsyncMock) as mock_ai:
+        mock_ai.side_effect = RuntimeError("AI 服务请求失败(400): No models loaded.")
+        resp = await svc.generate_report("2330.TWSE", target_date=date(2026, 8, 28))
+
+        assert resp.error_code == "provider_error"
+        assert "No models loaded" in (resp.error_message or "")
+
+
+@pytest.mark.asyncio
 async def test_malformed_json_response_graceful_handling():
     """Verify non-JSON response yields status='unavailable' with error_code='invalid_output'."""
     svc = TaiwanAIResearchService()

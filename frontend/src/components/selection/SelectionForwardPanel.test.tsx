@@ -1,6 +1,10 @@
+import type { ReactElement } from 'react'
 import { fireEvent, render, screen } from '@testing-library/react'
+import { MemoryRouter } from 'react-router-dom'
 import { describe, expect, it, vi } from 'vitest'
 import { SelectionForwardPanel, type SelectionForwardBatchReviewView, type SelectionForwardPreviewView } from './SelectionForwardPanel'
+
+const renderPanel = (ui: ReactElement) => render(<MemoryRouter>{ui}</MemoryRouter>)
 
 // Explicit test fixture; production data comes from the backend contract.
 const previewFixture: SelectionForwardPreviewView = {
@@ -60,7 +64,7 @@ const batchReviewFixture: SelectionForwardBatchReviewView = {
 
 describe('SelectionForwardPanel', () => {
   it('shows the first 10 fixture rows then expands to at most 20', () => {
-    render(<SelectionForwardPanel preview={previewFixture} onDryRun={vi.fn()} onLockOfficialBatch={vi.fn()} />)
+    renderPanel(<SelectionForwardPanel preview={previewFixture} onDryRun={vi.fn()} onLockOfficialBatch={vi.fn()} />)
 
     expect(screen.getByText('資料日期').parentElement).toHaveTextContent('2026-09-25')
     expect(screen.getByText('規則版本').parentElement).toHaveTextContent('trend_liquidity_v1')
@@ -78,7 +82,7 @@ describe('SelectionForwardPanel', () => {
   })
 
   it('does not infer a lock window from browser time and marks unverified scheduled dates', () => {
-    render(<SelectionForwardPanel preview={{ ...previewFixture, targetTradeDateStatus: 'scheduled_unverified' }} onDryRun={vi.fn()} onLockOfficialBatch={vi.fn()} />)
+    renderPanel(<SelectionForwardPanel preview={{ ...previewFixture, targetTradeDateStatus: 'scheduled_unverified' }} onDryRun={vi.fn()} onLockOfficialBatch={vi.fn()} />)
 
     expect(screen.getByText('預定進場日').parentElement).toHaveTextContent('未確認')
     expect(screen.getByRole('button', { name: '鎖定正式測試名單' })).toBeEnabled()
@@ -86,7 +90,7 @@ describe('SelectionForwardPanel', () => {
   })
 
   it('renders backend-supplied horizons, 0050 and paper-entry results without turning null into zero', () => {
-    render(<SelectionForwardPanel preview={previewFixture} batchReview={batchReviewFixture} />)
+    renderPanel(<SelectionForwardPanel preview={previewFixture} batchReview={batchReviewFixture} />)
 
     expect(screen.getByText('+1.25%')).toBeInTheDocument()
     expect(screen.getAllByText('+0.75%')).toHaveLength(1)
@@ -108,7 +112,7 @@ describe('SelectionForwardPanel', () => {
     const add = vi.fn()
     const compare = vi.fn()
     const first = previewFixture.candidates[0].symbol
-    render(<SelectionForwardPanel preview={previewFixture} watchlistSymbols={new Set([first])} onAddToWatchlist={add} onCompare={compare} />)
+    renderPanel(<SelectionForwardPanel preview={previewFixture} watchlistSymbols={new Set([first])} onAddToWatchlist={add} onCompare={compare} />)
 
     expect(screen.getAllByText('已在自選')).toHaveLength(1)
     fireEvent.click(screen.getByRole('button', { name: /全部加入自選（9）/ }))
@@ -120,12 +124,12 @@ describe('SelectionForwardPanel', () => {
   })
 
   it('hides row actions when the host page provides none', () => {
-    render(<SelectionForwardPanel preview={previewFixture} />)
+    renderPanel(<SelectionForwardPanel preview={previewFixture} />)
     expect(screen.queryByRole('button', { name: '加自選' })).not.toBeInTheDocument()
   })
 
   it('does not show fabricated candidates and allows an explicit dry-run request before a preview', () => {
-    render(<SelectionForwardPanel onDryRun={vi.fn()} />)
+    renderPanel(<SelectionForwardPanel onDryRun={vi.fn()} />)
 
     expect(screen.getByText('尚未載入候選資料')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: '乾跑預覽' })).toBeEnabled()
@@ -133,14 +137,14 @@ describe('SelectionForwardPanel', () => {
   })
 
   it('distinguishes a genuine zero-candidate preview from unavailable screening data', () => {
-    render(<SelectionForwardPanel preview={{ ...previewFixture, candidates: [], status: 'available' }} onDryRun={vi.fn()} onLockOfficialBatch={vi.fn()} />)
+    renderPanel(<SelectionForwardPanel preview={{ ...previewFixture, candidates: [], status: 'available' }} onDryRun={vi.fn()} onLockOfficialBatch={vi.fn()} />)
     expect(screen.getByText('目前沒有可展示的候選標的，資料尚未準備完成。')).toBeInTheDocument()
     expect(screen.getByText('資料日期').parentElement).toHaveTextContent('2026-09-25')
     expect(screen.queryByText('目前無法提供正式候選資料。')).not.toBeInTheDocument()
   })
 
   it('states that complete data can still yield zero candidates', () => {
-    render(<SelectionForwardPanel preview={{ ...previewFixture, candidates: [], strategyReadiness: 'ready' }} onDryRun={vi.fn()} />)
+    renderPanel(<SelectionForwardPanel preview={{ ...previewFixture, candidates: [], strategyReadiness: 'ready' }} onDryRun={vi.fn()} />)
     expect(screen.getByText('資料完整，但本期沒有符合條件標的。')).toBeInTheDocument()
     expect(screen.queryByText('目前沒有可展示的候選標的，資料尚未準備完成。')).not.toBeInTheDocument()
   })

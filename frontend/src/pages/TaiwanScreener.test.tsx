@@ -160,6 +160,7 @@ function renderScreenerWithCompareRoute() {
 }
 
 beforeEach(() => {
+  sessionStorage.clear()  // forward dry-run preview is cached per tab
   vi.mocked(api.taiwanScreenerRun).mockResolvedValue(buildScreenerResponse() as any)
   vi.mocked(api.taiwanDataStatus).mockResolvedValue(buildDataStatus() as any)
   vi.mocked(api.taiwanMarketIntelligence).mockResolvedValue(null as any)

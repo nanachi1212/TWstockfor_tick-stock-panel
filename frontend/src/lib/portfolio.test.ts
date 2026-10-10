@@ -3,6 +3,8 @@ import {
   buildPortfolioPositions,
   createPortfolioTransaction,
   isSupportedPortfolioInstrument,
+  isTaiwanPortfolioSymbol,
+  parsePortfolioImport,
   registeredHoldingsSummary,
   type PortfolioTransaction,
 } from './portfolio'
@@ -152,5 +154,27 @@ describe('portfolio accounting', () => {
       symbol: '2330.TWSE', side: 'buy', shares: 1, price: 101,
       date: '2026-09-24', tradeTime: '14:30',
     }, empty)).toEqual(expect.objectContaining({ tradeTime: '14:30' }))
+  })
+})
+
+describe('parsePortfolioImport', () => {
+  it('parses broker-style rows, skips headers and closed positions, derives fee from total cost', () => {
+    const text = [
+      '代號,名稱,股數,均價,總成本,日期',
+      '00981A,主動統一台股增長,"50,000",28.75,"1,439,556",2026-10-08',
+      '8358\t金居\t0\t0\t0',
+      '2308,台達電,200,2010',
+    ].join('\n')
+    const { rows, errors } = parsePortfolioImport(text, '2026-10-09')
+    expect(errors).toEqual([])
+    expect(rows).toEqual([
+      { code: '00981A', name: '主動統一台股增長', shares: 50000, price: 28.75, fee: 2056, date: '2026-10-08' },
+      { code: '2308', name: '台達電', shares: 200, price: 2010, fee: 0, date: '2026-10-09' },
+    ])
+  })
+
+  it('accepts lettered ETF symbols in the ledger', () => {
+    expect(isTaiwanPortfolioSymbol('00981A.TWSE')).toBe(true)
+    expect(isTaiwanPortfolioSymbol('2330')).toBe(false)
   })
 })

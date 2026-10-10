@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
 import { Link } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
-import { ArrowDownToLine, ArrowUpFromLine, Bell, ExternalLink, Plus, Wallet, Sparkles } from 'lucide-react'
+import { ArrowDownToLine, ArrowUpFromLine, Bell, ExternalLink, FileUp, Plus, Wallet, Sparkles } from 'lucide-react'
 import { api, type TaiwanRealtimeQuote } from '@/lib/api'
 import { QK } from '@/lib/queryKeys'
 import { storage } from '@/lib/storage'
@@ -14,6 +14,7 @@ import {
   isTaiwanPortfolioSymbol,
   isPortfolioTransaction,
   nowTaipeiTime,
+  parsePortfolioImport,
   PORTFOLIO_CHANGED,
   readPortfolioLedger,
   todayTaipeiDate,
@@ -310,6 +311,7 @@ export function PortfolioPanel({ symbol, name, quote: detailQuote, change: detai
   const { transactions, error: ledgerError } = usePortfolioTransactions()
   const [trade, setTrade] = useState<{ symbol?: string; name?: string; side: PortfolioSide; quote?: number | null } | null>(null)
   const [reminder, setReminder] = useState<{ symbol: string; name: string; price?: number | null; quote?: TaiwanRealtimeQuote } | null>(null)
+  const [importOpen, setImportOpen] = useState(false)
   const ledgerPositions = useMemo(() => buildPortfolioPositions(transactions), [transactions])
   const positions = useMemo(() => ledgerPositions.filter(position => position.shares > 0), [ledgerPositions])
   const quant = useTodayQuantSelection()
@@ -363,6 +365,7 @@ export function PortfolioPanel({ symbol, name, quote: detailQuote, change: detai
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="flex items-center gap-2"><Wallet className="h-4 w-4 text-accent" /><h2 className="text-sm font-semibold">{symbol ? '我的持股' : '我的持倉'}</h2></div>
         {!ledgerError && <button type="button" onClick={() => setTrade({ symbol: symbol ?? '', name: name ?? '', side: 'buy', quote: detailQuote })} className="inline-flex items-center gap-1 rounded-lg bg-accent px-2.5 py-1.5 text-xs font-medium text-white"><Plus className="h-3.5 w-3.5" />買入</button>}
+        {!symbol && <button type="button" onClick={() => setImportOpen(true)} className="inline-flex items-center gap-1 rounded-lg border border-border px-2.5 py-1.5 text-xs font-medium text-foreground hover:bg-elevated"><FileUp className="h-3.5 w-3.5" />匯入持股</button>}
       </div>
       {ledgerError && <p role="alert" className="rounded-lg bg-danger/10 px-3 py-2 text-xs text-danger">{ledgerError}</p>}
       {!symbol && positions.length > 0 && (
@@ -414,9 +417,83 @@ export function PortfolioPanel({ symbol, name, quote: detailQuote, change: detai
       )}
       {symbol && targetLedgerPosition && <p className="text-[11px] text-muted">已實現損益（平均成本法）：{targetLedgerPosition.realizedPnl == null ? '不完整，部分舊賣出缺少可驗證的證交稅' : money(targetLedgerPosition.realizedPnl)}</p>}
       {!symbol && ledgerPositions.length > 0 && <p className="text-[11px] text-muted">已實現損益（平均成本法）：{ledgerPositions.some(position => position.realizedPnl == null) ? '不完整，部分舊賣出缺少可驗證的證交稅' : money(ledgerPositions.reduce((sum, position) => sum + (position.realizedPnl ?? 0), 0))}</p>}
+      {importOpen && <PortfolioImportDialog onClose={() => setImportOpen(false)} />}
       {trade && <PortfolioTradeDialog symbol={trade.symbol} name={trade.name} initialSide={trade.side} quote={trade.quote} onClose={() => setTrade(null)} />}
       <TaiwanRuleEditorDialog open={!!reminder} rule={null} presetSymbol={reminder?.symbol} presetName={reminder?.name} presetPrice={reminder?.price ?? reminder?.quote?.last_price} presetQuote={reminder?.quote ?? null} onClose={() => setReminder(null)} />
     </section>
+  )
+}
+
+/** 一鍵匯入: 貼上或選擇 CSV (代號,名稱,股數,均價[,總成本][,日期])，每檔記成一筆買入。 */
+function PortfolioImportDialog({ onClose }: { onClose: () => void }) {
+  const { transactions } = usePortfolioTransactions()
+  const [text, setText] = useState('')
+  const [replace, setReplace] = useState(false)
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState('')
+  const parsed = useMemo(() => parsePortfolioImport(text, todayTaipeiDate()), [text])
+
+  const runImport = async () => {
+    setBusy(true)
+    setError('')
+    try {
+      if (parsed.errors.length) throw new Error(parsed.errors.join('；'))
+      if (!parsed.rows.length) throw new Error('沒有可匯入的持股列（股數 0 的已出清列會略過）')
+      // 只需確認上市/上櫃別；賣出時的稅費仍由既有賣出流程依官方規則計算。
+      const resolved = await Promise.all(parsed.rows.map(async row => {
+        const found = (await api.taiwanSearch(row.code, 5)).results.find(item => item.code.toUpperCase() === row.code)
+        if (!found) throw new Error(`找不到代號 ${row.code}，請確認是上市/上櫃股票或 ETF`)
+        return { row, symbol: found.symbol, name: row.name || found.name }
+      }))
+      await withPortfolioWriteLock(() => {
+        const ledger = readPortfolioLedger()
+        if (ledger.error && !replace) throw new Error(ledger.error)
+        let next = replace ? [] : ledger.transactions
+        for (const { row, symbol, name } of resolved) {
+          next = [...next, createPortfolioTransaction({
+            symbol, name, side: 'buy', shares: row.shares, price: row.price, fee: row.fee, date: row.date, tradeTime: '09:00',
+          }, next)]
+        }
+        storage.portfolioTransactions.set(next)
+        window.dispatchEvent(new Event(PORTFOLIO_CHANGED))
+      })
+      onClose()
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : '匯入失敗')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-[80] grid place-items-center bg-black/55 p-4" role="presentation" onMouseDown={event => { if (event.target === event.currentTarget) onClose() }}>
+      <div className="w-full max-w-2xl space-y-3 rounded-2xl border border-border bg-surface p-4 shadow-2xl" role="dialog" aria-label="匯入持股">
+        <div className="flex items-center justify-between">
+          <h2 className="text-sm font-semibold">一鍵匯入持股</h2>
+          <button type="button" onClick={onClose} className="text-xs text-muted hover:text-foreground">關閉</button>
+        </div>
+        <p className="text-xs text-secondary">每行一檔：<span className="font-mono">代號,名稱,股數,均價,總成本,日期</span>（總成本、日期可省略；可直接從 Excel/Google 試算表複製貼上）。總成本減掉股數×均價會記成手續費，讓成本和券商一致。股數 0 的列自動略過。</p>
+        <input type="file" accept=".csv,.tsv,.txt" aria-label="選擇 CSV 檔" onChange={async event => { const file = event.target.files?.[0]; if (file) setText(await file.text()) }} className="block text-xs" />
+        <textarea value={text} onChange={event => setText(event.target.value)} rows={8} placeholder={'2330,台積電,1000,850.5,851712,2026-10-08'} className="w-full rounded-lg border border-border bg-base px-3 py-2 font-mono text-xs text-foreground" />
+        {parsed.rows.length > 0 && (
+          <div className="max-h-48 overflow-auto rounded-lg border border-border">
+            <table className="w-full text-xs">
+              <thead className="bg-elevated text-muted"><tr><th className="px-2 py-1 text-left">代號</th><th className="px-2 py-1 text-left">名稱</th><th className="px-2 py-1 text-right">股數</th><th className="px-2 py-1 text-right">均價</th><th className="px-2 py-1 text-right">手續費</th><th className="px-2 py-1">日期</th></tr></thead>
+              <tbody>{parsed.rows.map(row => <tr key={row.code} className="border-t border-border/60"><td className="px-2 py-1 font-mono">{row.code}</td><td className="px-2 py-1">{row.name}</td><td className="px-2 py-1 text-right font-mono">{row.shares.toLocaleString()}</td><td className="px-2 py-1 text-right font-mono">{row.price}</td><td className="px-2 py-1 text-right font-mono">{row.fee}</td><td className="px-2 py-1 font-mono">{row.date}</td></tr>)}</tbody>
+            </table>
+          </div>
+        )}
+        {parsed.errors.map(message => <p key={message} className="text-xs text-warning">{message}</p>)}
+        <label className="flex items-center gap-2 text-xs text-secondary">
+          <input type="checkbox" checked={replace} onChange={event => setReplace(event.target.checked)} />
+          匯入前清空現有 {transactions.length} 筆成交紀錄（用匯入的資料取代；不勾則加在後面）
+        </label>
+        {error && <p role="alert" className="text-xs text-danger">{error}</p>}
+        <button type="button" disabled={busy || !parsed.rows.length} onClick={() => void runImport()} className="w-full rounded-lg bg-accent px-3 py-2 text-xs font-semibold text-white disabled:opacity-50">
+          {busy ? '匯入中…' : `匯入 ${parsed.rows.length} 檔持股`}
+        </button>
+      </div>
+    </div>
   )
 }
 

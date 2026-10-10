@@ -46,6 +46,17 @@ export function DataHealth() {
   const rows = (health.data?.datasets ?? []).filter(row => (!filter || row.status === filter) &&
     `${row.name} ${row.source ?? ''} ${row.reason}`.toLowerCase().includes(search.toLowerCase()))
   const busy = new Set((jobs.data ?? []).filter(j => ['queued', 'running'].includes(j.status)).flatMap(j => j.affected_datasets))
+  // 一鍵: 每列挑最強的安全操作 (立即更新 > 重試 > 重新驗證)。日資料/社群同組只會起一個背景任務。
+  const [updatingAll, setUpdatingAll] = useState(false)
+  const updateAll = async () => {
+    const targets = (health.data?.datasets ?? []).filter(row => row.actions.length && !busy.has(row.id) && row.status !== 'updating')
+    setUpdatingAll(true)
+    for (const row of targets) {
+      const kind: DataHealthAction = row.actions.includes('update') ? 'update' : row.actions.includes('retry') ? 'retry' : 'validate'
+      await action.mutateAsync({ id: row.id, kind }).catch(() => {})
+    }
+    setUpdatingAll(false)
+  }
 
   return (
     <main className="p-4 space-y-4">
@@ -60,6 +71,7 @@ export function DataHealth() {
           <option value="">所有狀態</option>
           {Object.entries(statuses).map(([value, label]) => <option key={value} value={value}>{label} ({value})</option>)}
         </select>
+        <button type="button" disabled={updatingAll || !health.data || jobs.isLoading || jobs.isError} onClick={() => void updateAll()} className="rounded bg-accent px-3 py-1.5 text-sm font-medium text-white disabled:opacity-50">{updatingAll ? '正在送出更新…' : '一鍵全部更新'}</button>
         <button type="button" disabled={health.isFetching} onClick={() => void health.refetch()} className="text-sm text-accent disabled:opacity-50">刷新健康狀態</button>
         <Link to="/settings?tab=ai" className="text-sm text-accent self-center">AI 設定</Link>
       </div>

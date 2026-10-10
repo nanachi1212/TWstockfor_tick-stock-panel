@@ -48,6 +48,10 @@ def _frame() -> pl.DataFrame:
         "momentum_acceleration": [0.02, 0.01, None],
         "breakout_20d_strength": [0.1, -0.04, None],
         "breakout_60d_strength": [0.1, -0.04, None],
+        "rsi_14": [60.0, 55.0, None],
+        "change_pct": [0.01, -0.01, None],
+        "ma5": [108.0, 104.0, None],
+        "vol_ratio_5d": [1.2, 0.9, None],
     })
 
 
@@ -204,3 +208,29 @@ def test_same_source_date_allows_multiple_strategy_batches_but_is_idempotent(tmp
     assert {s.strategy_id for s in service._read_snapshots_raw()} == {
         "institutional_momentum_v1", "breakout_v1",
     }
+
+
+def test_new_beginner_strategies_hit_expected_rows():
+    frame = pl.DataFrame({
+        "symbol": ["1101.TWSE", "1102.TWSE"],
+        "institutional_status": ["available", "available"],
+        "foreign_net_5d": [500_000.0, -1.0],
+        "close": [101.0, 98.0],
+        "ma5": [100.0, 97.0],
+        "ma20": [100.0, 100.0],
+        "ma60": [90.0, 110.0],
+        "amount": [80_000_000.0, 80_000_000.0],
+        "momentum_5d": [-0.02, 0.01],
+        "momentum_20d": [0.05, -0.1],
+        "rsi_14": [55.0, 30.0],
+        "change_pct": [0.01, 0.02],
+        "vol_ratio_5d": [1.0, 1.5],
+    }).with_columns([
+        pl.lit(None, dtype=pl.Float64).alias(name) for name in (
+            "investment_trust_net_5d", "institutional_flow_ratio_5d", "revenue_yoy", "vol_ratio_20d",
+            "momentum_acceleration", "breakout_20d_strength", "breakout_60d_strength",
+        )
+    ] + [pl.lit("unavailable").alias("revenue_status"), pl.lit(None, dtype=pl.Boolean).alias("revenue_yoy_improving")])
+    assert apply_strategy(frame, "pullback_support_v1")["symbol"].to_list() == ["1101.TWSE"]
+    assert apply_strategy(frame, "foreign_trend_v1")["symbol"].to_list() == ["1101.TWSE"]
+    assert apply_strategy(frame, "oversold_rebound_v1")["symbol"].to_list() == ["1102.TWSE"]

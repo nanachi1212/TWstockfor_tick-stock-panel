@@ -1050,6 +1050,10 @@ class TaiwanAIResearchService:
             else:
                 _ec = "provider_error"
                 _em = "AI 分析目前無法使用，請檢查 AI 設定或稍後重試。"
+                # ai_provider raises RuntimeError/ValueError with user-facing text
+                # (e.g. LM Studio "No models loaded"); show it instead of hiding the cause.
+                if type(e) in (RuntimeError, ValueError) and str(e).strip():
+                    _em = f"{_em}原因：{str(e).strip()[:300]}"
             return complete(TaiwanAIResearchResponse(
                 status="unavailable",
                 error_code=_ec,

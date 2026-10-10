@@ -170,9 +170,7 @@ class FugleAggregatesProvider:
         connect_factory: Callable[..., Any] | None = None,
     ) -> None:
         if api_key is None:
-            from app.config import settings
-
-            api_key = settings.fugle_api_key
+            api_key = _configured_key()
         self._api_key = api_key.strip()
         self._snapshots: dict[str, FugleAggregatesSnapshot] = {}
         self._requested: set[str] = set()
@@ -337,9 +335,17 @@ _PROVIDER: FugleAggregatesProvider | None = None
 _PROVIDER_LOCK = threading.Lock()
 
 
+def _configured_key() -> str:
+    # Settings page (secrets.json) wins over .env.
+    from app import secrets_store
+    return (secrets_store.get_ai_config("fugle_api_key") or "").strip()
+
+
 def get_fugle_aggregates_provider() -> FugleAggregatesProvider:
     global _PROVIDER
     with _PROVIDER_LOCK:
-        if _PROVIDER is None:
+        if _PROVIDER is None or _PROVIDER._api_key != _configured_key():
+            if _PROVIDER is not None:
+                _PROVIDER._stop.set()  # key changed: stop the old stream thread
             _PROVIDER = FugleAggregatesProvider()
         return _PROVIDER
