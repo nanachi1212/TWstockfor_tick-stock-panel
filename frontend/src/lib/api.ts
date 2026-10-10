@@ -81,6 +81,8 @@ export interface FinancialMetricRecord {
 }
 
 // ===== 個股分析 =====
+export type ExternalKeyName = 'fred_api_key' | 'finbridge_api_key' | 'fugle_api_key'
+
 export type LevelType = 'sr' | 'pivot' | 'extreme' | 'boll' | 'keltner_s' | 'keltner_m' | 'keltner_l' | 'atr_stop' | 'gap' | 'fib' | 'round'
 
 export interface PriceLevel {
@@ -1124,7 +1126,7 @@ export interface TaiwanCurrentDataResponse {
 
 // ===== Taiwan Screener Types (Phase 6B & A10) =====
 export interface TaiwanScreenerRequest {
-  preset?: 'trend_liquidity_v1' | 'institutional_momentum_v1' | 'growth_trend_v1' | 'breakout_v1' | 'multi_factor_consensus_v1'
+  preset?: 'trend_liquidity_v1' | 'institutional_momentum_v1' | 'growth_trend_v1' | 'breakout_v1' | 'multi_factor_consensus_v1' | 'pullback_support_v1' | 'foreign_trend_v1' | 'oversold_rebound_v1'
   exchange?: 'TWSE' | 'TPEX' | 'ALL'
   instrument?: 'stock' | 'etf' | 'ALL'
   industry?: string | null
@@ -4311,6 +4313,18 @@ export const api = {
   taiwanScreenerDeleteStrategy: (id: string) =>
     request<{ ok: boolean; deleted_id: string }>(`/api/taiwan/screener/strategies/${encodeURIComponent(id)}`, {
       method: 'DELETE',
+    }),
+
+  aiStatus: () =>
+    request<{ status: 'ok' | 'error' | 'unconfigured'; reason: string }>('/api/settings/ai-status', { quiet: true }),
+
+  getExternalKeys: () =>
+    request<Record<ExternalKeyName, { has_key: boolean; masked: string }>>('/api/settings/preferences/external-keys'),
+
+  updateExternalKey: (payload: { name: ExternalKeyName; key: string }) =>
+    request<Record<ExternalKeyName, { has_key: boolean; masked: string }>>('/api/settings/preferences/external-keys', {
+      method: 'PUT',
+      body: JSON.stringify(payload),
     }),
 
   getFinMindPreference: () =>

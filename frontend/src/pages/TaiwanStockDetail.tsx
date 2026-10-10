@@ -2126,7 +2126,7 @@ export function TaiwanStockDetail() {
         {aiError && (
           <div className="p-3 bg-red-950/30 border border-red-900/50 rounded-lg text-xs text-red-400 flex items-center gap-2">
             <AlertTriangle className="w-4 h-4 shrink-0 text-red-400" />
-            <span className="flex-1">AI 分析目前無法使用：{aiError}</span>
+            <span className="flex-1">{aiError.startsWith('AI 分析目前無法使用') ? aiError : `AI 分析目前無法使用：${aiError}`}</span>
             <button type="button" onClick={() => navigate('/settings?tab=ai')} className="shrink-0 underline underline-offset-2">AI 設定</button>
           </div>
         )}

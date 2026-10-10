@@ -9,6 +9,7 @@ import { toast } from '@/components/Toast'
 import { DataSourceEditor } from './DataSourceEditor'
 import { TaiwanHistoryDataCard } from './TaiwanHistoryDataCard'
 import { FinMindSettingsCard } from './FinMindSettingsCard'
+import { ExternalKeysCard } from './ExternalKeysCard'
 
 const DATASET_LABEL: Record<string, string> = {
   daily: '日K',
@@ -966,6 +967,8 @@ function TaiwanOfficialDetail({ active, onSwitch, switching, route }: {
 
       {/* FinMind 基本面與籌碼資料來源設定 */}
       <FinMindSettingsCard />
+
+      <ExternalKeysCard />
 
       <section className="rounded-card border border-border bg-surface p-6">
         <div className="flex items-center gap-2 mb-2">

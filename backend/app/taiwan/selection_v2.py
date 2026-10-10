@@ -16,6 +16,9 @@ STRATEGY_IDS = (
     "growth_trend_v1",
     "breakout_v1",
     "multi_factor_consensus_v1",
+    "pullback_support_v1",
+    "foreign_trend_v1",
+    "oversold_rebound_v1",
 )
 
 V2_STRATEGY_IDS = STRATEGY_IDS[1:]
@@ -23,6 +26,8 @@ V2_MIN_AMOUNT_TWD = 50_000_000
 INSTITUTIONAL_FLOW_RATIO_MIN = 0.01
 BREAKOUT_VOLUME_RATIO_MIN = 1.2
 CONSENSUS_MIN_HITS = 2
+PULLBACK_MAX_ABOVE_MA20 = 0.03
+OVERSOLD_RSI_MAX = 35.0
 
 _METADATA: dict[str, dict[str, Any]] = {
     "trend_liquidity_v1": {
@@ -49,6 +54,21 @@ _METADATA: dict[str, dict[str, Any]] = {
         "name": "多策略共識 v1",
         "version": "v1",
         "description": "前三個客觀策略命中至少兩個",
+    },
+    "pullback_support_v1": {
+        "name": "多頭回檔 v1",
+        "version": "v1",
+        "description": "MA20 在 MA60 之上、近 5 日回檔且收盤貼近 MA20（0～3%）",
+    },
+    "foreign_trend_v1": {
+        "name": "外資跟買 v1",
+        "version": "v1",
+        "description": "5 日外資淨買超、站上 MA20 且 MA20 在 MA60 之上、20 日動能為正",
+    },
+    "oversold_rebound_v1": {
+        "name": "超跌反彈 v1",
+        "version": "v1",
+        "description": "RSI14 ≤ 35 且當日上漲、收盤站回 MA5",
     },
 }
 
@@ -143,6 +163,19 @@ def strategy_readiness(
         coverage["objective_signal_count"] = frame.filter(
             pl.col("consensus_hit_count") >= CONSENSUS_MIN_HITS
         ).height
+    elif strategy_id == "foreign_trend_v1":
+        available = frame.filter(
+            pl.col("institutional_status").is_in(["available", "official"])
+        ).height
+        coverage["institutional_available_count"] = available
+        if available == 0:
+            reasons.append("法人資料不可用")
+    elif strategy_id in ("pullback_support_v1", "oversold_rebound_v1"):
+        column = "ma60" if strategy_id == "pullback_support_v1" else "rsi_14"
+        available = frame.filter(pl.col(column).is_not_null()).height
+        coverage["technical_history_count"] = available
+        if available == 0:
+            reasons.append("技術歷史資料不可用")
     return ("ready" if not reasons else "degraded"), reasons, coverage
 
 
@@ -216,6 +249,32 @@ def apply_strategy(
         return frame.filter(pl.col("_v2_growth_hit"))
     if strategy_id == "breakout_v1":
         return frame.filter(pl.col("_v2_breakout_hit"))
+    liquid = pl.col("amount") >= V2_MIN_AMOUNT_TWD
+    if strategy_id == "pullback_support_v1":
+        above_ma20 = pl.col("close") / pl.col("ma20") - 1.0
+        return frame.filter((
+            liquid
+            & (pl.col("ma20") > pl.col("ma60"))
+            & (pl.col("close") > pl.col("ma60"))
+            & (above_ma20 >= 0) & (above_ma20 <= PULLBACK_MAX_ABOVE_MA20)
+            & (pl.col("momentum_5d") < 0)
+        ).fill_null(False))
+    if strategy_id == "foreign_trend_v1":
+        return frame.filter((
+            liquid
+            & pl.col("institutional_status").is_in(["available", "official"])
+            & (pl.col("foreign_net_5d") > 0)
+            & (pl.col("close") > pl.col("ma20"))
+            & (pl.col("ma20") > pl.col("ma60"))
+            & (pl.col("momentum_20d") > 0)
+        ).fill_null(False))
+    if strategy_id == "oversold_rebound_v1":
+        return frame.filter((
+            liquid
+            & (pl.col("rsi_14") <= OVERSOLD_RSI_MAX)
+            & (pl.col("change_pct") > 0)
+            & (pl.col("close") > pl.col("ma5"))
+        ).fill_null(False))
     return frame.filter(pl.col("consensus_hit_count") >= CONSENSUS_MIN_HITS)
 
 
@@ -230,6 +289,12 @@ def rank_strategy(frame: pl.DataFrame, strategy_id: str) -> pl.DataFrame:
         columns = ["breakout_60d_strength", "breakout_20d_strength", "vol_ratio_20d", "momentum_acceleration", "amount"]
     elif strategy_id == "multi_factor_consensus_v1":
         columns = ["consensus_hit_count", "institutional_flow_ratio_5d", "revenue_yoy", "breakout_60d_strength", "amount"]
+    elif strategy_id == "pullback_support_v1":
+        columns = ["momentum_20d", "amount"]
+    elif strategy_id == "foreign_trend_v1":
+        columns = ["foreign_net_5d", "momentum_20d", "amount"]
+    elif strategy_id == "oversold_rebound_v1":
+        columns = ["change_pct", "vol_ratio_5d", "amount"]
     else:
         return frame
     available = [column for column in columns if column in frame.columns]

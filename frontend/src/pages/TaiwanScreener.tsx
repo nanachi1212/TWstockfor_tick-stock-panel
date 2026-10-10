@@ -51,14 +51,29 @@ import { ScreenerNlPanel } from '@/components/screener/ScreenerNlPanel'
 import { SaveStrategyModal } from '@/components/screener/SaveStrategyModal'
 import { formatAmount, formatChangePct, formatPrice, formatShortBalanceLots, formatShortMarginRatio, formatSignedSharesLots, formatVolumeLots } from '@/components/screener/screenerFormat'
 
+import { STRATEGY_COMMON_NOTE, STRATEGY_GUIDE } from '@/lib/strategyGuide'
+
 const FORWARD_STRATEGY_OPTIONS = [
   { id: 'trend_liquidity_v1', label: '趨勢流動性' },
   { id: 'institutional_momentum_v1', label: '法人動能' },
   { id: 'growth_trend_v1', label: '成長趨勢' },
   { id: 'breakout_v1', label: '突破轉強' },
   { id: 'multi_factor_consensus_v1', label: '多策略共識' },
+  { id: 'pullback_support_v1', label: '多頭回檔' },
+  { id: 'foreign_trend_v1', label: '外資跟買' },
+  { id: 'oversold_rebound_v1', label: '超跌反彈' },
 ] as const
 type ForwardStrategyId = typeof FORWARD_STRATEGY_OPTIONS[number]['id']
+
+// 乾跑結果存 sessionStorage: 點進個股再返回時不必重跑。
+const FORWARD_STRATEGY_KEY = 'tf-forward-strategy'
+const forwardPreviewKey = (strategy: string) => `tf-forward-preview:${strategy}`
+function loadSession<T>(key: string): T | null {
+  try { const raw = sessionStorage.getItem(key); return raw ? JSON.parse(raw) as T : null } catch { return null }
+}
+function saveSession(key: string, value: unknown) {
+  try { sessionStorage.setItem(key, JSON.stringify(value)) } catch { /* quota / private mode */ }
+}
 
 export function TaiwanScreener() {
   const navigate = useNavigate()
@@ -96,14 +111,18 @@ export function TaiwanScreener() {
     navigate(`/stocks/compare?symbols=${encodeURIComponent(merged.join(','))}`)
   }
   const [monitorSymbol, setMonitorSymbol] = useState<string | null>(null)
-  const [forwardPreview, setForwardPreview] = useState<TaiwanScreenerResponse | null>(null)
-  const [selectedForwardStrategy, setSelectedForwardStrategy] = useState<ForwardStrategyId | 'manual'>('manual')
+  const [selectedForwardStrategy, setSelectedForwardStrategy] = useState<ForwardStrategyId | 'manual'>(
+    () => loadSession<ForwardStrategyId | 'manual'>(FORWARD_STRATEGY_KEY) ?? 'manual',
+  )
   const activeForwardStrategy: ForwardStrategyId = selectedForwardStrategy === 'manual' ? 'trend_liquidity_v1' : selectedForwardStrategy
+  const [forwardPreview, setForwardPreview] = useState<TaiwanScreenerResponse | null>(
+    () => loadSession<TaiwanScreenerResponse>(forwardPreviewKey(activeForwardStrategy)),
+  )
 
   const forwardPreviewMutation = useMutation({
     mutationFn: () => api.taiwanScreenerRun({ preset: activeForwardStrategy }),
     onMutate: () => setForwardPreview(null),
-    onSuccess: setForwardPreview,
+    onSuccess: (res) => { saveSession(forwardPreviewKey(activeForwardStrategy), res); setForwardPreview(res) },
   })
   const updateTaiwanDataMutation = useMutation({
     mutationFn: api.taiwanUpdateLatest,
@@ -724,13 +743,26 @@ export function TaiwanScreener() {
         <select
           id="selection-forward-strategy"
           value={selectedForwardStrategy}
-          onChange={event => { setSelectedForwardStrategy(event.target.value as ForwardStrategyId | 'manual'); setPage(1); setForwardPreview(null) }}
+          onChange={event => {
+            const next = event.target.value as ForwardStrategyId | 'manual'
+            setSelectedForwardStrategy(next)
+            saveSession(FORWARD_STRATEGY_KEY, next)
+            setPage(1)
+            setForwardPreview(loadSession<TaiwanScreenerResponse>(forwardPreviewKey(next === 'manual' ? 'trend_liquidity_v1' : next)))
+          }}
           className="rounded-md border border-zinc-700 bg-zinc-900 px-3 py-1.5 text-sm text-zinc-100"
         >
           <option value="manual">一般篩選</option>
           {FORWARD_STRATEGY_OPTIONS.map(strategy => <option key={strategy.id} value={strategy.id}>{strategy.label}</option>)}
         </select>
         <span className="text-xs text-zinc-400">固定規則、前瞻獨立追蹤；資料不足時不湊滿 Top20。</span>
+        {STRATEGY_GUIDE[activeForwardStrategy] && (
+          <div className="basis-full rounded-md bg-zinc-900/60 px-3 py-2 text-sm text-zinc-200">
+            <span className="font-semibold text-purple-300">{STRATEGY_GUIDE[activeForwardStrategy].label}是什麼？</span>{' '}
+            {STRATEGY_GUIDE[activeForwardStrategy].plain}
+            <div className="mt-1 text-xs text-zinc-400">條件：{STRATEGY_GUIDE[activeForwardStrategy].rule}。{STRATEGY_COMMON_NOTE}</div>
+          </div>
+        )}
         {data?.strategy_id && <span className="rounded bg-zinc-900 px-2 py-1 text-[11px] text-purple-300">{data.strategy_name} · {data.strategy_readiness ?? '—'}</span>}
         {data?.strategy_id && data.strategy_coverage && Object.keys(data.strategy_coverage).length > 0 && (
           <span className="rounded bg-zinc-900 px-2 py-1 text-[11px] text-zinc-400">

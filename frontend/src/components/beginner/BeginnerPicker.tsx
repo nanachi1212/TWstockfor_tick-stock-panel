@@ -612,7 +612,12 @@ export function BeginnerStockView({
               <dt className="text-muted">失效位置</dt><dd className="font-mono text-warning">{formatPrice(panel.invalidation.invalidation)}</dd>
             </dl>
             {panel.support.status !== 'available' && panel.resistance.status !== 'available' && panel.invalidation.status !== 'available' && (
-              <p className="mt-2 text-xs text-muted">目前資料不足，無法可靠計算支撐／壓力。</p>
+              <p className="mt-2 text-xs text-muted">
+                {candidate.plan_unavailable_reason
+                  ?? (candidate.selection_state === 'no_chase' || candidate.selection_state === 'skip'
+                    ? `這檔目前是「${STATE_LABEL[candidate.selection_state]}」，系統只替可觀察的股票計算支撐／壓力，不是缺資料。`
+                    : '目前資料不足，無法可靠計算支撐／壓力。')}
+              </p>
             )}
             {panel.support.support_distance_high_pct != null && panel.support.support_distance_low_pct != null && (
               <p className="mt-2 text-xs text-muted">距支撐：約 {formatPct(panel.support.support_distance_high_pct)} ～ {formatPct(panel.support.support_distance_low_pct)}</p>

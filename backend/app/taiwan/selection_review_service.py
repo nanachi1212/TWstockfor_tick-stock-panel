@@ -276,7 +276,7 @@ class TaiwanSelectionReviewService:
             raise ValueError("來源行情覆蓋無法驗證。不能鎖定正式批次")
         if screen.risk_source_status != "available" or screen.risk_unknown_count:
             raise ValueError("監管事件來源覆蓋不足。不能鎖定正式批次")
-        if strategy_id in ("institutional_momentum_v1", "growth_trend_v1", "breakout_v1", "multi_factor_consensus_v1") and screen.strategy_readiness != "ready":
+        if strategy_id != FORWARD_RULE_VERSION and screen.strategy_readiness != "ready":
             reason = "、".join(screen.strategy_readiness_reasons) or "策略資料覆蓋不足"
             raise ValueError(f"策略 readiness 未達可鎖定狀態: {reason}")
         if action_evidence is None or self._action_coverage_evidence() != action_evidence:

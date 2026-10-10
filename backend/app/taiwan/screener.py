@@ -68,6 +68,7 @@ SortField = Literal[
     "latest_eps", "foreign_shareholding_ratio", "foreign_shareholding_change_20d", "quant_score",
     "trend_liquidity_v1", "institutional_momentum_v1", "growth_trend_v1",
     "breakout_v1", "multi_factor_consensus_v1",
+    "pullback_support_v1", "foreign_trend_v1", "oversold_rebound_v1",
 ]
 SortDir = Literal["asc", "desc"]
 
@@ -164,6 +165,7 @@ class TaiwanScreenerRequest(BaseModel):
     preset: Literal[
         "trend_liquidity_v1", "institutional_momentum_v1", "growth_trend_v1",
         "breakout_v1", "multi_factor_consensus_v1",
+        "pullback_support_v1", "foreign_trend_v1", "oversold_rebound_v1",
     ] | None = None
     instrument: InstrumentFilter = "ALL"
     industry: str | None = None  # None or specific industry name
@@ -1609,6 +1611,16 @@ class TaiwanScreenerService:
             elif strategy_id == "multi_factor_consensus_v1":
                 names = [name for name in (r.get("consensus_strategy_names") or "").split("、") if name]
                 strategy_signals = [f"命中 {r.get('consensus_hit_count') or 0}/3 策略", *names]
+                reasons.extend(strategy_signals)
+            elif strategy_id == "pullback_support_v1":
+                strategy_signals = ["MA20 在 MA60 之上（多頭）", "近 5 日回檔", "收盤貼近 MA20 支撐", "成交金額達流動性門檻"]
+                reasons.extend(strategy_signals)
+            elif strategy_id == "foreign_trend_v1":
+                strategy_signals = ["5日外資淨買超", "收盤站上 MA20", "MA20 在 MA60 之上", "20D 動能為正", "成交金額達流動性門檻"]
+                reasons.extend(strategy_signals)
+            elif strategy_id == "oversold_rebound_v1":
+                rsi = r.get("rsi_14")
+                strategy_signals = [f"RSI14 {rsi:.0f}（超跌）" if rsi is not None else "RSI14 不可用", "當日收紅", "站回 MA5", "成交金額達流動性門檻"]
                 reasons.extend(strategy_signals)
             if req:
                 # Revenue

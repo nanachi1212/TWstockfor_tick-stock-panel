@@ -1268,6 +1268,41 @@ def test_finmind_connection() -> dict:
     return adapter.test_connection(probe_symbol="2330")
 
 
+@router.get("/ai-status")
+def get_ai_status() -> dict:
+    """側欄 AI 燈號: 輕量連線檢查，不呼叫生成。"""
+    from app.services.ai_health import ai_status
+
+    return ai_status()
+
+
+# Optional external-context keys. Providers re-read these on next use, so no restart.
+_EXTERNAL_KEYS = ("fred_api_key", "finbridge_api_key", "fugle_api_key")
+
+
+class ExternalKeyIn(BaseModel):
+    name: Literal["fred_api_key", "finbridge_api_key", "fugle_api_key"]
+    key: str = ""  # empty = clear
+
+
+@router.get("/preferences/external-keys")
+def get_external_keys() -> dict:
+    out = {}
+    for name in _EXTERNAL_KEYS:
+        key = secrets_store.get_ai_config(name)
+        out[name] = {"has_key": bool(key), "masked": secrets_store.mask(key)}
+    return out
+
+
+@router.put("/preferences/external-keys")
+def update_external_key(req: ExternalKeyIn) -> dict:
+    if req.key.strip():
+        secrets_store.save({req.name: req.key.strip()})
+    else:
+        secrets_store.clear(req.name)
+    return get_external_keys()
+
+
 class WebhookEnabledDefaultIn(BaseModel):
     enabled: bool
 

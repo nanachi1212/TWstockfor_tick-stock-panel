@@ -284,6 +284,7 @@ def test_strategy_definitions_unchanged():
     assert selection_v2.STRATEGY_IDS == (
         "trend_liquidity_v1", "institutional_momentum_v1", "growth_trend_v1",
         "breakout_v1", "multi_factor_consensus_v1",
+        "pullback_support_v1", "foreign_trend_v1", "oversold_rebound_v1",
     )
     assert (selection_v2.V2_MIN_AMOUNT_TWD, selection_v2.INSTITUTIONAL_FLOW_RATIO_MIN,
             selection_v2.BREAKOUT_VOLUME_RATIO_MIN, selection_v2.CONSENSUS_MIN_HITS) == (

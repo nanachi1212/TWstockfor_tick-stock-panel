@@ -104,6 +104,9 @@ const FORWARD_STRATEGIES = [
   { id: 'growth_trend_v1', name: '成長趨勢 v1' },
   { id: 'breakout_v1', name: '突破轉強 v1' },
   { id: 'multi_factor_consensus_v1', name: '多策略共識 v1' },
+  { id: 'pullback_support_v1', name: '多頭回檔 v1' },
+  { id: 'foreign_trend_v1', name: '外資跟買 v1' },
+  { id: 'oversold_rebound_v1', name: '超跌反彈 v1' },
 ] as const
 
 function ForwardStats({ stats, formatPct, strategyId }: { stats: ForwardBatchStats; formatPct: (value: number | null | undefined) => string; strategyId: string }) {
@@ -271,6 +274,16 @@ export function SelectionReview() {
             </div>
           </div>
         </div>
+
+        <details className="rounded-lg border border-border/60 bg-muted/30 px-4 py-3 text-sm">
+          <summary className="cursor-pointer font-semibold">第一次用？三步驟看懂這頁</summary>
+          <ol className="mt-2 list-decimal space-y-1 pl-5 text-muted-foreground">
+            <li><span className="text-foreground">什麼都不用做也有資料</span>：「每日推薦」是系統每天收盤後自動選的股票，過幾天會自動填上 1 天／5 天／20 天後漲跌，看它準不準。</li>
+            <li><span className="text-foreground">想測某個策略</span>：到「台股選股」選一個每日候選策略 → 按「乾跑預覽」看名單 → 收盤後按「鎖定正式測試名單」。之後到本頁「正式前瞻批次」看它每天的成績（系統夜間也會自動鎖定）。</li>
+            <li><span className="text-foreground">想記錄自己的選股</span>：在「台股選股」篩完按「儲存本次選股快照」，成績會出現在「研究快照」；累積夠多後，「策略統計」「條件成效」會告訴你哪種策略、哪種入選理由比較常賺。</li>
+          </ol>
+          <p className="mt-2 text-xs text-muted-foreground">看數字的重點：勝率＝之後上漲的比例；超額＝比同期買 0050 多賺（或少賠）多少。樣本少於 5 筆時參考就好。</p>
+        </details>
 
         {/* 頁籤切換 */}
         <div className="flex flex-wrap items-center bg-muted/60 p-1 rounded-lg border border-border/40 text-sm">

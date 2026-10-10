@@ -49,6 +49,38 @@ export function useTheme(): Theme {
 }
 
 // ================================================================
+// 字級縮放 — localStorage('tf-font-scale'), 以 html zoom 生效:
+// 連 text-[10px] 這類固定 px 字與圖表一起放大。--ui-zoom 給 Layout 修正 100vh。
+// ================================================================
+
+const FONT_KEY = 'tf-font-scale'
+export const FONT_SCALES = [1, 1.1, 1.25, 1.4] as const
+const DEFAULT_FONT_SCALE = 1.1
+
+export function getFontScale(): number {
+  try {
+    const v = Number(localStorage.getItem(FONT_KEY))
+    return (FONT_SCALES as readonly number[]).includes(v) ? v : DEFAULT_FONT_SCALE
+  } catch {
+    return DEFAULT_FONT_SCALE
+  }
+}
+
+export function applyFontScale(scale: number = getFontScale()) {
+  const root = document.documentElement
+  root.style.zoom = String(scale)
+  root.style.setProperty('--ui-zoom', String(scale))
+}
+
+export function cycleFontScale(): number {
+  const list = FONT_SCALES as readonly number[]
+  const next = list[(list.indexOf(getFontScale()) + 1) % list.length]
+  try { localStorage.setItem(FONT_KEY, String(next)) } catch { /* ignore */ }
+  applyFontScale(next)
+  return next
+}
+
+// ================================================================
 // 圖表調色板 — ECharts / lightweight-charts 畫布不吃 CSS 變量,
 // 所有圖表組件統一從這裡取色, 主題切換時依賴 useTheme 重建 option。
 // bull/bear/accent 等語義色雙主題一致, 不在此重複定義。

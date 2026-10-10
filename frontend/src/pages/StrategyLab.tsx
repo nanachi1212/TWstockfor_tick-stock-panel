@@ -4,6 +4,7 @@ import { keepPreviousData, useQuery } from '@tanstack/react-query'
 import { FlaskConical } from 'lucide-react'
 import { api, type StrategyLabFilters, type StrategyLabHorizon, type StrategyLabObservation, type StrategyLabStats } from '@/lib/api'
 import { QK } from '@/lib/queryKeys'
+import { STRATEGY_GUIDE } from '@/lib/strategyGuide'
 
 const HORIZONS = ['1D', '5D', '20D'] as const
 const SLICES = [
@@ -43,7 +44,7 @@ function Comparison({ strategies }: { strategies: StrategyLabStats[] }) {
     <h2 className="font-semibold">策略並排比較（{strategies.length} / 4）</h2>
     {strategies.length < 2 ? <p className="text-sm text-muted-foreground">勾選 2–4 個策略查看客觀統計。</p> :
       <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">{strategies.map(item => <article key={item.identity.key} className="space-y-4 rounded-xl border border-border bg-card p-4">
-        <div><h3 className="font-semibold">{item.identity.strategy_name}</h3><p className="mt-1 text-xs text-muted-foreground">{item.identity.source} · {item.identity.version ?? '設定版本'} · {basis(item.identity.entry_basis)} · 樣本 {item.sample_count}</p></div>
+        <div><h3 className="font-semibold">{item.identity.strategy_name}</h3><p className="mt-1 text-xs text-muted-foreground">{item.identity.source} · {item.identity.version ?? '設定版本'} · {basis(item.identity.entry_basis)} · 樣本 {item.sample_count}</p>{STRATEGY_GUIDE[item.identity.strategy_id] && <p className="mt-2 text-xs text-foreground/80">{STRATEGY_GUIDE[item.identity.strategy_id].plain}</p>}</div>
         {HORIZONS.map(h => <div key={h}><h4 className="mb-2 text-sm font-medium">{h}</h4><Horizon stats={item.horizons[h]} /></div>)}
       </article>)}</div>}
   </section>
@@ -88,6 +89,7 @@ export function StrategyLab() {
           <label className="flex items-center gap-2 text-xs"><input type="checkbox" aria-label={`比較 ${item.identity.strategy_name} ${item.identity.key.slice(0, 8)}`} checked={compared.includes(item.identity.key)} disabled={compared.length >= 4 && !compared.includes(item.identity.key)} onChange={e => setCompared(previous => e.target.checked ? [...previous, item.identity.key] : previous.filter(key => key !== item.identity.key))} />加入比較</label>
           <button className="text-left font-semibold text-primary hover:underline" onClick={() => { setSelected(item.identity.key); setOffset(0) }}>{item.identity.strategy_name}</button>
           <p className="text-xs text-muted-foreground">{item.identity.source} · {item.identity.version ?? '設定版本'} · {item.identity.key.slice(0, 8)}</p>
+          {STRATEGY_GUIDE[item.identity.strategy_id] && <p className="text-xs text-foreground/80">{STRATEGY_GUIDE[item.identity.strategy_id].plain}</p>}
           <p className="text-xs">樣本 {item.sample_count} · 快照 {item.snapshot_count} · {basis(item.identity.entry_basis)}</p>
           <p className="break-words text-xs text-muted-foreground">{item.identity.price_semantics.includes('pit_price') ? '公司行動價格正規化（非總報酬）' : '原始參考價（非總報酬）'}</p>
         </td>{HORIZONS.map(h => <td key={h} className="p-3"><Horizon stats={item.horizons[h]} /></td>)}</tr>)}</tbody>

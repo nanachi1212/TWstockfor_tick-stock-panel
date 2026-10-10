@@ -78,7 +78,7 @@ def build_cross_check(
 
 class FinBridgeProvider:
     def __init__(self, api_key: str | None = None, *, cache_dir: Path | None = None, requester=None) -> None:
-        self.api_key = (settings.finbridge_api_key if api_key is None else api_key).strip()
+        self.api_key = (_configured_key() if api_key is None else api_key).strip()
         self.cache_dir = cache_dir or Path(settings.data_dir) / "external_context" / "finbridge"
         self.requester = requester or self._request
         self._lock = threading.Lock()
@@ -264,9 +264,15 @@ _PROVIDER: FinBridgeProvider | None = None
 _LOCK = threading.Lock()
 
 
+def _configured_key() -> str:
+    # Settings page (secrets.json) wins over .env.
+    from app import secrets_store
+    return (secrets_store.get_ai_config("finbridge_api_key") or "").strip()
+
+
 def get_finbridge_provider() -> FinBridgeProvider:
     global _PROVIDER
     with _LOCK:
-        if _PROVIDER is None:
+        if _PROVIDER is None or _PROVIDER.api_key != _configured_key():
             _PROVIDER = FinBridgeProvider()
         return _PROVIDER
