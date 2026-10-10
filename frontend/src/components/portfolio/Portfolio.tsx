@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
 import { Link } from 'react-router-dom'
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { ArrowDownToLine, ArrowUpFromLine, Bell, ExternalLink, FileUp, Plus, Wallet, Sparkles } from 'lucide-react'
 import { api, type TaiwanRealtimeQuote } from '@/lib/api'
 import { QK } from '@/lib/queryKeys'
@@ -312,6 +312,9 @@ export function PortfolioPanel({ symbol, name, quote: detailQuote, change: detai
   const [trade, setTrade] = useState<{ symbol?: string; name?: string; side: PortfolioSide; quote?: number | null } | null>(null)
   const [reminder, setReminder] = useState<{ symbol: string; name: string; price?: number | null; quote?: TaiwanRealtimeQuote } | null>(null)
   const [importOpen, setImportOpen] = useState(false)
+  const qc = useQueryClient()
+  const watchlist = useQuery({ queryKey: QK.watchlist, queryFn: api.watchlistList, enabled: !symbol, staleTime: 60_000 })
+  const [syncingWatchlist, setSyncingWatchlist] = useState(false)
   const ledgerPositions = useMemo(() => buildPortfolioPositions(transactions), [transactions])
   const positions = useMemo(() => ledgerPositions.filter(position => position.shares > 0), [ledgerPositions])
   const quant = useTodayQuantSelection()
@@ -365,6 +368,18 @@ export function PortfolioPanel({ symbol, name, quote: detailQuote, change: detai
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="flex items-center gap-2"><Wallet className="h-4 w-4 text-accent" /><h2 className="text-sm font-semibold">{symbol ? '我的持股' : '我的持倉'}</h2></div>
         {!ledgerError && <button type="button" onClick={() => setTrade({ symbol: symbol ?? '', name: name ?? '', side: 'buy', quote: detailQuote })} className="inline-flex items-center gap-1 rounded-lg bg-accent px-2.5 py-1.5 text-xs font-medium text-white"><Plus className="h-3.5 w-3.5" />買入</button>}
+        {!symbol && (() => {
+          const watched = new Set((watchlist.data?.symbols ?? []).map(item => item.symbol))
+          const missing = positions.map(position => position.symbol).filter(item => !watched.has(item))
+          return watchlist.data && missing.length > 0 && (
+            <button type="button" disabled={syncingWatchlist} onClick={async () => {
+              setSyncingWatchlist(true)
+              await api.watchlistBatchAdd(missing).catch(() => undefined)
+              await qc.invalidateQueries({ queryKey: QK.watchlist })
+              setSyncingWatchlist(false)
+            }} className="inline-flex items-center gap-1 rounded-lg border border-border px-2.5 py-1.5 text-xs font-medium text-foreground hover:bg-elevated disabled:opacity-50">持股加入自選（{missing.length}）</button>
+          )
+        })()}
         {!symbol && <button type="button" onClick={() => setImportOpen(true)} className="inline-flex items-center gap-1 rounded-lg border border-border px-2.5 py-1.5 text-xs font-medium text-foreground hover:bg-elevated"><FileUp className="h-3.5 w-3.5" />匯入持股</button>}
       </div>
       {ledgerError && <p role="alert" className="rounded-lg bg-danger/10 px-3 py-2 text-xs text-danger">{ledgerError}</p>}
@@ -433,6 +448,7 @@ const IMPORT_SOURCES: { id: ImportSource; label: string }[] = [
 
 /** 一鍵匯入: 從本機 / OneDrive / Google Drive 讀持股表 (或直接貼上)，每檔記成一筆買入。 */
 function PortfolioImportDialog({ onClose }: { onClose: () => void }) {
+  const qc = useQueryClient()
   const { transactions } = usePortfolioTransactions()
   const [text, setText] = useState('')
   const [source, setSource] = useState<ImportSource>('local')
@@ -482,6 +498,9 @@ function PortfolioImportDialog({ onClose }: { onClose: () => void }) {
         storage.portfolioTransactions.set(next)
         window.dispatchEvent(new Event(PORTFOLIO_CHANGED))
       })
+      // 持股一併加入自選，方便在自選股頁追蹤。
+      await api.watchlistBatchAdd(resolved.map(item => item.symbol)).catch(() => undefined)
+      void qc.invalidateQueries({ queryKey: QK.watchlist })
       onClose()
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : '匯入失敗')

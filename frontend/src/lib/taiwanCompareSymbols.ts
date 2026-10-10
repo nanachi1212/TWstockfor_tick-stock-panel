@@ -7,7 +7,7 @@
 // 僅持久化「標的代碼清單」，絕不持久化比較日期或 AI 生成內容 (符合 Phase 7H/7I 邊界)。
 
 export const MIN_COMPARE_SYMBOLS = 2
-export const MAX_COMPARE_SYMBOLS = 5
+export const MAX_COMPARE_SYMBOLS = 10
 
 const DATE_SHAPE_RE = /^(\d{4})-(\d{2})-(\d{2})$/
 
