@@ -17,6 +17,7 @@ import {
   type TaiwanAIResearchResponse,
 } from '@/lib/api'
 import { QK } from '@/lib/queryKeys'
+import { MAX_COMPARE_SYMBOLS } from '@/lib/taiwanCompareSymbols'
 import { cn } from '@/lib/cn'
 import { FredAttribution } from '@/components/ExternalContextCard'
 
@@ -412,7 +413,7 @@ export function useCompareSelection(symbols: string[]) {
   const navigating = useRef(false)
   const [opening, setOpening] = useState(false)
   const available = new Set(symbols)
-  const selected = [...new Set((params.get('compare') ?? '').split(','))].filter(s => available.has(s)).slice(0, 5)
+  const selected = [...new Set((params.get('compare') ?? '').split(','))].filter(s => available.has(s)).slice(0, MAX_COMPARE_SYMBOLS)
   const toggle = (symbol: string) => {
     const next = selected.includes(symbol) ? selected.filter(s => s !== symbol) : [...selected, symbol]
     if (next.length > 5) return
@@ -430,7 +431,7 @@ export function useCompareSelection(symbols: string[]) {
     navigate(`/picks/compare?${new URLSearchParams({ symbols: [...selected].sort().join(',') })}`)
   }
   const comparisonFor = (symbol: string) => ({
-    checked: selected.includes(symbol), disabled: opening || (selected.length === 5 && !selected.includes(symbol)),
+    checked: selected.includes(symbol), disabled: opening || (selected.length === MAX_COMPARE_SYMBOLS && !selected.includes(symbol)),
     onToggle: () => toggle(symbol),
   })
   return { selected, opening, open, comparisonFor }
@@ -439,7 +440,7 @@ export function useCompareSelection(symbols: string[]) {
 export function CompareBar({ selected, opening, open }: { selected: string[]; opening: boolean; open: () => void }) {
   return (
     <div className="flex flex-wrap items-center justify-between gap-2 rounded-card border border-accent/25 bg-surface p-3">
-      <p className="text-xs text-muted" role="status">已選 {selected.length} / 5 檔 · 請勾選 2 至 5 檔{selected.length === 5 && '，已達上限'}</p>
+      <p className="text-xs text-muted" role="status">已選 {selected.length} / {MAX_COMPARE_SYMBOLS} 檔 · 請勾選 2 至 {MAX_COMPARE_SYMBOLS} 檔{selected.length === MAX_COMPARE_SYMBOLS && '，已達上限'}</p>
       <button type="button" disabled={selected.length < 2 || opening}
         className="min-h-9 rounded-md bg-accent px-3 text-xs font-semibold text-white disabled:cursor-not-allowed disabled:opacity-40"
         onClick={open}>比較這些股票</button>

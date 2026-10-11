@@ -1,4 +1,4 @@
-"""PTT Stock 與 Dcard 台股社群聲量、情緒 MVP。
+"""PTT Stock 台股社群聲量、情緒 MVP。
 
 這個模組刻意保持獨立：collector 只負責來源讀取，股票辨識只使用既有
 TaiwanSecurityMaster，AI 與檔案輸出則由 service 編排。排程快照只保存聚合
@@ -34,7 +34,6 @@ AI_SENTIMENT_MAX_SYMBOLS = 40
 
 _PTT_INDEX = "https://www.ptt.cc/bbs/Stock/index.html"
 _PTT_BOARD = "https://www.ptt.cc"
-_DCARD_FORUMS = ("stock", "investment")
 _DEFAULT_HEADERS = {
     "User-Agent": (
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
@@ -250,92 +249,6 @@ class PTTStockCollector:
         return result
 
 
-class DcardCollector:
-    source = "dcard"
-
-    def __init__(
-        self,
-        *,
-        timeout: float = 20.0,
-        request_delay: float = 0.2,
-        comment_posts_limit: int = 12,
-    ) -> None:
-        self.timeout = timeout
-        self.request_delay = request_delay
-        self.comment_posts_limit = comment_posts_limit
-
-    def fetch(self, *, since: datetime, max_pages: int = 2) -> SourceResult:
-        result = SourceResult(self.source)
-        try:
-            with httpx.Client(
-                headers={**_DEFAULT_HEADERS, "Accept": "application/json"},
-                timeout=self.timeout,
-                follow_redirects=True,
-            ) as client:
-                for forum in _DCARD_FORUMS:
-                    try:
-                        response = client.get(
-                            f"https://www.dcard.tw/service/api/v2/forums/{forum}/posts",
-                            params={"limit": min(100, max_pages * 30)},
-                        )
-                        response.raise_for_status()
-                        posts = response.json()
-                        if not isinstance(posts, list):
-                            raise ValueError("Dcard posts response is not a list")
-                        result.fetch_succeeded = True
-                        result.pages += 1
-                        parsed = parse_dcard_posts(posts, forum=forum, since=since)
-                        for post in parsed:
-                            comments = self._fetch_comments(client, post.post_id, result) if len(result.posts) < self.comment_posts_limit else []
-                            result.posts.append(
-                                SocialPost(
-                                    source=post.source,
-                                    post_id=post.post_id,
-                                    url=post.url,
-                                    title=post.title,
-                                    content=post.content,
-                                    published_at=post.published_at,
-                                    comments=tuple(comments),
-                                    engagement=post.engagement,
-                                )
-                            )
-                            if self.request_delay:
-                                import time
-
-                                time.sleep(self.request_delay)
-                    except Exception as exc:  # noqa: BLE001 - isolate one forum
-                        result.errors.append(f"forum {forum}: {type(exc).__name__}: {exc}")
-                        try:
-                            fallback = client.get(f"https://www.dcard.tw/f/{forum}")
-                            fallback.raise_for_status()
-                            fallback_posts = parse_dcard_html(fallback.text, forum=forum, since=since)
-                            result.posts.extend(fallback_posts)
-                            if fallback_posts:
-                                result.fetch_succeeded = True
-                                result.pages += 1
-                        except Exception as fallback_exc:  # noqa: BLE001 - fallback is optional
-                            result.errors.append(f"forum {forum} fallback: {type(fallback_exc).__name__}")
-        except Exception as exc:  # noqa: BLE001 - source isolation is intentional
-            result.errors.append(f"client: {type(exc).__name__}: {exc}")
-        logger.info("Dcard collector: %d posts, %d comments, status=%s", len(result.posts), result.comments_count, result.status)
-        return result
-
-    def _fetch_comments(self, client: httpx.Client, post_id: str, result: SourceResult) -> list[str]:
-        try:
-            response = client.get(
-                f"https://www.dcard.tw/service/api/v2/posts/{post_id}/comments",
-                params={"limit": 20},
-            )
-            response.raise_for_status()
-            items = response.json()
-            if not isinstance(items, list):
-                return []
-            return [str(item.get("content") or "").strip() for item in items if item.get("content")]
-        except Exception as exc:  # noqa: BLE001 - comments are optional
-            result.errors.append(f"comments {post_id}: {type(exc).__name__}")
-            return []
-
-
 def parse_ptt_index(markup: str) -> list[dict[str, Any]]:
     """Parse a PTT Stock index page without requiring BeautifulSoup."""
     entries: list[dict[str, Any]] = []
@@ -434,73 +347,6 @@ def parse_ptt_post(
     )
 
 
-def parse_dcard_posts(
-    items: list[dict[str, Any]], *, forum: str, since: datetime | None = None
-) -> list[SocialPost]:
-    """Normalize public Dcard forum API rows into the common post model."""
-    posts: list[SocialPost] = []
-    for item in items:
-        published = _parse_datetime(str(item.get("createdAt") or ""))
-        if since and published is None:
-            continue
-        if since and published and published < since:
-            continue
-        post_id = str(item.get("id") or "").strip()
-        title = str(item.get("title") or "").strip()
-        if not post_id or not title:
-            continue
-        posts.append(
-            SocialPost(
-                source="dcard",
-                post_id=post_id,
-                url=f"https://www.dcard.tw/f/{forum}/p/{post_id}",
-                title=title,
-                content=str(item.get("excerpt") or item.get("content") or ""),
-                published_at=published,
-                engagement=int(item.get("likeCount") or 0) + int(item.get("commentCount") or 0),
-            )
-        )
-    return posts
-
-
-def parse_dcard_html(
-    markup: str, *, forum: str, since: datetime | None = None
-) -> list[SocialPost]:
-    """Best-effort parser for Dcard's public forum HTML fallback.
-
-    The HTML endpoint is intentionally only a fallback for API blocks. It does
-    not depend on browser automation and accepts whatever title text the page
-    currently exposes around a public post link.
-    """
-    # The public HTML fallback exposes no trustworthy publication timestamp.
-    # Keep it available for explicit unbounded parsing, but never let it bypass
-    # a caller's requested time window.
-    if since is not None:
-        return []
-    posts: list[SocialPost] = []
-    pattern = re.compile(
-        rf'href="/f/{re.escape(forum)}/p/(?P<id>\d+)"[^>]*>(?P<title>.*?)</a>',
-        re.DOTALL | re.IGNORECASE,
-    )
-    seen: set[str] = set()
-    for match in pattern.finditer(markup):
-        post_id = match.group("id")
-        title = _clean_html(match.group("title"))
-        if post_id in seen or not title or len(title) > 300:
-            continue
-        seen.add(post_id)
-        posts.append(
-            SocialPost(
-                source="dcard",
-                post_id=post_id,
-                url=f"https://www.dcard.tw/f/{forum}/p/{post_id}",
-                title=title,
-                content="",
-            )
-        )
-    return posts
-
-
 @dataclass(frozen=True)
 class StockInfo:
     symbol: str
@@ -576,7 +422,7 @@ class SocialSentimentService:
     output_dir: Path | None = None
 
     def _collectors(self) -> tuple[SocialCollector, ...]:
-        return self.collectors or (PTTStockCollector(), DcardCollector())
+        return self.collectors or (PTTStockCollector(),)
 
     def _output_root(self) -> Path:
         return Path(self.output_dir or settings.data_dir / "social_sentiment")
@@ -673,9 +519,8 @@ class SocialSentimentService:
         )
         self.save(payload)
         logger.info(
-            "Social sentiment complete: ptt=%d, dcard=%d, symbols=%d, ai_batches=%d, output=%s",
+            "Social sentiment complete: ptt=%d, symbols=%d, ai_batches=%d, output=%s",
             len(source_results.get("ptt", SourceResult("ptt")).posts),
-            len(source_results.get("dcard", SourceResult("dcard")).posts),
             len(rankings),
             ai_info["batches"],
             self._output_root(),
@@ -720,7 +565,6 @@ class SocialSentimentService:
                     "code": info.code,
                     "company_name": info.name,
                     "ptt_mentions": source_mentions["ptt"],
-                    "dcard_mentions": source_mentions["dcard"],
                     "total_mentions": total,
                     "unique_posts": len(unique_posts),
                     "engagement": engagement,
@@ -983,7 +827,7 @@ class SocialSentimentService:
         fields = [
             "as_of", "generated_at", "started_at", "finished_at", "trigger", "snapshot_slot",
             "window_hours", "source_statuses", "rank", "symbol",
-            "code", "company_name", "ptt_mentions", "dcard_mentions",
+            "code", "company_name", "ptt_mentions",
             "total_mentions", "unique_posts", "engagement", "volume_change_24h", "bullish_count",
             "neutral_count", "bearish_count", "sentiment", "sentiment_score", "sentiment_confidence",
             "sentiment_status", "social_heat_score", "sentiment_reason",
@@ -1021,7 +865,8 @@ class SocialSentimentService:
         temp_path = Path(temp_name)
         try:
             with temp_path.open("w", encoding="utf-8", newline="") as handle:
-                writer = csv.DictWriter(handle, fieldnames=fields)
+                # Older history rows may carry retired columns (e.g. dcard_mentions); drop them.
+                writer = csv.DictWriter(handle, fieldnames=fields, extrasaction="ignore")
                 writer.writeheader()
                 writer.writerows(rows)
             temp_path.replace(csv_path)

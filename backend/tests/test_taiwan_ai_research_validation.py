@@ -73,7 +73,8 @@ def test_personal_context_is_allowlisted_and_missing_values_stay_missing():
         "social": {
             "as_of": "2026-09-29", "status": "partial", "total_mentions": 12,
             "heat_score": 34.5, "sentiment": "bullish", "sentiment_status": "available",
-            "source_coverage": "ptt:available,dcard:unavailable", "raw_posts": ["must not be sent"],
+            "source_coverage": "ptt:available", "raw_posts": ["must not be sent"],
+            "dcard_mentions": 3,  # legacy field from older snapshots is dropped
         },
         "unrelated": {"data": "must not be sent"},
     })
@@ -91,7 +92,7 @@ def test_personal_context_is_allowlisted_and_missing_values_stay_missing():
     assert sanitized["social"] == {
         "as_of": "2026-09-29", "status": "partial", "total_mentions": 12.0,
         "heat_score": 34.5, "sentiment": "bullish", "sentiment_status": "available",
-        "source_coverage": "ptt:available,dcard:unavailable",
+        "source_coverage": "ptt:available",
     }
     assert "unrelated" not in sanitized
 

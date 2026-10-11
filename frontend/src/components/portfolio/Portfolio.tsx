@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
 import { Link } from 'react-router-dom'
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { ArrowDownToLine, ArrowUpFromLine, Bell, ExternalLink, FileUp, Plus, Wallet, Sparkles } from 'lucide-react'
 import { api, type TaiwanRealtimeQuote } from '@/lib/api'
 import { QK } from '@/lib/queryKeys'
@@ -312,6 +312,10 @@ export function PortfolioPanel({ symbol, name, quote: detailQuote, change: detai
   const [trade, setTrade] = useState<{ symbol?: string; name?: string; side: PortfolioSide; quote?: number | null } | null>(null)
   const [reminder, setReminder] = useState<{ symbol: string; name: string; price?: number | null; quote?: TaiwanRealtimeQuote } | null>(null)
   const [importOpen, setImportOpen] = useState(false)
+  const autoSync = usePortfolioAutoSync(!symbol)
+  const qc = useQueryClient()
+  const watchlist = useQuery({ queryKey: QK.watchlist, queryFn: api.watchlistList, enabled: !symbol, staleTime: 60_000 })
+  const [syncingWatchlist, setSyncingWatchlist] = useState(false)
   const ledgerPositions = useMemo(() => buildPortfolioPositions(transactions), [transactions])
   const positions = useMemo(() => ledgerPositions.filter(position => position.shares > 0), [ledgerPositions])
   const quant = useTodayQuantSelection()
@@ -365,9 +369,27 @@ export function PortfolioPanel({ symbol, name, quote: detailQuote, change: detai
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="flex items-center gap-2"><Wallet className="h-4 w-4 text-accent" /><h2 className="text-sm font-semibold">{symbol ? '我的持股' : '我的持倉'}</h2></div>
         {!ledgerError && <button type="button" onClick={() => setTrade({ symbol: symbol ?? '', name: name ?? '', side: 'buy', quote: detailQuote })} className="inline-flex items-center gap-1 rounded-lg bg-accent px-2.5 py-1.5 text-xs font-medium text-white"><Plus className="h-3.5 w-3.5" />買入</button>}
+        {!symbol && (() => {
+          const watched = new Set((watchlist.data?.symbols ?? []).map(item => item.symbol))
+          const missing = positions.map(position => position.symbol).filter(item => !watched.has(item))
+          return watchlist.data && missing.length > 0 && (
+            <button type="button" disabled={syncingWatchlist} onClick={async () => {
+              setSyncingWatchlist(true)
+              await api.watchlistBatchAdd(missing).catch(() => undefined)
+              await qc.invalidateQueries({ queryKey: QK.watchlist })
+              setSyncingWatchlist(false)
+            }} className="inline-flex items-center gap-1 rounded-lg border border-border px-2.5 py-1.5 text-xs font-medium text-foreground hover:bg-elevated disabled:opacity-50">持股加入自選（{missing.length}）</button>
+          )
+        })()}
         {!symbol && <button type="button" onClick={() => setImportOpen(true)} className="inline-flex items-center gap-1 rounded-lg border border-border px-2.5 py-1.5 text-xs font-medium text-foreground hover:bg-elevated"><FileUp className="h-3.5 w-3.5" />匯入持股</button>}
       </div>
       {ledgerError && <p role="alert" className="rounded-lg bg-danger/10 px-3 py-2 text-xs text-danger">{ledgerError}</p>}
+      {!symbol && autoSync.info?.path && (
+        <p className="text-[11px] text-muted">
+          持股自動同步：{autoSync.info.name}{autoSync.message ? ` · ${autoSync.message}` : ''}
+          <button type="button" onClick={async () => { await api.portfolioAutoSyncSet(null); void qc.invalidateQueries({ queryKey: ['portfolioAutoSync'] }) }} className="ml-2 text-accent hover:underline">停止同步</button>
+        </p>
+      )}
       {!symbol && positions.length > 0 && (
         <div className="grid grid-cols-2 gap-2 sm:grid-cols-5 text-xs">
           <Summary label={hasDegradedQuote ? '總市值（含非即時報價）' : '總市值'} value={hasMissingQuote ? unavailableQuoteValue : money(totalMarket)} />
@@ -424,10 +446,108 @@ export function PortfolioPanel({ symbol, name, quote: detailQuote, change: detai
   )
 }
 
-/** 一鍵匯入: 貼上或選擇 CSV (代號,名稱,股數,均價[,總成本][,日期])，每檔記成一筆買入。 */
+const AUTO_SYNC_MARK = 'tf-portfolio-sync-mtime'
+
+/** 匯入核心: 確認上市/上櫃別 → 每檔記一筆買入 (可取代整本) → 持股加入自選。 */
+async function importHoldingRows(parsed: ReturnType<typeof parsePortfolioImport>, replace: boolean) {
+  if (parsed.errors.length) throw new Error(parsed.errors.join('；'))
+  if (!parsed.rows.length) throw new Error('沒有可匯入的持股列（股數 0 的已出清列會略過）')
+  // 只需確認上市/上櫃別；賣出時的稅費仍由既有賣出流程依官方規則計算。
+  const resolved = await Promise.all(parsed.rows.map(async row => {
+    const found = (await api.taiwanSearch(row.code, 5)).results.find(item => item.code.toUpperCase() === row.code)
+    if (!found) throw new Error(`找不到代號 ${row.code}，請確認是上市/上櫃股票或 ETF`)
+    return { row, symbol: found.symbol, name: row.name || found.name }
+  }))
+  await withPortfolioWriteLock(() => {
+    const ledger = readPortfolioLedger()
+    if (ledger.error && !replace) throw new Error(ledger.error)
+    let next = replace ? [] : ledger.transactions
+    for (const { row, symbol, name } of resolved) {
+      next = [...next, createPortfolioTransaction({
+        symbol, name, side: 'buy', shares: row.shares, price: row.price, fee: row.fee, date: row.date, tradeTime: '09:00',
+      }, next)]
+    }
+    storage.portfolioTransactions.set(next)
+    window.dispatchEvent(new Event(PORTFOLIO_CHANGED))
+  })
+  // 持股一併加入自選，方便在自選股頁追蹤。
+  await api.watchlistBatchAdd(resolved.map(item => item.symbol)).catch(() => undefined)
+}
+
+/** 自動同步: 設定的 OneDrive/Google Drive 持股檔修改時間變了，就整本取代匯入。 */
+function usePortfolioAutoSync(enabled: boolean) {
+  const qc = useQueryClient()
+  const sync = useQuery({ queryKey: ['portfolioAutoSync'], queryFn: api.portfolioAutoSyncGet, enabled, staleTime: 60_000 })
+  const running = useRef(false)
+  const [message, setMessage] = useState('')
+  useEffect(() => {
+    const info = sync.data
+    if (!enabled || !info?.path || info.modified == null || running.current) return
+    let mark = ''
+    try { mark = localStorage.getItem(AUTO_SYNC_MARK) ?? '' } catch { /* ignore */ }
+    if (mark === String(info.modified)) return
+    running.current = true
+    const path = info.path
+    void (async () => {
+      try {
+        const { text } = await api.portfolioImportRead({ path })
+        await importHoldingRows(parsePortfolioImport(text, todayTaipeiDate()), true)
+        try { localStorage.setItem(AUTO_SYNC_MARK, String(info.modified)) } catch { /* ignore */ }
+        void qc.invalidateQueries({ queryKey: QK.watchlist })
+        setMessage(`已從 ${info.name} 自動同步持股`)
+      } catch (cause) {
+        setMessage(`自動同步持股失敗：${cause instanceof Error ? cause.message : '未知錯誤'}`)
+      } finally {
+        running.current = false
+      }
+    })()
+  }, [enabled, qc, sync.data])
+  return { info: sync.data, message }
+}
+
+type ImportSource = 'local' | 'onedrive' | 'gdrive'
+const IMPORT_SOURCES: { id: ImportSource; label: string }[] = [
+  { id: 'local', label: '本機檔案' },
+  { id: 'onedrive', label: 'OneDrive' },
+  { id: 'gdrive', label: 'Google Drive' },
+]
+
+/** 一鍵匯入: 從本機 / OneDrive / Google Drive 讀持股表 (或直接貼上)，每檔記成一筆買入。 */
 function PortfolioImportDialog({ onClose }: { onClose: () => void }) {
+  const qc = useQueryClient()
   const { transactions } = usePortfolioTransactions()
   const [text, setText] = useState('')
+  const [source, setSource] = useState<ImportSource>('local')
+  const [sheetUrl, setSheetUrl] = useState('')
+  const [loadedFrom, setLoadedFrom] = useState('')
+  const [cloudPath, setCloudPath] = useState('')
+  const [keepSynced, setKeepSynced] = useState(true)
+  const autoSyncPath = keepSynced && cloudPath ? cloudPath : ''
+  const [loadingSource, setLoadingSource] = useState(false)
+  const loadRequest = useRef(0)
+  const cloudFiles = useQuery({
+    queryKey: ['portfolioImportFiles', source],
+    queryFn: () => api.portfolioImportFiles(source as 'onedrive' | 'gdrive'),
+    enabled: source !== 'local',
+    staleTime: 60_000,
+  })
+  const loadCloud = async (payload: { path?: string; sheet_url?: string }, label: string) => {
+    const requestId = ++loadRequest.current
+    setError('')
+    setLoadingSource(true)
+    try {
+      const result = await api.portfolioImportRead(payload)
+      if (requestId === loadRequest.current) {
+        setText(result.text)
+        setLoadedFrom(label)
+        setCloudPath(payload.path ?? '')
+      }
+    } catch (cause) {
+      if (requestId === loadRequest.current) setError(cause instanceof Error ? cause.message : '讀取失敗')
+    } finally {
+      if (requestId === loadRequest.current) setLoadingSource(false)
+    }
+  }
   const [replace, setReplace] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
@@ -437,26 +557,13 @@ function PortfolioImportDialog({ onClose }: { onClose: () => void }) {
     setBusy(true)
     setError('')
     try {
-      if (parsed.errors.length) throw new Error(parsed.errors.join('；'))
-      if (!parsed.rows.length) throw new Error('沒有可匯入的持股列（股數 0 的已出清列會略過）')
-      // 只需確認上市/上櫃別；賣出時的稅費仍由既有賣出流程依官方規則計算。
-      const resolved = await Promise.all(parsed.rows.map(async row => {
-        const found = (await api.taiwanSearch(row.code, 5)).results.find(item => item.code.toUpperCase() === row.code)
-        if (!found) throw new Error(`找不到代號 ${row.code}，請確認是上市/上櫃股票或 ETF`)
-        return { row, symbol: found.symbol, name: row.name || found.name }
-      }))
-      await withPortfolioWriteLock(() => {
-        const ledger = readPortfolioLedger()
-        if (ledger.error && !replace) throw new Error(ledger.error)
-        let next = replace ? [] : ledger.transactions
-        for (const { row, symbol, name } of resolved) {
-          next = [...next, createPortfolioTransaction({
-            symbol, name, side: 'buy', shares: row.shares, price: row.price, fee: row.fee, date: row.date, tradeTime: '09:00',
-          }, next)]
-        }
-        storage.portfolioTransactions.set(next)
-        window.dispatchEvent(new Event(PORTFOLIO_CHANGED))
-      })
+      await importHoldingRows(parsed, replace)
+      void qc.invalidateQueries({ queryKey: QK.watchlist })
+      if (autoSyncPath) {
+        const sync = await api.portfolioAutoSyncSet(autoSyncPath)
+        try { localStorage.setItem(AUTO_SYNC_MARK, String(sync.modified ?? '')) } catch { /* ignore */ }
+        void qc.invalidateQueries({ queryKey: ['portfolioAutoSync'] })
+      }
       onClose()
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : '匯入失敗')
@@ -472,8 +579,58 @@ function PortfolioImportDialog({ onClose }: { onClose: () => void }) {
           <h2 className="text-sm font-semibold">一鍵匯入持股</h2>
           <button type="button" onClick={onClose} className="text-xs text-muted hover:text-foreground">關閉</button>
         </div>
-        <p className="text-xs text-secondary">每行一檔：<span className="font-mono">代號,名稱,股數,均價,總成本,日期</span>（總成本、日期可省略；可直接從 Excel/Google 試算表複製貼上）。總成本減掉股數×均價會記成手續費，讓成本和券商一致。股數 0 的列自動略過。</p>
-        <input type="file" accept=".csv,.tsv,.txt" aria-label="選擇 CSV 檔" onChange={async event => { const file = event.target.files?.[0]; if (file) setText(await file.text()) }} className="block text-xs" />
+        <p className="text-xs text-secondary">會自動找「代號、名稱、股數、均價、總成本、日期」欄位（券商或試算表的欄名都可以），也能直接從 Excel / Google 試算表複製貼上。總成本減掉股數×均價會記成手續費，讓成本和券商一致；股數 0、現金、小計等列會自動略過。</p>
+        <div className="flex gap-1" role="tablist" aria-label="匯入來源">
+          {IMPORT_SOURCES.map(item => (
+            <button key={item.id} type="button" role="tab" aria-selected={source === item.id} onClick={() => { setSource(item.id); setError('') }}
+              className={`rounded-lg border px-3 py-1.5 text-xs ${source === item.id ? 'border-accent bg-accent/10 text-accent' : 'border-border text-secondary'}`}>{item.label}</button>
+          ))}
+        </div>
+        {source === 'local' && (
+          <input type="file" accept=".csv,.tsv,.txt" aria-label="選擇 CSV 檔" onChange={async event => { const file = event.target.files?.[0]; if (file) { setText(await file.text()); setLoadedFrom(file.name) } }} className="block text-xs" />
+        )}
+        {source !== 'local' && (
+          <div className="space-y-2">
+            {cloudFiles.isLoading && <p className="text-xs text-muted">正在搜尋同步資料夾…</p>}
+            {cloudFiles.isError && (
+              <div role="alert" className="flex items-center gap-2 text-xs text-danger">
+                <span>無法讀取同步資料夾檔案清單：{cloudFiles.error instanceof Error ? cloudFiles.error.message : '請稍後再試'}</span>
+                <button type="button" onClick={() => void cloudFiles.refetch()} className="underline">重試</button>
+              </div>
+            )}
+            {cloudFiles.data && !cloudFiles.data.roots.length && (
+              <p className="text-xs text-muted">這台電腦沒有找到 {source === 'onedrive' ? 'OneDrive' : 'Google Drive 電腦版'} 同步資料夾。</p>
+            )}
+            {cloudFiles.data && cloudFiles.data.roots.length > 0 && !cloudFiles.data.files.length && (
+              <p className="text-xs text-muted">同步資料夾裡沒有檔名含「持股／庫存／投資組合／portfolio」的 CSV。</p>
+            )}
+            {!!cloudFiles.data?.files.length && (
+              <ul className="max-h-36 overflow-auto rounded-lg border border-border text-xs">
+                {cloudFiles.data.files.map(file => (
+                  <li key={file.path}>
+                    <button type="button" disabled={loadingSource} onClick={() => void loadCloud({ path: file.path }, file.name)} className="w-full px-3 py-1.5 text-left hover:bg-elevated disabled:opacity-50">
+                      <span className="font-medium text-foreground">{file.name}</span>
+                      <span className="ml-2 text-muted">{new Date(file.modified * 1000).toLocaleString('zh-TW', { hour12: false })}</span>
+                      <div className="truncate text-[11px] text-muted">{file.folder}</div>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+            {source === 'gdrive' && (
+              <div className="space-y-1">
+                <div className="flex gap-2">
+                  <input value={sheetUrl} onChange={event => setSheetUrl(event.target.value)} placeholder="貼上 Google 試算表網址" aria-label="Google 試算表網址"
+                    className="flex-1 rounded-lg border border-border bg-base px-3 py-1.5 text-xs text-foreground" />
+                  <button type="button" disabled={!sheetUrl.trim() || loadingSource} onClick={() => void loadCloud({ sheet_url: sheetUrl.trim() }, 'Google 試算表')}
+                    className="rounded-lg border border-border px-3 py-1.5 text-xs disabled:opacity-50">讀取</button>
+                </div>
+                <p className="text-[11px] text-muted">私人試算表讀不到：請在試算表選「檔案 → 下載 → 逗號分隔值 (.csv)」，再到「本機檔案」選它。</p>
+              </div>
+            )}
+          </div>
+        )}
+        {loadedFrom && <p className="text-[11px] text-muted">已讀入：{loadedFrom}（下方可再修改）</p>}
         <textarea value={text} onChange={event => setText(event.target.value)} rows={8} placeholder={'2330,台積電,1000,850.5,851712,2026-10-08'} className="w-full rounded-lg border border-border bg-base px-3 py-2 font-mono text-xs text-foreground" />
         {parsed.rows.length > 0 && (
           <div className="max-h-48 overflow-auto rounded-lg border border-border">
@@ -488,9 +645,15 @@ function PortfolioImportDialog({ onClose }: { onClose: () => void }) {
           <input type="checkbox" checked={replace} onChange={event => setReplace(event.target.checked)} />
           匯入前清空現有 {transactions.length} 筆成交紀錄（用匯入的資料取代；不勾則加在後面）
         </label>
+        {cloudPath && (
+          <label className="flex items-center gap-2 text-xs text-secondary">
+            <input type="checkbox" checked={keepSynced} onChange={event => setKeepSynced(event.target.checked)} />
+            以後每次開看板，這個檔案有更新就自動同步（整本取代，在看板手動記的交易會被蓋掉）
+          </label>
+        )}
         {error && <p role="alert" className="text-xs text-danger">{error}</p>}
-        <button type="button" disabled={busy || !parsed.rows.length} onClick={() => void runImport()} className="w-full rounded-lg bg-accent px-3 py-2 text-xs font-semibold text-white disabled:opacity-50">
-          {busy ? '匯入中…' : `匯入 ${parsed.rows.length} 檔持股`}
+        <button type="button" disabled={busy || loadingSource || !parsed.rows.length} onClick={() => void runImport()} className="w-full rounded-lg bg-accent px-3 py-2 text-xs font-semibold text-white disabled:opacity-50">
+          {busy ? '匯入中…' : loadingSource ? '讀取來源中…' : `匯入 ${parsed.rows.length} 檔持股`}
         </button>
       </div>
     </div>

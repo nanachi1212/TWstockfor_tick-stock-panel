@@ -281,7 +281,13 @@ class _NoSweep:
         return None
 
 
-def test_resolution_merges_verified_rows_and_leaves_unsettled_codes_untouched(tmp_path: Path) -> None:
+def test_resolution_merges_verified_rows_and_leaves_unsettled_codes_untouched(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def unexpected_fetch(*args, **kwargs):
+        raise AssertionError("resolution test must not fetch live evidence")
+
+    monkeypatch.setattr("app.taiwan.instrument_evidence.fetch_json", unexpected_fetch)
     day = date(2015, 1, 5)
     classifications = HistoricalClassificationStore(tmp_path / "cls")
     classifications.write(day, [_industry_row(c, day) for c in ("2330", "2881A", "7777")]
@@ -306,9 +312,13 @@ def test_resolution_merges_verified_rows_and_leaves_unsettled_codes_untouched(tm
     first = {c: day for c in ("2330", "2881A", "7777", "0050")}
     last = {c: date(2026, 1, 1) for c in first}
 
-    report = resolve_industry_only_codes(classifications, first, last, evidence, _NoSweep())
+    # 7777 reaches the announcement fallback after the registry and table sweep.
+    fetch = _fetcher({"announcement/announcement": {"stat": "OK", "data": []}})
+    report = resolve_industry_only_codes(
+        classifications, first, last, evidence, _NoSweep(), fetch_payload=fetch)
 
     assert report["resolved"] == 2 and report["unresolved_codes"] == ["7777"]
+    assert report["announcement_requests"] == 1
     frame = classifications.read()
     kinds = dict(zip(frame["code"], frame["instrument_type"], strict=True))
     assert kinds == {"0050": "etf", "2330": "stock", "2881A": "preferred_share", "7777": None}

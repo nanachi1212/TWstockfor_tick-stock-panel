@@ -4,6 +4,7 @@ import { Link, useSearchParams } from 'react-router-dom'
 import { ArrowLeft, Loader2, RefreshCw } from 'lucide-react'
 import { api, type BeginnerCandidate, type BeginnerTechnicalPanel, type BeginnerComparisonResponse } from '@/lib/api'
 import { QK } from '@/lib/queryKeys'
+import { MAX_COMPARE_SYMBOLS } from '@/lib/taiwanCompareSymbols'
 import { useSafeBack } from '@/lib/useSafeBack'
 import { MarketSummaryCard, StateBadge, STRENGTH_DISCLAIMER } from '@/components/beginner/BeginnerPicker'
 
@@ -172,7 +173,7 @@ export function BeginnerComparison() {
   const raw = params.get('symbols') ?? ''
   const symbols = raw ? raw.split(',').map(s => s.trim().toUpperCase()) : []
   const invalid = symbols.some(s => !/^\d{4,6}[A-Z]?\.(TWSE|TPEX)$/.test(s)) || new Set(symbols).size !== symbols.length
-  const valid = symbols.length >= 2 && symbols.length <= 5 && !invalid
+  const valid = symbols.length >= 2 && symbols.length <= MAX_COMPARE_SYMBOLS && !invalid
   const goBack = useSafeBack('/picks')
   const refreshing = useRef(false)
   const query = useQuery({
@@ -195,7 +196,7 @@ export function BeginnerComparison() {
           </div>
         </header>
         {!valid && <div role="alert" className="rounded-card border border-border bg-surface p-4 text-sm text-warning">
-          {invalid ? '股票代號無效或重複，請回今日選股重新勾選。' : symbols.length > 5 ? '最多比較 5 檔股票，請重新勾選。' : '請先勾選 2 至 5 檔股票，再開始比較。'}
+          {invalid ? '股票代號無效或重複，請回今日選股重新勾選。' : symbols.length > MAX_COMPARE_SYMBOLS ? `最多比較 ${MAX_COMPARE_SYMBOLS} 檔股票，請重新勾選。` : `請先勾選 2 至 ${MAX_COMPARE_SYMBOLS} 檔股票，再開始比較。`}
           <Link to="/picks" className="mt-2 block text-accent">回今日選股</Link>
         </div>}
         {valid && query.isLoading && <p role="status" className="flex items-center gap-2 text-sm text-muted"><Loader2 className="h-4 w-4 animate-spin" />整理比較證據中…</p>}

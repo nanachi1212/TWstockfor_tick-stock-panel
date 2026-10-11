@@ -58,7 +58,7 @@ describe('beginner comparator', () => {
   it.each([
     '/picks/compare', '/picks/compare?symbols=2330.TWSE',
     '/picks/compare?symbols=2330.TWSE,2330.TWSE', '/picks/compare?symbols=invalid,1101.TWSE',
-    '/picks/compare?symbols=1000.TWSE,1001.TWSE,1002.TWSE,1003.TWSE,1004.TWSE,1005.TWSE',
+    `/picks/compare?symbols=${Array.from({ length: 11 }, (_, i) => `${1000 + i}.TWSE`).join(',')}`,
   ])('fails closed for invalid selection %s without requesting data', url => {
     renderRoute(url)
     expect(screen.getByRole('alert')).toBeInTheDocument()
@@ -104,7 +104,7 @@ describe('beginner comparator', () => {
     expect(screen.queryByRole('button', { name: /AI/ })).not.toBeInTheDocument()
   })
 
-  it.each([false, true])('supports min2, max5, no double navigation, back and shared query cache (dashboard=%s)', async dashboard => {
+  it.each([false, true])('supports min2, max10, no double navigation, back and shared query cache (dashboard=%s)', async dashboard => {
     renderRoute(dashboard ? '/' : '/picks', dashboard)
     const checkboxes = await screen.findAllByRole('checkbox')
     const button = screen.getByRole('button', { name: '比較這些股票' })
@@ -114,8 +114,7 @@ describe('beginner comparator', () => {
     fireEvent.click(checkboxes[1])
     expect(button).toBeEnabled()
     checkboxes.slice(2, 5).forEach(input => fireEvent.click(input))
-    if (!dashboard) expect(checkboxes[5]).toBeDisabled()
-    expect(screen.getByText(/已選 5.*已達上限/)).toBeInTheDocument()
+    expect(screen.getByText(/已選 5 \/ 10 檔/)).toBeInTheDocument()
     fireEvent.click(button)
     await screen.findByText('這幾檔怎麼選？')
     expect(api.beginnerComparison).toHaveBeenCalledTimes(1)

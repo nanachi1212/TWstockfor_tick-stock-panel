@@ -4206,6 +4206,29 @@ export const api = {
       { quiet: true },
     ),
 
+  portfolioImportFiles: (source: 'onedrive' | 'gdrive') =>
+    request<{ roots: string[]; files: { path: string; name: string; folder: string; modified: number }[] }>(
+      `/api/taiwan/portfolio-import/files?source=${source}`,
+      { quiet: true },
+    ),
+
+  portfolioAutoSyncGet: () =>
+    request<{ path: string | null; name: string | null; modified: number | null }>('/api/taiwan/portfolio-import/auto-sync', { quiet: true }),
+
+  portfolioAutoSyncSet: (path: string | null) =>
+    request<{ path: string | null; name: string | null; modified: number | null }>('/api/taiwan/portfolio-import/auto-sync', {
+      method: 'PUT',
+      body: JSON.stringify({ path }),
+      quiet: true,
+    }),
+
+  portfolioImportRead: (payload: { path?: string; sheet_url?: string }) =>
+    request<{ text: string }>('/api/taiwan/portfolio-import/read', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+      quiet: true,
+    }),
+
   taiwanPortfolioInstrument: (symbol: string, tradeDate: string) =>
     request<{ symbol: string; instrument_type: string; is_supported: boolean; tax_class: string; trading_day_status: 'verified' | 'unverified' }>(
       `/api/taiwan/portfolio-instrument?symbol=${encodeURIComponent(symbol)}&trade_date=${encodeURIComponent(tradeDate)}`,

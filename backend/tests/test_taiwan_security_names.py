@@ -41,3 +41,22 @@ def test_legacy_cache_normalizes_without_rewriting(tmp_path, monkeypatch, name):
     reloaded = TaiwanSecurityMaster(cache_path=saved)
     assert reloaded.load_cache()
     assert reloaded.get_instrument(item.symbol).name == expected
+
+
+def test_active_equity_etf_is_confirmed_for_tax_rules(tmp_path):
+    from app.taiwan.universe.models import MarketProfileBridge, TaiwanInstrument, TaxClass
+
+    row = TaiwanInstrument(
+        symbol="00981A.TWSE", code="00981A", exchange="TWSE", name="主動統一台股增長", instrument_type="etf",
+        listing_status="active", listing_date=None, isin=None, industry=None, cfi_code=None,
+        raw_category="國內成分證券主動式交易所交易基金(股票)", is_supported=True, source="TWSE_OPENAPI",
+        updated_at="2026-09-10", etf_category="domestic_equity", classification_source=None,
+        underlying_scope="domestic",
+    )
+    path = tmp_path / "master.parquet"
+    pl.DataFrame([row.to_dict()]).write_parquet(path)
+    master = TaiwanSecurityMaster()
+    assert master.load_cache(path)
+    inst = master.get_instrument("00981A.TWSE")
+    assert inst is not None
+    assert MarketProfileBridge.get_tax_class(inst) == TaxClass.DOMESTIC_ETF

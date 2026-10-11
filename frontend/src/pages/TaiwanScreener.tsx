@@ -52,6 +52,7 @@ import { SaveStrategyModal } from '@/components/screener/SaveStrategyModal'
 import { formatAmount, formatChangePct, formatPrice, formatShortBalanceLots, formatShortMarginRatio, formatSignedSharesLots, formatVolumeLots } from '@/components/screener/screenerFormat'
 
 import { STRATEGY_COMMON_NOTE, STRATEGY_GUIDE } from '@/lib/strategyGuide'
+import { dayTradeFit } from '@/lib/dayTrade'
 
 const FORWARD_STRATEGY_OPTIONS = [
   { id: 'trend_liquidity_v1', label: '趨勢流動性' },
@@ -653,7 +654,7 @@ export function TaiwanScreener() {
 
   const totalPages = data ? Math.ceil(data.total / data.page_size) : 1
   // 結果表格預設 9 個資料欄 + 操作欄 = 10; 展開「更多欄位」後為完整 22 個資料欄 + 操作欄 = 23。
-  const resultColSpan = showMoreColumns ? 23 : 10
+  const resultColSpan = showMoreColumns ? 24 : 11
 
   const handleSort = (col: string) => {
     if (sortBy === col) {
@@ -1628,6 +1629,7 @@ export function TaiwanScreener() {
                     {sortBy === 'amount' && (sortOrder === 'asc' ? <ArrowUp className="w-3 h-3 text-purple-400" /> : <ArrowDown className="w-3 h-3 text-purple-400" />)}
                   </div>
                 </th>
+                <th className="py-3 px-3 font-semibold text-center" title="成交金額 ≥ 5 億、量比 ≥ 1.5、漲跌 ≥ 2%、股價 ≥ 10、非風險未知；只代表好進好出，不是買賣建議">適合當沖</th>
                 <th className="py-3 px-3 font-semibold cursor-pointer hover:text-zinc-100 text-right" onClick={() => handleSort('foreign_net')}>
                   <div className="flex items-center justify-end gap-1">
                     外資買賣超
@@ -1793,6 +1795,16 @@ export function TaiwanScreener() {
                     {/* Amount */}
                     <td className="py-3 px-3 text-right font-mono text-zinc-400 whitespace-nowrap">
                       {formatAmount(item.amount)}
+                    </td>
+
+                    {/* Day-trade fit */}
+                    <td className="py-3 px-3 text-center whitespace-nowrap">
+                      {(() => {
+                        const dayTrade = dayTradeFit(item)
+                        return dayTrade.fit
+                          ? <span title={dayTrade.reason} className="rounded bg-amber-500/15 px-1.5 py-0.5 text-[11px] font-semibold text-amber-300">適合</span>
+                          : <span title={dayTrade.reason} className="text-zinc-600">—</span>
+                      })()}
                     </td>
 
                     {/* Foreign Net (Lots) */}

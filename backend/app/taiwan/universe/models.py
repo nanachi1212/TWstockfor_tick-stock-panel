@@ -25,6 +25,16 @@ class OfficialEtfRuleProfile:
     evidence_url: str
 
 
+# TWSE 官方「基金類型」中可直接認定為一般股票型 ETF 的類型 (證交稅 0.1%)。
+# 主動式股票 ETF (如 00981A) 與指數型同屬證券投資信託受益憑證。
+OFFICIAL_ORDINARY_ETF_TYPES = frozenset({
+    "國內成分證券指數股票型基金",
+    "國外成分證券指數股票型基金",
+    "國內成分證券主動式交易所交易基金(股票)",
+    "國外成分證券主動式交易所交易基金(股票)",
+})
+
+
 # Explicit audited product rules. This is not ticker/name inference and does not
 # populate the separate Phase 6E ETF structured metadata model.
 OFFICIAL_ETF_RULE_PROFILES = {

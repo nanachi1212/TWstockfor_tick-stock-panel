@@ -19,7 +19,7 @@ import polars as pl
 
 from app.taiwan.universe.adapters import TpexInstrumentAdapter, TwseInstrumentAdapter
 from app.taiwan.universe.industry_classification import resolve_industry_name
-from app.taiwan.universe.models import TaiwanInstrument, UniverseType
+from app.taiwan.universe.models import OFFICIAL_ORDINARY_ETF_TYPES, TaiwanInstrument, UniverseType
 
 logger = logging.getLogger(__name__)
 
@@ -114,7 +114,12 @@ class TaiwanSecurityMaster:
                     source=r.get("source", "cache"),
                     updated_at=r.get("updated_at", ""),
                     etf_category=r.get("etf_category"),
-                    classification_source=r.get("classification_source"),
+                    # 舊快取寫入時尚未認得主動式股票 ETF 官方類型: 讀取時依官方類型補上。
+                    classification_source=r.get("classification_source") or (
+                        "official_metadata"
+                        if r.get("source") == "TWSE_OPENAPI" and r.get("raw_category") in OFFICIAL_ORDINARY_ETF_TYPES
+                        else None
+                    ),
                     underlying_scope=r.get("underlying_scope"),
                     leverage_multiplier=float(r.get("leverage_multiplier") or 1.0),
                     currency=r.get("currency") or "TWD",

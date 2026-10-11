@@ -153,7 +153,7 @@ class HealthJobManager:
         affected = sorted(
             DAILY
             if dataset in DAILY and action != "validate"
-            else SOCIAL | {"dcard"}
+            else SOCIAL
             if dataset in SOCIAL and action != "validate"
             else {dataset}
         )
@@ -231,7 +231,7 @@ class HealthJobManager:
                 row.last_attempt = latest.started_at or latest.queued_at
                 if latest.status in {"queued", "running"}:
                     row.status = "updating"
-                elif latest.status == "failed" and row.id not in {"dcard", "ai_provider"}:
+                elif latest.status == "failed" and row.id != "ai_provider":
                     row.status, row.reason = "error", latest.reason or "更新失敗"
                 elif latest.status == "partial" and row.id == latest.dataset:
                     row.reason = f"{row.reason}。{latest.reason}"

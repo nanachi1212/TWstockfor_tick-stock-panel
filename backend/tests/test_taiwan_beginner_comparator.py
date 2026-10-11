@@ -147,7 +147,7 @@ def test_supported_differences_are_plain_and_at_most_three(service):
 @pytest.mark.parametrize("symbols", [
     "", "2330.TWSE", "2330.TWSE,2330.TWSE", "2330.TWSE,bad.TWSE",
     "2330.TWSE,2317.twse", "2330.TWSE,../2317.TWSE", "2330.TWSE,2317.TW",
-    "2330.TWSE,2317.TWSE,1101.TWSE,2881.TWSE,2882.TWSE,3008.TWSE",
+    ",".join(f"{1101 + i}.TWSE" for i in range(11)),  # over MAX_COMPARE_SYMBOLS (10)
 ])
 def test_api_rejects_invalid_comparison_symbols_before_collecting(symbols, service):
     _instance, _pool, calls, builds, _key = service

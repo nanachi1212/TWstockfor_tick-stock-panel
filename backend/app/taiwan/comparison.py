@@ -39,7 +39,7 @@ from app.taiwan.universe import get_security_master
 logger = logging.getLogger(__name__)
 
 MIN_COMPARE_SYMBOLS = 2
-MAX_COMPARE_SYMBOLS = 5
+MAX_COMPARE_SYMBOLS = 10
 
 
 # ── Request-Scoped Memoizing Proxy (private to this module) ──────

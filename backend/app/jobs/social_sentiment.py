@@ -1,4 +1,4 @@
-"""Run the daily PTT/Dcard social sentiment aggregation."""
+"""Run the daily PTT social sentiment aggregation."""
 from __future__ import annotations
 
 import argparse
@@ -8,7 +8,7 @@ from app.taiwan.social_sentiment import SocialSentimentAlreadyRunningError, Soci
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="抓取 PTT Stock/Dcard 並產生台股社群聲量排行榜")
+    parser = argparse.ArgumentParser(description="抓取 PTT Stock 並產生台股社群聲量排行榜")
     parser.add_argument("--hours", type=int, default=24, help="回溯小時數，預設 24")
     parser.add_argument("--pages", type=int, default=3, help="每個來源的輕量頁面上限")
     parser.add_argument("--no-ai", action="store_true", help="只抓取與聚合，不呼叫 AI")

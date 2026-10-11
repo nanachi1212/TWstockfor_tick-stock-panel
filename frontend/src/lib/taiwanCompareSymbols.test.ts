@@ -25,16 +25,16 @@ describe('canonicalizeSymbols', () => {
   })
 
   it('caps at MAX_COMPARE_SYMBOLS distinct symbols', () => {
-    const many = Array.from({ length: 8 }, (_, i) => `S${i}.TWSE`)
+    const many = Array.from({ length: MAX_COMPARE_SYMBOLS + 3 }, (_, i) => `S${i}.TWSE`)
     const result = canonicalizeSymbols(many)
     expect(result.length).toBe(MAX_COMPARE_SYMBOLS)
     expect(result).toEqual(many.slice(0, MAX_COMPARE_SYMBOLS))
   })
 
   it('dedupes before capping so duplicates never waste a slot', () => {
-    const withDupes = ['A.TWSE', 'A.TWSE', 'B.TWSE', 'C.TWSE', 'D.TWSE', 'E.TWSE', 'F.TWSE']
-    const result = canonicalizeSymbols(withDupes)
-    expect(result).toEqual(['A.TWSE', 'B.TWSE', 'C.TWSE', 'D.TWSE', 'E.TWSE'])
+    const unique = Array.from({ length: MAX_COMPARE_SYMBOLS + 1 }, (_, i) => `S${i}.TWSE`)
+    const result = canonicalizeSymbols([unique[0], ...unique])
+    expect(result).toEqual(unique.slice(0, MAX_COMPARE_SYMBOLS))
   })
 
   it('handles null/undefined entries safely', () => {
@@ -57,9 +57,9 @@ describe('mergeSymbolIntoCompare', () => {
     ])
   })
 
-  it('does not add a 6th symbol when already at the cap', () => {
-    const atCap = ['A.TWSE', 'B.TWSE', 'C.TWSE', 'D.TWSE', 'E.TWSE']
-    expect(mergeSymbolIntoCompare(atCap, 'F.TWSE')).toEqual(atCap)
+  it('does not add another symbol when already at the cap', () => {
+    const atCap = Array.from({ length: MAX_COMPARE_SYMBOLS }, (_, i) => `S${i}.TWSE`)
+    expect(mergeSymbolIntoCompare(atCap, 'X.TWSE')).toEqual(atCap)
   })
 })
 

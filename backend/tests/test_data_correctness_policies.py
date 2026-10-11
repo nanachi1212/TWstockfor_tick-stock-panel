@@ -442,20 +442,20 @@ def test_utc_timestamps_are_normalized():
     assert dhc.timestamp("2026-09-30T16:30:00+08:00") == datetime(2026, 9, 30, 8, 30, tzinfo=UTC).isoformat()
 
 
-def test_dcard_httpx_403_and_legacy_zero_analyzed_ai(monkeypatch):
+def test_httpx_403_and_legacy_zero_analyzed_ai(monkeypatch):
     from app.taiwan import social_sentiment
 
     monkeypatch.setattr(social_sentiment, "load_social_sentiment", lambda: {
         "as_of": date.today().isoformat(),
-        "sources": {"dcard": {"status": "unavailable", "errors": [
+        "sources": {"ptt": {"status": "unavailable", "errors": [
             "forum stock: HTTPStatusError: Client error '403 Forbidden' for url 'https://x/?t=1'"]}},
         # Snapshot written before safe HTTP codes were kept: all batches failed.
         "ai": {"status": "degraded", "batches": 16, "analyzed_symbols": 0,
                "errors": ["batch 1: RuntimeError"]},
     })
     rows = DataHealthService()._social()
-    assert rows["dcard"]["status"] == "provider_error" and "HTTP 403" in rows["dcard"]["reason"]
-    assert "https" not in rows["dcard"]["reason"]
+    assert rows["ptt"]["status"] == "provider_error" and "HTTP 403" in rows["ptt"]["reason"]
+    assert "https" not in rows["ptt"]["reason"]
     assert rows["social_ai"]["status"] == "unavailable" and "0 檔" in rows["social_ai"]["reason"]
 
 

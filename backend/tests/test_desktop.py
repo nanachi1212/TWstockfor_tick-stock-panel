@@ -138,7 +138,11 @@ def test_pywebview_window_uses_formal_title_and_url(monkeypatch):
     assert calls[0][0][:2] == ("Nanachi 台股看板", "http://127.0.0.1:3018/")
     assert calls[0][1]["width"] == 1440
     assert calls[0][1]["height"] == 900
-    assert calls[1] == (("start",), {"debug": False})
+    start_args, start_kwargs = calls[1]
+    assert start_args == ("start",)
+    assert start_kwargs["debug"] is False
+    assert start_kwargs["private_mode"] is False  # 關窗後保留持股、字級、主題
+    assert start_kwargs["storage_path"].endswith(("user_data\\webview", "user_data/webview"))
 
 
 def test_log_sanitizer_hides_credentials():

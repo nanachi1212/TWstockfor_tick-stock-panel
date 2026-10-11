@@ -668,7 +668,7 @@ def _sanitize_personal_context(value: dict[str, Any] | None) -> dict[str, dict[s
         social: dict[str, Any] = finite_numbers(
             social_source,
             {
-                "total_mentions", "ptt_mentions", "dcard_mentions", "unique_posts", "engagement",
+                "total_mentions", "ptt_mentions", "unique_posts", "engagement",
                 "heat_score", "volume_change_24h", "sentiment_score", "confidence",
             },
         )

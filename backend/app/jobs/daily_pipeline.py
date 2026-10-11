@@ -104,6 +104,13 @@ def run_taiwan_update(evening: bool = False, *, trigger: str = "scheduled") -> N
         )
         if not evening:
             logger.info("Scheduled Taiwan research refresh: %s", _refresh_after_close_research())
+            # 新上市/下市股票: 商品清單每天跟著盤後更新一次 (失敗不影響其他流程)。
+            try:
+                from app.taiwan.universe import refresh_security_master
+
+                logger.info("Taiwan security master: %s", refresh_security_master())
+            except Exception:
+                logger.exception("Taiwan security master refresh failed; cached list kept")
         # Evening catch-up exists for margin (published in the evening); only a
         # newly fetched daily date gives Quant anything new to freeze.
         if evening and result.daily.dates_fetched == 0:
