@@ -240,9 +240,10 @@ export interface PortfolioImportRow {
   date: string
 }
 
-/** CSV/TSV 解析: 支援引號內逗號與換行 (券商/試算表備註常見)。分隔符依第一行判斷。 */
+/** CSV/TSV 解析: 支援引號內逗號與換行 (券商/試算表備註常見)。 */
 function parseDelimited(text: string): string[][] {
-  const delimiter = (text.split('\n', 1)[0] ?? '').includes('\t') ? '\t' : ','
+  const firstContentLine = text.split(/\r?\n/).find(line => line.trim()) ?? ''
+  const delimiter = firstContentLine.includes('\t') ? '\t' : ','
   const rows: string[][] = []
   let row: string[] = []
   let cell = ''

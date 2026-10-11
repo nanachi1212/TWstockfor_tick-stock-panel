@@ -186,6 +186,12 @@ describe('parsePortfolioImport', () => {
     expect(rows).toEqual([{ code: '00919', name: '群益台灣精選高息', shares: 25000, price: 23.76, fee: 846, date: '2026-09-30' }])
   })
 
+  it('detects TSV after leading blank lines', () => {
+    const { rows, errors } = parsePortfolioImport('\n\t\n代號\t名稱\t股數\t均價\n2330\t台積電\t10\t900', '2026-10-09')
+    expect(errors).toEqual([])
+    expect(rows).toEqual([{ code: '2330', name: '台積電', shares: 10, price: 900, fee: 0, date: '2026-10-09' }])
+  })
+
   it('accepts lettered ETF symbols in the ledger', () => {
     expect(isTaiwanPortfolioSymbol('00981A.TWSE')).toBe(true)
     expect(isTaiwanPortfolioSymbol('2330')).toBe(false)

@@ -523,6 +523,8 @@ function PortfolioImportDialog({ onClose }: { onClose: () => void }) {
   const [cloudPath, setCloudPath] = useState('')
   const [keepSynced, setKeepSynced] = useState(true)
   const autoSyncPath = keepSynced && cloudPath ? cloudPath : ''
+  const [loadingSource, setLoadingSource] = useState(false)
+  const loadRequest = useRef(0)
   const cloudFiles = useQuery({
     queryKey: ['portfolioImportFiles', source],
     queryFn: () => api.portfolioImportFiles(source as 'onedrive' | 'gdrive'),
@@ -530,13 +532,20 @@ function PortfolioImportDialog({ onClose }: { onClose: () => void }) {
     staleTime: 60_000,
   })
   const loadCloud = async (payload: { path?: string; sheet_url?: string }, label: string) => {
+    const requestId = ++loadRequest.current
     setError('')
+    setLoadingSource(true)
     try {
-      setText((await api.portfolioImportRead(payload)).text)
-      setLoadedFrom(label)
-      setCloudPath(payload.path ?? '')
+      const result = await api.portfolioImportRead(payload)
+      if (requestId === loadRequest.current) {
+        setText(result.text)
+        setLoadedFrom(label)
+        setCloudPath(payload.path ?? '')
+      }
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : '讀取失敗')
+      if (requestId === loadRequest.current) setError(cause instanceof Error ? cause.message : '讀取失敗')
+    } finally {
+      if (requestId === loadRequest.current) setLoadingSource(false)
     }
   }
   const [replace, setReplace] = useState(false)
@@ -583,6 +592,12 @@ function PortfolioImportDialog({ onClose }: { onClose: () => void }) {
         {source !== 'local' && (
           <div className="space-y-2">
             {cloudFiles.isLoading && <p className="text-xs text-muted">正在搜尋同步資料夾…</p>}
+            {cloudFiles.isError && (
+              <div role="alert" className="flex items-center gap-2 text-xs text-danger">
+                <span>無法讀取同步資料夾檔案清單：{cloudFiles.error instanceof Error ? cloudFiles.error.message : '請稍後再試'}</span>
+                <button type="button" onClick={() => void cloudFiles.refetch()} className="underline">重試</button>
+              </div>
+            )}
             {cloudFiles.data && !cloudFiles.data.roots.length && (
               <p className="text-xs text-muted">這台電腦沒有找到 {source === 'onedrive' ? 'OneDrive' : 'Google Drive 電腦版'} 同步資料夾。</p>
             )}
@@ -593,7 +608,7 @@ function PortfolioImportDialog({ onClose }: { onClose: () => void }) {
               <ul className="max-h-36 overflow-auto rounded-lg border border-border text-xs">
                 {cloudFiles.data.files.map(file => (
                   <li key={file.path}>
-                    <button type="button" onClick={() => void loadCloud({ path: file.path }, file.name)} className="w-full px-3 py-1.5 text-left hover:bg-elevated">
+                    <button type="button" disabled={loadingSource} onClick={() => void loadCloud({ path: file.path }, file.name)} className="w-full px-3 py-1.5 text-left hover:bg-elevated disabled:opacity-50">
                       <span className="font-medium text-foreground">{file.name}</span>
                       <span className="ml-2 text-muted">{new Date(file.modified * 1000).toLocaleString('zh-TW', { hour12: false })}</span>
                       <div className="truncate text-[11px] text-muted">{file.folder}</div>
@@ -607,7 +622,7 @@ function PortfolioImportDialog({ onClose }: { onClose: () => void }) {
                 <div className="flex gap-2">
                   <input value={sheetUrl} onChange={event => setSheetUrl(event.target.value)} placeholder="貼上 Google 試算表網址" aria-label="Google 試算表網址"
                     className="flex-1 rounded-lg border border-border bg-base px-3 py-1.5 text-xs text-foreground" />
-                  <button type="button" disabled={!sheetUrl.trim()} onClick={() => void loadCloud({ sheet_url: sheetUrl.trim() }, 'Google 試算表')}
+                  <button type="button" disabled={!sheetUrl.trim() || loadingSource} onClick={() => void loadCloud({ sheet_url: sheetUrl.trim() }, 'Google 試算表')}
                     className="rounded-lg border border-border px-3 py-1.5 text-xs disabled:opacity-50">讀取</button>
                 </div>
                 <p className="text-[11px] text-muted">私人試算表讀不到：請在試算表選「檔案 → 下載 → 逗號分隔值 (.csv)」，再到「本機檔案」選它。</p>
@@ -637,8 +652,8 @@ function PortfolioImportDialog({ onClose }: { onClose: () => void }) {
           </label>
         )}
         {error && <p role="alert" className="text-xs text-danger">{error}</p>}
-        <button type="button" disabled={busy || !parsed.rows.length} onClick={() => void runImport()} className="w-full rounded-lg bg-accent px-3 py-2 text-xs font-semibold text-white disabled:opacity-50">
-          {busy ? '匯入中…' : `匯入 ${parsed.rows.length} 檔持股`}
+        <button type="button" disabled={busy || loadingSource || !parsed.rows.length} onClick={() => void runImport()} className="w-full rounded-lg bg-accent px-3 py-2 text-xs font-semibold text-white disabled:opacity-50">
+          {busy ? '匯入中…' : loadingSource ? '讀取來源中…' : `匯入 ${parsed.rows.length} 檔持股`}
         </button>
       </div>
     </div>

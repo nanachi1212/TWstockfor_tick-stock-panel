@@ -2,6 +2,8 @@
 
 只回傳檔案文字，解析與寫入仍由前端既有 Portfolio 流程處理 (持股存在瀏覽器)。
 """
+# The Traditional Chinese UI messages intentionally use full-width punctuation.
+# ruff: noqa: RUF001, RUF002
 from __future__ import annotations
 
 import os
@@ -47,6 +49,10 @@ def list_files(source: str) -> list[dict]:
                 path = Path(dirpath) / name
                 if path.suffix.lower() in ALLOWED_SUFFIXES and NAME_HINT.search(name):
                     found.append(path)
+                    if len(found) >= MAX_FILES:
+                        break
+            if len(found) >= MAX_FILES:
+                break
     found.sort(key=lambda p: p.stat().st_mtime, reverse=True)
     return [
         {"path": str(p), "name": p.name, "folder": str(p.parent), "modified": p.stat().st_mtime}
@@ -85,13 +91,20 @@ def fetch_google_sheet(url: str) -> str:
     if gid:
         export += f"&gid={gid.group(1)}"
     try:
-        resp = httpx.get(export, timeout=20, follow_redirects=True)
+        with httpx.stream("GET", export, timeout=20, follow_redirects=True) as resp:
+            if resp.status_code in (401, 403) or "accounts.google.com" in str(resp.url):
+                raise PermissionError(
+                    "這份試算表是私人的，無法直接讀取。請在試算表選「檔案 → 下載 → 逗號分隔值 (.csv)」，再用「本機檔案」匯入。"
+                )
+            if resp.status_code != 200:
+                raise ValueError(f"Google 試算表回應 {resp.status_code}，請確認網址")
+            chunks: list[bytes] = []
+            size = 0
+            for chunk in resp.iter_bytes():
+                size += len(chunk)
+                if size > MAX_BYTES:
+                    raise ValueError("Google 試算表太大")
+                chunks.append(chunk)
     except httpx.HTTPError as exc:
         raise ValueError("無法連線到 Google 試算表，請稍後再試") from exc
-    if resp.status_code in (401, 403) or "accounts.google.com" in str(resp.url):
-        raise PermissionError(
-            "這份試算表是私人的，無法直接讀取。請在試算表選「檔案 → 下載 → 逗號分隔值 (.csv)」，再用「本機檔案」匯入。"
-        )
-    if resp.status_code != 200:
-        raise ValueError(f"Google 試算表回應 {resp.status_code}，請確認網址")
-    return resp.content.decode("utf-8-sig")
+    return b"".join(chunks).decode("utf-8-sig")
