@@ -250,7 +250,6 @@ class BeginnerFacts(BaseModel):
     daily: list[dict[str, Any]] = Field(default_factory=list)
     social_status: Literal["available", "partial", "unavailable"] = "unavailable"
     social_mentions: int | None = None
-    dcard_status: str | None = None
     technical_metrics: dict[str, Any] = Field(default_factory=dict)
 
 
@@ -468,10 +467,8 @@ def build_dimensions(
     if facts.social_status == "unavailable" or mentions is None:
         add("social_attention", "unavailable", "來源目前不可用。", "social_sentiment.snapshot")
     else:
-        text = (f"PTT 與 Dcard 近期提及 {mentions} 次" if facts.dcard_status == "available"
-                else f"PTT 近期提及 {mentions} 次；Dcard 來源目前不可用")
-        add("social_attention", "neutral", f"{text}。僅供參考，不影響排序。",
-            "social_sentiment.snapshot", mentions=mentions, dcard_status=facts.dcard_status)
+        add("social_attention", "neutral", f"PTT 近期提及 {mentions} 次。僅供參考，不影響排序。",
+            "social_sentiment.snapshot", mentions=mentions)
     return dims
 
 
@@ -976,8 +973,6 @@ class BeginnerSelectionService:
         social = self._social(as_of_date)
         if social["status"] == "unavailable":
             gaps.append("市場討論來源目前不可用")
-        elif social["dcard_status"] != "available":
-            gaps.append("Dcard 來源目前不可用")
 
         facts: list[BeginnerFacts] = []
         for item in items:
@@ -1031,7 +1026,6 @@ class BeginnerSelectionService:
                 daily=daily.get(item.symbol, []),
                 social_status=social["status"],
                 social_mentions=(social["mentions"].get(item.symbol, 0) if social["status"] != "unavailable" else None),
-                dcard_status=social["dcard_status"],
                 technical_metrics=technical_metrics,
             ))
         amounts = {item.symbol: float(item.amount) for item in items if item.amount is not None}
@@ -1284,7 +1278,7 @@ class BeginnerSelectionService:
 
     @staticmethod
     def _social(as_of: date) -> dict[str, Any]:
-        unavailable: dict[str, Any] = {"status": "unavailable", "dcard_status": None, "mentions": {}}
+        unavailable: dict[str, Any] = {"status": "unavailable", "mentions": {}}
         try:
             from app.taiwan.social_sentiment import load_social_sentiment
 
@@ -1303,8 +1297,7 @@ class BeginnerSelectionService:
             str(row.get("symbol")): int(row.get("total_mentions") or 0)
             for row in payload.get("rankings", []) if isinstance(row, dict) and row.get("symbol")
         }
-        dcard = (payload.get("sources") or {}).get("dcard") or {}
-        return {"status": payload["status"], "dcard_status": dcard.get("status", "unavailable"), "mentions": mentions}
+        return {"status": payload["status"], "mentions": mentions}
 
 
 # ── Frozen AI evidence ───────────────────────────────────────────

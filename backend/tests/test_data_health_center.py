@@ -78,9 +78,7 @@ def test_aggregation_isolates_provider_failure_and_keeps_missing_null():
     rows = {row.id: row for row in snapshot.datasets}
     assert rows["margin"].data_date == "2026-09-29"
     assert rows["financial"].status == "error"
-    assert rows["dcard"].data_date is None
-    assert rows["dcard"].last_success is None
-    assert rows["dcard"].actions == []
+    assert "dcard" not in rows
     # Benchmarks now have an official updater (the same daily run).
     assert rows["taiex"].actions == ["validate", "retry"]
     assert "sk-private" not in snapshot.model_dump_json()
@@ -113,7 +111,7 @@ def test_group_metadata_reloads_each_snapshot(monkeypatch):
             "_finmind",
             ["financial", "monthly_revenue", "foreign_shareholding", "securities_lending"],
         ),
-        ("_social", ["ptt", "dcard", "social_ai"]),
+        ("_social", ["ptt", "social_ai"]),
         ("_selection", ["selection_snapshot", "selection_outcome"]),
     ):
         monkeypatch.setattr(DataHealthService, name, lambda self, keys=keys: {k: {} for k in keys})
@@ -203,20 +201,22 @@ def test_social_403_is_reason_only_and_ai_degraded(monkeypatch):
             "as_of": date.today().isoformat(),
             "started_at": "2026-09-30T09:00:00+08:00",
             "sources": {
-                "ptt": {"status": "available"},
-                "dcard": {
+                "ptt": {
                     "status": "unavailable",
                     "errors": ["HTTP 403 at https://secret.example?token=sk-abc"],
                 },
+                # Legacy snapshots still carry the retired Dcard source; it is ignored.
+                "dcard": {"status": "unavailable"},
             },
             "ai": {"status": "degraded"},
         },
     )
     rows = DataHealthService()._social()
-    assert rows["dcard"]["status"] == "provider_error"
-    assert "HTTP 403" in rows["dcard"]["reason"]
-    assert rows["dcard"]["last_success"] is None
-    assert rows["dcard"]["data_date"] is None
+    assert set(rows) == {"ptt", "social_ai"}
+    assert rows["ptt"]["status"] == "provider_error"
+    assert "HTTP 403" in rows["ptt"]["reason"]
+    assert rows["ptt"]["last_success"] is None
+    assert rows["ptt"]["data_date"] is None
     assert rows["social_ai"]["status"] == "partial"
     assert "sk-abc" not in json.dumps(rows)
 
@@ -298,7 +298,7 @@ def test_action_whitelist_and_api(monkeypatch):
     app.include_router(data_health.router)
     client = TestClient(app)
     assert client.get("/api/taiwan/data-health").json()["total_count"] == len(DATASETS)
-    for dataset in ("dcard", "financial", "quant_live"):
+    for dataset in ("financial", "quant_live"):
         assert (
             client.post(
                 f"/api/taiwan/data-health/{dataset}/actions", json={"action": "retry"}

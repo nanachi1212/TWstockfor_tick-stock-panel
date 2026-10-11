@@ -4212,6 +4212,16 @@ export const api = {
       { quiet: true },
     ),
 
+  portfolioAutoSyncGet: () =>
+    request<{ path: string | null; name: string | null; modified: number | null }>('/api/taiwan/portfolio-import/auto-sync', { quiet: true }),
+
+  portfolioAutoSyncSet: (path: string | null) =>
+    request<{ path: string | null; name: string | null; modified: number | null }>('/api/taiwan/portfolio-import/auto-sync', {
+      method: 'PUT',
+      body: JSON.stringify({ path }),
+      quiet: true,
+    }),
+
   portfolioImportRead: (payload: { path?: string; sheet_url?: string }) =>
     request<{ text: string }>('/api/taiwan/portfolio-import/read', {
       method: 'POST',

@@ -156,7 +156,7 @@ def get_taiwan_social_sentiment_job(
     offset: int = Query(default=0, ge=0),
     limit: int = Query(default=50, ge=1, le=100),
 ):
-    if source not in {None, "ptt", "dcard"}:
+    if source not in {None, "ptt"}:
         raise HTTPException(status_code=400, detail=f"無效的社群來源: {source}")
     job = get_social_sentiment_job_manager().get_job(
         job_id,
@@ -245,6 +245,40 @@ def read_portfolio_import(payload: PortfolioImportReadIn):
     except (PermissionError, ValueError) as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     raise HTTPException(status_code=400, detail="請選擇檔案或貼上試算表網址")
+
+
+class PortfolioAutoSyncIn(BaseModel):
+    path: str | None = None
+
+
+@router.get("/portfolio-import/auto-sync")
+def get_portfolio_auto_sync():
+    """開看板時自動同步的持股檔 (OneDrive / Google Drive 同步資料夾內)。"""
+    from pathlib import Path
+
+    from app.services import preferences
+
+    path = preferences.load().get("portfolio_auto_sync_path")
+    target = Path(path) if path else None
+    exists = bool(target and target.is_file())
+    return {
+        "path": path,
+        "name": target.name if target else None,
+        "modified": target.stat().st_mtime if exists else None,
+    }
+
+
+@router.put("/portfolio-import/auto-sync")
+def set_portfolio_auto_sync(payload: PortfolioAutoSyncIn):
+    from app.services import portfolio_import, preferences
+
+    if payload.path:
+        try:
+            portfolio_import.read_file(payload.path)  # same guard as manual import
+        except (PermissionError, ValueError) as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+    preferences.save({"portfolio_auto_sync_path": payload.path or None})
+    return get_portfolio_auto_sync()
 
 
 @router.get("/portfolio-instrument")

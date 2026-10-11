@@ -53,7 +53,7 @@ def _facts(**overrides) -> BeginnerFacts:
         "flow_ratio_5d": 0.02, "revenue_yoy": 15.0, "revenue_status": "available",
         "latest_eps": 5.0, "pe": 20.0, "risk_status": "clear", "attention_recent": False,
         "recent_corporate_action": False,
-        "social_status": "available", "social_mentions": 12, "dcard_status": "available",
+        "social_status": "available", "social_mentions": 12,
     }
     base.update(overrides)
     base.setdefault("daily", _rows(close) if close is not None else [])
@@ -271,12 +271,12 @@ def test_reasons_and_risks_trace_to_structured_evidence():
     assert len(candidate.reasons) <= 3 and len(candidate.risks) <= 3
 
 
-def test_dcard_unavailable_is_shown_not_zero_and_social_never_ranks():
+def test_social_mentions_are_shown_and_social_never_ranks():
     partial, score = evaluate_candidate(
-        _facts(social_status="partial", dcard_status="unavailable", social_mentions=3), FAVORABLE
+        _facts(social_status="partial", social_mentions=3), FAVORABLE
     )
     social = _dims(partial)["social_attention"]
-    assert "Dcard 來源目前不可用" in social.explanation
+    assert social.explanation.startswith("PTT 近期提及 3 次")
     _, base_score = evaluate_candidate(_facts(), FAVORABLE)
     assert score == base_score
 
@@ -362,7 +362,7 @@ def test_collect_keeps_complete_institutional_totals_without_flow_ratio(monkeypa
     monkeypatch.setattr(service, "_daily_rows", lambda _symbols, _as_of: {})
     monkeypatch.setattr(service, "_technical_metrics", lambda _symbols, _as_of: {})
     monkeypatch.setattr(service, "_social", lambda _as_of: {
-        "status": "available", "dcard_status": "available", "mentions": {},
+        "status": "available", "mentions": {},
     })
     monkeypatch.setattr(service, "_risk_for", lambda *_args: ("clear", None, False))
     _market, facts, _amounts, _gaps, _count = service._collect([item.symbol])
@@ -660,7 +660,7 @@ def test_no_chase_risk_survives_recent_corporate_action():
 
 def test_partial_social_names_the_source_it_counted():
     candidate, _ = evaluate_candidate(
-        _facts(social_status="partial", dcard_status="unavailable", social_mentions=0), FAVORABLE
+        _facts(social_status="partial", social_mentions=0), FAVORABLE
     )
     text = _dims(candidate)["social_attention"].explanation
-    assert text.startswith("PTT 近期提及 0 次") and "Dcard 來源目前不可用" in text
+    assert text.startswith("PTT 近期提及 0 次") and "Dcard" not in text

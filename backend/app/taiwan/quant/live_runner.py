@@ -51,6 +51,24 @@ class LiveInputs:
     session_evidence: tuple[TradingDayEvidence, ...]
 
 
+def _official_calendar(today: date) -> TaiwanTradingCalendar:
+    """Seed closures from TWSE's official annual holiday schedule.
+
+    Without it an official holiday on a weekday (e.g. 2026-10-09 National Day
+    make-up holiday) stays "unresolved" and blocks every later live run. A failed
+    schedule fetch keeps the old fail-closed behaviour.
+    """
+    from app.taiwan.trading_day_evidence import fetch_twse_closures
+
+    holidays: set[date] = set()
+    for year in sorted({today.year, (today - timedelta(days=200)).year}):
+        try:
+            holidays |= fetch_twse_closures(year)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("TWSE holiday schedule %s unavailable: %s", year, type(exc).__name__)
+    return TaiwanTradingCalendar(known_holidays=holidays)
+
+
 class CurrentLiveSource:
     """Reuse official adapters without running/writing the historical worker.
 
@@ -63,8 +81,8 @@ class CurrentLiveSource:
                  calendar: TaiwanTradingCalendar | None = None,
                  clock: Callable[[], datetime] = taipei_now) -> None:
         self.daily = daily or TaiwanDailyStore()
-        self.calendar = calendar or TaiwanTradingCalendar()
         self.clock = clock
+        self.calendar = calendar or _official_calendar(clock().date())
         self.census = ObservedUniverseCensus()
         self.observations: dict[tuple[date, str], list[dict[str, Any]]] = {}
         self.action_cache: dict[tuple[date, date], tuple] = {}

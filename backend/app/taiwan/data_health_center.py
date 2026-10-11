@@ -40,7 +40,6 @@ DATASETS = {
     "selection_snapshot": "Selection snapshot",
     "selection_outcome": "Selection outcome",
     "ptt": "PTT",
-    "dcard": "Dcard",
     "social_ai": "Social AI",
     "ai_provider": "AI Provider/Profile",
     "fugle": "Fugle Intraday",
@@ -382,8 +381,6 @@ class DataHealthService:
                 )
             if key in {"daily", "institutional", "margin", "taiex", "tpex_index", "ptt", "social_ai"}:
                 row.actions = ["validate", "update" if row.status == "current" else "retry"]
-            if key == "dcard":
-                row.actions = []
             rows.append(row)
         return HealthReport(
             generated_at=taipei_now().isoformat(),
@@ -425,7 +422,7 @@ class DataHealthService:
             },
             **{
                 key: bind_group("social", self._social, key)
-                for key in ("ptt", "dcard", "social_ai")
+                for key in ("ptt", "social_ai")
             },
             **{
                 key: bind_group("selection", self._selection, key)
@@ -596,7 +593,7 @@ class DataHealthService:
         payload = load_social_sentiment() or {}
         day = data_date(payload.get("as_of"))
         result = {}
-        for key in ("ptt", "dcard", "social_ai"):
+        for key in ("ptt", "social_ai"):
             meta = (
                 payload.get("ai", {})
                 if key == "social_ai"
@@ -633,7 +630,6 @@ class DataHealthService:
                 "status": status,
                 "source": {
                     "ptt": "PTT Stock",
-                    "dcard": "Dcard",
                     "social_ai": "Social Sentiment AI",
                 }[key],
                 "data_date": day if status in {"current", "stale", "partial"} else None,

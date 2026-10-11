@@ -35,6 +35,28 @@ def reset_security_master() -> bool:
     return _default_master.load_cache()
 
 
+def refresh_security_master(max_age_hours: float = 20.0) -> str:
+    """Refetch the official TWSE/TPEx instrument directories when the cache is old.
+
+    Fail-closed: a fetch that returns far fewer instruments than the current
+    cache (partial upstream outage) is not saved.
+    """
+    import time
+
+    current = get_security_master()
+    path = current.cache_path
+    if path.exists() and time.time() - path.stat().st_mtime < max_age_hours * 3600:
+        return "fresh"
+    fresh = TaiwanSecurityMaster()
+    count = fresh.load_from_adapters()
+    previous = len(current._instruments) if current.load_cache() else 0  # noqa: SLF001
+    if count == 0 or count < previous * 0.9:
+        return f"skipped: fetched {count} < cached {previous}"
+    fresh.save_cache()
+    reset_security_master()
+    return f"refreshed {count}"
+
+
 __all__ = [
     "MarketProfileBridge",
     "TaiwanInstrument",
@@ -43,5 +65,6 @@ __all__ = [
     "TwseInstrumentAdapter",
     "UniverseType",
     "get_security_master",
+    "refresh_security_master",
     "reset_security_master",
 ]

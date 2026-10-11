@@ -410,8 +410,14 @@ def _open_window(url: str) -> None:
         # 桌面版固定单窗口, 禁用外部浏览器跳转
         confirm_close=False,
     )
+    # pywebview 预设 private_mode=True: 关窗即清空 localStorage (持股纪录、字级、主题全丢)。
+    # 改用固定的本机储存位置, 让浏览器端资料跨重启保留。
+    from app.config import settings
+
+    storage = Path(settings.data_dir) / "user_data" / "webview"
+    storage.mkdir(parents=True, exist_ok=True)
     # pywebview 会阻塞主线程直到窗口关闭
-    webview.start(debug=False)
+    webview.start(debug=False, private_mode=False, storage_path=str(storage))
 
 
 def main() -> int:

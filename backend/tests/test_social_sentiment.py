@@ -3,14 +3,13 @@ from __future__ import annotations
 import csv
 import json
 import time
-from datetime import UTC, date, datetime, timedelta
+from datetime import UTC, date, datetime
 
 import polars as pl
 import pytest
 
 from app.taiwan.providers.taiwan_values import TAIPEI
 from app.taiwan.social_sentiment import (
-    DcardCollector,
     PTTStockCollector,
     SocialPost,
     SocialSentimentAlreadyRunningError,
@@ -21,8 +20,6 @@ from app.taiwan.social_sentiment import (
     list_social_sentiment_history,
     load_social_sentiment,
     load_social_sentiment_snapshot,
-    parse_dcard_html,
-    parse_dcard_posts,
     parse_ptt_index,
     parse_ptt_post,
 )
@@ -144,24 +141,6 @@ class _FakePttClient:
         return _FakeResponse(self.responses[url])
 
 
-class _FakeDcardErrorResponse(_FakeResponse):
-    def raise_for_status(self):
-        raise RuntimeError("blocked")
-
-
-class _FakeDcardClient:
-    def __enter__(self):
-        return self
-
-    def __exit__(self, *args):
-        return None
-
-    def get(self, url: str, **kwargs):
-        if "/service/api/v2/forums/" in url:
-            return _FakeDcardErrorResponse("")
-        return _FakeResponse('<a href="/f/stock/p/123"><span>台積電 2330</span></a>')
-
-
 def _ptt_index_entry(post_id: str, *, previous: str = "") -> str:
     previous_link = f'<a class="btn wide" href="{previous}">‹ 上頁</a>' if previous else ""
     return f"""
@@ -202,16 +181,9 @@ def test_ptt_collector_filters_by_article_time_in_taipei_and_pages(monkeypatch):
     assert fetched.posts[0].published_at.tzinfo == TAIPEI
 
 
-def test_dcard_undated_html_fallback_remains_unavailable(monkeypatch):
-    monkeypatch.setattr(
-        "app.taiwan.social_sentiment.httpx.Client",
-        lambda **kwargs: _FakeDcardClient(),
-    )
-    collector = DcardCollector(request_delay=0)
-    result = collector.fetch(since=datetime(2026, 9, 28, 6, tzinfo=TAIPEI), max_pages=1)
-    assert result.posts == []
-    assert result.fetch_succeeded is False
-    assert result.status == "unavailable"
+def test_default_collectors_are_ptt_only():
+    collectors = SocialSentimentService()._collectors()
+    assert [type(c) for c in collectors] == [PTTStockCollector]
 
 
 def test_source_success_with_no_posts_is_available_empty(tmp_path):
@@ -238,44 +210,6 @@ def test_report_date_and_history_use_asia_taipei(tmp_path):
     assert payload["as_of"] == "2026-09-28"
     assert payload["generated_at"].endswith("+08:00")
     assert (tmp_path / "history" / "2026-09-28.json").exists()
-
-
-def test_dcard_parser_normalizes_and_filters_old_posts():
-    now = datetime(2026, 9, 28, 8, tzinfo=UTC)
-    items = [
-        {"id": 1, "title": "華邦電", "excerpt": "2344 噴", "createdAt": now.isoformat(), "likeCount": 2, "commentCount": 3},
-        {"id": 2, "title": "舊文", "excerpt": "2344", "createdAt": (now - timedelta(days=3)).isoformat()},
-    ]
-    posts = parse_dcard_posts(items, forum="stock", since=now - timedelta(hours=24))
-    assert len(posts) == 1
-    assert posts[0].url.endswith("/stock/p/1")
-    assert posts[0].engagement == 5
-
-
-def test_dcard_parser_rejects_missing_timestamp_in_bounded_window():
-    posts = parse_dcard_posts(
-        [{"id": 3, "title": "缺時間", "excerpt": "2344"}],
-        forum="stock",
-        since=datetime(2026, 9, 28, 8, tzinfo=TAIPEI),
-    )
-    assert posts == []
-
-
-def test_dcard_html_fallback_parser():
-    markup = '<a href="/f/stock/p/123" class="post"><span>台積電 2330 噴</span></a>'
-    posts = parse_dcard_html(markup, forum="stock")
-    assert posts[0].post_id == "123"
-    assert posts[0].title == "台積電 2330 噴"
-
-
-def test_dcard_html_fallback_does_not_bypass_time_window():
-    markup = '<a href="/f/stock/p/123" class="post"><span>台積電 2330 噴</span></a>'
-    posts = parse_dcard_html(
-        markup,
-        forum="stock",
-        since=datetime(2026, 9, 28, 8, tzinfo=TAIPEI),
-    )
-    assert posts == []
 
 
 class FakeCollector:
@@ -308,12 +242,12 @@ def _post(source: str, post_id: str, text: str, engagement: int = 2) -> SocialPo
 def test_source_failure_does_not_stop_other_source(tmp_path):
     service = SocialSentimentService(
         security_master=FakeSecurityMaster(),
-        collectors=(FakeCollector("ptt", error="blocked"), FakeCollector("dcard", [_post("dcard", "1", "2344 華邦電")])) ,
+        collectors=(FakeCollector("ptt", error="blocked"), FakeCollector("other", [_post("other", "1", "2344 華邦電")])) ,
         output_dir=tmp_path,
     )
     payload = service.run(run_ai=False, now=datetime(2026, 9, 28, tzinfo=UTC))
     assert payload["sources"]["ptt"]["status"] == "unavailable"
-    assert payload["sources"]["dcard"]["status"] == "available"
+    assert payload["sources"]["other"]["status"] == "available"
     assert payload["status"] == "partial"
     assert payload["identified_symbols"] == 1
 
@@ -322,7 +256,7 @@ def test_aggregation_and_heat_score(tmp_path):
     posts = [_post("ptt", "1", "2330 台積電 噴"), _post("ptt", "2", "2330 台積電 崩")]
     service = SocialSentimentService(
         security_master=FakeSecurityMaster(),
-        collectors=(FakeCollector("ptt", posts), FakeCollector("dcard", [_post("dcard", "3", "2330")])) ,
+        collectors=(FakeCollector("ptt", posts), FakeCollector("other", [_post("other", "3", "2330")])) ,
         output_dir=tmp_path,
     )
     payload = service.run(run_ai=False, now=datetime(2026, 9, 28, tzinfo=UTC))
@@ -330,7 +264,7 @@ def test_aggregation_and_heat_score(tmp_path):
     assert row["total_mentions"] == 5
     assert row["unique_posts"] == 3
     assert row["ptt_mentions"] == 4
-    assert row["dcard_mentions"] == 1
+    assert "dcard_mentions" not in row
     assert row["social_heat_score"] > 0
 
 
@@ -606,7 +540,7 @@ def test_manual_background_job_completes_partial_without_blocking_start(tmp_path
         security_master=FakeSecurityMaster(),
         collectors=(
             FakeCollector("ptt", [_post("ptt", "1", "2330")], succeeded=True),
-            FakeCollector("dcard", error="HTTP 403"),
+            FakeCollector("other", error="HTTP 403"),
         ),
         output_dir=tmp_path,
     )
@@ -624,7 +558,7 @@ def test_manual_background_job_completes_partial_without_blocking_start(tmp_path
     assert job is not None
     assert job["status"] == "partial"
     assert job["ptt_status"] == "available"
-    assert job["dcard_status"] == "unavailable"
+    assert "dcard_status" not in job
     assert job["ai_status"] == "unavailable"
     assert job["symbols_identified"] == 1
     assert job["snapshot_id"].endswith("-manual.json")
@@ -696,7 +630,6 @@ def test_volume_change_requires_comparable_source_coverage(tmp_path):
         security_master=FakeSecurityMaster(),
         collectors=(
             FakeCollector("ptt", [_post("ptt", "1", "2330 " * 8)], succeeded=True),
-            FakeCollector("dcard", [_post("dcard", "2", "2344")], succeeded=True),
         ),
         output_dir=tmp_path,
     )
@@ -785,7 +718,7 @@ def test_output_json_is_valid_and_csv_contains_contract_fields(tmp_path, monkeyp
     monkeypatch.setattr("app.services.ai_provider.ai_configured", lambda: False)
     service = SocialSentimentService(
         security_master=FakeSecurityMaster(),
-        collectors=(FakeCollector("dcard", [_post("dcard", "1", "2344")]),),
+        collectors=(FakeCollector("ptt", [_post("ptt", "1", "2344")]),),
         output_dir=tmp_path,
     )
     service.run(now=datetime(2026, 9, 28, tzinfo=UTC))
@@ -801,13 +734,13 @@ def test_output_json_is_valid_and_csv_contains_contract_fields(tmp_path, monkeyp
         row = next(csv.DictReader(handle))
     assert row["snapshot_slot"] == "pre_open"
     assert row["window_hours"] == "24"
-    assert json.loads(row["source_statuses"]) == {"dcard": "available"}
+    assert json.loads(row["source_statuses"]) == {"ptt": "available"}
 
 
 def test_both_sources_unavailable_keeps_overall_unavailable(tmp_path):
     service = SocialSentimentService(
         security_master=FakeSecurityMaster(),
-        collectors=(FakeCollector("ptt", error="blocked"), FakeCollector("dcard", error="HTTP 403")),
+        collectors=(FakeCollector("ptt", error="blocked"), FakeCollector("other", error="HTTP 403")),
         output_dir=tmp_path,
     )
     payload = service.run(run_ai=False, now=datetime(2026, 9, 28, tzinfo=TAIPEI))
@@ -854,7 +787,7 @@ def test_load_legacy_snapshot_adds_product_ui_status_fields(tmp_path):
                     "dcard": {"status": "unavailable"},
                 },
                 "rankings": [
-                    {"symbol": "2330.TWSE", "sentiment_score": 0.6},
+                    {"symbol": "2330.TWSE", "sentiment_score": 0.6, "ptt_mentions": 3, "dcard_mentions": 0},
                     {"symbol": "2344.TWSE", "sentiment_score": None},
                 ],
             }
@@ -868,3 +801,20 @@ def test_load_legacy_snapshot_adds_product_ui_status_fields(tmp_path):
     assert payload["status"] == "partial"
     assert payload["rankings"][0]["sentiment_status"] == "available"
     assert payload["rankings"][1]["sentiment_status"] == "unavailable"
+
+
+def test_save_drops_legacy_dcard_column_from_existing_history_csv(tmp_path):
+    (tmp_path / "social_sentiment_history.csv").write_text(
+        "as_of,symbol,rank,ptt_mentions,dcard_mentions\n2026-09-27,2330.TWSE,1,3,2\n",
+        encoding="utf-8",
+    )
+    service = SocialSentimentService(
+        security_master=FakeSecurityMaster(),
+        collectors=(FakeCollector("ptt", [_post("ptt", "1", "2344")]),),
+        output_dir=tmp_path,
+    )
+    service.run(run_ai=False, now=datetime(2026, 9, 28, tzinfo=TAIPEI))
+    with (tmp_path / "social_sentiment_history.csv").open(encoding="utf-8", newline="") as handle:
+        rows = list(csv.DictReader(handle))
+    assert "dcard_mentions" not in rows[0]
+    assert {row["symbol"] for row in rows} == {"2330.TWSE", "2344.TWSE"}

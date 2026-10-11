@@ -100,12 +100,11 @@ def test_manual_job_query_supports_bounded_discussion_filters(monkeypatch):
         "started_at": "2026-09-30T09:38:12+08:00",
         "finished_at": "2026-09-30T09:42:00+08:00",
         "ptt_status": "available",
-        "dcard_status": "unavailable",
         "ai_status": "degraded",
         "posts": 41,
         "comments": 6875,
         "symbols_identified": 226,
-        "error_summary": "Dcard unavailable",
+        "error_summary": "ptt: partial",
         "rankings": [],
         "discussions": {"items": [], "total": 0, "offset": 50, "limit": 50, "has_more": False},
     }
@@ -120,6 +119,7 @@ def test_manual_job_query_supports_bounded_discussion_filters(monkeypatch):
     assert response.status_code == 200
     assert response.json() == job
     assert manager.filters == ("manual-1", "ptt", "2330.TWSE", "台積電", 50, 50)
+    assert client.get("/api/taiwan/social-sentiment/jobs/manual-1", params={"source": "dcard"}).status_code == 400
 
 
 def test_manual_job_query_does_not_expose_unknown_job(monkeypatch):
