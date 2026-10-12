@@ -211,6 +211,20 @@ describe('formatStockDetailCopy & Prompt', () => {
     expect(text).toContain('| 2026-10-12 | 1240.00 | 1265.00 | 1210.00 | 1225.00 | 7,258 |')
   })
 
+  it('flags sections older than the stock date and labels the quant score as a frozen snapshot', () => {
+    const text = formatStockDetailCopy({
+      symbol: '2301.TWSE', name: '光寶科', data_as_of: '2026-10-12', quote: null, valuation: null, fundamentals: null, institutional_flows: null,
+      market_context: { benchmark_symbol: 'TAIEX', close: 49313.44, change_pct: -0.99,
+        meta: { source: 'twse:MI_5MINS_HIST', status: 'available', data_date: '2026-10-08', freshness: 'stale' } },
+      margin_lending: { margin_balance: 1000, margin_meta: { source: 'twse:mi_margn', status: 'stale', data_date: '2026-10-08', freshness: 'stale' } },
+      quant: { score: 0.61, rank: 12, meta: { source: 'live_quant:frozen_ranking', status: 'available', data_date: '2026-10-08', freshness: 'current_audited_snapshot' } },
+    })
+    expect(text).toContain('⚠ 市場基準資料日 2026-10-08 早於個股資料日 2026-10-12（已過期）')
+    expect(text).toContain('⚠ 融資融券資料日 2026-10-08 早於個股資料日 2026-10-12（已過期）')
+    expect(text).toContain('不是即時重新運算的結果')
+    expect(text).not.toContain('Live Quant 資料目前無法讀取')
+  })
+
   it('labels a quant service error as a system state, not a stock risk', () => {
     const text = formatStockDetailCopy({
       symbol: '2368.TWSE', name: '金像電', quote: null, valuation: null, fundamentals: null, institutional_flows: null,

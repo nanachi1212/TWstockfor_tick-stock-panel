@@ -482,7 +482,7 @@ def _volume(inputs: dict[str, Any], as_of: str | None) -> VolumeEvidence:
     )
 
 
-def _institutional(inputs: dict[str, Any]) -> InstitutionalEvidence:
+def _institutional(inputs: dict[str, Any], daily_as_of: str | None = None) -> InstitutionalEvidence:
     values = [_finite(inputs.get(name)) for name in (
         "foreign_net_5d", "investment_trust_net_5d", "dealer_net_5d",
     )]
@@ -507,11 +507,20 @@ def _institutional(inputs: dict[str, Any]) -> InstitutionalEvidence:
         direction = "買超" if total > 0 else "賣超"
         lead = f"，其中以{leader_name}{'買超' if leader > 0 else '賣超'}為主" if leader else ""
         text = f"近 5 個交易日法人整體偏{direction[0]}{lead}。"
+    text, freshness = _dated(text, as_of, daily_as_of)
     return InstitutionalEvidence(
         status="available", state=state, total_net_5d=total,
         foreign_net_5d=foreign, investment_trust_net_5d=trust, dealer_net_5d=dealer,
-        complete_sessions=5, explanation=text, as_of=as_of, freshness="latest_official",
+        complete_sessions=5, explanation=text, as_of=as_of, freshness=freshness,
     )
+
+
+def _dated(text: str, as_of: Any, daily_as_of: str | None) -> tuple[str, str]:
+    """Chips publish later than prices (margin in the evening); never let an older
+    date read as today's state."""
+    if as_of and daily_as_of and str(as_of)[:10] < str(daily_as_of)[:10]:
+        return f"（{str(as_of)[:10]} 資料，尚未更新到 {str(daily_as_of)[:10]}，不是今日狀況）{text}", "stale"
+    return text, "latest_official"
 
 
 def _balance_state(balance: float | None, change: float | None) -> ChipState:
@@ -526,7 +535,7 @@ def _balance_state(balance: float | None, change: float | None) -> ChipState:
     return "increase_fast" if pct >= 2.0 else "decrease" if pct <= -2.0 else "stable"
 
 
-def _margin(inputs: dict[str, Any]) -> MarginEvidence:
+def _margin(inputs: dict[str, Any], daily_as_of: str | None = None) -> MarginEvidence:
     balance = _finite(inputs.get("margin_balance"))
     change = _finite(inputs.get("margin_change"))
     short = _finite(inputs.get("short_balance"))
@@ -545,11 +554,12 @@ def _margin(inputs: dict[str, Any]) -> MarginEvidence:
     text = f"融資{labels[margin_state]}，融券{labels[short_state]}。"
     if margin_state == "increase_fast":
         text += "近期融資增加較快，短線籌碼可能較擁擠。"
+    text, freshness = _dated(text, as_of, daily_as_of)
     return MarginEvidence(
         status="available", margin_state=margin_state, short_state=short_state,
         margin_balance=balance, margin_change=change, short_balance=short,
         short_change=short_change, explanation=text, as_of=as_of,
-        freshness="latest_official",
+        freshness=freshness,
     )
 
 
@@ -694,9 +704,11 @@ def _risks(
     if volume.pattern == "price_down_volume_up":
         add(75, "price_down_volume_up", volume.explanation, volume.source)
     if institutional.state == "sell":
-        add(70, "institutional_sell", "近 5 個交易日法人整體偏賣。", institutional.source)
+        dated = f"（{institutional.as_of} 資料）" if institutional.freshness == "stale" else ""
+        add(70, "institutional_sell", f"{dated}近 5 個交易日法人整體偏賣。", institutional.source)
     if margin.margin_state == "increase_fast":
-        add(65, "margin_crowded", "融資增加較快，短線籌碼可能較擁擠。", margin.source)
+        dated = f"（{margin.as_of} 資料）" if margin.freshness == "stale" else ""
+        add(65, "margin_crowded", f"{dated}融資增加較快，短線籌碼可能較擁擠。", margin.source)
     if volatility.level == "high":
         add(60, "high_volatility", volatility.explanation, volatility.source)
     if relative.state == "weaker":
@@ -750,8 +762,8 @@ def build_beginner_technical_panel(
     averages = _moving_averages(metrics, as_of)
     inner_outer = InnerOuterEvidence()
     volume = _volume(metrics, as_of)
-    institutional = _institutional(metrics)
-    margin = _margin(metrics)
+    institutional = _institutional(metrics, as_of)
+    margin = _margin(metrics, as_of)
     relative = _relative(metrics, as_of)
     position = _range_position(metrics, as_of)
     volatility = _volatility(metrics, current, as_of)

@@ -199,8 +199,15 @@ export interface StockDetailCopyData {
 
 export function formatStockDetailCopy(d: StockDetailCopyData): string {
   const lines: string[] = []
+  const stockDay = (d.data_as_of ?? '').slice(0, 10)
   const availability = (label: string, meta: CopyAvailabilityMeta | null | undefined) => {
     lines.push(`- ${label} metadata：source=${sanitize(meta?.source)} | status=${sanitize(meta?.status)} | reason=${sanitize(meta?.reason)} | data_date=${sanitize(meta?.data_date)} | freshness=${sanitize(meta?.freshness)}`)
+    // 過期或比個股舊的區段要明講，避免外部 AI 拿舊資料做同日比較或寫成「今日」。
+    const day = (meta?.data_date ?? '').slice(0, 10)
+    const older = Boolean(day && stockDay && day < stockDay)
+    if (meta?.freshness === 'stale' || meta?.status === 'stale' || older) {
+      lines.push(`  - ⚠ ${label}資料日 ${day || '不明'}${older ? ` 早於個股資料日 ${stockDay}` : ''}（已過期）：不可描述為今日狀況，也不可與個股作同日比較或相對強弱結論。`)
+    }
   }
   lines.push(`# 個股資料：${sanitize(d.name)}（${sanitize(d.symbol)}）`)
   lines.push(`- 市場：${sanitize(d.exchange ?? 'TWSE/TPEX')} | 類別：${sanitize(d.instrument_type ?? '股票')} | 產業：${sanitize(d.sector)}`)
@@ -239,6 +246,7 @@ export function formatStockDetailCopy(d: StockDetailCopyData): string {
       }
     }
     availability('量化評分', d.quant.meta)
+    lines.push(`- 量化說明：這是已稽核的凍結排名快照（排名日 ${sanitize(d.quant.meta?.data_date)}），不是即時重新運算的結果；只能參考排序，不能單靠它判斷哪一檔較適合買。`)
   } else {
     const rawReason = sanitize(d.quant?.unavailable_reason)
     const systemError = /^live_source_or_storage_error:?(.*)$/.exec(rawReason)

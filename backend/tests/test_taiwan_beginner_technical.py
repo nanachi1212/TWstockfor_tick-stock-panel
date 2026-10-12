@@ -398,3 +398,14 @@ def test_live_quote_is_only_fetched_when_the_caller_asks(monkeypatch):
     assert calls == []
     BeginnerSelectionService._with_external(candidate, fx=fx, live_check=True)
     assert calls == ["2330.TWSE"]
+
+
+def test_chips_older_than_the_daily_date_are_dated_and_marked_stale():
+    # AS_OF 2026-10-02 vs margin 2026-10-01: margin publishes later than prices.
+    margin = _panel().margin
+    assert margin.freshness == "stale"
+    assert margin.explanation.startswith("（2026-10-01 資料，尚未更新到 2026-10-02，不是今日狀況）")
+    assert any(r.text.startswith("（2026-10-01 資料）融資增加較快") for r in _panel().key_risks if r.code == "margin_crowded") \
+        or all(r.code != "margin_crowded" for r in _panel().key_risks)
+    same_day = _panel(metrics=_metrics(margin_as_of=AS_OF)).margin
+    assert same_day.freshness == "latest_official" and "資料，尚未更新" not in same_day.explanation
