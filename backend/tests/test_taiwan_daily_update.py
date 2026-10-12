@@ -473,3 +473,32 @@ def test_closure_2026_07_10_not_fabricated():
     assert start_d == date(2026, 7, 13)
     assert end_d == date(2026, 7, 13)
 
+
+
+def test_next_market_session_skips_weekday_holidays_from_census_evidence():
+    from types import SimpleNamespace
+
+    from app.taiwan.daily_update import next_market_session
+
+    closed = {date(2026, 10, 9)}  # census: both exchanges closed (National Day observed)
+
+    class Census:
+        def day_evidence(self, exchange, day, calendar=None):
+            if day in closed or day.weekday() >= 5:
+                return SimpleNamespace(status="non_trading")
+            return SimpleNamespace(status="trading")
+
+    assert next_market_session(date(2026, 10, 8), evidence_store=Census()) == date(2026, 10, 12)
+
+
+def test_analysis_target_uses_today_only_once_its_snapshot_is_stored(monkeypatch):
+    import app.taiwan.daily_update as daily_update
+
+    def resolve(as_of_dt=None, post_close_hour=16, post_close_minute=0, **_):
+        # 14:00 on Mon 2026-10-12: early cutoff reached, 16:00 cutoff not yet.
+        return date(2026, 10, 12) if (post_close_hour, post_close_minute) <= (13, 30) else date(2026, 10, 8)
+
+    monkeypatch.setattr(daily_update, "resolve_target_latest_trading_date", resolve)
+    assert daily_update.resolve_analysis_target_date(date(2026, 10, 12)) == date(2026, 10, 12)
+    assert daily_update.resolve_analysis_target_date(date(2026, 10, 8)) == date(2026, 10, 8)
+    assert daily_update.resolve_analysis_target_date(None) == date(2026, 10, 8)

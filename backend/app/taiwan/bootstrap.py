@@ -24,7 +24,7 @@ from pydantic import BaseModel, Field
 
 from app.taiwan.daily_refresh import TaiwanDailyRefreshService
 from app.taiwan.daily_store import TaiwanDailyStore
-from app.taiwan.daily_update import resolve_target_latest_trading_date
+from app.taiwan.daily_update import resolve_early_update_target_date, resolve_target_latest_trading_date
 from app.taiwan.data_root import taiwan_data_root
 
 logger = logging.getLogger(__name__)
@@ -625,7 +625,7 @@ class TaiwanBootstrapService:
         # (13:30), instead of waiting for the 16:00 scheduled cutoff. If the exchanges have
         # not published it yet, today stays pending, not failed, and nothing is written
         # (an incomplete official snapshot is never stored).
-        early = resolve_target_latest_trading_date(post_close_hour=13, post_close_minute=30)
+        early = resolve_early_update_target_date()
         end = max(target, early)
 
         if latest >= end:
@@ -644,7 +644,7 @@ class TaiwanBootstrapService:
         if end > target:
             early_str = str(end)
             unpublished = [f for f in res.get("failed_dates", [])
-                           if f.get("date") == early_str and "empty" in str(f.get("error", ""))]
+                           if f.get("date") == early_str and f.get("status") == "unpublished"]
             if unpublished:
                 res["failed_dates"] = [f for f in res["failed_dates"] if f not in unpublished]
                 pending = [early_str]

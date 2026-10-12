@@ -134,6 +134,42 @@ def resolve_target_latest_trading_date(
     return cur
 
 
+# The regular session closes at 13:30; a manual update may try today's snapshot from then.
+EARLY_UPDATE_HOUR = 13
+EARLY_UPDATE_MINUTE = 30
+
+
+def resolve_early_update_target_date(as_of_dt: datetime | None = None) -> date:
+    """Latest session a manual update may try: today from 13:30, not only after 16:00."""
+    return resolve_target_latest_trading_date(
+        as_of_dt=as_of_dt, post_close_hour=EARLY_UPDATE_HOUR, post_close_minute=EARLY_UPDATE_MINUTE,
+    )
+
+
+def resolve_analysis_target_date(stored_latest: date | None, as_of_dt: datetime | None = None) -> date:
+    """Session that analysis should use: the 16:00 target, or today's session once its
+    official snapshot is already stored (fetched by a manual update after 13:30)."""
+    target = resolve_target_latest_trading_date(as_of_dt=as_of_dt)
+    early = resolve_early_update_target_date(as_of_dt=as_of_dt)
+    return early if stored_latest is not None and stored_latest >= early > target else target
+
+
+def next_market_session(
+    day: date,
+    calendar: TaiwanTradingCalendar | None = None,
+    evidence_store: ObservedUniverseStore | None = None,
+) -> date | None:
+    """First potential session after ``day``, using census evidence for weekday holidays."""
+    cal = calendar or TaiwanTradingCalendar()
+    evidence = evidence_store or ObservedUniverseStore()
+    cur = day + timedelta(days=1)
+    for _ in range(30):
+        if is_potential_market_session(cur, cal, evidence):
+            return cur
+        cur += timedelta(days=1)
+    return None
+
+
 def resolve_missing_date_range(
     earliest_available: date | None,
     target_latest: date,

@@ -56,8 +56,10 @@ const BUILTIN_DATE_FORMATS = new Set([14, 15, 16, 17, 18, 19, 20, 21, 22, 27, 28
 
 /** styles.xml 的 cellXfs 依序對應儲存格 s="N"；回傳哪些 style 是日期格式。 */
 function dateStyleIndexes(styles: string): Set<number> {
-  const custom = new Map([...styles.matchAll(/<numFmt\b[^>]*numFmtId="(\d+)"[^>]*formatCode="([^"]*)"/g)]
-    .map(m => [Number(m[1]), decodeXml(m[2])] as const))
+  // XML 屬性沒有固定順序：逐個 <numFmt> 元素各自取 numFmtId / formatCode。
+  const attr = (element: string, name: string) => new RegExp(`\\b${name}\\s*=\\s*"([^"]*)"`).exec(element)?.[1]
+  const custom = new Map([...styles.matchAll(/<numFmt\b[^>]*>/g)]
+    .map(m => [Number(attr(m[0], 'numFmtId')), decodeXml(attr(m[0], 'formatCode') ?? '')] as const))
   // 去掉引號字串、[顏色/條件] 與跳脫字元後，含 d 或 y 才算日期 (純時間格式不算)。
   const isDate = (id: number) => BUILTIN_DATE_FORMATS.has(id)
     || /[dy]/i.test((custom.get(id) ?? '').replace(/"[^"]*"|\[[^\]]*\]|\\./g, ''))

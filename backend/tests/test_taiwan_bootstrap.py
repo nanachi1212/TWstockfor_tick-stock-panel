@@ -317,10 +317,8 @@ def _store_until_1008(tmp_path: Path) -> tuple[Path, TaiwanDailyStore]:
 
 def _fake_targets(monkeypatch):
     """13:30 <= now < 16:00 on Mon 2026-10-12 (Fri 10/09 is a holiday)."""
-    def resolve(post_close_hour: int = 16, post_close_minute: int = 0, **_):
-        return date(2026, 10, 12) if (post_close_hour, post_close_minute) <= (13, 30) else date(2026, 10, 8)
-
-    monkeypatch.setattr("app.taiwan.bootstrap.resolve_target_latest_trading_date", resolve)
+    monkeypatch.setattr("app.taiwan.bootstrap.resolve_target_latest_trading_date", lambda **_: date(2026, 10, 8))
+    monkeypatch.setattr("app.taiwan.bootstrap.resolve_early_update_target_date", lambda **_: date(2026, 10, 12))
 
 
 def test_manual_update_tries_today_after_the_close_and_reports_unpublished_as_pending(tmp_path, monkeypatch):
@@ -328,7 +326,10 @@ def test_manual_update_tries_today_after_the_close_and_reports_unpublished_as_pe
     _, store = _store_until_1008(tmp_path)
     refresh = MagicMock()
     refresh.refresh_dates.return_value = {
-        "dates_fetched": 0, "failed_dates": [{"date": "2026-10-12", "error": "empty_official_daily_snapshot"}],
+        "dates_fetched": 0, "failed_dates": [{
+            "date": "2026-10-12", "status": "unpublished",
+            "error": "official_daily_snapshot_incomplete:2026-10-12:TWSE:OfficialSnapshotUnpublished:non-OK status",
+        }],
     }
     svc = TaiwanBootstrapService(store=store, refresh_service=refresh,
                                  selection_readiness_refresher=lambda target: {"target_date": target.isoformat()})
@@ -364,7 +365,8 @@ def test_manual_update_keeps_real_failures_for_today(tmp_path, monkeypatch):
     _, store = _store_until_1008(tmp_path)
     refresh = MagicMock()
     refresh.refresh_dates.return_value = {
-        "dates_fetched": 0, "failed_dates": [{"date": "2026-10-12", "error": "ConnectError: timeout"}],
+        # Classified by the structured status, not by words in the message.
+        "dates_fetched": 0, "failed_dates": [{"date": "2026-10-12", "error": "ConnectError: empty reply from server"}],
     }
     svc = TaiwanBootstrapService(store=store, refresh_service=refresh, selection_readiness_refresher=lambda t: {})
     res = svc.update_to_latest()

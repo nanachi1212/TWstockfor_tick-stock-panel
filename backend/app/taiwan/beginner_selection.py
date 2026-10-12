@@ -1073,9 +1073,11 @@ class BeginnerSelectionService:
     @staticmethod
     def _eligible_date() -> str | None:
         try:
-            from app.taiwan.daily_update import resolve_target_latest_trading_date
+            from app.taiwan.daily_store import TaiwanDailyStore
+            from app.taiwan.daily_update import resolve_analysis_target_date
 
-            return resolve_target_latest_trading_date().isoformat()
+            # Same target the manual update stores: today's session once it is stored after 13:30.
+            return resolve_analysis_target_date(TaiwanDailyStore().latest_date()).isoformat()
         except Exception as exc:
             logger.debug("beginner eligible date unavailable: %s", type(exc).__name__)
             return None
@@ -1409,18 +1411,14 @@ def _live_check_blocker(daily_as_of: str | None, quote: Any, daily_close: float 
     reference price equals that daily close; an ex-rights/ex-dividend reference price
     (or a skipped session) would otherwise show a false break.
     """
-    from app.taiwan.realtime.calendar import TaiwanTradingCalendar
+    from app.taiwan.daily_update import next_market_session
 
     if not daily_as_of or quote.trade_date is None:
         return "日線資料日不明，無法比對最新報價。"
     daily_day = date.fromisoformat(str(daily_as_of)[:10])
     if quote.trade_date <= daily_day:
         return f"今天已收盤，日線已更新到 {daily_as_of}。" if quote.trade_date == daily_day else "最新報價比日線舊。"
-    try:
-        next_session = TaiwanTradingCalendar().next_potential_session(daily_day)
-    except ValueError:
-        next_session = None
-    if next_session != quote.trade_date:
+    if next_market_session(daily_day) != quote.trade_date:  # census evidence covers weekday holidays
         return f"日線資料（{daily_as_of}）落後超過一個交易日，均線需等日線更新後再比對。"
     reference = _finite(quote.prev_close)
     if reference is None or daily_close is None:
