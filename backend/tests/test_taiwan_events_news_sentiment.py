@@ -937,3 +937,16 @@ def test_tpex_cmode_rows_are_current_status_not_new_announcements():
         assert event.details["list_date"] == "2026-10-12"
         assert event.details["announced_on"] is None and event.details["effective_from"] is None
         assert "不代表今日新增" in event.summary and "名單日 2026-10-12" in event.summary
+
+
+def test_tpex_cmode_malformed_date_keeps_list_date_unavailable():
+    from app.taiwan.events_service import TaiwanEventService
+
+    rows = [{"Date": "", "SecuritiesCompanyCode": "6173", "CompanyName": "信昌電", "AlteredTrading": "", "SuspensionOfTrading": "是"}]
+    svc = TaiwanEventService.__new__(TaiwanEventService)
+    svc.sources_status = {}
+    svc._resolve_symbol = lambda code, ex: (f"{code}.TPEX", code, code, "TPEX", True)
+    with patch("app.taiwan.events_service.fetch_json", return_value=rows):
+        [event] = svc.fetch_tpex_cmode_events()
+    assert event.details["list_date"] is None
+    assert "名單日 來源未提供" in event.summary

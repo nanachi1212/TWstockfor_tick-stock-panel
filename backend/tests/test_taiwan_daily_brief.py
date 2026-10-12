@@ -317,9 +317,48 @@ def test_ai_summary_prompt_pins_units_quant_scale_and_status_list_events():
 
     source = inspect.getsource(daily_brief_service.TaiwanDailyBriefService.generate_ai_summary)
     assert "絕對不得寫成元、億元" in source and "score_scale" in source and "current_status_list" in source
-    assert "百分位排名" in daily_brief_service.LIVE_SCORE_SCALE and "98.6 = 約前 1.4%" in daily_brief_service.SCREENER_SCORE_SCALE
+    assert "百分位排名" in daily_brief_service.LIVE_SCORE_SCALE and "不是全市場" in daily_brief_service.SCREENER_SCORE_SCALE and "合格排名池" in daily_brief_service.LIVE_SCORE_SCALE
 
 
 def test_legacy_institutional_totals_keep_unknown_freshness():
     market = MarketFactBrief.model_validate({"trade_date": "2026-08-03", "foreign_net": 1000.0})
     assert market.institutional_stale is None
+
+
+def test_benchmark_lookup_never_returns_a_close_after_the_brief_date(tmp_path: Path):
+    import polars as pl
+
+    from app.taiwan.benchmark_store import _SCHEMA, TaiwanBenchmarkStore
+
+    store = TaiwanBenchmarkStore(tmp_path / "benchmark_index.parquet")
+    store.write(pl.DataFrame({
+        **{name: [None] * 3 for name in _SCHEMA},
+        "symbol": ["TAIEX"] * 3,
+        "date": [date(2026, 8, 3), date(2026, 8, 4), date(2026, 8, 5)],
+        "close": [100.0, 101.0, 105.0],
+    }, schema=_SCHEMA))
+    row = store.latest("TAIEX", on_or_before=date(2026, 8, 4))
+    assert row["date"] == date(2026, 8, 4) and row["close"] == 101.0 and row["previous_close"] == 100.0
+    assert store.latest("TAIEX")["close"] == 105.0
+
+
+def test_quant_metadata_comes_from_the_frozen_run(mock_daily_brief_service: TaiwanDailyBriefService):
+    snapshot = {
+        "model": {"model_id": "tw-eod-momentum", "version": "v0"},
+        "ranking_universe": [f"{i:04d}.TWSE" for i in range(1234)],
+        "signals": [{"symbol": "6213.TWSE", "name": "聯茂", "score": 0.986}],
+    }
+
+    class _Ledger:
+        def list_runs(self, limit=30):
+            return [{"model_key": "old-key", "session": "2026-08-03"}, {"model_key": "new-key", "session": "2026-08-02"}]
+
+        def read_run(self, key, session, **kwargs):
+            assert key == "old-key"
+            return {"snapshot": snapshot}
+
+    with patch("app.taiwan.daily_brief_service.LiveLedger", _Ledger):
+        brief = mock_daily_brief_service.build_deterministic_brief(target_date=date(2026, 8, 3))
+    [item] = brief.candidates.new_top10
+    assert (item.symbol, item.score_model, item.ranked_universe, item.score_session) == (
+        "6213.TWSE", "tw-eod-momentum v0", 1234, "2026-08-03")

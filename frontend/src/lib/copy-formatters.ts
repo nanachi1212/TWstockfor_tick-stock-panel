@@ -504,6 +504,10 @@ export interface DailyBriefCopyData {
     summary?: string | null
     /** current_status_list = 目前名單上的持續狀態，不是今日新公告。 */
     semantics?: string | null
+    /** 名單本身的日期；來源沒給就是 null，不拿抓取日代替。 */
+    list_date?: string | null
+    /** stale = 來源暫時抓不到，用的是上次快取。 */
+    freshness?: string | null
   }> | null
   news?: Array<{
     title: string
@@ -597,7 +601,10 @@ export function formatDailyBriefCopy(d: DailyBriefCopyData): string {
     lines.push('## 市場重點事件')
     for (const ev of d.events.slice(0, 10)) {
       const status = ev.semantics === 'current_status_list'
-      lines.push(`- [${status ? `名單日 ${sanitize(ev.date)}` : sanitize(ev.date || '近期')}] ${ev.type ? `【${sanitize(ev.type)}】` : ''}${ev.name ? `${sanitize(ev.name)}: ` : ''}${sanitize(ev.title)}${status ? '（目前名單上的持續狀態，不是今日新公告；公告日、生效日、結束日來源未提供）' : ''}`)
+      const statusNote = ev.freshness === 'fresh'
+        ? '（目前名單上的持續狀態，不是今日新公告；公告日、生效日、結束日來源未提供）'
+        : '（上次抓到的名單狀態，來源目前無法更新，未確認是否仍在名單；不是今日新公告）'
+      lines.push(`- [${status ? `名單日 ${ev.list_date ? sanitize(ev.list_date) : '來源未提供'}` : sanitize(ev.date || '近期')}] ${ev.type ? `【${sanitize(ev.type)}】` : ''}${ev.name ? `${sanitize(ev.name)}: ` : ''}${sanitize(ev.title)}${status ? statusNote : ''}`)
     }
     lines.push('')
   }

@@ -53,7 +53,6 @@ from app.taiwan.industry_intelligence import TaiwanIndustryIntelligenceService
 from app.taiwan.market_intelligence import TaiwanMarketIntelligenceService
 from app.taiwan.market_sentiment_service import get_market_sentiment_service
 from app.taiwan.news_service import get_news_service
-from app.taiwan.quant.live_contract import LiveModel
 from app.taiwan.quant.live_store import LiveLedger
 from app.taiwan.realtime.calendar import TaiwanTradingCalendar, taipei_today
 from app.taiwan.screener import TaiwanScreenerRequest, TaiwanScreenerService
@@ -68,8 +67,10 @@ def _storage_path() -> Path:
     return p
 
 
-LIVE_SCORE_SCALE = "0~1 全市場橫斷面百分位排名（1 = 最高；凍結排名快照，不是即時重算）"
-SCREENER_SCORE_SCALE = "0~100（Live Quant 百分位排名 ×100；98.6 = 約前 1.4%；凍結排名快照）"
+# The percentile is taken over the run's eligible ranking universe (after liquidity, warm-up,
+# adjustment and session-completeness filters), not the whole market; ranked_universe is its size.
+LIVE_SCORE_SCALE = "0~1 百分位排名，只在 Live Quant 合格排名池內比較（1 = 池內最高；不是全市場；凍結排名快照，不是即時重算）"
+SCREENER_SCORE_SCALE = "0~100（Live Quant 合格排名池內的百分位排名 ×100；98.6 = 約池內前 1.4%，不是全市場；凍結排名快照）"
 
 
 class TaiwanDailyBriefService:
@@ -290,22 +291,27 @@ class TaiwanDailyBriefService:
         quant_meta: dict[str, Any] = {"score_frozen": True}
         with contextlib.suppress(Exception):
             ledger = LiveLedger()
-            model = LiveModel()
-            runs = ledger.list_runs(limit=2)
+            runs = ledger.list_runs(limit=20)
             if len(runs) >= 1:
-                cur_run_session = runs[0].get("session")
-                quant_meta.update(score_session=cur_run_session, score_model=f"{model.model_id} {model.version}")
-                cur_data = ledger.read_run(model.key, cur_run_session) if cur_run_session else None
-                cur_signals = (cur_data or {}).get("signals", [])
-                quant_meta["ranked_universe"] = len(cur_signals) or None
+                # Scores, model and ranking population all come from the same frozen run.
+                cur_key, cur_run_session = runs[0].get("model_key"), runs[0].get("session")
+                cur_snap = (ledger.read_run(cur_key, cur_run_session) or {}).get("snapshot") or {}
+                run_model = cur_snap.get("model") or {}
+                ranking_universe = cur_snap.get("ranking_universe")
+                quant_meta.update(
+                    score_session=cur_run_session,
+                    score_model=" ".join(str(v) for v in (run_model.get("model_id"), run_model.get("version")) if v) or None,
+                    ranked_universe=len(ranking_universe) if isinstance(ranking_universe, list) else None,
+                )
+                cur_signals = cur_snap.get("signals") or []
                 cur_top10 = cur_signals[:10]
                 cur_syms = {s["symbol"] for s in cur_top10}
 
                 prev_syms: set[str] = set()
-                if len(runs) >= 2:
-                    prev_session = runs[1].get("session")
-                    prev_data = ledger.read_run(model.key, prev_session) if prev_session else None
-                    prev_top10 = (prev_data or {}).get("signals", [])[:10]
+                prev_run = next((r for r in runs[1:] if r.get("model_key") == cur_key), None)
+                if prev_run:
+                    prev_snap = (ledger.read_run(cur_key, prev_run["session"]) or {}).get("snapshot") or {}
+                    prev_top10 = (prev_snap.get("signals") or [])[:10]
                     prev_syms = {s["symbol"] for s in prev_top10}
 
                 # New to top 10
@@ -440,7 +446,9 @@ class TaiwanDailyBriefService:
             "11. 量化分數：引用 quant_score 時必須同時寫出 score_scale、score_session 與 score_model；"
             "它是凍結排名快照（score_frozen），不是即時重新運算，只能當參考排序，不得據此判斷哪一檔較適合買。\n"
             "12. 事件：details.event_semantics 為 current_status_list 的事件（例如櫃買暫停交易、全額交割名單）是「目前名單上的持續狀態」，"
-            "只能寫「目前列為…（名單日 details.list_date）」，絕對不得寫成今日新公告或今日新增；公告日、生效日、結束日與原因若為 null，必須寫「來源未提供」。\n"
+            "只有 freshness 為 fresh 時才能寫「目前列為…（名單日 details.list_date）」；freshness 不是 fresh（例如 stale 快取）時，"
+            "只能寫「上次觀察到列為…，未確認是否仍在名單」。都絕對不得寫成今日新公告或今日新增；"
+            "list_date、公告日、生效日、結束日與原因若為 null，必須寫「來源未提供」。\n"
             "5. 必須嚴格輸出合法的 JSON 物件，格式鍵名固定如下：\n"
             "{\n"
             '  "section_a_market": "A. 今日市場概況與盤勢解讀",\n'

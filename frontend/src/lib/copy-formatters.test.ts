@@ -252,7 +252,10 @@ describe('formatStockDetailCopy & Prompt', () => {
       brief_date: '2026-10-12',
       market: { taiex_close: 1, turnover: 512_300_000_000, foreign_net: 207_000_000, trust_net: 50_410_000, dealer_net: -626_000_000, institutional_as_of: '2026-10-12' },
       candidates: [{ symbol: '6213.TWSE', name: '聯茂', score: 98.6, score_scale: '0~100（Live Quant 百分位排名 ×100）', score_session: '2026-10-08', score_model: 'tw-eod-momentum v1', ranked_universe: 1700 }],
-      events: [{ name: '信昌電', date: '2026-10-12', type: '暫停交易', title: '櫃買中心停止買賣', semantics: 'current_status_list' }],
+      events: [
+        { name: '信昌電', date: '2026-10-12', type: '暫停交易', title: '櫃買中心停止買賣', semantics: 'current_status_list', list_date: '2026-10-12', freshness: 'fresh' },
+        { name: '舊快取', date: '2026-10-12', type: '全額交割', title: '變更交易方法', semantics: 'current_status_list', list_date: null, freshness: 'stale' },
+      ],
     })
     expect(text).toContain('逐檔股數加總，不是金額')
     expect(text).toContain('外資 207,000,000 股（207,000 張）')
@@ -260,6 +263,8 @@ describe('formatStockDetailCopy & Prompt', () => {
     expect(text).toContain('成交金額：約 5123.0 億元')
     expect(text).toContain('排名日 2026-10-08；模型 tw-eod-momentum v1；共 1700 檔排名')
     expect(text).toContain('[名單日 2026-10-12]')
+    expect(text).toContain('[名單日 來源未提供]')
+    expect(text).toContain('未確認是否仍在名單')
     expect(text).toContain('不是今日新公告')
   })
 

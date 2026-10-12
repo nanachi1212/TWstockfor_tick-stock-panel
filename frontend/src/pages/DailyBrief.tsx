@@ -335,6 +335,8 @@ export function DailyBrief() {
                     type: e.event_type_label,
                     title: e.title || e.event_type_label,
                     semantics: e.details?.event_semantics ?? null,
+                    list_date: e.details?.list_date ?? null,
+                    freshness: e.freshness ?? null,
                   })),
                   news: brief.news?.items?.map((n: any) => ({
                     title: n.title,
@@ -420,6 +422,8 @@ export function DailyBrief() {
                     type: e.event_type_label,
                     title: e.title || e.event_type_label,
                     semantics: e.details?.event_semantics ?? null,
+                    list_date: e.details?.list_date ?? null,
+                    freshness: e.freshness ?? null,
                   })),
                   news: brief.news?.items?.map((n: any) => ({
                     title: n.title,
