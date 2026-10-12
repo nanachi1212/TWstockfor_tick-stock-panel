@@ -1270,6 +1270,35 @@ def get_daily_brief(target_date: str | None = None):
         raise HTTPException(status_code=500, detail=f"每日簡報彙整失敗: {e}") from e
 
 
+class DailyBriefBuildRequest(BaseModel):
+    target_date: str | None = None
+    # Open positions from the browser ledger; None = not provided (reported as unavailable,
+    # never as "0 holdings"), [] = the ledger was read and has no open position.
+    portfolio_holdings: list[dict[str, Any]] | None = None
+
+
+@router.post("/daily-brief")
+def build_daily_brief_with_holdings(req: DailyBriefBuildRequest):
+    """同 GET /daily-brief，但帶入看板本機帳本的持股 (持股資料只存在瀏覽器端)。"""
+    from app.taiwan.daily_brief_service import get_daily_brief_service
+
+    target_dt = None
+    if req.target_date:
+        try:
+            target_dt = dt_date.fromisoformat(req.target_date)
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=f"無效的日期格式: {req.target_date}") from e
+    holdings = None
+    if req.portfolio_holdings is not None:
+        holdings = [h for h in req.portfolio_holdings[:200] if isinstance(h, dict) and isinstance(h.get("symbol"), str)]
+    try:
+        brief = get_daily_brief_service().build_deterministic_brief(target_date=target_dt, portfolio_holdings=holdings)
+        return brief.model_dump()
+    except Exception as e:
+        logger.exception("Failed to build daily brief: %s", e)
+        raise HTTPException(status_code=500, detail=f"每日簡報彙整失敗: {e}") from e
+
+
 @router.post("/daily-brief/ai-summary")
 async def generate_daily_brief_ai_summary(body: dict[str, Any]):
     """由使用者主動觸發，呼叫現有 AI Provider 生成嚴格 7 段式的每日市場摘要。"""

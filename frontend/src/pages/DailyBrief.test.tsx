@@ -8,7 +8,7 @@ import { api } from '@/lib/api'
 vi.mock('@/lib/api', () => ({
   api: {
     dailyBrief: {
-      getDailyBrief: vi.fn(),
+      buildDailyBrief: vi.fn(),
       generateAiSummary: vi.fn(),
       saveDailyBrief: vi.fn(),
       listHistory: vi.fn(),
@@ -124,7 +124,7 @@ describe('DailyBrief Page (A12)', () => {
 
   it('renders deterministic market facts and candidates correctly', async () => {
     const mockBrief = buildMockBrief()
-    vi.mocked(api.dailyBrief.getDailyBrief).mockResolvedValue(mockBrief as any)
+    vi.mocked(api.dailyBrief.buildDailyBrief).mockResolvedValue(mockBrief as any)
 
     const qc = createTestQueryClient()
     render(
@@ -149,7 +149,7 @@ describe('DailyBrief Page (A12)', () => {
   })
 
   it('links directly to the newest official forward batch without triggering AI', async () => {
-    vi.mocked(api.dailyBrief.getDailyBrief).mockResolvedValue(buildMockBrief() as any)
+    vi.mocked(api.dailyBrief.buildDailyBrief).mockResolvedValue(buildMockBrief() as any)
     vi.mocked(api.selectionReview.listForwardBatches).mockResolvedValue([{
       snapshot_id: 'forward_latest_1', record_type: 'forward_batch',
     }] as any)
@@ -157,12 +157,14 @@ describe('DailyBrief Page (A12)', () => {
     render(<QueryClientProvider client={createTestQueryClient()}><MemoryRouter><DailyBrief /></MemoryRouter></QueryClientProvider>)
 
     const link = await screen.findByRole('link', { name: '查看最新正式前瞻批次' })
+    // 持股存在本機帳本，必須隨請求送出（帳本為空時送 []，讀不到時送 null）
+    expect(api.dailyBrief.buildDailyBrief).toHaveBeenCalledWith({ portfolio_holdings: [] })
     expect(link).toHaveAttribute('href', '/selection-review?tab=forward&batch_id=forward_latest_1')
     expect(api.dailyBrief.generateAiSummary).not.toHaveBeenCalled()
   })
 
   it('does not present a failed official batch query as an empty result', async () => {
-    vi.mocked(api.dailyBrief.getDailyBrief).mockResolvedValue(buildMockBrief() as any)
+    vi.mocked(api.dailyBrief.buildDailyBrief).mockResolvedValue(buildMockBrief() as any)
     vi.mocked(api.selectionReview.listForwardBatches).mockRejectedValueOnce(new Error('offline'))
 
     render(<QueryClientProvider client={createTestQueryClient()}><MemoryRouter><DailyBrief /></MemoryRouter></QueryClientProvider>)
@@ -187,7 +189,7 @@ describe('DailyBrief Page (A12)', () => {
       evidence_sources: ['台灣證券交易所', '盤後三大法人買賣超', 'Live Quant 綜合模型'],
     }
 
-    vi.mocked(api.dailyBrief.getDailyBrief).mockResolvedValue(mockBrief as any)
+    vi.mocked(api.dailyBrief.buildDailyBrief).mockResolvedValue(mockBrief as any)
     vi.mocked(api.dailyBrief.generateAiSummary).mockResolvedValue(mockAiSummary as any)
 
     const qc = createTestQueryClient()
@@ -222,7 +224,7 @@ describe('DailyBrief Page (A12)', () => {
 
   it('allows adding candidate to watchlist', async () => {
     const mockBrief = buildMockBrief()
-    vi.mocked(api.dailyBrief.getDailyBrief).mockResolvedValue(mockBrief as any)
+    vi.mocked(api.dailyBrief.buildDailyBrief).mockResolvedValue(mockBrief as any)
     vi.mocked(api.watchlistAdd).mockResolvedValue({} as any)
 
     const qc = createTestQueryClient()

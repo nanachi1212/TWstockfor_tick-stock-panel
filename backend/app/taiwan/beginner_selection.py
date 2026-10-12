@@ -516,9 +516,11 @@ def decide_state(
 
 def _corporate_action_note(event: Any) -> str:
     """Name the corporate action that withholds price levels and when they come back."""
-    cash = (getattr(event, "cash_dividend", None) or 0) > 0
+    kind = getattr(event, "event_type", None)
+    # TWSE rows often leave the amount fields empty; fall back to the event type.
+    cash = (getattr(event, "cash_dividend", None) or 0) > 0 or kind == "cash_dividend"
     stock = (getattr(event, "free_share_ratio", None) or 0) > 0
-    if getattr(event, "reduction_ratio", None):
+    if getattr(event, "reduction_ratio", None) or kind == "capital_reduction":
         label = "減資"
     elif cash and stock:
         label = "除權息（配股＋配息）"

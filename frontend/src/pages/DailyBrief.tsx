@@ -27,7 +27,17 @@ import { toast } from '@/components/Toast'
 import { cn } from '@/lib/cn'
 import { CopyButton } from '@/components/CopyButton'
 import { formatDailyBriefCopy, formatDailyBriefPrompt } from '@/lib/copy-formatters'
+import { buildPortfolioPositions, readPortfolioLedger } from '@/lib/portfolio'
 import { ExternalContextCard } from '@/components/ExternalContextCard'
+
+/** 持股只存在本機帳本；讀不到就送 null，讓報告寫「持股資料暫時無法取得」而不是 0 持股。 */
+function ledgerHoldings(): Record<string, unknown>[] | null {
+  const { transactions, error } = readPortfolioLedger()
+  if (error) return null
+  return buildPortfolioPositions(transactions)
+    .filter(position => position.shares > 0)
+    .map(position => ({ symbol: position.symbol, name: position.name, shares: position.shares, average_cost: position.averageCost }))
+}
 
 export function DailyBrief() {
   const qc = useQueryClient()
@@ -41,7 +51,7 @@ export function DailyBrief() {
   // 1. 查詢今日客觀確定性事實簡報
   const briefQuery = useQuery({
     queryKey: QK.dailyBrief(),
-    queryFn: () => api.dailyBrief.getDailyBrief(),
+    queryFn: () => api.dailyBrief.buildDailyBrief({ portfolio_holdings: ledgerHoldings() }),
   })
 
   const latestForwardBatchQuery = useQuery({
@@ -245,6 +255,8 @@ export function DailyBrief() {
                   evidence_date: (brief as any).evidence_date || brief.brief_date,
                   market: brief.market ? {
                     taiex_close: brief.market.taiex_close,
+                    taiex_as_of: brief.market.taiex_as_of,
+                    taiex_stale: brief.market.taiex_stale,
                     change: brief.market.taiex_change,
                     change_pct: brief.market.taiex_change_pct,
                     turnover: brief.market.total_turnover,
@@ -263,6 +275,7 @@ export function DailyBrief() {
                     weak: brief.market.weakest_sectors.map(s => ({ name: s.industry, change_pct: s.change_pct })),
                   } : null,
                   portfolio: brief.portfolio ? {
+                    status: brief.portfolio.status,
                     holdings_count: brief.portfolio.holdings_count,
                     items: brief.portfolio.biggest_movers?.map(m => ({
                       symbol: m.symbol,
@@ -320,6 +333,8 @@ export function DailyBrief() {
                   evidence_date: (brief as any).evidence_date || brief.brief_date,
                   market: brief.market ? {
                     taiex_close: brief.market.taiex_close,
+                    taiex_as_of: brief.market.taiex_as_of,
+                    taiex_stale: brief.market.taiex_stale,
                     change: brief.market.taiex_change,
                     change_pct: brief.market.taiex_change_pct,
                     turnover: brief.market.total_turnover,
@@ -338,6 +353,7 @@ export function DailyBrief() {
                     weak: brief.market.weakest_sectors.map(s => ({ name: s.industry, change_pct: s.change_pct })),
                   } : null,
                   portfolio: brief.portfolio ? {
+                    status: brief.portfolio.status,
                     holdings_count: brief.portfolio.holdings_count,
                     items: brief.portfolio.biggest_movers?.map(m => ({
                       symbol: m.symbol,
@@ -476,6 +492,9 @@ export function DailyBrief() {
                   <span className="text-xs text-muted-foreground">—</span>
                 )}
               </div>
+              {brief.market.taiex_stale && (
+                <div className="mt-1 text-[11px] font-medium text-warning">資料日 {brief.market.taiex_as_of}，不是今日指數</div>
+              )}
               <div className="text-[11px] text-muted-foreground mt-1">
                 成交量：{brief.market.total_turnover > 0
                   ? `${(brief.market.total_turnover / 1e8).toFixed(1)} 億元`

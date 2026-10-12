@@ -439,6 +439,8 @@ export interface DailyBriefCopyData {
   freshness?: string | null
   market?: {
     taiex_close?: number | null
+    taiex_as_of?: string | null
+    taiex_stale?: boolean
     change?: number | null
     change_pct?: number | null
     volume?: number | null
@@ -458,6 +460,7 @@ export interface DailyBriefCopyData {
     weak?: Array<{ name: string; change_pct?: number | null }> | null
   } | null
   portfolio?: {
+    status?: 'available' | 'empty' | 'unavailable'
     holdings_count?: number
     items?: Array<{
       symbol: string
@@ -512,6 +515,7 @@ export function formatDailyBriefCopy(d: DailyBriefCopyData): string {
   if (d.market) {
     const m = d.market
     lines.push(`- 加權指數：${num(m.taiex_close)} 點 | 漲跌：${num(m.change)} (${pct(m.change_pct)})`)
+    if (m.taiex_stale) lines.push(`  - ⚠ 加權指數資料日為 ${sanitize(m.taiex_as_of)}，不是報告交易日；不可當成今日指數，也不可用來解讀今日盤勢。`)
     lines.push(`- 成交金額：約 ${num(m.turnover, 0)} 億元 | 市場情緒：${sanitize(m.sentiment_label)}`)
     lines.push(`- 市場廣度：上漲 ${num(m.advances, 0, '—')} 家 (漲停 ${num(m.limit_up, 0, '0')}) | 下跌 ${num(m.declines, 0, '—')} 家 (跌停 ${num(m.limit_down, 0, '0')}) | 平盤 ${num(m.unchanged, 0, '—')} 家`)
     lines.push(`- 三大法人買賣超：外資 ${num(m.foreign_net, 0)} 億元 | 投信 ${num(m.trust_net, 0)} 億元 | 自營商 ${num(m.dealer_net, 0)} 億元`)
@@ -534,11 +538,14 @@ export function formatDailyBriefCopy(d: DailyBriefCopyData): string {
 
   // 個人持股（隱私保護）
   lines.push('## 個人持股狀況')
-  if (d.includePortfolio) {
+  if (d.portfolio?.status === 'unavailable') {
+    // 讀不到持股不是 0 持股
+    lines.push('- 持股資料暫時無法取得（不是沒有持股），本段不分析持股。')
+  } else if (d.includePortfolio) {
     if (d.portfolio && d.portfolio.items && d.portfolio.items.length > 0) {
       lines.push(`- 持股檔數：${d.portfolio.holdings_count ?? d.portfolio.items.length} 檔`)
       for (const it of d.portfolio.items) {
-        lines.push(`  - ${sanitize(it.name)}（${sanitize(it.symbol)}）：${it.shares ?? 0} 張 | 均成本 ${num(it.avg_cost)} 元 | 最新價 ${num(it.close)} (${pct(it.change_pct)})`)
+        lines.push(`  - ${sanitize(it.name)}（${sanitize(it.symbol)}）：${sharesAndLots(it.shares)} | 均成本 ${num(it.avg_cost)} 元 | 最新價 ${num(it.close)} (${pct(it.change_pct)})`)
       }
     } else {
       lines.push('- 目前投資組合無持股。')

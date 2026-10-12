@@ -4751,6 +4751,9 @@ export const api = {
       const qs = q.toString()
       return request<DeterministicDailyBrief>(`/api/taiwan/daily-brief${qs ? `?${qs}` : ''}`)
     },
+    /** 帶入本機帳本持股；portfolio_holdings 為 null 代表讀不到，後端會標成 unavailable 而不是 0 持股。 */
+    buildDailyBrief: (body: CreateDailyBriefRequest) =>
+      request<DeterministicDailyBrief>('/api/taiwan/daily-brief', { method: 'POST', body: JSON.stringify(body) }),
     generateAiSummary: (deterministicBrief: DeterministicDailyBrief) =>
       request<DailyBriefAISummary>('/api/taiwan/daily-brief/ai-summary', {
         method: 'POST',
@@ -5244,6 +5247,9 @@ export interface MarketFactBrief {
   taiex_close: number | null
   taiex_change: number | null
   taiex_change_pct: number | null
+  /** 加權指數本身的資料日；與 trade_date 不同時 taiex_stale 為 true。 */
+  taiex_as_of?: string | null
+  taiex_stale?: boolean
   advance_count: number
   decline_count: number
   flat_count: number
@@ -5274,6 +5280,8 @@ export interface PortfolioHoldingItem {
 }
 
 export interface PortfolioFactBrief {
+  /** unavailable = 沒送持股或讀取失敗（不是 0 持股）；empty = 帳本讀到了但沒有持股。 */
+  status?: 'available' | 'empty' | 'unavailable'
   holdings_count: number
   biggest_movers: PortfolioHoldingItem[]
   quant_changes: Record<string, any>[]
@@ -5361,7 +5369,7 @@ export interface SavedDailyBrief {
 
 export interface CreateDailyBriefRequest {
   target_date?: string | null
-  portfolio_holdings?: Record<string, any>[]
+  portfolio_holdings?: Record<string, any>[] | null
 }
 
 

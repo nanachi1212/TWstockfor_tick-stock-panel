@@ -205,3 +205,37 @@ def test_daily_brief_api_endpoints(monkeypatch, mock_daily_brief_service: Taiwan
     res_detail = client.get(f"/api/taiwan/daily-brief/history/{brief_id}")
     assert res_detail.status_code == 200
     assert res_detail.json()["brief_id"] == brief_id
+
+
+def test_portfolio_status_separates_unavailable_from_empty(mock_daily_brief_service: TaiwanDailyBriefService):
+    """Holdings not provided / unreadable must never be reported as "0 holdings"."""
+    not_sent = mock_daily_brief_service.build_deterministic_brief(target_date=date(2026, 8, 3))
+    assert not_sent.portfolio.status == "unavailable"
+    empty = mock_daily_brief_service.build_deterministic_brief(target_date=date(2026, 8, 3), portfolio_holdings=[])
+    assert empty.portfolio.status == "empty"
+    held = mock_daily_brief_service.build_deterministic_brief(
+        target_date=date(2026, 8, 3),
+        portfolio_holdings=[{"symbol": "2301.TWSE", "name": "光寶科", "shares": 1000, "average_cost": 300.5}],
+    )
+    assert held.portfolio.status == "available" and held.portfolio.holdings_count == 1
+
+
+def test_taiex_from_an_older_session_is_dated_and_marked_stale(mock_daily_brief_service: TaiwanDailyBriefService):
+    snapshot = SimpleNamespace(
+        indexes=SimpleNamespace(taiex=SimpleNamespace(close=49313.44, change=-492.93, change_pct=-0.0099, trade_date="2026-08-01")),
+        institutional=None,
+        market_totals=SimpleNamespace(advance_count=1109, decline_count=1012, flat_count=170,
+                                      upper_limit_count=0, lower_limit_count=0, turnover=0.0),
+    )
+    with patch("app.taiwan.daily_brief_service.TaiwanMarketIntelligenceService.get_snapshot", return_value=snapshot):
+        brief = mock_daily_brief_service.build_deterministic_brief(target_date=date(2026, 8, 3))
+    assert brief.market.taiex_as_of == "2026-08-01" and brief.market.taiex_stale is True
+
+
+def test_ai_summary_prompt_forbids_zero_holdings_and_stale_index_as_today():
+    import inspect
+
+    from app.taiwan import daily_brief_service
+
+    source = inspect.getsource(daily_brief_service.TaiwanDailyBriefService.generate_ai_summary)
+    assert "絕對不得寫成持股為 0" in source and "taiex_stale" in source and "不得稱為普跌" in source
