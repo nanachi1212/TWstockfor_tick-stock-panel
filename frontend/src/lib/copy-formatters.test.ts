@@ -203,6 +203,12 @@ describe('formatStockDetailCopy & Prompt', () => {
     })
     expect(text).toContain('原因：量化服務連線或儲存錯誤（RemoteProtocolError）')
     expect(text).toContain('不是此股本身的風險訊號')
+    const ineligible = formatStockDetailCopy({
+      symbol: '2368.TWSE', name: '金像電', quote: null, valuation: null, fundamentals: null, institutional_flows: null,
+      quant: { score: null, rank: null, unavailable_reason: '此標的未進入目前有效 Live Quant run 的可計分 universe' },
+    })
+    expect(ineligible).toContain('原因：此標的未進入目前有效 Live Quant run 的可計分 universe')
+    expect(ineligible).not.toContain('不是此股本身的風險訊號')
   })
 
   it('Stock Detail: exports explicit unavailable metadata without relabeling units', () => {

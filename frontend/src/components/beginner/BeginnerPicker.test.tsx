@@ -368,7 +368,7 @@ describe('Beginner Stock Picker', () => {
     const panel = base.technical_panel!
     vi.mocked(api.beginnerSelectionSymbol).mockResolvedValue({
       version: 'beginner-selection-v1', generated_at: '', market: beginnerSelection().market, disclaimer: '',
-      candidate: { ...base, technical_panel: { ...panel, summary: '短線訊號轉弱：盤中即時價 1225 已跌破 5 日均線 1240。', live_check: {
+      candidate: { ...base, technical_panel: { ...panel, live_check: {
         status: 'weakened', daily_as_of: '2026-10-08', quote_date: '2026-10-12', quote_time: '2026-10-12T11:41:56+08:00',
         session: 'intraday', live_price: 1225, open: 1240, high: 1265, low: 1210, volume: 7_258_000,
         best_bid: 1225, best_ask: 1230, bids: [[1225, 76000]], asks: [[1230, 50000]],
@@ -383,6 +383,9 @@ describe('Beginner Stock Picker', () => {
     expect(strip).toHaveTextContent('短線趨勢可能轉弱')
     expect(screen.getByText(/今日 K 線（盤中、未收盤）/)).toBeInTheDocument()
     expect(screen.getByText(/委買 1,225 · 委賣 1,230/)).toBeInTheDocument()
+    // 結論卡顯示轉弱並保留原日線判斷供對照
+    expect(screen.getByText(/^短線訊號轉弱：盤中即時價 1225/)).toBeInTheDocument()
+    expect(screen.getByText(new RegExp(`2026-10-08 收盤時的判斷（需重新評估）：${panel.summary}`))).toBeInTheDocument()
   })
 
   it.each([390, 1440])('renders the complete first screen at %ipx', async width => {

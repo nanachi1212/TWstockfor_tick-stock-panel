@@ -67,15 +67,22 @@ def quote_quality_gate(quote: TaiwanRealtimeQuote) -> tuple[EvaluationStatus, st
         return EvaluationStatus.SKIPPED_MARKET_UNVERIFIED, "Market session is scheduled but unverified"
     if quote.market_status != MarketStatus.OPEN.value:
         return EvaluationStatus.SKIPPED_MARKET_CLOSED, f"Market session is not open ({quote.market_status})"
+    return quote_data_gate(quote)
 
-    # Data Quality Gate (stale check, daily fallback, delayed check)
+
+def quote_data_gate(quote: TaiwanRealtimeQuote) -> tuple[EvaluationStatus, str] | None:
+    """Data-quality half of ``quote_quality_gate`` (stale, daily fallback, delayed/unknown feed).
+
+    Also used on its own for a closed-session quote, which the market-status half rejects.
+    """
     meta = quote.source_meta
     if meta.is_stale:
         return EvaluationStatus.SKIPPED_STALE_DATA, "Quote is stale"
     if meta.status == RealtimeStatus.DAILY_FALLBACK.value or meta.source_type == "local_store":
         return EvaluationStatus.SKIPPED_DAILY_FALLBACK, "Quote fell back to daily cached storage"
-    if meta.freshness_class in ("delayed_15m", "unknown") or "delayed" in meta.freshness_class:
-        return EvaluationStatus.SKIPPED_DELAYED_SOURCE, f"Quote feed is delayed ({meta.freshness_class})"
+    freshness = meta.freshness_class or "unknown"  # a missing class is not proof of a live feed
+    if freshness == "unknown" or "delayed" in freshness:
+        return EvaluationStatus.SKIPPED_DELAYED_SOURCE, f"Quote feed is delayed ({freshness})"
     return None
 
 

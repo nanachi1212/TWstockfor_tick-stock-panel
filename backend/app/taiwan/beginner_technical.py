@@ -332,28 +332,30 @@ def with_live_signal_check(
     broken: list[str] = []
     if below_stop:
         broken.append(f"{label} {price:g} 已跌破失效位，原本的理由已失效。")
-    for days, ma, bucket in ((20, averages.ma20, broken), (5, averages.ma5, weakened)):
-        if ma is not None and close is not None and close > ma and price < ma:
-            text = (f"{label} {price:g} 已跌破 {days} 日均線 {ma:g}（{daily_as_of} 計算），"
-                    + ("原本偏強的判斷不再成立。" if days == 20 else "短線趨勢可能轉弱。"))
-            bucket.append(text)
-    status: LiveCheckStatus = "broken" if broken else "weakened" if weakened else "holding"
+    # Without complete daily MA evidence there is nothing to confirm: never report "holding".
+    ma_ready = (averages.status == "available" and close is not None
+                and averages.ma5 is not None and averages.ma20 is not None)
+    if ma_ready:
+        for days, ma, bucket in ((20, averages.ma20, broken), (5, averages.ma5, weakened)):
+            if ma is not None and close is not None and close > ma and price < ma:
+                text = (f"{label} {price:g} 已跌破 {days} 日均線 {ma:g}（{daily_as_of} 計算），"
+                        + ("原本偏強的判斷不再成立。" if days == 20 else "短線趨勢可能轉弱。"))
+                bucket.append(text)
     alerts = broken + weakened
+    ma_missing = f"{daily_as_of or '日線'} 的均線資料不足，無法用最新報價檢查趨勢條件。"
+    if not ma_ready and not alerts:
+        check = LiveSignalCheck(**base, session=session, live_price=price, explanation=ma_missing)
+        return panel.model_copy(update={"live_check": check})
+    status: LiveCheckStatus = "broken" if broken else "weakened" if weakened else "holding"
     date_note = f"（日線資料日 {daily_as_of}，今日 {quote_date} 尚未納入日線）" if quote_date and daily_as_of and quote_date > daily_as_of else ""
     explanation = (
-        "原判斷需重新評估：" + alerts[0] if alerts
+        "原判斷需重新評估：" + alerts[0] + ("" if ma_ready else ma_missing) if alerts
         else f"{label} {price:g} 仍符合 {daily_as_of} 收盤時的均線條件{date_note}。"
     )
+    # Only live_check changes: the daily summary, MA text and risks stay the frozen daily
+    # evidence (they feed persisted AI explanations), and the UI shows this overlay on top.
     check = LiveSignalCheck(**base, status=status, session=session, live_price=price, alerts=alerts, explanation=explanation)
-    update: dict[str, Any] = {"live_check": check}
-    if alerts:
-        update["summary"] = f"{'訊號已失效' if broken else '短線訊號轉弱'}：{alerts[0]}（{daily_as_of} 的「{panel.summary.split('。')[0]}」需重新評估）"
-        update["moving_averages"] = averages.model_copy(update={
-            "explanation": averages.explanation + f"⚠ {alerts[0]}",
-        })
-        risk = TechnicalRisk(code="live_signal_" + status, text=alerts[0], source=source or "realtime_quote")
-        update["key_risks"] = [risk, *[r for r in panel.key_risks if not r.code.startswith("live_signal_")]][:4]
-    return panel.model_copy(update=update)
+    return panel.model_copy(update={"live_check": check})
 
 
 def _finite(value: Any) -> float | None:

@@ -51,9 +51,36 @@ async function unzipEntries(buffer: ArrayBuffer, wanted: (name: string) => boole
   return out
 }
 
-/** 讀 .xlsx 第一個工作表，轉成 TSV 文字。 */
+// Excel 內建的日期數字格式 (numFmtId)；自訂格式另由 formatCode 判斷。
+const BUILTIN_DATE_FORMATS = new Set([14, 15, 16, 17, 18, 19, 20, 21, 22, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 45, 46, 47, 50, 51, 52, 53, 54, 55, 56, 57, 58])
+
+/** styles.xml 的 cellXfs 依序對應儲存格 s="N"；回傳哪些 style 是日期格式。 */
+function dateStyleIndexes(styles: string): Set<number> {
+  const custom = new Map([...styles.matchAll(/<numFmt\b[^>]*numFmtId="(\d+)"[^>]*formatCode="([^"]*)"/g)]
+    .map(m => [Number(m[1]), decodeXml(m[2])] as const))
+  // 去掉引號字串、[顏色/條件] 與跳脫字元後，含 d 或 y 才算日期 (純時間格式不算)。
+  const isDate = (id: number) => BUILTIN_DATE_FORMATS.has(id)
+    || /[dy]/i.test((custom.get(id) ?? '').replace(/"[^"]*"|\[[^\]]*\]|\\./g, ''))
+  const xfs = /<cellXfs\b[^>]*>([\s\S]*?)<\/cellXfs>/.exec(styles)?.[1] ?? ''
+  const out = new Set<number>()
+  ;[...xfs.matchAll(/<xf\b([^>]*)/g)].forEach((m, index) => {
+    if (isDate(Number(/numFmtId="(\d+)"/.exec(m[1])?.[1] ?? -1))) out.add(index)
+  })
+  return out
+}
+
+/** Excel 日期序號 → YYYY-MM-DD (1900 或 1904 日期系統)。 */
+export function excelSerialToDate(serial: number, date1904 = false): string {
+  const epoch = date1904 ? Date.UTC(1904, 0, 1) : Date.UTC(1899, 11, 30)
+  return new Date(epoch + Math.floor(serial) * 86_400_000).toISOString().slice(0, 10)
+}
+
+/** 讀 .xlsx 第一個工作表，轉成 TSV 文字；日期格式的儲存格轉成 YYYY-MM-DD，不留原始序號。 */
 export async function xlsxToText(buffer: ArrayBuffer): Promise<string> {
-  const files = await unzipEntries(buffer, name => name === 'xl/sharedStrings.xml' || /^xl\/worksheets\/sheet\d+\.xml$/.test(name))
+  const files = await unzipEntries(buffer, name => name === 'xl/sharedStrings.xml' || name === 'xl/styles.xml'
+    || name === 'xl/workbook.xml' || /^xl\/worksheets\/sheet\d+\.xml$/.test(name))
+  const dateStyles = dateStyleIndexes(files.get('xl/styles.xml') ?? '')
+  const date1904 = /<workbookPr\b[^>]*date1904="(1|true)"/.test(files.get('xl/workbook.xml') ?? '')
   const sheetName = [...files.keys()].filter(name => name.startsWith('xl/worksheets/')).sort((a, b) => a.localeCompare(b, undefined, { numeric: true }))[0]
   if (!sheetName) throw new Error('Excel 檔裡找不到工作表')
   const shared = [...(files.get('xl/sharedStrings.xml') ?? '').matchAll(/<si\b[^>]*>([\s\S]*?)<\/si>/g)]
@@ -67,9 +94,14 @@ export async function xlsxToText(buffer: ArrayBuffer): Promise<string> {
       const ref = /\br="([A-Z]+)\d+"/.exec(attrs)?.[1] ?? ''
       const type = /\bt="(\w+)"/.exec(attrs)?.[1]
       const value = /<v>([\s\S]*?)<\/v>/.exec(body)?.[1] ?? ''
+      const style = Number(/\bs="(\d+)"/.exec(attrs)?.[1] ?? -1)
+      const serial = Number(value)
       cells[ref ? columnIndex(ref) : cells.length] = type === 's' ? shared[Number(value)] ?? ''
         : type === 'inlineStr' ? decodeXml([...body.matchAll(/<t\b[^>]*>([\s\S]*?)<\/t>/g)].map(t => t[1]).join(''))
-          : decodeXml(value)
+          : type === 'd' ? decodeXml(value).slice(0, 10)
+            : (!type || type === 'n') && dateStyles.has(style) && value !== '' && Number.isFinite(serial)
+              ? excelSerialToDate(serial, date1904)
+              : decodeXml(value)
     }
     rows.push(Array.from(cells, cell => cell ?? ''))
   }

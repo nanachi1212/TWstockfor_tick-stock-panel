@@ -309,6 +309,68 @@ def test_update_to_latest_when_data_exists(tmp_path: Path, monkeypatch):
     assert mock_refresh.refresh_dates.called
 
 
+def _store_until_1008(tmp_path: Path) -> tuple[Path, TaiwanDailyStore]:
+    daily_dir = tmp_path / "taiwan" / "daily"
+    _create_dummy_parquet(daily_dir / "date=2026-10-08" / "part.parquet")
+    return daily_dir, TaiwanDailyStore(data_dir=daily_dir)
+
+
+def _fake_targets(monkeypatch):
+    """13:30 <= now < 16:00 on Mon 2026-10-12 (Fri 10/09 is a holiday)."""
+    def resolve(post_close_hour: int = 16, post_close_minute: int = 0, **_):
+        return date(2026, 10, 12) if (post_close_hour, post_close_minute) <= (13, 30) else date(2026, 10, 8)
+
+    monkeypatch.setattr("app.taiwan.bootstrap.resolve_target_latest_trading_date", resolve)
+
+
+def test_manual_update_tries_today_after_the_close_and_reports_unpublished_as_pending(tmp_path, monkeypatch):
+    _fake_targets(monkeypatch)
+    _, store = _store_until_1008(tmp_path)
+    refresh = MagicMock()
+    refresh.refresh_dates.return_value = {
+        "dates_fetched": 0, "failed_dates": [{"date": "2026-10-12", "error": "empty_official_daily_snapshot"}],
+    }
+    svc = TaiwanBootstrapService(store=store, refresh_service=refresh,
+                                 selection_readiness_refresher=lambda target: {"target_date": target.isoformat()})
+    res = svc.update_to_latest()
+
+    assert refresh.refresh_dates.call_args.kwargs == {"start_date": date(2026, 10, 9), "end_date": date(2026, 10, 12)}
+    assert res["already_current"] is True and res["dates_fetched"] == 0
+    assert "今天 (2026-10-12) 的收盤資料交易所尚未公布" in res["message"]
+    assert res["stats"]["failed_dates"] == [] and res["stats"]["pending_dates"] == ["2026-10-12"]
+
+
+def test_manual_update_stores_today_when_the_exchanges_have_published(tmp_path, monkeypatch):
+    _fake_targets(monkeypatch)
+    daily_dir, store = _store_until_1008(tmp_path)
+
+    def publish(**_):
+        _create_dummy_parquet(daily_dir / "date=2026-10-12" / "part.parquet")
+        return {"dates_fetched": 1, "failed_dates": []}
+
+    refresh = MagicMock()
+    refresh.refresh_dates.side_effect = publish
+    seen = []
+    svc = TaiwanBootstrapService(store=store, refresh_service=refresh,
+                                 selection_readiness_refresher=lambda target: seen.append(target) or {})
+    res = svc.update_to_latest()
+
+    assert res["already_current"] is False and "最新至 2026-10-12" in res["message"]
+    assert seen == [date(2026, 10, 12)]
+
+
+def test_manual_update_keeps_real_failures_for_today(tmp_path, monkeypatch):
+    _fake_targets(monkeypatch)
+    _, store = _store_until_1008(tmp_path)
+    refresh = MagicMock()
+    refresh.refresh_dates.return_value = {
+        "dates_fetched": 0, "failed_dates": [{"date": "2026-10-12", "error": "ConnectError: timeout"}],
+    }
+    svc = TaiwanBootstrapService(store=store, refresh_service=refresh, selection_readiness_refresher=lambda t: {})
+    res = svc.update_to_latest()
+    assert res["already_current"] is False and res["stats"]["failed_dates"]
+
+
 def test_taiwan_bootstrap_api_endpoints(monkeypatch):
     from starlette.testclient import TestClient
     from app.main import app

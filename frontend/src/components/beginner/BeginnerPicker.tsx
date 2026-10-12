@@ -598,6 +598,9 @@ export function BeginnerStockView({
   const panel = candidate?.technical_panel
   const liveInnerOuter = contextQuery.data?.intraday_context.data?.inner_outer as BeginnerTechnicalPanel['inner_outer'] | undefined
   const innerOuter = liveInnerOuter ?? panel?.inner_outer
+  // 盤中檢查只疊加在畫面上；日線結論本身保持凍結 (它也是 AI 解讀的證據)。
+  const liveAlerts = panel?.live_check?.alerts ?? []
+  const liveHeadline = panel?.live_check?.status === 'broken' ? '訊號已失效' : '短線訊號轉弱'
   const innerOuterTime = formatTaipeiTime(innerOuter?.as_of ?? null)
   const fxContext = contextQuery.data?.fx_context ?? candidate?.fx_context
   const macroContext = contextQuery.data?.macro_context ?? candidate?.macro_context
@@ -633,7 +636,14 @@ export function BeginnerStockView({
               <StateBadge state={candidate.selection_state} />
               {!skipped && <span className="text-xs text-muted">訊號強度：{STRENGTH_LABEL[candidate.signal_strength]}</span>}
             </div>
-            <p className="mt-2 break-words text-sm font-medium leading-relaxed text-foreground">{panel.summary}</p>
+            {liveAlerts.length > 0 ? (
+              <>
+                <p className={`mt-2 break-words text-sm font-semibold leading-relaxed ${panel.live_check?.status === 'broken' ? 'text-danger' : 'text-warning'}`}>{liveHeadline}：{liveAlerts[0]}</p>
+                <p className="mt-1 break-words text-xs text-muted">{panel.live_check?.daily_as_of} 收盤時的判斷（需重新評估）：{panel.summary}</p>
+              </>
+            ) : (
+              <p className="mt-2 break-words text-sm font-medium leading-relaxed text-foreground">{panel.summary}</p>
+            )}
             <div className="mt-2">
               <p className="mb-0.5 text-xs font-semibold text-muted">{skipped ? '為什麼沒被選？' : '理由'}</p>
               <ReasonList
@@ -672,6 +682,7 @@ export function BeginnerStockView({
           <TechnicalSection number="③" title="趨勢與均線">
             <p className="text-sm font-semibold text-foreground">均線趨勢：{TREND_LABEL[panel.moving_averages.state]}</p>
             <p className="mt-1 break-words text-xs leading-relaxed text-muted">{panel.moving_averages.explanation}</p>
+            {liveAlerts.length > 0 && <p className="mt-1 break-words text-xs font-medium text-warning">⚠ {liveAlerts[0]}</p>}
             <p className="mt-2 text-xs text-muted">波動：<span className="font-medium text-foreground">{VOLATILITY_LABEL[panel.volatility.level]}</span></p>
             <p className="mt-1 break-words text-xs text-muted">{panel.volatility.explanation}</p>
           </TechnicalSection>
@@ -739,7 +750,7 @@ export function BeginnerStockView({
           </TechnicalSection>
 
           <TechnicalSection number="⑧" title="主要風險">
-            <ReasonList items={panel.key_risks.map(risk => risk.text)} empty="目前沒有可辨識的主要風險。" tone="risk" />
+            <ReasonList items={[...liveAlerts.slice(0, 1), ...panel.key_risks.map(risk => risk.text)].slice(0, 4)} empty="目前沒有可辨識的主要風險。" tone="risk" />
             {candidate.invalidation && <p className="mt-2 break-words text-xs text-warning">失效條件：{candidate.invalidation}</p>}
           </TechnicalSection>
         </div>
