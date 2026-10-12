@@ -3100,7 +3100,8 @@ export interface TaiwanSocialSentimentRow {
   code: string
   company_name: string
   ptt_mentions: number
-  dcard_mentions: number
+  /** Dcard 來源已移除 (#101)；舊快照可能仍帶此欄位。 */
+  dcard_mentions?: number
   total_mentions: number
   unique_posts: number
   engagement: number

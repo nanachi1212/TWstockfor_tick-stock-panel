@@ -868,12 +868,11 @@ export function TaiwanStockDetail() {
             ) : !socialRow ? (
               <p className="mt-3 text-xs text-muted">目前快照未辨識到此股票的社群討論，這不代表真正零討論。</p>
             ) : (
-              <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-5">
+              <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
                 {[
                   ['熱度', socialRow.social_heat_score.toFixed(1)],
                   ['總聲量', socialRow.total_mentions.toLocaleString('zh-TW')],
                   ['PTT', socialRow.ptt_mentions.toLocaleString('zh-TW')],
-                  ['Dcard', socialQuery.data?.sources.dcard?.status === 'unavailable' ? '來源不可用' : socialRow.dcard_mentions.toLocaleString('zh-TW')],
                   ['AI 情緒', socialRow.sentiment_status === 'available' ? `${socialRow.sentiment} · ${Math.round((socialRow.sentiment_confidence ?? 0) * 100)}%` : '不可用'],
                 ].map(([label, value]) => (
                   <div key={label} className="rounded-lg border border-border/60 bg-base p-2">

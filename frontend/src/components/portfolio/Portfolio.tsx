@@ -300,8 +300,10 @@ export function PortfolioTradeDialog({
   )
 }
 
-export function PortfolioPanel({ symbol, name, quote: detailQuote, change: detailChange, changePct: detailChangePct, quoteMeta, quoteUnavailable = false }: {
+export function PortfolioPanel({ symbol, name, quote: detailQuote, change: detailChange, changePct: detailChangePct, quoteMeta, quoteUnavailable = false, openImportOnMount = false }: {
   symbol?: string
+  /** 「我的持股」頁：一進來就打開匯入視窗。 */
+  openImportOnMount?: boolean
   name?: string
   quote?: number | null
   change?: number | null
@@ -312,7 +314,7 @@ export function PortfolioPanel({ symbol, name, quote: detailQuote, change: detai
   const { transactions, error: ledgerError } = usePortfolioTransactions()
   const [trade, setTrade] = useState<{ symbol?: string; name?: string; side: PortfolioSide; quote?: number | null } | null>(null)
   const [reminder, setReminder] = useState<{ symbol: string; name: string; price?: number | null; quote?: TaiwanRealtimeQuote } | null>(null)
-  const [importOpen, setImportOpen] = useState(false)
+  const [importOpen, setImportOpen] = useState(openImportOnMount)
   const autoSync = usePortfolioAutoSync(!symbol)
   const qc = useQueryClient()
   const watchlist = useQuery({ queryKey: QK.watchlist, queryFn: api.watchlistList, enabled: !symbol, staleTime: 60_000 })
