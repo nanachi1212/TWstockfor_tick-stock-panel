@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { MemoryRouter } from 'react-router-dom'
 import { api } from '@/lib/api'
@@ -46,6 +46,13 @@ afterEach(() => {
 })
 
 describe('Portfolio UI', () => {
+  it('opens the import dialog right away on the 我的持股 page, with file and paste options', async () => {
+    renderPortfolio({ openImportOnMount: true })
+    const dialog = await screen.findByRole('dialog', { name: '匯入持股' })
+    expect(within(dialog).getByLabelText('選擇持股檔案')).toBeInTheDocument()
+    expect(within(dialog).getByLabelText('或直接貼上持股表格')).toBeInTheDocument()
+  })
+
   it('shows Quant holdings as unavailable when there is no validated live run', async () => {
     storage.portfolioTransactions.set([{
       id: 'seed', symbol: '2330.TWSE', name: '台積電', side: 'buy', shares: 5,

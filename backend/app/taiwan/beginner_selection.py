@@ -27,6 +27,7 @@ from app.taiwan.beginner_technical import (
     build_beginner_technical_panel,
     fugle_inner_outer_evidence,
     with_inner_outer_evidence,
+    with_live_signal_check,
 )
 from app.taiwan.buy_point import (
     BuyPointConditions,
@@ -878,6 +879,16 @@ class BeginnerSelectionService:
             )
 
     @staticmethod
+    def _live_quote(symbol: str) -> Any:
+        try:
+            from app.taiwan.realtime import get_realtime_service
+
+            return get_realtime_service().get_quotes([symbol]).get(symbol)
+        except Exception as exc:
+            logger.debug("beginner live quote unavailable: %s", type(exc).__name__)
+            return None
+
+    @staticmethod
     def _request_intraday(symbols: list[str]) -> None:
         try:
             from app.taiwan.realtime.fugle_provider import get_fugle_aggregates_provider
@@ -907,6 +918,8 @@ class BeginnerSelectionService:
             copied.intraday_context = ExternalProviderResult.unavailable(
                 "fugle_marketdata:websocket:aggregates", "provider_unavailable",
             )
+        if copied.technical_panel is not None:
+            copied.technical_panel = _with_live_check(copied, BeginnerSelectionService._live_quote(copied.symbol))
         try:
             from app.taiwan.providers.fred_macro import get_fred_macro_provider
 
@@ -1384,3 +1397,46 @@ def selection_evidence(symbol: str, service: BeginnerSelectionService | None = N
             if candidate.secondary_cross_checks else None
         ),
     }
+
+
+def _with_live_check(candidate: BeginnerCandidate, quote: Any) -> BeginnerTechnicalPanel:
+    """Re-check the daily conditions with the latest quote (same quality gate as alerts/radar)."""
+    from app.taiwan.beginner_radar import GATE_NOTE
+    from app.taiwan.realtime.models import RealtimeStatus
+    from app.taiwan.realtime.monitor_engine import quote_quality_gate
+    from app.taiwan.realtime.monitor_models import EvaluationStatus
+
+    panel = candidate.technical_panel
+    assert panel is not None
+    if quote is None:
+        return with_live_signal_check(panel, price=None, below_stop=False, session="unavailable",
+                                      unavailable_note="目前拿不到即時報價。")
+    meta = quote.source_meta
+    daily_as_of = panel.moving_averages.as_of or candidate.as_of
+    quote_date = quote.trade_date.isoformat() if quote.trade_date else None
+    blocked = quote_quality_gate(quote)
+    session: Literal["intraday", "after_close", "unavailable"] = "intraday"
+    if blocked is not None:
+        # After the close and before the daily store catches up, today's close is newer than the
+        # daily evidence; use it only when the source itself is trustworthy (fresh, not a fallback).
+        newer_close = (
+            blocked[0] == EvaluationStatus.SKIPPED_MARKET_CLOSED and quote_date and daily_as_of
+            and quote_date > daily_as_of and not meta.is_stale
+            and meta.status != RealtimeStatus.DAILY_FALLBACK.value and meta.source_type != "local_store"
+        )
+        session = "after_close" if newer_close else "unavailable"
+    plan = candidate.trade_plan
+    price = quote.last_price if session != "unavailable" else None
+    return with_live_signal_check(
+        panel, price=price, session=session,
+        below_stop=bool(plan is not None and price is not None and price < plan.stop_price),
+        unavailable_note=(
+            (f"今天已收盤，日線已更新到 {daily_as_of}。" if quote_date == daily_as_of
+             and blocked[0] == EvaluationStatus.SKIPPED_MARKET_CLOSED
+             else GATE_NOTE.get(blocked[0], "即時報價不可用。"))
+            if blocked and session == "unavailable" else None
+        ),
+        quote_date=quote_date, quote_time=quote.quote_time.isoformat() if quote.quote_time else None,
+        source=meta.source, open_=quote.open, high=quote.high, low=quote.low, volume=quote.volume,
+        bids=[(float(p), float(v)) for p, v in quote.bids], asks=[(float(p), float(v)) for p, v in quote.asks],
+    )

@@ -234,7 +234,11 @@ export function formatStockDetailCopy(d: StockDetailCopyData): string {
     }
     availability('量化評分', d.quant.meta)
   } else {
-    lines.push(`- 量化評分：不可用 (unavailable) | 原因：${sanitize(d.quant?.unavailable_reason)}`)
+    const rawReason = sanitize(d.quant?.unavailable_reason)
+    const systemError = /^live_source_or_storage_error:?(.*)$/.exec(rawReason)
+    const reason = systemError ? `量化服務連線或儲存錯誤（${systemError[1] || '未知錯誤'}）` : rawReason
+    lines.push(`- 量化評分：不可用 (unavailable) | 原因：${reason}`)
+    lines.push('- 注意：量化評分取不到是系統／資料服務狀態，不是此股本身的風險訊號，請勿當成負面因素。')
     availability('量化評分', d.quant?.meta)
   }
   lines.push('')

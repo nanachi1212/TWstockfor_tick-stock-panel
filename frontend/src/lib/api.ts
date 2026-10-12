@@ -3100,7 +3100,8 @@ export interface TaiwanSocialSentimentRow {
   code: string
   company_name: string
   ptt_mentions: number
-  dcard_mentions: number
+  /** Dcard 來源已移除 (#101)；舊快照可能仍帶此欄位。 */
+  dcard_mentions?: number
   total_mentions: number
   unique_posts: number
   engagement: number
@@ -3397,9 +3398,32 @@ export interface BeginnerPriceLevelsEvidence {
   freshness: string
 }
 
+export interface BeginnerLiveSignalCheck {
+  status: 'holding' | 'weakened' | 'broken' | 'unavailable'
+  daily_as_of: string | null
+  quote_date: string | null
+  quote_time: string | null
+  session: 'intraday' | 'after_close' | 'unavailable'
+  live_price: number | null
+  open: number | null
+  high: number | null
+  low: number | null
+  volume: number | null
+  best_bid: number | null
+  best_ask: number | null
+  bids: [number, number][]
+  asks: [number, number][]
+  alerts: string[]
+  explanation: string
+  source: string | null
+  disclaimer: string
+}
+
 export interface BeginnerTechnicalPanel {
   summary: string
   current_price: number | null
+  /** Older cached snapshots may not carry it yet. */
+  live_check?: BeginnerLiveSignalCheck
   support: BeginnerPriceLevelsEvidence
   resistance: BeginnerPriceLevelsEvidence
   invalidation: BeginnerPriceLevelsEvidence

@@ -120,21 +120,23 @@ describe('TaiwanStockDetail — back navigation (DAILY_USE_CORE_UX_FIXES P1-2)',
     expect(screen.getByText(/事件來源不完整或公告時間證據不足/)).toBeInTheDocument()
     expect(screen.getByText(/官方 MOPS 法說會資料目前不可用/)).toBeInTheDocument()
   })
-  it('shows the current stock social summary without turning blocked Dcard into zero', async () => {
+  it('shows the current stock social summary without the removed Dcard source', async () => {
+    // Dcard was removed in #101: the row no longer carries dcard_mentions.
     vi.mocked(api.taiwanSocialSentiment).mockResolvedValue({
       status: 'partial', as_of: '2026-09-29', generated_at: '2026-09-29T15:30:00+08:00', snapshot_slot: 'after_close',
-      sources: { ptt: { status: 'available' }, dcard: { status: 'unavailable' } },
+      sources: { ptt: { status: 'available' } },
       rankings: [{
         symbol: '2330.TWSE', code: '2330', company_name: '台積電', total_mentions: 10,
-        ptt_mentions: 10, dcard_mentions: 0, unique_posts: 3, engagement: 20,
+        ptt_mentions: 10, unique_posts: 3, engagement: 20,
         social_heat_score: 60, volume_change_24h: null, sentiment: 'unavailable',
         sentiment_status: 'unavailable', sentiment_score: null, sentiment_confidence: null,
       }],
     } as any)
     renderAt(['/stocks/2330.TWSE'], 0)
 
-    expect(await screen.findByText('來源不可用')).toBeInTheDocument()
-    expect(screen.getByText('社群討論／AI 情緒分析，不是官方資料，也不會加入 Quant 分數。')).toBeInTheDocument()
+    expect(await screen.findByText('社群討論／AI 情緒分析，不是官方資料，也不會加入 Quant 分數。')).toBeInTheDocument()
+    expect(screen.getByText('PTT')).toBeInTheDocument()
+    expect(screen.queryByText('Dcard')).not.toBeInTheDocument()
   })
 
   it('never shows the old hardcoded "返回即時監控" label', async () => {

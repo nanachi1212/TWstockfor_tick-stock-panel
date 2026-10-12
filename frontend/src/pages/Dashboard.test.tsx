@@ -623,13 +623,13 @@ describe('Dashboard — Market data honesty (DAILY_USE_CORE_UX_FIXES P1-1)', () 
 })
 
 describe('Dashboard — Beginner Stock Picker', () => {
-  it('puts today picks first with at most five cards', async () => {
+  it('puts today picks first with at most ten cards', async () => {
     const { beginnerSelection } = await import('@/test/beginnerFixtures')
-    vi.mocked(api.beginnerSelection).mockResolvedValue(beginnerSelection(8))
+    vi.mocked(api.beginnerSelection).mockResolvedValue(beginnerSelection(12))
     renderDashboard()
     expect(await screen.findByText('今天市場怎麼看？')).toBeInTheDocument()
     const section = screen.getByRole('region', { name: '今日選股' })
-    expect(within(section).getAllByRole('article')).toHaveLength(5)
+    expect(within(section).getAllByRole('article')).toHaveLength(10)
     expect(within(section).getByRole('link', { name: '查看全部' })).toHaveAttribute('href', '/picks')
   })
 })

@@ -5,8 +5,8 @@ from types import SimpleNamespace
 import polars as pl
 import pytest
 
-from app.taiwan.beginner_selection import BeginnerSelectionService
-from app.taiwan.beginner_technical import build_beginner_technical_panel
+from app.taiwan.beginner_selection import BeginnerSelectionService, _with_live_check
+from app.taiwan.beginner_technical import build_beginner_technical_panel, with_live_signal_check
 from app.taiwan.market_rules import TickSizeModel
 
 AS_OF = "2026-10-02"
@@ -254,3 +254,79 @@ def test_service_reuses_pit_factor_panel_for_ma_volume_atr_and_0050():
     assert metrics["atr_14"] is not None
     assert metrics["stock_return_20d"] > metrics["benchmark_return_20d"]
     assert metrics["relative_return_20d"] > 0
+
+
+# ── Live signal re-check (daily conditions vs latest quote) ──────────────────
+
+
+def _live(panel, price, *, below_stop=False, session="intraday"):
+    return with_live_signal_check(
+        panel, price=price, below_stop=below_stop, session=session,
+        quote_date="2026-10-05", quote_time="2026-10-05T10:30:00+08:00", source="twse_mis",
+    )
+
+
+def test_live_check_keeps_reading_when_daily_conditions_still_hold():
+    panel = _panel()  # close 190 > MA5 188 > MA20 180
+    checked = _live(panel, 189.0)
+    assert checked.live_check.status == "holding"
+    assert checked.summary == panel.summary
+    assert "2026-10-05 尚未納入日線" in checked.live_check.explanation
+    assert checked.live_check.daily_as_of == AS_OF
+
+
+def test_live_check_flags_short_term_weakening_when_ma5_is_lost():
+    checked = _live(_panel(), 185.0)
+    assert checked.live_check.status == "weakened"
+    assert checked.summary.startswith("短線訊號轉弱：")
+    assert "5 日均線 188" in checked.live_check.alerts[0]
+    assert checked.key_risks[0].code == "live_signal_weakened"
+    assert "⚠" in checked.moving_averages.explanation
+    assert len(checked.key_risks) <= 4
+
+
+def test_live_check_breaks_on_ma20_or_plan_stop():
+    assert _live(_panel(), 178.0).live_check.status == "broken"
+    stopped = _live(_panel(), 160.0, below_stop=True)
+    assert stopped.live_check.status == "broken"
+    assert "失效位" in stopped.live_check.alerts[0]
+    assert stopped.summary.startswith("訊號已失效：")
+
+
+def test_live_check_ignores_conditions_that_did_not_hold_at_the_daily_close():
+    # Daily close 187 was already below MA5 188, so an intraday 185 is not a new weakening.
+    assert _live(_panel(current=187.0), 185.0).live_check.status == "holding"
+
+
+def test_live_check_without_quote_states_the_daily_date_and_changes_nothing():
+    panel = _panel()
+    checked = with_live_signal_check(panel, price=None, below_stop=False, session="unavailable",
+                                     unavailable_note="目前拿不到即時報價。")
+    assert checked.live_check.status == "unavailable"
+    assert AS_OF in checked.live_check.explanation
+    assert checked.summary == panel.summary and checked.key_risks == panel.key_risks
+
+
+def _quote(price, *, market_status="open", trade_date=date(2026, 10, 5), stale=False):
+    meta = SimpleNamespace(is_stale=stale, status="realtime", source_type="exchange", freshness_class="realtime", source="twse_mis")
+    return SimpleNamespace(
+        last_price=price, trade_date=trade_date, market_status=market_status, source_meta=meta,
+        quote_time=None, open=189.0, high=191.0, low=184.0, volume=1_234_000,
+        bids=[(184.5, 1000)], asks=[(185.0, 2000)],
+    )
+
+
+def _candidate(panel):
+    return SimpleNamespace(technical_panel=panel, trade_plan=SimpleNamespace(stop_price=166.0), as_of=AS_OF)
+
+
+def test_with_live_check_uses_the_shared_quote_gate():
+    live = _with_live_check(_candidate(_panel()), _quote(185.0)).live_check
+    assert (live.status, live.session, live.best_bid, live.best_ask, live.volume) == ("weakened", "intraday", 184.5, 185.0, 1_234_000)
+    # After the close, before today's bar is stored: today's close is still checked.
+    assert _with_live_check(_candidate(_panel()), _quote(185.0, market_status="closed")).live_check.session == "after_close"
+    # Closed with the daily store already current, or a stale quote: no live judgement.
+    same_day = _with_live_check(_candidate(_panel()), _quote(185.0, market_status="closed", trade_date=date(2026, 10, 2))).live_check
+    assert same_day.status == "unavailable" and "日線已更新" in same_day.explanation
+    assert _with_live_check(_candidate(_panel()), _quote(185.0, stale=True)).live_check.status == "unavailable"
+    assert _with_live_check(_candidate(_panel()), None).live_check.status == "unavailable"

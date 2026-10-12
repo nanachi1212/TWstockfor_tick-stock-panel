@@ -17,6 +17,7 @@ import {
   BarChart3,
   BookOpen,
   BrainCircuit,
+  Wallet,
   type LucideIcon,
 } from 'lucide-react'
 
@@ -33,6 +34,7 @@ export const CORE_NAV: readonly NavMeta[] = [
   { to: '/picks',           label: '今日選股', icon: Compass },
   { to: '/taiwan-screener', label: '台股選股', icon: Filter },
   { to: '/watchlist',       label: '自選股',   icon: Star },
+  { to: '/holdings',        label: '我的持股', icon: Wallet },
   { to: '/monitor',         label: '監控中心', icon: RadioTower },
   { to: '/stocks/compare',  label: '多股比較', icon: Scale },
 ] as const

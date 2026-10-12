@@ -9,6 +9,8 @@ interface CopyButtonProps {
   successLabel?: string
   className?: string
   size?: 'sm' | 'xs'
+  /** 資料尚未就緒時停用，並顯示原因，避免複製出全是「不可用」的空內容。 */
+  disabledReason?: string
 }
 
 export function CopyButton({
@@ -17,6 +19,7 @@ export function CopyButton({
   successLabel = '已複製',
   className,
   size = 'sm',
+  disabledReason,
 }: CopyButtonProps) {
   const [state, setState] = useState<'idle' | 'success' | 'error'>('idle')
 
@@ -36,8 +39,10 @@ export function CopyButton({
       <button
         type="button"
         onClick={handleClick}
+        disabled={!!disabledReason}
+        title={disabledReason}
         className={cn(
-          'inline-flex items-center rounded-lg border transition-colors duration-150',
+          'inline-flex items-center rounded-lg border transition-colors duration-150 disabled:cursor-not-allowed disabled:opacity-50',
           sizeCls,
           state === 'success'
             ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400'
@@ -52,6 +57,7 @@ export function CopyButton({
           : <Copy className="h-3 w-3 shrink-0" />}
         {state === 'success' ? successLabel : state === 'error' ? '複製失敗' : label}
       </button>
+      {disabledReason && <span className="text-[10px] text-muted">{disabledReason}</span>}
       {state === 'success' && (
         <span className="text-[10px] text-muted">
           已複製，可貼到 ChatGPT、Claude 或 Gemini。

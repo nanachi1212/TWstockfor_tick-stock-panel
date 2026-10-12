@@ -1,4 +1,4 @@
-// 側欄導覽結構回歸測試: 核心流程 6 頁常駐, 其餘研究/進階頁收在「進階功能」群組。
+// 側欄導覽結構回歸測試: 核心流程 7 頁常駐, 其餘研究/進階頁收在「進階功能」群組。
 import { describe, expect, it } from 'vitest'
 import { ADVANCED_NAV, ALL_NAV, CORE_NAV, isAdvancedNavPath } from './navigation'
 
@@ -9,6 +9,7 @@ describe('navigation', () => {
       '/picks',
       '/taiwan-screener',
       '/watchlist',
+      '/holdings',
       '/monitor',
       '/stocks/compare',
     ])
@@ -18,7 +19,7 @@ describe('navigation', () => {
     const all = ALL_NAV.map(item => item.to)
     expect(new Set(all).size).toBe(all.length)
     expect(new Set(all)).toEqual(new Set([
-      '/', '/picks', '/taiwan-screener', '/watchlist', '/monitor', '/stocks/compare',
+      '/', '/picks', '/taiwan-screener', '/watchlist', '/holdings', '/monitor', '/stocks/compare',
       '/daily-brief', '/market-research', '/research', '/events', '/buy-points',
       '/selection-review', '/strategy-lab', '/social-sentiment', '/social-fetch',
       '/model', '/data-health',

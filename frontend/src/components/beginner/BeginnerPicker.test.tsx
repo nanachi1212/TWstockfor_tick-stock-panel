@@ -73,12 +73,12 @@ describe('Beginner Stock Picker', () => {
     vi.mocked(api.taiwanStoredAIExplain).mockResolvedValue({ response: null })
   })
 
-  it('dashboard shows market summary, at most 5 cards, view-all link and the strength disclaimer', async () => {
-    vi.mocked(api.beginnerSelection).mockResolvedValue(beginnerSelection(7))
+  it('dashboard shows market summary, at most 10 cards, view-all link and the strength disclaimer', async () => {
+    vi.mocked(api.beginnerSelection).mockResolvedValue(beginnerSelection(12))
     renderWith(<BeginnerDashboardWidget />)
     expect(await screen.findByText('今天市場怎麼看？')).toBeInTheDocument()
     expect(screen.getByText('適合找機會')).toBeInTheDocument()
-    expect(screen.getAllByRole('article')).toHaveLength(5)
+    expect(screen.getAllByRole('article')).toHaveLength(10)
     expect(screen.getByRole('link', { name: '查看全部' })).toHaveAttribute('href', '/picks')
     expect(screen.getByText('訊號強度代表目前條件符合程度，不代表上漲機率。')).toBeInTheDocument()
     expect(screen.queryByText(/%\s*機率|勝率|上漲機率\s*\d/)).not.toBeInTheDocument()
@@ -361,6 +361,28 @@ describe('Beginner Stock Picker', () => {
     renderWith(<BeginnerStockView symbol="2330.TWSE" advanced={false} onToggleAdvanced={() => {}} />)
     expect(await screen.findByText('即時買賣力道資料已過期')).toBeInTheDocument()
     expect(screen.queryByText('63.0%')).not.toBeInTheDocument()
+  })
+
+  it('shows the daily evidence date and a live weakening alert instead of the old strong reading', async () => {
+    const base = beginnerCandidate('2368.TWSE')
+    const panel = base.technical_panel!
+    vi.mocked(api.beginnerSelectionSymbol).mockResolvedValue({
+      version: 'beginner-selection-v1', generated_at: '', market: beginnerSelection().market, disclaimer: '',
+      candidate: { ...base, technical_panel: { ...panel, summary: '短線訊號轉弱：盤中即時價 1225 已跌破 5 日均線 1240。', live_check: {
+        status: 'weakened', daily_as_of: '2026-10-08', quote_date: '2026-10-12', quote_time: '2026-10-12T11:41:56+08:00',
+        session: 'intraday', live_price: 1225, open: 1240, high: 1265, low: 1210, volume: 7_258_000,
+        best_bid: 1225, best_ask: 1230, bids: [[1225, 76000]], asks: [[1230, 50000]],
+        alerts: ['盤中即時價 1225 已跌破 5 日均線 1240（2026-10-08 計算），短線趨勢可能轉弱。'],
+        explanation: '', source: 'twse_mis', disclaimer: '五檔委買委賣只是掛單快照，不代表成交方向。',
+      } } },
+    })
+    renderWith(<BeginnerStockView symbol="2368.TWSE" advanced={false} onToggleAdvanced={() => {}} />)
+    const strip = await screen.findByRole('alert', { name: '資料日期與盤中訊號檢查' })
+    expect(strip).toHaveTextContent('日線資料日：2026-10-08')
+    expect(strip).toHaveTextContent('盤中即時價：1,225')
+    expect(strip).toHaveTextContent('短線趨勢可能轉弱')
+    expect(screen.getByText(/今日 K 線（盤中、未收盤）/)).toBeInTheDocument()
+    expect(screen.getByText(/委買 1,225 · 委賣 1,230/)).toBeInTheDocument()
   })
 
   it.each([390, 1440])('renders the complete first screen at %ipx', async width => {

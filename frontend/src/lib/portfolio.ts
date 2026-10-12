@@ -242,8 +242,9 @@ export interface PortfolioImportRow {
 
 /** CSV/TSV 解析: 支援引號內逗號與換行 (券商/試算表備註常見)。 */
 function parseDelimited(text: string): string[][] {
-  const firstContentLine = text.split(/\r?\n/).find(line => line.trim()) ?? ''
-  const delimiter = firstContentLine.includes('\t') ? '\t' : ','
+  // 券商匯出常在表頭前有「現股損益」這類單欄標題列，所以找第一個含分隔符的列來判斷。
+  const firstDelimitedLine = text.split(/\r?\n/).find(line => line.includes('\t') || line.includes(',')) ?? ''
+  const delimiter = firstDelimitedLine.includes('\t') ? '\t' : ','
   const rows: string[][] = []
   let row: string[] = []
   let cell = ''
@@ -272,8 +273,8 @@ const IMPORT_HEADERS = {
   code: /代號|代碼|^code$|^symbol$/i,
   name: /名稱|^name$/i,
   shares: /股數|^shares$/i,
-  price: /均價|^price$/i,
-  cost: /總成本|^cost$/i,
+  price: /均價|成交價|^price$/i,
+  cost: /總成本|投資成本|^cost$/i,
   date: /日期|^date$/i,
 } as const
 type ImportColumn = keyof typeof IMPORT_HEADERS
@@ -290,9 +291,12 @@ export function parsePortfolioImport(text: string, defaultDate: string): { rows:
     const header = Object.fromEntries(
       (Object.keys(IMPORT_HEADERS) as ImportColumn[]).map(key => [key, cells.findIndex(cell => IMPORT_HEADERS[key].test(cell))]),
     ) as Record<ImportColumn, number>
-    if (header.code >= 0 && header.shares >= 0) { columns = header; return }
+    // 沒有代號欄時 (券商把代號寫在「元大台灣 50 (0050)」名稱裡)，有名稱欄＋股數欄也視為表頭。
+    if ((header.code >= 0 || header.name >= 0) && header.shares >= 0) { columns = header; return }
     const at = (key: ImportColumn) => (columns[key] >= 0 ? cells[columns[key]] : undefined)
-    const code = (at('code') ?? '').toUpperCase().replace(/\.(TWSE|TPEX)$/, '')
+    const nameCell = at('name') ?? ''
+    const nameCode = columns.code < 0 ? nameCell.match(/[(（]\s*(\d{2,6}[A-Za-z]?)\s*[)）]\s*$/) : null
+    const code = (nameCode?.[1] ?? at('code') ?? '').toUpperCase().replace(/\.(TWSE|TPEX)$/, '')
     if (!/^\d{2,6}[A-Z]?$/.test(code)) return
     const sharesText = (at('shares') ?? '').trim()
     if (!sharesText || /^n\/?a$/i.test(sharesText)) return
@@ -303,11 +307,11 @@ export function parsePortfolioImport(text: string, defaultDate: string): { rows:
       errors.push(`第 ${index + 1} 列 ${code}：股數或均價不是有效數字`)
       return
     }
-    const cost = importNumber(at('cost'))
+    const cost = Math.abs(importNumber(at('cost'))) // 券商的「投資成本」以負數表示支出
     const fee = at('cost') && Number.isFinite(cost) ? Math.max(0, Math.round((cost - shares * price) * 100) / 100) : 0
     const rawDate = (at('date') ?? '').replace(/\//g, '-')
     const date = /^\d{4}-\d{2}-\d{2}$/.test(rawDate) ? rawDate : defaultDate
-    rows.push({ code, name: at('name') ?? '', shares, price, fee, date })
+    rows.push({ code, name: nameCode ? nameCell.slice(0, nameCode.index).trim() : nameCell, shares, price, fee, date })
   })
   return { rows, errors }
 }
