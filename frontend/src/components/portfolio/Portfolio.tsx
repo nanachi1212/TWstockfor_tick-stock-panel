@@ -4,6 +4,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { ArrowDownToLine, ArrowUpFromLine, Bell, ExternalLink, FileUp, Plus, Wallet, Sparkles } from 'lucide-react'
 import { api, type TaiwanRealtimeQuote } from '@/lib/api'
 import { QK } from '@/lib/queryKeys'
+import { holdingsFileToText } from '@/lib/holdingsFile'
 import { storage } from '@/lib/storage'
 import { useTodayQuantSelection } from '@/components/quant/TodaySelection'
 import { DataQualityBadge, freshnessLabel, type TaiwanQuoteMetaLike } from '@/components/taiwan/TaiwanDataQuality'
@@ -507,7 +508,7 @@ function usePortfolioAutoSync(enabled: boolean) {
 
 type ImportSource = 'local' | 'onedrive' | 'gdrive'
 const IMPORT_SOURCES: { id: ImportSource; label: string }[] = [
-  { id: 'local', label: '本機檔案' },
+  { id: 'local', label: '檔案 / 貼上' },
   { id: 'onedrive', label: 'OneDrive' },
   { id: 'gdrive', label: 'Google Drive' },
 ]
@@ -551,6 +552,16 @@ function PortfolioImportDialog({ onClose }: { onClose: () => void }) {
   const [replace, setReplace] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
+  const loadLocalFile = async (file: File) => {
+    setError('')
+    try {
+      setText(await holdingsFileToText(file))
+      setLoadedFrom(file.name)
+      setCloudPath('')
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : '讀取檔案失敗')
+    }
+  }
   const parsed = useMemo(() => parsePortfolioImport(text, todayTaipeiDate()), [text])
 
   const runImport = async () => {
@@ -579,7 +590,7 @@ function PortfolioImportDialog({ onClose }: { onClose: () => void }) {
           <h2 className="text-sm font-semibold">一鍵匯入持股</h2>
           <button type="button" onClick={onClose} className="text-xs text-muted hover:text-foreground">關閉</button>
         </div>
-        <p className="text-xs text-secondary">會自動找「代號、名稱、股數、均價、總成本、日期」欄位（券商或試算表的欄名都可以），也能直接從 Excel / Google 試算表複製貼上。總成本減掉股數×均價會記成手續費，讓成本和券商一致；股數 0、現金、小計等列會自動略過。</p>
+        <p className="text-xs text-secondary">兩種方式擇一：<b>① 選檔案或把檔案拖進來</b>（CSV、TSV、TXT、Excel .xlsx、券商網頁表格 .xls/.html），<b>② 直接複製貼上</b>到下方文字框（券商畫面、Excel、Google 試算表整張表格複製都可以）。會自動辨識欄位：代號（或「名稱 (代號)」）、名稱、股數、均價／成交價、總成本／投資成本、日期。股數 0、現金、小計、融資融券空表會自動略過。</p>
         <div className="flex gap-1" role="tablist" aria-label="匯入來源">
           {IMPORT_SOURCES.map(item => (
             <button key={item.id} type="button" role="tab" aria-selected={source === item.id} onClick={() => { setSource(item.id); setError('') }}
@@ -587,7 +598,16 @@ function PortfolioImportDialog({ onClose }: { onClose: () => void }) {
           ))}
         </div>
         {source === 'local' && (
-          <input type="file" accept=".csv,.tsv,.txt" aria-label="選擇 CSV 檔" onChange={async event => { const file = event.target.files?.[0]; if (file) { setText(await file.text()); setLoadedFrom(file.name) } }} className="block text-xs" />
+          <label
+            onDragOver={event => event.preventDefault()}
+            onDrop={event => { event.preventDefault(); const file = event.dataTransfer.files?.[0]; if (file) void loadLocalFile(file) }}
+            className="flex cursor-pointer flex-col items-center gap-1 rounded-lg border border-dashed border-border px-3 py-4 text-center text-xs text-secondary hover:border-accent hover:text-foreground">
+            <FileUp className="h-4 w-4" />
+            <span>點此選擇檔案，或把檔案拖到這裡</span>
+            <span className="text-[11px] text-muted">CSV · TSV · TXT · Excel (.xlsx) · 網頁表格 (.xls / .html)</span>
+            <input type="file" accept=".csv,.tsv,.txt,.xlsx,.xls,.html,.htm" aria-label="選擇持股檔案" className="sr-only"
+              onChange={event => { const file = event.target.files?.[0]; if (file) void loadLocalFile(file); event.target.value = '' }} />
+          </label>
         )}
         {source !== 'local' && (
           <div className="space-y-2">
@@ -630,8 +650,9 @@ function PortfolioImportDialog({ onClose }: { onClose: () => void }) {
             )}
           </div>
         )}
-        {loadedFrom && <p className="text-[11px] text-muted">已讀入：{loadedFrom}（下方可再修改）</p>}
-        <textarea value={text} onChange={event => setText(event.target.value)} rows={8} placeholder={'2330,台積電,1000,850.5,851712,2026-10-08'} className="w-full rounded-lg border border-border bg-base px-3 py-2 font-mono text-xs text-foreground" />
+        {loadedFrom && <p className="text-[11px] text-muted">已讀入：{loadedFrom}</p>}
+        <label className="block text-xs font-medium text-secondary" htmlFor="holdings-import-text">{loadedFrom ? '內容（可再修改）' : '或直接貼上持股表格'}</label>
+        <textarea id="holdings-import-text" value={text} onChange={event => { setText(event.target.value); setLoadedFrom('') }} rows={8} placeholder={'把券商或 Excel 的持股表格整張貼在這裡，例如：\n代號,名稱,股數,均價,總成本\n2330,台積電,1000,850.5,851712'} className="w-full rounded-lg border border-border bg-base px-3 py-2 font-mono text-xs text-foreground" />
         {parsed.rows.length > 0 && (
           <div className="max-h-48 overflow-auto rounded-lg border border-border">
             <table className="w-full text-xs">

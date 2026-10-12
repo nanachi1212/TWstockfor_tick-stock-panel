@@ -192,6 +192,28 @@ describe('parsePortfolioImport', () => {
     expect(rows).toEqual([{ code: '2330', name: '台積電', shares: 10, price: 900, fee: 0, date: '2026-10-09' }])
   })
 
+  it('parses a pasted broker P&L table: code inside the name, negative 投資成本, section and summary rows', () => {
+    const head = '商品名稱\t類別\t成交價\t股數\t投資成本\t現價\t現值\t預估收入\t預估損益\t預估獲利率\t損益平衡價'
+    const text = [
+      '現股損益',
+      head,
+      '元大台灣 50 (0050)\t現股買進\t107.73\t1,084\t-116,934\t114.65\t124,280\t123,981\t7,047\t6.03%\t108.14',
+      '主動統一台股增長 (00981A)\t現股買進\t28.75\t50,000\t-1,439,556\t32.06\t1,603,000\t1,599,115\t159,559\t11.08%\t28.87',
+      '融資損益',
+      head,
+      '融券損益',
+      head,
+      '',
+      '總成本\t3,454,875\t總市值\t3,604,930\t總庫存損益\t138,798\t總報酬率\t4.02%',
+    ].join('\n')
+    const { rows, errors } = parsePortfolioImport(text, '2026-10-09')
+    expect(errors).toEqual([])
+    expect(rows).toEqual([
+      { code: '0050', name: '元大台灣 50', shares: 1084, price: 107.73, fee: 154.68, date: '2026-10-09' },
+      { code: '00981A', name: '主動統一台股增長', shares: 50000, price: 28.75, fee: 2056, date: '2026-10-09' },
+    ])
+  })
+
   it('accepts lettered ETF symbols in the ledger', () => {
     expect(isTaiwanPortfolioSymbol('00981A.TWSE')).toBe(true)
     expect(isTaiwanPortfolioSymbol('2330')).toBe(false)

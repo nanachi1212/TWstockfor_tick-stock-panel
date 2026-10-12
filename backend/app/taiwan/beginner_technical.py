@@ -178,9 +178,42 @@ class TechnicalRisk(BaseModel):
     source: str
 
 
+LiveCheckStatus = Literal["holding", "weakened", "broken", "unavailable"]
+
+
+class LiveSignalCheck(BaseModel):
+    """Re-checks the daily-close conditions against the latest quote.
+
+    The daily evidence (MA, volume, chips) stays dated at ``daily_as_of``; this
+    only reports whether the conditions it relied on still hold now.
+    """
+    status: LiveCheckStatus = "unavailable"
+    daily_as_of: str | None = None
+    quote_date: str | None = None
+    quote_time: str | None = None
+    session: Literal["intraday", "after_close", "unavailable"] = "unavailable"
+    live_price: float | None = None
+    open: float | None = None
+    high: float | None = None
+    low: float | None = None
+    volume: float | None = None
+    best_bid: float | None = None
+    best_ask: float | None = None
+    bids: list[tuple[float, float]] = Field(default_factory=list)
+    asks: list[tuple[float, float]] = Field(default_factory=list)
+    alerts: list[str] = Field(default_factory=list)
+    explanation: str = "尚未取得最新報價，以下判斷只代表日線資料日的狀態。"
+    source: str | None = None
+    disclaimer: str = (
+        "均線、量價與籌碼仍以日線資料日計算；今日 K 線尚未收盤前會持續變動。"
+        "五檔委買委賣只是掛單快照，不代表成交方向。"
+    )
+
+
 class BeginnerTechnicalPanel(BaseModel):
     summary: str
     current_price: float | None = None
+    live_check: LiveSignalCheck = Field(default_factory=LiveSignalCheck)
     support: PriceLevelsEvidence
     resistance: PriceLevelsEvidence
     invalidation: PriceLevelsEvidence
@@ -260,6 +293,67 @@ def with_inner_outer_evidence(
             source="beginner_technical",
         ))
     return panel.model_copy(update={"inner_outer": evidence, "key_risks": risks[:4]})
+
+
+def with_live_signal_check(
+    panel: BeginnerTechnicalPanel, *, price: float | None, below_stop: bool,
+    session: Literal["intraday", "after_close", "unavailable"], unavailable_note: str | None = None,
+    quote_date: str | None = None, quote_time: str | None = None, source: str | None = None,
+    open_: float | None = None, high: float | None = None, low: float | None = None,
+    volume: float | None = None, bids: list[tuple[float, float]] | None = None,
+    asks: list[tuple[float, float]] | None = None,
+) -> BeginnerTechnicalPanel:
+    """Overlay a live re-check of the daily conditions; the selection decision is unchanged.
+
+    A condition counts only if it held at the daily close (``panel.current_price``):
+    losing MA5 means the short-term trend may be weakening; losing MA20 or the plan
+    stop means the original strong reading no longer holds.
+    """
+    averages = panel.moving_averages
+    daily_as_of = averages.as_of or panel.support.as_of
+    price = _finite(price)
+    bids, asks = list(bids or []), list(asks or [])
+    base = {
+        "daily_as_of": daily_as_of, "quote_date": quote_date, "quote_time": quote_time, "source": source,
+        "open": _finite(open_), "high": _finite(high), "low": _finite(low), "volume": _finite(volume),
+        "best_bid": bids[0][0] if bids else None, "best_ask": asks[0][0] if asks else None,
+        "bids": bids, "asks": asks,
+    }
+    if price is None or session == "unavailable":
+        check = LiveSignalCheck(
+            **base, explanation=(unavailable_note or "目前拿不到可用的最新報價。")
+            + f"以下判斷只代表 {daily_as_of or '日線資料日'} 收盤的狀態。",
+        )
+        return panel.model_copy(update={"live_check": check})
+
+    close = panel.current_price
+    label = "盤中即時價" if session == "intraday" else "今日收盤價（尚未寫入日線）"
+    weakened: list[str] = []
+    broken: list[str] = []
+    if below_stop:
+        broken.append(f"{label} {price:g} 已跌破失效位，原本的理由已失效。")
+    for days, ma, bucket in ((20, averages.ma20, broken), (5, averages.ma5, weakened)):
+        if ma is not None and close is not None and close > ma and price < ma:
+            text = (f"{label} {price:g} 已跌破 {days} 日均線 {ma:g}（{daily_as_of} 計算），"
+                    + ("原本偏強的判斷不再成立。" if days == 20 else "短線趨勢可能轉弱。"))
+            bucket.append(text)
+    status: LiveCheckStatus = "broken" if broken else "weakened" if weakened else "holding"
+    alerts = broken + weakened
+    date_note = f"（日線資料日 {daily_as_of}，今日 {quote_date} 尚未納入日線）" if quote_date and daily_as_of and quote_date > daily_as_of else ""
+    explanation = (
+        "原判斷需重新評估：" + alerts[0] if alerts
+        else f"{label} {price:g} 仍符合 {daily_as_of} 收盤時的均線條件{date_note}。"
+    )
+    check = LiveSignalCheck(**base, status=status, session=session, live_price=price, alerts=alerts, explanation=explanation)
+    update: dict[str, Any] = {"live_check": check}
+    if alerts:
+        update["summary"] = f"{'訊號已失效' if broken else '短線訊號轉弱'}：{alerts[0]}（{daily_as_of} 的「{panel.summary.split('。')[0]}」需重新評估）"
+        update["moving_averages"] = averages.model_copy(update={
+            "explanation": averages.explanation + f"⚠ {alerts[0]}",
+        })
+        risk = TechnicalRisk(code="live_signal_" + status, text=alerts[0], source=source or "realtime_quote")
+        update["key_risks"] = [risk, *[r for r in panel.key_risks if not r.code.startswith("live_signal_")]][:4]
+    return panel.model_copy(update=update)
 
 
 def _finite(value: Any) -> float | None:

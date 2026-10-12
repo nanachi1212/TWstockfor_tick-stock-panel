@@ -10,6 +10,7 @@ import {
   type BeginnerMarketSummary,
   type BeginnerSelectionState,
   type BeginnerSignalStrength,
+  type BeginnerLiveSignalCheck,
   type BeginnerTechnicalPanel,
   type RadarLive,
   type RadarLiveStatus,
@@ -81,6 +82,45 @@ function formatTaipeiTime(value: string | null) {
   return Number.isNaN(stamp.getTime()) ? null : stamp.toLocaleTimeString('zh-TW', {
     timeZone: 'Asia/Taipei', hour12: false,
   })
+}
+
+const LIVE_TONE: Record<BeginnerLiveSignalCheck['status'], string> = {
+  holding: 'border-emerald-500/30 bg-emerald-500/5',
+  weakened: 'border-warning/40 bg-warning/10',
+  broken: 'border-danger/40 bg-danger/10',
+  unavailable: 'border-border bg-base/60',
+}
+
+/** 日線資料日 vs 最新報價，以及用最新報價重新檢查日線條件的結果。 */
+function LiveCheckStrip({ check }: { check: BeginnerLiveSignalCheck }) {
+  const time = formatTaipeiTime(check.quote_time)
+  return (
+    <div role={check.alerts.length ? 'alert' : 'status'} aria-label="資料日期與盤中訊號檢查" className={`mt-3 rounded-xl border p-3 text-xs ${LIVE_TONE[check.status]}`}>
+      <div className="flex flex-wrap gap-x-4 gap-y-1 text-muted">
+        <span>日線資料日：<b className="font-mono text-foreground">{check.daily_as_of ?? '不明'}</b>（均線、量價、籌碼都以這天收盤計算）</span>
+        {check.live_price != null && (
+          <span>{check.session === 'intraday' ? '盤中即時價' : '今日收盤價'}：<b className="font-mono text-foreground">{formatPrice(check.live_price)}</b>
+            {check.quote_date && <span className="ml-1 font-mono">（{check.quote_date}{time ? ` ${time}` : ''}）</span>}
+          </span>
+        )}
+      </div>
+      {check.alerts.length > 0
+        ? <ul className="mt-1.5 space-y-0.5">{check.alerts.map(alert => <li key={alert} className={`font-medium ${check.status === 'broken' ? 'text-danger' : 'text-warning'}`}>⚠ {alert}</li>)}</ul>
+        : <p className="mt-1.5 text-foreground/90">{check.explanation}</p>}
+    </div>
+  )
+}
+
+/** 今日 K 線（未收盤）與五檔第一檔；不推算成交方向。 */
+function IntradayBar({ check }: { check: BeginnerLiveSignalCheck }) {
+  return (
+    <div className="mt-2 border-t border-border/50 pt-2 text-xs text-muted">
+      <p className="font-semibold text-foreground/90">{check.session === 'intraday' ? '今日 K 線（盤中、未收盤）' : '今日 K 線（已收盤，尚未寫入日線）'}</p>
+      <p className="font-mono">開 {formatPrice(check.open)} · 高 {formatPrice(check.high)} · 低 {formatPrice(check.low)} · 量 {formatShares(check.volume)}</p>
+      {(check.best_bid != null || check.best_ask != null) && <p className="font-mono">委買 {formatPrice(check.best_bid)} · 委賣 {formatPrice(check.best_ask)}</p>}
+      <p className="mt-1 break-words text-[11px] leading-relaxed">{check.disclaimer}</p>
+    </div>
+  )
 }
 
 function TechnicalSection({ number, title, children }: { number: string; title: string; children: React.ReactNode }) {
@@ -523,7 +563,7 @@ export function BeginnerDashboardWidget() {
           {data.candidates.length === 0 ? (
             <EmptyPicks gaps={data.data_gaps} />
           ) : (
-            <PickComparisonList candidates={data.candidates.slice(0, 5)} compact />
+            <PickComparisonList candidates={data.candidates.slice(0, MAX_COMPARE_SYMBOLS)} compact />
           )}
           <p className="px-0.5 text-[11px] text-muted">{STRENGTH_DISCLAIMER}</p>
         </>
@@ -545,6 +585,7 @@ export function BeginnerStockView({
     queryKey: QK.beginnerSelectionSymbol(symbol),
     queryFn: () => api.beginnerSelectionSymbol(symbol),
     staleTime: 5 * 60 * 1000,
+    refetchInterval: 60_000, // 盤中訊號檢查要跟著最新報價
   })
   const contextQuery = useQuery({
     queryKey: ['external-context', symbol],
@@ -583,6 +624,7 @@ export function BeginnerStockView({
       </div>
       {query.isLoading && <p className="mt-2 flex items-center gap-2 text-xs text-muted"><Loader2 className="h-3.5 w-3.5 animate-spin" /> 整理結論中…</p>}
       {query.isError && <p className="mt-2 text-xs text-danger">初學者結論暫時無法讀取，可展開進階資料查看原始數據。</p>}
+      {candidate && panel?.live_check && <LiveCheckStrip check={panel.live_check} />}
       {candidate && panel && innerOuter && (
         <div className="mt-3 grid min-w-0 grid-cols-1 gap-3 lg:grid-cols-2 xl:grid-cols-4">
           <TechnicalSection number="①" title="現在怎麼做">
@@ -650,8 +692,9 @@ export function BeginnerStockView({
               <p className="text-sm text-muted">{innerOuter.explanation}</p>
             )}
             <p className="mt-1 break-words text-[11px] leading-relaxed text-muted">{innerOuter.disclaimer}</p>
+            {panel.live_check && panel.live_check.session !== 'unavailable' && <IntradayBar check={panel.live_check} />}
             <div className="mt-2 border-t border-border/50 pt-2">
-              <p className="text-xs text-muted">今日成交量 {formatShares(panel.volume.today_volume)} · 20 日均量 {formatShares(panel.volume.average_20d)}</p>
+              <p className="text-xs text-muted">{panel.volume.as_of ? `${panel.volume.as_of} ` : ''}成交量 {formatShares(panel.volume.today_volume)} · 20 日均量 {formatShares(panel.volume.average_20d)}</p>
               <p className="text-xs text-muted">量比 {panel.volume.ratio == null ? '資料不足' : `${panel.volume.ratio.toFixed(2)} 倍`}</p>
               <p className="mt-1 break-words text-xs text-foreground/90">{panel.volume.explanation}</p>
             </div>

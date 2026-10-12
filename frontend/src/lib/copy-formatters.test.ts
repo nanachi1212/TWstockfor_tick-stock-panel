@@ -196,6 +196,15 @@ describe('formatStockDetailCopy & Prompt', () => {
     expect(text).toContain('法人買賣超：不可用 (unavailable)')
   })
 
+  it('labels a quant service error as a system state, not a stock risk', () => {
+    const text = formatStockDetailCopy({
+      symbol: '2368.TWSE', name: '金像電', quote: null, valuation: null, fundamentals: null, institutional_flows: null,
+      quant: { score: null, rank: null, unavailable_reason: 'live_source_or_storage_error:RemoteProtocolError' },
+    })
+    expect(text).toContain('原因：量化服務連線或儲存錯誤（RemoteProtocolError）')
+    expect(text).toContain('不是此股本身的風險訊號')
+  })
+
   it('Stock Detail: exports explicit unavailable metadata without relabeling units', () => {
     const text = formatStockDetailCopy({
       symbol: '8358.TPEX',

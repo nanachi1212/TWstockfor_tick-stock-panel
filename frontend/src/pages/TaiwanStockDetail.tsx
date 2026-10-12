@@ -1800,6 +1800,7 @@ export function TaiwanStockDetail() {
             <div className="flex gap-2">
               <CopyButton
                 size="xs"
+                disabledReason={data ? undefined : (detailQuery.isError ? '個股資料載入失敗，請稍後重試後再複製' : '個股資料載入中，載入完成後才能複製')}
                 label="複製資料"
                 getText={() => {
                   let portfolioPositions: StockDetailCopyData['portfolioPositions'] = null
@@ -1941,6 +1942,7 @@ export function TaiwanStockDetail() {
               />
               <CopyButton
                 size="xs"
+                disabledReason={data ? undefined : (detailQuery.isError ? '個股資料載入失敗，請稍後重試後再複製' : '個股資料載入中，載入完成後才能複製')}
                 label="複製 AI 提示詞"
                 successLabel="已複製提示詞"
                 getText={() => {

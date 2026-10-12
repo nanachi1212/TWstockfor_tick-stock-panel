@@ -58,7 +58,7 @@ LIVE_LABEL: dict[str, str] = {
     "unavailable": "無盤中判斷",
 }
 
-_GATE_NOTE: dict[EvaluationStatus, str] = {
+GATE_NOTE: dict[EvaluationStatus, str] = {
     EvaluationStatus.SKIPPED_MARKET_CLOSED: "目前不是盤中時段，請看收盤後的狀態。",
     EvaluationStatus.SKIPPED_MARKET_UNVERIFIED: "今天是否開盤尚未確認，暫不做盤中判斷。",
     EvaluationStatus.SKIPPED_STALE_DATA: "即時報價已過期，暫不做盤中判斷。",
@@ -152,7 +152,7 @@ def radar_live(candidate: BeginnerCandidate, quote: TaiwanRealtimeQuote | None) 
 def _judge(candidate: BeginnerCandidate, quote: TaiwanRealtimeQuote) -> RadarLive:
     blocked = quote_quality_gate(quote)
     if blocked is not None:
-        return _unavailable(_GATE_NOTE.get(blocked[0], "即時報價不可用。"))
+        return _unavailable(GATE_NOTE.get(blocked[0], "即時報價不可用。"))
     price = quote.last_price
     if price is None or not math.isfinite(price) or price <= 0:
         return _unavailable("即時價格缺漏。")

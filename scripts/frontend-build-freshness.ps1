@@ -68,18 +68,22 @@ function Get-FrontendBuildManifest {
         throw "找不到 frontend build input: $root"
     }
 
-    $entries = foreach ($file in $inputs) {
-        $relative = $file.FullName.Substring($root.Length).TrimStart('\', '/') -replace '\\', '/'
-        [ordered]@{
-            path = $relative
-            sha256 = (Get-FileHash -LiteralPath $file.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
-        }
-    }
-    $canonical = ($entries | ForEach-Object { "$($_.path)`t$($_.sha256)" }) -join "`n"
-    $bytes = [System.Text.Encoding]::UTF8.GetBytes($canonical)
+    # 直接用 .NET SHA256，不用 Get-FileHash：從檔案總管/Windows Terminal 啟動的 Windows PowerShell 5.1
+    # 有時載不到 Microsoft.PowerShell.Utility 模組，捷徑就會在這裡失敗。
     $digest = [System.Security.Cryptography.SHA256]::Create()
     try {
-        $fingerprint = ([System.BitConverter]::ToString($digest.ComputeHash($bytes))).Replace('-', '').ToLowerInvariant()
+        $toHex = { param([byte[]]$hash) ([System.BitConverter]::ToString($hash)).Replace('-', '').ToLowerInvariant() }
+        $entries = foreach ($file in $inputs) {
+            $relative = $file.FullName.Substring($root.Length).TrimStart('\', '/') -replace '\\', '/'
+            $stream = [System.IO.File]::OpenRead($file.FullName)
+            try { $fileHash = & $toHex $digest.ComputeHash($stream) } finally { $stream.Dispose() }
+            [ordered]@{
+                path = $relative
+                sha256 = $fileHash
+            }
+        }
+        $canonical = ($entries | ForEach-Object { "$($_.path)`t$($_.sha256)" }) -join "`n"
+        $fingerprint = & $toHex $digest.ComputeHash([System.Text.Encoding]::UTF8.GetBytes($canonical))
     }
     finally {
         $digest.Dispose()

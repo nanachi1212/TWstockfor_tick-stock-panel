@@ -126,3 +126,6 @@ NanachiStockPanel.app/
 NanachiStockPanel-macos*.dmg
 NanachiStockPanel-macos*.zip
 reports/cursor_tickflow_pro_rate_limit_p0.bundle
+
+# 本機啟動捷徑 (scripts/install-desktop-shortcut.ps1 產生)
+/*.lnk

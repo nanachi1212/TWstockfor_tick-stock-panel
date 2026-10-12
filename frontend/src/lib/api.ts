@@ -3397,9 +3397,32 @@ export interface BeginnerPriceLevelsEvidence {
   freshness: string
 }
 
+export interface BeginnerLiveSignalCheck {
+  status: 'holding' | 'weakened' | 'broken' | 'unavailable'
+  daily_as_of: string | null
+  quote_date: string | null
+  quote_time: string | null
+  session: 'intraday' | 'after_close' | 'unavailable'
+  live_price: number | null
+  open: number | null
+  high: number | null
+  low: number | null
+  volume: number | null
+  best_bid: number | null
+  best_ask: number | null
+  bids: [number, number][]
+  asks: [number, number][]
+  alerts: string[]
+  explanation: string
+  source: string | null
+  disclaimer: string
+}
+
 export interface BeginnerTechnicalPanel {
   summary: string
   current_price: number | null
+  /** Older cached snapshots may not carry it yet. */
+  live_check?: BeginnerLiveSignalCheck
   support: BeginnerPriceLevelsEvidence
   resistance: BeginnerPriceLevelsEvidence
   invalidation: BeginnerPriceLevelsEvidence
