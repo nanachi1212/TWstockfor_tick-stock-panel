@@ -206,6 +206,7 @@ class TaiwanBootstrapService:
         provider HTTP requests.
         """
         from app.taiwan.backfill_worker import TaiwanHistoricalBackfillWorker
+        from app.taiwan.benchmark_store import TaiwanBenchmarkStore
         from app.taiwan.corporate_actions import CorporateActionStore
         from app.taiwan.daily_update import TaiwanDailyUpdateService
         from app.taiwan.events_service import get_event_service
@@ -244,6 +245,9 @@ class TaiwanBootstrapService:
                 daily_store=self.store,
                 inst_store=TaiwanInstitutionalStore(data_dir / "institutional"),
                 margin_store=TaiwanMarginStore(data_dir / "margin"),
+                # Injected stores opt out of the benchmark refresh by default; the manual
+                # update must refresh TAIEX too, or the brief shows a days-old index.
+                benchmark_store=TaiwanBenchmarkStore(data_dir / "benchmark_index.parquet"),
             ).run_update(
                 target_date=source_day, refresh_daily=False
             )

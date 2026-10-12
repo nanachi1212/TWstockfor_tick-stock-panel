@@ -453,6 +453,8 @@ export interface DailyBriefCopyData {
     limit_down?: number | null
     sentiment_label?: string | null
     foreign_net?: number | null
+    institutional_as_of?: string | null
+    institutional_stale?: boolean | null
     trust_net?: number | null
     dealer_net?: number | null
   } | null
@@ -488,6 +490,10 @@ export interface DailyBriefCopyData {
     reason?: string | null
     close?: number | null
     change_pct?: number | null
+    score_scale?: string | null
+    score_session?: string | null
+    score_model?: string | null
+    ranked_universe?: number | null
   }> | null
   events?: Array<{
     symbol?: string
@@ -495,6 +501,13 @@ export interface DailyBriefCopyData {
     date?: string
     type?: string
     title: string
+    summary?: string | null
+    /** current_status_list = 目前名單上的持續狀態，不是今日新公告。 */
+    semantics?: string | null
+    /** 名單本身的日期；來源沒給就是 null，不拿抓取日代替。 */
+    list_date?: string | null
+    /** stale = 來源暫時抓不到，用的是上次快取。 */
+    freshness?: string | null
   }> | null
   news?: Array<{
     title: string
@@ -518,9 +531,13 @@ export function formatDailyBriefCopy(d: DailyBriefCopyData): string {
     lines.push(`- 加權指數：${num(m.taiex_close)} 點 | 漲跌：${num(m.change)} (${pct(m.change_pct)})`)
     const taiexNote = taiexFreshnessNote(m)
     if (taiexNote) lines.push(`  - ⚠ 加權指數${taiexNote}；不可用來解讀今日盤勢。`)
-    lines.push(`- 成交金額：約 ${num(m.turnover, 0)} 億元 | 市場情緒：${sanitize(m.sentiment_label)}`)
+    // turnover 是元；換算成億元再顯示
+    lines.push(`- 成交金額：約 ${m.turnover != null ? num(m.turnover / 1e8, 1) : '不可用 (unavailable)'} 億元 | 市場情緒：${sanitize(m.sentiment_label)}`)
     lines.push(`- 市場廣度：上漲 ${num(m.advances, 0, '—')} 家 (漲停 ${num(m.limit_up, 0, '0')}) | 下跌 ${num(m.declines, 0, '—')} 家 (跌停 ${num(m.limit_down, 0, '0')}) | 平盤 ${num(m.unchanged, 0, '—')} 家`)
-    lines.push(`- 三大法人買賣超：外資 ${num(m.foreign_net, 0)} 億元 | 投信 ${num(m.trust_net, 0)} 億元 | 自營商 ${num(m.dealer_net, 0)} 億元`)
+    // 這三個數字是逐檔「股數」加總，不是金額
+    lines.push(`- 三大法人買賣超（上市＋上櫃逐檔股數加總，不是金額；資料日 ${sanitize(m.institutional_as_of)}）：外資 ${sharesAndLots(m.foreign_net)} | 投信 ${sharesAndLots(m.trust_net)} | 自營商 ${sharesAndLots(m.dealer_net)}`)
+    if (m.institutional_stale) lines.push('  - ⚠ 法人資料日不是報告交易日，不可說成今日法人動向。')
+    else if (m.institutional_stale == null && m.foreign_net != null) lines.push('  - ⚠ 法人資料日不明，不可說成今日法人動向。')
   } else {
     lines.push('- 市場行情資料：不可用 (unavailable)')
   }
@@ -571,7 +588,8 @@ export function formatDailyBriefCopy(d: DailyBriefCopyData): string {
   if (d.candidates && d.candidates.length > 0) {
     lines.push('## 今日量化選股候選標的')
     for (const c of d.candidates.slice(0, 20)) {
-      const score = c.score != null ? ` | 量化分 ${num(c.score)}` : ''
+      const scale = c.score_scale ? `（${sanitize(c.score_scale)}；排名日 ${sanitize(c.score_session)}；模型 ${sanitize(c.score_model)}${c.ranked_universe ? `；共 ${c.ranked_universe} 檔排名` : ''}）` : ''
+      const score = c.score != null ? ` | 量化分 ${num(c.score)}${scale}` : ''
       const reason = c.reason ? ` | 理由：${sanitize(c.reason)}` : ''
       lines.push(`- ${sanitize(c.name)}（${sanitize(c.symbol)}）：收盤 ${num(c.close)} (${pct(c.change_pct)})${score}${reason}`)
     }
@@ -582,7 +600,11 @@ export function formatDailyBriefCopy(d: DailyBriefCopyData): string {
   if (d.events && d.events.length > 0) {
     lines.push('## 市場重點事件')
     for (const ev of d.events.slice(0, 10)) {
-      lines.push(`- [${sanitize(ev.date || '近期')}] ${ev.type ? `【${sanitize(ev.type)}】` : ''}${ev.name ? `${sanitize(ev.name)}: ` : ''}${sanitize(ev.title)}`)
+      const status = ev.semantics === 'current_status_list'
+      const statusNote = ev.freshness === 'fresh'
+        ? '（目前名單上的持續狀態，不是今日新公告；公告日、生效日、結束日來源未提供）'
+        : '（上次抓到的名單狀態，來源目前無法更新，未確認是否仍在名單；不是今日新公告）'
+      lines.push(`- [${status ? `名單日 ${ev.list_date ? sanitize(ev.list_date) : '來源未提供'}` : sanitize(ev.date || '近期')}] ${ev.type ? `【${sanitize(ev.type)}】` : ''}${ev.name ? `${sanitize(ev.name)}: ` : ''}${sanitize(ev.title)}${status ? statusNote : ''}`)
     }
     lines.push('')
   }

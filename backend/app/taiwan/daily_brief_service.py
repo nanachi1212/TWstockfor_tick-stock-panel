@@ -53,7 +53,6 @@ from app.taiwan.industry_intelligence import TaiwanIndustryIntelligenceService
 from app.taiwan.market_intelligence import TaiwanMarketIntelligenceService
 from app.taiwan.market_sentiment_service import get_market_sentiment_service
 from app.taiwan.news_service import get_news_service
-from app.taiwan.quant.live_contract import LiveModel
 from app.taiwan.quant.live_store import LiveLedger
 from app.taiwan.realtime.calendar import TaiwanTradingCalendar, taipei_today
 from app.taiwan.screener import TaiwanScreenerRequest, TaiwanScreenerService
@@ -66,6 +65,12 @@ def _storage_path() -> Path:
     p = settings.data_dir / "user_data" / "taiwan_daily_briefs.json"
     p.parent.mkdir(parents=True, exist_ok=True)
     return p
+
+
+# The percentile is taken over the run's eligible ranking universe (after liquidity, warm-up,
+# adjustment and session-completeness filters), not the whole market; ranked_universe is its size.
+LIVE_SCORE_SCALE = "0~1 百分位排名，只在 Live Quant 合格排名池內比較（1 = 池內最高；不是全市場；凍結排名快照，不是即時重算）"
+SCREENER_SCORE_SCALE = "0~100（Live Quant 合格排名池內的百分位排名 ×100；98.6 = 約池內前 1.4%，不是全市場；凍結排名快照）"
 
 
 class TaiwanDailyBriefService:
@@ -186,6 +191,13 @@ class TaiwanDailyBriefService:
             investment_trust_net=inst_obj.investment_trust_net if inst_obj else None,
             dealer_net=inst_obj.dealer_net if inst_obj else None,
             total_institutional_net=inst_obj.total_net if inst_obj else None,
+            institutional_as_of=getattr(inst_obj, "trade_date", None) if inst_obj else None,
+            institutional_row_count=int(getattr(inst_obj, "row_count", 0) or 0) if inst_obj else 0,
+            institutional_stale=(
+                str(inst_obj.trade_date)[:10] != str(effective_date)
+                if inst_obj and getattr(inst_obj, "trade_date", None)
+                else None
+            ),
             sentiment_label=sentiment_label,
             sentiment_description=sentiment_desc,
             strongest_sectors=strong_sec,
@@ -274,22 +286,32 @@ class TaiwanDailyBriefService:
         # 4. Candidates Layer (Live Quant Top 10 + Strategy Matches)
         new_top10: list[CandidateItem] = []
         dropped_top10: list[CandidateItem] = []
+        # Live signal scores are a 0-1 cross-sectional percentile rank of one frozen, audited
+        # run; the screener shows the same number x100. Say so, or "98.6" reads as a grade.
+        quant_meta: dict[str, Any] = {"score_frozen": True}
         with contextlib.suppress(Exception):
             ledger = LiveLedger()
-            model = LiveModel()
-            runs = ledger.list_runs(limit=2)
+            runs = ledger.list_runs(limit=20)
             if len(runs) >= 1:
-                cur_run_session = runs[0].get("session")
-                cur_data = ledger.read_run(model.key, cur_run_session) if cur_run_session else None
-                cur_signals = (cur_data or {}).get("signals", [])
+                # Scores, model and ranking population all come from the same frozen run.
+                cur_key, cur_run_session = runs[0].get("model_key"), runs[0].get("session")
+                cur_snap = (ledger.read_run(cur_key, cur_run_session) or {}).get("snapshot") or {}
+                run_model = cur_snap.get("model") or {}
+                ranking_universe = cur_snap.get("ranking_universe")
+                quant_meta.update(
+                    score_session=cur_run_session,
+                    score_model=" ".join(str(v) for v in (run_model.get("model_id"), run_model.get("version")) if v) or None,
+                    ranked_universe=len(ranking_universe) if isinstance(ranking_universe, list) else None,
+                )
+                cur_signals = cur_snap.get("signals") or []
                 cur_top10 = cur_signals[:10]
                 cur_syms = {s["symbol"] for s in cur_top10}
 
                 prev_syms: set[str] = set()
-                if len(runs) >= 2:
-                    prev_session = runs[1].get("session")
-                    prev_data = ledger.read_run(model.key, prev_session) if prev_session else None
-                    prev_top10 = (prev_data or {}).get("signals", [])[:10]
+                prev_run = next((r for r in runs[1:] if r.get("model_key") == cur_key), None)
+                if prev_run:
+                    prev_snap = (ledger.read_run(cur_key, prev_run["session"]) or {}).get("snapshot") or {}
+                    prev_top10 = (prev_snap.get("signals") or [])[:10]
                     prev_syms = {s["symbol"] for s in prev_top10}
 
                 # New to top 10
@@ -304,6 +326,8 @@ class TaiwanDailyBriefService:
                                 source_name="Live Quant Top 10 (新入選)",
                                 quant_score=s.get("score"),
                                 rank=rank,
+                                score_scale=LIVE_SCORE_SCALE,
+                                **quant_meta,
                             )
                         )
 
@@ -319,6 +343,8 @@ class TaiwanDailyBriefService:
                                     reason_type="dropped_top10",
                                     source_name="Live Quant Top 10 (掉出)",
                                     quant_score=s.get("score"),
+                                    score_scale=LIVE_SCORE_SCALE,
+                                    **quant_meta,
                                 )
                             )
 
@@ -345,6 +371,8 @@ class TaiwanDailyBriefService:
                             close=item.close,
                             change_pct=item.change_pct,
                             match_reasons=item.match_reasons,
+                            score_scale=SCREENER_SCORE_SCALE if item.quant_score is not None else None,
+                            **quant_meta,
                         )
                     )
 
@@ -412,6 +440,15 @@ class TaiwanDailyBriefService:
             "絕對不得寫成持股為 0、清單為空或無持股；只有 status 為 empty 才可說目前沒有持股。\n"
             "8. 市場廣度：上漲家數多於下跌家數時不得稱為普跌；指數下跌但上漲家數較多時，應描述為權值股拖累、市場廣度並未全面轉弱。\n"
             "9. 沒有歷史均量與量比時，不得宣稱成交量異常；沒有漲跌幅時不得判斷多空。\n"
+            "10. 法人：market.foreign_net 等欄位是 institutional_scope 所述的「逐檔買賣超股數加總」，單位是股（可換算為張），"
+            "絕對不得寫成元、億元或任何金額，也不得與個股法人或交易所公布的金額統計混用；必須寫出 institutional_as_of，"
+            "institutional_stale 為 true 或 null（資料日不明）時都不得說成今日。\n"
+            "11. 量化分數：引用 quant_score 時必須同時寫出 score_scale、score_session 與 score_model；"
+            "它是凍結排名快照（score_frozen），不是即時重新運算，只能當參考排序，不得據此判斷哪一檔較適合買。\n"
+            "12. 事件：details.event_semantics 為 current_status_list 的事件（例如櫃買暫停交易、全額交割名單）是「目前名單上的持續狀態」，"
+            "只有 freshness 為 fresh 時才能寫「目前列為…（名單日 details.list_date）」；freshness 不是 fresh（例如 stale 快取）時，"
+            "只能寫「上次觀察到列為…，未確認是否仍在名單」。都絕對不得寫成今日新公告或今日新增；"
+            "list_date、公告日、生效日、結束日與原因若為 null，必須寫「來源未提供」。\n"
             "5. 必須嚴格輸出合法的 JSON 物件，格式鍵名固定如下：\n"
             "{\n"
             '  "section_a_market": "A. 今日市場概況與盤勢解讀",\n'

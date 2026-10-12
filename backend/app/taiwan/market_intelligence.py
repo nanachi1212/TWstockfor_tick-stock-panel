@@ -121,7 +121,7 @@ def persisted_index_snapshot(target: date | None = None) -> MarketIndexesSnapsho
     from app.taiwan.benchmark_store import latest_benchmark
 
     def snap(symbol: str, name: str) -> IndexSnapshot:
-        row = latest_benchmark(symbol)
+        row = latest_benchmark(symbol, on_or_before=target)
         if not row:
             return IndexSnapshot(symbol=symbol, name=name, status="unavailable")
         return IndexSnapshot(

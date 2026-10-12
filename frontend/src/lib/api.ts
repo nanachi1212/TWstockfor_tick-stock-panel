@@ -5250,6 +5250,12 @@ export interface MarketFactBrief {
   /** 加權指數本身的資料日；與 trade_date 不同時 taiex_stale 為 true。 */
   taiex_as_of?: string | null
   taiex_stale?: boolean | null
+  /** 法人合計是逐檔買賣超「股數」加總（不是金額）。 */
+  institutional_unit?: 'shares'
+  institutional_scope?: string
+  institutional_as_of?: string | null
+  institutional_row_count?: number
+  institutional_stale?: boolean | null
   advance_count: number
   decline_count: number
   flat_count: number
@@ -5317,6 +5323,12 @@ export interface CandidateItem {
   close: number | null
   change_pct: number | null
   match_reasons: string[]
+  /** quant_score 的尺度、凍結排名日與模型；分數不是即時重算。 */
+  score_scale?: string | null
+  score_session?: string | null
+  score_model?: string | null
+  score_frozen?: boolean
+  ranked_universe?: number | null
 }
 
 export interface CandidateFactBrief {

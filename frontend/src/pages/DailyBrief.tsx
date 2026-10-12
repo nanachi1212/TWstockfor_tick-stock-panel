@@ -31,6 +31,14 @@ import { buildPortfolioPositions, PORTFOLIO_CHANGED, readPortfolioLedger } from 
 import { taiexFreshnessNote } from '@/lib/daily-brief'
 import { ExternalContextCard } from '@/components/ExternalContextCard'
 
+/** 法人合計單位是股：顯示成萬張，不寫成金額。 */
+function formatLots(value: number | null | undefined): string {
+  if (value == null || !Number.isFinite(value)) return '-'
+  const lots = value / 1000
+  const text = Math.abs(lots) >= 10_000 ? `${(lots / 10_000).toFixed(1)} 萬張` : `${Math.round(lots).toLocaleString('zh-TW')} 張`
+  return lots > 0 ? `+${text}` : text
+}
+
 /** 持股只存在本機帳本；讀不到就送 null，讓報告寫「持股資料暫時無法取得」而不是 0 持股。 */
 function ledgerHoldings(): Record<string, unknown>[] | null {
   const { transactions, error } = readPortfolioLedger()
@@ -276,6 +284,8 @@ export function DailyBrief() {
                     foreign_net: brief.market.foreign_net,
                     trust_net: brief.market.investment_trust_net,
                     dealer_net: brief.market.dealer_net,
+                    institutional_as_of: brief.market.institutional_as_of,
+                    institutional_stale: brief.market.institutional_stale,
                     advances: brief.market.advance_count,
                     declines: brief.market.decline_count,
                     unchanged: brief.market.flat_count,
@@ -310,6 +320,10 @@ export function DailyBrief() {
                     symbol: c.symbol,
                     name: c.name,
                     score: c.quant_score,
+                    score_scale: c.score_scale,
+                    score_session: c.score_session,
+                    score_model: c.score_model,
+                    ranked_universe: c.ranked_universe,
                     reason: c.match_reasons?.[0],
                     close: c.close,
                     change_pct: c.change_pct,
@@ -320,6 +334,9 @@ export function DailyBrief() {
                     date: e.event_date,
                     type: e.event_type_label,
                     title: e.title || e.event_type_label,
+                    semantics: e.details?.event_semantics ?? null,
+                    list_date: e.details?.list_date ?? null,
+                    freshness: e.freshness ?? null,
                   })),
                   news: brief.news?.items?.map((n: any) => ({
                     title: n.title,
@@ -354,6 +371,8 @@ export function DailyBrief() {
                     foreign_net: brief.market.foreign_net,
                     trust_net: brief.market.investment_trust_net,
                     dealer_net: brief.market.dealer_net,
+                    institutional_as_of: brief.market.institutional_as_of,
+                    institutional_stale: brief.market.institutional_stale,
                     advances: brief.market.advance_count,
                     declines: brief.market.decline_count,
                     unchanged: brief.market.flat_count,
@@ -388,6 +407,10 @@ export function DailyBrief() {
                     symbol: c.symbol,
                     name: c.name,
                     score: c.quant_score,
+                    score_scale: c.score_scale,
+                    score_session: c.score_session,
+                    score_model: c.score_model,
+                    ranked_universe: c.ranked_universe,
                     reason: c.match_reasons?.[0],
                     close: c.close,
                     change_pct: c.change_pct,
@@ -398,6 +421,9 @@ export function DailyBrief() {
                     date: e.event_date,
                     type: e.event_type_label,
                     title: e.title || e.event_type_label,
+                    semantics: e.details?.event_semantics ?? null,
+                    list_date: e.details?.list_date ?? null,
+                    freshness: e.freshness ?? null,
                   })),
                   news: brief.news?.items?.map((n: any) => ({
                     title: n.title,
@@ -532,7 +558,7 @@ export function DailyBrief() {
             </div>
 
             <div className="bg-card border border-border/60 rounded-xl p-4">
-              <span className="text-xs text-muted-foreground">三大法人籌碼</span>
+              <span className="text-xs text-muted-foreground">三大法人買賣超（張）</span>
               <div className="mt-1 space-y-0.5 text-xs">
                 <div className="flex justify-between">
                   <span className="text-muted-foreground">外資</span>
@@ -542,7 +568,7 @@ export function DailyBrief() {
                       (brief.market.foreign_net ?? 0) >= 0 ? 'text-rose-500' : 'text-emerald-500',
                     )}
                   >
-                    {brief.market.foreign_net ? `${(brief.market.foreign_net / 1e8).toFixed(1)} 億` : '-'}
+                    {formatLots(brief.market.foreign_net)}
                   </span>
                 </div>
                 <div className="flex justify-between">
@@ -553,12 +579,14 @@ export function DailyBrief() {
                       (brief.market.investment_trust_net ?? 0) >= 0 ? 'text-rose-500' : 'text-emerald-500',
                     )}
                   >
-                    {brief.market.investment_trust_net
-                      ? `${(brief.market.investment_trust_net / 1e8).toFixed(1)} 億`
-                      : '-'}
+                    {formatLots(brief.market.investment_trust_net)}
                   </span>
                 </div>
               </div>
+              <p className="mt-1 text-[10px] leading-snug text-muted-foreground">
+                上市＋上櫃逐檔買賣超股數加總，不是金額；資料日 {brief.market.institutional_as_of ?? '不明'}
+                {brief.market.institutional_stale ? '（不是今日）' : brief.market.institutional_stale == null ? '（無法確認是否為今日）' : ''}
+              </p>
             </div>
 
             <div className="bg-card border border-border/60 rounded-xl p-4">

@@ -422,3 +422,29 @@ def test_taiwan_bootstrap_api_endpoints(monkeypatch):
     resp_update = client.post("/api/taiwan/bootstrap/update-latest")
     assert resp_update.status_code == 200
     assert resp_update.json()["ok"] is True
+
+
+def test_manual_update_readiness_also_refreshes_the_taiex_benchmark(tmp_path, monkeypatch):
+    """Injected stores opt out of the benchmark refresh, so the manual path must pass it explicitly."""
+    import app.taiwan.daily_update as daily_update
+    import app.taiwan.monthly_revenue_evidence as revenue
+    import app.taiwan.trading_day_evidence as closures
+
+    _, store = _store_until_1008(tmp_path)
+    seen = {}
+
+    class Capture:
+        def __init__(self, **kwargs):
+            seen.update(kwargs)
+
+        def run_update(self, **_):
+            raise RuntimeError("stop after construction")
+
+    def offline(*_a, **_k):
+        raise RuntimeError("offline in tests")
+
+    monkeypatch.setattr(daily_update, "TaiwanDailyUpdateService", Capture)
+    monkeypatch.setattr(revenue, "refresh_monthly_revenue_evidence", offline)
+    monkeypatch.setattr(closures, "fetch_twse_closures", offline)
+    TaiwanBootstrapService(store=store, refresh_service=MagicMock())._refresh_selection_readiness(date(2026, 10, 8))
+    assert seen["benchmark_store"].path == tmp_path / "taiwan" / "benchmark_index.parquet"

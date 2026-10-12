@@ -10,6 +10,7 @@ from __future__ import annotations
 import os
 import tempfile
 import threading
+from datetime import date
 from pathlib import Path
 from typing import Any
 
@@ -60,8 +61,12 @@ class TaiwanBenchmarkStore:
                     os.unlink(tmp)
         return frame.height
 
-    def latest(self, symbol: str) -> dict[str, Any] | None:
-        rows = self.read().filter(pl.col("symbol") == symbol).sort("date")
+    def latest(self, symbol: str, on_or_before: date | None = None) -> dict[str, Any] | None:
+        rows = self.read().filter(pl.col("symbol") == symbol)
+        if on_or_before is not None:
+            # A brief for an older date must not pick up a close published after it.
+            rows = rows.filter(pl.col("date") <= on_or_before)
+        rows = rows.sort("date")
         if rows.is_empty():
             return None
         last = rows.row(-1, named=True)
@@ -109,9 +114,11 @@ class TaiwanBenchmarkStore:
         return stats
 
 
-def latest_benchmark(symbol: str, store: TaiwanBenchmarkStore | None = None) -> dict[str, Any] | None:
+def latest_benchmark(
+    symbol: str, store: TaiwanBenchmarkStore | None = None, on_or_before: date | None = None,
+) -> dict[str, Any] | None:
     try:
-        return (store or TaiwanBenchmarkStore()).latest(symbol)
+        return (store or TaiwanBenchmarkStore()).latest(symbol, on_or_before=on_or_before)
     except (OSError, pl.exceptions.PolarsError):
         return None
 
