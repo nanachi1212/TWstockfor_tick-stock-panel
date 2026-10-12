@@ -1290,7 +1290,9 @@ def build_daily_brief_with_holdings(req: DailyBriefBuildRequest):
             raise HTTPException(status_code=400, detail=f"無效的日期格式: {req.target_date}") from e
     holdings = None
     if req.portfolio_holdings is not None:
-        holdings = [h for h in req.portfolio_holdings[:200] if isinstance(h, dict) and isinstance(h.get("symbol"), str)]
+        if len(req.portfolio_holdings) > 200:
+            raise HTTPException(status_code=422, detail="持股超過 200 檔，無法產生完整摘要")
+        holdings = [h for h in req.portfolio_holdings if isinstance(h, dict) and isinstance(h.get("symbol"), str)]
     try:
         brief = get_daily_brief_service().build_deterministic_brief(target_date=target_dt, portfolio_holdings=holdings)
         return brief.model_dump()

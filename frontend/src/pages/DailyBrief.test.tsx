@@ -4,6 +4,7 @@ import { MemoryRouter } from 'react-router-dom'
 import { QueryClientProvider, QueryClient } from '@tanstack/react-query'
 import { DailyBrief } from './DailyBrief'
 import { api } from '@/lib/api'
+import { PORTFOLIO_CHANGED } from '@/lib/portfolio'
 
 vi.mock('@/lib/api', () => ({
   api: {
@@ -116,6 +117,7 @@ function buildMockBrief() {
 describe('DailyBrief Page (A12)', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    localStorage.removeItem('portfolio_transactions')
     vi.mocked(api.watchlistList).mockResolvedValue({ symbols: [] } as any)
     vi.mocked(api.dailyBrief.listHistory).mockResolvedValue([] as any)
     vi.mocked(api.selectionReview.listForwardBatches).mockResolvedValue([] as any)
@@ -161,6 +163,21 @@ describe('DailyBrief Page (A12)', () => {
     expect(api.dailyBrief.buildDailyBrief).toHaveBeenCalledWith({ portfolio_holdings: [] })
     expect(link).toHaveAttribute('href', '/selection-review?tab=forward&batch_id=forward_latest_1')
     expect(api.dailyBrief.generateAiSummary).not.toHaveBeenCalled()
+  })
+
+  it('sends ledger holdings and refreshes after a ledger change', async () => {
+    vi.mocked(api.dailyBrief.buildDailyBrief).mockResolvedValue(buildMockBrief() as any)
+    render(<QueryClientProvider client={createTestQueryClient()}><MemoryRouter><DailyBrief /></MemoryRouter></QueryClientProvider>)
+    await waitFor(() => expect(api.dailyBrief.buildDailyBrief).toHaveBeenCalledWith({ portfolio_holdings: [] }))
+
+    localStorage.setItem('portfolio_transactions', JSON.stringify([{
+      id: 'buy-1', symbol: '2330.TWSE', name: '台積電', side: 'buy', shares: 1000,
+      price: 100, fee: 0, date: '2026-08-03', createdAt: '2026-08-03T10:00:00Z',
+    }]))
+    fireEvent(window, new Event(PORTFOLIO_CHANGED))
+    await waitFor(() => expect(api.dailyBrief.buildDailyBrief).toHaveBeenLastCalledWith({
+      portfolio_holdings: [{ symbol: '2330.TWSE', name: '台積電', shares: 1000, average_cost: 100 }],
+    }))
   })
 
   it('does not present a failed official batch query as an empty result', async () => {

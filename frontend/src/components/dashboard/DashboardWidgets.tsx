@@ -4,6 +4,7 @@ import { ArrowUpRight, History, Loader2, MessageCircleMore, Sparkles } from 'luc
 import { api } from '@/lib/api'
 import { QK } from '@/lib/queryKeys'
 import { cn } from '@/lib/cn'
+import { taiexFreshnessNote } from '@/lib/daily-brief'
 
 export function DashboardDailyBriefWidget() {
   const briefQuery = useQuery({
@@ -68,7 +69,8 @@ export function DashboardDailyBriefWidget() {
             </div>
           ) : (
             <p className="text-[11px] text-muted leading-relaxed">
-              大盤加權指數 {brief.market.taiex_close?.toFixed(1) ?? '—'}，情緒 {brief.market.sentiment_label}。點擊進入可手動產生今日 AI 深度解讀。
+              大盤加權指數 {brief.market.taiex_close?.toFixed(1) ?? '—'}
+              {taiexFreshnessNote(brief.market) && `（${taiexFreshnessNote(brief.market)}）`}，情緒 {brief.market.sentiment_label}。點擊進入可手動產生今日 AI 深度解讀。
             </p>
           )}
         </div>

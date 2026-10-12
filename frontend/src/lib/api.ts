@@ -5249,7 +5249,7 @@ export interface MarketFactBrief {
   taiex_change_pct: number | null
   /** 加權指數本身的資料日；與 trade_date 不同時 taiex_stale 為 true。 */
   taiex_as_of?: string | null
-  taiex_stale?: boolean
+  taiex_stale?: boolean | null
   advance_count: number
   decline_count: number
   flat_count: number

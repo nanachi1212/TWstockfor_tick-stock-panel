@@ -147,7 +147,7 @@ export const QK = {
   buyPointStats: ['buy-point-stats'] as const,
 
   // Daily Brief (A12)
-  dailyBrief:           (targetDate?: string) => ['daily-brief', targetDate ?? 'today'] as const,
+  dailyBrief:           (targetDate?: string, holdingsKey = 'market') => ['daily-brief', targetDate ?? 'today', holdingsKey] as const,
   dailyBriefHistory:    (limit?: number) => ['daily-brief-history', limit ?? 30] as const,
   dailyBriefHistoryDetail: (briefId: string) => ['daily-brief-history-detail', briefId] as const,
 } as const

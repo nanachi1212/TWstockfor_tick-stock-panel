@@ -31,7 +31,8 @@ class MarketFactBrief(BaseModel):
     taiex_change_pct: float | None = None
     # The TAIEX close comes from the benchmark store, which can lag the daily store.
     taiex_as_of: str | None = None
-    taiex_stale: bool = False
+    # None preserves unknown freshness in briefs saved before taiex_as_of existed.
+    taiex_stale: bool | None = None
 
     advance_count: int = 0
     decline_count: int = 0

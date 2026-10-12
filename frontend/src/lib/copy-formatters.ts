@@ -1,4 +1,5 @@
 import type { BeginnerCandidate, TaiwanDailyItem } from '@/lib/api'
+import { taiexFreshnessNote } from '@/lib/daily-brief'
 
 /**
  * Deterministic formatters for "Export / Copy for External AI".
@@ -440,7 +441,7 @@ export interface DailyBriefCopyData {
   market?: {
     taiex_close?: number | null
     taiex_as_of?: string | null
-    taiex_stale?: boolean
+    taiex_stale?: boolean | null
     change?: number | null
     change_pct?: number | null
     volume?: number | null
@@ -515,7 +516,8 @@ export function formatDailyBriefCopy(d: DailyBriefCopyData): string {
   if (d.market) {
     const m = d.market
     lines.push(`- 加權指數：${num(m.taiex_close)} 點 | 漲跌：${num(m.change)} (${pct(m.change_pct)})`)
-    if (m.taiex_stale) lines.push(`  - ⚠ 加權指數資料日為 ${sanitize(m.taiex_as_of)}，不是報告交易日；不可當成今日指數，也不可用來解讀今日盤勢。`)
+    const taiexNote = taiexFreshnessNote(m)
+    if (taiexNote) lines.push(`  - ⚠ 加權指數${taiexNote}；不可用來解讀今日盤勢。`)
     lines.push(`- 成交金額：約 ${num(m.turnover, 0)} 億元 | 市場情緒：${sanitize(m.sentiment_label)}`)
     lines.push(`- 市場廣度：上漲 ${num(m.advances, 0, '—')} 家 (漲停 ${num(m.limit_up, 0, '0')}) | 下跌 ${num(m.declines, 0, '—')} 家 (跌停 ${num(m.limit_down, 0, '0')}) | 平盤 ${num(m.unchanged, 0, '—')} 家`)
     lines.push(`- 三大法人買賣超：外資 ${num(m.foreign_net, 0)} 億元 | 投信 ${num(m.trust_net, 0)} 億元 | 自營商 ${num(m.dealer_net, 0)} 億元`)
