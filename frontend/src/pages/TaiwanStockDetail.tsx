@@ -46,6 +46,7 @@ import { WatchlistAddMenu } from '@/components/WatchlistAddMenu'
 import { useSafeBack } from '@/lib/useSafeBack'
 import { TodaySelection, selectionReasons } from '@/components/quant/TodaySelection'
 import { PortfolioPanel } from '@/components/portfolio/Portfolio'
+import { ResearchCompareView } from '@/components/research/ResearchCompareView'
 import { BeginnerStockView } from '@/components/beginner/BeginnerPicker'
 import { useTodayQuantSelection } from '@/components/quant/TodaySelection'
 import { storage } from '@/lib/storage'
@@ -95,6 +96,11 @@ function safeHistoryItems(value: unknown): TaiwanAIResearchHistoryRecord[] {
       : []
   if (!Array.isArray(raw)) return []
   return raw.filter((item): item is TaiwanAIResearchHistoryRecord => Boolean(item && typeof item === 'object' && typeof (item as { id?: unknown }).id === 'string' && ((item as { kind?: unknown }).kind == null || (item as { kind?: unknown }).kind === 'report')))
+}
+
+/** 紀錄的資料日：優先證據日，否則用產生時間的日期。 */
+function historyDate(item: { evidence_as_of?: string | null; generated_at?: string | null; saved_at?: string | null }): string | null {
+  return item.evidence_as_of ?? (item.generated_at ?? item.saved_at)?.slice(0, 10) ?? null
 }
 
 export function TaiwanStockDetail() {
@@ -377,8 +383,9 @@ export function TaiwanStockDetail() {
   const comparePrevious = historyItems.find(item => item.id === comparePreviousId)
   const compareBase = comparePrevious && historyItems.find(item => item.id !== comparePrevious.id)
   const compareQuery = useQuery({
-    queryKey: QK.taiwanAIResearchHistoryCompare(compareBase?.id ?? '', comparePrevious?.id ?? ''),
-    queryFn: () => api.taiwanAIResearchHistoryCompare(compareBase!.id, comparePrevious!.id),
+    // before = 舊紀錄 (comparePrevious)、after = 新紀錄 (compareBase)，差異才會讀成「舊 → 新」。
+    queryKey: QK.taiwanAIResearchHistoryCompare(comparePrevious?.id ?? '', compareBase?.id ?? ''),
+    queryFn: () => api.taiwanAIResearchHistoryCompare(comparePrevious!.id, compareBase!.id),
     enabled: Boolean(compareBase && comparePrevious),
   })
   const handleGenerateAiReport = useCallback(async (requestedMode: 'research' | 'advice' = aiMode) => {
@@ -2118,14 +2125,15 @@ export function TaiwanStockDetail() {
           )}
           {comparePrevious && (
             <div className="mt-3 rounded-md border border-purple-500/30 bg-purple-500/5 p-2">
-              <p className="text-[10px] text-muted">比較 {compareBase?.id ?? '較新紀錄'} 與 {comparePrevious.id}</p>
               {compareQuery.isLoading ? <p role="status" className="mt-1 text-[11px] text-muted">正在取得差異…</p>
                 : compareQuery.isError ? <p role="alert" className="mt-1 text-[11px] text-muted">比較目前不可用。</p>
-                  : compareQuery.data ? <div className="mt-2 grid gap-2 md:grid-cols-3">
-                    <div><h5 className="font-semibold text-foreground">資料變化</h5><pre className="mt-1 whitespace-pre-wrap text-[10px] text-muted">{JSON.stringify(compareQuery.data.evidence_data_changes ?? {}, null, 2)}</pre></div>
-                    <div><h5 className="font-semibold text-foreground">模型／提示詞變化</h5><pre className="mt-1 whitespace-pre-wrap text-[10px] text-muted">{JSON.stringify(compareQuery.data.model_prompt_config_changes ?? {}, null, 2)}</pre></div>
-                    <div><h5 className="font-semibold text-foreground">解讀變化</h5><pre className="mt-1 whitespace-pre-wrap text-[10px] text-muted">{JSON.stringify(compareQuery.data.interpretation_report_changes ?? {}, null, 2)}</pre></div>
-                  </div> : null}
+                  : compareQuery.data && compareBase ? (
+                    <ResearchCompareView
+                      data={compareQuery.data}
+                      older={{ id: comparePrevious.id, date: historyDate(comparePrevious) }}
+                      newer={{ id: compareBase.id, date: historyDate(compareBase) }}
+                    />
+                  ) : null}
             </div>
           )}
         </section>

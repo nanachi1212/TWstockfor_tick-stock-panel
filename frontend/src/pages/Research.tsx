@@ -4,6 +4,7 @@ import { useQuery } from '@tanstack/react-query'
 import { AlertTriangle, GitCompareArrows, Loader2, Search } from 'lucide-react'
 import { api, researchPromptVersion, type TaiwanAIResearchHistoryRecord } from '@/lib/api'
 import { QK } from '@/lib/queryKeys'
+import { ResearchCompareView } from '@/components/research/ResearchCompareView'
 
 function recordsFrom(value: unknown): TaiwanAIResearchHistoryRecord[] {
   const raw = Array.isArray(value)
@@ -44,11 +45,18 @@ export function Research() {
     enabled: Boolean(selected?.id),
   })
   const selectedDetail = detailQuery.data ?? selected
+  // 不論 A/B 怎麼選，一律以「舊 → 新」比較，差異才讀得懂。
+  const stamp = (item?: TaiwanAIResearchHistoryRecord) => item?.generated_at ?? item?.saved_at ?? ''
+  const pair = [records.find(r => r.id === firstCompareId), records.find(r => r.id === secondCompareId)]
+  const [olderRecord, newerRecord] = stamp(pair[0]) <= stamp(pair[1]) ? pair : [pair[1], pair[0]]
+  const olderId = olderRecord?.id ?? firstCompareId
+  const newerId = newerRecord?.id ?? secondCompareId
   const compareQuery = useQuery({
-    queryKey: QK.taiwanAIResearchHistoryCompare(firstCompareId, secondCompareId),
-    queryFn: () => api.taiwanAIResearchHistoryCompare(firstCompareId, secondCompareId),
+    queryKey: QK.taiwanAIResearchHistoryCompare(olderId, newerId),
+    queryFn: () => api.taiwanAIResearchHistoryCompare(olderId, newerId),
     enabled: Boolean(firstCompareId && secondCompareId && firstCompareId !== secondCompareId),
   })
+  const dayOf = (item?: TaiwanAIResearchHistoryRecord) => (item as { evidence_as_of?: string | null } | undefined)?.evidence_as_of ?? (stamp(item).slice(0, 10) || null)
   const setFilter = (key: string, value: string) => {
     const next = new URLSearchParams(params)
     if (value) next.set(key, value)
@@ -102,7 +110,7 @@ export function Research() {
             <dl className="mt-3 grid grid-cols-2 gap-2 text-[10px] sm:grid-cols-4"><div><dt className="text-muted">Provider</dt><dd>{selectedDetail.provider ?? '未提供'}</dd></div><div><dt className="text-muted">Model</dt><dd>{selectedDetail.model ?? '未提供'}</dd></div><div><dt className="text-muted">提示詞版本</dt><dd>{researchPromptVersion(selectedDetail) ?? '未提供'}</dd></div><div><dt className="text-muted">儲存時間</dt><dd>{selectedDetail.saved_at ?? selectedDetail.generated_at ?? '未提供'}</dd></div></dl>
             <div className="mt-3 rounded-lg border border-border/50 bg-base/30 p-3"><h3 className="text-xs font-semibold">報告</h3><pre className="mt-2 max-h-[28rem] overflow-auto whitespace-pre-wrap text-[11px] leading-relaxed text-secondary">{printable(selectedDetail.report ?? selectedDetail.response ?? selectedDetail)}</pre></div>
           </article>}
-          {(firstCompareId || secondCompareId) && <article className="rounded-xl border border-purple-500/30 bg-surface p-4"><h2 className="flex items-center gap-2 text-sm font-semibold"><GitCompareArrows className="h-4 w-4 text-purple-300" />研究比較</h2>{!firstCompareId || !secondCompareId ? <p className="mt-2 text-xs text-muted">請在左側各選一筆比較 A 與比較 B。</p> : compareQuery.isLoading ? <p role="status" className="mt-2 text-xs text-muted">正在取得確定性比較…</p> : compareQuery.isError ? <p role="alert" className="mt-2 text-xs text-muted">比較資料目前不可用。</p> : compareQuery.data ? <div className="mt-3 grid gap-3 md:grid-cols-3"><div className="rounded-lg border border-border/50 p-3"><h3 className="text-xs font-semibold">資料變化</h3><pre className="mt-2 whitespace-pre-wrap text-[10px] text-secondary">{printable(compareQuery.data.evidence_data_changes)}</pre></div><div className="rounded-lg border border-border/50 p-3"><h3 className="text-xs font-semibold">模型／提示詞變化</h3><pre className="mt-2 whitespace-pre-wrap text-[10px] text-secondary">{printable(compareQuery.data.model_prompt_config_changes)}</pre></div><div className="rounded-lg border border-border/50 p-3"><h3 className="text-xs font-semibold">解讀變化</h3><pre className="mt-2 whitespace-pre-wrap text-[10px] text-secondary">{printable(compareQuery.data.interpretation_report_changes)}</pre></div></div> : null}</article>}
+          {(firstCompareId || secondCompareId) && <article className="rounded-xl border border-purple-500/30 bg-surface p-4"><h2 className="flex items-center gap-2 text-sm font-semibold"><GitCompareArrows className="h-4 w-4 text-purple-300" />研究比較</h2>{!firstCompareId || !secondCompareId ? <p className="mt-2 text-xs text-muted">請在左側各選一筆比較 A 與比較 B。</p> : compareQuery.isLoading ? <p role="status" className="mt-2 text-xs text-muted">正在取得確定性比較…</p> : compareQuery.isError ? <p role="alert" className="mt-2 text-xs text-muted">比較資料目前不可用。</p> : compareQuery.data ? <ResearchCompareView data={compareQuery.data} older={{ id: olderId, date: dayOf(olderRecord) }} newer={{ id: newerId, date: dayOf(newerRecord) }} /> : null}</article>}
         </section>
       </div>}
     </main>
