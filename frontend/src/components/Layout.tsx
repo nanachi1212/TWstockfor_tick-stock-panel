@@ -33,6 +33,7 @@ import {
   PanelLeftOpen,
 } from 'lucide-react'
 import { Logo } from './Logo'
+import { PageBackButton } from './PageBackButton'
 import { api } from '@/lib/api'
 import { cn } from '@/lib/cn'
 import { resolveWatchlistGroupColor } from '@/lib/watchlist-group-colors'
@@ -793,6 +794,7 @@ export function Layout() {
             與服務連線已中斷 · 正在重連
           </div>
         )}
+        <PageBackButton />
         <Suspense
           fallback={
             <div className="flex items-center justify-center py-24">

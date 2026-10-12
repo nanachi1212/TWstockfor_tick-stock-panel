@@ -332,28 +332,30 @@ def with_live_signal_check(
     broken: list[str] = []
     if below_stop:
         broken.append(f"{label} {price:g} 已跌破失效位，原本的理由已失效。")
-    for days, ma, bucket in ((20, averages.ma20, broken), (5, averages.ma5, weakened)):
-        if ma is not None and close is not None and close > ma and price < ma:
-            text = (f"{label} {price:g} 已跌破 {days} 日均線 {ma:g}（{daily_as_of} 計算），"
-                    + ("原本偏強的判斷不再成立。" if days == 20 else "短線趨勢可能轉弱。"))
-            bucket.append(text)
-    status: LiveCheckStatus = "broken" if broken else "weakened" if weakened else "holding"
+    # Without complete daily MA evidence there is nothing to confirm: never report "holding".
+    ma_ready = (averages.status == "available" and close is not None
+                and averages.ma5 is not None and averages.ma20 is not None)
+    if ma_ready:
+        for days, ma, bucket in ((20, averages.ma20, broken), (5, averages.ma5, weakened)):
+            if ma is not None and close is not None and close > ma and price < ma:
+                text = (f"{label} {price:g} 已跌破 {days} 日均線 {ma:g}（{daily_as_of} 計算），"
+                        + ("原本偏強的判斷不再成立。" if days == 20 else "短線趨勢可能轉弱。"))
+                bucket.append(text)
     alerts = broken + weakened
+    ma_missing = f"{daily_as_of or '日線'} 的均線資料不足，無法用最新報價檢查趨勢條件。"
+    if not ma_ready and not alerts:
+        check = LiveSignalCheck(**base, session=session, live_price=price, explanation=ma_missing)
+        return panel.model_copy(update={"live_check": check})
+    status: LiveCheckStatus = "broken" if broken else "weakened" if weakened else "holding"
     date_note = f"（日線資料日 {daily_as_of}，今日 {quote_date} 尚未納入日線）" if quote_date and daily_as_of and quote_date > daily_as_of else ""
     explanation = (
-        "原判斷需重新評估：" + alerts[0] if alerts
+        "原判斷需重新評估：" + alerts[0] + ("" if ma_ready else ma_missing) if alerts
         else f"{label} {price:g} 仍符合 {daily_as_of} 收盤時的均線條件{date_note}。"
     )
+    # Only live_check changes: the daily summary, MA text and risks stay the frozen daily
+    # evidence (they feed persisted AI explanations), and the UI shows this overlay on top.
     check = LiveSignalCheck(**base, status=status, session=session, live_price=price, alerts=alerts, explanation=explanation)
-    update: dict[str, Any] = {"live_check": check}
-    if alerts:
-        update["summary"] = f"{'訊號已失效' if broken else '短線訊號轉弱'}：{alerts[0]}（{daily_as_of} 的「{panel.summary.split('。')[0]}」需重新評估）"
-        update["moving_averages"] = averages.model_copy(update={
-            "explanation": averages.explanation + f"⚠ {alerts[0]}",
-        })
-        risk = TechnicalRisk(code="live_signal_" + status, text=alerts[0], source=source or "realtime_quote")
-        update["key_risks"] = [risk, *[r for r in panel.key_risks if not r.code.startswith("live_signal_")]][:4]
-    return panel.model_copy(update=update)
+    return panel.model_copy(update={"live_check": check})
 
 
 def _finite(value: Any) -> float | None:
@@ -480,7 +482,7 @@ def _volume(inputs: dict[str, Any], as_of: str | None) -> VolumeEvidence:
     )
 
 
-def _institutional(inputs: dict[str, Any]) -> InstitutionalEvidence:
+def _institutional(inputs: dict[str, Any], daily_as_of: str | None = None) -> InstitutionalEvidence:
     values = [_finite(inputs.get(name)) for name in (
         "foreign_net_5d", "investment_trust_net_5d", "dealer_net_5d",
     )]
@@ -505,11 +507,20 @@ def _institutional(inputs: dict[str, Any]) -> InstitutionalEvidence:
         direction = "買超" if total > 0 else "賣超"
         lead = f"，其中以{leader_name}{'買超' if leader > 0 else '賣超'}為主" if leader else ""
         text = f"近 5 個交易日法人整體偏{direction[0]}{lead}。"
+    text, freshness = _dated(text, as_of, daily_as_of)
     return InstitutionalEvidence(
         status="available", state=state, total_net_5d=total,
         foreign_net_5d=foreign, investment_trust_net_5d=trust, dealer_net_5d=dealer,
-        complete_sessions=5, explanation=text, as_of=as_of, freshness="latest_official",
+        complete_sessions=5, explanation=text, as_of=as_of, freshness=freshness,
     )
+
+
+def _dated(text: str, as_of: Any, daily_as_of: str | None) -> tuple[str, str]:
+    """Chips publish later than prices (margin in the evening); never let an older
+    date read as today's state."""
+    if as_of and daily_as_of and str(as_of)[:10] < str(daily_as_of)[:10]:
+        return f"（{str(as_of)[:10]} 資料，尚未更新到 {str(daily_as_of)[:10]}，不是今日狀況）{text}", "stale"
+    return text, "latest_official"
 
 
 def _balance_state(balance: float | None, change: float | None) -> ChipState:
@@ -524,7 +535,7 @@ def _balance_state(balance: float | None, change: float | None) -> ChipState:
     return "increase_fast" if pct >= 2.0 else "decrease" if pct <= -2.0 else "stable"
 
 
-def _margin(inputs: dict[str, Any]) -> MarginEvidence:
+def _margin(inputs: dict[str, Any], daily_as_of: str | None = None) -> MarginEvidence:
     balance = _finite(inputs.get("margin_balance"))
     change = _finite(inputs.get("margin_change"))
     short = _finite(inputs.get("short_balance"))
@@ -543,11 +554,12 @@ def _margin(inputs: dict[str, Any]) -> MarginEvidence:
     text = f"融資{labels[margin_state]}，融券{labels[short_state]}。"
     if margin_state == "increase_fast":
         text += "近期融資增加較快，短線籌碼可能較擁擠。"
+    text, freshness = _dated(text, as_of, daily_as_of)
     return MarginEvidence(
         status="available", margin_state=margin_state, short_state=short_state,
         margin_balance=balance, margin_change=change, short_balance=short,
         short_change=short_change, explanation=text, as_of=as_of,
-        freshness="latest_official",
+        freshness=freshness,
     )
 
 
@@ -692,9 +704,11 @@ def _risks(
     if volume.pattern == "price_down_volume_up":
         add(75, "price_down_volume_up", volume.explanation, volume.source)
     if institutional.state == "sell":
-        add(70, "institutional_sell", "近 5 個交易日法人整體偏賣。", institutional.source)
+        dated = f"（{institutional.as_of} 資料）" if institutional.freshness == "stale" else ""
+        add(70, "institutional_sell", f"{dated}近 5 個交易日法人整體偏賣。", institutional.source)
     if margin.margin_state == "increase_fast":
-        add(65, "margin_crowded", "融資增加較快，短線籌碼可能較擁擠。", margin.source)
+        dated = f"（{margin.as_of} 資料）" if margin.freshness == "stale" else ""
+        add(65, "margin_crowded", f"{dated}融資增加較快，短線籌碼可能較擁擠。", margin.source)
     if volatility.level == "high":
         add(60, "high_volatility", volatility.explanation, volatility.source)
     if relative.state == "weaker":
@@ -748,8 +762,8 @@ def build_beginner_technical_panel(
     averages = _moving_averages(metrics, as_of)
     inner_outer = InnerOuterEvidence()
     volume = _volume(metrics, as_of)
-    institutional = _institutional(metrics)
-    margin = _margin(metrics)
+    institutional = _institutional(metrics, as_of)
+    margin = _margin(metrics, as_of)
     relative = _relative(metrics, as_of)
     position = _range_position(metrics, as_of)
     volatility = _volatility(metrics, current, as_of)

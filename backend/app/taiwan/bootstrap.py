@@ -24,7 +24,7 @@ from pydantic import BaseModel, Field
 
 from app.taiwan.daily_refresh import TaiwanDailyRefreshService
 from app.taiwan.daily_store import TaiwanDailyStore
-from app.taiwan.daily_update import resolve_target_latest_trading_date
+from app.taiwan.daily_update import resolve_early_update_target_date, resolve_target_latest_trading_date
 from app.taiwan.data_root import taiwan_data_root
 
 logger = logging.getLogger(__name__)
@@ -621,8 +621,14 @@ class TaiwanBootstrapService:
 
         latest = dates[-1]
         target = resolve_target_latest_trading_date()
+        # A manual update also tries today's session as soon as the market has closed
+        # (13:30), instead of waiting for the 16:00 scheduled cutoff. If the exchanges have
+        # not published it yet, today stays pending, not failed, and nothing is written
+        # (an incomplete official snapshot is never stored).
+        early = resolve_early_update_target_date()
+        end = max(target, early)
 
-        if latest >= target:
+        if latest >= end:
             result = {
                 "ok": True,
                 "already_current": True,
@@ -633,16 +639,36 @@ class TaiwanBootstrapService:
             return result
 
         start = latest + timedelta(days=1)
-        res = self.refresh_service.refresh_dates(start_date=start, end_date=target)
+        res = self.refresh_service.refresh_dates(start_date=start, end_date=end)
+        pending = []
+        if end > target:
+            early_str = str(end)
+            unpublished = [f for f in res.get("failed_dates", [])
+                           if f.get("date") == early_str and f.get("status") == "unpublished"]
+            if unpublished:
+                res["failed_dates"] = [f for f in res["failed_dates"] if f not in unpublished]
+                pending = [early_str]
+                res["pending_dates"] = pending
         fetched = res.get("dates_fetched", 0)
-        result = {
-            "ok": True,
-            "already_current": False,
-            "message": f"成功更新 {fetched} 個交易日 (最新至 {target})",
-            "dates_fetched": fetched,
-            "stats": res,
-        }
-        result["selection_readiness"] = self.selection_readiness_refresher(target)
+        newest = st.latest_date() or latest
+        note = f"；今天 ({pending[0]}) 的收盤資料交易所尚未公布，稍後再按一次更新" if pending else ""
+        if fetched == 0 and pending and not res.get("failed_dates"):
+            result = {
+                "ok": True,
+                "already_current": True,
+                "message": f"本地資料已是最新 ({newest}){note}",
+                "dates_fetched": 0,
+                "stats": res,
+            }
+        else:
+            result = {
+                "ok": True,
+                "already_current": False,
+                "message": f"成功更新 {fetched} 個交易日 (最新至 {newest}){note}",
+                "dates_fetched": fetched,
+                "stats": res,
+            }
+        result["selection_readiness"] = self.selection_readiness_refresher(newest if newest > target else target)
         return result
 
     def install_local_bundle(self, bundle_path: Path) -> dict[str, Any]:

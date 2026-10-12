@@ -32,6 +32,13 @@ logger = logging.getLogger(__name__)
 class OfficialDailySnapshotError(RuntimeError):
     """An official full-market snapshot is incomplete or unusable."""
 
+
+class OfficialSnapshotUnpublished(OfficialDailySnapshotError):
+    """The exchange has no snapshot for the date yet (no-data status, no quote table, no rows).
+
+    Distinct from transport errors and schema mismatches, which are real failures.
+    """
+
 TWSE_MI_INDEX_URL = "https://www.twse.com.tw/rwd/zh/afterTrading/MI_INDEX"
 TPEX_DAILY_QUOTES_URL = "https://www.tpex.org.tw/www/zh-tw/afterTrading/dailyQuotes"
 
@@ -104,6 +111,7 @@ class OfficialDailySnapshotAdapter:
         """
         frames: list[pl.DataFrame] = []
         failures: list[str] = []
+        unpublished = True  # every failure so far means "not published yet"
         for exchange, fetch in (("TWSE", self.fetch_twse), ("TPEX", self.fetch_tpex)):
             try:
                 frame = fetch(target_date)
@@ -111,13 +119,17 @@ class OfficialDailySnapshotAdapter:
                     failures.append(f"{exchange}:empty_or_unrecognized_snapshot")
                 else:
                     frames.append(frame)
+            except OfficialSnapshotUnpublished as exc:
+                failures.append(f"{exchange}:{type(exc).__name__}:{exc}")
             except Exception as exc:
+                unpublished = False
                 failures.append(f"{exchange}:{type(exc).__name__}:{exc}")
 
         # The returned frame is written as a date-level completion marker. Do
         # not let a one-exchange snapshot make that date look complete forever.
         if failures:
-            raise OfficialDailySnapshotError(
+            error = OfficialSnapshotUnpublished if unpublished else OfficialDailySnapshotError
+            raise error(
                 f"official_daily_snapshot_incomplete:{target_date}:" + ";".join(failures)
             )
 
@@ -132,7 +144,7 @@ class OfficialDailySnapshotAdapter:
 
         stat = payload.get("stat", "")
         if stat != "OK":
-            raise OfficialDailySnapshotError(
+            raise OfficialSnapshotUnpublished(
                 f"TWSE MI_INDEX returned non-OK status for {target_date}: {stat}"
             )
 
@@ -146,7 +158,7 @@ class OfficialDailySnapshotAdapter:
                 break
 
         if not quote_table:
-            raise OfficialDailySnapshotError(
+            raise OfficialSnapshotUnpublished(
                 f"TWSE MI_INDEX quote table not found for {target_date}"
             )
 
@@ -235,7 +247,7 @@ class OfficialDailySnapshotAdapter:
                 break
 
         if not quote_table:
-            raise OfficialDailySnapshotError(
+            raise OfficialSnapshotUnpublished(
                 f"TPEx dailyQuotes quote table not found for {target_date}"
             )
 

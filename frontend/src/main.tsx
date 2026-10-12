@@ -8,6 +8,20 @@ import { applyFontScale } from './lib/theme'
 
 applyFontScale()
 
+// 前端重新 build 後，已開著的視窗仍引用舊的 chunk 檔名；動態載入失敗時重新載入一次取得新版。
+// sessionStorage 旗標避免新版本身壞掉時無限重新整理。
+window.addEventListener('vite:preloadError', event => {
+  try {
+    if (sessionStorage.getItem('tf-chunk-reload') === '1') return
+    sessionStorage.setItem('tf-chunk-reload', '1')
+  } catch { /* storage blocked: still try one reload */ }
+  event.preventDefault()
+  window.location.reload()
+})
+window.addEventListener('load', () => {
+  try { sessionStorage.removeItem('tf-chunk-reload') } catch { /* ignore */ }
+})
+
 // 全局認證攔截: 任何 query/mutation 收到 401 (未登錄/會話過期) → 跳登錄頁。
 // api.ts 的 request() 已對 401 靜默 (不彈 toast), 這裡統一負責跳轉。
 // 排除 /login 自身的請求, 避免登錄頁請求失敗又跳登錄形成死循環。

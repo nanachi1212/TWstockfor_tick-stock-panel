@@ -307,6 +307,17 @@ def _validate_structured_research_payload(payload: dict[str, Any]) -> None:
 # ── Evidence Registry Builder & Payload Sanitizer ─────────────
 
 
+PERCENT_UNITS_NOTE = (
+    "change_pct、return_5d、return_20d、distance_from_20d_high、distance_from_20d_low、"
+    "technical_context.distance_to_ma20 都已是百分比數值（例如 -3.19 代表 -3.19%），直接加上 % 即可，不可再換算。"
+)
+
+
+def _percent_points(value: float | None) -> float | None:
+    """Decimal ratio (-0.0319) -> percentage points (-3.19)."""
+    return None if value is None else round(value * 100.0, 2)
+
+
 def build_evidence_registry(
     ctx: TaiwanStockResearchContext,
     diag_item: TaiwanAbnormalDiagnosticItem | None,
@@ -371,14 +382,17 @@ def build_evidence_registry(
             missing_items.append("industry_context")
 
     # 4. Price Context
+    # The research context stores ratios as decimals (-0.0319); the model read that as
+    # "-0.03%". Hand it percentage points with the unit spelled out instead.
     payload["price_context"] = {
         "trade_date": ctx.price_context.trade_date,
         "close": ctx.price_context.close,
-        "change_pct": ctx.price_context.change_pct,
-        "return_5d": ctx.price_context.return_5d,
-        "return_20d": ctx.price_context.return_20d,
-        "distance_from_20d_high": ctx.price_context.distance_from_20d_high,
-        "distance_from_20d_low": ctx.price_context.distance_from_20d_low,
+        "change_pct": _percent_points(ctx.price_context.change_pct),
+        "return_5d": _percent_points(ctx.price_context.return_5d),
+        "return_20d": _percent_points(ctx.price_context.return_20d),
+        "distance_from_20d_high": _percent_points(ctx.price_context.distance_from_20d_high),
+        "distance_from_20d_low": _percent_points(ctx.price_context.distance_from_20d_low),
+        "units": PERCENT_UNITS_NOTE,
     }
     registry_keys.update([
         "price_context.trade_date", "price_context.close", "price_context.change_pct",
@@ -391,7 +405,7 @@ def build_evidence_registry(
         "ma5": ctx.technical_context.ma5,
         "ma20": ctx.technical_context.ma20,
         "above_ma20": ctx.technical_context.above_ma20,
-        "distance_to_ma20": ctx.technical_context.distance_to_ma20,
+        "distance_to_ma20": _percent_points(ctx.technical_context.distance_to_ma20),
         "rsi14": ctx.technical_context.rsi14,
         "vol_ratio_5d": ctx.technical_context.vol_ratio_5d,
     }
@@ -743,6 +757,11 @@ SYSTEM_PROMPT = """你是一個客觀、確定性導向的「台股個股研究�
    - intraday_context、fx_context、macro_context 與 secondary_cross_checks 也是凍結證據。只能解釋，不得覆寫官方數字、排名或 TradePlan；secondary provider 不得取代 primary truth。
    - 若其他證據顯示不同看法，只能以「補充解讀」陳述並引用對應證據鍵，不得宣稱原選股結果錯誤或應被取代。
    - 若要求輸出 beginner_answer，三個欄位各一句話、不超過 60 字，只能轉述上述規則結果：can_buy 轉述 selection_state 與 action_summary 的前提，stop_loss 直接引用 trade_plan.stop_price，give_up 轉述 invalidation 與 risks。不得自行給買賣指示或新價位。
+12. 資料日期與單位：
+   - 各區段有自己的資料日 (as_of)。若某區段 as_of 早於 price_context.trade_date，或 freshness 為 stale，必須寫出該資料日，絕對不得描述為「今日」「今天」「當日」的狀況，也不得拿它與 price_context.trade_date 的個股表現作同日比較或相對強弱結論。
+   - 例如融資資料日為 10/08、個股行情為 10/12 時，只能說「10/08 的融資資料顯示…」，不得說「今日融資快速增加」或「今日融資改善」。
+   - price_context 的 change_pct、return_5d、return_20d 等欄位已是百分比數值（-3.19 代表 -3.19%），直接加 % 陳述，不得再換算或縮小。
+   - personal_context.quant 是已稽核的凍結排名快照（session 為排名日期），不是即時重新運算的結果；只能作為參考排序，不得據此判斷哪一檔較適合買進。
 """
 
 

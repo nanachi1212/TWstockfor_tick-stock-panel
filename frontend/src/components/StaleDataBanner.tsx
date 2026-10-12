@@ -32,7 +32,8 @@ export function StaleDataBanner() {
         toast.error(`更新未完成：${res?.message || '上游資料來源暫時無法取得'}${failed ? `（${failed} 個交易日失敗）` : ''}`)
         return
       }
-      toast.success(res.already_current ? '台股資料已是最新' : '台股資料已更新到最近交易日')
+      // 後端訊息會註明「今天的收盤資料交易所尚未公布」等狀態，優先顯示它。
+      toast.success(res.message || (res.already_current ? '台股資料已是最新' : '台股資料已更新到最近交易日'))
     },
     onError: (err: Error) => toast.error('更新失敗：' + (err.message || '請稍後再試')),
   })

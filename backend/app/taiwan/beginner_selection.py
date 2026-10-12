@@ -248,6 +248,8 @@ class BeginnerFacts(BaseModel):
     risk_reason: str | None = None
     attention_recent: bool | None = None
     recent_corporate_action: bool | None = None
+    # Why levels are withheld after a corporate action (date, kind, and when they come back).
+    corporate_action_note: str | None = None
     daily: list[dict[str, Any]] = Field(default_factory=list)
     social_status: Literal["available", "partial", "unavailable"] = "unavailable"
     social_mentions: int | None = None
@@ -423,7 +425,7 @@ def build_dimensions(
         add("price_position", "negative", f"股價比 20 日均線高出 {extension:.1f}%，短線漲多，追價風險高。",
             "screener.trend_pit", extension_above_ma20_pct=round(extension, 2))
     elif facts.recent_corporate_action is not False:
-        add("price_position", "unavailable", "近期有除權息或無法確認，價格位置需調整後才能判斷。", "buy_point.levels")
+        add("price_position", "unavailable", f"{_corporate_action_text(facts)}，價格位置需調整後才能判斷。", "buy_point.levels")
     elif pullback is None or extension is None:
         add("price_position", "unavailable", "近 20 日價格資料不足，無法判斷價格位置。", "buy_point.levels")
     else:
@@ -512,11 +514,37 @@ def decide_state(
     return state, None
 
 
+def _corporate_action_note(event: Any) -> str:
+    """Name the corporate action that withholds price levels and when they come back."""
+    cash = (getattr(event, "cash_dividend", None) or 0) > 0
+    stock = (getattr(event, "free_share_ratio", None) or 0) > 0
+    if getattr(event, "reduction_ratio", None):
+        label = "減資"
+    elif cash and stock:
+        label = "除權息（配股＋配息）"
+    elif stock:
+        label = "除權（配股）"
+    elif cash:
+        label = "除息（配息）"
+    else:
+        label = "除權息或股本調整"
+    effective: date = event.effective_date
+    # The lookback window is [as_of - N, as_of]; the event leaves it N + 1 days later.
+    resume = effective + timedelta(days=CORPORATE_ACTION_LOOKBACK_DAYS + 1)
+    return f"{effective:%m/%d} {label}，價位約 {resume:%m/%d} 後恢復"
+
+
+def _corporate_action_text(facts: BeginnerFacts) -> str:
+    if facts.recent_corporate_action is None:
+        return "無法確認近期是否有除權息（除權息資料暫時讀不到）"
+    return facts.corporate_action_note or "近期有除權息"
+
+
 def _plan(facts: BeginnerFacts, state: SelectionState, signal: BuyPointSignal | None) -> tuple[PlanLevels | None, str | None]:
     if state not in ("watch", "wait_pullback", "wait_breakout"):
         return None, None
     if facts.recent_corporate_action is not False:
-        return None, "近期有除權息或無法確認，暫不提供價位。"
+        return None, f"{_corporate_action_text(facts)}，暫不提供價位。"
     if signal is None:
         return None, "近 20 日價格資料不足，暫不提供價位。"
     rows = facts.daily[-STOP_LOOKBACK:]
@@ -859,11 +887,13 @@ class BeginnerSelectionService:
         candidate, _score = evaluate_candidate(target, market)
         return BeginnerSymbolResponse(generated_at=_now(), market=market, candidate=candidate)
 
-    def evaluate_symbol(self, symbol: str) -> BeginnerSymbolResponse:
+    def evaluate_symbol(self, symbol: str, *, live_check: bool = False) -> BeginnerSymbolResponse:
+        """``live_check`` re-checks the daily conditions with a realtime quote; only the
+        stock-conclusion endpoint asks for it, so polling callers do not hit the quote feed."""
         cached = self._snapshot_candidate(symbol)
         response = cached if cached is not None else self._build_uncached_symbol(symbol)
         self._request_intraday([response.candidate.symbol])
-        response.candidate = self._with_external(response.candidate, fx=self._fx_context())
+        response.candidate = self._with_external(response.candidate, fx=self._fx_context(), live_check=live_check)
         return response
 
     @staticmethod
@@ -899,7 +929,7 @@ class BeginnerSelectionService:
 
     @staticmethod
     def _with_external(
-        candidate: BeginnerCandidate, *, fx: ExternalProviderResult,
+        candidate: BeginnerCandidate, *, fx: ExternalProviderResult, live_check: bool = False,
     ) -> BeginnerCandidate:
         copied = candidate.model_copy(deep=True, update={"fx_context": fx.model_copy(deep=True)})
         try:
@@ -918,7 +948,7 @@ class BeginnerSelectionService:
             copied.intraday_context = ExternalProviderResult.unavailable(
                 "fugle_marketdata:websocket:aggregates", "provider_unavailable",
             )
-        if copied.technical_panel is not None:
+        if live_check and copied.technical_panel is not None:
             copied.technical_panel = _with_live_check(copied, BeginnerSelectionService._live_quote(copied.symbol))
         try:
             from app.taiwan.providers.fred_macro import get_fred_macro_provider
@@ -1036,6 +1066,10 @@ class BeginnerSelectionService:
                 latest_eps=item.latest_eps, pe=item.pe,
                 risk_status=risk_status, risk_reason=risk_reason, attention_recent=attention,
                 recent_corporate_action=(item.symbol in recent_actions) if recent_actions is not None else None,
+                corporate_action_note=(
+                    _corporate_action_note(recent_actions[item.symbol])
+                    if recent_actions is not None and item.symbol in recent_actions else None
+                ),
                 daily=daily.get(item.symbol, []),
                 social_status=social["status"],
                 social_mentions=(social["mentions"].get(item.symbol, 0) if social["status"] != "unavailable" else None),
@@ -1071,9 +1105,11 @@ class BeginnerSelectionService:
     @staticmethod
     def _eligible_date() -> str | None:
         try:
-            from app.taiwan.daily_update import resolve_target_latest_trading_date
+            from app.taiwan.daily_store import TaiwanDailyStore
+            from app.taiwan.daily_update import resolve_analysis_target_date
 
-            return resolve_target_latest_trading_date().isoformat()
+            # Same target the manual update stores: today's session once it is stored after 13:30.
+            return resolve_analysis_target_date(TaiwanDailyStore().latest_date()).isoformat()
         except Exception as exc:
             logger.debug("beginner eligible date unavailable: %s", type(exc).__name__)
             return None
@@ -1095,7 +1131,8 @@ class BeginnerSelectionService:
                 out[row["symbol"]] = values  # type: ignore[assignment]
         return out
 
-    def _recent_actions(self, as_of: date) -> set[str] | None:
+    def _recent_actions(self, as_of: date) -> dict[str, Any] | None:
+        """Latest verified corporate action per symbol in the lookback window; None if unknown."""
         try:
             events = self.screener.action_store.read_verified_window(
                 as_of - timedelta(days=CORPORATE_ACTION_LOOKBACK_DAYS), as_of
@@ -1103,7 +1140,13 @@ class BeginnerSelectionService:
         except Exception as exc:
             logger.debug("beginner corporate actions unavailable: %s", type(exc).__name__)
             return None
-        return None if events is None else {event.symbol for event in events}
+        if events is None:
+            return None
+        latest: dict[str, Any] = {}
+        for event in events:
+            if event.symbol not in latest or event.effective_date > latest[event.symbol].effective_date:
+                latest[event.symbol] = event
+        return latest
 
     def _risk_context(self) -> tuple[Any, list[Any], Any, Any] | None:
         try:
@@ -1383,7 +1426,7 @@ def selection_evidence(symbol: str, service: BeginnerSelectionService | None = N
         "data_gaps": candidate.data_gaps,
         "trade_plan": candidate.trade_plan.model_dump() if candidate.trade_plan else None,
         "technical_panel": (
-            candidate.technical_panel.model_dump() if candidate.technical_panel else None
+            candidate.technical_panel.model_dump(exclude={"live_check"}) if candidate.technical_panel else None
         ),
         "intraday_context": (
             candidate.intraday_context.model_dump() if candidate.intraday_context else None
@@ -1399,11 +1442,37 @@ def selection_evidence(symbol: str, service: BeginnerSelectionService | None = N
     }
 
 
+def _live_check_blocker(daily_as_of: str | None, quote: Any, daily_close: float | None) -> str | None:
+    """Why the latest quote cannot be compared with the frozen daily evidence, or None.
+
+    The daily MAs and plan stop are anchored at ``daily_as_of``.  They stay comparable
+    with today's raw price only when today is the very next session and today's
+    reference price equals that daily close; an ex-rights/ex-dividend reference price
+    (or a skipped session) would otherwise show a false break.
+    """
+    from app.taiwan.daily_update import next_market_session
+
+    if not daily_as_of or quote.trade_date is None:
+        return "日線資料日不明，無法比對最新報價。"
+    daily_day = date.fromisoformat(str(daily_as_of)[:10])
+    if quote.trade_date <= daily_day:
+        return f"今天已收盤，日線已更新到 {daily_as_of}。" if quote.trade_date == daily_day else "最新報價比日線舊。"
+    if next_market_session(daily_day) != quote.trade_date:  # census evidence covers weekday holidays
+        return f"日線資料（{daily_as_of}）落後超過一個交易日，均線需等日線更新後再比對。"
+    reference = _finite(quote.prev_close)
+    if reference is None or daily_close is None:
+        return "拿不到今日參考價，無法確認均線基準是否一致。"
+    if abs(reference - daily_close) > max(daily_close, 1.0) * 1e-6:
+        return (f"今日參考價 {reference:g} 與 {daily_as_of} 收盤 {daily_close:g} 不同（可能除權息），"
+                "均線需等日線更新後再比對。")
+    return None
+
+
 def _with_live_check(candidate: BeginnerCandidate, quote: Any) -> BeginnerTechnicalPanel:
-    """Re-check the daily conditions with the latest quote (same quality gate as alerts/radar)."""
+    """Re-check the daily conditions with the latest quote (same data gate as alerts/radar)."""
     from app.taiwan.beginner_radar import GATE_NOTE
-    from app.taiwan.realtime.models import RealtimeStatus
-    from app.taiwan.realtime.monitor_engine import quote_quality_gate
+    from app.taiwan.realtime.models import MarketStatus
+    from app.taiwan.realtime.monitor_engine import quote_data_gate, quote_quality_gate
     from app.taiwan.realtime.monitor_models import EvaluationStatus
 
     panel = candidate.technical_panel
@@ -1413,30 +1482,31 @@ def _with_live_check(candidate: BeginnerCandidate, quote: Any) -> BeginnerTechni
                                       unavailable_note="目前拿不到即時報價。")
     meta = quote.source_meta
     daily_as_of = panel.moving_averages.as_of or candidate.as_of
-    quote_date = quote.trade_date.isoformat() if quote.trade_date else None
-    blocked = quote_quality_gate(quote)
     session: Literal["intraday", "after_close", "unavailable"] = "intraday"
+    note: str | None = None
+    blocked = quote_quality_gate(quote)
     if blocked is not None:
-        # After the close and before the daily store catches up, today's close is newer than the
-        # daily evidence; use it only when the source itself is trustworthy (fresh, not a fallback).
-        newer_close = (
-            blocked[0] == EvaluationStatus.SKIPPED_MARKET_CLOSED and quote_date and daily_as_of
-            and quote_date > daily_as_of and not meta.is_stale
-            and meta.status != RealtimeStatus.DAILY_FALLBACK.value and meta.source_type != "local_store"
-        )
-        session = "after_close" if newer_close else "unavailable"
+        # A finished session's close is usable only after the close (not pre-open, holiday or
+        # unknown) and only from a fresh, non-delayed, non-fallback source.
+        closed = quote.market_status in {MarketStatus.POST_CLOSE.value, MarketStatus.CLOSED.value}
+        data_blocked = quote_data_gate(quote)
+        if blocked[0] == EvaluationStatus.SKIPPED_MARKET_CLOSED and closed and data_blocked is None:
+            session = "after_close"
+        else:
+            session = "unavailable"
+            reason = data_blocked if blocked[0] == EvaluationStatus.SKIPPED_MARKET_CLOSED and data_blocked else blocked
+            note = GATE_NOTE.get(reason[0], "即時報價不可用。")
+    if session != "unavailable":
+        note = _live_check_blocker(daily_as_of, quote, panel.current_price)
+        if note is not None:
+            session = "unavailable"
     plan = candidate.trade_plan
     price = quote.last_price if session != "unavailable" else None
     return with_live_signal_check(
-        panel, price=price, session=session,
+        panel, price=price, session=session, unavailable_note=note,
         below_stop=bool(plan is not None and price is not None and price < plan.stop_price),
-        unavailable_note=(
-            (f"今天已收盤，日線已更新到 {daily_as_of}。" if quote_date == daily_as_of
-             and blocked[0] == EvaluationStatus.SKIPPED_MARKET_CLOSED
-             else GATE_NOTE.get(blocked[0], "即時報價不可用。"))
-            if blocked and session == "unavailable" else None
-        ),
-        quote_date=quote_date, quote_time=quote.quote_time.isoformat() if quote.quote_time else None,
+        quote_date=quote.trade_date.isoformat() if quote.trade_date else None,
+        quote_time=quote.quote_time.isoformat() if quote.quote_time else None,
         source=meta.source, open_=quote.open, high=quote.high, low=quote.low, volume=quote.volume,
         bids=[(float(p), float(v)) for p, v in quote.bids], asks=[(float(p), float(v)) for p, v in quote.asks],
     )

@@ -409,6 +409,8 @@ def _open_window(url: str) -> None:
         min_size=(1024, 700),
         # 桌面版固定单窗口, 禁用外部浏览器跳转
         confirm_close=False,
+        # pywebview defaults text_select=False, which blocks selecting and copying any text.
+        text_select=True,
     )
     # pywebview 预设 private_mode=True: 关窗即清空 localStorage (持股纪录、字级、主题全丢)。
     # 改用固定的本机储存位置, 让浏览器端资料跨重启保留。

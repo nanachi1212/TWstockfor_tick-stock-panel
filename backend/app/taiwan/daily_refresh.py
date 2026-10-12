@@ -16,7 +16,7 @@ import polars as pl
 from app.taiwan.daily_store import TaiwanDailyStore
 from app.taiwan.observed_universe import ObservedUniverseStore, is_potential_market_session
 from app.taiwan.providers.hybrid_provider import TaiwanHybridProvider
-from app.taiwan.providers.snapshot_provider import OfficialDailySnapshotAdapter
+from app.taiwan.providers.snapshot_provider import OfficialDailySnapshotAdapter, OfficialSnapshotUnpublished
 from app.taiwan.realtime.calendar import TaiwanTradingCalendar
 from app.taiwan.universe import get_security_master
 
@@ -182,8 +182,12 @@ class TaiwanDailyRefreshService:
                     # no date partition was persisted, so the gap must remain
                     # visible and retryable on the next scheduled run.
                     stats["failed_dates"].append({
-                        "date": str(cur), "error": "empty_official_daily_snapshot"
+                        "date": str(cur), "error": "empty_official_daily_snapshot", "status": "unpublished",
                     })
+            except OfficialSnapshotUnpublished as exc:
+                # The exchange has no snapshot for this date yet; callers decide whether that
+                # is expected (today right after the close) or a gap.
+                stats["failed_dates"].append({"date": str(cur), "error": str(exc), "status": "unpublished"})
             except Exception as exc:
                 logger.warning("Daily snapshot refresh failed for %s: %s", cur, exc)
                 stats["failed_dates"].append({"date": str(cur), "error": str(exc)})

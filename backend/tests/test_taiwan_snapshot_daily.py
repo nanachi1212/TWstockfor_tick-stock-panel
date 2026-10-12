@@ -29,6 +29,7 @@ from app.taiwan.daily_update import TaiwanDailyUpdateService
 from app.taiwan.providers.snapshot_provider import (
     OfficialDailySnapshotAdapter,
     OfficialDailySnapshotError,
+    OfficialSnapshotUnpublished,
 )
 from app.taiwan.realtime.calendar import TaiwanTradingCalendar
 from app.taiwan.universe import TaiwanSecurityMaster
@@ -282,6 +283,30 @@ def test_one_exchange_failure_rejects_incomplete_market_snapshot():
         adapter.fetch_date(date(2026, 8, 28))
 
 
+def test_unpublished_snapshot_is_typed_separately_from_real_failures():
+    adapter = OfficialDailySnapshotAdapter(security_master=mock_security_master())
+    adapter._request_json = MagicMock(return_value={"stat": "很抱歉，沒有符合條件的資料!", "tables": []})
+    with pytest.raises(OfficialSnapshotUnpublished):
+        adapter.fetch_date(date(2026, 10, 12))
+
+    # One exchange not published yet + one transport error: a real failure, not "pending".
+    adapter.fetch_twse = MagicMock(side_effect=OfficialSnapshotUnpublished("TWSE not yet"))
+    adapter.fetch_tpex = MagicMock(side_effect=RuntimeError("connection reset"))
+    with pytest.raises(OfficialDailySnapshotError) as exc_info:
+        adapter.fetch_date(date(2026, 10, 12))
+    assert not isinstance(exc_info.value, OfficialSnapshotUnpublished)
+
+
+def test_refresh_marks_unpublished_dates_with_a_structured_status():
+    mock_store = MagicMock(spec=TaiwanDailyStore)
+    mock_store.available_dates.return_value = []
+    mock_adapter = MagicMock(spec=OfficialDailySnapshotAdapter)
+    mock_adapter.fetch_date.side_effect = OfficialSnapshotUnpublished("TWSE MI_INDEX quote table not found")
+    service = TaiwanDailyRefreshService(store=mock_store, snapshot_adapter=mock_adapter)
+    stats = service.refresh_dates(date(2026, 10, 12), date(2026, 10, 12))
+    assert [f["status"] for f in stats["failed_dates"]] == ["unpublished"]
+
+
 def test_empty_full_market_response_is_failed_and_retryable():
     """A zero-row response is not counted as a completed daily refresh."""
     mock_store = MagicMock(spec=TaiwanDailyStore)
@@ -301,7 +326,7 @@ def test_empty_full_market_response_is_failed_and_retryable():
         assert stats["dates_fetched"] == 0
         assert stats["dates_skipped"] == 0
         assert stats["failed_dates"] == [{
-            "date": "2026-08-28", "error": "empty_official_daily_snapshot"
+            "date": "2026-08-28", "error": "empty_official_daily_snapshot", "status": "unpublished",
         }]
     assert mock_adapter.fetch_date.call_count == 2
     mock_store.write_batch.assert_not_called()

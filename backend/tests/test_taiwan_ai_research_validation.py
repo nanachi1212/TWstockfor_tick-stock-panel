@@ -776,3 +776,20 @@ def test_build_evidence_registry_stock_has_no_not_applicable_key():
 
     assert "abnormal_not_applicable_signals" not in payload
     assert "abnormal.not_applicable_signals" not in registry_keys
+
+
+@pytest.mark.asyncio
+async def test_price_ratios_reach_the_model_as_percentage_points(taiwan_data_env):
+    """-0.0319 was written by the model as "-0.03%"; it must receive -3.19 with the unit spelled out."""
+    svc = TaiwanAIResearchService()
+    ctx = svc.research_svc.get_research_context("2330.TWSE", target_date=date(2026, 8, 28))
+    ctx = ctx.model_copy(deep=True)
+    ctx.price_context.change_pct = -0.031933
+    ctx.price_context.return_5d = 0.023091
+    payload, _keys, _ = build_evidence_registry(ctx, diag_item=None)
+    assert payload["price_context"]["change_pct"] == -3.19
+    assert payload["price_context"]["return_5d"] == 2.31
+    assert "-3.19 代表 -3.19%" in payload["price_context"]["units"]
+
+    from app.taiwan.ai_research import SYSTEM_PROMPT
+    assert "不得描述為「今日」" in SYSTEM_PROMPT and "凍結排名快照" in SYSTEM_PROMPT

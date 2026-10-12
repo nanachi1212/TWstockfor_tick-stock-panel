@@ -1,4 +1,5 @@
 import { lazy } from 'react'
+import { RouteError } from './components/RouteError'
 import { createBrowserRouter, Navigate } from 'react-router-dom'
 import { Layout } from './components/Layout'
 import { Onboarding } from './pages/Onboarding'
@@ -117,6 +118,7 @@ export const router = createBrowserRouter([
         <Layout />
       </OnboardingGuard>
     ),
+    errorElement: <RouteError />,
     children: [
       { index: true, element: <Dashboard /> },
       { path: 'overview', element: <Navigate to="/" replace /> },

@@ -1216,7 +1216,7 @@ def get_beginner_selection_symbol(symbol: str):
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=f"無效的台股代號: {symbol}") from exc
     try:
-        return BeginnerSelectionService().evaluate_symbol(canonical).model_dump(mode="json")
+        return BeginnerSelectionService().evaluate_symbol(canonical, live_check=True).model_dump(mode="json")
     except Exception as e:
         logger.exception("Failed to evaluate beginner selection for %s: %s", symbol, e)
         raise HTTPException(status_code=500, detail="個股初學者結論彙整失敗") from e

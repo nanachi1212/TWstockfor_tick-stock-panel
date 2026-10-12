@@ -357,7 +357,7 @@ def test_collect_keeps_complete_institutional_totals_without_flow_ratio(monkeypa
     monkeypatch.setattr(service, "_eligible_date", lambda: AS_OF)
     monkeypatch.setattr(service, "_market", lambda _as_of: FAVORABLE)
     monkeypatch.setattr(service, "_trend", lambda _symbols, _as_of: {item.symbol: (99.0, 95.0, 0.02)})
-    monkeypatch.setattr(service, "_recent_actions", lambda _as_of: set())
+    monkeypatch.setattr(service, "_recent_actions", lambda _as_of: {})
     monkeypatch.setattr(service, "_risk_context", lambda: None)
     monkeypatch.setattr(service, "_daily_rows", lambda _symbols, _as_of: {})
     monkeypatch.setattr(service, "_technical_metrics", lambda _symbols, _as_of: {})
@@ -648,6 +648,25 @@ def test_service_reports_stale_quotes_as_global_gap(monkeypatch):
     assert result.market.state == "unavailable"
     assert f"行情停在 {AS_OF}，尚未更新到最新交易日" in result.data_gaps
     assert result.candidates == []
+
+
+def test_withheld_levels_name_the_corporate_action_and_the_resume_date():
+    from types import SimpleNamespace
+
+    from app.taiwan.beginner_selection import _corporate_action_note
+
+    # 1815 富喬: ex-rights and ex-dividend on 2026-09-09 (50 shares per 1000 + NT$0.5 cash).
+    event = SimpleNamespace(effective_date=date(2026, 9, 9), cash_dividend=0.5, free_share_ratio=0.05, reduction_ratio=None)
+    note = _corporate_action_note(event)
+    assert note == "09/09 除權息（配股＋配息），價位約 10/20 後恢復"
+    assert _corporate_action_note(SimpleNamespace(effective_date=date(2026, 9, 9), cash_dividend=2.0,
+                                                  free_share_ratio=None, reduction_ratio=None)).startswith("09/09 除息（配息）")
+
+    known, _ = evaluate_candidate(_facts(recent_corporate_action=True, corporate_action_note=note), FAVORABLE)
+    assert known.plan_unavailable_reason == f"{note}，暫不提供價位。"
+    assert note in _dims(known)["price_position"].explanation
+    unknown, _ = evaluate_candidate(_facts(recent_corporate_action=None), FAVORABLE)
+    assert "無法確認近期是否有除權息" in (unknown.plan_unavailable_reason or "")
 
 
 def test_no_chase_risk_survives_recent_corporate_action():

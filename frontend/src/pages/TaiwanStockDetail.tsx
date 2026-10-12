@@ -30,6 +30,7 @@ import {
   isTaiwanAIAdviceResponse,
   researchPromptVersion,
   type BuyPointSignal,
+  type BeginnerSymbolResponse,
 } from '@/lib/api'
 import { QK } from '@/lib/queryKeys'
 import { cn } from '@/lib/cn'
@@ -494,13 +495,14 @@ export function TaiwanStockDetail() {
 
   const copyQuantSelectedSignal = quantSelection.signals.find(item => item.symbol === symbol)
   const copyQuantSignal = copyQuantSelectedSignal ?? quantSelection.ranking.find(item => item.symbol === symbol)
-  const copyQuantUnavailableReason = quantSelection.error || quantSelection.fetching
-    ? 'Live Quant 資料目前無法讀取或仍在更新'
-    : !quantSelection.validRun
-      ? quantSelection.recommendationReason || '目前沒有有效 Live Quant run'
-      : !copyQuantSignal
-        ? '此標的未進入目前有效 Live Quant run 的可計分 universe'
-        : null
+  // 已拿到分數時不寫「無法讀取」：背景重新整理 (fetching) 不代表手上的快照不可用。
+  const copyQuantUnavailableReason = copyQuantSignal
+    ? null
+    : quantSelection.error || quantSelection.fetching
+      ? 'Live Quant 資料目前無法讀取或仍在更新'
+      : !quantSelection.validRun
+        ? quantSelection.recommendationReason || '目前沒有有效 Live Quant run'
+        : '此標的未進入目前有效 Live Quant run 的可計分 universe'
   const copyQuantReasons = copyQuantSignal
     ? (copyQuantSelectedSignal?.reason_summary
         ? [copyQuantSelectedSignal.reason_summary]
@@ -1929,6 +1931,8 @@ export function TaiwanStockDetail() {
                     })) ?? null,
                     portfolioPositions,
                     includePortfolio: includePortfolioInCopy,
+                    beginner: qc.getQueryData<BeginnerSymbolResponse>(QK.beginnerSelectionSymbol(symbol ?? ''))?.candidate ?? null,
+                    daily_bars: data?.daily_history?.rows?.slice(-20) ?? null,
                     aiReport: aiReport ? [
                       aiReport.overview,
                       aiReport.price_technical_interpretation,
@@ -2072,6 +2076,8 @@ export function TaiwanStockDetail() {
                     })) ?? null,
                     portfolioPositions,
                     includePortfolio: includePortfolioInCopy,
+                    beginner: qc.getQueryData<BeginnerSymbolResponse>(QK.beginnerSelectionSymbol(symbol ?? ''))?.candidate ?? null,
+                    daily_bars: data?.daily_history?.rows?.slice(-20) ?? null,
                     aiReport: aiReport ? [
                       aiReport.overview,
                       aiReport.price_technical_interpretation,

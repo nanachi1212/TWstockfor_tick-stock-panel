@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { DecompressionStream as NodeDecompressionStream } from 'node:stream/web'
-import { holdingsFileToText, htmlTablesToText, xlsxToText } from './holdingsFile'
+import { excelSerialToDate, holdingsFileToText, htmlTablesToText, xlsxToText } from './holdingsFile'
 import { parsePortfolioImport } from './portfolio'
 
 // jsdom 沒有 DecompressionStream；Node 有，測試時補上。
@@ -21,6 +21,22 @@ describe('holdings file import', () => {
   it('reads an .xlsx sheet (shared strings, empty column, negative cost) into importable rows', async () => {
     const text = await xlsxToText(xlsxBuffer())
     expect(parsePortfolioImport(text, '2026-10-09')).toEqual({ rows: EXPECTED, errors: [] })
+  })
+
+  it('keeps Excel date cells (built-in, custom format, 1904 system) instead of the import day', async () => {
+    const toBuffer = (b64: string) => Uint8Array.from(atob(b64), ch => ch.charCodeAt(0)).buffer
+    const expected = [
+      { code: '2330', name: '', shares: 10, price: 900, fee: 0, date: '2026-09-30' },
+      { code: '2308', name: '', shares: 200, price: 2010, fee: 0, date: '2026-10-01' },
+    ]
+    for (const b64 of ['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']) {
+      expect(parsePortfolioImport(await xlsxToText(toBuffer(b64)), '2026-10-12').rows).toEqual(expected)
+    }
+    // Attribute order is not fixed in OOXML: formatCode before numFmtId, s before r.
+    const reordered = await xlsxToText(toBuffer('UEsDBBQAAAAIAFiITF2d1J3OQAAAAHcAAAAUAAAAeGwvc2hhcmVkU3RyaW5ncy54bWyzKS4usbMpzrSzKbF7snvxi5nzbfRL7Gz0QSIQ0RdNC59N3YEu+nRu+9Pmneiiz6YvfTYHwwQjY2MDhJg+yEYAUEsDBBQAAAAIAFiITF1jLnX5fQAAAL8AAAANAAAAeGwvc3R5bGVzLnhtbLMpLqnMSQ3OSE0tsbPJK811yy0pVkjOL80rsVUyVIIJKaTlF+Umljjnp6TaKlVWVlbq5ubqpqQoKUCkPVNslQzNTJX07Wz0oWbY2SSn5uREpMENM1Kys6lIQ9JgAFJekaaQWFCQU+lXmpuUWuQGtgVkMRaDoebZ2egjORkAUEsDBBQAAAAIAFiITF3qgtFGfAAAACsBAAAYAAAAeGwvd29ya3NoZWV0cy9zaGVldDEueG1sXZBBCoUwDESvIrlAbL8KQgx89SIiguCi0Jb2+lKVGrtKyBuYyVA09nD7tnmma8yLX5isiZUdQAHTmpa/gsoP4IApcE0YmHB92CiZ+rJJMv1ls2S/zNCamAPoHEALcVMESKrAqsg13ee+lneXnrrcb9p0um8LbxRF4NvPCVBLAQIUABQAAAAIAFiITF2d1J3OQAAAAHcAAAAUAAAAAAAAAAAAAACAAQAAAAB4bC9zaGFyZWRTdHJpbmdzLnhtbFBLAQIUABQAAAAIAFiITF1jLnX5fQAAAL8AAAANAAAAAAAAAAAAAACAAXIAAAB4bC9zdHlsZXMueG1sUEsBAhQAFAAAAAgAWIhMXeqC0UZ8AAAAKwEAABgAAAAAAAAAAAAAAIABGgEAAHhsL3dvcmtzaGVldHMvc2hlZXQxLnhtbFBLBQYAAAAAAwADAMMAAADMAQAAAAA='))
+    expect(parsePortfolioImport(reordered, '2026-10-12').rows[0].date).toBe('2026-09-30')
+    expect(excelSerialToDate(46295)).toBe('2026-09-30')
+    expect(excelSerialToDate(44833, true)).toBe('2026-09-30')
   })
 
   it('converts an HTML-table ".xls" export and routes by extension', async () => {
