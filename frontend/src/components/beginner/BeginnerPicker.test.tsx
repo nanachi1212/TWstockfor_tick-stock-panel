@@ -73,6 +73,17 @@ describe('Beginner Stock Picker', () => {
     vi.mocked(api.taiwanStoredAIExplain).mockResolvedValue({ response: null })
   })
 
+  it('lets the user tick up to 10 stocks for comparison (was capped at 5)', async () => {
+    vi.mocked(api.beginnerSelection).mockResolvedValue(beginnerSelection(12))
+    renderWith(<BeginnerDashboardWidget />)
+    await screen.findByText('今天市場怎麼看？')
+    const boxes = () => screen.getAllByRole('checkbox', { name: /^比較 / })
+    for (let i = 0; i < 6; i++) fireEvent.click(boxes()[i])
+    expect(screen.getByText(/已選 6 \/ 10 檔/)).toBeInTheDocument()
+    for (let i = 6; i < 10; i++) fireEvent.click(boxes()[i])
+    expect(screen.getByText(/已選 10 \/ 10 檔.*已達上限/)).toBeInTheDocument()
+  })
+
   it('dashboard shows market summary, at most 10 cards, view-all link and the strength disclaimer', async () => {
     vi.mocked(api.beginnerSelection).mockResolvedValue(beginnerSelection(12))
     renderWith(<BeginnerDashboardWidget />)

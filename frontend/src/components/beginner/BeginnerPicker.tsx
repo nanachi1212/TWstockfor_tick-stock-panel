@@ -456,7 +456,7 @@ export function useCompareSelection(symbols: string[]) {
   const selected = [...new Set((params.get('compare') ?? '').split(','))].filter(s => available.has(s)).slice(0, MAX_COMPARE_SYMBOLS)
   const toggle = (symbol: string) => {
     const next = selected.includes(symbol) ? selected.filter(s => s !== symbol) : [...selected, symbol]
-    if (next.length > 5) return
+    if (next.length > MAX_COMPARE_SYMBOLS) return
     setParams(prev => {
       const updated = new URLSearchParams(prev)
       if (next.length) updated.set('compare', next.join(','))
