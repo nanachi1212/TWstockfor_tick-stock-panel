@@ -1265,6 +1265,8 @@ def get_daily_brief(target_date: str | None = None):
     try:
         brief = svc.build_deterministic_brief(target_date=target_dt)
         return brief.model_dump()
+    except LookupError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
     except Exception as e:
         logger.exception("Failed to build daily brief: %s", e)
         raise HTTPException(status_code=500, detail=f"每日簡報彙整失敗: {e}") from e
@@ -1296,6 +1298,8 @@ def build_daily_brief_with_holdings(req: DailyBriefBuildRequest):
     try:
         brief = get_daily_brief_service().build_deterministic_brief(target_date=target_dt, portfolio_holdings=holdings)
         return brief.model_dump()
+    except LookupError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
     except Exception as e:
         logger.exception("Failed to build daily brief: %s", e)
         raise HTTPException(status_code=500, detail=f"每日簡報彙整失敗: {e}") from e

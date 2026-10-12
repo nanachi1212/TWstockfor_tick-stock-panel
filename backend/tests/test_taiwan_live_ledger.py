@@ -67,6 +67,18 @@ def batch(model, day, value=1):
     })
 
 
+def test_list_runs_applies_date_bound_before_limit(ledger):
+    store, clock = ledger
+    model = LiveModel()
+    store.activate(model)
+    store.freeze(batch(model, date(2026, 9, 21)))
+    clock[0] += timedelta(days=1)
+    store.freeze(batch(model, date(2026, 9, 22)))
+    assert store.list_runs(limit=1)[0]["session"] == "2026-09-22"
+    assert store.list_runs(limit=1, on_or_before="2026-09-21")[0]["session"] == "2026-09-21"
+    assert store.list_runs(on_or_before="2026-09-18") == []
+
+
 def test_immutable_retry_conflict_and_no_arbitrary_backfill(ledger):
     store, clock = ledger
     model = LiveModel()

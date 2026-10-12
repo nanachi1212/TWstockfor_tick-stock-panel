@@ -286,12 +286,14 @@ class LiveLedger:
                               (min(max(limit, 1), 1000),)).fetchall()
         return [self.read_run(row["model_key"], row["session"]) for row in rows]
 
-    def list_runs(self, limit: int = 30) -> list[dict[str, Any]]:
+    def list_runs(self, limit: int = 30, *, on_or_before: str | None = None) -> list[dict[str, Any]]:
         with self._connect() as db:
             rows = [dict(row) for row in db.execute(
                 """SELECT model_key,session,digest AS snapshot_hash,frozen_at,
                     json_array_length(snapshot,'$.signals') AS signal_count
-                   FROM runs ORDER BY session DESC LIMIT ?""", (min(max(limit, 1), 100),))]
+                   FROM runs WHERE (? IS NULL OR session <= ?)
+                   ORDER BY session DESC LIMIT ?""",
+                (on_or_before, on_or_before, min(max(limit, 1), 100)))]
         result = []
         for row in rows:
             run = self.read_run(row["model_key"], row["session"])

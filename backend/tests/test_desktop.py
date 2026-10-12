@@ -154,6 +154,23 @@ def test_log_sanitizer_hides_credentials():
     assert result.count("[已隱藏]") == 3
 
 
+def test_log_formatter_redacts_telegram_url_and_exception():
+    import logging
+
+    from app.log_sanitizer import SanitizingFormatter
+
+    url = "https://api.telegram.org/bot123456:fake-secret/getUpdates"
+    record = logging.LogRecord("httpx", logging.INFO, "", 0, "HTTP Request: GET %s", (url,), None)
+    formatter = SanitizingFormatter("%(message)s")
+    assert "fake-secret" not in formatter.format(record)
+    assert "/getUpdates" in formatter.format(record)
+    try:
+        raise RuntimeError(url)
+    except RuntimeError:
+        record.exc_info = sys.exc_info()
+    assert "fake-secret" not in formatter.format(record)
+
+
 def test_offline_incremental_refresh_is_non_fatal(monkeypatch):
     class OfflineBootstrap:
         @staticmethod

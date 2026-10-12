@@ -18,7 +18,6 @@ from __future__ import annotations
 import json
 import logging
 import os
-import re
 import socket
 import sys
 import threading
@@ -26,31 +25,15 @@ import time
 import traceback
 from pathlib import Path
 
+from app.log_sanitizer import SanitizingFormatter as _SanitizingFormatter
+from app.log_sanitizer import sanitize_log as _sanitize_log
+
 logger = logging.getLogger(__name__)
 
 _APP_NAME = "Nanachi 台股看板"
 _API_TITLE = "Nanachi 的台股監控看板"
 _BASE_PORT = 3018
 _SHUTDOWN_TIMEOUT = 15.0
-
-_SECRET_PATTERNS = (
-    r"(?i)(api[_-]?key|token|password|secret|webhook)(\s*[=:]\s*)[^\s,;]+",
-    r"(?i)(authorization\s*:\s*bearer\s+)[^\s]+",
-    r"(?i)(x-api-key\s*:\s*)[^\s]+",
-)
-
-
-def _sanitize_log(text: str) -> str:
-    """遮蔽常見 credential 形狀, 避免桌面 log 與錯誤框洩漏密鑰。"""
-    for pattern in _SECRET_PATTERNS:
-        text = re.sub(pattern, lambda match: f"{match.group(1)}[已隱藏]", text)
-    return text
-
-
-class _SanitizingFormatter(logging.Formatter):
-    def format(self, record: logging.LogRecord) -> str:
-        return _sanitize_log(super().format(record))
-
 
 def _ensure_data_dir_writable() -> None:
     """确保用户数据目录可写 (lifespan 会创建子目录, 这里只验证根目录)。

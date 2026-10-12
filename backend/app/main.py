@@ -38,6 +38,7 @@ from app.extensions.loader import (
     start_backend_extensions,
 )
 from app.jobs import daily_pipeline
+from app.log_sanitizer import SanitizingFormatter
 from app.services.quote_service import QuoteService
 from app.tickflow import client as tf_client
 from app.tickflow.policy import detect_capabilities
@@ -48,6 +49,8 @@ logging.basicConfig(
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
 )
 logger = logging.getLogger(__name__)
+for _handler in logging.getLogger().handlers:
+    _handler.setFormatter(SanitizingFormatter("%(asctime)s [%(levelname)s] %(name)s: %(message)s"))
 
 # 追加文件日志: uvicorn (含 --reload 开发模式) 默认只有 StreamHandler, 同步/管道等
 # 运行时日志仅出现在 dev 终端, 关掉或滚屏后即丢失, 排查「同步后日志没落」时无处可查。
@@ -65,7 +68,7 @@ if not getattr(sys, "frozen", False):
             mode="a", encoding="utf-8", errors="replace",
         )
         _file_handler.setFormatter(
-            logging.Formatter("%(asctime)s [%(levelname)s] %(name)s: %(message)s")
+            SanitizingFormatter("%(asctime)s [%(levelname)s] %(name)s: %(message)s")
         )
         logging.getLogger().addHandler(_file_handler)
     except Exception as _e:  # noqa: BLE001

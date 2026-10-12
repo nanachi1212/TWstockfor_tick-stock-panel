@@ -350,7 +350,8 @@ def test_quant_metadata_comes_from_the_frozen_run(mock_daily_brief_service: Taiw
     }
 
     class _Ledger:
-        def list_runs(self, limit=30):
+        def list_runs(self, limit=30, *, on_or_before=None):
+            assert on_or_before == "2026-08-03"
             return [{"model_key": "old-key", "session": "2026-08-03"}, {"model_key": "new-key", "session": "2026-08-02"}]
 
         def read_run(self, key, session, **kwargs):
@@ -362,3 +363,46 @@ def test_quant_metadata_comes_from_the_frozen_run(mock_daily_brief_service: Taiw
     [item] = brief.candidates.new_top10
     assert (item.symbol, item.score_model, item.ranked_universe, item.score_session) == (
         "6213.TWSE", "tw-eod-momentum v0", 1234, "2026-08-03")
+
+
+def test_dropped_quant_score_keeps_its_original_snapshot_metadata(mock_daily_brief_service):
+    snapshots = {
+        "2026-08-03": {"model": {"model_id": "m", "version": "v1"},
+                       "ranking_universe": ["2330.TWSE", "2317.TWSE"],
+                       "signals": [{"symbol": "2330.TWSE", "score": 0.9}]},
+        "2026-07-31": {"model": {"model_id": "m", "version": "v1"},
+                       "ranking_universe": ["2317.TWSE"],
+                       "signals": [{"symbol": "2317.TWSE", "score": 0.8}]},
+    }
+
+    class Ledger:
+        def list_runs(self, limit=30, *, on_or_before=None):
+            assert on_or_before == "2026-08-03"
+            return [{"model_key": "m", "session": day} for day in snapshots]
+
+        def read_run(self, key, session):
+            return {"snapshot": snapshots[session]}
+
+    with patch("app.taiwan.daily_brief_service.LiveLedger", Ledger):
+        brief = mock_daily_brief_service.build_deterministic_brief(target_date=date(2026, 8, 3))
+    [dropped] = brief.candidates.dropped_top10
+    assert (dropped.symbol, dropped.quant_score, dropped.score_session, dropped.ranked_universe) == (
+        "2317.TWSE", 0.8, "2026-07-31", 1)
+
+
+def test_brief_before_earliest_data_does_not_use_future_prices(mock_daily_brief_service):
+    with (
+        patch.object(mock_daily_brief_service.daily_store, "available_dates", return_value=[date(2026, 8, 3)]),
+        pytest.raises(LookupError, match="指定日期以前"),
+    ):
+        mock_daily_brief_service.build_deterministic_brief(target_date=date(2026, 7, 31))
+
+
+def test_brief_missing_historical_data_returns_404(mock_daily_brief_service):
+    with (
+        patch("app.taiwan.daily_brief_service.get_daily_brief_service", return_value=mock_daily_brief_service),
+        patch.object(mock_daily_brief_service.daily_store, "available_dates", return_value=[date(2026, 8, 3)]),
+    ):
+        client = TestClient(app, client=("127.0.0.1", 12345))
+        assert client.get("/api/taiwan/daily-brief?target_date=2026-07-31").status_code == 404
+        assert client.post("/api/taiwan/daily-brief", json={"target_date": "2026-07-31"}).status_code == 404

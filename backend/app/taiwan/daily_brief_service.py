@@ -121,7 +121,7 @@ class TaiwanDailyBriefService:
             if prior:
                 effective_date = prior[-1]
             elif avail_dates:
-                effective_date = avail_dates[-1]
+                raise LookupError("指定日期以前沒有日 K 資料，無法產生每日摘要")
 
         now_iso = datetime.now(UTC).isoformat()
 
@@ -291,7 +291,7 @@ class TaiwanDailyBriefService:
         quant_meta: dict[str, Any] = {"score_frozen": True}
         with contextlib.suppress(Exception):
             ledger = LiveLedger()
-            runs = ledger.list_runs(limit=20)
+            runs = ledger.list_runs(limit=100, on_or_before=effective_date.isoformat())
             if len(runs) >= 1:
                 # Scores, model and ranking population all come from the same frozen run.
                 cur_key, cur_run_session = runs[0].get("model_key"), runs[0].get("session")
@@ -313,6 +313,14 @@ class TaiwanDailyBriefService:
                     prev_snap = (ledger.read_run(cur_key, prev_run["session"]) or {}).get("snapshot") or {}
                     prev_top10 = (prev_snap.get("signals") or [])[:10]
                     prev_syms = {s["symbol"] for s in prev_top10}
+                    prev_model = prev_snap.get("model") or {}
+                    prev_universe = prev_snap.get("ranking_universe")
+                    prev_meta = {
+                        "score_frozen": True,
+                        "score_session": prev_run["session"],
+                        "score_model": " ".join(str(v) for v in (prev_model.get("model_id"), prev_model.get("version")) if v) or None,
+                        "ranked_universe": len(prev_universe) if isinstance(prev_universe, list) else None,
+                    }
 
                 # New to top 10
                 for rank, s in enumerate(cur_top10, start=1):
@@ -344,7 +352,7 @@ class TaiwanDailyBriefService:
                                     source_name="Live Quant Top 10 (掉出)",
                                     quant_score=s.get("score"),
                                     score_scale=LIVE_SCORE_SCALE,
-                                    **quant_meta,
+                                    **prev_meta,
                                 )
                             )
 
