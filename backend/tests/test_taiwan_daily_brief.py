@@ -17,6 +17,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
+import polars as pl
 import pytest
 from fastapi.testclient import TestClient
 
@@ -24,6 +25,7 @@ from app.main import app
 from app.taiwan.daily_brief_models import (
     DailyBriefAISummary,
     DeterministicDailyBrief,
+    MarketFactBrief,
 )
 from app.taiwan.daily_brief_service import TaiwanDailyBriefService
 from app.taiwan.daily_store import TaiwanDailyStore
@@ -205,3 +207,89 @@ def test_daily_brief_api_endpoints(monkeypatch, mock_daily_brief_service: Taiwan
     res_detail = client.get(f"/api/taiwan/daily-brief/history/{brief_id}")
     assert res_detail.status_code == 200
     assert res_detail.json()["brief_id"] == brief_id
+
+
+def test_portfolio_status_separates_unavailable_from_empty(mock_daily_brief_service: TaiwanDailyBriefService):
+    """Holdings not provided / unreadable must never be reported as "0 holdings"."""
+    not_sent = mock_daily_brief_service.build_deterministic_brief(target_date=date(2026, 8, 3))
+    assert not_sent.portfolio.status == "unavailable"
+    empty = mock_daily_brief_service.build_deterministic_brief(target_date=date(2026, 8, 3), portfolio_holdings=[])
+    assert empty.portfolio.status == "empty"
+    held = mock_daily_brief_service.build_deterministic_brief(
+        target_date=date(2026, 8, 3),
+        portfolio_holdings=[{"symbol": "2301.TWSE", "name": "光寶科", "shares": 1000, "average_cost": 300.5}],
+    )
+    assert held.portfolio.status == "available" and held.portfolio.holdings_count == 1
+
+
+def test_portfolio_returns_use_report_date_close_and_risk_date(mock_daily_brief_service: TaiwanDailyBriefService):
+    report_date = date(2026, 8, 3)
+    quotes = pl.DataFrame([
+        {"symbol": "2301.TWSE", "close": 110.0},
+        {"symbol": "2330.TWSE", "close": 80.0},
+    ])
+    market_snapshot = SimpleNamespace(
+        indexes=None,
+        institutional=None,
+        market_totals=SimpleNamespace(
+            advance_count=0, decline_count=0, flat_count=0,
+            upper_limit_count=0, lower_limit_count=0, turnover=0.0,
+        ),
+    )
+    with (
+        patch.object(mock_daily_brief_service.daily_store, "read_range", return_value=quotes),
+        patch("app.taiwan.daily_brief_service.TaiwanMarketIntelligenceService.get_snapshot", return_value=market_snapshot),
+        patch("app.taiwan.daily_brief_service.TaiwanIndustryIntelligenceService.get_snapshot", return_value=SimpleNamespace(industries=[])),
+        patch("app.taiwan.daily_brief_service.get_event_service") as get_events,
+    ):
+        get_events.return_value.check_symbol_risk_status.return_value = {}
+        brief = mock_daily_brief_service.build_deterministic_brief(
+            target_date=report_date,
+            portfolio_holdings=[
+                {"symbol": "2301.TWSE", "shares": 1000, "average_cost": 100.0},
+                {"symbol": "2330.TWSE", "shares": 1000, "average_cost": 100.0},
+            ],
+        )
+        assert get_events.return_value.check_symbol_risk_status.call_count == 2
+        for call in get_events.return_value.check_symbol_risk_status.call_args_list:
+            assert call.kwargs["target_date"] == report_date
+    assert [(item.symbol, item.change_pct) for item in brief.portfolio.biggest_movers] == [
+        ("2330.TWSE", pytest.approx(-20.0)),
+        ("2301.TWSE", pytest.approx(10.0)),
+    ]
+
+
+def test_legacy_taiex_close_keeps_unknown_freshness():
+    market = MarketFactBrief.model_validate({"trade_date": "2026-08-03", "taiex_close": 100.0})
+    assert market.taiex_stale is None
+
+
+def test_daily_brief_rejects_oversized_portfolio():
+    client = TestClient(app, client=("127.0.0.1", 50000))
+    result = client.post("/api/taiwan/daily-brief", json={
+        "target_date": "2026-08-03",
+        "portfolio_holdings": [{"symbol": f"{i:04d}.TWSE"} for i in range(201)],
+    })
+    assert result.status_code == 422
+    assert "200" in result.json()["detail"]
+
+
+def test_taiex_from_an_older_session_is_dated_and_marked_stale(mock_daily_brief_service: TaiwanDailyBriefService):
+    snapshot = SimpleNamespace(
+        indexes=SimpleNamespace(taiex=SimpleNamespace(close=49313.44, change=-492.93, change_pct=-0.0099, trade_date="2026-08-01")),
+        institutional=None,
+        market_totals=SimpleNamespace(advance_count=1109, decline_count=1012, flat_count=170,
+                                      upper_limit_count=0, lower_limit_count=0, turnover=0.0),
+    )
+    with patch("app.taiwan.daily_brief_service.TaiwanMarketIntelligenceService.get_snapshot", return_value=snapshot):
+        brief = mock_daily_brief_service.build_deterministic_brief(target_date=date(2026, 8, 3))
+    assert brief.market.taiex_as_of == "2026-08-01" and brief.market.taiex_stale is True
+
+
+def test_ai_summary_prompt_forbids_zero_holdings_and_stale_index_as_today():
+    import inspect
+
+    from app.taiwan import daily_brief_service
+
+    source = inspect.getsource(daily_brief_service.TaiwanDailyBriefService.generate_ai_summary)
+    assert "絕對不得寫成持股為 0" in source and "taiex_stale" in source and "不得稱為普跌" in source

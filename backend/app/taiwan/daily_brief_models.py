@@ -29,6 +29,10 @@ class MarketFactBrief(BaseModel):
     taiex_close: float | None = None
     taiex_change: float | None = None
     taiex_change_pct: float | None = None
+    # The TAIEX close comes from the benchmark store, which can lag the daily store.
+    taiex_as_of: str | None = None
+    # None preserves unknown freshness in briefs saved before taiex_as_of existed.
+    taiex_stale: bool | None = None
 
     advance_count: int = 0
     decline_count: int = 0
@@ -65,6 +69,9 @@ class PortfolioHoldingItem(BaseModel):
 class PortfolioFactBrief(BaseModel):
     """User portfolio status collated deterministically."""
 
+    # "unavailable" = the holdings were not provided or could not be read (never "0 holdings");
+    # "empty" = the user's ledger was read and has no open position.
+    status: Literal["available", "empty", "unavailable"] = "unavailable"
     holdings_count: int = 0
     biggest_movers: list[PortfolioHoldingItem] = Field(default_factory=list)
     quant_changes: list[dict[str, Any]] = Field(default_factory=list)

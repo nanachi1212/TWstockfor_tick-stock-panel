@@ -32,20 +32,24 @@ describe('Research history page', () => {
     expect(screen.getAllByText(/provider 未提供/).length).toBeGreaterThan(0)
   })
 
-  it('shows empty state and deterministic three-section comparison', async () => {
+  it('shows a readable old -> new comparison', async () => {
     vi.mocked(api.taiwanAIResearchHistory).mockResolvedValue({ items: [
       { id: 'a', symbol: '2330.TWSE', provider: 'p1' },
       { id: 'b', symbol: '2330.TWSE', provider: 'p2' },
     ] })
     vi.mocked(api.taiwanAIResearchHistoryDetail).mockResolvedValue({ id: 'a', symbol: '2330.TWSE', report: { overview: 'ok' } })
-    vi.mocked(api.taiwanAIResearchHistoryCompare).mockResolvedValue({ evidence_data_changes: { close: [1, 2] }, model_prompt_config_changes: { model: true }, interpretation_report_changes: { overview: true } })
+    vi.mocked(api.taiwanAIResearchHistoryCompare).mockResolvedValue({
+      evidence_data_changes: { field_changes: [{ path: 'price_context.close', before: 2500, after: 2540 }] },
+      model_prompt_config_changes: { field_changes: [] },
+      interpretation_report_changes: { field_changes: [{ path: 'overview', before: '舊總覽', after: '新總覽' }] },
+    })
     mount()
     await screen.findByRole('heading', { name: /研究詳情：2330\.TWSE/ })
     fireEvent.click(screen.getAllByText('選為比較 A')[1])
     fireEvent.click(screen.getAllByText('選為比較 B')[0])
-    expect(await screen.findByText('資料變化')).toBeInTheDocument()
-    expect(screen.getByText('模型／提示詞變化')).toBeInTheDocument()
-    expect(screen.getByText('解讀變化')).toBeInTheDocument()
+    expect(await screen.findByRole('region', { name: '重點欄位變化' })).toHaveTextContent('收盤價')
+    expect(screen.getByText('新：新總覽')).toBeInTheDocument()
+    expect(screen.getByText(/模型與提示詞相同/)).toBeInTheDocument()
     await waitFor(() => expect(api.taiwanAIResearchHistoryCompare).toHaveBeenCalled())
   })
 

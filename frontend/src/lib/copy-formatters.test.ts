@@ -225,6 +225,28 @@ describe('formatStockDetailCopy & Prompt', () => {
     expect(text).not.toContain('Live Quant 資料目前無法讀取')
   })
 
+  it('daily brief copy never turns unreadable holdings into zero holdings and dates a stale TAIEX', () => {
+    const text = formatDailyBriefCopy({
+      brief_date: '2026-10-12',
+      market: { taiex_close: 49313.44, taiex_as_of: '2026-10-08', taiex_stale: true, change: -492.93, change_pct: -0.99 },
+      portfolio: { status: 'unavailable', holdings_count: 0, items: [] },
+      includePortfolio: true,
+    })
+    expect(text).toContain('⚠ 加權指數資料日為 2026-10-08，不是報告交易日')
+    expect(text).toContain('持股資料暫時無法取得（不是沒有持股）')
+    expect(text).not.toContain('目前投資組合無持股')
+  })
+
+  it('daily brief copy marks legacy TAIEX dates as unknown', () => {
+    const text = formatDailyBriefCopy({
+      brief_date: '2026-10-12',
+      market: { taiex_close: 49313.44 },
+      portfolio: { status: 'unavailable', holdings_count: 0, items: [] },
+    })
+    expect(text).toContain('資料日期不明，不能視為報告日指數')
+    expect(text).not.toContain('目前投資組合無持股')
+  })
+
   it('labels a quant service error as a system state, not a stock risk', () => {
     const text = formatStockDetailCopy({
       symbol: '2368.TWSE', name: '金像電', quote: null, valuation: null, fundamentals: null, institutional_flows: null,

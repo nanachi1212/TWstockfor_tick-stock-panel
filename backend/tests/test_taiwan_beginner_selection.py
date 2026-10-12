@@ -661,6 +661,9 @@ def test_withheld_levels_name_the_corporate_action_and_the_resume_date():
     assert note == "09/09 除權息（配股＋配息），價位約 10/20 後恢復"
     assert _corporate_action_note(SimpleNamespace(effective_date=date(2026, 9, 9), cash_dividend=2.0,
                                                   free_share_ratio=None, reduction_ratio=None)).startswith("09/09 除息（配息）")
+    # 2330: TWSE cash-dividend row without amount fields (2026-09-16).
+    assert _corporate_action_note(SimpleNamespace(effective_date=date(2026, 9, 16), event_type="cash_dividend", cash_dividend=None,
+                                                  free_share_ratio=None, reduction_ratio=None)).startswith("09/16 除息（配息）")
 
     known, _ = evaluate_candidate(_facts(recent_corporate_action=True, corporate_action_note=note), FAVORABLE)
     assert known.plan_unavailable_reason == f"{note}，暫不提供價位。"

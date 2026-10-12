@@ -164,8 +164,11 @@ class TaiwanDailyBriefService:
         taiex_obj = market_snap.indexes.taiex if market_snap.indexes else None
         inst_obj = market_snap.institutional
 
+        taiex_as_of = getattr(taiex_obj, "trade_date", None) if taiex_obj else None
         market_fact = MarketFactBrief(
             trade_date=str(effective_date),
+            taiex_as_of=taiex_as_of,
+            taiex_stale=(taiex_as_of[:10] != str(effective_date)) if taiex_as_of else None,
             taiex_close=taiex_obj.close if taiex_obj else None,
             taiex_change=taiex_obj.change if taiex_obj else None,
             taiex_change_pct=(
@@ -203,7 +206,7 @@ class TaiwanDailyBriefService:
                     continue
                 q = quote_map.get(sym, {})
                 c_val = q.get("close")
-                risk_status = event_svc.check_symbol_risk_status(sym)
+                risk_status = event_svc.check_symbol_risk_status(sym, target_date=effective_date)
                 events_list = []
                 if risk_status.get("is_disposition"):
                     events_list.append("處置股票")
@@ -212,14 +215,21 @@ class TaiwanDailyBriefService:
                 if risk_status.get("is_suspended"):
                     events_list.append("暫停交易")
 
+                average_cost = float(h.get("average_cost", 0.0))
+                close = float(c_val) if c_val is not None else None
+                return_pct = (
+                    (close / average_cost - 1) * 100
+                    if close is not None and average_cost > 0
+                    else None
+                )
                 port_items.append(
                     PortfolioHoldingItem(
                         symbol=sym,
                         name=h.get("name", sym),
                         shares=int(h.get("shares", 0)),
-                        average_cost=float(h.get("average_cost", 0.0)),
-                        close=float(c_val) if c_val is not None else None,
-                        change_pct=float(h.get("return_pct", 0.0)) if h.get("return_pct") is not None else None,
+                        average_cost=average_cost,
+                        close=close,
+                        change_pct=return_pct,
                         events=events_list,
                     )
                 )
@@ -227,6 +237,7 @@ class TaiwanDailyBriefService:
         # Sort biggest movers
         port_items.sort(key=lambda x: abs(x.change_pct or 0.0), reverse=True)
         port_fact = PortfolioFactBrief(
+            status="unavailable" if portfolio_holdings is None else "available" if port_items else "empty",
             holdings_count=len(port_items),
             biggest_movers=port_items[:5],
         )
@@ -395,6 +406,12 @@ class TaiwanDailyBriefService:
             "2. 嚴禁編造、幻想價格、數值或事件；遇到 missing 數據說明無資料，絕對不可補 0 或偽裝正常。\n"
             "3. 明確區分官方監管公告/重大事件與媒體新聞，不得混淆客觀事實與新聞評論。\n"
             "4. 絕對不可給出任何買賣點、目標價、合理估值或投資買賣指令。\n"
+            "6. 資料日期：market.trade_date 是報告交易日。只有 market.taiex_stale 明確為 false，才可把加權指數當成報告日資料。"
+            " 若為 true，指數屬於 market.taiex_as_of 那天；若為 null，資料日期不明。兩者都不得說成今日指數或拿來解讀今日盤勢。各數據來源日期不同時須個別標示。\n"
+            "7. 持股：portfolio.status 為 unavailable 代表持股資料未提供或讀取失敗，必須寫「持股資料暫時無法取得」，"
+            "絕對不得寫成持股為 0、清單為空或無持股；只有 status 為 empty 才可說目前沒有持股。\n"
+            "8. 市場廣度：上漲家數多於下跌家數時不得稱為普跌；指數下跌但上漲家數較多時，應描述為權值股拖累、市場廣度並未全面轉弱。\n"
+            "9. 沒有歷史均量與量比時，不得宣稱成交量異常；沒有漲跌幅時不得判斷多空。\n"
             "5. 必須嚴格輸出合法的 JSON 物件，格式鍵名固定如下：\n"
             "{\n"
             '  "section_a_market": "A. 今日市場概況與盤勢解讀",\n'

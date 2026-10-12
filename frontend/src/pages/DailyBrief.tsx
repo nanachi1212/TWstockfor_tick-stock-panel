@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import {
@@ -27,7 +27,18 @@ import { toast } from '@/components/Toast'
 import { cn } from '@/lib/cn'
 import { CopyButton } from '@/components/CopyButton'
 import { formatDailyBriefCopy, formatDailyBriefPrompt } from '@/lib/copy-formatters'
+import { buildPortfolioPositions, PORTFOLIO_CHANGED, readPortfolioLedger } from '@/lib/portfolio'
+import { taiexFreshnessNote } from '@/lib/daily-brief'
 import { ExternalContextCard } from '@/components/ExternalContextCard'
+
+/** 持股只存在本機帳本；讀不到就送 null，讓報告寫「持股資料暫時無法取得」而不是 0 持股。 */
+function ledgerHoldings(): Record<string, unknown>[] | null {
+  const { transactions, error } = readPortfolioLedger()
+  if (error) return null
+  return buildPortfolioPositions(transactions)
+    .filter(position => position.shares > 0)
+    .map(position => ({ symbol: position.symbol, name: position.name, shares: position.shares, average_cost: position.averageCost }))
+}
 
 export function DailyBrief() {
   const qc = useQueryClient()
@@ -37,11 +48,22 @@ export function DailyBrief() {
   const [showHistoryModal, setShowHistoryModal] = useState(false)
   const [liveAiSummary, setLiveAiSummary] = useState<DailyBriefAISummary | null>(null)
   const [isAiLoading, setIsAiLoading] = useState(false)
+  const [holdings, setHoldings] = useState(ledgerHoldings)
+
+  useEffect(() => {
+    const refresh = () => setHoldings(ledgerHoldings())
+    window.addEventListener(PORTFOLIO_CHANGED, refresh)
+    window.addEventListener('storage', refresh)
+    return () => {
+      window.removeEventListener(PORTFOLIO_CHANGED, refresh)
+      window.removeEventListener('storage', refresh)
+    }
+  }, [])
 
   // 1. 查詢今日客觀確定性事實簡報
   const briefQuery = useQuery({
-    queryKey: QK.dailyBrief(),
-    queryFn: () => api.dailyBrief.getDailyBrief(),
+    queryKey: QK.dailyBrief(undefined, JSON.stringify(holdings)),
+    queryFn: () => api.dailyBrief.buildDailyBrief({ portfolio_holdings: holdings }),
   })
 
   const latestForwardBatchQuery = useQuery({
@@ -134,7 +156,7 @@ export function DailyBrief() {
         strategy_id: 'daily_brief_candidates',
         strategy_name: '每日摘要今日候選股',
         as_of_date: today,
-        market_context_summary: `加權指數 ${briefQuery.data?.market.taiex_close || '-'}，情緒 ${briefQuery.data?.market.sentiment_label || '中性'}`,
+        market_context_summary: `加權指數 ${briefQuery.data?.market.taiex_close ?? '-'}${briefQuery.data ? `（${taiexFreshnessNote(briefQuery.data.market) ?? `資料日 ${briefQuery.data.market.taiex_as_of ?? briefQuery.data.market.trade_date}`}）` : ''}，情緒 ${briefQuery.data?.market.sentiment_label || '中性'}`,
         items: candidates.map((c, idx) => ({
           symbol: c.symbol,
           name: c.name,
@@ -245,6 +267,8 @@ export function DailyBrief() {
                   evidence_date: (brief as any).evidence_date || brief.brief_date,
                   market: brief.market ? {
                     taiex_close: brief.market.taiex_close,
+                    taiex_as_of: brief.market.taiex_as_of,
+                    taiex_stale: brief.market.taiex_stale,
                     change: brief.market.taiex_change,
                     change_pct: brief.market.taiex_change_pct,
                     turnover: brief.market.total_turnover,
@@ -263,6 +287,7 @@ export function DailyBrief() {
                     weak: brief.market.weakest_sectors.map(s => ({ name: s.industry, change_pct: s.change_pct })),
                   } : null,
                   portfolio: brief.portfolio ? {
+                    status: brief.portfolio.status,
                     holdings_count: brief.portfolio.holdings_count,
                     items: brief.portfolio.biggest_movers?.map(m => ({
                       symbol: m.symbol,
@@ -320,6 +345,8 @@ export function DailyBrief() {
                   evidence_date: (brief as any).evidence_date || brief.brief_date,
                   market: brief.market ? {
                     taiex_close: brief.market.taiex_close,
+                    taiex_as_of: brief.market.taiex_as_of,
+                    taiex_stale: brief.market.taiex_stale,
                     change: brief.market.taiex_change,
                     change_pct: brief.market.taiex_change_pct,
                     turnover: brief.market.total_turnover,
@@ -338,6 +365,7 @@ export function DailyBrief() {
                     weak: brief.market.weakest_sectors.map(s => ({ name: s.industry, change_pct: s.change_pct })),
                   } : null,
                   portfolio: brief.portfolio ? {
+                    status: brief.portfolio.status,
                     holdings_count: brief.portfolio.holdings_count,
                     items: brief.portfolio.biggest_movers?.map(m => ({
                       symbol: m.symbol,
@@ -476,6 +504,9 @@ export function DailyBrief() {
                   <span className="text-xs text-muted-foreground">—</span>
                 )}
               </div>
+              {taiexFreshnessNote(brief.market) && (
+                <div className="mt-1 text-[11px] font-medium text-warning">{taiexFreshnessNote(brief.market)}</div>
+              )}
               <div className="text-[11px] text-muted-foreground mt-1">
                 成交量：{brief.market.total_turnover > 0
                   ? `${(brief.market.total_turnover / 1e8).toFixed(1)} 億元`
@@ -941,7 +972,8 @@ export function DailyBrief() {
                     <div>
                       <div className="font-medium text-foreground">{h.brief_date} 每日摘要</div>
                       <div className="text-[10px] text-muted-foreground mt-0.5">
-                        大盤 {h.structured_brief.market.taiex_close?.toFixed(1) || '-'} • 情緒{' '}
+                        大盤 {h.structured_brief.market.taiex_close?.toFixed(1) ?? '-'}
+                        {taiexFreshnessNote(h.structured_brief.market) && `（${taiexFreshnessNote(h.structured_brief.market)}）`} • 情緒{' '}
                         {h.structured_brief.market.sentiment_label}
                       </div>
                     </div>
