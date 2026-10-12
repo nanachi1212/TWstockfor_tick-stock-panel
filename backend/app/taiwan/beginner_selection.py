@@ -248,7 +248,7 @@ class BeginnerFacts(BaseModel):
     risk_reason: str | None = None
     attention_recent: bool | None = None
     recent_corporate_action: bool | None = None
-    # Why levels are withheld after a corporate action, e.g. "09/09 除權息（配股＋配息），價位約 10/20 後恢復".
+    # Why levels are withheld after a corporate action (date, kind, and when they come back).
     corporate_action_note: str | None = None
     daily: list[dict[str, Any]] = Field(default_factory=list)
     social_status: Literal["available", "partial", "unavailable"] = "unavailable"
