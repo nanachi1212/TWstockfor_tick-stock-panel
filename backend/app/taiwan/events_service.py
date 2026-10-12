@@ -86,6 +86,24 @@ EVENT_TYPE_LABELS: dict[str, str] = {
 }
 
 
+def _status_list_summary(status: str, list_date: str) -> str:
+    return (f"櫃買中心目前名單列為{status}（名單日 {list_date}）。此來源只列出目前狀態，"
+            "未提供公告日、生效日、結束日與原因，不代表今日新增。")
+
+
+def _status_list_details(raw: dict[str, Any], list_date: str) -> dict[str, Any]:
+    """tpex_cmode is a snapshot of who is currently listed, not a dated announcement."""
+    return {
+        "raw": raw,
+        "event_semantics": "current_status_list",
+        "list_date": list_date,
+        "announced_on": None,  # not provided by this source
+        "effective_from": None,
+        "effective_until": None,
+        "reason": None,
+    }
+
+
 class MarketEvent(BaseModel):
     """Canonical normalized market event model."""
 
@@ -546,13 +564,13 @@ class TaiwanEventService:
                             event_type_label=EVENT_TYPE_LABELS["suspended_trading"],
                             severity="risk",
                             title="櫃買中心停止買賣 (暫停交易)",
-                            summary="該證券經櫃買中心公告停止買賣",
+                            summary=_status_list_summary("停止買賣（暫停交易）", ev_date),
                             source="tpex:cmode",
                             source_url="https://www.tpex.org.tw/openapi/v1/tpex_cmode",
                             retrieved_at=now_iso,
                             freshness="fresh",
                             is_resolvable=is_resolvable,
-                            details={"raw": r},
+                            details=_status_list_details(r, ev_date),
                         )
                     )
                 elif is_altered:
@@ -569,13 +587,13 @@ class TaiwanEventService:
                             event_type_label=EVENT_TYPE_LABELS["warning"],
                             severity="attention",
                             title="變更交易方法股票 (全額交割)",
-                            summary="該證券經櫃買中心公告列為變更交易方法股票",
+                            summary=_status_list_summary("變更交易方法（全額交割）", ev_date),
                             source="tpex:cmode",
                             source_url="https://www.tpex.org.tw/openapi/v1/tpex_cmode",
                             retrieved_at=now_iso,
                             freshness="fresh",
                             is_resolvable=is_resolvable,
-                            details={"raw": r},
+                            details=_status_list_details(r, ev_date),
                         )
                     )
             return events

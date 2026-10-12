@@ -41,10 +41,18 @@ class MarketFactBrief(BaseModel):
     lower_limit_count: int = 0
     total_turnover: float = 0.0
 
-    foreign_net: float | None = None  # in shares or TWD
+    # Market-wide institutional net = sum of every stock's / ETF's net in SHARES (股) across
+    # TWSE + TPEx rows of the local store; not the exchange-published TWD amount statistics.
+    foreign_net: float | None = None
     investment_trust_net: float | None = None
     dealer_net: float | None = None
     total_institutional_net: float | None = None
+    institutional_unit: Literal["shares"] = "shares"
+    institutional_scope: str = "上市＋上櫃逐檔法人買賣超股數加總（股，不是金額；不是交易所公布的金額統計）"
+    institutional_as_of: str | None = None
+    institutional_row_count: int = 0
+    # None = data date unknown (legacy briefs or no date from the source), never "current".
+    institutional_stale: bool | None = None
 
     sentiment_label: str = "中性"  # 偏多, 中性, 偏空, 分歧
     sentiment_description: str = ""
@@ -109,6 +117,12 @@ class CandidateItem(BaseModel):
     close: float | None = None
     change_pct: float | None = None
     match_reasons: list[str] = Field(default_factory=list)
+    # What quant_score means: scale, which frozen run (session / model) and how many were ranked.
+    score_scale: str | None = None
+    score_session: str | None = None
+    score_model: str | None = None
+    score_frozen: bool = True
+    ranked_universe: int | None = None
 
 
 class CandidateFactBrief(BaseModel):

@@ -247,6 +247,22 @@ describe('formatStockDetailCopy & Prompt', () => {
     expect(text).not.toContain('目前投資組合無持股')
   })
 
+  it('daily brief copy states the institutional unit, the quant scale and status-list events', () => {
+    const text = formatDailyBriefCopy({
+      brief_date: '2026-10-12',
+      market: { taiex_close: 1, turnover: 512_300_000_000, foreign_net: 207_000_000, trust_net: 50_410_000, dealer_net: -626_000_000, institutional_as_of: '2026-10-12' },
+      candidates: [{ symbol: '6213.TWSE', name: '聯茂', score: 98.6, score_scale: '0~100（Live Quant 百分位排名 ×100）', score_session: '2026-10-08', score_model: 'tw-eod-momentum v1', ranked_universe: 1700 }],
+      events: [{ name: '信昌電', date: '2026-10-12', type: '暫停交易', title: '櫃買中心停止買賣', semantics: 'current_status_list' }],
+    })
+    expect(text).toContain('逐檔股數加總，不是金額')
+    expect(text).toContain('外資 207,000,000 股（207,000 張）')
+    expect(text.split('\n').find(l => l.includes('三大法人'))).not.toContain('億元')
+    expect(text).toContain('成交金額：約 5123.0 億元')
+    expect(text).toContain('排名日 2026-10-08；模型 tw-eod-momentum v1；共 1700 檔排名')
+    expect(text).toContain('[名單日 2026-10-12]')
+    expect(text).toContain('不是今日新公告')
+  })
+
   it('labels a quant service error as a system state, not a stock risk', () => {
     const text = formatStockDetailCopy({
       symbol: '2368.TWSE', name: '金像電', quote: null, valuation: null, fundamentals: null, institutional_flows: null,

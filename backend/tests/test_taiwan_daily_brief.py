@@ -293,3 +293,33 @@ def test_ai_summary_prompt_forbids_zero_holdings_and_stale_index_as_today():
 
     source = inspect.getsource(daily_brief_service.TaiwanDailyBriefService.generate_ai_summary)
     assert "絕對不得寫成持股為 0" in source and "taiex_stale" in source and "不得稱為普跌" in source
+
+
+def test_market_institutional_totals_carry_unit_scope_and_date(mock_daily_brief_service: TaiwanDailyBriefService):
+    snapshot = SimpleNamespace(
+        indexes=SimpleNamespace(taiex=SimpleNamespace(close=1.0, change=0.0, change_pct=0.0, trade_date="2026-08-03")),
+        institutional=SimpleNamespace(foreign_net=207_000_000.0, investment_trust_net=50_410_000.0, dealer_net=-626_000_000.0,
+                                      total_net=-368_590_000.0, trade_date="2026-07-31", row_count=1800),
+        market_totals=SimpleNamespace(advance_count=1, decline_count=1, flat_count=0,
+                                      upper_limit_count=0, lower_limit_count=0, turnover=0.0),
+    )
+    with patch("app.taiwan.daily_brief_service.TaiwanMarketIntelligenceService.get_snapshot", return_value=snapshot):
+        brief = mock_daily_brief_service.build_deterministic_brief(target_date=date(2026, 8, 3))
+    m = brief.market
+    assert m.institutional_unit == "shares" and "不是金額" in m.institutional_scope
+    assert (m.institutional_as_of, m.institutional_row_count, m.institutional_stale) == ("2026-07-31", 1800, True)
+
+
+def test_ai_summary_prompt_pins_units_quant_scale_and_status_list_events():
+    import inspect
+
+    from app.taiwan import daily_brief_service
+
+    source = inspect.getsource(daily_brief_service.TaiwanDailyBriefService.generate_ai_summary)
+    assert "絕對不得寫成元、億元" in source and "score_scale" in source and "current_status_list" in source
+    assert "百分位排名" in daily_brief_service.LIVE_SCORE_SCALE and "98.6 = 約前 1.4%" in daily_brief_service.SCREENER_SCORE_SCALE
+
+
+def test_legacy_institutional_totals_keep_unknown_freshness():
+    market = MarketFactBrief.model_validate({"trade_date": "2026-08-03", "foreign_net": 1000.0})
+    assert market.institutional_stale is None
