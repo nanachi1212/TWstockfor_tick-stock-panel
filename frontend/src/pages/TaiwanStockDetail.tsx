@@ -30,6 +30,7 @@ import {
   isTaiwanAIAdviceResponse,
   researchPromptVersion,
   type BuyPointSignal,
+  type BeginnerSymbolResponse,
 } from '@/lib/api'
 import { QK } from '@/lib/queryKeys'
 import { cn } from '@/lib/cn'
@@ -1929,6 +1930,8 @@ export function TaiwanStockDetail() {
                     })) ?? null,
                     portfolioPositions,
                     includePortfolio: includePortfolioInCopy,
+                    beginner: qc.getQueryData<BeginnerSymbolResponse>(QK.beginnerSelectionSymbol(symbol ?? ''))?.candidate ?? null,
+                    daily_bars: data?.daily_history?.rows?.slice(-20) ?? null,
                     aiReport: aiReport ? [
                       aiReport.overview,
                       aiReport.price_technical_interpretation,
@@ -2072,6 +2075,8 @@ export function TaiwanStockDetail() {
                     })) ?? null,
                     portfolioPositions,
                     includePortfolio: includePortfolioInCopy,
+                    beginner: qc.getQueryData<BeginnerSymbolResponse>(QK.beginnerSelectionSymbol(symbol ?? ''))?.candidate ?? null,
+                    daily_bars: data?.daily_history?.rows?.slice(-20) ?? null,
                     aiReport: aiReport ? [
                       aiReport.overview,
                       aiReport.price_technical_interpretation,

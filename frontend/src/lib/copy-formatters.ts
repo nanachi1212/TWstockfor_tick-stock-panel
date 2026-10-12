@@ -1,3 +1,5 @@
+import type { BeginnerCandidate, TaiwanDailyItem } from '@/lib/api'
+
 /**
  * Deterministic formatters for "Export / Copy for External AI".
  *
@@ -189,6 +191,10 @@ export interface StockDetailCopyData {
   }> | null
   includePortfolio?: boolean
   aiReport?: string | null
+  /** 初學者結論（同一頁「這檔股票現在怎麼看」的資料）：價位、均線、量價、籌碼與理由。 */
+  beginner?: BeginnerCandidate | null
+  /** 近期日 K（原始價），讓外部 AI 自行看型態。 */
+  daily_bars?: TaiwanDailyItem[] | null
 }
 
 export function formatStockDetailCopy(d: StockDetailCopyData): string {
@@ -301,6 +307,9 @@ export function formatStockDetailCopy(d: StockDetailCopyData): string {
     lines.push('')
   }
 
+  if (d.beginner) lines.push(...beginnerSection(d.beginner), '')
+  if (d.daily_bars && d.daily_bars.length > 0) lines.push(...dailyBarsSection(d.daily_bars), '')
+
   // 官方重大事件（與新聞嚴格分開）
   lines.push('## 官方事件 (Official Events)')
   if (d.official_events && d.official_events.length > 0) {
@@ -353,6 +362,60 @@ export function formatStockDetailCopy(d: StockDetailCopyData): string {
   }
 
   return lines.join('\n')
+}
+
+const BEGINNER_STATE_LABEL: Record<string, string> = {
+  watch: '可列入觀察', wait_pullback: '等拉回', wait_breakout: '等突破', no_chase: '不宜追價', skip: '暫時略過',
+}
+const shares = (v: number | null | undefined) => v == null ? '不可用 (unavailable)' : `${Math.round(v / 1000).toLocaleString('zh-TW')} 張`
+const bullets = (items: string[]) => items.length ? items.map(t => `  - ${sanitize(t)}`) : ['  - （無）']
+
+/** 初學者結論的確定性證據；每項都附資料日，缺資料就寫不可用，不補值。 */
+function beginnerSection(c: BeginnerCandidate): string[] {
+  const p = c.technical_panel
+  const out = [`## 技術面、籌碼與交易計畫（初學者結論，日線資料日 ${sanitize(p?.moving_averages.as_of ?? c.as_of)}）`]
+  out.push(`- 結論：${BEGINNER_STATE_LABEL[c.selection_state] ?? sanitize(c.selection_state)} | 訊號強度：${sanitize(c.signal_strength)}（條件符合程度，不是上漲機率）`)
+  out.push(`- 下一步：${sanitize(c.action_summary)}`)
+  if (c.invalidation) out.push(`- 失效條件：${sanitize(c.invalidation)}`)
+  out.push('- 選入／略過理由：', ...bullets((c.selection_state === 'skip' ? c.exclusion_reasons : c.reasons).map(r => r.display_text)))
+  if (c.risks.length) out.push('- 規則判定的風險：', ...bullets(c.risks.map(r => r.display_text)))
+  if (c.data_gaps.length) out.push('- 資料缺口：', ...bullets(c.data_gaps))
+  if (!p) return out
+  const plan = c.trade_plan
+  out.push(plan
+    ? `- 價位（TradePlan，資料日 ${sanitize(plan.evidence_as_of)}）：觀察區 ${num(plan.entry_zone_low)}～${num(plan.entry_zone_high)} | 突破價 ${num(plan.breakout_trigger)} | 近期高點 ${num(plan.reference_high)} | 失效位 ${num(plan.stop_price)}`
+    : `- 價位：不可用 (unavailable) | 原因：${sanitize(c.plan_unavailable_reason)}`)
+  const ma = p.moving_averages
+  out.push(`- 均線：MA5 ${num(ma.ma5)} | MA20 ${num(ma.ma20)} | MA60 ${num(ma.ma60)} | ${sanitize(ma.explanation)}`)
+  out.push(`- 波動：ATR14 ${num(p.volatility.atr_14)}（約 ${pct(p.volatility.atr_pct)}）| ${sanitize(p.volatility.explanation)}`)
+  out.push(`- 近 20 日區間：低 ${num(p.range_position.low_20d)} | 高 ${num(p.range_position.high_20d)} | 位置 ${pct(p.range_position.position_pct, 0)}`)
+  out.push(`- 量價：成交量 ${shares(p.volume.today_volume)} | 20 日均量 ${shares(p.volume.average_20d)} | 量比 ${num(p.volume.ratio)} | ${sanitize(p.volume.explanation)}`)
+  const inst = p.institutional
+  out.push(`- 法人近 5 日（資料日 ${sanitize(inst.as_of)}）：外資 ${shares(inst.foreign_net_5d)} | 投信 ${shares(inst.investment_trust_net_5d)} | 自營商 ${shares(inst.dealer_net_5d)} | 合計 ${shares(inst.total_net_5d)} | ${sanitize(inst.explanation)}`)
+  const m = p.margin
+  out.push(`- 融資融券（資料日 ${sanitize(m.as_of)}）：融資餘額 ${shares(m.margin_balance)}（變化 ${shares(m.margin_change)}）| 融券餘額 ${shares(m.short_balance)}（變化 ${shares(m.short_change)}）| ${sanitize(m.explanation)}`)
+  const rs = p.relative_strength
+  out.push(`- 相對強弱（20 日）：個股 ${pct(rs.stock_return_pct)} | 0050 ${pct(rs.benchmark_return_pct)} | ${sanitize(rs.explanation)}`)
+  out.push(`- 大盤與類股：${sanitize(p.market_context.explanation)}`)
+  out.push(`- 基本面：${sanitize(p.fundamentals.explanation)}${p.fundamentals.warning ? `（${sanitize(p.fundamentals.warning)}）` : ''}`)
+  out.push(`- 內外盤：${sanitize(p.inner_outer.explanation)}`)
+  const live = p.live_check
+  if (live) {
+    out.push(`- 盤中檢查（最新報價 ${sanitize(live.quote_date)} ${sanitize(live.quote_time)}）：${sanitize(live.explanation)}`)
+    if (live.alerts.length) out.push(...bullets(live.alerts))
+  }
+  out.push('- 主要風險：', ...bullets(p.key_risks.map(r => r.text)))
+  return out
+}
+
+/** 近期日 K 表（原始價，未還原除權息；成交量為張）。 */
+function dailyBarsSection(bars: TaiwanDailyItem[]): string[] {
+  return [
+    `## 近 ${bars.length} 個交易日日 K（原始價，未還原除權息；量為張）`,
+    '| 日期 | 開 | 高 | 低 | 收 | 量 |',
+    '|---|---|---|---|---|---|',
+    ...bars.map(b => `| ${sanitize(b.date)} | ${num(b.open)} | ${num(b.high)} | ${num(b.low)} | ${num(b.close)} | ${Math.round(b.volume / 1000).toLocaleString('zh-TW')} |`),
+  ]
 }
 
 export function formatStockDetailPrompt(d: StockDetailCopyData): string {

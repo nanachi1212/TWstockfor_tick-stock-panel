@@ -248,6 +248,8 @@ class BeginnerFacts(BaseModel):
     risk_reason: str | None = None
     attention_recent: bool | None = None
     recent_corporate_action: bool | None = None
+    # Why levels are withheld after a corporate action, e.g. "09/09 除權息（配股＋配息），價位約 10/20 後恢復".
+    corporate_action_note: str | None = None
     daily: list[dict[str, Any]] = Field(default_factory=list)
     social_status: Literal["available", "partial", "unavailable"] = "unavailable"
     social_mentions: int | None = None
@@ -423,7 +425,7 @@ def build_dimensions(
         add("price_position", "negative", f"股價比 20 日均線高出 {extension:.1f}%，短線漲多，追價風險高。",
             "screener.trend_pit", extension_above_ma20_pct=round(extension, 2))
     elif facts.recent_corporate_action is not False:
-        add("price_position", "unavailable", "近期有除權息或無法確認，價格位置需調整後才能判斷。", "buy_point.levels")
+        add("price_position", "unavailable", f"{_corporate_action_text(facts)}，價格位置需調整後才能判斷。", "buy_point.levels")
     elif pullback is None or extension is None:
         add("price_position", "unavailable", "近 20 日價格資料不足，無法判斷價格位置。", "buy_point.levels")
     else:
@@ -512,11 +514,37 @@ def decide_state(
     return state, None
 
 
+def _corporate_action_note(event: Any) -> str:
+    """Name the corporate action that withholds price levels and when they come back."""
+    cash = (getattr(event, "cash_dividend", None) or 0) > 0
+    stock = (getattr(event, "free_share_ratio", None) or 0) > 0
+    if getattr(event, "reduction_ratio", None):
+        label = "減資"
+    elif cash and stock:
+        label = "除權息（配股＋配息）"
+    elif stock:
+        label = "除權（配股）"
+    elif cash:
+        label = "除息（配息）"
+    else:
+        label = "除權息或股本調整"
+    effective: date = event.effective_date
+    # The lookback window is [as_of - N, as_of]; the event leaves it N + 1 days later.
+    resume = effective + timedelta(days=CORPORATE_ACTION_LOOKBACK_DAYS + 1)
+    return f"{effective:%m/%d} {label}，價位約 {resume:%m/%d} 後恢復"
+
+
+def _corporate_action_text(facts: BeginnerFacts) -> str:
+    if facts.recent_corporate_action is None:
+        return "無法確認近期是否有除權息（除權息資料暫時讀不到）"
+    return facts.corporate_action_note or "近期有除權息"
+
+
 def _plan(facts: BeginnerFacts, state: SelectionState, signal: BuyPointSignal | None) -> tuple[PlanLevels | None, str | None]:
     if state not in ("watch", "wait_pullback", "wait_breakout"):
         return None, None
     if facts.recent_corporate_action is not False:
-        return None, "近期有除權息或無法確認，暫不提供價位。"
+        return None, f"{_corporate_action_text(facts)}，暫不提供價位。"
     if signal is None:
         return None, "近 20 日價格資料不足，暫不提供價位。"
     rows = facts.daily[-STOP_LOOKBACK:]
@@ -1038,6 +1066,10 @@ class BeginnerSelectionService:
                 latest_eps=item.latest_eps, pe=item.pe,
                 risk_status=risk_status, risk_reason=risk_reason, attention_recent=attention,
                 recent_corporate_action=(item.symbol in recent_actions) if recent_actions is not None else None,
+                corporate_action_note=(
+                    _corporate_action_note(recent_actions[item.symbol])
+                    if recent_actions is not None and item.symbol in recent_actions else None
+                ),
                 daily=daily.get(item.symbol, []),
                 social_status=social["status"],
                 social_mentions=(social["mentions"].get(item.symbol, 0) if social["status"] != "unavailable" else None),
@@ -1099,7 +1131,8 @@ class BeginnerSelectionService:
                 out[row["symbol"]] = values  # type: ignore[assignment]
         return out
 
-    def _recent_actions(self, as_of: date) -> set[str] | None:
+    def _recent_actions(self, as_of: date) -> dict[str, Any] | None:
+        """Latest verified corporate action per symbol in the lookback window; None if unknown."""
         try:
             events = self.screener.action_store.read_verified_window(
                 as_of - timedelta(days=CORPORATE_ACTION_LOOKBACK_DAYS), as_of
@@ -1107,7 +1140,13 @@ class BeginnerSelectionService:
         except Exception as exc:
             logger.debug("beginner corporate actions unavailable: %s", type(exc).__name__)
             return None
-        return None if events is None else {event.symbol for event in events}
+        if events is None:
+            return None
+        latest: dict[str, Any] = {}
+        for event in events:
+            if event.symbol not in latest or event.effective_date > latest[event.symbol].effective_date:
+                latest[event.symbol] = event
+        return latest
 
     def _risk_context(self) -> tuple[Any, list[Any], Any, Any] | None:
         try:
