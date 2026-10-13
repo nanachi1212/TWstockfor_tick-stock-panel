@@ -86,6 +86,37 @@ def test_subscription_profiles_need_no_key_and_keep_their_model(tmp_path):
         assert snapshot_ai_provider_config().model == "opus"
 
 
+@pytest.mark.parametrize("bad", ["--dangerously-skip-permissions", "-p", "opus extra", "sonnet\nx", "a;b", "x" * 200])
+def test_model_names_that_could_be_cli_options_are_rejected(tmp_path, bad):
+    import app.services.ai_key_profiles as mod
+
+    with (
+        mock.patch.object(mod, "_profiles_path", lambda: tmp_path / "p.json"),
+        mock.patch.object(mod, "_secrets_path", lambda: tmp_path / "s.json"),
+        pytest.raises(ValueError, match="Model name"),
+    ):
+        mod.create_profile(name="bad", provider="claude_cli", api_key="", model=bad)
+
+
+def test_valid_model_names_pass_validation():
+    from app.services.ai_key_profiles import validate_model_name
+
+    for ok in ("sonnet", "gpt-5.5", "gpt-5.6-sol", "qwen/qwen3.5:9b", ""):
+        assert validate_model_name(ok) == ok
+
+
+@pytest.mark.asyncio
+async def test_claude_runner_refuses_option_like_model_before_spawning():
+    with (
+        mock.patch.object(ai_provider, "_claude_base_command", return_value=["claude"]),
+        mock.patch.object(ai_provider, "_run_cli_process") as spawn,
+        pytest.raises(ValueError, match="Model name"),
+    ):
+        await generate_ai_text([{"role": "user", "content": "x"}], timeout=30,
+                               config_snapshot=_claude("--dangerously-skip-permissions"))
+    spawn.assert_not_called()
+
+
 def test_profile_api_accepts_keyless_subscription_and_probes_cli(tmp_path):
     from fastapi.testclient import TestClient
 

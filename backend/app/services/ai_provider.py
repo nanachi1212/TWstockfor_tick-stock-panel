@@ -1223,10 +1223,12 @@ async def _run_codex_cli(
             "--output-last-message",
             str(output_path),
         ]
-        model = (
+        from app.services.ai_key_profiles import validate_model_name
+
+        model = validate_model_name(
             config_snapshot.model if config_snapshot is not None
             else model if model is not None else current_ai_model()
-        ).strip()
+        )
         if model:
             args.extend(["--model", model])
         args.extend(["--cd", str(workspace_path), "-"])
@@ -1293,9 +1295,12 @@ async def _run_claude_cli(
     prompt = _codex_prompt(messages, max_tokens=max_tokens)
     workspace = Path(tempfile.mkdtemp(prefix="tickflow-claude-run-"))
     try:
+        from app.services.ai_key_profiles import validate_model_name
+
         args = [*_claude_base_command(), "-p", *_CLAUDE_ISOLATION_ARGS, "--output-format", "json"]
-        if config_snapshot.model.strip():
-            args.extend(["--model", config_snapshot.model.strip()])
+        model = validate_model_name(config_snapshot.model)
+        if model:
+            args.extend(["--model", model])
         returncode, stdout, stderr = await asyncio.to_thread(
             _run_cli_process, args, prompt, _claude_process_env(), timeout, "Claude Code CLI", workspace,
         )

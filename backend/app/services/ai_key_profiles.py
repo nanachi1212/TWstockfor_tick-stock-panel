@@ -23,6 +23,7 @@ import contextlib
 import json
 import logging
 import os
+import re
 import threading
 import uuid
 from datetime import UTC, datetime
@@ -36,6 +37,16 @@ _lock = threading.Lock()
 _VALID_CHANNELS = frozenset(("line", "telegram"))
 # Subscription providers run the user's logged-in CLI and store no API key.
 _SUBSCRIPTION_PROVIDERS = frozenset(("codex_cli", "claude_cli"))
+# Model names are passed as CLI arguments: letters/digits first, no leading "-", no spaces or control characters.
+_MODEL_NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:/-]{0,127}$")
+
+
+def validate_model_name(model: str) -> str:
+    """Return the trimmed model name, or raise ValueError if it could be read as a CLI option."""
+    value = (model or "").strip()
+    if value and not _MODEL_NAME_RE.fullmatch(value):
+        raise ValueError("Model name may only contain letters, digits, . _ : / - and must not start with -")
+    return value
 _VALID_PROVIDERS = frozenset(("openai_compat", "openai")) | _SUBSCRIPTION_PROVIDERS
 
 
@@ -225,6 +236,7 @@ def create_profile(name: str, provider: str, api_key: str, *, base_url: str = ""
         provider = "openai_compat"
     if not api_key.strip() and provider not in _SUBSCRIPTION_PROVIDERS:
         raise ValueError("API key cannot be empty")
+    model = validate_model_name(model)
 
     with _lock:
         profiles = _load_metadata()
@@ -280,6 +292,7 @@ def update_profile(
         raise ValueError("Unsupported AI provider")
     if api_key is not None and not api_key.strip():
         raise ValueError("API key cannot be empty")
+    model = validate_model_name(model)
 
     with _lock:
         profiles = _load_metadata()
