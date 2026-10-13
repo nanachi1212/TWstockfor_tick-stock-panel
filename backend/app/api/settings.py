@@ -553,6 +553,24 @@ async def test_ai_key_profile(profile_id: str) -> dict:
     return {"profile_id": profile_id, "provider": provider, **result}
 
 
+@router.post("/ai/test")
+async def test_active_ai() -> dict:
+    """Test the AI config currently in use (the 連線狀態 card's 測試 button)."""
+    from app.services.ai_provider import (
+        is_subscription_cli_provider,
+        probe_openai_profile_connection,
+        probe_subscription_cli,
+        snapshot_ai_provider_config,
+    )
+
+    cfg = snapshot_ai_provider_config()
+    if is_subscription_cli_provider(cfg.provider):
+        result = await probe_subscription_cli(cfg.provider, cfg.model)
+    else:
+        result = await probe_openai_profile_connection(cfg)
+    return {**result, "model": cfg.model}
+
+
 # ===== 偏好设置 =====
 
 def _realtime_allowed() -> bool:

@@ -4728,7 +4728,7 @@ export const api = {
   /** 檢查 AI 配置狀態 */
   strategyAiTest: () =>
     request<{ ok: boolean; error?: string; model?: string; response?: string; usage?: { prompt: number; completion: number } }>(
-      '/api/strategies/ai/test',
+      '/api/settings/ai/test',
       { method: 'POST' },
     ),
 
