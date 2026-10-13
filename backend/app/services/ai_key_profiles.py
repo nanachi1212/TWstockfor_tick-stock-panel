@@ -34,6 +34,9 @@ logger = logging.getLogger(__name__)
 _lock = threading.Lock()
 
 _VALID_CHANNELS = frozenset(("line", "telegram"))
+# Subscription providers run the user's logged-in CLI and store no API key.
+_SUBSCRIPTION_PROVIDERS = frozenset(("codex_cli", "claude_cli"))
+_VALID_PROVIDERS = frozenset(("openai_compat", "openai")) | _SUBSCRIPTION_PROVIDERS
 
 
 # ── Path helpers ────────────────────────────────────────────────────────────
@@ -218,11 +221,10 @@ def create_profile(name: str, provider: str, api_key: str, *, base_url: str = ""
     """Create a new profile. Returns metadata (no key)."""
     if not name.strip():
         raise ValueError("Profile name cannot be empty")
-    if not api_key.strip():
-        raise ValueError("API key cannot be empty")
-    valid_providers = {"openai_compat", "openai", "codex_cli"}
-    if provider not in valid_providers:
+    if provider not in _VALID_PROVIDERS:
         provider = "openai_compat"
+    if not api_key.strip() and provider not in _SUBSCRIPTION_PROVIDERS:
+        raise ValueError("API key cannot be empty")
 
     with _lock:
         profiles = _load_metadata()
@@ -252,7 +254,7 @@ def create_profile(name: str, provider: str, api_key: str, *, base_url: str = ""
             "base_url": profile["base_url"],
             "model": profile["model"],
             "key_masked": mask(api_key),
-            "has_key": True,
+            "has_key": bool(api_key.strip()),
             "active": profile["active"],
             "created_at": now,
         }
@@ -274,8 +276,7 @@ def update_profile(
     """
     if not name.strip():
         raise ValueError("Profile name cannot be empty")
-    valid_providers = {"openai_compat", "openai", "codex_cli"}
-    if provider not in valid_providers:
+    if provider not in _VALID_PROVIDERS:
         raise ValueError("Unsupported AI provider")
     if api_key is not None and not api_key.strip():
         raise ValueError("API key cannot be empty")

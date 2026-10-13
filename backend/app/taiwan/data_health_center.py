@@ -780,13 +780,18 @@ class DataHealthService:
         return rows
 
     def _ai(self) -> dict[str, Any]:
-        from app.services.ai_provider import is_codex_cli_provider, snapshot_ai_provider_config
+        from app.services.ai_provider import (
+            CLI_PROVIDER_LABELS,
+            is_subscription_cli_provider,
+            snapshot_ai_provider_config,
+        )
 
         cfg = snapshot_ai_provider_config()
-        configured = bool(cfg.model and (is_codex_cli_provider(cfg.provider) or cfg.api_key))
+        cli = is_subscription_cli_provider(cfg.provider)
+        configured = bool(cfg.model and (cli or cfg.api_key))
         return {
             "status": "not_run" if configured else "config_missing",
-            "source": "Codex CLI" if is_codex_cli_provider(cfg.provider) else "AI Provider/Profile",
+            "source": CLI_PROVIDER_LABELS[cfg.provider] if cli else "AI Provider/Profile",
             "freshness": "設定狀態，連線尚未驗證",
             "reason": "目前 provider/profile 已設定，尚未驗證連線；請按「重新驗證」"
             if configured

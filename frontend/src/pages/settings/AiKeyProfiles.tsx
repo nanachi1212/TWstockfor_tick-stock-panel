@@ -23,6 +23,55 @@ const INPUT_CLS =
 const PROVIDER_LABELS: Record<string, string> = {
   openai_compat: '自訂 OpenAI 相容',
   openai: 'OpenAI 官方',
+  codex_cli: 'Codex 訂閱（ChatGPT）',
+  claude_cli: 'Claude 訂閱（Claude Code）',
+}
+
+/** 訂閱類型直接呼叫本機已登入的 CLI，不需要 API Key 或 Base URL。 */
+const SUBSCRIPTION_MODELS: Record<string, string[]> = {
+  claude_cli: ['sonnet', 'opus', 'haiku', 'fable'],
+  codex_cli: ['gpt-5.5', 'gpt-5.6-sol', 'gpt-5.6-terra', 'gpt-5.6-luna'],
+}
+const isSubscription = (provider: string) => provider in SUBSCRIPTION_MODELS
+
+function SubscriptionNote({ provider }: { provider: string }) {
+  const command = provider === 'claude_cli' ? 'claude' : 'codex login'
+  return (
+    <p className="rounded-lg border border-border/50 bg-base/40 px-2.5 py-2 text-[10px] text-muted">
+      使用這台電腦上 <span className="font-mono">{command}</span> 的訂閱登入，不需要 API Key。
+      呼叫會佔用你的訂閱額度；登入失效時請在終端機重新登入。Docker 版看不到本機登入，無法使用。
+    </p>
+  )
+}
+
+/** 原生下拉加自填：列出建議模型，也可以直接輸入其他名稱。 */
+function ModelInput({ provider, value, onChange, ariaLabel, placeholder }: {
+  provider: string
+  value: string
+  onChange: (value: string) => void
+  ariaLabel?: string
+  placeholder?: string
+}) {
+  const options = SUBSCRIPTION_MODELS[provider]
+  const listId = options ? `ai-models-${provider}` : undefined
+  return (
+    <>
+      <input
+        type="text"
+        aria-label={ariaLabel}
+        list={listId}
+        placeholder={options ? options[0] : placeholder}
+        value={value}
+        onChange={e => onChange(e.target.value)}
+        className={INPUT_CLS}
+      />
+      {options && (
+        <datalist id={listId}>
+          {options.map(model => <option key={model} value={model} />)}
+        </datalist>
+      )}
+    </>
+  )
 }
 
 /**
@@ -173,8 +222,8 @@ export function AiKeyProfilesPanel() {
             AI API Key 多組管理
           </h3>
           <p className="text-xs text-muted mt-0.5">
-            保存多組免費 API Key，手動切換使用中的 Key。Dashboard AI、個股 AI、每日摘要 AI
-            全部使用同一個目前使用中的 Key。
+            保存多組 API Key 或 Codex／Claude 訂閱，手動切換使用中的 Profile。Dashboard AI、個股 AI、每日摘要 AI
+            全部使用同一個目前使用中的 Profile；「設為深度」的 Profile 只給辯論裁判與最終建議用。
           </p>
         </div>
         <button
@@ -212,7 +261,10 @@ export function AiKeyProfilesPanel() {
               <label className="block text-[10px] font-semibold text-muted mb-1">Provider</label>
               <select
                 value={newProvider}
-                onChange={e => setNewProvider(e.target.value)}
+                onChange={e => {
+                  setNewProvider(e.target.value)
+                  if (isSubscription(e.target.value)) setNewModel(SUBSCRIPTION_MODELS[e.target.value][0])
+                }}
                 className={INPUT_CLS + ' cursor-pointer'}
               >
                 {Object.entries(PROVIDER_LABELS).map(([k, v]) => (
@@ -221,6 +273,15 @@ export function AiKeyProfilesPanel() {
               </select>
             </div>
           </div>
+          {isSubscription(newProvider) ? (
+            <>
+              <SubscriptionNote provider={newProvider} />
+              <div>
+                <label className="block text-[10px] font-semibold text-muted mb-1">Model</label>
+                <ModelInput provider={newProvider} value={newModel} onChange={setNewModel} ariaLabel="訂閱模型" />
+              </div>
+            </>
+          ) : (<>
           <div>
             <label className="block text-[10px] font-semibold text-muted mb-1">API Key</label>
             <div className="relative">
@@ -265,6 +326,7 @@ export function AiKeyProfilesPanel() {
               />
             </div>
           </div>
+          </>)}
           <div className="flex gap-2 justify-end">
             <button
               type="button"
@@ -275,7 +337,7 @@ export function AiKeyProfilesPanel() {
             </button>
             <button
               type="button"
-              disabled={!newName.trim() || !newKey.trim() || createMut.isPending}
+              disabled={!newName.trim() || (!isSubscription(newProvider) && !newKey.trim()) || createMut.isPending}
               onClick={() => createMut.mutate()}
               className="inline-flex items-center gap-1.5 rounded-lg bg-accent px-3 py-1.5 text-xs font-semibold text-accent-foreground hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
             >
@@ -330,7 +392,7 @@ export function AiKeyProfilesPanel() {
                   <div className="flex items-center gap-2 text-[10px] text-muted flex-wrap">
                     <span>{PROVIDER_LABELS[p.provider] ?? p.provider}</span>
                     <span>·</span>
-                    <span className="font-mono">{p.key_masked || '(無 key)'}</span>
+                    <span className="font-mono">{isSubscription(p.provider) ? '訂閱登入' : (p.key_masked || '(無 key)')}</span>
                     {p.model && <><span>·</span><span className="font-mono">{p.model}</span></>}
                     {p.base_url && <><span>·</span><span className="font-mono truncate max-w-[180px]" title={p.base_url}>{p.base_url}</span></>}
                   </div>
@@ -429,15 +491,19 @@ export function AiKeyProfilesPanel() {
                   </select>
                 </div>
               </div>
-              <div>
-                <label className="mb-1 block text-[10px] font-semibold text-muted">Base URL</label>
-                <input aria-label="Base URL" value={editBaseUrl} onChange={e => setEditBaseUrl(e.target.value)} className={INPUT_CLS} />
-              </div>
+              {isSubscription(editProvider) ? (
+                <SubscriptionNote provider={editProvider} />
+              ) : (
+                <div>
+                  <label className="mb-1 block text-[10px] font-semibold text-muted">Base URL</label>
+                  <input aria-label="Base URL" value={editBaseUrl} onChange={e => setEditBaseUrl(e.target.value)} className={INPUT_CLS} />
+                </div>
+              )}
               <div>
                 <label className="mb-1 block text-[10px] font-semibold text-muted">Model</label>
-                <input aria-label="Model" value={editModel} onChange={e => setEditModel(e.target.value)} className={INPUT_CLS} />
+                <ModelInput provider={editProvider} value={editModel} onChange={setEditModel} ariaLabel="Model" />
               </div>
-              <div>
+              {!isSubscription(editProvider) && <div>
                 <label className="mb-1 block text-[10px] font-semibold text-muted">API Key</label>
                 <div className="relative">
                   <input
@@ -453,13 +519,13 @@ export function AiKeyProfilesPanel() {
                   </button>
                 </div>
                 <p className="mt-1 text-[10px] text-muted">後端不會回傳原始 Key；留空即保留目前憑證。</p>
-              </div>
+              </div>}
             </div>
             <div className="mt-5 flex justify-end gap-2">
               <button type="button" onClick={() => setEditing(null)} className="rounded-lg border border-border/80 px-3 py-1.5 text-xs text-muted hover:text-foreground">取消</button>
               <button
                 type="button"
-                disabled={!editName.trim() || !editModel.trim() || (editProvider !== 'openai' && !editBaseUrl.trim()) || updateMut.isPending}
+                disabled={!editName.trim() || !editModel.trim() || (editProvider !== 'openai' && !isSubscription(editProvider) && !editBaseUrl.trim()) || updateMut.isPending}
                 onClick={() => updateMut.mutate()}
                 className="inline-flex items-center gap-1.5 rounded-lg bg-accent px-3 py-1.5 text-xs font-semibold text-accent-foreground disabled:opacity-50"
               >

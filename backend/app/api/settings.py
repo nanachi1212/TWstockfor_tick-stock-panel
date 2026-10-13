@@ -394,7 +394,7 @@ def clear_ai_settings() -> dict:
 class AiKeyProfileCreate(BaseModel):
     name: str
     provider: str = "openai_compat"
-    api_key: str
+    api_key: str = ""
     base_url: str = ""
     model: str = ""
 
@@ -425,7 +425,8 @@ def create_ai_key_profile(req: AiKeyProfileCreate) -> dict:
     from app.services import ai_key_profiles
     if not req.name.strip():
         raise HTTPException(status_code=400, detail="Profile name cannot be empty")
-    if not req.api_key.strip():
+    from app.services.ai_provider import is_subscription_cli_provider
+    if not req.api_key.strip() and not is_subscription_cli_provider(req.provider):
         raise HTTPException(status_code=400, detail="API key cannot be empty")
     try:
         profile = ai_key_profiles.create_profile(
@@ -508,7 +509,12 @@ async def test_ai_key_profile(profile_id: str) -> dict:
     Returns connectivity result without exposing the key or request content.
     """
     from app.services import ai_key_profiles
-    from app.services.ai_provider import AIProviderConfigSnapshot, probe_openai_profile_connection
+    from app.services.ai_provider import (
+        AIProviderConfigSnapshot,
+        is_subscription_cli_provider,
+        probe_openai_profile_connection,
+        probe_subscription_cli,
+    )
 
     profiles_meta = ai_key_profiles.list_profiles()
     meta = next((p for p in profiles_meta if p["id"] == profile_id), None)
@@ -518,6 +524,9 @@ async def test_ai_key_profile(profile_id: str) -> dict:
     profile_config = ai_key_profiles.get_profile_config(profile_id)
     if profile_config is None:
         raise HTTPException(status_code=404, detail="Profile not found")
+    if is_subscription_cli_provider(profile_config["provider"]):
+        result = await probe_subscription_cli(profile_config["provider"], profile_config["model"])
+        return {"profile_id": profile_id, "provider": profile_config["provider"], **result}
     if not profile_config["key"]:
         return {"ok": False, "error_code": "AUTH_ERROR", "error": "Profile has no stored key"}
 
