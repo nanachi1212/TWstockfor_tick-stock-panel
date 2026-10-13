@@ -350,10 +350,14 @@ export function TaiwanEventCenter() {
         {/* Left: Events Stream (2 Columns on large screens) */}
         <div className="lg:col-span-2 space-y-3">
           {eventsQuery.data?.status === 'partial' && (
-            <div className="flex items-center gap-2 rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-xs text-amber-500">
-              <AlertTriangle className="h-4 w-4 shrink-0" />
-              <span>部分事件來源不可用、清單不完整或公告時間證據不足，請查看個別事件的來源與時間狀態。</span>
-            </div>
+            Object.values(eventsQuery.data.sources_status ?? {}).some(v => v === 'unavailable' || v === 'stale')
+              ? (
+                <div className="flex items-center gap-2 rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-xs text-amber-500">
+                  <AlertTriangle className="h-4 w-4 shrink-0" />
+                  <span>部分事件來源暫時連不上，清單可能不完整，稍後再刷新看看。</span>
+                </div>
+              )
+              : <p className="text-xs text-muted">部分官方資料沒有提供公告時間，事件內容仍可參考。</p>
           )}
           <MopsConferenceAvailability sources={eventsQuery.data?.sources_status} />
           {eventsQuery.data?.status === 'unavailable' && (
