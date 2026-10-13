@@ -162,6 +162,18 @@ export function AiKeyProfilesPanel() {
     onError: (e: any) => toast(e.message || '刪除失敗', 'error'),
   })
 
+  /** 訂閱 Profile 在列上直接換模型，不用開編輯視窗。 */
+  const modelMut = useMutation({
+    mutationFn: ({ p, model }: { p: AiKeyProfile; model: string }) =>
+      api.aiKeyProfileUpdate(p.id, { name: p.name, provider: p.provider, base_url: p.base_url ?? '', model }),
+    onSuccess: (_r, { model }) => {
+      qc.invalidateQueries({ queryKey: QK.aiKeyProfiles })
+      qc.invalidateQueries({ queryKey: QK.settings })
+      toast(`已切換模型：${model}`, 'success')
+    },
+    onError: (e: any) => toast(e.message || '切換模型失敗', 'error'),
+  })
+
   const updateMut = useMutation({
     mutationFn: () => {
       if (!editing) throw new Error('未選擇 Profile')
@@ -393,7 +405,18 @@ export function AiKeyProfilesPanel() {
                     <span>{PROVIDER_LABELS[p.provider] ?? p.provider}</span>
                     <span>·</span>
                     <span className="font-mono">{isSubscription(p.provider) ? '訂閱登入' : (p.key_masked || '(無 key)')}</span>
-                    {p.model && <><span>·</span><span className="font-mono">{p.model}</span></>}
+                    {isSubscription(p.provider)
+                      ? <><span>·</span>
+                        <select
+                          aria-label={`${p.name} 模型`}
+                          value={p.model}
+                          disabled={modelMut.isPending}
+                          onChange={e => modelMut.mutate({ p, model: e.target.value })}
+                          className="h-6 rounded-md bg-base px-1.5 text-[10px] font-mono text-foreground ring-1 ring-border/30 focus:outline-none focus:ring-2 focus:ring-accent/30"
+                        >
+                          {[...new Set([...(p.model ? [p.model] : []), ...SUBSCRIPTION_MODELS[p.provider]])].map(m => <option key={m} value={m}>{m}</option>)}
+                        </select></>
+                      : p.model && <><span>·</span><span className="font-mono">{p.model}</span></>}
                     {p.base_url && <><span>·</span><span className="font-mono truncate max-w-[180px]" title={p.base_url}>{p.base_url}</span></>}
                   </div>
                   {testResult && (
