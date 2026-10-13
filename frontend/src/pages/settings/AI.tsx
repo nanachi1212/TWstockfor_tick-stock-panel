@@ -21,6 +21,7 @@ const toPositiveInt = (v: string) => {
 
 const OPENAI_PROVIDER = 'openai'
 const OPENAI_COMPAT_PROVIDER = 'openai_compat'
+const LOCAL_LLM_BASE_URL = 'http://127.0.0.1:8080/v1'
 const DEFAULT_OPENAI_MODEL = 'gpt-5.5'
 const DEFAULT_REASONING_EFFORT = 'high'
 
@@ -54,7 +55,7 @@ export function SettingsAIPanel() {
   const [testResult, setTestResult] = useState<{ ok: boolean; msg: string } | null>(null)
   const [selectedPresetLabel, setSelectedPresetLabel] = useState(PRESETS[0].label)
   const directDrafts = useRef({
-    custom: { baseUrl: '', model: '' },
+    custom: { baseUrl: LOCAL_LLM_BASE_URL, model: '' },
     openai: { baseUrl: 'https://api.openai.com/v1', model: DEFAULT_OPENAI_MODEL },
   })
   const draftsInitialized = useRef(false)
@@ -68,11 +69,11 @@ export function SettingsAIPanel() {
 
   useEffect(() => {
     if (!s) return
-    // 未配置過 AI (無 api_key): 字段留空, 默認選中"自定義"預設, 不預填充後端默認值
+    // 未配置過 AI (無 api_key): Base URL 預設指向本機 llama-server, 模型留空, 默認選中"自定義"預設
     const unconfigured = !s.has_ai_key && !s.ai_configured
     // ponytail: legacy/unknown providers remain persisted, but the current UI only exposes generic custom or OpenAI.
     const savedProvider = s.ai_provider === OPENAI_PROVIDER ? OPENAI_PROVIDER : OPENAI_COMPAT_PROVIDER
-    const savedBaseUrl = unconfigured ? '' : (s.ai_base_url ?? '')
+    const savedBaseUrl = unconfigured ? LOCAL_LLM_BASE_URL : (s.ai_base_url ?? '')
     const savedOpenAIModel = unconfigured ? '' : (s.ai_openai_model ?? s.ai_model ?? '')
     const savedPreset = unconfigured ? PRESETS[0] : findPreset(savedProvider)
     if (!draftsInitialized.current) {
@@ -92,7 +93,7 @@ export function SettingsAIPanel() {
     setCustomUa(!!ua)
     setUserAgent(ua)
     setMaxOutputTokens(String(s?.ai_max_output_tokens ?? 8192))
-    setContextWindow(String(s?.ai_context_window ?? 64000))
+    setContextWindow(String(s?.ai_context_window ?? 32768))
   }, [s])
 
   const payload = () => hasProfiles ? {
@@ -148,16 +149,16 @@ export function SettingsAIPanel() {
       setModel('')
       setReasoningEffort(DEFAULT_REASONING_EFFORT)
       directDrafts.current = {
-        custom: { baseUrl: '', model: '' },
+        custom: { baseUrl: LOCAL_LLM_BASE_URL, model: '' },
         openai: { baseUrl: 'https://api.openai.com/v1', model: DEFAULT_OPENAI_MODEL },
       }
       setMaxOutputTokens('8192')
-      setContextWindow('64000')
+      setContextWindow('32768')
       setTestResult(null)
       qc.setQueryData<SettingsState>(QK.settings, prev => prev ? {
         ...prev,
         ai_provider: OPENAI_COMPAT_PROVIDER,
-        ai_base_url: '',
+        ai_base_url: LOCAL_LLM_BASE_URL,
         ai_model: '',
         ai_openai_model: '',
         ai_reasoning_effort: DEFAULT_REASONING_EFFORT,
@@ -165,7 +166,7 @@ export function SettingsAIPanel() {
         ai_codex_command: '',
         ai_codex_reasoning_effort: '',
         ai_max_output_tokens: 8192,
-        ai_context_window: 64000,
+        ai_context_window: 32768,
         has_ai_key: false,
         ai_configured: false,
         ai_api_key_masked: '',
@@ -371,8 +372,8 @@ export function SettingsAIPanel() {
               <Field label="輸出上限 max_tokens" hint="所有 AI 任務的輸出 token 上限,任務請求會被鉗制到此值;預設 8192">
                 <input type="number" min={1} value={maxOutputTokens} onChange={e => setMaxOutputTokens(e.target.value)} placeholder="8192" className={INPUT_CLS} />
               </Field>
-              <Field label="上下文視窗 (輸入上限)" hint="輸入估算超出此視窗時會報錯並提示調大;預設 64000">
-                <input type="number" min={1} value={contextWindow} onChange={e => setContextWindow(e.target.value)} placeholder="64000" className={INPUT_CLS} />
+              <Field label="上下文視窗 (輸入上限)" hint="輸入估算超出此視窗時會報錯並提示調大;預設 32768">
+                <input type="number" min={1} value={contextWindow} onChange={e => setContextWindow(e.target.value)} placeholder="32768" className={INPUT_CLS} />
               </Field>
             </div>
           </div>

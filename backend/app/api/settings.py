@@ -384,7 +384,7 @@ def clear_ai_settings() -> dict:
     settings.ai_codex_command = "codex"
     settings.ai_codex_reasoning_effort = ""
     settings.ai_max_output_tokens = 8192
-    settings.ai_context_window = 64000
+    settings.ai_context_window = 32768
 
     return {"ok": True}
 
