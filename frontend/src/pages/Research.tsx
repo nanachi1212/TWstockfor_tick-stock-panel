@@ -23,6 +23,54 @@ function printable(value: unknown) {
   try { return JSON.stringify(value, null, 2) } catch { return '資料格式無法顯示' }
 }
 
+const SECTION_LABELS: [string, string][] = [
+  ['market_interpretation', '大盤環境'],
+  ['industry_interpretation', '產業'],
+  ['price_technical_interpretation', '價格與技術面'],
+  ['institutional_interpretation', '法人籌碼'],
+  ['margin_interpretation', '融資融券'],
+  ['fundamentals_interpretation', '基本面'],
+  ['abnormal_diagnostics_interpretation', '異常異動'],
+  ['portfolio_interpretation', '持倉'],
+  ['alert_interpretation', '提醒'],
+  ['events_news_interpretation', '事件與新聞'],
+]
+const BEGINNER_LABELS: [string, string][] = [['can_buy', '現在能不能買'], ['stop_loss', '停損在哪'], ['give_up', '什麼情況該放棄']]
+type Obs = { text?: string }
+
+function asReport(value: unknown): Record<string, unknown> | null {
+  let v = value
+  if (typeof v === 'string') { try { v = JSON.parse(v) } catch { return null } }
+  return v && typeof v === 'object' && !Array.isArray(v) && typeof (v as { overview?: unknown }).overview === 'string' ? v as Record<string, unknown> : null
+}
+
+function ObsList({ title, items, tone }: { title: string; items: unknown; tone: string }) {
+  const list = (Array.isArray(items) ? items : []).map(i => (i as Obs)?.text).filter((t): t is string => Boolean(t))
+  if (!list.length) return null
+  return <div><h4 className={`text-xs font-semibold ${tone}`}>{title}</h4><ul className="mt-1 list-disc space-y-1 pl-4 text-xs leading-relaxed">{list.map((t, i) => <li key={i}>{t}</li>)}</ul></div>
+}
+
+function ReportView({ value }: { value: unknown }) {
+  const r = asReport(value)
+  const raw = <details className="mt-3"><summary className="cursor-pointer text-[10px] text-muted">原始資料（給工程師看）</summary><pre className="mt-2 max-h-80 overflow-auto whitespace-pre-wrap text-[10px] leading-relaxed text-secondary">{printable(value)}</pre></details>
+  if (!r) return <pre className="mt-2 max-h-[28rem] overflow-auto whitespace-pre-wrap text-[11px] leading-relaxed text-secondary">{printable(value)}</pre>
+  const beginner = (r.beginner_answer ?? {}) as Record<string, string>
+  const missing = Array.isArray(r.missing_information) ? r.missing_information as string[] : []
+  return (
+    <div className="mt-2 space-y-3 text-xs">
+      <p className="rounded-lg bg-base/40 p-3 leading-relaxed text-foreground">{String(r.overview)}</p>
+      {BEGINNER_LABELS.some(([k]) => beginner[k]) && <div className="space-y-1.5"><h4 className="text-xs font-semibold text-blue-300">新手三問</h4>{BEGINNER_LABELS.filter(([k]) => beginner[k]).map(([k, label]) => <p key={k} className="leading-relaxed"><span className="font-semibold text-muted">{label}：</span>{beginner[k]}</p>)}</div>}
+      <ObsList title="重點觀察" items={r.key_observations} tone="text-emerald-400" />
+      <ObsList title="風險" items={r.risk_factors} tone="text-amber-400" />
+      <ObsList title="接下來要看" items={r.watch_next} tone="text-purple-300" />
+      <div className="space-y-1.5">{SECTION_LABELS.filter(([k]) => typeof r[k] === 'string' && r[k]).map(([k, label]) => <p key={k} className="leading-relaxed"><span className="font-semibold text-muted">{label}：</span>{String(r[k])}</p>)}</div>
+      {missing.length > 0 && <p className="text-[10px] text-muted">資料缺口：{missing.join('；')}</p>}
+      {typeof r.disclaimer === 'string' && <p className="text-[10px] text-muted">{r.disclaimer}</p>}
+      {raw}
+    </div>
+  )
+}
+
 export function Research() {
   const [params, setParams] = useSearchParams()
   const symbol = params.get('symbol') ?? ''
@@ -108,7 +156,7 @@ export function Research() {
             <div className="flex flex-wrap items-center justify-between gap-2"><h2 className="text-sm font-semibold">研究詳情：{selectedDetail.symbol ?? '未提供標的'}</h2><span className="font-mono text-[10px] text-muted">{selectedDetail.id}</span></div>
             {detailQuery.isFetching && <p role="status" className="mt-1 text-[10px] text-muted">正在讀取完整紀錄…</p>}
             <dl className="mt-3 grid grid-cols-2 gap-2 text-[10px] sm:grid-cols-4"><div><dt className="text-muted">Provider</dt><dd>{selectedDetail.provider ?? '未提供'}</dd></div><div><dt className="text-muted">Model</dt><dd>{selectedDetail.model ?? '未提供'}</dd></div><div><dt className="text-muted">提示詞版本</dt><dd>{researchPromptVersion(selectedDetail) ?? '未提供'}</dd></div><div><dt className="text-muted">儲存時間</dt><dd>{selectedDetail.saved_at ?? selectedDetail.generated_at ?? '未提供'}</dd></div></dl>
-            <div className="mt-3 rounded-lg border border-border/50 bg-base/30 p-3"><h3 className="text-xs font-semibold">報告</h3><pre className="mt-2 max-h-[28rem] overflow-auto whitespace-pre-wrap text-[11px] leading-relaxed text-secondary">{printable(selectedDetail.report ?? selectedDetail.response ?? selectedDetail)}</pre></div>
+            <div className="mt-3 rounded-lg border border-border/50 bg-base/30 p-3"><h3 className="text-xs font-semibold">報告</h3><ReportView value={selectedDetail.report ?? selectedDetail.response ?? selectedDetail} /></div>
           </article>}
           {(firstCompareId || secondCompareId) && <article className="rounded-xl border border-purple-500/30 bg-surface p-4"><h2 className="flex items-center gap-2 text-sm font-semibold"><GitCompareArrows className="h-4 w-4 text-purple-300" />研究比較</h2>{!firstCompareId || !secondCompareId ? <p className="mt-2 text-xs text-muted">請在左側各選一筆比較 A 與比較 B。</p> : compareQuery.isLoading ? <p role="status" className="mt-2 text-xs text-muted">正在取得確定性比較…</p> : compareQuery.isError ? <p role="alert" className="mt-2 text-xs text-muted">比較資料目前不可用。</p> : compareQuery.data ? <ResearchCompareView data={compareQuery.data} older={{ id: olderId, date: dayOf(olderRecord) }} newer={{ id: newerId, date: dayOf(newerRecord) }} /> : null}</article>}
         </section>

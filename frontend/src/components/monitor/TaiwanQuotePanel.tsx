@@ -324,13 +324,13 @@ export function TaiwanQuotePanel({ onSelectSymbol, onAddRuleForSymbol }: TaiwanQ
                   </div>
                 </div>
                 <div className="rounded-lg bg-elevated/40 p-2 border border-border/30">
-                  <div className="text-muted text-[11px]">漲停價 ({currentQuote.price_limit_pct != null ? `+${currentQuote.price_limit_pct}%` : '無限制'})</div>
+                  <div className="text-muted text-[11px]">漲停價 ({currentQuote.price_limit_pct != null ? `+${+(currentQuote.price_limit_pct * 100).toFixed(2)}%` : '無限制'})</div>
                   <div className="font-mono font-medium text-sm text-rose-600 dark:text-rose-400 mt-0.5">
                     {currentQuote.limit_up != null ? currentQuote.limit_up.toFixed(2) : '--'}
                   </div>
                 </div>
                 <div className="rounded-lg bg-elevated/40 p-2 border border-border/30">
-                  <div className="text-muted text-[11px]">跌停價 ({currentQuote.price_limit_pct != null ? `-${currentQuote.price_limit_pct}%` : '無限制'})</div>
+                  <div className="text-muted text-[11px]">跌停價 ({currentQuote.price_limit_pct != null ? `-${+(currentQuote.price_limit_pct * 100).toFixed(2)}%` : '無限制'})</div>
                   <div className="font-mono font-medium text-sm text-emerald-600 dark:text-emerald-400 mt-0.5">
                     {currentQuote.limit_down != null ? currentQuote.limit_down.toFixed(2) : '--'}
                   </div>
