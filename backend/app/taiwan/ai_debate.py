@@ -33,9 +33,15 @@ _FORBIDDEN_KEYS = {
     "confidence", "confidence_score", "target_price", "entry_price", "stop_price",
     "planned_entry_price", "trigger_price", "rating",
 }
+PLAIN_LANGUAGE_RULE = (
+    "寫給完全不懂股票的新手看：用日常中文短句，每句盡量不超過 40 字；"
+    "文字裡不要出現英文欄位名稱（如 selection_state）或程式術語，這些只能放在 evidence_refs；"
+    "專有名詞第一次出現要用白話解釋（例如 20 日均線＝近一個月的平均價）；"
+    "summary 第一句直接講結論（例如「現在先不要買」「先等等看」），再用一兩句說最主要的原因。"
+)
 _RULES = (
     "只能使用封閉證據並引用允許的鍵；不可預測股價、不可給任何價格、目標價、"
-    "評等或信心分數；不可改寫伺服器交易計畫。"
+    "評等或信心分數；不可改寫伺服器交易計畫。" + PLAIN_LANGUAGE_RULE
 )
 
 

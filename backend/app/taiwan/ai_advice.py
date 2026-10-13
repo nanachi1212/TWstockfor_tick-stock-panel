@@ -33,7 +33,7 @@ from app.taiwan.ai_research import (
     _generation_config_metadata,
     build_evidence_registry,
 )
-from app.taiwan.ai_debate import DEBATE_PROMPT_VERSION, TaiwanAIDebate, run_debate
+from app.taiwan.ai_debate import DEBATE_PROMPT_VERSION, PLAIN_LANGUAGE_RULE, TaiwanAIDebate, run_debate
 from app.taiwan.beginner_selection import BEGINNER_EVIDENCE_REGISTRY_KEYS
 from app.taiwan.buy_point import BuyPointSignal
 from app.taiwan.buy_point_service import (
@@ -643,6 +643,7 @@ class TaiwanAIAdviceService:
                     "content": (
                         "你是台股證據導向 Advice 引擎。不可漲跌預測、"
                         "不可產生信心分數或價格，不可改寫伺服器交易計畫。"
+                        + PLAIN_LANGUAGE_RULE
                     ),
                 },
                 {"role": "user", "content": prompt},
@@ -757,7 +758,7 @@ Advice：{json.dumps(base_run.response.advice.model_dump(mode='json'), ensure_as
                         [
                             {
                                 "role": "system",
-                                "content": "你是獨立 Advice reviewer，只找可驗證問題，不產生第三份綜合建議。",
+                                "content": "你是獨立 Advice reviewer，只找可驗證問題，不產生第三份綜合建議。" + PLAIN_LANGUAGE_RULE,
                             },
                             {"role": "user", "content": review_prompt},
                         ],
