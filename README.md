@@ -238,6 +238,7 @@ AI_API_KEY=                    # 選配;留空 = 關閉 AI 功能
 | [docs/custom-data-source.md](./docs/custom-data-source.md) | 自訂資料來源接入、YAML 設定與 mock 聯調範例 |
 | [docs/plugin-development.md](./docs/plugin-development.md) | 資料來源插件開發規範 |
 | [docs/secondary-development.md](./docs/secondary-development.md) | 二次開發、前端插槽、後端擴展點 |
+| [台股功能截圖](./screenshots/README.md) | 台股功能示意圖與對應操作文件 |
 | [docs/archive/](./docs/archive/) | 歷史階段報告與研究紀錄（唯讀保存，不再維護） |
 | [CONTRIBUTING.md](./CONTRIBUTING.md) | 貢獻、AI 開發與複審規範 |
 
