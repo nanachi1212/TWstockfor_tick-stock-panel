@@ -288,3 +288,31 @@ async def test_screener_nl_uses_active_profile_config(tmp_path):
             assert cfg.base_url == "https://api.agnai.chat/v1"
             assert cfg.model == "agnes-flash"
             assert cfg.api_key == "agnes-nl-key"
+
+
+def test_deep_profile_drives_deep_tier_and_falls_back_to_active(tmp_path):
+    """Deep tier uses the profile marked deep; clearing it falls back to the active profile."""
+    import app.services.ai_key_profiles as mod
+    from app.services.ai_provider import snapshot_ai_provider_config
+
+    meta_path = tmp_path / "tier_profiles.json"
+    secrets_path = tmp_path / "tier_secrets.json"
+    with (
+        mock.patch.object(mod, "_profiles_path", lambda: meta_path),
+        mock.patch.object(mod, "_secrets_path", lambda: secrets_path),
+    ):
+        mod.create_profile(name="local", provider="openai_compat", api_key="local-key",
+                           base_url="http://127.0.0.1:8080/v1", model="qwen-local")
+        deep = mod.create_profile(name="cloud", provider="openai_compat", api_key="cloud-key",
+                                  base_url="https://api.example.test/v1", model="cloud-deep")
+        assert snapshot_ai_provider_config("deep").model == "qwen-local"  # nothing marked yet
+
+        assert mod.set_deep_profile(deep["id"]) is True
+        assert snapshot_ai_provider_config().model == "qwen-local"
+        deep_cfg = snapshot_ai_provider_config("deep")
+        assert (deep_cfg.model, deep_cfg.api_key) == ("cloud-deep", "cloud-key")
+        assert [p["deep"] for p in mod.list_profiles()] == [False, True]
+
+        assert mod.set_deep_profile("missing") is False
+        assert mod.set_deep_profile(None) is True
+        assert snapshot_ai_provider_config("deep").model == "qwen-local"

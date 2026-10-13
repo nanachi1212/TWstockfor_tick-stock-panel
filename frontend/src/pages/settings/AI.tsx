@@ -382,6 +382,7 @@ export function SettingsAIPanel() {
       <AiQuickEnableCard />
       <AutoAiExplainCard />
       <EventAiExplainCard />
+      <AutoAdviceReflectionCard />
       <AiFeedbackSummaryCard />
 
       <div className="rounded-card border border-amber-400/20 bg-amber-400/[0.04] px-4 py-3 flex items-start gap-3">
@@ -504,6 +505,40 @@ function EventAiExplainCard() {
         <Toggle checked={enabled} onChange={() => !toggle.isPending && toggle.mutate()} />
       </div>
       {toggle.isError && <p role="alert" className="text-[11px] text-danger">儲存失敗，請稍後再試。</p>}
+    </div>
+  )
+}
+
+function AutoAdviceReflectionCard() {
+  const qc = useQueryClient()
+  const s = useSettings().data
+  const enabled = Boolean(s?.auto_advice_reflection_enabled)
+  const toggle = useMutation({
+    mutationFn: () => api.updateAutoAdviceReflection(!enabled),
+    onSuccess: () => qc.invalidateQueries({ queryKey: QK.settings }),
+  })
+  const last = s?.auto_advice_reflection_last_run
+  const failed = Object.entries(last?.failed ?? {})
+  return (
+    <div className="rounded-card border border-border bg-surface/60 px-4 py-3 space-y-1.5" aria-label="盤後自動 AI 反省">
+      <div className="flex items-center justify-between gap-3">
+        <div className="min-w-0">
+          <p className="text-sm font-medium text-foreground">盤後自動寫 AI 反省</p>
+          <p className="text-[11px] text-muted">你產生過的「可依計畫進場」Advice，在交易計畫結束（停損、停利或到期）後，AI 會寫一段檢討和一條教訓；下次同一策略的 Advice 會讀到這些教訓。關閉時結算結果照常記錄，只是不寫檢討。</p>
+        </div>
+        <Toggle checked={enabled} onChange={() => !toggle.isPending && toggle.mutate()} />
+      </div>
+      <p role="note" className="text-[11px] text-warning">
+        注意：開啟後 AI 會在盤後自動執行，不需要你按按鈕。每個結束的計畫呼叫 1 次、每天最多 10 次；雲端 AI 會計費或佔用訂閱額度。反省是事後解讀，不是績效保證，也不會改變策略規則與價位。
+      </p>
+      {toggle.isError && <p role="alert" className="text-[11px] text-danger">儲存失敗，請稍後再試。</p>}
+      {last && (
+        <p className="text-[11px] text-muted">
+          {last.status === 'settled_only'
+            ? `上次執行（${last.ran_at}）：${last.due ?? 0} 個計畫已結算，${last.reason === 'disabled' ? '開關關閉' : 'AI 未設定'}，未寫反省。`
+            : `上次執行（${last.ran_at}）：待反省 ${last.due ?? 0} 個、寫成 ${last.reflected?.length ?? 0} 個、失敗 ${failed.length} 個（隔天自動重試）。`}
+        </p>
+      )}
     </div>
   )
 }

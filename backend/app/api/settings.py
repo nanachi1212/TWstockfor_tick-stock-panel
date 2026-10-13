@@ -73,7 +73,14 @@ def get_settings() -> dict:
     """返回当前配置概况(Key 脱敏)。"""
     from app.config import settings
     from app.services import preferences
-    from app.taiwan import auto_ai_explain, event_ai_explain, push_digest, telegram_bot, watchlist_anomaly
+    from app.taiwan import (
+        advice_reflection,
+        auto_ai_explain,
+        event_ai_explain,
+        push_digest,
+        telegram_bot,
+        watchlist_anomaly,
+    )
     from app.services.ai_provider import (
         ai_configured,
         current_ai_model,
@@ -124,6 +131,8 @@ def get_settings() -> dict:
         "auto_ai_explain_enabled": auto_ai_explain.is_enabled(),
         "auto_ai_explain_last_run": auto_ai_explain.last_run(),
         "event_ai_explain_enabled": event_ai_explain.is_enabled(),
+        "auto_advice_reflection_enabled": advice_reflection.is_enabled(),
+        "auto_advice_reflection_last_run": advice_reflection.last_run(),
         # 推播與查詢 (預設全部關閉)
         "push_digest_enabled": push_digest.is_enabled(),
         "push_digest_last_run": push_digest.last_run(),
@@ -442,6 +451,19 @@ def activate_ai_key_profile(profile_id: str) -> dict:
     if not ok:
         raise HTTPException(status_code=404, detail="Profile not found")
     return {"ok": True, "active_profile_id": profile_id}
+
+
+class AiDeepProfileIn(BaseModel):
+    profile_id: str | None = None
+
+
+@router.post("/ai-key-profiles/deep")
+def set_ai_deep_profile(req: AiDeepProfileIn) -> dict:
+    """Mark one profile for deep calls (debate judge, final Advice); null clears it."""
+    from app.services import ai_key_profiles
+    if not ai_key_profiles.set_deep_profile(req.profile_id):
+        raise HTTPException(status_code=404, detail="Profile not found")
+    return {"ok": True, "deep_profile_id": req.profile_id}
 
 
 @router.patch("/ai-key-profiles/{profile_id}")
@@ -1059,6 +1081,13 @@ def update_auto_ai_explain(req: SystemNotifyPrefsIn) -> dict:
     """盤後自動 AI 說明開關 (預設關閉)；開啟後每日資料就緒時為雷達前 5 檔產生並保存。"""
     from app.taiwan import auto_ai_explain
     return {"auto_ai_explain_enabled": auto_ai_explain.set_enabled(req.enabled)}
+
+
+@router.put("/preferences/auto-advice-reflection")
+def update_auto_advice_reflection(req: SystemNotifyPrefsIn) -> dict:
+    """盤後自動 AI 反省開關 (預設關閉). 結算照常記錄, 開啟後才呼叫 AI 寫檢討。"""
+    from app.taiwan import advice_reflection
+    return {"auto_advice_reflection_enabled": advice_reflection.set_enabled(req.enabled)}
 
 
 @router.put("/preferences/event-ai-explain")

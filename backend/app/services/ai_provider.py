@@ -17,7 +17,7 @@ from collections.abc import AsyncIterator, Callable, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 from types import TracebackType
-from typing import Any
+from typing import Any, Literal
 from urllib.parse import urlsplit, urlunsplit
 
 from app import secrets_store
@@ -110,8 +110,12 @@ class AIProviderConfigSnapshot:
     codex_reasoning_effort: str = ""
 
 
-def snapshot_ai_provider_config() -> AIProviderConfigSnapshot:
-    """Read provider settings once so an in-flight research call stays consistent."""
+def snapshot_ai_provider_config(tier: Literal["quick", "deep"] = "quick") -> AIProviderConfigSnapshot:
+    """Read provider settings once so an in-flight research call stays consistent.
+
+    ``tier="deep"`` uses the profile marked as the deep model (judge / final
+    decision calls) and falls back to the active profile when none is marked.
+    """
     stored = secrets_store.load()
 
     def configured(name: str, fallback: str) -> str:
@@ -130,7 +134,7 @@ def snapshot_ai_provider_config() -> AIProviderConfigSnapshot:
     # An active profile is the authoritative endpoint/model/credential source.
     # Legacy fields are used only when no profile exists.
     from app.services import ai_key_profiles as _profiles
-    active_cfg = _profiles.get_active_profile_config()
+    active_cfg = (tier == "deep" and _profiles.get_deep_profile_config()) or _profiles.get_active_profile_config()
 
     if active_cfg:
         resolved_key = active_cfg["key"]

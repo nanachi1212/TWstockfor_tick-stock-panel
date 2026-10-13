@@ -94,6 +94,15 @@ export function AiKeyProfilesPanel() {
     onError: (e: any) => toast(e.message || '切換失敗', 'error'),
   })
 
+  const deepMut = useMutation({
+    mutationFn: (id: string | null) => api.aiKeyProfileSetDeep(id),
+    onSuccess: (_res, id) => {
+      qc.invalidateQueries({ queryKey: QK.aiKeyProfiles })
+      toast(id ? '已設為深度模型' : '已取消深度模型', 'success')
+    },
+    onError: (e: any) => toast(e.message || '設定失敗', 'error'),
+  })
+
   const deleteMut = useMutation({
     mutationFn: (id: string) => api.aiKeyProfileDelete(id),
     onSuccess: () => {
@@ -312,6 +321,11 @@ export function AiKeyProfilesPanel() {
                         目前使用
                       </span>
                     )}
+                    {p.deep && (
+                      <span className="inline-flex items-center gap-0.5 rounded bg-violet-500/15 px-1.5 py-0.5 text-[9px] font-bold text-violet-500">
+                        深度模型
+                      </span>
+                    )}
                   </div>
                   <div className="flex items-center gap-2 text-[10px] text-muted flex-wrap">
                     <span>{PROVIDER_LABELS[p.provider] ?? p.provider}</span>
@@ -365,6 +379,16 @@ export function AiKeyProfilesPanel() {
                       設為使用
                     </button>
                   )}
+                  {/* Deep model: debate judge + final Advice */}
+                  <button
+                    type="button"
+                    disabled={deepMut.isPending}
+                    onClick={() => deepMut.mutate(p.deep ? null : p.id)}
+                    title="多空辯論的裁判與最終 Advice 改用這個 Profile；多方、空方與複核仍用目前使用的 Profile"
+                    className="inline-flex items-center gap-1 rounded-lg border border-violet-500/30 px-2 py-1 text-[10px] text-violet-500 hover:bg-violet-500/10 transition-colors cursor-pointer disabled:opacity-50"
+                  >
+                    {p.deep ? '取消深度' : '設為深度'}
+                  </button>
                   {/* Delete */}
                   <button
                     type="button"

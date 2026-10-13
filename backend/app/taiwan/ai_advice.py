@@ -33,6 +33,7 @@ from app.taiwan.ai_research import (
     _generation_config_metadata,
     build_evidence_registry,
 )
+from app.taiwan.ai_debate import DEBATE_PROMPT_VERSION, TaiwanAIDebate, run_debate
 from app.taiwan.beginner_selection import BEGINNER_EVIDENCE_REGISTRY_KEYS
 from app.taiwan.buy_point import BuyPointSignal
 from app.taiwan.buy_point_service import (
@@ -55,6 +56,8 @@ _ADVICE_CACHE: dict[str, tuple[float, TaiwanAIAdviceRun]] = {}
 _REVIEW_CACHE: dict[str, tuple[float, TaiwanAIReviewRun]] = {}
 _ADVICE_INFLIGHT: dict[str, asyncio.Future[TaiwanAIAdviceRun]] = {}
 _REVIEW_INFLIGHT: dict[str, asyncio.Future[TaiwanAIReviewRun]] = {}
+_DEBATE_CACHE: dict[str, tuple[float, TaiwanAIDebate]] = {}
+_DEBATE_INFLIGHT: dict[str, asyncio.Future[TaiwanAIDebate]] = {}
 _CACHE_LOCK = threading.Lock()
 
 
@@ -106,6 +109,8 @@ class TaiwanAIAdviceResponse(BaseModel):
     review_status: Literal["not_requested", "success", "unavailable"] = "not_requested"
     review_error_code: str | None = None
     review_error_message: str | None = None
+    debate: TaiwanAIDebate | None = None
+    debate_status: Literal["not_requested", "success", "unavailable"] = "not_requested"
     provider: str | None = None
     model: str | None = None
     prompt_version: str = ADVICE_PROMPT_VERSION
@@ -231,6 +236,7 @@ def _advice_cache_key(
     missing_items: list[str],
     candidate_plan_ids: list[str],
     reflection_digest: str | None = None,
+    debate_digest: str | None = None,
 ) -> str:
     material = {
         "prompt_version": ADVICE_PROMPT_VERSION,
@@ -244,6 +250,7 @@ def _advice_cache_key(
         "missing_items": missing_items,
         "candidate_plan_ids": candidate_plan_ids,
         "reflection_digest": reflection_digest,
+        "debate_digest": debate_digest,
         "generation_config": generation_config,
     }
     return hashlib.sha256(json.dumps(material, sort_keys=True).encode("utf-8")).hexdigest()
@@ -457,6 +464,7 @@ class TaiwanAIAdviceService:
         review: bool = False,
         refresh: bool = False,
         selection_evidence: dict[str, Any] | None = None,
+        debate: bool = False,
     ) -> tuple[TaiwanAIAdviceRun, TaiwanAIReviewRun | None]:
         if target_date is not None:
             return self._unavailable(
@@ -515,8 +523,11 @@ class TaiwanAIAdviceService:
         candidates: list[dict[str, Any]] = []
         if candidate.trade_plan is not None:
             candidates.append(candidate.trade_plan.model_dump(mode="json"))
+        # Quick tier: debate sides and Review. Deep tier: debate judge and the Advice itself.
         config = snapshot_ai_provider_config()
-        generation_config = _generation_config_metadata(config)
+        advice_config = snapshot_ai_provider_config("deep")
+        generation_config = _generation_config_metadata(advice_config)
+        review_generation_config = _generation_config_metadata(config)
         digest = _evidence_digest(evidence_payload)
         strategy_payload = candidate.strategy.model_dump(
             mode="json", exclude={"created_at", "updated_at"}
@@ -548,8 +559,57 @@ class TaiwanAIAdviceService:
             for item in reflections
         ]
         reflection_digest = _evidence_digest({"reflections": reflection_context})
+        debate_result: TaiwanAIDebate | None = None
+        debate_status: Literal["not_requested", "success", "unavailable"] = "not_requested"
+        if debate:
+            debate_key = hashlib.sha256(
+                json.dumps(
+                    {
+                        "prompt_version": DEBATE_PROMPT_VERSION,
+                        "evidence_digest": digest,
+                        "quick": review_generation_config,
+                        "deep": generation_config,
+                        "credentials": [
+                            hashlib.sha256(item.api_key.encode()).hexdigest()
+                            for item in (config, advice_config)
+                        ],
+                    },
+                    sort_keys=True,
+                    default=str,
+                ).encode()
+            ).hexdigest()
+            try:
+                debate_result = await _coalesced_run(
+                    cache=_DEBATE_CACHE,
+                    inflight=_DEBATE_INFLIGHT,
+                    key=debate_key,
+                    refresh=refresh,
+                    build=lambda: run_debate(
+                        evidence_payload=evidence_payload,
+                        registry_keys=registry_keys,
+                        quick_config=config,
+                        deep_config=advice_config,
+                    ),
+                )
+                debate_status = "success"
+            except Exception as exc:
+                logger.warning("Advice debate failed for %s (%s)", symbol, type(exc).__name__)
+                debate_status = "unavailable"
+        debate_context = (
+            debate_result.model_dump(
+                mode="json", exclude={"quick_model", "deep_model", "prompt_version"}
+            )
+            if debate_result is not None
+            else None
+        )
+        debate_line = (
+            "多空辯論裁判結論（只用來權衡證據強弱；不可改寫策略、價格或交易計畫；"
+            f"與確定性買點訊號衝突時以訊號為準）：{json.dumps(debate_context, ensure_ascii=False)}\n"
+            if debate_context is not None
+            else ""
+        )
         cache_key = _advice_cache_key(
-            config=config,
+            config=advice_config,
             generation_config=generation_config,
             strategy_id=strategy_id,
             strategy_definition_digest=candidate.strategy_definition_digest,
@@ -558,6 +618,7 @@ class TaiwanAIAdviceService:
             missing_items=missing_items,
             candidate_plan_ids=[item["plan_instance_id"] for item in candidates],
             reflection_digest=reflection_digest,
+            debate_digest=_evidence_digest(debate_context) if debate_context is not None else None,
         )
 
         async def build_base() -> TaiwanAIAdviceRun:
@@ -568,7 +629,7 @@ class TaiwanAIAdviceService:
 策略：{json.dumps(strategy_payload, ensure_ascii=False)}
 伺服器候選計畫：{json.dumps(candidates, ensure_ascii=False, default=str)}
 同一交易計畫定義的已成熟歷史反思（最多 2 筆，僅供校準，不可改寫策略或價格）：{json.dumps(reflection_context, ensure_ascii=False)}
-已知缺口：{json.dumps(missing_items, ensure_ascii=False)}
+{debate_line}已知缺口：{json.dumps(missing_items, ensure_ascii=False)}
 
 輸出純 JSON：
 {{"action":"buy|wait|no_chase|hold|reduce|exit|no_view","summary":"...",
@@ -587,7 +648,7 @@ class TaiwanAIAdviceService:
                 {"role": "user", "content": prompt},
             ]
             try:
-                parsed = _extract_json_object(await _call_provider(messages, config))
+                parsed = _extract_json_object(await _call_provider(messages, advice_config))
                 if not isinstance(parsed, dict):
                     raise ValueError("Advice provider did not return an object")
                 advice = _parse_advice(
@@ -609,8 +670,10 @@ class TaiwanAIAdviceService:
             response = TaiwanAIAdviceResponse(
                 status="success",
                 advice=advice,
-                provider=config.provider,
-                model=config.model,
+                debate=debate_result,
+                debate_status=debate_status,
+                provider=advice_config.provider,
+                model=advice_config.model,
                 evidence_as_of=ctx.as_of_date,
                 run_id=run_id,
                 started_at=started_at,
@@ -662,6 +725,12 @@ class TaiwanAIAdviceService:
             build=build_base,
             cacheable=lambda run: run.response.status == "success",
         )
+        if base_run.response.status == "success":
+            # A cached Advice built without a debate is reused when this request's
+            # debate failed; report this request's debate state, not the cached one.
+            base_run = base_run.model_copy(deep=True)
+            base_run.response.debate = debate_result
+            base_run.response.debate_status = debate_status
 
         if not review or base_run.response.status != "success" or base_run.response.advice is None:
             return base_run, None
@@ -670,7 +739,7 @@ class TaiwanAIAdviceService:
                 {
                     "advice_run_id": base_run.run_id,
                     "prompt_version": REVIEW_PROMPT_VERSION,
-                    "generation_config": generation_config,
+                    "generation_config": review_generation_config,
                 },
                 sort_keys=True,
             ).encode()
@@ -714,7 +783,7 @@ Advice：{json.dumps(base_run.response.advice.model_dump(mode='json'), ensure_as
                 model=config.model,
                 started_at=review_started,
                 completed_at=review_completed,
-                generation_config=generation_config,
+                generation_config=review_generation_config,
             )
             return review_run
 

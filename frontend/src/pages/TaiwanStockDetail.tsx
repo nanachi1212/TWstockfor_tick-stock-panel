@@ -25,6 +25,7 @@ import {
   type TaiwanSearchResult,
   type TaiwanAIStockResearchReport,
   type TaiwanAIAdviceResponse,
+  type TaiwanAIDebate,
   type TaiwanAIResearchPersonalContext,
   type TaiwanAIResearchHistoryRecord,
   isTaiwanAIAdviceResponse,
@@ -231,6 +232,7 @@ export function TaiwanStockDetail() {
   const [aiMode, setAiMode] = useState<'research' | 'advice'>('research')
   const [selectedAdviceStrategyId, setSelectedAdviceStrategyId] = useState('')
   const [requestAdviceReview, setRequestAdviceReview] = useState(true)
+  const [requestAdviceDebate, setRequestAdviceDebate] = useState(false)
   const [aiAdviceResponse, setAiAdviceResponse] = useState<TaiwanAIAdviceResponse | null>(null)
   const [includePortfolioInCopy, setIncludePortfolioInCopy] = useState<boolean>(false)
 
@@ -413,6 +415,7 @@ export function TaiwanStockDetail() {
         ? await api.taiwanStockAIResearch(symbol, undefined, personalContext, {
             purpose: 'advice',
             review: requestAdviceReview,
+            ...(requestAdviceDebate ? { debate: true } : {}),
             strategyId: selectedAdviceStrategyId,
             // Adding the first Review must reuse the frozen base Advice. Only an
             // explicit subsequent regeneration bypasses both caches.
@@ -437,7 +440,7 @@ export function TaiwanStockDetail() {
     } finally {
       setIsAiLoading(false)
     }
-  }, [aiMode, selectedAdviceStrategyId, requestAdviceReview, aiAdviceResponse, symbol, personalContext, alertId, alertLookupError, refetchAlertContext, selectedAlert, toggleWatchlist.isPending, watchlist.isFetching, qc])
+  }, [aiMode, selectedAdviceStrategyId, requestAdviceReview, requestAdviceDebate, aiAdviceResponse, symbol, personalContext, alertId, alertLookupError, refetchAlertContext, selectedAlert, toggleWatchlist.isPending, watchlist.isFetching, qc])
 
   useEffect(() => {
     const requestKey = `${symbol}:${alertId ?? ''}`
@@ -1765,6 +1768,19 @@ export function TaiwanStockDetail() {
                   />
                   獨立複核
                 </label>
+                <label
+                  className="flex cursor-pointer select-none items-center gap-1.5 text-[10px] text-muted"
+                  title="先讓多方、空方各提論點，再由裁判判斷哪邊證據較強；多 3 次 AI 呼叫"
+                >
+                  <input
+                    type="checkbox"
+                    checked={requestAdviceDebate}
+                    onChange={event => setRequestAdviceDebate(event.target.checked)}
+                    disabled={isAiLoading}
+                    className="rounded border-border bg-base text-purple-600 focus:ring-purple-500"
+                  />
+                  多空辯論
+                </label>
               </>
             )}
           </div>
@@ -2370,6 +2386,13 @@ function AIAdvicePanel({ response }: { response: TaiwanAIAdviceResponse }) {
         <p className="mt-2 text-sm leading-relaxed text-foreground">{advice.summary}</p>
       </div>
 
+      {response.debate_status === 'success' && response.debate && <AdviceDebatePanel debate={response.debate} />}
+      {response.debate_status === 'unavailable' && (
+        <p role="alert" className="rounded-lg border border-amber-700/40 bg-amber-950/20 p-3 text-xs text-amber-200">
+          多空辯論這次沒有產生可驗證的結果，建議是在沒有辯論的情況下產生的。
+        </p>
+      )}
+
       {response.review_status === 'success' && response.review && blockingIssues.length > 0 && (
         <div role="alert" className="rounded-lg border border-red-700/60 bg-red-950/30 p-3 text-xs text-red-200">
           <p className="font-semibold">獨立複核：不可採用</p>
@@ -2446,6 +2469,61 @@ function AIAdvicePanel({ response }: { response: TaiwanAIAdviceResponse }) {
           ? <ul className="mt-1 list-inside list-disc space-y-1 text-xs text-muted">{advice.data_gaps.map((item, index) => <li key={`gap-${index}`}>{item}</li>)}</ul>
           : <p className="mt-1 text-[11px] text-muted">未列出額外資料缺口。</p>}
       </section>
+    </section>
+  )
+}
+
+const DEBATE_SIDE_LABELS = {
+  bull: '多方較強',
+  bear: '空方較強',
+  balanced: '雙方平衡',
+  insufficient: '證據不足',
+} as const
+
+function DebatePointList({ title, items }: { title: string; items: TaiwanAIDebate['bull_points'] }) {
+  return (
+    <div>
+      <h5 className="text-[11px] font-semibold text-foreground">{title}</h5>
+      {items.length === 0 ? <p className="mt-1 text-[11px] text-muted">沒有可引用證據的論點。</p> : (
+        <ul className="mt-1 list-inside list-disc space-y-1">
+          {items.map((item, index) => <li key={`${title}-${index}`} className="text-xs text-foreground">{item.text}</li>)}
+        </ul>
+      )}
+    </div>
+  )
+}
+
+function AdviceDebatePanel({ debate }: { debate: TaiwanAIDebate }) {
+  const { verdict } = debate
+  return (
+    <section className="space-y-3 rounded-lg border border-border/50 bg-base/30 p-3" aria-label="多空辯論">
+      <div className="flex flex-wrap items-center gap-2">
+        <h4 className="text-xs font-semibold text-foreground">多空辯論裁判</h4>
+        <span className="rounded-full bg-purple-500/15 px-2 py-0.5 text-[10px] font-semibold text-purple-300">
+          {DEBATE_SIDE_LABELS[verdict.stronger_side]}
+          {verdict.margin === 'decisive' ? '（明顯）' : verdict.margin === 'narrow' ? '（些微）' : ''}
+        </span>
+        {(debate.quick_model || debate.deep_model) && (
+          <span className="text-[10px] text-muted">辯論 {debate.quick_model ?? '未提供'} · 裁判 {debate.deep_model ?? '未提供'}</span>
+        )}
+      </div>
+      <DebatePointList title="決定性論點" items={verdict.decisive_points} />
+      {verdict.what_would_change.length > 0 && (
+        <div>
+          <h5 className="text-[11px] font-semibold text-foreground">什麼會推翻這個判斷</h5>
+          <ul className="mt-1 list-inside list-disc space-y-1">
+            {verdict.what_would_change.map((text, index) => <li key={`change-${index}`} className="text-xs text-foreground">{text}</li>)}
+          </ul>
+        </div>
+      )}
+      <details>
+        <summary className="cursor-pointer text-[11px] text-muted">看雙方完整論點</summary>
+        <div className="mt-2 grid gap-3 lg:grid-cols-3">
+          <DebatePointList title="多方" items={debate.bull_points} />
+          <DebatePointList title="空方" items={debate.bear_points} />
+          <DebatePointList title="空方反駁" items={debate.bear_rebuttals} />
+        </div>
+      </details>
     </section>
   )
 }

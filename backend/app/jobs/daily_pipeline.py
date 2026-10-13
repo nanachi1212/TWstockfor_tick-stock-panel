@@ -145,6 +145,13 @@ def run_taiwan_update(evening: bool = False, *, trigger: str = "scheduled") -> N
             except Exception:
                 logger.exception("Taiwan auto AI explain failed")
             try:
+                from app.taiwan.advice_reflection import run_auto_reflections
+
+                logger.info("Taiwan advice settlement/reflection: %s",
+                            run_auto_reflections(result.freshness.daily_as_of))
+            except Exception:
+                logger.exception("Taiwan advice settlement/reflection failed")
+            try:
                 from app.taiwan import push_digest
 
                 logger.info("Taiwan push digest (evening): %s",

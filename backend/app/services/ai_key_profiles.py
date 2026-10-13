@@ -122,6 +122,7 @@ def list_profiles() -> list[dict]:
                 "key_masked": mask(key_raw),
                 "has_key": bool(key_raw),
                 "active": bool(p.get("active", False)),
+                "deep": bool(p.get("deep", False)),
                 "created_at": p.get("created_at", ""),
             })
         return result
@@ -176,6 +177,25 @@ def get_active_profile_config() -> dict | None:
                     "model": str(p.get("model", "")),
                 }
     return None
+
+
+def get_deep_profile_config() -> dict | None:
+    """Return the profile marked for deep (judge/decision) calls, or None."""
+    with _lock:
+        deep_id = next((str(p["id"]) for p in _load_metadata() if p.get("deep")), None)
+    return get_profile_config(deep_id) if deep_id else None
+
+
+def set_deep_profile(profile_id: str | None) -> bool:
+    """Mark one profile as the deep model; None clears it. Returns False if not found."""
+    with _lock:
+        profiles = _load_metadata()
+        if profile_id is not None and not any(p.get("id") == profile_id for p in profiles):
+            return False
+        for p in profiles:
+            p["deep"] = p.get("id") == profile_id
+        _save_metadata(profiles)
+        return True
 
 
 def get_profile_config(profile_id: str) -> dict | None:
@@ -299,6 +319,7 @@ def update_profile(
             "key_masked": mask(key_raw),
             "has_key": bool(key_raw),
             "active": bool(profile.get("active", False)),
+            "deep": bool(profile.get("deep", False)),
             "created_at": profile.get("created_at", ""),
         }
 

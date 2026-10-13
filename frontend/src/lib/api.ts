@@ -2304,6 +2304,8 @@ export interface TaiwanAIAdviceResponse {
   review_status: 'not_requested' | 'success' | 'unavailable'
   review_error_code?: string | null
   review_error_message?: string | null
+  debate?: TaiwanAIDebate | null
+  debate_status?: 'not_requested' | 'success' | 'unavailable'
   provider?: string | null
   model?: string | null
   prompt_version: string
@@ -2316,6 +2318,25 @@ export interface TaiwanAIAdviceResponse {
   evidence_registry_keys: string[]
 }
 
+export interface TaiwanAIDebatePoint {
+  text: string
+  evidence_refs: string[]
+}
+
+export interface TaiwanAIDebate {
+  bull_points: TaiwanAIDebatePoint[]
+  bear_points: TaiwanAIDebatePoint[]
+  bear_rebuttals: TaiwanAIDebatePoint[]
+  verdict: {
+    stronger_side: 'bull' | 'bear' | 'balanced' | 'insufficient'
+    margin?: 'decisive' | 'narrow' | null
+    decisive_points: TaiwanAIDebatePoint[]
+    what_would_change: string[]
+  }
+  quick_model?: string | null
+  deep_model?: string | null
+}
+
 export type TaiwanAIResearchRouteResponse = TaiwanAIResearchResponse | TaiwanAIAdviceResponse
 
 export function isTaiwanAIAdviceResponse(response: TaiwanAIResearchRouteResponse): response is TaiwanAIAdviceResponse {
@@ -2325,6 +2346,8 @@ export function isTaiwanAIAdviceResponse(response: TaiwanAIResearchRouteResponse
 export interface TaiwanAIResearchRequestOptions {
   purpose?: 'research' | 'advice' | 'alert'
   review?: boolean
+  /** Advice 前先跑一輪多空辯論與裁判（多 3 次 AI 呼叫） */
+  debate?: boolean
   strategyId?: string | null
   refresh?: boolean
 }
@@ -2862,6 +2885,11 @@ export interface SettingsState {
   ai_key_active_profile_name?: string | null
   auto_ai_explain_enabled?: boolean
   event_ai_explain_enabled?: boolean
+  auto_advice_reflection_enabled?: boolean
+  auto_advice_reflection_last_run?: {
+    status: string; ran_at?: string; reason?: string; due?: number
+    reflected?: string[]; failed?: Record<string, string>
+  } | null
   auto_ai_explain_last_run?: {
     status: string; ran_at?: string; reason?: string
     generated?: string[]; skipped?: string[]; failed?: Record<string, string>
@@ -2892,6 +2920,8 @@ export interface AiKeyProfile {
   key_masked: string
   has_key: boolean
   active: boolean
+  /** 深度模型：多空辯論裁判與最終 Advice 使用；未設定時沿用目前使用的 Profile */
+  deep?: boolean
   created_at: string
 }
 
@@ -3763,6 +3793,12 @@ export const api = {
       { method: 'POST', body: '{}' },
     ),
 
+  aiKeyProfileSetDeep: (profileId: string | null) =>
+    request<{ ok: boolean; deep_profile_id: string | null }>('/api/settings/ai-key-profiles/deep', {
+      method: 'POST',
+      body: JSON.stringify({ profile_id: profileId }),
+    }),
+
   aiKeyProfileDelete: (profileId: string) =>
     request<{ ok: boolean }>(
       `/api/settings/ai-key-profiles/${encodeURIComponent(profileId)}`,
@@ -3931,6 +3967,11 @@ export const api = {
   taiwanAiFeedbackSummary: () => request<AiFeedbackSummary>('/api/taiwan/ai-research/feedback-summary'),
   updateEventAiExplain: (enabled: boolean) =>
     request<{ event_ai_explain_enabled: boolean }>('/api/settings/preferences/event-ai-explain', {
+      method: 'PUT',
+      body: JSON.stringify({ enabled }),
+    }),
+  updateAutoAdviceReflection: (enabled: boolean) =>
+    request<{ auto_advice_reflection_enabled: boolean }>('/api/settings/preferences/auto-advice-reflection', {
       method: 'PUT',
       body: JSON.stringify({ enabled }),
     }),
@@ -4443,6 +4484,7 @@ export const api = {
           purpose: options?.purpose ?? 'research',
           ...(personalContext ? { personal_context: personalContext } : {}),
           ...(options?.review != null ? { review: options.review } : {}),
+          ...(options?.debate ? { debate: true } : {}),
           ...(options?.strategyId ? { strategy_id: options.strategyId } : {}),
           ...(options?.refresh != null ? { refresh: options.refresh } : {}),
         }),
