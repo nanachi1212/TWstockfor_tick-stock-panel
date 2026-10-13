@@ -33,6 +33,7 @@ import {
   type BuyPointSignal,
   type BeginnerSymbolResponse,
 } from '@/lib/api'
+import { evidenceLabel, evidenceLabels } from '@/lib/evidenceLabel'
 import { QK } from '@/lib/queryKeys'
 import { cn } from '@/lib/cn'
 import { loadLastCompareSymbols, mergeSymbolIntoCompare } from '@/lib/taiwanCompareSymbols'
@@ -2286,7 +2287,7 @@ export function TaiwanStockDetail() {
                       <div className="flex flex-wrap gap-1 mt-0.5">
                         {obs.evidence_refs.map((ref, rIdx) => (
                           <span key={rIdx} className="text-[10px] font-mono px-1.5 py-0.2 bg-emerald-950/40 border border-emerald-800/40 text-emerald-300 rounded">
-                            證據: {ref}
+                            證據: {evidenceLabel(ref)}
                           </span>
                         ))}
                       </div>
@@ -2307,7 +2308,7 @@ export function TaiwanStockDetail() {
                       <div className="flex flex-wrap gap-1 mt-0.5">
                         {rsk.evidence_refs.map((ref, rIdx) => (
                           <span key={rIdx} className="text-[10px] font-mono px-1.5 py-0.2 bg-amber-950/40 border border-amber-800/40 text-amber-300 rounded">
-                            依據: {ref}
+                            依據: {evidenceLabel(ref)}
                           </span>
                         ))}
                       </div>
@@ -2429,7 +2430,7 @@ function AIAdvicePanel({ response }: { response: TaiwanAIAdviceResponse }) {
                 <li key={`rationale-${index}`} className="text-xs text-foreground">
                   <span className="mr-1 rounded bg-elevated px-1.5 py-0.5 text-[10px] text-muted">{RATIONALE_KIND_LABELS[item.kind]}</span>
                   {item.text}
-                  {item.evidence_refs.length > 0 && <span className="mt-0.5 block font-mono text-[10px] text-muted">證據：{item.evidence_refs.join('、')}</span>}
+                  {item.evidence_refs.length > 0 && <span className="mt-0.5 block font-mono text-[10px] text-muted">證據：{evidenceLabels(item.evidence_refs)}</span>}
                 </li>
               ))}
             </ul>
@@ -2535,7 +2536,7 @@ function AdviceConditionList({ items, emptyText }: { items: { text: string; evid
       {items.map((item, index) => (
         <li key={`${item.text}-${index}`}>
           {item.text}
-          {item.evidence_refs.length > 0 && <span className="ml-1 font-mono text-[10px] text-muted">({item.evidence_refs.join('、')})</span>}
+          {item.evidence_refs.length > 0 && <span className="ml-1 font-mono text-[10px] text-muted">({evidenceLabels(item.evidence_refs)})</span>}
         </li>
       ))}
     </ul>
