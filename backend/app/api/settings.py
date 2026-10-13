@@ -73,7 +73,14 @@ def get_settings() -> dict:
     """返回当前配置概况(Key 脱敏)。"""
     from app.config import settings
     from app.services import preferences
-    from app.taiwan import auto_ai_explain, event_ai_explain, push_digest, telegram_bot, watchlist_anomaly
+    from app.taiwan import (
+        advice_reflection,
+        auto_ai_explain,
+        event_ai_explain,
+        push_digest,
+        telegram_bot,
+        watchlist_anomaly,
+    )
     from app.services.ai_provider import (
         ai_configured,
         current_ai_model,
@@ -124,6 +131,8 @@ def get_settings() -> dict:
         "auto_ai_explain_enabled": auto_ai_explain.is_enabled(),
         "auto_ai_explain_last_run": auto_ai_explain.last_run(),
         "event_ai_explain_enabled": event_ai_explain.is_enabled(),
+        "auto_advice_reflection_enabled": advice_reflection.is_enabled(),
+        "auto_advice_reflection_last_run": advice_reflection.last_run(),
         # 推播與查詢 (預設全部關閉)
         "push_digest_enabled": push_digest.is_enabled(),
         "push_digest_last_run": push_digest.last_run(),
@@ -375,7 +384,7 @@ def clear_ai_settings() -> dict:
     settings.ai_codex_command = "codex"
     settings.ai_codex_reasoning_effort = ""
     settings.ai_max_output_tokens = 8192
-    settings.ai_context_window = 64000
+    settings.ai_context_window = 32768
 
     return {"ok": True}
 
@@ -385,7 +394,7 @@ def clear_ai_settings() -> dict:
 class AiKeyProfileCreate(BaseModel):
     name: str
     provider: str = "openai_compat"
-    api_key: str
+    api_key: str = ""
     base_url: str = ""
     model: str = ""
 
@@ -416,7 +425,8 @@ def create_ai_key_profile(req: AiKeyProfileCreate) -> dict:
     from app.services import ai_key_profiles
     if not req.name.strip():
         raise HTTPException(status_code=400, detail="Profile name cannot be empty")
-    if not req.api_key.strip():
+    from app.services.ai_provider import is_subscription_cli_provider
+    if not req.api_key.strip() and not is_subscription_cli_provider(req.provider):
         raise HTTPException(status_code=400, detail="API key cannot be empty")
     try:
         profile = ai_key_profiles.create_profile(
@@ -442,6 +452,19 @@ def activate_ai_key_profile(profile_id: str) -> dict:
     if not ok:
         raise HTTPException(status_code=404, detail="Profile not found")
     return {"ok": True, "active_profile_id": profile_id}
+
+
+class AiDeepProfileIn(BaseModel):
+    profile_id: str | None = None
+
+
+@router.post("/ai-key-profiles/deep")
+def set_ai_deep_profile(req: AiDeepProfileIn) -> dict:
+    """Mark one profile for deep calls (debate judge, final Advice); null clears it."""
+    from app.services import ai_key_profiles
+    if not ai_key_profiles.set_deep_profile(req.profile_id):
+        raise HTTPException(status_code=404, detail="Profile not found")
+    return {"ok": True, "deep_profile_id": req.profile_id}
 
 
 @router.patch("/ai-key-profiles/{profile_id}")
@@ -486,7 +509,12 @@ async def test_ai_key_profile(profile_id: str) -> dict:
     Returns connectivity result without exposing the key or request content.
     """
     from app.services import ai_key_profiles
-    from app.services.ai_provider import AIProviderConfigSnapshot, probe_openai_profile_connection
+    from app.services.ai_provider import (
+        AIProviderConfigSnapshot,
+        is_subscription_cli_provider,
+        probe_openai_profile_connection,
+        probe_subscription_cli,
+    )
 
     profiles_meta = ai_key_profiles.list_profiles()
     meta = next((p for p in profiles_meta if p["id"] == profile_id), None)
@@ -496,6 +524,9 @@ async def test_ai_key_profile(profile_id: str) -> dict:
     profile_config = ai_key_profiles.get_profile_config(profile_id)
     if profile_config is None:
         raise HTTPException(status_code=404, detail="Profile not found")
+    if is_subscription_cli_provider(profile_config["provider"]):
+        result = await probe_subscription_cli(profile_config["provider"], profile_config["model"])
+        return {"profile_id": profile_id, "provider": profile_config["provider"], **result}
     if not profile_config["key"]:
         return {"ok": False, "error_code": "AUTH_ERROR", "error": "Profile has no stored key"}
 
@@ -1059,6 +1090,13 @@ def update_auto_ai_explain(req: SystemNotifyPrefsIn) -> dict:
     """盤後自動 AI 說明開關 (預設關閉)；開啟後每日資料就緒時為雷達前 5 檔產生並保存。"""
     from app.taiwan import auto_ai_explain
     return {"auto_ai_explain_enabled": auto_ai_explain.set_enabled(req.enabled)}
+
+
+@router.put("/preferences/auto-advice-reflection")
+def update_auto_advice_reflection(req: SystemNotifyPrefsIn) -> dict:
+    """盤後自動 AI 反省開關 (預設關閉). 結算照常記錄, 開啟後才呼叫 AI 寫檢討。"""
+    from app.taiwan import advice_reflection
+    return {"auto_advice_reflection_enabled": advice_reflection.set_enabled(req.enabled)}
 
 
 @router.put("/preferences/event-ai-explain")

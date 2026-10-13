@@ -619,3 +619,98 @@ def test_tracking_api_is_thin_and_preserves_history_get_compatibility(tmp_path, 
         params={"plan_identity": plan.plan_identity},
     )
     assert stats.status_code == 200 and stats.json()["win_rate_denominator"] == 1
+
+
+def _outcome_count(service) -> int:
+    return sum(1 for item in service.history.all_records() if item.get("kind") == "outcome")
+
+
+def test_settle_pending_persists_only_terminal_outcomes(tmp_path):
+    pending = _service(tmp_path / "pending", status="immature")
+    _save_advice(pending.history)
+    assert pending.settle_pending(FORWARD_DAY) == []
+    assert _outcome_count(pending) == 0  # no daily record for a still-open plan
+
+    missing = _service(tmp_path / "missing", status="undeterminable")
+    _save_advice(missing.history)
+    assert missing.settle_pending(FORWARD_DAY) == []
+    assert _outcome_count(missing) == 1  # persisted, but nothing to learn from
+
+    service = _service(tmp_path / "done")
+    advice, _run, _plan = _save_advice(service.history)
+    due = service.settle_pending(FORWARD_DAY)
+    assert [(item[0]["id"], item[1]["outcome"]["status"]) for item in due] == [(advice["id"], "triggered")]
+    service.create_reflection(advice["id"], ReflectionCreate(outcome_id=due[0][1]["id"], summary="done"))
+    assert service.settle_pending(FORWARD_DAY) == []
+    assert _outcome_count(service) == 1
+
+
+def test_auto_reflection_is_off_by_default_and_only_settles(tmp_path, monkeypatch):
+    from unittest.mock import AsyncMock
+
+    from app.config import settings
+    from app.taiwan import advice_reflection
+
+    monkeypatch.setattr(settings, "data_dir", tmp_path)
+    service = _service(tmp_path)
+    _save_advice(service.history)
+    with (
+        patch.object(advice_reflection, "get_advice_tracking_service", return_value=service),
+        patch.object(advice_reflection, "ai_configured", return_value=True),
+        patch.object(advice_reflection, "generate_structured_ai_text", new_callable=AsyncMock) as llm,
+    ):
+        result = advice_reflection.run_auto_reflections(FORWARD_DAY.isoformat())
+
+    assert advice_reflection.is_enabled() is False
+    assert (result["status"], result["reason"], result["due"]) == ("settled_only", "disabled", 1)
+    assert llm.await_count == 0
+    assert _outcome_count(service) == 1  # settlement still recorded
+    assert advice_reflection.last_run()["status"] == "settled_only"
+
+
+def test_auto_reflection_writes_llm_lesson_and_retries_failures(tmp_path, monkeypatch):
+    from unittest.mock import AsyncMock
+
+    from app.config import settings
+    from app.taiwan import advice_reflection
+
+    monkeypatch.setattr(settings, "data_dir", tmp_path)
+    assert advice_reflection.set_enabled(True) is True
+    service = _service(tmp_path)
+    advice, _run, plan = _save_advice(service.history)
+    reply = json.dumps({"summary": "報酬 +5.0% 法人理由成立。", "lessons": ["拉回承接有效", "多的"]},
+                       ensure_ascii=False)
+    with (
+        patch.object(advice_reflection, "get_advice_tracking_service", return_value=service),
+        patch.object(advice_reflection, "ai_configured", return_value=True),
+        patch.object(advice_reflection, "snapshot_ai_provider_config"),
+        patch.object(advice_reflection, "generate_structured_ai_text", new_callable=AsyncMock,
+                     side_effect=[RuntimeError("offline"), reply]) as llm,
+    ):
+        first = advice_reflection.run_auto_reflections(FORWARD_DAY.isoformat())
+        second = advice_reflection.run_auto_reflections(FORWARD_DAY.isoformat())
+
+    assert first["failed"] == {advice["id"]: "RuntimeError"} and first["reflected"] == []
+    assert second["reflected"] == [advice["id"]]
+    assert '"gross_return_pct": 5.0' in llm.await_args.args[0][1]["content"]
+    selected = service.select_reflections(plan.plan_identity, decision_cutoff="2099-01-01T00:00:00+08:00")
+    assert selected[0]["summary"] == "報酬 +5.0% 法人理由成立。"
+    assert selected[0]["lessons"] == ["拉回承接有效", "多的"]
+
+
+def test_reflection_facts_compute_alpha_against_taiex_same_sessions():
+    from app.taiwan import advice_reflection
+
+    closes = {date(2026, 10, 2): 20000.0, date(2026, 10, 5): 20400.0}
+    outcome = {"outcome": {
+        "status": "triggered", "exit_reason": "target", "gross_return_pct": 5.0,
+        "entry_session": "2026-10-02", "exit_session": "2026-10-05",
+    }}
+    with patch.object(advice_reflection, "latest_benchmark",
+                      side_effect=lambda _s, on_or_before: {"date": on_or_before, "close": closes[on_or_before]}):
+        facts = advice_reflection.reflection_facts({"response": {}}, outcome)
+    assert (facts["taiex_return_pct"], facts["alpha_pct"]) == (2.0, 3.0)
+
+    with patch.object(advice_reflection, "latest_benchmark", return_value=None):
+        facts = advice_reflection.reflection_facts({"response": {}}, outcome)
+    assert facts["alpha_pct"] is None  # missing benchmark never becomes 0

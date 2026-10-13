@@ -228,6 +228,7 @@ class TaiwanAIResearchRequest(BaseModel):
         "research", description="本次用途；alert 僅保留舊版研究相容性"
     )
     review: bool = Field(False, description="Advice 成功後是否另行產生獨立複核 artifact")
+    debate: bool = Field(False, description="Advice 前先跑一輪多空辯論與裁判（多 3 次 AI 呼叫）")
     strategy_id: str | None = Field(
         None, min_length=1, max_length=120, description="Advice 必填的買點策略 ID"
     )
@@ -239,6 +240,8 @@ class TaiwanAIResearchRequest(BaseModel):
             raise ValueError("strategy_id is required for advice")
         if self.purpose != "advice" and self.review:
             raise ValueError("review is only available for advice")
+        if self.purpose != "advice" and self.debate:
+            raise ValueError("debate is only available for advice")
         return self
 
 

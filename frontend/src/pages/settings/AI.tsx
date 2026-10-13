@@ -21,6 +21,7 @@ const toPositiveInt = (v: string) => {
 
 const OPENAI_PROVIDER = 'openai'
 const OPENAI_COMPAT_PROVIDER = 'openai_compat'
+const LOCAL_LLM_BASE_URL = 'http://127.0.0.1:8080/v1'
 const DEFAULT_OPENAI_MODEL = 'gpt-5.5'
 const DEFAULT_REASONING_EFFORT = 'high'
 
@@ -54,7 +55,7 @@ export function SettingsAIPanel() {
   const [testResult, setTestResult] = useState<{ ok: boolean; msg: string } | null>(null)
   const [selectedPresetLabel, setSelectedPresetLabel] = useState(PRESETS[0].label)
   const directDrafts = useRef({
-    custom: { baseUrl: '', model: '' },
+    custom: { baseUrl: LOCAL_LLM_BASE_URL, model: '' },
     openai: { baseUrl: 'https://api.openai.com/v1', model: DEFAULT_OPENAI_MODEL },
   })
   const draftsInitialized = useRef(false)
@@ -68,11 +69,11 @@ export function SettingsAIPanel() {
 
   useEffect(() => {
     if (!s) return
-    // 未配置過 AI (無 api_key): 字段留空, 默認選中"自定義"預設, 不預填充後端默認值
+    // 未配置過 AI (無 api_key): Base URL 預設指向本機 llama-server, 模型留空, 默認選中"自定義"預設
     const unconfigured = !s.has_ai_key && !s.ai_configured
     // ponytail: legacy/unknown providers remain persisted, but the current UI only exposes generic custom or OpenAI.
     const savedProvider = s.ai_provider === OPENAI_PROVIDER ? OPENAI_PROVIDER : OPENAI_COMPAT_PROVIDER
-    const savedBaseUrl = unconfigured ? '' : (s.ai_base_url ?? '')
+    const savedBaseUrl = unconfigured ? LOCAL_LLM_BASE_URL : (s.ai_base_url ?? '')
     const savedOpenAIModel = unconfigured ? '' : (s.ai_openai_model ?? s.ai_model ?? '')
     const savedPreset = unconfigured ? PRESETS[0] : findPreset(savedProvider)
     if (!draftsInitialized.current) {
@@ -92,7 +93,7 @@ export function SettingsAIPanel() {
     setCustomUa(!!ua)
     setUserAgent(ua)
     setMaxOutputTokens(String(s?.ai_max_output_tokens ?? 8192))
-    setContextWindow(String(s?.ai_context_window ?? 64000))
+    setContextWindow(String(s?.ai_context_window ?? 32768))
   }, [s])
 
   const payload = () => hasProfiles ? {
@@ -148,16 +149,16 @@ export function SettingsAIPanel() {
       setModel('')
       setReasoningEffort(DEFAULT_REASONING_EFFORT)
       directDrafts.current = {
-        custom: { baseUrl: '', model: '' },
+        custom: { baseUrl: LOCAL_LLM_BASE_URL, model: '' },
         openai: { baseUrl: 'https://api.openai.com/v1', model: DEFAULT_OPENAI_MODEL },
       }
       setMaxOutputTokens('8192')
-      setContextWindow('64000')
+      setContextWindow('32768')
       setTestResult(null)
       qc.setQueryData<SettingsState>(QK.settings, prev => prev ? {
         ...prev,
         ai_provider: OPENAI_COMPAT_PROVIDER,
-        ai_base_url: '',
+        ai_base_url: LOCAL_LLM_BASE_URL,
         ai_model: '',
         ai_openai_model: '',
         ai_reasoning_effort: DEFAULT_REASONING_EFFORT,
@@ -165,7 +166,7 @@ export function SettingsAIPanel() {
         ai_codex_command: '',
         ai_codex_reasoning_effort: '',
         ai_max_output_tokens: 8192,
-        ai_context_window: 64000,
+        ai_context_window: 32768,
         has_ai_key: false,
         ai_configured: false,
         ai_api_key_masked: '',
@@ -371,8 +372,8 @@ export function SettingsAIPanel() {
               <Field label="輸出上限 max_tokens" hint="所有 AI 任務的輸出 token 上限,任務請求會被鉗制到此值;預設 8192">
                 <input type="number" min={1} value={maxOutputTokens} onChange={e => setMaxOutputTokens(e.target.value)} placeholder="8192" className={INPUT_CLS} />
               </Field>
-              <Field label="上下文視窗 (輸入上限)" hint="輸入估算超出此視窗時會報錯並提示調大;預設 64000">
-                <input type="number" min={1} value={contextWindow} onChange={e => setContextWindow(e.target.value)} placeholder="64000" className={INPUT_CLS} />
+              <Field label="上下文視窗 (輸入上限)" hint="輸入估算超出此視窗時會報錯並提示調大;預設 32768">
+                <input type="number" min={1} value={contextWindow} onChange={e => setContextWindow(e.target.value)} placeholder="32768" className={INPUT_CLS} />
               </Field>
             </div>
           </div>
@@ -382,6 +383,7 @@ export function SettingsAIPanel() {
       <AiQuickEnableCard />
       <AutoAiExplainCard />
       <EventAiExplainCard />
+      <AutoAdviceReflectionCard />
       <AiFeedbackSummaryCard />
 
       <div className="rounded-card border border-amber-400/20 bg-amber-400/[0.04] px-4 py-3 flex items-start gap-3">
@@ -504,6 +506,40 @@ function EventAiExplainCard() {
         <Toggle checked={enabled} onChange={() => !toggle.isPending && toggle.mutate()} />
       </div>
       {toggle.isError && <p role="alert" className="text-[11px] text-danger">儲存失敗，請稍後再試。</p>}
+    </div>
+  )
+}
+
+function AutoAdviceReflectionCard() {
+  const qc = useQueryClient()
+  const s = useSettings().data
+  const enabled = Boolean(s?.auto_advice_reflection_enabled)
+  const toggle = useMutation({
+    mutationFn: () => api.updateAutoAdviceReflection(!enabled),
+    onSuccess: () => qc.invalidateQueries({ queryKey: QK.settings }),
+  })
+  const last = s?.auto_advice_reflection_last_run
+  const failed = Object.entries(last?.failed ?? {})
+  return (
+    <div className="rounded-card border border-border bg-surface/60 px-4 py-3 space-y-1.5" aria-label="盤後自動 AI 反省">
+      <div className="flex items-center justify-between gap-3">
+        <div className="min-w-0">
+          <p className="text-sm font-medium text-foreground">盤後自動寫 AI 反省</p>
+          <p className="text-[11px] text-muted">你產生過的「可依計畫進場」Advice，在交易計畫結束（停損、停利或到期）後，AI 會寫一段檢討和一條教訓；下次同一策略的 Advice 會讀到這些教訓。關閉時結算結果照常記錄，只是不寫檢討。</p>
+        </div>
+        <Toggle checked={enabled} onChange={() => !toggle.isPending && toggle.mutate()} />
+      </div>
+      <p role="note" className="text-[11px] text-warning">
+        注意：開啟後 AI 會在盤後自動執行，不需要你按按鈕。每個結束的計畫呼叫 1 次、每天最多 10 次；雲端 AI 會計費或佔用訂閱額度。反省是事後解讀，不是績效保證，也不會改變策略規則與價位。
+      </p>
+      {toggle.isError && <p role="alert" className="text-[11px] text-danger">儲存失敗，請稍後再試。</p>}
+      {last && (
+        <p className="text-[11px] text-muted">
+          {last.status === 'settled_only'
+            ? `上次執行（${last.ran_at}）：${last.due ?? 0} 個計畫已結算，${last.reason === 'disabled' ? '開關關閉' : 'AI 未設定'}，未寫反省。`
+            : `上次執行（${last.ran_at}）：待反省 ${last.due ?? 0} 個、寫成 ${last.reflected?.length ?? 0} 個、失敗 ${failed.length} 個（隔天自動重試）。`}
+        </p>
+      )}
     </div>
   )
 }

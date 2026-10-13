@@ -23,6 +23,7 @@ import contextlib
 import json
 import logging
 import os
+import re
 import threading
 import uuid
 from datetime import UTC, datetime
@@ -34,6 +35,19 @@ logger = logging.getLogger(__name__)
 _lock = threading.Lock()
 
 _VALID_CHANNELS = frozenset(("line", "telegram"))
+# Subscription providers run the user's logged-in CLI and store no API key.
+_SUBSCRIPTION_PROVIDERS = frozenset(("codex_cli", "claude_cli"))
+# Model names are passed as CLI arguments: letters/digits first, no leading "-", no spaces or control characters.
+_MODEL_NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:/-]{0,127}$")
+
+
+def validate_model_name(model: str) -> str:
+    """Return the trimmed model name, or raise ValueError if it could be read as a CLI option."""
+    value = (model or "").strip()
+    if value and not _MODEL_NAME_RE.fullmatch(value):
+        raise ValueError("Model name may only contain letters, digits, . _ : / - and must not start with -")
+    return value
+_VALID_PROVIDERS = frozenset(("openai_compat", "openai")) | _SUBSCRIPTION_PROVIDERS
 
 
 # ── Path helpers ────────────────────────────────────────────────────────────
@@ -122,6 +136,7 @@ def list_profiles() -> list[dict]:
                 "key_masked": mask(key_raw),
                 "has_key": bool(key_raw),
                 "active": bool(p.get("active", False)),
+                "deep": bool(p.get("deep", False)),
                 "created_at": p.get("created_at", ""),
             })
         return result
@@ -178,6 +193,25 @@ def get_active_profile_config() -> dict | None:
     return None
 
 
+def get_deep_profile_config() -> dict | None:
+    """Return the profile marked for deep (judge/decision) calls, or None."""
+    with _lock:
+        deep_id = next((str(p["id"]) for p in _load_metadata() if p.get("deep")), None)
+    return get_profile_config(deep_id) if deep_id else None
+
+
+def set_deep_profile(profile_id: str | None) -> bool:
+    """Mark one profile as the deep model; None clears it. Returns False if not found."""
+    with _lock:
+        profiles = _load_metadata()
+        if profile_id is not None and not any(p.get("id") == profile_id for p in profiles):
+            return False
+        for p in profiles:
+            p["deep"] = p.get("id") == profile_id
+        _save_metadata(profiles)
+        return True
+
+
 def get_profile_config(profile_id: str) -> dict | None:
     """Return one complete server-side profile config, including its secret."""
     with _lock:
@@ -198,11 +232,11 @@ def create_profile(name: str, provider: str, api_key: str, *, base_url: str = ""
     """Create a new profile. Returns metadata (no key)."""
     if not name.strip():
         raise ValueError("Profile name cannot be empty")
-    if not api_key.strip():
-        raise ValueError("API key cannot be empty")
-    valid_providers = {"openai_compat", "openai", "codex_cli"}
-    if provider not in valid_providers:
+    if provider not in _VALID_PROVIDERS:
         provider = "openai_compat"
+    if not api_key.strip() and provider not in _SUBSCRIPTION_PROVIDERS:
+        raise ValueError("API key cannot be empty")
+    model = validate_model_name(model)
 
     with _lock:
         profiles = _load_metadata()
@@ -232,7 +266,7 @@ def create_profile(name: str, provider: str, api_key: str, *, base_url: str = ""
             "base_url": profile["base_url"],
             "model": profile["model"],
             "key_masked": mask(api_key),
-            "has_key": True,
+            "has_key": bool(api_key.strip()),
             "active": profile["active"],
             "created_at": now,
         }
@@ -254,11 +288,11 @@ def update_profile(
     """
     if not name.strip():
         raise ValueError("Profile name cannot be empty")
-    valid_providers = {"openai_compat", "openai", "codex_cli"}
-    if provider not in valid_providers:
+    if provider not in _VALID_PROVIDERS:
         raise ValueError("Unsupported AI provider")
     if api_key is not None and not api_key.strip():
         raise ValueError("API key cannot be empty")
+    model = validate_model_name(model)
 
     with _lock:
         profiles = _load_metadata()
@@ -299,6 +333,7 @@ def update_profile(
             "key_masked": mask(key_raw),
             "has_key": bool(key_raw),
             "active": bool(profile.get("active", False)),
+            "deep": bool(profile.get("deep", False)),
             "created_at": profile.get("created_at", ""),
         }
 

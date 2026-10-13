@@ -79,3 +79,28 @@ describe('AiKeyProfilesPanel edit', () => {
     })))
   })
 })
+
+describe('AiKeyProfilesPanel subscription profiles', () => {
+  it('creates a Claude subscription profile without an API key and offers model choices', async () => {
+    renderPanel()
+    vi.mocked(api.aiKeyProfileCreate).mockResolvedValue({ ok: true, profile: { ...profile, id: 'aip_claude', provider: 'claude_cli' } })
+    await screen.findByText('目前使用')
+    fireEvent.click(screen.getByRole('button', { name: '新增' }))
+
+    fireEvent.change(screen.getByPlaceholderText('例如: free-key-1'), { target: { value: 'Claude Max' } })
+    fireEvent.change(screen.getAllByRole('combobox')[0], { target: { value: 'claude_cli' } })
+
+    expect(screen.queryByPlaceholderText('sk-...')).not.toBeInTheDocument()
+    const model = screen.getByLabelText('訂閱模型')
+    expect(model).toHaveValue('sonnet')
+    expect(model).toHaveAttribute('list', 'ai-models-claude_cli')
+    expect(Array.from(document.querySelectorAll('#ai-models-claude_cli option')).map(o => o.getAttribute('value')))
+      .toEqual(['sonnet', 'opus', 'haiku', 'fable'])
+
+    fireEvent.change(model, { target: { value: 'opus' } })
+    fireEvent.click(screen.getAllByRole('button', { name: '新增' }).at(-1)!)
+    await waitFor(() => expect(api.aiKeyProfileCreate).toHaveBeenCalledWith({
+      name: 'Claude Max', provider: 'claude_cli', api_key: '', base_url: '', model: 'opus',
+    }))
+  })
+})

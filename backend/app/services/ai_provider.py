@@ -1,4 +1,5 @@
-"""AI provider adapter for OpenAI-compatible APIs and local Codex CLI."""
+"""AI provider adapter for OpenAI-compatible APIs and local subscription CLIs (Codex, Claude Code)."""
+# ruff: noqa: RUF001 -- user-facing Traditional Chinese error messages.
 from __future__ import annotations
 
 import asyncio
@@ -17,7 +18,7 @@ from collections.abc import AsyncIterator, Callable, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 from types import TracebackType
-from typing import Any
+from typing import Any, Literal
 from urllib.parse import urlsplit, urlunsplit
 
 from app import secrets_store
@@ -27,6 +28,20 @@ OPENAI_COMPAT_PROVIDER = "openai_compat"
 OPENAI_PROVIDER = "openai"
 CODEX_CLI_PROVIDER = "codex_cli"
 CODEX_DEFAULT_COMMAND = "codex"
+CLAUDE_CLI_PROVIDER = "claude_cli"
+CLAUDE_DEFAULT_COMMAND = "claude"
+# Providers that run the user's own logged-in CLI (subscription), not an API key.
+SUBSCRIPTION_CLI_PROVIDERS = frozenset({CODEX_CLI_PROVIDER, CLAUDE_CLI_PROVIDER})
+CLI_PROVIDER_LABELS = {CODEX_CLI_PROVIDER: "Codex CLI", CLAUDE_CLI_PROVIDER: "Claude Code CLI"}
+# Claude Code flags proven to drop user CLAUDE.md, settings, MCP, skills and tools
+# (about 57k -> 4k input tokens). --bare is not usable: it never reads the subscription login.
+_CLAUDE_ISOLATION_ARGS = (
+    "--tools", "",
+    "--setting-sources", "",
+    "--strict-mcp-config",
+    "--disable-slash-commands",
+    "--no-session-persistence",
+)
 CODEX_SUPPORTED_REASONING_EFFORTS = {"none", "minimal", "low", "medium", "high", "xhigh"}
 OPENAI_DEFAULT_REASONING_EFFORT = "high"
 
@@ -110,8 +125,12 @@ class AIProviderConfigSnapshot:
     codex_reasoning_effort: str = ""
 
 
-def snapshot_ai_provider_config() -> AIProviderConfigSnapshot:
-    """Read provider settings once so an in-flight research call stays consistent."""
+def snapshot_ai_provider_config(tier: Literal["quick", "deep"] = "quick") -> AIProviderConfigSnapshot:
+    """Read provider settings once so an in-flight research call stays consistent.
+
+    ``tier="deep"`` uses the profile marked as the deep model (judge / final
+    decision calls) and falls back to the active profile when none is marked.
+    """
     stored = secrets_store.load()
 
     def configured(name: str, fallback: str) -> str:
@@ -130,7 +149,7 @@ def snapshot_ai_provider_config() -> AIProviderConfigSnapshot:
     # An active profile is the authoritative endpoint/model/credential source.
     # Legacy fields are used only when no profile exists.
     from app.services import ai_key_profiles as _profiles
-    active_cfg = _profiles.get_active_profile_config()
+    active_cfg = (tier == "deep" and _profiles.get_deep_profile_config()) or _profiles.get_active_profile_config()
 
     if active_cfg:
         resolved_key = active_cfg["key"]
@@ -146,7 +165,10 @@ def snapshot_ai_provider_config() -> AIProviderConfigSnapshot:
         active_provider = configured("ai_provider", OPENAI_COMPAT_PROVIDER)
 
     provider = active_provider
-    if provider == CODEX_CLI_PROVIDER:
+    if provider == CODEX_CLI_PROVIDER and active_cfg and active_model:
+        # A subscription profile carries its own model; legacy ai_codex_model is only a fallback.
+        model = normalize_codex_model(active_model)
+    elif provider == CODEX_CLI_PROVIDER:
         model_value = stored.get("ai_codex_model")
         if model_value is None:
             model_value = stored.get("ai_model")
@@ -334,6 +356,17 @@ def is_codex_cli_provider(provider: str | None = None) -> bool:
     return (provider or current_ai_provider()) == CODEX_CLI_PROVIDER
 
 
+def is_subscription_cli_provider(provider: str | None = None) -> bool:
+    return (provider or current_ai_provider()) in SUBSCRIPTION_CLI_PROVIDERS
+
+
+def subscription_cli_available(provider: str | None = None) -> bool:
+    provider = provider or current_ai_provider()
+    if provider == CLAUDE_CLI_PROVIDER:
+        return claude_cli_available()
+    return codex_cli_available()
+
+
 def normalize_codex_model(model: str) -> str:
     value = model.strip()
     aliases = {
@@ -400,10 +433,23 @@ def codex_cli_available() -> bool:
     return proc.returncode == 0
 
 
+def claude_cli_available() -> bool:
+    """Claude Code CLI 是否可執行 (只檢查 --version, 不代表訂閱登入有效)。"""
+    try:
+        base = _claude_base_command()
+    except RuntimeError:
+        return False
+    try:
+        proc = subprocess.run([*base, "--version"], capture_output=True, timeout=15, check=False)
+    except (OSError, subprocess.TimeoutExpired):
+        return False
+    return proc.returncode == 0
+
+
 def ai_configured(provider: str | None = None) -> bool:
     provider = provider or current_ai_provider()
-    if is_codex_cli_provider(provider):
-        return codex_cli_available()
+    if is_subscription_cli_provider(provider):
+        return subscription_cli_available(provider)
     return bool(secrets_store.get_ai_key())
 
 
@@ -498,6 +544,10 @@ async def generate_ai_text(
             codex_kwargs["model"] = model
         codex_kwargs["config_snapshot"] = config_snapshot
         return await _run_codex_cli(messages, **codex_kwargs)
+    if provider == CLAUDE_CLI_PROVIDER:
+        return await _run_claude_cli(
+            messages, max_tokens=max_tokens, timeout=max(timeout, 300.0), config_snapshot=config_snapshot,
+        )
 
     import inspect
     sig = inspect.signature(_run_openai_once)
@@ -645,6 +695,11 @@ async def stream_ai_text(
             config_snapshot=config_snapshot,
         )
         return
+    if config_snapshot.provider == CLAUDE_CLI_PROVIDER:
+        yield await _run_claude_cli(
+            messages, max_tokens=max_tokens, timeout=max(timeout, 300.0), config_snapshot=config_snapshot,
+        )
+        return
 
     async for chunk in _stream_openai(
         messages,
@@ -746,6 +801,25 @@ async def _run_openai_once(
     if not content:
         raise AIEmptyContentError("AI provider returned empty message.content")
     return content
+
+
+async def probe_subscription_cli(provider: str, model: str, *, timeout: float = 180.0) -> dict:
+    """One tiny real call through the subscription CLI: proves install, login and model together."""
+    if not subscription_cli_available(provider):
+        label = CLI_PROVIDER_LABELS.get(provider, provider)
+        return {"ok": False, "error_code": "CLI_UNAVAILABLE", "error": f"{label} 無法執行，請確認已安裝"}
+    snapshot = AIProviderConfigSnapshot(
+        provider=provider, model=model, api_key="", profile_name="probe",
+        codex_command=CODEX_DEFAULT_COMMAND,
+    )
+    try:
+        text = await generate_ai_text(
+            [{"role": "user", "content": "Reply with exactly: OK"}],
+            temperature=None, max_tokens=None, timeout=timeout, config_snapshot=snapshot,
+        )
+    except Exception as exc:
+        return {"ok": False, "error_code": "CLI_ERROR", "error": str(exc)[:300]}
+    return {"ok": "OK" in text.upper(), "responded": True}
 
 
 async def probe_openai_profile_connection(
@@ -1149,10 +1223,12 @@ async def _run_codex_cli(
             "--output-last-message",
             str(output_path),
         ]
-        model = (
+        from app.services.ai_key_profiles import validate_model_name
+
+        model = validate_model_name(
             config_snapshot.model if config_snapshot is not None
             else model if model is not None else current_ai_model()
-        ).strip()
+        )
         if model:
             args.extend(["--model", model])
         args.extend(["--cd", str(workspace_path), "-"])
@@ -1172,6 +1248,8 @@ async def _run_codex_cli(
         final_message = _read_output_file(output_path)
         if returncode != 0:
             detail = err or out or f"exit code {returncode}"
+            if _looks_like_login_error(detail):
+                raise RuntimeError("Codex 訂閱登入已失效，請在終端機執行 codex login 重新登入")
             raise RuntimeError(f"Codex CLI 调用失败: {detail[-1200:]}")
         result = final_message or out
         if not result:
@@ -1179,6 +1257,90 @@ async def _run_codex_cli(
         return result
     finally:
         await asyncio.to_thread(_remove_tree_best_effort, run_path)
+
+
+def _looks_like_login_error(text: str) -> bool:
+    lowered = text.lower()
+    return any(
+        marker in lowered
+        for marker in ("/login", "not logged in", "please log in", "please login", "codex login",
+                       "authentication_error", "invalid api key", "oauth token has expired")
+    )
+
+
+def _claude_base_command() -> list[str]:
+    resolved = shutil.which(CLAUDE_DEFAULT_COMMAND)
+    if not resolved:
+        raise RuntimeError("未找到 Claude Code CLI (claude)；請先安裝並用 claude 登入訂閱")
+    if sys.platform == "win32" and resolved.lower().endswith(".ps1"):
+        return ["powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", resolved]
+    return [resolved]
+
+
+def _claude_process_env() -> dict[str, str]:
+    """Only OS/locale/proxy variables: no ANTHROPIC_API_KEY, so the subscription login is used."""
+    env = {name: value for name in _CODEX_ENV_ALLOWLIST if (value := os.environ.get(name))}
+    env["NO_COLOR"] = "1"
+    return env
+
+
+async def _run_claude_cli(
+    messages: Sequence[Message],
+    *,
+    max_tokens: int | None,
+    timeout: float,
+    config_snapshot: AIProviderConfigSnapshot,
+) -> str:
+    """Run one isolated `claude -p` turn on the user's Claude subscription and return its text."""
+    prompt = _codex_prompt(messages, max_tokens=max_tokens)
+    workspace = Path(tempfile.mkdtemp(prefix="tickflow-claude-run-"))
+    try:
+        from app.services.ai_key_profiles import validate_model_name
+
+        args = [*_claude_base_command(), "-p", *_CLAUDE_ISOLATION_ARGS, "--output-format", "json"]
+        model = validate_model_name(config_snapshot.model)
+        if model:
+            args.extend(["--model", model])
+        returncode, stdout, stderr = await asyncio.to_thread(
+            _run_cli_process, args, prompt, _claude_process_env(), timeout, "Claude Code CLI", workspace,
+        )
+        out = _clean_process_text(stdout)
+        err = _clean_process_text(stderr)
+        try:
+            payload = json.loads(out)
+        except ValueError:
+            payload = None
+        result = payload.get("result") if isinstance(payload, dict) else None
+        failed = returncode != 0 or not isinstance(payload, dict) or bool(payload.get("is_error"))
+        if failed:
+            detail = (result if isinstance(result, str) else "") or err or out or f"exit code {returncode}"
+            if _looks_like_login_error(detail):
+                raise RuntimeError("Claude 訂閱登入已失效，請在終端機執行 claude 並用 /login 重新登入")
+            raise RuntimeError(f"Claude Code CLI 呼叫失敗: {detail[-1200:]}")
+        if not isinstance(result, str) or not result.strip():
+            raise RuntimeError("Claude Code CLI 未返回內容")
+        return result.strip()
+    finally:
+        await asyncio.to_thread(shutil.rmtree, workspace, True)
+
+
+def _run_cli_process(
+    args: Sequence[str],
+    prompt: str,
+    env: dict[str, str],
+    timeout: float,
+    label: str,
+    cwd: Path,
+) -> tuple[int, bytes, bytes]:
+    """Run a CLI directly (no shell) with the prompt as UTF-8 stdin, so Chinese text survives on Windows."""
+    try:
+        proc = subprocess.run(
+            list(args), input=prompt.encode("utf-8"), capture_output=True, env=env,
+            timeout=timeout, check=False, cwd=cwd,
+        )
+    except subprocess.TimeoutExpired as exc:
+        raise RuntimeError(f"{label} 呼叫逾時，請稍後重試或檢查本機登入狀態") from exc
+    return proc.returncode, proc.stdout, proc.stderr
 
 
 def _run_codex_process(

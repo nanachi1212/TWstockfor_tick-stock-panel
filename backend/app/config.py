@@ -82,7 +82,7 @@ class Settings(BaseSettings):
 
     # AI
     ai_provider: str = "openai_compat"
-    ai_base_url: str = "https://api.zhaji.dev/v1"
+    ai_base_url: str = "http://127.0.0.1:8080/v1"
     ai_api_key: str = ""
     ai_model: str = "gpt-5.5"
     ai_codex_command: str = "codex"
@@ -98,7 +98,7 @@ class Settings(BaseSettings):
     # 任务级 max_tokens 会被钳制到 ai_max_output_tokens; 输入估算超出上下文窗口时给出明确报错。
     # 默认 8192 高于所有现有任务 (最多 4500), 避免默认配置反而截断长报告; 可在 AI 设置里调整。
     ai_max_output_tokens: int = 8192
-    ai_context_window: int = 64000
+    ai_context_window: int = 32768
     # 單次 AI 請求逾時秒數；本機小顯卡較慢時調大 (環境變數 AI_REQUEST_TIMEOUT 或 secrets.json 的 ai_request_timeout)。
     ai_request_timeout: float = 55.0
 

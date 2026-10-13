@@ -90,17 +90,19 @@ def start_local_model_autoload() -> None:
 def ai_status() -> dict:
     """{'status': 'ok'|'error'|'unconfigured', 'reason': str}"""
     from app.services.ai_provider import (
-        codex_cli_available,
-        is_codex_cli_provider,
+        CLI_PROVIDER_LABELS,
+        is_subscription_cli_provider,
         snapshot_ai_provider_config,
+        subscription_cli_available,
     )
 
     cfg = snapshot_ai_provider_config()
-    if is_codex_cli_provider(cfg.provider):
+    if is_subscription_cli_provider(cfg.provider):
+        label = CLI_PROVIDER_LABELS[cfg.provider]
         if not cfg.model:
-            return {"status": "unconfigured", "reason": "Codex 模型未設定"}
-        ok = codex_cli_available()
-        return {"status": "ok" if ok else "error", "reason": "Codex CLI 可用" if ok else "Codex CLI 無法執行"}
+            return {"status": "unconfigured", "reason": f"{label} 模型未設定"}
+        ok = subscription_cli_available(cfg.provider)
+        return {"status": "ok" if ok else "error", "reason": f"{label} 可用" if ok else f"{label} 無法執行"}
     if not cfg.model or not cfg.base_url:
         return {"status": "unconfigured", "reason": "尚未設定 AI 模型"}
 

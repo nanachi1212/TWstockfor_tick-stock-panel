@@ -6,6 +6,7 @@ signals and never reads Selection Review returns.
 """
 from __future__ import annotations
 
+import logging
 import math
 from dataclasses import dataclass
 from datetime import date, datetime
@@ -37,6 +38,7 @@ from app.taiwan.trade_plan import (
 AdmissionStatus = Literal["admitted", "unavailable", "not_applicable"]
 AdviceView = Literal["raw", "reviewed"]
 TERMINAL_OUTCOMES = {"triggered", "not_triggered", "undeterminable"}
+logger = logging.getLogger(__name__)
 EVALUATOR_VERSION = "trade_plan_evaluator_v1"
 
 
@@ -783,6 +785,46 @@ class AdviceTrackingService:
             "completed_at": completed.isoformat(),
         }
         return self.history.ensure_reflection(advice_id, payload.outcome_id, artifact)
+
+    def settle_pending(self, evaluated_as_of: date) -> list[tuple[dict[str, Any], dict[str, Any]]]:
+        """Persist terminal raw outcomes for admitted Advice; return outcomes still lacking a reflection.
+
+        Non-terminal plans are evaluated in memory only, so a pending plan does not
+        append an outcome record every day. ``undeterminable`` outcomes are persisted
+        but not returned, because there is nothing to learn from missing data.
+        """
+        records = self.history.all_records()
+        reflected = {item.get("outcome_id") for item in records if item.get("kind") == "reflection"}
+        due: list[tuple[dict[str, Any], dict[str, Any]]] = []
+        for advice in records:
+            if advice.get("kind") != "advice":
+                continue
+            try:
+                if self._forward_status(advice, view="raw", records=records).status != "admitted":
+                    continue
+                outcome = next(
+                    (
+                        item for item in records
+                        if item.get("kind") == "outcome"
+                        and item.get("parent_id") == advice.get("id")
+                        and item.get("view", "raw") == "raw"
+                        and (item.get("outcome") or {}).get("status") in TERMINAL_OUTCOMES
+                    ),
+                    None,
+                )
+                if outcome is None:
+                    plan = TradePlan.model_validate(advice["trade_plan"])
+                    probe = self.evaluator.evaluate_with_provenance(plan, evaluated_as_of=evaluated_as_of)
+                    if probe.outcome.status not in TERMINAL_OUTCOMES:
+                        continue
+                    outcome = self.evaluate_outcome(str(advice["id"]), evaluated_as_of=evaluated_as_of)
+            except Exception:
+                logger.warning("Advice settlement skipped for %s", advice.get("id"), exc_info=True)
+                continue
+            if outcome.get("id") in reflected or outcome["outcome"].get("status") == "undeterminable":
+                continue
+            due.append((advice, outcome))
+        return due
 
     def select_reflections(
         self,

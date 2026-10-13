@@ -574,6 +574,7 @@ async def generate_taiwan_stock_ai_research(
                 review=payload.review,
                 refresh=payload.refresh,
                 selection_evidence=selection,
+                debate=payload.debate,
             )
             if advice_run.response.status == "success":
                 history = get_ai_research_history_store()

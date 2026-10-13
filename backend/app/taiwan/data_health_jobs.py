@@ -54,19 +54,21 @@ def _ai_revision() -> str:
 def execute_existing(dataset: str, action: HealthAction) -> tuple[JobStatus, str]:
     if dataset == "ai_provider":
         from app.services.ai_provider import (
-            codex_cli_available,
-            is_codex_cli_provider,
+            CLI_PROVIDER_LABELS,
+            is_subscription_cli_provider,
             probe_openai_profile_connection,
             snapshot_ai_provider_config,
+            subscription_cli_available,
         )
 
         cfg = snapshot_ai_provider_config()
-        if is_codex_cli_provider(cfg.provider):
-            ok = bool(cfg.model) and codex_cli_available()
+        if is_subscription_cli_provider(cfg.provider):
+            label = CLI_PROVIDER_LABELS[cfg.provider]
+            ok = bool(cfg.model) and subscription_cli_available(cfg.provider)
             return (
-                ("completed", "Codex CLI 可用；此驗證不代表研究請求已成功")
+                ("completed", f"{label} 可用；此驗證不代表研究請求已成功")
                 if ok
-                else ("failed", "Codex CLI 不可用或模型未設定")
+                else ("failed", f"{label} 不可用或模型未設定")
             )
         response = asyncio.run(probe_openai_profile_connection(cfg))
         return (
