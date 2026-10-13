@@ -15,8 +15,8 @@ describe('MOPS evidence shared by product surfaces', () => {
   it('clearly distinguishes declarations from execution and never uses report date as publication', () => {
     render(<MopsEventEvidence event={base} />)
     expect(screen.getByText(/不代表實際成交或已賣出/)).toBeInTheDocument()
-    expect(screen.getByText('公告時間：無法確認；可得時間：無法確認')).toBeInTheDocument()
-    expect(screen.getByText(/data_insufficient/)).toBeInTheDocument()
+    expect(screen.getByText('公告時間：官方未提供；可得時間：官方未提供')).toBeInTheDocument()
+    expect(screen.getByText(/官方沒有提供公告時間/)).toBeInTheDocument()
   })
 
   it('shows official presentation links and scheduled time separately', () => {
