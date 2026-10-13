@@ -57,7 +57,7 @@ describe('資料健康中心', () => {
     expect((await label('Selection snapshot')).getByText('尚未執行')).toBeInTheDocument()
     // 設定缺失的資料源預設隱藏，選「設定缺失」篩選才會出現
     expect(screen.queryByRole('rowheader', { name: 'AI Provider/Profile' })).not.toBeInTheDocument()
-    expect(screen.getByText(/已隱藏 1 個尚未設定的資料源/)).toBeInTheDocument()
+    expect(screen.getByText(/已隱藏 1 個次要或尚未設定的資料源/)).toBeInTheDocument()
     fireEvent.change(screen.getByLabelText('狀態篩選'), { target: { value: 'config_missing' } })
     expect((await label('AI Provider/Profile')).getByText('設定缺失')).toBeInTheDocument()
     expect(screen.getByText('1 / 5 正常')).toBeInTheDocument()
