@@ -103,4 +103,18 @@ describe('AiKeyProfilesPanel subscription profiles', () => {
       name: 'Claude Max', provider: 'claude_cli', api_key: '', base_url: '', model: 'opus',
     }))
   })
+
+  it('switches the model of a subscription profile from the row dropdown', async () => {
+    const sub: AiKeyProfile = { ...profile, id: 'aip_cx', name: 'Codex 訂閱', provider: 'codex_cli', base_url: '', model: 'gpt-5.5', has_key: false, key_masked: '' }
+    vi.mocked(api.aiKeyProfiles).mockResolvedValue({ profiles: [sub] })
+    vi.mocked(api.aiKeyProfileUpdate).mockResolvedValue({ ok: true, profile: sub })
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    render(<QueryClientProvider client={client}><AiKeyProfilesPanel /></QueryClientProvider>)
+
+    const select = await screen.findByRole('combobox', { name: 'Codex 訂閱 模型' })
+    fireEvent.change(select, { target: { value: 'gpt-5.6-sol' } })
+    await waitFor(() => expect(api.aiKeyProfileUpdate).toHaveBeenCalledWith('aip_cx', {
+      name: 'Codex 訂閱', provider: 'codex_cli', base_url: '', model: 'gpt-5.6-sol',
+    }))
+  })
 })
