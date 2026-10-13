@@ -58,4 +58,16 @@ describe('Research history page', () => {
     mount('/research?symbol=2330.TWSE')
     expect(await screen.findByText('沒有符合篩選條件的研究紀錄。')).toBeInTheDocument()
   })
+
+  it('renders a saved record whose report is nested under response.report as readable text', async () => {
+    vi.mocked(api.taiwanAIResearchHistory).mockResolvedValue({ items: [{ id: 'n1', symbol: '6147.TPEX' }] })
+    vi.mocked(api.taiwanAIResearchHistoryDetail).mockResolvedValue({
+      id: 'n1', symbol: '6147.TPEX',
+      response: { status: 'success', report: { overview: '白話總覽文字', key_observations: [{ text: '外資近 20 日淨賣超', evidence_refs: ['institutional_context.foreign_net_20d'] }], risk_factors: [], missing_information: [], disclaimer: '' } },
+    })
+    mount()
+    expect(await screen.findByText('白話總覽文字')).toBeInTheDocument()
+    expect(screen.getByText('重點觀察')).toBeInTheDocument()
+    expect(screen.getByText('外資近 20 日淨賣超')).toBeInTheDocument()
+  })
 })

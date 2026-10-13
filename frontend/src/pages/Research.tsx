@@ -41,6 +41,11 @@ type Obs = { text?: string }
 function asReport(value: unknown): Record<string, unknown> | null {
   let v = value
   if (typeof v === 'string') { try { v = JSON.parse(v) } catch { return null } }
+  // 已存紀錄的報告包在 response.report 裡；先解開包裝再判斷。
+  for (let i = 0; i < 2; i++) {
+    const inner = v && typeof v === 'object' ? (v as { report?: unknown; response?: unknown }).report ?? (v as { response?: unknown }).response : null
+    if (inner && typeof inner === 'object' && typeof (v as { overview?: unknown }).overview !== 'string') v = inner
+  }
   return v && typeof v === 'object' && !Array.isArray(v) && typeof (v as { overview?: unknown }).overview === 'string' ? v as Record<string, unknown> : null
 }
 
