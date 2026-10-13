@@ -43,7 +43,10 @@ export function DataHealth() {
       void qc.invalidateQueries({ queryKey: QK.dataHealthJobs })
     },
   })
-  const rows = (health.data?.datasets ?? []).filter(row => (!filter || row.status === filter) &&
+  // 尚未設定金鑰的資料源（設定缺失）預設隱藏，免得一直顯示跑不起來；選「設定缺失」篩選才會列出。
+  const datasets = health.data?.datasets ?? []
+  const hiddenCount = filter ? 0 : datasets.filter(row => row.status === 'config_missing').length
+  const rows = datasets.filter(row => (filter ? row.status === filter : row.status !== 'config_missing') &&
     `${row.name} ${row.source ?? ''} ${row.reason}`.toLowerCase().includes(search.toLowerCase()))
   const busy = new Set((jobs.data ?? []).filter(j => ['queued', 'running'].includes(j.status)).flatMap(j => j.affected_datasets))
   // 一鍵: 每列挑最強的安全操作 (立即更新 > 重試 > 重新驗證)。日資料/社群同組只會起一個背景任務。
@@ -75,6 +78,7 @@ export function DataHealth() {
         <button type="button" disabled={health.isFetching} onClick={() => void health.refetch()} className="text-sm text-accent disabled:opacity-50">刷新健康狀態</button>
         <Link to="/settings?tab=ai" className="text-sm text-accent self-center">AI 設定</Link>
       </div>
+      {hiddenCount > 0 && <p className="text-xs text-muted">已隱藏 {hiddenCount} 個尚未設定的資料源（例如 FinBridge）；要看請在狀態篩選選「設定缺失」。</p>}
       {health.isLoading && <p role="status">正在讀取資料健康…</p>}
       {health.isError && <p role="alert" className="text-danger">資料健康讀取失敗，請刷新健康狀態。</p>}
       {action.isError && <p role="alert" className="text-danger">操作未啟動：{action.error.message}</p>}
