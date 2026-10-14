@@ -344,7 +344,7 @@ def _wait_for_server(port: int, timeout: float = 60.0) -> bool:
     while time.monotonic() < deadline:
         if _project_backend_ready(port):
             return True
-        time.sleep(0.5)
+        time.sleep(0.1)
     return False
 
 
@@ -378,15 +378,25 @@ def _stop_owned_server(server, thread: threading.Thread) -> bool:
     return not thread.is_alive()
 
 
-def _open_window(url: str) -> None:
-    """主线程: 用 pywebview 打开桌面窗口。"""
+_SPLASH_HTML = (
+    "<!doctype html><meta charset='utf-8'><body style='margin:0;height:100vh;display:flex;"
+    "align-items:center;justify-content:center;font:20px sans-serif;color:#555;background:#f6f4ef'>"
+    "Nanachi 台股看板 啟動中…</body>"
+)
+
+
+def _open_window(start_backend) -> None:
+    """主线程: 先用 pywebview 立刻顯示啟動畫面, 後端在背景就緒後再載入正式頁面。
+
+    start_backend() 回傳要載入的 URL; 它失敗時關窗並把例外交回呼叫端處理。
+    """
     import webview  # type: ignore[import-not-found]
 
     # 設定 → 備份與轉移 需要把 .twstock-backup 存到使用者選的位置 (pywebview 預設禁止下載)。
     webview.settings["ALLOW_DOWNLOADS"] = True
-    webview.create_window(
+    window = webview.create_window(
         _APP_NAME,
-        url,
+        html=_SPLASH_HTML,
         width=1440,
         height=900,
         min_size=(1024, 700),
@@ -401,8 +411,21 @@ def _open_window(url: str) -> None:
 
     storage = Path(settings.data_dir) / "user_data" / "webview"
     storage.mkdir(parents=True, exist_ok=True)
+    failure: list[Exception] = []
+
+    def boot() -> None:
+        try:
+            url = start_backend()
+            logger.info("载入桌面窗口: %s", url)
+            window.load_url(url)
+        except Exception as exc:
+            failure.append(exc)
+            window.destroy()
+
     # pywebview 会阻塞主线程直到窗口关闭
-    webview.start(debug=False, private_mode=False, storage_path=str(storage))
+    webview.start(boot, debug=False, private_mode=False, storage_path=str(storage))
+    if failure:
+        raise failure[0]
 
 
 def main() -> int:
@@ -438,33 +461,35 @@ def main() -> int:
         if not _frontend_dist_ready():
             raise RuntimeError("找不到 frontend/dist, 請先執行 frontend 的 pnpm build")
 
-        port = _BASE_PORT
-        if _port_is_open(port):
-            if not _project_backend_ready(port):
-                raise RuntimeError(f"連接埠 {port} 已被其他程式使用, 未啟動也未終止該程序")
-            logger.info("使用既有本專案 backend: 127.0.0.1:%d", port)
-        else:
-            logger.info("啟動 desktop entry owned backend: 127.0.0.1:%d", port)
-            server = _create_server(port)
-            done = threading.Event()
-            server_thread = threading.Thread(
-                target=_run_uvicorn,
-                args=(server, done),
-                daemon=False,
-                name="uvicorn-desktop-owned",
-            )
-            server_thread.start()
-            if not _wait_for_server(port, timeout=60.0):
-                raise RuntimeError("後端健康檢查逾時, 詳情請查看 desktop.log")
+        def start_backend() -> str:
+            nonlocal server, server_thread
+            port = _BASE_PORT
+            if _port_is_open(port):
+                if not _project_backend_ready(port):
+                    raise RuntimeError(f"連接埠 {port} 已被其他程式使用, 未啟動也未終止該程序")
+                logger.info("使用既有本專案 backend: 127.0.0.1:%d", port)
+            else:
+                logger.info("啟動 desktop entry owned backend: 127.0.0.1:%d", port)
+                server = _create_server(port)
+                done = threading.Event()
+                server_thread = threading.Thread(
+                    target=_run_uvicorn,
+                    args=(server, done),
+                    daemon=False,
+                    name="uvicorn-desktop-owned",
+                )
+                server_thread.start()
+                if not _wait_for_server(port, timeout=60.0):
+                    raise RuntimeError("後端健康檢查逾時, 詳情請查看 desktop.log")
 
-        _start_seed_incremental_refresh(seed_result)
+            _start_seed_incremental_refresh(seed_result)
 
-        if not _ui_ready(port):
-            raise RuntimeError("backend 已啟動, 但 production React UI 尚未就緒")
+            if not _ui_ready(port):
+                raise RuntimeError("backend 已啟動, 但 production React UI 尚未就緒")
 
-        url = f"http://127.0.0.1:{port}/"
-        logger.info("打开桌面窗口: %s", url)
-        _open_window(url)
+            return f"http://127.0.0.1:{port}/"
+
+        _open_window(start_backend)
 
         logger.info("窗口已关闭, 桌面版退出")
         return 0
