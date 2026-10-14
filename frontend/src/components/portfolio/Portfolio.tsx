@@ -587,7 +587,7 @@ function PortfolioImportDialog({ onClose }: { onClose: () => void }) {
 
   return (
     <div className="fixed inset-0 z-[80] grid place-items-center bg-black/55 p-4" role="presentation" onMouseDown={event => { if (event.target === event.currentTarget) onClose() }}>
-      <div className="w-full max-w-2xl space-y-3 rounded-2xl border border-border bg-surface p-4 shadow-2xl" role="dialog" aria-label="匯入持股">
+      <div className="max-h-[calc(100vh-2rem)] w-full max-w-2xl space-y-3 overflow-y-auto rounded-2xl border border-border bg-surface p-4 shadow-2xl" role="dialog" aria-label="匯入持股">
         <div className="flex items-center justify-between">
           <h2 className="text-sm font-semibold">一鍵匯入持股</h2>
           <button type="button" onClick={onClose} className="text-xs text-muted hover:text-foreground">關閉</button>

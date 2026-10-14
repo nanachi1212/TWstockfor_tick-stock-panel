@@ -19,7 +19,7 @@ def _prepare_main(monkeypatch, *, port_open: bool, project_ready: bool) -> list[
     monkeypatch.setattr(desktop, "_ui_ready", lambda _port: True)
     monkeypatch.setattr(desktop, "_port_is_open", lambda _port: port_open)
     monkeypatch.setattr(desktop, "_project_backend_ready", lambda _port: project_ready)
-    monkeypatch.setattr(desktop, "_open_window", opened.append)
+    monkeypatch.setattr(desktop, "_open_window", lambda start_backend: opened.append(start_backend()))
     monkeypatch.setattr(desktop, "_show_crash", lambda _title, _text: None)
     return opened
 
@@ -124,18 +124,31 @@ def test_backend_health_timeout_still_cleans_owned_server(monkeypatch):
 
 def test_pywebview_window_uses_formal_title_and_url(monkeypatch):
     calls: list[tuple[tuple, dict]] = []
+    loaded: list[str] = []
+    window = SimpleNamespace(load_url=loaded.append, destroy=lambda: None)
+
+    def fake_create_window(*args, **kwargs):
+        calls.append((args, kwargs))
+        return window
+
+    def fake_start(boot, **kwargs):
+        calls.append((("start",), kwargs))
+        boot()
+
     fake_webview = SimpleNamespace(
-        create_window=lambda *args, **kwargs: calls.append((args, kwargs)),
-        start=lambda **kwargs: calls.append((("start",), kwargs)),
+        create_window=fake_create_window,
+        start=fake_start,
         settings={"ALLOW_DOWNLOADS": False},
     )
     monkeypatch.setitem(sys.modules, "webview", fake_webview)
 
-    desktop._open_window("http://127.0.0.1:3018/")
+    desktop._open_window(lambda: "http://127.0.0.1:3018/")
 
     assert fake_webview.settings["ALLOW_DOWNLOADS"] is True  # 備份檔下載
 
-    assert calls[0][0][:2] == ("Nanachi 台股看板", "http://127.0.0.1:3018/")
+    assert calls[0][0] == ("Nanachi 台股看板",)
+    assert "啟動中" in calls[0][1]["html"]  # 先顯示啟動畫面, 後端就緒再載入
+    assert loaded == ["http://127.0.0.1:3018/"]
     assert calls[0][1]["width"] == 1440
     assert calls[0][1]["height"] == 900
     start_args, start_kwargs = calls[1]

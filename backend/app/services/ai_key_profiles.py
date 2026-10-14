@@ -38,14 +38,14 @@ _VALID_CHANNELS = frozenset(("line", "telegram"))
 # Subscription providers run the user's logged-in CLI and store no API key.
 _SUBSCRIPTION_PROVIDERS = frozenset(("codex_cli", "claude_cli"))
 # Model names are passed as CLI arguments: letters/digits first, no leading "-", no spaces or control characters.
-_MODEL_NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:/-]{0,127}$")
+_MODEL_NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:/@-]{0,127}$")
 
 
 def validate_model_name(model: str) -> str:
     """Return the trimmed model name, or raise ValueError if it could be read as a CLI option."""
     value = (model or "").strip()
     if value and not _MODEL_NAME_RE.fullmatch(value):
-        raise ValueError("Model name may only contain letters, digits, . _ : / - and must not start with -")
+        raise ValueError("Model name may only contain letters, digits, . _ : / @ - and must not start with -")
     return value
 _VALID_PROVIDERS = frozenset(("openai_compat", "openai")) | _SUBSCRIPTION_PROVIDERS
 
