@@ -24,7 +24,7 @@ function renderTab(tracking: ChipRankingTracking) {
 
 describe('ChipRankingTab tracking', () => {
   it('hides averages until the minimum sample is reached', async () => {
-    renderTab({ benchmark_symbol: '0050.TWSE', min_days: 20, summary: { h1: thin, h5: { ...thin, days: 0 } }, days: [
+    renderTab({ benchmark_symbol: '0050.TWSE', min_days: 20, other_definition_days: 0, summary: { h1: thin, h5: { ...thin, days: 0 } }, days: [
       { date: '2026-10-14', recorded_at: '2026-10-14T16:40:00+08:00', entry_date: '2026-10-15', status: 'tracked', picks: [],
         h1: { status: 'available', exit_date: '2026-10-15', picks: 40, avg_return: 0.012, benchmark_return: -0.003, avg_excess: 0.015 },
         h5: { status: 'pending', exit_date: null } },
@@ -39,14 +39,14 @@ describe('ChipRankingTab tracking', () => {
   })
 
   it('shows an empty state before the first freeze', async () => {
-    renderTab({ benchmark_symbol: '0050.TWSE', min_days: 20, summary: { h1: thin, h5: thin }, days: [] })
+    renderTab({ benchmark_symbol: '0050.TWSE', min_days: 20, other_definition_days: 0, summary: { h1: thin, h5: thin }, days: [] })
     expect(await screen.findByText('還沒有存檔紀錄。下一次收盤更新完成後會開始累積。')).toBeInTheDocument()
   })
 
   it('renders summary numbers when there are tracked days', async () => {
     const full: ChipTrackingSummary = { days: 20, picks: 800, sample_sufficient: true, avg_return: 0.004,
       avg_benchmark: 0.001, avg_excess: 0.003, win_rate: 0.55, beat_rate: 0.52 }
-    renderTab({ benchmark_symbol: '0050.TWSE', min_days: 20, summary: { h1: full, h5: thin }, days: [
+    renderTab({ benchmark_symbol: '0050.TWSE', min_days: 20, other_definition_days: 0, summary: { h1: full, h5: thin }, days: [
       { date: '2026-10-14', recorded_at: '2026-10-14T16:40:00+08:00', entry_date: null, status: 'pending', picks: [],
         h1: { status: 'pending', exit_date: null }, h5: { status: 'pending', exit_date: null } },
     ] })

@@ -58,9 +58,16 @@ const pct = (v: number | null | undefined) => signed(v == null ? null : v * 100,
 const rate = (v: number | null | undefined) => v == null ? '—' : `${(v * 100).toFixed(0)}%`
 const DAY_STATUS: Record<ChipTrackingDay['status'], string> = { tracked: '追蹤中', late: '存檔太晚，不計入', pending: '等待隔日開盤' }
 
+const UNAVAILABLE_REASON: Record<string, string> = {
+  incomplete_picks: '有股票缺價格',
+  price_data: '缺價格',
+  corporate_action_coverage: '除權息資料不足',
+  benchmark_distribution_unverified: '0050 配息期間',
+}
+
 function horizonCell(h: ChipTrackingHorizon) {
   if (h.status === 'pending') return <span className="text-muted">尚未到期</span>
-  if (h.status === 'unavailable') return <span className="text-muted">無法計算</span>
+  if (h.status === 'unavailable') return <span className="text-muted" title={h.reason}>無法計算{h.reason ? `（${UNAVAILABLE_REASON[h.reason] ?? h.reason}）` : ''}</span>
   return <><span className={toneClass(h.avg_return)}>{pct(h.avg_return)}</span><span className="ml-1 text-xs text-muted">0050 {pct(h.benchmark_return)}</span></>
 }
 
@@ -69,7 +76,7 @@ function ChipTracking() {
   return <section className="space-y-3 border-t border-border pt-4">
     <h2 className="font-medium">排行追蹤成績（往後追蹤）</h2>
     <p className="text-xs text-muted leading-relaxed">
-      每天收盤更新後，把當天上市、上櫃各前 20 名存檔，之後不再重算。以「隔天開盤價買進」計算 1 天（當天收盤）與 5 天（第 5 個交易日收盤）的漲跌，用除權息還原價，跟 0050 同期間比較。未計手續費與交易稅。存檔時間晚於隔天開盤的那一天不計入。
+      每天收盤更新後，把當天上市、上櫃各前 20 名存檔，之後不再重算。以「隔天開盤價買進」計算 1 天（當天收盤）與 5 天（第 5 個交易日收盤）的漲跌，用除權息還原價，跟 0050 同期間比較。未計手續費與交易稅。只在融資資料公布後存檔；存檔時間晚於隔天開盤、任何一檔缺價格，或期間可能包含 0050 配息（1 月、7 月，目前沒有可驗證的 ETF 配息資料）的那一天，不計入統計。
     </p>
     {query.isLoading ? <p role="status" className="text-xs text-muted">讀取追蹤紀錄中…</p>
       : query.isError || !query.data ? <div role="alert" className="text-xs text-danger">追蹤紀錄讀取失敗<button className="ml-3 underline" onClick={() => void query.refetch()}>重試</button></div>

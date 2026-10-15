@@ -111,6 +111,14 @@ def run_taiwan_update(evening: bool = False, *, trigger: str = "scheduled") -> N
                 logger.info("Taiwan security master: %s", refresh_security_master())
             except Exception:
                 logger.exception("Taiwan security master refresh failed; cached list kept")
+        # Runs before the evening early-return: the ranking is frozen only once margin data is
+        # published, which is exactly what the 21:30/23:00 catch-ups wait for.
+        try:
+            from app.taiwan.chip_ranking_tracking import freeze_latest_ranking
+
+            logger.info("Taiwan chip ranking freeze: %s", freeze_latest_ranking())
+        except Exception:
+            logger.exception("Taiwan chip ranking freeze failed")
         # Evening catch-up exists for margin (published in the evening); only a
         # newly fetched daily date gives Quant anything new to freeze.
         if evening and result.daily.dates_fetched == 0:
@@ -138,12 +146,6 @@ def run_taiwan_update(evening: bool = False, *, trigger: str = "scheduled") -> N
                 logger.info("Taiwan forward batches: %s", lock_daily_forward_batches())
             except Exception:
                 logger.exception("Taiwan forward batch lock failed")
-            try:
-                from app.taiwan.chip_ranking_tracking import freeze_latest_ranking
-
-                logger.info("Taiwan chip ranking freeze: %s", freeze_latest_ranking())
-            except Exception:
-                logger.exception("Taiwan chip ranking freeze failed")
             try:
                 from app.taiwan.auto_ai_explain import run_auto_explain
 

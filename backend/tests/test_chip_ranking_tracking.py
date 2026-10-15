@@ -42,14 +42,19 @@ def _bars(tmp_path, *, drop=()):
 
 
 def _snapshot(day=RANKED):
-    return {"date": day.isoformat(), "weights": {"flow_today": 25},
+    return {"date": day.isoformat(), "weights": {"flow_today": 25}, "min_avg_volume_5d": 1_000_000, "min_close": 10,
             "TWSE": [{"symbol": "A.TWSE", "name": "甲", "chip_score": 90.0}],
             "TPEX": [{"symbol": "B.TPEX", "name": "乙", "chip_score": 80.0}]}
 
 
+def _calendar(day):
+    """Test calendar: the stored fixture sessions, then none."""
+    return next((s for s in SESSIONS if s > day), None)
+
+
 def _tracker(tmp_path, *, coverage=FULL, drop=()):
     return ChipRankingTracker(path=tmp_path / "tracking.jsonl", daily=_bars(tmp_path, drop=drop),
-                              actions=_Actions(coverage))
+                              actions=_Actions(coverage), next_session=_calendar)
 
 
 AFTER_CLOSE = datetime(2026, 10, 5, 16, 40, tzinfo=TAIPEI)
@@ -80,8 +85,9 @@ def test_entry_is_next_session_open_and_compares_with_0050(tmp_path):
     assert day["h5"]["exit_date"] == "2026-10-12"
     assert a["return_5"] == pytest.approx(110 / 100 - 1)
     assert a["excess_5"] == pytest.approx(0.10 - (204 / 200 - 1))
+    # B has no bar on the exit date: no survivor-only average, the whole horizon is unavailable.
     assert b["return_5"] is None and b["excess_5"] is None
-    assert day["h5"]["picks"] == 1 and day["h5"]["avg_return"] == pytest.approx(0.10)
+    assert day["h5"] == {"status": "unavailable", "reason": "incomplete_picks", "exit_date": "2026-10-12"}
 
 
 def test_cash_dividend_inside_window_uses_adjusted_entry(tmp_path):
@@ -123,6 +129,50 @@ def test_missing_benchmark_bar_makes_day_unavailable(tmp_path):
     assert day["h1"] == {"status": "unavailable", "reason": "price_data", "exit_date": "2026-10-06"}
 
 
+def test_missing_calendar_session_is_not_shifted_to_a_later_bar(tmp_path):
+    t = _tracker(tmp_path, drop={(s, date(2026, 10, 6)) for s in ("A.TWSE", "B.TPEX", BENCHMARK_SYMBOL)})
+    t.freeze(_snapshot(), recorded_at=AFTER_CLOSE)
+    day = t.report()["days"][0]
+    assert day["entry_date"] == "2026-10-06"  # calendar entry, not the next stored partition (10-07)
+    assert day["h1"]["reason"] == "price_data" and day["h5"]["status"] == "unavailable"
+
+
+def test_distribution_month_fails_closed_for_benchmark(tmp_path, monkeypatch):
+    monkeypatch.setattr(tracking, "DISTRIBUTION_MONTHS", frozenset({10}))
+    t = _tracker(tmp_path)
+    t.freeze(_snapshot(), recorded_at=AFTER_CLOSE)
+    day = t.report()["days"][0]
+    assert day["h1"] == {"status": "unavailable", "reason": "benchmark_distribution_unverified",
+                         "exit_date": "2026-10-06"}
+
+
+def test_summary_ignores_unavailable_benchmark_days_and_other_definitions(tmp_path, monkeypatch):
+    monkeypatch.setattr(tracking, "MIN_DAYS", 1)
+    t = _tracker(tmp_path, drop={(BENCHMARK_SYMBOL, date(2026, 10, 7))})
+    t.freeze({**_snapshot(date(2026, 10, 5)), "weights": {"flow_today": 99}}, recorded_at=AFTER_CLOSE)
+    t.freeze(_snapshot(date(2026, 10, 6)), recorded_at=datetime(2026, 10, 6, 16, 40, tzinfo=TAIPEI))
+    t.freeze(_snapshot(date(2026, 10, 7)), recorded_at=datetime(2026, 10, 7, 16, 40, tzinfo=TAIPEI))
+    report = t.report()  # 10-07 exits on 10-08 (benchmark present); 10-06 enters 10-07 (benchmark missing)
+    assert report["other_definition_days"] == 1  # the 99-weight record is a different definition
+    h1 = report["summary"]["h1"]
+    assert h1["days"] == 1 and h1["picks"] == 2  # only the 10-07 day; no TypeError on missing benchmark
+
+
+def test_freeze_latest_ranking_waits_for_margin(tmp_path, monkeypatch):
+    from app.taiwan import chip_ranking, margin_store
+
+    monkeypatch.setattr(chip_ranking.TaiwanChipRankingService, "__init__", lambda self, *a, **k: None)
+    monkeypatch.setattr(chip_ranking.TaiwanChipRankingService, "snapshot", lambda self: _snapshot())
+    monkeypatch.setattr(margin_store.TaiwanMarginStore, "__init__", lambda self, *a, **k: None)
+    margin_dates = []
+    monkeypatch.setattr(margin_store.TaiwanMarginStore, "available_dates", lambda self: margin_dates)
+    t = _tracker(tmp_path)
+    assert tracking.freeze_latest_ranking(t) == {"status": "skipped", "reason": "margin_pending", "date": "2026-10-05"}
+    assert t.records() == []
+    margin_dates.append(RANKED)
+    assert tracking.freeze_latest_ranking(t)["status"] == "frozen"
+
+
 def test_summary_needs_minimum_days(tmp_path, monkeypatch):
     t = _tracker(tmp_path)
     t.freeze(_snapshot(), recorded_at=AFTER_CLOSE)
@@ -131,6 +181,7 @@ def test_summary_needs_minimum_days(tmp_path, monkeypatch):
     h1 = t.report()["summary"]["h1"]
     assert h1["sample_sufficient"] and h1["days"] == 1 and h1["picks"] == 2
     assert h1["avg_excess"] == pytest.approx(0.005 - 0.01)
+    assert t.report()["definition_digest"]
     assert h1["win_rate"] == pytest.approx(0.5) and h1["beat_rate"] == pytest.approx(0.5)
 
 

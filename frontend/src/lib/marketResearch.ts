@@ -150,6 +150,8 @@ export interface ChipRankingTracking {
   benchmark_symbol: string
   min_days: number
   summary: { h1: ChipTrackingSummary; h5: ChipTrackingSummary }
+  /** Summary covers only rankings with this definition; older ones are counted here, not mixed in. */
+  other_definition_days: number
   days: ChipTrackingDay[]
 }
 export type MarketResearchTab = typeof MARKET_RESEARCH_TABS[number]['id']

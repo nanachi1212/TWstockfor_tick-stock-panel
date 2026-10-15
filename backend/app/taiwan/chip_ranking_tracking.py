@@ -1,23 +1,28 @@
 """Forward-only tracking of the daily chip ranking (籌碼排行追蹤).
 
 Same principle as ``advice_tracking``: a ranking is frozen once, with its
-recording time, and is never rebuilt for a past date (TDCC weeks and the
-universe are not point-in-time, see ``chip_ranking``). Outcomes are derived
-from stored daily bars at read time.
+recording time and definition digest, and is never rebuilt for a past date
+(TDCC weeks and the universe are not point-in-time, see ``chip_ranking``).
+Outcomes are derived from stored daily bars at read time.
 
 Return semantics (gross, no fees or tax): the ranking for session D is only
-known after D's close, so entry is the open of the first stored session after
-D, and the 1/5-session exits are that session's close and the 5th session's
-close. Prices are adjusted with the verified corporate-action snapshot. The
-benchmark is 0050.TWSE over the same entry/exit. A snapshot recorded after the
-entry session's open is ``late`` and excluded. A pick without a bar, or without
-a verified adjustment, has no return (never 0).
+known after D's close, so entry is the open of the next trading-calendar
+session after D, and the 1/5-session exits are that session's close and the 5th
+session's close. Prices are adjusted with the verified corporate-action
+snapshot. The benchmark is 0050.TWSE over the same entry/exit.
+
+Fail-closed: a snapshot recorded after the entry session's open is ``late``; a
+horizon is ``unavailable`` unless every pick and the benchmark have a bar on the
+exact calendar entry/exit dates (no survivor averages, no shifted dates) and
+the window cannot contain a 0050 distribution.
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import threading
+from collections.abc import Callable
 from datetime import date, datetime, time
 from pathlib import Path
 from typing import Any
@@ -35,7 +40,13 @@ logger = logging.getLogger(__name__)
 BENCHMARK_SYMBOL = "0050.TWSE"
 HORIZONS = (1, 5)
 MIN_DAYS = 20  # matured ranking days before averages are shown
+DETAIL_DAYS = 20  # newest days returned with per-pick detail; the summary uses all days
 MARKET_OPEN = time(9, 0)
+DEFINITION_VERSION = "chip_ranking_v1"
+# ponytail: ETF distributions are not stored as PIT data (docs/taiwan-data-sources.md), so 0050's raw
+# ex-distribution drop cannot be verified. Windows touching the usual ex-dividend months (Jan, Jul) are
+# unavailable; replace with a verified ETF distribution calendar when one exists.
+DISTRIBUTION_MONTHS = frozenset({1, 7})
 _LOCK = threading.Lock()
 
 
@@ -45,12 +56,34 @@ def _default_path() -> Path:
     return taiwan_data_root() / "chip_ranking_tracking.jsonl"
 
 
+def _default_next_session() -> Callable[[date], date | None]:
+    from app.taiwan.daily_update import next_market_session
+    from app.taiwan.observed_universe import ObservedUniverseStore
+    from app.taiwan.realtime.calendar import TaiwanTradingCalendar
+
+    calendar, evidence = TaiwanTradingCalendar(), ObservedUniverseStore()
+    return lambda day: next_market_session(day, calendar, evidence)
+
+
+def ranking_definition(snapshot: dict[str, Any]) -> dict[str, Any]:
+    from app.taiwan.chip_ranking import TOP_N
+
+    return {"version": DEFINITION_VERSION, "weights": snapshot.get("weights"), "top_n": TOP_N,
+            "min_avg_volume_5d": snapshot.get("min_avg_volume_5d"), "min_close": snapshot.get("min_close")}
+
+
+def _digest(definition: dict[str, Any]) -> str:
+    return hashlib.sha256(json.dumps(definition, sort_keys=True).encode()).hexdigest()
+
+
 class ChipRankingTracker:
     def __init__(self, *, path: Path | None = None, daily: TaiwanDailyStore | None = None,
-                 actions: CorporateActionStore | None = None) -> None:
+                 actions: CorporateActionStore | None = None,
+                 next_session: Callable[[date], date | None] | None = None) -> None:
         self.path = path or _default_path()
         self.daily = daily or TaiwanDailyStore()
         self.actions = actions or CorporateActionStore()
+        self._next_session = next_session
 
     def records(self) -> list[dict[str, Any]]:
         if not self.path.exists():
@@ -70,11 +103,12 @@ class ChipRankingTracker:
                  for exchange in ("TWSE", "TPEX") for i, r in enumerate(snapshot.get(exchange) or [])]
         if not picks:
             return {"status": "skipped", "reason": "empty_ranking", "date": snapshot.get("date")}
+        definition = ranking_definition(snapshot)
         with _LOCK:
             if any(r.get("date") == snapshot["date"] for r in self.records()):
                 return {"status": "skipped", "reason": "already_frozen", "date": snapshot["date"]}
             record = {"date": snapshot["date"], "recorded_at": (recorded_at or taipei_now()).isoformat(),
-                      "weights": snapshot.get("weights"), "picks": picks}
+                      "definition": definition, "definition_digest": _digest(definition), "picks": picks}
             self.path.parent.mkdir(parents=True, exist_ok=True)
             with self.path.open("a", encoding="utf-8") as fh:
                 fh.write(json.dumps(record, ensure_ascii=False) + "\n")
@@ -82,15 +116,32 @@ class ChipRankingTracker:
 
     def report(self) -> dict[str, Any]:
         records = sorted(self.records(), key=lambda r: r["date"], reverse=True)
-        sessions = self.daily.available_dates()
+        empty = {h: {"days": 0, "picks": 0, "sample_sufficient": False, "avg_return": None, "avg_benchmark": None,
+                     "avg_excess": None, "win_rate": None, "beat_rate": None} for h in map(_key, HORIZONS)}
+        out: dict[str, Any] = {"benchmark_symbol": BENCHMARK_SYMBOL, "min_days": MIN_DAYS, "summary": empty,
+                               "definition_digest": None, "other_definition_days": 0, "days": []}
+        if not records:
+            return out
+        next_session = self._next_session or _default_next_session()
+        latest = self.daily.latest_date()
         coverage = self.actions.read_verified_coverage()
-        days = [self._evaluate(r, sessions, coverage) for r in records]
-        summary = {}
+        plans = [self._plan(r, next_session) for r in records]
+        spans = [(p[0], p[-1]) for p in plans if p]
+        prices = None
+        if latest is not None and spans:
+            symbols = sorted({p["symbol"] for r in records for p in r["picks"]} | {BENCHMARK_SYMBOL})
+            prices = self.daily.read_range(symbols, min(s[0] for s in spans), min(max(s[1] for s in spans), latest))
+        days = [self._evaluate(r, plan, latest, coverage, prices) for r, plan in zip(records, plans, strict=True)]
+        current = records[0].get("definition_digest")
+        mine = [d for d in days if d["definition_digest"] == current]
+        out.update(definition_digest=current, other_definition_days=len(days) - len(mine), days=days[:DETAIL_DAYS])
         for h in HORIZONS:
-            done = [d[f"h{h}"] for d in days if d["status"] == "tracked" and d[f"h{h}"]["status"] == "available"]
-            picks = [p for d in days if d["status"] == "tracked" for p in d["picks"] if p.get(f"return_{h}") is not None]
+            k = _key(h)
+            done = [d[k] for d in mine if d["status"] == "tracked" and d[k]["status"] == "available"]
+            picks = [p for d in mine if d["status"] == "tracked" and d[k]["status"] == "available"
+                     for p in d["picks"] if p.get(f"excess_{h}") is not None]
             enough = len(done) >= MIN_DAYS
-            summary[f"h{h}"] = {
+            out["summary"][k] = {
                 "days": len(done), "picks": len(picks), "sample_sufficient": enough,
                 "avg_return": _mean([d["avg_return"] for d in done]) if enough else None,
                 "avg_benchmark": _mean([d["benchmark_return"] for d in done]) if enough else None,
@@ -98,34 +149,50 @@ class ChipRankingTracker:
                 "win_rate": _mean([p[f"return_{h}"] > 0 for p in picks]) if enough else None,
                 "beat_rate": _mean([p[f"excess_{h}"] > 0 for p in picks]) if enough else None,
             }
-        return {"benchmark_symbol": BENCHMARK_SYMBOL, "min_days": MIN_DAYS, "summary": summary, "days": days}
+        return out
 
-    def _evaluate(self, record: dict[str, Any], sessions: list[date], coverage) -> dict[str, Any]:
-        ranked = date.fromisoformat(record["date"])
-        # ponytail: stored daily partitions stand in for the trading calendar; a missing
-        # partition would shift the horizon. Daily update backfills gaps, so it should not happen.
-        after = [s for s in sessions if s > ranked]
+    @staticmethod
+    def _plan(record: dict[str, Any], next_session: Callable[[date], date | None]) -> list[date]:
+        """Calendar sessions after the ranking date, as many as the longest horizon needs."""
+        sessions: list[date] = []
+        cur = next_session(date.fromisoformat(record["date"]))
+        while cur is not None and len(sessions) < max(HORIZONS):
+            sessions.append(cur)
+            cur = next_session(cur)
+        return sessions
+
+    def _evaluate(self, record: dict[str, Any], plan: list[date], latest: date | None, coverage,
+                  prices: pl.DataFrame | None) -> dict[str, Any]:
         out: dict[str, Any] = {"date": record["date"], "recorded_at": record["recorded_at"],
-                               "entry_date": after[0].isoformat() if after else None, "status": "pending",
+                               "definition_digest": record.get("definition_digest"),
+                               "entry_date": plan[0].isoformat() if plan else None, "status": "pending",
                                "picks": [dict(p) for p in record["picks"]]}
         for h in HORIZONS:
-            out[f"h{h}"] = {"status": "pending", "exit_date": None}
+            out[_key(h)] = {"status": "pending", "exit_date": None}
+        if not plan:
+            return out
         recorded = datetime.fromisoformat(record["recorded_at"])
-        if after and recorded >= datetime.combine(after[0], MARKET_OPEN, tzinfo=TAIPEI):
+        if recorded >= datetime.combine(plan[0], MARKET_OPEN, tzinfo=TAIPEI):
             out["status"] = "late"
             return out
-        if not after:
+        if latest is None or prices is None or plan[0] > latest:
             return out
         out["status"] = "tracked"
-        symbols = [p["symbol"] for p in record["picks"]] + [BENCHMARK_SYMBOL]
+        entry = plan[0]
         for h in HORIZONS:
-            if len(after) < h:
+            k = _key(h)
+            if len(plan) < h or plan[h - 1] > latest:
                 continue
-            entry, exit_ = after[0], after[h - 1]
+            exit_ = plan[h - 1]
+            unavailable = {"status": "unavailable", "exit_date": exit_.isoformat()}
             if coverage is None or not (coverage[0] <= entry and exit_ <= coverage[1]):
-                out[f"h{h}"] = {"status": "unavailable", "reason": "corporate_action_coverage", "exit_date": exit_.isoformat()}
+                out[k] = {**unavailable, "reason": "corporate_action_coverage"}
                 continue
-            returns = self._returns(symbols, entry, exit_, coverage[2])
+            if {entry.month, exit_.month} & DISTRIBUTION_MONTHS:
+                out[k] = {**unavailable, "reason": "benchmark_distribution_unverified"}
+                continue
+            symbols = [p["symbol"] for p in record["picks"]]
+            returns = self._returns([*symbols, BENCHMARK_SYMBOL], entry, exit_, coverage[2], prices)
             bench = returns.get(BENCHMARK_SYMBOL)
             for p in out["picks"]:
                 r = returns.get(p["symbol"])
@@ -133,21 +200,23 @@ class ChipRankingTracker:
                 p[f"excess_{h}"] = r - bench if r is not None and bench is not None else None
             valid = [p for p in out["picks"] if p[f"excess_{h}"] is not None]
             if bench is None or not valid:
-                out[f"h{h}"] = {"status": "unavailable", "reason": "price_data", "exit_date": exit_.isoformat()}
-                continue
-            out[f"h{h}"] = {"status": "available", "exit_date": exit_.isoformat(), "picks": len(valid),
-                            "avg_return": _mean([p[f"return_{h}"] for p in valid]),
-                            "benchmark_return": bench,
-                            "avg_excess": _mean([p[f"excess_{h}"] for p in valid])}
+                out[k] = {**unavailable, "reason": "price_data"}
+            elif len(valid) < len(out["picks"]):
+                out[k] = {**unavailable, "reason": "incomplete_picks"}  # no survivor-only averages
+            else:
+                out[k] = {"status": "available", "exit_date": exit_.isoformat(), "picks": len(valid),
+                          "avg_return": _mean([p[f"return_{h}"] for p in valid]), "benchmark_return": bench,
+                          "avg_excess": _mean([p[f"excess_{h}"] for p in valid])}
         return out
 
-    def _returns(self, symbols: list[str], entry: date, exit_: date, events) -> dict[str, float | None]:
-        raw = self.daily.read_range(symbols, entry, exit_).filter(pl.col("date").is_in([entry, exit_]))
+    @staticmethod
+    def _returns(symbols: list[str], entry: date, exit_: date, events, prices: pl.DataFrame) -> dict[str, float | None]:
+        raw = prices.filter(pl.col("date").is_in([entry, exit_]))
         window = tuple(e for e in events if entry < e.effective_date <= exit_)
         out: dict[str, float | None] = {}
         for symbol in symbols:
             rows = raw.filter(pl.col("symbol") == symbol).unique("date").sort("date")
-            if rows.filter(pl.col("date") == entry).is_empty() or rows.filter(pl.col("date") == exit_).is_empty():
+            if rows.height != len({entry, exit_}):  # a 1-session hold buys and sells on the same bar
                 out[symbol] = None
                 continue
             adjusted = adjust_prices_as_of(rows, as_of=exit_, events=window, price_columns=("open", "close"))
@@ -161,12 +230,24 @@ class ChipRankingTracker:
         return out
 
 
+def _key(horizon: int) -> str:
+    return f"h{horizon}"
+
+
 def _mean(values: list[float] | list[bool]) -> float | None:
     return sum(values) / len(values) if values else None
 
 
-def freeze_latest_ranking() -> dict[str, Any]:
-    """Post-close hook: freeze today's ranking for later forward evaluation."""
-    from app.taiwan.chip_ranking import TaiwanChipRankingService
+def freeze_latest_ranking(tracker: ChipRankingTracker | None = None) -> dict[str, Any]:
+    """Post-close hook: freeze the ranking only once its margin input is published (evening).
 
-    return ChipRankingTracker().freeze(TaiwanChipRankingService().snapshot())
+    Without margin data the ranking silently drops a component and renormalizes, which is a
+    different score than the final one users see, so the freeze waits; the evening catch-ups retry.
+    """
+    from app.taiwan.chip_ranking import TaiwanChipRankingService
+    from app.taiwan.margin_store import TaiwanMarginStore
+
+    snapshot = TaiwanChipRankingService().snapshot()
+    if not snapshot.get("date") or date.fromisoformat(snapshot["date"]) not in TaiwanMarginStore().available_dates():
+        return {"status": "skipped", "reason": "margin_pending", "date": snapshot.get("date")}
+    return (tracker or ChipRankingTracker()).freeze(snapshot)
