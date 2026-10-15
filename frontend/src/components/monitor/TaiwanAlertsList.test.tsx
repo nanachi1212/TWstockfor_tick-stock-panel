@@ -22,3 +22,20 @@ describe('TaiwanAlertsList AI Research entry', () => {
     expect(onInterpretAlert).toHaveBeenCalledWith('2330.TWSE', 'alert-1')
   })
 })
+
+describe('TaiwanAlertsList change_pct', () => {
+  it('formats the alert-event ratio as a percentage for rule and anomaly alerts', () => {
+    render(<TaiwanAlertsList
+      alerts={[
+        { ts: 2, alert_id: 'anomaly-1', source: 'watchlist_anomaly', type: 'watchlist_anomaly',
+          symbol: '2317.TWSE', name: '鴻海', message: '自選股大跌 -5.65%，現價 200', change_pct: -0.0565 },
+        { ts: 1, alert_id: 'rule-1', source: 'twse:mis', type: 'change_pct_above',
+          symbol: '2330.TWSE', name: '台積電', message: '漲幅超過門檻', change_pct: 0.0366 },
+      ]}
+    />)
+
+    expect(screen.getByText('-5.65%')).toBeInTheDocument()
+    expect(screen.getByText('+3.66%')).toBeInTheDocument()
+    expect(screen.queryByText('-0.06%')).not.toBeInTheDocument()
+  })
+})
