@@ -99,6 +99,35 @@ class TaiwanInstitutionalStatisticsService:
             aggregates=aggregates, securities=securities,
         )
 
+    def get_chip_ranking_inputs(
+        self, target_date: date, *, flow_window: int = 5, streak_window: int = 20,
+    ) -> tuple[list[date], dict[str, dict[str, float | None]]]:
+        """Return only the shared flow metrics consumed by chip ranking.
+
+        Building public research snapshots also creates coverage models and
+        aggregate rows that this internal consumer does not use. Keep the same
+        canonical load, validity filters, window calculation, and completeness
+        rules while avoiding that unused model construction.
+        """
+        window = max(flow_window, streak_window)
+        sessions, master, flows, _, complete_dates = self._load(target_date, window)
+        flow_sessions = sessions[-flow_window:]
+        grouped_flows = {
+            key[0]: frame for key, frame in flows.partition_by("symbol", as_dict=True).items()
+        } if not flows.is_empty() else {}
+        metrics: dict[str, dict[str, float | None]] = {}
+        for symbol in master["symbol"].to_list():
+            security_flows = grouped_flows.get(symbol, pl.DataFrame())
+            flow = compute_institutional_window(security_flows, flow_sessions, complete_dates)
+            streak = compute_institutional_window(security_flows, sessions[-streak_window:], complete_dates)
+            nets = [flow[investor]["net_shares"] for investor in INVESTORS]
+            metrics[symbol] = {
+                "institutional_net_5d": sum(nets) if None not in nets else None,
+                "foreign_buy_streak": streak["foreign"]["buy_streak"],
+                "trust_buy_streak": streak["investment_trust"]["buy_streak"],
+            }
+        return flow_sessions, metrics
+
     def get_market_flow_series(
         self, target_date: date | None = None, window: InstitutionalWindow = 20,
     ) -> InstitutionalFlowSeries:
