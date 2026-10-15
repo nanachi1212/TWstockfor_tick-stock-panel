@@ -315,7 +315,8 @@ export function TaiwanStockDetail() {
           : {}),
       ...(typeof selectedAlert.trigger_value === 'number' ? { trigger_value: selectedAlert.trigger_value * alertPercentScale } : typeof selectedAlert.price === 'number' ? { trigger_value: selectedAlert.price } : {}),
       ...(typeof selectedAlert.threshold === 'number' ? { threshold: selectedAlert.threshold * alertPercentScale } : {}),
-      ...(typeof selectedAlert.change_pct === 'number' ? { change_pct: selectedAlert.change_pct * alertPercentScale } : {}),
+      // Alert change_pct is already a fraction (0.0366); only rule trigger/threshold values are percent points.
+      ...(typeof selectedAlert.change_pct === 'number' ? { change_pct: selectedAlert.change_pct } : {}),
       ...(typeof selectedAlert.quant_status === 'string' ? { quant_status: selectedAlert.quant_status } : {}),
       ...(typeof selectedAlert.quant_rank === 'number' ? { quant_rank: selectedAlert.quant_rank } : {}),
       ...(typeof selectedAlert.quant_score === 'number' ? { quant_score: selectedAlert.quant_score } : {}),

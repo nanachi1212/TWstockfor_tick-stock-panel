@@ -210,7 +210,9 @@ def _metric_lines(event: dict, kind: str) -> list[str]:
         lines.append(threshold)
 
     if kind not in {"strategy", "buy_point"}:
-        change_pct = _format_number(event.get("change_pct"))
+        # 提醒事件契約: change_pct 為小數 (0.0125 = 1.25%)
+        ratio = _finite_number(event.get("change_pct"))
+        change_pct = _format_number(ratio * 100) if ratio is not None else None
         if change_pct is not None:
             lines.append(f"漲跌幅：{change_pct}%")
         volume = _format_number(event.get("volume"))

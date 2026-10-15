@@ -48,6 +48,28 @@ def _prepare_event(event: dict) -> dict:
     return result
 
 
+def _normalize_legacy_change_pct(event: dict) -> None:
+    """Convert pre-ratio records to the ratio contract at read time; the file is never rewritten.
+
+    Legacy writers stored percent points. Each case is identified by how that writer built
+    the record, not by the size of the value:
+      - change_pct_*: change_pct was a verbatim copy of trigger_value (percent points).
+      - watchlist_anomaly: the message embeds the same value formatted as "{pct:+.2f}%".
+    """
+    pct = event.get("change_pct")
+    if not isinstance(pct, (int, float)) or isinstance(pct, bool) or pct == 0:
+        return
+    event_type = str(event.get("type") or "")
+    legacy = (
+        event_type.startswith("change_pct_") and pct == event.get("trigger_value")
+    ) or (
+        event_type == "watchlist_anomaly" and f"{pct:+.2f}%" in str(event.get("message") or "")
+    )
+    # ponytail: dead once every pre-ratio record is past MAX_DAYS retention; delete then.
+    if legacy:
+        event["change_pct"] = round(pct / 100, 6)
+
+
 def _path(data_dir: Path) -> Path:
     p = data_dir / "user_data" / "alerts.jsonl"
     p.parent.mkdir(parents=True, exist_ok=True)
@@ -183,6 +205,7 @@ def list_recent(
                     continue
                 ev.setdefault("alert_id", _identity(ev))
                 ev.setdefault("is_read", False)
+                _normalize_legacy_change_pct(ev)
                 out.append(ev)
     except Exception as e:
         logger.warning("alert_store read failed: %s", e)

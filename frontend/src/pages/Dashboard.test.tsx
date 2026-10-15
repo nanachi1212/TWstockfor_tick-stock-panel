@@ -464,6 +464,22 @@ describe('Dashboard — stock reminders', () => {
     expect(vi.mocked(api.alertsMarkRead).mock.calls[0][0]).toBe('alert-1')
   })
 
+  it('formats rule and anomaly alert change_pct with the same ratio unit', async () => {
+    vi.mocked(api.alertsList).mockResolvedValue({ alerts: [
+      { ts: Date.now(), alert_id: 'rule-pct', is_read: false, rule_id: 'rule-pct', source: 'twse:mis',
+        type: 'change_pct_above', symbol: '2330.TWSE', name: '台積電', message: '漲幅超過門檻',
+        change_pct: 0.0366, severity: 'info' },
+      { ts: Date.now() - 1, alert_id: 'anomaly-pct', is_read: false, source: 'watchlist_anomaly',
+        type: 'watchlist_anomaly', symbol: '2317.TWSE', name: '鴻海', message: '自選股大跌 -5.65%，現價 200',
+        price: 200, change_pct: -0.0565, severity: 'warn' },
+    ], total: 2 } as any)
+    renderDashboard()
+
+    expect(await screen.findByText('+3.66%')).toBeInTheDocument()
+    expect(screen.getByText('-5.65%')).toBeInTheDocument()
+    expect(screen.queryByText(/565\./)).not.toBeInTheDocument()
+  })
+
   it('routes any alert symbol to the stock detail page', async () => {
     vi.mocked(api.alertsList).mockResolvedValue({ alerts: [
       { ts: Date.now(), alert_id: 'alert-cn', is_read: false, rule_id: 'rule-cn',

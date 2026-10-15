@@ -102,7 +102,7 @@ export function MonitorWidget({ onStockClick }: {
                 )}
                 {ev.change_pct != null && (
                   <span className={cn('text-[10px] font-mono font-medium shrink-0 w-12 text-right', pct >= 0 ? 'text-danger' : 'text-bear')}>
-                    {ev.type.startsWith('change_pct_') ? `${pct > 0 ? '+' : ''}${pct.toFixed(2)}%` : fmtPct(pct)}
+                    {fmtPct(pct)}
                   </span>
                 )}
               </div>
