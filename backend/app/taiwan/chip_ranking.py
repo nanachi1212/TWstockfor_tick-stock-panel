@@ -3,7 +3,7 @@
 Product opinion, not a deterministic fact: weights follow the public
 stock_chips method. Inputs come from existing authorities only:
 5-session institutional nets from ``TaiwanInstitutionalStatisticsService``,
-streaks from ``compute_institutional_window``,
+20-session buy streaks from the same service,
 raw daily OHLCV, official margin rows and the TDCC weekly snapshot.
 
 Each component is a percentile rank inside its own exchange (TWSE and TPEx are
@@ -18,7 +18,6 @@ from typing import Any
 import polars as pl
 
 from app.taiwan.daily_store import TaiwanDailyStore
-from app.taiwan.enrichment.factors import compute_institutional_window
 from app.taiwan.institutional_statistics import VALID_FLOW_STATUSES, TaiwanInstitutionalStatisticsService
 from app.taiwan.institutional_store import TaiwanInstitutionalStore
 from app.taiwan.margin_store import TaiwanMarginStore
@@ -71,7 +70,7 @@ class TaiwanChipRankingService:
         snap5 = self.statistics.get_snapshot(target_date, 5)
         target = date.fromisoformat(snap5.date)
         sessions = [date.fromisoformat(s) for s in snap5.sessions]
-        snap20 = self.statistics.get_snapshot(target, 20)  # sessions only; see streak note below
+        snap20 = self.statistics.get_snapshot(target, 20)
         master = self.statistics.master.to_dataframe(supported_only=True).filter(
             (pl.col("listing_status") == "active") & (pl.col("instrument_type") == "stock")
         ).select("symbol", "name", "exchange")
@@ -104,24 +103,14 @@ class TaiwanChipRankingService:
                  .cast(pl.Float64).alias("institutional_net"))
 
         window = []
-        # The statistics service only trusts a streak date when every supported
-        # security has a row, which illiquid ETFs never satisfy. Here a session
-        # counts once the market file is stored; a missing row for the symbol
-        # still breaks its streak inside compute_institutional_window.
-        sessions20 = [date.fromisoformat(d) for d in snap20.sessions]
-        hist = self.institutional.read_range(symbols, sessions20[0], target).filter(
-            pl.col("date").is_in(sessions20) & pl.col("status").is_in(VALID_FLOW_STATUSES)
-            & (pl.col("trade_date") == pl.col("date")) & ~pl.col("has_discrepancy").fill_null(False))
-        published = set(hist["date"].unique().to_list())
-        by_symbol = {k[0]: g for k, g in hist.partition_by("symbol", as_dict=True).items()} if not hist.is_empty() else {}
+        streaks = {row.symbol: row.investors for row in snap20.securities}
         for row in snap5.securities:
             nets = [row.investors[i].net_shares.value for i in ("foreign", "investment_trust", "dealer")]
-            stats = compute_institutional_window(by_symbol[row.symbol], sessions20, published)                 if row.symbol in by_symbol else None
-            fs = stats["foreign"]["buy_streak"] if stats else None
-            ts = stats["investment_trust"]["buy_streak"] if stats else None
+            investors = streaks.get(row.symbol)
             window.append({"symbol": row.symbol,
                            "institutional_net_5d": sum(nets) if None not in nets else None,
-                           "foreign_buy_streak": fs, "trust_buy_streak": ts})
+                           "foreign_buy_streak": investors["foreign"].buy_streak.value if investors else None,
+                           "trust_buy_streak": investors["investment_trust"].buy_streak.value if investors else None})
         window_df = pl.DataFrame(window, schema={"symbol": pl.String, "institutional_net_5d": pl.Float64,
                                                  "foreign_buy_streak": pl.Float64, "trust_buy_streak": pl.Float64})
 
