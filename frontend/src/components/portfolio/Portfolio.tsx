@@ -344,6 +344,7 @@ export function PortfolioPanel({ symbol, name, quote: detailQuote, change: detai
   const shownPositions = symbol ? (targetPosition ? [targetPosition] : []) : positions
   const allocationWeights = new Map(allocation?.status === 'available'
     ? allocation.positions?.map(position => [position.symbol, position.weight]) : [])
+  const showAllocationWeights = !symbol && allocationWeights.size > 0
   const quoteFetchFailed = symbol ? quoteUnavailable : quotesQuery.isError
   const quotesLoading = !symbol && symbols.length > 0 && quotesQuery.isLoading
   const quoteFor = (position: typeof positions[number]): TaiwanRealtimeQuote | undefined => quotes.get(position.symbol)
@@ -415,7 +416,7 @@ export function PortfolioPanel({ symbol, name, quote: detailQuote, change: detai
       ) : (
         <div className="overflow-x-auto">
           <table className="w-full min-w-[760px] text-left text-xs">
-            <thead className="text-[10px] text-muted"><tr>{!symbol && <th className="px-2 py-2">股票</th>}<th className="px-2 py-2">持有股數</th><th className="px-2 py-2">平均成本</th><th className="px-2 py-2">現價</th><th className="px-2 py-2">市值</th>{!symbol && <th className="px-2 py-2" title={`依 ${allocation?.as_of ?? '尚未取得'} 收盤市值計算`}>收盤權重</th>}<th className="px-2 py-2">未實現損益</th><th className="px-2 py-2">報酬率</th><th className="px-2 py-2">今日漲跌</th><th className="px-2 py-2">Quant 分數</th><th className="px-2 py-2">今日排名</th><th className="px-2 py-2">操作</th></tr></thead>
+            <thead className="text-[10px] text-muted"><tr>{!symbol && <th className="px-2 py-2">股票</th>}<th className="px-2 py-2">持有股數</th><th className="px-2 py-2">平均成本</th><th className="px-2 py-2">現價</th><th className="px-2 py-2">市值</th>{showAllocationWeights && <th className="px-2 py-2" title={`依 ${allocation?.as_of} 收盤市值計算`}>收盤權重</th>}<th className="px-2 py-2">未實現損益</th><th className="px-2 py-2">報酬率</th><th className="px-2 py-2">今日漲跌</th><th className="px-2 py-2">Quant 分數</th><th className="px-2 py-2">今日排名</th><th className="px-2 py-2">操作</th></tr></thead>
             <tbody>
               {shownPositions.map(position => {
                 const quote = quoteFor(position)
@@ -432,7 +433,7 @@ export function PortfolioPanel({ symbol, name, quote: detailQuote, change: detai
                   <td className="px-2 py-2 font-mono">{position.shares.toLocaleString()}</td><td className="px-2 py-2 font-mono">{money(position.averageCost)}</td>
                   <td className="px-2 py-2 font-mono">{currentPrice == null ? <span className="text-muted">目前無法取得報價</span> : <>{money(currentPrice)}<DataQualityBadge meta={displayMeta} quoteTime={quote?.quote_time} className="ml-1" /></>}</td>
                   <td className="px-2 py-2 font-mono">{currentPrice == null ? '—' : money(currentPrice * position.shares)}</td>
-                  {!symbol && <td className="px-2 py-2 font-mono">{allocationWeights.has(position.symbol) ? `${(allocationWeights.get(position.symbol)! * 100).toFixed(1)}%` : '—'}</td>}
+                  {showAllocationWeights && <td className="px-2 py-2 font-mono">{allocationWeights.has(position.symbol) ? `${(allocationWeights.get(position.symbol)! * 100).toFixed(1)}%` : '—'}</td>}
                   <td className={`px-2 py-2 font-mono ${tone(unrealized)}`}>{unrealized == null ? '—' : money(unrealized)}</td><td className={`px-2 py-2 font-mono ${tone(unrealized)}`}>{signedPct(returnPct)}</td>
                   <td className={`px-2 py-2 font-mono ${tone(daily)}`}>{daily == null ? '—' : `${money(daily)} (${signedPct(dailyPct)})`}</td>
                   <td className="px-2 py-2 font-mono">{quant ? `${(quant.score * 100).toFixed(1)}%` : '—'}</td><td className="px-2 py-2 font-mono">{quant ? `#${quant.rank}` : '—'}</td>

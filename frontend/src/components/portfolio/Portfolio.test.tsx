@@ -66,6 +66,17 @@ describe('Portfolio UI', () => {
     expect(screen.queryByRole('cell', { name: '60.0%' })).not.toBeInTheDocument()
   })
 
+  it('hides the closing-weight column when allocation weights are unavailable', async () => {
+    storage.portfolioTransactions.set([{
+      id: 'home', symbol: '2330.TWSE', name: '台積電', side: 'buy', shares: 5,
+      price: 100, fee: 0, date: '2026-09-24', createdAt: '2026-09-24T00:00:00.000Z',
+    }])
+    vi.mocked(api.taiwanQuotes).mockResolvedValue({ quotes: [], count: 0 })
+    renderPortfolio()
+    expect(await screen.findByRole('row', { name: /台積電/ })).toBeInTheDocument()
+    expect(screen.queryByRole('columnheader', { name: '收盤權重' })).not.toBeInTheDocument()
+  })
+
   it('opens the import dialog right away on the 我的持股 page, with file and paste options', async () => {
     renderPortfolio({ openImportOnMount: true })
     const dialog = await screen.findByRole('dialog', { name: '匯入持股' })
