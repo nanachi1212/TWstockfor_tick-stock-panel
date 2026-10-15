@@ -32,8 +32,12 @@ def industry_rotation(target_date: Annotated[date | None, Query(alias="date")] =
 
 
 @router.get("/chip-ranking")
-def chip_ranking() -> dict:
+def chip_ranking(target_date: Annotated[str | None, Query(alias="date")] = None) -> dict:
     """Latest stored session only; see chip_ranking module docstring."""
     from app.taiwan.chip_ranking import TaiwanChipRankingService
+
+    if target_date is not None:
+        # Reject old bookmarks instead of returning today's ranking under a past date.
+        raise HTTPException(status_code=422, detail="籌碼排行只提供最新已入庫交易日 不支援 date 參數")
 
     return TaiwanChipRankingService().snapshot()
