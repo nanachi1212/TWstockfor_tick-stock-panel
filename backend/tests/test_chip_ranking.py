@@ -30,3 +30,15 @@ def test_big_holder_change_counts_when_present():
     assert "big_holder_change" in out["C"]["components"]
     # C is last on big-holder change (weight 25 of 100) and first on the other 75.
     assert out["C"]["chip_score"] == pytest.approx(75)
+
+
+def test_api_rejects_past_date_instead_of_returning_latest():
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+
+    from app.api import market_research
+
+    app = FastAPI()
+    app.include_router(market_research.router, prefix="/api/taiwan")
+    response = TestClient(app).get("/api/taiwan/chip-ranking?date=2026-10-01")
+    assert response.status_code == 422

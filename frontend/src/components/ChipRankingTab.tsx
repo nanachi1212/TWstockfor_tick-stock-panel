@@ -17,9 +17,9 @@ const lots = (shares: number | null | undefined) => shares == null ? '—' : Mat
 const signed = (v: number | null | undefined, digits = 2, suffix = '') => v == null ? '—' : `${v > 0 ? '+' : ''}${v.toFixed(digits)}${suffix}`
 const toneClass = (v: number | null | undefined) => v == null || v === 0 ? '' : v > 0 ? 'text-bull' : 'text-bear'
 
-export function ChipRankingTab({ date }: { date: string }) {
+export function ChipRankingTab() {
   const [exchange, setExchange] = useState<'TWSE' | 'TPEX'>('TWSE')
-  const query = useQuery({ queryKey: QK.chipRanking(date), queryFn: () => api.taiwanChipRanking(date || undefined), staleTime: 5 * 60_000 })
+  const query = useQuery({ queryKey: QK.chipRanking, queryFn: api.taiwanChipRanking, staleTime: 5 * 60_000 })
   const inputClass = 'rounded-md border border-border bg-surface px-3 py-2 text-sm'
   if (query.isLoading) return <p role="status" className="py-8 text-muted">計算籌碼分數中…</p>
   if (query.isError || !query.data) return <div role="alert" className="rounded-lg border border-danger/30 p-4 text-danger">籌碼排行讀取失敗<button className="ml-3 underline" onClick={() => void query.refetch()}>重試</button></div>
@@ -30,12 +30,12 @@ export function ChipRankingTab({ date }: { date: string }) {
       <div role="tablist" aria-label="交易所" className="flex gap-1">
         {(['TWSE', 'TPEX'] as const).map(id => <button key={id} role="tab" aria-selected={exchange === id} onClick={() => setExchange(id)} className={`${inputClass} ${exchange === id ? 'bg-accent/15 text-accent' : ''}`}>{id === 'TWSE' ? '上市' : '上櫃'} 前 {data[id].length}</button>)}
       </div>
-      <span className="text-xs text-muted">交易日 {data.date}{data.big_holder_date && ` · 千張大戶資料週 ${data.big_holder_date}`}</span>
+      <span className="text-xs text-muted">最新已入庫交易日 {data.date}{data.big_holder_date && ` · 千張大戶資料週 ${data.big_holder_date}`}</span>
     </div>
     <p className="text-xs text-muted leading-relaxed">
       條件：普通股、5 日均量 ≥ {lots(data.min_avg_volume_5d)} 張、股價 ≥ {data.min_close} 元、當日三大法人合計買超。
       分數 0–100，上市與上櫃各自排名；權重：{Object.entries(data.weights).map(([k, w]) => `${COMPONENT_LABELS[k] ?? k} ${w}`).join('、')}。
-      缺少的項目不計分並重新分配權重{data.big_holder_previous_date ? '' : '（千張大戶需累積兩週資料才有週增減，目前不計入）'}。這是排序參考，沒有回測驗證。
+      缺少的項目不計分並重新分配權重{data.big_holder_previous_date ? '' : '（千張大戶需累積兩週資料才有週增減，目前不計入）'}。只提供最新一天，不提供過去日期：集保資料沒有記錄當時的公布時間，股票池也是現在仍上市的股票，回看過去會失真。這是排序參考，沒有回測驗證，不能證明比較準。
     </p>
     <ChipTable rows={rows} />
     <h2 className="font-medium">隔日沖賣壓（推估）</h2>

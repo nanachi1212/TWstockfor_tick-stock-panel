@@ -9,6 +9,10 @@ raw daily OHLCV, official margin rows and the TDCC weekly snapshot.
 Each component is a percentile rank inside its own exchange (TWSE and TPEx are
 ranked separately). A missing component is skipped and the remaining weights
 are renormalized; the item lists which components it used.
+
+Current-market only: it always ranks the latest stored session. Past dates are
+not offered because TDCC weeks have no recorded publication time and the
+universe is today's listed stocks, so a past ranking could not be PIT-correct.
 """
 from __future__ import annotations
 
@@ -62,12 +66,10 @@ class TaiwanChipRankingService:
         self.shareholding = shareholding or TaiwanShareholdingStore()
         self.statistics = statistics or TaiwanInstitutionalStatisticsService(self.institutional, self.daily)
 
-    def snapshot(self, target_date: date | None = None) -> dict[str, Any]:
-        if target_date is None:
-            # Rank the latest stored institutional session, not a session still awaiting publication.
-            stored = self.institutional.available_dates()
-            target_date = stored[-1] if stored else None
-        snap5 = self.statistics.get_snapshot(target_date, 5)
+    def snapshot(self) -> dict[str, Any]:
+        # Rank the latest stored institutional session, not a session still awaiting publication.
+        stored = self.institutional.available_dates()
+        snap5 = self.statistics.get_snapshot(stored[-1] if stored else None, 5)
         target = date.fromisoformat(snap5.date)
         sessions = [date.fromisoformat(s) for s in snap5.sessions]
         snap20 = self.statistics.get_snapshot(target, 20)
