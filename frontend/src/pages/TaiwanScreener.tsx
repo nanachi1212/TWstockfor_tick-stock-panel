@@ -129,6 +129,7 @@ export function TaiwanScreener() {
     mutationFn: api.taiwanUpdateLatest,
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: QK.taiwanDataStatus })
+      qc.invalidateQueries({ queryKey: ['portfolio-analytics'] })
       forwardPreviewMutation.mutate()
       toast.success('資料更新完成，已重新檢查前瞻資料狀態')
     },

@@ -75,6 +75,36 @@ describe('holdings concentration', () => {
     ])
   })
 
+  it('keeps the analytics query key stable and makes no request when holdings are unchanged', async () => {
+    const { client } = renderHoldings()
+    await screen.findByText('最大持股占比')
+    const firstKey = client.getQueryCache().find({ queryKey: QK.portfolioAnalytics('0050.TWSE:10,2330.TWSE:10') })?.queryKey
+
+    act(() => window.dispatchEvent(new Event(PORTFOLIO_CHANGED)))
+    await waitFor(() => expect(client.getQueryCache().find({ queryKey: QK.portfolioAnalytics('0050.TWSE:10,2330.TWSE:10') })?.queryKey).toEqual(firstKey))
+    expect(api.taiwanPortfolioAnalytics).toHaveBeenCalledTimes(1)
+  })
+
+  it('shows the API performance window and reports missing window dates explicitly', async () => {
+    vi.mocked(api.taiwanPortfolioAnalytics).mockResolvedValue({ ...response, performance: {
+      status: 'available', reason: null, window_start: '2026-05-04', window_end: '2026-10-14', sessions: 100,
+      metrics: { total_return: 0.1, benchmark_return: 0.08, volatility: 0.2, benchmark_volatility: 0.15, beta: 1.1, max_drawdown: -0.05 },
+      series: [], excluded_symbols: [],
+    } })
+    const { client } = renderHoldings()
+    expect(await screen.findByText(/2026-05-04 ～ 2026-10-14/)).toBeInTheDocument()
+    expect(screen.getByText(/期間受已驗證除權息資料覆蓋範圍限制/)).toBeInTheDocument()
+    expect(screen.queryByText(/一年/)).not.toBeInTheDocument()
+
+    vi.mocked(api.taiwanPortfolioAnalytics).mockResolvedValue({ ...response, performance: {
+      status: 'available', reason: null, window_start: null, window_end: null, sessions: 100,
+      metrics: { total_return: 0.1, benchmark_return: 0.08, volatility: 0.2, benchmark_volatility: 0.15, beta: 1.1, max_drawdown: -0.05 },
+      series: [], excluded_symbols: [],
+    } })
+    await act(async () => { await client.invalidateQueries({ queryKey: QK.portfolioAnalytics('0050.TWSE:10,2330.TWSE:10') }) })
+    expect(await screen.findByText(/績效期間日期不可用/)).toBeInTheDocument()
+  })
+
   it('suppresses all weights for missing or out-of-date prices', async () => {
     vi.mocked(api.taiwanPortfolioAnalytics).mockResolvedValue({ ...response, allocation: {
       ...response.allocation, status: 'partial', total_market_value: null, positions: [], sectors: [], concentration: null,

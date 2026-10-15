@@ -54,6 +54,7 @@ export function TaiwanHistoryDataCard() {
       toast(res.message || '更新完成', 'success')
       qc.invalidateQueries({ queryKey: QK.taiwanHistoryStatus })
       qc.invalidateQueries({ queryKey: QK.taiwanDataStatus })
+      qc.invalidateQueries({ queryKey: ['portfolio-analytics'] })
     },
     onError: (err: any) => {
       toast(`更新至最新交易日失敗: ${err.message || err}`, 'error')
@@ -77,6 +78,7 @@ export function TaiwanHistoryDataCard() {
           toast(job.message || '歷史日 K 資料包匯入成功！', 'success')
           qc.invalidateQueries({ queryKey: QK.taiwanHistoryStatus })
           qc.invalidateQueries({ queryKey: QK.taiwanDataStatus })
+          qc.invalidateQueries({ queryKey: ['portfolio-analytics'] })
           setActiveJobId(null)
           return
         }
