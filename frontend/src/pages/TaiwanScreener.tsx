@@ -230,6 +230,9 @@ export function TaiwanScreener() {
   const [foreignShareholdingRatioMin, setForeignShareholdingRatioMin] = useState<string>('')
   const [foreignShareholdingChange20dMin, setForeignShareholdingChange20dMin] = useState<string>('')
   const [securitiesLendingAnomalyExclude, setSecuritiesLendingAnomalyExclude] = useState<boolean>(false)
+  const [bigHolderPctMin, setBigHolderPctMin] = useState<string>('')
+  const [bigHolderChangeMin, setBigHolderChangeMin] = useState<string>('')
+  const [avgVolume5dMinLots, setAvgVolume5dMinLots] = useState<string>('')
   const [quantScoreMin, setQuantScoreMin] = useState<string>('')
 
   // Event & Risk filters (A11)
@@ -325,6 +328,9 @@ export function TaiwanScreener() {
     if (foreignShareholdingRatioMin) cond.foreign_shareholding_ratio_min = parseFloat(foreignShareholdingRatioMin)
     if (foreignShareholdingChange20dMin) cond.foreign_shareholding_change_20d_min = parseFloat(foreignShareholdingChange20dMin)
     if (securitiesLendingAnomalyExclude) cond.securities_lending_anomaly_exclude = true
+    if (bigHolderPctMin) cond.big_holder_pct_min = parseFloat(bigHolderPctMin)
+    if (bigHolderChangeMin) cond.big_holder_change_min = parseFloat(bigHolderChangeMin)
+    if (avgVolume5dMinLots) cond.avg_volume_5d_min = parseFloat(avgVolume5dMinLots) * 1000
     if (quantScoreMin) cond.quant_score_min = parseFloat(quantScoreMin)
     if (excludeDisposition) cond.exclude_disposition = true
     if (excludeSuspended) cond.exclude_suspended = true
@@ -378,6 +384,9 @@ export function TaiwanScreener() {
     setForeignShareholdingRatioMin(c.foreign_shareholding_ratio_min != null ? String(c.foreign_shareholding_ratio_min) : '')
     setForeignShareholdingChange20dMin(c.foreign_shareholding_change_20d_min != null ? String(c.foreign_shareholding_change_20d_min) : '')
     setSecuritiesLendingAnomalyExclude(Boolean(c.securities_lending_anomaly_exclude))
+    setBigHolderPctMin(c.big_holder_pct_min != null ? String(c.big_holder_pct_min) : '')
+    setBigHolderChangeMin(c.big_holder_change_min != null ? String(c.big_holder_change_min) : '')
+    setAvgVolume5dMinLots(c.avg_volume_5d_min != null ? String(c.avg_volume_5d_min / 1000) : '')
     setQuantScoreMin(c.quant_score_min != null ? String(c.quant_score_min) : '')
     setExcludeDisposition(Boolean(c.exclude_disposition))
     setExcludeSuspended(Boolean(c.exclude_suspended))
@@ -461,6 +470,9 @@ export function TaiwanScreener() {
     if (req.foreign_shareholding_ratio_min !== undefined) setForeignShareholdingRatioMin(req.foreign_shareholding_ratio_min !== null ? String(req.foreign_shareholding_ratio_min) : '')
     if (req.foreign_shareholding_change_20d_min !== undefined) setForeignShareholdingChange20dMin(req.foreign_shareholding_change_20d_min !== null ? String(req.foreign_shareholding_change_20d_min) : '')
     if (req.securities_lending_anomaly_exclude !== undefined) setSecuritiesLendingAnomalyExclude(Boolean(req.securities_lending_anomaly_exclude))
+    if (req.big_holder_pct_min !== undefined) setBigHolderPctMin(req.big_holder_pct_min !== null ? String(req.big_holder_pct_min) : '')
+    if (req.big_holder_change_min !== undefined) setBigHolderChangeMin(req.big_holder_change_min !== null ? String(req.big_holder_change_min) : '')
+    if (req.avg_volume_5d_min !== undefined) setAvgVolume5dMinLots(req.avg_volume_5d_min !== null ? String(req.avg_volume_5d_min / 1000) : '')
     if (req.quant_score_min !== undefined) setQuantScoreMin(req.quant_score_min !== null ? String(req.quant_score_min) : '')
     if (req.exclude_disposition !== undefined) setExcludeDisposition(Boolean(req.exclude_disposition))
     if (req.exclude_suspended !== undefined) setExcludeSuspended(Boolean(req.exclude_suspended))
@@ -573,6 +585,9 @@ export function TaiwanScreener() {
       foreign_shareholding_ratio_min: foreignShareholdingRatioMin ? parseFloat(foreignShareholdingRatioMin) : null,
       foreign_shareholding_change_20d_min: foreignShareholdingChange20dMin ? parseFloat(foreignShareholdingChange20dMin) : null,
       securities_lending_anomaly_exclude: securitiesLendingAnomalyExclude || null,
+      big_holder_pct_min: bigHolderPctMin ? parseFloat(bigHolderPctMin) : null,
+      big_holder_change_min: bigHolderChangeMin ? parseFloat(bigHolderChangeMin) : null,
+      avg_volume_5d_min: avgVolume5dMinLots ? parseFloat(avgVolume5dMinLots) * 1000 : null,
       quant_score_min: quantScoreMin ? parseFloat(quantScoreMin) : null,
       exclude_disposition: excludeDisposition || null,
       exclude_suspended: excludeSuspended || null,
@@ -593,6 +608,7 @@ export function TaiwanScreener() {
     marginBalanceChangeMinLots, shortBalanceMinLots, shortMarginRatioMin,
     peMin, peMax, pbMin, pbMax, dividendYieldMin, revenueYoyMin, revenueMomMin, epsMin, netIncomePositive,
     foreignShareholdingRatioMin, foreignShareholdingChange20dMin, securitiesLendingAnomalyExclude, quantScoreMin,
+    bigHolderPctMin, bigHolderChangeMin, avgVolume5dMinLots,
     excludeDisposition, excludeSuspended, excludeRiskEvents, recentRevenueOrEarnings,
     sortBy, sortOrder, page, selectedForwardStrategy,
   ])
@@ -654,7 +670,7 @@ export function TaiwanScreener() {
 
   const totalPages = data ? Math.ceil(data.total / data.page_size) : 1
   // 結果表格預設 9 個資料欄 + 操作欄 = 10; 展開「更多欄位」後為完整 22 個資料欄 + 操作欄 = 23。
-  const resultColSpan = showMoreColumns ? 24 : 11
+  const resultColSpan = showMoreColumns ? 25 : 11
 
   const handleSort = (col: string) => {
     if (sortBy === col) {
@@ -1365,6 +1381,39 @@ export function TaiwanScreener() {
                   />
                 </div>
 
+                <div>
+                  <label className="text-xs font-semibold text-zinc-400 block mb-1.5">千張大戶比例最低 (%)</label>
+                  <input
+                    type="number"
+                    placeholder="例: 60 (%)"
+                    value={bigHolderPctMin}
+                    onChange={e => { setBigHolderPctMin(e.target.value); setPage(1) }}
+                    className="w-full bg-zinc-800 border border-zinc-700 rounded-md px-2.5 py-1.5 text-xs text-zinc-200 focus:outline-none focus:border-purple-500"
+                  />
+                </div>
+
+                <div>
+                  <label className="text-xs font-semibold text-zinc-400 block mb-1.5">千張大戶週增減最低 (%p)</label>
+                  <input
+                    type="number"
+                    placeholder="例: 0.5 (%p)"
+                    value={bigHolderChangeMin}
+                    onChange={e => { setBigHolderChangeMin(e.target.value); setPage(1) }}
+                    className="w-full bg-zinc-800 border border-zinc-700 rounded-md px-2.5 py-1.5 text-xs text-zinc-200 focus:outline-none focus:border-purple-500"
+                  />
+                </div>
+
+                <div>
+                  <label className="text-xs font-semibold text-zinc-400 block mb-1.5">5 日均量最低 (張)</label>
+                  <input
+                    type="number"
+                    placeholder="例: 1000 (張)"
+                    value={avgVolume5dMinLots}
+                    onChange={e => { setAvgVolume5dMinLots(e.target.value); setPage(1) }}
+                    className="w-full bg-zinc-800 border border-zinc-700 rounded-md px-2.5 py-1.5 text-xs text-zinc-200 focus:outline-none focus:border-purple-500"
+                  />
+                </div>
+
                 <div className="flex items-end">
                   <button
                     type="button"
@@ -1701,6 +1750,12 @@ export function TaiwanScreener() {
                     {sortBy === 'foreign_shareholding_ratio' && (sortOrder === 'asc' ? <ArrowUp className="w-3 h-3 text-purple-400" /> : <ArrowDown className="w-3 h-3 text-purple-400" />)}
                   </div>
                 </th>
+                <th className="py-3 px-3 font-semibold cursor-pointer hover:text-zinc-100 text-right" onClick={() => handleSort('big_holder_pct')}>
+                  <div className="flex items-center justify-end gap-1">
+                    千張大戶
+                    {sortBy === 'big_holder_pct' && (sortOrder === 'asc' ? <ArrowUp className="w-3 h-3 text-purple-400" /> : <ArrowDown className="w-3 h-3 text-purple-400" />)}
+                  </div>
+                </th>
                 <th className="py-3 px-3 font-semibold cursor-pointer hover:text-zinc-100 text-right" onClick={() => handleSort('quant_score')}>
                   <div className="flex items-center justify-end gap-1">
                     Quant 分數
@@ -1910,6 +1965,12 @@ export function TaiwanScreener() {
                     {/* Foreign Shareholding Ratio */}
                     <td className="py-3 px-3 text-right font-mono text-zinc-300 whitespace-nowrap">
                       {item.foreign_shareholding_ratio != null ? `${item.foreign_shareholding_ratio.toFixed(1)}%` : '—'}
+                    </td>
+
+                    {/* TDCC 千張大戶 */}
+                    <td className="py-3 px-3 text-right font-mono text-zinc-300 whitespace-nowrap" title={item.big_holder_date ? `資料週 ${item.big_holder_date}` : undefined}>
+                      {item.big_holder_pct != null ? `${item.big_holder_pct.toFixed(1)}%` : '—'}
+                      {item.big_holder_change != null && <span className={`ml-1 text-[10px] ${item.big_holder_change >= 0 ? 'text-rose-400' : 'text-emerald-400'}`}>{item.big_holder_change >= 0 ? '+' : ''}{item.big_holder_change.toFixed(2)}</span>}
                     </td>
 
                     {/* Quant Score */}

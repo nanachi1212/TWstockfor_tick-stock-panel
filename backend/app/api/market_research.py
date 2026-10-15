@@ -29,3 +29,10 @@ def institutional_statistics(
 @router.get("/industry-rotation", response_model=IndustryRotationSnapshot)
 def industry_rotation(target_date: Annotated[date | None, Query(alias="date")] = None) -> IndustryRotationSnapshot:
     return TaiwanIndustryIntelligenceService().get_rotation(target_date)
+
+
+@router.get("/chip-ranking")
+def chip_ranking(target_date: Annotated[date | None, Query(alias="date")] = None) -> dict:
+    from app.taiwan.chip_ranking import TaiwanChipRankingService
+
+    return TaiwanChipRankingService().snapshot(target_date)

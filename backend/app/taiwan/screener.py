@@ -66,6 +66,7 @@ SortField = Literal[
     "margin_balance_change", "short_balance", "short_margin_ratio",
     "pe", "pb", "dividend_yield", "revenue_yoy", "revenue_mom",
     "latest_eps", "foreign_shareholding_ratio", "foreign_shareholding_change_20d", "quant_score",
+    "avg_volume_5d", "big_holder_pct", "big_holder_change",
     "trend_liquidity_v1", "institutional_momentum_v1", "growth_trend_v1",
     "breakout_v1", "multi_factor_consensus_v1",
     "pullback_support_v1", "foreign_trend_v1", "oversold_rebound_v1",
@@ -185,6 +186,7 @@ class TaiwanScreenerRequest(BaseModel):
     volume_max: float | None = None
     amount_min: float | None = None  # in TWD
     amount_max: float | None = None
+    avg_volume_5d_min: float | None = None  # in shares; 1_000_000 = 1,000 lots
 
     # Technical Indicators
     rsi_14_min: float | None = None
@@ -240,6 +242,8 @@ class TaiwanScreenerRequest(BaseModel):
     foreign_shareholding_ratio_min: float | None = None  # 20.0 = 20%
     foreign_shareholding_change_20d_min: float | None = None  # 0.0 = 0%
     securities_lending_anomaly_exclude: bool | None = None  # True: 排除異常暴增
+    big_holder_pct_min: float | None = None  # TDCC 千張大戶比例, 60.0 = 60%
+    big_holder_change_min: float | None = None  # week-over-week change in percentage points
 
     # Event and Regulatory Filters (A11)
     exclude_disposition: bool | None = None
@@ -289,6 +293,7 @@ class ScreenerResultItem(BaseModel):
     rsi_14: float | None = None
     momentum_5d: float | None = None
     vol_ratio_5d: float | None = None
+    avg_volume_5d: float | None = None  # shares
     ma60: float | None = None
     momentum_20d: float | None = None
     vol_ratio_20d: float | None = None
@@ -334,6 +339,9 @@ class ScreenerResultItem(BaseModel):
     foreign_shareholding_ratio: float | None = None
     foreign_shareholding_change_20d: float | None = None
     securities_lending_anomaly: str | None = None
+    big_holder_pct: float | None = None  # percent value, TDCC weekly
+    big_holder_change: float | None = None  # percentage points vs previous stored week
+    big_holder_date: str | None = None
 
     # Quant Score
     quant_score: float | None = None
@@ -544,7 +552,7 @@ class TaiwanScreenerService:
         if not df_indicators.is_empty():
             combined = combined.join(df_indicators, on="symbol", how="left")
         else:
-            combined = self._add_null_cols(combined, ["change_pct", "ma5", "ma10", "ma20", "rsi_14", "momentum_5d", "vol_ratio_5d"])
+            combined = self._add_null_cols(combined, ["change_pct", "ma5", "ma10", "ma20", "rsi_14", "momentum_5d", "vol_ratio_5d", "avg_volume_5d"])
         if trend_indicators is not None:
             combined = combined.join(trend_indicators, on="symbol", how="inner").with_columns(
                 pl.col("trend_ma20").alias("ma20"),
@@ -568,6 +576,7 @@ class TaiwanScreenerService:
         combined, fund_count, chips_count = self._join_cached_fundamentals_chips(
             combined, valid_symbols, revenue_evidence=revenue_evidence,
         )
+        combined = self._join_big_holders(combined, valid_symbols)
 
         if req.preset == "trend_liquidity_v1":
             # A missing/stale quote or indicator cannot qualify as a fresh candidate.
@@ -780,6 +789,7 @@ class TaiwanScreenerService:
             pl.col("close").rolling_mean(20).over("symbol").alias("ma20"),
             (pl.col("close") / pl.col("close").shift(5).over("symbol") - 1.0).alias("momentum_5d"),
             (pl.col("volume") / pl.col("volume").rolling_mean(5).over("symbol")).alias("vol_ratio_5d"),
+            pl.col("volume").rolling_mean(5).over("symbol").alias("avg_volume_5d"),
         ]
         if extended:
             prior_volume_20 = pl.col("volume").shift(1).rolling_mean(20).over("symbol")
@@ -812,7 +822,7 @@ class TaiwanScreenerService:
         )
 
         # Keep only the latest row per symbol
-        columns = ["symbol", "change_pct", "ma5", "ma10", "ma20", "rsi_14", "momentum_5d", "vol_ratio_5d"]
+        columns = ["symbol", "change_pct", "ma5", "ma10", "ma20", "rsi_14", "momentum_5d", "vol_ratio_5d", "avg_volume_5d"]
         if extended:
             columns.extend([
                 "ma60", "momentum_20d", "vol_ratio_20d", "momentum_acceleration",
@@ -1347,6 +1357,25 @@ class TaiwanScreenerService:
         latest_d = max(past_dates)
         return 0 <= (ref_date - latest_d).days <= 135
 
+    def _join_big_holders(self, df: pl.DataFrame, symbols: list[str]) -> pl.DataFrame:
+        """TDCC weekly 千張大戶; a week counts only after its data date (published later)."""
+        from app.taiwan.shareholding_store import TaiwanShareholdingStore
+
+        cols = ["big_holder_pct", "big_holder_change", "big_holder_date"]
+        try:
+            quote_date = df["date"].max() if "date" in df.columns and not df.is_empty() else None
+            before = quote_date + timedelta(days=1) if quote_date is not None else None
+            big = TaiwanShareholdingStore().latest_with_change(symbols, before=before)
+        except Exception as e:
+            logger.warning("Big holder join failed in screener: %s", e)
+            return self._add_null_cols(df, cols)
+        if big.is_empty():
+            return self._add_null_cols(df, cols)
+        return df.join(big.select(
+            "symbol", "big_holder_pct", pl.col("big_holder_pct_change").alias("big_holder_change"),
+            pl.col("date").cast(pl.String).alias("big_holder_date"),
+        ), on="symbol", how="left")
+
     def _join_institutional_streak(self, df: pl.DataFrame, req: TaiwanScreenerRequest) -> pl.DataFrame:
         from app.taiwan.institutional_statistics import TaiwanInstitutionalStatisticsService
 
@@ -1402,6 +1431,8 @@ class TaiwanScreenerService:
         # Amount (TWD)
         if req.amount_min is not None:
             df = df.filter(pl.col("amount") >= req.amount_min)
+        if req.avg_volume_5d_min is not None:
+            df = df.filter(pl.col("avg_volume_5d") >= req.avg_volume_5d_min)
         if req.amount_max is not None:
             df = df.filter(pl.col("amount") <= req.amount_max)
 
@@ -1506,6 +1537,10 @@ class TaiwanScreenerService:
             df = df.filter(pl.col("foreign_shareholding_change_20d") >= req.foreign_shareholding_change_20d_min)
         if req.securities_lending_anomaly_exclude is True:
             df = df.filter(pl.col("securities_lending_anomaly") != "surge")
+        if req.big_holder_pct_min is not None:
+            df = df.filter(pl.col("big_holder_pct") >= req.big_holder_pct_min)
+        if req.big_holder_change_min is not None:
+            df = df.filter(pl.col("big_holder_change") >= req.big_holder_change_min)
 
         # Quant Score
         if req.quant_score_min is not None:
@@ -1712,6 +1747,7 @@ class TaiwanScreenerService:
                 rsi_14=r.get("rsi_14"),
                 momentum_5d=r.get("momentum_5d"),
                 vol_ratio_5d=r.get("vol_ratio_5d"),
+                avg_volume_5d=r.get("avg_volume_5d"),
                 ma60=r.get("ma60") if strategy_id else None,
                 momentum_20d=r.get("momentum_20d") if strategy_id else None,
                 vol_ratio_20d=r.get("vol_ratio_20d") if strategy_id else None,
@@ -1749,6 +1785,9 @@ class TaiwanScreenerService:
                 foreign_shareholding_ratio=r.get("foreign_shareholding_ratio"),
                 foreign_shareholding_change_20d=r.get("foreign_shareholding_change_20d"),
                 securities_lending_anomaly=r.get("securities_lending_anomaly"),
+                big_holder_pct=r.get("big_holder_pct"),
+                big_holder_change=r.get("big_holder_change"),
+                big_holder_date=r.get("big_holder_date"),
                 quant_score=r.get("quant_score"),
                 match_reasons=reasons,
                 strategy_id=strategy_id,

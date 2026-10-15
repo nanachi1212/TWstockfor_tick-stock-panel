@@ -294,6 +294,30 @@ def get_taiwan_portfolio_instrument(symbol: str, trade_date: dt_date):
     }
 
 
+class PortfolioAnalyticsHolding(BaseModel):
+    symbol: str
+    shares: float = Field(gt=0)
+
+
+class PortfolioAnalyticsIn(BaseModel):
+    holdings: list[PortfolioAnalyticsHolding] = Field(max_length=200)
+
+
+@router.post("/portfolio/analytics")
+def get_taiwan_portfolio_analytics(payload: PortfolioAnalyticsIn):
+    """Performance vs 0050, risk and sector allocation for the current holdings."""
+    from app.taiwan.portfolio_analytics import PortfolioAnalyticsService
+
+    holdings: dict[str, float] = {}
+    for item in payload.holdings:
+        try:
+            canonical = parse_symbol(item.symbol).canonical
+        except Exception as exc:
+            raise HTTPException(status_code=400, detail=f"invalid Taiwan symbol: {item.symbol}") from exc
+        holdings[canonical] = holdings.get(canonical, 0.0) + item.shares
+    return PortfolioAnalyticsService().analyze(holdings)
+
+
 @router.get("/transaction-tax")
 def get_taiwan_transaction_tax(
     symbol: str,

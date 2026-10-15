@@ -61,7 +61,51 @@ export const MARKET_RESEARCH_TABS = [
   { id: 'rotation', label: '產業輪動', enabled: true },
   { id: 'breadth', label: '大盤寬度', enabled: true },
   { id: 'valuation', label: '估值', enabled: true },
+  { id: 'chips', label: '籌碼排行', enabled: true },
 ] as const
+
+/** Product ranking; change_pct and big-holder values: change_pct is decimal, big_holder_* are percent points. */
+export interface ChipRankingItem {
+  symbol: string
+  name: string
+  exchange: 'TWSE' | 'TPEX'
+  close: number
+  change_pct: number | null
+  avg_volume_5d: number
+  chip_score: number
+  components: string[]
+  institutional_net: number
+  institutional_net_5d: number | null
+  foreign_buy_streak: number | null
+  trust_buy_streak: number | null
+  margin_change: number | null
+  big_holder_pct: number | null
+  big_holder_change: number | null
+}
+
+export interface DayTradePressureItem {
+  symbol: string
+  name: string
+  exchange: 'TWSE' | 'TPEX'
+  close: number
+  change_pct: number
+  volume: number
+  volume_multiple: number
+  institutional_net: number | null
+}
+
+export interface ChipRankingSnapshot {
+  date: string
+  sessions: string[]
+  weights: Record<string, number>
+  min_avg_volume_5d: number
+  min_close: number
+  big_holder_date: string | null
+  big_holder_previous_date: string | null
+  TWSE: ChipRankingItem[]
+  TPEX: ChipRankingItem[]
+  day_trade_pressure: DayTradePressureItem[]
+}
 export type MarketResearchTab = typeof MARKET_RESEARCH_TABS[number]['id']
 
 export function rotationPoints(rows: IndustryRotationRow[]) {

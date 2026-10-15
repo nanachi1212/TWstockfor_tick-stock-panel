@@ -16,6 +16,7 @@ from typing import Any
 
 from app.taiwan.detail_models import (
     SectionMeta,
+    TaiwanBigHolderData,
     TaiwanExtraChipsData,
     TaiwanForeignShareholdingData,
     TaiwanFundamentalData,
@@ -722,6 +723,28 @@ class TaiwanFundamentalChipsService:
             ),
         )
 
+    def get_big_holders(self, symbol: str, as_of: date | str | None = None) -> TaiwanBigHolderData:
+        """Local TDCC weekly snapshot only; never triggers a download."""
+        from app.taiwan.shareholding_store import TDCC_URL, TaiwanShareholdingStore
+
+        canonical = self._to_canonical_str(symbol)
+        try:
+            rows = TaiwanShareholdingStore().latest_with_change([canonical], before=self._cutoff_date(as_of))
+        except Exception as exc:  # unreadable store stays unavailable, not empty
+            logger.warning("big holder read failed for %s: %s", canonical, exc)
+            rows = None
+        if rows is None or rows.is_empty():
+            return TaiwanBigHolderData(meta=SectionMeta(source="tdcc:opendata", status="unavailable",
+                                                        reason="尚無集保股權分散表資料"))
+        row = rows.row(0, named=True)
+        return TaiwanBigHolderData(
+            big_holder_pct=row["big_holder_pct"], big_holders=row["big_holders"],
+            total_holders=row["total_holders"], change_1w=row["big_holder_pct_change"],
+            previous_date=str(row["previous_date"]) if row["previous_date"] else None,
+            meta=SectionMeta(source="tdcc:opendata", trade_date=str(row["date"]), status="available",
+                             fetched_at=row["retrieved_at"], reason=f"來源 {TDCC_URL}"),
+        )
+
     def get_extra_chips_bundle(
         self,
         symbol: str,
@@ -746,6 +769,7 @@ class TaiwanFundamentalChipsService:
             status=status,
             foreign_shareholding=fsh,
             securities_lending=sl,
+            big_holders=self.get_big_holders(symbol, as_of=as_of),
             meta=SectionMeta(
                 source="finmind:chips",
                 fetched_at=now_iso,
