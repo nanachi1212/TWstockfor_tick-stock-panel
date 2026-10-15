@@ -16,6 +16,17 @@ import os
 import threading
 from typing import Any
 
+from app.taiwan.shareholding_store import catchup_shareholding, needs_shareholding_catchup
+
+__all__ = [
+    "cancel",
+    "catchup_shareholding",
+    "last_result",
+    "needs_catchup",
+    "needs_shareholding_catchup",
+    "schedule",
+]
+
 logger = logging.getLogger(__name__)
 
 _STARTED = threading.Event()
@@ -50,19 +61,26 @@ def _run(app_state: Any) -> None:
         if not need:
             _LAST.update(status="skipped", reason=reason)
             logger.info("startup catch-up skipped: %s", reason)
-            return
-        logger.info("startup catch-up: daily data stale (%s); running the shared post-close update chain", reason)
-        # 與 16:30 排程同一條流程 (資料更新 + 研究視圖 + Quant + Auto Watch + 自動 AI 說明 + 收盤推播)
-        daily_pipeline.set_app_state(app_state)
-        daily_pipeline.run_taiwan_update(trigger="startup_catchup")
-        _LAST.update(status="ran", reason=reason)
-        qs = getattr(app_state, "quote_service", None)
-        if qs is not None and hasattr(qs, "_broadcast_quote_updated"):
-            with contextlib.suppress(Exception):
-                qs._broadcast_quote_updated()
+        else:
+            logger.info("startup catch-up: daily data stale (%s); running the shared post-close update chain", reason)
+            # 與 16:30 排程同一條流程 (資料更新 + 研究視圖 + Quant + Auto Watch + 自動 AI 說明 + 收盤推播)
+            daily_pipeline.set_app_state(app_state)
+            daily_pipeline.run_taiwan_update(trigger="startup_catchup")
+            _LAST.update(status="ran", reason=reason)
+            qs = getattr(app_state, "quote_service", None)
+            if qs is not None and hasattr(qs, "_broadcast_quote_updated"):
+                with contextlib.suppress(Exception):
+                    qs._broadcast_quote_updated()
     except Exception as exc:
         _LAST.update(status="error", reason=type(exc).__name__)
         logger.warning("startup catch-up failed: %s", exc)
+
+    try:
+        sh_result = catchup_shareholding()
+        _LAST["shareholding"] = sh_result
+    except Exception as exc:
+        _LAST["shareholding"] = {"status": "error", "reason": type(exc).__name__}
+        logger.warning("startup shareholding catch-up failed: %s", exc)
 
 
 def schedule(app_state: Any, delay_seconds: float = 20.0) -> bool:
