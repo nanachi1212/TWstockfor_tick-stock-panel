@@ -74,29 +74,50 @@ class PortfolioAnalyticsService:
         latest = self.daily.read_latest_per_symbol(list(holdings)) if holdings else None
         closes = {r["symbol"]: (r["close"], r["date"]) for r in latest.iter_rows(named=True)} if latest is not None else {}
         groups: dict[str, float] = {}
+        positions: list[dict[str, Any]] = []
         unpriced: list[str] = []
-        as_of: date | None = None
+        stale: list[str] = []
+        as_of: date | None = self.daily.latest_date() if holdings else None
         for symbol, shares in holdings.items():
             close, day = closes.get(symbol, (None, None))
             if close is None or not math.isfinite(close) or close <= 0:
                 unpriced.append(symbol)
                 continue
-            as_of = max(as_of, day) if as_of else day
+            if day != as_of:
+                stale.append(symbol)
+                continue
+            value = close * shares
+            if not math.isfinite(value):
+                unpriced.append(symbol)
+                continue
             inst = self.master.get_instrument(symbol)
             if inst is not None and inst.instrument_type == "etf":
                 label = "ETF"
             else:
                 label = (inst.industry if inst is not None else None) or "未分類"
-            groups[label] = groups.get(label, 0.0) + close * shares
+            groups[label] = groups.get(label, 0.0) + value
+            positions.append({"symbol": symbol, "market_value": value})
         total = sum(groups.values())
+        complete = bool(holdings) and not (unpriced or stale) and math.isfinite(total) and total > 0
         sectors = sorted(({"industry": k, "market_value": v, "weight": v / total}
-                          for k, v in groups.items()), key=lambda x: -x["market_value"])
+                          for k, v in groups.items()), key=lambda x: (-x["market_value"], x["industry"])) if complete else []
+        positions = sorted(({**p, "weight": p["market_value"] / total} for p in positions),
+                           key=lambda x: (-x["market_value"], x["symbol"])) if complete else []
+        # shortcut: ETF weights stay at product level until constituent data is available.
+        industries = [s for s in sectors if s["industry"] not in {"ETF", "未分類"}]
         return {
-            "status": "unavailable" if total <= 0 else ("partial" if unpriced else "available"),
+            "status": "available" if complete else ("partial" if positions or groups else "unavailable"),
             "as_of": as_of.isoformat() if as_of else None,
-            "total_market_value": total if total > 0 else None,
+            "total_market_value": total if complete else None,
             "sectors": sectors,
+            "positions": positions,
+            "concentration": {
+                "largest_position": positions[0],
+                "top3_weight": sum(p["weight"] for p in positions[:3]),
+                "largest_industry": industries[0] if industries and "未分類" not in groups else None,
+            } if complete else None,
             "unpriced_symbols": unpriced,
+            "stale_symbols": stale,
         }
 
     def _performance(self, holdings: dict[str, float]) -> dict[str, Any]:

@@ -296,7 +296,7 @@ def get_taiwan_portfolio_instrument(symbol: str, trade_date: dt_date):
 
 class PortfolioAnalyticsHolding(BaseModel):
     symbol: str
-    shares: float = Field(gt=0)
+    shares: float = Field(gt=0, allow_inf_nan=False)
 
 
 class PortfolioAnalyticsIn(BaseModel):

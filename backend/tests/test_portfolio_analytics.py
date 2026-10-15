@@ -5,7 +5,11 @@ import polars as pl
 import pytest
 
 from app.taiwan.daily_store import TaiwanDailyStore
-from app.taiwan.portfolio_analytics import BENCHMARK_SYMBOL, PortfolioAnalyticsService, series_metrics
+from app.taiwan.portfolio_analytics import (
+    BENCHMARK_SYMBOL,
+    PortfolioAnalyticsService,
+    series_metrics,
+)
 
 
 def test_series_metrics_fixed_sample():
@@ -87,3 +91,93 @@ def test_unknown_symbol_is_unpriced_and_blocks_performance(tmp_path):
     assert result["allocation"]["status"] == "partial"
     assert result["allocation"]["unpriced_symbols"] == ["9999.TWSE"]
     assert result["performance"]["reason"] == "symbol_data_insufficient"
+
+
+def test_concentration_uses_market_value_and_keeps_etfs_out_of_industry_summary():
+    rows = pl.DataFrame({
+        "symbol": ["2330.TWSE", "2317.TWSE", "2454.TWSE", BENCHMARK_SYMBOL],
+        "close": [1000.0, 200.0, 800.0, 100.0],
+        "date": [date(2026, 10, 14)] * 4,
+    })
+    master = SimpleNamespace(get_instrument=lambda s: SimpleNamespace(
+        instrument_type="etf" if s == BENCHMARK_SYMBOL else "stock",
+        industry={"2330.TWSE": "半導體業", "2454.TWSE": "半導體業", "2317.TWSE": "其他電子業"}.get(s)))
+    svc = PortfolioAnalyticsService(daily=SimpleNamespace(
+        read_latest_per_symbol=lambda symbols: rows, latest_date=lambda: date(2026, 10, 14)),
+        actions=_Actions(None), master=master)
+    allocation = svc._allocation({"2330.TWSE": 1, "2317.TWSE": 1, "2454.TWSE": 1, BENCHMARK_SYMBOL: 30})
+    assert allocation["total_market_value"] == 5000
+    positions = {p["symbol"]: p["weight"] for p in allocation["positions"]}
+    assert positions == pytest.approx({"2330.TWSE": 0.2, "2317.TWSE": 0.04, "2454.TWSE": 0.16, BENCHMARK_SYMBOL: 0.6})
+    summary = allocation["concentration"]
+    assert summary["largest_position"]["symbol"] == BENCHMARK_SYMBOL
+    assert summary["top3_weight"] == pytest.approx(0.96)
+    assert summary["largest_industry"]["industry"] == "半導體業"
+    assert summary["largest_industry"]["weight"] == pytest.approx(0.36)
+
+
+@pytest.mark.parametrize("holdings, missing", [
+    ({"2330.TWSE": 1, "9999.TWSE": 1}, None),
+    ({"2330.TWSE": 1, "2317.TWSE": 1}, ("2317.TWSE", 29)),
+    ({"2317.TWSE": 1}, ("2317.TWSE", 29)),
+    ({}, None),
+])
+def test_incomplete_allocation_never_renormalizes_subset(tmp_path, holdings, missing):
+    svc = PortfolioAnalyticsService(daily=_store(tmp_path, missing=missing), actions=_Actions(None), master=_MASTER)
+    allocation = svc._allocation(holdings)
+    assert allocation["status"] != "available"
+    assert allocation["positions"] == []
+    assert allocation["sectors"] == []
+    assert allocation["total_market_value"] is None
+    assert allocation["concentration"] is None
+    if missing:
+        assert allocation["as_of"] == "2026-06-30"
+        assert allocation["stale_symbols"] == ["2317.TWSE"]
+        assert allocation["unpriced_symbols"] == []
+    elif holdings:
+        assert allocation["unpriced_symbols"] == ["9999.TWSE"]
+
+
+@pytest.mark.parametrize("close", [None, 0, -1, float("nan"), float("inf")])
+def test_invalid_close_blocks_concentration(close):
+    rows = pl.DataFrame({"symbol": ["2330.TWSE"], "close": [close], "date": [date(2026, 10, 14)]})
+    svc = PortfolioAnalyticsService(daily=SimpleNamespace(
+        read_latest_per_symbol=lambda symbols: rows, latest_date=lambda: date(2026, 10, 14)),
+        actions=_Actions(None), master=_MASTER)
+    allocation = svc._allocation({"2330.TWSE": 1})
+    assert allocation["status"] == "unavailable"
+    assert allocation["concentration"] is None
+    assert allocation["unpriced_symbols"] == ["2330.TWSE"]
+
+
+def test_unknown_industry_and_etf_only_do_not_claim_largest_industry(tmp_path):
+    svc = PortfolioAnalyticsService(daily=_store(tmp_path), actions=_Actions(None), master=_MASTER)
+    assert svc._allocation({BENCHMARK_SYMBOL: 1})["concentration"]["largest_industry"] is None
+    svc.master = SimpleNamespace(get_instrument=lambda symbol: None)
+    allocation = svc._allocation({"2330.TWSE": 1})
+    assert allocation["concentration"]["largest_position"]["weight"] == 1
+    assert allocation["concentration"]["largest_industry"] is None
+    assert allocation["sectors"][0]["industry"] == "未分類"
+
+
+def test_analytics_api_combines_duplicate_symbols_and_rejects_invalid_shares(tmp_path, monkeypatch):
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+
+    from app.api.taiwan import get_taiwan_portfolio_analytics
+    from app.taiwan import portfolio_analytics
+
+    svc = PortfolioAnalyticsService(daily=_store(tmp_path), actions=_Actions(None), master=_MASTER)
+    monkeypatch.setattr(portfolio_analytics, "PortfolioAnalyticsService", lambda: svc)
+    app = FastAPI()
+    app.post("/analytics")(get_taiwan_portfolio_analytics)
+    client = TestClient(app)
+    response = client.post("/analytics", json={"holdings": [
+        {"symbol": "2330.TWSE", "shares": 2}, {"symbol": "2330.TWSE", "shares": 3},
+    ]})
+    assert response.status_code == 200
+    allocation = response.json()["allocation"]
+    assert allocation["total_market_value"] == 1029 * 5
+    assert allocation["concentration"]["top3_weight"] == 1
+    for shares in (0, -1, "Infinity", "NaN"):
+        assert client.post("/analytics", json={"holdings": [{"symbol": "2330.TWSE", "shares": shares}]}).status_code == 422

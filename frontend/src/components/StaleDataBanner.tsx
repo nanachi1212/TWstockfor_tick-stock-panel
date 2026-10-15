@@ -23,6 +23,7 @@ export function StaleDataBanner() {
     mutationFn: api.taiwanUpdateLatest,
     onSuccess: (res) => {
       qc.invalidateQueries({ queryKey: QK.taiwanDataStatus })
+      qc.invalidateQueries({ queryKey: ['portfolio-analytics'] })
       qc.invalidateQueries({ queryKey: ['beginner-selection'] })
       qc.invalidateQueries({ queryKey: ['taiwanAbnormalDiagnostics'] })
       qc.invalidateQueries({ queryKey: ['taiwanMarketIntelligence'] })
