@@ -106,7 +106,9 @@ def _event(quote: Any, pct: float, direction: str, now_iso: str, ts_ms: int) -> 
         "name": quote.name,
         "message": f"自選股{arrow} {pct:+.2f}%，現價 {quote.last_price}",
         "price": quote.last_price,
-        "change_pct": quote.change_pct,
+        # 提醒事件契約: change_pct 為小數 (-0.0565 = -5.65%), 與其他告警來源一致;
+        # 即時報價是百分點, 只在這裡換算一次。
+        "change_pct": round(pct / 100, 6),
         "trigger_value": quote.last_price,
         "threshold": threshold_pct(),
         "signals": [],

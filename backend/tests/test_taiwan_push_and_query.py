@@ -165,6 +165,23 @@ def test_anomaly_scan_flags_once_per_direction(monkeypatch, isolated_prefs, tmp_
     assert watchlist_anomaly.scan(app_state)["symbols"] == ["2330.TWSE"]
 
 
+def test_anomaly_event_change_pct_is_ratio(monkeypatch, isolated_prefs, tmp_path):
+    """固定樣本: 光寶科 -5.65% (報價百分點) → 提醒 change_pct = -0.0565 (小數, 前端 fmtPct 顯示 -5.65%)。"""
+    from app.services import alert_store
+
+    watchlist_anomaly.reset_memory()
+    watchlist_anomaly.set_enabled(True)
+    appended: list[list[dict]] = []
+    monkeypatch.setattr(alert_store, "append_many", lambda data_dir, events: appended.append(events) or [])
+    _patch_anomaly_env(monkeypatch, {"2301.TWSE": _quote("2301.TWSE", 150.0, -5.65, "光寶科")})
+    app_state = SimpleNamespace(repo=SimpleNamespace(store=SimpleNamespace(data_dir=tmp_path)), quote_service=None)
+
+    assert watchlist_anomaly.scan(app_state)["symbols"] == ["2301.TWSE"]
+    ev = appended[0][0]
+    assert ev["message"].startswith("自選股大跌 -5.65%")
+    assert ev["change_pct"] == -0.0565
+
+
 def test_anomaly_scan_skips_outside_open_session(monkeypatch, isolated_prefs):
     watchlist_anomaly.set_enabled(True)
     _patch_anomaly_env(monkeypatch, {"2330.TWSE": _quote("2330.TWSE", 1000.0, 9.0)}, status="closed")
