@@ -90,6 +90,32 @@ def test_exchange_gap_and_nulls_never_zero_or_usable_streak(research):
     assert institutional(research).get_snapshot(sessions[-1]).securities[0].investors["foreign"].buy_streak.value is None
 
 
+def test_illiquid_etf_keeps_session_complete_and_missing_row_breaks_own_streak(research, tmp_path):
+    sessions, master, _, flows, _, _ = research
+    master.to_dataframe.return_value = pl.concat([master.to_dataframe.return_value, pl.DataFrame({
+        "symbol": ["2317.TWSE", "00999.TWSE"], "name": ["C", "ETF"], "exchange": ["TWSE", "TWSE"],
+        "industry": ["A", "ETF"], "instrument_type": ["stock", "etf"], "listing_status": ["active", "active"],
+    })])
+    flows.write_batch(pl.DataFrame([{"symbol": "2317.TWSE", "date": d, "trade_date": d, "foreign_net": 1500,
+                                     "investment_trust_net": -500, "dealer_net": 0, "status": "official"}
+                                    for d in sessions]))
+
+    def foreign():
+        snap = institutional(research).get_snapshot(sessions[-1])
+        return {r.symbol: r.investors["foreign"] for r in snap.securities}
+
+    # The ETF never appears in the official files; that alone must not void every streak.
+    streaks = foreign()
+    assert streaks["2330.TWSE"].buy_streak.value == 5
+    assert streaks["00999.TWSE"].buy_streak.value is None
+    # TWSE still published sessions[-3]; only 2330's own missing row breaks its streak.
+    part = tmp_path / "institutional" / f"date={sessions[-3]}" / "part.parquet"
+    pl.read_parquet(part).filter(pl.col("symbol") != "2330.TWSE").write_parquet(part)
+    streaks = foreign()
+    assert streaks["2330.TWSE"].buy_streak.value == 2
+    assert streaks["2317.TWSE"].buy_streak.value == 5
+
+
 def test_unavailable_and_weekend_holiday_windows(research):
     svc = institutional(research)
     snap = svc.get_snapshot(date(2025, 1, 1))

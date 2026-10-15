@@ -83,15 +83,17 @@ class TaiwanInstitutionalStatisticsService:
         if not daily.is_empty():
             daily = daily.filter(pl.col("date").is_in(sessions))
         complete_dates: set[date] = set()
-        # Presence of a date partition alone never proves exchange completeness.
-        if symbols and not flows.is_empty():
+        # T86 / TPEx dailyTrade omit securities without institutional trades, so
+        # per-symbol coverage never proves completeness. The refresh stores a date
+        # only when both exchanges publish; a date is complete once each exchange
+        # has valid rows. A symbol's own missing row still breaks its streak.
+        exchanges = {"TWSE", "TPEX"}
+        if not flows.is_empty() and set(master["exchange"].unique().to_list()) == exchanges:
             valid = flows.filter(pl.all_horizontal(
                 [pl.col(f"{i}_net").is_not_null() for i in INVESTORS]
-            ))
-            counts = valid.group_by("date").agg(pl.col("symbol").n_unique().alias("n"))
-            both_exchanges = set(master["exchange"].unique().to_list()) == {"TWSE", "TPEX"}
-            if both_exchanges:
-                complete_dates = set(counts.filter(pl.col("n") == len(symbols))["date"].to_list())
+            )).join(master.select("symbol", "exchange"), on="symbol")
+            published = valid.group_by("date").agg(pl.col("exchange").n_unique().alias("n"))
+            complete_dates = set(published.filter(pl.col("n") == len(exchanges))["date"].to_list())
 
         grouped_flows = {key[0]: frame for key, frame in flows.partition_by("symbol", as_dict=True).items()} if not flows.is_empty() else {}
         grouped_daily = {key[0]: frame for key, frame in daily.partition_by("symbol", as_dict=True).items()} if not daily.is_empty() else {}
