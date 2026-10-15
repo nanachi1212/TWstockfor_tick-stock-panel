@@ -47,3 +47,11 @@ def chip_ranking(target_date: Annotated[str | None, Query(alias="date")] = None)
         raise HTTPException(status_code=422, detail="籌碼排行只提供最新已入庫交易日 不支援 date 參數")
 
     return TaiwanChipRankingService().snapshot()
+
+
+@router.get("/chip-ranking/tracking")
+def chip_ranking_tracking() -> dict:
+    """Forward-only outcomes of frozen daily rankings; see chip_ranking_tracking."""
+    from app.taiwan.chip_ranking_tracking import ChipRankingTracker
+
+    return ChipRankingTracker().report()
