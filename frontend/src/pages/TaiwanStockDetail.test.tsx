@@ -449,7 +449,7 @@ describe('TaiwanStockDetail — AI Research', () => {
     vi.mocked(api.alertsList).mockResolvedValue({ alerts: [{
       ts: Date.parse('2026-09-25T10:05:00+08:00'), alert_id: 'pct-alert-1', source: 'twse:mis',
       type: 'change_pct_above', rule_type: 'change_pct_above', symbol: '2330.TWSE', name: '台積電',
-      message: '漲幅超過門檻', change_pct: 3.66, trigger_value: 3.66, threshold: 2.5,
+      message: '漲幅超過門檻', change_pct: 0.0366, trigger_value: 3.66, threshold: 2.5,
     }], total: 1 })
     vi.mocked(api.taiwanStockAIResearch).mockResolvedValue({
       status: 'unavailable', error_message: 'AI 分析目前無法使用。', provider: 'Custom',

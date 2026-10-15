@@ -3754,6 +3754,8 @@ export const api = {
   ),
   taiwanInstitutionalStatistics: (date?: string, window: import('./marketResearch').InstitutionalWindow = 5) =>
     request<import('./marketResearch').InstitutionalStatisticsSnapshot>(`/api/taiwan/institutional-statistics?window=${window}${date ? `&date=${encodeURIComponent(date)}` : ''}`),
+  taiwanInstitutionalFlowSeries: () =>
+    request<import('./marketResearch').InstitutionalFlowSeries>('/api/taiwan/institutional-flow-series'),
   taiwanChipRanking: () =>
     request<import('./marketResearch').ChipRankingSnapshot>('/api/taiwan/chip-ranking'),
   taiwanIndustryRotation: (date?: string) =>

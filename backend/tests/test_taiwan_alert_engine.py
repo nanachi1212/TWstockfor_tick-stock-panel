@@ -219,6 +219,8 @@ class TestPriceAndChangeRules:
         assert status == EvaluationStatus.TRIGGERED
         assert alert is not None
         assert alert.trigger_value == 2.2
+        # Alert-event contract: change_pct is a ratio; trigger_value keeps the rule's percent points.
+        assert alert.to_dict()["change_pct"] == 0.022
 
     def test_daily_drop_at_or_below_negative_threshold_triggers(self, engine):
         rule = TaiwanMonitorRule(

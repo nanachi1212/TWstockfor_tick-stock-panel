@@ -214,7 +214,8 @@ class TaiwanAlertEvent:
             "notify_channels": list(self.notify_channels),
             # Compatibility fields with legacy SSE frontend schema
             "price": self.trigger_value if "price" in self.rule_type else None,
-            "change_pct": self.trigger_value if "change_pct" in self.rule_type else None,
+            # 提醒事件契約: change_pct 為小數 (-0.0565 = -5.65%); trigger_value/threshold 沿用規則的百分點。
+            "change_pct": round(self.trigger_value / 100, 6) if "change_pct" in self.rule_type else None,
             "type": self.rule_type,
         }
 

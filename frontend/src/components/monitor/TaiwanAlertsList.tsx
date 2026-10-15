@@ -8,6 +8,7 @@ import {
 import type { AlertEvent, TaiwanAlertEvent } from '@/lib/api'
 
 import { cn } from '@/lib/cn'
+import { fmtPct } from '@/lib/format'
 
 interface TaiwanAlertsListProps {
   alerts: (AlertEvent | TaiwanAlertEvent)[]
@@ -154,7 +155,7 @@ export function TaiwanAlertsList({ alerts, onSelectSymbol, onInterpretAlert }: T
                   )}
                   {alert.change_pct != null && (
                     <span className={alert.change_pct > 0 ? 'text-rose-500 font-semibold' : 'text-emerald-500 font-semibold'}>
-                      {alert.change_pct > 0 ? `+${alert.change_pct.toFixed(2)}%` : `${alert.change_pct.toFixed(2)}%`}
+                      {fmtPct(alert.change_pct)}
                     </span>
                   )}
                 </div>

@@ -123,3 +123,35 @@ def test_append_many_keeps_existing_file_when_atomic_replace_fails(tmp_path, mon
 
     assert path.read_bytes() == original
     assert list(path.parent.glob(".alerts.jsonl.*.tmp")) == []
+
+
+def test_list_recent_reads_legacy_percent_point_change_pct_as_ratio(tmp_path):
+    """Fixed samples: legacy writers stored percent points; current writers store a ratio."""
+    data_dir = tmp_path / "data"
+    path = data_dir / "user_data" / "alerts.jsonl"
+    path.parent.mkdir(parents=True)
+    rows = [
+        # Legacy rule alert: change_pct was a verbatim copy of trigger_value (percent points).
+        {"ts": 6000, "alert_id": "rule-old", "type": "change_pct_below", "trigger_value": -5.65, "change_pct": -5.65},
+        # Current rule alert: ratio, trigger_value stays in the rule's percent points.
+        {"ts": 5000, "alert_id": "rule-new", "type": "change_pct_above", "trigger_value": 3.66, "change_pct": 0.0366},
+        # Legacy anomaly alert: message embeds the same percent-point value.
+        {"ts": 4000, "alert_id": "anomaly-old", "type": "watchlist_anomaly", "message": "自選股大跌 -3.89%，現價 1235.0",
+         "trigger_value": 1235.0, "change_pct": -3.8911},
+        # Current anomaly alert: ratio.
+        {"ts": 3000, "alert_id": "anomaly-new", "type": "watchlist_anomaly", "message": "自選股大跌 -5.65%，現價 200",
+         "trigger_value": 200, "change_pct": -0.0565},
+        # Other producers already store a ratio and are never touched.
+        {"ts": 2000, "alert_id": "other", "type": "price_above", "trigger_value": 0.05, "change_pct": 0.05},
+    ]
+    raw = "".join(json.dumps(row, ensure_ascii=False) + "\n" for row in rows)
+    path.write_text(raw, encoding="utf-8")
+
+    pct = {ev["alert_id"]: ev["change_pct"] for ev in alert_store.list_recent(data_dir, days=999999)}
+
+    assert pct == {
+        "rule-old": -0.0565, "rule-new": 0.0366,
+        "anomaly-old": -0.038911, "anomaly-new": -0.0565,
+        "other": 0.05,
+    }
+    assert path.read_text(encoding="utf-8") == raw  # read-time only; user data is not rewritten

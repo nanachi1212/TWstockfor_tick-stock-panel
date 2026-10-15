@@ -412,7 +412,7 @@ def test_price_alert_formats_price_percentage_and_canonical_volume_without_raw_f
         "name": "台積電",
         "message": "突破價格門檻",
         "price": 10.00000000001,
-        "change_pct": 1.25000000001,
+        "change_pct": 0.0125000000001,  # alert-event ratio
         "volume": 1234567.0,
         "volume_unit": "shares",
     })

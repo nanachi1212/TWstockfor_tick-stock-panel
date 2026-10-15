@@ -81,6 +81,8 @@ function buildDiagnostics(
   }
 }
 
+vi.mock('echarts-for-react', () => ({ default: () => <div data-testid="flow-chart" /> }))
+
 vi.mock('@/lib/api', () => ({
   api: {
     beginnerSelection: vi.fn().mockRejectedValue(new Error('not mocked')),
@@ -127,6 +129,7 @@ vi.mock('@/lib/api', () => ({
     alertsMarkRead: vi.fn().mockResolvedValue({ ok: true }),
     alertsMarkAllRead: vi.fn().mockResolvedValue({ ok: true, updated: 1 }),
     alertDeleteById: vi.fn().mockResolvedValue({ ok: true }),
+    taiwanInstitutionalFlowSeries: vi.fn().mockResolvedValue({ date: '2026-09-05', window: 20, unit: 'lots', days: [{ date: '2026-09-04', foreign: null, investment_trust: null, dealer: null }, { date: '2026-09-05', foreign: 12000, investment_trust: -500, dealer: 0 }] }),
     taiwanMarketIntelligence: vi.fn().mockResolvedValue(null),
     taiwanIndustryIntelligence: vi.fn().mockResolvedValue(null),
     taiwanAbnormalDiagnostics: vi.fn().mockResolvedValue(buildDiagnostics()),
@@ -155,6 +158,17 @@ function renderDashboard(qc = new QueryClient({ defaultOptions: { queries: { ret
 
 afterEach(() => {
   vi.clearAllMocks()
+})
+
+describe('Dashboard — chart first', () => {
+  it('opens with the institutional flow chart and latest-day totals; gaps stay incomplete', async () => {
+    renderDashboard()
+    expect(await screen.findByTestId('flow-chart')).toBeInTheDocument()
+    expect(screen.getByText('三大法人買賣超')).toBeInTheDocument()
+    expect(screen.getByText('12,000 張')).toBeInTheDocument()
+    expect(screen.getByText('-500 張')).toBeInTheDocument()
+    expect(screen.getByText('更多市場資訊')).toBeInTheDocument()
+  })
 })
 
 describe('Dashboard — Legacy A-share removal (Phase 8C-D)', () => {
@@ -448,6 +462,22 @@ describe('Dashboard — stock reminders', () => {
     fireEvent.click(screen.getByRole('button', { name: '標記 2330.TWSE 已讀' }))
     await waitFor(() => expect(api.alertsMarkRead).toHaveBeenCalled())
     expect(vi.mocked(api.alertsMarkRead).mock.calls[0][0]).toBe('alert-1')
+  })
+
+  it('formats rule and anomaly alert change_pct with the same ratio unit', async () => {
+    vi.mocked(api.alertsList).mockResolvedValue({ alerts: [
+      { ts: Date.now(), alert_id: 'rule-pct', is_read: false, rule_id: 'rule-pct', source: 'twse:mis',
+        type: 'change_pct_above', symbol: '2330.TWSE', name: '台積電', message: '漲幅超過門檻',
+        change_pct: 0.0366, severity: 'info' },
+      { ts: Date.now() - 1, alert_id: 'anomaly-pct', is_read: false, source: 'watchlist_anomaly',
+        type: 'watchlist_anomaly', symbol: '2317.TWSE', name: '鴻海', message: '自選股大跌 -5.65%，現價 200',
+        price: 200, change_pct: -0.0565, severity: 'warn' },
+    ], total: 2 } as any)
+    renderDashboard()
+
+    expect(await screen.findByText('+3.66%')).toBeInTheDocument()
+    expect(screen.getByText('-5.65%')).toBeInTheDocument()
+    expect(screen.queryByText(/565\./)).not.toBeInTheDocument()
   })
 
   it('routes any alert symbol to the stock detail page', async () => {
