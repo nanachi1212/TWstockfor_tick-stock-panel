@@ -12,7 +12,7 @@ const INVESTORS = Object.keys(INVESTOR_LABELS) as Investor[]
 
 const lots = (v: number | null | undefined) => (v == null ? '資料不完整' : `${Math.round(v).toLocaleString('zh-TW')} 張`)
 
-/** 首頁第一張圖：全市場三大法人每日買賣超（張）。缺資料的交易日留空，不畫成 0。 */
+/** 首頁第一張圖：目前上市櫃股票＋ETF 的三大法人每日買賣超合計（張）。缺資料或有被拒資料的交易日留空，不畫成 0。 */
 export function InstitutionalFlowChart() {
   const theme = useTheme()
   const query = useQuery({ queryKey: QK.institutionalFlowSeries, queryFn: api.taiwanInstitutionalFlowSeries, staleTime: 5 * 60 * 1000 })
@@ -34,7 +34,7 @@ export function InstitutionalFlowChart() {
         <div className="flex items-center gap-1.5">
           <BarChart3 className="h-3.5 w-3.5 text-accent" />
           <h2 className="text-sm font-semibold text-foreground">三大法人買賣超</h2>
-          <span className="text-[11px] text-muted">近 {days.length || 20} 個交易日 · 全市場 · 單位：張</span>
+          <span className="text-[11px] text-muted">近 {days.length || 20} 個交易日 · 目前上市櫃股票＋ETF 合計 · 單位：張</span>
         </div>
         <Link to="/market-research" className="inline-flex items-center gap-0.5 text-[11px] text-muted hover:text-accent" title="法人統計明細">
           明細 <ArrowUpRight className="h-3.5 w-3.5" />

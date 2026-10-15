@@ -126,6 +126,22 @@ def test_market_flow_series_lots_and_incomplete_day_is_none(research):
     assert series.days[-1].dealer == 0
     # TPEx missing on that day: unknown, never a TWSE-only total or 0.
     assert series.days[-2].foreign is None
+    assert series.universe == "active_supported_stocks_and_etfs"
+
+
+def test_market_flow_series_rejected_row_voids_published_day(research):
+    sessions, master, _, flows, _, _ = research
+    master.to_dataframe.return_value = pl.concat([master.to_dataframe.return_value, pl.DataFrame({
+        "symbol": ["2317.TWSE"], "name": ["C"], "exchange": ["TWSE"], "industry": ["A"],
+        "instrument_type": ["stock"], "listing_status": ["active"],
+    })])
+    # Both exchanges published sessions[-3], but one stored row failed the cross-check.
+    flows.write_batch(pl.DataFrame({"symbol": ["2317.TWSE"], "date": [sessions[-3]], "trade_date": [sessions[-3]],
+                                    "foreign_net": [9000], "investment_trust_net": [0], "dealer_net": [0],
+                                    "status": ["official"], "has_discrepancy": [True]}))
+    days = institutional(research).get_market_flow_series(sessions[-1]).days
+    assert days[-3].foreign is None
+    assert days[-1].foreign == 3.0
 
 
 def test_unavailable_and_weekend_holiday_windows(research):

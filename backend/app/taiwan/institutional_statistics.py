@@ -57,6 +57,7 @@ class InstitutionalFlowSeries(BaseModel):
     date: str
     window: InstitutionalWindow
     unit: str = "lots"
+    universe: str = "active_supported_stocks_and_etfs"
     days: list[InstitutionalFlowDay]
 
 
@@ -101,13 +102,27 @@ class TaiwanInstitutionalStatisticsService:
     def get_market_flow_series(
         self, target_date: date | None = None, window: InstitutionalWindow = 20,
     ) -> InstitutionalFlowSeries:
-        """Market-wide daily net lots per investor; an incomplete session stays None."""
-        target = target_date or self.store.latest_date() or resolve_target_latest_trading_date(self.calendar)
-        sessions, _, flows, _, complete_dates = self._load(target, window)
+        """Daily net lots per investor summed over the current stock/ETF universe.
+
+        The master holds only currently listed securities, so the universe is
+        today's, not each day's. A session is None unless both exchanges
+        published and no stored row for the universe was rejected; a total
+        that silently drops a row would look complete.
+        """
+        # Expected session first: a missing latest refresh stays a None bar.
+        target = target_date or resolve_target_latest_trading_date(self.calendar)
+        sessions, master, flows, _, complete_dates = self._load(target, window)
+        raw = self.store.read_range(master["symbol"].to_list(), sessions[0], target)
+        rejected = set(raw.filter(pl.col("date").is_in(sessions) & ~(
+            pl.col("status").is_in(VALID_FLOW_STATUSES) & (pl.col("trade_date") == pl.col("date"))
+            & ~pl.col("has_discrepancy").fill_null(False)
+            & pl.all_horizontal([pl.col(f"{i}_net").is_not_null() for i in INVESTORS])
+        ).fill_null(True))["date"].to_list()) if not raw.is_empty() else set()
         totals = {r["date"]: r for r in flows.group_by("date").agg(
             [pl.col(f"{i}_net").sum() for i in INVESTORS]).iter_rows(named=True)} if not flows.is_empty() else {}
+        usable = complete_dates - rejected
         return InstitutionalFlowSeries(date=str(target), window=window, days=[InstitutionalFlowDay(
-            date=str(d), **{i: totals[d][f"{i}_net"] / 1000 if d in complete_dates else None for i in INVESTORS},
+            date=str(d), **{i: totals[d][f"{i}_net"] / 1000 if d in usable else None for i in INVESTORS},
         ) for d in sessions])
 
     def _load(

@@ -35,6 +35,7 @@ export interface InstitutionalFlowSeries {
   date: string
   window: InstitutionalWindow
   unit: 'lots'
+  universe: string
   days: Array<{ date: string } & Record<Investor, number | null>>
 }
 export interface InstitutionalStatisticsSnapshot {

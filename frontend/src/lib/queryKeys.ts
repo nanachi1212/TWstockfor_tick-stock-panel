@@ -159,7 +159,7 @@ export const QK = {
 export const DATA_HEALTH_INVALIDATE_PREFIXES = {
   daily: ['data-health', 'market-breadth-valuation', 'taiwan-data-status', 'taiwan-stock-detail', 'taiwan-current-data',
     'taiwanStockResearchContext', 'taiwanAbnormalDiagnostics', 'taiwanMarketIntelligence',
-    'taiwanIndustryIntelligence', 'institutional-statistics', 'industry-rotation', 'taiwanScreener',
+    'taiwanIndustryIntelligence', 'institutional-statistics', 'institutional-flow-series', 'industry-rotation', 'taiwanScreener',
     'watchlist-', 'selection-', 'beginner-selection', 'strategy-lab', 'daily-brief', 'buy-point-'],
   social: ['data-health', 'taiwan-social-sentiment'],
   validate: ['data-health', 'settings'],
