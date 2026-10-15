@@ -32,3 +32,47 @@ def test_change_needs_previous_week(tmp_path):
     latest = store.latest_with_change(["2330.TWSE"])
     assert latest.height == 1 and latest["previous_date"][0] == date(2026, 10, 2)
     assert latest["big_holder_pct_change"][0] == pytest.approx(1e9 / 25932370067 * 100)
+
+
+def test_change_missing_week_returns_none(tmp_path):
+    store = TaiwanShareholdingStore(tmp_path / "s.parquet")
+    # W1 and W3 stored, W2 missing (14 days apart)
+    store.refresh(fetch_text=lambda _: CSV.format(d="20261002", big=20_000_000_000), code_to_symbol=MAP)
+    store.refresh(fetch_text=lambda _: CSV.format(d="20261016", big=21_000_000_000), code_to_symbol=MAP)
+    latest = store.latest_with_change(["2330.TWSE"])
+    assert latest.height == 1
+    assert latest["big_holder_pct_change"][0] is None
+    assert latest["big_holder_pct"][0] == pytest.approx(21_000_000_000 / 25932370067 * 100)
+
+
+def test_change_adjacent_week_computes_difference(tmp_path):
+    store = TaiwanShareholdingStore(tmp_path / "s.parquet")
+    # Two adjacent weeks (7 days apart)
+    store.refresh(fetch_text=lambda _: CSV.format(d="20261002", big=20_000_000_000), code_to_symbol=MAP)
+    store.refresh(fetch_text=lambda _: CSV.format(d="20261009", big=21_000_000_000), code_to_symbol=MAP)
+    latest = store.latest_with_change(["2330.TWSE"])
+    assert latest.height == 1 and latest["previous_date"][0] == date(2026, 10, 2)
+    assert latest["big_holder_pct_change"][0] == pytest.approx(3.8561843468087965)
+
+
+def test_change_unparseable_date_fails_closed(tmp_path):
+    import polars as pl
+
+    store = TaiwanShareholdingStore(tmp_path / "s.parquet")
+    raw = pl.DataFrame({
+        "symbol": ["2330.TWSE", "2330.TWSE"],
+        "date": ["not-a-date-1", "not-a-date-2"],
+        "total_holders": [3007088, 3007088],
+        "total_shares": [25932370067, 25932370067],
+        "big_holders": [1482, 1482],
+        "big_shares": [20_000_000_000, 21_000_000_000],
+        "big_holder_pct": [77.12, 80.98],
+        "source_url": ["u", "u"],
+        "retrieved_at": ["t", "t"],
+    })
+    store.path.parent.mkdir(parents=True, exist_ok=True)
+    raw.write_parquet(store.path)
+    latest = store.latest_with_change(["2330.TWSE"])
+    assert latest.height == 1
+    assert latest["big_holder_pct_change"][0] is None
+

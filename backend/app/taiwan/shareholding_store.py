@@ -67,6 +67,21 @@ def parse_tdcc_csv(text: str, code_to_symbol: dict[str, str], *, retrieved_at: s
     return pl.DataFrame(out, schema=_SCHEMA)
 
 
+def _parse_week_date(val: Any) -> date | None:
+    if isinstance(val, datetime):
+        return val.date()
+    if isinstance(val, date):
+        return val
+    if isinstance(val, (str, int)):
+        raw = str(val).strip()
+        for fmt in ("%Y-%m-%d", "%Y%m%d"):
+            try:
+                return datetime.strptime(raw, fmt).date()
+            except ValueError:
+                pass
+    return None
+
+
 def _default_path() -> Path:
     from app.taiwan.data_root import taiwan_data_root
 
@@ -121,8 +136,20 @@ class TaiwanShareholdingStore:
                                     pl.lit(None, pl.Date).alias("previous_date"))
         before = data.filter(pl.col("date") == prev).select(
             "symbol", pl.col("big_holder_pct").alias("_prev"))
+        d_latest = _parse_week_date(latest)
+        d_prev = _parse_week_date(prev)
+        is_adjacent_week = (
+            d_latest is not None
+            and d_prev is not None
+            and 0 < (d_latest - d_prev).days <= 7
+        )
+        change_expr = (
+            (pl.col("big_holder_pct") - pl.col("_prev")).alias("big_holder_pct_change")
+            if is_adjacent_week
+            else pl.lit(None, pl.Float64).alias("big_holder_pct_change")
+        )
         return (cur.join(before, on="symbol", how="left")
-                .with_columns((pl.col("big_holder_pct") - pl.col("_prev")).alias("big_holder_pct_change"),
+                .with_columns(change_expr,
                               pl.lit(prev).alias("previous_date"))
                 .drop("_prev"))
 
