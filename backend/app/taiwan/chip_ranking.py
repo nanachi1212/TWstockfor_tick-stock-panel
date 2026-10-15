@@ -22,7 +22,10 @@ from typing import Any
 import polars as pl
 
 from app.taiwan.daily_store import TaiwanDailyStore
-from app.taiwan.institutional_statistics import VALID_FLOW_STATUSES, TaiwanInstitutionalStatisticsService
+from app.taiwan.institutional_statistics import (
+    VALID_FLOW_STATUSES,
+    TaiwanInstitutionalStatisticsService,
+)
 from app.taiwan.institutional_store import TaiwanInstitutionalStore
 from app.taiwan.margin_store import TaiwanMarginStore
 from app.taiwan.shareholding_store import TaiwanShareholdingStore
@@ -69,15 +72,20 @@ class TaiwanChipRankingService:
     def snapshot(self) -> dict[str, Any]:
         # Rank the latest stored institutional session, not a session still awaiting publication.
         stored = self.institutional.available_dates()
-        snap5 = self.statistics.get_snapshot(stored[-1] if stored else None, 5)
-        target = date.fromisoformat(snap5.date)
-        sessions = [date.fromisoformat(s) for s in snap5.sessions]
-        snap20 = self.statistics.get_snapshot(target, 20)
+        if stored:
+            target = stored[-1]
+            sessions, window = self.statistics.get_chip_ranking_inputs(target)
+        else:
+            # Preserve the empty-store date/session behavior of the public statistics path.
+            snap5 = self.statistics.get_snapshot(None, 5)
+            target = date.fromisoformat(snap5.date)
+            sessions = [date.fromisoformat(s) for s in snap5.sessions]
+            window = {}
         master = self.statistics.master.to_dataframe(supported_only=True).filter(
             (pl.col("listing_status") == "active") & (pl.col("instrument_type") == "stock")
         ).select("symbol", "name", "exchange")
         symbols = master["symbol"].to_list()
-        out: dict[str, Any] = {"date": str(target), "sessions": snap5.sessions, "weights": WEIGHTS,
+        out: dict[str, Any] = {"date": str(target), "sessions": [str(session) for session in sessions], "weights": WEIGHTS,
                                "min_avg_volume_5d": MIN_AVG_VOLUME_5D, "min_close": MIN_CLOSE,
                                "big_holder_date": None, "big_holder_previous_date": None,
                                "TWSE": [], "TPEX": [], "day_trade_pressure": []}
@@ -104,17 +112,11 @@ class TaiwanChipRankingService:
         ).select("symbol", (pl.col("foreign_net") + pl.col("investment_trust_net") + pl.col("dealer_net"))
                  .cast(pl.Float64).alias("institutional_net"))
 
-        window = []
-        streaks = {row.symbol: row.investors for row in snap20.securities}
-        for row in snap5.securities:
-            nets = [row.investors[i].net_shares.value for i in ("foreign", "investment_trust", "dealer")]
-            investors = streaks.get(row.symbol)
-            window.append({"symbol": row.symbol,
-                           "institutional_net_5d": sum(nets) if None not in nets else None,
-                           "foreign_buy_streak": investors["foreign"].buy_streak.value if investors else None,
-                           "trust_buy_streak": investors["investment_trust"].buy_streak.value if investors else None})
-        window_df = pl.DataFrame(window, schema={"symbol": pl.String, "institutional_net_5d": pl.Float64,
-                                                 "foreign_buy_streak": pl.Float64, "trust_buy_streak": pl.Float64})
+        window_df = pl.DataFrame(
+            [{"symbol": symbol, **values} for symbol, values in window.items()],
+            schema={"symbol": pl.String, "institutional_net_5d": pl.Float64,
+                    "foreign_buy_streak": pl.Float64, "trust_buy_streak": pl.Float64},
+        )
 
         margin = self.margin.read_range(symbols, target, target).filter(
             pl.col("trade_date") == target).select(
