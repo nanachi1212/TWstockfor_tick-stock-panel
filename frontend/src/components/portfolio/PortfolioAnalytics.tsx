@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, type UseQueryResult } from '@tanstack/react-query'
 import * as echarts from 'echarts'
 import { BarChart3 } from 'lucide-react'
 import { api, type TaiwanPortfolioAnalytics } from '@/lib/api'
@@ -14,7 +14,7 @@ const REASONS: Record<string, string> = {
   insufficient_sessions: '共同交易日不足 20 天',
 }
 
-function useHoldings() {
+export function usePortfolioAnalytics() {
   const [ledger, setLedger] = useState(readPortfolioLedger)
   useEffect(() => {
     const refresh = () => setLedger(readPortfolioLedger())
@@ -25,17 +25,10 @@ function useHoldings() {
       window.removeEventListener('storage', refresh)
     }
   }, [])
-  return useMemo(() => ledger.error ? [] : buildPortfolioPositions(ledger.transactions)
+  const holdings = useMemo(() => ledger.error ? [] : buildPortfolioPositions(ledger.transactions)
     .filter(p => p.shares > 0)
     .map(p => ({ symbol: p.symbol, shares: p.shares }))
     .sort((a, b) => a.symbol.localeCompare(b.symbol)), [ledger])
-}
-
-const pct = (v: number | null | undefined) => v == null ? '—' : `${(v * 100).toFixed(1)}%`
-const tone = (v: number | null | undefined) => v == null || v === 0 ? 'text-foreground' : v > 0 ? 'text-bull' : 'text-bear'
-
-export function PortfolioAnalyticsPanel() {
-  const holdings = useHoldings()
   const key = holdings.map(h => `${h.symbol}:${h.shares}`).join(',')
   const query = useQuery({
     queryKey: QK.portfolioAnalytics(key),
@@ -43,13 +36,19 @@ export function PortfolioAnalyticsPanel() {
     enabled: holdings.length > 0,
     staleTime: 10 * 60_000,
   })
-  if (!holdings.length) return null
+  return { hasHoldings: holdings.length > 0, query }
+}
+
+const pct = (v: number | null | undefined) => v == null ? '—' : `${(v * 100).toFixed(1)}%`
+const tone = (v: number | null | undefined) => v == null || v === 0 ? 'text-foreground' : v > 0 ? 'text-bull' : 'text-bear'
+
+export function PortfolioAnalyticsPanel({ query }: { query: UseQueryResult<TaiwanPortfolioAnalytics> }) {
   return (
     <section aria-label="組合分析" className="rounded-2xl border border-border bg-surface p-4 space-y-3">
       <div className="flex items-center gap-2"><BarChart3 className="h-4 w-4 text-accent" /><h2 className="text-sm font-semibold">組合分析</h2></div>
       {query.isLoading && <p className="text-xs text-muted">計算中…</p>}
       {query.isError && <p role="alert" className="text-xs text-danger">組合分析暫時無法取得，請稍後再試。</p>}
-      {query.data && <AnalyticsBody data={query.data} />}
+      {query.data && !query.isError && <AnalyticsBody data={query.data} />}
     </section>
   )
 }
@@ -57,8 +56,21 @@ export function PortfolioAnalyticsPanel() {
 function AnalyticsBody({ data }: { data: TaiwanPortfolioAnalytics }) {
   const { performance: perf, allocation } = data
   const m = perf.metrics
+  const concentration = allocation.concentration
   return (
-    <div className="grid gap-3 lg:grid-cols-[2fr_1fr]">
+    <>
+      <div className="space-y-2" aria-label="集中度健檢">
+        <h3 className="text-xs font-semibold text-secondary">持股與產業集中度{allocation.as_of && <span className="ml-1 font-normal text-muted">（{allocation.as_of} 收盤）</span>}</h3>
+        {allocation.status === 'available' && concentration ? (
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+            <Stat label="最大持股占比" value={pct(concentration.largest_position.weight)} hint={concentration.largest_position.symbol} />
+            <Stat label="前三大持股合計" value={pct(concentration.top3_weight)} />
+            <Stat label="最大產業占比" value={pct(concentration.largest_industry?.weight)} hint={concentration.largest_industry?.industry ?? '無法判定：僅有 ETF 或個股產業未分類'} />
+          </div>
+        ) : <p role="status" className="text-xs text-warning">收盤價不完整或日期不一致，暫不顯示整體權重與集中度。</p>}
+        <p className="text-[11px] text-muted">占比以本頁已登錄持股的收盤市值計算，不含現金或其他帳戶。僅呈現集中程度，不設定風險門檻。</p>
+      </div>
+      <div className="grid gap-3 lg:grid-cols-[2fr_1fr]">
       <div className="space-y-2">
         <h3 className="text-xs font-semibold text-secondary">假設績效（以目前持股回放）</h3>
         {perf.status === 'available' && m ? (
@@ -93,12 +105,17 @@ function AnalyticsBody({ data }: { data: TaiwanPortfolioAnalytics }) {
               </li>
             ))}
           </ul>
-        ) : <p className="text-xs text-muted">尚無可用收盤價。</p>}
+        ) : <p className="text-xs text-muted">收盤資料不足，暫不顯示產業占比。</p>}
         {allocation.unpriced_symbols.length > 0 && (
-          <p className="text-[11px] text-warning">未計入（缺收盤價）：{allocation.unpriced_symbols.map(s => s.split('.')[0]).join('、')}</p>
+          <p className="text-[11px] text-warning">缺收盤價：{allocation.unpriced_symbols.map(s => s.split('.')[0]).join('、')}</p>
         )}
+        {(allocation.stale_symbols?.length ?? 0) > 0 && (
+          <p className="text-[11px] text-warning">收盤價日期落後：{allocation.stale_symbols.map(s => s.split('.')[0]).join('、')}</p>
+        )}
+        <p className="text-[11px] text-muted">ETF 以商品分類列示，尚未拆解成分股產業；最大產業占比不含 ETF。個股產業未分類時，暫不判定最大產業。</p>
       </div>
-    </div>
+      </div>
+    </>
   )
 }
 

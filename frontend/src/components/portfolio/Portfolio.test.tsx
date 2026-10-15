@@ -46,6 +46,37 @@ afterEach(() => {
 })
 
 describe('Portfolio UI', () => {
+
+  it('shows same-date allocation weights and clears them when allocation is incomplete', async () => {
+    storage.portfolioTransactions.set([{
+      id: 'weight', symbol: '2330.TWSE', name: '台積電', side: 'buy', shares: 5,
+      price: 100, fee: 0, date: '2026-09-24', createdAt: '2026-09-24T00:00:00.000Z',
+    }])
+    vi.mocked(api.taiwanQuotes).mockResolvedValue({ quotes: [], count: 0 })
+    const allocation = {
+      status: 'available' as const, as_of: '2026-10-14', total_market_value: 1000,
+      positions: [{ symbol: '2330.TWSE', market_value: 600, weight: 0.6 }],
+      sectors: [], concentration: null, unpriced_symbols: [], stale_symbols: [],
+    }
+    const first = renderPortfolio({ allocation })
+    expect(await screen.findByRole('columnheader', { name: '收盤權重' })).toBeInTheDocument()
+    expect(await screen.findByRole('cell', { name: '60.0%' })).toBeInTheDocument()
+    first.unmount()
+    renderPortfolio({ allocation: { ...allocation, status: 'partial', positions: [] } })
+    expect(screen.queryByRole('cell', { name: '60.0%' })).not.toBeInTheDocument()
+  })
+
+  it('hides the closing-weight column when allocation weights are unavailable', async () => {
+    storage.portfolioTransactions.set([{
+      id: 'home', symbol: '2330.TWSE', name: '台積電', side: 'buy', shares: 5,
+      price: 100, fee: 0, date: '2026-09-24', createdAt: '2026-09-24T00:00:00.000Z',
+    }])
+    vi.mocked(api.taiwanQuotes).mockResolvedValue({ quotes: [], count: 0 })
+    renderPortfolio()
+    expect(await screen.findByRole('row', { name: /台積電/ })).toBeInTheDocument()
+    expect(screen.queryByRole('columnheader', { name: '收盤權重' })).not.toBeInTheDocument()
+  })
+
   it('opens the import dialog right away on the 我的持股 page, with file and paste options', async () => {
     renderPortfolio({ openImportOnMount: true })
     const dialog = await screen.findByRole('dialog', { name: '匯入持股' })

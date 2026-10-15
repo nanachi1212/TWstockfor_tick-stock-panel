@@ -23,6 +23,13 @@ export interface TaiwanPortfolioAnalytics {
     total_market_value: number | null
     sectors: { industry: string; market_value: number; weight: number }[]
     unpriced_symbols: string[]
+    stale_symbols: string[]
+    positions: { symbol: string; market_value: number; weight: number }[]
+    concentration: {
+      largest_position: { symbol: string; market_value: number; weight: number }
+      top3_weight: number
+      largest_industry: { industry: string; market_value: number; weight: number } | null
+    } | null
   }
   performance: {
     status: 'available' | 'unavailable'
