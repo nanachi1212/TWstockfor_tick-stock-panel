@@ -67,6 +67,21 @@ def parse_tdcc_csv(text: str, code_to_symbol: dict[str, str], *, retrieved_at: s
     return pl.DataFrame(out, schema=_SCHEMA)
 
 
+def _parse_week_date(val: Any) -> date | None:
+    if isinstance(val, datetime):
+        return val.date()
+    if isinstance(val, date):
+        return val
+    if isinstance(val, (str, int)):
+        raw = str(val).strip()
+        for fmt in ("%Y-%m-%d", "%Y%m%d"):
+            try:
+                return datetime.strptime(raw, fmt).date()
+            except ValueError:
+                pass
+    return None
+
+
 def _default_path() -> Path:
     from app.taiwan.data_root import taiwan_data_root
 
@@ -105,25 +120,56 @@ class TaiwanShareholdingStore:
         ``before`` keeps only weeks dated strictly earlier: a week is published after its data date.
         """
         data = self.read()
-        if before is not None:
-            data = data.filter(pl.col("date") < before)
+        if "date" in data.columns and not data.is_empty():
+            dtype = data["date"].dtype
+            if dtype != pl.Date:
+                if dtype.is_temporal():
+                    data = data.with_columns(pl.col("date").dt.date())
+                elif dtype in (pl.String, pl.Utf8):
+                    data = data.with_columns(
+                        pl.coalesce([
+                            pl.col("date").str.to_date("%Y-%m-%d", strict=False),
+                            pl.col("date").str.to_date("%Y%m%d", strict=False),
+                        ]).alias("date")
+                    )
+                elif dtype.is_integer():
+                    data = data.with_columns(
+                        pl.col("date").cast(pl.String).str.to_date("%Y%m%d", strict=False).alias("date")
+                    )
+        before_date = _parse_week_date(before) if before is not None else None
+        if before_date is not None:
+            data = data.filter(pl.col("date") < before_date)
         if symbols is not None:
             data = data.filter(pl.col("symbol").is_in(symbols))
         if data.is_empty():
             return data.with_columns(pl.lit(None, pl.Float64).alias("big_holder_pct_change"),
                                      pl.lit(None, pl.Date).alias("previous_date"))
-        weeks = sorted(data["date"].unique().to_list())
+        weeks = sorted(data["date"].drop_nulls().unique().to_list())
+        if not weeks:
+            return (data.unique(subset=["symbol"], keep="last")
+                    .with_columns(pl.lit(None, pl.Float64).alias("big_holder_pct_change"),
+                                  pl.lit(None, pl.Date).alias("previous_date")))
         latest = weeks[-1]
         prev = weeks[-2] if len(weeks) > 1 else None
         cur = data.filter(pl.col("date") == latest)
         if prev is None:
             return cur.with_columns(pl.lit(None, pl.Float64).alias("big_holder_pct_change"),
                                     pl.lit(None, pl.Date).alias("previous_date"))
-        before = data.filter(pl.col("date") == prev).select(
+        d_latest = _parse_week_date(latest)
+        d_prev = _parse_week_date(prev)
+        is_adjacent_week = (
+            d_latest is not None
+            and d_prev is not None
+            and 0 < (d_latest - d_prev).days <= 7
+        )
+        if not is_adjacent_week:
+            return cur.with_columns(pl.lit(None, pl.Float64).alias("big_holder_pct_change"),
+                                    pl.lit(None, pl.Date).alias("previous_date"))
+        before_df = data.filter(pl.col("date") == prev).select(
             "symbol", pl.col("big_holder_pct").alias("_prev"))
-        return (cur.join(before, on="symbol", how="left")
+        return (cur.join(before_df, on="symbol", how="left")
                 .with_columns((pl.col("big_holder_pct") - pl.col("_prev")).alias("big_holder_pct_change"),
-                              pl.lit(prev).alias("previous_date"))
+                              pl.lit(prev, pl.Date).alias("previous_date"))
                 .drop("_prev"))
 
     def refresh(self, fetch_text=None, code_to_symbol: dict[str, str] | None = None) -> dict[str, Any]:
