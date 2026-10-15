@@ -1,4 +1,5 @@
 import { PortfolioPanel } from '@/components/portfolio/Portfolio'
+import { PortfolioAnalyticsPanel } from '@/components/portfolio/PortfolioAnalytics'
 
 /** 左側選單「我的持股」：持倉清單，進入時直接打開匯入視窗。 */
 export function Holdings() {
@@ -10,6 +11,7 @@ export function Holdings() {
           <p className="text-xs text-muted">可選檔案、拖曳檔案，或直接貼上券商／Excel 的持股表格匯入。之後要再匯入，按右上角「匯入持股」。</p>
         </header>
         <PortfolioPanel openImportOnMount />
+        <PortfolioAnalyticsPanel />
       </div>
     </div>
   )

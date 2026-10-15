@@ -13,6 +13,36 @@ type RequestOptions = RequestInit & {
   quiet?: boolean
 }
 
+/** Decimals: 0.12 = 12%. Performance holds today's shares through the window (hypothetical). */
+export interface TaiwanPortfolioAnalytics {
+  benchmark_symbol: string
+  benchmark_name: string
+  allocation: {
+    status: 'available' | 'partial' | 'unavailable'
+    as_of: string | null
+    total_market_value: number | null
+    sectors: { industry: string; market_value: number; weight: number }[]
+    unpriced_symbols: string[]
+  }
+  performance: {
+    status: 'available' | 'unavailable'
+    reason: string | null
+    window_start: string | null
+    window_end: string | null
+    sessions: number
+    metrics: {
+      total_return: number
+      benchmark_return: number
+      volatility: number
+      benchmark_volatility: number
+      beta: number | null
+      max_drawdown: number
+    } | null
+    series: { date: string; portfolio: number; benchmark: number }[]
+    excluded_symbols: { symbol: string; reason: string }[]
+  }
+}
+
 async function request<T>(path: string, init?: RequestOptions): Promise<T> {
   const { quiet, ...fetchInit } = init ?? {}
   const isFormData = fetchInit.body instanceof FormData
@@ -993,10 +1023,21 @@ export interface TaiwanSecuritiesLendingData {
   }
 }
 
+/** TDCC weekly 集保股權分散表; percent values (84.78 = 84.78%). change_1w is null until two weeks are stored. */
+export interface TaiwanBigHolderData {
+  big_holder_pct?: number | null
+  big_holders?: number | null
+  total_holders?: number | null
+  change_1w?: number | null
+  previous_date?: string | null
+  meta?: { source: string; trade_date?: string | null; status: string; reason?: string | null }
+}
+
 export interface TaiwanExtraChipsData {
   status?: 'available' | 'unavailable' | 'partial' | 'error' | string
   foreign_shareholding?: TaiwanForeignShareholdingData
   securities_lending?: TaiwanSecuritiesLendingData
+  big_holders?: TaiwanBigHolderData
 }
 
 export interface TaiwanStockDetailResponse {
@@ -1186,6 +1227,9 @@ export interface TaiwanScreenerRequest {
   foreign_shareholding_ratio_min?: number | null
   foreign_shareholding_change_20d_min?: number | null
   securities_lending_anomaly_exclude?: boolean | null
+  big_holder_pct_min?: number | null  // percent, TDCC 千張大戶
+  big_holder_change_min?: number | null  // percentage points week over week
+  avg_volume_5d_min?: number | null  // shares
 
   // Quant Score
   quant_score_min?: number | null
@@ -1262,6 +1306,10 @@ export interface ScreenerResultItem {
   foreign_shareholding_ratio?: number | null
   foreign_shareholding_change_20d?: number | null
   securities_lending_anomaly?: string | null
+  big_holder_pct?: number | null
+  big_holder_change?: number | null
+  big_holder_date?: string | null
+  avg_volume_5d?: number | null
   quant_score?: number | null
   match_reasons?: string[]
   risk_status?: 'clear' | 'unknown' | null
@@ -3706,6 +3754,8 @@ export const api = {
   ),
   taiwanInstitutionalStatistics: (date?: string, window: import('./marketResearch').InstitutionalWindow = 5) =>
     request<import('./marketResearch').InstitutionalStatisticsSnapshot>(`/api/taiwan/institutional-statistics?window=${window}${date ? `&date=${encodeURIComponent(date)}` : ''}`),
+  taiwanChipRanking: (date?: string) =>
+    request<import('./marketResearch').ChipRankingSnapshot>(`/api/taiwan/chip-ranking${date ? `?date=${encodeURIComponent(date)}` : ''}`),
   taiwanIndustryRotation: (date?: string) =>
     request<import('./marketResearch').IndustryRotationSnapshot>(`/api/taiwan/industry-rotation${date ? `?date=${encodeURIComponent(date)}` : ''}`),
   strategyLab: (filters: StrategyLabFilters) =>
@@ -4291,6 +4341,13 @@ export const api = {
     request<{ text: string }>('/api/taiwan/portfolio-import/read', {
       method: 'POST',
       body: JSON.stringify(payload),
+      quiet: true,
+    }),
+
+  taiwanPortfolioAnalytics: (holdings: { symbol: string; shares: number }[]) =>
+    request<TaiwanPortfolioAnalytics>('/api/taiwan/portfolio/analytics', {
+      method: 'POST',
+      body: JSON.stringify({ holdings }),
       quiet: true,
     }),
 

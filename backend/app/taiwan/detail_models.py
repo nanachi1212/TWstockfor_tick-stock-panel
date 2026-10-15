@@ -227,10 +227,20 @@ class TaiwanSecuritiesLendingData(BaseModel):
     meta: Optional[SectionMeta] = None
 
 
+class TaiwanBigHolderData(BaseModel):
+    big_holder_pct: Optional[float] = Field(None, description="千張大戶持股比例 (%)，TDCC 集保股權分散表")
+    big_holders: Optional[int] = Field(None, description="千張大戶人數")
+    total_holders: Optional[int] = Field(None, description="集保總人數")
+    change_1w: Optional[float] = Field(None, description="較前一週千張大戶比例變化 (%pt)；無前一週資料時為 None")
+    previous_date: Optional[str] = Field(None, description="比較基準週的資料日期")
+    meta: Optional[SectionMeta] = None
+
+
 class TaiwanExtraChipsData(BaseModel):
     status: str = Field("available", description="available, unavailable, partial, error")
     foreign_shareholding: TaiwanForeignShareholdingData = Field(default_factory=TaiwanForeignShareholdingData)
     securities_lending: TaiwanSecuritiesLendingData = Field(default_factory=TaiwanSecuritiesLendingData)
+    big_holders: TaiwanBigHolderData = Field(default_factory=TaiwanBigHolderData)
     meta: Optional[SectionMeta] = None
 
 

@@ -1271,7 +1271,7 @@ export function TaiwanStockDetail() {
                 <div className="flex items-center gap-2">
                   <h3 className="text-sm font-bold text-foreground">籌碼深度補強</h3>
                   <span className="text-[10px] px-1.5 py-0.5 rounded bg-purple-500/10 text-purple-400 font-medium">
-                    外資持股 + 借券明細
+                    外資持股 + 千張大戶 + 借券明細
                   </span>
                 </div>
                 <span className="text-[10px] text-muted font-mono">
@@ -1313,6 +1313,41 @@ export function TaiwanStockDetail() {
                   <p className="mt-2 text-[10px] text-muted">外資持股不可用：{availabilityText(data.extra_chips.foreign_shareholding.meta)}</p>
                 )}
               </div>
+
+              {/* 千張大戶（TDCC 集保股權分散表，每週） */}
+              {(() => {
+                const bh = data.extra_chips?.big_holders
+                return (
+                  <div className="rounded-xl bg-base p-3 border border-border/60 mb-3">
+                    <div className="flex items-center justify-between text-xs mb-2">
+                      <span className="font-semibold text-foreground">千張大戶持股比例</span>
+                      <span className="font-mono font-bold text-base text-foreground">
+                        {bh?.big_holder_pct != null ? `${bh.big_holder_pct.toFixed(2)}%` : '--'}
+                      </span>
+                    </div>
+                    <div className="grid grid-cols-3 gap-2 text-xs text-center font-mono">
+                      <div className="bg-surface rounded-lg p-2 border border-border/40">
+                        <div className="text-muted text-[10px] mb-0.5">較上週</div>
+                        <div className={cn('font-bold', bh?.change_1w == null ? 'text-muted' : bh.change_1w >= 0 ? 'text-rose-500' : 'text-emerald-500')}>
+                          {bh?.change_1w != null ? `${bh.change_1w >= 0 ? '+' : ''}${bh.change_1w.toFixed(2)}%` : '--'}
+                        </div>
+                      </div>
+                      <div className="bg-surface rounded-lg p-2 border border-border/40">
+                        <div className="text-muted text-[10px] mb-0.5">大戶人數</div>
+                        <div className="font-medium text-foreground">{bh?.big_holders != null ? bh.big_holders.toLocaleString() : '--'}</div>
+                      </div>
+                      <div className="bg-surface rounded-lg p-2 border border-border/40">
+                        <div className="text-muted text-[10px] mb-0.5">資料週</div>
+                        <div className="font-medium text-foreground">{bh?.meta?.trade_date ?? '--'}</div>
+                      </div>
+                    </div>
+                    <p className="mt-2 text-[10px] text-muted">
+                      {bh?.big_holder_pct == null ? (bh?.meta?.reason ?? '尚無集保股權分散表資料') :
+                       bh.change_1w == null ? '集保每週更新一次；累積兩週資料後才有週變化。' : `與 ${bh.previous_date} 比較；千張 = 持股超過 100 萬股。`}
+                    </p>
+                  </div>
+                )
+              })()}
 
               {/* 借券成交明細卡片 */}
               <div className="rounded-xl bg-base p-3 border border-border/60">

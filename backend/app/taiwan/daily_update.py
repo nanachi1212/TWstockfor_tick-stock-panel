@@ -28,6 +28,7 @@ from typing import Any, Literal
 from pydantic import BaseModel, Field
 
 from app.taiwan.benchmark_store import TaiwanBenchmarkStore
+from app.taiwan.shareholding_store import TaiwanShareholdingStore
 from app.taiwan.daily_refresh import TaiwanDailyRefreshService
 from app.taiwan.daily_store import TaiwanDailyStore
 from app.taiwan.institutional_margin_refresh import (
@@ -218,6 +219,7 @@ class TaiwanDailyUpdateService:
         self.benchmark_store = benchmark_store or (
             TaiwanBenchmarkStore() if daily_store is None else None
         )
+        self.shareholding_store = TaiwanShareholdingStore() if daily_store is None else None
         self.calendar = calendar or TaiwanTradingCalendar()
         self.evidence_store = evidence_store or ObservedUniverseStore()
         self.daily_store = daily_store or TaiwanDailyStore()
@@ -439,6 +441,13 @@ class TaiwanDailyUpdateService:
             except Exception as e:
                 logger.exception("Benchmark refresh failed: %s", e)
                 benchmark = {"rows_written": 0, "latest": {}, "failed": [{"error": str(e)[:200]}]}
+
+        # 5b. TDCC weekly 千張大戶 snapshot (one market-wide file; same-week re-fetch is an upsert).
+        if self.shareholding_store is not None:
+            try:
+                logger.info("Shareholding refresh: %s", self.shareholding_store.refresh())
+            except Exception as e:
+                logger.warning("Shareholding refresh failed: %s", e)
 
         # 6. Evaluate Freshness and Overall Status
         run_finish = taipei_now()
