@@ -104,6 +104,7 @@ export const QK = {
   institutionalStatistics: (date: string, window: number) => ['institutional-statistics', date || 'latest', window] as const,
   industryRotation: (date: string) => ['industry-rotation', date || 'latest'] as const,
   chipRanking: ['chip-ranking'] as const,
+  chipRankingTracking: ['chip-ranking', 'tracking'] as const,
   taiwanEvents:         (scope?: string, symbols?: string, date?: string, eventType?: string) => ['taiwan-events', scope ?? 'all', symbols ?? '', date ?? '', eventType ?? 'all'] as const,
   taiwanEventCandidates:(limit?: number) => ['taiwan-event-candidates', limit ?? 10] as const,
   taiwanStockNews:      (symbol: string, limit?: number) => ['taiwan-stock-news', symbol, limit ?? 15] as const,

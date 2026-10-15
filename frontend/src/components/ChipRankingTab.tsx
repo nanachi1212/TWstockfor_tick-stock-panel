@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { api } from '@/lib/api'
 import { QK } from '@/lib/queryKeys'
-import type { ChipRankingItem } from '@/lib/marketResearch'
+import type { ChipRankingItem, ChipRankingTracking, ChipTrackingDay, ChipTrackingHorizon } from '@/lib/marketResearch'
 
 const COMPONENT_LABELS: Record<string, string> = {
   flow_today: '法人當日買超÷5日均量',
@@ -50,7 +50,67 @@ export function ChipRankingTab() {
         <td className={`px-2 py-1.5 text-right tabular-nums ${toneClass(r.institutional_net)}`}>{lots(r.institutional_net)}</td>
       </tr>)}</tbody>
     </table></div> : <p className="text-xs text-muted">今天沒有符合條件的股票。</p>}
+    <ChipTracking />
   </div>
+}
+
+const pct = (v: number | null | undefined) => signed(v == null ? null : v * 100, 2, '%')
+const rate = (v: number | null | undefined) => v == null ? '—' : `${(v * 100).toFixed(0)}%`
+const DAY_STATUS: Record<ChipTrackingDay['status'], string> = { tracked: '追蹤中', late: '存檔太晚，不計入', pending: '等待隔日開盤' }
+
+function horizonCell(h: ChipTrackingHorizon) {
+  if (h.status === 'pending') return <span className="text-muted">尚未到期</span>
+  if (h.status === 'unavailable') return <span className="text-muted">無法計算</span>
+  return <><span className={toneClass(h.avg_return)}>{pct(h.avg_return)}</span><span className="ml-1 text-xs text-muted">0050 {pct(h.benchmark_return)}</span></>
+}
+
+function ChipTracking() {
+  const query = useQuery({ queryKey: QK.chipRankingTracking, queryFn: api.taiwanChipRankingTracking, staleTime: 5 * 60_000 })
+  return <section className="space-y-3 border-t border-border pt-4">
+    <h2 className="font-medium">排行追蹤成績（往後追蹤）</h2>
+    <p className="text-xs text-muted leading-relaxed">
+      每天收盤更新後，把當天上市、上櫃各前 20 名存檔，之後不再重算。以「隔天開盤價買進」計算 1 天（當天收盤）與 5 天（第 5 個交易日收盤）的漲跌，用除權息還原價，跟 0050 同期間比較。未計手續費與交易稅。存檔時間晚於隔天開盤的那一天不計入。
+    </p>
+    {query.isLoading ? <p role="status" className="text-xs text-muted">讀取追蹤紀錄中…</p>
+      : query.isError || !query.data ? <div role="alert" className="text-xs text-danger">追蹤紀錄讀取失敗<button className="ml-3 underline" onClick={() => void query.refetch()}>重試</button></div>
+      : !query.data.days.length ? <p className="text-xs text-muted">還沒有存檔紀錄。下一次收盤更新完成後會開始累積。</p>
+      : <ChipTrackingBody data={query.data} />}
+  </section>
+}
+
+function ChipTrackingBody({ data }: { data: ChipRankingTracking }) {
+  const horizons = [['h1', '持有 1 天'], ['h5', '持有 5 天']] as const
+  return <>
+    <div className="grid gap-3 sm:grid-cols-2">
+      {horizons.map(([key, label]) => {
+        const s = data.summary[key]
+        return <div key={key} className="rounded-lg border border-border p-3 text-sm">
+          <div className="font-medium">{label}</div>
+          {s.sample_sufficient ? <dl className="mt-2 grid grid-cols-2 gap-x-3 gap-y-1 text-xs">
+            <dt className="text-muted">平均報酬</dt><dd className={`text-right tabular-nums ${toneClass(s.avg_return)}`}>{pct(s.avg_return)}</dd>
+            <dt className="text-muted">0050 同期</dt><dd className="text-right tabular-nums">{pct(s.avg_benchmark)}</dd>
+            <dt className="text-muted">平均超額報酬</dt><dd className={`text-right tabular-nums ${toneClass(s.avg_excess)}`}>{pct(s.avg_excess)}</dd>
+            <dt className="text-muted">上漲比例</dt><dd className="text-right tabular-nums">{rate(s.win_rate)}</dd>
+            <dt className="text-muted">贏過 0050 比例</dt><dd className="text-right tabular-nums">{rate(s.beat_rate)}</dd>
+            <dt className="text-muted">樣本</dt><dd className="text-right tabular-nums">{s.days} 天 / {s.picks} 檔次</dd>
+          </dl> : <p className="mt-2 text-xs text-muted">已累積 {s.days} / {data.min_days} 個交易日，樣本不足，先不顯示平均。</p>}
+        </div>
+      })}
+    </div>
+    <div className="overflow-x-auto rounded-lg border border-border"><table className="w-full text-sm">
+      <thead className="bg-elevated text-xs text-muted"><tr>
+        <th className="px-2 py-2 text-left">排行日</th><th className="px-2 py-2 text-left">狀態</th><th className="px-2 py-2 text-right">檔數</th>
+        <th className="px-2 py-2 text-right">1 天平均</th><th className="px-2 py-2 text-right">5 天平均</th>
+      </tr></thead>
+      <tbody>{data.days.slice(0, 20).map(d => <tr key={d.date} className="border-t border-border/60">
+        <td className="px-2 py-1.5 tabular-nums">{d.date}</td>
+        <td className="px-2 py-1.5 text-xs">{DAY_STATUS[d.status]}</td>
+        <td className="px-2 py-1.5 text-right tabular-nums">{d.picks.length}</td>
+        <td className="px-2 py-1.5 text-right tabular-nums">{d.status === 'tracked' ? horizonCell(d.h1) : '—'}</td>
+        <td className="px-2 py-1.5 text-right tabular-nums">{d.status === 'tracked' ? horizonCell(d.h5) : '—'}</td>
+      </tr>)}</tbody>
+    </table></div>
+  </>
 }
 
 function ChipTable({ rows }: { rows: ChipRankingItem[] }) {

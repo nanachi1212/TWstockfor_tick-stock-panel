@@ -113,6 +113,45 @@ export interface ChipRankingSnapshot {
   TPEX: ChipRankingItem[]
   day_trade_pressure: DayTradePressureItem[]
 }
+
+/** Returns are decimals (0.03 = 3%); null means not computable, never 0. */
+export interface ChipTrackingHorizon {
+  status: 'available' | 'unavailable' | 'pending'
+  exit_date: string | null
+  reason?: string
+  picks?: number
+  avg_return?: number
+  benchmark_return?: number
+  avg_excess?: number
+}
+
+export interface ChipTrackingDay {
+  date: string
+  recorded_at: string
+  entry_date: string | null
+  status: 'tracked' | 'late' | 'pending'
+  picks: { symbol: string; name: string | null; exchange: 'TWSE' | 'TPEX'; rank: number }[]
+  h1: ChipTrackingHorizon
+  h5: ChipTrackingHorizon
+}
+
+export interface ChipTrackingSummary {
+  days: number
+  picks: number
+  sample_sufficient: boolean
+  avg_return: number | null
+  avg_benchmark: number | null
+  avg_excess: number | null
+  win_rate: number | null
+  beat_rate: number | null
+}
+
+export interface ChipRankingTracking {
+  benchmark_symbol: string
+  min_days: number
+  summary: { h1: ChipTrackingSummary; h5: ChipTrackingSummary }
+  days: ChipTrackingDay[]
+}
 export type MarketResearchTab = typeof MARKET_RESEARCH_TABS[number]['id']
 
 export function rotationPoints(rows: IndustryRotationRow[]) {

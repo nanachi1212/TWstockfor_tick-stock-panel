@@ -139,6 +139,12 @@ def run_taiwan_update(evening: bool = False, *, trigger: str = "scheduled") -> N
             except Exception:
                 logger.exception("Taiwan forward batch lock failed")
             try:
+                from app.taiwan.chip_ranking_tracking import freeze_latest_ranking
+
+                logger.info("Taiwan chip ranking freeze: %s", freeze_latest_ranking())
+            except Exception:
+                logger.exception("Taiwan chip ranking freeze failed")
+            try:
                 from app.taiwan.auto_ai_explain import run_auto_explain
 
                 logger.info("Taiwan auto AI explain: %s", run_auto_explain())
