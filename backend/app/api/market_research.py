@@ -32,7 +32,8 @@ def industry_rotation(target_date: Annotated[date | None, Query(alias="date")] =
 
 
 @router.get("/chip-ranking")
-def chip_ranking(target_date: Annotated[date | None, Query(alias="date")] = None) -> dict:
+def chip_ranking() -> dict:
+    """Latest stored session only; see chip_ranking module docstring."""
     from app.taiwan.chip_ranking import TaiwanChipRankingService
 
-    return TaiwanChipRankingService().snapshot(target_date)
+    return TaiwanChipRankingService().snapshot()
