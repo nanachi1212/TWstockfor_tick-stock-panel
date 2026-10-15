@@ -76,7 +76,7 @@ function AnalyticsBody({ data }: { data: TaiwanPortfolioAnalytics }) {
         {perf.status === 'available' && m ? (
           <>
             <p className="rounded-lg border border-warning/30 bg-warning/10 px-3 py-2 text-[11px] text-secondary">
-              用「現在的持股股數」回推 {perf.window_start} ～ {perf.window_end}（{perf.sessions} 個交易日）的還原股價走勢，不是你實際買賣的損益紀錄。基準為{data.benchmark_name}；期間受除權息驗證範圍限制，最長一年。
+              用「現在的持股股數」回推 {perf.window_start && perf.window_end ? `${perf.window_start} ～ ${perf.window_end}` : '績效期間日期不可用（缺少有效起訖日）'}（{perf.sessions} 個交易日）的還原股價走勢，不是你實際買賣的損益紀錄。基準為{data.benchmark_name}；績效期間受已驗證除權息資料覆蓋範圍限制。
             </p>
             <div className="grid grid-cols-2 gap-2 sm:grid-cols-5">
               <Stat label="回放報酬" value={pct(m.total_return)} valueTone={m.total_return} />
