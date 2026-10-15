@@ -3756,8 +3756,8 @@ export const api = {
     request<import('./marketResearch').InstitutionalStatisticsSnapshot>(`/api/taiwan/institutional-statistics?window=${window}${date ? `&date=${encodeURIComponent(date)}` : ''}`),
   taiwanInstitutionalFlowSeries: () =>
     request<import('./marketResearch').InstitutionalFlowSeries>('/api/taiwan/institutional-flow-series'),
-  taiwanChipRanking: (date?: string) =>
-    request<import('./marketResearch').ChipRankingSnapshot>(`/api/taiwan/chip-ranking${date ? `?date=${encodeURIComponent(date)}` : ''}`),
+  taiwanChipRanking: () =>
+    request<import('./marketResearch').ChipRankingSnapshot>('/api/taiwan/chip-ranking'),
   taiwanIndustryRotation: (date?: string) =>
     request<import('./marketResearch').IndustryRotationSnapshot>(`/api/taiwan/industry-rotation${date ? `?date=${encodeURIComponent(date)}` : ''}`),
   strategyLab: (filters: StrategyLabFilters) =>

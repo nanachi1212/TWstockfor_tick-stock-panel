@@ -115,13 +115,7 @@ export function MarketResearch() {
       {MARKET_RESEARCH_TABS.map(t => <button key={t.id} role="tab" aria-selected={tab.id === t.id} onClick={() => update('tab', t.id)} className={`rounded-md px-3 py-2 text-sm ${tab.id === t.id ? 'bg-accent/15 text-accent' : 'text-secondary hover:bg-elevated'}`}>{t.label}{!t.enabled && <span className="ml-1 text-[10px] text-muted">規劃中</span>}</button>)}
     </div>
     <div role="tabpanel" aria-label={tab.label} className="space-y-4">
-      {tab.id === 'chips' ? <>
-        <div className="flex flex-wrap items-center gap-3">
-          <label className="text-sm">交易日 <input aria-label="交易日" type="date" value={date} onChange={e => update('date', e.target.value)} className={inputClass} /></label>
-          <button className={inputClass} onClick={() => update('date', '')}>最新已入庫交易日</button>
-        </div>
-        <ChipRankingTab date={date} />
-      </> : tab.id === 'breadth' || tab.id === 'valuation' ? <>
+      {tab.id === 'chips' ? <ChipRankingTab /> : tab.id === 'breadth' || tab.id === 'valuation' ? <>
         <div className="flex flex-wrap items-center gap-3">
           <label className="text-sm">研究日期 <input aria-label="研究日期" type="date" value={date} onChange={e => update('date', e.target.value)} className={inputClass} /></label>
           <button className={inputClass} onClick={() => update('date', '')}>最新可觀測交易日</button>

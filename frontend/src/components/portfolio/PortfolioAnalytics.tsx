@@ -60,19 +60,20 @@ function AnalyticsBody({ data }: { data: TaiwanPortfolioAnalytics }) {
   return (
     <div className="grid gap-3 lg:grid-cols-[2fr_1fr]">
       <div className="space-y-2">
+        <h3 className="text-xs font-semibold text-secondary">假設績效（以目前持股回放）</h3>
         {perf.status === 'available' && m ? (
           <>
+            <p className="rounded-lg border border-warning/30 bg-warning/10 px-3 py-2 text-[11px] text-secondary">
+              用「現在的持股股數」回推 {perf.window_start} ～ {perf.window_end}（{perf.sessions} 個交易日）的還原股價走勢，不是你實際買賣的損益紀錄。基準為{data.benchmark_name}；期間受除權息驗證範圍限制，最長一年。
+            </p>
             <div className="grid grid-cols-2 gap-2 sm:grid-cols-5">
-              <Stat label="組合報酬" value={pct(m.total_return)} valueTone={m.total_return} />
+              <Stat label="回放報酬" value={pct(m.total_return)} valueTone={m.total_return} />
               <Stat label={`${data.benchmark_symbol.split('.')[0]} 報酬`} value={pct(m.benchmark_return)} valueTone={m.benchmark_return} />
               <Stat label="Beta" value={m.beta == null ? '—' : m.beta.toFixed(2)} hint="跟大盤連動程度，1 = 同步" />
               <Stat label="年化波動度" value={pct(m.volatility)} hint={`0050 為 ${pct(m.benchmark_volatility)}`} />
               <Stat label="最大回撤" value={pct(m.max_drawdown)} valueTone={m.max_drawdown} hint="期間內從高點最大跌幅" />
             </div>
             <PerformanceChart series={perf.series} benchmarkLabel={data.benchmark_symbol.split('.')[0]} />
-            <p className="text-[11px] text-muted">
-              以目前持股股數回推 {perf.window_start} ～ {perf.window_end}（{perf.sessions} 個交易日）的還原股價走勢，不是實際交易損益；基準為{data.benchmark_name}。期間受除權息驗證範圍限制，最長一年。
-            </p>
           </>
         ) : (
           <p className="rounded-lg bg-base px-3 py-2 text-xs text-muted">
@@ -124,7 +125,7 @@ function PerformanceChart({ series, benchmarkLabel }: { series: TaiwanPortfolioA
       xAxis: { type: 'category', data: series.map(r => r.date) },
       yAxis: { type: 'value', scale: true },
       series: [
-        { name: '我的組合', type: 'line', showSymbol: false, data: series.map(r => r.portfolio), lineStyle: { width: 2, color: '#0ea5e9' }, itemStyle: { color: '#0ea5e9' } },
+        { name: '目前持股回放', type: 'line', showSymbol: false, data: series.map(r => r.portfolio), lineStyle: { width: 2, color: '#0ea5e9' }, itemStyle: { color: '#0ea5e9' } },
         { name: benchmarkLabel, type: 'line', showSymbol: false, data: series.map(r => r.benchmark), lineStyle: { width: 1.5, color: '#94a3b8' }, itemStyle: { color: '#94a3b8' } },
       ],
     })
