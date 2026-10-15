@@ -13,5 +13,7 @@ export default defineConfig({
     environment: 'jsdom',
     globals: false,
     setupFiles: ['./src/test/setup.ts'],
+    // Must stay above asyncUtilTimeout (src/test/setup.ts) so a failed findBy*/waitFor reports its DOM diagnostic.
+    testTimeout: 10_000,
   },
 })
