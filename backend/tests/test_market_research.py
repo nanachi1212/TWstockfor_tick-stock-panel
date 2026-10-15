@@ -116,6 +116,18 @@ def test_illiquid_etf_keeps_session_complete_and_missing_row_breaks_own_streak(r
     assert streaks["2317.TWSE"].buy_streak.value == 5
 
 
+def test_market_flow_series_lots_and_incomplete_day_is_none(research):
+    sessions, _, _, flows, _, _ = research
+    flows.write_batch(pl.DataFrame({"symbol": ["8069.TPEX"], "date": [sessions[-2]],
+                                    "trade_date": [sessions[-2]], "status": ["partial"]}))
+    series = institutional(research).get_market_flow_series(sessions[-1])
+    assert [d.date for d in series.days] == [str(d) for d in sessions[-20:]]
+    assert series.days[-1].foreign == 3.0 and series.days[-1].investment_trust == -1.0
+    assert series.days[-1].dealer == 0
+    # TPEx missing on that day: unknown, never a TWSE-only total or 0.
+    assert series.days[-2].foreign is None
+
+
 def test_unavailable_and_weekend_holiday_windows(research):
     svc = institutional(research)
     snap = svc.get_snapshot(date(2025, 1, 1))

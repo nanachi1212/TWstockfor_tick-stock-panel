@@ -13,6 +13,7 @@ import { BeginnerDashboardWidget } from '@/components/beginner/BeginnerPicker'
 import { ExternalContextCard } from '@/components/ExternalContextCard'
 import { BuyPointSummaryCard } from '@/components/dashboard/BuyPointSummaryCard'
 import { DashboardDailyBriefWidget, DashboardSelectionReviewWidget, DashboardSocialSentimentWidget } from '@/components/dashboard/DashboardWidgets'
+import { InstitutionalFlowChart } from '@/components/dashboard/InstitutionalFlowChart'
 import { IndustryStrengthCard } from '@/components/dashboard/IndustryStrengthCard'
 import { MarketAnomalyCard } from '@/components/dashboard/MarketAnomalyCard'
 import { MarketOverviewCard } from '@/components/dashboard/MarketOverviewCard'
@@ -56,48 +57,16 @@ export function Dashboard() {
 
   return (
     <div className="min-h-full bg-base p-1.5">
-      {/* A8: 首頁先呈現市場概況，再顯示類股熱度與市場異常，接著今日選股、持倉、觀察與提醒。
-          台股資料狀態卡保留在底部，供需要時確認資料新鮮度。
-          (資料新鮮度) 移到最下層。Phase 8C-D: 中國 A 股 legacy 大盤看板整段已
-          移除產品介面, Dashboard 全站僅剩台股內容, 不再有任何 legacy 開關。 */}
-      {/* Beginner Stock Picker v1: 第一屏先回答「今天適不適合選股、看哪幾檔、現在怎麼做」。 */}
-      <BeginnerDashboardWidget />
-      <div className="mb-1.5"><ExternalContextCard compact /></div>
+      {/* 第一眼先看圖：法人買賣超走勢與市場概況，其次是選股、持股、觀察與提醒。
+          其餘背景資訊收進「更多市場資訊」，預設收合，內容與功能不變。 */}
+      <InstitutionalFlowChart />
       <MarketOverviewCard
         snapshot={diagnostics.data?.market_snapshot ?? (diagnostics.isError ? marketFallback.data : undefined)}
         loading={marketDataStatus.isLoading || diagnostics.isLoading || (diagnostics.isError && marketFallback.isLoading)}
         error={diagnostics.isError && marketFallback.isError}
         marketDailyStatus={marketDailyStatus}
       />
-
-      {/* A11: 市場多空情緒依據與今日市場重要事件 */}
-      <div className="mb-1.5 grid grid-cols-1 gap-1.5 lg:grid-cols-2">
-        <MarketSentimentCard targetDate={latestDailyAsOf} />
-        <TodayEventsWidget />
-      </div>
-
-      {/* A12: 每日 AI 盤勢摘要與選股復盤概況 */}
-      <div className="mb-1.5 grid grid-cols-1 gap-1.5 lg:grid-cols-2">
-        <DashboardDailyBriefWidget />
-        <DashboardSelectionReviewWidget />
-      </div>
-
-      <DashboardSocialSentimentWidget />
-      <DataHealthSummary />
-      <div className="mb-1.5"><BuyPointSummaryCard /></div>
-
-      <div className="mb-1.5 grid grid-cols-1 gap-1.5 lg:grid-cols-2">
-        <IndustryStrengthCard
-          snapshot={diagnostics.data?.industry_snapshot ?? (diagnostics.isError ? industryFallback.data : undefined)}
-          loading={marketDataStatus.isLoading || diagnostics.isLoading || (diagnostics.isError && industryFallback.isLoading)}
-          error={diagnostics.isError && industryFallback.isError}
-          marketDailyStatus={marketDailyStatus}
-        />
-        <MarketAnomalyCard snapshot={diagnostics.data} loading={marketDataStatus.isLoading || diagnostics.isLoading} error={diagnostics.isError} alerts={todayAlerts.data?.alerts ?? []} alertsLoading={todayAlerts.isLoading} alertsError={todayAlerts.isError} marketDailyStatus={marketDailyStatus} />
-      </div>
-
-      <TodaySelection />
-      <QuantEvaluationCard compact />
+      <BeginnerDashboardWidget />
       <div className="mb-1.5"><PortfolioPanel /></div>
       <WatchlistQuickGlance
         anomalies={diagnostics.data}
@@ -121,9 +90,37 @@ export function Dashboard() {
         <MonitorWidget onStockClick={(symbol) => openStock(symbol)} />
       </section>
 
-      {/* 台股資料狀態(資料新鮮度) — 最下層, 不再是首頁第一眼內容。 */}
-      <TaiwanOverviewCard />
-
+      <details className="mb-1.5 rounded-card border border-border bg-surface/80 p-1.5">
+        <summary className="cursor-pointer select-none text-xs font-semibold text-foreground">
+          更多市場資訊 <span className="font-normal text-muted">（情緒、事件、AI 盤勢、類股、異常、量化、總經、資料狀態）</span>
+        </summary>
+        <div className="mt-1.5">
+          <div className="mb-1.5 grid grid-cols-1 gap-1.5 lg:grid-cols-2">
+            <MarketSentimentCard targetDate={latestDailyAsOf} />
+            <TodayEventsWidget />
+          </div>
+          <div className="mb-1.5 grid grid-cols-1 gap-1.5 lg:grid-cols-2">
+            <DashboardDailyBriefWidget />
+            <DashboardSelectionReviewWidget />
+          </div>
+          <div className="mb-1.5 grid grid-cols-1 gap-1.5 lg:grid-cols-2">
+            <IndustryStrengthCard
+              snapshot={diagnostics.data?.industry_snapshot ?? (diagnostics.isError ? industryFallback.data : undefined)}
+              loading={marketDataStatus.isLoading || diagnostics.isLoading || (diagnostics.isError && industryFallback.isLoading)}
+              error={diagnostics.isError && industryFallback.isError}
+              marketDailyStatus={marketDailyStatus}
+            />
+            <MarketAnomalyCard snapshot={diagnostics.data} loading={marketDataStatus.isLoading || diagnostics.isLoading} error={diagnostics.isError} alerts={todayAlerts.data?.alerts ?? []} alertsLoading={todayAlerts.isLoading} alertsError={todayAlerts.isError} marketDailyStatus={marketDailyStatus} />
+          </div>
+          <DashboardSocialSentimentWidget />
+          <div className="mb-1.5"><BuyPointSummaryCard /></div>
+          <TodaySelection />
+          <QuantEvaluationCard compact />
+          <div className="mb-1.5"><ExternalContextCard compact /></div>
+          <DataHealthSummary />
+          <TaiwanOverviewCard />
+        </div>
+      </details>
     </div>
   )
 }

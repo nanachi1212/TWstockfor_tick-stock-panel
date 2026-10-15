@@ -46,6 +46,20 @@ class InstitutionalStatisticsSnapshot(BaseModel):
     securities: list[InstitutionalStatisticsRow]
 
 
+class InstitutionalFlowDay(BaseModel):
+    date: str
+    foreign: float | None
+    investment_trust: float | None
+    dealer: float | None
+
+
+class InstitutionalFlowSeries(BaseModel):
+    date: str
+    window: InstitutionalWindow
+    unit: str = "lots"
+    days: list[InstitutionalFlowDay]
+
+
 class TaiwanInstitutionalStatisticsService:
     def __init__(
         self, institutional_store: TaiwanInstitutionalStore | None = None,
@@ -64,6 +78,41 @@ class TaiwanInstitutionalStatisticsService:
         self, target_date: date | None = None, window: InstitutionalWindow = 5,
     ) -> InstitutionalStatisticsSnapshot:
         target = target_date or resolve_target_latest_trading_date(self.calendar)
+        sessions, master, flows, daily, complete_dates = self._load(target, window)
+        symbols = master["symbol"].to_list()
+        grouped_flows = {key[0]: frame for key, frame in flows.partition_by("symbol", as_dict=True).items()} if not flows.is_empty() else {}
+        grouped_daily = {key[0]: frame for key, frame in daily.partition_by("symbol", as_dict=True).items()} if not daily.is_empty() else {}
+        securities = [self._row(
+            r["symbol"], r["name"], r["exchange"], [r["symbol"]],
+            grouped_flows.get(r["symbol"], pl.DataFrame()),
+            grouped_daily.get(r["symbol"], pl.DataFrame()), sessions, target, complete_dates,
+        ) for r in master.sort("symbol").iter_rows(named=True)]
+        aggregates = []
+        for exchange in ("ALL", "TWSE", "TPEX"):
+            scope = symbols if exchange == "ALL" else master.filter(pl.col("exchange") == exchange)["symbol"].to_list()
+            sub = flows.filter(pl.col("symbol").is_in(scope)) if not flows.is_empty() else flows
+            prices = daily.filter(pl.col("symbol").is_in(scope)) if not daily.is_empty() else daily
+            aggregates.append(self._row(exchange, exchange, exchange, scope, sub, prices, sessions, target, complete_dates))
+        return InstitutionalStatisticsSnapshot(
+            date=str(target), window=window, sessions=[str(d) for d in sessions],
+            aggregates=aggregates, securities=securities,
+        )
+
+    def get_market_flow_series(
+        self, target_date: date | None = None, window: InstitutionalWindow = 20,
+    ) -> InstitutionalFlowSeries:
+        """Market-wide daily net lots per investor; an incomplete session stays None."""
+        target = target_date or self.store.latest_date() or resolve_target_latest_trading_date(self.calendar)
+        sessions, _, flows, _, complete_dates = self._load(target, window)
+        totals = {r["date"]: r for r in flows.group_by("date").agg(
+            [pl.col(f"{i}_net").sum() for i in INVESTORS]).iter_rows(named=True)} if not flows.is_empty() else {}
+        return InstitutionalFlowSeries(date=str(target), window=window, days=[InstitutionalFlowDay(
+            date=str(d), **{i: totals[d][f"{i}_net"] / 1000 if d in complete_dates else None for i in INVESTORS},
+        ) for d in sessions])
+
+    def _load(
+        self, target: date, window: int,
+    ) -> tuple[list[date], pl.DataFrame, pl.DataFrame, pl.DataFrame, set[date]]:
         known = set(self.store.available_dates()) | set(self.daily.available_dates())
         sessions = research_sessions(target, window, known, self.calendar, self.evidence)
         master = self.master.to_dataframe(supported_only=True).filter(
@@ -94,24 +143,7 @@ class TaiwanInstitutionalStatisticsService:
             )).join(master.select("symbol", "exchange"), on="symbol")
             published = valid.group_by("date").agg(pl.col("exchange").n_unique().alias("n"))
             complete_dates = set(published.filter(pl.col("n") == len(exchanges))["date"].to_list())
-
-        grouped_flows = {key[0]: frame for key, frame in flows.partition_by("symbol", as_dict=True).items()} if not flows.is_empty() else {}
-        grouped_daily = {key[0]: frame for key, frame in daily.partition_by("symbol", as_dict=True).items()} if not daily.is_empty() else {}
-        securities = [self._row(
-            r["symbol"], r["name"], r["exchange"], [r["symbol"]],
-            grouped_flows.get(r["symbol"], pl.DataFrame()),
-            grouped_daily.get(r["symbol"], pl.DataFrame()), sessions, target, complete_dates,
-        ) for r in master.sort("symbol").iter_rows(named=True)]
-        aggregates = []
-        for exchange in ("ALL", "TWSE", "TPEX"):
-            scope = symbols if exchange == "ALL" else master.filter(pl.col("exchange") == exchange)["symbol"].to_list()
-            sub = flows.filter(pl.col("symbol").is_in(scope)) if not flows.is_empty() else flows
-            prices = daily.filter(pl.col("symbol").is_in(scope)) if not daily.is_empty() else daily
-            aggregates.append(self._row(exchange, exchange, exchange, scope, sub, prices, sessions, target, complete_dates))
-        return InstitutionalStatisticsSnapshot(
-            date=str(target), window=window, sessions=[str(d) for d in sessions],
-            aggregates=aggregates, securities=securities,
-        )
+        return sessions, master, flows, daily, complete_dates
 
     def _row(
         self, symbol: str, name: str, exchange: str, symbols: list[str],

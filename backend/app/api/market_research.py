@@ -9,6 +9,7 @@ from app.taiwan.industry_intelligence import (
     TaiwanIndustryIntelligenceService,
 )
 from app.taiwan.institutional_statistics import (
+    InstitutionalFlowSeries,
     InstitutionalStatisticsSnapshot,
     InstitutionalWindow,
     TaiwanInstitutionalStatisticsService,
@@ -24,6 +25,11 @@ def institutional_statistics(
     if window not in (5, 10, 20, 45, 60):
         raise HTTPException(status_code=422, detail="window must be one of 5, 10, 20, 45, 60")
     return TaiwanInstitutionalStatisticsService().get_snapshot(target_date, cast(InstitutionalWindow, window))
+
+
+@router.get("/institutional-flow-series", response_model=InstitutionalFlowSeries)
+def institutional_flow_series(target_date: Annotated[date | None, Query(alias="date")] = None) -> InstitutionalFlowSeries:
+    return TaiwanInstitutionalStatisticsService().get_market_flow_series(target_date)
 
 
 @router.get("/industry-rotation", response_model=IndustryRotationSnapshot)

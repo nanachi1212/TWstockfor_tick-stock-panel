@@ -81,6 +81,8 @@ function buildDiagnostics(
   }
 }
 
+vi.mock('echarts-for-react', () => ({ default: () => <div data-testid="flow-chart" /> }))
+
 vi.mock('@/lib/api', () => ({
   api: {
     beginnerSelection: vi.fn().mockRejectedValue(new Error('not mocked')),
@@ -127,6 +129,7 @@ vi.mock('@/lib/api', () => ({
     alertsMarkRead: vi.fn().mockResolvedValue({ ok: true }),
     alertsMarkAllRead: vi.fn().mockResolvedValue({ ok: true, updated: 1 }),
     alertDeleteById: vi.fn().mockResolvedValue({ ok: true }),
+    taiwanInstitutionalFlowSeries: vi.fn().mockResolvedValue({ date: '2026-09-05', window: 20, unit: 'lots', days: [{ date: '2026-09-04', foreign: null, investment_trust: null, dealer: null }, { date: '2026-09-05', foreign: 12000, investment_trust: -500, dealer: 0 }] }),
     taiwanMarketIntelligence: vi.fn().mockResolvedValue(null),
     taiwanIndustryIntelligence: vi.fn().mockResolvedValue(null),
     taiwanAbnormalDiagnostics: vi.fn().mockResolvedValue(buildDiagnostics()),
@@ -155,6 +158,17 @@ function renderDashboard(qc = new QueryClient({ defaultOptions: { queries: { ret
 
 afterEach(() => {
   vi.clearAllMocks()
+})
+
+describe('Dashboard — chart first', () => {
+  it('opens with the institutional flow chart and latest-day totals; gaps stay incomplete', async () => {
+    renderDashboard()
+    expect(await screen.findByTestId('flow-chart')).toBeInTheDocument()
+    expect(screen.getByText('三大法人買賣超')).toBeInTheDocument()
+    expect(screen.getByText('12,000 張')).toBeInTheDocument()
+    expect(screen.getByText('-500 張')).toBeInTheDocument()
+    expect(screen.getByText('更多市場資訊')).toBeInTheDocument()
+  })
 })
 
 describe('Dashboard — Legacy A-share removal (Phase 8C-D)', () => {

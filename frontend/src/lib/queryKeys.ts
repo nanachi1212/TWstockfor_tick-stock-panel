@@ -100,6 +100,7 @@ export const QK = {
   taiwanStockDetail:    (symbol: string, days?: number) => ['taiwan-stock-detail', symbol, days ?? 120] as const,
   taiwanCurrentData:    (symbol: string) => ['taiwan-current-data', symbol] as const,
   taiwanCapabilities:   ['taiwan-capabilities'] as const,
+  institutionalFlowSeries: ['institutional-flow-series'] as const,
   institutionalStatistics: (date: string, window: number) => ['institutional-statistics', date || 'latest', window] as const,
   industryRotation: (date: string) => ['industry-rotation', date || 'latest'] as const,
   chipRanking: (date: string) => ['chip-ranking', date || 'latest'] as const,
