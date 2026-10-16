@@ -64,6 +64,8 @@ describe('ChipRankingTab tracking', () => {
         h1: { status: 'pending', exit_date: null }, h5: { status: 'pending', exit_date: null } },
     ] })
     expect(await screen.findByText('+0.30%')).toBeInTheDocument()
+    expect(screen.getByText(/0050 基準使用同期間的還原價報酬/)).toBeInTheDocument()
+    expect(screen.queryByText(/0050 基準、超額報酬與勝過基準比例暫不提供/)).not.toBeInTheDocument()
     expect(screen.getByText('55%')).toBeInTheDocument()
     expect(screen.getByText('20 天 / 800 檔次')).toBeInTheDocument()
     expect(screen.getByText('等待隔日開盤')).toBeInTheDocument()

@@ -1,15 +1,17 @@
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from types import SimpleNamespace
 
 import polars as pl
 import pytest
 
+from app.taiwan.corporate_actions import CorporateActionEvent, event_market_open
 from app.taiwan.daily_store import TaiwanDailyStore
 from app.taiwan.portfolio_analytics import (
     BENCHMARK_SYMBOL,
     PortfolioAnalyticsService,
     series_metrics,
 )
+from app.taiwan.providers.taiwan_values import TAIPEI
 
 
 def test_series_metrics_fixed_sample():
@@ -80,6 +82,26 @@ def test_missing_session_blocks_metrics_instead_of_disappearing(tmp_path):
     assert perf["status"] == "unavailable"
     assert perf["metrics"] is None and perf["series"] == []
     assert perf["missing_sessions"] == [{"symbol": "2330.TWSE", "date": "2026-06-06"}]
+
+
+def test_0050_cash_distribution_adjusts_benchmark_return_and_series(tmp_path):
+    daily = _store(tmp_path)
+    ex = date(2026, 6, 16)
+    event = CorporateActionEvent(
+        BENCHMARK_SYMBOL, "TWSE", ex, event_market_open(ex), "cash_dividend",
+        157, 155, 155 / 157, 2, None, None, "TWT49U", "https://www.twse.com.tw",
+        datetime(2026, 6, 1, tzinfo=TAIPEI), status="verified")
+    rows = daily.read_range([BENCHMARK_SYMBOL], ex, date(2026, 6, 30))
+    daily.write_batch(rows.with_columns([(pl.col(c) - 2).alias(c) for c in ("open", "high", "low", "close")]))
+    svc = PortfolioAnalyticsService(daily=daily, master=_MASTER,
+                                    actions=_Actions((date(2026, 6, 1), date(2026, 6, 30), (event,))))
+    perf = svc.analyze({"2330.TWSE": 1})["performance"]
+    # Synthetic distribution: pre-ex prices use 155/157; ex-day and later prices stay raw.
+    expected = [(150 + i * 0.5) * 155 / 157 if i < 15 else 148 + i * 0.5 for i in range(30)]
+    assert perf["status"] == "available" and perf["sessions"] == 30
+    assert perf["metrics"]["total_return"] == pytest.approx(0.029)
+    assert perf["metrics"]["benchmark_return"] == pytest.approx(162.5 / (150 * 155 / 157) - 1)
+    assert [r["benchmark"] for r in perf["series"]] == pytest.approx([p / expected[0] * 100 for p in expected])
 
 
 def test_benchmark_suspension_gap_fails_closed_like_a_holding_gap(tmp_path):

@@ -76,7 +76,7 @@ function ChipTracking() {
   return <section className="space-y-3 border-t border-border pt-4">
     <h2 className="font-medium">排行追蹤成績（往後追蹤）</h2>
     <p className="text-xs text-muted leading-relaxed">
-      每天收盤更新後，把當天上市、上櫃各前 20 名存檔，之後不再重算。以「隔天開盤價買進」計算 1 天（當天收盤）與 5 天（第 5 個交易日收盤）的還原價漲跌。未計手續費與交易稅。只在融資資料公布後存檔；存檔時間晚於隔天開盤或任何一檔缺價格，該期間不計入平均。目前沒有可驗證的 ETF 配息涵蓋，0050 基準、超額報酬與勝過基準比例暫不提供，不再用月份猜測配息日期。
+      每天收盤更新後，把當天上市、上櫃各前 20 名存檔，之後不再重算。以「隔天開盤價買進」計算 1 天（當天收盤）與 5 天（第 5 個交易日收盤）的還原價漲跌。未計手續費與交易稅。只在融資資料公布後存檔；存檔時間晚於隔天開盤或任何一檔缺價格，該期間不計入平均。0050 基準使用同期間的還原價報酬；基準缺價或還原資料不足時，保留個股報酬，該期間不計入彙總。平均報酬、超額報酬與勝過 0050 比例使用同一批完整樣本，累積滿 20 個交易日才顯示。
     </p>
     {query.isLoading ? <p role="status" className="text-xs text-muted">讀取追蹤紀錄中…</p>
       : query.isError || !query.data ? <div role="alert" className="text-xs text-danger">追蹤紀錄讀取失敗<button className="ml-3 underline" onClick={() => void query.refetch()}>重試</button></div>

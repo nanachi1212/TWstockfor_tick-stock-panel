@@ -1,3 +1,4 @@
+import json
 from datetime import date, datetime
 
 import polars as pl
@@ -5,8 +6,13 @@ import pytest
 
 from app.taiwan import chip_ranking_tracking as tracking
 from app.taiwan.chip_ranking_tracking import BENCHMARK_SYMBOL, ChipRankingTracker
-from app.taiwan.corporate_actions import CorporateActionEvent, event_market_open
+from app.taiwan.corporate_actions import (
+    CorporateActionEvent,
+    CorporateActionStore,
+    event_market_open,
+)
 from app.taiwan.daily_store import TaiwanDailyStore
+from app.taiwan.providers.corporate_actions import SOURCE_URLS
 from app.taiwan.providers.taiwan_values import TAIPEI
 
 RANKED = date(2026, 10, 5)
@@ -103,6 +109,49 @@ def test_cash_dividend_inside_window_uses_adjusted_entry(tmp_path):
     a = t.report()["days"][0]["picks"][0]
     assert a["return_1"] == pytest.approx(0.03)  # ex-date is after the 1-session exit
     assert a["return_5"] == pytest.approx(110 / (100 * 100 / 104) - 1)  # dividend is not a loss
+
+
+@pytest.mark.parametrize("ex_index", [1, 3, 5])
+def test_0050_distribution_survives_freeze_and_store_reload(tmp_path, ex_index):
+    ex = SESSIONS[ex_index]
+    previous = [199, 202, 203][[1, 3, 5].index(ex_index)]
+    event = CorporateActionEvent(
+        BENCHMARK_SYMBOL, "TWSE", ex, event_market_open(ex), "cash_dividend",
+        previous, previous - 2, (previous - 2) / previous, 2, None, None,
+        "TWT49U", "https://www.twse.com.tw", AFTER_CLOSE, status="verified")
+    actions = CorporateActionStore(tmp_path / "actions")
+    actions.save([event])
+    actions.path.with_name("coverage.json").write_text(json.dumps({
+        "start": str(SESSIONS[0]), "end": str(SESSIONS[-1]),
+        "sources": list(SOURCE_URLS), "events_sha256": actions.snapshot_digest(),
+    }), encoding="utf-8")
+    daily = _bars(tmp_path)
+    rows = daily.read_range([BENCHMARK_SYMBOL], ex, SESSIONS[-1])
+    daily.write_batch(rows.with_columns([(pl.col(c) - 2).alias(c) for c in ("open", "high", "low", "close")]))
+    path = tmp_path / "tracking.jsonl"
+    tracker = ChipRankingTracker(path=path, daily=daily, actions=actions, next_session=_calendar)
+    assert tracker.freeze({**_snapshot(), "TPEX": []}, recorded_at=AFTER_CLOSE)["status"] == "frozen"
+    saved = path.read_bytes()
+    expected_report = tracker.report()
+    reloaded = ChipRankingTracker(path=path, daily=TaiwanDailyStore(data_dir=tmp_path),
+                                  actions=CorporateActionStore(tmp_path / "actions"), next_session=_calendar)
+    assert reloaded.report() == expected_report
+    assert reloaded.freeze({**_snapshot(), "TWSE": []}, recorded_at=AFTER_CLOSE)["reason"] == "already_frozen"
+    assert path.read_bytes() == saved
+    day = expected_report["days"][0]
+    # Buying on ex-day earns no distribution; an event after entry adjusts only pre-ex prices.
+    entry = 198 if ex_index == 1 else 200 * (previous - 2) / previous
+    expected_1 = 200 / 198 - 1 if ex_index == 1 else 0.01
+    expected_5 = 202 / entry - 1
+    for horizon, benchmark, stock in [(1, expected_1, 0.03), (5, expected_5, 0.10)]:
+        result = day[f"h{horizon}"]
+        assert result["status"] == "available"
+        assert result["benchmark_return"] == pytest.approx(benchmark)
+        assert result["avg_return"] == pytest.approx(stock)
+        assert result["avg_excess"] == pytest.approx(stock - benchmark)
+        assert day["picks"][0][f"excess_{horizon}"] == pytest.approx(stock - benchmark)
+    assert expected_report["summary"]["h5"]["sample_sufficient"] is False
+    assert expected_report["summary"]["h5"]["avg_excess"] is None
 
 
 def test_snapshot_recorded_after_entry_open_is_late(tmp_path):

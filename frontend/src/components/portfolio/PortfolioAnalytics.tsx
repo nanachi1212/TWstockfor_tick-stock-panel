@@ -75,7 +75,7 @@ function AnalyticsBody({ data }: { data: TaiwanPortfolioAnalytics }) {
         <p className="text-[11px] text-muted">占比以本頁已登錄持股的收盤市值計算，不含現金或其他帳戶。僅呈現集中程度，不設定風險門檻。</p>
       </div>
       <div className="grid gap-3 lg:grid-cols-[2fr_1fr]">
-      <div className="space-y-2">
+      <div className="min-w-0 space-y-2">
         <h3 className="text-xs font-semibold text-secondary">假設績效（以目前持股回放）</h3>
         {perf.status !== 'unavailable' && m ? (
           <>
