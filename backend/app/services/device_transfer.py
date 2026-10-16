@@ -1,10 +1,10 @@
 """裝置轉移: 單檔備份 / 還原 (.twstock-backup)。
 
-讓家裡與辦公室兩台電腦搬移使用者自己的設定與私人資料, 不必人工複製 user_data。
+讓家裡與辦公室兩台電腦搬移使用者自己的設定、私人資料與追蹤紀錄。
 
 格式 (ZIP 容器):
   manifest.json              版本、類別、每個檔案的 sha256; 不含 hostname / username / 路徑
-  files/<category>/<name>    允許清單內的 user_data 檔案 (或前端 localStorage 快照)
+  files/<category>/<name>    允許清單內的私人檔案 (或前端 localStorage 快照)
   secrets.enc                選填; AES-256-GCM, 金鑰由備份密碼經 scrypt 衍生,
                              AAD 綁定整份 manifest, 竄改 manifest 或密文都會解密失敗。
 
@@ -24,6 +24,8 @@ import platform
 import re
 import secrets as _secrets
 import shutil
+import sqlite3
+import tempfile
 import threading
 import zipfile
 from dataclasses import dataclass
@@ -35,6 +37,8 @@ from typing import Any
 from cryptography.exceptions import InvalidTag
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from cryptography.hazmat.primitives.kdf.scrypt import Scrypt
+
+from app.file_lock import file_lock
 
 logger = logging.getLogger(__name__)
 
@@ -63,7 +67,7 @@ class TransferError(ValueError):
 @dataclass(frozen=True)
 class Category:
     label: str
-    patterns: tuple[str, ...] = ()       # user_data 相對路徑; 目錄只支援單層 "dir/*.json"
+    patterns: tuple[str, ...] = ()       # 類別資料目錄的相對路徑; 萬用字元只支援 "dir/*.json"
     browser_keys: tuple[str, ...] = ()   # 前端 localStorage key (portfolio / UI 偏好住在瀏覽器)
 
 
@@ -92,6 +96,10 @@ CATEGORIES: dict[str, Category] = {
     "history": Category("提醒與摘要歷史", (
         "alerts.jsonl", "taiwan_ai_research_history.jsonl", "taiwan_daily_briefs.json",
         "research_candidates.json",
+    )),
+    "ai_feedback": Category("AI 回饋紀錄", ("ai_feedback.jsonl",)),
+    "research_tracking": Category("排行與 Quant 追蹤紀錄", (
+        "chip_ranking_tracking.jsonl", "live_quant/signals.sqlite3", "live_quant/outcomes.sqlite3",
     )),
 }
 SECRETS_CATEGORY = "secrets"
@@ -162,6 +170,13 @@ def _json_bytes(value: Any) -> bytes:
 
 
 def _sanitize_file(rel: str, raw: bytes) -> tuple[bytes, int]:
+    if rel.endswith(".sqlite3"):
+        with contextlib.closing(sqlite3.connect(":memory:")) as db:
+            db.deserialize(raw)
+            for table in _SQLITE_COLUMNS[Path(rel).name]:
+                for row in db.execute(f'SELECT * FROM "{table}"'):
+                    if any(isinstance(v, str) and _ABS_PATH.search(v.replace("\\\\", "\\")) for v in row):
+                        raise TransferError(f"{rel} 含本機路徑, 已停止匯出")
     if rel.endswith(".json"):
         value, n = _strip_paths(json.loads(raw.decode("utf-8")))
         return (_json_bytes(value) if n else raw), n
@@ -193,8 +208,9 @@ def _matches(category: str, rel: str) -> bool:
 
 
 def _current_files(user_dir: Path, category: str) -> list[str]:
-    """目前 user_data 中屬於此類別的檔案 (相對 POSIX 路徑)。"""
+    """目前屬於此類別的檔案 (相對 POSIX 路徑)。"""
     out: list[str] = []
+    user_dir = _category_dir(user_dir, category)
     for pattern in CATEGORIES[category].patterns:
         if "*" in pattern:
             folder, glob = pattern.split("/", 1)
@@ -204,6 +220,70 @@ def _current_files(user_dir: Path, category: str) -> list[str]:
         elif (user_dir / pattern).is_file():
             out.append(pattern)
     return out
+
+
+def _category_dir(user_dir: Path, category: str) -> Path:
+    return user_dir.parent / "taiwan" if category == "research_tracking" else user_dir
+
+
+def _storage_rel(category: str, rel: str) -> str:
+    return f"taiwan/{rel}" if category == "research_tracking" else rel
+
+
+def _target(user_dir: Path, rel: str) -> Path:
+    parts = PurePosixPath(rel).parts
+    if not parts or ".." in parts or "\\" in rel or ":" in rel or rel.startswith("/"):
+        raise TransferError("還原路徑不合法")
+    if parts[0] == "taiwan":
+        rel = "/".join(parts[1:])
+        if not _matches("research_tracking", rel):
+            raise TransferError("還原檔案不在允許清單")
+        user_dir = user_dir.parent / "taiwan"
+    target = user_dir / rel
+    if not target.resolve().is_relative_to(user_dir.resolve()):
+        raise TransferError("還原路徑超出資料目錄")
+    return target
+
+
+@contextlib.contextmanager
+def _record_locks(user_dir: Path, categories: list[str]):
+    paths = []
+    if "ai_feedback" in categories:
+        paths.append(user_dir / "ai_feedback.lock")
+    if "research_tracking" in categories:
+        paths.extend((user_dir.parent / "taiwan" / "chip_ranking_tracking.lock",
+                      user_dir.parent / "taiwan" / "live_quant" / ".transfer.lock"))
+    with contextlib.ExitStack() as stack:
+        for path in paths:
+            stack.enter_context(file_lock(path))
+        yield
+
+
+_SQLITE_COLUMNS = {
+    "signals.sqlite3": {
+        "models": "model_key definition first_live_session activated_at",
+        "runs": "model_key session digest snapshot frozen_at",
+        "conflicts": "model_key session digest payload recorded_at",
+        "operations": "recorded_at payload",
+    },
+    "outcomes.sqlite3": {
+        "observations": "model_key session symbol horizon digest payload recorded_at",
+        "evaluations": "model_key session symbol horizon digest recorded_at",
+    },
+}
+
+
+def _read_file(path: Path) -> bytes:
+    if path.suffix != ".sqlite3":
+        return path.read_bytes()
+    # SQLite backup 包含尚在 WAL 的已提交資料, 輸出可獨立還原的單檔。
+    with tempfile.TemporaryDirectory() as scratch:
+        snapshot = Path(scratch) / path.name
+        with (contextlib.closing(sqlite3.connect(path.resolve().as_uri() + "?mode=ro", uri=True)) as src,
+              contextlib.closing(sqlite3.connect(snapshot)) as dst):
+            src.backup(dst)
+            dst.execute("PRAGMA journal_mode=DELETE")
+        return snapshot.read_bytes()
 
 
 def _read_secrets_json(user_dir: Path) -> dict[str, Any]:
@@ -328,33 +408,34 @@ def build_backup(
 
     entries: dict[str, tuple[str, bytes]] = {}  # archive path -> (category, bytes)
     redacted = 0
-    for cat in categories:
-        spec = CATEGORIES[cat]
-        for rel in _current_files(user_dir, cat):
-            raw = (user_dir / rel).read_bytes()
-            try:
-                data, n = _sanitize_file(rel, raw)
-            except TransferError:
-                raise
-            except Exception as e:  # 損壞檔案不可默默略過
-                raise TransferError(f"{cat} 的檔案 {rel} 格式損壞, 無法備份") from e
-            redacted += n
-            entries[f"files/{cat}/{rel}"] = (cat, data)
-        if cat == "app_settings":
-            public = _public_ai_config(_read_secrets_json(user_dir))
-            if public:
-                cleaned, n = _strip_paths(public)
+    with _record_locks(user_dir, categories):
+        for cat in categories:
+            spec = CATEGORIES[cat]
+            for rel in _current_files(user_dir, cat):
+                try:
+                    raw = _read_file(_target(user_dir, _storage_rel(cat, rel)))
+                    data, n = _sanitize_file(rel, raw)
+                except TransferError:
+                    raise
+                except Exception as e:  # 損壞檔案不可默默略過
+                    raise TransferError(f"{cat} 的檔案 {rel} 格式損壞, 無法備份") from e
                 redacted += n
-                entries[f"files/{cat}/{_AI_CONFIG}"] = (cat, _json_bytes(cleaned))
-        if spec.browser_keys:
-            values = _clean_browser(cat, (browser_storage or {}).get(cat))
-            if values:
-                entries[f"files/{cat}/{_BROWSER_FILE}"] = (cat, _json_bytes(values))
+                entries[f"files/{cat}/{rel}"] = (cat, data)
+            if cat == "app_settings":
+                public = _public_ai_config(_read_secrets_json(user_dir))
+                if public:
+                    cleaned, n = _strip_paths(public)
+                    redacted += n
+                    entries[f"files/{cat}/{_AI_CONFIG}"] = (cat, _json_bytes(cleaned))
+            if spec.browser_keys:
+                values = _clean_browser(cat, (browser_storage or {}).get(cat))
+                if values:
+                    entries[f"files/{cat}/{_BROWSER_FILE}"] = (cat, _json_bytes(values))
 
     # 最終防線 (文字檔; parquet 已在 _sanitize_file 逐欄檢查): JSON key 等淨化不到處含絕對路徑即拒絕。
     for name, (_cat, data) in entries.items():
         text = data.decode("utf-8", errors="ignore").replace("\\\\", "\\")  # 還原 JSON 跳脫
-        if not name.endswith(".parquet") and _ABS_PATH.search(text):
+        if not name.endswith((".parquet", ".sqlite3")) and _ABS_PATH.search(text):
             raise TransferError(f"{name.split('/', 2)[2]} 含本機路徑, 已停止匯出")
 
     manifest_categories = list(categories) + ([SECRETS_CATEGORY] if include_secrets else [])
@@ -423,6 +504,18 @@ def _validate_entry(category: str, rel: str, data: bytes) -> str | None:
             import polars as pl
             if "symbol" not in pl.read_parquet_schema(io.BytesIO(data)):
                 return f"{rel}: 欄位結構不符"
+        elif rel.endswith(".sqlite3"):
+            with contextlib.closing(sqlite3.connect(":memory:")) as db:
+                db.deserialize(data)
+                if db.execute("PRAGMA quick_check").fetchall() != [("ok",)]:
+                    return f"{rel}: SQLite 完整性檢查失敗"
+                expected = _SQLITE_COLUMNS[Path(rel).name]
+                tables = {row[0] for row in db.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+                if tables != set(expected):
+                    return f"{rel}: SQLite 資料表不符"
+                for table, columns in expected.items():
+                    if [row[1] for row in db.execute(f'PRAGMA table_info("{table}")')] != columns.split():
+                        return f"{rel}: SQLite 欄位不符"
         else:
             return f"{rel}: 不支援的檔案類型"
     except Exception:  # 任何解析失敗都視為不相容, 不寫入
@@ -542,9 +635,18 @@ def _atomic_write(path: Path, data: bytes) -> None:
 
 
 def _apply(user_dir: Path, rel: str, data: bytes | None) -> None:
-    target = user_dir / rel
+    target = _target(user_dir, rel)
     if data is None:
         target.unlink(missing_ok=True)
+        if target.suffix == ".sqlite3":
+            for suffix in ("-wal", "-shm"):
+                target.with_name(target.name + suffix).unlink(missing_ok=True)
+    elif target.suffix == ".sqlite3":
+        target.parent.mkdir(parents=True, exist_ok=True)
+        with contextlib.closing(sqlite3.connect(":memory:")) as src:
+            src.deserialize(data)
+            with contextlib.closing(sqlite3.connect(target)) as dst:
+                src.backup(dst)
     else:
         _atomic_write(target, data)
 
@@ -554,12 +656,13 @@ def _create_restore_point(user_dir: Path, rels: list[str]) -> str:
     root = user_dir / _RESTORE_POINTS_DIR / rp_id
     existed: dict[str, bool] = {}
     for rel in rels:
-        src = user_dir / rel
+        src = _target(user_dir, rel)
         existed[rel] = src.is_file()
         if existed[rel]:
             dst = root / "files" / rel
             dst.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(src, dst)
+            dst.write_bytes(_read_file(src))
+            shutil.copystat(src, dst)
     root.mkdir(parents=True, exist_ok=True)
     _atomic_write(root / "index.json", _json_bytes({"files": existed}))
     return rp_id
@@ -574,8 +677,14 @@ def rollback(restore_point_id: str, *, user_dir: Path | None = None) -> dict[str
     index = _read_json_file(root / "index.json", None)
     if not isinstance(index, dict):
         raise TransferError("找不到此還原點")
-    with _lock:
+    categories = []
+    if "ai_feedback.jsonl" in index["files"]:
+        categories.append("ai_feedback")
+    if any(rel.startswith("taiwan/") for rel in index["files"]):
+        categories.append("research_tracking")
+    with _lock, _record_locks(user_dir, categories):
         for rel, existed in index["files"].items():
+            _target(user_dir, rel)
             _apply(user_dir, rel, (root / "files" / rel).read_bytes() if existed else None)
     _invalidate_caches()
     logger.info("device transfer: rolled back %d files", len(index["files"]))
@@ -627,37 +736,37 @@ def restore(
             raise TransferError("還原 API Keys 需要輸入備份密碼")
         secret_payload = _decrypt(parsed.secrets_blob or b"", password, _canonical(parsed.manifest))
 
-    plan: dict[str, bytes | None] = {}
-    browser: dict[str, dict[str, str]] = {}
-    for cat in categories:
-        if cat == SECRETS_CATEGORY:
-            continue
-        backup_files = parsed.files.get(cat, {})
-        if CATEGORIES[cat].browser_keys:
-            raw = backup_files.get(_BROWSER_FILE)
-            browser[cat] = json.loads(raw.decode("utf-8")) if raw else {}
-        for rel in _current_files(user_dir, cat):
-            plan[rel] = None
-        plan.update({rel: data for rel, data in backup_files.items()
-                     if rel not in (_AI_CONFIG, _BROWSER_FILE)})
+    with _lock, _record_locks(user_dir, categories):
+        plan: dict[str, bytes | None] = {}
+        browser: dict[str, dict[str, str]] = {}
+        for cat in categories:
+            if cat == SECRETS_CATEGORY:
+                continue
+            backup_files = parsed.files.get(cat, {})
+            if CATEGORIES[cat].browser_keys:
+                raw = backup_files.get(_BROWSER_FILE)
+                browser[cat] = json.loads(raw.decode("utf-8")) if raw else {}
+            for rel in _current_files(user_dir, cat):
+                plan[_storage_rel(cat, rel)] = None
+            plan.update({_storage_rel(cat, rel): data for rel, data in backup_files.items()
+                         if rel not in (_AI_CONFIG, _BROWSER_FILE)})
 
-    # secrets.json 同時存放 AI 設定與金鑰: 分開合併, 未選的部分保留本機現值。
-    if "app_settings" in categories or secret_payload is not None:
-        current = _read_secrets_json(user_dir)
-        public = _public_ai_config(current)
-        if "app_settings" in categories:
-            raw = parsed.files.get("app_settings", {}).get(_AI_CONFIG)
-            public = json.loads(raw.decode("utf-8")) if raw else {}
-        secret = _secret_part(current)
-        if secret_payload is not None:
-            secret = dict(secret_payload.get("secrets_json") or {})
-            plan["ai_key_profiles_secrets.json"] = _json_bytes(
-                secret_payload.get("ai_key_profiles_secrets") or {})
-        local = {k: v for k, v in current.items() if k in _MACHINE_LOCAL_KEYS}
-        merged = {**{k: v for k, v in public.items() if not _is_secret_key(k)}, **secret, **local}
-        plan["secrets.json"] = _json_bytes(merged) if merged else None
+        # secrets.json 同時存放 AI 設定與金鑰: 分開合併, 未選的部分保留本機現值。
+        if "app_settings" in categories or secret_payload is not None:
+            current = _read_secrets_json(user_dir)
+            public = _public_ai_config(current)
+            if "app_settings" in categories:
+                raw = parsed.files.get("app_settings", {}).get(_AI_CONFIG)
+                public = json.loads(raw.decode("utf-8")) if raw else {}
+            secret = _secret_part(current)
+            if secret_payload is not None:
+                secret = dict(secret_payload.get("secrets_json") or {})
+                plan["ai_key_profiles_secrets.json"] = _json_bytes(
+                    secret_payload.get("ai_key_profiles_secrets") or {})
+            local = {k: v for k, v in current.items() if k in _MACHINE_LOCAL_KEYS}
+            merged = {**{k: v for k, v in public.items() if not _is_secret_key(k)}, **secret, **local}
+            plan["secrets.json"] = _json_bytes(merged) if merged else None
 
-    with _lock:
         rp_id = _create_restore_point(user_dir, sorted(plan))
         try:
             for rel in sorted(plan):

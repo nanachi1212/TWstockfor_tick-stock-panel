@@ -16,6 +16,7 @@ from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
+from app.file_lock import file_lock
 from app.taiwan.providers.taiwan_values import market_close
 from app.taiwan.quant.data_health import current_live_readiness
 from app.taiwan.quant.live_contract import (
@@ -93,61 +94,62 @@ class LiveLedger:
 
     @contextmanager
     def _connect(self, outcomes: bool = False, *, read_only: bool = False):
-        if read_only:
-            path = self.root / ("outcomes.sqlite3" if outcomes else "signals.sqlite3")
-            db = sqlite3.connect(path.resolve().as_uri() + "?mode=ro", uri=True, timeout=30)
+        with file_lock(self.root / ".transfer.lock"):
+            if read_only:
+                path = self.root / ("outcomes.sqlite3" if outcomes else "signals.sqlite3")
+                db = sqlite3.connect(path.resolve().as_uri() + "?mode=ro", uri=True, timeout=30)
+                db.row_factory = sqlite3.Row
+                try:
+                    yield db
+                finally:
+                    db.close()
+                return
+            self.root.mkdir(parents=True, exist_ok=True)
+            db = sqlite3.connect(self.root / ("outcomes.sqlite3" if outcomes else "signals.sqlite3"),
+                                 timeout=30)
             db.row_factory = sqlite3.Row
+            db.execute("PRAGMA foreign_keys=ON")
+            if outcomes:
+                db.executescript("""
+                    CREATE TABLE IF NOT EXISTS observations (
+                        model_key TEXT NOT NULL, session TEXT NOT NULL, symbol TEXT NOT NULL,
+                        horizon INTEGER NOT NULL CHECK(horizon IN (1,5,20)),
+                        digest TEXT NOT NULL, payload TEXT NOT NULL, recorded_at TEXT NOT NULL,
+                        PRIMARY KEY(model_key,session,symbol,horizon,digest));
+                    CREATE TABLE IF NOT EXISTS evaluations (
+                        model_key TEXT NOT NULL, session TEXT NOT NULL, symbol TEXT NOT NULL,
+                        horizon INTEGER NOT NULL, digest TEXT NOT NULL, recorded_at TEXT NOT NULL);
+                    CREATE INDEX IF NOT EXISTS evaluation_identity
+                        ON evaluations(model_key,session,symbol,horizon);
+                """)
+                tables = ("observations", "evaluations")
+            else:
+                db.executescript("""
+                    CREATE TABLE IF NOT EXISTS models (
+                        model_key TEXT PRIMARY KEY, definition TEXT NOT NULL,
+                        first_live_session TEXT NOT NULL, activated_at TEXT NOT NULL);
+                    CREATE TABLE IF NOT EXISTS runs (
+                        model_key TEXT NOT NULL REFERENCES models(model_key), session TEXT NOT NULL,
+                        digest TEXT NOT NULL, snapshot TEXT NOT NULL, frozen_at TEXT NOT NULL,
+                        PRIMARY KEY(model_key,session));
+                    CREATE TABLE IF NOT EXISTS conflicts (
+                        model_key TEXT NOT NULL, session TEXT NOT NULL, digest TEXT NOT NULL,
+                        payload TEXT NOT NULL, recorded_at TEXT NOT NULL,
+                        PRIMARY KEY(model_key,session,digest));
+                    CREATE TABLE IF NOT EXISTS operations (
+                        recorded_at TEXT NOT NULL, payload TEXT NOT NULL);
+                """)
+                tables = ("models", "runs", "conflicts", "operations")
+            for table in tables:
+                for action in ("UPDATE", "DELETE"):
+                    db.execute(f"""CREATE TRIGGER IF NOT EXISTS immutable_{table}_{action}
+                        BEFORE {action} ON {table} BEGIN
+                        SELECT RAISE(ABORT, 'immutable live event'); END""")
             try:
-                yield db
+                with db:
+                    yield db
             finally:
                 db.close()
-            return
-        self.root.mkdir(parents=True, exist_ok=True)
-        db = sqlite3.connect(self.root / ("outcomes.sqlite3" if outcomes else "signals.sqlite3"),
-                             timeout=30)
-        db.row_factory = sqlite3.Row
-        db.execute("PRAGMA foreign_keys=ON")
-        if outcomes:
-            db.executescript("""
-                CREATE TABLE IF NOT EXISTS observations (
-                    model_key TEXT NOT NULL, session TEXT NOT NULL, symbol TEXT NOT NULL,
-                    horizon INTEGER NOT NULL CHECK(horizon IN (1,5,20)),
-                    digest TEXT NOT NULL, payload TEXT NOT NULL, recorded_at TEXT NOT NULL,
-                    PRIMARY KEY(model_key,session,symbol,horizon,digest));
-                CREATE TABLE IF NOT EXISTS evaluations (
-                    model_key TEXT NOT NULL, session TEXT NOT NULL, symbol TEXT NOT NULL,
-                    horizon INTEGER NOT NULL, digest TEXT NOT NULL, recorded_at TEXT NOT NULL);
-                CREATE INDEX IF NOT EXISTS evaluation_identity
-                    ON evaluations(model_key,session,symbol,horizon);
-            """)
-            tables = ("observations", "evaluations")
-        else:
-            db.executescript("""
-                CREATE TABLE IF NOT EXISTS models (
-                    model_key TEXT PRIMARY KEY, definition TEXT NOT NULL,
-                    first_live_session TEXT NOT NULL, activated_at TEXT NOT NULL);
-                CREATE TABLE IF NOT EXISTS runs (
-                    model_key TEXT NOT NULL REFERENCES models(model_key), session TEXT NOT NULL,
-                    digest TEXT NOT NULL, snapshot TEXT NOT NULL, frozen_at TEXT NOT NULL,
-                    PRIMARY KEY(model_key,session));
-                CREATE TABLE IF NOT EXISTS conflicts (
-                    model_key TEXT NOT NULL, session TEXT NOT NULL, digest TEXT NOT NULL,
-                    payload TEXT NOT NULL, recorded_at TEXT NOT NULL,
-                    PRIMARY KEY(model_key,session,digest));
-                CREATE TABLE IF NOT EXISTS operations (
-                    recorded_at TEXT NOT NULL, payload TEXT NOT NULL);
-            """)
-            tables = ("models", "runs", "conflicts", "operations")
-        for table in tables:
-            for action in ("UPDATE", "DELETE"):
-                db.execute(f"""CREATE TRIGGER IF NOT EXISTS immutable_{table}_{action}
-                    BEFORE {action} ON {table} BEGIN
-                    SELECT RAISE(ABORT, 'immutable live event'); END""")
-        try:
-            with db:
-                yield db
-        finally:
-            db.close()
 
     def current_session(self):
         if self.evidence is None:

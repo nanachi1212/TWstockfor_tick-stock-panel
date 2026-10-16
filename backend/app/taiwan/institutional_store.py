@@ -14,14 +14,13 @@ from __future__ import annotations
 import logging
 import os
 import tempfile
-import threading
-from collections import defaultdict
 from contextlib import suppress
 from datetime import date
 from pathlib import Path
 
 import polars as pl
 
+from app.file_lock import file_lock
 from app.taiwan.providers.base import (
     AmountUnit,
     PriceSemantics,
@@ -110,13 +109,6 @@ class TaiwanInstitutionalStore:
             data_dir = taiwan_data_root() / "institutional"
         self._data_dir = Path(data_dir)
         self._data_dir.mkdir(parents=True, exist_ok=True)
-        self._partition_locks: dict[str, threading.Lock] = defaultdict(threading.Lock)
-        self._locks_guard = threading.Lock()
-
-    def _lock_for(self, d: date) -> threading.Lock:
-        key = d.isoformat()
-        with self._locks_guard:
-            return self._partition_locks[key]
 
     def write_batch(self, df: pl.DataFrame, partition_date: date | None = None) -> int:
         """Atomically append rows to the institutional parquet dataset, grouped by date."""
@@ -154,7 +146,7 @@ class TaiwanInstitutionalStore:
         return total_written
 
     def _write_single_partition(self, partition_date: date, new_df: pl.DataFrame) -> int:
-        with self._lock_for(partition_date):
+        with file_lock(self._data_dir / f"date={partition_date.isoformat()}" / ".write.lock"):
             part_dir = self._data_dir / f"date={partition_date.isoformat()}"
             part_dir.mkdir(parents=True, exist_ok=True)
             target = part_dir / "part.parquet"

@@ -36,11 +36,11 @@ AUTH_PASSWORD='你的密碼'
 
 ### 重置密碼(忘密碼時)
 
-如果忘了密碼想重置:刪除或清空 `data/user_data/auth.json`,重啟服務,會回到"未設密碼"狀態,此時 `AUTH_PASSWORD` 會重新生效。
+如果忘了密碼，先停止服務並備份 `data/user_data/auth.json`，再將原檔移出資料目錄。重啟後會回到「未設密碼」狀態，此時 `AUTH_PASSWORD` 會重新生效。不要清空檔案：空檔、損壞或無法讀取的認證檔會回傳 HTTP 503，系統會保留原檔並停止認證，直到管理者修復。
 
 ```bash
-# 停服後執行, 清空後重啟
-rm data/user_data/auth.json
+# 停服後執行；備份檔須妥善保管，且不可覆蓋已有備份
+mv -i data/user_data/auth.json data/user_data/auth.json.backup
 ```
 
 ---

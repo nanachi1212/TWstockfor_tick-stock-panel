@@ -12,8 +12,6 @@ from __future__ import annotations
 import logging
 import os
 import tempfile
-import threading
-from collections import defaultdict
 from contextlib import suppress
 from datetime import date
 from pathlib import Path
@@ -21,6 +19,7 @@ from typing import Any
 
 import polars as pl
 
+from app.file_lock import file_lock
 from app.taiwan.providers.base import (
     AmountUnit,
     PriceSemantics,
@@ -60,14 +59,6 @@ class TaiwanDailyStore:
             data_dir = taiwan_data_root() / "daily"
         self._data_dir = Path(data_dir)
         self._data_dir.mkdir(parents=True, exist_ok=True)
-        self._partition_locks: dict[str, threading.Lock] = defaultdict(threading.Lock)
-        self._locks_guard = threading.Lock()
-
-    def _lock_for(self, d: date) -> threading.Lock:
-        """Return a per-partition lock keyed by date ISO string."""
-        key = d.isoformat()
-        with self._locks_guard:
-            return self._partition_locks[key]
 
     # ── Write ──────────────────────────────────────────────────────
 
@@ -119,19 +110,16 @@ class TaiwanDailyStore:
         per-partition lock so that concurrent writers targeting the same
         date are serialized (different dates can still write in parallel).
         """
-        with self._lock_for(d):
+        with file_lock(self._data_dir / f"date={d.isoformat()}" / ".write.lock"):
             partition_dir = self._data_dir / f"date={d.isoformat()}"
             partition_dir.mkdir(parents=True, exist_ok=True)
             target = partition_dir / "part.parquet"
 
             # Merge with existing partition if present.
             if target.exists():
-                try:
-                    existing = pl.scan_parquet(target, missing_columns="insert", extra_columns="ignore").collect()
-                    if not existing.is_empty():
-                        df = pl.concat([existing, df], how="diagonal_relaxed")
-                except Exception as exc:
-                    logger.warning("Failed to read existing partition %s: %s", target, exc)
+                existing = pl.scan_parquet(target, missing_columns="insert", extra_columns="ignore").collect()
+                if not existing.is_empty():
+                    df = pl.concat([existing, df], how="diagonal_relaxed")
 
             # Final dedup + deterministic sort.
             before = df.height

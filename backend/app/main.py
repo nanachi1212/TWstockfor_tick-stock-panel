@@ -41,6 +41,7 @@ from app.jobs import daily_pipeline
 from app.log_sanitizer import SanitizingFormatter
 from app.services.quote_service import QuoteService
 from app.tickflow import client as tf_client
+from app.tickflow.capabilities import CapabilityDenied
 from app.tickflow.policy import detect_capabilities
 from app.tickflow.repository import DataStore, KlineRepository
 
@@ -71,7 +72,7 @@ if not getattr(sys, "frozen", False):
             SanitizingFormatter("%(asctime)s [%(levelname)s] %(name)s: %(message)s")
         )
         logging.getLogger().addHandler(_file_handler)
-    except Exception as _e:  # noqa: BLE001
+    except Exception as _e:
         logger.warning("文件日志初始化失败, 仅输出到终端: %s", _e)
 
 
@@ -87,7 +88,7 @@ async def _application_lifespan(app: FastAPI):
     try:
         from app.services import auth as auth_service
         auth_service.bootstrap_from_env()
-    except Exception as e:  # noqa: BLE001
+    except Exception as e:
         logger.warning("auth bootstrap failed: %s", e)
 
     # 数据层
@@ -97,7 +98,7 @@ async def _application_lifespan(app: FastAPI):
     app.state.repo = repo
     # 指标异步预热标志: enriched 缓存在后台线程构建, 完成后置 True
     app.state.indicators_ready = False
-    repo._on_warmup_done = lambda: setattr(app.state, "indicators_ready", True)  # noqa: SLF001
+    repo._on_warmup_done = lambda: setattr(app.state, "indicators_ready", True)
 
     # Polars 缓存预热 — enriched 的重计算 (107万行 compute_indicators) 推后台,
     # instruments/index/ETF 仍同步 (毫秒级)。应用立即 ready, 指标算完后自动替换。
@@ -113,7 +114,7 @@ async def _application_lifespan(app: FastAPI):
         from app.data_providers import custom as custom_sources
         custom_sources.load_all()
         logger.info("custom data sources loaded: %d", len(custom_sources.list_sources()))
-    except Exception as e:  # noqa: BLE001
+    except Exception as e:
         logger.warning("custom data sources init failed: %s", e)
 
     # 全局行情服务
@@ -128,7 +129,7 @@ async def _application_lifespan(app: FastAPI):
     try:
         daily_pipeline.set_app_state(app.state)
         app.state.scheduler = daily_pipeline.start_scheduler(repo, capset)
-    except Exception as e:  # noqa: BLE001
+    except Exception as e:
         logger.warning("scheduler not started: %s", e)
         app.state.scheduler = None
 
@@ -139,15 +140,15 @@ async def _application_lifespan(app: FastAPI):
         startup_catchup.schedule(app.state)
         if telegram_bot.is_enabled():
             telegram_bot.get_bot().start()
-    except Exception as e:  # noqa: BLE001
+    except Exception as e:
         logger.warning("startup catch-up / telegram bot init failed: %s", e)
 
-    # 本機 LM Studio: 開看板時自動把模型載入 (背景執行，不擋啟動)。
+    # 本機 LM Studio: 開看板時自動把模型載入 (背景執行,不擋啟動)。
     try:
         from app.services.ai_health import start_local_model_autoload
 
         start_local_model_autoload()
-    except Exception as e:  # noqa: BLE001
+    except Exception as e:
         logger.warning("local AI autoload not started: %s", e)
 
     # 源码内二次开发启动钩子: 仅暴露稳定只读上下文, 单个扩展失败不影响核心启动。
@@ -167,7 +168,7 @@ async def _application_lifespan(app: FastAPI):
 
             startup_catchup.cancel()
             telegram_bot.get_bot().stop()
-        except Exception:  # noqa: BLE001
+        except Exception:
             pass
         qs = getattr(app.state, "quote_service", None)
         if qs:
@@ -212,6 +213,11 @@ _AUTH_WHITELIST_PREFIX = ("/api/auth/",)
 _AUTH_WHITELIST_EXACT = ("/health", "/api/health", "/openapi.json", "/docs", "/redoc")
 
 
+@app.exception_handler(auth_api.auth.AuthStoreError)
+async def auth_store_error_handler(request: Request, exc: auth_api.auth.AuthStoreError):
+    return JSONResponse(status_code=503, content={"detail": str(exc), "code": "AUTH_STORE_UNAVAILABLE"})
+
+
 @app.middleware("http")
 async def auth_middleware(request: Request, call_next):
     path = request.url.path
@@ -223,8 +229,14 @@ async def auth_middleware(request: Request, call_next):
         return await call_next(request)
 
     from app.services import auth as auth_service
+    try:
+        configured = auth_service.is_configured()
+        token = request.cookies.get(auth_api.COOKIE_NAME)
+        authenticated = configured and bool(token) and auth_service.is_valid_session(token)
+    except auth_service.AuthStoreError as exc:
+        return await auth_store_error_handler(request, exc)
     # 情况 1+2: 未设密码
-    if not auth_service.is_configured():
+    if not configured:
         # 本机/内网 → 放行(服务器主人可访问, 并去 /login 设密码)
         if auth_api._is_local_network(auth_api._client_ip(request)):
             return await call_next(request)
@@ -238,8 +250,7 @@ async def auth_middleware(request: Request, call_next):
         )
 
     # 情况 3: 已设密码, 检查会话
-    token = request.cookies.get(auth_api.COOKIE_NAME)
-    if token and auth_service.is_valid_session(token):
+    if authenticated:
         return await call_next(request)
     # 未登录: 401(前端跳登录页)
     return JSONResponse(status_code=401, content={"detail": "未登录或会话已过期"})
@@ -273,9 +284,6 @@ app.state.extension_load_errors = extension_load_errors
 # 能力门控异常 → 403(而非默认 500)
 # 业务代码用 capset.require(Cap.X) 断言能力,缺失时抛 CapabilityDenied;
 # 若不注册 handler 会冒泡成 500 Internal Server Error,对前端不友好且语义错误。
-from app.tickflow.capabilities import CapabilityDenied
-
-
 @app.exception_handler(CapabilityDenied)
 async def capability_denied_handler(request: Request, exc: CapabilityDenied) -> JSONResponse:
     return JSONResponse(
@@ -290,7 +298,7 @@ if _static.exists():
         app.mount("/assets", StaticFiles(directory=_static / "assets"), name="assets")
 
     @app.get("/{full_path:path}", include_in_schema=False)
-    def spa_fallback(full_path: str):  # noqa: ARG001
+    def spa_fallback(full_path: str):
         """所有未匹配路径回退到 index.html — React Router 接管。
 
         index.html 禁止缓存 (Cache-Control: no-store), 确保浏览器每次拿到

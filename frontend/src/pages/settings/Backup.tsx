@@ -16,7 +16,7 @@ import {
 const PRESETS = [
   { id: 'settings', label: '只備份設定', desc: 'App 設定、介面偏好、監控規則、買點與選股策略' },
   { id: 'settings_portfolio', label: '設定 + 投資組合', desc: '再加上自選股與 Portfolio 成交紀錄' },
-  { id: 'full', label: '完整私人備份', desc: '再加上選股回顧快照、提醒與每日摘要歷史' },
+  { id: 'full', label: '完整私人備份', desc: '再加上選股回顧、排行與 Quant 追蹤、AI 回饋、提醒與每日摘要歷史' },
 ] as const
 
 const inputCls = 'h-9 w-full rounded-btn border border-border bg-base px-3 text-xs text-foreground focus:outline-none focus:border-accent/50'

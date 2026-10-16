@@ -8,17 +8,16 @@ from __future__ import annotations
 
 import json
 import logging
-import threading
 from collections import defaultdict
 from datetime import datetime
 from pathlib import Path
 from typing import Any
 
 from app.config import settings
+from app.file_lock import file_lock
 
 logger = logging.getLogger(__name__)
 
-_LOCK = threading.Lock()
 _MAX_NOTE = 200
 
 
@@ -49,18 +48,20 @@ def record(
     if not entry["symbol"]:
         raise ValueError("symbol is required")
     line = json.dumps(entry, ensure_ascii=False)
-    with _LOCK, _path(data_dir).open("a", encoding="utf-8") as fh:
+    p = _path(data_dir)
+    with file_lock(p.with_suffix(".lock")), p.open("a", encoding="utf-8") as fh:
         fh.write(line + "\n")
     return entry
 
 
 def _read(data_dir: Path | None = None) -> list[dict[str, Any]]:
     p = _path(data_dir)
-    if not p.exists():
-        return []
     rows: list[dict[str, Any]] = []
-    with _LOCK, p.open("r", encoding="utf-8") as fh:
-        for raw in fh:
+    with file_lock(p.with_suffix(".lock")):
+        if not p.exists():
+            return []
+        lines = p.read_text(encoding="utf-8").splitlines()
+        for raw in lines:
             raw = raw.strip()
             if not raw:
                 continue

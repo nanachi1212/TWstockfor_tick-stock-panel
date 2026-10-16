@@ -13,11 +13,13 @@
 """
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import json
 import logging
 import os
 import secrets as _secrets
+import tempfile
 import threading
 import time
 from pathlib import Path
@@ -36,9 +38,13 @@ _lock = threading.Lock()
 # 内存中的有效会话: { token: expire_ts }。进程重启后从磁盘恢复。
 _sessions: dict[str, float] = {}
 
-# 「是否已设密码」缓存: 每个 /api/ 请求都要判定, auth_middleware 原先每次 read_text
-# 磁盘 (阻塞事件循环)。此处懒加载缓存, set_password 后失效重算 (仍返回最新真值)。
+# 檔案未變更時重用驗證結果; 改密碼後失效, 外部修改則重新驗證。
 _configured_cache: bool | None = None
+_configured_stamp: tuple[Path, int, int] | None = None
+
+
+class AuthStoreError(RuntimeError):
+    """認證資料不可用時停止認證, 避免誤判為首次設定。"""
 
 
 def _path() -> Path:
@@ -49,22 +55,38 @@ def _path() -> Path:
 
 
 def _load() -> dict:
-    p = _path()
-    if p.exists():
-        try:
-            return json.loads(p.read_text(encoding="utf-8"))
-        except Exception as e:  # noqa: BLE001
-            logger.warning("auth.json malformed: %s", e)
-    return {}
+    try:
+        data = json.loads(_path().read_text(encoding="utf-8"))
+        if not isinstance(data, dict) or not isinstance(data.get("sessions", {}), dict):
+            raise ValueError("invalid auth structure")
+        if (len(bytes.fromhex(data["password_hash"])) != 32
+                or len(bytes.fromhex(data["password_salt"])) != _SALT_LEN):
+            raise ValueError("invalid password hash or salt")
+        return data
+    except FileNotFoundError:
+        return {}
+    except (OSError, ValueError, KeyError, TypeError) as e:
+        raise AuthStoreError("認證檔無法讀取或已損壞, 請修復 auth.json 後重試") from e
 
 
 def _save(data: dict) -> None:
-    p = _path()
-    p.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
+    tmp: Path | None = None
     try:
-        os.chmod(p, 0o600)
-    except OSError:
-        pass
+        p = _path()
+        fd, name = tempfile.mkstemp(prefix=".auth-", suffix=".tmp", dir=p.parent)
+        tmp = Path(name)
+        with os.fdopen(fd, "w", encoding="utf-8") as stream:
+            json.dump(data, stream, indent=2, ensure_ascii=False)
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.chmod(tmp, 0o600)
+        os.replace(tmp, p)
+    except OSError as e:
+        raise AuthStoreError("認證檔無法儲存, 請確認磁碟與檔案權限後重試") from e
+    finally:
+        if tmp is not None:
+            with contextlib.suppress(OSError):
+                tmp.unlink(missing_ok=True)
 
 
 def _hash_password(password: str, salt: bytes | None = None) -> tuple[str, str]:
@@ -91,15 +113,19 @@ def _verify_password(password: str, salt_hex: str, hash_hex: str) -> bool:
 # ================================================================
 
 def is_configured() -> bool:
-    """是否已设置访问密码 (带缓存)。
-
-    热路径 (auth_middleware 每请求调用): 命中缓存则不碰磁盘, 不阻塞事件循环。
-    首次或 set_password 失效后, 懒加载重读一次 auth.json, 保证返回最新真值。
-    """
-    global _configured_cache
-    if _configured_cache is None:
-        d = _load()
-        _configured_cache = bool(d.get("password_hash"))
+    """檔案變更時重驗內容; 讀取失敗不可沿用快取或視為未設定。"""
+    global _configured_cache, _configured_stamp
+    try:
+        p = _path()
+        stat = p.stat()
+    except FileNotFoundError:
+        return False
+    except OSError as e:
+        raise AuthStoreError("認證檔無法讀取, 請確認檔案權限後重試") from e
+    stamp = (p, stat.st_mtime_ns, stat.st_size)
+    if _configured_cache is None or stamp != _configured_stamp:
+        _configured_cache = bool(_load().get("password_hash"))
+        _configured_stamp = stamp
     return _configured_cache
 
 
@@ -110,13 +136,14 @@ def set_password(password: str) -> None:
         raise ValueError("密码至少 6 位")
     salt_hex, hash_hex = _hash_password(password)
     with _lock:
-        _sessions.clear()  # 改密码 = 旧会话全部失效
+        _load()  # 不覆寫已損壞的認證檔。
         _save({
             "password_hash": hash_hex,
             "password_salt": salt_hex,
             "updated_at": int(time.time()),
             "sessions": {},  # 清空持久化会话
         })
+        _sessions.clear()  # 儲存成功後才撤銷舊會話。
     _configured_cache = None  # 失效缓存, 下次 is_configured 重读最新真值
     logger.info("access password set")
 
@@ -159,16 +186,17 @@ def bootstrap_from_env() -> bool:
 
 def verify_and_create_session(password: str) -> str | None:
     """验证密码, 成功则创建会话并返回 token, 失败返回 None。"""
-    d = _load()
-    if not d.get("password_hash"):
-        return None
-    if not _verify_password(password, d.get("password_salt", ""), d["password_hash"]):
-        return None
-    token = _secrets.token_urlsafe(_TOKEN_BYTES)
-    expire = time.time() + SESSION_TTL
     with _lock:
+        d = _load()
+        if not d.get("password_hash"):
+            return None
+        if not _verify_password(password, d["password_salt"], d["password_hash"]):
+            return None
+        token = _secrets.token_urlsafe(_TOKEN_BYTES)
+        expire = time.time() + SESSION_TTL
+        d["sessions"] = {**_sessions, token: expire}
+        _save(d)
         _sessions[token] = expire
-        _persist_sessions_locked()
     return token
 
 
@@ -197,6 +225,8 @@ def is_valid_session(token: str) -> bool:
 def _persist_sessions_locked() -> None:
     """把当前内存会话写回 auth.json(需持锁调用)。"""
     d = _load()
+    if not d:
+        return
     d["sessions"] = {t: exp for t, exp in _sessions.items()}
     _save(d)
 
@@ -218,5 +248,5 @@ def _restore_sessions() -> None:
 # 模块加载时恢复会话
 try:
     _restore_sessions()
-except Exception as e:  # noqa: BLE001
+except Exception as e:
     logger.warning("restore sessions failed: %s", e)

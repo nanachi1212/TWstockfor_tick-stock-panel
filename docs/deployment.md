@@ -135,10 +135,10 @@ AUTH_PASSWORD='你的密碼'
 - `.env` 文件權限保持 `600`,**不要提交到 Git**
 - 明文密碼只存在於 `.env` / 環境變量中,落盤的是哈希,安全性等同 `auth.json`
 
-**重置密碼(忘密碼時):** 刪除或清空 `data/user_data/auth.json`,重啟服務,會回到"未設密碼"狀態,此時 `AUTH_PASSWORD` 會重新生效。
+**重置密碼(忘密碼時):** 停止服務、備份並移開 `data/user_data/auth.json` 後重啟，會回到「未設密碼」狀態，此時 `AUTH_PASSWORD` 會重新生效。空檔、損壞或無法讀取的認證檔會回傳 HTTP 503，請修復原檔，不要清空它。
 
 ```bash
-rm data/user_data/auth.json   # 停服後執行,清空後重啟
+mv -i data/user_data/auth.json data/user_data/auth.json.backup   # 停服後執行，不覆蓋已有備份
 ```
 
 ### 方式二:SSH 端口轉發

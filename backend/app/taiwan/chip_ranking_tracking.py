@@ -21,7 +21,6 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
-import threading
 from collections.abc import Callable
 from datetime import date, datetime, time
 from pathlib import Path
@@ -29,6 +28,7 @@ from typing import Any
 
 import polars as pl
 
+from app.file_lock import file_lock
 from app.taiwan.adjust import adjust_prices_as_of
 from app.taiwan.corporate_actions import CorporateActionStore
 from app.taiwan.daily_store import TaiwanDailyStore
@@ -47,7 +47,6 @@ DEFINITION_VERSION = "chip_ranking_v1"
 # ex-distribution drop cannot be verified. Windows touching the usual ex-dividend months (Jan, Jul) are
 # unavailable; replace with a verified ETF distribution calendar when one exists.
 DISTRIBUTION_MONTHS = frozenset({1, 7})
-_LOCK = threading.Lock()
 
 
 def _default_path() -> Path:
@@ -86,15 +85,16 @@ class ChipRankingTracker:
         self._next_session = next_session
 
     def records(self) -> list[dict[str, Any]]:
-        if not self.path.exists():
-            return []
-        out = []
-        for line in self.path.read_text(encoding="utf-8").splitlines():
-            try:
-                out.append(json.loads(line))
-            except ValueError:
-                logger.warning("chip ranking tracking: skipped unreadable line")
-        return out
+        with file_lock(self.path.with_suffix(".lock")):
+            if not self.path.exists():
+                return []
+            out = []
+            for line in self.path.read_text(encoding="utf-8").splitlines():
+                try:
+                    out.append(json.loads(line))
+                except ValueError:
+                    logger.warning("chip ranking tracking: skipped unreadable line")
+            return out
 
     def freeze(self, snapshot: dict[str, Any], *, recorded_at: datetime | None = None) -> dict[str, Any]:
         """Append the snapshot's top lists once per ranking date; a repeat call is a no-op."""
@@ -104,7 +104,7 @@ class ChipRankingTracker:
         if not picks:
             return {"status": "skipped", "reason": "empty_ranking", "date": snapshot.get("date")}
         definition = ranking_definition(snapshot)
-        with _LOCK:
+        with file_lock(self.path.with_suffix(".lock")):
             if any(r.get("date") == snapshot["date"] for r in self.records()):
                 return {"status": "skipped", "reason": "already_frozen", "date": snapshot["date"]}
             record = {"date": snapshot["date"], "recorded_at": (recorded_at or taipei_now()).isoformat(),

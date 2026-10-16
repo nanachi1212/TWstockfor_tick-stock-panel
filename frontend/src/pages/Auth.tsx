@@ -27,12 +27,13 @@ export function Auth() {
 
   // 取認證狀態(是否已設密碼)
   const [status, setStatus] = useState<{ configured: boolean } | null>(null)
+  const [statusError, setStatusError] = useState(false)
   useEffect(() => {
     api.authStatus().then(s => {
       setStatus(s)
       // 已登錄的話直接進面板(避免登錄頁死循環)
       if (s.authenticated) navigate('/', { replace: true })
-    }).catch(() => setStatus({ configured: false }))
+    }).catch(() => setStatusError(true))
   }, [navigate])
 
   const isSetup = !status?.configured  // configured=false → 設密碼模式
@@ -65,6 +66,15 @@ export function Auth() {
       if (password !== confirmPassword) { setLocalError('兩次密碼不一致'); return }
     }
     submitMut.mutate()
+  }
+
+  if (statusError) {
+    return (
+      <div className="flex min-h-screen flex-col items-center justify-center gap-4 bg-base px-4">
+        <p role="alert" className="text-danger">無法確認認證狀態，請確認服務與認證檔正常後重試。</p>
+        <button type="button" onClick={() => window.location.reload()} className="text-accent">重新載入</button>
+      </div>
+    )
   }
 
   if (!status) {
