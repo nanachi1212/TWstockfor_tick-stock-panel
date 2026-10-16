@@ -102,7 +102,6 @@ def run_taiwan_update(evening: bool = False, *, trigger: str = "scheduled") -> N
             "Taiwan daily update (%s) finished: overall=%s, daily=%s, inst=%s, margin=%s",
             trigger, result.overall_status, result.daily.status, result.institutional.status, result.margin.status,
         )
-        notify_daily_data_updated()
         if not evening:
             logger.info("Scheduled Taiwan research refresh: %s", _refresh_after_close_research())
             # 新上市/下市股票: 商品清單每天跟著盤後更新一次 (失敗不影響其他流程)。
@@ -169,6 +168,9 @@ def run_taiwan_update(evening: bool = False, *, trigger: str = "scheduled") -> N
                 logger.exception("Taiwan evening push digest failed")
     except Exception as e:
         logger.exception("Taiwan daily update job (%s) failed: %s", trigger, e)
+    finally:
+        # After the research/ranking/Quant chain, so refetched queries see completed outputs.
+        notify_daily_data_updated()
 
 
 def start_scheduler(repo: KlineRepository, capset: CapabilitySet) -> AsyncIOScheduler:

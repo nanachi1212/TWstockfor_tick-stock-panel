@@ -251,8 +251,9 @@ def test_after_close_forward_lock_preserves_ai_and_push_chain(monkeypatch, ready
     monkeypatch.setattr(auto_ai_explain, "run_auto_explain", lambda: events.append("ai"))
     push = Mock(side_effect=lambda *args: events.append("push"))
     monkeypatch.setattr(push_digest, "run", push)
+    monkeypatch.setattr(daily_pipeline, "notify_daily_data_updated", lambda: events.append("notify"))
     daily_pipeline.run_taiwan_update(trigger="startup_catchup")
-    assert events == (["research", "quant", "watch", "lock", "ai", "push"] if ready else ["research", "quant"])
+    assert events == (["research", "quant", "watch", "lock", "ai", "push"] if ready else ["research", "quant"]) + ["notify"]
     if ready:
         push.assert_called_once_with("evening", "2026-10-08")
     else:

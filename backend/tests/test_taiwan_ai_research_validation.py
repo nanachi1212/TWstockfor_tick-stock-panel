@@ -43,7 +43,6 @@ from fastapi.testclient import TestClient
 from app.main import app
 from app.services.ai_provider import AIProviderConfigSnapshot
 from app.taiwan.ai_research import (
-    ALERT_UNITS_NOTE,
     _REPORT_CACHE,
     _REPORT_CACHE_LOCK,
     _REPORT_INFLIGHT,
@@ -88,7 +87,7 @@ def test_personal_context_is_allowlisted_and_missing_values_stay_missing():
     assert sanitized["alert"] == {
         "message": "Quant 進入前十", "trigger_value": 449.5, "rule_type": "quant_top10_enter",
         "triggered_at": "2026-09-25T10:00:00+00:00", "quant_status": "進入", "quant_rank": 2,
-        "quant_score": 0.91, "quant_session": "2026-09-25", "units": ALERT_UNITS_NOTE,
+        "quant_score": 0.91, "quant_session": "2026-09-25",
     }
     assert sanitized["social"] == {
         "as_of": "2026-09-29", "status": "partial", "total_mentions": 12.0,
@@ -102,6 +101,13 @@ def test_personal_context_alert_change_pct_is_percent_points_with_unit():
     sanitized = _sanitize_personal_context({"alert": {"change_pct": -0.0565, "rule_type": "change_pct_down"}})
     assert sanitized["alert"]["change_pct"] == -5.65
     assert "-5.65 代表 -5.65%" in sanitized["alert"]["units"]
+
+
+def test_personal_context_alert_units_follow_rule_type():
+    volume = _sanitize_personal_context({"alert": {"rule_type": "volume_above", "trigger_value": 5_000_000, "threshold": 3_000_000}})
+    assert "股數" in volume["alert"]["units"] and "%" not in volume["alert"]["units"]
+    spike = _sanitize_personal_context({"alert": {"rule_type": "volume_spike", "trigger_value": 3.2, "threshold": 2}})
+    assert "倍數" in spike["alert"]["units"]
 
 
 @pytest.mark.asyncio
