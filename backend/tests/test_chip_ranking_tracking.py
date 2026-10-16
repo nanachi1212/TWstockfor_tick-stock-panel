@@ -69,23 +69,24 @@ def test_freeze_once_per_date_and_skip_empty(tmp_path):
     assert t.freeze({"date": "2026-10-06", "TWSE": [], "TPEX": []})["reason"] == "empty_ranking"
 
 
-def test_entry_is_next_session_open_and_unverified_benchmark_is_unavailable(tmp_path):
+def test_entry_is_next_session_open_and_excess_is_over_benchmark(tmp_path):
     t = _tracker(tmp_path)
     t.freeze(_snapshot(), recorded_at=AFTER_CLOSE)
     day = t.report()["days"][0]
     assert day["status"] == "tracked" and day["entry_date"] == "2026-10-06"
     a, b = day["picks"]
-    # 1 session: open 10-06 -> close 10-06.
+    # 1 session: open 10-06 -> close 10-06; benchmark 200 -> 202.
     assert a["return_1"] == pytest.approx(103 / 100 - 1)
-    assert a["excess_1"] is None
+    assert a["excess_1"] == pytest.approx(0.03 - 0.01)
     assert b["return_1"] == pytest.approx(49 / 50 - 1)
-    assert day["h1"]["status"] == "partial"
-    assert day["h1"]["benchmark_return"] is None
+    assert day["h1"]["status"] == "available"
+    assert day["h1"]["benchmark_return"] == pytest.approx(0.01)
     assert day["h1"]["avg_return"] == pytest.approx((0.03 - 0.02) / 2)
+    assert day["h1"]["avg_excess"] == pytest.approx((0.02 - 0.03) / 2)
     # 5 sessions: open 10-06 -> close 10-12; B has no bar on 10-12, so no return (not 0).
     assert day["h5"]["exit_date"] == "2026-10-12"
     assert a["return_5"] == pytest.approx(110 / 100 - 1)
-    assert a["excess_5"] is None
+    assert a["excess_5"] == pytest.approx(0.10 - 0.02)
     # B has no bar on the exit date: no survivor-only average, the whole horizon is unavailable.
     assert b["return_5"] is None and b["excess_5"] is None
     assert day["h5"] == {"status": "unavailable", "reason": "incomplete_picks", "exit_date": "2026-10-12"}
@@ -127,9 +128,9 @@ def test_missing_benchmark_does_not_invalidate_independent_stock_returns(tmp_pat
     t = _tracker(tmp_path, drop={(BENCHMARK_SYMBOL, date(2026, 10, 6))})
     t.freeze(_snapshot(), recorded_at=AFTER_CLOSE)
     day = t.report()["days"][0]
-    assert day["h1"]["status"] == "partial"
+    assert day["h1"]["status"] == "partial" and day["h1"]["reason"] == "benchmark_unavailable"
     assert day["h1"]["avg_return"] == pytest.approx(0.005)
-    assert day["h1"]["benchmark_return"] is None
+    assert day["h1"]["benchmark_return"] is None and day["h1"]["avg_excess"] is None
 
 
 def test_missing_calendar_session_is_not_shifted_to_a_later_bar(tmp_path):
@@ -140,13 +141,16 @@ def test_missing_calendar_session_is_not_shifted_to_a_later_bar(tmp_path):
     assert day["h1"]["reason"] == "price_data" and day["h5"]["status"] == "unavailable"
 
 
-def test_benchmark_requires_distribution_coverage_in_every_month(tmp_path):
-    t = _tracker(tmp_path)
-    t.freeze(_snapshot(), recorded_at=AFTER_CLOSE)
+def test_benchmark_suspension_inside_window_is_not_spanned(tmp_path):
+    # An ETF split is only visible as a trading halt (0050, 2025-06): the benchmark has entry
+    # and exit bars but no bar on 10-08, so the 5-session window must not bridge the gap.
+    t = _tracker(tmp_path, drop={(BENCHMARK_SYMBOL, date(2026, 10, 8))})
+    t.freeze({**_snapshot(), "TPEX": []}, recorded_at=AFTER_CLOSE)
     day = t.report()["days"][0]
-    assert day["h1"]["status"] == "partial"
-    assert day["h1"]["reason"] == "benchmark_distribution_unverified"
-    assert day["h1"]["benchmark_return"] is None
+    assert day["h1"]["status"] == "available" and day["h1"]["benchmark_return"] == pytest.approx(0.01)
+    assert day["h5"] == {"status": "partial", "reason": "benchmark_unavailable", "exit_date": "2026-10-12",
+                         "picks": 1, "avg_return": pytest.approx(0.10), "benchmark_return": None, "avg_excess": None}
+    assert day["picks"][0]["excess_5"] is None
 
 
 def test_summary_ignores_unavailable_benchmark_days_and_other_definitions(tmp_path, monkeypatch):
@@ -157,9 +161,13 @@ def test_summary_ignores_unavailable_benchmark_days_and_other_definitions(tmp_pa
     t.freeze(_snapshot(date(2026, 10, 7)), recorded_at=datetime(2026, 10, 7, 16, 40, tzinfo=TAIPEI))
     report = t.report()  # 10-07 exits on 10-08 (benchmark present); 10-06 enters 10-07 (benchmark missing)
     assert report["other_definition_days"] == 1  # the 99-weight record is a different definition
+    by_date = {d["date"]: d for d in report["days"]}
+    assert by_date["2026-10-06"]["h1"]["status"] == "partial"  # visible per day, outside the summary sample
     h1 = report["summary"]["h1"]
-    assert h1["days"] == 2 and h1["picks"] == 4  # both stock windows are complete; no fabricated benchmark
-    assert h1["avg_benchmark"] is None and h1["beat_rate"] is None
+    assert h1["days"] == 1 and h1["picks"] == 2  # only the day with a usable benchmark
+    assert h1["avg_benchmark"] == pytest.approx(203 / 202 - 1)
+    assert h1["avg_excess"] == pytest.approx(((106 / 104 - 1) + 0) / 2 - (203 / 202 - 1))
+    assert h1["beat_rate"] == pytest.approx(0.5)
 
 
 def test_freeze_latest_ranking_waits_for_margin(tmp_path, monkeypatch):
@@ -184,9 +192,9 @@ def test_summary_needs_minimum_days(tmp_path, monkeypatch):
     monkeypatch.setattr(tracking, "MIN_DAYS", 1)
     h1 = t.report()["summary"]["h1"]
     assert h1["sample_sufficient"] and h1["days"] == 1 and h1["picks"] == 2
-    assert h1["avg_excess"] is None
+    assert h1["avg_excess"] == pytest.approx(-0.005)
     assert t.report()["definition_digest"]
-    assert h1["win_rate"] == pytest.approx(0.5) and h1["beat_rate"] is None
+    assert h1["win_rate"] == pytest.approx(0.5) and h1["beat_rate"] == pytest.approx(0.5)
 
 
 def test_api_returns_report(monkeypatch):

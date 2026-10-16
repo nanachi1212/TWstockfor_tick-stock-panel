@@ -4,8 +4,11 @@ Performance is a hypothetical "hold today's shares through the window" series,
 not the user's realized history. Prices are adjusted with the verified
 corporate-action snapshot; the window shrinks to that coverage and any symbol
 whose adjustment cannot be verified makes performance unavailable (fail-closed).
-The intended benchmark is 0050.TWSE, matching selection review. Its metrics
-remain unavailable until ETF distribution coverage can be verified.
+The benchmark is 0050.TWSE from the same daily store, matching selection review.
+Its TWSE cash distributions are in the same verified TWT49U stream (cross-checked
+against the TWSE ETF distribution report, see docs/taiwan-data-sources.md). ETF
+splits have no official event table, so a benchmark bar gap fails closed exactly
+like a holding gap.
 """
 from __future__ import annotations
 
@@ -22,7 +25,7 @@ from app.taiwan.daily_store import TaiwanDailyStore
 from app.taiwan.observed_universe import ObservedUniverseStore
 
 BENCHMARK_SYMBOL = "0050.TWSE"
-BENCHMARK_NAME = "元大台灣50（加權指數代理）"
+BENCHMARK_NAME = "元大台灣50（加權指數代理）"  # noqa: RUF001 — display text keeps full-width brackets
 LOOKBACK_DAYS = 365
 MIN_SESSIONS = 20
 TRADING_DAYS_PER_YEAR = 252
@@ -142,15 +145,13 @@ class PortfolioAnalyticsService:
         start = max(end - timedelta(days=LOOKBACK_DAYS), coverage[0])
         events = tuple(e for e in coverage[2] if start <= e.effective_date <= end)
         symbols = list(dict.fromkeys([*holdings, BENCHMARK_SYMBOL]))
-        # shortcut: stock action sources do not prove ETF distributions; add a verified ETF source before enabling them.
-        unsupported = [s for s in symbols if s == BENCHMARK_SYMBOL or
-                       (inst := self.master.get_instrument(s)) is None or inst.instrument_type != "stock"]
-        for symbol in unsupported:
-            out["excluded_symbols"].append({"symbol": symbol, "reason": "asset_action_coverage_unavailable"})
-        if any(s in holdings for s in unsupported):
+        # shortcut: ETF holdings stay excluded until TPEx ETF distribution rows are cross-checked too.
+        unsupported = [s for s in holdings
+                       if (inst := self.master.get_instrument(s)) is None or inst.instrument_type != "stock"]
+        if unsupported:
+            out["excluded_symbols"] = [{"symbol": s, "reason": "asset_action_coverage_unavailable"} for s in unsupported]
             out["reason"] = "asset_action_coverage_unavailable"
             return out
-        symbols = [s for s in symbols if s not in unsupported]
         raw = self.daily.read_range(symbols, start, end).select("symbol", "date", "close")
         frames: dict[str, pl.DataFrame] = {}
         for symbol in symbols:
@@ -180,8 +181,9 @@ class PortfolioAnalyticsService:
         if out["missing_sessions"]:
             out["reason"] = "incomplete_sessions"
             return out
-        wide = frames[symbols[0]]
-        for symbol in symbols[1:]:
+        keep = list(frames)  # holdings first; the benchmark may have been excluded
+        wide = frames[keep[0]]
+        for symbol in keep[1:]:
             wide = wide.join(frames[symbol], on="date", how="inner")
         wide = wide.sort("date")
         if wide.height < MIN_SESSIONS:
@@ -197,7 +199,7 @@ class PortfolioAnalyticsService:
         dates = wide["date"].to_list()
         out.update(
             status="available" if bench is not None else "partial",
-            reason=None if bench is not None else "benchmark_distribution_unverified", window_start=dates[0].isoformat(),
+            reason=None if bench is not None else "benchmark_unavailable", window_start=dates[0].isoformat(),
             window_end=dates[-1].isoformat(), sessions=len(dates),
             metrics=series_metrics(values, bench),
             series=[{"date": d.isoformat(), "portfolio": v / values[0] * 100,

@@ -59,13 +59,12 @@ def test_analyze_performance_and_allocation(tmp_path):
                                     master=_MASTER)
     result = svc.analyze({"2330.TWSE": 1000, "2317.TWSE": 1000})
     perf = result["performance"]
-    assert perf["status"] == "partial" and perf["sessions"] == 30
-    assert perf["reason"] == "benchmark_distribution_unverified"
-    assert perf["metrics"]["benchmark_return"] is None
-    assert perf["metrics"]["benchmark_volatility"] is None
-    assert perf["metrics"]["beta"] is None
-    assert all(p["benchmark"] is None for p in perf["series"])
-    assert perf["series"][0]["portfolio"] == pytest.approx(100)
+    assert perf["status"] == "available" and perf["sessions"] == 30
+    assert perf["reason"] is None and perf["excluded_symbols"] == []
+    assert perf["metrics"]["benchmark_return"] == pytest.approx(164.5 / 150 - 1)
+    assert perf["metrics"]["benchmark_volatility"] > 0
+    assert perf["metrics"]["beta"] is not None
+    assert perf["series"][0] == {"date": "2026-06-01", "portfolio": pytest.approx(100), "benchmark": pytest.approx(100)}
     assert perf["metrics"]["max_drawdown"] == 0
     alloc = result["allocation"]
     assert alloc["status"] == "available"
@@ -83,6 +82,32 @@ def test_missing_session_blocks_metrics_instead_of_disappearing(tmp_path):
     assert perf["missing_sessions"] == [{"symbol": "2330.TWSE", "date": "2026-06-06"}]
 
 
+def test_benchmark_suspension_gap_fails_closed_like_a_holding_gap(tmp_path):
+    # ETF splits are not in any official event table; the 2025 0050 split showed up only as
+    # a five-session trading halt, so a benchmark bar gap must not be spanned by a daily return.
+    svc = PortfolioAnalyticsService(daily=_store(tmp_path, missing=(BENCHMARK_SYMBOL, 5)),
+                                    actions=_Actions((date(2026, 1, 1), date(2026, 12, 31), ())),
+                                    master=_MASTER)
+    perf = svc.analyze({"2330.TWSE": 1, "2317.TWSE": 1})["performance"]
+    assert perf["status"] == "unavailable" and perf["reason"] == "incomplete_sessions"
+    assert perf["metrics"] is None and perf["series"] == []
+    assert perf["missing_sessions"] == [{"symbol": BENCHMARK_SYMBOL, "date": "2026-06-06"}]
+
+
+def test_benchmark_without_price_history_keeps_stock_metrics_partial(tmp_path):
+    daily = _store(tmp_path)
+    read = daily.read_range
+    daily.read_range = lambda *args: read(*args).filter(pl.col("symbol") != BENCHMARK_SYMBOL)
+    svc = PortfolioAnalyticsService(daily=daily, master=_MASTER,
+                                    actions=_Actions((date(2026, 1, 1), date(2026, 12, 31), ())))
+    perf = svc.analyze({"2330.TWSE": 1})["performance"]
+    assert perf["status"] == "partial" and perf["reason"] == "benchmark_unavailable"
+    assert perf["excluded_symbols"] == [{"symbol": BENCHMARK_SYMBOL, "reason": "no_price_history"}]
+    assert perf["metrics"]["total_return"] == pytest.approx(1029 / 1000 - 1)
+    assert perf["metrics"]["benchmark_return"] is None and perf["metrics"]["beta"] is None
+    assert all(p["benchmark"] is None for p in perf["series"])
+
+
 def test_missing_entire_weekday_is_not_treated_as_holiday(tmp_path):
     daily = _store(tmp_path)
     read = daily.read_range
@@ -92,9 +117,10 @@ def test_missing_entire_weekday_is_not_treated_as_holiday(tmp_path):
                                     actions=_Actions((date(2026, 6, 1), date(2026, 6, 30), ())))
     perf = svc.analyze({"2330.TWSE": 1})["performance"]
     assert perf["reason"] == "incomplete_sessions" and perf["metrics"] is None
-    assert perf["missing_sessions"] == [{"symbol": "2330.TWSE", "date": "2026-06-08"}]
+    assert perf["missing_sessions"] == [{"symbol": "2330.TWSE", "date": "2026-06-08"},
+                                        {"symbol": BENCHMARK_SYMBOL, "date": "2026-06-08"}]
     svc.evidence = SimpleNamespace(day_evidence=lambda *args: SimpleNamespace(status="non_trading"))
-    assert svc.analyze({"2330.TWSE": 1})["performance"]["status"] == "partial"
+    assert svc.analyze({"2330.TWSE": 1})["performance"]["status"] == "available"
 
 
 def test_missing_crash_bar_cannot_hide_drawdown(tmp_path):

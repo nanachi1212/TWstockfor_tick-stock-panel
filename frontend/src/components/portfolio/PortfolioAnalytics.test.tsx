@@ -60,12 +60,12 @@ describe('holdings concentration', () => {
 
   it('keeps verified stock metrics visible while explaining the unavailable ETF benchmark', async () => {
     vi.mocked(api.taiwanPortfolioAnalytics).mockResolvedValue({ ...response, performance: {
-      ...response.performance, status: 'partial', reason: 'benchmark_distribution_unverified',
+      ...response.performance, status: 'partial', reason: 'benchmark_unavailable',
       window_start: '2026-06-01', window_end: '2026-06-30', sessions: 22,
       metrics: { total_return: 0.1, volatility: 0.2, max_drawdown: -0.5, benchmark_return: null, benchmark_volatility: null, beta: null },
     } })
     renderHoldings()
-    expect(await screen.findByText(/0050 配息涵蓋尚未驗證/)).toBeInTheDocument()
+    expect(await screen.findByText(/0050 基準缺少日 K 或還原資料/)).toBeInTheDocument()
     expect(screen.getByText('最大回撤').parentElement).toHaveTextContent('-50.0%')
     expect(screen.getByText('Beta').parentElement).toHaveTextContent('—')
   })

@@ -62,13 +62,13 @@ const UNAVAILABLE_REASON: Record<string, string> = {
   incomplete_picks: '有股票缺價格',
   price_data: '缺價格',
   corporate_action_coverage: '除權息資料不足',
-  benchmark_distribution_unverified: '0050 配息涵蓋未驗證',
+  benchmark_unavailable: '0050 缺價格',
 }
 
 function horizonCell(h: ChipTrackingHorizon) {
   if (h.status === 'pending') return <span className="text-muted">尚未到期</span>
   if (h.status === 'unavailable') return <span className="text-muted" title={h.reason}>無法計算{h.reason ? `（${UNAVAILABLE_REASON[h.reason] ?? h.reason}）` : ''}</span>
-  return <><span className={toneClass(h.avg_return)}>{pct(h.avg_return)}</span><span className="ml-1 text-xs text-muted">{h.status === 'partial' ? '0050 配息涵蓋未驗證' : `0050 ${pct(h.benchmark_return)}`}</span></>
+  return <><span className={toneClass(h.avg_return)}>{pct(h.avg_return)}</span><span className="ml-1 text-xs text-muted">{h.status === 'partial' ? UNAVAILABLE_REASON[h.reason ?? ''] ?? h.reason ?? '0050 無法計算' : `0050 ${pct(h.benchmark_return)}`}</span></>
 }
 
 function ChipTracking() {

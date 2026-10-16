@@ -391,6 +391,18 @@ timestamp, approved `available_at`, and stable revision identity. No ETF history
 provider or store was added. The endpoint and rejection evidence is recorded in
 [`taiwan-etf-history-phase-6i.md`](archive/taiwan-etf-history-phase-6i.md).
 
+TWSE ETF cash distributions are already in the A6 corporate-action stream: the
+`TWT49U` ex-rights/ex-dividend table lists ETFs with the same previous-close and
+reference-price fields as stocks. On 2026-10-16 every `etfDiv` row with an
+ex-date in 2026-05-01..2026-10-15 (227 rows, 94 ETFs) matched a `verified`
+`TWT49U` event, with no extra local rows and `previous_close - reference_price`
+equal to the official amount per unit. Portfolio analytics and chip-ranking
+tracking therefore use `0050.TWSE` from this stream as their benchmark. Limits:
+TPEx ETF rows (`exDailyQ`) were not cross-checked, so ETF holdings stay
+excluded; ETF unit splits are not in `TWTB8U` (the 2025-06 0050 split appears
+only as a five-session trading halt), so consumers treat a missing benchmark
+bar as a gap and never bridge it. `etfDiv` itself remains reference-only.
+
 ## Current/reference product surface (Phase 6J)
 
 The authoritative machine-readable capability matrix is

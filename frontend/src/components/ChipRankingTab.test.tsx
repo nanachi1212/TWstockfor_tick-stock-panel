@@ -27,10 +27,10 @@ describe('ChipRankingTab tracking', () => {
     renderTab({ benchmark_symbol: '0050.TWSE', min_days: 20, other_definition_days: 0, summary: { h1: thin, h5: thin }, days: [
       { date: '2026-10-14', recorded_at: '2026-10-14T16:40:00+08:00', entry_date: '2026-10-15', status: 'tracked',
         picks: [{ symbol: '2330.TWSE', name: '台積電', exchange: 'TWSE', rank: 1, return_1: 0.03 }],
-        h1: { status: 'partial', reason: 'benchmark_distribution_unverified', exit_date: '2026-10-15', avg_return: 0.03, benchmark_return: null },
+        h1: { status: 'partial', reason: 'benchmark_unavailable', exit_date: '2026-10-15', avg_return: 0.03, benchmark_return: null },
         h5: { status: 'pending', exit_date: null } },
     ] })
-    expect(await screen.findByText('0050 配息涵蓋未驗證')).toBeInTheDocument()
+    expect(await screen.findByText('0050 缺價格')).toBeInTheDocument()
     const details = screen.getByText('1 檔／查看存檔').closest('details')!
     details.open = true
     expect(screen.getByRole('link', { name: '研究歷史' })).toHaveAttribute('href', '/research?symbol=2330.TWSE')

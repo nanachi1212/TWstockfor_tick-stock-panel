@@ -9,12 +9,16 @@ Return semantics (gross, no fees or tax): the ranking for session D is only
 known after D's close, so entry is the open of the next trading-calendar
 session after D, and the 1/5-session exits are that session's close and the 5th
 session's close. Prices are adjusted with the verified corporate-action
-snapshot. The 0050 benchmark stays unavailable until ETF distributions are verified.
+snapshot. The benchmark is 0050.TWSE over the same entry/exit; its TWSE cash
+distributions are in the same verified TWT49U stream (cross-checked against the
+TWSE ETF distribution report, see docs/taiwan-data-sources.md).
 
 Fail-closed: a snapshot recorded after the entry session's open is ``late``; a
 horizon is ``unavailable`` unless every pick has a bar on the exact calendar
 entry/exit dates (no survivor averages, no shifted dates). Complete stock
-returns are ``partial`` because benchmark-relative metrics are unavailable.
+returns without a usable benchmark are ``partial``: ETF splits have no official
+event table, so a benchmark bar missing on any session of the window drops the
+benchmark instead of spanning the gap.
 """
 from __future__ import annotations
 
@@ -126,7 +130,7 @@ class ChipRankingTracker:
         spans = [(p[0], p[-1]) for p in plans if p]
         prices = None
         if latest is not None and spans:
-            symbols = sorted({p["symbol"] for r in records for p in r["picks"]})
+            symbols = sorted({p["symbol"] for r in records for p in r["picks"]} | {BENCHMARK_SYMBOL})
             frame = self.daily.read_range(symbols, min(s[0] for s in spans), min(max(s[1] for s in spans), latest))
             prices = {(r["symbol"], r["date"]): r for r in frame.select("symbol", "date", "open", "close").iter_rows(named=True)}
         days = [self._evaluate(r, plan, latest, coverage, prices) for r, plan in zip(records, plans, strict=True)]
@@ -135,17 +139,18 @@ class ChipRankingTracker:
         out.update(definition_digest=current, other_definition_days=len(days) - len(mine), days=days[:DETAIL_DAYS])
         for h in HORIZONS:
             k = _key(h)
-            done = [d[k] for d in mine if d["status"] == "tracked" and d[k]["status"] in {"available", "partial"}]
-            picks = [p for d in mine if d["status"] == "tracked" and d[k]["status"] in {"available", "partial"}
-                     for p in d["picks"] if p.get(f"return_{h}") is not None]
+            # One sample for every summary number: days whose benchmark is usable.
+            done = [d[k] for d in mine if d["status"] == "tracked" and d[k]["status"] == "available"]
+            picks = [p for d in mine if d["status"] == "tracked" and d[k]["status"] == "available"
+                     for p in d["picks"] if p.get(f"excess_{h}") is not None]
             enough = len(done) >= MIN_DAYS
             out["summary"][k] = {
                 "days": len(done), "picks": len(picks), "sample_sufficient": enough,
                 "avg_return": _mean([d["avg_return"] for d in done]) if enough else None,
-                "avg_benchmark": None,
-                "avg_excess": None,
+                "avg_benchmark": _mean([d["benchmark_return"] for d in done]) if enough else None,
+                "avg_excess": _mean([d["avg_excess"] for d in done]) if enough else None,
                 "win_rate": _mean([p[f"return_{h}"] > 0 for p in picks]) if enough else None,
-                "beat_rate": None,
+                "beat_rate": _mean([p[f"excess_{h}"] > 0 for p in picks]) if enough else None,
             }
         return out
 
@@ -187,22 +192,27 @@ class ChipRankingTracker:
                 out[k] = {**unavailable, "reason": "corporate_action_coverage"}
                 continue
             symbols = [p["symbol"] for p in record["picks"]]
-            returns = self._returns(symbols, entry, exit_, coverage[2], prices)
+            returns = self._returns([*symbols, BENCHMARK_SYMBOL], entry, exit_, coverage[2], prices)
+            # ponytail: ETF splits are not in TWTB8U; a split suspends trading, so a benchmark bar missing
+            # on any session of the window drops the benchmark. Add an ETF split event source to lift this.
+            bench = returns.get(BENCHMARK_SYMBOL) if all((BENCHMARK_SYMBOL, d) in prices for d in plan[:h]) else None
             for p in out["picks"]:
                 r = returns.get(p["symbol"])
                 p[f"return_{h}"] = r
-                p[f"excess_{h}"] = None
+                p[f"excess_{h}"] = r - bench if r is not None and bench is not None else None
             valid = [p for p in out["picks"] if p[f"return_{h}"] is not None]
             if not valid:
                 out[k] = {**unavailable, "reason": "price_data"}
             elif len(valid) < len(out["picks"]):
                 out[k] = {**unavailable, "reason": "incomplete_picks"}  # no survivor-only averages
+            elif bench is None:
+                out[k] = {"status": "partial", "reason": "benchmark_unavailable", "exit_date": exit_.isoformat(),
+                          "picks": len(valid), "avg_return": _mean([p[f"return_{h}"] for p in valid]),
+                          "benchmark_return": None, "avg_excess": None}
             else:
-                # shortcut: ETF distribution coverage is unavailable; enable comparison only with a verified source.
-                out[k] = {"status": "partial", "reason": "benchmark_distribution_unverified",
-                          "exit_date": exit_.isoformat(), "picks": len(valid),
-                          "avg_return": _mean([p[f"return_{h}"] for p in valid]), "benchmark_return": None,
-                          "avg_excess": None}
+                out[k] = {"status": "available", "exit_date": exit_.isoformat(), "picks": len(valid),
+                          "avg_return": _mean([p[f"return_{h}"] for p in valid]), "benchmark_return": bench,
+                          "avg_excess": _mean([p[f"excess_{h}"] for p in valid])}
         return out
 
     @staticmethod

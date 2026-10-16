@@ -15,7 +15,7 @@ const REASONS: Record<string, string> = {
   incomplete_sessions: '共同期間有交易日缺價或尚未確認休市，無法可靠計算報酬與回撤',
   invalid_portfolio_value: '持股數量換算的組合市值超出可計算範圍',
   asset_action_coverage_unavailable: '持股包含 ETF 或未確認資產，現有除權息來源無法證實其配息涵蓋',
-  benchmark_distribution_unverified: '0050 配息涵蓋尚未驗證，僅顯示股票持股回放；基準報酬、波動度及 Beta 暫不提供',
+  benchmark_unavailable: '0050 基準缺少日 K 或還原資料，僅顯示股票持股回放；基準報酬、波動度及 Beta 暫不提供',
 }
 
 export function usePortfolioAnalytics() {
