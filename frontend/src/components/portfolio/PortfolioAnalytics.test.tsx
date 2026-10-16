@@ -48,6 +48,27 @@ beforeEach(() => {
 afterEach(() => { vi.clearAllMocks() })
 
 describe('holdings concentration', () => {
+  it('shows session gaps without a fabricated risk metric', async () => {
+    vi.mocked(api.taiwanPortfolioAnalytics).mockResolvedValue({ ...response, performance: {
+      ...response.performance, reason: 'incomplete_sessions', missing_sessions: [{ symbol: '2330.TWSE', date: '2026-06-08' }],
+    } })
+    renderHoldings()
+    expect(await screen.findByText(/共同期間有交易日缺價/)).toBeInTheDocument()
+    expect(screen.getByText(/缺口：2330.TWSE 2026-06-08/)).toBeInTheDocument()
+    expect(screen.queryByText('最大回撤')).not.toBeInTheDocument()
+  })
+
+  it('keeps verified stock metrics visible while explaining the unavailable ETF benchmark', async () => {
+    vi.mocked(api.taiwanPortfolioAnalytics).mockResolvedValue({ ...response, performance: {
+      ...response.performance, status: 'partial', reason: 'benchmark_distribution_unverified',
+      window_start: '2026-06-01', window_end: '2026-06-30', sessions: 22,
+      metrics: { total_return: 0.1, volatility: 0.2, max_drawdown: -0.5, benchmark_return: null, benchmark_volatility: null, beta: null },
+    } })
+    renderHoldings()
+    expect(await screen.findByText(/0050 配息涵蓋尚未驗證/)).toBeInTheDocument()
+    expect(screen.getByText('最大回撤').parentElement).toHaveTextContent('-50.0%')
+    expect(screen.getByText('Beta').parentElement).toHaveTextContent('—')
+  })
   it('refreshes concentration after the existing update-latest action', async () => {
     vi.mocked(api.taiwanDataStatus).mockResolvedValue({ daily_status: 'stale', daily_as_of: '2026-10-13',
       daily_days_behind: 1, target_latest_trading_date: '2026-10-14' } as Awaited<ReturnType<typeof api.taiwanDataStatus>>)

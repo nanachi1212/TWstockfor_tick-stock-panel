@@ -6,7 +6,7 @@ import { api } from '@/lib/api'
 import { storage } from '@/lib/storage'
 import { PortfolioPanel } from './Portfolio'
 
-vi.mock('@/lib/api', () => ({ api: { taiwanQuotes: vi.fn(), taiwanTransactionTax: vi.fn(), taiwanPortfolioInstrument: vi.fn() } }))
+vi.mock('@/lib/api', () => ({ api: { taiwanQuotes: vi.fn(), taiwanTransactionTax: vi.fn(), taiwanPortfolioInstrument: vi.fn(), taiwanSearch: vi.fn(), watchlistList: vi.fn(), alertsList: vi.fn(), portfolioAutoSyncSet: vi.fn(), portfolioAutoSyncGet: vi.fn(), portfolioImportRead: vi.fn() } }))
 vi.mock('@/components/quant/TodaySelection', () => ({ useTodayQuantSelection: () => ({ signals: [], loading: false, error: false, validRun: null }) }))
 
 function renderPortfolio(props: Parameters<typeof PortfolioPanel>[0] = {}) {
@@ -27,6 +27,11 @@ async function fillTrade({ shares, price }: { shares: string; price: string }) {
 }
 
 beforeEach(() => {
+  vi.mocked(api.taiwanQuotes).mockResolvedValue({ quotes: [], count: 0 })
+  vi.mocked(api.taiwanSearch).mockResolvedValue({ results: [{ code: '2330', symbol: '2330.TWSE', name: '台積電' }] } as any)
+  vi.mocked(api.portfolioAutoSyncGet).mockResolvedValue({ path: null, name: null, modified: null })
+  vi.mocked(api.watchlistList).mockResolvedValue({ symbols: [] } as any)
+  vi.mocked(api.alertsList).mockResolvedValue({ alerts: [] } as any)
   Object.defineProperty(navigator, 'locks', {
     configurable: true,
     value: { request: async (_name: string, callback: (lock: Lock) => unknown) => callback({} as Lock) },
@@ -39,6 +44,8 @@ beforeEach(() => {
 
 afterEach(() => {
   localStorage.removeItem('portfolio_transactions')
+  localStorage.removeItem('portfolio_import_previous')
+  localStorage.removeItem('tf-portfolio-sync-mtime')
   Reflect.deleteProperty(navigator, 'locks')
   vi.clearAllMocks()
   vi.restoreAllMocks()
@@ -46,6 +53,96 @@ afterEach(() => {
 })
 
 describe('Portfolio UI', () => {
+  it.each(['', '代號,名稱,股數,均價', '代號,名稱,股數,均價\n2330,台積電,0,0\n2317,鴻海,N/A,100'])('does not clear the ledger or advance the sync marker for incomplete input %s', async text => {
+    const before = [{ id: 'old', symbol: '2330.TWSE', name: '台積電', side: 'buy', shares: 5,
+      price: 100, fee: 0, date: '2026-09-24', createdAt: '2026-09-24T00:00:00.000Z' }]
+    storage.portfolioTransactions.set(before)
+    vi.mocked(api.portfolioAutoSyncGet).mockResolvedValue({ path: 'holdings.csv', name: 'holdings.csv', modified: 123 })
+    vi.mocked(api.portfolioImportRead).mockResolvedValue({ text } as any)
+    renderPortfolio()
+    expect(await screen.findByText(/自動同步持股失敗/)).toBeInTheDocument()
+    expect(storage.portfolioTransactions.get([])).toEqual(before)
+    expect(localStorage.getItem('tf-portfolio-sync-mtime')).toBeNull()
+  })
+
+  it('auto-syncs a verified zero snapshot once and retains the previous ledger', async () => {
+    const before = [{ id: 'old', symbol: '2330.TWSE', name: '台積電', side: 'buy', shares: 5,
+      price: 100, fee: 0, date: '2026-09-24', createdAt: '2026-09-24T00:00:00.000Z' }]
+    storage.portfolioTransactions.set(before)
+    vi.mocked(api.portfolioAutoSyncGet).mockResolvedValue({ path: 'holdings.csv', name: 'holdings.csv', modified: 123 })
+    vi.mocked(api.portfolioImportRead).mockResolvedValue({ text: '代號,名稱,股數,均價\n2330,台積電,0,0' } as any)
+    const first = renderPortfolio()
+    expect(await screen.findByText(/已從 holdings.csv 自動同步持股/)).toBeInTheDocument()
+    expect(storage.portfolioTransactions.get([])).toEqual([])
+    expect(storage.portfolioImportPrevious.get(null)).toEqual(before)
+    first.unmount()
+    renderPortfolio()
+    await screen.findByText(/持股自動同步/)
+    expect(api.portfolioImportRead).toHaveBeenCalledTimes(1)
+    expect(storage.portfolioImportPrevious.get(null)).toEqual(before)
+  })
+
+  it('does not overwrite a newer import when an older sync request finishes late', async () => {
+    const current = [{ id: 'newer', symbol: '2330.TWSE', name: '台積電', side: 'buy', shares: 5,
+      price: 100, fee: 0, date: '2026-09-24', createdAt: '2026-09-24T00:00:00.000Z' }]
+    storage.portfolioTransactions.set(current)
+    vi.mocked(api.portfolioAutoSyncGet).mockResolvedValue({ path: 'old.csv', name: 'old.csv', modified: 123 })
+    let finish!: (value: Awaited<ReturnType<typeof api.portfolioImportRead>>) => void
+    vi.mocked(api.portfolioImportRead).mockReturnValue(new Promise(resolve => { finish = resolve }))
+    renderPortfolio()
+    await waitFor(() => expect(api.portfolioImportRead).toHaveBeenCalled())
+    localStorage.setItem('tf-portfolio-sync-mtime', JSON.stringify(['new.csv', 456]))
+    await act(async () => { finish({ text: '代號,名稱,股數,均價\n2330,台積電,0,0' } as any) })
+    expect(storage.portfolioTransactions.get([])).toEqual(current)
+    expect(storage.portfolioImportPrevious.get(null)).toBeNull()
+  })
+  it('imports an explicit zero snapshot and restores the prior ledger', async () => {
+    const before = [{ id: 'old', symbol: '2330.TWSE', name: '台積電', side: 'buy', shares: 5,
+      price: 100, fee: 0, date: '2026-09-24', createdAt: '2026-09-24T00:00:00.000Z' }]
+    storage.portfolioTransactions.set(before)
+    vi.mocked(api.taiwanQuotes).mockResolvedValue({ quotes: [], count: 0 })
+    vi.mocked(api.portfolioAutoSyncGet).mockResolvedValue({ path: null, name: null, modified: null })
+    vi.mocked(api.portfolioAutoSyncSet).mockResolvedValue({ path: null, name: null, modified: null })
+    renderPortfolio({ openImportOnMount: true })
+    const dialog = await screen.findByRole('dialog', { name: '匯入持股' })
+    fireEvent.change(within(dialog).getByLabelText('或直接貼上持股表格'), { target: { value: '代號,名稱,股數,均價\n2330,台積電,0,0' } })
+    fireEvent.click(within(dialog).getByRole('checkbox', { name: /匯入前清空/ }))
+    fireEvent.click(within(dialog).getByRole('button', { name: '以零持股快照取代帳本' }))
+    await waitFor(() => expect(storage.portfolioTransactions.get([])).toEqual([]))
+    expect(storage.portfolioImportPrevious.get(null)).toEqual(before)
+    fireEvent.click(screen.getByRole('button', { name: /回復上次取代前帳本/ }))
+    await waitFor(() => expect(storage.portfolioTransactions.get([])).toEqual(before))
+    expect(api.portfolioAutoSyncSet).toHaveBeenCalledWith(null)
+    expect(localStorage.getItem('tf-portfolio-sync-mtime')).toBe('paused')
+  })
+
+  it('keeps the ledger when the pre-import backup cannot be saved', async () => {
+    const before = [{ id: 'old', symbol: '2330.TWSE', name: '台積電', side: 'buy', shares: 5,
+      price: 100, fee: 0, date: '2026-09-24', createdAt: '2026-09-24T00:00:00.000Z' }]
+    storage.portfolioTransactions.set(before)
+    vi.spyOn(storage.portfolioImportPrevious, 'set').mockImplementation(() => { throw new Error('儲存空間不足') })
+    renderPortfolio({ openImportOnMount: true })
+    const dialog = await screen.findByRole('dialog', { name: '匯入持股' })
+    fireEvent.change(within(dialog).getByLabelText('或直接貼上持股表格'), { target: { value: '代號,名稱,股數,均價\n2330,台積電,0,0' } })
+    fireEvent.click(within(dialog).getByRole('checkbox', { name: /匯入前清空/ }))
+    fireEvent.click(within(dialog).getByRole('button', { name: '以零持股快照取代帳本' }))
+    expect(await within(dialog).findByRole('alert')).toHaveTextContent('儲存空間不足')
+    expect(storage.portfolioTransactions.get([])).toEqual(before)
+  })
+
+  it('preserves both ledger versions if restoring the previous one fails', async () => {
+    const previous = [{ id: 'old', symbol: '2330.TWSE', name: '台積電', side: 'buy', shares: 5,
+      price: 100, fee: 0, date: '2026-09-24', createdAt: '2026-09-24T00:00:00.000Z' }]
+    storage.portfolioTransactions.set([])
+    storage.portfolioImportPrevious.set(previous)
+    vi.mocked(api.portfolioAutoSyncSet).mockResolvedValue({ path: null, name: null, modified: null })
+    vi.spyOn(storage.portfolioTransactions, 'set').mockImplementationOnce(() => { throw new Error('回復寫入失敗') })
+    renderPortfolio()
+    fireEvent.click(screen.getByRole('button', { name: /回復上次取代前帳本/ }))
+    expect(await screen.findByRole('status')).toHaveTextContent('回復寫入失敗')
+    expect(storage.portfolioTransactions.get([])).toEqual([])
+    expect(storage.portfolioImportPrevious.get(null)).toEqual(previous)
+  })
 
   it('shows same-date allocation weights and clears them when allocation is incomplete', async () => {
     storage.portfolioTransactions.set([{

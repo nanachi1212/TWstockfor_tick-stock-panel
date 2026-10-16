@@ -9,18 +9,19 @@ Return semantics (gross, no fees or tax): the ranking for session D is only
 known after D's close, so entry is the open of the next trading-calendar
 session after D, and the 1/5-session exits are that session's close and the 5th
 session's close. Prices are adjusted with the verified corporate-action
-snapshot. The benchmark is 0050.TWSE over the same entry/exit.
+snapshot. The 0050 benchmark stays unavailable until ETF distributions are verified.
 
 Fail-closed: a snapshot recorded after the entry session's open is ``late``; a
-horizon is ``unavailable`` unless every pick and the benchmark have a bar on the
-exact calendar entry/exit dates (no survivor averages, no shifted dates) and
-the window cannot contain a 0050 distribution.
+horizon is ``unavailable`` unless every pick has a bar on the exact calendar
+entry/exit dates (no survivor averages, no shifted dates). Complete stock
+returns are ``partial`` because benchmark-relative metrics are unavailable.
 """
 from __future__ import annotations
 
 import hashlib
 import json
 import logging
+import math
 from collections.abc import Callable
 from datetime import date, datetime, time
 from pathlib import Path
@@ -43,10 +44,6 @@ MIN_DAYS = 20  # matured ranking days before averages are shown
 DETAIL_DAYS = 20  # newest days returned with per-pick detail; the summary uses all days
 MARKET_OPEN = time(9, 0)
 DEFINITION_VERSION = "chip_ranking_v1"
-# ponytail: ETF distributions are not stored as PIT data (docs/taiwan-data-sources.md), so 0050's raw
-# ex-distribution drop cannot be verified. Windows touching the usual ex-dividend months (Jan, Jul) are
-# unavailable; replace with a verified ETF distribution calendar when one exists.
-DISTRIBUTION_MONTHS = frozenset({1, 7})
 
 
 def _default_path() -> Path:
@@ -129,25 +126,26 @@ class ChipRankingTracker:
         spans = [(p[0], p[-1]) for p in plans if p]
         prices = None
         if latest is not None and spans:
-            symbols = sorted({p["symbol"] for r in records for p in r["picks"]} | {BENCHMARK_SYMBOL})
-            prices = self.daily.read_range(symbols, min(s[0] for s in spans), min(max(s[1] for s in spans), latest))
+            symbols = sorted({p["symbol"] for r in records for p in r["picks"]})
+            frame = self.daily.read_range(symbols, min(s[0] for s in spans), min(max(s[1] for s in spans), latest))
+            prices = {(r["symbol"], r["date"]): r for r in frame.select("symbol", "date", "open", "close").iter_rows(named=True)}
         days = [self._evaluate(r, plan, latest, coverage, prices) for r, plan in zip(records, plans, strict=True)]
         current = records[0].get("definition_digest")
         mine = [d for d in days if d["definition_digest"] == current]
         out.update(definition_digest=current, other_definition_days=len(days) - len(mine), days=days[:DETAIL_DAYS])
         for h in HORIZONS:
             k = _key(h)
-            done = [d[k] for d in mine if d["status"] == "tracked" and d[k]["status"] == "available"]
-            picks = [p for d in mine if d["status"] == "tracked" and d[k]["status"] == "available"
-                     for p in d["picks"] if p.get(f"excess_{h}") is not None]
+            done = [d[k] for d in mine if d["status"] == "tracked" and d[k]["status"] in {"available", "partial"}]
+            picks = [p for d in mine if d["status"] == "tracked" and d[k]["status"] in {"available", "partial"}
+                     for p in d["picks"] if p.get(f"return_{h}") is not None]
             enough = len(done) >= MIN_DAYS
             out["summary"][k] = {
                 "days": len(done), "picks": len(picks), "sample_sufficient": enough,
                 "avg_return": _mean([d["avg_return"] for d in done]) if enough else None,
-                "avg_benchmark": _mean([d["benchmark_return"] for d in done]) if enough else None,
-                "avg_excess": _mean([d["avg_excess"] for d in done]) if enough else None,
+                "avg_benchmark": None,
+                "avg_excess": None,
                 "win_rate": _mean([p[f"return_{h}"] > 0 for p in picks]) if enough else None,
-                "beat_rate": _mean([p[f"excess_{h}"] > 0 for p in picks]) if enough else None,
+                "beat_rate": None,
             }
         return out
 
@@ -162,7 +160,7 @@ class ChipRankingTracker:
         return sessions
 
     def _evaluate(self, record: dict[str, Any], plan: list[date], latest: date | None, coverage,
-                  prices: pl.DataFrame | None) -> dict[str, Any]:
+                  prices: dict[tuple[str, date], dict[str, Any]] | None) -> dict[str, Any]:
         out: dict[str, Any] = {"date": record["date"], "recorded_at": record["recorded_at"],
                                "definition_digest": record.get("definition_digest"),
                                "entry_date": plan[0].isoformat() if plan else None, "status": "pending",
@@ -188,45 +186,45 @@ class ChipRankingTracker:
             if coverage is None or not (coverage[0] <= entry and exit_ <= coverage[1]):
                 out[k] = {**unavailable, "reason": "corporate_action_coverage"}
                 continue
-            if {entry.month, exit_.month} & DISTRIBUTION_MONTHS:
-                out[k] = {**unavailable, "reason": "benchmark_distribution_unverified"}
-                continue
             symbols = [p["symbol"] for p in record["picks"]]
-            returns = self._returns([*symbols, BENCHMARK_SYMBOL], entry, exit_, coverage[2], prices)
-            bench = returns.get(BENCHMARK_SYMBOL)
+            returns = self._returns(symbols, entry, exit_, coverage[2], prices)
             for p in out["picks"]:
                 r = returns.get(p["symbol"])
                 p[f"return_{h}"] = r
-                p[f"excess_{h}"] = r - bench if r is not None and bench is not None else None
-            valid = [p for p in out["picks"] if p[f"excess_{h}"] is not None]
-            if bench is None or not valid:
+                p[f"excess_{h}"] = None
+            valid = [p for p in out["picks"] if p[f"return_{h}"] is not None]
+            if not valid:
                 out[k] = {**unavailable, "reason": "price_data"}
             elif len(valid) < len(out["picks"]):
                 out[k] = {**unavailable, "reason": "incomplete_picks"}  # no survivor-only averages
             else:
-                out[k] = {"status": "available", "exit_date": exit_.isoformat(), "picks": len(valid),
-                          "avg_return": _mean([p[f"return_{h}"] for p in valid]), "benchmark_return": bench,
-                          "avg_excess": _mean([p[f"excess_{h}"] for p in valid])}
+                # shortcut: ETF distribution coverage is unavailable; enable comparison only with a verified source.
+                out[k] = {"status": "partial", "reason": "benchmark_distribution_unverified",
+                          "exit_date": exit_.isoformat(), "picks": len(valid),
+                          "avg_return": _mean([p[f"return_{h}"] for p in valid]), "benchmark_return": None,
+                          "avg_excess": None}
         return out
 
     @staticmethod
-    def _returns(symbols: list[str], entry: date, exit_: date, events, prices: pl.DataFrame) -> dict[str, float | None]:
-        raw = prices.filter(pl.col("date").is_in([entry, exit_]))
+    def _returns(symbols: list[str], entry: date, exit_: date, events,
+                 prices: dict[tuple[str, date], dict[str, Any]]) -> dict[str, float | None]:
         window = tuple(e for e in events if entry < e.effective_date <= exit_)
         out: dict[str, float | None] = {}
         for symbol in symbols:
-            rows = raw.filter(pl.col("symbol") == symbol).unique("date").sort("date")
-            if rows.height != len({entry, exit_}):  # a 1-session hold buys and sells on the same bar
+            bars = [prices.get((symbol, d)) for d in sorted({entry, exit_})]
+            if any(r is None or any(r[c] is None or not math.isfinite(r[c]) or r[c] <= 0
+                                   for c in ("open", "close")) for r in bars):
                 out[symbol] = None
                 continue
-            adjusted = adjust_prices_as_of(rows, as_of=exit_, events=window, price_columns=("open", "close"))
-            if adjusted.status != "verified":
-                out[symbol] = None
-                continue
-            frame = adjusted.to_frame()
-            buy = frame.filter(pl.col("date") == entry)["open"][0]
-            sell = frame.filter(pl.col("date") == exit_)["close"][0]
-            out[symbol] = sell / buy - 1 if buy and buy > 0 and sell is not None else None
+            symbol_events = tuple(e for e in window if e.symbol == symbol)
+            if symbol_events:
+                adjusted = adjust_prices_as_of(pl.DataFrame(bars), as_of=exit_, events=symbol_events, price_columns=("open", "close"))
+                if adjusted.status != "verified":
+                    out[symbol] = None
+                    continue
+                bars = adjusted.to_frame().to_dicts()
+            value = bars[-1]["close"] / bars[0]["open"] - 1
+            out[symbol] = value if math.isfinite(value) else None
         return out
 
 

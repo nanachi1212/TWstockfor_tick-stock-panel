@@ -62,13 +62,13 @@ const UNAVAILABLE_REASON: Record<string, string> = {
   incomplete_picks: '有股票缺價格',
   price_data: '缺價格',
   corporate_action_coverage: '除權息資料不足',
-  benchmark_distribution_unverified: '0050 配息期間',
+  benchmark_distribution_unverified: '0050 配息涵蓋未驗證',
 }
 
 function horizonCell(h: ChipTrackingHorizon) {
   if (h.status === 'pending') return <span className="text-muted">尚未到期</span>
   if (h.status === 'unavailable') return <span className="text-muted" title={h.reason}>無法計算{h.reason ? `（${UNAVAILABLE_REASON[h.reason] ?? h.reason}）` : ''}</span>
-  return <><span className={toneClass(h.avg_return)}>{pct(h.avg_return)}</span><span className="ml-1 text-xs text-muted">0050 {pct(h.benchmark_return)}</span></>
+  return <><span className={toneClass(h.avg_return)}>{pct(h.avg_return)}</span><span className="ml-1 text-xs text-muted">{h.status === 'partial' ? '0050 配息涵蓋未驗證' : `0050 ${pct(h.benchmark_return)}`}</span></>
 }
 
 function ChipTracking() {
@@ -76,7 +76,7 @@ function ChipTracking() {
   return <section className="space-y-3 border-t border-border pt-4">
     <h2 className="font-medium">排行追蹤成績（往後追蹤）</h2>
     <p className="text-xs text-muted leading-relaxed">
-      每天收盤更新後，把當天上市、上櫃各前 20 名存檔，之後不再重算。以「隔天開盤價買進」計算 1 天（當天收盤）與 5 天（第 5 個交易日收盤）的漲跌，用除權息還原價，跟 0050 同期間比較。未計手續費與交易稅。只在融資資料公布後存檔；存檔時間晚於隔天開盤、任何一檔缺價格，或期間可能包含 0050 配息（1 月、7 月，目前沒有可驗證的 ETF 配息資料）的那一天，不計入統計。
+      每天收盤更新後，把當天上市、上櫃各前 20 名存檔，之後不再重算。以「隔天開盤價買進」計算 1 天（當天收盤）與 5 天（第 5 個交易日收盤）的還原價漲跌。未計手續費與交易稅。只在融資資料公布後存檔；存檔時間晚於隔天開盤或任何一檔缺價格，該期間不計入平均。目前沒有可驗證的 ETF 配息涵蓋，0050 基準、超額報酬與勝過基準比例暫不提供，不再用月份猜測配息日期。
     </p>
     {query.isLoading ? <p role="status" className="text-xs text-muted">讀取追蹤紀錄中…</p>
       : query.isError || !query.data ? <div role="alert" className="text-xs text-danger">追蹤紀錄讀取失敗<button className="ml-3 underline" onClick={() => void query.refetch()}>重試</button></div>
@@ -112,7 +112,7 @@ function ChipTrackingBody({ data }: { data: ChipRankingTracking }) {
       <tbody>{data.days.slice(0, 20).map(d => <tr key={d.date} className="border-t border-border/60">
         <td className="px-2 py-1.5 tabular-nums">{d.date}</td>
         <td className="px-2 py-1.5 text-xs">{DAY_STATUS[d.status]}</td>
-        <td className="px-2 py-1.5 text-right tabular-nums">{d.picks.length}</td>
+        <td className="px-2 py-1.5 text-right tabular-nums"><details><summary className="cursor-pointer">{d.picks.length} 檔／查看存檔</summary><p className="text-xs text-muted">存檔 {d.recorded_at}；進場 {d.entry_date ?? '未確認'}</p><ul className="space-y-1 text-left text-xs">{d.picks.map(p => <li key={p.symbol}>#{p.rank} <Link className="text-accent hover:underline" to={`/stocks/${encodeURIComponent(p.symbol)}`}>{p.name || p.symbol}</Link> · 1 天 {pct(p.return_1)}／5 天 {pct(p.return_5)} · <Link className="text-accent hover:underline" to={`/research?symbol=${encodeURIComponent(p.symbol)}`}>研究歷史</Link></li>)}</ul></details></td>
         <td className="px-2 py-1.5 text-right tabular-nums">{d.status === 'tracked' ? horizonCell(d.h1) : '—'}</td>
         <td className="px-2 py-1.5 text-right tabular-nums">{d.status === 'tracked' ? horizonCell(d.h5) : '—'}</td>
       </tr>)}</tbody>

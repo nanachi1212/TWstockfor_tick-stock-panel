@@ -116,13 +116,13 @@ export interface ChipRankingSnapshot {
 
 /** Returns are decimals (0.03 = 3%); null means not computable, never 0. */
 export interface ChipTrackingHorizon {
-  status: 'available' | 'unavailable' | 'pending'
+  status: 'available' | 'partial' | 'unavailable' | 'pending'
   exit_date: string | null
   reason?: string
   picks?: number
   avg_return?: number
-  benchmark_return?: number
-  avg_excess?: number
+  benchmark_return?: number | null
+  avg_excess?: number | null
 }
 
 export interface ChipTrackingDay {
@@ -130,7 +130,7 @@ export interface ChipTrackingDay {
   recorded_at: string
   entry_date: string | null
   status: 'tracked' | 'late' | 'pending'
-  picks: { symbol: string; name: string | null; exchange: 'TWSE' | 'TPEX'; rank: number }[]
+  picks: { symbol: string; name: string | null; exchange: 'TWSE' | 'TPEX'; rank: number; return_1?: number | null; return_5?: number | null }[]
   h1: ChipTrackingHorizon
   h5: ChipTrackingHorizon
 }

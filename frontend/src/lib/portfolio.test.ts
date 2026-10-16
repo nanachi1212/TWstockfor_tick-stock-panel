@@ -158,6 +158,14 @@ describe('portfolio accounting', () => {
 })
 
 describe('parsePortfolioImport', () => {
+  it('distinguishes an explicit zero snapshot from empty, partial and broken inputs', () => {
+    const zero = '代號,名稱,股數,均價\n2330,台積電,0,0'
+    expect(parsePortfolioImport(zero, '2026-10-09').emptySnapshot).toBe(true)
+    for (const text of ['', '代號,名稱,股數,均價', `${zero}\n2317,鴻海,N/A,100`, `${zero}\n2317,鴻海,,100`,
+      `${zero}\nBROKEN,股票,10,100`, `${zero}\nBROKEN,融資股票,10,100`, `${zero}\nBROKEN`, `${zero}\n2317,"鴻海,0,0`, `${zero}\n2317,鴻海,-1,100`, '2330,台積電," , , ",0']) {
+      expect(parsePortfolioImport(text, '2026-10-09').emptySnapshot, text).toBe(false)
+    }
+  })
   it('parses broker-style rows, skips headers and closed positions, derives fee from total cost', () => {
     const text = [
       '代號,名稱,股數,均價,總成本,日期',

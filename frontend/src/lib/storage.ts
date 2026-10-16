@@ -39,6 +39,7 @@ export const storage = {
 
   /** Portfolio 成交紀錄，持倉與損益由成交資料重建 */
   portfolioTransactions: kv<unknown[]>('portfolio_transactions', true, true),
+  portfolioImportPrevious: kv<unknown[] | null>('portfolio_import_previous', true, true),
 
   /** 個股日K信息條指標配置 */
   stockInfoBarFields:   kv<unknown[]>('stock_info_bar_fields'),
@@ -79,48 +80,8 @@ export const storage = {
   /** Screener 卡片尺寸 */
   screenerCardSize:     kv<string>('screener-card-size'),
 
-  /** 策略創建草稿（新建專用） */
-  strategyDraft: kv<{ name: string; description: string; direction: string; style?: string; rules: string; code: string; step: number; strategyId: string; source?: 'ai' | 'custom' } | null>('strategy-draft'),
-
-  /** 策略修改草稿（AI修改專用，不影響創建按鈕） */
-  strategyModify: kv<{ name: string; description: string; direction: string; style?: string; rules: string; code: string; step: number; strategyId: string; source?: 'ai' | 'custom' } | null>('strategy-modify'),
-
-  /** 策略構建器草稿（舊版兼容，逐漸廢棄） */
-  strategyBuilderDraft: kv<{ name: string; description: string; direction: string; style?: string; rules: string; code: string; step: number; strategyId: string; source?: 'ai' | 'custom' } | null>('strategy-builder-draft'),
-
-  /** 已保存策略的原始規則（策略ID → 規則文本） */
-  strategyRules: kv<Record<string, string>>('strategy-rules'),
-
   /** 策略回測快捷區間按鈕配置 */
   strategyBacktestQuickRanges: kv<unknown>('strategy-backtest-quick-ranges'),
-
-  /** 策略回測最後一次成功結果和參數 */
-  strategyBacktestLast: kv<{
-    selectedStrategy: string | null
-    symbols: string
-    assetType?: 'stock' | 'etf'
-    start: string
-    end: string
-    matching: 'close_t' | 'open_t+1'
-    entryFill: 'close_t' | 'open_t+1'
-    exitFill: 'close_t' | 'open_t+1' | 'signal_next_minute'
-    fees: string
-    stampTax?: string
-    slippage: string
-    maxPositions: string
-    maxExposure: string
-    initialCapital: string
-    positionSizing: 'equal' | 'score_weight'
-    mode: 'position' | 'full'
-    holdingDays: string
-    minuteFill?: boolean
-    regimeStates?: string[]
-    regimeMinScore?: number | ''
-    params?: Record<string, any>
-    overrides?: Record<string, any>
-    strategyConfigSignature?: string
-    result: any
-  } | null>('strategy-backtest-last'),
 
   /** 數據頁畫像卡片顯隱 (卡片key → 是否顯示) */
   dataCardVisible: kv<Record<string, boolean>>('data-card-visible'),

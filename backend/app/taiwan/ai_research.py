@@ -671,6 +671,9 @@ def _sanitize_personal_context(value: dict[str, Any] | None) -> dict[str, dict[s
             session = quant_source.get("session")
             if isinstance(session, str) and len(session) <= 20:
                 quant["session"] = session
+            model_key = quant_source.get("model_key")
+            if isinstance(model_key, str) and 0 < len(model_key) <= 160:
+                quant["model_key"] = model_key
             features = quant_source.get("feature_percentiles")
             if isinstance(features, dict):
                 safe_features = finite_numbers(features, {

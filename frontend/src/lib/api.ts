@@ -32,21 +32,22 @@ export interface TaiwanPortfolioAnalytics {
     } | null
   }
   performance: {
-    status: 'available' | 'unavailable'
+    status: 'available' | 'partial' | 'unavailable'
     reason: string | null
     window_start: string | null
     window_end: string | null
     sessions: number
     metrics: {
       total_return: number
-      benchmark_return: number
+      benchmark_return: number | null
       volatility: number
-      benchmark_volatility: number
+      benchmark_volatility: number | null
       beta: number | null
       max_drawdown: number
     } | null
-    series: { date: string; portfolio: number; benchmark: number }[]
+    series: { date: string; portfolio: number; benchmark: number | null }[]
     excluded_symbols: { symbol: string; reason: string }[]
+    missing_sessions?: { symbol: string; date: string }[]
   }
 }
 
@@ -2464,7 +2465,7 @@ export interface TaiwanAIResearchPersonalContext {
   quote?: { last_price?: number; change?: number; change_pct?: number; quote_time?: string; market_status?: string; trade_date?: string; status?: string; source?: string; is_stale?: boolean }
   portfolio?: { shares?: number; average_cost?: number; current_price?: number; unrealized_pnl?: number; return_pct?: number; change?: number; change_pct?: number; registered_positions_count?: number; quote_coverage?: 'complete' | 'partial'; weight_of_registered_pct?: number; registered_market_value?: number }
   watchlist?: { included: boolean }
-  quant?: { status: 'available' | 'no_valid_run' | 'unavailable'; selected: boolean; rank?: number; score?: number; session?: string; feature_percentiles?: Record<string, number> }
+  quant?: { status: 'available' | 'no_valid_run' | 'unavailable'; selected: boolean; rank?: number; score?: number; session?: string; model_key?: string; feature_percentiles?: Record<string, number> }
   alert?: { alert_id?: string; rule_name?: string; rule_type?: string; triggered_at?: string; trigger_value?: number; threshold?: number; change_pct?: number; quant_status?: string; quant_rank?: number; quant_score?: number; quant_session?: string; message?: string; source?: string; market_status?: string }
   social?: { as_of?: string; status?: string; total_mentions?: number; ptt_mentions?: number; dcard_mentions?: number; unique_posts?: number; engagement?: number; heat_score?: number; volume_change_24h?: number; sentiment?: string; sentiment_status?: string; sentiment_score?: number; confidence?: number; source_coverage?: string }
 }

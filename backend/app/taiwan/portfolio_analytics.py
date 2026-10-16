@@ -4,13 +4,14 @@ Performance is a hypothetical "hold today's shares through the window" series,
 not the user's realized history. Prices are adjusted with the verified
 corporate-action snapshot; the window shrinks to that coverage and any symbol
 whose adjustment cannot be verified makes performance unavailable (fail-closed).
-The benchmark is 0050.TWSE from the same daily store, matching selection review,
-because the persisted TAIEX series is month-to-date only.
+The intended benchmark is 0050.TWSE, matching selection review. Its metrics
+remain unavailable until ETF distribution coverage can be verified.
 """
 from __future__ import annotations
 
 import math
 from datetime import date, timedelta
+from itertools import pairwise
 from typing import Any
 
 import polars as pl
@@ -18,6 +19,7 @@ import polars as pl
 from app.taiwan.adjust import adjust_prices_as_of
 from app.taiwan.corporate_actions import CorporateActionStore
 from app.taiwan.daily_store import TaiwanDailyStore
+from app.taiwan.observed_universe import ObservedUniverseStore
 
 BENCHMARK_SYMBOL = "0050.TWSE"
 BENCHMARK_NAME = "元大台灣50（加權指數代理）"
@@ -26,26 +28,28 @@ MIN_SESSIONS = 20
 TRADING_DAYS_PER_YEAR = 252
 
 
-def series_metrics(values: list[float], bench: list[float]) -> dict[str, float | None]:
+def series_metrics(values: list[float], bench: list[float] | None) -> dict[str, float | None]:
     """Return decimals: total_return, benchmark_return, volatility, max_drawdown; beta is a ratio."""
-    if len(values) != len(bench) or len(values) < 2:
+    if len(values) < 2 or (bench is not None and len(values) != len(bench)):
         raise ValueError("series must be aligned and have at least two points")
-    rp = [b / a - 1 for a, b in zip(values, values[1:])]
-    rb = [b / a - 1 for a, b in zip(bench, bench[1:])]
+    if any(not math.isfinite(v) or v <= 0 for v in [*values, *(bench or [])]):
+        raise ValueError("prices must be finite and positive")
+    rp = [b / a - 1 for a, b in pairwise(values)]
+    rb = [b / a - 1 for a, b in pairwise(bench)] if bench is not None else []
     n = len(rp)
     mp, mb = sum(rp) / n, sum(rb) / n
     var_p = sum((x - mp) ** 2 for x in rp) / (n - 1) if n > 1 else 0.0
     var_b = sum((x - mb) ** 2 for x in rb) / (n - 1) if n > 1 else 0.0
-    cov = sum((x - mp) * (y - mb) for x, y in zip(rp, rb)) / (n - 1) if n > 1 else 0.0
+    cov = sum((x - mp) * (y - mb) for x, y in zip(rp, rb, strict=True)) / (n - 1) if n > 1 and bench is not None else 0.0
     peak, mdd = values[0], 0.0
     for v in values:
         peak = max(peak, v)
         mdd = min(mdd, v / peak - 1)
     return {
         "total_return": values[-1] / values[0] - 1,
-        "benchmark_return": bench[-1] / bench[0] - 1,
+        "benchmark_return": bench[-1] / bench[0] - 1 if bench is not None else None,
         "volatility": math.sqrt(var_p * TRADING_DAYS_PER_YEAR),
-        "benchmark_volatility": math.sqrt(var_b * TRADING_DAYS_PER_YEAR),
+        "benchmark_volatility": math.sqrt(var_b * TRADING_DAYS_PER_YEAR) if bench is not None else None,
         "beta": cov / var_b if var_b > 0 else None,
         "max_drawdown": mdd,
     }
@@ -53,9 +57,11 @@ def series_metrics(values: list[float], bench: list[float]) -> dict[str, float |
 
 class PortfolioAnalyticsService:
     def __init__(self, *, daily: TaiwanDailyStore | None = None,
-                 actions: CorporateActionStore | None = None, master=None) -> None:
+                 actions: CorporateActionStore | None = None, master=None,
+                 evidence: ObservedUniverseStore | None = None) -> None:
         self.daily = daily or TaiwanDailyStore()
         self.actions = actions or CorporateActionStore()
+        self.evidence = evidence or ObservedUniverseStore()
         if master is None:
             from app.taiwan.universe import get_security_master
             master = get_security_master()
@@ -123,7 +129,7 @@ class PortfolioAnalyticsService:
     def _performance(self, holdings: dict[str, float]) -> dict[str, Any]:
         out: dict[str, Any] = {"status": "unavailable", "reason": None, "window_start": None,
                                "window_end": None, "sessions": 0, "metrics": None, "series": [],
-                               "excluded_symbols": []}
+                               "excluded_symbols": [], "missing_sessions": []}
         if not holdings:
             out["reason"] = "no_holdings"
             return out
@@ -135,7 +141,16 @@ class PortfolioAnalyticsService:
         end = min(latest_day, coverage[1])
         start = max(end - timedelta(days=LOOKBACK_DAYS), coverage[0])
         events = tuple(e for e in coverage[2] if start <= e.effective_date <= end)
-        symbols = [*holdings, BENCHMARK_SYMBOL]
+        symbols = list(dict.fromkeys([*holdings, BENCHMARK_SYMBOL]))
+        # shortcut: stock action sources do not prove ETF distributions; add a verified ETF source before enabling them.
+        unsupported = [s for s in symbols if s == BENCHMARK_SYMBOL or
+                       (inst := self.master.get_instrument(s)) is None or inst.instrument_type != "stock"]
+        for symbol in unsupported:
+            out["excluded_symbols"].append({"symbol": symbol, "reason": "asset_action_coverage_unavailable"})
+        if any(s in holdings for s in unsupported):
+            out["reason"] = "asset_action_coverage_unavailable"
+            return out
+        symbols = [s for s in symbols if s not in unsupported]
         raw = self.daily.read_range(symbols, start, end).select("symbol", "date", "close")
         frames: dict[str, pl.DataFrame] = {}
         for symbol in symbols:
@@ -148,12 +163,25 @@ class PortfolioAnalyticsService:
                 out["excluded_symbols"].append({"symbol": symbol, "reason": "price_adjustment_unavailable"})
                 continue
             frames[symbol] = adjusted.to_frame().select("date", pl.col("close").alias(symbol))
-        if out["excluded_symbols"]:
+        if any(s["symbol"] in holdings for s in out["excluded_symbols"]):
             out["reason"] = "symbol_data_insufficient"
             return out
-        # Only sessions where every holding and the benchmark have a close; no fill.
-        wide = frames[BENCHMARK_SYMBOL]
-        for symbol in holdings:
+        start = max(frame["date"].min() for frame in frames.values())
+        out.update(window_start=start.isoformat(), window_end=end.isoformat())
+        observed = set(raw["date"].to_list())
+        for symbol, frame in frames.items():
+            valid = set(frame.filter(pl.col(symbol).is_finite() & (pl.col(symbol) > 0))["date"].to_list())
+            day = start
+            while day <= end:
+                if day not in valid and (day in observed or self.evidence.day_evidence(
+                        symbol.rsplit(".", 1)[-1], day).status != "non_trading"):
+                    out["missing_sessions"].append({"symbol": symbol, "date": day.isoformat()})
+                day += timedelta(days=1)
+        if out["missing_sessions"]:
+            out["reason"] = "incomplete_sessions"
+            return out
+        wide = frames[symbols[0]]
+        for symbol in symbols[1:]:
             wide = wide.join(frames[symbol], on="date", how="inner")
         wide = wide.sort("date")
         if wide.height < MIN_SESSIONS:
@@ -162,13 +190,18 @@ class PortfolioAnalyticsService:
             return out
         values = wide.select(pl.sum_horizontal(
             [pl.col(s) * shares for s, shares in holdings.items()])).to_series().to_list()
-        bench = wide[BENCHMARK_SYMBOL].to_list()
+        if any(not math.isfinite(v) or v <= 0 for v in values):
+            out["reason"] = "invalid_portfolio_value"
+            return out
+        bench = wide[BENCHMARK_SYMBOL].to_list() if BENCHMARK_SYMBOL in frames else None
         dates = wide["date"].to_list()
         out.update(
-            status="available", reason=None, window_start=dates[0].isoformat(),
+            status="available" if bench is not None else "partial",
+            reason=None if bench is not None else "benchmark_distribution_unverified", window_start=dates[0].isoformat(),
             window_end=dates[-1].isoformat(), sessions=len(dates),
             metrics=series_metrics(values, bench),
-            series=[{"date": d.isoformat(), "portfolio": v / values[0] * 100, "benchmark": b / bench[0] * 100}
-                    for d, v, b in zip(dates, values, bench)],
+            series=[{"date": d.isoformat(), "portfolio": v / values[0] * 100,
+                     "benchmark": bench[i] / bench[0] * 100 if bench is not None else None}
+                    for i, (d, v) in enumerate(zip(dates, values, strict=True))],
         )
         return out

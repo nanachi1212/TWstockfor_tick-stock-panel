@@ -1,10 +1,11 @@
 import { useMemo } from 'react'
-import { useSearchParams } from 'react-router-dom'
+import { Link, useSearchParams } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { AlertTriangle, GitCompareArrows, Loader2, Search } from 'lucide-react'
 import { api, researchPromptVersion, type TaiwanAIResearchHistoryRecord } from '@/lib/api'
 import { QK } from '@/lib/queryKeys'
 import { ResearchCompareView } from '@/components/research/ResearchCompareView'
+import { isTaiwanPortfolioSymbol } from '@/lib/portfolio'
 
 function recordsFrom(value: unknown): TaiwanAIResearchHistoryRecord[] {
   const raw = Array.isArray(value)
@@ -21,6 +22,34 @@ function printable(value: unknown) {
   if (value == null) return '未提供'
   if (typeof value === 'string') return value
   try { return JSON.stringify(value, null, 2) } catch { return '資料格式無法顯示' }
+}
+
+function object(value: unknown): Record<string, unknown> {
+  return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {}
+}
+
+function ResearchWorkflow({ record }: { record: TaiwanAIResearchHistoryRecord }) {
+  const personal = object(object(record.evidence_payload).personal_context)
+  const quant = object(personal.quant)
+  const portfolio = object(personal.portfolio)
+  const alert = object(personal.alert)
+  const stock = typeof record.symbol === 'string' && isTaiwanPortfolioSymbol(record.symbol) ? `/stocks/${encodeURIComponent(record.symbol)}` : null
+  const snapshotLink = quant.status === 'available' && quant.selected === true && typeof quant.model_key === 'string' && typeof quant.session === 'string'
+    ? `/selection-review?${new URLSearchParams({ tab: 'live', model_key: quant.model_key, session: quant.session })}` : null
+  return <section aria-label="研究來源與後續追蹤" className="mt-3 space-y-2 rounded-lg border border-border p-3 text-xs">
+    <h3 className="font-semibold">研究來源與後續追蹤</h3>
+    <p className="text-muted">以下為研究儲存時的快照；開啟個股、持股與提醒會顯示目前資料，不代表已成交或已設定提醒。</p>
+    <p>資料日期：{typeof record.evidence_as_of === 'string' ? record.evidence_as_of : '未記錄'}</p>
+    <p>當時選股：{quant.status === 'available' && quant.selected === true
+      ? `${typeof quant.session === 'string' ? quant.session : '日期未記錄'}，排名 ${typeof quant.rank === 'number' ? quant.rank : '未記錄'}`
+      : quant.status === 'available' ? '未入選' : '資料不可用或未記錄'}</p>
+    <p>當時持股：{typeof portfolio.shares === 'number' && Number.isFinite(portfolio.shares) ? `${portfolio.shares.toLocaleString()} 股` : '未記錄，不能視為零持股'}</p>
+    <p>來源提醒：{typeof alert.alert_id === 'string' ? alert.alert_id : '未記錄'}{typeof alert.triggered_at === 'string' ? ` · ${alert.triggered_at}` : ''}{typeof alert.message === 'string' ? ` · ${alert.message}` : ''}</p>
+    <nav aria-label="研究後續操作" className="flex flex-wrap gap-3 text-accent">
+      {stock && <><Link to={stock}>個股資料</Link><Link to={`${stock}#portfolio`}>檢視／登錄持股</Link><Link to={`${stock}#monitor`}>檢視／設定提醒</Link></>}
+      {snapshotLink ? <Link to={snapshotLink}>原候選快照與事後追蹤</Link> : <span className="text-muted">未記錄完整候選來源，無法連到原快照</span>}
+    </nav>
+  </section>
 }
 
 const SECTION_LABELS: [string, string][] = [
@@ -92,12 +121,13 @@ export function Research() {
   })
   const records = useMemo(() => recordsFrom(historyQuery.data), [historyQuery.data])
   const selected = records.find(item => item.id === selectedId) ?? (selectedId ? undefined : records[0])
+  const detailId = selectedId || selected?.id || ''
   const detailQuery = useQuery({
-    queryKey: QK.taiwanAIResearchHistoryDetail(selected?.id ?? ''),
-    queryFn: () => api.taiwanAIResearchHistoryDetail(selected!.id),
-    enabled: Boolean(selected?.id),
+    queryKey: QK.taiwanAIResearchHistoryDetail(detailId),
+    queryFn: () => api.taiwanAIResearchHistoryDetail(detailId),
+    enabled: Boolean(detailId),
   })
-  const selectedDetail = detailQuery.data ?? selected
+  const selectedDetail = detailQuery.isError ? undefined : detailQuery.data ?? selected
   // 不論 A/B 怎麼選，一律以「舊 → 新」比較，差異才讀得懂。
   const stamp = (item?: TaiwanAIResearchHistoryRecord) => item?.generated_at ?? item?.saved_at ?? ''
   const pair = [records.find(r => r.id === firstCompareId), records.find(r => r.id === secondCompareId)]
@@ -137,8 +167,10 @@ export function Research() {
       </section>
       {historyQuery.isLoading && <div role="status" className="flex items-center gap-2 rounded-xl border border-border bg-surface p-6 text-xs text-muted"><Loader2 className="h-4 w-4 animate-spin" />正在載入研究歷史…</div>}
       {historyQuery.isError && <div role="alert" className="rounded-xl border border-rose-500/30 bg-rose-500/10 p-4 text-xs text-rose-300"><AlertTriangle className="mr-2 inline h-4 w-4" />研究歷史目前不可用，請稍後重試。</div>}
-      {!historyQuery.isLoading && !historyQuery.isError && records.length === 0 && <div className="rounded-xl border border-dashed border-border bg-surface p-8 text-center text-xs text-muted">沒有符合篩選條件的研究紀錄。</div>}
-      {records.length > 0 && <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.2fr)]">
+      {detailQuery.isError && <p role="alert" className="text-xs text-warning">指定研究紀錄不存在或讀取失敗，請重新選取紀錄。</p>}
+      {detailId && detailQuery.isLoading && <p role="status" className="text-xs text-muted">正在讀取指定研究紀錄…</p>}
+      {!historyQuery.isLoading && !historyQuery.isError && records.length === 0 && !selectedId && <div className="rounded-xl border border-dashed border-border bg-surface p-8 text-center text-xs text-muted">沒有符合篩選條件的研究紀錄。</div>}
+      {(records.length > 0 || selectedDetail) && <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.2fr)]">
         <section className="rounded-xl border border-border bg-surface p-3" aria-label="研究歷史清單">
           <h2 className="text-sm font-semibold">紀錄（{records.length}）</h2>
           <div className="mt-2 space-y-1.5">
@@ -162,6 +194,7 @@ export function Research() {
             {detailQuery.isFetching && <p role="status" className="mt-1 text-[10px] text-muted">正在讀取完整紀錄…</p>}
             <dl className="mt-3 grid grid-cols-2 gap-2 text-[10px] sm:grid-cols-4"><div><dt className="text-muted">Provider</dt><dd>{selectedDetail.provider ?? '未提供'}</dd></div><div><dt className="text-muted">Model</dt><dd>{selectedDetail.model ?? '未提供'}</dd></div><div><dt className="text-muted">提示詞版本</dt><dd>{researchPromptVersion(selectedDetail) ?? '未提供'}</dd></div><div><dt className="text-muted">儲存時間</dt><dd>{selectedDetail.saved_at ?? selectedDetail.generated_at ?? '未提供'}</dd></div></dl>
             <div className="mt-3 rounded-lg border border-border/50 bg-base/30 p-3"><h3 className="text-xs font-semibold">報告</h3><ReportView value={selectedDetail.report ?? selectedDetail.response ?? selectedDetail} /></div>
+            <ResearchWorkflow record={selectedDetail} />
           </article>}
           {(firstCompareId || secondCompareId) && <article className="rounded-xl border border-purple-500/30 bg-surface p-4"><h2 className="flex items-center gap-2 text-sm font-semibold"><GitCompareArrows className="h-4 w-4 text-purple-300" />研究比較</h2>{!firstCompareId || !secondCompareId ? <p className="mt-2 text-xs text-muted">請在左側各選一筆比較 A 與比較 B。</p> : compareQuery.isLoading ? <p role="status" className="mt-2 text-xs text-muted">正在取得確定性比較…</p> : compareQuery.isError ? <p role="alert" className="mt-2 text-xs text-muted">比較資料目前不可用。</p> : compareQuery.data ? <ResearchCompareView data={compareQuery.data} older={{ id: olderId, date: dayOf(olderRecord) }} newer={{ id: newerId, date: dayOf(newerRecord) }} /> : null}</article>}
         </section>

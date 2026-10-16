@@ -71,7 +71,8 @@ def _make_profile(user_dir: Path) -> Path:
 
 
 BROWSER = {
-    "portfolio": {"portfolio_transactions": json.dumps([{"symbol": "2330.TWSE", "shares": 1000}])},
+    "portfolio": {"portfolio_transactions": json.dumps([{"symbol": "2330.TWSE", "shares": 1000}]),
+                  "portfolio_import_previous": "[]"},
     "ui_preferences": {"tf-theme": "light", "unknown-key": "drop-me"},
 }
 

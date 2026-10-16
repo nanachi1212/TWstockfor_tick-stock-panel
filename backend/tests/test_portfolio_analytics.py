@@ -59,7 +59,12 @@ def test_analyze_performance_and_allocation(tmp_path):
                                     master=_MASTER)
     result = svc.analyze({"2330.TWSE": 1000, "2317.TWSE": 1000})
     perf = result["performance"]
-    assert perf["status"] == "available" and perf["sessions"] == 30
+    assert perf["status"] == "partial" and perf["sessions"] == 30
+    assert perf["reason"] == "benchmark_distribution_unverified"
+    assert perf["metrics"]["benchmark_return"] is None
+    assert perf["metrics"]["benchmark_volatility"] is None
+    assert perf["metrics"]["beta"] is None
+    assert all(p["benchmark"] is None for p in perf["series"])
     assert perf["series"][0]["portfolio"] == pytest.approx(100)
     assert perf["metrics"]["max_drawdown"] == 0
     alloc = result["allocation"]
@@ -68,11 +73,65 @@ def test_analyze_performance_and_allocation(tmp_path):
     assert weights["半導體業"] == pytest.approx(1029 / 1229)
 
 
-def test_missing_session_is_dropped_not_filled(tmp_path):
+def test_missing_session_blocks_metrics_instead_of_disappearing(tmp_path):
     svc = PortfolioAnalyticsService(daily=_store(tmp_path, missing=("2330.TWSE", 5)),
                                     actions=_Actions((date(2026, 1, 1), date(2026, 12, 31), ())),
                                     master=_MASTER)
-    assert svc.analyze({"2330.TWSE": 1})["performance"]["sessions"] == 29
+    perf = svc.analyze({"2330.TWSE": 1, "2317.TWSE": 1})["performance"]
+    assert perf["status"] == "unavailable"
+    assert perf["metrics"] is None and perf["series"] == []
+    assert perf["missing_sessions"] == [{"symbol": "2330.TWSE", "date": "2026-06-06"}]
+
+
+def test_missing_entire_weekday_is_not_treated_as_holiday(tmp_path):
+    daily = _store(tmp_path)
+    read = daily.read_range
+    day = date(2026, 6, 8)
+    daily.read_range = lambda *args: read(*args).filter(pl.col("date") != day)
+    svc = PortfolioAnalyticsService(daily=daily, master=_MASTER,
+                                    actions=_Actions((date(2026, 6, 1), date(2026, 6, 30), ())))
+    perf = svc.analyze({"2330.TWSE": 1})["performance"]
+    assert perf["reason"] == "incomplete_sessions" and perf["metrics"] is None
+    assert perf["missing_sessions"] == [{"symbol": "2330.TWSE", "date": "2026-06-08"}]
+    svc.evidence = SimpleNamespace(day_evidence=lambda *args: SimpleNamespace(status="non_trading"))
+    assert svc.analyze({"2330.TWSE": 1})["performance"]["status"] == "partial"
+
+
+def test_missing_crash_bar_cannot_hide_drawdown(tmp_path):
+    daily = _store(tmp_path)
+    read = daily.read_range
+    crash = date(2026, 6, 8)
+    daily.read_range = lambda *args: read(*args).with_columns(
+        pl.when((pl.col("symbol") == "2330.TWSE") & (pl.col("date") == crash))
+        .then(50.0).otherwise(pl.col("close")).alias("close"))
+    svc = PortfolioAnalyticsService(daily=daily, master=_MASTER,
+                                    actions=_Actions((date(2026, 6, 1), date(2026, 6, 30), ())))
+    assert svc.analyze({"2330.TWSE": 1})["performance"]["metrics"]["max_drawdown"] < -0.9
+    daily.read_range = lambda *args: read(*args).filter(
+        ~((pl.col("symbol") == "2330.TWSE") & (pl.col("date") == crash)))
+    assert svc.analyze({"2330.TWSE": 1})["performance"]["metrics"] is None
+
+
+def test_etf_holdings_need_distribution_coverage_even_outside_january_and_july(tmp_path):
+    svc = PortfolioAnalyticsService(daily=_store(tmp_path), master=_MASTER,
+                                    actions=_Actions((date(2026, 6, 1), date(2026, 6, 30), ())))
+    result = svc.analyze({BENCHMARK_SYMBOL: 1})
+    assert result["performance"]["reason"] == "asset_action_coverage_unavailable"
+    assert result["performance"]["metrics"] is None
+    assert result["allocation"]["status"] == "available"
+
+
+@pytest.mark.parametrize("price", [float("nan"), float("inf"), 0, -1])
+def test_metrics_reject_invalid_prices(price):
+    with pytest.raises(ValueError):
+        series_metrics([100, price], None)
+
+
+def test_overflowed_portfolio_value_is_unavailable(tmp_path):
+    svc = PortfolioAnalyticsService(daily=_store(tmp_path), master=_MASTER,
+                                    actions=_Actions((date(2026, 6, 1), date(2026, 6, 30), ())))
+    perf = svc.analyze({"2330.TWSE": 1e308})["performance"]
+    assert perf["reason"] == "invalid_portfolio_value" and perf["metrics"] is None
 
 
 def test_unverified_actions_fail_closed(tmp_path):

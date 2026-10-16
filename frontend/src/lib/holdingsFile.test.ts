@@ -20,7 +20,7 @@ const EXPECTED = [
 describe('holdings file import', () => {
   it('reads an .xlsx sheet (shared strings, empty column, negative cost) into importable rows', async () => {
     const text = await xlsxToText(xlsxBuffer())
-    expect(parsePortfolioImport(text, '2026-10-09')).toEqual({ rows: EXPECTED, errors: [] })
+    expect(parsePortfolioImport(text, '2026-10-09')).toEqual({ rows: EXPECTED, errors: [], zeroCodes: [], emptySnapshot: false, incomplete: false })
   })
 
   it('keeps Excel date cells (built-in, custom format, 1904 system) instead of the import day', async () => {

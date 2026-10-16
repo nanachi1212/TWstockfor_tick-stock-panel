@@ -97,6 +97,13 @@ def test_personal_context_is_allowlisted_and_missing_values_stay_missing():
     assert "unrelated" not in sanitized
 
 
+def test_candidate_source_is_kept_only_for_verified_selected_snapshot():
+    quant = {"status": "available", "selected": True, "model_key": "baseline_v1", "session": "2026-10-15"}
+    assert _sanitize_personal_context({"quant": quant})["quant"]["model_key"] == "baseline_v1"
+    assert "model_key" not in _sanitize_personal_context({"quant": {**quant, "status": "unavailable"}})["quant"]
+    assert "model_key" not in _sanitize_personal_context({"quant": {**quant, "model_key": "x" * 161}})["quant"]
+
+
 def test_personal_context_alert_change_pct_is_percent_points_with_unit():
     sanitized = _sanitize_personal_context({"alert": {"change_pct": -0.0565, "rule_type": "change_pct_down"}})
     assert sanitized["alert"]["change_pct"] == -5.65

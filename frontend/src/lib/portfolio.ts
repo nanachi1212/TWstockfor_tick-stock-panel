@@ -263,6 +263,7 @@ function parseDelimited(text: string): string[][] {
     } else cell += ch
   }
   if (cell || row.length) { row.push(cell.trim()); rows.push(row) }
+  if (quoted) throw new Error('持股表格有未結束的引號，請重新匯出完整檔案')
   return rows
 }
 
@@ -283,11 +284,18 @@ type ImportColumn = keyof typeof IMPORT_HEADERS
  * 解析持股表 (券商匯出、Google/Excel 試算表、手打皆可)。
  * 非代號列(小計/現金/表頭)與股數 0 或 N/A 的列略過。總成本 − 股數×均價 視為手續費。
  */
-export function parsePortfolioImport(text: string, defaultDate: string): { rows: PortfolioImportRow[]; errors: string[] } {
+export function parsePortfolioImport(text: string, defaultDate: string): { rows: PortfolioImportRow[]; errors: string[]; zeroCodes: string[]; emptySnapshot: boolean; incomplete: boolean } {
   const rows: PortfolioImportRow[] = []
   const errors: string[] = []
+  const zeroCodes: string[] = []
+  let incomplete = false
+  let cellsByRow: string[][]
+  try { cellsByRow = parseDelimited(text.replace(/^\uFEFF/, '')) } catch (cause) {
+    return { rows, zeroCodes, errors: [cause instanceof Error ? cause.message : '持股表格格式錯誤'], emptySnapshot: false, incomplete: true }
+  }
   let columns: Record<ImportColumn, number> = { code: 0, name: 1, shares: 2, price: 3, cost: 4, date: 5 }
-  parseDelimited(text.replace(/^\uFEFF/, '')).forEach((cells, index) => {
+  cellsByRow.forEach((cells, index) => {
+    if (cells[0] === '年度績效') return
     const header = Object.fromEntries(
       (Object.keys(IMPORT_HEADERS) as ImportColumn[]).map(key => [key, cells.findIndex(cell => IMPORT_HEADERS[key].test(cell))]),
     ) as Record<ImportColumn, number>
@@ -297,12 +305,20 @@ export function parsePortfolioImport(text: string, defaultDate: string): { rows:
     const nameCell = at('name') ?? ''
     const nameCode = columns.code < 0 ? nameCell.match(/[(（]\s*(\d{2,6}[A-Za-z]?)\s*[)）]\s*$/) : null
     const code = (nameCode?.[1] ?? at('code') ?? '').toUpperCase().replace(/\.(TWSE|TPEX)$/, '')
-    if (!/^\d{2,6}[A-Z]?$/.test(code)) return
+    if (!/^\d{2,6}[A-Z]?$/.test(code)) {
+      const summary = code === 'CASH' || /^(現金|CASH|小計|合計|總計|總成本|現股損益|融資損益|融券損益)(\s|$)/i.test(cells[0] ?? '')
+      if (cells.some(Boolean) && !summary) incomplete = true
+      return
+    }
     const sharesText = (at('shares') ?? '').trim()
-    if (!sharesText || /^n\/?a$/i.test(sharesText)) return
+    if (!sharesText || /^n\/?a$/i.test(sharesText)) { incomplete = true; return }
     const shares = importNumber(sharesText)
     const price = importNumber(at('price'))
-    if (shares === 0) return
+    if (shares === 0) {
+      if (/^0+(?:\.0+)?$/.test(sharesText)) zeroCodes.push(code)
+      else errors.push(`第 ${index + 1} 列 ${code}：零股數格式不明確`)
+      return
+    }
     if (!Number.isInteger(shares) || shares < 0 || !Number.isFinite(price) || price <= 0) {
       errors.push(`第 ${index + 1} 列 ${code}：股數或均價不是有效數字`)
       return
@@ -313,7 +329,7 @@ export function parsePortfolioImport(text: string, defaultDate: string): { rows:
     const date = /^\d{4}-\d{2}-\d{2}$/.test(rawDate) ? rawDate : defaultDate
     rows.push({ code, name: nameCode ? nameCell.slice(0, nameCode.index).trim() : nameCell, shares, price, fee, date })
   })
-  return { rows, errors }
+  return { rows, errors, zeroCodes, incomplete, emptySnapshot: zeroCodes.length > 0 && !rows.length && !errors.length && !incomplete }
 }
 
 /** Read and validate the whole browser ledger; any invalid entry rejects the ledger instead of dropping rows. */

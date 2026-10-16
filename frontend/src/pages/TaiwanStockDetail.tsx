@@ -129,6 +129,9 @@ export function TaiwanStockDetail() {
   const autoAnalyzeStartedFor = useRef<string | null>(null)
   // Beginner Stock Picker v1: 第一屏只給結論；原始數據收在「展開進階資料」。
   const [showAdvanced, setShowAdvanced] = useState<boolean>(() => storage.stockDetailAdvanced.get(false))
+  useEffect(() => {
+    if (['#portfolio', '#monitor'].includes(location.hash)) setShowAdvanced(true)
+  }, [location.hash])
   const toggleAdvanced = useCallback(() => {
     setShowAdvanced(prev => {
       storage.stockDetailAdvanced.set(!prev)
@@ -297,6 +300,7 @@ export function TaiwanStockDetail() {
         rank: ranked.rank,
         score: ranked.score,
         session: quantSelection.validRun.session,
+        model_key: quantSelection.validRun.model_key,
         feature_percentiles: Object.fromEntries(Object.entries(ranked.feature_percentiles).filter(([, value]) => Number.isFinite(value))),
       })
     }
@@ -468,6 +472,11 @@ export function TaiwanStockDetail() {
   }, [routeResearch?.aiResearchRequested, detailQuery.isSuccess, alertId, alertContextQuery.isLoading, alertLookupError, selectedAlert, symbol, handleGenerateAiReport, watchlist.isLoading, watchlist.isFetching, toggleWatchlist.isPending, quantSelection.loading, location.pathname, location.state, navigate])
 
   const isLoading = detailQuery.isLoading
+  useEffect(() => {
+    if (showAdvanced && !isLoading && ['#portfolio', '#monitor'].includes(location.hash)) {
+      document.getElementById(location.hash.slice(1))?.scrollIntoView?.({ block: 'start' })
+    }
+  }, [showAdvanced, isLoading, location.hash])
   const isError = detailQuery.isError
 
   // Format K-line rows for EChartsCandlestick
@@ -1425,7 +1434,7 @@ export function TaiwanStockDetail() {
           />
 
           {/* 區塊 4: 監控規則與最近警報 */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div id="monitor" className="grid grid-cols-1 md:grid-cols-2 gap-4">
             {/* 監控規則列表 */}
             <div className="rounded-2xl border border-border bg-surface p-4">
               <div className="flex items-center justify-between mb-3">
@@ -2166,7 +2175,7 @@ export function TaiwanStockDetail() {
             <div className="mt-2 space-y-1.5">
               {historyItems.slice(0, 8).map((item, index) => (
                 <div key={item.id} className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-border/40 px-2 py-1.5 text-[10px]">
-                  <span className="font-mono text-muted">{item.saved_at ?? item.generated_at ?? item.id}</span>
+                  <Link to={`/research?${new URLSearchParams({ symbol, id: item.id })}`} className="font-mono text-accent hover:underline">{item.saved_at ?? item.generated_at ?? item.id} · 來源與後續追蹤</Link>
                   <span className="text-muted">{item.provider ?? 'provider 未提供'} · {item.model ?? 'model 未提供'} · {researchPromptVersion(item) ?? '提示詞版本未提供'}</span>
                   {index > 0 && <button type="button" onClick={() => setComparePreviousId(item.id)} className="inline-flex items-center gap-1 text-purple-300 hover:underline"><GitCompareArrows className="h-3 w-3" />與較新紀錄比較</button>}
                 </div>

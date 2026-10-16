@@ -12,6 +12,10 @@ const REASONS: Record<string, string> = {
   no_daily_data: '尚無日 K 資料',
   symbol_data_insufficient: '部分持股缺少日 K 或還原資料',
   insufficient_sessions: '共同交易日不足 20 天',
+  incomplete_sessions: '共同期間有交易日缺價或尚未確認休市，無法可靠計算報酬與回撤',
+  invalid_portfolio_value: '持股數量換算的組合市值超出可計算範圍',
+  asset_action_coverage_unavailable: '持股包含 ETF 或未確認資產，現有除權息來源無法證實其配息涵蓋',
+  benchmark_distribution_unverified: '0050 配息涵蓋尚未驗證，僅顯示股票持股回放；基準報酬、波動度及 Beta 暫不提供',
 }
 
 export function usePortfolioAnalytics() {
@@ -73,11 +77,12 @@ function AnalyticsBody({ data }: { data: TaiwanPortfolioAnalytics }) {
       <div className="grid gap-3 lg:grid-cols-[2fr_1fr]">
       <div className="space-y-2">
         <h3 className="text-xs font-semibold text-secondary">假設績效（以目前持股回放）</h3>
-        {perf.status === 'available' && m ? (
+        {perf.status !== 'unavailable' && m ? (
           <>
             <p className="rounded-lg border border-warning/30 bg-warning/10 px-3 py-2 text-[11px] text-secondary">
               用「現在的持股股數」回推 {perf.window_start && perf.window_end ? `${perf.window_start} ～ ${perf.window_end}` : '績效期間日期不可用（缺少有效起訖日）'}（{perf.sessions} 個交易日）的還原股價走勢，不是你實際買賣的損益紀錄。基準為{data.benchmark_name}；績效期間受已驗證除權息資料覆蓋範圍限制。
             </p>
+            {perf.reason && <p role="status" className="text-xs text-warning">{REASONS[perf.reason] ?? perf.reason}</p>}
             <div className="grid grid-cols-2 gap-2 sm:grid-cols-5">
               <Stat label="回放報酬" value={pct(m.total_return)} valueTone={m.total_return} />
               <Stat label={`${data.benchmark_symbol.split('.')[0]} 報酬`} value={pct(m.benchmark_return)} valueTone={m.benchmark_return} />
@@ -91,6 +96,7 @@ function AnalyticsBody({ data }: { data: TaiwanPortfolioAnalytics }) {
           <p className="rounded-lg bg-base px-3 py-2 text-xs text-muted">
             績效與風險無法計算：{REASONS[perf.reason ?? ''] ?? perf.reason}
             {perf.excluded_symbols.length > 0 && `（${perf.excluded_symbols.map(s => s.symbol.split('.')[0]).join('、')}）`}
+            {!!perf.missing_sessions?.length && <span className="mt-1 block">缺口：{perf.missing_sessions.slice(0, 10).map(s => `${s.symbol} ${s.date}`).join('、')}{perf.missing_sessions.length > 10 ? `，共 ${perf.missing_sessions.length} 筆` : ''}</span>}
           </p>
         )}
       </div>
@@ -138,12 +144,12 @@ function PerformanceChart({ series, benchmarkLabel }: { series: TaiwanPortfolioA
       animation: false,
       grid: { left: 40, right: 12, top: 28, bottom: 28 },
       legend: { top: 0, textStyle: { fontSize: 11, color: '#94a3b8' } },
-      tooltip: { trigger: 'axis', valueFormatter: (v: unknown) => `${Number(v).toFixed(1)}` },
+      tooltip: { trigger: 'axis', valueFormatter: (v: unknown) => v == null ? '—' : `${Number(v).toFixed(1)}` },
       xAxis: { type: 'category', data: series.map(r => r.date) },
       yAxis: { type: 'value', scale: true },
       series: [
         { name: '目前持股回放', type: 'line', showSymbol: false, data: series.map(r => r.portfolio), lineStyle: { width: 2, color: '#0ea5e9' }, itemStyle: { color: '#0ea5e9' } },
-        { name: benchmarkLabel, type: 'line', showSymbol: false, data: series.map(r => r.benchmark), lineStyle: { width: 1.5, color: '#94a3b8' }, itemStyle: { color: '#94a3b8' } },
+        ...(series.some(r => r.benchmark != null) ? [{ name: benchmarkLabel, type: 'line', showSymbol: false, data: series.map(r => r.benchmark), lineStyle: { width: 1.5, color: '#94a3b8' }, itemStyle: { color: '#94a3b8' } }] : []),
       ],
     })
     const observer = new ResizeObserver(() => chart.resize())

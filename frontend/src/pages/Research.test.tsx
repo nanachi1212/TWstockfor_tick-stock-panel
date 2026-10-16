@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { render, screen, fireEvent, waitFor } from '@testing-library/react'
+import { render, screen, fireEvent, waitFor, within } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { MemoryRouter } from 'react-router-dom'
 import { api } from '@/lib/api'
@@ -23,6 +23,32 @@ function mount(url = '/research') {
 afterEach(() => { vi.clearAllMocks() })
 
 describe('Research history page', () => {
+  it('opens an older record outside the list and links its frozen candidate to tracking', async () => {
+    vi.mocked(api.taiwanAIResearchHistory).mockResolvedValue({ items: [] })
+    vi.mocked(api.taiwanAIResearchHistoryDetail).mockResolvedValue({
+      id: 'old', symbol: '2330.TWSE', evidence_as_of: '2026-09-01',
+      evidence_payload: { personal_context: {
+        quant: { status: 'available', selected: true, model_key: 'baseline_v1', session: '2026-09-01', rank: 3 },
+        portfolio: { shares: 100 }, alert: { alert_id: 'alert-1', message: '進入候選', triggered_at: '2026-09-01T10:00:00+08:00' },
+      } },
+    })
+    mount('/research?id=old')
+    const workflow = await screen.findByRole('region', { name: '研究來源與後續追蹤' })
+    expect(workflow).toHaveTextContent('當時持股：100 股')
+    expect(workflow).toHaveTextContent('alert-1')
+    expect(within(workflow).getByRole('link', { name: '原候選快照與事後追蹤' })).toHaveAttribute('href', '/selection-review?tab=live&model_key=baseline_v1&session=2026-09-01')
+    expect(within(workflow).getByRole('link', { name: '檢視／登錄持股' })).toHaveAttribute('href', '/stocks/2330.TWSE#portfolio')
+    expect(within(workflow).getByRole('link', { name: '檢視／設定提醒' })).toHaveAttribute('href', '/stocks/2330.TWSE#monitor')
+    expect(api.taiwanAIResearchHistoryDetail).toHaveBeenCalledWith('old')
+  })
+
+  it('does not invent sources or holdings for legacy records', async () => {
+    vi.mocked(api.taiwanAIResearchHistory).mockResolvedValue([{ id: 'legacy', symbol: '2330.TWSE' }])
+    vi.mocked(api.taiwanAIResearchHistoryDetail).mockResolvedValue({ id: 'legacy', symbol: '2330.TWSE', evidence_payload: 'broken' })
+    mount()
+    expect(await screen.findByText(/未記錄，不能視為零持股/)).toBeInTheDocument()
+    expect(screen.queryByRole('link', { name: '原候選快照與事後追蹤' })).not.toBeInTheDocument()
+  })
   it('handles loading and malformed legacy records as empty safely', async () => {
     vi.mocked(api.taiwanAIResearchHistory).mockResolvedValue([{ id: 42 as unknown as string }, { id: 'link', kind: 'link', symbol: '9999.TWSE' }, { id: 'ok', symbol: '2330.TWSE' }])
     vi.mocked(api.taiwanAIResearchHistoryDetail).mockResolvedValue({ id: 'ok', symbol: '2330.TWSE' })

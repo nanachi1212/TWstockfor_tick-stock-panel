@@ -643,4 +643,11 @@ describe('TaiwanStockDetail — beginner-first progressive disclosure', () => {
     expect(await screen.findByRole('heading', { level: 1, name: '台積電' })).toBeInTheDocument()
     expect(localStorage.getItem('stock-detail-advanced')).toBe('true')
   })
+
+  it.each(['portfolio', 'monitor'])('opens the existing %s section from a research history link', async anchor => {
+    localStorage.removeItem('stock-detail-advanced')
+    renderAt([`/stocks/2330.TWSE#${anchor}`], 0)
+    await waitFor(() => expect(document.getElementById(anchor)).toBeInTheDocument())
+    expect(localStorage.getItem('stock-detail-advanced')).toBeNull()
+  })
 })

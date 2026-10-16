@@ -20,6 +20,7 @@ import {
   readPortfolioLedger,
   todayTaipeiDate,
   type PortfolioSide,
+  type PortfolioTransaction,
 } from '@/lib/portfolio'
 
 const PORTFOLIO_LOCK_DB = 'tick-stock-panel-portfolio-lock'
@@ -90,6 +91,20 @@ function withPortfolioWriteLock<T>(operation: () => T): Promise<T> {
     return navigator.locks.request('portfolio_transactions', operation)
   }
   return withIndexedDbPortfolioLock(operation)
+}
+
+/** Call inside the portfolio lock; failed replacement preserves both versions. */
+function persistPortfolioReplacement(next: PortfolioTransaction[], previous: PortfolioTransaction[], syncMark?: string) {
+  const oldBackup = storage.portfolioImportPrevious.get(null)
+  storage.portfolioImportPrevious.set(previous)
+  try {
+    storage.portfolioTransactions.set(next)
+    if (syncMark) localStorage.setItem(AUTO_SYNC_MARK, syncMark)
+  } catch (cause) {
+    storage.portfolioTransactions.set(previous)
+    storage.portfolioImportPrevious.set(oldBackup)
+    throw cause
+  }
 }
 
 
@@ -316,6 +331,8 @@ export function PortfolioPanel({ symbol, name, quote: detailQuote, change: detai
   const [trade, setTrade] = useState<{ symbol?: string; name?: string; side: PortfolioSide; quote?: number | null } | null>(null)
   const [reminder, setReminder] = useState<{ symbol: string; name: string; price?: number | null; quote?: TaiwanRealtimeQuote } | null>(null)
   const [importOpen, setImportOpen] = useState(openImportOnMount)
+  const [restoreMessage, setRestoreMessage] = useState('')
+  const [restoring, setRestoring] = useState(false)
   const autoSync = usePortfolioAutoSync(!symbol)
   const qc = useQueryClient()
   const watchlist = useQuery({ queryKey: QK.watchlist, queryFn: api.watchlistList, enabled: !symbol, staleTime: 60_000 })
@@ -372,7 +389,7 @@ export function PortfolioPanel({ symbol, name, quote: detailQuote, change: detai
   const unavailableQuoteValue = quoteFetchFailed ? '行情更新失敗' : '報價不完整'
 
   return (
-    <section className="rounded-2xl border border-border bg-surface p-4 space-y-3" aria-label={symbol ? '我的持股' : '我的持倉'}>
+    <section id={symbol ? 'portfolio' : undefined} className="rounded-2xl border border-border bg-surface p-4 space-y-3" aria-label={symbol ? '我的持股' : '我的持倉'}>
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="flex items-center gap-2"><Wallet className="h-4 w-4 text-accent" /><h2 className="text-sm font-semibold">{symbol ? '我的持股' : '我的持倉'}</h2></div>
         {!ledgerError && <button type="button" onClick={() => setTrade({ symbol: symbol ?? '', name: name ?? '', side: 'buy', quote: detailQuote })} className="inline-flex items-center gap-1 rounded-lg bg-accent px-2.5 py-1.5 text-xs font-medium text-white"><Plus className="h-3.5 w-3.5" />買入</button>}
@@ -389,12 +406,34 @@ export function PortfolioPanel({ symbol, name, quote: detailQuote, change: detai
           )
         })()}
         {!symbol && <button type="button" onClick={() => setImportOpen(true)} className="inline-flex items-center gap-1 rounded-lg border border-border px-2.5 py-1.5 text-xs font-medium text-foreground hover:bg-elevated"><FileUp className="h-3.5 w-3.5" />匯入持股</button>}
+        {!symbol && <button type="button" disabled={restoring} onClick={async () => {
+          setRestoring(true)
+          try {
+            await api.portfolioAutoSyncSet(null)
+            await withPortfolioWriteLock(() => {
+              const previous = storage.portfolioImportPrevious.get(null)
+              if (!Array.isArray(previous) || !previous.every(isPortfolioTransaction)) throw new Error('沒有有效的取代前帳本可回復')
+              buildPortfolioPositions(previous)
+              const ledger = readPortfolioLedger()
+              if (ledger.error) throw new Error(ledger.error)
+              persistPortfolioReplacement(previous, ledger.transactions, 'paused')
+              window.dispatchEvent(new Event(PORTFOLIO_CHANGED))
+            })
+            setRestoreMessage('已回復取代前帳本並停止自動同步；再次回復可切回剛才的版本。')
+          } catch (cause) {
+            setRestoreMessage(cause instanceof Error ? cause.message : '回復失敗，原帳本已保留')
+          } finally {
+            void qc.invalidateQueries({ queryKey: ['portfolioAutoSync'] })
+            setRestoring(false)
+          }
+        }} className="text-xs text-secondary hover:underline disabled:opacity-50">回復上次取代前帳本（取代目前紀錄並停止同步）</button>}
       </div>
+      {restoreMessage && <p role="status" className="text-xs text-warning">{restoreMessage}</p>}
       {ledgerError && <p role="alert" className="rounded-lg bg-danger/10 px-3 py-2 text-xs text-danger">{ledgerError}</p>}
       {!symbol && autoSync.info?.path && (
         <p className="text-[11px] text-muted">
           持股自動同步：{autoSync.info.name}{autoSync.message ? ` · ${autoSync.message}` : ''}
-          <button type="button" onClick={async () => { await api.portfolioAutoSyncSet(null); void qc.invalidateQueries({ queryKey: ['portfolioAutoSync'] }) }} className="ml-2 text-accent hover:underline">停止同步</button>
+          <button type="button" onClick={async () => { await withPortfolioWriteLock(() => localStorage.setItem(AUTO_SYNC_MARK, 'paused')); await api.portfolioAutoSyncSet(null); void qc.invalidateQueries({ queryKey: ['portfolioAutoSync'] }) }} className="ml-2 text-accent hover:underline">停止同步</button>
         </p>
       )}
       {!symbol && positions.length > 0 && (
@@ -457,29 +496,39 @@ export function PortfolioPanel({ symbol, name, quote: detailQuote, change: detai
 const AUTO_SYNC_MARK = 'tf-portfolio-sync-mtime'
 
 /** 匯入核心: 確認上市/上櫃別 → 每檔記一筆買入 (可取代整本) → 持股加入自選。 */
-async function importHoldingRows(parsed: ReturnType<typeof parsePortfolioImport>, replace: boolean) {
+async function importHoldingRows(parsed: ReturnType<typeof parsePortfolioImport>, replace: boolean, sync?: { previous: string; version: string }) {
   if (parsed.errors.length) throw new Error(parsed.errors.join('；'))
-  if (!parsed.rows.length) throw new Error('沒有可匯入的持股列（股數 0 的已出清列會略過）')
+  if (replace && parsed.incomplete) throw new Error('持股表格有未知或缺漏的列，已保留原帳本，請先補齊資料')
+  if (!parsed.rows.length && !(replace && parsed.emptySnapshot)) throw new Error('沒有可匯入的持股；只有明確全數零股的快照可取代成空帳本')
+  if (replace) await Promise.all([...new Set(parsed.zeroCodes)].map(async code => {
+    if (!(await api.taiwanSearch(code, 5)).results.some(item => item.code.toUpperCase() === code)) {
+      throw new Error(`找不到零股列的代號 ${code}，已保留原帳本`)
+    }
+  }))
   // 只需確認上市/上櫃別；賣出時的稅費仍由既有賣出流程依官方規則計算。
   const resolved = await Promise.all(parsed.rows.map(async row => {
     const found = (await api.taiwanSearch(row.code, 5)).results.find(item => item.code.toUpperCase() === row.code)
     if (!found) throw new Error(`找不到代號 ${row.code}，請確認是上市/上櫃股票或 ETF`)
     return { row, symbol: found.symbol, name: row.name || found.name }
   }))
-  await withPortfolioWriteLock(() => {
+  const imported = await withPortfolioWriteLock(() => {
+    if (sync && (localStorage.getItem(AUTO_SYNC_MARK) ?? '') !== sync.previous) return false
     const ledger = readPortfolioLedger()
-    if (ledger.error && !replace) throw new Error(ledger.error)
+    if (ledger.error) throw new Error(ledger.error)
     let next = replace ? [] : ledger.transactions
     for (const { row, symbol, name } of resolved) {
       next = [...next, createPortfolioTransaction({
         symbol, name, side: 'buy', shares: row.shares, price: row.price, fee: row.fee, date: row.date, tradeTime: '09:00',
       }, next)]
     }
-    storage.portfolioTransactions.set(next)
+    if (replace) persistPortfolioReplacement(next, ledger.transactions, sync?.version)
+    else storage.portfolioTransactions.set(next)
     window.dispatchEvent(new Event(PORTFOLIO_CHANGED))
+    return true
   })
   // 持股一併加入自選，方便在自選股頁追蹤。
-  await api.watchlistBatchAdd(resolved.map(item => item.symbol)).catch(() => undefined)
+  if (imported && resolved.length) await api.watchlistBatchAdd(resolved.map(item => item.symbol)).catch(() => undefined)
+  return imported
 }
 
 /** 自動同步: 設定的 OneDrive/Google Drive 持股檔修改時間變了，就整本取代匯入。 */
@@ -493,14 +542,13 @@ function usePortfolioAutoSync(enabled: boolean) {
     if (!enabled || !info?.path || info.modified == null || running.current) return
     let mark = ''
     try { mark = localStorage.getItem(AUTO_SYNC_MARK) ?? '' } catch { /* ignore */ }
-    if (mark === String(info.modified)) return
+    if (mark === 'paused' || mark === JSON.stringify([info.path, info.modified])) return
     running.current = true
     const path = info.path
     void (async () => {
       try {
         const { text } = await api.portfolioImportRead({ path })
-        await importHoldingRows(parsePortfolioImport(text, todayTaipeiDate()), true)
-        try { localStorage.setItem(AUTO_SYNC_MARK, String(info.modified)) } catch { /* ignore */ }
+        if (!await importHoldingRows(parsePortfolioImport(text, todayTaipeiDate()), true, { previous: mark, version: JSON.stringify([info.path, info.modified]) })) return
         void qc.invalidateQueries({ queryKey: QK.watchlist })
         setMessage(`已從 ${info.name} 自動同步持股`)
       } catch (cause) {
@@ -579,7 +627,7 @@ function PortfolioImportDialog({ onClose }: { onClose: () => void }) {
       void qc.invalidateQueries({ queryKey: QK.watchlist })
       if (autoSyncPath) {
         const sync = await api.portfolioAutoSyncSet(autoSyncPath)
-        try { localStorage.setItem(AUTO_SYNC_MARK, String(sync.modified ?? '')) } catch { /* ignore */ }
+        localStorage.setItem(AUTO_SYNC_MARK, JSON.stringify([sync.path, sync.modified]))
         void qc.invalidateQueries({ queryKey: ['portfolioAutoSync'] })
       }
       onClose()
@@ -668,6 +716,8 @@ function PortfolioImportDialog({ onClose }: { onClose: () => void }) {
             </table>
           </div>
         )}
+        {parsed.emptySnapshot && <p role="status" className="text-xs text-warning">已確認表格內全數為零股。勾選取代後會清空成交紀錄，並保留取代前版本。</p>}
+        {parsed.incomplete && <p role="status" className="text-xs text-warning">表格有未知或缺漏的列，不能用來取代整本帳本。</p>}
         {parsed.errors.map(message => <p key={message} className="text-xs text-warning">{message}</p>)}
         <label className="flex items-center gap-2 text-xs text-secondary">
           <input type="checkbox" checked={replace} onChange={event => setReplace(event.target.checked)} />
@@ -680,8 +730,8 @@ function PortfolioImportDialog({ onClose }: { onClose: () => void }) {
           </label>
         )}
         {error && <p role="alert" className="text-xs text-danger">{error}</p>}
-        <button type="button" disabled={busy || loadingSource || !parsed.rows.length} onClick={() => void runImport()} className="w-full rounded-lg bg-accent px-3 py-2 text-xs font-semibold text-white disabled:opacity-50">
-          {busy ? '匯入中…' : loadingSource ? '讀取來源中…' : `匯入 ${parsed.rows.length} 檔持股`}
+        <button type="button" disabled={busy || loadingSource || !!parsed.errors.length || (replace && parsed.incomplete) || (!parsed.rows.length && !(replace && parsed.emptySnapshot))} onClick={() => void runImport()} className="w-full rounded-lg bg-accent px-3 py-2 text-xs font-semibold text-white disabled:opacity-50">
+          {busy ? '匯入中…' : loadingSource ? '讀取來源中…' : parsed.emptySnapshot && replace ? '以零持股快照取代帳本' : `匯入 ${parsed.rows.length} 檔持股`}
         </button>
       </div>
     </div>

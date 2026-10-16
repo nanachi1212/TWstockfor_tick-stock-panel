@@ -95,10 +95,9 @@ class TaiwanDailyStore:
         logger.debug("write_batch dedup: %d rows -> %d rows", before, df.height)
 
         # Group by date and write each partition independently.
-        for part_date in sorted(df.select(pl.col("date")).unique().sort("date").to_pandas()["date"].tolist()):
-            part_date_obj = part_date.to_pydatetime().date() if hasattr(part_date, "to_pydatetime") else part_date
-            group = df.filter(pl.col("date") == part_date_obj)
-            total_written += self._write_partition(part_date_obj, group)
+        for part_date in df["date"].unique().sort().to_list():
+            group = df.filter(pl.col("date") == part_date)
+            total_written += self._write_partition(part_date, group)
 
         logger.debug("write_batch total rows written: %d", total_written)
         return total_written

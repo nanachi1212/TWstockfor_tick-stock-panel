@@ -91,7 +91,7 @@ CATEGORIES: dict[str, Category] = {
         "taiwan_screener_strategies.json", "custom_signals/*.json", "strategy_overrides/*.json",
     )),
     "watchlist": Category("自選股", ("watchlist.parquet", "watchlist_groups.json")),
-    "portfolio": Category("投資組合", browser_keys=("portfolio_transactions",)),
+    "portfolio": Category("投資組合", browser_keys=("portfolio_transactions", "portfolio_import_previous")),
     "selection_review": Category("選股回顧快照", ("taiwan_selection_snapshots.json",)),
     "history": Category("提醒與摘要歷史", (
         "alerts.jsonl", "taiwan_ai_research_history.jsonl", "taiwan_daily_briefs.json",
