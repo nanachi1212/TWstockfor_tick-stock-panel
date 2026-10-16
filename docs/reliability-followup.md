@@ -83,3 +83,21 @@
 - 本次 Auto 以 `-ChangedPath` 指定實際修改及兩個對應服務：現有腳本對只有 `backend/tests/...` 的變更組路徑時漏掉 `tests/`，會退回全套 pytest。加入對應服務路徑使 Auto 選到兩份必要測試；沒有更動 CI 腳本或驗證規則。
 - GitHub `85f9614c31bd444fc58d630af9cb69e45ae7248e`：[Backend Tests](https://github.com/nanachi1212/TWstockfor_tick-stock-panel/actions/runs/38872050582)、[Frontend Tests](https://github.com/nanachi1212/TWstockfor_tick-stock-panel/actions/runs/38872050589) 均為 completed／success。此遠端結果屬於既有提交，不涵蓋本次尚未提交的驗收修改。
 - 本輪未驗證 Windows 安裝版、正式排程、正式瀏覽器帳本或真實外部資料來源；也不據此延伸 ETF 涵蓋標的或歷史期間。
+
+## 隔離備份還原演練（2026-10-16）
+
+以 `1b645cd` 為基礎，使用兩個獨立的合成來源／目標 `DATA_DIR`、專屬測試連接埠與該來源的瀏覽器帳本，停用 lifespan 排程及外部資料請求。備份、認證、研究讀取與追蹤 API 使用實際路由及服務，周邊設定與即時行情使用測試替身。沒有讀寫正式資料、重啟正式服務或修改產品程式。
+
+| 演練 | 結果 |
+| --- | --- |
+| 實際備份頁匯出 | 只選投資組合、歷史與追蹤三類；產生真實 `.twstock-backup`。ZIP 內含帳本快照、研究 JSONL、籌碼追蹤 JSONL，不含 `auth.json`、金鑰或無關檔案。 |
+| 預覽與還原 | 預覽沒有修改瀏覽器帳本。確認還原後，帳本與上一版本均逐字符合來源；重新載入 App 後仍一致，無關 localStorage 保留。 |
+| 研究與追蹤恢復 | 研究 ID、run ID、證據摘要及所有 JSON 欄位保留；實際研究 API 可讀回。籌碼追蹤的原凍結日期、存檔時間、定義及名單恢復，實際追蹤 API 與新建 stores 可讀回。 |
+| 檔案完整性 | 還原 JSONL 與備份內檔案 bytes 相同；所有 JSON 欄位與原始來源相同。既有匯出流程將 CRLF 正規化為 LF，因此不要求來源 JSONL 的原始換行 bytes 相同。 |
+| 復原此次還原 | 透過備份頁按鈕復原；目標原本的兩份 JSONL、認證檔及無關檔案 SHA-256 全部符合還原前，瀏覽器兩個帳本 key 也回到原值。再還原一次並重新載入，確認仍可恢復。 |
+| 認證檔損壞 | 正常登入並暖過認證快取後，僅破壞隔離目標 `auth.json`。備份選項、匯出、還原、研究、追蹤、認證狀態、首次設定及登入共 8 種請求均回 `503 AUTH_STORE_UNAVAILABLE`；未登入請求也被阻擋，健康檢查維持 200。畫面顯示無法載入備份選項，損壞檔案未被首次設定或登入覆寫。 |
+| 認證修復 | 放回演練前另外保存的正常認證檔後，已登入受保護 API 回 200，未登入回 401；持股帳本與還原後檔案仍完整。來源登入狀態也不能直接用於另一個目標認證檔。 |
+
+既有相關驗證：`test_device_transfer.py`、`test_device_transfer_tracking.py`、`test_auth_env_bootstrap.py` 共 43 項通過；前端 `Backup.test.tsx` 共 9 項通過。涵蓋損壞備份／錯誤密碼不寫入、寫入失敗復原、追蹤 SQLite WAL 備份與瀏覽器寫入失敗回滾。未增加測試或產品程式，僅補本段演練紀錄。
+
+此演練證明私人紀錄可恢復，不包含市場資料重建、追蹤報酬重算或 Windows 安裝版驗證。裝置備份刻意不含登入用 `auth.json`，認證修復需另有受保護的正常副本；本次只使用合成帳密，未讀取任何正式憑證。
