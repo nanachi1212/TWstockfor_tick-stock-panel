@@ -43,6 +43,7 @@ from fastapi.testclient import TestClient
 from app.main import app
 from app.services.ai_provider import AIProviderConfigSnapshot
 from app.taiwan.ai_research import (
+    ALERT_UNITS_NOTE,
     _REPORT_CACHE,
     _REPORT_CACHE_LOCK,
     _REPORT_INFLIGHT,
@@ -87,7 +88,7 @@ def test_personal_context_is_allowlisted_and_missing_values_stay_missing():
     assert sanitized["alert"] == {
         "message": "Quant 進入前十", "trigger_value": 449.5, "rule_type": "quant_top10_enter",
         "triggered_at": "2026-09-25T10:00:00+00:00", "quant_status": "進入", "quant_rank": 2,
-        "quant_score": 0.91, "quant_session": "2026-09-25",
+        "quant_score": 0.91, "quant_session": "2026-09-25", "units": ALERT_UNITS_NOTE,
     }
     assert sanitized["social"] == {
         "as_of": "2026-09-29", "status": "partial", "total_mentions": 12.0,
@@ -95,6 +96,12 @@ def test_personal_context_is_allowlisted_and_missing_values_stay_missing():
         "source_coverage": "ptt:available",
     }
     assert "unrelated" not in sanitized
+
+
+def test_personal_context_alert_change_pct_is_percent_points_with_unit():
+    sanitized = _sanitize_personal_context({"alert": {"change_pct": -0.0565, "rule_type": "change_pct_down"}})
+    assert sanitized["alert"]["change_pct"] == -5.65
+    assert "-5.65 代表 -5.65%" in sanitized["alert"]["units"]
 
 
 @pytest.mark.asyncio

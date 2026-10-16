@@ -102,6 +102,7 @@ def run_taiwan_update(evening: bool = False, *, trigger: str = "scheduled") -> N
             "Taiwan daily update (%s) finished: overall=%s, daily=%s, inst=%s, margin=%s",
             trigger, result.overall_status, result.daily.status, result.institutional.status, result.margin.status,
         )
+        notify_daily_data_updated()
         if not evening:
             logger.info("Scheduled Taiwan research refresh: %s", _refresh_after_close_research())
             # 新上市/下市股票: 商品清單每天跟著盤後更新一次 (失敗不影響其他流程)。
@@ -316,3 +317,14 @@ def set_app_state(app_state) -> None:
 
 def _get_app_state():
     return _app_state_ref
+
+
+def notify_daily_data_updated(app_state=None) -> None:
+    """盤後資料已落盤: SSE 通知前端刷新依賴日線的查詢 (含持股分析)。失敗不影響更新本身。"""
+    qs = getattr(app_state or _app_state_ref, "quote_service", None)
+    if qs is None:
+        return
+    try:
+        qs.notify_daily_data_updated()
+    except Exception:
+        logger.exception("daily_data_updated SSE notify failed")

@@ -160,8 +160,8 @@ class TaiwanRecentAlert(BaseModel):
     rule_name: str
     rule_type: str
     severity: str
-    trigger_price: float
-    trigger_value: float
+    trigger_price: Optional[float] = None  # None for change_pct/volume alerts
+    trigger_value: Optional[float] = None
     message: str
     triggered_at: str
 

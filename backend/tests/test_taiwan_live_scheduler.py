@@ -259,6 +259,36 @@ def test_after_close_forward_lock_preserves_ai_and_push_chain(monkeypatch, ready
         push.assert_not_called()
 
 
+def test_update_notifies_daily_data_sse_even_on_evening_early_return(monkeypatch):
+    from app.services.quote_service import QuoteService
+
+    result = SimpleNamespace(
+        overall_status="success", daily=SimpleNamespace(status="skipped", dates_fetched=0),
+        institutional=SimpleNamespace(status="success"), margin=SimpleNamespace(status="success"),
+    )
+    monkeypatch.setattr(daily_update, "TaiwanDailyUpdateService",
+                        lambda: SimpleNamespace(run_update=lambda **kwargs: result))
+    from app.taiwan import chip_ranking_tracking
+    monkeypatch.setattr(chip_ranking_tracking, "freeze_latest_ranking", lambda: None)
+    qs = QuoteService.__new__(QuoteService)
+    sub = Mock()
+    qs._snapshot_subscribers = lambda: [sub]
+    monkeypatch.setattr(daily_pipeline, "_app_state_ref", SimpleNamespace(quote_service=qs))
+
+    daily_pipeline.run_taiwan_update(evening=True)
+
+    sub.notify_daily_data.assert_called_once_with()
+
+
+def test_subscriber_pops_daily_data_flag_once():
+    from app.services.quote_service import QuoteSubscriber
+
+    sub = QuoteSubscriber()
+    sub.notify_daily_data()
+    assert sub.wait(timeout=0) and sub.pop()["daily_data_updated"] is True
+    assert sub.pop()["daily_data_updated"] is False
+
+
 def test_fundamentals_warm_is_registered_at_1730(monkeypatch):
     from app.taiwan import fundamentals_warm
 

@@ -172,7 +172,9 @@ class TaiwanShareholdingStore:
         is_adjacent_week = (
             d_latest is not None
             and d_prev is not None
-            and 0 < (d_latest - d_prev).days <= 7
+            # Holidays move the data date (e.g. Thu 10-08 -> Fri 10-16 = 8 days), so
+            # adjacent weeks span 5..9 days; a skipped week is always >= 12 days.
+            and 0 < (d_latest - d_prev).days <= 10
         )
         if not is_adjacent_week:
             return cur.with_columns(pl.lit(None, pl.Float64).alias("big_holder_pct_change"),

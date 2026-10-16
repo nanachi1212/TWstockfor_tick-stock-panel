@@ -314,6 +314,10 @@ PERCENT_UNITS_NOTE = (
     "change_pct、return_5d、return_20d、distance_from_20d_high、distance_from_20d_low、"
     "technical_context.distance_to_ma20 都已是百分比數值（例如 -3.19 代表 -3.19%），直接加上 % 即可，不可再換算。"
 )
+ALERT_UNITS_NOTE = (
+    "change_pct 已是百分比數值（例如 -5.65 代表 -5.65%）。trigger_value、threshold 沿用規則單位："
+    "價格類規則為價格（元），漲跌幅、距漲跌停與自選異常門檻為百分比數值。直接加上 % 即可，不可再換算。"
+)
 
 
 def _percent_points(value: float | None) -> float | None:
@@ -669,6 +673,11 @@ def _sanitize_personal_context(value: dict[str, Any] | None) -> dict[str, dict[s
         alert: dict[str, Any] = finite_numbers(alert_source, {
             "trigger_value", "threshold", "change_pct", "quant_rank", "quant_score",
         })
+        if "change_pct" in alert:
+            # Stored as a ratio (-0.0565); match price_context so the model does not read "-0.06%".
+            alert["change_pct"] = _percent_points(alert["change_pct"])
+        if alert.keys() & {"change_pct", "trigger_value", "threshold"}:
+            alert["units"] = ALERT_UNITS_NOTE
         for field in (
             "alert_id", "rule_name", "rule_type", "triggered_at", "message", "source", "market_status",
             "quant_status", "quant_session",

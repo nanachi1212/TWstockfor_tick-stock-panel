@@ -176,8 +176,10 @@ def test_startup_catchup_run_integrates_shareholding(monkeypatch):
     monkeypatch.setattr(startup_catchup, "catchup_shareholding", fake_catchup)
 
     startup_catchup._LAST.clear()
-    startup_catchup._run(MagicMock())
+    app_state = MagicMock()
+    startup_catchup._run(app_state)
 
+    app_state.quote_service.notify_daily_data_updated.assert_called_once_with()
     assert len(shareholding_called) == 1
     assert startup_catchup.last_result()["status"] == "skipped"
     assert startup_catchup.last_result()["shareholding"] == {"status": "written", "latest": "2026-10-09"}

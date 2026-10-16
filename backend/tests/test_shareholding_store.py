@@ -56,6 +56,16 @@ def test_change_adjacent_week_computes_difference(tmp_path):
     assert latest["big_holder_pct_change"][0] == pytest.approx(3.8561843468087965)
 
 
+def test_change_holiday_shifted_week_is_adjacent(tmp_path):
+    store = TaiwanShareholdingStore(tmp_path / "s.parquet")
+    # 10-09 holiday: data dated Thu 10-08, next week Fri 10-16 (8 days apart)
+    store.refresh(fetch_text=lambda _: CSV.format(d="20261008", big=20_000_000_000), code_to_symbol=MAP)
+    store.refresh(fetch_text=lambda _: CSV.format(d="20261016", big=21_000_000_000), code_to_symbol=MAP)
+    latest = store.latest_with_change(["2330.TWSE"])
+    assert latest["previous_date"][0] == date(2026, 10, 8)
+    assert latest["big_holder_pct_change"][0] == pytest.approx(3.8561843468087965)
+
+
 def test_change_unparseable_date_fails_closed(tmp_path):
     import polars as pl
 

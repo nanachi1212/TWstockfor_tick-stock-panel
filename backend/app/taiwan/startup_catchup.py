@@ -78,6 +78,8 @@ def _run(app_state: Any) -> None:
     try:
         sh_result = catchup_shareholding()
         _LAST["shareholding"] = sh_result
+        if sh_result.get("status") == "written":
+            daily_pipeline.notify_daily_data_updated(app_state)
     except Exception as exc:
         _LAST["shareholding"] = {"status": "error", "reason": type(exc).__name__}
         logger.warning("startup shareholding catch-up failed: %s", exc)

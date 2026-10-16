@@ -804,8 +804,8 @@ class TaiwanStockDetailService:
                             rule_name=str(a.get("rule_name", a.get("name", ""))),
                             rule_type=str(a.get("rule_type", a.get("type", ""))),
                             severity=str(a.get("severity", "warning")),
-                            trigger_price=float(a.get("trigger_price", a.get("price", 0.0))),
-                            trigger_value=float(a.get("trigger_value", 0.0)),
+                            trigger_price=a.get("trigger_price", a.get("price")),
+                            trigger_value=a.get("trigger_value"),
                             message=str(a.get("message", "")),
                             triggered_at=dt_str,
                         )

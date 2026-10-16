@@ -445,7 +445,7 @@ describe('TaiwanStockDetail — AI Research', () => {
     }))
   })
 
-  it('normalizes Taiwan percentage alert values to research decimal fractions', async () => {
+  it('sends percentage alert values as stored (fraction change_pct, percent-point rule values)', async () => {
     vi.mocked(api.alertsList).mockResolvedValue({ alerts: [{
       ts: Date.parse('2026-09-25T10:05:00+08:00'), alert_id: 'pct-alert-1', source: 'twse:mis',
       type: 'change_pct_above', rule_type: 'change_pct_above', symbol: '2330.TWSE', name: '台積電',
@@ -459,11 +459,11 @@ describe('TaiwanStockDetail — AI Research', () => {
 
     await waitFor(() => expect(vi.mocked(api.taiwanStockAIResearch)).toHaveBeenCalledTimes(1))
     expect(vi.mocked(api.taiwanStockAIResearch).mock.calls[0][2]?.alert).toEqual(expect.objectContaining({
-      rule_type: 'change_pct_above', change_pct: 0.0366, trigger_value: 0.0366, threshold: 0.025,
+      rule_type: 'change_pct_above', change_pct: 0.0366, trigger_value: 3.66, threshold: 2.5,
     }))
   })
 
-  it('normalizes near-limit alert distance values to research decimal fractions', async () => {
+  it('sends near-limit alert distance values as stored percent points', async () => {
     vi.mocked(api.alertsList).mockResolvedValue({ alerts: [{
       ts: Date.parse('2026-09-25T10:05:00+08:00'), alert_id: 'limit-alert-1', source: 'twse:mis',
       type: 'near_upper_limit', rule_type: 'near_upper_limit', symbol: '2330.TWSE', name: '台積電',
@@ -477,7 +477,7 @@ describe('TaiwanStockDetail — AI Research', () => {
 
     await waitFor(() => expect(vi.mocked(api.taiwanStockAIResearch)).toHaveBeenCalledTimes(1))
     expect(vi.mocked(api.taiwanStockAIResearch).mock.calls[0][2]?.alert).toEqual(expect.objectContaining({
-      rule_type: 'near_upper_limit', trigger_value: 0.0125, threshold: 0.03,
+      rule_type: 'near_upper_limit', trigger_value: 1.25, threshold: 3,
     }))
   })
 
