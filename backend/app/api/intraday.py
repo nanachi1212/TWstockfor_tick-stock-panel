@@ -294,6 +294,13 @@ async def quote_stream(request: Request):
                             "ts": int(time.time() * 1000),
                         }),
                     }
+
+                # 盘后数据写入 (排程/启动补跑) — 前端刷新依赖日线的查询
+                if data["daily_data_updated"]:
+                    yield {
+                        "event": "daily_data_updated",
+                        "data": json.dumps({"ts": int(time.time() * 1000)}),
+                    }
         finally:
             qs.unsubscribe(sub)
 

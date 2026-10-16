@@ -168,6 +168,9 @@ def run_taiwan_update(evening: bool = False, *, trigger: str = "scheduled") -> N
                 logger.exception("Taiwan evening push digest failed")
     except Exception as e:
         logger.exception("Taiwan daily update job (%s) failed: %s", trigger, e)
+    finally:
+        # After the research/ranking/Quant chain, so refetched queries see completed outputs.
+        notify_daily_data_updated()
 
 
 def start_scheduler(repo: KlineRepository, capset: CapabilitySet) -> AsyncIOScheduler:
@@ -316,3 +319,14 @@ def set_app_state(app_state) -> None:
 
 def _get_app_state():
     return _app_state_ref
+
+
+def notify_daily_data_updated(app_state=None) -> None:
+    """盤後資料已落盤: SSE 通知前端刷新依賴日線的查詢 (含持股分析)。失敗不影響更新本身。"""
+    qs = getattr(app_state or _app_state_ref, "quote_service", None)
+    if qs is None:
+        return
+    try:
+        qs.notify_daily_data_updated()
+    except Exception:
+        logger.exception("daily_data_updated SSE notify failed")

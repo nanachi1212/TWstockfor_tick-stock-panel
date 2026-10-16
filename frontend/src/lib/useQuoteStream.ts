@@ -1,6 +1,6 @@
 import { useEffect, useRef, useCallback, useSyncExternalStore } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
-import { SSE_INVALIDATE_PREFIXES } from './queryKeys'
+import { DATA_HEALTH_INVALIDATE_PREFIXES, SSE_INVALIDATE_PREFIXES } from './queryKeys'
 import { getQueryConfig } from './useQueryConfig'
 import { toast } from '@/components/Toast'
 import { pushAlertToasts } from '@/components/AlertToast'
@@ -165,6 +165,15 @@ export function useQuoteStream(
         if (_focusSymbol) {
           qc.invalidateQueries({ queryKey: ['kline', _focusSymbol] })
         }
+      })
+
+      es.addEventListener('daily_data_updated', () => {
+        // 排程/啟動補跑寫入盤後資料: 與 Data Health daily 任務完成時刷新同一組查詢 (含持股分析)。
+        qc.invalidateQueries({
+          predicate: (query) => DATA_HEALTH_INVALIDATE_PREFIXES.daily.some(
+            (prefix) => String(query.queryKey[0]).startsWith(prefix),
+          ),
+        })
       })
 
       es.addEventListener('strategy_results_updated', () => {

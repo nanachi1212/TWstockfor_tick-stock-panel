@@ -935,8 +935,8 @@ export interface TaiwanRecentAlertDetail {
   rule_name: string
   rule_type: string
   severity: string
-  trigger_price: number
-  trigger_value: number
+  trigger_price: number | null
+  trigger_value: number | null
   message: string
   triggered_at: string
 }

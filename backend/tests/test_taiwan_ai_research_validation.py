@@ -97,6 +97,19 @@ def test_personal_context_is_allowlisted_and_missing_values_stay_missing():
     assert "unrelated" not in sanitized
 
 
+def test_personal_context_alert_change_pct_is_percent_points_with_unit():
+    sanitized = _sanitize_personal_context({"alert": {"change_pct": -0.0565, "rule_type": "change_pct_down"}})
+    assert sanitized["alert"]["change_pct"] == -5.65
+    assert "-5.65 代表 -5.65%" in sanitized["alert"]["units"]
+
+
+def test_personal_context_alert_units_follow_rule_type():
+    volume = _sanitize_personal_context({"alert": {"rule_type": "volume_above", "trigger_value": 5_000_000, "threshold": 3_000_000}})
+    assert "股數" in volume["alert"]["units"] and "%" not in volume["alert"]["units"]
+    spike = _sanitize_personal_context({"alert": {"rule_type": "volume_spike", "trigger_value": 3.2, "threshold": 2}})
+    assert "倍數" in spike["alert"]["units"]
+
+
 @pytest.mark.asyncio
 async def test_ai_report_cache_hits_for_same_context_and_misses_when_context_changes():
     from tests.test_taiwan_stock_comparison import build_context

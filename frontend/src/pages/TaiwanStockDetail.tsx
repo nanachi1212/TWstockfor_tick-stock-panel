@@ -300,10 +300,6 @@ export function TaiwanStockDetail() {
         feature_percentiles: Object.fromEntries(Object.entries(ranked.feature_percentiles).filter(([, value]) => Number.isFinite(value))),
       })
     }
-    const alertRuleType = typeof selectedAlert?.rule_type === 'string' ? selectedAlert.rule_type : selectedAlert?.type
-    const alertPercentScale = typeof alertRuleType === 'string' && (
-      alertRuleType.includes('change_pct') || alertRuleType === 'near_upper_limit' || alertRuleType === 'near_lower_limit'
-    ) ? 0.01 : 1
     if (selectedAlert) context.alert = {
       ...(typeof selectedAlert.alert_id === 'string' ? { alert_id: selectedAlert.alert_id } : {}),
       ...(typeof selectedAlert.rule_name === 'string' ? { rule_name: selectedAlert.rule_name } : typeof selectedAlert.rule_id === 'string' ? { rule_name: selectedAlert.rule_id } : {}),
@@ -313,9 +309,10 @@ export function TaiwanStockDetail() {
         : typeof selectedAlert.ts === 'number' && Number.isFinite(selectedAlert.ts)
           ? { triggered_at: new Date(selectedAlert.ts).toISOString() }
           : {}),
-      ...(typeof selectedAlert.trigger_value === 'number' ? { trigger_value: selectedAlert.trigger_value * alertPercentScale } : typeof selectedAlert.price === 'number' ? { trigger_value: selectedAlert.price } : {}),
-      ...(typeof selectedAlert.threshold === 'number' ? { threshold: selectedAlert.threshold * alertPercentScale } : {}),
-      // Alert change_pct is already a fraction (0.0366); only rule trigger/threshold values are percent points.
+      // Sent as stored: change_pct is a fraction (0.0366), trigger_value/threshold keep the rule's
+      // percent points. The backend converts change_pct and labels the units for the model.
+      ...(typeof selectedAlert.trigger_value === 'number' ? { trigger_value: selectedAlert.trigger_value } : typeof selectedAlert.price === 'number' ? { trigger_value: selectedAlert.price } : {}),
+      ...(typeof selectedAlert.threshold === 'number' ? { threshold: selectedAlert.threshold } : {}),
       ...(typeof selectedAlert.change_pct === 'number' ? { change_pct: selectedAlert.change_pct } : {}),
       ...(typeof selectedAlert.quant_status === 'string' ? { quant_status: selectedAlert.quant_status } : {}),
       ...(typeof selectedAlert.quant_rank === 'number' ? { quant_rank: selectedAlert.quant_rank } : {}),

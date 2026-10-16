@@ -74,6 +74,7 @@ class QuoteSubscriber:
         self._quote_updated = False
         self._strategy_results_updated = False
         self._depth_updated = False
+        self._daily_data_updated = False
         self._alerts: list[dict] = []
         self._reviews: list[str] = []
 
@@ -89,12 +90,14 @@ class QuoteSubscriber:
                 "quote_updated": self._quote_updated,
                 "strategy_results_updated": self._strategy_results_updated,
                 "depth_updated": self._depth_updated,
+                "daily_data_updated": self._daily_data_updated,
                 "alerts": self._alerts,
                 "reviews": self._reviews,
             }
             self._quote_updated = False
             self._strategy_results_updated = False
             self._depth_updated = False
+            self._daily_data_updated = False
             self._alerts = []
             self._reviews = []
             self._event.clear()
@@ -122,6 +125,7 @@ class QuoteSubscriber:
                 not self._quote_updated
                 and not self._strategy_results_updated
                 and not self._depth_updated
+                and not self._daily_data_updated
                 and not self._reviews
             ):
                 self._event.clear()
@@ -139,6 +143,11 @@ class QuoteSubscriber:
     def notify_depth(self) -> None:
         with self._lock:
             self._depth_updated = True
+            self._event.set()
+
+    def notify_daily_data(self) -> None:
+        with self._lock:
+            self._daily_data_updated = True
             self._event.set()
 
 
@@ -381,6 +390,11 @@ class QuoteService:
         """
         for sub in self._snapshot_subscribers():
             sub.notify_depth()
+
+    def notify_daily_data_updated(self) -> None:
+        """盘后日线/法人/融资/集保写入后调用: 前端刷新依赖日线的查询 (含持股分析)。"""
+        for sub in self._snapshot_subscribers():
+            sub.notify_daily_data()
 
     def _broadcast_alerts(self, alerts: list[dict]) -> None:
         for sub in self._snapshot_subscribers():

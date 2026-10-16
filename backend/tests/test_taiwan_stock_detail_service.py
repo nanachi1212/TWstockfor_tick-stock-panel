@@ -387,3 +387,21 @@ def test_market_context_selects_taiex_and_reports_unavailable_contract():
     assert result.meta.reason == "persisted benchmark TAIEX is unavailable"
     assert result.meta.freshness == "unavailable"
     assert repo.execute_all.call_args.args[1] == ["TAIEX"]
+
+
+def test_recent_alerts_keep_change_pct_alert_without_price(monkeypatch):
+    from app.services import alert_store
+
+    rows = [
+        {"alert_id": "a1", "symbol": "2330.TWSE", "rule_type": "change_pct_down", "price": None,
+         "trigger_value": -0.0565, "change_pct": -0.0565, "message": "跌幅 -5.65%", "ts": 1760000000000},
+        {"alert_id": "a2", "symbol": "2330.TWSE", "rule_type": "price_above", "price": 1000.0,
+         "trigger_value": 1000.0, "message": "突破 1000", "ts": 1760000000000},
+    ]
+    monkeypatch.setattr(alert_store, "list_recent", lambda *a, **k: rows)
+
+    alerts = TaiwanStockDetailService()._aggregate_recent_alerts("2330.TWSE")
+
+    assert [a.alert_id for a in alerts] == ["a1", "a2"]
+    assert alerts[0].trigger_price is None
+    assert alerts[1].trigger_price == 1000.0
