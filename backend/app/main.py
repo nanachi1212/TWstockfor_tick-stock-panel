@@ -7,7 +7,6 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI, Request
-from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
@@ -189,16 +188,7 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-# CORS: 允许局域网访问 (自托管场景, 放开所有来源)
-# 注: allow_credentials=True 与 allow_origins=['*'] 不能共存 (浏览器规范),
-# 本项目认证走 header (API Key), 不依赖 cookie, 故关闭 credentials 换取通配来源。
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=False,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+# 不启用 CORS: 前端与 API 同源(生产由后端托管, 开发经 Vite 代理), 外站页面不应能读取 API 响应。
 
 
 # ================================================================
@@ -238,7 +228,7 @@ async def auth_middleware(request: Request, call_next):
     # 情况 1+2: 未设密码
     if not configured:
         # 本机/内网 → 放行(服务器主人可访问, 并去 /login 设密码)
-        if auth_api._is_local_network(auth_api._client_ip(request)):
+        if auth_api._is_local_request(request):
             return await call_next(request)
         # 公网 → 拒绝。不裸奔, 也不给公网设密码的机会(防抢占)
         return JSONResponse(
