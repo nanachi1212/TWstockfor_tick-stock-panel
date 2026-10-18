@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -26,6 +27,9 @@ DATASET_TTL: dict[str, int] = {
     "TaiwanStockSecuritiesLending": 84 * 3600,
 }
 NEGATIVE_TTL = 900  # 15 minutes for unavailable or error responses
+# Cache keys are stock codes (2330, 00632R, 2330.TWSE) or TX_/TXO_ date keys. Anything else
+# (backslash, "..", UNC/drive prefixes) would escape the cache dir on Windows.
+_SAFE_KEY = re.compile(r"[A-Za-z0-9][A-Za-z0-9_-]*(\.[A-Za-z0-9_-]+)*")
 
 
 def _cache_root() -> Path:
@@ -41,14 +45,20 @@ class FinMindCache:
         self.cache_dir = cache_dir or _cache_root()
 
     def _file_path(self, dataset: str, symbol: str) -> Path:
-        safe_sym = symbol.replace("/", "_").replace(":", "_")
+        """Raises ValueError for keys that are not plain codes, before any filesystem access."""
+        if not (_SAFE_KEY.fullmatch(dataset) and _SAFE_KEY.fullmatch(symbol) and len(symbol) <= 64):
+            raise ValueError(f"unsafe FinMind cache key: {dataset!r}/{symbol!r}")
         d = self.cache_dir / dataset
         d.mkdir(parents=True, exist_ok=True)
-        return d / f"{safe_sym}.json"
+        return d / f"{symbol}.json"
 
     def get(self, dataset: str, symbol: str) -> dict[str, Any] | None:
         """Get cached payload if not expired; returns None on miss or expiration."""
-        path = self._file_path(dataset, symbol)
+        try:
+            path = self._file_path(dataset, symbol)
+        except ValueError as e:
+            logger.warning("FinMindCache get skipped: %s", e)
+            return None
         if not path.exists():
             return None
 
@@ -85,7 +95,11 @@ class FinMindCache:
         error_msg: str | None = None,
     ) -> None:
         """Write payload to cache."""
-        path = self._file_path(dataset, symbol)
+        try:
+            path = self._file_path(dataset, symbol)
+        except ValueError as e:
+            logger.warning("FinMindCache set skipped: %s", e)
+            return
         now_iso = datetime.now(UTC).isoformat()
         payload = {
             "symbol": symbol,
@@ -138,7 +152,10 @@ class FinMindCache:
     def clear(self, dataset: str | None = None, symbol: str | None = None) -> None:
         """Clear cached entries."""
         if dataset and symbol:
-            p = self._file_path(dataset, symbol)
+            try:
+                p = self._file_path(dataset, symbol)
+            except ValueError:
+                return
             if p.exists():
                 p.unlink()
         elif dataset:

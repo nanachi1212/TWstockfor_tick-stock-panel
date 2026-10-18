@@ -60,9 +60,33 @@ def list_files(source: str) -> list[dict]:
     ]
 
 
+_LOCAL_DRIVE = re.compile(r"[A-Za-z]:")
+
+
+def allowed_path(path: str | None) -> Path | None:
+    r"""Lexical check before any filesystem call: an absolute local path inside a cloud root.
+
+    UNC / device paths (\host\share, \?\, //host) are rejected here because resolve(),
+    is_file() and stat() on Windows would open them and send NTLM credentials over SMB.
+    """
+    raw = str(path or "")
+    if not raw or raw.startswith(("\\\\", "//")):
+        return None
+    candidate = Path(os.path.normpath(raw))
+    if not candidate.is_absolute() or (os.name == "nt" and not _LOCAL_DRIVE.fullmatch(candidate.drive)):
+        return None
+    roots = [r for rs in cloud_roots().values() for r in rs]
+    if not any(candidate.is_relative_to(root) for root in roots):
+        return None
+    return candidate
+
+
 def read_file(path: str) -> str:
     """Only files that list_files() would offer may be read (no arbitrary local reads)."""
-    target = Path(path).resolve()
+    candidate = allowed_path(path)
+    if candidate is None:
+        raise PermissionError("只能讀取 OneDrive / Google Drive 同步資料夾內的持股檔")
+    target = candidate.resolve()
     roots = [r.resolve() for rs in cloud_roots().values() for r in rs]
     if (
         target.suffix.lower() not in ALLOWED_SUFFIXES
