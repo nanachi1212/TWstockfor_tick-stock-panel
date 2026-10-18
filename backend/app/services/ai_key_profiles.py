@@ -185,6 +185,7 @@ def get_active_profile_config() -> dict | None:
                 pid = str(p.get("id", ""))
                 return {
                     "key": str(secrets.get(pid, "")),
+                    "id": pid,
                     "name": str(p.get("name", "")),
                     "provider": str(p.get("provider", "openai_compat")),
                     "base_url": str(p.get("base_url", "")),
@@ -220,6 +221,7 @@ def get_profile_config(profile_id: str) -> dict | None:
             if profile.get("id") == profile_id:
                 return {
                     "key": str(secrets.get(profile_id, "")),
+                    "id": str(profile.get("id", "")),
                     "name": str(profile.get("name", "")),
                     "provider": str(profile.get("provider", "openai_compat")),
                     "base_url": str(profile.get("base_url", "")),
@@ -228,11 +230,10 @@ def get_profile_config(profile_id: str) -> dict | None:
     return None
 
 
-def _confirm_endpoints() -> None:
-    """使用者主動建立/修改/啟用 Profile 即視為重新確認端點, 解除還原後的金鑰停用。"""
+def _confirm_endpoint(profile_id: str) -> None:
+    """使用者儲存 (或刪除) 這組 Profile 即視為確認它的端點; 只解除這一組, 啟用不算確認。"""
     from app import secrets_store
-    if secrets_store.ai_endpoint_unconfirmed():
-        secrets_store.clear(secrets_store.AI_ENDPOINT_UNCONFIRMED)
+    secrets_store.confirm_ai_target(profile_id)
 
 
 def create_profile(name: str, provider: str, api_key: str, *, base_url: str = "", model: str = "") -> dict:
@@ -265,7 +266,6 @@ def create_profile(name: str, provider: str, api_key: str, *, base_url: str = ""
 
         _save_metadata(profiles)
         _save_secrets(secrets)
-        _confirm_endpoints()
 
         return {
             "id": pid,
@@ -330,7 +330,7 @@ def update_profile(
             with contextlib.suppress(Exception):
                 _save_metadata(previous_profiles)
             raise
-        _confirm_endpoints()
+        _confirm_endpoint(profile_id)
 
         key_raw = secrets.get(profile_id, "")
         return {
@@ -357,7 +357,6 @@ def set_active_profile(profile_id: str) -> bool:
         for p in profiles:
             p["active"] = (p.get("id") == profile_id)
         _save_metadata(profiles)
-        _confirm_endpoints()
         return True
 
 
@@ -379,6 +378,7 @@ def delete_profile(profile_id: str) -> bool:
 
         _save_metadata(new_profiles)
         _save_secrets(secrets)
+        _confirm_endpoint(profile_id)
         return True
 
 

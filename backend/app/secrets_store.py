@@ -69,13 +69,43 @@ def get_tickflow_key() -> str:
     return settings.tickflow_api_key or ""
 
 
-# 還原的備份換了 AI 端點卻沒一起還原金鑰時設定: 停用所有 AI 金鑰 (含 .env 備用),
-# 直到使用者在設定頁重新儲存 AI 設定或 Key Profile, 避免舊金鑰被送到新端點。
+# 還原的備份換了 AI 端點卻沒一起還原金鑰時, 記下被換端點的對象 ("legacy" = 舊版單一設定,
+# 其餘為 Key Profile id)。對象未經使用者逐一確認前不送任何金鑰 (含 .env 備用),
+# 確認其中一組不會解除其他組。
 AI_ENDPOINT_UNCONFIRMED = "ai_endpoint_unconfirmed"
+AI_LEGACY_TARGET = "legacy"
+
+
+def ai_quarantine() -> set[str]:
+    value = load().get(AI_ENDPOINT_UNCONFIRMED)
+    if isinstance(value, list):
+        return {str(v) for v in value}
+    return {"*"} if value else set()  # 舊格式 True: 全部停用
 
 
 def ai_endpoint_unconfirmed() -> bool:
-    return bool(load().get(AI_ENDPOINT_UNCONFIRMED))
+    return bool(ai_quarantine())
+
+
+def ai_target_unconfirmed(target: str) -> bool:
+    quarantine = ai_quarantine()
+    return target in quarantine or "*" in quarantine
+
+
+def confirm_ai_target(target: str) -> None:
+    """使用者已重新確認這個對象的端點與金鑰, 只解除它自己。"""
+    quarantine = ai_quarantine()
+    if target not in quarantine and "*" not in quarantine:
+        return
+    if "*" in quarantine:
+        # 舊格式 (全部停用) 先展開成每個對象, 確認一組不會解除其他組
+        from app.services.ai_key_profiles import _load_metadata
+        quarantine = {AI_LEGACY_TARGET, *(str(p.get("id")) for p in _load_metadata() if isinstance(p, dict))}
+    quarantine.discard(target)
+    if quarantine:
+        save({AI_ENDPOINT_UNCONFIRMED: sorted(quarantine)})
+    else:
+        clear(AI_ENDPOINT_UNCONFIRMED)
 
 
 def get_ai_key() -> str:
@@ -84,15 +114,18 @@ def get_ai_key() -> str:
     多 profile 激活时直接从 ai_key_profiles 读取激活 profile 的 key,
     无需重启; 不存在任何 profile 时回退到旧的 ai_api_key 单字段行为。
     """
-    if ai_endpoint_unconfirmed():
-        return ""
     import contextlib
     with contextlib.suppress(Exception):
-        from app.services.ai_key_profiles import get_active_ai_key, has_any_profile
+        from app.services.ai_key_profiles import get_active_ai_key, get_active_profile_id, has_any_profile
         if has_any_profile():
+            active_id = get_active_profile_id()
+            if active_id and ai_target_unconfirmed(active_id):
+                return ""  # 不回退到舊版金鑰或 .env: 那會配上未確認的端點
             key = get_active_ai_key()
             if key:
                 return key
+    if ai_target_unconfirmed(AI_LEGACY_TARGET):
+        return ""
     val = load().get("ai_api_key")
 
     if val:
