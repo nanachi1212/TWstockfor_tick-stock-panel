@@ -69,12 +69,23 @@ def get_tickflow_key() -> str:
     return settings.tickflow_api_key or ""
 
 
+# 還原的備份換了 AI 端點卻沒一起還原金鑰時設定: 停用所有 AI 金鑰 (含 .env 備用),
+# 直到使用者在設定頁重新儲存 AI 設定或 Key Profile, 避免舊金鑰被送到新端點。
+AI_ENDPOINT_UNCONFIRMED = "ai_endpoint_unconfirmed"
+
+
+def ai_endpoint_unconfirmed() -> bool:
+    return bool(load().get(AI_ENDPOINT_UNCONFIRMED))
+
+
 def get_ai_key() -> str:
     """取当前 AI Key: 优先 active profile → secrets.json 单字段 → .env。
 
     多 profile 激活时直接从 ai_key_profiles 读取激活 profile 的 key,
     无需重启; 不存在任何 profile 时回退到旧的 ai_api_key 单字段行为。
     """
+    if ai_endpoint_unconfirmed():
+        return ""
     import contextlib
     with contextlib.suppress(Exception):
         from app.services.ai_key_profiles import get_active_ai_key, has_any_profile

@@ -113,7 +113,7 @@ PRESETS: dict[str, tuple[str, ...]] = {
 }
 
 # secrets.json 內非機密、但只對本機有意義的欄位 (例如 Codex 執行檔路徑): 永不匯出也不覆蓋。
-_MACHINE_LOCAL_KEYS = frozenset({"ai_codex_command"})
+_MACHINE_LOCAL_KEYS = frozenset({"ai_codex_command", "ai_endpoint_unconfirmed"})
 _SECRET_SUFFIXES = ("_api_key", "_token", "_secret", "password")
 
 # 絕對路徑: 磁碟代號 (避開 https:)、UNC、常見 Unix 家目錄。
@@ -313,6 +313,44 @@ def _public_ai_config(secrets_json: dict[str, Any]) -> dict[str, Any]:
 
 def _secret_part(secrets_json: dict[str, Any]) -> dict[str, Any]:
     return {k: v for k, v in secrets_json.items() if _is_secret_key(k)}
+
+
+def _ai_endpoints_moved(
+    user_dir: Path,
+    current: dict[str, Any],
+    public: dict[str, Any],
+    backup_files: dict[str, bytes],
+    plan: dict[str, bytes | None],
+    secret: dict[str, Any],
+) -> bool:
+    """備份 (未經密碼驗證) 改了 AI 端點時, 不讓本機保留的金鑰跟去新端點。
+
+    舊版單一設定: provider/base_url 變了就移除本機 ai_api_key。
+    Key Profiles: 同 id 的 provider/base_url 變了 (或本機沒有此 profile) 就移除該 id 的金鑰。
+    回傳 True 表示有端點變更, 呼叫端須把 AI 連線標為待確認 (連 .env 備用金鑰一起停用)。
+    """
+    from app.config import settings
+
+    def legacy(cfg: dict[str, Any]) -> tuple[str, str]:
+        return (str(cfg.get("ai_provider") or settings.ai_provider or ""),
+                str(cfg.get("ai_base_url") or settings.ai_base_url or ""))
+
+    def endpoints(profiles: Any) -> dict[str, tuple[str, str]]:
+        return {str(p.get("id")): (str(p.get("provider") or "openai_compat"), str(p.get("base_url") or ""))
+                for p in (profiles if isinstance(profiles, list) else []) if isinstance(p, dict)}
+
+    moved = legacy(current) != legacy(public)
+    if moved:
+        secret.pop("ai_api_key", None)
+
+    raw = backup_files.get("ai_key_profiles.json")
+    new = endpoints(json.loads(raw.decode("utf-8")) if raw else [])
+    old = endpoints(_read_json_file(user_dir / "ai_key_profiles.json", []))
+    keys = _read_json_file(user_dir / "ai_key_profiles_secrets.json", {})
+    stale = [pid for pid in (keys if isinstance(keys, dict) else {}) if pid in new and new[pid] != old.get(pid)]
+    if stale:
+        plan["ai_key_profiles_secrets.json"] = _json_bytes({k: v for k, v in keys.items() if k not in stale})
+    return moved or bool(stale)
 
 
 def _clean_browser(category: str, values: dict[str, Any] | None) -> dict[str, str]:
@@ -764,6 +802,9 @@ def restore(
                 plan["ai_key_profiles_secrets.json"] = _json_bytes(
                     secret_payload.get("ai_key_profiles_secrets") or {})
             local = {k: v for k, v in current.items() if k in _MACHINE_LOCAL_KEYS}
+            if "app_settings" in categories and secret_payload is None and _ai_endpoints_moved(
+                    user_dir, current, public, parsed.files.get("app_settings", {}), plan, secret):
+                local["ai_endpoint_unconfirmed"] = True
             merged = {**{k: v for k, v in public.items() if not _is_secret_key(k)}, **secret, **local}
             plan["secrets.json"] = _json_bytes(merged) if merged else None
 

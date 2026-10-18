@@ -164,6 +164,9 @@ def snapshot_ai_provider_config(tier: Literal["quick", "deep"] = "quick") -> AIP
         active_model = ""
         active_provider = configured("ai_provider", OPENAI_COMPAT_PROVIDER)
 
+    if stored.get(secrets_store.AI_ENDPOINT_UNCONFIRMED):
+        resolved_key = ""  # 端點來自未驗證的還原, 等使用者重新確認前不送任何金鑰
+
     provider = active_provider
     if provider == CODEX_CLI_PROVIDER and active_cfg and active_model:
         # A subscription profile carries its own model; legacy ai_codex_model is only a fallback.

@@ -189,10 +189,16 @@ def test_encrypted_secrets_round_trip(home, office):
 
 
 def test_restoring_settings_keeps_local_secrets_and_machine_paths(home, office):
-    local = {"ai_api_key": "office-key", "ai_codex_command": "D:\\tools\\codex.exe", "ai_model": "old"}
+    # 端點相同 (只改模型) → 本機金鑰照常保留; 端點改變的情況見 test_restore_moving_*
+    local = {"ai_api_key": "office-key", "ai_codex_command": "D:\\tools\\codex.exe", "ai_model": "old",
+             "ai_base_url": "https://example.invalid/v1"}
     _write_json(office / "secrets.json", local)
+    _write_json(office / "ai_key_profiles.json", [{"id": "p1", "name": "demo", "active": True}])
+    _write_json(office / "ai_key_profiles_secrets.json", {"p1": "office-profile-key"})
     dt.restore(_full(home), ["app_settings"], user_dir=office)
     restored = json.loads((office / "secrets.json").read_text(encoding="utf-8"))
+    assert "ai_endpoint_unconfirmed" not in restored
+    assert json.loads((office / "ai_key_profiles_secrets.json").read_text()) == {"p1": "office-profile-key"}
     assert restored["ai_api_key"] == "office-key"          # 未選 secrets → 保留本機金鑰
     assert restored["ai_codex_command"] == "D:\\tools\\codex.exe"  # 本機路徑不被覆蓋
     assert restored["ai_model"] == "synthetic-model"
@@ -380,3 +386,67 @@ def test_api_round_trip(home, office, monkeypatch):
     rb = client.post(f"/api/device-transfer/rollback/{body['restore_point']}")
     assert rb.status_code == 200
     assert not (office / "watchlist.parquet").exists()
+
+
+def _ai_env(monkeypatch, office: Path, env_key: str = "env-fallback-key"):
+    from app.config import settings
+    monkeypatch.setattr(settings, "data_dir", office.parent)
+    monkeypatch.setattr(settings, "ai_api_key", env_key)   # 模擬 .env 的 AI_API_KEY
+    monkeypatch.setattr(settings, "ai_base_url", "")
+
+
+def test_restore_moving_ai_endpoint_drops_key_and_disables_env_fallback(home, office, monkeypatch):
+    from app import secrets_store
+    from app.services import ai_key_profiles
+    from app.services.ai_provider import snapshot_ai_provider_config
+
+    _ai_env(monkeypatch, office)
+    _write_json(office / "secrets.json", {"ai_api_key": "office-key", "ai_base_url": "https://office.invalid/v1"})
+    (home / "ai_key_profiles.json").unlink()
+    (home / "ai_key_profiles_secrets.json").unlink()
+
+    dt.restore(_full(home), ["app_settings"], user_dir=office)
+
+    restored = json.loads((office / "secrets.json").read_text(encoding="utf-8"))
+    assert restored["ai_base_url"] == "https://example.invalid/v1"
+    assert "ai_api_key" not in restored
+    assert restored["ai_endpoint_unconfirmed"] is True
+    # 本機金鑰與 .env 備用金鑰都不得送往新端點
+    assert secrets_store.get_ai_key() == ""
+    assert snapshot_ai_provider_config().api_key == ""
+
+    # 使用者在設定頁重新確認 (建立 Profile) 後恢復
+    ai_key_profiles.create_profile("confirmed", "openai_compat", "new-key", base_url="https://example.invalid/v1")
+    assert not secrets_store.ai_endpoint_unconfirmed()
+    assert snapshot_ai_provider_config().api_key == "new-key"
+
+
+def test_restore_moving_profile_endpoint_drops_that_profile_key(home, office, monkeypatch):
+    from app.services.ai_provider import snapshot_ai_provider_config
+
+    _ai_env(monkeypatch, office)
+    _write_json(office / "secrets.json", {"ai_base_url": "https://example.invalid/v1"})
+    _write_json(office / "ai_key_profiles.json", [
+        {"id": "p1", "name": "demo", "active": True, "base_url": "https://office.invalid/v1"},
+        {"id": "p2", "name": "other", "base_url": "https://keep.invalid/v1"},
+    ])
+    _write_json(office / "ai_key_profiles_secrets.json", {"p1": "office-p1-key", "p2": "office-p2-key"})
+    _write_json(home / "ai_key_profiles.json", [
+        {"id": "p1", "name": "demo", "active": True, "base_url": "https://evil.invalid/v1"},
+        {"id": "p2", "name": "other", "base_url": "https://keep.invalid/v1"},
+    ])
+
+    dt.restore(_full(home), ["app_settings"], user_dir=office)
+
+    assert json.loads((office / "ai_key_profiles_secrets.json").read_text()) == {"p2": "office-p2-key"}
+    assert json.loads((office / "secrets.json").read_text())["ai_endpoint_unconfirmed"] is True
+    assert snapshot_ai_provider_config().api_key == ""
+
+
+def test_rollback_restores_keys_after_endpoint_move(home, office, monkeypatch):
+    _ai_env(monkeypatch, office)
+    _write_json(office / "secrets.json", {"ai_api_key": "office-key", "ai_base_url": "https://office.invalid/v1"})
+    before = _snapshot(office)["secrets.json"]
+    result = dt.restore(_full(home), ["app_settings"], user_dir=office)
+    dt.rollback(result["restore_point"], user_dir=office)
+    assert _snapshot(office)["secrets.json"] == before
