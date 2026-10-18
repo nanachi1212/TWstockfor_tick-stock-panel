@@ -115,6 +115,7 @@ PRESETS: dict[str, tuple[str, ...]] = {
 # secrets.json 內非機密、但只對本機有意義的欄位 (例如 Codex 執行檔路徑): 永不匯出也不覆蓋。
 _MACHINE_LOCAL_KEYS = frozenset({"ai_codex_command", "ai_endpoint_unconfirmed"})
 _SECRET_SUFFIXES = ("_api_key", "_token", "_secret", "password")
+_SECRET_FILES = frozenset({"secrets.json", "ai_key_profiles_secrets.json"})
 
 # 絕對路徑: 磁碟代號 (避開 https:)、UNC、常見 Unix 家目錄。
 _ABS_PATH = re.compile(r"(?<![A-Za-z])[A-Za-z]:[\\/]|\\\\[^\\\s]+\\|(?:^|[\s\"'])/(?:Users|home)/")
@@ -335,9 +336,13 @@ def _ai_endpoints_moved(
         return (str(cfg.get("ai_provider") or settings.ai_provider or ""),
                 str(cfg.get("ai_base_url") or settings.ai_base_url or ""))
 
-    def endpoints(profiles: Any) -> dict[str, tuple[str, str]]:
-        return {str(p.get("id")): (str(p.get("provider") or "openai_compat"), str(p.get("base_url") or ""))
-                for p in (profiles if isinstance(profiles, list) else []) if isinstance(p, dict)}
+    def endpoints(profiles: Any) -> dict[str, set[tuple[str, str]]]:
+        out: dict[str, set[tuple[str, str]]] = {}
+        for p in profiles if isinstance(profiles, list) else []:
+            if isinstance(p, dict):
+                out.setdefault(str(p.get("id")), set()).add(
+                    (str(p.get("provider") or "openai_compat"), str(p.get("base_url") or "")))
+        return out
 
     moved = legacy(current) != legacy(public)
     if moved:
@@ -347,7 +352,9 @@ def _ai_endpoints_moved(
     new = endpoints(json.loads(raw.decode("utf-8")) if raw else [])
     old = endpoints(_read_json_file(user_dir / "ai_key_profiles.json", []))
     keys = _read_json_file(user_dir / "ai_key_profiles_secrets.json", {})
-    stale = [pid for pid in (keys if isinstance(keys, dict) else {}) if pid in new and new[pid] != old.get(pid)]
+    # 同 id 出現多次 (端點集合不只一個) 也算變更: 讀取端取第一筆, 比對不能只看最後一筆。
+    stale = [pid for pid in (keys if isinstance(keys, dict) else {})
+             if pid in new and (len(new[pid]) > 1 or new[pid] != old.get(pid))]
     if stale:
         plan["ai_key_profiles_secrets.json"] = _json_bytes({k: v for k, v in keys.items() if k not in stale})
     return moved or bool(stale)
@@ -666,6 +673,8 @@ def _atomic_write(path: Path, data: bytes) -> None:
     tmp = path.with_name(f".{path.name}.{_secrets.token_hex(4)}.restore-tmp")
     try:
         tmp.write_bytes(data)
+        if path.name in _SECRET_FILES:
+            os.chmod(tmp, 0o600)  # 與 secrets_store / ai_key_profiles 寫入時一致, 不放寬權限
         os.replace(tmp, path)
     finally:
         with contextlib.suppress(OSError):
@@ -774,7 +783,11 @@ def restore(
             raise TransferError("還原 API Keys 需要輸入備份密碼")
         secret_payload = _decrypt(parsed.secrets_blob or b"", password, _canonical(parsed.manifest))
 
-    with _lock, _record_locks(user_dir, categories):
+    from app.services import ai_key_profiles
+
+    # 持有 Profile 鎖直到寫完: 讀取端不會看到「新端點 + 舊金鑰」的中間狀態, 也不會被並行的
+    # Profile 修改覆寫。rollback 不取此鎖 (restore 失敗時在鎖內呼叫, 避免自我死鎖)。
+    with _lock, _record_locks(user_dir, categories), ai_key_profiles._lock:
         plan: dict[str, bytes | None] = {}
         browser: dict[str, dict[str, str]] = {}
         for cat in categories:
@@ -802,7 +815,9 @@ def restore(
                 plan["ai_key_profiles_secrets.json"] = _json_bytes(
                     secret_payload.get("ai_key_profiles_secrets") or {})
             local = {k: v for k, v in current.items() if k in _MACHINE_LOCAL_KEYS}
-            if "app_settings" in categories and secret_payload is None and _ai_endpoints_moved(
+            if secret_payload is not None:
+                local.pop("ai_endpoint_unconfirmed", None)  # 端點與金鑰一起從加密備份還原
+            elif "app_settings" in categories and _ai_endpoints_moved(
                     user_dir, current, public, parsed.files.get("app_settings", {}), plan, secret):
                 local["ai_endpoint_unconfirmed"] = True
             merged = {**{k: v for k, v in public.items() if not _is_secret_key(k)}, **secret, **local}

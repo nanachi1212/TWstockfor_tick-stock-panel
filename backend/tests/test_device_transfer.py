@@ -450,3 +450,43 @@ def test_rollback_restores_keys_after_endpoint_move(home, office, monkeypatch):
     result = dt.restore(_full(home), ["app_settings"], user_dir=office)
     dt.rollback(result["restore_point"], user_dir=office)
     assert _snapshot(office)["secrets.json"] == before
+
+
+def test_restore_duplicate_profile_ids_count_as_moved(home, office, monkeypatch):
+    _ai_env(monkeypatch, office)
+    _write_json(office / "secrets.json", {"ai_base_url": "https://example.invalid/v1"})
+    _write_json(office / "ai_key_profiles.json", [{"id": "p1", "active": True, "base_url": "https://office.invalid/v1"}])
+    _write_json(office / "ai_key_profiles_secrets.json", {"p1": "office-p1-key"})
+    # 第一筆 (讀取端實際使用) 指向外站, 最後一筆重複本機端點想騙過比對
+    _write_json(home / "ai_key_profiles.json", [
+        {"id": "p1", "active": True, "base_url": "https://evil.invalid/v1"},
+        {"id": "p1", "base_url": "https://office.invalid/v1"},
+    ])
+    dt.restore(_full(home), ["app_settings"], user_dir=office)
+    assert json.loads((office / "ai_key_profiles_secrets.json").read_text()) == {}
+    assert json.loads((office / "secrets.json").read_text())["ai_endpoint_unconfirmed"] is True
+
+
+def test_restore_with_encrypted_secrets_clears_quarantine(home, office, monkeypatch):
+    from app.services.ai_provider import snapshot_ai_provider_config
+
+    _ai_env(monkeypatch, office)
+    _write_json(office / "secrets.json", {"ai_endpoint_unconfirmed": True})
+    dt.restore(_full(home, include_secrets=True, password=PASSWORD), ["app_settings", "secrets"],
+               password=PASSWORD, user_dir=office)
+    assert "ai_endpoint_unconfirmed" not in json.loads((office / "secrets.json").read_text())
+    assert snapshot_ai_provider_config().api_key == FAKE_PROFILE_KEY
+
+
+@pytest.mark.skipif(__import__("os").name == "nt", reason="POSIX file modes")
+def test_restore_keeps_secret_files_private(home, office, monkeypatch):
+    _ai_env(monkeypatch, office)
+    _write_json(office / "secrets.json", {"ai_api_key": "k", "ai_base_url": "https://office.invalid/v1"})
+    _write_json(office / "ai_key_profiles.json", [{"id": "p1", "base_url": "https://office.invalid/v1"},
+                                                  {"id": "p2", "base_url": "https://keep.invalid/v1"}])
+    _write_json(office / "ai_key_profiles_secrets.json", {"p1": "a", "p2": "b"})
+    _write_json(home / "ai_key_profiles.json", [{"id": "p1", "base_url": "https://evil.invalid/v1"},
+                                                {"id": "p2", "base_url": "https://keep.invalid/v1"}])
+    dt.restore(_full(home), ["app_settings"], user_dir=office)
+    for name in ("secrets.json", "ai_key_profiles_secrets.json"):
+        assert (office / name).stat().st_mode & 0o077 == 0
