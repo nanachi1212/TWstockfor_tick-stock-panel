@@ -97,7 +97,11 @@ def confirm_ai_target(target: str) -> None:
     quarantine = ai_quarantine()
     if target not in quarantine and "*" not in quarantine:
         return
-    quarantine -= {target, "*"}
+    if "*" in quarantine:
+        # 舊格式 (全部停用) 先展開成每個對象, 確認一組不會解除其他組
+        from app.services.ai_key_profiles import _load_metadata
+        quarantine = {AI_LEGACY_TARGET, *(str(p.get("id")) for p in _load_metadata() if isinstance(p, dict))}
+    quarantine.discard(target)
     if quarantine:
         save({AI_ENDPOINT_UNCONFIRMED: sorted(quarantine)})
     else:

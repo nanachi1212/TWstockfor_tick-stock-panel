@@ -528,3 +528,18 @@ def test_confirming_one_profile_keeps_other_targets_quarantined(home, office, mo
                                    model="", api_key="p1-confirmed")
     assert snapshot_ai_provider_config().api_key == "p1-confirmed"
     assert secrets_store.ai_target_unconfirmed("legacy")
+
+
+def test_legacy_true_flag_is_expanded_not_cleared_on_confirm(office, monkeypatch):
+    from app import secrets_store
+    from app.services import ai_key_profiles
+
+    _ai_env(monkeypatch, office)
+    _write_json(office / "secrets.json", {"ai_endpoint_unconfirmed": True})
+    _write_json(office / "ai_key_profiles.json", [{"id": "p1", "name": "a", "active": True},
+                                                  {"id": "p2", "name": "b"}])
+    _write_json(office / "ai_key_profiles_secrets.json", {"p1": "k1", "p2": "k2"})
+
+    ai_key_profiles.update_profile("p2", name="b", provider="openai_compat", base_url="", model="", api_key="k2b")
+    assert secrets_store.ai_quarantine() == {"legacy", "p1"}
+    assert secrets_store.get_ai_key() == ""
