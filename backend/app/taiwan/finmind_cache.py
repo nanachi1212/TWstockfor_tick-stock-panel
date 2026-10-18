@@ -30,6 +30,8 @@ NEGATIVE_TTL = 900  # 15 minutes for unavailable or error responses
 # Cache keys are stock codes (2330, 00632R, 2330.TWSE) or TX_/TXO_ date keys. Anything else
 # (backslash, "..", UNC/drive prefixes) would escape the cache dir on Windows.
 _SAFE_KEY = re.compile(r"[A-Za-z0-9][A-Za-z0-9_-]*(\.[A-Za-z0-9_-]+)*")
+# Win32 maps these basenames to devices even with an extension (CON.json, COM1.tmp).
+_RESERVED = re.compile(r"(CON|PRN|AUX|NUL|COM[0-9]|LPT[0-9])(\..*)?", re.IGNORECASE)
 
 
 def _cache_root() -> Path:
@@ -46,7 +48,9 @@ class FinMindCache:
 
     def _file_path(self, dataset: str, symbol: str) -> Path:
         """Raises ValueError for keys that are not plain codes, before any filesystem access."""
-        if not (_SAFE_KEY.fullmatch(dataset) and _SAFE_KEY.fullmatch(symbol) and len(symbol) <= 64):
+        if not (
+            _SAFE_KEY.fullmatch(dataset) and _SAFE_KEY.fullmatch(symbol) and len(symbol) <= 64
+        ) or _RESERVED.fullmatch(dataset) or _RESERVED.fullmatch(symbol):
             raise ValueError(f"unsafe FinMind cache key: {dataset!r}/{symbol!r}")
         d = self.cache_dir / dataset
         d.mkdir(parents=True, exist_ok=True)

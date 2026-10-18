@@ -21,6 +21,10 @@ _BAD_KEYS = [
     "..",
     "a/b",
     "",
+    "CON",
+    "nul",
+    "COM1",
+    "LPT9.TWSE",
 ]
 
 
