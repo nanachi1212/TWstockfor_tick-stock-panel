@@ -228,6 +228,13 @@ def get_profile_config(profile_id: str) -> dict | None:
     return None
 
 
+def _confirm_endpoints() -> None:
+    """使用者主動建立/修改/啟用 Profile 即視為重新確認端點, 解除還原後的金鑰停用。"""
+    from app import secrets_store
+    if secrets_store.ai_endpoint_unconfirmed():
+        secrets_store.clear(secrets_store.AI_ENDPOINT_UNCONFIRMED)
+
+
 def create_profile(name: str, provider: str, api_key: str, *, base_url: str = "", model: str = "") -> dict:
     """Create a new profile. Returns metadata (no key)."""
     if not name.strip():
@@ -258,6 +265,7 @@ def create_profile(name: str, provider: str, api_key: str, *, base_url: str = ""
 
         _save_metadata(profiles)
         _save_secrets(secrets)
+        _confirm_endpoints()
 
         return {
             "id": pid,
@@ -322,6 +330,7 @@ def update_profile(
             with contextlib.suppress(Exception):
                 _save_metadata(previous_profiles)
             raise
+        _confirm_endpoints()
 
         key_raw = secrets.get(profile_id, "")
         return {
@@ -348,6 +357,7 @@ def set_active_profile(profile_id: str) -> bool:
         for p in profiles:
             p["active"] = (p.get("id") == profile_id)
         _save_metadata(profiles)
+        _confirm_endpoints()
         return True
 
 

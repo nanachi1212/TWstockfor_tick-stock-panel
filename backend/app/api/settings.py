@@ -340,6 +340,8 @@ def save_ai_settings(req: AiSettingsIn) -> dict:
 
     if updates:
         secrets_store.save(updates)
+    if secrets_store.ai_endpoint_unconfirmed():
+        secrets_store.clear(secrets_store.AI_ENDPOINT_UNCONFIRMED)  # 使用者已在設定頁重新確認端點
 
     provider = current_ai_provider()
     return {
