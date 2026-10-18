@@ -90,8 +90,10 @@ def list_plugins() -> list[dict]:
 
 
 def plugin_manifest(name: str) -> dict | None:
-    """读取指定插件的 plugin.yaml 清单。"""
-    plugin_dir = plugins_dir() / (name or "")
+    """读取指定插件的 plugin.yaml 清单。名称不合 _NAME_RE 时不碰文件系统(防路径穿越与 UNC 路径)。"""
+    if not _NAME_RE.fullmatch(name or ""):
+        return None
+    plugin_dir = plugins_dir() / name
     manifest_path = plugin_dir / "plugin.yaml"
     if not manifest_path.exists():
         return None
@@ -100,7 +102,9 @@ def plugin_manifest(name: str) -> dict | None:
 
 def plugin_dir_of(name: str) -> Path:
     """返回插件目录路径。"""
-    return plugins_dir() / (name or "")
+    if not _NAME_RE.fullmatch(name or ""):
+        raise ValueError(f"invalid plugin name: {name!r}")
+    return plugins_dir() / name
 
 
 def probe_plugin_key(name: str, api_key: str) -> tuple[bool, str]:

@@ -256,14 +256,15 @@ def get_portfolio_auto_sync():
     """開看板時自動同步的持股檔 (OneDrive / Google Drive 同步資料夾內)。"""
     from pathlib import Path
 
-    from app.services import preferences
+    from app.services import portfolio_import, preferences
 
     path = preferences.load().get("portfolio_auto_sync_path")
-    target = Path(path) if path else None
+    # 還原的 preferences.json 可能帶 UNC 路徑: 不合規則就不碰檔案系統 (讀取端 read_file 同樣拒絕)。
+    target = portfolio_import.allowed_path(path) if path else None
     exists = bool(target and target.is_file())
     return {
         "path": path,
-        "name": target.name if target else None,
+        "name": Path(path).name if path else None,
         "modified": target.stat().st_mtime if exists else None,
     }
 
