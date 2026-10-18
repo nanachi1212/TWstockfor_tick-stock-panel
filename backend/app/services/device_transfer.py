@@ -323,12 +323,12 @@ def _ai_endpoints_moved(
     backup_files: dict[str, bytes],
     plan: dict[str, bytes | None],
     secret: dict[str, Any],
-) -> bool:
+) -> list[str]:
     """備份 (未經密碼驗證) 改了 AI 端點時, 不讓本機保留的金鑰跟去新端點。
 
     舊版單一設定: provider/base_url 變了就移除本機 ai_api_key。
     Key Profiles: 同 id 的 provider/base_url 變了 (或本機沒有此 profile) 就移除該 id 的金鑰。
-    回傳 True 表示有端點變更, 呼叫端須把 AI 連線標為待確認 (連 .env 備用金鑰一起停用)。
+    回傳端點被改的對象 ("legacy" 或 profile id), 呼叫端把它們標為待確認 (連 .env 備用金鑰一起停用)。
     """
     from app.config import settings
 
@@ -357,7 +357,7 @@ def _ai_endpoints_moved(
              if pid in new and (len(new[pid]) > 1 or new[pid] != old.get(pid))]
     if stale:
         plan["ai_key_profiles_secrets.json"] = _json_bytes({k: v for k, v in keys.items() if k not in stale})
-    return moved or bool(stale)
+    return (["legacy"] if moved else []) + stale
 
 
 def _clean_browser(category: str, values: dict[str, Any] | None) -> dict[str, str]:
@@ -817,9 +817,13 @@ def restore(
             local = {k: v for k, v in current.items() if k in _MACHINE_LOCAL_KEYS}
             if secret_payload is not None:
                 local.pop("ai_endpoint_unconfirmed", None)  # 端點與金鑰一起從加密備份還原
-            elif "app_settings" in categories and _ai_endpoints_moved(
-                    user_dir, current, public, parsed.files.get("app_settings", {}), plan, secret):
-                local["ai_endpoint_unconfirmed"] = True
+            elif "app_settings" in categories:
+                moved = _ai_endpoints_moved(user_dir, current, public, parsed.files.get("app_settings", {}),
+                                            plan, secret)
+                if moved:
+                    prev = local.get("ai_endpoint_unconfirmed")
+                    prev = prev if isinstance(prev, list) else (["*"] if prev else [])
+                    local["ai_endpoint_unconfirmed"] = sorted({*map(str, prev), *moved})
             merged = {**{k: v for k, v in public.items() if not _is_secret_key(k)}, **secret, **local}
             plan["secrets.json"] = _json_bytes(merged) if merged else None
 

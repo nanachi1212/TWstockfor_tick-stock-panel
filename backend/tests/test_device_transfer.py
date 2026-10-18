@@ -410,15 +410,18 @@ def test_restore_moving_ai_endpoint_drops_key_and_disables_env_fallback(home, of
     restored = json.loads((office / "secrets.json").read_text(encoding="utf-8"))
     assert restored["ai_base_url"] == "https://example.invalid/v1"
     assert "ai_api_key" not in restored
-    assert restored["ai_endpoint_unconfirmed"] is True
+    assert restored["ai_endpoint_unconfirmed"] == ["legacy"]
     # 本機金鑰與 .env 備用金鑰都不得送往新端點
     assert secrets_store.get_ai_key() == ""
     assert snapshot_ai_provider_config().api_key == ""
 
-    # 使用者在設定頁重新確認 (建立 Profile) 後恢復
+    # 新建 Profile 可用, 但不解除舊版單一設定的停用
     ai_key_profiles.create_profile("confirmed", "openai_compat", "new-key", base_url="https://example.invalid/v1")
-    assert not secrets_store.ai_endpoint_unconfirmed()
     assert snapshot_ai_provider_config().api_key == "new-key"
+    assert secrets_store.ai_target_unconfirmed("legacy")
+    # 在設定頁確認舊版單一設定後才解除
+    secrets_store.confirm_ai_target("legacy")
+    assert not secrets_store.ai_endpoint_unconfirmed()
 
 
 def test_restore_moving_profile_endpoint_drops_that_profile_key(home, office, monkeypatch):
@@ -439,7 +442,7 @@ def test_restore_moving_profile_endpoint_drops_that_profile_key(home, office, mo
     dt.restore(_full(home), ["app_settings"], user_dir=office)
 
     assert json.loads((office / "ai_key_profiles_secrets.json").read_text()) == {"p2": "office-p2-key"}
-    assert json.loads((office / "secrets.json").read_text())["ai_endpoint_unconfirmed"] is True
+    assert json.loads((office / "secrets.json").read_text())["ai_endpoint_unconfirmed"] == ["p1"]
     assert snapshot_ai_provider_config().api_key == ""
 
 
@@ -464,7 +467,7 @@ def test_restore_duplicate_profile_ids_count_as_moved(home, office, monkeypatch)
     ])
     dt.restore(_full(home), ["app_settings"], user_dir=office)
     assert json.loads((office / "ai_key_profiles_secrets.json").read_text()) == {}
-    assert json.loads((office / "secrets.json").read_text())["ai_endpoint_unconfirmed"] is True
+    assert json.loads((office / "secrets.json").read_text())["ai_endpoint_unconfirmed"] == ["p1"]
 
 
 def test_restore_with_encrypted_secrets_clears_quarantine(home, office, monkeypatch):
@@ -490,3 +493,38 @@ def test_restore_keeps_secret_files_private(home, office, monkeypatch):
     dt.restore(_full(home), ["app_settings"], user_dir=office)
     for name in ("secrets.json", "ai_key_profiles_secrets.json"):
         assert (office / name).stat().st_mode & 0o077 == 0
+
+
+def test_confirming_one_profile_keeps_other_targets_quarantined(home, office, monkeypatch):
+    """改另一組 Profile 不得解除被改端點 (p1 / 舊版單一設定) 的停用, .env 備用金鑰也不得送往新端點。"""
+    from app import secrets_store
+    from app.services import ai_key_profiles
+    from app.services.ai_provider import snapshot_ai_provider_config
+
+    _ai_env(monkeypatch, office)
+    _write_json(office / "secrets.json", {"ai_base_url": "https://office.invalid/v1"})
+    _write_json(office / "ai_key_profiles.json", [
+        {"id": "p1", "name": "a", "active": True, "base_url": "https://office.invalid/v1"},
+        {"id": "p2", "name": "b", "base_url": "https://keep.invalid/v1"},
+    ])
+    _write_json(office / "ai_key_profiles_secrets.json", {"p1": "office-p1-key", "p2": "office-p2-key"})
+    _write_json(home / "ai_key_profiles.json", [
+        {"id": "p1", "name": "a", "active": True, "base_url": "https://evil.invalid/v1"},
+        {"id": "p2", "name": "b", "base_url": "https://keep.invalid/v1"},
+    ])
+    dt.restore(_full(home), ["app_settings"], user_dir=office)
+
+    # 使用者只改了 p2
+    ai_key_profiles.update_profile("p2", name="b", provider="openai_compat", base_url="https://keep.invalid/v1",
+                                   model="", api_key="rotated-p2")
+    assert secrets_store.get_ai_key() == ""                 # 不得回退到 .env 金鑰
+    assert snapshot_ai_provider_config().api_key == ""
+    # 啟用也不算確認端點
+    ai_key_profiles.set_active_profile("p1")
+    assert secrets_store.get_ai_key() == ""
+
+    # 使用者確認 p1 (重新填入金鑰) 後才恢復, 且只恢復 p1
+    ai_key_profiles.update_profile("p1", name="a", provider="openai_compat", base_url="https://evil.invalid/v1",
+                                   model="", api_key="p1-confirmed")
+    assert snapshot_ai_provider_config().api_key == "p1-confirmed"
+    assert secrets_store.ai_target_unconfirmed("legacy")
