@@ -45,6 +45,21 @@ def test_create_new_after_terminal(monkeypatch, tmp_path):
     assert new2 is True
 
 
+def test_get_rejects_path_traversal_job_id(monkeypatch, tmp_path):
+    """job_id 来自 URL: 穿越/绝对路径不得读出 job_store 外的 .json。"""
+    monkeypatch.setattr(preferences, "load", lambda: {})
+    (tmp_path / "secret.json").write_text('{"api_key": "x"}', encoding="utf-8")
+    store = JobStore(store_dir=tmp_path / "jobs")
+    for bad in ("..\\secret", "../secret", str(tmp_path / "secret")):
+        assert store.get(bad) is None
+
+    # 正常 id 仍可从磁盘读回
+    jid, _ = store.create()
+    store.start(jid)
+    store.succeed(jid, {"ok": True})
+    assert store.get(jid)["status"] == "succeeded"
+
+
 def test_run_slot_is_exclusive():
     """重任务执行槽同一时刻只允许一个持有者(防僵尸并发)。"""
     assert pipeline_jobs.try_acquire_run_slot() is True

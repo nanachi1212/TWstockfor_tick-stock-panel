@@ -15,10 +15,12 @@
 """
 from __future__ import annotations
 
+import ipaddress
 import logging
 import time
 from collections import defaultdict
 from threading import Lock
+from urllib.parse import urlsplit
 
 from fastapi import APIRouter, HTTPException, Request, Response
 from pydantic import BaseModel, Field
@@ -40,12 +42,7 @@ _LOCK_SECONDS = 300
 
 
 def _is_local_network(host: str | None) -> bool:
-    """是否本机或内网请求。
-
-    反向代理(Nginx)场景下 request.client.host 是代理本身(127.0.0.1),
-    需信任 X-Forwarded-For 的最左(原始客户端)。本项目部署若经反代,
-    请在反代配置正确的 X-Forwarded-For(标准做法)。
-    """
+    """该地址是否本机或内网地址(判断整条请求来源请用 _is_local_request)。"""
     if not host:
         return False
     if host in ("127.0.0.1", "::1", "localhost", "testclient"):
@@ -64,19 +61,100 @@ def _is_local_network(host: str | None) -> bool:
     return False
 
 
-def _client_ip(request: Request) -> str:
-    """取真实客户端 IP。
+def _xff_hops(request: Request) -> list[str]:
+    """X-Forwarded-For 各跳(左=最远, 右=相邻反代追加)。
 
-    安全关键: 仅当直连 peer(request.client.host)本身是回环/内网地址
-    (即请求确实经过同机/内网的可信反代)时, 才采信 X-Forwarded-For。
-    否则公网请求可伪造 `X-Forwarded-For: 127.0.0.1` 冒充内网, 绕过
-    「未设密码仅本机可访问」闸门、抢占 setup 端点、并绕过登录限流。
+    多行头按出现顺序合并: HAProxy 等会另起一行追加, 只读第一行会读到客户端自填的值。
+    """
+    joined = ",".join(request.headers.getlist("x-forwarded-for"))
+    return [hop.strip() for hop in joined.split(",") if hop.strip()]
+
+
+def _client_ip(request: Request) -> str:
+    """取客户端 IP(登录限流键 / 日志)。
+
+    仅当直连 peer 是本机/内网(可信反代)时采信 X-Forwarded-For: 从右往左跳过本机/内网
+    反代追加的跳, 取第一个公网跳(其左侧可能是客户端自填, 不采信); 全是内网则取最左。
+    多层反代时不会把所有人归到同一个反代 IP 上(否则一人失败即锁死全部登录)。
     """
     direct = request.client.host if request.client else ""
-    xff = request.headers.get("x-forwarded-for")
-    if xff and direct and _is_local_network(direct):
-        return xff.split(",")[0].strip()
-    return direct or "unknown"
+    hops = _xff_hops(request) if direct and _is_local_network(direct) else []
+    for hop in reversed(hops):
+        if not _is_local_network(hop):
+            return hop
+    return hops[0] if hops else (direct or "unknown")
+
+
+# 不可公网注册的本地域名后缀(RFC 6761 / RFC 6762 附录 G / RFC 8375)。
+# ponytail: 内网自有公网域名(如 nas.example.com)与 DNS rebinding 无法区分, 未设密码时会被拒;
+# 设密码后走会话认证不受影响, 真有需求再加主机名白名单配置。
+_LOCAL_NAME_SUFFIXES = (
+    ".localhost", ".local", ".localdomain", ".home.arpa",
+    ".lan", ".home", ".internal", ".intranet", ".private", ".corp",
+)
+
+
+def _hostname(netloc: str) -> str | None:
+    try:
+        return urlsplit("//" + netloc).hostname
+    except ValueError:
+        return None
+
+
+def _ip(name: str | None) -> ipaddress.IPv4Address | ipaddress.IPv6Address | None:
+    try:
+        return ipaddress.ip_address(name or "")
+    except ValueError:
+        return None
+
+
+def _is_local_name(name: str | None) -> bool:
+    """单标签主机名或本地后缀: 外站无法注册, DNS rebinding 无法伪造。"""
+    name = (name or "").rstrip(".")
+    return bool(name) and ("." not in name or name.endswith(_LOCAL_NAME_SUFFIXES))
+
+
+def _is_same_site_browser(request: Request) -> bool:
+    """拒绝外站页面借用户浏览器发来的请求(CSRF)与 DNS rebinding。
+
+    - Sec-Fetch-Site 为 cross-site/same-site: 浏览器明确标记的外站请求;
+    - Host 须是 IP / 单标签 / 本地后缀: rebinding 时 Host 是攻击者的公网域名;
+    - Origin 须与 Host 同源, 或(反代改写 Host 时)本身是内网 IP / 本地主机名。
+    非浏览器客户端不带 Origin/Sec-Fetch-*, 仍由来源 IP 闸门把关。
+    Host 与 Origin 都从原始头解析, 不用 request.url(Host 不合法时会回落到服务器地址)。
+    """
+    if request.headers.get("sec-fetch-site", "").lower() in ("cross-site", "same-site"):
+        return False
+    host = request.headers.get("host", "")
+    host_name = _hostname(host)
+    if host and not (_ip(host_name) is not None or _is_local_name(host_name)):
+        return False
+    origin = request.headers.get("origin")
+    if origin is None:
+        return True
+    try:
+        parts = urlsplit(origin)
+        origin_name = parts.hostname
+    except ValueError:
+        return False
+    if host and parts.netloc.lower() == host.lower():
+        return True
+    origin_ip = _ip(origin_name)
+    return origin_ip.is_private if origin_ip is not None else _is_local_name(origin_name)
+
+
+def _is_local_request(request: Request) -> bool:
+    """未设密码时的放行条件: 来源确为本机/内网, 且不是外站页面经浏览器发起。
+
+    直连 peer 与可信反代转发的每一跳都须是本机/内网: 多层本机反代时最右一跳是
+    上一层反代, 不能只看最右; 任一跳为公网即视为公网(自填公网 IP 只会拒掉自己)。
+    """
+    direct = request.client.host if request.client else ""
+    return (
+        _is_local_network(direct)
+        and all(_is_local_network(hop) for hop in _xff_hops(request))
+        and _is_same_site_browser(request)
+    )
 
 
 def _check_login_rate_limit(ip: str) -> None:
@@ -152,7 +230,7 @@ def setup_password(req: PasswordIn, request: Request) -> dict:
     """
     # 关键: 限制只有服务器主人(本机/内网)能设密码
     client_ip = _client_ip(request)
-    if not _is_local_network(client_ip):
+    if not _is_local_request(request):
         logger.warning("setup rejected from non-local ip: %s", client_ip)
         raise HTTPException(
             status_code=403,

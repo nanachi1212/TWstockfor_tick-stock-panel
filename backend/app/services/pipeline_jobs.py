@@ -13,6 +13,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
 import threading
 import uuid
 from datetime import datetime
@@ -121,6 +122,10 @@ class JobStore:
 
     def _read_file(self, job_id: str) -> dict[str, Any] | None:
         """从磁盘读取单个 job 文件。"""
+        # job_id 来自 URL 路径参数: 只接受 create() 生成的格式(uuid4().hex[:10]),
+        # 防止 "..\\" / 绝对路径逃出 job_store 读取任意 .json(路径穿越)。
+        if not isinstance(job_id, str) or not re.fullmatch(r"[0-9a-f]{10}", job_id):
+            return None
         path = self._store_dir / f"{job_id}.json"
         if not path.exists():
             return None
