@@ -15,7 +15,7 @@ export default defineConfig({
     },
   },
   server: {
-    host: '0.0.0.0',   // dev.sh / dev.ps1 会用 CLI --host 覆盖
+    host: '127.0.0.1', // 预设仅本机; dev.sh / dev.ps1 会用 CLI --host 覆盖 (HOST=0.0.0.0 才开放局域网)
     port: 3011,
     proxy: {
       // dev 时 /api 转发到与启动脚本相同的 FastAPI 地址

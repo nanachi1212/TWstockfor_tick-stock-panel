@@ -44,7 +44,8 @@ function Read-DotEnvValue($Path, $Name) {
 
 $DotEnvHost = Read-DotEnvValue $EnvFile 'HOST'
 $DotEnvPort = Read-DotEnvValue $EnvFile 'PORT'
-$BindAddress = if ($env:HOST) { $env:HOST } elseif ($DotEnvHost) { $DotEnvHost } else { '0.0.0.0' }
+# Default to loopback; set HOST=0.0.0.0 explicitly to allow LAN access.
+$BindAddress = if ($env:HOST) { $env:HOST } elseif ($DotEnvHost) { $DotEnvHost } else { '127.0.0.1' }
 $DisplayHost = if ($BindAddress -in @('0.0.0.0', '::')) { 'localhost' } else { $BindAddress }
 
 # Port precedence: CLI arg > BACKEND_PORT env > PORT env > .env PORT > default

@@ -38,7 +38,8 @@ read_dotenv_value() {
 
 ENV_HOST="$(read_dotenv_value HOST)"
 ENV_PORT="$(read_dotenv_value PORT)"
-BACKEND_HOST="${HOST:-${ENV_HOST:-0.0.0.0}}"
+# Default to loopback; set HOST=0.0.0.0 explicitly to allow LAN access.
+BACKEND_HOST="${HOST:-${ENV_HOST:-127.0.0.1}}"
 # Keep BACKEND_PORT as a backwards-compatible explicit override.
 BACKEND_PORT="${BACKEND_PORT:-${PORT:-${ENV_PORT:-3018}}}"
 FRONTEND_PORT="${FRONTEND_PORT:-3011}"
