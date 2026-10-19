@@ -1,8 +1,8 @@
 """AI 連線燈號與本機 LM Studio 模型自動載入。
 
 - ai_status(): 側欄燈號用的輕量檢查，不呼叫生成 (不花 token)。
-- ensure_local_model_loaded(): 看板啟動時，若目前 AI 指向本機 LM Studio 且模型沒載入，
-  用 LM Studio 自帶的 `lms` CLI 啟動 server / 載入模型。
+- ensure_local_model_loaded(): 看板啟動時，若目前 AI 指向本機 LM Studio 且模型沒載入
+  (或載入的上下文小於 AI 設定)，用 LM Studio 自帶的 `lms` CLI 啟動 server / 以設定的上下文載入模型。
 """
 from __future__ import annotations
 
@@ -36,8 +36,8 @@ def _origin(base_url: str) -> str | None:
     return f"{url.scheme or 'http'}://{url.netloc}"
 
 
-def _lmstudio_state(origin: str, model: str) -> str:
-    """'loaded' | 'not-loaded' | 'missing' | 'down' | 'not-lmstudio'."""
+def _lmstudio_state(origin: str, model: str, min_context: int = 0) -> str:
+    """'loaded' | 'small-context' | 'not-loaded' | 'missing' | 'down' | 'not-lmstudio'."""
     try:
         resp = httpx.get(f"{origin}/api/v0/models", timeout=3)
     except httpx.HTTPError:
@@ -46,7 +46,12 @@ def _lmstudio_state(origin: str, model: str) -> str:
         return "not-lmstudio"
     for item in resp.json().get("data", []):
         if item.get("id") == model:
-            return "loaded" if item.get("state") == "loaded" else "not-loaded"
+            if item.get("state") != "loaded":
+                return "not-loaded"
+            loaded = item.get("loaded_context_length")
+            if min_context > 0 and isinstance(loaded, int) and loaded < min_context:
+                return "small-context"
+            return "loaded"
     return "missing"
 
 
@@ -72,11 +77,17 @@ def ensure_local_model_loaded() -> str:
     origin = _origin(cfg.base_url)
     if origin is None or not cfg.model:
         return "skip"
-    state = _lmstudio_state(origin, cfg.model)
+    # LM Studio otherwise loads with its own per-model default (often 16384), and
+    # prompts the AI settings allow would then be rejected by the server.
+    ctx = cfg.context_window
+    state = _lmstudio_state(origin, cfg.model, ctx)
     if state == "down" and _run_lms("server", "start"):
-        state = _lmstudio_state(origin, cfg.model)
-    if state == "not-loaded" and _run_lms("load", cfg.model, "--yes"):
-        state = _lmstudio_state(origin, cfg.model)
+        state = _lmstudio_state(origin, cfg.model, ctx)
+    if state == "small-context" and _run_lms("unload", cfg.model):
+        state = "not-loaded"
+    load_args = ("--context-length", str(ctx)) if ctx > 0 else ()
+    if state == "not-loaded" and _run_lms("load", cfg.model, "--yes", *load_args):
+        state = _lmstudio_state(origin, cfg.model, ctx)
     logger.info("local AI model %s: %s", cfg.model, state)
     return state
 
@@ -108,9 +119,10 @@ def ai_status() -> dict:
 
     origin = _origin(cfg.base_url)
     if origin is not None:
-        state = _lmstudio_state(origin, cfg.model)
+        state = _lmstudio_state(origin, cfg.model, cfg.context_window)
         reasons = {
             "loaded": ("ok", "本機模型已載入"),
+            "small-context": ("error", f"LM Studio 載入的上下文小於 AI 設定的 {cfg.context_window}，重開看板會自動重新載入"),  # noqa: RUF001
             "not-loaded": ("error", f"LM Studio 沒有載入模型 {cfg.model}"),
             "missing": ("error", f"LM Studio 找不到模型 {cfg.model}"),
             "down": ("error", "本機 AI 服務沒有開啟"),
