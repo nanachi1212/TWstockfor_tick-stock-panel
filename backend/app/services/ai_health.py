@@ -33,16 +33,20 @@ def _origin(base_url: str) -> str | None:
     url = urlparse(base_url or "")
     if url.hostname not in _LOCAL_HOSTS:
         return None
-    # Windows resolves "localhost" to ::1 first; LM Studio listens on IPv4 only,
-    # so every check waited ~2s for the IPv6 attempt to fail.
-    netloc = url.netloc.replace("localhost", "127.0.0.1", 1) if url.hostname == "localhost" else url.netloc
-    return f"{url.scheme or 'http'}://{netloc}"
+    return f"{url.scheme or 'http'}://{url.netloc}"
 
 
 def _lmstudio_state(origin: str, model: str) -> str:
     """'loaded' | 'not-loaded' | 'missing' | 'down' | 'not-lmstudio'."""
+    # Windows resolves "localhost" to ::1 first and LM Studio listens on IPv4 only,
+    # so each check waited ~2s. An IPv4 source address skips that attempt while
+    # the URL (Host header, TLS name) stays as configured.
+    ipv4 = urlparse(origin).hostname == "localhost"
     try:
-        resp = httpx.get(f"{origin}/api/v0/models", timeout=3)
+        with httpx.Client(
+            timeout=3, transport=httpx.HTTPTransport(local_address="0.0.0.0") if ipv4 else None,
+        ) as client:
+            resp = client.get(f"{origin}/api/v0/models")
     except httpx.HTTPError:
         return "down"
     if resp.status_code != 200:

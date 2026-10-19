@@ -210,10 +210,14 @@ class TaiwanDailyStore:
                 continue
             if (start is not None and d < start) or (end is not None and d > end):
                 continue
-            lf = pl.scan_parquet(f, missing_columns="insert", extra_columns="ignore")
-            lf = lf.filter(pl.col("date").is_not_null())
-            if symbols is not None:
-                lf = lf.filter(pl.col("symbol").is_in(symbols))
+            try:
+                lf = pl.scan_parquet(f, missing_columns="insert", extra_columns="ignore")
+                lf = lf.filter(pl.col("date").is_not_null())
+                if symbols is not None:
+                    lf = lf.filter(pl.col("symbol").is_in(symbols))
+            except Exception as exc:
+                logger.warning("read_range skipped %s: %s", f, exc)
+                continue
             selected.append((f, lf))
 
         try:
