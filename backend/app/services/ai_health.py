@@ -6,6 +6,7 @@
 """
 from __future__ import annotations
 
+import json
 import logging
 import os
 import shutil
@@ -36,38 +37,87 @@ def _origin(base_url: str) -> str | None:
     return f"{url.scheme or 'http'}://{url.netloc}"
 
 
-def _lmstudio_state(origin: str, model: str, min_context: int = 0) -> str:
-    """'loaded' | 'small-context' | 'not-loaded' | 'missing' | 'down' | 'not-lmstudio'."""
+def _lmstudio_model(origin: str, model: str) -> tuple[str, dict]:
+    """('loaded' | 'not-loaded' | 'missing' | 'down' | 'not-lmstudio', the /api/v0/models entry)."""
     try:
         resp = httpx.get(f"{origin}/api/v0/models", timeout=3)
     except httpx.HTTPError:
-        return "down"
+        return "down", {}
     if resp.status_code != 200:
-        return "not-lmstudio"
+        return "not-lmstudio", {}
     for item in resp.json().get("data", []):
         if item.get("id") == model:
-            if item.get("state") != "loaded":
-                return "not-loaded"
-            loaded = item.get("loaded_context_length")
-            if min_context > 0 and isinstance(loaded, int) and loaded < min_context:
-                return "small-context"
-            return "loaded"
-    return "missing"
+            return ("loaded" if item.get("state") == "loaded" else "not-loaded"), item
+    return "missing", {}
 
 
-def _run_lms(*args: str) -> bool:
+def _context_issue(item: dict, wanted: int) -> str | None:
+    """'context-unsupported' when no load can reach *wanted*; 'small-context' when a reload can."""
+    if wanted <= 0:
+        return None
+    maximum = item.get("max_context_length")
+    if isinstance(maximum, int) and wanted > maximum:
+        return "context-unsupported"
+    loaded = item.get("loaded_context_length")
+    if item.get("state") == "loaded" and isinstance(loaded, int) and loaded < wanted:
+        return "small-context"
+    return None
+
+
+def _lmstudio_state(origin: str, model: str, min_context: int = 0) -> str:
+    """_lmstudio_model state, or 'small-context' / 'context-unsupported' for *min_context*."""
+    state, item = _lmstudio_model(origin, model)
+    return _context_issue(item, min_context) or state
+
+
+def _lms(*args: str) -> subprocess.CompletedProcess | None:
     lms = _lms_path()
     if not lms:
-        return False
+        return None
     flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
     try:
         proc = subprocess.run([lms, *args], capture_output=True, timeout=180, creationflags=flags)
     except (OSError, subprocess.TimeoutExpired) as exc:
         logger.warning("lms %s failed: %s", args[0], type(exc).__name__)
-        return False
+        return None
     if proc.returncode != 0:
         logger.warning("lms %s exit %s", args[0], proc.returncode)
-    return proc.returncode == 0
+    return proc
+
+
+def _run_lms(*args: str) -> bool:
+    proc = _lms(*args)
+    return proc is not None and proc.returncode == 0
+
+
+def _lms_loaded(identifier: str) -> dict | None:
+    """The `lms ps` entry for *identifier* (has modelKey / contextLength), if lms sees it."""
+    proc = _lms("ps", "--json")
+    if proc is None or proc.returncode != 0:
+        return None
+    try:
+        entries = json.loads(proc.stdout)
+    except ValueError:
+        return None
+    return next((e for e in entries if isinstance(e, dict) and e.get("identifier") == identifier), None)
+
+
+def _reload_with_context(identifier: str, current: int | None, wanted: int) -> bool:
+    """Reload a loaded model at *wanted* context; True only if it ends loaded at *wanted*."""
+    entry = _lms_loaded(identifier)
+    # lms has no --host: it drives its default instance only. Touch nothing unless
+    # it sees this very model at the context the configured server reports.
+    if not entry or not entry.get("modelKey") or entry.get("contextLength") != current:
+        return False
+    if not _run_lms("unload", identifier):
+        return False
+    # Load by modelKey: the configured name may be a custom identifier (alias).
+    base = ("load", entry["modelKey"], "--identifier", identifier, "--yes")
+    if _run_lms(*base, "--context-length", str(wanted)):
+        return True
+    # e.g. not enough VRAM: put the previous context back instead of leaving it unloaded.
+    _run_lms(*base, "--context-length", str(current))
+    return False
 
 
 def ensure_local_model_loaded() -> str:
@@ -80,14 +130,17 @@ def ensure_local_model_loaded() -> str:
     # LM Studio otherwise loads with its own per-model default (often 16384), and
     # prompts the AI settings allow would then be rejected by the server.
     ctx = cfg.context_window
-    state = _lmstudio_state(origin, cfg.model, ctx)
+    state, item = _lmstudio_model(origin, cfg.model)
     if state == "down" and _run_lms("server", "start"):
-        state = _lmstudio_state(origin, cfg.model, ctx)
-    if state == "small-context" and _run_lms("unload", cfg.model):
-        state = "not-loaded"
-    load_args = ("--context-length", str(ctx)) if ctx > 0 else ()
-    if state == "not-loaded" and _run_lms("load", cfg.model, "--yes", *load_args):
-        state = _lmstudio_state(origin, cfg.model, ctx)
+        state, item = _lmstudio_model(origin, cfg.model)
+    issue = _context_issue(item, ctx)
+    if issue == "small-context":
+        _reload_with_context(cfg.model, item.get("loaded_context_length"), ctx)
+    # An unsupported size keeps LM Studio's default rather than failing the load.
+    load_args = ("--context-length", str(ctx)) if ctx > 0 and issue != "context-unsupported" else ()
+    if state == "not-loaded":
+        _run_lms("load", cfg.model, "--yes", *load_args)
+    state = _lmstudio_state(origin, cfg.model, ctx)
     logger.info("local AI model %s: %s", cfg.model, state)
     return state
 
@@ -123,6 +176,7 @@ def ai_status() -> dict:
         reasons = {
             "loaded": ("ok", "本機模型已載入"),
             "small-context": ("error", f"LM Studio 載入的上下文小於 AI 設定的 {cfg.context_window}，重開看板會自動重新載入"),  # noqa: RUF001
+            "context-unsupported": ("error", f"AI 設定的上下文 {cfg.context_window} 超過模型上限，請在 AI 設定調小"),  # noqa: RUF001
             "not-loaded": ("error", f"LM Studio 沒有載入模型 {cfg.model}"),
             "missing": ("error", f"LM Studio 找不到模型 {cfg.model}"),
             "down": ("error", "本機 AI 服務沒有開啟"),
