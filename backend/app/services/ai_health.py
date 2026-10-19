@@ -33,7 +33,10 @@ def _origin(base_url: str) -> str | None:
     url = urlparse(base_url or "")
     if url.hostname not in _LOCAL_HOSTS:
         return None
-    return f"{url.scheme or 'http'}://{url.netloc}"
+    # Windows resolves "localhost" to ::1 first; LM Studio listens on IPv4 only,
+    # so every check waited ~2s for the IPv6 attempt to fail.
+    netloc = url.netloc.replace("localhost", "127.0.0.1", 1) if url.hostname == "localhost" else url.netloc
+    return f"{url.scheme or 'http'}://{netloc}"
 
 
 def _lmstudio_state(origin: str, model: str) -> str:
