@@ -15,12 +15,13 @@ from __future__ import annotations
 
 import math
 from collections import Counter
+from collections.abc import Iterable
 from datetime import date
 from typing import Any, NamedTuple
 
 import polars as pl
 
-from app.taiwan.adjust import adjust_prices_as_of
+from app.taiwan.adjust import adjust_prices_as_of, volume_window_status
 from app.taiwan.corporate_actions import CorporateActionEvent, CorporateActionStore
 from app.taiwan.daily_store import TaiwanDailyStore
 from app.taiwan.daily_update import resolve_target_latest_trading_date
@@ -104,8 +105,13 @@ def _tick_down(value: float) -> float:
     return TickSizeModel.round_order_price(value, mode="floor")
 
 
-def detect_patterns(adjusted: list[dict], raw: list[dict]) -> list[dict]:
-    """Patterns in the 90-session window ending on the last row. ``adjusted`` drives geometry; ``raw`` drives volume and plan levels."""
+def detect_patterns(adjusted: list[dict], raw: list[dict], events: Iterable[CorporateActionEvent] = (),
+                    symbol: str = "") -> list[dict]:
+    """Patterns in the 90-session window ending on the last row. ``adjusted`` drives geometry; ``raw`` drives volume and plan levels.
+
+    ``events`` are the symbol's corporate actions inside the window; share-count events gate the volume ratio.
+    """
+    events = tuple(events)
     if len(adjusted) != WINDOW or len(raw) != WINDOW:
         return []
     closes = [bar["close"] for bar in adjusted]
@@ -128,7 +134,10 @@ def detect_patterns(adjusted: list[dict], raw: list[dict]) -> list[dict]:
         if not (resistance > support and height > 0) or start < 0 or end >= WINDOW - 1 or end - start < 10:
             return
         threshold = resistance + atr * 0.15
-        if any(adjusted[k]["close"] < support - atr * 0.25 for k in range(end + 1, WINDOW)):
+        # Invalidation is judged against the support in force on session k: the lower trend line
+        # where one exists, otherwise the constant structural support.
+        low = lower_line or (lambda _i: support)
+        if any(adjusted[k]["close"] < low(k) - atr * 0.25 for k in range(end + 1, WINDOW)):
             return
         if last["close"] < resistance - atr * 2.5 or last["close"] > resistance + atr * 4:
             return
@@ -140,10 +149,22 @@ def detect_patterns(adjusted: list[dict], raw: list[dict]) -> list[dict]:
         if first_break >= 0 and any(adjusted[k]["close"] < up(k) - atr * 0.35 for k in range(first_break, WINDOW)):
             return
         index = cross if cross >= 0 else WINDOW - 1
-        base_volume = _mean([bar["volume"] for bar in raw[max(0, index - 20):index]])
-        ratio = raw[index]["volume"] / base_volume if base_volume > 0 else 0.0
-        confirmed = cross >= 0 and cross < WINDOW - 1 and ratio >= 1.3 and last["close"] > threshold
-        pending_next = cross == WINDOW - 1 and ratio >= 1.3 and last["close"] > threshold
+        # Raw share volume is only comparable while the share count is unchanged. A stock dividend,
+        # split or capital reduction inside the baseline->breakout window makes the ratio meaningless,
+        # so volume confirmation and volume points are withheld rather than computed from mixed regimes.
+        volume_status = volume_window_status(
+            events, symbol=symbol, start_session=raw[max(0, index - 20)]["date"],
+            end_session=raw[index]["date"], measure="relative_volume")
+        ratio: float | None = None
+        if volume_status == "verified":
+            base_volume = _mean([bar["volume"] for bar in raw[max(0, index - 20):index]])
+            ratio = raw[index]["volume"] / base_volume if base_volume > 0 else 0.0
+        volume_ok = ratio is not None and ratio >= 1.3
+        # The session after a breakout must hold the neckline; a last-session breakout has no such
+        # session yet and stays pending instead.
+        held_next = cross < 0 or cross >= WINDOW - 1 or adjusted[cross + 1]["close"] >= up(cross + 1)
+        confirmed = cross >= 0 and cross < WINDOW - 1 and volume_ok and held_next and last["close"] > threshold
+        pending_next = cross == WINDOW - 1 and volume_ok and last["close"] > threshold
         if confirmed:
             status = "量價確認"
         elif pending_next:
@@ -152,7 +173,7 @@ def detect_patterns(adjusted: list[dict], raw: list[dict]) -> list[dict]:
             status = "突破待量確認"
         else:
             status = "接近突破"
-        volume_points = _clamp((ratio - 0.5) / 1.5 * 20, 0, 20)
+        volume_points = _clamp((ratio - 0.5) / 1.5 * 20, 0, 20) if ratio is not None else 0.0
         trend_points = 10 if last["close"] > _mean(closes[-20:]) else 0
         confirmation_points = 30 if confirmed else 18 if cross >= 0 else 8
         score = _js_round(_clamp(quality, 0, 40) + confirmation_points + volume_points + trend_points)
@@ -183,7 +204,8 @@ def detect_patterns(adjusted: list[dict], raw: list[dict]) -> list[dict]:
             "anchors": [{"date": adjusted[a["i"]]["date"], "label": a["label"],
                          "price": round(a["v"] * scale, 2), "index": a["i"]} for a in anchors],
             "resistance": round(resistance * scale, 2), "support": round(support * scale, 2),
-            "atr": round(atr * scale, 2), "volume_ratio": round(ratio, 2),
+            "atr": round(atr * scale, 2),
+            "volume_ratio": round(ratio, 2) if ratio is not None else None, "volume_status": volume_status,
             "score_parts": {"geometry": round(quality, 2), "confirmation": confirmation_points,
                             "volume": round(volume_points, 2), "trend": trend_points},
             "lines": [
@@ -203,7 +225,9 @@ def detect_patterns(adjusted: list[dict], raw: list[dict]) -> list[dict]:
                 "missing": "尚未核對法說、財報、除權息及重大事件；上述是條件式技術計畫。未提供帳戶風險額度，因此不推算適合張數。",
             },
             "warnings": [
-                "突破量未達 1.3 倍，存在假突破風險" if ratio < 1.3 else "量能確認不保證延續",
+                "量能視窗跨越股數變動事件，成交量不可比，不計量能確認與量能分數" if ratio is None
+                else "突破量未達 1.3 倍，存在假突破風險" if ratio < 1.3 else "量能確認不保證延續",
+                *(["突破次日收盤未守住頸線，尚未確認"] if not held_next else []),
                 "價格已離開進場帶，不追價" if chased else "進場需等條件成立",
                 "90 日只能辨識局部圓弧，不代表數月以上完整長底" if pid == "round" else "型態由數值規則辨識，請覆核圖形",
                 "大盤趨勢、重大事件與缺口可能使型態失效",
@@ -463,7 +487,7 @@ class TaiwanPatternScanService:
                 # Verified coverage with no event inside the window means the raw series is already consistent.
                 adjusted = [dict(bar) for bar in raw]
             eligible += 1
-            matches = detect_patterns(adjusted, raw)
+            matches = detect_patterns(adjusted, raw, events or (), symbol)
             if not matches:
                 continue
             for match in matches:

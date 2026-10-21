@@ -222,7 +222,9 @@ export interface PatternCandidate {
   resistance: number
   support: number
   atr: number
-  volume_ratio: number
+  /** null when a share-count event sits inside the baseline→breakout window (volume_status data_insufficient). */
+  volume_ratio: number | null
+  volume_status: 'verified' | 'data_insufficient'
   score_parts: { geometry: number; confirmation: number; volume: number; trend: number }
   plan: PatternPlan
   warnings: string[]

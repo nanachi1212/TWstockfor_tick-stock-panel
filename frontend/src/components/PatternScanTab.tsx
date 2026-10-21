@@ -49,7 +49,7 @@ function PatternRow({ item }: { item: PatternScanItem }) {
           <p>時程：{pl.timing}</p>
           <p>量度觀察位：{pl.target_basis}</p>
           <p>未核對：{pl.missing}</p>
-          <p>分數：幾何 {p.score_parts.geometry.toFixed(1)}／確認 {p.score_parts.confirmation}／量能 {p.score_parts.volume.toFixed(1)}／趨勢 {p.score_parts.trend}；突破量 {p.volume_ratio.toFixed(2)} 倍</p>
+          <p>分數：幾何 {p.score_parts.geometry.toFixed(1)}／確認 {p.score_parts.confirmation}／量能 {p.score_parts.volume.toFixed(1)}／趨勢 {p.score_parts.trend}；突破量 {p.volume_ratio == null ? '不可比（股數變動）' : `${p.volume_ratio.toFixed(2)} 倍`}</p>
           {p.warnings.map(w => <p key={w} className="text-muted">注意：{w}</p>)}
         </div>
       </details>

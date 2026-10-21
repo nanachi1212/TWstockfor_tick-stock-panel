@@ -41,8 +41,93 @@ def _with(closes, **overrides):
     return closes
 
 
-def _patterns(bars):
-    return {item["id"]: item for item in detect_patterns(bars, bars)}
+def _patterns(bars, events=(), symbol="X.TWSE"):
+    return {item["id"]: item for item in detect_patterns(bars, bars, events, symbol)}
+
+
+def _share_event(day, symbol="X.TWSE"):
+    return CorporateActionEvent(
+        symbol=symbol, exchange="TWSE", effective_date=day, effective_at=event_market_open(day),
+        event_type="stock_dividend", previous_close=100.0, reference_price=50.0, factor=0.5, cash_dividend=None,
+        free_share_ratio=1.0, reduction_ratio=None, source="TWT49U", source_url="https://www.twse.com.tw/",
+        retrieved_at=datetime(2026, 10, 2, tzinfo=TAIPEI), status="verified", precision_method="official_reference_ratio")
+
+
+# Descending wedge over sessions 55..84: a triangle wave (period 8) whose peaks and troughs sit exactly on two
+# converging down-sloping lines, so both regression fits are exact and the lower line falls ~0.28/session.
+W_START, W_END = 55, 84
+
+
+def _wedge_line(k, side):
+    progress = (k - W_START) / (W_END - W_START)
+    mid, amp = 100.0 - 10.0 * progress, 4.0 - 1.5 * progress
+    return mid + amp * side
+
+
+def _wedge_closes(bar_87, atr=1.8):
+    # 85-86 drift along the channel middle, 87 is the probe session (too late to be a pivot), 88 closes above
+    # the upper line so the end=88 candidate is ruled out by the pattern-end gate, 89 holds just above it.
+    closes = []
+    for k in range(WINDOW):
+        if k < W_START:
+            closes.append(92.0 + 8.0 * k / W_START)
+        elif k <= W_END:
+            phase = (k - W_START - 2) % 8
+            closes.append(_wedge_line(k, 1 - abs(phase - 4) / 2))
+        else:
+            closes.append(_wedge_line(k, 0))
+    closes[87] = bar_87
+    # The fitted upper line runs through the highs (close + 0.3 spread), so clear that plus the 0.15 ATR margin.
+    closes[88] = _wedge_line(88, 1) + 0.3 + 0.15 * atr + 0.5
+    closes[89] = _wedge_line(WINDOW - 1, 1) + 0.5
+    return closes
+
+
+def test_break_below_the_contemporaneous_lower_line_invalidates_a_wedge():
+    benign = _patterns(_bars(_wedge_closes(_wedge_line(87, -1) + 0.5), spread=0.3))
+    assert "wedge" in benign
+    atr = benign["wedge"]["atr"]
+    # Use the fitted lower trend line the detector itself reports (it runs through the lows, not the closes).
+    line = benign["wedge"]["lines"][1]
+    assert line["label"] == "支撐趨勢線"
+    fitted = lambda k: line["a"] + (line["b"] - line["a"]) * (k - line["from"]) / (line["to"] - line["from"])  # noqa: E731
+    lower_87, lower_89 = fitted(87) - 0.25 * atr, fitted(WINDOW - 1) - 0.25 * atr
+    assert lower_89 < lower_87  # the line is falling, so the session-89 value is the looser test
+    assert benign["wedge"]["support"] == pytest.approx(fitted(WINDOW - 1), abs=0.01)
+    # Session 87 closes below the support in force that day, but above the session-89 projection.
+    breaking = _patterns(_bars(_wedge_closes((lower_87 + lower_89) / 2, atr), spread=0.3))
+    assert "wedge" not in breaking
+
+
+def test_share_count_event_inside_the_volume_window_withholds_volume_confirmation():
+    closes = _with(_path(), **{"85": 88.5, "86": 89.0, "87": 95.0, "88": 94.5, "89": 94.5})
+    volumes = [BASE_VOLUME] * WINDOW
+    volumes[87] = 2 * BASE_VOLUME
+    bars = _bars(closes, volumes)
+    # Stock dividend effective on session 80: inside the 20-session baseline (67..86) before the breakout on 87.
+    found = _patterns(bars, events=[_share_event(bars[80]["date"])])["double"]
+    assert found["volume_status"] == "data_insufficient"
+    assert found["volume_ratio"] is None
+    assert found["status"] == "突破待量確認"
+    assert found["score_parts"]["volume"] == 0
+    assert found["score_parts"]["confirmation"] == 18
+    assert "量能視窗跨越股數變動事件，成交量不可比，不計量能確認與量能分數" in found["warnings"]
+    # The same event for another symbol, or outside the window, leaves the confirmation intact.
+    assert _patterns(bars, events=[_share_event(bars[80]["date"], symbol="Y.TWSE")])["double"]["status"] == "量價確認"
+    assert _patterns(bars, events=[_share_event(bars[60]["date"])])["double"]["status"] == "量價確認"
+
+
+def test_breakout_is_not_confirmed_when_the_next_session_closes_below_the_neckline():
+    # Breakout on 87 with volume, 88 closes under the neckline (93) but inside the 0.35 ATR false-break tolerance,
+    # 89 recovers above the threshold. The plan text requires the next session to hold, so this is not confirmed.
+    closes = _with(_path(), **{"85": 88.5, "86": 89.0, "87": 95.0, "88": 92.5, "89": 94.5})
+    volumes = [BASE_VOLUME] * WINDOW
+    volumes[87] = 2 * BASE_VOLUME
+    found = _patterns(_bars(closes, volumes))["double"]
+    assert found["volume_ratio"] == 2.0
+    assert found["status"] == "突破待量確認"
+    assert found["score_parts"]["confirmation"] == 18
+    assert "突破次日收盤未守住頸線，尚未確認" in found["warnings"]
 
 
 def test_double_bottom_is_listed_as_approaching_breakout_with_tick_grid_plan():

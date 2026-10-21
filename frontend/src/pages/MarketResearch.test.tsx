@@ -212,7 +212,7 @@ describe('Market research product UI', () => {
       universe: 1983, eligible: 819, matched: 1, pattern_count: 1, excluded: { low_liquidity: 720 },
       items: [{ symbol: '2330.TWSE', code: '2330', name: '台積電', industry: '半導體業', price: 90, avg_volume_lots: 1000, pattern: {
         id: 'double', name: '雙底', category: '反轉型', score: 64, status: '接近突破', start: '2026-06-30', end: '2026-10-14', breakout_date: null,
-        description: '兩個低點接近', anchors: [], resistance: 93, support: 79, atr: 2.7, volume_ratio: 1, score_parts: { geometry: 38.9, confirmation: 8, volume: 6.7, trend: 10 },
+        description: '兩個低點接近', anchors: [], resistance: 93, support: 79, atr: 2.7, volume_ratio: 1, volume_status: 'verified', score_parts: { geometry: 38.9, confirmation: 8, volume: 6.7, trend: 10 },
         plan, warnings: ['型態由數值規則辨識，請覆核圖形'] } }] }
     vi.mocked(api.taiwanPatternScan).mockResolvedValue(snapshot)
     mount('/market-research?tab=patterns&date=2026-10-21')
