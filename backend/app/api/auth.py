@@ -157,6 +157,16 @@ def _is_local_request(request: Request) -> bool:
     )
 
 
+def _is_loopback_request(request: Request) -> bool:
+    """驗證專用密碼的放行條件: 直連來自本機回環、沒有任何反代轉發 (tailscale serve 會帶 X-Forwarded-For), 且非外站。"""
+    direct = request.client.host if request.client else ""
+    try:
+        loopback = ipaddress.ip_address(direct).is_loopback
+    except ValueError:
+        loopback = False
+    return loopback and not _xff_hops(request) and _is_same_site_browser(request)
+
+
 def _check_login_rate_limit(ip: str) -> None:
     """登录失败限流检查, 触发则抛 429。锁定过期后重置计数(重新给 5 次机会)。"""
     with _fail_lock:
@@ -255,11 +265,15 @@ def login(req: LoginIn, request: Request, response: Response) -> dict:
         raise HTTPException(status_code=409, detail="尚未设置访问密码")
 
     token = auth.verify_and_create_session(req.password)
+    if token:
+        _clear_login_fails(ip)
+    elif _is_loopback_request(request):
+        # 驗證專用密碼登入成功不清主密碼的失敗計數, 否則可藉它無限猜主密碼。
+        token = auth.create_verify_session(req.password)
     if not token:
         _record_login_fail(ip)
         raise HTTPException(status_code=401, detail="密码错误")
 
-    _clear_login_fails(ip)
     # HttpOnly: 防 XSS 窃取; SameSite=Lax: 防 CSRF; Path=/: 全站生效
     response.set_cookie(
         key=COOKIE_NAME,
