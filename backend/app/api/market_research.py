@@ -4,6 +4,7 @@ from typing import Annotated, cast
 
 from fastapi import APIRouter, HTTPException, Query
 
+from app.taiwan.group_ranking import TaiwanGroupRankingService
 from app.taiwan.industry_intelligence import (
     IndustryRotationSnapshot,
     TaiwanIndustryIntelligenceService,
@@ -14,6 +15,7 @@ from app.taiwan.institutional_statistics import (
     InstitutionalWindow,
     TaiwanInstitutionalStatisticsService,
 )
+from app.taiwan.market_heatmap import TaiwanMarketHeatmapService
 
 router = APIRouter()
 
@@ -37,6 +39,16 @@ def industry_rotation(target_date: Annotated[date | None, Query(alias="date")] =
     return TaiwanIndustryIntelligenceService().get_rotation(target_date)
 
 
+@router.get("/market-heatmap")
+def market_heatmap(target_date: Annotated[date | None, Query(alias="date")] = None) -> dict:
+    return TaiwanMarketHeatmapService().snapshot(target_date)
+
+
+@router.get("/group-ranking")
+def group_ranking(target_date: Annotated[date | None, Query(alias="date")] = None) -> dict:
+    return TaiwanGroupRankingService().snapshot(target_date)
+
+
 @router.get("/chip-ranking")
 def chip_ranking(target_date: Annotated[str | None, Query(alias="date")] = None) -> dict:
     """Latest stored session only; see chip_ranking module docstring."""
@@ -47,6 +59,17 @@ def chip_ranking(target_date: Annotated[str | None, Query(alias="date")] = None)
         raise HTTPException(status_code=422, detail="籌碼排行只提供最新已入庫交易日 不支援 date 參數")
 
     return TaiwanChipRankingService().snapshot()
+
+
+@router.get("/big-holder-ranking")
+def big_holder_ranking(target_date: Annotated[str | None, Query(alias="date")] = None) -> dict:
+    """Latest stored TDCC week only; see big_holder_ranking module docstring."""
+    from app.taiwan.big_holder_ranking import TaiwanBigHolderRankingService
+
+    if target_date is not None:
+        raise HTTPException(status_code=422, detail="大戶集中度只提供最新已入庫集保週 不支援 date 參數")
+
+    return TaiwanBigHolderRankingService().snapshot()
 
 
 @router.get("/chip-ranking/tracking")
