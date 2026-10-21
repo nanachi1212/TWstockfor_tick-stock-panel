@@ -4,9 +4,9 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { MemoryRouter } from 'react-router-dom'
 import { MarketResearch } from './MarketResearch'
 import { api } from '@/lib/api'
-import { rotationPoints, type BigHolderRow, type DayCoverage, type GroupRankingRow, type GroupRankingSnapshot, type HeatmapIndustry, type MarketHeatmapSnapshot, type ResearchMetric, type InvestorStatistics, type IndustryRotationRow } from '@/lib/marketResearch'
+import { rotationPoints, type BigHolderRow, type DayCoverage, type GroupRankingRow, type GroupRankingSnapshot, type HeatmapIndustry, type MarketHeatmapSnapshot, type PatternScanSnapshot, type ResearchMetric, type InvestorStatistics, type IndustryRotationRow } from '@/lib/marketResearch'
 
-vi.mock('@/lib/api', () => ({ api: { taiwanInstitutionalStatistics: vi.fn(), taiwanIndustryRotation: vi.fn(), marketBreadthValuation: vi.fn(), refreshMarketValuation: vi.fn(), taiwanBigHolderRanking: vi.fn(), taiwanMarketHeatmap: vi.fn(), taiwanGroupRanking: vi.fn() } }))
+vi.mock('@/lib/api', () => ({ api: { taiwanInstitutionalStatistics: vi.fn(), taiwanIndustryRotation: vi.fn(), marketBreadthValuation: vi.fn(), refreshMarketValuation: vi.fn(), taiwanBigHolderRanking: vi.fn(), taiwanMarketHeatmap: vi.fn(), taiwanGroupRanking: vi.fn(), taiwanPatternScan: vi.fn() } }))
 vi.mock('echarts-for-react', () => ({ default: () => <div data-testid="rotation-chart" /> }))
 
 function metric(value: number | null, status: ResearchMetric['status'] = 'available'): ResearchMetric {
@@ -203,6 +203,34 @@ describe('Market research product UI', () => {
     mount('/market-research?tab=groups')
     expect(await screen.findByText(/尚未建立自選分組/)).toBeInTheDocument()
     expect(screen.getByRole('link', { name: '前往自選' })).toHaveAttribute('href', '/watchlist')
+  })
+  it('lists pattern candidates with tick-grid plan levels and a plan-wide reward-to-risk', async () => {
+    const plan = { entry: 94.7, entry_max: 94.7, stop: 78.4, target: 107, rr: 0.7, risk_percent: 17.2, chased: false, action: '報酬風險比不足，暫不進場',
+      confirmation: '收盤高於 93.4', defense: '跌回頸線下方 0.35 ATR', timing: '確認後分段', target_basis: '量度位', missing: '未核對法說' }
+    const snapshot: PatternScanSnapshot = { date: '2026-10-21', from: '2026-06-10', status: 'available', reason: null,
+      price_semantics: 'adjusted_for_pattern_raw_for_levels', rules: { window: 90, lot_size: 1000, min_avg_volume_lots: 300, excluded_industries: ['金融'], rr_threshold: 1.5, cost_rate: 0.006 },
+      universe: 1983, eligible: 819, matched: 1, pattern_count: 1, excluded: { low_liquidity: 720 },
+      items: [{ symbol: '2330.TWSE', code: '2330', name: '台積電', industry: '半導體業', price: 90, avg_volume_lots: 1000, pattern: {
+        id: 'double', name: '雙底', category: '反轉型', score: 64, status: '接近突破', start: '2026-06-30', end: '2026-10-14', breakout_date: null,
+        description: '兩個低點接近', anchors: [], resistance: 93, support: 79, atr: 2.7, volume_ratio: 1, volume_status: 'verified', score_parts: { geometry: 38.9, confirmation: 8, volume: 6.7, trend: 10 },
+        plan, warnings: ['型態由數值規則辨識，請覆核圖形'] } }] }
+    vi.mocked(api.taiwanPatternScan).mockResolvedValue(snapshot)
+    mount('/market-research?tab=patterns&date=2026-10-21')
+    expect(await screen.findByRole('link', { name: /2330 台積電/ })).toHaveAttribute('href', '/stocks/2330.TWSE')
+    expect(screen.getByText('雙底')).toBeInTheDocument()
+    expect(screen.getByText('接近突破')).toBeInTheDocument()
+    expect(screen.getByText('報酬風險比不足，暫不進場')).toBeInTheDocument()
+    expect(screen.getByText('0.70')).toHaveClass('text-muted')
+    expect(screen.getByText('64')).toBeInTheDocument()
+    expect(screen.getByText(/五日均量不足 300 張 720/)).toBeInTheDocument()
+    expect(api.taiwanPatternScan).toHaveBeenCalledWith('2026-10-21')
+  })
+  it('explains why no pattern is shown when corporate actions cannot be verified', async () => {
+    vi.mocked(api.taiwanPatternScan).mockResolvedValue({ date: '2026-10-21', from: null, status: 'unavailable', reason: 'corporate_action_coverage_unavailable',
+      price_semantics: 'adjusted_for_pattern_raw_for_levels', rules: { window: 90, lot_size: 1000, min_avg_volume_lots: 300, excluded_industries: [], rr_threshold: 1.5, cost_rate: 0.006 },
+      universe: 0, eligible: 0, matched: 0, pattern_count: 0, excluded: {}, items: [] })
+    mount('/market-research?tab=patterns')
+    expect(await screen.findByText(/除權息資料未驗證，無法還原價格/)).toBeInTheDocument()
   })
   it('omits incomplete points and keeps RS and percentage-point units separate', () => {
     expect(rotationPoints([industry(), industry('partial'), industry('unavailable')])).toEqual([{ name: '半導體業', value: [2, 5] }])

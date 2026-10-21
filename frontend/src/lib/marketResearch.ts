@@ -74,6 +74,7 @@ export const MARKET_RESEARCH_TABS = [
   { id: 'valuation', label: '估值', enabled: true },
   { id: 'chips', label: '籌碼排行', enabled: true },
   { id: 'big-holders', label: '大戶集中度', enabled: true },
+  { id: 'patterns', label: '型態選股', enabled: true },
 ] as const
 
 /** amount is TWD; change_pct is decimal vs the previous session's raw close; null means not comparable, never 0. */
@@ -186,6 +187,72 @@ export interface GroupRankingSnapshot {
   /** Census coverage of the group members; null when unavailable or no group exists. */
   coverage: DayCoverage | null
   groups: GroupRankingRow[]
+}
+
+export type PatternStatus = '接近突破' | '突破待量確認' | '突破待次日確認' | '量價確認'
+
+/** Price levels are TWD on the raw scale (tick-aligned); rr is reward/risk after ~0.6% costs; null means not computable. */
+export interface PatternPlan {
+  entry: number
+  entry_max: number
+  stop: number
+  target: number
+  rr: number
+  risk_percent: number
+  chased: boolean
+  action: string
+  confirmation: string
+  defense: string
+  timing: string
+  target_basis: string
+  missing: string
+}
+
+export interface PatternCandidate {
+  id: string
+  name: string
+  category: string
+  score: number
+  status: PatternStatus
+  start: string
+  end: string
+  breakout_date: string | null
+  description: string
+  anchors: Array<{ date: string; label: string; price: number; index: number }>
+  resistance: number
+  support: number
+  atr: number
+  /** null when a share-count event sits inside the baseline→breakout window (volume_status data_insufficient). */
+  volume_ratio: number | null
+  volume_status: 'verified' | 'data_insufficient'
+  score_parts: { geometry: number; confirmation: number; volume: number; trend: number }
+  plan: PatternPlan
+  warnings: string[]
+}
+
+export interface PatternScanItem {
+  symbol: string
+  code: string
+  name: string
+  industry: string
+  price: number
+  avg_volume_lots: number
+  pattern: PatternCandidate
+}
+
+export interface PatternScanSnapshot {
+  date: string
+  from: string | null
+  status: 'available' | 'unavailable'
+  reason: 'no_daily_data' | 'insufficient_sessions' | 'corporate_action_coverage_unavailable' | null
+  price_semantics: 'adjusted_for_pattern_raw_for_levels'
+  rules: { window: number; lot_size: number; min_avg_volume_lots: number; excluded_industries: string[]; rr_threshold: number; cost_rate: number }
+  universe: number
+  eligible: number
+  matched: number
+  pattern_count: number
+  excluded: Record<string, number>
+  items: PatternScanItem[]
 }
 
 export type BigHolderTone = 'concentrating' | 'dispersing' | 'flat' | 'insufficient'
