@@ -37,6 +37,13 @@ html.dark {
   --danger: 4 87% 60%;
 }
 
+/* 外框高度: 100dvh 隨手機網址列伸縮; 不支援 dvh 的瀏覽器退回第一行的 100vh。
+ * 除以 --ui-zoom 抵銷字級縮放 (見 lib/theme.ts) */
+.app-shell-height {
+  height: calc(100vh / var(--ui-zoom, 1));
+  height: calc(100dvh / var(--ui-zoom, 1));
+}
+
 /* 价格 / 数字一律等宽 */
 .scrollbar-gutter-stable { scrollbar-gutter: stable; }
 
