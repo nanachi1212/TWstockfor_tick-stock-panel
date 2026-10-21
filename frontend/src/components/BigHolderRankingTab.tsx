@@ -51,20 +51,20 @@ export function BigHolderRankingTab() {
 
 function BigHolderTable({ rows, empty }: { rows: BigHolderRow[]; empty: string }) {
   if (!rows.length) return <p className="text-xs text-muted">{empty}</p>
-  return <div className="overflow-x-auto rounded-lg border border-border"><table className="w-full min-w-[720px] text-sm">
+  return <div className="overflow-x-auto rounded-lg border border-border"><table className="w-full md:min-w-[720px] text-sm">
     <thead className="bg-elevated text-xs text-muted"><tr>
       <th className="px-2 py-2 text-left">#</th><th className="px-2 py-2 text-left">股票</th><th className="px-2 py-2 text-right">千張大戶</th>
-      <th className="px-2 py-2 text-right">1 週變化（pp）</th><th className="px-2 py-2 text-right">4 週變化（pp）</th>
-      <th className="px-2 py-2 text-right">股東人數</th><th className="px-2 py-2 text-right">人數 4 週變化</th><th className="px-2 py-2 text-left">判讀</th>
+      <th className="px-2 py-2 text-right">1 週變化（pp）</th><th className="hidden px-2 py-2 text-right md:table-cell">4 週變化（pp）</th>
+      <th className="hidden px-2 py-2 text-right md:table-cell">股東人數</th><th className="hidden px-2 py-2 text-right md:table-cell">人數 4 週變化</th><th className="px-2 py-2 text-left">判讀</th>
     </tr></thead>
     <tbody>{rows.map((r, i) => <tr key={r.symbol} className="border-t border-border/60">
       <td className="px-2 py-1.5 text-muted">{i + 1}</td>
       <td className="px-2 py-1.5"><Link to={`/stocks/${r.symbol}`} className="hover:underline">{r.symbol.split('.')[0]} {r.name}</Link>{r.in_watchlist && <span className="ml-1 rounded bg-accent/15 px-1 text-[10px] text-accent">自選</span>}</td>
       <td className="px-2 py-1.5 text-right tabular-nums">{r.big_holder_pct.toFixed(1)}%</td>
       <td className={`px-2 py-1.5 text-right tabular-nums ${toneClass(r.change_1w_pp)}`} title={`股東人數 1 週變化 ${signed(r.holders_change_1w_pct, 1, '%')}`}>{signed(r.change_1w_pp)}</td>
-      <td className={`px-2 py-1.5 text-right tabular-nums ${toneClass(r.change_4w_pp)}`}>{signed(r.change_4w_pp)}</td>
-      <td className="px-2 py-1.5 text-right tabular-nums">{count(r.total_holders)}</td>
-      <td className="px-2 py-1.5 text-right tabular-nums">{signed(r.holders_change_4w_pct, 1, '%')}</td>
+      <td className={`hidden px-2 py-1.5 text-right tabular-nums md:table-cell ${toneClass(r.change_4w_pp)}`}>{signed(r.change_4w_pp)}</td>
+      <td className="hidden px-2 py-1.5 text-right tabular-nums md:table-cell">{count(r.total_holders)}</td>
+      <td className="hidden px-2 py-1.5 text-right tabular-nums md:table-cell">{signed(r.holders_change_4w_pct, 1, '%')}</td>
       <td className={`px-2 py-1.5 ${TONES[r.tone].className}`}>{TONES[r.tone].label}</td>
     </tr>)}</tbody>
   </table></div>

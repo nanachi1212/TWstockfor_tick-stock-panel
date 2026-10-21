@@ -46,6 +46,7 @@ import {
   saveColumnConfig,
   buildExtColumnsParam,
 } from '@/lib/watchlist-columns'
+import { type WatchlistView, initialWatchlistView } from '@/lib/watchlist-view'
 
 // ===== 板塊標識（篩選/卡片用） =====
 // 注: boardTag（創/科/北 標籤）已移至共享 @/components/stock-table/primitives
@@ -434,7 +435,7 @@ function cardColumnCount(viewportWidth: number): number {
   if (viewportWidth >= 1280) return 5
   if (viewportWidth >= 768) return 4
   if (viewportWidth >= 640) return 3
-  return 2
+  return 1
 }
 
 function useCardColumnCount(): number {
@@ -543,7 +544,7 @@ const StockCard = React.memo(function StockCard({
             ><Plus className="h-3 w-3" /></button>}
             <button
               onClick={() => onRequestRemove(r.symbol)}
-              className="opacity-0 group-hover:opacity-100 text-muted hover:text-danger transition-all duration-150 p-0.5 rounded hover:bg-elevated"
+              className="opacity-0 group-hover:opacity-100 touch-visible text-muted hover:text-danger transition-all duration-150 p-0.5 rounded hover:bg-elevated"
               aria-label="移除"
             >
               <Trash2 className="h-3.5 w-3.5" />
@@ -652,9 +653,7 @@ const StockCard = React.memo(function StockCard({
 export function Watchlist() {
   const qc = useQueryClient()
   const navigate = useNavigate()
-  const [viewMode, setViewMode] = useState<'table' | 'card'>(() => {
-    return (storage.watchlistView.get('table') as 'table' | 'card')
-  })
+  const [viewMode, setViewMode] = useState<WatchlistView>(initialWatchlistView)
   // Phase 8C-A: 選 2–5 檔直接比較 — 會話內選取狀態, 不持久化(離開頁面即清空,
   // 與比較頁本身的 URL-as-truth 選取狀態是兩件事; 這裡只負責「把選好的帶過去」)。
   const [selectedForCompare, setSelectedForCompare] = useState<Set<string>>(new Set())
@@ -1246,6 +1245,7 @@ export function Watchlist() {
     <div className="flex flex-col h-full">
       <PageHeader
         title="自選股"
+        className="flex-wrap"
         titleExtra={
           <span className="inline-flex items-center gap-1.5">
             {/* 計數膠囊: 顯示數/總數, mono 字體突出數字 */}
@@ -1278,7 +1278,7 @@ export function Watchlist() {
           </span>
         }
         right={
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             {/* 篩選 / 重置 / 搜索 */}
             <button
               onClick={() => setFilterOpen(v => !v)}
@@ -1419,7 +1419,7 @@ export function Watchlist() {
 
       {/* Phase 8C-A: 選 2–5 檔直接比較 — 有勾選時才出現的 compact action bar */}
       {selectedForCompare.size > 0 && (
-        <div className="flex items-center gap-2 px-5 py-1.5 border-b border-border bg-accent/5 text-xs">
+        <div className="flex flex-wrap items-center gap-2 px-5 py-1.5 border-b border-border bg-accent/5 text-xs">
           <span className="text-secondary">
             已選 <span className="font-mono font-semibold text-foreground">{selectedForCompare.size}</span> / {MAX_COMPARE_SYMBOLS} 檔
           </span>
@@ -1850,7 +1850,7 @@ export function Watchlist() {
               className="rounded-card overflow-x-auto"
             />
           ) : !virtualizeCards ? (
-            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6 gap-3">
               {sortedRows.map(renderStockCard)}
             </div>
           ) : (
@@ -1867,7 +1867,7 @@ export function Watchlist() {
                     key={virtualRow.key}
                     ref={cardRowVirtualizer.measureElement}
                     data-index={virtualRow.index}
-                    className="absolute left-0 top-0 w-full grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6 gap-3"
+                    className="absolute left-0 top-0 w-full grid grid-cols-1 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6 gap-3"
                     style={{ transform: `translateY(${virtualRow.start - cardScrollMargin}px)` }}
                   >
                     {row.map(renderStockCard)}

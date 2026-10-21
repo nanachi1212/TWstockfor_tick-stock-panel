@@ -672,6 +672,8 @@ export function TaiwanScreener() {
   const totalPages = data ? Math.ceil(data.total / data.page_size) : 1
   // 結果表格預設 9 個資料欄 + 操作欄 = 10; 展開「更多欄位」後為完整 22 個資料欄 + 操作欄 = 23。
   const resultColSpan = showMoreColumns ? 25 : 11
+  // 窄螢幕預設只留代碼、名稱、價格、漲跌幅與操作；展開「更多欄位」時全部顯示，在表格容器內橫捲。
+  const mobileHidden = showMoreColumns ? '' : 'hidden md:table-cell'
 
   const handleSort = (col: string) => {
     if (sortBy === col) {
@@ -1654,7 +1656,7 @@ export function TaiwanScreener() {
                   </div>
                 </th>
                 <th className="py-3 px-3 font-semibold">名稱</th>
-                <th className="py-3 px-3 font-semibold">市場 / 型態</th>
+                <th className={`py-3 px-3 font-semibold ${mobileHidden}`}>市場 / 型態</th>
                 <th className="py-3 px-3 font-semibold cursor-pointer hover:text-zinc-100 text-right" onClick={() => handleSort('close')}>
                   <div className="flex items-center justify-end gap-1">
                     收盤價 (TWD)
@@ -1667,26 +1669,26 @@ export function TaiwanScreener() {
                     {sortBy === 'change_pct' && (sortOrder === 'asc' ? <ArrowUp className="w-3 h-3 text-purple-400" /> : <ArrowDown className="w-3 h-3 text-purple-400" />)}
                   </div>
                 </th>
-                <th className="py-3 px-3 font-semibold cursor-pointer hover:text-zinc-100 text-right" onClick={() => handleSort('volume')}>
+                <th className={`py-3 px-3 font-semibold cursor-pointer hover:text-zinc-100 text-right ${mobileHidden}`} onClick={() => handleSort('volume')}>
                   <div className="flex items-center justify-end gap-1">
                     成交量 (張)
                     {sortBy === 'volume' && (sortOrder === 'asc' ? <ArrowUp className="w-3 h-3 text-purple-400" /> : <ArrowDown className="w-3 h-3 text-purple-400" />)}
                   </div>
                 </th>
-                <th className="py-3 px-3 font-semibold cursor-pointer hover:text-zinc-100 text-right" onClick={() => handleSort('amount')}>
+                <th className={`py-3 px-3 font-semibold cursor-pointer hover:text-zinc-100 text-right ${mobileHidden}`} onClick={() => handleSort('amount')}>
                   <div className="flex items-center justify-end gap-1">
                     成交金額
                     {sortBy === 'amount' && (sortOrder === 'asc' ? <ArrowUp className="w-3 h-3 text-purple-400" /> : <ArrowDown className="w-3 h-3 text-purple-400" />)}
                   </div>
                 </th>
-                <th className="py-3 px-3 font-semibold text-center" title="成交金額 ≥ 5 億、量比 ≥ 1.5、漲跌 ≥ 2%、股價 ≥ 10、非風險未知；只代表好進好出，不是買賣建議">適合當沖</th>
-                <th className="py-3 px-3 font-semibold cursor-pointer hover:text-zinc-100 text-right" onClick={() => handleSort('foreign_net')}>
+                <th className={`py-3 px-3 font-semibold text-center ${mobileHidden}`} title="成交金額 ≥ 5 億、量比 ≥ 1.5、漲跌 ≥ 2%、股價 ≥ 10、非風險未知；只代表好進好出，不是買賣建議">適合當沖</th>
+                <th className={`py-3 px-3 font-semibold cursor-pointer hover:text-zinc-100 text-right ${mobileHidden}`} onClick={() => handleSort('foreign_net')}>
                   <div className="flex items-center justify-end gap-1">
                     外資買賣超
                     {sortBy === 'foreign_net' && (sortOrder === 'asc' ? <ArrowUp className="w-3 h-3 text-purple-400" /> : <ArrowDown className="w-3 h-3 text-purple-400" />)}
                   </div>
                 </th>
-                <th className="py-3 px-3 font-semibold">入選理由 / 亮點</th>
+                <th className={`py-3 px-3 font-semibold ${mobileHidden}`}>入選理由 / 亮點</th>
                 {showMoreColumns && (
                 <>
                 <th className="py-3 px-3 font-semibold cursor-pointer hover:text-zinc-100 text-right" onClick={() => handleSort('investment_trust_net')}>
@@ -1824,7 +1826,7 @@ export function TaiwanScreener() {
                     </td>
 
                     {/* Exchange & Instrument */}
-                    <td className="py-3 px-3 whitespace-nowrap">
+                    <td className={`py-3 px-3 whitespace-nowrap ${mobileHidden}`}>
                       <span className="text-[10px] bg-zinc-800 text-zinc-400 px-1.5 py-0.5 rounded border border-zinc-700 mr-1.5">
                         {item.exchange}
                       </span>
@@ -1844,17 +1846,17 @@ export function TaiwanScreener() {
                     </td>
 
                     {/* Volume (Lots) */}
-                    <td className="py-3 px-3 text-right font-mono text-zinc-300 whitespace-nowrap">
+                    <td className={`py-3 px-3 text-right font-mono text-zinc-300 whitespace-nowrap ${mobileHidden}`}>
                       {formatVolumeLots(item.volume)}
                     </td>
 
                     {/* Amount */}
-                    <td className="py-3 px-3 text-right font-mono text-zinc-400 whitespace-nowrap">
+                    <td className={`py-3 px-3 text-right font-mono text-zinc-400 whitespace-nowrap ${mobileHidden}`}>
                       {formatAmount(item.amount)}
                     </td>
 
                     {/* Day-trade fit */}
-                    <td className="py-3 px-3 text-center whitespace-nowrap">
+                    <td className={`py-3 px-3 text-center whitespace-nowrap ${mobileHidden}`}>
                       {(() => {
                         const dayTrade = dayTradeFit(item)
                         return dayTrade.fit
@@ -1864,12 +1866,12 @@ export function TaiwanScreener() {
                     </td>
 
                     {/* Foreign Net (Lots) */}
-                    <td className="py-3 px-3 text-right font-mono whitespace-nowrap">
+                    <td className={`py-3 px-3 text-right font-mono whitespace-nowrap ${mobileHidden}`}>
                       {formatSignedSharesLots(item.foreign_net)}
                     </td>
 
                     {/* Match Reasons */}
-                    <td className="py-3 px-3">
+                    <td className={`py-3 px-3 ${mobileHidden}`}>
                       {item.match_reasons && item.match_reasons.length > 0 ? (
                         <div className="flex flex-wrap gap-1 max-w-xs">
                           {item.match_reasons.map((r, i) => (

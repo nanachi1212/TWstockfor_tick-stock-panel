@@ -26,7 +26,7 @@ export function Metric({ metric, percent = false, signed = false }: { metric: Re
   return <div className="tabular-nums">
     <div className={value != null && signed ? (value > 0 ? 'text-bull' : value < 0 ? 'text-bear' : '') : ''}>{display}</div>
     <details className="text-[10px] text-muted font-normal">
-      <summary className="cursor-pointer whitespace-nowrap">{STATUS_LABELS[metric.status]} · {coverage.coverage_days}/{coverage.expected_days} 日</summary>
+      <summary className="cursor-pointer md:whitespace-nowrap">{STATUS_LABELS[metric.status]} · {coverage.coverage_days}/{coverage.expected_days} 日</summary>
       <div className="min-w-40 py-1 whitespace-normal">
         <div>來源：{metric.source.join('、') || '未取得'}</div>
         <div>資料截至：{metric.as_of || '未取得'}（目標 {metric.date}）</div>
@@ -39,17 +39,17 @@ export function Metric({ metric, percent = false, signed = false }: { metric: Re
 
 function InstitutionalTable({ rows, investor, unit }: { rows: InstitutionalStatisticsRow[]; investor: Investor; unit: 'shares' | 'lots' }) {
   return <div className="overflow-x-auto rounded-lg border border-border">
-    <table className="w-full text-sm min-w-[720px]">
+    <table className="w-full text-sm md:min-w-[720px] max-md:[&_th]:px-2 max-md:[&_td]:px-2">
       <thead className="bg-elevated text-secondary text-xs"><tr>
         <th className="p-3 text-left">標的／範圍</th><th className="p-3 text-right">買賣超（{unit === 'shares' ? '股' : '張'}）</th>
-        <th className="p-3 text-right">淨買賣超／成交量</th><th className="p-3 text-right">連買（交易日）</th><th className="p-3 text-right">連賣（交易日）</th>
+        <th className="hidden p-3 text-right md:table-cell">淨買賣超／成交量</th><th className="p-3 text-right">連買（交易日）</th><th className="p-3 text-right">連賣（交易日）</th>
       </tr></thead>
       <tbody>{rows.map(row => {
         const stats = row.investors[investor]
         return <tr key={row.symbol} className="border-t border-border hover:bg-elevated/50">
           <td className="p-3">{row.symbol.includes('.') ? <Link className="text-accent" to={`/stocks/${encodeURIComponent(row.symbol)}`}>{row.symbol} {row.name}</Link> : row.symbol === 'ALL' ? '上市＋上櫃' : row.symbol === 'TWSE' ? '上市' : '上櫃'}</td>
           <td className="p-3 text-right"><Metric metric={unit === 'shares' ? stats.net_shares : stats.net_lots} signed /></td>
-          <td className="p-3 text-right"><Metric metric={stats.net_volume_ratio} percent signed /></td>
+          <td className="hidden p-3 text-right md:table-cell"><Metric metric={stats.net_volume_ratio} percent signed /></td>
           <td className="p-3 text-right"><Metric metric={stats.buy_streak} />{stats.streak_capped && stats.buy_streak.value !== 0 && <span className="text-[10px] text-muted">至少，達窗口上限</span>}</td>
           <td className="p-3 text-right"><Metric metric={stats.sell_streak} />{stats.streak_capped && stats.sell_streak.value !== 0 && <span className="text-[10px] text-muted">至少，達窗口上限</span>}</td>
         </tr>
@@ -79,14 +79,14 @@ function Rotation({ rows }: { rows: IndustryRotationRow[] }) {
       <div className="grid grid-cols-2 gap-2 text-xs text-secondary"><span>左下：落後、資金減少</span><span className="text-right">右下：領先、資金減少</span></div>
       <p className="mt-3 text-xs text-muted">僅繪製 20D RS 與占比變化皆完整的產業（{points.length}/{rows.length}）。部分資料可於下表查看。</p>
     </div>
-    <div className="overflow-x-auto rounded-lg border border-border"><table className="w-full min-w-[800px] text-sm">
-      <thead className="bg-elevated text-xs text-secondary"><tr>{['產業', '5D RS', '20D RS', '當日成交值占比', '20D 平均占比', '變化（pp）'].map(t => <th key={t} className="p-3 text-right first:text-left">{t}</th>)}</tr></thead>
+    <div className="overflow-x-auto rounded-lg border border-border"><table className="w-full text-sm md:min-w-[800px] max-md:[&_th]:px-2 max-md:[&_td]:px-2">
+      <thead className="bg-elevated text-xs text-secondary"><tr>{[['產業', ''], ['5D RS', ''], ['20D RS', ''], ['當日成交值占比', 'hidden md:table-cell'], ['20D 平均占比', 'hidden md:table-cell'], ['變化（pp）', '']].map(([t, hide]) => <th key={t} className={`p-3 text-right first:text-left ${hide}`}>{t}</th>)}</tr></thead>
       <tbody>{rows.map(r => <tr className="border-t border-border" key={r.industry}>
         <td className="p-3">{r.industry === 'UNCLASSIFIED' ? '未分類' : r.industry}</td>
         <td className="p-3 text-right"><Metric metric={r.relative_strength_5d} percent signed /></td>
         <td className="p-3 text-right"><Metric metric={r.relative_strength_20d} percent signed /></td>
-        <td className="p-3 text-right"><Metric metric={r.turnover_share} percent /></td>
-        <td className="p-3 text-right"><Metric metric={r.average_turnover_share_20d} percent /></td>
+        <td className="hidden p-3 text-right md:table-cell"><Metric metric={r.turnover_share} percent /></td>
+        <td className="hidden p-3 text-right md:table-cell"><Metric metric={r.average_turnover_share_20d} percent /></td>
         <td className="p-3 text-right"><Metric metric={r.turnover_share_delta_pp} signed /></td>
       </tr>)}</tbody></table>{rows.length === 0 && <p className="p-6 text-muted">尚無產業資料。</p>}</div>
   </div>

@@ -1,7 +1,7 @@
-import { useEffect, useRef, useCallback, useMemo } from 'react'
+import { useEffect, useRef, useCallback, useMemo, useState } from 'react'
 import { chartTheme, getTheme, useTheme } from '@/lib/theme'
 import * as echarts from 'echarts'
-import type { ECharts, EChartsOption } from 'echarts'
+import type { ECharts, EChartsOption, InsideDataZoomComponentOption, SliderDataZoomComponentOption } from 'echarts'
 
 export interface OHLC {
   date: string
@@ -365,6 +365,45 @@ const INFO_BAR_H = 16
 /** 子圖之間的間距 (px) */
 const SUB_GAP_PX = 4
 
+/** 與 index.css 的 .touch-visible 同一條件 */
+const TOUCH_QUERY = '(hover: none)'
+const TOUCH_SLIDER_H = 20
+/** 觸控時圖表底部保留給平移 slider 的高度 (上下各留 4px) */
+const TOUCH_SLIDER_SPACE = TOUCH_SLIDER_H + 8
+
+/**
+ * 觸控裝置: 單指拖曳讓給頁面捲動, 雙指仍縮放 K 線, 平移改由底部 slider 負責。
+ * RoamController 拖曳中會對 touchmove 呼叫 preventDefault, 只關 moveOnMouseMove 頁面仍捲不動。
+ */
+export function dataZoomFor(
+  touch: boolean,
+  xAxisIndex: number[],
+): (InsideDataZoomComponentOption | SliderDataZoomComponentOption)[] {
+  const inside: InsideDataZoomComponentOption = {
+    type: 'inside',
+    xAxisIndex,
+    start: 0,
+    end: 100,
+    moveOnMouseMove: true,
+    zoomOnMouseWheel: true,
+  }
+  if (!touch) return [inside]
+  return [
+    { ...inside, moveOnMouseMove: false, preventDefaultMouseMove: false },
+    {
+      type: 'slider',
+      xAxisIndex,
+      start: 0,
+      end: 100,
+      height: TOUCH_SLIDER_H,
+      bottom: 4,
+      brushSelect: false,
+      showDetail: false,
+      borderColor: CT().border,
+    },
+  ]
+}
+
 function buildSubInfoGraphics(
   data: OHLC[],
   infoIdx: number,
@@ -473,6 +512,7 @@ function buildOption(
   infoIdx: number,
   linkedPrice: number | null | undefined,
   volumeCompare: VolumeCompareConfig,
+  touch: boolean,
 ): EChartsOption {
   const candleData = data.map(d => [d.open, d.close, d.low, d.high])
 
@@ -544,7 +584,8 @@ function buildOption(
   })
   if (activeSubDefs.length > 0) subTotalH += activeSubDefs.length * SUB_GAP_PX
 
-  const candleAvail = Math.max(containerHeight - topPad - candleBottomPad - subTotalH, 100)
+  const sliderSpace = touch ? TOUCH_SLIDER_SPACE : 0
+  const candleAvail = Math.max(containerHeight - topPad - candleBottomPad - subTotalH - sliderSpace, 100)
 
   const grids: any[] = []
   const xAxes: any[] = []
@@ -783,16 +824,7 @@ function buildOption(
     grid: grids,
     xAxis: xAxes,
     yAxis: yAxes,
-    dataZoom: [
-      {
-        type: 'inside',
-        xAxisIndex: xAxisIndices,
-        start: 0,
-        end: 100,
-        moveOnMouseMove: true,
-        zoomOnMouseWheel: true,
-      },
-    ],
+    dataZoom: dataZoomFor(touch, xAxisIndices),
     series,
   }
 }
@@ -827,6 +859,8 @@ export function EChartsCandlestick({
   onPriceDoubleClickRef.current = onPriceDoubleClick
   // 主題: buildOption/信息欄內部通過 CT() 動態取調色板, 這裡只負責切換時觸發重建
   const theme = useTheme()
+  const [touch] = useState(() => window.matchMedia(TOUCH_QUERY).matches)
+  const sliderSpace = touch ? TOUCH_SLIDER_SPACE : 0
 
   // --- 全部用 ref，避免高頻交互觸發 React 重渲染 ---
   const infoIdxRef = useRef<number>(data.length - 1)
@@ -851,7 +885,7 @@ export function EChartsCandlestick({
     if (!d) return
     const chart = chartRef.current
     if (!chart) return
-    const subStartTop = chartHeightRef.current - subTotalHRef.current
+    const subStartTop = chartHeightRef.current - subTotalHRef.current - sliderSpace
     const infoGraphics = buildSubInfoGraphics(
       curData,
       idx,
@@ -876,7 +910,7 @@ export function EChartsCandlestick({
   const mainInfoBarH = showInfoBar ? 40 : 0
   const minCandleH = 120
 
-  const chartHeight = Math.max(height - mainInfoBarH, 8 + minCandleH + 14 + subTotalH)
+  const chartHeight = Math.max(height - mainInfoBarH, 8 + minCandleH + 14 + subTotalH + sliderSpace)
   chartHeightRef.current = chartHeight
   subTotalHRef.current = subTotalH
 
@@ -1133,6 +1167,7 @@ export function EChartsCandlestick({
       infoIdxRef.current,
       linkedPrice,
       volumeCompare,
+      touch,
     )
 
     chart.setOption(option, true)
@@ -1150,7 +1185,7 @@ export function EChartsCandlestick({
     if (infoEl) {
       infoEl.innerHTML = getInfoBarHTML()
     }
-  }, [data, markers, ranges, priceLines, linkedPrice, showMA, showMarkersProp, activeIndicators, volumeCompare, chartHeight, dates, dateIndexMap, initialZoom, getInfoBarHTML, theme])
+  }, [data, markers, ranges, priceLines, linkedPrice, showMA, showMarkersProp, activeIndicators, volumeCompare, chartHeight, dates, dateIndexMap, initialZoom, getInfoBarHTML, theme, touch])
 
   // 渲染信息欄容器 (內容由 JS 直接寫入)
   const initialHTML = useMemo(() => {

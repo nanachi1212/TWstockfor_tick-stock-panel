@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import ReactECharts from 'echarts-for-react'
 import { useNavigate } from 'react-router-dom'
 import { signed, toneClass } from '@/components/ChipRankingTab'
@@ -36,6 +37,7 @@ interface Tile {
 export function MarketHeatmap({ data }: { data: MarketHeatmapSnapshot }) {
   const navigate = useNavigate()
   const chart = useChartTheme()
+  const [chartHeight] = useState(() => window.matchMedia('(max-width: 767px)').matches ? Math.min(520, Math.round(window.innerHeight * 0.55)) : 520)
   if (data.status === 'unavailable') return <p role="status" className="rounded-lg border border-border bg-surface p-6 text-muted">{data.date} 尚無日資料</p>
 
   const totalChange = data.previous_total_amount ? data.total_amount / data.previous_total_amount - 1 : null
@@ -74,22 +76,22 @@ export function MarketHeatmap({ data }: { data: MarketHeatmapSnapshot }) {
     {data.status === 'partial' && <CoverageNotice date={data.date} reason={data.reason} coverage={data.coverage} impact="總成交金額與占比不代表全市場" />}
     <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
       {stats.map(([label, value, tone]) => <div key={label} className="rounded-lg border border-border bg-surface p-3">
-        <div className="text-xs text-muted">{label}</div><div className={`mt-1 text-lg font-semibold tabular-nums ${tone}`}>{value}</div>
+        <div className="text-xs text-muted">{label}</div><div className={`mt-1 text-base sm:text-lg font-semibold tabular-nums ${tone}`}>{value}</div>
       </div>)}
     </div>
     <p className="text-xs text-muted leading-relaxed">面積＝成交金額、顏色＝原始收盤價漲跌幅（成交金額加權，不是加權指數）；ETF 歸為一個板塊；除權息日漲跌幅會失真。點產業放大看成分股，點個股進個股頁。</p>
     {tiles.length === 0 ? <p className="rounded-lg border border-border bg-surface p-6 text-muted">當日沒有成交資料。</p> : <>
-      <div className="rounded-lg border border-border bg-surface p-3"><ReactECharts option={option} onEvents={onEvents} style={{ height: 520 }} /></div>
-      <div className="overflow-x-auto rounded-lg border border-border"><table className="w-full min-w-[640px] text-sm">
-        <thead className="bg-elevated text-xs text-secondary"><tr>{['產業', '成交金額（億）', '占比', '加權漲跌', '上漲', '下跌', '平盤'].map(t => <th key={t} className="p-3 text-right first:text-left">{t}</th>)}</tr></thead>
+      <div className="rounded-lg border border-border bg-surface p-3"><ReactECharts option={option} onEvents={onEvents} style={{ height: chartHeight }} /></div>
+      <div className="overflow-x-auto rounded-lg border border-border"><table className="w-full text-sm md:min-w-[640px] max-md:[&_th]:px-2 max-md:[&_td]:px-2">
+        <thead className="bg-elevated text-xs text-secondary"><tr>{[['產業', ''], ['成交金額（億）', ''], ['占比', 'hidden md:table-cell'], ['加權漲跌', ''], ['上漲', ''], ['下跌', ''], ['平盤', 'hidden md:table-cell']].map(([t, hide]) => <th key={t} className={`p-3 text-right first:text-left ${hide}`}>{t}</th>)}</tr></thead>
         <tbody>{data.industries.map(i => <tr key={i.industry} className="border-t border-border">
           <td className="p-3">{industryLabel(i.industry)}</td>
           <td className="p-3 text-right tabular-nums">{yi(i.amount)}</td>
-          <td className="p-3 text-right tabular-nums">{(i.share * 100).toFixed(2)}%</td>
+          <td className="hidden p-3 text-right tabular-nums md:table-cell">{(i.share * 100).toFixed(2)}%</td>
           <td className={`p-3 text-right tabular-nums ${toneClass(i.change_pct)}`}>{pct(i.change_pct, 2)}</td>
           <td className="p-3 text-right tabular-nums text-bull">{i.advance}</td>
           <td className="p-3 text-right tabular-nums text-bear">{i.decline}</td>
-          <td className="p-3 text-right tabular-nums">{i.flat}</td>
+          <td className="hidden p-3 text-right tabular-nums md:table-cell">{i.flat}</td>
         </tr>)}</tbody>
       </table></div>
     </>}

@@ -197,6 +197,18 @@ describe('Market research product UI', () => {
     expect(await screen.findByText('缺 1 檔')).toHaveAttribute('title', '2359.TWSE')
     expect(screen.getByText('2026-10-21 日資料不完整：缺 1 檔（TWSE 1），名次可能因缺資料而失真')).toBeInTheDocument()
   })
+  it('hides only the secondary group columns below md, header and cell together', async () => {
+    const row: GroupRankingRow = { id: 'g1', name: 'AI 伺服器', color: 'rose', rank: 1, score: 0.02, weighted_avg_change: 0.015, average_change: 0.01, median_change: 0.01,
+      members: 1, quoted: 1, used: 1, excluded: 0, advance: 1, decline: 0, flat: 0, breadth: 1, amount: 4e9, top_symbol: '2382.TWSE', missing_symbols: [], complete: true,
+      items: [], previous_rank: 1, rank_change: 0 }
+    vi.mocked(api.taiwanGroupRanking).mockResolvedValue({ date: '2026-10-21', previous_date: '2026-10-20', status: 'available', reason: null, price_semantics: 'raw_close',
+      rules: { min_share: 0.005, min_amount: 1e7 }, coverage: complete, groups: [row] })
+    mount('/market-research?tab=groups')
+    const headers = await screen.findAllByRole('columnheader')
+    const mobileHidden = (e: HTMLElement) => e.classList.contains('hidden') && e.classList.contains('md:table-cell')
+    expect(headers.filter(mobileHidden).map(h => h.textContent)).toEqual(['金額加權', '簡單平均', '中位數', '上漲／下跌／平盤', '成分'])
+    expect(within(screen.getAllByRole('row')[1]).getAllByRole('cell').map(mobileHidden)).toEqual(headers.map(mobileHidden))
+  })
   it('points to the watchlist when no group exists yet', async () => {
     vi.mocked(api.taiwanGroupRanking).mockResolvedValue({ date: '2026-10-21', previous_date: '2026-10-20', status: 'available', reason: null, price_semantics: 'raw_close',
       rules: { min_share: 0.005, min_amount: 1e7 }, coverage: null, groups: [] })

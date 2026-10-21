@@ -530,7 +530,7 @@ export function TaiwanStockDetail() {
     : null
 
   return (
-    <div className="flex flex-col min-h-screen bg-base text-foreground pb-12">
+    <div className="flex flex-col min-h-screen bg-base text-foreground pb-12 break-words">
       {/* 頂部導航列與搜尋 */}
       <div className="sticky top-0 z-30 flex flex-wrap items-center justify-between gap-2 border-b border-border bg-surface/90 px-4 py-2.5 backdrop-blur-md">
         <div className="flex min-w-0 flex-wrap items-center gap-3">
@@ -606,7 +606,7 @@ export function TaiwanStockDetail() {
         </div>
 
         {/* 搜尋列 */}
-        <div className="relative flex items-center gap-2">
+        <div className="relative flex w-full items-center gap-2 sm:w-auto">
           <div className="relative">
             <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted" />
             <input
@@ -729,7 +729,7 @@ export function TaiwanStockDetail() {
             <div className="flex flex-wrap items-start justify-between gap-4">
               {/* 左側: 名稱、代號、價格 */}
               <div>
-                <div className="flex items-center gap-2">
+                <div className="flex flex-wrap items-center gap-2">
                   <h1 className="text-2xl font-bold tracking-tight text-foreground">{data.identity.name}</h1>
                   <span className="font-mono text-sm font-semibold text-accent">{data.symbol}</span>
                   <span className="rounded bg-elevated px-2 py-0.5 text-xs font-mono text-muted">
@@ -748,7 +748,7 @@ export function TaiwanStockDetail() {
                 </div>
 
                 {/* 核心價格數字 */}
-                <div className="mt-3 flex items-baseline gap-3">
+                <div className="mt-3 flex flex-wrap items-baseline gap-3">
                   <span className={cn('text-3xl font-mono font-bold tracking-tight', priceColor)}>
                     {data.realtime.last_price != null ? data.realtime.last_price.toFixed(2) : '--'}
                   </span>
@@ -909,7 +909,7 @@ export function TaiwanStockDetail() {
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
             {/* 左側 2 欄: K 線圖表 */}
             <div className="lg:col-span-2 rounded-2xl border border-border bg-surface p-4">
-              <div className="flex items-center justify-between mb-3">
+              <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
                 <div className="flex items-center gap-2">
                   <h3 className="text-sm font-bold text-foreground">歷史日 K 線與成交量</h3>
                   {data.daily_history.meta?.trade_date && (
@@ -1211,7 +1211,7 @@ export function TaiwanStockDetail() {
                 {data.fundamentals?.revenue?.trend && data.fundamentals.revenue.trend.length > 0 && (
                   <div className="mt-2.5 pt-2 border-t border-border/40">
                     <div className="text-[10px] text-muted mb-1.5">近 6 個月營收變化</div>
-                    <div className="grid grid-cols-6 gap-1 text-center font-mono">
+                    <div className="grid grid-cols-3 md:grid-cols-6 gap-1 text-center font-mono">
                       {data.fundamentals.revenue.trend.slice(-6).map((t, idx) => (
                         <div key={idx} className="bg-surface rounded p-1 text-[10px]">
                           <div className="text-muted text-[9px] truncate">{t.year_month.slice(2)}</div>
