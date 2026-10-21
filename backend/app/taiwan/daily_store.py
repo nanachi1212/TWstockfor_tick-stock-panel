@@ -201,7 +201,7 @@ class TaiwanDailyStore:
         if not files:
             return pl.DataFrame(schema=_schema())
 
-        frames: list[pl.DataFrame] = []
+        selected: list[tuple[Path, pl.LazyFrame]] = []
         for f in files:
             part = f.parent.name
             try:
@@ -213,15 +213,24 @@ class TaiwanDailyStore:
             try:
                 lf = pl.scan_parquet(f, missing_columns="insert", extra_columns="ignore")
                 lf = lf.filter(pl.col("date").is_not_null())
-                df = lf.collect()
-                if df.is_empty():
-                    continue
                 if symbols is not None:
-                    df = df.filter(pl.col("symbol").is_in(symbols))
-                if not df.is_empty():
-                    frames.append(df)
+                    lf = lf.filter(pl.col("symbol").is_in(symbols))
             except Exception as exc:
                 logger.warning("read_range skipped %s: %s", f, exc)
+                continue
+            selected.append((f, lf))
+
+        try:
+            # One parallel collect instead of one blocking collect per partition.
+            collected = pl.collect_all([lf for _, lf in selected])
+        except Exception:
+            collected = []
+            for f, lf in selected:
+                try:
+                    collected.append(lf.collect())
+                except Exception as exc:
+                    logger.warning("read_range skipped %s: %s", f, exc)
+        frames = [df for df in collected if not df.is_empty()]
 
         if not frames:
             return pl.DataFrame(schema=_schema())
@@ -240,7 +249,8 @@ class TaiwanDailyStore:
 
     def latest_date(self) -> date | None:
         """Return the most recent partition date, or *None* if empty."""
-        return self.available_dates()[-1] if self.available_dates() else None
+        dates = self.available_dates()
+        return dates[-1] if dates else None
 
     # ── Symbol / date helpers ──────────────────────────────────────
 

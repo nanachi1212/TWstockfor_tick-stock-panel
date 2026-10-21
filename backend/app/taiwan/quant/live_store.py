@@ -289,18 +289,28 @@ class LiveLedger:
         return [self.read_run(row["model_key"], row["session"]) for row in rows]
 
     def list_runs(self, limit: int = 30, *, on_or_before: str | None = None) -> list[dict[str, Any]]:
+        # Snapshots are ~20 MB each (features); extract only the fields the
+        # projection needs instead of deserializing every snapshot in Python.
         with self._connect() as db:
             rows = [dict(row) for row in db.execute(
                 """SELECT model_key,session,digest AS snapshot_hash,frozen_at,
-                    json_array_length(snapshot,'$.signals') AS signal_count
+                    json_array_length(snapshot,'$.signals') AS signal_count,
+                    json_extract(snapshot,'$.signals') AS signals,
+                    json_extract(snapshot,'$.live_readiness') AS live_readiness,
+                    EXISTS(SELECT 1 FROM conflicts c WHERE c.model_key=runs.model_key
+                           AND c.session=runs.session) AS has_conflict
                    FROM runs WHERE (? IS NULL OR session <= ?)
                    ORDER BY session DESC LIMIT ?""",
                 (on_or_before, on_or_before, min(max(limit, 1), 100)))]
         result = []
         for row in rows:
-            run = self.read_run(row["model_key"], row["session"])
-            projection = self.run_projection(row["model_key"], row["session"]) or {}
-            result.append({**row, "audit_status": run.get("audit_status") if run else "unavailable",
+            snapshot: dict[str, Any] = {"signals": json.loads(row.pop("signals") or "[]")}
+            readiness = row.pop("live_readiness")
+            if readiness is not None:
+                snapshot["live_readiness"] = json.loads(readiness)
+            run = {"audit_status": "conflict" if row.pop("has_conflict") else "ok", "snapshot": snapshot}
+            projection = self.run_projection(row["model_key"], row["session"], run=run) or {}
+            result.append({**row, "audit_status": run["audit_status"],
                            **projection, "horizons": projection.get("outcome_summary", {})})
         return result
 
@@ -353,11 +363,14 @@ class LiveLedger:
         return {"status": status or "unavailable", "reason": reason,
                 "live_readiness": current_live_readiness("unavailable", [reason])}
 
-    def run_projection(self, key: str, session: str) -> dict[str, Any] | None:
-        run = self.read_run(key, session)
+    def run_projection(
+        self, key: str, session: str, *, run: dict[str, Any] | None = None,
+    ) -> dict[str, Any] | None:
+        # Snapshots are large JSON blobs; parse each one once per call.
+        run = run or self.read_run(key, session)
         if run is None:
             return None
-        outcomes = self.outcomes(key, session)
+        outcomes = self.signal_outcomes(key, session, run["snapshot"].get("signals", []))
         summary = {f"{h}D": self.horizon_summary(outcomes, h) for h in HORIZONS}
         projection = self.recommendation_projection(run)
         if projection["recommendation_status"] == "formal_available" and any(
