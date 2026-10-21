@@ -62,6 +62,12 @@ def _load() -> dict:
         if (len(bytes.fromhex(data["password_hash"])) != 32
                 or len(bytes.fromhex(data["password_salt"])) != _SALT_LEN):
             raise ValueError("invalid password hash or salt")
+        if ("verify_hash" in data or "verify_salt" in data) and (
+                len(bytes.fromhex(data["verify_hash"])) != 32
+                or len(bytes.fromhex(data["verify_salt"])) != _SALT_LEN):
+            raise ValueError("invalid verification hash or salt")
+        if not all(isinstance(t, str) for t in data.get("verify_sessions", [])):
+            raise ValueError("invalid verification sessions")
         return data
     except FileNotFoundError:
         return {}
@@ -141,7 +147,7 @@ def set_password(password: str) -> None:
             "password_hash": hash_hex,
             "password_salt": salt_hex,
             "updated_at": int(time.time()),
-            "sessions": {},  # 清空持久化会话
+            "sessions": {},  # 清空持久化会话 (含驗證專用密碼登入的會話)
             # 驗證專用密碼與主密碼各自管理, 改主密碼不清掉它。
             **{k: current[k] for k in ("verify_hash", "verify_salt") if k in current},
         })
@@ -187,33 +193,50 @@ def bootstrap_from_env() -> bool:
 
 
 def set_verify_password(password: str | None) -> None:
-    """設定 (或以 None 撤銷) 驗證專用密碼: 給本機自動化驗證登入用, 只在本機請求時接受。"""
+    """設定 (或以 None 撤銷) 驗證專用密碼, 並撤銷用舊驗證密碼登入的所有會話。
+
+    驗證專用密碼給本機自動化驗證登入用; 只有 router 判定為本機回環的登入才會呼叫 create_verify_session。
+    """
     if password is not None and len(password) < 16:
         raise ValueError("驗證專用密碼至少 16 位")
     with _lock:
         d = _load()
         if not d.get("password_hash"):
             raise ValueError("尚未设置访问密码")
+        for token in d.pop("verify_sessions", []):
+            _sessions.pop(token, None)
         d.pop("verify_hash", None)
         d.pop("verify_salt", None)
         if password is not None:
             d["verify_salt"], d["verify_hash"] = _hash_password(password)
+        d["sessions"] = dict(_sessions)
         _save(d)
 
 
-def verify_and_create_session(password: str, *, allow_verify: bool = False) -> str | None:
-    """验证密码, 成功则创建会话并返回 token, 失败返回 None。
+def create_verify_session(password: str) -> str | None:
+    """驗證專用密碼正確則建立會話 (記在 verify_sessions, 撤銷時一併失效), 否則回傳 None。"""
+    with _lock:
+        d = _load()
+        if not (d.get("password_hash") and d.get("verify_hash")):
+            return None
+        if not _verify_password(password, d["verify_salt"], d["verify_hash"]):
+            return None
+        token = _secrets.token_urlsafe(_TOKEN_BYTES)
+        expire = time.time() + SESSION_TTL
+        d["sessions"] = {**_sessions, token: expire}
+        d["verify_sessions"] = [t for t in d.get("verify_sessions", []) if t in _sessions] + [token]
+        _save(d)
+        _sessions[token] = expire
+    return token
 
-    allow_verify=True 時也接受驗證專用密碼; 只有本機登入請求可以開啟。
-    """
+
+def verify_and_create_session(password: str) -> str | None:
+    """验证主密码, 成功则创建会话并返回 token, 失败返回 None。"""
     with _lock:
         d = _load()
         if not d.get("password_hash"):
             return None
-        ok = _verify_password(password, d["password_salt"], d["password_hash"])
-        if not ok and allow_verify and d.get("verify_hash"):
-            ok = _verify_password(password, d.get("verify_salt", ""), d["verify_hash"])
-        if not ok:
+        if not _verify_password(password, d["password_salt"], d["password_hash"]):
             return None
         token = _secrets.token_urlsafe(_TOKEN_BYTES)
         expire = time.time() + SESSION_TTL

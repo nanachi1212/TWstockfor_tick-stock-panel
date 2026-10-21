@@ -31,10 +31,10 @@ def auth_store(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
     auth_api._fail_counter.clear()
 
 
-def _client() -> TestClient:
+def _client(peer: str = "127.0.0.1") -> TestClient:
     from app.main import app
 
-    return TestClient(app, base_url="http://127.0.0.1:3018", client=("127.0.0.1", 50000))
+    return TestClient(app, base_url="http://127.0.0.1:3018", client=(peer, 50000))
 
 
 def test_local_login_accepts_verify_password():
@@ -58,8 +58,9 @@ def test_cross_site_login_rejects_verify_password():
 
 def test_changing_main_password_keeps_verify_password(auth_store):
     auth_store.set_password("new-main-secret")
-    assert auth_store.verify_and_create_session(VERIFY, allow_verify=True)
+    assert auth_store.create_verify_session(VERIFY)
     assert auth_store.verify_and_create_session(MAIN) is None
+    assert auth_store.verify_and_create_session(VERIFY) is None
 
 
 def test_change_password_does_not_accept_verify_password_as_old():
@@ -74,3 +75,42 @@ def test_change_password_does_not_accept_verify_password_as_old():
 def test_cleared_verify_password_is_rejected(auth_store):
     auth_store.set_verify_password(None)
     assert _client().post("/api/auth/login", json={"password": VERIFY}, headers=LOCAL).status_code == 401
+
+
+def test_lan_peer_rejects_verify_password():
+    assert _client("192.168.1.20").post("/api/auth/login", json={"password": VERIFY}, headers=LOCAL).status_code == 401
+
+
+def test_rotating_or_clearing_revokes_verify_sessions(auth_store):
+    verify_token = auth_store.create_verify_session(VERIFY)
+    main_token = auth_store.verify_and_create_session(MAIN)
+    auth_store.set_verify_password(None)
+    assert not auth_store.is_valid_session(verify_token)
+    assert auth_store.is_valid_session(main_token)
+    auth_store._sessions.clear()
+    auth_store._restore_sessions()
+    assert not auth_store.is_valid_session(verify_token)
+    assert auth_store.is_valid_session(main_token)
+
+
+def test_verify_login_does_not_reset_master_password_failures():
+    from app.api import auth as auth_api
+
+    client = _client()
+    for _ in range(4):
+        assert client.post("/api/auth/login", json={"password": "wrong-guess"}, headers=LOCAL).status_code == 401
+    assert client.post("/api/auth/login", json={"password": VERIFY}, headers=LOCAL).status_code == 200
+    assert client.post("/api/auth/login", json={"password": "wrong-guess"}, headers=LOCAL).status_code == 401
+    assert client.post("/api/auth/login", json={"password": MAIN}, headers=LOCAL).status_code == 429
+    assert auth_api._fail_counter
+
+
+def test_damaged_verify_fields_fail_closed(auth_store, tmp_path: Path):
+    import json
+
+    path = tmp_path / "user_data" / "auth.json"
+    data = json.loads(path.read_text(encoding="utf-8"))
+    data["verify_salt"] = None
+    path.write_text(json.dumps(data), encoding="utf-8")
+    with pytest.raises(auth_store.AuthStoreError):
+        auth_store.create_verify_session(VERIFY)

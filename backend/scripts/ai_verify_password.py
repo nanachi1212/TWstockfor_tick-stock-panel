@@ -9,7 +9,6 @@
 from __future__ import annotations
 
 import argparse
-import contextlib
 import os
 import secrets
 
@@ -29,9 +28,11 @@ def main() -> None:
         return
     password = secrets.token_urlsafe(24)
     auth.set_verify_password(password)
-    path.write_text(password, encoding="utf-8")
-    with contextlib.suppress(OSError):
-        os.chmod(path, 0o600)
+    path.unlink(missing_ok=True)
+    # 建檔當下就是 0600, 不留其他本機使用者可讀的空窗。
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    with os.fdopen(fd, "w", encoding="utf-8") as stream:
+        stream.write(password)
     print(f"驗證專用密碼已更新, 明文在 {path}")
 
 
