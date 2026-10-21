@@ -250,6 +250,19 @@ def _healthy_rows(closes=None):
     return rows
 
 
+def test_no_trade_sessions_are_counted_apart_from_invalid_prices(tmp_path):
+    closes = _path()
+    no_trade = _rows("2330.TWSE", closes)
+    # 正常盤無成交: 交易所不給開高低收, 成交量可能只有零股。
+    no_trade[30].update(open=None, high=None, low=None, close=None, volume=278.0)
+    broken = _rows("1101.TWSE", closes)
+    broken[30]["high"] = broken[30]["close"] - 0.5
+    rows = no_trade + broken + _rows("2881.TWSE", closes) + _rows("1102.TWSE", closes)
+    snap = _service(tmp_path, rows).snapshot(TARGET)
+    assert snap["excluded"] == {"no_trade_sessions": 1, "invalid_ohlc": 1, "industry_excluded": 1}
+    assert snap["eligible"] == 1
+
+
 def test_scan_lists_only_clean_ordinary_stocks_and_counts_each_exclusion(tmp_path):
     snap = _service(tmp_path, _healthy_rows()).snapshot(TARGET)
     assert (snap["status"], snap["reason"], snap["date"], snap["from"]) == ("available", None, "2026-10-23", _sessions()[0].isoformat())
