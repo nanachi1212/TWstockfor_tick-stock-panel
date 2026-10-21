@@ -7,8 +7,8 @@ import { useChartTheme } from '@/lib/theme'
 // ECharts cannot read CSS variables; these mirror --bear / --bull in index.css (Taiwan: red up, green down).
 const DOWN = '#12B76A', NEUTRAL = '#6B7280', UP = '#F04438'
 
-const yi = (twd: number) => (twd / 1e8).toLocaleString('zh-TW', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
-const pct = (v: number | null, digits = 1) => signed(v == null ? null : v * 100, digits, '%')
+export const yi = (twd: number) => (twd / 1e8).toLocaleString('zh-TW', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+export const pct = (v: number | null, digits = 1) => signed(v == null ? null : v * 100, digits, '%')
 const industryLabel = (industry: string) => industry === 'UNCLASSIFIED' ? '未分類' : industry
 
 interface Tile {

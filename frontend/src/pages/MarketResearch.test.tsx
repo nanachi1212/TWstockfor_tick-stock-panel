@@ -4,9 +4,9 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { MemoryRouter } from 'react-router-dom'
 import { MarketResearch } from './MarketResearch'
 import { api } from '@/lib/api'
-import { rotationPoints, type BigHolderRow, type HeatmapIndustry, type MarketHeatmapSnapshot, type ResearchMetric, type InvestorStatistics, type IndustryRotationRow } from '@/lib/marketResearch'
+import { rotationPoints, type BigHolderRow, type GroupRankingRow, type GroupRankingSnapshot, type HeatmapIndustry, type MarketHeatmapSnapshot, type ResearchMetric, type InvestorStatistics, type IndustryRotationRow } from '@/lib/marketResearch'
 
-vi.mock('@/lib/api', () => ({ api: { taiwanInstitutionalStatistics: vi.fn(), taiwanIndustryRotation: vi.fn(), marketBreadthValuation: vi.fn(), refreshMarketValuation: vi.fn(), taiwanBigHolderRanking: vi.fn(), taiwanMarketHeatmap: vi.fn() } }))
+vi.mock('@/lib/api', () => ({ api: { taiwanInstitutionalStatistics: vi.fn(), taiwanIndustryRotation: vi.fn(), marketBreadthValuation: vi.fn(), refreshMarketValuation: vi.fn(), taiwanBigHolderRanking: vi.fn(), taiwanMarketHeatmap: vi.fn(), taiwanGroupRanking: vi.fn() } }))
 vi.mock('echarts-for-react', () => ({ default: () => <div data-testid="rotation-chart" /> }))
 
 function metric(value: number | null, status: ResearchMetric['status'] = 'available'): ResearchMetric {
@@ -150,6 +150,32 @@ describe('Market research product UI', () => {
     expect(await screen.findByText('2026-10-21 尚無日資料')).toBeInTheDocument()
     expect(screen.queryByRole('alert')).not.toBeInTheDocument()
     expect(screen.queryByTestId('rotation-chart')).not.toBeInTheDocument()
+  })
+  it('ranks watchlist groups with rank moves and low-turnover exclusions', async () => {
+    const group = (id: string, name: string, rank: number, rank_change: number, items: GroupRankingRow['items']): GroupRankingRow => ({ id, name, color: 'rose', rank, score: 0.02 / rank,
+      weighted_avg_change: 0.015, average_change: 0.01, median_change: 0.01, members: items.length + 1, quoted: items.length, used: items.filter(i => !i.excluded).length,
+      excluded: items.filter(i => i.excluded).length, advance: 1, decline: 0, flat: 0, breadth: 1, amount: 4e9, top_symbol: items[0].symbol, items, previous_rank: rank + rank_change, rank_change })
+    const item = (symbol: string, name: string, excluded: boolean) => ({ symbol, name, close: 100, change_pct: 0.02, amount: excluded ? 5e6 : 4e9, share: excluded ? 0.001 : 0.999, weight: excluded ? 0 : 1, excluded })
+    const snapshot: GroupRankingSnapshot = { date: '2026-10-21', previous_date: '2026-10-20', status: 'available', reason: null, price_semantics: 'raw_close',
+      rules: { min_share: 0.005, min_amount: 1e7 },
+      groups: [group('g1', 'AI 伺服器', 1, 1, [item('2382.TWSE', '廣達', false), item('6669.TWSE', '緯穎', true)]), group('g2', '散熱', 2, -1, [item('3017.TWSE', '奇鋐', false)])] }
+    vi.mocked(api.taiwanGroupRanking).mockResolvedValue(snapshot)
+    mount('/market-research?tab=groups&date=2026-10-21')
+    expect(await screen.findByText('▼1')).toHaveClass('text-bear')
+    expect(screen.getAllByText(/^(AI 伺服器|散熱)$/).map(e => e.textContent)).toEqual(['AI 伺服器', '散熱'])
+    expect(screen.getByText('▲1')).toHaveClass('text-bull')
+    expect(screen.getAllByText('低量排除')).toHaveLength(1)
+    expect(screen.getByRole('link', { name: /緯穎/ })).toHaveAttribute('href', '/stocks/6669.TWSE')
+    expect(screen.getByText('目標日期：2026-10-21')).toBeInTheDocument()
+    expect(api.taiwanGroupRanking).toHaveBeenCalledWith('2026-10-21')
+    expect(api.taiwanInstitutionalStatistics).not.toHaveBeenCalled()
+  })
+  it('points to the watchlist when no group exists yet', async () => {
+    vi.mocked(api.taiwanGroupRanking).mockResolvedValue({ date: '2026-10-21', previous_date: '2026-10-20', status: 'available', reason: null, price_semantics: 'raw_close',
+      rules: { min_share: 0.005, min_amount: 1e7 }, groups: [] })
+    mount('/market-research?tab=groups')
+    expect(await screen.findByText(/尚未建立自選分組/)).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: '前往自選' })).toHaveAttribute('href', '/watchlist')
   })
   it('omits incomplete points and keeps RS and percentage-point units separate', () => {
     expect(rotationPoints([industry(), industry('partial'), industry('unavailable')])).toEqual([{ name: '半導體業', value: [2, 5] }])

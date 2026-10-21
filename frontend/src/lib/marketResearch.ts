@@ -1,3 +1,5 @@
+import type { WatchlistGroupColor } from '@/lib/api'
+
 export type ResearchStatus = 'available' | 'partial' | 'unavailable'
 export interface ResearchMetric {
   value: number | null
@@ -67,6 +69,7 @@ export const MARKET_RESEARCH_TABS = [
   { id: 'institutional', label: '法人統計', enabled: true },
   { id: 'rotation', label: '產業輪動', enabled: true },
   { id: 'heatmap', label: '資金熱浪', enabled: true },
+  { id: 'groups', label: '族群排名', enabled: true },
   { id: 'breadth', label: '大盤寬度', enabled: true },
   { id: 'valuation', label: '估值', enabled: true },
   { id: 'chips', label: '籌碼排行', enabled: true },
@@ -109,6 +112,53 @@ export interface MarketHeatmapSnapshot {
   flat: number
   uncompared: number
   industries: HeatmapIndustry[]
+}
+
+/** change_pct is decimal vs the previous session's raw close; share and weight are 0..1 of the group; excluded members weigh 0. */
+export interface GroupRankingItem {
+  symbol: string
+  name: string
+  close: number
+  change_pct: number
+  amount: number
+  share: number
+  weight: number
+  excluded: boolean
+}
+
+/** Changes are decimals and breadth is 0..1; null means not computable, never 0. rank_change > 0 means the group moved up. */
+export interface GroupRankingRow {
+  id: string
+  name: string
+  color: WatchlistGroupColor
+  rank: number | null
+  score: number | null
+  weighted_avg_change: number | null
+  average_change: number | null
+  median_change: number | null
+  members: number
+  quoted: number
+  used: number
+  excluded: number
+  advance: number
+  decline: number
+  flat: number
+  breadth: number | null
+  amount: number
+  top_symbol: string | null
+  items: GroupRankingItem[]
+  previous_rank: number | null
+  rank_change: number | null
+}
+
+export interface GroupRankingSnapshot {
+  date: string
+  previous_date: string | null
+  status: 'available' | 'unavailable'
+  reason: 'no_daily_data' | null
+  price_semantics: 'raw_close'
+  rules: { min_share: number; min_amount: number }
+  groups: GroupRankingRow[]
 }
 
 export type BigHolderTone = 'concentrating' | 'dispersing' | 'flat' | 'insufficient'

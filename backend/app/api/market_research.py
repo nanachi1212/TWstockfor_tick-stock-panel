@@ -4,6 +4,7 @@ from typing import Annotated, cast
 
 from fastapi import APIRouter, HTTPException, Query
 
+from app.taiwan.group_ranking import TaiwanGroupRankingService
 from app.taiwan.industry_intelligence import (
     IndustryRotationSnapshot,
     TaiwanIndustryIntelligenceService,
@@ -41,6 +42,11 @@ def industry_rotation(target_date: Annotated[date | None, Query(alias="date")] =
 @router.get("/market-heatmap")
 def market_heatmap(target_date: Annotated[date | None, Query(alias="date")] = None) -> dict:
     return TaiwanMarketHeatmapService().snapshot(target_date)
+
+
+@router.get("/group-ranking")
+def group_ranking(target_date: Annotated[date | None, Query(alias="date")] = None) -> dict:
+    return TaiwanGroupRankingService().snapshot(target_date)
 
 
 @router.get("/chip-ranking")
