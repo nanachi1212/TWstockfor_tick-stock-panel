@@ -19,6 +19,7 @@ def _prepare_main(monkeypatch, *, port_open: bool, project_ready: bool) -> list[
     monkeypatch.setattr(desktop, "_ui_ready", lambda _port: True)
     monkeypatch.setattr(desktop, "_port_is_open", lambda _port: port_open)
     monkeypatch.setattr(desktop, "_project_backend_ready", lambda _port: project_ready)
+    monkeypatch.setattr(desktop, "_wait_for_server", lambda _port, timeout: project_ready)
     monkeypatch.setattr(desktop, "_open_window", lambda start_backend: opened.append(start_backend()))
     monkeypatch.setattr(desktop, "_show_crash", lambda _title, _text: None)
     return opened
@@ -49,6 +50,23 @@ def test_existing_backend_is_reused_and_not_stopped(monkeypatch):
         desktop,
         "_stop_owned_server",
         lambda *_args: (_ for _ in ()).throw(AssertionError("must not stop external backend")),
+    )
+
+    assert desktop.main() == 0
+    assert opened == ["http://127.0.0.1:3018/"]
+
+
+def test_warming_backend_is_reused_after_identity_probe_retries(monkeypatch):
+    real_wait = desktop._wait_for_server
+    opened = _prepare_main(monkeypatch, port_open=True, project_ready=False)
+    answers = iter([False, False, True])
+    monkeypatch.setattr(desktop, "_project_backend_ready", lambda _port: next(answers))
+    monkeypatch.setattr(desktop, "_wait_for_server", real_wait)
+    monkeypatch.setattr(desktop.time, "sleep", lambda _seconds: None)
+    monkeypatch.setattr(
+        desktop,
+        "_create_server",
+        lambda _port: (_ for _ in ()).throw(AssertionError("must not start backend")),
     )
 
     assert desktop.main() == 0
