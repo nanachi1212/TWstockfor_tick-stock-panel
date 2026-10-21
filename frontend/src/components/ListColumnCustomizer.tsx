@@ -105,7 +105,7 @@ function SortableActiveCol({ col, onRemove, onConfig, configOpen, extTableLabel,
             className={`flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[10px] transition-colors shrink-0 ${
               col.standalone
                 ? 'text-accent bg-accent/10'
-                : 'text-muted hover:text-secondary opacity-0 group-hover:opacity-100'
+                : 'text-muted hover:text-secondary opacity-0 group-hover:opacity-100 touch-visible'
             }`}
             title={col.standalone ? '取消單獨顯示' : '單獨一行顯示'}
           >
@@ -115,7 +115,7 @@ function SortableActiveCol({ col, onRemove, onConfig, configOpen, extTableLabel,
         {hasConfig && (
           <button
             onClick={() => onConfig(configOpen ? null : col.id)}
-            className={`transition-all ${configOpen ? 'text-accent' : 'opacity-0 group-hover:opacity-100 text-muted hover:text-accent'}`}
+            className={`transition-all ${configOpen ? 'text-accent' : 'opacity-0 group-hover:opacity-100 touch-visible text-muted hover:text-accent'}`}
             title="配置"
           >
             <Settings2 className="h-3 w-3" />
@@ -123,7 +123,7 @@ function SortableActiveCol({ col, onRemove, onConfig, configOpen, extTableLabel,
         )}
         <button
           onClick={() => onRemove(col.id)}
-          className="opacity-0 group-hover:opacity-100 text-muted hover:text-danger transition-all shrink-0"
+          className="opacity-0 group-hover:opacity-100 touch-visible text-muted hover:text-danger transition-all shrink-0"
           title="隱藏"
         >
           <EyeOff className="h-3 w-3" />

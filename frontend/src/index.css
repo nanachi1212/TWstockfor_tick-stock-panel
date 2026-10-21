@@ -44,6 +44,11 @@ html.dark {
   height: calc(100dvh / var(--ui-zoom, 1));
 }
 
+/* 觸控裝置沒有 hover: 與 opacity-0 group-hover:opacity-100 並用, 讓 hover 才出現的操作常駐 */
+@media (hover: none) {
+  .touch-visible { opacity: 1; }
+}
+
 /* 价格 / 数字一律等宽 */
 .scrollbar-gutter-stable { scrollbar-gutter: stable; }
 
