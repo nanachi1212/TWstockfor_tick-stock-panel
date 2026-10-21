@@ -5,7 +5,7 @@ const HEADERS = ['股票', '型態', '狀態', '分數', '進場帶', '結構防
 const EXCLUDED_LABELS: Record<string, string> = {
   incomplete_sessions: '90 日資料缺日',
   no_trade_sessions: '90 日內有無成交日',
-  invalid_ohlc: '價格資料異常',
+  invalid_ohlc: '價格或量能資料異常',
   low_liquidity: '五日均量不足 300 張',
   corporate_action_unverified: '除權息未驗證',
   industry_excluded: '排除產業',
