@@ -49,6 +49,17 @@ def chip_ranking(target_date: Annotated[str | None, Query(alias="date")] = None)
     return TaiwanChipRankingService().snapshot()
 
 
+@router.get("/big-holder-ranking")
+def big_holder_ranking(target_date: Annotated[str | None, Query(alias="date")] = None) -> dict:
+    """Latest stored TDCC week only; see big_holder_ranking module docstring."""
+    from app.taiwan.big_holder_ranking import TaiwanBigHolderRankingService
+
+    if target_date is not None:
+        raise HTTPException(status_code=422, detail="大戶集中度只提供最新已入庫集保週 不支援 date 參數")
+
+    return TaiwanBigHolderRankingService().snapshot()
+
+
 @router.get("/chip-ranking/tracking")
 def chip_ranking_tracking() -> dict:
     """Forward-only outcomes of frozen daily rankings; see chip_ranking_tracking."""

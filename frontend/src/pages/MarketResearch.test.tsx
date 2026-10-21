@@ -4,9 +4,9 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { MemoryRouter } from 'react-router-dom'
 import { MarketResearch } from './MarketResearch'
 import { api } from '@/lib/api'
-import { rotationPoints, type ResearchMetric, type InvestorStatistics, type IndustryRotationRow } from '@/lib/marketResearch'
+import { rotationPoints, type BigHolderRow, type ResearchMetric, type InvestorStatistics, type IndustryRotationRow } from '@/lib/marketResearch'
 
-vi.mock('@/lib/api', () => ({ api: { taiwanInstitutionalStatistics: vi.fn(), taiwanIndustryRotation: vi.fn(), marketBreadthValuation: vi.fn(), refreshMarketValuation: vi.fn() } }))
+vi.mock('@/lib/api', () => ({ api: { taiwanInstitutionalStatistics: vi.fn(), taiwanIndustryRotation: vi.fn(), marketBreadthValuation: vi.fn(), refreshMarketValuation: vi.fn(), taiwanBigHolderRanking: vi.fn() } }))
 vi.mock('echarts-for-react', () => ({ default: () => <div data-testid="rotation-chart" /> }))
 
 function metric(value: number | null, status: ResearchMetric['status'] = 'available'): ResearchMetric {
@@ -103,6 +103,24 @@ describe('Market research product UI', () => {
     await waitFor(() => expect(api.marketBreadthValuation).toHaveBeenLastCalledWith(undefined, 'TPEX', 20, 'valuation'))
     expect(api.taiwanInstitutionalStatistics).not.toHaveBeenCalled()
     expect(api.taiwanIndustryRotation).not.toHaveBeenCalled()
+  })
+  it('shows big-holder rankings while the 4-week base is still accumulating', async () => {
+    const row = (symbol: string, name: string, change: number): BigHolderRow => ({ symbol, name, exchange: 'TWSE', big_holder_pct: 63.4, total_holders: 219588,
+      change_1w_pp: change, holders_change_1w_pct: 1.2, change_4w_pp: null, holders_change_4w_pct: null, tone: 'insufficient', in_watchlist: false })
+    vi.mocked(api.taiwanBigHolderRanking).mockResolvedValue({ date: '2026-10-16', previous_1w_date: '2026-10-08', previous_4w_date: null,
+      min_holders: 1000, threshold_pp: 0.5, universe_count: 1940,
+      concentrating: [row('6669.TWSE', '緯穎', 10.5)], dispersing: [row('3227.TPEX', '原相', -6.77)], watchlist: [] })
+    mount('/market-research?tab=big-holders')
+    expect(await screen.findByRole('link', { name: /緯穎/ })).toHaveAttribute('href', '/stocks/6669.TWSE')
+    expect(screen.getByText('+10.50')).toBeInTheDocument()
+    expect(screen.getByText(/目前依 1 週變化排序/)).toHaveTextContent('前 4 週 尚未累積')
+    expect(screen.getAllByText('資料累積中')).toHaveLength(1)
+    fireEvent.click(screen.getByRole('tab', { name: /籌碼渙散/ }))
+    expect(screen.getByRole('link', { name: /原相/ })).toBeInTheDocument()
+    expect(screen.queryByRole('link', { name: /緯穎/ })).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('tab', { name: /自選/ }))
+    expect(screen.getByText('自選股中沒有在範圍內的股票。')).toBeInTheDocument()
+    expect(api.taiwanInstitutionalStatistics).not.toHaveBeenCalled()
   })
   it('omits incomplete points and keeps RS and percentage-point units separate', () => {
     expect(rotationPoints([industry(), industry('partial'), industry('unavailable')])).toEqual([{ name: '半導體業', value: [2, 5] }])

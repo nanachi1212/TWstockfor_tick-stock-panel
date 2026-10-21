@@ -3768,6 +3768,8 @@ export const api = {
     request<import('./marketResearch').ChipRankingSnapshot>('/api/taiwan/chip-ranking'),
   taiwanChipRankingTracking: () =>
     request<import('./marketResearch').ChipRankingTracking>('/api/taiwan/chip-ranking/tracking'),
+  taiwanBigHolderRanking: () =>
+    request<import('./marketResearch').BigHolderRankingSnapshot>('/api/taiwan/big-holder-ranking'),
   taiwanIndustryRotation: (date?: string) =>
     request<import('./marketResearch').IndustryRotationSnapshot>(`/api/taiwan/industry-rotation${date ? `?date=${encodeURIComponent(date)}` : ''}`),
   strategyLab: (filters: StrategyLabFilters) =>

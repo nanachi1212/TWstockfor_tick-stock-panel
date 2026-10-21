@@ -69,7 +69,38 @@ export const MARKET_RESEARCH_TABS = [
   { id: 'breadth', label: '大盤寬度', enabled: true },
   { id: 'valuation', label: '估值', enabled: true },
   { id: 'chips', label: '籌碼排行', enabled: true },
+  { id: 'big-holders', label: '大戶集中度', enabled: true },
 ] as const
+
+export type BigHolderTone = 'concentrating' | 'dispersing' | 'flat' | 'insufficient'
+
+/** big_holder_pct is percent; change_*_pp are percentage points; holders_change_*_pct are percent. null means not computable, never 0. */
+export interface BigHolderRow {
+  symbol: string
+  name: string
+  exchange: 'TWSE' | 'TPEX'
+  big_holder_pct: number
+  total_holders: number
+  change_1w_pp: number | null
+  holders_change_1w_pct: number | null
+  change_4w_pp: number | null
+  holders_change_4w_pct: number | null
+  tone: BigHolderTone
+  in_watchlist: boolean
+}
+
+export interface BigHolderRankingSnapshot {
+  /** null only when no TDCC week is stored yet. */
+  date: string | null
+  previous_1w_date: string | null
+  previous_4w_date: string | null
+  min_holders: number
+  threshold_pp: number
+  universe_count: number
+  concentrating: BigHolderRow[]
+  dispersing: BigHolderRow[]
+  watchlist: BigHolderRow[]
+}
 
 /** Product ranking; change_pct and big-holder values: change_pct is decimal, big_holder_* are percent points. */
 export interface ChipRankingItem {

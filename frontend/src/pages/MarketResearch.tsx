@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import ReactECharts from 'echarts-for-react'
+import { BigHolderRankingTab } from '@/components/BigHolderRankingTab'
 import { ChipRankingTab } from '@/components/ChipRankingTab'
 import { MarketBreadthValuationTab } from '@/components/MarketBreadthValuationTab'
 import { api } from '@/lib/api'
@@ -110,12 +111,12 @@ export function MarketResearch() {
   const query = tab.id === 'rotation' ? rotation : institutional
   const inputClass = 'rounded-md border border-border bg-surface px-3 py-2 text-sm'
   return <div className="p-4 md:p-6 space-y-5 text-foreground">
-    <div><h1 className="text-xl font-semibold">大盤研究</h1><p className="mt-1 text-sm text-muted">法人籌碼、產業輪動、大盤寬度、估值與籌碼排行</p></div>
+    <div><h1 className="text-xl font-semibold">大盤研究</h1><p className="mt-1 text-sm text-muted">法人籌碼、產業輪動、大盤寬度、估值、籌碼排行與大戶集中度</p></div>
     <div role="tablist" aria-label="大盤研究" className="flex flex-wrap gap-2 border-b border-border pb-3">
       {MARKET_RESEARCH_TABS.map(t => <button key={t.id} role="tab" aria-selected={tab.id === t.id} onClick={() => update('tab', t.id)} className={`rounded-md px-3 py-2 text-sm ${tab.id === t.id ? 'bg-accent/15 text-accent' : 'text-secondary hover:bg-elevated'}`}>{t.label}{!t.enabled && <span className="ml-1 text-[10px] text-muted">規劃中</span>}</button>)}
     </div>
     <div role="tabpanel" aria-label={tab.label} className="space-y-4">
-      {tab.id === 'chips' ? <ChipRankingTab /> : tab.id === 'breadth' || tab.id === 'valuation' ? <>
+      {tab.id === 'chips' ? <ChipRankingTab /> : tab.id === 'big-holders' ? <BigHolderRankingTab /> : tab.id === 'breadth' || tab.id === 'valuation' ? <>
         <div className="flex flex-wrap items-center gap-3">
           <label className="text-sm">研究日期 <input aria-label="研究日期" type="date" value={date} onChange={e => update('date', e.target.value)} className={inputClass} /></label>
           <button className={inputClass} onClick={() => update('date', '')}>最新可觀測交易日</button>

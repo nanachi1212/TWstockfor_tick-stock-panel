@@ -14,8 +14,8 @@ const COMPONENT_LABELS: Record<string, string> = {
 }
 
 const lots = (shares: number | null | undefined) => shares == null ? '—' : Math.round(shares / 1000).toLocaleString('zh-TW')
-const signed = (v: number | null | undefined, digits = 2, suffix = '') => v == null ? '—' : `${v > 0 ? '+' : ''}${v.toFixed(digits)}${suffix}`
-const toneClass = (v: number | null | undefined) => v == null || v === 0 ? '' : v > 0 ? 'text-bull' : 'text-bear'
+export const signed = (v: number | null | undefined, digits = 2, suffix = '') => v == null ? '—' : `${v > 0 ? '+' : ''}${v.toFixed(digits)}${suffix}`
+export const toneClass = (v: number | null | undefined) => v == null || v === 0 ? '' : v > 0 ? 'text-bull' : 'text-bear'
 
 export function ChipRankingTab() {
   const [exchange, setExchange] = useState<'TWSE' | 'TPEX'>('TWSE')
