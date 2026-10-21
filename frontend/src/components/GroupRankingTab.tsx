@@ -1,6 +1,6 @@
 import { Link } from 'react-router-dom'
 import { toneClass } from '@/components/ChipRankingTab'
-import { pct, yi } from '@/components/MarketHeatmap'
+import { CoverageNotice, pct, previousIncomplete, yi } from '@/components/MarketHeatmap'
 import type { GroupRankingRow, GroupRankingSnapshot } from '@/lib/marketResearch'
 import { resolveWatchlistGroupColor } from '@/lib/watchlist-group-colors'
 
@@ -22,7 +22,8 @@ function GroupRows({ group }: { group: GroupRankingRow }) {
     <tr>
       <td className="p-3 tabular-nums">{group.rank ?? '—'}</td>
       <td className="p-3 tabular-nums"><RankChange change={group.rank_change} /></td>
-      <td className="p-3"><span className="inline-flex items-center gap-2"><span className={`h-2 w-2 shrink-0 rounded-full ${resolveWatchlistGroupColor(group.color).dot}`} />{group.name}</span></td>
+      <td className="p-3"><span className="inline-flex items-center gap-2"><span className={`h-2 w-2 shrink-0 rounded-full ${resolveWatchlistGroupColor(group.color).dot}`} />{group.name}
+        {!group.complete && <span title={group.missing_symbols.join('、')} className="rounded bg-warning/10 px-1.5 py-0.5 text-[10px] text-warning">缺 {group.missing_symbols.length} 檔</span>}</span></td>
       <Change value={group.score} />
       <Change value={group.weighted_avg_change} />
       <Change value={group.average_change} />
@@ -58,7 +59,8 @@ export function GroupRankingTab({ data }: { data: GroupRankingSnapshot }) {
     尚未建立自選分組。到自選頁建立分組後，這裡會依族群排名。<Link className="ml-2 text-accent hover:underline" to="/watchlist">前往自選</Link>
   </p>
   return <div className="space-y-4">
-    <p className="text-xs text-muted leading-relaxed">量能加權漲跌＝成分股原始收盤漲跌幅以 √成交金額加權；成交金額占族群不到 0.5% 或不到 1,000 萬元的成分股不計入分數（仍列出並標示）。名次變動相對前一交易日{data.previous_date && `（${data.previous_date}）`}，成員關係以目前的分組為準。不是買賣訊號。</p>
+    {data.status === 'partial' && <CoverageNotice date={data.date} reason={data.reason} coverage={data.coverage} impact="名次可能因缺資料而失真" />}
+    <p className="text-xs text-muted leading-relaxed">量能加權漲跌＝成分股原始收盤漲跌幅以 √成交金額加權；成交金額占族群不到 0.5% 或不到 1,000 萬元的成分股不計入分數（仍列出並標示）。名次變動相對前一交易日{data.previous_date && `（${data.previous_date}）`}{previousIncomplete(data.coverage) && '，但前一交易日資料不完整，不計算名次變動'}，成員關係以目前的分組為準。標「缺 n 檔」的族群只用有資料的成分股計算。不是買賣訊號。</p>
     <div className="overflow-x-auto rounded-lg border border-border"><table className="w-full min-w-[960px] text-sm">
       <thead className="bg-elevated text-xs text-secondary"><tr>{HEADERS.map((t, i) => <th key={t} className={`p-3 ${i < 3 ? 'text-left' : 'text-right'}`}>{t}</th>)}</tr></thead>
       {data.groups.map(group => <GroupRows key={group.id} group={group} />)}

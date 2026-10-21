@@ -99,12 +99,34 @@ export interface HeatmapIndustry {
   stocks: HeatmapStock[]
 }
 
+/** One exchange's official-census check; expected and missing are null when the census cannot prove them. */
+export interface ExchangeCoverage {
+  census: 'observed' | 'confirmed_non_trading' | 'empty_unknown' | 'missing'
+  expected: number | null
+  observed: number
+  missing: number | null
+}
+
+/** Daily rows checked against the official census; missing_symbols holds at most 20 of missing_count. */
+export interface DayCoverage {
+  status: 'complete' | 'partial' | 'unknown'
+  exchanges: Partial<Record<'TWSE' | 'TPEX', ExchangeCoverage>>
+  missing_symbols: string[]
+  missing_count: number
+  previous_status: 'complete' | 'partial' | 'unknown' | 'unavailable' | null
+}
+
+/** partial: the numbers cover only the rows that exist; coverage says what is missing. */
+export type CoverageSnapshotStatus = 'available' | 'partial' | 'unavailable'
+export type CoverageSnapshotReason = 'no_daily_data' | 'incomplete_daily_coverage' | 'census_unknown' | null
+
 export interface MarketHeatmapSnapshot {
   date: string
   previous_date: string | null
-  status: 'available' | 'unavailable'
-  reason: 'no_daily_data' | null
+  status: CoverageSnapshotStatus
+  reason: CoverageSnapshotReason
   price_semantics: 'raw_close'
+  coverage: DayCoverage | null
   total_amount: number
   previous_total_amount: number | null
   advance: number
@@ -146,6 +168,9 @@ export interface GroupRankingRow {
   breadth: number | null
   amount: number
   top_symbol: string | null
+  /** Members without any daily row on the session; the group is still ranked from the rest. */
+  missing_symbols: string[]
+  complete: boolean
   items: GroupRankingItem[]
   previous_rank: number | null
   rank_change: number | null
@@ -154,10 +179,12 @@ export interface GroupRankingRow {
 export interface GroupRankingSnapshot {
   date: string
   previous_date: string | null
-  status: 'available' | 'unavailable'
-  reason: 'no_daily_data' | null
+  status: CoverageSnapshotStatus
+  reason: CoverageSnapshotReason
   price_semantics: 'raw_close'
   rules: { min_share: number; min_amount: number }
+  /** Census coverage of the group members; null when unavailable or no group exists. */
+  coverage: DayCoverage | null
   groups: GroupRankingRow[]
 }
 

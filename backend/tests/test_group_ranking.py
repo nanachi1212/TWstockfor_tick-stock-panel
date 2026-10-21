@@ -1,4 +1,4 @@
-"""Fixed samples for 族群排名: √turnover weighting, low-turnover exclusion, ordering and rank moves."""
+"""Fixed samples for 族群排名: √turnover weighting, low-turnover exclusion, ordering, rank moves and missing members."""
 from datetime import date, timedelta
 from unittest.mock import MagicMock
 
@@ -9,6 +9,7 @@ from app.taiwan.daily_store import TaiwanDailyStore
 from app.taiwan.group_ranking import TaiwanGroupRankingService, rank_groups
 from app.taiwan.observed_universe import ObservedUniverseStore
 from app.taiwan.realtime.calendar import TaiwanTradingCalendar
+from tests.test_market_heatmap import write_census
 
 D1, D2, D3, D4 = date(2026, 10, 19), date(2026, 10, 20), date(2026, 10, 21), date(2026, 10, 22)
 GROUPS = [{"id": "g1", "name": "散熱", "color": "rose"}, {"id": "g2", "name": "機器人", "color": "teal"}]
@@ -47,6 +48,7 @@ def test_sqrt_turnover_score_weights_and_low_amount_exclusion():
     weights = {i["symbol"]: i["weight"] for i in row["items"]}
     assert (weights["A1"], weights["A2"], weights["A3"]) == (pytest.approx(2 / 3), pytest.approx(1 / 3), 0.0)
     assert row["items"][0]["share"] == pytest.approx(5e6 / 5.05e8)
+    assert (row["missing_symbols"], row["complete"]) == (["A4"], False)
 
 
 def test_turnover_share_below_half_percent_is_excluded_even_above_ten_million():
@@ -78,13 +80,14 @@ def _rows(days):
     return [_row(s, day, closes[i]) for s, closes in CLOSES.items() for i, day in enumerate((D1, D2, D3)) if day in days]
 
 
-def _service(tmp_path, rows, calendar=None, groups=GROUPS, entries=ENTRIES):
+def _service(tmp_path, rows, calendar=None, groups=GROUPS, entries=ENTRIES, census_extra=None):
     daily = TaiwanDailyStore(tmp_path / "daily")
     daily.write_batch(pl.DataFrame(rows, schema_overrides={"amount": pl.Float64, "quote_ts": pl.Int64}))
     master = MagicMock()
     master.to_dataframe.return_value = pl.DataFrame({"symbol": ["3017.TWSE", "2359.TWSE"], "name": ["奇鋐", "所羅門"]})
+    census = write_census(ObservedUniverseStore(tmp_path / "census"), rows, census_extra)
     return TaiwanGroupRankingService(daily, calendar or TaiwanTradingCalendar(known_trading_days={D1, D2, D3}),
-                                     master, ObservedUniverseStore(tmp_path / "census"), groups, entries)
+                                     master, census, groups, entries)
 
 
 def test_rank_moves_against_the_previous_session_with_current_membership(tmp_path):
@@ -99,6 +102,36 @@ def test_rank_moves_against_the_previous_session_with_current_membership(tmp_pat
     assert (robots["members"], robots["quoted"], robots["color"]) == (2, 1, "teal")
     assert robots["items"][0]["name"] == "2049.TWSE"
     assert cooling["items"][0]["name"] == "奇鋐"
+    # 2359 has no rows but the census never listed it (suspended), so the day is complete.
+    assert (robots["missing_symbols"], robots["complete"], cooling["complete"]) == (["2359.TWSE"], False, True)
+    assert snap["coverage"]["status"] == "complete"
+
+
+def test_member_the_census_listed_but_without_a_row_makes_the_snapshot_partial(tmp_path):
+    snap = _service(tmp_path, _rows({D1, D2, D3}), census_extra={("TWSE", D3): ["2359"]}).snapshot(D3)
+    assert (snap["status"], snap["reason"]) == ("partial", "incomplete_daily_coverage")
+    assert snap["coverage"]["missing_symbols"] == ["2359.TWSE"]
+    assert snap["coverage"]["exchanges"] == {"TWSE": {"census": "observed", "expected": 3, "observed": 2, "missing": 1}}
+    robots, cooling = snap["groups"]
+    # The incomplete group is still ranked from the members that exist, and says so.
+    assert (robots["id"], robots["rank"], robots["missing_symbols"], robots["complete"]) == ("g2", 1, ["2359.TWSE"], False)
+    assert (cooling["missing_symbols"], cooling["complete"]) == ([], True)
+
+
+def test_incomplete_previous_session_has_no_rank_move(tmp_path):
+    snap = _service(tmp_path, _rows({D1, D2, D3}), census_extra={("TWSE", D2): ["2359"]}).snapshot(D3)
+    assert (snap["status"], snap["coverage"]["previous_status"]) == ("available", "partial")
+    assert [(g["id"], g["rank"], g["previous_rank"], g["rank_change"]) for g in snap["groups"]] == [
+        ("g2", 1, None, None), ("g1", 2, None, None)]
+
+
+def test_all_members_present_is_available(tmp_path):
+    entries = [entry for entry in ENTRIES if entry["symbol"] != "2359.TWSE"]
+    snap = _service(tmp_path, _rows({D1, D2, D3}), entries=entries).snapshot(D3)
+    assert (snap["status"], snap["reason"], snap["coverage"]["status"], snap["coverage"]["previous_status"]) == (
+        "available", None, "complete", "complete")
+    assert [(g["id"], g["missing_symbols"], g["complete"], g["rank_change"]) for g in snap["groups"]] == [
+        ("g2", [], True, 1), ("g1", [], True, -1)]
 
 
 def test_two_sessions_rank_today_without_previous_rank(tmp_path):
@@ -112,7 +145,8 @@ def test_two_sessions_rank_today_without_previous_rank(tmp_path):
 
 def test_target_without_partition_is_unavailable(tmp_path):
     snap = _service(tmp_path, _rows({D1, D2, D3})).snapshot(D4)
-    assert (snap["date"], snap["status"], snap["reason"], snap["groups"]) == ("2026-10-22", "unavailable", "no_daily_data", [])
+    assert (snap["date"], snap["status"], snap["reason"], snap["groups"], snap["coverage"]) == (
+        "2026-10-22", "unavailable", "no_daily_data", [], None)
 
 
 def test_no_groups_is_available_and_empty(tmp_path):

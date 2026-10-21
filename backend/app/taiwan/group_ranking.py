@@ -3,8 +3,9 @@
 Each watchlist group is ranked by its √turnover-weighted raw-close change against the previous
 research session. A constituent whose turnover is under 0.5% of the group's or under 10 million TWD
 is listed but left out of the score, so neither an illiquid outlier nor one heavyweight decides it.
-Current-membership view: past dates are ranked with today's group membership, so this is not a
-Historical PIT evaluation.
+A group with a member that has no row on the session is still ranked but marked incomplete, and the
+snapshot carries the census coverage of the members. Current-membership view: past dates are ranked
+with today's group membership, so this is not a Historical PIT evaluation.
 """
 from __future__ import annotations
 
@@ -18,7 +19,12 @@ import polars as pl
 from app.services import watchlist
 from app.taiwan.daily_store import TaiwanDailyStore
 from app.taiwan.daily_update import resolve_target_latest_trading_date
-from app.taiwan.market_heatmap import session_changes
+from app.taiwan.market_heatmap import (
+    SNAPSHOT_STATUS,
+    day_coverage,
+    previous_coverage_status,
+    session_changes,
+)
 from app.taiwan.observed_universe import ObservedUniverseStore
 from app.taiwan.realtime.calendar import TaiwanTradingCalendar
 from app.taiwan.research_metrics import research_sessions
@@ -27,8 +33,9 @@ from app.taiwan.universe import TaiwanSecurityMaster, get_security_master
 RULES = {"min_share": 0.005, "min_amount": 1e7}
 
 
-def _group_row(group: dict, quotes: dict[str, dict], rules: dict) -> dict[str, Any]:
+def _group_row(group: dict, quotes: dict[str, dict], listed: set[str], rules: dict) -> dict[str, Any]:
     quoted = [quotes[symbol] for symbol in group["symbols"] if symbol in quotes]
+    missing = [symbol for symbol in group["symbols"] if symbol not in listed]
     group_amount = sum(q["amount"] for q in quoted)
     items = []
     for q in quoted:
@@ -52,6 +59,7 @@ def _group_row(group: dict, quotes: dict[str, dict], rules: dict) -> dict[str, A
         "average_change": fmean(changes) if changes else None,
         "median_change": median(changes) if changes else None,
         "members": len(group["symbols"]), "quoted": len(items), "used": len(used), "excluded": len(items) - len(used),
+        "missing_symbols": missing, "complete": not missing,
         "advance": advance, "decline": decline, "flat": len(items) - advance - decline,
         "breadth": advance / len(items) if items else None,
         "amount": group_amount,
@@ -64,11 +72,13 @@ def rank_groups(groups: list[dict], quotes: pl.DataFrame, rules: dict = RULES) -
     """Rank ``groups`` ([{id, name, color, symbols}]) on one session of ``quotes``.
 
     ``quotes`` has symbol/name/close/change_pct/amount; change_pct is decimal. Only members with a
-    change and a positive turnover count. Groups without a score get rank None and go last.
+    change and a positive turnover count; a member without any row is listed in missing_symbols.
+    Groups without a score get rank None and go last.
     """
     usable = quotes.filter(pl.col("change_pct").is_not_null() & pl.col("amount").is_finite() & (pl.col("amount") > 0))
     by_symbol = {row["symbol"]: row for row in usable.to_dicts()}
-    rows = [_group_row(group, by_symbol, rules) for group in groups]
+    listed = set(quotes["symbol"].to_list())
+    rows = [_group_row(group, by_symbol, listed, rules) for group in groups]
     ranked = sorted((r for r in rows if r["score"] is not None), key=lambda r: (-r["score"], -r["breadth"], r["name"]))
     for rank, row in enumerate(ranked, 1):
         row["rank"] = rank
@@ -97,7 +107,7 @@ class TaiwanGroupRankingService:
         available = set(self.daily_store.available_dates())
         out: dict[str, Any] = {
             "date": str(target), "previous_date": None, "status": "unavailable", "reason": "no_daily_data",
-            "price_semantics": "raw_close", "rules": RULES, "groups": [],
+            "price_semantics": "raw_close", "rules": RULES, "coverage": None, "groups": [],
         }
         if target not in available:
             return out
@@ -121,8 +131,15 @@ class TaiwanGroupRankingService:
         # The previous session's change is against the one before it, so 3 sessions rank both days.
         quotes = session_changes(self.daily_store, symbols, sessions).join(names, on="symbol", how="left").with_columns(
             pl.coalesce("name", "symbol").alias("name"))
+        members_frame = pl.DataFrame({"symbol": symbols}, schema={"symbol": pl.String})
+        coverage = day_coverage(quotes, members_frame, self.evidence_store, target)
+        coverage["previous_status"] = previous_coverage_status(
+            quotes, members_frame, self.evidence_store, previous, available)
+        status, reason = SNAPSHOT_STATUS[coverage["status"]]
+        out.update(status=status, reason=reason, coverage=coverage)
         previous_ranks: dict[str, int | None] = {}
-        if previous:
+        # A rank move against an incomplete previous session would be invented, so it stays None.
+        if coverage["previous_status"] == "complete":
             previous_ranks = {row["id"]: row["rank"] for row in rank_groups(grouped, quotes.filter(pl.col("date") == previous))}
         rows = rank_groups(grouped, quotes.filter(pl.col("date") == target))
         for row in rows:

@@ -109,7 +109,7 @@ export function MarketResearch() {
   const institutional = useQuery({ queryKey: QK.institutionalStatistics(date, window), queryFn: () => api.taiwanInstitutionalStatistics(date || undefined, window), enabled: tab.id === 'institutional', staleTime: 30_000 })
   const rotation = useQuery({ queryKey: QK.industryRotation(date), queryFn: () => api.taiwanIndustryRotation(date || undefined), enabled: tab.id === 'rotation', staleTime: 30_000 })
   const heatmap = useQuery({ queryKey: QK.marketHeatmap(date), queryFn: () => api.taiwanMarketHeatmap(date || undefined), enabled: tab.id === 'heatmap', staleTime: 30_000 })
-  const groups = useQuery({ queryKey: QK.groupRanking(date), queryFn: () => api.taiwanGroupRanking(date || undefined), enabled: tab.id === 'groups', staleTime: 30_000 })
+  const groups = useQuery({ queryKey: QK.groupRanking(date), queryFn: () => api.taiwanGroupRanking(date || undefined), enabled: tab.id === 'groups', staleTime: 0 })
   const rows = useMemo(() => (institutional.data?.securities || []).filter(r => (exchange === 'ALL' || r.exchange === exchange) && `${r.symbol} ${r.name}`.includes(search.trim())).sort((a, b) => (b.investors[investor].net_shares.value ?? -Infinity) - (a.investors[investor].net_shares.value ?? -Infinity) || a.symbol.localeCompare(b.symbol)), [institutional.data, search, exchange, investor])
   const currentPage = Math.min(page, Math.max(1, Math.ceil(rows.length / 50)))
   const query = tab.id === 'rotation' ? rotation : tab.id === 'heatmap' ? heatmap : tab.id === 'groups' ? groups : institutional

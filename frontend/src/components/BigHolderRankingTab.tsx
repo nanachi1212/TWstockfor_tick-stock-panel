@@ -24,7 +24,7 @@ const count = (v: number) => v.toLocaleString('zh-TW')
 
 export function BigHolderRankingTab() {
   const [view, setView] = useState<View>('concentrating')
-  const query = useQuery({ queryKey: QK.bigHolderRanking, queryFn: api.taiwanBigHolderRanking, staleTime: 5 * 60_000 })
+  const query = useQuery({ queryKey: QK.bigHolderRanking, queryFn: api.taiwanBigHolderRanking, staleTime: 0 })
   const inputClass = 'rounded-md border border-border bg-surface px-3 py-2 text-sm'
   if (query.isLoading) return <p role="status" className="py-8 text-muted">讀取集保股權分散資料中…</p>
   if (query.isError || !query.data) return <div role="alert" className="rounded-lg border border-danger/30 p-4 text-danger">大戶集中度讀取失敗<button className="ml-3 underline" onClick={() => void query.refetch()}>重試</button></div>

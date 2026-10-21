@@ -1,4 +1,4 @@
-"""Fixed samples for the 資金熱浪 heatmap: turnover shares, weighted change and missing data."""
+"""Fixed samples for the 資金熱浪 heatmap: turnover shares, weighted change, missing data and census coverage."""
 from datetime import date, timedelta
 from unittest.mock import MagicMock
 
@@ -36,13 +36,27 @@ def _rows(prices):
     return [r for s, (c1, a1, c2, a2) in prices.items() for r in (_row(s, D1, c1, a1), _row(s, D2, c2, a2))]
 
 
-def _service(tmp_path, rows, calendar=None):
+def write_census(store, rows, extra=None):
+    """Census of every (exchange, day) in ``rows``: the codes with a daily row, a non-universe code
+    9999 (so an exchange without universe rows is still an observed session) and ``extra[(exchange, day)]``."""
+    extra = extra or {}
+    for day in {r["date"] for r in rows}:
+        for exchange in ("TWSE", "TPEX"):
+            codes = {r["symbol"].split(".")[0] for r in rows if r["date"] == day and r["symbol"].endswith(f".{exchange}")}
+            codes |= {"9999", *extra.get((exchange, day), ())}
+            store.write(exchange, day, [{"date": day, "raw_code": code, "exchange": exchange, "observed": True}
+                                        for code in sorted(codes)])
+    return store
+
+
+def _service(tmp_path, rows, calendar=None, census_extra=None):
     daily = TaiwanDailyStore(tmp_path / "daily")
     daily.write_batch(pl.DataFrame(rows, schema_overrides={"amount": pl.Float64, "quote_ts": pl.Int64}))
     master = MagicMock()
     master.to_dataframe.return_value = MASTER
+    census = write_census(ObservedUniverseStore(tmp_path / "census"), rows, census_extra)
     return TaiwanMarketHeatmapService(daily, calendar or TaiwanTradingCalendar(known_trading_days={D1, D2}),
-                                      master, ObservedUniverseStore(tmp_path / "census"))
+                                      master, census)
 
 
 def _by_industry(snap):
@@ -66,6 +80,46 @@ def test_shares_weighted_change_order_and_breadth(tmp_path):
     assert (etf["share"], etf["change_pct"], etf["advance"]) == (0.1, pytest.approx(0.01), 1)
     assert (finance["change_pct"], finance["flat"]) == (0.0, 1)
     assert sum(row["share"] for row in snap["industries"]) == pytest.approx(1.0)
+    # The census code 9999 is not in the universe, so it is neither expected nor missing.
+    assert snap["coverage"] == {
+        "status": "complete", "previous_status": "complete", "missing_symbols": [], "missing_count": 0,
+        "exchanges": {"TWSE": {"census": "observed", "expected": 4, "observed": 4, "missing": 0},
+                      "TPEX": {"census": "observed", "expected": 0, "observed": 0, "missing": 0}},
+    }
+
+
+def test_census_listed_stock_without_daily_row_makes_the_day_partial(tmp_path):
+    snap = _service(tmp_path, _rows(BASE), census_extra={("TWSE", D2): ["2454"]}).snapshot(D2)
+    assert (snap["status"], snap["reason"]) == ("partial", "incomplete_daily_coverage")
+    coverage = snap["coverage"]
+    assert (coverage["status"], coverage["missing_count"], coverage["missing_symbols"]) == ("partial", 1, ["2454.TWSE"])
+    assert coverage["exchanges"]["TWSE"] == {"census": "observed", "expected": 5, "observed": 4, "missing": 1}
+    # The numbers are still the rows that exist, reported as a subset rather than hidden.
+    assert snap["total_amount"] == 10000.0
+    assert sum(row["share"] for row in snap["industries"]) == pytest.approx(1.0)
+
+
+@pytest.mark.parametrize("tpex_census", ["empty_unknown", "missing"])
+def test_unproven_census_makes_the_day_partial_not_available(tmp_path, tpex_census):
+    service = _service(tmp_path, _rows(BASE))
+    path = service.evidence_store.partition_path("TPEX", D2)
+    if tpex_census == "missing":
+        path.unlink()
+    else:
+        service.evidence_store.write("TPEX", D2, [])
+    snap = service.snapshot(D2)
+    assert (snap["status"], snap["reason"], snap["coverage"]["status"]) == ("partial", "census_unknown", "unknown")
+    assert snap["coverage"]["exchanges"]["TPEX"] == {"census": tpex_census, "expected": None, "observed": 0, "missing": None}
+    assert snap["coverage"]["exchanges"]["TWSE"]["missing"] == 0
+    assert snap["total_amount"] == 10000.0
+
+
+def test_incomplete_previous_session_has_no_previous_total(tmp_path):
+    snap = _service(tmp_path, _rows(BASE), census_extra={("TWSE", D1): ["2454"]}).snapshot(D2)
+    assert (snap["status"], snap["coverage"]["status"], snap["coverage"]["previous_status"]) == ("available", "complete", "partial")
+    assert snap["previous_total_amount"] is None
+    # Per-stock changes only need each stock's own previous row.
+    assert snap["advance"] == 2
 
 
 def test_missing_previous_row_is_uncompared_not_zero(tmp_path):
@@ -95,6 +149,7 @@ def test_target_without_partition_is_unavailable_and_does_not_slide(tmp_path):
     snap = _service(tmp_path, _rows(BASE)).snapshot(D3)
     assert snap["date"] == "2026-10-21"
     assert (snap["status"], snap["reason"], snap["industries"], snap["total_amount"]) == ("unavailable", "no_daily_data", [], 0.0)
+    assert snap["coverage"] is None
 
 
 def test_single_session_has_no_previous_or_changes(tmp_path):
@@ -109,6 +164,7 @@ def test_single_session_has_no_previous_or_changes(tmp_path):
     # An expected previous session without a partition is named but contributes no amount.
     snap = _service(tmp_path / "gap", rows).snapshot(D2)
     assert (snap["previous_date"], snap["previous_total_amount"], snap["uncompared"]) == ("2026-10-19", None, 4)
+    assert snap["coverage"]["previous_status"] == "unavailable"
 
 
 def test_session_changes_uses_only_the_immediately_previous_session(tmp_path):
