@@ -16,6 +16,7 @@ from app.taiwan.institutional_statistics import (
     TaiwanInstitutionalStatisticsService,
 )
 from app.taiwan.market_heatmap import TaiwanMarketHeatmapService
+from app.taiwan.pattern_scan import TaiwanPatternScanService
 
 router = APIRouter()
 
@@ -47,6 +48,11 @@ def market_heatmap(target_date: Annotated[date | None, Query(alias="date")] = No
 @router.get("/group-ranking")
 def group_ranking(target_date: Annotated[date | None, Query(alias="date")] = None) -> dict:
     return TaiwanGroupRankingService().snapshot(target_date)
+
+
+@router.get("/pattern-scan")
+def pattern_scan(target_date: Annotated[date | None, Query(alias="date")] = None) -> dict:
+    return TaiwanPatternScanService().snapshot(target_date)
 
 
 @router.get("/chip-ranking")
