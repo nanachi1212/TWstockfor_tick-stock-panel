@@ -260,18 +260,23 @@ export function Layout() {
     return () => compact.removeEventListener('change', syncWithViewport)
   }, [])
 
-  // 手機抽屜: 路由變更即關閉; 開啟期間鎖住 body 捲動、Escape 關閉,
+  // 手機抽屜: 任何導航 (含只改 ?tab= 的同路徑導航) 即關閉; 開啟期間鎖住 body 捲動、Escape 關閉,
   // 焦點進抽屜, 關閉後焦點回到「選單」按鈕。
   const drawerRef = useRef<HTMLDivElement>(null)
   const menuButtonRef = useRef<HTMLButtonElement>(null)
   const drawerVisible = isCompact && drawerOpen
   useEffect(() => {
     setDrawerOpen(false)
-  }, [location.pathname])
+  }, [location.key])
   useEffect(() => {
     if (!drawerVisible) return
     const prevOverflow = document.body.style.overflow
     document.body.style.overflow = 'hidden'
+    // 抽屜外的兄弟節點 (頂列、主內容) 設 inert, Tab 不會跑到被遮住的控制項。
+    const overlay = drawerRef.current?.parentElement
+    const behind = Array.from(overlay?.parentElement?.children ?? [])
+      .filter((el): el is HTMLElement => el instanceof HTMLElement && el !== overlay)
+    behind.forEach(el => { el.inert = true })
     drawerRef.current?.querySelector<HTMLElement>('a[href], button:not([disabled])')?.focus()
     const closeOnEscape = (e: KeyboardEvent) => {
       if (e.key === 'Escape') setDrawerOpen(false)
@@ -281,6 +286,7 @@ export function Layout() {
     return () => {
       document.removeEventListener('keydown', closeOnEscape)
       document.body.style.overflow = prevOverflow
+      behind.forEach(el => { el.inert = false })
       menuButton?.focus()
     }
   }, [drawerVisible])
@@ -408,7 +414,7 @@ export function Layout() {
   })
   useEffect(() => {
     if (isAdvancedNavPath(location.pathname)) setAdvancedOpen(true)
-  }, [location.pathname])
+  }, [location.key])
   const toggleAdvanced = () => {
     setAdvancedOpen(v => {
       const next = !v

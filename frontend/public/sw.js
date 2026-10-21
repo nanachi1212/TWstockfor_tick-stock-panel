@@ -68,8 +68,11 @@ async function navigate(event) {
 async function fetchAndCache(request) {
   const response = await fetch(request)
   if (response.ok) {
-    const cache = await caches.open(CACHE)
-    await cache.put(request, response.clone())
+    // 快取寫入只是離線備援; 空間滿或被拒時仍回傳已取得的回應。
+    try {
+      const cache = await caches.open(CACHE)
+      await cache.put(request, response.clone())
+    } catch {}
   }
   return response
 }

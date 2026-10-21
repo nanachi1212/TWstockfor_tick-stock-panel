@@ -435,7 +435,7 @@ function cardColumnCount(viewportWidth: number): number {
   if (viewportWidth >= 1280) return 5
   if (viewportWidth >= 768) return 4
   if (viewportWidth >= 640) return 3
-  return 2
+  return 1
 }
 
 function useCardColumnCount(): number {

@@ -69,11 +69,11 @@ function mockCommonHooks() {
   vi.mocked(getFrontendExtensionNavigation).mockReturnValue([])
 }
 
-function renderLayout() {
+function renderLayout(initialPath = '/') {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   return render(
     <QueryClientProvider client={qc}>
-      <MemoryRouter initialEntries={['/']}>
+      <MemoryRouter initialEntries={[initialPath]}>
         <Layout />
       </MemoryRouter>
     </QueryClientProvider>,
@@ -186,6 +186,19 @@ describe('Layout — 窄螢幕抽屜導覽', () => {
     expect(menuButton).toHaveAttribute('aria-expanded', 'false')
     expect(menuButton).toHaveFocus()
     expect(document.body.style.overflow).toBe('')
+  })
+
+  it('手機: 只改查詢字串的按鈕導航 (設定頁分頁) 也會關閉抽屜', async () => {
+    mockViewport(true)
+    renderLayout('/settings')
+
+    fireEvent.click(await screen.findByRole('button', { name: '開啟選單' }))
+    const dialog = screen.getByRole('dialog')
+    expect(screen.getByRole('banner')).toHaveProperty('inert', true)
+    fireEvent.click(within(dialog).getByRole('button', { name: /開啟即時監控設定|前往設定資料來源/ }))
+
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
+    expect(screen.getByRole('banner')).toHaveProperty('inert', false)
   })
 
   it('手機: Escape 與點遮罩都會關閉抽屜', async () => {
