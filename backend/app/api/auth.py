@@ -254,7 +254,8 @@ def login(req: LoginIn, request: Request, response: Response) -> dict:
     if not auth.is_configured():
         raise HTTPException(status_code=409, detail="尚未设置访问密码")
 
-    token = auth.verify_and_create_session(req.password)
+    # 驗證專用密碼只接受本機請求 (經 tailscale serve 等反代轉入的外部來源不算)。
+    token = auth.verify_and_create_session(req.password, allow_verify=_is_local_request(request))
     if not token:
         _record_login_fail(ip)
         raise HTTPException(status_code=401, detail="密码错误")

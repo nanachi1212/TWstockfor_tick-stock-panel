@@ -136,12 +136,14 @@ def set_password(password: str) -> None:
         raise ValueError("密码至少 6 位")
     salt_hex, hash_hex = _hash_password(password)
     with _lock:
-        _load()  # 不覆寫已損壞的認證檔。
+        current = _load()  # 不覆寫已損壞的認證檔。
         _save({
             "password_hash": hash_hex,
             "password_salt": salt_hex,
             "updated_at": int(time.time()),
             "sessions": {},  # 清空持久化会话
+            # 驗證專用密碼與主密碼各自管理, 改主密碼不清掉它。
+            **{k: current[k] for k in ("verify_hash", "verify_salt") if k in current},
         })
         _sessions.clear()  # 儲存成功後才撤銷舊會話。
     _configured_cache = None  # 失效缓存, 下次 is_configured 重读最新真值
@@ -184,13 +186,34 @@ def bootstrap_from_env() -> bool:
         return False
 
 
-def verify_and_create_session(password: str) -> str | None:
-    """验证密码, 成功则创建会话并返回 token, 失败返回 None。"""
+def set_verify_password(password: str | None) -> None:
+    """設定 (或以 None 撤銷) 驗證專用密碼: 給本機自動化驗證登入用, 只在本機請求時接受。"""
+    if password is not None and len(password) < 16:
+        raise ValueError("驗證專用密碼至少 16 位")
+    with _lock:
+        d = _load()
+        if not d.get("password_hash"):
+            raise ValueError("尚未设置访问密码")
+        d.pop("verify_hash", None)
+        d.pop("verify_salt", None)
+        if password is not None:
+            d["verify_salt"], d["verify_hash"] = _hash_password(password)
+        _save(d)
+
+
+def verify_and_create_session(password: str, *, allow_verify: bool = False) -> str | None:
+    """验证密码, 成功则创建会话并返回 token, 失败返回 None。
+
+    allow_verify=True 時也接受驗證專用密碼; 只有本機登入請求可以開啟。
+    """
     with _lock:
         d = _load()
         if not d.get("password_hash"):
             return None
-        if not _verify_password(password, d["password_salt"], d["password_hash"]):
+        ok = _verify_password(password, d["password_salt"], d["password_hash"])
+        if not ok and allow_verify and d.get("verify_hash"):
+            ok = _verify_password(password, d.get("verify_salt", ""), d["verify_hash"])
+        if not ok:
             return None
         token = _secrets.token_urlsafe(_TOKEN_BYTES)
         expire = time.time() + SESSION_TTL
