@@ -823,9 +823,10 @@ export function Layout() {
   return (
     <div
       className="app-shell-height grid bg-base text-foreground overflow-hidden transition-[grid-template-columns] duration-200 ease-smooth"
+      // 內容欄用 minmax(0, 1fr): 純 1fr 的最小值是內容寬, 一段不換行的內容就會把整頁 (連頂列) 撐出螢幕。
       style={isCompact
-        ? { gridTemplateColumns: '1fr', gridTemplateRows: 'auto minmax(0, 1fr)' }
-        : { gridTemplateColumns: navCollapsed ? '3.5rem 1fr' : '14rem 1fr' }}
+        ? { gridTemplateColumns: 'minmax(0, 1fr)', gridTemplateRows: 'auto minmax(0, 1fr)' }
+        : { gridTemplateColumns: navCollapsed ? '3.5rem minmax(0, 1fr)' : '14rem minmax(0, 1fr)' }}
     >
       {isCompact ? (
         <header className="border-b border-border bg-surface px-2 pt-[env(safe-area-inset-top)]">

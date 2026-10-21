@@ -55,14 +55,17 @@ export function useTheme(): Theme {
 
 const FONT_KEY = 'tf-font-scale'
 export const FONT_SCALES = [1, 1.1, 1.25, 1.4] as const
-const DEFAULT_FONT_SCALE = 1.1
+// 手機預設不縮放: Android 已套系統字級, 再疊 html zoom 會讓版面超出螢幕且干擾雙指縮放。
+function defaultFontScale(): number {
+  return window.matchMedia?.('(max-width: 767px)').matches ? 1 : 1.1
+}
 
 export function getFontScale(): number {
   try {
     const v = Number(localStorage.getItem(FONT_KEY))
-    return (FONT_SCALES as readonly number[]).includes(v) ? v : DEFAULT_FONT_SCALE
+    return (FONT_SCALES as readonly number[]).includes(v) ? v : defaultFontScale()
   } catch {
-    return DEFAULT_FONT_SCALE
+    return defaultFontScale()
   }
 }
 
