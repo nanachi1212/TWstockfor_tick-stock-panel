@@ -14,6 +14,7 @@ from app.taiwan.institutional_statistics import (
     InstitutionalWindow,
     TaiwanInstitutionalStatisticsService,
 )
+from app.taiwan.market_heatmap import TaiwanMarketHeatmapService
 
 router = APIRouter()
 
@@ -35,6 +36,11 @@ def institutional_flow_series(target_date: Annotated[date | None, Query(alias="d
 @router.get("/industry-rotation", response_model=IndustryRotationSnapshot)
 def industry_rotation(target_date: Annotated[date | None, Query(alias="date")] = None) -> IndustryRotationSnapshot:
     return TaiwanIndustryIntelligenceService().get_rotation(target_date)
+
+
+@router.get("/market-heatmap")
+def market_heatmap(target_date: Annotated[date | None, Query(alias="date")] = None) -> dict:
+    return TaiwanMarketHeatmapService().snapshot(target_date)
 
 
 @router.get("/chip-ranking")

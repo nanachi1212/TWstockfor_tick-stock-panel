@@ -66,11 +66,50 @@ export interface IndustryRotationSnapshot {
 export const MARKET_RESEARCH_TABS = [
   { id: 'institutional', label: '法人統計', enabled: true },
   { id: 'rotation', label: '產業輪動', enabled: true },
+  { id: 'heatmap', label: '資金熱浪', enabled: true },
   { id: 'breadth', label: '大盤寬度', enabled: true },
   { id: 'valuation', label: '估值', enabled: true },
   { id: 'chips', label: '籌碼排行', enabled: true },
   { id: 'big-holders', label: '大戶集中度', enabled: true },
 ] as const
+
+/** amount is TWD; change_pct is decimal vs the previous session's raw close; null means not comparable, never 0. */
+export interface HeatmapStock {
+  symbol: string
+  name: string
+  close: number | null
+  change_pct: number | null
+  amount: number
+  volume: number | null
+}
+
+/** change_pct is turnover-weighted over comparable constituents only; share is 0..1 of total_amount. */
+export interface HeatmapIndustry {
+  industry: string
+  amount: number
+  share: number
+  change_pct: number | null
+  advance: number
+  decline: number
+  flat: number
+  count: number
+  stocks: HeatmapStock[]
+}
+
+export interface MarketHeatmapSnapshot {
+  date: string
+  previous_date: string | null
+  status: 'available' | 'unavailable'
+  reason: 'no_daily_data' | null
+  price_semantics: 'raw_close'
+  total_amount: number
+  previous_total_amount: number | null
+  advance: number
+  decline: number
+  flat: number
+  uncompared: number
+  industries: HeatmapIndustry[]
+}
 
 export type BigHolderTone = 'concentrating' | 'dispersing' | 'flat' | 'insufficient'
 

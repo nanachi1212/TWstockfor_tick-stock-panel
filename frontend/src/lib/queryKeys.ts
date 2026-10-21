@@ -103,6 +103,7 @@ export const QK = {
   institutionalFlowSeries: ['institutional-flow-series'] as const,
   institutionalStatistics: (date: string, window: number) => ['institutional-statistics', date || 'latest', window] as const,
   industryRotation: (date: string) => ['industry-rotation', date || 'latest'] as const,
+  marketHeatmap: (date: string) => ['market-heatmap', date || 'latest'] as const,
   chipRanking: ['chip-ranking'] as const,
   chipRankingTracking: ['chip-ranking', 'tracking'] as const,
   bigHolderRanking: ['big-holder-ranking'] as const,
@@ -161,7 +162,7 @@ export const QK = {
 export const DATA_HEALTH_INVALIDATE_PREFIXES = {
   daily: ['data-health', 'market-breadth-valuation', 'taiwan-data-status', 'taiwan-stock-detail', 'taiwan-current-data',
     'taiwanStockResearchContext', 'taiwanAbnormalDiagnostics', 'taiwanMarketIntelligence',
-    'taiwanIndustryIntelligence', 'institutional-statistics', 'institutional-flow-series', 'industry-rotation', 'taiwanScreener',
+    'taiwanIndustryIntelligence', 'institutional-statistics', 'institutional-flow-series', 'industry-rotation', 'market-heatmap', 'taiwanScreener',
     'watchlist-', 'selection-', 'beginner-selection', 'strategy-lab', 'daily-brief', 'buy-point-', 'portfolio-analytics', 'chip-ranking', 'big-holder-ranking'],
   social: ['data-health', 'taiwan-social-sentiment'],
   validate: ['data-health', 'settings'],

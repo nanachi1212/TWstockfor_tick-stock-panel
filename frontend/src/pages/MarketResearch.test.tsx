@@ -1,12 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { MemoryRouter } from 'react-router-dom'
 import { MarketResearch } from './MarketResearch'
 import { api } from '@/lib/api'
-import { rotationPoints, type BigHolderRow, type ResearchMetric, type InvestorStatistics, type IndustryRotationRow } from '@/lib/marketResearch'
+import { rotationPoints, type BigHolderRow, type HeatmapIndustry, type MarketHeatmapSnapshot, type ResearchMetric, type InvestorStatistics, type IndustryRotationRow } from '@/lib/marketResearch'
 
-vi.mock('@/lib/api', () => ({ api: { taiwanInstitutionalStatistics: vi.fn(), taiwanIndustryRotation: vi.fn(), marketBreadthValuation: vi.fn(), refreshMarketValuation: vi.fn(), taiwanBigHolderRanking: vi.fn() } }))
+vi.mock('@/lib/api', () => ({ api: { taiwanInstitutionalStatistics: vi.fn(), taiwanIndustryRotation: vi.fn(), marketBreadthValuation: vi.fn(), refreshMarketValuation: vi.fn(), taiwanBigHolderRanking: vi.fn(), taiwanMarketHeatmap: vi.fn() } }))
 vi.mock('echarts-for-react', () => ({ default: () => <div data-testid="rotation-chart" /> }))
 
 function metric(value: number | null, status: ResearchMetric['status'] = 'available'): ResearchMetric {
@@ -121,6 +121,35 @@ describe('Market research product UI', () => {
     fireEvent.click(screen.getByRole('tab', { name: /自選/ }))
     expect(screen.getByText('自選股中沒有在範圍內的股票。')).toBeInTheDocument()
     expect(api.taiwanInstitutionalStatistics).not.toHaveBeenCalled()
+  })
+  it('shows the money-flow heatmap totals and industry table for a past date', async () => {
+    const sector = (industry: string, amount: number, change_pct: number | null): HeatmapIndustry => ({ industry, amount, share: amount / 123_456_000_000, change_pct,
+      advance: 1, decline: 1, flat: 0, count: 2, stocks: [{ symbol: '2330.TWSE', name: '台積電', close: 1030, change_pct: 0.03, amount, volume: 1000 }] })
+    const snapshot: MarketHeatmapSnapshot = { date: '2026-10-20', previous_date: '2026-10-19', status: 'available', reason: null, price_semantics: 'raw_close',
+      total_amount: 123_456_000_000, previous_total_amount: 102_880_000_000, advance: 2, decline: 2, flat: 0, uncompared: 2,
+      industries: [sector('半導體業', 100_000_000_000, 0.0175), sector('ETF', 20_000_000_000, 0.01), sector('UNCLASSIFIED', 3_456_000_000, null)] }
+    vi.mocked(api.taiwanMarketHeatmap).mockResolvedValue(snapshot)
+    mount('/market-research?tab=heatmap&date=2026-10-20')
+    expect(await screen.findByText('1,234.56 億')).toBeInTheDocument()
+    expect(screen.getByText('+20.00%')).toBeInTheDocument()
+    expect(screen.getByText('目標日期：2026-10-20')).toBeInTheDocument()
+    const rows = screen.getAllByRole('row').slice(1)
+    expect(rows).toHaveLength(3)
+    expect(within(rows[0]).getByText('半導體業')).toBeInTheDocument()
+    expect(within(rows[0]).getByText('+1.75%')).toHaveClass('text-bull')
+    expect(within(rows[2]).getByText('未分類')).toBeInTheDocument()
+    expect(within(rows[2]).getByText('—')).toBeInTheDocument()
+    expect(screen.getByTestId('rotation-chart')).toBeInTheDocument()
+    expect(api.taiwanMarketHeatmap).toHaveBeenCalledWith('2026-10-20')
+    expect(api.taiwanInstitutionalStatistics).not.toHaveBeenCalled()
+  })
+  it('shows a notice instead of an error when the heatmap date has no daily data', async () => {
+    vi.mocked(api.taiwanMarketHeatmap).mockResolvedValue({ date: '2026-10-21', previous_date: null, status: 'unavailable', reason: 'no_daily_data', price_semantics: 'raw_close',
+      total_amount: 0, previous_total_amount: null, advance: 0, decline: 0, flat: 0, uncompared: 0, industries: [] })
+    mount('/market-research?tab=heatmap')
+    expect(await screen.findByText('2026-10-21 尚無日資料')).toBeInTheDocument()
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('rotation-chart')).not.toBeInTheDocument()
   })
   it('omits incomplete points and keeps RS and percentage-point units separate', () => {
     expect(rotationPoints([industry(), industry('partial'), industry('unavailable')])).toEqual([{ name: '半導體業', value: [2, 5] }])
