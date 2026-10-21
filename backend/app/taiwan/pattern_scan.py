@@ -6,8 +6,8 @@ price levels: the adjusted series is rescaled by raw_close / adjusted_close on t
 Volume and liquidity always use raw shares. Every pivot is confirmed inside the window, so the
 scan reads no row after the target session.
 
-A stock is listed only when all 90 raw and adjusted sessions line up. Missing sessions, invalid
-OHLC, low liquidity and unverified corporate actions are counted by reason, never filled with 0.
+A stock is listed only when all 90 raw and adjusted sessions line up. Missing sessions, no-trade
+sessions, invalid OHLC, low liquidity and unverified corporate actions are counted by reason, never filled with 0.
 Current-universe view, not a Historical PIT evaluation.
 """
 # ruff: noqa: RUF001, RUF003 -- user-facing Traditional Chinese labels and rule text.
@@ -468,6 +468,10 @@ class TaiwanPatternScanService:
                 excluded["incomplete_sessions"] += 1
                 continue
             raw = [{k: row[k] for k in ("date", "open", "high", "low", "close", "volume")} for row in raw]
+            # 開高低收全空是當天正常盤無成交 (交易所顯示「--」, 可能只有零股), 與真正的異常價分開計數。
+            if any(all(bar[c] is None for c in PRICE_COLUMNS) for bar in raw):
+                excluded["no_trade_sessions"] += 1
+                continue
             if not all(_valid_bar(bar) for bar in raw):
                 excluded["invalid_ohlc"] += 1
                 continue
