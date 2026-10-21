@@ -94,6 +94,7 @@ class TaiwanDailyUpdateResult(BaseModel):
     freshness: FreshnessStatus
     overall_status: UpdateStatus
     benchmark: dict[str, Any] | None = None
+    census: dict[str, Any] | None = None
 
 
 def resolve_target_latest_trading_date(
@@ -213,6 +214,7 @@ class TaiwanDailyUpdateService:
         calendar: TaiwanTradingCalendar | None = None,
         evidence_store: ObservedUniverseStore | None = None,
         benchmark_store: TaiwanBenchmarkStore | None = None,
+        census_worker: Any | None = None,
     ) -> None:
         # Only the default production wiring refreshes benchmarks; callers that
         # inject their own stores (tests, bootstrap) opt in explicitly.
@@ -220,6 +222,10 @@ class TaiwanDailyUpdateService:
             TaiwanBenchmarkStore() if daily_store is None else None
         )
         self.shareholding_store = TaiwanShareholdingStore() if daily_store is None else None
+        # Same opt-in rule for the census top-up; the default worker is built lazily because
+        # backfill_worker imports this module and touches its data dir on construction.
+        self.census_worker = census_worker
+        self._census_by_default = daily_store is None
         self.calendar = calendar or TaiwanTradingCalendar()
         self.evidence_store = evidence_store or ObservedUniverseStore()
         self.daily_store = daily_store or TaiwanDailyStore()
@@ -449,6 +455,9 @@ class TaiwanDailyUpdateService:
             except Exception as e:
                 logger.warning("Shareholding refresh failed: %s", e)
 
+        # 5c. Official census for the target session; coverage gates need it. Independent of status.
+        census = self._refresh_target_census(target)
+
         # 6. Evaluate Freshness and Overall Status
         run_finish = taipei_now()
         freshness = self.get_freshness(target_date=target)
@@ -482,14 +491,50 @@ class TaiwanDailyUpdateService:
             freshness=freshness,
             overall_status=overall_status,
             benchmark=benchmark,
+            census=census,
         )
         self._record_run(result)
 
         logger.info(
-            "TaiwanDailyUpdateService finished: overall_status=%s, daily=%s, inst=%s, margin=%s, is_fully_current=%s",
-            overall_status, daily_stats.status, inst_stats.status, margin_stats.status, freshness.is_fully_current,
+            "TaiwanDailyUpdateService finished: overall_status=%s, daily=%s, inst=%s, margin=%s, "
+            "census=%s, is_fully_current=%s",
+            overall_status, daily_stats.status, inst_stats.status, margin_stats.status,
+            census and census["status"], freshness.is_fully_current,
         )
         return result
+
+    def _refresh_target_census(self, target: date) -> dict[str, Any] | None:
+        """Write both exchanges' census for ``target`` once its daily snapshot is stored.
+
+        Fail-open: a census error never changes the market-data result. run_census skips an
+        observed session, so a rerun (evening catch-up, manual retry) costs no request and
+        still retries a session the previous run failed or saw empty.
+        """
+        if self.census_worker is None and not self._census_by_default:
+            return None
+        if target not in self.daily_store.available_dates():
+            return None  # not published yet: a census now would only record an empty response
+        try:
+            worker = self.census_worker
+            if worker is None:
+                from app.taiwan.backfill_worker import TaiwanHistoricalBackfillWorker
+
+                worker = TaiwanHistoricalBackfillWorker(
+                    census_store=self.evidence_store, calendar=self.calendar,
+                )
+            exchanges = worker.run_census(target, target, session_budget=1, retry_empty=True)
+        except Exception as e:
+            logger.warning("Census refresh for %s failed; market data kept: %s", target, e)
+            return {"status": "error", "error": str(e)[:200]}
+        # Same evidence the heatmap / group-ranking coverage gate reads.
+        observed = all(
+            self.evidence_store.has(exchange, target)
+            and self.evidence_store.partition_status(exchange, target) == "observed"
+            for exchange in ("TWSE", "TPEX")
+        )
+        if not observed:
+            logger.warning("Census for %s is not an observed session after refresh: %s", target, exchanges)
+        return {"status": "success" if observed else "error", "exchanges": exchanges}
 
     def _record_run(self, result: TaiwanDailyUpdateResult) -> None:
         """Persist the latest attempt so health checks see real updater outcomes."""
