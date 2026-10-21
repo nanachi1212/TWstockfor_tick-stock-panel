@@ -37,6 +37,8 @@ SESSION_TTL = 30 * 24 * 3600
 _lock = threading.Lock()
 # 内存中的有效会话: { token: expire_ts }。进程重启后从磁盘恢复。
 _sessions: dict[str, float] = {}
+# 記憶體會話最後一次與 auth.json 同步時的檔案戳記; 檔案被其他程序 (如撤銷腳本) 改過就重讀。
+_sessions_stamp: tuple[int, int] | None = None
 
 # 檔案未變更時重用驗證結果; 改密碼後失效, 外部修改則重新驗證。
 _configured_cache: bool | None = None
@@ -87,12 +89,35 @@ def _save(data: dict) -> None:
             os.fsync(stream.fileno())
         os.chmod(tmp, 0o600)
         os.replace(tmp, p)
+        global _sessions_stamp
+        _sessions_stamp = _file_stamp()
     except OSError as e:
         raise AuthStoreError("認證檔無法儲存, 請確認磁碟與檔案權限後重試") from e
     finally:
         if tmp is not None:
             with contextlib.suppress(OSError):
                 tmp.unlink(missing_ok=True)
+
+
+def _file_stamp() -> tuple[int, int] | None:
+    try:
+        stat = _path().stat()
+    except FileNotFoundError:
+        return None
+    return stat.st_mtime_ns, stat.st_size
+
+
+def _sync_sessions_locked() -> None:
+    """auth.json 是會話的權威來源: 檔案變了就以磁碟內容取代記憶體會話 (需持鎖呼叫)。"""
+    global _sessions_stamp
+    stamp = _file_stamp()
+    if stamp == _sessions_stamp:
+        return
+    saved = _load().get("sessions") or {}
+    now = time.time()
+    _sessions.clear()
+    _sessions.update({t: e for t, e in saved.items() if isinstance(e, (int, float)) and e > now})
+    _sessions_stamp = stamp
 
 
 def _hash_password(password: str, salt: bytes | None = None) -> tuple[str, str]:
@@ -200,6 +225,7 @@ def set_verify_password(password: str | None) -> None:
     if password is not None and len(password) < 16:
         raise ValueError("驗證專用密碼至少 16 位")
     with _lock:
+        _sync_sessions_locked()
         d = _load()
         if not d.get("password_hash"):
             raise ValueError("尚未设置访问密码")
@@ -216,6 +242,7 @@ def set_verify_password(password: str | None) -> None:
 def create_verify_session(password: str) -> str | None:
     """驗證專用密碼正確則建立會話 (記在 verify_sessions, 撤銷時一併失效), 否則回傳 None。"""
     with _lock:
+        _sync_sessions_locked()
         d = _load()
         if not (d.get("password_hash") and d.get("verify_hash")):
             return None
@@ -224,7 +251,7 @@ def create_verify_session(password: str) -> str | None:
         token = _secrets.token_urlsafe(_TOKEN_BYTES)
         expire = time.time() + SESSION_TTL
         d["sessions"] = {**_sessions, token: expire}
-        d["verify_sessions"] = [t for t in d.get("verify_sessions", []) if t in _sessions] + [token]
+        d["verify_sessions"] = [t for t in d.get("verify_sessions", []) if t in d["sessions"]] + [token]
         _save(d)
         _sessions[token] = expire
     return token
@@ -233,6 +260,7 @@ def create_verify_session(password: str) -> str | None:
 def verify_and_create_session(password: str) -> str | None:
     """验证主密码, 成功则创建会话并返回 token, 失败返回 None。"""
     with _lock:
+        _sync_sessions_locked()
         d = _load()
         if not d.get("password_hash"):
             return None
@@ -249,6 +277,7 @@ def verify_and_create_session(password: str) -> str | None:
 def revoke_session(token: str) -> None:
     """注销会话(登出)。"""
     with _lock:
+        _sync_sessions_locked()
         _sessions.pop(token, None)
         _persist_sessions_locked()
 
@@ -258,6 +287,7 @@ def is_valid_session(token: str) -> bool:
     if not token:
         return False
     with _lock:
+        _sync_sessions_locked()
         expire = _sessions.get(token)
         if expire is None:
             return False
@@ -279,13 +309,11 @@ def _persist_sessions_locked() -> None:
 
 def _restore_sessions() -> None:
     """启动时从 auth.json 恢复未过期会话(支持进程重启不丢登录态)。"""
+    global _sessions_stamp
     with _lock:
-        d = _load()
-        now = time.time()
-        saved = d.get("sessions") or {}
-        for token, expire in saved.items():
-            if isinstance(expire, (int, float)) and expire > now:
-                _sessions[token] = expire
+        saved = _load().get("sessions") or {}
+        _sessions_stamp = None  # 強制從磁碟重讀
+        _sync_sessions_locked()
         if len(_sessions) != len(saved):
             # 有过期会话被清理, 落盘一次
             _persist_sessions_locked()

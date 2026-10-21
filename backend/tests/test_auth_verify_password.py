@@ -114,3 +114,21 @@ def test_damaged_verify_fields_fail_closed(auth_store, tmp_path: Path):
     path.write_text(json.dumps(data), encoding="utf-8")
     with pytest.raises(auth_store.AuthStoreError):
         auth_store.create_verify_session(VERIFY)
+
+
+def test_revocation_by_another_process_takes_effect_on_running_server(auth_store, tmp_path: Path):
+    import json
+
+    verify_token = auth_store.create_verify_session(VERIFY)
+    main_token = auth_store.verify_and_create_session(MAIN)
+    # 模擬撤銷腳本在另一個程序改寫 auth.json: 執行中伺服器的記憶體會話不會先被清掉。
+    path = tmp_path / "user_data" / "auth.json"
+    data = json.loads(path.read_text(encoding="utf-8"))
+    for key in ("verify_hash", "verify_salt"):
+        data.pop(key)
+    data["sessions"].pop(data.pop("verify_sessions")[0])
+    path.write_text(json.dumps(data), encoding="utf-8")
+    assert not auth_store.is_valid_session(verify_token)
+    assert auth_store.is_valid_session(main_token)
+    auth_store.revoke_session(main_token)
+    assert verify_token not in json.loads(path.read_text(encoding="utf-8"))["sessions"]
