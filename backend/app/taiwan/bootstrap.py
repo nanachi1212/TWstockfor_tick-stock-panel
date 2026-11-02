@@ -31,12 +31,12 @@ logger = logging.getLogger(__name__)
 
 # Canonical GitHub Release metadata
 GITHUB_REPO = "nanachi1212/TWstockfor_tick-stock-panel"
-RELEASE_TAG = "data-daily-2026-10-07"
-ASSET_NAME = "nanachi-tw-daily-2024-01-02_to_2026-10-07.zip"
-EXPECTED_SHA256 = "74df9c2eea30723094fd81381a16415e9ee03950262a5d67dc29ec8895c5cae1"
+RELEASE_TAG = "data-daily-2026-11-02"
+ASSET_NAME = "nanachi-tw-daily-2024-01-02_to_2026-11-02.zip"
+EXPECTED_SHA256 = "38ef40a43de57f33a135c241b7ba0f6326c4fcb68cee09b7a28472272d439117"
 DOWNLOAD_URL = f"https://github.com/{GITHUB_REPO}/releases/download/{RELEASE_TAG}/{ASSET_NAME}"
-ASSET_APPROX_SIZE_MB = 51
-DATASET_DATE_RANGE = "2024-01-02 ~ 2026-10-07"
+ASSET_APPROX_SIZE_MB = 57
+DATASET_DATE_RANGE = "2024-01-02 ~ 2026-11-02"
 
 
 class TaiwanHistoryStatus(BaseModel):

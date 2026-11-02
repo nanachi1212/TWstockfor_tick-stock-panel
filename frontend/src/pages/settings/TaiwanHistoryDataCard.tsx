@@ -112,8 +112,8 @@ export function TaiwanHistoryDataCard() {
       activeJob.status !== 'failed')
 
   const assetInfo = historyStatus?.asset_info
-  const approxSize = assetInfo?.approx_size_mb ?? 51
-  const dateRange = assetInfo?.date_range ?? '2024-01-02 ~ 2026-10-07'
+  const approxSize = assetInfo?.approx_size_mb ?? 57
+  const dateRange = assetInfo?.date_range ?? '2024-01-02 ~ 2026-11-02'
 
   return (
     <section className="rounded-card border border-border bg-surface p-6">
