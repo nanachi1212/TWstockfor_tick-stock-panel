@@ -213,11 +213,10 @@ class TaiwanDailyStore:
             try:
                 lf = pl.scan_parquet(f, missing_columns="insert", extra_columns="ignore")
                 lf = lf.filter(pl.col("date").is_not_null())
-                df = lf.collect()
-                if df.is_empty():
-                    continue
                 if symbols is not None:
-                    df = df.filter(pl.col("symbol").is_in(symbols))
+                    # Filter before collect so one symbol does not decode the whole market.
+                    lf = lf.filter(pl.col("symbol").is_in(symbols))
+                df = lf.collect()
                 if not df.is_empty():
                     frames.append(df)
             except Exception as exc:

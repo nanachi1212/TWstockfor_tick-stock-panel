@@ -1060,6 +1060,7 @@ export interface TaiwanTimeframeVerdict {
   bars: number
   missing: string[]
   as_of: string | null
+  is_stale?: boolean
 }
 
 export interface TaiwanStockDetailResponse {

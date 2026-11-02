@@ -38,6 +38,7 @@ class TimeframeVerdict(BaseModel):
     bars: int = Field(0, description="該週期的 K 棒數")
     missing: list[str] = Field(default_factory=list, description="暖機不足而未計分的指標")
     as_of: str | None = Field(None, description="最後一根日 K 的日期")
+    is_stale: bool = Field(False, description="最後一根日 K 早於最新確認交易日")
 
 
 def _bars(daily: pl.DataFrame, timeframe: Timeframe) -> pl.DataFrame:

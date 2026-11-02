@@ -2439,6 +2439,9 @@ function TimeframeVerdicts({ verdicts }: { verdicts: TaiwanTimeframeVerdict[] })
           )}
         </div>
       ))}
+      {verdicts[0]?.is_stale && (
+        <p role="alert" className="text-xs text-warning md:col-span-3">日線資料只到 {verdicts[0].as_of}，不是最新交易日，判定可能已過時。</p>
+      )}
       <p className="text-xs text-muted md:col-span-3">依均線、KD、MACD、RSI、乖離的規則計分，只代表目前多空傾向，不是漲跌機率。週、月線最後一根含本週（本月）至今，尚未收完。</p>
     </section>
   )
