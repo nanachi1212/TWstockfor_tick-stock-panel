@@ -167,6 +167,7 @@ def test_needs_shareholding_catchup_contract():
 def test_startup_catchup_run_integrates_shareholding(monkeypatch):
     """驗證 startup_catchup._run 整合集保補抓流程 (即使日常日線補抓 skipped 亦執行)。"""
     monkeypatch.setattr(startup_catchup, "needs_catchup", lambda: (False, "current"))
+    monkeypatch.setattr(startup_catchup, "needs_fundamentals_catchup", lambda: (False, "current"))
     shareholding_called = []
 
     def fake_catchup():
@@ -220,3 +221,30 @@ def test_real_store_end_to_end(tmp_path):
     )
     assert res3["status"] == "written"
     assert store.latest_week() == date(2026, 10, 9)
+
+
+def test_needs_fundamentals_catchup_follows_last_warm_run(tmp_path):
+    """基本面預熱：從沒跑過或上次完成超過 20 小時就補跑，剛跑完就略過。"""
+    import os
+    import time
+
+    marker = tmp_path / "fundamentals_warm.last"
+    assert startup_catchup.needs_fundamentals_catchup(marker) == (True, "never")
+    marker.touch()
+    assert startup_catchup.needs_fundamentals_catchup(marker) == (False, "current")
+    old = time.time() - 21 * 3600
+    os.utime(marker, (old, old))
+    assert startup_catchup.needs_fundamentals_catchup(marker)[0] is True
+
+
+def test_startup_catchup_run_warms_fundamentals_when_missed(monkeypatch):
+    from app.taiwan import fundamentals_warm
+
+    monkeypatch.setattr(startup_catchup, "needs_catchup", lambda: (False, "current"))
+    monkeypatch.setattr(startup_catchup, "catchup_shareholding", lambda: {"status": "skipped"})
+    monkeypatch.setattr(startup_catchup, "needs_fundamentals_catchup", lambda: (True, "last_warm_480h_ago"))
+    monkeypatch.setattr(fundamentals_warm, "warm_fundamentals", lambda: {"status": "ok", "symbols": 3})
+
+    startup_catchup._LAST.clear()
+    startup_catchup._run(MagicMock())
+    assert startup_catchup.last_result()["fundamentals"] == {"status": "ok", "symbols": 3}

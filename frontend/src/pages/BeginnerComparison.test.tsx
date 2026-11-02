@@ -197,4 +197,19 @@ describe('beginner comparator', () => {
     expect(within(card).getByText('資料不足，暫不評價')).toBeInTheDocument()
     expect(within(card).getByText(/未列入原排名/)).toBeInTheDocument()
   })
+
+  it('says skipped stocks have no price levels by design, not missing data', async () => {
+    const data = comparison()
+    const chase = data.candidates[0]
+    chase.plan_unavailable_reason = null
+    for (const key of ['support', 'resistance', 'invalidation'] as const) chase.technical_panel![key].status = 'data_insufficient'
+    vi.mocked(api.beginnerComparison).mockResolvedValue(data)
+    renderRoute('/picks/compare?symbols=1101.TWSE,2330.TWSE,9999.TWSE')
+    const card = await screen.findByRole('article', { name: '強訊號不追股 2330.TWSE 比較' })
+    const prices = within(card).getByRole('region', { name: '價格摘要' })
+    expect(within(prices).getAllByText('不計算')).toHaveLength(5)
+    expect(within(prices).getByText(/系統只替可觀察的股票計算支撐／壓力，不是缺資料/)).toBeInTheDocument()
+    const absent = within(screen.getByRole('article', { name: '缺資料股 9999.TWSE 比較' })).getByRole('region', { name: '價格摘要' })
+    expect(within(absent).queryByText('不計算')).not.toBeInTheDocument()
+  })
 })

@@ -6,7 +6,7 @@ import { api, type BeginnerCandidate, type BeginnerTechnicalPanel, type Beginner
 import { QK } from '@/lib/queryKeys'
 import { MAX_COMPARE_SYMBOLS } from '@/lib/taiwanCompareSymbols'
 import { useSafeBack } from '@/lib/useSafeBack'
-import { MarketSummaryCard, StateBadge, STRENGTH_DISCLAIMER } from '@/components/beginner/BeginnerPicker'
+import { MarketSummaryCard, STATE_LABEL, StateBadge, STRENGTH_DISCLAIMER } from '@/components/beginner/BeginnerPicker'
 
 const strengthLabel = { strong: '強', medium: '中', weak: '弱' } as const
 const missing = '資料不足'
@@ -22,7 +22,7 @@ const chipLabel = { buy: '偏買', sell: '偏賣', neutral: '中性', increase_f
 const relativeLabel = { stronger: '較 0050 強', similar: '接近 0050', weaker: '較 0050 弱', unavailable: missing } as const
 const volatilityLabel = { low: '波動較低', normal: '波動一般', high: '波動偏大', unavailable: missing } as const
 
-function PriceSummary({ candidate }: { candidate: BeginnerCandidate }) {
+function PriceSummary({ candidate, insufficient }: { candidate: BeginnerCandidate; insufficient: boolean }) {
   const panel = candidate.technical_panel
   const support = panel?.support
   const resistance = panel?.resistance
@@ -30,18 +30,23 @@ function PriceSummary({ candidate }: { candidate: BeginnerCandidate }) {
     && support.support_distance_low_pct <= 0 && support.support_distance_high_pct >= 0
   const nearResistance = resistance?.status === 'available' && resistance.resistance_distance_pct != null
     && resistance.resistance_distance_pct >= 0 && resistance.resistance_distance_pct <= 3
+  // 不追價／暫時略過的股票本來就不算交易計畫，價位空白不是缺資料（與 BeginnerPicker 同一說法）。
+  const notPlanned = !insufficient && !candidate.plan_unavailable_reason && (candidate.selection_state === 'no_chase' || candidate.selection_state === 'skip')
+  const blank = notPlanned ? '不計算' : missing
   return (
     <section aria-label="價格摘要" className="rounded-lg bg-base/70 p-2.5">
       <dl className="grid grid-cols-[5.5rem_minmax(0,1fr)] gap-x-2 gap-y-1 text-xs">
         <dt className="text-muted">最後完整收盤</dt><dd>{format(candidate.close)} <span className="text-muted">{candidate.as_of ?? '日期不可用'}</span></dd>
-        <dt className="text-muted">支撐區</dt><dd>{support?.status === 'available' ? `${format(support.support_zone_low)}～${format(support.support_zone_high)}` : missing}</dd>
-        <dt className="text-muted">壓力</dt><dd>{resistance?.status === 'available' ? format(resistance.resistance) : missing}</dd>
-        <dt className="text-muted">失效位</dt><dd>{panel?.invalidation.status === 'available' ? format(panel.invalidation.invalidation) : missing}</dd>
+        <dt className="text-muted">支撐區</dt><dd>{support?.status === 'available' ? `${format(support.support_zone_low)}～${format(support.support_zone_high)}` : blank}</dd>
+        <dt className="text-muted">壓力</dt><dd>{resistance?.status === 'available' ? format(resistance.resistance) : blank}</dd>
+        <dt className="text-muted">失效位</dt><dd>{panel?.invalidation.status === 'available' ? format(panel.invalidation.invalidation) : blank}</dd>
         <dt className="text-muted">距支撐</dt><dd>{inZone ? '支撐區內' : support?.status === 'available'
-          ? `${distance(support.support_distance_high_pct)}～${distance(support.support_distance_low_pct)}` : missing}</dd>
-        <dt className="text-muted">距壓力</dt><dd>{resistance?.status === 'available' ? `${distance(resistance.resistance_distance_pct)}${nearResistance ? '，近壓力' : ''}` : missing}</dd>
+          ? `${distance(support.support_distance_high_pct)}～${distance(support.support_distance_low_pct)}` : blank}</dd>
+        <dt className="text-muted">距壓力</dt><dd>{resistance?.status === 'available' ? `${distance(resistance.resistance_distance_pct)}${nearResistance ? '，近壓力' : ''}` : blank}</dd>
       </dl>
-      {!support || support.status !== 'available' ? <p className="mt-1 text-xs text-muted">{candidate.plan_unavailable_reason ?? '目前資料不足，無法可靠提供完整支撐／壓力。'}</p> : null}
+      {!support || support.status !== 'available' ? <p className="mt-1 text-xs text-muted">{candidate.plan_unavailable_reason ?? (notPlanned
+        ? `這檔目前是「${STATE_LABEL[candidate.selection_state]}」，系統只替可觀察的股票計算支撐／壓力，不是缺資料。`
+        : '目前資料不足，無法可靠提供完整支撐／壓力。')}</p> : null}
     </section>
   )
 }
@@ -119,7 +124,7 @@ function ComparisonCard({ candidate, insufficient }: { candidate: BeginnerCandid
         <p className="mt-1 text-sm">{insufficient ? '資料不足，先補齊資料再判斷。' : candidate.selection_state === 'no_chase' ? '現價距離合理觀察區過遠，不宜追價，等拉回再評估。' : candidate.action_summary}</p>
         <p className="mt-1 text-xs text-muted">訊號：{insufficient ? '資料不足' : strengthLabel[candidate.signal_strength]}，強股不等於當下適合買</p>
       </div>
-      <PriceSummary candidate={candidate} />
+      <PriceSummary candidate={candidate} insufficient={insufficient} />
       <SummaryRows panel={panel} candidate={candidate} />
       <section aria-label="主要風險">
         <p className="text-xs font-semibold text-muted">主要風險</p>

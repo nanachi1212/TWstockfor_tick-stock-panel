@@ -28,7 +28,6 @@ from typing import Any, Literal
 from pydantic import BaseModel, Field
 
 from app.taiwan.benchmark_store import TaiwanBenchmarkStore
-from app.taiwan.shareholding_store import TaiwanShareholdingStore
 from app.taiwan.daily_refresh import TaiwanDailyRefreshService
 from app.taiwan.daily_store import TaiwanDailyStore
 from app.taiwan.institutional_margin_refresh import (
@@ -39,12 +38,15 @@ from app.taiwan.institutional_store import TaiwanInstitutionalStore
 from app.taiwan.margin_store import TaiwanMarginStore
 from app.taiwan.observed_universe import ObservedUniverseStore, is_potential_market_session
 from app.taiwan.realtime.calendar import TAIPEI_TZ, TaiwanTradingCalendar, taipei_now
+from app.taiwan.shareholding_store import TaiwanShareholdingStore
 
 logger = logging.getLogger(__name__)
 
 # Post-close cutoff when official post-market data is expected to be published
 DEFAULT_POST_CLOSE_HOUR = 16
 DEFAULT_POST_CLOSE_MINUTE = 0
+# Missed sessions older than this are left to scripts/taiwan_historical_backfill.py.
+CENSUS_GAP_MAX_DAYS = 45
 
 UpdateStatus = Literal["success", "partial", "failed", "skipped"]
 
@@ -522,6 +524,7 @@ class TaiwanDailyUpdateService:
                 worker = TaiwanHistoricalBackfillWorker(
                     census_store=self.evidence_store, calendar=self.calendar,
                 )
+            gap = self._fill_census_gap(worker, target)
             exchanges = worker.run_census(target, target, session_budget=1, retry_empty=True)
         except Exception as e:
             logger.warning("Census refresh for %s failed; market data kept: %s", target, e)
@@ -534,7 +537,35 @@ class TaiwanDailyUpdateService:
         )
         if not observed:
             logger.warning("Census for %s is not an observed session after refresh: %s", target, exchanges)
-        return {"status": "success" if observed else "error", "exchanges": exchanges}
+        result = {"status": "success" if observed else "error", "exchanges": exchanges}
+        if gap is not None:
+            result["gap"] = gap
+        return result
+
+    def _fill_census_gap(self, worker: Any, target: date) -> dict[str, Any] | None:
+        """Census for sessions skipped since the last recorded one (days the app was not run).
+
+        Only the target used to be written, so missed days stayed unresolved and blocked
+        every "last N verified sessions" lookup. Empty days found here are settled
+        against the official month tables. No census in the window (fresh install) is
+        left to the historical backfill.
+        """
+        floor = target - timedelta(days=CENSUS_GAP_MAX_DAYS)
+        last = min(
+            max((d for d in self.evidence_store.partition_statuses(exchange) if floor <= d < target),
+                default=None) or floor
+            for exchange in ("TWSE", "TPEX")
+        )
+        start, end = last + timedelta(days=1), target - timedelta(days=1)
+        if last == floor or start > end:
+            return None
+        gap = worker.run_census(start, end, session_budget=CENSUS_GAP_MAX_DAYS)
+        if any(stats.get("empty") for stats in gap.values()):
+            try:
+                worker.verify_trading_days(start=start, end=target)
+            except Exception as e:
+                logger.warning("Trading-day verification for %s..%s failed: %s", start, end, e)
+        return gap
 
     def _record_run(self, result: TaiwanDailyUpdateResult) -> None:
         """Persist the latest attempt so health checks see real updater outcomes."""
