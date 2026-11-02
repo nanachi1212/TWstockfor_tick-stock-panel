@@ -9,6 +9,7 @@ from __future__ import annotations
 import hashlib
 import logging
 import os
+import re
 import shutil
 import tempfile
 import threading
@@ -37,6 +38,64 @@ EXPECTED_SHA256 = "38ef40a43de57f33a135c241b7ba0f6326c4fcb68cee09b7a28472272d439
 DOWNLOAD_URL = f"https://github.com/{GITHUB_REPO}/releases/download/{RELEASE_TAG}/{ASSET_NAME}"
 ASSET_APPROX_SIZE_MB = 57
 DATASET_DATE_RANGE = "2024-01-02 ~ 2026-11-02"
+# Rewritten by .github/workflows/data-bundle.yml after each trading day's bundle is published.
+LATEST_POINTER_URL = f"https://github.com/{GITHUB_REPO}/releases/download/data-latest/data-latest.json"
+# Below this gap the per-session official refresh is quicker than downloading a whole bundle.
+BUNDLE_CATCHUP_MIN_GAP_DAYS = 5
+_SAFE_RELEASE_NAME = re.compile(r"[A-Za-z0-9._-]{1,128}")
+
+
+def resolve_latest_bundle(client: httpx.Client) -> dict[str, str]:
+    """Read the latest-bundle pointer and return {url, sha256, data_as_of}."""
+    pointer = client.get(LATEST_POINTER_URL).raise_for_status().json()
+    tag, asset, sha = pointer["tag"], pointer["asset"], str(pointer["sha256"]).lower()
+    if not (_SAFE_RELEASE_NAME.fullmatch(tag) and _SAFE_RELEASE_NAME.fullmatch(asset)
+            and re.fullmatch(r"[0-9a-f]{64}", sha)):
+        raise ValueError("invalid data-latest pointer")
+    return {
+        "url": f"https://github.com/{GITHUB_REPO}/releases/download/{tag}/{asset}",
+        "sha256": sha,
+        "data_as_of": date.fromisoformat(pointer["data_as_of"]).isoformat(),
+    }
+
+
+def catch_up_from_latest_bundle(store: TaiwanDailyStore | None = None,
+                                client: httpx.Client | None = None) -> dict[str, Any]:
+    """Pull the newest published bundle when local daily data lags it by days.
+
+    Only files missing locally are added (local files are never overwritten), so an empty
+    data dir gets the whole bundle. The regular daily update then fills the rest.
+    """
+    from app.config import settings
+    from app.release_seed import merge_release_seed
+
+    local = (store or TaiwanDailyStore()).latest_date()
+    http = client or httpx.Client(timeout=60, follow_redirects=True)
+    try:
+        latest = resolve_latest_bundle(http)
+        bundle_as_of = date.fromisoformat(latest["data_as_of"])
+        if local is not None and (bundle_as_of - local).days < BUNDLE_CATCHUP_MIN_GAP_DAYS:
+            return {"status": "skipped", "reason": "small_gap", "local": str(local),
+                    "bundle": latest["data_as_of"]}
+        settings.data_dir.mkdir(parents=True, exist_ok=True)
+        temp = settings.data_dir / f".bundle-{uuid.uuid4().hex}.zip"
+        try:
+            hasher = hashlib.sha256()
+            with http.stream("GET", latest["url"]) as resp, temp.open("wb") as out:
+                resp.raise_for_status()
+                for chunk in resp.iter_bytes(1024 * 1024):
+                    hasher.update(chunk)
+                    out.write(chunk)
+            if hasher.hexdigest() != latest["sha256"]:
+                raise ValueError("data bundle SHA256 mismatch")
+            added = merge_release_seed(temp, settings.data_dir)
+        finally:
+            temp.unlink(missing_ok=True)
+    finally:
+        if client is None:
+            http.close()
+    return {"status": "merged", "local": str(local) if local else None,
+            "bundle": latest["data_as_of"], "files_added": added}
 
 
 class TaiwanHistoryStatus(BaseModel):

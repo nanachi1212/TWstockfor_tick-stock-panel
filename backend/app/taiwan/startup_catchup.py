@@ -59,6 +59,18 @@ def needs_catchup() -> tuple[bool, str]:
 def _run(app_state: Any) -> None:
     from app.jobs import daily_pipeline
 
+    # 落後好幾天時, 先下載 GitHub 上每天自動發布的資料包, 比逐日向交易所補快很多。
+    try:
+        from app.taiwan.bootstrap import catch_up_from_latest_bundle
+
+        _LAST["bundle"] = catch_up_from_latest_bundle()
+        logger.info("startup bundle catch-up: %s", _LAST["bundle"])
+        if _LAST["bundle"].get("files_added"):
+            daily_pipeline.notify_daily_data_updated(app_state)
+    except Exception as exc:
+        _LAST["bundle"] = {"status": "error", "reason": type(exc).__name__}
+        logger.warning("startup bundle catch-up failed: %s", exc)
+
     try:
         need, reason = needs_catchup()
         if not need:
