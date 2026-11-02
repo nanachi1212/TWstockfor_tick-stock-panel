@@ -27,14 +27,14 @@ export function BeginnerPicks() {
         {data && (
           <>
             <MarketSummaryCard market={data.market} />
-            <p className="text-[11px] text-muted">{STRENGTH_DISCLAIMER} {data.disclaimer}</p>
+            <p className="text-xs text-muted">{STRENGTH_DISCLAIMER} {data.disclaimer}</p>
             {data.items.length === 0 ? (
               <EmptyPicks gaps={data.data_gaps} />
             ) : (
               <EntryRadarBoard items={data.items} />
             )}
             <NotSelectedList items={data.not_selected} />
-            <p className="text-[11px] text-muted">
+            <p className="text-xs text-muted">
               規則版本 {data.selection_version} / {data.version}｜候選池：成交金額前 {data.universe_count} 檔普通股，通過資料檢查 {data.eligible_count} 檔
               {data.market_session === 'open' ? '｜盤中每 30 秒更新' : '｜非盤中，每 5 分鐘更新'}
               {data.data_gaps.length > 0 && `｜資料缺口：${data.data_gaps.join('、')}`}

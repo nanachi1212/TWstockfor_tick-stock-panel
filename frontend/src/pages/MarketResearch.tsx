@@ -10,7 +10,8 @@ import { MarketHeatmap } from '@/components/MarketHeatmap'
 import { PatternScanTab } from '@/components/PatternScanTab'
 import { api } from '@/lib/api'
 import { QK } from '@/lib/queryKeys'
-import { useTheme } from '@/lib/theme'
+import { useChartTheme } from '@/lib/theme'
+import { RADIX } from '@/lib/radix'
 import {
   INVESTOR_LABELS, MARKET_RESEARCH_TABS, rotationPoints,
   type Investor, type ResearchMetric, type InstitutionalWindow,
@@ -25,8 +26,8 @@ export function Metric({ metric, percent = false, signed = false }: { metric: Re
   const coverage = metric.coverage
   return <div className="tabular-nums">
     <div className={value != null && signed ? (value > 0 ? 'text-bull' : value < 0 ? 'text-bear' : '') : ''}>{display}</div>
-    <details className="text-[10px] text-muted font-normal">
-      <summary className="cursor-pointer md:whitespace-nowrap">{STATUS_LABELS[metric.status]} · {coverage.coverage_days}/{coverage.expected_days} 日</summary>
+    <details className="text-xs text-muted font-normal">
+      <summary className="cursor-pointer md:whitespace-nowrap">{STATUS_LABELS[metric.status]}，{coverage.coverage_days}/{coverage.expected_days} 日</summary>
       <div className="min-w-40 py-1 whitespace-normal">
         <div>來源：{metric.source.join('、') || '未取得'}</div>
         <div>資料截至：{metric.as_of || '未取得'}（目標 {metric.date}）</div>
@@ -50,8 +51,8 @@ function InstitutionalTable({ rows, investor, unit }: { rows: InstitutionalStati
           <td className="p-3">{row.symbol.includes('.') ? <Link className="text-accent" to={`/stocks/${encodeURIComponent(row.symbol)}`}>{row.symbol} {row.name}</Link> : row.symbol === 'ALL' ? '上市＋上櫃' : row.symbol === 'TWSE' ? '上市' : '上櫃'}</td>
           <td className="p-3 text-right"><Metric metric={unit === 'shares' ? stats.net_shares : stats.net_lots} signed /></td>
           <td className="hidden p-3 text-right md:table-cell"><Metric metric={stats.net_volume_ratio} percent signed /></td>
-          <td className="p-3 text-right"><Metric metric={stats.buy_streak} />{stats.streak_capped && stats.buy_streak.value !== 0 && <span className="text-[10px] text-muted">至少，達窗口上限</span>}</td>
-          <td className="p-3 text-right"><Metric metric={stats.sell_streak} />{stats.streak_capped && stats.sell_streak.value !== 0 && <span className="text-[10px] text-muted">至少，達窗口上限</span>}</td>
+          <td className="p-3 text-right"><Metric metric={stats.buy_streak} />{stats.streak_capped && stats.buy_streak.value !== 0 && <span className="text-xs text-muted">至少，達窗口上限</span>}</td>
+          <td className="p-3 text-right"><Metric metric={stats.sell_streak} />{stats.streak_capped && stats.sell_streak.value !== 0 && <span className="text-xs text-muted">至少，達窗口上限</span>}</td>
         </tr>
       })}</tbody>
     </table>
@@ -60,16 +61,16 @@ function InstitutionalTable({ rows, investor, unit }: { rows: InstitutionalStati
 }
 
 function Rotation({ rows }: { rows: IndustryRotationRow[] }) {
-  const theme = useTheme()
+  const chart = useChartTheme()
   const points = rotationPoints(rows)
-  const textColor = theme === 'dark' ? '#a1a1aa' : '#52525b'
+  const textColor = chart.text
   const option = {
     animation: false, backgroundColor: 'transparent', textStyle: { color: textColor },
     grid: { left: 65, right: 25, top: 40, bottom: 65 },
     tooltip: { trigger: 'item', formatter: (point: { name: string; value: number[] }) => `${point.name}\n20D RS ${point.value[0].toFixed(2)}%\n占比變化 ${point.value[1].toFixed(2)} pp`, renderMode: 'richText' },
     xAxis: { type: 'value', name: '20D RS（%）', nameLocation: 'middle', nameGap: 32, min: (v: { min: number }) => Math.min(-0.5, v.min * 1.15), max: (v: { max: number }) => Math.max(0.5, v.max * 1.15), axisLabel: { color: textColor, formatter: (v: number) => v.toFixed(1) } },
     yAxis: { type: 'value', name: '成交值占比變化（pp）', min: (v: { min: number }) => Math.min(-0.5, v.min * 1.15), max: (v: { max: number }) => Math.max(0.5, v.max * 1.15), axisLabel: { color: textColor, formatter: (v: number) => v.toFixed(1) } },
-    series: [{ type: 'scatter', symbolSize: 14, data: points, itemStyle: { color: '#8b5cf6' }, label: { show: true, formatter: '{b}', position: 'top', color: textColor }, markLine: { silent: true, symbol: 'none', label: { show: false }, lineStyle: { color: textColor }, data: [{ xAxis: 0 }, { yAxis: 0 }] } }],
+    series: [{ type: 'scatter', symbolSize: 14, data: points, itemStyle: { color: RADIX.brand }, label: { show: true, formatter: '{b}', position: 'top', color: textColor }, markLine: { silent: true, symbol: 'none', label: { show: false }, lineStyle: { color: textColor }, data: [{ xAxis: 0 }, { yAxis: 0 }] } }],
   }
   return <div className="space-y-4">
     <p className="text-xs text-muted leading-relaxed">RS＝產業等權報酬－全市場股票等權報酬，採原始收盤價，未排除除權息影響。成交值占比採每日產業成交值／全市場股票成交值，20D 為每日占比的算術平均；變化＝當日占比－20D 平均（百分點）。ETF 不納入產業輪動。</p>
@@ -117,9 +118,9 @@ export function MarketResearch() {
   const query = tab.id === 'rotation' ? rotation : tab.id === 'heatmap' ? heatmap : tab.id === 'groups' ? groups : tab.id === 'patterns' ? patterns : institutional
   const inputClass = 'rounded-md border border-border bg-surface px-3 py-2 text-sm'
   return <div className="p-4 md:p-6 space-y-5 text-foreground">
-    <div><h1 className="text-xl font-semibold">大盤研究</h1><p className="mt-1 text-sm text-muted">法人籌碼、產業輪動、資金熱浪、族群排名、大盤寬度、估值、籌碼排行、大戶集中度與型態選股</p></div>
+    <div><h1 className="text-lg font-semibold">大盤研究</h1><p className="mt-1 text-sm text-muted">法人籌碼、產業輪動、資金熱浪、族群排名、大盤寬度、估值、籌碼排行、大戶集中度與型態選股</p></div>
     <div role="tablist" aria-label="大盤研究" className="flex flex-wrap gap-2 border-b border-border pb-3">
-      {MARKET_RESEARCH_TABS.map(t => <button key={t.id} role="tab" aria-selected={tab.id === t.id} onClick={() => update('tab', t.id)} className={`rounded-md px-3 py-2 text-sm ${tab.id === t.id ? 'bg-accent/15 text-accent' : 'text-secondary hover:bg-elevated'}`}>{t.label}{!t.enabled && <span className="ml-1 text-[10px] text-muted">規劃中</span>}</button>)}
+      {MARKET_RESEARCH_TABS.map(t => <button key={t.id} role="tab" aria-selected={tab.id === t.id} onClick={() => update('tab', t.id)} className={`rounded-md px-3 py-2 text-sm ${tab.id === t.id ? 'bg-accent/15 text-accent' : 'text-secondary hover:bg-elevated'}`}>{t.label}{!t.enabled && <span className="ml-1 text-xs text-muted">規劃中</span>}</button>)}
     </div>
     <div role="tabpanel" aria-label={tab.label} className="space-y-4">
       {tab.id === 'chips' ? <ChipRankingTab /> : tab.id === 'big-holders' ? <BigHolderRankingTab /> : tab.id === 'breadth' || tab.id === 'valuation' ? <>

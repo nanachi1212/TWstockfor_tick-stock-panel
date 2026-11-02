@@ -156,7 +156,7 @@ function buildSingleText(a: AlertEvent): string {
     return parts.join(' ')
   }
 
-  // 價格/異動/其他: message 是條件摘要 (如 "現價 ≥ 100 · 漲幅 5%")
+  // 價格/異動/其他: message 是條件摘要 (如 "現價 ≥ 100，漲幅 5%")
   const parts = [name]
   if (a.message) parts.push(a.message)
   if (pctText) parts.push(pctText)

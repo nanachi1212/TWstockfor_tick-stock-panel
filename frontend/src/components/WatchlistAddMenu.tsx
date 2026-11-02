@@ -182,9 +182,9 @@ export function WatchlistGroupMenu({
           data-watchlist-group-menu
           onKeyDown={handleMenuKeyDown}
           style={{ position: 'fixed', top: position.top, left: position.left }}
-          className="z-[10000] w-56 overflow-hidden rounded-card border border-border bg-surface p-1.5 shadow-[0_10px_32px_rgba(0,0,0,0.42)]"
+          className="z-[10000] w-56 overflow-hidden rounded-card border border-border bg-surface p-1.5 "
         >
-          <div className="px-2 pb-1.5 pt-1 text-[10px] font-medium text-muted">{menuLabel}</div>
+          <div className="px-2 pb-1.5 pt-1 text-xs font-medium text-muted">{menuLabel}</div>
           {groupsQuery.isPending ? (
             <div className="flex h-16 items-center justify-center text-muted">
               <LoaderCircle className="h-4 w-4 animate-spin" />
@@ -211,7 +211,7 @@ export function WatchlistGroupMenu({
                   >
                     <List className="h-3.5 w-3.5 shrink-0 text-accent" />
                     <span className="min-w-0 flex-1 truncate">全部自選</span>
-                    {showCounts && <span className="font-mono text-[10px] tabular-nums text-muted">{total}</span>}
+                    {showCounts && <span className="font-mono text-xs tabular-nums text-muted">{total}</span>}
                   </button>
                   <div className="my-1 border-t border-border/70" />
                 </>
@@ -225,7 +225,7 @@ export function WatchlistGroupMenu({
               >
                 <Inbox className="h-3.5 w-3.5 shrink-0 text-muted" />
                 <span className="min-w-0 flex-1 truncate">未分組</span>
-                {showCounts && <span className="font-mono text-[10px] tabular-nums text-muted">{ungroupedCount}</span>}
+                {showCounts && <span className="font-mono text-xs tabular-nums text-muted">{ungroupedCount}</span>}
                 {showPreferred && preferredGroupId == null && (
                   <Check className="h-3.5 w-3.5 shrink-0 text-accent" aria-label="目前分組" />
                 )}
@@ -240,12 +240,12 @@ export function WatchlistGroupMenu({
                     role="menuitem"
                     onClick={() => choose(group.id)}
                     disabled={disableEmpty && (counts?.[group.id] ?? 0) === 0}
-                    className={`${menuItemClass} border-l-2 ${color.border}`}
+                    className={menuItemClass}
                     title={group.name}
                   >
                     <Folder className={`h-3.5 w-3.5 shrink-0 ${color.text}`} />
                     <span className="min-w-0 flex-1 truncate">{group.name}</span>
-                    {showCounts && <span className="font-mono text-[10px] tabular-nums text-muted">{counts[group.id] ?? 0}</span>}
+                    {showCounts && <span className="font-mono text-xs tabular-nums text-muted">{counts[group.id] ?? 0}</span>}
                     {showPreferred && preferredGroupId === group.id && (
                       <Check className={`h-3.5 w-3.5 shrink-0 ${color.text}`} aria-label="目前分組" />
                     )}

@@ -44,7 +44,7 @@ function ResearchWorkflow({ record }: { record: TaiwanAIResearchHistoryRecord })
       ? `${typeof quant.session === 'string' ? quant.session : '日期未記錄'}，排名 ${typeof quant.rank === 'number' ? quant.rank : '未記錄'}`
       : quant.status === 'available' ? '未入選' : '資料不可用或未記錄'}</p>
     <p>當時持股：{typeof portfolio.shares === 'number' && Number.isFinite(portfolio.shares) ? `${portfolio.shares.toLocaleString()} 股` : '未記錄，不能視為零持股'}</p>
-    <p>來源提醒：{typeof alert.alert_id === 'string' ? alert.alert_id : '未記錄'}{typeof alert.triggered_at === 'string' ? ` · ${alert.triggered_at}` : ''}{typeof alert.message === 'string' ? ` · ${alert.message}` : ''}</p>
+    <p>來源提醒：{typeof alert.alert_id === 'string' ? alert.alert_id : '未記錄'}{typeof alert.triggered_at === 'string' ? `，${alert.triggered_at}` : ''}{typeof alert.message === 'string' ? `，${alert.message}` : ''}</p>
     <nav aria-label="研究後續操作" className="flex flex-wrap gap-3 text-accent">
       {stock && <><Link to={stock}>個股資料</Link><Link to={`${stock}#portfolio`}>檢視／登錄持股</Link><Link to={`${stock}#monitor`}>檢視／設定提醒</Link></>}
       {snapshotLink ? <Link to={snapshotLink}>原候選快照與事後追蹤</Link> : <span className="text-muted">未記錄完整候選來源，無法連到原快照</span>}
@@ -86,8 +86,8 @@ function ObsList({ title, items, tone }: { title: string; items: unknown; tone: 
 
 function ReportView({ value }: { value: unknown }) {
   const r = asReport(value)
-  const raw = <details className="mt-3"><summary className="cursor-pointer text-[10px] text-muted">原始資料（給工程師看）</summary><pre className="mt-2 max-h-80 overflow-auto whitespace-pre-wrap text-[10px] leading-relaxed text-secondary">{printable(value)}</pre></details>
-  if (!r) return <pre className="mt-2 max-h-[28rem] overflow-auto whitespace-pre-wrap text-[11px] leading-relaxed text-secondary">{printable(value)}</pre>
+  const raw = <details className="mt-3"><summary className="cursor-pointer text-xs text-muted">原始資料（給工程師看）</summary><pre className="mt-2 max-h-80 overflow-auto whitespace-pre-wrap text-xs leading-relaxed text-secondary">{printable(value)}</pre></details>
+  if (!r) return <pre className="mt-2 max-h-[28rem] overflow-auto whitespace-pre-wrap text-xs leading-relaxed text-secondary">{printable(value)}</pre>
   const beginner = (r.beginner_answer ?? {}) as Record<string, string>
   const missing = Array.isArray(r.missing_information) ? r.missing_information as string[] : []
   return (
@@ -98,8 +98,8 @@ function ReportView({ value }: { value: unknown }) {
       <ObsList title="風險" items={r.risk_factors} tone="text-amber-400" />
       <ObsList title="接下來要看" items={r.watch_next} tone="text-purple-300" />
       <div className="space-y-1.5">{SECTION_LABELS.filter(([k]) => typeof r[k] === 'string' && r[k]).map(([k, label]) => <p key={k} className="leading-relaxed"><span className="font-semibold text-muted">{label}：</span>{String(r[k])}</p>)}</div>
-      {missing.length > 0 && <p className="text-[10px] text-muted">資料缺口：{missing.join('；')}</p>}
-      {typeof r.disclaimer === 'string' && <p className="text-[10px] text-muted">{r.disclaimer}</p>}
+      {missing.length > 0 && <p className="text-xs text-muted">資料缺口：{missing.join('；')}</p>}
+      {typeof r.disclaimer === 'string' && <p className="text-xs text-muted">{r.disclaimer}</p>}
       {raw}
     </div>
   )
@@ -177,12 +177,12 @@ export function Research() {
             {records.map(record => (
               <div key={record.id} className={`rounded-lg border p-2 text-xs ${selected?.id === record.id ? 'border-accent bg-accent/5' : 'border-border/60'}`}>
                 <button type="button" onClick={() => selectRecord(record.id)} className="w-full text-left">
-                  <div className="flex items-center justify-between gap-2"><span className="font-mono font-semibold">{record.symbol ?? '標的未提供'}</span><span className="text-[10px] text-muted">{record.saved_at ?? record.generated_at ?? '時間未提供'}</span></div>
-                  <div className="mt-1 text-[10px] text-muted">{record.provider ?? 'provider 未提供'} · {record.model ?? 'model 未提供'} · {researchPromptVersion(record) ?? '提示詞版本未提供'}</div>
+                  <div className="flex items-center justify-between gap-2"><span className="font-mono font-semibold">{record.symbol ?? '標的未提供'}</span><span className="text-xs text-muted">{record.saved_at ?? record.generated_at ?? '時間未提供'}</span></div>
+                  <div className="mt-1 text-xs text-muted">{record.provider ?? 'provider 未提供'}，{record.model ?? 'model 未提供'}，{researchPromptVersion(record) ?? '提示詞版本未提供'}</div>
                 </button>
                 <div className="mt-1 flex flex-wrap gap-1">
-                  <button type="button" onClick={() => setFilters({ compare: record.id, ...(firstCompareId === record.id ? { other: '' } : {}) })} className="inline-flex items-center gap-1 text-[10px] text-purple-300 hover:underline"><GitCompareArrows className="h-3 w-3" />選為比較 A</button>
-                  <button type="button" onClick={() => setFilters({ other: record.id, ...(secondCompareId === record.id ? { compare: '' } : {}) })} className="inline-flex items-center gap-1 text-[10px] text-purple-300 hover:underline"><GitCompareArrows className="h-3 w-3" />選為比較 B</button>
+                  <button type="button" onClick={() => setFilters({ compare: record.id, ...(firstCompareId === record.id ? { other: '' } : {}) })} className="inline-flex items-center gap-1 text-xs text-purple-300 hover:underline"><GitCompareArrows className="h-3 w-3" />選為比較 A</button>
+                  <button type="button" onClick={() => setFilters({ other: record.id, ...(secondCompareId === record.id ? { compare: '' } : {}) })} className="inline-flex items-center gap-1 text-xs text-purple-300 hover:underline"><GitCompareArrows className="h-3 w-3" />選為比較 B</button>
                 </div>
               </div>
             ))}
@@ -190,9 +190,9 @@ export function Research() {
         </section>
         <section className="space-y-4" aria-label="研究詳情與比較">
           {selectedDetail && <article className="rounded-xl border border-border bg-surface p-4">
-            <div className="flex flex-wrap items-center justify-between gap-2"><h2 className="text-sm font-semibold">研究詳情：{selectedDetail.symbol ?? '未提供標的'}</h2><span className="font-mono text-[10px] text-muted">{selectedDetail.id}</span></div>
-            {detailQuery.isFetching && <p role="status" className="mt-1 text-[10px] text-muted">正在讀取完整紀錄…</p>}
-            <dl className="mt-3 grid grid-cols-2 gap-2 text-[10px] sm:grid-cols-4"><div><dt className="text-muted">Provider</dt><dd>{selectedDetail.provider ?? '未提供'}</dd></div><div><dt className="text-muted">Model</dt><dd>{selectedDetail.model ?? '未提供'}</dd></div><div><dt className="text-muted">提示詞版本</dt><dd>{researchPromptVersion(selectedDetail) ?? '未提供'}</dd></div><div><dt className="text-muted">儲存時間</dt><dd>{selectedDetail.saved_at ?? selectedDetail.generated_at ?? '未提供'}</dd></div></dl>
+            <div className="flex flex-wrap items-center justify-between gap-2"><h2 className="text-sm font-semibold">研究詳情：{selectedDetail.symbol ?? '未提供標的'}</h2><span className="font-mono text-xs text-muted">{selectedDetail.id}</span></div>
+            {detailQuery.isFetching && <p role="status" className="mt-1 text-xs text-muted">正在讀取完整紀錄…</p>}
+            <dl className="mt-3 grid grid-cols-2 gap-2 text-xs sm:grid-cols-4"><div><dt className="text-muted">Provider</dt><dd>{selectedDetail.provider ?? '未提供'}</dd></div><div><dt className="text-muted">Model</dt><dd>{selectedDetail.model ?? '未提供'}</dd></div><div><dt className="text-muted">提示詞版本</dt><dd>{researchPromptVersion(selectedDetail) ?? '未提供'}</dd></div><div><dt className="text-muted">儲存時間</dt><dd>{selectedDetail.saved_at ?? selectedDetail.generated_at ?? '未提供'}</dd></div></dl>
             <div className="mt-3 rounded-lg border border-border/50 bg-base/30 p-3"><h3 className="text-xs font-semibold">報告</h3><ReportView value={selectedDetail.report ?? selectedDetail.response ?? selectedDetail} /></div>
             <ResearchWorkflow record={selectedDetail} />
           </article>}

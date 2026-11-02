@@ -30,7 +30,7 @@ function PatternRow({ item }: { item: PatternScanItem }) {
   return <tbody className="border-t border-border">
     <tr>
       <td className="p-3"><Link className="text-accent hover:underline" to={`/stocks/${encodeURIComponent(item.symbol)}`}>{item.code} {item.name}</Link>
-        <div className="text-xs text-muted">{item.industry} · 收盤 {price(item.price)}</div></td>
+        <div className="text-xs text-muted">{item.industry}，收盤 {price(item.price)}</div></td>
       <td className="p-3">{p.name}<div className="text-xs text-muted">{p.category}</div></td>
       <td className="p-3"><Status item={item} /></td>
       <td className="p-3 text-right tabular-nums">{p.score}</td>

@@ -1,4 +1,3 @@
-import { motion } from 'framer-motion'
 import {
   RadioTower,
   Square,
@@ -13,6 +12,7 @@ import {
   FileText,
 } from 'lucide-react'
 import { PageHeader } from '@/components/PageHeader'
+import { RADIX } from '@/lib/radix'
 
 interface Variant {
   id: string
@@ -22,7 +22,7 @@ interface Variant {
   icon: React.ComponentType<{ className?: string }>
   iconAccent: string                  // tailwind text color
   nameClass: string                   // 文字本身樣式(字號/字重/字距/字體)
-  glow?: string                       // 名字下方的發光線條 hex
+  accent: string
 }
 
 // 同一個名字 "Nanachi 的台股監控看板" 在 4 種風格語言裡的呈現
@@ -31,42 +31,42 @@ const VARIANTS: Variant[] = [
   {
     id: 'pulsar',
     name: 'Nanachi 的台股監控看板',
-    tagline: 'TAIWAN STOCK · SIGNAL TERMINAL',
-    hint: '脈衝星、雷達波紋 — 青綠強調色,字重黑體,中等字距',
+    tagline: 'TAIWAN STOCK SIGNAL TERMINAL',
+    hint: '高辨識度圖標與穩健字重',
     icon: RadioTower,
-    iconAccent: 'text-[#3DD68C]',
+    iconAccent: 'text-success',
     nameClass: 'font-sans font-black text-base tracking-[0.10em]',
-    glow: '#3DD68C',
+    accent: RADIX.success,
   },
   {
     id: 'vanta',
     name: 'Nanachi 的台股監控看板',
-    tagline: 'MARKET · INTELLIGENCE',
-    hint: 'Vantablack — 純白單色,字重最重,字距最寬,monochrome 高級感',
+    tagline: 'MARKET INTELLIGENCE',
+    hint: '單色圖標與寬字距',
     icon: Square,
-    iconAccent: 'text-[#FAFAFA]',
+    iconAccent: 'text-foreground',
     nameClass: 'font-sans font-black text-base tracking-[0.18em]',
-    glow: '#FAFAFA',
+    accent: RADIX.neutral,
   },
   {
     id: 'helix',
     name: 'Nanachi 的台股監控看板',
-    tagline: 'QUANT · TERMINAL',
-    hint: 'DNA 螺旋 — 紫色強調,等寬字體,賽博朋克經典意象',
+    tagline: 'QUANT TERMINAL',
+    hint: '等寬字體與量化識別色',
     icon: GitFork,
-    iconAccent: 'text-[#8B5CF6]',
+    iconAccent: 'text-ai',
     nameClass: 'font-mono font-bold text-base tracking-[0.08em]',
-    glow: '#8B5CF6',
+    accent: RADIX.brand,
   },
   {
     id: 'aurora',
     name: 'Nanachi 的台股監控看板',
-    tagline: 'TAIWAN STOCK · DASHBOARD',
-    hint: '極光 — 青色強調,細字優雅,適中字距,與漲跌語義色不衝突',
+    tagline: 'TAIWAN STOCK DASHBOARD',
+    hint: '輕字重與清晰資訊層級',
     icon: Sparkles,
-    iconAccent: 'text-[#22D3EE]',
+    iconAccent: 'text-cyan-400',
     nameClass: 'font-sans font-light text-base tracking-[0.12em]',
-    glow: '#22D3EE',
+    accent: RADIX.cyan,
   },
 ]
 
@@ -85,7 +85,7 @@ export function Branding() {
     <>
       <PageHeader
         title="視覺風格預覽"
-        subtitle="名字保持 Nanachi 的台股監控看板,4 種賽博朋克 + 高級感的視覺處理 — 字重、字距、配色、圖標各不同。挑你最喜歡的告訴我。"
+        subtitle="比較品牌標誌與字體配置"
       />
 
       <div className="px-8 py-6">
@@ -95,12 +95,6 @@ export function Branding() {
           ))}
         </div>
 
-        <div className="mt-8 rounded-card border border-border bg-surface p-5 text-sm text-secondary leading-relaxed max-w-2xl">
-          <div className="font-medium text-foreground mb-2">挑哪個?</div>
-          回覆 <code className="font-mono text-accent">pulsar / vanta / helix / aurora</code> 任一,
-          我把該風格的字體、配色、圖標、發光效果應用到真實側欄。
-          也可以告訴我你想微調哪裡(比如"用 VANTA 但換青色"),都行。
-        </div>
       </div>
     </>
   )
@@ -110,41 +104,25 @@ function Sample({ v }: { v: Variant }) {
   const Icon = v.icon
 
   return (
-    <motion.div
-      initial={{ opacity: 0, y: 8 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.3, ease: [0.16, 1, 0.3, 1] }}
-      className="rounded-card border border-border overflow-hidden bg-base flex"
-    >
+    <div className="flex overflow-hidden rounded-card border border-border bg-base">
       {/* 模擬側邊欄 */}
       <div className="w-56 bg-surface border-r border-border flex flex-col">
         {/* Logo 區 */}
         <div className="px-5 py-5 border-b border-border">
           <div className="flex items-center gap-2.5">
-            <div
-              className="grid place-items-center h-7 w-7 rounded-md"
-              style={{
-                background: `${v.glow}1a`,
-                boxShadow: `0 0 12px ${v.glow}33`,
-              }}
-            >
+            <div className="grid h-7 w-7 place-items-center rounded-md bg-elevated">
               <Icon className={`h-4 w-4 ${v.iconAccent}`} />
             </div>
             <div className={`${v.nameClass} text-foreground leading-none`}>
               {v.name}
             </div>
           </div>
-          <div className="mt-2 text-[10px] uppercase tracking-[0.18em] text-secondary">
+          <div className="mt-2 text-xs uppercase tracking-[0.18em] text-secondary">
             {v.tagline}
           </div>
-          <div
-            className="mt-3 h-px"
-            style={{
-              background: `linear-gradient(90deg, ${v.glow}66, transparent)`,
-            }}
-          />
+          <div className="mt-3 border-t border-border" />
           <div className="mt-2 text-xs text-secondary">
-            檔位 · <span className="text-foreground font-medium font-mono">Pro</span>
+            檔位，<span className="text-foreground font-medium font-mono">Pro</span>
           </div>
         </div>
 
@@ -177,15 +155,10 @@ function Sample({ v }: { v: Variant }) {
 
         {/* 大字 wordmark 預覽 */}
         <div className="mt-6 pt-6 border-t border-border">
-          <div
-            className={`${v.nameClass} text-foreground`}
-            style={{
-              textShadow: `0 0 24px ${v.glow}55`,
-            }}
-          >
+          <div className={`${v.nameClass} text-foreground`}>
             {v.name}
           </div>
-          <div className="mt-1.5 text-[10px] uppercase tracking-[0.2em] text-secondary">
+          <div className="mt-1.5 text-xs uppercase tracking-[0.2em] text-secondary">
             {v.tagline}
           </div>
         </div>
@@ -193,11 +166,11 @@ function Sample({ v }: { v: Variant }) {
         {/* 模擬一個數據卡片,看與配色協調度 */}
         <div className="mt-5 rounded-btn bg-surface border border-border px-3 py-2 flex items-baseline justify-between">
           <span className="text-xs text-secondary">2330.TWSE</span>
-          <span className="font-mono text-sm" style={{ color: v.glow }}>
+          <span className="font-mono text-sm" style={{ color: v.accent }}>
             +1.85%
           </span>
         </div>
       </div>
-    </motion.div>
+    </div>
   )
 }

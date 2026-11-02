@@ -74,7 +74,7 @@ describe('beginner comparator', () => {
     expect(within(cards[0]).getByText(/原排名 #2/)).toBeInTheDocument()
     expect(within(cards[1]).getByText(/原排名 #1/)).toBeInTheDocument()
     expect(within(cards[1]).getByText('不宜追價')).toBeInTheDocument()
-    expect(within(cards[2]).getByText('資料不足 · 暫不評價')).toBeInTheDocument()
+    expect(within(cards[2]).getByText('資料不足，暫不評價')).toBeInTheDocument()
     expect(within(cards[2]).queryByText('中性')).not.toBeInTheDocument()
     expect(screen.getByText('市場偏保守，先觀察與等待，不積極追買。')).toBeInTheDocument()
     expect(screen.getAllByText('即時力道不可用')).toHaveLength(3)
@@ -92,7 +92,7 @@ describe('beginner comparator', () => {
     const prices = within(card).getByRole('region', { name: '價格摘要' })
     expect(within(prices).getByText('最後完整收盤')).toBeInTheDocument()
     expect(within(prices).getByText('支撐區內')).toBeInTheDocument()
-    expect(within(prices).getByText('約 1.0% · 近壓力')).toBeInTheDocument()
+    expect(within(prices).getByText('約 1.0%，近壓力')).toBeInTheDocument()
     const details = card.querySelector('details')!
     expect(details.open).toBe(false)
     for (const label of ['MA5', 'MA20', 'MA60', 'ATR14', '量比', '融資增減（股）', '融券增減（股）']) {
@@ -100,7 +100,7 @@ describe('beginner comparator', () => {
     }
     expect(within(details).getByText('營收年增（%）')).toBeInTheDocument()
     expect(within(details).getByText('營收月增（%）')).toBeInTheDocument()
-    expect(within(details).getAllByText(/source: pit_adjusted_daily · as of:/)).toHaveLength(3)
+    expect(within(details).getAllByText(/來源：pit_adjusted_daily，資料截至：/)).toHaveLength(3)
     expect(screen.queryByRole('button', { name: /AI/ })).not.toBeInTheDocument()
   })
 
@@ -194,7 +194,7 @@ describe('beginner comparator', () => {
     const risks = within(card).getByRole('region', { name: '主要風險' })
     failures.forEach(text => expect(within(risks).getAllByText(`• ${text}`)).toHaveLength(1))
     expect(within(risks).getByText('• 現價已接近上方壓力，追價空間有限。')).toBeInTheDocument()
-    expect(within(card).getByText('資料不足 · 暫不評價')).toBeInTheDocument()
+    expect(within(card).getByText('資料不足，暫不評價')).toBeInTheDocument()
     expect(within(card).getByText(/未列入原排名/)).toBeInTheDocument()
   })
 })

@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import * as echarts from 'echarts'
 import type { ECharts, EChartsOption } from 'echarts'
 import type { ForwardBatchTimeline } from '@/lib/api'
+import { RADIX } from '@/lib/radix'
 
 type Metric = 'average_return_pct' | 'hit_rate' | 'average_excess_return_pct'
 type Cohort = 'top10' | 'full_batch'
@@ -41,8 +42,8 @@ export function ForwardPerformanceChart({ timeline = [] }: { timeline?: ForwardB
         smooth: false,
         data: rows.map(row => row.value),
         symbolSize: 7,
-        itemStyle: { color: '#0ea5e9' },
-        lineStyle: { color: '#0ea5e9', width: 2 },
+        itemStyle: { color: RADIX.accent },
+        lineStyle: { color: RADIX.accent, width: 2 },
       }],
     }
     chart.setOption(option)
@@ -73,7 +74,7 @@ export function ForwardPerformanceChart({ timeline = [] }: { timeline?: ForwardB
         </div>
       </div>
       {rows.length ? <div ref={chartRef} className="mt-3 h-64 w-full" /> : <p className="mt-6 text-center text-xs text-muted-foreground">尚無正式批次，累積資料後會顯示趨勢。</p>}
-      {rows.length > 0 && <p className="mt-2 text-[11px] text-muted-foreground">目前圖表顯示 1D，統計明細另分 1D / 5D / 20D；空值代表尚未成熟或不可評估。</p>}
+      {rows.length > 0 && <p className="mt-2 text-xs text-muted-foreground">目前圖表顯示 1D，統計明細另分 1D / 5D / 20D；空值代表尚未成熟或不可評估。</p>}
     </section>
   )
 }

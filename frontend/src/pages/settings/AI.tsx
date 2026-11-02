@@ -223,7 +223,7 @@ export function SettingsAIPanel() {
     try {
       if (canSave) await api.saveAiSettings(payload())
       const r = await api.strategyAiTest()
-      setTestResult({ ok: r.ok, msg: r.ok ? `連線成功 · ${r.model ?? provider}` : (r.error ?? '未知錯誤') })
+      setTestResult({ ok: r.ok, msg: r.ok ? `連線成功，${r.model ?? provider}` : (r.error ?? '未知錯誤') })
     } catch (e: any) {
       setTestResult({ ok: false, msg: String(e?.message ?? '測試失敗') })
     } finally {
@@ -250,7 +250,7 @@ export function SettingsAIPanel() {
             <div className="text-sm font-medium text-foreground">{configured ? 'AI 已連線' : 'AI 未設定'}</div>
             <div className="text-xs text-muted mt-0.5 truncate">
               {configured
-                ? [s?.ai_model, s?.ai_api_key_masked].filter(Boolean).join(' · ') || '已儲存 AI 設定'
+                ? [s?.ai_model, s?.ai_api_key_masked].filter(Boolean).join('，') || '已儲存 AI 設定'
                 : '設定 API Key 後即可使用 AI 功能。'}
             </div>
           </div>
@@ -279,7 +279,7 @@ export function SettingsAIPanel() {
           ))}
         </div>
         {selectedPreset && (
-          <div className="mt-3 rounded-btn border border-border/30 bg-base/30 px-3 py-2 text-[11px] leading-relaxed">
+          <div className="mt-3 rounded-btn border border-border/30 bg-base/30 px-3 py-2 text-xs leading-relaxed">
             <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
               <span className="text-secondary">{selectedPreset.description}</span>
             </div>
@@ -298,7 +298,7 @@ export function SettingsAIPanel() {
         icon={Settings2}
         title={configTitle}
         right={
-          <span className="inline-flex items-center gap-1.5 text-[10px] text-muted/60" title="Use OpenAI-compatible Chat Completions API">
+          <span className="inline-flex items-center gap-1.5 text-xs text-muted/60" title="Use OpenAI-compatible Chat Completions API">
             <span className="rounded-full border border-border/40 bg-base/50 px-1.5 py-px font-mono">Chat Completions</span>
             介面
           </span>
@@ -306,7 +306,7 @@ export function SettingsAIPanel() {
       >
         <div className="space-y-4">
           {hasProfiles && (
-            <div className="rounded-lg border border-accent/20 bg-accent/[0.04] px-3 py-2 text-[11px] text-secondary">
+            <div className="rounded-lg border border-accent/20 bg-accent/[0.04] px-3 py-2 text-xs text-secondary">
               端點、模型與 API Key 請在上方 AI Key Profiles 編輯；此區只管理所有 Profile 共用的生成設定。
             </div>
           )}
@@ -323,7 +323,7 @@ export function SettingsAIPanel() {
           {isOpenAIProvider && (
             <div className="rounded-lg border border-accent/15 bg-accent/[0.03] p-3">
               <div className="mb-2.5">
-                <span className="rounded-full bg-accent/10 px-2 py-0.5 text-[10px] font-medium text-accent">OpenAI 專屬</span>
+                <span className="rounded-full bg-accent/10 px-2 py-0.5 text-xs font-medium text-accent">OpenAI 專屬</span>
               </div>
               <div className="max-w-xs">
                 <Field label="推理強度">
@@ -336,7 +336,7 @@ export function SettingsAIPanel() {
           <Field label="API Key">
             <div className="flex gap-2">
               <div className="flex-1 relative">
-                <input type={showKey ? 'text' : 'password'} value={apiKey} onChange={e => setApiKey(e.target.value)} placeholder={configured ? `${s?.ai_api_key_masked} · 留空不修改` : 'sk-...'} className={`${INPUT_CLS} pr-9`} />
+                <input type={showKey ? 'text' : 'password'} value={apiKey} onChange={e => setApiKey(e.target.value)} placeholder={configured ? `${s?.ai_api_key_masked}，留空不修改` : 'sk-...'} className={`${INPUT_CLS} pr-9`} />
                 <button onClick={() => setShowKey(v => !v)} className="absolute right-2 top-1/2 -translate-y-1/2 text-muted/40 hover:text-muted" tabIndex={-1} aria-label={showKey ? '隱藏' : '顯示'}>
                   {showKey ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
                 </button>
@@ -388,7 +388,7 @@ export function SettingsAIPanel() {
 
       <div className="rounded-card border border-amber-400/20 bg-amber-400/[0.04] px-4 py-3 flex items-start gap-3">
         <Shield className="h-4 w-4 text-amber-400/70 mt-0.5 shrink-0" />
-        <div className="text-[11px] text-amber-400/70 leading-relaxed">
+        <div className="text-xs text-amber-400/70 leading-relaxed">
           API Key 僅儲存在本機後端，前端只接收遮罩值，不會顯示原始憑證。
         </div>
       </div>
@@ -452,13 +452,13 @@ function AiQuickEnableCard() {
     <div className="rounded-card border border-accent/40 bg-accent/5 px-4 py-3 flex flex-wrap items-center gap-3" aria-label="一鍵開啟 AI 自動功能">
       <div className="min-w-0 flex-1">
         <p className="text-sm font-medium text-foreground">AI 已可用，建議開啟兩個自動功能</p>
-        <p className="text-[11px] text-muted">盤後自動為今日選股產生白話說明；提醒觸發後附上 AI 解讀。都只在背景補充說明，不影響規則與提醒本身。</p>
+        <p className="text-xs text-muted">盤後自動為今日選股產生白話說明；提醒觸發後附上 AI 解讀。都只在背景補充說明，不影響規則與提醒本身。</p>
       </div>
       <button type="button" disabled={enableAll.isPending} onClick={() => enableAll.mutate()}
         className="inline-flex min-h-8 items-center rounded-btn bg-accent px-3 text-xs font-medium text-base disabled:opacity-50">
         {enableAll.isPending ? '開啟中…' : '一鍵開啟'}
       </button>
-      {enableAll.isError && <p role="alert" className="text-[11px] text-danger">{enableAll.error?.message || '開啟失敗，請稍後再試。'}</p>}
+      {enableAll.isError && <p role="alert" className="text-xs text-danger">{enableAll.error?.message || '開啟失敗，請稍後再試。'}</p>}
     </div>
   )
 }
@@ -471,15 +471,15 @@ function AiFeedbackSummaryCard() {
     <div className="rounded-card border border-border bg-surface/60 px-4 py-3 space-y-1.5" aria-label="AI 說明回饋統計">
       <p className="text-sm font-medium text-foreground">AI 說明準不準（你的回饋）</p>
       {!data || data.total === 0 ? (
-        <p className="text-[11px] text-muted">還沒有回饋。到「今日選股」卡片展開 AI 白話說明，按「準」或「不準」就會累積到這裡。</p>
+        <p className="text-xs text-muted">還沒有回饋。到「今日選股」卡片展開 AI 白話說明，按「準」或「不準」就會累積到這裡。</p>
       ) : (
         <>
-          <p className="text-[11px] text-muted">共 {data.total} 次回饋，{Math.round((data.helpful_ratio ?? 0) * 100)}% 覺得準。</p>
-          <ul className="space-y-0.5 text-[11px]">
+          <p className="text-xs text-muted">共 {data.total} 次回饋，{Math.round((data.helpful_ratio ?? 0) * 100)}% 覺得準。</p>
+          <ul className="space-y-0.5 text-xs">
             {data.models.map(m => (
               <li key={m.model} className="flex items-center justify-between gap-2">
                 <span className="truncate font-mono text-foreground">{m.model}</span>
-                <span className="shrink-0 text-muted">準 {m.helpful}・不準 {m.not_helpful}{m.helpful_ratio != null && `・${Math.round(m.helpful_ratio * 100)}%`}</span>
+                <span className="shrink-0 text-muted">準 {m.helpful}，不準 {m.not_helpful}{m.helpful_ratio != null && `，${Math.round(m.helpful_ratio * 100)}%`}</span>
               </li>
             ))}
           </ul>
@@ -501,11 +501,11 @@ function EventAiExplainCard() {
       <div className="flex items-center justify-between gap-3">
         <div className="min-w-0">
           <p className="text-sm font-medium text-foreground">提醒觸發後附上 AI 解讀</p>
-          <p className="text-[11px] text-muted">自動監控的承接／突破／失效提醒會先照原樣送出；開啟後，AI 另外補一則「發生什麼、為什麼重要、接下來看什麼」，送到同樣的通道。AI 不可用時只是不補，不影響原本提醒。</p>
+          <p className="text-xs text-muted">自動監控的承接／突破／失效提醒會先照原樣送出；開啟後，AI 另外補一則「發生什麼、為什麼重要、接下來看什麼」，送到同樣的通道。AI 不可用時只是不補，不影響原本提醒。</p>
         </div>
         <Toggle checked={enabled} onChange={() => !toggle.isPending && toggle.mutate()} />
       </div>
-      {toggle.isError && <p role="alert" className="text-[11px] text-danger">儲存失敗，請稍後再試。</p>}
+      {toggle.isError && <p role="alert" className="text-xs text-danger">儲存失敗，請稍後再試。</p>}
     </div>
   )
 }
@@ -525,16 +525,16 @@ function AutoAdviceReflectionCard() {
       <div className="flex items-center justify-between gap-3">
         <div className="min-w-0">
           <p className="text-sm font-medium text-foreground">盤後自動寫 AI 反省</p>
-          <p className="text-[11px] text-muted">你產生過的「可依計畫進場」Advice，在交易計畫結束（停損、停利或到期）後，AI 會寫一段檢討和一條教訓；下次同一策略的 Advice 會讀到這些教訓。關閉時結算結果照常記錄，只是不寫檢討。</p>
+          <p className="text-xs text-muted">你產生過的「可依計畫進場」Advice，在交易計畫結束（停損、停利或到期）後，AI 會寫一段檢討和一條教訓；下次同一策略的 Advice 會讀到這些教訓。關閉時結算結果照常記錄，只是不寫檢討。</p>
         </div>
         <Toggle checked={enabled} onChange={() => !toggle.isPending && toggle.mutate()} />
       </div>
-      <p role="note" className="text-[11px] text-warning">
+      <p role="note" className="text-xs text-warning">
         注意：開啟後 AI 會在盤後自動執行，不需要你按按鈕。每個結束的計畫呼叫 1 次、每天最多 10 次；雲端 AI 會計費或佔用訂閱額度。反省是事後解讀，不是績效保證，也不會改變策略規則與價位。
       </p>
-      {toggle.isError && <p role="alert" className="text-[11px] text-danger">儲存失敗，請稍後再試。</p>}
+      {toggle.isError && <p role="alert" className="text-xs text-danger">儲存失敗，請稍後再試。</p>}
       {last && (
-        <p className="text-[11px] text-muted">
+        <p className="text-xs text-muted">
           {last.status === 'settled_only'
             ? `上次執行（${last.ran_at}）：${last.due ?? 0} 個計畫已結算，${last.reason === 'disabled' ? '開關關閉' : 'AI 未設定'}，未寫反省。`
             : `上次執行（${last.ran_at}）：待反省 ${last.due ?? 0} 個、寫成 ${last.reflected?.length ?? 0} 個、失敗 ${failed.length} 個（隔天自動重試）。`}
@@ -559,13 +559,13 @@ function AutoAiExplainCard() {
       <div className="flex items-center justify-between gap-3">
         <div className="min-w-0">
           <p className="text-sm font-medium text-foreground">盤後自動產生 AI 說明</p>
-          <p className="text-[11px] text-muted">每日資料更新完成後，自動為今日選股前 5 檔產生 AI 白話說明並保存；同一份資料不重複產生。需要本機或雲端 AI 已可用，後端沒開時不會執行。</p>
+          <p className="text-xs text-muted">每日資料更新完成後，自動為今日選股前 5 檔產生 AI 白話說明並保存；同一份資料不重複產生。需要本機或雲端 AI 已可用，後端沒開時不會執行。</p>
         </div>
         <Toggle checked={enabled} onChange={() => !toggle.isPending && toggle.mutate()} />
       </div>
-      {toggle.isError && <p role="alert" className="text-[11px] text-danger">儲存失敗，請稍後再試。</p>}
+      {toggle.isError && <p role="alert" className="text-xs text-danger">儲存失敗，請稍後再試。</p>}
       {enabled && (
-        <p className="text-[11px] text-muted">
+        <p className="text-xs text-muted">
           {!last ? '尚未執行；下一次資料更新完成後會自動開始。'
             : last.status === 'no_candidates' ? `上次執行（${last.ran_at}）：今日沒有可用候選，未產生。`
             : last.status === 'error' ? `上次執行（${last.ran_at}）失敗：${last.reason ?? '未知錯誤'}。`
@@ -573,7 +573,7 @@ function AutoAiExplainCard() {
         </p>
       )}
       {enabled && failed.length > 0 && (
-        <p className="text-[11px] text-warning">失敗：{failed.map(([sym, why]) => `${sym}（${why}）`).join('、')}。可到今日選股卡片按「AI 白話說明」重試。</p>
+        <p className="text-xs text-warning">失敗：{failed.map(([sym, why]) => `${sym}（${why}）`).join('、')}。可到今日選股卡片按「AI 白話說明」重試。</p>
       )}
     </div>
   )
@@ -615,8 +615,8 @@ function Field({ label, hint, inline, children }: {
     return (
       <div className="flex items-center justify-between gap-3">
         <div>
-          <div className="text-[10px] text-muted/50 uppercase tracking-wider">{label}</div>
-          {hint && <div className="text-[10px] text-muted mt-0.5">{hint}</div>}
+          <div className="text-xs text-muted/50 uppercase tracking-wider">{label}</div>
+          {hint && <div className="text-xs text-muted mt-0.5">{hint}</div>}
         </div>
         {children}
       </div>
@@ -624,9 +624,9 @@ function Field({ label, hint, inline, children }: {
   }
   return (
     <div className="space-y-1.5">
-      <div className="text-[10px] text-muted/50 uppercase tracking-wider">{label}</div>
+      <div className="text-xs text-muted/50 uppercase tracking-wider">{label}</div>
       {children}
-      {hint && <div className="text-[10px] text-muted">{hint}</div>}
+      {hint && <div className="text-xs text-muted">{hint}</div>}
     </div>
   )
 }

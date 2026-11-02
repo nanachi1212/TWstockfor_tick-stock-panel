@@ -310,7 +310,7 @@ describe('TaiwanStockDetail — AI Research', () => {
 
     expect(await screen.findByText('AI 測試摘要')).toBeInTheDocument()
     expect(await screen.findByText('觀察下次已完成交易日資料')).toBeInTheDocument()
-    expect(screen.getByText('本次使用：Custom · model 未提供')).toBeInTheDocument()
+    expect(screen.getByText('本次使用：Custom，model 未提供')).toBeInTheDocument()
     expect(vi.mocked(api.taiwanStockAIResearch)).toHaveBeenCalledWith(
       '2330.TWSE', undefined, expect.objectContaining({ watchlist: { included: false } }),
     )
@@ -349,13 +349,13 @@ describe('TaiwanStockDetail — AI Research', () => {
     await waitFor(() => expect(analyze).toBeEnabled())
     fireEvent.click(analyze)
     expect(await screen.findByText('Provider A 摘要')).toBeInTheDocument()
-    expect(screen.getByText('本次使用：Provider A · model 未提供')).toBeInTheDocument()
+    expect(screen.getByText('本次使用：Provider A，model 未提供')).toBeInTheDocument()
 
     fireEvent.click(screen.getByRole('button', { name: '重新分析' }))
 
     expect(await screen.findByText(/Provider B 暫時無法使用/)).toBeInTheDocument()
     expect(screen.getByText('Provider A 摘要')).toBeInTheDocument()
-    expect(screen.getByText('本次使用：Provider A · model 未提供')).toBeInTheDocument()
+    expect(screen.getByText('本次使用：Provider A，model 未提供')).toBeInTheDocument()
   })
 
   it('sends explicit unavailable Quant status when the live Quant query fails', async () => {

@@ -120,7 +120,7 @@ export function ResearchCompareView({ data, older, newer }: { data: Record<strin
   return (
     <div className="mt-2 space-y-3 text-xs">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <p className="text-muted">{oldLabel} → {newLabel}{config.length ? '・模型或提示詞有變更' : '・模型與提示詞相同'}</p>
+        <p className="text-muted">{oldLabel} → {newLabel}{config.length ? '，模型或提示詞有變更' : '，模型與提示詞相同'}</p>
         <CopyButton size="xs" label="複製給 AI 比較" successLabel="已複製比較" getText={() => aiText} />
       </div>
       {degraded && (
@@ -159,7 +159,7 @@ export function ResearchCompareView({ data, older, newer }: { data: Record<strin
       )}
       <details>
         <summary className="cursor-pointer text-muted">完整欄位差異（除錯用，{evidence.length + report.length + config.length} 項）</summary>
-        <pre className="mt-1 max-h-80 overflow-auto whitespace-pre-wrap text-[10px] text-muted">{JSON.stringify({ evidence, report, config }, null, 2)}</pre>
+        <pre className="mt-1 max-h-80 overflow-auto whitespace-pre-wrap text-xs text-muted">{JSON.stringify({ evidence, report, config }, null, 2)}</pre>
       </details>
     </div>
   )

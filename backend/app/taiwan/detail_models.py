@@ -20,6 +20,8 @@ from typing import Any, List, Optional
 
 from pydantic import BaseModel, Field, model_validator
 
+from app.taiwan.timeframe_verdict import TimeframeVerdict
+
 
 class SectionMeta(BaseModel):
     source: str = Field(..., description="資料來源標識，如 twse:mis, twse:t86, finmind, yahoo")
@@ -251,6 +253,7 @@ class TaiwanStockDetailResponse(BaseModel):
     price_limit: TaiwanStockPriceLimit
     realtime: TaiwanStockRealtime
     daily_history: TaiwanHistoricalDaily
+    timeframe_verdicts: list[TimeframeVerdict] = Field(default_factory=list, description="daily/weekly/monthly rule-based bias verdicts")
     institutional: TaiwanInstitutionalData
     margin: TaiwanMarginData
     factors: TaiwanFactorsData

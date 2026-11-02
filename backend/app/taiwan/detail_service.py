@@ -15,7 +15,9 @@ Orchestrates:
 from __future__ import annotations
 
 import logging
-from datetime import datetime
+from datetime import datetime, timedelta
+
+import polars as pl
 
 from app.taiwan.daily_store import TaiwanDailyStore
 from app.taiwan.detail_models import (
@@ -47,10 +49,15 @@ from app.taiwan.realtime.calendar import TaiwanTradingCalendar, taipei_now
 from app.taiwan.realtime.monitor_engine import get_monitor_engine
 from app.taiwan.realtime.service import get_realtime_service
 from app.taiwan.symbol import TaiwanSymbol, parse_symbol
+from app.taiwan.timeframe_verdict import TimeframeVerdict, build_timeframe_verdicts
 from app.taiwan.universe import get_security_master
 from app.taiwan.universe.models import MarketProfileBridge
 
 logger = logging.getLogger(__name__)
+
+# About three years: covers the 1-year chart and monthly MA20 / weekly MACD warm-up.
+_DAILY_HISTORY_DAYS = 1100
+_DAILY_COLUMNS = ("date", "open", "high", "low", "close", "volume", "amount")
 
 
 class TaiwanStockDetailService:
@@ -140,7 +147,9 @@ class TaiwanStockDetailService:
         realtime_data = self._aggregate_realtime(symbol_str, price_limit)
 
         # 4. Daily Historical K-Line
-        daily_data = self._aggregate_daily(symbol_str, days)
+        daily_history, daily_source = self._load_daily_history(symbol_str)
+        daily_data = self._aggregate_daily(daily_history, daily_source, days)
+        timeframe_verdicts = self._aggregate_timeframe_verdicts(symbol_str, daily_history)
         realtime_data = self._apply_same_session_amount_fallback(realtime_data, daily_data)
 
         # 5. Institutional Investors (Three Major Institutional Flow)
@@ -226,6 +235,7 @@ class TaiwanStockDetailService:
             price_limit=price_limit,
             realtime=realtime_data,
             daily_history=daily_data,
+            timeframe_verdicts=timeframe_verdicts,
             institutional=institutional_data,
             margin=margin_data,
             factors=factors_data,
@@ -310,22 +320,49 @@ class TaiwanStockDetailService:
             meta=SectionMeta(source="realtime_service", status="unavailable", is_stale=False),
         )
 
-    def _aggregate_daily(self, symbol_str: str, days: int) -> TaiwanHistoricalDaily:
-        """Fetch historical daily bars from Hybrid provider."""
+    def _load_daily_history(self, symbol_str: str) -> tuple[pl.DataFrame, str]:
+        """About three years of raw daily bars: persisted store plus newer provider bars.
+
+        Without a start date the provider only returns the current month, so the
+        store supplies the history and the provider only the sessions it lacks.
+        """
+        frames: list[pl.DataFrame] = []
+        sources: list[str] = []
+        last: str | None = None
         try:
-            df = self.hybrid_provider.get_daily([symbol_str])
-            if not df.is_empty():
+            start = taipei_now().date() - timedelta(days=_DAILY_HISTORY_DAYS)
+            stored = self.daily_store.read_range([symbol_str], start, None)
+            if not stored.is_empty():
+                stored = stored.with_columns(pl.col("date").cast(pl.Utf8).str.slice(0, 10))
+                frames.append(stored.select([c for c in _DAILY_COLUMNS if c in stored.columns]))
+                last = stored.get_column("date").max()
+                sources.append("taiwan_daily_store")
+        except Exception as e:
+            logger.warning("Daily store read failed for %s: %s", symbol_str, e)
+        try:
+            provider = self.hybrid_provider.get_daily([symbol_str])
+            if not provider.is_empty():
+                provider = provider.with_columns(pl.col("date").cast(pl.Utf8).str.slice(0, 10))
+                if last is not None:
+                    provider = provider.filter(pl.col("date") > last)
+                if not provider.is_empty():
+                    frames.append(provider.select([c for c in _DAILY_COLUMNS if c in provider.columns]))
+                    sources.append(str(provider.get_column("source")[0]) if "source" in provider.columns else "hybrid_daily")
+        except Exception as e:
+            logger.warning("Daily provider fetch failed for %s: %s", symbol_str, e)
+        if not frames:
+            return pl.DataFrame(), "hybrid_daily"
+        return pl.concat(frames, how="diagonal_relaxed").sort("date"), "+".join(sources)
+
+    def _aggregate_daily(self, history: pl.DataFrame, source: str, days: int) -> TaiwanHistoricalDaily:
+        """Chart rows: the latest *days* bars of the merged daily history."""
+        try:
+            if not history.is_empty():
                 rows: list[TaiwanDailyRow] = []
-                # Sort ascending by date
-                sorted_df = df.sort("date")
-                tail_df = sorted_df.tail(days)
-                for item in tail_df.iter_rows(named=True):
-                    dt_str = str(item.get("date", ""))
-                    if len(dt_str) > 10:
-                        dt_str = dt_str[:10]
+                for item in history.tail(days).iter_rows(named=True):
                     rows.append(
                         TaiwanDailyRow(
-                            date=dt_str,
+                            date=str(item.get("date", ""))[:10],
                             open=float(item.get("open") or 0.0),
                             high=float(item.get("high") or 0.0),
                             low=float(item.get("low") or 0.0),
@@ -334,16 +371,15 @@ class TaiwanStockDetailService:
                             amount=float(item.get("amount")) if item.get("amount") is not None else None,
                         )
                     )
-                latest_date = rows[-1].date if rows else None
                 meta = SectionMeta(
-                    source=str(df.get_column("source")[0]) if "source" in df.columns else "hybrid_daily",
-                    trade_date=latest_date,
+                    source=source,
+                    trade_date=rows[-1].date,
                     status="available",
                     is_stale=False,
                 )
                 return TaiwanHistoricalDaily(status="available", rows=rows, meta=meta)
         except Exception as e:
-            logger.warning("Daily aggregation failed for %s: %s", symbol_str, e)
+            logger.warning("Daily aggregation failed: %s", e)
 
         return TaiwanHistoricalDaily(
             status="unavailable",
@@ -355,6 +391,13 @@ class TaiwanStockDetailService:
                 fallback_reason="no persisted or provider daily rows are available for this symbol",
             ),
         )
+
+    def _aggregate_timeframe_verdicts(self, symbol_str: str, history: pl.DataFrame) -> list[TimeframeVerdict]:
+        try:
+            return build_timeframe_verdicts(history)
+        except Exception as e:
+            logger.warning("Timeframe verdicts failed for %s: %s", symbol_str, e)
+            return []
 
     @staticmethod
     def _apply_same_session_amount_fallback(

@@ -31,7 +31,7 @@ export function CopyButton({
   }
 
   const sizeCls = size === 'xs'
-    ? 'px-2 py-1 text-[10px] gap-1'
+    ? 'px-2 py-1 text-xs gap-1'
     : 'px-3 py-1.5 text-xs gap-1.5'
 
   return (
@@ -57,9 +57,9 @@ export function CopyButton({
           : <Copy className="h-3 w-3 shrink-0" />}
         {state === 'success' ? successLabel : state === 'error' ? '複製失敗' : label}
       </button>
-      {disabledReason && <span className="text-[10px] text-muted">{disabledReason}</span>}
+      {disabledReason && <span className="text-xs text-muted">{disabledReason}</span>}
       {state === 'success' && (
-        <span className="text-[10px] text-muted">
+        <span className="text-xs text-muted">
           已複製，可貼到 ChatGPT、Claude 或 Gemini。
         </span>
       )}

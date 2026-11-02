@@ -57,7 +57,7 @@ export function GroupStatsSettings({
       </button>
       {open && (
         <div className="absolute right-0 top-full z-30 mt-1 w-64 rounded-card border border-border bg-base p-3 shadow-xl">
-          <div className="text-[10px] uppercase tracking-wider text-muted">指標</div>
+          <div className="text-xs uppercase tracking-wider text-muted">指標</div>
           <div className="mt-1 flex flex-wrap gap-1">
             {GROUP_METRICS.map(m => (
               <button
@@ -65,7 +65,7 @@ export function GroupStatsSettings({
                 type="button"
                 title={m.hint}
                 onClick={() => onChange({ metric: m.id })}
-                className={`px-2 py-0.5 rounded text-[11px] transition-colors ${
+                className={`px-2 py-0.5 rounded text-xs transition-colors ${
                   config.metric === m.id
                     ? 'bg-accent/15 text-accent'
                     : 'bg-elevated text-secondary hover:text-foreground hover:bg-elevated/80'
@@ -75,14 +75,14 @@ export function GroupStatsSettings({
               </button>
             ))}
           </div>
-          <div className="mt-2.5 text-[10px] uppercase tracking-wider text-muted">排序</div>
+          <div className="mt-2.5 text-xs uppercase tracking-wider text-muted">排序</div>
           <div className="mt-1 flex flex-wrap gap-1">
             {GROUP_SORT_OPTIONS.map(s => (
               <button
                 key={s.id}
                 type="button"
                 onClick={() => onChange({ sort: s.id })}
-                className={`px-2 py-0.5 rounded text-[11px] transition-colors ${
+                className={`px-2 py-0.5 rounded text-xs transition-colors ${
                   config.sort === s.id
                     ? 'bg-accent/15 text-accent'
                     : 'bg-elevated text-secondary hover:text-foreground hover:bg-elevated/80'
@@ -94,7 +94,7 @@ export function GroupStatsSettings({
           </div>
           {showCardLimit && (
             <>
-              <div className="mt-2.5 text-[10px] uppercase tracking-wider text-muted">卡片顯示</div>
+              <div className="mt-2.5 text-xs uppercase tracking-wider text-muted">卡片顯示</div>
               <div className="mt-1 flex items-center gap-2" title="分組卡片默認展示組內前 N 條, 可展開查看全部">
                 <button
                   type="button"
@@ -105,7 +105,7 @@ export function GroupStatsSettings({
                 >
                   <Minus className="h-3 w-3" />
                 </button>
-                <span className="w-16 text-center font-mono text-[11px] tabular-nums text-secondary">
+                <span className="w-16 text-center font-mono text-xs tabular-nums text-secondary">
                   前 {config.cardTopN} 條
                 </span>
                 <button
@@ -120,7 +120,7 @@ export function GroupStatsSettings({
               </div>
               <div className="mt-2 space-y-1.5">
                 <div className="flex items-center justify-between" title="分組卡片頭部是否顯示分組顏色底條">
-                  <span className="text-[11px] text-secondary">頭部顏色</span>
+                  <span className="text-xs text-secondary">頭部顏色</span>
                   <button
                     type="button"
                     role="switch"
@@ -139,7 +139,7 @@ export function GroupStatsSettings({
                   </button>
                 </div>
                 <div className="flex items-center justify-between" title="成員行左側是否顯示排名序號">
-                  <span className="text-[11px] text-secondary">序號</span>
+                  <span className="text-xs text-secondary">序號</span>
                   <button
                     type="button"
                     role="switch"
@@ -160,7 +160,7 @@ export function GroupStatsSettings({
               </div>
             </>
           )}
-          <div className="mt-2.5 text-[10px] leading-relaxed text-muted">
+          <div className="mt-2.5 text-xs leading-relaxed text-muted">
             {GROUP_METRICS.find(m => m.id === config.metric)?.hint}
           </div>
         </div>

@@ -32,6 +32,7 @@ import {
   researchPromptVersion,
   type BuyPointSignal,
   type BeginnerSymbolResponse,
+  type TaiwanTimeframeVerdict,
 } from '@/lib/api'
 import { evidenceLabel, evidenceLabels } from '@/lib/evidenceLabel'
 import { QK } from '@/lib/queryKeys'
@@ -545,10 +546,10 @@ export function TaiwanStockDetail() {
           <div className="flex flex-wrap items-center gap-2">
             <span className="text-xs font-mono font-bold text-accent">{symbol}</span>
             <span className="text-sm font-semibold">{data?.identity?.name || '--'}</span>
-            <span className="rounded bg-elevated px-1.5 py-0.5 text-[10px] font-mono text-muted">
+            <span className="rounded bg-elevated px-1.5 py-0.5 text-xs font-mono text-muted">
               {data?.identity?.exchange === 'TPEX' ? '上櫃' : '上市'}
             </span>
-            <span className="rounded bg-accent/10 px-1.5 py-0.5 text-[10px] font-medium text-accent">
+            <span className="rounded bg-accent/10 px-1.5 py-0.5 text-xs font-medium text-accent">
               {data?.identity?.instrument_type === 'etf' ? 'ETF' : '股票'}
             </span>
             {/* Phase 8C-A fix: ⭐ 主按鈕 1 click 直接加入未分組(canonical group_id=null,
@@ -562,7 +563,7 @@ export function TaiwanStockDetail() {
                 disabled={toggleWatchlist.isPending}
                 title="移出自選"
                 aria-label={`將 ${symbol} 移出自選`}
-                className="flex items-center gap-1 rounded-lg border border-[#FACC15]/50 bg-base px-1.5 py-0.5 text-[10px] font-medium text-[#FACC15] transition-colors cursor-pointer disabled:opacity-50"
+                className="flex cursor-pointer items-center gap-1 rounded-lg border border-warning/50 bg-base px-1.5 py-0.5 text-xs font-medium text-warning transition-colors disabled:opacity-50"
               >
                 <Star className="h-3 w-3 fill-current" />
                 已加自選
@@ -575,7 +576,7 @@ export function TaiwanStockDetail() {
                   disabled={toggleWatchlist.isPending}
                   title="加入自選"
                   aria-label={`將 ${symbol} 加入自選`}
-                  className="flex items-center gap-1 px-1.5 py-0.5 text-[10px] font-medium text-muted hover:text-accent transition-colors cursor-pointer disabled:opacity-50"
+                  className="flex items-center gap-1 px-1.5 py-0.5 text-xs font-medium text-muted hover:text-accent transition-colors cursor-pointer disabled:opacity-50"
                 >
                   <Star className="h-3 w-3" />
                   加入自選
@@ -597,7 +598,7 @@ export function TaiwanStockDetail() {
                 navigate(`/stocks/compare?symbols=${encodeURIComponent(merged.join(','))}`)
               }}
               title="加入多標的比較"
-              className="flex items-center gap-1 rounded-lg border border-border/60 bg-base px-1.5 py-0.5 text-[10px] font-medium text-muted hover:border-accent/50 hover:text-accent transition-colors cursor-pointer"
+              className="flex items-center gap-1 rounded-lg border border-border/60 bg-base px-1.5 py-0.5 text-xs font-medium text-muted hover:border-accent/50 hover:text-accent transition-colors cursor-pointer"
             >
               <Scale className="h-3 w-3" />
               加入比較
@@ -625,11 +626,11 @@ export function TaiwanStockDetail() {
           {/* 搜尋結果下拉選單 */}
           {isSearchOpen && searchQuery.trim() && (
             <div className="absolute top-full right-0 mt-1.5 w-72 max-h-80 overflow-y-auto rounded-xl border border-border bg-elevated p-1.5 shadow-2xl z-50">
-              <div className="flex items-center justify-between px-2 py-1 text-[11px] font-medium text-muted border-b border-border/50">
+              <div className="flex items-center justify-between px-2 py-1 text-xs font-medium text-muted border-b border-border/50">
                 <span>搜尋結果</span>
                 <button
                   onClick={() => setIsSearchOpen(false)}
-                  className="text-[10px] hover:text-foreground cursor-pointer"
+                  className="text-xs hover:text-foreground cursor-pointer"
                 >
                   關閉
                 </button>
@@ -654,7 +655,7 @@ export function TaiwanStockDetail() {
                     <span className="font-mono text-xs font-bold text-accent">{item.symbol}</span>
                     <span className="text-xs font-medium text-foreground">{item.name}</span>
                   </div>
-                  <span className="text-[10px] text-muted">{item.exchange === 'TPEX' ? '上櫃' : '上市'}</span>
+                  <span className="text-xs text-muted">{item.exchange === 'TPEX' ? '上櫃' : '上市'}</span>
                 </button>
               ))}
             </div>
@@ -730,7 +731,7 @@ export function TaiwanStockDetail() {
               {/* 左側: 名稱、代號、價格 */}
               <div>
                 <div className="flex flex-wrap items-center gap-2">
-                  <h1 className="text-2xl font-bold tracking-tight text-foreground">{data.identity.name}</h1>
+                  <h1 className="text-lg font-bold tracking-tight text-foreground">{data.identity.name}</h1>
                   <span className="font-mono text-sm font-semibold text-accent">{data.symbol}</span>
                   <span className="rounded bg-elevated px-2 py-0.5 text-xs font-mono text-muted">
                     {data.identity.exchange === 'TPEX' ? 'TPEx 上櫃' : 'TWSE 上市'}
@@ -742,14 +743,14 @@ export function TaiwanStockDetail() {
                   )}
                   {data.identity.etf_category && (
                     <span className="rounded bg-accent/15 px-2 py-0.5 text-xs font-medium text-accent border border-accent/30">
-                      ETF · {data.identity.etf_category}
+                      ETF，{data.identity.etf_category}
                     </span>
                   )}
                 </div>
 
                 {/* 核心價格數字 */}
                 <div className="mt-3 flex flex-wrap items-baseline gap-3">
-                  <span className={cn('text-3xl font-mono font-bold tracking-tight', priceColor)}>
+                  <span className={cn('text-lg font-mono font-bold tracking-tight', priceColor)}>
                     {data.realtime.last_price != null ? data.realtime.last_price.toFixed(2) : '--'}
                   </span>
                   {data.realtime.change != null && (
@@ -773,28 +774,28 @@ export function TaiwanStockDetail() {
               <div className="flex flex-wrap items-center gap-3">
                 {/* 漲跌幅卡片 */}
                 <div className="flex flex-col rounded-xl border border-border/80 bg-base p-2.5 min-w-[140px]">
-                  <span className="text-[10px] font-medium text-muted">漲跌幅限制規則</span>
+                  <span className="text-xs font-medium text-muted">漲跌幅限制規則</span>
                   <span className="text-xs font-bold text-foreground mt-0.5">
                     {data.price_limit.rule_type}
                   </span>
                   {!data.price_limit.is_no_limit && (
-                    <div className="mt-1 flex items-center justify-between text-[11px] font-mono">
+                    <div className="mt-1 flex items-center justify-between text-xs font-mono">
                       <span className="text-rose-500">漲停 {data.price_limit.limit_up?.toFixed(2) || '--'}</span>
                       <span className="text-emerald-500">跌停 {data.price_limit.limit_down?.toFixed(2) || '--'}</span>
                     </div>
                   )}
                   {data.price_limit.is_no_limit && (
-                    <span className="mt-1 text-[10px] text-muted">此標的無漲跌幅限制</span>
+                    <span className="mt-1 text-xs text-muted">此標的無漲跌幅限制</span>
                   )}
                 </div>
 
                 {/* 市場基準 Context 卡片 */}
                 <div className="flex flex-col rounded-xl border border-border/80 bg-base p-2.5 min-w-[140px]">
-                  <span className="text-[10px] font-medium text-muted">所屬大盤基準</span>
+                  <span className="text-xs font-medium text-muted">所屬大盤基準</span>
                   <span className="text-xs font-bold text-foreground mt-0.5">
                     {data.market_context.benchmark_name} ({data.market_context.benchmark_symbol})
                   </span>
-                  <div className="mt-1 flex items-center justify-between text-[11px] font-mono">
+                  <div className="mt-1 flex items-center justify-between text-xs font-mono">
                     <span>{data.market_context.close?.toFixed(2) || '--'}</span>
                     <span className={cn(
                       data.market_context.change_pct == null ? 'text-muted' : data.market_context.change_pct >= 0 ? 'text-rose-500' : 'text-emerald-500'
@@ -803,7 +804,7 @@ export function TaiwanStockDetail() {
                     </span>
                   </div>
                   {data.market_context.meta?.status !== 'available' && (
-                    <span className="mt-1 text-[10px] text-muted">{availabilityText(data.market_context.meta)}</span>
+                    <span className="mt-1 text-xs text-muted">{availabilityText(data.market_context.meta)}</span>
                   )}
                 </div>
 
@@ -827,27 +828,27 @@ export function TaiwanStockDetail() {
             {/* 即時盤面數值 (昨收、開、高、低、成交量、金額) */}
             <div className="mt-4 grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-2 pt-3 border-t border-border/60 text-xs">
               <div>
-                <span className="text-muted text-[11px]">昨收</span>
+                <span className="text-muted text-xs">昨收</span>
                 <p className="font-mono font-medium mt-0.5">{data.realtime.prev_close?.toFixed(2) || '--'}</p>
               </div>
               <div>
-                <span className="text-muted text-[11px]">今開</span>
+                <span className="text-muted text-xs">今開</span>
                 <p className="font-mono font-medium mt-0.5">{data.realtime.open?.toFixed(2) || '--'}</p>
               </div>
               <div>
-                <span className="text-muted text-[11px]">最高</span>
+                <span className="text-muted text-xs">最高</span>
                 <p className="font-mono font-medium text-rose-500 mt-0.5">{data.realtime.high?.toFixed(2) || '--'}</p>
               </div>
               <div>
-                <span className="text-muted text-[11px]">最低</span>
+                <span className="text-muted text-xs">最低</span>
                 <p className="font-mono font-medium text-emerald-500 mt-0.5">{data.realtime.low?.toFixed(2) || '--'}</p>
               </div>
               <div>
                 <div className="flex items-center justify-between">
-                  <span className="text-muted text-[11px]">成交量</span>
+                  <span className="text-muted text-xs">成交量</span>
                   <button
                     onClick={() => setVolUnit(v => v === 'lots' ? 'shares' : 'lots')}
-                    className="text-[10px] text-accent hover:underline cursor-pointer"
+                    className="text-xs text-accent hover:underline cursor-pointer"
                   >
                     {volUnit === 'lots' ? '張' : '股'}
                   </button>
@@ -855,15 +856,15 @@ export function TaiwanStockDetail() {
                 <p className="font-mono font-medium mt-0.5">{formatVol(data.realtime.volume)}</p>
               </div>
               <div>
-                <span className="text-muted text-[11px]">成交金額</span>
+                <span className="text-muted text-xs">成交金額</span>
                 <p className="font-mono font-medium mt-0.5" title={`${data.realtime.amount_meta?.source || '來源不可用'} | ${data.realtime.amount_meta?.trade_date || 'as_of 不可用'}`}>
                   {data.realtime.amount == null ? '--' : `${data.realtime.amount.toLocaleString()} 元`}
                 </p>
-                {data.realtime.amount == null && <p className="mt-0.5 text-[9px] text-muted">{availabilityText(data.realtime.amount_meta)}</p>}
+                {data.realtime.amount == null && <p className="mt-0.5 text-xs text-muted">{availabilityText(data.realtime.amount_meta)}</p>}
               </div>
               <div>
-                <span className="text-muted text-[11px]">行情時間</span>
-                <p className="font-mono text-[11px] mt-0.5 truncate text-muted" title={data.realtime.quote_time || ''}>
+                <span className="text-muted text-xs">行情時間</span>
+                <p className="font-mono text-xs mt-0.5 truncate text-muted" title={data.realtime.quote_time || ''}>
                   {data.realtime.quote_time ? data.realtime.quote_time.split('T')[1]?.slice(0, 8) : '--'}
                 </p>
               </div>
@@ -875,7 +876,7 @@ export function TaiwanStockDetail() {
               <div className="flex items-center gap-2">
                 <MessageCircleMore className="h-4 w-4 text-cyan-500" />
                 <h2 className="text-sm font-bold text-foreground">社群聲量</h2>
-                {socialQuery.data && <span className="font-mono text-[10px] text-muted">資料日期 {socialQuery.data.as_of}</span>}
+                {socialQuery.data && <span className="font-mono text-xs text-muted">資料日期 {socialQuery.data.as_of}</span>}
               </div>
               <Link to="/social-sentiment" className="inline-flex min-h-9 items-center gap-1 rounded-lg border border-cyan-500/30 px-3 text-xs text-cyan-600 hover:bg-cyan-500/10 dark:text-cyan-400">
                 查看完整排行<ExternalLink className="h-3 w-3" />
@@ -893,16 +894,16 @@ export function TaiwanStockDetail() {
                   ['熱度', socialRow.social_heat_score.toFixed(1)],
                   ['總聲量', socialRow.total_mentions.toLocaleString('zh-TW')],
                   ['PTT', socialRow.ptt_mentions.toLocaleString('zh-TW')],
-                  ['AI 情緒', socialRow.sentiment_status === 'available' ? `${socialRow.sentiment} · ${Math.round((socialRow.sentiment_confidence ?? 0) * 100)}%` : '不可用'],
+                  ['AI 情緒', socialRow.sentiment_status === 'available' ? `${socialRow.sentiment}，${Math.round((socialRow.sentiment_confidence ?? 0) * 100)}%` : '不可用'],
                 ].map(([label, value]) => (
                   <div key={label} className="rounded-lg border border-border/60 bg-base p-2">
-                    <span className="block text-[10px] text-muted">{label}</span>
+                    <span className="block text-xs text-muted">{label}</span>
                     <span className="text-xs font-medium text-foreground">{value}</span>
                   </div>
                 ))}
               </div>
             )}
-            <p className="mt-3 text-[10px] leading-relaxed text-muted">社群討論／AI 情緒分析，不是官方資料，也不會加入 Quant 分數。</p>
+            <p className="mt-3 text-xs leading-relaxed text-muted">社群討論／AI 情緒分析，不是官方資料，也不會加入 Quant 分數。</p>
           </section>
 
           {/* 區塊 2: K 線圖表與五檔盤口 (兩欄佈局) */}
@@ -913,7 +914,7 @@ export function TaiwanStockDetail() {
                 <div className="flex items-center gap-2">
                   <h3 className="text-sm font-bold text-foreground">歷史日 K 線與成交量</h3>
                   {data.daily_history.meta?.trade_date && (
-                    <span className="text-[10px] text-muted font-mono">
+                    <span className="text-xs text-muted font-mono">
                       資料截至 {data.daily_history.meta.trade_date}
                     </span>
                   )}
@@ -952,6 +953,7 @@ export function TaiwanStockDetail() {
                   暫無歷史 K 線資料
                 </div>
               )}
+              {!!data.timeframe_verdicts?.length && <TimeframeVerdicts verdicts={data.timeframe_verdicts} />}
             </div>
 
             {/* 右側 1 欄: 五檔即時盤口 */}
@@ -959,7 +961,7 @@ export function TaiwanStockDetail() {
               <div>
                 <div className="flex items-center justify-between mb-2">
                   <h3 className="text-sm font-bold text-foreground">五檔即時盤口 (Level 2)</h3>
-                  <span className="text-[10px] text-muted">
+                  <span className="text-xs text-muted">
                     單位: {volUnit === 'lots' ? '張 (1,000股)' : '股'}
                   </span>
                 </div>
@@ -969,7 +971,7 @@ export function TaiwanStockDetail() {
                   {data.realtime.asks && data.realtime.asks.length > 0 ? (
                     data.realtime.asks.slice().reverse().map(([price, vol], idx) => (
                       <div key={`ask-${idx}`} className="flex items-center justify-between text-xs font-mono py-0.5 px-2 rounded bg-emerald-500/5">
-                        <span className="text-muted text-[10px]">賣 {5 - idx}</span>
+                        <span className="text-muted text-xs">賣 {5 - idx}</span>
                         <span className="text-emerald-500 font-semibold">{price.toFixed(2)}</span>
                         <span className="text-muted">{formatVol(vol)}</span>
                       </div>
@@ -986,7 +988,7 @@ export function TaiwanStockDetail() {
                   {data.realtime.bids && data.realtime.bids.length > 0 ? (
                     data.realtime.bids.map(([price, vol], idx) => (
                       <div key={`bid-${idx}`} className="flex items-center justify-between text-xs font-mono py-0.5 px-2 rounded bg-rose-500/5">
-                        <span className="text-muted text-[10px]">買 {idx + 1}</span>
+                        <span className="text-muted text-xs">買 {idx + 1}</span>
                         <span className="text-rose-500 font-semibold">{price.toFixed(2)}</span>
                         <span className="text-muted">{formatVol(vol)}</span>
                       </div>
@@ -1000,7 +1002,7 @@ export function TaiwanStockDetail() {
               {/* 來源與新鮮度 — 來源不再原樣顯示 provider 內部識別碼
                   (如 "yahoo:chart")，改用與 Watchlist/Monitor 共用的
                   formatQuoteSource 顯示名稱。 */}
-              <div className="mt-4 pt-3 border-t border-border/60 text-[11px] text-muted flex items-center justify-between">
+              <div className="mt-4 pt-3 border-t border-border/60 text-xs text-muted flex items-center justify-between">
                 <span>來源: {formatQuoteSource(data.realtime.meta?.source)}</span>
                 <span>{data.realtime.meta?.is_stale ? '⚠️ 資料已過期' : '即時更新正常'}</span>
               </div>
@@ -1014,7 +1016,7 @@ export function TaiwanStockDetail() {
               <div className="flex items-center justify-between mb-3">
                 <h3 className="text-sm font-bold text-foreground">三大法人買賣超</h3>
                 {data.institutional.meta?.trade_date && (
-                  <span className="text-[10px] text-muted font-mono">{data.institutional.meta.trade_date}</span>
+                  <span className="text-xs text-muted font-mono">{data.institutional.meta.trade_date}</span>
                 )}
               </div>
               {data.institutional.status === 'available' ? (
@@ -1054,7 +1056,7 @@ export function TaiwanStockDetail() {
               <div className="flex items-center justify-between mb-3">
                 <h3 className="text-sm font-bold text-foreground">融資融券餘額與變化</h3>
                 {data.margin.meta?.trade_date && (
-                  <span className="text-[10px] text-muted font-mono">{data.margin.meta.trade_date}</span>
+                  <span className="text-xs text-muted font-mono">{data.margin.meta.trade_date}</span>
                 )}
               </div>
               {data.margin.status === 'available' ? (
@@ -1095,12 +1097,12 @@ export function TaiwanStockDetail() {
             <div className="rounded-2xl border border-border bg-surface p-4">
               <div className="flex items-center justify-between mb-3">
                 <h3 className="text-sm font-bold text-foreground">核心籌碼滾動因子</h3>
-                <span className="text-[10px] text-muted">近 5 日指標</span>
+                <span className="text-xs text-muted">近 5 日指標</span>
               </div>
               {data.factors.status === 'available' ? (
                 <div className="space-y-2 text-xs">
                   <div className="rounded-lg bg-base p-2 border border-border/60">
-                    <div className="flex items-center justify-between text-muted text-[11px]">
+                    <div className="flex items-center justify-between text-muted text-xs">
                       <span>外資 5 日累計</span>
                       <span>投信 5 日累計</span>
                     </div>
@@ -1115,7 +1117,7 @@ export function TaiwanStockDetail() {
                   </div>
 
                   <div className="rounded-lg bg-base p-2 border border-border/60">
-                    <div className="flex items-center justify-between text-muted text-[11px]">
+                    <div className="flex items-center justify-between text-muted text-xs">
                       <span>自營商 5 日累計</span>
                       <span>融資變動量</span>
                     </div>
@@ -1130,7 +1132,7 @@ export function TaiwanStockDetail() {
                   </div>
 
                   <div className="rounded-lg bg-base p-2 border border-border/60 flex items-center justify-between">
-                    <span className="text-muted text-[11px]">最新券資比因子</span>
+                    <span className="text-muted text-xs">最新券資比因子</span>
                     <span className="font-mono font-bold text-accent">
                       {data.factors.short_margin_ratio != null ? `${data.factors.short_margin_ratio.toFixed(2)}%` : '--'}
                     </span>
@@ -1149,11 +1151,11 @@ export function TaiwanStockDetail() {
               <div className="flex items-center justify-between mb-3">
                 <div className="flex items-center gap-2">
                   <h3 className="text-sm font-bold text-foreground">基本面概況</h3>
-                  <span className="text-[10px] px-1.5 py-0.5 rounded bg-sky-500/10 text-sky-500 font-medium">
+                  <span className="text-xs px-1.5 py-0.5 rounded bg-sky-500/10 text-sky-500 font-medium">
                     官方估值 + 財報營收
                   </span>
                 </div>
-                <span className="text-[10px] text-muted font-mono">
+                <span className="text-xs text-muted font-mono">
                   {data.fundamentals?.valuation?.meta?.trade_date || data.fundamentals?.revenue?.meta?.trade_date || ''}
                 </span>
               </div>
@@ -1161,19 +1163,19 @@ export function TaiwanStockDetail() {
               {/* 官方估值三指標 */}
               <div className="grid grid-cols-3 gap-2 mb-3">
                 <div className="rounded-xl bg-base p-2.5 border border-border/60 text-center">
-                  <div className="text-[11px] text-muted mb-1">本益比 (PE)</div>
+                  <div className="text-xs text-muted mb-1">本益比 (PE)</div>
                   <div className="font-mono font-bold text-sm text-foreground">
                     {data.fundamentals?.valuation?.pe != null ? `${data.fundamentals.valuation.pe.toFixed(2)} 倍` : '--'}
                   </div>
                 </div>
                 <div className="rounded-xl bg-base p-2.5 border border-border/60 text-center">
-                  <div className="text-[11px] text-muted mb-1">股價淨值比 (PB)</div>
+                  <div className="text-xs text-muted mb-1">股價淨值比 (PB)</div>
                   <div className="font-mono font-bold text-sm text-foreground">
                     {data.fundamentals?.valuation?.pb != null ? `${data.fundamentals.valuation.pb.toFixed(2)} 倍` : '--'}
                   </div>
                 </div>
                 <div className="rounded-xl bg-base p-2.5 border border-border/60 text-center">
-                  <div className="text-[11px] text-muted mb-1">殖利率</div>
+                  <div className="text-xs text-muted mb-1">殖利率</div>
                   <div className="font-mono font-bold text-sm text-accent">
                     {data.fundamentals?.valuation?.dividend_yield != null ? `${data.fundamentals.valuation.dividend_yield.toFixed(2)}%` : '--'}
                   </div>
@@ -1210,13 +1212,13 @@ export function TaiwanStockDetail() {
                 {/* 近期月營收趨勢簡覽 */}
                 {data.fundamentals?.revenue?.trend && data.fundamentals.revenue.trend.length > 0 && (
                   <div className="mt-2.5 pt-2 border-t border-border/40">
-                    <div className="text-[10px] text-muted mb-1.5">近 6 個月營收變化</div>
+                    <div className="text-xs text-muted mb-1.5">近 6 個月營收變化</div>
                     <div className="grid grid-cols-3 md:grid-cols-6 gap-1 text-center font-mono">
                       {data.fundamentals.revenue.trend.slice(-6).map((t, idx) => (
-                        <div key={idx} className="bg-surface rounded p-1 text-[10px]">
-                          <div className="text-muted text-[9px] truncate">{t.year_month.slice(2)}</div>
+                        <div key={idx} className="bg-surface rounded p-1 text-xs">
+                          <div className="text-muted text-xs truncate">{t.year_month.slice(2)}</div>
                           <div className="text-foreground font-medium truncate">{(t.revenue / 100_000_000).toFixed(1)}億</div>
-                          <div className={cn('text-[9px]', (t.yoy || 0) >= 0 ? 'text-rose-500' : 'text-emerald-500')}>
+                          <div className={cn('text-xs', (t.yoy || 0) >= 0 ? 'text-rose-500' : 'text-emerald-500')}>
                             {t.yoy != null ? `${t.yoy >= 0 ? '+' : ''}${t.yoy.toFixed(0)}%` : '-'}
                           </div>
                         </div>
@@ -1255,14 +1257,14 @@ export function TaiwanStockDetail() {
                   </div>
                 </div>
                 {data.fundamentals?.profitability?.latest_eps == null && data.fundamentals?.profitability?.meta?.fallback_reason && (
-                  <p className="mt-2 text-[10px] text-muted">EPS 不可用：{availabilityText(data.fundamentals.profitability.meta)}</p>
+                  <p className="mt-2 text-xs text-muted">EPS 不可用：{availabilityText(data.fundamentals.profitability.meta)}</p>
                 )}
                 {data.fundamentals?.profitability?.recent_eps && data.fundamentals.profitability.recent_eps.length > 0 && (
-                  <div className="mt-2 pt-2 border-t border-border/40 text-[11px] flex items-center justify-between">
+                  <div className="mt-2 pt-2 border-t border-border/40 text-xs flex items-center justify-between">
                     <span className="text-muted">近季 EPS:</span>
                     <div className="flex gap-2 font-mono">
                       {data.fundamentals.profitability.recent_eps.map((e, idx) => (
-                        <span key={idx} className="bg-surface px-1.5 py-0.5 rounded text-[10px]">
+                        <span key={idx} className="bg-surface px-1.5 py-0.5 rounded text-xs">
                           {e.date.slice(2, 7)}: <b className="text-foreground">{e.eps.toFixed(2)}</b>
                         </span>
                       ))}
@@ -1277,11 +1279,11 @@ export function TaiwanStockDetail() {
               <div className="flex items-center justify-between mb-3">
                 <div className="flex items-center gap-2">
                   <h3 className="text-sm font-bold text-foreground">籌碼深度補強</h3>
-                  <span className="text-[10px] px-1.5 py-0.5 rounded bg-purple-500/10 text-purple-400 font-medium">
+                  <span className="text-xs px-1.5 py-0.5 rounded bg-purple-500/10 text-purple-400 font-medium">
                     外資持股 + 千張大戶 + 借券明細
                   </span>
                 </div>
-                <span className="text-[10px] text-muted font-mono">
+                <span className="text-xs text-muted font-mono">
                   {data.extra_chips?.foreign_shareholding?.meta?.trade_date || data.extra_chips?.securities_lending?.meta?.trade_date || ''}
                 </span>
               </div>
@@ -1296,19 +1298,19 @@ export function TaiwanStockDetail() {
                 </div>
                 <div className="grid grid-cols-3 gap-2 text-xs text-center font-mono">
                   <div className="bg-surface rounded-lg p-2 border border-border/40">
-                    <div className="text-muted text-[10px] mb-0.5">近 5 日變化</div>
+                    <div className="text-muted text-xs mb-0.5">近 5 日變化</div>
                     <div className={cn('font-bold', (data.extra_chips?.foreign_shareholding?.change_5d || 0) >= 0 ? 'text-rose-500' : 'text-emerald-500')}>
                       {data.extra_chips?.foreign_shareholding?.change_5d != null ? `${data.extra_chips.foreign_shareholding.change_5d >= 0 ? '+' : ''}${data.extra_chips.foreign_shareholding.change_5d.toFixed(2)}%` : '--'}
                     </div>
                   </div>
                   <div className="bg-surface rounded-lg p-2 border border-border/40">
-                    <div className="text-muted text-[10px] mb-0.5">近 20 日變化</div>
+                    <div className="text-muted text-xs mb-0.5">近 20 日變化</div>
                     <div className={cn('font-bold', (data.extra_chips?.foreign_shareholding?.change_20d || 0) >= 0 ? 'text-rose-500' : 'text-emerald-500')}>
                       {data.extra_chips?.foreign_shareholding?.change_20d != null ? `${data.extra_chips.foreign_shareholding.change_20d >= 0 ? '+' : ''}${data.extra_chips.foreign_shareholding.change_20d.toFixed(2)}%` : '--'}
                     </div>
                   </div>
                   <div className="bg-surface rounded-lg p-2 border border-border/40">
-                    <div className="text-muted text-[10px] mb-0.5">持股趨勢</div>
+                    <div className="text-muted text-xs mb-0.5">持股趨勢</div>
                     <div className="font-medium text-foreground">
                       {data.extra_chips?.foreign_shareholding?.trend === 'increasing' ? '🟢 持續增持' :
                        data.extra_chips?.foreign_shareholding?.trend === 'decreasing' ? '🔴 持續減持' :
@@ -1317,7 +1319,7 @@ export function TaiwanStockDetail() {
                   </div>
                 </div>
                 {data.extra_chips?.foreign_shareholding?.ratio == null && data.extra_chips?.foreign_shareholding?.meta?.fallback_reason && (
-                  <p className="mt-2 text-[10px] text-muted">外資持股不可用：{availabilityText(data.extra_chips.foreign_shareholding.meta)}</p>
+                  <p className="mt-2 text-xs text-muted">外資持股不可用：{availabilityText(data.extra_chips.foreign_shareholding.meta)}</p>
                 )}
               </div>
 
@@ -1334,21 +1336,21 @@ export function TaiwanStockDetail() {
                     </div>
                     <div className="grid grid-cols-3 gap-2 text-xs text-center font-mono">
                       <div className="bg-surface rounded-lg p-2 border border-border/40">
-                        <div className="text-muted text-[10px] mb-0.5">較上週</div>
+                        <div className="text-muted text-xs mb-0.5">較上週</div>
                         <div className={cn('font-bold', bh?.change_1w == null ? 'text-muted' : bh.change_1w >= 0 ? 'text-rose-500' : 'text-emerald-500')}>
                           {bh?.change_1w != null ? `${bh.change_1w >= 0 ? '+' : ''}${bh.change_1w.toFixed(2)}%` : '--'}
                         </div>
                       </div>
                       <div className="bg-surface rounded-lg p-2 border border-border/40">
-                        <div className="text-muted text-[10px] mb-0.5">大戶人數</div>
+                        <div className="text-muted text-xs mb-0.5">大戶人數</div>
                         <div className="font-medium text-foreground">{bh?.big_holders != null ? bh.big_holders.toLocaleString() : '--'}</div>
                       </div>
                       <div className="bg-surface rounded-lg p-2 border border-border/40">
-                        <div className="text-muted text-[10px] mb-0.5">資料週</div>
+                        <div className="text-muted text-xs mb-0.5">資料週</div>
                         <div className="font-medium text-foreground">{bh?.meta?.trade_date ?? '--'}</div>
                       </div>
                     </div>
-                    <p className="mt-2 text-[10px] text-muted">
+                    <p className="mt-2 text-xs text-muted">
                       {bh?.big_holder_pct == null ? (bh?.meta?.reason ?? '尚無集保股權分散表資料') :
                        bh.change_1w == null ? '集保每週更新一次；累積兩週資料後才有週變化。' : `與 ${bh.previous_date} 比較；千張 = 持股超過 100 萬股。`}
                     </p>
@@ -1362,16 +1364,16 @@ export function TaiwanStockDetail() {
                   <div className="flex items-center gap-2">
                     <span className="font-semibold text-foreground">借券成交明細</span>
                     {data.extra_chips?.securities_lending?.anomaly_status === 'surge' ? (
-                      <span className="rounded-full bg-rose-500/15 border border-rose-500/30 text-rose-500 text-[10px] px-2 py-0.5 font-bold animate-pulse">
+                      <span className="rounded-full bg-rose-500/15 border border-rose-500/30 text-rose-500 text-xs px-2 py-0.5 font-bold">
                         ⚠️ 借券成交異常暴增
                       </span>
                     ) : data.extra_chips?.securities_lending?.anomaly_status === 'normal' ? (
-                      <span className="rounded-full bg-emerald-500/15 text-emerald-500 text-[10px] px-2 py-0.5 font-medium">
+                      <span className="rounded-full bg-emerald-500/15 text-emerald-500 text-xs px-2 py-0.5 font-medium">
                         狀態正常
                       </span>
                     ) : null}
                   </div>
-                  <span className="text-[11px] text-muted">非融券餘額</span>
+                  <span className="text-xs text-muted">非融券餘額</span>
                 </div>
 
                 <div className="space-y-2 text-xs">
@@ -1409,9 +1411,9 @@ export function TaiwanStockDetail() {
                   </div>
                 </div>
                 {data.extra_chips?.securities_lending?.latest_volume == null && data.extra_chips?.securities_lending?.meta?.fallback_reason && (
-                  <p className="mt-2 text-[10px] text-muted">借券成交不可用：{availabilityText(data.extra_chips.securities_lending.meta)}</p>
+                  <p className="mt-2 text-xs text-muted">借券成交不可用：{availabilityText(data.extra_chips.securities_lending.meta)}</p>
                 )}
-                <div className="mt-3 pt-2 border-t border-border/40 text-[10px] text-muted flex items-center justify-between">
+                <div className="mt-3 pt-2 border-t border-border/40 text-xs text-muted flex items-center justify-between">
                   <span>來源: FinMind (TaiwanStockSecuritiesLending)</span>
                   <span>撮合借券明細</span>
                 </div>
@@ -1440,7 +1442,7 @@ export function TaiwanStockDetail() {
               <div className="flex items-center justify-between mb-3">
                 <div className="flex items-center gap-2">
                   <h3 className="text-sm font-bold text-foreground">標的監控規則</h3>
-                  <span className="rounded-full bg-accent/15 px-2 py-0.5 text-[10px] font-bold text-accent">
+                  <span className="rounded-full bg-accent/15 px-2 py-0.5 text-xs font-bold text-accent">
                     {data.monitor_summary.rule_count} 條
                   </span>
                 </div>
@@ -1461,9 +1463,9 @@ export function TaiwanStockDetail() {
                           <span className="font-semibold text-foreground">{r.name}</span>
                           <span className={cn('h-2 w-2 rounded-full', r.enabled ? 'bg-emerald-500' : 'bg-muted')} />
                         </div>
-                        <p className="text-[11px] text-muted mt-0.5">門檻: {r.threshold}</p>
+                        <p className="text-xs text-muted mt-0.5">門檻: {r.threshold}</p>
                       </div>
-                      <span className="text-[10px] font-mono uppercase bg-elevated px-2 py-0.5 rounded text-muted">
+                      <span className="text-xs font-mono uppercase bg-elevated px-2 py-0.5 rounded text-muted">
                         {r.severity}
                       </span>
                     </div>
@@ -1480,7 +1482,7 @@ export function TaiwanStockDetail() {
             <div className="rounded-2xl border border-border bg-surface p-4">
               <div className="flex items-center justify-between mb-3">
                 <h3 className="text-sm font-bold text-foreground">最近警報事件</h3>
-                <span className="text-[10px] text-muted font-mono">近 7 日觸發記錄</span>
+                <span className="text-xs text-muted font-mono">近 7 日觸發記錄</span>
               </div>
 
               {data.recent_alerts.length > 0 ? (
@@ -1489,9 +1491,9 @@ export function TaiwanStockDetail() {
                     <div key={a.alert_id} className="rounded-xl bg-base p-2.5 border border-border/80 text-xs">
                       <div className="flex items-center justify-between">
                         <span className="font-semibold text-foreground">{a.rule_name}</span>
-                        <span className="text-[10px] text-muted font-mono">{a.triggered_at?.slice(11, 19)}</span>
+                        <span className="text-xs text-muted font-mono">{a.triggered_at?.slice(11, 19)}</span>
                       </div>
-                      <p className="text-[11px] text-muted mt-1">{a.message}</p>
+                      <p className="text-xs text-muted mt-1">{a.message}</p>
                     </div>
                   ))}
                 </div>
@@ -1509,36 +1511,36 @@ export function TaiwanStockDetail() {
                   <div className="flex items-center gap-2">
                     <FileText className="w-4 h-4 text-purple-400" />
                     <h3 className="text-sm font-bold text-foreground">結構化研究證據上下文</h3>
-                    <span className="text-[10px] text-muted font-mono">
+                    <span className="text-xs text-muted font-mono">
                       (狀態: {researchQuery.data.data_quality.overall_status === 'complete' ? '完整' : '部分'})
                     </span>
                   </div>
-                  <span className="text-[10px] text-muted font-mono">
+                  <span className="text-xs text-muted font-mono">
                     已認證事實: {researchQuery.data.evidence_summary.known_fields_count} 項 | 衍生計算: {researchQuery.data.evidence_summary.derived_fields_count} 項
                   </span>
                 </div>
 
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs font-mono">
                   <div className="bg-base p-2 rounded-lg border border-border/50">
-                    <span className="text-[10px] text-muted block">5日報酬率</span>
+                    <span className="text-xs text-muted block">5日報酬率</span>
                     <span className={researchQuery.data.price_context.return_5d !== null ? (researchQuery.data.price_context.return_5d > 0 ? 'text-up font-semibold' : researchQuery.data.price_context.return_5d < 0 ? 'text-down font-semibold' : 'text-foreground') : 'text-muted'}>
                       {researchQuery.data.price_context.return_5d !== null ? `${(researchQuery.data.price_context.return_5d * 100).toFixed(2)}%` : '—'}
                     </span>
                   </div>
                   <div className="bg-base p-2 rounded-lg border border-border/50">
-                    <span className="text-[10px] text-muted block">20日報酬率</span>
+                    <span className="text-xs text-muted block">20日報酬率</span>
                     <span className={researchQuery.data.price_context.return_20d !== null ? (researchQuery.data.price_context.return_20d > 0 ? 'text-up font-semibold' : researchQuery.data.price_context.return_20d < 0 ? 'text-down font-semibold' : 'text-foreground') : 'text-muted'}>
                       {researchQuery.data.price_context.return_20d !== null ? `${(researchQuery.data.price_context.return_20d * 100).toFixed(2)}%` : '—'}
                     </span>
                   </div>
                   <div className="bg-base p-2 rounded-lg border border-border/50">
-                    <span className="text-[10px] text-muted block">距 MA20 乖離</span>
+                    <span className="text-xs text-muted block">距 MA20 乖離</span>
                     <span className={researchQuery.data.technical_context.distance_to_ma20 !== null ? (researchQuery.data.technical_context.distance_to_ma20 > 0 ? 'text-up' : researchQuery.data.technical_context.distance_to_ma20 < 0 ? 'text-down' : 'text-foreground') : 'text-muted'}>
                       {researchQuery.data.technical_context.distance_to_ma20 !== null ? `${(researchQuery.data.technical_context.distance_to_ma20 * 100).toFixed(2)}%` : '—'}
                     </span>
                   </div>
                   <div className="bg-base p-2 rounded-lg border border-border/50">
-                    <span className="text-[10px] text-muted block">5日均量比</span>
+                    <span className="text-xs text-muted block">5日均量比</span>
                     <span className="text-foreground">
                       {researchQuery.data.technical_context.vol_ratio_5d !== null ? `${researchQuery.data.technical_context.vol_ratio_5d}x` : '—'}
                     </span>
@@ -1548,10 +1550,10 @@ export function TaiwanStockDetail() {
                 {researchQuery.data.industry_context.industry && (
                   <div className="bg-base p-2.5 rounded-lg border border-border/50 text-xs flex items-center justify-between">
                     <div>
-                      <span className="text-muted text-[11px]">產業輪動背景: </span>
+                      <span className="text-muted text-xs">產業輪動背景: </span>
                       <span className="font-semibold text-foreground">{researchQuery.data.industry_context.industry}</span>
                     </div>
-                    <div className="flex gap-4 font-mono text-[11px]">
+                    <div className="flex gap-4 font-mono text-xs">
                       <span>成交佔比: {researchQuery.data.industry_context.turnover_share !== null ? `${(researchQuery.data.industry_context.turnover_share * 100).toFixed(1)}%` : '—'}</span>
                       <span>5D RS: {researchQuery.data.industry_context.relative_strength_5d !== null ? `${(researchQuery.data.industry_context.relative_strength_5d * 100).toFixed(2)}%` : '—'}</span>
                     </div>
@@ -1571,13 +1573,13 @@ export function TaiwanStockDetail() {
                     <CalendarDays className="h-4 w-4 text-accent" />
                     <h3 className="text-sm font-bold text-foreground">近期重大事件與警示</h3>
                   </div>
-                  <span className="text-[10px] text-muted font-mono">
+                  <span className="text-xs text-muted font-mono">
                     {data.recent_events?.length ? `${data.recent_events.length} 則事件` : '無符合條件的資料'}
                   </span>
                 </div>
 
                 {data.events_status && data.events_status !== 'available' && (
-                  <p className="mb-2 text-[11px] text-amber-500">事件來源不完整或公告時間證據不足，請查看各筆資料狀態。</p>
+                  <p className="mb-2 text-xs text-amber-500">事件來源不完整或公告時間證據不足，請查看各筆資料狀態。</p>
                 )}
                 <MopsConferenceAvailability sources={data.events_sources_status} />
                 {data.recent_events && data.recent_events.length > 0 ? (
@@ -1598,7 +1600,7 @@ export function TaiwanStockDetail() {
                           <div className="flex flex-wrap items-center gap-1.5">
                             <span
                               className={cn(
-                                'px-1.5 py-0.5 rounded text-[10px] font-bold',
+                                'px-1.5 py-0.5 rounded text-xs font-bold',
                                 evt.severity === 'risk'
                                   ? 'bg-rose-500/20 text-rose-400'
                                   : evt.severity === 'attention'
@@ -1610,13 +1612,13 @@ export function TaiwanStockDetail() {
                             </span>
                             <span className="font-semibold text-foreground">{evt.title}</span>
                           </div>
-                          <span className="text-[10px] text-muted font-mono shrink-0">{evt.event_date}</span>
+                          <span className="text-xs text-muted font-mono shrink-0">{evt.event_date}</span>
                         </div>
                         {evt.summary && (
-                          <p className="text-[11px] text-muted leading-relaxed">{evt.summary}</p>
+                          <p className="text-xs text-muted leading-relaxed">{evt.summary}</p>
                         )}
                         <MopsEventEvidence event={evt} />
-                        <div className="flex items-center justify-between text-[10px] text-muted/80 pt-1 border-t border-border/20">
+                        <div className="flex items-center justify-between text-xs text-muted/80 pt-1 border-t border-border/20">
                           <span>來源: {evt.source} {evt.source_url && <a href={evt.source_url} target="_blank" rel="noreferrer" className="text-accent hover:underline">官方資料</a>}</span>
                           <span className="font-mono">
                             嚴重度: {evt.severity === 'risk' ? '🔴 高風險' : evt.severity === 'attention' ? '🟡 警示' : '🔵 一般'}
@@ -1632,7 +1634,7 @@ export function TaiwanStockDetail() {
                   </div>
                 )}
               </div>
-              <div className="mt-3 pt-2 border-t border-border/40 text-[10px] text-muted flex items-center justify-between">
+              <div className="mt-3 pt-2 border-t border-border/40 text-xs text-muted flex items-center justify-between">
                 <span>官方公告事實：證交所/櫃買中心/公開資訊觀測站</span>
                 <button
                   onClick={() => navigate('/events')}
@@ -1651,7 +1653,7 @@ export function TaiwanStockDetail() {
                     <Newspaper className="h-4 w-4 text-sky-400" />
                     <h3 className="text-sm font-bold text-foreground">個股近期新聞</h3>
                   </div>
-                  <span className="text-[10px] text-muted font-mono">
+                  <span className="text-xs text-muted font-mono">
                     {data.news_status === 'rate_limited'
                       ? '頻率限制'
                       : data.news_status === 'auth_required'
@@ -1688,11 +1690,11 @@ export function TaiwanStockDetail() {
                           )}
                         </div>
                         {item.description && (
-                          <p className="text-[11px] text-muted line-clamp-2 leading-relaxed">
+                          <p className="text-xs text-muted line-clamp-2 leading-relaxed">
                             {item.description}
                           </p>
                         )}
-                        <div className="flex items-center justify-between text-[10px] text-muted/80 pt-1 border-t border-border/20">
+                        <div className="flex items-center justify-between text-xs text-muted/80 pt-1 border-t border-border/20">
                           <span>{item.source}</span>
                           <span className="font-mono">{item.date?.replace('T', ' ')}</span>
                         </div>
@@ -1705,34 +1707,34 @@ export function TaiwanStockDetail() {
                     {data.news_status === 'rate_limited' ? (
                       <div>
                         <p className="font-semibold text-amber-500">新聞來源已達頻率限制</p>
-                        <span className="text-[10px] mt-1 block text-muted/70">
+                        <span className="text-xs mt-1 block text-muted/70">
                           {data.news_status_message || 'FinMind API 查詢次數已達目前方案上限，請稍候重試'}
                         </span>
                       </div>
                     ) : data.news_status === 'auth_required' ? (
                       <div>
                         <p className="font-semibold text-amber-500">需 FinMind Token / 權限</p>
-                        <span className="text-[10px] mt-1 block text-muted/70">
+                        <span className="text-xs mt-1 block text-muted/70">
                           {data.news_status_message || '目前資料來源設定需有效金鑰以查詢即時個股新聞'}
                         </span>
                       </div>
                     ) : data.news_status === 'unavailable' ? (
                       <div>
                         <p className="font-semibold text-rose-500">新聞來源暫時無法連線</p>
-                        <span className="text-[10px] mt-1 block text-muted/70">
+                        <span className="text-xs mt-1 block text-muted/70">
                           {data.news_status_message || '外部新聞資料源暫時無回應，非代表確認無新聞'}
                         </span>
                       </div>
                     ) : (
                       <div>
                         <p>近期無相關新聞報導</p>
-                        <span className="text-[10px] mt-1 block text-muted/70">資料來源: FinMind（該標的近期未有媒體收錄）</span>
+                        <span className="text-xs mt-1 block text-muted/70">資料來源: FinMind（該標的近期未有媒體收錄）</span>
                       </div>
                     )}
                   </div>
                 )}
               </div>
-              <div className="mt-3 pt-2 border-t border-border/40 text-[10px] text-muted flex items-center justify-between">
+              <div className="mt-3 pt-2 border-t border-border/40 text-xs text-muted flex items-center justify-between">
                 <span>新聞僅供背景脈絡參考，非代表官方確認事實</span>
                 <span>資訊來源: FinMind</span>
               </div>
@@ -1750,22 +1752,22 @@ export function TaiwanStockDetail() {
             <div>
               <h3 className="font-semibold text-sm text-foreground flex items-center gap-2">
                 {aiMode === 'advice' ? 'AI Strategy Advice' : 'AI Research Brief'}
-                <span className="text-[10px] bg-purple-950/60 border border-purple-800 text-purple-300 px-2 py-0.5 rounded font-mono">
+                <span className="text-xs bg-purple-950/60 border border-purple-800 text-purple-300 px-2 py-0.5 rounded font-mono">
                   {aiMode === 'advice' ? '正式策略與 TradePlan' : '依現有資料解讀'}
                 </span>
               </h3>
-              <p className="text-[11px] text-muted">
+              <p className="text-xs text-muted">
                 {aiMode === 'advice' ? '依選定策略產生可複核建議；價位只採用後端正式 TradePlan' : '僅整理系統目前可取得的結構化資料，不提供買賣建議'}
               </p>
               {(aiMode === 'advice' ? aiAdviceResponse?.provider || aiAdviceResponse?.model : aiProvider || aiModel) && (
-                <p className="text-[10px] text-muted">
-                  本次使用：{aiMode === 'advice' ? aiAdviceResponse?.provider ?? 'provider 未提供' : aiProvider ?? 'provider 未提供'} · {aiMode === 'advice' ? aiAdviceResponse?.model ?? 'model 未提供' : aiModel ?? 'model 未提供'}
+                <p className="text-xs text-muted">
+                  本次使用：{aiMode === 'advice' ? aiAdviceResponse?.provider ?? 'provider 未提供' : aiProvider ?? 'provider 未提供'}，{aiMode === 'advice' ? aiAdviceResponse?.model ?? 'model 未提供' : aiModel ?? 'model 未提供'}
                 </p>
               )}
             </div>
           </div>
           <div className="flex flex-wrap items-center gap-2">
-            <label className="text-[10px] text-muted">
+            <label className="text-xs text-muted">
               <span className="sr-only">AI 分析模式</span>
               <select
                 aria-label="AI 分析模式"
@@ -1783,7 +1785,7 @@ export function TaiwanStockDetail() {
             </label>
             {aiMode === 'advice' && (
               <>
-                <label className="text-[10px] text-muted">
+                <label className="text-xs text-muted">
                   <span className="sr-only">建議策略</span>
                   <select
                     aria-label="建議策略"
@@ -1801,7 +1803,7 @@ export function TaiwanStockDetail() {
                     ))}
                   </select>
                 </label>
-                <label className="flex cursor-pointer select-none items-center gap-1.5 text-[10px] text-muted">
+                <label className="flex cursor-pointer select-none items-center gap-1.5 text-xs text-muted">
                   <input
                     type="checkbox"
                     checked={requestAdviceReview}
@@ -1812,7 +1814,7 @@ export function TaiwanStockDetail() {
                   獨立複核
                 </label>
                 <label
-                  className="flex cursor-pointer select-none items-center gap-1.5 text-[10px] text-muted"
+                  className="flex cursor-pointer select-none items-center gap-1.5 text-xs text-muted"
                   title="先讓多方、空方各提論點，再由裁判判斷哪邊證據較強；多 3 次 AI 呼叫"
                 >
                   <input
@@ -2154,7 +2156,7 @@ export function TaiwanStockDetail() {
                   })
                 }}
               />
-              {aiReport && <span className="text-[10px] text-muted">成功報告會自動儲存，稍後可在研究歷史回看</span>}
+              {aiReport && <span className="text-xs text-muted">成功報告會自動儲存，稍後可在研究歷史回看</span>}
             </div>
           </div>
         </div>
@@ -2163,20 +2165,20 @@ export function TaiwanStockDetail() {
           <div className="flex flex-wrap items-center justify-between gap-2">
             <div>
               <h4 className="text-xs font-semibold text-foreground">研究歷史</h4>
-              <p className="text-[10px] text-muted">成功報告會自動儲存，可回看 provider、模型與提示詞版本。</p>
+              <p className="text-xs text-muted">成功報告會自動儲存，可回看 provider、模型與提示詞版本。</p>
             </div>
-            {historyQuery.isFetching && <span role="status" className="text-[10px] text-muted">讀取中…</span>}
+            {historyQuery.isFetching && <span role="status" className="text-xs text-muted">讀取中…</span>}
           </div>
           {historyQuery.isError ? (
-            <p role="alert" className="mt-2 text-[11px] text-muted">研究歷史目前不可用，個股 AI 分析仍可使用。</p>
+            <p role="alert" className="mt-2 text-xs text-muted">研究歷史目前不可用，個股 AI 分析仍可使用。</p>
           ) : historyItems.length === 0 ? (
-            <p className="mt-2 text-[11px] text-muted">尚無儲存的研究紀錄。</p>
+            <p className="mt-2 text-xs text-muted">尚無儲存的研究紀錄。</p>
           ) : (
             <div className="mt-2 space-y-1.5">
               {historyItems.slice(0, 8).map((item, index) => (
-                <div key={item.id} className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-border/40 px-2 py-1.5 text-[10px]">
-                  <Link to={`/research?${new URLSearchParams({ symbol, id: item.id })}`} className="font-mono text-accent hover:underline">{item.saved_at ?? item.generated_at ?? item.id} · 來源與後續追蹤</Link>
-                  <span className="text-muted">{item.provider ?? 'provider 未提供'} · {item.model ?? 'model 未提供'} · {researchPromptVersion(item) ?? '提示詞版本未提供'}</span>
+                <div key={item.id} className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-border/40 px-2 py-1.5 text-xs">
+                  <Link to={`/research?${new URLSearchParams({ symbol, id: item.id })}`} className="font-mono text-accent hover:underline">{item.saved_at ?? item.generated_at ?? item.id}，來源與後續追蹤</Link>
+                  <span className="text-muted">{item.provider ?? 'provider 未提供'}，{item.model ?? 'model 未提供'}，{researchPromptVersion(item) ?? '提示詞版本未提供'}</span>
                   {index > 0 && <button type="button" onClick={() => setComparePreviousId(item.id)} className="inline-flex items-center gap-1 text-purple-300 hover:underline"><GitCompareArrows className="h-3 w-3" />與較新紀錄比較</button>}
                 </div>
               ))}
@@ -2184,8 +2186,8 @@ export function TaiwanStockDetail() {
           )}
           {comparePrevious && (
             <div className="mt-3 rounded-md border border-purple-500/30 bg-purple-500/5 p-2">
-              {compareQuery.isLoading ? <p role="status" className="mt-1 text-[11px] text-muted">正在取得差異…</p>
-                : compareQuery.isError ? <p role="alert" className="mt-1 text-[11px] text-muted">比較目前不可用。</p>
+              {compareQuery.isLoading ? <p role="status" className="mt-1 text-xs text-muted">正在取得差異…</p>
+                : compareQuery.isError ? <p role="alert" className="mt-1 text-xs text-muted">比較目前不可用。</p>
                   : compareQuery.data && compareBase ? (
                     <ResearchCompareView
                       data={compareQuery.data}
@@ -2225,7 +2227,7 @@ export function TaiwanStockDetail() {
           <div className="py-8 text-center text-muted text-xs border border-dashed border-border/40 rounded-xl bg-base/30">
             <Sparkles className="w-8 h-8 mx-auto mb-2 text-purple-400/40" />
             <p className="font-medium text-foreground">尚未分析</p>
-            <p className="text-[11px] text-muted mt-1">點擊「AI 分析」查看現況、主要訊號、風險與接下來的觀察點。</p>
+            <p className="text-xs text-muted mt-1">點擊「AI 分析」查看現況、主要訊號、風險與接下來的觀察點。</p>
           </div>
         )}
 
@@ -2233,19 +2235,19 @@ export function TaiwanStockDetail() {
           <div className="rounded-xl border border-dashed border-border/40 bg-base/30 py-8 text-center text-xs text-muted">
             <Sparkles className="mx-auto mb-2 h-8 w-8 text-purple-400/40" />
             <p className="font-medium text-foreground">尚未產生策略建議</p>
-            <p className="mt-1 text-[11px]">選擇買點策略後，系統會依正式訊號與 TradePlan 產生可複核建議。</p>
+            <p className="mt-1 text-xs">選擇買點策略後，系統會依正式訊號與 TradePlan 產生可複核建議。</p>
           </div>
         )}
 
         {aiMode === 'research' && aiReport && (
           <div className="space-y-4 text-xs">
-            <p className="text-[10px] text-muted">
+            <p className="text-xs text-muted">
               市場證據截至 {aiReport.evidence_as_of}
               {aiReport.personal_context_as_of && `；持倉、自選與提醒資料截至 ${aiReport.personal_context_as_of.replace('T', ' ')}`}
             </p>
             {/* Overview */}
             <div className="bg-base/60 p-3.5 rounded-lg border border-border/50">
-              <span className="text-[11px] font-semibold text-purple-300 block mb-1">【研究摘要】</span>
+              <span className="text-xs font-semibold text-purple-300 block mb-1">【研究摘要】</span>
               <p className="text-foreground leading-relaxed text-xs">{aiReport.overview}</p>
             </div>
 
@@ -2260,60 +2262,60 @@ export function TaiwanStockDetail() {
             <BriefSection title="接下來觀察" text={(aiReport.watch_next ?? []).length === 0 ? '目前資料不足以列出具體觀察點。' : undefined} items={(aiReport.watch_next ?? []).map(item => item.text)} />
 
             <details className="rounded-lg border border-border/40 bg-base/20 p-3">
-              <summary className="cursor-pointer text-[11px] font-medium text-muted">完整證據解讀與資料覆蓋</summary>
+              <summary className="cursor-pointer text-xs font-medium text-muted">完整證據解讀與資料覆蓋</summary>
               <div className="mt-3 space-y-4">
 
             {/* Sectional Interpretations Grid */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
               {aiReport.market_interpretation && (
                 <div className="bg-base/40 p-3 rounded-lg border border-border/40">
-                  <span className="text-[11px] font-semibold text-muted block mb-1">大盤環境解讀</span>
-                  <p className="text-foreground text-[11px] leading-normal">{aiReport.market_interpretation}</p>
+                  <span className="text-xs font-semibold text-muted block mb-1">大盤環境解讀</span>
+                  <p className="text-foreground text-xs leading-normal">{aiReport.market_interpretation}</p>
                 </div>
               )}
               {aiReport.industry_interpretation && (
                 <div className="bg-base/40 p-3 rounded-lg border border-border/40">
-                  <span className="text-[11px] font-semibold text-muted block mb-1">產業輪動解讀</span>
-                  <p className="text-foreground text-[11px] leading-normal">{aiReport.industry_interpretation}</p>
+                  <span className="text-xs font-semibold text-muted block mb-1">產業輪動解讀</span>
+                  <p className="text-foreground text-xs leading-normal">{aiReport.industry_interpretation}</p>
                 </div>
               )}
               {aiReport.price_technical_interpretation && (
                 <div className="bg-base/40 p-3 rounded-lg border border-border/40">
-                  <span className="text-[11px] font-semibold text-muted block mb-1">量價與技術位階解讀</span>
-                  <p className="text-foreground text-[11px] leading-normal">{aiReport.price_technical_interpretation}</p>
+                  <span className="text-xs font-semibold text-muted block mb-1">量價與技術位階解讀</span>
+                  <p className="text-foreground text-xs leading-normal">{aiReport.price_technical_interpretation}</p>
                 </div>
               )}
               {aiReport.institutional_interpretation && (
                 <div className="bg-base/40 p-3 rounded-lg border border-border/40">
-                  <span className="text-[11px] font-semibold text-muted block mb-1">三大法人籌碼解讀</span>
-                  <p className="text-foreground text-[11px] leading-normal">{aiReport.institutional_interpretation}</p>
+                  <span className="text-xs font-semibold text-muted block mb-1">三大法人籌碼解讀</span>
+                  <p className="text-foreground text-xs leading-normal">{aiReport.institutional_interpretation}</p>
                 </div>
               )}
               {aiReport.margin_interpretation && (
                 <div className="bg-base/40 p-3 rounded-lg border border-border/40">
-                  <span className="text-[11px] font-semibold text-muted block mb-1">融資融券信用交易解讀</span>
-                  <p className="text-foreground text-[11px] leading-normal">{aiReport.margin_interpretation}</p>
+                  <span className="text-xs font-semibold text-muted block mb-1">融資融券信用交易解讀</span>
+                  <p className="text-foreground text-xs leading-normal">{aiReport.margin_interpretation}</p>
                 </div>
               )}
               {aiReport.fundamentals_interpretation && (
                 <div className="bg-base/40 p-3 rounded-lg border border-border/40">
-                  <span className="text-[11px] font-semibold text-muted block mb-1">基本面 / 財務營收解讀</span>
-                  <p className="text-foreground text-[11px] leading-normal">{aiReport.fundamentals_interpretation}</p>
+                  <span className="text-xs font-semibold text-muted block mb-1">基本面 / 財務營收解讀</span>
+                  <p className="text-foreground text-xs leading-normal">{aiReport.fundamentals_interpretation}</p>
                 </div>
               )}
               {aiReport.abnormal_diagnostics_interpretation && (
                 <div className="bg-base/40 p-3 rounded-lg border border-border/40 md:col-span-2">
-                  <span className="text-[11px] font-semibold text-muted block mb-1">異常異動與資金流向解讀</span>
-                  <p className="text-foreground text-[11px] leading-normal">{aiReport.abnormal_diagnostics_interpretation}</p>
+                  <span className="text-xs font-semibold text-muted block mb-1">異常異動與資金流向解讀</span>
+                  <p className="text-foreground text-xs leading-normal">{aiReport.abnormal_diagnostics_interpretation}</p>
                 </div>
               )}
               {aiReport.events_news_interpretation && (
                 <div className="bg-base/40 p-3 rounded-lg border border-border/40 md:col-span-2">
                   <div className="flex items-center justify-between mb-1">
-                    <span className="text-[11px] font-semibold text-muted">重大事件與市場新聞解讀</span>
-                    <span className="text-[10px] text-purple-400 font-mono">官方事實 vs 新聞報導</span>
+                    <span className="text-xs font-semibold text-muted">重大事件與市場新聞解讀</span>
+                    <span className="text-xs text-purple-400 font-mono">官方事實 vs 新聞報導</span>
                   </div>
-                  <p className="text-foreground text-[11px] leading-normal">{aiReport.events_news_interpretation}</p>
+                  <p className="text-foreground text-xs leading-normal">{aiReport.events_news_interpretation}</p>
                 </div>
               )}
             </div>
@@ -2321,14 +2323,14 @@ export function TaiwanStockDetail() {
             {/* Key Observations with Evidence Chips */}
             {aiReport.key_observations && aiReport.key_observations.length > 0 && (
               <div className="bg-base/40 p-3.5 rounded-lg border border-border/40 space-y-2">
-                <span className="text-[11px] font-semibold text-emerald-400 block">【重點客觀觀察 (Grounded Observations)】</span>
+                <span className="text-xs font-semibold text-emerald-400 block">【重點客觀觀察 (Grounded Observations)】</span>
                 <div className="space-y-2">
                   {aiReport.key_observations.map((obs, idx) => (
                     <div key={idx} className="flex flex-col gap-1 bg-surface/60 p-2 rounded border border-border/30">
                       <span className="text-foreground text-xs leading-normal">{obs.text}</span>
                       <div className="flex flex-wrap gap-1 mt-0.5">
                         {obs.evidence_refs.map((ref, rIdx) => (
-                          <span key={rIdx} className="text-[10px] font-mono px-1.5 py-0.2 bg-emerald-950/40 border border-emerald-800/40 text-emerald-300 rounded">
+                          <span key={rIdx} className="text-xs font-mono px-1.5 py-0.2 bg-emerald-950/40 border border-emerald-800/40 text-emerald-300 rounded">
                             證據: {evidenceLabel(ref)}
                           </span>
                         ))}
@@ -2342,14 +2344,14 @@ export function TaiwanStockDetail() {
             {/* Risk Factors with Evidence Chips */}
             {aiReport.risk_factors && aiReport.risk_factors.length > 0 && (
               <div className="bg-base/40 p-3.5 rounded-lg border border-border/40 space-y-2">
-                <span className="text-[11px] font-semibold text-amber-400 block">【數據揭示之風險特徵 (Risk Evidence)】</span>
+                <span className="text-xs font-semibold text-amber-400 block">【數據揭示之風險特徵 (Risk Evidence)】</span>
                 <div className="space-y-2">
                   {aiReport.risk_factors.map((rsk, idx) => (
                     <div key={idx} className="flex flex-col gap-1 bg-surface/60 p-2 rounded border border-border/30">
                       <span className="text-foreground text-xs leading-normal">{rsk.text}</span>
                       <div className="flex flex-wrap gap-1 mt-0.5">
                         {rsk.evidence_refs.map((ref, rIdx) => (
-                          <span key={rIdx} className="text-[10px] font-mono px-1.5 py-0.2 bg-amber-950/40 border border-amber-800/40 text-amber-300 rounded">
+                          <span key={rIdx} className="text-xs font-mono px-1.5 py-0.2 bg-amber-950/40 border border-amber-800/40 text-amber-300 rounded">
                             依據: {evidenceLabel(ref)}
                           </span>
                         ))}
@@ -2362,9 +2364,9 @@ export function TaiwanStockDetail() {
 
             {/* Deterministic Missing Information */}
             {aiReport.missing_information && aiReport.missing_information.length > 0 && (
-              <div className="bg-base/30 p-2.5 rounded-lg border border-border/30 text-[11px] text-muted">
+              <div className="bg-base/30 p-2.5 rounded-lg border border-border/30 text-xs text-muted">
                 <span className="font-semibold text-zinc-400 block mb-1">【系統數據覆蓋度說明】:</span>
-                <ul className="list-disc list-inside space-y-0.5 font-mono text-[10px]">
+                <ul className="list-disc list-inside space-y-0.5 font-mono text-xs">
                   {aiReport.missing_information.map((item, idx) => (
                     <li key={idx} className="text-zinc-400">{item}</li>
                   ))}
@@ -2373,7 +2375,7 @@ export function TaiwanStockDetail() {
             )}
 
             {/* Disclaimer */}
-            <div className="p-2.5 bg-zinc-950/40 border border-zinc-800/60 rounded text-[10px] text-zinc-500 font-sans text-center">
+            <div className="p-2.5 bg-zinc-950/40 border border-zinc-800/60 rounded text-xs text-zinc-500 font-sans text-center">
               {aiReport.disclaimer}
             </div>
               </div>
@@ -2412,6 +2414,36 @@ const RATIONALE_KIND_LABELS = {
   assumption: '假設',
 } as const
 
+const VERDICT_TEXT = { bullish: '偏多', bearish: '偏空', neutral: '中性' } as const
+// 台股慣例：紅漲綠跌。
+const VERDICT_TONE = { bullish: 'text-rose-500', bearish: 'text-emerald-500', neutral: 'text-muted' } as const
+
+/** 日／週／月各一句話的規則式多空判定；最後一根週、月 K 含本週（本月）至今。 */
+function TimeframeVerdicts({ verdicts }: { verdicts: TaiwanTimeframeVerdict[] }) {
+  return (
+    <section aria-label="日週月多空判定" className="mt-4 grid grid-cols-1 gap-2 md:grid-cols-3">
+      {verdicts.map(v => (
+        <div key={v.timeframe} className="min-w-0 rounded-xl border border-border bg-base/45 p-3">
+          <div className="flex items-baseline justify-between gap-2">
+            <h4 className="text-base font-bold text-foreground">{v.label}</h4>
+            <span className={cn('text-base font-bold', v.bias ? VERDICT_TONE[v.bias] : 'text-muted')}>
+              {v.bias ? VERDICT_TEXT[v.bias] : '資料不足'}
+            </span>
+          </div>
+          {v.score != null && (
+            <p className="mt-1 text-xs font-mono text-muted">規則分數 {v.score > 0 ? '+' : ''}{v.score}</p>
+          )}
+          <p className="mt-1 text-sm leading-relaxed text-foreground/90">{v.summary}</p>
+          {v.missing.length > 0 && v.status === 'available' && (
+            <p className="mt-1 text-xs text-muted">{v.missing.join('、')} 歷史不足，未計分</p>
+          )}
+        </div>
+      ))}
+      <p className="text-xs text-muted md:col-span-3">依均線、KD、MACD、RSI、乖離的規則計分，只代表目前多空傾向，不是漲跌機率。週、月線最後一根含本週（本月）至今，尚未收完。</p>
+    </section>
+  )
+}
+
 function AIAdvicePanel({ response }: { response: TaiwanAIAdviceResponse }) {
   const advice = response.advice!
   const plan = advice.selected_trade_plan
@@ -2421,10 +2453,10 @@ function AIAdvicePanel({ response }: { response: TaiwanAIAdviceResponse }) {
     <section className="space-y-3" aria-label="AI 策略建議">
       <div className="rounded-lg border border-purple-700/40 bg-purple-950/20 p-3">
         <div className="flex flex-wrap items-center gap-2">
-          <span className="rounded-full bg-purple-500/15 px-2 py-0.5 text-[10px] font-semibold text-purple-300">
+          <span className="rounded-full bg-purple-500/15 px-2 py-0.5 text-xs font-semibold text-purple-300">
             {ADVICE_ACTION_LABELS[advice.action]}
           </span>
-          <span className="text-[10px] text-muted">策略 {advice.strategy_id} · 證據截至 {advice.evidence_as_of}</span>
+          <span className="text-xs text-muted">策略 {advice.strategy_id}，證據截至 {advice.evidence_as_of}</span>
         </div>
         <p className="mt-2 text-sm leading-relaxed text-foreground">{advice.summary}</p>
       </div>
@@ -2466,13 +2498,13 @@ function AIAdvicePanel({ response }: { response: TaiwanAIAdviceResponse }) {
       <div className="grid gap-3 lg:grid-cols-2">
         <section className="rounded-lg border border-border/50 bg-base/30 p-3">
           <h4 className="text-xs font-semibold text-foreground">判斷依據</h4>
-          {advice.rationale.length === 0 ? <p className="mt-2 text-[11px] text-muted">沒有可列出的判斷依據。</p> : (
+          {advice.rationale.length === 0 ? <p className="mt-2 text-xs text-muted">沒有可列出的判斷依據。</p> : (
             <ul className="mt-2 space-y-2">
               {advice.rationale.map((item, index) => (
                 <li key={`rationale-${index}`} className="text-xs text-foreground">
-                  <span className="mr-1 rounded bg-elevated px-1.5 py-0.5 text-[10px] text-muted">{RATIONALE_KIND_LABELS[item.kind]}</span>
+                  <span className="mr-1 rounded bg-elevated px-1.5 py-0.5 text-xs text-muted">{RATIONALE_KIND_LABELS[item.kind]}</span>
                   {item.text}
-                  {item.evidence_refs.length > 0 && <span className="mt-0.5 block font-mono text-[10px] text-muted">證據：{evidenceLabels(item.evidence_refs)}</span>}
+                  {item.evidence_refs.length > 0 && <span className="mt-0.5 block font-mono text-xs text-muted">證據：{evidenceLabels(item.evidence_refs)}</span>}
                 </li>
               ))}
             </ul>
@@ -2491,18 +2523,18 @@ function AIAdvicePanel({ response }: { response: TaiwanAIAdviceResponse }) {
         {plan ? (
           <>
             <dl className="mt-2 grid grid-cols-2 gap-2 text-xs sm:grid-cols-4">
-              <div><dt className="text-[10px] text-muted">計畫進場價</dt><dd className="font-mono text-foreground">{plan.planned_entry_price}</dd></div>
-              <div><dt className="text-[10px] text-muted">觸發價</dt><dd className="font-mono text-foreground">{plan.trigger_price}</dd></div>
-              <div><dt className="text-[10px] text-muted">停損價</dt><dd className="font-mono text-foreground">{plan.stop_price}</dd></div>
-              <div><dt className="text-[10px] text-muted">目標價</dt><dd className="font-mono text-foreground">{plan.target_price}</dd></div>
+              <div><dt className="text-xs text-muted">計畫進場價</dt><dd className="font-mono text-foreground">{plan.planned_entry_price}</dd></div>
+              <div><dt className="text-xs text-muted">觸發價</dt><dd className="font-mono text-foreground">{plan.trigger_price}</dd></div>
+              <div><dt className="text-xs text-muted">停損價</dt><dd className="font-mono text-foreground">{plan.stop_price}</dd></div>
+              <div><dt className="text-xs text-muted">目標價</dt><dd className="font-mono text-foreground">{plan.target_price}</dd></div>
             </dl>
             {plan.entry_zone_low != null && plan.entry_zone_high != null && (
-              <p className="mt-2 text-[10px] text-muted">進場區間 {plan.entry_zone_low}–{plan.entry_zone_high}</p>
+              <p className="mt-2 text-xs text-muted">進場區間 {plan.entry_zone_low}–{plan.entry_zone_high}</p>
             )}
-            <p className="mt-1 break-all font-mono text-[10px] text-muted">plan_instance_id: {plan.plan_instance_id}</p>
+            <p className="mt-1 break-all font-mono text-xs text-muted">plan_instance_id: {plan.plan_instance_id}</p>
           </>
         ) : (
-          <p className="mt-2 text-[11px] text-muted">尚無可用的正式 TradePlan 價位；介面不推算替代價位。</p>
+          <p className="mt-2 text-xs text-muted">尚無可用的正式 TradePlan 價位；介面不推算替代價位。</p>
         )}
       </section>
 
@@ -2510,7 +2542,7 @@ function AIAdvicePanel({ response }: { response: TaiwanAIAdviceResponse }) {
         <h4 className="text-xs font-semibold text-foreground">資料缺口</h4>
         {advice.data_gaps.length > 0
           ? <ul className="mt-1 list-inside list-disc space-y-1 text-xs text-muted">{advice.data_gaps.map((item, index) => <li key={`gap-${index}`}>{item}</li>)}</ul>
-          : <p className="mt-1 text-[11px] text-muted">未列出額外資料缺口。</p>}
+          : <p className="mt-1 text-xs text-muted">未列出額外資料缺口。</p>}
       </section>
     </section>
   )
@@ -2526,8 +2558,8 @@ const DEBATE_SIDE_LABELS = {
 function DebatePointList({ title, items }: { title: string; items: TaiwanAIDebate['bull_points'] }) {
   return (
     <div>
-      <h5 className="text-[11px] font-semibold text-foreground">{title}</h5>
-      {items.length === 0 ? <p className="mt-1 text-[11px] text-muted">沒有可引用證據的論點。</p> : (
+      <h5 className="text-xs font-semibold text-foreground">{title}</h5>
+      {items.length === 0 ? <p className="mt-1 text-xs text-muted">沒有可引用證據的論點。</p> : (
         <ul className="mt-1 list-inside list-disc space-y-1">
           {items.map((item, index) => <li key={`${title}-${index}`} className="text-xs text-foreground">{item.text}</li>)}
         </ul>
@@ -2542,25 +2574,25 @@ function AdviceDebatePanel({ debate }: { debate: TaiwanAIDebate }) {
     <section className="space-y-3 rounded-lg border border-border/50 bg-base/30 p-3" aria-label="多空辯論">
       <div className="flex flex-wrap items-center gap-2">
         <h4 className="text-xs font-semibold text-foreground">多空辯論裁判</h4>
-        <span className="rounded-full bg-purple-500/15 px-2 py-0.5 text-[10px] font-semibold text-purple-300">
+        <span className="rounded-full bg-purple-500/15 px-2 py-0.5 text-xs font-semibold text-purple-300">
           {DEBATE_SIDE_LABELS[verdict.stronger_side]}
           {verdict.margin === 'decisive' ? '（明顯）' : verdict.margin === 'narrow' ? '（些微）' : ''}
         </span>
         {(debate.quick_model || debate.deep_model) && (
-          <span className="text-[10px] text-muted">辯論 {debate.quick_model ?? '未提供'} · 裁判 {debate.deep_model ?? '未提供'}</span>
+          <span className="text-xs text-muted">辯論 {debate.quick_model ?? '未提供'}，裁判 {debate.deep_model ?? '未提供'}</span>
         )}
       </div>
       <DebatePointList title="決定性論點" items={verdict.decisive_points} />
       {verdict.what_would_change.length > 0 && (
         <div>
-          <h5 className="text-[11px] font-semibold text-foreground">什麼會推翻這個判斷</h5>
+          <h5 className="text-xs font-semibold text-foreground">什麼會推翻這個判斷</h5>
           <ul className="mt-1 list-inside list-disc space-y-1">
             {verdict.what_would_change.map((text, index) => <li key={`change-${index}`} className="text-xs text-foreground">{text}</li>)}
           </ul>
         </div>
       )}
       <details>
-        <summary className="cursor-pointer text-[11px] text-muted">看雙方完整論點</summary>
+        <summary className="cursor-pointer text-xs text-muted">看雙方完整論點</summary>
         <div className="mt-2 grid gap-3 lg:grid-cols-3">
           <DebatePointList title="多方" items={debate.bull_points} />
           <DebatePointList title="空方" items={debate.bear_points} />
@@ -2572,13 +2604,13 @@ function AdviceDebatePanel({ debate }: { debate: TaiwanAIDebate }) {
 }
 
 function AdviceConditionList({ items, emptyText }: { items: { text: string; evidence_refs: string[] }[]; emptyText: string }) {
-  if (items.length === 0) return <p className="mt-1 text-[11px] text-muted">{emptyText}</p>
+  if (items.length === 0) return <p className="mt-1 text-xs text-muted">{emptyText}</p>
   return (
     <ul className="mt-1 list-inside list-disc space-y-1 text-xs text-foreground">
       {items.map((item, index) => (
         <li key={`${item.text}-${index}`}>
           {item.text}
-          {item.evidence_refs.length > 0 && <span className="ml-1 font-mono text-[10px] text-muted">({evidenceLabels(item.evidence_refs)})</span>}
+          {item.evidence_refs.length > 0 && <span className="ml-1 font-mono text-xs text-muted">({evidenceLabels(item.evidence_refs)})</span>}
         </li>
       ))}
     </ul>
@@ -2589,7 +2621,7 @@ function BriefSection({ title, text, items = [] }: { title: string; text?: strin
   if (!text && items.length === 0) return null
   return (
     <section className="rounded-lg border border-border/40 bg-base/40 p-3">
-      <h4 className="mb-1 text-[11px] font-semibold text-purple-300">{title}</h4>
+      <h4 className="mb-1 text-xs font-semibold text-purple-300">{title}</h4>
       {text && <p className="leading-relaxed text-foreground">{text}</p>}
       {items.length > 0 && <ul className="mt-1 list-inside list-disc space-y-1 text-foreground">{items.slice(0, 4).map((item, index) => <li key={`${title}-${index}`}>{item}</li>)}</ul>}
     </section>
@@ -2601,8 +2633,8 @@ function BuyPointWatchPanel({ signals, loading, onRefresh }: { signals: BuyPoint
   if (loading) return <section className="mb-4 rounded-2xl border border-border bg-surface p-4 text-xs text-muted">正在讀取買點觀察…</section>
   return (
     <section className="mb-4 rounded-2xl border border-border bg-surface p-4">
-      <div className="mb-3 flex items-center justify-between"><div><h3 className="text-sm font-bold text-foreground">買點觀察</h3><p className="mt-0.5 text-[10px] text-muted">deterministic 條件解釋，不替使用者做交易決定</p></div><button type="button" onClick={onRefresh} className="text-[10px] text-accent hover:underline">重新整理</button></div>
-      {signals.length === 0 ? <p className="py-3 text-center text-xs text-muted">此標的尚未套用買點策略。</p> : <div className="grid gap-2 md:grid-cols-2">{signals.map(signal => <div key={signal.strategy_id} className="rounded-xl border border-border/70 bg-base/50 p-2.5 text-xs"><div className="flex items-center justify-between gap-2"><span className="font-medium">{signal.strategy_id}</span><span className="rounded-full bg-elevated px-2 py-0.5 text-[10px]">{labels[signal.status]}</span></div><p className="mt-1 text-[11px] text-secondary">{signal.explanation}</p><div className="mt-1 text-[10px] text-muted">✓ {signal.triggered_conditions.join('、') || '無'}<br />✗ {signal.failed_conditions.join('、') || '無'}</div></div>)}</div>}
+      <div className="mb-3 flex items-center justify-between"><div><h3 className="text-sm font-bold text-foreground">買點觀察</h3><p className="mt-0.5 text-xs text-muted">deterministic 條件解釋，不替使用者做交易決定</p></div><button type="button" onClick={onRefresh} className="text-xs text-accent hover:underline">重新整理</button></div>
+      {signals.length === 0 ? <p className="py-3 text-center text-xs text-muted">此標的尚未套用買點策略。</p> : <div className="grid gap-2 md:grid-cols-2">{signals.map(signal => <div key={signal.strategy_id} className="rounded-xl border border-border/70 bg-base/50 p-2.5 text-xs"><div className="flex items-center justify-between gap-2"><span className="font-medium">{signal.strategy_id}</span><span className="rounded-full bg-elevated px-2 py-0.5 text-xs">{labels[signal.status]}</span></div><p className="mt-1 text-xs text-secondary">{signal.explanation}</p><div className="mt-1 text-xs text-muted">✓ {signal.triggered_conditions.join('、') || '無'}<br />✗ {signal.failed_conditions.join('、') || '無'}</div></div>)}</div>}
     </section>
   )
 }

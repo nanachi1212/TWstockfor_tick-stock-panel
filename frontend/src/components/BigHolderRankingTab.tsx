@@ -59,7 +59,7 @@ function BigHolderTable({ rows, empty }: { rows: BigHolderRow[]; empty: string }
     </tr></thead>
     <tbody>{rows.map((r, i) => <tr key={r.symbol} className="border-t border-border/60">
       <td className="px-2 py-1.5 text-muted">{i + 1}</td>
-      <td className="px-2 py-1.5"><Link to={`/stocks/${r.symbol}`} className="hover:underline">{r.symbol.split('.')[0]} {r.name}</Link>{r.in_watchlist && <span className="ml-1 rounded bg-accent/15 px-1 text-[10px] text-accent">自選</span>}</td>
+      <td className="px-2 py-1.5"><Link to={`/stocks/${r.symbol}`} className="hover:underline">{r.symbol.split('.')[0]} {r.name}</Link>{r.in_watchlist && <span className="ml-1 rounded bg-accent/15 px-1 text-xs text-accent">自選</span>}</td>
       <td className="px-2 py-1.5 text-right tabular-nums">{r.big_holder_pct.toFixed(1)}%</td>
       <td className={`px-2 py-1.5 text-right tabular-nums ${toneClass(r.change_1w_pp)}`} title={`股東人數 1 週變化 ${signed(r.holders_change_1w_pct, 1, '%')}`}>{signed(r.change_1w_pp)}</td>
       <td className={`hidden px-2 py-1.5 text-right tabular-nums md:table-cell ${toneClass(r.change_4w_pp)}`}>{signed(r.change_4w_pp)}</td>

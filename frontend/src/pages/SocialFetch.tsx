@@ -191,7 +191,7 @@ export function SocialFetch() {
               <div className="mt-3 space-y-3">
                 {discussionItems.map(item => (
                   <article key={item.id} className="rounded-lg border border-border/70 bg-base p-3">
-                    <div className="flex flex-wrap items-center gap-2 text-[11px] text-muted">
+                    <div className="flex flex-wrap items-center gap-2 text-xs text-muted">
                       <span className="rounded bg-elevated px-2 py-0.5 uppercase">{item.source}</span>
                       <span>{dateTime(item.published_at)}</span>
                       <span>{item.stock_names.join('、') || '未辨識股票'}</span>
@@ -202,11 +202,11 @@ export function SocialFetch() {
                     </a>
                     <p className="mt-1 text-xs leading-relaxed text-secondary">{item.excerpt || '無文章節錄'}</p>
                     {item.representative_comments.length > 0 && (
-                      <ul className="mt-2 space-y-1 border-l-2 border-border pl-3 text-xs text-muted">
+                      <ul className="mt-2 space-y-1 pl-3 text-xs text-muted">
                         {item.representative_comments.map((comment, index) => <li key={`${item.id}-${index}`}>{comment}</li>)}
                       </ul>
                     )}
-                    <p className="mt-2 font-mono text-[10px] text-muted">辨識股票：{item.symbols.join('、') || '無'}</p>
+                    <p className="mt-2 font-mono text-xs text-muted">辨識股票：{item.symbols.join('、') || '無'}</p>
                   </article>
                 ))}
                 {discussionItems.length === 0 && <p className="py-8 text-center text-sm text-muted">目前篩選條件下沒有討論內容。</p>}
@@ -240,7 +240,7 @@ function StatusCards({ job }: { job: TaiwanSocialSentimentJob }) {
     <section className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4" aria-live="polite">
       {cards.map(([label, value]) => (
         <div key={label} className={cn('rounded-card border border-border bg-surface p-3', label === 'Dcard' && job.dcard_status === 'unavailable' && 'border-danger/30 bg-danger/5')}>
-          <span className="text-[11px] text-muted">{label}</span>
+          <span className="text-xs text-muted">{label}</span>
           <p className="mt-1 text-sm font-semibold text-foreground">{value}</p>
         </div>
       ))}

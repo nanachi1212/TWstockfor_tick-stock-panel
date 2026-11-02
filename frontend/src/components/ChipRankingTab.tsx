@@ -30,7 +30,7 @@ export function ChipRankingTab() {
       <div role="tablist" aria-label="交易所" className="flex gap-1">
         {(['TWSE', 'TPEX'] as const).map(id => <button key={id} role="tab" aria-selected={exchange === id} onClick={() => setExchange(id)} className={`${inputClass} ${exchange === id ? 'bg-accent/15 text-accent' : ''}`}>{id === 'TWSE' ? '上市' : '上櫃'} 前 {data[id].length}</button>)}
       </div>
-      <span className="text-xs text-muted">最新已入庫交易日 {data.date}{data.big_holder_date && ` · 千張大戶資料週 ${data.big_holder_date}`}</span>
+      <span className="text-xs text-muted">最新已入庫交易日 {data.date}{data.big_holder_date && `，千張大戶資料週 ${data.big_holder_date}`}</span>
     </div>
     <p className="text-xs text-muted leading-relaxed">
       條件：普通股、5 日均量 ≥ {lots(data.min_avg_volume_5d)} 張、股價 ≥ {data.min_close} 元、當日三大法人合計買超。
@@ -112,7 +112,7 @@ function ChipTrackingBody({ data }: { data: ChipRankingTracking }) {
       <tbody>{data.days.slice(0, 20).map(d => <tr key={d.date} className="border-t border-border/60">
         <td className="px-2 py-1.5 tabular-nums">{d.date}</td>
         <td className="px-2 py-1.5 text-xs">{DAY_STATUS[d.status]}</td>
-        <td className="px-2 py-1.5 text-right tabular-nums"><details><summary className="cursor-pointer">{d.picks.length} 檔／查看存檔</summary><p className="text-xs text-muted">存檔 {d.recorded_at}；進場 {d.entry_date ?? '未確認'}</p><ul className="space-y-1 text-left text-xs">{d.picks.map(p => <li key={p.symbol}>#{p.rank} <Link className="text-accent hover:underline" to={`/stocks/${encodeURIComponent(p.symbol)}`}>{p.name || p.symbol}</Link> · 1 天 {pct(p.return_1)}／5 天 {pct(p.return_5)} · <Link className="text-accent hover:underline" to={`/research?symbol=${encodeURIComponent(p.symbol)}`}>研究歷史</Link></li>)}</ul></details></td>
+        <td className="px-2 py-1.5 text-right tabular-nums"><details><summary className="cursor-pointer">{d.picks.length} 檔／查看存檔</summary><p className="text-xs text-muted">存檔 {d.recorded_at}；進場 {d.entry_date ?? '未確認'}</p><ul className="space-y-1 text-left text-xs">{d.picks.map(p => <li key={p.symbol}>#{p.rank} <Link className="text-accent hover:underline" to={`/stocks/${encodeURIComponent(p.symbol)}`}>{p.name || p.symbol}</Link>，1 天 {pct(p.return_1)}／5 天 {pct(p.return_5)}，<Link className="text-accent hover:underline" to={`/research?symbol=${encodeURIComponent(p.symbol)}`}>研究歷史</Link></li>)}</ul></details></td>
         <td className="px-2 py-1.5 text-right tabular-nums">{d.status === 'tracked' ? horizonCell(d.h1) : '—'}</td>
         <td className="px-2 py-1.5 text-right tabular-nums">{d.status === 'tracked' ? horizonCell(d.h5) : '—'}</td>
       </tr>)}</tbody>

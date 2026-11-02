@@ -24,19 +24,15 @@ export function TodayEventsWidget() {
   const hasEvents = events.length > 0
 
   return (
-    <section className="mb-2.5 rounded-card border border-border bg-surface/85 p-3 shadow-sm backdrop-blur-sm">
+    <section className="mb-2.5 rounded-card border border-border bg-surface p-3">
       <div className="flex items-center justify-between border-b border-border/60 pb-2 mb-2">
         <div className="flex items-center gap-1.5">
-          <span className="h-3.5 w-1 rounded-full bg-gradient-to-b from-accent to-accent/40" />
           <CalendarDays className="h-4 w-4 text-accent" />
           <h2 className="text-xs font-bold text-foreground">今日重要市場事件</h2>
-          <span className="rounded bg-accent/10 px-1.5 py-0.2 text-[10px] font-semibold text-accent">
-            處置 · 注意 · 除權息
-          </span>
         </div>
         <Link
           to="/events"
-          className="inline-flex items-center gap-1 text-[11px] font-medium text-accent hover:underline"
+          className="inline-flex items-center gap-1 text-xs font-medium text-accent hover:underline"
         >
           <span>完整事件中心</span>
           <ArrowUpRight className="h-3 w-3" />
@@ -77,7 +73,7 @@ export function TodayEventsWidget() {
                 <div className="flex items-center gap-2 min-w-0">
                   <span
                     className={cn(
-                      'inline-flex items-center gap-1 rounded border px-1.5 py-0.2 text-[10px] font-semibold shrink-0',
+                      'inline-flex items-center gap-1 rounded border px-1.5 py-0.2 text-xs font-semibold shrink-0',
                       badgeCls,
                     )}
                   >
@@ -90,7 +86,7 @@ export function TodayEventsWidget() {
                   >
                     {ev.name} ({ev.code})
                   </Link>
-                  <span className="text-secondary truncate text-[11px]">
+                  <span className="text-secondary truncate text-xs">
                     {ev.summary}
                   </span>
                 </div>

@@ -84,7 +84,7 @@ export function Monitor() {
               <div className="flex items-center justify-between border-b border-border/60 bg-surface/60 px-4 py-2.5">
                 <SectionHeader icon={BellRing} title="台股觸發記錄" />
                 <div className="flex items-center gap-2">
-                  <span className="rounded-md bg-elevated/50 px-1.5 py-0.5 text-[10px] font-medium text-muted">
+                  <span className="rounded-md bg-elevated/50 px-1.5 py-0.5 text-xs font-medium text-muted">
                     {total} 筆事件
                   </span>
                 </div>
@@ -102,7 +102,7 @@ export function Monitor() {
               <div className="flex items-center justify-between border-b border-border/60 bg-surface/60 px-4 py-2.5">
                 <div className="flex items-center gap-2">
                   <SectionHeader icon={ListChecks} title="台股規則管理" />
-                  <span className="rounded-md bg-elevated/50 px-1.5 py-0.5 text-[10px] font-medium text-muted">
+                  <span className="rounded-md bg-elevated/50 px-1.5 py-0.5 text-xs font-medium text-muted">
                     {twRules.length}
                   </span>
                 </div>

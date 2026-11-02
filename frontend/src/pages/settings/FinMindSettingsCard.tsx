@@ -110,7 +110,7 @@ export function FinMindSettingsCard() {
               <h3 className="text-sm font-semibold text-foreground">
                 FinMind 基本面與籌碼資料來源
               </h3>
-              <span className="text-[10px] px-2 py-0.5 rounded-full bg-purple-500/10 text-purple-400 font-medium">
+              <span className="text-xs px-2 py-0.5 rounded-full bg-purple-500/10 text-purple-400 font-medium">
                 擴充資料集
               </span>
             </div>
@@ -271,7 +271,7 @@ export function FinMindSettingsCard() {
               <div className="font-semibold">
                 {testResult.ok ? '連線測試成功' : '連線測試未通過'}
               </div>
-              <p className="mt-0.5 leading-relaxed text-[11px] opacity-90">{testResult.message}</p>
+              <p className="mt-0.5 leading-relaxed text-xs opacity-90">{testResult.message}</p>
             </div>
           </div>
         )}

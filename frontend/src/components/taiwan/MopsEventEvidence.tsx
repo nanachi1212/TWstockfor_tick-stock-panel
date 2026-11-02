@@ -21,7 +21,7 @@ function officialPresentation(url: unknown): url is string {
 
 export function MopsConferenceAvailability({ sources }: { sources?: Record<string, string> }) {
   if (sources?.['mops:conference:t100sb02_1'] !== 'unavailable') return null
-  return <p role="status" className="my-2 text-[11px] text-amber-500">官方 MOPS 法說會資料目前不可用，無法確認完整事件清單。<a href="https://mopsov.twse.com.tw/mops/web/t100sb02_1" target="_blank" rel="noreferrer" className="ml-1 text-accent hover:underline">前往官方查詢</a></p>
+  return <p role="status" className="my-2 text-xs text-amber-500">官方 MOPS 法說會資料目前不可用，無法確認完整事件清單。<a href="https://mopsov.twse.com.tw/mops/web/t100sb02_1" target="_blank" rel="noreferrer" className="ml-1 text-accent hover:underline">前往官方查詢</a></p>
 }
 
 /** Shared evidence labels for Event Center and Stock Detail. */
@@ -41,7 +41,7 @@ export function MopsEventEvidence({ event }: { event: MarketEvent }) {
   }
   const safeLinks = links.filter(link => link.method === 'POST' ? postFields(link) : !link.method || link.method === 'GET')
   return (
-    <div className="mt-2 space-y-1.5 break-words text-[11px] text-secondary" data-testid="mops-evidence">
+    <div className="mt-2 space-y-1.5 break-words text-xs text-secondary" data-testid="mops-evidence">
       {event.event_type === 'material_information' && (
         <p>主題：{details.topic_label ?? '其他／未分類'}（{details.clause ?? '條款未提供'}，規則分類）</p>
       )}

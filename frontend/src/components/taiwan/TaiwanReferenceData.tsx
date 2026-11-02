@@ -98,7 +98,7 @@ function SectionCard({
     <article className="rounded-2xl border border-border bg-surface p-4">
       <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
         <h4 className="text-sm font-bold text-foreground">{title}</h4>
-        <div className="flex flex-wrap items-center justify-end gap-1.5 text-[10px]">
+        <div className="flex flex-wrap items-center justify-end gap-1.5 text-xs">
           <span className={cn(
             'rounded-full px-2 py-0.5 font-medium',
             failed ? 'bg-rose-500/10 text-rose-500' : 'bg-accent/10 text-accent',
@@ -118,7 +118,7 @@ function SectionCard({
           此項官方資料暫時無法讀取，其他區塊不受影響。
         </div>
       ) : children}
-      <div className="mt-3 flex flex-wrap justify-between gap-2 border-t border-border/60 pt-2 text-[10px] text-muted">
+      <div className="mt-3 flex flex-wrap justify-between gap-2 border-t border-border/60 pt-2 text-xs text-muted">
         <span>來源：{section.provider || section.source || '--'}</span>
         <span>{section.available_at ? `可用時間：${section.available_at}` : '未提供可驗證的首次公開時間'}</span>
       </div>
@@ -207,7 +207,7 @@ function EtfSections({ sections }: { sections: Record<string, TaiwanDataSection>
           <DataRow label="資產淨值（NAV）" value={number(snapshotData.nav)} />
           <DataRow label="資產規模（AUM）" value={money(snapshotData.aum)} />
         </div>
-        <p className="mt-3 rounded-xl bg-base p-2.5 text-[11px] leading-5 text-muted">
+        <p className="mt-3 rounded-xl bg-base p-2.5 text-xs leading-5 text-muted">
           歷史 NAV、資產規模與配息目前尚未納入可安全使用的正式介面；缺值不代表為 0。
         </p>
       </SectionCard>
@@ -222,9 +222,9 @@ export function TaiwanReferenceData({ response, isLoading, isError, isFetching, 
         <div>
           <div className="flex flex-wrap items-center gap-2">
             <h3 id="taiwan-reference-heading" className="text-sm font-bold text-foreground">官方基本面資料</h3>
-            <span className="rounded-full bg-accent/10 px-2 py-0.5 text-[10px] font-medium text-accent">目前參考</span>
+            <span className="rounded-full bg-accent/10 px-2 py-0.5 text-xs font-medium text-accent">目前參考</span>
           </div>
-          <p className="mt-1 max-w-3xl text-[11px] leading-5 text-muted">
+          <p className="mt-1 max-w-3xl text-xs leading-5 text-muted">
             這些是官方目前或參考資料，不等同於可還原當時資訊的歷史資料，請勿直接用於歷史回測。
           </p>
         </div>

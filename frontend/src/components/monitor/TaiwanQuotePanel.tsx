@@ -67,7 +67,7 @@ export function MarketStatusBadge({ status }: { status: string | undefined }) {
     text = '盤後'
     cls = 'bg-sky-500/10 border-sky-500/30 text-sky-600 dark:text-sky-400'
   } else if (s === 'scheduled_open_unverified') {
-    text = '預定開盤・尚未確認'
+    text = '預定開盤，尚未確認'
     cls = 'bg-amber-500/15 border-amber-500/40 text-amber-600 dark:text-amber-300 font-medium'
   } else if (s === 'non_trading_day') {
     text = '休市 (非交易日)'
@@ -75,8 +75,8 @@ export function MarketStatusBadge({ status }: { status: string | undefined }) {
   }
 
   return (
-    <span className={cn('inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-medium border', cls)}>
-      <span className={cn('h-1.5 w-1.5 rounded-full', s === 'open' ? 'bg-emerald-500 animate-pulse' : 'bg-current opacity-60')} />
+    <span className={cn('inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-xs font-medium border', cls)}>
+      <span className={cn('h-1.5 w-1.5 rounded-full', s === 'open' ? 'bg-emerald-500' : 'bg-current opacity-60')} />
       {text}
     </span>
   )
@@ -113,7 +113,7 @@ function FiveLevelBook({
 
   return (
     <div className="rounded-lg border border-border/50 bg-elevated/40 p-2 text-xs">
-      <div className="mb-1 flex items-center justify-between text-[10px] text-muted font-medium px-1">
+      <div className="mb-1 flex items-center justify-between text-xs text-muted font-medium px-1">
         <span>檔位</span>
         <span>價格 (TWD)</span>
         <span>掛單 ({unit === 'lots' ? '張' : '股'})</span>
@@ -130,9 +130,9 @@ function FiveLevelBook({
                 className="absolute right-0 top-0 bottom-0 bg-emerald-500/10 dark:bg-emerald-500/15 pointer-events-none transition-all duration-300"
                 style={{ width: `${widthPct}%` }}
               />
-              <span className="text-[10px] text-muted z-10">賣{depthIdx}</span>
+              <span className="text-xs text-muted z-10">賣{depthIdx}</span>
               <span className={cn('z-10 font-mono text-xs', getPriceClass(p))}>{p != null ? p.toFixed(2) : '--'}</span>
-              <span className="z-10 font-mono text-[11px] text-foreground/80">
+              <span className="z-10 font-mono text-xs text-foreground/80">
                 {formatVolume(v, unit)}
               </span>
             </div>
@@ -153,9 +153,9 @@ function FiveLevelBook({
                 className="absolute right-0 top-0 bottom-0 bg-rose-500/10 dark:bg-rose-500/15 pointer-events-none transition-all duration-300"
                 style={{ width: `${widthPct}%` }}
               />
-              <span className="text-[10px] text-muted z-10">買{depthIdx}</span>
+              <span className="text-xs text-muted z-10">買{depthIdx}</span>
               <span className={cn('z-10 font-mono text-xs', getPriceClass(p))}>{p != null ? p.toFixed(2) : '--'}</span>
-              <span className="z-10 font-mono text-[11px] text-foreground/80">
+              <span className="z-10 font-mono text-xs text-foreground/80">
                 {formatVolume(v, unit)}
               </span>
             </div>
@@ -212,9 +212,9 @@ export function TaiwanQuotePanel({ onSelectSymbol, onAddRuleForSymbol }: TaiwanQ
               >
                 <div className="flex items-center gap-1.5">
                   <span>{q?.name || sym.split('.')[0]}</span>
-                  <span className="text-[10px] opacity-70">{sym.split('.')[1]}</span>
+                  <span className="text-xs opacity-70">{sym.split('.')[1]}</span>
                   {q?.last_price != null && (
-                    <span className={cn('text-[11px] font-mono', qUp ? 'text-rose-500' : qDown ? 'text-emerald-500' : 'text-muted')}>
+                    <span className={cn('text-xs font-mono', qUp ? 'text-rose-500' : qDown ? 'text-emerald-500' : 'text-muted')}>
                       {q.last_price.toFixed(1)}
                     </span>
                   )}
@@ -228,13 +228,13 @@ export function TaiwanQuotePanel({ onSelectSymbol, onAddRuleForSymbol }: TaiwanQ
         <div className="flex items-center gap-1 bg-elevated/40 rounded-lg p-0.5 border border-border/50">
           <button
             onClick={() => setVolUnit('lots')}
-            className={cn('px-2 py-0.5 text-[10px] rounded font-medium cursor-pointer', volUnit === 'lots' ? 'bg-accent text-accent-foreground' : 'text-muted hover:text-foreground')}
+            className={cn('px-2 py-0.5 text-xs rounded font-medium cursor-pointer', volUnit === 'lots' ? 'bg-accent text-accent-foreground' : 'text-muted hover:text-foreground')}
           >
             張 (1,000股)
           </button>
           <button
             onClick={() => setVolUnit('shares')}
-            className={cn('px-2 py-0.5 text-[10px] rounded font-medium cursor-pointer', volUnit === 'shares' ? 'bg-accent text-accent-foreground' : 'text-muted hover:text-foreground')}
+            className={cn('px-2 py-0.5 text-xs rounded font-medium cursor-pointer', volUnit === 'shares' ? 'bg-accent text-accent-foreground' : 'text-muted hover:text-foreground')}
           >
             原始股數
           </button>
@@ -259,14 +259,14 @@ export function TaiwanQuotePanel({ onSelectSymbol, onAddRuleForSymbol }: TaiwanQ
                     <span>{currentQuote.symbol}</span>
                     <ExternalLink className="h-3 w-3" />
                   </Link>
-                  <span className="rounded bg-elevated px-1.5 py-0.5 text-[10px] font-medium text-secondary">
+                  <span className="rounded bg-elevated px-1.5 py-0.5 text-xs font-medium text-secondary">
                     {currentQuote.exchange === 'TWSE' ? '上市 (TWSE)' : '上櫃 (TPEx)'}
                   </span>
                 </div>
                 <div className="flex items-center gap-2">
                   <MarketStatusBadge status={currentQuote.market_status} />
                   <DataQualityBadge meta={currentQuote.source_meta} />
-                  <span className="flex items-center gap-1 text-[11px] text-muted font-mono" title="台灣時間 (Asia/Taipei)">
+                  <span className="flex items-center gap-1 text-xs text-muted font-mono" title="台灣時間 (Asia/Taipei)">
                     <Clock className="h-3 w-3" />
                     {formatQuoteTime(currentQuote.quote_time, currentQuote.source_meta?.status === 'daily_fallback')}
                   </span>
@@ -275,7 +275,7 @@ export function TaiwanQuotePanel({ onSelectSymbol, onAddRuleForSymbol }: TaiwanQ
 
               {/* 現價與漲跌幅 Banner */}
               <div className="my-3 flex flex-wrap items-baseline gap-4">
-                <span className={cn('text-3xl font-bold font-mono tracking-tight', colorCls)}>
+                <span className={cn('text-lg font-bold font-mono tracking-tight', colorCls)}>
                   {currentQuote.last_price != null ? currentQuote.last_price.toFixed(2) : '--'}
                 </span>
                 <div className="flex items-center gap-2">
@@ -289,7 +289,7 @@ export function TaiwanQuotePanel({ onSelectSymbol, onAddRuleForSymbol }: TaiwanQ
                   </span>
                 </div>
                 {currentQuote.is_no_limit && (
-                  <span className="rounded bg-purple-500/10 px-1.5 py-0.5 text-[10px] font-medium text-purple-600 dark:text-purple-400 border border-purple-500/20">
+                  <span className="rounded bg-purple-500/10 px-1.5 py-0.5 text-xs font-medium text-purple-600 dark:text-purple-400 border border-purple-500/20">
                     無漲跌幅限制 (NO LIMIT)
                   </span>
                 )}
@@ -298,39 +298,39 @@ export function TaiwanQuotePanel({ onSelectSymbol, onAddRuleForSymbol }: TaiwanQ
               {/* 報價詳細四格表 */}
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
                 <div className="rounded-lg bg-elevated/40 p-2 border border-border/30">
-                  <div className="text-muted text-[11px]">開盤價</div>
+                  <div className="text-muted text-xs">開盤價</div>
                   <div className="font-mono font-medium text-sm mt-0.5">{currentQuote.open != null ? currentQuote.open.toFixed(2) : '--'}</div>
                 </div>
                 <div className="rounded-lg bg-elevated/40 p-2 border border-border/30">
-                  <div className="text-muted text-[11px]">最高價</div>
+                  <div className="text-muted text-xs">最高價</div>
                   <div className="font-mono font-medium text-sm text-rose-500 mt-0.5">{currentQuote.high != null ? currentQuote.high.toFixed(2) : '--'}</div>
                 </div>
                 <div className="rounded-lg bg-elevated/40 p-2 border border-border/30">
-                  <div className="text-muted text-[11px]">最低價</div>
+                  <div className="text-muted text-xs">最低價</div>
                   <div className="font-mono font-medium text-sm text-emerald-500 mt-0.5">{currentQuote.low != null ? currentQuote.low.toFixed(2) : '--'}</div>
                 </div>
                 <div className="rounded-lg bg-elevated/40 p-2 border border-border/30">
-                  <div className="text-muted text-[11px]">昨收價</div>
+                  <div className="text-muted text-xs">昨收價</div>
                   <div className="font-mono font-medium text-sm mt-0.5">{currentQuote.prev_close != null ? currentQuote.prev_close.toFixed(2) : '--'}</div>
                 </div>
                 <div className="rounded-lg bg-elevated/40 p-2 border border-border/30">
-                  <div className="text-muted text-[11px]">成交量</div>
+                  <div className="text-muted text-xs">成交量</div>
                   <div className="font-mono font-medium text-sm mt-0.5">{formatVolume(currentQuote.volume, volUnit)}</div>
                 </div>
                 <div className="rounded-lg bg-elevated/40 p-2 border border-border/30">
-                  <div className="text-muted text-[11px]">成交金額</div>
+                  <div className="text-muted text-xs">成交金額</div>
                   <div className="font-mono font-medium text-sm mt-0.5" title={`TWD ${currentQuote.amount?.toLocaleString() || '--'}`}>
                     {formatAmount(currentQuote.amount)}
                   </div>
                 </div>
                 <div className="rounded-lg bg-elevated/40 p-2 border border-border/30">
-                  <div className="text-muted text-[11px]">漲停價 ({currentQuote.price_limit_pct != null ? `+${+(currentQuote.price_limit_pct * 100).toFixed(2)}%` : '無限制'})</div>
+                  <div className="text-muted text-xs">漲停價 ({currentQuote.price_limit_pct != null ? `+${+(currentQuote.price_limit_pct * 100).toFixed(2)}%` : '無限制'})</div>
                   <div className="font-mono font-medium text-sm text-rose-600 dark:text-rose-400 mt-0.5">
                     {currentQuote.limit_up != null ? currentQuote.limit_up.toFixed(2) : '--'}
                   </div>
                 </div>
                 <div className="rounded-lg bg-elevated/40 p-2 border border-border/30">
-                  <div className="text-muted text-[11px]">跌停價 ({currentQuote.price_limit_pct != null ? `-${+(currentQuote.price_limit_pct * 100).toFixed(2)}%` : '無限制'})</div>
+                  <div className="text-muted text-xs">跌停價 ({currentQuote.price_limit_pct != null ? `-${+(currentQuote.price_limit_pct * 100).toFixed(2)}%` : '無限制'})</div>
                   <div className="font-mono font-medium text-sm text-emerald-600 dark:text-emerald-400 mt-0.5">
                     {currentQuote.limit_down != null ? currentQuote.limit_down.toFixed(2) : '--'}
                   </div>
@@ -340,7 +340,7 @@ export function TaiwanQuotePanel({ onSelectSymbol, onAddRuleForSymbol }: TaiwanQ
 
             {/* 底部操作快捷鍵 */}
             <div className="mt-3 pt-3 border-t border-border/40 flex items-center justify-between">
-              <span className="text-[11px] text-muted">
+              <span className="text-xs text-muted">
                 {currentQuote.source_meta?.is_stale ? '⚠️ 目前顯示過期快照，請確認網路連線' : '即時行情自動同步中 (SSE)'}
               </span>
               <button
@@ -359,7 +359,7 @@ export function TaiwanQuotePanel({ onSelectSymbol, onAddRuleForSymbol }: TaiwanQ
                 <Layers className="h-4 w-4 text-accent" />
                 <span className="text-xs font-bold text-foreground">五檔即時盤口</span>
               </div>
-              <span className="text-[10px] text-muted font-mono">
+              <span className="text-xs text-muted font-mono">
                 買 {formatVolume(currentQuote.bid_volume, volUnit)} / 賣 {formatVolume(currentQuote.ask_volume, volUnit)}
               </span>
             </div>

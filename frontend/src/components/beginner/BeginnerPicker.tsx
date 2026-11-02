@@ -116,9 +116,9 @@ function IntradayBar({ check }: { check: BeginnerLiveSignalCheck }) {
   return (
     <div className="mt-2 border-t border-border/50 pt-2 text-xs text-muted">
       <p className="font-semibold text-foreground/90">{check.session === 'intraday' ? '今日 K 線（盤中、未收盤）' : '今日 K 線（已收盤，尚未寫入日線）'}</p>
-      <p className="font-mono">開 {formatPrice(check.open)} · 高 {formatPrice(check.high)} · 低 {formatPrice(check.low)} · 量 {formatShares(check.volume)}</p>
-      {(check.best_bid != null || check.best_ask != null) && <p className="font-mono">委買 {formatPrice(check.best_bid)} · 委賣 {formatPrice(check.best_ask)}</p>}
-      <p className="mt-1 break-words text-[11px] leading-relaxed">{check.disclaimer}</p>
+      <p className="font-mono">開 {formatPrice(check.open)}，高 {formatPrice(check.high)}，低 {formatPrice(check.low)}，量 {formatShares(check.volume)}</p>
+      {(check.best_bid != null || check.best_ask != null) && <p className="font-mono">委買 {formatPrice(check.best_bid)}，委賣 {formatPrice(check.best_ask)}</p>}
+      <p className="mt-1 break-words text-xs leading-relaxed">{check.disclaimer}</p>
     </div>
   )
 }
@@ -151,7 +151,7 @@ export function MarketSummaryCard({ market, compact = false }: { market: Beginne
         <span className={cn('rounded-full px-2 py-0.5 text-xs font-semibold', MARKET_CLASS[market.state])}>
           {MARKET_LABEL[market.state]}
         </span>
-        {market.as_of && <span className="text-[11px] text-muted">資料日 {market.as_of}</span>}
+        {market.as_of && <span className="text-xs text-muted">資料日 {market.as_of}</span>}
       </div>
       <p className="mt-1.5 text-sm font-medium text-foreground">{market.headline}</p>
       <p className="mt-0.5 break-words text-xs text-muted">{market.explanation}</p>
@@ -216,14 +216,14 @@ function AiExplain({ symbol, asOf }: { symbol: string; asOf?: string | null }) {
           )}
           <p className="break-words text-xs text-foreground">{report.overview}</p>
           <div>
-            <p className="mb-0.5 text-[11px] font-semibold text-muted">主要風險</p>
+            <p className="mb-0.5 text-xs font-semibold text-muted">主要風險</p>
             <ReasonList items={report.risk_factors.slice(0, 3).map(r => r.text)} empty="AI 沒有列出明顯風險。" tone="risk" />
           </div>
           <div>
-            <p className="mb-0.5 text-[11px] font-semibold text-muted">接下來看什麼</p>
+            <p className="mb-0.5 text-xs font-semibold text-muted">接下來看什麼</p>
             <ReasonList items={(report.watch_next ?? []).slice(0, 3).map(r => r.text)} empty="AI 沒有列出觀察重點。" tone="reason" />
           </div>
-          <p className="text-[10px] text-muted">資料截至 {report.evidence_as_of}・生成於 {(query.data?.generated_at ?? '').slice(0, 16).replace('T', ' ')}・{query.data?.model}・{(query.data as { stored?: boolean } | undefined)?.stored ? '盤後自動產生' : '剛剛產生'}・AI 只做解讀，不改變上面的分組與價位。</p>
+          <p className="text-xs text-muted">資料截至 {report.evidence_as_of}，生成於 {(query.data?.generated_at ?? '').slice(0, 16).replace('T', ' ')}，{query.data?.model}，{(query.data as { stored?: boolean } | undefined)?.stored ? '盤後自動產生' : '剛剛產生'}，AI 只做解讀，不改變上面的分組與價位。</p>
           <AiFeedbackButtons symbol={symbol} model={query.data?.model ?? null} recordId={`${report.evidence_as_of}:${query.data?.generated_at ?? report.generated_at}`} />
         </div>
       ) : (
@@ -250,10 +250,10 @@ function AiFeedbackButtons({ symbol, model, recordId }: { symbol: string; model:
     onSuccess: (_result, helpful) => setSent(helpful),
   })
   if (sent !== null) {
-    return <p className="text-[10px] text-muted" role="status">已記錄：{sent ? '準' : '不準'}。累積一週後可到「設定 → AI」看哪個模型比較準。</p>
+    return <p className="text-xs text-muted" role="status">已記錄：{sent ? '準' : '不準'}。累積一週後可到「設定 → AI」看哪個模型比較準。</p>
   }
   return (
-    <div className="flex items-center gap-1.5 text-[10px] text-muted" aria-label="AI 說明回饋">
+    <div className="flex items-center gap-1.5 text-xs text-muted" aria-label="AI 說明回饋">
       <span>這則說明準嗎？</span>
       <button type="button" disabled={feedback.isPending} onClick={() => feedback.mutate(true)}
         className="inline-flex min-h-6 items-center gap-1 rounded border border-border px-1.5 hover:border-accent/50 hover:text-foreground disabled:opacity-50">
@@ -277,12 +277,12 @@ function RadarStrip({ live, plan }: { live: RadarLive; plan: BeginnerCandidate['
       <div className="flex flex-wrap items-center gap-2">
         <span className={cn('inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-semibold', LIVE_CLASS[live.status])}>{live.label}</span>
         {live.price != null && (
-          <span className="font-mono text-xs text-foreground">現價 {formatPrice(live.price)}{time && <span className="ml-1 text-[10px] text-muted">（{time}）</span>}</span>
+          <span className="font-mono text-xs text-foreground">現價 {formatPrice(live.price)}{time && <span className="ml-1 text-xs text-muted">（{time}）</span>}</span>
         )}
       </div>
-      {live.note && <p className="mt-1 break-words text-[11px] text-muted">{live.note}</p>}
+      {live.note && <p className="mt-1 break-words text-xs text-muted">{live.note}</p>}
       {live.source && (
-        <p className="mt-0.5 break-all text-[10px] text-muted">報價來源：{live.source}{live.freshness_class && `・${live.freshness_class}`}</p>
+        <p className="mt-0.5 break-all text-xs text-muted">報價來源：{live.source}{live.freshness_class && `，${live.freshness_class}`}</p>
       )}
       {plan && (
         <dl className="mt-1.5 grid grid-cols-[3.5rem_minmax(0,1fr)] gap-x-2 gap-y-0.5 text-xs">
@@ -370,13 +370,13 @@ export function PickCard({ candidate, comparison, radar }: {
       <header className="flex min-w-0 items-start justify-between gap-2">
         <div className="min-w-0">
           <p className="truncate text-sm font-semibold text-foreground">{candidate.name || candidate.symbol}</p>
-          <div className="flex flex-wrap items-center gap-1 font-mono text-[11px] text-muted">
+          <div className="flex flex-wrap items-center gap-1 font-mono text-xs text-muted">
             <span>{candidate.symbol}</span>
             {radar?.sources.filter((s): s is Exclude<RadarSource, 'pick'> => s !== 'pick').map(s => (
-              <span key={s} className="ml-1.5 rounded bg-elevated px-1 py-px font-sans text-[10px] text-foreground">{SOURCE_LABEL[s]}</span>
+              <span key={s} className="ml-1.5 rounded bg-elevated px-1 py-px font-sans text-xs text-foreground">{SOURCE_LABEL[s]}</span>
             ))}
             {isAutoWatched && (
-              <span className="inline-flex items-center rounded-full bg-emerald-500/10 px-2 py-0.5 font-sans text-[10px] font-semibold text-emerald-600 dark:text-emerald-400 border border-emerald-500/30">
+              <span className="inline-flex items-center rounded-full bg-emerald-500/10 px-2 py-0.5 font-sans text-xs font-semibold text-emerald-600 dark:text-emerald-400 border border-emerald-500/30">
                 自動監控中
               </span>
             )}
@@ -385,24 +385,24 @@ export function PickCard({ candidate, comparison, radar }: {
         <div className="flex flex-col items-end gap-1">
           <StateBadge state={candidate.selection_state} />
           {candidate.selection_state !== 'skip' && (
-            <span className="text-[11px] text-muted" title={STRENGTH_DISCLAIMER}>訊號強度：{STRENGTH_LABEL[candidate.signal_strength]}</span>
+            <span className="text-xs text-muted" title={STRENGTH_DISCLAIMER}>訊號強度：{STRENGTH_LABEL[candidate.signal_strength]}</span>
           )}
         </div>
       </header>
       {radar && <RadarStrip live={radar.live} plan={candidate.trade_plan} />}
       {candidate.selection_state !== 'skip' ? (
         <div>
-          <p className="mb-0.5 text-[11px] font-semibold text-muted">為什麼被選中</p>
+          <p className="mb-0.5 text-xs font-semibold text-muted">為什麼被選中</p>
           <ReasonList items={candidate.reasons.map(r => r.display_text)} empty="沒有明確的正向理由。" tone="reason" />
         </div>
       ) : (
         <div>
-          <p className="mb-0.5 text-[11px] font-semibold text-muted">為什麼暫不操作</p>
+          <p className="mb-0.5 text-xs font-semibold text-muted">為什麼暫不操作</p>
           <ReasonList items={candidate.exclusion_reasons.map(r => r.display_text)} empty={candidate.action_summary} tone="risk" />
         </div>
       )}
       <div>
-        <p className="mb-0.5 text-[11px] font-semibold text-muted">要注意</p>
+        <p className="mb-0.5 text-xs font-semibold text-muted">要注意</p>
         <ReasonList
           items={[...candidate.risks.map(r => r.display_text), ...candidate.data_gaps.slice(0, 1)]}
           empty="目前沒有明顯的負面訊號。"
@@ -410,7 +410,7 @@ export function PickCard({ candidate, comparison, radar }: {
         />
       </div>
       <div className="rounded-md bg-base/60 p-2">
-        <p className="text-[11px] font-semibold text-muted">下一步</p>
+        <p className="text-xs font-semibold text-muted">下一步</p>
         <p className="break-words text-sm text-foreground">{candidate.action_summary}</p>
         {candidate.invalidation && <p className="mt-1 break-words text-xs text-muted">失效條件：{candidate.invalidation}</p>}
       </div>
@@ -439,7 +439,7 @@ export function PickCard({ candidate, comparison, radar }: {
         )}
       </div>
       {syncError && (
-        <p role="alert" className="break-words text-[11px] text-danger">{syncError}</p>
+        <p role="alert" className="break-words text-xs text-danger">{syncError}</p>
       )}
       {aiOpen && <AiExplain symbol={candidate.symbol} asOf={candidate.as_of} />}
     </article>
@@ -480,7 +480,7 @@ export function useCompareSelection(symbols: string[]) {
 export function CompareBar({ selected, opening, open }: { selected: string[]; opening: boolean; open: () => void }) {
   return (
     <div className="flex flex-wrap items-center justify-between gap-2 rounded-card border border-accent/25 bg-surface p-3">
-      <p className="text-xs text-muted" role="status">已選 {selected.length} / {MAX_COMPARE_SYMBOLS} 檔 · 請勾選 2 至 {MAX_COMPARE_SYMBOLS} 檔{selected.length === MAX_COMPARE_SYMBOLS && '，已達上限'}</p>
+      <p className="text-xs text-muted" role="status">已選 {selected.length} / {MAX_COMPARE_SYMBOLS} 檔，請勾選 2 至 {MAX_COMPARE_SYMBOLS} 檔{selected.length === MAX_COMPARE_SYMBOLS && '，已達上限'}</p>
       <button type="button" disabled={selected.length < 2 || opening}
         className="min-h-9 rounded-md bg-accent px-3 text-xs font-semibold text-white disabled:cursor-not-allowed disabled:opacity-40"
         onClick={open}>比較這些股票</button>
@@ -546,10 +546,10 @@ export function BeginnerDashboardWidget() {
   const query = useBeginnerSelection()
   const data = query.data
   return (
-    <section aria-label="今日選股" className="mb-1.5 space-y-1.5">
-      <div className="flex items-center justify-between gap-2 px-0.5">
+    <section aria-label="今日選股" className="space-y-3 rounded-card border border-border bg-surface p-4">
+      <div className="flex min-h-9 items-center justify-between gap-2">
         <h2 className="text-sm font-semibold text-foreground">今日選股</h2>
-        <Link to="/picks" className="text-xs text-accent hover:underline">查看全部</Link>
+        <Link to="/picks" className="interactive-target -my-2 inline-flex items-center rounded-btn px-2 text-xs text-accent transition-colors hover:bg-accent/10">查看全部</Link>
       </div>
       {query.isLoading && (
         <div className="flex items-center gap-2 rounded-card border border-border bg-surface/80 p-3 text-xs text-muted">
@@ -565,7 +565,7 @@ export function BeginnerDashboardWidget() {
           ) : (
             <PickComparisonList candidates={data.candidates.slice(0, MAX_COMPARE_SYMBOLS)} compact />
           )}
-          <p className="px-0.5 text-[11px] text-muted">{STRENGTH_DISCLAIMER}</p>
+          <p className="text-xs text-muted">{STRENGTH_DISCLAIMER}</p>
         </>
       )}
     </section>
@@ -659,8 +659,8 @@ export function BeginnerStockView({
           <TechnicalSection number="②" title="價格位置">
             <dl className="grid grid-cols-[5.25rem_minmax(0,1fr)] gap-x-2 gap-y-1 text-sm">
               <dt className="text-muted">支撐區</dt><dd className="min-w-0 font-mono text-foreground">{panel.support.support_zone_low == null || panel.support.support_zone_high == null ? '資料不足' : `${formatPrice(panel.support.support_zone_low)}～${formatPrice(panel.support.support_zone_high)}`}</dd>
-              <dt className="text-muted">最近收盤價</dt><dd className="font-mono text-foreground">{formatPrice(panel.current_price)}{candidate.as_of && <span className="ml-1 text-[10px] text-muted">（資料日 {candidate.as_of}）</span>}</dd>
-              {innerOuter.status === 'available' && innerOuter.last_price != null && <><dt className="text-muted">盤中即時價</dt><dd className="font-mono text-foreground">{formatPrice(innerOuter.last_price)}{innerOuterTime && <span className="ml-1 text-[10px] text-muted">（{innerOuterTime}）</span>}</dd></>}
+              <dt className="text-muted">最近收盤價</dt><dd className="font-mono text-foreground">{formatPrice(panel.current_price)}{candidate.as_of && <span className="ml-1 text-xs text-muted">（資料日 {candidate.as_of}）</span>}</dd>
+              {innerOuter.status === 'available' && innerOuter.last_price != null && <><dt className="text-muted">盤中即時價</dt><dd className="font-mono text-foreground">{formatPrice(innerOuter.last_price)}{innerOuterTime && <span className="ml-1 text-xs text-muted">（{innerOuterTime}）</span>}</dd></>}
               <dt className="text-muted">壓力位</dt><dd className="font-mono text-foreground">{formatPrice(panel.resistance.resistance)}</dd>
               <dt className="text-muted">失效位置</dt><dd className="font-mono text-warning">{formatPrice(panel.invalidation.invalidation)}</dd>
             </dl>
@@ -702,10 +702,10 @@ export function BeginnerStockView({
             ) : (
               <p className="text-sm text-muted">{innerOuter.explanation}</p>
             )}
-            <p className="mt-1 break-words text-[11px] leading-relaxed text-muted">{innerOuter.disclaimer}</p>
+            <p className="mt-1 break-words text-xs leading-relaxed text-muted">{innerOuter.disclaimer}</p>
             {panel.live_check && panel.live_check.session !== 'unavailable' && <IntradayBar check={panel.live_check} />}
             <div className="mt-2 border-t border-border/50 pt-2">
-              <p className="text-xs text-muted">{panel.volume.as_of ? `${panel.volume.as_of} ` : ''}成交量 {formatShares(panel.volume.today_volume)} · 20 日均量 {formatShares(panel.volume.average_20d)}</p>
+              <p className="text-xs text-muted">{panel.volume.as_of ? `${panel.volume.as_of} ` : ''}成交量 {formatShares(panel.volume.today_volume)}，20 日均量 {formatShares(panel.volume.average_20d)}</p>
               <p className="text-xs text-muted">量比 {panel.volume.ratio == null ? '資料不足' : `${panel.volume.ratio.toFixed(2)} 倍`}</p>
               <p className="mt-1 break-words text-xs text-foreground/90">{panel.volume.explanation}</p>
             </div>
@@ -714,12 +714,12 @@ export function BeginnerStockView({
           <TechnicalSection number="⑤" title="資金籌碼">
             <p className="text-sm font-semibold text-foreground">法人資金：{panel.institutional.state === 'buy' ? '偏買' : panel.institutional.state === 'sell' ? '偏賣' : panel.institutional.state === 'neutral' ? '中性' : '資料不足'}</p>
             <p className="mt-1 break-words text-xs text-muted">{panel.institutional.explanation}</p>
-            {panel.institutional.as_of && <p className="text-[11px] text-muted">資料日 {panel.institutional.as_of}</p>}
+            {panel.institutional.as_of && <p className="text-xs text-muted">資料日 {panel.institutional.as_of}</p>}
             <div className="mt-2 border-t border-border/50 pt-2 text-xs text-muted">
               <p>融資：{panel.margin.margin_state === 'increase_fast' ? '快速增加' : panel.margin.margin_state === 'decrease' ? '減少' : panel.margin.margin_state === 'stable' ? '變化不大' : '資料不足'}</p>
               <p>融券：{panel.margin.short_state === 'increase_fast' ? '快速增加' : panel.margin.short_state === 'decrease' ? '減少' : panel.margin.short_state === 'stable' ? '變化不大' : '資料不足'}</p>
               <p className="mt-1 break-words">{panel.margin.explanation}</p>
-              {panel.margin.as_of && <p className="text-[11px]">資料日 {panel.margin.as_of}</p>}
+              {panel.margin.as_of && <p className="text-xs">資料日 {panel.margin.as_of}</p>}
             </div>
           </TechnicalSection>
 
@@ -766,7 +766,7 @@ export function BeginnerStockView({
           />
         </div>
       )}
-      <p className="mt-2 text-[11px] text-muted">{STRENGTH_DISCLAIMER}</p>
+      <p className="mt-2 text-xs text-muted">{STRENGTH_DISCLAIMER}</p>
       {advanced && candidate && (
         <div className="mt-3 border-t border-border/50 pt-2">
           <p className="mb-1 text-xs font-semibold text-muted">判斷依據（{query.data?.version}）</p>
@@ -775,11 +775,11 @@ export function BeginnerStockView({
               <li key={d.key} className="grid grid-cols-[4.5rem_3.5rem_1fr] gap-2 text-xs">
                 <span className="text-foreground">{d.label}</span>
                 <span className={d.status === 'unavailable' ? 'text-muted' : d.status === 'negative' ? 'text-warning' : 'text-foreground/80'}>{DIRECTION_LABEL[d.status]}</span>
-                <span className="min-w-0 break-words text-muted">{d.explanation} <span className="font-mono text-[10px] text-muted/70">[{d.source}]</span></span>
+                <span className="min-w-0 break-words text-muted">{d.explanation} <span className="font-mono text-xs text-muted/70">[{d.source}]</span></span>
               </li>
             ))}
           </ul>
-          {candidate.data_gaps.length > 0 && <p className="mt-1 break-words text-[11px] text-muted">資料缺口：{candidate.data_gaps.join('；')}</p>}
+          {candidate.data_gaps.length > 0 && <p className="mt-1 break-words text-xs text-muted">資料缺口：{candidate.data_gaps.join('；')}</p>}
           {panel && innerOuter && (
             <dl className="mt-3 grid grid-cols-2 gap-x-3 gap-y-1 rounded-md bg-base/50 p-2 text-xs text-muted sm:grid-cols-4">
               <dt>MA5</dt><dd className="font-mono text-foreground">{formatPrice(panel.moving_averages.ma5)}</dd>
@@ -789,13 +789,13 @@ export function BeginnerStockView({
               <dt>法人 5 日</dt><dd className="font-mono text-foreground">{formatShares(panel.institutional.total_net_5d)}</dd>
               <dt>融資增減</dt><dd className="font-mono text-foreground">{formatShares(panel.margin.margin_change)}</dd>
               <dt>融券增減</dt><dd className="font-mono text-foreground">{formatShares(panel.margin.short_change)}</dd>
-              <dt>技術來源</dt><dd className="break-all font-mono text-[10px] text-foreground">{panel.moving_averages.source}</dd>
+              <dt>技術來源</dt><dd className="break-all font-mono text-xs text-foreground">{panel.moving_averages.source}</dd>
               <dt>即時價 / 成交量</dt><dd className="font-mono text-foreground">{formatPrice(innerOuter.last_price)} / {formatShares(innerOuter.trade_volume)}</dd>
               <dt>成交值</dt><dd className="font-mono text-foreground">{innerOuter.trade_value == null ? '資料不足' : innerOuter.trade_value.toLocaleString('zh-TW')}</dd>
-              <dt>五檔委買</dt><dd className="font-mono text-[10px] text-foreground">{innerOuter.bids.length ? innerOuter.bids.map(([p, s]) => `${p}/${s}`).join(' · ') : '資料不足'}</dd>
-              <dt>五檔委賣</dt><dd className="font-mono text-[10px] text-foreground">{innerOuter.asks.length ? innerOuter.asks.map(([p, s]) => `${p}/${s}`).join(' · ') : '資料不足'}</dd>
-              <dt>FRED series</dt><dd className="break-all font-mono text-[10px] text-foreground">{macroContext?.data?.series ? JSON.stringify(macroContext.data.series) : '資料不足'}</dd>
-              <dt>第二來源比對</dt><dd className="break-all font-mono text-[10px] text-foreground">{secondaryContext?.data ? JSON.stringify(secondaryContext.data) : '資料不足'}</dd>
+              <dt>五檔委買</dt><dd className="font-mono text-xs text-foreground">{innerOuter.bids.length ? innerOuter.bids.map(([p, s]) => `${p}/${s}`).join('，') : '資料不足'}</dd>
+              <dt>五檔委賣</dt><dd className="font-mono text-xs text-foreground">{innerOuter.asks.length ? innerOuter.asks.map(([p, s]) => `${p}/${s}`).join('，') : '資料不足'}</dd>
+              <dt>FRED series</dt><dd className="break-all font-mono text-xs text-foreground">{macroContext?.data?.series ? JSON.stringify(macroContext.data.series) : '資料不足'}</dd>
+              <dt>第二來源比對</dt><dd className="break-all font-mono text-xs text-foreground">{secondaryContext?.data ? JSON.stringify(secondaryContext.data) : '資料不足'}</dd>
             </dl>
           )}
         </div>

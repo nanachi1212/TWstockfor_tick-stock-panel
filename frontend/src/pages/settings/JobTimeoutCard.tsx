@@ -73,7 +73,7 @@ export function JobTimeoutCard() {
           <Clock3 className="h-4 w-4 text-secondary mt-0.5" />
           <div>
             <h2 className="text-sm font-medium text-foreground">逾時設定</h2>
-            <p className="text-[11px] text-muted mt-1 leading-relaxed">
+            <p className="text-xs text-muted mt-1 leading-relaxed">
               背景任務超過對應時間<b>沒有任何進度</b>才判定卡死並自動終止;只要任務仍在推進(如慢頻寬下的冷啟動全市場拉取),無論總時長多久都不會被中斷。儲存時自動換算為秒,修改後對新建任務生效。
             </p>
           </div>
@@ -90,7 +90,7 @@ export function JobTimeoutCard() {
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
         <label className="rounded-lg border border-border/60 bg-elevated/20 px-3.5 py-3">
           <span className="block text-xs font-medium text-foreground mb-1">一般任務停滯逾時</span>
-          <span className="block text-[10px] text-muted mb-2">日 K 管道、擴展、修正與重算任務</span>
+          <span className="block text-xs text-muted mb-2">日 K 管道、擴展、修正與重算任務</span>
           <div className="flex items-center gap-2">
             <input
               type="number"
@@ -117,12 +117,12 @@ export function JobTimeoutCard() {
               <option value="hour">小時</option>
             </select>
           </div>
-          <span className="block text-[10px] text-muted/60 mt-1.5">預設 20 分鐘無進度,最小 1 分鐘</span>
+          <span className="block text-xs text-muted/60 mt-1.5">預設 20 分鐘無進度,最小 1 分鐘</span>
         </label>
 
         <label className="rounded-lg border border-border/60 bg-elevated/20 px-3.5 py-3">
           <span className="block text-xs font-medium text-foreground mb-1">長任務停滯逾時</span>
-          <span className="block text-[10px] text-muted mb-2">分鐘 K 全市場同步任務</span>
+          <span className="block text-xs text-muted mb-2">分鐘 K 全市場同步任務</span>
           <div className="flex items-center gap-2">
             <input
               type="number"
@@ -149,7 +149,7 @@ export function JobTimeoutCard() {
               <option value="hour">小時</option>
             </select>
           </div>
-          <span className="block text-[10px] text-muted/60 mt-1.5">預設 30 分鐘無進度,最小 1 分鐘</span>
+          <span className="block text-xs text-muted/60 mt-1.5">預設 30 分鐘無進度,最小 1 分鐘</span>
         </label>
       </div>
     </section>
