@@ -95,6 +95,15 @@ def run_taiwan_update(evening: bool = False, *, trigger: str = "scheduled") -> N
     16:30/晚間排程與啟動補更新共用這一條, 避免補更新只刷資料卻漏掉盤後產出。
     """
     try:
+        if not evening:
+            # 新上市/下市股票: 商品清單每天更新一次 (失敗不影響其他流程)。要在抓日線之前,
+            # 否則補抓多天時, 清單還沒有的新上市股那幾天的日線會被丟掉。
+            try:
+                from app.taiwan.universe import refresh_security_master
+
+                logger.info("Taiwan security master: %s", refresh_security_master())
+            except Exception:
+                logger.exception("Taiwan security master refresh failed; cached list kept")
         from app.taiwan.daily_update import TaiwanDailyUpdateService
         svc = TaiwanDailyUpdateService()
         result = svc.run_update(refresh_daily=True)
@@ -104,13 +113,6 @@ def run_taiwan_update(evening: bool = False, *, trigger: str = "scheduled") -> N
         )
         if not evening:
             logger.info("Scheduled Taiwan research refresh: %s", _refresh_after_close_research())
-            # 新上市/下市股票: 商品清單每天跟著盤後更新一次 (失敗不影響其他流程)。
-            try:
-                from app.taiwan.universe import refresh_security_master
-
-                logger.info("Taiwan security master: %s", refresh_security_master())
-            except Exception:
-                logger.exception("Taiwan security master refresh failed; cached list kept")
         # Runs before the evening early-return: the ranking is frozen only once margin data is
         # published, which is exactly what the 21:30/23:00 catch-ups wait for.
         try:

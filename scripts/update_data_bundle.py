@@ -35,10 +35,12 @@ def main() -> int:
         raise SystemExit(f"bundle install failed: {installed.status} {installed.error}")
     print(f"previous_data_as_of={installed.data_as_of}")
 
+    # Before fetching: daily rows of stocks listed after the previous bundle are kept
+    # only if the security master already knows them.
+    print(f"security_master={refresh_security_master(max_age_hours=0)}")
     result = TaiwanDailyUpdateService().run_update(refresh_daily=True)
     print(f"update overall={result.overall_status} daily={result.daily.status} "
           f"inst={result.institutional.status} margin={result.margin.status}")
-    print(f"security_master={refresh_security_master(max_age_hours=0)}")
     return 0
 
 
