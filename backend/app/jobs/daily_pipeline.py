@@ -216,6 +216,52 @@ def start_scheduler(repo: KlineRepository, capset: CapabilitySet) -> AsyncIOSche
         replace_existing=True,
     )
 
+    # 月營收收存檔與官方事件快照只在手動更新時刷新, 過期後選股會判為資料不可用。
+    # 月營收於盤前 (開盤前取得) 與收盤後各刷新一次, 事件快照每小時刷新 (TTL 1 小時)。
+    def _scheduled_official_evidence_refresh(kind: str) -> None:
+        try:
+            from app.config import settings
+
+            if kind == "revenue":
+                from app.taiwan.monthly_revenue_evidence import (
+                    MonthlyRevenueEvidenceStore,
+                    refresh_monthly_revenue_evidence,
+                )
+
+                store = MonthlyRevenueEvidenceStore(settings.data_dir / "taiwan" / "monthly_revenue_evidence")
+                logger.info("Taiwan monthly revenue evidence refresh: %s", refresh_monthly_revenue_evidence(store).get("status"))
+            else:
+                from app.taiwan.events_service import get_event_service
+
+                event_service = get_event_service()
+                event_service.get_all_regulatory_and_official_events(force_refresh=True)
+                logger.info("Taiwan regulatory events refresh: %s", event_service.last_status)
+        except Exception:
+            logger.exception("Taiwan official evidence refresh failed: %s", kind)
+
+    for hour, minute in ((8, 30), (17, 45)):
+        scheduler.add_job(
+            _scheduled_official_evidence_refresh,
+            kwargs={"kind": "revenue"},
+            trigger=CronTrigger(day_of_week="mon-fri", hour=hour, minute=minute, timezone="Asia/Taipei"),
+            id=f"taiwan_revenue_evidence_{hour:02d}{minute:02d}",
+            misfire_grace_time=1800,
+            coalesce=True,
+            max_instances=1,
+            replace_existing=True,
+        )
+
+    scheduler.add_job(
+        _scheduled_official_evidence_refresh,
+        kwargs={"kind": "events"},
+        trigger=CronTrigger(day_of_week="mon-fri", hour="8-17", minute=15, timezone="Asia/Taipei"),
+        id="taiwan_regulatory_events_refresh",
+        misfire_grace_time=900,
+        coalesce=True,
+        max_instances=1,
+        replace_existing=True,
+    )
+
     # 融資融券官方於「當日晚間」公布 (無固定時點), 16:30 批次必然取不到當日資料。
     # 晚間沿用同一個增量更新器補抓; 已存在的日期不會重抓 (每次僅 ~2 次 HTTP)。
     for hour, minute in ((21, 30), (23, 0)):

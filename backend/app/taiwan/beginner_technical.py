@@ -377,11 +377,12 @@ def _daily_freshness(inputs: dict[str, Any]) -> str:
 
 def _price_evidence(
     current: float | None, plan: Any, as_of: str | None, freshness: str,
+    price_note: str | None = None,
 ) -> tuple[PriceLevelsEvidence, PriceLevelsEvidence, PriceLevelsEvidence]:
     if current is None or plan is None:
         unavailable = PriceLevelsEvidence(
             status="data_insufficient", current_price=current,
-            explanation="目前資料不足，無法可靠計算支撐／壓力。",
+            explanation=price_note or "目前資料不足，無法可靠計算支撐／壓力。",
             as_of=as_of,
         )
         return unavailable, unavailable.model_copy(deep=True), unavailable.model_copy(deep=True)
@@ -685,6 +686,7 @@ def _risks(
     institutional: InstitutionalEvidence, margin: MarginEvidence, relative: RelativeStrengthEvidence,
     position: RangePositionEvidence, volatility: VolatilityEvidence,
     market: TechnicalMarketContext, inner_outer: InnerOuterEvidence, regulatory_risk: str | None,
+    price_note: str | None,
 ) -> list[TechnicalRisk]:
     candidates: list[tuple[int, TechnicalRisk]] = []
 
@@ -723,7 +725,7 @@ def _risks(
         (relative.status, "相對強弱"), (volatility.status, "波動"),
     ]
     for status, label in unavailable:
-        if status != "available":
+        if status != "available" and not (label == "價位" and price_note):
             add(20, f"{label}_unavailable", f"{label}資料不足，判斷需保守。", "data_availability")
     if inner_outer.status != "available":
         add(10, "inner_outer_unavailable", inner_outer.explanation, inner_outer.source)
@@ -753,11 +755,12 @@ def build_beginner_technical_panel(
     *, current_price: float | None, as_of: str | None, plan: Any,
     metrics: dict[str, Any], market: Any, industry: str | None,
     action_summary: str, regulatory_risk: str | None = None,
+    price_note: str | None = None,
 ) -> BeginnerTechnicalPanel:
     """Build display evidence without changing the selection decision."""
     current = _finite(current_price)
     support, resistance, invalidation = _price_evidence(
-        current, plan, as_of, _daily_freshness(metrics),
+        current, plan, as_of, _daily_freshness(metrics), price_note,
     )
     averages = _moving_averages(metrics, as_of)
     inner_outer = InnerOuterEvidence()
@@ -779,6 +782,7 @@ def build_beginner_technical_panel(
         levels=support, averages=averages, volume=volume, institutional=institutional,
         margin=margin, relative=relative, position=position, volatility=volatility,
         market=market_context, inner_outer=inner_outer, regulatory_risk=regulatory_risk,
+        price_note=price_note,
     )
     return BeginnerTechnicalPanel(
         summary=summary, current_price=current,
