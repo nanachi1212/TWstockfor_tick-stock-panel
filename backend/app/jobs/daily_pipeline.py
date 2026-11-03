@@ -223,19 +223,27 @@ def start_scheduler(repo: KlineRepository, capset: CapabilitySet) -> AsyncIOSche
             from app.config import settings
 
             if kind == "revenue":
+                from datetime import timedelta
+
                 from app.taiwan.monthly_revenue_evidence import (
                     MonthlyRevenueEvidenceStore,
                     refresh_monthly_revenue_evidence,
                 )
 
                 store = MonthlyRevenueEvidenceStore(settings.data_dir / "taiwan" / "monthly_revenue_evidence")
-                logger.info("Taiwan monthly revenue evidence refresh: %s", refresh_monthly_revenue_evidence(store).get("status"))
+                # 兩次排程相隔 9 小時以上, 預設 20 小時的重抓門檻會讓 17:45 完全跳過。
+                summary = refresh_monthly_revenue_evidence(store, refetch_after=timedelta(hours=1))
+                logger.info("Taiwan monthly revenue evidence refresh: %s", summary.get("status"))
+                if summary.get("fetched"):
+                    notify_daily_data_updated()
             else:
                 from app.taiwan.events_service import get_event_service
 
                 event_service = get_event_service()
                 event_service.get_all_regulatory_and_official_events(force_refresh=True)
                 logger.info("Taiwan regulatory events refresh: %s", event_service.last_status)
+                if event_service.last_status in {"available", "partial"}:
+                    notify_daily_data_updated()
         except Exception:
             logger.exception("Taiwan official evidence refresh failed: %s", kind)
 
