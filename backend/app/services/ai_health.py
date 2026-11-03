@@ -1,8 +1,8 @@
 """AI 連線燈號與本機 LM Studio 模型自動載入。
 
-- ai_status(): 側欄燈號用的輕量檢查，不呼叫生成 (不花 token)。
-- ensure_local_model_loaded(): 看板啟動時，若目前 AI 指向本機 LM Studio 且模型沒載入
-  (或載入的上下文小於 AI 設定)，用 LM Studio 自帶的 `lms` CLI 啟動 server / 以設定的上下文載入模型。
+- ai_status(): 側欄燈號用的輕量檢查,不呼叫生成 (不花 token)。
+- ensure_local_model_loaded(): 看板啟動時,若目前 AI 指向本機 LM Studio 且模型沒載入
+  (或載入的上下文小於 AI 設定),用 LM Studio 自帶的 `lms` CLI 啟動 server / 以設定的上下文載入模型。
 """
 from __future__ import annotations
 
@@ -192,7 +192,7 @@ def ai_status() -> dict:
             status, reason = reasons[state]
             return {"status": status, "reason": reason}
 
-    # 雲端/其他 OpenAI 相容服務: 列模型清單即可驗證網路與 Key，不花 token。
+    # 雲端/其他 OpenAI 相容服務: 列模型清單即可驗證網路與 Key,不花 token。
     try:
         resp = httpx.get(
             cfg.base_url.rstrip("/") + "/models",
@@ -203,5 +203,5 @@ def ai_status() -> dict:
         return {"status": "error", "reason": "AI 服務連線失敗"}
     if resp.status_code in (401, 403):
         return {"status": "error", "reason": "AI API Key 無效或沒有權限"}
-    # 有些服務不提供 /models (404)，能連上就視為正常。
+    # 有些服務不提供 /models (404),能連上就視為正常。
     return {"status": "ok", "reason": "AI 服務可連線"}
