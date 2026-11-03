@@ -49,6 +49,26 @@ def test_distinct_store_instances_preserve_concurrent_updates(tmp_path, monkeypa
     assert set(saved["symbol"]) == {"BASE.TWSE", "A.TWSE", "B.TWSE"}
 
 
+@pytest.mark.parametrize("fail_at", ["scan", "collect"])
+def test_daily_read_range_skips_one_unreadable_partition(tmp_path, monkeypatch, fail_at):
+    store = TaiwanDailyStore(tmp_path)
+    store.write_batch(row("A.TWSE"))
+    bad = tmp_path / "date=2026-10-15" / "part.parquet"
+    bad.parent.mkdir()
+    bad.write_bytes(b"not parquet")
+    if fail_at == "scan":
+        original = pl.scan_parquet
+
+        def scan(path, *args, **kwargs):
+            if str(path) == str(bad):
+                raise OSError("unreadable metadata")
+            return original(path, *args, **kwargs)
+
+        monkeypatch.setattr(pl, "scan_parquet", scan)
+    df = store.read_range(["A.TWSE"], None, None)
+    assert df["date"].to_list() == [DAY]
+
+
 def test_daily_read_error_preserves_original_partition(tmp_path, monkeypatch):
     store = TaiwanDailyStore(tmp_path)
     store.write_batch(row("BASE.TWSE"))
