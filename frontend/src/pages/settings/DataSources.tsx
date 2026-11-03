@@ -25,7 +25,7 @@ const CAPABILITY_CARDS = [
   { dataset: 'daily', label: '日K', desc: '歷史 + 即時覆寫' },
   { dataset: 'adj_factor', label: '除權因子', desc: '復權計算' },
   { dataset: 'realtime', label: '即時行情', desc: '全市場快照' },
-  { dataset: 'minute', label: '分鐘K', desc: '分時圖 · 回測' },
+  { dataset: 'minute', label: '分鐘K', desc: '分時圖，回測' },
 ] as const
 
 /** 數據集 → 路由偏好字段 + 默認值 (financial 無後端路由消費方, 僅展示) */
@@ -44,9 +44,9 @@ function DatasetChipRow({ datasets }: { datasets: string[] }) {
   if (datasets.length === 0) return null
   return (
     <div className="flex flex-wrap items-center gap-1 ml-3.5 mt-1">
-      <span className="text-[9px] font-medium text-accent bg-accent/10 px-1 py-0.5 rounded">已適配</span>
+      <span className="text-xs font-medium text-accent bg-accent/10 px-1 py-0.5 rounded">已適配</span>
       {datasets.map(ds => (
-        <span key={ds} className="text-[9px] text-muted/60 bg-elevated/60 px-1 py-0.5 rounded">
+        <span key={ds} className="text-xs text-muted/60 bg-elevated/60 px-1 py-0.5 rounded">
           {DATASET_LABEL[ds] || ds}
         </span>
       ))}
@@ -77,7 +77,7 @@ function SourceCapabilityGrid({ sourceName, sourceDisplay, datasets, candidatesO
   return (
     <div>
       <div className="flex items-center justify-between mb-2">
-        <span className="text-[11px] text-muted">
+        <span className="text-xs text-muted">
           {isDefault
             ? '每個能力可個別選擇提供者 — 點標籤即刻切換,未個別設定的由內建資料來源提供'
             : `${sourceDisplay} 參與的能力 — 每個能力都可個別選擇由哪個資料來源提供`}
@@ -86,7 +86,7 @@ function SourceCapabilityGrid({ sourceName, sourceDisplay, datasets, candidatesO
           <button
             onClick={onReset}
             disabled={pending}
-            className="text-[11px] text-muted/60 hover:text-accent transition-colors disabled:opacity-50"
+            className="text-xs text-muted/60 hover:text-accent transition-colors disabled:opacity-50"
           >
             恢復預設
           </button>
@@ -105,9 +105,9 @@ function SourceCapabilityGrid({ sourceName, sourceDisplay, datasets, candidatesO
                 <div className="flex items-start justify-between gap-2">
                   <div className="min-w-0">
                     <div className="text-xs font-medium text-foreground truncate">{label}</div>
-                    {desc && <div className="text-[10px] text-muted mt-0.5">{desc}</div>}
+                    {desc && <div className="text-xs text-muted mt-0.5">{desc}</div>}
                   </div>
-                  <span className="shrink-0 px-1.5 py-0.5 rounded text-[10px] text-muted/50 bg-elevated/60">固定</span>
+                  <span className="shrink-0 px-1.5 py-0.5 rounded text-xs text-muted/50 bg-elevated/60">固定</span>
                 </div>
               </div>
             )
@@ -119,7 +119,7 @@ function SourceCapabilityGrid({ sourceName, sourceDisplay, datasets, candidatesO
               <div className="flex items-start justify-between gap-2">
                 <div className="min-w-0">
                   <div className="text-xs font-medium text-foreground">{label}</div>
-                  {desc && <div className="text-[10px] text-muted mt-0.5">{desc}</div>}
+                  {desc && <div className="text-xs text-muted mt-0.5">{desc}</div>}
                 </div>
               </div>
               {/* 提供者標籤:點誰該資料集就由誰提供,目前項目高亮 */}
@@ -158,7 +158,7 @@ function SourceCapabilityGrid({ sourceName, sourceDisplay, datasets, candidatesO
 
 /** 提供方標籤樣式: 當前項高亮(accent), 其餘弱化可點 */
 function tagCls(active: boolean) {
-  return `px-1.5 py-0.5 rounded text-[10px] transition-colors select-none disabled:opacity-50 cursor-pointer ${
+  return `px-1.5 py-0.5 rounded text-xs transition-colors select-none disabled:opacity-50 cursor-pointer ${
     active
       ? 'bg-accent/15 text-accent font-medium'
       : 'bg-elevated/60 text-muted/70 hover:bg-accent/15 hover:text-accent'
@@ -227,7 +227,7 @@ function PluginKeyConfig({ plugin }: { plugin: PluginDataSourceItem }) {
       <div className="flex items-center gap-2.5 mb-3">
         <KeyRound className="h-4 w-4 text-secondary" />
         <h3 className="text-sm font-medium text-foreground">API Key</h3>
-        <span className="text-[10px] text-muted/50 uppercase tracking-wider">{plugin.api_key_env}</span>
+        <span className="text-xs text-muted/50 uppercase tracking-wider">{plugin.api_key_env}</span>
       </div>
       <p className="text-xs text-secondary leading-relaxed mb-4">
         Key 儲存為本機檔案(secrets.json,優先順序高於 .env),不會上傳任何第三方。儲存前會先用該 Key
@@ -237,7 +237,7 @@ function PluginKeyConfig({ plugin }: { plugin: PluginDataSourceItem }) {
       {/* 當前狀態 */}
       <div className="flex items-center justify-between mb-4">
         <div className="min-w-0">
-          <div className="text-[10px] uppercase tracking-widest text-muted">狀態</div>
+          <div className="text-xs uppercase tracking-widest text-muted">狀態</div>
           <div className="mt-1 flex items-center gap-2 min-w-0">
             {plugin.available ? (
               <>
@@ -542,7 +542,7 @@ export function SettingsDataSourcesPanel() {
             <Database className="h-4 w-4 text-secondary" />
             <h2 className="text-sm font-medium text-foreground">資料來源</h2>
             <span
-              className="text-[10px] text-muted/40 font-mono truncate hidden lg:inline max-w-[480px]"
+              className="text-xs text-muted/40 font-mono truncate hidden lg:inline max-w-[480px]"
               title={sources.data?.config_dir}
             >
               {sources.data?.config_dir}
@@ -561,12 +561,12 @@ export function SettingsDataSourcesPanel() {
         {/* 插件化說明 (置頂黃色提示條): 接入自有行情 → 把文檔交給 AI */}
         <div className="mb-4 flex items-start gap-2 rounded-lg border border-warning/40 bg-warning/10 px-3 py-2.5">
           <Puzzle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-warning" />
-          <div className="text-[11px] leading-relaxed text-muted">
+          <div className="text-xs leading-relaxed text-muted">
             <span className="text-secondary">資料來源已插件化</span>
             ,接入自有行情?把文件交給 AI 即可自動接入:
-            <span className="mx-0.5 rounded bg-elevated/70 px-1 py-px font-mono text-[10px] text-secondary">docs/custom-data-source.md</span>
-            (自有 HTTP 介面) ·
-            <span className="mx-0.5 rounded bg-elevated/70 px-1 py-px font-mono text-[10px] text-secondary">docs/plugin-development.md</span>
+            <span className="mx-0.5 rounded bg-elevated/70 px-1 py-px font-mono text-xs text-secondary">docs/custom-data-source.md</span>
+            (自有 HTTP 介面) ，
+            <span className="mx-0.5 rounded bg-elevated/70 px-1 py-px font-mono text-xs text-secondary">docs/plugin-development.md</span>
             (插件開發)
           </div>
         </div>
@@ -611,36 +611,36 @@ export function SettingsDataSourcesPanel() {
                   </span>
                   {serving.length > 0 && (
                     <span
-                      className="shrink-0 inline-flex items-center gap-0.5 text-[9px] text-accent"
-                      title={`正在提供: ${serving.join(' · ')}`}
+                      className="shrink-0 inline-flex items-center gap-0.5 text-xs text-accent"
+                      title={`正在提供: ${serving.join('，')}`}
                     >
                       <Check className="h-2.5 w-2.5" /> 服務中
                     </span>
                   )}
                   {(item.name === 'taiwan' || item.name === 'tickflow') && (
-                    <span className="shrink-0 rounded bg-accent/15 px-1 py-0.5 text-[9px] font-medium leading-none text-accent">官方預設</span>
+                    <span className="shrink-0 rounded bg-accent/15 px-1 py-0.5 text-xs font-medium leading-none text-accent">官方預設</span>
                   )}
                   {pluginNames.has(item.name) && (
-                    <span className="shrink-0 rounded bg-warning/15 px-1 py-0.5 text-[9px] font-medium leading-none text-warning">第三方</span>
+                    <span className="shrink-0 rounded bg-warning/15 px-1 py-0.5 text-xs font-medium leading-none text-warning">第三方</span>
                   )}
                   {/* 右側操作區: 插件未安裝→安裝按鈕(runtime=none 無依賴可裝,顯示配置提示); 否則→使用/卸載 */}
                   {pluginUnavailable ? (
                     plugin?.runtime === 'none' ? (
                       <span
-                        className="text-[10px] text-muted/50 shrink-0 cursor-help"
+                        className="text-xs text-muted/50 shrink-0 cursor-help"
                         title={plugin?.status || '未設定憑證'}
                       >
                         點擊設定 Key
                       </span>
                     ) : installing ? (
-                      <span className="inline-flex items-center gap-1 text-[9px] text-accent shrink-0">
+                      <span className="inline-flex items-center gap-1 text-xs text-accent shrink-0">
                         <RefreshCw className="h-2.5 w-2.5 animate-spin" /> 安裝中…
                       </span>
                     ) : (
                       <button
                         onClick={(e) => { e.stopPropagation(); installMut.mutate(item.name) }}
                         disabled={installMut.isPending}
-                        className="shrink-0 inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-medium bg-accent/10 text-accent hover:bg-accent/20 transition-colors disabled:opacity-50"
+                        className="shrink-0 inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-xs font-medium bg-accent/10 text-accent hover:bg-accent/20 transition-colors disabled:opacity-50"
                       >
                         <Zap className="h-2.5 w-2.5" /> 安裝
                       </button>
@@ -651,7 +651,7 @@ export function SettingsDataSourcesPanel() {
                       <button
                         onClick={(e) => { e.stopPropagation(); switchProvider.mutate(item.name) }}
                         disabled={switchProvider.isPending}
-                        className="rounded px-1.5 py-0.5 text-[10px] font-medium bg-accent/10 text-accent hover:bg-accent/20 transition-colors disabled:opacity-50"
+                        className="rounded px-1.5 py-0.5 text-xs font-medium bg-accent/10 text-accent hover:bg-accent/20 transition-colors disabled:opacity-50"
                       >
                         使用
                       </button>
@@ -661,7 +661,7 @@ export function SettingsDataSourcesPanel() {
                         <button
                           onClick={(e) => { e.stopPropagation(); uninstallMut.mutate(item.name) }}
                           disabled={uninstallMut.isPending}
-                          className="text-[10px] text-muted/50 hover:text-danger transition-colors disabled:opacity-40"
+                          className="text-xs text-muted/50 hover:text-danger transition-colors disabled:opacity-40"
                           title="解除安裝依賴"
                         >
                           解除安裝
@@ -672,7 +672,7 @@ export function SettingsDataSourcesPanel() {
                     <button
                       onClick={(e) => { e.stopPropagation(); switchProvider.mutate(item.name) }}
                       disabled={switchProvider.isPending}
-                      className="shrink-0 rounded px-1.5 py-0.5 text-[10px] font-medium bg-accent/10 text-accent hover:bg-accent/20 transition-colors disabled:opacity-50"
+                      className="shrink-0 rounded px-1.5 py-0.5 text-xs font-medium bg-accent/10 text-accent hover:bg-accent/20 transition-colors disabled:opacity-50"
                     >
                       使用
                     </button>
@@ -682,7 +682,7 @@ export function SettingsDataSourcesPanel() {
                 <DatasetChipRow datasets={(item.name === 'taiwan' || item.name === 'tickflow') ? [...item.datasets, 'financial'] : item.datasets} />
                 {/* 未安裝插件顯示安裝命令提示 */}
                 {pluginUnavailable && plugin?.install_hint && (
-                  <div className="ml-3.5 mt-1 text-[10px] text-muted/40 font-mono truncate">{plugin.install_hint}</div>
+                  <div className="ml-3.5 mt-1 text-xs text-muted/40 font-mono truncate">{plugin.install_hint}</div>
                 )}
               </div>
             )
@@ -706,7 +706,7 @@ export function SettingsDataSourcesPanel() {
         {errors.length > 0 && (
           <div className="mt-3 flex items-start gap-1.5 px-3 py-2 rounded-lg bg-danger/5 border border-danger/20">
             <FileWarning className="h-3.5 w-3.5 text-danger shrink-0 mt-0.5" />
-            <div className="text-[11px] text-danger/80 leading-relaxed space-y-0.5">
+            <div className="text-xs text-danger/80 leading-relaxed space-y-0.5">
               {errors.map((err, idx) => (
                 <div key={idx}>
                   <span className="font-mono">{err.name || err.path}</span>: {err.errors.join('; ')}
@@ -716,13 +716,13 @@ export function SettingsDataSourcesPanel() {
           </div>
         )}
 
-        <div className="mt-3 flex items-center gap-3 text-[10px] text-muted/50">
+        <div className="mt-3 flex items-center gap-3 text-xs text-muted/50">
           <span>點擊查看各來源能力</span>
-          <span className="text-muted/30">·</span>
+          <span className="text-muted/30">，</span>
           <span>能力卡片上點擊標籤,個別選擇每個資料集的提供者</span>
-          <span className="text-muted/30">·</span>
+          <span className="text-muted/30">，</span>
           <span>點「使用」一鍵套用該來源全部能力</span>
-          <span className="text-muted/30">·</span>
+          <span className="text-muted/30">，</span>
           <span>未個別設定的由台灣官方資料源提供</span>
         </div>
 
@@ -768,7 +768,7 @@ export function SettingsDataSourcesPanel() {
                   <div className="flex items-center gap-2.5 mb-4">
                     <Database className="h-4 w-4 text-secondary" />
                     <h3 className="text-sm font-medium text-foreground">
-                      {selectedCustom?.display_name || selected} · 資料集能力與路由
+                      {selectedCustom?.display_name || selected}，資料集能力與路由
                     </h3>
                   </div>
                   <SourceCapabilityGrid
@@ -865,7 +865,7 @@ function PluginDetail({ plugin, isActive, onSwitch, switching, route }: {
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-2 mb-1">
               <h3 className="text-base font-semibold text-foreground">{plugin.display_name}</h3>
-              <span className="text-[10px] text-muted/50 uppercase tracking-wider">插件 · {plugin.runtime}</span>
+              <span className="text-xs text-muted/50 uppercase tracking-wider">插件，{plugin.runtime}</span>
             </div>
             {plugin.description && <p className="text-xs text-secondary leading-relaxed">{plugin.description}</p>}
           </div>
@@ -884,7 +884,7 @@ function PluginDetail({ plugin, isActive, onSwitch, switching, route }: {
 
         <div className="flex items-center gap-3 mt-4">
           {isActive ? (
-            <span className="inline-flex items-center gap-1 text-[10px] text-accent bg-accent/10 px-2 py-1 rounded">
+            <span className="inline-flex items-center gap-1 text-xs text-accent bg-accent/10 px-2 py-1 rounded">
               <Check className="h-2.5 w-2.5" /> 服務中
             </span>
           ) : plugin.available ? (
@@ -924,9 +924,9 @@ function TaiwanOfficialDetail({ active, onSwitch, switching, route }: {
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-2 flex-wrap">
               <h2 className="text-base font-semibold text-foreground">台灣官方資料源 (TWSE/TPEx)</h2>
-              <span className="rounded bg-accent/15 px-1.5 py-0.5 text-[10px] font-medium text-accent">官方公開</span>
+              <span className="rounded bg-accent/15 px-1.5 py-0.5 text-xs font-medium text-accent">官方公開</span>
               {active && (
-                <span className="inline-flex items-center gap-1 text-[10px] text-accent bg-accent/10 px-2 py-1 rounded">
+                <span className="inline-flex items-center gap-1 text-xs text-accent bg-accent/10 px-2 py-1 rounded">
                   <Check className="h-2.5 w-2.5" /> 服務中
                 </span>
               )}

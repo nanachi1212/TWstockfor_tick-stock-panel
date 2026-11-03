@@ -5,6 +5,8 @@ import { BarChart3 } from 'lucide-react'
 import { api, type TaiwanPortfolioAnalytics } from '@/lib/api'
 import { QK } from '@/lib/queryKeys'
 import { buildPortfolioPositions, PORTFOLIO_CHANGED, readPortfolioLedger } from '@/lib/portfolio'
+import { useChartTheme } from '@/lib/theme'
+import { RADIX } from '@/lib/radix'
 
 const REASONS: Record<string, string> = {
   no_holdings: '尚無持股',
@@ -72,14 +74,14 @@ function AnalyticsBody({ data }: { data: TaiwanPortfolioAnalytics }) {
             <Stat label="最大產業占比" value={pct(concentration.largest_industry?.weight)} hint={concentration.largest_industry?.industry ?? '無法判定：僅有 ETF 或個股產業未分類'} />
           </div>
         ) : <p role="status" className="text-xs text-warning">收盤價不完整或日期不一致，暫不顯示整體權重與集中度。</p>}
-        <p className="text-[11px] text-muted">占比以本頁已登錄持股的收盤市值計算，不含現金或其他帳戶。僅呈現集中程度，不設定風險門檻。</p>
+        <p className="text-xs text-muted">占比以本頁已登錄持股的收盤市值計算，不含現金或其他帳戶。僅呈現集中程度，不設定風險門檻。</p>
       </div>
       <div className="grid gap-3 lg:grid-cols-[2fr_1fr]">
       <div className="min-w-0 space-y-2">
         <h3 className="text-xs font-semibold text-secondary">假設績效（以目前持股回放）</h3>
         {perf.status !== 'unavailable' && m ? (
           <>
-            <p className="rounded-lg border border-warning/30 bg-warning/10 px-3 py-2 text-[11px] text-secondary">
+            <p className="rounded-lg border border-warning/30 bg-warning/10 px-3 py-2 text-xs text-secondary">
               用「現在的持股股數」回推 {perf.window_start && perf.window_end ? `${perf.window_start} ～ ${perf.window_end}` : '績效期間日期不可用（缺少有效起訖日）'}（{perf.sessions} 個交易日）的還原股價走勢，不是你實際買賣的損益紀錄。基準為{data.benchmark_name}；績效期間受已驗證除權息資料覆蓋範圍限制。
             </p>
             {perf.reason && <p role="status" className="text-xs text-warning">{REASONS[perf.reason] ?? perf.reason}</p>}
@@ -113,12 +115,12 @@ function AnalyticsBody({ data }: { data: TaiwanPortfolioAnalytics }) {
           </ul>
         ) : <p className="text-xs text-muted">收盤資料不足，暫不顯示產業占比。</p>}
         {allocation.unpriced_symbols.length > 0 && (
-          <p className="text-[11px] text-warning">缺收盤價：{allocation.unpriced_symbols.map(s => s.split('.')[0]).join('、')}</p>
+          <p className="text-xs text-warning">缺收盤價：{allocation.unpriced_symbols.map(s => s.split('.')[0]).join('、')}</p>
         )}
         {(allocation.stale_symbols?.length ?? 0) > 0 && (
-          <p className="text-[11px] text-warning">收盤價日期落後：{allocation.stale_symbols.map(s => s.split('.')[0]).join('、')}</p>
+          <p className="text-xs text-warning">收盤價日期落後：{allocation.stale_symbols.map(s => s.split('.')[0]).join('、')}</p>
         )}
-        <p className="text-[11px] text-muted">ETF 以商品分類列示，尚未拆解成分股產業；最大產業占比不含 ETF。個股產業未分類時，暫不判定最大產業。</p>
+        <p className="text-xs text-muted">ETF 以商品分類列示，尚未拆解成分股產業；最大產業占比不含 ETF。個股產業未分類時，暫不判定最大產業。</p>
       </div>
       </div>
     </>
@@ -128,28 +130,29 @@ function AnalyticsBody({ data }: { data: TaiwanPortfolioAnalytics }) {
 function Stat({ label, value, valueTone, hint }: { label: string; value: string; valueTone?: number | null; hint?: string }) {
   return (
     <div className="rounded-lg bg-base px-2.5 py-2" title={hint}>
-      <span className="block text-[10px] text-muted">{label}</span>
+      <span className="block text-xs text-muted">{label}</span>
       <span className={`mt-1 block font-mono font-medium ${tone(valueTone)}`}>{value}</span>
-      {hint && <span className="mt-0.5 block text-[10px] text-muted">{hint}</span>}
+      {hint && <span className="mt-0.5 block text-xs text-muted">{hint}</span>}
     </div>
   )
 }
 
 function PerformanceChart({ series, benchmarkLabel }: { series: TaiwanPortfolioAnalytics['performance']['series']; benchmarkLabel: string }) {
   const ref = useRef<HTMLDivElement>(null)
+  const theme = useChartTheme()
   useEffect(() => {
     if (!ref.current || !series.length) return
     const chart = echarts.init(ref.current)
     chart.setOption({
       animation: false,
       grid: { left: 40, right: 12, top: 28, bottom: 28 },
-      legend: { top: 0, textStyle: { fontSize: 11, color: '#94a3b8' } },
+      legend: { top: 0, textStyle: { fontSize: 12, color: theme.text } },
       tooltip: { trigger: 'axis', valueFormatter: (v: unknown) => v == null ? '—' : `${Number(v).toFixed(1)}` },
       xAxis: { type: 'category', data: series.map(r => r.date) },
       yAxis: { type: 'value', scale: true },
       series: [
-        { name: '目前持股回放', type: 'line', showSymbol: false, data: series.map(r => r.portfolio), lineStyle: { width: 2, color: '#0ea5e9' }, itemStyle: { color: '#0ea5e9' } },
-        ...(series.some(r => r.benchmark != null) ? [{ name: benchmarkLabel, type: 'line', showSymbol: false, data: series.map(r => r.benchmark), lineStyle: { width: 1.5, color: '#94a3b8' }, itemStyle: { color: '#94a3b8' } }] : []),
+        { name: '目前持股回放', type: 'line', showSymbol: false, data: series.map(r => r.portfolio), lineStyle: { width: 2, color: RADIX.accent }, itemStyle: { color: RADIX.accent } },
+        ...(series.some(r => r.benchmark != null) ? [{ name: benchmarkLabel, type: 'line', showSymbol: false, data: series.map(r => r.benchmark), lineStyle: { width: 1.5, color: theme.text }, itemStyle: { color: theme.text } }] : []),
       ],
     })
     const observer = new ResizeObserver(() => chart.resize())
@@ -158,6 +161,6 @@ function PerformanceChart({ series, benchmarkLabel }: { series: TaiwanPortfolioA
       observer.disconnect()
       chart.dispose()
     }
-  }, [series, benchmarkLabel])
+  }, [series, benchmarkLabel, theme])
   return <div ref={ref} className="h-56 w-full" aria-label="組合走勢對比基準（起點 = 100）" />
 }

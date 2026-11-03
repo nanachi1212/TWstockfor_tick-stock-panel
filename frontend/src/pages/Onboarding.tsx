@@ -18,6 +18,7 @@ import {
 import { api } from '@/lib/api'
 import { QK } from '@/lib/queryKeys'
 import { Logo } from '@/components/Logo'
+import { RADIX } from '@/lib/radix'
 
 // ===== 引導頁：4 步流程 =====
 // 0. 使用須知  1. 歡迎  2. 台股資料狀態  3. 完成 → 寫入標記 → 進主介面
@@ -28,15 +29,15 @@ import { Logo } from '@/components/Logo'
 
 const STEPS = ['使用須知', '歡迎', '台股資料狀態', '完成'] as const
 
-const BRAND = '#8B5CF6'
+const BRAND = RADIX.brand
 
 // 僅列出目前已有可靠 backend + frontend 支援的台股功能,避免宣傳尚未完成的項目。
 const HIGHLIGHTS = [
-  { icon: ScanSearch,  title: '台股選股',   desc: '內建篩選策略與異常訊號診斷,一鍵掃描上市櫃標的', tint: 'text-bull' },
+  { icon: ScanSearch,  title: '台股選股',   desc: '以篩選策略掃描上市櫃標的', tint: 'text-bull' },
   { icon: TrendingUp,  title: '個股分析',   desc: '個股資料含三大法人買賣超、融資融券、ETF 資訊', tint: 'text-warning' },
-  { icon: Scale,       title: '多股比較',   desc: '多檔台股並列比較,快速掌握相對表現', tint: 'text-accent' },
-  { icon: Database,    title: '本機資料優先', desc: '台股資料存於本機,離線仍可查閱,隱私可控', tint: 'text-bull' },
-  { icon: Sparkles,    title: 'AI 研究(選配)', desc: '選配功能,可於「設定 → AI」自行開啟,不影響核心功能使用', tint: 'text-bear' },
+  { icon: Scale,       title: '多股比較',   desc: '並列比較多檔台股的相對表現', tint: 'text-accent' },
+  { icon: Database,    title: '本機資料優先', desc: '資料保存在本機，離線仍可查閱', tint: 'text-bull' },
+  { icon: Sparkles,    title: 'AI 研究（選配）', desc: '可在「設定 → AI」自行開啟', tint: 'text-bear' },
 ]
 
 export function Onboarding() {
@@ -67,58 +68,26 @@ export function Onboarding() {
 
   return (
     <div className="relative min-h-screen bg-base overflow-hidden flex flex-col">
-      {/* 背景光暈 —— 品牌 + 主色漸層 */}
-      <div className="pointer-events-none absolute inset-0 overflow-hidden">
-        <div
-          className="absolute -top-40 -left-40 h-[28rem] w-[28rem] rounded-full blur-[120px] opacity-20"
-          style={{ background: `radial-gradient(circle, ${BRAND}, transparent 70%)` }}
-        />
-        <div
-          className="absolute -bottom-40 -right-32 h-[26rem] w-[26rem] rounded-full blur-[120px] opacity-15"
-          style={{ background: 'radial-gradient(circle, hsl(var(--accent)), transparent 70%)' }}
-        />
-        {/* 極淡網格底紋 */}
-        <div
-          className="absolute inset-0 opacity-[0.025]"
-          style={{
-            backgroundImage:
-              'linear-gradient(hsl(var(--fg-primary)) 1px, transparent 1px), linear-gradient(90deg, hsl(var(--fg-primary)) 1px, transparent 1px)',
-            backgroundSize: '40px 40px',
-          }}
-        />
-      </div>
-
       {/* 頂欄:logo + 進度指示 */}
-      <header className="relative z-10 flex items-center justify-between px-6 py-4 border-b border-border">
+      <header className="relative z-10 flex items-center justify-between gap-3 border-b border-border px-4 py-4 sm:px-6">
         <div className="flex items-center gap-2.5 text-foreground">
           <Logo
             size={24}
             className="shrink-0"
-            style={{ color: BRAND, filter: `drop-shadow(0 0 8px ${BRAND}55)` }}
+            style={{ color: BRAND }}
           />
-          <span className="text-sm font-semibold tracking-tight">Nanachi 的台股監控看板</span>
+          <span className="hidden text-sm font-semibold tracking-tight sm:inline">Nanachi 的台股監控看板</span>
         </div>
         {/* 步驟進度條 —— 膠囊式 */}
         <div className="flex items-center gap-1.5">
           {STEPS.map((label, i) => (
             <div key={label} className="flex items-center gap-1.5">
               {i > 0 && <div className="h-px w-3 bg-border" />}
-              <motion.div
-                animate={{
-                  width: i === step ? 64 : 24,
-                  backgroundColor: i === step
-                    ? 'hsl(var(--accent))'
-                    : i < step
-                      ? 'hsl(var(--accent) / 0.6)'
-                      : 'hsl(var(--border))',
-                }}
-                transition={{ duration: 0.3, ease: [0.16, 1, 0.3, 1] }}
-                className="h-1.5 rounded-full"
-              />
+              <div className={`h-1.5 rounded-full ${i === step ? 'w-16 bg-accent' : i < step ? 'w-6 bg-accent/60' : 'w-6 bg-border'}`} />
             </div>
           ))}
         </div>
-        <div className="w-[88px] text-right">
+        <div className="shrink-0 text-right">
           <span className="text-xs text-muted tabular">
             {step + 1} / {STEPS.length}
           </span>
@@ -134,7 +103,7 @@ export function Onboarding() {
               initial={{ opacity: 0, x: 24 }}
               animate={{ opacity: 1, x: 0 }}
               exit={{ opacity: 0, x: -24 }}
-              transition={{ duration: 0.25, ease: [0.16, 1, 0.3, 1] }}
+              transition={{ duration: 0.25, ease: 'easeOut' }}
             >
               {step === 0 && <DisclaimerStep onNext={() => setStep(1)} />}
               {step === 1 && <WelcomeStep onNext={() => setStep(2)} onSkip={finish} />}
@@ -155,31 +124,25 @@ export function Onboarding() {
 function DisclaimerStep({ onNext }: { onNext: () => void }) {
   return (
     <div className="text-center">
-      <motion.div
-        initial={{ scale: 0.85, opacity: 0 }}
-        animate={{ scale: 1, opacity: 1 }}
-        transition={{ duration: 0.5, ease: [0.16, 1, 0.3, 1] }}
-        className="mx-auto w-fit rounded-2xl p-4 border border-warning/40"
-        style={{ background: 'linear-gradient(135deg, hsl(var(--warning) / 0.15), transparent)' }}
-      >
+      <div className="mx-auto w-fit rounded-card border border-warning/40 bg-warning/10 p-4">
         <AlertCircle className="h-8 w-8 text-warning" />
-      </motion.div>
+      </div>
 
-      <h1 className="mt-6 text-2xl font-bold text-foreground tracking-tight">使用前請詳閱</h1>
+      <h1 className="mt-6 text-lg font-bold text-foreground tracking-tight">使用前請詳閱</h1>
 
       <div className="mt-5 rounded-card border border-border bg-surface/80 backdrop-blur-sm p-5 text-left">
         <div className="flex items-start gap-2.5">
           <ShieldCheck className="h-4 w-4 text-accent shrink-0 mt-0.5" />
           <div className="space-y-2.5 text-sm text-secondary leading-relaxed">
             <p>
-              本專案為<strong className="text-warning">個人開源專案</strong>,由個人獨立維護,與任何商業資料服務
+              本專案為<strong className="text-warning">個人開源專案</strong>，由個人獨立維護，與任何商業資料服務
               <span className="text-warning">無官方關聯</span>。資料能力依賴第三方資料服務提供。
             </p>
             <p>
-              僅供學習研究使用,不構成任何投資建議。股市有風險,使用本專案產生的任何盈虧由使用者自行承擔。
+              僅供學習研究使用，不構成任何投資建議。股市有風險，使用本專案產生的任何盈虧由使用者自行承擔。
             </p>
             <p>
-              本專案基於 MIT 授權開源。使用本專案時,請遵守所用資料來源的服務條款;第三方介面套件存在著作權與反爬蟲風險,使用需自行評估合規責任。
+              本專案基於 MIT 授權開源。使用時請遵守資料來源的服務條款，並自行評估第三方介面套件的合規風險。
             </p>
           </div>
         </div>
@@ -190,7 +153,7 @@ function DisclaimerStep({ onNext }: { onNext: () => void }) {
           onClick={onNext}
           className="inline-flex items-center gap-2 px-6 h-11 rounded-xl bg-accent text-white text-sm font-semibold shadow-lg shadow-accent/20 hover:bg-accent/90 hover:shadow-accent/30 transition-all"
         >
-          我已了解,繼續
+          我已了解，繼續
           <ArrowRight className="h-4 w-4" />
         </button>
       </div>
@@ -204,43 +167,32 @@ function WelcomeStep({ onNext, onSkip }: { onNext: () => void; onSkip: () => voi
   return (
     <div className="text-center">
       {/* 品牌 badge */}
-      <motion.div
-        initial={{ scale: 0.85, opacity: 0 }}
-        animate={{ scale: 1, opacity: 1 }}
-        transition={{ duration: 0.5, ease: [0.16, 1, 0.3, 1] }}
-        className="mx-auto w-fit rounded-2xl p-4 border border-border"
-        style={{ background: `linear-gradient(135deg, ${BRAND}22, transparent)` }}
-      >
+      <div className="mx-auto w-fit rounded-card border border-border bg-surface p-4">
         <Sparkles className="h-8 w-8" style={{ color: BRAND }} />
-      </motion.div>
+      </div>
 
-      <h1 className="mt-6 text-3xl font-bold text-foreground tracking-tight">
+      <h1 className="mt-6 text-lg font-bold text-foreground tracking-tight">
         歡迎使用台股分析工具
       </h1>
       <p className="mt-3 text-sm text-secondary leading-relaxed max-w-md mx-auto">
-        以台灣股票市場為預設市場的分析工具 —— 選股、個股分析、比較一次到位。
-        不需要任何第三方 API Key,也能直接使用核心功能。
+        選股、個股分析與多股比較一次到位，無須第三方 API 金鑰即可使用核心功能。
       </p>
 
       {/* 特性卡片 */}
       <div className="mt-8 grid grid-cols-1 sm:grid-cols-2 gap-2.5 text-left">
-        {HIGHLIGHTS.map((h, i) => (
-          <motion.div
+        {HIGHLIGHTS.map(h => (
+          <div
             key={h.title}
-            initial={{ opacity: 0, y: 8 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.3, delay: 0.04 * i + 0.1 }}
-            whileHover={{ y: -2 }}
-            className="group flex items-start gap-2.5 rounded-card border border-border bg-surface/80 backdrop-blur-sm p-2.5 transition-colors hover:border-accent/30"
+            className="group flex items-start gap-2.5 rounded-card border border-border bg-surface p-2.5 transition-colors hover:border-border-interactive"
           >
             <div className="rounded-lg bg-elevated/50 p-1.5 shrink-0">
               <h.icon className={`h-4 w-4 ${h.tint} transition-transform group-hover:scale-110`} />
             </div>
             <div className="min-w-0">
               <div className="text-xs font-medium text-foreground">{h.title}</div>
-              <div className="mt-0.5 text-[11px] text-muted leading-snug line-clamp-2">{h.desc}</div>
+              <div className="mt-0.5 text-xs text-muted leading-snug line-clamp-2">{h.desc}</div>
             </div>
-          </motion.div>
+          </div>
         ))}
       </div>
 
@@ -302,13 +254,13 @@ function TaiwanDataStatusStep({ onNext, onBack }: { onNext: () => void; onBack: 
         <div className="rounded-lg bg-accent/10 p-2">
           <Database className="h-4 w-4 text-accent" />
         </div>
-        <h2 className="text-xl font-bold text-foreground">台股資料狀態</h2>
+        <h2 className="text-lg font-bold text-foreground">台股資料狀態</h2>
       </div>
       <p className="mt-2.5 text-sm text-secondary leading-relaxed">
-        以下是目前本機的台股資料狀態,僅供參考,不影響是否能繼續使用。
+        檢查目前本機台股資料，不影響後續使用。
       </p>
 
-      <div className="mt-5 rounded-card border border-border bg-surface/80 backdrop-blur-sm p-5">
+      <div className="mt-5 rounded-card border border-border bg-surface p-5">
         {status.isLoading ? (
           <div className="flex items-center gap-2 text-xs text-muted">
             <Loader2 className="h-3.5 w-3.5 animate-spin" />
@@ -316,7 +268,7 @@ function TaiwanDataStatusStep({ onNext, onBack }: { onNext: () => void; onBack: 
           </div>
         ) : status.isError ? (
           <p className="text-xs text-muted leading-relaxed">
-            目前無法讀取台股資料狀態,不影響使用,請稍後再試。
+            目前無法讀取資料狀態，請稍後再試。
           </p>
         ) : hasAnyData ? (
           <div className="space-y-2.5">
@@ -336,7 +288,7 @@ function TaiwanDataStatusStep({ onNext, onBack }: { onNext: () => void; onBack: 
           <div className="flex items-start gap-2.5">
             <AlertCircle className="h-4 w-4 text-warning shrink-0 mt-0.5" />
             <p className="text-sm text-secondary leading-relaxed">
-              目前尚未下載台股資料,仍可先進入系統,資料將於每日排程自動更新。
+              尚未下載台股資料，仍可先進入系統。
             </p>
           </div>
         )}
@@ -367,53 +319,36 @@ function TaiwanDataStatusStep({ onNext, onBack }: { onNext: () => void; onBack: 
 
 function FinishStep({ onNext, onBack, pending }: { onNext: () => void; onBack: () => void; pending: boolean }) {
   const tips = [
-    { icon: ScanSearch, text: '「台股選股」頁:內建篩選策略,一鍵掃描上市櫃標的' },
-    { icon: TrendingUp, text: '「個股分析」:輸入代碼,檢視三大法人、融資融券與關鍵價位' },
-    { icon: Scale, text: '「多股比較」:多檔台股並列比較,快速掌握相對表現' },
+    { icon: ScanSearch, text: '「台股選股」以篩選策略掃描上市櫃標的' },
+    { icon: TrendingUp, text: '「個股分析」檢視法人、融資融券與關鍵價位' },
+    { icon: Scale, text: '「多股比較」並列檢視多檔台股表現' },
   ]
 
   return (
     <div className="text-center">
-      <motion.div
-        initial={{ scale: 0.85, opacity: 0 }}
-        animate={{ scale: 1, opacity: 1 }}
-        transition={{ duration: 0.5, ease: [0.16, 1, 0.3, 1] }}
-        className="mx-auto w-fit"
-      >
-        <div
-          className="relative rounded-2xl p-5 border border-border"
-          style={{ background: `linear-gradient(135deg, ${BRAND}22, transparent)` }}
-        >
+      <div className="mx-auto w-fit">
+        <div className="rounded-card border border-border bg-surface p-5">
           <CheckCircle2 className="h-12 w-12 text-bear" />
-          {/* 光暈脈衝 */}
-          <motion.div
-            animate={{ scale: [1, 1.4], opacity: [0.4, 0] }}
-            transition={{ duration: 1.8, repeat: Infinity, ease: 'easeOut' }}
-            className="absolute inset-5 rounded-full bg-bear/30"
-          />
         </div>
-      </motion.div>
+      </div>
 
-      <h1 className="mt-6 text-2xl font-bold text-foreground">一切就緒!</h1>
+      <h1 className="mt-6 text-lg font-bold text-foreground">設定完成</h1>
       <p className="mt-2.5 text-sm text-secondary leading-relaxed max-w-md mx-auto">
-        即可開始使用台股核心功能。資料來源與 AI 皆為選配,可隨時到「設定」調整。
+        可以開始使用台股核心功能；資料來源與 AI 可隨時到「設定」調整。
       </p>
 
       {/* 快速上手入口 */}
       <div className="mt-6 space-y-2 text-left">
-        {tips.map((t, i) => (
-          <motion.div
-            key={i}
-            initial={{ opacity: 0, x: -10 }}
-            animate={{ opacity: 1, x: 0 }}
-            transition={{ duration: 0.3, delay: 0.1 * i + 0.2 }}
-            className="flex items-center gap-3 rounded-card border border-border bg-surface/80 backdrop-blur-sm px-3.5 py-2.5"
+        {tips.map(t => (
+          <div
+            key={t.text}
+            className="flex items-center gap-3 rounded-card border border-border bg-surface px-3.5 py-2.5"
           >
             <div className="rounded-lg bg-accent/10 p-1.5 shrink-0">
               <t.icon className="h-3.5 w-3.5 text-accent" />
             </div>
             <span className="text-xs text-secondary">{t.text}</span>
-          </motion.div>
+          </div>
         ))}
       </div>
 

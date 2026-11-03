@@ -1,4 +1,4 @@
-"""Fetch the pinned public core bundle and turn it into a release seed."""
+"""Fetch the latest (or pinned) public core bundle and turn it into a release seed."""
 from __future__ import annotations
 
 import argparse
@@ -8,6 +8,8 @@ import tempfile
 import urllib.request
 import zipfile
 from pathlib import Path
+
+import httpx
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "backend"))
@@ -23,6 +25,7 @@ from app.taiwan.bootstrap import (  # noqa: E402
     DOWNLOAD_URL,
     EXPECTED_SHA256,
     locate_taiwan_in_extracted,
+    resolve_latest_bundle,
     safe_extract_zip,
 )
 
@@ -50,10 +53,19 @@ def main() -> int:
     with tempfile.TemporaryDirectory(prefix="nanachi_pinned_seed_") as temp_name:
         temp = Path(temp_name)
         bundle = args.bundle.resolve() if args.bundle else temp / "pinned-core.zip"
+        url, expected = DOWNLOAD_URL, EXPECTED_SHA256
         if args.bundle is None:
-            urllib.request.urlretrieve(DOWNLOAD_URL, bundle)
-        if _sha256(bundle).lower() != EXPECTED_SHA256.lower():
-            raise RuntimeError("pinned public core bundle SHA256 mismatch")
+            # Newest daily auto-published bundle keeps the installer seed (and its
+            # first-run catch-up) short; the pinned one is the offline fallback.
+            try:
+                with httpx.Client(timeout=30, follow_redirects=True) as client:
+                    latest = resolve_latest_bundle(client)
+                url, expected = latest["url"], latest["sha256"]
+            except Exception as exc:
+                print(f"latest bundle pointer unavailable ({type(exc).__name__}); using pinned bundle")
+            urllib.request.urlretrieve(url, bundle)
+        if _sha256(bundle).lower() != expected.lower():
+            raise RuntimeError("public core bundle SHA256 mismatch")
         # The pinned public download predates the current bundle manifest format.
         # Its immutable SHA authenticates the input; safe extraction plus the
         # release-seed allowlist/schema/checksum pass below validates the output.

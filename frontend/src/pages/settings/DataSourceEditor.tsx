@@ -180,12 +180,12 @@ export function DataSourceEditor({
           </div>
           <div>
             <h2 className="text-sm font-semibold text-foreground">{isNew ? '新增資料來源' : '編輯資料來源'}</h2>
-            <p className="text-[11px] text-muted">{isNew ? '設定一個自訂 HTTP 資料來源' : config.display_name || existingName}</p>
+            <p className="text-xs text-muted">{isNew ? '設定一個自訂 HTTP 資料來源' : config.display_name || existingName}</p>
           </div>
         </div>
         <div className="flex items-center gap-2">
           {!isNew && isActive && (
-            <span className="inline-flex items-center gap-1 text-[10px] text-accent bg-accent/10 px-2 py-1 rounded">
+            <span className="inline-flex items-center gap-1 text-xs text-accent bg-accent/10 px-2 py-1 rounded">
               <Check className="h-2.5 w-2.5" /> 使用中
             </span>
           )}
@@ -255,7 +255,7 @@ export function DataSourceEditor({
             </Field>
 
             <div className="pt-2 border-t border-border/30 space-y-1.5">
-              <div className="text-[10px] uppercase tracking-widest text-muted">資料集</div>
+              <div className="text-xs uppercase tracking-widest text-muted">資料集</div>
               {DATASETS.map(key => {
                 const enabled = !!config.datasets[key]
                 return (
@@ -269,8 +269,8 @@ export function DataSourceEditor({
                     <span className={`h-1.5 w-1.5 rounded-full shrink-0 ${enabled ? 'bg-accent' : 'bg-muted/30'}`} />
                     <span className="flex-1 text-left">{DATASET_LABEL[key]}</span>
                     {enabled
-                      ? <span className="text-[9px] text-accent">已設定</span>
-                      : <span className="text-[9px] text-muted/50">回退 TF</span>
+                      ? <span className="text-xs text-accent">已設定</span>
+                      : <span className="text-xs text-muted/50">回退 TF</span>
                     }
                     <Toggle
                       checked={enabled}
@@ -300,7 +300,7 @@ export function DataSourceEditor({
 
       {/* 底部保存欄 */}
       <div className="px-6 py-3.5 border-t border-border/60 flex items-center justify-between bg-elevated/20">
-        <div className="text-[11px] text-muted">
+        <div className="text-xs text-muted">
           {Object.keys(config.datasets).length} 個資料集已設定
         </div>
         <div className="flex items-center gap-2">
@@ -359,7 +359,7 @@ function DatasetDetail({
       <div className="flex items-center justify-between mb-4">
         <div className="flex items-center gap-2">
           <h3 className="text-sm font-medium text-foreground">{DATASET_LABEL[datasetKey]}</h3>
-          <span className="text-[10px] text-muted/50 font-mono">{datasetKey}</span>
+          <span className="text-xs text-muted/50 font-mono">{datasetKey}</span>
         </div>
         <Toggle checked={enabled} onChange={() => onToggle(!enabled)} />
       </div>
@@ -442,10 +442,10 @@ function DatasetDetail({
                 onClick={() => setShowParams(v => !v)}
                 className="w-full flex items-center gap-1.5 mb-2"
               >
-                <span className="text-[10px] uppercase tracking-widest text-muted">請求參數欄位對應</span>
+                <span className="text-xs uppercase tracking-widest text-muted">請求參數欄位對應</span>
                 <ChevronDown className={`h-3 w-3 text-muted transition-transform ${showParams ? 'rotate-180' : ''}`} />
               </button>
-              <div className="text-[10px] text-muted/50 mb-1.5">
+              <div className="text-xs text-muted/50 mb-1.5">
                 改外部介面的參數名(留空用預設)
               </div>
               <AnimatePresence initial={false}>
@@ -507,7 +507,7 @@ function DatasetDetail({
                         </>
                       )}
                       {datasetKey === 'realtime' && (
-                        <div className="col-span-full text-[10px] text-muted/50">
+                        <div className="col-span-full text-xs text-muted/50">
                           即時行情為全市場快照介面,不逐標的拉取,無需設定請求參數名。
                         </div>
                       )}
@@ -519,18 +519,18 @@ function DatasetDetail({
 
             <div>
               <div className="flex items-center justify-between mb-2">
-                <div className="text-[10px] uppercase tracking-widest text-muted">回應參數欄位對應</div>
+                <div className="text-xs uppercase tracking-widest text-muted">回應參數欄位對應</div>
                 <a
                   href="https://github.com/nanachi1212/TWstockfor_tick-stock-panel/blob/main/docs/custom-data-source.md#用-ai-生成映射配置"
                   target="_blank"
                   rel="noreferrer"
-                  className="text-[10px] text-accent/70 hover:text-accent hover:underline"
+                  className="text-xs text-accent/70 hover:text-accent hover:underline"
                 >
                   AI 幫你整理對應 →
                 </a>
               </div>
-              <div className="text-[10px] text-muted/50 mb-1.5">
-                外部欄位 → 內部欄位 · 不知道怎麼填?點上方連結用 AI 整理
+              <div className="text-xs text-muted/50 mb-1.5">
+                外部欄位 → 內部欄位，不知道怎麼填?點上方連結用 AI 整理
               </div>
               <FieldMapEditor
                 key={datasetKey}
@@ -543,7 +543,7 @@ function DatasetDetail({
             <div className="pt-3 border-t border-border/30">
               <div className="flex items-center gap-2 mb-2">
                 <Play className="h-3 w-3 text-muted" />
-                <span className="text-[11px] font-medium text-secondary">測試連線</span>
+                <span className="text-xs font-medium text-secondary">測試連線</span>
               </div>
               <div className="flex items-center gap-2">
                 <input
@@ -563,7 +563,7 @@ function DatasetDetail({
               {test.data && (
                 <div className="mt-2 rounded-lg border border-accent/20 bg-accent/5 px-3 py-2 text-xs">
                   <span className="text-accent font-medium">{test.data.rows}</span> 行
-                  <span className="text-muted mx-1.5">·</span>
+                  <span className="text-muted mx-1.5">，</span>
                   欄:<span className="text-secondary">{test.data.columns.join(', ')}</span>
                 </div>
               )}
@@ -581,7 +581,7 @@ function DatasetDetail({
             className="py-12 text-center"
           >
             <div className="text-sm text-muted mb-1">{DATASET_LABEL[datasetKey]} 未啟用</div>
-            <div className="text-[11px] text-muted/60">啟用後此資料集將由該自訂來源提供,未啟用則回退內建資料來源</div>
+            <div className="text-xs text-muted/60">啟用後此資料集將由該自訂來源提供,未啟用則回退內建資料來源</div>
             <button
               onClick={() => onToggle(true)}
               className="mt-3 inline-flex items-center gap-1 px-3 py-1.5 rounded-btn bg-accent/10 text-accent text-xs font-medium hover:bg-accent/20 transition-colors"
@@ -661,7 +661,7 @@ function FieldMapEditor({
   return (
     <div className="space-y-1.5">
       {!hasValid && (
-        <div className="text-[11px] text-muted/60 py-1">填寫外部欄位名後自動生效,不需要的欄位可刪除</div>
+        <div className="text-xs text-muted/60 py-1">填寫外部欄位名後自動生效,不需要的欄位可刪除</div>
       )}
       {rows.map((row) => (
         <div key={row.id} className="grid grid-cols-[1fr_auto_1.2fr_auto] gap-1.5 items-center">
@@ -671,7 +671,7 @@ function FieldMapEditor({
             placeholder="外部欄位名"
             className={`${INPUT_CLS} text-xs`}
           />
-          <span className="text-muted/50 text-[10px]">→</span>
+          <span className="text-muted/50 text-xs">→</span>
           <select
             value={targets.includes(row.target) ? row.target : ''}
             onChange={e => updateRow(row.id, { target: e.target.value })}
@@ -706,8 +706,8 @@ function Field({ label, hint, children }: { label: string; hint?: string; childr
   return (
     <div className="space-y-1.5">
       <div className="flex items-center justify-between">
-        <span className="text-[10px] uppercase tracking-widest text-muted">{label}</span>
-        {hint && <span className="text-[9px] text-muted/50 normal-case">{hint}</span>}
+        <span className="text-xs uppercase tracking-widest text-muted">{label}</span>
+        {hint && <span className="text-xs text-muted/50 normal-case">{hint}</span>}
       </div>
       {children}
     </div>

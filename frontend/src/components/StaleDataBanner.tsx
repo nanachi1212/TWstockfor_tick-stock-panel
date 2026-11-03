@@ -52,7 +52,7 @@ export function StaleDataBanner() {
     <div
       role="status"
       aria-live="polite"
-      className="sticky top-0 z-30 flex flex-wrap items-center gap-2 border-b border-warning/30 bg-warning/10 px-3 py-1.5 text-xs text-warning backdrop-blur-sm"
+      className="sticky top-0 z-30 flex flex-wrap items-center gap-2 border-b border-warning/30 bg-warning/10 px-3 py-2 text-xs text-warning backdrop-blur-sm sm:px-5"
     >
       <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
       <span className="min-w-0 flex-1 break-words">{text}</span>
@@ -60,7 +60,7 @@ export function StaleDataBanner() {
         type="button"
         onClick={() => !update.isPending && update.mutate()}
         disabled={update.isPending}
-        className="inline-flex min-h-7 items-center gap-1 rounded-btn border border-warning/40 bg-warning/15 px-2 font-medium text-warning hover:bg-warning/25 disabled:opacity-60"
+        className="interactive-target inline-flex items-center gap-1 rounded-btn border border-warning/40 bg-warning/15 px-2.5 font-medium text-warning transition-colors hover:bg-warning/25 disabled:opacity-60"
       >
         {update.isPending ? <Loader2 className="h-3 w-3 animate-spin" /> : <RefreshCw className="h-3 w-3" />}
         {update.isPending ? '更新中…' : '更新到最新'}

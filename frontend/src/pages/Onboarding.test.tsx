@@ -67,7 +67,7 @@ afterEach(() => {
 describe('Onboarding — Taiwan-first flow', () => {
   it('welcome step introduces the tool as Taiwan-market-first, not an A-share panel', async () => {
     renderOnboarding()
-    fireEvent.click(await screen.findByText('我已了解,繼續'))
+    fireEvent.click(await screen.findByText('我已了解，繼續'))
 
     expect(await screen.findByText('歡迎使用台股分析工具')).toBeInTheDocument()
     // 舊 A 股 onboarding 定位文案不應再出現
@@ -80,15 +80,15 @@ describe('Onboarding — Taiwan-first flow', () => {
 
   it('can complete onboarding with no API key and no local Taiwan data — shows a clear non-blocking hint', async () => {
     renderOnboarding()
-    fireEvent.click(await screen.findByText('我已了解,繼續'))
+    fireEvent.click(await screen.findByText('我已了解，繼續'))
     fireEvent.click(await screen.findByText('開始使用'))
 
     // 台股資料狀態步驟: 無資料時顯示提示, 但仍可繼續
-    expect(await screen.findByText(/目前尚未下載台股資料/)).toBeInTheDocument()
+    expect(await screen.findByText(/尚未下載台股資料/)).toBeInTheDocument()
     fireEvent.click(screen.getByText('下一步'))
 
     // 完成步驟
-    expect(await screen.findByText('一切就緒!')).toBeInTheDocument()
+    expect(await screen.findByText('設定完成')).toBeInTheDocument()
     fireEvent.click(screen.getByText('進入面板'))
 
     await waitFor(() => expect(api.completeOnboarding).toHaveBeenCalledTimes(1))
@@ -106,17 +106,17 @@ describe('Onboarding — Taiwan-first flow', () => {
       margin_status: 'current',
     })
     renderOnboarding()
-    fireEvent.click(await screen.findByText('我已了解,繼續'))
+    fireEvent.click(await screen.findByText('我已了解，繼續'))
     fireEvent.click(await screen.findByText('開始使用'))
 
     expect((await screen.findAllByText('2026-08-31')).length).toBeGreaterThan(0)
     expect(screen.getAllByText('最新').length).toBeGreaterThan(0)
-    expect(screen.queryByText(/目前尚未下載台股資料/)).not.toBeInTheDocument()
+    expect(screen.queryByText(/尚未下載台股資料/)).not.toBeInTheDocument()
   })
 
   it('skip on the welcome step completes onboarding immediately without requiring any key', async () => {
     renderOnboarding()
-    fireEvent.click(await screen.findByText('我已了解,繼續'))
+    fireEvent.click(await screen.findByText('我已了解，繼續'))
     fireEvent.click(await screen.findByText('稍後再說'))
 
     await waitFor(() => expect(api.completeOnboarding).toHaveBeenCalledTimes(1))

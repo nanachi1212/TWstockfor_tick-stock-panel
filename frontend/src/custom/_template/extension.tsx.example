@@ -13,7 +13,7 @@ function NavigationExtra({ collapsed }: { collapsed: boolean; pathname: string }
 function StockPreviewFooter({ symbol, name }: { symbol: string; name: string | null; view: 'daily' | 'intraday' }) {
   return (
     <div className="border-t border-border px-4 py-2 text-xs text-muted">
-      {symbol} {name} · 二開面板示例
+      {symbol} {name}，二開面板示例
     </div>
   )
 }

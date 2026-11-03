@@ -69,8 +69,8 @@ describe('Market research product UI', () => {
     vi.mocked(api.taiwanInstitutionalStatistics).mockResolvedValue(data)
     mount()
     await screen.findByRole('link', { name: /台積電/ })
-    expect(screen.getAllByText('不可用 · 5/5 日').length).toBeGreaterThan(0)
-    expect(screen.getAllByText('部分資料 · 4/5 日').length).toBeGreaterThan(0)
+    expect(screen.getAllByText('不可用，5/5 日').length).toBeGreaterThan(0)
+    expect(screen.getAllByText('部分資料，4/5 日').length).toBeGreaterThan(0)
     expect(screen.getAllByText('—').length).toBeGreaterThan(0)
   })
   it('shows loading, request failure and retry', async () => {

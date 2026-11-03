@@ -1,4 +1,3 @@
-import { motion } from 'framer-motion'
 import {
   AlertTriangle,
   Bell,
@@ -16,34 +15,30 @@ interface TaiwanAlertsListProps {
   onInterpretAlert?: (symbol: string, alertId: string) => void
 }
 
-const SEVERITY_CONFIG: Record<string, { bar: string; icon: any; iconCls: string; badgeCls: string; label: string }> = {
+const SEVERITY_CONFIG: Record<string, { icon: any; iconCls: string; badgeCls: string; label: string }> = {
   info: {
-    bar: 'bg-accent/40',
     icon: Bell,
     iconCls: 'text-accent',
     badgeCls: 'bg-accent/10 text-accent border-accent/20',
-    label: '一般 (INFO)',
+    label: '一般',
   },
   warning: {
-    bar: 'bg-warning',
     icon: AlertTriangle,
     iconCls: 'text-warning',
     badgeCls: 'bg-warning/10 text-warning border-warning/20',
-    label: '提醒 (WARN)',
+    label: '提醒',
   },
   warn: {
-    bar: 'bg-warning',
     icon: AlertTriangle,
     iconCls: 'text-warning',
     badgeCls: 'bg-warning/10 text-warning border-warning/20',
-    label: '提醒 (WARN)',
+    label: '提醒',
   },
   critical: {
-    bar: 'bg-danger',
     icon: Flame,
     iconCls: 'text-danger',
     badgeCls: 'bg-danger/10 text-danger border-danger/20',
-    label: '緊急 (CRITICAL)',
+    label: '緊急',
   },
 }
 
@@ -69,7 +64,7 @@ export function TaiwanAlertsList({ alerts, onSelectSymbol, onInterpretAlert }: T
           <Bell className="h-6 w-6 text-muted/60" />
         </div>
         <p className="text-xs font-medium">尚無即時觸發告警紀錄</p>
-        <p className="text-[10px] text-muted mt-0.5">盤中監控規則符合條件時，將第一時間在此處推播</p>
+        <p className="text-xs text-muted mt-0.5">盤中監控規則符合條件時，將第一時間在此處推播</p>
       </div>
     )
   }
@@ -84,20 +79,15 @@ export function TaiwanAlertsList({ alerts, onSelectSymbol, onInterpretAlert }: T
         const isTaiwan = alert.symbol?.includes('.TWSE') || alert.symbol?.includes('.TPEX') || alert.source === 'twse:mis'
 
         return (
-          <motion.div
+          <div
             key={id}
-            initial={{ opacity: 0, y: -6 }}
-            animate={{ opacity: 1, y: 0 }}
             className="group relative flex overflow-hidden rounded-xl border border-border/70 bg-surface/80 shadow-sm hover:border-accent/40 transition-all p-3 text-xs"
           >
-            {/* 左側彩色指示條 */}
-            <div className={cn('absolute left-0 top-0 bottom-0 w-1', sevCfg.bar)} />
-
-            <div className="ml-1.5 flex flex-1 flex-col gap-1">
+            <div className="flex flex-1 flex-col gap-1">
               {/* 頂部: 時間、標的、嚴重等級、來源 */}
               <div className="flex flex-wrap items-center justify-between gap-1.5">
                 <div className="flex items-center gap-2">
-                  <span className="flex items-center gap-1 font-mono text-[11px] text-muted">
+                  <span className="flex items-center gap-1 font-mono text-xs text-muted">
                     <Clock className="h-3 w-3" />
                     {formatAlertTime((alert as any).triggered_at || alert.ts)}
                   </span>
@@ -111,19 +101,19 @@ export function TaiwanAlertsList({ alerts, onSelectSymbol, onInterpretAlert }: T
                     </button>
                   )}
                   {isTaiwan && (
-                    <span className="rounded bg-sky-500/10 px-1 py-0.2 text-[9px] font-medium text-sky-600 dark:text-sky-400 border border-sky-500/20">
+                    <span className="rounded bg-sky-500/10 px-1 py-0.2 text-xs font-medium text-sky-600 dark:text-sky-400 border border-sky-500/20">
                       台股即時
                     </span>
                   )}
                 </div>
 
                 <div className="flex items-center gap-1.5">
-                  <span className={cn('inline-flex items-center gap-1 rounded border px-1.5 py-0.5 text-[10px] font-medium', sevCfg.badgeCls)}>
+                  <span className={cn('inline-flex items-center gap-1 rounded border px-1.5 py-0.5 text-xs font-medium', sevCfg.badgeCls)}>
                     <SevIcon className="h-3 w-3" />
                     {sevCfg.label}
                   </span>
                   {alert.source && (
-                    <span className="rounded bg-elevated px-1.5 py-0.5 text-[10px] text-muted">
+                    <span className="rounded bg-elevated px-1.5 py-0.5 text-xs text-muted">
                       {alert.source}
                     </span>
                   )}
@@ -136,14 +126,14 @@ export function TaiwanAlertsList({ alerts, onSelectSymbol, onInterpretAlert }: T
               </div>
 
               {isTaiwan && alert.symbol && alert.alert_id && onInterpretAlert && (
-                <button type="button" onClick={() => onInterpretAlert(alert.symbol!, alert.alert_id!)} className="mt-1 self-start rounded border border-purple-500/30 px-2 py-1 text-[10px] font-medium text-purple-400 hover:bg-purple-500/10">
+                <button type="button" onClick={() => onInterpretAlert(alert.symbol!, alert.alert_id!)} className="mt-1 self-start rounded border border-purple-500/30 px-2 py-1 text-xs font-medium text-purple-400 hover:bg-purple-500/10">
                   AI 解讀
                 </button>
               )}
 
               {/* 底部數值標籤 (若有) */}
               {((alert as any).trigger_value != null || alert.price != null || alert.change_pct != null) && (
-                <div className="flex flex-wrap items-center gap-2 pt-1 text-[11px] text-muted border-t border-border/40 font-mono">
+                <div className="flex flex-wrap items-center gap-2 pt-1 text-xs text-muted border-t border-border/40 font-mono">
                   {(alert as any).trigger_value != null && (
                     <span>觸發值: <strong className="text-foreground font-semibold">{(alert as any).trigger_value}</strong></span>
                   )}
@@ -161,7 +151,7 @@ export function TaiwanAlertsList({ alerts, onSelectSymbol, onInterpretAlert }: T
                 </div>
               )}
             </div>
-          </motion.div>
+          </div>
         )
       })}
     </div>

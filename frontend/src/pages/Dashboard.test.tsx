@@ -167,7 +167,7 @@ describe('Dashboard — chart first', () => {
     expect(screen.getByText('三大法人買賣超')).toBeInTheDocument()
     expect(screen.getByText('12,000 張')).toBeInTheDocument()
     expect(screen.getByText('-500 張')).toBeInTheDocument()
-    expect(screen.getByText('更多市場資訊')).toBeInTheDocument()
+    expect(screen.getByText('延伸市場資訊')).toBeInTheDocument()
   })
 })
 
@@ -211,7 +211,7 @@ describe('Dashboard — Market Clarity (Phase 8C-B)', () => {
 
     expect(await screen.findByText('社群熱門標的')).toBeInTheDocument()
     expect(await screen.findByText(/情緒不可用/)).toBeInTheDocument()
-    expect(screen.getByText('社群聲量完整頁')).toBeInTheDocument()
+    expect(screen.getAllByRole('link', { name: /查看全部/ }).find(link => link.getAttribute('href') === '/social-sentiment')).toBeInTheDocument()
   })
 
   it('shows dependent market panels as loading until data status is ready', async () => {
@@ -270,7 +270,7 @@ describe('Dashboard — Market Clarity (Phase 8C-B)', () => {
     renderDashboard()
 
     expect(await screen.findByText('尚未加入任何自選股')).toBeInTheDocument()
-    expect(screen.getByText('前往自選股 →')).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: '開啟自選股' })).toHaveAttribute('href', '/watchlist')
   })
 
   it('populated watchlist shows quick-glance rows sorted by absolute change', async () => {
@@ -318,7 +318,7 @@ describe('Dashboard — Market Clarity (Phase 8C-B)', () => {
     renderDashboard()
 
     expect(await screen.findByText('我的觀察')).toBeInTheDocument()
-    expect(await screen.findByText(/#1 · Quant \+90\.00%/)).toBeInTheDocument()
+    expect(await screen.findByText(/#1，Quant \+90\.00%/)).toBeInTheDocument()
     expect(screen.getByText('今日未進入 Top 10')).toBeInTheDocument()
     expect(screen.getByLabelText('查看 2330.TWSE 詳情')).toHaveAttribute('href', '/stocks/2330.TWSE')
 
@@ -330,7 +330,7 @@ describe('Dashboard — Market Clarity (Phase 8C-B)', () => {
     vi.mocked(api.taiwanAbnormalDiagnostics).mockRejectedValue(new Error('network error'))
     renderDashboard()
 
-    expect(await screen.findByText('目前無法讀取市場強弱資料,不影響其他功能使用。')).toBeInTheDocument()
+    expect(await screen.findByText('目前無法讀取市場強弱資料。')).toBeInTheDocument()
     expect(await screen.findByText('目前無法讀取產業強弱資料,不影響其他功能使用。')).toBeInTheDocument()
     // 其餘區塊仍正常渲染, 未白屏
     expect(screen.getByText('提醒')).toBeInTheDocument()
@@ -392,10 +392,10 @@ describe('Dashboard — stock reminders', () => {
     })) } as any)
     renderDashboard()
 
-    expect(await screen.findByText('新進 Quant Top 10 · 測試股0')).toBeInTheDocument()
-    expect(screen.getByText('新進 Quant Top 10 · 測試股4')).toBeInTheDocument()
-    expect(screen.queryByText('新進 Quant Top 10 · 測試股5')).not.toBeInTheDocument()
-    expect(screen.getByRole('link', { name: '還有 7 則 Quant 提醒 · 查看監控中心' })).toHaveAttribute('href', '/monitor')
+    expect(await screen.findByText('新進 Quant Top 10，測試股0')).toBeInTheDocument()
+    expect(screen.getByText('新進 Quant Top 10，測試股4')).toBeInTheDocument()
+    expect(screen.queryByText('新進 Quant Top 10，測試股5')).not.toBeInTheDocument()
+    expect(screen.getByRole('link', { name: '還有 7 則 Quant 提醒，查看監控中心' })).toHaveAttribute('href', '/monitor')
   })
 
   it('shows an unavailable state when the Quant reminder query fails', async () => {
@@ -512,7 +512,7 @@ describe('Dashboard — Market data honesty (DAILY_USE_CORE_UX_FIXES P1-1)', () 
     ]) as any)
     renderDashboard()
 
-    expect(await screen.findByText(/日行情狀態 stale；以下為最近可用資料/)).toBeInTheDocument()
+    expect(await screen.findByText(/日行情尚未就緒；目前顯示 2026-09-04 的最近可用資料/)).toBeInTheDocument()
     expect(screen.queryByText('偏強')).not.toBeInTheDocument()
     expect(await screen.findByText('最近交易日類股熱度')).toBeInTheDocument()
     expect(await screen.findByText(/日行情狀態 stale，資料交易日/)).toBeInTheDocument()

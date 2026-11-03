@@ -127,7 +127,7 @@ function ForwardStats({ stats, formatPct, strategyId }: { stats: ForwardBatchSta
       <div className="rounded-xl border border-primary/25 bg-card p-4">
         <div className="flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
           <div><h2 className="text-base font-semibold">Forward Selection Performance Center</h2><p className="mt-1 text-xs text-muted-foreground">策略：{stats.strategy_name ?? strategyId}，僅統計正式 forward batch，不混入 research snapshot。</p></div>
-          <span className="text-[11px] text-muted-foreground">命中率與 Beat 0050 均排除 pending／unavailable</span>
+          <span className="text-xs text-muted-foreground">命中率與 Beat 0050 均排除 pending／unavailable</span>
         </div>
         <dl className="mt-4 grid grid-cols-2 gap-3 text-xs sm:grid-cols-4">
           <div className="rounded-lg bg-muted/30 p-3"><dt className="text-muted-foreground">正式批次數</dt><dd className="mt-1 text-lg font-semibold">{stats.batches_count}</dd></div>
@@ -267,7 +267,7 @@ export function SelectionReview() {
               <History className="h-6 w-6" />
             </div>
             <div>
-              <h1 className="text-2xl font-bold tracking-tight">選股復盤與策略追蹤</h1>
+              <h1 className="text-lg font-bold tracking-tight">選股復盤與策略追蹤</h1>
               <p className="text-sm text-muted-foreground mt-0.5">
                 追蹤選股當下事實與後續 1D / 5D / 20D 實際交易日表現，評估策略與入選原因勝率
               </p>
@@ -394,8 +394,8 @@ export function SelectionReview() {
               return <button key={batch.snapshot_id} type="button" onClick={() => setSearchParams({ tab: 'forward', batch_id: batch.snapshot_id })} className="rounded-xl border border-border/60 bg-card p-4 text-left transition-colors hover:border-primary/50">
                 <span className="text-xs font-semibold text-primary">{batch.rule_version ?? '正式前瞻批次'}</span>
                 <span className="mt-2 block font-semibold">來源日期 {batch.source_data_date ?? batch.as_of_date}</span>
-                <span className="mt-1 block text-xs text-muted-foreground">預定進場 {batch.target_trade_date ?? '資料不足'} · {batch.selected_count} 檔</span>
-                <span className="mt-1 block text-xs text-muted-foreground">{timeline ? `已成熟至 ${maturedHorizon ?? '尚未成熟'} · 1D 平均報酬 ${formatPct(mainReturn)}` : timelineStatus}</span>
+                <span className="mt-1 block text-xs text-muted-foreground">預定進場 {batch.target_trade_date ?? '資料不足'}，{batch.selected_count} 檔</span>
+                <span className="mt-1 block text-xs text-muted-foreground">{timeline ? `已成熟至 ${maturedHorizon ?? '尚未成熟'}，1D 平均報酬 ${formatPct(mainReturn)}` : timelineStatus}</span>
                 <span className="mt-2 inline-flex items-center gap-1 text-xs text-primary">查看批次復盤 <ChevronRight className="h-3 w-3" /></span>
               </button>
             })}</div></div> : <div className="rounded-xl border border-dashed border-border/70 bg-card/40 p-8 text-center"><Clock className="mx-auto mb-3 h-9 w-9 text-muted-foreground/50" /><h2 className="font-medium">尚無正式前瞻批次</h2><p className="mt-2 text-xs text-muted-foreground">台股選股頁可在合適時段預覽並明確鎖定正式名單。</p><Link to="/taiwan-screener" className="mt-4 inline-flex items-center gap-1 text-xs text-primary">前往台股選股 <ChevronRight className="h-3 w-3" /></Link></div>}
@@ -618,11 +618,11 @@ export function SelectionReview() {
                       </td>
                       <td className="py-3 px-4 text-center">
                         {cond.is_sample_sufficient ? (
-                          <span className="text-[11px] px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 font-medium">
+                          <span className="text-xs px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 font-medium">
                             樣本充分
                           </span>
                         ) : (
-                          <span className="text-[11px] px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-600 dark:text-amber-400 font-medium">
+                          <span className="text-xs px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-600 dark:text-amber-400 font-medium">
                             樣本不足 (&lt;5)
                           </span>
                         )}
@@ -686,7 +686,7 @@ function SnapshotCard({
               <span>•</span>
               <span>{item.selected_count} 檔標的</span>
               {item.source === 'Buy Point' && (
-                <span className="rounded bg-accent/10 px-1.5 py-0.5 text-[10px] text-accent">買點策略</span>
+                <span className="rounded bg-accent/10 px-1.5 py-0.5 text-xs text-accent">買點策略</span>
               )}
             </div>
           </div>
@@ -702,36 +702,36 @@ function SnapshotCard({
         {/* 評估摘要指標 */}
         <div className="grid grid-cols-2 gap-2 mt-4 pt-3 border-t border-border/40 text-xs">
           <div className="bg-muted/30 p-2 rounded-lg">
-            <span className="text-muted-foreground block text-[11px]">5D 交易日表現</span>
+            <span className="text-muted-foreground block text-xs">5D 交易日表現</span>
             {item.h5d_evaluated_count > 0 ? (
               <div className="mt-0.5">
                 <span className={cn('font-semibold', getReturnColor(item.h5d_avg_return_pct))}>
                   {formatPct(item.h5d_avg_return_pct)}
                 </span>
-                <span className="text-[10px] text-muted-foreground block">
+                <span className="text-xs text-muted-foreground block">
                   超額 {formatPct(item.h5d_excess_pct)}
                 </span>
               </div>
             ) : (
-              <span className="text-[11px] text-amber-500 flex items-center gap-1 mt-0.5">
+              <span className="text-xs text-amber-500 flex items-center gap-1 mt-0.5">
                 <Clock className="h-3 w-3" /> 追蹤中
               </span>
             )}
           </div>
 
           <div className="bg-muted/30 p-2 rounded-lg">
-            <span className="text-muted-foreground block text-[11px]">20D 交易日表現</span>
+            <span className="text-muted-foreground block text-xs">20D 交易日表現</span>
             {item.h20d_evaluated_count > 0 ? (
               <div className="mt-0.5">
                 <span className={cn('font-semibold', getReturnColor(item.h20d_avg_return_pct))}>
                   {formatPct(item.h20d_avg_return_pct)}
                 </span>
-                <span className="text-[10px] text-muted-foreground block">
+                <span className="text-xs text-muted-foreground block">
                   超額 {formatPct(item.h20d_excess_pct)}
                 </span>
               </div>
             ) : (
-              <span className="text-[11px] text-amber-500 flex items-center gap-1 mt-0.5">
+              <span className="text-xs text-amber-500 flex items-center gap-1 mt-0.5">
                 <Clock className="h-3 w-3" /> 追蹤中
               </span>
             )}
@@ -739,7 +739,7 @@ function SnapshotCard({
         </div>
       </div>
 
-      <div className="mt-3 flex items-center justify-end text-[11px] text-primary font-medium">
+      <div className="mt-3 flex items-center justify-end text-xs text-primary font-medium">
         <span>查看評估明細</span>
         <ChevronRight className="h-3.5 w-3.5 ml-0.5" />
       </div>
@@ -873,7 +873,7 @@ function SnapshotDetailView({
           <div className={cn('text-lg font-bold mt-1', getReturnColor(detail.h5d_avg_return_pct))}>
             {formatPct(detail.h5d_avg_return_pct)}
           </div>
-          <span className="text-[11px] text-muted-foreground">
+          <span className="text-xs text-muted-foreground">
             基準(0050): {formatPct(detail.h5d_bm_avg_return_pct)}
           </span>
         </div>
@@ -883,7 +883,7 @@ function SnapshotDetailView({
           <div className={cn('text-lg font-bold mt-1', getReturnColor(detail.h5d_avg_excess_pct))}>
             {formatPct(detail.h5d_avg_excess_pct)}
           </div>
-          <span className="text-[11px] text-muted-foreground">已評估 {detail.h5d_evaluated_count} 檔</span>
+          <span className="text-xs text-muted-foreground">已評估 {detail.h5d_evaluated_count} 檔</span>
         </div>
 
         <div className="bg-card border border-border/60 rounded-xl p-3">
@@ -891,7 +891,7 @@ function SnapshotDetailView({
           <div className={cn('text-lg font-bold mt-1', getReturnColor(detail.h20d_avg_return_pct))}>
             {formatPct(detail.h20d_avg_return_pct)}
           </div>
-          <span className="text-[11px] text-muted-foreground">
+          <span className="text-xs text-muted-foreground">
             基準(0050): {formatPct(detail.h20d_bm_avg_return_pct)}
           </span>
         </div>
@@ -901,7 +901,7 @@ function SnapshotDetailView({
           <div className={cn('text-lg font-bold mt-1', getReturnColor(detail.h20d_avg_excess_pct))}>
             {formatPct(detail.h20d_avg_excess_pct)}
           </div>
-          <span className="text-[11px] text-muted-foreground">已評估 {detail.h20d_evaluated_count} 檔</span>
+          <span className="text-xs text-muted-foreground">已評估 {detail.h20d_evaluated_count} 檔</span>
         </div>
       </div>
 
@@ -940,19 +940,19 @@ function SnapshotDetailView({
                       className="font-medium text-foreground hover:text-primary transition-colors flex items-center gap-1"
                     >
                       <span>{item.name}</span>
-                      <span className="text-[11px] text-muted-foreground font-mono">({item.symbol})</span>
+                      <span className="text-xs text-muted-foreground font-mono">({item.symbol})</span>
                       <ArrowUpRight className="h-3 w-3 opacity-60" />
                     </Link>
                   </td>
                   <td className="py-3 px-3">
                     <div className="flex flex-wrap gap-1">
                       {item.quant_score !== null && (
-                        <span className="bg-primary/10 text-primary text-[10px] px-1.5 py-0.5 rounded font-mono">
+                        <span className="bg-primary/10 text-primary text-xs px-1.5 py-0.5 rounded font-mono">
                           QS: {item.quant_score.toFixed(1)}
                         </span>
                       )}
                       {item.match_reasons.map((r, i) => (
-                        <span key={i} className="bg-muted text-muted-foreground text-[10px] px-1.5 py-0.5 rounded">
+                        <span key={i} className="bg-muted text-muted-foreground text-xs px-1.5 py-0.5 rounded">
                           {r}
                         </span>
                       ))}
@@ -992,7 +992,7 @@ function SnapshotDetailView({
                     />
                   </td>
                   {/* 快照當時事實摘要 */}
-                  <td className="py-3 px-3 text-muted-foreground text-[11px] max-w-xs">
+                  <td className="py-3 px-3 text-muted-foreground text-xs max-w-xs">
                     <div className="space-y-0.5">
                       {item.fundamental_summary && <div>• {item.fundamental_summary}</div>}
                       {item.chips_summary && <div>• {item.chips_summary}</div>}
@@ -1029,19 +1029,19 @@ function HorizonCell({
 }) {
   if (status === 'pending') {
     return (
-      <span className="inline-flex items-center gap-1 text-[11px] text-amber-500/90 font-normal">
+      <span className="inline-flex items-center gap-1 text-xs text-amber-500/90 font-normal">
         <Clock className="h-3 w-3" /> 追蹤中
       </span>
     )
   }
   if (status === 'unavailable') {
-    return <span className="text-[11px] text-muted-foreground/70">缺資料</span>
+    return <span className="text-xs text-muted-foreground/70">缺資料</span>
   }
   return (
     <div>
       <span className={cn('font-semibold', getReturnColor(returnPct))}>{formatPct(returnPct)}</span>
       {excessPct !== null && excessPct !== undefined && (
-        <span className="block text-[10px] text-muted-foreground">
+        <span className="block text-xs text-muted-foreground">
           超額 {formatPct(excessPct)}
         </span>
       )}

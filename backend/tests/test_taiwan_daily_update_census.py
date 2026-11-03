@@ -153,3 +153,38 @@ def test_empty_target_census_is_rechecked_once_daily_is_published(tmp_path: Path
     assert sorted(census.calls) == [("TPEX", TARGET), ("TWSE", TARGET)]
     assert _observed(evidence, TARGET)
     assert result.census["status"] == "success"
+
+
+def test_sessions_missed_since_last_census_are_filled_and_empty_days_verified(tmp_path: Path):
+    """Days the app was not run must not stay unresolved behind the target."""
+    census = FakeCensus()
+    svc, evidence = _service(tmp_path, FakeDailyStore([PREV]), publishes=True, census=census)
+    last = date(2026, 8, 24)
+    for exchange in ("TWSE", "TPEX"):
+        evidence.write(exchange, last, [{"date": last, "raw_code": "2330", "exchange": exchange,
+                                         "observed": True}])
+    svc.census_worker.verify_trading_days = MagicMock()
+
+    result = svc.run_update(target_date=TARGET)
+
+    gap_days = [date(2026, 8, day) for day in (25, 26, 27, 28)]
+    assert sorted(census.calls) == sorted((ex, d) for ex in ("TWSE", "TPEX") for d in [*gap_days, TARGET])
+    assert all(_observed(evidence, d) for d in gap_days)
+    assert result.census["gap"]["TWSE"]["sessions"] == 4
+    svc.census_worker.verify_trading_days.assert_not_called()  # nothing came back empty
+
+
+def test_empty_gap_day_is_settled_against_official_month_tables(tmp_path: Path):
+    class HolidayCensus(FakeCensus):
+        def _fetch(self, exchange: str, day: date) -> list[dict]:
+            return [] if day == date(2026, 8, 27) else super()._fetch(exchange, day)
+
+    svc, evidence = _service(tmp_path, FakeDailyStore([PREV]), publishes=True, census=HolidayCensus())
+    for exchange in ("TWSE", "TPEX"):
+        evidence.write(exchange, date(2026, 8, 26), [{"date": date(2026, 8, 26), "raw_code": "2330",
+                                                      "exchange": exchange, "observed": True}])
+    svc.census_worker.verify_trading_days = MagicMock()
+
+    svc.run_update(target_date=TARGET)
+
+    svc.census_worker.verify_trading_days.assert_called_once_with(start=date(2026, 8, 27), end=TARGET)

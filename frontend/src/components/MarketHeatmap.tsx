@@ -4,9 +4,10 @@ import { useNavigate } from 'react-router-dom'
 import { signed, toneClass } from '@/components/ChipRankingTab'
 import type { DayCoverage, MarketHeatmapSnapshot } from '@/lib/marketResearch'
 import { useChartTheme } from '@/lib/theme'
+import { RADIX } from '@/lib/radix'
 
 // ECharts cannot read CSS variables; these mirror --bear / --bull in index.css (Taiwan: red up, green down).
-const DOWN = '#12B76A', NEUTRAL = '#6B7280', UP = '#F04438'
+const DOWN = RADIX.success, NEUTRAL = RADIX.neutral, UP = RADIX.danger
 
 export const yi = (twd: number) => (twd / 1e8).toLocaleString('zh-TW', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 export const pct = (v: number | null, digits = 1) => signed(v == null ? null : v * 100, digits, '%')

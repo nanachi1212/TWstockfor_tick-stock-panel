@@ -303,6 +303,35 @@ def latest_market_date(target_taiwan_dir: Path) -> str | None:
     return dates[-1] if dates else None
 
 
+def merge_release_seed(seed_zip: Path, data_dir: Path) -> int:
+    """Add the seed files the local store lacks (mostly newer dated partitions).
+
+    Never overwrites a local file: an existing security master, adj factors, etc. stay
+    with the regular refresh jobs. Returns the number of files added.
+    """
+    seed_path = seed_zip.resolve()
+    manifest = verify_release_seed(seed_path)
+    target_taiwan = data_dir.resolve() / "taiwan"
+    added = 0
+    with zipfile.ZipFile(seed_path, "r") as archive:
+        for entry in manifest.files:
+            rel = _normalise_public_path(entry.path)
+            dest = target_taiwan / rel
+            if dest.exists():
+                continue
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            # Hidden temp name: readers glob part.parquet / *.parquet and never see a half file.
+            temporary = dest.with_name(f".{dest.name}.{uuid.uuid4().hex}.tmp")
+            try:
+                with archive.open(f"data/taiwan/{rel}") as src, temporary.open("wb") as dst:
+                    shutil.copyfileobj(src, dst)
+                os.replace(temporary, dest)
+            finally:
+                temporary.unlink(missing_ok=True)
+            added += 1
+    return added
+
+
 def install_release_seed(seed_zip: Path, data_dir: Path) -> SeedInstallResult:
     """Install seed atomically without overwriting any existing market/user data."""
     seed_path = seed_zip.resolve()

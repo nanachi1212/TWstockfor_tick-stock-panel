@@ -155,7 +155,7 @@ export function SelectionForwardPanel({ preview = null, onDryRun, onRefreshData,
               <p className="flex gap-2 rounded-lg bg-muted/40 p-3"><ShieldAlert className="h-4 w-4 shrink-0 text-muted-foreground" /><span><strong>資料不足：</strong>{preview.missingData.join('、') || '無'}</span></p>
             </div>
           )}
-          <p className="text-[11px] text-muted-foreground">正式鎖定時點與進場日期以後端核驗為準，乾跑預覽不保證可以鎖定。候選依後端排序回傳，前端不重排。</p>
+          <p className="text-xs text-muted-foreground">正式鎖定時點與進場日期以後端核驗為準，乾跑預覽不保證可以鎖定。候選依後端排序回傳，前端不重排。</p>
           {lockError && <p role="alert" className="rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-xs text-destructive">正式鎖定遭後端拒絕：{lockError}</p>}
         </>
       )}
@@ -232,10 +232,10 @@ function formatRate(value: number | null) {
 
 function formatEvaluation(value: { status: 'completed' | 'tracking' | 'missing'; returnPct: number | null; reason?: string }) {
   const text = value.status === 'tracking' ? '追蹤中' : value.status === 'missing' || value.returnPct === null ? '不可評估' : formatPct(value.returnPct)
-  return value.reason ? <span title={value.reason}>{text} · {value.reason}</span> : text
+  return value.reason ? <span title={value.reason}>{text}，{value.reason}</span> : text
 }
 
 function formatPrice(value: number | null, status: 'completed' | 'tracking' | 'missing', reason?: string) {
   const text = status === 'completed' && value !== null ? value.toFixed(2) : status === 'tracking' ? '追蹤中' : '不可評估'
-  return reason ? <span title={reason}>{text} · {reason}</span> : text
+  return reason ? <span title={reason}>{text}，{reason}</span> : text
 }

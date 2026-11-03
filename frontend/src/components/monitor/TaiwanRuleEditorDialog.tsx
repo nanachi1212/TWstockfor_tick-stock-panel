@@ -173,7 +173,7 @@ export function TaiwanRuleEditorDialog({
             <h3 className="text-base font-bold text-foreground">
               {rule ? '編輯台股即時監控規則' : '新建台股即時監控規則'}
             </h3>
-            <p className="text-xs text-muted">盤中行情邊緣觸發・支援漲跌幅限制與防抖冷卻</p>
+            <p className="text-xs text-muted">盤中行情邊緣觸發，支援漲跌幅限制與防抖冷卻</p>
           </div>
           <button
             onClick={onClose}
@@ -197,7 +197,7 @@ export function TaiwanRuleEditorDialog({
 
           {/* 標的選擇器 (含 Security Master 搜尋) */}
           <div>
-            <label className="block text-[11px] font-semibold text-foreground/80 mb-1">
+            <label className="block text-xs font-semibold text-foreground/80 mb-1">
               監控標的 (Security Master)
             </label>
             <div className="relative">
@@ -254,15 +254,15 @@ export function TaiwanRuleEditorDialog({
                           <div className="flex items-center gap-2">
                             <span className="font-mono font-bold text-accent">{item.symbol}</span>
                             <span className="font-medium text-foreground">{item.name}</span>
-                            <span className="rounded bg-elevated px-1 text-[9px] text-muted">{item.exchange}</span>
+                            <span className="rounded bg-elevated px-1 text-xs text-muted">{item.exchange}</span>
                           </div>
                           <div>
                             {disabled ? (
-                              <span className="text-[10px] text-rose-500">未支援監控 (權證/ETN)</span>
+                              <span className="text-xs text-rose-500">未支援監控 (權證/ETN)</span>
                             ) : item.is_no_limit ? (
-                              <span className="text-[10px] text-purple-400">無漲跌幅限制</span>
+                              <span className="text-xs text-purple-400">無漲跌幅限制</span>
                             ) : item.price_limit_pct != null ? (
-                              <span className="text-[10px] text-muted">限制: ±{item.price_limit_pct}%</span>
+                              <span className="text-xs text-muted">限制: ±{item.price_limit_pct}%</span>
                             ) : null}
                           </div>
                         </div>
@@ -279,7 +279,7 @@ export function TaiwanRuleEditorDialog({
 
           {/* 規則名稱 */}
           <div>
-            <label className="block text-[11px] font-semibold text-foreground/80 mb-1">
+            <label className="block text-xs font-semibold text-foreground/80 mb-1">
               規則描述名稱
             </label>
             <input
@@ -293,7 +293,7 @@ export function TaiwanRuleEditorDialog({
 
           {/* 規則型態 (Rule Type) */}
           <div>
-            <label className="block text-[11px] font-semibold text-foreground/80 mb-1">
+            <label className="block text-xs font-semibold text-foreground/80 mb-1">
               監控規則型態
             </label>
             <div className="grid grid-cols-2 gap-1.5">
@@ -319,16 +319,16 @@ export function TaiwanRuleEditorDialog({
                   >
                     <div className="flex items-center justify-between w-full">
                       <span className="font-semibold text-xs">{opt.label}</span>
-                      {isNoLimit && isNearLimit && <span className="text-[9px] text-purple-400">不可用 (無限制)</span>}
+                      {isNoLimit && isNearLimit && <span className="text-xs text-purple-400">不可用 (無限制)</span>}
                     </div>
-                    <span className="text-[10px] text-muted mt-0.5 line-clamp-1">{opt.desc}</span>
+                    <span className="text-xs text-muted mt-0.5 line-clamp-1">{opt.desc}</span>
                   </button>
                 )
               })}
             </div>
-            {rule && <p className="mt-1 text-[10px] text-muted">規則建立後無法更換型態；請新增規則以使用其他提醒條件。</p>}
+            {rule && <p className="mt-1 text-xs text-muted">規則建立後無法更換型態；請新增規則以使用其他提醒條件。</p>}
             {limitRuleDisabled && (
-              <p className="mt-1 text-[10px] text-rose-500 font-medium">
+              <p className="mt-1 text-xs text-rose-500 font-medium">
                 ⚠️ 本商品 ({symbol}) 屬於無漲跌幅限制商品，無法設定「接近漲跌停」規則。
               </p>
             )}
@@ -337,7 +337,7 @@ export function TaiwanRuleEditorDialog({
           {/* 門檻數值 (動態切換單位) */}
           {ruleType !== 'quant_top10_enter' && ruleType !== 'quant_top10_exit' && <div>
             <div className="flex items-center justify-between mb-1">
-              <label className="text-[11px] font-semibold text-foreground/80">
+              <label className="text-xs font-semibold text-foreground/80">
                 觸發門檻數值
               </label>
               {ruleType === 'volume_above' && (
@@ -345,14 +345,14 @@ export function TaiwanRuleEditorDialog({
                   <button
                     type="button"
                     onClick={() => setVolInputMode('lots')}
-                    className={cn('px-1.5 py-0.5 rounded text-[10px] cursor-pointer', volInputMode === 'lots' ? 'bg-accent text-accent-foreground' : 'text-muted hover:text-foreground')}
+                    className={cn('px-1.5 py-0.5 rounded text-xs cursor-pointer', volInputMode === 'lots' ? 'bg-accent text-accent-foreground' : 'text-muted hover:text-foreground')}
                   >
                     以「張」輸入 (1張=1000股)
                   </button>
                   <button
                     type="button"
                     onClick={() => setVolInputMode('shares')}
-                    className={cn('px-1.5 py-0.5 rounded text-[10px] cursor-pointer', volInputMode === 'shares' ? 'bg-accent text-accent-foreground' : 'text-muted hover:text-foreground')}
+                    className={cn('px-1.5 py-0.5 rounded text-xs cursor-pointer', volInputMode === 'shares' ? 'bg-accent text-accent-foreground' : 'text-muted hover:text-foreground')}
                   >
                     以「股」輸入
                   </button>
@@ -372,21 +372,21 @@ export function TaiwanRuleEditorDialog({
                   rule?.source === 'trade_plan' && "opacity-60 cursor-not-allowed"
                 )}
               />
-              <span className="absolute right-3 top-2 text-[11px] text-muted font-medium pointer-events-none">
+              <span className="absolute right-3 top-2 text-xs text-muted font-medium pointer-events-none">
                 {ruleType === 'volume_above'
                   ? volInputMode === 'lots' ? '張' : '股'
                   : RULE_TYPE_OPTIONS.find(o => o.key === ruleType)?.unit}
               </span>
             </div>
             {rule?.source === 'trade_plan' && (
-              <p className="mt-1 text-[11px] text-warning">自動監控價位由承接雷達計算，不可手動修改</p>
+              <p className="mt-1 text-xs text-warning">自動監控價位由承接雷達計算，不可手動修改</p>
             )}
           </div>}
 
           {/* 爆量專用: 基準參考成交量 */}
           {ruleType === 'volume_spike' && (
             <div>
-              <label className="block text-[11px] font-semibold text-foreground/80 mb-1">
+              <label className="block text-xs font-semibold text-foreground/80 mb-1">
                 基準參考成交量 (股)
               </label>
               <input
@@ -396,14 +396,14 @@ export function TaiwanRuleEditorDialog({
                 placeholder="例如: 5000000 股"
                 className="w-full rounded-lg border border-border bg-elevated/40 px-3 py-2 text-xs font-mono focus:border-accent focus:outline-none"
               />
-              <p className="text-[10px] text-muted mt-0.5">當日累積成交量達基準量之 {threshold} 倍時觸發警報。</p>
+              <p className="text-xs text-muted mt-0.5">當日累積成交量達基準量之 {threshold} 倍時觸發警報。</p>
             </div>
           )}
 
           {/* 高級配置: 冷卻時間、遲滯防抖、嚴重等級 */}
           <div className="grid grid-cols-3 gap-2 pt-1 border-t border-border/40">
             <div>
-              <label className="block text-[10px] font-semibold text-muted mb-1">冷卻時間 (秒)</label>
+              <label className="block text-xs font-semibold text-muted mb-1">冷卻時間 (秒)</label>
               <input
                 type="number"
                 value={cooldown}
@@ -412,7 +412,7 @@ export function TaiwanRuleEditorDialog({
               />
             </div>
             <div>
-              <label className="block text-[10px] font-semibold text-muted mb-1">遲滯防抖回調</label>
+              <label className="block text-xs font-semibold text-muted mb-1">遲滯防抖回調</label>
               <input
                 type="number"
                 step="0.1"
@@ -423,7 +423,7 @@ export function TaiwanRuleEditorDialog({
               />
             </div>
             <div>
-              <label className="block text-[10px] font-semibold text-muted mb-1">嚴重級別</label>
+              <label className="block text-xs font-semibold text-muted mb-1">嚴重級別</label>
               <select
                 value={severity}
                 onChange={e => setSeverity(e.target.value as any)}
@@ -437,7 +437,7 @@ export function TaiwanRuleEditorDialog({
           </div>
           {/* 通知渠道 (LINE / Telegram) */}
           <div className="pt-1 border-t border-border/40">
-            <label className="block text-[11px] font-semibold text-foreground/80 mb-2">
+            <label className="block text-xs font-semibold text-foreground/80 mb-2">
               觸發時通知目的地
             </label>
             <div className="flex flex-wrap gap-2 mb-2">
@@ -466,10 +466,10 @@ export function TaiwanRuleEditorDialog({
                 )
               })}
               {notifyChannels.length === 0 && (
-                <span className="text-[10px] text-muted self-center">僅 App 內通知</span>
+                <span className="text-xs text-muted self-center">僅 App 內通知</span>
               )}
             </div>
-            <p className="text-[10px] text-muted leading-relaxed">
+            <p className="text-xs text-muted leading-relaxed">
               ① 「即時行情」必須開啟，觸發時才會評估並傳送提醒。
               LINE / Telegram 需先在{' '}
               <a

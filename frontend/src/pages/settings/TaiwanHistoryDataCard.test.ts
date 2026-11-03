@@ -15,7 +15,7 @@ describe('Taiwan History Daily Data Bootstrap & UI Card', () => {
     expect(cardCode).toContain('涵蓋交易天數')
     expect(cardCode).toContain('更新到最新')
     expect(cardCode).toContain('一鍵下載官方歷史日 K 資料包')
-    expect(cardCode).toContain('2024-01-02 ~ 2026-10-07')
+    expect(cardCode).toContain('2024-01-02 ~ 2026-11-02')
     expect(cardCode).toContain('taiwanHistoryStatus')
     expect(cardCode).toContain('taiwanBootstrapRun')
     expect(cardCode).toContain('taiwanUpdateLatest')

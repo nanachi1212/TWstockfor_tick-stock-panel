@@ -734,7 +734,7 @@ export function TaiwanScreener() {
       {/* Top Header */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-zinc-800 pb-4">
         <div>
-          <h1 className="text-2xl font-bold text-zinc-100 flex items-center gap-2">
+          <h1 className="text-lg font-bold text-zinc-100 flex items-center gap-2">
             <Filter className="w-6 h-6 text-purple-400" />
             台股選股器
           </h1>
@@ -783,10 +783,10 @@ export function TaiwanScreener() {
             <div className="mt-1 text-xs text-zinc-400">條件：{STRATEGY_GUIDE[activeForwardStrategy].rule}。{STRATEGY_COMMON_NOTE}</div>
           </div>
         )}
-        {data?.strategy_id && <span className="rounded bg-zinc-900 px-2 py-1 text-[11px] text-purple-300">{data.strategy_name} · {data.strategy_readiness ?? '—'}</span>}
+        {data?.strategy_id && <span className="rounded bg-zinc-900 px-2 py-1 text-xs text-purple-300">{data.strategy_name}，{data.strategy_readiness ?? '—'}</span>}
         {data?.strategy_id && data.strategy_coverage && Object.keys(data.strategy_coverage).length > 0 && (
-          <span className="rounded bg-zinc-900 px-2 py-1 text-[11px] text-zinc-400">
-            覆蓋：{Object.entries(data.strategy_coverage).map(([key, value]) => `${key.replace(/_count$/, '')} ${value}`).join(' · ')}
+          <span className="rounded bg-zinc-900 px-2 py-1 text-xs text-zinc-400">
+            覆蓋：{Object.entries(data.strategy_coverage).map(([key, value]) => `${key.replace(/_count$/, '')} ${value}`).join('，')}
           </span>
         )}
       </div>
@@ -844,7 +844,7 @@ export function TaiwanScreener() {
           </select>
 
           {activeStrategy && activeStrategy.description && (
-            <span className="text-[11px] text-zinc-400 hidden lg:inline max-w-sm truncate" title={activeStrategy.description}>
+            <span className="text-xs text-zinc-400 hidden lg:inline max-w-sm truncate" title={activeStrategy.description}>
               {activeStrategy.description}
             </span>
           )}
@@ -1059,7 +1059,7 @@ export function TaiwanScreener() {
             className="flex items-center gap-1.5 text-xs font-medium text-purple-400 hover:text-purple-300 transition-colors"
           >
             <ChevronDown className={`w-3.5 h-3.5 transition-transform ${showAdvanced ? 'rotate-180' : ''}`} />
-            進階條件{showAdvanced ? '（收合）' : '（技術面・法人・籌碼與融資券）'}
+            進階條件{showAdvanced ? '（收合）' : '（技術面，法人，籌碼與融資券）'}
           </button>
         </div>
 
@@ -1067,7 +1067,7 @@ export function TaiwanScreener() {
           <div id="screener-advanced-filters" className="space-y-4">
             {/* 技術面 */}
             <div>
-              <h3 className="text-[11px] font-semibold text-zinc-500 uppercase tracking-wide mb-2">技術面</h3>
+              <h3 className="text-xs font-semibold text-zinc-500 uppercase tracking-wide mb-2">技術面</h3>
               <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
                 <div>
                   <label className="text-xs font-semibold text-zinc-400 block mb-1.5">RSI (14) 區間</label>
@@ -1160,7 +1160,7 @@ export function TaiwanScreener() {
 
             {/* 法人 */}
             <div>
-              <h3 className="text-[11px] font-semibold text-zinc-500 uppercase tracking-wide mb-2">法人</h3>
+              <h3 className="text-xs font-semibold text-zinc-500 uppercase tracking-wide mb-2">法人</h3>
               <div className="flex flex-wrap gap-3 mb-3 text-xs">
                 <select aria-label="連續買賣法人" value={streakInvestor} onChange={e => { setStreakInvestor(e.target.value as typeof streakInvestor); setPage(1) }} className="bg-zinc-800 border border-zinc-700 rounded-md px-2 py-1.5">
                   <option value="foreign">外資</option><option value="investment_trust">投信</option><option value="dealer">自營商</option>
@@ -1217,7 +1217,7 @@ export function TaiwanScreener() {
 
             {/* 籌碼與融資券 */}
             <div>
-              <h3 className="text-[11px] font-semibold text-zinc-500 uppercase tracking-wide mb-2">籌碼與融資券</h3>
+              <h3 className="text-xs font-semibold text-zinc-500 uppercase tracking-wide mb-2">籌碼與融資券</h3>
               <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
                 <div>
                   <label className="text-xs font-semibold text-zinc-400 block mb-1.5">融資餘額最低增加 (張)</label>
@@ -1256,7 +1256,7 @@ export function TaiwanScreener() {
 
             {/* 基本面與估值指標 (A10) */}
             <div>
-              <h3 className="text-[11px] font-semibold text-zinc-500 uppercase tracking-wide mb-2">基本面與估值指標</h3>
+              <h3 className="text-xs font-semibold text-zinc-500 uppercase tracking-wide mb-2">基本面與估值指標</h3>
               <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
                 <div>
                   <label className="text-xs font-semibold text-zinc-400 block mb-1.5">本益比 (PE) 區間</label>
@@ -1360,7 +1360,7 @@ export function TaiwanScreener() {
 
             {/* 進階籌碼與量化指標 (A10) */}
             <div>
-              <h3 className="text-[11px] font-semibold text-zinc-500 uppercase tracking-wide mb-2">進階籌碼與量化多因子</h3>
+              <h3 className="text-xs font-semibold text-zinc-500 uppercase tracking-wide mb-2">進階籌碼與量化多因子</h3>
               <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
                 <div>
                   <label className="text-xs font-semibold text-zinc-400 block mb-1.5">外資持股比率最低 (%)</label>
@@ -1446,7 +1446,7 @@ export function TaiwanScreener() {
 
             {/* 事件與風險過濾 (A11) */}
             <div>
-              <h3 className="text-[11px] font-semibold text-zinc-500 uppercase tracking-wide mb-2 flex items-center gap-1.5">
+              <h3 className="text-xs font-semibold text-zinc-500 uppercase tracking-wide mb-2 flex items-center gap-1.5">
                 <ShieldAlert className="w-3.5 h-3.5 text-rose-400" />
                 事件與風險過濾
               </h3>
@@ -1533,12 +1533,12 @@ export function TaiwanScreener() {
               <div className="font-semibold text-zinc-200">
                 全市場選股覆蓋說明
               </div>
-              <p className="text-[11px] text-zinc-400 mt-0.5">
+              <p className="text-xs text-zinc-400 mt-0.5">
                 全市場標的 <strong className="text-zinc-200">{data.coverage_info.total_universe}</strong> 檔，本機快取基本面已覆蓋 <strong className="text-purple-400">{data.coverage_info.fundamental_cached_count}</strong> 檔、籌碼深度覆蓋 <strong className="text-purple-400">{data.coverage_info.chips_cached_count}</strong> 檔。
               </p>
             </div>
           </div>
-          <div className="text-[11px] text-zinc-400 bg-zinc-950/60 border border-zinc-800/80 px-3 py-1.5 rounded-lg self-start md:self-center">
+          <div className="text-xs text-zinc-400 bg-zinc-950/60 border border-zinc-800/80 px-3 py-1.5 rounded-lg self-start md:self-center">
             {data.coverage_info.coverage_note}
           </div>
         </div>
@@ -1554,7 +1554,7 @@ export function TaiwanScreener() {
               type="button"
               onClick={() => saveSnapshotMutation.mutate()}
               disabled={saveSnapshotMutation.isPending || !data?.items?.length}
-              className="inline-flex items-center gap-1.5 text-[11px] font-medium bg-purple-600/20 hover:bg-purple-600/30 text-purple-300 border border-purple-500/30 px-2.5 py-1 rounded transition-colors disabled:opacity-50"
+              className="inline-flex items-center gap-1.5 text-xs font-medium bg-purple-600/20 hover:bg-purple-600/30 text-purple-300 border border-purple-500/30 px-2.5 py-1 rounded transition-colors disabled:opacity-50"
               title="將本次篩選結果儲存為不可變快照，以追蹤後續 1D/5D/20D 報酬表現"
             >
               {saveSnapshotMutation.isPending ? (
@@ -1566,7 +1566,7 @@ export function TaiwanScreener() {
             </button>
             <Link
               to="/selection-review"
-              className="inline-flex items-center gap-1 text-[11px] text-zinc-400 hover:text-zinc-200 transition-colors ml-1"
+              className="inline-flex items-center gap-1 text-xs text-zinc-400 hover:text-zinc-200 transition-colors ml-1"
             >
               <History className="w-3 h-3" />
               <span>選股復盤</span>
@@ -1638,10 +1638,10 @@ export function TaiwanScreener() {
             onClick={() => setShowMoreColumns(prev => !prev)}
             aria-expanded={showMoreColumns}
             aria-controls="screener-results-table"
-            className="flex items-center gap-1.5 text-[11px] font-medium text-zinc-400 hover:text-zinc-200 transition-colors"
+            className="flex items-center gap-1.5 text-xs font-medium text-zinc-400 hover:text-zinc-200 transition-colors"
           >
             <ChevronDown className={`w-3 h-3 transition-transform ${showMoreColumns ? 'rotate-180' : ''}`} />
-            {showMoreColumns ? '收起欄位' : '更多欄位（投信・自營商・融資券・技術指標）'}
+            {showMoreColumns ? '收起欄位' : '更多欄位（投信，自營商，融資券，技術指標）'}
           </button>
         </div>
         {/* Table View */}
@@ -1817,8 +1817,8 @@ export function TaiwanScreener() {
 
                     {/* Name */}
                     <td className="py-3 px-3 text-zinc-200 font-medium whitespace-nowrap">{item.name}
-                      {item.institutional_streak && <details className="text-[10px] font-normal text-zinc-400 mt-1">
-                        <summary className="cursor-pointer">{INVESTOR_LABELS[item.institutional_streak.investor]}連{item.institutional_streak.direction === 'buy' ? '買' : '賣'} {item.institutional_streak.value} 日 · {item.institutional_streak.status === 'available' ? '完整' : '部分資料'}</summary>
+                      {item.institutional_streak && <details className="text-xs font-normal text-zinc-400 mt-1">
+                        <summary className="cursor-pointer">{INVESTOR_LABELS[item.institutional_streak.investor]}連{item.institutional_streak.direction === 'buy' ? '買' : '賣'} {item.institutional_streak.value} 日，{item.institutional_streak.status === 'available' ? '完整' : '部分資料'}</summary>
                         <div>來源：{item.institutional_streak.source.join('、')}</div>
                         <div>截至：{item.institutional_streak.as_of}（目標 {item.institutional_streak.date}）</div>
                         <div>覆蓋：{item.institutional_streak.coverage.coverage_days}/{item.institutional_streak.coverage.expected_days} 日</div>
@@ -1827,10 +1827,10 @@ export function TaiwanScreener() {
 
                     {/* Exchange & Instrument */}
                     <td className={`py-3 px-3 whitespace-nowrap ${mobileHidden}`}>
-                      <span className="text-[10px] bg-zinc-800 text-zinc-400 px-1.5 py-0.5 rounded border border-zinc-700 mr-1.5">
+                      <span className="text-xs bg-zinc-800 text-zinc-400 px-1.5 py-0.5 rounded border border-zinc-700 mr-1.5">
                         {item.exchange}
                       </span>
-                      <span className="text-[10px] bg-zinc-800/60 text-purple-400 px-1.5 py-0.5 rounded border border-purple-900/40">
+                      <span className="text-xs bg-zinc-800/60 text-purple-400 px-1.5 py-0.5 rounded border border-purple-900/40">
                         {item.instrument_type === 'etf' ? 'ETF' : '股票'}
                       </span>
                     </td>
@@ -1860,7 +1860,7 @@ export function TaiwanScreener() {
                       {(() => {
                         const dayTrade = dayTradeFit(item)
                         return dayTrade.fit
-                          ? <span title={dayTrade.reason} className="rounded bg-amber-500/15 px-1.5 py-0.5 text-[11px] font-semibold text-amber-300">適合</span>
+                          ? <span title={dayTrade.reason} className="rounded bg-amber-500/15 px-1.5 py-0.5 text-xs font-semibold text-amber-300">適合</span>
                           : <span title={dayTrade.reason} className="text-zinc-600">—</span>
                       })()}
                     </td>
@@ -1877,17 +1877,17 @@ export function TaiwanScreener() {
                           {item.match_reasons.map((r, i) => (
                             <span
                               key={i}
-                              className="px-1.5 py-0.5 rounded text-[10px] bg-purple-950/70 border border-purple-800/60 text-purple-300 whitespace-nowrap"
+                              className="px-1.5 py-0.5 rounded text-xs bg-purple-950/70 border border-purple-800/60 text-purple-300 whitespace-nowrap"
                             >
                               {r}
                             </span>
                           ))}
-                          {data.strategy_id && <span className={`px-1.5 py-0.5 rounded text-[10px] border whitespace-nowrap ${item.risk_status === 'unknown' ? 'bg-amber-950/60 border-amber-800/60 text-amber-300' : 'bg-emerald-950/50 border-emerald-800/60 text-emerald-300'}`}>{item.risk_status === 'unknown' ? '事件風險未知' : '事件風險清除'}</span>}
+                          {data.strategy_id && <span className={`px-1.5 py-0.5 rounded text-xs border whitespace-nowrap ${item.risk_status === 'unknown' ? 'bg-amber-950/60 border-amber-800/60 text-amber-300' : 'bg-emerald-950/50 border-emerald-800/60 text-emerald-300'}`}>{item.risk_status === 'unknown' ? '事件風險未知' : '事件風險清除'}</span>}
                         </div>
                       ) : (
                         <div className="flex flex-wrap gap-1 max-w-xs">
-                          <span className="text-zinc-500 text-[11px]">—</span>
-                          {data.strategy_id && <span className={`px-1.5 py-0.5 rounded text-[10px] border whitespace-nowrap ${item.risk_status === 'unknown' ? 'bg-amber-950/60 border-amber-800/60 text-amber-300' : 'bg-emerald-950/50 border-emerald-800/60 text-emerald-300'}`}>{item.risk_status === 'unknown' ? '事件風險未知' : '事件風險清除'}</span>}
+                          <span className="text-zinc-500 text-xs">—</span>
+                          {data.strategy_id && <span className={`px-1.5 py-0.5 rounded text-xs border whitespace-nowrap ${item.risk_status === 'unknown' ? 'bg-amber-950/60 border-amber-800/60 text-amber-300' : 'bg-emerald-950/50 border-emerald-800/60 text-emerald-300'}`}>{item.risk_status === 'unknown' ? '事件風險未知' : '事件風險清除'}</span>}
                         </div>
                       )}
                     </td>
@@ -1922,7 +1922,7 @@ export function TaiwanScreener() {
                     {/* Price Limit */}
                     <td className="py-3 px-3 text-right font-mono whitespace-nowrap">
                       {item.is_no_limit ? (
-                        <span className="text-zinc-500 text-[10px]">無限制</span>
+                        <span className="text-zinc-500 text-xs">無限制</span>
                       ) : item.price_limit_pct ? (
                         <span className="text-zinc-400 text-xs">&plusmn;{(item.price_limit_pct * 100).toFixed(0)}%</span>
                       ) : (
@@ -1973,7 +1973,7 @@ export function TaiwanScreener() {
                     {/* TDCC 千張大戶 */}
                     <td className="py-3 px-3 text-right font-mono text-zinc-300 whitespace-nowrap" title={item.big_holder_date ? `資料週 ${item.big_holder_date}` : undefined}>
                       {item.big_holder_pct != null ? `${item.big_holder_pct.toFixed(1)}%` : '—'}
-                      {item.big_holder_change != null && <span className={`ml-1 text-[10px] ${item.big_holder_change >= 0 ? 'text-rose-400' : 'text-emerald-400'}`}>{item.big_holder_change >= 0 ? '+' : ''}{item.big_holder_change.toFixed(2)}</span>}
+                      {item.big_holder_change != null && <span className={`ml-1 text-xs ${item.big_holder_change >= 0 ? 'text-rose-400' : 'text-emerald-400'}`}>{item.big_holder_change >= 0 ? '+' : ''}{item.big_holder_change.toFixed(2)}</span>}
                     </td>
 
                     {/* Quant Score */}
@@ -1993,7 +1993,7 @@ export function TaiwanScreener() {
                             disabled={toggleWatchlist.isPending}
                             title="移出自選"
                             aria-label={`將 ${item.symbol} 移出自選`}
-                            className="inline-flex items-center justify-center w-6 h-6 rounded text-[#FACC15] hover:bg-zinc-800 transition-colors disabled:opacity-50"
+                            className="inline-flex h-6 w-6 items-center justify-center rounded text-warning transition-colors hover:bg-zinc-800 disabled:opacity-50"
                           >
                             <Star className="w-3.5 h-3.5 fill-current" />
                           </button>
@@ -2005,7 +2005,7 @@ export function TaiwanScreener() {
                               disabled={toggleWatchlist.isPending}
                               title="加入自選"
                               aria-label={`將 ${item.symbol} 加入自選`}
-                              className="inline-flex items-center justify-center w-6 h-6 rounded text-zinc-400 hover:bg-zinc-800 hover:text-[#FACC15] transition-colors disabled:opacity-50"
+                              className="inline-flex h-6 w-6 items-center justify-center rounded text-zinc-400 transition-colors hover:bg-zinc-800 hover:text-warning disabled:opacity-50"
                             >
                               <Star className="w-3.5 h-3.5" />
                             </button>
@@ -2014,7 +2014,7 @@ export function TaiwanScreener() {
                               disabled={toggleWatchlist.isPending}
                               title="選擇分組加入自選"
                               ariaLabel={`選擇分組將 ${item.symbol} 加入自選`}
-                              triggerClassName="inline-flex items-center justify-center w-4 h-6 rounded text-zinc-500 hover:bg-zinc-800 hover:text-[#FACC15] transition-colors disabled:opacity-50"
+                              triggerClassName="inline-flex h-6 w-4 items-center justify-center rounded text-zinc-500 transition-colors hover:bg-zinc-800 hover:text-warning disabled:opacity-50"
                             >
                               <ChevronDown className="w-2.5 h-2.5" />
                             </WatchlistAddMenu>

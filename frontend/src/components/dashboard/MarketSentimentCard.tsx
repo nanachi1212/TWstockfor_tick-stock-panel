@@ -59,15 +59,14 @@ export function MarketSentimentCard({ targetDate }: { targetDate?: string | null
       {/* Header */}
       <div className="flex items-center justify-between border-b border-border/60 pb-2 mb-2">
         <div className="flex items-center gap-1.5">
-          <span className="h-3.5 w-1 rounded-full bg-gradient-to-b from-accent to-accent/40" />
           <Sparkles className="h-4 w-4 text-accent" />
           <h2 className="text-xs font-bold text-foreground">市場整體情緒與多空依據</h2>
-          <span className="rounded bg-accent/10 px-1.5 py-0.2 text-[10px] font-semibold text-accent">
+          <span className="rounded bg-accent/10 px-1.5 py-0.2 text-xs font-semibold text-accent">
             現貨 + 衍生品綜合判定
           </span>
         </div>
         {data?.as_of_date && (
-          <span className="font-mono text-[10px] text-muted">
+          <span className="font-mono text-xs text-muted">
             基準日: {data.as_of_date}
           </span>
         )}
@@ -102,7 +101,7 @@ export function MarketSentimentCard({ targetDate }: { targetDate?: string | null
             </div>
 
             {/* Counts */}
-            <div className="flex items-center gap-2 text-[11px] font-mono shrink-0">
+            <div className="flex items-center gap-2 text-xs font-mono shrink-0">
               <span className="rounded bg-bull/10 px-1.5 py-0.5 text-bull font-semibold">
                 多方 {data.bullish_count}
               </span>
@@ -135,12 +134,12 @@ export function MarketSentimentCard({ targetDate }: { targetDate?: string | null
                   <DirIcon className={cn('h-3.5 w-3.5 shrink-0 mt-0.5', dirColor)} />
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center justify-between gap-1 mb-0.5">
-                      <span className="font-semibold text-foreground text-[11px]">
+                      <span className="font-semibold text-foreground text-xs">
                         {item.label}
                       </span>
                       <span
                         className={cn(
-                          'rounded px-1 py-0.2 text-[9px] font-medium font-mono',
+                          'rounded px-1 py-0.2 text-xs font-medium font-mono',
                           isBull
                             ? 'bg-bull/10 text-bull'
                             : isBear
@@ -151,7 +150,7 @@ export function MarketSentimentCard({ targetDate }: { targetDate?: string | null
                         {isBull ? '偏多' : isBear ? '偏空' : '中性'}
                       </span>
                     </div>
-                    <p className="text-[11px] text-secondary leading-snug">
+                    <p className="text-xs text-secondary leading-snug">
                       {item.description}
                     </p>
                   </div>
@@ -162,7 +161,7 @@ export function MarketSentimentCard({ targetDate }: { targetDate?: string | null
 
           {/* Derivatives Degradation Notice */}
           {data.derivatives_status !== 'available' && (
-            <div className="flex items-center gap-1.5 rounded bg-amber-500/5 px-2.5 py-1.5 text-[10px] text-amber-500 border border-amber-500/20">
+            <div className="flex items-center gap-1.5 rounded bg-amber-500/5 px-2.5 py-1.5 text-xs text-amber-500 border border-amber-500/20">
               <AlertTriangle className="h-3 w-3 shrink-0" />
               <span>
                 {data.derivatives_status_message ||

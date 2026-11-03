@@ -33,7 +33,7 @@ export function TaiwanOverviewCard() {
           <Database className="h-3.5 w-3.5 text-accent" />
           <h2 className="text-xs font-semibold text-foreground">台股資料狀態</h2>
         </div>
-        <div className="flex items-center gap-3 text-[11px]">
+        <div className="flex items-center gap-3 text-xs">
           <Link to="/taiwan-screener" className="text-secondary hover:text-accent transition-colors">台股選股</Link>
           <Link to="/stocks/compare" className="text-secondary hover:text-accent transition-colors">多股比較</Link>
           <Link to="/watchlist" className="text-secondary hover:text-accent transition-colors">自選股</Link>
@@ -55,7 +55,7 @@ export function TaiwanOverviewCard() {
             <div key={r.label} className="flex items-center gap-1.5 text-xs">
               <span className="text-secondary">{r.label}</span>
               <span className="font-mono text-muted">{r.asOf ?? '—'}</span>
-              <span className="text-[11px] font-medium text-muted">
+              <span className="text-xs font-medium text-muted">
                 {TAIWAN_FRESHNESS_LABEL[r.freshness] ?? r.freshness}
               </span>
             </div>

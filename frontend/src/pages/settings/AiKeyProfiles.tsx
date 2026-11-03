@@ -37,7 +37,7 @@ const isSubscription = (provider: string) => provider in SUBSCRIPTION_MODELS
 function SubscriptionNote({ provider }: { provider: string }) {
   const command = provider === 'claude_cli' ? 'claude' : 'codex login'
   return (
-    <p className="rounded-lg border border-border/50 bg-base/40 px-2.5 py-2 text-[10px] text-muted">
+    <p className="rounded-lg border border-border/50 bg-base/40 px-2.5 py-2 text-xs text-muted">
       使用這台電腦上 <span className="font-mono">{command}</span> 的訂閱登入，不需要 API Key。
       呼叫會佔用你的訂閱額度；登入失效時請在終端機重新登入。Docker 版看不到本機登入，無法使用。
     </p>
@@ -249,7 +249,7 @@ export function AiKeyProfilesPanel() {
       </div>
 
       {/* Rate limit notice */}
-      <div className="rounded-xl border border-amber-500/20 bg-amber-500/5 px-3 py-2 text-[11px] text-amber-600 dark:text-amber-400">
+      <div className="rounded-xl border border-amber-500/20 bg-amber-500/5 px-3 py-2 text-xs text-amber-600 dark:text-amber-400">
         ⚠️ 若目前 Key 已達額度限制，系統<strong>不會</strong>自動輪替。
         請手動切換其他 Key，或稍後再試。
       </div>
@@ -257,10 +257,10 @@ export function AiKeyProfilesPanel() {
       {/* Add form */}
       {addOpen && (
         <div className="rounded-xl border border-accent/30 bg-accent/5 p-4 space-y-3">
-          <p className="text-[11px] font-semibold text-accent">新增 Key Profile</p>
+          <p className="text-xs font-semibold text-accent">新增 Key Profile</p>
           <div className="grid grid-cols-2 gap-2">
             <div>
-              <label className="block text-[10px] font-semibold text-muted mb-1">自訂名稱</label>
+              <label className="block text-xs font-semibold text-muted mb-1">自訂名稱</label>
               <input
                 type="text"
                 placeholder="例如: free-key-1"
@@ -270,7 +270,7 @@ export function AiKeyProfilesPanel() {
               />
             </div>
             <div>
-              <label className="block text-[10px] font-semibold text-muted mb-1">Provider</label>
+              <label className="block text-xs font-semibold text-muted mb-1">Provider</label>
               <select
                 value={newProvider}
                 onChange={e => {
@@ -289,13 +289,13 @@ export function AiKeyProfilesPanel() {
             <>
               <SubscriptionNote provider={newProvider} />
               <div>
-                <label className="block text-[10px] font-semibold text-muted mb-1">Model</label>
+                <label className="block text-xs font-semibold text-muted mb-1">Model</label>
                 <ModelInput provider={newProvider} value={newModel} onChange={setNewModel} ariaLabel="訂閱模型" />
               </div>
             </>
           ) : (<>
           <div>
-            <label className="block text-[10px] font-semibold text-muted mb-1">API Key</label>
+            <label className="block text-xs font-semibold text-muted mb-1">API Key</label>
             <div className="relative">
               <input
                 type={showKey ? 'text' : 'password'}
@@ -307,18 +307,18 @@ export function AiKeyProfilesPanel() {
               <button
                 type="button"
                 onClick={() => setShowKey(!showKey)}
-                className="absolute right-2 top-1.5 text-[10px] text-muted hover:text-foreground cursor-pointer px-1"
+                className="absolute right-2 top-1.5 text-xs text-muted hover:text-foreground cursor-pointer px-1"
               >
                 {showKey ? '隱藏' : '顯示'}
               </button>
             </div>
-            <p className="text-[10px] text-muted mt-1">
+            <p className="text-xs text-muted mt-1">
               Key 只存於本機後端，畫面只顯示遮罩值，不會寫入 log 或傳至第三方。
             </p>
           </div>
           <div className="grid grid-cols-2 gap-2">
             <div>
-              <label className="block text-[10px] font-semibold text-muted mb-1">Base URL（選填）</label>
+              <label className="block text-xs font-semibold text-muted mb-1">Base URL（選填）</label>
               <input
                 type="text"
                 placeholder="https://api.openai.com/v1"
@@ -328,7 +328,7 @@ export function AiKeyProfilesPanel() {
               />
             </div>
             <div>
-              <label className="block text-[10px] font-semibold text-muted mb-1">Model（選填）</label>
+              <label className="block text-xs font-semibold text-muted mb-1">Model（選填）</label>
               <input
                 type="text"
                 placeholder="gpt-4o-mini"
@@ -365,7 +365,7 @@ export function AiKeyProfilesPanel() {
         <div className="rounded-xl border border-dashed border-border/60 p-6 text-center">
           <Key className="h-6 w-6 text-muted mx-auto mb-2" />
           <p className="text-xs text-muted">尚未新增任何 AI Key Profile</p>
-          <p className="text-[10px] text-muted mt-1">
+          <p className="text-xs text-muted mt-1">
             新增後可在此切換目前使用的 Key，不需重啟。
           </p>
         </div>
@@ -390,38 +390,38 @@ export function AiKeyProfilesPanel() {
                   <div className="flex items-center gap-2 mb-0.5">
                     <span className="text-xs font-semibold text-foreground truncate">{p.name}</span>
                     {p.active && (
-                      <span className="inline-flex items-center gap-0.5 rounded bg-accent/20 px-1.5 py-0.5 text-[9px] font-bold text-accent">
+                      <span className="inline-flex items-center gap-0.5 rounded bg-accent/20 px-1.5 py-0.5 text-xs font-bold text-accent">
                         <Star className="h-2.5 w-2.5" />
                         目前使用
                       </span>
                     )}
                     {p.deep && (
-                      <span className="inline-flex items-center gap-0.5 rounded bg-violet-500/15 px-1.5 py-0.5 text-[9px] font-bold text-violet-500">
+                      <span className="inline-flex items-center gap-0.5 rounded bg-violet-500/15 px-1.5 py-0.5 text-xs font-bold text-violet-500">
                         深度模型
                       </span>
                     )}
                   </div>
-                  <div className="flex items-center gap-2 text-[10px] text-muted flex-wrap">
+                  <div className="flex items-center gap-2 text-xs text-muted flex-wrap">
                     <span>{PROVIDER_LABELS[p.provider] ?? p.provider}</span>
-                    <span>·</span>
+                    <span>，</span>
                     <span className="font-mono">{isSubscription(p.provider) ? '訂閱登入' : (p.key_masked || '(無 key)')}</span>
                     {isSubscription(p.provider)
-                      ? <><span>·</span>
+                      ? <><span>，</span>
                         <select
                           aria-label={`${p.name} 模型`}
                           value={p.model}
                           disabled={modelMut.isPending}
                           onChange={e => modelMut.mutate({ p, model: e.target.value })}
-                          className="h-6 rounded-md bg-base px-1.5 text-[10px] font-mono text-foreground ring-1 ring-border/30 focus:outline-none focus:ring-2 focus:ring-accent/30"
+                          className="h-6 rounded-md bg-base px-1.5 text-xs font-mono text-foreground ring-1 ring-border/30 focus:outline-none focus:ring-2 focus:ring-accent/30"
                         >
                           {[...new Set([...(p.model ? [p.model] : []), ...SUBSCRIPTION_MODELS[p.provider]])].map(m => <option key={m} value={m}>{m}</option>)}
                         </select></>
-                      : p.model && <><span>·</span><span className="font-mono">{p.model}</span></>}
-                    {p.base_url && <><span>·</span><span className="font-mono truncate max-w-[180px]" title={p.base_url}>{p.base_url}</span></>}
+                      : p.model && <><span>，</span><span className="font-mono">{p.model}</span></>}
+                    {p.base_url && <><span>，</span><span className="font-mono truncate max-w-[180px]" title={p.base_url}>{p.base_url}</span></>}
                   </div>
                   {testResult && (
                     <div className={cn(
-                      'mt-1 inline-flex items-center gap-1 text-[10px] rounded px-1.5 py-0.5',
+                      'mt-1 inline-flex items-center gap-1 text-xs rounded px-1.5 py-0.5',
                       testResult.ok
                         ? 'text-emerald-600 bg-emerald-500/10'
                         : 'text-rose-500 bg-rose-500/10',
@@ -438,7 +438,7 @@ export function AiKeyProfilesPanel() {
                     type="button"
                     disabled={isTesting}
                     onClick={() => handleTest(p.id)}
-                    className="inline-flex items-center gap-1 rounded-lg border border-border/60 px-2 py-1 text-[10px] text-muted hover:border-accent/40 hover:text-accent transition-colors cursor-pointer disabled:opacity-50"
+                    className="inline-flex items-center gap-1 rounded-lg border border-border/60 px-2 py-1 text-xs text-muted hover:border-accent/40 hover:text-accent transition-colors cursor-pointer disabled:opacity-50"
                   >
                     {isTesting ? <Loader2 className="h-2.5 w-2.5 animate-spin" /> : <Wifi className="h-2.5 w-2.5" />}
                     測試
@@ -447,7 +447,7 @@ export function AiKeyProfilesPanel() {
                   <button
                     type="button"
                     onClick={() => openEdit(p)}
-                    className="inline-flex items-center gap-1 rounded-lg border border-border/60 px-2 py-1 text-[10px] text-muted hover:border-accent/40 hover:text-accent transition-colors cursor-pointer"
+                    className="inline-flex items-center gap-1 rounded-lg border border-border/60 px-2 py-1 text-xs text-muted hover:border-accent/40 hover:text-accent transition-colors cursor-pointer"
                   >
                     <Pencil className="h-2.5 w-2.5" />
                     編輯
@@ -458,7 +458,7 @@ export function AiKeyProfilesPanel() {
                       type="button"
                       disabled={activateMut.isPending}
                       onClick={() => activateMut.mutate(p.id)}
-                      className="inline-flex items-center gap-1 rounded-lg border border-accent/40 bg-accent/10 px-2 py-1 text-[10px] font-semibold text-accent hover:bg-accent/20 transition-colors cursor-pointer disabled:opacity-50"
+                      className="inline-flex items-center gap-1 rounded-lg border border-accent/40 bg-accent/10 px-2 py-1 text-xs font-semibold text-accent hover:bg-accent/20 transition-colors cursor-pointer disabled:opacity-50"
                     >
                       <CheckCircle2 className="h-2.5 w-2.5" />
                       設為使用
@@ -470,7 +470,7 @@ export function AiKeyProfilesPanel() {
                     disabled={deepMut.isPending}
                     onClick={() => deepMut.mutate(p.deep ? null : p.id)}
                     title="多空辯論的裁判與最終 Advice 改用這個 Profile；多方、空方與複核仍用目前使用的 Profile"
-                    className="inline-flex items-center gap-1 rounded-lg border border-violet-500/30 px-2 py-1 text-[10px] text-violet-500 hover:bg-violet-500/10 transition-colors cursor-pointer disabled:opacity-50"
+                    className="inline-flex items-center gap-1 rounded-lg border border-violet-500/30 px-2 py-1 text-xs text-violet-500 hover:bg-violet-500/10 transition-colors cursor-pointer disabled:opacity-50"
                   >
                     {p.deep ? '取消深度' : '設為深度'}
                   </button>
@@ -479,7 +479,7 @@ export function AiKeyProfilesPanel() {
                     type="button"
                     disabled={deleteMut.isPending}
                     onClick={() => deleteMut.mutate(p.id)}
-                    className="inline-flex items-center gap-1 rounded-lg border border-rose-500/30 px-2 py-1 text-[10px] text-rose-500 hover:bg-rose-500/10 transition-colors cursor-pointer disabled:opacity-50"
+                    className="inline-flex items-center gap-1 rounded-lg border border-rose-500/30 px-2 py-1 text-xs text-rose-500 hover:bg-rose-500/10 transition-colors cursor-pointer disabled:opacity-50"
                   >
                     <Trash2 className="h-2.5 w-2.5" />
                     刪除
@@ -504,11 +504,11 @@ export function AiKeyProfilesPanel() {
             <div className="space-y-3">
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                 <div>
-                  <label className="mb-1 block text-[10px] font-semibold text-muted">Profile 名稱</label>
+                  <label className="mb-1 block text-xs font-semibold text-muted">Profile 名稱</label>
                   <input aria-label="Profile 名稱" value={editName} onChange={e => setEditName(e.target.value)} className={INPUT_CLS} />
                 </div>
                 <div>
-                  <label className="mb-1 block text-[10px] font-semibold text-muted">Provider</label>
+                  <label className="mb-1 block text-xs font-semibold text-muted">Provider</label>
                   <select aria-label="Provider" value={editProvider} onChange={e => setEditProvider(e.target.value)} className={INPUT_CLS + ' cursor-pointer'}>
                     {Object.entries(PROVIDER_LABELS).map(([key, label]) => <option key={key} value={key}>{label}</option>)}
                   </select>
@@ -518,30 +518,30 @@ export function AiKeyProfilesPanel() {
                 <SubscriptionNote provider={editProvider} />
               ) : (
                 <div>
-                  <label className="mb-1 block text-[10px] font-semibold text-muted">Base URL</label>
+                  <label className="mb-1 block text-xs font-semibold text-muted">Base URL</label>
                   <input aria-label="Base URL" value={editBaseUrl} onChange={e => setEditBaseUrl(e.target.value)} className={INPUT_CLS} />
                 </div>
               )}
               <div>
-                <label className="mb-1 block text-[10px] font-semibold text-muted">Model</label>
+                <label className="mb-1 block text-xs font-semibold text-muted">Model</label>
                 <ModelInput provider={editProvider} value={editModel} onChange={setEditModel} ariaLabel="Model" />
               </div>
               {!isSubscription(editProvider) && <div>
-                <label className="mb-1 block text-[10px] font-semibold text-muted">API Key</label>
+                <label className="mb-1 block text-xs font-semibold text-muted">API Key</label>
                 <div className="relative">
                   <input
                     aria-label="API Key"
                     type={showEditKey ? 'text' : 'password'}
                     value={editKey}
                     onChange={e => setEditKey(e.target.value)}
-                    placeholder={`${editing.key_masked || '已儲存'} · 留空保留原 Key`}
+                    placeholder={`${editing.key_masked || '已儲存'}，留空保留原 Key`}
                     className={INPUT_CLS + ' pr-16'}
                   />
-                  <button type="button" onClick={() => setShowEditKey(value => !value)} className="absolute right-2 top-1.5 px-1 text-[10px] text-muted hover:text-foreground">
+                  <button type="button" onClick={() => setShowEditKey(value => !value)} className="absolute right-2 top-1.5 px-1 text-xs text-muted hover:text-foreground">
                     {showEditKey ? '隱藏' : '顯示'}
                   </button>
                 </div>
-                <p className="mt-1 text-[10px] text-muted">後端不會回傳原始 Key；留空即保留目前憑證。</p>
+                <p className="mt-1 text-xs text-muted">後端不會回傳原始 Key；留空即保留目前憑證。</p>
               </div>}
             </div>
             <div className="mt-5 flex justify-end gap-2">

@@ -1,6 +1,6 @@
 import { Link, useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
-import { ArrowUpRight, BellRing } from 'lucide-react'
+import { ArrowUpRight, BellRing, ChevronDown } from 'lucide-react'
 import { api } from '@/lib/api'
 import { QK } from '@/lib/queryKeys'
 import { QuantEvaluationCard } from '@/components/QuantEvaluationCard'
@@ -56,54 +56,74 @@ export function Dashboard() {
   })
 
   return (
-    <div className="min-h-full bg-base p-1.5">
-      {/* 第一眼先看圖：法人買賣超走勢與市場概況，其次是選股、持股、觀察與提醒。
-          其餘背景資訊收進「更多市場資訊」，預設收合，內容與功能不變。 */}
-      <InstitutionalFlowChart />
-      <MarketOverviewCard
-        snapshot={diagnostics.data?.market_snapshot ?? (diagnostics.isError ? marketFallback.data : undefined)}
-        loading={marketDataStatus.isLoading || diagnostics.isLoading || (diagnostics.isError && marketFallback.isLoading)}
-        error={diagnostics.isError && marketFallback.isError}
-        marketDailyStatus={marketDailyStatus}
-      />
-      <BeginnerDashboardWidget />
-      <div className="mb-1.5"><PortfolioPanel /></div>
-      <WatchlistQuickGlance
-        anomalies={diagnostics.data}
-        diagnosticsLoading={marketDataStatus.isLoading || diagnostics.isLoading}
-        diagnosticsError={diagnostics.isError}
-        marketDailyStatus={marketDailyStatus}
-        onStockClick={(symbol) => openStock(symbol)}
-      />
-
-      <section className="mb-1.5 rounded-card border border-border bg-surface/80 p-1.5 shadow-[0_1px_2px_hsl(var(--border)/0.4)] backdrop-blur-sm transition-shadow hover:shadow-[0_2px_8px_hsl(var(--border)/0.5)]">
-        <div className="mb-2 flex items-center justify-between gap-2">
-          <div className="flex items-center gap-1.5">
-            <BellRing className="h-3.5 w-3.5 text-accent" />
-            <h2 className="text-xs font-semibold text-foreground">提醒</h2>
-            <span className="font-mono text-[10px] text-muted">提醒中心</span>
+    <div className="dashboard-canvas min-h-full bg-base">
+      <div className="mx-auto w-full max-w-[1600px] px-3 py-5 sm:px-5 sm:py-6 lg:px-7 lg:py-8">
+        <header className="mb-6 flex flex-wrap items-end justify-between gap-3 border-b border-border pb-5">
+          <div className="min-w-0">
+            <h1 className="text-lg font-semibold tracking-[-0.025em] text-foreground">市場看板</h1>
           </div>
-          <Link to="/monitor" className="inline-flex items-center justify-center h-5 w-5 rounded text-muted hover:text-accent hover:bg-accent/10 transition-colors" title="進入監控中心">
-            <ArrowUpRight className="h-3.5 w-3.5" />
-          </Link>
-        </div>
-        <MonitorWidget onStockClick={(symbol) => openStock(symbol)} />
-      </section>
+          {latestDailyAsOf && <span className="font-mono text-xs text-muted">最近資料 {latestDailyAsOf}</span>}
+        </header>
 
-      <details className="mb-1.5 rounded-card border border-border bg-surface/80 p-1.5">
-        <summary className="cursor-pointer select-none text-xs font-semibold text-foreground">
-          更多市場資訊 <span className="font-normal text-muted">（情緒、事件、AI 盤勢、類股、異常、量化、總經、資料狀態）</span>
-        </summary>
-        <div className="mt-1.5">
-          <div className="mb-1.5 grid grid-cols-1 gap-1.5 lg:grid-cols-2">
+        <div className="grid grid-cols-1 gap-4 xl:grid-cols-12">
+          <div className="min-w-0 xl:col-span-5">
+            <MarketOverviewCard
+              snapshot={diagnostics.data?.market_snapshot ?? (diagnostics.isError ? marketFallback.data : undefined)}
+              loading={marketDataStatus.isLoading || diagnostics.isLoading || (diagnostics.isError && marketFallback.isLoading)}
+              error={diagnostics.isError && marketFallback.isError}
+              marketDailyStatus={marketDailyStatus}
+            />
+          </div>
+          <div className="min-w-0 xl:col-span-7">
+            <InstitutionalFlowChart />
+          </div>
+        </div>
+
+        <div className="mt-4">
+          <BeginnerDashboardWidget />
+        </div>
+
+        <div className="mt-4 grid grid-cols-1 items-start gap-4 xl:grid-cols-12">
+          <div className="min-w-0 xl:col-span-8"><PortfolioPanel /></div>
+          <div className="grid min-w-0 gap-4 xl:col-span-4">
+            <WatchlistQuickGlance
+              anomalies={diagnostics.data}
+              diagnosticsLoading={marketDataStatus.isLoading || diagnostics.isLoading}
+              diagnosticsError={diagnostics.isError}
+              marketDailyStatus={marketDailyStatus}
+              onStockClick={(symbol) => openStock(symbol)}
+            />
+
+            <section className="rounded-card border border-border bg-surface p-4">
+              <div className="mb-3 flex items-center justify-between gap-2">
+                <div className="flex items-center gap-2">
+                  <BellRing className="h-4 w-4 text-accent" />
+                  <h2 className="text-sm font-semibold text-foreground">提醒</h2>
+                </div>
+                <Link to="/monitor" className="interactive-target inline-flex items-center justify-center rounded-btn text-muted transition-colors hover:bg-accent/10 hover:text-accent" title="進入監控中心" aria-label="進入監控中心">
+                  <ArrowUpRight className="h-4 w-4" />
+                </Link>
+              </div>
+              <MonitorWidget onStockClick={(symbol) => openStock(symbol)} />
+            </section>
+          </div>
+        </div>
+
+        <details className="group mt-4 rounded-card border border-border bg-surface">
+          <summary className="flex min-h-12 cursor-pointer list-none items-center justify-between gap-3 px-4 text-sm font-semibold text-foreground [&::-webkit-details-marker]:hidden">
+            <span>延伸市場資訊</span>
+            <ChevronDown className="h-4 w-4 text-muted transition-transform group-open:rotate-180" aria-hidden="true" />
+          </summary>
+          <div className="border-t border-border p-4">
+          <div className="mb-4 grid grid-cols-1 gap-4 lg:grid-cols-2">
             <MarketSentimentCard targetDate={latestDailyAsOf} />
             <TodayEventsWidget />
           </div>
-          <div className="mb-1.5 grid grid-cols-1 gap-1.5 lg:grid-cols-2">
+          <div className="mb-4 grid grid-cols-1 gap-4 lg:grid-cols-2">
             <DashboardDailyBriefWidget />
             <DashboardSelectionReviewWidget />
           </div>
-          <div className="mb-1.5 grid grid-cols-1 gap-1.5 lg:grid-cols-2">
+          <div className="mb-4 grid grid-cols-1 gap-4 lg:grid-cols-2">
             <IndustryStrengthCard
               snapshot={diagnostics.data?.industry_snapshot ?? (diagnostics.isError ? industryFallback.data : undefined)}
               loading={marketDataStatus.isLoading || diagnostics.isLoading || (diagnostics.isError && industryFallback.isLoading)}
@@ -113,14 +133,15 @@ export function Dashboard() {
             <MarketAnomalyCard snapshot={diagnostics.data} loading={marketDataStatus.isLoading || diagnostics.isLoading} error={diagnostics.isError} alerts={todayAlerts.data?.alerts ?? []} alertsLoading={todayAlerts.isLoading} alertsError={todayAlerts.isError} marketDailyStatus={marketDailyStatus} />
           </div>
           <DashboardSocialSentimentWidget />
-          <div className="mb-1.5"><BuyPointSummaryCard /></div>
+          <div className="mb-4"><BuyPointSummaryCard /></div>
           <TodaySelection />
           <QuantEvaluationCard compact />
-          <div className="mb-1.5"><ExternalContextCard compact /></div>
+          <div className="mb-4"><ExternalContextCard compact /></div>
           <DataHealthSummary />
           <TaiwanOverviewCard />
-        </div>
-      </details>
+          </div>
+        </details>
+      </div>
     </div>
   )
 }

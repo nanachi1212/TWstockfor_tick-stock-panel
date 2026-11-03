@@ -1,0 +1,95 @@
+name: Daily data bundle
+
+# Publishes data-daily-<date> after each trading day and repoints data-latest, so new
+# installs and long-closed apps download one bundle instead of refetching day by day.
+on:
+  schedule:
+    - cron: '30 15 * * 1-5' # 23:30 Asia/Taipei, after the evening margin publication
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: data-bundle
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    env:
+      GH_TOKEN: ${{ github.token }}
+      REPO: ${{ github.repository }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v5
+
+      - name: Install backend dependencies
+        working-directory: backend
+        run: |
+          uv python install 3.11
+          uv sync --frozen
+
+      - name: Download current bundle
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/in"
+          gh release download data-latest --repo "$REPO" --pattern data-latest.json --dir "$RUNNER_TEMP/in"
+          pointer="$RUNNER_TEMP/in/data-latest.json"
+          tag=$(jq -r .tag "$pointer")
+          asset=$(jq -r .asset "$pointer")
+          gh release download "$tag" --repo "$REPO" --pattern "$asset" --dir "$RUNNER_TEMP/in"
+          echo "$(jq -r .sha256 "$pointer")  $RUNNER_TEMP/in/$asset" | sha256sum -c -
+          echo "BUNDLE=$RUNNER_TEMP/in/$asset" >> "$GITHUB_ENV"
+          echo "PREV_AS_OF=$(jq -r .data_as_of "$pointer")" >> "$GITHUB_ENV"
+
+      - name: Fetch newer official sessions
+        working-directory: backend
+        run: uv run python ../scripts/update_data_bundle.py --bundle "$BUNDLE" --data-dir "$RUNNER_TEMP/data"
+
+      - name: Build bundle and run privacy audit
+        id: build
+        working-directory: backend
+        run: |
+          set -euo pipefail
+          uv run python ../scripts/build_release_seed.py --source "$RUNNER_TEMP/data/taiwan" \
+            --output "$RUNNER_TEMP/out/bundle.zip" | tee "$RUNNER_TEMP/build.log"
+          echo "as_of=$(sed -n 's/^data_as_of=//p' "$RUNNER_TEMP/build.log")" >> "$GITHUB_OUTPUT"
+          first=$(ls "$RUNNER_TEMP/data/taiwan/daily" | sort | head -1 | sed 's/^date=//')
+          echo "first=$first" >> "$GITHUB_OUTPUT"
+
+      - name: Publish release and repoint data-latest
+        env:
+          AS_OF: ${{ steps.build.outputs.as_of }}
+          FIRST: ${{ steps.build.outputs.first }}
+        run: |
+          set -euo pipefail
+          if [[ ! "$AS_OF" > "$PREV_AS_OF" ]]; then
+            echo "No new trading day ($AS_OF <= $PREV_AS_OF); nothing to publish."
+            exit 0
+          fi
+          tag="data-daily-$AS_OF"
+          asset="nanachi-tw-daily-${FIRST}_to_${AS_OF}.zip"
+          mv "$RUNNER_TEMP/out/bundle.zip" "$RUNNER_TEMP/out/$asset"
+          sha=$(sha256sum "$RUNNER_TEMP/out/$asset" | cut -d' ' -f1)
+          gh release create "$tag" "$RUNNER_TEMP/out/$asset" --repo "$REPO" --target "$GITHUB_SHA" \
+            --title "$tag" --latest \
+            --notes "台股公開資料包（自動產生），日 K ${FIRST} ~ ${AS_OF}，另含最近 60 個交易日的三大法人、融資融券、交易日普查與處置紀錄。只含官方公開資料，已通過隱私檢查。SHA256: $sha"
+          jq -n --arg tag "$tag" --arg asset "$asset" --arg sha "$sha" --arg as_of "$AS_OF" \
+            '{tag: $tag, asset: $asset, sha256: $sha, data_as_of: $as_of}' > "$RUNNER_TEMP/out/data-latest.json"
+          gh release upload data-latest "$RUNNER_TEMP/out/data-latest.json" --repo "$REPO" --clobber
+
+      - name: Keep the newest 10 daily bundles
+        run: |
+          set -euo pipefail
+          # Only auto bundles newer than the tag pinned in bootstrap.py are pruned: the pinned
+          # one and older manual ones are what installed app versions fall back to.
+          pinned=$(sed -n 's/^RELEASE_TAG = "\(.*\)"/\1/p' backend/app/taiwan/bootstrap.py)
+          test -n "$pinned"
+          gh release list --repo "$REPO" --limit 200 --json tagName -q '.[].tagName' \
+            | grep -E '^data-daily-[0-9]{4}-[0-9]{2}-[0-9]{2}$' | sort -r | tail -n +11 \
+            | while read -r old; do
+                if [[ "$old" > "$pinned" ]]; then gh release delete "$old" --repo "$REPO" --yes --cleanup-tag; fi
+              done

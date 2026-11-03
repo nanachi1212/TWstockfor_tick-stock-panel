@@ -41,6 +41,7 @@ import { resolveWatchlistGroupColor } from '@/lib/watchlist-group-colors'
 import { computeGroupPcts, groupPctColor, groupPctTitle } from '@/lib/watchlistGroupStats'
 import { fmtPct } from '@/lib/format'
 import { cycleFontScale, getFontScale, toggleTheme, useTheme } from '@/lib/theme'
+import { RADIX } from '@/lib/radix'
 import { setCurrentTotal as setAlertTotal, useUnreadAlerts } from '@/lib/monitorBadge'
 import { ExtensionSlot } from '@/extensions/ExtensionSlot'
 import { getFrontendExtensionNavigation } from '@/extensions/registry'
@@ -48,7 +49,7 @@ import { ALL_NAV as nav, ADVANCED_NAV, ADVANCED_GROUP_ID, isAdvancedNavPath } fr
 import type { LucideIcon } from 'lucide-react'
 
 // 品牌色 — 只用於 logo / brand 區域,不影響功能語義色
-const BRAND = '#8B5CF6'
+const BRAND = RADIX.brand
 // 窄於此寬度(手機)改用頂列 + 抽屜導覽, 不再讓側欄佔一欄
 const COMPACT_QUERY = '(max-width: 767px)'
 const DRAWER_ID = 'mobile-nav-drawer'
@@ -95,7 +96,7 @@ function MonitorBadge({ active }: { active: boolean }) {
   })()
   if (active || unread <= 0 || !badgeEnabled) return null
   return (
-    <span className="inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-danger px-1 text-[9px] font-bold text-white animate-pulse">
+    <span className="inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-danger px-1 text-xs font-bold text-white">
       {unread > 99 ? '99+' : unread}
     </span>
   )
@@ -107,19 +108,13 @@ function DataSourceBadge({ providerName }: { providerName: string }) {
     <NavLink
       to="/settings?tab=data-sources"
       className="group relative flex items-center gap-2 overflow-hidden rounded-md py-1.5 pl-2.5 pr-2 transition-colors duration-150 hover:bg-elevated/70"
-      title={`資料來源 · ${providerName}`}
+      title={`資料來源，${providerName}`}
     >
-      <span
-        className="pointer-events-none absolute inset-y-1.5 left-0 w-[2px] rounded-full bg-accent/50 transition-colors group-hover:bg-accent"
-      />
       <DatabaseZap className="h-3.5 w-3.5 shrink-0 text-muted group-hover:text-accent transition-colors" />
-      <span className="min-w-0 truncate text-[11px] font-medium text-secondary group-hover:text-foreground transition-colors">
+      <span className="min-w-0 truncate text-xs font-medium text-secondary group-hover:text-foreground transition-colors">
         {providerName || '台灣官方資料源'}
       </span>
       <span className="h-1.5 w-1.5 rounded-full shrink-0 bg-emerald-500" />
-      <span className="ml-auto inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-medium leading-none text-muted bg-muted/20">
-        官方公開
-      </span>
     </NavLink>
   )
 }
@@ -136,23 +131,22 @@ function AIConfigBadge({ configured, model }: { configured?: boolean; model?: st
   const descText = configured ? `${model || '已接入模型'}${aiStatus ? `（${aiStatus.reason}）` : ''}` : '接入策略生成模型'
   const dotClass = !configured || aiStatus?.status === 'unconfigured'
     ? 'bg-warning'
-    : aiStatus?.status === 'error' ? 'bg-red-500 animate-pulse' : aiStatus?.status === 'ok' ? 'bg-emerald-500' : 'bg-muted'
+    : aiStatus?.status === 'error' ? 'bg-red-500' : aiStatus?.status === 'ok' ? 'bg-emerald-500' : 'bg-muted'
   return (
     <NavLink
       to="/settings?tab=ai"
       className="group relative flex items-center gap-2 overflow-hidden rounded-md py-1.5 pl-2.5 pr-2 transition-colors duration-150 hover:bg-elevated/70"
       title={`AI 設定 — ${descText}`}
     >
-      <span className="pointer-events-none absolute inset-y-1.5 left-0 w-[2px] rounded-full bg-purple-400/50 transition-colors group-hover:bg-purple-400" />
       <Sparkles className="h-3.5 w-3.5 shrink-0 text-muted group-hover:text-purple-400 transition-colors" />
       {configured ? (
-        <span className="truncate text-[11px] font-medium text-secondary group-hover:text-foreground transition-colors">
+        <span className="truncate text-xs font-medium text-secondary group-hover:text-foreground transition-colors">
           {model || '已接入模型'}
         </span>
       ) : (
         <>
-          <span className="text-[11px] text-secondary group-hover:text-foreground transition-colors">AI 設定</span>
-          <span className="ml-auto text-[11px] font-mono leading-none text-muted">未設定</span>
+          <span className="text-xs text-secondary group-hover:text-foreground transition-colors">AI 設定</span>
+          <span className="ml-auto text-xs font-mono leading-none text-muted">未設定</span>
         </>
       )}
       <span className={`h-1.5 w-1.5 rounded-full shrink-0 ${dotClass}`} />
@@ -334,7 +328,7 @@ export function Layout() {
       ? 'text-warning/80'
       : 'text-muted'
   const realtimeIndicatorClass = realtimeActive
-    ? 'bg-accent animate-pulse'
+    ? 'bg-accent'
     : realtimeEnabled || isPaused
       ? 'bg-warning/70'
       : 'bg-muted'
@@ -460,17 +454,19 @@ export function Layout() {
       disabled={realtimeToggleDisabled}
       title={realtimeToggleTitle}
       className={cn(
-        'relative inline-flex h-5 w-9 items-center rounded-full border transition-all duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/40 focus-visible:ring-offset-1 focus-visible:ring-offset-surface',
-        realtimeEnabled
-          ? 'border-accent/50 bg-accent shadow-[0_0_6px_rgba(59,130,246,0.25)]'
-          : 'border-border bg-elevated hover:border-muted',
+        'interactive-target inline-flex items-center justify-center rounded-btn transition-colors focus-visible:outline-none',
         realtimeToggleDisabled ? 'cursor-not-allowed opacity-50' : 'cursor-pointer',
       )}
     >
       <span className={cn(
-        'inline-block h-3.5 w-3.5 rounded-full border border-black/5 bg-white shadow-sm transition-transform duration-200',
-        realtimeEnabled ? 'translate-x-[18px]' : 'translate-x-0.5',
-      )} />
+        'relative inline-flex h-5 w-9 items-center rounded-full border transition-colors',
+        realtimeEnabled ? 'border-accent/50 bg-accent' : 'border-border bg-elevated hover:border-muted',
+      )}>
+        <span className={cn(
+          'inline-block h-3.5 w-3.5 rounded-full border border-black/5 bg-white shadow-sm transition-transform',
+          realtimeEnabled ? 'translate-x-[18px]' : 'translate-x-0.5',
+        )} />
+      </span>
     </button>
   )
 
@@ -482,14 +478,11 @@ export function Layout() {
           <div className={cn('flex', collapsed ? 'flex-col items-center gap-2' : 'items-center gap-2')}>
             <Logo
               size={collapsed ? 24 : 26}
-              className="shrink-0 drop-shadow-[0_0_8px_rgba(139,92,246,0.4)]"
+              className="shrink-0 "
               style={{ color: BRAND }}
             />
             {!collapsed && (
-              <div
-                className="font-bold text-[11px] uppercase tracking-[0.14em] text-foreground whitespace-nowrap"
-                style={{ textShadow: `0 0 10px ${BRAND}44` }}
-              >
+              <div className="font-semibold text-sm tracking-tight text-foreground whitespace-nowrap">
                 Nanachi 的台股監控看板
               </div>
             )}
@@ -545,7 +538,7 @@ export function Layout() {
                   onClick={toggleAdvanced}
                   title={collapsed ? label : undefined}
                   className={cn(
-                    'group mt-2 flex w-full items-center rounded-btn text-[11px] font-medium uppercase tracking-wider text-muted transition-colors hover:text-foreground',
+                    'group mt-2 flex w-full items-center rounded-btn text-xs font-medium uppercase tracking-wider text-muted transition-colors hover:text-foreground',
                     collapsed ? 'justify-center px-0 py-1.5' : 'gap-2 px-3 py-1.5',
                   )}
                 >
@@ -553,7 +546,7 @@ export function Layout() {
                     ? <ChevronDown className="h-3.5 w-3.5 shrink-0" />
                     : <ChevronRight className="h-3.5 w-3.5 shrink-0" />}
                   {!collapsed && <span className="flex-1 text-left">{label}</span>}
-                  {!collapsed && <span className="font-mono text-[10px]">{advancedNavItems.length}</span>}
+                  {!collapsed && <span className="font-mono text-xs">{advancedNavItems.length}</span>}
                 </button>
               )
             }
@@ -572,12 +565,6 @@ export function Layout() {
                         : 'text-foreground/75 hover:bg-elevated/70 hover:text-foreground',
                     )}
                   >
-                    <span
-                      className={cn(
-                        'pointer-events-none absolute left-0 top-1/2 h-4 -translate-y-1/2 w-[2.5px] rounded-full bg-accent transition-opacity duration-150',
-                        location.pathname === '/watchlist' ? 'opacity-100 shadow-[0_0_8px_rgba(59,130,246,0.6)]' : 'opacity-0',
-                      )}
-                    />
                     <Icon className={cn('h-4 w-4 shrink-0 transition-colors', location.pathname === '/watchlist' ? 'text-accent' : 'text-foreground/60 group-hover:text-foreground/85')} />
                     <span className="flex-1 text-left">{label}</span>
                     {watchlistNavExpanded
@@ -602,17 +589,10 @@ export function Layout() {
                   >
                     {({ isActive }) => (
                       <>
-                        {/* active 左側 accent 豎條指示 */}
-                        <span
-                          className={cn(
-                            'pointer-events-none absolute left-0 top-1/2 h-4 -translate-y-1/2 w-[2.5px] rounded-full bg-accent transition-opacity duration-150',
-                            isActive ? 'opacity-100 shadow-[0_0_8px_rgba(59,130,246,0.6)]' : 'opacity-0',
-                          )}
-                        />
                         <Icon className={cn('h-4 w-4 shrink-0 transition-colors', isActive ? 'text-accent' : 'text-foreground/60 group-hover:text-foreground/85')} />
                         {!collapsed && <span className="flex-1">{label}</span>}
                         {!collapsed && badge && (
-                          <span className="ml-auto inline-flex items-center rounded-full border border-amber-400/30 bg-amber-400/10 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-amber-400 shrink-0">
+                          <span className="ml-auto inline-flex items-center rounded-full border border-amber-400/30 bg-amber-400/10 px-1.5 py-0.5 text-xs font-semibold uppercase tracking-wider text-amber-400 shrink-0">
                             {badge}
                           </span>
                         )}
@@ -621,7 +601,7 @@ export function Layout() {
                           <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin text-accent" />
                         )}
                         {to === '/data' && !isDataSyncing && dataSyncJustDone && !collapsed && (
-                          <CheckCircle2 className="h-3.5 w-3.5 shrink-0 text-bull animate-pulse" />
+                          <CheckCircle2 className="h-3.5 w-3.5 shrink-0 text-bull" />
                         )}
                         {/* 監控中心徽標: 僅非監控頁且有未讀時顯示 */}
                         {to === '/monitor' && !collapsed && <MonitorBadge active={isActive} />}
@@ -636,7 +616,7 @@ export function Layout() {
                     <NavLink
                       to="/watchlist"
                       className={({ isActive }) => cn(
-                        'flex items-center gap-2 rounded-btn py-1.5 pl-9 pr-3 text-[12px] transition-colors duration-150 ease-smooth',
+                        'flex items-center gap-2 rounded-btn py-1.5 pl-9 pr-3 text-xs transition-colors duration-150 ease-smooth',
                         isActive && !location.search
                           ? 'text-accent font-medium'
                           : 'text-foreground/60 hover:text-foreground hover:bg-elevated/50',
@@ -647,7 +627,7 @@ export function Layout() {
                       {(() => {
                         const info = navGroupPcts['all']
                         return info && info.pct != null ? (
-                          <span className={`ml-auto font-mono text-[10px] tabular-nums ${groupPctColor(info.pct)}`} title={groupPctTitle(info)}>
+                          <span className={`ml-auto font-mono text-xs tabular-nums ${groupPctColor(info.pct)}`} title={groupPctTitle(info)}>
                             {fmtPct(info.pct)}
                           </span>
                         ) : null
@@ -663,7 +643,7 @@ export function Layout() {
                           key={group.id}
                           to={groupPath}
                           className={cn(
-                            'flex items-center gap-2 rounded-btn py-1.5 pl-9 pr-3 text-[12px] transition-colors duration-150 ease-smooth',
+                            'flex items-center gap-2 rounded-btn py-1.5 pl-9 pr-3 text-xs transition-colors duration-150 ease-smooth',
                             isGroupActive
                               ? 'text-accent font-medium'
                               : 'text-foreground/60 hover:text-foreground hover:bg-elevated/50',
@@ -672,7 +652,7 @@ export function Layout() {
                           <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${color.dot}`} />
                           <span className="truncate">{group.name}</span>
                           {pctInfo && pctInfo.pct != null && (
-                            <span className={`ml-auto font-mono text-[10px] tabular-nums ${groupPctColor(pctInfo.pct)}`} title={groupPctTitle(pctInfo)}>
+                            <span className={`ml-auto font-mono text-xs tabular-nums ${groupPctColor(pctInfo.pct)}`} title={groupPctTitle(pctInfo)}>
                               {fmtPct(pctInfo.pct)}
                             </span>
                           )}
@@ -711,11 +691,11 @@ export function Layout() {
             <div>
               <div className="flex items-center justify-between">
                 <span className="text-xs text-secondary truncate">即時行情</span>
-                <span className="text-[10px] text-muted/80 bg-elevated px-1.5 py-0.5 rounded">
+                <span className="text-xs text-muted/80 bg-elevated px-1.5 py-0.5 rounded">
                   不可用
                 </span>
               </div>
-              <div className="mt-1.5 text-[10px] leading-snug text-muted">
+              <div className="mt-1.5 text-xs leading-snug text-muted">
                 目前資料來源無即時行情權限,
                 <button
                   type="button"
@@ -733,9 +713,9 @@ export function Layout() {
                 <span className={`inline-block h-2 w-2 shrink-0 rounded-full ${realtimeIndicatorClass}`} />
                 <div className="min-w-0">
                   <div className="text-xs font-medium leading-none text-foreground">即時行情</div>
-                  <div className="mt-1 flex min-w-0 items-center gap-1 text-[10px] leading-none">
+                  <div className="mt-1 flex min-w-0 items-center gap-1 text-xs leading-none">
                     <span className="truncate text-muted">{realtimeProviderName || realtimeModeLabel}</span>
-                    <span className="shrink-0 text-border" aria-hidden="true">·</span>
+                    <span className="shrink-0 text-border" aria-hidden="true">，</span>
                     <span className={`shrink-0 ${realtimeStatusClass}`}>{realtimeStatusLabel}</span>
                   </div>
                 </div>
@@ -759,7 +739,7 @@ export function Layout() {
             && (!realtimeUnavailable || realtimeProviderName)
             && (isPaused || (isWatchlistMode && !dismissFreeHint && !realtimeProviderName))
             && (
-              <div className="mt-1.5 text-[10px] leading-snug space-y-0.5">
+              <div className="mt-1.5 text-xs leading-snug space-y-0.5">
                 {isWatchlistMode && !dismissFreeHint && !realtimeProviderName && (
                   <div className="flex items-start gap-1 text-amber-400/80">
                     <span className="flex-1">自選即時模式監控前 5 檔,全市場即時依賴資料來源支援</span>
@@ -799,16 +779,10 @@ export function Layout() {
             >
               {({ isActive }) => (
                 <>
-                  <span
-                    className={cn(
-                      'pointer-events-none absolute left-0 top-1/2 h-4 -translate-y-1/2 w-[2.5px] rounded-full bg-accent transition-opacity duration-150',
-                      isActive ? 'opacity-100 shadow-[0_0_8px_rgba(59,130,246,0.6)]' : 'opacity-0',
-                    )}
-                  />
                   <Settings className={cn('h-4 w-4 shrink-0 transition-colors', isActive ? 'text-accent' : 'text-foreground/60 group-hover:text-foreground/85')} />
                   {!collapsed && <span>設定</span>}
                   {!collapsed && version && (
-                    <span className="ml-auto font-mono text-[10px] text-muted/50 select-none shrink-0">
+                    <span className="ml-auto font-mono text-xs text-muted/50 select-none shrink-0">
                       {version}
                     </span>
                   )}
@@ -844,13 +818,10 @@ export function Layout() {
             </button>
             <Logo
               size={22}
-              className="shrink-0 drop-shadow-[0_0_8px_rgba(139,92,246,0.4)]"
+              className="shrink-0 "
               style={{ color: BRAND }}
             />
-            <div
-              className="min-w-0 flex-1 truncate font-bold text-[11px] uppercase tracking-[0.14em] text-foreground"
-              style={{ textShadow: `0 0 10px ${BRAND}44` }}
-            >
+            <div className="min-w-0 flex-1 truncate text-sm font-semibold tracking-tight text-foreground">
               Nanachi 的台股監控看板
             </div>
             <span className={`inline-block h-2 w-2 shrink-0 rounded-full ${realtimeIndicatorClass}`} title={realtimeStatusLabel} />
@@ -863,10 +834,7 @@ export function Layout() {
         </aside>
       )}
 
-      <motion.main
-        initial={{ opacity: 0, y: 8 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.25, ease: [0.16, 1, 0.3, 1] }}
+      <main
         className={cn('h-full overflow-auto scrollbar-gutter-stable', isCompact && 'pb-[env(safe-area-inset-bottom)]')}
       >
         <StaleDataBanner />
@@ -874,10 +842,10 @@ export function Layout() {
           <div
             role="status"
             aria-live="polite"
-            className="fixed bottom-4 left-1/2 z-[9998] flex -translate-x-1/2 items-center gap-1.5 rounded-full border border-warning/30 bg-warning/10 px-2.5 py-1 text-[11px] font-medium text-warning shadow-lg backdrop-blur-md"
+            className="fixed bottom-4 left-1/2 z-[9998] flex -translate-x-1/2 items-center gap-1.5 rounded-full border border-warning/30 bg-warning/10 px-2.5 py-1 text-xs font-medium text-warning shadow-lg backdrop-blur-md"
           >
-            <WifiOff className="h-3 w-3 shrink-0 animate-pulse" />
-            與服務連線已中斷 · 正在重連
+            <WifiOff className="h-3 w-3 shrink-0" />
+            與服務連線已中斷，正在重連
           </div>
         )}
         <PageBackButton />
@@ -890,7 +858,7 @@ export function Layout() {
         >
           <Outlet />
         </Suspense>
-      </motion.main>
+      </main>
       {drawerVisible && (
         <div className="fixed inset-0 z-50">
           <div className="absolute inset-0 bg-black/50" aria-hidden="true" onClick={() => setDrawerOpen(false)} />
@@ -904,7 +872,7 @@ export function Layout() {
             onClick={e => { if ((e.target as Element).closest('a')) setDrawerOpen(false) }}
             initial={{ x: '-100%' }}
             animate={{ x: 0 }}
-            transition={{ duration: 0.2, ease: [0.16, 1, 0.3, 1] }}
+            transition={{ duration: 0.25, ease: 'easeOut' }}
             className="absolute inset-y-0 left-0 flex w-[min(18rem,85vw)] flex-col overflow-hidden border-r border-border bg-surface shadow-xl pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)]"
           >
             {renderNavPanel(false, () => setDrawerOpen(false))}

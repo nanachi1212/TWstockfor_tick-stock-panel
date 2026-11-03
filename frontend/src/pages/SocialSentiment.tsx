@@ -140,15 +140,15 @@ export function SocialSentiment() {
                 <MessageCircleMore className="h-5 w-5 text-accent" />
                 <h1 className="text-lg font-bold text-foreground">社群聲量</h1>
                 {sentiment.data && (
-                  <span className={cn('rounded-full px-2 py-0.5 text-[10px] font-semibold', sentiment.data.status === 'available' ? 'bg-bull/10 text-bull' : sentiment.data.status === 'partial' ? 'bg-warning/10 text-warning' : 'bg-danger/10 text-danger')}>
+                  <span className={cn('rounded-full px-2 py-0.5 text-xs font-semibold', sentiment.data.status === 'available' ? 'bg-bull/10 text-bull' : sentiment.data.status === 'partial' ? 'bg-warning/10 text-warning' : 'bg-danger/10 text-danger')}>
                     {sentiment.data.status === 'available' ? '來源完整' : sentiment.data.status === 'partial' ? '部分來源可用' : '來源不可用'}
                   </span>
                 )}
               </div>
               <p className="mt-1 text-xs leading-relaxed text-muted">社群討論與 AI 情緒分析僅供研究，可能有抽樣與群體偏誤，不代表公司基本面或買賣建議。</p>
               {sentiment.data && (
-                <p className="mt-2 text-[11px] text-secondary">
-                  最後更新：{generatedAt?.toLocaleString('zh-TW', { hour12: false }) ?? '不可用'} · 來源：{TRIGGER_LABELS[sentiment.data.trigger] ?? '未知'}
+                <p className="mt-2 text-xs text-secondary">
+                  最後更新：{generatedAt?.toLocaleString('zh-TW', { hour12: false }) ?? '不可用'}，來源：{TRIGGER_LABELS[sentiment.data.trigger] ?? '未知'}
                 </p>
               )}
             </div>
@@ -182,7 +182,7 @@ export function SocialSentiment() {
               <option value="latest">最新結果</option>
               {(history.data?.items ?? []).map(item => (
                 <option key={`${item.as_of}-${item.snapshot_slot}`} value={`${item.as_of}|${item.snapshot_slot}`}>
-                  {item.as_of} · {item.snapshot_slot === 'pre_open' ? '盤前' : '盤後'}
+                  {item.as_of}，{item.snapshot_slot === 'pre_open' ? '盤前' : '盤後'}
                 </option>
               ))}
             </select>
@@ -201,13 +201,13 @@ export function SocialSentiment() {
             ))}
           </div>
           {sentiment.data && (
-            <div className="mt-3 flex flex-wrap gap-2 text-[11px]">
+            <div className="mt-3 flex flex-wrap gap-2 text-xs">
               {Object.entries(sources).map(([source, data]) => (
                 <span key={source} className={cn('rounded-md border px-2 py-1', data.status === 'available' ? 'border-bull/30 bg-bull/5 text-bull' : data.status === 'partial' ? 'border-warning/30 bg-warning/5 text-warning' : 'border-danger/30 bg-danger/5 text-danger')}>
-                  {SOURCE_LABELS[source] ?? source}：{data.status === 'available' ? `可用 · ${data.posts} 篇` : data.status === 'partial' ? '部分可用' : '目前來源不可用'}
+                  {SOURCE_LABELS[source] ?? source}：{data.status === 'available' ? `可用，${data.posts} 篇` : data.status === 'partial' ? '部分可用' : '目前來源不可用'}
                 </span>
               ))}
-              <span className="rounded-md border border-border bg-base px-2 py-1 text-muted">資料日期 {sentiment.data.as_of} · {sentiment.data.snapshot_slot === 'pre_open' ? '盤前' : sentiment.data.snapshot_slot === 'after_close' ? '盤後' : '手動'}</span>
+              <span className="rounded-md border border-border bg-base px-2 py-1 text-muted">資料日期 {sentiment.data.as_of}，{sentiment.data.snapshot_slot === 'pre_open' ? '盤前' : sentiment.data.snapshot_slot === 'after_close' ? '盤後' : '手動'}</span>
               {isStale && <span className="rounded-md border border-warning/30 bg-warning/5 px-2 py-1 text-warning">資料可能過期</span>}
             </div>
           )}
@@ -227,7 +227,7 @@ export function SocialSentiment() {
           <section className="overflow-hidden rounded-card border border-border bg-surface/90">
             <div className="overflow-x-auto">
               <table className="w-full min-w-[1120px] text-left text-xs">
-                <thead className="border-b border-border bg-elevated/40 text-[11px] text-muted">
+                <thead className="border-b border-border bg-elevated/40 text-xs text-muted">
                   <tr>
                     {['排名', '股票', '總聲量', 'PTT', 'Dcard', '討論串', '互動', '熱度', '24h 變化', '偏多', '中性', '偏空', '情緒分數', '信心', '狀態', '操作'].map(label => <th key={label} className="px-3 py-2 font-medium">{label}</th>)}
                   </tr>
@@ -240,7 +240,7 @@ export function SocialSentiment() {
                         <td className="px-3 py-2 font-mono text-muted">{row.rank}</td>
                         <td className="px-3 py-2">
                           <button type="button" onClick={() => setSelectedRow(row)} className="min-h-9 text-left hover:text-accent" aria-label={`查看 ${row.company_name} 社群明細`}>
-                            <span className="block font-semibold text-foreground">{row.company_name}</span><span className="font-mono text-[11px] text-muted">{row.symbol}</span>
+                            <span className="block font-semibold text-foreground">{row.company_name}</span><span className="font-mono text-xs text-muted">{row.symbol}</span>
                           </button>
                         </td>
                         <td className="px-3 py-2 font-mono font-semibold">{number(row.total_mentions)}</td>
@@ -279,13 +279,13 @@ export function SocialSentiment() {
             </div>
             <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
               {[
-                ['總聲量', number(selectedRow.total_mentions)], ['來源', `PTT ${number(selectedRow.ptt_mentions)} · Dcard ${sources.dcard?.status === 'unavailable' ? '不可用' : number(selectedRow.dcard_mentions)}`],
+                ['總聲量', number(selectedRow.total_mentions)], ['來源', `PTT ${number(selectedRow.ptt_mentions)}，Dcard ${sources.dcard?.status === 'unavailable' ? '不可用' : number(selectedRow.dcard_mentions)}`],
                 ['互動', number(selectedRow.engagement)], ['熱度', number(selectedRow.social_heat_score, 1)],
                 ['情緒', sentimentLabel(selectedRow.sentiment)], ['AI 信心', selectedRow.sentiment_confidence == null ? '不可用' : `${(selectedRow.sentiment_confidence * 100).toFixed(0)}%`],
                 ['24h 變化', selectedRow.volume_change_24h == null ? '不可比' : `${(selectedRow.volume_change_24h * 100).toFixed(0)}%`], ['資料日期', sentiment.data?.as_of ?? '不可用'],
-              ].map(([label, value]) => <div key={label} className="rounded-lg border border-border/60 bg-base p-2"><span className="block text-[10px] text-muted">{label}</span><span className="text-xs font-medium text-foreground">{value}</span></div>)}
+              ].map(([label, value]) => <div key={label} className="rounded-lg border border-border/60 bg-base p-2"><span className="block text-xs text-muted">{label}</span><span className="text-xs font-medium text-foreground">{value}</span></div>)}
             </div>
-            <p className="mt-3 text-[11px] leading-relaxed text-muted">為避免保存不必要的使用者內容，現有 history 不儲存原始文章、留言或標題，因此此處不顯示代表貼文。</p>
+            <p className="mt-3 text-xs leading-relaxed text-muted">為避免保存不必要的使用者內容，現有 history 不儲存原始文章、留言或標題，因此此處不顯示代表貼文。</p>
           </section>
         )}
       </div>
