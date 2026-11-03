@@ -5,6 +5,7 @@
 
 import { toast } from '@/components/Toast'
 import type { BreadthValuationResponse, ResearchMarket, ResearchSections, ValuationRefreshResult } from './marketBreadthTypes'
+import { RADIX } from './radix'
 
 const BASE = ''
 
@@ -389,11 +390,11 @@ export const REGIME_STATE_LABELS: Record<RegimeState, string> = {
 }
 
 export const REGIME_STATE_COLORS: Record<RegimeState, string> = {
-  strong: '#ef4444',      // 紅(強)
-  lean_strong: '#f97316', // 橙
-  range: '#6b7280',       // 灰
-  lean_weak: '#3b82f6',   // 藍
-  weak: '#10b981',        // 綠(弱)
+  strong: RADIX.danger,
+  lean_strong: RADIX.orange,
+  range: RADIX.neutral,
+  lean_weak: RADIX.accent,
+  weak: RADIX.success,
 }
 
 export interface RegimeRow {
@@ -1048,12 +1049,27 @@ export interface TaiwanExtraChipsData {
   big_holders?: TaiwanBigHolderData
 }
 
+/** 日／週／月 K 規則式多空判定（後端 timeframe_verdict.py） */
+export interface TaiwanTimeframeVerdict {
+  timeframe: 'daily' | 'weekly' | 'monthly'
+  label: string
+  status: 'available' | 'data_insufficient'
+  bias: 'bullish' | 'bearish' | 'neutral' | null
+  score: number | null
+  summary: string
+  bars: number
+  missing: string[]
+  as_of: string | null
+  is_stale?: boolean
+}
+
 export interface TaiwanStockDetailResponse {
   symbol: string
   identity: TaiwanStockIdentity
   price_limit: TaiwanStockPriceLimit
   realtime: TaiwanStockRealtimeDetail
   daily_history: TaiwanHistoricalDailyDetail
+  timeframe_verdicts?: TaiwanTimeframeVerdict[]
   institutional: TaiwanInstitutionalDetail
   margin: TaiwanMarginDetail
   factors: TaiwanFactorsDetail
@@ -3768,6 +3784,14 @@ export const api = {
     request<import('./marketResearch').ChipRankingSnapshot>('/api/taiwan/chip-ranking'),
   taiwanChipRankingTracking: () =>
     request<import('./marketResearch').ChipRankingTracking>('/api/taiwan/chip-ranking/tracking'),
+  taiwanBigHolderRanking: () =>
+    request<import('./marketResearch').BigHolderRankingSnapshot>('/api/taiwan/big-holder-ranking'),
+  taiwanMarketHeatmap: (date?: string) =>
+    request<import('./marketResearch').MarketHeatmapSnapshot>(`/api/taiwan/market-heatmap${date ? `?date=${encodeURIComponent(date)}` : ''}`),
+  taiwanGroupRanking: (date?: string) =>
+    request<import('./marketResearch').GroupRankingSnapshot>(`/api/taiwan/group-ranking${date ? `?date=${encodeURIComponent(date)}` : ''}`),
+  taiwanPatternScan: (date?: string) =>
+    request<import('./marketResearch').PatternScanSnapshot>(`/api/taiwan/pattern-scan${date ? `?date=${encodeURIComponent(date)}` : ''}`),
   taiwanIndustryRotation: (date?: string) =>
     request<import('./marketResearch').IndustryRotationSnapshot>(`/api/taiwan/industry-rotation${date ? `?date=${encodeURIComponent(date)}` : ''}`),
   strategyLab: (filters: StrategyLabFilters) =>

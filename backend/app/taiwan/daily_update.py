@@ -28,7 +28,6 @@ from typing import Any, Literal
 from pydantic import BaseModel, Field
 
 from app.taiwan.benchmark_store import TaiwanBenchmarkStore
-from app.taiwan.shareholding_store import TaiwanShareholdingStore
 from app.taiwan.daily_refresh import TaiwanDailyRefreshService
 from app.taiwan.daily_store import TaiwanDailyStore
 from app.taiwan.institutional_margin_refresh import (
@@ -39,12 +38,15 @@ from app.taiwan.institutional_store import TaiwanInstitutionalStore
 from app.taiwan.margin_store import TaiwanMarginStore
 from app.taiwan.observed_universe import ObservedUniverseStore, is_potential_market_session
 from app.taiwan.realtime.calendar import TAIPEI_TZ, TaiwanTradingCalendar, taipei_now
+from app.taiwan.shareholding_store import TaiwanShareholdingStore
 
 logger = logging.getLogger(__name__)
 
 # Post-close cutoff when official post-market data is expected to be published
 DEFAULT_POST_CLOSE_HOUR = 16
 DEFAULT_POST_CLOSE_MINUTE = 0
+# Missed sessions older than this are left to scripts/taiwan_historical_backfill.py.
+CENSUS_GAP_MAX_DAYS = 45
 
 UpdateStatus = Literal["success", "partial", "failed", "skipped"]
 
@@ -94,6 +96,7 @@ class TaiwanDailyUpdateResult(BaseModel):
     freshness: FreshnessStatus
     overall_status: UpdateStatus
     benchmark: dict[str, Any] | None = None
+    census: dict[str, Any] | None = None
 
 
 def resolve_target_latest_trading_date(
@@ -213,6 +216,7 @@ class TaiwanDailyUpdateService:
         calendar: TaiwanTradingCalendar | None = None,
         evidence_store: ObservedUniverseStore | None = None,
         benchmark_store: TaiwanBenchmarkStore | None = None,
+        census_worker: Any | None = None,
     ) -> None:
         # Only the default production wiring refreshes benchmarks; callers that
         # inject their own stores (tests, bootstrap) opt in explicitly.
@@ -220,6 +224,10 @@ class TaiwanDailyUpdateService:
             TaiwanBenchmarkStore() if daily_store is None else None
         )
         self.shareholding_store = TaiwanShareholdingStore() if daily_store is None else None
+        # Same opt-in rule for the census top-up; the default worker is built lazily because
+        # backfill_worker imports this module and touches its data dir on construction.
+        self.census_worker = census_worker
+        self._census_by_default = daily_store is None
         self.calendar = calendar or TaiwanTradingCalendar()
         self.evidence_store = evidence_store or ObservedUniverseStore()
         self.daily_store = daily_store or TaiwanDailyStore()
@@ -449,6 +457,9 @@ class TaiwanDailyUpdateService:
             except Exception as e:
                 logger.warning("Shareholding refresh failed: %s", e)
 
+        # 5c. Official census for the target session; coverage gates need it. Independent of status.
+        census = self._refresh_target_census(target)
+
         # 6. Evaluate Freshness and Overall Status
         run_finish = taipei_now()
         freshness = self.get_freshness(target_date=target)
@@ -482,14 +493,79 @@ class TaiwanDailyUpdateService:
             freshness=freshness,
             overall_status=overall_status,
             benchmark=benchmark,
+            census=census,
         )
         self._record_run(result)
 
         logger.info(
-            "TaiwanDailyUpdateService finished: overall_status=%s, daily=%s, inst=%s, margin=%s, is_fully_current=%s",
-            overall_status, daily_stats.status, inst_stats.status, margin_stats.status, freshness.is_fully_current,
+            "TaiwanDailyUpdateService finished: overall_status=%s, daily=%s, inst=%s, margin=%s, "
+            "census=%s, is_fully_current=%s",
+            overall_status, daily_stats.status, inst_stats.status, margin_stats.status,
+            census and census["status"], freshness.is_fully_current,
         )
         return result
+
+    def _refresh_target_census(self, target: date) -> dict[str, Any] | None:
+        """Write both exchanges' census for ``target`` once its daily snapshot is stored.
+
+        Fail-open: a census error never changes the market-data result. run_census skips an
+        observed session, so a rerun (evening catch-up, manual retry) costs no request and
+        still retries a session the previous run failed or saw empty.
+        """
+        if self.census_worker is None and not self._census_by_default:
+            return None
+        if target not in self.daily_store.available_dates():
+            return None  # not published yet: a census now would only record an empty response
+        try:
+            worker = self.census_worker
+            if worker is None:
+                from app.taiwan.backfill_worker import TaiwanHistoricalBackfillWorker
+
+                worker = TaiwanHistoricalBackfillWorker(
+                    census_store=self.evidence_store, calendar=self.calendar,
+                )
+            gap = self._fill_census_gap(worker, target)
+            exchanges = worker.run_census(target, target, session_budget=1, retry_empty=True)
+        except Exception as e:
+            logger.warning("Census refresh for %s failed; market data kept: %s", target, e)
+            return {"status": "error", "error": str(e)[:200]}
+        # Same evidence the heatmap / group-ranking coverage gate reads.
+        observed = all(
+            self.evidence_store.has(exchange, target)
+            and self.evidence_store.partition_status(exchange, target) == "observed"
+            for exchange in ("TWSE", "TPEX")
+        )
+        if not observed:
+            logger.warning("Census for %s is not an observed session after refresh: %s", target, exchanges)
+        result = {"status": "success" if observed else "error", "exchanges": exchanges}
+        if gap is not None:
+            result["gap"] = gap
+        return result
+
+    def _fill_census_gap(self, worker: Any, target: date) -> dict[str, Any] | None:
+        """Census for sessions skipped since the last recorded one (days the app was not run).
+
+        Only the target used to be written, so missed days stayed unresolved and blocked
+        every "last N verified sessions" lookup. Empty days found here are settled
+        against the official month tables. No census in the window (fresh install) is
+        left to the historical backfill.
+        """
+        floor = target - timedelta(days=CENSUS_GAP_MAX_DAYS)
+        last = min(
+            max((d for d in self.evidence_store.partition_statuses(exchange) if floor <= d < target),
+                default=None) or floor
+            for exchange in ("TWSE", "TPEX")
+        )
+        start, end = last + timedelta(days=1), target - timedelta(days=1)
+        if last == floor or start > end:
+            return None
+        gap = worker.run_census(start, end, session_budget=CENSUS_GAP_MAX_DAYS)
+        if any(stats.get("empty") for stats in gap.values()):
+            try:
+                worker.verify_trading_days(start=start, end=target)
+            except Exception as e:
+                logger.warning("Trading-day verification for %s..%s failed: %s", start, end, e)
+        return gap
 
     def _record_run(self, result: TaiwanDailyUpdateResult) -> None:
         """Persist the latest attempt so health checks see real updater outcomes."""

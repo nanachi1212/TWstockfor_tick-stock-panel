@@ -52,6 +52,7 @@ def test_warm_counts_available_and_survives_one_failure(monkeypatch, tmp_path):
                                    "shareholding": 3, "lending": 3}
     # the failing dataset does not skip the rest of that symbol or later symbols
     assert ("lending", "BAD.TWSE") in fake.calls and ("valuation", "6488.TPEX") in fake.calls
+    assert (tmp_path / "fundamentals_warm.last").exists()  # startup catch-up reads this
 
 
 def test_second_warm_is_refused_while_one_holds_the_lock(monkeypatch, tmp_path):

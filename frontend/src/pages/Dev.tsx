@@ -378,7 +378,7 @@ function LadderTestPanel() {
         </button>
         {result && (
           <span className="text-xs text-muted">
-            日期 {result.as_of} · 封單股 {result.sealed_count} · 觸發 {result.triggered.length} · 未觸發 {result.not_triggered.length}
+            日期 {result.as_of}，封單股 {result.sealed_count}，觸發 {result.triggered.length}，未觸發 {result.not_triggered.length}
           </span>
         )}
       </div>
@@ -428,7 +428,7 @@ function LadderTestPanel() {
                 <span className="text-secondary text-xs">{r.rule_name}</span>
               </div>
               <div className="text-xs text-muted tabular-nums">
-                閾值 {fmtVal(r.threshold, r.metric)} · 當前 {fmtVal(r.current_value, r.metric)} · {r.reason}
+                閾值 {fmtVal(r.threshold, r.metric)}，當前 {fmtVal(r.current_value, r.metric)}，{r.reason}
               </div>
             </div>
           ))}

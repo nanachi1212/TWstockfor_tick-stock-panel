@@ -182,7 +182,7 @@ export function DatePicker({
               transition={{ duration: 0.15, ease: [0.16, 1, 0.3, 1] }}
               style={{ position: 'fixed', top: pos.top, left: pos.left }}
               className="z-[9999] w-[260px] rounded-card border border-border
-                bg-surface shadow-[0_8px_30px_rgba(0,0,0,0.4)] p-3"
+                bg-surface p-3"
             >
             {/* 月份導航 */}
             <div className="flex items-center justify-between mb-2">
@@ -240,7 +240,7 @@ export function DatePicker({
             ) : (
               <>
                 {/* 星期頭 */}
-                <div className="grid grid-cols-7 text-center text-[10px] text-muted mb-1">
+                <div className="grid grid-cols-7 text-center text-xs text-muted mb-1">
                   {WEEKDAYS.map((w) => (
                     <div key={w}>{w}</div>
                   ))}

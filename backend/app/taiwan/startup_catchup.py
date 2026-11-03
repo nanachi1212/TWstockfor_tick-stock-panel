@@ -14,6 +14,8 @@ import contextlib
 import logging
 import os
 import threading
+import time
+from pathlib import Path
 from typing import Any
 
 from app.taiwan.shareholding_store import catchup_shareholding, needs_shareholding_catchup
@@ -23,6 +25,7 @@ __all__ = [
     "catchup_shareholding",
     "last_result",
     "needs_catchup",
+    "needs_fundamentals_catchup",
     "needs_shareholding_catchup",
     "schedule",
 ]
@@ -56,6 +59,18 @@ def needs_catchup() -> tuple[bool, str]:
 def _run(app_state: Any) -> None:
     from app.jobs import daily_pipeline
 
+    # 落後好幾天時, 先下載 GitHub 上每天自動發布的資料包, 比逐日向交易所補快很多。
+    try:
+        from app.taiwan.bootstrap import catch_up_from_latest_bundle
+
+        _LAST["bundle"] = catch_up_from_latest_bundle()
+        logger.info("startup bundle catch-up: %s", _LAST["bundle"])
+        if _LAST["bundle"].get("files_added"):
+            daily_pipeline.notify_daily_data_updated(app_state)
+    except Exception as exc:
+        _LAST["bundle"] = {"status": "error", "reason": type(exc).__name__}
+        logger.warning("startup bundle catch-up failed: %s", exc)
+
     try:
         need, reason = needs_catchup()
         if not need:
@@ -83,6 +98,33 @@ def _run(app_state: Any) -> None:
     except Exception as exc:
         _LAST["shareholding"] = {"status": "error", "reason": type(exc).__name__}
         logger.warning("startup shareholding catch-up failed: %s", exc)
+
+    # 放在日線更新之後 (預熱名單取自最新日線的成交量)。FinMind 有限速, 可能跑數小時。
+    try:
+        need, reason = needs_fundamentals_catchup()
+        if need:
+            from app.taiwan.fundamentals_warm import warm_fundamentals
+
+            logger.info("startup fundamentals warm: %s", reason)
+            _LAST["fundamentals"] = warm_fundamentals()
+        else:
+            _LAST["fundamentals"] = {"status": "skipped", "reason": reason}
+    except Exception as exc:
+        _LAST["fundamentals"] = {"status": "error", "reason": type(exc).__name__}
+        logger.warning("startup fundamentals warm failed: %s", exc)
+
+
+def needs_fundamentals_catchup(marker: Path | None = None) -> tuple[bool, str]:
+    """17:30 的基本面預熱沒跑到時回 True (以上次預熱完成的時間判斷)。"""
+    from app.taiwan.fundamentals_warm import REFRESH_AFTER, last_run_path
+
+    path = marker or last_run_path()
+    if not path.exists():
+        return True, "never"
+    age = time.time() - path.stat().st_mtime
+    if age < REFRESH_AFTER.total_seconds():
+        return False, "current"
+    return True, f"last_warm_{age / 3600:.0f}h_ago"
 
 
 def schedule(app_state: Any, delay_seconds: float = 20.0) -> bool:

@@ -1,5 +1,6 @@
 /** 迷你蠟燭圖（自選/策略列表共享）。 */
 import type { KlineRow } from '@/lib/api'
+import { RADIX } from '@/lib/radix'
 
 export function MiniCandlestick({ rows, width = 100, height = 80 }: { rows: KlineRow[]; width?: number; height?: number }) {
   // 空數據：返回等尺寸佔位（不畫內容），保證 kline 加載前後單元格尺寸一致、不閃爍
@@ -7,9 +8,9 @@ export function MiniCandlestick({ rows, width = 100, height = 80 }: { rows: Klin
     return <svg width={width} height={height} viewBox={`0 0 ${width} ${height}`} className="block" aria-label="載入中" />
   }
 
-  const BULL = '#C74040'
-  const BEAR = '#2D9B65'
-  const NEUTRAL = '#A1A1AA'
+  const BULL = RADIX.danger
+  const BEAR = RADIX.success
+  const NEUTRAL = RADIX.neutral
 
   const W = width
   const H = height

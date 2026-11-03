@@ -37,6 +37,8 @@ SESSION_TTL = 30 * 24 * 3600
 _lock = threading.Lock()
 # 内存中的有效会话: { token: expire_ts }。进程重启后从磁盘恢复。
 _sessions: dict[str, float] = {}
+# 記憶體會話最後一次與 auth.json 同步時的檔案戳記; 檔案被其他程序 (如撤銷腳本) 改過就重讀。
+_sessions_stamp: tuple[int, int] | None = None
 
 # 檔案未變更時重用驗證結果; 改密碼後失效, 外部修改則重新驗證。
 _configured_cache: bool | None = None
@@ -62,6 +64,12 @@ def _load() -> dict:
         if (len(bytes.fromhex(data["password_hash"])) != 32
                 or len(bytes.fromhex(data["password_salt"])) != _SALT_LEN):
             raise ValueError("invalid password hash or salt")
+        if ("verify_hash" in data or "verify_salt" in data) and (
+                len(bytes.fromhex(data["verify_hash"])) != 32
+                or len(bytes.fromhex(data["verify_salt"])) != _SALT_LEN):
+            raise ValueError("invalid verification hash or salt")
+        if not all(isinstance(t, str) for t in data.get("verify_sessions", [])):
+            raise ValueError("invalid verification sessions")
         return data
     except FileNotFoundError:
         return {}
@@ -81,12 +89,35 @@ def _save(data: dict) -> None:
             os.fsync(stream.fileno())
         os.chmod(tmp, 0o600)
         os.replace(tmp, p)
+        global _sessions_stamp
+        _sessions_stamp = _file_stamp()
     except OSError as e:
         raise AuthStoreError("認證檔無法儲存, 請確認磁碟與檔案權限後重試") from e
     finally:
         if tmp is not None:
             with contextlib.suppress(OSError):
                 tmp.unlink(missing_ok=True)
+
+
+def _file_stamp() -> tuple[int, int] | None:
+    try:
+        stat = _path().stat()
+    except FileNotFoundError:
+        return None
+    return stat.st_mtime_ns, stat.st_size
+
+
+def _sync_sessions_locked() -> None:
+    """auth.json 是會話的權威來源: 檔案變了就以磁碟內容取代記憶體會話 (需持鎖呼叫)。"""
+    global _sessions_stamp
+    stamp = _file_stamp()
+    if stamp == _sessions_stamp:
+        return
+    saved = _load().get("sessions") or {}
+    now = time.time()
+    _sessions.clear()
+    _sessions.update({t: e for t, e in saved.items() if isinstance(e, (int, float)) and e > now})
+    _sessions_stamp = stamp
 
 
 def _hash_password(password: str, salt: bytes | None = None) -> tuple[str, str]:
@@ -136,12 +167,14 @@ def set_password(password: str) -> None:
         raise ValueError("密码至少 6 位")
     salt_hex, hash_hex = _hash_password(password)
     with _lock:
-        _load()  # 不覆寫已損壞的認證檔。
+        current = _load()  # 不覆寫已損壞的認證檔。
         _save({
             "password_hash": hash_hex,
             "password_salt": salt_hex,
             "updated_at": int(time.time()),
-            "sessions": {},  # 清空持久化会话
+            "sessions": {},  # 清空持久化会话 (含驗證專用密碼登入的會話)
+            # 驗證專用密碼與主密碼各自管理, 改主密碼不清掉它。
+            **{k: current[k] for k in ("verify_hash", "verify_salt") if k in current},
         })
         _sessions.clear()  # 儲存成功後才撤銷舊會話。
     _configured_cache = None  # 失效缓存, 下次 is_configured 重读最新真值
@@ -184,9 +217,50 @@ def bootstrap_from_env() -> bool:
         return False
 
 
-def verify_and_create_session(password: str) -> str | None:
-    """验证密码, 成功则创建会话并返回 token, 失败返回 None。"""
+def set_verify_password(password: str | None) -> None:
+    """設定 (或以 None 撤銷) 驗證專用密碼, 並撤銷用舊驗證密碼登入的所有會話。
+
+    驗證專用密碼給本機自動化驗證登入用; 只有 router 判定為本機回環的登入才會呼叫 create_verify_session。
+    """
+    if password is not None and len(password) < 16:
+        raise ValueError("驗證專用密碼至少 16 位")
     with _lock:
+        _sync_sessions_locked()
+        d = _load()
+        if not d.get("password_hash"):
+            raise ValueError("尚未设置访问密码")
+        for token in d.pop("verify_sessions", []):
+            _sessions.pop(token, None)
+        d.pop("verify_hash", None)
+        d.pop("verify_salt", None)
+        if password is not None:
+            d["verify_salt"], d["verify_hash"] = _hash_password(password)
+        d["sessions"] = dict(_sessions)
+        _save(d)
+
+
+def create_verify_session(password: str) -> str | None:
+    """驗證專用密碼正確則建立會話 (記在 verify_sessions, 撤銷時一併失效), 否則回傳 None。"""
+    with _lock:
+        _sync_sessions_locked()
+        d = _load()
+        if not (d.get("password_hash") and d.get("verify_hash")):
+            return None
+        if not _verify_password(password, d["verify_salt"], d["verify_hash"]):
+            return None
+        token = _secrets.token_urlsafe(_TOKEN_BYTES)
+        expire = time.time() + SESSION_TTL
+        d["sessions"] = {**_sessions, token: expire}
+        d["verify_sessions"] = [t for t in d.get("verify_sessions", []) if t in d["sessions"]] + [token]
+        _save(d)
+        _sessions[token] = expire
+    return token
+
+
+def verify_and_create_session(password: str) -> str | None:
+    """验证主密码, 成功则创建会话并返回 token, 失败返回 None。"""
+    with _lock:
+        _sync_sessions_locked()
         d = _load()
         if not d.get("password_hash"):
             return None
@@ -203,6 +277,7 @@ def verify_and_create_session(password: str) -> str | None:
 def revoke_session(token: str) -> None:
     """注销会话(登出)。"""
     with _lock:
+        _sync_sessions_locked()
         _sessions.pop(token, None)
         _persist_sessions_locked()
 
@@ -212,6 +287,7 @@ def is_valid_session(token: str) -> bool:
     if not token:
         return False
     with _lock:
+        _sync_sessions_locked()
         expire = _sessions.get(token)
         if expire is None:
             return False
@@ -233,13 +309,11 @@ def _persist_sessions_locked() -> None:
 
 def _restore_sessions() -> None:
     """启动时从 auth.json 恢复未过期会话(支持进程重启不丢登录态)。"""
+    global _sessions_stamp
     with _lock:
-        d = _load()
-        now = time.time()
-        saved = d.get("sessions") or {}
-        for token, expire in saved.items():
-            if isinstance(expire, (int, float)) and expire > now:
-                _sessions[token] = expire
+        saved = _load().get("sessions") or {}
+        _sessions_stamp = None  # 強制從磁碟重讀
+        _sync_sessions_locked()
         if len(_sessions) != len(saved):
             # 有过期会话被清理, 落盘一次
             _persist_sessions_locked()

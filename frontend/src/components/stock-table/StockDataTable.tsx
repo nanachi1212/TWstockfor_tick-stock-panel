@@ -133,7 +133,7 @@ export function StockDataTable({
                 >
                   {contentOverride !== undefined ? contentOverride : col.label}
                   {sortable && (
-                    <span className="inline-block ml-1 text-[10px] opacity-30 group-hover:opacity-60 transition-opacity">
+                    <span className="inline-block ml-1 text-xs opacity-30 group-hover:opacity-60 transition-opacity">
                       {isSorted ? (dir === 'asc' ? '↑' : '↓') : '↕'}
                     </span>
                   )}

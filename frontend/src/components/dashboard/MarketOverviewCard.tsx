@@ -8,7 +8,7 @@ import { pctClass, fmtStockPct } from './dashboardFormat'
 export function MiniMetric({ label, value, cls = 'text-foreground' }: { label: string; value: string; cls?: string }) {
   return (
     <div className="rounded-md bg-elevated/45 px-2 py-1.5 border border-border/40">
-      <div className="text-[10px] text-muted">{label}</div>
+      <div className="text-xs text-muted">{label}</div>
       <div className={`mt-0.5 font-mono text-xs font-semibold ${cls}`}>{value}</div>
     </div>
   )
@@ -71,50 +71,45 @@ export function MarketOverviewCard({ snapshot, loading, error, marketDailyStatus
     { label: '加權指數', index: intel.data.indexes.taiex },
     { label: '上櫃指數', index: intel.data.indexes.tpex_index },
   ] : []
+  const todayTaipei = new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Taipei' })
+  const dailyNotice = intel.data && marketDailyStatus !== 'current'
+    ? `日行情尚未就緒；目前顯示 ${intel.data.trade_date} 的最近可用資料。`
+    : intel.data && dailyDataIncomplete
+      ? `日行情尚未完整，漲跌與成交統計僅依目前可用資料顯示${intel.data.data_quality.target_trade_date > intel.data.trade_date ? `；目標交易日 ${intel.data.data_quality.target_trade_date} 尚未取得，以下為 ${intel.data.trade_date} 資料` : ''}`
+      : intel.data && intel.data.trade_date < todayTaipei
+        ? `目前使用最近可用交易日資料（${intel.data.trade_date}）`
+        : null
 
   return (
-    <section className="mb-1.5 rounded-card border border-accent/25 bg-surface/90 p-3 shadow-[0_1px_2px_hsl(var(--border)/0.4)] backdrop-blur-sm">
+    <section className="h-full rounded-card border border-border bg-surface p-4">
       <SectionTitle icon={TrendingUp} title="市場概況" hint={intel.data ? `資料交易日 ${intel.data.trade_date}` : undefined} />
       {intel.isLoading ? (
         <div className="flex items-center gap-2 py-4 text-xs text-muted">
           <Loader2 className="h-3.5 w-3.5 animate-spin" />正在讀取市場強弱資料…
         </div>
       ) : intel.isError || !intel.data || !totals ? (
-        <p className="py-4 text-xs text-muted">目前無法讀取市場強弱資料,不影響其他功能使用。</p>
+        <p className="py-4 text-xs text-muted">目前無法讀取市場強弱資料。</p>
       ) : (
         <>
-          {dailyDataIncomplete && (
-            <div className="mb-1.5 rounded border border-warning/40 bg-warning/10 px-2 py-1 text-[11px] text-warning">
-              日行情尚未完整，漲跌與成交統計僅依目前可用資料顯示
-              {intel.data.data_quality.target_trade_date > intel.data.trade_date && (
-                <>；目標交易日 {intel.data.data_quality.target_trade_date} 尚未取得，以下為 {intel.data.trade_date} 資料</>
-              )}
-            </div>
-          )}
-          {marketDailyStatus !== 'current' && (
-            <div className="mb-1.5 rounded border border-warning/40 bg-warning/10 px-2 py-1 text-[11px] text-warning">
-              日行情狀態 {marketDailyStatus}；以下為最近可用資料，不代表今日市場強弱。
+          {dailyNotice && (
+            <div className="mb-1.5 rounded border border-warning/40 bg-warning/10 px-2 py-1 text-xs text-warning">
+              {dailyNotice}
             </div>
           )}
           {otherMarketDataIncomplete && (
-            <div className="mb-1.5 rounded border border-border bg-elevated/40 px-2 py-1 text-[10px] text-secondary">
+            <div className="mb-1.5 rounded border border-border bg-elevated/40 px-2 py-1 text-xs text-secondary">
               日行情覆蓋 {totals.snapshot_row_count.toLocaleString()} / {totals.supported_count.toLocaleString()} 檔；法人或融資融券資料尚未完整。
-            </div>
-          )}
-          {intel.data.trade_date < new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Taipei' }) && (
-            <div className="mb-2 rounded border border-border bg-elevated/50 px-2 py-1 text-[11px] text-secondary">
-              目前使用最近可用交易日資料（{intel.data.trade_date}）
             </div>
           )}
           <div className="mb-2 grid grid-cols-1 gap-1.5 sm:grid-cols-2">
             {indexRows.map(({ label: indexLabel, index }) => (
               <div key={indexLabel} className="rounded-md border border-border/50 bg-elevated/35 px-2.5 py-2">
-                <div className="text-[10px] text-muted">{indexLabel}</div>
+                <div className="text-xs text-muted">{indexLabel}</div>
                 {index?.close != null && index.status !== 'unavailable' ? (
                   <div className="mt-0.5 flex flex-wrap items-baseline gap-x-2 font-mono text-xs">
                     <span className="font-semibold text-foreground">{index.close.toLocaleString('zh-TW')}</span>
                     <span className={pctClass(index.change_pct)}>{index.change == null ? '—' : `${index.change > 0 ? '+' : ''}${index.change.toLocaleString('zh-TW')}`} ({fmtStockPct(index.change_pct)})</span>
-                    <span className="text-[9px] text-muted">{index.trade_date ?? '—'}</span>
+                    <span className="text-xs text-muted">{index.trade_date ?? '—'}</span>
                   </div>
                 ) : <div className="mt-0.5 text-xs text-muted">目前無可靠指數資料</div>}
               </div>
@@ -126,7 +121,7 @@ export function MarketOverviewCard({ snapshot, loading, error, marketDailyStatus
             <span className="text-bear">跌 <span className="font-mono font-semibold">{totals.decline_count}</span></span>
             {label && (
               <span className={cn(
-                'rounded-full border px-2 py-0.5 text-[10px] font-medium',
+                'rounded-full border px-2 py-0.5 text-xs font-medium',
                 label === '偏強' ? 'border-bull/40 bg-bull/10 text-bull' : label === '偏弱' ? 'border-bear/40 bg-bear/10 text-bear' : 'border-border bg-elevated text-muted',
               )}>
                 {label}
@@ -154,7 +149,7 @@ export function MarketOverviewCard({ snapshot, loading, error, marketDailyStatus
             )}
           </div>
           {totals.traded_count > 0 && label && (
-            <p className="mt-2 text-[11px] text-secondary">
+            <p className="mt-2 text-xs text-secondary">
               {label === '偏強'
                 ? `多數股票上漲（${totals.advance_count} 漲、${totals.decline_count} 跌），市場廣度偏強。`
                 : label === '偏弱'
@@ -163,12 +158,12 @@ export function MarketOverviewCard({ snapshot, loading, error, marketDailyStatus
             </p>
           )}
           {dailyBreadthAvailable && intel.data.data_quality.missing_symbols_count > 0 && (
-            <p className="mt-1 text-[9px] text-muted">漲跌廣度只依當日有行情的標的計算，另有 {intel.data.data_quality.missing_symbols_count.toLocaleString()} 檔缺少行情。</p>
+            <p className="mt-1 text-xs text-muted">漲跌廣度只依當日有行情的標的計算，另有 {intel.data.data_quality.missing_symbols_count.toLocaleString()} 檔缺少行情。</p>
           )}
-          <div className="mt-1 text-[9px] text-muted">
-            指數資料：{indexQuality?.status ?? 'unavailable'}
-            {indexQuality?.as_of ? ` · ${indexQuality.as_of}` : ''}
-            {' · '}市場資料狀態：{intel.data.data_quality.overall_status}
+          <div className="mt-2 text-xs text-muted">
+            指數資料：{indexQuality?.status === 'current' ? '最新' : indexQuality?.status === 'stale' ? '較舊' : '不可用'}
+            {indexQuality?.as_of ? `，${indexQuality.as_of}` : ''}
+            {'，'}市場資料：{intel.data.data_quality.overall_status === 'complete' ? '完整' : '不完整'}
           </div>
         </>
       )}

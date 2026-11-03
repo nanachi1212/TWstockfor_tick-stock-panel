@@ -82,6 +82,27 @@ def _parse_week_date(val: Any) -> date | None:
     return None
 
 
+def _with_date_column(data: pl.DataFrame) -> pl.DataFrame:
+    """Older parquet files stored ``date`` as datetime, string or integer; normalize to pl.Date."""
+    if "date" in data.columns and not data.is_empty():
+        dtype = data["date"].dtype
+        if dtype != pl.Date:
+            if dtype.is_temporal():
+                data = data.with_columns(pl.col("date").dt.date())
+            elif dtype in (pl.String, pl.Utf8):
+                data = data.with_columns(
+                    pl.coalesce([
+                        pl.col("date").str.to_date("%Y-%m-%d", strict=False),
+                        pl.col("date").str.to_date("%Y%m%d", strict=False),
+                    ]).alias("date")
+                )
+            elif dtype.is_integer():
+                data = data.with_columns(
+                    pl.col("date").cast(pl.String).str.to_date("%Y%m%d", strict=False).alias("date")
+                )
+    return data
+
+
 def _default_path() -> Path:
     from app.taiwan.data_root import taiwan_data_root
 
@@ -131,23 +152,7 @@ class TaiwanShareholdingStore:
 
         ``before`` keeps only weeks dated strictly earlier: a week is published after its data date.
         """
-        data = self.read()
-        if "date" in data.columns and not data.is_empty():
-            dtype = data["date"].dtype
-            if dtype != pl.Date:
-                if dtype.is_temporal():
-                    data = data.with_columns(pl.col("date").dt.date())
-                elif dtype in (pl.String, pl.Utf8):
-                    data = data.with_columns(
-                        pl.coalesce([
-                            pl.col("date").str.to_date("%Y-%m-%d", strict=False),
-                            pl.col("date").str.to_date("%Y%m%d", strict=False),
-                        ]).alias("date")
-                    )
-                elif dtype.is_integer():
-                    data = data.with_columns(
-                        pl.col("date").cast(pl.String).str.to_date("%Y%m%d", strict=False).alias("date")
-                    )
+        data = _with_date_column(self.read())
         before_date = _parse_week_date(before) if before is not None else None
         if before_date is not None:
             data = data.filter(pl.col("date") < before_date)

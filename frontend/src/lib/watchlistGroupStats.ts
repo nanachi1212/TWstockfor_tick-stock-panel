@@ -210,11 +210,11 @@ export function groupMetricTitle(info: GroupPctInfo | undefined, metric: GroupMe
     : metric === 'up_ratio'
       ? `${(value * 100).toFixed(1)}%`
       : fmtPct(value)
-  return `${metricLabel} ${valueText} · 等權 ${fmtPct(info.pct)} · 中位 ${fmtPct(info.median)} · 最強 ${fmtPct(info.max)} · 最弱 ${fmtPct(info.min)} · 上漲${info.up} 下跌${info.down} 平${info.flat} (共${info.sampled}檔)`
+  return `${metricLabel} ${valueText}，等權 ${fmtPct(info.pct)}，中位 ${fmtPct(info.median)}，最強 ${fmtPct(info.max)}，最弱 ${fmtPct(info.min)}，上漲${info.up} 下跌${info.down} 平${info.flat} (共${info.sampled}檔)`
 }
 
-/** 懸停明細: 等權平均 +1.23% · 上漲12 下跌5 平1 (格式化複用全站 fmtPct) */
+/** 懸停明細: 等權平均 +1.23%，上漲12 下跌5 平1 (格式化複用全站 fmtPct) */
 export function groupPctTitle(info: GroupPctInfo | undefined): string {
   if (!info || info.pct == null) return '暫無漲跌幅數據'
-  return `等權平均 ${fmtPct(info.pct)} · 上漲${info.up} 下跌${info.down} 平${info.flat} (共${info.sampled}檔)`
+  return `等權平均 ${fmtPct(info.pct)}，上漲${info.up} 下跌${info.down} 平${info.flat} (共${info.sampled}檔)`
 }

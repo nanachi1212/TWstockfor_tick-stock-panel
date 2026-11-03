@@ -99,9 +99,9 @@ const GroupCard = React.memo(function GroupCard({
           </span>
         )}
         <span className="ml-auto flex shrink-0 items-center gap-1.5" title={groupMetricTitle(pctInfo, metric)}>
-          <span className="font-mono text-[10px] tabular-nums text-muted">{data.rows.length}</span>
+          <span className="font-mono text-xs tabular-nums text-muted">{data.rows.length}</span>
           {pctInfo && pctInfo.sampled > 0 && (
-            <span className="text-[10px] tabular-nums">
+            <span className="text-xs tabular-nums">
               <span className="text-bull">{pctInfo.up}漲</span>
               <span className="mx-0.5 text-muted/40">/</span>
               <span className="text-bear">{pctInfo.down}跌</span>
@@ -113,7 +113,7 @@ const GroupCard = React.memo(function GroupCard({
 
       {/* 組內榜單: 按漲跌幅降序 */}
       {data.rows.length === 0 ? (
-        <div className="px-3 py-4 text-center text-[11px] text-muted">尚無標的</div>
+        <div className="px-3 py-4 text-center text-xs text-muted">尚無標的</div>
       ) : (
         <div className="flex flex-col">
           {visible.map((r: any, i: number) => {
@@ -130,7 +130,7 @@ const GroupCard = React.memo(function GroupCard({
                 title={`${r.symbol} ${r.rt_name ?? r.name ?? ''}`}
               >
                 {showRank && (
-                  <span className="w-4 shrink-0 text-right font-mono text-[10px] leading-none tabular-nums text-muted/70">
+                  <span className="w-4 shrink-0 text-right font-mono text-xs leading-none tabular-nums text-muted/70">
                     {i + 1}
                   </span>
                 )}
@@ -138,7 +138,7 @@ const GroupCard = React.memo(function GroupCard({
                 <span className="flex min-w-0 flex-1 items-center gap-1">
                   <span className="min-w-0 truncate text-xs text-secondary">{r.rt_name ?? r.name}</span>
                   {board && (
-                    <span className={`shrink-0 inline-flex items-center justify-center px-1 h-[16px] rounded text-[9px] font-bold leading-none ${board.color}`}>
+                    <span className={`shrink-0 inline-flex items-center justify-center px-1 h-[16px] rounded text-xs font-bold leading-none ${board.color}`}>
                       {board.label}
                     </span>
                   )}
@@ -158,7 +158,7 @@ const GroupCard = React.memo(function GroupCard({
         <button
           type="button"
           onClick={() => onToggle(data.key)}
-          className="flex items-center justify-center gap-1 border-t border-border/60 px-3 py-1.5 text-[10px] text-muted transition-colors hover:bg-elevated/60 hover:text-foreground"
+          className="flex items-center justify-center gap-1 border-t border-border/60 px-3 py-1.5 text-xs text-muted transition-colors hover:bg-elevated/60 hover:text-foreground"
         >
           {expanded ? '收起' : `顯示全部 ${data.rows.length} 檔`}
           <ChevronDown className={`h-3 w-3 transition-transform ${expanded ? '' : 'rotate-180'}`} />
@@ -257,7 +257,7 @@ export function WatchlistGroupCards({
   return (
     <div>
       <div className="mb-2 flex items-center justify-between">
-        <div className="text-[10px] uppercase tracking-wider text-muted">分組卡片 · {metricLabel}</div>
+        <div className="text-xs uppercase tracking-wider text-muted">分組卡片，{metricLabel}</div>
         <GroupStatsSettings config={config} onChange={onConfigChange} ariaLabel="分組卡片設定" showCardLimit />
       </div>
       <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">

@@ -75,7 +75,7 @@ def test_unsupported_context_never_unloads():
 
 def test_lmstudio_state_compares_loaded_and_max_context():
     resp = httpx.Response(200, json={"data": [LOADED_16K]})
-    with patch.object(ai_health.httpx, "get", return_value=resp):
+    with patch.object(httpx.Client, "get", return_value=resp):
         assert ai_health._lmstudio_state("http://127.0.0.1:1234", "research-model", 50000) == "small-context"
         assert ai_health._lmstudio_state("http://127.0.0.1:1234", "research-model", 16384) == "loaded"
         assert ai_health._lmstudio_state("http://127.0.0.1:1234", "research-model") == "loaded"

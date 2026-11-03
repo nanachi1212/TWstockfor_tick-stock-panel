@@ -10,6 +10,7 @@
 */
 import { useId } from 'react'
 import type { MinuteKlineRow } from '@/lib/api'
+import { RADIX } from '@/lib/radix'
 
 export function MiniIntraday({ rows, prevClose, changePct, width = 100, height = 56 }: {
   rows: MinuteKlineRow[]
@@ -28,10 +29,10 @@ export function MiniIntraday({ rows, prevClose, changePct, width = 100, height =
 
   const gradId = rawId.replace(/:/g, '')
 
-  const BULL = '#C74040'
-  const BEAR = '#2D9B65'
-  const LINE_PREV_CLOSE = '#7A7A85'   // 昨收基準線: 深灰實線
-  const LINE_AVG = '#E0B84A'          // 均線: 暖黃
+  const BULL = RADIX.danger
+  const BEAR = RADIX.success
+  const LINE_PREV_CLOSE = RADIX.neutral
+  const LINE_AVG = RADIX.warning
 
   const W = width
   const H = height

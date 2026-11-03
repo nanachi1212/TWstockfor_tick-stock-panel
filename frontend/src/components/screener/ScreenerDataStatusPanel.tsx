@@ -35,11 +35,11 @@ export function ScreenerDataStatusPanel() {
             </span>
           ) : statusData ? (
             statusData.is_fully_current ? (
-              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-medium bg-emerald-950/80 text-emerald-400 border border-emerald-800/60">
+              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-emerald-950/80 text-emerald-400 border border-emerald-800/60">
                 <CheckCircle2 className="w-3 h-3" /> 資料已是最新
               </span>
             ) : (
-              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-medium bg-amber-950/80 text-amber-400 border border-amber-800/60">
+              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-amber-950/80 text-amber-400 border border-amber-800/60">
                 <AlertCircle className="w-3 h-3" /> 資料尚未完全更新
               </span>
             )
@@ -54,13 +54,13 @@ export function ScreenerDataStatusPanel() {
               <span className="text-zinc-400">日線:</span>
               <span className="font-mono text-zinc-200">{statusData.daily_as_of || '—'}</span>
               {statusData.daily_status === 'current' ? (
-                <span className="px-1.5 py-0.5 rounded bg-emerald-900/50 text-emerald-400 font-medium text-[10px]">最新</span>
+                <span className="px-1.5 py-0.5 rounded bg-emerald-900/50 text-emerald-400 font-medium text-xs">最新</span>
               ) : statusData.daily_status === 'stale' ? (
-                <span className="px-1.5 py-0.5 rounded bg-amber-900/50 text-amber-400 font-medium text-[10px]">
+                <span className="px-1.5 py-0.5 rounded bg-amber-900/50 text-amber-400 font-medium text-xs">
                   待更新{statusData.daily_days_behind > 0 ? ` (${statusData.daily_days_behind}日)` : ''}
                 </span>
               ) : (
-                <span className="px-1.5 py-0.5 rounded bg-zinc-800 text-zinc-400 text-[10px]">無資料</span>
+                <span className="px-1.5 py-0.5 rounded bg-zinc-800 text-zinc-400 text-xs">無資料</span>
               )}
             </div>
 
@@ -71,13 +71,13 @@ export function ScreenerDataStatusPanel() {
               <span className="text-zinc-400">法人:</span>
               <span className="font-mono text-zinc-200">{statusData.institutional_as_of || '—'}</span>
               {statusData.institutional_status === 'current' ? (
-                <span className="px-1.5 py-0.5 rounded bg-emerald-900/50 text-emerald-400 font-medium text-[10px]">最新</span>
+                <span className="px-1.5 py-0.5 rounded bg-emerald-900/50 text-emerald-400 font-medium text-xs">最新</span>
               ) : statusData.institutional_status === 'stale' ? (
-                <span className="px-1.5 py-0.5 rounded bg-amber-900/50 text-amber-400 font-medium text-[10px]">
+                <span className="px-1.5 py-0.5 rounded bg-amber-900/50 text-amber-400 font-medium text-xs">
                   待更新{statusData.institutional_days_behind > 0 ? ` (${statusData.institutional_days_behind}日)` : ''}
                 </span>
               ) : (
-                <span className="px-1.5 py-0.5 rounded bg-zinc-800 text-zinc-400 text-[10px]">無資料</span>
+                <span className="px-1.5 py-0.5 rounded bg-zinc-800 text-zinc-400 text-xs">無資料</span>
               )}
             </div>
 
@@ -88,13 +88,13 @@ export function ScreenerDataStatusPanel() {
               <span className="text-zinc-400">資券:</span>
               <span className="font-mono text-zinc-200">{statusData.margin_as_of || '—'}</span>
               {statusData.margin_status === 'current' ? (
-                <span className="px-1.5 py-0.5 rounded bg-emerald-900/50 text-emerald-400 font-medium text-[10px]">最新</span>
+                <span className="px-1.5 py-0.5 rounded bg-emerald-900/50 text-emerald-400 font-medium text-xs">最新</span>
               ) : statusData.margin_status === 'stale' ? (
-                <span className="px-1.5 py-0.5 rounded bg-amber-900/50 text-amber-400 font-medium text-[10px]">
+                <span className="px-1.5 py-0.5 rounded bg-amber-900/50 text-amber-400 font-medium text-xs">
                   待更新{statusData.margin_days_behind > 0 ? ` (${statusData.margin_days_behind}日)` : ''}
                 </span>
               ) : (
-                <span className="px-1.5 py-0.5 rounded bg-zinc-800 text-zinc-400 text-[10px]">無資料</span>
+                <span className="px-1.5 py-0.5 rounded bg-zinc-800 text-zinc-400 text-xs">無資料</span>
               )}
             </div>
           </div>
@@ -103,7 +103,7 @@ export function ScreenerDataStatusPanel() {
 
       {/* Right: Target Date & Schedule Info */}
       {statusData && (
-        <div className="flex items-center gap-3 text-zinc-400 shrink-0 text-[11px]">
+        <div className="flex items-center gap-3 text-zinc-400 shrink-0 text-xs">
           <div>
             應有最新交易日: <strong className="text-zinc-200 font-mono">{statusData.target_latest_trading_date}</strong>
           </div>

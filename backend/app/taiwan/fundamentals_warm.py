@@ -51,6 +51,11 @@ def _lock_path():
     return settings.data_dir / "taiwan" / "fundamentals_warm.lock"
 
 
+def last_run_path():
+    """Touched when a warm finishes; startup catch-up reads its mtime (opening one stock also writes cache files)."""
+    return _lock_path().with_name("fundamentals_warm.last")
+
+
 def warm_fundamentals(symbols: list[str] | None = None) -> dict[str, Any]:
     """Run one warm; a manual run and the 17:30 schedule never fetch concurrently."""
     from app.taiwan.backfill_worker import WorkerBusyError, WorkerLock
@@ -63,7 +68,9 @@ def warm_fundamentals(symbols: list[str] | None = None) -> dict[str, Any]:
     except WorkerBusyError:
         return {"status": "busy", "reason": "another fundamentals warm is running"}
     try:
-        return _warm(symbols)
+        result = _warm(symbols)
+        last_run_path().touch()
+        return result
     finally:
         lock.release()
 

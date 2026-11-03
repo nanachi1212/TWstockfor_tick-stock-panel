@@ -393,7 +393,7 @@ describe('Beginner Stock Picker', () => {
     expect(strip).toHaveTextContent('盤中即時價：1,225')
     expect(strip).toHaveTextContent('短線趨勢可能轉弱')
     expect(screen.getByText(/今日 K 線（盤中、未收盤）/)).toBeInTheDocument()
-    expect(screen.getByText(/委買 1,225 · 委賣 1,230/)).toBeInTheDocument()
+    expect(screen.getByText(/委買 1,225，委賣 1,230/)).toBeInTheDocument()
     // 結論卡顯示轉弱並保留原日線判斷供對照
     expect(screen.getByText(/^短線訊號轉弱：盤中即時價 1225/)).toBeInTheDocument()
     expect(screen.getByText(new RegExp(`2026-10-08 收盤時的判斷（需重新評估）：${panel.summary}`))).toBeInTheDocument()

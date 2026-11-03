@@ -155,7 +155,7 @@ export function SettingsBackupPanel() {
                      className="mt-0.5 accent-accent" />
               <span>
                 <span className="block text-sm text-foreground">{p.label}</span>
-                <span className="block text-[11px] text-muted">{p.desc}</span>
+                <span className="block text-xs text-muted">{p.desc}</span>
               </span>
             </label>
           ))}
@@ -163,7 +163,7 @@ export function SettingsBackupPanel() {
 
         {options && (
           <fieldset className="mt-4">
-            <legend className="text-[11px] text-muted mb-2">包含類別</legend>
+            <legend className="text-xs text-muted mb-2">包含類別</legend>
             <div className="flex flex-wrap gap-x-4 gap-y-2">
               {options.categories.map(c => (
                 <label key={c.id} className="flex items-center gap-1.5 text-xs text-secondary">
@@ -189,12 +189,12 @@ export function SettingsBackupPanel() {
                      value={password} onChange={e => setPassword(e.target.value)} className={inputCls} autoComplete="new-password" />
               <input type="password" aria-label="再次輸入備份密碼" placeholder="再次輸入備份密碼"
                      value={password2} onChange={e => setPassword2(e.target.value)} className={inputCls} autoComplete="new-password" />
-              <p className="sm:col-span-2 text-[11px] text-muted">
+              <p className="sm:col-span-2 text-xs text-muted">
                 密碼不會儲存在任何地方；忘記密碼將無法還原這些金鑰。
               </p>
             </div>
           )}
-          {!includeSecrets && <p className="mt-1 text-[11px] text-muted">預設不備份任何金鑰，到新電腦需重新輸入。</p>}
+          {!includeSecrets && <p className="mt-1 text-xs text-muted">預設不備份任何金鑰，到新電腦需重新輸入。</p>}
         </div>
 
         <div className="mt-4 flex items-center gap-3">
@@ -203,8 +203,8 @@ export function SettingsBackupPanel() {
             {exporting ? <RefreshCw className="h-3.5 w-3.5 animate-spin" /> : <Download className="h-3.5 w-3.5" />}
             {exporting ? '建立中…' : '建立備份'}
           </button>
-          {pwProblem && <span className="text-[11px] text-amber-400">{pwProblem}</span>}
-          {exportMsg && <span className="text-[11px] text-emerald-400">{exportMsg}</span>}
+          {pwProblem && <span className="text-xs text-amber-400">{pwProblem}</span>}
+          {exportMsg && <span className="text-xs text-emerald-400">{exportMsg}</span>}
         </div>
         {exportError && <ErrorLine msg={exportError} />}
       </section>
@@ -242,7 +242,7 @@ export function SettingsBackupPanel() {
             )}
 
             <fieldset>
-              <legend className="text-[11px] text-muted mb-2">選擇要還原的類別</legend>
+              <legend className="text-xs text-muted mb-2">選擇要還原的類別</legend>
               <div className="space-y-1.5">
                 {preview.categories.map(c => (
                   <label key={c.id} className="flex items-start gap-2 text-xs">
@@ -269,7 +269,7 @@ export function SettingsBackupPanel() {
 
             {!done && (
               <>
-                <p className="text-[11px] text-muted">
+                <p className="text-xs text-muted">
                   所選類別會以備份內容取代本機資料。寫入前會自動建立還原點，任何一步失敗都會整體復原。
                 </p>
                 <button onClick={handleRestore} disabled={restoreBlocked}
