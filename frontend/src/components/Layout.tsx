@@ -31,6 +31,7 @@ import {
   WifiOff,
   PanelLeftClose,
   PanelLeftOpen,
+  Menu,
 } from 'lucide-react'
 import { Logo } from './Logo'
 import { PageBackButton } from './PageBackButton'
@@ -40,6 +41,7 @@ import { resolveWatchlistGroupColor } from '@/lib/watchlist-group-colors'
 import { computeGroupPcts, groupPctColor, groupPctTitle } from '@/lib/watchlistGroupStats'
 import { fmtPct } from '@/lib/format'
 import { cycleFontScale, getFontScale, toggleTheme, useTheme } from '@/lib/theme'
+import { RADIX } from '@/lib/radix'
 import { setCurrentTotal as setAlertTotal, useUnreadAlerts } from '@/lib/monitorBadge'
 import { ExtensionSlot } from '@/extensions/ExtensionSlot'
 import { getFrontendExtensionNavigation } from '@/extensions/registry'
@@ -47,7 +49,10 @@ import { ALL_NAV as nav, ADVANCED_NAV, ADVANCED_GROUP_ID, isAdvancedNavPath } fr
 import type { LucideIcon } from 'lucide-react'
 
 // 品牌色 — 只用於 logo / brand 區域,不影響功能語義色
-const BRAND = '#8B5CF6'
+const BRAND = RADIX.brand
+// 窄於此寬度(手機)改用頂列 + 抽屜導覽, 不再讓側欄佔一欄
+const COMPACT_QUERY = '(max-width: 767px)'
+const DRAWER_ID = 'mobile-nav-drawer'
 
 // Phase 8B-2.1: nav 的定義已抽到 @/lib/navigation.ts (CORE_NAV), 與
 // MenuSettings.tsx 共用同一份 metadata。此處用別名 import 保持下方既有
@@ -91,7 +96,7 @@ function MonitorBadge({ active }: { active: boolean }) {
   })()
   if (active || unread <= 0 || !badgeEnabled) return null
   return (
-    <span className="inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-danger px-1 text-[9px] font-bold text-white animate-pulse">
+    <span className="inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-danger px-1 text-xs font-bold text-white">
       {unread > 99 ? '99+' : unread}
     </span>
   )
@@ -103,19 +108,13 @@ function DataSourceBadge({ providerName }: { providerName: string }) {
     <NavLink
       to="/settings?tab=data-sources"
       className="group relative flex items-center gap-2 overflow-hidden rounded-md py-1.5 pl-2.5 pr-2 transition-colors duration-150 hover:bg-elevated/70"
-      title={`資料來源 · ${providerName}`}
+      title={`資料來源，${providerName}`}
     >
-      <span
-        className="pointer-events-none absolute inset-y-1.5 left-0 w-[2px] rounded-full bg-accent/50 transition-colors group-hover:bg-accent"
-      />
       <DatabaseZap className="h-3.5 w-3.5 shrink-0 text-muted group-hover:text-accent transition-colors" />
-      <span className="min-w-0 truncate text-[11px] font-medium text-secondary group-hover:text-foreground transition-colors">
+      <span className="min-w-0 truncate text-xs font-medium text-secondary group-hover:text-foreground transition-colors">
         {providerName || '台灣官方資料源'}
       </span>
       <span className="h-1.5 w-1.5 rounded-full shrink-0 bg-emerald-500" />
-      <span className="ml-auto inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-medium leading-none text-muted bg-muted/20">
-        官方公開
-      </span>
     </NavLink>
   )
 }
@@ -132,23 +131,22 @@ function AIConfigBadge({ configured, model }: { configured?: boolean; model?: st
   const descText = configured ? `${model || '已接入模型'}${aiStatus ? `（${aiStatus.reason}）` : ''}` : '接入策略生成模型'
   const dotClass = !configured || aiStatus?.status === 'unconfigured'
     ? 'bg-warning'
-    : aiStatus?.status === 'error' ? 'bg-red-500 animate-pulse' : aiStatus?.status === 'ok' ? 'bg-emerald-500' : 'bg-muted'
+    : aiStatus?.status === 'error' ? 'bg-red-500' : aiStatus?.status === 'ok' ? 'bg-emerald-500' : 'bg-muted'
   return (
     <NavLink
       to="/settings?tab=ai"
       className="group relative flex items-center gap-2 overflow-hidden rounded-md py-1.5 pl-2.5 pr-2 transition-colors duration-150 hover:bg-elevated/70"
       title={`AI 設定 — ${descText}`}
     >
-      <span className="pointer-events-none absolute inset-y-1.5 left-0 w-[2px] rounded-full bg-purple-400/50 transition-colors group-hover:bg-purple-400" />
       <Sparkles className="h-3.5 w-3.5 shrink-0 text-muted group-hover:text-purple-400 transition-colors" />
       {configured ? (
-        <span className="truncate text-[11px] font-medium text-secondary group-hover:text-foreground transition-colors">
+        <span className="truncate text-xs font-medium text-secondary group-hover:text-foreground transition-colors">
           {model || '已接入模型'}
         </span>
       ) : (
         <>
-          <span className="text-[11px] text-secondary group-hover:text-foreground transition-colors">AI 設定</span>
-          <span className="ml-auto text-[11px] font-mono leading-none text-muted">未設定</span>
+          <span className="text-xs text-secondary group-hover:text-foreground transition-colors">AI 設定</span>
+          <span className="ml-auto text-xs font-mono leading-none text-muted">未設定</span>
         </>
       )}
       <span className={`h-1.5 w-1.5 rounded-full shrink-0 ${dotClass}`} />
@@ -184,16 +182,18 @@ export function Layout() {
   // 自選二級菜單展開狀態 — 默認當前在自選頁時展開
   const [watchlistNavExpanded, setWatchlistNavExpanded] = useState(location.pathname === '/watchlist')
 
-  // 側邊欄收起狀態 — 持久化到 localStorage
+  const [isCompact, setIsCompact] = useState(() => window.matchMedia(COMPACT_QUERY).matches)
+  const [drawerOpen, setDrawerOpen] = useState(false)
+  // 桌面側邊欄收起狀態 — 持久化到 localStorage
   const [navCollapsed, setNavCollapsed] = useState(() => {
-    if (typeof window !== 'undefined' && window.matchMedia('(max-width: 767px)').matches) return true
     try { return localStorage.getItem('tf-nav-collapsed') === '1' } catch { return false }
   })
 
   // 分組等權平均漲跌幅 — 複用 watchlist/enriched 查詢緩存(與自選頁同 key,
-  // 盤中隨 SSE 刷新)。可見性門控: 子菜單實際可見(側欄展開 + 二級菜單展開)
-  // 時才拉取, 收起狀態下不為隱藏 UI 發請求。
-  const navGroupPctVisible = groupsInNav && !navCollapsed && watchlistNavExpanded
+  // 盤中隨 SSE 刷新)。可見性門控: 子菜單實際可見(桌面側欄展開或手機抽屜開著
+  // + 二級菜單展開)時才拉取, 不為隱藏 UI 發請求。
+  const navPanelVisible = isCompact ? drawerOpen : !navCollapsed
+  const navGroupPctVisible = groupsInNav && navPanelVisible && watchlistNavExpanded
   const { data: navWatchlist } = useQuery({
     queryKey: QK.watchlist,
     queryFn: api.watchlistList,
@@ -245,18 +245,45 @@ export function Layout() {
   // 自選實時模式限制提示: 可手動關閉, 不持久化 (刷新後恢復顯示)
   const [dismissFreeHint, setDismissFreeHint] = useState(false)
   useEffect(() => {
-    const compact = window.matchMedia('(max-width: 767px)')
-    const syncSidebarWithViewport = (event: MediaQueryListEvent | MediaQueryList) => {
-      if (event.matches) {
-        setNavCollapsed(true)
-        return
-      }
-      try { setNavCollapsed(localStorage.getItem('tf-nav-collapsed') === '1') } catch {}
+    const compact = window.matchMedia(COMPACT_QUERY)
+    const syncWithViewport = (event: MediaQueryListEvent) => {
+      setIsCompact(event.matches)
+      setDrawerOpen(false)
     }
-    syncSidebarWithViewport(compact)
-    compact.addEventListener('change', syncSidebarWithViewport)
-    return () => compact.removeEventListener('change', syncSidebarWithViewport)
+    compact.addEventListener('change', syncWithViewport)
+    return () => compact.removeEventListener('change', syncWithViewport)
   }, [])
+
+  // 手機抽屜: 任何導航 (含只改 ?tab= 的同路徑導航) 即關閉; 開啟期間鎖住 body 捲動、Escape 關閉,
+  // 焦點進抽屜, 關閉後焦點回到「選單」按鈕。
+  const drawerRef = useRef<HTMLDivElement>(null)
+  const menuButtonRef = useRef<HTMLButtonElement>(null)
+  const drawerVisible = isCompact && drawerOpen
+  useEffect(() => {
+    setDrawerOpen(false)
+  }, [location.key])
+  useEffect(() => {
+    if (!drawerVisible) return
+    const prevOverflow = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    // 抽屜外的兄弟節點 (頂列、主內容) 設 inert, Tab 不會跑到被遮住的控制項。
+    const overlay = drawerRef.current?.parentElement
+    const behind = Array.from(overlay?.parentElement?.children ?? [])
+      .filter((el): el is HTMLElement => el instanceof HTMLElement && el !== overlay)
+    behind.forEach(el => { el.inert = true })
+    drawerRef.current?.querySelector<HTMLElement>('a[href], button:not([disabled])')?.focus()
+    const closeOnEscape = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setDrawerOpen(false)
+    }
+    document.addEventListener('keydown', closeOnEscape)
+    const menuButton = menuButtonRef.current
+    return () => {
+      document.removeEventListener('keydown', closeOnEscape)
+      document.body.style.overflow = prevOverflow
+      behind.forEach(el => { el.inert = false })
+      menuButton?.focus()
+    }
+  }, [drawerVisible])
   const toggleNavCollapsed = () => {
     setNavCollapsed(prev => {
       const next = !prev
@@ -301,7 +328,7 @@ export function Layout() {
       ? 'text-warning/80'
       : 'text-muted'
   const realtimeIndicatorClass = realtimeActive
-    ? 'bg-accent animate-pulse'
+    ? 'bg-accent'
     : realtimeEnabled || isPaused
       ? 'bg-warning/70'
       : 'bg-muted'
@@ -381,7 +408,7 @@ export function Layout() {
   })
   useEffect(() => {
     if (isAdvancedNavPath(location.pathname)) setAdvancedOpen(true)
-  }, [location.pathname])
+  }, [location.key])
   const toggleAdvanced = () => {
     setAdvancedOpen(v => {
       const next = !v
@@ -416,49 +443,78 @@ export function Layout() {
     }
   }
 
-  return (
-    <div
-      className="grid bg-base text-foreground overflow-hidden transition-[grid-template-columns] duration-200 ease-smooth"
-      style={{
-        gridTemplateColumns: navCollapsed ? '3.5rem 1fr' : '14rem 1fr',
-        height: 'calc(100vh / var(--ui-zoom, 1))',
-      }}
+  const realtimeSwitch = (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={realtimeEnabled}
+      aria-label={realtimeToggleTitle}
+      aria-busy={toggleQuote.isPending}
+      onClick={() => handleToggle(!realtimeEnabled)}
+      disabled={realtimeToggleDisabled}
+      title={realtimeToggleTitle}
+      className={cn(
+        'interactive-target inline-flex items-center justify-center rounded-btn transition-colors focus-visible:outline-none',
+        realtimeToggleDisabled ? 'cursor-not-allowed opacity-50' : 'cursor-pointer',
+      )}
     >
-      <aside className="border-r border-border bg-surface flex flex-col h-full min-h-0 overflow-hidden">
-        <div className={cn('border-b border-border shrink-0', navCollapsed ? 'px-2 pt-3 pb-2' : 'px-4 pt-4 pb-3')}>
+      <span className={cn(
+        'relative inline-flex h-5 w-9 items-center rounded-full border transition-colors',
+        realtimeEnabled ? 'border-accent/50 bg-accent' : 'border-border bg-elevated hover:border-muted',
+      )}>
+        <span className={cn(
+          'inline-block h-3.5 w-3.5 rounded-full border border-black/5 bg-white shadow-sm transition-transform',
+          realtimeEnabled ? 'translate-x-[18px]' : 'translate-x-0.5',
+        )} />
+      </span>
+    </button>
+  )
+
+  // 側欄內容 — 桌面 <aside> 與手機抽屜共用; 抽屜一律以展開版呈現 (collapsed=false)
+  const renderNavPanel = (collapsed: boolean, onClose?: () => void) => (
+    <>
+        <div className={cn('border-b border-border shrink-0', collapsed ? 'px-2 pt-3 pb-2' : 'px-4 pt-4 pb-3')}>
           {/* Brand block — 收起時只顯 logo 居中 */}
-          <div className={cn('flex', navCollapsed ? 'flex-col items-center gap-2' : 'items-center gap-2')}>
+          <div className={cn('flex', collapsed ? 'flex-col items-center gap-2' : 'items-center gap-2')}>
             <Logo
-              size={navCollapsed ? 24 : 26}
-              className="shrink-0 drop-shadow-[0_0_8px_rgba(139,92,246,0.4)]"
+              size={collapsed ? 24 : 26}
+              className="shrink-0 "
               style={{ color: BRAND }}
             />
-            {!navCollapsed && (
-              <div
-                className="font-bold text-[11px] uppercase tracking-[0.14em] text-foreground whitespace-nowrap"
-                style={{ textShadow: `0 0 10px ${BRAND}44` }}
-              >
+            {!collapsed && (
+              <div className="font-semibold text-sm tracking-tight text-foreground whitespace-nowrap">
                 Nanachi 的台股監控看板
               </div>
             )}
-            {/* 收起/展開 按鈕 */}
+            {onClose ? (
+              <button
+                type="button"
+                onClick={onClose}
+                aria-label="關閉選單"
+                className="ml-auto flex items-center rounded-btn p-1.5 text-muted hover:text-foreground hover:bg-elevated/60 transition-colors duration-150 ease-smooth"
+              >
+                <X className="h-4 w-4 shrink-0" />
+              </button>
+            ) : (
+            /* 收起/展開 按鈕 */
             <button
               onClick={toggleNavCollapsed}
               className={cn(
                 'flex items-center rounded-btn text-muted hover:text-foreground hover:bg-elevated/60 transition-colors duration-150 ease-smooth',
-                navCollapsed ? 'justify-center p-1.5' : 'ml-auto p-1.5',
+                collapsed ? 'justify-center p-1.5' : 'ml-auto p-1.5',
               )}
-              title={navCollapsed ? '展開選單' : '收起選單'}
+              title={collapsed ? '展開選單' : '收起選單'}
             >
-              {navCollapsed
+              {collapsed
                 ? <PanelLeftOpen className="h-3.5 w-3.5 shrink-0" />
                 : <PanelLeftClose className="h-3.5 w-3.5 shrink-0" />
               }
             </button>
+            )}
           </div>
 
           {/* 狀態卡 — 收起時隱藏 */}
-          {!navCollapsed && (
+          {!collapsed && (
             <div className="mt-2.5 border-t border-border/60 pt-1">
               <DataSourceBadge
                 providerName={activeProviderName}
@@ -480,22 +536,22 @@ export function Layout() {
                   key={to}
                   type="button"
                   onClick={toggleAdvanced}
-                  title={navCollapsed ? label : undefined}
+                  title={collapsed ? label : undefined}
                   className={cn(
-                    'group mt-2 flex w-full items-center rounded-btn text-[11px] font-medium uppercase tracking-wider text-muted transition-colors hover:text-foreground',
-                    navCollapsed ? 'justify-center px-0 py-1.5' : 'gap-2 px-3 py-1.5',
+                    'group mt-2 flex w-full items-center rounded-btn text-xs font-medium uppercase tracking-wider text-muted transition-colors hover:text-foreground',
+                    collapsed ? 'justify-center px-0 py-1.5' : 'gap-2 px-3 py-1.5',
                   )}
                 >
                   {advancedOpen
                     ? <ChevronDown className="h-3.5 w-3.5 shrink-0" />
                     : <ChevronRight className="h-3.5 w-3.5 shrink-0" />}
-                  {!navCollapsed && <span className="flex-1 text-left">{label}</span>}
-                  {!navCollapsed && <span className="font-mono text-[10px]">{advancedNavItems.length}</span>}
+                  {!collapsed && <span className="flex-1 text-left">{label}</span>}
+                  {!collapsed && <span className="font-mono text-xs">{advancedNavItems.length}</span>}
                 </button>
               )
             }
             // 「自選」項 — 開啟分組側欄且未整體收起時, 渲染為可展開父項 + 二級分組
-            const isWatchlistExpandable = to === '/watchlist' && groupsInNav && !navCollapsed && watchlistGroups.length > 0
+            const isWatchlistExpandable = to === '/watchlist' && groupsInNav && !collapsed && watchlistGroups.length > 0
             return (
               <div key={to}>
                 {isWatchlistExpandable ? (
@@ -509,12 +565,6 @@ export function Layout() {
                         : 'text-foreground/75 hover:bg-elevated/70 hover:text-foreground',
                     )}
                   >
-                    <span
-                      className={cn(
-                        'pointer-events-none absolute left-0 top-1/2 h-4 -translate-y-1/2 w-[2.5px] rounded-full bg-accent transition-opacity duration-150',
-                        location.pathname === '/watchlist' ? 'opacity-100 shadow-[0_0_8px_rgba(59,130,246,0.6)]' : 'opacity-0',
-                      )}
-                    />
                     <Icon className={cn('h-4 w-4 shrink-0 transition-colors', location.pathname === '/watchlist' ? 'text-accent' : 'text-foreground/60 group-hover:text-foreground/85')} />
                     <span className="flex-1 text-left">{label}</span>
                     {watchlistNavExpanded
@@ -526,11 +576,11 @@ export function Layout() {
                   /* 普通菜單項 */
                   <NavLink
                     to={to}
-                    title={navCollapsed ? label : undefined}
+                    title={collapsed ? label : undefined}
                     className={({ isActive }) =>
                       cn(
                         'group relative flex items-center rounded-btn text-sm transition-all duration-150 ease-smooth',
-                        navCollapsed ? 'justify-center px-0 py-2' : 'gap-3 px-3 py-2',
+                        collapsed ? 'justify-center px-0 py-2' : 'gap-3 px-3 py-2',
                         isActive
                           ? 'bg-elevated text-foreground font-medium'
                           : 'text-foreground/75 hover:bg-elevated/70 hover:text-foreground',
@@ -539,29 +589,22 @@ export function Layout() {
                   >
                     {({ isActive }) => (
                       <>
-                        {/* active 左側 accent 豎條指示 */}
-                        <span
-                          className={cn(
-                            'pointer-events-none absolute left-0 top-1/2 h-4 -translate-y-1/2 w-[2.5px] rounded-full bg-accent transition-opacity duration-150',
-                            isActive ? 'opacity-100 shadow-[0_0_8px_rgba(59,130,246,0.6)]' : 'opacity-0',
-                          )}
-                        />
                         <Icon className={cn('h-4 w-4 shrink-0 transition-colors', isActive ? 'text-accent' : 'text-foreground/60 group-hover:text-foreground/85')} />
-                        {!navCollapsed && <span className="flex-1">{label}</span>}
-                        {!navCollapsed && badge && (
-                          <span className="ml-auto inline-flex items-center rounded-full border border-amber-400/30 bg-amber-400/10 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-amber-400 shrink-0">
+                        {!collapsed && <span className="flex-1">{label}</span>}
+                        {!collapsed && badge && (
+                          <span className="ml-auto inline-flex items-center rounded-full border border-amber-400/30 bg-amber-400/10 px-1.5 py-0.5 text-xs font-semibold uppercase tracking-wider text-amber-400 shrink-0">
                             {badge}
                           </span>
                         )}
                         {/* 數據同步狀態: 同步中轉圈, 剛完成顯示綠色對勾閃爍 3 秒 */}
-                        {to === '/data' && isDataSyncing && !navCollapsed && (
+                        {to === '/data' && isDataSyncing && !collapsed && (
                           <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin text-accent" />
                         )}
-                        {to === '/data' && !isDataSyncing && dataSyncJustDone && !navCollapsed && (
-                          <CheckCircle2 className="h-3.5 w-3.5 shrink-0 text-bull animate-pulse" />
+                        {to === '/data' && !isDataSyncing && dataSyncJustDone && !collapsed && (
+                          <CheckCircle2 className="h-3.5 w-3.5 shrink-0 text-bull" />
                         )}
                         {/* 監控中心徽標: 僅非監控頁且有未讀時顯示 */}
-                        {to === '/monitor' && !navCollapsed && <MonitorBadge active={isActive} />}
+                        {to === '/monitor' && !collapsed && <MonitorBadge active={isActive} />}
                       </>
                     )}
                   </NavLink>
@@ -573,7 +616,7 @@ export function Layout() {
                     <NavLink
                       to="/watchlist"
                       className={({ isActive }) => cn(
-                        'flex items-center gap-2 rounded-btn py-1.5 pl-9 pr-3 text-[12px] transition-colors duration-150 ease-smooth',
+                        'flex items-center gap-2 rounded-btn py-1.5 pl-9 pr-3 text-xs transition-colors duration-150 ease-smooth',
                         isActive && !location.search
                           ? 'text-accent font-medium'
                           : 'text-foreground/60 hover:text-foreground hover:bg-elevated/50',
@@ -584,7 +627,7 @@ export function Layout() {
                       {(() => {
                         const info = navGroupPcts['all']
                         return info && info.pct != null ? (
-                          <span className={`ml-auto font-mono text-[10px] tabular-nums ${groupPctColor(info.pct)}`} title={groupPctTitle(info)}>
+                          <span className={`ml-auto font-mono text-xs tabular-nums ${groupPctColor(info.pct)}`} title={groupPctTitle(info)}>
                             {fmtPct(info.pct)}
                           </span>
                         ) : null
@@ -600,7 +643,7 @@ export function Layout() {
                           key={group.id}
                           to={groupPath}
                           className={cn(
-                            'flex items-center gap-2 rounded-btn py-1.5 pl-9 pr-3 text-[12px] transition-colors duration-150 ease-smooth',
+                            'flex items-center gap-2 rounded-btn py-1.5 pl-9 pr-3 text-xs transition-colors duration-150 ease-smooth',
                             isGroupActive
                               ? 'text-accent font-medium'
                               : 'text-foreground/60 hover:text-foreground hover:bg-elevated/50',
@@ -609,7 +652,7 @@ export function Layout() {
                           <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${color.dot}`} />
                           <span className="truncate">{group.name}</span>
                           {pctInfo && pctInfo.pct != null && (
-                            <span className={`ml-auto font-mono text-[10px] tabular-nums ${groupPctColor(pctInfo.pct)}`} title={groupPctTitle(pctInfo)}>
+                            <span className={`ml-auto font-mono text-xs tabular-nums ${groupPctColor(pctInfo.pct)}`} title={groupPctTitle(pctInfo)}>
                               {fmtPct(pctInfo.pct)}
                             </span>
                           )}
@@ -623,13 +666,13 @@ export function Layout() {
           })}
           <ExtensionSlot
             name="layout.navigation.extra"
-            context={{ collapsed: navCollapsed, pathname: location.pathname }}
+            context={{ collapsed: collapsed, pathname: location.pathname }}
             compact
           />
         </nav>
 
         {/* 全局行情開關 — 收起時只顯示狀態指示點 */}
-        {navCollapsed ? (
+        {collapsed ? (
           <div className="border-t border-border px-2 py-2.5 shrink-0 flex justify-center">
             <button
               onClick={() => handleToggle(!realtimeEnabled)}
@@ -648,11 +691,11 @@ export function Layout() {
             <div>
               <div className="flex items-center justify-between">
                 <span className="text-xs text-secondary truncate">即時行情</span>
-                <span className="text-[10px] text-muted/80 bg-elevated px-1.5 py-0.5 rounded">
+                <span className="text-xs text-muted/80 bg-elevated px-1.5 py-0.5 rounded">
                   不可用
                 </span>
               </div>
-              <div className="mt-1.5 text-[10px] leading-snug text-muted">
+              <div className="mt-1.5 text-xs leading-snug text-muted">
                 目前資料來源無即時行情權限,
                 <button
                   type="button"
@@ -670,9 +713,9 @@ export function Layout() {
                 <span className={`inline-block h-2 w-2 shrink-0 rounded-full ${realtimeIndicatorClass}`} />
                 <div className="min-w-0">
                   <div className="text-xs font-medium leading-none text-foreground">即時行情</div>
-                  <div className="mt-1 flex min-w-0 items-center gap-1 text-[10px] leading-none">
+                  <div className="mt-1 flex min-w-0 items-center gap-1 text-xs leading-none">
                     <span className="truncate text-muted">{realtimeProviderName || realtimeModeLabel}</span>
-                    <span className="shrink-0 text-border" aria-hidden="true">·</span>
+                    <span className="shrink-0 text-border" aria-hidden="true">，</span>
                     <span className={`shrink-0 ${realtimeStatusClass}`}>{realtimeStatusLabel}</span>
                   </div>
                 </div>
@@ -686,28 +729,7 @@ export function Layout() {
                 >
                   <Settings className="h-3.5 w-3.5" />
                 </button>
-                <button
-                  type="button"
-                  role="switch"
-                  aria-checked={realtimeEnabled}
-                  aria-label={realtimeToggleTitle}
-                  aria-busy={toggleQuote.isPending}
-                  onClick={() => handleToggle(!realtimeEnabled)}
-                  disabled={realtimeToggleDisabled}
-                  title={realtimeToggleTitle}
-                  className={cn(
-                    'relative inline-flex h-5 w-9 items-center rounded-full border transition-all duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/40 focus-visible:ring-offset-1 focus-visible:ring-offset-surface',
-                    realtimeEnabled
-                      ? 'border-accent/50 bg-accent shadow-[0_0_6px_rgba(59,130,246,0.25)]'
-                      : 'border-border bg-elevated hover:border-muted',
-                    realtimeToggleDisabled ? 'cursor-not-allowed opacity-50' : 'cursor-pointer',
-                  )}
-                >
-                  <span className={cn(
-                    'inline-block h-3.5 w-3.5 rounded-full border border-black/5 bg-white shadow-sm transition-transform duration-200',
-                    realtimeEnabled ? 'translate-x-[18px]' : 'translate-x-0.5',
-                  )} />
-                </button>
+                {realtimeSwitch}
               </div>
             </div>
           )}
@@ -717,7 +739,7 @@ export function Layout() {
             && (!realtimeUnavailable || realtimeProviderName)
             && (isPaused || (isWatchlistMode && !dismissFreeHint && !realtimeProviderName))
             && (
-              <div className="mt-1.5 text-[10px] leading-snug space-y-0.5">
+              <div className="mt-1.5 text-xs leading-snug space-y-0.5">
                 {isWatchlistMode && !dismissFreeHint && !realtimeProviderName && (
                   <div className="flex items-start gap-1 text-amber-400/80">
                     <span className="flex-1">自選即時模式監控前 5 檔,全市場即時依賴資料來源支援</span>
@@ -738,17 +760,17 @@ export function Layout() {
         </div>
         )}
 
-        <div className={cn('border-t border-border py-3 shrink-0', navCollapsed ? 'px-2 flex flex-col items-center gap-1' : 'px-2')}>
-          <div className={navCollapsed ? 'flex flex-col items-center gap-1' : 'flex items-center gap-1'}>
+        <div className={cn('border-t border-border py-3 shrink-0', collapsed ? 'px-2 flex flex-col items-center gap-1' : 'px-2')}>
+          <div className={collapsed ? 'flex flex-col items-center gap-1' : 'flex items-center gap-1'}>
             <ThemeToggle />
             <FontScaleToggle />
             <NavLink
               to="/settings"
-              title={navCollapsed ? '設定' : undefined}
+              title={collapsed ? '設定' : undefined}
               className={({ isActive }) =>
                 cn(
                   'group relative flex items-center rounded-btn text-sm transition-all duration-150 ease-smooth',
-                  navCollapsed ? 'justify-center px-0 py-2' : 'flex-1 gap-3 px-3 py-2',
+                  collapsed ? 'justify-center px-0 py-2' : 'flex-1 gap-3 px-3 py-2',
                   isActive
                     ? 'bg-elevated text-foreground font-medium'
                     : 'text-foreground/75 hover:bg-elevated/70 hover:text-foreground',
@@ -757,16 +779,10 @@ export function Layout() {
             >
               {({ isActive }) => (
                 <>
-                  <span
-                    className={cn(
-                      'pointer-events-none absolute left-0 top-1/2 h-4 -translate-y-1/2 w-[2.5px] rounded-full bg-accent transition-opacity duration-150',
-                      isActive ? 'opacity-100 shadow-[0_0_8px_rgba(59,130,246,0.6)]' : 'opacity-0',
-                    )}
-                  />
                   <Settings className={cn('h-4 w-4 shrink-0 transition-colors', isActive ? 'text-accent' : 'text-foreground/60 group-hover:text-foreground/85')} />
-                  {!navCollapsed && <span>設定</span>}
-                  {!navCollapsed && version && (
-                    <span className="ml-auto font-mono text-[10px] text-muted/50 select-none shrink-0">
+                  {!collapsed && <span>設定</span>}
+                  {!collapsed && version && (
+                    <span className="ml-auto font-mono text-xs text-muted/50 select-none shrink-0">
                       {version}
                     </span>
                   )}
@@ -775,23 +791,61 @@ export function Layout() {
             </NavLink>
           </div>
         </div>
-      </aside>
+    </>
+  )
 
-      <motion.main
-        initial={{ opacity: 0, y: 8 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.25, ease: [0.16, 1, 0.3, 1] }}
-        className="h-full overflow-auto scrollbar-gutter-stable"
+  return (
+    <div
+      className="app-shell-height grid bg-base text-foreground overflow-hidden transition-[grid-template-columns] duration-200 ease-smooth"
+      // 內容欄用 minmax(0, 1fr): 純 1fr 的最小值是內容寬, 一段不換行的內容就會把整頁 (連頂列) 撐出螢幕。
+      style={isCompact
+        ? { gridTemplateColumns: 'minmax(0, 1fr)', gridTemplateRows: 'auto minmax(0, 1fr)' }
+        : { gridTemplateColumns: navCollapsed ? '3.5rem minmax(0, 1fr)' : '14rem minmax(0, 1fr)' }}
+    >
+      {isCompact ? (
+        <header className="border-b border-border bg-surface px-2 pt-[env(safe-area-inset-top)]">
+          <div className="flex h-12 items-center gap-2">
+            <button
+              ref={menuButtonRef}
+              type="button"
+              onClick={() => setDrawerOpen(true)}
+              aria-label="開啟選單"
+              aria-expanded={drawerVisible}
+              aria-controls={DRAWER_ID}
+              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-btn text-foreground/80 transition-colors hover:bg-elevated hover:text-foreground"
+            >
+              <Menu className="h-5 w-5" />
+            </button>
+            <Logo
+              size={22}
+              className="shrink-0 "
+              style={{ color: BRAND }}
+            />
+            <div className="min-w-0 flex-1 truncate text-sm font-semibold tracking-tight text-foreground">
+              Nanachi 的台股監控看板
+            </div>
+            <span className={`inline-block h-2 w-2 shrink-0 rounded-full ${realtimeIndicatorClass}`} title={realtimeStatusLabel} />
+            {realtimeSwitch}
+          </div>
+        </header>
+      ) : (
+        <aside className="border-r border-border bg-surface flex flex-col h-full min-h-0 overflow-hidden">
+          {renderNavPanel(navCollapsed)}
+        </aside>
+      )}
+
+      <main
+        className={cn('h-full overflow-auto scrollbar-gutter-stable', isCompact && 'pb-[env(safe-area-inset-bottom)]')}
       >
         <StaleDataBanner />
         {streamStatus === 'reconnecting' && (
           <div
             role="status"
             aria-live="polite"
-            className="fixed bottom-4 left-1/2 z-[9998] flex -translate-x-1/2 items-center gap-1.5 rounded-full border border-warning/30 bg-warning/10 px-2.5 py-1 text-[11px] font-medium text-warning shadow-lg backdrop-blur-md"
+            className="fixed bottom-4 left-1/2 z-[9998] flex -translate-x-1/2 items-center gap-1.5 rounded-full border border-warning/30 bg-warning/10 px-2.5 py-1 text-xs font-medium text-warning shadow-lg backdrop-blur-md"
           >
-            <WifiOff className="h-3 w-3 shrink-0 animate-pulse" />
-            與服務連線已中斷 · 正在重連
+            <WifiOff className="h-3 w-3 shrink-0" />
+            與服務連線已中斷，正在重連
           </div>
         )}
         <PageBackButton />
@@ -804,7 +858,27 @@ export function Layout() {
         >
           <Outlet />
         </Suspense>
-      </motion.main>
+      </main>
+      {drawerVisible && (
+        <div className="fixed inset-0 z-50">
+          <div className="absolute inset-0 bg-black/50" aria-hidden="true" onClick={() => setDrawerOpen(false)} />
+          <motion.div
+            ref={drawerRef}
+            id={DRAWER_ID}
+            role="dialog"
+            aria-modal="true"
+            aria-label="導覽選單"
+            // 點任一連結即關閉 (含 pathname 不變的連結, 例如自選分組 ?group=)
+            onClick={e => { if ((e.target as Element).closest('a')) setDrawerOpen(false) }}
+            initial={{ x: '-100%' }}
+            animate={{ x: 0 }}
+            transition={{ duration: 0.25, ease: 'easeOut' }}
+            className="absolute inset-y-0 left-0 flex w-[min(18rem,85vw)] flex-col overflow-hidden border-r border-border bg-surface shadow-xl pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)]"
+          >
+            {renderNavPanel(false, () => setDrawerOpen(false))}
+          </motion.div>
+        </div>
+      )}
       <ToastContainer />
       <AlertToastContainer />
     </div>

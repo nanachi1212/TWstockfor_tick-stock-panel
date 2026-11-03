@@ -30,7 +30,7 @@ export function QuantEvaluationCard({ compact = false }: { compact?: boolean }) 
   if (compact) {
     return (
       <section className="mb-1.5 rounded-lg border border-border/70 bg-surface/60 px-3 py-2" aria-label="歷史驗證準備狀態">
-        <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[10px]">
+        <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs">
           <Activity className="h-3 w-3 text-muted" />
           <span className="font-medium text-secondary">Primary OOS 歷史驗證</span>
           {progress.isLoading ? <span role="status" className="text-muted">讀取 A2b 背景分類進度…</span> : progress.isError ?
@@ -47,7 +47,7 @@ export function QuantEvaluationCard({ compact = false }: { compact?: boolean }) 
       <div className="mb-2.5 flex items-center gap-1.5">
         <Activity className="h-3.5 w-3.5 text-accent" />
         <h2 className="text-xs font-semibold text-foreground">Quant Evaluation</h2>
-        <span className="ml-auto text-[10px] text-muted">歷史驗證，與即時選股分開</span>
+        <span className="ml-auto text-xs text-muted">歷史驗證，與即時選股分開</span>
       </div>
 
       {query.isLoading ? (
@@ -99,7 +99,7 @@ export function QuantEvaluationCard({ compact = false }: { compact?: boolean }) 
           )}
 
           {query.data.evaluation_status !== 'available' ? (
-            <div className="mt-2 text-[11px] leading-relaxed text-muted">
+            <div className="mt-2 text-xs leading-relaxed text-muted">
               <p>
                 {query.data.evaluation_status === 'waiting_for_data_health'
                   ? 'Primary OOS 尚未提供，需等資料健康門檻通過。'
@@ -121,7 +121,7 @@ export function QuantEvaluationCard({ compact = false }: { compact?: boolean }) 
           ) : query.data.evaluation ? (
             <div className="mt-3">
               {query.data.evaluation_provenance && (
-                <p className="mb-2 text-[10px] text-muted">
+                <p className="mb-2 text-xs text-muted">
                   正式 OOS，資料截至 {query.data.evaluation_provenance.latest_market_date}，
                   spec {query.data.evaluation_provenance.evaluation_spec_version}，
                   run {query.data.evaluation_provenance.run_id.slice(0, 8)}
@@ -133,14 +133,14 @@ export function QuantEvaluationCard({ compact = false }: { compact?: boolean }) 
                 <Metric label="Composite IC (20D)" value={formatNumber(query.data.evaluation.composite_score_ic['20']?.ic_mean)} />
                 <Metric label="IC 正向比例" value={formatPct(query.data.evaluation.composite_score_ic['20']?.ic_positive_ratio)} />
               </div>
-              <p className="mt-2 text-[10px] text-muted">IC 表示選股分數與未來報酬排序的一致程度。</p>
+              <p className="mt-2 text-xs text-muted">IC 表示選股分數與未來報酬排序的一致程度。</p>
               <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-3">
                 <Metric label="20D 高分組報酬" value={formatPct(query.data.evaluation.composite_score_buckets['20']?.top_bucket_future_return)} />
                 <Metric label="20D 低分組報酬" value={formatPct(query.data.evaluation.composite_score_buckets['20']?.bottom_bucket_future_return)} />
                 <Metric label="20D 高低分組差" value={formatPct(query.data.evaluation.composite_score_buckets['20']?.long_short_spread)} />
                 <Metric label="Walk-forward folds" value={String(query.data.evaluation.walk_forward.folds.length)} />
               </div>
-              <p className="mt-2 text-[10px] text-muted">高低分組差為兩組未來報酬之差，不代表可成交策略績效。</p>
+              <p className="mt-2 text-xs text-muted">高低分組差為兩組未來報酬之差，不代表可成交策略績效。</p>
             </div>
           ) : null}
         </>
@@ -152,7 +152,7 @@ export function QuantEvaluationCard({ compact = false }: { compact?: boolean }) 
 function Metric({ label, value }: { label: string; value: string }) {
   return (
     <div className="rounded-md border border-border/70 bg-base/50 px-2.5 py-2">
-      <div className="text-[10px] text-muted">{label}</div>
+      <div className="text-xs text-muted">{label}</div>
       <div className="mt-0.5 font-mono text-xs font-medium text-foreground">{value}</div>
     </div>
   )

@@ -7,6 +7,7 @@
 //   - UI token (bg-surface/text-foreground 等) 自動跟隨;
 //     圖表畫布不吃 CSS 變量, 統一走 useChartTheme() 取調色板
 import { useEffect, useState } from 'react'
+import { RADIX_CHART } from './radix'
 
 const KEY = 'tf-theme'
 const EVENT = 'tf-theme-change'
@@ -50,19 +51,22 @@ export function useTheme(): Theme {
 
 // ================================================================
 // 字級縮放 — localStorage('tf-font-scale'), 以 html zoom 生效:
-// 連 text-[10px] 這類固定 px 字與圖表一起放大。--ui-zoom 給 Layout 修正 100vh。
+// 連 text-xs 這類固定 px 字與圖表一起放大。--ui-zoom 給 Layout 修正 100vh。
 // ================================================================
 
 const FONT_KEY = 'tf-font-scale'
 export const FONT_SCALES = [1, 1.1, 1.25, 1.4] as const
-const DEFAULT_FONT_SCALE = 1.1
+// 手機預設不縮放: Android 已套系統字級, 再疊 html zoom 會讓版面超出螢幕且干擾雙指縮放。
+function defaultFontScale(): number {
+  return window.matchMedia?.('(max-width: 767px)').matches ? 1 : 1.1
+}
 
 export function getFontScale(): number {
   try {
     const v = Number(localStorage.getItem(FONT_KEY))
-    return (FONT_SCALES as readonly number[]).includes(v) ? v : DEFAULT_FONT_SCALE
+    return (FONT_SCALES as readonly number[]).includes(v) ? v : defaultFontScale()
   } catch {
-    return DEFAULT_FONT_SCALE
+    return defaultFontScale()
   }
 }
 
@@ -113,35 +117,8 @@ export interface ChartTheme {
   fillSubtle: string
 }
 
-const DARK: ChartTheme = {
-  text: '#A1A1AA',
-  textStrong: '#E4E4E7',
-  grid: 'rgba(255,255,255,0.06)',
-  border: '#27272A',
-  crosshair: 'rgba(255,255,255,0.25)',
-  crosshairLabelBg: '#333',
-  tooltipBg: 'rgba(24,24,27,0.95)',
-  tooltipBorder: 'rgba(255,255,255,0.1)',
-  tooltipText: '#E4E4E7',
-  infoBarBg: 'rgba(39,39,42,0.6)',
-  zoomFill: 'rgba(255,255,255,0.06)',
-  fillSubtle: 'rgba(255,255,255,0.04)',
-}
-
-const LIGHT: ChartTheme = {
-  text: '#71717A',
-  textStrong: '#27272A',
-  grid: 'rgba(0,0,0,0.06)',
-  border: '#E4E4E7',
-  crosshair: 'rgba(0,0,0,0.3)',
-  crosshairLabelBg: '#52525B',
-  tooltipBg: 'rgba(255,255,255,0.97)',
-  tooltipBorder: 'rgba(0,0,0,0.1)',
-  tooltipText: '#27272A',
-  infoBarBg: 'rgba(244,244,245,0.85)',
-  zoomFill: 'rgba(0,0,0,0.06)',
-  fillSubtle: 'rgba(0,0,0,0.04)',
-}
+const DARK: ChartTheme = RADIX_CHART.dark
+const LIGHT: ChartTheme = RADIX_CHART.light
 
 export function chartTheme(theme: Theme): ChartTheme {
   return theme === 'dark' ? DARK : LIGHT

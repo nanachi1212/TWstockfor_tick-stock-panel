@@ -66,7 +66,7 @@ export function DataHealth() {
   return (
     <main className="p-4 space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <h1 className="text-xl font-semibold">資料健康</h1>
+        <h1 className="text-lg font-semibold">資料健康</h1>
         <span className="text-sm text-muted">{health.data ? `${health.data.current_count} / ${health.data.total_count} 正常` : '讀取中…'}</span>
       </div>
       <p className="text-sm text-muted">聚合既有來源 metadata。未記錄的日期與時間顯示「未知」。日資料更新會一起更新日 K、法人、融資融券；社群更新沿用既有 PTT、Dcard 與 AI 流程。</p>
@@ -92,7 +92,7 @@ export function DataHealth() {
             <th scope="row" className="p-3 font-medium">
               <div>{row.name}</div>
               {row.provider && <div className="text-xs font-normal text-muted">{row.provider}</div>}
-              {row.enabled != null && <div className="text-xs font-normal text-muted">{row.enabled ? 'enabled' : 'disabled'} · {row.auth_configured ? 'auth configured' : 'auth not configured'}</div>}
+              {row.enabled != null && <div className="text-xs font-normal text-muted">{row.enabled ? 'enabled' : 'disabled'}，{row.auth_configured ? 'auth configured' : 'auth not configured'}</div>}
             </th>
             <td className={`p-3 ${colors[row.status]}`}><span>{statuses[row.status]}</span><div className="text-xs">{row.status}</div></td>
             <td className="p-3"><div>{row.source ?? '未知'}</div><div className="text-muted">{row.as_of ?? row.data_date ?? '未知'}</div></td>
@@ -113,7 +113,7 @@ export function DataHealth() {
         <h2 className="font-medium mb-2">更新與驗證任務</h2>
         <p className="text-xs text-muted mb-2">背景任務記錄於服務重啟後清除；重新驗證成功表示完成檢查，資料仍可能不可用。</p>
         <ul className="space-y-2 text-sm">{jobs.data.slice(0, 10).map(job => <li key={job.job_id} className="break-words">
-          {health.data?.datasets.find(r => r.id === job.dataset)?.name ?? job.dataset} · {actions[job.action]} · {jobStatuses[job.status]} ({job.status})
+          {health.data?.datasets.find(r => r.id === job.dataset)?.name ?? job.dataset}，{actions[job.action]}，{jobStatuses[job.status]} ({job.status})
           {job.reason && <span className="ml-2 text-muted">{job.reason}</span>}
         </li>)}</ul>
       </section>}

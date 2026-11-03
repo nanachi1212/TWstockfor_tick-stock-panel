@@ -240,16 +240,13 @@ export function DailyBrief() {
             </div>
             <div>
               <div className="flex items-center gap-2">
-                <h1 className="text-2xl font-bold tracking-tight">每日台股摘要與 AI 解讀</h1>
+                <h1 className="text-lg font-bold tracking-tight">每日台股摘要與 AI 解讀</h1>
                 {brief && (
                   <span className="text-xs px-2.5 py-0.5 rounded-full bg-muted text-muted-foreground font-mono font-medium">
                     {brief.brief_date}
                   </span>
                 )}
               </div>
-              <p className="text-sm text-muted-foreground mt-0.5">
-                整合既有看板、籌碼、量化模型、自選與事件中心，提供確定性事實與客觀 7 段式 AI 剖析
-              </p>
             </div>
           </div>
         </div>
@@ -513,7 +510,7 @@ export function DailyBrief() {
             <div className="bg-card border border-border/60 rounded-xl p-4">
               <span className="text-xs text-muted-foreground">加權指數收盤</span>
               <div className="flex items-baseline gap-2 mt-1">
-                <span className="text-xl font-bold font-mono">
+                <span className="text-lg font-bold font-mono">
                   {brief.market.taiex_close?.toFixed(2) ?? '—'}
                 </span>
                 {brief.market.taiex_change_pct != null ? (
@@ -531,9 +528,9 @@ export function DailyBrief() {
                 )}
               </div>
               {taiexFreshnessNote(brief.market) && (
-                <div className="mt-1 text-[11px] font-medium text-warning">{taiexFreshnessNote(brief.market)}</div>
+                <div className="mt-1 text-xs font-medium text-warning">{taiexFreshnessNote(brief.market)}</div>
               )}
-              <div className="text-[11px] text-muted-foreground mt-1">
+              <div className="text-xs text-muted-foreground mt-1">
                 成交量：{brief.market.total_turnover > 0
                   ? `${(brief.market.total_turnover / 1e8).toFixed(1)} 億元`
                   : '—'}
@@ -552,7 +549,7 @@ export function DailyBrief() {
                   {brief.market.lower_limit_count})
                 </span>
               </div>
-              <div className="text-[11px] text-muted-foreground mt-1.5">
+              <div className="text-xs text-muted-foreground mt-1.5">
                 平盤 {brief.market.flat_count} 檔
               </div>
             </div>
@@ -583,7 +580,7 @@ export function DailyBrief() {
                   </span>
                 </div>
               </div>
-              <p className="mt-1 text-[10px] leading-snug text-muted-foreground">
+              <p className="mt-1 text-xs leading-snug text-muted-foreground">
                 上市＋上櫃逐檔買賣超股數加總，不是金額；資料日 {brief.market.institutional_as_of ?? '不明'}
                 {brief.market.institutional_stale ? '（不是今日）' : brief.market.institutional_stale == null ? '（無法確認是否為今日）' : ''}
               </p>
@@ -601,7 +598,7 @@ export function DailyBrief() {
                 {brief.market.strongest_sectors.slice(0, 2).map((s, i) => (
                   <span
                     key={i}
-                    className="text-[10px] bg-rose-500/10 text-rose-600 dark:text-rose-400 px-1.5 py-0.5 rounded font-medium"
+                    className="text-xs bg-rose-500/10 text-rose-600 dark:text-rose-400 px-1.5 py-0.5 rounded font-medium"
                   >
                     {s.industry} +{s.change_pct?.toFixed(1)}%
                   </span>
@@ -620,18 +617,13 @@ export function DailyBrief() {
                   7 大重點段落
                 </span>
               </div>
-              <span className="text-xs text-muted-foreground">
-                依據客觀事實推導 • 不下買賣指令 • 僅供研究
-              </span>
+              <span className="text-xs text-muted-foreground">僅供研究，不提供買賣指令</span>
             </div>
 
             {isAiLoading ? (
               <div className="py-12 text-center space-y-3">
                 <Loader2 className="h-8 w-8 animate-spin text-primary mx-auto" />
-                <p className="text-sm font-medium text-foreground">AI 正在深度解讀今日事實與異動...</p>
-                <p className="text-xs text-muted-foreground max-w-md mx-auto">
-                  綜合分析大盤成交結構、強弱族群、持股與自選動態，嚴格依 7 大架構輸出
-                </p>
+                <p className="text-sm font-medium text-foreground">AI 正在整理今日市場資料…</p>
               </div>
             ) : aiSummary ? (
               <div className="space-y-5 text-sm">
@@ -641,7 +633,7 @@ export function DailyBrief() {
                     <span className="w-1.5 h-1.5 rounded-full bg-primary" />
                     A. 今日市場概況與盤勢解讀
                   </h4>
-                  <p className="text-muted-foreground text-xs leading-relaxed pl-3 border-l-2 border-primary/20">
+                  <p className="pl-3 text-xs leading-relaxed text-muted-foreground">
                     {aiSummary.section_a_market}
                   </p>
                 </div>
@@ -652,7 +644,7 @@ export function DailyBrief() {
                     <span className="w-1.5 h-1.5 rounded-full bg-primary" />
                     B. 今日最重要的 3～5 個核心變化
                   </h4>
-                  <ul className="text-muted-foreground text-xs space-y-1 pl-3 border-l-2 border-primary/20 list-disc list-inside">
+                  <ul className="list-inside list-disc space-y-1 pl-3 text-xs text-muted-foreground">
                     {aiSummary.section_b_key_changes.map((item, idx) => (
                       <li key={idx} className="leading-relaxed">
                         {item}
@@ -668,7 +660,7 @@ export function DailyBrief() {
                       <span className="w-1.5 h-1.5 rounded-full bg-primary" />
                       C. 我的持股重點追蹤
                     </h4>
-                    <p className="text-muted-foreground text-xs leading-relaxed pl-3 border-l-2 border-primary/20">
+                    <p className="pl-3 text-xs leading-relaxed text-muted-foreground">
                       {aiSummary.section_c_portfolio}
                     </p>
                   </div>
@@ -678,7 +670,7 @@ export function DailyBrief() {
                       <span className="w-1.5 h-1.5 rounded-full bg-primary" />
                       D. 我的觀察清單動態
                     </h4>
-                    <p className="text-muted-foreground text-xs leading-relaxed pl-3 border-l-2 border-primary/20">
+                    <p className="pl-3 text-xs leading-relaxed text-muted-foreground">
                       {aiSummary.section_d_watchlist}
                     </p>
                   </div>
@@ -690,7 +682,7 @@ export function DailyBrief() {
                     <span className="w-1.5 h-1.5 rounded-full bg-primary" />
                     E. 今日候選股與新機會亮點
                   </h4>
-                  <p className="text-muted-foreground text-xs leading-relaxed pl-3 border-l-2 border-primary/20">
+                  <p className="pl-3 text-xs leading-relaxed text-muted-foreground">
                     {aiSummary.section_e_candidates}
                   </p>
                 </div>
@@ -702,7 +694,7 @@ export function DailyBrief() {
                       <span className="w-1.5 h-1.5 rounded-full bg-primary" />
                       F. 官方重大事件與風險警示
                     </h4>
-                    <p className="text-muted-foreground text-xs leading-relaxed pl-3 border-l-2 border-primary/20">
+                    <p className="pl-3 text-xs leading-relaxed text-muted-foreground">
                       {aiSummary.section_f_risks}
                     </p>
                   </div>
@@ -712,7 +704,7 @@ export function DailyBrief() {
                       <span className="w-1.5 h-1.5 rounded-full bg-primary" />
                       G. 明日／下一交易日核心觀察重點
                     </h4>
-                    <p className="text-muted-foreground text-xs leading-relaxed pl-3 border-l-2 border-primary/20">
+                    <p className="pl-3 text-xs leading-relaxed text-muted-foreground">
                       {aiSummary.section_g_tracking}
                     </p>
                   </div>
@@ -720,10 +712,10 @@ export function DailyBrief() {
 
                 {/* 客觀依據 */}
                 {aiSummary.evidence_sources && aiSummary.evidence_sources.length > 0 && (
-                  <div className="pt-3 border-t border-border/40 flex flex-wrap items-center gap-1.5 text-[11px] text-muted-foreground">
+                  <div className="pt-3 border-t border-border/40 flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
                     <span>客觀依據：</span>
                     {aiSummary.evidence_sources.map((src, i) => (
-                      <span key={i} className="bg-muted px-2 py-0.5 rounded text-[10px]">
+                      <span key={i} className="bg-muted px-2 py-0.5 rounded text-xs">
                         {src}
                       </span>
                     ))}
@@ -734,9 +726,7 @@ export function DailyBrief() {
               <div className="py-8 text-center bg-muted/20 border border-dashed rounded-xl">
                 <Sparkles className="h-8 w-8 text-muted-foreground/40 mx-auto mb-2" />
                 <p className="text-sm font-medium text-foreground">尚未產生今日 AI 深度摘要</p>
-                <p className="text-xs text-muted-foreground mt-1 max-w-sm mx-auto">
-                  為節省模型資源與確保使用者授權，系統不會在背景自動呼叫 AI。請點擊上方按鈕主動觸發。
-                </p>
+                <p className="text-xs text-muted-foreground mt-1">需要時可手動產生摘要。</p>
                 <button
                   onClick={handleGenerateAi}
                   disabled={isAiLoading}
@@ -757,9 +747,6 @@ export function DailyBrief() {
                   <TrendingUp className="h-4 w-4 text-primary" />
                   今日新候選股清單 ({allCandidates.length} 檔)
                 </h3>
-                <p className="text-xs text-muted-foreground mt-0.5">
-                  來自 Live Quant Top 10 新進/跌出標的與既有選股策略匹配，支援一鍵加入自選或保存快照
-                </p>
               </div>
 
               <div className="flex flex-wrap gap-2">
@@ -818,13 +805,13 @@ export function DailyBrief() {
                               </span>
                               <ArrowUpRight className="h-3 w-3 opacity-60" />
                             </Link>
-                            <span className="text-[10px] text-muted-foreground block mt-0.5">
+                            <span className="text-xs text-muted-foreground block mt-0.5">
                               來源：{c.source_name}
                             </span>
                           </div>
 
                           {c.quant_score !== null && (
-                            <span className="text-[11px] font-mono px-1.5 py-0.5 rounded bg-primary/10 text-primary font-semibold">
+                            <span className="text-xs font-mono px-1.5 py-0.5 rounded bg-primary/10 text-primary font-semibold">
                               QS {c.quant_score.toFixed(1)}
                             </span>
                           )}
@@ -848,7 +835,7 @@ export function DailyBrief() {
                             {c.match_reasons.map((r, i) => (
                               <span
                                 key={i}
-                                className="text-[10px] bg-background px-1.5 py-0.5 rounded border border-border/40 text-muted-foreground"
+                                className="text-xs bg-background px-1.5 py-0.5 rounded border border-border/40 text-muted-foreground"
                               >
                                 {r}
                               </span>
@@ -861,7 +848,7 @@ export function DailyBrief() {
                       <div className="mt-3 pt-2 border-t border-border/40 flex items-center justify-between text-xs">
                         <Link
                           to={`/stocks/${c.symbol}`}
-                          className="text-primary hover:underline text-[11px] font-medium"
+                          className="text-primary hover:underline text-xs font-medium"
                         >
                           查看個股分析
                         </Link>
@@ -875,7 +862,7 @@ export function DailyBrief() {
                           }
                           disabled={toggleWatchlistMutation.isPending}
                           className={cn(
-                            'inline-flex items-center gap-1 text-[11px] px-2 py-1 rounded transition-colors',
+                            'inline-flex items-center gap-1 text-xs px-2 py-1 rounded transition-colors',
                             isWatchlisted
                               ? 'bg-amber-500/10 text-amber-600 dark:text-amber-400 font-medium'
                               : 'bg-muted hover:bg-muted/80 text-muted-foreground',
@@ -913,7 +900,7 @@ export function DailyBrief() {
                         <span className="font-semibold">
                           {ev.symbol} {ev.title}
                         </span>
-                        <p className="text-[11px] mt-0.5 opacity-90">{ev.description}</p>
+                        <p className="text-xs mt-0.5 opacity-90">{ev.description}</p>
                       </div>
                     </div>
                   ))}
@@ -927,7 +914,7 @@ export function DailyBrief() {
                         <span className="font-semibold">
                           {ev.symbol} {ev.title}
                         </span>
-                        <p className="text-[11px] mt-0.5 opacity-90">{ev.description}</p>
+                        <p className="text-xs mt-0.5 opacity-90">{ev.description}</p>
                       </div>
                     </div>
                   ))}
@@ -948,9 +935,9 @@ export function DailyBrief() {
                     <div key={i} className="text-xs p-2 rounded bg-muted/30 border border-border/40">
                       <div className="flex items-center justify-between gap-2">
                         <span className="font-medium text-foreground line-clamp-1">{news.title}</span>
-                        <span className="text-[10px] text-muted-foreground shrink-0">{news.source}</span>
+                        <span className="text-xs text-muted-foreground shrink-0">{news.source}</span>
                       </div>
-                      <p className="text-[11px] text-muted-foreground mt-1 line-clamp-2">
+                      <p className="text-xs text-muted-foreground mt-1 line-clamp-2">
                         {news.summary}
                       </p>
                     </div>
@@ -999,14 +986,14 @@ export function DailyBrief() {
                   >
                     <div>
                       <div className="font-medium text-foreground">{h.brief_date} 每日摘要</div>
-                      <div className="text-[10px] text-muted-foreground mt-0.5">
+                      <div className="text-xs text-muted-foreground mt-0.5">
                         大盤 {h.structured_brief.market.taiex_close?.toFixed(1) ?? '-'}
                         {taiexFreshnessNote(h.structured_brief.market) && `（${taiexFreshnessNote(h.structured_brief.market)}）`} • 情緒{' '}
                         {h.structured_brief.market.sentiment_label}
                       </div>
                     </div>
                     {h.ai_summary && (
-                      <span className="text-[10px] px-1.5 py-0.5 rounded bg-primary/20 text-primary font-medium">
+                      <span className="text-xs px-1.5 py-0.5 rounded bg-primary/20 text-primary font-medium">
                         含 AI 解讀
                       </span>
                     )}

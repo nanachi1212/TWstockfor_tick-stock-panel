@@ -112,8 +112,8 @@ export function TaiwanHistoryDataCard() {
       activeJob.status !== 'failed')
 
   const assetInfo = historyStatus?.asset_info
-  const approxSize = assetInfo?.approx_size_mb ?? 51
-  const dateRange = assetInfo?.date_range ?? '2024-01-02 ~ 2026-10-07'
+  const approxSize = assetInfo?.approx_size_mb ?? 57
+  const dateRange = assetInfo?.date_range ?? '2024-01-02 ~ 2026-11-02'
 
   return (
     <section className="rounded-card border border-border bg-surface p-6">
@@ -128,11 +128,11 @@ export function TaiwanHistoryDataCard() {
                 台股歷史日 K 資料庫
               </h3>
               {historyStatus?.has_data ? (
-                <span className="inline-flex items-center gap-1 text-[10px] text-emerald-500 bg-emerald-500/10 px-2 py-0.5 rounded font-medium">
+                <span className="inline-flex items-center gap-1 text-xs text-emerald-500 bg-emerald-500/10 px-2 py-0.5 rounded font-medium">
                   <CheckCircle2 className="h-3 w-3" /> 資料已就緒
                 </span>
               ) : (
-                <span className="inline-flex items-center gap-1 text-[10px] text-amber-500 bg-amber-500/10 px-2 py-0.5 rounded font-medium">
+                <span className="inline-flex items-center gap-1 text-xs text-amber-500 bg-amber-500/10 px-2 py-0.5 rounded font-medium">
                   <AlertCircle className="h-3 w-3" /> 缺少歷史日 K
                 </span>
               )}
@@ -232,7 +232,7 @@ export function TaiwanHistoryDataCard() {
                   style={{ width: `${Math.max(5, activeJob.progress)}%` }}
                 />
               </div>
-              <p className="text-[11px] text-secondary">{activeJob.message}</p>
+              <p className="text-xs text-secondary">{activeJob.message}</p>
             </div>
           )}
 
@@ -252,7 +252,7 @@ export function TaiwanHistoryDataCard() {
                   bootstrapMutation.mutate()
                 }
               }}
-              className="text-[11px] text-muted hover:text-accent underline transition-colors"
+              className="text-xs text-muted hover:text-accent underline transition-colors"
             >
               重新下載完整歷史資料包
             </button>
@@ -317,7 +317,7 @@ export function TaiwanHistoryDataCard() {
                 </span>
               </button>
 
-              <span className="text-[11px] text-muted">
+              <span className="text-xs text-muted">
                 全程採原子式寫入，嚴格隔離 user_data，安全無風險。
               </span>
             </div>

@@ -22,6 +22,12 @@ window.addEventListener('load', () => {
   try { sessionStorage.removeItem('tf-chunk-reload') } catch { /* ignore */ }
 })
 
+if (import.meta.env.PROD && window.isSecureContext && 'serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('/sw.js').catch(err => console.warn('Service Worker 註冊失敗', err))
+  })
+}
+
 // 全局認證攔截: 任何 query/mutation 收到 401 (未登錄/會話過期) → 跳登錄頁。
 // api.ts 的 request() 已對 401 靜默 (不彈 toast), 這裡統一負責跳轉。
 // 排除 /login 自身的請求, 避免登錄頁請求失敗又跳登錄形成死循環。

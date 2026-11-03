@@ -62,12 +62,12 @@ export function WatchlistQuickGlance({ onStockClick, anomalies, diagnosticsLoadi
     .filter((symbol): symbol is string => Boolean(symbol))).size
 
   return (
-    <section className="rounded-card border border-border bg-surface/80 p-2.5 shadow-[0_1px_2px_hsl(var(--border)/0.4)] backdrop-blur-sm">
-      <SectionTitle icon={Eye} title="我的觀察" hint={rows.length ? `${rows.length} 檔 · 行情 ${enriched.data?.as_of ?? '—'}` : undefined} />
-      {rows.length > 0 && <div className="mb-1 flex flex-wrap gap-1 text-[9px] text-secondary">
+    <section className="rounded-card border border-border bg-surface p-4">
+      <SectionTitle icon={Eye} title="我的觀察" hint={rows.length ? `${rows.length} 檔，行情 ${enriched.data?.as_of ?? '—'}` : undefined} />
+      {rows.length > 0 && <div className="mb-1 flex flex-wrap gap-1 text-xs text-secondary">
         <span className="rounded bg-elevated px-1.5 py-0.5">今日 Top 10 {quant.loading ? '—' : quant.error || !quant.validRun ? 'unavailable' : `${rows.filter(row => rankedBySymbol.has(row.symbol)).length} 檔`}</span>
         <span className="rounded bg-elevated px-1.5 py-0.5">新進 Top 10 {alerts.isPending ? '—' : alerts.isError ? 'unavailable' : `${watchlistTop10Entries} 檔`}</span>
-        <span className="rounded bg-elevated px-1.5 py-0.5">異常 {diagnosticsLoading ? '—' : diagnosticsError || !diagnosticsCurrent ? 'unavailable' : !diagnosticsComplete ? '資料不完整' : `${rows.filter(row => (anomalyBySymbol.get(row.symbol)?.signal_count ?? 0) > 0).length} 檔 · ${anomalies.trade_date}`}</span>
+        <span className="rounded bg-elevated px-1.5 py-0.5">異常 {diagnosticsLoading ? '—' : diagnosticsError || !diagnosticsCurrent ? 'unavailable' : !diagnosticsComplete ? '資料不完整' : `${rows.filter(row => (anomalyBySymbol.get(row.symbol)?.signal_count ?? 0) > 0).length} 檔，${anomalies.trade_date}`}</span>
         <span className="rounded bg-elevated px-1.5 py-0.5">今日提醒 {alerts.isPending ? '—' : alerts.isError ? 'unavailable' : `${watchlistAlerts.length} 則`}</span>
       </div>}
       {watchlist.isLoading || enriched.isLoading ? (
@@ -75,12 +75,12 @@ export function WatchlistQuickGlance({ onStockClick, anomalies, diagnosticsLoadi
           <Loader2 className="h-3.5 w-3.5 animate-spin" />正在讀取自選股資料…
         </div>
       ) : watchlist.isError && enriched.isError && rows.length === 0 ? (
-        <p className="py-4 text-xs text-muted">目前無法讀取自選股資料,不影響其他功能使用。</p>
+        <p className="py-4 text-xs text-muted">目前無法讀取自選股資料。</p>
       ) : rows.length === 0 ? (
         <div className="py-4 text-center">
           <p className="text-xs text-secondary">尚未加入任何自選股</p>
-          <Link to="/watchlist" className="mt-1.5 inline-block text-[11px] text-accent hover:text-accent/80 transition-colors">
-            前往自選股 →
+          <Link to="/watchlist" className="interactive-target mt-2 inline-flex items-center rounded-btn px-2 text-xs text-accent transition-colors hover:bg-accent/10">
+            開啟自選股
           </Link>
         </div>
       ) : (
@@ -88,33 +88,33 @@ export function WatchlistQuickGlance({ onStockClick, anomalies, diagnosticsLoadi
           {attention.map(r => (
             <div
               key={r.symbol}
-              className="flex w-full items-center justify-between gap-2 rounded-md bg-elevated/40 px-2 py-1.5 text-left border border-transparent hover:border-border/60"
+              className="flex min-h-12 w-full items-center justify-between gap-2 rounded-md border border-transparent bg-elevated/40 px-2.5 py-2 text-left hover:border-border/60"
             >
               <button type="button" onClick={() => onStockClick(r.symbol, r.name ?? undefined)} aria-label={`查看 ${r.name || r.symbol} 走勢`} className="min-w-0 flex-1 text-left hover:brightness-110 transition-colors">
-                <div className="truncate text-[11px] text-foreground">{r.name || r.symbol}</div>
-                <div className="font-mono text-[9px] text-muted">{r.symbol}</div>
+                <div className="truncate text-xs text-foreground">{r.name || r.symbol}</div>
+                <div className="font-mono text-xs text-muted">{r.symbol}</div>
               </button>
               <div className="text-right shrink-0">
-                <div className="font-mono text-[11px] text-foreground">{fmtPrice(r.close)}</div>
-                <div className={`font-mono text-[10px] font-semibold ${pctClass(r.change_pct)}`}>{fmtStockPct(r.change_pct)}</div>
+                <div className="font-mono text-xs text-foreground">{fmtPrice(r.close)}</div>
+                <div className={`font-mono text-xs font-semibold ${pctClass(r.change_pct)}`}>{fmtStockPct(r.change_pct)}</div>
                 {(() => {
                   const signal = rankedBySymbol.get(r.symbol)
                   const summary = signal
-                    ? `#${signal.rank} · Quant ${fmtStockPct(signal.score)} · ${selectionReasons(signal).slice(0, 1).join('') || '符合既有動能條件'}`
+                    ? `#${signal.rank}，Quant ${fmtStockPct(signal.score)}，${selectionReasons(signal).slice(0, 1).join('') || '符合既有動能條件'}`
                     : quant.validRun ? '今日未進入 Top 10' : '今日 Quant 排名 unavailable'
                   const anomaly = anomalyBySymbol.get(r.symbol)
-                  return <div className="max-w-[240px] truncate text-[9px] text-secondary">{summary}{anomaly?.signal_count ? ` · 異常 ${anomaly.signal_count} 項` : ''}</div>
+                  return <div className="max-w-[240px] truncate text-xs text-secondary">{summary}{anomaly?.signal_count ? `，異常 ${anomaly.signal_count} 項` : ''}</div>
                 })()}
               </div>
-              <Link to={`/stocks/${encodeURIComponent(r.symbol)}`} title="查看詳情" aria-label={`查看 ${r.symbol} 詳情`} className="inline-flex shrink-0 items-center gap-1 rounded border border-border px-1.5 py-1 text-[10px] text-muted hover:text-accent">
+              <Link to={`/stocks/${encodeURIComponent(r.symbol)}`} title="查看詳情" aria-label={`查看 ${r.symbol} 詳情`} className="interactive-target inline-flex shrink-0 items-center gap-1 rounded-btn border border-border px-2 text-xs text-muted hover:text-accent">
                 <Star className="h-3 w-3" />詳情
               </Link>
-              <button type="button" onClick={() => remove.mutate(r.symbol)} disabled={remove.isPending} title="移除觀察" aria-label={`移除 ${r.symbol} 觀察`} className="inline-flex shrink-0 items-center justify-center rounded p-1 text-muted hover:bg-danger/10 hover:text-danger disabled:opacity-50">
+              <button type="button" onClick={() => remove.mutate(r.symbol)} disabled={remove.isPending} title="移除觀察" aria-label={`移除 ${r.symbol} 觀察`} className="interactive-target inline-flex shrink-0 items-center justify-center rounded-btn text-muted hover:bg-danger/10 hover:text-danger disabled:opacity-50">
                 <X className="h-3.5 w-3.5" />
               </button>
             </div>
           ))}
-          {remove.isError && <p role="alert" className="text-[10px] text-danger">移除觀察失敗，請重試。</p>}
+          {remove.isError && <p role="alert" className="text-xs text-danger">移除觀察失敗，請重試。</p>}
         </div>
       )}
     </section>

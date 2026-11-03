@@ -23,12 +23,12 @@ export function ScreenerAbnormalPanel() {
           <Zap className="w-4 h-4 text-amber-400" />
           <span className="font-semibold text-zinc-200 text-sm">台股市場異常異動與資金流向診斷 (Abnormal Diagnostics)</span>
           {abnormalData && (
-            <span className="text-zinc-500 font-mono text-[11px]">
+            <span className="text-zinc-500 font-mono text-xs">
               全市場偵測到 {abnormalData.diagnostic_count} 檔標的觸發客觀異常訊號 (純確定性無推薦)
             </span>
           )}
         </div>
-        <div className="flex items-center gap-2 text-[11px] text-zinc-400">
+        <div className="flex items-center gap-2 text-xs text-zinc-400">
           <span>訊號篩選:</span>
           <select
             value={abnormalFilter}
@@ -52,7 +52,7 @@ export function ScreenerAbnormalPanel() {
 
       <div className="overflow-x-auto max-h-72 overflow-y-auto">
         <table className="w-full text-left border-collapse">
-          <thead className="sticky top-0 bg-zinc-950/90 text-zinc-400 text-[11px] border-b border-zinc-800">
+          <thead className="sticky top-0 bg-zinc-950/90 text-zinc-400 text-xs border-b border-zinc-800">
             <tr>
               <th className="py-1.5 px-2">股票名稱</th>
               <th className="py-1.5 px-2">所屬產業</th>
@@ -66,7 +66,7 @@ export function ScreenerAbnormalPanel() {
               <th className="py-1.5 px-2">異常訊號特徵標籤</th>
             </tr>
           </thead>
-          <tbody className="divide-y divide-zinc-800/40 text-[11px] font-mono">
+          <tbody className="divide-y divide-zinc-800/40 text-xs font-mono">
             {/* Data-first branching: cached/populated abnormalData always wins over a
                 concurrent/subsequent background loading or error state (Phase 7L §3) */}
             {abnormalData ? (
@@ -85,7 +85,7 @@ export function ScreenerAbnormalPanel() {
                     className="hover:text-amber-400 hover:underline inline-flex items-center gap-1"
                   >
                     {item.name}
-                    <span className="text-zinc-500 font-mono text-[10px]">({item.code})</span>
+                    <span className="text-zinc-500 font-mono text-xs">({item.code})</span>
                   </Link>
                 </td>
                 <td className="py-1.5 px-2 font-sans text-zinc-400">{item.industry || '—'}</td>
@@ -125,7 +125,7 @@ export function ScreenerAbnormalPanel() {
                     {item.signals.map((sig, idx) => (
                       <span
                         key={idx}
-                        className="px-1.5 py-0.5 rounded text-[10px] bg-zinc-800 border border-zinc-700 text-zinc-300"
+                        className="px-1.5 py-0.5 rounded text-xs bg-zinc-800 border border-zinc-700 text-zinc-300"
                         title={`${sig.formula} (觀測值: ${sig.observed}, 基期: ${sig.baseline})`}
                       >
                         {sig.type === 'VOLUME_SPIKE' && '爆量'}

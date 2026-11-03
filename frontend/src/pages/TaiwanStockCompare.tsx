@@ -211,7 +211,7 @@ export function TaiwanStockCompare() {
               </span>
             ))}
             {selected.length === 0 && (
-              <span className="text-[11px] text-muted py-1">尚未選擇任何標的，請於下方搜尋新增</span>
+              <span className="text-xs text-muted py-1">尚未選擇任何標的，請於下方搜尋新增</span>
             )}
           </div>
 
@@ -251,7 +251,7 @@ export function TaiwanStockCompare() {
                         <span className="font-mono text-xs font-bold text-accent">{item.symbol}</span>
                         <span className="text-xs font-medium text-foreground">{item.name}</span>
                       </div>
-                      <span className="text-[10px] text-muted">{item.exchange === 'TPEX' ? '上櫃' : '上市'}</span>
+                      <span className="text-xs text-muted">{item.exchange === 'TPEX' ? '上櫃' : '上市'}</span>
                     </button>
                   ))}
                 </div>
@@ -266,7 +266,7 @@ export function TaiwanStockCompare() {
             <div className="flex flex-wrap items-center justify-between gap-2">
               <h3 className="text-xs font-semibold text-foreground">確定性客觀比較（純本地計算，非 AI）</h3>
               <div className="flex items-center gap-1.5">
-                <span className="text-[11px] text-muted">比較日期</span>
+                <span className="text-xs text-muted">比較日期</span>
                 <DatePicker
                   value={explicitDate || ''}
                   onChange={v => setDate(v)}
@@ -300,7 +300,7 @@ export function TaiwanStockCompare() {
             {data && (
               <>
                 {data.unsupported_symbols.length > 0 && (
-                  <div className="p-2.5 bg-amber-950/30 border border-amber-900/50 rounded-lg text-[11px] text-amber-400">
+                  <div className="p-2.5 bg-amber-950/30 border border-amber-900/50 rounded-lg text-xs text-amber-400">
                     無法解析之代碼：{data.unsupported_symbols.join(', ')}
                   </div>
                 )}
@@ -314,7 +314,7 @@ export function TaiwanStockCompare() {
                         {data.instruments.map(inst => (
                           <th key={inst.symbol} className="text-left py-2 px-3 font-mono font-bold text-accent min-w-[140px]">
                             <div>{inst.context.identity.name}</div>
-                            <div className="text-[10px] text-muted font-normal">{inst.symbol}</div>
+                            <div className="text-xs text-muted font-normal">{inst.symbol}</div>
                           </th>
                         ))}
                       </tr>
@@ -326,7 +326,7 @@ export function TaiwanStockCompare() {
                           <td key={inst.symbol} className="py-2 px-3">
                             {inst.context.identity.instrument_type === 'etf' ? 'ETF' : '股票'}
                             {inst.context.etf_context.leverage_multiplier != null && (
-                              <span className="ml-1 text-[10px] text-muted">
+                              <span className="ml-1 text-xs text-muted">
                                 (槓桿 {inst.context.etf_context.leverage_multiplier}x)
                               </span>
                             )}
@@ -399,7 +399,7 @@ export function TaiwanStockCompare() {
                 {freshnessCaption && (
                   <p
                     className={cn(
-                      'text-[10px]',
+                      'text-xs',
                       freshnessCaption.tone === 'amber' ? 'text-amber-400' : 'text-muted',
                     )}
                   >
@@ -426,11 +426,11 @@ export function TaiwanStockCompare() {
                 <div>
                   <h3 className="font-semibold text-sm text-foreground flex items-center gap-2">
                     AI 客觀比較報告
-                    <span className="text-[10px] bg-purple-950/60 border border-purple-800 text-purple-300 px-2 py-0.5 rounded font-mono">
+                    <span className="text-xs bg-purple-950/60 border border-purple-800 text-purple-300 px-2 py-0.5 rounded font-mono">
                       無優劣排序、無投資建議
                     </span>
                   </h3>
-                  <p className="text-[11px] text-muted">僅依上方確定性資料進行客觀比較解讀，絕不給予優劣排序或投資建議</p>
+                  <p className="text-xs text-muted">僅依上方確定性資料進行客觀比較解讀，絕不給予優劣排序或投資建議</p>
                 </div>
               </div>
               <button
@@ -469,60 +469,60 @@ export function TaiwanStockCompare() {
               <div className="py-8 text-center text-muted text-xs border border-dashed border-border/40 rounded-xl bg-base/30">
                 <Sparkles className="w-8 h-8 mx-auto mb-2 text-purple-400/40" />
                 <p className="font-medium text-foreground">尚未生成 AI 客觀比較</p>
-                <p className="text-[11px] text-muted mt-1">點擊上方按鈕以進行封閉事實邊界之客觀比較解讀 (不自動呼叫)</p>
+                <p className="text-xs text-muted mt-1">點擊上方按鈕以進行封閉事實邊界之客觀比較解讀 (不自動呼叫)</p>
               </div>
             )}
 
             {aiComparison && (
               <div className="space-y-4 text-xs">
                 <div className="bg-base/60 p-3.5 rounded-lg border border-border/50">
-                  <span className="text-[11px] font-semibold text-purple-300 block mb-1">【比較摘要】</span>
+                  <span className="text-xs font-semibold text-purple-300 block mb-1">【比較摘要】</span>
                   <p className="text-foreground leading-relaxed text-xs">{aiComparison.comparison_overview}</p>
                 </div>
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                   {aiComparison.price_technical_comparison && (
                     <div className="bg-base/40 p-3 rounded-lg border border-border/40">
-                      <span className="text-[11px] font-semibold text-muted block mb-1">量價與技術位階比較</span>
-                      <p className="text-foreground text-[11px] leading-normal">{aiComparison.price_technical_comparison}</p>
+                      <span className="text-xs font-semibold text-muted block mb-1">量價與技術位階比較</span>
+                      <p className="text-foreground text-xs leading-normal">{aiComparison.price_technical_comparison}</p>
                     </div>
                   )}
                   {aiComparison.institutional_comparison && (
                     <div className="bg-base/40 p-3 rounded-lg border border-border/40">
-                      <span className="text-[11px] font-semibold text-muted block mb-1">三大法人籌碼比較</span>
-                      <p className="text-foreground text-[11px] leading-normal">{aiComparison.institutional_comparison}</p>
+                      <span className="text-xs font-semibold text-muted block mb-1">三大法人籌碼比較</span>
+                      <p className="text-foreground text-xs leading-normal">{aiComparison.institutional_comparison}</p>
                     </div>
                   )}
                   {aiComparison.margin_comparison && (
                     <div className="bg-base/40 p-3 rounded-lg border border-border/40">
-                      <span className="text-[11px] font-semibold text-muted block mb-1">融資融券比較</span>
-                      <p className="text-foreground text-[11px] leading-normal">{aiComparison.margin_comparison}</p>
+                      <span className="text-xs font-semibold text-muted block mb-1">融資融券比較</span>
+                      <p className="text-foreground text-xs leading-normal">{aiComparison.margin_comparison}</p>
                     </div>
                   )}
                   {aiComparison.fundamentals_comparison && (
                     <div className="bg-base/40 p-3 rounded-lg border border-border/40">
-                      <span className="text-[11px] font-semibold text-muted block mb-1">基本面 / ETF 屬性比較</span>
-                      <p className="text-foreground text-[11px] leading-normal">{aiComparison.fundamentals_comparison}</p>
+                      <span className="text-xs font-semibold text-muted block mb-1">基本面 / ETF 屬性比較</span>
+                      <p className="text-foreground text-xs leading-normal">{aiComparison.fundamentals_comparison}</p>
                     </div>
                   )}
                   {aiComparison.abnormal_diagnostics_comparison && (
                     <div className="bg-base/40 p-3 rounded-lg border border-border/40 md:col-span-2">
-                      <span className="text-[11px] font-semibold text-muted block mb-1">異常訊號比較</span>
-                      <p className="text-foreground text-[11px] leading-normal">{aiComparison.abnormal_diagnostics_comparison}</p>
+                      <span className="text-xs font-semibold text-muted block mb-1">異常訊號比較</span>
+                      <p className="text-foreground text-xs leading-normal">{aiComparison.abnormal_diagnostics_comparison}</p>
                     </div>
                   )}
                 </div>
 
                 {aiComparison.key_observations.length > 0 && (
                   <div className="bg-base/40 p-3.5 rounded-lg border border-border/40 space-y-2">
-                    <span className="text-[11px] font-semibold text-emerald-400 block">【重點客觀比較觀察】</span>
+                    <span className="text-xs font-semibold text-emerald-400 block">【重點客觀比較觀察】</span>
                     <div className="space-y-2">
                       {aiComparison.key_observations.map((obs, idx) => (
                         <div key={idx} className="flex flex-col gap-1 bg-surface/60 p-2 rounded border border-border/30">
                           <span className="text-foreground text-xs leading-normal">{obs.text}</span>
                           <div className="flex flex-wrap gap-1 mt-0.5">
                             {obs.evidence_refs.map((ref, rIdx) => (
-                              <span key={rIdx} className="text-[10px] font-mono px-1.5 py-0.2 bg-emerald-950/40 border border-emerald-800/40 text-emerald-300 rounded">
+                              <span key={rIdx} className="text-xs font-mono px-1.5 py-0.2 bg-emerald-950/40 border border-emerald-800/40 text-emerald-300 rounded">
                                 證據: {evidenceLabel(ref)}
                               </span>
                             ))}
@@ -535,14 +535,14 @@ export function TaiwanStockCompare() {
 
                 {aiComparison.risk_factors.length > 0 && (
                   <div className="bg-base/40 p-3.5 rounded-lg border border-border/40 space-y-2">
-                    <span className="text-[11px] font-semibold text-amber-400 block">【數據揭示之風險特徵】</span>
+                    <span className="text-xs font-semibold text-amber-400 block">【數據揭示之風險特徵】</span>
                     <div className="space-y-2">
                       {aiComparison.risk_factors.map((rsk, idx) => (
                         <div key={idx} className="flex flex-col gap-1 bg-surface/60 p-2 rounded border border-border/30">
                           <span className="text-foreground text-xs leading-normal">{rsk.text}</span>
                           <div className="flex flex-wrap gap-1 mt-0.5">
                             {rsk.evidence_refs.map((ref, rIdx) => (
-                              <span key={rIdx} className="text-[10px] font-mono px-1.5 py-0.2 bg-amber-950/40 border border-amber-800/40 text-amber-300 rounded">
+                              <span key={rIdx} className="text-xs font-mono px-1.5 py-0.2 bg-amber-950/40 border border-amber-800/40 text-amber-300 rounded">
                                 依據: {evidenceLabel(ref)}
                               </span>
                             ))}
@@ -554,9 +554,9 @@ export function TaiwanStockCompare() {
                 )}
 
                 {aiComparison.missing_information.length > 0 && (
-                  <div className="bg-base/30 p-2.5 rounded-lg border border-border/30 text-[11px] text-muted">
+                  <div className="bg-base/30 p-2.5 rounded-lg border border-border/30 text-xs text-muted">
                     <span className="font-semibold text-zinc-400 block mb-1">【系統數據覆蓋度說明】:</span>
-                    <ul className="list-disc list-inside space-y-0.5 font-mono text-[10px]">
+                    <ul className="list-disc list-inside space-y-0.5 font-mono text-xs">
                       {aiComparison.missing_information.map((item, idx) => (
                         <li key={idx} className="text-zinc-400">{item}</li>
                       ))}
@@ -564,7 +564,7 @@ export function TaiwanStockCompare() {
                   </div>
                 )}
 
-                <div className="p-2.5 bg-zinc-950/40 border border-zinc-800/60 rounded text-[10px] text-zinc-500 font-sans text-center">
+                <div className="p-2.5 bg-zinc-950/40 border border-zinc-800/60 rounded text-xs text-zinc-500 font-sans text-center">
                   {aiComparison.disclaimer}
                 </div>
               </div>

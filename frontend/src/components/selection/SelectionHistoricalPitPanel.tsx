@@ -159,8 +159,8 @@ export function SelectionHistoricalPitPanel({ data }: { data: TrendLiquidityV1Hi
         <ul className="list-disc space-y-1 pl-4 text-muted-foreground">
           {[...artifact.limitations, ...artifact.follow_up_data_work].map(text => <li key={text}>{text}</li>)}
         </ul>
-        <p className="mt-3 break-all font-mono text-[11px] text-muted-foreground">
-          spec {artifact.spec_fingerprint.slice(0, 12)} · result {artifact.result_fingerprint.slice(0, 12)} · code {artifact.code_sha.slice(0, 8)} · {artifact.generated_at}
+        <p className="mt-3 break-all font-mono text-xs text-muted-foreground">
+          spec {artifact.spec_fingerprint.slice(0, 12)}，result {artifact.result_fingerprint.slice(0, 12)}，code {artifact.code_sha.slice(0, 8)}，{artifact.generated_at}
         </p>
       </section>
     </div>

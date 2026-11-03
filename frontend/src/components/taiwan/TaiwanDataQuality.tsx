@@ -130,7 +130,7 @@ export function DataQualityBadge({
     <span
       title={tooltip}
       className={cn(
-        'cursor-help inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] border',
+        'cursor-help inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-xs border',
         TONE_CLASS[info.tone],
         className,
       )}

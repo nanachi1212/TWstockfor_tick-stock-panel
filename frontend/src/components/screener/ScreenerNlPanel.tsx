@@ -21,7 +21,7 @@ export function ScreenerNlPanel({ nlQuery, setNlQuery, nlTranslating, nlTranslat
         <div className="flex items-center gap-2">
           <Sparkles className="w-4 h-4 text-purple-400" />
           <span className="font-semibold text-sm text-zinc-100">AI 自然語言條件解析 (選股條件轉換層)</span>
-          <span className="text-[11px] text-zinc-500">純翻譯層：解析結果將映射至下方篩選表單，不直接出股</span>
+          <span className="text-xs text-zinc-500">純翻譯層：解析結果將映射至下方篩選表單，不直接出股</span>
         </div>
       </div>
 
@@ -71,14 +71,14 @@ export function ScreenerNlPanel({ nlQuery, setNlQuery, nlTranslating, nlTranslat
             <div className="flex items-center gap-2">
               <button
                 onClick={() => setNlTranslation(null)}
-                className="px-2 py-1 rounded bg-zinc-800 hover:bg-zinc-700 text-zinc-300 text-[11px] transition-colors"
+                className="px-2 py-1 rounded bg-zinc-800 hover:bg-zinc-700 text-zinc-300 text-xs transition-colors"
               >
                 取消
               </button>
               {nlTranslation.request && (
                 <button
                   onClick={handleApplyTranslation}
-                  className="px-3 py-1 rounded bg-purple-600 hover:bg-purple-500 text-white font-medium text-[11px] transition-colors shadow-sm"
+                  className="px-3 py-1 rounded bg-purple-600 hover:bg-purple-500 text-white font-medium text-xs transition-colors shadow-sm"
                 >
                   套用條件至表單
                 </button>
@@ -94,7 +94,7 @@ export function ScreenerNlPanel({ nlQuery, setNlQuery, nlTranslating, nlTranslat
                 {nlTranslation.recognized_conditions.map((cond, idx) => (
                   <span
                     key={idx}
-                    className="px-2 py-0.5 rounded bg-emerald-950/60 border border-emerald-800/50 text-emerald-300 text-[11px] font-mono"
+                    className="px-2 py-0.5 rounded bg-emerald-950/60 border border-emerald-800/50 text-emerald-300 text-xs font-mono"
                   >
                     ✓ {cond}
                   </span>
@@ -111,7 +111,7 @@ export function ScreenerNlPanel({ nlQuery, setNlQuery, nlTranslating, nlTranslat
                 {nlTranslation.unsupported_conditions.map((cond, idx) => (
                   <span
                     key={idx}
-                    className="px-2 py-0.5 rounded bg-amber-950/60 border border-amber-800/50 text-amber-300 text-[11px]"
+                    className="px-2 py-0.5 rounded bg-amber-950/60 border border-amber-800/50 text-amber-300 text-xs"
                   >
                     ⚠ {cond}
                   </span>
@@ -122,7 +122,7 @@ export function ScreenerNlPanel({ nlQuery, setNlQuery, nlTranslating, nlTranslat
 
           {/* Clarification Message */}
           {nlTranslation.clarification_message && (
-            <div className="text-zinc-400 bg-zinc-900/60 rounded p-2 text-[11px] border border-zinc-800">
+            <div className="text-zinc-400 bg-zinc-900/60 rounded p-2 text-xs border border-zinc-800">
               <span className="text-purple-400 font-medium">提示說明：</span> {nlTranslation.clarification_message}
             </div>
           )}

@@ -115,7 +115,7 @@ export function TaiwanRulesList({ rules, onEdit, isLoading = false, isError = fa
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div className="flex items-center gap-1.5">
             <h3 className="text-xs font-bold text-foreground">自動監控（來自承接雷達）</h3>
-            <span className="rounded-md bg-elevated/50 px-1.5 py-0.5 text-[10px] font-medium text-muted">
+            <span className="rounded-md bg-elevated/50 px-1.5 py-0.5 text-xs font-medium text-muted">
               {autoRules.length}
             </span>
           </div>
@@ -150,7 +150,7 @@ export function TaiwanRulesList({ rules, onEdit, isLoading = false, isError = fa
           <div className="flex flex-col items-center justify-center rounded-xl border border-dashed border-border/70 p-5 text-center text-muted">
             <ListChecks className="h-5 w-5 text-muted/60 mb-1" />
             <p className="text-xs font-medium text-foreground">尚未建立自動監控規則</p>
-            <p className="text-[10px] text-muted mt-0.5">點擊「立即同步」同步自選股承接計畫，或至每日選股加入自選</p>
+            <p className="text-xs text-muted mt-0.5">點擊「立即同步」同步自選股承接計畫，或至每日選股加入自選</p>
           </div>
         ) : (
           <div className="space-y-2">
@@ -165,12 +165,12 @@ export function TaiwanRulesList({ rules, onEdit, isLoading = false, isError = fa
                   <div className="flex items-center gap-2">
                     <span className="font-mono font-bold text-accent">{symbol}</span>
                     {(
-                      <span className="rounded bg-elevated px-1.5 py-0.5 text-[10px] text-muted">
+                      <span className="rounded bg-elevated px-1.5 py-0.5 text-xs text-muted">
                         計畫日 {planDate || '資料不足'}
                       </span>
                     )}
                   </div>
-                  <span className="rounded bg-accent/10 px-1.5 py-0.5 text-[10px] font-semibold text-accent">
+                  <span className="rounded bg-accent/10 px-1.5 py-0.5 text-xs font-semibold text-accent">
                     承接雷達
                   </span>
                 </div>
@@ -188,21 +188,21 @@ export function TaiwanRulesList({ rules, onEdit, isLoading = false, isError = fa
                     >
                       <div className="flex flex-col min-w-0">
                         <span className="break-words font-semibold text-foreground">{r.name}</span>
-                        <div className="flex flex-wrap items-center gap-1.5 mt-0.5 text-[11px]">
+                        <div className="flex flex-wrap items-center gap-1.5 mt-0.5 text-xs">
                           <span className="font-mono font-bold text-accent">
                             {r.threshold.toLocaleString()} 元
                           </span>
-                          <span className="text-muted">·</span>
+                          <span className="text-muted">，</span>
                           {r.notify_channels && r.notify_channels.length > 0 ? (
                             <div className="flex shrink-0 flex-wrap items-center gap-1">
                               {r.notify_channels.map(ch => (
-                                <span key={ch} className="rounded bg-elevated px-1 py-0.5 text-[10px] text-muted font-medium">
+                                <span key={ch} className="rounded bg-elevated px-1 py-0.5 text-xs text-muted font-medium">
                                   {ch === 'telegram' ? 'Telegram' : ch === 'line' ? 'LINE' : '通知'}
                                 </span>
                               ))}
                             </div>
                           ) : (
-                            <span className="rounded bg-elevated px-1 py-0.5 text-[10px] text-muted font-medium">
+                            <span className="rounded bg-elevated px-1 py-0.5 text-xs text-muted font-medium">
                               站內通知
                             </span>
                           )}
@@ -239,7 +239,7 @@ export function TaiwanRulesList({ rules, onEdit, isLoading = false, isError = fa
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div className="flex items-center gap-1.5">
             <h3 className="text-xs font-bold text-foreground">自訂監控規則</h3>
-            <span className="rounded-md bg-elevated/50 px-1.5 py-0.5 text-[10px] font-medium text-muted">
+            <span className="rounded-md bg-elevated/50 px-1.5 py-0.5 text-xs font-medium text-muted">
               {manualRules.length}
             </span>
           </div>
@@ -249,7 +249,7 @@ export function TaiwanRulesList({ rules, onEdit, isLoading = false, isError = fa
           <div className="flex flex-col items-center justify-center p-6 text-center text-muted">
             <ListChecks className="h-5 w-5 text-muted/60 mb-1.5" />
             <p className="text-xs font-medium">尚未建立自訂台股監控規則</p>
-            <p className="text-[10px] text-muted mt-0.5">點擊右上角「+」或自左側報價卡快速建立</p>
+            <p className="text-xs text-muted mt-0.5">點擊右上角「+」或自左側報價卡快速建立</p>
           </div>
         ) : (
           <div className="space-y-2">
@@ -323,7 +323,7 @@ export function TaiwanRulesList({ rules, onEdit, isLoading = false, isError = fa
                   </div>
 
                   {/* 條件描述與數值 */}
-                  <div className="mt-2 flex flex-wrap items-center gap-1.5 text-[11px]">
+                  <div className="mt-2 flex flex-wrap items-center gap-1.5 text-xs">
                     <span className="rounded bg-elevated px-1.5 py-0.5 font-medium text-foreground/90">
                       {typeCfg.label}
                     </span>
@@ -331,12 +331,12 @@ export function TaiwanRulesList({ rules, onEdit, isLoading = false, isError = fa
                       {thresholdText}
                     </span>
                     {!isQuant && r.cooldown_seconds > 0 && (
-                      <span className="rounded bg-surface border border-border/50 px-1 py-0.5 text-[10px] text-muted">
+                      <span className="rounded bg-surface border border-border/50 px-1 py-0.5 text-xs text-muted">
                         冷卻 {r.cooldown_seconds}s
                       </span>
                     )}
                     {r.hysteresis != null && (
-                      <span className="rounded bg-surface border border-border/50 px-1 py-0.5 text-[10px] text-muted">
+                      <span className="rounded bg-surface border border-border/50 px-1 py-0.5 text-xs text-muted">
                         防抖遲滯 {r.hysteresis}
                       </span>
                     )}

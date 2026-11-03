@@ -24,7 +24,7 @@ function EvidenceValue({ label, value, hint }: { label: string; value: React.Rea
     <div className="min-w-0 rounded-lg border border-border/70 bg-base/40 p-3">
       <dt className="text-xs text-muted">{label}</dt>
       <dd className="mt-1 break-words text-sm font-medium text-foreground">{value}</dd>
-      {hint && <p className="mt-1 text-[11px] leading-4 text-muted">{hint}</p>}
+      {hint && <p className="mt-1 text-xs leading-4 text-muted">{hint}</p>}
     </div>
   )
 }
@@ -43,7 +43,7 @@ export function ModelValidation() {
   if (query.isError || !query.data) {
     return (
       <main className="space-y-4 p-4">
-        <h1 className="text-xl font-semibold">模型驗證</h1>
+        <h1 className="text-lg font-semibold">模型驗證</h1>
         <section role="alert" className="rounded-card border border-border bg-surface p-4">
           <p className="text-sm">目前無法讀取模型驗證狀態。缺少的成績不會用估計值代替。</p>
           <button type="button" onClick={() => void query.refetch()} className="mt-3 min-h-11 rounded-lg border border-border px-4 text-sm text-accent">
@@ -63,7 +63,7 @@ export function ModelValidation() {
       <header className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <p className="text-xs font-medium tracking-wide text-muted">先看成績，再相信預測</p>
-          <h1 className="mt-1 text-2xl font-semibold">模型驗證</h1>
+          <h1 className="mt-1 text-lg font-semibold">模型驗證</h1>
           <p className="mt-2 max-w-3xl text-sm leading-6 text-muted">
             白話：這頁是「選股模型的成績單」。模型用過去的資料學習，再拿它沒看過的期間考試（樣本外測試），看它挑的股票是不是真的比較會漲。
             還沒到期的成績不會拿來偷改模型，避免「考完再改答案」。
@@ -170,7 +170,7 @@ export function ModelValidation() {
               <p className="text-xs font-medium text-muted">候選 {String.fromCharCode(65 + index)}</p>
               <h3 className="mt-1 break-words text-sm font-semibold">{candidate.candidate_key}</h3>
               <p className="mt-2 text-xs leading-5 text-muted">{candidate.factor_set.join(' + ')}</p>
-              <p className="mt-3 break-all font-mono text-[11px] text-muted">{candidate.model_identity}</p>
+              <p className="mt-3 break-all font-mono text-xs text-muted">{candidate.model_identity}</p>
             </li>
           ))}
         </ol>

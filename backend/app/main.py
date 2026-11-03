@@ -281,23 +281,49 @@ async def capability_denied_handler(request: Request, exc: CapabilityDenied) -> 
         content={"detail": str(exc), "suggestion": exc.suggestion},
     )
 
-# 生产期静态文件(前端 dist)
-_static = Path(settings.static_dir)
-if _static.exists():
-    if (_static / "assets").exists():
-        app.mount("/assets", StaticFiles(directory=_static / "assets"), name="assets")
+# index.html 禁止緩存, 確保瀏覽器每次拿到最新版本引用的 JS/CSS 文件名 (assets 帶 hash, 可長緩存);
+# sw.js 與 manifest 每次重新驗證, 瀏覽器才會及時發現新版 PWA 殼。
+_STATIC_CACHE_CONTROL = {
+    "index.html": "no-store, must-revalidate",
+    "sw.js": "no-cache",
+    "manifest.webmanifest": "no-cache",
+}
+
+
+def _resolve_static_file(static_root: Path, full_path: str) -> Path | None:
+    """full_path 指向 static_root 內的實體檔時回傳其絕對路徑; 目錄、不存在或越界回 None。"""
+    # 帶根或磁碟代號的輸入 (含 UNC //host/share) 先拒絕: resolve() 會實際存取該路徑。
+    if Path(full_path).anchor:
+        return None
+    root = static_root.resolve()
+    try:
+        candidate = (root / full_path).resolve()
+    except (OSError, ValueError):
+        return None
+    if candidate.is_relative_to(root) and candidate.is_file():
+        return candidate
+    return None
+
+
+def _mount_frontend(app: FastAPI, static_root: Path) -> None:
+    if (static_root / "assets").exists():
+        app.mount("/assets", StaticFiles(directory=static_root / "assets"), name="assets")
 
     @app.get("/{full_path:path}", include_in_schema=False)
     def spa_fallback(full_path: str):
-        """所有未匹配路径回退到 index.html — React Router 接管。
+        """dist 內的實體檔 (圖示、manifest、sw.js) 原樣回傳, 其餘路徑回退到 index.html — React Router 接管。"""
+        target = _resolve_static_file(static_root, full_path) or static_root / "index.html"
+        if not target.is_file():
+            return {"error": "frontend not built"}
+        cache_control = _STATIC_CACHE_CONTROL.get(target.name)
+        return FileResponse(
+            target,
+            media_type="application/manifest+json" if target.suffix == ".webmanifest" else None,
+            headers={"Cache-Control": cache_control} if cache_control else None,
+        )
 
-        index.html 禁止缓存 (Cache-Control: no-store), 确保浏览器每次拿到
-        最新版本引用的 JS/CSS 文件名 (assets 带 hash, 可长缓存)。
-        """
-        index = _static / "index.html"
-        if index.exists():
-            return FileResponse(
-                index,
-                headers={"Cache-Control": "no-store, must-revalidate"},
-            )
-        return {"error": "frontend not built"}
+
+# 生产期静态文件(前端 dist)
+_static = Path(settings.static_dir)
+if _static.exists():
+    _mount_frontend(app, _static)

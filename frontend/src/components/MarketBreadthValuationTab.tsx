@@ -35,10 +35,10 @@ function MetricCard({ name, data, valuation = false }: { name: string; data: Res
   const rank = data as ValuationMetric
   return <article className="rounded-lg border border-border bg-surface p-4 min-w-0">
     <h3 className="text-sm text-secondary">{labels[name] ?? name}</h3>
-    <p className="my-2 text-2xl font-semibold">{valuation
+    <p className="my-2 text-lg font-semibold">{valuation
       ? data.value == null ? '無法計算' : `${data.value.toFixed(2)}${name === 'dividend_yield' ? '%' : ' 倍'}`
       : format(data.value, data.unit)}</p>
-    <p className="text-sm">{statuses[data.status]} · 納入 {data.included_count} / 排除 {data.excluded_count}</p>
+    <p className="text-sm">{statuses[data.status]}，納入 {data.included_count} / 排除 {data.excluded_count}</p>
     <p className="text-sm text-secondary">樣本涵蓋率 {data.coverage == null ? '未知' : `${(data.coverage * 100).toFixed(1)}%`}</p>
     {valuation && <p className="mt-2 text-sm">歷史 percentile：{rank.percentile == null ? '歷史不足' : `${(rank.percentile * 100).toFixed(1)}%`}
       <span className="block text-secondary">{rank.percentile_sample_count} 個歷史交易日
@@ -92,7 +92,7 @@ export function MarketBreadthValuationTab({ asOf, market: controlledMarket, view
     {query.isError && <div role="alert">大盤研究資料讀取失敗。
       <button type="button" onClick={() => void query.refetch()} className="ml-2 underline">重試</button></div>}
     {data && <>
-      <p className="text-sm">資料日期：{data.as_of ?? '尚無資料'} · {statuses[data.status] ?? data.status}
+      <p className="text-sm">資料日期：{data.as_of ?? '尚無資料'}，{statuses[data.status] ?? data.status}
         {data.stale && `（查詢日期 ${data.requested_as_of}，此為較舊快照）`}</p>
       <div className="rounded-lg border border-border p-3 text-sm text-secondary">
         {data.warnings.map(text => <p key={text}>{text}</p>)}

@@ -1,7 +1,8 @@
-import { useEffect, useRef, useCallback, useMemo } from 'react'
+import { useEffect, useRef, useCallback, useMemo, useState } from 'react'
 import { chartTheme, getTheme, useTheme } from '@/lib/theme'
+import { RADIX, RADIX_CHART_SERIES } from '@/lib/radix'
 import * as echarts from 'echarts'
-import type { ECharts, EChartsOption } from 'echarts'
+import type { ECharts, EChartsOption, InsideDataZoomComponentOption, SliderDataZoomComponentOption } from 'echarts'
 
 export interface OHLC {
   date: string
@@ -142,7 +143,7 @@ export const SUB_CHARTS: SubChartDef[] = [
               value: d.volume ?? 0,
               volumeRatioLabel: ratio == null ? '' : fmtVolumeRatio(ratio, 1),
               itemStyle: {
-                color: d.close >= d.open ? 'rgba(240,68,56,0.6)' : 'rgba(18,183,106,0.6)',
+                color: d.close >= d.open ? RADIX_CHART_SERIES.bullAlpha : RADIX_CHART_SERIES.bearAlpha,
               },
             }
           }),
@@ -152,7 +153,7 @@ export const SUB_CHARTS: SubChartDef[] = [
             position: 'top',
             distance: 2,
             color: CT().text,
-            fontSize: 8,
+            fontSize: 12,
             fontFamily: 'JetBrains Mono, monospace',
             formatter: (params: any) => params.data?.volumeRatioLabel ?? '',
           },
@@ -164,23 +165,23 @@ export const SUB_CHARTS: SubChartDef[] = [
           type: 'line',
           data: ma5Data,
           smooth: true, symbol: 'none', animation: false,
-          lineStyle: { width: 1, color: '#FACC15' },
-          itemStyle: { color: '#FACC15' },
+          lineStyle: { width: 1, color: RADIX_CHART_SERIES.warning },
+          itemStyle: { color: RADIX_CHART_SERIES.warning },
         },
         {
           name: 'VOL10',
           type: 'line',
           data: ma10Data,
           smooth: true, symbol: 'none', animation: false,
-          lineStyle: { width: 1, color: '#8B5CF6' },
-          itemStyle: { color: '#8B5CF6' },
+          lineStyle: { width: 1, color: RADIX_CHART_SERIES.brand },
+          itemStyle: { color: RADIX_CHART_SERIES.brand },
         },
       ]
     },
     buildInfo: (d) => {
       if (!d) return []
       return [
-        { label: '量', color: d.close >= d.open ? '#C74040' : '#2D9B65', value: fmtVol(d.volume) },
+        { label: '量', color: d.close >= d.open ? RADIX_CHART_SERIES.bull : RADIX_CHART_SERIES.bear, value: fmtVol(d.volume) },
       ]
     },
   },
@@ -194,16 +195,16 @@ export const SUB_CHARTS: SubChartDef[] = [
         type: 'line',
         data: data.map(d => d.macd_dif != null ? Number(d.macd_dif) : '-'),
         smooth: true, symbol: 'none', animation: false,
-        lineStyle: { width: 1, color: '#FACC15' },
-        itemStyle: { color: '#FACC15' },
+        lineStyle: { width: 1, color: RADIX_CHART_SERIES.warning },
+        itemStyle: { color: RADIX_CHART_SERIES.warning },
       },
       {
         name: 'DEA',
         type: 'line',
         data: data.map(d => d.macd_dea != null ? Number(d.macd_dea) : '-'),
         smooth: true, symbol: 'none', animation: false,
-        lineStyle: { width: 1, color: '#8B5CF6' },
-        itemStyle: { color: '#8B5CF6' },
+        lineStyle: { width: 1, color: RADIX_CHART_SERIES.brand },
+        itemStyle: { color: RADIX_CHART_SERIES.brand },
       },
       {
         name: 'MACD',
@@ -213,7 +214,7 @@ export const SUB_CHARTS: SubChartDef[] = [
           if (v == null) return '-'
           return {
             value: Number(v),
-            itemStyle: { color: Number(v) >= 0 ? 'rgba(240,68,56,0.6)' : 'rgba(18,183,106,0.6)' },
+            itemStyle: { color: Number(v) >= 0 ? RADIX_CHART_SERIES.bullAlpha : RADIX_CHART_SERIES.bearAlpha },
           }
         }),
         barWidth: '40%',
@@ -223,9 +224,9 @@ export const SUB_CHARTS: SubChartDef[] = [
     buildInfo: (d) => {
       if (!d) return []
       return [
-        { label: 'DIF', color: '#FACC15', value: d.macd_dif != null ? d.macd_dif.toFixed(3) : '—' },
-        { label: 'DEA', color: '#8B5CF6', value: d.macd_dea != null ? d.macd_dea.toFixed(3) : '—' },
-        { label: 'MACD', color: d.macd_hist != null && d.macd_hist >= 0 ? '#C74040' : '#2D9B65', value: d.macd_hist != null ? d.macd_hist.toFixed(3) : '—' },
+        { label: 'DIF', color: RADIX_CHART_SERIES.warning, value: d.macd_dif != null ? d.macd_dif.toFixed(3) : '—' },
+        { label: 'DEA', color: RADIX_CHART_SERIES.brand, value: d.macd_dea != null ? d.macd_dea.toFixed(3) : '—' },
+        { label: 'MACD', color: d.macd_hist != null && d.macd_hist >= 0 ? RADIX_CHART_SERIES.bull : RADIX_CHART_SERIES.bear, value: d.macd_hist != null ? d.macd_hist.toFixed(3) : '—' },
       ]
     },
   },
@@ -240,32 +241,32 @@ export const SUB_CHARTS: SubChartDef[] = [
         type: 'line',
         data: data.map(d => d.rsi_6 != null ? Number(d.rsi_6) : '-'),
         smooth: true, symbol: 'none', animation: false,
-        lineStyle: { width: 1, color: '#FACC15' },
-        itemStyle: { color: '#FACC15' },
+        lineStyle: { width: 1, color: RADIX_CHART_SERIES.warning },
+        itemStyle: { color: RADIX_CHART_SERIES.warning },
       },
       {
         name: 'RSI14',
         type: 'line',
         data: data.map(d => d.rsi_14 != null ? Number(d.rsi_14) : '-'),
         smooth: true, symbol: 'none', animation: false,
-        lineStyle: { width: 1, color: '#3B82F6' },
-        itemStyle: { color: '#3B82F6' },
+        lineStyle: { width: 1, color: RADIX_CHART_SERIES.accent },
+        itemStyle: { color: RADIX_CHART_SERIES.accent },
       },
       {
         name: 'RSI24',
         type: 'line',
         data: data.map(d => d.rsi_24 != null ? Number(d.rsi_24) : '-'),
         smooth: true, symbol: 'none', animation: false,
-        lineStyle: { width: 1, color: '#8B5CF6' },
-        itemStyle: { color: '#8B5CF6' },
+        lineStyle: { width: 1, color: RADIX_CHART_SERIES.brand },
+        itemStyle: { color: RADIX_CHART_SERIES.brand },
       },
     ],
     buildInfo: (d) => {
       if (!d) return []
       return [
-        { label: 'RSI6', color: '#FACC15', value: d.rsi_6 != null ? d.rsi_6.toFixed(1) : '—' },
-        { label: 'RSI14', color: '#3B82F6', value: d.rsi_14 != null ? d.rsi_14.toFixed(1) : '—' },
-        { label: 'RSI24', color: '#8B5CF6', value: d.rsi_24 != null ? d.rsi_24.toFixed(1) : '—' },
+        { label: 'RSI6', color: RADIX_CHART_SERIES.warning, value: d.rsi_6 != null ? d.rsi_6.toFixed(1) : '—' },
+        { label: 'RSI14', color: RADIX_CHART_SERIES.accent, value: d.rsi_14 != null ? d.rsi_14.toFixed(1) : '—' },
+        { label: 'RSI24', color: RADIX_CHART_SERIES.brand, value: d.rsi_24 != null ? d.rsi_24.toFixed(1) : '—' },
       ]
     },
   },
@@ -279,32 +280,32 @@ export const SUB_CHARTS: SubChartDef[] = [
         type: 'line',
         data: data.map(d => d.kdj_k != null ? Number(d.kdj_k) : '-'),
         smooth: true, symbol: 'none', animation: false,
-        lineStyle: { width: 1, color: '#FACC15' },
-        itemStyle: { color: '#FACC15' },
+        lineStyle: { width: 1, color: RADIX_CHART_SERIES.warning },
+        itemStyle: { color: RADIX_CHART_SERIES.warning },
       },
       {
         name: 'D',
         type: 'line',
         data: data.map(d => d.kdj_d != null ? Number(d.kdj_d) : '-'),
         smooth: true, symbol: 'none', animation: false,
-        lineStyle: { width: 1, color: '#3B82F6' },
-        itemStyle: { color: '#3B82F6' },
+        lineStyle: { width: 1, color: RADIX_CHART_SERIES.accent },
+        itemStyle: { color: RADIX_CHART_SERIES.accent },
       },
       {
         name: 'J',
         type: 'line',
         data: data.map(d => d.kdj_j != null ? Number(d.kdj_j) : '-'),
         smooth: true, symbol: 'none', animation: false,
-        lineStyle: { width: 1, color: '#8B5CF6' },
-        itemStyle: { color: '#8B5CF6' },
+        lineStyle: { width: 1, color: RADIX_CHART_SERIES.brand },
+        itemStyle: { color: RADIX_CHART_SERIES.brand },
       },
     ],
     buildInfo: (d) => {
       if (!d) return []
       return [
-        { label: 'K', color: '#FACC15', value: d.kdj_k != null ? d.kdj_k.toFixed(1) : '—' },
-        { label: 'D', color: '#3B82F6', value: d.kdj_d != null ? d.kdj_d.toFixed(1) : '—' },
-        { label: 'J', color: '#8B5CF6', value: d.kdj_j != null ? d.kdj_j.toFixed(1) : '—' },
+        { label: 'K', color: RADIX_CHART_SERIES.warning, value: d.kdj_k != null ? d.kdj_k.toFixed(1) : '—' },
+        { label: 'D', color: RADIX_CHART_SERIES.accent, value: d.kdj_d != null ? d.kdj_d.toFixed(1) : '—' },
+        { label: 'J', color: RADIX_CHART_SERIES.brand, value: d.kdj_j != null ? d.kdj_j.toFixed(1) : '—' },
       ]
     },
   },
@@ -343,14 +344,14 @@ interface Props {
 
 // 序列顏色 (雙主題通用); 畫布軸/網格/文字等主題相關色走 CT() 動態取
 const THEME = {
-  bull: '#C74040',
-  bear: '#2D9B65',
-  bullAlpha: 'rgba(240,68,56,0.7)',
-  bearAlpha: 'rgba(18,183,106,0.7)',
-  ma5: '#A1A1AA',
-  ma10: '#3B82F6',
-  ma20: '#F97316',
-  ma60: '#8B5CF6',
+  bull: RADIX_CHART_SERIES.bull,
+  bear: RADIX_CHART_SERIES.bear,
+  bullAlpha: RADIX_CHART_SERIES.bullAlpha,
+  bearAlpha: RADIX_CHART_SERIES.bearAlpha,
+  ma5: RADIX_CHART_SERIES.neutral,
+  ma10: RADIX_CHART_SERIES.accent,
+  ma20: RADIX.orange,
+  ma60: RADIX_CHART_SERIES.brand,
   bg: 'transparent',
 }
 
@@ -364,6 +365,45 @@ const COMPACT_THRESHOLD = 60
 const INFO_BAR_H = 16
 /** 子圖之間的間距 (px) */
 const SUB_GAP_PX = 4
+
+/** 與 index.css 的 .touch-visible 同一條件 */
+const TOUCH_QUERY = '(hover: none)'
+const TOUCH_SLIDER_H = 20
+/** 觸控時圖表底部保留給平移 slider 的高度 (上下各留 4px) */
+const TOUCH_SLIDER_SPACE = TOUCH_SLIDER_H + 8
+
+/**
+ * 觸控裝置: 單指拖曳讓給頁面捲動, 雙指仍縮放 K 線, 平移改由底部 slider 負責。
+ * RoamController 拖曳中會對 touchmove 呼叫 preventDefault, 只關 moveOnMouseMove 頁面仍捲不動。
+ */
+export function dataZoomFor(
+  touch: boolean,
+  xAxisIndex: number[],
+): (InsideDataZoomComponentOption | SliderDataZoomComponentOption)[] {
+  const inside: InsideDataZoomComponentOption = {
+    type: 'inside',
+    xAxisIndex,
+    start: 0,
+    end: 100,
+    moveOnMouseMove: true,
+    zoomOnMouseWheel: true,
+  }
+  if (!touch) return [inside]
+  return [
+    { ...inside, moveOnMouseMove: false, preventDefaultMouseMove: false },
+    {
+      type: 'slider',
+      xAxisIndex,
+      start: 0,
+      end: 100,
+      height: TOUCH_SLIDER_H,
+      bottom: 4,
+      brushSelect: false,
+      showDetail: false,
+      borderColor: CT().border,
+    },
+  ]
+}
 
 function buildSubInfoGraphics(
   data: OHLC[],
@@ -390,13 +430,13 @@ function buildSubInfoGraphics(
       }
       const vol5 = calcVolMa(5)
       const vol10 = calcVolMa(10)
-      items.push({ label: 'VOL5', color: '#FACC15', value: fmtVol(vol5) })
-      items.push({ label: 'VOL10', color: '#8B5CF6', value: fmtVol(vol10) })
+      items.push({ label: 'VOL5', color: RADIX_CHART_SERIES.warning, value: fmtVol(vol5) })
+      items.push({ label: 'VOL10', color: RADIX_CHART_SERIES.brand, value: fmtVol(vol10) })
       if (volumeCompare.enabled) {
         const ratio = volumeRatioAt(data, infoIdx, volumeCompare.days)
         items.push({
           label: `量比${volumeCompare.days}`,
-          color: ratio != null && ratio >= 1 ? '#C74040' : '#2D9B65',
+          color: ratio != null && ratio >= 1 ? RADIX_CHART_SERIES.bull : RADIX_CHART_SERIES.bear,
           value: fmtVolumeRatio(ratio),
         })
       }
@@ -407,7 +447,7 @@ function buildSubInfoGraphics(
       id: `sub-sep-${key}`,
       type: 'line',
       shape: { x1: 0, y1: curTop, x2: 2000, y2: curTop },
-      style: { stroke: 'rgba(255,255,255,0.08)', lineWidth: 1 },
+      style: { stroke: RADIX_CHART_SERIES.gridDark, lineWidth: 1 },
       silent: true, z: 0,
     })
     graphics.push({
@@ -416,8 +456,8 @@ function buildSubInfoGraphics(
       style: {
         text: def.label,
         x: 4, y: curTop + 4,
-        fill: '#8E8E96',
-        fontSize: 10, fontFamily: 'JetBrains Mono, monospace',
+        fill: RADIX_CHART_SERIES.neutral,
+        fontSize: 12, fontFamily: 'JetBrains Mono, monospace',
         fontWeight: 'bold',
       },
       silent: true, z: 10,
@@ -430,7 +470,7 @@ function buildSubInfoGraphics(
       richTextParts.push(`{${styleKey}|${item.label}:${item.value}}`)
       rich[styleKey] = {
         fill: item.color,
-        fontSize: 10,
+        fontSize: 12,
         fontFamily: 'JetBrains Mono, monospace',
       }
     })
@@ -442,10 +482,10 @@ function buildSubInfoGraphics(
         text: richTextParts.join(`{gap|  }`),
         y: curTop + 3,
         rich: {
-          gap: { fill: 'transparent', fontSize: 10 },
+          gap: { fill: 'transparent', fontSize: 12 },
           ...rich,
         },
-        fontSize: 10,
+        fontSize: 12,
         fontFamily: 'JetBrains Mono, monospace',
         textAlign: 'right',
         textVerticalAlign: 'top',
@@ -473,6 +513,7 @@ function buildOption(
   infoIdx: number,
   linkedPrice: number | null | undefined,
   volumeCompare: VolumeCompareConfig,
+  touch: boolean,
 ): EChartsOption {
   const candleData = data.map(d => [d.open, d.close, d.low, d.high])
 
@@ -488,7 +529,7 @@ function buildOption(
       const isSell = m.kind === 'sell'
 
       if (m.above) {
-        const dotColor = m.color ?? (isBuy ? '#FACC15' : CT().text)
+        const dotColor = m.color ?? (isBuy ? RADIX_CHART_SERIES.warning : CT().text)
         if (compact) {
           markPointData.push({
             name: m.date, coord: [m.date, d.high],
@@ -503,7 +544,7 @@ function buildOption(
             itemStyle: { color: 'transparent' },
             label: {
               show: true, formatter: m.label ?? '', position: 'top', distance: 0,
-              color: dotColor, fontSize: 10, fontWeight: 'normal',
+              color: dotColor, fontSize: 12, fontWeight: 'normal',
               fontFamily: 'JetBrains Mono, monospace',
             },
             z: 100, zlevel: 10,
@@ -520,7 +561,7 @@ function buildOption(
           label: {
             show: !!m.label, formatter: m.label ?? '',
             position: isBuy ? 'bottom' : 'top', distance: 8,
-            color: CT().text, fontSize: 10,
+            color: CT().text, fontSize: 12,
             fontFamily: 'JetBrains Mono, monospace',
           },
         })
@@ -544,7 +585,8 @@ function buildOption(
   })
   if (activeSubDefs.length > 0) subTotalH += activeSubDefs.length * SUB_GAP_PX
 
-  const candleAvail = Math.max(containerHeight - topPad - candleBottomPad - subTotalH, 100)
+  const sliderSpace = touch ? TOUCH_SLIDER_SPACE : 0
+  const candleAvail = Math.max(containerHeight - topPad - candleBottomPad - subTotalH - sliderSpace, 100)
 
   const grids: any[] = []
   const xAxes: any[] = []
@@ -575,7 +617,7 @@ function buildOption(
   xAxes.push({
     type: 'category', data: dates, boundaryGap: true,
     axisLine: { lineStyle: { color: CT().border } },
-    axisLabel: { color: CT().text, fontSize: 10, fontFamily: 'JetBrains Mono, monospace' },
+    axisLabel: { color: CT().text, fontSize: 12, fontFamily: 'JetBrains Mono, monospace' },
     axisTick: { show: false },
     splitLine: { show: false },
   })
@@ -588,7 +630,7 @@ function buildOption(
     splitArea: { show: false },
     axisLine: { show: false }, axisTick: { show: false },
     splitLine: { lineStyle: { color: CT().grid } },
-    axisLabel: { color: CT().text, fontSize: 10, fontFamily: 'JetBrains Mono, monospace' },
+    axisLabel: { color: CT().text, fontSize: 12, fontFamily: 'JetBrains Mono, monospace' },
   })
   xAxisIndices.push(0)
 
@@ -598,18 +640,18 @@ function buildOption(
       {
         name: r.label ?? '',
         xAxis: r.start,
-        itemStyle: { color: r.color ?? 'rgba(59,130,246,0.08)' },
+        itemStyle: { color: r.color ?? RADIX_CHART_SERIES.accentSubtle },
         label: {
           show: !!r.label,
           position: 'insideTop',
           distance: 8,
           color: CT().tooltipText,
           backgroundColor: CT().tooltipBg,
-          borderColor: 'rgba(59,130,246,0.35)',
+          borderColor: RADIX_CHART_SERIES.accentBorder,
           borderWidth: 1,
           borderRadius: 4,
           padding: [2, 6],
-          fontSize: 10,
+          fontSize: 12,
           fontFamily: 'JetBrains Mono, monospace',
         },
       },
@@ -633,7 +675,7 @@ function buildOption(
         backgroundColor: CT().tooltipBg,
         borderRadius: 4,
         padding: [2, 6],
-        fontSize: 10,
+        fontSize: 12,
         fontFamily: 'JetBrains Mono, monospace',
       }
       if (line.start && line.end && dateIndexMap.has(line.start) && dateIndexMap.has(line.end)) {
@@ -648,16 +690,16 @@ function buildOption(
   if (linkedPrice != null) {
     markLineData.push({
       yAxis: linkedPrice,
-      lineStyle: { color: '#3B82F6', type: 'dashed', width: 1, opacity: 0.7 },
+      lineStyle: { color: RADIX_CHART_SERIES.accent, type: 'dashed', width: 1, opacity: 0.7 },
       label: {
         show: true,
         formatter: linkedPrice.toFixed(2),
         position: 'insideEndTop',
-        color: '#3B82F6',
-        fontSize: 10,
+        color: RADIX_CHART_SERIES.accent,
+        fontSize: 12,
         fontFamily: 'JetBrains Mono, monospace',
         backgroundColor: CT().tooltipBg,
-        borderColor: '#3B82F6',
+        borderColor: RADIX_CHART_SERIES.accent,
         borderWidth: 1,
         padding: [1, 4],
         borderRadius: 2,
@@ -703,8 +745,8 @@ function buildOption(
       silent: true,
       lineStyle: { width: 1, color, type: 'dashed' as const }, itemStyle: { color },
     })
-    series.push(bollLine('boll_upper', '#E879F9', 'BOLL上'))
-    series.push(bollLine('boll_lower', '#E879F9', 'BOLL下'))
+    series.push(bollLine('boll_upper', RADIX_CHART_SERIES.plum, 'BOLL上'))
+    series.push(bollLine('boll_lower', RADIX_CHART_SERIES.plum, 'BOLL下'))
   }
 
   // ===== 子圖區域 =====
@@ -741,7 +783,7 @@ function buildOption(
       axisLine: { show: false }, axisTick: { show: false },
       splitLine: { lineStyle: { color: CT().grid } },
       axisLabel: {
-        show: true, color: CT().text, fontSize: 9,
+        show: true, color: CT().text, fontSize: 12,
         fontFamily: 'JetBrains Mono, monospace',
       },
     })
@@ -776,23 +818,14 @@ function buildOption(
       label: {
         backgroundColor: CT().crosshairLabelBg,
         fontFamily: 'JetBrains Mono, monospace',
-        fontSize: 10,
+        fontSize: 12,
       },
     },
     graphic: infoGraphics.length > 0 ? infoGraphics : undefined,
     grid: grids,
     xAxis: xAxes,
     yAxis: yAxes,
-    dataZoom: [
-      {
-        type: 'inside',
-        xAxisIndex: xAxisIndices,
-        start: 0,
-        end: 100,
-        moveOnMouseMove: true,
-        zoomOnMouseWheel: true,
-      },
-    ],
+    dataZoom: dataZoomFor(touch, xAxisIndices),
     series,
   }
 }
@@ -827,6 +860,8 @@ export function EChartsCandlestick({
   onPriceDoubleClickRef.current = onPriceDoubleClick
   // 主題: buildOption/信息欄內部通過 CT() 動態取調色板, 這裡只負責切換時觸發重建
   const theme = useTheme()
+  const [touch] = useState(() => window.matchMedia(TOUCH_QUERY).matches)
+  const sliderSpace = touch ? TOUCH_SLIDER_SPACE : 0
 
   // --- 全部用 ref，避免高頻交互觸發 React 重渲染 ---
   const infoIdxRef = useRef<number>(data.length - 1)
@@ -851,7 +886,7 @@ export function EChartsCandlestick({
     if (!d) return
     const chart = chartRef.current
     if (!chart) return
-    const subStartTop = chartHeightRef.current - subTotalHRef.current
+    const subStartTop = chartHeightRef.current - subTotalHRef.current - sliderSpace
     const infoGraphics = buildSubInfoGraphics(
       curData,
       idx,
@@ -876,7 +911,7 @@ export function EChartsCandlestick({
   const mainInfoBarH = showInfoBar ? 40 : 0
   const minCandleH = 120
 
-  const chartHeight = Math.max(height - mainInfoBarH, 8 + minCandleH + 14 + subTotalH)
+  const chartHeight = Math.max(height - mainInfoBarH, 8 + minCandleH + 14 + subTotalH + sliderSpace)
   chartHeightRef.current = chartHeight
   subTotalHRef.current = subTotalH
 
@@ -940,7 +975,7 @@ export function EChartsCandlestick({
       if (d.ma20 != null) html += `<span style="color:${THEME.ma20}">MA20:${Number(d.ma20).toFixed(2)}</span>`
       if (d.ma60 != null) html += `<span style="color:${THEME.ma60}">MA60:${Number(d.ma60).toFixed(2)}</span>`
       if (d.boll_upper != null && activeIndicators.includes('boll')) {
-        html += `<span style="color:#E879F9">BOLL:${Number(d.boll_upper).toFixed(2)}/${Number(d.ma20).toFixed(2)}/${Number(d.boll_lower).toFixed(2)}</span>`
+        html += `<span style="color:${RADIX_CHART_SERIES.plum}">BOLL:${Number(d.boll_upper).toFixed(2)}/${Number(d.ma20).toFixed(2)}/${Number(d.boll_lower).toFixed(2)}</span>`
       }
       html += `</div>`
     }
@@ -1065,7 +1100,7 @@ export function EChartsCandlestick({
       const isBuy = m.kind === 'buy'
       const isSell = m.kind === 'sell'
       if (m.above) {
-        const dotColor = m.color ?? (isBuy ? '#FACC15' : CT().text)
+        const dotColor = m.color ?? (isBuy ? RADIX_CHART_SERIES.warning : CT().text)
         if (compact) {
           markPointData.push({
             name: m.date, coord: [m.date, d.high],
@@ -1080,7 +1115,7 @@ export function EChartsCandlestick({
             itemStyle: { color: 'transparent' },
             label: {
               show: true, formatter: m.label ?? '', position: 'top', distance: 0,
-              color: dotColor, fontSize: 10, fontWeight: 'normal',
+              color: dotColor, fontSize: 12, fontWeight: 'normal',
               fontFamily: 'JetBrains Mono, monospace',
             },
             z: 100, zlevel: 10,
@@ -1097,7 +1132,7 @@ export function EChartsCandlestick({
           label: {
             show: !!m.label, formatter: m.label ?? '',
             position: isBuy ? 'bottom' : 'top', distance: 8,
-            color: CT().text, fontSize: 10,
+            color: CT().text, fontSize: 12,
             fontFamily: 'JetBrains Mono, monospace',
           },
         })
@@ -1133,6 +1168,7 @@ export function EChartsCandlestick({
       infoIdxRef.current,
       linkedPrice,
       volumeCompare,
+      touch,
     )
 
     chart.setOption(option, true)
@@ -1150,7 +1186,7 @@ export function EChartsCandlestick({
     if (infoEl) {
       infoEl.innerHTML = getInfoBarHTML()
     }
-  }, [data, markers, ranges, priceLines, linkedPrice, showMA, showMarkersProp, activeIndicators, volumeCompare, chartHeight, dates, dateIndexMap, initialZoom, getInfoBarHTML, theme])
+  }, [data, markers, ranges, priceLines, linkedPrice, showMA, showMarkersProp, activeIndicators, volumeCompare, chartHeight, dates, dateIndexMap, initialZoom, getInfoBarHTML, theme, touch])
 
   // 渲染信息欄容器 (內容由 JS 直接寫入)
   const initialHTML = useMemo(() => {
@@ -1188,7 +1224,7 @@ export function EChartsCandlestick({
       if (d.ma20 != null) html += `<span style="color:${THEME.ma20}">MA20:${Number(d.ma20).toFixed(2)}</span>`
       if (d.ma60 != null) html += `<span style="color:${THEME.ma60}">MA60:${Number(d.ma60).toFixed(2)}</span>`
       if (d.boll_upper != null && activeIndicators.includes('boll')) {
-        html += `<span style="color:#E879F9">BOLL:${Number(d.boll_upper).toFixed(2)}/${Number(d.ma20).toFixed(2)}/${Number(d.boll_lower).toFixed(2)}</span>`
+        html += `<span style="color:${RADIX_CHART_SERIES.plum}">BOLL:${Number(d.boll_upper).toFixed(2)}/${Number(d.ma20).toFixed(2)}/${Number(d.boll_lower).toFixed(2)}</span>`
       }
       html += `</div>`
     }

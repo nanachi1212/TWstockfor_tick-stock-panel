@@ -150,8 +150,8 @@ export function TodaySelection({ symbol, onResearchContext }: { symbol?: string;
       <section aria-label="Live Quant 摘要" className="rounded-xl border border-accent/20 bg-accent/5 p-3">
         <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
           <strong className="text-sm">Live Quant 摘要</strong>
-          <span className="rounded bg-accent/10 px-1.5 py-0.5 text-[10px] text-accent">{selected ? 'Top-N 入選' : '全市場排名，未入選 Top-N'}</span>
-          <span className="ml-auto text-[10px] text-muted">最近完成排名 {validRun.snapshot.signal_session}</span>
+          <span className="rounded bg-accent/10 px-1.5 py-0.5 text-xs text-accent">{selected ? 'Top-N 入選' : '全市場排名，未入選 Top-N'}</span>
+          <span className="ml-auto text-xs text-muted">最近完成排名 {validRun.snapshot.signal_session}</span>
         </div>
         <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs">
           <span>排名 #{ranked.rank}</span><span>分數 {formatPct(ranked.score, 1)}</span>
@@ -162,7 +162,7 @@ export function TodaySelection({ symbol, onResearchContext }: { symbol?: string;
           <span className="text-secondary">20D 日均成交額 {finite(features?.adv20_twd) == null ? '—' : `${(finite(features?.adv20_twd)! / 1_000_000).toFixed(0)} 百萬`}</span>
           <span className="text-secondary">相對量 {finite(features?.relative_volume)?.toFixed(2) ?? '—'}</span>
         </div>
-        <p className="mt-1.5 text-[11px] text-secondary">{selected ? (selectionReasons(selected).join('、') || '入選條件符合既有動能規則') : '此分數來自凍結的 full-universe ranking，未達 Top-N 入選結果'}。說明取自凍結快照因子百分位，未重新計分。</p>
+        <p className="mt-1.5 text-xs text-secondary">{selected ? (selectionReasons(selected).join('、') || '入選條件符合既有動能規則') : '此分數來自凍結的 full-universe ranking，未達 Top-N 入選結果'}。說明取自凍結快照因子百分位，未重新計分。</p>
       </section>
     )
   }
@@ -172,12 +172,12 @@ export function TodaySelection({ symbol, onResearchContext }: { symbol?: string;
       <div className="mb-2 flex flex-wrap items-center gap-2">
         <TrendingUp className="h-4 w-4 text-accent" />
         <h2 className="text-sm font-semibold">今日 Quant 選股</h2>
-          <span className="rounded bg-accent/10 px-1.5 py-0.5 text-[10px] text-accent">{recommendationStatus === 'available_zero_candidates' ? '資料可用，0 檔候選' : recommendationStatus === 'tracking' ? '追蹤中' : validRun ? '正式可用' : '資料不可用'}</span>
-          <span className="text-[10px] text-muted">實驗性初測，不構成投資建議</span>
-        {validRun && <span className="ml-auto text-[10px] text-muted">推薦時間 {validRun.frozen_at} · 資料日期 {validRun.snapshot.signal_session}</span>}
+          <span className="rounded bg-accent/10 px-1.5 py-0.5 text-xs text-accent">{recommendationStatus === 'available_zero_candidates' ? '資料可用，0 檔候選' : recommendationStatus === 'tracking' ? '追蹤中' : validRun ? '正式可用' : '資料不可用'}</span>
+          <span className="text-xs text-muted">實驗性初測，不構成投資建議</span>
+        {validRun && <span className="ml-auto text-xs text-muted">推薦時間 {validRun.frozen_at}，資料日期 {validRun.snapshot.signal_session}</span>}
       </div>
 
-      {validRun?.outcome_summary ? <div aria-label="每日推薦績效" className="mb-3 grid gap-2 text-[11px] sm:grid-cols-3">{(['1D', '5D', '20D'] as const).map(horizon => <div key={horizon} className="rounded border border-border/60 bg-surface/60 px-2 py-1.5"><span className="font-semibold">{horizon}</span><span className="ml-2 text-muted">{horizonLabel(validRun.outcome_summary?.[horizon])}</span></div>)}</div> : null}
+      {validRun?.outcome_summary ? <div aria-label="每日推薦績效" className="mb-3 grid gap-2 text-xs sm:grid-cols-3">{(['1D', '5D', '20D'] as const).map(horizon => <div key={horizon} className="rounded border border-border/60 bg-surface/60 px-2 py-1.5"><span className="font-semibold">{horizon}</span><span className="ml-2 text-muted">{horizonLabel(validRun.outcome_summary?.[horizon])}</span></div>)}</div> : null}
 
       {loading ? <div className="flex items-center gap-2 py-5 text-xs text-muted" role="status"><Loader2 className="h-4 w-4 animate-spin" />讀取最新已完成的 live 排名…</div> : null}
       {error ? <div className="flex items-center justify-between gap-2 py-2 text-xs text-muted" role="alert"><span>Live Quant 或行情資料目前無法完整讀取，請稍後重試。</span><button type="button" onClick={() => { selection.refetch(); if (symbols.length) void quotes.refetch() }} className="inline-flex items-center gap-1"><RefreshCw className="h-3 w-3" />重試</button></div> : null}
@@ -188,7 +188,7 @@ export function TodaySelection({ symbol, onResearchContext }: { symbol?: string;
       {!loading && !error && validRun && signals.length > 0 ? (
         <div className="overflow-x-auto">
           <table className="w-full min-w-[760px] text-left text-xs">
-            <thead className="text-[10px] text-muted"><tr><th className="px-2 py-1">排名 / 標的</th><th className="px-2 py-1">現價 / 漲跌</th><th className="px-2 py-1">Quant 分數</th><th className="px-2 py-1">動能 5 / 20 / 60D</th><th className="px-2 py-1">波動 / 流動性 / 相對量</th><th className="px-2 py-1">入選原因</th><th className="px-2 py-1">自選</th><th className="px-2 py-1">研究</th></tr></thead>
+            <thead className="text-xs text-muted"><tr><th className="px-2 py-1">排名 / 標的</th><th className="px-2 py-1">現價 / 漲跌</th><th className="px-2 py-1">Quant 分數</th><th className="px-2 py-1">動能 5 / 20 / 60D</th><th className="px-2 py-1">波動 / 流動性 / 相對量</th><th className="px-2 py-1">入選原因</th><th className="px-2 py-1">自選</th><th className="px-2 py-1">研究</th></tr></thead>
             <tbody>{signals.slice(0, 10).map(item => {
               const quote = quoteMap.get(item.symbol)
               const features = featureMap.get(item.symbol)
@@ -202,21 +202,21 @@ export function TodaySelection({ symbol, onResearchContext }: { symbol?: string;
               const momentum = ['momentum_5d', 'momentum_20d', 'momentum_60d'].map(key => item.feature_percentiles[key])
               const reason = selectionReasons(item)
               return <tr key={item.symbol} className="border-t border-border/60 hover:bg-elevated/40">
-                <td className="px-2 py-2"><Link to={`/stocks/${encodeURIComponent(item.symbol)}`} className="font-medium text-foreground hover:text-accent"><span className="mr-1 text-muted">#{item.rank}</span>{item.name || quote?.name || item.symbol}<span className="ml-1 text-[10px] text-muted">{item.symbol}</span></Link></td>
-                <td className="px-2 py-2 font-mono">快照 {item.reference_close.toFixed(2)}<span className="ml-1 text-[10px] font-sans text-muted">{validRun.snapshot.signal_session}</span><div className="text-[10px] font-sans text-muted">目前 <span>{current.toFixed(2)}</span><span className={`ml-1 ${percent == null || percent === 0 ? 'text-muted' : percent > 0 ? 'text-bull' : 'text-bear'}`}>{percent == null ? '' : `${percent.toFixed(2)}%`}</span> · <span>{quoteLabel}</span></div></td>
+                <td className="px-2 py-2"><Link to={`/stocks/${encodeURIComponent(item.symbol)}`} className="font-medium text-foreground hover:text-accent"><span className="mr-1 text-muted">#{item.rank}</span>{item.name || quote?.name || item.symbol}<span className="ml-1 text-xs text-muted">{item.symbol}</span></Link></td>
+                <td className="px-2 py-2 font-mono">快照 {item.reference_close.toFixed(2)}<span className="ml-1 text-xs font-sans text-muted">{validRun.snapshot.signal_session}</span><div className="text-xs font-sans text-muted">目前 <span>{current.toFixed(2)}</span><span className={`ml-1 ${percent == null || percent === 0 ? 'text-muted' : percent > 0 ? 'text-bull' : 'text-bear'}`}>{percent == null ? '' : `${percent.toFixed(2)}%`}</span>，<span>{quoteLabel}</span></div></td>
                 <td className="px-2 py-2 font-mono">{formatPct(item.score)}</td>
                 <td className="px-2 py-2 font-mono">{momentum.map(value => formatPct(finite(value))).join(' / ')}</td>
                 <td className="px-2 py-2 text-secondary">{formatPct(finite(features?.volatility_20d))} / {adv20 == null ? '—' : `${(adv20 / 1_000_000).toFixed(0)}M`} / {finite(features?.relative_volume)?.toFixed(2) ?? '—'}</td>
                 <td className="max-w-[220px] px-2 py-2 text-secondary">{item.reason_summary || reason.join('、') || '既有動能選取條件'}</td>
-                <td className="px-2 py-2">{watchlistSymbols.has(item.symbol) ? <span className="text-[10px] text-muted">已加入</span> : <button type="button" aria-label={`將 ${item.symbol} 加入自選`} onClick={() => add.mutate(item.symbol)} disabled={add.isPending || watchlist.isError} className="inline-flex items-center gap-1 rounded border border-border px-1.5 py-1 text-[10px] hover:text-accent disabled:opacity-50"><Star className="h-3 w-3" />{watchlist.isError ? '自選不可用' : '加入'}</button>}</td>
-                <td className="px-2 py-2"><Link to={`/stocks/${encodeURIComponent(item.symbol)}`} state={{ aiResearchRequested: true }} className="whitespace-nowrap rounded border border-accent/30 px-1.5 py-1 text-[10px] text-accent hover:bg-accent/10">AI 分析</Link></td>
+                <td className="px-2 py-2">{watchlistSymbols.has(item.symbol) ? <span className="text-xs text-muted">已加入</span> : <button type="button" aria-label={`將 ${item.symbol} 加入自選`} onClick={() => add.mutate(item.symbol)} disabled={add.isPending || watchlist.isError} className="inline-flex items-center gap-1 rounded border border-border px-1.5 py-1 text-xs hover:text-accent disabled:opacity-50"><Star className="h-3 w-3" />{watchlist.isError ? '自選不可用' : '加入'}</button>}</td>
+                <td className="px-2 py-2"><Link to={`/stocks/${encodeURIComponent(item.symbol)}`} state={{ aiResearchRequested: true }} className="whitespace-nowrap rounded border border-accent/30 px-1.5 py-1 text-xs text-accent hover:bg-accent/10">AI 分析</Link></td>
               </tr>
             })}</tbody>
           </table>
-          {quotes.isError ? <p className="mt-1 text-[10px] text-muted">即時行情讀取失敗，仍顯示排名快照參考收盤價；漲跌暫不可用。</p> : quotes.data && signals.some(item => finite(quoteMap.get(item.symbol)?.last_price) == null) ? <p className="mt-1 text-[10px] text-muted">部分標的報價不可用，對應列以凍結排名參考收盤價顯示。</p> : null}
-          {watchlist.isError && <p role="alert" className="mt-1 text-[10px] text-muted">自選清單目前無法讀取，已暫停加入操作。</p>}
-          {add.isError && <p role="alert" className="mt-1 text-[10px] text-rose-500">加入自選失敗，請重試。</p>}
-          <Link to="/taiwan-screener" className="mt-2 inline-flex items-center gap-1 text-[10px] text-muted hover:text-accent">查看台股選股 <ArrowUpRight className="h-3 w-3" /></Link>
+          {quotes.isError ? <p className="mt-1 text-xs text-muted">即時行情讀取失敗，仍顯示排名快照參考收盤價；漲跌暫不可用。</p> : quotes.data && signals.some(item => finite(quoteMap.get(item.symbol)?.last_price) == null) ? <p className="mt-1 text-xs text-muted">部分標的報價不可用，對應列以凍結排名參考收盤價顯示。</p> : null}
+          {watchlist.isError && <p role="alert" className="mt-1 text-xs text-muted">自選清單目前無法讀取，已暫停加入操作。</p>}
+          {add.isError && <p role="alert" className="mt-1 text-xs text-rose-500">加入自選失敗，請重試。</p>}
+          <Link to="/taiwan-screener" className="mt-2 inline-flex items-center gap-1 text-xs text-muted hover:text-accent">查看台股選股 <ArrowUpRight className="h-3 w-3" /></Link>
         </div>
       ) : null}
     </section>

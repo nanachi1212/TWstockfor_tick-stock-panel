@@ -204,11 +204,11 @@ export function SettingsMonitoringPanel(_props: { highlight?: string } = {}) {
             <div className="flex items-center justify-between gap-4 py-1">
               <div className="min-w-0">
                 <div className="text-sm text-foreground">輪詢間隔</div>
-                <div className="text-[11px] text-muted">
+                <div className="text-xs text-muted">
                   {isWatchlistMode ? '每輪拉取自選股即時行情的時間間隔' : '每輪拉取全市場行情的時間間隔'}
                 </div>
               </div>
-              <span className="text-[11px] font-mono text-foreground shrink-0 tabular-nums">
+              <span className="text-xs font-mono text-foreground shrink-0 tabular-nums">
                 {intervalDraft < 1 ? intervalDraft.toFixed(1) : intervalDraft.toFixed(0)}s
               </span>
             </div>
@@ -222,7 +222,7 @@ export function SettingsMonitoringPanel(_props: { highlight?: string } = {}) {
                 onChange={(e) => setIntervalDraft(parseFloat(e.target.value))}
                 className="flex-1 h-1 accent-accent cursor-pointer"
               />
-              <span className="text-[10px] text-muted shrink-0">
+              <span className="text-xs text-muted shrink-0">
                 {intervalDraft !== interval ? '2秒後儲存' : `${minInterval}s — ${maxInterval}s`}
               </span>
             </div>
@@ -242,9 +242,9 @@ export function SettingsMonitoringPanel(_props: { highlight?: string } = {}) {
                   <div key={symbol} className="flex items-center justify-between rounded-btn bg-base/50 border border-border px-2 py-1.5">
                     <div className="min-w-0 flex items-baseline gap-1.5">
                       <span className="text-xs font-mono text-foreground">{symbol}</span>
-                      {name && <span className="truncate text-[11px] text-secondary">{name}</span>}
+                      {name && <span className="truncate text-xs text-secondary">{name}</span>}
                     </div>
-                    <span className="text-[10px] text-muted shrink-0">自選頁</span>
+                    <span className="text-xs text-muted shrink-0">自選頁</span>
                   </div>
                 )
               })}
@@ -255,7 +255,7 @@ export function SettingsMonitoringPanel(_props: { highlight?: string } = {}) {
             </div>
           )}
           <div className="mt-2 flex items-center justify-between gap-3">
-            <span className="text-[10px] text-muted">目前 {watchlistSymbols.length}/5 檔</span>
+            <span className="text-xs text-muted">目前 {watchlistSymbols.length}/5 檔</span>
             <Link
               to="/watchlist"
               className="px-3 py-1 rounded-btn bg-elevated text-secondary text-xs font-medium hover:text-foreground transition-colors"
@@ -297,11 +297,11 @@ export function SettingsMonitoringPanel(_props: { highlight?: string } = {}) {
             <div className="flex items-center justify-between gap-4 py-1">
               <div className="min-w-0">
                 <div className="text-sm text-foreground">重新整理間隔</div>
-                <div className="text-[11px] text-muted">
+                <div className="text-xs text-muted">
                   間隔越短更新越即時,但越耗資料來源配額 (rpm)
                 </div>
               </div>
-              <span className="text-[11px] font-mono text-foreground shrink-0 tabular-nums">
+              <span className="text-xs font-mono text-foreground shrink-0 tabular-nums">
                 {intradayIntervalDraft}s
               </span>
             </div>
@@ -315,7 +315,7 @@ export function SettingsMonitoringPanel(_props: { highlight?: string } = {}) {
                 onChange={(e) => setIntradayIntervalDraft(parseInt(e.target.value, 10))}
                 className="flex-1 h-1 accent-accent cursor-pointer"
               />
-              <span className="text-[10px] text-muted shrink-0">
+              <span className="text-xs text-muted shrink-0">
                 {intradayIntervalDraft !== intradayInterval ? '2秒後儲存' : '3s — 60s'}
               </span>
             </div>
@@ -340,14 +340,14 @@ export function SettingsMonitoringPanel(_props: { highlight?: string } = {}) {
           </p>
           {prefs?.external_notification_channels == null && (
             <div className="mb-3 flex flex-wrap items-center gap-2">
-              <p className="text-[10px] text-muted flex-1">
+              <p className="text-xs text-muted flex-1">
                 尚未儲存全域通道。升級前各規則仍依原通道設定；勾選後會套用至所有提醒。
               </p>
               <button
                 type="button"
                 disabled={preferencesLoading || !prefs || isUpdatingExternalChannels || isSavingNotificationCredentials}
                 onClick={() => updateExternalChannels([])}
-                className="shrink-0 rounded-btn border border-border px-2 py-1 text-[10px] text-secondary disabled:opacity-50"
+                className="shrink-0 rounded-btn border border-border px-2 py-1 text-xs text-secondary disabled:opacity-50"
               >
                 只用 App 內提醒
               </button>
@@ -369,12 +369,12 @@ export function SettingsMonitoringPanel(_props: { highlight?: string } = {}) {
                   title="全域啟用 LINE 提醒"
                   className="h-3 w-3 accent-accent cursor-pointer"
                 />
-                <span className="text-[11px] font-medium text-foreground">LINE</span>
-                <span className="text-[9px] text-muted">Messaging API</span>
+                <span className="text-xs font-medium text-foreground">LINE</span>
+                <span className="text-xs text-muted">Messaging API</span>
                 {externalChannels.includes('line') && (
-                  <span className="rounded bg-accent/15 px-1 py-px text-[9px] text-accent">啟用</span>
+                  <span className="rounded bg-accent/15 px-1 py-px text-xs text-accent">啟用</span>
                 )}
-                <span className={`ml-auto text-[9px] ${lineConfigured ? 'text-emerald-500' : 'text-warning'}`}>
+                <span className={`ml-auto text-xs ${lineConfigured ? 'text-emerald-500' : 'text-warning'}`}>
                   {lineConfigured ? '已設定' : '未設定'}
                 </span>
                 <ChevronDown className={`h-3 w-3 text-muted transition-transform ${lineOpen ? 'rotate-180' : ''}`} />
@@ -382,9 +382,9 @@ export function SettingsMonitoringPanel(_props: { highlight?: string } = {}) {
 
               {lineOpen && (
                 <div className="border-t border-border/60 bg-base/30 p-3">
-                  <p className="mb-2 text-[10px] text-secondary">{deliveryStatusLabel('line')}</p>
+                  <p className="mb-2 text-xs text-secondary">{deliveryStatusLabel('line')}</p>
                   <label className="block space-y-1.5">
-                    <span className="text-[11px] text-muted">Target ID（開發者 User ID / 群組 ID，非一般 LINE ID）</span>
+                    <span className="text-xs text-muted">Target ID（開發者 User ID / 群組 ID，非一般 LINE ID）</span>
                     <input
                       value={lineTargetDraft}
                       onChange={event => setLineTargetDraft(event.target.value)}
@@ -393,7 +393,7 @@ export function SettingsMonitoringPanel(_props: { highlight?: string } = {}) {
                     />
                   </label>
                   <label className="block mt-2 space-y-1.5">
-                    <span className="text-[11px] text-muted">Channel access token</span>
+                    <span className="text-xs text-muted">Channel access token</span>
                     <input
                       type="password"
                       value={lineTokenDraft}
@@ -402,7 +402,7 @@ export function SettingsMonitoringPanel(_props: { highlight?: string } = {}) {
                       className="h-9 w-full rounded-btn border border-border bg-base px-3 text-xs font-mono text-foreground focus:outline-none focus:border-accent/50"
                     />
                   </label>
-                  <p className="mt-1.5 text-[10px] text-muted">Token 留空會保留目前已儲存的值。</p>
+                  <p className="mt-1.5 text-xs text-muted">Token 留空會保留目前已儲存的值。</p>
                   <div className="mt-2 flex flex-wrap items-center gap-2">
                     <button
                       onClick={() => saveLine.mutate({
@@ -425,7 +425,7 @@ export function SettingsMonitoringPanel(_props: { highlight?: string } = {}) {
                       <button
                         onClick={() => saveLine.mutate({ recipient: '', clearToken: true })}
                         disabled={isUpdatingExternalChannels || saveLine.isPending}
-                        className="ml-auto px-2 py-1 text-[10px] text-danger disabled:opacity-50"
+                        className="ml-auto px-2 py-1 text-xs text-danger disabled:opacity-50"
                       >
                         清除設定
                       </button>
@@ -441,14 +441,14 @@ export function SettingsMonitoringPanel(_props: { highlight?: string } = {}) {
                       </span>
                       <ChevronDown className="h-3 w-3 text-muted transition-transform group-open:rotate-180" />
                     </summary>
-                    <div className="mt-2.5 pt-2.5 border-t border-border/50 text-[11px] text-secondary space-y-2 leading-relaxed">
+                    <div className="mt-2.5 pt-2.5 border-t border-border/50 text-xs text-secondary space-y-2 leading-relaxed">
                       <ol className="list-decimal list-inside space-y-2 pl-0.5 text-foreground/90">
                         <li><b>建立 LINE Official Account</b>：前往 LINE Official Account 平台註冊並建立專屬官方帳號。</li>
                         <li><b>啟用 Messaging API</b>：登入後台管理頁面，在「設定 &gt; Messaging API」分頁點選啟用。</li>
                         <li><b>取得 Channel Access Token</b>：登入 LINE Developers Console，在頻道「Messaging API」頁籤發行並複製長期 Channel Access Token。</li>
                         <li>
                           <b>取得 Target ID（接收對象識別碼）</b>：
-                          <div className="mt-1 space-y-1 pl-1 text-[10.5px] text-secondary">
+                          <div className="mt-1 space-y-1 pl-1 text-xs text-secondary">
                             <p>
                               <b>⚠️ 重要觀念</b>：Target ID <b>不等於一般 LINE ID</b>（不能填寫個人自訂的好友搜尋帳號或行動條碼）。
                             </p>
@@ -464,7 +464,7 @@ export function SettingsMonitoringPanel(_props: { highlight?: string } = {}) {
                         <li><b>儲存並驗證</b>：點擊「儲存」按鈕後，按「測試通知」確認能否正常收到測試推播。</li>
                         <li><span className="text-warning font-medium">⚠️ Channel Access Token 視同密碼，請妥善保管，切勿分享給他人。</span></li>
                       </ol>
-                      <div className="pt-1 flex flex-wrap gap-3 text-[11px]">
+                      <div className="pt-1 flex flex-wrap gap-3 text-xs">
                         <a
                           href="https://developers.line.biz/en/docs/messaging-api/getting-started/"
                           target="_blank"
@@ -504,12 +504,12 @@ export function SettingsMonitoringPanel(_props: { highlight?: string } = {}) {
                   title="全域啟用 Telegram 提醒"
                   className="h-3 w-3 accent-accent cursor-pointer"
                 />
-                <span className="text-[11px] font-medium text-foreground">Telegram</span>
-                <span className="text-[9px] text-muted">Bot API</span>
+                <span className="text-xs font-medium text-foreground">Telegram</span>
+                <span className="text-xs text-muted">Bot API</span>
                 {externalChannels.includes('telegram') && (
-                  <span className="rounded bg-accent/15 px-1 py-px text-[9px] text-accent">啟用</span>
+                  <span className="rounded bg-accent/15 px-1 py-px text-xs text-accent">啟用</span>
                 )}
-                <span className={`ml-auto text-[9px] ${telegramConfigured ? 'text-emerald-500' : 'text-warning'}`}>
+                <span className={`ml-auto text-xs ${telegramConfigured ? 'text-emerald-500' : 'text-warning'}`}>
                   {telegramConfigured ? '已設定' : '未設定'}
                 </span>
                 <ChevronDown className={`h-3 w-3 text-muted transition-transform ${telegramOpen ? 'rotate-180' : ''}`} />
@@ -517,9 +517,9 @@ export function SettingsMonitoringPanel(_props: { highlight?: string } = {}) {
 
               {telegramOpen && (
                 <div className="border-t border-border/60 bg-base/30 p-3">
-                  <p className="mb-2 text-[10px] text-secondary">{deliveryStatusLabel('telegram')}</p>
+                  <p className="mb-2 text-xs text-secondary">{deliveryStatusLabel('telegram')}</p>
                   <label className="block space-y-1.5">
-                    <span className="text-[11px] text-muted">Chat ID</span>
+                    <span className="text-xs text-muted">Chat ID</span>
                     <input
                       value={telegramChatDraft}
                       onChange={event => setTelegramChatDraft(event.target.value)}
@@ -528,7 +528,7 @@ export function SettingsMonitoringPanel(_props: { highlight?: string } = {}) {
                     />
                   </label>
                   <label className="block mt-2 space-y-1.5">
-                    <span className="text-[11px] text-muted">Bot token</span>
+                    <span className="text-xs text-muted">Bot token</span>
                     <input
                       type="password"
                       value={telegramTokenDraft}
@@ -537,7 +537,7 @@ export function SettingsMonitoringPanel(_props: { highlight?: string } = {}) {
                       className="h-9 w-full rounded-btn border border-border bg-base px-3 text-xs font-mono text-foreground focus:outline-none focus:border-accent/50"
                     />
                   </label>
-                  <p className="mt-1.5 text-[10px] text-muted">Token 留空會保留目前已儲存的值。</p>
+                  <p className="mt-1.5 text-xs text-muted">Token 留空會保留目前已儲存的值。</p>
                   <div className="mt-2 flex flex-wrap items-center gap-2">
                     <button
                       onClick={() => saveTelegram.mutate({
@@ -560,7 +560,7 @@ export function SettingsMonitoringPanel(_props: { highlight?: string } = {}) {
                       <button
                         onClick={() => saveTelegram.mutate({ recipient: '', clearToken: true })}
                         disabled={isUpdatingExternalChannels || saveTelegram.isPending}
-                        className="ml-auto px-2 py-1 text-[10px] text-danger disabled:opacity-50"
+                        className="ml-auto px-2 py-1 text-xs text-danger disabled:opacity-50"
                       >
                         清除設定
                       </button>
@@ -576,7 +576,7 @@ export function SettingsMonitoringPanel(_props: { highlight?: string } = {}) {
                       </span>
                       <ChevronDown className="h-3 w-3 text-muted transition-transform group-open:rotate-180" />
                     </summary>
-                    <div className="mt-2.5 pt-2.5 border-t border-border/50 text-[11px] text-secondary space-y-2 leading-relaxed">
+                    <div className="mt-2.5 pt-2.5 border-t border-border/50 text-xs text-secondary space-y-2 leading-relaxed">
                       <ol className="list-decimal list-inside space-y-2 pl-0.5 text-foreground/90">
                         <li><b>在 Telegram 尋找 @BotFather</b>：開啟 Telegram 搜尋官方機器人管理員 <code className="px-1 rounded bg-elevated text-accent font-mono">@BotFather</code> 並開啟對話。</li>
                         <li><b>使用 /newbot 建立 Bot</b>：向 BotFather 發送 <code className="px-1 rounded bg-elevated text-foreground font-mono">/newbot</code>，依引導設定 Bot 名稱與 username（結尾須為 bot）。</li>
@@ -584,7 +584,7 @@ export function SettingsMonitoringPanel(_props: { highlight?: string } = {}) {
                         <li><b>傳訊息給剛建立的 Bot</b>：在 Telegram 搜尋剛建立的 Bot，點擊「Start」並傳送任意一則文字訊息（Bot 必須先收到訊息才能建立通訊通道）。</li>
                         <li>
                           <b>呼叫 getUpdates 讀取 message.chat.id（官方方式）</b>：
-                          <div className="mt-1 space-y-1 pl-1 text-[10.5px] text-secondary">
+                          <div className="mt-1 space-y-1 pl-1 text-xs text-secondary">
                             <p>
                               在瀏覽器中開啟官方 API 網址（將 <code className="px-1 rounded bg-elevated font-mono">&lt;YourBotToken&gt;</code> 替換為您的 Bot Token）：
                             </p>
@@ -600,7 +600,7 @@ export function SettingsMonitoringPanel(_props: { highlight?: string } = {}) {
                         <li><b>儲存並驗證</b>：點擊「儲存」按鈕後，按「測試通知」確認能否正常收到測試推播。</li>
                         <li><span className="text-warning font-medium">⚠️ Bot Token 視同密碼，請妥善保管，切勿分享給他人。</span></li>
                       </ol>
-                      <div className="pt-1 flex flex-wrap gap-3 text-[11px]">
+                      <div className="pt-1 flex flex-wrap gap-3 text-xs">
                         <a
                           href="https://core.telegram.org/bots/tutorial"
                           target="_blank"
@@ -661,7 +661,7 @@ function PushExtrasCard({ prefs, disabled, hasChannels, telegramConfigured }: {
         三個功能都走下方勾選的 LINE／Telegram 通道，預設關閉；後端沒開就不會送。
       </p>
       {!hasChannels && (
-        <p className="mb-2 rounded-btn border border-warning/30 bg-warning/10 px-2 py-1 text-[10px] text-warning">
+        <p className="mb-2 rounded-btn border border-warning/30 bg-warning/10 px-2 py-1 text-xs text-warning">
           尚未勾選任何外送通道，開啟後也不會收到推播。
         </p>
       )}
@@ -675,10 +675,10 @@ function PushExtrasCard({ prefs, disabled, hasChannels, telegramConfigured }: {
       {settings?.push_digest_enabled && (
         <div className="mb-2 flex flex-wrap items-center gap-2 pl-1">
           <button type="button" disabled={digestTest.isPending} onClick={() => digestTest.mutate('morning')}
-            className="px-2 py-1 rounded-btn bg-elevated text-[10px] text-secondary disabled:opacity-50">試送早安</button>
+            className="px-2 py-1 rounded-btn bg-elevated text-xs text-secondary disabled:opacity-50">試送早安</button>
           <button type="button" disabled={digestTest.isPending} onClick={() => digestTest.mutate('evening')}
-            className="px-2 py-1 rounded-btn bg-elevated text-[10px] text-secondary disabled:opacity-50">試送收盤</button>
-          {last && <span className="text-[10px] text-muted">上次：{last.kind === 'morning' ? '早安' : '收盤'}・{last.status}{last.ran_at ? `・${last.ran_at.slice(0, 16).replace('T', ' ')}` : ''}</span>}
+            className="px-2 py-1 rounded-btn bg-elevated text-xs text-secondary disabled:opacity-50">試送收盤</button>
+          {last && <span className="text-xs text-muted">上次：{last.kind === 'morning' ? '早安' : '收盤'}，{last.status}{last.ran_at ? `，${last.ran_at.slice(0, 16).replace('T', ' ')}` : ''}</span>}
         </div>
       )}
       <ToggleRow
@@ -689,7 +689,7 @@ function PushExtrasCard({ prefs, disabled, hasChannels, telegramConfigured }: {
         onChange={v => anomaly.mutate({ enabled: v })}
       />
       {settings?.watchlist_anomaly_enabled && (
-        <div className="mb-2 flex items-center gap-2 pl-1 text-[10px] text-muted">
+        <div className="mb-2 flex items-center gap-2 pl-1 text-xs text-muted">
           <span>門檻</span>
           <input
             type="number" min={1} max={10} step={0.5}
@@ -714,7 +714,7 @@ function PushExtrasCard({ prefs, disabled, hasChannels, telegramConfigured }: {
         onChange={v => telegram.mutate(v)}
       />
       {(digest.isError || anomaly.isError || telegram.isError) && (
-        <p role="alert" className="text-[11px] text-danger">儲存失敗，請稍後再試。</p>
+        <p role="alert" className="text-xs text-danger">儲存失敗，請稍後再試。</p>
       )}
     </Card>
   )
@@ -743,7 +743,7 @@ function ToggleRow({
         {Icon && <Icon className="h-3.5 w-3.5 text-secondary shrink-0 mt-0.5" />}
         <div className="min-w-0">
           <div className="text-sm text-foreground">{label}</div>
-          <div className="text-[11px] text-muted truncate">{desc}</div>
+          <div className="text-xs text-muted truncate">{desc}</div>
         </div>
       </div>
       <button
@@ -782,7 +782,7 @@ function Card({ icon: Icon, title, badge, right, children }: CardProps) {
           <Icon className="h-4 w-4 text-secondary" />
           <h2 className="text-sm font-medium text-foreground">{title}</h2>
           {badge && (
-            <span className="px-1.5 py-0.5 text-[10px] font-mono rounded bg-elevated text-muted">
+            <span className="px-1.5 py-0.5 text-xs font-mono rounded bg-elevated text-muted">
               {badge}
             </span>
           )}

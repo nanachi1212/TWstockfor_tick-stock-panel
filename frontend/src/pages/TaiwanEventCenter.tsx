@@ -190,7 +190,6 @@ export function TaiwanEventCenter() {
       <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between rounded-card border border-border bg-surface/85 p-4 shadow-sm backdrop-blur-sm">
         <div>
           <div className="flex items-center gap-2">
-            <span className="h-4 w-1 rounded-full bg-gradient-to-b from-accent to-accent/40" />
             <CalendarDays className="h-5 w-5 text-accent" />
             <h1 className="text-lg font-bold text-foreground tracking-tight">台股事件中心</h1>
             <span className="rounded bg-accent/10 px-2 py-0.5 text-xs font-semibold text-accent">
@@ -242,7 +241,7 @@ export function TaiwanEventCenter() {
             >
               {tab.label}
               {activeScope === tab.id && eventsQuery.data?.total !== undefined && (
-                <span className="ml-1.5 rounded-full bg-base/20 px-1.5 py-0.2 text-[10px] font-mono">
+                <span className="ml-1.5 rounded-full bg-base/20 px-1.5 py-0.2 text-xs font-mono">
                   {eventsQuery.data.total}
                 </span>
               )}
@@ -396,11 +395,11 @@ export function TaiwanEventCenter() {
                 >
                   <div className="flex items-start justify-between gap-3">
                     <div className="flex flex-wrap items-center gap-2">
-                      <span className={cn('inline-flex items-center gap-1 rounded-md border px-2 py-0.5 text-[11px] font-semibold', sevConfig.badgeCls)}>
+                      <span className={cn('inline-flex items-center gap-1 rounded-md border px-2 py-0.5 text-xs font-semibold', sevConfig.badgeCls)}>
                         <IconComp className="h-3 w-3" />
                         {sevConfig.label}
                       </span>
-                      <span className="rounded bg-elevated px-2 py-0.5 text-[11px] font-medium text-secondary">
+                      <span className="rounded bg-elevated px-2 py-0.5 text-xs font-medium text-secondary">
                         {ev.event_type_label}
                       </span>
                       <span className="font-mono text-xs text-muted">{ev.event_date}</span>
@@ -434,7 +433,7 @@ export function TaiwanEventCenter() {
                       <span className="text-base font-bold text-foreground">{ev.name || ev.code}</span>
                     )}
                     <span className="font-mono text-xs text-muted">{ev.code}</span>
-                    <span className="text-[10px] text-muted">({ev.exchange})</span>
+                    <span className="text-xs text-muted">({ev.exchange})</span>
                   </div>
 
                   {/* Event Title & Summary */}
@@ -447,7 +446,7 @@ export function TaiwanEventCenter() {
                   <MopsEventEvidence event={ev} />
 
                   {/* Source & Provenance Footer */}
-                  <div className="mt-2.5 flex items-center justify-between text-[10px] text-muted">
+                  <div className="mt-2.5 flex items-center justify-between text-xs text-muted">
                     <div className="flex items-center gap-1.5">
                       <span>來源：{ev.source}</span>
                       {ev.source_url && (
@@ -478,10 +477,10 @@ export function TaiwanEventCenter() {
                 <TrendingUp className="h-4 w-4 text-accent" />
                 <h2 className="text-xs font-bold text-foreground">值得進一步查看標的</h2>
               </div>
-              <span className="text-[10px] text-muted">事件驅動清單</span>
+              <span className="text-xs text-muted">事件驅動清單</span>
             </div>
 
-            <p className="text-[11px] text-secondary mb-3 leading-relaxed">
+            <p className="text-xs text-secondary mb-3 leading-relaxed">
               根據近期除權息、處置解列、注意股票與重大公司行動確定性彙整，點擊可直接深入研究個股：
             </p>
 
@@ -503,13 +502,13 @@ export function TaiwanEventCenter() {
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-1.5">
                         <span className="font-bold text-xs text-foreground">{c.name}</span>
-                        <span className="font-mono text-[11px] text-muted">{c.code}</span>
+                        <span className="font-mono text-xs text-muted">{c.code}</span>
                       </div>
-                      <span className="rounded bg-accent/10 px-1.5 py-0.5 text-[10px] font-medium text-accent">
+                      <span className="rounded bg-accent/10 px-1.5 py-0.5 text-xs font-medium text-accent">
                         {c.tag}
                       </span>
                     </div>
-                    <div className="mt-1 text-[11px] text-secondary leading-snug">
+                    <div className="mt-1 text-xs text-secondary leading-snug">
                       {c.reason}
                     </div>
                   </Link>
@@ -520,11 +519,11 @@ export function TaiwanEventCenter() {
 
           {/* Authority and Compliance Guidance */}
           <div className="rounded-card border border-border bg-surface/50 p-3.5 text-xs text-muted leading-relaxed space-y-2">
-            <div className="flex items-center gap-1 font-semibold text-foreground text-[11px]">
+            <div className="flex items-center gap-1 font-semibold text-foreground text-xs">
               <Info className="h-3.5 w-3.5 text-accent" />
               台股事件中心資料原則
             </div>
-            <ul className="list-disc pl-4 space-y-1 text-[11px]">
+            <ul className="list-disc pl-4 space-y-1 text-xs">
               <li><strong>申報與成交分開</strong>：內部人持股轉讓申報只表示預定轉讓，不代表實際成交或已賣出。</li>
               <li><strong>時間證據</strong>：公告時間無法確認時保留空值，不做公告後幾小時分析；法說會簡報僅提供官方連結，不自動下載。</li>
               <li>

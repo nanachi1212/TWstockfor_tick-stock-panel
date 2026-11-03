@@ -274,7 +274,7 @@ export function PortfolioTradeDialog({
         <label className="block space-y-1 text-xs text-secondary">股票代碼
           <input value={symbol} onChange={event => setSymbol(event.target.value)} disabled={!!initialSymbol} required placeholder="例如 2330.TWSE" className="w-full rounded-lg border border-border bg-base px-3 py-2 font-mono text-foreground disabled:opacity-70" />
         </label>
-        {initialSymbol ? <p className="text-[11px] text-muted">{name || initialSymbol}</p> : <label className="block space-y-1 text-xs text-secondary">股票名稱（選填）
+        {initialSymbol ? <p className="text-xs text-muted">{name || initialSymbol}</p> : <label className="block space-y-1 text-xs text-secondary">股票名稱（選填）
           <input value={name} onChange={event => setName(event.target.value)} className="w-full rounded-lg border border-border bg-base px-3 py-2 text-foreground" />
         </label>}
         <div className="grid grid-cols-2 gap-2">
@@ -295,19 +295,19 @@ export function PortfolioTradeDialog({
           </label>
         </div>
         {side === 'sell' && <>
-          {!taxInputsValid ? <p className="text-[11px] text-muted">輸入有效股數、價格與不晚於今日的成交日期後，會依台灣市場規則估算證交稅。</p>
-            : taxQuery.isFetching ? <p role="status" className="text-[11px] text-muted">正在依台灣市場規則估算證交稅…</p>
-              : taxQuery.data ? <p className="text-[11px] text-muted">預估證交稅：{money(taxQuery.data.tax_amount)}（一般稅率 {(taxQuery.data.tax_rate * 100).toFixed(2)}%，{taxQuery.data.tax_class}；當沖資格與配對股數尚無可驗證資料）</p>
-                : taxQuery.isError ? <p role="alert" className="text-[11px] text-warning">無法取得此標的適用的證交稅規則，請稍後重試。</p> : null}
+          {!taxInputsValid ? <p className="text-xs text-muted">輸入有效股數、價格與不晚於今日的成交日期後，會依台灣市場規則估算證交稅。</p>
+            : taxQuery.isFetching ? <p role="status" className="text-xs text-muted">正在依台灣市場規則估算證交稅…</p>
+              : taxQuery.data ? <p className="text-xs text-muted">預估證交稅：{money(taxQuery.data.tax_amount)}（一般稅率 {(taxQuery.data.tax_rate * 100).toFixed(2)}%，{taxQuery.data.tax_class}；當沖資格與配對股數尚無可驗證資料）</p>
+                : taxQuery.isError ? <p role="alert" className="text-xs text-warning">無法取得此標的適用的證交稅規則，請稍後重試。</p> : null}
         </>}
         {side === 'buy' && symbol.trim() && <>
-          {!isTaiwanPortfolioSymbol(symbol) ? <p role="alert" className="text-[11px] text-warning">請輸入台股股票或 ETF 的標準代碼，例如 2330.TWSE。</p>
-            : instrumentQuery.isFetching ? <p role="status" className="text-[11px] text-muted">正在確認台股標的與成交日期…</p>
-              : instrumentQuery.data?.trading_day_status === 'unverified' ? <p role="status" className="text-[11px] text-warning">台灣交易日曆尚未確認此平日，請依成交單核對日期。</p>
-                : instrumentQuery.isError ? <p role="alert" className="text-[11px] text-warning">無法確認此標的是支援的台股股票或 ETF，請檢查代碼與成交日期。</p> : null}
+          {!isTaiwanPortfolioSymbol(symbol) ? <p role="alert" className="text-xs text-warning">請輸入台股股票或 ETF 的標準代碼，例如 2330.TWSE。</p>
+            : instrumentQuery.isFetching ? <p role="status" className="text-xs text-muted">正在確認台股標的與成交日期…</p>
+              : instrumentQuery.data?.trading_day_status === 'unverified' ? <p role="status" className="text-xs text-warning">台灣交易日曆尚未確認此平日，請依成交單核對日期。</p>
+                : instrumentQuery.isError ? <p role="alert" className="text-xs text-warning">無法確認此標的是支援的台股股票或 ETF，請檢查代碼與成交日期。</p> : null}
         </>}
-        {side === 'sell' && position && <p className="text-[11px] text-muted">目前持有 {position.shares.toLocaleString()} 股，平均成本 {money(position.averageCost)}</p>}
-        {ledgerError && <p role="alert" className="text-[11px] text-danger">{ledgerError}</p>}
+        {side === 'sell' && position && <p className="text-xs text-muted">目前持有 {position.shares.toLocaleString()} 股，平均成本 {money(position.averageCost)}</p>}
+        {ledgerError && <p role="alert" className="text-xs text-danger">{ledgerError}</p>}
         {error && <p role="alert" className="rounded-lg bg-danger/10 px-3 py-2 text-xs text-danger">{error}</p>}
         <button type="submit" disabled={!!ledgerError || (side === 'sell' ? (!taxQuery.data || taxQuery.isFetching) : (!instrumentQuery.data || instrumentQuery.isFetching))} className="w-full rounded-lg bg-accent px-3 py-2 text-xs font-semibold text-white hover:bg-accent/90 disabled:cursor-not-allowed disabled:opacity-50">保存成交</button>
       </form>
@@ -431,8 +431,8 @@ export function PortfolioPanel({ symbol, name, quote: detailQuote, change: detai
       {restoreMessage && <p role="status" className="text-xs text-warning">{restoreMessage}</p>}
       {ledgerError && <p role="alert" className="rounded-lg bg-danger/10 px-3 py-2 text-xs text-danger">{ledgerError}</p>}
       {!symbol && autoSync.info?.path && (
-        <p className="text-[11px] text-muted">
-          持股自動同步：{autoSync.info.name}{autoSync.message ? ` · ${autoSync.message}` : ''}
+        <p className="text-xs text-muted">
+          持股自動同步：{autoSync.info.name}{autoSync.message ? `，${autoSync.message}` : ''}
           <button type="button" onClick={async () => { await withPortfolioWriteLock(() => localStorage.setItem(AUTO_SYNC_MARK, 'paused')); await api.portfolioAutoSyncSet(null); void qc.invalidateQueries({ queryKey: ['portfolioAutoSync'] }) }} className="ml-2 text-accent hover:underline">停止同步</button>
         </p>
       )}
@@ -448,14 +448,14 @@ export function PortfolioPanel({ symbol, name, quote: detailQuote, change: detai
           <Summary label="今日持股提醒" value={portfolioAlerts.isLoading ? '—' : portfolioAlerts.isError ? 'unavailable' : `${portfolioAlertsToday} 則`} />
         </div>
       )}
-      {!symbol && quotesQuery.isLoading && positions.length > 0 && <p role="status" className="text-[11px] text-muted">正在載入持股報價…</p>}
-      {!symbol && quotesQuery.isError && <p role="alert" className="text-[11px] text-warning">報價載入失敗，請稍後重試；持股與成本資料仍已保存。</p>}
+      {!symbol && quotesQuery.isLoading && positions.length > 0 && <p role="status" className="text-xs text-muted">正在載入持股報價…</p>}
+      {!symbol && quotesQuery.isError && <p role="alert" className="text-xs text-warning">報價載入失敗，請稍後重試；持股與成本資料仍已保存。</p>}
       {shownPositions.length === 0 ? ledgerError ? null : (
         <p className="rounded-lg bg-base px-3 py-5 text-center text-xs text-muted">{symbol ? '目前沒有這檔持股，記錄買入後會顯示在這裡。' : '目前沒有持股，從觀察清單或個股頁記錄第一筆買入。'}</p>
       ) : (
         <div className="overflow-x-auto">
           <table className="w-full min-w-[760px] text-left text-xs">
-            <thead className="text-[10px] text-muted"><tr>{!symbol && <th className="px-2 py-2">股票</th>}<th className="px-2 py-2">持有股數</th><th className="px-2 py-2">平均成本</th><th className="px-2 py-2">現價</th><th className="px-2 py-2">市值</th>{showAllocationWeights && <th className="px-2 py-2" title={`依 ${allocation?.as_of} 收盤市值計算`}>收盤權重</th>}<th className="px-2 py-2">未實現損益</th><th className="px-2 py-2">報酬率</th><th className="px-2 py-2">今日漲跌</th><th className="px-2 py-2">Quant 分數</th><th className="px-2 py-2">今日排名</th><th className="px-2 py-2">操作</th></tr></thead>
+            <thead className="text-xs text-muted"><tr>{!symbol && <th className="px-2 py-2">股票</th>}<th className="px-2 py-2">持有股數</th><th className="px-2 py-2">平均成本</th><th className="px-2 py-2">現價</th><th className="px-2 py-2">市值</th>{showAllocationWeights && <th className="px-2 py-2" title={`依 ${allocation?.as_of} 收盤市值計算`}>收盤權重</th>}<th className="px-2 py-2">未實現損益</th><th className="px-2 py-2">報酬率</th><th className="px-2 py-2">今日漲跌</th><th className="px-2 py-2">Quant 分數</th><th className="px-2 py-2">今日排名</th><th className="px-2 py-2">操作</th></tr></thead>
             <tbody>
               {shownPositions.map(position => {
                 const quote = quoteFor(position)
@@ -481,11 +481,11 @@ export function PortfolioPanel({ symbol, name, quote: detailQuote, change: detai
               })}
             </tbody>
           </table>
-          {shownPositions.some(position => !symbol && !quoteFor(position)?.last_price) && <p className="mt-2 text-[11px] text-muted">部分標的目前無法取得報價，市值與損益摘要暫不顯示。</p>}
+          {shownPositions.some(position => !symbol && !quoteFor(position)?.last_price) && <p className="mt-2 text-xs text-muted">部分標的目前無法取得報價，市值與損益摘要暫不顯示。</p>}
         </div>
       )}
-      {symbol && targetLedgerPosition && <p className="text-[11px] text-muted">已實現損益（平均成本法）：{targetLedgerPosition.realizedPnl == null ? '不完整，部分舊賣出缺少可驗證的證交稅' : money(targetLedgerPosition.realizedPnl)}</p>}
-      {!symbol && ledgerPositions.length > 0 && <p className="text-[11px] text-muted">已實現損益（平均成本法）：{ledgerPositions.some(position => position.realizedPnl == null) ? '不完整，部分舊賣出缺少可驗證的證交稅' : money(ledgerPositions.reduce((sum, position) => sum + (position.realizedPnl ?? 0), 0))}</p>}
+      {symbol && targetLedgerPosition && <p className="text-xs text-muted">已實現損益（平均成本法）：{targetLedgerPosition.realizedPnl == null ? '不完整，部分舊賣出缺少可驗證的證交稅' : money(targetLedgerPosition.realizedPnl)}</p>}
+      {!symbol && ledgerPositions.length > 0 && <p className="text-xs text-muted">已實現損益（平均成本法）：{ledgerPositions.some(position => position.realizedPnl == null) ? '不完整，部分舊賣出缺少可驗證的證交稅' : money(ledgerPositions.reduce((sum, position) => sum + (position.realizedPnl ?? 0), 0))}</p>}
       {importOpen && <PortfolioImportDialog onClose={() => setImportOpen(false)} />}
       {trade && <PortfolioTradeDialog symbol={trade.symbol} name={trade.name} initialSide={trade.side} quote={trade.quote} onClose={() => setTrade(null)} />}
       <TaiwanRuleEditorDialog open={!!reminder} rule={null} presetSymbol={reminder?.symbol} presetName={reminder?.name} presetPrice={reminder?.price ?? reminder?.quote?.last_price} presetQuote={reminder?.quote ?? null} onClose={() => setReminder(null)} />
@@ -659,7 +659,7 @@ function PortfolioImportDialog({ onClose }: { onClose: () => void }) {
             className="flex cursor-pointer flex-col items-center gap-1 rounded-lg border border-dashed border-border px-3 py-4 text-center text-xs text-secondary hover:border-accent hover:text-foreground">
             <FileUp className="h-4 w-4" />
             <span>點此選擇檔案，或把檔案拖到這裡</span>
-            <span className="text-[11px] text-muted">CSV · TSV · TXT · Excel (.xlsx) · 網頁表格 (.xls / .html)</span>
+            <span className="text-xs text-muted">CSV，TSV，TXT，Excel (.xlsx)，網頁表格 (.xls / .html)</span>
             <input type="file" accept=".csv,.tsv,.txt,.xlsx,.xls,.html,.htm" aria-label="選擇持股檔案" className="sr-only"
               onChange={event => { const file = event.target.files?.[0]; if (file) void loadLocalFile(file); event.target.value = '' }} />
           </label>
@@ -686,7 +686,7 @@ function PortfolioImportDialog({ onClose }: { onClose: () => void }) {
                     <button type="button" disabled={loadingSource} onClick={() => void loadCloud({ path: file.path }, file.name)} className="w-full px-3 py-1.5 text-left hover:bg-elevated disabled:opacity-50">
                       <span className="font-medium text-foreground">{file.name}</span>
                       <span className="ml-2 text-muted">{new Date(file.modified * 1000).toLocaleString('zh-TW', { hour12: false })}</span>
-                      <div className="truncate text-[11px] text-muted">{file.folder}</div>
+                      <div className="truncate text-xs text-muted">{file.folder}</div>
                     </button>
                   </li>
                 ))}
@@ -700,12 +700,12 @@ function PortfolioImportDialog({ onClose }: { onClose: () => void }) {
                   <button type="button" disabled={!sheetUrl.trim() || loadingSource} onClick={() => void loadCloud({ sheet_url: sheetUrl.trim() }, 'Google 試算表')}
                     className="rounded-lg border border-border px-3 py-1.5 text-xs disabled:opacity-50">讀取</button>
                 </div>
-                <p className="text-[11px] text-muted">私人試算表讀不到：請在試算表選「檔案 → 下載 → 逗號分隔值 (.csv)」，再到「本機檔案」選它。</p>
+                <p className="text-xs text-muted">私人試算表讀不到：請在試算表選「檔案 → 下載 → 逗號分隔值 (.csv)」，再到「本機檔案」選它。</p>
               </div>
             )}
           </div>
         )}
-        {loadedFrom && <p className="text-[11px] text-muted">已讀入：{loadedFrom}</p>}
+        {loadedFrom && <p className="text-xs text-muted">已讀入：{loadedFrom}</p>}
         <label className="block text-xs font-medium text-secondary" htmlFor="holdings-import-text">{loadedFrom ? '內容（可再修改）' : '或直接貼上持股表格'}</label>
         <textarea id="holdings-import-text" value={text} onChange={event => { setText(event.target.value); setLoadedFrom('') }} rows={8} placeholder={'把券商或 Excel 的持股表格整張貼在這裡，例如：\n代號,名稱,股數,均價,總成本\n2330,台積電,1000,850.5,851712'} className="w-full rounded-lg border border-border bg-base px-3 py-2 font-mono text-xs text-foreground" />
         {parsed.rows.length > 0 && (
@@ -739,7 +739,7 @@ function PortfolioImportDialog({ onClose }: { onClose: () => void }) {
 }
 
 function Summary({ label, value, tone: valueTone }: { label: string; value: string; tone?: number | null }) {
-  return <div className="rounded-lg bg-base px-2.5 py-2"><span className="block text-[10px] text-muted">{label}</span><span className={`mt-1 block font-mono font-medium ${tone(valueTone)}`}>{value}</span></div>
+  return <div className="rounded-lg bg-base px-2.5 py-2"><span className="block text-xs text-muted">{label}</span><span className={`mt-1 block font-mono font-medium ${tone(valueTone)}`}>{value}</span></div>
 }
 
 function tone(value: number | null | undefined) {

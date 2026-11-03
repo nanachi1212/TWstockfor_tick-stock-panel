@@ -150,7 +150,7 @@ export function WatchlistGroupBar({
                 )}
                 {color && <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${color.dot}`} />}
                 <span>{tab.name}</span>
-                <span className={`font-mono text-[10px] tabular-nums ${active && !color ? 'text-accent/80' : 'text-muted'}`}>
+                <span className={`font-mono text-xs tabular-nums ${active && !color ? 'text-accent/80' : 'text-muted'}`}>
                   {tab.count}
                 </span>
                 {pcts && (() => {
@@ -158,7 +158,7 @@ export function WatchlistGroupBar({
                   if (!info || info.pct == null || info.sampled === 0) return null
                   return (
                     <span
-                      className={`font-mono text-[10px] tabular-nums ${groupPctColor(info.pct)}`}
+                      className={`font-mono text-xs tabular-nums ${groupPctColor(info.pct)}`}
                       title={groupPctTitle(info)}
                     >
                       {fmtPct(info.pct)}
@@ -371,7 +371,7 @@ function GroupManagerDialog({
       <div className="flex items-center justify-between border-b border-border px-4 py-3">
         <div>
           <h2 id="watchlist-groups-title" className="text-sm font-semibold text-foreground">管理自選分組</h2>
-          <p className="mt-0.5 text-[11px] text-muted">刪除分組不會刪除其中的股票</p>
+          <p className="mt-0.5 text-xs text-muted">刪除分組不會刪除其中的股票</p>
         </div>
         <button type="button" onClick={onClose} className="h-8 w-8 inline-flex items-center justify-center text-muted hover:text-foreground" aria-label="關閉">
           <X className="h-4 w-4" />
@@ -382,7 +382,7 @@ function GroupManagerDialog({
       <div className="flex items-center justify-between border-b border-border px-4 py-2.5">
         <div className="min-w-0">
           <div className="text-xs font-medium text-foreground">顯示在側邊欄</div>
-          <div className="mt-0.5 text-[10px] text-muted">開啟後可在左側選單展開分組子選單</div>
+          <div className="mt-0.5 text-xs text-muted">開啟後可在左側選單展開分組子選單</div>
         </div>
         <button
           type="button"
@@ -421,7 +421,7 @@ function GroupManagerDialog({
           </button>
         </div>
         <div className="mt-2 flex items-start gap-2">
-          <span className="mt-1 shrink-0 text-[11px] text-muted">分組顏色</span>
+          <span className="mt-1 shrink-0 text-xs text-muted">分組顏色</span>
           <GroupColorPicker value={newColor} onChange={setNewColor} />
         </div>
         {error && <p className="mt-2 text-xs text-danger">{error}</p>}
@@ -434,7 +434,7 @@ function GroupManagerDialog({
           const color = resolveWatchlistGroupColor(group.color)
           return (
           <div key={group.id} className="flex min-h-12 items-center gap-2 border-b border-border/60 last:border-0">
-            <span className={`h-6 w-1 shrink-0 rounded-full ${color.dot}`} />
+            <span className={`h-2 w-2 shrink-0 rounded-full ${color.dot}`} />
             {editingId === group.id ? (
               <div className="min-w-0 flex-1 py-2">
                 <div className="flex items-center gap-1.5">
@@ -466,7 +466,7 @@ function GroupManagerDialog({
                   type="button"
                   disabled={pending}
                   onClick={() => void run(async () => { await onDelete(group.id); setDeletingId(null) })}
-                  className="rounded px-2 py-1 text-[11px] text-danger bg-danger/10 hover:bg-danger/20 disabled:opacity-50"
+                  className="rounded px-2 py-1 text-xs text-danger bg-danger/10 hover:bg-danger/20 disabled:opacity-50"
                 >
                   確認
                 </button>
@@ -477,7 +477,7 @@ function GroupManagerDialog({
             ) : (
               <>
                 <span className={`min-w-0 flex-1 truncate text-xs ${color.text}`}>{group.name}</span>
-                <span className="font-mono text-[10px] text-muted tabular-nums">{counts[group.id] ?? 0} 檔</span>
+                <span className="font-mono text-xs text-muted tabular-nums">{counts[group.id] ?? 0} 檔</span>
                 {onReorder && groups.length > 1 && (
                   <>
                     <button
@@ -627,7 +627,7 @@ export function WatchlistGroupPicker({ groups, groupIds, symbol, disabled, onTog
               />
             ))}
             {memberGroups.length > 3 && (
-              <span className="ml-0.5 font-mono text-[9px] leading-none text-muted">+{memberGroups.length - 3}</span>
+              <span className="ml-0.5 font-mono text-xs leading-none text-muted">+{memberGroups.length - 3}</span>
             )}
           </span>
         )}
@@ -648,7 +648,7 @@ export function WatchlistGroupPicker({ groups, groupIds, symbol, disabled, onTog
           className="z-50 rounded-card border border-border bg-base p-1 shadow-xl"
           onClick={event => event.stopPropagation()}
         >
-          <div className="px-2 pb-1 pt-1.5 text-[10px] text-muted">加入分組（可多選）</div>
+          <div className="px-2 pb-1 pt-1.5 text-xs text-muted">加入分組（可多選）</div>
           {groups.length === 0 ? (
             <div className="px-2 py-2 text-xs text-muted">暫無分組，請先新建</div>
           ) : groups.map(group => {
@@ -676,7 +676,7 @@ export function WatchlistGroupPicker({ groups, groupIds, symbol, disabled, onTog
             )
           })}
           {groups.length > 0 && groupIds.length === 0 && (
-            <div className="border-t border-border/60 px-2 pb-1 pt-1.5 text-[10px] text-muted">
+            <div className="border-t border-border/60 px-2 pb-1 pt-1.5 text-xs text-muted">
               未加入任何分組 — 標的仍在自選中
             </div>
           )}

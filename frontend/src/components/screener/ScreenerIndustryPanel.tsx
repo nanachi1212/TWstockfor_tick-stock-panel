@@ -22,9 +22,9 @@ export function ScreenerIndustryPanel({ setIndustry, setPage }: { setIndustry: (
         <div className="flex items-center gap-2">
           <Layers className="w-4 h-4 text-cyan-400" />
           <span className="font-semibold text-zinc-200 text-sm">台股產業類股輪動 (Industry Intelligence)</span>
-          <span className="text-zinc-500 font-mono text-[11px]">{indData.industries.length} 大類股統計 (點擊產業名稱可套用篩選)</span>
+          <span className="text-zinc-500 font-mono text-xs">{indData.industries.length} 大類股統計 (點擊產業名稱可套用篩選)</span>
         </div>
-        <div className="flex items-center gap-2 text-[11px] text-zinc-400">
+        <div className="flex items-center gap-2 text-xs text-zinc-400">
           <span>排序:</span>
           <select
             value={indSortBy}
@@ -50,7 +50,7 @@ export function ScreenerIndustryPanel({ setIndustry, setPage }: { setIndustry: (
 
       <div id="industry-intelligence-table" className={`overflow-x-auto ${showAllIndustries ? 'max-h-96 overflow-y-auto' : ''}`}>
         <table className="w-full text-left border-collapse">
-          <thead className="sticky top-0 bg-zinc-950/90 text-zinc-400 text-[11px] border-b border-zinc-800">
+          <thead className="sticky top-0 bg-zinc-950/90 text-zinc-400 text-xs border-b border-zinc-800">
             <tr>
               <th className="py-1.5 px-2">產業名稱</th>
               <th className="py-1.5 px-2 text-right">標的數</th>
@@ -65,7 +65,7 @@ export function ScreenerIndustryPanel({ setIndustry, setPage }: { setIndustry: (
               <th className="py-1.5 px-2 text-right">投信買賣超</th>
             </tr>
           </thead>
-          <tbody className="divide-y divide-zinc-800/40 text-[11px] font-mono">
+          <tbody className="divide-y divide-zinc-800/40 text-xs font-mono">
             {(showAllIndustries ? indData.industries : indData.industries.slice(0, 10)).map(ind => (
               <tr key={ind.industry} className="hover:bg-zinc-800/30 transition-colors">
                 <td className="py-1.5 px-2 font-sans font-medium text-zinc-200">
@@ -146,7 +146,7 @@ export function ScreenerIndustryPanel({ setIndustry, setPage }: { setIndustry: (
           onClick={() => setShowAllIndustries(prev => !prev)}
           aria-expanded={showAllIndustries}
           aria-controls="industry-intelligence-table"
-          className="w-full py-1.5 rounded-md bg-zinc-800/60 hover:bg-zinc-800 text-zinc-400 hover:text-zinc-200 text-[11px] font-medium transition-colors"
+          className="w-full py-1.5 rounded-md bg-zinc-800/60 hover:bg-zinc-800 text-zinc-400 hover:text-zinc-200 text-xs font-medium transition-colors"
         >
           {showAllIndustries ? '收合 ▴' : `顯示全部 ${indData.industries.length} 檔 ▾`}
         </button>

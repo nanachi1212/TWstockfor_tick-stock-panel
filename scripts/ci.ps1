@@ -531,7 +531,9 @@ function Start-DomainValidationJob {
                 }
             }
 
-            $pytestArgs = @('run', '--frozen', '--extra', 'dev', 'pytest', '-q')
+            # Invoke pytest as a module so uv does not need to resolve the
+            # pytest console-script trampoline from a non-ASCII repo path.
+            $pytestArgs = @('run', '--frozen', '--extra', 'dev', 'python', '-m', 'pytest', '-q')
             if ($BackendTestList.Count -gt 0) {
                 $pytestArgs += @($BackendTestList | ForEach-Object { $_.Substring($backend.Length + 1) })
             }
@@ -762,7 +764,7 @@ try {
                 $jobs.Add((Start-DomainValidationJob -Domain frontend -ValidationMode Full -Paths $changed -BackendTests @() -FrontendTests @() -FrontendBuild $true -ProcessDirectory $CiProcessDirectory))
             }
             'backend-live-integration' {
-                $results.Add((Invoke-ExternalStep -Name 'Backend live integration' -WorkingDirectory $BackendRoot -FilePath 'uv' -Arguments @('run', '--frozen', '--extra', 'dev', 'pytest', '-q', '-m', 'integration')))
+                $results.Add((Invoke-ExternalStep -Name 'Backend live integration' -WorkingDirectory $BackendRoot -FilePath 'uv' -Arguments @('run', '--frozen', '--extra', 'dev', 'python', '-m', 'pytest', '-q', '-m', 'integration')))
             }
             'ci-script-check' {
                 $results.Add((Invoke-ScriptCheck -Paths $changed))
