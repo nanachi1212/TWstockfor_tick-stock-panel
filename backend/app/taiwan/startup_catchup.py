@@ -56,6 +56,22 @@ def needs_catchup() -> tuple[bool, str]:
     return True, f"daily_{freshness.daily_status}:{freshness.daily_as_of or 'none'}"
 
 
+def _catchup_official_evidence() -> dict[str, Any]:
+    """開機時補抓月營收收存檔與官方事件快照 (排程沒開機時漏掉的部分)。
+
+    兩者都會略過仍新鮮的資料: 月營收依各頁的抓取時間, 事件快照依 1 小時 TTL。
+    """
+    from app.config import settings
+    from app.taiwan.events_service import get_event_service
+    from app.taiwan.monthly_revenue_evidence import MonthlyRevenueEvidenceStore, refresh_monthly_revenue_evidence
+
+    store = MonthlyRevenueEvidenceStore(settings.data_dir / "taiwan" / "monthly_revenue_evidence")
+    revenue = refresh_monthly_revenue_evidence(store)
+    event_service = get_event_service()
+    event_service.get_all_regulatory_and_official_events()
+    return {"revenue": revenue.get("status"), "events": event_service.last_status}
+
+
 def _run(app_state: Any) -> None:
     from app.jobs import daily_pipeline
 
@@ -98,6 +114,13 @@ def _run(app_state: Any) -> None:
     except Exception as exc:
         _LAST["shareholding"] = {"status": "error", "reason": type(exc).__name__}
         logger.warning("startup shareholding catch-up failed: %s", exc)
+
+    try:
+        _LAST["official_evidence"] = _catchup_official_evidence()
+        logger.info("startup official evidence catch-up: %s", _LAST["official_evidence"])
+    except Exception as exc:
+        _LAST["official_evidence"] = {"status": "error", "reason": type(exc).__name__}
+        logger.warning("startup official evidence catch-up failed: %s", exc)
 
     # 放在日線更新之後 (預熱名單取自最新日線的成交量)。FinMind 有限速, 可能跑數小時。
     try:
