@@ -33,6 +33,7 @@ logger = logging.getLogger(__name__)
 _APP_NAME = "Nanachi 台股看板"
 _API_TITLE = "Nanachi 的台股監控看板"
 _BASE_PORT = 3018
+_EXISTING_BACKEND_TIMEOUT = 30.0
 _SHUTDOWN_TIMEOUT = 15.0
 
 def _ensure_data_dir_writable() -> None:
@@ -465,7 +466,9 @@ def main() -> int:
             nonlocal server, server_thread
             port = _BASE_PORT
             if _port_is_open(port):
-                if not _project_backend_ready(port):
+                # A backend that is still warming up (autostart at login) answers /openapi.json
+                # slower than one probe allows; only call the port foreign after retrying.
+                if not _wait_for_server(port, timeout=_EXISTING_BACKEND_TIMEOUT):
                     raise RuntimeError(f"連接埠 {port} 已被其他程式使用, 未啟動也未終止該程序")
                 logger.info("使用既有本專案 backend: 127.0.0.1:%d", port)
             else:
