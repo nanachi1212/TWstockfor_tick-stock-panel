@@ -1,4 +1,4 @@
-"""daily-batch 混合资产分组测试。"""
+"""Custom-provider daily-batch keeps stock and ETF caches separate."""
 import datetime as _dt
 
 import polars as pl
@@ -12,9 +12,11 @@ def repo(tmp_path):
     return KlineRepository(DataStore(tmp_path))
 
 
-def test_daily_batch_groups_taiwan_stock_and_etf_symbols(repo, monkeypatch):
+def test_custom_daily_batch_groups_taiwan_stock_and_etf_symbols(repo, monkeypatch):
     from app.api import kline as kline_api
 
+    # Official history has its own canonical batch contract; this covers custom caches.
+    monkeypatch.setattr("app.services.preferences.get_daily_data_provider", lambda: "custom:fixture")
     calls = {"stock_batch": [], "etf": []}
 
     def fake_stock_batch(symbols, start, end, columns=None):
@@ -39,4 +41,5 @@ def test_daily_batch_groups_taiwan_stock_and_etf_symbols(repo, monkeypatch):
     out = kline_api.get_daily_batch(req, {"symbols": ["2330.TWSE", "0050.TWSE"], "days": 12})
     assert calls["stock_batch"] == [["2330.TWSE"]]
     assert calls["etf"] == ["0050.TWSE"]
-    assert "0050.TWSE" in out["data"]
+    assert out["data"]["0050.TWSE"][0]["close"] == 1.0
+    assert "2330.TWSE" not in out["data"]

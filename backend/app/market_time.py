@@ -1,79 +1,60 @@
-"""A股市场时间工具 — 固定北京时间 (UTC+8, 无夏令时)。
-
-服务器/容器本地时区不可靠 (python:slim 镜像默认 UTC), 交易时段判断、
-实时行情落盘日期等必须显式使用北京时间, 否则 Docker 部署时轮询窗口
-与真实交易时段完全错开 (北京 9:15-15:05 = UTC 1:15-7:05)。
-"""
+"""Taiwan session timing; cn_* names remain deprecated compatibility aliases."""
 from __future__ import annotations
 
-from datetime import date, datetime, time as dt_time, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 
+# Deprecated compatibility name for legacy timestamp consumers.
 CN_TZ = timezone(timedelta(hours=8))
 
-# A 股交易时段 (北京时间): 上午 9:30-11:30 (120 分钟) + 下午 13:00-15:00 (120 分钟) = 240 分钟
-_TRADING_TOTAL_MINUTES = 240
-_MORNING_START = dt_time(9, 30)
-_MORNING_END = dt_time(11, 30)
-_AFTERNOON_START = dt_time(13, 0)
-_AFTERNOON_END = dt_time(15, 0)
+
+def trading_minutes_per_session() -> float:
+    """Derive duration from the authoritative Taiwan session without import cycles."""
+    from app.taiwan.realtime.calendar import REGULAR_OPEN_END, REGULAR_OPEN_START
+
+    return float((REGULAR_OPEN_END.hour - REGULAR_OPEN_START.hour) * 60
+                 + REGULAR_OPEN_END.minute - REGULAR_OPEN_START.minute)
 
 
 def cn_now() -> datetime:
-    """当前北京时间 (带时区)。"""
-    return datetime.now(CN_TZ)
+    """Deprecated compatibility alias for Taiwan local time."""
+    from app.taiwan.realtime.calendar import taipei_now
+
+    return taipei_now()
 
 
 def cn_today() -> date:
-    """当前北京日期。"""
-    return datetime.now(CN_TZ).date()
+    """Deprecated compatibility alias for the Taiwan local date."""
+    from app.taiwan.realtime.calendar import taipei_today
+
+    return taipei_today()
 
 
 def trading_minutes_elapsed_from_dt(dt: datetime) -> float:
-    """根据北京时间 datetime 计算当日已交易分钟数。
+    """Clock-time progress through the regular Taiwan session (0..270 minutes).
 
-    交易时段: 9:30-11:30 (0~120) + 13:00-15:00 (120~240)。
-    - 开盘前 = 0; 午休(11:30-13:00) = 120(保持上午累计); 收盘后 = 240。
-    - 非交易日(周末) = 240 (视作全天, 避免量比被折算成 0)。
+    Naive input is interpreted as Taipei time for compatibility. Trading-day
+    eligibility belongs to TaiwanTradingCalendar and the caller, not this clock.
     """
-    t = dt.time()
-    if t < _MORNING_START:
-        return 0.0
-    if t < _MORNING_END:
-        return (dt.hour * 60 + dt.minute - 9 * 60 - 30) + dt.second / 60.0
-    if t < _AFTERNOON_START:
-        return 120.0  # 午休, 保持上午累计
-    if t < _AFTERNOON_END:
-        return 120.0 + (dt.hour * 60 + dt.minute - 13 * 60) + dt.second / 60.0
-    return float(_TRADING_TOTAL_MINUTES)
+    from app.taiwan.realtime.calendar import REGULAR_OPEN_START, TAIPEI_TZ
+
+    local = dt.replace(tzinfo=TAIPEI_TZ) if dt.tzinfo is None else dt.astimezone(TAIPEI_TZ)
+    opening = local.replace(hour=REGULAR_OPEN_START.hour, minute=REGULAR_OPEN_START.minute,
+                            second=0, microsecond=0)
+    elapsed = (local - opening).total_seconds() / 60.0
+    return min(trading_minutes_per_session(), max(0.0, elapsed))
 
 
 def trading_minutes_elapsed() -> float:
-    """当前已交易分钟数 (基于服务端北京时间)。
-
-    量比折算的兜底: 当行情 timestamp 缺失时用服务端时间。
-    优先使用 trading_minutes_elapsed_from_ts (行情真实时间, 更准)。
-    """
+    """Current Taiwan session progress, used only when a quote timestamp is absent."""
     return trading_minutes_elapsed_from_dt(cn_now())
 
 
 def trading_minutes_elapsed_from_ts(ts_ms: int | float | None) -> float:
-    """从行情时间戳(毫秒)计算当日已交易分钟数。
-
-    优先使用此函数: 行情 timestamp 是真实成交时间, 比服务端时间更准
-    (服务端时间含网络/限流延迟)。
-
-    Args:
-        ts_ms: 毫秒级 Unix 时间戳 (TickFlow SDK quote.timestamp / kline.timestamp)
-
-    Returns:
-        已交易分钟数 (0~240)。timestamp 为 None/无效时返回 240 (视作全天,
-        避免量比被折算成 0)。
-    """
+    """Read a millisecond quote timestamp; unavailable timestamps retain full-day semantics."""
     if not ts_ms:
-        return float(_TRADING_TOTAL_MINUTES)
+        return trading_minutes_per_session()
     try:
         dt = datetime.fromtimestamp(int(ts_ms) / 1000.0, tz=CN_TZ)
-    except (ValueError, TypeError, OSError):
-        return float(_TRADING_TOTAL_MINUTES)
+    except (OverflowError, ValueError, TypeError, OSError):
+        return trading_minutes_per_session()
     return trading_minutes_elapsed_from_dt(dt)
-

@@ -306,7 +306,12 @@ export function parsePortfolioImport(text: string, defaultDate: string): { rows:
     const nameCode = columns.code < 0 ? nameCell.match(/[(（]\s*(\d{2,6}[A-Za-z]?)\s*[)）]\s*$/) : null
     const code = (nameCode?.[1] ?? at('code') ?? '').toUpperCase().replace(/\.(TWSE|TPEX)$/, '')
     if (!/^\d{2,6}[A-Z]?$/.test(code)) {
-      const summary = code === 'CASH' || /^(現金|CASH|小計|合計|總計|總成本|現股損益|融資損益|融券損益)(\s|$)/i.test(cells[0] ?? '')
+      // Explicit non-security annotations do not invalidate the holdings snapshot.
+      // Unknown codes or a claimed share quantity still require review.
+      const cashNote = /^(?:N\/?A)?$/i.test(code)
+        && /^(現金|銀行現金|現有銀行現金|預備金|戰略預備金)$/.test(nameCell)
+        && /^(?:N\/?A)?$/i.test(at('shares') ?? '')
+      const summary = cashNote || code === 'CASH' || /^(現金|CASH|小計|合計|總計|總成本|現股損益|融資損益|融券損益)(\s|$)/i.test(cells[0] ?? '')
       if (cells.some(Boolean) && !summary) incomplete = true
       return
     }

@@ -136,14 +136,20 @@ class CandidateFactBrief(BaseModel):
 class EventFactBrief(BaseModel):
     """Deterministic event center facts: risk and attention items."""
 
+    status: Literal["available", "partial", "unavailable", "unknown"] = "unknown"
+    fetched_at: str | None = None
+    status_message: str | None = None
     risk_events: list[dict[str, Any]] = Field(default_factory=list)  # 處置, 暫停, 下市
     attention_events: list[dict[str, Any]] = Field(default_factory=list)  # 注意, 減資, 除權息, 財報營收
 
 
 class NewsFactBrief(BaseModel):
-    """Existing relevant stock news items without crawlers or hallucination."""
+    """Cached news coverage; an empty list alone does not prove there is no news."""
 
     items: list[dict[str, Any]] = Field(default_factory=list)
+    status: Literal["available", "partial", "unavailable", "not_requested", "unknown"] = "unknown"
+    missing_symbols: list[str] = Field(default_factory=list)
+    status_message: str | None = None
 
 
 class DeterministicDailyBrief(BaseModel):

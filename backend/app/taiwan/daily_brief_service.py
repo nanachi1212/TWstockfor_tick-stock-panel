@@ -131,7 +131,7 @@ class TaiwanDailyBriefService:
 
         sentiment_svc = get_market_sentiment_service()
         try:
-            sentiment_resp = sentiment_svc.get_market_sentiment(effective_date)
+            sentiment_resp = sentiment_svc.get_market_sentiment(effective_date, allow_fetch=False)
             sentiment_label = sentiment_resp.sentiment_label
             sentiment_desc = sentiment_resp.summary
         except Exception as e:
@@ -206,6 +206,10 @@ class TaiwanDailyBriefService:
 
         # 2. Portfolio Fact Layer
         event_svc = get_event_service()
+        event_snapshot, event_status, events_fetched_at = event_svc.get_cached_regulatory_snapshot()
+        event_message = None
+        if event_status != "available":
+            event_message = "官方事件快取缺漏、過期或來源不完整，無法確認完整風險；可至事件中心重新整理。"
         port_items: list[PortfolioHoldingItem] = []
         if portfolio_holdings:
             port_syms = [h.get("symbol", "") for h in portfolio_holdings if h.get("symbol")]
@@ -218,8 +222,8 @@ class TaiwanDailyBriefService:
                     continue
                 q = quote_map.get(sym, {})
                 c_val = q.get("close")
-                risk_status = event_svc.check_symbol_risk_status(sym, target_date=effective_date)
-                events_list = []
+                risk_status = event_svc.check_symbol_risk_status(sym, target_date=effective_date, events=event_snapshot)
+                events_list = ["官方事件資料不足，風險未確認"] if event_status != "available" else []
                 if risk_status.get("is_disposition"):
                     events_list.append("處置股票")
                 if risk_status.get("is_warning"):
@@ -391,7 +395,7 @@ class TaiwanDailyBriefService:
         )
 
         # 5. Events Layer
-        all_events = event_svc.get_events(scope="all", limit=20)
+        all_events = event_svc.get_events(scope="all", limit=20, events=event_snapshot)
         risk_evs = [e.model_dump() for e in all_events if getattr(e, "severity", None) == "risk"]
         attention_evs = [
             e.model_dump() for e in all_events if getattr(e, "severity", None) in ("attention", "info")
@@ -400,19 +404,34 @@ class TaiwanDailyBriefService:
         event_fact = EventFactBrief(
             risk_events=risk_evs,
             attention_events=attention_evs,
+            status=event_status, fetched_at=events_fetched_at, status_message=event_message,
         )
 
-        # 6. News Layer (Relevant news for top candidates or portfolio)
+        # Page reads use cached news only; dedicated news refresh owns upstream I/O.
         relevant_news: list[dict[str, Any]] = []
+        missing_news: list[str] = []
         news_svc = get_news_service()
-        lookup_syms = [c.symbol for c in (new_top10 + strategy_matches)[:3]]
+        lookup_syms = list(dict.fromkeys(c.symbol for c in new_top10 + strategy_matches))[:3]
         for sym in lookup_syms:
-            with contextlib.suppress(Exception):
-                resp = news_svc.get_recent_news(sym, limit=2)
-                for news_item in resp.items:
-                    relevant_news.append(news_item.model_dump())
+            try:
+                resp = news_svc.get_recent_news(sym, limit=2, allow_fetch=False)
+                if resp.status != "available":
+                    missing_news.append(sym)
+                relevant_news.extend(item.model_dump() for item in resp.items)
+            except Exception:
+                missing_news.append(sym)
 
-        news_fact = NewsFactBrief(items=relevant_news[:6])
+        news_status = "available"
+        news_message = None
+        if not lookup_syms:
+            news_status, news_message = "not_requested", "今日沒有需查詢新聞的候選標的。"
+        elif missing_news:
+            news_status = "unavailable" if len(missing_news) == len(lookup_syms) else "partial"
+            news_message = "新聞僅使用本機快取；部分標的尚無有效新聞資料，可至個股新聞重新整理。"
+        news_fact = NewsFactBrief(
+            items=relevant_news[:6], status=news_status,
+            missing_symbols=missing_news, status_message=news_message,
+        )
 
         return DeterministicDailyBrief(
             brief_date=str(effective_date),
@@ -457,6 +476,9 @@ class TaiwanDailyBriefService:
             "只有 freshness 為 fresh 時才能寫「目前列為…（名單日 details.list_date）」；freshness 不是 fresh（例如 stale 快取）時，"
             "只能寫「上次觀察到列為…，未確認是否仍在名單」。都絕對不得寫成今日新公告或今日新增；"
             "list_date、公告日、生效日、結束日與原因若為 null，必須寫「來源未提供」。\n"
+            "13. 事件：events.status 不是 available 時，必須揭露官方風險資料不足；空事件清單不能推論沒有風險。\n"
+            "14. 新聞：news.status 為 partial、unavailable 或 unknown 時，必須揭露新聞資料不足；"
+            "空的 items 不代表沒有新聞或沒有風險。\n"
             "5. 必須嚴格輸出合法的 JSON 物件，格式鍵名固定如下：\n"
             "{\n"
             '  "section_a_market": "A. 今日市場概況與盤勢解讀",\n'

@@ -88,7 +88,9 @@ class TaiwanMarketSentimentService:
         self.finmind = finmind_adapter or FinMindAdapter()
         self.cache = finmind_cache or FinMindCache()
 
-    def _fetch_tx_futures(self, target_date: date) -> tuple[dict[str, Any] | None, str, str | None]:
+    def _fetch_tx_futures(
+        self, target_date: date, *, allow_fetch: bool = True,
+    ) -> tuple[dict[str, Any] | None, str, str | None]:
         """Fetch foreign TX futures positions (last 2 sessions for change calculation)."""
         dataset = "TaiwanFuturesInstitutionalInvestors"
         symbol = "TX"
@@ -104,6 +106,9 @@ class TaiwanMarketSentimentService:
                 parsed = self._parse_futures_rows(rows, target_date=target_date)
                 if parsed:
                     return parsed, "available", None
+
+        if not allow_fetch:
+            return None, "unavailable", "期權資料尚未快取，摘要僅使用現貨資料"
 
         start_date = (target_date - timedelta(days=7)).isoformat()
         end_date = target_date.isoformat()
@@ -182,7 +187,9 @@ class TaiwanMarketSentimentService:
             "net_oi_change": net_oi_change,
         }
 
-    def _fetch_txo_options(self, target_date: date) -> tuple[dict[str, Any] | None, str, str | None]:
+    def _fetch_txo_options(
+        self, target_date: date, *, allow_fetch: bool = True,
+    ) -> tuple[dict[str, Any] | None, str, str | None]:
         """Fetch foreign TXO options positions."""
         dataset = "TaiwanOptionInstitutionalInvestors"
         symbol = "TXO"
@@ -197,6 +204,9 @@ class TaiwanMarketSentimentService:
                 parsed = self._parse_options_rows(rows, target_date=target_date)
                 if parsed:
                     return parsed, "available", None
+
+        if not allow_fetch:
+            return None, "unavailable", "期權資料尚未快取，摘要僅使用現貨資料"
 
         start_date = (target_date - timedelta(days=7)).isoformat()
         end_date = target_date.isoformat()
@@ -289,6 +299,8 @@ class TaiwanMarketSentimentService:
     def get_market_sentiment(
         self,
         target_date: date | None = None,
+        *,
+        allow_fetch: bool = True,
     ) -> TaiwanMarketSentimentResponse:
         """Calculate and return deterministic market sentiment and evidence checklist."""
         now = taipei_now()
@@ -403,7 +415,7 @@ class TaiwanMarketSentimentService:
 
         # ── Indicator B: TX Futures Foreign Positioning ──
         actual_date = date.fromisoformat(as_of_date_str)
-        futures_info, f_status, f_msg = self._fetch_tx_futures(actual_date)
+        futures_info, f_status, f_msg = self._fetch_tx_futures(actual_date, allow_fetch=allow_fetch)
         if futures_info:
             net_oi = futures_info["net_oi"]
             change = futures_info.get("net_oi_change")
@@ -442,7 +454,7 @@ class TaiwanMarketSentimentService:
             )
 
         # ── Indicator C: TXO Options Foreign Positions ──
-        options_info, _o_status, o_msg = self._fetch_txo_options(actual_date)
+        options_info, _o_status, o_msg = self._fetch_txo_options(actual_date, allow_fetch=allow_fetch)
         if options_info:
             c_net = options_info.get("call_net_oi", 0)
             p_net = options_info.get("put_net_oi", 0)

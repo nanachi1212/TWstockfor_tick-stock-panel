@@ -4,7 +4,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useVirtualizer } from '@tanstack/react-virtual'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Trash2, RefreshCw, Star, X, Search, LayoutGrid, List, Rows3, BarChart3, Settings2, Plus, Check, Filter, Eye, EyeOff, Minus, ChevronsUp, Clock, RotateCcw, FolderOpen, FolderMinus, FolderPlus, Scale, Bell } from 'lucide-react'
-import { api, type KlineRow, type MinuteKlineRow, type WatchlistGroup, type WatchlistGroupColor } from '@/lib/api'
+import { api, type DailyKlineMeta, type KlineRow, type MinuteKlineRow, type WatchlistGroup, type WatchlistGroupColor } from '@/lib/api'
 import { QK } from '@/lib/queryKeys'
 import { storage } from '@/lib/storage'
 import { fmtPrice, fmtPct, fmtBigNum, priceColorClass, formatExtNumber } from '@/lib/format'
@@ -442,6 +442,7 @@ function useCardColumnCount(): number {
 const StockCard = React.memo(function StockCard({
   r,
   candleRows,
+  candleMeta,
   showCandle,
   onPreview,
   onQuickBuy,
@@ -459,6 +460,7 @@ const StockCard = React.memo(function StockCard({
 }: {
   r: any
   candleRows: KlineRow[]
+  candleMeta?: DailyKlineMeta
   showCandle: boolean
   onPreview: (symbol: string, name: string) => void
   onQuickBuy: (symbol: string, name: string, price: number | null) => void
@@ -628,9 +630,9 @@ const StockCard = React.memo(function StockCard({
       )}
 
       {/* 迷你蠟燭圖 */}
-      {showCandle && candleRows.length > 0 && (
+      {showCandle && (candleRows.length > 0 || candleMeta?.status === 'unavailable') && (
         <div className="border-t border-border/40 px-3 py-1.5">
-          <MiniCandlestick rows={candleRows} height={32} />
+          <MiniCandlestick rows={candleRows} meta={candleMeta} height={32} />
         </div>
       )}
     </div>
@@ -1198,6 +1200,7 @@ export function Watchlist() {
       key={r.symbol}
       r={r}
       candleRows={klineData[r.symbol] ?? EMPTY_KLINE}
+      candleMeta={klineBatch.data?.meta?.[r.symbol]}
       showCandle={dailyKVisible}
       onPreview={handleCardPreview}
       onQuickBuy={(symbol, name, quote) => setPortfolioTrade({ symbol, name, quote })}
@@ -1769,7 +1772,7 @@ export function Watchlist() {
                       className="pl-2 pr-3 py-1.5"
                       style={{ width: candleSize.width + 4, minWidth: candleSize.width + 4, maxWidth: candleSize.width + 4, height: candleSize.height }}
                     >
-                      <MiniCandlestick rows={klineData[r.symbol] ?? []} width={candleSize.width} height={candleSize.height} />
+                      <MiniCandlestick rows={klineData[r.symbol] ?? []} meta={klineBatch.data?.meta?.[r.symbol]} width={candleSize.width} height={candleSize.height} />
                     </td>
                   )
                 }

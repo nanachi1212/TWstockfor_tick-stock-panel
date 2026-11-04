@@ -177,6 +177,17 @@ export interface PriceLimitInfo {
   source: 'rule' | 'instrument'
 }
 
+export interface DailyKlineMeta {
+  source: string
+  price_semantics: 'raw' | 'adjusted'
+  status: 'available' | 'partial' | 'stale' | 'unavailable'
+  as_of: string | null
+  trade_date?: string | null
+  reason?: string | null
+  volume_unit?: string
+  amount_unit?: string
+}
+
 export interface KlineRow {
   symbol?: string
   date: string
@@ -4095,14 +4106,14 @@ export const api = {
       stock_info?: { name?: string; total_shares?: number; float_shares?: number; ext?: Record<string, unknown> }
       rows: KlineRow[]
       source?: string
-    }>(
+    } & Partial<DailyKlineMeta>>(
       (dateRange
         ? `/api/kline/daily?symbol=${encodeURIComponent(symbol)}&start_date=${dateRange.start}&end_date=${dateRange.end}`
         : `/api/kline/daily?symbol=${encodeURIComponent(symbol)}&days=${days}`)
       + (extColumns ? `&ext_columns=${encodeURIComponent(extColumns)}` : ''),
     ),
   klineDailyBatch: (symbols: string[], days = 12) =>
-    request<{ data: Record<string, KlineRow[]> }>('/api/kline/daily-batch', {
+    request<{ data: Record<string, KlineRow[]>; meta?: Record<string, DailyKlineMeta> }>('/api/kline/daily-batch', {
       method: 'POST',
       body: JSON.stringify({ symbols, days }),
     }),
@@ -5410,12 +5421,18 @@ export interface CandidateFactBrief {
 }
 
 export interface EventFactBrief {
+  status?: 'available' | 'partial' | 'unavailable' | 'unknown'
+  fetched_at?: string | null
+  status_message?: string | null
   risk_events: Record<string, any>[]
   attention_events: Record<string, any>[]
 }
 
 export interface NewsFactBrief {
   items: Record<string, any>[]
+  status?: 'available' | 'partial' | 'unavailable' | 'not_requested' | 'unknown'
+  missing_symbols?: string[]
+  status_message?: string | null
 }
 
 export interface DeterministicDailyBrief {

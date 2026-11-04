@@ -886,8 +886,11 @@ export function DailyBrief() {
                 <ShieldAlert className="h-4 w-4 text-rose-500" />
                 官方重大事件與處置/注意警示
               </h3>
+              {brief.events.status_message && (
+                <p className="text-xs text-muted-foreground">{brief.events.status_message}</p>
+              )}
               {brief.events.risk_events.length === 0 && brief.events.attention_events.length === 0 ? (
-                <p className="text-xs text-muted-foreground py-4 text-center">今日無重大風險處置或事件</p>
+                <p className="text-xs text-muted-foreground py-4 text-center">{brief.events.status === 'available' ? '有效快取內無重大風險處置或事件' : '尚無完整官方事件資料，風險未確認'}</p>
               ) : (
                 <div className="space-y-2 max-h-56 overflow-y-auto pr-1">
                   {brief.events.risk_events.map((ev, i) => (
@@ -927,8 +930,11 @@ export function DailyBrief() {
                 <FileText className="h-4 w-4 text-primary" />
                 重要台股個股新聞
               </h3>
+              {brief.news.items.length > 0 && brief.news.status_message && (
+                <p className="text-xs text-muted-foreground">{brief.news.status_message}</p>
+              )}
               {brief.news.items.length === 0 ? (
-                <p className="text-xs text-muted-foreground py-4 text-center">今日尚無相關個股新聞</p>
+                <p className="text-xs text-muted-foreground py-4 text-center">{brief.news.status_message ?? '尚無可用新聞資料'}</p>
               ) : (
                 <div className="space-y-2 max-h-56 overflow-y-auto pr-1">
                   {brief.news.items.map((news, i) => (

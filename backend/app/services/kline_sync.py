@@ -91,6 +91,62 @@ def _normalize_daily(df_in, default_symbol: str | None = None) -> pl.DataFrame:
     return df.select(keep)
 
 
+def read_taiwan_daily_history(
+    symbols: list[str],
+    *,
+    days: int,
+    end: date,
+    start: date | None = None,
+    include_indicators: bool = False,
+) -> dict:
+    """Read one bounded batch from the authoritative raw store; never fetch or copy it.
+
+    ``days`` counts stored trading sessions. Explicit date ranges are inclusive.
+    Indicator warm-up uses preceding sessions and is removed before presentation.
+    There is no extra cache, so completed daily-store writes are visible immediately.
+    """
+    from app.taiwan.daily_store import TaiwanDailyStore
+    from app.taiwan.technical_indicators import compute_taiwan_indicator_panel
+
+    if start is not None and start > end:
+        raise ValueError("start_date must not be after end_date")
+    store = TaiwanDailyStore()
+    sessions = sorted(d for d in store.available_dates() if d <= end)
+    selected = [d for d in sessions if start is None or d >= start]
+    if start is None:
+        selected = selected[-days:]
+    data: dict[str, list[dict]] = {symbol: [] for symbol in symbols}
+    if selected and symbols:
+        first = sessions.index(selected[0])
+        read_start = sessions[max(0, first - 150)] if include_indicators else selected[0]
+        history = store.read_range(symbols, read_start, end)
+        if not history.is_empty():
+            if include_indicators:
+                panel = compute_taiwan_indicator_panel(history, price_semantics="raw")
+                history = history.join(panel, on=["symbol", "date"], how="left")
+            history = history.filter(pl.col("date") >= selected[0]).sort(["symbol", "date"])
+            for group in history.partition_by("symbol", maintain_order=True):
+                data[group["symbol"][0]] = group.to_dicts()
+
+    meta = {}
+    for symbol, rows in data.items():
+        as_of = rows[-1]["date"] if rows else None
+        reason = None
+        status = "available"
+        if not rows:
+            status, reason = "unavailable", "no_persisted_daily_history"
+        elif selected and as_of < selected[-1]:
+            status, reason = "stale", "latest_daily_bar_predates_confirmed_session"
+        elif len(rows) < (len(selected) if start is not None else days):
+            status, reason = "partial", "insufficient_daily_history"
+        meta[symbol] = {
+            "source": "taiwan_daily_store", "status": status,
+            "as_of": as_of, "trade_date": as_of, "reason": reason,
+            "price_semantics": "raw", "volume_unit": "shares", "amount_unit": "TWD",
+        }
+    return {"data": data, "meta": meta}
+
+
 def sync_daily_batch(symbols: list[str],
                      count: int | None = None,
                      batch_size: int | None = None,

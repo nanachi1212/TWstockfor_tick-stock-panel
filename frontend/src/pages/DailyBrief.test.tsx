@@ -124,6 +124,29 @@ describe('DailyBrief Page (A12)', () => {
     vi.mocked(api.selectionReview.getForwardBatchStats).mockResolvedValue({ batches_count: 0, picks_count: 0 } as any)
   })
 
+  it('shows missing cached news instead of implying there was no news', async () => {
+    const statusMessage = '新聞僅使用本機快取；部分標的尚無有效新聞資料，可至個股新聞重新整理。'
+    vi.mocked(api.dailyBrief.buildDailyBrief).mockResolvedValue({
+      ...buildMockBrief(),
+      news: { items: [], status: 'unavailable', missing_symbols: ['2330.TWSE'], status_message: statusMessage },
+    } as any)
+    render(<QueryClientProvider client={createTestQueryClient()}><MemoryRouter><DailyBrief /></MemoryRouter></QueryClientProvider>)
+    expect(await screen.findByText(statusMessage)).toBeInTheDocument()
+    expect(screen.queryByText('今日尚無相關個股新聞')).not.toBeInTheDocument()
+    expect(api.dailyBrief.generateAiSummary).not.toHaveBeenCalled()
+  })
+
+  it('keeps missing official event coverage distinct from no risk', async () => {
+    vi.mocked(api.dailyBrief.buildDailyBrief).mockResolvedValue({
+      ...buildMockBrief(),
+      events: { risk_events: [], attention_events: [], status: 'unavailable', status_message: '官方事件快取缺漏或過期，無法確認完整風險。' },
+    } as any)
+    render(<QueryClientProvider client={createTestQueryClient()}><MemoryRouter><DailyBrief /></MemoryRouter></QueryClientProvider>)
+    expect(await screen.findByText('尚無完整官方事件資料，風險未確認')).toBeInTheDocument()
+    expect(screen.getByText('官方事件快取缺漏或過期，無法確認完整風險。')).toBeInTheDocument()
+    expect(screen.queryByText('今日無重大風險處置或事件')).not.toBeInTheDocument()
+  })
+
   it('renders deterministic market facts and candidates correctly', async () => {
     const mockBrief = buildMockBrief()
     vi.mocked(api.dailyBrief.buildDailyBrief).mockResolvedValue(mockBrief as any)

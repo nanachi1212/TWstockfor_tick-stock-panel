@@ -194,6 +194,31 @@ describe('parsePortfolioImport', () => {
     expect(rows).toEqual([{ code: '00919', name: '群益台灣精選高息', shares: 25000, price: 23.76, fee: 846, date: '2026-09-30' }])
   })
 
+  it('accepts explicit cash/reserve annotations without weakening incomplete-row protection', () => {
+    const header = '帳戶分佈,證券代號,證券名稱,持有股數,成交均價,資料狀態'
+    const holding = '測試帳戶,2330,台積電,10,900,verified'
+    for (const note of [
+      '資金池,N/A,戰略預備金,N/A,N/A,needs_manual_review',
+      '資金池,,現金,,,needs_manual_review',
+      '資金池,N/A,預備金,N/A,N/A,needs_manual_review',
+    ]) {
+      const result = parsePortfolioImport([header, holding, note].join('\n'), '2026-11-04')
+      expect(result.rows).toHaveLength(1)
+      expect(result.errors).toEqual([])
+      expect(result.incomplete, note).toBe(false)
+      expect(parsePortfolioImport([header, note].join('\n'), '2026-11-04').emptySnapshot).toBe(false)
+    }
+    for (const invalid of [
+      '資金池,BROKEN,戰略預備金,N/A,N/A,needs_manual_review',
+      '測試帳戶,N/A,未確認股票,N/A,N/A,needs_manual_review',
+      '測試帳戶,2317,鴻海,N/A,100,needs_manual_review',
+      '測試帳戶,2317,現金,N/A,100,needs_manual_review',
+      '測試帳戶,N/A,戰略預備金,10,100,needs_manual_review',
+    ]) {
+      expect(parsePortfolioImport([header, holding, invalid].join('\n'), '2026-11-04').incomplete, invalid).toBe(true)
+    }
+  })
+
   it('detects TSV after leading blank lines', () => {
     const { rows, errors } = parsePortfolioImport('\n\t\n代號\t名稱\t股數\t均價\n2330\t台積電\t10\t900', '2026-10-09')
     expect(errors).toEqual([])

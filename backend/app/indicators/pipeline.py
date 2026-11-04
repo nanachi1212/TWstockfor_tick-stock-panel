@@ -32,6 +32,7 @@ from app.price_limits import (
     polars_is_risk_warning_name,
     polars_limit_price,
     polars_price_limit_pct,
+    taiwan_limit_profiles,
 )
 from app.share_capital import apply_historical_float_shares, load_share_history
 from app.volume_units import turnover_rate_pct_expr
@@ -619,6 +620,24 @@ def compute_signals(df: pl.DataFrame, needed: set[str] | None = None) -> pl.Data
     return df
 
 
+def _apply_taiwan_limit_availability(df: pl.DataFrame) -> pl.DataFrame:
+    """Keep unavailable classification distinct from a confirmed no-limit product."""
+    is_taiwan = (pl.col("symbol").str.ends_with(".TWSE") | pl.col("symbol").str.ends_with(".TPEX")).fill_null(False)
+    is_legacy = (pl.col("symbol").str.ends_with(".SH") | pl.col("symbol").str.ends_with(".SZ") | pl.col("symbol").str.ends_with(".BJ")).fill_null(False)
+    unknown = (~is_taiwan & ~is_legacy) | (is_taiwan & pl.col("_tw_no_limit").is_null())
+    no_limit = is_taiwan & pl.col("_tw_no_limit").fill_null(False)
+    expressions = []
+    for column in LIMIT_SIGNAL_OUTPUTS:
+        if column not in df.columns or column == "turnover_rate":
+            continue
+        neutral = 0 if column.startswith("consecutive_") else False
+        expressions.append(
+            pl.when(unknown).then(None).when(no_limit).then(pl.lit(neutral))
+            .otherwise(pl.col(column)).cast(df.schema[column]).alias(column)
+        )
+    return df.with_columns(expressions).drop("_tw_limit_pct", "_tw_no_limit", "_tw_tick_class")
+
+
 def compute_limit_signals(
     df: pl.DataFrame,
     instruments: pl.DataFrame,
@@ -668,6 +687,7 @@ def compute_limit_signals(
             pl.col("as_of").cast(pl.Date, strict=False).alias("_instrument_as_of")
         )
     inst_subset = instruments.select(inst_cols).unique(subset=["symbol"])
+    inst_subset = inst_subset.join(taiwan_limit_profiles(instruments), on="symbol", how="left")
 
     if need_price_limits and "name" in instruments.columns:
         st_flag = (
@@ -701,7 +721,7 @@ def compute_limit_signals(
     # 否则使用原始 raw_close.shift(1) 以避免浮点精度误差。
     if not need_price_limits:
         cleanup = [c for c in ("name", "float_shares", "limit_up", "limit_down") if c in df.columns]
-        return df.drop(cleanup)
+        return _apply_taiwan_limit_availability(df).drop(cleanup)
 
     _adj_today = pl.col("close") / pl.col("raw_close")
     _adj_yesterday = pl.col("close").shift(1).over("symbol") / pl.col("raw_close").shift(1).over("symbol")
@@ -715,19 +735,22 @@ def compute_limit_signals(
 
     is_risk_warning = pl.col("_is_st") if "_is_st" in df.columns else pl.lit(False)
     df = df.with_columns(
-        polars_price_limit_pct(pl.col("symbol"), pl.col("date"), is_risk_warning)
+        polars_price_limit_pct(pl.col("symbol"), pl.col("date"), is_risk_warning,
+                               taiwan_limit_pct=pl.col("_tw_limit_pct"))
         .alias("_limit_pct")
     )
 
     # 理论涨停价 = prev_close × (1 + limit_pct)  整数算术，避免浮点误差
     df = df.with_columns(
-        polars_limit_price(pl.col("_prev_raw_close"), pl.col("_limit_pct"), up=True)
+        polars_limit_price(pl.col("_prev_raw_close"), pl.col("_limit_pct"), up=True,
+                           tick_class=pl.col("_tw_tick_class"))
         .alias("_theoretical_limit_up")
     )
 
     # 理论跌停价 = prev_close × (1 - limit_pct)
     df = df.with_columns(
-        polars_limit_price(pl.col("_prev_raw_close"), pl.col("_limit_pct"), up=False)
+        polars_limit_price(pl.col("_prev_raw_close"), pl.col("_limit_pct"), up=False,
+                           tick_class=pl.col("_tw_tick_class"))
         .alias("_theoretical_limit_down")
     )
 
@@ -885,7 +908,7 @@ def compute_limit_signals(
     cleanup.extend(c for c in internal_outputs if c in df.columns)
     df = df.drop([c for c in cleanup if c in df.columns])
 
-    return df
+    return _apply_taiwan_limit_availability(df)
 
 
 def compute_all(
@@ -1755,12 +1778,13 @@ def compute_enriched_today(
     # vol_ma5/vol_ma10 保留原语义(含当天的均量), 其他地方在用
     vol_ma5 = (pl.col("_vol_ma5_partial_sum") + pl.col("volume")) / 5
     vol_ma10 = (pl.col("_vol_ma10_partial_sum") + pl.col("volume")) / 10
-    # 标准量比(同花顺/东财): 今日累计成交量 / (前5日均量 × 已交易分钟数/240)
+    # Taiwan volume ratio: accumulated volume / (previous mean daily volume * session fraction).
     # _vol_ma5_prev_sum 是前5个交易日成交量之和(tail(5)), 不含当天
     # 盘中 volume 是部分量, 按 elapsed_minutes 折算到全天量级
     vol_ma5_prev = pl.col("_vol_ma5_prev_sum") / 5  # 前5日均量(不含当天)
     if elapsed_minutes and elapsed_minutes > 0:
-        time_factor = 240.0 / elapsed_minutes  # 盘中折算: 部分量 → 全天量级
+        from app.market_time import trading_minutes_per_session
+        time_factor = trading_minutes_per_session() / elapsed_minutes
     else:
         time_factor = 1.0  # 盘后/无效时间: 不折算(此时 volume 已是全天量)
     df = df.with_columns([
@@ -1923,6 +1947,7 @@ def _compute_limit_signals_today(df: pl.DataFrame, instruments: pl.DataFrame) ->
             pl.col("as_of").cast(pl.Date, strict=False).alias("_instrument_as_of")
         )
     inst_subset = instruments.select(inst_cols).unique(subset=["symbol"])
+    inst_subset = inst_subset.join(taiwan_limit_profiles(instruments), on="symbol", how="left")
     if "name" in instruments.columns:
         st_flag = (
             instruments
@@ -1963,10 +1988,11 @@ def _compute_limit_signals_today(df: pl.DataFrame, instruments: pl.DataFrame) ->
         pl.col("symbol"),
         trade_date,
         is_risk_warning,
+        taiwan_limit_pct=pl.col("_tw_limit_pct"),
     ).alias("_limit_pct")
 
-    limit_up_price = polars_limit_price(prev_raw, limit_pct, up=True)
-    limit_down_price = polars_limit_price(prev_raw, limit_pct, up=False)
+    limit_up_price = polars_limit_price(prev_raw, limit_pct, up=True, tick_class=pl.col("_tw_tick_class"))
+    limit_down_price = polars_limit_price(prev_raw, limit_pct, up=False, tick_class=pl.col("_tw_tick_class"))
 
     # 生效涨跌停价: 维表日期与行情日期一致时优先使用交易所权威值;
     # 维表过期或价格缺失时回退自算理论价。旧版无 as_of 维表保持兼容。
@@ -2079,4 +2105,4 @@ def _compute_limit_signals_today(df: pl.DataFrame, instruments: pl.DataFrame) ->
             cleanup.append(c)
     df = df.drop([c for c in cleanup if c in df.columns])
 
-    return df
+    return _apply_taiwan_limit_availability(df)

@@ -972,3 +972,47 @@ def test_news_cache_only_preserves_cached_provider_failure():
     assert result.status == "auth_required"
     assert result.fetched_at == "2026-11-04T09:00:00+08:00"
     adapter.fetch_dataset.assert_not_called()
+
+
+@pytest.mark.parametrize("cached", [None, {"status": "unavailable", "data": []}])
+def test_market_sentiment_cached_only_does_not_fetch_missing_derivatives(cached):
+    intel = MagicMock()
+    intel.get_snapshot.return_value = _build_test_snapshot()
+    adapter = MagicMock()
+    adapter.fetch_dataset.side_effect = AssertionError("cache-only request must not fetch")
+    cache = MagicMock()
+    cache.get.return_value = cached
+    service = TaiwanMarketSentimentService(intel, adapter, cache)
+
+    result = service.get_market_sentiment(date(2026, 9, 26), allow_fetch=False)
+
+    adapter.fetch_dataset.assert_not_called()
+    cache.set.assert_not_called()
+    assert result.derivatives_status == "unavailable"
+    assert result.futures_details is None and result.options_details is None
+    assert result.evidence and all(item.category == "spot" for item in result.evidence)
+
+
+def test_market_sentiment_cached_only_keeps_available_date_matched_derivatives():
+    intel = MagicMock()
+    intel.get_snapshot.return_value = _build_test_snapshot()
+    adapter = MagicMock()
+    cache = MagicMock()
+    future = {"date": "2026-09-26", "institutional_investors": "外資及陸資", "futures_id": "TX",
+              "long_open_interest_balance_volume": 20000, "short_open_interest_balance_volume": 10000}
+    option = {"date": "2026-09-26", "institutional_investors": "外資及陸資", "option_id": "TXO",
+              "call_put": "Call", "long_open_interest_balance_volume": 9000,
+              "short_open_interest_balance_volume": 1000}
+    cache.get.side_effect = lambda dataset, key: {"status": "available", "data": [
+        future if dataset == "TaiwanFuturesInstitutionalInvestors" else option]}
+    service = TaiwanMarketSentimentService(intel, adapter, cache)
+
+    result = service.get_market_sentiment(date(2026, 9, 26), allow_fetch=False)
+
+    adapter.fetch_dataset.assert_not_called()
+    assert result.futures_details["net_oi"] == 10000
+    assert result.options_details["call_net_oi"] == 8000
+    future["date"] = option["date"] = "2026-09-25"
+    result = service.get_market_sentiment(date(2026, 9, 26), allow_fetch=False)
+    adapter.fetch_dataset.assert_not_called()
+    assert result.futures_details is None and result.options_details is None
