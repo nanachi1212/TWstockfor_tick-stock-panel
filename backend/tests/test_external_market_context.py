@@ -207,3 +207,38 @@ def test_frankfurter_cached_context_never_fetches_on_core_request_path(tmp_path)
     assert result.status == "unavailable"
     assert result.error_reason == "not_queried"
     assert calls == []
+
+
+def test_frankfurter_stale_payload_retries_after_short_backoff(tmp_path):
+    now = datetime.now(UTC)
+    calls = []
+
+    def fetcher(*_args, **_kwargs):
+        calls.append(1)
+        return _cbc_rows(end=now - timedelta(days=30) if len(calls) == 1 else now)
+
+    provider = FrankfurterFxProvider(cache_path=tmp_path / "fx.json", fetcher=fetcher)
+    assert provider.get_context(now=now).status == "stale"
+    assert provider.get_context(now=now + timedelta(minutes=1)).status == "stale"
+    assert len(calls) == 1
+    assert provider.get_context(now=now + timedelta(minutes=6)).status == "available"
+    assert len(calls) == 2
+
+
+def test_frankfurter_cached_observation_age_is_rechecked(tmp_path):
+    now = datetime.now(UTC).replace(hour=23, minute=30)
+    provider = FrankfurterFxProvider(
+        cache_path=tmp_path / "fx.json",
+        fetcher=lambda *_a, **_kw: _cbc_rows(end=now - timedelta(days=7)),
+    )
+    assert provider.get_context(now=now).status == "available"
+    assert provider.cached_context(now=now + timedelta(hours=1)).status == "stale"
+
+
+def test_frankfurter_health_rechecks_age_of_persisted_available_result(tmp_path):
+    now = datetime.now(UTC)
+    provider = FrankfurterFxProvider(cache_path=tmp_path / "fx.json")
+    provider._memory = normalize_cbc_rates(
+        _cbc_rows(end=now - timedelta(days=30)), retrieved_at=now.isoformat(),
+    ).model_copy(update={"status": "available", "freshness": "daily", "error_reason": None})
+    assert provider.health_metadata()["status"] == "stale"

@@ -235,3 +235,16 @@ def test_api_endpoint_zero_market_http_and_no_ai():
         assert mock_urlopen.call_count == 0
         assert mock_httpx_get.call_count == 0
         assert mock_httpx_post.call_count == 0
+
+
+def test_research_news_cache_miss_does_not_call_external_provider(taiwan_data_env):
+    from app.taiwan.news_service import TaiwanNewsService
+    adapter, cache = MagicMock(), MagicMock()
+    cache.get.return_value = None
+    news = TaiwanNewsService(finmind_adapter=adapter, finmind_cache=cache)
+    with patch("app.taiwan.news_service.get_news_service", return_value=news):
+        ctx = TaiwanStockResearchContextService().get_research_context("2330.TWSE", date(2026, 8, 28))
+    assert ctx.news_status == "unavailable"
+    assert ctx.recent_news == []
+    assert ctx.price_context.close is not None
+    adapter.fetch_dataset.assert_not_called()

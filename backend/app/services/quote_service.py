@@ -573,80 +573,7 @@ class QuoteService:
             except Exception as e:  # noqa: BLE001
                 logger.warning("自定义实时行情拉取失败: %s", e)
                 return
-        t0 = time.perf_counter()
-        now_ts = time.perf_counter()
-
-        try:
-            from app.services import preferences
-            all_index_symbols = set(self._repo.get_index_symbol_set()) if self._repo else set()
-            core_index_symbols = set(preferences.get_realtime_index_symbols() or self.CORE_INDEX_SYMBOLS)
-            all_index_symbols.update(core_index_symbols)
-            all_etf_symbols = set()
-            if self._repo:
-                etf_inst = self._repo.get_etf_instruments()
-                if not etf_inst.is_empty() and "symbol" in etf_inst.columns:
-                    all_etf_symbols = set(etf_inst["symbol"].cast(pl.Utf8).to_list())
-
-            universes: list[str] = []
-            if preferences.get_realtime_pull_stock():
-                universes.append("CN_Equity_A")
-            if preferences.get_realtime_pull_etf() and all_etf_symbols:
-                universes.append("CN_ETF")
-            if preferences.get_realtime_pull_index() and preferences.get_realtime_index_mode() == "all":
-                universes.append("CN_Index")
-
-            resp = []
-            if universes:
-                _u0 = time.perf_counter()
-                logger.info("拉取全市场行情 (universes=%s, SDK超时=30s×重试3)", universes)
-                resp.extend(tf.quotes.get_by_universes(universes=universes) or [])
-                logger.info("全市场行情拉取完成: %d 条 (%.2fs)", len(resp), time.perf_counter() - _u0)
-            if preferences.get_realtime_pull_index() and preferences.get_realtime_index_mode() == "core":
-                _i0 = time.perf_counter()
-                _core_syms = sorted(core_index_symbols)
-                resp.extend(tf.quotes.get(symbols=_core_syms) or [])
-                logger.info("核心指数行情拉取完成: %d 只 (%.2fs)", len(_core_syms), time.perf_counter() - _i0)
-        except Exception as e:  # noqa: BLE001
-            logger.warning("行情拉取失败 (%.2fs): %s", time.perf_counter() - t0, e)
-            return
-
-        if not resp:
-            logger.warning("行情数据为空")
-            return
-
-        # ---- 解析 API 响应 (临时变量, 用完丢弃) ----
-        records = []
-        for q in resp:
-            ext = q.get("ext") or {}
-            last_price = q.get("last_price")
-            prev_close = q.get("prev_close")
-            change_amount = ext.get("change_amount")
-            change_pct = ext.get("change_pct")
-            if change_amount is None and last_price is not None and prev_close is not None:
-                change_amount = float(last_price) - float(prev_close)
-            if change_pct is None and change_amount is not None and prev_close not in (None, 0):
-                # 与 API ext.change_pct 同为小数制 (0.0366 = 3.66%),
-                # enriched 全项目约定小数 (见 pipeline.py), 此处不可乘 100
-                change_pct = float(change_amount) / float(prev_close)
-            records.append({
-                "symbol": q.get("symbol"),
-                "name": q.get("name") or ext.get("name"),
-                "last_price": last_price,
-                "prev_close": prev_close,
-                "open": q.get("open"),
-                "high": q.get("high"),
-                "low": q.get("low"),
-                "volume": q.get("volume"),
-                "amount": q.get("amount"),
-                "change_pct": change_pct,
-                "change_amount": change_amount,
-                "amplitude": ext.get("amplitude"),
-                "turnover_rate": ext.get("turnover_rate"),
-                "timestamp": q.get("timestamp"),
-                "session": q.get("session"),
-            })
-
-        self._process_full_market_records(records, t0=t0, now_ts=now_ts)
+        logger.warning("即時資料來源 %s 未提供 realtime 資料集, 略過行情更新", provider_name)
 
     def _process_full_market_records(self, records: list[dict], *, t0: float, now_ts: float) -> None:
         """把全市场 records 写盘并增量计算 enriched。"""
@@ -1019,7 +946,7 @@ class QuoteService:
                     "message": ev["message"],
                     "price": ev["price"],
                     "change_pct": ev["change_pct"],
-                    "signals": ev["signals"],
+                    "signals": ev.get("signals") or [],
                     "severity": ev.get("severity", "info"),
                     "conditions": ev.get("conditions") or [],
                     "logic": ev.get("logic") or "and",

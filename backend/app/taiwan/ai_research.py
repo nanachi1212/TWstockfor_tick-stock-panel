@@ -57,7 +57,7 @@ from app.taiwan.research_context import (
 
 logger = logging.getLogger(__name__)
 
-RESEARCH_PROMPT_VERSION = "taiwan_stock_research_v1"
+RESEARCH_PROMPT_VERSION = "taiwan_stock_research_v2"
 ADVICE_PROMPT_VERSION = "taiwan_stock_advice_v1"
 REVIEW_PROMPT_VERSION = "taiwan_stock_review_v1"
 # Backward-compatible name used by the existing response contract and consumers.
@@ -347,6 +347,13 @@ def build_evidence_registry(
     registry_keys: set[str] = set()
     payload: dict[str, Any] = {}
     missing_items: list[str] = list(ctx.evidence_summary.missing_sections)
+    # Preserve section-level dates even when unavailable values are omitted below.
+    # A partial dataset limits that section, not research using the other evidence.
+    payload["data_quality"] = ctx.data_quality.model_dump(mode="json")
+    registry_keys.add("data_quality.overall_status")
+    for section in ctx.data_quality.sections:
+        if section.status not in ("current", "complete") and section.section not in missing_items:
+            missing_items.append(section.section)
 
     # 1. Identity
     payload["identity"] = {
@@ -573,6 +580,8 @@ def build_evidence_registry(
         payload["recent_news"] = ctx.recent_news[:5] if ctx.recent_news else []
         payload["news_status"] = getattr(ctx, "news_status", "available")
         registry_keys.update(["news.recent_count", "news.items", "news.status"])
+        if payload["news_status"] != "available" and "news" not in missing_items:
+            missing_items.append("news")
 
     # Personal fields come from the user's local portfolio ledger and existing app APIs.
     # Keep this input compact and explicitly separate from deterministic market evidence.
@@ -743,6 +752,7 @@ SYSTEM_PROMPT = """你是一個客觀、確定性導向的「台股個股研究�
    - 你只能使用傳入的 JSON 數據進行解讀。
    - 嚴禁捏造新聞、法說會內容、非數據列出的財務指標、產業未驗證傳言或未來催化劑 (Catalysts)。
    - 若欄位為 null 或 missing，必須如實說明「目前資料不足」或「未提供」，不得私自推估數值。
+   - data_quality 為 partial 時，仍須解讀其他已提供的證據；只將缺漏區段列為限制，不得因缺少新聞、融資券或基本面而放棄整份研究。各區段必須保留其資料日與 stale/unavailable 狀態。
 3. 證據引用規定 (Evidence Refs)：
    - key_observations 與 risk_factors 中的每一條觀察，必須附帶 1~3 個「合法證據鍵 (evidence_refs)」。
    - 只能引用在提供的證據鍵白名單中的鍵值（例如 price_context.return_5d, industry_context.relative_strength_5d 等）。

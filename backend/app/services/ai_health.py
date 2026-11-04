@@ -52,9 +52,18 @@ def _lmstudio_model(origin: str, model: str) -> tuple[str, dict]:
         return "down", {}
     if resp.status_code != 200:
         return "not-lmstudio", {}
-    for item in resp.json().get("data", []):
+    items = resp.json().get("data", [])
+    for item in items:
         if item.get("id") == model:
             return ("loaded" if item.get("state") == "loaded" else "not-loaded"), item
+    # Before the first load LM Studio lists the base ID and quantization separately.
+    # Match both exactly; never substitute a different model/quant or loaded alias.
+    base, separator, quant = model.rpartition("@")
+    variants = [item for item in items if separator and item.get("id") == base
+                and str(item.get("quantization", "")).casefold() == quant.casefold()
+                and item.get("state") == "not-loaded"]
+    if len(variants) == 1:
+        return "not-loaded", variants[0]
     return "missing", {}
 
 
@@ -109,6 +118,28 @@ def _lms_loaded(identifier: str) -> dict | None:
     return next((e for e in entries if isinstance(e, dict) and e.get("identifier") == identifier), None)
 
 
+def _downloaded_variant_path(model: str) -> str | None:
+    """Resolve a quantized model ID to one exact local file, not lms fuzzy matching."""
+    base, separator, quant = model.rpartition("@")
+    if not separator:
+        return None
+    proc = _lms("ls", "--json")
+    if proc is None or proc.returncode != 0:
+        return None
+    try:
+        entries = json.loads(proc.stdout)
+    except ValueError:
+        return None
+    if not isinstance(entries, list):
+        return None
+    matches = [entry.get("path") for entry in entries if isinstance(entry, dict)
+               and entry.get("modelKey") == base
+               and isinstance(entry.get("quantization"), dict)
+               and str(entry["quantization"].get("name", "")).casefold() == quant.casefold()
+               and isinstance(entry.get("path"), str) and entry["path"]]
+    return matches[0] if len(matches) == 1 else None
+
+
 def _reload_with_context(identifier: str, current: int | None, wanted: int) -> bool:
     """Reload a loaded model at *wanted* context; True only if it ends loaded at *wanted*."""
     entry = _lms_loaded(identifier)
@@ -146,7 +177,12 @@ def ensure_local_model_loaded() -> str:
     # An unsupported size keeps LM Studio's default rather than failing the load.
     load_args = ("--context-length", str(ctx)) if ctx > 0 and issue != "context-unsupported" else ()
     if state == "not-loaded":
-        _run_lms("load", cfg.model, "--yes", *load_args)
+        if item.get("id") == cfg.model:
+            _run_lms("load", cfg.model, "--yes", *load_args)
+        else:
+            path = _downloaded_variant_path(cfg.model)
+            if path:
+                _run_lms("load", path, "--exact", "--identifier", cfg.model, "--yes", *load_args)
     state = _lmstudio_state(origin, cfg.model, ctx)
     logger.info("local AI model %s: %s", cfg.model, state)
     return state

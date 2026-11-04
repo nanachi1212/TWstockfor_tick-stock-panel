@@ -47,6 +47,8 @@ DEFAULT_POST_CLOSE_HOUR = 16
 DEFAULT_POST_CLOSE_MINUTE = 0
 # Missed sessions older than this are left to scripts/taiwan_historical_backfill.py.
 CENSUS_GAP_MAX_DAYS = 45
+# Recheck recent holes even after a newer partition has succeeded.
+RECENT_GAP_MAX_DAYS = 45
 
 UpdateStatus = Literal["success", "partial", "failed", "skipped"]
 
@@ -179,19 +181,28 @@ def resolve_missing_date_range(
     target_latest: date,
     calendar: TaiwanTradingCalendar | None = None,
     evidence_store: ObservedUniverseStore | None = None,
+    *,
+    available_dates: list[date] | None = None,
 ) -> tuple[date, date] | None:
     """Determine the start and end dates needed to catch up.
 
-    If earliest_available is >= target_latest, no catch-up needed.
-    Otherwise, returns (earliest_available + 1 day, target_latest).
+    Preserve tail catch-up, and optionally recheck recent interior gaps.
+    Existing partitions are skipped by refresh_dates, never overwritten.
     """
     if earliest_available is None:
         return target_latest, target_latest
+    cal = calendar or TaiwanTradingCalendar()
+    evidence = evidence_store or ObservedUniverseStore()
+    if available_dates:
+        available = set(available_dates)
+        cur = max(min(available), target_latest - timedelta(days=RECENT_GAP_MAX_DAYS))
+        while cur <= min(earliest_available, target_latest):
+            if cur not in available and is_potential_market_session(cur, cal, evidence):
+                return cur, target_latest
+            cur += timedelta(days=1)
     if earliest_available >= target_latest:
         return None
 
-    cal = calendar or TaiwanTradingCalendar()
-    evidence = evidence_store or ObservedUniverseStore()
     # Find next candidate date
     cur = earliest_available + timedelta(days=1)
     while cur <= target_latest and not is_potential_market_session(cur, cal, evidence):
@@ -328,13 +339,17 @@ class TaiwanDailyUpdateService:
         i_max = max(i_dates) if i_dates else None
         m_max = max(m_dates) if m_dates else None
 
-        # Determine overall target range
-        min_available = min(filter(None, [d_max, i_max, m_max]), default=target)
-        overall_range = resolve_missing_date_range(
-            min_available, target, self.calendar, self.evidence_store,
-        )
-        start_bound = overall_range[0] if overall_range else target
+        # A later successful day must not hide an earlier failed partition.
+        d_range, i_range, m_range = [
+            resolve_missing_date_range(
+                latest, target, self.calendar, self.evidence_store, available_dates=dates,
+            )
+            for latest, dates in ((d_max, d_dates), (i_max, i_dates), (m_max, m_dates))
+        ]
+        start_bound = min((span[0] for span in (d_range, i_range, m_range) if span), default=target)
         end_bound = target
+        if force:
+            d_range = i_range = m_range = (start_bound, end_bound)
 
         logger.info(
             "Starting TaiwanDailyUpdateService run: target=%s, start_bound=%s, daily_enabled=%s",
@@ -348,9 +363,6 @@ class TaiwanDailyUpdateService:
             daily_stats.note = "Daily refresh skipped by caller configuration."
         else:
             try:
-                d_range = resolve_missing_date_range(
-                    d_max, target, self.calendar, self.evidence_store,
-                ) if not force else (start_bound, end_bound)
                 if not d_range and not force:
                     daily_stats.status = "success"
                     daily_stats.dates_skipped = 1
@@ -388,9 +400,6 @@ class TaiwanDailyUpdateService:
         # 3. Institutional Refresh (TWSE + TPEx = 2 HTTP calls per date)
         inst_stats = DatasetRefreshStats()
         try:
-            i_range = resolve_missing_date_range(
-                i_max, target, self.calendar, self.evidence_store,
-            ) if not force else (start_bound, end_bound)
             if not i_range and not force:
                 inst_stats.status = "success"
                 inst_stats.dates_skipped = 1
@@ -416,9 +425,6 @@ class TaiwanDailyUpdateService:
         # 4. Margin Refresh (TWSE + TPEx = 2 HTTP calls per date)
         margin_stats = DatasetRefreshStats()
         try:
-            m_range = resolve_missing_date_range(
-                m_max, target, self.calendar, self.evidence_store,
-            ) if not force else (start_bound, end_bound)
             if not m_range and not force:
                 margin_stats.status = "success"
                 margin_stats.dates_skipped = 1
@@ -551,16 +557,32 @@ class TaiwanDailyUpdateService:
         left to the historical backfill.
         """
         floor = target - timedelta(days=CENSUS_GAP_MAX_DAYS)
-        last = min(
-            max((d for d in self.evidence_store.partition_statuses(exchange) if floor <= d < target),
-                default=None) or floor
+        # Inspect only this bounded local window, including interior holes. A
+        # newer census must not hide an earlier interrupted day or unknown closure.
+        dates = [floor + timedelta(days=i) for i in range(CENSUS_GAP_MAX_DAYS)]
+        statuses = {
+            exchange: {
+                day: self.evidence_store.partition_status(exchange, day)
+                for day in dates if self.evidence_store.has(exchange, day)
+            }
             for exchange in ("TWSE", "TPEX")
-        )
-        start, end = last + timedelta(days=1), target - timedelta(days=1)
-        if last == floor or start > end:
+        }
+        if any(not days for days in statuses.values()):
+            return None  # no recent census: leave initial history to backfill
+        first = min(min(days) for days in statuses.values())
+        missing = [
+            day for day in dates if day >= first
+            and is_potential_market_session(day, self.calendar, self.evidence_store)
+            and any(days.get(day) not in {"observed", "confirmed_non_trading"}
+                    for days in statuses.values())
+        ]
+        if not missing:
             return None
+        start, end = missing[0], target - timedelta(days=1)
         gap = worker.run_census(start, end, session_budget=CENSUS_GAP_MAX_DAYS)
-        if any(stats.get("empty") for stats in gap.values()):
+        prior_empty = any(days.get(day) == "empty_unknown"
+                          for days in statuses.values() for day in missing)
+        if prior_empty or any(stats.get("empty") for stats in gap.values()):
             try:
                 worker.verify_trading_days(start=start, end=target)
             except Exception as e:

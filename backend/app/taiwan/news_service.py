@@ -164,8 +164,10 @@ class TaiwanNewsService:
         symbol_or_code: str,
         limit: int = 15,
         force_refresh: bool = False,
+        *,
+        allow_fetch: bool = True,
     ) -> TaiwanStockNewsResponse:
-        """Fetch and return recent news for a single stock."""
+        """Read cached news; optionally fetch on a miss for the dedicated news UI."""
         try:
             canonical = parse_symbol(symbol_or_code)
             symbol = canonical.canonical
@@ -203,6 +205,14 @@ class TaiwanNewsService:
                         status_message=error_msg or "目前資料來源方案不提供",
                         fetched_at=cached.get("fetched_at"),
                     )
+
+        if not allow_fetch:
+            return TaiwanStockNewsResponse(
+                symbol=symbol,
+                code=code,
+                status="unavailable",
+                status_message="尚無有效新聞快取；研究先使用其他已知資料。",
+            )
 
         # FinMind TaiwanStockNews requires start_date and end_date=None
         # Query recent days

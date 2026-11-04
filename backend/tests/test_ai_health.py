@@ -87,3 +87,36 @@ def test_cloud_provider_skips_autoload():
          patch.object(ai_health, "_run_lms") as run:
         assert ai_health.ensure_local_model_loaded() == "skip"
     run.assert_not_called()
+
+
+def test_downloaded_quantized_model_matches_before_first_load():
+    item = {"id": "research-model", "state": "not-loaded", "quantization": "Q4_K_M"}
+    with patch.object(httpx.Client, "get", return_value=httpx.Response(200, json={"data": [item]})):
+        assert ai_health._lmstudio_model("http://127.0.0.1:1234", "research-model@q4_k_m") == ("not-loaded", item)
+        assert ai_health._lmstudio_model("http://127.0.0.1:1234", "research-model@q8_0") == ("missing", {})
+
+
+def test_quantized_autoload_uses_exact_downloaded_file_and_preserves_identifier():
+    cfg = _cfg("http://127.0.0.1:1234/v1", "research-model@q4_k_m", 50000)
+    item = {"id": "research-model", "state": "not-loaded", "quantization": "Q4_K_M"}
+    inventory = [{"modelKey": "research-model", "quantization": {"name": "Q4_K_M"},
+                  "path": "publisher/research-model/research-model-Q4_K_M.gguf"}]
+    import json
+    from types import SimpleNamespace
+    with patch.object(ai_health, "_lms", return_value=SimpleNamespace(returncode=0, stdout=json.dumps(inventory))):
+        result, calls = _autoload(cfg, item)
+    assert result == "loaded"
+    assert calls == [("load", inventory[0]["path"], "--exact", "--identifier", cfg.model,
+                      "--yes", "--context-length", "50000")]
+
+
+def test_quantized_autoload_does_not_guess_missing_or_ambiguous_file():
+    import json
+    from types import SimpleNamespace
+    cfg = _cfg("http://127.0.0.1:1234/v1", "research-model@q4_k_m", 50000)
+    item = {"id": "research-model", "state": "not-loaded", "quantization": "Q4_K_M"}
+    entry = {"modelKey": "research-model", "quantization": {"name": "Q4_K_M"}, "path": "model.gguf"}
+    for inventory in ([], [entry, {**entry, "path": "other.gguf"}]):
+        with patch.object(ai_health, "_lms", return_value=SimpleNamespace(returncode=0, stdout=json.dumps(inventory))):
+            _, calls = _autoload(cfg, item, final="not-loaded")
+        assert calls == []

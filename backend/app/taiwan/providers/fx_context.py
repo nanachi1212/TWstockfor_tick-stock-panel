@@ -38,7 +38,9 @@ def _change(current: float, previous: float | None) -> float | None:
     return round((current / previous - 1.0) * 100.0, 3)
 
 
-def normalize_cbc_rates(rows: Any, *, retrieved_at: str) -> ExternalProviderResult:
+def normalize_cbc_rates(
+    rows: Any, *, retrieved_at: str, now: datetime | None = None,
+) -> ExternalProviderResult:
     """Build three TWD pairs from one CBC-sourced USD matrix."""
     if not isinstance(rows, list):
         return ExternalProviderResult.unavailable(FRANKFURTER_SOURCE, "invalid_response")
@@ -73,7 +75,7 @@ def normalize_cbc_rates(rows: Any, *, retrieved_at: str) -> ExternalProviderResu
         }
     latest_date = series["USD/TWD"][-1][0]
     try:
-        age = datetime.now(UTC).date() - date.fromisoformat(latest_date)
+        age = (now or datetime.now(UTC)).astimezone(UTC).date() - date.fromisoformat(latest_date)
     except ValueError:
         age = timedelta.max
     status: ExternalStatus = "stale" if age > FX_STALE_AFTER else "available"
@@ -125,7 +127,7 @@ class FrankfurterFxProvider:
             try:
                 result = normalize_cbc_rates(
                     self.fetcher(url, timeout=20.0, max_attempts=3),
-                    retrieved_at=retrieved_at,
+                    retrieved_at=retrieved_at, now=current,
                 )
                 if result.data is None and cached is not None:
                     result = cached.model_copy(update={
@@ -162,8 +164,8 @@ class FrankfurterFxProvider:
             })
 
     def health_metadata(self) -> dict[str, Any]:
-        result = self._memory or self._read_cache()
-        if result is None:
+        result = self.cached_context()
+        if result.error_reason == "not_queried":
             return {
                 "provider": "Frankfurter", "enabled": True, "auth_configured": True,
                 "status": "not_run", "source": FRANKFURTER_SOURCE,
@@ -189,13 +191,18 @@ class FrankfurterFxProvider:
 
     @staticmethod
     def _cache_is_fresh(result: ExternalProviderResult, now: datetime) -> bool:
+        if result.status != "available":
+            return False
         try:
+            observed = date.fromisoformat(result.as_of or "")
+            if not timedelta(0) <= now.astimezone(UTC).date() - observed <= FX_STALE_AFTER:
+                return False
             stamp = datetime.fromisoformat(result.retrieved_at or "")
             if stamp.tzinfo is None:
                 stamp = stamp.replace(tzinfo=UTC)
         except ValueError:
             return False
-        return now.astimezone(UTC) - stamp.astimezone(UTC) < FX_CACHE_TTL
+        return timedelta(0) <= now.astimezone(UTC) - stamp.astimezone(UTC) < FX_CACHE_TTL
 
 
 _PROVIDER: FrankfurterFxProvider | None = None

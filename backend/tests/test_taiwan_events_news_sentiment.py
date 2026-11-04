@@ -950,3 +950,25 @@ def test_tpex_cmode_malformed_date_keeps_list_date_unavailable():
         [event] = svc.fetch_tpex_cmode_events()
     assert event.details["list_date"] is None
     assert "名單日 來源未提供" in event.summary
+
+
+def test_news_cache_only_miss_never_fetches_or_writes():
+    adapter, cache = MagicMock(), MagicMock()
+    cache.get.return_value = None
+    service = TaiwanNewsService(finmind_adapter=adapter, finmind_cache=cache)
+    result = service.get_recent_news("2330.TWSE", allow_fetch=False)
+    assert result.status == "unavailable"
+    assert result.items == []
+    assert result.fetched_at is None
+    adapter.fetch_dataset.assert_not_called()
+    cache.set.assert_not_called()
+
+
+def test_news_cache_only_preserves_cached_provider_failure():
+    adapter, cache = MagicMock(), MagicMock()
+    cache.get.return_value = {"data": [], "status": "auth_required", "fetched_at": "2026-11-04T09:00:00+08:00"}
+    service = TaiwanNewsService(finmind_adapter=adapter, finmind_cache=cache)
+    result = service.get_recent_news("2330.TWSE", allow_fetch=False)
+    assert result.status == "auth_required"
+    assert result.fetched_at == "2026-11-04T09:00:00+08:00"
+    adapter.fetch_dataset.assert_not_called()

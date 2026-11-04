@@ -10,7 +10,7 @@ Covers:
 """
 from __future__ import annotations
 
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from unittest.mock import MagicMock
 
@@ -502,3 +502,47 @@ def test_analysis_target_uses_today_only_once_its_snapshot_is_stored(monkeypatch
     assert daily_update.resolve_analysis_target_date(date(2026, 10, 12)) == date(2026, 10, 12)
     assert daily_update.resolve_analysis_target_date(date(2026, 10, 8)) == date(2026, 10, 8)
     assert daily_update.resolve_analysis_target_date(None) == date(2026, 10, 8)
+
+
+@pytest.mark.parametrize("dataset", ["daily", "institutional", "margin"])
+def test_orchestrator_retries_internal_gap_after_later_date_succeeded(tmp_path, dataset):
+    before, missing, target = date(2026, 11, 2), date(2026, 11, 3), date(2026, 11, 4)
+    stores = [MagicMock() for _ in range(3)]
+    services = [MagicMock() for _ in range(3)]
+    index = ["daily", "institutional", "margin"].index(dataset)
+    for store in stores:
+        store.available_dates.return_value = [before, missing, target]
+    stores[index].available_dates.return_value = [before, target]
+    services[index].refresh_dates.return_value = {
+        "dates_requested": 2, "dates_fetched": 1, "dates_skipped": 1,
+        "total_rows_written": 20, "failed_dates": [], "pending_dates": [],
+    }
+    svc = TaiwanDailyUpdateService(
+        daily_store=stores[0], inst_store=stores[1], margin_store=stores[2],
+        daily_service=services[0], inst_service=services[1], margin_service=services[2],
+        evidence_store=ObservedUniverseStore(tmp_path / "observed"),
+    )
+    result = svc.run_update(target_date=target)
+    assert result.target_start_date == missing.isoformat()
+    assert getattr(result, dataset).dates_fetched == 1
+    if index == 0:
+        services[index].refresh_dates.assert_called_once_with(
+            start_date=missing, end_date=target, force=False,
+        )
+    else:
+        services[index].refresh_dates.assert_called_once_with(missing, target, force=False)
+    for other in set(range(3)) - {index}:
+        services[other].refresh_dates.assert_not_called()
+
+
+def test_recent_gap_scan_skips_verified_closures_and_does_not_bootstrap_history(tmp_path):
+    target = date(2026, 11, 4)
+    cal = TaiwanTradingCalendar(known_holidays={date(2026, 11, 3)})
+    evidence = ObservedUniverseStore(tmp_path / "observed")
+    assert resolve_missing_date_range(
+        target, target, cal, evidence, available_dates=[date(2026, 11, 2), target],
+    ) is None
+    assert resolve_missing_date_range(target, target, cal, evidence, available_dates=[target]) is None
+    old = date(2026, 8, 31)
+    recent = [date(2026, 9, 20) + timedelta(days=i) for i in range(46)]
+    assert resolve_missing_date_range(target, target, cal, evidence, available_dates=[old, *recent]) is None

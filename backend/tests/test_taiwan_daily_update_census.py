@@ -188,3 +188,30 @@ def test_empty_gap_day_is_settled_against_official_month_tables(tmp_path: Path):
     svc.run_update(target_date=TARGET)
 
     svc.census_worker.verify_trading_days.assert_called_once_with(start=date(2026, 8, 27), end=TARGET)
+
+
+def test_census_interior_gap_is_repaired_even_with_later_observed_sessions(tmp_path):
+    census = FakeCensus()
+    svc, evidence = _service(tmp_path, FakeDailyStore([PREV, TARGET]), publishes=True, census=census)
+    for exchange in ("TWSE", "TPEX"):
+        for day in (date(2026, 8, 26), PREV):
+            evidence.write(exchange, day, [{"date": day, "raw_code": "2330",
+                                           "exchange": exchange, "observed": True}])
+    svc.census_worker.verify_trading_days = MagicMock()
+    result = svc.run_update(target_date=TARGET)
+    assert _observed(evidence, date(2026, 8, 27))
+    assert result.census["gap"]["TWSE"]["sessions"] == 1
+    assert ("TWSE", PREV) not in census.calls
+
+
+def test_existing_empty_gap_retries_official_verification(tmp_path):
+    census = FakeCensus()
+    svc, evidence = _service(tmp_path, FakeDailyStore([PREV, TARGET]), publishes=True, census=census)
+    empty = date(2026, 8, 27)
+    for exchange in ("TWSE", "TPEX"):
+        evidence.write(exchange, empty, [])
+        evidence.write(exchange, PREV, [{"date": PREV, "raw_code": "2330",
+                                         "exchange": exchange, "observed": True}])
+    svc.census_worker.verify_trading_days = MagicMock()
+    svc.run_update(target_date=TARGET)
+    svc.census_worker.verify_trading_days.assert_called_once_with(start=empty, end=TARGET)
