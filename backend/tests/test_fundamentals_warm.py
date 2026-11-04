@@ -284,6 +284,29 @@ def test_request_failures_still_block_completion(monkeypatch, tmp_path, name, re
     assert not (tmp_path / "fundamentals_warm.last").exists()
 
 
+def test_missing_official_row_blocks_completion_when_snapshot_failed(monkeypatch, tmp_path):
+    fake = _FakeService()
+
+    def empty_snapshot(exchange):
+        raise ValueError("empty or duplicate valuation snapshot")
+
+    fake.prime_valuation_cache = empty_snapshot
+    fake.get_valuation = lambda *args: SimpleNamespace(meta=SimpleNamespace(
+        status="unavailable",
+        fallback_reason="official exchangeReport/BWIBBU_ALL row not found for 2330.TWSE",
+    ))
+    monkeypatch.setattr(fundamentals_warm, "_lock_path", lambda: tmp_path / "warm.lock")
+    monkeypatch.setattr(
+        "app.taiwan.fundamental_chips_service.get_fundamental_chips_service", lambda: fake,
+    )
+    result = fundamentals_warm.warm_fundamentals(["2330.TWSE"])
+
+    assert result["status"] == "partial"
+    assert result["unavailable"]["valuation"] == 1
+    assert result["skipped"]["valuation"] == 0
+    assert not (tmp_path / "fundamentals_warm.last").exists()
+
+
 def test_monthly_revenue_separates_request_failure_from_empty_response(tmp_path):
     from app.taiwan.finmind_cache import FinMindCache
     from app.taiwan.fundamental_chips_service import TaiwanFundamentalChipsService
