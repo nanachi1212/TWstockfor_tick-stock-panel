@@ -323,3 +323,29 @@ def test_api_endpoint_invokes_ai_only_on_explicit_post():
         data = r3.json()
         assert data["status"] == "success"
         assert mock_ai.call_count == 1
+
+
+@pytest.mark.asyncio
+async def test_partial_data_can_be_analyzed_with_explicit_freshness_and_missing_items(taiwan_data_env):
+    from app.taiwan.research_context import TaiwanStockResearchContextService
+    ctx = TaiwanStockResearchContextService().get_research_context("2330.TWSE", date(2026, 8, 28))
+    ctx.data_quality.overall_status = "partial"
+    margin_quality = next(s for s in ctx.data_quality.sections if s.section == "margin")
+    margin_quality.status = "stale"
+    margin_quality.as_of = "2026-08-27"
+    ctx.margin_context.status = "stale"
+    ctx.margin_context.margin_balance_change_1d = None
+    ctx.news_status = "unavailable"
+    svc = TaiwanAIResearchService()
+    with patch.object(svc.research_svc, "get_research_context", return_value=ctx), \
+         patch("app.taiwan.ai_research.generate_ai_text", new_callable=AsyncMock) as ai:
+        ai.return_value = json.dumps({"overview": "Analyze the available price; margin and news are unavailable.", "missing_information": []})
+        run = await svc.generate_run("2330.TWSE", target_date=date(2026, 8, 28))
+    assert run.response.status == "success"
+    assert run.evidence_payload["price_context"]["close"] is not None
+    assert run.evidence_payload["data_quality"]["overall_status"] == "partial"
+    assert {"section": "margin", "status": "stale", "as_of": "2026-08-27"} in run.evidence_payload["data_quality"]["sections"]
+    assert "margin_context" not in run.evidence_payload
+    assert "margin" in run.response.report.missing_information
+    assert "news" in run.response.report.missing_information
+    ai.assert_awaited_once()

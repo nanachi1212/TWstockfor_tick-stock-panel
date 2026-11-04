@@ -188,3 +188,75 @@ def test_empty_gap_day_is_settled_against_official_month_tables(tmp_path: Path):
     svc.run_update(target_date=TARGET)
 
     svc.census_worker.verify_trading_days.assert_called_once_with(start=date(2026, 8, 27), end=TARGET)
+
+
+def test_census_interior_gap_is_repaired_even_with_later_observed_sessions(tmp_path):
+    census = FakeCensus()
+    svc, evidence = _service(tmp_path, FakeDailyStore([PREV, TARGET]), publishes=True, census=census)
+    for exchange in ("TWSE", "TPEX"):
+        for day in (date(2026, 8, 26), PREV):
+            evidence.write(exchange, day, [{"date": day, "raw_code": "2330",
+                                           "exchange": exchange, "observed": True}])
+    svc.census_worker.verify_trading_days = MagicMock()
+    result = svc.run_update(target_date=TARGET)
+    assert _observed(evidence, date(2026, 8, 27))
+    assert result.census["gap"]["TWSE"]["sessions"] == 1
+    assert ("TWSE", PREV) not in census.calls
+
+
+def test_existing_empty_gap_retries_official_verification(tmp_path):
+    census = FakeCensus()
+    svc, evidence = _service(tmp_path, FakeDailyStore([PREV, TARGET]), publishes=True, census=census)
+    empty = date(2026, 8, 27)
+    for exchange in ("TWSE", "TPEX"):
+        evidence.write(exchange, empty, [])
+        evidence.write(exchange, PREV, [{"date": PREV, "raw_code": "2330",
+                                         "exchange": exchange, "observed": True}])
+    svc.census_worker.verify_trading_days = MagicMock()
+    svc.run_update(target_date=TARGET)
+    svc.census_worker.verify_trading_days.assert_called_once_with(start=empty, end=TARGET)
+
+
+@pytest.mark.parametrize("confirmed_exchanges", [(), ("TWSE",), ("TWSE", "TPEX")])
+def test_verified_closure_clears_only_resolved_refresh_failures(tmp_path, confirmed_exchanges):
+    before, closed, target = date(2026, 11, 2), date(2026, 11, 3), date(2026, 11, 4)
+    evidence = ObservedUniverseStore(tmp_path / "observed")
+    for exchange in ("TWSE", "TPEX"):
+        for day in (before, target):
+            evidence.write(exchange, day, [{"date": day, "raw_code": "2330",
+                                           "exchange": exchange, "observed": True}])
+    stores, services = [MagicMock() for _ in range(3)], [MagicMock() for _ in range(3)]
+    for store in stores:
+        store.available_dates.return_value = [before, target]
+    services[0].refresh_dates.return_value = {
+        "dates_requested": 2, "dates_skipped": 1, "dates_fetched": 0,
+        "failed_dates": [{"date": str(closed), "status": "unpublished", "error": "no_snapshot"}],
+    }
+    for service in services[1:]:
+        service.refresh_dates.return_value = {
+            "dates_requested": 2, "dates_skipped": 1, "dates_fetched": 0,
+            "pending_dates": [{"date": str(closed), "reason": "official_not_published"}],
+        }
+    worker = MagicMock()
+    worker.run_census.return_value = {"TWSE": {"empty": 1}, "TPEX": {"empty": 1}}
+
+    def verify(**_kwargs):
+        for exchange in confirmed_exchanges:
+            evidence.write(exchange, closed, [], confirmed_non_trading_source="fixture:official_month_table")
+
+    worker.verify_trading_days.side_effect = verify
+    svc = TaiwanDailyUpdateService(
+        daily_store=stores[0], inst_store=stores[1], margin_store=stores[2],
+        daily_service=services[0], inst_service=services[1], margin_service=services[2],
+        evidence_store=evidence, census_worker=worker,
+    )
+    result = svc.run_update(target_date=target)
+    if len(confirmed_exchanges) == 2:
+        assert result.overall_status == result.daily.status == "success"
+        assert result.daily.failed_dates == []
+        assert result.institutional.pending_dates == result.margin.pending_dates == []
+    else:
+        assert result.overall_status == "partial"
+        assert result.daily.status == "failed"
+        assert result.daily.failed_dates[0]["date"] == str(closed)
+        assert result.margin.pending_dates[0]["date"] == str(closed)

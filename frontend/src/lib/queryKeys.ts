@@ -44,10 +44,10 @@ export const QK = {
   // 當日最後一根蠟燭由 Watchlist 用 enriched 實時 OHLC 前端修補 (零額外請求)。
   watchlistKlineBatch:  (symbols: string) => ['kline-batch', symbols] as const,
   // 不用 watchlist- 前綴: 避免被 SSE quotes_updated 高頻失效(expert 1s/pro 2s)
-  // 導致每次都拉 TickFlow 觸限流。分時圖用固定 refetchInterval 刷新即可。
+  // 導致每次都拉資料來源觸限流。分時圖用固定 refetchInterval 刷新即可。
   minuteBatch:          (symbols: string) => ['minute-batch', symbols] as const,
-  instrumentSearch:     (q: string, assetTypes?: string, market?: 'ashare' | 'taiwan' | 'all') =>
-    ['instrument-search', q, assetTypes ?? 'stock', market ?? 'ashare'] as const,
+  instrumentSearch:     (q: string, assetTypes?: string) =>
+    ['instrument-search', q, assetTypes ?? 'stock', 'taiwan'] as const,
 
   // Screener
   screener:             ['screener'] as const,

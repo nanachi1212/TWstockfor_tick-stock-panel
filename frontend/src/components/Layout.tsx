@@ -306,9 +306,9 @@ export function Layout() {
   const realtimeUnavailable = quoteMode === 'none'
   const isWatchlistMode = quoteMode === 'watchlist'
   const realtimeModeLabel = isWatchlistMode ? '自選股' : '全市場'
-  // 當前實時行情數據源名稱 (custom 時顯示源名, tickflow 時不顯示)
+  // 自訂實時行情來源顯示其名稱
   const realtimeProvider = prefs?.realtime_data_provider
-  const realtimeProviderName = realtimeProvider && realtimeProvider !== 'tickflow'
+  const realtimeProviderName = realtimeProvider && realtimeProvider !== 'taiwan'
     ? (dataSources?.custom?.find(s => s.name === realtimeProvider)?.display_name || realtimeProvider)
     : null
   const realtimeToggleDisabled = toggleQuote.isPending || isPaused
@@ -342,7 +342,7 @@ export function Layout() {
 
   // 當前主數據源 (用於側邊欄數據源狀態卡)
   const activeProvider = prefs?.daily_data_provider || 'taiwan'
-  const activeProviderName = (activeProvider === 'taiwan' || activeProvider === 'tickflow')
+  const activeProviderName = activeProvider === 'taiwan'
     ? '台灣官方資料源'
     : (dataSources?.custom?.find(s => s.name === activeProvider)?.display_name || activeProvider)
 

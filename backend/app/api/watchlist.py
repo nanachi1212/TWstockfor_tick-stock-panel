@@ -4,27 +4,14 @@ from __future__ import annotations
 import logging
 import time
 
-import polars as pl
 from fastapi import APIRouter, HTTPException, Query, Request
 from pydantic import BaseModel
 
-from app.db_safe import is_valid_ext_ident
 from app.services import watchlist
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/watchlist", tags=["watchlist"])
-
-_MAX_IMPORT_IMAGE_BYTES = 12 * 1024 * 1024  # 12MB
-_IMPORT_IMAGE_TYPES = {
-    "image/jpeg",
-    "image/jpg",
-    "image/png",
-    "image/webp",
-    "image/bmp",
-    "image/gif",
-}
-
 
 class AddRequest(BaseModel):
     symbol: str
@@ -52,17 +39,33 @@ class GroupAssignRequest(BaseModel):
 
 
 def _with_names(rows: list[dict], request: Request) -> list[dict]:
-    if not rows:
-        return rows
+    from app.taiwan.symbol import is_taiwan_symbol
+    from app.taiwan.universe import get_security_master
+
+    result = []
+    master = None
+    for row in rows:
+        symbol = row.get("symbol", "")
+        copy = dict(row)
+        if is_taiwan_symbol(symbol):
+            try:
+                master = master or get_security_master()
+                inst = master.get_instrument(symbol)
+                if inst is not None:
+                    copy["name"] = inst.name
+            except Exception as exc:
+                logger.debug("attach watchlist name failed: %s", exc)
+        result.append(copy)
+    return result
+
+
+def _require_taiwan_symbol(symbol: str) -> str:
+    from app.taiwan.symbol import parse_symbol
+
     try:
-        # 股票 + ETF 名称统一由 repo.get_name_map 解析, 自选列表可混合持有
-        name_by_symbol = request.app.state.repo.get_name_map([r.get("symbol") for r in rows])
-        if not name_by_symbol:
-            return rows
-        return [{**row, "name": name_by_symbol.get(row.get("symbol"))} for row in rows]
-    except Exception as e:  # noqa: BLE001
-        logger.debug("attach watchlist names failed: %s", e)
-        return rows
+        return parse_symbol(symbol).canonical
+    except ValueError as exc:
+        raise HTTPException(422, "僅支援台股代碼 CODE.TWSE / CODE.TPEX") from exc
 
 
 def _resync_auto_watch() -> None:
@@ -79,8 +82,9 @@ def list_all(request: Request):
 
 @router.post("")
 def add_one(req: AddRequest, request: Request):
+    symbol = _require_taiwan_symbol(req.symbol)
     try:
-        rows = watchlist.add(req.symbol, req.note, req.group_id)
+        rows = watchlist.add(symbol, req.note, req.group_id)
     except ValueError as e:
         raise HTTPException(400, str(e)) from e
     _resync_auto_watch()
@@ -89,8 +93,9 @@ def add_one(req: AddRequest, request: Request):
 
 @router.post("/batch")
 def add_batch(req: BatchAddRequest, request: Request):
+    symbols = [_require_taiwan_symbol(symbol) for symbol in req.symbols]
     try:
-        rows, added = watchlist.add_batch(req.symbols, req.note, req.group_id)
+        rows, added = watchlist.add_batch(symbols, req.note, req.group_id)
     except ValueError as e:
         raise HTTPException(400, str(e)) from e
     _resync_auto_watch()
@@ -236,160 +241,37 @@ _WATCHLIST_COLS = [
 @router.get("/enriched")
 def watchlist_enriched(
     request: Request,
-    ext_columns: str | None = Query(None, description="逗号分隔的 ext 列: config_id.field_name"),
+    ext_columns: str | None = Query(None, description="相容參數; 舊市場擴充資料已停用"),
 ):
-    """自选股 enriched 数据 — 直接从 enriched 最新日读取, 无即时计算。
-
-    ext_columns 参数示例: "industry_rating.score,fund_flow.net_inflow"
-    会动态 LEFT JOIN 对应的 ext_{config_id} DuckDB view。
-    """
-    t0 = time.perf_counter()
-
-    repo = request.app.state.repo
-    symbols = [r["symbol"] for r in watchlist.list_symbols()]
-    if not symbols:
-        return {"rows": [], "as_of": None, "elapsed_ms": 0}
-
-    # Market-aware dispatch (Phase 8B-5.0.4): canonical Taiwan symbols (2330.TWSE /
-    # 6488.TPEX) 一律走既有 Taiwan realtime/daily stack, 完全不进 legacy A 股
-    # enriched 管线 —— 不写入 A 股 parquet, 不建 Taiwan→A 股 adapter。legacy A 股
-    # symbol 走原样不变的既有 join 逻辑 (下方), 两边最后合并成同一份 response。
+    """使用既有台股 enrichment; 舊市場自選只保留 metadata, 不再讀取行情。"""
     from app.taiwan.symbol import is_taiwan_symbol
-    taiwan_symbols = [s for s in symbols if is_taiwan_symbol(s)]
-    legacy_symbols = [s for s in symbols if not is_taiwan_symbol(s)]
+    from app.taiwan.watchlist_enrichment import enrich_taiwan_watchlist_rows
 
-    # 按资产拆分自选 symbol; ETF enriched 是独立缓存, 仅自选真的含 ETF 才去加载
-    # (避免无 ETF 用户在缓存冷启动时触发 ETF 全量懒加载)
-    etf_set = repo.get_etf_symbol_set()
-    index_set = repo.get_index_symbol_set()
-    etf_symbols = [s for s in legacy_symbols if s in etf_set]
-    index_symbols = [s for s in legacy_symbols if s not in etf_set and s in index_set]
-    stock_symbols = [s for s in legacy_symbols if s not in etf_set and s not in index_set]
-
-    df_e, cache_date = repo.get_enriched_latest()
-
-    # 以自选列表为主表 LEFT JOIN enriched, 保证自选的每一只都返回一行;
-    # 不在 enriched 缓存里的标的 (新股/冷门股/新用户未同步) 指标为 null, 前端渲染为 "—".
-    # 旧实现是 df_e.filter(is_in(stock_symbols)), 方向反了 (以 enriched 为主),
-    # 会把不在缓存 universe 里的自选股静默丢弃.
-    if stock_symbols:
-        watchlist_df = pl.DataFrame({"symbol": stock_symbols})
-        if df_e.is_empty():
-            df = watchlist_df
-        else:
-            df = watchlist_df.join(df_e, on="symbol", how="left")
-    else:
-        df = pl.DataFrame()
-
-    # ETF 行合并; 缺失列 (换手率/涨跌停信号等) 为 null
-    etf_date = None
-    if etf_symbols:
-        df_etf_all, etf_date = repo.get_enriched_latest_asset("etf")
-        etf_watchlist_df = pl.DataFrame({"symbol": etf_symbols})
-        if not df_etf_all.is_empty():
-            # ETF 同样以自选为主表 LEFT JOIN, 缺失标的指标为 null
-            df_etf = etf_watchlist_df.join(df_etf_all, on="symbol", how="left")
-        else:
-            df_etf = etf_watchlist_df
-        df = df_etf if df.is_empty() else pl.concat([df, df_etf], how="diagonal_relaxed")
-
-    # 指数行合并 (镜像 ETF 分支); 缺失列 (换手率/涨跌停信号等) 为 null
-    index_date = None
-    if index_symbols:
-        df_idx_all, index_date = repo.get_enriched_latest_asset("index")
-        idx_watchlist_df = pl.DataFrame({"symbol": index_symbols})
-        if not df_idx_all.is_empty():
-            df_idx = idx_watchlist_df.join(df_idx_all, on="symbol", how="left")
-        else:
-            df_idx = idx_watchlist_df
-        df = df_idx if df.is_empty() else pl.concat([df, df_idx], how="diagonal_relaxed")
-
-    # as_of 取三类缓存中较旧者
-    dates = [d for d in (cache_date if stock_symbols else None, etf_date, index_date) if d is not None]
-    as_of = min(dates) if dates else None
-    if df.is_empty() and not taiwan_symbols:
-        return {"rows": [], "as_of": str(as_of) if as_of else None, "elapsed_ms": 0}
-
-    # ext 扩展列(概念/行业等)是纯 A 股功能; 先在这里解析好列名, 供合并阶段把
-    # Taiwan 行的对应字段也补成 None, 而不是让这些 key 在 Taiwan 行上完全缺失。
-    ext_specs = _parse_ext_columns(ext_columns) if ext_columns else []
-    ext_col_names = [f"{config_id}__{field_name}" for config_id, field_name in ext_specs]
-
-    # legacy A 股行: 原有 join/select/ext 扩展/NaN 清洗逻辑保持不变, 只是现在只
-    # 处理 legacy_symbols 那一份 df (Taiwan 完全不进这条管线, 见下方)。
-    if legacy_symbols and not df.is_empty():
-        # JOIN float_shares (仅股票有) + 名称 (股票/ETF 统一走 get_name_map)
-        df_i = repo.get_instruments()
-        if not df_i.is_empty() and "float_shares" in df_i.columns:
-            df = df.join(df_i.select(["symbol", "float_shares"]), on="symbol", how="left")
-        name_map = repo.get_name_map(df["symbol"].to_list())
-        df = df.with_columns(
-            pl.col("symbol").replace_strict(name_map, default=None, return_dtype=pl.Utf8).alias("name")
-        )
-
-        # 标注资产类型: 前端据此渲染徽标/豁免板块筛选/分时列降级
-        asset_map = {**{s: "etf" for s in etf_symbols}, **{s: "index" for s in index_symbols}}
-        df = df.with_columns(
-            pl.col("symbol").replace_strict(asset_map, default="stock", return_dtype=pl.Utf8).alias("asset_type")
-        )
-
-        # 选择内置需要的列
-        keep = [c for c in _WATCHLIST_COLS + ["name", "float_shares", "asset_type"] if c in df.columns]
-        df = df.select(keep)
-
-        # sanitize NaN / Inf
-        float_cols = [c for c in df.columns if df[c].dtype.is_float()]
-        if float_cols:
-            df = df.with_columns([
-                pl.when(pl.col(c).is_nan() | pl.col(c).is_infinite())
-                  .then(None)
-                  .otherwise(pl.col(c))
-                  .alias(c)
-                for c in float_cols
-            ])
-        legacy_rows = df.to_dicts()
-    else:
-        legacy_rows = []
-
-    # Taiwan 行: 完全独立的 enrichment 路径 (既有 realtime/daily stack), 见
-    # app/taiwan/watchlist_enrichment.py。不会往这条路径混入任何 A 股 symbol。
-    taiwan_rows: list[dict] = []
+    t0 = time.perf_counter()
+    entries = watchlist.list_symbols()
+    taiwan_symbols = [row["symbol"] for row in entries if is_taiwan_symbol(row["symbol"])]
+    enriched = {}
     if taiwan_symbols:
-        from app.taiwan.watchlist_enrichment import enrich_taiwan_watchlist_rows
         try:
-            taiwan_rows = enrich_taiwan_watchlist_rows(taiwan_symbols)
-        except Exception as e:  # noqa: BLE001
-            # 与 legacy 分支同等的容错原则: Taiwan 数据源异常不该让整个端点 500,
-            # 只是这批标的这一轮退化为全 null (symbol 仍需要保留, 前端仍渲染 "—")。
-            logger.warning("taiwan watchlist enrichment failed: %s", e)
-            taiwan_rows = [{"symbol": s, "asset_type": "stock"} for s in taiwan_symbols]
+            enriched = {row["symbol"]: row for row in enrich_taiwan_watchlist_rows(taiwan_symbols)}
+        except Exception as exc:
+            logger.warning("taiwan watchlist enrichment failed: %s", exc)
 
-    # 合并 + 补齐字段: 两条路径产出的字典 key 集合不同 (Taiwan 没有技术指标列),
-    # 统一补 None 而非让 key 缺失, 遵循"缺数据回 null 不是假造"的既有口径。
-    expected_cols = _WATCHLIST_COLS + ["name", "float_shares", "asset_type"] + ext_col_names
-    all_rows = legacy_rows + taiwan_rows
-    for row in all_rows:
-        for col in expected_cols:
-            row.setdefault(col, None)
+    rows = []
+    for entry in entries:
+        symbol = entry["symbol"]
+        row = {**entry, **enriched.get(symbol, {})}
+        if not is_taiwan_symbol(symbol):
+            row.update({column: None for column in _WATCHLIST_COLS if column != "symbol"})
+            row.update(market="unsupported", is_supported=False,
+                       status="unavailable", unavailable_reason="unsupported_market",
+                       source_meta=None, quote_time=None)
+        elif symbol not in enriched:
+            row.update(market="taiwan", status="unavailable",
+                       unavailable_reason="taiwan_data_unavailable", source_meta=None, quote_time=None)
+        for column in [*_WATCHLIST_COLS, "name", "float_shares", "asset_type"]:
+            row.setdefault(column, None)
+        rows.append(row)
 
-    # 按自选添加顺序（新加的在前）重排行
-    order_map = {s: i for i, s in enumerate(symbols)}
-    all_rows.sort(key=lambda r: order_map.get(r["symbol"], len(symbols)))
-
-    elapsed = (time.perf_counter() - t0) * 1000
-    return {"rows": all_rows, "as_of": str(as_of) if as_of else None, "elapsed_ms": elapsed}
-
-
-def _parse_ext_columns(ext_columns: str) -> list[tuple[str, str]]:
-    """解析 'config_id1.field1,config_id2.field2' 为 [(config_id, field_name), ...]"""
-    result = []
-    for part in ext_columns.split(","):
-        part = part.strip()
-        if "." not in part:
-            continue
-        config_id, field_name = part.split(".", 1)
-        config_id = config_id.strip()
-        field_name = field_name.strip()
-        if config_id and field_name and is_valid_ext_ident(config_id):
-            result.append((config_id, field_name))
-    return result
+    # Each row retains its real source date; no synthetic combined freshness date.
+    return {"rows": rows, "as_of": None, "elapsed_ms": (time.perf_counter() - t0) * 1000}

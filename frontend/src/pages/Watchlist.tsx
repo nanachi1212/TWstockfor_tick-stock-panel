@@ -48,19 +48,11 @@ import {
 } from '@/lib/watchlist-columns'
 import { type WatchlistView, initialWatchlistView } from '@/lib/watchlist-view'
 
-// ===== 板塊標識（篩選/卡片用） =====
-// 注: boardTag（創/科/北 標籤）已移至共享 @/components/stock-table/primitives
+// ===== 台灣市場篩選 =====
+const BOARDS = ['上市', '上櫃'] as const
 
-const BOARDS = ['滬主板', '深主板', '創業板', '科創板', '北交所'] as const
-type BoardType = typeof BOARDS[number]
-
-function getBoardType(symbol: string): BoardType | null {
-  if (/^(300|301)/.test(symbol)) return '創業板'
-  if (/^688/.test(symbol))       return '科創板'
-  if (/\.BJ$/.test(symbol))      return '北交所'
-  if (/^60[0135]/.test(symbol))  return '滬主板'
-  if (/^00[012]/.test(symbol))   return '深主板'
-  return null
+function getBoardType(symbol: string) {
+  return boardTag(symbol)?.label ?? null
 }
 
 // ===== 換手率分檔色（卡片/表格用） =====
@@ -246,8 +238,8 @@ function StockSearchBox({
   const search = useQuery({
     // Taiwan-only 產品方向: 自選搜索只查台股證券主檔(TaiwanSecurityMaster),
     // 不應再出現 A 股 .SH/.SZ/.BJ 結果。2330.TWSE / 6488.TPEX 這類標的可被搜到並加入自選。
-    queryKey: QK.instrumentSearch(query, 'stock,etf,index', 'taiwan'),
-    queryFn: () => api.instrumentSearch(query, 20, 'stock,etf,index', 'taiwan'),
+    queryKey: QK.instrumentSearch(query, 'stock,etf,index'),
+    queryFn: () => api.instrumentSearch(query, 20, 'stock,etf,index'),
     enabled: query.trim().length > 0,
     staleTime: 30_000,
   })
@@ -408,7 +400,7 @@ function StockSearchBox({
 // 自選頁 symbol 列代碼後的小圓點, 標識該標的正在被實時行情監控 (Free/低檔按自選監控模式)。
 // 視覺以靜態實心點表達在線狀態，避免持續動畫干擾掃讀。
 // 配色用 accent (電光藍) 而非綠/紅: 項目設計規範規定紅綠僅用於價格/K線,
-// UI 狀態用 accent, 避免與 A 股漲跌色混淆。
+// UI 狀態用 accent, 避免與價格漲跌色混淆。
 // 全市場模式不顯示 —— 全部都在監控, 標記無信息量。
 function RealtimeDot({ title = '即時監控中' }: { title?: string }) {
   return (
@@ -863,7 +855,7 @@ export function Watchlist() {
 
   // 批量分時數據 (有分鐘K批量能力時, 列可見才拉)
   // 刷新策略: 僅當實時行情運行 且 用戶在實時監控設置裡開啟 minute_intraday_refresh 時
-  // 按用戶設定的間隔輪詢 (不接 SSE 高頻, 避免每秒拉 TickFlow 觸限流); 與 Screener / 設置卡片描述一致。
+  // 按用戶設定的間隔輪詢 (不接 SSE 高頻, 避免每秒拉資料來源觸限流); 與 Screener / 設置卡片描述一致。
   const { data: prefsData } = usePreferences()
   const intradayRefreshEnabled = prefsData?.minute_intraday_refresh ?? false
   const intradayRefreshInterval = prefsData?.minute_intraday_refresh_interval ?? 6
@@ -1054,9 +1046,9 @@ export function Watchlist() {
   const [filterOpen, setFilterOpen] = useState(false)
   const [filters, setFilters] = useState<Record<string, { min?: string; max?: string; text?: string }>>({})
 
-  // 板塊篩選（持久化）
+  // 市場篩選（持久化）
   const [boardFilter, setBoardFilter] = useState<Set<string>>(() => {
-    const saved = storage.watchlistBoardFilter.get([])
+    const saved = storage.watchlistBoardFilter.get([]).filter(board => BOARDS.some(value => value === board))
     return saved.length > 0 ? new Set(saved) : new Set(BOARDS) // 預設全選
   })
   const persistBoardFilter = useCallback((next: Set<string>) => {
@@ -1073,15 +1065,6 @@ export function Watchlist() {
       return next
     })
   }, [persistBoardFilter])
-
-  // 排除 ST (含 *ST/S*ST 等變體, 按簡稱含 "ST" 判定), 默認關閉並持久化
-  const [excludeST, setExcludeST] = useState(() => storage.watchlistExcludeST.get(false))
-  const toggleExcludeST = useCallback(() => {
-    setExcludeST(prev => {
-      storage.watchlistExcludeST.set(!prev)
-      return !prev
-    })
-  }, [])
 
   const updateFilter = useCallback((colId: string, patch: { min?: string; max?: string; text?: string }) => {
     setFilters(prev => {
@@ -1100,8 +1083,6 @@ export function Watchlist() {
   const resetAllFilters = useCallback(() => {
     setFilters({})
     persistBoardFilter(new Set(BOARDS))
-    setExcludeST(false)
-    storage.watchlistExcludeST.set(false)
   }, [persistBoardFilter])
 
   // 可篩選的內置列
@@ -1125,19 +1106,15 @@ export function Watchlist() {
 
   // 篩選 + 排序
   const filteredRows = useMemo(() => {
-    // 板塊篩選（全選時跳過）
+    // 市場篩選（全選時跳過）
     let result = rowsInSelectedGroup
     if (boardFilter.size > 0 && boardFilter.size < BOARDS.length) {
       result = result.filter(r => {
-        // 非股票 (指數/ETF) 無板塊語義, 不受板塊篩選影響 (順帶修復 ETF 行被誤過濾)
+        // 非股票 (指數/ETF) 無板塊語義, 不受市場篩選影響 (順帶修復 ETF 行被誤過濾)
         if (r.asset_type && r.asset_type !== 'stock') return true
         const board = getBoardType(r.symbol)
         return board != null && boardFilter.has(board)
       })
-    }
-    // 排除 ST: 按簡稱判定 (ST/*ST/S*ST 均含 "ST"); 非股票名稱不含該標記, 天然不受影響
-    if (excludeST) {
-      result = result.filter(r => !((r.rt_name ?? r.name ?? '').toUpperCase().includes('ST')))
     }
     // 數值/文本篩選
     const activeFilters = Object.entries(filters).filter(([, v]) => v.min || v.max || v.text)
@@ -1159,11 +1136,11 @@ export function Watchlist() {
       })
     }
     return result
-  }, [rowsInSelectedGroup, filters, columns, boardFilter, excludeST])
+  }, [rowsInSelectedGroup, filters, columns, boardFilter])
 
   const activeFilterCount = Object.values(filters).filter(v => v.min || v.max || v.text).length
   const hasBoardFilter = boardFilter.size > 0 && boardFilter.size < BOARDS.length
-  const hasActiveFilters = activeFilterCount > 0 || hasBoardFilter || excludeST
+  const hasActiveFilters = activeFilterCount > 0 || hasBoardFilter
 
   // 排序（複用共享三態排序 hook）。分時列按「最新分鐘收盤 vs 昨收」排序（分時圖最後一點同口徑），
   // 其餘列走共享取值；眼睛關閉時不拉分鐘數據，取值為 null → 保持原序。
@@ -1446,9 +1423,9 @@ export function Watchlist() {
       {/* 篩選欄 */}
       {filterOpen && (
         <div className="px-5 py-2 border-b border-border bg-surface/50 max-h-[184px] overflow-y-auto">
-          {/* 板塊篩選 */}
+          {/* 市場篩選 */}
           <div className="mb-2">
-            <div className="text-xs text-muted uppercase tracking-wider mb-0.5">板塊</div>
+            <div className="text-xs text-muted uppercase tracking-wider mb-0.5">市場</div>
             <div className="flex flex-wrap gap-1">
               {BOARDS.map(board => {
                 const active = boardFilter.has(board)
@@ -1466,23 +1443,6 @@ export function Watchlist() {
                   </button>
                 )
               })}
-            </div>
-          </div>
-          {/* 排除 ST */}
-          <div className="mb-2">
-            <div className="text-xs text-muted uppercase tracking-wider mb-0.5">風險警示</div>
-            <div className="flex flex-wrap gap-1">
-              <button
-                onClick={toggleExcludeST}
-                className={`px-2 py-0.5 rounded text-xs transition-colors ${
-                  excludeST
-                    ? 'bg-accent/15 text-accent'
-                    : 'bg-elevated text-secondary hover:text-foreground hover:bg-elevated/80'
-                }`}
-                title="勾選後隱藏簡稱含 ST 標記的標的 (ST/*ST/S*ST)"
-              >
-                排除ST
-              </button>
             </div>
           </div>
           {COLUMN_GROUPS.map(cat => {

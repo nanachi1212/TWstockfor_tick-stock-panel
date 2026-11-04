@@ -20,6 +20,7 @@ import json
 import logging
 import time
 import urllib.request
+from typing import Any
 
 
 from app.taiwan.enrichment.models import SourceMeta

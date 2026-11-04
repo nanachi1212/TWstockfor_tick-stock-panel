@@ -1,7 +1,7 @@
 /**
  * 股票列表單元格渲染原語（共享）。
  *
- * 只負責「無業務上下文」的純數據列：價格/成交/均線/區間/技術指標/動量/連板/財務等。
+ * 只負責「無業務上下文」的純數據列：價格/成交/均線/區間/技術指標/動量/財務等。
  * symbol、strategies、score、signals、candle 等需要頁面上下文（加自選按鈕、失效行、
  * kline 數據、信號提取）的列由各頁面的 renderCell 自行處理。
  *
@@ -15,10 +15,9 @@ import { NUM_CELL_CLASS } from '@/lib/stock-table'
 
 // ===== 板塊標識（自選/策略頁統一口徑） =====
 
-export function boardTag(symbol: string): { label: string; color: string } | null {
-  if (/^(300|301)/.test(symbol)) return { label: '創', color: 'border-orange-500/25 bg-orange-500/10 text-orange-400' }
-  if (/^688/.test(symbol))       return { label: '科', color: 'text-cyan-400 bg-cyan-400/12 border-cyan-400/25' }
-  if (/\.BJ$/.test(symbol))      return { label: '北', color: 'text-purple-400 bg-purple-400/12 border-purple-400/25' }
+export function boardTag(symbol: string): { label: '上市' | '上櫃'; color: string } | null {
+  if (/\.TWSE$/.test(symbol)) return { label: '上市', color: 'border-blue-400/25 bg-blue-400/10 text-blue-400' }
+  if (/\.TPEX$/.test(symbol)) return { label: '上櫃', color: 'border-emerald-400/25 bg-emerald-400/10 text-emerald-400' }
   return null
 }
 
@@ -114,34 +113,6 @@ export function renderBuiltinDataCell(r: any, col: ColumnConfig): ReactNode | nu
     case 'momentum_20d': return <td key={col.id} className={`${numCls} ${priceColorClass(r.momentum_20d)}`}>{fmtPct(r.momentum_20d)}</td>
     case 'momentum_30d': return <td key={col.id} className={`${numCls} ${priceColorClass(r.momentum_30d)}`}>{fmtPct(r.momentum_30d)}</td>
     case 'momentum_60d': return <td key={col.id} className={`${numCls} ${priceColorClass(r.momentum_60d)}`}>{fmtPct(r.momentum_60d)}</td>
-    case 'deviate_3d':  return <td key={col.id} className={`${numCls} ${priceColorClass(r.deviate_3d)}`} title="偏離值 = 個股3日漲跌幅 − 對應指數 (主板±20%/創業科創±30%/北交所±40% 觸發)">{fmtPct(r.deviate_3d)}</td>
-    case 'deviate_10d': return <td key={col.id} className={`${numCls} ${priceColorClass(r.deviate_10d)}`} title="10日累計偏離 (+100% 觸發嚴重異常波動)">{fmtPct(r.deviate_10d)}</td>
-    case 'deviate_30d': return <td key={col.id} className={`${numCls} ${priceColorClass(r.deviate_30d)}`} title="30日累計偏離 (+200% 觸發嚴重異常波動)">{fmtPct(r.deviate_30d)}</td>
-    // 連板
-    case 'limit_ups':
-      return (
-        <td key={col.id} className="px-3 py-2 text-center">
-          {r.consecutive_limit_ups > 0 ? (
-            <span className="inline-flex items-center justify-center min-w-[20px] h-5 px-1 rounded bg-danger/15 text-danger text-xs font-bold tabular-nums">
-              {r.consecutive_limit_ups}
-            </span>
-          ) : (
-            <span className="text-muted">—</span>
-          )}
-        </td>
-      )
-    case 'limit_downs':
-      return (
-        <td key={col.id} className="px-3 py-2 text-center">
-          {r.consecutive_limit_downs > 0 ? (
-            <span className="inline-flex items-center justify-center min-w-[20px] h-5 px-1 rounded bg-bear/15 text-bear text-xs font-bold tabular-nums">
-              {r.consecutive_limit_downs}
-            </span>
-          ) : (
-            <span className="text-muted">—</span>
-          )}
-        </td>
-      )
     // 財務指標（後端 enriched 未返回時顯示 —）
     case 'eps':           return <td key={col.id} className={numCls}>{r.eps != null ? fmtPrice(r.eps) : '—'}</td>
     case 'bps':           return <td key={col.id} className={numCls}>{r.bps != null ? fmtPrice(r.bps) : '—'}</td>

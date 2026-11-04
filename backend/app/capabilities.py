@@ -1,6 +1,6 @@
 """Capability 定义(§5.1)。
 
-业务代码只依赖 CapabilitySet,不读 tiers.yaml,不感知"档位"。
+业务代码只依赖 CapabilitySet 与已配置的数据源能力。
 """
 from __future__ import annotations
 
@@ -57,8 +57,7 @@ class CapabilitySet:
         return dict(self._caps)
 
     def grant(self, cap: Cap, limits: CapabilityLimits | None = None) -> None:
-        """补授一个能力 (不覆盖已有)。用于自定义数据源: 用户配了自定义分钟源时,
-        即使无 TickFlow Pro+ 也补上 KLINE_MINUTE_BATCH, 使所有 capset.has() 检查通过。"""
+        """Grant configured capabilities without replacing existing limits."""
         if cap not in self._caps:
             self._caps[cap] = limits or CapabilityLimits()
 
@@ -78,5 +77,5 @@ class CapabilityDenied(Exception):
 
     def __init__(self, cap: Cap, suggestion: str | None = None) -> None:
         self.cap = cap
-        self.suggestion = suggestion or f"加购『{cap}』能力可解锁"
+        self.suggestion = suggestion or f"目前資料源未提供『{cap}』, 請配置支援此資料集的來源"
         super().__init__(f"capability not available: {cap}; {self.suggestion}")

@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import json
 import logging
+import time
 from datetime import date
 from typing import Any
 
@@ -332,7 +333,18 @@ class OfficialDailySnapshotAdapter:
         return df.sort(["symbol", "date"])
 
     def _request_json(self, url: str) -> dict[str, Any]:
-        resp = self.client.get(url)
-        resp.raise_for_status()
-        raw = resp.content.decode("utf-8-sig")
-        return json.loads(raw)
+        # Retry only transient transport/status failures. The shared client takes a
+        # rate-limit slot on every attempt; malformed JSON/schema still fails closed.
+        for attempt in range(3):
+            try:
+                resp = self.client.get(url)
+                resp.raise_for_status()
+                return json.loads(resp.content.decode("utf-8-sig"))
+            except httpx.HTTPStatusError as exc:
+                if attempt == 2 or not (exc.response.status_code == 429 or 500 <= exc.response.status_code <= 599):
+                    raise
+            except httpx.TransportError:
+                if attempt == 2:
+                    raise
+            time.sleep(2 ** attempt)
+        raise RuntimeError("official snapshot retry exhausted")

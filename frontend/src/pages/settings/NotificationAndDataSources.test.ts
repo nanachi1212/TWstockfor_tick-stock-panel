@@ -70,6 +70,15 @@ describe('data source settings', () => {
     expect(dataSources).toContain("selected === '__new__'")
   })
 
+  it('has no legacy source aliases or mainland default symbols in configurable sources', () => {
+    expect(read('DataSources.tsx')).not.toMatch(/tickflow/i)
+    const editor = read('DataSourceEditor.tsx')
+    expect(editor).toContain('2330.TWSE,6488.TPEX')
+    expect(editor).not.toMatch(/000001\.SZ|600000\.SH/)
+    const watchlist = read('../Watchlist.tsx')
+    expect(watchlist).not.toMatch(/滬主板|深主板|創業板|科創板|北交所|excludeST/)
+  })
+
   it('includes collapsible setup guides for LINE and Telegram with official links', () => {
     const code = read('Monitoring.tsx')
     // LINE guide

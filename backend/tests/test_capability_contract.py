@@ -1,105 +1,76 @@
-# ruff: noqa: RUF002, RUF003 -- Traditional Chinese prose uses full-width punctuation.
-"""現行 capability contract 回歸測試（台股官方免 Key 模式）。
-
-取代已廢棄的 tests/test_capability_augment.py。
-
-原檔驗證的是 ``app.tickflow.policy._augment_custom_sources``：在 TickFlow API-Key
-分檔時代，某資料集的當前 provider 非 tickflow 且宣告了該資料集時，才「補授」對應能力。
-commit f8aef18 把整套 API-Key 分檔偵測連同該函式一起移除，改為台股官方免 Key 模式，
-``detect_capabilities()`` 現在**無條件**授予全部能力（包含原本條件式補授的那四項）。
-該函式已不存在，那 7 個測試因此無法 collect，且其描述的行為也已不存在。
-
-本檔只驗證目前 production 真實行為，不引用任何已移除的 private function。
-"""
-
+"""Taiwan/custom capability contracts never invent removed SDK features."""
 from __future__ import annotations
 
+from types import SimpleNamespace
 from unittest.mock import MagicMock
 
-from app.tickflow.capabilities import Cap, CapabilityLimits, CapabilitySet
+import pytest
+
+from app.capabilities import Cap, CapabilityLimits, CapabilitySet
 from app.tickflow.policy import detect_capabilities
 
-#: 免 Key 模式下 detect_capabilities() 的完整契約。
-#: 這是四個歷史上「條件式補授」的能力 (daily/adj_factor/minute/financial) 現在
-#: 無條件可用的直接證據。
-EXPECTED_BATCH_LIMITS: dict[Cap, int | None] = {
-    Cap.QUOTE_BY_SYMBOL: None,
-    Cap.QUOTE_BATCH: 100,
-    Cap.QUOTE_POOL: None,
-    Cap.KLINE_DAILY_BY_SYMBOL: None,
-    Cap.KLINE_DAILY_BATCH: 100,
-    Cap.KLINE_MINUTE_BY_SYMBOL: None,
-    Cap.KLINE_MINUTE_BATCH: 100,
-    Cap.INTRADAY: None,
-    Cap.INTRADAY_BATCH: 100,
-    Cap.DEPTH5: None,
-    Cap.DEPTH5_BATCH: 100,
-    Cap.WEBSOCKET: None,
-    Cap.FINANCIAL: None,
-    Cap.ADJ_FACTOR: None,
-}
 
-
-def test_official_mode_grants_the_full_capability_set() -> None:
-    """免 Key 模式授予全部能力，且不對任何能力宣告 rpm。"""
-    capset = detect_capabilities()
-    assert set(capset.all()) == set(EXPECTED_BATCH_LIMITS)
-    for cap, batch in EXPECTED_BATCH_LIMITS.items():
-        limits = capset.limits(cap)
-        assert limits is not None, cap
-        assert limits.batch == batch, cap
-        # rpm 一律 None：節流由 app/rate_limits.py 的 slot table 負責，
-        # 不再由 capability 分檔決定。
-        assert limits.rpm is None, cap
-
-
-def test_previously_augmented_capabilities_are_now_unconditional() -> None:
-    """daily / adj_factor / minute / financial 不再需要任何 custom-source 條件。"""
-    capset = detect_capabilities()
-    for cap in (Cap.KLINE_DAILY_BATCH, Cap.ADJ_FACTOR,
-                Cap.KLINE_MINUTE_BATCH, Cap.FINANCIAL):
-        assert capset.has(cap), cap
-
-
-def test_capabilities_do_not_depend_on_data_provider_preferences(monkeypatch) -> None:
-    """能力集與使用者選的資料源無關（增廣機制已移除的回歸保護）。"""
+def test_official_mode_advertises_only_implemented_datasets(monkeypatch):
     from app.services import preferences
-
-    baseline = detect_capabilities().to_dict()
-    for getter in ("get_daily_data_provider", "get_adj_factor_provider",
-                   "get_minute_data_provider", "get_financial_provider"):
-        monkeypatch.setattr(preferences, getter, lambda: "mock_src")
-    assert detect_capabilities().to_dict() == baseline
-
-    # force=True 是舊探測快取的旗標，免 Key 模式下不得改變結果。
-    assert detect_capabilities(force=True).to_dict() == baseline
-
-
-def test_grant_never_overrides_an_existing_capability() -> None:
-    """CapabilitySet.grant 的既有語意：已存在的能力與其限制不被覆蓋。"""
-    capset = CapabilitySet()
-    capset.grant(Cap.KLINE_MINUTE_BATCH, CapabilityLimits(rpm=30, batch=100))
-    capset.grant(Cap.KLINE_MINUTE_BATCH, CapabilityLimits(rpm=999, batch=999))
-    limits = capset.limits(Cap.KLINE_MINUTE_BATCH)
-    assert limits is not None and limits.rpm == 30 and limits.batch == 100
+    monkeypatch.setattr(preferences, "load", lambda: {})
+    caps = detect_capabilities()
+    assert set(caps.all()) == {
+        Cap.QUOTE_BY_SYMBOL, Cap.QUOTE_BATCH, Cap.QUOTE_POOL,
+        Cap.KLINE_DAILY_BY_SYMBOL, Cap.KLINE_DAILY_BATCH,
+        Cap.DEPTH5, Cap.DEPTH5_BATCH, Cap.FINANCIAL,
+    }
+    assert not caps.has(Cap.KLINE_MINUTE_BATCH)
+    assert not caps.has(Cap.ADJ_FACTOR)
+    assert not caps.has(Cap.WEBSOCKET)
+    assert detect_capabilities(force=True).to_dict() == caps.to_dict()
 
 
-def test_update_data_providers_refreshes_capability_snapshot(monkeypatch) -> None:
-    """切換資料源後 app.state.capabilities 快照應刷新 (讀快取+無網路)。
+def test_selected_custom_datasets_grant_their_declared_capabilities(monkeypatch):
+    from app.data_providers import custom
+    from app.services import preferences
+    monkeypatch.setattr(preferences, "get_minute_data_provider", lambda: "custom_tw")
+    monkeypatch.setattr(preferences, "get_adj_factor_provider", lambda: "custom_tw")
+    monkeypatch.setattr(custom, "provider_has_dataset", lambda name, dataset: name == "custom_tw" and dataset in {"minute", "adj_factor"})
+    limit = SimpleNamespace(rpm=30, batch=25)
+    provider = SimpleNamespace(config=SimpleNamespace(datasets={"minute": limit, "adj_factor": limit}))
+    monkeypatch.setattr(custom, "get_provider", lambda _: provider)
+    caps = detect_capabilities()
+    assert caps.has(Cap.KLINE_MINUTE_BATCH)
+    assert caps.has(Cap.ADJ_FACTOR)
+    assert caps.limits(Cap.KLINE_MINUTE_BATCH) == CapabilityLimits(rpm=30, batch=25)
+    assert not caps.has(Cap.WEBSOCKET)
 
-    這是原 test_capability_augment.py 中唯一仍對應現行 production 行為的期望，
-    逐字保留：app/api/settings.py::update_data_providers 目前仍執行
-    ``request.app.state.capabilities = detect_capabilities()``。
-    """
+
+def test_missing_custom_dataset_is_not_advertised(monkeypatch):
+    from app.data_providers import custom
+    from app.services import preferences
+    monkeypatch.setattr(preferences, "get_daily_data_provider", lambda: "custom_tw")
+    monkeypatch.setattr(custom, "provider_has_dataset", lambda *_: False)
+    assert not detect_capabilities().has(Cap.KLINE_DAILY_BATCH)
+
+
+def test_grant_never_overrides_existing_limits():
+    caps = CapabilitySet()
+    caps.grant(Cap.KLINE_MINUTE_BATCH, CapabilityLimits(rpm=30, batch=100))
+    caps.grant(Cap.KLINE_MINUTE_BATCH, CapabilityLimits(rpm=999, batch=999))
+    assert caps.limits(Cap.KLINE_MINUTE_BATCH) == CapabilityLimits(rpm=30, batch=100)
+
+
+def test_provider_settings_refresh_capabilities_and_reject_retired_provider(monkeypatch):
+    from fastapi import HTTPException
+
     from app.api import settings as settings_api
-
-    monkeypatch.setattr("app.services.preferences.save", lambda upd: None)
+    from app.services import preferences
+    saved = []
+    monkeypatch.setattr(preferences, "save", saved.append)
+    monkeypatch.setattr(preferences, "_allowed_data_providers", lambda: {"taiwan", "mock_src"})
     sentinel = CapabilitySet()
     monkeypatch.setattr(settings_api, "detect_capabilities", lambda: sentinel)
-
-    mock_request = MagicMock()
-    settings_api.update_data_providers(
-        MagicMock(model_dump=lambda exclude_none: {"daily_data_provider": "mock_src"}),
-        mock_request,
-    )
-    assert mock_request.app.state.capabilities is sentinel
+    request = MagicMock()
+    settings_api.update_data_providers(settings_api.DataProvidersIn(daily_data_provider="mock_src"), request)
+    assert request.app.state.capabilities is sentinel
+    assert saved == [{"daily_data_provider": "mock_src"}]
+    with pytest.raises(HTTPException) as exc:
+        settings_api.update_data_providers(settings_api.DataProvidersIn(daily_data_provider="tickflow"), request)
+    assert exc.value.status_code == 400
+    assert len(saved) == 1

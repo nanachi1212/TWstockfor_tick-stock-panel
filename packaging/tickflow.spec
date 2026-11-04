@@ -112,7 +112,7 @@ hiddenimports += [
 
 # ── fastapi / pydantic 元數據 (版本檢測用) ───────────────────────────
 # 注意: 任何用 importlib.metadata.version() 讀版本的包, 都必須 copy_metadata,
-# 否則 frozen 後報 PackageNotFoundError。tickflow 包內部就是這麼讀的。
+# 否則 frozen 後報 PackageNotFoundError。
 # 用容錯寫法: 不存在的包跳過, 避免不同環境 (有無裝某依賴) 導致構建失敗。
 def _safe_metadata(pkg):
     """收集包元數據, 包不存在時靜默跳過。"""
@@ -123,7 +123,6 @@ def _safe_metadata(pkg):
 
 for pkg in (
     "fastapi", "pydantic", "pydantic_settings", "starlette", "anyio",
-    "tickflow",  # tickflow/__version__.py 用 importlib.metadata 讀版本
     "uvicorn", "polars", "duckdb", "pyarrow", "httpx", "numpy", "pandas",
     "openai", "platformdirs", "winotify", "plyer", "apscheduler",
     "python-dotenv", "fastexcel",

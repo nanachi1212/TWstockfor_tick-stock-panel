@@ -28,7 +28,7 @@ const TARGET_FIELDS: Record<DatasetKey, string[]> = {
 
 // 內部字段的中文說明 (下拉選項展示用)
 const FIELD_LABELS: Record<string, string> = {
-  symbol: '股票代碼 (如 000001.SZ / 600000.SH)',
+  symbol: '股票代碼 (如 2330.TWSE / 6488.TPEX)',
   date: '交易日期 (YYYY-MM-DD)',
   datetime: '時間戳 (YYYY-MM-DD HH:MM:SS)',
   open: '開盤價',
@@ -339,7 +339,7 @@ function DatasetDetail({
   onToggle: (v: boolean) => void
 }) {
   const enabled = !!cfg
-  const [testSymbols, setTestSymbols] = useState('000001.SZ,600000.SH')
+  const [testSymbols, setTestSymbols] = useState('2330.TWSE,6488.TPEX')
   const [showParams, setShowParams] = useState(false)
   const showTimeParams = datasetKey !== 'realtime'
   const test = useMutation({

@@ -309,7 +309,7 @@ def is_custom_provider(name: str) -> bool:
 def provider_has_dataset(name: str, dataset: str) -> bool:
     """判断某个 custom 源是否配置了指定数据集。
 
-    用于主流程分流: 总开关选了 custom, 但某个数据集未启用时, 该数据集回退 TickFlow。
+    用于主流程分流: 未配置的数据集不得尝试调用不具备该能力的数据源。
     """
     provider = _PROVIDERS.get((name or "").lower())
     if provider is None:

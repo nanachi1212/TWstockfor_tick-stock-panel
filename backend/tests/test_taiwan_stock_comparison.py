@@ -584,4 +584,4 @@ def test_routing_compare_and_single_symbol_endpoints_do_not_collide():
         r4 = client.post("/api/taiwan/stocks/2330.TWSE/ai-research", json={"date": "2026-08-28"})
     assert r4.status_code == 200
     data4 = r4.json()
-    assert data4["prompt_version"] == "taiwan_stock_research_v1"  # single-symbol Phase 7E prompt version
+    assert data4["prompt_version"] == "taiwan_stock_research_v2"  # single-symbol research prompt version

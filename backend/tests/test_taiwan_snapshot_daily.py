@@ -411,3 +411,39 @@ def test_daily_update_orchestration_with_snapshot():
         start_date=date(2026, 8, 28), end_date=date(2026, 8, 28), force=False
     )
     mock_daily_svc.refresh_symbols.assert_not_called()
+
+
+def test_snapshot_retries_interrupted_body_without_refetching_other_exchange(monkeypatch):
+    import httpx
+
+    monkeypatch.setattr("time.sleep", lambda _seconds: None)
+    calls = []
+
+    def response(request):
+        calls.append(str(request.url))
+        if len(calls) == 1:
+            raise httpx.RemoteProtocolError("incomplete chunked read", request=request)
+        return httpx.Response(200, json={"stat": "ok"})
+
+    with httpx.Client(transport=httpx.MockTransport(response)) as client:
+        adapter = OfficialDailySnapshotAdapter(security_master=mock_security_master(), client=client)
+        assert adapter._request_json("https://www.tpex.org.tw/test") == {"stat": "ok"}
+    assert len(calls) == 2
+
+
+@pytest.mark.parametrize("status, attempts", [(429, 3), (503, 3), (403, 1)])
+def test_snapshot_http_retries_are_bounded_and_permanent_errors_fail(monkeypatch, status, attempts):
+    import httpx
+
+    monkeypatch.setattr("time.sleep", lambda _seconds: None)
+    calls = []
+
+    def response(request):
+        calls.append(1)
+        return httpx.Response(status, json={})
+
+    with httpx.Client(transport=httpx.MockTransport(response)) as client:
+        adapter = OfficialDailySnapshotAdapter(security_master=mock_security_master(), client=client)
+        with pytest.raises(httpx.HTTPStatusError):
+            adapter._request_json("https://www.tpex.org.tw/test")
+    assert len(calls) == attempts

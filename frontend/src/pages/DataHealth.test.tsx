@@ -39,6 +39,20 @@ beforeEach(() => {
 })
 
 describe('資料健康中心', () => {
+  it('batches completed groups once without invalidating the jobs poll itself', async () => {
+    vi.mocked(api.dataHealthJobs).mockResolvedValue([
+      { ...job, job_id: 'daily-done', status: 'completed' },
+      { ...job, job_id: 'social-done', dataset: 'ptt', affected_datasets: ['ptt'], status: 'completed' },
+      { ...job, job_id: 'validate-done', action: 'validate', status: 'completed' },
+    ])
+    const client = mount()
+    const invalidate = vi.spyOn(client, 'invalidateQueries')
+    await screen.findByRole('rowheader', { name: 'Daily OHLC' })
+    await waitFor(() => expect(invalidate).toHaveBeenCalledTimes(1))
+    expect(api.dataHealthJobs).toHaveBeenCalledTimes(1)
+    expect(client.getQueryState(QK.dataHealthJobs)?.isInvalidated).toBe(false)
+  })
+
   it('labels timing gaps and external failures distinctly and counts only current as healthy', async () => {
     vi.mocked(api.dataHealth).mockResolvedValue({
       generated_at: '2026-09-30T16:40:00+08:00', current_count: 1, total_count: 5,

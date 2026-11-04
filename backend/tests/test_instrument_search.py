@@ -1,77 +1,14 @@
-"""标的搜索测试: 代码 / 名称 / 拼音首字母 (同花顺式 payh → 平安银行)。
-
-直接调用 search_instruments, 用最小 FakeRepo 提供 instruments 缓存, 不走 HTTP/DB。
-"""
-from __future__ import annotations
-
-import types
-
-import polars as pl
+"""Taiwan-only instrument search contract; retired caches must never be read."""
 import pytest
+from fastapi import FastAPI
+from fastapi.testclient import TestClient
 
-from app.api.kline import search_instruments
-
-
-class _FakeRepo:
-    """最小 repo 桩: 只实现 search_instruments 依赖的 get_instruments_asset。"""
-
-    def __init__(self, by_asset: dict[str, pl.DataFrame]) -> None:
-        self.store = types.SimpleNamespace(data_dir="data")
-        self._by_asset = by_asset
-
-    def get_instruments_asset(self, asset_type: str) -> pl.DataFrame:
-        return self._by_asset.get(asset_type, pl.DataFrame())
+from app.api.kline import router
 
 
-def _request(repo: _FakeRepo) -> types.SimpleNamespace:
-    return types.SimpleNamespace(app=types.SimpleNamespace(state=types.SimpleNamespace(repo=repo)))
-
-
-STOCKS = pl.DataFrame({
-    "symbol": ["000001.SZ", "600000.SH", "600519.SH", "000333.SZ", "600737.SH"],
-    "code": ["000001", "600000", "600519", "000333", "600737"],
-    "name": ["平安银行", "浦发银行", "贵州茅台", "美的集团", "中粮糖业"],
-})
-
-
-def _search(q: str, asset_types: str = "stock", limit: int = 20) -> list[dict]:
-    repo = _FakeRepo({"stock": STOCKS})
-    return search_instruments(_request(repo), q=q, limit=limit, asset_types=asset_types)["results"]
-
-
-# ===== 既有逻辑回归: 代码 / 名称搜索不受影响 =====
-
-def test_code_prefix_match():
-    """code 前缀: 6005 → 600519 (前缀优先)。"""
-    rows = _search("6005")
-    assert "600519.SH" in [r["symbol"] for r in rows]
-
-
-def test_symbol_contains_match():
-    rows = _search("6005")
-    assert "600519.SH" in [r["symbol"] for r in rows]
-
-
-def test_chinese_name_contains_match():
-    rows = _search("银行")
-    assert sorted(r["symbol"] for r in rows) == ["000001.SZ", "600000.SH"]
-
-
-def test_empty_query_returns_empty():
-    assert _search("   ") == []
-
-
-# ===== 拼音首字母搜索 (新功能) =====
-
-
-
-
-
-
-
-
-
-
+class _ExplodingRepo:
+    def __getattr__(self, name):
+        raise AssertionError(f"search must not read legacy repository: {name}")
 
 
 def _patch_security_master(monkeypatch: pytest.MonkeyPatch, rows: list[dict]) -> None:
@@ -117,133 +54,43 @@ _TAIWAN_ROWS = [
 ]
 
 
-def test_market_omitted_is_backward_compatible_ashare_only(monkeypatch):
-    """不传 market(既有 3 个 legacy 调用方的用法)时, 即使证券主档里有命中,
-    结果也完全不含台股 —— 维持既有 A 股 legacy 行为不变。"""
+
+@pytest.fixture
+def client(monkeypatch):
     _patch_security_master(monkeypatch, _TAIWAN_ROWS)
-    repo = _FakeRepo({"stock": STOCKS})
-    rows = search_instruments(_request(repo), q="2330", limit=20, asset_types="stock")["results"]
-    assert rows == []
-
-
-def test_market_ashare_explicit_matches_omitted_behavior(monkeypatch):
-    """market=ashare 显式指定时, 行为与省略 market 一致(向后兼容)。"""
-    _patch_security_master(monkeypatch, _TAIWAN_ROWS)
-    repo = _FakeRepo({"stock": STOCKS})
-    rows = search_instruments(
-        _request(repo), q="平安", limit=20, asset_types="stock", market="ashare",
-    )["results"]
-    assert [r["symbol"] for r in rows] == ["000001.SZ"]
-    assert rows[0]["market"] == "ashare"
-
-
-def test_market_taiwan_finds_twse_symbol_by_code(monkeypatch):
-    """market=taiwan + q=2330 → 2330.TWSE, market 字段为 "taiwan" (非空字串)。"""
-    _patch_security_master(monkeypatch, _TAIWAN_ROWS)
-    repo = _FakeRepo({"stock": STOCKS})
-    rows = search_instruments(
-        _request(repo), q="2330", limit=20, asset_types="stock", market="taiwan",
-    )["results"]
-    assert [r["symbol"] for r in rows] == ["2330.TWSE"]
-    assert rows[0]["market"] == "taiwan"
-    assert rows[0]["asset_type"] == "stock"
-
-
-def test_market_taiwan_finds_twse_symbol_by_canonical_symbol(monkeypatch):
-    """market=taiwan + q=2330.TWSE(完整 canonical symbol)也应命中。"""
-    _patch_security_master(monkeypatch, _TAIWAN_ROWS)
-    repo = _FakeRepo({"stock": STOCKS})
-    rows = search_instruments(
-        _request(repo), q="2330.TWSE", limit=20, asset_types="stock", market="taiwan",
-    )["results"]
-    assert [r["symbol"] for r in rows] == ["2330.TWSE"]
-
-
-def test_market_taiwan_finds_tpex_symbol(monkeypatch):
-    """market=taiwan + q=6488 → 6488.TPEX(上柜)。"""
-    _patch_security_master(monkeypatch, _TAIWAN_ROWS)
-    repo = _FakeRepo({"stock": STOCKS})
-    rows = search_instruments(
-        _request(repo), q="6488", limit=20, asset_types="stock", market="taiwan",
-    )["results"]
-    assert [r["symbol"] for r in rows] == ["6488.TPEX"]
-
-
-def test_market_taiwan_supports_chinese_name_search(monkeypatch):
-    """market=taiwan 支持繁体中文名称搜索(如"台積電")。"""
-    _patch_security_master(monkeypatch, _TAIWAN_ROWS)
-    repo = _FakeRepo({"stock": STOCKS})
-    rows = search_instruments(
-        _request(repo), q="台積電", limit=20, asset_types="stock", market="taiwan",
-    )["results"]
-    assert [r["symbol"] for r in rows] == ["2330.TWSE"]
-
-
-def test_market_taiwan_never_returns_ashare_symbols(monkeypatch):
-    """market=taiwan 时绝不查 legacy A 股 repository, 结果里不会混入 .SH/.SZ/.BJ。
-
-    用一个同时命中 A 股 STOCKS fixture(000001.SZ 平安银行)和台股 fixture 的
-    查询("0"), 断言只有 market=taiwan 时排除 A 股, market 省略时排除台股。
-    """
-    _patch_security_master(monkeypatch, _TAIWAN_ROWS)
-    repo = _FakeRepo({"stock": STOCKS})
-    tw_only = search_instruments(
-        _request(repo), q="0", limit=20, asset_types="stock", market="taiwan",
-    )["results"]
-    assert tw_only, "台股 fixture 应至少命中一笔 (如 0050.TWSE)"
-    assert all(not s["symbol"].endswith((".SH", ".SZ", ".BJ")) for s in tw_only)
-
-
-def test_market_taiwan_excludes_unsupported_instrument_types(monkeypatch):
-    """未支援标的(如权证 is_supported=False)不应出现在 market=taiwan 结果里。"""
-    _patch_security_master(monkeypatch, _TAIWAN_ROWS)
-    repo = _FakeRepo({"stock": STOCKS})
-    rows = search_instruments(
-        _request(repo), q="7999", limit=20, asset_types="stock", market="taiwan",
-    )["results"]
-    assert rows == []
-
-
-def test_market_taiwan_respects_limit(monkeypatch):
-    """market=taiwan 时 limit 生效。"""
-    _patch_security_master(monkeypatch, _TAIWAN_ROWS)
-    repo = _FakeRepo({"stock": STOCKS})
-    rows = search_instruments(
-        _request(repo), q="TWSE", limit=1, asset_types="stock", market="taiwan",
-    )["results"]
-    assert len(rows) == 1
-
-
-def test_market_taiwan_ignores_asset_types_and_repo(monkeypatch):
-    """market=taiwan 完全不碰 repo —— 传一个会报错的 repo 也不影响台股搜索。"""
-    class _ExplodingRepo:
-        def get_instruments_asset(self, asset_type: str):
-            raise AssertionError("market=taiwan 不应调用 repo.get_instruments_asset()")
-
-    _patch_security_master(monkeypatch, _TAIWAN_ROWS)
-    rows = search_instruments(
-        _request(_ExplodingRepo()), q="2330", limit=20, asset_types="stock", market="taiwan",
-    )["results"]
-    assert [r["symbol"] for r in rows] == ["2330.TWSE"]
-
-
-def test_market_invalid_value_rejected_by_fastapi_validation():
-    """market 传非法值时, 走 FastAPI Literal["ashare","taiwan","all"] 的既有校验
-    (HTTP 422), 不需要端点自行手写校验分支。
-
-    直接 Python 调用 search_instruments(如本文件其它测试)不经 FastAPI 路由层
-    解析, 类型注解不会在调用时被强制检查, 故本测试必须真正经过 HTTP/TestClient
-    才能验证 Literal 校验生效 —— 与直接函数调用的其它测试刻意不同。
-    """
-    from fastapi import FastAPI
-    from fastapi.testclient import TestClient
-
-    from app.api.kline import router as kline_router
-
     app = FastAPI()
-    app.include_router(kline_router)
-    app.state.repo = _FakeRepo({"stock": STOCKS})
-    client = TestClient(app)
+    app.include_router(router)
+    app.state.repo = _ExplodingRepo()
+    return TestClient(app)
 
-    resp = client.get("/api/kline/instruments/search", params={"q": "2330", "market": "us"})
-    assert resp.status_code == 422
+
+@pytest.mark.parametrize("market", [None, "taiwan", "all"])
+@pytest.mark.parametrize("query,expected", [
+    ("2330", "2330.TWSE"), ("2330.TWSE", "2330.TWSE"),
+    ("台積電", "2330.TWSE"), ("6488", "6488.TPEX"), ("0050", "0050.TWSE"),
+])
+def test_search_only_taiwan(client, market, query, expected):
+    params = {"q": query}
+    if market is not None:
+        params["market"] = market
+    response = client.get("/api/kline/instruments/search", params=params)
+    assert response.status_code == 200
+    assert [r["symbol"] for r in response.json()["results"]] == [expected]
+    assert response.json()["results"][0]["market"] == "taiwan"
+
+
+@pytest.mark.parametrize("market", ["ashare", "us"])
+def test_removed_or_unknown_market_is_rejected(client, market):
+    response = client.get("/api/kline/instruments/search", params={"q": "2330", "market": market})
+    assert response.status_code == 422
+
+
+@pytest.mark.parametrize("query", ["   ", "7999", "000001.SZ"])
+def test_empty_unsupported_and_legacy_queries_return_empty(client, query):
+    response = client.get("/api/kline/instruments/search", params={"q": query})
+    assert response.json() == {"results": []}
+
+
+def test_limit_is_respected(client):
+    response = client.get("/api/kline/instruments/search", params={"q": "TWSE", "limit": 1})
+    assert len(response.json()["results"]) == 1

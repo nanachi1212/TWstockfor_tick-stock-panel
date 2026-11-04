@@ -1017,7 +1017,7 @@ class TaiwanStockResearchContextService:
         try:
             from app.taiwan.news_service import get_news_service
             news_svc = get_news_service()
-            news_res = news_svc.get_recent_news(inst.symbol, limit=8)
+            news_res = news_svc.get_recent_news(inst.symbol, limit=8, allow_fetch=False)
             news_status = news_res.status
             news_items = news_res.items
             if is_historical:

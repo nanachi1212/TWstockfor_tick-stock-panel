@@ -21,14 +21,7 @@ vi.mock('@/lib/useSharedQueries', () => ({
 }))
 
 const settings = (overrides: Partial<SettingsState> = {}): SettingsState => ({
-  mode: 'none',
-  tickflow_api_key_masked: '',
-  has_tickflow_key: false,
-  tier_label: '',
-  current_endpoint: '',
-  probe_log: [],
-  missing_caps: [],
-  extras_caps: [],
+  mode: 'official',
   onboarding_completed: true,
   ai_provider: 'openai_compat',
   ai_base_url: '',

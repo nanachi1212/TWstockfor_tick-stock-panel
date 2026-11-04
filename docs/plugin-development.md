@@ -102,14 +102,14 @@ class MyProvider:
         """全市場實時快照: 返回 list[dict], 每行含 symbol/last_price/prev_close/open/high/low/volume"""
 
     def get_instruments(self, asset_type="stock") -> list[dict]:
-        """標的維表(可選): 返回 tickflow Instrument 形狀的行, 供標的維表同步複用 flatten"""
+        """標的維表(可選): 返回既有標準化 Instrument 欄位, 供標的維表同步複用 flatten"""
 ```
 
 ### config.datasets 的作用
 
 `provider_has_dataset(name, dataset)` 通過 `dataset in provider.config.datasets` 判斷。
 這是 services 層路由的關鍵: 用戶在設置頁選了插件, 但某數據集未聲明時, 該數據集
-自動回退預設的台灣官方資料源。
+明確回報該資料集不可用，不回退 TickFlow 或其他來源。
 
 ```python
 class MyConfig:

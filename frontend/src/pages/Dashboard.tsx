@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { ArrowUpRight, BellRing, ChevronDown } from 'lucide-react'
@@ -23,6 +24,7 @@ import { WatchlistQuickGlance } from '@/components/dashboard/WatchlistQuickGlanc
 
 export function Dashboard() {
   const navigate = useNavigate()
+  const [marketDetailsOpen, setMarketDetailsOpen] = useState(false)
   const openStock = (symbol: string) => navigate(`/stocks/${encodeURIComponent(symbol)}`)
   const marketDataStatus = useQuery({
     queryKey: QK.taiwanDataStatus,
@@ -109,12 +111,12 @@ export function Dashboard() {
           </div>
         </div>
 
-        <details className="group mt-4 rounded-card border border-border bg-surface">
+        <details className="group mt-4 rounded-card border border-border bg-surface" onToggle={event => setMarketDetailsOpen(event.currentTarget.open)}>
           <summary className="flex min-h-12 cursor-pointer list-none items-center justify-between gap-3 px-4 text-sm font-semibold text-foreground [&::-webkit-details-marker]:hidden">
             <span>延伸市場資訊</span>
             <ChevronDown className="h-4 w-4 text-muted transition-transform group-open:rotate-180" aria-hidden="true" />
           </summary>
-          <div className="border-t border-border p-4">
+          {marketDetailsOpen && <div className="border-t border-border p-4">
           <div className="mb-4 grid grid-cols-1 gap-4 lg:grid-cols-2">
             <MarketSentimentCard targetDate={latestDailyAsOf} />
             <TodayEventsWidget />
@@ -139,7 +141,7 @@ export function Dashboard() {
           <div className="mb-4"><ExternalContextCard compact /></div>
           <DataHealthSummary />
           <TaiwanOverviewCard />
-          </div>
+          </div>}
         </details>
       </div>
     </div>

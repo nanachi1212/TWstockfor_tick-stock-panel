@@ -80,7 +80,7 @@ class _InstrumentRepo:
     def get_instruments_asset(self, asset_type: str) -> pl.DataFrame:
         assert asset_type == "stock"
         return pl.DataFrame({
-            "symbol": ["600001.SH"],
+            "symbol": ["2330.TWSE"],
             "limit_up": [10.88],
             "limit_down": [8.90],
         })
@@ -88,12 +88,12 @@ class _InstrumentRepo:
 
 def test_minute_price_limit_prefers_authoritative_prices_only_today(monkeypatch):
     today = date(2026, 7, 18)
-    monkeypatch.setattr(kline, "cn_today", lambda: today)
+    monkeypatch.setattr(kline, "taipei_today", lambda: today)
     current = kline._get_price_limit_info(
-        _InstrumentRepo(), "600001.SH", today, "stock", "*ST主板",
+        _InstrumentRepo(), "2330.TWSE", today, "stock", "台積電",
     )
     historical = kline._get_price_limit_info(
-        _InstrumentRepo(), "600001.SH", date(2026, 7, 3), "stock", "*ST主板",
+        _InstrumentRepo(), "2330.TWSE", date(2026, 7, 3), "stock", "台積電",
     )
 
     assert current == {
@@ -103,7 +103,7 @@ def test_minute_price_limit_prefers_authoritative_prices_only_today(monkeypatch)
         "source": "instrument",
     }
     assert historical == {
-        "rate": 0.05,
+        "rate": 0.10,
         "limit_up": None,
         "limit_down": None,
         "source": "rule",

@@ -2927,14 +2927,7 @@ export interface StrategyBacktestResult {
 // ===== Settings =====
 
 export interface SettingsState {
-  mode: 'none' | 'free' | 'api_key'
-  tickflow_api_key_masked: string
-  has_tickflow_key: boolean
-  tier_label: string
-  current_endpoint: string
-  probe_log: string[]
-  missing_caps: string[]
-  extras_caps: string[]
+  mode: 'official'
   // 首次使用引導
   onboarding_completed: boolean
   // AI 配置
@@ -2995,19 +2988,6 @@ export interface AiKeyProfile {
   /** 深度模型：多空辯論裁判與最終 Advice 使用；未設定時沿用目前使用的 Profile */
   deep?: boolean
   created_at: string
-}
-
-/** 保存 TickFlow Key 的響應(先探後存) */
-export interface SaveTickflowKeyResult {
-  ok: boolean
-  /** ok=false 且 key 無效時的原因標識,前端據此提示「Key 無效」 */
-  reason?: 'invalid'
-  error?: string
-  mode?: 'none' | 'free' | 'api_key'
-  tier_label?: string
-  current_endpoint?: string
-  tickflow_api_key_masked?: string
-  capabilities_count?: number
 }
 
 export interface DataSourceItem {
@@ -3121,9 +3101,6 @@ export interface Preferences {
   realtime_pull_index?: boolean
   realtime_index_mode?: 'core' | 'all'
   realtime_index_symbols?: string[]
-  pipeline_pull_a_share: boolean
-  pipeline_pull_etf: boolean
-  pipeline_pull_index: boolean
   pipeline_regime_enabled: boolean
   regime_batch_days: number
   regime_warmup_days: number
@@ -4134,14 +4111,10 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ symbols, date }),
     }),
-  /**
-   * market 省略 = 既有 A 股 legacy 行為(Financials 搜索 / A 股監控規則編輯器 /
-   * A 股回測標的選擇器等既有調用方不用改)。market='taiwan' 只查
-   * TaiwanSecurityMaster, 不會混入 .SH/.SZ/.BJ 結果 —— 自選股搜索用這個。
-   */
-  instrumentSearch: (q: string, limit = 20, assetTypes?: string, market?: 'ashare' | 'taiwan' | 'all') =>
-    request<{ results: { symbol: string; name: string; code: string; asset_type?: string; market: 'ashare' | 'taiwan' }[] }>(
-      `/api/kline/instruments/search?q=${encodeURIComponent(q)}&limit=${limit}${assetTypes ? `&asset_types=${encodeURIComponent(assetTypes)}` : ''}${market ? `&market=${market}` : ''}`,
+  /** 只搜尋台灣證券主檔，快取與資料契約均以 Taiwan 為準。 */
+  instrumentSearch: (q: string, limit = 20, assetTypes?: string) =>
+    request<{ results: { symbol: string; name: string; code: string; asset_type?: string; market: 'taiwan' }[] }>(
+      `/api/kline/instruments/search?q=${encodeURIComponent(q)}&limit=${limit}${assetTypes ? `&asset_types=${encodeURIComponent(assetTypes)}` : ''}&market=taiwan`,
     ),
 
   /** 批量查股票名稱 (傳入 symbol 列表, 返回 {symbol: name}) */
@@ -4756,38 +4729,6 @@ export const api = {
     }),
 
 
-  /** 模擬觸發 ladder 封單監控 (Dev 調試, 不落盤不推送) */
-  monitorRuleTestLadder: () =>
-    request<{
-      ok: boolean
-      as_of: string
-      sealed_count: number
-      triggered: Array<{
-        rule_id: string; rule_name: string; symbol: string; name?: string
-        type: string; message: string; severity: string
-        sealed_value: number; sealed_metric: string
-        current_sealed_vol?: number; current_sealed_amount?: number
-      }>
-      not_triggered: Array<{
-        rule_id: string; rule_name: string; symbol: string
-        metric: string; threshold: number; current_value: number | null
-        current_sealed_vol?: number; current_sealed_amount?: number | null
-        reason: string
-      }>
-    }>('/api/monitor-rules/test-ladder', { method: 'POST' }),
-
-  /** 真實觸發 ladder 預警 (落盤+飛書+SSE), Dev 調試用 */
-  monitorRuleTriggerLadder: () =>
-    request<{
-      ok: boolean
-      triggered: number
-      events: Array<{ symbol: string; name: string; message: string }>
-    }>('/api/monitor-rules/trigger-ladder', { method: 'POST' }),
-
-  /** 生成演示監控規則 (Dev 頁用) */
-  monitorRuleSeed: () =>
-    request<{ ok: boolean; generated: number }>('/api/monitor-rules/seed', { method: 'POST' }),
-
   // ===== Alerts (觸發記錄) =====
   alertsList: (params?: { days?: number; limit?: number; source?: string; type?: string; extColumns?: string }) => {
     const qs = new URLSearchParams()
@@ -4812,9 +4753,7 @@ export const api = {
   alertDeleteById: (alertId: string) =>
     request<{ ok: boolean }>(`/api/alerts/id/${encodeURIComponent(alertId)}`, { method: 'DELETE' }),
 
-  /** 生成演示觸發記錄 (Dev 頁用) */
-  alertSeed: (count = 12, recent = true) =>
-    request<{ ok: boolean; generated: number }>(`/api/alerts/seed?count=${count}&recent=${recent}`, { method: 'POST' }),
+
 
   /** 檢查 AI 配置狀態 */
   strategyAiTest: () =>

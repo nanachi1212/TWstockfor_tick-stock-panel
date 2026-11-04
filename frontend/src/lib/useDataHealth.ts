@@ -11,8 +11,8 @@ export function useDataHealthJobs() {
     refetchInterval: query => query.state.data?.some(j => ['queued', 'running'].includes(j.status)) ? 1500 : 10_000,
   })
   useEffect(() => {
-    // One invalidation per group: on mount every finished job in history is new,
-    // and one call per job made each heavy page query refetch N times.
+    // Merge groups so shared consumers refetch once; never invalidate the poll
+    // that delivered these completed jobs.
     const groups = new Set<keyof typeof DATA_HEALTH_INVALIDATE_PREFIXES>()
     for (const job of jobs.data ?? []) {
       if (['queued', 'running'].includes(job.status) || seen.current.has(job.job_id)) continue
@@ -20,9 +20,11 @@ export function useDataHealthJobs() {
       if (seen.current.size > 60) seen.current.delete(seen.current.values().next().value!)
       groups.add(job.action === 'validate' ? 'validate' : job.affected_datasets.includes('daily') ? 'daily' : 'social')
     }
-    for (const group of groups) {
-      void qc.invalidateQueries({ predicate: query => DATA_HEALTH_INVALIDATE_PREFIXES[group].some(prefix =>
-        String(query.queryKey[0]).startsWith(prefix)) })
+    if (groups.size > 0) {
+      const prefixes = [...groups].flatMap(group => [...DATA_HEALTH_INVALIDATE_PREFIXES[group]])
+      void qc.invalidateQueries({ predicate: query =>
+        query.queryKey[0] !== QK.dataHealthJobs[0]
+        && prefixes.some(prefix => String(query.queryKey[0]).startsWith(prefix)) })
     }
   }, [jobs.data, qc])
   return jobs

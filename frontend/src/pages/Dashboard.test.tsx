@@ -142,7 +142,7 @@ vi.mock('@/lib/api', () => ({
 }))
 
 
-function renderDashboard(qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })) {
+function renderDashboard(qc = new QueryClient({ defaultOptions: { queries: { retry: false } } }), expand = true) {
   function CurrentPath() {
     return <output data-testid="current-path">{useLocation().pathname}</output>
   }
@@ -153,6 +153,11 @@ function renderDashboard(qc = new QueryClient({ defaultOptions: { queries: { ret
       </MemoryRouter>
     </QueryClientProvider>,
   )
+  if (expand) {
+    const details = screen.getByText('延伸市場資訊').closest('details')!
+    details.open = true
+    fireEvent(details, new Event('toggle'))
+  }
   return { qc, ...result }
 }
 
@@ -161,6 +166,33 @@ afterEach(() => {
 })
 
 describe('Dashboard — chart first', () => {
+  it('loads the collapsed market details only when expanded and reuses fresh query data', async () => {
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: 60_000 } } })
+    renderDashboard(qc, false)
+    await screen.findByTestId('flow-chart')
+    expect(api.dataHealth).not.toHaveBeenCalled()
+    expect(api.taiwanSocialSentiment).not.toHaveBeenCalled()
+    expect(api.taiwanQuantA2bStatus).not.toHaveBeenCalled()
+    expect(screen.queryByText('台股資料狀態')).not.toBeInTheDocument()
+
+    const details = screen.getByText('延伸市場資訊').closest('details')!
+    details.open = true
+    fireEvent(details, new Event('toggle'))
+    await screen.findByText('台股資料狀態')
+    await waitFor(() => expect(api.dataHealth).toHaveBeenCalledTimes(1))
+    expect(api.taiwanSocialSentiment).toHaveBeenCalledTimes(1)
+    expect(api.taiwanQuantA2bStatus).toHaveBeenCalledTimes(1)
+
+    details.open = false
+    fireEvent(details, new Event('toggle'))
+    await waitFor(() => expect(screen.queryByText('台股資料狀態')).not.toBeInTheDocument())
+    details.open = true
+    fireEvent(details, new Event('toggle'))
+    await screen.findByText('台股資料狀態')
+    expect(api.dataHealth).toHaveBeenCalledTimes(1)
+    expect(api.taiwanSocialSentiment).toHaveBeenCalledTimes(1)
+  })
+
   it('opens with the institutional flow chart and latest-day totals; gaps stay incomplete', async () => {
     renderDashboard()
     expect(await screen.findByTestId('flow-chart')).toBeInTheDocument()

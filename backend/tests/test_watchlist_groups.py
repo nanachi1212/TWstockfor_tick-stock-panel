@@ -119,13 +119,13 @@ def test_group_api_contract(monkeypatch, tmp_path):
     assert created["group"]["color"] == "teal"
 
     added = watchlist_api.add_one(
-        watchlist_api.AddRequest(symbol="600000.SH", group_id=group_id),
+        watchlist_api.AddRequest(symbol="2330.TWSE", group_id=group_id),
         request,
     )
     assert added["symbols"][0]["group_ids"] == [group_id]
 
     moved = watchlist_api.assign_group(
-        "600000.SH",
+        "2330.TWSE",
         watchlist_api.GroupAssignRequest(group_id=None),
         request,
     )

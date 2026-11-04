@@ -1,20 +1,4 @@
-"""设置 API — Key 配置 / 模式切换。
-
-提供面向非开发者的 UI 配置入口,避免逼用户改 .env。
-
-Phase 8B-FINAL: 移除已确认 zero 消费者且具明确风险的孤儿端点——
-switch_endpoint(持久化任意呼叫者提供的 HTTPS URL 并重置 TickFlow 客户端指向
-该端点,zero 前端消费者)、test_endpoint(对呼叫者提供的任意 URL 发起服务端
-出站请求探测延迟,SSRF 形态,zero 前端消费者)、endpoints(仅服务已随
-Data.tsx/EndpointTestDialog.tsx 一并删除的端点诊断功能, zero 消费者,一并
-清理避免留下孤儿残片)、pipeline-schedule/instruments-schedule 两个偏好
-setter(zero 前端消费者, 且会持久化配置并呼叫 scheduler.reschedule_job 操作
-已被 Phase 8B-5.0.2 从调度器移除的 daily_pipeline/pre_market_instruments
-job——目前虽因 job 不存在而实际上会抛错, 但一旦该 job id 未来被重新注册即
-恢复危险)。DEFAULT_PAID_ENDPOINT / tf_client / capability detection /
-preferences.get_pipeline_schedule() 与 get_instruments_schedule()(供
-daily_pipeline.py 的 start_scheduler() 读取排程时间)等底层能力完全未动。
-"""
+"""Settings for Taiwan data sources, AI, and local user preferences."""
 from __future__ import annotations
 
 import logging
@@ -25,22 +9,11 @@ from pydantic import BaseModel, Field
 
 from app import secrets_store
 from app.data_providers.custom.config import MAX_TIMEOUT
-from app.tickflow import client as tf_client
-from app.tickflow.policy import (
-    detect_capabilities,
-    extras_caps,
-    missing_caps,
-    probe_log,
-    tier_label,
-)
+from app.tickflow.policy import detect_capabilities
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/settings", tags=["settings"])
-
-# 默认端点 —— endpoints.json 列表第一项,UI"当前使用"始终对齐此项。
-# 注意:Free 模式 SDK 实际走 free-api(免费数据通道),但 UI 显示统一用默认节点。
-DEFAULT_PAID_ENDPOINT = "https://api.tickflow.org"
 
 
 def _ai_profile_count() -> int:
@@ -62,10 +35,6 @@ def _ai_active_profile_name() -> str | None:
         return None
     except Exception:  # noqa: BLE001
         return None
-
-
-class TickflowKeyIn(BaseModel):
-    api_key: str
 
 
 @router.get("")
@@ -93,17 +62,9 @@ def get_settings() -> dict:
         current_ai_max_output_tokens,
     )
 
-    key = secrets_store.get_tickflow_key()
     ai_provider = secrets_store.get_ai_config("ai_provider", settings.ai_provider)
     return {
-        "mode": tf_client.current_mode(),
-        "tickflow_api_key_masked": secrets_store.mask(key),
-        "has_tickflow_key": bool(key),
-        "tier_label": tier_label(),
-        "current_endpoint": tf_client.current_endpoint(),
-        "probe_log": probe_log(),
-        "missing_caps": missing_caps(),
-        "extras_caps": extras_caps(),
+        "mode": "official",
         # 首次使用引导
         "onboarding_completed": preferences.get_onboarding_completed(),
         # AI 配置
@@ -139,109 +100,6 @@ def get_settings() -> dict:
         "watchlist_anomaly_enabled": watchlist_anomaly.is_enabled(),
         "watchlist_anomaly_threshold_pct": watchlist_anomaly.threshold_pct(),
         "telegram_query_enabled": telegram_bot.is_enabled(),
-    }
-
-
-@router.post("/tickflow-key")
-def save_tickflow_key(req: TickflowKeyIn, request: Request) -> dict:
-    """保存 TickFlow API Key 并立即重新探测能力。
-
-    先探后存(关键改动,修复乱填 key 也会被持久化的问题):
-      1. 临时用新 key 探测(付费端点),判定档位
-      2. 判定为 none(连单只日K都拿不到)→ key 无效:不存,清除已存的,
-         返回 {ok: false, reason: "invalid"},前端提示「Key 无效」
-      3. 判定为 free(免费有效 key)→ 存 key,客户端切到 free-api 服务器
-      4. 判定为 starter+ → 存 key,切到付费端点(现有逻辑)
-
-    端点联动:从无 key 升级到付费 key 时,残留的 free-api 端点不可用,
-    故自动切到默认付费端点(api.tickflow.org);free 档则清除自定义端点。
-    """
-    from app.tickflow.policy import (
-        base_tier_name, is_invalid_key,
-    )
-
-    key = req.api_key.strip()
-    if not key:
-        return {"ok": False, "error": "key empty"}
-
-    # ===== 1) 临时存 key + 重置客户端,让探测走付费端点 =====
-    secrets_store.save({"tickflow_api_key": key})
-    tf_client.reset_clients()
-
-    # 立即重新探测(此时 client 已按档位判定,但首次探测必然走付费端点验证)
-    capset = detect_capabilities(force=True)
-    request.app.state.capabilities = capset
-
-    # ===== 2) 判定为无效 key(连单只日K都拿不到)→ 不存,清除 =====
-    if is_invalid_key() or base_tier_name() == "none":
-        # 无效 key:清除刚存的,避免乱填被持久化;退回 none 档
-        secrets_store.clear("tickflow_api_key", "tickflow_base_url")
-        tf_client.reset_clients()
-        capset = detect_capabilities(force=True)
-        request.app.state.capabilities = capset
-        return {
-            "ok": False,
-            "reason": "invalid",
-            "error": "Key 无效或已过期,请检查后重试",
-            "mode": "none",
-            "tier_label": tier_label(),
-            "current_endpoint": tf_client.current_endpoint(),
-            "probe_log": [],
-            "capabilities_count": len(capset.all()),
-        }
-
-    # ===== 3) free 档(免费有效 key)→ 存 key,切到 free-api 服务器 =====
-    if base_tier_name() == "free":
-        # 免费档运行时走 free-api 服务器,清除付费端点的自定义配置
-        secrets_store.clear("tickflow_base_url")
-        tf_client.reset_clients()
-        return {
-            "ok": True,
-            "tickflow_api_key_masked": secrets_store.mask(key),
-            "mode": "free",
-            "tier_label": tier_label(),
-            "current_endpoint": tf_client.current_endpoint(),
-            "probe_log": [],
-            "capabilities_count": len(capset.all()),
-        }
-
-    # ===== 4) starter+ 付费档 → 确保走付费端点(现有逻辑) =====
-    # 若之前是 none/free(无自定义付费端点),切到默认付费端点
-    base = secrets_store.load().get("tickflow_base_url")
-    if not base:
-        secrets_store.save({"tickflow_base_url": DEFAULT_PAID_ENDPOINT})
-    tf_client.reset_clients()
-
-    return {
-        "ok": True,
-        "tickflow_api_key_masked": secrets_store.mask(key),
-        "mode": "api_key",
-        "tier_label": tier_label(),
-        "current_endpoint": tf_client.current_endpoint(),
-        "probe_log": [],
-        "capabilities_count": len(capset.all()),
-    }
-
-
-@router.delete("/tickflow-key")
-def clear_tickflow_key(request: Request) -> dict:
-    """清除 Key,退回无档(none)。
-
-    同时清除 tickflow_base_url(测速切换的自定义端点),使客户端走 free-api
-    服务器取历史日K;档位标签为 None(无档)。
-    """
-    secrets_store.clear("tickflow_api_key", "tickflow_base_url")
-    tf_client.reset_clients()
-
-    capset = detect_capabilities(force=True)
-    request.app.state.capabilities = capset
-
-    return {
-        "ok": True,
-        "mode": "none",
-        "tier_label": tier_label(),
-        "current_endpoint": tf_client.current_endpoint(),
-        "capabilities_count": len(capset.all()),
     }
 
 
@@ -719,7 +577,7 @@ def list_data_sources() -> dict:
 
 @router.post("/plugin-key")
 def save_plugin_key(req: PluginKeyIn) -> dict:
-    """保存插件 API Key(先探后存, 对齐 /tickflow-key 语义)。
+    """保存插件 API Key(先探后存)。
 
     流程: probe_plugin_key 用候选 Key 实探 → 有效才写 secrets.json
     ({plugin}_api_key, 优先级高于 .env) → load_all 重扫, 插件即刻变为可切换。
@@ -795,22 +653,21 @@ def install_plugin(name: str) -> dict:
 def uninstall_plugin(name: str) -> dict:
     """卸载指定插件的依赖 (删除 node_modules / pip uninstall), 完成后重新扫描。
 
-    如果该插件当前正被使用, 自动回退到 tickflow。
+    如果该插件当前正被使用, 自动回退到 taiwan。
     """
     from app.data_providers import custom as custom_sources
     from app.services import preferences
     if not custom_sources.is_builtin(name):
         raise HTTPException(status_code=404, detail=f"插件 '{name}' 不存在")
+    selected = preferences.load()
     ok, message = custom_sources.uninstall_plugin(name)
-    # 卸载后若该插件正被使用, 回退 tickflow
-    for getter, key, default in [
-        (preferences.get_daily_data_provider, "daily_data_provider", "tickflow"),
-        (preferences.get_minute_data_provider, "minute_data_provider", "tickflow"),
-        (preferences.get_realtime_data_provider, "realtime_data_provider", "tickflow"),
-        (preferences.get_financial_provider, "financial_data_provider", "tickflow"),
-    ]:
-        if getter() == name:
-            preferences.save({key: default})
+    updates = {}
+    for key in ("daily_data_provider", "minute_data_provider", "realtime_data_provider",
+                "financial_data_provider", "adj_factor_provider"):
+        if selected.get(key) == name:
+            updates[key] = "same_as_daily" if key == "adj_factor_provider" else "taiwan"
+    if updates:
+        preferences.save(updates)
     custom_sources.load_all()
     result = list_data_sources()
     result["uninstall_ok"] = ok
@@ -846,10 +703,11 @@ def save_data_source(req: CustomSourceIn) -> dict:
 def delete_data_source(name: str, request: Request) -> dict:
     """删除一个自定义数据源 yaml, 保存后自动 reload。
 
-    若当前总开关选中的就是被删的源, 回退到 tickflow。
+    若当前总开关选中的就是被删的源, 回退到 taiwan。
     """
     from app.data_providers import custom as custom_sources
     from app.services import preferences
+    selected = preferences.load()
     try:
         custom_sources.delete_config(name)
     except ValueError as e:
@@ -857,18 +715,20 @@ def delete_data_source(name: str, request: Request) -> dict:
     custom_sources.load_all()
     # 回退被删源的偏好
     updates: dict = {}
-    if preferences.get_daily_data_provider() == name:
-        updates["daily_data_provider"] = "tickflow"
-    if preferences.get_realtime_data_provider() == name:
-        updates["realtime_data_provider"] = "tickflow"
-    if preferences.get_financial_provider() == name:
-        updates["financial_data_provider"] = "tickflow"
-    adj = preferences.get_adj_factor_provider()
+    if selected.get("daily_data_provider") == name:
+        updates["daily_data_provider"] = "taiwan"
+    if selected.get("realtime_data_provider") == name:
+        updates["realtime_data_provider"] = "taiwan"
+    if selected.get("financial_data_provider") == name:
+        updates["financial_data_provider"] = "taiwan"
+    if selected.get("minute_data_provider") == name:
+        updates["minute_data_provider"] = "taiwan"
+    adj = selected.get("adj_factor_provider")
     if adj == name:
         updates["adj_factor_provider"] = "same_as_daily"
     if updates:
         preferences.save(updates)
-    # 删除源可能触发偏好回退 tickflow, 同步刷新能力快照
+    # 删除源可能触发偏好回退 taiwan, 同步刷新能力快照
     request.app.state.capabilities = detect_capabilities()
     return list_data_sources()
 
@@ -903,6 +763,13 @@ def update_data_providers(req: DataProvidersIn, request: Request) -> dict:
     """保存数据源选择。"""
     from app.services import preferences
     updates = req.model_dump(exclude_none=True)
+    allowed = preferences._allowed_data_providers()
+    for key, value in updates.items():
+        normalized = value.strip().lower()
+        choices = allowed | {"same_as_daily"} if key == "adj_factor_provider" else allowed
+        if normalized not in choices:
+            raise HTTPException(status_code=400, detail=f"Unsupported data provider: {value}")
+        updates[key] = normalized
     if updates:
         preferences.save(updates)
     # 刷新能力快照: 当前 provider 变化会改变自定义源能力增广结果 (读缓存, 无网络请求)
