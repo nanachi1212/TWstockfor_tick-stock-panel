@@ -131,6 +131,8 @@ class CandidateFactBrief(BaseModel):
     new_top10: list[CandidateItem] = Field(default_factory=list)
     dropped_top10: list[CandidateItem] = Field(default_factory=list)
     strategy_matches: list[CandidateItem] = Field(default_factory=list)
+    strategy_status: Literal["available", "not_requested", "unavailable", "unknown"] = "unknown"
+    strategy_status_message: str | None = None
 
 
 class EventFactBrief(BaseModel):
@@ -197,4 +199,5 @@ class CreateDailyBriefRequest(BaseModel):
     """Client request to collate today's deterministic daily brief."""
 
     target_date: str | None = None
+    include_strategy_matches: bool = True
     portfolio_holdings: list[dict[str, Any]] = Field(default_factory=list)

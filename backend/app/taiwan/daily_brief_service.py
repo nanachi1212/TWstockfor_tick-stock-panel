@@ -140,6 +140,8 @@ class TaiwanDailyBriefService:
         self,
         target_date: date | None = None,
         portfolio_holdings: list[dict[str, Any]] | None = None,
+        *,
+        include_strategy_matches: bool = True,
     ) -> DeterministicDailyBrief:
         """Assemble structured, factual brief across all existing modules."""
         trade_d = target_date or taipei_today()
@@ -392,11 +394,15 @@ class TaiwanDailyBriefService:
 
         # Strategy matches via preset screener
         strategy_matches: list[CandidateItem] = []
-        with contextlib.suppress(Exception):
-            screener_svc = TaiwanScreenerService()
-            strat_store = get_screener_strategy_store()
-            strats = strat_store.list_strategies()
+        strategy_status = "available" if include_strategy_matches else "not_requested"
+        strategy_message = None if include_strategy_matches else "策略候選尚未載入。"
+        try:
+            if not include_strategy_matches:
+                strats = []
+            else:
+                strats = get_screener_strategy_store().list_strategies()
             if strats:
+                screener_svc = TaiwanScreenerService()
                 target_strat = strats[0]
                 conds = target_strat.conditions
                 req = TaiwanScreenerRequest(**conds, page=1, page_size=5)
@@ -418,10 +424,16 @@ class TaiwanDailyBriefService:
                         )
                     )
 
+        except Exception as exc:
+            logger.warning("Daily brief strategy matching unavailable: %s", type(exc).__name__)
+            strategy_status = "unavailable"
+            strategy_message = "策略候選載入失敗；可先使用其他已就緒資料分析。"
+
         candidate_fact = CandidateFactBrief(
             new_top10=new_top10,
             dropped_top10=dropped_top10,
             strategy_matches=strategy_matches,
+            strategy_status=strategy_status, strategy_status_message=strategy_message,
         )
 
         # 5. Events Layer
@@ -509,6 +521,8 @@ class TaiwanDailyBriefService:
             "只能寫「上次觀察到列為…，未確認是否仍在名單」。都絕對不得寫成今日新公告或今日新增；"
             "list_date、公告日、生效日、結束日與原因若為 null，必須寫「來源未提供」。\n"
             "13. 事件：events.status 不是 available 時，必須揭露官方風險資料不足；空事件清單不能推論沒有風險。\n"
+            "15. 策略候選：candidates.strategy_status 為 not_requested、unavailable 或 unknown 時，必須說明策略候選資料不足，"
+            "仍可解讀其他已就緒資料；不得將空清單解釋成沒有符合策略的股票。\n"
             "14. 新聞：news.status 為 partial、unavailable 或 unknown 時，必須揭露新聞資料不足；"
             "空的 items 不代表沒有新聞或沒有風險。\n"
             "15. 產業與候選股的 change_pct 已統一為百分點，2.0 代表 +2%、-10.0 代表 -10%，不得再乘 100；advance_ratio 仍為比例。\n"

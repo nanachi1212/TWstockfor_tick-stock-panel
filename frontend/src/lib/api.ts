@@ -4828,9 +4828,10 @@ export const api = {
 
   // ===== Daily Brief & AI Interpretation (A12) =====
   dailyBrief: {
-    getDailyBrief: (params?: { target_date?: string }) => {
+    getDailyBrief: (params?: { target_date?: string; include_strategy_matches?: boolean }) => {
       const q = new URLSearchParams()
       if (params?.target_date) q.set('target_date', params.target_date)
+      if (params?.include_strategy_matches != null) q.set('include_strategy_matches', String(params.include_strategy_matches))
       const qs = q.toString()
       return request<DeterministicDailyBrief>(`/api/taiwan/daily-brief${qs ? `?${qs}` : ''}`)
     },
@@ -5418,6 +5419,8 @@ export interface CandidateFactBrief {
   new_top10: CandidateItem[]
   dropped_top10: CandidateItem[]
   strategy_matches: CandidateItem[]
+  strategy_status?: 'available' | 'not_requested' | 'unavailable' | 'unknown'
+  strategy_status_message?: string | null
 }
 
 export interface EventFactBrief {
@@ -5473,6 +5476,7 @@ export interface SavedDailyBrief {
 
 export interface CreateDailyBriefRequest {
   target_date?: string | null
+  include_strategy_matches?: boolean
   portfolio_holdings?: Record<string, any>[] | null
 }
 

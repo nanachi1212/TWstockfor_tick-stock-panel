@@ -1,5 +1,5 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest'
-import { render, screen, waitFor, fireEvent, within } from '@testing-library/react'
+import { render, screen, waitFor, fireEvent, within, act } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { QueryClientProvider, QueryClient } from '@tanstack/react-query'
 import { DailyBrief } from './DailyBrief'
@@ -77,6 +77,7 @@ function buildMockBrief() {
       events: [],
     },
     candidates: {
+      strategy_status: 'available',
       new_top10: [
         {
           symbol: '2330.TWSE',
@@ -148,6 +149,101 @@ describe('DailyBrief Page (A12)', () => {
     expect(screen.queryByText('今日無重大風險處置或事件')).not.toBeInTheDocument()
   })
 
+  it('shows market facts before the slow strategy completes, then replaces the preview', async () => {
+    const base = buildMockBrief()
+    const preview = { ...base, candidates: { ...base.candidates, strategy_status: 'not_requested', strategy_matches: [] } }
+    let finish!: (value: any) => void
+    const delayed = new Promise<any>(resolve => { finish = resolve })
+    vi.mocked(api.dailyBrief.buildDailyBrief).mockImplementation(body => body.include_strategy_matches === false ? Promise.resolve(preview as any) : delayed)
+    render(<QueryClientProvider client={createTestQueryClient()}><MemoryRouter><DailyBrief /></MemoryRouter></QueryClientProvider>)
+    expect(await screen.findByText('22150.80')).toBeInTheDocument()
+    expect(screen.getByText('策略候選載入中；市場與持股資料已可先閱讀。')).toBeInTheDocument()
+    expect(screen.getAllByRole('button', { name: '產生今日 AI 摘要' })[0]).toBeDisabled()
+    expect(screen.getByRole('button', { name: '保存本次為研究快照' })).toBeDisabled()
+    expect(api.dailyBrief.buildDailyBrief).toHaveBeenCalledWith({ target_date: '2026-08-28', portfolio_holdings: [], include_strategy_matches: true })
+    await act(async () => finish({ ...base, candidates: { ...base.candidates, strategy_status: 'available', strategy_matches: [{ ...base.candidates.new_top10[0], symbol: '2454.TWSE', name: '策略已完成', reason_type: 'strategy_match' }] } }))
+    expect(await screen.findByText('策略已完成')).toBeInTheDocument()
+    await waitFor(() => expect(screen.getAllByRole('button', { name: '產生今日 AI 摘要' })[0]).not.toBeDisabled())
+    expect(screen.getByRole('button', { name: '保存本次為研究快照' })).not.toBeDisabled()
+  })
+
+  it('keeps preview on strategy failure and allows AI and saving with partial status', async () => {
+    const base = buildMockBrief()
+    vi.mocked(api.dailyBrief.buildDailyBrief).mockImplementation(body => body.include_strategy_matches === false
+      ? Promise.resolve({ ...base, candidates: { ...base.candidates, strategy_status: 'not_requested' } } as any)
+      : Promise.reject(new Error('strategy offline')))
+    vi.mocked(api.dailyBrief.generateAiSummary).mockResolvedValue({ section_a_market: '部分資料分析', section_b_key_changes: [], section_c_portfolio: '', section_d_watchlist: '', section_e_candidates: '', section_f_risks: '', section_g_tracking: '', evidence_sources: [] })
+    render(<QueryClientProvider client={createTestQueryClient()}><MemoryRouter><DailyBrief /></MemoryRouter></QueryClientProvider>)
+    expect(await screen.findByText('策略候選載入失敗；可先使用其他已就緒資料分析。')).toBeInTheDocument()
+    expect(screen.getByText('22150.80')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '保存本次為研究快照' })).toBeDisabled()
+    const aiButton = screen.getAllByRole('button', { name: '產生今日 AI 摘要' })[0]
+    expect(aiButton).not.toBeDisabled()
+    fireEvent.click(aiButton)
+    expect(await screen.findByText('部分資料分析')).toBeInTheDocument()
+    expect(api.dailyBrief.generateAiSummary).toHaveBeenCalledWith(expect.objectContaining({ candidates: expect.objectContaining({ strategy_status: 'unavailable' }) }))
+    fireEvent.click(screen.getByRole('button', { name: '保存此份' }))
+    await waitFor(() => expect(api.dailyBrief.saveDailyBrief).toHaveBeenCalledWith(expect.objectContaining({ structured_brief: expect.objectContaining({ candidates: expect.objectContaining({ strategy_status: 'unavailable' }) }) })))
+  })
+
+  it('blocks research snapshots with missing prices while keeping completed AI analysis available', async () => {
+    const base = buildMockBrief()
+    vi.mocked(api.dailyBrief.buildDailyBrief).mockResolvedValue({ ...base, candidates: { ...base.candidates, strategy_status: 'available', new_top10: [{ ...base.candidates.new_top10[0], close: null }] } } as any)
+    render(<QueryClientProvider client={createTestQueryClient()}><MemoryRouter><DailyBrief /></MemoryRouter></QueryClientProvider>)
+    expect(await screen.findByText('候選股缺少有效價格，暫時無法保存研究快照。')).toBeInTheDocument()
+    await waitFor(() => expect(screen.getAllByRole('button', { name: '產生今日 AI 摘要' })[0]).not.toBeDisabled())
+    const save = screen.getByRole('button', { name: '保存本次為研究快照' })
+    expect(save).toBeDisabled()
+    fireEvent.click(save)
+    expect(api.selectionReview.saveSnapshot).not.toHaveBeenCalled()
+  })
+
+  it('does not pair a partial AI result with a retried complete brief', async () => {
+    const base = buildMockBrief()
+    let fullCalls = 0
+    vi.mocked(api.dailyBrief.buildDailyBrief).mockImplementation(body => {
+      if (!body.include_strategy_matches) return Promise.resolve({ ...base, candidates: { ...base.candidates, strategy_status: 'not_requested' } } as any)
+      return ++fullCalls === 1 ? Promise.reject(new Error('offline')) : Promise.resolve(base as any)
+    })
+    vi.mocked(api.dailyBrief.generateAiSummary).mockResolvedValue({ section_a_market: '舊部分資料分析', section_b_key_changes: [], section_c_portfolio: '', section_d_watchlist: '', section_e_candidates: '', section_f_risks: '', section_g_tracking: '', evidence_sources: [] })
+    render(<QueryClientProvider client={createTestQueryClient()}><MemoryRouter><DailyBrief /></MemoryRouter></QueryClientProvider>)
+    await screen.findByRole('button', { name: '重試策略候選' })
+    fireEvent.click(screen.getAllByRole('button', { name: '產生今日 AI 摘要' })[0])
+    expect(await screen.findByText('舊部分資料分析')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: '重試策略候選' }))
+    await waitFor(() => expect(screen.queryByText('舊部分資料分析')).not.toBeInTheDocument())
+    expect(screen.queryByRole('button', { name: '保存此份' })).not.toBeInTheDocument()
+  })
+
+  it('ignores late AI output from a previous holdings context', async () => {
+    const base = buildMockBrief()
+    vi.mocked(api.dailyBrief.buildDailyBrief).mockResolvedValue(base as any)
+    let finish!: (value: any) => void
+    vi.mocked(api.dailyBrief.generateAiSummary).mockImplementation(() => new Promise(resolve => { finish = resolve }))
+    render(<QueryClientProvider client={createTestQueryClient()}><MemoryRouter><DailyBrief /></MemoryRouter></QueryClientProvider>)
+    await waitFor(() => expect(screen.getAllByRole('button', { name: '產生今日 AI 摘要' })[0]).not.toBeDisabled())
+    fireEvent.click(screen.getAllByRole('button', { name: '產生今日 AI 摘要' })[0])
+    localStorage.setItem('portfolio_transactions', JSON.stringify([{ id: 'changed', symbol: '2330.TWSE', name: '台積電', side: 'buy', shares: 1000, price: 100, fee: 0, date: '2026-08-03', createdAt: '2026-08-03T10:00:00Z' }]))
+    fireEvent(window, new Event(PORTFOLIO_CHANGED))
+    await waitFor(() => expect(api.dailyBrief.buildDailyBrief).toHaveBeenCalledWith(expect.objectContaining({ portfolio_holdings: [expect.objectContaining({ shares: 1000 })] })))
+    await act(async () => finish({ section_a_market: '過期持股分析', section_b_key_changes: [], section_c_portfolio: '', section_d_watchlist: '', section_e_candidates: '', section_f_risks: '', section_g_tracking: '', evidence_sources: [] }))
+    expect(screen.queryByText('過期持股分析')).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '保存此份' })).not.toBeInTheDocument()
+  })
+
+  it('keeps unknown history incomplete while allowing its AI independently of live loading', async () => {
+    const base = buildMockBrief()
+    vi.mocked(api.dailyBrief.buildDailyBrief).mockImplementation(body => body.include_strategy_matches === false ? Promise.resolve(base as any) : new Promise(() => {}))
+    vi.mocked(api.dailyBrief.listHistory).mockResolvedValue([{ brief_id: 'unknown', brief_date: '2026-08-27', structured_brief: { ...base, candidates: { ...base.candidates, strategy_status: 'unknown' } }, ai_summary: null }] as any)
+    render(<QueryClientProvider client={createTestQueryClient()}><MemoryRouter><DailyBrief /></MemoryRouter></QueryClientProvider>)
+    expect(await screen.findByText('22150.80')).toBeInTheDocument()
+    fireEvent.click(await screen.findByRole('button', { name: '歷史日報 (1)' }))
+    fireEvent.click(screen.getByText('2026-08-27 每日摘要'))
+    expect(screen.getByText('策略候選完整性未知；可分析已知資料，但無法保存完整研究快照。')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '保存本次為研究快照' })).toBeDisabled()
+    expect(screen.getAllByRole('button', { name: '產生今日 AI 摘要' })[0]).not.toBeDisabled()
+  })
+
   it('renders deterministic market facts and candidates correctly', async () => {
     const mockBrief = buildMockBrief()
     vi.mocked(api.dailyBrief.buildDailyBrief).mockResolvedValue(mockBrief as any)
@@ -186,7 +282,7 @@ describe('DailyBrief Page (A12)', () => {
 
     const link = await screen.findByRole('link', { name: '查看最新正式前瞻批次' })
     // 持股存在本機帳本，必須隨請求送出（帳本為空時送 []，讀不到時送 null）
-    expect(api.dailyBrief.buildDailyBrief).toHaveBeenCalledWith({ portfolio_holdings: [] })
+    expect(api.dailyBrief.buildDailyBrief).toHaveBeenCalledWith(expect.objectContaining({ portfolio_holdings: [] }))
     expect(link).toHaveAttribute('href', '/selection-review?tab=forward&batch_id=forward_latest_1')
     expect(api.dailyBrief.generateAiSummary).not.toHaveBeenCalled()
   })
@@ -194,16 +290,16 @@ describe('DailyBrief Page (A12)', () => {
   it('sends ledger holdings and refreshes after a ledger change', async () => {
     vi.mocked(api.dailyBrief.buildDailyBrief).mockResolvedValue(buildMockBrief() as any)
     render(<QueryClientProvider client={createTestQueryClient()}><MemoryRouter><DailyBrief /></MemoryRouter></QueryClientProvider>)
-    await waitFor(() => expect(api.dailyBrief.buildDailyBrief).toHaveBeenCalledWith({ portfolio_holdings: [] }))
+    await waitFor(() => expect(api.dailyBrief.buildDailyBrief).toHaveBeenCalledWith(expect.objectContaining({ portfolio_holdings: [] })))
 
     localStorage.setItem('portfolio_transactions', JSON.stringify([{
       id: 'buy-1', symbol: '2330.TWSE', name: '台積電', side: 'buy', shares: 1000,
       price: 100, fee: 0, date: '2026-08-03', createdAt: '2026-08-03T10:00:00Z',
     }]))
     fireEvent(window, new Event(PORTFOLIO_CHANGED))
-    await waitFor(() => expect(api.dailyBrief.buildDailyBrief).toHaveBeenLastCalledWith({
+    await waitFor(() => expect(api.dailyBrief.buildDailyBrief).toHaveBeenLastCalledWith(expect.objectContaining({
       portfolio_holdings: [{ symbol: '2330.TWSE', name: '台積電', shares: 1000, average_cost: 100 }],
-    }))
+    })))
   })
 
   it('does not present a failed official batch query as an empty result', async () => {

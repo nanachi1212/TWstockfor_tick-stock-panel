@@ -322,6 +322,7 @@ def test_ai_summary_prompt_pins_units_quant_scale_and_status_list_events():
 
     source = inspect.getsource(daily_brief_service.TaiwanDailyBriefService.generate_ai_summary)
     assert "絕對不得寫成元、億元" in source and "score_scale" in source and "current_status_list" in source
+    assert "strategy_status" in source and "unknown" in source and "仍可解讀其他已就緒資料" in source
     assert "百分位排名" in daily_brief_service.LIVE_SCORE_SCALE and "不是全市場" in daily_brief_service.SCREENER_SCORE_SCALE and "合格排名池" in daily_brief_service.LIVE_SCORE_SCALE
 
 
@@ -641,3 +642,46 @@ def test_malformed_legacy_history_keeps_read_fallback_and_is_not_rewritten(mock_
     assert svc.list_saved_briefs() == []
     assert svc.get_saved_brief("invalid") is None
     assert svc.path.read_bytes() == before
+
+
+@pytest.mark.parametrize("method", ["get", "post"])
+@pytest.mark.parametrize("preview", [False, True])
+def test_daily_brief_api_defaults_to_full_and_preview_skips_strategy(
+    mock_daily_brief_service, monkeypatch, method, preview,
+):
+    from app.taiwan import daily_brief_service as module
+
+    run = Mock(return_value=SimpleNamespace(items=[]))
+    screener = Mock(return_value=SimpleNamespace(run=run))
+    monkeypatch.setattr(module, "TaiwanScreenerService", screener)
+    monkeypatch.setattr(module, "get_screener_strategy_store", lambda: SimpleNamespace(
+        list_strategies=lambda: [SimpleNamespace(conditions={}, name="test")],
+    ))
+    monkeypatch.setattr(module, "get_daily_brief_service", lambda: mock_daily_brief_service)
+    client = TestClient(app, client=("127.0.0.1", 12345))
+    data = {"target_date": "2026-08-03"}
+    if preview:
+        data["include_strategy_matches"] = False
+    response = client.get("/api/taiwan/daily-brief", params=data) if method == "get" else client.post("/api/taiwan/daily-brief", json=data)
+    assert response.status_code == 200
+    result = response.json()
+    assert result["schema_version"] == 2
+    assert result["market"]["trade_date"] == "2026-08-03"
+    assert result["candidates"]["strategy_status"] == ("not_requested" if preview else "available")
+    assert run.call_count == (0 if preview else 1)
+    assert screener.call_count == (0 if preview else 1)
+
+
+def test_failed_strategy_preserves_brief_with_partial_ai_evidence(mock_daily_brief_service, monkeypatch):
+    from app.taiwan import daily_brief_service as module
+
+    monkeypatch.setattr(module, "get_screener_strategy_store", lambda: SimpleNamespace(
+        list_strategies=lambda: [SimpleNamespace(conditions={}, name="test")],
+    ))
+    monkeypatch.setattr(module, "TaiwanScreenerService", lambda: SimpleNamespace(run=Mock(side_effect=RuntimeError("offline"))))
+    brief = mock_daily_brief_service.build_deterministic_brief(target_date=date(2026, 8, 3))
+    assert brief.candidates.strategy_status == "unavailable"
+    assert "其他已就緒資料" in brief.candidates.strategy_status_message
+    assert brief.market.trade_date == "2026-08-03"
+    saved = mock_daily_brief_service.save_brief(brief)
+    assert saved.structured_brief.candidates.strategy_status == "unavailable"
