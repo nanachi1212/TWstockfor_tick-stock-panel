@@ -28,12 +28,14 @@ import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
-from datetime import date, time as dt_time
+from datetime import date
 
 import polars as pl
 
-from app.market_time import cn_now, cn_today
+from app.market_time import cn_today
 from app.parquet import scan_daily_parquet
+from app.taiwan.realtime.calendar import get_market_status, taipei_now
+from app.taiwan.realtime.models import MarketStatus
 
 logger = logging.getLogger(__name__)
 
@@ -222,9 +224,6 @@ class QuoteService:
         self._index_symbol_count: int = 0
         self._etf_symbol_count: int = 0
         self._index_quotes_cache: pl.DataFrame | None = None
-        # 午休/收盘最终同步状态: 到边界后必须成功拉取一版行情, 再进入休盘态。
-        self._final_sync_done: set[tuple[date, str]] = set()
-        self._final_sync_failed: dict[tuple[date, str], str] = {}
 
     # ================================================================
     # 生命周期
@@ -498,9 +497,6 @@ class QuoteService:
         age = (time.perf_counter() - self._fetch_time) * 1000 if self._fetch_time else -1
         mode = self.realtime_mode()
         phase = self._market_phase()
-        final_key = self._final_sync_key(phase)
-        final_done = bool(final_key and final_key in self._final_sync_done)
-        final_failed = self._final_sync_failed.get(final_key) if final_key else None
         return {
             "enabled": self._enabled,
             "running": self._running,
@@ -513,12 +509,10 @@ class QuoteService:
             "index_symbol_count": self._index_symbol_count,
             "etf_symbol_count": self._etf_symbol_count,
             "quote_age_ms": round(age, 0) if age >= 0 else None,
-            # 交易时段 = 连续竞价; polling_window 另行返回,避免午休/收盘缓冲误显示为交易中。
-            "is_trading_hours": self._is_continuous_trading(),
-            "is_polling_window": self._should_poll_for_phase(phase),
+            # 台股盤中 (09:00-13:30) 才輪詢; market_phase 即 MarketStatus 值。
+            "is_trading_hours": phase == MarketStatus.OPEN.value,
+            "is_polling_window": phase == MarketStatus.OPEN.value,
             "market_phase": phase,
-            "final_sync_done": final_done,
-            "final_sync_failed": final_failed,
             "last_fetch_ms": round(self._fetched_at, 0) if self._fetched_at else None,
         }
 
@@ -537,21 +531,10 @@ class QuoteService:
                 # 管道/数据修正运行期间临时暂停取数, 防止与管道写同一批 parquet 竞态。
                 # 线程继续存活 + 分片 sleep, resume() 后即时恢复, 无需重启线程。
                 if not self._paused:
-                    phase = self._market_phase()
-                    if self._should_fetch_for_phase(phase):
-                        is_final = phase in {"morning_final", "close_final"}
-                        ok = self._fetch_quotes(final=is_final)
-                        if is_final:
-                            key = self._final_sync_key(phase)
-                            if key and ok:
-                                self._final_sync_done.add(key)
-                                self._final_sync_failed.pop(key, None)
-                                logger.info("%s 最终行情同步完成, 进入休盘态", "午休" if phase == "morning_final" else "收盘")
-                            elif key:
-                                self._final_sync_failed[key] = "fetch_failed"
-                                logger.warning("%s 最终行情同步失败, 将继续重试", "午休" if phase == "morning_final" else "收盘")
+                    if self._is_continuous_trading():
+                        self._fetch_quotes()
                     else:
-                        logger.debug("非轮询阶段(%s), 跳过行情轮询", phase)
+                        logger.debug("非台股盤中, 跳过行情轮询")
             except Exception as e:  # noqa: BLE001
                 logger.warning("行情轮询异常: %s", e)
 
@@ -560,17 +543,13 @@ class QuoteService:
                 time.sleep(0.5)
                 waited += 0.5
 
-    def _fetch_quotes(self, *, final: bool = False) -> bool:
-        """按当前档位拉取行情。加锁串行化 (后台轮询 vs 手动 refresh)。返回本轮是否成功更新。"""
+    def _fetch_quotes(self) -> None:
+        """按当前档位拉取行情。加锁串行化 (后台轮询 vs 手动 refresh)。"""
         with self._fetch_lock:
-            before = self._fetched_at
-            if final:
-                logger.info("最终行情同步开始")
             if self.realtime_mode() == "watchlist":
                 self._fetch_watchlist_quotes()
             else:
                 self._fetch_full_market_quotes()
-            return self._fetched_at > before
 
     def _fetch_full_market_quotes(self) -> None:
         """拉取全市场行情 → 写 daily + 计算 enriched + 更新缓存。"""
@@ -578,25 +557,10 @@ class QuoteService:
 
         provider_name = preferences.get_realtime_data_provider()
         if provider_name in ("taiwan", "tickflow"):
-            try:
-                from app.data_providers.registry import get_provider
-                provider = get_provider("taiwan")
-                t0 = time.perf_counter()
-                now_ts = time.perf_counter()
-                from app.services import watchlist
-                symbols = watchlist.list_symbols()
-                sym_list = [str((s or {}).get("symbol") or "").strip() for s in symbols]
-                sym_list = [s for s in sym_list if s]
-                if not sym_list:
-                    return
-                df = provider.get_realtime(symbols=sym_list)
-                if not df.is_empty():
-                    records = df.to_dicts()
-                    self._process_full_market_records(records, t0=t0, now_ts=now_ts)
-                return
-            except Exception as e:
-                logger.warning("台湾官方实时行情拉取失败: %s", e)
-                return
+            # 台股官方來源沒有全市場盤中快照 (STOCK_DAY_ALL 是盤後日資料, 不可冒充今日即時 K
+            # 寫進 kline_daily)。monitor_engine 自己向 MIS 取規則標的的即時報價, 這裡只觸發評估。
+            self._evaluate_monitors()
+            return
 
         from app.data_providers import custom as custom_sources
         if custom_sources.provider_has_dataset(provider_name, "realtime"):
@@ -751,7 +715,7 @@ class QuoteService:
         self._broadcast_quote_updated()
 
         # ---- 策略监控 + 告警评估 ----
-        self._evaluate_monitors(daily_df, quote_extra)
+        self._evaluate_monitors()
 
     def _fetch_watchlist_quotes(self) -> None:
         """Free 档自选股实时: 按 capability batch 上限分批拉取。"""
@@ -865,7 +829,7 @@ class QuoteService:
             self._flush_live_enriched(index_daily_df, self._build_quote_extra(index_records), asset_type="index", merge=True)
 
         self._broadcast_quote_updated()
-        self._evaluate_monitors(daily_df, quote_extra)
+        self._evaluate_monitors()
 
     # ================================================================
     # 工具
@@ -991,63 +955,17 @@ class QuoteService:
 
     @staticmethod
     def _market_phase() -> str:
-        """A股行情轮询阶段(北京时间)。
+        """台股市場時段 (Asia/Taipei), 回傳 MarketStatus 值; 時段規則唯一來源是 taiwan.realtime.calendar。
 
-        final 阶段用于午休/收盘定版: 需要至少成功拉取一版边界后的行情, 才算进入休盘。
+        不要求「已確認交易日」: 颱風假/國定假日由 monitor_engine 的報價品質閘門
+        (MIS 無今日新鮮成交 → scheduled_open_unverified → 不告警) fail-closed 兜底。
         """
-        now = cn_now()
-        if now.weekday() >= 5:
-            return "closed"
-        t = now.time()
-        if dt_time(9, 15) <= t < dt_time(9, 30):
-            return "preopen"
-        if dt_time(9, 30) <= t < dt_time(11, 30):
-            return "morning"
-        if dt_time(11, 30) <= t < dt_time(12, 55):
-            return "morning_final"
-        if dt_time(12, 55) <= t < dt_time(13, 0):
-            return "pre_afternoon"
-        if dt_time(13, 0) <= t < dt_time(15, 0):
-            return "afternoon"
-        if t >= dt_time(15, 0):
-            return "close_final"
-        return "closed"
+        return get_market_status(taipei_now()).value
 
-    @staticmethod
-    def _final_sync_key(phase: str) -> tuple[date, str] | None:
-        if phase == "morning_final":
-            return (cn_today(), "morning")
-        if phase == "close_final":
-            return (cn_today(), "close")
-        return None
-
-    def _should_poll_for_phase(self, phase: str) -> bool:
-        """是否处于会主动拉行情的阶段。final 阶段成功后即停止。"""
-        if phase in {"preopen", "morning", "pre_afternoon", "afternoon"}:
-            return True
-        key = self._final_sync_key(phase)
-        return bool(key and key not in self._final_sync_done)
-
-    def _should_fetch_for_phase(self, phase: str) -> bool:
-        return self._should_poll_for_phase(phase)
-
-    def _is_trading_hours(self) -> bool:
-        """行情轮询窗口(兼容旧调用): 包含盘前预热和未完成的午休/收盘定版。"""
-        return self._should_poll_for_phase(self._market_phase())
-
-    @staticmethod
-    def _is_continuous_trading() -> bool:
-        """A股连续竞价时段(北京时间): 9:30-11:30 / 13:00-15:00, 仅工作日。
-
-        比 _is_trading_hours 严格: 排除 9:15-9:30 集合竞价(指示价, 非成交价)、
-        午间与 15:00 后收盘缓冲。监控评估只在此窗口进行, 不对竞价/收盘后的陈旧价告警。
-        (节假日由 _evaluate_monitors 里的「快照日期=当日」新鲜度判据兜底, 无需交易日历。)
-        """
-        now = cn_now()
-        t = now.time()
-        morning = dt_time(9, 30) <= t <= dt_time(11, 30)
-        afternoon = dt_time(13, 0) <= t <= dt_time(15, 0)
-        return now.weekday() < 5 and (morning or afternoon)
+    @classmethod
+    def _is_continuous_trading(cls) -> bool:
+        """台股盤中 09:00-13:30 (含邊界), 僅此時段輪詢並評估監控。"""
+        return cls._market_phase() == MarketStatus.OPEN.value
 
     @staticmethod
     def _save_enabled(enabled: bool) -> None:
@@ -1058,7 +976,7 @@ class QuoteService:
     # 策略监控
     # ================================================================
 
-    def _evaluate_monitors(self, daily_df: pl.DataFrame, quote_extra: pl.DataFrame | None) -> None:  # noqa: ARG002
+    def _evaluate_monitors(self) -> None:
         """行情更新後評估台股即時監控規則, 落盤、SSE 廣播並送外部提醒。"""
         try:
             # 僅在「交易日 + 連續競價時段」評估監控, 避開集合競價與盤後緩衝。
