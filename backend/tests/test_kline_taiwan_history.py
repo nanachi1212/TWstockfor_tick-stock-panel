@@ -1,5 +1,5 @@
 """Canonical Taiwan history stays local, batched, raw and bounded by the requested dates."""
-from datetime import date
+from datetime import date, datetime, timedelta
 from types import SimpleNamespace
 from unittest.mock import Mock
 
@@ -149,3 +149,40 @@ def test_history_metadata_distinguishes_stale_and_short_windows(history_client, 
     body = client.post("/api/kline/daily-batch", json={"symbols": ["2330.TWSE", "0050.TWSE"]}).json()
     assert body["meta"]["2330.TWSE"]["status"] == "stale"
     assert body["meta"]["0050.TWSE"]["status"] == "partial"
+
+
+@pytest.mark.parametrize("days_after,hour,end_offset,calendar_state,status,expected_offset", [
+    (3, 17, 3, "trading", "stale", 3),  # Entire store stuck on Friday; Monday confirmed/published.
+    (3, 14, 3, "trading", "available", 0),  # Monday's publication cutoff not reached yet.
+    (2, 17, 2, "trading", "available", 0),  # Weekend uses the confirmed Friday session.
+    (3, 17, 3, "holiday", "available", 0),
+    (3, 17, 3, "unknown", "partial", None),  # Never guess an unknown weekday is a holiday.
+    (3, 17, 0, "trading", "available", 0),  # Explicit historical end must not drift to Monday.
+])
+def test_history_freshness_uses_confirmed_published_session(
+    history_client, monkeypatch, days_after, hour, end_offset, calendar_state, status, expected_offset,
+):
+    from app.taiwan.observed_universe import ObservedUniverseStore
+    from app.taiwan.realtime.calendar import TAIPEI_TZ, TaiwanTradingCalendar
+
+    _client, env = history_client
+    friday = env["target"]
+    monday = friday + timedelta(days=3)
+    calendar = TaiwanTradingCalendar(
+        known_trading_days={friday, monday} if calendar_state == "trading" else {friday},
+        known_holidays={monday} if calendar_state == "holiday" else set(),
+    )
+    monkeypatch.setattr(ObservedUniverseStore, "day_evidence", lambda self, exchange, day, **kwargs: calendar.day_evidence(day, exchange))
+    now = datetime.combine(friday + timedelta(days=days_after), datetime.min.time(), tzinfo=TAIPEI_TZ).replace(hour=hour)
+    monkeypatch.setattr(kline_sync, "taipei_now", lambda: now)
+    result = kline_sync.read_taiwan_daily_history(
+        ["2330.TWSE", "8069.TPEX"], days=10, end=friday + timedelta(days=end_offset),
+    )
+    for symbol in ("2330.TWSE", "8069.TPEX"):
+        meta = result["meta"][symbol]
+        assert meta["status"] == status
+        assert meta["as_of"] == friday
+        assert meta["expected_session"] == (friday + timedelta(days=expected_offset) if expected_offset is not None else None)
+        assert len(result["data"][symbol]) == 10
+        if calendar_state == "unknown":
+            assert meta["reason"] == "session_freshness_unverified"

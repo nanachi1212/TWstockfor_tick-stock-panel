@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Callable
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, time, timedelta
 
 import polars as pl
 
@@ -106,6 +106,9 @@ def read_taiwan_daily_history(
     There is no extra cache, so completed daily-store writes are visible immediately.
     """
     from app.taiwan.daily_store import TaiwanDailyStore
+    from app.taiwan.observed_universe import ObservedUniverseStore
+    from app.taiwan.quant.live_contract import latest_completed_session
+    from app.taiwan.realtime.calendar import TaiwanTradingCalendar
     from app.taiwan.technical_indicators import compute_taiwan_indicator_panel
 
     if start is not None and start > end:
@@ -128,6 +131,19 @@ def read_taiwan_daily_history(
             for group in history.partition_by("symbol", maintain_order=True):
                 data[group["symbol"][0]] = group.to_dicts()
 
+    # A stalled daily store cannot itself prove freshness. Reuse the verified-session
+    # resolver and its 16:00 publication cutoff, bounded by a historical requested end.
+    calendar = TaiwanTradingCalendar()
+    evidence_store = ObservedUniverseStore()
+    reference_now = min(taipei_now(), datetime.combine(end, time.max, tzinfo=TAIPEI_TZ))
+    try:
+        expected_session = latest_completed_session(
+            reference_now,
+            lambda day, exchange: evidence_store.day_evidence(exchange, day, calendar=calendar),
+        )
+    except (ValueError, OSError):
+        expected_session = None
+
     meta = {}
     for symbol, rows in data.items():
         as_of = rows[-1]["date"] if rows else None
@@ -135,13 +151,16 @@ def read_taiwan_daily_history(
         status = "available"
         if not rows:
             status, reason = "unavailable", "no_persisted_daily_history"
-        elif selected and as_of < selected[-1]:
+        elif (selected and as_of < selected[-1]) or (expected_session and as_of < expected_session):
             status, reason = "stale", "latest_daily_bar_predates_confirmed_session"
+        elif expected_session is None:
+            status, reason = "partial", "session_freshness_unverified"
         elif len(rows) < (len(selected) if start is not None else days):
             status, reason = "partial", "insufficient_daily_history"
         meta[symbol] = {
             "source": "taiwan_daily_store", "status": status,
             "as_of": as_of, "trade_date": as_of, "reason": reason,
+            "expected_session": expected_session,
             "price_semantics": "raw", "volume_unit": "shares", "amount_unit": "TWD",
         }
     return {"data": data, "meta": meta}
