@@ -106,14 +106,24 @@ def _refresh(svc, dataset: str, symbol: str, fetch):
 
 
 def _is_skipped(name: str, meta) -> bool:
-    """Only explicit non-applicability is terminal; unknown/empty responses retry."""
+    """Explicit non-applicability is terminal; request failures and unknown states retry.
+
+    A source that answered successfully with no rows for this symbol (TDRs have no
+    FinMind statements or official PER row, most stocks have no lending trades) is
+    structural, not an outage. Counting it as unavailable kept every warm partial,
+    so the success marker was never written and each restart re-ran the whole warm.
+    Failures carry "request failed: ..." or a transport error and still retry.
+    """
     if meta is None:
         return False
     if meta.status in {"not_applicable", "unsupported", "disabled"}:
         return True
-    reason = getattr(meta, "fallback_reason", None) or getattr(meta, "reason", None)
-    return reason == "FinMind provider disabled" or (
-        name == "lending" and reason == "securities lending rows contain no positive transaction volume"
+    reason = getattr(meta, "fallback_reason", None) or getattr(meta, "reason", None) or ""
+    return (
+        reason == "FinMind provider disabled"
+        or reason.endswith(" returned no rows")
+        or (name == "valuation" and reason.startswith("official ") and " row not found for " in reason)
+        or (name == "lending" and reason == "securities lending rows contain no positive transaction volume")
     )
 
 

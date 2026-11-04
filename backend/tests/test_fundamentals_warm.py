@@ -44,6 +44,15 @@ class _FakeService:
         return self._result("lending", symbol)
 
 
+_METHODS = {
+    "valuation": "get_valuation",
+    "revenue": "get_monthly_revenue",
+    "financials": "get_financial_statements",
+    "shareholding": "get_foreign_shareholding",
+    "lending": "get_securities_lending",
+}
+
+
 def test_warm_counts_available_and_survives_one_failure(monkeypatch, tmp_path):
     monkeypatch.setattr(fundamentals_warm, "_lock_path", lambda: tmp_path / "warm.lock")
     fake = _FakeService()
@@ -227,11 +236,16 @@ def test_unsuccessful_warm_does_not_mark_startup_catchup_current(monkeypatch, tm
     ("financials", "unsupported", None),
     ("financials", "unavailable", "FinMind provider disabled"),
     ("lending", "unavailable", "securities lending rows contain no positive transaction volume"),
+    # Successful empty responses: TDRs, stocks with no lending trades (2026-11-04 warm).
+    ("financials", "unavailable", "TaiwanStockFinancialStatements returned no rows"),
+    ("lending", "unavailable", "TaiwanStockSecuritiesLending returned no rows"),
+    ("revenue", "unavailable", "TaiwanStockMonthRevenue returned no rows"),
+    ("valuation", "unavailable", "official exchangeReport/BWIBBU_ALL row not found for 9103.TWSE"),
 ])
 def test_explicit_non_applicable_sections_do_not_block_completion(monkeypatch, tmp_path, name, status, reason):
     fake = _FakeService()
-    method = "get_financial_statements" if name == "financials" else "get_securities_lending"
-    setattr(fake, method, lambda symbol: SimpleNamespace(meta=SimpleNamespace(
+    method = _METHODS[name]
+    setattr(fake, method, lambda *args: SimpleNamespace(meta=SimpleNamespace(
         status=status, fallback_reason=reason,
     )))
     monkeypatch.setattr(fundamentals_warm, "_lock_path", lambda: tmp_path / "warm.lock")
@@ -245,6 +259,60 @@ def test_explicit_non_applicable_sections_do_not_block_completion(monkeypatch, t
     assert result["skipped"][name] == 1
     assert sum(result["unavailable"].values()) == 0
     assert (tmp_path / "fundamentals_warm.last").exists()
+
+
+@pytest.mark.parametrize("name,reason", [
+    ("lending", "TaiwanStockSecuritiesLending request failed: FinMind API 已達請求頻率上限"),
+    ("revenue", "TaiwanStockMonthRevenue request failed: HTTP 錯誤 402"),
+    ("revenue", "TaiwanStockMonthRevenue cached response is unavailable"),
+    ("valuation", "ConnectError"),
+])
+def test_request_failures_still_block_completion(monkeypatch, tmp_path, name, reason):
+    fake = _FakeService()
+    setattr(fake, _METHODS[name], lambda *args: SimpleNamespace(meta=SimpleNamespace(
+        status="unavailable", fallback_reason=reason,
+    )))
+    monkeypatch.setattr(fundamentals_warm, "_lock_path", lambda: tmp_path / "warm.lock")
+    monkeypatch.setattr(
+        "app.taiwan.fundamental_chips_service.get_fundamental_chips_service", lambda: fake,
+    )
+    result = fundamentals_warm.warm_fundamentals(["2330.TWSE"])
+
+    assert result["status"] == "partial"
+    assert result["unavailable"][name] == 1
+    assert result["skipped"][name] == 0
+    assert not (tmp_path / "fundamentals_warm.last").exists()
+
+
+def test_monthly_revenue_separates_request_failure_from_empty_response(tmp_path):
+    from app.taiwan.finmind_cache import FinMindCache
+    from app.taiwan.fundamental_chips_service import TaiwanFundamentalChipsService
+    from app.taiwan.providers.finmind_provider import FinMindError
+
+    def build(fetch):
+        svc = TaiwanFundamentalChipsService(
+            cache=FinMindCache(tmp_path / fetch.__name__),
+            finmind_adapter=SimpleNamespace(fetch_month_revenue=fetch),
+            official_fundamentals=SimpleNamespace(),
+        )
+        svc._is_finmind_enabled = lambda: True
+        return svc
+
+    def empty(*args, **kwargs):
+        assert kwargs["raise_for_status"] is True
+        return []
+
+    def quota(*args, **kwargs):
+        raise FinMindError("HTTP 錯誤 402")
+
+    empty_svc, quota_svc = build(empty), build(quota)
+    assert empty_svc.get_monthly_revenue("9103.TWSE").meta.fallback_reason == (
+        "TaiwanStockMonthRevenue returned no rows")
+    assert quota_svc.get_monthly_revenue("9103.TWSE").meta.fallback_reason.startswith(
+        "TaiwanStockMonthRevenue request failed")
+    # The negative cache keeps the same distinction for the next read.
+    assert empty_svc.get_monthly_revenue("9103.TWSE").meta.fallback_reason.endswith("returned no rows")
+    assert quota_svc.cache.get("TaiwanStockMonthRevenue", "9103.TWSE")["status"] == "error"
 
 
 @pytest.mark.parametrize("fresh,publish_fails", [(True, False), (False, False), (False, True)])
