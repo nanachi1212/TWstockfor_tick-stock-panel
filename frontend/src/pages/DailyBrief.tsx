@@ -557,7 +557,7 @@ export function DailyBrief() {
       ) : (
         <div className="space-y-6">
           {/* 1. 確定性層：市場與大盤事實 */}
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
+          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3">
             <div className="bg-card border border-border/60 rounded-xl p-4">
               <span className="text-xs text-muted-foreground">加權指數收盤</span>
               <div className="flex items-baseline gap-2 mt-1">
