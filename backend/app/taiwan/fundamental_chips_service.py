@@ -195,7 +195,8 @@ class TaiwanFundamentalChipsService:
             status = cached.get("status", "available")
             if status != "available" or not raw_rows:
                 return TaiwanRevenueData(
-                    meta=SectionMeta(source="finmind", fetched_at=cached.get("fetched_at"), status="unavailable")
+                    meta=SectionMeta(source="finmind", fetched_at=cached.get("fetched_at"), status="unavailable",
+                                     fallback_reason=self._cached_unavailable_reason(dataset, cached))
                 )
         else:
             if not self._is_finmind_enabled():
@@ -206,11 +207,19 @@ class TaiwanFundamentalChipsService:
             adapter = self._get_finmind_adapter()
             cutoff_date = date.fromisoformat(str(as_of)[:10]) if as_of else datetime.now(TAIPEI).date()
             start_date = (cutoff_date - timedelta(days=550)).isoformat()
-            raw_rows = adapter.fetch_month_revenue(sym_str, start_date=start_date)
-            if not raw_rows:
-                self.cache.set(dataset, sym_str, [], status="unavailable")
+            try:
+                raw_rows = adapter.fetch_month_revenue(sym_str, start_date=start_date, raise_for_status=True)
+            except FinMindError as exc:
+                reason = f"{dataset} request failed: {exc}"
+                self.cache.set(dataset, sym_str, [], status="error", error_msg=reason)
                 return TaiwanRevenueData(
-                    meta=SectionMeta(source="finmind", fetched_at=now_iso, status="unavailable")
+                    meta=SectionMeta(source="finmind", fetched_at=now_iso, status="unavailable", fallback_reason=reason)
+                )
+            if not raw_rows:
+                reason = f"{dataset} returned no rows"
+                self.cache.set(dataset, sym_str, [], status="unavailable", error_msg=reason)
+                return TaiwanRevenueData(
+                    meta=SectionMeta(source="finmind", fetched_at=now_iso, status="unavailable", fallback_reason=reason)
                 )
             # Cache it
             latest_row_date = raw_rows[-1].get("date") if raw_rows else None

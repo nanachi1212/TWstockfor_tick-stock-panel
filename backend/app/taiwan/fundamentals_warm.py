@@ -106,14 +106,24 @@ def _refresh(svc, dataset: str, symbol: str, fetch):
 
 
 def _is_skipped(name: str, meta) -> bool:
-    """Only explicit non-applicability is terminal; unknown/empty responses retry."""
+    """Explicit non-applicability is terminal; request failures and unknown states retry.
+
+    A source that answered successfully with no rows for this symbol (TDRs have no
+    FinMind statements or official PER row, most stocks have no lending trades) is
+    structural, not an outage. Counting it as unavailable kept every warm partial,
+    so the success marker was never written and each restart re-ran the whole warm.
+    Failures carry "request failed: ..." or a transport error and still retry.
+    """
     if meta is None:
         return False
     if meta.status in {"not_applicable", "unsupported", "disabled"}:
         return True
-    reason = getattr(meta, "fallback_reason", None) or getattr(meta, "reason", None)
-    return reason == "FinMind provider disabled" or (
-        name == "lending" and reason == "securities lending rows contain no positive transaction volume"
+    reason = getattr(meta, "fallback_reason", None) or getattr(meta, "reason", None) or ""
+    return (
+        reason == "FinMind provider disabled"
+        or reason.endswith(" returned no rows")
+        or (name == "valuation" and reason.startswith("official ") and " row not found for " in reason)
+        or (name == "lending" and reason == "securities lending rows contain no positive transaction volume")
     )
 
 
@@ -127,9 +137,13 @@ def _warm(symbols: list[str] | None) -> dict[str, Any]:
     unavailable = dict.fromkeys(available, 0)
     skipped = dict.fromkeys(available, 0)
     failed = 0
+    # A missing official row only proves non-coverage once that exchange's snapshot validated;
+    # an empty/failed snapshot makes every per-symbol lookup "row not found" too.
+    primed: set[str] = set()
     for exchange in (("TWSE", "TPEX") if symbols else ()):
         try:  # one official request per exchange instead of one per symbol
             svc.prime_valuation_cache(exchange)
+            primed.add(exchange)
         except Exception as exc:
             logger.warning("valuation snapshot %s failed: %s", exchange, type(exc).__name__)
     for index, symbol in enumerate(symbols, start=1):
@@ -147,7 +161,7 @@ def _warm(symbols: list[str] | None) -> dict[str, Any]:
                 meta = (_refresh(svc, dataset, symbol, fetch) if dataset else fetch(svc)).meta
                 if meta is not None and meta.status == "available":
                     available[name] += 1
-                elif _is_skipped(name, meta):
+                elif _is_skipped(name, meta) and (name != "valuation" or exchange in primed):
                     skipped[name] += 1
                 else:
                     unavailable[name] += 1
