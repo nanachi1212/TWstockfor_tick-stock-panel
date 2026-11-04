@@ -652,6 +652,7 @@ def evaluate_candidate(
         current_price=_finite(facts.close), as_of=facts.quote_date, plan=plan,
         metrics=facts.technical_metrics, market=market, industry=facts.industry,
         action_summary=action_summary, regulatory_risk=regulatory_risk,
+        price_note="暫時略過，不提供價位。" if state == "skip" and not failures else None,
     )
     return candidate, score
 

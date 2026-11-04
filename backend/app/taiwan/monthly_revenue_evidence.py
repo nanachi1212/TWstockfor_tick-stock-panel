@@ -446,6 +446,7 @@ class MonthlyRevenueEvidenceStore:
 def refresh_monthly_revenue_evidence(
     store: MonthlyRevenueEvidenceStore | None = None, *,
     now: datetime | None = None, client: Any = None,
+    refetch_after: timedelta = REFETCH_AFTER,
 ) -> dict[str, Any]:
     """Fetch the official window pages in market batches, skipping fresh ones."""
     from app.taiwan.providers.http import DEFAULT_USER_AGENT, taiwan_client
@@ -470,7 +471,7 @@ def refresh_monthly_revenue_evidence(
             for kind in ISSUER_KINDS:
                 for period in periods:
                     last = store.last_success(market, kind, period)
-                    if last is not None and now - last < REFETCH_AFTER:
+                    if last is not None and now - last < refetch_after:
                         summary["skipped_fresh"] += 1
                         continue
                     url = page_url(market, kind, period)
