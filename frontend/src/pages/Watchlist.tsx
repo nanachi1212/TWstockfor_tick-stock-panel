@@ -783,7 +783,7 @@ export function Watchlist() {
     queryKey: QK.watchlistGroups,
     queryFn: api.watchlistGroups,
   })
-  const groups = groupList.data?.groups ?? []
+  const groups = useMemo(() => groupList.data?.groups ?? [], [groupList.data?.groups])
   const activeGroupId = selectedGroup === 'all' || selectedGroup === 'ungrouped'
     ? null
     : selectedGroup
@@ -806,7 +806,7 @@ export function Watchlist() {
     enabled: (list.data?.symbols.length ?? 0) > 0,
   })
 
-  const symbols = enriched.data?.rows?.map((r: any) => r.symbol) ?? []
+  const symbols = useMemo(() => enriched.data?.rows?.map((r: any) => r.symbol) ?? [], [enriched.data?.rows])
   const symbolsKey = symbols.join(',')
 
   // 指數無本地分鐘K數據, 分時批量請求剔除指數 symbol (省請求, 避免逐只 404)
@@ -868,7 +868,10 @@ export function Watchlist() {
     staleTime: 10_000,
     refetchInterval: (intradayRefreshEnabled && realtimeRunning) ? intradayRefreshInterval * 1000 : false,
   })
-  const minuteData = intradayVisible ? (minuteBatch.data?.data ?? {}) : {}
+  const minuteData = useMemo(
+    () => intradayVisible ? (minuteBatch.data?.data ?? {}) : {},
+    [intradayVisible, minuteBatch.data?.data],
+  )
 
   const addMutation = useMutation({
     mutationFn: ({ symbol, groupId }: { symbol: string; groupId: string | null }) =>
@@ -990,9 +993,9 @@ export function Watchlist() {
     setGroupCardsOpen(false)
   }, [])
 
-  const listEntries = list.data?.symbols ?? []
+  const listEntries = useMemo(() => list.data?.symbols ?? [], [list.data?.symbols])
   const allSymbols = listEntries.map(s => s.symbol)
-  const rows = enriched.data?.rows ?? []
+  const rows = useMemo(() => enriched.data?.rows ?? [], [enriched.data?.rows])
   const groupBySymbol = useMemo(
     () => new Map(listEntries.map(entry => [entry.symbol, entry.group_ids ?? []])),
     [listEntries],

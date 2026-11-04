@@ -85,7 +85,7 @@ export function SocialFetch() {
 
   const terminal = job.data && !['queued', 'running'].includes(job.data.status)
   const isRunning = run.isPending || job.data?.status === 'queued' || job.data?.status === 'running'
-  const rows = job.data?.rankings ?? []
+  const rows = useMemo(() => job.data?.rankings ?? [], [job.data?.rankings])
   const dcardUnavailable = job.data?.dcard_status === 'unavailable'
   const symbols = useMemo(
     () => rows.map(row => ({ value: row.symbol, label: `${row.company_name} ${row.code}` })),

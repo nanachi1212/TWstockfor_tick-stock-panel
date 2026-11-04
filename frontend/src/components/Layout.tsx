@@ -408,7 +408,7 @@ export function Layout() {
   })
   useEffect(() => {
     if (isAdvancedNavPath(location.pathname)) setAdvancedOpen(true)
-  }, [location.key])
+  }, [location.key, location.pathname])
   const toggleAdvanced = () => {
     setAdvancedOpen(v => {
       const next = !v
