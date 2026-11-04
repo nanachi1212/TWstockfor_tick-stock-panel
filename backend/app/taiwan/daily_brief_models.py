@@ -17,7 +17,7 @@ from pydantic import BaseModel, Field
 
 class SectorSummaryItem(BaseModel):
     industry: str
-    change_pct: float | None = None
+    change_pct: float | None = Field(None, description="Schema v2: percentage points; 2.0 means +2%. Legacy v1: decimal ratio.")
     turnover: float = 0.0
     advance_ratio: float | None = None
 
@@ -115,7 +115,7 @@ class CandidateItem(BaseModel):
     quant_score: float | None = None
     rank: int | None = None
     close: float | None = None
-    change_pct: float | None = None
+    change_pct: float | None = Field(None, description="Schema v2: percentage points; -10.0 means -10%. Legacy v1 strategy matches: decimal ratio.")
     match_reasons: list[str] = Field(default_factory=list)
     # What quant_score means: scale, which frozen run (session / model) and how many were ranked.
     score_scale: str | None = None
@@ -155,6 +155,7 @@ class NewsFactBrief(BaseModel):
 class DeterministicDailyBrief(BaseModel):
     """Complete objective daily brief assembled before any AI call."""
 
+    schema_version: Literal[1, 2] = Field(1, description="1: legacy mixed percentage units; 2: sector and candidate change_pct are percentage points.")
     brief_date: str
     generated_at: str
     market: MarketFactBrief
@@ -189,6 +190,7 @@ class SavedDailyBrief(BaseModel):
     ai_summary: DailyBriefAISummary | None = None
     ai_status: Literal["success", "not_generated", "failed", "live_ai_not_tested"] = "not_generated"
     ai_error: str | None = None
+    legacy_unit_normalized: bool = Field(False, description="Read-only view converted legacy numeric units; any saved AI text remains unchanged.")
 
 
 class CreateDailyBriefRequest(BaseModel):

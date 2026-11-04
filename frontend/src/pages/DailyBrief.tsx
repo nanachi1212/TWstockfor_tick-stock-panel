@@ -39,6 +39,11 @@ function formatLots(value: number | null | undefined): string {
   return lots > 0 ? `+${text}` : text
 }
 
+function formatChangePct(value: number | null | undefined, digits: number): string {
+  if (value == null) return '—'
+  return `${value >= 0 ? '+' : ''}${value.toFixed(digits)}%`
+}
+
 /** 持股只存在本機帳本；讀不到就送 null，讓報告寫「持股資料暫時無法取得」而不是 0 持股。 */
 function ledgerHoldings(): Record<string, unknown>[] | null {
   const { transactions, error } = readPortfolioLedger()
@@ -598,9 +603,14 @@ export function DailyBrief() {
                 {brief.market.strongest_sectors.slice(0, 2).map((s, i) => (
                   <span
                     key={i}
-                    className="text-xs bg-rose-500/10 text-rose-600 dark:text-rose-400 px-1.5 py-0.5 rounded font-medium"
+                    className={cn(
+                      'text-xs px-1.5 py-0.5 rounded font-medium',
+                      s.change_pct == null ? 'bg-muted text-muted-foreground'
+                        : s.change_pct >= 0 ? 'bg-rose-500/10 text-rose-600 dark:text-rose-400'
+                          : 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400',
+                    )}
                   >
-                    {s.industry} +{s.change_pct?.toFixed(1)}%
+                    {s.industry} {formatChangePct(s.change_pct, 1)}
                   </span>
                 ))}
               </div>
@@ -620,6 +630,11 @@ export function DailyBrief() {
               <span className="text-xs text-muted-foreground">僅供研究，不提供買賣指令</span>
             </div>
 
+            {activeHistoryBrief?.legacy_unit_normalized && aiSummary && (
+              <p className="text-xs text-amber-600 dark:text-amber-400 mb-4">
+                歷史數值已校正百分比單位；原 AI 文字未重新計算，請以客觀數值為準。
+              </p>
+            )}
             {isAiLoading ? (
               <div className="py-12 text-center space-y-3">
                 <Loader2 className="h-8 w-8 animate-spin text-primary mx-auto" />
@@ -822,11 +837,10 @@ export function DailyBrief() {
                           <span
                             className={cn(
                               'font-medium',
-                              (c.change_pct ?? 0) >= 0 ? 'text-rose-500' : 'text-emerald-500',
+                              c.change_pct == null ? 'text-muted-foreground' : c.change_pct >= 0 ? 'text-rose-500' : 'text-emerald-500',
                             )}
                           >
-                            {(c.change_pct ?? 0) >= 0 ? '+' : ''}
-                            {c.change_pct?.toFixed(2) ?? '-'}%
+                            {formatChangePct(c.change_pct, 2)}
                           </span>
                         </div>
 

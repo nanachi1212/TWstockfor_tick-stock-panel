@@ -73,6 +73,30 @@ LIVE_SCORE_SCALE = "0~1 百分位排名，只在 Live Quant 合格排名池內�
 SCREENER_SCORE_SCALE = "0~100（Live Quant 合格排名池內的百分位排名 ×100；98.6 = 約池內前 1.4%，不是全市場；凍結排名快照）"
 
 
+def _normalize_percentage_units(brief: DeterministicDailyBrief) -> DeterministicDailyBrief:
+    """Convert only known legacy ratio fields, once, without mutating the source."""
+    if brief.schema_version == 2:
+        return brief
+    normalized = brief.model_copy(deep=True)
+    for sector in normalized.market.strongest_sectors + normalized.market.weakest_sectors:
+        if sector.change_pct is not None:
+            sector.change_pct *= 100
+    for candidate in normalized.candidates.strategy_matches:
+        if candidate.change_pct is not None:
+            candidate.change_pct *= 100
+    normalized.schema_version = 2
+    return normalized
+
+
+def _saved_brief_view(entry: SavedDailyBrief) -> SavedDailyBrief:
+    if entry.structured_brief.schema_version == 2:
+        return entry
+    return entry.model_copy(update={
+        "structured_brief": _normalize_percentage_units(entry.structured_brief),
+        "legacy_unit_normalized": True,
+    })
+
+
 class TaiwanDailyBriefService:
     """Collates deterministic daily evidence and triggers on-demand AI interpretation."""
 
@@ -86,22 +110,28 @@ class TaiwanDailyBriefService:
         self.calendar = TaiwanTradingCalendar()
         self._lock = threading.Lock()
 
-    def _read_saved_briefs_raw(self) -> list[SavedDailyBrief]:
+    def _read_saved_brief_records(self) -> list[dict[str, Any]]:
         if not self.path.exists():
             return []
         try:
             raw = json.loads(self.path.read_text(encoding="utf-8"))
             if isinstance(raw, list):
-                return [SavedDailyBrief(**item) for item in raw]
+                return raw
         except Exception as e:
             logger.warning("Failed to load saved daily briefs from %s: %s", self.path, e)
         return []
 
-    def _save_briefs_raw(self, briefs: list[SavedDailyBrief]) -> None:
+    def _read_saved_briefs_raw(self) -> list[SavedDailyBrief]:
+        try:
+            return [SavedDailyBrief(**item) for item in self._read_saved_brief_records()]
+        except Exception as e:
+            logger.warning("Failed to parse saved daily briefs from %s: %s", self.path, e)
+            return []
+
+    def _save_briefs_raw(self, records: list[dict[str, Any]]) -> None:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         temp_path = self.path.with_suffix(".tmp")
-        payload = [b.model_dump() for b in briefs]
-        temp_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+        temp_path.write_text(json.dumps(records, ensure_ascii=False, indent=2), encoding="utf-8")
         temp_path.replace(self.path)
 
     # ── Deterministic Layer ─────────────────────────────────────────
@@ -150,7 +180,7 @@ class TaiwanDailyBriefService:
         strong_sec = [
             SectorSummaryItem(
                 industry=s.industry,
-                change_pct=s.average_change_pct,
+                change_pct=s.average_change_pct * 100 if s.average_change_pct is not None else None,
                 turnover=s.turnover,
                 advance_ratio=s.advance_ratio,
             )
@@ -159,7 +189,7 @@ class TaiwanDailyBriefService:
         weak_sec = [
             SectorSummaryItem(
                 industry=s.industry,
-                change_pct=s.average_change_pct,
+                change_pct=s.average_change_pct * 100 if s.average_change_pct is not None else None,
                 turnover=s.turnover,
                 advance_ratio=s.advance_ratio,
             )
@@ -381,7 +411,7 @@ class TaiwanDailyBriefService:
                             quant_score=item.quant_score,
                             rank=item.rank if hasattr(item, "rank") else 1,
                             close=item.close,
-                            change_pct=item.change_pct,
+                            change_pct=item.change_pct * 100 if item.change_pct is not None else None,
                             match_reasons=item.match_reasons,
                             score_scale=SCREENER_SCORE_SCALE if item.quant_score is not None else None,
                             **quant_meta,
@@ -434,6 +464,7 @@ class TaiwanDailyBriefService:
         )
 
         return DeterministicDailyBrief(
+            schema_version=2,
             brief_date=str(effective_date),
             generated_at=now_iso,
             market=market_fact,
@@ -452,6 +483,7 @@ class TaiwanDailyBriefService:
         config_snapshot: AIProviderConfigSnapshot | None = None,
     ) -> DailyBriefAISummary:
         """Call AI provider strictly on user demand to synthesize the daily brief."""
+        brief = _normalize_percentage_units(brief)
         config = config_snapshot or snapshot_ai_provider_config()
 
         system_prompt = (
@@ -479,6 +511,7 @@ class TaiwanDailyBriefService:
             "13. 事件：events.status 不是 available 時，必須揭露官方風險資料不足；空事件清單不能推論沒有風險。\n"
             "14. 新聞：news.status 為 partial、unavailable 或 unknown 時，必須揭露新聞資料不足；"
             "空的 items 不代表沒有新聞或沒有風險。\n"
+            "15. 產業與候選股的 change_pct 已統一為百分點，2.0 代表 +2%、-10.0 代表 -10%，不得再乘 100；advance_ratio 仍為比例。\n"
             "5. 必須嚴格輸出合法的 JSON 物件，格式鍵名固定如下：\n"
             "{\n"
             '  "section_a_market": "A. 今日市場概況與盤勢解讀",\n'
@@ -572,6 +605,8 @@ class TaiwanDailyBriefService:
         now_dt = datetime.now(UTC)
         brief_id = f"brief_{now_dt.strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:6]}"
 
+        legacy_unit_normalized = brief.schema_version == 1
+        brief = _normalize_percentage_units(brief)
         entry = SavedDailyBrief(
             brief_id=brief_id,
             brief_date=brief.brief_date,
@@ -581,11 +616,13 @@ class TaiwanDailyBriefService:
             ai_summary=ai_summary,
             ai_status=ai_status,  # type: ignore[arg-type]
             ai_error=ai_error,
+            legacy_unit_normalized=legacy_unit_normalized,
         )
 
         with self._lock:
-            existing = self._read_saved_briefs_raw()
-            existing.append(entry)
+            # Preserve old records verbatim as JSON values; normalization is a read-only view.
+            existing = self._read_saved_brief_records()
+            existing.append(entry.model_dump())
             self._save_briefs_raw(existing)
 
         logger.info("Saved daily brief %s for date %s (AI status: %s)", brief_id, entry.brief_date, ai_status)
@@ -596,14 +633,14 @@ class TaiwanDailyBriefService:
         with self._lock:
             existing = self._read_saved_briefs_raw()
         existing.sort(key=lambda b: b.generated_at, reverse=True)
-        return existing
+        return [_saved_brief_view(entry) for entry in existing]
 
     def get_saved_brief(self, brief_id: str) -> SavedDailyBrief | None:
         """Get a saved daily brief by ID."""
         with self._lock:
             for b in self._read_saved_briefs_raw():
                 if b.brief_id == brief_id:
-                    return b
+                    return _saved_brief_view(b)
         return None
 
 

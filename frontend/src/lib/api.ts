@@ -5436,6 +5436,8 @@ export interface NewsFactBrief {
 }
 
 export interface DeterministicDailyBrief {
+  /** v2: sector and candidate change_pct are percentage points. */
+  schema_version?: 1 | 2
   brief_date: string
   generated_at: string
   market: MarketFactBrief
@@ -5463,6 +5465,7 @@ export interface SavedDailyBrief {
   generated_at: string
   data_as_of: string
   structured_brief: DeterministicDailyBrief
+  legacy_unit_normalized?: boolean
   ai_summary: DailyBriefAISummary | null
   ai_status: 'success' | 'not_generated' | 'failed' | 'live_ai_not_tested'
   ai_error: string | null

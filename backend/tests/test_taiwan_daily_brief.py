@@ -517,3 +517,127 @@ def test_full_brief_build_never_fetches_upstream_and_keeps_unknown_risk(
         assert brief.events.risk_events == []
         assert brief.events.fetched_at is None
     assert brief.news.status == "unavailable"
+
+
+
+def _legacy_percentage_brief() -> DeterministicDailyBrief:
+    return DeterministicDailyBrief.model_validate({
+        "brief_date": "2026-08-28", "generated_at": "2026-08-28T14:30:00Z",
+        "market": {
+            "trade_date": "2026-08-28", "taiex_change_pct": 1.2,
+            "strongest_sectors": [{"industry": "正報酬", "change_pct": 0.02, "advance_ratio": 0.75}],
+            "weakest_sectors": [{"industry": "負報酬", "change_pct": -0.1}, {"industry": "未知", "change_pct": None}],
+        },
+        "portfolio": {"biggest_movers": [{"symbol": "2330.TWSE", "change_pct": 4.5}]},
+        "watchlist": {},
+        "candidates": {
+            "new_top10": [{"symbol": "2330.TWSE", "name": "台積電", "reason_type": "new_top10", "source_name": "quant", "change_pct": 1.8}],
+            "strategy_matches": [
+                {"symbol": symbol, "name": symbol, "reason_type": "strategy_match", "source_name": "test", "change_pct": pct}
+                for symbol, pct in [("2330.TWSE", -0.1), ("2454.TWSE", None), ("2881.TWSE", 0.0)]
+            ],
+        },
+        "events": {}, "news": {},
+    })
+
+
+def test_daily_brief_converts_sector_and_strategy_ratios_at_boundary(mock_daily_brief_service, monkeypatch):
+    monkeypatch.setattr(
+        "app.taiwan.daily_brief_service.TaiwanIndustryIntelligenceService.get_snapshot",
+        lambda *args: SimpleNamespace(industries=[
+            SimpleNamespace(industry=name, average_change_pct=pct, turnover=100.0, advance_ratio=0.75)
+            for name, pct in [("正報酬", 0.02), ("負報酬", -0.1), ("零報酬", 0.0)]
+        ]),
+    )
+    monkeypatch.setattr(
+        "app.taiwan.daily_brief_service.get_screener_strategy_store",
+        lambda: SimpleNamespace(list_strategies=lambda: [SimpleNamespace(name="test", conditions={})]),
+    )
+    monkeypatch.setattr(
+        "app.taiwan.daily_brief_service.TaiwanScreenerService.run",
+        lambda *args: SimpleNamespace(items=[
+            SimpleNamespace(symbol=symbol, name=symbol, change_pct=pct, close=100.0, quant_score=None, rank=None, match_reasons=[])
+            for symbol, pct in [("2330.TWSE", -0.1), ("2454.TWSE", None), ("2881.TWSE", 0.0)]
+        ]),
+    )
+    brief = mock_daily_brief_service.build_deterministic_brief(target_date=date(2026, 8, 28))
+    assert brief.schema_version == 2
+    assert [s.change_pct for s in brief.market.strongest_sectors] == [2.0, 0.0, -10.0]
+    assert [s.change_pct for s in brief.market.weakest_sectors] == [2.0, 0.0, -10.0]
+    assert [s.advance_ratio for s in brief.market.strongest_sectors] == [0.75] * 3
+    assert [c.change_pct for c in brief.candidates.strategy_matches] == [-10.0, None, 0.0]
+
+
+def test_legacy_history_units_are_view_only_and_append_preserves_old_record(mock_daily_brief_service):
+    svc = mock_daily_brief_service
+    legacy = _legacy_percentage_brief()
+    old_record = {
+        "brief_id": "legacy", "brief_date": legacy.brief_date, "generated_at": legacy.generated_at,
+        "data_as_of": legacy.brief_date, "structured_brief": legacy.model_dump(exclude={"schema_version"}),
+        "ai_summary": {
+            "section_a_market": "原始 AI 文字保留", "section_b_key_changes": [], "section_c_portfolio": "",
+            "section_d_watchlist": "", "section_e_candidates": "", "section_f_risks": "", "section_g_tracking": "",
+        },
+        "private_future_field": {"preserve": True},
+    }
+    svc.path.parent.mkdir(parents=True, exist_ok=True)
+    svc.path.write_text(json.dumps([old_record], ensure_ascii=False), encoding="utf-8")
+    original_bytes = svc.path.read_bytes()
+    listed = svc.list_saved_briefs()[0]
+    viewed = svc.get_saved_brief("legacy")
+    assert viewed is not None
+    assert listed.model_dump() == viewed.model_dump()
+    normalized = viewed.structured_brief
+    assert normalized.schema_version == 2
+    assert viewed.legacy_unit_normalized is True
+    assert normalized.market.strongest_sectors[0].change_pct == 2.0
+    assert [s.change_pct for s in normalized.market.weakest_sectors] == [-10.0, None]
+    assert normalized.market.strongest_sectors[0].advance_ratio == 0.75
+    assert [c.change_pct for c in normalized.candidates.strategy_matches] == [-10.0, None, 0.0]
+    assert normalized.market.taiex_change_pct == 1.2
+    assert normalized.portfolio.biggest_movers[0].change_pct == 4.5
+    assert normalized.candidates.new_top10[0].change_pct == 1.8
+    assert viewed.ai_summary.section_a_market == "原始 AI 文字保留"
+    assert svc.path.read_bytes() == original_bytes
+
+    # Appending a new v2 brief must not serialize model defaults or changed units into old records.
+    saved = svc.save_brief(normalized)
+    records = json.loads(svc.path.read_text(encoding="utf-8"))
+    assert records[0] == old_record
+    assert records[1]["structured_brief"]["schema_version"] == 2
+    assert records[1]["structured_brief"]["candidates"]["strategy_matches"][0]["change_pct"] == -10.0
+    assert svc.get_saved_brief(saved.brief_id).structured_brief.candidates.strategy_matches[0].change_pct == -10.0
+    assert svc.get_saved_brief("legacy").structured_brief.candidates.strategy_matches[0].change_pct == -10.0
+
+
+@pytest.mark.asyncio
+async def test_daily_brief_ai_uses_normalized_percentage_points_without_mutating_legacy(mock_daily_brief_service):
+    brief = _legacy_percentage_brief()
+    response = json.dumps({
+        "section_a_market": "測試", "section_b_key_changes": [], "section_c_portfolio": "",
+        "section_d_watchlist": "", "section_e_candidates": "", "section_f_risks": "", "section_g_tracking": "",
+    })
+    with patch("app.taiwan.daily_brief_service.generate_ai_text", new_callable=AsyncMock, return_value=response) as generate:
+        await mock_daily_brief_service.generate_ai_summary(brief, config_snapshot=Mock())
+    messages = generate.await_args.kwargs["messages"]
+    assert "百分點" in messages[0]["content"]
+    payload = json.loads(messages[1]["content"].split("```json\n", 1)[1].rsplit("\n```", 1)[0])
+    assert payload["schema_version"] == 2
+    assert payload["market"]["strongest_sectors"][0]["change_pct"] == 2.0
+    assert payload["candidates"]["strategy_matches"][0]["change_pct"] == -10.0
+    assert brief.schema_version == 1
+    assert brief.candidates.strategy_matches[0].change_pct == -0.1
+    saved = mock_daily_brief_service.save_brief(brief)
+    assert saved.structured_brief.candidates.strategy_matches[0].change_pct == -10.0
+    assert saved.legacy_unit_normalized is True
+
+
+
+def test_malformed_legacy_history_keeps_read_fallback_and_is_not_rewritten(mock_daily_brief_service):
+    svc = mock_daily_brief_service
+    svc.path.parent.mkdir(parents=True, exist_ok=True)
+    svc.path.write_text('[{"brief_id": "invalid"}]', encoding="utf-8")
+    before = svc.path.read_bytes()
+    assert svc.list_saved_briefs() == []
+    assert svc.get_saved_brief("invalid") is None
+    assert svc.path.read_bytes() == before

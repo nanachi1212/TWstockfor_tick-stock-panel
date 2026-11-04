@@ -1,5 +1,5 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest'
-import { render, screen, waitFor, fireEvent } from '@testing-library/react'
+import { render, screen, waitFor, fireEvent, within } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { QueryClientProvider, QueryClient } from '@tanstack/react-query'
 import { DailyBrief } from './DailyBrief'
@@ -38,6 +38,7 @@ function createTestQueryClient() {
 
 function buildMockBrief() {
   return {
+    schema_version: 2,
     brief_date: '2026-08-28',
     generated_at: '2026-08-28T14:30:00Z',
     market: {
@@ -165,6 +166,8 @@ describe('DailyBrief Page (A12)', () => {
       expect(screen.getByText('2026-08-28')).toBeInTheDocument()
       expect(screen.getByText('22150.80')).toBeInTheDocument()
       expect(screen.getByText('+0.55%')).toBeInTheDocument()
+      expect(screen.getByText('半導體業 +1.9%')).toBeInTheDocument()
+      expect(screen.getByText('+1.80%')).toBeInTheDocument()
       expect(screen.getByText('偏多')).toBeInTheDocument()
       expect(screen.getAllByText('台積電')[0]).toBeInTheDocument()
       expect(screen.getByText(/處置有價證券/)).toBeInTheDocument()
@@ -286,4 +289,49 @@ describe('DailyBrief Page (A12)', () => {
       expect(api.watchlistAdd).toHaveBeenCalledWith('2330.TWSE', '')
     })
   })
+
+  it('renders negative sector and candidate percentages with one sign and keeps null unknown', async () => {
+    const brief = buildMockBrief()
+    brief.market.strongest_sectors[0].change_pct = -10
+    brief.candidates.new_top10[0].change_pct = -10
+    vi.mocked(api.dailyBrief.buildDailyBrief).mockResolvedValue({
+      ...brief,
+      candidates: {
+        ...brief.candidates,
+        strategy_matches: [{
+          ...brief.candidates.new_top10[0], symbol: '2454.TWSE', name: '缺少漲跌幅',
+          reason_type: 'strategy_match', change_pct: null,
+        }],
+      },
+    } as any)
+    render(<QueryClientProvider client={createTestQueryClient()}><MemoryRouter><DailyBrief /></MemoryRouter></QueryClientProvider>)
+    expect(await screen.findByText('半導體業 -10.0%')).toBeInTheDocument()
+    expect(screen.getByText('-10.00%')).toBeInTheDocument()
+    const missingCard = screen.getByText('缺少漲跌幅').closest('.bg-card') as HTMLElement
+    expect(within(missingCard).getByText('—')).toHaveClass('text-muted-foreground')
+    expect(screen.queryByText('+-%')).not.toBeInTheDocument()
+    expect(screen.queryByText(/\+-10/)).not.toBeInTheDocument()
+  })
+
+  it('labels corrected historical numbers without replacing saved AI text', async () => {
+    const brief = buildMockBrief()
+    vi.mocked(api.dailyBrief.buildDailyBrief).mockResolvedValue(brief as any)
+    vi.mocked(api.dailyBrief.listHistory).mockResolvedValue([{
+      brief_id: 'legacy', brief_date: '2026-08-27', structured_brief: brief,
+      legacy_unit_normalized: true,
+      ai_summary: {
+        section_a_market: '原始 AI 文字保留', section_b_key_changes: [], section_c_portfolio: '',
+        section_d_watchlist: '', section_e_candidates: '', section_f_risks: '', section_g_tracking: '',
+        evidence_sources: [],
+      },
+    }] as any)
+    render(<QueryClientProvider client={createTestQueryClient()}><MemoryRouter><DailyBrief /></MemoryRouter></QueryClientProvider>)
+    fireEvent.click(await screen.findByRole('button', { name: '歷史日報 (1)' }))
+    fireEvent.click(screen.getByText('2026-08-27 每日摘要'))
+    expect(await screen.findByText('原始 AI 文字保留')).toBeInTheDocument()
+    expect(screen.getByText('歷史數值已校正百分比單位；原 AI 文字未重新計算，請以客觀數值為準。')).toBeInTheDocument()
+    expect(screen.getByText('半導體業 +1.9%')).toBeInTheDocument()
+    expect(api.dailyBrief.generateAiSummary).not.toHaveBeenCalled()
+  })
+
 })
