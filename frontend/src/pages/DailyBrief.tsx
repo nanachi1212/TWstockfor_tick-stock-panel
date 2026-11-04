@@ -39,6 +39,11 @@ function formatLots(value: number | null | undefined): string {
   return lots > 0 ? `+${text}` : text
 }
 
+function formatChangePct(value: number | null | undefined, digits: number): string {
+  if (value == null) return '—'
+  return `${value >= 0 ? '+' : ''}${value.toFixed(digits)}%`
+}
+
 /** 持股只存在本機帳本；讀不到就送 null，讓報告寫「持股資料暫時無法取得」而不是 0 持股。 */
 function ledgerHoldings(): Record<string, unknown>[] | null {
   const { transactions, error } = readPortfolioLedger()
@@ -54,7 +59,7 @@ export function DailyBrief() {
 
   const [selectedHistoryId, setSelectedHistoryId] = useState<string | null>(null)
   const [showHistoryModal, setShowHistoryModal] = useState(false)
-  const [liveAiSummary, setLiveAiSummary] = useState<DailyBriefAISummary | null>(null)
+  const [liveAiSummary, setLiveAiSummary] = useState<{ summary: DailyBriefAISummary; sourceKey: string } | null>(null)
   const [isAiLoading, setIsAiLoading] = useState(false)
   const [holdings, setHoldings] = useState(ledgerHoldings)
 
@@ -68,11 +73,31 @@ export function DailyBrief() {
     }
   }, [])
 
-  // 1. 查詢今日客觀確定性事實簡報
-  const briefQuery = useQuery({
-    queryKey: QK.dailyBrief(undefined, JSON.stringify(holdings)),
-    queryFn: () => api.dailyBrief.buildDailyBrief({ portfolio_holdings: holdings }),
+  // Preview excludes the expensive strategy scan; the same dated context fills in later.
+  const holdingsKey = JSON.stringify(holdings)
+  const previewQuery = useQuery({
+    queryKey: QK.dailyBrief(undefined, holdingsKey, 'preview'),
+    queryFn: () => api.dailyBrief.buildDailyBrief({ portfolio_holdings: holdings, include_strategy_matches: false }),
   })
+  const fullQuery = useQuery({
+    queryKey: QK.dailyBrief(previewQuery.data?.brief_date, holdingsKey, 'full'),
+    queryFn: () => api.dailyBrief.buildDailyBrief({
+      target_date: previewQuery.data!.brief_date,
+      portfolio_holdings: holdings, include_strategy_matches: true,
+    }),
+    enabled: !!previewQuery.data,
+    retry: false,
+  })
+  const previewWithFailure = previewQuery.data && fullQuery.isError ? {
+    ...previewQuery.data,
+    candidates: {
+      ...previewQuery.data.candidates,
+      strategy_status: 'unavailable' as const,
+      strategy_status_message: '策略候選載入失敗；可先使用其他已就緒資料分析。',
+    },
+  } : previewQuery.data
+  const briefQuery = { ...previewQuery, data: fullQuery.isError ? previewWithFailure : (fullQuery.data ?? previewQuery.data) }
+  useEffect(() => { setLiveAiSummary(null) }, [holdingsKey])
 
   const latestForwardBatchQuery = useQuery({
     queryKey: QK.selectionForwardBatches(),
@@ -131,10 +156,10 @@ export function DailyBrief() {
 
   // 4. 手動觸發 AI 摘要生成 Mutation
   const generateAiMutation = useMutation({
-    mutationFn: (brief: DeterministicDailyBrief) => api.dailyBrief.generateAiSummary(brief),
+    mutationFn: ({ brief }: { brief: DeterministicDailyBrief; sourceKey: string }) => api.dailyBrief.generateAiSummary(brief),
     onMutate: () => setIsAiLoading(true),
-    onSuccess: (data) => {
-      setLiveAiSummary(data)
+    onSuccess: (data, { sourceKey }) => {
+      setLiveAiSummary({ summary: data, sourceKey })
       setIsAiLoading(false)
       toast.success('已生成今日 AI 深度摘要')
     },
@@ -159,6 +184,9 @@ export function DailyBrief() {
   // 6. 保存候選股為研究快照；正式前瞻批次走獨立流程。
   const saveSnapshotMutation = useMutation({
     mutationFn: (candidates: CandidateItem[]) => {
+      if (!strategyComplete || candidates.length === 0 || candidates.some(c => !Number.isFinite(c.close) || c.close! <= 0)) {
+        throw new Error('候選資料尚未完整或缺少有效價格，無法保存研究快照。')
+      }
       const today = briefQuery.data?.brief_date || new Date().toISOString().slice(0, 10)
       return api.selectionReview.saveSnapshot({
         strategy_id: 'daily_brief_candidates',
@@ -172,7 +200,7 @@ export function DailyBrief() {
           quant_score: c.quant_score,
           match_reasons: c.match_reasons.length > 0 ? c.match_reasons : [c.source_name],
           strategy_conditions: { reason_type: c.reason_type },
-          price: c.close ?? 100.0,
+          price: c.close!,
           fundamental_summary: null,
           chips_summary: null,
           event_risk_summary: null,
@@ -196,7 +224,20 @@ export function DailyBrief() {
   }, [selectedHistoryId, historyQuery.data])
 
   const brief = activeHistoryBrief ? activeHistoryBrief.structured_brief : briefQuery.data
-  const aiSummary = activeHistoryBrief ? activeHistoryBrief.ai_summary : liveAiSummary
+  const aiSourceKey = JSON.stringify([selectedHistoryId, holdingsKey, brief])
+  const aiSummary = activeHistoryBrief ? activeHistoryBrief.ai_summary
+    : liveAiSummary?.sourceKey === aiSourceKey ? liveAiSummary.summary : null
+  const strategyFailed = brief?.candidates.strategy_status === 'unavailable'
+  const strategyPending = !activeHistoryBrief && (
+    fullQuery.isFetching || (!strategyFailed && (fullQuery.isPending || brief?.candidates.strategy_status === 'not_requested'))
+  )
+  const canUseBrief = !!brief && !strategyPending && brief.candidates.strategy_status !== 'not_requested'
+  const strategyComplete = canUseBrief && brief?.candidates.strategy_status === 'available'
+  const strategyMessage = strategyPending
+    ? '策略候選載入中；市場與持股資料已可先閱讀。'
+    : brief?.candidates.strategy_status_message || (brief && (!brief.candidates.strategy_status || brief.candidates.strategy_status === 'unknown')
+      ? '策略候選完整性未知；可分析已知資料，但無法保存完整研究快照。' : null)
+
   const [includePortfolioInCopy, setIncludePortfolioInCopy] = useState<boolean>(false)
 
   const allCandidates: CandidateItem[] = useMemo(() => {
@@ -209,12 +250,12 @@ export function DailyBrief() {
   }, [brief])
 
   const handleGenerateAi = () => {
-    if (!brief) return
-    generateAiMutation.mutate(brief)
+    if (!brief || !canUseBrief) return
+    generateAiMutation.mutate({ brief, sourceKey: aiSourceKey })
   }
 
   const handleSaveToHistory = () => {
-    if (!brief) return
+    if (!brief || !canUseBrief) return
     const id = `brief_${brief.brief_date}_${Date.now().toString(36)}`
     const payload: SavedDailyBrief = {
       brief_id: id,
@@ -313,6 +354,8 @@ export function DailyBrief() {
                     change_pct: w.change_pct,
                     quant_score: w.quant_score,
                   })),
+                  strategy_status: brief.candidates.strategy_status ?? 'unknown',
+                  strategy_status_message: brief.candidates.strategy_status_message,
                   candidates: allCandidates.map(c => ({
                     symbol: c.symbol,
                     name: c.name,
@@ -400,6 +443,8 @@ export function DailyBrief() {
                     change_pct: w.change_pct,
                     quant_score: w.quant_score,
                   })),
+                  strategy_status: brief.candidates.strategy_status ?? 'unknown',
+                  strategy_status_message: brief.candidates.strategy_status_message,
                   candidates: allCandidates.map(c => ({
                     symbol: c.symbol,
                     name: c.name,
@@ -452,7 +497,7 @@ export function DailyBrief() {
           {/* 產生 AI 摘要按鈕 */}
           <button
             onClick={handleGenerateAi}
-            disabled={isAiLoading || !brief}
+            disabled={isAiLoading || !canUseBrief}
             className="inline-flex items-center gap-1.5 text-xs font-medium bg-primary text-primary-foreground hover:bg-primary/90 px-4 py-2 rounded-lg shadow-sm transition-all disabled:opacity-50"
           >
             {isAiLoading ? (
@@ -472,7 +517,7 @@ export function DailyBrief() {
           {aiSummary && !activeHistoryBrief && (
             <button
               onClick={handleSaveToHistory}
-              disabled={saveHistoryMutation.isPending}
+              disabled={saveHistoryMutation.isPending || !canUseBrief}
               className="inline-flex items-center gap-1.5 text-xs font-medium bg-secondary text-secondary-foreground hover:bg-secondary/80 px-3 py-2 rounded-lg border border-border/60 transition-colors"
             >
               <BookmarkPlus className="h-4 w-4" />
@@ -491,6 +536,12 @@ export function DailyBrief() {
         </div>
       </div>
 
+      {brief && strategyMessage && (
+        <div role="status" className="rounded-lg border border-border/60 bg-muted/20 p-3 text-sm">
+          {strategyMessage}
+          {!activeHistoryBrief && strategyFailed && <button onClick={() => fullQuery.refetch()} className="ml-2 text-primary underline">重試策略候選</button>}
+        </div>
+      )}
       <ExternalContextCard />
 
       {briefQuery.isLoading ? (
@@ -506,7 +557,7 @@ export function DailyBrief() {
       ) : (
         <div className="space-y-6">
           {/* 1. 確定性層：市場與大盤事實 */}
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
+          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3">
             <div className="bg-card border border-border/60 rounded-xl p-4">
               <span className="text-xs text-muted-foreground">加權指數收盤</span>
               <div className="flex items-baseline gap-2 mt-1">
@@ -598,9 +649,14 @@ export function DailyBrief() {
                 {brief.market.strongest_sectors.slice(0, 2).map((s, i) => (
                   <span
                     key={i}
-                    className="text-xs bg-rose-500/10 text-rose-600 dark:text-rose-400 px-1.5 py-0.5 rounded font-medium"
+                    className={cn(
+                      'text-xs px-1.5 py-0.5 rounded font-medium',
+                      s.change_pct == null ? 'bg-muted text-muted-foreground'
+                        : s.change_pct >= 0 ? 'bg-rose-500/10 text-rose-600 dark:text-rose-400'
+                          : 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400',
+                    )}
                   >
-                    {s.industry} +{s.change_pct?.toFixed(1)}%
+                    {s.industry} {formatChangePct(s.change_pct, 1)}
                   </span>
                 ))}
               </div>
@@ -620,6 +676,11 @@ export function DailyBrief() {
               <span className="text-xs text-muted-foreground">僅供研究，不提供買賣指令</span>
             </div>
 
+            {activeHistoryBrief?.legacy_unit_normalized && aiSummary && (
+              <p className="text-xs text-amber-600 dark:text-amber-400 mb-4">
+                歷史數值已校正百分比單位；原 AI 文字未重新計算，請以客觀數值為準。
+              </p>
+            )}
             {isAiLoading ? (
               <div className="py-12 text-center space-y-3">
                 <Loader2 className="h-8 w-8 animate-spin text-primary mx-auto" />
@@ -729,7 +790,7 @@ export function DailyBrief() {
                 <p className="text-xs text-muted-foreground mt-1">需要時可手動產生摘要。</p>
                 <button
                   onClick={handleGenerateAi}
-                  disabled={isAiLoading}
+                  disabled={isAiLoading || !canUseBrief}
                   className="inline-flex items-center gap-1.5 mt-3 text-xs font-medium bg-primary text-primary-foreground px-3.5 py-1.5 rounded-lg hover:bg-primary/90 transition-colors"
                 >
                   <Sparkles className="h-3.5 w-3.5" />
@@ -762,7 +823,7 @@ export function DailyBrief() {
                 {allCandidates.length > 0 && (
                   <button
                     onClick={() => saveSnapshotMutation.mutate(allCandidates)}
-                    disabled={saveSnapshotMutation.isPending}
+                    disabled={saveSnapshotMutation.isPending || !strategyComplete || allCandidates.some(c => !Number.isFinite(c.close) || c.close! <= 0)}
                     className="inline-flex items-center gap-1.5 text-xs font-medium bg-secondary text-secondary-foreground hover:bg-secondary/80 border border-border/60 px-3 py-1.5 rounded-lg transition-colors"
                   >
                     <BookmarkPlus className="h-3.5 w-3.5" />
@@ -772,6 +833,9 @@ export function DailyBrief() {
               </div>
             </div>
 
+            {allCandidates.some(c => !Number.isFinite(c.close) || c.close! <= 0) && (
+              <p className="text-xs text-muted-foreground">候選股缺少有效價格，暫時無法保存研究快照。</p>
+            )}
             {latestForwardBatchQuery.data?.[0] && (
               <div className="rounded-lg border border-border/60 bg-muted/20 p-3 text-xs">
                 <span className="font-medium">前瞻績效：</span>{latestForwardBatchQuery.data[0].strategy_name ?? latestForwardBatchQuery.data[0].strategy_id} 最新正式批次 {latestForwardBatchQuery.data[0].source_data_date ?? latestForwardBatchQuery.data[0].as_of_date}，已成熟至 {latestMaturedHorizon ?? '尚未成熟'}，同策略 cumulative N {cumulativeForwardN} 檔。
@@ -781,7 +845,7 @@ export function DailyBrief() {
 
             {allCandidates.length === 0 ? (
               <div className="text-center py-6 text-xs text-muted-foreground">
-                今日尚無顯著新進候選股
+                {strategyComplete ? '今日尚無顯著新進候選股' : '策略候選尚未完整，請先閱讀其他市場資料'}
               </div>
             ) : (
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
@@ -822,11 +886,10 @@ export function DailyBrief() {
                           <span
                             className={cn(
                               'font-medium',
-                              (c.change_pct ?? 0) >= 0 ? 'text-rose-500' : 'text-emerald-500',
+                              c.change_pct == null ? 'text-muted-foreground' : c.change_pct >= 0 ? 'text-rose-500' : 'text-emerald-500',
                             )}
                           >
-                            {(c.change_pct ?? 0) >= 0 ? '+' : ''}
-                            {c.change_pct?.toFixed(2) ?? '-'}%
+                            {formatChangePct(c.change_pct, 2)}
                           </span>
                         </div>
 
@@ -886,8 +949,11 @@ export function DailyBrief() {
                 <ShieldAlert className="h-4 w-4 text-rose-500" />
                 官方重大事件與處置/注意警示
               </h3>
+              {brief.events.status_message && (
+                <p className="text-xs text-muted-foreground">{brief.events.status_message}</p>
+              )}
               {brief.events.risk_events.length === 0 && brief.events.attention_events.length === 0 ? (
-                <p className="text-xs text-muted-foreground py-4 text-center">今日無重大風險處置或事件</p>
+                <p className="text-xs text-muted-foreground py-4 text-center">{brief.events.status === 'available' ? '有效快取內無重大風險處置或事件' : '尚無完整官方事件資料，風險未確認'}</p>
               ) : (
                 <div className="space-y-2 max-h-56 overflow-y-auto pr-1">
                   {brief.events.risk_events.map((ev, i) => (
@@ -927,8 +993,11 @@ export function DailyBrief() {
                 <FileText className="h-4 w-4 text-primary" />
                 重要台股個股新聞
               </h3>
+              {brief.news.items.length > 0 && brief.news.status_message && (
+                <p className="text-xs text-muted-foreground">{brief.news.status_message}</p>
+              )}
               {brief.news.items.length === 0 ? (
-                <p className="text-xs text-muted-foreground py-4 text-center">今日尚無相關個股新聞</p>
+                <p className="text-xs text-muted-foreground py-4 text-center">{brief.news.status_message ?? '尚無可用新聞資料'}</p>
               ) : (
                 <div className="space-y-2 max-h-56 overflow-y-auto pr-1">
                   {brief.news.items.map((news, i) => (

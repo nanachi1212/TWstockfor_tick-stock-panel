@@ -1,11 +1,18 @@
 /** 迷你蠟燭圖（自選/策略列表共享）。 */
-import type { KlineRow } from '@/lib/api'
+import type { DailyKlineMeta, KlineRow } from '@/lib/api'
 import { RADIX } from '@/lib/radix'
 
-export function MiniCandlestick({ rows, width = 100, height = 80 }: { rows: KlineRow[]; width?: number; height?: number }) {
+export function MiniCandlestick({ rows, meta, width = 100, height = 80 }: { rows: KlineRow[]; meta?: DailyKlineMeta; width?: number; height?: number }) {
+  const basis = meta?.price_semantics === 'raw' ? '日 K（未復權原始價格）' : '日 K'
+  const availability = meta?.status === 'stale' ? '，資料較舊' : meta?.status === 'partial' ? '，歷史資料不完整' : ''
+  const label = `${basis}${availability}`
   // 空數據：返回等尺寸佔位（不畫內容），保證 kline 加載前後單元格尺寸一致、不閃爍
   if (!rows || rows.length === 0) {
-    return <svg width={width} height={height} viewBox={`0 0 ${width} ${height}`} className="block" aria-label="載入中" />
+    const emptyLabel = meta?.status === 'unavailable' ? '日 K 資料不足' : '載入中'
+    return <svg width={width} height={height} viewBox={`0 0 ${width} ${height}`} className="block" role="img" aria-label={emptyLabel}>
+      <title>{emptyLabel}</title>
+      {meta?.status === 'unavailable' && <text x="50%" y="50%" textAnchor="middle" dominantBaseline="middle" fill="currentColor" fontSize="11">無資料</text>}
+    </svg>
   }
 
   const BULL = RADIX.danger
@@ -74,7 +81,8 @@ export function MiniCandlestick({ rows, width = 100, height = 80 }: { rows: Klin
   }
 
   return (
-    <svg width={W} height={H} viewBox={`0 0 ${W} ${H}`} className="block">
+    <svg width={W} height={H} viewBox={`0 0 ${W} ${H}`} className="block" role="img" aria-label={label}>
+      <title>{label}</title>
       {wicks}
       {rects}
     </svg>

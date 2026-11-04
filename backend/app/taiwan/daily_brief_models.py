@@ -17,7 +17,7 @@ from pydantic import BaseModel, Field
 
 class SectorSummaryItem(BaseModel):
     industry: str
-    change_pct: float | None = None
+    change_pct: float | None = Field(None, description="Schema v2: percentage points; 2.0 means +2%. Legacy v1: decimal ratio.")
     turnover: float = 0.0
     advance_ratio: float | None = None
 
@@ -115,7 +115,7 @@ class CandidateItem(BaseModel):
     quant_score: float | None = None
     rank: int | None = None
     close: float | None = None
-    change_pct: float | None = None
+    change_pct: float | None = Field(None, description="Schema v2: percentage points; -10.0 means -10%. Legacy v1 strategy matches: decimal ratio.")
     match_reasons: list[str] = Field(default_factory=list)
     # What quant_score means: scale, which frozen run (session / model) and how many were ranked.
     score_scale: str | None = None
@@ -131,24 +131,33 @@ class CandidateFactBrief(BaseModel):
     new_top10: list[CandidateItem] = Field(default_factory=list)
     dropped_top10: list[CandidateItem] = Field(default_factory=list)
     strategy_matches: list[CandidateItem] = Field(default_factory=list)
+    strategy_status: Literal["available", "not_requested", "unavailable", "unknown"] = "unknown"
+    strategy_status_message: str | None = None
 
 
 class EventFactBrief(BaseModel):
     """Deterministic event center facts: risk and attention items."""
 
+    status: Literal["available", "partial", "unavailable", "unknown"] = "unknown"
+    fetched_at: str | None = None
+    status_message: str | None = None
     risk_events: list[dict[str, Any]] = Field(default_factory=list)  # 處置, 暫停, 下市
     attention_events: list[dict[str, Any]] = Field(default_factory=list)  # 注意, 減資, 除權息, 財報營收
 
 
 class NewsFactBrief(BaseModel):
-    """Existing relevant stock news items without crawlers or hallucination."""
+    """Cached news coverage; an empty list alone does not prove there is no news."""
 
     items: list[dict[str, Any]] = Field(default_factory=list)
+    status: Literal["available", "partial", "unavailable", "not_requested", "unknown"] = "unknown"
+    missing_symbols: list[str] = Field(default_factory=list)
+    status_message: str | None = None
 
 
 class DeterministicDailyBrief(BaseModel):
     """Complete objective daily brief assembled before any AI call."""
 
+    schema_version: Literal[1, 2] = Field(1, description="1: legacy mixed percentage units; 2: sector and candidate change_pct are percentage points.")
     brief_date: str
     generated_at: str
     market: MarketFactBrief
@@ -183,10 +192,12 @@ class SavedDailyBrief(BaseModel):
     ai_summary: DailyBriefAISummary | None = None
     ai_status: Literal["success", "not_generated", "failed", "live_ai_not_tested"] = "not_generated"
     ai_error: str | None = None
+    legacy_unit_normalized: bool = Field(False, description="Read-only view converted legacy numeric units; any saved AI text remains unchanged.")
 
 
 class CreateDailyBriefRequest(BaseModel):
     """Client request to collate today's deterministic daily brief."""
 
     target_date: str | None = None
+    include_strategy_matches: bool = True
     portfolio_holdings: list[dict[str, Any]] = Field(default_factory=list)

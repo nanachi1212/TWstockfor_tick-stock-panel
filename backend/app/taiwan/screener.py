@@ -1119,16 +1119,16 @@ class TaiwanScreenerService:
         """
         fc_svc = self._get_fundamental_chips_service()
 
-        cached_rev_keys = (
+        cached_rev_payloads = (
             {} if revenue_evidence is not None
-            else self._cached_symbol_keys("TaiwanStockMonthRevenue", symbols)
+            else self._cached_symbol_payloads("TaiwanStockMonthRevenue", symbols)
         )
-        cached_fin_keys = self._cached_symbol_keys("TaiwanStockFinancialStatements", symbols)
-        cached_val_keys = self._cached_symbol_keys("TaiwanValuation", symbols)
-        cached_share_keys = self._cached_symbol_keys("TaiwanStockShareholding", symbols)
-        cached_lend_keys = self._cached_symbol_keys("TaiwanStockSecuritiesLending", symbols)
+        cached_fin_payloads = self._cached_symbol_payloads("TaiwanStockFinancialStatements", symbols)
+        cached_val_payloads = self._cached_symbol_payloads("TaiwanValuation", symbols)
+        cached_share_payloads = self._cached_symbol_payloads("TaiwanStockShareholding", symbols)
+        cached_lend_payloads = self._cached_symbol_payloads("TaiwanStockSecuritiesLending", symbols)
 
-        fundamental_symbols = set(cached_rev_keys) | set(cached_fin_keys) | set(cached_val_keys)
+        fundamental_symbols = set(cached_rev_payloads) | set(cached_fin_payloads) | set(cached_val_payloads)
         # Daily chip datasets stay cached for days (weekend bridge); only the latest session, or the
         # one before it (publication lag), may feed a filter. Older values are excluded, not reused.
         sessions = sorted(self.daily_store.available_dates())
@@ -1170,8 +1170,7 @@ class TaiwanScreenerService:
         share_chg20_map: dict[str, float | None] = {}
         lend_anomaly_map: dict[str, str | None] = {}
 
-        for sym, cache_key in cached_val_keys.items():
-            cached = self.cache.get("TaiwanValuation", cache_key)
+        for sym, cached in cached_val_payloads.items():
             if cached and cached.get("data"):
                 d = cached["data"]
                 pe_map[sym] = parse_number(d.get("pe"))
@@ -1180,8 +1179,7 @@ class TaiwanScreenerService:
                 valuation_as_of_map[sym] = cached.get("data_date")
 
         revenue_rows: dict[str, tuple[list[dict[str, Any]], str | None, str]] = {}
-        for sym, cache_key in cached_rev_keys.items():
-            cached = self.cache.get("TaiwanStockMonthRevenue", cache_key)
+        for sym, cached in cached_rev_payloads.items():
             if cached and cached.get("data"):
                 revenue_rows[sym] = (cached["data"], cached.get("data_date"), cached.get("fetched_at", ""))
         if revenue_evidence is not None:
@@ -1222,8 +1220,7 @@ class TaiwanScreenerService:
                 rev_yoy_improvement_map[sym] = valid_yoy[-1] - valid_yoy[-2]
                 rev_yoy_improving_map[sym] = valid_yoy[-1] > valid_yoy[-2]
 
-        for sym, cache_key in cached_fin_keys.items():
-            cached = self.cache.get("TaiwanStockFinancialStatements", cache_key)
+        for sym, cached in cached_fin_payloads.items():
             if cached and cached.get("data"):
                 fin_data = fc_svc._process_financial_statements(
                     cached["data"], cached.get("data_date"), cached.get("fetched_at", "")
@@ -1232,8 +1229,7 @@ class TaiwanScreenerService:
                 net_inc_map[sym] = fin_data.net_income
                 financials_as_of_map[sym] = fin_data.quarter
 
-        for sym, cache_key in cached_share_keys.items():
-            cached = self.cache.get("TaiwanStockShareholding", cache_key)
+        for sym, cached in cached_share_payloads.items():
             if cached and cached.get("data") and _chip_date_current(cached, chips_floor):
                 chips_symbols.add(sym)
                 sh_data = fc_svc._process_shareholding(
@@ -1242,8 +1238,7 @@ class TaiwanScreenerService:
                 share_ratio_map[sym] = sh_data.ratio
                 share_chg20_map[sym] = sh_data.change_20d
 
-        for sym, cache_key in cached_lend_keys.items():
-            cached = self.cache.get("TaiwanStockSecuritiesLending", cache_key)
+        for sym, cached in cached_lend_payloads.items():
             if cached and cached.get("data") and _chip_date_current(cached, chips_floor):
                 chips_symbols.add(sym)
                 sl_data = fc_svc._process_securities_lending(
@@ -1292,10 +1287,13 @@ class TaiwanScreenerService:
 
         return df, len(fundamental_symbols), len(chips_symbols)
 
-    def _cached_symbol_keys(self, dataset: str, symbols: list[str]) -> dict[str, str]:
-        """Resolve canonical symbols to valid cache keys without exchange ambiguity."""
+    def _cached_symbol_payloads(self, dataset: str, symbols: list[str]) -> dict[str, dict[str, Any]]:
+        """Resolve and read each payload once for this join, preserving TTL and ambiguity rules.
+
+        Reuse lasts only for the current join. The next request reads the cache again.
+        """
         cached_keys = set(self.cache.list_cached_symbols(dataset))
-        resolved: dict[str, str] = {}
+        resolved: dict[str, dict[str, Any]] = {}
         raw_to_symbols: dict[str, list[str]] = {}
         for symbol in symbols:
             raw_to_symbols.setdefault(symbol.split(".", 1)[0], []).append(symbol)
@@ -1310,7 +1308,7 @@ class TaiwanScreenerService:
                     continue
                 payload = self.cache.get(dataset, cache_key)
                 if payload and payload.get("status") == "available" and payload.get("data"):
-                    resolved[symbol] = cache_key
+                    resolved[symbol] = payload
                     break
         return resolved
 

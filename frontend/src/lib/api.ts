@@ -177,6 +177,17 @@ export interface PriceLimitInfo {
   source: 'rule' | 'instrument'
 }
 
+export interface DailyKlineMeta {
+  source: string
+  price_semantics: 'raw' | 'adjusted'
+  status: 'available' | 'partial' | 'stale' | 'unavailable'
+  as_of: string | null
+  trade_date?: string | null
+  reason?: string | null
+  volume_unit?: string
+  amount_unit?: string
+}
+
 export interface KlineRow {
   symbol?: string
   date: string
@@ -4095,14 +4106,14 @@ export const api = {
       stock_info?: { name?: string; total_shares?: number; float_shares?: number; ext?: Record<string, unknown> }
       rows: KlineRow[]
       source?: string
-    }>(
+    } & Partial<DailyKlineMeta>>(
       (dateRange
         ? `/api/kline/daily?symbol=${encodeURIComponent(symbol)}&start_date=${dateRange.start}&end_date=${dateRange.end}`
         : `/api/kline/daily?symbol=${encodeURIComponent(symbol)}&days=${days}`)
       + (extColumns ? `&ext_columns=${encodeURIComponent(extColumns)}` : ''),
     ),
   klineDailyBatch: (symbols: string[], days = 12) =>
-    request<{ data: Record<string, KlineRow[]> }>('/api/kline/daily-batch', {
+    request<{ data: Record<string, KlineRow[]>; meta?: Record<string, DailyKlineMeta> }>('/api/kline/daily-batch', {
       method: 'POST',
       body: JSON.stringify({ symbols, days }),
     }),
@@ -4817,9 +4828,10 @@ export const api = {
 
   // ===== Daily Brief & AI Interpretation (A12) =====
   dailyBrief: {
-    getDailyBrief: (params?: { target_date?: string }) => {
+    getDailyBrief: (params?: { target_date?: string; include_strategy_matches?: boolean }) => {
       const q = new URLSearchParams()
       if (params?.target_date) q.set('target_date', params.target_date)
+      if (params?.include_strategy_matches != null) q.set('include_strategy_matches', String(params.include_strategy_matches))
       const qs = q.toString()
       return request<DeterministicDailyBrief>(`/api/taiwan/daily-brief${qs ? `?${qs}` : ''}`)
     },
@@ -5407,18 +5419,28 @@ export interface CandidateFactBrief {
   new_top10: CandidateItem[]
   dropped_top10: CandidateItem[]
   strategy_matches: CandidateItem[]
+  strategy_status?: 'available' | 'not_requested' | 'unavailable' | 'unknown'
+  strategy_status_message?: string | null
 }
 
 export interface EventFactBrief {
+  status?: 'available' | 'partial' | 'unavailable' | 'unknown'
+  fetched_at?: string | null
+  status_message?: string | null
   risk_events: Record<string, any>[]
   attention_events: Record<string, any>[]
 }
 
 export interface NewsFactBrief {
   items: Record<string, any>[]
+  status?: 'available' | 'partial' | 'unavailable' | 'not_requested' | 'unknown'
+  missing_symbols?: string[]
+  status_message?: string | null
 }
 
 export interface DeterministicDailyBrief {
+  /** v2: sector and candidate change_pct are percentage points. */
+  schema_version?: 1 | 2
   brief_date: string
   generated_at: string
   market: MarketFactBrief
@@ -5446,6 +5468,7 @@ export interface SavedDailyBrief {
   generated_at: string
   data_as_of: string
   structured_brief: DeterministicDailyBrief
+  legacy_unit_normalized?: boolean
   ai_summary: DailyBriefAISummary | null
   ai_status: 'success' | 'not_generated' | 'failed' | 'live_ai_not_tested'
   ai_error: string | null
@@ -5453,6 +5476,7 @@ export interface SavedDailyBrief {
 
 export interface CreateDailyBriefRequest {
   target_date?: string | null
+  include_strategy_matches?: boolean
   portfolio_holdings?: Record<string, any>[] | null
 }
 

@@ -1020,9 +1020,13 @@ class TaiwanEventService:
         limit: int = 200,
         include_mops: bool = False,
         force_refresh: bool = False,
+        *,
+        events: list[MarketEvent] | None = None,
     ) -> list[MarketEvent]:
-        """Query normalized market events with scope and severity filtering."""
-        all_events = list(self.get_all_regulatory_and_official_events(force_refresh=force_refresh))
+        """Query events; an explicit snapshot reuses filters without fetching official sources."""
+        all_events = list(events) if events is not None else list(
+            self.get_all_regulatory_and_official_events(force_refresh=force_refresh)
+        )
         if include_mops:
             all_events.extend(self.get_mops_events(force_refresh=force_refresh))
 

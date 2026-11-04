@@ -15,7 +15,7 @@ import json
 from datetime import date
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, Mock, patch
 
 import polars as pl
 import pytest
@@ -32,7 +32,11 @@ from app.taiwan.daily_store import TaiwanDailyStore
 
 
 @pytest.fixture
-def mock_daily_brief_service(tmp_path: Path) -> TaiwanDailyBriefService:
+def mock_daily_brief_service(tmp_path: Path, monkeypatch) -> TaiwanDailyBriefService:
+    # This suite verifies collation, not FinMind futures/options transport.
+    monkeypatch.setattr("app.taiwan.daily_brief_service.get_market_sentiment_service", lambda: SimpleNamespace(
+        get_market_sentiment=lambda *args, **kwargs: SimpleNamespace(sentiment_label="中性", summary="測試快取"),
+    ))
     store_dir = tmp_path / "daily"
     store_dir.mkdir(parents=True, exist_ok=True)
     daily_store = TaiwanDailyStore(store_dir)
@@ -243,6 +247,7 @@ def test_portfolio_returns_use_report_date_close_and_risk_date(mock_daily_brief_
         patch("app.taiwan.daily_brief_service.get_event_service") as get_events,
     ):
         get_events.return_value.check_symbol_risk_status.return_value = {}
+        get_events.return_value.get_cached_regulatory_snapshot.return_value = ([], "available", None)
         brief = mock_daily_brief_service.build_deterministic_brief(
             target_date=report_date,
             portfolio_holdings=[
@@ -317,6 +322,7 @@ def test_ai_summary_prompt_pins_units_quant_scale_and_status_list_events():
 
     source = inspect.getsource(daily_brief_service.TaiwanDailyBriefService.generate_ai_summary)
     assert "絕對不得寫成元、億元" in source and "score_scale" in source and "current_status_list" in source
+    assert "strategy_status" in source and "unknown" in source and "仍可解讀其他已就緒資料" in source
     assert "百分位排名" in daily_brief_service.LIVE_SCORE_SCALE and "不是全市場" in daily_brief_service.SCREENER_SCORE_SCALE and "合格排名池" in daily_brief_service.LIVE_SCORE_SCALE
 
 
@@ -406,3 +412,276 @@ def test_brief_missing_historical_data_returns_404(mock_daily_brief_service):
         client = TestClient(app, client=("127.0.0.1", 12345))
         assert client.get("/api/taiwan/daily-brief?target_date=2026-07-31").status_code == 404
         assert client.post("/api/taiwan/daily-brief", json={"target_date": "2026-07-31"}).status_code == 404
+
+
+@pytest.mark.parametrize("available_count,expected_status", [(0, "unavailable"), (1, "partial"), (3, "available")])
+def test_brief_news_is_cache_only_and_reports_coverage(mock_daily_brief_service, available_count, expected_status):
+    symbols = ["2330.TWSE", "2454.TWSE", "8069.TPEX"]
+
+    class Ledger:
+        def list_runs(self, **kwargs):
+            return [{"model_key": "test", "session": "2026-08-03"}]
+
+        def read_run(self, *args):
+            return {"snapshot": {"signals": [{"symbol": symbol} for symbol in symbols]}}
+
+    calls = []
+    sentiment = Mock(return_value=SimpleNamespace(sentiment_label="中性", summary="測試快取"))
+
+    def news(symbol, limit=15, **kwargs):
+        calls.append((symbol, kwargs))
+        available = symbols.index(symbol) < available_count
+        item = SimpleNamespace(model_dump=lambda: {"title": "Cached news", "symbol": symbol})
+        return SimpleNamespace(status="available" if available else "unavailable", items=[item] if available else [])
+
+    with (
+        patch("app.taiwan.daily_brief_service.LiveLedger", Ledger),
+        patch("app.taiwan.daily_brief_service.get_market_sentiment_service", return_value=SimpleNamespace(get_market_sentiment=sentiment)),
+        patch("app.taiwan.daily_brief_service.get_news_service", return_value=SimpleNamespace(get_recent_news=news)),
+    ):
+        brief = mock_daily_brief_service.build_deterministic_brief(target_date=date(2026, 8, 3))
+    assert calls == [(symbol, {"allow_fetch": False}) for symbol in symbols]
+    sentiment.assert_called_once_with(date(2026, 8, 3), allow_fetch=False)
+    assert brief.news.status == expected_status
+    assert brief.news.missing_symbols == symbols[available_count:]
+    assert len(brief.news.items) == available_count
+    if available_count < 3:
+        assert "快取" in brief.news.status_message
+
+
+def test_legacy_brief_news_keeps_unknown_availability():
+    from app.taiwan.daily_brief_models import NewsFactBrief
+
+    assert NewsFactBrief.model_validate({"items": []}).status == "unknown"
+
+
+@pytest.mark.parametrize("cache_state", ["missing", "expired", "partial", "available"])
+def test_full_brief_build_never_fetches_upstream_and_keeps_unknown_risk(
+    mock_daily_brief_service, taiwan_data_env, monkeypatch, tmp_path, cache_state,
+):
+    from datetime import UTC, datetime
+
+    from app.taiwan.events_service import MarketEvent, TaiwanEventService
+    from app.taiwan.finmind_cache import FinMindCache
+    from app.taiwan.market_sentiment_service import TaiwanMarketSentimentService
+    from app.taiwan.news_service import TaiwanNewsService
+
+    blocked = Mock(side_effect=AssertionError("page assembly must not perform upstream HTTP"))
+    monkeypatch.setattr("app.taiwan.events_service.fetch_json", blocked)
+    monkeypatch.setattr("app.taiwan.providers.finmind_provider.FinMindAdapter.fetch_dataset", blocked)
+    # Also catches accidental provider calls outside those known adapters.
+    monkeypatch.setattr("socket.socket.connect", blocked)
+    event_svc = TaiwanEventService()
+    event = MarketEvent(
+        id="test-risk", symbol="2330.TWSE", code="2330", name="台積電", exchange="TWSE",
+        event_date=str(taiwan_data_env["target"]), event_type="suspended_trading",
+        event_type_label="暫停交易", severity="risk", title="測試暫停交易", summary="測試",
+        source="test", retrieved_at=datetime.now(UTC).isoformat(),
+    )
+    if cache_state != "missing":
+        age = 7200 if cache_state == "expired" else 0
+        event_svc._memory_cache["official"] = (datetime.now(UTC).timestamp() - age, [event])
+        event_svc.last_status = "partial" if cache_state == "partial" else "available"
+    cached_read = Mock(wraps=event_svc.get_cached_regulatory_snapshot)
+    monkeypatch.setattr(event_svc, "get_cached_regulatory_snapshot", cached_read)
+    cache = FinMindCache(tmp_path / "finmind")
+    monkeypatch.setattr("app.taiwan.daily_brief_service.get_event_service", lambda: event_svc)
+    monkeypatch.setattr("app.taiwan.daily_brief_service.get_news_service", lambda: TaiwanNewsService(finmind_cache=cache))
+    monkeypatch.setattr("app.taiwan.daily_brief_service.get_market_sentiment_service", lambda: TaiwanMarketSentimentService(finmind_cache=cache))
+
+    class Ledger:
+        def list_runs(self, **kwargs):
+            return [{"model_key": "test", "session": str(taiwan_data_env["target"])}]
+
+        def read_run(self, *args):
+            return {"snapshot": {"signals": [{"symbol": "2330.TWSE"}]}}
+
+    monkeypatch.setattr("app.taiwan.daily_brief_service.LiveLedger", Ledger)
+    mock_daily_brief_service.daily_store = TaiwanDailyStore()
+    brief = mock_daily_brief_service.build_deterministic_brief(
+        target_date=taiwan_data_env["target"],
+        portfolio_holdings=[{"symbol": "2330.TWSE", "name": "台積電", "shares": 1000, "average_cost": 100}],
+    )
+    blocked.assert_not_called()
+    cached_read.assert_called_once_with()
+    expected = cache_state if cache_state in {"available", "partial"} else "unavailable"
+    assert brief.events.status == expected
+    holding_events = brief.portfolio.biggest_movers[0].events
+    if expected != "available":
+        assert "官方事件資料不足，風險未確認" in holding_events
+        assert "無法確認完整風險" in brief.events.status_message
+    if expected in {"available", "partial"}:
+        assert "暫停交易" in holding_events
+        assert len(brief.events.risk_events) == 1
+        assert brief.events.fetched_at is not None
+    else:
+        assert brief.events.risk_events == []
+        assert brief.events.fetched_at is None
+    assert brief.news.status == "unavailable"
+
+
+
+def _legacy_percentage_brief() -> DeterministicDailyBrief:
+    return DeterministicDailyBrief.model_validate({
+        "brief_date": "2026-08-28", "generated_at": "2026-08-28T14:30:00Z",
+        "market": {
+            "trade_date": "2026-08-28", "taiex_change_pct": 1.2,
+            "strongest_sectors": [{"industry": "正報酬", "change_pct": 0.02, "advance_ratio": 0.75}],
+            "weakest_sectors": [{"industry": "負報酬", "change_pct": -0.1}, {"industry": "未知", "change_pct": None}],
+        },
+        "portfolio": {"biggest_movers": [{"symbol": "2330.TWSE", "change_pct": 4.5}]},
+        "watchlist": {},
+        "candidates": {
+            "new_top10": [{"symbol": "2330.TWSE", "name": "台積電", "reason_type": "new_top10", "source_name": "quant", "change_pct": 1.8}],
+            "strategy_matches": [
+                {"symbol": symbol, "name": symbol, "reason_type": "strategy_match", "source_name": "test", "change_pct": pct}
+                for symbol, pct in [("2330.TWSE", -0.1), ("2454.TWSE", None), ("2881.TWSE", 0.0)]
+            ],
+        },
+        "events": {}, "news": {},
+    })
+
+
+def test_daily_brief_converts_sector_and_strategy_ratios_at_boundary(mock_daily_brief_service, monkeypatch):
+    monkeypatch.setattr(
+        "app.taiwan.daily_brief_service.TaiwanIndustryIntelligenceService.get_snapshot",
+        lambda *args: SimpleNamespace(industries=[
+            SimpleNamespace(industry=name, average_change_pct=pct, turnover=100.0, advance_ratio=0.75)
+            for name, pct in [("正報酬", 0.02), ("負報酬", -0.1), ("零報酬", 0.0)]
+        ]),
+    )
+    monkeypatch.setattr(
+        "app.taiwan.daily_brief_service.get_screener_strategy_store",
+        lambda: SimpleNamespace(list_strategies=lambda: [SimpleNamespace(name="test", conditions={})]),
+    )
+    monkeypatch.setattr(
+        "app.taiwan.daily_brief_service.TaiwanScreenerService.run",
+        lambda *args: SimpleNamespace(items=[
+            SimpleNamespace(symbol=symbol, name=symbol, change_pct=pct, close=100.0, quant_score=None, rank=None, match_reasons=[])
+            for symbol, pct in [("2330.TWSE", -0.1), ("2454.TWSE", None), ("2881.TWSE", 0.0)]
+        ]),
+    )
+    brief = mock_daily_brief_service.build_deterministic_brief(target_date=date(2026, 8, 28))
+    assert brief.schema_version == 2
+    assert [s.change_pct for s in brief.market.strongest_sectors] == [2.0, 0.0, -10.0]
+    assert [s.change_pct for s in brief.market.weakest_sectors] == [2.0, 0.0, -10.0]
+    assert [s.advance_ratio for s in brief.market.strongest_sectors] == [0.75] * 3
+    assert [c.change_pct for c in brief.candidates.strategy_matches] == [-10.0, None, 0.0]
+
+
+def test_legacy_history_units_are_view_only_and_append_preserves_old_record(mock_daily_brief_service):
+    svc = mock_daily_brief_service
+    legacy = _legacy_percentage_brief()
+    old_record = {
+        "brief_id": "legacy", "brief_date": legacy.brief_date, "generated_at": legacy.generated_at,
+        "data_as_of": legacy.brief_date, "structured_brief": legacy.model_dump(exclude={"schema_version"}),
+        "ai_summary": {
+            "section_a_market": "原始 AI 文字保留", "section_b_key_changes": [], "section_c_portfolio": "",
+            "section_d_watchlist": "", "section_e_candidates": "", "section_f_risks": "", "section_g_tracking": "",
+        },
+        "private_future_field": {"preserve": True},
+    }
+    svc.path.parent.mkdir(parents=True, exist_ok=True)
+    svc.path.write_text(json.dumps([old_record], ensure_ascii=False), encoding="utf-8")
+    original_bytes = svc.path.read_bytes()
+    listed = svc.list_saved_briefs()[0]
+    viewed = svc.get_saved_brief("legacy")
+    assert viewed is not None
+    assert listed.model_dump() == viewed.model_dump()
+    normalized = viewed.structured_brief
+    assert normalized.schema_version == 2
+    assert viewed.legacy_unit_normalized is True
+    assert normalized.market.strongest_sectors[0].change_pct == 2.0
+    assert [s.change_pct for s in normalized.market.weakest_sectors] == [-10.0, None]
+    assert normalized.market.strongest_sectors[0].advance_ratio == 0.75
+    assert [c.change_pct for c in normalized.candidates.strategy_matches] == [-10.0, None, 0.0]
+    assert normalized.market.taiex_change_pct == 1.2
+    assert normalized.portfolio.biggest_movers[0].change_pct == 4.5
+    assert normalized.candidates.new_top10[0].change_pct == 1.8
+    assert viewed.ai_summary.section_a_market == "原始 AI 文字保留"
+    assert svc.path.read_bytes() == original_bytes
+
+    # Appending a new v2 brief must not serialize model defaults or changed units into old records.
+    saved = svc.save_brief(normalized)
+    records = json.loads(svc.path.read_text(encoding="utf-8"))
+    assert records[0] == old_record
+    assert records[1]["structured_brief"]["schema_version"] == 2
+    assert records[1]["structured_brief"]["candidates"]["strategy_matches"][0]["change_pct"] == -10.0
+    assert svc.get_saved_brief(saved.brief_id).structured_brief.candidates.strategy_matches[0].change_pct == -10.0
+    assert svc.get_saved_brief("legacy").structured_brief.candidates.strategy_matches[0].change_pct == -10.0
+
+
+@pytest.mark.asyncio
+async def test_daily_brief_ai_uses_normalized_percentage_points_without_mutating_legacy(mock_daily_brief_service):
+    brief = _legacy_percentage_brief()
+    response = json.dumps({
+        "section_a_market": "測試", "section_b_key_changes": [], "section_c_portfolio": "",
+        "section_d_watchlist": "", "section_e_candidates": "", "section_f_risks": "", "section_g_tracking": "",
+    })
+    with patch("app.taiwan.daily_brief_service.generate_ai_text", new_callable=AsyncMock, return_value=response) as generate:
+        await mock_daily_brief_service.generate_ai_summary(brief, config_snapshot=Mock())
+    messages = generate.await_args.kwargs["messages"]
+    assert "百分點" in messages[0]["content"]
+    payload = json.loads(messages[1]["content"].split("```json\n", 1)[1].rsplit("\n```", 1)[0])
+    assert payload["schema_version"] == 2
+    assert payload["market"]["strongest_sectors"][0]["change_pct"] == 2.0
+    assert payload["candidates"]["strategy_matches"][0]["change_pct"] == -10.0
+    assert brief.schema_version == 1
+    assert brief.candidates.strategy_matches[0].change_pct == -0.1
+    saved = mock_daily_brief_service.save_brief(brief)
+    assert saved.structured_brief.candidates.strategy_matches[0].change_pct == -10.0
+    assert saved.legacy_unit_normalized is True
+
+
+
+def test_malformed_legacy_history_keeps_read_fallback_and_is_not_rewritten(mock_daily_brief_service):
+    svc = mock_daily_brief_service
+    svc.path.parent.mkdir(parents=True, exist_ok=True)
+    svc.path.write_text('[{"brief_id": "invalid"}]', encoding="utf-8")
+    before = svc.path.read_bytes()
+    assert svc.list_saved_briefs() == []
+    assert svc.get_saved_brief("invalid") is None
+    assert svc.path.read_bytes() == before
+
+
+@pytest.mark.parametrize("method", ["get", "post"])
+@pytest.mark.parametrize("preview", [False, True])
+def test_daily_brief_api_defaults_to_full_and_preview_skips_strategy(
+    mock_daily_brief_service, monkeypatch, method, preview,
+):
+    from app.taiwan import daily_brief_service as module
+
+    run = Mock(return_value=SimpleNamespace(items=[]))
+    screener = Mock(return_value=SimpleNamespace(run=run))
+    monkeypatch.setattr(module, "TaiwanScreenerService", screener)
+    monkeypatch.setattr(module, "get_screener_strategy_store", lambda: SimpleNamespace(
+        list_strategies=lambda: [SimpleNamespace(conditions={}, name="test")],
+    ))
+    monkeypatch.setattr(module, "get_daily_brief_service", lambda: mock_daily_brief_service)
+    client = TestClient(app, client=("127.0.0.1", 12345))
+    data = {"target_date": "2026-08-03"}
+    if preview:
+        data["include_strategy_matches"] = False
+    response = client.get("/api/taiwan/daily-brief", params=data) if method == "get" else client.post("/api/taiwan/daily-brief", json=data)
+    assert response.status_code == 200
+    result = response.json()
+    assert result["schema_version"] == 2
+    assert result["market"]["trade_date"] == "2026-08-03"
+    assert result["candidates"]["strategy_status"] == ("not_requested" if preview else "available")
+    assert run.call_count == (0 if preview else 1)
+    assert screener.call_count == (0 if preview else 1)
+
+
+def test_failed_strategy_preserves_brief_with_partial_ai_evidence(mock_daily_brief_service, monkeypatch):
+    from app.taiwan import daily_brief_service as module
+
+    monkeypatch.setattr(module, "get_screener_strategy_store", lambda: SimpleNamespace(
+        list_strategies=lambda: [SimpleNamespace(conditions={}, name="test")],
+    ))
+    monkeypatch.setattr(module, "TaiwanScreenerService", lambda: SimpleNamespace(run=Mock(side_effect=RuntimeError("offline"))))
+    brief = mock_daily_brief_service.build_deterministic_brief(target_date=date(2026, 8, 3))
+    assert brief.candidates.strategy_status == "unavailable"
+    assert "其他已就緒資料" in brief.candidates.strategy_status_message
+    assert brief.market.trade_date == "2026-08-03"
+    saved = mock_daily_brief_service.save_brief(brief)
+    assert saved.structured_brief.candidates.strategy_status == "unavailable"

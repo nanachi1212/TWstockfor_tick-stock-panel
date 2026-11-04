@@ -326,6 +326,15 @@ describe('formatStockDetailCopy & Prompt', () => {
 })
 
 describe('formatDailyBriefCopy & Prompt', () => {
+  it.each(['not_requested', 'unavailable'] as const)('preserves %s strategy coverage in copied data and AI prompts', status => {
+    const brief = { brief_date: '2026-08-28', candidates: [], strategy_status: status, strategy_status_message: '策略候選資料不足' }
+    for (const text of [formatDailyBriefCopy(brief), formatDailyBriefPrompt(brief)]) {
+      expect(text).toContain(status)
+      expect(text).toContain('策略候選資料不足')
+      expect(text).toContain('不可將未完成或缺漏的候選清單解讀成沒有符合策略的股票')
+    }
+  })
+
   it('formats daily brief with freshness and privacy protection', () => {
     const text = formatDailyBriefCopy({
       brief_date: '2026-09-25',

@@ -1275,7 +1275,7 @@ def get_external_context(symbol: str | None = None):
 # ── A12: Daily Brief (每日 AI 摘要) ──────────────────────────────
 
 @router.get("/daily-brief")
-def get_daily_brief(target_date: str | None = None):
+def get_daily_brief(target_date: str | None = None, include_strategy_matches: bool = True):
     """取得或建構今日台股客觀確定性簡報 (涵蓋大盤、強弱族群、持股與自選、新候選股、事件與新聞)。"""
     from app.taiwan.daily_brief_service import get_daily_brief_service
 
@@ -1289,7 +1289,7 @@ def get_daily_brief(target_date: str | None = None):
             raise HTTPException(status_code=400, detail=f"無效的日期格式: {target_date}") from e
 
     try:
-        brief = svc.build_deterministic_brief(target_date=target_dt)
+        brief = svc.build_deterministic_brief(target_date=target_dt, include_strategy_matches=include_strategy_matches)
         return brief.model_dump()
     except LookupError as e:
         raise HTTPException(status_code=404, detail=str(e)) from e
@@ -1300,6 +1300,7 @@ def get_daily_brief(target_date: str | None = None):
 
 class DailyBriefBuildRequest(BaseModel):
     target_date: str | None = None
+    include_strategy_matches: bool = True
     # Open positions from the browser ledger; None = not provided (reported as unavailable,
     # never as "0 holdings"), [] = the ledger was read and has no open position.
     portfolio_holdings: list[dict[str, Any]] | None = None
@@ -1322,7 +1323,10 @@ def build_daily_brief_with_holdings(req: DailyBriefBuildRequest):
             raise HTTPException(status_code=422, detail="持股超過 200 檔，無法產生完整摘要")
         holdings = [h for h in req.portfolio_holdings if isinstance(h, dict) and isinstance(h.get("symbol"), str)]
     try:
-        brief = get_daily_brief_service().build_deterministic_brief(target_date=target_dt, portfolio_holdings=holdings)
+        brief = get_daily_brief_service().build_deterministic_brief(
+            target_date=target_dt, portfolio_holdings=holdings,
+            include_strategy_matches=req.include_strategy_matches,
+        )
         return brief.model_dump()
     except LookupError as e:
         raise HTTPException(status_code=404, detail=str(e)) from e

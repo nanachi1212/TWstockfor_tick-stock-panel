@@ -184,34 +184,27 @@ class LotModel:
 class TickSizeModel:
     """Price tick size model adhering to TWSE Rule 62 & ETF regulations."""
 
-    @staticmethod
+    STOCK_TICK_TIERS = (
+        (10.0, 0.01), (50.0, 0.05), (100.0, 0.10),
+        (500.0, 0.50), (1000.0, 1.00), (math.inf, 5.00),
+    )
+    ETF_TICK_TIERS = ((50.0, 0.01), (math.inf, 0.05))
+
+    @classmethod
     def get_tick_size(
+        cls,
         price: float,
         tick_class: TickSizeClass = TickSizeClass.ORDINARY_STOCK,
-        trade_date: date | None = None,  # noqa: ARG004
+        trade_date: date | None = None,
     ) -> float:
-        """Get minimum price movement for a given price and asset category."""
+        """Get minimum price movement from the shared scalar/vector tier tables."""
         if price <= 0:
             return 0.01
-
-        if tick_class == TickSizeClass.ETF:
-            # ETF: 2 tiers (<50: 0.01, >=50: 0.05)
-            if price < 50.0:
-                return 0.01
-            return 0.05
-
-        # Ordinary Stock: 6 tiers
-        if price < 10.0:
-            return 0.01
-        if price < 50.0:
-            return 0.05
-        if price < 100.0:
-            return 0.10
-        if price < 500.0:
-            return 0.50
-        if price < 1000.0:
-            return 1.00
-        return 5.00
+        tiers = cls.ETF_TICK_TIERS if tick_class == TickSizeClass.ETF else cls.STOCK_TICK_TIERS
+        for upper_bound, tick in tiers:
+            if price < upper_bound:
+                return tick
+        return tiers[-1][1]
 
     @classmethod
     def round_price_limit_boundary(

@@ -482,6 +482,8 @@ export interface DailyBriefCopyData {
     change_pct?: number | null
     quant_score?: number | null
   }> | null
+  strategy_status?: 'available' | 'not_requested' | 'unavailable' | 'unknown'
+  strategy_status_message?: string | null
   candidates?: Array<{
     symbol: string
     name: string
@@ -585,6 +587,9 @@ export function formatDailyBriefCopy(d: DailyBriefCopyData): string {
   }
 
   // 選股候選
+  if (d.strategy_status && d.strategy_status !== 'available') {
+    lines.push(`策略候選資料狀態：${sanitize(d.strategy_status)}；${sanitize(d.strategy_status_message || '策略候選資料不足')}。不可將未完成或缺漏的候選清單解讀成沒有符合策略的股票。`, '')
+  }
   if (d.candidates && d.candidates.length > 0) {
     lines.push('## 今日量化選股候選標的')
     for (const c of d.candidates.slice(0, 20)) {
