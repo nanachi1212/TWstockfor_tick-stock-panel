@@ -30,7 +30,7 @@ SSE_REFRESH_PAGES_DEFAULT = {
     "watchlist": True,
 }
 
-SIDEBAR_INDEX_SYMBOLS_DEFAULT = ["000001.SH", "399001.SZ", "399006.SZ", "000680.SH"]
+SIDEBAR_INDEX_SYMBOLS_DEFAULT: list[str] = []
 
 
 def _path() -> Path:
@@ -185,14 +185,14 @@ def get_minute_sync_segment_days() -> int:
 
     每段拉完后立即落盘(流式),避免全量攒内存导致 OOM。
     段越小内存峰值越低但总耗时越长(限速 sleep 随段数线性增加);
-    物理上限 ~41 交易日(TickFlow 单次 10000 根 / 一天 241 根 ≈ 41 天),max=30 留出余量。
+    最大 30 个交易日; 实际拉取范围仍受当前数据源能力限制。
     """
     return max(5, min(30, load().get("minute_sync_segment_days", 20)))
 
 
-# ===== 数据源选择 (默认 TickFlow；第一阶段仅日K切换入口) =====
+# ===== 数据源选择 (台灣官方或已配置的自訂來源) =====
 
-_ALLOWED_DATA_PROVIDERS = {"taiwan", "tickflow"}
+_ALLOWED_DATA_PROVIDERS = {"taiwan"}
 DATA_SOURCE_JOB_TIMEOUT_MIN_S = 60
 
 
@@ -224,15 +224,13 @@ def get_data_source_long_job_timeout_s() -> int:
 def _allowed_data_providers() -> set[str]:
     try:
         from app.data_providers import custom as custom_sources
-        return _ALLOWED_DATA_PROVIDERS | custom_sources.names()
+        return (_ALLOWED_DATA_PROVIDERS | custom_sources.names()) - {"tickflow"}
     except Exception:  # noqa: BLE001
         return set(_ALLOWED_DATA_PROVIDERS)
 
 
 def get_daily_data_provider() -> str:
     provider = str(load().get("daily_data_provider", "taiwan") or "taiwan").lower()
-    if provider == "tickflow":
-        return "taiwan"
     return provider if provider in _allowed_data_providers() else "taiwan"
 
 
@@ -245,26 +243,20 @@ def get_adj_factor_provider() -> str:
 
 def get_minute_data_provider() -> str:
     provider = str(load().get("minute_data_provider", "taiwan") or "taiwan").lower()
-    if provider == "tickflow":
-        return "taiwan"
     return provider if provider in _allowed_data_providers() else "taiwan"
 
 
 def get_realtime_data_provider() -> str:
     provider = str(load().get("realtime_data_provider", "taiwan") or "taiwan").lower()
-    if provider == "tickflow":
-        return "taiwan"
     return provider if provider in _allowed_data_providers() else "taiwan"
 
 
 def get_financial_provider() -> str:
     provider = str(load().get("financial_data_provider", "taiwan") or "taiwan").lower()
-    if provider == "tickflow":
-        return "taiwan"
     return provider if provider in _allowed_data_providers() else "taiwan"
 
 
-# ===== 盘后管道拉取内容开关 (A股 / ETF / 指数 独立控制) =====
+# ===== 盘后管道拉取内容开关 =====
 
 
 
@@ -329,7 +321,8 @@ def get_realtime_pull_etf() -> bool:
 
 
 def get_realtime_pull_index() -> bool:
-    return load().get("realtime_pull_index", True)
+    """The retired index feed cannot be enabled by historical preferences."""
+    return False
 
 
 def get_realtime_index_mode() -> str:
@@ -338,22 +331,15 @@ def get_realtime_index_mode() -> str:
 
 
 def get_realtime_index_symbols() -> list[str]:
-    stored = load().get("realtime_index_symbols", SIDEBAR_INDEX_SYMBOLS_DEFAULT)
-    if isinstance(stored, str):
-        import re
-        stored = [s.strip() for s in re.split(r"[,\s]+", stored) if s.strip()]
-    return [str(s) for s in stored if str(s).strip()]
+    """No index feed is configured; leave old persisted preferences untouched."""
+    return []
 
 
 def set_realtime_quote_scope(cfg: dict) -> dict:
     updates = {}
-    for key in ("realtime_pull_stock", "realtime_pull_etf", "realtime_pull_index"):
+    for key in ("realtime_pull_stock", "realtime_pull_etf"):
         if key in cfg and cfg[key] is not None:
             updates[key] = bool(cfg[key])
-    if "realtime_index_mode" in cfg and cfg["realtime_index_mode"] in {"core", "all"}:
-        updates["realtime_index_mode"] = cfg["realtime_index_mode"]
-    if "realtime_index_symbols" in cfg and cfg["realtime_index_symbols"] is not None:
-        updates["realtime_index_symbols"] = cfg["realtime_index_symbols"]
     if updates:
         save(updates)
     return get_realtime_quote_scope()
@@ -385,11 +371,8 @@ def set_sse_refresh_pages(pages: dict[str, bool]) -> dict[str, bool]:
 
 
 def get_sidebar_index_symbols() -> list[str]:
-    """返回左侧菜单显示的指数代码。"""
-    stored = load().get("sidebar_index_symbols", SIDEBAR_INDEX_SYMBOLS_DEFAULT)
-    allowed = set(SIDEBAR_INDEX_SYMBOLS_DEFAULT)
-    return [s for s in stored if s in allowed]
-
+    """The retired sidebar index feed has no active symbols."""
+    return []
 
 
 def get_system_notify_enabled() -> bool:
@@ -550,9 +533,6 @@ def set_realtime_monitor_config(cfg: dict) -> dict:
     updates = {}
     if "sse_refresh_pages" in cfg:
         updates["sse_refresh_pages"] = cfg["sse_refresh_pages"]
-    if "sidebar_index_symbols" in cfg:
-        allowed = set(SIDEBAR_INDEX_SYMBOLS_DEFAULT)
-        updates["sidebar_index_symbols"] = [s for s in cfg["sidebar_index_symbols"] if s in allowed]
     if "minute_intraday_refresh" in cfg:
         updates["minute_intraday_refresh"] = bool(cfg["minute_intraday_refresh"])
     if "minute_intraday_refresh_interval" in cfg:

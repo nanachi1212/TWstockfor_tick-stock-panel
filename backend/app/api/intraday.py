@@ -13,7 +13,7 @@ import asyncio
 import json
 import time
 
-from fastapi import APIRouter, Query, Request
+from fastapi import APIRouter, HTTPException, Query, Request
 from sse_starlette.sse import EventSourceResponse
 
 from app.taiwan.realtime import get_market_status, get_realtime_service, taipei_now
@@ -25,66 +25,6 @@ router = APIRouter(prefix="/api/intraday", tags=["quotes"])
 def _get_quote_service(request: Request):
     """获取全局 QuoteService。"""
     return getattr(request.app.state, "quote_service", None)
-
-
-def _fallback_index_quotes_from_daily(request: Request, symbols: list[str] | None = None) -> list[dict]:
-    """实时指数缓存为空时，从本地指数日 K 取最近收盘价作为兜底。"""
-    repo = getattr(request.app.state, "repo", None)
-    if not repo:
-        return []
-
-    params: list[str] = []
-    symbol_filter = ""
-    if symbols:
-        placeholders = ", ".join("?" for _ in symbols)
-        symbol_filter = f"WHERE symbol IN ({placeholders})"
-        params.extend(symbols)
-
-    try:
-        rows = repo.execute_all(
-            f"""
-            WITH ranked AS (
-                SELECT symbol, date, close,
-                       row_number() OVER (PARTITION BY symbol ORDER BY date DESC) AS rn
-                FROM kline_index_daily
-                {symbol_filter}
-            ), latest AS (
-                SELECT symbol,
-                       max(CASE WHEN rn = 1 THEN date END) AS date,
-                       max(CASE WHEN rn = 1 THEN close END) AS last_price,
-                       max(CASE WHEN rn = 2 THEN close END) AS prev_close
-                FROM ranked
-                WHERE rn <= 2
-                GROUP BY symbol
-            )
-            SELECT latest.symbol, latest.date, latest.last_price, latest.prev_close
-            FROM latest
-            ORDER BY latest.symbol
-            """,
-            params,
-        )
-    except Exception:  # noqa: BLE001
-        return []
-
-    out: list[dict] = []
-    for symbol, dt, last_price, prev_close in rows:
-        change_amount = None
-        change_pct = None
-        if last_price is not None and prev_close not in (None, 0):
-            change_amount = float(last_price) - float(prev_close)
-            change_pct = change_amount / float(prev_close) * 100
-        out.append({
-            "symbol": symbol,
-            "name": None,
-            "date": str(dt) if dt else None,
-            "last_price": float(last_price) if last_price is not None else None,
-            "close": float(last_price) if last_price is not None else None,
-            "prev_close": float(prev_close) if prev_close is not None else None,
-            "change_amount": change_amount,
-            "change_pct": change_pct,
-            "source": "index_daily",
-        })
-    return out
 
 
 @router.get("/status")
@@ -196,22 +136,9 @@ def search_taiwan_instruments(
 
 
 @router.get("/indices")
-def index_quotes(
-    request: Request,
-    symbols: str | None = Query(None, description="逗号分隔的指数 symbol 列表"),
-):
-    """返回实时指数行情缓存，不触发 TickFlow 请求。"""
-    symbol_list = [s.strip() for s in symbols.split(",") if s.strip()] if symbols else None
-    qs = _get_quote_service(request)
-    if not qs:
-        rows = _fallback_index_quotes_from_daily(request, symbol_list)
-        return {"rows": rows, "count": len(rows), "source": "index_daily"}
-    df = qs.get_index_quotes(symbol_list)
-    rows = df.to_dicts() if not df.is_empty() else []
-    if not rows:
-        rows = _fallback_index_quotes_from_daily(request, symbol_list)
-        return {"rows": rows, "count": len(rows), "source": "index_daily"}
-    return {"rows": rows, "count": len(rows), "source": "realtime"}
+def index_quotes():
+    """Explicitly retire the old market index endpoint without reading its caches."""
+    raise HTTPException(410, "舊市場指數端點已停用")
 
 
 @router.get("/stream")

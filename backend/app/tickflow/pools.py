@@ -11,7 +11,7 @@ from app.config import settings
 
 logger = logging.getLogger(__name__)
 
-PoolId = Literal["TAIWAN_ALL", "TWSE_ALL", "TPEX_ALL", "STOCKS", "ETFS", "watchlist", "CSI300", "CSI500", "SSE50", "CN_Equity_A", "CN_Index"]
+PoolId = Literal["TAIWAN_ALL", "TWSE_ALL", "TPEX_ALL", "STOCKS", "ETFS", "watchlist"]
 
 DEMO_SYMBOLS = ["2330.TWSE", "2317.TWSE", "2454.TWSE", "2308.TWSE", "2382.TWSE"]
 
@@ -32,6 +32,8 @@ def _pool_cache_path(pool_id: str) -> Path:
 
 def get_pool(pool_id: PoolId, refresh: bool = False) -> list[str]:
     """返回標的池中的 symbol 列表。"""
+    if pool_id not in {"TAIWAN_ALL", "TWSE_ALL", "TPEX_ALL", "STOCKS", "ETFS", "watchlist"}:
+        raise ValueError("Unsupported market pool")
     if pool_id == "watchlist":
         return _load_watchlist()
 

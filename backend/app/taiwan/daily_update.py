@@ -466,6 +466,22 @@ class TaiwanDailyUpdateService:
         # 5c. Official census for the target session; coverage gates need it. Independent of status.
         census = self._refresh_target_census(target)
 
+        # Census may have just proved an apparent interior gap was a closure.
+        # Do not keep that day failed and block the successful post-close chain.
+        def needs_data(entry: dict[str, Any]) -> bool:
+            try:
+                day = date.fromisoformat(entry.get("date", ""))
+            except (TypeError, ValueError):
+                return True
+            return is_potential_market_session(day, self.calendar, self.evidence_store)
+
+        for stats in (daily_stats, inst_stats, margin_stats):
+            had_failures = bool(stats.failed_dates)
+            stats.failed_dates = [entry for entry in stats.failed_dates if needs_data(entry)]
+            stats.pending_dates = [entry for entry in stats.pending_dates if needs_data(entry)]
+            if had_failures and not stats.failed_dates:
+                stats.status = "success"
+
         # 6. Evaluate Freshness and Overall Status
         run_finish = taipei_now()
         freshness = self.get_freshness(target_date=target)

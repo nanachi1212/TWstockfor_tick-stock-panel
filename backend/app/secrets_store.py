@@ -1,7 +1,7 @@
 """Key / 凭据本地存储(§14)。
 
 存储位置:`data/user_data/secrets.json`,权限 0600。
-优先级:secrets.json > .env > 空(Free 模式)。
+优先级:secrets.json > .env > 空。
 
 UI 改 Key 时只动这个文件,不动 .env。
 """
@@ -58,15 +58,6 @@ def clear(*keys: str) -> dict:
         current.pop(k, None)
     p.write_text(json.dumps(current, indent=2, ensure_ascii=False), encoding="utf-8")
     return current
-
-
-def get_tickflow_key() -> str:
-    """取当前 TickFlow Key:secrets.json 优先,否则 .env。"""
-    val = load().get("tickflow_api_key")
-    if val:
-        return val
-    from app.config import settings
-    return settings.tickflow_api_key or ""
 
 
 # 還原的備份換了 AI 端點卻沒一起還原金鑰時, 記下被換端點的對象 ("legacy" = 舊版單一設定,
@@ -158,7 +149,7 @@ def get_ai_config_int(key: str, default: int) -> int:
 def get_env_backed_secret(field: str, env_name: str) -> str:
     """取环境变量后备的密钥(插件 API Key 等):secrets.json 优先,否则环境变量。
 
-    与 get_tickflow_key 同优先级语义:UI 写入 secrets.json 后即覆盖 .env。
+    UI 写入 secrets.json 后即覆盖 .env。
     """
     val = load().get(field)
     if val:

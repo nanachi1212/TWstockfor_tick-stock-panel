@@ -2,6 +2,8 @@
 
 本項目默認使用內建數據源。自定義數據源是一個可選擴展: 外部 HTTP 服務負責取數和整理, 本項目只把返回結果映射成內部標準字段, 然後複用現有存儲、指標、enriched、策略和前端展示邏輯。
 
+內建行情僅支援台股。TickFlow 與 A 股抓取已移除；自訂來源未提供選定資料集或取數失敗時，明確回報不可用，不切換到其他來源。
+
 ## 支持範圍
 
 當前自定義源支持五類數據:
@@ -99,7 +101,7 @@ datasets:
 
 | 內部字段 | 含義 |
 | --- | --- |
-| `symbol` | 標準代碼,如 `000001.SZ` |
+| `symbol` | 標準代碼,如 `2330.TWSE` |
 | `date` | 交易日 |
 | `open` / `high` / `low` / `close` | 不復權 OHLC |
 | `volume` | 成交量 |
@@ -131,7 +133,7 @@ datasets:
 
 - `daily` / `adj_factor` 會按 `batch` 切分 symbols。
 - POST 請求會發送 JSON body: `symbols`、`start_time`、`end_time`。
-- GET 請求會發送 query 參數: `symbols=000001.SZ,600000.SH`。
+- GET 請求會發送 query 參數: `symbols=2330.TWSE,6488.TPEX`。
 - `realtime` 必須是全市場快照接口,不支持逐個 symbol 拉實時行情。
 
 可通過這些字段改參數名:
@@ -253,7 +255,7 @@ cp docs/examples/custom-data-source/mock_source.yaml data/data_sources/mock_sour
 內部字段對照表:
 
 日K (daily):
-  symbol = 股票代碼, 格式 000001.SZ / 600000.SH
+  symbol = 股票代碼, 格式 2330.TWSE / 6488.TPEX
   date = 交易日期
   open / high / low / close = OHLC
   volume = 成交量

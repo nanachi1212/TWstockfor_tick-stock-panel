@@ -1,16 +1,15 @@
-"""Provider registry."""
+"""Registry for Taiwan official data and explicitly configured custom providers."""
 from __future__ import annotations
-
-def _get_providers():
-    from app.data_providers.tickflow_provider import TickFlowProvider
-    from app.taiwan.providers.hybrid_provider import TaiwanHybridProvider
-    return {
-        "taiwan": TaiwanHybridProvider,
-        "tickflow": TickFlowProvider,
-    }
 
 
 def get_provider(name: str = "taiwan"):
-    providers = _get_providers()
-    provider_cls = providers.get((name or "taiwan").lower(), providers["taiwan"])
-    return provider_cls()
+    provider_name = (name or "taiwan").strip().lower()
+    if provider_name == "taiwan":
+        from app.taiwan.providers.hybrid_provider import TaiwanHybridProvider
+
+        return TaiwanHybridProvider()
+    from app.data_providers import custom
+
+    if provider_name != "tickflow" and custom.is_custom_provider(provider_name):
+        return custom.get_provider(provider_name)
+    raise ValueError(f"Unsupported market data provider: {provider_name}")

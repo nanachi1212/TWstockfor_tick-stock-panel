@@ -72,7 +72,6 @@ export const storage = {
   watchlistBoardFilter: kv<string[]>('watchlist_boardFilter'),
 
   /** 自選列表排除 ST 標的 (默認不排除) */
-  watchlistExcludeST:    kv<boolean>('watchlist_excludeST'),
 
   /** 自選分組統計條配置 (metric: 統計指標, sort: 排序方式, card*: 分組卡片顯示項) */
   watchlistGroupStats: kv<{ metric: string; sort: string; cardTopN?: number; cardColorBar?: boolean; cardRank?: boolean }>('watchlist_groupStats'),

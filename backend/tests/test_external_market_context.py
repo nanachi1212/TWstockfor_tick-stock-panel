@@ -242,3 +242,33 @@ def test_frankfurter_health_rechecks_age_of_persisted_available_result(tmp_path)
         _cbc_rows(end=now - timedelta(days=30)), retrieved_at=now.isoformat(),
     ).model_copy(update={"status": "available", "freshness": "daily", "error_reason": None})
     assert provider.health_metadata()["status"] == "stale"
+
+
+def test_frankfurter_cached_reads_do_not_wait_for_active_network_refresh(tmp_path):
+    from concurrent.futures import ThreadPoolExecutor
+    from threading import Event
+
+    entered, release = Event(), Event()
+    now = datetime.now(UTC)
+
+    def fetcher(*_args, **_kwargs):
+        entered.set()
+        assert release.wait(3)
+        return []
+
+    provider = FrankfurterFxProvider(cache_path=tmp_path / "fx.json", fetcher=fetcher)
+    cached = normalize_cbc_rates(_cbc_rows(), retrieved_at=(now - timedelta(days=2)).isoformat())
+    provider._memory = cached
+    with ThreadPoolExecutor(max_workers=3) as pool:
+        refresh = pool.submit(provider.get_context, now=now)
+        try:
+            assert entered.wait(1)
+            health = pool.submit(provider.health_metadata).result(timeout=0.5)
+            snapshot = pool.submit(provider.cached_context, now=now).result(timeout=0.5)
+            assert health["status"] == snapshot.status == "stale"
+            assert health["data_date"] == snapshot.as_of == cached.as_of
+            assert snapshot.data == cached.data
+            assert provider._memory is cached
+        finally:
+            release.set()
+            refresh.result(timeout=1)

@@ -72,9 +72,6 @@ class Settings(BaseSettings):
         extra="ignore",
     )
 
-    # TickFlow
-    tickflow_api_key: str = Field(default="", description="留空启用 free 模式")
-
     # Optional intraday provider. Fugle never replaces official/PIT data sources.
     fugle_api_key: str = Field(default="", repr=False)
     fred_api_key: str = Field(default="", repr=False)
@@ -144,11 +141,6 @@ class Settings(BaseSettings):
             raise ValueError("ai_context_window must be positive")
         return self
 
-    @property
-    def use_free_mode(self) -> bool:
-        """是否走 Free 模式。优先看 secrets.json,其次看 .env。"""
-        from app import secrets_store
-        return not secrets_store.get_tickflow_key()
 
 
 settings = Settings()

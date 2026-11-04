@@ -1,8 +1,4 @@
-"""TickFlow capability rate-limit helpers.
-
-This module centralizes the small pieces of batch/rpm resolution used by
-TickFlow-backed services. It intentionally does not manage custom data sources.
-"""
+"""Shared process-local batch and request pacing helpers."""
 from __future__ import annotations
 
 import threading
@@ -14,10 +10,7 @@ from app.capabilities import Cap, CapabilitySet
 
 T = TypeVar("T")
 
-# TickFlow Pro 单进程安全预算: 套餐标称 rpm 的 80%。
-# 注意: _next_slot 仅在本 Python 进程内共享, 不能跨 Gold 容器与 A 股面板进程。
-# Stage A 期间跨产品靠错峰(盘中 Gold 优先, A 股 Pro 批处理建议 16:00 后),
-# 不要把「各进程各扣 80%」误当成账户级共享限频。
+# Reserve 20% of a source's declared request budget for other local consumers.
 SAFETY_RPM_FACTOR = 0.8
 
 # 进程级共享限速器: 按 rpm 分桶的「下一个可用时刻」表 (Lock 守护)。
@@ -25,8 +18,7 @@ SAFETY_RPM_FACTOR = 0.8
 # index=0 启动, 仍可能瞬时突发超过单能力 rpm。后续 index>0 批次会按同一时间轴排队。
 # Phase 1 / Stage A: 不要并发启动多个 probe 或大批量 sync; 跨进程仍靠错峰, 非账户级限频。
 _slot_lock = threading.Lock()
-# Bucket key is a legacy rpm int (TickFlow / A-share paths) or a namespaced
-# string such as "taiwan:twse". The two families never collide.
+# Buckets use an rpm integer or a source name such as "taiwan:twse".
 _next_slot: dict[object, float] = {}
 
 

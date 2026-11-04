@@ -65,13 +65,6 @@ export const BUILTIN_COLUMNS: ColumnConfig[] = [
   { id: 'builtin:momentum_20d', source: { type: 'builtin', key: 'momentum_20d' }, label: '20D 動量', visible: false, align: 'center' },
   { id: 'builtin:momentum_30d', source: { type: 'builtin', key: 'momentum_30d' }, label: '30D 動量', visible: false, align: 'center' },
   { id: 'builtin:momentum_60d', source: { type: 'builtin', key: 'momentum' }, label: '60D 動量', visible: false, align: 'center' },
-  // 連續漲停/跌停 — Phase 8C-C: 後端欄位語意為「連續漲停/跌停天數」
-  // (consecutive_limit_ups/downs，見 backend/app/indicators/pipeline.py「連板數/連跌數」)，
-  // 對台股永久空值、無產品意義，預設不在台股場景顯示；仍保留註冊表定義供
-  // 已保存偏好/legacy 場景使用。TAIWAN_LOCALIZATION_POLISH: label 由「連板/連跌」
-  // 改為依實際語意翻譯的「連續漲停/連續跌停」，internal id 不變。
-  { id: 'builtin:limit_ups', source: { type: 'builtin', key: 'limit_ups' }, label: '連續漲停', visible: false, align: 'center' },
-  { id: 'builtin:limit_downs', source: { type: 'builtin', key: 'limit_downs' }, label: '連續跌停', visible: false, align: 'center' },
   // 訊號 & 圖表
   { id: 'builtin:signals', source: { type: 'builtin', key: 'signals' }, label: '訊號', visible: true, align: 'center' },
   { id: 'builtin:candle', source: { type: 'builtin', key: 'candle' }, label: '日 K', visible: false, align: 'center' },
@@ -96,7 +89,6 @@ export const COLUMN_GROUPS: ColumnGroup[] = [
   { id: 'range', label: '區間', icon: '📏', keys: ['high_60d', 'low_60d'] },
   { id: 'tech', label: '技術指標', icon: '🔬', keys: ['rsi6', 'rsi14', 'rsi24', 'macd_dif', 'macd_dea', 'macd_hist', 'kdj_k', 'kdj_d', 'kdj_j', 'boll_upper', 'boll_lower', 'atr14', 'vol_ma5', 'vol_ma10'] },
   { id: 'momentum', label: '動量', icon: '🚀', keys: ['momentum_5d', 'momentum_10d', 'momentum_20d', 'momentum_30d', 'momentum_60d'] },
-  { id: 'limit', label: '連續漲跌停', icon: '🔥', keys: ['limit_ups', 'limit_downs'] },
   { id: 'signal', label: '訊號', icon: '📡', keys: ['signals', 'candle', 'intraday'] },
   { id: 'finance', label: '財務', icon: '📋', keys: ['eps', 'bps', 'roe', 'pe_ttm', 'pb', 'gross_margin', 'net_margin', 'revenue_yoy', 'net_income_yoy', 'debt_ratio'] },
 ]

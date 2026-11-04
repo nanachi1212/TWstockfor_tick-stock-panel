@@ -238,7 +238,7 @@ class GenericHTTPProvider:
 
     def test_dataset(self, dataset: str, symbols: list[str] | None = None) -> dict:
         cfg = self._dataset(dataset)
-        test_symbols = symbols or ["000001.SZ"]
+        test_symbols = symbols or ["2330.TWSE"]
         end_time = datetime.now()
         start_time = end_time - timedelta(days=7)
         if dataset == "realtime":

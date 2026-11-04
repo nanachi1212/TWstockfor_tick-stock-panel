@@ -150,18 +150,18 @@ class FrankfurterFxProvider:
     def cached_context(self, *, now: datetime | None = None) -> ExternalProviderResult:
         """Return immediately for core request paths; never perform network I/O."""
         current = now or datetime.now(UTC)
-        with self._lock:
-            cached = self._memory or self._read_cache()
-            if cached is None:
-                return ExternalProviderResult.unavailable(FRANKFURTER_SOURCE, "not_queried")
-            self._memory = cached
-            if cached.data is None:
-                return cached.model_copy(deep=True)
-            if self._cache_is_fresh(cached, current):
-                return cached.model_copy(deep=True)
-            return cached.model_copy(deep=True, update={
-                "status": "stale", "freshness": "stale", "error_reason": "cache_expired",
-            })
+        # Refresh publishes a new object only after the fetch completes. Read that
+        # snapshot without waiting for its network lock, and never write it back.
+        cached = self._memory or self._read_cache()
+        if cached is None:
+            return ExternalProviderResult.unavailable(FRANKFURTER_SOURCE, "not_queried")
+        if cached.data is None:
+            return cached.model_copy(deep=True)
+        if self._cache_is_fresh(cached, current):
+            return cached.model_copy(deep=True)
+        return cached.model_copy(deep=True, update={
+            "status": "stale", "freshness": "stale", "error_reason": "cache_expired",
+        })
 
     def health_metadata(self) -> dict[str, Any]:
         result = self.cached_context()

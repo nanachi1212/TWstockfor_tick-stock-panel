@@ -31,7 +31,7 @@ def to_polars(data) -> pl.DataFrame:
         return pl.DataFrame()
 
 
-def normalize_daily(data, default_symbol: str | None = None, source: str = "tickflow") -> pl.DataFrame:  # noqa: ARG001
+def normalize_daily(data, default_symbol: str | None = None, source: str = "unknown") -> pl.DataFrame:
     df = to_polars(data)
     if df.is_empty():
         return df
@@ -59,7 +59,7 @@ def normalize_daily(data, default_symbol: str | None = None, source: str = "tick
     return df.select(keep) if keep else pl.DataFrame()
 
 
-def normalize_adj_factors(data, source: str = "tickflow") -> pl.DataFrame:  # noqa: ARG001
+def normalize_adj_factors(data, source: str = "unknown") -> pl.DataFrame:
     df = to_polars(data)
     if df.is_empty():
         return df
@@ -82,7 +82,7 @@ def normalize_adj_factors(data, source: str = "tickflow") -> pl.DataFrame:  # no
     return df.select(keep).drop_nulls() if len(keep) == len(ADJ_FACTOR_COLS) else pl.DataFrame()
 
 
-def normalize_instruments(rows: list[dict], asset_type: str, source: str = "tickflow") -> pl.DataFrame:
+def normalize_instruments(rows: list[dict], asset_type: str, source: str = "unknown") -> pl.DataFrame:
     if not rows:
         return pl.DataFrame()
     out: list[dict] = []

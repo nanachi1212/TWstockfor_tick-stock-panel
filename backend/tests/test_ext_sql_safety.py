@@ -115,23 +115,29 @@ def test_is_valid_ext_ident(ident, expected):
 
 # ===== parser 白名单: 拒绝恶意 config_id =====
 
-def test_watchlist_parser_rejects_malicious_config_id():
-    from app.api.watchlist import _parse_ext_columns
-    # config_id 含注入字符 → 应被白名单拒绝
-    assert _parse_ext_columns("evil'; DROP--.field") == []
-    assert _parse_ext_columns("normal.field") == [("normal", "field")]
+class _NoLegacySQL:
+    def __getattr__(self, name):
+        raise AssertionError(f"Retired extension path accessed repository: {name}")
 
 
-def test_kline_inline_parser_filter_via_is_valid_ext_ident():
-    """kline parser 内联, 直接用 is_valid_ext_ident 验证过滤逻辑。"""
-    # 模拟 kline._attach_ext 的解析过滤
-    parts = ["ok.field", "bad';DROP.field", "中文.field", "a_1.value"]
-    specs = []
-    for part in parts:
-        config_id, field_name = part.split(".", 1)
-        if config_id and field_name and is_valid_ext_ident(config_id):
-            specs.append((config_id, field_name))
-    assert specs == [("ok", "field"), ("a_1", "value")]
+def test_watchlist_retired_ext_parameter_never_runs_sql(monkeypatch):
+    from types import SimpleNamespace
+
+    from app.api import watchlist
+
+    monkeypatch.setattr(watchlist.watchlist, "list_symbols", lambda: [])
+    request = SimpleNamespace(app=SimpleNamespace(state=SimpleNamespace(repo=_NoLegacySQL())))
+    result = watchlist.watchlist_enriched(request, ext_columns="evil'; DROP--.field")
+    assert result["rows"] == []
+
+
+def test_kline_retired_ext_parameter_never_runs_sql():
+    from app.api.kline import _attach_ext
+
+    response = {"symbol": "2330.TWSE", "rows": [{"close": 100.0}]}
+    result = _attach_ext(response, _NoLegacySQL(), "2330.TWSE", "evil'; DROP--.field")
+    assert result is response
+    assert result["rows"] == [{"close": 100.0}]
 
 
 # ===== 回归: 合法特殊字符字段名未被误伤 =====

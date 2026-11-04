@@ -39,7 +39,6 @@ from app.extensions.loader import (
 from app.jobs import daily_pipeline
 from app.log_sanitizer import SanitizingFormatter
 from app.services.quote_service import QuoteService
-from app.tickflow import client as tf_client
 from app.tickflow.capabilities import CapabilityDenied
 from app.tickflow.policy import detect_capabilities
 from app.tickflow.repository import DataStore, KlineRepository
@@ -79,7 +78,7 @@ if not getattr(sys, "frozen", False):
 async def _application_lifespan(app: FastAPI):
     logger.info(
         "Nanachi 的台股監控看板 v%s starting (mode=%s)",
-        __version__, tf_client.current_mode(),
+        __version__, "official",
     )
 
     # 首次启动: 若配置了 AUTH_PASSWORD 环境变量且未设过密码, 用它初始化。
@@ -103,18 +102,18 @@ async def _application_lifespan(app: FastAPI):
     # instruments/index/ETF 仍同步 (毫秒级)。应用立即 ready, 指标算完后自动替换。
     repo.refresh_cache(background=True)
 
-    # 能力探测
-    capset = detect_capabilities()
-    app.state.capabilities = capset
-    logger.info("ready; %d capabilities active", len(capset.all()))
-
-    # 自定义数据源配置(可选): 失败只记录错误, 不影响 TickFlow 基准路径。
+    # 自定义数据源配置(可选): 失败只记录错误, 不影響台股官方資料來源。
     try:
         from app.data_providers import custom as custom_sources
         custom_sources.load_all()
         logger.info("custom data sources loaded: %d", len(custom_sources.list_sources()))
     except Exception as e:
         logger.warning("custom data sources init failed: %s", e)
+
+    # 能力探测
+    capset = detect_capabilities()
+    app.state.capabilities = capset
+    logger.info("ready; %d capabilities active", len(capset.all()))
 
     # 全局行情服务
     qs = QuoteService()
