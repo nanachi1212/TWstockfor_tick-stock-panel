@@ -169,6 +169,7 @@ def test_startup_catchup_run_integrates_shareholding(monkeypatch):
     monkeypatch.setattr(startup_catchup, "needs_catchup", lambda: (False, "current"))
     monkeypatch.setattr("app.taiwan.bootstrap.catch_up_from_latest_bundle", lambda: {"status": "skipped"})
     monkeypatch.setattr(startup_catchup, "needs_fundamentals_catchup", lambda: (False, "current"))
+    monkeypatch.setattr(startup_catchup, "_catchup_official_evidence", lambda app_state: {"revenue": "skipped"})
     shareholding_called = []
 
     def fake_catchup():
@@ -244,6 +245,7 @@ def test_startup_catchup_run_warms_fundamentals_when_missed(monkeypatch):
     monkeypatch.setattr(startup_catchup, "needs_catchup", lambda: (False, "current"))
     monkeypatch.setattr("app.taiwan.bootstrap.catch_up_from_latest_bundle", lambda: {"status": "skipped"})
     monkeypatch.setattr(startup_catchup, "catchup_shareholding", lambda: {"status": "skipped"})
+    monkeypatch.setattr(startup_catchup, "_catchup_official_evidence", lambda app_state: {"revenue": "skipped"})
     monkeypatch.setattr(startup_catchup, "needs_fundamentals_catchup", lambda: (True, "last_warm_480h_ago"))
     monkeypatch.setattr(fundamentals_warm, "warm_fundamentals", lambda: {"status": "ok", "symbols": 3})
 
