@@ -6,16 +6,14 @@ import polars as pl
 import pytest
 
 from app.services import kline_sync
-from app.tickflow.pools import get_pool
 
 
 @pytest.mark.parametrize("symbol", ["600000.SH", "000001.SZ", "830799.BJ"])
-def test_ashare_daily_fetch_rejected_before_provider_lookup(monkeypatch, symbol):
-    lookup = Mock()
-    monkeypatch.setattr("app.data_providers.registry.get_provider", lookup)
-    with pytest.raises(ValueError, match="僅提供台股"):
-        kline_sync.sync_daily_batch([symbol])
-    lookup.assert_not_called()
+def test_ashare_symbols_are_not_valid_taiwan_symbols(symbol):
+    from app.taiwan.symbol import parse_symbol
+
+    with pytest.raises(ValueError):
+        parse_symbol(symbol)
 
 
 def test_selected_custom_daily_source_is_used(monkeypatch):
@@ -64,24 +62,6 @@ def test_custom_minute_stream_persists_once(monkeypatch):
     assert persisted[0].equals(expected)
 
 
-@pytest.mark.parametrize("pool", ["CSI300", "CSI500", "SSE50", "CN_Equity_A", "CN_Index"])
-def test_ashare_pools_rejected_without_reading_cache(pool):
-    with pytest.raises(ValueError, match="Unsupported market"):
-        get_pool(pool)
-
-
-def test_custom_realtime_cannot_write_ashare_prices():
-    from app.services.quote_service import QuoteService
-
-    service = QuoteService()
-    service._repo = Mock()
-    with pytest.raises(ValueError, match="canonical Taiwan"):
-        service._process_full_market_records(
-            [{"symbol": "600000.SH", "last_price": 10.0}], t0=0.0, now_ts=0.0,
-        )
-    service._repo.flush_live_daily.assert_not_called()
-
-
 def test_custom_adjustment_source_receives_optional_date_bounds(monkeypatch):
     expected = pl.DataFrame({"symbol": ["2330.TWSE"], "ex_factor": [1.0]})
     class Provider:
@@ -94,3 +74,15 @@ def test_custom_adjustment_source_receives_optional_date_bounds(monkeypatch):
     monkeypatch.setattr("app.data_providers.custom.provider_has_dataset", lambda *args: True)
     monkeypatch.setattr("app.data_providers.custom.get_provider", lambda name: Provider())
     assert kline_sync.fetch_adj_factor_single("2330.TWSE").equals(expected)
+
+
+def test_custom_realtime_cannot_write_ashare_prices():
+    from app.services.quote_service import QuoteService
+
+    service = QuoteService()
+    service._repo = Mock()
+    with pytest.raises(ValueError, match="canonical Taiwan"):
+        service._process_full_market_records(
+            [{"symbol": "600000.SH", "last_price": 10.0}], t0=0.0, now_ts=0.0,
+        )
+    service._repo.flush_live_daily.assert_not_called()

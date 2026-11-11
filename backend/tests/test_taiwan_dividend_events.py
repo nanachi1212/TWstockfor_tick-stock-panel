@@ -11,9 +11,7 @@ import pytest
 from app.taiwan.dividend_events import (
     DividendLifecycleEvent,
     MOPSDividendLifecycleProvider,
-    TaiwanDividendEventStore,
     classify_dividend_event,
-    get_dividend_events_as_of,
 )
 from app.taiwan.providers.hybrid_provider import TaiwanHybridProvider
 from app.taiwan.providers.taiwan_values import TAIPEI
@@ -193,32 +191,6 @@ def _event(identity: str, available_at: str, *, symbol: str = "2330.TWSE"):
         availability_confidence="verified",
         revision_identity=identity,
     )
-
-
-def test_exact_timestamp_boundary_is_strict():
-    event = _event("sii/2330/1150811/3", "2026-08-11T18:53:34+08:00")
-    assert get_dividend_events_as_of(
-        [event], event.symbol, datetime.fromisoformat("2026-08-11T18:53:33+08:00")
-    ) == []
-    assert get_dividend_events_as_of(
-        [event], event.symbol, datetime.fromisoformat("2026-08-11T18:53:34+08:00")
-    ) == []
-    assert get_dividend_events_as_of(
-        [event], event.symbol, datetime.fromisoformat("2026-08-11T18:53:35+08:00")
-    ) == [event]
-
-
-def test_store_preserves_distinct_serials_and_later_truth(tmp_path):
-    first = _event("sii/2330/1150811/3", "2026-08-11T18:53:34+08:00")
-    later = _event("sii/2330/1150811/9", "2026-08-20T12:00:00+08:00")
-    store = TaiwanDividendEventStore(tmp_path)
-    assert store.save([first, later, first]) == 2
-    assert store.get_as_of(
-        first.symbol, datetime.fromisoformat("2026-08-12T00:00:00+08:00")
-    ) == [first]
-    assert store.get_as_of(
-        first.symbol, datetime.fromisoformat("2026-08-21T00:00:00+08:00")
-    ) == [first, later]
 
 
 def test_missing_fields_stay_none_and_etf_does_not_request_network():

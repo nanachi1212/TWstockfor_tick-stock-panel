@@ -72,16 +72,6 @@ def describe_tier(tier: Tier) -> str:
     return TIER_LABELS[tier]
 
 
-def assert_oos_claimable(tier: Tier) -> None:
-    """Guard for anything that publishes performance numbers."""
-    if tier not in OOS_CLAIMABLE_TIERS:
-        raise ValueError(
-            f"{describe_tier(tier)!r} may not carry an out-of-sample performance "
-            "claim; its instrument types are not verified. Report it separately "
-            "from " + describe_tier(PRIMARY_VERIFIED)
-        )
-
-
 @dataclass(frozen=True)
 class EligibilityPolicy:
     """A versioned, inspectable set of model-admission rules.

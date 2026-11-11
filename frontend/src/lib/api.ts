@@ -5,7 +5,6 @@
 
 import { toast } from '@/components/Toast'
 import type { BreadthValuationResponse, ResearchMarket, ResearchSections, ValuationRefreshResult } from './marketBreadthTypes'
-import { RADIX } from './radix'
 
 const BASE = ''
 
@@ -114,64 +113,8 @@ export interface CapabilitiesResponse {
   capabilities: Record<string, CapabilityLimits>
 }
 
-// ===== Financials =====
-// Phase 8B-5.3: A 股財務分析產品(狀態/利潤表/資產負債表/現金流量表/歷史股本/
-// AI 財務分析/報告)已整體下線。僅保留 FinancialMetricRecord —— 它被
-// StockPanel/StockInfoBar 的資訊條「財務」欄位組 (EPS/BPS/ROE/PE/PB 等) 複用。
-export interface FinancialMetricRecord {
-  symbol?: string
-  period_end: string
-  announce_date?: string | null
-  eps_basic?: number | null
-  eps_diluted?: number | null
-  bps?: number | null
-  ocfps?: number | null
-  roe?: number | null
-  roe_diluted?: number | null
-  roa?: number | null
-  gross_margin?: number | null
-  net_margin?: number | null
-  debt_to_asset_ratio?: number | null
-  revenue_yoy?: number | null
-  net_income_yoy?: number | null
-  operating_cash_to_revenue?: number | null
-  inventory_turnover?: number | null
-  [key: string]: any
-}
-
 // ===== 個股分析 =====
 export type ExternalKeyName = 'fred_api_key' | 'finbridge_api_key' | 'fugle_api_key'
-
-export type LevelType = 'sr' | 'pivot' | 'extreme' | 'boll' | 'keltner_s' | 'keltner_m' | 'keltner_l' | 'atr_stop' | 'gap' | 'fib' | 'round'
-
-export interface PriceLevel {
-  value: number
-  label: string
-  type: LevelType
-  side: 'resistance' | 'support' | 'neutral'
-  strength?: 'strong' | 'medium' | 'weak'
-  /** 檔位(僅 pivot 有):0=P, 1=R1/S1, 2=R2/S2, 3=R3/S3。前端按"顯示到第幾檔"過濾。 */
-  rank?: number
-}
-
-/** 帶狀曲線指標(布林帶/Keltner/ATR)的每日時間序列,與 dates 對齊。 */
-export interface LevelSeries {
-  boll?: { upper: (number | null)[]; lower: (number | null)[]; mid?: (number | null)[] }
-  keltner_s?: { upper: (number | null)[]; lower: (number | null)[] }
-  keltner_m?: { upper: (number | null)[]; lower: (number | null)[] }
-  keltner_l?: { upper: (number | null)[]; lower: (number | null)[] }
-  atr?: { stop_loss: (number | null)[]; take_profit: (number | null)[] }
-}
-
-export interface StockLevels {
-  levels: Record<LevelType, PriceLevel[]>
-  close: number | null
-  summary: string
-  symbol: string
-  /** dates 與 series 對齊;前端按自身 rows 的日期映射,缺失填 null */
-  dates?: string[]
-  series?: LevelSeries
-}
 
 // ===== Kline =====
 export interface MinuteKlineRow {
@@ -182,12 +125,6 @@ export interface MinuteKlineRow {
   close: number
   volume: number
   amount: number
-}
-
-export interface MinuteKlineSession {
-  date: string
-  prev_close: number | null
-  rows: MinuteKlineRow[]
 }
 
 export interface PriceLimitInfo {
@@ -258,343 +195,6 @@ export interface WatchlistGroup {
   color: WatchlistGroupColor
 }
 
-export interface WatchlistImportCandidate {
-  code: string
-  symbol: string | null
-  name: string | null
-  matched: boolean
-  already_in_watchlist: boolean
-}
-
-export interface WatchlistImportResult {
-  provider: string
-  codes: string[]
-  candidates: WatchlistImportCandidate[]
-  matched_count: number
-  unmatched_count: number
-}
-
-export interface Quote {
-  symbol: string
-  price?: number
-  pct?: number
-  close?: number
-  change_pct?: number
-  [key: string]: any
-}
-
-export interface IndexQuote {
-  symbol: string
-  name?: string | null
-  last_price?: number | null
-  close?: number | null
-  prev_close?: number | null
-  change_pct?: number | null
-  change_amount?: number | null
-  open?: number | null
-  high?: number | null
-  low?: number | null
-  volume?: number | null
-  amount?: number | null
-  timestamp?: number | null
-  [key: string]: any
-}
-
-// ===== Screener =====
-export interface ScreenerStrategy {
-  id: string
-  name: string
-  description: string
-  source?: string
-}
-
-export interface StrategyLoadError {
-  file: string
-  error: string
-}
-
-export interface ScreenerResult {
-  as_of: string
-  strategy: string | null
-  rows: any[]
-  total: number
-  elapsed_ms: number
-}
-
-export interface ScreenerResultSummary {
-  total: number
-  as_of: string
-}
-
-export interface ScreenerCachedSummary {
-  as_of: string | null
-  results: Record<string, ScreenerResultSummary>
-  today_ever_counts: Record<string, number>
-  updated_at: number | null
-}
-
-export interface ScreenerCachedResult {
-  result: ScreenerResult | null
-  today_ever_rows: Record<string, any> | null
-  strategy_ids_by_symbol: Record<string, string[]>
-  updated_at: number | null
-}
-
-export interface MarketSnapshotRow {
-  symbol: string
-  name?: string | null
-  close?: number | null
-  change_pct?: number | null
-  amount?: number | null
-  volume?: number | null
-  turnover_rate?: number | null
-  vol_ratio_5d?: number | null
-  total_shares?: number | null
-  float_shares?: number | null
-  market_cap?: number | null
-  float_market_cap?: number | null
-  consecutive_limit_ups?: number | null
-  [key: string]: any
-}
-
-export interface OverviewDimensionRankItem {
-  name: string
-  count: number
-  avg_pct: number
-  up_count: number
-  down_count: number
-  amount: number
-  leader?: {
-    symbol?: string | null
-    name?: string | null
-    change_pct?: number | null
-  } | null
-}
-
-export interface OverviewMarket {
-  as_of: string | null
-  quote_status: {
-    enabled?: boolean
-    running?: boolean
-    quote_age_ms?: number | null
-    is_trading_hours?: boolean
-    [key: string]: any
-  }
-  indices: IndexQuote[]
-  breadth: {
-    total: number
-    up: number
-    down: number
-    flat: number
-    up_pct: number
-    down_pct: number
-    avg_pct?: number | null
-    median_pct?: number | null
-    strong_up?: number
-    strong_down?: number
-  }
-  amount: { total: number; avg: number }
-  boards: { board: string; count: number; up: number; down: number; up_pct: number; amount: number }[]
-  limit: { limit_up: number; broken: number; failed: number; limit_down: number; max_boards: number; seal_rate?: number; tiers: { boards: number; count: number; stocks?: { symbol: string; name?: string; amount?: number }[] }[]; sealed_ready?: boolean; fake_up?: number; fake_down?: number }
-  distribution: { label: string; count: number; pct: number }[]
-  trend: { above_ma5: number; above_ma20: number; above_ma60: number; above_ma5_pct: number; above_ma20_pct: number; above_ma60_pct: number; new_high: number; new_low: number }
-  activity: { avg_turnover: number; high_turnover: number; high_vol_ratio: number; vol_ratio: number }
-  radar: { key: string; label: string; value: number }[]
-  emotion: { score: number; label: string }
-  top_gainers: MarketSnapshotRow[]
-  top_losers: MarketSnapshotRow[]
-  turnover_leaders: MarketSnapshotRow[]
-  active_leaders: MarketSnapshotRow[]
-  concept_rank: { leading: OverviewDimensionRankItem[]; lagging: OverviewDimensionRankItem[] }
-  industry_rank: { leading: OverviewDimensionRankItem[]; lagging: OverviewDimensionRankItem[] }
-}
-
-// ===== 市場環境(Regime) =====
-export type RegimeState = 'strong' | 'lean_strong' | 'range' | 'lean_weak' | 'weak'
-
-export const REGIME_STATE_LABELS: Record<RegimeState, string> = {
-  strong: '強勢',
-  lean_strong: '偏強',
-  range: '震盪',
-  lean_weak: '偏弱',
-  weak: '弱勢',
-}
-
-export const REGIME_STATE_COLORS: Record<RegimeState, string> = {
-  strong: RADIX.danger,
-  lean_strong: RADIX.orange,
-  range: RADIX.neutral,
-  lean_weak: RADIX.accent,
-  weak: RADIX.success,
-}
-
-export interface RegimeRow {
-  date: string
-  state: RegimeState
-  score: number
-  limit_up: number
-  limit_down: number
-  broken_limit: number
-  max_consecutive: number
-  seal_rate: number
-  up_count: number
-  down_count: number
-  up_ratio: number
-  index_pct: number
-  above_ma20_pct: number
-  total_amount: number
-  avg_turnover: number
-  // 4 個子維度分(0-100, 重算後才有; 舊資料可能缺) — 綜合分的加權來源
-  avg_pct?: number
-  median_pct?: number
-  strong_up_pct?: number
-  strong_down_pct?: number
-  profit_score?: number
-  speculation_score?: number
-  resilience_score?: number
-  trend_score?: number
-  // 情緒週期階段與梯隊指標(重算後才有; 舊資料可能缺)
-  phase?: MarketPhase | null
-  first_board?: number | null
-  ge2_count?: number | null
-  ge3_count?: number | null
-  ge5_count?: number | null
-  ladder_completeness?: number | null
-  promo_rate?: number | null
-  promo_pool?: number | null
-}
-
-export interface RegimeCoverage {
-  rows: number
-  earliest_date: string | null
-  latest_date: string | null
-}
-
-// ── 市場階段(情緒週期) ──
-// Phase 8B-5.7: MARKET_PHASE_LABELS/COLORS/ORDER 與 PhaseSegment(s)/
-// MainlineRow/Leader/Result 僅供已刪除的 Regime.tsx 研究頁使用, 一併移除。
-// MarketPhase 型別本身保留 —— 是 RegimeRow.phase 欄位的型別依賴(regimeLatest
-// 仍是 Mining 頁真實 consumer)。MainlineFilter 保留 —— 是 mainlineFilterUpdate
-// (設定頁 /api/settings/preferences/mainline-filter)的回傳型別, 不屬本次範圍。
-export type MarketPhase = 'ice' | 'ignite' | 'rally' | 'climax' | 'ebb' | 'repair'
-
-export interface MainlineFilter {
-  min_members: number
-  max_members: number
-  blacklist: string[]
-  exclude_st: boolean
-}
-
-// ===== Strategy Engine =====
-export interface StrategyParamDef {
-  id: string
-  label: string
-  type: 'float' | 'int' | 'select' | 'bool'
-  default: number | string | boolean
-  min?: number
-  max?: number
-  step?: number
-  options?: string[]
-}
-
-export interface CompositeChildInfo {
-  id: string
-  name: string
-  source: string
-  weight: number
-}
-
-export interface StrategyDetail {
-  id: string
-  name: string
-  description: string
-  tags: string[]
-  source: 'builtin' | 'custom' | 'ai' | 'composite'
-  execution_backend: 'polars_expr' | 'matrix_native' | 'python_history_legacy' | 'composite'
-  asset_types: string[]
-  timeframes: string[]
-  version: string
-  basic_filter: Record<string, any>
-  params: StrategyParamDef[]
-  params_defaults: Record<string, any>
-  scoring: Record<string, number>
-  scoring_directions: Record<string, ScoringDirection>
-  entry_signals: string[]
-  exit_signals: string[]
-  minute_exit_trigger_supported_signals: string[]
-  stop_loss: number | null
-  take_profit: number | null
-  trailing_stop: number | null
-  trailing_take_profit_activate: number | null
-  trailing_take_profit_drawdown: number | null
-  max_hold_days: number | null
-  display_limit?: number
-  order_by: string
-  descending: boolean
-  limit: number
-  // 疊加策略(composite)專屬: 子策略列表與合併模式。非 composite 時為 null。
-  composite_children?: CompositeChildInfo[] | null
-}
-
-export type ScoringDirection = 'high' | 'low'
-
-export interface StrategyBuildResult {
-  code: string
-  meta: Record<string, any>
-  valid: boolean
-  error: string | null
-}
-
-export type StrategyBuildStreamEvent =
-  | { type: 'meta'; strategy_id?: string; step?: number }
-  | { type: 'delta'; content: string }
-  | ({ type: 'result' } & StrategyBuildResult)
-  | { type: 'error'; message: string }
-
-export interface StrategyCodeSaveResult {
-  ok: boolean
-  strategy_id: string
-  source: 'ai' | 'custom' | 'composite'
-  path: string
-  meta: Record<string, any>
-}
-
-// ===== Custom Signals (自定義信號) =====
-export interface CustomSignalCondition {
-  left: string     // 欄位名
-  op: string       // > >= < <= == !=
-  right: string    // "field:xxx" 或數字字符串
-  leftDays?: number   // 左欄位取幾日前 (0=當日, 預設)
-  rightDays?: number  // 右欄位取幾日前 (僅 right 為欄位時有意義)
-}
-
-export interface CustomSignal {
-  id: string
-  name: string
-  kind: 'entry' | 'exit' | 'both'
-  conditions: CustomSignalCondition[]
-  enabled: boolean
-}
-
-export interface CustomSignalFieldGroup {
-  key: string
-  label: string
-  fields: { key: string; label: string }[]
-}
-
-export interface CustomSignalOptions {
-  fields: { key: string; label: string }[]
-  groups?: CustomSignalFieldGroup[]
-  maxDays?: number
-  operators: string[]
-  kinds: { key: string; label: string }[]
-}
-
-export interface CustomSignalAIGenerateResult {
-  name: string
-  conditions: CustomSignalCondition[]
-}
-
 // ===== Monitor (監控規則 + 觸發記錄) =====
 export interface MonitorCondition {
   field: string
@@ -602,78 +202,7 @@ export interface MonitorCondition {
   value?: number | null   // op 非 truth 時必填
 }
 
-export type StrategyNotifyEvent = 'buy_signal' | 'sell_signal' | 'pool_entry' | 'pool_exit'
-
 export type SectorKind = 'index' | 'concept' | 'industry'
-
-export interface SectorMonitorTarget {
-  key: string
-  kind: SectorKind
-  name: string
-  symbol?: string
-  source_id?: string
-  field?: string
-  source_field?: string
-  value?: string
-  level?: number | null
-  available: boolean
-  member_count: number
-}
-
-export interface MonitorRule {
-  id: string
-  name: string
-  enabled: boolean
-  type: 'strategy' | 'signal' | 'price' | 'market' | 'ladder' | 'sector'
-  asset_type?: 'stock' | 'etf' | 'index'
-  scope: 'symbols' | 'all' | 'sector' | 'watchlist_group'
-  symbols: string[]
-  /** scope=watchlist_group 時綁定的自選分組 id (成員動態解析, 增刪自選自動生效) */
-  group_id?: string | null
-  sector?: string | null
-  sector_kind?: SectorKind | null
-  sector_targets?: SectorMonitorTarget[]
-  sector_trigger?: 'change_pct' | 'momentum'
-  threshold_pct?: number
-  window_minutes?: 1 | 3 | 5 | 10 | 15
-  strategy_id?: string | null
-  direction: 'entry' | 'exit' | 'both' | 'up' | 'down'
-  notify_events?: StrategyNotifyEvent[]
-  score_min?: number | null
-  score_max?: number | null
-  conditions: MonitorCondition[]
-  logic: 'and' | 'or'
-  cooldown_seconds: number
-  severity: 'info' | 'warn' | 'critical'
-  message: string
-  webhook_url?: string
-  webhook_enabled?: boolean  // 相容老規則, 已由 webhook_channels 取代
-  webhook_channels?: string[]  // 命中時推送的外部渠道 (合法值 'feishu' | 'wecom')
-  created_at?: string
-  runtime_warning?: string
-  // ladder 專屬: 封單監控
-  metric?: 'sealed_vol' | 'sealed_amount'  // 量(手) / 額(元)
-  threshold?: number                        // 封單 <= 此值時報警
-}
-
-export interface MonitorRuleOptions {
-  threshold_fields: { key: string; label: string }[]
-  builtin_signals: { key: string; label: string }[]
-  custom_signals: { key: string; label: string }[]
-  operators: string[]
-  types: { key: string; label: string }[]
-  scopes: { key: string; label: string }[]
-  logics: { key: string; label: string }[]
-  severities: { key: string; label: string }[]
-  directions: { key: string; label: string }[]
-  intraday_signal_support: {
-    available: boolean
-    source: string | null
-    max_symbols: number
-    reason: string
-  }
-  sector_targets: Record<SectorKind, SectorMonitorTarget[]>
-}
 
 export interface AlertEvent {
   ts: number
@@ -1181,24 +710,11 @@ export interface BuyPointSignal {
   freshness: string
 }
 
-
 export type TaiwanUsageScope =
   | 'current_reference'
   | 'historical_reference'
   | 'pit_historical'
   | 'unsupported'
-
-export interface TaiwanDatasetCapability {
-  domain: 'company' | 'etf'
-  dataset: string
-  exchanges: Array<'TWSE' | 'TPEX'>
-  production_supported: boolean
-  current_reference: boolean
-  pit_historical: boolean
-  usage_scope: TaiwanUsageScope
-  status: string
-  reason: string
-}
 
 export interface TaiwanDataSection {
   dataset: string
@@ -1438,7 +954,6 @@ export interface TaiwanScreenerStrategy {
   created_at: string
   updated_at: string
 }
-
 
 export interface TaiwanDataStatus {
   daily_as_of: string | null
@@ -2146,15 +1661,6 @@ export interface TaiwanStockNewsItem {
   description?: string | null
 }
 
-export interface TaiwanStockNewsResponse {
-  symbol: string
-  code: string
-  items: TaiwanStockNewsItem[]
-  status: 'available' | 'unavailable' | 'rate_limited' | 'auth_required' | string
-  status_message?: string | null
-  fetched_at?: string | null
-}
-
 export interface MarketEvidenceItem {
   id: string
   category: 'spot' | 'futures' | 'options' | string
@@ -2570,390 +2076,10 @@ export interface TaiwanComparisonAIResearchResponse {
   evidence_registry_keys: string[]
 }
 
-/** 生成監控規則 id (時間戳 + 隨機後綴), 使用者無需手動填寫。 */
-export function genRuleId(): string {
-  const ts = Date.now().toString(36)
-  const rand = Math.random().toString(36).slice(2, 6)
-  return `mr_${ts}_${rand}`
-}
-
-
 // Phase 8B-5.10: LimitLadderStock/Tier/Result 隨已刪除的 LimitUpLadder.tsx
 // (連板梯隊頁)一併移除 —— 連板/打板/炸板/封板率為中國 A 股漲跌停制度
 // 衍生術語, 對台股產品無意義。depth_service 的 sealed cache 判定邏輯本身
 // 完全未動, 仍供 market_overview_builder/quote_service/monitor_rules 使用。
-
-// ===== Backtest =====
-export interface BacktestResult {
-  run_id: string
-  config: any
-  stats: Record<string, any>
-  equity_curve: { date: string; value: number }[]
-  trades: any[]
-  per_symbol_stats: { symbol: string; total_return: number }[]
-}
-
-// ===== Factor Backtest =====
-export interface FactorColumn {
-  id: string
-  label: string
-  group: string
-  desc: string
-}
-
-export interface GroupStat {
-  group: number
-  label: string
-  total_return: number
-  annual_return: number
-  max_drawdown: number
-  sharpe: number
-  win_rate: number
-}
-
-export interface FactorBacktestResult {
-  run_id: string
-  config: Record<string, any>
-  ic_mean: number | null
-  ic_std: number | null
-  ir: number | null
-  ic_win_rate: number | null
-  ic_series: { date: string; ic: number }[]
-  group_stats: GroupStat[]
-  group_nav: Record<string, any>[]
-  long_short_stats: Record<string, any>
-  long_short_nav: { date: string; value: number }[]
-  elapsed_ms: number
-  n_symbols: number
-  n_dates: number
-  error: string | null
-}
-
-export interface FactorBatchItem {
-  factor_name: string
-  label: string
-  group: string
-  ic_mean: number | null
-  ir: number | null
-  ic_win_rate: number | null
-  long_short_return: number | null
-  long_short_max_drawdown: number | null
-  n_symbols: number
-  n_dates: number
-  elapsed_ms: number
-  error: string | null
-}
-
-export interface FactorBatchResult {
-  run_id: string
-  config: Record<string, any>
-  results: FactorBatchItem[]
-  elapsed_ms: number
-  n_symbols: number
-  n_dates: number
-  error: string | null
-}
-
-// ===== Factor / strategy mining =====
-export type MiningBudgetProfile = 'exploratory' | 'balanced' | 'strict'
-export type MiningRunStatus =
-  | 'queued'
-  | 'running'
-  | 'cancelling'
-  | 'succeeded'
-  | 'succeeded_with_budget_exhausted'
-  | 'failed'
-  | 'cancelled'
-  | 'interrupted'
-  | 'skipped_prerequisite'
-
-export interface MiningAvailability {
-  asset_type: 'stock' | 'etf'
-  budget_profile: MiningBudgetProfile
-  trading_bars: number
-  required_bars: number
-  outer_folds: number
-  required_outer_folds: number
-  eligible: boolean
-  available_start: string | null
-  available_end: string | null
-  effective_start: string | null
-  effective_end: string | null
-  suggested_start: string | null
-}
-
-export interface MiningRequestV1 {
-  factor_names: string[]
-  strategy_ids?: string[]
-  symbols?: string[] | null
-  asset_type?: 'stock' | 'etf'
-  start?: string | null
-  end?: string | null
-  budget_profile?: MiningBudgetProfile
-  commission_pct?: number
-  stamp_tax_pct?: number
-  slippage_bps?: number
-  correlation_threshold?: number
-  max_combination_factors?: number
-  beam_width?: number
-  max_finalists?: number
-  force?: boolean
-}
-
-export interface MiningRunProgress {
-  phase: string
-  label?: string
-  done?: number
-  total?: number
-  percent?: number
-  elapsed_ms?: number
-  message?: string
-}
-
-export interface MiningRun {
-  run_id: string
-  signature: string
-  status: MiningRunStatus
-  request: MiningRequestV1
-  source?: 'manual' | 'scheduled'
-  created_at: string
-  updated_at: string
-  started_at?: string | null
-  finished_at?: string | null
-  data_as_of?: string | null
-  progress?: MiningRunProgress | null
-  error?: string | null
-  reused?: boolean
-  summary?: MiningResultSummary | null
-}
-
-export interface MiningResultSummary {
-  factor_count: number
-  selected_factor_count: number
-  candidate_count: number
-  valid_fold_count: number
-  skipped_fold_count: number
-  confidence: 'low' | 'standard' | 'high'
-  budget_exhausted?: boolean
-  elapsed_ms?: number
-  peak_rss_bytes?: number
-}
-
-export interface MiningFactorRow {
-  factor_name: string
-  label?: string
-  direction: 1 | -1
-  score: number | null
-  ic_mean: number | null
-  ir: number | null
-  coverage: number | null
-  turnover: number | null
-  spread_return?: number | null
-  spread_sharpe?: number | null
-  selected: boolean
-  excluded_reason?: string | null
-}
-
-export interface MiningRegimeRow {
-  state: 'overall' | 'strong' | 'range' | 'weak' | string
-  label: string
-  n_dates: number
-  total_return: number | null
-  sharpe: number | null
-  max_drawdown: number | null
-}
-
-export interface MiningFoldRow {
-  fold: number
-  label?: string
-  train_start?: string
-  train_end?: string
-  test_start?: string
-  test_end?: string
-  selected_factors?: string[]
-  total_return: number | null
-  sharpe: number | null
-  max_drawdown?: number | null
-  n_trades?: number | null
-  skipped?: boolean
-  reason?: string | null
-  evaluation_kind?: 'selected' | 'cross' | 'benchmark' | null
-}
-
-export interface MiningCandidateGate {
-  qualified: boolean
-  reasons: string[]
-}
-
-export interface MiningCandidateRow {
-  signature: string
-  name: string
-  kind: 'factor_combination' | 'existing_strategy'
-  factor_names?: string[]
-  strategy_id?: string | null
-  regime_state?: string | null
-  score: number | null
-  oos_return: number | null
-  oos_sharpe: number | null
-  oos_max_drawdown: number | null
-  oos_positive_fold_ratio: number | null
-  oos_n_trades: number | null
-  confidence: 'low' | 'standard' | 'high'
-  valid_folds?: number | null
-  skipped_folds?: number | null
-  promoted_candidate_id?: string | null
-  published_strategy_id?: string | null
-  gate?: MiningCandidateGate | null
-  folds?: MiningFoldRow[]
-}
-
-export interface MiningTelemetry {
-  elapsed_ms?: number
-  peak_rss_bytes?: number
-  panel_scans?: number
-  matrix_bytes?: number
-  cache_hits?: number
-  fold_reuses?: number
-  serialized_result_bytes?: number
-  phase_ms?: Record<string, number>
-}
-
-export interface MiningRequestSummary {
-  asset_type: string
-  budget_profile: string
-  start: string | null
-  end: string | null
-  factor_count: number
-  strategy_count: number
-  commission_pct: number | null
-  stamp_tax_pct: number | null
-  slippage_bps: number | null
-  correlation_threshold: number | null
-}
-
-export interface MiningResult {
-  run_id: string
-  methodology_version: string
-  algorithm_version: string
-  data_as_of: string | null
-  summary: MiningResultSummary
-  request_summary?: MiningRequestSummary | null
-  factors: MiningFactorRow[]
-  correlation: {
-    labels: string[]
-    matrix: (number | null)[][]
-    pair_counts?: (number | null)[][]
-    threshold: number
-  }
-  regimes: MiningRegimeRow[]
-  candidates: MiningCandidateRow[]
-  folds: MiningFoldRow[]
-  telemetry: MiningTelemetry
-}
-
-export interface MiningEvent {
-  id: number
-  type: string
-  timestamp?: string
-  payload?: Record<string, unknown>
-  message?: string
-}
-
-export interface MiningScheduleConfig {
-  mining_schedule_enabled: boolean
-  mining_schedule_weekday: number
-  mining_budget_profile: Exclude<MiningBudgetProfile, 'exploratory'>
-}
-
-export type ResearchCandidateKind = 'factor' | 'strategy'
-export type ResearchCandidateStatus = 'pending' | 'validated' | 'rejected'
-
-export interface ResearchCandidate {
-  id: string
-  kind: ResearchCandidateKind
-  name: string
-  source_id: string
-  config: Record<string, unknown>
-  metrics: Record<string, number | string | boolean | null>
-  data_as_of: string | null
-  status: ResearchCandidateStatus
-  created_at: string
-  updated_at: string
-}
-
-export interface ResearchCandidateCreate {
-  kind: ResearchCandidateKind
-  name: string
-  source_id: string
-  config: Record<string, unknown>
-  metrics: Record<string, number | string | boolean | null>
-  data_as_of?: string | null
-  status?: ResearchCandidateStatus
-}
-
-// ===== Strategy Backtest =====
-export interface StrategyBacktestTrade {
-  symbol: string
-  name?: string
-  entry_date: string
-  exit_date: string
-  entry_price: number
-  exit_price: number
-  pnl_pct: number
-  duration: number
-  exit_reason: string
-  shares?: number
-  lots?: number
-  position_pct?: number
-  entry_value?: number
-  exit_value?: number
-  pnl_amount?: number
-  entry_score?: number | null
-  entry_signal_date?: string | null
-  exit_signal_date?: string | null
-  blocked_exit_days?: number
-  entry_signal_id?: string | null
-  exit_signal_id?: string | null
-}
-
-export interface StrategyBacktestResult {
-  run_id: string
-  config: Record<string, any>
-  stats: Record<string, any>
-  equity_curve: { date: string; value: number; cash?: number; positions?: number; exposure?: number }[]
-  drawdown_curve: { date: string; value: number }[]
-  benchmark_curve?: { date: string; value: number; close?: number; name?: string; symbol?: string }[]
-  trades: StrategyBacktestTrade[]
-  per_symbol_stats: {
-    symbol: string
-    n_trades: number
-    total_return: number
-    win_rate: number
-    best: number
-    worst: number
-  }[]
-  strategy_info: {
-    id: string
-    name: string
-    description: string
-    entry_signals: string[]
-    exit_signals: string[]
-    stop_loss: number | null
-    take_profit: number | null
-    trailing_stop: number | null
-    trailing_take_profit_activate: number | null
-    trailing_take_profit_drawdown: number | null
-    score_min: number | null
-    score_max: number | null
-    max_hold_days: number | null
-    source: string
-    execution_backend?: string
-    // 疊加策略回測: 子策略構成與權重歸因
-    composite_children?: { id: string; weight: number }[]
-  }
-  elapsed_ms: number
-  error: string | null
-}
 
 // ===== Settings =====
 
@@ -3101,15 +2227,6 @@ export interface CustomSourceConfig {
   display_name: string
   auth: AuthConfig
   datasets: Record<string, DatasetConfig>
-}
-
-export interface WecomBotStatus {
-  enabled: boolean
-  running: boolean
-  connected: boolean
-  bot_id_configured: boolean
-  secret_configured: boolean
-  last_error: string
 }
 
 export interface Preferences {
@@ -4114,19 +3231,6 @@ export const api = {
 
   capabilities: () => request<CapabilitiesResponse>('/api/capabilities'),
   version: () => request<{ version: string }>('/api/data/version'),
-  klineDaily: (symbol: string, days = 120, dateRange?: { start: string; end: string }, extColumns?: string) =>
-    request<{
-      symbol: string
-      name?: string
-      stock_info?: { name?: string; total_shares?: number; float_shares?: number; ext?: Record<string, unknown> }
-      rows: KlineRow[]
-      source?: string
-    } & Partial<DailyKlineMeta>>(
-      (dateRange
-        ? `/api/kline/daily?symbol=${encodeURIComponent(symbol)}&start_date=${dateRange.start}&end_date=${dateRange.end}`
-        : `/api/kline/daily?symbol=${encodeURIComponent(symbol)}&days=${days}`)
-      + (extColumns ? `&ext_columns=${encodeURIComponent(extColumns)}` : ''),
-    ),
   klineDailyBatch: (symbols: string[], days = 12) =>
     request<{ data: Record<string, KlineRow[]>; meta?: Record<string, DailyKlineMeta> }>('/api/kline/daily-batch', {
       method: 'POST',
@@ -4157,17 +3261,6 @@ export const api = {
       prev_close?: number | null
     }>(
       `/api/kline/minute?symbol=${encodeURIComponent(symbol)}${date ? `&date=${date}` : ''}`,
-    ),
-  klineMinuteRange: (symbol: string, days = 10) =>
-    request<{
-      symbol: string
-      name?: string
-      asset_type: 'stock' | 'etf' | 'index'
-      requested_days: number
-      sessions: MinuteKlineSession[]
-      source: 'local' | 'none'
-    }>(
-      `/api/kline/minute-range?symbol=${encodeURIComponent(symbol)}&days=${days}`,
     ),
   watchlistList: () => request<{ symbols: WatchlistEntry[] }>('/api/watchlist'),
   watchlistAdd: (symbol: string, note = '', groupId?: string | null) =>
@@ -4236,13 +3329,10 @@ export const api = {
         : '/api/watchlist/enriched',
     ),
 
-  pipelineJob: (id: string) => request<PipelineJob>(`/api/pipeline/jobs/${id}`),
   pipelineJobs: (limit = 20) =>
     request<{ active_id: string | null; jobs: PipelineJobSummary[] }>(
       `/api/pipeline/jobs?limit=${limit}`,
     ),
-
-  dataStatus: () => request<DataStatus>('/api/data/status'),
 
   // ===== Taiwan Realtime & Monitor APIs (Phase 5C) =====
   taiwanQuotes: (symbols: string[], force = false) =>
@@ -4363,9 +3453,6 @@ export const api = {
   buyPointStats: () =>
     request<{ stats: Record<string, unknown>[]; disclaimer: string }>('/api/taiwan/buy-points/stats'),
 
-  taiwanCapabilities: () =>
-    request<TaiwanDatasetCapability[]>('/api/taiwan/capabilities'),
-
   taiwanCurrentData: (symbol: string) =>
     request<TaiwanCurrentDataResponse>(`/api/taiwan/data/${encodeURIComponent(symbol)}`),
 
@@ -4421,7 +3508,6 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ token }),
     }),
-
 
   taiwanDataStatus: () =>
     request<TaiwanDataStatus>('/api/taiwan/data-status'),
@@ -4570,16 +3656,6 @@ export const api = {
       },
     ),
 
-  taiwanStockNews: (symbol: string, limit?: number, forceRefresh?: boolean) => {
-    const q = new URLSearchParams()
-    if (limit) q.set('limit', String(limit))
-    if (forceRefresh) q.set('force_refresh', 'true')
-    const qs = q.toString()
-    return request<TaiwanStockNewsResponse>(
-      `/api/taiwan/news/${encodeURIComponent(symbol)}${qs ? `?${qs}` : ''}`,
-    )
-  },
-
   taiwanMarketSentiment: (date?: string) => {
     const qs = date ? `?date=${encodeURIComponent(date)}` : ''
     return request<TaiwanMarketSentimentResponse>(`/api/taiwan/market-sentiment${qs}`)
@@ -4656,7 +3732,6 @@ export const api = {
       method: 'POST',
     }),
 
-
   // ===== Alerts (觸發記錄) =====
   alertsList: (params?: { days?: number; limit?: number; source?: string; type?: string; extColumns?: string }) => {
     const qs = new URLSearchParams()
@@ -4669,9 +3744,6 @@ export const api = {
     return request<{ alerts: AlertEvent[]; total: number }>(`/api/alerts${s ? `?${s}` : ''}`)
   },
 
-  alertsClear: () =>
-    request<{ ok: boolean; cleared: number }>('/api/alerts', { method: 'DELETE' }),
-
   alertsMarkRead: (alertId: string) =>
     request<{ ok: boolean }>(`/api/alerts/${encodeURIComponent(alertId)}/read`, { method: 'PATCH' }),
 
@@ -4680,8 +3752,6 @@ export const api = {
 
   alertDeleteById: (alertId: string) =>
     request<{ ok: boolean }>(`/api/alerts/id/${encodeURIComponent(alertId)}`, { method: 'DELETE' }),
-
-
 
   /** 檢查 AI 設定狀態 */
   strategyAiTest: () =>
@@ -4844,95 +3914,6 @@ export interface PipelineJob {
 }
 
 export type PipelineJobSummary = Omit<PipelineJob, 'log'>
-
-// ===== Data status =====
-interface TableStats {
-  rows: number
-  earliest_date: string | null
-  latest_date: string | null
-  symbols_covered: number
-  trading_days: number
-}
-
-interface InstrumentsStats {
-  rows: number
-  symbols_covered: number
-  latest_as_of: string | null
-  named: number
-}
-
-export interface DataStatus {
-  daily: TableStats | null
-  enriched: TableStats | null
-  index_daily: TableStats | null
-  index_enriched: TableStats | null
-  index_instruments: InstrumentsStats | null
-  etf_daily: TableStats | null
-  etf_enriched: TableStats | null
-  etf_instruments: InstrumentsStats | null
-  minute: TableStats | null
-  adj_factor: TableStats | null
-  instruments: InstrumentsStats | null
-  financials: { rows: number; tables: Record<string, { rows: number; symbols: number }> } | null
-  storage: {
-    daily_files: number
-    daily_size_mb: number
-    enriched_files: number
-    enriched_size_mb: number
-    index_daily_files?: number
-    index_daily_size_mb?: number
-    index_enriched_files?: number
-    index_enriched_size_mb?: number
-    index_instruments_files?: number
-    index_instruments_size_mb?: number
-    etf_daily_files?: number
-    etf_daily_size_mb?: number
-    etf_enriched_files?: number
-    etf_enriched_size_mb?: number
-    etf_instruments_files?: number
-    etf_instruments_size_mb?: number
-    etf_adj_factor_files?: number
-    etf_adj_factor_size_mb?: number
-    minute_files: number
-    minute_size_mb: number
-    adj_factor_files: number
-    adj_factor_size_mb: number
-    instruments_files: number
-    instruments_size_mb: number
-    financials_files?: number
-    financials_size_mb?: number
-    ext_data_files?: number
-    ext_data_size_mb?: number
-    total_size_mb: number
-  }
-  next_pipeline_run: string | null
-  next_instruments_run: string | null
-  last_pipeline_run: string | null
-  last_instruments_run: string | null
-  checked_at: string
-  indicators_ready?: boolean
-}
-
-export interface EnrichedField {
-  name: string
-  type: string
-  desc: string
-}
-
-// ===== 擴展資料 =====
-// Phase 8B-5.16: ExtDataConfig/ExtDataField/PullConfig/ExtDataRowsResult 隨
-// extDataList/extDataRows/CRUD/pull-config 一併移除的端點失去唯一消費者, 一併
-// 清理。DimensionMembersResult 仍被 dimensionMembers() 使用, 保留。
-export interface DimensionMembersResult {
-  id: string
-  label: string
-  date: string | null
-  field: string
-  value: string
-  total: number
-  limit: number
-  rows: Record<string, any>[]
-}
 
 // ===== Selection Review & Snapshot Interfaces (A12) =====
 export type HorizonStatus = 'completed' | 'pending' | 'unavailable'
@@ -5396,7 +4377,6 @@ export interface CreateDailyBriefRequest {
   include_strategy_matches?: boolean
   portfolio_holdings?: Record<string, any>[] | null
 }
-
 
 // ===== 備份與轉移 =====
 export interface DeviceTransferOptions {

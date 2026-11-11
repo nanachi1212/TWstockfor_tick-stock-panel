@@ -9,8 +9,8 @@ import logging
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 
-from app.tickflow.capabilities import CapabilitySet
-from app.tickflow.repository import KlineRepository
+from app.capabilities import CapabilitySet
+from app.repository import KlineRepository
 
 logger = logging.getLogger(__name__)
 
@@ -57,36 +57,6 @@ def _refresh_after_close_research() -> dict[str, object]:
         logger.warning("Scheduled valuation refresh failed: %s", exc)
         result["valuation"] = {"status": "unavailable", "reason": "refresh_failed"}
     return result
-
-
-def _refresh_single_view(repo: KlineRepository, name: str) -> None:
-    """重新整理單個 DuckDB 檢視表。"""
-    d = repo.store.data_dir.as_posix()
-    paths = {
-        "kline_daily": f"{d}/kline_daily/**/*.parquet",
-        "kline_enriched": f"{d}/kline_daily_enriched/**/*.parquet",
-        "kline_index_daily": f"{d}/kline_index_daily/**/*.parquet",
-        "kline_index_enriched": f"{d}/kline_index_enriched/**/*.parquet",
-        "kline_etf_daily": f"{d}/kline_etf_daily/**/*.parquet",
-        "kline_etf_enriched": f"{d}/kline_etf_enriched/**/*.parquet",
-        "kline_etf_minute": f"{d}/kline_etf_minute/**/*.parquet",
-        "kline_minute": f"{d}/kline_minute/**/*.parquet",
-        "adj_factor": f"{d}/adj_factor/**/*.parquet",
-        "adj_factor_etf": f"{d}/adj_factor_etf/**/*.parquet",
-        "instruments": f"{d}/instruments/**/*.parquet",
-        "instruments_index": f"{d}/instruments_index/**/*.parquet",
-        "instruments_etf": f"{d}/instruments_etf/**/*.parquet",
-    }
-    path = paths.get(name)
-    if not path:
-        return
-    try:
-        repo.db.execute(
-            f"CREATE OR REPLACE VIEW {name} AS "
-            f"SELECT * FROM read_parquet('{path}', union_by_name=true)"
-        )
-    except Exception as e:
-        logger.warning("refresh view %s failed: %s", name, e)
 
 
 def run_taiwan_update(evening: bool = False, *, trigger: str = "scheduled") -> None:

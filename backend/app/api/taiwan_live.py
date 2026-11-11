@@ -4,7 +4,7 @@ import threading
 import time
 from datetime import date
 
-from fastapi import APIRouter, HTTPException, Query, Request
+from fastapi import APIRouter, HTTPException, Query
 
 from app.taiwan.quant.live_contract import LiveModel
 from app.taiwan.quant.live_runner import CurrentLiveSource
@@ -92,73 +92,6 @@ def live_models():
 @router.get("/runs")
 def live_runs(limit: int = Query(30, ge=1, le=100)):
     return {"runs": LiveLedger().list_runs(limit)}
-
-
-@router.post("/alerts/evaluate")
-def evaluate_quant_alerts(request: Request):
-    """Evaluate Top 10 reminders only from the current audited Live snapshot."""
-    expected_session = _expected_session()
-    if expected_session is None:
-        return {"ok": True, "status": "unavailable", "alerts": []}
-
-    ledger = LiveLedger()
-    model = LiveModel()
-    run = ledger.read_run(model.key, expected_session)
-    operation = ledger.latest_operation()
-    freeze = operation.get("freeze", operation) if operation else {}
-    if (
-        run is None
-        or run.get("audit_status") != "ok"
-        or freeze.get("status") not in {"frozen", "noop"}
-        or freeze.get("session") != expected_session
-    ):
-        return {"ok": True, "status": "unavailable", "alerts": []}
-
-    from app.services import alert_store
-    from app.taiwan.realtime.monitor_engine import get_monitor_engine
-
-    quote_service = getattr(request.app.state, "quote_service", None)
-    persisted_events = []
-
-    def format_notifications(events):
-        formatter = getattr(quote_service, "_format_extension_notifications", None)
-        return formatter(events) if callable(formatter) else events
-
-    snapshot = run.get("snapshot") or {}
-    signals = snapshot.get("signals")
-    if not isinstance(signals, list):
-        return {"ok": True, "status": "unavailable", "alerts": []}
-
-    def persist_events(events):
-        repo = getattr(request.app.state, "repo", None)
-        if repo is None:
-            raise HTTPException(status_code=503, detail="提醒儲存尚未就緒")
-        formatted = format_notifications(events)
-        accepted_ids = alert_store.append_many(repo.store.data_dir, formatted)
-        accepted_id_set = set(accepted_ids)
-        persisted_events.extend(
-            event for event in formatted if event.get("alert_id") in accepted_id_set
-        )
-        return accepted_ids
-
-    get_monitor_engine().evaluate_quant_top10(
-        signals,
-        expected_session,
-        available=True,
-        persist_events=persist_events,
-    )
-    if persisted_events:
-        output_events = persisted_events
-        if quote_service:
-            try:
-                quote_service.push_alerts(output_events)
-            except Exception as exc:
-                logger.warning("Failed to push Quant Top 10 alerts to SSE (%s)", type(exc).__name__)
-            try:
-                quote_service._maybe_send_webhook(output_events, None)
-            except Exception as exc:
-                logger.warning("Failed to dispatch Quant Top 10 external alerts (%s)", type(exc).__name__)
-    return {"ok": True, "status": "available", "alerts": persisted_events}
 
 
 @router.get("/runs/{model_key}/{session}")

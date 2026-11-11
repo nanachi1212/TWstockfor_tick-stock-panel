@@ -4,7 +4,6 @@
  * 布局：
  * - 上半區「已啟用」：已啟用的列，@dnd-kit 拖曳排序
  * - 下半區「內建列」：按業務分組摺疊
- * - 底部「擴展資料列」：複用 ext_data schema，按需新增欄位
  */
 import React, { useState, useCallback, useEffect, useMemo } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
@@ -17,7 +16,7 @@ import {
   useSortable, verticalListSortingStrategy,
 } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
-import { X, GripVertical, Plus, ChevronDown, ChevronRight, Database, Settings2, Search, Eye, EyeOff } from 'lucide-react'
+import { X, GripVertical, Plus, ChevronDown, ChevronRight, Settings2, Search, Eye, EyeOff } from 'lucide-react'
 import type { ColumnConfig, ColumnGroup, ExtColumnDisplayConfig, CandleColumnConfig, IntradayColumnConfig } from '@/lib/list-columns'
 import { resolveCandleConfig, resolveIntradayConfig } from '@/lib/list-columns'
 import { useDialogBackdrop } from '@/lib/useDialogBackdrop'
@@ -30,10 +29,6 @@ interface ListColumnCustomizerProps {
   onClose: () => void
   title?: string
   builtinSectionLabel?: string
-  extColumnAlign?: 'left' | 'center' | 'right'
-  extFieldFilter?: (field: { name: string; label: string; type: string }) => boolean
-  /** 是否顯示擴展資料列區塊（預設 true；資訊條等無法渲染 ext 資料的場景設為 false）。 */
-  showExtColumns?: boolean
   /** 是否顯示「單獨顯示」勾選項（預設 false；僅資訊條場景啟用，讓某列獨佔一行）。 */
   showStandaloneToggle?: boolean
 }
@@ -142,9 +137,6 @@ export function ListColumnCustomizer({
   onClose,
   title = '自訂列',
   builtinSectionLabel = '內建列',
-  extColumnAlign = 'center',
-  extFieldFilter,
-  showExtColumns = true,
   showStandaloneToggle = false,
 }: ListColumnCustomizerProps) {
   const backdrop = useDialogBackdrop(onClose)
@@ -152,7 +144,6 @@ export function ListColumnCustomizer({
   const [searchQuery, setSearchQuery] = useState('')
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set())
   const [configOpenId, setConfigOpenId] = useState<string | null>(null)
-  const [expandedTables, setExpandedTables] = useState<Set<string>>(new Set())
 
   const colById = useMemo(() => new Map(columns.map(c => [c.id, c])), [columns])
   const keyToId = useMemo(() => {
@@ -194,29 +185,6 @@ export function ListColumnCustomizer({
     const reordered = arrayMove(reorderCols, oldIdx, newIdx)
     onChange([...pinnedCols, ...reordered])
   }, [columns, onChange])
-
-  const addExtColumn = useCallback((configId: string, fieldName: string, fieldLabel?: string, fieldType?: string) => {
-    const colId = `ext:${configId}:${fieldName}`
-    if (columns.some(c => c.id === colId)) {
-      toggleVisible(colId)
-      return
-    }
-    const newCol: ColumnConfig = {
-      id: colId,
-      source: { type: 'ext', configId, fieldName, fieldLabel, fieldType },
-      label: fieldLabel || fieldName,
-      visible: true,
-      align: extColumnAlign,
-    }
-    const actionIdx = columns.findIndex(c => c.id === 'builtin:action')
-    if (actionIdx >= 0) {
-      const next = [...columns]
-      next.splice(actionIdx, 0, newCol)
-      onChange(next)
-    } else {
-      onChange([...columns, newCol])
-    }
-  }, [columns, extColumnAlign, onChange, toggleVisible])
 
   const hideColumn = useCallback((colId: string) => {
     onChange(columns.map(c => c.id === colId ? { ...c, visible: false } : c))
@@ -275,18 +243,6 @@ export function ListColumnCustomizer({
       return next
     })
   }, [])
-
-  const toggleTableExpand = useCallback((tableId: string) => {
-    setExpandedTables(prev => {
-      const next = new Set(prev)
-      if (next.has(tableId)) next.delete(tableId)
-      else next.add(tableId)
-      return next
-    })
-  }, [])
-
-  const extTables: { id: string; label: string; mode: string; columns: { name: string; label: string; type: string }[] }[] = []
-  const extTableLabelMap = new Map(extTables.map(t => [t.id, t.label]))
 
   const query = searchQuery.trim().toLowerCase()
   const filteredGroups = useMemo(() => {
@@ -689,23 +645,6 @@ export function ListColumnCustomizer({
     </div>
   )
 
-  const renderExtFieldRow = (configId: string, field: { name: string; label: string; type: string }) => {
-    const colId = `ext:${configId}:${field.name}`
-    const existing = columns.find(c => c.id === colId)
-    const checked = !!existing?.visible
-    return (
-      <button
-        key={field.name}
-        onClick={() => addExtColumn(configId, field.name, field.label, field.type)}
-        className="flex items-center gap-2 w-full px-2 py-1.5 rounded hover:bg-elevated/50 text-left group transition-colors"
-      >
-        {renderCheckbox(checked)}
-        <span className={`flex-1 text-xs truncate ${checked ? 'text-foreground' : 'text-muted'}`}>{field.label || field.name}</span>
-        <span className="text-xs text-muted shrink-0">{field.type}</span>
-      </button>
-    )
-  }
-
   return (
     <AnimatePresence>
       {open && (
@@ -758,7 +697,7 @@ export function ListColumnCustomizer({
                           onRemove={hideColumn}
                           onConfig={setConfigOpenId}
                           configOpen={configOpenId === col.id}
-                          extTableLabel={col.source.type === 'ext' ? (extTableLabelMap.get(col.source.configId) || col.source.configId) : ''}
+                          extTableLabel={col.source.type === 'ext' ? col.source.configId : ''}
                           extConfig={renderExtConfig(col)}
                           candleConfig={renderCandleConfig(col)}
                           intradayConfig={renderIntradayConfig(col)}
@@ -818,56 +757,6 @@ export function ListColumnCustomizer({
                   )
                 })}
               </div>
-
-              {showExtColumns && extTables.length > 0 && (
-                <div className="pt-1 border-t border-border mt-1">
-                  <div className="flex items-center gap-1.5 px-1 py-1.5">
-                    <Database className="h-3 w-3 text-accent/70" />
-                    <span className="text-xs font-semibold text-accent/80 uppercase tracking-wider">擴展資料列</span>
-                  </div>
-                  <div className="space-y-0.5">
-                    {extTables.map(table => {
-                      const isExpanded = expandedTables.has(table.id)
-                      const dataFields = table.columns
-                        .filter(c => !['symbol', 'code', 'date'].includes(c.name))
-                        .filter(c => extFieldFilter ? extFieldFilter(c) : true)
-                      const activeCount = dataFields.filter(f => {
-                        const colId = `ext:${table.id}:${f.name}`
-                        return columns.some(c => c.id === colId && c.visible)
-                      }).length
-                      return (
-                        <div key={table.id}>
-                          <button
-                            onClick={() => toggleTableExpand(table.id)}
-                            className="flex items-center gap-1.5 w-full px-1 py-1.5 rounded hover:bg-elevated/30 text-left transition-colors"
-                          >
-                            {isExpanded ? <ChevronDown className="h-3 w-3 text-muted" /> : <ChevronRight className="h-3 w-3 text-muted" />}
-                            <Database className="h-3 w-3 text-accent shrink-0" />
-                            <span className="text-xs font-medium text-secondary flex-1">{table.label}</span>
-                            <span className="text-xs text-muted">{table.mode === 'snapshot' ? '快照' : '時序'}</span>
-                            {activeCount > 0 && (
-                              <span className="text-xs text-accent font-medium">{activeCount}</span>
-                            )}
-                          </button>
-                          <AnimatePresence>
-                            {isExpanded && (
-                              <motion.div
-                                initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }}
-                                exit={{ height: 0, opacity: 0 }} transition={{ duration: 0.15 }}
-                                className="overflow-hidden"
-                              >
-                                <div className="space-y-0.5 pb-0.5">
-                                  {dataFields.map(field => renderExtFieldRow(table.id, field))}
-                                </div>
-                              </motion.div>
-                            )}
-                          </AnimatePresence>
-                        </div>
-                      )
-                    })}
-                  </div>
-                </div>
-              )}
 
             </div>
           </motion.div>

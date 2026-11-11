@@ -102,15 +102,6 @@ export function leaveMonitorPage(): void {
   // (避免 currentTotal 此刻還沒重新整理到最新, 寫入偏小的值)
 }
 
-/** 記錄被清空時呼叫。 */
-export function resetBadge(): void {
-  currentTotal = 0
-  lastSeenTotal = 0
-  pendingSeen = false
-  writeSeen(0)
-  emit()
-}
-
 /** 讀取當前未讀數。 */
 export function useUnreadAlerts(): number {
   return useSyncExternalStore(subscribe, getSnapshot, () => 0)

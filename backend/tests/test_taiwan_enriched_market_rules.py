@@ -62,8 +62,8 @@ def test_instrument_classification_and_unknowns_are_respected(symbol, metadata, 
 def test_vector_unknown_market_and_missing_taiwan_classification_are_null():
     rows = pl.DataFrame({"symbol": ["3010.US", "3010", "9999.TWSE", "300001.SZ", None],
                          "date": [date(2026, 6, 2)] * 5})
-    values = rows.select(polars_price_limit_pct(pl.col("symbol"), pl.col("date"), pl.lit(False)))
-    assert values.to_series().to_list() == [None, None, None, 0.2, None]
+    values = rows.select(polars_price_limit_pct(pl.col("symbol")))
+    assert values.to_series().to_list() == [None, None, None, None, None]
 
 
 @pytest.mark.parametrize("hour,minute,expected", [
@@ -100,7 +100,6 @@ def test_custom_realtime_enrichment_uses_quote_timestamp_and_taiwan_session(monk
         _previous_enriched().with_columns(pl.lit(symbol).alias("symbol")), date(2026, 11, 3),
     )
     repo.get_instruments.return_value = pl.DataFrame({"symbol": [symbol], "asset_type": ["stock"]})
-    monkeypatch.setattr("app.indicators.pipeline.attach_deviation_columns_today", lambda frame, *args: frame)
     service = QuoteService.__new__(QuoteService)
     service._repo = repo
     service.get_index_quotes = lambda: pl.DataFrame()

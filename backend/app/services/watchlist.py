@@ -16,13 +16,13 @@ import os
 import shutil
 import threading
 import uuid
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 
 import polars as pl
 
+from app.capabilities import CapabilitySet
 from app.config import settings
-from app.tickflow.capabilities import CapabilitySet
 
 logger = logging.getLogger(__name__)
 
@@ -209,7 +209,7 @@ def add_batch(
                 gids.append(group_id)
             rows.insert(0, {
                 "symbol": symbol,
-                "added_at": datetime.utcnow().isoformat(timespec="seconds"),
+                "added_at": datetime.now(UTC).replace(tzinfo=None).isoformat(timespec="seconds"),
                 "note": note,
                 "group_ids": gids,
             })
@@ -311,26 +311,6 @@ def delete_group(group_id: str) -> tuple[list[dict], list[dict]]:
         _write_entries(df)
         _write_groups(remaining)
         return remaining, df.to_dicts()
-
-
-def set_group(symbol: str, group_id: str | None) -> list[dict]:
-    """互斥設定: 該標的只保留這一個分組(group_id=None 即全部移出, 變未分組)。
-
-    多組模型的日常操作走 add_to_group / remove_from_group; 本函式服務於
-    「僅保留此組」的顯式場景。
-    """
-    with _LOCK:
-        groups = _read_groups()
-        _validate_group_id(group_id, groups)
-        rows = _read_entries().to_dicts()
-        if not any(row["symbol"] == symbol for row in rows):
-            raise KeyError(symbol)
-        for row in rows:
-            if row["symbol"] == symbol:
-                row["group_ids"] = [group_id] if group_id is not None else []
-        out = pl.DataFrame(rows, schema=_ENTRY_SCHEMA)
-        _write_entries(out)
-        return out.to_dicts()
 
 
 def add_to_group(symbol: str, group_id: str) -> list[dict]:

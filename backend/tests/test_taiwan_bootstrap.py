@@ -3,9 +3,6 @@ from __future__ import annotations
 
 import hashlib
 import io
-import os
-import shutil
-import tempfile
 import zipfile
 from datetime import date
 from pathlib import Path
@@ -19,7 +16,6 @@ from app.taiwan.bootstrap import (
     TaiwanBootstrapService,
     get_history_status,
     safe_extract_zip,
-    verify_extracted_taiwan_data,
 )
 from app.taiwan.daily_store import TaiwanDailyStore
 

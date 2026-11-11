@@ -1,6 +1,6 @@
 """Deterministic Multi-Stock Objective Research Comparison Service (Phase 7G).
 
-Compares 2-5 Taiwan-listed instruments (TWSE/TPEx common stocks, normal/leveraged/
+Compares 2-10 Taiwan-listed instruments (TWSE/TPEx common stocks, normal/leveraged/
 inverse ETFs) side-by-side, purely by reusing the existing per-symbol deterministic
 evidence layer (Phase 7C `TaiwanStockResearchContextService`) and the whole-market
 abnormal diagnostics batch (Phase 7D `TaiwanAbnormalDiagnosticsService`).

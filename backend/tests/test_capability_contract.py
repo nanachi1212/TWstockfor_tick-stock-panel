@@ -6,8 +6,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from app.capabilities import Cap, CapabilityLimits, CapabilitySet
-from app.tickflow.policy import detect_capabilities
+from app.capabilities import Cap, CapabilityLimits, CapabilitySet, detect_capabilities
 
 
 def test_official_mode_advertises_only_implemented_datasets(monkeypatch):
@@ -22,7 +21,6 @@ def test_official_mode_advertises_only_implemented_datasets(monkeypatch):
     assert not caps.has(Cap.KLINE_MINUTE_BATCH)
     assert not caps.has(Cap.ADJ_FACTOR)
     assert not caps.has(Cap.WEBSOCKET)
-    assert detect_capabilities(force=True).to_dict() == caps.to_dict()
 
 
 def test_selected_custom_datasets_grant_their_declared_capabilities(monkeypatch):

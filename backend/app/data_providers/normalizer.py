@@ -7,7 +7,6 @@ from app.indicators.pipeline import filter_halt_days
 
 DAILY_COLS = ["symbol", "date", "open", "high", "low", "close", "volume", "amount", "quote_ts"]
 ADJ_FACTOR_COLS = ["symbol", "trade_date", "ex_factor"]
-INSTRUMENT_COLS = ["symbol", "name", "code", "exchange", "asset_type", "source"]
 
 
 def to_polars(data) -> pl.DataFrame:
@@ -80,24 +79,3 @@ def normalize_adj_factors(data, source: str = "unknown") -> pl.DataFrame:
         df = df.with_columns(pl.col("ex_factor").cast(pl.Float64, strict=False))
     keep = [c for c in ADJ_FACTOR_COLS if c in df.columns]
     return df.select(keep).drop_nulls() if len(keep) == len(ADJ_FACTOR_COLS) else pl.DataFrame()
-
-
-def normalize_instruments(rows: list[dict], asset_type: str, source: str = "unknown") -> pl.DataFrame:
-    if not rows:
-        return pl.DataFrame()
-    out: list[dict] = []
-    for item in rows:
-        symbol = item.get("symbol")
-        if not symbol:
-            continue
-        out.append({
-            "symbol": str(symbol),
-            "name": item.get("name") or str(symbol),
-            "code": item.get("code") or str(symbol).split(".")[0],
-            "exchange": item.get("exchange"),
-            "asset_type": asset_type,
-            "source": source,
-        })
-    if not out:
-        return pl.DataFrame()
-    return pl.DataFrame(out).select(INSTRUMENT_COLS).unique(subset=["symbol"], keep="last").sort("symbol")

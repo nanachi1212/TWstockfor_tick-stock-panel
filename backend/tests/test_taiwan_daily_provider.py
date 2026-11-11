@@ -42,7 +42,7 @@ from app.taiwan.providers.taiwan_values import (
     parse_taiwan_date,
 )
 from app.taiwan.symbol import Exchange, TaiwanSymbol, parse_symbol
-from app.tickflow.repository import DataStore, KlineRepository
+from app.repository import DataStore, KlineRepository
 
 # ── Sample Raw Fixtures ────────────────────────────────────────
 

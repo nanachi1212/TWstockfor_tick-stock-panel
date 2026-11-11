@@ -11,7 +11,7 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
-  UV_PYTHON: "3.11"
+  UV_PYTHON: "3.12"
 
 jobs:
   pytest:
@@ -42,7 +42,7 @@ jobs:
           fi
 
           git diff --name-only "$base_sha" "$GITHUB_SHA" > "$RUNNER_TEMP/changed-paths.txt"
-          if grep -Eq '^(shared/|contracts/|\.github/workflows/backend-tests\.yml$)' "$RUNNER_TEMP/changed-paths.txt" \
+          if grep -Eq '^(docs/taiwan_market_contract|packaging/|scripts/|VERSION$|\.github/workflows/)' "$RUNNER_TEMP/changed-paths.txt" \
             || grep -E '^backend/' "$RUNNER_TEMP/changed-paths.txt" | grep -Ev '(^|/)docs/|\.md$'; then
             echo "backend=true" >> "$GITHUB_OUTPUT"
           else
@@ -61,9 +61,9 @@ jobs:
           enable-cache: true
           cache-dependency-glob: backend/uv.lock
 
-      - name: Set up Python 3.11
+      - name: Set up Python 3.12
         if: steps.scope.outputs.backend == 'true'
-        run: uv python install 3.11
+        run: uv python install 3.12
 
       - name: Install dependencies
         if: steps.scope.outputs.backend == 'true'

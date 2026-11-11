@@ -351,7 +351,7 @@ def test_duplicate_durable_claim_recovers_state_without_rerouting(tmp_path: Path
     monkeypatch.setattr(buy_points.alert_store, "append_many", lambda _data_dir, _events: [])
     assert buy_points._dispatch_alerts(tmp_path, None, store, [_triggered_signal()]) == []
     assert store.state("quant_pullback:2330.TWSE") == "triggered"
-    assert store.last_triggered_at("quant_pullback:2330.TWSE") is not None
+    assert store.state_snapshot("quant_pullback:2330.TWSE")[1] is not None
 
 
 def test_alert_state_is_not_advanced_when_persistence_raises(tmp_path: Path, monkeypatch):
@@ -364,7 +364,7 @@ def test_alert_state_is_not_advanced_when_persistence_raises(tmp_path: Path, mon
     with pytest.raises(OSError, match="disk full"):
         buy_points._dispatch_alerts(tmp_path, None, store, [_triggered_signal()])
     assert store.state("quant_pullback:2330.TWSE") is None
-    assert store.last_triggered_at("quant_pullback:2330.TWSE") is None
+    assert store.state_snapshot("quant_pullback:2330.TWSE")[1] is None
 
 
 def test_alert_transition_id_deduplicates_independent_callers(tmp_path: Path):

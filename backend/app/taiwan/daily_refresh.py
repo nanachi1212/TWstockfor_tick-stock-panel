@@ -298,17 +298,3 @@ class TaiwanDailyRefreshService:
         rows = df.height
         written = self._store.write_batch(df)
         return {"symbol": symbol, "rows": rows, "written": written, "status": "ok"}
-
-    def refresh_today(self) -> dict[str, Any]:
-        """Refresh all universe symbols for today only."""
-        return self.refresh_symbols(start=date.today(), end=date.today())
-
-    def refresh_range(self, start: date, end: date) -> dict[str, Any]:
-        """Refresh all universe symbols for a date range."""
-        return self.refresh_symbols(start=start, end=end)
-
-    def fetch_sample(self, symbols: list[str], start: date, end: date) -> pl.DataFrame:
-        """Fetch a small sample of symbols for validation (bypasses store)."""
-        if not symbols:
-            return pl.DataFrame()
-        return self._provider.get_daily(symbols, start_time=start, end_time=end)

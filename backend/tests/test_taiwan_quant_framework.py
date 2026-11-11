@@ -37,11 +37,7 @@ from app.taiwan.quant.regime import (
 )
 from app.taiwan.quant.validation.folds import (
     FoldConfig,
-    PurgedFold,
     generate_folds,
-    iter_fold_blocks,
-    leaks_into,
-    purged_training_sessions,
 )
 
 # ── Feature manifest x capability ──────────────────────────────
@@ -490,52 +486,13 @@ def test_purge_and_embargo_open_a_real_gap_at_each_boundary() -> None:
     assert sessions.index(fold.test_start) - sessions.index(fold.val_end) == gap + 1
     assert fold.purge_sessions == SMALL.label_horizon
     assert fold.embargo_sessions == SMALL.embargo_sessions
-    assert fold.contains_leak() is False
-
-
-def test_no_training_label_window_can_reach_validation() -> None:
-    """With gap = purge + embargo >= horizon, the geometry itself does the purging."""
-    sessions = _sessions(200)
-    fold = generate_folds(sessions, SMALL)[0]
-    kept = purged_training_sessions(sessions, fold)
-
-    assert kept, "purging must not empty the training block"
-    for day in kept:
-        assert leaks_into(fold, sessions, day) is False
-    # the structural gap already exceeds the horizon, so nothing needs dropping
-    whole_block = [d for d in sessions if fold.train_start <= d <= fold.train_end]
-    assert kept == whole_block
-    # and the very last training row's label lands inside the gap, not in validation
-    assert sessions.index(fold.val_start) - sessions.index(fold.train_end) > SMALL.label_horizon
-
-
-def test_purge_drops_rows_when_a_hand_built_gap_is_too_small() -> None:
-    """A fold whose gap is smaller than the horizon must lose its tail."""
-    sessions = _sessions(200)
-    leaky = PurgedFold(
-        index=0,
-        train_start=sessions[0], train_end=sessions[49],
-        val_start=sessions[51], val_end=sessions[70],
-        test_start=sessions[72], test_end=sessions[81],
-        purge_sessions=5, embargo_sessions=0, label_horizon=5,
-    )
-    kept = purged_training_sessions(sessions, leaky)
-    dropped = [d for d in sessions
-               if leaky.train_start <= d <= leaky.train_end and d not in set(kept)]
-
-    assert dropped, "a 2-session gap cannot absorb a 5-session label window"
-    assert all(leaks_into(leaky, sessions, d) for d in dropped)
-    assert all(not leaks_into(leaky, sessions, d) for d in kept)
 
 
 def test_validation_and_test_blocks_never_overlap() -> None:
     sessions = _sessions(400)
     for fold in generate_folds(sessions, SMALL):
-        blocks: dict[date, str] = {}
-        for block, day in iter_fold_blocks(fold, sessions):
-            assert day not in blocks, f"{day} in both {blocks.get(day)} and {block}"
-            blocks[day] = block
-        assert fold.contains_leak() is False
+        assert (fold.train_start <= fold.train_end < fold.val_start <= fold.val_end
+                < fold.test_start <= fold.test_end)
 
 
 def test_test_block_is_excluded_from_what_a_model_may_fit_on() -> None:

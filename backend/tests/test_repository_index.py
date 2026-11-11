@@ -4,7 +4,7 @@ import os
 import polars as pl
 import pytest
 
-from app.tickflow.repository import DataStore, KlineRepository
+from app.repository import DataStore, KlineRepository
 
 
 @pytest.fixture()
@@ -97,7 +97,7 @@ def test_execute_one_releases_parquet_file(repo):
         "close": [10.0],
     })
     minute.write_parquet(part)
-    repo.rebuild_views()
+    repo.store._register_views()
 
     assert repo.execute_one("SELECT max(datetime) FROM kline_minute")[0] == _dt.datetime(2026, 7, 23, 9, 30)
 

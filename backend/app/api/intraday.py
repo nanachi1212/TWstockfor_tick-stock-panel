@@ -13,13 +13,12 @@ import asyncio
 import json
 import time
 
-from fastapi import APIRouter, HTTPException, Query, Request
+from fastapi import APIRouter, Query, Request
 from sse_starlette.sse import EventSourceResponse
 
 from app.taiwan.realtime import get_market_status, get_realtime_service, taipei_now
 
 router = APIRouter(prefix="/api/intraday", tags=["quotes"])
-
 
 
 def _get_quote_service(request: Request):
@@ -130,15 +129,6 @@ def search_taiwan_instruments(
         enriched.append(item)
 
     return {"results": enriched, "count": len(enriched)}
-
-
-
-
-
-@router.get("/indices")
-def index_quotes():
-    """Explicitly retire the old market index endpoint without reading its caches."""
-    raise HTTPException(410, "舊市場指數端點已停用")
 
 
 @router.get("/stream")

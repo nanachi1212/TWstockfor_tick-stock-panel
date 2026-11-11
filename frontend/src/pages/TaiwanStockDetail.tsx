@@ -945,7 +945,6 @@ export function TaiwanStockDetail() {
                     data={ohlcRows}
                     height={400}
                     showMA={true}
-                    symbol={data.symbol}
                   />
                 </div>
               ) : (

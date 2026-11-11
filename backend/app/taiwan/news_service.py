@@ -5,7 +5,7 @@ Strict Constraints:
 - No web scraping or news crawlers.
 - No synthetic content or AI-generated news articles; preserve original description if present, else None.
 - Deterministic deduplication via normalized URL and title normalization (no NLP clustering).
-- Caching via FinMindCache with 30-minute TTL to respect API quotas.
+- Caching via FinMindCache (6-hour TTL, 15 minutes for unavailable or error responses) to respect API quotas.
 - Graceful degradation for paid tiers or rate limits (unavailable status, never fake zeroes).
 """
 # ruff: noqa: RUF001

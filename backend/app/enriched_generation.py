@@ -182,36 +182,6 @@ def get_enriched_generation(
     return generation
 
 
-def enriched_publication_incomplete(
-    data_dir: Path,
-    asset_type: str = "stock",
-) -> bool:
-    try:
-        payload = _read_marker(_marker_path(data_dir, asset_type))
-    except EnrichedGenerationUnavailableError:
-        return True
-    if payload is None:
-        return False
-    return (
-        payload.get("state", "ready") != "ready"
-        or not isinstance(payload.get("generation"), str)
-        or not payload["generation"]
-    )
-
-
-def bump_enriched_generation(data_dir: Path, asset_type: str = "stock") -> str:
-    path = _marker_path(data_dir, asset_type)
-    with _exclusive_generation_lock(data_dir, asset_type):
-        current = _read_marker(path)
-        if current is not None and current.get("state", "ready") != "ready":
-            raise EnrichedGenerationUnavailableError(
-                "cannot bump an incomplete enriched publication"
-            )
-        generation = uuid.uuid4().hex
-        _write_marker(path, _ready_payload(generation))
-        return generation
-
-
 class EnrichedPublication:
     """Publish one logical enriched write batch under a stable generation token."""
 
@@ -234,20 +204,6 @@ class EnrichedPublication:
         with _exclusive_generation_lock(self.data_dir, self.asset_type):
             self._claim_or_verify()
 
-    def mark_changed(self) -> None:
-        if not self._publishing:
-            raise RuntimeError("enriched publication has not started")
-        self._changed = True
-
-    def abandon(self) -> None:
-        if not self._publishing or self._changed:
-            return
-        path = _marker_path(self.data_dir, self.asset_type)
-        with _exclusive_generation_lock(self.data_dir, self.asset_type):
-            current = _read_marker(path)
-            if current is not None and current.get("publication_id") == self._publication_id:
-                _write_marker(path, _ready_payload(str(self._base_generation)))
-        self._publishing = False
 
     def write_parquet(self, df: pl.DataFrame, out: Path) -> None:
         out.parent.mkdir(parents=True, exist_ok=True)

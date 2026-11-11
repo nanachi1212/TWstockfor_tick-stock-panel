@@ -8,24 +8,10 @@ Verifies:
 """
 from __future__ import annotations
 
-from unittest.mock import patch
 from fastapi.testclient import TestClient
 import pytest
 
 from app.main import app
-from app.taiwan.detail_models import (
-    TaiwanDailyRow,
-    TaiwanFactorsData,
-    TaiwanHistoricalDaily,
-    TaiwanInstitutionalData,
-    TaiwanMarginData,
-    TaiwanMarketContext,
-    TaiwanMonitorSummary,
-    TaiwanStockDetailResponse,
-    TaiwanStockIdentity,
-    TaiwanStockPriceLimit,
-    TaiwanStockRealtime,
-)
 
 
 @pytest.fixture

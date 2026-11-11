@@ -10,7 +10,6 @@ import {
   BUILTIN_SIGNAL_DEFINITIONS,
   MONITOR_INTRADAY_SIGNAL_LABELS,
   SIGNAL_LABELS,
-  SIGNAL_OPTIONS,
   cnSignal,
 } from './signals'
 
@@ -50,10 +49,6 @@ const KNOWN_SIMPLIFIED_OR_A_SHARE_TERMS = [
 describe('BUILTIN_SIGNAL_DEFINITIONS — ids unchanged', () => {
   it('has exactly the same 20 built-in signal ids as before (backend contract / saved rule identifiers)', () => {
     expect(BUILTIN_SIGNAL_DEFINITIONS.map(s => s.id).sort()).toEqual([...EXPECTED_BUILTIN_IDS].sort())
-  })
-
-  it('SIGNAL_OPTIONS (consumed by SignalPicker/RuleEditor) still exposes exactly these ids', () => {
-    expect(SIGNAL_OPTIONS.sort()).toEqual([...EXPECTED_BUILTIN_IDS].sort())
   })
 
   it('SIGNAL_LABELS keys still match the original ids (RuleEditor/SignalPicker lookups by id keep working)', () => {

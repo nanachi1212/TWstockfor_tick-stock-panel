@@ -8,7 +8,6 @@ import pytest
 
 from app.taiwan.fundamentals import (
     FundamentalRecord,
-    ShareCapital,
     TaiwanFundamentalStore,
     TaiwanOfficialFundamentals,
     latest_as_of,
@@ -157,13 +156,6 @@ def test_current_share_capital_preserves_distinct_concepts_without_historical_av
     }
     assert got.available_at is None and got.published_at is None
     assert got.status == "data_insufficient"
-
-
-def test_share_capital_concepts_are_not_substituted():
-    capital = ShareCapital(issued_shares=1000, capital_twd=10_000)
-    assert capital.issued_shares == 1000
-    assert capital.total_shares is None and capital.float_shares is None
-    assert capital.status == "data_insufficient"
 
 
 def test_dividend_status_contract():

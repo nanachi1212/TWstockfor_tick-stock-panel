@@ -22,7 +22,6 @@ import polars as pl
 from pydantic import BaseModel, Field
 
 SEED_SCHEMA_VERSION = 1
-SEED_ARCHIVE_NAME = "release-seed.zip"
 
 _EXACT_PUBLIC_FILES = frozenset(
     {

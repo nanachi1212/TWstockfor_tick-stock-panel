@@ -4,12 +4,12 @@ Provides authoritative, deterministic market and company events for Taiwan stock
 - Corporate Actions: Cash/stock dividends, capital reduction, stock splits (par change)
 - MOPS Dividend Lifecycle: Board resolution, shareholder resolution, ex-date announcement
 - Regulatory & Trading Status: Disposition securities (處置股), warning securities (注意股),
-  suspended trading (暫停交易), resumption (恢復交易), delisting (終止上市/下市)
-- Announcements: Monthly revenue announcements, financial statement announcements
+  suspended trading (暫停交易), delisting (終止上市/下市)
+- MOPS Announcements: Material information, investor conferences, insider transfer declarations
 
 Severity mapping (Deterministic, no AI):
-- info: Dividends, revenue announcements, financial statements
-- attention: Disposition, warning securities, capital reduction, par change, resumed trading
+- info: Dividends, MOPS material information, investor conferences, insider transfer declarations
+- attention: Disposition, warning securities, capital reduction, par change
 - risk: Suspended trading, delisting
 """
 # ruff: noqa: RUF001
@@ -53,13 +53,10 @@ SEVERITY_BY_EVENT_TYPE: dict[str, EventSeverity] = {
     "cash_dividend": "info",
     "stock_dividend": "info",
     "dividend_announcement": "info",
-    "revenue_announcement": "info",
-    "financial_statement_announcement": "info",
     "disposition": "attention",
     "warning": "attention",
     "capital_reduction": "attention",
     "par_change": "attention",
-    "resume_trading": "attention",
     "suspended_trading": "risk",
     "delisting": "risk",
     "material_information": "info",
@@ -71,14 +68,11 @@ EVENT_TYPE_LABELS: dict[str, str] = {
     "cash_dividend": "除息",
     "stock_dividend": "除權",
     "dividend_announcement": "股利宣告",
-    "revenue_announcement": "營收公布",
-    "financial_statement_announcement": "財報公布",
     "disposition": "處置證券",
     "warning": "注意股票",
     "capital_reduction": "減資",
     "par_change": "面額變更/分割",
     "suspended_trading": "暫停交易",
-    "resume_trading": "恢復交易",
     "delisting": "終止上市/下市",
     "material_information": "重大訊息",
     "investor_conference": "法人說明會",
@@ -127,24 +121,6 @@ class MarketEvent(BaseModel):
     freshness: str = Field("fresh", description="資料新鮮度: fresh, cached, stale, unavailable")
     details: dict[str, Any] = Field(default_factory=dict, description="結構化細節")
     is_resolvable: bool = Field(True, description="False 表示代碼無法在 security master 中解析，個股詳情導航不可用")
-
-
-class EventCandidatesResponse(BaseModel):
-    """Event-driven stocks worthy of attention."""
-
-    candidates: list[dict[str, Any]] = Field(default_factory=list)
-    as_of_date: str
-    total: int
-
-
-class EventsListResponse(BaseModel):
-    """Event Center API query response."""
-
-    events: list[MarketEvent]
-    total: int
-    as_of_date: str
-    status: str = "available"
-    sources_status: dict[str, str] = Field(default_factory=dict)
 
 
 def _cache_path() -> Path:
@@ -1217,7 +1193,7 @@ class TaiwanEventService:
         symbols: list[str],
         data_dir: Path | None = None,
     ) -> list[dict[str, Any]]:
-        """Check and trigger alerts for critical events (disposition, suspension, resumption,
+        """Check and trigger alerts for critical events (disposition, suspension,
         reduction, split, delisting, dividends) for user's watchlist or portfolio.
         Reuses existing alert_store and webhook_adapter.
         """
@@ -1235,7 +1211,6 @@ class TaiwanEventService:
             event_types=[
                 "disposition",
                 "suspended_trading",
-                "resume_trading",
                 "capital_reduction",
                 "par_change",
                 "delisting",

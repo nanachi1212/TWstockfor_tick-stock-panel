@@ -9,7 +9,6 @@ Covers:
 """
 from __future__ import annotations
 
-import asyncio
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -219,7 +218,6 @@ async def test_shared_provider_does_not_retry_non_truncation_error():
 def test_detail_service_price_limit_try_except_is_present():
     """The detail_service source must contain a try/except for ValueError around
     MarketProfileBridge.get_price_limit_pct so unconfirmed ETFs produce safe fallback."""
-    import ast
     import pathlib
 
     src = (

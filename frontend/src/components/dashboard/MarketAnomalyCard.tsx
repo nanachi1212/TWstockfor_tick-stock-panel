@@ -28,7 +28,7 @@ export function MarketAnomalyCard({ snapshot, loading, error, alerts, alertsLoad
   const displayedQuantEvents = quantEvents.slice(0, 5)
   const signalLabel: Record<string, string> = {
     PRICE_MOVE: '單日大漲/跌', VOLUME_SPIKE: '爆量', TURNOVER_SPIKE: '成交額放大',
-    FOREIGN_FLOW_SPIKE: '外資異常', TRUST_FLOW_SPIKE: '投信異常', DEALER_FLOW_SPIKE: '自營商異常',
+    FOREIGN_FLOW_SPIKE: '外資異常', TRUST_FLOW_SPIKE: '投信異常',
     PRICE_FLOW_DIVERGENCE: '價量背離', RELATIVE_STRENGTH_OUTLIER: '相對強弱異常',
     MARGIN_SURGE: '融資異常', SHORT_SURGE: '融券異常', SHORT_MARGIN_RATIO_SPIKE: '券資比異常',
   }

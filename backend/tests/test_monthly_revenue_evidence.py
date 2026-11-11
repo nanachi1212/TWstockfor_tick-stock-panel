@@ -260,6 +260,16 @@ def test_refresh_is_market_batched_incremental_and_records_failures(tmp_path):
     assert second["skipped_fresh"] == 23 and second["status"] == "available"
 
 
+def test_refresh_gives_up_when_the_network_is_unreachable(tmp_path):
+    store = MonthlyRevenueEvidenceStore(tmp_path)
+    now = datetime(2026, 9, 21, 20, 0, tzinfo=TAIPEI)
+    every_page = {page_url(m, k, p) for m in ("TWSE", "TPEX") for k in ("0", "1") for p in window_periods(now.date())}
+    client = _Client(fail=every_page)
+    summary = refresh_monthly_revenue_evidence(store, now=now, client=client)
+    assert len(client.urls) == 3  # not all 24: each attempt holds a shared rate-limit slot
+    assert summary["aborted"] == "network_unreachable" and summary["status"] == "unavailable"
+
+
 def test_month_end_refresh_covers_next_month_cutoff(tmp_path, monkeypatch):
     store = MonthlyRevenueEvidenceStore(tmp_path)
     now = datetime(2026, 9, 30, 18, 0, tzinfo=TAIPEI)

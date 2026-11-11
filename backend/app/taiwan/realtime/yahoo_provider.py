@@ -5,14 +5,14 @@ v8 chart/quote endpoints.
 """
 from __future__ import annotations
 
-from datetime import date, datetime
+from datetime import datetime
 import json
 import logging
 import urllib.request
 
 from app.taiwan.enrichment.models import SourceMeta
 from app.taiwan.realtime.calendar import get_market_status, taipei_now
-from app.taiwan.realtime.models import MarketStatus, RealtimeStatus, TaiwanRealtimeQuote
+from app.taiwan.realtime.models import RealtimeStatus, TaiwanRealtimeQuote
 from app.taiwan.symbol import TaiwanSymbol, parse_symbol
 
 logger = logging.getLogger(__name__)

@@ -689,7 +689,7 @@ def test_api_events_endpoints(client):
 # ---------------------------------------------------------------------------
 def test_pit_historical_research_events_fail_closed():
     """Finding 1: Explicit historical target_date must be PIT-safe."""
-    from datetime import date, datetime
+    from datetime import date
 
     from app.taiwan.corporate_actions import CorporateActionEvent
     from app.taiwan.events_service import TaiwanEventService

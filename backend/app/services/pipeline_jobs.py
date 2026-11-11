@@ -12,11 +12,10 @@ from __future__ import annotations
 
 import json
 import logging
-import os
 import re
 import threading
 import uuid
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Literal
 
@@ -219,7 +218,7 @@ class JobStore:
             if not j:
                 return
             j["status"] = "running"
-            j["started_at"] = datetime.utcnow().isoformat(timespec="seconds") + "Z"
+            j["started_at"] = datetime.now(UTC).replace(tzinfo=None).isoformat(timespec="seconds") + "Z"
             # 心跳基準初始化為啟動時刻: start() 到首次 progress() 之間的
             # 初始化階段(解析標的池等)同樣計入停滯計時。
             j["last_progress_at"] = j["started_at"]
@@ -230,7 +229,7 @@ class JobStore:
             if not j:
                 return
             j["status"] = "succeeded"
-            j["finished_at"] = datetime.utcnow().isoformat(timespec="seconds") + "Z"
+            j["finished_at"] = datetime.now(UTC).replace(tzinfo=None).isoformat(timespec="seconds") + "Z"
             j["progress"] = 100
             j["result"] = result
             j["duration_s"] = _duration_s(j)
@@ -245,7 +244,7 @@ class JobStore:
             if not j:
                 return
             j["status"] = "failed"
-            j["finished_at"] = datetime.utcnow().isoformat(timespec="seconds") + "Z"
+            j["finished_at"] = datetime.now(UTC).replace(tzinfo=None).isoformat(timespec="seconds") + "Z"
             j["error"] = error
             j["duration_s"] = _duration_s(j)
             if self._active_id == job_id:
@@ -268,13 +267,13 @@ class JobStore:
                 return
             j["stage"] = stage
             j["progress"] = max(0, min(100, int(pct)))
-            j["last_progress_at"] = datetime.utcnow().isoformat(timespec="seconds") + "Z"
+            j["last_progress_at"] = datetime.now(UTC).replace(tzinfo=None).isoformat(timespec="seconds") + "Z"
             if stage_pct is not None:
                 j["stage_pct"] = max(0, min(100, int(stage_pct)))
             elif j["stage"] != stage:
                 j["stage_pct"] = 0
             entry = {
-                "ts": datetime.utcnow().isoformat(timespec="seconds") + "Z",
+                "ts": datetime.now(UTC).replace(tzinfo=None).isoformat(timespec="seconds") + "Z",
                 "stage": stage,
                 "msg": msg,
             }
@@ -359,7 +358,7 @@ class JobStore:
             started_at = started
             last_alive_at = last_alive
         # 時間計算放到鎖外(避免 datetime 解析持鎖)。
-        # started_at 形如 "2026-07-04T12:00:00Z"(start() 用 datetime.utcnow 存)。
+        # started_at 形如 "2026-07-04T12:00:00Z"(start() 用 UTC 時間存)。
         # 兩端都用 timezone-aware UTC 比較,避免 naive/aware 混用導致 TypeError。
         try:
             start_dt = _parse_utc(started_at)

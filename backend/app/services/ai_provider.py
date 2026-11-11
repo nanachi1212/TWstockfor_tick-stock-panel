@@ -137,15 +137,6 @@ def snapshot_ai_provider_config(tier: Literal["quick", "deep"] = "quick") -> AIP
         value = stored.get(name)
         return str(value if value else getattr(settings, name, fallback) or fallback)
 
-    def configured_int(name: str, fallback: int) -> int:
-        value = stored.get(name)
-        if value is None:
-            return int(getattr(settings, name, fallback) or fallback)
-        try:
-            return int(value)
-        except (TypeError, ValueError):
-            return int(getattr(settings, name, fallback) or fallback)
-
     # An active profile is the authoritative endpoint/model/credential source.
     # Legacy fields are used only when no profile exists.
     from app.services import ai_key_profiles as _profiles
@@ -215,22 +206,6 @@ _FOCUS_BLOCKLIST = re.compile(
     r"明日基調|交易計劃|下單",
     re.IGNORECASE,
 )
-
-
-def sanitize_focus(focus: str) -> str:
-    """淨化使用者輸入的 focus 文本。
-
-    命中交易指令/投資建議類敏感詞時回傳空串,阻止其注入 AI 提示詞。
-    這是對系統提示詞紅線的保底:即便使用者試圖通過 focus 繞過,也不會生效。
-    """
-    if not focus:
-        return ""
-    text = focus.strip()
-    if not text:
-        return ""
-    if _FOCUS_BLOCKLIST.search(text):
-        return ""
-    return text
 
 
 def current_ai_provider() -> str:

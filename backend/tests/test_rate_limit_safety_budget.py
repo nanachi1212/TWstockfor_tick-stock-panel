@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import time
 
-from app.tickflow.capabilities import Cap, CapabilityLimits, CapabilitySet
-from app.tickflow.rate_limits import (
+from app.capabilities import Cap, CapabilityLimits, CapabilitySet
+from app.rate_limits import (
     SAFETY_RPM_FACTOR,
     _next_slot,
     _slot_lock,

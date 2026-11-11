@@ -15,7 +15,6 @@ CORE RULES:
     * PRICE_MOVE: abs(change_pct) >= 0.05 (>= 5% move)
     * FOREIGN_FLOW_SPIKE: abs(foreign_net) / mean(abs(previous_20_foreign_net)) >= 3.0 (with abs(net) >= 100,000 shares)
     * TRUST_FLOW_SPIKE: abs(trust_net) / mean(abs(previous_20_trust_net)) >= 3.0 (with abs(net) >= 50,000 shares)
-    * DEALER_FLOW_SPIKE: abs(dealer_net) / mean(abs(previous_20_dealer_net)) >= 3.0 (with abs(net) >= 50,000 shares)
     * MARGIN_SURGE: abs(margin_change) >= 500,000 shares AND abs(margin_change) / median(abs(previous_20)) >= 3.0
     * SHORT_SURGE: abs(short_change) >= 100,000 shares AND abs(short_change) / median(abs(previous_20)) >= 3.0
     * SHORT_MARGIN_RATIO_SPIKE: (target_sm_ratio - median_previous_20_sm_ratio) >= 5.0 percentage points
@@ -249,18 +248,16 @@ class TaiwanAbnormalDiagnosticsService:
             return self._empty_snapshot(target)
 
         # 2. Prior sessions resolution (strictly < target)
-        prior_5_dates, prior_20_dates = self._resolve_prior_sessions(target)
+        prior_5_dates, _ = self._resolve_prior_sessions(target)
 
         # 3. Batch Read: DailyStore
         df_target_daily = self.daily_store.read_range(stock_symbols, target, target)
         prev_date = prior_5_dates[-1] if prior_5_dates else None
         df_prev_daily = self.daily_store.read_range(stock_symbols, prev_date, prev_date) if prev_date else pl.DataFrame()
 
-        # 5-session & 20-session history for baselines
+        # 5-session history for baselines
         p5_start = prior_5_dates[0] if prior_5_dates else target
-        p20_start = prior_20_dates[0] if prior_20_dates else target
         df_p5_daily = self.daily_store.read_range(stock_symbols, p5_start, prior_5_dates[-1]) if prior_5_dates else pl.DataFrame()
-        df_p20_daily = self.daily_store.read_range(stock_symbols, p20_start, prior_20_dates[-1]) if prior_20_dates else pl.DataFrame()
 
         # 4. Batch Read: InstitutionalStore
         df_target_inst = self.inst_store.read_range(stock_symbols, target, target)
@@ -301,7 +298,6 @@ class TaiwanAbnormalDiagnosticsService:
         p20_inst_stats = df_p20_inst.group_by("symbol").agg([
             pl.col("foreign_net").abs().mean().alias("mean_abs_foreign_20d"),
             pl.col("investment_trust_net").abs().mean().alias("mean_abs_trust_20d"),
-            pl.col("dealer_net").abs().mean().alias("mean_abs_dealer_20d"),
             pl.col("foreign_net").count().alias("count_inst_20d"),
         ]) if not df_p20_inst.is_empty() else pl.DataFrame()
 

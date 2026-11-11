@@ -21,43 +21,8 @@ from pathlib import Path
 import polars as pl
 
 from app.file_lock import file_lock
-from app.taiwan.providers.base import (
-    AmountUnit,
-    PriceSemantics,
-    SourceMetadata,
-    VolumeUnit,
-)
 
 logger = logging.getLogger(__name__)
-
-TAIWAN_MARGIN_COLUMNS: list[str] = [
-    "symbol",
-    "date",
-    "trade_date",
-    "margin_previous_balance",
-    "margin_buy",
-    "margin_sell",
-    "margin_cash_redemption",
-    "margin_balance",
-    "margin_change",
-    "short_previous_balance",
-    "short_sell",
-    "short_cover",
-    "short_stock_redemption",
-    "short_balance",
-    "short_change",
-    "short_margin_ratio",
-    "unit",
-    "status",
-    "source",
-]
-
-DEFAULT_MARGIN_METADATA = SourceMetadata(
-    source_name="taiwan_margin_store",
-    volume_unit=VolumeUnit.SHARES,
-    amount_unit=AmountUnit.TWD,
-    price_semantics=PriceSemantics.RAW,
-)
 
 
 def _schema() -> dict[str, pl.DataType]:

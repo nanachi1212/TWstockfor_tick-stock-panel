@@ -25,7 +25,7 @@ not fit anything, and produces no performance numbers.
 """
 from __future__ import annotations
 
-from collections.abc import Iterator, Sequence
+from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import date
 from typing import Any
@@ -108,13 +108,6 @@ class PurgedFold:
         """The only sessions a model may learn from: train + validation."""
         return (self.train_start, self.train_end, self.val_start, self.val_end)
 
-    def contains_leak(self) -> bool:
-        """True if any block overlaps, or a gap is too small to purge the labels."""
-        return not (
-            self.train_start <= self.train_end < self.val_start <= self.val_end
-            < self.test_start <= self.test_end
-        )
-
     def describe(self) -> dict[str, Any]:
         return {
             "index": self.index,
@@ -192,41 +185,3 @@ def generate_folds(
         index += 1
         start += cfg.step_sessions
     return folds
-
-
-def purged_training_sessions(
-    sessions: Sequence[date], fold: PurgedFold
-) -> list[date]:
-    """Training sessions whose label window cannot reach into validation.
-
-    A row dated ``t`` is dropped when ``t + label_horizon`` would land on or
-    after ``val_start``.
-    """
-    ordered = list(sessions)
-    position = {day: i for i, day in enumerate(ordered)}
-    val_index = position[fold.val_start]
-    return [
-        day for day in ordered
-        if fold.train_start <= day <= fold.train_end
-        and position[day] + fold.label_horizon < val_index
-    ]
-
-
-def leaks_into(fold: PurgedFold, sessions: Sequence[date], feature_date: date) -> bool:
-    """Whether a feature row's label window reaches validation or test."""
-    position = {day: i for i, day in enumerate(sessions)}
-    if feature_date not in position:
-        raise KeyError(feature_date)
-    label_end = position[feature_date] + fold.label_horizon
-    return label_end >= position[fold.val_start]
-
-
-def iter_fold_blocks(fold: PurgedFold, sessions: Sequence[date]) -> Iterator[tuple[str, date]]:
-    """Yield ``(block, session)`` for every session inside the fold."""
-    for day in sessions:
-        if fold.train_start <= day <= fold.train_end:
-            yield "train", day
-        elif fold.val_start <= day <= fold.val_end:
-            yield "validation", day
-        elif fold.test_start <= day <= fold.test_end:
-            yield "test", day

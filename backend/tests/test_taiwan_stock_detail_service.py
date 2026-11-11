@@ -17,7 +17,6 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 import polars as pl
-import pytest
 
 from app.taiwan.detail_models import (
     SectionMeta,
@@ -248,6 +247,7 @@ def test_section_meta_exposes_explicit_availability_contract():
 
 def test_institutional_fallback_uses_confirmed_sessions_across_holiday_gap():
     svc = object.__new__(TaiwanStockDetailService)
+    svc.institutional_store = None
     svc._recent_confirmed_sessions = lambda count=5: [date(2026, 9, 29), date(2026, 9, 24)]
     meta = SourceMeta(
         source="tpex:daily_trade",
@@ -312,6 +312,7 @@ def test_institutional_prefers_persisted_rows_and_computes_rolling_shares():
 
 def test_margin_fallback_uses_confirmed_sessions_and_tpex_unavailable_metadata():
     svc = object.__new__(TaiwanStockDetailService)
+    svc.margin_store = None
     svc._recent_confirmed_sessions = lambda count=5: [date(2026, 9, 29), date(2026, 9, 24)]
     svc.margin_provider = MagicMock()
     svc.margin_provider.fetch_live_day.return_value = []
@@ -359,25 +360,9 @@ def test_margin_prefers_persisted_row_across_holiday_gap():
     svc.margin_provider.fetch_live_day.assert_not_called()
 
 
-def test_market_context_reads_matching_persisted_benchmark():
-    svc = object.__new__(TaiwanStockDetailService)
-    repo = MagicMock()
-    repo.execute_all.return_value = [(date(2026, 9, 24), 260.0), (date(2026, 9, 23), 255.0)]
-    result = svc._aggregate_market_context("TPEX", repo=repo)
-    assert result.benchmark_symbol == "TPEX_INDEX"
-    assert result.benchmark_name == "櫃買指數"
-    assert result.close == 260.0
-    assert result.change_pct == pytest.approx(1.960784)
-    assert result.meta.source == "persisted:kline_index_daily"
-    assert repo.execute_all.call_args.args[1] == ["TPEX_INDEX"]
-
-
 def test_market_context_selects_taiex_and_reports_unavailable_contract():
     svc = object.__new__(TaiwanStockDetailService)
-    repo = MagicMock()
-    repo.execute_all.return_value = []
-
-    result = svc._aggregate_market_context("TWSE", repo=repo)
+    result = svc._aggregate_market_context("TWSE")
 
     assert result.benchmark_symbol == "TAIEX"
     assert result.benchmark_name == "發行量加權股價指數"
@@ -386,7 +371,6 @@ def test_market_context_selects_taiex_and_reports_unavailable_contract():
     assert result.meta.status == "unavailable"
     assert result.meta.reason == "persisted benchmark TAIEX is unavailable"
     assert result.meta.freshness == "unavailable"
-    assert repo.execute_all.call_args.args[1] == ["TAIEX"]
 
 
 def test_recent_alerts_keep_change_pct_alert_without_price(monkeypatch):

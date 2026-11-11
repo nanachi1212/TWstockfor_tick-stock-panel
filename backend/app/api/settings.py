@@ -8,8 +8,8 @@ from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
 
 from app import secrets_store
+from app.capabilities import detect_capabilities
 from app.data_providers.custom.config import MAX_TIMEOUT
-from app.tickflow.policy import detect_capabilities
 
 logger = logging.getLogger(__name__)
 
@@ -432,18 +432,6 @@ async def test_active_ai() -> dict:
 
 # ===== 偏好設定 =====
 
-def _realtime_allowed() -> bool:
-    """當前檔位是否允許即時行情(none/free 不允許)。"""
-    from app.services.quote_service import QuoteService
-    return QuoteService.is_realtime_allowed()
-
-
-class MinuteSyncPrefs(BaseModel):
-    minute_sync_enabled: bool
-    minute_sync_days: int = 5
-    # 單段大小(交易日),None 表示不修改現有值。範圍 [5, 30],預設 20。
-    minute_sync_segment_days: int | None = None
-
 
 class DataProvidersIn(BaseModel):
     daily_data_provider: str | None = None
@@ -461,11 +449,6 @@ class PluginKeyIn(BaseModel):
 class DataSourceJobTimeoutPrefs(BaseModel):
     data_source_job_timeout_s: int = Field(ge=60)
     data_source_long_job_timeout_s: int = Field(ge=60)
-
-
-class DatasetFieldMapItem(BaseModel):
-    source: str
-    target: str
 
 
 class DatasetConfigIn(BaseModel):
@@ -516,7 +499,7 @@ def get_preferences() -> dict:
     from app.services import preferences, webhook_adapter
     return {
         "realtime_quotes_enabled": preferences.get_realtime_quotes_enabled(),
-        "realtime_allowed": _realtime_allowed(),
+        "realtime_allowed": True,
         "indices_nav_pinned": preferences.get_indices_nav_pinned(),
         "watchlist_groups_in_nav": preferences.get_watchlist_groups_in_nav(),
         "minute_sync_enabled": preferences.get_minute_sync_enabled(),
@@ -832,105 +815,26 @@ def update_watchlist_columns(req: dict) -> dict:
     return {"columns": saved}
 
 
-@router.put("/preferences/minute-sync")
-def update_minute_sync(req: MinuteSyncPrefs) -> dict:
-    """儲存分鐘 K 同步偏好。
-
-    minute_sync_segment_days 為可選:未傳(None)時不覆蓋現有值,便於開關/天數
-    與段大小各自獨立更新。
-    """
-    from app.services import preferences
-    days = max(1, min(30, req.minute_sync_days))
-    updates: dict = {
-        "minute_sync_enabled": req.minute_sync_enabled,
-        "minute_sync_days": days,
-    }
-    if req.minute_sync_segment_days is not None:
-        updates["minute_sync_segment_days"] = max(5, min(30, req.minute_sync_segment_days))
-    preferences.save(updates)
-    return {
-        "minute_sync_enabled": req.minute_sync_enabled,
-        "minute_sync_days": days,
-        "minute_sync_segment_days": preferences.get_minute_sync_segment_days(),
-    }
-
-
 class RealtimeQuotesPrefs(BaseModel):
     realtime_quotes_enabled: bool
 
 
-class RealtimeQuoteScopePrefs(BaseModel):
-    realtime_pull_stock: bool | None = None
-    realtime_pull_etf: bool | None = None
-    realtime_pull_index: bool | None = None
-    realtime_index_mode: str | None = None
-    realtime_index_symbols: list[str] | None = None
-
-
 @router.put("/preferences/realtime-quotes")
 def update_realtime_quotes(req: RealtimeQuotesPrefs, request: Request) -> dict:
-    """儲存全域即時行情開關。
-
-    none 檔無即時行情權限；free 檔開啟自選股即時；starter+ 開啟全市場即時。
-    前端據此把開關置灰 / 回彈。
-    """
+    """儲存全域即時行情開關。"""
     from app.services import preferences
     qs = getattr(request.app.state, "quote_service", None)
 
-    allowed = qs.is_realtime_allowed() if qs else True
-    if req.realtime_quotes_enabled and not allowed:
-        # 當前檔位不允許開啟即時行情 — 強制關閉
-        preferences.save({"realtime_quotes_enabled": False})
-        if qs:
-            qs.disable()
-        return {"realtime_quotes_enabled": False, "realtime_allowed": False}
     if req.realtime_quotes_enabled and qs and qs.is_paused():
         # 管道/資料修正執行期間禁止開啟即時行情 — 防止寫盤競態
         raise HTTPException(status_code=409, detail="資料同步執行中，即時行情已臨時暫停，請稍後再開啟")
-    if req.realtime_quotes_enabled and qs and qs.realtime_mode() == "watchlist" and not preferences.get_realtime_watchlist_symbols():
-        preferences.save({"realtime_quotes_enabled": False})
-        return {"realtime_quotes_enabled": False, "realtime_allowed": True, "mode": "watchlist", "error": "watchlist_empty"}
-
     preferences.save({"realtime_quotes_enabled": req.realtime_quotes_enabled})
     if qs:
         if req.realtime_quotes_enabled:
             qs.enable()
         else:
             qs.disable()
-    return {"realtime_quotes_enabled": req.realtime_quotes_enabled, "realtime_allowed": allowed}
-
-
-@router.put("/preferences/realtime-quote-scope")
-def update_realtime_quote_scope(req: RealtimeQuoteScopePrefs) -> dict:
-    """儲存盤中即時行情範圍；獨立於盤後管道範圍。"""
-    from app.services import preferences
-    cfg = req.model_dump(exclude_none=True)
-    return preferences.set_realtime_quote_scope(cfg)
-
-
-class RealtimeWatchlistPrefs(BaseModel):
-    symbols: list[str] = []
-
-
-@router.put("/preferences/realtime-watchlist")
-def update_realtime_watchlist(req: RealtimeWatchlistPrefs) -> dict:
-    """相容舊入口；Free 即時標的由自選頁前 5 個決定。"""
-    from app.services import preferences
-    symbols = preferences.set_realtime_watchlist_symbols(req.symbols)
-    return {"realtime_watchlist_symbols": symbols}
-
-
-class IndicesNavPinnedPrefs(BaseModel):
-    indices_nav_pinned: bool
-
-
-@router.put("/preferences/indices-nav-pinned")
-def update_indices_nav_pinned(req: IndicesNavPinnedPrefs) -> dict:
-    """儲存側欄指數報價卡片固定顯示開關。
-    ON=常駐顯示；OFF=跟隨即時行情開關（僅即時開時顯示）。"""
-    from app.services import preferences
-    preferences.save({"indices_nav_pinned": req.indices_nav_pinned})
-    return {"indices_nav_pinned": req.indices_nav_pinned}
+    return {"realtime_quotes_enabled": req.realtime_quotes_enabled, "realtime_allowed": True}
 
 
 class WatchlistGroupsInNavPrefs(BaseModel):
@@ -1037,18 +941,6 @@ def update_telegram_query(req: SystemNotifyPrefsIn) -> dict:
     bot = telegram_bot.get_bot()
     started = bot.start() if enabled else (bot.stop() or False)
     return {"telegram_query_enabled": enabled, "bot_started": bool(started)}
-
-
-@router.put("/preferences/system-notify")
-def update_system_notify(req: SystemNotifyPrefsIn) -> dict:
-    """系統通知開關 — 開啟後監控告警同時推送到操作系統通知中心。
-
-    純偏好, 無副作用 (不像策略監控要遷移規則), 直接寫入磁碟即可。
-    quote_service 在每輪告警評估時讀此開關決定是否發系統通知。
-    """
-    from app.services import preferences
-    saved = preferences.set_system_notify_enabled(req.enabled)
-    return {"system_notify_enabled": saved}
 
 
 class NotificationChannelPrefsIn(BaseModel):
@@ -1227,39 +1119,6 @@ def update_external_key(req: ExternalKeyIn) -> dict:
     return get_external_keys()
 
 
-class WebhookEnabledDefaultIn(BaseModel):
-    enabled: bool
-
-
-@router.put("/preferences/webhook-enabled-default")
-def update_webhook_enabled_default(req: WebhookEnabledDefaultIn) -> dict:
-    """新建監控規則時是否預設勾選推送 (老布林介面, 相容舊前端)。
-
-    舊布林值無法安全推斷新的 LINE/Telegram 收件者,因此不自動啟用新渠道。
-    """
-    from app.services import preferences
-
-    saved = preferences.set_webhook_enabled_default(req.enabled)
-    return {"webhook_enabled_default": saved}
-
-
-class WebhookDefaultChannelsIn(BaseModel):
-    channels: list[str]  # 多選: ['line','telegram']; 空陣列=預設不推送
-
-
-@router.put("/preferences/webhook-default-channels")
-def update_webhook_default_channels(req: WebhookDefaultChannelsIn) -> dict:
-    """新建監控規則時預設勾選的推送渠道 (多選)。
-
-    作為新建規則的預設推送渠道預填, 單條規則仍可在規則編輯頁獨立修改。
-    空陣列=預設不推送。白名單外的渠道會被過濾掉。
-    """
-    from app.services import preferences
-
-    saved = preferences.set_webhook_default_channels(req.channels)
-    return {"webhook_default_channels": saved}
-
-
 @router.put("/preferences/quote-interval")
 def update_quote_interval(req: QuoteIntervalIn, request: Request) -> dict:
     """更新行情輪詢間隔。按檔位自動 clamp。"""
@@ -1285,27 +1144,3 @@ def get_quote_interval(request: Request) -> dict:
         "min_interval": qs.get_min_interval(),
         "max_interval": qs.MAX_INTERVAL,
     }
-
-
-class EnrichedBatchSizeIn(BaseModel):
-    size: int
-
-
-@router.put("/preferences/enriched-batch-size")
-def update_enriched_batch_size(req: EnrichedBatchSizeIn) -> dict:
-    """儲存 enriched 全量計算批次大小。"""
-    from app.services import preferences
-    size = preferences.set_enriched_batch_size(req.size)
-    return {"enriched_batch_size": size}
-
-
-class IndexDailyBatchSizeIn(BaseModel):
-    size: int
-
-
-@router.put("/preferences/index-daily-batch-size")
-def update_index_daily_batch_size(req: IndexDailyBatchSizeIn) -> dict:
-    """儲存指數日 K 同步批次大小。"""
-    from app.services import preferences
-    size = preferences.set_index_daily_batch_size(req.size)
-    return {"index_daily_batch_size": size}

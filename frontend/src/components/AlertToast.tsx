@@ -46,11 +46,6 @@ export function refreshAlertToastConfig() {
 
 function _emit() { _listeners.forEach(fn => fn([..._queue])) }
 
-/** 推入單條監控告警通知 (相容入口, 不發聲 — 發聲由批量入口統一處理) */
-export function pushAlertToast(alert: AlertEvent) {
-  pushAlertToasts([alert])
-}
-
 /**
  * 批量推入監控告警通知 (一輪 SSE 多隻新命中時呼叫)。
  * - 每條都彈 Toast (受 maxVisible 上限, 超出丟最舊)

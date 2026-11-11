@@ -4,7 +4,7 @@ from __future__ import annotations
 from fastapi import APIRouter
 
 from app import __version__
-from app.tickflow.policy import detect_capabilities, tier_label
+from app.capabilities import detect_capabilities
 
 router = APIRouter()
 
@@ -24,16 +24,6 @@ def capabilities() -> dict:
     """前端用來決定哪些功能可用、哪些灰顯。"""
     capset = detect_capabilities()
     return {
-        "label": tier_label(),
-        "capabilities": capset.to_dict(),
-    }
-
-
-@router.post("/api/capabilities/redetect")
-def redetect() -> dict:
-    """使用者在設定頁"重新檢測"按鈕。"""
-    capset = detect_capabilities(force=True)
-    return {
-        "label": tier_label(),
+        "label": "",
         "capabilities": capset.to_dict(),
     }

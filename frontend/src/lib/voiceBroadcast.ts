@@ -205,16 +205,6 @@ export function speakAlerts(alerts: AlertEvent[]) {
   }
 }
 
-/** 停止當前播報 (關閉開關/試聽前呼叫) */
-export function stopVoice() {
-  try {
-    if (isVoiceSupported()) {
-      window.speechSynthesis.cancel()
-      _speaking = false
-    }
-  } catch { /* ignore */ }
-}
-
 /** 試聽 (設定頁點"試聽"用) */
 export function previewVoice(text = '語音播報已開啟, 這是試聽效果') {
   try {

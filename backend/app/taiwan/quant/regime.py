@@ -22,7 +22,7 @@ a regime call is auditable rather than a bare label.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import date
 from enum import StrEnum
 from typing import Any
@@ -298,13 +298,3 @@ def market_breadth_above_ma(panel: pl.DataFrame, as_of: date, ma_col: str = "ma2
         return None
     above = day.filter(pl.col(close_col) > pl.col(ma_col)).height
     return above / day.height
-
-
-@dataclass(frozen=True)
-class RegimeSeries:
-    """Regime evaluated across many sessions (for fold-level conditioning)."""
-
-    verdicts: tuple[RegimeVerdict, ...] = field(default_factory=tuple)
-
-    def describe(self) -> list[dict[str, Any]]:
-        return [v.describe() for v in self.verdicts]

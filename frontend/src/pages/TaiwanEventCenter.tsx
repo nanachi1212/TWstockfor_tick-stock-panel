@@ -323,7 +323,6 @@ export function TaiwanEventCenter() {
             <option value="disposition">處置證券</option>
             <option value="warning">注意股票</option>
             <option value="suspended_trading">暫停交易</option>
-            <option value="resume_trading">恢復交易</option>
             <option value="capital_reduction">減資</option>
             <option value="par_change">面額變更/分割</option>
             <option value="cash_dividend">除息 (現金股利)</option>

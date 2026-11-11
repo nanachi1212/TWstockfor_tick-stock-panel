@@ -114,11 +114,6 @@ def sleep_between_batches(index: int, rpm: int | None, *, default_interval: floa
         time.sleep(wait)
 
 
-def min_batch(preferred: int, limit: ResolvedLimit) -> int:
-    """Clamp a user-preferred batch size by a resolved capability batch limit."""
-    return min(preferred, limit.batch) if limit.batch else preferred
-
-
 def acquire_slot(rpm: int | None, *, key: object | None = None) -> float:
     """Block until this bucket's next send slot, then return the seconds slept.
 

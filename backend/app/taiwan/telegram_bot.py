@@ -17,6 +17,7 @@ from typing import Any
 import httpx
 
 from app.services import preferences, webhook_adapter
+from app.taiwan.push_digest import _STATE_LABEL, _fmt_pct, _fmt_price
 
 logger = logging.getLogger(__name__)
 
@@ -32,9 +33,6 @@ _HELP = (
     "規則整理，非投資建議。"
 )
 
-_STATE_LABEL = {"observable": "可觀察", "wait_pullback": "等拉回", "wait_breakout": "等突破", "avoid": "不追"}
-
-
 def is_enabled() -> bool:
     return bool(preferences.load().get(_PREF_ENABLED, False))
 
@@ -42,17 +40,6 @@ def is_enabled() -> bool:
 def set_enabled(enabled: bool) -> bool:
     preferences.save({_PREF_ENABLED: bool(enabled)})
     return is_enabled()
-
-
-def _fmt_price(value: float | None) -> str:
-    if value is None:
-        return "—"
-    return f"{value:.2f}" if value < 1000 else f"{value:.0f}"
-
-
-def _fmt_pct(value: float | None) -> str:
-    # 即時報價契約: change_pct 已是百分點 (1.2 = +1.20%), 直接格式化
-    return "—" if value is None else f"{value:+.2f}%"
 
 
 def _resolve_symbol(code: str) -> str | None:

@@ -461,14 +461,6 @@ class BuyPointStrategyStore:
             payload.setdefault("states", {})[key] = state
             self._write(payload)
 
-    def last_triggered_at(self, key: str) -> float | None:
-        with self._lock:
-            value = self._read().get("last_triggered", {}).get(key)
-            try:
-                return float(value)
-            except (TypeError, ValueError):
-                return None
-
     def mark_triggered(self, key: str, timestamp: float) -> None:
         with self._lock:
             payload = self._read()

@@ -34,10 +34,6 @@ class GroupReorderRequest(BaseModel):
     ordered_ids: list[str]
 
 
-class GroupAssignRequest(BaseModel):
-    group_id: str | None = None
-
-
 def _with_names(rows: list[dict], request: Request) -> list[dict]:
     from app.taiwan.symbol import is_taiwan_symbol
     from app.taiwan.universe import get_security_master
@@ -159,18 +155,6 @@ def clear_group(group_id: str, request: Request):
 @router.post("/{symbol}/top")
 def move_one_to_top(symbol: str, request: Request):
     rows = watchlist.move_to_top(symbol)
-    return {"symbols": _with_names(rows, request)}
-
-
-@router.put("/{symbol}/group")
-def assign_group(symbol: str, req: GroupAssignRequest, request: Request):
-    """互斥設定分組(僅保留此組; None=移出全部分組)。多組操作用 members 端點。"""
-    try:
-        rows = watchlist.set_group(symbol, req.group_id)
-    except KeyError as e:
-        raise HTTPException(404, "自選標的不存在") from e
-    except ValueError as e:
-        raise HTTPException(400, str(e)) from e
     return {"symbols": _with_names(rows, request)}
 
 

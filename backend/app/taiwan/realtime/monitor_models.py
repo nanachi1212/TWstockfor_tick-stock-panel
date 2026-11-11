@@ -9,7 +9,6 @@ Defines:
 """
 from __future__ import annotations
 
-import re
 from dataclasses import dataclass, field
 from datetime import date, datetime
 from enum import Enum
@@ -19,8 +18,6 @@ from app.taiwan.symbol import parse_symbol
 
 if TYPE_CHECKING:
     from app.taiwan.beginner_selection import PlanLevels
-
-RULE_ID_RE = re.compile(r"^[a-zA-Z0-9_\-]{1,64}$")
 
 
 class TaiwanRuleType(str, Enum):

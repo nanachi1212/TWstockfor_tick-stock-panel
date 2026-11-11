@@ -41,6 +41,9 @@ def main() -> int:
     result = TaiwanDailyUpdateService().run_update(refresh_daily=True)
     print(f"update overall={result.overall_status} daily={result.daily.status} "
           f"inst={result.institutional.status} margin={result.margin.status}")
+    if result.overall_status != "success":
+        # A partial bundle would advance data_as_of while a dataset is missing; the next run retries.
+        raise SystemExit(f"update incomplete ({result.overall_status}); not publishing a partial bundle")
     return 0
 
 

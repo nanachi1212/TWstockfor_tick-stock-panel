@@ -10,12 +10,12 @@ from app.indicators.pipeline import (
     compute_enriched_today,
     compute_indicators,
 )
-from app.tickflow.repository import DataStore, KlineRepository
+from app.repository import DataStore, KlineRepository
 
 
 def _historical_cache(latest: date) -> pl.DataFrame:
     rows = []
-    for symbol, days in (("600001.SH", 100), ("000820.SZ", 98)):
+    for symbol, days in (("2330.TWSE", 100), ("2317.TWSE", 98)):
         first = latest - timedelta(days=99)
         for offset in range(days):
             trade_date = first + timedelta(days=offset)
@@ -44,7 +44,7 @@ def test_live_agg_uses_each_symbols_last_available_trading_state(tmp_path):
     partition = tmp_path / "kline_daily_enriched" / f"date={latest.isoformat()}"
     partition.mkdir(parents=True)
     pl.DataFrame({
-        "symbol": ["600001.SH"],
+        "symbol": ["2330.TWSE"],
         "date": [latest],
         "open": [10.99],
         "high": [11.09],
@@ -65,7 +65,7 @@ def test_live_agg_uses_each_symbols_last_available_trading_state(tmp_path):
     )
     resumed_partition.mkdir(parents=True)
     pl.DataFrame({
-        "symbol": ["000820.SZ"],
+        "symbol": ["2317.TWSE"],
         "date": [resumed_date],
         "open": [10.97],
         "high": [11.07],
@@ -84,14 +84,14 @@ def test_live_agg_uses_each_symbols_last_available_trading_state(tmp_path):
     repo._build_live_agg(latest)
 
     states = repo.get_live_agg().sort("symbol")
-    assert states["symbol"].to_list() == ["000820.SZ", "600001.SH"]
-    resumed = states.filter(pl.col("symbol") == "000820.SZ").row(0, named=True)
+    assert states["symbol"].to_list() == ["2317.TWSE", "2330.TWSE"]
+    resumed = states.filter(pl.col("symbol") == "2317.TWSE").row(0, named=True)
     assert resumed["_prev_consec_up"] == 2
 
 
 def _live_state() -> pl.DataFrame:
     return pl.DataFrame({
-        "symbol": ["600001.SH"],
+        "symbol": ["2330.TWSE"],
         "ema5": [10.0],
         "ema10": [10.0],
         "ema20": [10.0],
@@ -143,7 +143,7 @@ def _live_state() -> pl.DataFrame:
 
 def _previous_enriched() -> pl.DataFrame:
     return pl.DataFrame({
-        "symbol": ["600001.SH"],
+        "symbol": ["2330.TWSE"],
         "ma5": [10.0],
         "ma10": [10.0],
         "ma20": [10.0],
@@ -159,7 +159,7 @@ def _previous_enriched() -> pl.DataFrame:
 def test_realtime_enriched_keeps_rows_without_history_and_limits_technical_fields():
     today = date(2026, 7, 30)
     today_rows = pl.DataFrame({
-        "symbol": ["600001.SH", "000820.SZ", "001000.SZ", "600002.SH"],
+        "symbol": ["2330.TWSE", "2317.TWSE", "2454.TWSE", "2303.TWSE"],
         "date": [today] * 4,
         "open": [10.1, 11.0, 11.0, 0.0],
         "high": [10.2, 11.0, 11.0, 0.0],
@@ -170,7 +170,8 @@ def test_realtime_enriched_keeps_rows_without_history_and_limits_technical_field
         "prev_close": [10.0, None, 10.0, 10.0],
     })
     instruments = pl.DataFrame({
-        "symbol": ["600001.SH", "000820.SZ", "001000.SZ", "600002.SH"],
+        "symbol": ["2330.TWSE", "2317.TWSE", "2454.TWSE", "2303.TWSE"],
+        "asset_type": ["stock"] * 4,
         "name": ["已有歷史", "復牌股票", "上市新股", "停牌股票"],
         "float_shares": [1_000_000.0] * 4,
         "limit_up": [11.0, 11.0, 100000.0, 11.0],
@@ -186,10 +187,10 @@ def test_realtime_enriched_keeps_rows_without_history_and_limits_technical_field
     )
 
     assert result["symbol"].to_list() == today_rows["symbol"].to_list()
-    existing = result.filter(pl.col("symbol") == "600001.SH").row(0, named=True)
-    resumed = result.filter(pl.col("symbol") == "000820.SZ").row(0, named=True)
-    ipo = result.filter(pl.col("symbol") == "001000.SZ").row(0, named=True)
-    halted = result.filter(pl.col("symbol") == "600002.SH").row(0, named=True)
+    existing = result.filter(pl.col("symbol") == "2330.TWSE").row(0, named=True)
+    resumed = result.filter(pl.col("symbol") == "2317.TWSE").row(0, named=True)
+    ipo = result.filter(pl.col("symbol") == "2454.TWSE").row(0, named=True)
+    halted = result.filter(pl.col("symbol") == "2303.TWSE").row(0, named=True)
 
     assert existing["ma5"] is not None
     assert resumed["raw_close"] == 11.0
@@ -214,7 +215,8 @@ def test_repository_restores_active_rows_missing_from_latest_enriched(tmp_path):
     repo = KlineRepository(DataStore(tmp_path))
     repo._live_agg_cache = _live_state()
     repo._instruments_cache = pl.DataFrame({
-        "symbol": ["600001.SH", "000820.SZ", "600002.SH"],
+        "symbol": ["2330.TWSE", "2317.TWSE", "2303.TWSE"],
+        "asset_type": ["stock"] * 3,
         "name": ["已有歷史", "復牌股票", "停牌股票"],
         "float_shares": [1_000_000.0] * 3,
         "limit_up": [11.0, 11.0, 11.0],
@@ -224,7 +226,7 @@ def test_repository_restores_active_rows_missing_from_latest_enriched(tmp_path):
     daily_partition = tmp_path / "kline_daily" / f"date={today.isoformat()}"
     daily_partition.mkdir(parents=True)
     pl.DataFrame({
-        "symbol": ["600001.SH", "000820.SZ", "600002.SH"],
+        "symbol": ["2330.TWSE", "2317.TWSE", "2303.TWSE"],
         "date": [today] * 3,
         "open": [10.2, 11.0, 0.0],
         "high": [10.2, 11.0, 0.0],
@@ -245,7 +247,7 @@ def test_repository_restores_active_rows_missing_from_latest_enriched(tmp_path):
 
     restored = repo._restore_missing_latest_rows(today, existing_today, history)
 
-    assert restored["symbol"].to_list() == ["000820.SZ", "600001.SH"]
-    resumed = restored.filter(pl.col("symbol") == "000820.SZ").row(0, named=True)
+    assert restored["symbol"].to_list() == ["2317.TWSE", "2330.TWSE"]
+    resumed = restored.filter(pl.col("symbol") == "2317.TWSE").row(0, named=True)
     assert resumed["signal_limit_up"] is True
     assert resumed["ma5"] is None

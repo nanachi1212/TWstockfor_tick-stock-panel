@@ -318,15 +318,6 @@ class TaiwanMonitorEngine:
                 self._save_trigger_states_locked()
         return deleted
 
-    def clear_rules(self) -> None:
-        with self._rules_lock:
-            self._rules.clear()
-        self.save_rules()
-        with self._state_lock:
-            self._trigger_states.clear()
-            self._last_fire_time.clear()
-            self._save_trigger_states_locked()
-
     def _save_trigger_states_locked(self) -> None:
         """Persist edge state so a held condition does not fire again after restart."""
         self.state_path.parent.mkdir(parents=True, exist_ok=True)

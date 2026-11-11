@@ -10,6 +10,6 @@ def get_provider(name: str = "taiwan"):
         return TaiwanHybridProvider()
     from app.data_providers import custom
 
-    if provider_name != "tickflow" and custom.is_custom_provider(provider_name):
+    if custom.is_custom_provider(provider_name):
         return custom.get_provider(provider_name)
     raise ValueError(f"Unsupported market data provider: {provider_name}")

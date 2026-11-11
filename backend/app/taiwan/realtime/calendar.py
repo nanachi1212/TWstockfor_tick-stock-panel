@@ -53,10 +53,6 @@ class TradingDayEvidence:
         if self.retrieved_at is not None and self.retrieved_at.utcoffset() is None:
             raise ValueError("retrieved_at must be timezone-aware")
 
-    @property
-    def possible_trading_session(self) -> bool:
-        return self.status != "non_trading"
-
     def describe(self) -> dict[str, str | None]:
         return {"date": self.date.isoformat(), "exchange": self.exchange,
                 "status": self.status, "evidence_source": self.evidence_source,

@@ -11,13 +11,6 @@ export function fmtPct(v: number | null | undefined, digits = 2): string {
   return `${sign}${(v * 100).toFixed(digits)}%`
 }
 
-export function fmtVolume(v: number | null | undefined): string {
-  if (v == null || Number.isNaN(v)) return '—'
-  if (v >= 1e8) return `${(v / 1e8).toFixed(2)}億`
-  if (v >= 1e4) return `${(v / 1e4).toFixed(2)}萬`
-  return v.toFixed(0)
-}
-
 // 台股語義色:紅漲綠跌 → 僅用於價格相關元素
 export function priceColorClass(v: number | null | undefined): string {
   if (v == null || Number.isNaN(v) || v === 0) return 'text-muted'
@@ -47,37 +40,12 @@ export function formatNumber(n: number): string {
   return n.toLocaleString()
 }
 
-export function formatDuration(seconds: number): string {
-  if (seconds < 60) return `${seconds}s`
-  const m = Math.floor(seconds / 60)
-  const s = seconds % 60
-  if (m < 60) return s > 0 ? `${m}m ${s}s` : `${m}m`
-  const h = Math.floor(m / 60)
-  const rm = m % 60
-  return rm > 0 ? `${h}h ${rm}m` : `${h}h`
-}
-
-export function formatScheduleDatePart(iso: string): string {
-  const d = new Date(iso)
-  return `${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
-}
-
-export function formatScheduleTimePart(iso: string): string {
-  const d = new Date(iso)
-  return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
-}
-
 export function isToday(iso: string): boolean {
   const d = new Date(iso)
   const now = new Date()
   return d.getFullYear() === now.getFullYear()
     && d.getMonth() === now.getMonth()
     && d.getDate() === now.getDate()
-}
-
-export function formatLogTime(iso: string): string {
-  const d = new Date(iso)
-  return d.toLocaleTimeString('zh-TW', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false })
 }
 
 /**

@@ -95,7 +95,7 @@ class TaiwanStockDetailService:
         self,
         raw_symbol: str,
         days: int = 120,
-        repo=None,
+        repo=None,  # unused; api/taiwan.py still passes it
     ) -> TaiwanStockDetailResponse:
         """Synchronous top-level entrypoint for stock detail aggregation."""
         canonical_sym = parse_symbol(raw_symbol)
@@ -165,7 +165,7 @@ class TaiwanStockDetailService:
         factors_data = self._aggregate_factors(institutional_data, margin_data)
 
         # 8. Market Context Benchmark
-        market_context = self._aggregate_market_context(canonical_sym.exchange.value.upper(), repo=repo)
+        market_context = self._aggregate_market_context(canonical_sym.exchange.value.upper())
 
         # 9. Monitor Rules Summary
         monitor_summary = self._aggregate_monitor_summary(symbol_str)
@@ -480,7 +480,7 @@ class TaiwanStockDetailService:
         except Exception as exc:
             logger.debug("Confirmed institutional sessions unavailable for %s: %s", sym.canonical, exc)
             sessions = []
-        store = getattr(self, "institutional_store", None)
+        store = self.institutional_store
         if store is not None and sessions:
             try:
                 persisted = store.read_range([sym.canonical], min(sessions), max(sessions))
@@ -610,7 +610,7 @@ class TaiwanStockDetailService:
         except Exception as exc:
             logger.debug("Confirmed margin sessions unavailable for %s: %s", sym.canonical, exc)
             sessions = []
-        store = getattr(self, "margin_store", None)
+        store = self.margin_store
         if store is not None and sessions:
             try:
                 persisted = store.read_range([sym.canonical], min(sessions), max(sessions))
@@ -753,7 +753,7 @@ class TaiwanStockDetailService:
             ),
         )
 
-    def _aggregate_market_context(self, exchange: str, repo=None) -> TaiwanMarketContext:
+    def _aggregate_market_context(self, exchange: str) -> TaiwanMarketContext:
         """Read the exchange benchmark from the existing persisted index store."""
         ex = exchange.upper()
         if ex == "TPEX":
@@ -782,42 +782,6 @@ class TaiwanStockDetailService:
                     is_stale=official["date"] < resolve_target_latest_trading_date(),
                 ),
             )
-
-        if repo is not None:
-            try:
-                rows = repo.execute_all(
-                    """
-                    SELECT date, close
-                    FROM kline_index_daily
-                    WHERE symbol = ?
-                    ORDER BY date DESC
-                    LIMIT 2
-                    """,
-                    [symbol],
-                )
-                if rows:
-                    latest_date, latest_close = rows[0]
-                    previous_close = rows[1][1] if len(rows) > 1 else None
-                    change = None
-                    change_pct = None
-                    if latest_close is not None and previous_close not in (None, 0):
-                        change = float(latest_close) - float(previous_close)
-                        change_pct = change / float(previous_close) * 100
-                    return TaiwanMarketContext(
-                        benchmark_symbol=symbol,
-                        benchmark_name=name,
-                        close=float(latest_close) if latest_close is not None else None,
-                        change=change,
-                        change_pct=change_pct,
-                        meta=SectionMeta(
-                            source="persisted:kline_index_daily",
-                            trade_date=str(latest_date),
-                            status="available",
-                            is_stale=False,
-                        ),
-                    )
-            except Exception as exc:
-                logger.debug("Persisted benchmark unavailable for %s: %s", symbol, exc)
 
         return TaiwanMarketContext(
             benchmark_symbol=symbol,
@@ -860,16 +824,11 @@ class TaiwanStockDetailService:
 
     def _aggregate_recent_alerts(self, symbol_str: str) -> list[TaiwanRecentAlert]:
         """Fetch recent alerts for this symbol."""
-        from app.config import Settings
+        from app.config import settings
         from app.services import alert_store
         alerts: list[TaiwanRecentAlert] = []
         try:
-            settings = Settings()
-            data_dir = settings.data_dir if hasattr(settings, "data_dir") else None
-            if not data_dir:
-                from pathlib import Path
-                data_dir = Path("data")
-            raw_alerts = alert_store.list_recent(data_dir, days=7, limit=200)
+            raw_alerts = alert_store.list_recent(settings.data_dir, days=7, limit=200)
             for a in raw_alerts:
                 if a.get("symbol") == symbol_str or a.get("rule_symbol") == symbol_str:
                     ts = a.get("ts", 0)

@@ -214,11 +214,6 @@ def evaluate_watchlist(
     }
 
 
-@router.get("/presets")
-def list_presets(request: Request):
-    return {"presets": [item.model_dump() for item in strategy_catalog(_store(request)) if item.preset]}
-
-
 @router.get("/strategies")
 def list_strategies(request: Request):
     store = _store(request)
@@ -282,11 +277,6 @@ def delete_strategy(strategy_id: str, request: Request):
     return {"ok": True, "deleted_id": strategy_id}
 
 
-@router.get("/assignments")
-def get_assignments(request: Request, symbol: str | None = Query(default=None)):
-    return {"assignments": _store(request).assignments(symbol)}
-
-
 @router.put("/assignments/{symbol}")
 def put_assignment(symbol: str, req: AssignmentRequest, request: Request):
     store = _store(request)
@@ -304,16 +294,6 @@ def list_signals(request: Request, symbol: str | None = Query(default=None)):
     symbols = [symbol] if symbol else [str(row.get("symbol")) for row in watchlist.list_symbols() if row.get("symbol")]
     signals = _signals_for_symbols(store, symbols)
     return {"signals": [signal.model_dump() for signal in signals], "as_of": taipei_today().isoformat()}
-
-
-@router.post("/evaluate")
-def evaluate_signals(request: Request, symbol: str | None = Query(default=None)):
-    symbols = [symbol] if symbol else None
-    return evaluate_watchlist(
-        request.app.state.repo.store.data_dir,
-        getattr(request.app.state, "quote_service", None),
-        symbols,
-    )
 
 
 @router.get("/summary")

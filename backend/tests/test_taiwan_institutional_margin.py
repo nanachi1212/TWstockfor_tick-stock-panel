@@ -8,14 +8,11 @@ Covers:
 """
 from __future__ import annotations
 
-import tempfile
 from datetime import date
 from pathlib import Path
 import polars as pl
 import pytest
-from fastapi.testclient import TestClient
 
-from app.main import app
 from app.taiwan.institutional_store import TaiwanInstitutionalStore
 from app.taiwan.margin_store import TaiwanMarginStore
 from app.taiwan.institutional_margin_refresh import (
