@@ -129,7 +129,7 @@ describe('formatStockDetailCopy & Prompt', () => {
     portfolioPositions: [
       {
         symbol: '2330.TWSE',
-        shares: 3,
+        shares: 3000,
         avg_cost: 820,
         invested_amount: 2460000,
         unrealized_pnl: 390000,
@@ -157,7 +157,7 @@ describe('formatStockDetailCopy & Prompt', () => {
     expect(text).toContain('個人持股資料：未包含（隱私保護已啟用）')
     expect(text).not.toContain('820 元')
     expect(text).not.toContain('390000')
-    expect(text).not.toContain('持股數量：3 張')
+    expect(text).not.toContain('持股數量')
   })
 
   it('Stock Detail: outputs portfolio details only when privacy ON', () => {
@@ -165,7 +165,8 @@ describe('formatStockDetailCopy & Prompt', () => {
       ...mockStockData,
       includePortfolio: true,
     })
-    expect(text).toContain('持股數量：3 張')
+    // 持股帳本存的是股數: 3000 股 = 3 張, 不可把股數直接印成張
+    expect(text).toContain('持股數量：3,000 股（3 張）')
     expect(text).toContain('平均成本：820.00 元')
     expect(text).toContain('投入金額：2460000 元')
     expect(text).toContain('未實現損益：390000 元 (+15.85%)')

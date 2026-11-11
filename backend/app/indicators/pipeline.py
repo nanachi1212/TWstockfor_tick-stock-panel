@@ -1885,7 +1885,8 @@ def compute_enriched_today(
 
         df = df.drop([
             c for c in df.columns
-            if c.startswith("_prev_") and c not in {"_prev_consec_up", "_prev_consec_down"}
+            # _prev_close_raw 留給下方 _compute_limit_signals_today 算漲跌停價 (最後才清)
+            if c.startswith("_prev_") and c not in {"_prev_consec_up", "_prev_consec_down", "_prev_close_raw"}
         ])
 
     # N日新高/新低 + 放量

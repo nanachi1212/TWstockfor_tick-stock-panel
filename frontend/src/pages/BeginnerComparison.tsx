@@ -151,7 +151,7 @@ function ComparisonResult({ data }: { data: BeginnerComparisonResponse }) {
       <div className="mt-2 grid gap-2 sm:grid-cols-2">
         {data.groups.filter(g => g.symbols.length).map(group => <div key={group.key} className="min-w-0 rounded-lg bg-base/60 p-2 text-sm">
           <h3 className="font-semibold text-foreground">{group.label}</h3>
-          <p className="mt-1 break-words text-muted">{group.symbols.map((symbol, i) => `${group.key === 'observe' ? `${['①', '②', '③', '④', '⑤'][i]} ` : ''}${bySymbol.get(symbol)?.name || symbol}`).join('、')}</p>
+          <p className="mt-1 break-words text-muted">{group.symbols.map((symbol, i) => `${group.key === 'observe' ? `${'①②③④⑤⑥⑦⑧⑨⑩'[i] ?? `${i + 1}.`} ` : ''}${bySymbol.get(symbol)?.name || symbol}`).join('、')}</p>
         </div>)}
       </div>
       <p className="mt-2 text-xs text-muted">依原本行動狀態分組，保留各股原排名；優先觀察代表觀察順序。{STRENGTH_DISCLAIMER}</p>

@@ -57,7 +57,8 @@ class YahooFinanceAdapter:
 
         end_raw = end_time or datetime.now()
         start_raw = start_time or (end_raw - timedelta(days=365))
-        end_dt = datetime.combine(end_raw, datetime.min.time()) if isinstance(end_raw, date) and not isinstance(end_raw, datetime) else end_raw
+        # 只給日期時 period2 取隔天 00:00: Yahoo 台股日 K 的時間戳在 09:00, 用當天 00:00 會漏掉結束日那一根
+        end_dt = datetime.combine(end_raw + timedelta(days=1), datetime.min.time()) if isinstance(end_raw, date) and not isinstance(end_raw, datetime) else end_raw
         start_dt = datetime.combine(start_raw, datetime.min.time()) if isinstance(start_raw, date) and not isinstance(start_raw, datetime) else start_raw
         p1 = int(start_dt.timestamp())
         p2 = int(end_dt.timestamp())

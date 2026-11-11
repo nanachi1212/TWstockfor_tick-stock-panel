@@ -8,6 +8,8 @@ from __future__ import annotations
 import copy
 import json
 import logging
+import os
+import shutil
 import threading
 from pathlib import Path
 
@@ -77,11 +79,19 @@ def _load_unlocked() -> dict:
 def save(updates: dict) -> dict:
     """合并写入。返回新内容。"""
     with _SAVE_LOCK:
+        p = _path()
         current = load()
+        if not current and p.exists():
+            # 檔案存在卻讀不出內容 = 損壞; 覆寫前留一份, 避免一次存檔抹掉全部設定。
+            try:
+                json.loads(p.read_text(encoding="utf-8"))
+            except Exception:
+                shutil.copy2(p, p.with_name(p.name + ".corrupt"))
         current.update(updates)
-        _path().write_text(
-            json.dumps(current, indent=2, ensure_ascii=False), encoding="utf-8",
-        )
+        # 先寫暫存檔再原子替換: 寫到一半當機不會留下半截 JSON。
+        tmp = p.with_name(p.name + ".tmp")
+        tmp.write_text(json.dumps(current, indent=2, ensure_ascii=False), encoding="utf-8")
+        os.replace(tmp, p)
         _invalidate_cache()
         return current
 

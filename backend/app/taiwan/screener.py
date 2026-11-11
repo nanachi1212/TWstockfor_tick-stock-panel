@@ -1603,7 +1603,8 @@ class TaiwanScreenerService:
 
         if sort_by == "symbol":
             return df.sort("symbol", descending=descending)
-        return df.sort([sort_by, "symbol"], descending=[descending, False])
+        # nulls_last: polars 預設把 null 排最前, 降冪時缺資料的股票會變第一名
+        return df.sort([sort_by, "symbol"], descending=[descending, False], nulls_last=True)
 
     def _build_items(
         self, df: pl.DataFrame, req: TaiwanScreenerRequest | None = None

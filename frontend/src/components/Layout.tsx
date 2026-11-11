@@ -201,7 +201,7 @@ export function Layout() {
     staleTime: 60_000,
   })
   const { data: navEnriched } = useQuery({
-    queryKey: QK.watchlistEnriched(undefined),
+    queryKey: QK.watchlistEnriched(''),
     queryFn: () => api.watchlistEnriched(),
     enabled: navGroupPctVisible,
     staleTime: 60_000,

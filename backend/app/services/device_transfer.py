@@ -749,6 +749,9 @@ def _invalidate_caches() -> None:
     with contextlib.suppress(Exception):
         from app.services import preferences
         preferences._invalidate_cache()
+    with contextlib.suppress(Exception):
+        from app.services import watchlist
+        watchlist.bump_revision()
 
 
 def restore(

@@ -1523,19 +1523,19 @@ export function TaiwanStockDetail() {
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs font-mono">
                   <div className="bg-base p-2 rounded-lg border border-border/50">
                     <span className="text-xs text-muted block">5日報酬率</span>
-                    <span className={researchQuery.data.price_context.return_5d !== null ? (researchQuery.data.price_context.return_5d > 0 ? 'text-up font-semibold' : researchQuery.data.price_context.return_5d < 0 ? 'text-down font-semibold' : 'text-foreground') : 'text-muted'}>
+                    <span className={researchQuery.data.price_context.return_5d !== null ? (researchQuery.data.price_context.return_5d > 0 ? 'text-bull font-semibold' : researchQuery.data.price_context.return_5d < 0 ? 'text-bear font-semibold' : 'text-foreground') : 'text-muted'}>
                       {researchQuery.data.price_context.return_5d !== null ? `${(researchQuery.data.price_context.return_5d * 100).toFixed(2)}%` : '—'}
                     </span>
                   </div>
                   <div className="bg-base p-2 rounded-lg border border-border/50">
                     <span className="text-xs text-muted block">20日報酬率</span>
-                    <span className={researchQuery.data.price_context.return_20d !== null ? (researchQuery.data.price_context.return_20d > 0 ? 'text-up font-semibold' : researchQuery.data.price_context.return_20d < 0 ? 'text-down font-semibold' : 'text-foreground') : 'text-muted'}>
+                    <span className={researchQuery.data.price_context.return_20d !== null ? (researchQuery.data.price_context.return_20d > 0 ? 'text-bull font-semibold' : researchQuery.data.price_context.return_20d < 0 ? 'text-bear font-semibold' : 'text-foreground') : 'text-muted'}>
                       {researchQuery.data.price_context.return_20d !== null ? `${(researchQuery.data.price_context.return_20d * 100).toFixed(2)}%` : '—'}
                     </span>
                   </div>
                   <div className="bg-base p-2 rounded-lg border border-border/50">
                     <span className="text-xs text-muted block">距 MA20 乖離</span>
-                    <span className={researchQuery.data.technical_context.distance_to_ma20 !== null ? (researchQuery.data.technical_context.distance_to_ma20 > 0 ? 'text-up' : researchQuery.data.technical_context.distance_to_ma20 < 0 ? 'text-down' : 'text-foreground') : 'text-muted'}>
+                    <span className={researchQuery.data.technical_context.distance_to_ma20 !== null ? (researchQuery.data.technical_context.distance_to_ma20 > 0 ? 'text-bull' : researchQuery.data.technical_context.distance_to_ma20 < 0 ? 'text-bear' : 'text-foreground') : 'text-muted'}>
                       {researchQuery.data.technical_context.distance_to_ma20 !== null ? `${(researchQuery.data.technical_context.distance_to_ma20 * 100).toFixed(2)}%` : '—'}
                     </span>
                   </div>
@@ -1882,7 +1882,6 @@ export function TaiwanStockDetail() {
                         shares: pos.shares,
                         avg_cost: pos.averageCost,
                         invested_amount: pos.costBasis,
-                        unrealized_pnl: pos.realizedPnl ?? undefined,
                       }]
                     }
                   }
@@ -2027,7 +2026,6 @@ export function TaiwanStockDetail() {
                         shares: pos.shares,
                         avg_cost: pos.averageCost,
                         invested_amount: pos.costBasis,
-                        unrealized_pnl: pos.realizedPnl ?? undefined,
                       }]
                     }
                   }

@@ -127,7 +127,8 @@ export function TodaySelection({ symbol, onResearchContext }: { symbol?: string;
     mutationFn: (target: string) => api.watchlistAdd(target),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: QK.watchlist })
-      qc.invalidateQueries({ queryKey: QK.watchlistEnriched() })
+      // 前綴比對: 實際 key 是 ['watchlist-enriched', ''] 或帶欄位參數, QK.watchlistEnriched()(= undefined) 對不上
+      qc.invalidateQueries({ queryKey: ['watchlist-enriched'] })
     },
   })
   const selected = symbol ? signals.find(item => item.symbol === symbol) : null

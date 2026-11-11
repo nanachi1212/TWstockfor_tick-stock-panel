@@ -176,7 +176,7 @@ export function SocialSentiment() {
             <select
               aria-label="社群聲量歷史快照"
               value={selectedHistory}
-              onChange={event => setSelectedHistory(event.target.value)}
+              onChange={event => { setSelectedHistory(event.target.value); setSelectedRow(null) }}
               className="min-h-9 rounded-lg border border-border bg-base px-3 text-xs text-foreground"
             >
               <option value="latest">最新結果</option>

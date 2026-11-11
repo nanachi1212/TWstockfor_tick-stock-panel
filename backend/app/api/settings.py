@@ -1265,7 +1265,7 @@ def update_quote_interval(req: QuoteIntervalIn, request: Request) -> dict:
     """更新行情轮询间隔。按档位自动 clamp。"""
     qs = getattr(request.app.state, "quote_service", None)
     if not qs:
-        return {"interval": req.interval, "min_interval": qs.get_min_interval(), "max_interval": 60.0}
+        return {"interval": req.interval, "min_interval": 6.0, "max_interval": 60.0}
     clamped = qs.set_interval(req.interval)
     return {
         "interval": clamped,
@@ -1309,51 +1309,3 @@ def update_index_daily_batch_size(req: IndexDailyBatchSizeIn) -> dict:
     from app.services import preferences
     size = preferences.set_index_daily_batch_size(req.size)
     return {"index_daily_batch_size": size}
-
-
-# ── 五档盘口 sealed 配置 ──────────────────────────────
-
-class DepthPollingIntervalIn(BaseModel):
-    interval: float
-
-
-@router.put("/preferences/depth-polling-interval")
-def update_depth_polling_interval(req: DepthPollingIntervalIn, request: Request) -> dict:
-    """保存五档盘口盘中轮询间隔(秒)。需 Pro+。"""
-    from app.tickflow.capabilities import Cap
-    request.app.state.capabilities.require(Cap.DEPTH5_BATCH)
-
-    from app.services import preferences
-    interval = preferences.set_depth_polling_interval(req.interval)
-    return {"depth_polling_interval": interval}
-
-
-class DepthFinalizeTimeIn(BaseModel):
-    hour: int
-    minute: int
-
-
-@router.put("/preferences/depth-finalize-time")
-def update_depth_finalize_time(req: DepthFinalizeTimeIn, request: Request) -> dict:
-    """保存盘后 sealed 定版时间(范围15:01~18:00)并立即 reschedule。需 Pro+。"""
-    from app.tickflow.capabilities import Cap
-    request.app.state.capabilities.require(Cap.DEPTH5_BATCH)
-
-    from app.services import preferences
-    sched = preferences.set_depth_finalize_time(req.hour, req.minute)
-
-    from apscheduler.triggers.cron import CronTrigger
-    scheduler = getattr(request.app.state, "scheduler", None)
-    if scheduler:
-        scheduler.reschedule_job(
-            "depth_finalize",
-            trigger=CronTrigger(
-                day_of_week="mon-fri",
-                hour=sched["hour"],
-                minute=sched["minute"],
-                timezone="Asia/Shanghai",
-            ),
-        )
-        logger.info("depth_finalize rescheduled to %02d:%02d mon-fri", sched["hour"], sched["minute"])
-
-    return sched

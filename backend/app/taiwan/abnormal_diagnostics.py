@@ -530,8 +530,12 @@ class TaiwanAbnormalDiagnosticsService:
                         ))
 
             # ── Signal 8: SHORT_MARGIN_RATIO_SPIKE ──
-            if sm_ratio is not None and m_stat and m_stat["count_margin_20d"] >= 15:
-                med_sm20 = float(m_stat["median_sm_ratio_20d"] or 0)
+            # 20 日券資比中位數缺值時不比較 (缺值不等於 0, 否則券資比 >= 5 就誤觸發)
+            if (
+                sm_ratio is not None and m_stat and m_stat["count_margin_20d"] >= 15
+                and m_stat["median_sm_ratio_20d"] is not None
+            ):
+                med_sm20 = float(m_stat["median_sm_ratio_20d"])
                 sm_delta = round(sm_ratio - med_sm20, 2)
                 if sm_delta >= 5.0:  # >= 5% percentage point increase
                     signals.append(DiagnosticSignalEvidence(

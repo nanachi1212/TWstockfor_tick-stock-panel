@@ -88,7 +88,10 @@ def build_market_data(
             from app.taiwan.screener import TaiwanScreenerRequest, TaiwanScreenerService
 
             screen = TaiwanScreenerService().run(
-                TaiwanScreenerRequest(page_size=1, sort_by="symbol", symbol_scope=[symbol])
+                # extended_factors: 沒開的話法人 5 日欄位一律是 null, 「法人轉買」買點永遠判不出來
+                TaiwanScreenerRequest(
+                    page_size=1, sort_by="symbol", symbol_scope=[symbol], extended_factors=True,
+                )
             )
             item = next((candidate for candidate in screen.items if candidate.symbol == symbol), None)
         except Exception as exc:
@@ -238,6 +241,7 @@ def signals_for_symbols(store: BuyPointStrategyStore, symbols: list[str]) -> lis
                     page_size=max(1, len(scope)),
                     sort_by="symbol",
                     symbol_scope=scope,
+                    extended_factors=True,
                 )
             )
             items.update({candidate.symbol: candidate for candidate in screen.items})

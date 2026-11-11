@@ -35,6 +35,15 @@ _REVISION = 0
 def revision() -> int:
     """自选/分组数据版本号, 每次写操作递增。"""
     return _REVISION
+
+
+def bump_revision() -> None:
+    """自選檔被整個換掉 (還原備份) 時呼叫, 讓依版本號快取的消費方重讀。"""
+    global _REVISION
+    with _LOCK:
+        _REVISION += 1
+
+
 _MAX_GROUP_NAME_LENGTH = 24
 DEFAULT_GROUP_COLOR = "sky"
 GROUP_COLORS = frozenset({

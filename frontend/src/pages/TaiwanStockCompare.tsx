@@ -18,6 +18,7 @@ import {
 import { evidenceLabel } from '@/lib/evidenceLabel'
 import { cn } from '@/lib/cn'
 import { fmtDate } from '@/lib/format'
+import { QK } from '@/lib/queryKeys'
 import { useCompareSymbols, MAX_COMPARE_SYMBOLS, MIN_COMPARE_SYMBOLS } from '@/lib/useCompareSymbols'
 import { DatePicker } from '@/components/DatePicker'
 
@@ -56,7 +57,7 @@ export function TaiwanStockCompare() {
   // 本機資料新鮮度狀態 (既有端點，複用 TaiwanScreener.tsx 相同 queryKey 以共享快取)。
   // 用於將「最新模式」解析為本機實際已入庫的最新資料日，而非行事曆最新交易日。
   const dataStatusQuery = useQuery({
-    queryKey: ['taiwanDataStatus'],
+    queryKey: QK.taiwanDataStatus,
     queryFn: () => api.taiwanDataStatus(),
     staleTime: 60_000,
   })

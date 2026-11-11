@@ -123,7 +123,7 @@ class YahooRealtimeProvider:
             exchange=ts.exchange,
             last_price=last_price,
             prev_close=prev_close,
-            open=meta.get("regularMarketDayHigh"),  # approximated
+            open=None,  # chart meta 沒有開盤價; 不拿最高價冒充
             high=meta.get("regularMarketDayHigh"),
             low=meta.get("regularMarketDayLow"),
             change=change,

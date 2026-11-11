@@ -57,6 +57,16 @@ def test_save_then_load_sees_merged_values(_isolated):
     assert preferences.load() == {"a": 1, "b": 2}
 
 
+def test_save_keeps_a_copy_of_a_corrupt_file_and_leaves_no_temp(_isolated):
+    _isolated.write_text('{"a": 1, "b"', encoding="utf-8")  # 寫到一半的 JSON
+
+    preferences.save({"c": 3})
+
+    assert json.loads(_isolated.read_text(encoding="utf-8")) == {"c": 3}
+    assert _isolated.with_name("preferences.json.corrupt").read_text(encoding="utf-8") == '{"a": 1, "b"'
+    assert not _isolated.with_name("preferences.json.tmp").exists()
+
+
 def test_interval_setter_invalidates_cache(_isolated):
     preferences.set_realtime_quote_interval(2.0)
     assert preferences.load()["realtime_quote_interval"] == 2.0

@@ -83,12 +83,18 @@ export function TaiwanRuleEditorDialog({
       setName(rule.name)
       setSymbol(rule.symbol)
       setRuleType(rule.rule_type)
-      setThreshold(rule.rule_type === 'change_pct_below' ? Math.abs(rule.threshold) : rule.threshold)
+      // 成交量門檻後端存股數; 以「張」顯示時要先除以 1000, 否則每存一次就被乘 1000
+      const volInLots = rule.rule_type === 'volume_above' && rule.threshold >= 1000
+      setThreshold(
+        rule.rule_type === 'change_pct_below' ? Math.abs(rule.threshold)
+          : volInLots ? rule.threshold / 1000
+            : rule.threshold,
+      )
       setCooldown(rule.cooldown_seconds || 300)
       setHysteresis(rule.hysteresis ?? '')
       setRefVolume(rule.reference_volume ?? '')
       setSeverity(rule.severity as any)
-      setVolInputMode(rule.rule_type === 'volume_above' && rule.threshold >= 1000 ? 'lots' : 'shares')
+      setVolInputMode(volInLots ? 'lots' : 'shares')
       setNotifyChannels(rule.notify_channels ?? [])
       setErrorMessage(null)
     } else {
@@ -207,10 +213,10 @@ export function TaiwanRuleEditorDialog({
                   value={symbol}
                   onChange={e => setSymbol(e.target.value.toUpperCase())}
                   placeholder="如 2330.TWSE 或 8069.TPEX"
-                  readOnly={!rule && !!presetSymbol}
+                  readOnly={!!rule || !!presetSymbol}
                   className="flex-1 rounded-lg border border-border bg-elevated/40 px-3 py-2 text-xs font-mono font-semibold focus:border-accent focus:outline-none"
                 />
-                {!presetSymbol && <button
+                {!rule && !presetSymbol && <button
                   type="button"
                   onClick={() => setSearchOpen(!searchOpen)}
                   className="inline-flex items-center gap-1 rounded-lg border border-border/80 bg-surface px-3 py-2 font-medium hover:border-accent/40 hover:text-accent transition-colors cursor-pointer"
@@ -262,7 +268,7 @@ export function TaiwanRuleEditorDialog({
                             ) : item.is_no_limit ? (
                               <span className="text-xs text-purple-400">無漲跌幅限制</span>
                             ) : item.price_limit_pct != null ? (
-                              <span className="text-xs text-muted">限制: ±{item.price_limit_pct}%</span>
+                              <span className="text-xs text-muted">限制: ±{+(item.price_limit_pct * 100).toFixed(2)}%</span>
                             ) : null}
                           </div>
                         </div>

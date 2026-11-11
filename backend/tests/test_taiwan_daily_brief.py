@@ -157,6 +157,20 @@ def test_daily_brief_history_persistence(mock_daily_brief_service: TaiwanDailyBr
     assert loaded.ai_summary.section_a_market == "市場平穩"
 
 
+def test_saving_over_an_unreadable_history_file_keeps_a_copy(mock_daily_brief_service: TaiwanDailyBriefService):
+    """A truncated history file must not be silently replaced by a one-entry list."""
+    broken = '[{"brief_id": "brief_old"'
+    mock_daily_brief_service.path.parent.mkdir(parents=True, exist_ok=True)
+    mock_daily_brief_service.path.write_text(broken, encoding="utf-8")
+    brief = mock_daily_brief_service.build_deterministic_brief(target_date=date(2026, 8, 3))
+
+    mock_daily_brief_service.save_brief(brief)
+
+    backup = mock_daily_brief_service.path.with_name(mock_daily_brief_service.path.name + ".corrupt")
+    assert backup.read_text(encoding="utf-8") == broken
+    assert len(mock_daily_brief_service.list_saved_briefs()) == 1
+
+
 def test_daily_brief_api_endpoints(monkeypatch, mock_daily_brief_service: TaiwanDailyBriefService):
     """FastAPI routes for Daily Brief creation, on-demand AI generation, and history."""
     monkeypatch.setattr(

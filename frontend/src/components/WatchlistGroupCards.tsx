@@ -161,7 +161,7 @@ const GroupCard = React.memo(function GroupCard({
           className="flex items-center justify-center gap-1 border-t border-border/60 px-3 py-1.5 text-xs text-muted transition-colors hover:bg-elevated/60 hover:text-foreground"
         >
           {expanded ? '收起' : `顯示全部 ${data.rows.length} 檔`}
-          <ChevronDown className={`h-3 w-3 transition-transform ${expanded ? '' : 'rotate-180'}`} />
+          <ChevronDown className={`h-3 w-3 transition-transform ${expanded ? 'rotate-180' : ''}`} />
         </button>
       )}
     </div>
