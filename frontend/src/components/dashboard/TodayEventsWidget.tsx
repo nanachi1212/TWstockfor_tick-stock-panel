@@ -15,7 +15,8 @@ import { cn } from '@/lib/cn'
 
 export function TodayEventsWidget() {
   const eventsQuery = useQuery({
-    queryKey: QK.taiwanEvents('today', undefined, undefined),
+    // 只抓 10 筆, key 要和事件中心 (同範圍抓 300 筆) 分開, 否則事件頁會沿用這 10 筆
+    queryKey: [...QK.taiwanEvents('today', undefined, undefined), 'dashboard-10'],
     queryFn: () => api.taiwanEvents({ scope: 'today', limit: 10 }),
     staleTime: 5 * 60 * 1000,
   })

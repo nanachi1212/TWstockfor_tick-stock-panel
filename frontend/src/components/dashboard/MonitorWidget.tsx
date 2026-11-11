@@ -29,7 +29,8 @@ export function MonitorWidget({ onStockClick }: {
   const navigate = useNavigate()
   const qc = useQueryClient()
   const alerts = useQuery({
-    queryKey: ['alerts', ''],
+    // 只抓 10 筆, key 要和監控頁/個股頁 (同 key 抓 500 筆) 分開; invalidate 用前綴 ['alerts',''] 仍會命中
+    queryKey: [...QK.alerts(undefined), 'dashboard-10'],
     queryFn: () => api.alertsList({ days: 7, limit: 10 }),
     refetchInterval: 10000,
   })
@@ -41,7 +42,9 @@ export function MonitorWidget({ onStockClick }: {
 
   if (events.length === 0) {
     return (
-      <div className="py-6 text-center text-xs text-muted">目前沒有提醒</div>
+      <div className="py-6 text-center text-xs text-muted">
+        {alerts.isLoading ? '載入中…' : alerts.isError ? '提醒暫時無法讀取' : '目前沒有提醒'}
+      </div>
     )
   }
 

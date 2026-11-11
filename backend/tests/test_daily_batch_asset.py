@@ -38,7 +38,9 @@ def test_custom_daily_batch_groups_taiwan_stock_and_etf_symbols(repo, monkeypatc
     state = type("S", (), {"repo": repo})()
     req = type("R", (), {"app": type("A", (), {"state": state})()})()
 
-    out = kline_api.get_daily_batch(req, {"symbols": ["2330.TWSE", "0050.TWSE"], "days": 12})
+    out = kline_api.get_daily_batch(
+        req, kline_api.DailyBatchRequest(symbols=["2330.TWSE", "0050.TWSE"], days=12),
+    )
     assert calls["stock_batch"] == [["2330.TWSE"]]
     assert calls["etf"] == ["0050.TWSE"]
     assert out["data"]["0050.TWSE"][0]["close"] == 1.0

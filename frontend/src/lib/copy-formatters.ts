@@ -351,7 +351,7 @@ export function formatStockDetailCopy(d: StockDetailCopyData): string {
     )
     if (match.length > 0) {
       for (const p of match) {
-        lines.push(`- 持股數量：${p.shares} 張`)
+        lines.push(`- 持股數量：${sharesAndLots(p.shares)}`)
         lines.push(`- 平均成本：${p.avg_cost != null ? num(p.avg_cost) + ' 元' : '不可用'}`)
         if (p.invested_amount != null) lines.push(`- 投入金額：${num(p.invested_amount, 0)} 元`)
         if (p.unrealized_pnl != null) lines.push(`- 未實現損益：${num(p.unrealized_pnl, 0)} 元 (${pct(p.unrealized_pnl_pct)})`)
@@ -535,7 +535,7 @@ export function formatDailyBriefCopy(d: DailyBriefCopyData): string {
     if (taiexNote) lines.push(`  - ⚠ 加權指數${taiexNote}；不可用來解讀今日盤勢。`)
     // turnover 是元；換算成億元再顯示
     lines.push(`- 成交金額：約 ${m.turnover != null ? num(m.turnover / 1e8, 1) : '不可用 (unavailable)'} 億元 | 市場情緒：${sanitize(m.sentiment_label)}`)
-    lines.push(`- 市場廣度：上漲 ${num(m.advances, 0, '—')} 家 (漲停 ${num(m.limit_up, 0, '0')}) | 下跌 ${num(m.declines, 0, '—')} 家 (跌停 ${num(m.limit_down, 0, '0')}) | 平盤 ${num(m.unchanged, 0, '—')} 家`)
+    lines.push(`- 市場廣度：上漲 ${num(m.advances, 0, '—')} 家 (漲停 ${num(m.limit_up, 0, '—')}) | 下跌 ${num(m.declines, 0, '—')} 家 (跌停 ${num(m.limit_down, 0, '—')}) | 平盤 ${num(m.unchanged, 0, '—')} 家`)
     // 這三個數字是逐檔「股數」加總，不是金額
     lines.push(`- 三大法人買賣超（上市＋上櫃逐檔股數加總，不是金額；資料日 ${sanitize(m.institutional_as_of)}）：外資 ${sharesAndLots(m.foreign_net)} | 投信 ${sharesAndLots(m.trust_net)} | 自營商 ${sharesAndLots(m.dealer_net)}`)
     if (m.institutional_stale) lines.push('  - ⚠ 法人資料日不是報告交易日，不可說成今日法人動向。')

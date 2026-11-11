@@ -237,6 +237,7 @@ def apply_strategy(
                 pl.when(pl.col("_v2_breakout_hit")).then(pl.lit("突破轉強 v1")).otherwise(None),
             ],
             separator="、",
+            ignore_nulls=True,  # 預設任一為 null 整串變 null, 只中 2/3 策略的股票會沒有名稱
         ).alias("consensus_strategy_names")
     )
 

@@ -17,6 +17,7 @@ from __future__ import annotations
 import contextlib
 import json
 import logging
+import shutil
 import threading
 import uuid
 from datetime import UTC, date, datetime
@@ -130,6 +131,14 @@ class TaiwanDailyBriefService:
 
     def _save_briefs_raw(self, records: list[dict[str, Any]]) -> None:
         self.path.parent.mkdir(parents=True, exist_ok=True)
+        if self.path.exists():
+            # 讀不出來的舊檔會被當成空清單再整檔覆寫; 覆寫前先留一份, 歷史摘要才救得回來。
+            try:
+                readable = isinstance(json.loads(self.path.read_text(encoding="utf-8")), list)
+            except Exception:
+                readable = False
+            if not readable:
+                shutil.copy2(self.path, self.path.with_name(self.path.name + ".corrupt"))
         temp_path = self.path.with_suffix(".tmp")
         temp_path.write_text(json.dumps(records, ensure_ascii=False, indent=2), encoding="utf-8")
         temp_path.replace(self.path)

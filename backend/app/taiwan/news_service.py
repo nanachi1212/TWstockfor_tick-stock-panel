@@ -33,7 +33,6 @@ from app.taiwan.symbol import parse_symbol
 
 logger = logging.getLogger(__name__)
 
-NEWS_CACHE_TTL_SECONDS = 1800  # 30 minutes
 
 
 class TaiwanStockNewsItem(BaseModel):

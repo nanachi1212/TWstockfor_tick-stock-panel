@@ -7,6 +7,7 @@ from datetime import date, datetime, time, timedelta
 from typing import Annotated, Literal, Optional
 
 from fastapi import APIRouter, HTTPException, Query, Request
+from pydantic import BaseModel
 
 from app.indicators.pipeline import compute_enriched
 from app.price_limits import is_risk_warning_name, price_limit_pct
@@ -437,21 +438,20 @@ def _maybe_inject_live_candle(request: Request, symbol: str, rows: list[dict], a
     return rows
 
 
-class DailyBatchRequest:
+class DailyBatchRequest(BaseModel):
     """批量日K请求。"""
-    symbols: list[str]
+    symbols: list[str] = []
     days: int = 12
 
 
 @router.post("/daily-batch")
-def get_daily_batch(request: Request, body: dict):
+def get_daily_batch(request: Request, body: DailyBatchRequest):
     """批量获取多只股票最近 N 天日K (OHLCV)。
 
     用于自选列表迷你蜡烛图等场景，只返回基础列，不返回全部 enriched 指标。
     """
-    symbols = body.get("symbols", [])
-    days = body.get("days", 12)
-    symbols = _require_taiwan_symbols(symbols)
+    days = body.days
+    symbols = _require_taiwan_symbols(body.symbols)
     if not symbols:
         return {"data": {}}
     days = max(5, min(60, days))

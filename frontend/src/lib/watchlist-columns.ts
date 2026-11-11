@@ -64,7 +64,7 @@ export const BUILTIN_COLUMNS: ColumnConfig[] = [
   { id: 'builtin:momentum_10d', source: { type: 'builtin', key: 'momentum_10d' }, label: '10D 動量', visible: false, align: 'center' },
   { id: 'builtin:momentum_20d', source: { type: 'builtin', key: 'momentum_20d' }, label: '20D 動量', visible: false, align: 'center' },
   { id: 'builtin:momentum_30d', source: { type: 'builtin', key: 'momentum_30d' }, label: '30D 動量', visible: false, align: 'center' },
-  { id: 'builtin:momentum_60d', source: { type: 'builtin', key: 'momentum' }, label: '60D 動量', visible: false, align: 'center' },
+  { id: 'builtin:momentum_60d', source: { type: 'builtin', key: 'momentum_60d' }, label: '60D 動量', visible: false, align: 'center' },
   // 訊號 & 圖表
   { id: 'builtin:signals', source: { type: 'builtin', key: 'signals' }, label: '訊號', visible: true, align: 'center' },
   { id: 'builtin:candle', source: { type: 'builtin', key: 'candle' }, label: '日 K', visible: false, align: 'center' },

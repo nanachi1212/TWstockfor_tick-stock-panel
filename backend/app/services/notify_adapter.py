@@ -23,6 +23,9 @@ logger = logging.getLogger(__name__)
 # 单次通知最长字符 (避免某些平台截断报错)
 _MAX_LEN = 200
 
+# Windows 通知中心顯示的來源名稱
+_WINDOWS_APP_ID = "Nanachi 的台股監控看板"
+
 # 避免重复探测平台能力, 缓存一次
 _backend_cache: str | None = None
 
@@ -86,7 +89,7 @@ def notify(title: str, message: str, icon: Path | None = None) -> bool:
         if backend == "notify-send":
             return _notify_notify_send(title, message, icon)
     except Exception as e:  # noqa: BLE001
-        logger.debug("系统通知失败 (%s): %s", backend, e)
+        logger.warning("系統通知失敗 (%s): %s", backend, e)
         return False
 
     return False
@@ -94,14 +97,15 @@ def notify(title: str, message: str, icon: Path | None = None) -> bool:
 
 def _notify_winotify(title: str, message: str) -> bool:
     """Windows 通知 (winotify) — 进现代操作中心。"""
-    from winotify import Notifier  # type: ignore[import-not-found]
+    from winotify import Notification  # type: ignore[import-not-found]
 
-    Notifier().create_notification(
+    # Notifier 需要 Registry (用於可點擊回呼); 這裡只發單向通知, 直接用 Notification。
+    Notification(
+        app_id=_WINDOWS_APP_ID,
         title=title,
         msg=message,
         # winotify 要求 duration 为 "short" 或 "long"
         duration="short",
-        # 无可点击动作 (桌面版不实现"点击回到窗口"的复杂交互)
     ).show()
     return True
 
