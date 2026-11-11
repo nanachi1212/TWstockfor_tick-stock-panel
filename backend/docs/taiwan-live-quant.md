@@ -149,9 +149,8 @@ completed/pending/failed、可用 horizon 與阻擋原因。Worker lock 只用�
 API 不會接管或重啟 worker。即時選股仍由 `GET /api/taiwan/quant/live/models` 提供，歷史 OOS
 與即時排名分開呈現。
 
-維護者可從 `backend/` 執行 `uv run python scripts/taiwan_primary_oos_evaluation.py`，先檢視
-readiness，再由同一命令於 gate 通過後執行。命令沒有 force/override 選項；gate 未通過時
-以非零狀態結束且不載入評估資料、不寫入正式結果。Runner 只讀取已物化的 PIT factor
+歷史 OOS 評估的手動命令列工具已移除（本產品不做研究評估）；`primary_oos_runner` 仍保留，
+gate 未通過時不載入評估資料、不寫入正式結果。Runner 只讀取已物化的 PIT factor
 partitions、A2a 歷史觀測 universe 和 raw close，並拒絕缺少已驗證 Primary 股票歷史 rows
 或混入 forward-label 欄位。公司行動資料只有在 readiness 通過後才會從五個官方來源載入。
 

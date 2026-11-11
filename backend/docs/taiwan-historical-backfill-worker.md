@@ -388,6 +388,5 @@ Primary OOS artifact 的 `provenance.data_health_policy` 固定記錄範圍
   詳細頁輸入位數不足但官方參考價落在其顯示精度內（7610）、同一減資的多次公告經濟內容相同（3536、5906）。
   其餘未驗證事件只屬特別股（詳細頁欄位不同）或 TPEx，不影響 Primary。
 - 1,153 檔 Primary 普通股的完整價格史以此事件快照調整皆為 `verified`。
-- `uv run --frozen python -m scripts.taiwan_primary_oos_evaluation --build-factor-panel` 用既有
-  `build_factor_panel`／`FactorPanelStore` 建立並行布 panel（僅在 readiness 通過時可用，分批多程序計算後按 session 發布）；
-  沒有第二套 runner 或 scorer。
+- 歷史 OOS 的 panel 由 `app.taiwan.quant.primary_panel` 用既有 `build_factor_panel`／`FactorPanelStore` 建立
+  （僅在 readiness 通過時可用）；原本的手動命令列工具已移除，沒有第二套 runner 或 scorer。
