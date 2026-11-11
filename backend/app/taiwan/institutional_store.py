@@ -162,12 +162,27 @@ class TaiwanInstitutionalStore:
     def read_latest_per_symbol(self, symbols: list[str] | None = None) -> pl.DataFrame:
         """Return the latest available row for each symbol."""
         if symbols:
-            latest = self.latest_date()
-            if latest is not None:
-                latest_df = self.read_range(symbols, latest, latest)
-                if set(latest_df["symbol"].to_list()) >= set(symbols):
-                    return latest_df.sort(["symbol", "date"])
-        df = self.read_all(symbols)
+            # Newest partitions first; older ones are asked only for the symbols
+            # still missing, so one absent symbol no longer loads every symbol's
+            # whole history.
+            dates = self.available_dates()
+            missing = list(dict.fromkeys(symbols))
+            frames: list[pl.DataFrame] = []
+            end = len(dates)
+            for size in (1, 20, end):
+                if end <= 0 or not missing:
+                    break
+                start = max(0, end - size)
+                part = self.read_range(missing, dates[start], dates[end - 1])
+                if not part.is_empty():
+                    frames.append(part)
+                    found = set(part["symbol"].to_list())
+                    missing = [s for s in missing if s not in found]
+                end = start
+            df = (pl.concat(frames, how="diagonal_relaxed") if frames
+                  else pl.DataFrame(schema=_schema()))
+        else:
+            df = self.read_all(symbols)
         if df.is_empty():
             return df
         return (

@@ -33,11 +33,11 @@ const BRAND = RADIX.brand
 
 // 僅列出目前已有可靠 backend + frontend 支援的台股功能,避免宣傳尚未完成的項目。
 const HIGHLIGHTS = [
-  { icon: ScanSearch,  title: '台股選股',   desc: '以篩選策略掃描上市櫃標的', tint: 'text-bull' },
+  { icon: ScanSearch,  title: '台股選股',   desc: '以篩選策略掃描上市櫃標的', tint: 'text-accent' },
   { icon: TrendingUp,  title: '個股分析',   desc: '個股資料含三大法人買賣超、融資融券、ETF 資訊', tint: 'text-warning' },
   { icon: Scale,       title: '多股比較',   desc: '並列比較多檔台股的相對表現', tint: 'text-accent' },
-  { icon: Database,    title: '本機資料優先', desc: '資料儲存在本機，離線仍可查閱', tint: 'text-bull' },
-  { icon: Sparkles,    title: 'AI 研究（選配）', desc: '可在「設定 → AI」自行開啟', tint: 'text-bear' },
+  { icon: Database,    title: '本機資料優先', desc: '資料儲存在本機，離線仍可查閱', tint: 'text-accent' },
+  { icon: Sparkles,    title: 'AI 研究（選配）', desc: '可在「設定 → AI」自行開啟', tint: 'text-accent' },
 ]
 
 export function Onboarding() {
@@ -59,7 +59,9 @@ export function Onboarding() {
       navigate('/', { replace: true })
     },
     onError: () => {
-      // 標記失敗不應阻擋使用者進入主介面,仍放行
+      // A failed save must not lock the user out. Mark it done in the cache for this session,
+      // otherwise the route guard sends them straight back here.
+      qc.setQueryData(QK.settings, (old: any) => old ? { ...old, onboarding_completed: true } : old)
       navigate('/', { replace: true })
     },
   })
@@ -226,7 +228,7 @@ const FRESHNESS_LABEL: Record<string, string> = {
 }
 
 const FRESHNESS_TINT: Record<string, string> = {
-  current: 'text-bull',
+  current: 'text-success',
   stale: 'text-warning',
   unavailable: 'text-muted',
 }
@@ -328,7 +330,7 @@ function FinishStep({ onNext, onBack, pending }: { onNext: () => void; onBack: (
     <div className="text-center">
       <div className="mx-auto w-fit">
         <div className="rounded-card border border-border bg-surface p-5">
-          <CheckCircle2 className="h-12 w-12 text-bear" />
+          <CheckCircle2 className="h-12 w-12 text-success" />
         </div>
       </div>
 

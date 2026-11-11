@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import json
+import sys
 from datetime import date, datetime
+from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
@@ -9,6 +11,7 @@ from test_taiwan_selection_forward import _clock, _FixedScreener, _seed
 
 from app.api.strategy_lab import service as lab_dependency
 from app.main import app
+from app.taiwan import strategy_lab
 from app.taiwan.quant.live_contract import LIVE_CONTRACT, LiveModel, LiveSignalBatch, canonical_hash
 from app.taiwan.quant.live_store import LiveLedger
 from app.taiwan.realtime.calendar import TAIPEI_TZ, TaiwanTradingCalendar
@@ -322,3 +325,74 @@ def test_a13_never_replaces_invalid_saved_entry_with_a_later_store_price(tmp_pat
     assert {row.status for row in rows} == {"unavailable"}
     assert {row.reason for row in rows} == {"invalid_saved_reference_price"}
     assert all(row.return_pct is None for row in rows)
+
+
+def test_live_runs_are_parsed_once_until_a_ledger_file_changes(tmp_path, monkeypatch):
+    lab, _, _ = _lab(tmp_path, monkeypatch)
+    clock = [datetime(2026, 9, 21, 17, tzinfo=TAIPEI_TZ)]
+    calendar = TaiwanTradingCalendar(known_trading_days={date(2026, 9, 21), date(2026, 9, 22)})
+    ledger = LiveLedger(tmp_path / "real-live", clock=lambda: clock[0], evidence=calendar.day_evidence)
+    model = LiveModel()
+    ledger.activate(model)
+    features = [{"symbol": "2330.TWSE"}]
+    ledger.freeze(LiveSignalBatch(model, date(2026, 9, 21), {
+        "contract": LIVE_CONTRACT, "signal_session": date(2026, 9, 21), "data_cutoff": clock[0],
+        "model": model.describe(), "usage_scope": "experimental_live", "validation_state": "unvalidated",
+        "eligible_universe": [{"symbol": "2330.TWSE", "universe_contract": LIVE_CONTRACT}],
+        "features": features, "feature_snapshot_hash": canonical_hash(features),
+        "signals": [{"symbol": "2330.TWSE", "name": "TSMC", "reference_close": 100}],
+    }))
+    clock[0] = datetime(2026, 9, 22, 17, tzinfo=TAIPEI_TZ)
+    ledger.observe_outcome(model.key, "2026-09-21", "2330.TWSE", 1,
+                           {"status": "verified", "value": 0.01, "end_session": "2026-09-22"})
+    monkeypatch.setattr("app.taiwan.strategy_lab.taipei_now", lambda: clock[0])
+    parses = []
+    read_run = LiveLedger.read_run
+    monkeypatch.setattr(LiveLedger, "read_run",
+                        lambda self, *args, **kwargs: parses.append(args) or read_run(self, *args, **kwargs))
+
+    def rows():
+        lab.ledger = LiveLedger(ledger.root)  # the API builds a new ledger object per request
+        page = lab.drilldown(LabFilters(source="Daily recommendation"))
+        return {row.horizon: row for row in page.observations}
+
+    first = rows()
+    assert first[1].status == "matured" and first[1].return_pct == 1
+    # The kept projection gives exactly what the full ~20 MB snapshot gives.
+    full_run = read_run(ledger, model.key, "2026-09-21", read_only=True)
+    assert first == {row.horizon: row for row in lab._daily_rows(full_run)}
+    assert all("features" not in run["snapshot"] for run, _, _ in strategy_lab._LEDGER_PARSE[ledger.root][1])
+
+    assert rows() == first
+    assert len(parses) == 1  # unchanged files are not parsed again
+
+    clock[0] = datetime(2026, 9, 22, 12, tzinfo=TAIPEI_TZ)  # before the outcome session closes
+    assert rows()[1].status == "unavailable"
+    assert len(parses) == 1  # maturity follows the clock without a re-read
+
+    clock[0] = datetime(2026, 9, 22, 17, tzinfo=TAIPEI_TZ)
+    ledger.observe_outcome(model.key, "2026-09-21", "2330.TWSE", 1,
+                           {"status": "data_insufficient", "value": None, "reason": "missing_price"})
+    assert rows()[1].reason == "recheck_unavailable"
+    assert len(parses) == 2  # a changed ledger file is read again
+
+
+def test_one_request_scans_the_stores_once_for_batches_sharing_a_source_date(tmp_path, monkeypatch):
+    lab, snap, _ = _lab(tmp_path, monkeypatch)
+    retry = snap.model_copy(update={"snapshot_id": "retry-id"})
+    lab.selection.path.write_text(json.dumps([snap.model_dump(), retry.model_dump()]), encoding="utf-8")
+    scans = []
+    glob = Path.glob
+
+    def counted(self, pattern, **kwargs):
+        scans.append(sys._getframe(1).f_code.co_name)  # which store method lists the partitions
+        return glob(self, pattern, **kwargs)
+
+    monkeypatch.setattr(Path, "glob", counted)
+    assert lab.overview(LabFilters()).duplicate_samples == 1
+    # Two batches of one source date: the partition versions and the session list are each
+    # resolved once, not once (or more) per batch.
+    assert (scans.count("_forward_review_inputs"), scans.count("available_dates")) == (1, 1)
+    lab.overview(LabFilters())
+    # The next request reads the versions again; the terminal reviews stay cached.
+    assert (scans.count("_forward_review_inputs"), scans.count("available_dates")) == (2, 1)

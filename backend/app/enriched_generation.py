@@ -139,10 +139,8 @@ def _process_is_alive(pid: Any) -> bool:
         return False
     except (OSError, PermissionError) as exc:
         # Windows 對不存在的 pid 回傳 WinError 87 (ERROR_INVALID_PARAMETER),
-        # 不會映射為 ProcessLookupError; 按存活處理會讓孤兒發佈鎖永遠無法恢復。
-        if getattr(exc, "winerror", None) == 87:
-            return False
-        return True
+        # 不會對應為 ProcessLookupError; 按存活處理會讓孤兒發佈鎖永遠無法恢復。
+        return getattr(exc, "winerror", None) != 87
     return True
 
 

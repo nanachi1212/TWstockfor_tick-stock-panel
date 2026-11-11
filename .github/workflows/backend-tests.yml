@@ -69,6 +69,10 @@ jobs:
         if: steps.scope.outputs.backend == 'true'
         run: uv sync --frozen --extra dev
 
+      - name: Run Ruff
+        if: steps.scope.outputs.backend == 'true'
+        run: uv run ruff check app tests scripts
+
       - name: Run pytest
         if: steps.scope.outputs.backend == 'true'
         run: uv run pytest -q -m "not integration"

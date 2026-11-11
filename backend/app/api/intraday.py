@@ -1,11 +1,11 @@
-"""行情狀態 / SSE 推送 API。
+"""行情狀態 / SSE 推播 API。
 
 盤中選股相關端點已遷移至策略頁面，此處僅保留全域行情基礎設施。
-SSE 推送四種事件 (使用標準 SSE event 欄位):
+SSE 推播四種事件 (使用標準 SSE event 欄位):
   - quotes_updated: 行情資料重新整理，前端 invalidate 對應 query
   - strategy_results_updated: 策略監控已寫入最新結果，前端重新整理策略個股列表
   - strategy_alert: 策略監控/告警觸發，前端彈通知
-  - depth_updated: 五檔盤口修正完成，前端重新整理連板梯隊/看板封單資料
+  - depth_updated: 五檔報價修正完成，前端重新整理連續漲停梯隊/看板封單資料
 """
 from __future__ import annotations
 
@@ -53,7 +53,7 @@ def get_quotes(
     symbols: str = Query(..., description="逗號分隔的台股或標準 symbol (例如 2330.TWSE,8069.TPEX,0050.TWSE)"),
     force: bool = Query(False, description="是否強制穿透快取向外部來源請求"),
 ):
-    """批次取得台股盤中即時行情 (支援 4 級 Fallback 與五檔盤口)。"""
+    """批次取得台股盤中即時行情 (支援 4 級 Fallback 與五檔報價)。"""
     symbol_list = [s.strip() for s in symbols.split(",") if s.strip()]
     if not symbol_list:
         return {"quotes": [], "count": 0}
@@ -133,7 +133,7 @@ def search_taiwan_instruments(
 
 @router.get("/stream")
 async def quote_stream(request: Request):
-    """SSE 端點: 行情更新 + 告警推送 + 五檔修正 + 覆盤進度。
+    """SSE 端點: 行情更新 + 告警推播 + 五檔修正 + 覆盤進度。
 
     使用 sse-starlette EventSourceResponse:
     - 標準 SSE event 欄位，前端按 event name 監聽
@@ -161,12 +161,12 @@ async def quote_stream(request: Request):
             }
 
             while True:
-                # 等待任一通道有新信號 (5s 超時保持循環, 便於斷線時儘快退出)
+                # 等待任一通道有新訊號 (5s 超時保持迴圈, 便於斷線時儘快退出)
                 await asyncio.to_thread(sub.wait, 5.0)
                 data = sub.pop()
 
 
-                # 告警 (分片推送, 避免單條 SSE 過大)
+                # 告警 (分片推播, 避免單條 SSE 過大)
                 alerts = data["alerts"]
                 for chunk_start in range(0, len(alerts), 20):
                     chunk = alerts[chunk_start:chunk_start + 20]
@@ -203,7 +203,7 @@ async def quote_stream(request: Request):
                         "data": json.dumps({"ts": int(time.time() * 1000)}),
                     }
 
-                # 五檔修正完成 — 前端重新整理連板梯隊封單資料
+                # 五檔修正完成 — 前端重新整理連續漲停梯隊封單資料
                 if data["depth_updated"]:
                     yield {
                         "event": "depth_updated",

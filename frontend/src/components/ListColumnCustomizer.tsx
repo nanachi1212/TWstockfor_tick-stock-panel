@@ -5,7 +5,7 @@
  * - 上半區「已啟用」：已啟用的列，@dnd-kit 拖曳排序
  * - 下半區「內建列」：按業務分組摺疊
  */
-import React, { useState, useCallback, useEffect, useMemo } from 'react'
+import React, { useState, useCallback, useEffect, useId, useMemo } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
   DndContext, closestCenter, KeyboardSensor, PointerSensor,
@@ -19,7 +19,7 @@ import { CSS } from '@dnd-kit/utilities'
 import { X, GripVertical, Plus, ChevronDown, ChevronRight, Settings2, Search, Eye, EyeOff } from 'lucide-react'
 import type { ColumnConfig, ColumnGroup, ExtColumnDisplayConfig, CandleColumnConfig, IntradayColumnConfig } from '@/lib/list-columns'
 import { resolveCandleConfig, resolveIntradayConfig } from '@/lib/list-columns'
-import { useDialogBackdrop } from '@/lib/useDialogBackdrop'
+import { Modal } from '@/components/Modal'
 
 interface ListColumnCustomizerProps {
   columns: ColumnConfig[]
@@ -29,8 +29,6 @@ interface ListColumnCustomizerProps {
   onClose: () => void
   title?: string
   builtinSectionLabel?: string
-  /** 是否顯示「單獨顯示」勾選項（預設 false；僅資訊條場景啟用，讓某列獨佔一行）。 */
-  showStandaloneToggle?: boolean
 }
 
 /** 判斷擴展資料欄位類型是否為數字(int/float/double/number/decimal 等)。
@@ -46,7 +44,7 @@ function isNumericFieldType(ft?: string): boolean {
   return true
 }
 
-function SortableActiveCol({ col, onRemove, onConfig, configOpen, extTableLabel, extConfig, candleConfig: candlePanel, intradayConfig: intradayPanel, strategiesConfig, showStandaloneToggle, onToggleStandalone }: {
+function SortableActiveCol({ col, onRemove, onConfig, configOpen, extTableLabel, extConfig, candleConfig: candlePanel, intradayConfig: intradayPanel, strategiesConfig }: {
   col: ColumnConfig
   onRemove: (id: string) => void
   onConfig: (id: string | null) => void
@@ -56,8 +54,6 @@ function SortableActiveCol({ col, onRemove, onConfig, configOpen, extTableLabel,
   candleConfig: React.ReactNode
   intradayConfig: React.ReactNode
   strategiesConfig: React.ReactNode
-  showStandaloneToggle?: boolean
-  onToggleStandalone?: (id: string) => void
 }) {
   const {
     attributes, listeners, setNodeRef, transform, transition, isDragging,
@@ -94,19 +90,6 @@ function SortableActiveCol({ col, onRemove, onConfig, configOpen, extTableLabel,
             ? `${col.label}（${extTableLabel}）`
             : col.label}
         </span>
-        {showStandaloneToggle && (
-          <button
-            onClick={() => onToggleStandalone?.(col.id)}
-            className={`flex items-center gap-0.5 px-1.5 py-0.5 rounded text-xs transition-colors shrink-0 ${
-              col.standalone
-                ? 'text-accent bg-accent/10'
-                : 'text-muted hover:text-secondary opacity-0 group-hover:opacity-100 touch-visible'
-            }`}
-            title={col.standalone ? '取消單獨顯示' : '單獨一行顯示'}
-          >
-            {col.standalone ? '單獨' : '單行'}
-          </button>
-        )}
         {hasConfig && (
           <button
             onClick={() => onConfig(configOpen ? null : col.id)}
@@ -137,10 +120,8 @@ export function ListColumnCustomizer({
   onClose,
   title = '自訂列',
   builtinSectionLabel = '內建列',
-  showStandaloneToggle = false,
 }: ListColumnCustomizerProps) {
-  const backdrop = useDialogBackdrop(onClose)
-
+  const titleId = useId()
   const [searchQuery, setSearchQuery] = useState('')
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set())
   const [configOpenId, setConfigOpenId] = useState<string | null>(null)
@@ -159,12 +140,6 @@ export function ListColumnCustomizer({
   const toggleVisible = useCallback((colId: string) => {
     onChange(columns.map(c =>
       c.id === colId && !c.pinned ? { ...c, visible: !c.visible } : c
-    ))
-  }, [columns, onChange])
-
-  const toggleStandalone = useCallback((colId: string) => {
-    onChange(columns.map(c =>
-      c.id === colId ? { ...c, standalone: !c.standalone } : c
     ))
   }, [columns, onChange])
 
@@ -518,7 +493,7 @@ export function ListColumnCustomizer({
           value={col.candleConfig?.[field] ?? cfg[field]}
           onChange={e => {
             const raw = e.target.value
-            // 空字符串 → 存 undefined (回退到預設值顯示); 否則存原始數字 (不鉗制)
+            // 空字串 → 存 undefined (退回預設值顯示); 否則存原始數字 (不鉗制)
             updateCandleConfig(col.id, { [field]: raw === '' ? undefined : Number(raw) } as Partial<CandleColumnConfig>)
           }}
           onBlur={e => {
@@ -629,39 +604,19 @@ export function ListColumnCustomizer({
         {renderCheckbox(col.visible)}
         <span className={`flex-1 text-xs truncate ${col.visible ? 'text-foreground' : 'text-muted'}`}>{col.label}</span>
       </button>
-      {showStandaloneToggle && col.visible && (
-        <button
-          onClick={() => toggleStandalone(col.id)}
-          className={`flex items-center gap-0.5 px-1.5 py-0.5 rounded text-xs transition-colors shrink-0 ${
-            col.standalone
-              ? 'text-accent bg-accent/10'
-              : 'text-muted hover:text-secondary'
-          }`}
-          title={col.standalone ? '取消單獨顯示' : '單獨一行顯示'}
-        >
-          {col.standalone ? '單獨' : '單行'}
-        </button>
-      )}
     </div>
   )
 
-  return (
-    <AnimatePresence>
-      {open && (
-        <div className="fixed inset-0 z-50 flex justify-end">
-          <motion.div
-            initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-            transition={{ duration: 0.15 }}
-            className="absolute inset-0 bg-black/50 backdrop-blur-sm"
-            {...backdrop}
-          />
-          <motion.div
-            initial={{ x: '100%' }} animate={{ x: 0 }} exit={{ x: '100%' }}
-            transition={{ duration: 0.25, ease: [0.16, 1, 0.3, 1] }}
-            className="relative w-[360px] max-w-[90vw] h-full bg-base border-l border-border shadow-2xl flex flex-col"
-          >
+  // Shared Modal gives the drawer Esc-to-close, a focus trap and focus restore.
+  return !open ? null : (
+        <Modal
+          onClose={onClose}
+          labelledBy={titleId}
+          overlayClassName="fixed inset-0 z-50 flex justify-end bg-black/50 backdrop-blur-sm"
+          panelClassName="relative w-[360px] max-w-[90vw] h-full bg-base border-l border-border shadow-2xl flex flex-col"
+        >
             <div className="flex items-center justify-between px-4 py-3 border-b border-border">
-              <h3 className="text-sm font-medium text-foreground">{title}</h3>
+              <h3 id={titleId} className="text-sm font-medium text-foreground">{title}</h3>
               <button onClick={onClose} className="p-1 rounded hover:bg-elevated text-muted hover:text-foreground transition-colors">
                 <X className="h-4 w-4" />
               </button>
@@ -702,8 +657,6 @@ export function ListColumnCustomizer({
                           candleConfig={renderCandleConfig(col)}
                           intradayConfig={renderIntradayConfig(col)}
                           strategiesConfig={renderStrategiesConfig(col)}
-                          showStandaloneToggle={showStandaloneToggle}
-                          onToggleStandalone={toggleStandalone}
                         />
                       ))}
                     </SortableContext>
@@ -759,9 +712,6 @@ export function ListColumnCustomizer({
               </div>
 
             </div>
-          </motion.div>
-        </div>
-      )}
-    </AnimatePresence>
+        </Modal>
   )
 }

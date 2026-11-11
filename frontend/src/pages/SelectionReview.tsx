@@ -23,8 +23,10 @@ import {
   type ForwardCohortStats,
 } from '@/lib/api'
 import { QK } from '@/lib/queryKeys'
+import { FORWARD_STRATEGY_OPTIONS } from '@/lib/strategyGuide'
 import { toast } from '@/components/Toast'
 import { cn } from '@/lib/cn'
+import { fmtPctPoint, priceColorClass } from '@/lib/format'
 import { CopyButton } from '@/components/CopyButton'
 import { formatSelectionReviewCopy, formatSelectionReviewPrompt } from '@/lib/copy-formatters'
 import { SelectionForwardPanel, type SelectionForwardBatchReviewView } from '@/components/selection/SelectionForwardPanel'
@@ -98,20 +100,9 @@ function excessStatus(stock: 'completed' | 'pending' | 'unavailable', benchmark:
   return stock === 'pending' || benchmark === 'pending' ? 'tracking' : 'missing'
 }
 
-const FORWARD_STRATEGIES = [
-  { id: 'trend_liquidity_v1', name: '趨勢流動性 v1' },
-  { id: 'institutional_momentum_v1', name: '法人動能 v1' },
-  { id: 'growth_trend_v1', name: '成長趨勢 v1' },
-  { id: 'breakout_v1', name: '突破轉強 v1' },
-  { id: 'multi_factor_consensus_v1', name: '多策略共識 v1' },
-  { id: 'pullback_support_v1', name: '多頭回檔 v1' },
-  { id: 'foreign_trend_v1', name: '外資跟買 v1' },
-  { id: 'oversold_rebound_v1', name: '超跌反彈 v1' },
-] as const
-
 function ForwardStats({ stats, formatPct, strategyId }: { stats: ForwardBatchStats; formatPct: (value: number | null | undefined) => string; strategyId: string }) {
   if (stats.strategy_id && stats.batches_count === 0) {
-    return <section aria-label="前瞻績效中心" className="rounded-xl border border-dashed border-border/70 bg-card/40 p-8 text-center"><Clock className="mx-auto mb-3 h-9 w-9 text-muted-foreground/50" /><h2 className="font-medium">{FORWARD_STRATEGIES.find(item => item.id === strategyId)?.name ?? strategyId} 尚無正式前瞻批次</h2><p className="mt-2 text-xs text-muted-foreground">目前不顯示 0% 命中率，待使用者明確鎖定正式名單後才開始累積。</p><Link to="/taiwan-screener" className="mt-4 inline-flex items-center gap-1 text-xs text-primary">前往台股選股 <ChevronRight className="h-3 w-3" /></Link></section>
+    return <section aria-label="前瞻績效中心" className="rounded-xl border border-dashed border-border/70 bg-card/40 p-8 text-center"><Clock className="mx-auto mb-3 h-9 w-9 text-muted-foreground/50" /><h2 className="font-medium">{FORWARD_STRATEGY_OPTIONS.find(item => item.id === strategyId)?.label.concat(' v1') ?? strategyId} 尚無正式前瞻批次</h2><p className="mt-2 text-xs text-muted-foreground">目前不顯示 0% 命中率，待使用者明確鎖定正式名單後才開始累積。</p><Link to="/taiwan-screener" className="mt-4 inline-flex items-center gap-1 text-xs text-primary">前往台股選股 <ChevronRight className="h-3 w-3" /></Link></section>
   }
   if (stats.horizons) {
     const horizons = ['1D', '5D', '20D'] as const
@@ -169,13 +160,10 @@ export function SelectionReview() {
   const [strategyFilter, setStrategyFilter] = useState<string>('all')
   const [forwardStrategy, setForwardStrategy] = useState<string>(searchParams.get('strategy_id') ?? 'trend_liquidity_v1')
 
-  // 1. 快照列表
+  // 1. 快照列表。後端 /snapshots 不收策略參數，所以整份取回後在前端依策略名稱篩選。
   const snapshotsQuery = useQuery({
-    queryKey: QK.selectionSnapshots(strategyFilter === 'all' ? undefined : strategyFilter),
-    queryFn: () =>
-      api.selectionReview.listSnapshots(
-        strategyFilter === 'all' ? undefined : { strategy_id: strategyFilter },
-      ),
+    queryKey: QK.selectionSnapshots(),
+    queryFn: () => api.selectionReview.listSnapshots(),
   })
 
   // 2. 單一快照詳情
@@ -243,18 +231,18 @@ export function SelectionReview() {
   const strategyOptions = Array.from(
     new Set((snapshotsQuery.data || []).map((s) => s.strategy_name)),
   )
+  const visibleSnapshots = (snapshotsQuery.data || []).filter(
+    (s) => strategyFilter === 'all' || s.strategy_name === strategyFilter,
+  )
 
   const formatPct = (val: number | null | undefined) => {
     if (val === null || val === undefined) return '-'
-    const prefix = val > 0 ? '+' : ''
-    return `${prefix}${val.toFixed(2)}%`
+    return fmtPctPoint(val)
   }
 
   const getReturnColor = (val: number | null | undefined) => {
-    if (val === null || val === undefined) return 'text-muted-foreground'
-    if (val > 0) return 'text-rose-500 font-medium'
-    if (val < 0) return 'text-emerald-500 font-medium'
-    return 'text-muted-foreground'
+    if (val === null || val === undefined || val === 0) return 'text-muted'
+    return `font-medium ${priceColorClass(val)}`
   }
 
   return (
@@ -367,7 +355,7 @@ export function SelectionReview() {
           <div className="flex flex-wrap items-center gap-3 rounded-xl border border-border/60 bg-card p-3">
             <label htmlFor="forward-strategy" className="text-sm font-medium">績效策略</label>
             <select id="forward-strategy" value={forwardStrategy} onChange={event => { setForwardStrategy(event.target.value); setSearchParams({ tab: 'forward' }) }} className="rounded-md border border-border bg-background px-3 py-1.5 text-sm">
-              {FORWARD_STRATEGIES.map(strategy => <option key={strategy.id} value={strategy.id}>{strategy.name}</option>)}
+              {FORWARD_STRATEGY_OPTIONS.map(strategy => <option key={strategy.id} value={strategy.id}>{strategy.label} v1</option>)}
             </select>
             <span className="text-xs text-muted-foreground">每個 strategy_id 分開統計，不混入其他策略批次。</span>
           </div>
@@ -418,6 +406,7 @@ export function SelectionReview() {
             <SnapshotDetailView
               detail={snapshotDetailQuery.data}
               isLoading={snapshotDetailQuery.isLoading}
+              isError={snapshotDetailQuery.isError}
               onBack={() => setSelectedSnapshotId(null)}
               onDelete={(id) => {
                 if (window.confirm('確定要刪除這筆選股快照嗎？此操作無法還原。')) {
@@ -456,6 +445,8 @@ export function SelectionReview() {
               {/* 列表內容 */}
               {snapshotsQuery.isLoading ? (
                 <div className="text-center py-12 text-sm text-muted-foreground">載入快照中...</div>
+              ) : snapshotsQuery.isError ? (
+                <div role="alert" className="text-center py-12 text-sm text-warning">選股快照載入失敗，請稍後再試。</div>
               ) : !snapshotsQuery.data || snapshotsQuery.data.length === 0 ? (
                 <div className="text-center py-16 border border-dashed rounded-xl p-8 bg-card/40">
                   <History className="h-10 w-10 text-muted-foreground/40 mx-auto mb-3" />
@@ -473,7 +464,7 @@ export function SelectionReview() {
                 </div>
               ) : (
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                  {snapshotsQuery.data.map((item) => (
+                  {visibleSnapshots.map((item) => (
                     <SnapshotCard
                       key={item.snapshot_id}
                       item={item}
@@ -511,6 +502,8 @@ export function SelectionReview() {
 
           {strategyStatsQuery.isLoading ? (
             <div className="text-center py-12 text-sm text-muted-foreground">計算策略統計中...</div>
+          ) : strategyStatsQuery.isError ? (
+            <div role="alert" className="text-center py-12 text-sm text-warning">策略統計載入失敗，請稍後再試。</div>
           ) : !strategyStatsQuery.data || strategyStatsQuery.data.length === 0 ? (
             <div className="text-center py-16 border border-dashed rounded-xl p-8 bg-card/40">
               <TrendingUp className="h-10 w-10 text-muted-foreground/40 mx-auto mb-3" />
@@ -585,6 +578,8 @@ export function SelectionReview() {
 
           {conditionStatsQuery.isLoading ? (
             <div className="text-center py-12 text-sm text-muted-foreground">計算條件成效中...</div>
+          ) : conditionStatsQuery.isError ? (
+            <div role="alert" className="text-center py-12 text-sm text-warning">條件成效載入失敗，請稍後再試。</div>
           ) : !conditionStatsQuery.data || conditionStatsQuery.data.length === 0 ? (
             <div className="text-center py-16 border border-dashed rounded-xl p-8 bg-card/40">
               <BarChart3 className="h-10 w-10 text-muted-foreground/40 mx-auto mb-3" />
@@ -751,6 +746,7 @@ function SnapshotCard({
 function SnapshotDetailView({
   detail,
   isLoading,
+  isError,
   onBack,
   onDelete,
   formatPct,
@@ -758,11 +754,20 @@ function SnapshotDetailView({
 }: {
   detail: SnapshotReviewDetail | null | undefined
   isLoading: boolean
+  isError: boolean
   onBack: () => void
   onDelete: (id: string) => void
   formatPct: (val: number | null | undefined) => string
   getReturnColor: (val: number | null | undefined) => string
 }) {
+  if (isError) {
+    return (
+      <div role="alert" className="text-center py-16 text-sm text-warning">
+        快照詳情載入失敗，請稍後再試。
+        <button type="button" onClick={onBack} className="ml-2 underline">返回快照列表</button>
+      </div>
+    )
+  }
   if (isLoading || !detail) {
     return <div className="text-center py-16 text-sm text-muted-foreground">載入快照詳情中...</div>
   }

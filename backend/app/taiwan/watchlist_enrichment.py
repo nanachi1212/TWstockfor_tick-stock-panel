@@ -8,9 +8,9 @@ network itself; it only orchestrates already-built services:
 
   - ``app.taiwan.universe.get_security_master()``   — name / instrument_type
   - ``app.taiwan.realtime.get_realtime_service()``  — realtime/snapshot quote
-    with its own 4-tier fallback chain (cache -> MIS -> Yahoo -> official
-    close snapshot), extended here with a 5th tier: latest Taiwan daily close
-    (``TaiwanDailyStore``), so a closed market / provider outage still shows
+    with its own fallback chain (cache -> MIS -> Yahoo), extended here with
+    the latest Taiwan daily close (``TaiwanDailyStore``), so a closed market /
+    provider outage still shows
     the last known price instead of turning the whole row blank.
   - ``app.taiwan.technical_indicators.compute_taiwan_daily_indicators()``
     (Phase 8B-5.0.5) — MA5/10/20/60, vol_ma5/10, RSI14, MACD, momentum_5d/20d,
@@ -35,7 +35,7 @@ logger = logging.getLogger(__name__)
 
 
 def _sanitize_float(value: Any) -> float | None:
-    """NaN/Inf -> None; 其餘原樣回傳 (與 api/watchlist.py 對舊版 enriched 列的處理口徑一致)。"""
+    """NaN/Inf -> None; 其餘原樣回傳 (與 api/watchlist.py 對舊版 enriched 列的處理方式一致)。"""
     if isinstance(value, float) and (math.isnan(value) or math.isinf(value)):
         return None
     return value
@@ -44,12 +44,12 @@ def _sanitize_float(value: Any) -> float | None:
 def _to_fraction_pct(value: Any) -> float | None:
     """把 Taiwan 的「已乘 100」漲跌幅換成 watchlist 契約的小數漲跌幅。
 
-    TaiwanRealtimeQuote.change_pct 在 mis_provider / yahoo_provider /
-    enrichment.quote 三處 provider 裡統一是 round(change/prev_close*100, N)
+    TaiwanRealtimeQuote.change_pct 在 mis_provider / yahoo_provider 兩處
+    provider 裡統一是 round(change/prev_close*100, N)
     (即 0.21 代表 0.21%); 但舊版 enriched 管線的 change_pct 欄是純小數
     (pipeline.py: change_pct = close/prev_close - 1, 0.05 代表 5%), 前端
-    fmtPct() 也是按小數 * 100 來渲染 (frontend/src/lib/format.ts)。兩邊單位
-    不同, 直接透傳會讓 Watchlist 顯示成 100 倍的漲跌幅 —— 這裡做單位換算,
+    fmtPct() 也是按小數 * 100 來顯示 (frontend/src/lib/format.ts)。兩邊單位
+    不同, 直接傳遞會讓 Watchlist 顯示成 100 倍的漲跌幅 —— 這裡做單位換算,
     不改 Taiwan 側任何既有 provider 的既定 contract。
     """
     value = _sanitize_float(value)
@@ -128,13 +128,13 @@ def enrich_taiwan_watchlist_rows(
     realtime_service: Any | None = None,
     daily_store: Any | None = None,
 ) -> list[dict]:
-    """回傳 canonical Taiwan symbol 的自選股 enriched 行, 欄位對齊舊版 enriched 口徑。
+    """回傳 canonical Taiwan symbol 的自選股 enriched 列, 欄位對齊舊版 enriched 定義。
 
     單一批次呼叫 realtime_service.get_quotes(symbols, ...) —— 不逐 symbol 各打
     一次 provider, 由既有 TaiwanRealtimeService 自己的批次/快取機制處理。
-    某個 symbol 若查無任何來源(未知/下市/尚無本地資料), 該行仍會回傳, 除
+    某個 symbol 若查無任何來源(未知/下市/尚無本機資料), 該列仍會回傳, 除
     symbol/name/asset_type 外全部欄位為 None —— 與既有 LEFT JOIN 語意
-    (find nothing -> null, 不丟行) 一致, 不讓整個端點因單一標的失敗而 500。
+    (find nothing -> null, 不丟列) 一致, 不讓整個端點因單一標的失敗而 500。
     """
     if not symbols:
         return []
@@ -154,7 +154,7 @@ def enrich_taiwan_watchlist_rows(
 
     try:
         quote_map = rt_service.get_quotes(symbols, daily_kline_fallback_fn=_daily_fallback)
-    except Exception as e:  # noqa: BLE001
+    except Exception as e:
         # 任何 provider 層異常都不該讓整個 /enriched 端點 500 —— 降級為全部標的
         # 缺行情, 名稱/資產類型仍照常回傳 (見下方 inst 查詢, 與行情來源獨立)。
         logger.warning("taiwan watchlist realtime quote fetch failed: %s", e)
@@ -162,7 +162,7 @@ def enrich_taiwan_watchlist_rows(
 
     try:
         indicator_map = _taiwan_indicator_map(symbols, store)
-    except Exception as e:  # noqa: BLE001
+    except Exception as e:
         # 技術指標計算失敗不該連累價格/漲跌欄位 —— 退化為全部指標 null。
         logger.warning("taiwan watchlist indicator computation failed: %s", e)
         indicator_map = {}
@@ -172,7 +172,7 @@ def enrich_taiwan_watchlist_rows(
         inst = None
         try:
             inst = sec_master.get_instrument(symbol)
-        except Exception as e:  # noqa: BLE001
+        except Exception as e:
             logger.debug("taiwan security master lookup failed for %s: %s", symbol, e)
 
         q = quote_map.get(symbol)
@@ -194,10 +194,10 @@ def enrich_taiwan_watchlist_rows(
             "change_amount": _sanitize_float(q.change) if q else None,
             "change_pct": _to_fraction_pct(q.change_pct) if q else None,
             "amount": _sanitize_float(q.amount) if q else None,
-            # Data Freshness & Source Labels batch (Post-8C follow-up): 透傳既有
+            # Data Freshness & Source Labels batch (Post-8C follow-up): 直接傳遞既有
             # TaiwanRealtimeQuote 的 provenance/staleness metadata, 不新造 schema —
             # source_meta 直接重用 SourceMeta.to_dict()（Monitor /api/intraday/quotes
-            # 與 StockDetail 已經在用同一份資料, 這裡之前漏掉了透傳）。quote_time 額外
+            # 與 StockDetail 已經在用同一份資料, 這裡之前漏掉沒傳）。quote_time 額外
             # 攤平出來方便前端直接讀, 不需要為了一個欄位解一層 source_meta。
             # quote 查無(q is None)時兩者都是 None, 不偽造新鮮度狀態。
             "quote_time": q.quote_time.isoformat() if q and q.quote_time else None,

@@ -16,6 +16,7 @@ import { api, type AiKeyProfile } from '@/lib/api'
 import { QK } from '@/lib/queryKeys'
 import { toast } from '@/components/Toast'
 import { cn } from '@/lib/cn'
+import { Modal } from '@/components/Modal'
 
 const INPUT_CLS =
   'w-full h-9 px-2.5 rounded-lg bg-base border-0 ring-1 ring-border/30 text-xs font-mono text-foreground placeholder:text-muted/30 focus:outline-none focus:ring-2 focus:ring-accent/30 transition-shadow'
@@ -361,7 +362,8 @@ export function AiKeyProfilesPanel() {
       )}
 
       {/* Profile list */}
-      {profiles.length === 0 && !addOpen && (
+      {profilesQuery.isError && <p role="alert" className="text-xs text-warning">AI Key 清單載入失敗，請稍後再試。</p>}
+      {profiles.length === 0 && !addOpen && !profilesQuery.isError && (
         <div className="rounded-xl border border-dashed border-border/60 p-6 text-center">
           <Key className="h-6 w-6 text-muted mx-auto mb-2" />
           <p className="text-xs text-muted">尚未新增任何 AI Key Profile</p>
@@ -492,9 +494,7 @@ export function AiKeyProfilesPanel() {
       </div>
 
       {editing && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center">
-          <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => setEditing(null)} />
-          <div role="dialog" aria-modal="true" aria-labelledby="edit-ai-profile-title" className="relative w-[92vw] max-w-lg rounded-card border border-border bg-base p-5 shadow-2xl">
+        <Modal onClose={() => setEditing(null)} labelledBy="edit-ai-profile-title" overlayClassName="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm" panelClassName="w-[92vw] max-w-lg rounded-card border border-border bg-base p-5 shadow-2xl">
             <div className="mb-4 flex items-center justify-between">
               <h4 id="edit-ai-profile-title" className="text-sm font-semibold text-foreground">編輯 AI Key Profile</h4>
               <button type="button" aria-label="關閉" onClick={() => setEditing(null)} className="text-muted hover:text-foreground">
@@ -556,8 +556,7 @@ export function AiKeyProfilesPanel() {
                 儲存
               </button>
             </div>
-          </div>
-        </div>
+</Modal>
       )}
     </div>
   )

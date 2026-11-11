@@ -1,54 +1,40 @@
-// 台股選股結果表格的格式化工具 (台股慣例: 漲紅跌綠)。
+// 台股選股結果表格的格式化工具 (台股慣例: 漲紅跌綠)。數字格式一律走 @/lib/format。
+import { fmtBigNum, fmtLots, fmtPct, fmtPrice, priceColorClass } from '@/lib/format'
 
 export const formatChangePct = (val?: number | null) => {
-  if (val === null || val === undefined) return '-'
-  const pct = val * 100
-  const text = `${pct > 0 ? '+' : ''}${pct.toFixed(2)}%`
-  const color = pct > 0 ? 'text-red-500 font-medium' : pct < 0 ? 'text-emerald-500 font-medium' : 'text-zinc-400'
-  return <span className={color}>{text}</span>
+  if (val == null) return '-'
+  return <span className={`font-medium ${priceColorClass(val)}`}>{fmtPct(val)}</span>
 }
 
 export const formatPrice = (val?: number | null) => {
-  if (val === null || val === undefined) return '-'
-  return val >= 1000 ? val.toFixed(0) : val.toFixed(2)
+  if (val == null) return '-'
+  return fmtPrice(val, val >= 1000 ? 0 : 2)
 }
 
 export const formatVolumeLots = (shares?: number | null) => {
-  if (shares === null || shares === undefined) return '-'
-  const lots = shares / 1000
-  return `${lots.toLocaleString(undefined, { maximumFractionDigits: 0 })} 張`
+  if (shares == null) return '-'
+  return fmtLots(shares)
 }
 
 export const formatAmount = (amt?: number | null) => {
-  if (amt === null || amt === undefined) return '-'
-  if (amt >= 100_000_000) {
-    return `${(amt / 100_000_000).toFixed(2)} 億`
-  }
-  return `${(amt / 10_000).toFixed(0)} 萬`
+  if (amt == null) return '-'
+  return fmtBigNum(amt)
 }
 
 // Institutional / Margin signed flow formatter (Taiwan color: >0 Red, <0 Green, null '—')
 export const formatSignedSharesLots = (shares?: number | null) => {
-  if (shares === null || shares === undefined) return <span className="text-zinc-500">—</span>
-  const lots = Math.round(shares / 1000)
-  const formatted = lots.toLocaleString(undefined)
-  if (lots > 0) {
-    return <span className="text-red-500 font-medium">+{formatted} 張</span>
-  } else if (lots < 0) {
-    return <span className="text-emerald-500 font-medium">{formatted} 張</span>
-  }
-  return <span className="text-zinc-400">0 張</span>
+  if (shares == null) return <span className="text-zinc-500">—</span>
+  return <span className={`font-medium ${priceColorClass(shares)}`}>{fmtLots(shares, true)}</span>
 }
 
 // Short balance formatter (neutral, null '—')
 export const formatShortBalanceLots = (shares?: number | null) => {
-  if (shares === null || shares === undefined) return <span className="text-zinc-500">—</span>
-  const lots = Math.round(shares / 1000)
-  return <span className="text-zinc-300 font-mono">{lots.toLocaleString(undefined)} 張</span>
+  if (shares == null) return <span className="text-zinc-500">—</span>
+  return <span className="text-zinc-300 font-mono">{fmtLots(shares)}</span>
 }
 
 // Short margin ratio formatter (10.0 = 10%, null '—')
 export const formatShortMarginRatio = (ratio?: number | null) => {
-  if (ratio === null || ratio === undefined) return <span className="text-zinc-500">—</span>
+  if (ratio == null) return <span className="text-zinc-500">—</span>
   return <span className="text-zinc-300 font-mono">{ratio.toFixed(2)}%</span>
 }

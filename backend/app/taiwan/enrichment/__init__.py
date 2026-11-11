@@ -4,7 +4,6 @@ Exported symbols:
   - SourceMeta, DatasetType, StalePolicy, EtfCategory
   - InstitutionalFlow, TaiwanInstitutionalProvider, TwseInstitutionalAdapter, TpexInstitutionalAdapter
   - MarginTrading, TaiwanMarginProvider, TwseMarginAdapter, TpexMarginAdapter
-  - MarketQuote, TaiwanOfficialQuoteProvider
   - MarketIndex, TaiwanIndexProvider
 """
 from __future__ import annotations
@@ -25,28 +24,24 @@ from app.taiwan.enrichment.models import (
     DatasetType,
     EtfCategory,
     InstitutionalFlow,
-
     MarginTrading,
     MarketIndex,
-    MarketQuote,
     SourceMeta,
     StalePolicy,
 )
-from app.taiwan.enrichment.quote import TaiwanOfficialQuoteProvider
 
 __all__ = [
+    "ClassificationSource",
     "DatasetType",
     "EtfCategory",
     "InstitutionalFlow",
     "MarginTrading",
     "MarketIndex",
-    "MarketQuote",
     "SourceMeta",
     "StalePolicy",
     "TaiwanIndexProvider",
     "TaiwanInstitutionalProvider",
     "TaiwanMarginProvider",
-    "TaiwanOfficialQuoteProvider",
     "TpexInstitutionalAdapter",
     "TpexMarginAdapter",
     "TwseInstitutionalAdapter",

@@ -4,13 +4,13 @@ from __future__ import annotations
 import logging
 import math
 from datetime import date, datetime, time, timedelta
-from typing import Annotated, Literal, Optional
+from typing import Annotated, Literal
 
 from fastapi import APIRouter, HTTPException, Query, Request
 from pydantic import BaseModel
 
 from app.indicators.pipeline import compute_enriched
-from app.price_limits import price_limit_pct
+from app.price_limits import taiwan_limit_profiles
 from app.services import kline_sync
 from app.taiwan.realtime.calendar import TAIPEI_TZ, taipei_now, taipei_today
 from app.taiwan.symbol import parse_symbol
@@ -132,7 +132,7 @@ def _get_stock_info(repo, symbol: str) -> dict:
             "total_shares": hit["total_shares"][0],
             "float_shares": hit["float_shares"][0],
         }
-    except Exception:  # noqa: BLE001
+    except Exception:
         return {}
 
 
@@ -157,36 +157,39 @@ def _get_price_limit_info(
     trade_date: date,
     asset_type: str,
 ) -> dict | None:
-    """Return the date-aware limit rule and today's authoritative prices."""
+    """Return the instrument's limit rule and today's authoritative prices.
+
+    ``rate`` is the declared limit fraction; ``no_limit`` is True only for a product confirmed
+    to have no limit (ETF classes included) and None when the classification is unknown.
+    """
     if asset_type == "index":
         return None
 
     info = {
-        "rate": price_limit_pct(symbol),
+        "rate": None,
+        "no_limit": None,
         "limit_up": None,
         "limit_down": None,
         "source": "rule",
     }
-    if trade_date != taipei_today():
-        return info
-
     try:
         import polars as pl
 
         instruments = repo.get_instruments_asset(asset_type)
-        available = [
-            column
-            for column in ("symbol", "limit_up", "limit_down")
-            if column in instruments.columns
-        ]
-        if "symbol" not in available or len(available) == 1:
-            return info
-        hit = instruments.filter(pl.col("symbol") == symbol).select(available).head(1)
-        row = hit.to_dicts()[0] if not hit.is_empty() else None
+        hit = instruments.filter(pl.col("symbol") == symbol).head(1)
     except Exception:
         return info
-    if row is None:
+    if hit.is_empty():
         return info
+
+    # The same instrument-to-limit resolver the enriched pipeline uses.
+    profile = taiwan_limit_profiles(hit)
+    if not profile.is_empty():
+        info["rate"] = profile["_tw_limit_pct"][0]
+        info["no_limit"] = profile["_tw_no_limit"][0]
+    if trade_date != taipei_today():
+        return info
+    row = hit.to_dicts()[0]
 
     has_authoritative_price = False
     for field in ("limit_up", "limit_down"):
@@ -251,9 +254,9 @@ def get_daily(
     request: Request,
     symbol: str = Query(..., description="台股代碼, 如 2330.TWSE"),
     days: int = Query(120, ge=10, le=2000),
-    start_date: Optional[str] = Query(None, description="起始日期 YYYY-MM-DD, 優先於 days"),
-    end_date: Optional[str] = Query(None, description="截止日期 YYYY-MM-DD, 預設今天"),
-    ext_columns: Optional[str] = Query(None, description="逗號分隔的 ext 列: config_id.field_name"),
+    start_date: str | None = Query(None, description="起始日期 YYYY-MM-DD, 優先於 days"),
+    end_date: str | None = Query(None, description="截止日期 YYYY-MM-DD, 預設今天"),
+    ext_columns: str | None = Query(None, description="逗號分隔的 ext 列: config_id.field_name"),
 ):
     """Read canonical raw Taiwan history or the configured custom enriched history.
 
@@ -291,7 +294,7 @@ def get_daily(
 
     start = requested_start or end - timedelta(days=days)
 
-    # 從 enriched 表讀取 (已含前復權 OHLCV + 技術指標 + 信號); ETF/指數走獨立儲存
+    # 從 enriched 表讀取 (已含前復權 OHLCV + 技術指標 + 訊號); ETF/指數走獨立儲存
     df = repo.get_daily_asset(asset_type, symbol, start, end)
 
     if df.is_empty():
@@ -312,7 +315,7 @@ def get_daily(
             from app.capabilities import Cap
             if capset and capset.has(Cap.ADJ_FACTOR):
                 factors = kline_sync.fetch_adj_factor_single(symbol)
-        except Exception as e:  # noqa: BLE001
+        except Exception as e:
             logger.debug("單股除權因子取得失敗 %s: %s", symbol, e)
         enriched = compute_enriched(raw, factors=factors)
         enriched = enriched.filter((pl.col("date") >= start) & (pl.col("date") <= end))
@@ -332,7 +335,7 @@ def get_daily(
     return _attach_ext(resp, repo, symbol, ext_columns)
 
 
-def _attach_ext(resp: dict, repo, symbol: str, ext_columns: Optional[str]) -> dict:  # noqa: ARG001
+def _attach_ext(resp: dict, repo, symbol: str, ext_columns: str | None) -> dict:
     """ext 擴充欄位屬於已移除的非台股功能; 保留簽名, 直接回傳原回應。"""
     return resp
 
@@ -366,7 +369,7 @@ def _maybe_inject_live_candle(request: Request, symbol: str, rows: list[dict], a
         if not q:
             return rows
         q = q[0]
-    except Exception:  # noqa: BLE001
+    except Exception:
         return rows
 
     close_price = q.get("close")
@@ -404,7 +407,7 @@ def _maybe_inject_live_candle(request: Request, symbol: str, rows: list[dict], a
 
     # 如果已有今天的 enriched 行, 覆蓋; 否則追加
     found = False
-    for i, r in enumerate(rows):
+    for r in rows:
         if str(r.get("date")) == today_str:
             r.update(live_row)
             found = True
@@ -597,79 +600,11 @@ def get_minute_batch(request: Request, body: dict):
     return {"data": result}
 
 
-@router.get("/minute-range")
-def get_minute_range(
-    request: Request,
-    symbol: str = Query(..., description="標的代碼"),
-    days: int = Query(10, ge=1, le=20, description="最近交易日數量"),
-):
-    """讀取單隻標的最近 N 個已寫入資料庫交易日的分鐘 K。"""
-    import polars as pl
-
-    symbol = _require_taiwan_symbol(symbol)
-    repo = request.app.state.repo
-    asset_type = repo.resolve_asset_type(symbol)
-    stock_info = (
-        _get_stock_info(repo, symbol)
-        if asset_type == "stock"
-        else _get_asset_info(repo, symbol, asset_type)
-    )
-    base_response = {
-        "symbol": symbol,
-        "name": stock_info.get("name"),
-        "asset_type": asset_type,
-        "requested_days": days,
-    }
-
-    # 指數分鐘 K 不落本地倉庫 (Phase 8B-5.1: 只讀即時端點已隨 Indices.tsx 一併刪除)。
-    if asset_type == "index":
-        return {**base_response, "sessions": [], "source": "none"}
-
-    end = taipei_today()
-    start = end - timedelta(days=days * 3 + 20)
-    minute = repo.get_minute_range([symbol], start, end, asset_type=asset_type)
-    if minute.is_empty() or "datetime" not in minute.columns:
-        return {**base_response, "sessions": [], "source": "none"}
-
-    minute = minute.with_columns(
-        pl.col("datetime").dt.date().alias("_trade_date"),
-    )
-    trade_dates = sorted(minute["_trade_date"].unique().to_list())[-days:]
-    previous_closes = _get_previous_closes(repo, symbol, trade_dates, asset_type)
-    row_columns = [
-        column
-        for column in (
-            "datetime", "open", "high", "low", "close", "volume", "amount"
-        )
-        if column in minute.columns
-    ]
-    sessions = []
-    for trade_date in trade_dates:
-        rows = (
-            minute.filter(pl.col("_trade_date") == trade_date)
-            .sort("datetime")
-            .select(row_columns)
-            .to_dicts()
-        )
-        if rows:
-            sessions.append({
-                "date": trade_date.isoformat(),
-                "prev_close": previous_closes.get(trade_date),
-                "rows": rows,
-            })
-
-    return {
-        **base_response,
-        "sessions": sessions,
-        "source": "local" if sessions else "none",
-    }
-
-
 @router.get("/minute")
 def get_minute(
     request: Request,
     symbol: str = Query(..., description="標的代碼"),
-    trade_date: date | None = Query(None, alias="date", description="交易日期, 預設最新"),
+    trade_date: date | None = Query(None, alias="date", description="交易日期, 預設最新"),  # noqa: B008  FastAPI Query default
 ):
     """讀取台股分鐘 K; 本地完整資料優先, 缺漏交由設定的自訂來源。"""
     symbol = _require_taiwan_symbol(symbol)

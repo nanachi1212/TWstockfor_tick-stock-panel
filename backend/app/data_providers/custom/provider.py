@@ -30,7 +30,7 @@ _REQUIRED = {
     "adj_factor": {"symbol", "trade_date", "ex_factor"},
     "realtime": {"symbol", "last_price", "prev_close", "open", "high", "low", "volume"},
     "minute": {"symbol", "datetime", "open", "high", "low", "close", "volume", "amount"},
-    # financial 欄位由資料來源決定, 只要求能映射出 symbol
+    # financial 欄位由資料來源決定, 只要求能對應出 symbol
     "financial": {"symbol"},
 }
 
@@ -103,7 +103,7 @@ class GenericHTTPProvider:
         symbols: list[str],
         start_time: datetime | None,
         end_time: datetime | None,
-        asset_type: str = "stock",  # noqa: ARG002
+        asset_type: str = "stock",
         on_chunk_done=None,
     ) -> pl.DataFrame:
         cfg = self._dataset("daily")
@@ -125,7 +125,7 @@ class GenericHTTPProvider:
         symbols: list[str],
         start_time: datetime | None,
         end_time: datetime | None,
-        asset_type: str = "stock",  # noqa: ARG002
+        asset_type: str = "stock",
         on_chunk_done=None,
     ) -> pl.DataFrame:
         cfg = self._dataset("adj_factor")
@@ -225,7 +225,7 @@ class GenericHTTPProvider:
 
     @staticmethod
     def _normalize_minute(df: pl.DataFrame) -> pl.DataFrame:
-        """把映射後的 df 規範成 minute canonical 欄。"""
+        """把對應後的 df 規範成 minute canonical 欄。"""
         if df.is_empty():
             return df
         if "datetime" in df.columns and df.schema["datetime"] != pl.Datetime("us"):
@@ -361,6 +361,6 @@ def _token_from_env(name: str | None) -> str | None:
             key, value = text.split("=", 1)
             if key.strip() == name:
                 return value.strip().strip('"').strip("'")
-    except Exception:  # noqa: BLE001
+    except Exception:
         return None
     return None

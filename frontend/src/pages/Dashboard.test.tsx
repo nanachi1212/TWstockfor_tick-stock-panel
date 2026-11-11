@@ -81,7 +81,7 @@ function buildDiagnostics(
   }
 }
 
-vi.mock('echarts-for-react', () => ({ default: () => <div data-testid="flow-chart" /> }))
+vi.mock('echarts-for-react/lib/core', () => ({ default: () => <div data-testid="flow-chart" /> }))
 
 vi.mock('@/lib/api', () => ({
   api: {
@@ -400,10 +400,10 @@ describe('Dashboard — stock reminders', () => {
     vi.mocked(api.taiwanAbnormalDiagnostics).mockRejectedValue(new Error('diagnostics unavailable'))
     renderDashboard()
 
-    expect(await screen.findByText(/今日 Top 10/)).toHaveTextContent('unavailable')
-    expect(await screen.findByText('新進 Top 10 unavailable')).toBeInTheDocument()
-    expect(await screen.findByText('異常 unavailable')).toBeInTheDocument()
-    expect(await screen.findByText('今日提醒 unavailable')).toBeInTheDocument()
+    expect(await screen.findByText(/今日 Top 10/)).toHaveTextContent('不可用')
+    expect(await screen.findByText('新進 Top 10 不可用')).toBeInTheDocument()
+    expect(await screen.findByText('異常 不可用')).toBeInTheDocument()
+    expect(await screen.findByText('今日提醒 不可用')).toBeInTheDocument()
   })
 
   it('uses the full retained daily alert set under the existing invalidation prefix', async () => {
@@ -548,9 +548,9 @@ describe('Dashboard — Market data honesty (DAILY_USE_CORE_UX_FIXES P1-1)', () 
     expect(screen.queryByText('偏強')).not.toBeInTheDocument()
     expect(await screen.findByText('最近交易日類股熱度')).toBeInTheDocument()
     expect(await screen.findByText(/日行情狀態 資料較舊，資料交易日/)).toBeInTheDocument()
-    expect(screen.getByText(/異常雷達資料 stale/)).toBeInTheDocument()
+    expect(screen.getByText(/異常雷達資料狀態：資料較舊/)).toBeInTheDocument()
     expect(screen.queryByRole('link', { name: /台積電.*單日大漲\/跌/ })).not.toBeInTheDocument()
-    expect(await screen.findByText('異常 unavailable')).toBeInTheDocument()
+    expect(await screen.findByText('異常 不可用')).toBeInTheDocument()
   })
 
   it('A. complete data renders normally, without the incomplete-data notice', async () => {
@@ -659,7 +659,7 @@ describe('Dashboard — Market data honesty (DAILY_USE_CORE_UX_FIXES P1-1)', () 
     }], 'stale') as any)
     renderDashboard()
 
-    expect(await screen.findByText(/異常雷達資料 stale/)).toBeInTheDocument()
+    expect(await screen.findByText(/異常雷達資料狀態：資料較舊/)).toBeInTheDocument()
     expect(screen.queryByText('單日大漲/跌')).not.toBeInTheDocument()
   })
 

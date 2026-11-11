@@ -244,6 +244,18 @@ describe('DailyBrief Page (A12)', () => {
     expect(screen.getAllByRole('button', { name: '產生今日 AI 摘要' })[0]).not.toBeDisabled()
   })
 
+  it('shows the AI summary generated for a history brief instead of spending the call silently', async () => {
+    const base = buildMockBrief()
+    vi.mocked(api.dailyBrief.buildDailyBrief).mockResolvedValue(base as any)
+    vi.mocked(api.dailyBrief.listHistory).mockResolvedValue([{ brief_id: 'old', brief_date: '2026-08-27', structured_brief: base, ai_summary: null }] as any)
+    vi.mocked(api.dailyBrief.generateAiSummary).mockResolvedValue({ section_a_market: '歷史日報的解讀', section_b_key_changes: [], section_e_candidates: '', evidence_sources: [] } as any)
+    render(<QueryClientProvider client={createTestQueryClient()}><MemoryRouter><DailyBrief /></MemoryRouter></QueryClientProvider>)
+    fireEvent.click(await screen.findByRole('button', { name: '歷史日報 (1)' }))
+    fireEvent.click(screen.getByText('2026-08-27 每日摘要'))
+    fireEvent.click(screen.getAllByRole('button', { name: '產生今日 AI 摘要' })[0])
+    expect(await screen.findByText('歷史日報的解讀')).toBeInTheDocument()
+  })
+
   it('renders deterministic market facts and candidates correctly', async () => {
     const mockBrief = buildMockBrief()
     vi.mocked(api.dailyBrief.buildDailyBrief).mockResolvedValue(mockBrief as any)
@@ -404,7 +416,7 @@ describe('DailyBrief Page (A12)', () => {
     expect(await screen.findByText('半導體業 -10.0%')).toBeInTheDocument()
     expect(screen.getByText('-10.00%')).toBeInTheDocument()
     const missingCard = screen.getByText('缺少漲跌幅').closest('.bg-card') as HTMLElement
-    expect(within(missingCard).getByText('—')).toHaveClass('text-muted-foreground')
+    expect(within(missingCard).getByText('—')).toHaveClass('text-muted')
     expect(screen.queryByText('+-%')).not.toBeInTheDocument()
     expect(screen.queryByText(/\+-10/)).not.toBeInTheDocument()
   })

@@ -28,8 +28,9 @@ from __future__ import annotations
 import logging
 from datetime import date
 from typing import Any, Literal
-from pydantic import BaseModel, Field
+
 import polars as pl
+from pydantic import BaseModel, Field
 
 from app.taiwan.daily_store import TaiwanDailyStore
 from app.taiwan.daily_update import (
@@ -37,11 +38,7 @@ from app.taiwan.daily_update import (
     resolve_target_latest_trading_date,
 )
 from app.taiwan.finmind_cache import FinMindCache
-from app.taiwan.pit_cutoff import (
-    filter_daily_records_as_of,
-    filter_financial_statements_as_of,
-    filter_month_revenue_as_of,
-)
+from app.taiwan.fundamental_chips_service import TaiwanFundamentalChipsService
 from app.taiwan.industry_intelligence import (
     TaiwanIndustryIntelligenceService,
 )
@@ -51,11 +48,15 @@ from app.taiwan.market_intelligence import (
     TaiwanMarketIntelligenceService,
 )
 from app.taiwan.market_rules import TickSizeModel
+from app.taiwan.pit_cutoff import (
+    filter_daily_records_as_of,
+    filter_financial_statements_as_of,
+)
+from app.taiwan.providers.taiwan_values import parse_number
 from app.taiwan.realtime.calendar import TaiwanTradingCalendar, taipei_now
 from app.taiwan.symbol import parse_symbol
 from app.taiwan.universe import TaiwanSecurityMaster, get_security_master
 from app.taiwan.universe.models import MarketProfileBridge
-from app.taiwan.providers.taiwan_values import parse_number
 
 logger = logging.getLogger(__name__)
 
@@ -199,7 +200,8 @@ class FundamentalsContextEvidence(BaseModel):
     available_at: str | None = None
     pe: float | None = None
     pb: float | None = None
-    dividend_yield: float | None = None
+    dividend_yield: float | None = None  # percent, e.g. 2.1 = 2.1%
+    valuation_as_of: str | None = None  # trade date of the pe / pb / dividend_yield observation
     latest_monthly_revenue: float | None = None
     monthly_revenue_mom: float | None = None
     monthly_revenue_yoy: float | None = None
@@ -421,7 +423,10 @@ class TaiwanStockResearchContextService:
 
         # Price Context & Technical Metrics
         curr_row = hist_df.filter(pl.col("date") == target).tail(1) if not hist_df.is_empty() else pl.DataFrame()
-        prev_date = available_dates[-2] if len(available_dates) >= 2 else None
+        if target_in_store:
+            prev_date = available_dates[-2] if len(available_dates) >= 2 else None
+        else:
+            prev_date = available_dates[-1] if available_dates else None
         prev_row = hist_df.filter(pl.col("date") == prev_date).tail(1) if (prev_date and not hist_df.is_empty()) else pl.DataFrame()
 
         c_price = float(curr_row["close"][0]) if not curr_row.is_empty() and curr_row["close"][0] is not None else None
@@ -449,7 +454,7 @@ class TaiwanStockResearchContextService:
         dist_ma20 = None
         vol_ratio = None
 
-        if len(hist_df) >= 2:
+        if len(hist_df) >= 2 and c_price is not None:
             closes = hist_df["close"].drop_nulls().to_list()
             volumes = hist_df["volume"].drop_nulls().to_list()
 
@@ -573,14 +578,14 @@ class TaiwanStockResearchContextService:
                 d_1d = float(curr_inst["dealer_net"][0]) if curr_inst["dealer_net"][0] is not None else None
 
             # 5D sum
-            sub_5 = inst_sorted.tail(5)
+            sub_5 = inst_sorted.filter(pl.col("date").is_in(inst_window[-5:]))
             cov_5d = len(sub_5)
             f_5d = float(sub_5["foreign_net"].sum()) if cov_5d > 0 and sub_5["foreign_net"].drop_nulls().len() > 0 else None
             it_5d = float(sub_5["investment_trust_net"].sum()) if cov_5d > 0 and sub_5["investment_trust_net"].drop_nulls().len() > 0 else None
             d_5d = float(sub_5["dealer_net"].sum()) if cov_5d > 0 and sub_5["dealer_net"].drop_nulls().len() > 0 else None
 
             # 20D sum
-            sub_20 = inst_sorted.tail(20)
+            sub_20 = inst_sorted.filter(pl.col("date").is_in(inst_window[-20:]))
             cov_20d = len(sub_20)
             f_20d = float(sub_20["foreign_net"].sum()) if cov_20d > 0 and sub_20["foreign_net"].drop_nulls().len() > 0 else None
             it_20d = float(sub_20["investment_trust_net"].sum()) if cov_20d > 0 and sub_20["investment_trust_net"].drop_nulls().len() > 0 else None
@@ -732,20 +737,14 @@ class TaiwanStockResearchContextService:
             as_of_period = None
 
             if rev_cached and rev_cached.get("data"):
-                raw_rev = filter_month_revenue_as_of(rev_cached["data"], target_date)
-                sorted_rev = sorted([r for r in raw_rev if r.get("date") and r.get("revenue") is not None], key=lambda x: str(x.get("date")))
-                if sorted_rev:
-                    latest_item = sorted_rev[-1]
-                    latest_rev = float(latest_item["revenue"])
-                    as_of_period = str(latest_item.get("date"))
-                    if len(sorted_rev) >= 2 and sorted_rev[-2].get("revenue"):
-                        p_val = float(sorted_rev[-2]["revenue"])
-                        if p_val > 0:
-                            rev_mom = round((latest_rev - p_val) / p_val * 100, 2)
-                    if len(sorted_rev) >= 13 and sorted_rev[-13].get("revenue"):
-                        y_val = float(sorted_rev[-13]["revenue"])
-                        if y_val > 0:
-                            rev_yoy = round((latest_rev - y_val) / y_val * 100, 2)
+                rev_data = TaiwanFundamentalChipsService._process_month_revenue(
+                    rev_cached["data"], None, "", as_of=target_date
+                )
+                if rev_data.latest_revenue is not None:
+                    latest_rev = rev_data.latest_revenue
+                    rev_mom = rev_data.mom
+                    rev_yoy = rev_data.yoy
+                    as_of_period = rev_data.meta.trade_date if rev_data.meta else None
 
             latest_eps = None
             op_rev = None
@@ -775,10 +774,28 @@ class TaiwanStockResearchContextService:
                     if not as_of_period:
                         as_of_period = latest_d
 
-            fund_avail = any(v is not None for v in (latest_rev, rev_yoy, latest_eps, net_income))
+            # Valuation: the cached official observation (same source as the screener), used only
+            # when its trade date is known and not after the report date.
+            pe = pb = dividend_yield = valuation_as_of = None
+            val_cached = self.finmind_cache.get("TaiwanValuation", inst.symbol)
+            val_date = str((val_cached or {}).get("data_date") or "")[:10]
+            if val_cached and isinstance(val_cached.get("data"), dict) and val_date and val_date <= str(target):
+                pe = parse_number(val_cached["data"].get("pe"))
+                pb = parse_number(val_cached["data"].get("pb"))
+                dividend_yield = parse_number(val_cached["data"].get("dividend_yield"))
+                if any(v is not None for v in (pe, pb, dividend_yield)):
+                    valuation_as_of = val_date
+
+            fund_avail = any(
+                v is not None for v in (latest_rev, rev_yoy, latest_eps, net_income, pe, pb, dividend_yield)
+            )
             fund_evidence = FundamentalsContextEvidence(
                 status="available" if fund_avail else "unavailable",
                 as_of_period=as_of_period,
+                pe=pe,
+                pb=pb,
+                dividend_yield=dividend_yield,
+                valuation_as_of=valuation_as_of,
                 latest_monthly_revenue=latest_rev,
                 monthly_revenue_mom=rev_mom,
                 monthly_revenue_yoy=rev_yoy,
@@ -817,7 +834,7 @@ class TaiwanStockResearchContextService:
                         fsh_20d = round(fsh_ratio - f_20, 2)
                         fsh_trend = "increasing" if fsh_20d >= 0.5 else ("decreasing" if fsh_20d <= -0.5 else "flat")
                     else:
-                        fsh_trend = "flat"
+                        fsh_trend = "unavailable"  # fewer than 21 rows: not enough history to call a trend
 
             sl_latest = None
             sl_5d = None
@@ -825,32 +842,16 @@ class TaiwanStockResearchContextService:
             sl_anomaly = None
 
             if sl_cached and sl_cached.get("data"):
-                sl_pit_rows = filter_daily_records_as_of(sl_cached["data"], target)
-                daily_v = {}
-                for r in sl_pit_rows:
-                    d = str(r.get("date") or "").strip()
-                    v = parse_number(r.get("volume")) or 0.0
-                    if d and v > 0:
-                        daily_v[d] = daily_v.get(d, 0) + int(v)
-                if daily_v:
-                    s_dates = sorted(daily_v.keys())
-                    sl_latest = daily_v[s_dates[-1]]
-                    sl_5d = sum(daily_v[d] for d in s_dates[-5:])
-                    sl_20d = sum(daily_v[d] for d in s_dates[-20:])
-                    if len(s_dates) >= 10:
-                        a20 = sl_20d / len(s_dates[-20:])
-                        a5 = sl_5d / len(s_dates[-5:])
-                        if a20 > 0:
-                            if a5 >= 2.0 * a20 and a5 >= 50000:
-                                sl_anomaly = "surge"
-                            elif a5 <= 0.3 * a20:
-                                sl_anomaly = "drop"
-                            else:
-                                sl_anomaly = "normal"
-                        else:
-                            sl_anomaly = "normal"
-                    else:
-                        sl_anomaly = "normal"
+                # Same trading-day windows as the stock detail page; available_dates is already <= target.
+                sl_data = TaiwanFundamentalChipsService._process_securities_lending(
+                    sl_cached["data"], sl_cached.get("data_date"), sl_cached.get("fetched_at") or "",
+                    as_of=target, trading_dates=available_dates,
+                )
+                if sl_data.meta and sl_data.meta.status == "available":
+                    sl_latest = sl_data.latest_volume
+                    sl_5d = sl_data.volume_5d
+                    sl_20d = sl_data.volume_20d
+                    sl_anomaly = sl_data.anomaly_status
 
             own_avail = any(v is not None for v in (fsh_ratio, fsh_20d, sl_latest, sl_5d))
             ownership_evidence = OwnershipContextEvidence(
@@ -893,12 +894,14 @@ class TaiwanStockResearchContextService:
             )
 
         # 8. Market Rules Context (Phase 3 MarketProfileBridge)
+        limit_known = True
         try:
             limit_pct = MarketProfileBridge.get_price_limit_pct(inst)
         except ValueError:
             limit_pct = None
+            limit_known = False  # unknown limit class (e.g. ETF scope unconfirmed): do not claim "no limit"
 
-        is_no_lim = (limit_pct is None)
+        is_no_lim = limit_known and limit_pct is None
         upper_l = None
         lower_l = None
         tick_sz = None
@@ -915,7 +918,7 @@ class TaiwanStockResearchContextService:
             limit_down=lower_l,
             tick_size=tick_sz,
             meta=EvidenceMeta(
-                classification="KNOWN" if limit_pct is not None or is_no_lim else "MISSING",
+                classification="KNOWN" if limit_known else "MISSING",
                 source="taiwan_market_rules",
                 as_of=str(target),
             ),
@@ -959,9 +962,12 @@ class TaiwanStockResearchContextService:
         # 11. Evidence Summary Counts
         # Deterministic field counting
         known_cnt = 10  # identity, OHLCV, 1D flows
-        if f_1d is not None: known_cnt += 3
-        if mb is not None: known_cnt += 4
-        if inst.instrument_type == "etf": known_cnt += 4
+        if f_1d is not None:
+            known_cnt += 3
+        if mb is not None:
+            known_cnt += 4
+        if inst.instrument_type == "etf":
+            known_cnt += 4
 
         derived_cnt = 12  # returns, MA, RSI, RS 5D/20D, rolling sums
         missing_cnt = 0
@@ -1020,6 +1026,8 @@ class TaiwanStockResearchContextService:
                 # Filter out news published after historical target date
                 target_str = target.isoformat()
                 news_items = [n for n in news_items if str(n.date)[:10] <= target_str]
+                if not news_items:
+                    news_status = "unavailable"  # no point-in-time news archive; do not report as "no recent news"
 
             recent_news_payload = [
                 {

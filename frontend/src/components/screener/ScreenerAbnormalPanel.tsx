@@ -3,6 +3,7 @@ import { useQuery } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
 import { AlertCircle, Zap } from 'lucide-react'
 import { api } from '@/lib/api'
+import { fmtBigNum, fmtLots, fmtPct, priceColorClass } from '@/lib/format'
 
 export function ScreenerAbnormalPanel() {
   const [abnormalFilter, setAbnormalFilter] = useState<string>('ALL')
@@ -92,28 +93,28 @@ export function ScreenerAbnormalPanel() {
                 <td className="py-1.5 px-2 text-right text-zinc-200">{item.close ?? '—'}</td>
                 <td className="py-1.5 px-2 text-right">
                   {item.change_pct !== null ? (
-                    <span className={item.change_pct > 0 ? 'text-red-400 font-semibold' : item.change_pct < 0 ? 'text-emerald-400 font-semibold' : 'text-zinc-300'}>
-                      {item.change_pct > 0 ? '+' : ''}{(item.change_pct * 100).toFixed(2)}%
+                    <span className={`font-semibold ${priceColorClass(item.change_pct)}`}>
+                      {fmtPct(item.change_pct)}
                     </span>
                   ) : '—'}
                 </td>
                 <td className="py-1.5 px-2 text-right text-zinc-200">
-                  {item.amount !== null ? `${(item.amount / 100_000_000).toFixed(1)} 億` : '—'}
+                  {fmtBigNum(item.amount)}
                 </td>
                 <td className="py-1.5 px-2 text-right text-amber-300">
                   {item.volume_ratio_5d !== null ? `${item.volume_ratio_5d}x` : '—'}
                 </td>
                 <td className="py-1.5 px-2 text-right">
                   {item.foreign_net !== null ? (
-                    <span className={item.foreign_net > 0 ? 'text-red-400' : item.foreign_net < 0 ? 'text-emerald-400' : 'text-zinc-300'}>
-                      {item.foreign_net > 0 ? '+' : ''}{(item.foreign_net / 1000).toLocaleString()} 張
+                    <span className={priceColorClass(item.foreign_net)}>
+                      {fmtLots(item.foreign_net, true)}
                     </span>
                   ) : '—'}
                 </td>
                 <td className="py-1.5 px-2 text-right">
                   {item.margin_balance_change !== null ? (
-                    <span className={item.margin_balance_change > 0 ? 'text-red-400' : item.margin_balance_change < 0 ? 'text-emerald-400' : 'text-zinc-300'}>
-                      {item.margin_balance_change > 0 ? '+' : ''}{(item.margin_balance_change / 1000).toLocaleString()} 張
+                    <span className={priceColorClass(item.margin_balance_change)}>
+                      {fmtLots(item.margin_balance_change, true)}
                     </span>
                   ) : '—'}
                 </td>

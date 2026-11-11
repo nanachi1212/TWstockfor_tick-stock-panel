@@ -2,7 +2,7 @@
  * 股票列表表格骨架（自選/策略頁共享）。
  *
  * 職責：表頭渲染（讀列設定 label/align + 可排序三態指示器）、表體遍歷、sticky 表頭。
- * 不內建任何業務邏輯：單元格內容（含 symbol 列交互、操作列、ext 列）由呼叫方通過
+ * 不內建任何業務邏輯：儲存格內容（含 symbol 列交互、操作列、ext 列）由呼叫方通過
  * renderCell / renderExtraCol 注入。這樣兩個頁面的特有交互得以保留，同時表頭能力一致。
  */
 import { cloneElement, isValidElement, useRef, type ReactElement, type ReactNode } from 'react'
@@ -17,7 +17,7 @@ export type { SortState }
 export interface StockDataTableProps {
   columns: ColumnConfig[]
   rows: any[]
-  /** 單元格渲染回呼。返回 null 時回退到內建純資料列渲染。 */
+  /** 儲存格渲染回呼。返回 null 時回退到內建純資料列渲染。 */
   renderCell: (r: any, col: ColumnConfig) => ReactNode
   /** 行 key（預設取 r.symbol） */
   rowKey?: (r: any) => string | number
@@ -32,11 +32,11 @@ export interface StockDataTableProps {
   onSortToggle?: (colId: string) => void
   /** 實例級放行: 讓 UNSORTABLE_KEYS 中的 builtin 列在本表也可排序 (如自選頁分時列) */
   extraSortableKeys?: ReadonlySet<string>
-  /** 追加在每行末尾的額外單元格（如自選頁的操作列） */
+  /** 追加在每行末尾的額外儲存格（如自選頁的操作列） */
   renderExtraCol?: (r: any) => ReactNode
-  /** 追加的表頭單元格（對應 renderExtraCol） */
+  /** 追加的表頭儲存格（對應 renderExtraCol） */
   extraHeader?: ReactNode
-  /** 自定義表頭單元格內容覆蓋（如日k眼睛按鈕）。返回 undefined 則用 col.label */
+  /** 自定義表頭儲存格內容覆蓋（如日k眼睛按鈕）。返回 undefined 則用 col.label */
   renderHeaderContent?: (col: ColumnConfig) => ReactNode | undefined
   /** 外層容器 className */
   className?: string

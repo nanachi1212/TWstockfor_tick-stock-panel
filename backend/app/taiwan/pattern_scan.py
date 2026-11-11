@@ -10,7 +10,7 @@ A stock is listed only when all 90 raw and adjusted sessions line up. Missing se
 sessions, invalid OHLC, low liquidity and unverified corporate actions are counted by reason, never filled with 0.
 Current-universe view, not a Historical PIT evaluation.
 """
-# ruff: noqa: RUF001, RUF003 -- user-facing Traditional Chinese labels and rule text.
+
 from __future__ import annotations
 
 import math

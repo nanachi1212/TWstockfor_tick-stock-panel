@@ -7,7 +7,7 @@
 結果走既有提醒管線: alert_store 寫入磁碟 → SSE 廣播到看板「提醒」區 → 依全域通道推播。
 預設關閉；資料來源不是盤中即時報價時 (收盤快照、延遲) 不觸發，避免誤報。
 """
-# ruff: noqa: RUF001, RUF002 -- user-facing Traditional Chinese text is intentional.
+
 from __future__ import annotations
 
 import logging
@@ -15,7 +15,8 @@ import uuid
 from datetime import date, datetime
 from typing import Any
 
-from app.services import alert_store, preferences, webhook_adapter
+from app.services import alert_store, preferences
+from app.taiwan.push_digest import send_text
 
 logger = logging.getLogger(__name__)
 
@@ -106,7 +107,7 @@ def _event(quote: Any, pct: float, direction: str, now_iso: str, ts_ms: int) -> 
         "name": quote.name,
         "message": f"自選股{arrow} {pct:+.2f}%，現價 {quote.last_price}",
         "price": quote.last_price,
-        # 提醒事件契約: change_pct 為小數 (-0.0565 = -5.65%), 與其他告警來源一致;
+        # 提醒事件契約: change_pct 為小數 (-0.0565 = -5.65%), 與其他提醒來源一致;
         # 即時報價是百分點, 只在這裡換算一次。
         "change_pct": round(pct / 100, 6),
         "trigger_value": quote.last_price,
@@ -201,17 +202,10 @@ def scan(app_state: Any | None = None) -> dict[str, Any]:
 
 
 def _push(events: list[dict[str, Any]]) -> None:
-    channels = [c for c in (preferences.get_external_notification_channels() or []) if c in ("line", "telegram")]
-    if not channels:
-        return
     lines = ["【自選異常摘要】"]
     for ev in events[:10]:
         lines.append(f"• {ev['name']}（{str(ev['symbol']).split('.')[0]}）{ev['message'].split('，')[0].replace('自選股', '')}，現價 {ev['price']}")
     if len(events) > 10:
         lines.append(f"…另有 {len(events) - 10} 檔")
     lines.append("規則整理，非投資建議。")
-    body = "\n".join(lines)
-    if "line" in channels:
-        webhook_adapter.send_line(preferences.get_line_channel_access_token(), preferences.get_line_target_id(), "", body)
-    if "telegram" in channels:
-        webhook_adapter.send_telegram(preferences.get_telegram_bot_token(), preferences.get_telegram_chat_id(), "", body)
+    send_text("\n".join(lines))

@@ -34,7 +34,8 @@ export function Monitor() {
   const alertsQuery = useQuery({
     queryKey: QK.alerts(undefined),
     queryFn: () => api.alertsList({ days: 7, limit: 500 }),
-    refetchInterval: 10000,
+    // New alerts arrive through SSE (useQuoteStream invalidates ['alerts']); this is only the fallback.
+    refetchInterval: 60_000,
   })
   const total = alertsQuery.data?.total ?? 0
 
@@ -90,10 +91,11 @@ export function Monitor() {
                 </div>
               </div>
               <div className="min-h-0 flex-1 overflow-auto p-3.5">
-                <TaiwanAlertsList
+                {alertsQuery.isError && !alertsQuery.data && <p role="alert" className="p-6 text-center text-xs text-warning">觸發紀錄載入失敗，請稍後再試。</p>}
+                {!(alertsQuery.isError && !alertsQuery.data) && <TaiwanAlertsList
                   alerts={alertsQuery.data?.alerts || []}
                   onInterpretAlert={(symbol, alertId) => navigate(`/stocks/${encodeURIComponent(symbol)}`, { state: { aiResearchRequested: true, alertId } })}
-                />
+                />}
               </div>
             </section>
 

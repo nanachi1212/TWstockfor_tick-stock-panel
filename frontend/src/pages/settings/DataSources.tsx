@@ -1,8 +1,8 @@
 import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { motion, AnimatePresence } from 'framer-motion'
-import { Check, Database, Eye, EyeOff, KeyRound, Plus, RefreshCw, Zap, FileWarning, Puzzle, AlertCircle, CheckCircle2, Loader2, Save, Trash2 } from 'lucide-react'
-import { api, type DataSourceItem, type PluginDataSourceItem } from '@/lib/api'
+import { Check, Database, Plus, RefreshCw, Zap, FileWarning, Puzzle, CheckCircle2 } from 'lucide-react'
+import { api, type DataSourceItem } from '@/lib/api'
 import { QK } from '@/lib/queryKeys'
 import { usePreferences } from '@/lib/useSharedQueries'
 import { toast } from '@/components/Toast'
@@ -10,6 +10,7 @@ import { DataSourceEditor } from './DataSourceEditor'
 import { TaiwanHistoryDataCard } from './TaiwanHistoryDataCard'
 import { FinMindSettingsCard } from './FinMindSettingsCard'
 import { ExternalKeysCard } from './ExternalKeysCard'
+import { Modal } from '@/components/Modal'
 
 const DATASET_LABEL: Record<string, string> = {
   daily: '日K',
@@ -180,145 +181,6 @@ interface RouteCtx {
   onReset: () => void
 }
 
-/** 插件 API Key 設定區: 狀態 + 輸入 + 儲存並檢測。
- *  先探後存: 後端用候選 Key 實探一次, 無效不落盤; secrets.json 優先於 .env。 */
-function PluginKeyConfig({ plugin }: { plugin: PluginDataSourceItem }) {
-  const qc = useQueryClient()
-  const [keyInput, setKeyInput] = useState('')
-  const [revealing, setRevealing] = useState(false)
-  const [saved, setSaved] = useState(false)
-
-  const invalidate = () => {
-    qc.invalidateQueries({ queryKey: QK.dataSources })
-    qc.invalidateQueries({ queryKey: QK.capabilities })
-    qc.invalidateQueries({ queryKey: QK.quoteStatus })
-  }
-
-  const save = useMutation({
-    mutationFn: () => api.savePluginKey(plugin.name, keyInput.trim()),
-    onSuccess: (data) => {
-      invalidate()
-      if (data.ok) {
-        setKeyInput('')
-        setSaved(true)
-        setTimeout(() => setSaved(false), 2000)
-      }
-    },
-    onError: (e: Error) => toast(`儲存失敗: ${e.message}`, 'error'),
-  })
-
-  const clear = useMutation({
-    mutationFn: () => api.clearPluginKey(plugin.name),
-    onSuccess: (data) => {
-      invalidate()
-      if (data.ok) {
-        toast(
-          data.plugin_available
-            ? '已清除介面設定的 Key(.env 中的同名變數仍然生效)'
-            : 'Key 已清除,插件不再可用',
-          'success',
-        )
-      }
-    },
-    onError: (e: Error) => toast(`清除失敗: ${e.message}`, 'error'),
-  })
-
-  return (
-    <section className="rounded-card border border-border bg-surface p-6">
-      <div className="flex items-center gap-2.5 mb-3">
-        <KeyRound className="h-4 w-4 text-secondary" />
-        <h3 className="text-sm font-medium text-foreground">API Key</h3>
-        <span className="text-xs text-muted/50 uppercase tracking-wider">{plugin.api_key_env}</span>
-      </div>
-      <p className="text-xs text-secondary leading-relaxed mb-4">
-        Key 儲存為本機檔案(secrets.json,優先順序高於 .env),不會上傳任何第三方。儲存前會先用該 Key
-        實際探測一次資料介面,無效則不落地儲存。
-      </p>
-
-      {/* 當前狀態 */}
-      <div className="flex items-center justify-between mb-4">
-        <div className="min-w-0">
-          <div className="text-xs uppercase tracking-widest text-muted">狀態</div>
-          <div className="mt-1 flex items-center gap-2 min-w-0">
-            {plugin.available ? (
-              <>
-                <CheckCircle2 className="h-4 w-4 text-bear shrink-0" />
-                <span className="text-sm font-medium shrink-0">已設定</span>
-                {save.data?.ok && save.data.api_key_masked && (
-                  <span className="font-mono text-xs text-secondary truncate">{save.data.api_key_masked}</span>
-                )}
-              </>
-            ) : (
-              <>
-                <AlertCircle className="h-4 w-4 text-muted shrink-0" />
-                <span className="text-sm font-medium text-muted shrink-0">未設定</span>
-                <span className="text-xs text-muted/70 truncate" title={plugin.status}>{plugin.status}</span>
-              </>
-            )}
-          </div>
-        </div>
-        {plugin.available && (
-          <button
-            onClick={() => clear.mutate()}
-            disabled={clear.isPending}
-            className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-btn bg-elevated text-secondary hover:text-danger text-xs transition-colors duration-150 ease-smooth disabled:opacity-50 shrink-0"
-          >
-            <Trash2 className="h-3 w-3" />
-            清除
-          </button>
-        )}
-      </div>
-
-      {/* 輸入 */}
-      <form
-        onSubmit={(e) => { e.preventDefault(); if (keyInput.trim()) save.mutate() }}
-        className="space-y-2"
-      >
-        <div className="relative">
-          <input
-            type={revealing ? 'text' : 'password'}
-            placeholder={plugin.available ? '貼上新 Key 取代目前' : `貼上 ${plugin.display_name} API Key`}
-            value={keyInput}
-            onChange={(e) => { setKeyInput(e.target.value); if (saved) setSaved(false) }}
-            autoComplete="off"
-            className="w-full px-3 py-2 pr-9 rounded-input bg-base border border-border text-sm font-mono focus:outline-none focus:border-accent transition-colors duration-150 ease-smooth"
-          />
-          <button
-            type="button"
-            onClick={() => setRevealing((v) => !v)}
-            className="absolute right-2 top-1/2 -translate-y-1/2 text-muted hover:text-foreground transition-colors duration-150 ease-smooth"
-            tabIndex={-1}
-            aria-label={revealing ? '隱藏' : '顯示'}
-          >
-            {revealing ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-          </button>
-        </div>
-        <button
-          type="submit"
-          disabled={save.isPending || (!keyInput.trim() && !saved)}
-          className="w-full h-10 rounded-xl bg-accent text-white text-sm font-semibold flex items-center justify-center gap-2 hover:bg-accent/90 disabled:opacity-40 transition-all"
-        >
-          {save.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : saved ? <Check className="h-4 w-4" /> : <Save className="h-4 w-4" />}
-          {save.isPending ? '驗證中…' : saved ? '已儲存' : '儲存並檢測'}
-        </button>
-      </form>
-
-      {/* 無效 Key —— 先探後存: 探測失敗時不儲存 */}
-      {save.data && !save.data.ok && (
-        <div className="mt-3 text-xs text-danger flex items-center gap-1.5">
-          <AlertCircle className="h-3 w-3 shrink-0" />
-          {save.data.error || 'Key 無效,未儲存'}
-        </div>
-      )}
-      {save.isError && (
-        <div className="mt-3 text-xs text-danger">
-          儲存失敗:{String((save.error as Error).message)}
-        </div>
-      )}
-    </section>
-  )
-}
-
 export function SettingsDataSourcesPanel() {
   const qc = useQueryClient()
   const prefs = usePreferences()
@@ -390,54 +252,13 @@ export function SettingsDataSourcesPanel() {
     onSuccess: (_data, name) => setSelected(name),
   })
 
-  const installMut = useMutation({
-    mutationFn: (name: string) => api.installPlugin(name),
-    onSuccess: (data) => {
-      qc.invalidateQueries({ queryKey: QK.dataSources })
-      qc.invalidateQueries({ queryKey: QK.capabilities })
-      qc.invalidateQueries({ queryKey: QK.quoteStatus })
-      if (data.install_ok) {
-        toast('插件相依套件安裝成功', 'success')
-      } else {
-        toast(data.install_message || '安裝失敗', 'error')
-      }
-    },
-    onError: (e: Error) => toast(`安裝失敗: ${e.message}`, 'error'),
-  })
-
-  const uninstallMut = useMutation({
-    mutationFn: (name: string) => api.uninstallPlugin(name),
-    onSuccess: (data) => {
-      qc.invalidateQueries({ queryKey: QK.dataSources })
-      qc.invalidateQueries({ queryKey: QK.preferences })
-      qc.invalidateQueries({ queryKey: QK.capabilities })
-      qc.invalidateQueries({ queryKey: QK.quoteStatus })
-      if (data.uninstall_ok) {
-        toast(data.uninstall_message || '已解除安裝', 'success')
-      } else {
-        toast(data.uninstall_message || '解除安裝失敗', 'error')
-      }
-    },
-    onError: (e: Error) => toast(`解除安裝失敗: ${e.message}`, 'error'),
-  })
-
   const builtin: DataSourceItem[] = sources.data?.builtin ?? []
-  const pluginList: PluginDataSourceItem[] = sources.data?.plugins ?? []
   const customList: DataSourceItem[] = sources.data?.custom ?? []
   const errors = sources.data?.errors ?? []
   const activeName = prefs.data?.daily_data_provider || 'taiwan'
 
-  // 插件 name → 狀態 (供卡片渲染時判斷 available/installing 等)
-  const pluginMap = new Map(pluginList.map(p => [p.name, p]))
-  const pluginNames = new Set(pluginList.map(p => p.name))
-
-  // 頂部資料來源選擇列表 (內建 + 所有插件 + 自定義 + 新增)
-  const pluginItems: DataSourceItem[] = pluginList.map(p => ({
-    name: p.name, display_name: p.display_name, datasets: p.datasets,
-  }))
   const allItems = [
     ...builtin,
-    ...pluginItems,
     ...customList,
   ]
 
@@ -559,12 +380,10 @@ export function SettingsDataSourcesPanel() {
         <div className="mb-4 flex items-start gap-2 rounded-lg border border-warning/40 bg-warning/10 px-3 py-2.5">
           <Puzzle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-warning" />
           <div className="text-xs leading-relaxed text-muted">
-            <span className="text-secondary">資料來源已插件化</span>
-            ,接入自有行情?把文件交給 AI 即可自動接入:
+            <span className="text-secondary">接入自有行情?</span>
+            把文件交給 AI 即可自動接入:
             <span className="mx-0.5 rounded bg-elevated/70 px-1 py-px font-mono text-xs text-secondary">docs/custom-data-source.md</span>
-            (自有 HTTP 介面) ，
-            <span className="mx-0.5 rounded bg-elevated/70 px-1 py-px font-mono text-xs text-secondary">docs/plugin-development.md</span>
-            (插件開發)
+            (自有 HTTP 介面)
           </div>
         </div>
 
@@ -573,34 +392,26 @@ export function SettingsDataSourcesPanel() {
           {allItems.map(item => {
             const serving = servingLabels(item.name)
             const isSelected = selected === item.name
-            const plugin = pluginMap.get(item.name)
-            const pluginUnavailable = plugin && !plugin.available
-            const installing = installMut.isPending && installMut.variables === item.name
-            const uninstalling = uninstallMut.isPending && uninstallMut.variables === item.name
             return (
               <div
                 key={item.name}
                 onClick={() => {
-                  // 未就緒插件僅當支援界面配 Key 時可點開(進詳情設定); 其餘不可選
-                  if (pluginUnavailable && !plugin?.api_key_env) return
                   setSelected(item.name)
-                  // 只有使用者自定義源 (YAML) 才進編輯器; 官方資料源和插件不可編輯
+                  // 只有使用者自定義源 (YAML) 才進編輯器; 官方資料源不可編輯
                   if (customList.some(c => c.name === item.name)) {
                     editExisting.mutate(item.name)
                   }
                 }}
                 className={`relative text-left rounded-lg border px-3.5 py-3 transition-all ${
-                  pluginUnavailable && !plugin?.api_key_env
-                    ? 'border-border/40 bg-elevated/10 opacity-70'
-                    : isSelected
-                      ? 'border-accent/50 bg-accent/5 ring-1 ring-accent/20 cursor-pointer'
-                      : 'border-border/60 bg-elevated/20 hover:bg-elevated/40 cursor-pointer'
+                  isSelected
+                    ? 'border-accent/50 bg-accent/5 ring-1 ring-accent/20 cursor-pointer'
+                    : 'border-border/60 bg-elevated/20 hover:bg-elevated/40 cursor-pointer'
                 }`}
               >
                 <div className="flex items-center gap-2 mb-1">
                   <span
                     className={`h-1.5 w-1.5 rounded-full shrink-0 ${
-                      pluginUnavailable ? 'bg-muted/30' : serving.length > 0 ? 'bg-accent' : 'bg-transparent border border-muted/40'
+                      serving.length > 0 ? 'bg-accent' : 'bg-transparent border border-muted/40'
                     }`}
                   />
                   <span className={`text-sm truncate flex-1 ${serving.length > 0 ? 'font-medium text-foreground' : 'text-secondary'}`}>
@@ -617,70 +428,16 @@ export function SettingsDataSourcesPanel() {
                   {item.name === 'taiwan' && (
                     <span className="shrink-0 rounded bg-accent/15 px-1 py-0.5 text-xs font-medium leading-none text-accent">官方預設</span>
                   )}
-                  {pluginNames.has(item.name) && (
-                    <span className="shrink-0 rounded bg-warning/15 px-1 py-0.5 text-xs font-medium leading-none text-warning">第三方</span>
-                  )}
-                  {/* 右側操作區: 插件未安裝→安裝按鈕(runtime=none 無依賴可裝,顯示設定提示); 否則→使用/卸載 */}
-                  {pluginUnavailable ? (
-                    plugin?.runtime === 'none' ? (
-                      <span
-                        className="text-xs text-muted/50 shrink-0 cursor-help"
-                        title={plugin?.status || '未設定憑證'}
-                      >
-                        點擊設定 Key
-                      </span>
-                    ) : installing ? (
-                      <span className="inline-flex items-center gap-1 text-xs text-accent shrink-0">
-                        <RefreshCw className="h-2.5 w-2.5 animate-spin" /> 安裝中…
-                      </span>
-                    ) : (
-                      <button
-                        onClick={(e) => { e.stopPropagation(); installMut.mutate(item.name) }}
-                        disabled={installMut.isPending}
-                        className="shrink-0 inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-xs font-medium bg-accent/10 text-accent hover:bg-accent/20 transition-colors disabled:opacity-50"
-                      >
-                        <Zap className="h-2.5 w-2.5" /> 安裝
-                      </button>
-                    )
-                  ) : plugin ? (
-                    /* 已安裝插件: 使用 + 卸載 */
-                    <div className="flex items-center gap-1 shrink-0">
-                      <button
-                        onClick={(e) => { e.stopPropagation(); switchProvider.mutate(item.name) }}
-                        disabled={switchProvider.isPending}
-                        className="rounded px-1.5 py-0.5 text-xs font-medium bg-accent/10 text-accent hover:bg-accent/20 transition-colors disabled:opacity-50"
-                      >
-                        使用
-                      </button>
-                      {plugin?.runtime !== 'none' && (uninstalling ? (
-                        <RefreshCw className="h-2.5 w-2.5 animate-spin text-muted" />
-                      ) : (
-                        <button
-                          onClick={(e) => { e.stopPropagation(); uninstallMut.mutate(item.name) }}
-                          disabled={uninstallMut.isPending}
-                          className="text-xs text-muted/50 hover:text-danger transition-colors disabled:opacity-40"
-                          title="解除安裝依賴"
-                        >
-                          解除安裝
-                        </button>
-                      ))}
-                    </div>
-                  ) : (
-                    <button
-                      onClick={(e) => { e.stopPropagation(); switchProvider.mutate(item.name) }}
-                      disabled={switchProvider.isPending}
-                      className="shrink-0 rounded px-1.5 py-0.5 text-xs font-medium bg-accent/10 text-accent hover:bg-accent/20 transition-colors disabled:opacity-50"
-                    >
-                      使用
-                    </button>
-                  )}
+                  <button
+                    onClick={(e) => { e.stopPropagation(); switchProvider.mutate(item.name) }}
+                    disabled={switchProvider.isPending}
+                    className="shrink-0 rounded px-1.5 py-0.5 text-xs font-medium bg-accent/10 text-accent hover:bg-accent/20 transition-colors disabled:opacity-50"
+                  >
+                    使用
+                  </button>
                 </div>
                 {/* 資料集標籤(靜態): 該源適配的資料集, 路由選擇在下方能力卡片 */}
                 <DatasetChipRow datasets={item.datasets} />
-                {/* 未安裝插件顯示安裝命令提示 */}
-                {pluginUnavailable && plugin?.install_hint && (
-                  <div className="ml-3.5 mt-1 text-xs text-muted/40 font-mono truncate">{plugin.install_hint}</div>
-                )}
               </div>
             )
           })}
@@ -798,27 +555,13 @@ export function SettingsDataSourcesPanel() {
                 />
               </div>
             )
-          ) : pluginList.find(x => x.name === selected) ? (
-            /* 選中插件: 資訊 + 能力卡片(路由) + Key 設定 */
-            <PluginDetail
-              plugin={pluginList.find(x => x.name === selected)!}
-              isActive={servingDatasets(selected).length > 0}
-              onSwitch={() => switchProvider.mutate(selected)}
-              switching={switchProvider.isPending}
-              route={routeCtx}
-            />
           ) : null}
         </motion.div>
       </AnimatePresence>
 
       {/* 刪除確認彈窗 */}
       {confirmDelete && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center">
-          <div
-            className="absolute inset-0 bg-black/60 backdrop-blur-sm"
-            onClick={() => setConfirmDelete(null)}
-          />
-          <div className="relative w-[90vw] max-w-[380px] rounded-card border border-border bg-base shadow-2xl p-6">
+        <Modal onClose={() => setConfirmDelete(null)} ariaLabel="刪除資料來源" overlayClassName="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm" panelClassName="w-[90vw] max-w-[380px] rounded-card border border-border bg-base shadow-2xl p-6">
             <h3 className="text-sm font-medium text-foreground mb-2">刪除資料來源</h3>
             <p className="text-xs text-secondary mb-5">
               確認刪除「{customList.find(s => s.name === confirmDelete)?.display_name || confirmDelete}」? 該資料來源的設定檔將被移除,此操作無法復原。
@@ -838,69 +581,8 @@ export function SettingsDataSourcesPanel() {
                 {remove.isPending ? '刪除中…' : '確認刪除'}
               </button>
             </div>
-          </div>
-        </div>
+</Modal>
       )}
-    </div>
-  )
-}
-
-function PluginDetail({ plugin, isActive, onSwitch, switching, route }: {
-  plugin: PluginDataSourceItem
-  isActive: boolean
-  onSwitch: () => void
-  switching: boolean
-  route: RouteCtx
-}) {
-  return (
-    <div className="space-y-5">
-      <section className="rounded-card border border-border bg-surface p-6">
-        <div className="flex items-start gap-4 mb-5">
-          <div className="h-11 w-11 rounded-xl bg-accent/10 flex items-center justify-center shrink-0">
-            <Zap className="h-5 w-5 text-accent" />
-          </div>
-          <div className="flex-1 min-w-0">
-            <div className="flex items-center gap-2 mb-1">
-              <h3 className="text-base font-semibold text-foreground">{plugin.display_name}</h3>
-              <span className="text-xs text-muted/50 uppercase tracking-wider">插件，{plugin.runtime}</span>
-            </div>
-            {plugin.description && <p className="text-xs text-secondary leading-relaxed">{plugin.description}</p>}
-          </div>
-        </div>
-
-        {/* 本源參與的能力: 標籤選擇提供方, 即刻生效 */}
-        <SourceCapabilityGrid
-          sourceName={plugin.name}
-          sourceDisplay={plugin.display_name}
-          datasets={plugin.datasets}
-          candidatesOf={route.candidatesOf}
-          providerOf={route.providerOf}
-          pending={route.pending}
-          onSelect={route.onSelect}
-        />
-
-        <div className="flex items-center gap-3 mt-4">
-          {isActive ? (
-            <span className="inline-flex items-center gap-1 text-xs text-accent bg-accent/10 px-2 py-1 rounded">
-              <Check className="h-2.5 w-2.5" /> 服務中
-            </span>
-          ) : plugin.available ? (
-            <button
-              onClick={onSwitch}
-              disabled={switching}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-btn bg-accent/10 text-accent text-xs font-medium hover:bg-accent/20 transition-colors disabled:opacity-50"
-            >
-              <Zap className="h-3.5 w-3.5" />
-              整體切換為該來源
-            </button>
-          ) : (
-            <span className="text-xs text-muted">{plugin.status}</span>
-          )}
-        </div>
-      </section>
-
-      {/* API Key 設定 (聲明了 api_key_env 的插件) */}
-      {plugin.api_key_env && <PluginKeyConfig plugin={plugin} />}
     </div>
   )
 }
@@ -969,7 +651,7 @@ function TaiwanOfficialDetail({ active, onSwitch, switching, route }: {
 
       <section className="rounded-card border border-border bg-surface p-6">
         <div className="flex items-center gap-2 mb-2">
-          <CheckCircle2 className="h-4 w-4 text-emerald-500" />
+          <CheckCircle2 className="h-4 w-4 text-success" />
           <h3 className="text-sm font-medium text-foreground">公開免費，免 API Key</h3>
         </div>
         <p className="text-xs text-secondary leading-relaxed">

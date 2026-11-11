@@ -9,7 +9,7 @@ from app.services.quote_service import QuoteService
 
 def _today_rows(turnover_rate: float | None = None) -> pl.DataFrame:
     row = {
-        "symbol": "600000.SH",
+        "symbol": "2330.TWSE",
         "open": 10.0,
         "high": 10.0,
         "low": 10.0,
@@ -26,14 +26,14 @@ def _today_rows(turnover_rate: float | None = None) -> pl.DataFrame:
 
 def _instruments() -> pl.DataFrame:
     return pl.DataFrame({
-        "symbol": ["600000.SH"],
+        "symbol": ["2330.TWSE"],
         "name": ["Test"],
         "float_shares": [100_000_000.0],
     })
 
 
 def test_quote_extra_normalizes_realtime_turnover_fraction_to_percent_value():
-    out = QuoteService._build_quote_extra([{"symbol": "600000.SH", "turnover_rate": 0.008}])
+    out = QuoteService._build_quote_extra([{"symbol": "2330.TWSE", "turnover_rate": 0.008}])
 
     assert out["turnover_rate"][0] == pytest.approx(0.8)
 

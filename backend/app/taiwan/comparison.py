@@ -19,11 +19,12 @@ from __future__ import annotations
 import logging
 from datetime import date
 from typing import Any
+
 from pydantic import BaseModel, Field
 
 from app.taiwan.abnormal_diagnostics import (
-    TaiwanAbnormalDiagnosticsService,
     TaiwanAbnormalDiagnosticItem,
+    TaiwanAbnormalDiagnosticsService,
 )
 from app.taiwan.daily_update import resolve_target_latest_trading_date
 from app.taiwan.industry_intelligence import TaiwanIndustryIntelligenceService
@@ -233,7 +234,10 @@ class TaiwanStockComparisonService:
             # correctly per-symbol (leverage badges, not_applicable fundamentals, etc.) —
             # this is one of the two internal consumers proven safe to opt in (the public
             # /abnormal-diagnostics endpoint and TaiwanScreener.tsx never pass this flag).
-            diag_snap = self.diag_svc.get_diagnostics(target_date=resolved_date, include_all=True, include_etfs=True)
+            diag_snap = self.diag_svc.get_diagnostics(
+                target_date=resolved_date, include_all=True, include_etfs=True,
+                symbols=[instrument.symbol for instrument in instruments],
+            )
             diag_by_symbol = {item.symbol: item for item in diag_snap.items}
             for instrument in instruments:
                 instrument.diagnostic_item = diag_by_symbol.get(instrument.symbol)

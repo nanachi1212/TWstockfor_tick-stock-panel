@@ -95,6 +95,10 @@ def _load_metadata() -> list[dict]:
 
 def _save_metadata(profiles: list[dict]) -> None:
     _write_json(_profiles_path(), profiles)
+    # Any profile change (create / edit / activate / delete) may change the provider.
+    from app.services.ai_provider import reset_ai_configured_cache  # ai_provider reads this module
+
+    reset_ai_configured_cache()
 
 
 def _load_secrets() -> dict[str, str]:

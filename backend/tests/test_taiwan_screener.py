@@ -196,7 +196,7 @@ class TestTaiwanScreenerCore:
 
         service = TaiwanScreenerService(
             security_master=SimpleNamespace(),
-            daily_store=SimpleNamespace(),
+            daily_store=SimpleNamespace(available_dates=lambda: required_dates),
             institutional_store=SimpleNamespace(
                 read_latest_per_symbol=lambda symbols: latest.filter(pl.col("symbol").is_in(symbols)),
                 read_range=lambda symbols, start, end: history.filter(
@@ -259,6 +259,17 @@ class TestTaiwanScreenerCore:
         assert foreign.price_limit_pct is None
         assert foreign.limit_up is None
         assert foreign.distance_to_upper_limit is None
+
+    def test_price_limits_use_previous_close(self, screener_service):
+        """Limits derive from the previous close; a stock closing at limit-up is 'near' it."""
+        df = pl.DataFrame({"symbol": ["2330.TWSE", "8069.TPEX"], "close": [110.0, 100.0],
+                           "prev_close": [100.0, None]})
+        out = screener_service._enrich_price_limits(df)
+        row = out.row(0, named=True)
+        assert row["limit_up"] == 110.0
+        assert row["distance_to_upper_limit"] == 0.0
+        # No previous close: limits stay null instead of being derived from today's close.
+        assert out.row(1, named=True)["limit_up"] is None
 
     def test_no_limit_not_affected_by_near_limit_filter(self, screener_service):
         """Foreign ETFs with NO_LIMIT must not be matched by near_upper_limit."""
@@ -431,3 +442,51 @@ class TestTaiwanScreenerCore:
         assert response.items == []
         assert response.total == 0
         assert response.data_dates.daily_as_of is None
+
+
+def test_ex_day_change_uses_reference_price_and_unverified_event_is_unavailable():
+    day = date(2026, 8, 3)
+    events = [
+        SimpleNamespace(symbol="A.TWSE", effective_date=day, status="verified", reference_price=90.0),
+        SimpleNamespace(symbol="B.TWSE", effective_date=day, status="data_insufficient", reference_price=None),
+    ]
+    svc = TaiwanScreenerService.__new__(TaiwanScreenerService)
+    svc.action_store = SimpleNamespace(read_verified_window=lambda start, end: tuple(events))
+    latest = pl.DataFrame({
+        "symbol": ["A.TWSE", "B.TWSE", "C.TWSE"], "_max_d": [day] * 3,
+        "close": [90.0, 90.0, 90.0], "prev_close": [100.0] * 3, "change_pct": [-0.10] * 3,
+    })
+    out = svc._apply_ex_day_reference(latest, day).sort("symbol")
+    assert out["change_pct"].to_list() == [0.0, None, -0.10]
+    assert out["prev_close"].to_list() == [90.0, None, 100.0]
+
+
+def test_five_day_institutional_window_follows_quote_sessions():
+    sessions = [date(2026, 9, 30), date(2026, 10, 1), date(2026, 10, 2), date(2026, 10, 5), date(2026, 10, 6)]
+    # Institutional rows exist only up to 10-05: the latest quote session has none yet.
+    history = pl.DataFrame([
+        {"symbol": "A.TWSE", "date": d, "foreign_net": 1, "investment_trust_net": 1,
+         "dealer_net": 1, "status": "available"}
+        for d in [date(2026, 9, 29), *sessions[:-1]]
+    ])
+    service = TaiwanScreenerService(
+        security_master=SimpleNamespace(),
+        daily_store=SimpleNamespace(available_dates=lambda: sessions),
+        institutional_store=SimpleNamespace(
+            read_latest_per_symbol=lambda symbols: history.filter(pl.col("date") == sessions[-2]),
+            read_range=lambda symbols, start, end: history.filter(
+                (pl.col("date") >= start) & (pl.col("date") <= end)),
+        ),
+        margin_store=SimpleNamespace(read_latest_per_symbol=lambda symbols: pl.DataFrame()),
+    )
+    base = pl.DataFrame({"symbol": ["A.TWSE"], "date": [sessions[-1]], "volume": [1000.0]})
+    joined, *_ = service._join_institutional_margin(base, ["A.TWSE"], five_day_flow=True)
+    assert joined["foreign_net_5d"].to_list() == [None]
+
+
+def test_vol_ratio_5d_excludes_today_from_the_baseline(screener_service, tmp_store):
+    hist = tmp_store.read_range(["2330.TWSE"], date(2026, 7, 1), date(2026, 12, 31)).sort("date")
+    volumes = hist["volume"].to_list()
+    expected = volumes[-1] / (sum(volumes[-6:-1]) / 5)
+    row = screener_service._compute_batch_indicators(["2330.TWSE"]).row(0, named=True)
+    assert row["vol_ratio_5d"] == pytest.approx(expected)

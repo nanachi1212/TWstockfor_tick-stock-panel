@@ -1,5 +1,5 @@
 """Grounded Taiwan stock Advice and independent Review artifacts."""
-# ruff: noqa: RUF001 -- user-facing Traditional Chinese prompts and messages.
+
 from __future__ import annotations
 
 import asyncio
@@ -17,6 +17,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
+from app.services.ai_json import _extract_json_object
 from app.services.ai_provider import (
     AIProviderConfigSnapshot,
     current_ai_request_timeout,
@@ -24,8 +25,13 @@ from app.services.ai_provider import (
     generate_structured_ai_text,
     snapshot_ai_provider_config,
 )
-from app.services.ai_json import _extract_json_object
 from app.taiwan.abnormal_diagnostics import TaiwanAbnormalDiagnosticsService
+from app.taiwan.ai_debate import (
+    DEBATE_PROMPT_VERSION,
+    PLAIN_LANGUAGE_RULE,
+    TaiwanAIDebate,
+    run_debate,
+)
 from app.taiwan.ai_research import (
     ADVICE_PROMPT_VERSION,
     REVIEW_PROMPT_VERSION,
@@ -33,7 +39,6 @@ from app.taiwan.ai_research import (
     _generation_config_metadata,
     build_evidence_registry,
 )
-from app.taiwan.ai_debate import DEBATE_PROMPT_VERSION, PLAIN_LANGUAGE_RULE, TaiwanAIDebate, run_debate
 from app.taiwan.beginner_selection import BEGINNER_EVIDENCE_REGISTRY_KEYS
 from app.taiwan.buy_point import BuyPointSignal
 from app.taiwan.buy_point_service import (

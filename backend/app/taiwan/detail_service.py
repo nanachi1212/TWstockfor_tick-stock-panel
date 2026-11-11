@@ -15,6 +15,7 @@ Orchestrates:
 from __future__ import annotations
 
 import logging
+import os
 import threading
 import time
 from collections.abc import Callable
@@ -253,11 +254,13 @@ class TaiwanStockDetailService:
             extra_chips_data = None
 
         # Determine overall quality
+        # A section can be "available" while its data predates the newest session: meta.status says so.
         sections_statuses = [
             realtime_data.meta.status if realtime_data.meta else "unknown",
-            daily_data.status,
-            institutional_data.status,
-            margin_data.status,
+            *(
+                section.meta.status if section.meta and section.meta.status else section.status
+                for section in (daily_data, institutional_data, margin_data)
+            ),
         ]
         if all(s == "available" for s in sections_statuses):
             overall_quality = "good"
@@ -286,7 +289,7 @@ class TaiwanStockDetailService:
         if news_res is _PENDING:
             news_status_message = "新聞還在抓取、稍後會自動更新"
         elif isinstance(news_res, Exception):
-            news_status_message = str(news_res)
+            news_status_message = "新聞資料暫時無法取得"
         else:
             recent_news = news_res.items
             news_status = news_res.status
@@ -386,8 +389,21 @@ class TaiwanStockDetailService:
 
     def _stored_daily(self, symbol_str: str, start: date) -> pl.DataFrame:
         """Persisted rows for one symbol, reread only when a store partition changes."""
-        files = list(self.daily_store._data_dir.glob("date=*/part.parquet"))
-        generation = (len(files), max((f.stat().st_mtime_ns for f in files), default=0))
+        # One directory listing plus one stat per partition: the previous glob probed every
+        # partition a second time (about 5x slower on 690 partitions) on each poll.
+        # A rewrite of an existing partition leaves the parent directory's mtime untouched,
+        # so the per-partition stat stays.
+        count, newest = 0, 0
+        with os.scandir(self.daily_store._data_dir) as entries:
+            for entry in entries:
+                if not entry.name.startswith("date="):
+                    continue
+                try:
+                    newest = max(newest, os.stat(os.path.join(entry.path, "part.parquet")).st_mtime_ns)
+                except OSError:
+                    continue
+                count += 1
+        generation = (count, newest)
         key = (symbol_str, start)
         cached = self._stored_daily_cache.get(key)
         if cached is not None and cached[0] == generation:
@@ -450,13 +466,15 @@ class TaiwanStockDetailService:
             if not history.is_empty():
                 rows: list[TaiwanDailyRow] = []
                 for item in history.tail(days).iter_rows(named=True):
+                    if any(item.get(field) is None for field in ("open", "high", "low", "close")):
+                        continue  # a bar with a missing price is dropped, never drawn as a 0-yuan candle
                     rows.append(
                         TaiwanDailyRow(
                             date=str(item.get("date", ""))[:10],
-                            open=float(item.get("open") or 0.0),
-                            high=float(item.get("high") or 0.0),
-                            low=float(item.get("low") or 0.0),
-                            close=float(item.get("close") or 0.0),
+                            open=float(item["open"]),
+                            high=float(item["high"]),
+                            low=float(item["low"]),
+                            close=float(item["close"]),
                             volume=int(item.get("volume") or 0),
                             amount=float(item.get("amount")) if item.get("amount") is not None else None,
                         )
@@ -893,7 +911,7 @@ class TaiwanStockDetailService:
             for a in raw_alerts:
                 if a.get("symbol") == symbol_str or a.get("rule_symbol") == symbol_str:
                     ts = a.get("ts", 0)
-                    dt_str = datetime.fromtimestamp(ts / 1000.0).isoformat() if ts else ""
+                    dt_str = datetime.fromtimestamp(ts / 1000.0, tz=taipei_now().tzinfo).isoformat() if ts else ""
                     alerts.append(
                         TaiwanRecentAlert(
                             alert_id=str(a.get("alert_id", a.get("id", ""))),

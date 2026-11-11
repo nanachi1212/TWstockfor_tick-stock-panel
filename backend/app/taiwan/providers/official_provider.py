@@ -98,7 +98,7 @@ class OfficialTaiwanAdapter:
         del asset_type
         parsed = [parse_symbol(s) if isinstance(s, str) else s for s in symbols]
         start = start_time.date() if start_time and hasattr(start_time, "hour") else start_time
-        end = end_time.date() if end_time and hasattr(end_time, "hour") else (end_time or datetime.now().date())
+        end = end_time.date() if end_time and hasattr(end_time, "hour") else (end_time or datetime.now(TAIPEI).date())
         frames: list[pl.DataFrame] = []
         for symbol in parsed:
             cursor = end.replace(day=1)

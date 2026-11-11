@@ -7,7 +7,7 @@ from datetime import date
 from fastapi import APIRouter, HTTPException, Query
 
 from app.taiwan.quant.live_contract import LiveModel
-from app.taiwan.quant.live_runner import CurrentLiveSource
+from app.taiwan.quant.live_runner import StoredSessionEvidence
 from app.taiwan.quant.live_store import LiveLedger
 
 router = APIRouter(prefix="/api/taiwan/quant/live", tags=["taiwan-live"])
@@ -19,13 +19,17 @@ _SESSION_CACHE_LOCK = threading.Lock()
 
 
 def _expected_session() -> str | None:
-    """Bound official-session evidence reads shared by all dashboard polls."""
+    """Bound stored-session evidence reads shared by all dashboard polls.
+
+    Stored evidence only: a request must never fetch from the exchanges. No stored
+    proof for the day => None => the endpoint answers ``session_unavailable``.
+    """
     global _SESSION_CACHE
     with _SESSION_CACHE_LOCK:
         now = time.monotonic()
         if _SESSION_CACHE and now - _SESSION_CACHE[0] < _SESSION_CACHE_TTL:
             return _SESSION_CACHE[1]
-        source = CurrentLiveSource()
+        source = StoredSessionEvidence()
         try:
             session = LiveLedger(evidence=source.evidence).current_session().isoformat()
         except Exception:

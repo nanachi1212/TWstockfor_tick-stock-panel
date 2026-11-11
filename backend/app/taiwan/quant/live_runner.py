@@ -64,9 +64,28 @@ def _official_calendar(today: date) -> TaiwanTradingCalendar:
     for year in sorted({today.year, (today - timedelta(days=200)).year}):
         try:
             holidays |= fetch_twse_closures(year)
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             logger.warning("TWSE holiday schedule %s unavailable: %s", year, type(exc).__name__)
     return TaiwanTradingCalendar(known_holidays=holidays)
+
+
+class StoredSessionEvidence:
+    """Session evidence for read-only request paths: stored census partitions and local calendar rules.
+
+    Unlike CurrentLiveSource.evidence it never fetches from the exchanges, so a dashboard
+    poll cannot reach the network. A day with no stored proof stays "unresolved".
+    """
+
+    def __init__(self, store: ObservedUniverseStore | None = None,
+                 calendar: TaiwanTradingCalendar | None = None) -> None:
+        self.store = store or ObservedUniverseStore()
+        self.calendar = calendar or TaiwanTradingCalendar()
+
+    def evidence(self, day: date, exchange: str) -> TradingDayEvidence:
+        return self.store.day_evidence(exchange, day, calendar=self.calendar)
+
+    def close(self) -> None:
+        """Nothing to release; mirrors CurrentLiveSource so callers can swap the two."""
 
 
 class CurrentLiveSource:

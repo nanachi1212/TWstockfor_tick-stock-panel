@@ -8,13 +8,7 @@ export interface FrontendSlotContextMap {
     collapsed: boolean
     pathname: string
   }
-  /** 個股詳情對話框底部擴展區 (日K/分時圖表下方) */
-  'stock-preview.footer': {
-    symbol: string
-    name: string | null
-    view: 'daily' | 'intraday'
-  }
-  /** 自選頁工具欄擴展區 (按鈕行末尾) */
+  /** 自選頁工具列擴充區 (按鈕行末尾) */
   'watchlist.toolbar': {
     /** 當前篩選/排序後視圖中的標的 */
     symbols: string[]

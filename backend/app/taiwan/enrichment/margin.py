@@ -13,9 +13,7 @@ Integrity Guarantees:
 """
 from __future__ import annotations
 
-import json
 import logging
-import urllib.request
 from datetime import date, datetime
 from typing import Any
 
@@ -25,7 +23,8 @@ from app.taiwan.enrichment.models import (
     SourceMeta,
     StalePolicy,
 )
-from app.taiwan.providers.taiwan_values import parse_integer
+from app.taiwan.providers.http import fetch_json
+from app.taiwan.providers.taiwan_values import TAIPEI, parse_integer
 
 logger = logging.getLogger(__name__)
 
@@ -61,7 +60,7 @@ class TwseMarginAdapter:
         if not rows:
             return []
 
-        fetched_at = datetime.now()
+        fetched_at = datetime.now(TAIPEI)
         is_stale = StalePolicy.is_stale(DatasetType.MARGIN, trade_date, fetched_at)
         results: list[MarginTrading] = []
 
@@ -159,7 +158,7 @@ class TpexMarginAdapter:
         if not rows:
             return []
 
-        fetched_at = datetime.now()
+        fetched_at = datetime.now(TAIPEI)
         is_stale = StalePolicy.is_stale(DatasetType.MARGIN, trade_date, fetched_at)
         results: list[MarginTrading] = []
 
@@ -255,15 +254,11 @@ class TaiwanMarginProvider:
         ex = exchange.upper()
         if ex == "TWSE":
             url = self.twse.build_url(trade_date)
-            req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
-            with urllib.request.urlopen(req, timeout=timeout) as resp:
-                data = json.loads(resp.read().decode("utf-8"))
+            data = fetch_json(url, headers={"User-Agent": "Mozilla/5.0"}, timeout=timeout)
             return self.twse.parse_payload(data, trade_date, source_url=url, target_code=target_code)
         elif ex == "TPEX":
             url = self.tpex.build_url(trade_date)
-            req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
-            with urllib.request.urlopen(req, timeout=timeout) as resp:
-                data = json.loads(resp.read().decode("utf-8"))
+            data = fetch_json(url, headers={"User-Agent": "Mozilla/5.0"}, timeout=timeout)
             return self.tpex.parse_payload(data, trade_date, source_url=url, target_code=target_code)
         else:
             raise ValueError(f"Unsupported exchange for margin trading: {exchange}")

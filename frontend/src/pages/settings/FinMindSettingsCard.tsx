@@ -23,7 +23,7 @@ export function FinMindSettingsCard() {
   const [isTesting, setIsTesting] = useState(false)
 
   // 1. 查詢當前 FinMind 設定
-  const { data: finmindData, isLoading } = useQuery({
+  const { data: finmindData, isLoading, isError } = useQuery({
     queryKey: ['finmindPreference'],
     queryFn: api.getFinMindPreference,
   })
@@ -191,7 +191,7 @@ export function FinMindSettingsCard() {
             <>
               <AlertCircle className="h-4 w-4 text-amber-400 shrink-0" />
               <span className="text-xs text-amber-300">
-                尚未設定 Token（將使用未註冊公開額度 300 次/小時，或僅讀取本地快取）
+                {isError && !finmindData ? 'FinMind 設定載入失敗，無法確認 Token 狀態' : '尚未設定 Token（將使用未註冊公開額度 300 次/小時，或僅讀取本地快取）'}
               </span>
             </>
           )}

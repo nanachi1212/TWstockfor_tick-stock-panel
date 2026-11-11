@@ -4,7 +4,7 @@ The route is a thin adapter around the deterministic Taiwan buy-point engine.
 It reads only existing local stores and delegates alert persistence/routing to
 the application's alert infrastructure.
 """
-# ruff: noqa: RUF001 -- user-facing Traditional Chinese API messages.
+
 from __future__ import annotations
 
 import hashlib
@@ -121,16 +121,71 @@ def _dispatch_alerts(
     signals: list[BuyPointSignal],
 ) -> list[dict[str, Any]]:
     catalog = _catalog_map(store)
+    with store._lock:
+        # One read and at most one write of the state file per batch: the scheduler polls
+        # the whole watchlist, and a write per signal meant one fsync per symbol per poll.
+        payload = store._read()
+        dirty: list[bool] = []
+        try:
+            inserted = _claim_transitions(data_dir, catalog, signals, payload, dirty)
+        finally:
+            if dirty:
+                store._write(payload)
+    if not inserted:
+        return []
+    if quote_service is not None:
+        try:
+            quote_service.push_alerts(inserted)
+        except Exception:
+            logger.warning("買點提醒 SSE 推播失敗", exc_info=True)
+        try:
+            quote_service._maybe_send_webhook(inserted, None)
+        except Exception:
+            logger.warning("買點提醒外部推播提交失敗", exc_info=True)
+        app_events = [
+            event for event in inserted
+            if "app" in catalog[event["buy_point_strategy_id"]].alert_channels
+        ]
+        if app_events:
+            try:
+                quote_service._maybe_send_system_notifications(app_events)
+            except Exception:
+                logger.debug("買點系統提醒失敗", exc_info=True)
+    return inserted
+
+
+def _claim_transitions(
+    data_dir: Path,
+    catalog: dict[str, BuyPointStrategy],
+    signals: list[BuyPointSignal],
+    payload: dict[str, Any],
+    dirty: list[bool],
+) -> list[dict[str, Any]]:
+    """Update ``payload`` in memory and return the newly persisted alert events.
+
+    ``dirty`` gets an entry whenever ``payload`` changed, so the caller still saves the
+    re-arm states collected before a failing alert write.
+    """
+    states = payload.setdefault("states", {})
+    cooldowns = payload.setdefault("last_triggered", {})
     emitted: list[dict[str, Any]] = []
     emitted_state_keys: dict[str, str] = {}
     now_ms = int(time.time() * 1000)
     for signal in signals:
+        state_key = f"{signal.strategy_id}:{signal.symbol}"
+        previous = states.get(state_key)
+        if isinstance(previous, dict):
+            previous = previous.get("status")
         if signal.status != "triggered":
-            store.set_state(f"{signal.strategy_id}:{signal.symbol}", signal.status)
+            if states.get(state_key) != signal.status:
+                states[state_key] = signal.status
+                dirty.append(True)
             continue
         strategy = catalog[signal.strategy_id]
-        state_key = f"{signal.strategy_id}:{signal.symbol}"
-        previous, last_triggered = store.state_snapshot(state_key)
+        try:
+            last_triggered = float(cooldowns.get(state_key))
+        except (TypeError, ValueError):
+            last_triggered = None
         cooldown_seconds = max(0, strategy.conditions.cooldown_minutes) * 60
         if previous == "triggered":
             continue
@@ -170,28 +225,9 @@ def _dispatch_alerts(
     inserted = [events_by_id[alert_id] for alert_id in inserted_ids if alert_id in events_by_id]
     triggered_at = time.time()
     for state_key in emitted_state_keys.values():
-        store.set_state(state_key, "triggered")
-        store.mark_triggered(state_key, triggered_at)
-    if not inserted:
-        return []
-    if quote_service is not None:
-        try:
-            quote_service.push_alerts(inserted)
-        except Exception:
-            logger.warning("買點提醒 SSE 推送失敗", exc_info=True)
-        try:
-            quote_service._maybe_send_webhook(inserted, None)
-        except Exception:
-            logger.warning("買點提醒外部推播提交失敗", exc_info=True)
-        app_events = [
-            event for event in inserted
-            if "app" in catalog[event["buy_point_strategy_id"]].alert_channels
-        ]
-        if app_events:
-            try:
-                quote_service._maybe_send_system_notifications(app_events)
-            except Exception:
-                logger.debug("買點系統提醒失敗", exc_info=True)
+        states[state_key] = "triggered"
+        cooldowns[state_key] = triggered_at
+    dirty.append(True)
     return inserted
 
 

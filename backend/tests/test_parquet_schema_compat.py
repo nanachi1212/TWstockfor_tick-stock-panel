@@ -12,7 +12,7 @@ def test_partitioned_daily_scan_tolerates_added_quote_ts(tmp_path):
     new_part.parent.mkdir(parents=True)
 
     pl.DataFrame({
-        "symbol": ["600000.SH"],
+        "symbol": ["2330.TWSE"],
         "date": [date(2026, 7, 8)],
         "open": [10.0],
         "high": [10.5],
@@ -23,7 +23,7 @@ def test_partitioned_daily_scan_tolerates_added_quote_ts(tmp_path):
     }).write_parquet(old_part)
 
     pl.DataFrame({
-        "symbol": ["600000.SH"],
+        "symbol": ["2330.TWSE"],
         "date": [date(2026, 7, 9)],
         "open": [10.2],
         "high": [10.8],
@@ -50,7 +50,7 @@ def test_partitioned_enriched_scan_tolerates_added_quote_ts(tmp_path):
     new_part.parent.mkdir(parents=True)
 
     common_old = {
-        "symbol": ["600000.SH"],
+        "symbol": ["2330.TWSE"],
         "date": [date(2026, 7, 8)],
         "open": [10.0],
         "high": [10.5],

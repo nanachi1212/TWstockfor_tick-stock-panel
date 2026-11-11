@@ -1,5 +1,5 @@
 """AI provider adapter for OpenAI-compatible APIs and local subscription CLIs (Codex, Claude Code)."""
-# ruff: noqa: RUF001 -- user-facing Traditional Chinese error messages.
+
 from __future__ import annotations
 
 import asyncio
@@ -14,7 +14,7 @@ import sys
 import tempfile
 import time
 import tomllib
-from collections.abc import AsyncIterator, Callable, Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 from types import TracebackType
@@ -194,7 +194,7 @@ _ANSI_RE = re.compile(r"\x1b\[[0-9;?]*[ -/]*[@-~]")
 
 
 # ----------------------------------------------------------------
-# 使用者 focus 輸入淨化 — 防止通過"特別關注"繞過紅線誘導 AI 給出買賣建議
+# 使用者 focus 輸入淨化 — 防止透過"特別關注"繞過紅線誘導 AI 給出買賣建議
 # 命中任一敏感詞時,整個 focus 被丟棄(回傳空串),由各 analyzer 據此跳過注入。
 # ----------------------------------------------------------------
 _FOCUS_BLOCKLIST = re.compile(
@@ -271,7 +271,7 @@ def _resolve_max_tokens(max_tokens: int | None, *, cap: int | None = None) -> in
     """顯式傳入的 max_tokens 限制到設定輸出上限; None 保持 None。
 
     None = 不傳該參數(推理型模型的思考 token 計入 max_tokens 預算,
-    顯式限制會擠佔正文, 語意見 generate_ai_text), 不能映射成設定上限。
+    顯式限制會擠佔正文, 語意見 generate_ai_text), 不能對應成設定上限。
     """
     if max_tokens is None:
         return None
@@ -379,7 +379,7 @@ def normalize_openai_base_url(url: str) -> str:
     """Return the OpenAI-compatible base URL expected by the OpenAI SDK.
 
     識別 URL 中已有的版本段 (/v1、/v2、/v4 等) 時保持原樣 —— 部分 OpenAI 相容
-    服務用非 v1 的版本號 (如智譜 GLM 用 /api/paas/v4), 舊實現無條件補 /v1 會拼成
+    服務用非 v1 的版本號 (如智譜 GLM 用 /api/paas/v4), 舊實作無條件補 /v1 會拼成
     不存在的 /api/paas/v4/v1/chat/completions 導致 404。僅在無版本段時才補 /v1。
     """
     base = (url or "").strip().rstrip("/")
@@ -393,7 +393,7 @@ def normalize_openai_base_url(url: str) -> str:
 def codex_cli_available() -> bool:
     """Codex CLI 是否真正可用: 解析命令後實跑一次 --version。
 
-    僅 which 到二進制不夠 — npm 殼缺平台原生二進制時同樣存在於 PATH,
+    僅 which 到二進位不夠 — npm 殼缺平台原生二進位時同樣存在於 PATH,
     但一執行就出錯(如 "Codex CLI not available"), 狀態頁會誤報已連接。
     """
     try:
@@ -425,11 +425,28 @@ def claude_cli_available() -> bool:
     return proc.returncode == 0
 
 
+# The CLI probe spawns `<cli> --version`; status endpoints poll ai_configured(), so the
+# answer is kept briefly per provider and dropped whenever AI settings are saved.
+_CLI_PROBE_TTL_S = 60.0
+_cli_probe_cache: dict[str, tuple[float, bool]] = {}
+
+
+def reset_ai_configured_cache() -> None:
+    """Force the next ai_configured() to probe the CLI again (call after saving AI settings)."""
+    _cli_probe_cache.clear()
+
+
 def ai_configured(provider: str | None = None) -> bool:
     provider = provider or current_ai_provider()
-    if is_subscription_cli_provider(provider):
-        return subscription_cli_available(provider)
-    return bool(secrets_store.get_ai_key())
+    if not is_subscription_cli_provider(provider):
+        return bool(secrets_store.get_ai_key())
+    now = time.monotonic()
+    cached = _cli_probe_cache.get(provider)
+    if cached is not None and now - cached[0] < _CLI_PROBE_TTL_S:
+        return cached[1]
+    available = subscription_cli_available(provider)
+    _cli_probe_cache[provider] = (now, available)
+    return available
 
 
 # ── 本機模型暖機: 同一行程內第一次呼叫某個本機模型時, 逾時放寬到兩倍 (上限 300 秒) ──
@@ -563,20 +580,6 @@ INVALID_JSON_RETRY_MESSAGE = (
 )
 
 
-def _validate_structured_json(raw: str) -> None:
-    """Accept a JSON object/array, including the fenced form used by legacy gateways."""
-    text = raw.strip().removeprefix("```json").removeprefix("```").removesuffix("```").strip()
-    start = min((idx for idx in (text.find("{"), text.find("[")) if idx >= 0), default=-1)
-    if start < 0:
-        raise AIStructuredOutputError(raw)
-    try:
-        payload, end = json.JSONDecoder().raw_decode(text[start:])
-    except ValueError:
-        raise AIStructuredOutputError(raw) from None
-    if not isinstance(payload, (dict, list)) or text[start + end :].strip():
-        raise AIStructuredOutputError(raw)
-
-
 async def generate_structured_ai_text(
     messages: Sequence[Message],
     *,
@@ -635,59 +638,6 @@ async def generate_structured_ai_text(
             raise AIEmptyContentError("AI provider returned empty content twice") from None
         except AIStructuredOutputError:
             raise AIStructuredOutputError("", "AI provider returned invalid JSON twice") from None
-
-
-async def stream_ai_text(
-    messages: Sequence[Message],
-    *,
-    temperature: float | None = 0.5,
-    max_tokens: int | None = 4000,
-    timeout: float = 180.0,
-    config_snapshot: AIProviderConfigSnapshot | None = None,
-) -> AsyncIterator[str]:
-    """Yield text deltas from the configured provider.
-
-    Codex CLI only exposes the final assistant message for this use case, so it
-    yields one complete chunk after the command exits.
-
-    max_tokens=None 表示不限制輸出(同 generate_ai_text 的說明)。
-    """
-    if config_snapshot is None:
-        config_snapshot = snapshot_ai_provider_config()
-    timeout = warmup_timeout(timeout, config_snapshot)
-    max_tokens = _resolve_max_tokens(max_tokens, cap=config_snapshot.max_output_tokens)
-    _check_input_budget(
-        messages,
-        max_tokens=max_tokens,
-        context_window=config_snapshot.context_window,
-        max_output_tokens=config_snapshot.max_output_tokens,
-    )
-    try:
-        codex_provider = is_codex_cli_provider(config_snapshot.provider)
-    except TypeError:
-        codex_provider = is_codex_cli_provider()
-    if codex_provider:
-        yield await _run_codex_cli(
-            messages,
-            max_tokens=max_tokens,
-            timeout=max(timeout, 600.0),
-            config_snapshot=config_snapshot,
-        )
-        return
-    if config_snapshot.provider == CLAUDE_CLI_PROVIDER:
-        yield await _run_claude_cli(
-            messages, max_tokens=max_tokens, timeout=max(timeout, 300.0), config_snapshot=config_snapshot,
-        )
-        return
-
-    async for chunk in _stream_openai(
-        messages,
-        temperature=temperature,
-        max_tokens=max_tokens,
-        timeout=timeout,
-        config_snapshot=config_snapshot,
-    ):
-        yield chunk
 
 
 async def _run_openai_once(
@@ -892,61 +842,6 @@ async def probe_openai_profile_connection(
     }
 
 
-async def _stream_openai(
-    messages: Sequence[Message],
-    *,
-    temperature: float | None,
-    max_tokens: int | None,
-    timeout: float,
-    config_snapshot: AIProviderConfigSnapshot | None = None,
-) -> AsyncIterator[str]:
-    ai_key = config_snapshot.api_key if config_snapshot is not None else secrets_store.get_ai_key()
-    if not ai_key:
-        raise RuntimeError("AI API Key 未設定, 請在設定頁設定")
-
-    client = _openai_client(ai_key, timeout, config_snapshot=config_snapshot)
-    model = config_snapshot.model if config_snapshot is not None else current_ai_model()
-    req_messages = list(messages)
-
-    async def _iter(stream):
-        async for chunk in stream:
-            delta = chunk.choices[0].delta if chunk.choices else None
-            if delta and delta.content:
-                yield delta.content
-
-    kwargs = _openai_kwargs(
-        temperature=temperature,
-        max_tokens=max_tokens,
-        base_url=config_snapshot.base_url if config_snapshot is not None else "",
-    )
-    while True:
-        try:
-            stream = await client.chat.completions.create(
-                model=model,
-                messages=req_messages,
-                **kwargs,
-                stream=True,
-            )
-            break
-        except Exception as exc:
-            # 流尚未開始 yield, 可安全移除被拒絕的可選參數後重建。
-            retry_kwargs = _openai_retry_kwargs(exc, kwargs)
-            if retry_kwargs is not None:
-                kwargs = retry_kwargs
-                continue
-            if _is_openai_transport_error(exc):
-                raise RuntimeError(_format_openai_error(exc)) from exc
-            raise
-
-    try:
-        async for piece in _iter(stream):
-            yield piece
-    except Exception as exc:
-        if _is_openai_transport_error(exc):
-            raise RuntimeError(_format_openai_error(exc)) from exc
-        raise
-
-
 def _openai_client(
     api_key: str,
     timeout: float,
@@ -1034,7 +929,7 @@ def _openai_kwargs(
     """Build OpenAI create() kwargs; optional parameters are omitted when empty.
 
     max_tokens=None 時不傳 — 由服務端預設上限管理(推理模型的思考 token 也
-    計入該參數預算, 限制會擠佔正文, 見 stream_ai_text 文件)。
+    計入該參數預算, 限制會擠佔正文, 見 generate_ai_text 文件)。
     """
     kwargs: dict = {}
     if max_tokens is not None:
@@ -1107,7 +1002,7 @@ def _format_openai_error(exc: Exception) -> str:
     status_messages = {
         400: "請求參數無效, 請檢查模型名稱和上下文長度",
         401: "API Key 無效或無權限, 請檢查設定頁設定",
-        403: "AI 服務拒絕訪問, 請檢查帳號權限或閘道設定",
+        403: "AI 服務拒絕存取, 請檢查帳號權限或閘道設定",
         404: "模型或介面地址不存在, 請檢查 AI Base URL 和模型名稱",
         408: "AI 服務請求超時, 請稍後重試",
         429: "AI 服務限流或額度不足, 請稍後重試或檢查額度",

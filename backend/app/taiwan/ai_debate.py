@@ -8,7 +8,7 @@ deterministic buy-point signal and server TradePlan remain authoritative.
 
 Calls: bull and bear use the quick model, the judge uses the deep model.
 """
-# ruff: noqa: RUF001 -- user-facing Traditional Chinese prompts and messages.
+
 from __future__ import annotations
 
 import json

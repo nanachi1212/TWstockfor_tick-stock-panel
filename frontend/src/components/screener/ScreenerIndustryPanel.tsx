@@ -2,19 +2,23 @@ import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { Layers } from 'lucide-react'
 import { api } from '@/lib/api'
+import { fmtBigNum, fmtLots, fmtPct, priceColorClass } from '@/lib/format'
 
 export function ScreenerIndustryPanel({ setIndustry, setPage }: { setIndustry: (value: string) => void; setPage: (page: number) => void }) {
   const [indSortBy, setIndSortBy] = useState<string>('turnover')
   const [indOrder, setIndOrder] = useState<'desc' | 'asc'>('desc')
   // Phase 8C-C: 34 檔預設收合只顯示前 10 檔, 避免一次全部展開
   const [showAllIndustries, setShowAllIndustries] = useState(false)
-  const { data: indData } = useQuery({
+  const { data: indData, isError } = useQuery({
     queryKey: ['taiwanIndustryIntelligence', indSortBy, indOrder],
     queryFn: () => api.taiwanIndustryIntelligence({ sort_by: indSortBy, order: indOrder }),
     staleTime: 5 * 60 * 1000,
   })
   return (
     <>
+  {isError && !indData && (
+    <div role="alert" className="rounded-xl border border-danger/30 bg-danger/10 px-4 py-2 text-xs text-danger">產業類股統計載入失敗，請稍後再試</div>
+  )}
   {/* Taiwan Industry / Sector Intelligence Panel (Phase 7B) */}
   {indData && (
     <div className="bg-zinc-900/80 border border-zinc-800/90 rounded-xl p-4 text-xs space-y-3">
@@ -82,9 +86,9 @@ export function ScreenerIndustryPanel({ setIndustry, setPage }: { setIndustry: (
                 </td>
                 <td className="py-1.5 px-2 text-right text-zinc-400">{ind.supported_symbol_count}</td>
                 <td className="py-1.5 px-2 text-right">
-                  <span className="text-red-400">{ind.advance_count}</span>
+                  <span className="text-bull">{ind.advance_count}</span>
                   <span className="text-zinc-600 mx-0.5">/</span>
-                  <span className="text-emerald-400">{ind.decline_count}</span>
+                  <span className="text-bear">{ind.decline_count}</span>
                   <span className="text-zinc-600 mx-0.5">/</span>
                   <span className="text-zinc-400">{ind.flat_count}</span>
                 </td>
@@ -93,42 +97,42 @@ export function ScreenerIndustryPanel({ setIndustry, setPage }: { setIndustry: (
                 </td>
                 <td className="py-1.5 px-2 text-right">
                   {ind.median_change_pct !== null ? (
-                    <span className={ind.median_change_pct > 0 ? 'text-red-400 font-semibold' : ind.median_change_pct < 0 ? 'text-emerald-400 font-semibold' : 'text-zinc-300'}>
-                      {ind.median_change_pct > 0 ? '+' : ''}{(ind.median_change_pct * 100).toFixed(2)}%
+                    <span className={`font-semibold ${priceColorClass(ind.median_change_pct)}`}>
+                      {fmtPct(ind.median_change_pct)}
                     </span>
                   ) : <span className="text-zinc-500">—</span>}
                 </td>
                 <td className="py-1.5 px-2 text-right text-zinc-200 font-semibold">
-                  {(ind.turnover / 100_000_000).toFixed(1)} 億
+                  {fmtBigNum(ind.turnover)}
                 </td>
                 <td className="py-1.5 px-2 text-right text-zinc-400">
                   {(ind.turnover_share * 100).toFixed(1)}%
                 </td>
                 <td className="py-1.5 px-2 text-right">
                   {ind.relative_strength_5d !== null ? (
-                    <span className={ind.relative_strength_5d > 0 ? 'text-red-400 font-semibold' : ind.relative_strength_5d < 0 ? 'text-emerald-400 font-semibold' : 'text-zinc-300'}>
-                      {ind.relative_strength_5d > 0 ? '+' : ''}{(ind.relative_strength_5d * 100).toFixed(2)}%
+                    <span className={`font-semibold ${priceColorClass(ind.relative_strength_5d)}`}>
+                      {fmtPct(ind.relative_strength_5d)}
                     </span>
                   ) : <span className="text-zinc-500">—</span>}
                 </td>
                 <td className="py-1.5 px-2 text-right">
                   {ind.relative_strength_20d !== null ? (
-                    <span className={ind.relative_strength_20d > 0 ? 'text-red-400 font-semibold' : ind.relative_strength_20d < 0 ? 'text-emerald-400 font-semibold' : 'text-zinc-300'}>
-                      {ind.relative_strength_20d > 0 ? '+' : ''}{(ind.relative_strength_20d * 100).toFixed(2)}%
+                    <span className={`font-semibold ${priceColorClass(ind.relative_strength_20d)}`}>
+                      {fmtPct(ind.relative_strength_20d)}
                     </span>
                   ) : <span className="text-zinc-500">—</span>}
                 </td>
                 <td className="py-1.5 px-2 text-right">
                   {ind.foreign_net !== null ? (
-                    <span className={ind.foreign_net > 0 ? 'text-red-400' : ind.foreign_net < 0 ? 'text-emerald-400' : 'text-zinc-300'}>
-                      {ind.foreign_net > 0 ? '+' : ''}{(ind.foreign_net / 1000).toLocaleString()} 張
+                    <span className={priceColorClass(ind.foreign_net)}>
+                      {fmtLots(ind.foreign_net, true)}
                     </span>
                   ) : <span className="text-zinc-500">—</span>}
                 </td>
                 <td className="py-1.5 px-2 text-right">
                   {ind.investment_trust_net !== null ? (
-                    <span className={ind.investment_trust_net > 0 ? 'text-red-400' : ind.investment_trust_net < 0 ? 'text-emerald-400' : 'text-zinc-300'}>
-                      {ind.investment_trust_net > 0 ? '+' : ''}{(ind.investment_trust_net / 1000).toLocaleString()} 張
+                    <span className={priceColorClass(ind.investment_trust_net)}>
+                      {fmtLots(ind.investment_trust_net, true)}
                     </span>
                   ) : <span className="text-zinc-500">—</span>}
                 </td>

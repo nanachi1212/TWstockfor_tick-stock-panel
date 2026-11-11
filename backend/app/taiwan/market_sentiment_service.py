@@ -10,7 +10,6 @@ Strict Rules:
   it degrades gracefully to spot-only analysis without fabricating fake zeros.
 - Cached to avoid redundant API polling on Dashboard refreshes.
 """
-# ruff: noqa: RUF001
 from __future__ import annotations
 
 import logging
@@ -88,6 +87,13 @@ class TaiwanMarketSentimentService:
         self.finmind = finmind_adapter or FinMindAdapter()
         self.cache = finmind_cache or FinMindCache()
 
+    def _remember_unavailable(
+        self, dataset: str, symbol_key: str, message: str,
+    ) -> tuple[None, str, str]:
+        """Short negative cache (FinMindCache.NEGATIVE_TTL) so a dashboard refresh does not re-query FinMind."""
+        self.cache.set(dataset, symbol_key, [], status="unavailable", error_msg=message)
+        return None, "unavailable", message
+
     def _fetch_tx_futures(
         self, target_date: date, *, allow_fetch: bool = True,
     ) -> tuple[dict[str, Any] | None, str, str | None]:
@@ -101,6 +107,8 @@ class TaiwanMarketSentimentService:
         if cached:
             if cached.get("status") == "auth_required":
                 return None, "auth_required", "目前資料來源方案不提供期權資料 (需有效金鑰)"
+            if cached.get("status") == "unavailable":
+                return None, "unavailable", cached.get("error_msg") or "期貨資料暫不可用"
             if isinstance(cached.get("data"), list) and cached.get("data"):
                 rows = cached.get("data", [])
                 parsed = self._parse_futures_rows(rows, target_date=target_date)
@@ -122,11 +130,11 @@ class TaiwanMarketSentimentService:
                 raise_for_status=True,
             )
             if not rows:
-                return None, "unavailable", f"查無 {target_date.isoformat()} 近期台指期三大法人資料"
+                return self._remember_unavailable(dataset, symbol_key, f"查無 {target_date.isoformat()} 近期台指期三大法人資料")
 
             parsed = self._parse_futures_rows(rows, target_date=target_date)
             if not parsed:
-                return None, "unavailable", f"查無 {target_date.isoformat()} 當日台指期外資部位"
+                return self._remember_unavailable(dataset, symbol_key, f"查無 {target_date.isoformat()} 當日台指期外資部位")
 
             self.cache.set(dataset, symbol_key, rows, data_date=end_date, status="available")
             return parsed, "available", None
@@ -134,10 +142,11 @@ class TaiwanMarketSentimentService:
             self.cache.set(dataset, symbol_key, [], status="auth_required")
             return None, "auth_required", "目前資料來源方案不提供期權資料 (需有效金鑰)"
         except FinMindRateLimitError:
+            self._remember_unavailable(dataset, symbol_key, "期貨資料查詢已達頻率上限")
             return None, "rate_limited", "期貨資料查詢已達頻率上限"
         except Exception as e:
             logger.warning("Failed to fetch TX futures from FinMind: %s", e)
-            return None, "unavailable", f"期貨資料暫不可用: {e}"
+            return self._remember_unavailable(dataset, symbol_key, f"期貨資料暫不可用: {e}")
 
     def _parse_futures_rows(
         self, rows: list[dict[str, Any]], target_date: date | None = None
@@ -199,6 +208,8 @@ class TaiwanMarketSentimentService:
         if cached:
             if cached.get("status") == "auth_required":
                 return None, "auth_required", "目前資料來源方案不提供選擇權資料"
+            if cached.get("status") == "unavailable":
+                return None, "unavailable", cached.get("error_msg") or "選擇權資料暫不可用"
             if isinstance(cached.get("data"), list) and cached.get("data"):
                 rows = cached.get("data", [])
                 parsed = self._parse_options_rows(rows, target_date=target_date)
@@ -220,11 +231,11 @@ class TaiwanMarketSentimentService:
                 raise_for_status=True,
             )
             if not rows:
-                return None, "unavailable", f"查無 {target_date.isoformat()} 近期選擇權三大法人資料"
+                return self._remember_unavailable(dataset, symbol_key, f"查無 {target_date.isoformat()} 近期選擇權三大法人資料")
 
             parsed = self._parse_options_rows(rows, target_date=target_date)
             if not parsed:
-                return None, "unavailable", f"查無 {target_date.isoformat()} 當日選擇權外資部位"
+                return self._remember_unavailable(dataset, symbol_key, f"查無 {target_date.isoformat()} 當日選擇權外資部位")
 
             self.cache.set(dataset, symbol_key, rows, data_date=end_date, status="available")
             return parsed, "available", None
@@ -232,10 +243,11 @@ class TaiwanMarketSentimentService:
             self.cache.set(dataset, symbol_key, [], status="auth_required")
             return None, "auth_required", "目前資料來源方案不提供選擇權資料"
         except FinMindRateLimitError:
+            self._remember_unavailable(dataset, symbol_key, "選擇權資料查詢已達頻率上限")
             return None, "rate_limited", "選擇權資料查詢已達頻率上限"
         except Exception as e:
             logger.warning("Failed to fetch TXO options from FinMind: %s", e)
-            return None, "unavailable", f"選擇權資料暫不可用: {e}"
+            return self._remember_unavailable(dataset, symbol_key, f"選擇權資料暫不可用: {e}")
 
     def _parse_options_rows(
         self, rows: list[dict[str, Any]], target_date: date | None = None
@@ -364,7 +376,7 @@ class TaiwanMarketSentimentService:
 
         # ── Indicator A3: Institutional Investors Net Flows ──
         inst = intel.institutional
-        if inst.status in ("current", "stale") and inst.foreign_net is not None:
+        if inst.status == "current" and inst.foreign_net is not None:
             foreign_net = inst.foreign_net  # in shares
             total_net = inst.total_net or 0
             # in lots (張)
@@ -392,7 +404,7 @@ class TaiwanMarketSentimentService:
 
         # ── Indicator A4: Margin Balance Change ──
         margin = intel.margin
-        if margin.status in ("current", "stale") and margin.margin_balance_change is not None:
+        if margin.status == "current" and margin.margin_balance_change is not None:
             m_change = margin.margin_balance_change / 1000  # in lots (張)
             if m_change > 8000:
                 ev_dir = "neutral"

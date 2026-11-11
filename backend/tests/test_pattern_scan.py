@@ -1,5 +1,5 @@
 """Fixed synthetic paths for 型態選股: detection states, false-breakout filter, plan grid and scan filters."""
-# ruff: noqa: RUF001, RUF003 -- user-facing Traditional Chinese labels and rule text.
+
 import json
 from datetime import date, datetime, timedelta
 from itertools import pairwise

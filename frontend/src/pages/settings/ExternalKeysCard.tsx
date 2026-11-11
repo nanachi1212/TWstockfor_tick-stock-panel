@@ -27,7 +27,7 @@ const KEYS: { name: ExternalKeyName; title: string; desc: string; url?: string }
 export function ExternalKeysCard() {
   const qc = useQueryClient()
   const [inputs, setInputs] = useState<Partial<Record<ExternalKeyName, string>>>({})
-  const { data } = useQuery({ queryKey: ['externalKeys'], queryFn: api.getExternalKeys })
+  const { data, isError } = useQuery({ queryKey: ['externalKeys'], queryFn: api.getExternalKeys })
   const mutation = useMutation({
     mutationFn: (p: { name: ExternalKeyName; key: string }) => api.updateExternalKey(p),
     onSuccess: (_, p) => {
@@ -60,7 +60,7 @@ export function ExternalKeysCard() {
                 </span>
               ) : (
                 <span className="inline-flex items-center gap-1 text-xs text-amber-400">
-                  <AlertCircle className="h-3.5 w-3.5" />未設定
+                  <AlertCircle className="h-3.5 w-3.5" />{isError && !data ? '狀態載入失敗' : '未設定'}
                 </span>
               )}
             </div>

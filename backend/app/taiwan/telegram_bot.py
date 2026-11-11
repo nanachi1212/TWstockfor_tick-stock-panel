@@ -5,7 +5,7 @@
 - 只讀既有資料 (即時報價、BeginnerSelectionService、已儲存 AI 研究)；不會因為訊息呼叫 LLM。
 - 預設關閉；Token 或 chat_id 未設定時不啟動。
 """
-# ruff: noqa: RUF001, RUF002 -- user-facing Traditional Chinese text is intentional.
+
 from __future__ import annotations
 
 import logging
@@ -213,7 +213,11 @@ class TelegramQueryBot:
                     sender_chat = str((message.get("chat") or {}).get("id") or "")
                     if sender_chat != chat_id:
                         continue  # 只回應設定的對象
-                    reply = handle_text(str(message.get("text") or ""))
+                    try:
+                        reply = handle_text(str(message.get("text") or ""))
+                    except Exception as exc:  # the update is already consumed: always answer something
+                        logger.warning("telegram query failed: %s", type(exc).__name__)
+                        reply = "查詢時發生錯誤，請稍後再試。"
                     webhook_adapter.send_telegram(token, chat_id, "", reply)
                 backoff = 2.0
             except Exception as exc:

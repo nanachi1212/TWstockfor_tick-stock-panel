@@ -21,7 +21,7 @@ overwrites what was visible earlier.  Corrections published before our first
 observation are indistinguishable from originals and are reported as
 ``first_observed``.
 """
-# ruff: noqa: RUF001 -- official field names contain full-width punctuation.
+
 from __future__ import annotations
 
 import gzip
@@ -293,14 +293,6 @@ class MonthlyRevenueEvidenceStore:
     def rows(self, sha: str) -> dict[str, tuple[str, int | None, int | None]]:
         return _load_rows(str(self._rows_path(sha)), sha)
 
-    def last_success(self, market: str, kind: str, period: str) -> datetime | None:
-        times = [
-            _aware(r["retrieved_at"]) for r in self.fetches()
-            if (r["market"], r["kind"], r["period"]) == (market, kind, period)
-            and r["status"] in ("available", "not_published")
-        ]
-        return max(times, default=None)
-
     def evidence_as_of(
         self, cutoff: datetime, *, max_age: timedelta = MAX_EVIDENCE_AGE,
     ) -> RevenueEvidenceSnapshot:
@@ -470,11 +462,18 @@ def refresh_monthly_revenue_evidence(
         "fetched": 0, "skipped_fresh": 0, "not_published": 0, "failed": 0, "errors": [],
     }
     unreachable = 0
+    # One ledger read for the whole run: every page key is visited once, so the
+    # fetches recorded below never change another page's answer. ``fetches()`` is
+    # sorted by time, so the last assignment is the latest success.
+    last_success = {
+        (r["market"], r["kind"], r["period"]): _aware(r["retrieved_at"])
+        for r in store.fetches() if r["status"] in ("available", "not_published")
+    }
     try:
         for market, kind, period in (
             (market, kind, period) for market in BOARDS for kind in ISSUER_KINDS for period in periods
         ):
-            last = store.last_success(market, kind, period)
+            last = last_success.get((market, kind, period))
             if last is not None and now - last < refetch_after:
                 summary["skipped_fresh"] += 1
                 continue

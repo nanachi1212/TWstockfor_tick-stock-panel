@@ -25,7 +25,7 @@ from app.taiwan.daily_store import TaiwanDailyStore
 from app.taiwan.observed_universe import ObservedUniverseStore
 
 BENCHMARK_SYMBOL = "0050.TWSE"
-BENCHMARK_NAME = "元大台灣50（加權指數代理）"  # noqa: RUF001 — display text keeps full-width brackets
+BENCHMARK_NAME = "元大台灣50（加權指數代理）"
 LOOKBACK_DAYS = 365
 MIN_SESSIONS = 20
 TRADING_DAYS_PER_YEAR = 252
@@ -170,12 +170,20 @@ class PortfolioAnalyticsService:
         start = max(frame["date"].min() for frame in frames.values())
         out.update(window_start=start.isoformat(), window_end=end.isoformat())
         observed = set(raw["date"].to_list())
+        closed: dict[tuple[str, date], bool] = {}
+
+        def is_closed(exchange: str, day: date) -> bool:
+            # Holdings on one exchange share the answer; look each day up once, not per symbol.
+            if (exchange, day) not in closed:
+                closed[exchange, day] = self.evidence.day_evidence(exchange, day).status == "non_trading"
+            return closed[exchange, day]
+
         for symbol, frame in frames.items():
             valid = set(frame.filter(pl.col(symbol).is_finite() & (pl.col(symbol) > 0))["date"].to_list())
             day = start
             while day <= end:
-                if day not in valid and (day in observed or self.evidence.day_evidence(
-                        symbol.rsplit(".", 1)[-1], day).status != "non_trading"):
+                if day not in valid and (day in observed or not is_closed(
+                        symbol.rsplit(".", 1)[-1], day)):
                     out["missing_sessions"].append({"symbol": symbol, "date": day.isoformat()})
                 day += timedelta(days=1)
         if out["missing_sessions"]:

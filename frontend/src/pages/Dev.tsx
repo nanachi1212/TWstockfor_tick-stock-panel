@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { Loader2, Search, AlertTriangle, CheckCircle2, XCircle } from 'lucide-react'
 import { PageHeader } from '@/components/PageHeader'
 import { api } from '@/lib/api'
+import { taipeiDate } from '@/lib/format'
 
 // ── 分鐘K探測 (遷移自 MinuteDataProbe) ─────────────────
 interface ProbeResult {
@@ -26,11 +27,9 @@ function MinuteProbePanel() {
     setResults([])
 
     const dates: string[] = []
-    const today = new Date()
+    const now = Date.now()
     for (let i = 0; i < days; i++) {
-      const d = new Date(today)
-      d.setDate(d.getDate() - i)
-      dates.push(d.toISOString().slice(0, 10))
+      dates.push(taipeiDate(now - i * 86_400_000)!)
     }
 
     const out: ProbeResult[] = []
@@ -166,8 +165,8 @@ function MinuteProbePanel() {
             <AlertTriangle className="h-4 w-4" /> 缺失日期的診斷
           </div>
           <p className="leading-relaxed text-secondary">
-            缺失日期若為<span className="text-foreground">週末/節假日</span>屬正常；
-            若為<span className="text-foreground">停牌日</span>（成交量為 0）也屬正常；
+            缺失日期若為<span className="text-foreground">週末/國定假日</span>屬正常；
+            若為<span className="text-foreground">暫停交易日</span>（成交量為 0）也屬正常；
             若為<span className="text-foreground">正常交易日</span>（日K有成交量）卻缺失分鐘K，
             請確認所選自訂來源是否提供該交易日的分鐘資料。
           </p>

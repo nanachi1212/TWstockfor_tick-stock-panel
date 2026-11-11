@@ -1,7 +1,6 @@
 """Official regulatory history used by the trend_liquidity_v1 PIT replay."""
 from __future__ import annotations
 
-# ruff: noqa: RUF001 -- Official Chinese fixtures keep the exchange's fullwidth separators.
 from datetime import date, timedelta
 
 import polars as pl
@@ -135,6 +134,25 @@ def test_backfill_records_only_valid_responses(tmp_path):
     cmode = backfill_cmode(store, [day, date(2015, 1, 6)], fetch=lambda url: (
         _cmode(day, ("4415", False, True)) if "104/01/05" in url else _cmode(date(2015, 1, 6))))
     assert cmode["written"] == 1 and store.cmode_dates() == {day}
+
+
+def test_backfill_reads_month_coverage_once_per_source(tmp_path, monkeypatch):
+    store = RegulatoryHistoryStore(tmp_path)
+    calls: list[str] = []
+    original = store.covered_months
+
+    def counted(source):
+        calls.append(source)
+        return original(source)
+
+    monkeypatch.setattr(store, "covered_months", counted)
+
+    def offline(url):
+        raise OSError("offline")
+
+    report = backfill_announcements(store, date(2015, 1, 1), date(2015, 6, 30), fetch=offline)
+    assert len(report["errors"]) == 12  # six months x two sources, none written
+    assert sorted(calls) == ["tpex_disposal", "twse_punish"]
 
 
 def test_month_fetched_before_it_closes_covers_only_what_was_published(tmp_path):

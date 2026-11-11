@@ -1,5 +1,5 @@
 """Local research snapshot; no HTTP, strategy admission or current-master join."""
-# ruff: noqa: RUF001 -- Traditional Chinese product explanations.
+
 from __future__ import annotations
 
 from datetime import date, timedelta

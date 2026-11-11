@@ -10,7 +10,7 @@ vi.mock('@/lib/api', () => ({ api: {
   dataSources: vi.fn().mockResolvedValue({
     builtin: [{ name: 'taiwan', display_name: '台灣官方資料源 (TWSE/TPEx)', datasets: ['daily', 'realtime', 'financial'] }],
     custom: [{ name: 'custom_feed', display_name: '自訂分鐘來源', datasets: ['minute'] }],
-    plugins: [], errors: [],
+    errors: [],
   }),
 } }))
 vi.mock('./TaiwanHistoryDataCard', () => ({ TaiwanHistoryDataCard: () => null }))

@@ -5,16 +5,15 @@ rate limiting protection, freshness / stale detection, and fallback chain.
 """
 from __future__ import annotations
 
-from dataclasses import replace
-from datetime import date, datetime, time as dt_time
-
 import logging
 import threading
 import time
+from dataclasses import replace
+from datetime import date, datetime
+from datetime import time as dt_time
 from typing import Any
 
 from app.taiwan.enrichment.models import SourceMeta
-from app.taiwan.enrichment.quote import TaiwanOfficialQuoteProvider
 from app.taiwan.realtime.calendar import (
     TAIPEI_TZ,
     TaiwanTradingCalendar,
@@ -37,7 +36,7 @@ _MARKET_CLOSE_TIME = dt_time(13, 30, 0)
 
 
 class TaiwanRealtimeService:
-    """Thread-safe Real-time Quotation Service with 4-level Fallback Chain."""
+    """Thread-safe Real-time Quotation Service with 3-level Fallback Chain."""
 
     def __init__(
         self,
@@ -46,14 +45,12 @@ class TaiwanRealtimeService:
         trading_calendar: TaiwanTradingCalendar | None = None,
         mis_provider: TwseMisRealtimeProvider | None = None,
         yahoo_provider: YahooRealtimeProvider | None = None,
-        official_close_provider: TaiwanOfficialQuoteProvider | None = None,
     ) -> None:
         self.cache_ttl_seconds = cache_ttl_seconds
         self.freshness_policy = freshness_policy or RealtimeFreshnessPolicy()
         self.trading_calendar = trading_calendar or TaiwanTradingCalendar()
         self.mis_provider = mis_provider or TwseMisRealtimeProvider()
         self.yahoo_provider = yahoo_provider or YahooRealtimeProvider()
-        self.official_close_provider = official_close_provider or TaiwanOfficialQuoteProvider()
 
         # In-memory hot cache: (canonical, market_session) -> (monotonic_expiry, quote)
         self._cache: dict[tuple[str, str], tuple[float, TaiwanRealtimeQuote]] = {}
@@ -111,8 +108,7 @@ class TaiwanRealtimeService:
           1. In-memory Hot Cache (if fresh and not force_refresh)
           2. Primary Provider: TWSE MIS (Live L1/L2)
           3. Secondary Provider: Yahoo Finance
-          4. Official Close Snapshot: TWSE STOCK_DAY_ALL / TPEx quotes
-          5. Latest Daily K-Line (if daily_kline_fallback_fn provided)
+          4. Latest Daily K-Line (if daily_kline_fallback_fn provided)
         """
         if not symbols:
             return {}
@@ -182,65 +178,9 @@ class TaiwanRealtimeService:
 
         missing_after_secondary = [ts for ts in to_fetch if ts.canonical not in results]
 
-        # 4. Official Close Snapshot Fallback
-        if missing_after_secondary:
+        # 4. Latest Daily K-Line Fallback
+        if missing_after_secondary and daily_kline_fallback_fn:
             for ts in missing_after_secondary:
-                try:
-                    snap = self.official_close_provider.get_quote(ts.canonical)
-                    if snap:
-                        now_tpe = taipei_now()
-                        # Derive quote_time from official close date at canonical 13:30 Taipei
-                        snap_quote_time = datetime.combine(
-                            snap.date, _MARKET_CLOSE_TIME, tzinfo=TAIPEI_TZ,
-                        )
-                        # Snapshot during an open/unverified session is inherently stale
-                        snap_is_stale = cur_market_status in (
-                            MarketStatus.OPEN,
-                            MarketStatus.SCHEDULED_OPEN_UNVERIFIED,
-                            MarketStatus.PRE_OPEN,
-                        )
-                        meta = SourceMeta(
-                            source=snap.source,
-                            source_url="",
-                            fetched_at=now_tpe.isoformat(),
-                            trade_date=snap.date,
-                            status=RealtimeStatus.OFFICIAL_SNAPSHOT_FALLBACK.value,
-                            is_realtime=False,
-                            fallback_reason="Realtime providers unavailable; fell back to official close snapshot",
-                            available_fields=("last_price", "prev_close", "volume", "amount"),
-                            is_stale=snap_is_stale,
-                            source_type="official_open_data",
-                            freshness_class="eod_snapshot",
-                            is_best_effort=False,
-                            documented_sla=False,
-                        )
-                        rt_quote = TaiwanRealtimeQuote(
-                            symbol=ts.canonical,
-                            name=snap.name,
-                            exchange=ts.exchange,
-                            last_price=snap.close,
-                            prev_close=snap.previous_close,
-                            open=snap.open,
-                            high=snap.high,
-                            low=snap.low,
-                            change=snap.change,
-                            change_pct=snap.change_pct,
-                            volume=snap.volume,
-                            amount=snap.amount,
-                            quote_time=snap_quote_time,
-                            trade_date=snap.date,
-                            market_status=cur_market_status.value,
-                            source_meta=meta,
-                        )
-                        results[ts.canonical] = rt_quote
-                except Exception as e:
-                    logger.debug("Official snapshot fallback failed for %s: %s", ts.canonical, e)
-
-        missing_after_snapshot = [ts for ts in to_fetch if ts.canonical not in results]
-
-        # 5. Latest Daily K-Line Fallback
-        if missing_after_snapshot and daily_kline_fallback_fn:
-            for ts in missing_after_snapshot:
                 try:
                     daily_row = daily_kline_fallback_fn(ts.canonical)
                     if daily_row:
@@ -321,22 +261,6 @@ class TaiwanRealtimeService:
                 self._cache[cache_key] = (now_mono + self.cache_ttl_seconds, q)
 
         return results
-
-
-    def get_quote(
-        self,
-        symbol: TaiwanSymbol | str,
-        force_refresh: bool = False,
-        daily_kline_fallback_fn: Any | None = None,
-    ) -> TaiwanRealtimeQuote | None:
-        """Fetch quote for a single symbol."""
-        res = self.get_quotes(
-            [symbol],
-            force_refresh=force_refresh,
-            daily_kline_fallback_fn=daily_kline_fallback_fn,
-        )
-        ts = symbol if isinstance(symbol, TaiwanSymbol) else parse_symbol(symbol)
-        return res.get(ts.canonical)
 
 
 _default_service: TaiwanRealtimeService | None = None

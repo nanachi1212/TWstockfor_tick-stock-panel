@@ -34,7 +34,7 @@ from app.taiwan.adjust import PROVENANCE_COLUMNS, validate_feature_window
 
 # 需要 14 次漲跌 diff => 至少 15 根收盤價才不算"純 warm-up"。
 MIN_BARS_RSI_14 = 15
-# 慢線 EMA(26) 的常規經驗暖機長度 + 信號線 EMA(9) 再暖機一輪。
+# 慢線 EMA(26) 的常規經驗暖機長度 + 訊號線 EMA(9) 再暖機一輪。
 MIN_BARS_MACD = 35
 
 def wilder_rsi_expr(period: int = 14, close: str = "close", by: str = "symbol") -> pl.Expr:

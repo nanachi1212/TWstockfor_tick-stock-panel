@@ -7,7 +7,7 @@ import { api } from '@/lib/api'
 import { rotationPoints, type BigHolderRow, type DayCoverage, type GroupRankingRow, type GroupRankingSnapshot, type HeatmapIndustry, type MarketHeatmapSnapshot, type PatternScanSnapshot, type ResearchMetric, type InvestorStatistics, type IndustryRotationRow } from '@/lib/marketResearch'
 
 vi.mock('@/lib/api', () => ({ api: { taiwanInstitutionalStatistics: vi.fn(), taiwanIndustryRotation: vi.fn(), marketBreadthValuation: vi.fn(), refreshMarketValuation: vi.fn(), taiwanBigHolderRanking: vi.fn(), taiwanMarketHeatmap: vi.fn(), taiwanGroupRanking: vi.fn(), taiwanPatternScan: vi.fn() } }))
-vi.mock('echarts-for-react', () => ({ default: () => <div data-testid="rotation-chart" /> }))
+vi.mock('echarts-for-react/lib/core', () => ({ default: () => <div data-testid="rotation-chart" /> }))
 
 function metric(value: number | null, status: ResearchMetric['status'] = 'available'): ResearchMetric {
   return { value, unit: 'shares', status, source: ['TWSE:T86'], date: '2026-09-30', as_of: '2026-09-30', coverage: { expected_days: 5, coverage_days: status === 'partial' ? 4 : 5, expected_observations: 5, observed_observations: 5, missing_dates: status === 'partial' ? ['2026-09-28'] : [] } }
@@ -133,7 +133,7 @@ describe('Market research product UI', () => {
       industries: [sector('半導體業', 100_000_000_000, 0.0175), sector('ETF', 20_000_000_000, 0.01), sector('UNCLASSIFIED', 3_456_000_000, null)] }
     vi.mocked(api.taiwanMarketHeatmap).mockResolvedValue(snapshot)
     mount('/market-research?tab=heatmap&date=2026-10-20')
-    expect(await screen.findByText('1,234.56 億')).toBeInTheDocument()
+    expect(await screen.findByText('1234.56億')).toBeInTheDocument()
     expect(screen.getByText('+20.00%')).toBeInTheDocument()
     expect(screen.getByText('目標日期：2026-10-20')).toBeInTheDocument()
     const rows = screen.getAllByRole('row').slice(1)
@@ -157,7 +157,8 @@ describe('Market research product UI', () => {
     const notice = await screen.findByText('2026-10-16 日資料不完整：缺 2 檔（TWSE 1／TPEX 1），總成交金額與占比不代表全市場')
     expect(notice).toHaveAttribute('title', '8908.TWSE、6488.TPEX')
     expect(screen.getByText('較前日（前日資料不完整）')).toBeInTheDocument()
-    expect(screen.getByText('1,000.00 億')).toBeInTheDocument()
+    // The total and the single industry row both read 1000.00億 now that both use fmtBigNum.
+    expect(screen.getAllByText('1000.00億').length).toBeGreaterThan(0)
   })
   it('shows a notice instead of an error when the heatmap date has no daily data', async () => {
     vi.mocked(api.taiwanMarketHeatmap).mockResolvedValue({ date: '2026-10-21', previous_date: null, status: 'unavailable', reason: 'no_daily_data', price_semantics: 'raw_close',

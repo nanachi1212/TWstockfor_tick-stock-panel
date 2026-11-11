@@ -1,6 +1,5 @@
 """Read-only projection of existing Taiwan metadata. No fetching or pipeline here."""
 
-# ruff: noqa: RUF001
 from __future__ import annotations
 
 import re
@@ -95,7 +94,7 @@ HTTP_REASONS = {
     "401": "資料源驗證失敗，請檢查授權設定",
     "402": "服務帳戶餘額或付費額度不足（Payment Required）",
     "403": "資料源拒絕存取（Forbidden），可能為反爬蟲或權限限制",
-    "429": "資料源限流，稍後重試",
+    "429": "資料來源限流，稍後重試",
 }
 
 
@@ -169,14 +168,25 @@ def expected_revenue_date(today: date) -> date:
 
 
 def _previous_daily_session() -> date | None:
-    """Session before the latest stored daily date (one-session publication lag)."""
-    try:
-        from app.taiwan.daily_store import TaiwanDailyStore
+    """Session before the authoritative target session (one-session publication lag).
 
-        sessions = sorted(TaiwanDailyStore().available_dates())
+    Derived from the shared target resolver, not from what happens to be stored, so a
+    stale local store cannot lower the bar it is judged against.
+    """
+    try:
+        from app.taiwan.daily_update import resolve_target_latest_trading_date
+        from app.taiwan.observed_universe import ObservedUniverseStore, is_potential_market_session
+        from app.taiwan.realtime.calendar import TaiwanTradingCalendar
+
+        store, cal = ObservedUniverseStore(), TaiwanTradingCalendar()
+        day = resolve_target_latest_trading_date(cal, evidence_store=store) - timedelta(days=1)
+        for _ in range(30):
+            if is_potential_market_session(day, cal, store):
+                return day
+            day -= timedelta(days=1)
     except Exception:
         return None
-    return (sessions[-2] if len(sessions) > 1 else sessions[-1]) if sessions else None
+    return None
 
 
 def finmind_policy(
@@ -548,9 +558,12 @@ class DataHealthService:
         ):
             # Legacy cache keys without an exchange suffix are not canonical symbols.
             records = [r for r in cache.health_metadata(dataset) if "." in str(r.get("symbol", ""))]
+            event_based = key == "securities_lending"
             expected = (
                 expected_financial_period(today) if key == "financial"
                 else expected_revenue_date(today) if key == "monthly_revenue"
+                # A lending trade is an event: a quiet stock is not behind, so only cache TTL applies.
+                else None if event_based
                 # Daily chips are cached for days; judge them by data date, not by cache age.
                 else chips_floor
             )
@@ -568,7 +581,6 @@ class DataHealthService:
                 and (t := timestamp(r.get("fetched_at")))
             ]
             dates = [d for r in records if (d := data_date(r.get("data_date")))]
-            event_based = key == "securities_lending"
             result[key] = {
                 "status": status,
                 "source": "FinMind cache",

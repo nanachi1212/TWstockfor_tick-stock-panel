@@ -17,6 +17,7 @@ import { formatSocialSentimentPrompt } from '@/lib/copy-formatters'
 import { storage } from '@/lib/storage'
 import { buildPortfolioPositions, isPortfolioTransaction, type PortfolioTransaction } from '@/lib/portfolio'
 import { cn } from '@/lib/cn'
+import { fmtTaipeiDateTime, priceColorClass } from '@/lib/format'
 
 type SortKey = 'social_heat_score' | 'total_mentions' | 'sentiment_score'
 
@@ -148,7 +149,7 @@ export function SocialSentiment() {
               <p className="mt-1 text-xs leading-relaxed text-muted">社群討論與 AI 情緒分析僅供研究，可能有抽樣與群體偏誤，不代表公司基本面或買賣建議。</p>
               {sentiment.data && (
                 <p className="mt-2 text-xs text-secondary">
-                  最後更新：{generatedAt?.toLocaleString('zh-TW', { hour12: false }) ?? '不可用'}，來源：{TRIGGER_LABELS[sentiment.data.trigger] ?? '未知'}
+                  最後更新：{generatedAt ? fmtTaipeiDateTime(generatedAt, '不可用', true) : '不可用'}，來源：{TRIGGER_LABELS[sentiment.data.trigger] ?? '未知'}
                 </p>
               )}
             </div>
@@ -186,6 +187,7 @@ export function SocialSentiment() {
                 </option>
               ))}
             </select>
+            {history.isError && <span role="alert" className="text-xs text-warning">歷史清單載入失敗</span>}
             <SortButton value="social_heat_score" label="熱度排序" />
             <SortButton value="total_mentions" label="聲量排序" />
             <SortButton value="sentiment_score" label="情緒分數排序" />
@@ -249,7 +251,7 @@ export function SocialSentiment() {
                         <td className="px-3 py-2 font-mono">{number(row.unique_posts)}</td>
                         <td className="px-3 py-2 font-mono">{number(row.engagement)}</td>
                         <td className="px-3 py-2 font-mono font-semibold text-accent">{number(row.social_heat_score, 1)}</td>
-                        <td className="px-3 py-2 font-mono">{row.volume_change_24h == null ? '不可比' : <span className={row.volume_change_24h >= 0 ? 'text-bull' : 'text-bear'}>{row.volume_change_24h >= 0 ? <ArrowUp className="inline h-3 w-3" /> : <ArrowDown className="inline h-3 w-3" />}{Math.abs(row.volume_change_24h * 100).toFixed(0)}%</span>}</td>
+                        <td className="px-3 py-2 font-mono">{row.volume_change_24h == null ? '不可比' : <span className={priceColorClass(row.volume_change_24h)}>{row.volume_change_24h >= 0 ? <ArrowUp className="inline h-3 w-3" /> : <ArrowDown className="inline h-3 w-3" />}{Math.abs(row.volume_change_24h * 100).toFixed(0)}%</span>}</td>
                         <td className="px-3 py-2 font-mono">{row.sentiment_status === 'available' ? percentage(row.bullish_count, sentimentTotal) : '不可用'}</td>
                         <td className="px-3 py-2 font-mono">{row.sentiment_status === 'available' ? percentage(row.neutral_count, sentimentTotal) : '不可用'}</td>
                         <td className="px-3 py-2 font-mono">{row.sentiment_status === 'available' ? percentage(row.bearish_count, sentimentTotal) : '不可用'}</td>

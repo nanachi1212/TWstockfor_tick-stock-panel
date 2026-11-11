@@ -1,8 +1,8 @@
 import { useEffect, useRef, useCallback, useMemo, useState } from 'react'
 import { chartTheme, getTheme, useTheme } from '@/lib/theme'
 import { RADIX, RADIX_CHART_SERIES } from '@/lib/radix'
-import * as echarts from 'echarts'
-import type { ECharts, EChartsOption, InsideDataZoomComponentOption, SliderDataZoomComponentOption } from 'echarts'
+import { echarts, type ECharts } from '@/lib/echarts'
+import type { EChartsOption, InsideDataZoomComponentOption, SliderDataZoomComponentOption } from 'echarts'
 
 export interface OHLC {
   date: string
@@ -216,8 +216,9 @@ export function EChartsCandlestick({
     if (!d) return ''
     const prev = idx > 0 ? data[idx - 1] : null
     const chg = prev ? d.close - prev.close : 0
-    const isUp = chg >= 0
-    const clr = isUp ? THEME.bull : THEME.bear
+    const isUp = chg > 0
+    // Flat (or no previous bar) is neutral, not "up".
+    const clr = isUp ? THEME.bull : chg < 0 ? THEME.bear : CT().text
 
     let html = `<div style="display:flex;align-items:center;gap:6px;padding:0 8px;font:11px 'JetBrains Mono',monospace;select:none;height:20px;flex-wrap:wrap">`
     html += `<span style="color:${CT().text}">${d.date}</span>`

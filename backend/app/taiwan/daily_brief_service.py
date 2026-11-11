@@ -11,10 +11,8 @@ Strict Constraints:
 - Preserves missing data as None, never 0.
 - Strict No-Recommendation policy: No buy/sell orders, no target prices.
 """
-# ruff: noqa: RUF001
 from __future__ import annotations
 
-import contextlib
 import json
 import logging
 import shutil
@@ -26,13 +24,13 @@ from typing import Any
 
 from app.config import settings
 from app.services import watchlist
+from app.services.ai_json import _extract_json_object
 from app.services.ai_provider import (
-    AIOutputTruncated,
     AIProviderConfigSnapshot,
     generate_ai_text,
+    generate_structured_ai_text,
     snapshot_ai_provider_config,
 )
-from app.services.ai_json import _extract_json_object
 from app.taiwan.daily_brief_models import (
     CandidateFactBrief,
     CandidateItem,
@@ -55,7 +53,7 @@ from app.taiwan.market_intelligence import TaiwanMarketIntelligenceService
 from app.taiwan.market_sentiment_service import get_market_sentiment_service
 from app.taiwan.news_service import get_news_service
 from app.taiwan.quant.live_store import LiveLedger
-from app.taiwan.realtime.calendar import TaiwanTradingCalendar, taipei_today
+from app.taiwan.realtime.calendar import TaiwanTradingCalendar, taipei_now, taipei_today
 from app.taiwan.screener import TaiwanScreenerRequest, TaiwanScreenerService
 from app.taiwan.screener_strategy_store import get_screener_strategy_store
 
@@ -177,7 +175,7 @@ class TaiwanDailyBriefService:
             sentiment_desc = sentiment_resp.summary
         except Exception as e:
             logger.debug("Market sentiment lookup failed: %s", e)
-            sentiment_label = "中性"
+            sentiment_label = "無資料"  # a failed lookup must not read as a neutral market
             sentiment_desc = "市場情緒暫無資料"
 
         industry_svc = TaiwanIndustryIntelligenceService(daily_store=self.daily_store, calendar=self.calendar)
@@ -334,10 +332,12 @@ class TaiwanDailyBriefService:
         # Live signal scores are a 0-1 cross-sectional percentile rank of one frozen, audited
         # run; the screener shows the same number x100. Say so, or "98.6" reads as a grade.
         quant_meta: dict[str, Any] = {"score_frozen": True}
-        with contextlib.suppress(Exception):
+        live_quant_status = "no_run"
+        try:
             ledger = LiveLedger()
             runs = ledger.list_runs(limit=100, on_or_before=effective_date.isoformat())
             if len(runs) >= 1:
+                live_quant_status = "available"
                 # Scores, model and ranking population all come from the same frozen run.
                 cur_key, cur_run_session = runs[0].get("model_key"), runs[0].get("session")
                 cur_snap = (ledger.read_run(cur_key, cur_run_session) or {}).get("snapshot") or {}
@@ -401,6 +401,11 @@ class TaiwanDailyBriefService:
                                 )
                             )
 
+        except Exception as exc:
+            logger.warning("Daily brief live quant unavailable: %s", type(exc).__name__)
+            live_quant_status = "unavailable"
+            new_top10, dropped_top10 = [], []
+
         # Strategy matches via preset screener
         strategy_matches: list[CandidateItem] = []
         strategy_status = "available" if include_strategy_matches else "not_requested"
@@ -443,6 +448,7 @@ class TaiwanDailyBriefService:
             dropped_top10=dropped_top10,
             strategy_matches=strategy_matches,
             strategy_status=strategy_status, strategy_status_message=strategy_message,
+            live_quant_status=live_quant_status,
         )
 
         # 5. Events Layer
@@ -534,6 +540,10 @@ class TaiwanDailyBriefService:
             "仍可解讀其他已就緒資料；不得將空清單解釋成沒有符合策略的股票。\n"
             "14. 新聞：news.status 為 partial、unavailable 或 unknown 時，必須揭露新聞資料不足；"
             "空的 items 不代表沒有新聞或沒有風險。\n"
+            "16. 候選：candidates.live_quant_status 為 no_run 或 unavailable 時，必須說明 Live Quant 資料不足，"
+            "new_top10 與 dropped_top10 的空清單不代表沒有新入選或掉出。\n"
+            "17. 自選：watchlist.quant_leaders 只是自選清單前 5 檔，不是量化排名；watchlist.unusual_volume 只是成交量"
+            "超過 100 萬股的自選股，沒有歷史均量比較，不得稱為量能異常。持股 change_pct 是相對平均成本的累計報酬（百分點），不是當日漲跌。\n"
             "15. 產業與候選股的 change_pct 已統一為百分點，2.0 代表 +2%、-10.0 代表 -10%，不得再乘 100；advance_ratio 仍為比例。\n"
             "5. 必須嚴格輸出合法的 JSON 物件，格式鍵名固定如下：\n"
             "{\n"
@@ -555,38 +565,19 @@ class TaiwanDailyBriefService:
             {"role": "user", "content": f"以下是今日結構化台股市場與個人關注事實清單，請產出每日 AI 摘要：\n\n```json\n{user_content}\n```"},
         ]
 
-        _BRIEF_RETRY_MSG = (
-            "前次輸出已超出 token 上限截斷。"
-            "請重新輸出完整 JSON，每個字串欄位縮短至 100 字以內，"
-            "section_b_key_changes 限 3 項，evidence_sources 限 3 項。"
+        text = await generate_structured_ai_text(
+            messages,
+            truncated_retry_message=(
+                "前次輸出已超出 token 上限截斷。"
+                "請重新輸出完整 JSON，每個字串欄位縮短至 100 字以內，"
+                "section_b_key_changes 限 3 項，evidence_sources 限 3 項。"
+            ),
+            temperature=0.2,
+            max_tokens=3500,
+            timeout=55.0,
+            config_snapshot=config,
+            generate=generate_ai_text,
         )
-        try:
-            text = await generate_ai_text(
-                messages=messages,
-                temperature=0.2,
-                max_tokens=3500,
-                timeout=55.0,
-                config_snapshot=config,
-                structured_output=True,
-                request_attempt=0,
-            )
-        except AIOutputTruncated as trunc_exc:
-            retry_msgs = list(messages) + [
-                {"role": "assistant", "content": trunc_exc.partial_content},
-                {"role": "user", "content": _BRIEF_RETRY_MSG},
-            ]
-            try:
-                text = await generate_ai_text(
-                    messages=retry_msgs,
-                    temperature=0.2,
-                    max_tokens=3500,
-                    timeout=55.0,
-                    config_snapshot=config,
-                    structured_output=True,
-                    request_attempt=1,
-                )
-            except AIOutputTruncated:
-                raise ValueError("AI 回覆超過輸出長度限制，請重新產生。")
 
         extracted = _extract_json_object(text)
         if not extracted or not isinstance(extracted, dict):
@@ -604,7 +595,7 @@ class TaiwanDailyBriefService:
         elif not isinstance(sec_ev, list):
             sec_ev = []
 
-        return DailyBriefAISummary(
+        summary = DailyBriefAISummary(
             section_a_market=str(extracted.get("section_a_market", "")).strip(),
             section_b_key_changes=[str(x).strip() for x in sec_b if str(x).strip()],
             section_c_portfolio=str(extracted.get("section_c_portfolio", "")).strip(),
@@ -614,6 +605,13 @@ class TaiwanDailyBriefService:
             section_g_tracking=str(extracted.get("section_g_tracking", "")).strip(),
             evidence_sources=[str(x).strip() for x in sec_ev if str(x).strip()],
         )
+        if not any(
+            (summary.section_a_market, summary.section_b_key_changes, summary.section_c_portfolio,
+             summary.section_d_watchlist, summary.section_e_candidates, summary.section_f_risks,
+             summary.section_g_tracking)
+        ):
+            raise ValueError("AI 回覆沒有任何內容，請重新產生。")
+        return summary
 
     # ── History Persistence Layer ───────────────────────────────────
 
@@ -626,7 +624,8 @@ class TaiwanDailyBriefService:
     ) -> SavedDailyBrief:
         """Persist a daily brief to user_data/taiwan_daily_briefs.json."""
         now_dt = datetime.now(UTC)
-        brief_id = f"brief_{now_dt.strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:6]}"
+        # The id carries the Taipei wall-clock date (UTC would still read "yesterday" before 08:00).
+        brief_id = f"brief_{taipei_now().strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:6]}"
 
         legacy_unit_normalized = brief.schema_version == 1
         brief = _normalize_percentage_units(brief)

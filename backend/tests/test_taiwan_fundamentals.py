@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-# ruff: noqa: RUF001 -- fixtures mirror official field names exactly.
 from datetime import datetime
 
 import httpx
@@ -45,8 +44,26 @@ def test_store_preserves_revisions_and_round_trips(tmp_path):
     store = TaiwanFundamentalStore(tmp_path)
     assert store.save([_record("2026-05-10T00:00:00+08:00", 100, "A")]) == 1
     assert store.save([_record("2026-05-20T00:00:00+08:00", 110, "B")]) == 2
-    selected = store.get_as_of("2330.TWSE", datetime.fromisoformat("2026-05-15T00:00:00+08:00"))
+    selected = latest_as_of(store.load(), "2330.TWSE", datetime.fromisoformat("2026-05-15T00:00:00+08:00"))
     assert selected is not None and selected.values["revenue"] == 100
+
+
+def test_store_parses_the_ledger_only_when_it_changed(tmp_path, monkeypatch):
+    store = TaiwanFundamentalStore(tmp_path)
+    store.save([_record("2026-05-10T00:00:00+08:00", 100, "A")])
+    parsed: list[str] = []
+    original = FundamentalRecord.from_dict
+    monkeypatch.setattr(FundamentalRecord, "from_dict",
+                        classmethod(lambda cls, raw: parsed.append(raw["revision"]) or original(raw)))
+
+    first = store.load()
+    assert TaiwanFundamentalStore(tmp_path).load() == first and parsed == ["A"]
+    first.clear()  # callers get their own list
+    assert len(store.load()) == 1 and parsed == ["A"]
+
+    # Same-size rewrite inside one timestamp tick must still be seen.
+    store.save([_record("2026-05-10T00:00:00+08:00", 200, "A")])
+    assert [r.values["revenue"] for r in store.load()] == [200]
 
 
 def test_number_month_and_unit_contract():

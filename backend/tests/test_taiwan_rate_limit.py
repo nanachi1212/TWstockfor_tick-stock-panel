@@ -48,10 +48,53 @@ def test_hosts_map_to_namespaced_taiwan_keys() -> None:
     assert taiwan_http.rate_limit_key(FINMIND_URL) == "taiwan:finmind"
     assert taiwan_http.rate_limit_key(YAHOO_URL) == "taiwan:yahoo"
     assert taiwan_http.rate_limit_key("https://smart.tdcc.com.tw/x") == "taiwan:tdcc"
+    # The live-quote endpoint has its own bucket so it never queues behind bulk TWSE downloads.
+    assert taiwan_http.rate_limit_key("https://mis.twse.com.tw/stock/api/getStockInfo.jsp") == "taiwan:mis"
     assert set(taiwan_http.SOURCE_RPM) == {
-        "taiwan:twse", "taiwan:tpex", "taiwan:mops",
+        "taiwan:twse", "taiwan:tpex", "taiwan:mops", "taiwan:mis",
         "taiwan:tdcc", "taiwan:finmind", "taiwan:yahoo",
     }
+
+
+def test_formerly_unthrottled_call_sites_now_take_a_slot(monkeypatch) -> None:
+    """Live-day institutional/margin fetches, MIS/Yahoo realtime and the official
+    fundamentals/ETF clients all go through the shared limiter."""
+    from datetime import date
+
+    from app.taiwan.enrichment.institutional import TaiwanInstitutionalProvider
+    from app.taiwan.enrichment.margin import TaiwanMarginProvider
+    from app.taiwan.etf_data import TaiwanOfficialETFData
+    from app.taiwan.fundamentals import TaiwanOfficialFundamentals
+    from app.taiwan.realtime.mis_provider import TwseMisRealtimeProvider
+    from app.taiwan.realtime.yahoo_provider import YahooRealtimeProvider
+
+    slots: list[str] = []
+    monkeypatch.setattr(taiwan_http, "acquire_slot", lambda rpm, *, key=None: slots.append(key) or 0.0)
+
+    class _Resp:
+        def __init__(self, body: bytes = b"{}") -> None:
+            self._body = body
+
+        def read(self) -> bytes:
+            return self._body
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc) -> None:
+            return None
+
+    monkeypatch.setattr(urllib.request, "urlopen", lambda req, timeout=None: _Resp())
+
+    TaiwanInstitutionalProvider().fetch_live_day("TWSE", date(2026, 8, 28))
+    TaiwanMarginProvider().fetch_live_day("TPEX", date(2026, 8, 28))
+    TwseMisRealtimeProvider().fetch_quotes(["2330.TWSE"])
+    YahooRealtimeProvider().fetch_single_quote("2330.TWSE")
+    assert slots == ["taiwan:twse", "taiwan:tpex", "taiwan:mis", "taiwan:yahoo"]
+
+    for client in (TaiwanOfficialFundamentals().client, TaiwanOfficialETFData().client):
+        client.close()
+        assert client.event_hooks["request"], "default client must carry the throttle hook"
 
 
 @pytest.mark.parametrize(("token", "expected"), [("", 5), ("  ", 5), ("test-verified-token", 10)])

@@ -652,7 +652,7 @@ PIT feature (as-of T)        adjusted(t | T) = raw(t) × Π f(D)          for t 
 ```
 
 註：報酬率對錨點不敏感 —— 期間 `(t-1, t]` 的報酬只取決於**當日**事件，
-因此 `pit_return` 在任何 `T >= t` 下都相同。這是可以寫 regression test 的不變量。
+因此 `pit_return` 在任何 `T >= t` 下都相同。這是可以寫 regression test 的不變數。
 
 ### 8.4 Label 端（T → T+5）
 

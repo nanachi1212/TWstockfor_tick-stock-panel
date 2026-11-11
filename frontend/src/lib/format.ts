@@ -1,56 +1,111 @@
-// 數字 / 價格 / 漲跌幅 格式化(§6.0.2 等寬數字)
+// 數字 / 價格 / 漲跌幅 / 台北時間 格式化。全站只有這一份實作 (§6.0.2 等寬數字)。
 
-export function fmtPrice(v: number | null | undefined, digits = 2): string {
-  if (v == null || Number.isNaN(v)) return '—'
+type Num = number | null | undefined
+
+function isNum(v: Num): v is number {
+  return typeof v === 'number' && Number.isFinite(v)
+}
+
+export function fmtPrice(v: Num, digits = 2): string {
+  if (!isNum(v)) return '—'
   return v.toFixed(digits)
 }
 
-export function fmtPct(v: number | null | undefined, digits = 2): string {
-  if (v == null || Number.isNaN(v)) return '—'
-  const sign = v > 0 ? '+' : ''
-  return `${sign}${(v * 100).toFixed(digits)}%`
+/** 百分比,輸入是小數 (0.0366 = 3.66%)。signed=true 時正數加 +(漲跌幅用);命中率等比率傳 false。 */
+export function fmtPct(v: Num, digits = 2, signed = true): string {
+  if (!isNum(v)) return '—'
+  return `${signed && v > 0 ? '+' : ''}${(v * 100).toFixed(digits)}%`
 }
 
-// 台股語義色:紅漲綠跌 → 僅用於價格相關元素
-export function priceColorClass(v: number | null | undefined): string {
-  if (v == null || Number.isNaN(v) || v === 0) return 'text-muted'
+/** 百分比,輸入已經是百分點 (3.66 = 3.66%)。 */
+export function fmtPctPoint(v: Num, digits = 2, signed = true): string {
+  if (!isNum(v)) return '—'
+  return `${signed && v > 0 ? '+' : ''}${v.toFixed(digits)}%`
+}
+
+// 台股語義色:紅漲綠跌 → 僅用於價格相關元素。平盤或缺值一律中性色。
+export function priceColorClass(v: Num): string {
+  if (!isNum(v) || v === 0) return 'text-muted'
   return v > 0 ? 'text-bull' : 'text-bear'
 }
 
-export function fmtBigNum(v: number | null | undefined): string {
-  if (v == null || Number.isNaN(v)) return '—'
-  if (v >= 1_000_000_000_000) return `${(v / 1_000_000_000_000).toFixed(2)}萬億`
-  if (v >= 100_000_000) return `${(v / 100_000_000).toFixed(2)}億`
-  if (v >= 10_000) return `${(v / 10_000).toFixed(0)}萬`
+/**
+ * 股數轉張 (1 張 = 1000 股),四捨五入到整張。signed=true 時正數加 +。
+ * 帶單位時,不足一張的零股直接顯示股數,避免 300 股變成「0 張」。
+ */
+export function fmtLots(shares: Num, signed = false, unit = true): string {
+  if (!isNum(shares)) return '—'
+  if (unit && shares !== 0 && Math.abs(shares) < 1000) {
+    return `${signed && shares > 0 ? '+' : ''}${shares.toLocaleString('zh-TW')} 股`
+  }
+  const lots = Math.round(shares / 1000)
+  const text = lots.toLocaleString('zh-TW')
+  return `${signed && lots > 0 ? '+' : ''}${text}${unit ? ' 張' : ''}`
+}
+
+/** 金額縮寫:兆 / 億 / 萬。wanDigits 控制「萬」的小數位數,億固定 2 位。 */
+export function fmtBigNum(v: Num, wanDigits = 0): string {
+  if (!isNum(v)) return '—'
+  const abs = Math.abs(v)
+  if (abs >= 1_000_000_000_000) return `${(v / 1_000_000_000_000).toFixed(2)}兆`
+  if (abs >= 100_000_000) return `${(v / 100_000_000).toFixed(2)}億`
+  if (abs >= 10_000) return `${(v / 10_000).toFixed(wanDigits)}萬`
   return v.toFixed(0)
 }
 
-export function fmtDate(s: string | Date | null | undefined): string {
-  if (s == null) return '—'
-  const d = typeof s === 'string' ? new Date(s) : s
-  if (isNaN(d.getTime())) return String(s)
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+// ===== 台北時間 (Asia/Taipei) — 全站唯一的時區定義 =====
+
+export const TAIPEI_TZ = 'Asia/Taipei'
+
+type DateInput = string | number | Date | null | undefined
+
+function toDate(v: DateInput): Date | null {
+  if (v == null || v === '') return null
+  const d = v instanceof Date ? v : new Date(v)
+  return Number.isNaN(d.getTime()) ? null : d
 }
 
-// ===== Data 頁面工具函數 =====
-
-export function formatNumber(n: number): string {
-  if (n >= 100_000_000) return `${(n / 100_000_000).toFixed(1)}億`
-  if (n >= 10_000) return `${(n / 10_000).toFixed(1)}萬`
-  return n.toLocaleString()
+/** 台北時間的 YYYY-MM-DD。缺值或無法解析回傳 null (不會退回「現在」)。 */
+export function taipeiDate(v: DateInput): string | null {
+  const d = toDate(v)
+  return d ? d.toLocaleDateString('sv-SE', { timeZone: TAIPEI_TZ }) : null
 }
 
-export function isToday(iso: string): boolean {
-  const d = new Date(iso)
-  const now = new Date()
-  return d.getFullYear() === now.getFullYear()
-    && d.getMonth() === now.getMonth()
-    && d.getDate() === now.getDate()
+/** 台北「今天」的 YYYY-MM-DD。 */
+export function todayTaipei(): string {
+  return new Date().toLocaleDateString('sv-SE', { timeZone: TAIPEI_TZ })
 }
+
+/** 台北「現在」的 HH:mm。 */
+export function nowTaipeiTime(): string {
+  return new Date().toLocaleTimeString('sv-SE', { timeZone: TAIPEI_TZ, hourCycle: 'h23' }).slice(0, 5)
+}
+
+/** 台北時間的 HH:mm[:ss]。缺值或無法解析回傳 null。 */
+export function taipeiTime(v: DateInput, seconds = true): string | null {
+  const d = toDate(v)
+  if (!d) return null
+  const text = d.toLocaleTimeString('sv-SE', { timeZone: TAIPEI_TZ, hourCycle: 'h23' })
+  return seconds ? text : text.slice(0, 5)
+}
+
+/** 台北時間的 YYYY-MM-DD HH:mm[:ss]。無法解析回傳 null。 */
+export function taipeiDateTime(v: DateInput, seconds = false): string | null {
+  const date = taipeiDate(v)
+  const time = taipeiTime(v, seconds)
+  return date && time ? `${date} ${time}` : null
+}
+
+/** 顯示用:台北時間日期時間,無法解析時回傳 fallback。 */
+export function fmtTaipeiDateTime(v: DateInput, fallback = '—', seconds = false): string {
+  return taipeiDateTime(v, seconds) ?? fallback
+}
+
+// ===== 擴展資料列 =====
 
 /**
  * 擴展資料列數字格式化 — 千分位逗號 + 單位換算 + 小數位。
- * 供自選/策略列表的擴展資料 number 單元格統一呼叫。
+ * 供自選/策略列表的擴展資料 number 儲存格統一呼叫。
  *
  * opts:
  *   - thousandSeparator: true 則加英文逗號(1,234,567)

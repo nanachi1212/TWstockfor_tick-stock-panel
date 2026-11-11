@@ -78,17 +78,14 @@ describe('formatQuoteSource', () => {
 })
 
 describe('formatQuoteTime', () => {
-  it('格式化 ISO 時間字串為 HH:mm:ss', () => {
-    const t = new Date(2026, 8, 9, 9, 53, 58).toISOString()
-    expect(formatQuoteTime(t)).toMatch(/^\d{2}:\d{2}:\d{2}$/)
+  it('不論瀏覽器時區，都以台北時間顯示 HH:mm:ss', () => {
+    expect(formatQuoteTime('2026-09-09T01:53:58Z')).toBe('09:53:58')
+    expect(formatQuoteTime('2026-09-09T17:00:00Z')).toBe('01:00:00')
   })
 
-  it('缺少時間且非 fallback 時顯示「時間不可用」', () => {
-    expect(formatQuoteTime(null, false)).toBe('時間不可用')
-  })
-
-  it('缺少時間且為 daily fallback 時顯示「上一交易日 13:30」', () => {
-    expect(formatQuoteTime(null, true)).toBe('上一交易日 13:30')
+  it('缺少時間時顯示「時間不可用」，不編造時間', () => {
+    expect(formatQuoteTime(null)).toBe('時間不可用')
+    expect(formatQuoteTime(undefined)).toBe('時間不可用')
   })
 
   it('無法解析的字串原樣回傳，不偽造時間', () => {

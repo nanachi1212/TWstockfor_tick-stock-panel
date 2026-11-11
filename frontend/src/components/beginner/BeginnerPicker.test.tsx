@@ -14,6 +14,7 @@ vi.mock('@/lib/api', () => ({
     beginnerRadar: vi.fn(),
     beginnerSelectionSymbol: vi.fn(),
     taiwanExternalContext: vi.fn(),
+    quoteStatus: vi.fn(async () => ({ is_trading_hours: true })),
     watchlistList: vi.fn(),
     watchlistAdd: vi.fn(),
     syncPlanRules: vi.fn(),

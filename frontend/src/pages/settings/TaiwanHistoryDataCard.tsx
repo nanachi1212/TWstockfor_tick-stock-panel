@@ -127,7 +127,11 @@ export function TaiwanHistoryDataCard() {
               <h3 className="text-sm font-semibold text-foreground">
                 台股歷史日 K 資料庫
               </h3>
-              {historyStatus?.has_data ? (
+              {!historyStatus ? (
+                <span className="inline-flex items-center gap-1 text-xs text-muted bg-elevated px-2 py-0.5 rounded font-medium">
+                  {isStatusLoading ? '檢查中' : '狀態未知'}
+                </span>
+              ) : historyStatus.has_data ? (
                 <span className="inline-flex items-center gap-1 text-xs text-emerald-500 bg-emerald-500/10 px-2 py-0.5 rounded font-medium">
                   <CheckCircle2 className="h-3 w-3" /> 資料已就緒
                 </span>
@@ -181,7 +185,11 @@ export function TaiwanHistoryDataCard() {
           <Loader2 className="h-4 w-4 animate-spin text-accent" />
           正在檢查本地台股歷史日 K 資料狀態...
         </div>
-      ) : historyStatus?.has_data ? (
+      ) : !historyStatus ? (
+        <div role="alert" className="py-6 text-center text-xs text-warning">
+          無法取得歷史日 K 資料狀態，請確認後端服務後按重新整理。
+        </div>
+      ) : historyStatus.has_data ? (
         /* 已有歷史資料狀態 */
         <div className="space-y-4">
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">

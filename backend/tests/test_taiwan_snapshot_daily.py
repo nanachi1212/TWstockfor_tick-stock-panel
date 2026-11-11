@@ -176,6 +176,41 @@ def test_tpex_parsing_no_trade_row():
     assert r["amount"] == 0.0
 
 
+def test_store_keeps_provenance_so_fallback_rows_stay_distinguishable(tmp_path):
+    store = TaiwanDailyStore(data_dir=tmp_path / "daily")
+    base = {"symbol": ["2330.TWSE"], "date": [date(2026, 8, 28)], "open": [1.0], "high": [2.0], "low": [1.0],
+            "close": [2.0], "volume": [10.0], "amount": [20.0], "quote_ts": [None]}
+    store.write_batch(pl.DataFrame({**base, "provider": ["finmind"], "status": ["third_party_fallback"]}))
+    assert store.read_range(None, None, None).columns == [
+        "symbol", "date", "open", "high", "low", "close", "volume", "amount", "quote_ts"]
+    row = store.read_range(None, None, None, include_provenance=True).to_dicts()[0]
+    assert (row["provider"], row["status"], row["source"]) == ("finmind", "third_party_fallback", None)
+
+
+def test_missing_volume_and_amount_stay_null_not_zero():
+    adapter = OfficialDailySnapshotAdapter(security_master=mock_security_master())
+    fields = ["代號", "名稱", "收盤", "漲跌", "開盤", "最高", "最低", "均價", "成交股數", "成交金額(元)"]
+    rows = [
+        ["6488", "環球晶", "972.00", "1.00", "950.00", "980.00", "949.00", "960.00", "--", ""],
+        ["8069", "元太", "100.00", "0.00", "100.00", "100.00", "100.00", "100.00", "0", "0"],
+    ]
+    df = adapter._parse_tpex_table(rows, fields, date(2026, 8, 28))
+    by_symbol = {r["symbol"]: r for r in df.to_dicts()}
+    assert by_symbol["6488.TPEX"]["volume"] is None and by_symbol["6488.TPEX"]["amount"] is None
+    assert by_symbol["8069.TPEX"]["volume"] == 0.0 and by_symbol["8069.TPEX"]["amount"] == 0.0
+
+
+@pytest.mark.parametrize("fetch, payload", [
+    ("fetch_twse", {"stat": "OK", "date": "20260827", "tables": []}),
+    ("fetch_tpex", {"date": "115/08/27", "tables": []}),
+])
+def test_snapshot_response_for_another_date_is_not_stored_under_requested_date(fetch, payload):
+    adapter = OfficialDailySnapshotAdapter(security_master=mock_security_master())
+    adapter._request_json = lambda url: payload
+    with pytest.raises(OfficialSnapshotUnpublished, match="answered 2026-08-27"):
+        getattr(adapter, fetch)(date(2026, 8, 28))
+
+
 def test_schema_mismatch_fails_safely():
     master = mock_security_master()
     adapter = OfficialDailySnapshotAdapter(security_master=master)
@@ -188,6 +223,31 @@ def test_schema_mismatch_fails_safely():
 
 
 # ── Refresh Service & HTTP Budget Tests ───────────────────────────
+
+def test_single_symbol_partition_is_not_treated_as_a_complete_market_day(tmp_path):
+    """A per-symbol fetch must not make the full-market snapshot skip that date."""
+    store = TaiwanDailyStore(data_dir=tmp_path / "daily")
+    day = date(2026, 8, 28)
+
+    def frame(symbols):
+        n = len(symbols)
+        return pl.DataFrame({
+            "symbol": symbols, "date": [day] * n, "open": [1.0] * n, "high": [2.0] * n, "low": [1.0] * n,
+            "close": [2.0] * n, "volume": [10.0] * n, "amount": [20.0] * n, "quote_ts": [None] * n,
+        })
+
+    store.write_batch(frame(["2330.TWSE"]), partial=True)
+    assert store.partial_dates() == {day}
+
+    adapter = MagicMock(spec=OfficialDailySnapshotAdapter)
+    adapter.fetch_date.return_value = frame(["2330.TWSE", "6488.TPEX"])
+    stats = TaiwanDailyRefreshService(
+        store=store, snapshot_adapter=adapter, calendar=TaiwanTradingCalendar(),
+    ).refresh_dates(day, day)
+
+    assert stats["dates_fetched"] == 1 and stats["dates_skipped"] == 0
+    assert store.partial_dates() == set()
+    assert sorted(store.read_range(None, day, day)["symbol"].to_list()) == ["2330.TWSE", "6488.TPEX"]
 
 def test_refresh_dates_one_day_budget():
     """One day full-market refresh calls TWSE once and TPEx once."""

@@ -1,8 +1,8 @@
 /**
- * 買賣觸發器信號定義 — 選股頁彈窗 / 回測頁共用。
+ * 買賣觸發器訊號定義 — 選股頁彈窗 / 回測頁共用。
  *
- * 信號 ID 必須與後端 backtest/strategy.py:_build_signal_mask 對齊
- * (signal_* 前綴為內建原子信號, csg_ 前綴為使用者自定義信號)。
+ * 訊號 ID 必須與後端 backtest/strategy.py:_build_signal_mask 對齊
+ * (signal_* 前綴為內建原子訊號, csg_ 前綴為使用者自定義訊號)。
  */
 
 export type SignalKind = 'entry' | 'exit' | 'both'
@@ -15,7 +15,7 @@ export interface BuiltinSignalDefinition {
   description: string
 }
 
-/** 內建原子信號清單 (權威展示來源, 兩頁統一)
+/** 內建原子訊號清單 (權威展示來源, 兩頁統一)
  *
  * TAIWAN_LOCALIZATION_POLISH: name/category/description 全面改為正體中文，
  * 並把「連板」相關描述改為依實際語意翻譯的「連續漲停」，不再是 A 股「連板」
@@ -46,14 +46,14 @@ export const BUILTIN_SIGNAL_DEFINITIONS: BuiltinSignalDefinition[] = [
   },
   {
     id: 'signal_macd_golden',
-    name: 'MACD金叉',
+    name: 'MACD黃金交叉',
     kind: 'entry',
     category: 'MACD',
     description: 'MACD DIF 上穿 DEA，表示動能可能由弱轉強。',
   },
   {
     id: 'signal_macd_dead',
-    name: 'MACD死叉',
+    name: 'MACD死亡交叉',
     kind: 'exit',
     category: 'MACD',
     description: 'MACD DIF 下穿 DEA，表示動能可能由強轉弱。',
@@ -133,14 +133,14 @@ export const BUILTIN_SIGNAL_DEFINITIONS: BuiltinSignalDefinition[] = [
     name: '放量',
     kind: 'both',
     category: '量價',
-    description: '成交量顯著放大，可作為入場確認、出場確認或告警條件。',
+    description: '成交量顯著放大，可作為入場確認、出場確認或警示條件。',
   },
   {
     id: 'signal_limit_up',
     name: '漲停',
     kind: 'entry',
     category: '漲跌停',
-    description: '收盤封住漲停，用於觀察強勢股、連續漲停與市場情緒監控。',
+    description: '收盤鎖住漲停，用於觀察強勢股、連續漲停與市場情緒監控。',
   },
   {
     id: 'signal_limit_down',
@@ -151,17 +151,17 @@ export const BUILTIN_SIGNAL_DEFINITIONS: BuiltinSignalDefinition[] = [
   },
   {
     id: 'signal_limit_down_recovery',
-    name: '跌停翹板',
+    name: '跌停打開',
     kind: 'entry',
     category: '漲跌停',
     description: '盤中觸及跌停後回升，常用於短線情緒修復觀察。',
   },
   {
     id: 'signal_broken_limit_up',
-    name: '炸板',
+    name: '漲停打開',
     kind: 'exit',
     category: '漲跌停',
-    description: '盤中觸及漲停但收盤未封住，用於強轉弱或分歧監控。',
+    description: '盤中觸及漲停但收盤未鎖住，用於強轉弱或分歧監控。',
   },
 ]
 
@@ -172,7 +172,7 @@ export const MONITOR_INTRADAY_SIGNAL_LABELS: Record<string, string> = {
   signal_intraday_zero_cross_down: '分時價格下穿0軸',
 }
 
-/** 內建原子信號 → 中文標籤 */
+/** 內建原子訊號 → 中文標籤 */
 export const SIGNAL_LABELS: Record<string, string> = BUILTIN_SIGNAL_DEFINITIONS.reduce<Record<string, string>>((acc, sig) => {
   acc[sig.id] = sig.name
   return acc
@@ -198,8 +198,8 @@ const FIELD_LABELS: Record<string, string> = {
 }
 
 /**
- * 信號/欄位 ID → 中文顯示名。
- * 內建信號查 SIGNAL_LABELS; csg_ 前綴查傳入的自定義信號名稱映射;
+ * 訊號/欄位 ID → 中文顯示名。
+ * 內建訊號查 SIGNAL_LABELS; csg_ 前綴查傳入的自定義訊號名稱映射;
  * 技術指標查 FIELD_LABELS; 都找不到則原樣返回。
  */
 export function cnSignal(name: string, customNames?: Record<string, string>): string {

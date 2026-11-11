@@ -3,9 +3,10 @@ from __future__ import annotations
 
 from datetime import date, datetime, time, timedelta
 from decimal import Decimal, InvalidOperation
-from zoneinfo import ZoneInfo
 
-TAIPEI = ZoneInfo("Asia/Taipei")
+# One Asia/Taipei definition for the whole backend (UTC+8, no daylight saving).
+from app.taiwan.realtime.calendar import TAIPEI_TZ as TAIPEI
+
 MISSING_VALUES = {"", "-", "--", "N/A"}
 
 

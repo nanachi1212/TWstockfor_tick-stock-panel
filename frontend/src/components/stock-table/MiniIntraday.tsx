@@ -1,7 +1,7 @@
 /** 迷你分時折線圖（自選列表共享）。
 
 用當日分鐘K的 close 畫一條折線 + 昨收水平基準線 + 分時均線。
-風格仿同花順/東方財富分時圖：
+風格仿一般看盤軟體的分時走勢圖：
 - 價格折線：漲（收盤 ≥ 昨收）紅色，跌綠色 — 以昨收價(prevClose)為基準, 不是當日開盤價
 - 昨收基準線：淺灰實線（從開到右），比虛線更明顯
 - 分時均線：黃色細線（成交均價，這裡用 close 的累計均值近似）
@@ -43,12 +43,13 @@ export function MiniIntraday({ rows, prevClose, changePct, width = 100, height =
   // 其次用 prevClose vs lastClose; 最後回退到第一根 open
   const lastClose = rows[n - 1].close
   const firstOpen = rows[0].open
-  const isUp = changePct != null
-    ? changePct >= 0
+  const delta = changePct != null
+    ? changePct
     : prevClose != null && prevClose > 0
-      ? lastClose >= prevClose
-      : lastClose >= firstOpen
-  const color = isUp ? BULL : BEAR
+      ? lastClose - prevClose
+      : lastClose - firstOpen
+  // Flat is neutral, not "up".
+  const color = delta > 0 ? BULL : delta < 0 ? BEAR : LINE_PREV_CLOSE
 
   // 昨收基準線: 優先用 prevClose; 其次用 changePct 反算 (close/(1+changePct));
   // 最後回退到第一根 open

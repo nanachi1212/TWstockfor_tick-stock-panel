@@ -66,7 +66,7 @@ def _print_paths(title: str, paths: list[str]) -> None:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
-        description="只讀檢查目前二開分支升級到目標 Git ref 時的原始碼重疊與文本衝突",
+        description="只讀檢查目前二開分支升級到目標 Git ref 時的原始碼重疊與文字衝突",
     )
     parser.add_argument("target", help="目標 Tag/分支/commit, 例如 v0.3.1")
     parser.add_argument(
@@ -99,16 +99,16 @@ def main(argv: list[str] | None = None) -> int:
         print(f"目前分支修改檔案: {len(current_paths)}")
         print(f"目標版本修改檔案: {len(target_paths)}")
         _print_paths("雙方修改的同一文件", overlap)
-        _print_paths("Git 三方預演識別的文本衝突", conflicts)
+        _print_paths("Git 三方預演識別的文字衝突", conflicts)
 
         if dirty:
             print(f"\n未提交工作區條目: {len(dirty)}")
             print("  注意: 未提交內容不會進入 Git 三方預演, 請先提交到臨時分支後再複檢。")
         if conflicts:
-            print("\n結論: 需要人工解決文本衝突並執行完整迴歸。")
+            print("\n結論: 需要人工解決文字衝突並執行完整迴歸。")
             return 2
         if overlap:
-            print("\n結論: Git 未發現文本衝突, 但重疊文件需要檢查語義相容和測試。")
+            print("\n結論: Git 未發現文字衝突, 但重疊文件需要檢查語義相容和測試。")
             return 0
         print("\n結論: 未發現原始碼重疊; 仍需執行目標版本的驗證矩陣。")
         return 0

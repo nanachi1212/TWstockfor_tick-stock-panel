@@ -1,22 +1,10 @@
-
-
-export function n(v: number | null | undefined) {
-  return typeof v === 'number' && Number.isFinite(v) ? v : null
-}
-
-export function fmtPrice(v: number | null | undefined, digits = 2) {
-  const x = n(v)
-  return x == null || x <= 0 ? '—' : x.toFixed(digits)
-}
-
-export function fmtStockPct(v: number | null | undefined) {
-  const x = n(v)
-  if (x == null) return '—'
-  return `${x >= 0 ? '+' : ''}${(x * 100).toFixed(2)}%`
-}
-
-export function pctClass(v: number | null | undefined) {
-  const x = n(v)
-  if (x == null || x === 0) return 'text-muted'
-  return x > 0 ? 'text-bull' : 'text-bear'
+/**
+ * 儀表板「日行情是否為最新」的唯一判斷:個股快照自己的狀態與全市場日行情狀態
+ * 都必須是 current。其中任何一個缺值或不是 current,都不可當成今日資料使用。
+ */
+export function isDailyCurrent(
+  snapshotDailyStatus: string | null | undefined,
+  marketDailyStatus: string | null | undefined,
+): boolean {
+  return snapshotDailyStatus === 'current' && marketDailyStatus === 'current'
 }

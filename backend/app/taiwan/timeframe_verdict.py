@@ -1,4 +1,4 @@
-# ruff: noqa: RUF001, RUF002, RUF003 -- user-facing Traditional Chinese verdict text.
+
 """日／週／月 K 的規則式多空判定，每個週期一句白話。
 
 純計算：輸入一檔股票的原始日 K（未復權，與圖表同一份），週 K、月 K 由日 K 重組。
@@ -13,6 +13,7 @@ from typing import Literal
 import polars as pl
 from pydantic import BaseModel, Field
 
+from app.indicators.pipeline import kdj_rsv_expr
 from app.taiwan.technical_indicators import compute_taiwan_indicator_panel
 
 Timeframe = Literal["daily", "weekly", "monthly"]
@@ -63,7 +64,7 @@ def _bars(daily: pl.DataFrame, timeframe: Timeframe) -> pl.DataFrame:
 def _with_kd(bars: pl.DataFrame) -> pl.DataFrame:
     low = pl.col("low").rolling_min(9, min_samples=9)
     high = pl.col("high").rolling_max(9, min_samples=9)
-    rsv = 100 * (pl.col("close") - low) / (high - low).clip(lower_bound=1e-12)
+    rsv = kdj_rsv_expr(pl.col("close"), low, high)  # shared RSV: flat window is neutral 50
     return bars.with_columns(rsv.ewm_mean(alpha=1.0 / 3, adjust=False, ignore_nulls=True).alias("kd_k")) \
         .with_columns(pl.col("kd_k").ewm_mean(alpha=1.0 / 3, adjust=False, ignore_nulls=True).alias("kd_d"))
 

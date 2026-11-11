@@ -8,7 +8,7 @@ import type {
 const BLOCKER_LABELS: Record<string, string> = {
   tpex_instrument_subtype_blocked: '上櫃歷史普通股身份無官方 PIT 來源',
   twse_instrument_subtype_unresolved: '上市歷史證券型別未驗證',
-  regulatory_history_unavailable: '進場日前的處置／停牌／下市歷史紀錄不存在',
+  regulatory_history_unavailable: '進場日前的處置／暫停交易／下市歷史紀錄不存在',
   regulatory_twse_disposition_unavailable: '上市處置公告歷史未涵蓋進場日回溯區間',
   regulatory_tpex_disposition_unavailable: '上櫃處置公告歷史未涵蓋進場日回溯區間',
   regulatory_tpex_status_unavailable: '來源日沒有已驗證的上櫃變更交易／停止交易清單',

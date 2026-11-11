@@ -1,13 +1,13 @@
 /**
- * 股票列表共享邏輯(無 JSX)：信號提取、排序取值、不可排序列集合。
+ * 股票列表共享邏輯(無 JSX)：訊號提取、排序取值、不可排序列集合。
  *
- * 自選頁與策略頁共用，避免兩邊各維護一份導致口徑漂移（歷史上策略頁 14 個信號、
- * 自選頁 13 個，缺一個均線金叉/死叉變體）。
+ * 自選頁與策略頁共用，避免兩邊各維護一份導致口徑漂移（歷史上策略頁 14 個訊號、
+ * 自選頁 13 個，缺一個均線黃金交叉/死亡交叉變體）。
  */
 import type { ColumnConfig } from '@/lib/list-columns'
 import type { MinuteKlineRow } from '@/lib/api'
 
-// ===== 信號 =====
+// ===== 訊號 =====
 
 export type SignalType = 'bull' | 'bear' | 'neutral'
 
@@ -16,15 +16,15 @@ export interface Signal {
   type: SignalType
 }
 
-/** 信號欄位定義：[行欄位名, 展示標籤, 信號類型] */
+/** 訊號欄位定義：[行欄位名, 展示標籤, 訊號類型] */
 export const SIGNAL_FIELDS: [string, string, SignalType][] = [
   ['signal_limit_up', '漲停', 'bull'],
   ['signal_volume_surge', '放量', 'neutral'],
-  ['signal_ma_golden_5_20', 'MA金叉', 'bull'],
-  ['signal_ma_dead_5_20', 'MA死叉', 'bear'],
-  ['signal_ma_golden_20_60', '均線金叉', 'bull'],
-  ['signal_macd_golden', 'MACD金叉', 'bull'],
-  ['signal_macd_dead', 'MACD死叉', 'bear'],
+  ['signal_ma_golden_5_20', 'MA黃金交叉', 'bull'],
+  ['signal_ma_dead_5_20', 'MA死亡交叉', 'bear'],
+  ['signal_ma_golden_20_60', '均線黃金交叉', 'bull'],
+  ['signal_macd_golden', 'MACD黃金交叉', 'bull'],
+  ['signal_macd_dead', 'MACD死亡交叉', 'bear'],
   ['signal_ma20_breakout', '站上MA20', 'bull'],
   ['signal_ma20_breakdown', '跌破MA20', 'bear'],
   ['signal_n_day_high', '60日新高', 'bull'],
@@ -33,12 +33,12 @@ export const SIGNAL_FIELDS: [string, string, SignalType][] = [
   ['signal_boll_breakdown_lower', '布林下破', 'bear'],
 ]
 
-/** 從一行資料中提取已命中的信號列表 */
+/** 從一行資料中提取已命中的訊號列表 */
 export function getSignals(r: Record<string, any>): Signal[] {
   return SIGNAL_FIELDS.filter(([key]) => r[key]).map(([, label, type]) => ({ label, type }))
 }
 
-/** 信號類型 → tailwind 顏色類 */
+/** 訊號類型 → tailwind 顏色類 */
 export function signalCls(type: SignalType): string {
   if (type === 'bull') return 'text-bull bg-bull/10'
   if (type === 'bear') return 'text-bear bg-bear/10'
@@ -112,5 +112,5 @@ export function getIntradaySortValue(r: any, minuteRows: MinuteKlineRow[] | unde
 
 // ===== 共享樣式 =====
 
-/** 數值單元格統一樣式（含 tabular-nums 等寬數字） */
+/** 數值儲存格統一樣式（含 tabular-nums 等寬數字） */
 export const NUM_CELL_CLASS = 'num tabular-nums'

@@ -23,7 +23,7 @@ def client(monkeypatch):
     def fail(*args, **kwargs):
         raise AssertionError("rejected request must not fetch data")
 
-    for name in ("sync_daily_batch", "sync_minute_batch", "fetch_minute_single", "sync_and_persist_minute"):
+    for name in ("sync_daily_batch", "sync_minute_batch", "fetch_minute_single"):
         monkeypatch.setattr(api.kline_sync, name, fail)
     app = FastAPI()
     app.state.repo = _ExplodingRepo()
@@ -35,7 +35,6 @@ def client(monkeypatch):
 @pytest.mark.parametrize("method,path,params,body", [
     ("get", "/daily", {"symbol": "600519.SH"}, None),
     ("get", "/minute", {"symbol": "000001.SZ"}, None),
-    ("get", "/minute-range", {"symbol": "830001.BJ"}, None),
     ("post", "/daily-batch", None, {"symbols": ["2330.TWSE", "600519.SH"]}),
     ("post", "/minute-batch", None, {"symbols": ["000001.SZ"]}),
 ])

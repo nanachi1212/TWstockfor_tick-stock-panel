@@ -8,6 +8,7 @@ import { MemoryRouter, Routes, Route, useLocation } from 'react-router-dom'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { Onboarding } from './Onboarding'
 import { api } from '@/lib/api'
+import { QK } from '@/lib/queryKeys'
 
 vi.mock('@/lib/api', () => ({
   api: {
@@ -21,8 +22,7 @@ function LocationSpy() {
   return <div data-testid="location">{location.pathname}</div>
 }
 
-function renderOnboarding() {
-  const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+function renderOnboarding(qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })) {
   return render(
     <QueryClientProvider client={qc}>
       <MemoryRouter initialEntries={['/onboarding']}>
@@ -121,5 +121,17 @@ describe('Onboarding — Taiwan-first flow', () => {
 
     await waitFor(() => expect(api.completeOnboarding).toHaveBeenCalledTimes(1))
     await waitFor(() => expect(screen.getByTestId('location')).toHaveTextContent('/'))
+  })
+
+  it('lets the user in for this session when the completion flag cannot be saved, instead of bouncing back', async () => {
+    vi.mocked(api.completeOnboarding).mockRejectedValue(new Error('offline'))
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    qc.setQueryData(QK.settings, { onboarding_completed: false })
+    renderOnboarding(qc)
+    fireEvent.click(await screen.findByText('我已了解，繼續'))
+    fireEvent.click(await screen.findByText('稍後再說'))
+
+    await waitFor(() => expect(screen.getByTestId('location')).toHaveTextContent('/'))
+    expect(qc.getQueryData<{ onboarding_completed: boolean }>(QK.settings)?.onboarding_completed).toBe(true)
   })
 })

@@ -17,7 +17,7 @@ Strict Boundaries & Design Directives:
 - Zero-HTTP at Request Time for Market Data: All evidence is assembled locally.
 - Historical Point-in-Time: Supports target_date D without look-ahead.
 """
-# ruff: noqa: RUF001 -- user-facing Traditional Chinese prompts and messages.
+
 from __future__ import annotations
 
 import asyncio
@@ -498,6 +498,7 @@ def build_evidence_registry(
                 "pe": ctx.fundamentals_context.pe,
                 "pb": ctx.fundamentals_context.pb,
                 "dividend_yield": ctx.fundamentals_context.dividend_yield,
+                "valuation_as_of": ctx.fundamentals_context.valuation_as_of,
                 "latest_monthly_revenue": ctx.fundamentals_context.latest_monthly_revenue,
                 "monthly_revenue_mom": ctx.fundamentals_context.monthly_revenue_mom,
                 "monthly_revenue_yoy": ctx.fundamentals_context.monthly_revenue_yoy,
@@ -506,6 +507,8 @@ def build_evidence_registry(
                 "gross_profit": ctx.fundamentals_context.gross_profit,
                 "operating_income": ctx.fundamentals_context.operating_income,
                 "net_income": ctx.fundamentals_context.net_income,
+                "units": f"dividend_yield、monthly_revenue_mom、monthly_revenue_yoy 皆為{_PCT_VALUES}；"
+                         "pe、pb、dividend_yield 的資料日為 valuation_as_of。",
             }
             registry_keys.update([
                 "fundamentals_context.as_of_period", "fundamentals_context.pe",
@@ -590,7 +593,21 @@ def build_evidence_registry(
         for section, values in bounded.items():
             registry_keys.update(f"personal.{section}.{field}" for field in values)
 
+    # The citable keys are exactly the fields sent in each section: a field that is sent but not listed
+    # makes a valid AI citation get dropped, and a field that is listed but not sent lets an unfounded one pass.
+    for section in _KEYED_PAYLOAD_SECTIONS:
+        values = payload.get(section)
+        if isinstance(values, dict):
+            registry_keys.difference_update({k for k in registry_keys if k.startswith(f"{section}.")})
+            registry_keys.update(f"{section}.{k}" for k in values if k != "units")
+
     return payload, registry_keys, missing_items
+
+
+_KEYED_PAYLOAD_SECTIONS = (
+    "market_context", "industry_context", "price_context", "technical_context", "institutional_context",
+    "margin_context", "etf_context", "fundamentals_context", "ownership_context", "market_rules",
+)
 
 
 def _sanitize_personal_context(value: dict[str, Any] | None) -> dict[str, dict[str, Any]]:
@@ -930,7 +947,8 @@ class TaiwanAIResearchService:
 
         # 1. Assemble Deterministic Evidence Context (Phase 7C & 7D)
         try:
-            ctx = self.research_svc.get_research_context(symbol, target_date=target_date)
+            # Blocking parquet/JSON reads: keep them off the event loop.
+            ctx = await asyncio.to_thread(self.research_svc.get_research_context, symbol, target_date=target_date)
         except Exception as e:
             logger.error("Failed to assemble research context for %s (%s)", symbol, type(e).__name__)
             return _finalize_run(
@@ -957,7 +975,8 @@ class TaiwanAIResearchService:
             # include_etfs=True (Phase 7J): single-symbol AI research already branches
             # ETF-vs-stock correctly throughout (fundamentals not_applicable, etc.) — one
             # of the two internal consumers proven safe to opt in.
-            diag_snap = self.diag_svc.get_diagnostics(
+            diag_snap = await asyncio.to_thread(
+                self.diag_svc.get_diagnostics,
                 target_date=date.fromisoformat(ctx.as_of_date),
                 include_all=True,
                 include_etfs=True,

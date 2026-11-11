@@ -380,8 +380,8 @@ def test_api_endpoint_zero_market_http():
 ])
 async def test_keyword_must_be_copied_from_user_text(query, keyword, accepted):
     mock_llm_json = (
-        '{"request_fields": {"keyword": "%s"}, "recognized_conditions": ["名稱含 %s"],'
-        ' "unsupported_conditions": [], "clarification_needed": false}' % (keyword, keyword)
+        f'{{"request_fields": {{"keyword": "{keyword}"}}, "recognized_conditions": ["名稱含 {keyword}"],'
+        ' "unsupported_conditions": [], "clarification_needed": false}'
     )
     with patch("app.taiwan.screener_nl.generate_ai_text", new_callable=AsyncMock) as mock_ai:
         mock_ai.return_value = mock_llm_json
@@ -405,7 +405,10 @@ def test_screener_keyword_filter_matches_name_or_code_prefix():
         "industry": ["ETF", "ETF", "半導體業", "金融保險業"],
     })
     svc = TaiwanScreenerService.__new__(TaiwanScreenerService)
-    pick = lambda kw: svc._apply_filters(df, TaiwanScreenerRequest(keyword=kw))["symbol"].to_list()
+
+    def pick(kw):
+        return svc._apply_filters(df, TaiwanScreenerRequest(keyword=kw))["symbol"].to_list()
+
     assert pick("正2") == ["00631L.TWSE", "00633L.TWSE"]
     assert pick("2330") == ["2330.TWSE"]
     assert pick("00631l") == ["00631L.TWSE"]  # case-insensitive code prefix

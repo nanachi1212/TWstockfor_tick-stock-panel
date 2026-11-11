@@ -176,7 +176,7 @@ def test_beginner_message_and_once_per_session_survives_resync_restart(engine, m
     engine.sync_plan_rules([candidate()])
     alerts = engine.evaluate_all(force_quotes={"2330.TWSE": quote()}, now_mono=1)
     assert len(alerts) == 1
-    assert alerts[0].message == "2330 台積電 進入承接區 1,020～1,050，現價 1,038；跌破 985 理由失效。（觀察提醒，不是下單）"  # noqa: RUF001
+    assert alerts[0].message == "2330 台積電 進入承接區 1,020～1,050，現價 1,038；跌破 985 理由失效。（觀察提醒，不是下單）"
     for forbidden in ("PRICE_BELOW", "price_below", "pullback_limit", "成本", "股數", "損益", "shares", "cost"):
         assert forbidden not in alerts[0].message
     assert engine.evaluate_all(force_quotes={"2330.TWSE": quote(1100)}, now_mono=2) == []
@@ -206,7 +206,7 @@ def test_incomplete_plan_skips_entire_pair(engine, updates):
     result = engine.sync_plan_rules([candidate(**updates)])
     assert result["created"] == 0
     assert result["skipped"] == [{
-        "symbol": "2330.TWSE", "reason": "計畫價位或個股資料不完整，無法建立提醒",  # noqa: RUF001
+        "symbol": "2330.TWSE", "reason": "計畫價位或個股資料不完整，無法建立提醒",
     }]
     assert engine.list_rules() == []
 

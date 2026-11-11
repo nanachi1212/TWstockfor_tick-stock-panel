@@ -6,14 +6,15 @@ Provider calls are mocked or bypassed via synthetic DataFrames.
 from __future__ import annotations
 
 import tempfile
+import threading
 from datetime import date, timedelta
 from pathlib import Path
+from typing import ClassVar
 
 import polars as pl
 import pytest
 
 from app.taiwan.daily_store import TaiwanDailyStore
-
 
 # ── Fixtures ──────────────────────────────────────────────────────────
 
@@ -141,7 +142,7 @@ class TestTaiwanDailyStoreDedup:
         df = _make_df("2330.TWSE", n=3)
         store.write_batch(df)
         # Write the same data again — should not duplicate.
-        n = store.write_batch(df)
+        store.write_batch(df)
         # Dedup happens inside write_batch, so rows written is still 3,
         # but total unique rows in store should be 3.
         all_rows = store.read_range(["2330.TWSE"], date(2026, 8, 1), date(2026, 8, 3))
@@ -313,9 +314,6 @@ class TestTaiwanDailyStoreVolumeShares:
 
 # ── Concurrent write safety ───────────────────────────────────────────
 
-import threading
-
-
 def _make_single(symbol: str, d: date) -> pl.DataFrame:
     return pl.DataFrame({
         "symbol": [symbol],
@@ -328,14 +326,14 @@ def _make_single(symbol: str, d: date) -> pl.DataFrame:
 class TestTaiwanDailyStoreConcurrentSamePartition:
     """Concurrent writers to the SAME date partition must not lose rows."""
 
-    SYMBOLS = ["2330.TWSE", "0050.TWSE", "00631L.TWSE", "00632R.TWSE", "00646.TWSE", "8069.TPEX"]
+    SYMBOLS: ClassVar[list[str]] = ["2330.TWSE", "0050.TWSE", "00631L.TWSE", "00632R.TWSE", "00646.TWSE", "8069.TPEX"]
     TARGET_DATE = date(2026, 8, 28)
 
     def test_concurrent_same_partition_writes_preserve_all_symbols(self, store):
         for _round in range(5):
             errors = []
 
-            def worker(sym):
+            def worker(sym, errors=errors):
                 try:
                     store.write_batch(_make_single(sym, self.TARGET_DATE))
                 except Exception as e:

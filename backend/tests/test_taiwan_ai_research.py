@@ -189,7 +189,7 @@ async def test_ai_provider_failure_graceful_handling():
 
         assert resp.status == "unavailable"
         assert resp.error_code == "provider_error"
-        assert resp.error_message == "AI 分析目前無法使用，請檢查 AI 設定或稍後重試。"  # noqa: RUF001
+        assert resp.error_message == "AI 分析目前無法使用，請檢查 AI 設定或稍後重試。"
         assert "timeout" not in (resp.error_message or "").lower()
         assert resp.report is None
 

@@ -1,11 +1,11 @@
 import { ExternalLink } from 'lucide-react'
 import type { MarketEvent } from '@/lib/api'
+import { fmtTaipeiDateTime } from '@/lib/format'
 
 const MOPS_TYPES = new Set(['material_information', 'investor_conference', 'insider_transfer_declaration'])
 
 function taipeiTime(value: string): string {
-  const date = new Date(value)
-  return Number.isNaN(date.getTime()) ? '未提供' : date.toLocaleString('zh-TW', { timeZone: 'Asia/Taipei', hour12: false })
+  return fmtTaipeiDateTime(value, '未提供', true)
 }
 
 function officialPresentation(url: unknown): url is string {

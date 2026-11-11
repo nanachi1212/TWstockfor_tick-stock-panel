@@ -77,7 +77,10 @@ class TaiwanSecurityMaster:
         target = Path(path) if path else self.cache_path
         target.parent.mkdir(parents=True, exist_ok=True)
         df = self.to_dataframe()
-        df.write_parquet(target)
+        # Write beside, then replace: a reader or a crash never sees a half-written snapshot.
+        temporary = target.with_name(target.name + ".tmp")
+        df.write_parquet(temporary)
+        temporary.replace(target)
         logger.info("Persisted %d Taiwan instruments to %s", len(df), target)
         return target
 
@@ -137,9 +140,11 @@ class TaiwanSecurityMaster:
             return False
 
     def reload(self) -> bool:
-        """Clear memory cache and reload instruments from disk cache."""
-        self._loaded = False
-        self._instruments.clear()
+        """Reload instruments from the disk cache.
+
+        load_cache swaps in the new table only after it is fully built, so concurrent
+        readers never see an empty master and a failed reload keeps the current one.
+        """
         return self.load_cache()
 
     def health_metadata(self) -> dict[str, Any]:
@@ -181,15 +186,7 @@ class TaiwanSecurityMaster:
         for inst in self._instruments.values():
             if not inst.is_supported or inst.listing_status != "active":
                 continue
-            if universe_type == UniverseType.TAIWAN_ALL:
-                symbols.append(inst.symbol)
-            elif universe_type == UniverseType.TWSE_ALL and inst.exchange == "TWSE":
-                symbols.append(inst.symbol)
-            elif universe_type == UniverseType.TPEX_ALL and inst.exchange == "TPEX":
-                symbols.append(inst.symbol)
-            elif universe_type == UniverseType.TAIWAN_STOCKS and inst.instrument_type == "stock":
-                symbols.append(inst.symbol)
-            elif universe_type == UniverseType.TAIWAN_ETFS and inst.instrument_type == "etf":
+            if universe_type == UniverseType.TAIWAN_ALL or (universe_type == UniverseType.TWSE_ALL and inst.exchange == "TWSE") or (universe_type == UniverseType.TPEX_ALL and inst.exchange == "TPEX") or (universe_type == UniverseType.TAIWAN_STOCKS and inst.instrument_type == "stock") or (universe_type == UniverseType.TAIWAN_ETFS and inst.instrument_type == "etf"):
                 symbols.append(inst.symbol)
         return sorted(symbols)
 

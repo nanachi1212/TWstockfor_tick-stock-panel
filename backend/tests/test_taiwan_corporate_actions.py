@@ -1,5 +1,5 @@
 """A1 golden numbers + deterministic A6 storage/transport failure contracts."""
-# ruff: noqa: RUF001 -- Fixtures retain official units.
+
 import json
 from dataclasses import replace
 from datetime import date, datetime
@@ -251,7 +251,6 @@ def test_store_is_idempotent_preserves_revisions_and_atomic(tmp_path, monkeypatc
             store.save([event])
     assert store.path.read_bytes() == before
     assert not list(tmp_path.glob("*.tmp"))
-    assert not store.path.with_suffix(".lock").exists()
     changed = derive_factor(parsed(**{"權值+息值": "4.50003"}))
     assert store.save([changed]) == 2
     assert all(e.status == "data_insufficient" and e.revision_status == "conflict" for e in store.read())
@@ -266,17 +265,14 @@ def test_old_event_schema_does_not_acquire_verified_status(tmp_path):
     assert "legacy_schema_missing" in event.reason
 
 
-def test_store_respects_data_dir_and_lock(tmp_path, monkeypatch):
+def test_store_respects_data_dir_and_a_leftover_lock_file_never_blocks(tmp_path, monkeypatch):
     monkeypatch.setattr("app.taiwan.data_root.taiwan_data_root", lambda: tmp_path / "taiwan")
     store = CorporateActionStore()
     assert store.path == tmp_path / "taiwan" / "adj_factor" / "events.parquet"
     store.save([derive_factor(parsed())])
-    lock = store.path.with_suffix(".lock")
-    lock.write_text("another writer")
-    before = store.path.read_bytes()
-    with pytest.raises(RuntimeError, match="locked"):
-        store.save([])
-    assert store.path.read_bytes() == before
+    # A lock file left behind by a killed process must not block later writes.
+    store.path.with_suffix(".lock").write_text("left by a killed writer")
+    assert store.save([]) == 1
 
 
 def test_provider_only_fetches_detail_for_subscription_cases():

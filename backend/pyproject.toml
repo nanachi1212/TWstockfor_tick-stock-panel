@@ -67,7 +67,13 @@ target-version = "py311"
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "N", "UP", "B", "SIM", "RUF"]
-ignore = ["E501"]   # 長行交給 fmt
+ignore = [
+    "E501",     # 長行交給 fmt
+    "RUF001",   # 中文字串、註解必然含全形標點
+    "RUF002",
+    "RUF003",
+    "UP042",    # (str, Enum) 改 StrEnum 會改變 str() 與序列化結果
+]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

@@ -14,6 +14,7 @@ from __future__ import annotations
 import json
 import logging
 import math
+import shutil
 import threading
 import time
 import uuid
@@ -111,6 +112,8 @@ class TaiwanMonitorEngine:
 
         self._rules: dict[str, TaiwanMonitorRule] = {}
         self._rules_lock = threading.RLock()
+        # (as-of minute, latest completed session ISO date): one lookup per minute, not per rule.
+        self._session_cache: tuple[tuple, str] | None = None
 
         # Deduplication & Cooldown runtime states
         # dedup_key -> is_currently_triggered (bool)
@@ -146,16 +149,37 @@ class TaiwanMonitorEngine:
                     self._rules.clear()
                     return 0
                 data = json.loads(raw_text)
+                if not isinstance(data, list):
+                    raise ValueError("monitor rules file is not a list")
                 loaded = {}
+                unreadable = 0
                 for item in data:
-                    rule = TaiwanMonitorRule.from_dict(item)
-                    loaded[rule.rule_id] = rule
+                    # One damaged rule must not take the readable ones down with it.
+                    try:
+                        rule = TaiwanMonitorRule.from_dict(item)
+                        loaded[rule.rule_id] = rule
+                    except Exception as e:
+                        unreadable += 1
+                        logger.warning("Skipped unreadable Taiwan monitor rule in %s: %s", self.storage_path, e)
+                if unreadable:
+                    self._keep_copy_of_unreadable_rules()
                 self._rules = loaded
                 logger.info("Loaded %d Taiwan monitor rules from %s", len(loaded), self.storage_path)
                 return len(loaded)
             except Exception as e:
                 logger.warning("Failed to load Taiwan monitor rules from %s: %s", self.storage_path, e)
+                # The next save would overwrite this file with only the new rules.
+                self._keep_copy_of_unreadable_rules()
                 return 0
+
+    def _keep_copy_of_unreadable_rules(self) -> None:
+        """Copy the rules file aside before a later save can replace it."""
+        backup = self.storage_path.with_name(f"{self.storage_path.name}.unreadable-{taipei_now():%Y%m%d%H%M%S}")
+        try:
+            shutil.copy2(self.storage_path, backup)
+            logger.warning("Kept a copy of the unreadable monitor rules file at %s", backup)
+        except OSError as e:
+            logger.warning("Could not keep a copy of %s: %s", self.storage_path, e)
 
     def save_rules(self) -> None:
         """Persist in-memory rules to JSON file."""
@@ -219,7 +243,7 @@ class TaiwanMonitorEngine:
                     pair.append(rule)
                 prepared.update((rule.rule_id, rule) for rule in pair)
             except ValueError:
-                skipped.append({"symbol": candidate.symbol, "reason": "計畫價位或個股資料不完整，無法建立提醒"})  # noqa: RUF001
+                skipped.append({"symbol": candidate.symbol, "reason": "計畫價位或個股資料不完整，無法建立提醒"})
 
         # Evaluate and replace under the same lock order. A failed disk publication
         # leaves the old in-memory snapshot and session state untouched.
@@ -236,6 +260,17 @@ class TaiwanMonitorEngine:
             self._save_rules_locked(replacement)
             self._rules = replacement
         return {"created": len(prepared), "removed": removed, "skipped": skipped}
+
+    def _latest_session_iso(self, now_dt: datetime) -> str:
+        key = (now_dt.date(), now_dt.hour, now_dt.minute)
+        cached = self._session_cache
+        if cached is not None and cached[0] == key:
+            return cached[1]
+        from app.taiwan.daily_update import resolve_target_latest_trading_date
+
+        value = resolve_target_latest_trading_date(as_of_dt=now_dt).isoformat()
+        self._session_cache = (key, value)
+        return value
 
     def get_rule(self, rule_id: str) -> TaiwanMonitorRule | None:
         with self._rules_lock:
@@ -259,7 +294,7 @@ class TaiwanMonitorEngine:
             if not rule:
                 return False
             rule.enabled = enabled
-            rule.updated_at = datetime.now().isoformat()
+            rule.updated_at = taipei_now().isoformat()
         self.save_rules()
         return True
 
@@ -639,9 +674,7 @@ class TaiwanMonitorEngine:
 
         if rule.source == "trade_plan":
             try:
-                from app.taiwan.daily_update import resolve_target_latest_trading_date
-
-                target = resolve_target_latest_trading_date(as_of_dt=now_dt).isoformat()
+                target = self._latest_session_iso(now_dt)
             except Exception:
                 return None, EvaluationStatus.SKIPPED_STALE_DATA, "Latest completed session unavailable"
             if rule.plan_as_of != target:
@@ -868,13 +901,13 @@ class TaiwanMonitorEngine:
                 return f"{number:,.2f}".rstrip("0").rstrip(".")
 
             if rule.name == "進入承接區":
-                detail = f"進入承接區 {price(plan.entry_zone_low)}～{price(plan.entry_zone_high)}"  # noqa: RUF001
+                detail = f"進入承接區 {price(plan.entry_zone_low)}～{price(plan.entry_zone_high)}"
             elif rule.name == "突破":
                 detail = f"突破 {price(plan.breakout_trigger)}"
             else:
                 detail = f"跌破失效位 {price(plan.stop_price)}"
             code = rule.symbol.split(".", 1)[0]
-            return f"{code} {name} {detail}，現價 {price(value)}；跌破 {price(plan.stop_price)} 理由失效。（觀察提醒，不是下單）"  # noqa: RUF001
+            return f"{code} {name} {detail}，現價 {price(value)}；跌破 {price(plan.stop_price)} 理由失效。（觀察提醒，不是下單）"
 
         if rtype == TaiwanRuleType.PRICE_ABOVE:
             return f"{name} ({rule.symbol}) 現價 {value:.2f} 已突破設定閾值 {rule.threshold:.2f}"

@@ -20,8 +20,8 @@ from pathlib import Path
 import polars as pl
 import pytest
 
-from app.taiwan.daily_store import TaiwanDailyStore
 from app.taiwan.daily_refresh import TaiwanDailyRefreshService
+from app.taiwan.daily_store import TaiwanDailyStore
 from app.taiwan.realtime.calendar import TaiwanTradingCalendar
 
 

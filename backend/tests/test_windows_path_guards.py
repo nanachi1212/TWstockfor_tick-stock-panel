@@ -64,20 +64,12 @@ def test_news_traversal_symbol_does_not_overwrite_files(tmp_path: Path):
 
 
 @pytest.mark.parametrize("name", ["\\\\10.0.0.66\\x", "..\\..", "../x", "C:\\x", "FUYAO", ""])
-def test_plugin_name_rejected_before_filesystem(monkeypatch: pytest.MonkeyPatch, name: str):
+def test_data_source_name_rejected_before_filesystem(monkeypatch: pytest.MonkeyPatch, name: str):
     monkeypatch.setattr(Path, "exists", lambda self: pytest.fail(f"touched filesystem: {self}"))
-    assert loader.plugin_manifest(name) is None
-    assert loader.probe_plugin_key(name, "k")[0] is False
     with pytest.raises(ValueError):
-        loader.plugin_dir_of(name)
-
-
-def test_valid_plugin_manifest_still_loads(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
-    (tmp_path / "fuyao").mkdir()
-    (tmp_path / "fuyao" / "plugin.yaml").write_text("name: fuyao\n", encoding="utf-8")
-    monkeypatch.setattr(loader, "plugins_dir", lambda: tmp_path)
-    assert loader.plugin_manifest("fuyao") == {"name": "fuyao"}
-    assert loader.plugin_dir_of("fuyao") == tmp_path / "fuyao"
+        loader.save_config(name, {})
+    with pytest.raises(ValueError):
+        loader.delete_config(name)
 
 
 @pytest.fixture()

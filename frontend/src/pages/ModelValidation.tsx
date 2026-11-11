@@ -2,12 +2,7 @@ import { useQuery } from '@tanstack/react-query'
 import { Activity, Clock3, Database, RefreshCw, ShieldCheck } from 'lucide-react'
 import { api } from '@/lib/api'
 import { QK } from '@/lib/queryKeys'
-
-function formatPct(value: number | null | undefined) {
-  return typeof value === 'number' && Number.isFinite(value)
-    ? `${(value * 100).toFixed(2)}%`
-    : '—'
-}
+import { fmtPct } from '@/lib/format'
 
 function readinessText(status: string) {
   const labels: Record<string, string> = {
@@ -110,14 +105,14 @@ export function ModelValidation() {
                 return (
                   <tr key={horizon} className="border-t border-border/70">
                     <th scope="row" className="p-3 font-medium">{horizon} 日</th>
-                    <td className="p-3 tabular-nums">{formatPct(metric?.mean_ic)}</td>
-                    <td className="p-3 tabular-nums">{formatPct(metric?.median_ic)}</td>
-                    <td className="p-3 tabular-nums">{formatPct(metric?.positive_ic_ratio)}</td>
-                    <td className="p-3 tabular-nums">{formatPct(metric?.top_bucket_return)}</td>
-                    <td className="p-3 tabular-nums">{formatPct(metric?.universe_return)}</td>
-                    <td className="p-3 tabular-nums">{formatPct(metric?.bottom_bucket_return)}</td>
-                    <td className="p-3 tabular-nums">{formatPct(metric?.long_short)}</td>
-                    <td className="p-3 tabular-nums">{formatPct(metric?.top_minus_benchmark)}</td>
+                    <td className="p-3 tabular-nums">{fmtPct(metric?.mean_ic, 2, false)}</td>
+                    <td className="p-3 tabular-nums">{fmtPct(metric?.median_ic, 2, false)}</td>
+                    <td className="p-3 tabular-nums">{fmtPct(metric?.positive_ic_ratio, 2, false)}</td>
+                    <td className="p-3 tabular-nums">{fmtPct(metric?.top_bucket_return, 2, false)}</td>
+                    <td className="p-3 tabular-nums">{fmtPct(metric?.universe_return, 2, false)}</td>
+                    <td className="p-3 tabular-nums">{fmtPct(metric?.bottom_bucket_return, 2, false)}</td>
+                    <td className="p-3 tabular-nums">{fmtPct(metric?.long_short, 2, false)}</td>
+                    <td className="p-3 tabular-nums">{fmtPct(metric?.top_minus_benchmark, 2, false)}</td>
                     <td className="p-3 tabular-nums">{metric?.valid_date_count ?? '—'}</td>
                   </tr>
                 )

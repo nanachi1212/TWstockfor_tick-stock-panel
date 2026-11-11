@@ -61,4 +61,4 @@ def test_demo_seed_is_removed_and_taiwan_alert_routes_still_work(tmp_path):
         assert client.patch("/api/alerts/read").status_code == 200
         assert client.patch(f"/api/alerts/{event['alert_id']}/read").status_code == 200
         assert client.delete(f"/api/alerts/id/{event['alert_id']}").status_code == 200
-        assert client.delete("/api/alerts").json() == {"ok": True, "cleared": 0}
+        assert client.delete("/api/alerts").status_code == 405

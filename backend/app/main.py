@@ -20,7 +20,6 @@ from app.api import (
     intraday,
     kline,
     monitor_rules,
-    pipeline,
     strategy_lab,
     taiwan,
     taiwan_live,
@@ -81,7 +80,7 @@ async def _application_lifespan(app: FastAPI):
     )
 
     # 首次啟動: 若設定了 AUTH_PASSWORD 環境變數且未設過密碼, 用它初始化。
-    # 公開網路部署免 SSH 端口轉發; 已設過密碼則不覆蓋 (改密碼走 UI)。
+    # 公開網路部署免 SSH 連接埠轉發; 已設過密碼則不覆蓋 (改密碼走 UI)。
     try:
         from app.services import auth as auth_service
         auth_service.bootstrap_from_env()
@@ -148,7 +147,7 @@ async def _application_lifespan(app: FastAPI):
     except Exception as e:
         logger.warning("local AI autoload not started: %s", e)
 
-    # 源碼內二次開發啟動鉤子: 僅暴露穩定只讀上下文, 單個擴展失敗不影響核心啟動。
+    # 原始碼內二次開發啟動鉤子: 僅暴露穩定只讀上下文, 單個擴展失敗不影響核心啟動。
     extension_registry = app.state.extension_registry
     start_backend_extensions(
         current_extension_context(data_dir=store.data_dir, repository=repo),
@@ -190,10 +189,10 @@ app = FastAPI(
 
 
 # ================================================================
-# 訪問認證中間件
+# 存取認證中間件
 # ================================================================
 # 攔截所有 /api/ 請求, 三種狀態:
-#   1. 未設密碼 + 本機/內網 → 放行(讓本機使用者訪問面板 + 調 /api/auth/setup 設密碼)
+#   1. 未設密碼 + 本機/內網 → 放行(讓本機使用者存取面板 + 調 /api/auth/setup 設密碼)
 #   2. 未設密碼 + 公開網路       → 拒絕(403, 防裸奔也防搶佔; 引導本機設密碼)
 #   3. 已設密碼              → 檢查 session, 無效則 401(前端跳登入)
 # 白名單: /api/auth/* (設密碼/登入本身)、/health 等探活。
@@ -225,14 +224,14 @@ async def auth_middleware(request: Request, call_next):
         return await auth_store_error_handler(request, exc)
     # 情況 1+2: 未設密碼
     if not configured:
-        # 本機/內網 → 放行(伺服器主人可訪問, 並去 /login 設密碼)
+        # 本機/內網 → 放行(伺服器主人可存取, 並去 /login 設密碼)
         if auth_api._is_local_request(request):
             return await call_next(request)
         # 公開網路 → 拒絕。不裸奔, 也不給公開網路設密碼的機會(防搶佔)
         return JSONResponse(
             status_code=403,
             content={
-                "detail": "面板尚未初始化訪問密碼,請通過 SSH/本機瀏覽器訪問以設定密碼",
+                "detail": "面板尚未初始化存取密碼,請透過 SSH/本機瀏覽器存取以設定密碼",
                 "code": "NOT_INITIALIZED",
             },
         )
@@ -250,7 +249,6 @@ app.include_router(auth_api.router)
 app.include_router(kline.router)
 app.include_router(watchlist.router)
 app.include_router(intraday.router)
-app.include_router(pipeline.router)
 app.include_router(data.router)
 app.include_router(settings_api.router)
 app.include_router(device_transfer.router)

@@ -510,28 +510,8 @@ function Start-DomainValidationJob {
 
         $results = [System.Collections.Generic.List[object]]::new()
         if ($DomainName -eq 'backend') {
-            $ruffTargets = @()
-            if ($RunMode -eq 'Full') {
-                $ruffTargets = @('app', 'tests')
-            }
-            else {
-                $ruffTargets = @($Changed | Where-Object { $_ -match '^backend/.+\.pyi?$' } | ForEach-Object { $_.Substring(8) })
-                if ($ruffTargets.Count -eq 0) { $ruffTargets = @('app') }
-            }
-            if ($RunMode -ne 'Full') {
-                # ext_data.py predates the current RUF/SIM/B policy and still has
-                # unrelated baseline findings. Keep basic correctness linting for
-                # that touched legacy file without weakening other targets.
-                $legacyRuffTargets = @($ruffTargets | Where-Object { $_ -eq 'app/services/ext_data.py' })
-                $standardRuffTargets = @($ruffTargets | Where-Object { $_ -ne 'app/services/ext_data.py' })
-                if ($standardRuffTargets.Count -gt 0) {
-                    Run-Step -Name 'Backend Ruff' -Directory $backend -Command 'uv' -Arguments (@('run', '--frozen', '--extra', 'dev', 'ruff', 'check') + $standardRuffTargets) -Results $results
-                }
-                if ($legacyRuffTargets.Count -gt 0) {
-                    $legacyArgs = @('run', '--frozen', '--extra', 'dev', 'ruff', 'check', '--select', 'E,F,I,N,UP', '--ignore', 'E501') + $legacyRuffTargets
-                    Run-Step -Name 'Backend Ruff (legacy baseline scope)' -Directory $backend -Command 'uv' -Arguments $legacyArgs -Results $results
-                }
-            }
+            # The tree is Ruff-clean, so every mode checks all of it (well under a second).
+            Run-Step -Name 'Backend Ruff' -Directory $backend -Command 'uv' -Arguments @('run', '--frozen', '--extra', 'dev', 'ruff', 'check', 'app', 'tests', 'scripts') -Results $results
 
             # Invoke pytest as a module so uv does not need to resolve the
             # pytest console-script trampoline from a non-ASCII repo path.

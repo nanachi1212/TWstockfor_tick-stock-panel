@@ -1,5 +1,5 @@
 """Small, cached FRED/ALFRED macro context adapter."""
-# ruff: noqa: RUF001 -- user-facing Traditional Chinese text is intentional.
+
 from __future__ import annotations
 
 import threading

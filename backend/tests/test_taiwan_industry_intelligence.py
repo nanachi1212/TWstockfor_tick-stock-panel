@@ -26,6 +26,7 @@ Verifies:
 """
 from datetime import date
 from unittest.mock import MagicMock, patch
+
 import polars as pl
 import pytest
 from fastapi.testclient import TestClient
@@ -176,8 +177,8 @@ def test_turnover_share_calculation():
     )
     snapshot = svc.get_snapshot(d)
 
-    ind_a = [i for i in snapshot.industries if i.industry == "半導體業"][0]
-    ind_b = [i for i in snapshot.industries if i.industry == "鋼鐵工業"][0]
+    ind_a = next(i for i in snapshot.industries if i.industry == "半導體業")
+    ind_b = next(i for i in snapshot.industries if i.industry == "鋼鐵工業")
 
     assert ind_a.turnover == 100.0
     assert ind_a.turnover_share == 0.25
@@ -246,7 +247,7 @@ def test_relative_strength_formula_and_new_listing_exclusion():
     # Market equal-weight 5D = (0.10 + 0.10 + 0.02) / 3 = 0.073333
     # Industry A (半導體業) 5D return = (0.10 + 0.10) / 2 = 0.10
     # RS 5D = 0.10 - 0.073333 = 0.026667
-    ind_a = [i for i in snapshot.industries if i.industry == "半導體業"][0]
+    ind_a = next(i for i in snapshot.industries if i.industry == "半導體業")
     assert ind_a.relative_strength_5d == 0.026667
     assert ind_a.relative_strength_5d_comparable_count == 2
 
@@ -279,17 +280,21 @@ def test_historical_no_look_ahead():
         inst_store=mock_inst,
         margin_store=mock_margin,
     )
-    snapshot = svc.get_snapshot(d_target)
+    svc.get_snapshot(d_target)
 
     for call in mock_daily.read_range.call_args_list:
         _, start, end = call[0]
-        if start: assert start <= d_target
-        if end: assert end <= d_target
+        if start:
+            assert start <= d_target
+        if end:
+            assert end <= d_target
 
     for call in mock_inst.read_range.call_args_list:
         _, start, end = call[0]
-        if start: assert start <= d_target
-        if end: assert end <= d_target
+        if start:
+            assert start <= d_target
+        if end:
+            assert end <= d_target
 
 
 def test_api_endpoint_zero_external_http():

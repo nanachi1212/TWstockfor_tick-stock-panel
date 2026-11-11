@@ -299,4 +299,7 @@ def rank_strategy(frame: pl.DataFrame, strategy_id: str) -> pl.DataFrame:
     else:
         return frame
     available = [column for column in columns if column in frame.columns]
-    return frame.sort([*available, "symbol"], descending=[True] * len(available) + [False])
+    # Missing signal values must rank last, never first.
+    return frame.sort(
+        [*available, "symbol"], descending=[True] * len(available) + [False], nulls_last=True,
+    )

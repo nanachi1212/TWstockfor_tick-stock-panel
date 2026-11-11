@@ -143,6 +143,11 @@ def test_missing_entire_weekday_is_not_treated_as_holiday(tmp_path):
                                         {"symbol": BENCHMARK_SYMBOL, "date": "2026-06-08"}]
     svc.evidence = SimpleNamespace(day_evidence=lambda *args: SimpleNamespace(status="non_trading"))
     assert svc.analyze({"2330.TWSE": 1})["performance"]["status"] == "available"
+    lookups = []
+    svc.evidence = SimpleNamespace(
+        day_evidence=lambda *args: lookups.append(args) or SimpleNamespace(status="non_trading"))
+    assert svc.analyze({"2330.TWSE": 1, "2317.TWSE": 1})["performance"]["status"] == "available"
+    assert lookups == [("TWSE", day)]  # three TWSE series share one lookup for the closed day
 
 
 def test_missing_crash_bar_cannot_hide_drawdown(tmp_path):

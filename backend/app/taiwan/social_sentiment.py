@@ -233,7 +233,7 @@ class PTTStockCollector:
                             if post.published_at is None or post.published_at < since:
                                 continue
                             result.posts.append(post)
-                        except Exception as exc:  # noqa: BLE001 - isolate one PTT post
+                        except Exception as exc:
                             result.errors.append(f"post {entry['post_id']}: {type(exc).__name__}")
                     previous = entry.get("previous_url")
                     if not previous:
@@ -243,7 +243,7 @@ class PTTStockCollector:
                         import time
 
                         time.sleep(self.request_delay)
-        except Exception as exc:  # noqa: BLE001 - source isolation is intentional
+        except Exception as exc:
             result.errors.append(f"index: {type(exc).__name__}: {exc}")
         logger.info("PTT collector: %d posts, %d comments, status=%s", len(result.posts), result.comments_count, result.status)
         return result
@@ -477,7 +477,7 @@ class SocialSentimentService:
         for collector in self._collectors():
             try:
                 source_results[collector.source] = collector.fetch(since=since, max_pages=max_pages)
-            except Exception as exc:  # noqa: BLE001 - source isolation is intentional
+            except Exception as exc:
                 logger.exception("Social source %s failed", collector.source)
                 source_results[collector.source] = SourceResult(collector.source, errors=[type(exc).__name__])
 
@@ -641,7 +641,7 @@ class SocialSentimentService:
                         errors.append(f"symbol {row['code']}: {type(exc).__name__}")
                         continue
                     analyzed += 1
-            except Exception as exc:  # noqa: BLE001 - one batch must not fail the run
+            except Exception as exc:
                 # Keep only a safe HTTP status; provider text may echo request details.
                 http_status = getattr(exc.__cause__, "status_code", None) or getattr(exc, "status_code", None)
                 detail = f"HTTP {http_status}" if http_status else type(exc).__name__
@@ -653,6 +653,7 @@ class SocialSentimentService:
                     break
         return {
             "status": (
+                # Symbols beyond the cap are skipped on purpose; that is partial coverage.
                 "available" if analyzed == len(rankings) and not errors
                 else "degraded" if analyzed
                 else "unavailable"

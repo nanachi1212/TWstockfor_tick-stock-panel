@@ -12,9 +12,8 @@ overrides (used by every existing deterministic test in this repo) still work.
 """
 from __future__ import annotations
 
-
-from app.taiwan.data_root import taiwan_data_root
 from app.taiwan.daily_store import TaiwanDailyStore
+from app.taiwan.data_root import taiwan_data_root
 from app.taiwan.institutional_store import TaiwanInstitutionalStore
 from app.taiwan.margin_store import TaiwanMarginStore
 from app.taiwan.realtime.monitor_engine import TaiwanMonitorEngine
@@ -40,11 +39,11 @@ def test_taiwan_daily_store_default_path_is_cwd_independent(tmp_path, monkeypatc
 
     monkeypatch.chdir(cwd_a)
     store_a = TaiwanDailyStore()
-    path_a = store_a._data_dir  # noqa: SLF001 (白盒驗證 resolve 結果, 非改測試脆弱內部行為)
+    path_a = store_a._data_dir
 
     monkeypatch.chdir(cwd_b)
     store_b = TaiwanDailyStore()
-    path_b = store_b._data_dir  # noqa: SLF001
+    path_b = store_b._data_dir
 
     assert path_a == path_b, (
         f"不同 CWD 下的預設 TaiwanDailyStore 路徑應相同, 實際: {path_a} vs {path_b}"
@@ -94,7 +93,7 @@ def test_taiwan_daily_store_explicit_override_still_respected(tmp_path):
     """顯式傳入 data_dir 時, 必須精確使用該路徑 (不落回 canonical root)。"""
     custom = tmp_path / "my_custom_daily_dir"
     store = TaiwanDailyStore(data_dir=custom)
-    assert store._data_dir == custom  # noqa: SLF001
+    assert store._data_dir == custom
 
 
 def test_taiwan_security_master_explicit_override_still_respected(tmp_path):
@@ -132,11 +131,11 @@ def test_taiwan_institutional_store_default_path_is_cwd_independent(tmp_path, mo
 
     monkeypatch.chdir(cwd_a)
     store_a = TaiwanInstitutionalStore()
-    path_a = store_a._data_dir  # noqa: SLF001 (白盒驗證 resolve 結果)
+    path_a = store_a._data_dir
 
     monkeypatch.chdir(cwd_b)
     store_b = TaiwanInstitutionalStore()
-    path_b = store_b._data_dir  # noqa: SLF001
+    path_b = store_b._data_dir
 
     assert path_a == path_b, (
         f"不同 CWD 下的預設 TaiwanInstitutionalStore 路徑應相同, 實際: {path_a} vs {path_b}"
@@ -154,11 +153,11 @@ def test_taiwan_margin_store_default_path_is_cwd_independent(tmp_path, monkeypat
 
     monkeypatch.chdir(cwd_a)
     store_a = TaiwanMarginStore()
-    path_a = store_a._data_dir  # noqa: SLF001
+    path_a = store_a._data_dir
 
     monkeypatch.chdir(cwd_b)
     store_b = TaiwanMarginStore()
-    path_b = store_b._data_dir  # noqa: SLF001
+    path_b = store_b._data_dir
 
     assert path_a == path_b, (
         f"不同 CWD 下的預設 TaiwanMarginStore 路徑應相同, 實際: {path_a} vs {path_b}"
@@ -172,21 +171,21 @@ def test_taiwan_institutional_store_explicit_override_still_respected(tmp_path):
     """顯式傳入 data_dir 時, 必須精確使用該路徑 (不落回 canonical root)。"""
     custom = tmp_path / "my_custom_institutional_dir"
     store = TaiwanInstitutionalStore(data_dir=custom)
-    assert store._data_dir == custom  # noqa: SLF001
+    assert store._data_dir == custom
 
 
 def test_taiwan_margin_store_explicit_override_still_respected(tmp_path):
     custom = tmp_path / "my_custom_margin_dir"
     store = TaiwanMarginStore(data_dir=custom)
-    assert store._data_dir == custom  # noqa: SLF001
+    assert store._data_dir == custom
 
 
 def test_taiwan_institutional_and_margin_share_canonical_root_with_daily():
     """三個 Taiwan 日頻 store(daily/institutional/margin)的預設路徑都應是
     taiwan_data_root() 下的同級子目錄, 不是各自獨立的路徑系統。"""
-    daily_root = TaiwanDailyStore()._data_dir  # noqa: SLF001
-    inst_root = TaiwanInstitutionalStore()._data_dir  # noqa: SLF001
-    margin_root = TaiwanMarginStore()._data_dir  # noqa: SLF001
+    daily_root = TaiwanDailyStore()._data_dir
+    inst_root = TaiwanInstitutionalStore()._data_dir
+    margin_root = TaiwanMarginStore()._data_dir
 
     assert daily_root.parent == taiwan_data_root()
     assert inst_root.parent == taiwan_data_root()

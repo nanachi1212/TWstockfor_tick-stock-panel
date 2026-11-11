@@ -99,7 +99,7 @@ class TaiwanBenchmarkStore:
                 frame = pl.DataFrame(
                     [{
                         "symbol": symbol, "date": r.date,
-                        # Parser maps missing numbers to 0.0; keep them missing.
+                        # Missing numbers arrive as None; an index level of 0 is not a value either.
                         "open": r.open or None, "high": r.high or None, "low": r.low or None,
                         "close": r.close, "source": r.meta.source, "source_url": url,
                         "retrieved_at": retrieved_at,

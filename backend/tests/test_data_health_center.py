@@ -5,6 +5,7 @@ import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, date, datetime, timedelta
+from pathlib import Path
 from types import SimpleNamespace
 
 import polars as pl
@@ -349,6 +350,36 @@ def test_existing_social_manager_is_reused(monkeypatch):
     assert calls == [1]
 
 
+def test_finmind_health_metadata_reparses_only_changed_files(tmp_path, monkeypatch):
+    cache = FinMindCache(tmp_path)
+    cache.set("TaiwanStockShareholding", "2330.TWSE", [{"date": "2026-10-07"}], data_date="2026-10-07")
+    cache.set("TaiwanStockShareholding", "2454.TWSE", [{"date": "2026-10-01"}], data_date="2026-10-01")
+    first = cache.health_metadata("TaiwanStockShareholding")
+
+    reads = []
+    original = Path.read_text
+    monkeypatch.setattr(Path, "read_text", lambda self, *a, **k: reads.append(self.name) or original(self, *a, **k))
+    assert cache.health_metadata("TaiwanStockShareholding") == first
+    assert reads == []
+
+    cache.set("TaiwanStockShareholding", "2330.TWSE", [{"date": "2026-10-08"}], data_date="2026-10-08")
+    changed = {r["symbol"]: r for r in cache.health_metadata("TaiwanStockShareholding")}
+    assert reads == ["2330.TWSE.json"] and changed["2330.TWSE"]["data_date"] == "2026-10-08"
+
+
+def test_social_update_wait_has_a_timeout(monkeypatch):
+    from app.taiwan import data_health_jobs, social_sentiment_jobs
+
+    manager = SimpleNamespace(
+        start_manual=lambda: {"job_id": "stuck"}, get_job=lambda job_id: {"status": "running"},
+    )
+    monkeypatch.setattr(social_sentiment_jobs, "get_social_sentiment_job_manager", lambda: manager)
+    monkeypatch.setattr(data_health_jobs, "SOCIAL_JOB_TIMEOUT_SECONDS", 0.05)
+    monkeypatch.setattr(data_health_jobs.time, "sleep", lambda seconds: None)
+    status, reason = execute_existing("ptt", "retry")
+    assert status == "failed" and "逾時" in reason
+
+
 def test_ai_validation_invalidated_by_configuration_change(monkeypatch):
     from app.taiwan import data_health_jobs
 
@@ -612,6 +643,14 @@ def test_ai_failure_does_not_survive_configuration_change(monkeypatch):
     revision[0] = "second"
     rows = {row.id: row for row in manager.snapshot().datasets}
     assert rows["ai_provider"].status == "unavailable"
+
+
+def test_previous_daily_session_comes_from_shared_target_not_stored_dates(monkeypatch):
+    from app.taiwan import daily_update, data_health_center
+
+    # Target Monday 2026-10-12: the session before it skips the weekend.
+    monkeypatch.setattr(daily_update, "resolve_target_latest_trading_date", lambda *a, **k: date(2026, 10, 12))
+    assert data_health_center._previous_daily_session() == date(2026, 10, 9)
 
 
 def test_daily_chips_health_uses_data_date_not_cache_age(monkeypatch, tmp_path):

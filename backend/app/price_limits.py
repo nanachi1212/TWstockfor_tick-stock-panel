@@ -3,40 +3,8 @@
 from __future__ import annotations
 
 import math
-from typing import Any
 
 import polars as pl
-
-
-def taiwan_price_limit_pct(
-    symbol: str,
-    *,
-    limit_class: Any | None = None,
-) -> float | None:
-    """Delegate Taiwan price limit percentages strictly to Taiwan PriceLimitModel.
-
-    PriceLimitModel is the single authoritative source of truth.
-    Does not let symbol suffix alone dictate 10%.
-    """
-    from app.taiwan.market_rules import PriceLimitClass, PriceLimitModel
-
-    if limit_class is not None:
-        if isinstance(limit_class, str):
-            limit_class = PriceLimitClass(limit_class)
-        return PriceLimitModel.get_limit_pct(limit_class)
-
-    return PriceLimitModel.get_limit_pct(PriceLimitClass.ORDINARY_TEN_PERCENT)
-
-
-def price_limit_pct(
-    symbol: str,
-    *,
-    limit_class: Any | None = None,
-) -> float | None:
-    """Taiwan limit percentage; any non-Taiwan symbol has no known limit (None)."""
-    if symbol.endswith((".TWSE", ".TPEX")):
-        return taiwan_price_limit_pct(symbol, limit_class=limit_class)
-    return None
 
 
 def taiwan_limit_profiles(instruments: pl.DataFrame) -> pl.DataFrame:

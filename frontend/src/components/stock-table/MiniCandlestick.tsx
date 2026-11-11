@@ -6,7 +6,7 @@ export function MiniCandlestick({ rows, meta, width = 100, height = 80 }: { rows
   const basis = meta?.price_semantics === 'raw' ? '日 K（未復權原始價格）' : '日 K'
   const availability = meta?.status === 'stale' ? '，資料較舊' : meta?.status === 'partial' ? '，歷史資料不完整' : ''
   const label = `${basis}${availability}`
-  // 空資料：返回等尺寸佔位（不畫內容），保證 kline 載入前後單元格尺寸一致、不閃爍
+  // 空資料：返回等尺寸佔位（不畫內容），保證 kline 載入前後儲存格尺寸一致、不閃爍
   if (!rows || rows.length === 0) {
     const emptyLabel = meta?.status === 'unavailable' ? '日 K 資料不足' : '載入中'
     return <svg width={width} height={height} viewBox={`0 0 ${width} ${height}`} className="block" role="img" aria-label={emptyLabel}>
@@ -42,14 +42,14 @@ export function MiniCandlestick({ rows, meta, width = 100, height = 80 }: { rows
     const r = rows[i]
     const x = i * barW + barW / 2
 
-    // 漲跌判斷: open !== close 用實體方向, 一字板用前日收盤計算漲跌
+    // 漲跌判斷: open !== close 用實體方向, 開收同價時用前日收盤計算漲跌
     let color: string
     if (r.close > r.open) {
       color = BULL
     } else if (r.close < r.open) {
       color = BEAR
     } else {
-      // 一字板: open === close, 用前一日收盤價判斷漲跌方向
+      // 開收同價: open === close, 用前一日收盤價判斷漲跌方向
       const prevClose = i > 0 ? rows[i - 1].close : null
       if (prevClose && prevClose > 0 && r.close !== prevClose) {
         color = r.close > prevClose ? BULL : BEAR

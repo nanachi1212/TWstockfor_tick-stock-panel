@@ -3,7 +3,6 @@
 只回傳檔案文字，解析與寫入仍由前端既有 Portfolio 流程處理 (持股存在瀏覽器)。
 """
 # The Traditional Chinese UI messages intentionally use full-width punctuation.
-# ruff: noqa: RUF001, RUF002
 from __future__ import annotations
 
 import os

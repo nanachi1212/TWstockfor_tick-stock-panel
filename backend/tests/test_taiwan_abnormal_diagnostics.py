@@ -45,6 +45,7 @@ Comprehensive deterministic tests verifying:
 """
 from datetime import date
 from unittest.mock import MagicMock, patch
+
 import polars as pl
 import pytest
 from fastapi.testclient import TestClient
@@ -93,7 +94,7 @@ def test_volume_spike_and_baseline_excludes_target():
     p_dates = [date(2026, 8, 21), date(2026, 8, 24), date(2026, 8, 25), date(2026, 8, 26), date(2026, 8, 27)]
 
     mock_daily = MagicMock()
-    mock_daily.available_dates.return_value = p_dates + [d_curr]
+    mock_daily.available_dates.return_value = [*p_dates, d_curr]
 
     df_p5 = pl.DataFrame({
         "symbol": ["TEST.TWSE"] * 5,
@@ -149,7 +150,7 @@ def test_missing_volume_history_does_not_trigger():
     p_dates = [date(2026, 8, 26), date(2026, 8, 27)]
 
     mock_daily = MagicMock()
-    mock_daily.available_dates.return_value = p_dates + [d_curr]
+    mock_daily.available_dates.return_value = [*p_dates, d_curr]
 
     df_p2 = pl.DataFrame({
         "symbol": ["TEST.TWSE"] * 2,
@@ -193,7 +194,7 @@ def test_turnover_spike_verification():
     p_dates = [date(2026, 8, 21), date(2026, 8, 24), date(2026, 8, 25), date(2026, 8, 26), date(2026, 8, 27)]
 
     mock_daily = MagicMock()
-    mock_daily.available_dates.return_value = p_dates + [d_curr]
+    mock_daily.available_dates.return_value = [*p_dates, d_curr]
 
     df_p5 = pl.DataFrame({
         "symbol": ["TEST.TWSE"] * 5,
@@ -303,7 +304,7 @@ def test_margin_surge_increase_and_decrease():
     })
 
     mock_margin_store = MagicMock()
-    mock_margin_store.available_dates.return_value = p_dates + [d_curr]
+    mock_margin_store.available_dates.return_value = [*p_dates, d_curr]
 
     # 20 prior margin_change with median abs 100,000
     prior_rows = []
@@ -362,7 +363,7 @@ def test_short_surge_increase_and_decrease():
     })
 
     mock_margin_store = MagicMock()
-    mock_margin_store.available_dates.return_value = p_dates + [d_curr]
+    mock_margin_store.available_dates.return_value = [*p_dates, d_curr]
 
     prior_rows = []
     for d in p_dates:
@@ -420,7 +421,7 @@ def test_short_margin_ratio_spike_and_missing_handling():
     })
 
     mock_margin_store = MagicMock()
-    mock_margin_store.available_dates.return_value = p_dates + [d_curr]
+    mock_margin_store.available_dates.return_value = [*p_dates, d_curr]
 
     prior_rows = []
     for d in p_dates:
@@ -467,7 +468,7 @@ def test_relative_strength_outlier_leader_and_laggard():
     p_dates = [date(2026, 8, 21), date(2026, 8, 24), date(2026, 8, 25), date(2026, 8, 26), date(2026, 8, 27)]
 
     mock_daily = MagicMock()
-    mock_daily.available_dates.return_value = p_dates + [d_curr]
+    mock_daily.available_dates.return_value = [*p_dates, d_curr]
 
     mock_sm = _build_mock_sm([
         ("LEAD.TWSE", "領漲股", "半導體業"),
@@ -501,7 +502,8 @@ def test_relative_strength_outlier_leader_and_laggard():
     mock_ind_metric = MagicMock()
     mock_ind_metric.industry = "半導體業"
     mock_ind_metric.relative_strength_5d = 0.05
-    mock_ind_metric.average_change_pct = 0.03
+    mock_ind_metric.average_return_5d = 0.03
+    mock_ind_metric.average_change_pct = 0.5  # 1-day move must not be used as the 5-day baseline
     mock_ind_metric.turnover_share = 0.2
     mock_ind_metric.advance_ratio = 0.6
     mock_ind_snap.industries = [mock_ind_metric]
@@ -544,7 +546,7 @@ def test_official_zero_vs_missing_institutional_flow():
     })
 
     mock_inst_store = MagicMock()
-    mock_inst_store.available_dates.return_value = p_dates + [d_curr]
+    mock_inst_store.available_dates.return_value = [*p_dates, d_curr]
 
     # ZERO.TWSE has 20 official zero days
     prior_rows = []
@@ -686,7 +688,7 @@ def test_institutional_spike_and_sell_direction():
     p_dates = [date(2026, 8, i) for i in range(1, 21)]
 
     mock_inst_store = MagicMock()
-    mock_inst_store.available_dates.return_value = p_dates + [d_curr]
+    mock_inst_store.available_dates.return_value = [*p_dates, d_curr]
 
     df_p20_inst = pl.DataFrame({
         "symbol": ["TEST.TWSE"] * 20,
@@ -772,7 +774,7 @@ def test_price_flow_divergence():
     mock_daily.read_range.side_effect = mock_read_daily
 
     mock_inst_store = MagicMock()
-    mock_inst_store.available_dates.return_value = p_dates + [d_curr]
+    mock_inst_store.available_dates.return_value = [*p_dates, d_curr]
 
     def mock_read_inst(syms, start, end):
         if start == d_curr:
@@ -837,7 +839,7 @@ def test_historical_no_look_ahead():
     svc.get_diagnostics(target_date=d_target)
 
     for call in mock_daily.read_range.call_args_list:
-        _, start, end = call[0]
+        _, _start, end = call[0]
         if end is not None:
             assert end <= d_target
 
@@ -1019,7 +1021,7 @@ def test_normal_etf_class_a_signal_and_not_applicable_semantics():
     p_dates = [date(2026, 8, i) for i in range(21, 28)]
 
     mock_daily = MagicMock()
-    mock_daily.available_dates.return_value = p_dates + [d_curr]
+    mock_daily.available_dates.return_value = [*p_dates, d_curr]
     specs = [{"symbol": "0050.TWSE", "name": "元大台灣50", "industry": None, "instrument_type": "etf", "leverage_multiplier": 1.0}]
     mock_sm = _build_mock_sm_mixed(specs)
 
@@ -1191,6 +1193,21 @@ def test_etf_no_look_ahead():
     svc.get_diagnostics(target_date=d_target, include_all=True, include_etfs=True)
 
     for call in mock_daily.read_range.call_args_list:
-        _, start, end = call[0]
+        _, _start, end = call[0]
         if end is not None:
             assert end <= d_target
+
+
+def test_symbols_argument_limits_reads_and_items():
+    d_curr = date(2026, 8, 28)
+    p_dates = [date(2026, 8, 21), date(2026, 8, 24), date(2026, 8, 25), date(2026, 8, 26), date(2026, 8, 27)]
+    mock_daily = MagicMock()
+    mock_daily.available_dates.return_value = [*p_dates, d_curr]
+    mock_daily.read_range.return_value = pl.DataFrame()
+    mock_sm = _build_mock_sm([("A.TWSE", "甲", "半導體業"), ("B.TWSE", "乙", "半導體業")])
+    svc = TaiwanAbnormalDiagnosticsService(
+        daily_store=mock_daily, security_master=mock_sm, industry_intel_svc=MagicMock(),
+    )
+    svc.get_diagnostics(target_date=d_curr, include_all=True, symbols=["A.TWSE"])
+    # The diagnostics' own batch reads come first (context services read later, market-wide).
+    assert mock_daily.read_range.call_args_list[0].args[0] == ["A.TWSE"]

@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
 import { api, type DataHealthAction, type DataHealthStatus } from '@/lib/api'
 import { QK } from '@/lib/queryKeys'
+import { fmtTaipeiDateTime } from '@/lib/format'
 import { useDataHealth } from '@/lib/useDataHealth'
 import { statusLabel } from '@/lib/evidenceLabel'
 
@@ -21,9 +22,7 @@ const actions: Record<DataHealthAction, string> = { update: '立即更新', vali
 const jobStatuses = { queued: '排隊中', running: '執行中', completed: '已完成', partial: '部分完成', failed: '失敗' }
 
 function localTime(value: string | null) {
-  if (!value) return '未知'
-  const stamp = new Date(value)
-  return Number.isNaN(stamp.getTime()) ? '未知' : stamp.toLocaleString('zh-TW', { timeZone: 'Asia/Taipei', hour12: false })
+  return fmtTaipeiDateTime(value, '未知', true)
 }
 
 export function DataHealth() {

@@ -1,4 +1,4 @@
-"""訪問認證 API。
+"""存取認證 API。
 
 端點:
   GET  /api/auth/status        — 是否已設密碼、當前會話是否有效
@@ -11,7 +11,7 @@
   - setup 端點只接受本機/內網請求(request.client.host), 公開網路請求 403。
     否則黑客可比使用者更早掃到網域, 搶先設密碼, 反客為主。
   - login 限流: 同一來源 IP 連續失敗 5 次, 鎖 5 分鐘(記憶體計數)。
-  - 會話 token 通過 HttpOnly cookie 下發, 前端無需手動管理。
+  - 會話 token 透過 HttpOnly cookie 下發, 前端無需手動管理。
 """
 from __future__ import annotations
 
@@ -170,7 +170,7 @@ def _is_loopback_request(request: Request) -> bool:
 def _check_login_rate_limit(ip: str) -> None:
     """登入失敗限流檢查, 觸發則拋 429。鎖定過期後重置計數(重新給 5 次機會)。"""
     with _fail_lock:
-        count, until = _fail_counter.get(ip, (0, 0.0))
+        _count, until = _fail_counter.get(ip, (0, 0.0))
         now = time.time()
         if until > now:
             wait = int(until - now)
@@ -234,7 +234,7 @@ def auth_status(request: Request) -> dict:
 
 @router.post("/setup")
 def setup_password(req: PasswordIn, request: Request) -> dict:
-    """首次設定訪問密碼。僅限本機/內網請求(防公開網路搶佔)。
+    """首次設定存取密碼。僅限本機/內網請求(防公開網路搶佔)。
 
     若已設定過密碼, 回傳 409(改密碼走 /change-password)。
     """
@@ -244,7 +244,7 @@ def setup_password(req: PasswordIn, request: Request) -> dict:
         logger.warning("setup rejected from non-local ip: %s", client_ip)
         raise HTTPException(
             status_code=403,
-            detail="首次設定密碼僅允許本機或內網訪問,請通過 SSH/本地瀏覽器操作",
+            detail="首次設定密碼僅允許本機或內網存取,請透過 SSH/本機瀏覽器操作",
         )
 
     if auth.is_configured():
@@ -262,7 +262,7 @@ def login(req: LoginIn, request: Request, response: Response) -> dict:
     _check_login_rate_limit(ip)
 
     if not auth.is_configured():
-        raise HTTPException(status_code=409, detail="尚未設定訪問密碼")
+        raise HTTPException(status_code=409, detail="尚未設定存取密碼")
 
     token = auth.verify_and_create_session(req.password)
     if token:
@@ -305,7 +305,7 @@ def change_password(req: ChangePasswordIn, request: Request) -> dict:
         raise HTTPException(status_code=401, detail="請先登入")
 
     if not auth.is_configured():
-        raise HTTPException(status_code=409, detail="尚未設定訪問密碼")
+        raise HTTPException(status_code=409, detail="尚未設定存取密碼")
 
     # 驗證舊密碼
     new_token = auth.verify_and_create_session(req.old_password)

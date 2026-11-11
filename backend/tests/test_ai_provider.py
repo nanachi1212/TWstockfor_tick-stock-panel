@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import tomllib
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock
@@ -370,7 +371,7 @@ async def test_structured_output_retries_malformed_json_once():
         max_tokens=100,
         timeout=5,
         generate=generate,
-        validate=ai_provider._validate_structured_json,
+        validate=json.loads,
     )
 
     assert result == '{"items":[]}'
@@ -395,7 +396,7 @@ async def test_structured_output_second_malformed_json_fails_closed():
             max_tokens=100,
             timeout=5,
             generate=generate,
-            validate=ai_provider._validate_structured_json,
+            validate=json.loads,
         )
 
     assert calls == [0, 1]
@@ -418,7 +419,7 @@ async def test_structured_output_retries_empty_content_once():
         max_tokens=100,
         timeout=5,
         generate=generate,
-        validate=ai_provider._validate_structured_json,
+        validate=json.loads,
     )
 
     assert result == '{"items":[]}'
@@ -854,6 +855,30 @@ def test_codex_cli_available_false_when_command_missing(monkeypatch):
 
     monkeypatch.setattr(ai_provider, "_codex_base_command", raise_not_found)
     assert ai_provider.codex_cli_available() is False
+
+
+def test_ai_configured_caches_cli_probe_until_settings_are_saved(monkeypatch):
+    """Status polls must not spawn `codex --version` every time; a settings save re-detects."""
+    probes: list[bool] = []
+    available = [True]
+
+    def probe() -> bool:
+        probes.append(available[0])
+        return available[0]
+
+    monkeypatch.setattr(ai_provider, "codex_cli_available", probe)
+    ai_provider.reset_ai_configured_cache()
+    try:
+        assert ai_provider.ai_configured("codex_cli") is True
+        available[0] = False
+        assert ai_provider.ai_configured("codex_cli") is True
+        assert len(probes) == 1
+
+        ai_provider.reset_ai_configured_cache()
+        assert ai_provider.ai_configured("codex_cli") is False
+        assert len(probes) == 2
+    finally:
+        ai_provider.reset_ai_configured_cache()
 
 
 @pytest.mark.asyncio

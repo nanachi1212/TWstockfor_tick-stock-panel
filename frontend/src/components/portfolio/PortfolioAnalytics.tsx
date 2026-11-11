@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useQuery, type UseQueryResult } from '@tanstack/react-query'
-import * as echarts from 'echarts'
+import { echarts } from '@/lib/echarts'
 import { BarChart3 } from 'lucide-react'
 import { api, type TaiwanPortfolioAnalytics } from '@/lib/api'
 import { QK } from '@/lib/queryKeys'

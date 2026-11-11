@@ -16,6 +16,7 @@ Covers:
 from __future__ import annotations
 
 from datetime import date, datetime
+
 import pytest
 
 from app.taiwan.enrichment.index import TaiwanIndexProvider
@@ -34,10 +35,8 @@ from app.taiwan.enrichment.models import (
     EtfCategory,
     StalePolicy,
 )
-from app.taiwan.enrichment.quote import TaiwanOfficialQuoteProvider
-from app.taiwan.market_rules import PriceLimitClass, TaxClass, TickSizeClass
+from app.taiwan.market_rules import TaxClass, TickSizeClass
 from app.taiwan.universe.models import MarketProfileBridge, TaiwanInstrument
-
 
 # ── 1. Institutional Flows Tests ────────────────────────────────
 
@@ -54,7 +53,7 @@ class TestInstitutionalEnrichment:
                 [
                     "2330", "台積電",
                     "15,000,000", "10,000,000", "5,000,000",  # Foreign buy, sell, net (idx 2, 3, 4)
-                    "", "", "",
+                    "0", "0", "0",                             # Foreign dealer buy, sell, net (idx 5, 6, 7)
                     "2,000,000", "500,000", "1,500,000",      # Trust buy, sell, net (idx 8, 9, 10)
                     "800,000",                                 # Dealer net (idx 11)
                     "600,000", "200,000", "400,000",           # Dealer prop buy, sell, net (12, 13, 14)
@@ -94,7 +93,7 @@ class TestInstitutionalEnrichment:
                 [
                     "2330", "台積電",
                     "15,000,000", "10,000,000", "5,000,000",
-                    "", "", "",
+                    "0", "0", "0",
                     "2,000,000", "500,000", "1,500,000",
                     "800,000",
                     "600,000", "200,000", "400,000",
@@ -119,7 +118,8 @@ class TestInstitutionalEnrichment:
                 [
                     "8069", "元太",
                     "3,000,000", "2,000,000", "1,000,000",  # Foreign buy, sell, net (idx 2, 3, 4)
-                    "", "", "", "", "", "",
+                    "0", "0", "0",                          # Foreign dealer (idx 5-7)
+                    "3,000,000", "2,000,000", "1,000,000",  # Foreign total (idx 8-10)
                     "1,200,000", "200,000", "1,000,000",    # Trust buy, sell, net (idx 11, 12, 13)
                     "300,000", "100,000", "200,000",        # Prop buy, sell, net (idx 14, 15, 16)
                     "200,000", "100,000", "100,000",        # Hedge buy, sell, net (idx 17, 18, 19)
@@ -142,6 +142,32 @@ class TestInstitutionalEnrichment:
         assert flow.has_discrepancy is False
         assert flow.meta.provider == "tpex"
         assert flow.meta.status == ("stale" if flow.meta.is_stale else "official")
+
+    def test_twse_foreign_dealer_is_part_of_foreign_and_reconciles(self):
+        # Foreign dealer (外資自營商) trades 300k net: the official total includes it.
+        row = ["2330", "台積電", "15,000,000", "10,000,000", "5,000,000",
+               "400,000", "100,000", "300,000",
+               "2,000,000", "500,000", "1,500,000", "800,000",
+               "600,000", "200,000", "400,000", "500,000", "100,000", "400,000",
+               "7,600,000"]  # 5.0M + 0.3M + 1.5M + 0.8M
+        flow = TwseInstitutionalAdapter().parse_payload(
+            {"data": [row]}, date(2026, 8, 28), "https://mock.twse/t86"
+        )[0]
+        assert (flow.foreign_buy, flow.foreign_sell, flow.foreign_net) == (15_400_000, 10_100_000, 5_300_000)
+        assert flow.computed_net == 7_600_000 and flow.has_discrepancy is False
+
+    def test_tpex_foreign_total_reconciles_with_foreign_dealer(self):
+        row = ["8069", "元太", "3,000,000", "2,000,000", "1,000,000",
+               "200,000", "100,000", "100,000",
+               "3,200,000", "2,100,000", "1,100,000",
+               "1,200,000", "200,000", "1,000,000",
+               "300,000", "100,000", "200,000", "200,000", "100,000", "100,000",
+               "500,000", "200,000", "300,000", "2,400,000"]
+        flow = TpexInstitutionalAdapter().parse_payload(
+            {"aaData": [row]}, date(2026, 8, 28), "https://mock.tpex/insti"
+        )[0]
+        assert flow.foreign_net == 1_100_000
+        assert flow.computed_net == 2_400_000 and flow.has_discrepancy is False
 
     @pytest.mark.parametrize("raw", ["", "-", "--", "N/A", "abc", "12x3"])
     def test_institutional_missing_or_malformed_is_not_zero(self, raw):
@@ -291,71 +317,6 @@ class TestOfficialFailureSemantics:
             provider.fetch_live_day("TWSE", date(2026, 8, 28), target_code="2330")
 
 
-# ── 4. Quote Snapshots & Fallback Tests ─────────────────────────
-
-
-class TestQuoteProviderWithFallback:
-    """Verify official quote snapshots and transparent fallback with non-empty reason."""
-
-    def test_twse_official_quote_parsing(self):
-        provider = TaiwanOfficialQuoteProvider()
-        rows = [
-            {
-                "Code": "2330",
-                "Name": "台積電",
-                "TradeVolume": "35,000,000",
-                "TradeValue": "34,000,000,000",
-                "OpeningPrice": "970.0",
-                "HighestPrice": "980.0",
-                "LowestPrice": "965.0",
-                "ClosingPrice": "975.0",
-                "Change": "+15.0",
-            }
-        ]
-        quote = provider.get_quote_with_fallback("2330.TWSE", "台積電", live_rows=rows)
-        assert quote.symbol == "2330.TWSE"
-        assert quote.price == 975.0
-        assert quote.open == 970.0
-        assert quote.high == 980.0
-        assert quote.low == 965.0
-        assert quote.previous_close == 960.0
-        assert quote.change == 15.0
-        assert quote.change_pct == 1.56
-        assert quote.volume == 35_000_000
-        assert quote.meta.status == "official_close"
-        assert quote.meta.fallback_reason is None
-
-    def test_quote_fallback_to_daily_kline_with_reason(self):
-        provider = TaiwanOfficialQuoteProvider()
-        # Official live rows do NOT contain 2330
-        empty_rows: list[dict] = []
-        daily_fallback = {
-            "date": date(2026, 8, 28),
-            "open": 960.0,
-            "high": 970.0,
-            "low": 955.0,
-            "close": 965.0,
-            "pre_close": 950.0,
-            "change": 15.0,
-            "change_pct": 1.58,
-            "volume": 28_000_000,
-            "amount": 27_000_000_000,
-        }
-
-        quote = provider.get_quote_with_fallback(
-            "2330.TWSE",
-            "台積電",
-            live_rows=empty_rows,
-            fallback_daily_row=daily_fallback,
-        )
-
-        assert quote.symbol == "2330.TWSE"
-        assert quote.price == 965.0
-        assert quote.meta.status == "official_monthly_fallback"
-        assert quote.meta.fallback_reason is not None
-        assert "Official snapshot unavailable" in quote.meta.fallback_reason
-
-
 # ── 5. Market Index Provider Tests ──────────────────────────────
 
 
@@ -408,6 +369,21 @@ class TestMarketIndexEnrichment:
         assert idx.change == 2.00
         assert idx.change_pct == 0.75
 
+    def test_index_rows_with_missing_values_are_never_zeroed(self):
+        provider = TaiwanIndexProvider()
+        taiex_row = {"Date": "1150828", "OpeningIndex": "22,100.50", "HighestIndex": "22,250.00",
+                     "LowestIndex": "22,050.20", "ClosingIndex": "--"}
+        tpex_row = {"Date": "115/08/28", "Open": "265.50", "High": "268.00", "Low": "264.80",
+                    "Close": "", "Change": "+2.00"}
+        # No close: there is no index point to store.
+        assert provider.parse_taiex_rows([taiex_row]) == []
+        assert provider.parse_tpex_rows([tpex_row]) == []
+        # A published close survives; the unpublished fields stay missing instead of 0.
+        taiex = provider.parse_taiex_rows([{**taiex_row, "OpeningIndex": "", "ClosingIndex": "22,200.00"}])[0]
+        assert (taiex.open, taiex.close, taiex.change, taiex.change_pct) == (None, 22200.0, None, None)
+        tpex = provider.parse_tpex_rows([{**tpex_row, "Close": "267.50", "Change": ""}])[0]
+        assert (tpex.close, tpex.previous_close, tpex.change, tpex.change_pct) == (267.5, None, None, None)
+
 
 # ── 6. ETF Hardened Classification & Safety Tests ───────────────
 
@@ -440,7 +416,6 @@ class TestEtfClassificationAndSafety:
         assert MarketProfileBridge.get_tax_class(etf_0050) == TaxClass.DOMESTIC_ETF
         assert MarketProfileBridge.get_tick_size_class(etf_0050) == TickSizeClass.ETF
         assert MarketProfileBridge.get_price_limit_pct(etf_0050) == 0.10
-        assert MarketProfileBridge.get_price_limit_class(etf_0050) == PriceLimitClass.ORDINARY_TEN_PERCENT
         up, down = MarketProfileBridge.calc_limits(100.0, etf_0050)
         assert up == 110.0 and down == 90.0
 
@@ -467,7 +442,6 @@ class TestEtfClassificationAndSafety:
         )
         assert MarketProfileBridge.get_tax_class(bond_etf) == TaxClass.BOND_ETF
         assert MarketProfileBridge.get_price_limit_pct(bond_etf) is None
-        assert MarketProfileBridge.get_price_limit_class(bond_etf) == PriceLimitClass.NO_LIMIT
         assert MarketProfileBridge.calc_limits(100.0, bond_etf) == (None, None)
 
         # 3. Foreign Component ETF: 00646 S&P 500 (Confirmed official_metadata)
@@ -492,7 +466,6 @@ class TestEtfClassificationAndSafety:
             leverage_multiplier=1.0,
         )
         assert MarketProfileBridge.get_price_limit_pct(foreign_etf) is None
-        assert MarketProfileBridge.get_price_limit_class(foreign_etf) == PriceLimitClass.NO_LIMIT
         assert MarketProfileBridge.calc_limits(100.0, foreign_etf) == (None, None)
 
     def test_leveraged_and_inverse_etf_statutory_rules(self):
@@ -519,7 +492,6 @@ class TestEtfClassificationAndSafety:
             leverage_multiplier=2.0,
         )
         assert MarketProfileBridge.get_price_limit_pct(etf_00631l) == 0.20
-        assert MarketProfileBridge.get_price_limit_class(etf_00631l) == PriceLimitClass.LEVERAGED_DOMESTIC
         assert MarketProfileBridge.get_tax_class(etf_00631l) == TaxClass.DOMESTIC_ETF
         # Tick-aligned calculation for ref_price = 100.0 (tick is 0.05 for ETF >= 50)
         up, down = MarketProfileBridge.calc_limits(100.0, etf_00631l)
@@ -550,7 +522,6 @@ class TestEtfClassificationAndSafety:
             leverage_multiplier=-1.0,
         )
         assert MarketProfileBridge.get_price_limit_pct(etf_00632r) == 0.10
-        assert MarketProfileBridge.get_price_limit_class(etf_00632r) == PriceLimitClass.LEVERAGED_DOMESTIC
         up_r, down_r = MarketProfileBridge.calc_limits(10.0, etf_00632r)
         assert up_r == 11.0 and down_r == 9.0
 
@@ -576,7 +547,6 @@ class TestEtfClassificationAndSafety:
             leverage_multiplier=2.0,
         )
         assert MarketProfileBridge.get_price_limit_pct(etf_00633l) is None
-        assert MarketProfileBridge.get_price_limit_class(etf_00633l) == PriceLimitClass.NO_LIMIT
         assert MarketProfileBridge.calc_limits(50.0, etf_00633l) == (None, None)
 
         # 4. Leveraged Bond ETF: 00688L (國泰20年美債正2)
@@ -602,7 +572,6 @@ class TestEtfClassificationAndSafety:
             leverage_multiplier=2.0,
         )
         assert MarketProfileBridge.get_price_limit_pct(bond_2x) is None
-        assert MarketProfileBridge.get_price_limit_class(bond_2x) == PriceLimitClass.NO_LIMIT
         assert MarketProfileBridge.get_tax_class(bond_2x) == TaxClass.DOMESTIC_ETF  # 0.1% tax!
 
     def test_single_character_false_positive_prevention(self):
@@ -610,7 +579,7 @@ class TestEtfClassificationAndSafety:
         from app.taiwan.universe.adapters import classify_etf_provenance
 
         # Name contains '美' (e.g. 美麗台灣) but no official metadata or multi-char foreign keyword
-        cat, source, scope, mult = classify_etf_provenance(
+        cat, source, scope, _mult = classify_etf_provenance(
             code="00991",
             name="富邦美麗台灣",
             cfi_code=None,
@@ -643,7 +612,7 @@ class TestEtfClassificationAndSafety:
             leverage_multiplier=1.0,
         )
         with pytest.raises(ValueError, match="Refusing to apply regulatory market rules to unconfirmed ETF"):
-            MarketProfileBridge.get_price_limit_class(heuristic_foreign_etf)
+            MarketProfileBridge.get_price_limit_pct(heuristic_foreign_etf)
 
     def test_unknown_underlying_scope_fails_loudly(self):
         """MarketProfileBridge must fail loudly if an ETF has unknown underlying scope."""
@@ -693,4 +662,4 @@ class TestEtfClassificationAndSafety:
             leverage_multiplier=1.0,
         )
         with pytest.raises(ValueError, match="Refusing to apply regulatory market rules to unconfirmed ETF"):
-            MarketProfileBridge.get_price_limit_class(unknown_etf)
+            MarketProfileBridge.get_price_limit_pct(unknown_etf)

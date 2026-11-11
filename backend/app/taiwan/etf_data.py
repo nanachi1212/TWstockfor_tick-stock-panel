@@ -8,6 +8,7 @@ from typing import Any
 
 import httpx
 
+from app.taiwan.providers.http import taiwan_client
 from app.taiwan.providers.taiwan_values import TAIPEI, parse_number, parse_taiwan_date
 
 TWSE_ETF_PRODUCTS_URL = "https://openapi.twse.com.tw/v1/opendata/t187ap47_L"
@@ -61,7 +62,7 @@ class TaiwanOfficialETFData:
     """Current official ETF metadata; date-only records remain PIT-unavailable."""
 
     def __init__(self, client: httpx.Client | None = None) -> None:
-        self.client = client or httpx.Client(timeout=30.0)
+        self.client = client or taiwan_client(timeout=30.0)
 
     def profile(self, symbol: str, exchange: str) -> TaiwanETFProfile:
         retrieved, row = self._row(symbol, exchange)

@@ -25,6 +25,7 @@ import polars as pl
 
 from app.taiwan.providers.base import AmountUnit, PriceSemantics, SourceMetadata, VolumeUnit
 from app.taiwan.providers.http import DEFAULT_USER_AGENT, taiwan_client
+from app.taiwan.providers.taiwan_values import parse_taiwan_date
 from app.taiwan.universe import TaiwanSecurityMaster, get_security_master
 
 logger = logging.getLogger(__name__)
@@ -34,7 +35,7 @@ class OfficialDailySnapshotError(RuntimeError):
     """An official full-market snapshot is incomplete or unusable."""
 
 
-class OfficialSnapshotUnpublished(OfficialDailySnapshotError):
+class OfficialSnapshotUnpublished(OfficialDailySnapshotError):  # noqa: N818  public name used elsewhere
     """The exchange has no snapshot for the date yet (no-data status, no quote table, no rows).
 
     Distinct from transport errors and schema mismatches, which are real failures.
@@ -64,6 +65,26 @@ def _parse_snapshot_number(raw: object) -> float | None:
         return float(val)
     except (ValueError, TypeError):
         return None
+
+
+def _require_payload_date(payload: dict[str, Any], target_date: date, label: str) -> None:
+    """Refuse a response that states a different trade date than the one requested.
+
+    The exchanges answer an unpublished or non-trading date with the latest published day;
+    storing that under the requested date would be wrong.  A response that states no date
+    is accepted as before.
+    """
+    raw = payload.get("date")
+    if raw in (None, ""):
+        return
+    try:
+        stated = parse_taiwan_date(str(raw))
+    except ValueError:
+        return
+    if stated != target_date:
+        raise OfficialSnapshotUnpublished(
+            f"{label} answered {stated} for requested {target_date}"
+        )
 
 
 class OfficialDailySnapshotAdapter:
@@ -148,6 +169,7 @@ class OfficialDailySnapshotAdapter:
             raise OfficialSnapshotUnpublished(
                 f"TWSE MI_INDEX returned non-OK status for {target_date}: {stat}"
             )
+        _require_payload_date(payload, target_date, "TWSE MI_INDEX")
 
         tables = payload.get("tables", [])
         quote_table = None
@@ -205,13 +227,9 @@ class OfficialDailySnapshotAdapter:
             high_val = _parse_snapshot_number(r[high_idx])
             low_val = _parse_snapshot_number(r[low_idx])
             close_val = _parse_snapshot_number(r[close_idx])
-            vol_val = _parse_snapshot_number(r[vol_idx]) or 0.0
-            amt_val = _parse_snapshot_number(r[amt_idx]) or 0.0
-
-            # Integrity check for traded rows
-            if vol_val > 0 and (open_val is None or high_val is None or low_val is None or close_val is None):
-                # In rare cases, suspended mid-day or auction-only trades might occur
-                pass
+            # A missing volume/amount stays null; only an explicit 0 is stored as 0.
+            vol_val = _parse_snapshot_number(r[vol_idx])
+            amt_val = _parse_snapshot_number(r[amt_idx])
 
             parsed.append({
                 "symbol": f"{code}.TWSE",
@@ -220,15 +238,15 @@ class OfficialDailySnapshotAdapter:
                 "high": high_val,
                 "low": low_val,
                 "close": close_val,
-                "volume": float(vol_val),
-                "amount": float(amt_val) if amt_val is not None else None,
+                "volume": vol_val,
+                "amount": amt_val,
                 "quote_ts": None,
             })
 
         if not parsed:
             return pl.DataFrame()
 
-        df = pl.DataFrame(parsed)
+        df = pl.DataFrame(parsed, infer_schema_length=None)
         return self._sanitize_and_filter(df)
 
     def fetch_tpex(self, target_date: date) -> pl.DataFrame:
@@ -237,6 +255,7 @@ class OfficialDailySnapshotAdapter:
         date_str = f"{roc_year}/{target_date.month:02d}/{target_date.day:02d}"
         url = f"{TPEX_DAILY_QUOTES_URL}?date={date_str}&response=json"
         payload = self._request_json(url)
+        _require_payload_date(payload, target_date, "TPEx dailyQuotes")
 
         tables = payload.get("tables", [])
         quote_table = None
@@ -293,8 +312,9 @@ class OfficialDailySnapshotAdapter:
             high_val = _parse_snapshot_number(r[high_idx])
             low_val = _parse_snapshot_number(r[low_idx])
             close_val = _parse_snapshot_number(r[close_idx])
-            vol_val = _parse_snapshot_number(r[vol_idx]) or 0.0
-            amt_val = _parse_snapshot_number(r[amt_idx]) or 0.0
+            # A missing volume/amount stays null; only an explicit 0 is stored as 0.
+            vol_val = _parse_snapshot_number(r[vol_idx])
+            amt_val = _parse_snapshot_number(r[amt_idx])
 
             parsed.append({
                 "symbol": f"{code}.TPEX",
@@ -303,15 +323,15 @@ class OfficialDailySnapshotAdapter:
                 "high": high_val,
                 "low": low_val,
                 "close": close_val,
-                "volume": float(vol_val),
-                "amount": float(amt_val) if amt_val is not None else None,
+                "volume": vol_val,
+                "amount": amt_val,
                 "quote_ts": None,
             })
 
         if not parsed:
             return pl.DataFrame()
 
-        df = pl.DataFrame(parsed)
+        df = pl.DataFrame(parsed, infer_schema_length=None)
         return self._sanitize_and_filter(df)
 
     def _sanitize_and_filter(self, df: pl.DataFrame) -> pl.DataFrame:
@@ -329,6 +349,8 @@ class OfficialDailySnapshotAdapter:
             pl.col("volume").cast(pl.Float64),
             pl.col("amount").cast(pl.Float64),
             pl.col("quote_ts").cast(pl.Int64),
+            pl.lit("twse_tpex_official_snapshot").alias("source"),
+            pl.lit("official").alias("status"),
         ])
         return df.sort(["symbol", "date"])
 

@@ -8,13 +8,13 @@ from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 
 from app.services import preferences, webhook_adapter
+from app.services.ai_json import _extract_json_object
 from app.services.ai_provider import (
     current_ai_request_timeout,
     generate_ai_text,
     generate_structured_ai_text,
     snapshot_ai_provider_config,
 )
-from app.services.ai_json import _extract_json_object
 from app.taiwan.beginner_selection import selection_evidence
 
 logger = logging.getLogger(__name__)
@@ -106,14 +106,19 @@ def _send(event: dict[str, Any]) -> str:
     if body is None:
         return "empty"
     event_id = f"{event.get('alert_id') or event.get('dedup_key')}:ai"
-    sent = []
+    sent: list[str] = []
+    claimed: list[str] = []
     if "line" in channels and _claim_external_delivery(event_id, "line"):
-        webhook_adapter.send_line(preferences.get_line_channel_access_token(), preferences.get_line_target_id(), "", body)
-        sent.append("line")
+        claimed.append("line")
+        if webhook_adapter.send_line(preferences.get_line_channel_access_token(), preferences.get_line_target_id(), "", body):
+            sent.append("line")
     if "telegram" in channels and _claim_external_delivery(event_id, "telegram"):
-        webhook_adapter.send_telegram(preferences.get_telegram_bot_token(), preferences.get_telegram_chat_id(), "", body)
-        sent.append("telegram")
-    return "sent:" + ",".join(sent) if sent else "duplicate"
+        claimed.append("telegram")
+        if webhook_adapter.send_telegram(preferences.get_telegram_bot_token(), preferences.get_telegram_chat_id(), "", body):
+            sent.append("telegram")
+    if sent:
+        return "sent:" + ",".join(sent)
+    return "send_failed" if claimed else "duplicate"
 
 
 def submit(events: list[dict[str, Any]]) -> None:

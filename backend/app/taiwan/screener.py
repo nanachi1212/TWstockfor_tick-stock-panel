@@ -27,6 +27,7 @@ from typing import Any, Literal
 import polars as pl
 from pydantic import BaseModel, Field
 
+from app.indicators.pipeline import volume_ratio_expr
 from app.taiwan.adjust import adjust_prices_as_of
 from app.taiwan.corporate_actions import CorporateActionStore, event_market_open
 from app.taiwan.daily_store import TaiwanDailyStore
@@ -552,7 +553,7 @@ class TaiwanScreenerService:
         if not df_indicators.is_empty():
             combined = combined.join(df_indicators, on="symbol", how="left")
         else:
-            combined = self._add_null_cols(combined, ["change_pct", "ma5", "ma10", "ma20", "rsi_14", "momentum_5d", "vol_ratio_5d", "avg_volume_5d"])
+            combined = self._add_null_cols(combined, ["change_pct", "prev_close", "ma5", "ma10", "ma20", "rsi_14", "momentum_5d", "vol_ratio_5d", "avg_volume_5d"])
         if trend_indicators is not None:
             combined = combined.join(trend_indicators, on="symbol", how="inner").with_columns(
                 pl.col("trend_ma20").alias("ma20"),
@@ -587,7 +588,7 @@ class TaiwanScreenerService:
             combined = apply_strategy(combined, req.preset)
 
         # Step 7: Apply Strongly Typed Filters
-        filtered = self._apply_filters(combined, req)
+        filtered = self._apply_filters(combined, req, degraded)
 
         risk_statuses: dict[str, str] = {}
         risk_source_status: Literal["available", "partial", "unavailable"] | None = None
@@ -784,11 +785,15 @@ class TaiwanScreenerService:
         # Compute per-symbol metrics using Polars window functions
         expressions = [
             (pl.col("close") / pl.col("close").shift(1).over("symbol") - 1.0).alias("change_pct"),
+            pl.col("close").shift(1).over("symbol").alias("prev_close"),
             pl.col("close").rolling_mean(5).over("symbol").alias("ma5"),
             pl.col("close").rolling_mean(10).over("symbol").alias("ma10"),
             pl.col("close").rolling_mean(20).over("symbol").alias("ma20"),
             (pl.col("close") / pl.col("close").shift(5).over("symbol") - 1.0).alias("momentum_5d"),
-            (pl.col("volume") / pl.col("volume").rolling_mean(5).over("symbol")).alias("vol_ratio_5d"),
+            # The single 量比 definition: volume / previous-5-session mean (today excluded).
+            volume_ratio_expr(
+                pl.col("volume"), pl.col("volume").shift(1).rolling_mean(5).over("symbol"),
+            ).alias("vol_ratio_5d"),
             pl.col("volume").rolling_mean(5).over("symbol").alias("avg_volume_5d"),
         ]
         if extended:
@@ -822,7 +827,7 @@ class TaiwanScreenerService:
         )
 
         # Keep only the latest row per symbol
-        columns = ["symbol", "change_pct", "ma5", "ma10", "ma20", "rsi_14", "momentum_5d", "vol_ratio_5d", "avg_volume_5d"]
+        columns = ["symbol", "change_pct", "prev_close", "ma5", "ma10", "ma20", "rsi_14", "momentum_5d", "vol_ratio_5d", "avg_volume_5d"]
         if extended:
             columns.extend([
                 "ma60", "momentum_20d", "vol_ratio_20d", "momentum_acceleration",
@@ -831,9 +836,44 @@ class TaiwanScreenerService:
         latest_inds = (
             hist.with_columns(pl.col("date").max().over("symbol").alias("_max_d"))
             .filter(pl.col("date") == pl.col("_max_d"))
-            .select(columns)
+            .select([*columns, "close", "_max_d"])
         )
-        return latest_inds
+        return self._apply_ex_day_reference(latest_inds, end_d).drop("close", "_max_d")
+
+    def _apply_ex_day_reference(self, latest: pl.DataFrame, day: date) -> pl.DataFrame:
+        """On an ex-dividend/ex-rights day the official reference price replaces the raw previous close.
+
+        Raw close-to-close would show a fake drop. A verified event supplies the reference price;
+        an unverified one makes the change unavailable. Without verified coverage nothing changes.
+        """
+        try:
+            events = self.action_store.read_verified_window(day, day)
+        except Exception as exc:
+            logger.debug("Corporate action lookup failed for ex-day change: %s", exc)
+            return latest
+        if not events:
+            return latest
+        overrides = pl.DataFrame(
+            {
+                "symbol": [e.symbol for e in events],
+                "_max_d": [e.effective_date for e in events],
+                "_ref": [e.reference_price if e.status == "verified" else None for e in events],
+                "_ex": [True] * len(events),
+            },
+            schema={"symbol": pl.String, "_max_d": pl.Date, "_ref": pl.Float64, "_ex": pl.Boolean},
+        ).unique(subset=["symbol", "_max_d"], keep="first")
+        # _ex marks a row with an event; a null _ref on such a row means the event is unverified.
+        return (
+            latest.join(overrides, on=["symbol", "_max_d"], how="left")
+            .with_columns(
+                pl.when(pl.col("_ex").fill_null(False))
+                .then(pl.when(pl.col("_ref").is_not_null()).then(pl.col("close") / pl.col("_ref") - 1.0))
+                .otherwise(pl.col("change_pct")).alias("change_pct"),
+                pl.when(pl.col("_ex").fill_null(False)).then(pl.col("_ref"))
+                .otherwise(pl.col("prev_close")).alias("prev_close"),
+            )
+            .drop("_ref", "_ex")
+        )
 
     def _compute_trend_indicators(
         self, symbols: list[str], as_of: date,
@@ -908,6 +948,8 @@ class TaiwanScreenerService:
         for r in df.iter_rows(named=True):
             sym = r["symbol"]
             close = r.get("close")
+            # Limits are set from the previous close, not today's close.
+            prev_close = r.get("prev_close")
             inst = self.security_master.get_instrument(sym)
 
             if inst is None or close is None:
@@ -944,7 +986,17 @@ class TaiwanScreenerService:
                 distance_to_lower_limit.append(None)
                 continue
 
-            upper, lower = MarketProfileBridge.calc_limits(close, inst)
+            if prev_close is None or prev_close <= 0:
+                # No reference price: never fall back to today's close.
+                price_limit_pct.append(limit_pct)
+                is_no_limit_flags.append(False)
+                limit_up.append(None)
+                limit_down.append(None)
+                distance_to_upper_limit.append(None)
+                distance_to_lower_limit.append(None)
+                continue
+
+            upper, lower = MarketProfileBridge.calc_limits(prev_close, inst)
             dist_up = (upper - close) / close if (upper and close > 0) else None
             dist_dn = (close - lower) / close if (lower and close > 0) else None
 
@@ -1011,10 +1063,14 @@ class TaiwanScreenerService:
         if strategy_id in V2_STRATEGY_IDS or five_day_flow:
             try:
                 end = date.fromisoformat(str(df["date"].max()))
-                start = end - timedelta(days=14)
-                history = self.institutional_store.read_range(symbols, start, end)
+                # The window is the last 5 quote sessions, so a day institutional data has not
+                # reached yet leaves the symbol incomplete instead of sliding to older days.
+                required_dates = sorted(d for d in self.daily_store.available_dates() if d <= end)[-5:]
+                history = (
+                    self.institutional_store.read_range(symbols, required_dates[0], end)
+                    if required_dates else pl.DataFrame()
+                )
                 if not history.is_empty():
-                    required_dates = sorted(history["date"].drop_nulls().unique().to_list())[-5:]
                     history = history.filter(pl.col("date").is_in(required_dates))
                     if len(required_dates) == 5:
                         valid_history = history.filter(
@@ -1140,8 +1196,13 @@ class TaiwanScreenerService:
         try:
             from app.taiwan.quant.live_store import LiveLedger
             ledger = LiveLedger()
-            runs = ledger.runs(limit=1)
-            if runs and runs[0] and "snapshot" in runs[0]:
+            # list_runs extracts only the signals; runs() would parse the ~20 MB snapshot.
+            runs = ledger.list_runs(limit=1)
+            # A run from another session must not score today's quotes.
+            run_is_current = bool(
+                runs and sessions and str(runs[0].get("session"))[:10] == str(sessions[-1])[:10]
+            )
+            if run_is_current and "snapshot" in runs[0]:
                 signals = runs[0]["snapshot"].get("signals", [])
                 for s in signals:
                     sym = s.get("symbol")
@@ -1395,7 +1456,9 @@ class TaiwanScreenerService:
             .otherwise(None).alias("_institutional_streak_days")
         )
 
-    def _apply_filters(self, df: pl.DataFrame, req: TaiwanScreenerRequest) -> pl.DataFrame:
+    def _apply_filters(
+        self, df: pl.DataFrame, req: TaiwanScreenerRequest, degraded: list[str] | None = None,
+    ) -> pl.DataFrame:
         """Apply strongly typed whitelist filters."""
         # Industry
         if req.industry and req.industry != "ALL":
@@ -1565,23 +1628,33 @@ class TaiwanScreenerService:
                 except Exception:
                     ref_date = taipei_now().date()
 
+                # Same code-fallback and ambiguity rules as the other cached joins.
+                rev_payloads = self._cached_symbol_payloads("TaiwanStockMonthRevenue", all_syms)
+                fin_payloads = self._cached_symbol_payloads("TaiwanStockFinancialStatements", all_syms)
                 for s in all_syms:
-                    code = s.split(".")[0]
-                    rev_cached = self.cache.get("TaiwanStockMonthRevenue", code) or self.cache.get("TaiwanStockMonthRevenue", s)
-                    fin_cached = self.cache.get("TaiwanStockFinancialStatements", code) or self.cache.get("TaiwanStockFinancialStatements", s)
-                    has_rev = self._is_recent_valid_revenue(rev_cached, ref_date)
-                    has_fin = self._is_recent_valid_financials(fin_cached, ref_date)
-                    if has_rev or has_fin:
+                    if (self._is_recent_valid_revenue(rev_payloads.get(s), ref_date)
+                            or self._is_recent_valid_financials(fin_payloads.get(s), ref_date)):
                         keep_only_syms.add(s)
 
-            for s in all_syms:
-                risk_status = event_svc.check_symbol_risk_status(s)
-                if req.exclude_disposition is True and risk_status["is_disposition"]:
-                    excluded_syms.add(s)
-                if req.exclude_suspended is True and risk_status["is_suspended"]:
-                    excluded_syms.add(s)
-                if req.exclude_risk_events is True and risk_status["has_risk_event"]:
-                    excluded_syms.add(s)
+            if (req.exclude_disposition is True or req.exclude_suspended is True
+                    or req.exclude_risk_events is True):
+                events, source_status, _ = event_svc.get_cached_regulatory_snapshot()
+                if source_status == "unavailable":
+                    events = list(event_svc.get_all_regulatory_and_official_events())
+                    source_status = event_svc.last_status
+                if source_status == "unavailable":
+                    # Fail closed: an exclusion that cannot be checked must not pass every row.
+                    if degraded is not None:
+                        degraded.append("events")
+                    return df.clear()
+                for s in all_syms:
+                    risk_status = event_svc.check_symbol_risk_status(s, events=events)
+                    if req.exclude_disposition is True and risk_status["is_disposition"]:
+                        excluded_syms.add(s)
+                    if req.exclude_suspended is True and risk_status["is_suspended"]:
+                        excluded_syms.add(s)
+                    if req.exclude_risk_events is True and risk_status["has_risk_event"]:
+                        excluded_syms.add(s)
 
             if excluded_syms:
                 df = df.filter(~pl.col("symbol").is_in(list(excluded_syms)))

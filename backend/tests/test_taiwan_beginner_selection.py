@@ -1,5 +1,4 @@
 """Beginner Stock Picker v1: deterministic, explainable screening priority."""
-# ruff: noqa: RUF001
 from __future__ import annotations
 
 import json

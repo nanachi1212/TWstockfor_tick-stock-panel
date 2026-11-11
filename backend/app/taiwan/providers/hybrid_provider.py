@@ -43,6 +43,9 @@ class TaiwanHybridProvider:
         self.yahoo = YahooFinanceAdapter()
         self.official = OfficialTaiwanAdapter()
         self.primary = primary.lower()
+        # Built on first use and reused so their HTTP clients are shared, not rebuilt per call.
+        self._fundamentals = None
+        self._etf = None
 
     def get_fundamentals(
         self,
@@ -57,7 +60,9 @@ class TaiwanHybridProvider:
         """Use the authoritative Taiwan fundamentals seam without changing factors."""
         from app.taiwan.fundamentals import TaiwanOfficialFundamentals
 
-        provider = TaiwanOfficialFundamentals()
+        if self._fundamentals is None:
+            self._fundamentals = TaiwanOfficialFundamentals()
+        provider = self._fundamentals
         if dataset == "monthly_revenue":
             return provider.monthly_revenue(symbol, exchange, security_type=security_type)
         if dataset == "financial_statement":
@@ -82,7 +87,9 @@ class TaiwanHybridProvider:
         """Return ETF-domain records without routing through company fundamentals."""
         from app.taiwan.etf_data import TaiwanOfficialETFData
 
-        provider = TaiwanOfficialETFData()
+        if self._etf is None:
+            self._etf = TaiwanOfficialETFData()
+        provider = self._etf
         if dataset == "profile":
             return provider.profile(symbol, exchange)
         if dataset == "snapshot":

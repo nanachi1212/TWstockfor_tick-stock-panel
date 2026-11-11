@@ -3,7 +3,7 @@
 Reuse the Taiwan HTTP throttle/date/quantity contracts and dividend classifier.
 Only official TWSE/TPEx/MOPS responses may supply event evidence.
 """
-# ruff: noqa: RUF001 -- official Traditional Chinese labels.
+
 from __future__ import annotations
 
 import hashlib

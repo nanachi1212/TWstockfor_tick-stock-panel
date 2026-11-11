@@ -1,6 +1,6 @@
 # 自訂資料源接入
 
-本專案預設使用內建資料源。自訂資料源是一個可選擴展: 外部 HTTP 服務負責取數和整理, 本專案只把回傳結果映射成內部標準欄位, 然後重用現有儲存、指標、enriched、策略和前端展示邏輯。
+本專案預設使用內建資料源。自訂資料源是一個可選擴充: 外部 HTTP 服務負責取數和整理, 本專案只把回傳結果映射成內部標準欄位, 然後重用現有儲存、指標、enriched、策略和前端展示邏輯。
 
 內建行情僅支援台股。自訂來源未提供選定資料集或取數失敗時，明確回報不可用，不切換到其他來源。
 
@@ -16,7 +16,7 @@
 | 分鐘K | `minute` | 回傳 1m 分鐘K(需映射出 symbol / datetime / OHLC / 量額) |
 | 財務資料 | `financial` | 一個設定覆蓋全部財務表,請求時把表名作為參數傳給上游;欄位由資料源決定,僅需映射出 symbol |
 
-深度盤口(depth5)暫無資料集契約,仍由內建資料源提供。
+深度盤口(depth5)目前沒有資料集契約,仍由內建資料源提供。
 
 ## 設定位置
 
@@ -28,7 +28,7 @@ data/data_sources/*.yaml
 
 Dev 模式下，預設位置是專案根目錄的 `data/`；Docker 部署中，專案的 `data/` 會掛載為容器內的 `/app/data`。可透過 `DATA_DIR` 覆蓋。
 
-修改 YAML 後可在「設定 -> 資料源」點擊「重新載入」,或呼叫:
+修改 YAML 後可在「設定 -> 資料源」按一下「重新載入」,或呼叫:
 
 ```bash
 curl -X POST http://127.0.0.1:3018/api/settings/data-sources/reload
@@ -161,7 +161,7 @@ freq_param: period
 timeout: 60
 ```
 
-留空或省略時用預設 30 秒，可設定範圍為大於 0 且不超過 300 秒；該值對資料同步與「試拉測試」均生效。在設定頁編輯資料源時可在「超時」輸入框修改（與 批次 / RPM / 響應路徑 同行）。「試拉測試」直接使用當前表單內容，新建資料源或尚未儲存的修改也可測試。
+留空或省略時用預設 30 秒，可設定範圍為大於 0 且不超過 300 秒；該值對資料同步與「試拉測試」均生效。在設定頁編輯資料源時可在「超時」輸入框修改（與 批次 / RPM / 響應路徑 同行）。「試拉測試」直接使用當前表單內容，新增資料源或尚未儲存的修改也可測試。
 
 ## 鑑權
 
@@ -205,7 +205,7 @@ mkdir -p data/data_sources
 cp docs/examples/custom-data-source/mock_source.yaml data/data_sources/mock_source.yaml
 ```
 
-3. 在「設定 -> 資料源」點擊「重新載入」。
+3. 在「設定 -> 資料源」按一下「重新載入」。
 
 4. 使用「試拉測試」選擇 `mock_source` 和 `daily` / `adj_factor` / `realtime`。
 
@@ -221,7 +221,7 @@ cp docs/examples/custom-data-source/mock_source.yaml data/data_sources/mock_sour
 
 | 現象 | 處理 |
 | --- | --- |
-| 清單裡沒有 custom 源 | 檢查 YAML 是否放在 `data/data_sources/` 並點擊重新載入 |
+| 清單裡沒有 custom 源 | 檢查 YAML 是否放在 `data/data_sources/` 並按一下重新載入 |
 | errors 提示 missing mapped fields | `field_map` 沒映射到必填內部欄位 |
 | 試拉 rows 為 0 | 檢查 `response_path` 是否指向數組 |
 | 日期列全為空 | 檢查 `parse_date` 的格式是否和回傳值一致 |

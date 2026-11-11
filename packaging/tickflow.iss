@@ -97,7 +97,7 @@ Filename: "{app}\{#MyAppExeName}"; Description: "{cm:LaunchProgram,{#MyAppName}}
 ; [UninstallDelete] 故意不刪 per-user data。是否清理由 [Code] 的明確詢問控制。
 
 [Code]
-// ── 輔助函數: 判斷目錄是否為空 ─────────────────────────────────
+// ── 輔助函式: 判斷目錄是否為空 ─────────────────────────────────
 // Inno Setup 內建無 IsDirEmpty, 用 FindFirst/FindNext 自行實作。
 // 用於解除安裝後清理空的 {app} 殼目錄。
 function IsDirEmpty(const Dir: String): Boolean;

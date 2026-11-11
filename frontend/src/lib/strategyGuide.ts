@@ -42,4 +42,16 @@ export const STRATEGY_GUIDE: Record<string, { label: string; rule: string; plain
   },
 }
 
-export const STRATEGY_COMMON_NOTE = '所有策略都只看股票（不含 ETF）、成交金額至少 5,000 萬，並排除處置股、停牌與風險事件。'
+/** Strategies that have forward (out-of-sample) batches; the screener and the review page both list these. */
+export const FORWARD_STRATEGY_OPTIONS = [
+  { id: 'trend_liquidity_v1', label: '趨勢流動性' },
+  { id: 'institutional_momentum_v1', label: '法人動能' },
+  { id: 'growth_trend_v1', label: '成長趨勢' },
+  { id: 'breakout_v1', label: '突破轉強' },
+  { id: 'multi_factor_consensus_v1', label: '多策略共識' },
+  { id: 'pullback_support_v1', label: '多頭回檔' },
+  { id: 'foreign_trend_v1', label: '外資跟買' },
+  { id: 'oversold_rebound_v1', label: '超跌反彈' },
+] as const
+
+export const STRATEGY_COMMON_NOTE = '所有策略都只看股票（不含 ETF）、成交金額至少 5,000 萬，並排除處置股、暫停交易與風險事件。'

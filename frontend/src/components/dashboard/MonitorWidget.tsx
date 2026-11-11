@@ -3,12 +3,11 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Check, Trash2 } from 'lucide-react'
 import { api, type AlertEvent } from '@/lib/api'
 import { QK } from '@/lib/queryKeys'
-import { fmtPct } from '@/lib/format'
+import { fmtPct, fmtPrice, priceColorClass, taipeiDateTime } from '@/lib/format'
 import { cn } from '@/lib/cn'
 import { cnSignal } from '@/lib/signals'
 import { strategyEventMeta, strategyName } from '@/lib/strategyMonitorEvents'
 import { boardTag } from '@/components/stock-table/primitives'
-import { fmtPrice } from './dashboardFormat'
 
 const _SOURCE_BADGE: Record<string, string> = {
   strategy: 'bg-amber-400/10 text-amber-400',
@@ -20,7 +19,7 @@ const _SOURCE_BADGE: Record<string, string> = {
 }
 
 const _SOURCE_LABEL: Record<string, string> = {
-  strategy: '策略', signal: '訊號', price: '價格', market: '異動', sector: '板塊', quant: 'Quant',
+  strategy: '策略', signal: '訊號', price: '價格', market: '異動', sector: '類股', quant: 'Quant',
 }
 
 export function MonitorWidget({ onStockClick }: {
@@ -55,7 +54,6 @@ export function MonitorWidget({ onStockClick }: {
       </div>
       <div className="mt-1 space-y-1.5">
         {events.map((ev, i) => {
-          const pct = ev.change_pct ?? 0
           const isStrategy = ev.source === 'strategy'
           const isSector = ev.source === 'sector'
           const isTaiwanSymbol = !!ev.symbol && /\.(TWSE|TPEX)$/i.test(ev.symbol)
@@ -74,7 +72,7 @@ export function MonitorWidget({ onStockClick }: {
                     else if (ev.symbol && isTaiwanSymbol) navigate(`/stocks/${encodeURIComponent(ev.symbol)}`)
                     else if (ev.symbol) onStockClick(ev.symbol, ev.name ?? undefined, ev)
                   }}
-                  title={isSector ? '在監控中心查看板塊告警' : ev.symbol && isTaiwanSymbol ? `查看 ${ev.symbol} 個股詳情` : ev.symbol ? `預覽 ${ev.symbol} 個股資料` : undefined}
+                  title={isSector ? '在監控中心查看類股警示' : ev.symbol && isTaiwanSymbol ? `查看 ${ev.symbol} 個股詳情` : ev.symbol ? `預覽 ${ev.symbol} 個股資料` : undefined}
                   className={`inline-flex items-center gap-1 min-w-0 shrink-0 rounded hover:bg-elevated/60 transition-colors -mx-0.5 px-0.5 ${isSector || ev.symbol ? 'cursor-pointer' : 'cursor-default'}`}
                 >
                   <span className="font-mono text-xs font-medium text-foreground/80 hover:text-accent">{ev.symbol?.replace(/\.(SH|SZ|BJ)$/, '')}</span>
@@ -93,8 +91,8 @@ export function MonitorWidget({ onStockClick }: {
                   <span className="text-xs font-mono text-foreground/60 shrink-0">{fmtPrice(ev.price)}</span>
                 )}
                 {ev.change_pct != null && (
-                  <span className={cn('text-xs font-mono font-medium shrink-0 w-12 text-right', pct >= 0 ? 'text-danger' : 'text-bear')}>
-                    {fmtPct(pct)}
+                  <span className={cn('text-xs font-mono font-medium shrink-0 w-12 text-right', priceColorClass(ev.change_pct))}>
+                    {fmtPct(ev.change_pct)}
                   </span>
                 )}
               </div>
@@ -116,7 +114,7 @@ export function MonitorWidget({ onStockClick }: {
                         : ev.message && <span className="truncate text-xs text-muted">{ev.message}</span>}
                       <span className="flex-1" />
                       <span className="text-xs text-muted/50 shrink-0 font-mono">
-                        {ev.ts ? new Date(ev.ts).toLocaleString('zh-TW', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }) : ''}
+                        {taipeiDateTime(ev.ts)?.slice(5) ?? ''}
                       </span>
                     </div>
                   ) : (
@@ -124,7 +122,7 @@ export function MonitorWidget({ onStockClick }: {
                       <span className="truncate text-xs text-muted">{ev.message}</span>
                       <span className="flex-1" />
                       <span className="text-xs text-muted/50 shrink-0 font-mono">
-                        {ev.ts ? new Date(ev.ts).toLocaleString('zh-TW', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }) : ''}
+                        {taipeiDateTime(ev.ts)?.slice(5) ?? ''}
                       </span>
                     </div>
                   )}
@@ -146,7 +144,7 @@ export function MonitorWidget({ onStockClick }: {
                       <span className="text-xs text-muted truncate flex-1">{ev.message}</span>
                     )}
                     <span className="text-xs text-muted/50 shrink-0 font-mono">
-                      {ev.ts ? new Date(ev.ts).toLocaleString('zh-TW', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }) : ''}
+                      {taipeiDateTime(ev.ts)?.slice(5) ?? ''}
                     </span>
                   </div>
                   {ev.signals && ev.signals.length > 0 && (

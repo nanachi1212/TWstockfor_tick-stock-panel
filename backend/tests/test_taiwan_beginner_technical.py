@@ -1,4 +1,4 @@
-# ruff: noqa: RUF001 -- assertions use the user-facing Traditional Chinese text.
+
 from datetime import date, timedelta
 from types import SimpleNamespace
 

@@ -218,8 +218,8 @@ def ai_status() -> dict:
         state = _lmstudio_state(origin, cfg.model, cfg.context_window)
         reasons = {
             "loaded": ("ok", "本機模型已載入"),
-            "small-context": ("error", f"LM Studio 載入的上下文小於 AI 設定的 {cfg.context_window}，重開看板會自動重新載入"),  # noqa: RUF001
-            "context-unsupported": ("error", f"AI 設定的上下文 {cfg.context_window} 超過模型上限，請在 AI 設定調小"),  # noqa: RUF001
+            "small-context": ("error", f"LM Studio 載入的上下文小於 AI 設定的 {cfg.context_window}，重開看板會自動重新載入"),
+            "context-unsupported": ("error", f"AI 設定的上下文 {cfg.context_window} 超過模型上限，請在 AI 設定調小"),
             "not-loaded": ("error", f"LM Studio 沒有載入模型 {cfg.model}"),
             "missing": ("error", f"LM Studio 找不到模型 {cfg.model}"),
             "down": ("error", "本機 AI 服務沒有開啟"),
@@ -239,5 +239,9 @@ def ai_status() -> dict:
         return {"status": "error", "reason": "AI 服務連線失敗"}
     if resp.status_code in (401, 403):
         return {"status": "error", "reason": "AI API Key 無效或沒有權限"}
+    if resp.status_code == 429:
+        return {"status": "error", "reason": "AI 服務限流中，請稍後再試"}
+    if resp.status_code >= 500:
+        return {"status": "error", "reason": f"AI 服務發生錯誤 (HTTP {resp.status_code})"}
     # 有些服務不提供 /models (404),能連上就視為正常。
     return {"status": "ok", "reason": "AI 服務可連線"}

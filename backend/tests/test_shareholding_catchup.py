@@ -1,4 +1,4 @@
-# ruff: noqa: RUF002, RUF003 -- user-facing Traditional Chinese text is intentional.
+
 from datetime import date
 from unittest.mock import MagicMock
 

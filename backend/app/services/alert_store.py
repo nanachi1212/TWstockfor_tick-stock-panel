@@ -215,61 +215,6 @@ def list_recent(
     return out[:limit]
 
 
-def clear(data_dir: Path) -> int:
-    """清空全部記錄,回傳清除的條數。"""
-    with _lock:
-        p = _path(data_dir)
-        if not p.exists():
-            return 0
-        count = 0
-        try:
-            with p.open("r", encoding="utf-8") as f:
-                count = sum(1 for line in f if line.strip())
-        except Exception:
-            pass
-        _rewrite_locked(p, [])
-        return count
-
-
-def delete_one(data_dir: Path, ts: int) -> bool:
-    """刪除指定 ts 的單條記錄,回傳是否刪除成功。
-
-    JSONL 無主鍵, 用 ts(毫秒時間戳) 作為標識。
-    若存在多條同 ts, 只刪第一條。
-    """
-    with _lock:
-        p = _path(data_dir)
-        if not p.exists():
-            return False
-        kept: list[dict] = []
-        deleted = False
-        try:
-            with p.open("r", encoding="utf-8") as f:
-                for line in f:
-                    line = line.strip()
-                    if not line:
-                        continue
-                    try:
-                        ev = json.loads(line)
-                    except Exception:
-                        continue
-                    if not deleted and ev.get("ts") == ts:
-                        deleted = True
-                        continue
-                    kept.append(ev)
-        except Exception as e:
-            logger.warning("alert_store delete_one read failed: %s", e)
-            return False
-        if not deleted:
-            return False
-        try:
-            _rewrite_locked(p, kept)
-        except Exception as e:
-            logger.warning("alert_store delete_one write failed: %s", e)
-            return False
-        return True
-
-
 def update_read(data_dir: Path, alert_id: str | None = None, *, read: bool = True) -> int:
     """Mark one alert or every alert as read/unread, preserving legacy identities."""
     with _lock:

@@ -17,7 +17,9 @@ import {
   type RadarSource,
   type TaiwanAIResearchResponse,
 } from '@/lib/api'
+import { fmtLots, fmtPctPoint, taipeiTime } from '@/lib/format'
 import { QK } from '@/lib/queryKeys'
+import { useQuoteStatus } from '@/lib/useSharedQueries'
 import { MAX_COMPARE_SYMBOLS } from '@/lib/taiwanCompareSymbols'
 import { cn } from '@/lib/cn'
 import { FredAttribution } from '@/components/ExternalContextCard'
@@ -70,19 +72,11 @@ function formatPrice(value: number | null) {
 }
 
 function formatPct(value: number | null) {
-  return value == null ? '資料不足' : `${value >= 0 ? '+' : ''}${value.toFixed(1)}%`
+  return value == null ? '資料不足' : fmtPctPoint(value, 1)
 }
 
 function formatShares(value: number | null) {
-  return value == null ? '資料不足' : `${Math.round(value / 1000).toLocaleString('zh-TW')} 張`
-}
-
-function formatTaipeiTime(value: string | null) {
-  if (!value) return null
-  const stamp = new Date(value)
-  return Number.isNaN(stamp.getTime()) ? null : stamp.toLocaleTimeString('zh-TW', {
-    timeZone: 'Asia/Taipei', hour12: false,
-  })
+  return value == null ? '資料不足' : fmtLots(value)
 }
 
 const LIVE_TONE: Record<BeginnerLiveSignalCheck['status'], string> = {
@@ -94,7 +88,7 @@ const LIVE_TONE: Record<BeginnerLiveSignalCheck['status'], string> = {
 
 /** 日線資料日 vs 最新報價，以及用最新報價重新檢查日線條件的結果。 */
 function LiveCheckStrip({ check }: { check: BeginnerLiveSignalCheck }) {
-  const time = formatTaipeiTime(check.quote_time)
+  const time = taipeiTime(check.quote_time)
   return (
     <div role={check.alerts.length ? 'alert' : 'status'} aria-label="資料日期與盤中訊號檢查" className={`mt-3 rounded-xl border p-3 text-xs ${LIVE_TONE[check.status]}`}>
       <div className="flex flex-wrap gap-x-4 gap-y-1 text-muted">
@@ -272,7 +266,7 @@ function AiFeedbackButtons({ symbol, model, recordId }: { symbol: string; model:
 const SOURCE_LABEL: Record<Exclude<RadarSource, 'pick'>, string> = { holding: '持股', watchlist: '自選' }
 
 function RadarStrip({ live, plan }: { live: RadarLive; plan: BeginnerCandidate['trade_plan'] }) {
-  const time = formatTaipeiTime(live.quote_time)
+  const time = taipeiTime(live.quote_time)
   return (
     <div className="rounded-md border border-border/70 bg-base/60 p-2" aria-label="盤中狀態">
       <div className="flex flex-wrap items-center gap-2">
@@ -588,11 +582,13 @@ export function BeginnerStockView({
     staleTime: 5 * 60 * 1000,
     refetchInterval: 60_000, // 盤中訊號檢查要跟著最新報價
   })
+  // Inner/outer volume only moves while the market is open; outside trading hours one fetch is enough.
+  const offHours = useQuoteStatus().data?.is_trading_hours === false
   const contextQuery = useQuery({
     queryKey: ['external-context', symbol],
     queryFn: () => api.taiwanExternalContext(symbol),
     staleTime: 24 * 60 * 60 * 1000,
-    refetchInterval: query => query.state.data?.intraday_context.error_reason === 'config_missing' ? false : 5000,
+    refetchInterval: query => offHours || query.state.data?.intraday_context.error_reason === 'config_missing' ? false : 5000,
   })
   const candidate = query.data?.candidate
   const skipped = candidate?.selection_state === 'skip'
@@ -602,7 +598,7 @@ export function BeginnerStockView({
   // 盤中檢查只疊加在畫面上；日線結論本身保持凍結 (它也是 AI 解讀的證據)。
   const liveAlerts = panel?.live_check?.alerts ?? []
   const liveHeadline = panel?.live_check?.status === 'broken' ? '訊號已失效' : '短線訊號轉弱'
-  const innerOuterTime = formatTaipeiTime(innerOuter?.as_of ?? null)
+  const innerOuterTime = taipeiTime(innerOuter?.as_of ?? null)
   const fxContext = contextQuery.data?.fx_context ?? candidate?.fx_context
   const macroContext = contextQuery.data?.macro_context ?? candidate?.macro_context
   const secondaryContext = contextQuery.data?.secondary_cross_checks ?? candidate?.secondary_cross_checks

@@ -314,7 +314,7 @@ def _make_indicator_history(symbol: str, n: int = 70) -> pl.DataFrame:
     return pl.DataFrame({
         "symbol": [symbol] * n, "date": dates,
         "open": closes, "high": closes, "low": closes, "close": closes,
-        "volume": volumes, "amount": [c * v for c, v in zip(closes, volumes)],
+        "volume": volumes, "amount": [c * v for c, v in zip(closes, volumes, strict=False)],
     })
 
 

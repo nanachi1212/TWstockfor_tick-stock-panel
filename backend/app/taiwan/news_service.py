@@ -8,7 +8,6 @@ Strict Constraints:
 - Caching via FinMindCache (6-hour TTL, 15 minutes for unavailable or error responses) to respect API quotas.
 - Graceful degradation for paid tiers or rate limits (unavailable status, never fake zeroes).
 """
-# ruff: noqa: RUF001
 from __future__ import annotations
 
 import hashlib
@@ -218,6 +217,9 @@ class TaiwanNewsService:
         today = taipei_now().date()
         # Query yesterday or today
         start_date = (today - timedelta(days=2)).isoformat()
+        # A failed refresh must not replace news that is still valid in the cache.
+        prior = self.cache.get(dataset_name, code)
+        keep_prior = bool(prior and prior.get("status", "available") == "available" and prior.get("data"))
 
         try:
             raw_rows = self.finmind.fetch_dataset(
@@ -247,13 +249,14 @@ class TaiwanNewsService:
             )
         except FinMindAuthError as e:
             logger.warning("FinMind news auth error for %s: %s", code, e)
-            self.cache.set(
-                dataset=dataset_name,
-                symbol=code,
-                data=[],
-                status="auth_required",
-                error_msg="目前資料來源方案不提供或需要有效金鑰",
-            )
+            if not keep_prior:
+                self.cache.set(
+                    dataset=dataset_name,
+                    symbol=code,
+                    data=[],
+                    status="auth_required",
+                    error_msg="目前資料來源方案不提供或需要有效金鑰",
+                )
             return TaiwanStockNewsResponse(
                 symbol=symbol,
                 code=code,
@@ -264,13 +267,15 @@ class TaiwanNewsService:
             )
         except FinMindRateLimitError as e:
             logger.warning("FinMind news rate limit error for %s: %s", code, e)
-            self.cache.set(
-                dataset=dataset_name,
-                symbol=code,
-                data=[],
-                status="rate_limited",
-                error_msg="FinMind 請求頻率達上限，請稍候重試",
-            )
+            if not keep_prior:
+                # "unavailable" uses the short negative TTL; "rate_limited" would block this stock for hours.
+                self.cache.set(
+                    dataset=dataset_name,
+                    symbol=code,
+                    data=[],
+                    status="unavailable",
+                    error_msg="FinMind 請求頻率達上限，請稍候重試",
+                )
             return TaiwanStockNewsResponse(
                 symbol=symbol,
                 code=code,
@@ -281,13 +286,14 @@ class TaiwanNewsService:
             )
         except (FinMindNetworkError, FinMindError, Exception) as e:
             logger.warning("FinMind news fetch failed for %s: %s", code, e)
-            self.cache.set(
-                dataset=dataset_name,
-                symbol=code,
-                data=[],
-                status="unavailable",
-                error_msg=f"新聞資料暫時無法取得: {e}",
-            )
+            if not keep_prior:
+                self.cache.set(
+                    dataset=dataset_name,
+                    symbol=code,
+                    data=[],
+                    status="unavailable",
+                    error_msg=f"新聞資料暫時無法取得: {e}",
+                )
             return TaiwanStockNewsResponse(
                 symbol=symbol,
                 code=code,

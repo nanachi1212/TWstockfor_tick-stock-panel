@@ -25,6 +25,7 @@ import pytest
 from app.data_providers.normalizer import DAILY_COLS
 from app.indicators.pipeline import compute_indicators
 from app.parquet import scan_daily_parquet
+from app.repository import DataStore, KlineRepository
 from app.taiwan.providers.base import (
     AmountUnit,
     PriceSemantics,
@@ -42,7 +43,6 @@ from app.taiwan.providers.taiwan_values import (
     parse_taiwan_date,
 )
 from app.taiwan.symbol import Exchange, TaiwanSymbol, parse_symbol
-from app.repository import DataStore, KlineRepository
 
 # ── Sample Raw Fixtures ────────────────────────────────────────
 
@@ -342,14 +342,15 @@ class TestParquetStorageAndIndicatorPipeline:
     """Test Parquet write, read-back, and existing compute_indicators pipeline."""
 
     def test_parquet_write_read_and_indicators(self):
-        # 1. Normalize synthetic 30-day time series
+        # 1. Normalize a synthetic 60-bar series: MACD is null before MIN_BARS_MACD (35)
+        # bars, so 30 bars could never produce a value.
         rows = []
         base_price = 100.0
-        for i in range(1, 31):
+        for i in range(1, 61):
             # Simulated trading prices
             p = base_price + (i % 5) * 2.0
             rows.append({
-                "date": f"2026-07-{i:02d}",
+                "date": date.fromordinal(date(2026, 6, 1).toordinal() + i).isoformat(),
                 "open": p - 1.0,
                 "high": p + 2.0,
                 "low": p - 2.0,
@@ -359,19 +360,20 @@ class TestParquetStorageAndIndicatorPipeline:
             })
 
         df = normalize_taiwan_daily(rows, metadata=FINMIND_METADATA, default_symbol="2330.TWSE")
-        assert df.height == 30
+        assert df.height == 60
 
         # 2. Write to temp Parquet repository
         with tempfile.TemporaryDirectory() as tmp_dir:
             store = DataStore(data_dir=Path(tmp_dir))
             repo = KlineRepository(store=store)
 
-            repo.append_daily(df)
+            for day_df in df.partition_by("date"):
+                repo.flush_live_daily(day_df)
 
             # 3. Read back
             glob_path = str(Path(tmp_dir) / "kline_daily" / "**" / "*.parquet")
             read_df = scan_daily_parquet(glob_path).collect()
-            assert read_df.height == 30
+            assert read_df.height == 60
             assert (read_df["symbol"] == "2330.TWSE").all()
 
             # 4. Compute Indicators

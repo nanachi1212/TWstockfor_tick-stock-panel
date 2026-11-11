@@ -16,13 +16,12 @@ import { api } from '@/lib/api'
 
 vi.mock('@/lib/api', () => ({
   api: {
-    dataSources: vi.fn().mockResolvedValue({ builtin: [], plugins: [], custom: [] }),
+    dataSources: vi.fn().mockResolvedValue({ builtin: [], custom: [] }),
     watchlistGroups: vi.fn().mockResolvedValue({ groups: [] }),
     watchlistList: vi.fn().mockResolvedValue({ items: [] }),
     watchlistEnriched: vi.fn().mockResolvedValue({ items: [] }),
     alertsList: vi.fn().mockResolvedValue({ items: [], total: 0 }),
     intradayRefresh: vi.fn().mockResolvedValue({}),
-    pipelineJobs: vi.fn().mockResolvedValue({ active_id: null }),
     dataHealthJobs: vi.fn().mockResolvedValue([]),
   },
 }))

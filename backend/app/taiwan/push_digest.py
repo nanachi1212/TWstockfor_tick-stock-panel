@@ -6,7 +6,7 @@
 只重組既有規則結果 (BeginnerSelectionService、台股即時報價、全域外送通道)，
 不呼叫 AI、不產生新價位；資料不足時如實說明，不補 0。預設關閉。
 """
-# ruff: noqa: RUF001, RUF002 -- user-facing Traditional Chinese text is intentional.
+
 from __future__ import annotations
 
 import logging
@@ -97,6 +97,12 @@ def build_morning_text() -> str:
     return "\n".join(lines)
 
 
+def _is_session_close(quote: Any, as_of_text: str) -> bool:
+    status = getattr(quote.market_status, "value", quote.market_status) if hasattr(quote, "market_status") else None
+    trade_date = str(getattr(getattr(quote, "source_meta", None), "trade_date", "") or "")[:10]
+    return status in ("post_close", "closed") and trade_date == as_of_text
+
+
 def build_evening_text(as_of: str | None = None) -> str:
     """盤後一句話: 自選股今天怎麼了 (以官方收盤快照為準)。"""
     from app.services import watchlist
@@ -107,7 +113,8 @@ def build_evening_text(as_of: str | None = None) -> str:
         for row in watchlist.list_symbols()
         if str(row.get("symbol") or "").upper().endswith((".TWSE", ".TPEX"))
     ]
-    lines = [f"【收盤一句話】{as_of or taipei_now().date().isoformat()}"]
+    as_of_text = as_of or taipei_now().date().isoformat()
+    lines = [f"【收盤一句話】{as_of_text}"]
     if not symbols:
         lines.append("你還沒有加入自選股。到「今日選股」卡片一鍵加入後，明天收盤就會收到摘要。")
         lines.append(_FOOTER)
@@ -115,21 +122,22 @@ def build_evening_text(as_of: str | None = None) -> str:
     # 只摘要實際查過報價的子集; 超出的檔數明確標示, 不把沒查的當成「無報價」
     queried = symbols[:_MAX_WATCHLIST * 3]
     quotes = get_realtime_service().get_quotes(queried)
-    rows: list[tuple[str, str, float | None, float | None]] = []
+    rows: list[tuple[str, str, float | None, float | None, bool]] = []
     missing: list[str] = []
     for symbol in queried:
         q = quotes.get(symbol)
         if q is None or q.last_price is None:
             missing.append(symbol.split(".")[0])
             continue
-        rows.append((q.name or symbol, symbol.split(".")[0], q.change_pct, q.last_price))
+        rows.append((q.name or symbol, symbol.split(".")[0], q.change_pct, q.last_price, _is_session_close(q, as_of_text)))
     rows.sort(key=lambda r: (r[2] is None, -(r[2] or 0.0)))
     if rows:
         up = sum(1 for r in rows if (r[2] or 0) > 0)
         down = sum(1 for r in rows if (r[2] or 0) < 0)
         lines.append(f"自選 {len(rows)} 檔：漲 {up}、跌 {down}")
-        for name, code, pct, price in rows[:_MAX_WATCHLIST]:
-            lines.append(f"• {name}（{code}）{_fmt_pct(pct)}，收 {_fmt_price(price)}")
+        for name, code, pct, price, is_close in rows[:_MAX_WATCHLIST]:
+            # "收" only for a quote that really is that session's close; otherwise it is just the latest price.
+            lines.append(f"• {name}（{code}）{_fmt_pct(pct)}，{'收' if is_close else '價'} {_fmt_price(price)}")
         if len(rows) > _MAX_WATCHLIST:
             lines.append(f"…其餘 {len(rows) - _MAX_WATCHLIST} 檔請開看板查看")
     if missing:
@@ -140,7 +148,8 @@ def build_evening_text(as_of: str | None = None) -> str:
     return "\n".join(lines)
 
 
-def _send(text: str) -> list[str]:
+def send_text(text: str) -> list[str]:
+    """Send to the globally enabled LINE/Telegram channels; returns only channels that really delivered."""
     channels = _channels()
     sent: list[str] = []
     if "line" in channels and webhook_adapter.send_line(
@@ -158,7 +167,7 @@ def run(kind: str, as_of: str | None = None) -> dict[str, Any]:
     """kind = 'morning' | 'evening'。回傳執行結果並記錄到偏好供設定頁顯示。"""
     from app.taiwan.realtime import taipei_now
 
-    result: dict[str, Any] = {"kind": kind, "ran_at": taipei_now().isoformat(timespec="seconds")}
+    result: dict[str, Any] = {"kind": kind, "ran_at": taipei_now().isoformat(timespec="seconds"), "as_of": as_of}
     if not is_enabled():
         result["status"] = "disabled"
         return result
@@ -166,9 +175,13 @@ def run(kind: str, as_of: str | None = None) -> dict[str, Any]:
         result["status"] = "no_channels"
         preferences.save({_PREF_LAST: result})
         return result
+    previous = last_run() or {}
+    if as_of and (previous.get("kind"), previous.get("as_of"), previous.get("status")) == (kind, as_of, "sent"):
+        result["status"] = "already_sent"  # a retry of the same session's digest must not message twice
+        return result
     try:
         text = build_morning_text() if kind == "morning" else build_evening_text(as_of)
-        sent = _send(text)
+        sent = send_text(text)
         result.update(status="sent" if sent else "not_sent", channels=sent, preview=text[:120])
     except Exception as exc:
         logger.warning("push digest %s failed: %s", kind, exc)

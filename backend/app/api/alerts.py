@@ -35,13 +35,6 @@ def list_alerts(
     return {"alerts": events, "total": total}
 
 
-@router.delete("")
-def clear_alerts(request: Request):
-    """清空全部觸發記錄。"""
-    n = alert_store.clear(_data_dir(request))
-    return {"ok": True, "cleared": n}
-
-
 @router.patch("/read")
 def mark_all_alerts_read(request: Request):
     """Mark every stored alert as read."""

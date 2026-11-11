@@ -1,9 +1,9 @@
 import { Loader2, TrendingUp } from 'lucide-react'
 import { type IndexSnapshot, type TaiwanMarketIntelligenceSnapshot } from '@/lib/api'
-import { fmtBigNum } from '@/lib/format'
+import { fmtBigNum, fmtPct, priceColorClass, todayTaipei } from '@/lib/format'
 import { cn } from '@/lib/cn'
 import { SectionTitle } from './SectionTitle'
-import { pctClass, fmtStockPct } from './dashboardFormat'
+import { isDailyCurrent } from './dashboardFormat'
 
 export function MiniMetric({ label, value, cls = 'text-foreground' }: { label: string; value: string; cls?: string }) {
   return (
@@ -56,9 +56,7 @@ export function MarketOverviewCard({ snapshot, loading, error, marketDailyStatus
   // 顯示出來)。沿用 TaiwanScreener 既有判斷條件,不新增第二套完整性計算;只是
   // 把同一個既有 badge 樣式語意搬來這裡。
   const dailyBreadthAvailable = Boolean(
-    marketDailyStatus === 'current'
-    &&
-    intel.data?.data_quality.daily?.status === 'current'
+    isDailyCurrent(intel.data?.data_quality.daily?.status, marketDailyStatus)
     && (totals?.snapshot_row_count ?? 0) > 0,
   )
   const dailyDataIncomplete = intel.data ? !dailyBreadthAvailable : false
@@ -71,12 +69,12 @@ export function MarketOverviewCard({ snapshot, loading, error, marketDailyStatus
     { label: '加權指數', index: intel.data.indexes.taiex },
     { label: '上櫃指數', index: intel.data.indexes.tpex_index },
   ] : []
-  const todayTaipei = new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Taipei' })
+  const today = todayTaipei()
   const dailyNotice = intel.data && marketDailyStatus !== 'current'
     ? `日行情尚未就緒；目前顯示 ${intel.data.trade_date} 的最近可用資料。`
     : intel.data && dailyDataIncomplete
       ? `日行情尚未完整，漲跌與成交統計僅依目前可用資料顯示${intel.data.data_quality.target_trade_date > intel.data.trade_date ? `；目標交易日 ${intel.data.data_quality.target_trade_date} 尚未取得，以下為 ${intel.data.trade_date} 資料` : ''}`
-      : intel.data && intel.data.trade_date < todayTaipei
+      : intel.data && intel.data.trade_date < today
         ? `目前使用最近可用交易日資料（${intel.data.trade_date}）`
         : null
 
@@ -108,7 +106,7 @@ export function MarketOverviewCard({ snapshot, loading, error, marketDailyStatus
                 {index?.close != null && index.status !== 'unavailable' ? (
                   <div className="mt-0.5 flex flex-wrap items-baseline gap-x-2 font-mono text-xs">
                     <span className="font-semibold text-foreground">{index.close.toLocaleString('zh-TW')}</span>
-                    <span className={pctClass(index.change_pct)}>{index.change == null ? '—' : `${index.change > 0 ? '+' : ''}${index.change.toLocaleString('zh-TW')}`} ({fmtStockPct(index.change_pct)})</span>
+                    <span className={priceColorClass(index.change_pct)}>{index.change == null ? '—' : `${index.change > 0 ? '+' : ''}${index.change.toLocaleString('zh-TW')}`} ({fmtPct(index.change_pct)})</span>
                     <span className="text-xs text-muted">{index.trade_date ?? '—'}</span>
                   </div>
                 ) : <div className="mt-0.5 text-xs text-muted">目前無可靠指數資料</div>}
@@ -142,7 +140,7 @@ export function MarketOverviewCard({ snapshot, loading, error, marketDailyStatus
               <MiniMetric
                 label="外資買賣超"
                 value={`${intel.data.institutional.foreign_net > 0 ? '+' : ''}${(intel.data.institutional.foreign_net / 1000).toLocaleString()} 張`}
-                cls={pctClass(intel.data.institutional.foreign_net)}
+                cls={priceColorClass(intel.data.institutional.foreign_net)}
               />
             ) : (
               <MiniMetric label="外資買賣超" value="—" />

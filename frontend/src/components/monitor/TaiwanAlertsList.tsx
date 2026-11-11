@@ -7,7 +7,7 @@ import {
 import type { AlertEvent, TaiwanAlertEvent } from '@/lib/api'
 
 import { cn } from '@/lib/cn'
-import { fmtPct } from '@/lib/format'
+import { fmtPct, priceColorClass, taipeiTime } from '@/lib/format'
 
 interface TaiwanAlertsListProps {
   alerts: (AlertEvent | TaiwanAlertEvent)[]
@@ -44,16 +44,7 @@ const SEVERITY_CONFIG: Record<string, { icon: any; iconCls: string; badgeCls: st
 
 function formatAlertTime(ts: number | string | undefined): string {
   if (!ts) return '--'
-  try {
-    const d = typeof ts === 'number' ? new Date(ts) : new Date(ts)
-    if (isNaN(d.getTime())) return String(ts)
-    const hh = String(d.getHours()).padStart(2, '0')
-    const mm = String(d.getMinutes()).padStart(2, '0')
-    const ss = String(d.getSeconds()).padStart(2, '0')
-    return `${hh}:${mm}:${ss}`
-  } catch {
-    return String(ts)
-  }
+  return taipeiTime(ts) ?? String(ts)
 }
 
 export function TaiwanAlertsList({ alerts, onSelectSymbol, onInterpretAlert }: TaiwanAlertsListProps) {
@@ -63,7 +54,7 @@ export function TaiwanAlertsList({ alerts, onSelectSymbol, onInterpretAlert }: T
         <div className="rounded-full bg-elevated/40 p-3 mb-2">
           <Bell className="h-6 w-6 text-muted/60" />
         </div>
-        <p className="text-xs font-medium">尚無即時觸發告警紀錄</p>
+        <p className="text-xs font-medium">尚無即時觸發警示紀錄</p>
         <p className="text-xs text-muted mt-0.5">盤中監控規則符合條件時，將第一時間在此處推播</p>
       </div>
     )
@@ -144,7 +135,7 @@ export function TaiwanAlertsList({ alerts, onSelectSymbol, onInterpretAlert }: T
                     <span>價格: <strong className="text-foreground font-semibold">{alert.price.toFixed(2)}</strong></span>
                   )}
                   {alert.change_pct != null && (
-                    <span className={alert.change_pct > 0 ? 'text-rose-500 font-semibold' : 'text-emerald-500 font-semibold'}>
+                    <span className={`font-semibold ${priceColorClass(alert.change_pct)}`}>
                       {fmtPct(alert.change_pct)}
                     </span>
                   )}

@@ -73,17 +73,22 @@ class TaiwanScreenerStrategyStore:
     def __init__(self, path: Path | None = None) -> None:
         self.path = path or _storage_path()
 
+    def _read_user_strategies(self) -> list[TaiwanScreenerStrategy]:
+        """Read saved strategies; raises when the file exists but cannot be parsed."""
+        if not self.path.exists():
+            return []
+        raw_list = json.loads(self.path.read_text(encoding="utf-8"))
+        if not isinstance(raw_list, list):
+            raise ValueError("screener strategy file is not a list")
+        return [TaiwanScreenerStrategy(**item) for item in raw_list]
+
     def list_strategies(self) -> list[TaiwanScreenerStrategy]:
         """List all strategies: built-in presets followed by saved user strategies."""
-        user_strats: list[TaiwanScreenerStrategy] = []
-        if self.path.exists():
-            try:
-                raw_list = json.loads(self.path.read_text(encoding="utf-8"))
-                if isinstance(raw_list, list):
-                    for item in raw_list:
-                        user_strats.append(TaiwanScreenerStrategy(**item))
-            except Exception as e:
-                logger.warning("Failed to load screener strategies from %s: %s", self.path, e)
+        try:
+            user_strats = self._read_user_strategies()
+        except Exception as e:
+            logger.warning("Failed to load screener strategies from %s: %s", self.path, e)
+            user_strats = []
 
         # Merge presets (avoid duplicate ID)
         user_ids = {s.id for s in user_strats}
@@ -106,8 +111,8 @@ class TaiwanScreenerStrategyStore:
     ) -> TaiwanScreenerStrategy:
         """Create or update a custom strategy."""
         now_iso = datetime.now(UTC).isoformat()
-        current = self.list_strategies()
-        user_strats = [s for s in current if not s.is_preset]
+        # Strict read: an unreadable file must fail the save, not be overwritten with one strategy.
+        user_strats = [s for s in self._read_user_strategies() if not s.is_preset]
 
         if not strategy_id:
             import uuid
@@ -156,8 +161,7 @@ class TaiwanScreenerStrategyStore:
 
     def delete_strategy(self, strategy_id: str) -> bool:
         """Delete custom user strategy by ID."""
-        current = self.list_strategies()
-        user_strats = [s for s in current if not s.is_preset]
+        user_strats = [s for s in self._read_user_strategies() if not s.is_preset]
         remaining = [s for s in user_strats if s.id != strategy_id]
         if len(remaining) == len(user_strats):
             return False  # Not found or was preset

@@ -20,6 +20,7 @@ import { CSS } from '@dnd-kit/utilities'
 import { Eye, EyeOff, ExternalLink, GripVertical, Bell } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import { api } from '@/lib/api'
+import { toast } from '@/components/Toast'
 import { QK } from '@/lib/queryKeys'
 import { usePreferences } from '@/lib/useSharedQueries'
 import { ALL_NAV } from '@/lib/navigation'
@@ -207,6 +208,11 @@ export function SettingsMenuSettingsPanel() {
     onSuccess: () => {
       setLocalOrder(null)
       qc.invalidateQueries({ queryKey: QK.preferences })
+    },
+    // Put the list back to the saved order so the screen does not show an order that was never stored.
+    onError: () => {
+      setLocalOrder(null)
+      toast('選單順序儲存失敗，已還原', 'error')
     },
   })
 

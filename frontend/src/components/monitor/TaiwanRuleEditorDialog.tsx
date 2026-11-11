@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { motion } from 'framer-motion'
+import { Modal } from '@/components/Modal'
 import {
   Search,
   ShieldAlert,
@@ -166,17 +166,16 @@ export function TaiwanRuleEditorDialog({
   const limitRuleDisabled = isNoLimit && isNearLimitType
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
-      <motion.div
-        initial={{ opacity: 0, scale: 0.95 }}
-        animate={{ opacity: 1, scale: 1 }}
-        exit={{ opacity: 0, scale: 0.95 }}
-        className="w-full max-w-lg overflow-hidden rounded-2xl border border-border/80 bg-surface shadow-2xl flex flex-col max-h-[90vh]"
-      >
+    <Modal
+      onClose={onClose}
+      labelledBy="taiwan-rule-editor-title"
+      overlayClassName="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm"
+      panelClassName="w-full max-w-lg overflow-hidden rounded-2xl border border-border/80 bg-surface shadow-2xl flex flex-col max-h-[90vh]"
+    >
         {/* Header */}
         <div className="flex items-center justify-between border-b border-border/60 px-5 py-3.5 bg-surface/80">
           <div>
-            <h3 className="text-base font-bold text-foreground">
+            <h3 id="taiwan-rule-editor-title" className="text-base font-bold text-foreground">
               {rule ? '編輯台股即時監控規則' : '新增台股即時監控規則'}
             </h3>
             <p className="text-xs text-muted">盤中行情邊緣觸發，支援漲跌幅限制與防抖冷卻</p>
@@ -508,7 +507,6 @@ export function TaiwanRuleEditorDialog({
             {saveMut.isPending ? '儲存中...' : rule ? '確認更新' : '建立規則'}
           </button>
         </div>
-      </motion.div>
-    </div>
+    </Modal>
   )
 }

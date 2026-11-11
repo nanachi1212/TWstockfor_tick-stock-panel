@@ -4,7 +4,6 @@
 """
 from __future__ import annotations
 
-from datetime import datetime
 from typing import Annotated, Any
 
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile
@@ -13,6 +12,7 @@ from pydantic import BaseModel, Field, SecretStr
 from starlette.concurrency import run_in_threadpool
 
 from app.services import device_transfer as dt
+from app.taiwan.realtime.calendar import taipei_now
 
 router = APIRouter(prefix="/api/device-transfer", tags=["device-transfer"])
 
@@ -49,7 +49,7 @@ def export_backup(req: ExportRequest) -> Response:
         )
     except dt.TransferError as e:
         raise HTTPException(400, str(e)) from e
-    name = f"twstock-{datetime.now():%Y%m%d-%H%M}{dt.FILE_EXTENSION}"
+    name = f"twstock-{taipei_now():%Y%m%d-%H%M}{dt.FILE_EXTENSION}"
     return Response(
         blob,
         media_type="application/octet-stream",

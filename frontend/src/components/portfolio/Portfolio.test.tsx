@@ -190,7 +190,7 @@ describe('Portfolio UI', () => {
     renderPortfolio()
 
     const quantSummary = await screen.findByText('Quant Top 10 持股')
-    expect(quantSummary.parentElement).toHaveTextContent('unavailable')
+    expect(quantSummary.parentElement).toHaveTextContent('無法取得')
   })
 
   it('counts complete closing snapshots in the daily up/down summary', async () => {

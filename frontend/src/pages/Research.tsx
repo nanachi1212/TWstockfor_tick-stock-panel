@@ -2,6 +2,7 @@ import { useMemo } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { AlertTriangle, GitCompareArrows, Loader2, Search } from 'lucide-react'
+import { useDebounced } from '@/lib/useDebounced'
 import { api, researchPromptVersion, type TaiwanAIResearchHistoryRecord } from '@/lib/api'
 import { QK } from '@/lib/queryKeys'
 import { ResearchCompareView } from '@/components/research/ResearchCompareView'
@@ -113,7 +114,9 @@ export function Research() {
   const selectedId = params.get('id') ?? ''
   const firstCompareId = params.get('compare') ?? ''
   const secondCompareId = params.get('other') ?? ''
-  const filters = useMemo(() => ({ symbol: symbol || undefined, from: from || undefined, to: to || undefined, purpose: 'research', limit: 100 }), [symbol, from, to])
+  // Wait for typing to pause before asking the API, instead of one request per keystroke.
+  const querySymbol = useDebounced(symbol)
+  const filters = useMemo(() => ({ symbol: querySymbol || undefined, from: from || undefined, to: to || undefined, purpose: 'research', limit: 100 }), [querySymbol, from, to])
   const historyQuery = useQuery({
     queryKey: QK.taiwanAIResearchHistory(filters),
     queryFn: () => api.taiwanAIResearchHistory(filters),
@@ -144,7 +147,8 @@ export function Research() {
     const next = new URLSearchParams(params)
     if (value) next.set(key, value)
     else next.delete(key)
-    setParams(next)
+    // Typing in a filter replaces the current history entry; only opening a record adds one.
+    setParams(next, { replace: key !== 'id' })
   }
   const setFilters = (updates: Record<string, string>) => {
     const next = new URLSearchParams(params)

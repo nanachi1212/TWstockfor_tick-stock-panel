@@ -15,6 +15,7 @@ To run:
 from __future__ import annotations
 
 from datetime import datetime, timedelta
+
 import pytest
 
 from app.data_providers.registry import get_provider

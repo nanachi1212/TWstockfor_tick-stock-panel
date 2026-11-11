@@ -11,7 +11,9 @@ Orchestrates:
 from __future__ import annotations
 
 import logging
-from datetime import date, datetime, timedelta
+import time
+from collections.abc import Sequence
+from datetime import UTC, date, datetime, timedelta
 from typing import Any
 
 from app.taiwan.detail_models import (
@@ -38,6 +40,36 @@ from app.taiwan.providers.taiwan_values import TAIPEI, parse_number
 from app.taiwan.symbol import parse_symbol
 
 logger = logging.getLogger(__name__)
+
+_MARKET_DATES_TTL = 60.0
+_market_dates_memo: dict[str, tuple[float, list[date]]] = {}
+
+
+def _market_dates() -> list[date]:
+    """Trading days: the dates the local daily store holds, ascending."""
+    from app.taiwan.daily_store import TaiwanDailyStore
+    from app.taiwan.data_root import taiwan_data_root
+
+    root = str(taiwan_data_root())
+    hit = _market_dates_memo.get(root)
+    if hit is not None and time.monotonic() - hit[0] < _MARKET_DATES_TTL:
+        return hit[1]
+    dates = TaiwanDailyStore().available_dates()
+    # ponytail: 60 s memo so a screener run (one call per symbol) lists the store once;
+    # callers that already hold the sessions pass trading_dates instead.
+    _market_dates_memo[root] = (time.monotonic(), dates)
+    return dates
+
+
+def _taipei_date(stamp: str | None) -> str | None:
+    """Taipei calendar date of an ISO timestamp; naive stamps are UTC like FinMindCache writes."""
+    try:
+        parsed = datetime.fromisoformat(str(stamp))
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=UTC)
+    return parsed.astimezone(TAIPEI).date().isoformat()
 
 
 class TaiwanFundamentalChipsService:
@@ -229,8 +261,8 @@ class TaiwanFundamentalChipsService:
         # Process rows with PIT cutoff
         return self._process_month_revenue(raw_rows, data_date, now_iso, as_of=as_of)
 
+    @staticmethod
     def _process_month_revenue(
-        self,
         rows: list[dict[str, Any]],
         data_date: str | None,
         fetched_at: str,
@@ -528,24 +560,21 @@ class TaiwanFundamentalChipsService:
         cur_ratio = float(latest["ForeignInvestmentSharesRatio"])
         shares = int(latest["ForeignInvestmentShares"]) if latest.get("ForeignInvestmentShares") is not None else None
 
-        # 5D ago
-        idx_5d = max(0, len(sorted_rows) - 6)
-        ratio_5d = float(sorted_rows[idx_5d]["ForeignInvestmentSharesRatio"]) if len(sorted_rows) > 1 else None
-        chg_5d = round(cur_ratio - ratio_5d, 2) if ratio_5d is not None else None
-
-        # 20D ago
-        idx_20d = max(0, len(sorted_rows) - 21)
-        ratio_20d = float(sorted_rows[idx_20d]["ForeignInvestmentSharesRatio"]) if len(sorted_rows) > 5 else None
-        chg_20d = round(cur_ratio - ratio_20d, 2) if ratio_20d is not None else None
+        # 5D / 20D ago: only when the history really spans that many rows (no shorter-window substitute)
+        chg_5d = None
+        if len(sorted_rows) >= 6:
+            chg_5d = round(cur_ratio - float(sorted_rows[-6]["ForeignInvestmentSharesRatio"]), 2)
+        chg_20d = None
+        if len(sorted_rows) >= 21:
+            chg_20d = round(cur_ratio - float(sorted_rows[-21]["ForeignInvestmentSharesRatio"]), 2)
 
         # Trend direction
-        if chg_20d is not None:
-            if chg_20d >= 0.5:
-                trend = "increasing"
-            elif chg_20d <= -0.5:
-                trend = "decreasing"
-            else:
-                trend = "flat"
+        if chg_20d is None:
+            trend = "unavailable"
+        elif chg_20d >= 0.5:
+            trend = "increasing"
+        elif chg_20d <= -0.5:
+            trend = "decreasing"
         else:
             trend = "flat"
 
@@ -617,15 +646,25 @@ class TaiwanFundamentalChipsService:
             self.cache.set(dataset, sym_str, raw_rows, data_date=latest_row_date, status="available")
             data_date = latest_row_date
 
-        return self._process_securities_lending(raw_rows, data_date, now_iso, as_of=as_of)
+        fetched_at = (cached or {}).get("fetched_at") or now_iso
+        return self._process_securities_lending(raw_rows, data_date, fetched_at, as_of=as_of)
 
+    @staticmethod
     def _process_securities_lending(
-        self,
         rows: list[dict[str, Any]],
         data_date: str | None,
         fetched_at: str,
         as_of: date | str | None = None,
+        trading_dates: Sequence[date | str] | None = None,
     ) -> TaiwanSecuritiesLendingData:
+        """Latest lending volume plus 5 / 20 trading-day sums and the anomaly flag.
+
+        ``trading_dates`` are the market's sessions (default: the local daily store).
+        FinMind lists individual lending transactions, so a session without rows had no
+        lending and counts as zero, as long as the rows cover it: sessions on or after
+        the fetch date are left out unless they have rows, and a window that starts
+        before the first row is unknown (None / "unavailable"), not quiet.
+        """
         # Enforce point-in-time cutoff
         rows = filter_daily_records_as_of(rows, as_of)
         if not rows:
@@ -659,20 +698,32 @@ class TaiwanFundamentalChipsService:
         latest_vol = latest_item["volume"]
         avg_fee = round(latest_item["fee_sum"] / latest_vol, 2) if latest_vol > 0 else 0.0
 
-        # Rolling 5D volume
-        recent_5_dates = sorted_dates[-5:]
-        vol_5d = sum(daily_agg[d]["volume"] for d in recent_5_dates)
+        cutoff = str(as_of)[:10] if as_of else None
+        fetched_on = _taipei_date(fetched_at)
+        market = _market_dates() if trading_dates is None else trading_dates
+        known = {
+            day for day in (str(d)[:10] for d in market)
+            if (cutoff is None or day <= cutoff) and (fetched_on is None or day < fetched_on)
+        }
+        # A day with lending rows is a session even when the daily store has a gap there.
+        sessions = sorted(known | set(sorted_dates)) if known else []
 
-        # Rolling 20D volume
-        recent_20_dates = sorted_dates[-20:]
-        vol_20d = sum(daily_agg[d]["volume"] for d in recent_20_dates)
+        def window_volume(size: int) -> int | None:
+            window = sessions[-size:]
+            if len(window) < size or sorted_dates[0] > window[0]:
+                return None
+            return sum(daily_agg[d]["volume"] for d in window if d in daily_agg)
+
+        vol_5d = window_volume(5)
+        vol_20d = window_volume(20)
 
         # Anomaly detection: 5D daily average vs 20D daily average
         # Standardized enum: 'surge' (abnormal spike), 'drop' (abnormal fall), 'normal'
-        anomaly = "normal"
-        if len(recent_20_dates) >= 10:
-            avg_20d = vol_20d / len(recent_20_dates)
-            avg_5d = vol_5d / len(recent_5_dates)
+        anomaly = "unavailable"  # no covered 20-session window, or fewer than 10 lending days in it
+        if vol_5d is not None and vol_20d is not None and sum(d in daily_agg for d in sessions[-20:]) >= 10:
+            anomaly = "normal"
+            avg_20d = vol_20d / 20
+            avg_5d = vol_5d / 5
             if avg_20d > 0:
                 if avg_5d >= 2.0 * avg_20d and avg_5d >= 50000:
                     anomaly = "surge"

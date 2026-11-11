@@ -6,6 +6,7 @@ import io
 import zipfile
 from datetime import date
 from pathlib import Path
+from typing import ClassVar
 from unittest.mock import MagicMock
 
 import httpx
@@ -114,7 +115,7 @@ def test_checksum_mismatch_failure(tmp_path: Path, monkeypatch):
 
     class MockResponse:
         status_code = 200
-        headers = {"content-length": str(len(mock_zip_data))}
+        headers: ClassVar[dict[str, str]] = {"content-length": str(len(mock_zip_data))}
         def iter_bytes(self, chunk_size=1024):
             yield mock_zip_data
         def __enter__(self):
@@ -187,11 +188,17 @@ def test_network_download_failure(tmp_path: Path, monkeypatch):
     assert "無法連線" in (job.error or "")
 
 
-def test_user_data_safety_and_bootstrap_success(tmp_path: Path, monkeypatch):
-    """Verify that user_data is strictly untouched and valid archive is imported properly."""
+@pytest.mark.parametrize("local_master", [False, True])
+def test_user_data_safety_and_bootstrap_success(tmp_path: Path, monkeypatch, local_master: bool):
+    """Verify that user_data is strictly untouched and valid archive is imported properly.
+
+    An existing local security master (newer than the bundle's) must survive the import.
+    """
     # Setup mock data directory
     data_root = tmp_path / "data"
     taiwan_dir = data_root / "taiwan"
+    if local_master:
+        _create_dummy_security_master(taiwan_dir / "security_master.parquet")
     user_data_dir = data_root / "user_data"
     user_data_dir.mkdir(parents=True, exist_ok=True)
 
@@ -230,7 +237,7 @@ def test_user_data_safety_and_bootstrap_success(tmp_path: Path, monkeypatch):
 
     class MockValidResponse:
         status_code = 200
-        headers = {"content-length": str(len(zip_bytes))}
+        headers: ClassVar[dict[str, str]] = {"content-length": str(len(zip_bytes))}
         def iter_bytes(self, chunk_size=1024):
             yield zip_bytes
         def __enter__(self):
@@ -276,6 +283,8 @@ def test_user_data_safety_and_bootstrap_success(tmp_path: Path, monkeypatch):
 
     # Verify security_master and daily partitions exist in taiwan_dir
     assert (taiwan_dir / "security_master.parquet").exists()
+    imported = pl.read_parquet(taiwan_dir / "security_master.parquet")["symbol"].to_list()
+    assert imported == (["2330.TWSE", "2317.TWSE"] if local_master else ["2330.TWSE"])
     assert (taiwan_dir / "daily" / "date=2024-01-02" / "part.parquet").exists()
 
     # Verify user_data sentinel is completely untouched!
@@ -367,10 +376,12 @@ def test_manual_update_keeps_real_failures_for_today(tmp_path, monkeypatch):
     svc = TaiwanBootstrapService(store=store, refresh_service=refresh, selection_readiness_refresher=lambda t: {})
     res = svc.update_to_latest()
     assert res["already_current"] is False and res["stats"]["failed_dates"]
+    assert res["ok"] is False and "更新未完成" in res["message"]
 
 
 def test_taiwan_bootstrap_api_endpoints(monkeypatch):
     from starlette.testclient import TestClient
+
     from app.main import app
 
     client = TestClient(app, client=("127.0.0.1", 50000))

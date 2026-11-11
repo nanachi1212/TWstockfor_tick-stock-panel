@@ -35,6 +35,7 @@ def test_weekend_is_not_trading():
 def _svc() -> QuoteService:
     svc = QuoteService.__new__(QuoteService)
     svc._fetch_lock = threading.Lock()
+    svc._lock = threading.Lock()
     svc._repo = MagicMock()
     svc._app_state = MagicMock()
     return svc

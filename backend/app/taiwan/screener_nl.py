@@ -25,15 +25,19 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
+from app.services.ai_json import _extract_json_object
 from app.services.ai_provider import (
     AIOutputTruncated,
     generate_ai_text,
     snapshot_ai_provider_config,
 )
-from app.services.ai_json import _extract_json_object
 from app.taiwan.screener import TaiwanScreenerRequest
 
 logger = logging.getLogger(__name__)
+
+
+def _string_list(value: Any) -> list[str]:
+    return [item for item in value if isinstance(item, str)] if isinstance(value, list) else []
 
 
 class TaiwanScreenerTranslation(BaseModel):
@@ -220,11 +224,15 @@ class TaiwanScreenerTranslator:
                 clarification_message="AI 回傳格式非合法 JSON，請重新輸入或簡化描述。",
             )
 
-        request_fields = parsed_raw.get("request_fields") or {}
-        recognized = parsed_raw.get("recognized_conditions") or []
-        unsupported = parsed_raw.get("unsupported_conditions") or []
-        clarification_needed = bool(parsed_raw.get("clarification_needed", False))
+        # The model may return any JSON shape: coerce each field instead of letting it become a 500.
+        request_fields = parsed_raw.get("request_fields")
+        request_fields = request_fields if isinstance(request_fields, dict) else {}
+        recognized = _string_list(parsed_raw.get("recognized_conditions"))
+        unsupported = _string_list(parsed_raw.get("unsupported_conditions"))
+        clarification_needed = parsed_raw.get("clarification_needed") is True
         clarification_message = parsed_raw.get("clarification_message")
+        if not isinstance(clarification_message, str):
+            clarification_message = None
 
         # 1. Filter out unknown fields against TaiwanScreenerRequest schema whitelist
         allowed_keys = set(TaiwanScreenerRequest.model_fields.keys())
@@ -277,7 +285,7 @@ class TaiwanScreenerTranslator:
             return TaiwanScreenerTranslation(
                 request=None,
                 recognized_conditions=recognized,
-                unsupported_conditions=unsupported + [f"欄位格式檢驗失敗: {e}"],
+                unsupported_conditions=[*unsupported, f"欄位格式檢驗失敗: {e}"],
                 clarification_needed=True,
                 clarification_message=f"條件數值檢驗失敗: {e}",
             )

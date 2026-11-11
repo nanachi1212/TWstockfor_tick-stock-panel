@@ -271,6 +271,35 @@ def test_orchestrator_all_success_mocked():
     assert result.margin.rows_written == 1500
 
 
+@pytest.mark.parametrize(("res", "status"), [
+    ({"symbols_fetched": 0, "jobs_executed": 2, "rows_written": 0, "failed": ["2330.TWSE"]}, "failed"),
+    ({"symbols_fetched": 0, "jobs_executed": 2, "rows_written": 0, "failed": []}, "failed"),
+    ({"symbols_fetched": 1, "jobs_executed": 2, "rows_written": 5, "failed": ["2317.TWSE"]}, "partial"),
+    ({"symbols_fetched": 1, "jobs_executed": 1, "rows_written": 5, "failed": []}, "success"),
+    ({"message": "all dates up to date", "symbols_fetched": 0, "rows_written": 0, "jobs_executed": 0}, "success"),
+])
+def test_per_symbol_daily_path_reports_source_failures(res, status):
+    """--symbols path: failed or empty source results must not be reported as success."""
+    mock_daily_store = MagicMock()
+    mock_daily_store.available_dates.return_value = [date(2026, 8, 28)]
+    mock_inst_store = MagicMock()
+    mock_inst_store.available_dates.return_value = [date(2026, 8, 28)]
+    mock_margin_store = MagicMock()
+    mock_margin_store.available_dates.return_value = [date(2026, 8, 28)]
+    mock_daily_svc = MagicMock()
+    mock_daily_svc.refresh_symbols.return_value = res
+    mock_inst_svc = MagicMock()
+    mock_inst_svc.refresh_dates.return_value = {"dates_requested": 1, "dates_fetched": 1, "failed_dates": []}
+    mock_margin_svc = MagicMock()
+    mock_margin_svc.refresh_dates.return_value = {"dates_requested": 1, "dates_fetched": 1, "failed_dates": []}
+    svc = TaiwanDailyUpdateService(
+        daily_store=mock_daily_store, inst_store=mock_inst_store, margin_store=mock_margin_store,
+        daily_service=mock_daily_svc, inst_service=mock_inst_svc, margin_service=mock_margin_svc,
+    )
+    result = svc.run_update(target_date=date(2026, 8, 31), refresh_daily=True, daily_symbols=["2330.TWSE"])
+    assert result.daily.status == status
+
+
 def test_orchestrator_partial_failure_mocked():
     """Institutional succeeds, Margin fails -> overall_status == 'partial'."""
     mock_daily_store = MagicMock()

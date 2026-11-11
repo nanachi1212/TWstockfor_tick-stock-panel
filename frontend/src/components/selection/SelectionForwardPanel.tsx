@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom'
 import { LockKeyhole, Play, RefreshCw, Scale, ShieldAlert, Star } from 'lucide-react'
 import type { ForwardCohortStats } from '@/lib/api'
 import { statusLabel } from '@/lib/evidenceLabel'
+import { fmtPctPoint } from '@/lib/format'
 
 /** UI view model for the backend's immutable forward-batch contract. */
 export interface SelectionForwardPreviewView {
@@ -224,11 +225,11 @@ export function SelectionForwardPanel({ preview = null, onDryRun, onRefreshData,
 
 function formatPct(value: number | null) {
   if (value === null) return '尚無可評估結果'
-  return `${value > 0 ? '+' : ''}${value.toFixed(2)}%`
+  return fmtPctPoint(value)
 }
 
 function formatRate(value: number | null) {
-  return value === null ? '尚無樣本' : `${value.toFixed(1)}%`
+  return value === null ? '尚無樣本' : fmtPctPoint(value, 1, false)
 }
 
 function formatEvaluation(value: { status: 'completed' | 'tracking' | 'missing'; returnPct: number | null; reason?: string }) {

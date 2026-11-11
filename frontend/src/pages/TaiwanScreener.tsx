@@ -35,6 +35,8 @@ import {
 } from '@/lib/api'
 
 import { QK } from '@/lib/queryKeys'
+import { fmtLots, priceColorClass } from '@/lib/format'
+import { useDebounced } from '@/lib/useDebounced'
 import { toast } from '@/components/Toast'
 import { WatchlistAddMenu } from '@/components/WatchlistAddMenu'
 import { TaiwanRuleEditorDialog } from '@/components/monitor/TaiwanRuleEditorDialog'
@@ -51,20 +53,10 @@ import { ScreenerNlPanel } from '@/components/screener/ScreenerNlPanel'
 import { SaveStrategyModal } from '@/components/screener/SaveStrategyModal'
 import { formatAmount, formatChangePct, formatPrice, formatShortBalanceLots, formatShortMarginRatio, formatSignedSharesLots, formatVolumeLots } from '@/components/screener/screenerFormat'
 
-import { STRATEGY_COMMON_NOTE, STRATEGY_GUIDE } from '@/lib/strategyGuide'
+import { FORWARD_STRATEGY_OPTIONS, STRATEGY_COMMON_NOTE, STRATEGY_GUIDE } from '@/lib/strategyGuide'
 import { dayTradeFit } from '@/lib/dayTrade'
 import { statusLabel } from '@/lib/evidenceLabel'
 
-const FORWARD_STRATEGY_OPTIONS = [
-  { id: 'trend_liquidity_v1', label: '趨勢流動性' },
-  { id: 'institutional_momentum_v1', label: '法人動能' },
-  { id: 'growth_trend_v1', label: '成長趨勢' },
-  { id: 'breakout_v1', label: '突破轉強' },
-  { id: 'multi_factor_consensus_v1', label: '多策略共識' },
-  { id: 'pullback_support_v1', label: '多頭回檔' },
-  { id: 'foreign_trend_v1', label: '外資跟買' },
-  { id: 'oversold_rebound_v1', label: '超跌反彈' },
-] as const
 type ForwardStrategyId = typeof FORWARD_STRATEGY_OPTIONS[number]['id']
 
 // 乾跑結果存 sessionStorage: 點進個股再返回時不必重跑。
@@ -75,6 +67,31 @@ function loadSession<T>(key: string): T | null {
 }
 function saveSession(key: string, value: unknown) {
   try { sessionStorage.setItem(key, JSON.stringify(value)) } catch { /* quota / private mode */ }
+}
+
+/**
+ * Snapshot rows for the full result list. Rank is the position in the whole result, and a pick
+ * without a close is left out rather than stored with a made-up price of 0.
+ */
+export function snapshotItems(all: ScreenerResultItem[], strategyId: string | null, strategyVersion: string | null) {
+  return all.flatMap((it, idx) => it.close == null || !(it.close > 0) ? [] : [{
+    symbol: it.symbol,
+    name: it.name,
+    rank: idx + 1,
+    quant_score: it.quant_score ?? null,
+    match_reasons: it.match_reasons ?? [],
+    strategy_conditions: {
+      preset: strategyId,
+      strategy_version: strategyVersion,
+      signals: it.strategy_signals ?? [],
+      consensus_hit_count: it.consensus_hit_count ?? null,
+      consensus_strategy_names: it.consensus_strategy_names ?? [],
+    },
+    price: it.close,
+    fundamental_summary: it.revenue_yoy != null ? `營收年增 ${it.revenue_yoy.toFixed(1)}%` : null,
+    chips_summary: it.foreign_net != null ? `外資買賣 ${fmtLots(it.foreign_net, true)}` : null,
+    event_risk_summary: null,
+  }])
 }
 
 export function TaiwanScreener() {
@@ -618,54 +635,43 @@ export function TaiwanScreener() {
     sortBy, sortOrder, page, selectedForwardStrategy,
   ])
 
-  // Screener query
+  // Screener query. Wait for the filters to settle so typing a number does not run one full screen per keystroke.
+  const queryPayload = useDebounced(payload)
   const { data, isLoading, isError, error } = useQuery({
-    queryKey: ['taiwanScreener', payload],
-    queryFn: () => api.taiwanScreenerRun(payload),
+    queryKey: ['taiwanScreener', queryPayload],
+    queryFn: () => api.taiwanScreenerRun(queryPayload),
     staleTime: 10_000,
   })
 
   // 快照儲存 Mutation (A12)
   const saveSnapshotMutation = useMutation({
-    mutationFn: () => {
+    mutationFn: async () => {
       if (!data?.items?.length) throw new Error('目前尚無選股結果')
       const activeStrat = (strategiesQuery.data || []).find((s) => s.id === selectedStrategyId)
       const stratName = data.strategy_name ?? (activeStrat ? activeStrat.name : '即時選股篩選')
       const stratId = data.strategy_id ?? selectedStrategyId ?? 'custom_screener'
-      const asOf = data.data_dates?.daily_as_of || new Date().toISOString().slice(0, 10)
-      return api.selectionReview.saveSnapshot({
+      // The snapshot date is the data's trade date; never substitute today's date for an unknown one.
+      const asOf = data.data_dates?.daily_as_of
+      if (!asOf) throw new Error('選股結果缺少資料日期，無法儲存快照')
+      // Save every result, not only the visible page (the API caps a page at 200 rows).
+      const all: ScreenerResultItem[] = []
+      for (let p = 1; p <= Math.ceil(data.total / 200); p += 1) {
+        all.push(...(await api.taiwanScreenerRun({ ...queryPayload, page: p, page_size: 200 })).items)
+      }
+      const items = snapshotItems(all, data.strategy_id ?? null, data.strategy_version ?? null)
+      if (!items.length) throw new Error('選股結果都缺少收盤價，無法儲存快照')
+      const skipped = all.length - items.length
+      await api.selectionReview.saveSnapshot({
         strategy_id: stratId,
         strategy_name: stratName,
         as_of_date: asOf,
-        market_context_summary: `選股共 ${data.items.length} 檔標的，全市場覆蓋 ${data.coverage_info?.total_universe ?? '-'} 檔`,
-        items: data.items.map((it: ScreenerResultItem, idx: number) => ({
-          symbol: it.symbol,
-          name: it.name,
-          rank: idx + 1,
-          quant_score: it.quant_score ?? null,
-          match_reasons: it.match_reasons ?? [],
-          strategy_conditions: {
-            preset: data.strategy_id ?? null,
-            strategy_version: data.strategy_version ?? null,
-            signals: it.strategy_signals ?? [],
-            consensus_hit_count: it.consensus_hit_count ?? null,
-            consensus_strategy_names: it.consensus_strategy_names ?? [],
-          },
-          price: it.close ?? 0,
-          fundamental_summary:
-            it.revenue_yoy !== null && it.revenue_yoy !== undefined
-              ? `營收年增 ${it.revenue_yoy.toFixed(1)}%`
-              : null,
-          chips_summary:
-            it.foreign_net !== null && it.foreign_net !== undefined
-              ? `外資買賣 ${(it.foreign_net / 1e3).toFixed(0)} 張`
-              : null,
-          event_risk_summary: null,
-        })),
+        market_context_summary: `選股共 ${all.length} 檔標的，全市場覆蓋 ${data.coverage_info?.total_universe ?? '-'} 檔${skipped ? `；${skipped} 檔缺收盤價未納入` : ''}`,
+        items,
       })
+      return { saved: items.length, skipped }
     },
-    onSuccess: () => {
-      toast.success('已儲存本次選股快照！可至選股復盤追蹤表現')
+    onSuccess: ({ saved, skipped }) => {
+      toast.success(`已儲存 ${saved} 檔選股快照${skipped ? `（${skipped} 檔缺收盤價未納入）` : ''}，可至選股復盤追蹤表現`)
       qc.invalidateQueries({ queryKey: ['selection-snapshots'] })
     },
     onError: (err: any) => {
@@ -1479,7 +1485,7 @@ export function TaiwanScreener() {
                         : 'bg-zinc-800/80 border-zinc-700 text-zinc-300 hover:bg-zinc-700'
                     }`}
                   >
-                    {excludeSuspended ? '✓ 已排除暫停交易' : '排除暫停交易 (停牌)'}
+                    {excludeSuspended ? '✓ 已排除暫停交易' : '排除暫停交易'}
                   </button>
                 </div>
 
@@ -1886,12 +1892,12 @@ export function TaiwanScreener() {
                               {r}
                             </span>
                           ))}
-                          {data.strategy_id && <span className={`px-1.5 py-0.5 rounded text-xs border whitespace-nowrap ${item.risk_status === 'unknown' ? 'bg-amber-950/60 border-amber-800/60 text-amber-300' : 'bg-emerald-950/50 border-emerald-800/60 text-emerald-300'}`}>{item.risk_status === 'unknown' ? '事件風險未知' : '事件風險清除'}</span>}
+                          {data.strategy_id && <span className={`px-1.5 py-0.5 rounded text-xs border whitespace-nowrap ${item.risk_status !== 'clear' ? 'bg-amber-950/60 border-amber-800/60 text-amber-300' : 'bg-emerald-950/50 border-emerald-800/60 text-emerald-300'}`}>{item.risk_status !== 'clear' ? '事件風險未知' : '事件風險清除'}</span>}
                         </div>
                       ) : (
                         <div className="flex flex-wrap gap-1 max-w-xs">
                           <span className="text-zinc-500 text-xs">—</span>
-                          {data.strategy_id && <span className={`px-1.5 py-0.5 rounded text-xs border whitespace-nowrap ${item.risk_status === 'unknown' ? 'bg-amber-950/60 border-amber-800/60 text-amber-300' : 'bg-emerald-950/50 border-emerald-800/60 text-emerald-300'}`}>{item.risk_status === 'unknown' ? '事件風險未知' : '事件風險清除'}</span>}
+                          {data.strategy_id && <span className={`px-1.5 py-0.5 rounded text-xs border whitespace-nowrap ${item.risk_status !== 'clear' ? 'bg-amber-950/60 border-amber-800/60 text-amber-300' : 'bg-emerald-950/50 border-emerald-800/60 text-emerald-300'}`}>{item.risk_status !== 'clear' ? '事件風險未知' : '事件風險清除'}</span>}
                         </div>
                       )}
                     </td>
@@ -1977,7 +1983,7 @@ export function TaiwanScreener() {
                     {/* TDCC 千張大戶 */}
                     <td className="py-3 px-3 text-right font-mono text-zinc-300 whitespace-nowrap" title={item.big_holder_date ? `資料週 ${item.big_holder_date}` : undefined}>
                       {item.big_holder_pct != null ? `${item.big_holder_pct.toFixed(1)}%` : '—'}
-                      {item.big_holder_change != null && <span className={`ml-1 text-xs ${item.big_holder_change >= 0 ? 'text-rose-400' : 'text-emerald-400'}`}>{item.big_holder_change >= 0 ? '+' : ''}{item.big_holder_change.toFixed(2)}</span>}
+                      {item.big_holder_change != null && <span className={`ml-1 text-xs ${priceColorClass(item.big_holder_change)}`}>{item.big_holder_change >= 0 ? '+' : ''}{item.big_holder_change.toFixed(2)}</span>}
                     </td>
 
                     {/* Quant Score */}

@@ -1,14 +1,14 @@
 """系統通知適配器 — 三平台原生通知中心。
 
-職責: 把後端產生的告警事件推送到操作系統通知中心。
+職責: 把後端產生的告警事件推播到作業系統通知中心。
      視窗最小化 / 被遮擋 / 背景執行時都能彈通知 (不依賴前端 WebView)。
 
-平台實現:
+平台實作:
   - Windows: winotify (進現代操作中心, 支援圖標)
   - macOS:   osascript (系統已內建, 無需額外依賴)
   - Linux:   notify-send (系統已內建) / plyer 保底
 
-設計: 失敗靜默降級, 絕不因通知失敗阻斷告警主流程 (寫入磁碟 / SSE 推送)。
+設計: 失敗靜默降級, 絕不因通知失敗阻斷告警主流程 (寫入磁碟 / SSE 推播)。
      通知去重不在本層做, 重用 MonitorRuleEngine 的 cooldown 邏輯。
 """
 from __future__ import annotations
@@ -61,7 +61,7 @@ def _truncate(text: str) -> str:
 
 
 def notify(title: str, message: str, icon: Path | None = None) -> bool:
-    """推送一條系統通知。
+    """推播一條系統通知。
 
     Args:
         title:   通知標題
@@ -88,7 +88,7 @@ def notify(title: str, message: str, icon: Path | None = None) -> bool:
             return _notify_osascript(title, message)
         if backend == "notify-send":
             return _notify_notify_send(title, message, icon)
-    except Exception as e:  # noqa: BLE001
+    except Exception as e:
         logger.warning("系統通知失敗 (%s): %s", backend, e)
         return False
 
@@ -118,7 +118,7 @@ def _notify_osascript(title: str, message: str) -> bool:
     script = (
         f'display notification "{safe_msg}" with title "{safe_title}"'
     )
-    result = subprocess.run(  # noqa: S603, S607
+    result = subprocess.run(
         ["osascript", "-e", script],
         capture_output=True,
         timeout=5,
@@ -132,7 +132,7 @@ def _notify_notify_send(title: str, message: str, icon: Path | None) -> bool:
     if icon and Path(icon).exists():
         args.extend(["--icon", str(icon)])
     args.append(message)
-    result = subprocess.run(  # noqa: S603
+    result = subprocess.run(
         args,
         capture_output=True,
         timeout=5,
