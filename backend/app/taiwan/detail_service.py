@@ -15,7 +15,13 @@ Orchestrates:
 from __future__ import annotations
 
 import logging
+import threading
+import time
+from collections.abc import Callable
+from concurrent.futures import Future
+from concurrent.futures import TimeoutError as FutureTimeout
 from datetime import date, datetime, timedelta
+from typing import Any
 
 import polars as pl
 
@@ -59,6 +65,39 @@ logger = logging.getLogger(__name__)
 _DAILY_HISTORY_DAYS = 1100
 _DAILY_COLUMNS = ("date", "open", "high", "low", "close", "volume", "amount")
 _DAILY_CACHE_SIZE = 64
+
+# FinMind, MOPS and news sit behind shared rate limits (FinMind: one request per ~15 s)
+# that background warm-ups also queue on. The page waits this long in total; slower
+# fetches keep running, fill the services' own caches, and the page's 10 s refetch
+# shows them. Without the bound a cold or offline symbol held the request for minutes.
+_SLOW_SECTION_WAIT = 3.0
+_PENDING = object()
+_slow_inflight: dict[tuple[str, str], Future] = {}
+_slow_lock = threading.Lock()
+
+
+def _submit_slow(section: str, symbol: str, fetch: Callable[[], Any]) -> Future:
+    """Start *fetch* unless the same section of the same symbol is already running."""
+    key = (section, symbol)
+
+    def run() -> None:
+        try:
+            future.set_result(fetch())
+        except Exception as exc:
+            future.set_exception(exc)
+        finally:
+            with _slow_lock:
+                _slow_inflight.pop(key, None)
+
+    with _slow_lock:
+        future = _slow_inflight.get(key)
+        if future is None:
+            future = _slow_inflight[key] = Future()
+            # Daemon threads, not an executor: an executor joins its workers at exit, so
+            # closing the app would wait out every queued rate-limit slot.
+            # ponytail: one thread per pending section; the limiters pace the actual requests.
+            threading.Thread(target=run, daemon=True, name=f"stock-detail-{section}").start()
+        return future
 
 
 class TaiwanStockDetailService:
@@ -173,18 +212,44 @@ class TaiwanStockDetailService:
         # 10. Recent Alerts
         recent_alerts = self._aggregate_recent_alerts(symbol_str)
 
-        # 10. Fundamentals and Extra Chips (robust fallback: does not abort detail)
-        try:
-            exchange = identity.exchange
-            fundamentals_data = self.fundamental_chips_service.get_fundamentals_bundle(symbol_str, exchange)
-        except Exception as e:
-            logger.debug("Fundamentals aggregation error for %s: %s", symbol_str, e)
-            fundamentals_data = None
+        # 10-11. Rate-limited sources: started together, awaited up to _SLOW_SECTION_WAIT.
+        from app.taiwan.events_service import get_event_service
+        from app.taiwan.news_service import get_news_service
 
-        try:
-            extra_chips_data = self.fundamental_chips_service.get_extra_chips_bundle(symbol_str)
-        except Exception as e:
-            logger.debug("Extra chips aggregation error for %s: %s", symbol_str, e)
+        exchange = identity.exchange
+        chips = self.fundamental_chips_service
+
+        def fetch_events():
+            event_svc = get_event_service()
+            events = event_svc.get_events(scope="all", symbol=symbol_str, limit=30, include_mops=True)
+            return events, *event_svc.get_product_sources_status()
+
+        slow = {
+            "fundamentals": _submit_slow(
+                "fundamentals", symbol_str, lambda: chips.get_fundamentals_bundle(symbol_str, exchange)),
+            "extra_chips": _submit_slow(
+                "extra_chips", symbol_str, lambda: chips.get_extra_chips_bundle(symbol_str)),
+            "events": _submit_slow("events", symbol_str, fetch_events),
+            "news": _submit_slow(
+                "news", symbol_str, lambda: get_news_service().get_recent_news(symbol_str, limit=10)),
+        }
+        deadline = time.monotonic() + _SLOW_SECTION_WAIT
+
+        def settled(section: str) -> Any:
+            """The section's result, _PENDING while it is still fetching, or the error."""
+            try:
+                return slow[section].result(timeout=max(0.0, deadline - time.monotonic()))
+            except FutureTimeout:
+                return _PENDING
+            except Exception as exc:  # one section must not abort the page
+                logger.debug("%s aggregation error for %s: %s", section, symbol_str, exc)
+                return exc
+
+        fundamentals_data = settled("fundamentals")
+        if fundamentals_data is _PENDING or isinstance(fundamentals_data, Exception):
+            fundamentals_data = None
+        extra_chips_data = settled("extra_chips")
+        if extra_chips_data is _PENDING or isinstance(extra_chips_data, Exception):
             extra_chips_data = None
 
         # Determine overall quality
@@ -207,30 +272,26 @@ class TaiwanStockDetailService:
         recent_events = []
         events_status = "unavailable"
         events_sources_status: dict[str, str] = {}
-        try:
-            from app.taiwan.events_service import get_event_service
-            event_svc = get_event_service()
-            recent_events = event_svc.get_events(scope="all", symbol=symbol_str, limit=30, include_mops=True)
-            events_status, events_sources_status = event_svc.get_product_sources_status()
-        except Exception as e:
-            logger.debug("Recent events aggregation error for %s: %s", symbol_str, e)
+        events_result = settled("events")
+        if events_result is _PENDING:
+            events_status = "not_queried"
+        elif not isinstance(events_result, Exception):
+            recent_events, events_status, events_sources_status = events_result
 
         recent_news = []
-        news_status = "available"
+        news_status = "unavailable"
         news_status_message = None
         news_fetched_at = None
-        try:
-            from app.taiwan.news_service import get_news_service
-            news_svc = get_news_service()
-            news_res = news_svc.get_recent_news(symbol_str, limit=10)
+        news_res = settled("news")
+        if news_res is _PENDING:
+            news_status_message = "新聞還在抓取、稍後會自動更新"
+        elif isinstance(news_res, Exception):
+            news_status_message = str(news_res)
+        else:
             recent_news = news_res.items
             news_status = news_res.status
             news_status_message = news_res.status_message
             news_fetched_at = news_res.fetched_at
-        except Exception as e:
-            logger.debug("Recent news aggregation error for %s: %s", symbol_str, e)
-            news_status = "unavailable"
-            news_status_message = str(e)
 
         return TaiwanStockDetailResponse(
             symbol=symbol_str,
