@@ -13,17 +13,17 @@ def test_fetch_minute_single_window_is_taipei_wall_clock(monkeypatch):
     def _fake_try_custom_minute(symbols, start_time, end_time, asset_type, freq="1m", **kwargs):
         captured["start"] = start_time
         captured["end"] = end_time
-        return (None, True)  # 未配自定义源 → 继续后续分支
+        return (None, True)  # 未配自訂源 → 繼續後續分支
 
     monkeypatch.setattr(kline_sync, "_try_custom_minute", _fake_try_custom_minute)
 
     kline_sync.fetch_minute_single("2330.TWSE", date(2026, 8, 14))
 
-    # 必须带时区, 否则下游 _datetime_to_ms 会按服务器本地时区解释。
+    # 必須帶時區, 否則下游 _datetime_to_ms 會按伺服器本地時區解釋。
     assert captured["start"].tzinfo is not None
     assert captured["end"].tzinfo is not None
 
-    # 经 _datetime_to_ms 往返后仍是台北時間的 09:00 / 13:30。
+    # 經 _datetime_to_ms 往返後仍是台北時間的 09:00 / 13:30。
     start = datetime.fromtimestamp(kline_sync._datetime_to_ms(captured["start"]) / 1000, tz=TAIPEI_TZ)
     end = datetime.fromtimestamp(kline_sync._datetime_to_ms(captured["end"]) / 1000, tz=TAIPEI_TZ)
     assert (start.date(), start.hour, start.minute) == (date(2026, 8, 14), 9, 0)

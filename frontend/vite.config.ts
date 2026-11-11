@@ -15,13 +15,13 @@ export default defineConfig({
     },
   },
   server: {
-    host: '127.0.0.1', // 预设仅本机; dev.sh / dev.ps1 会用 CLI --host 覆盖 (HOST=0.0.0.0 才开放局域网)
+    host: '127.0.0.1', // 預設僅本機; dev.sh / dev.ps1 會用 CLI --host 覆蓋 (HOST=0.0.0.0 才開放局域網)
     port: 3011,
     proxy: {
-      // dev 时 /api 转发到与启动脚本相同的 FastAPI 地址
+      // dev 時 /api 轉發到與啟動腳本相同的 FastAPI 地址
       '/api': {
         target: backendTarget,
-        // SSE 端点需要禁用缓冲
+        // SSE 端點需要禁用緩衝
         configure: (proxy) => {
           proxy.on('proxyReq', (_proxyReq, req) => {
             if (req.url?.includes('/stream')) {
@@ -40,8 +40,8 @@ export default defineConfig({
     sourcemap: false,
     rollupOptions: {
       output: {
-        // 把重型图表库拆到独立 chunk, 避免打进主包 + 让页面按需加载。
-        // 用函数形式按 node_modules 路径匹配, 比对象形式更可靠。
+        // 把重型圖表庫拆到獨立 chunk, 避免打進主包 + 讓頁面按需載入。
+        // 用函式形式按 node_modules 路徑匹配, 比對象形式更可靠。
         manualChunks(id) {
           if (id.includes('node_modules')) {
             if (id.includes('echarts')) return 'echarts'

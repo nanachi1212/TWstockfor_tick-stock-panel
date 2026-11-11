@@ -405,7 +405,7 @@ class TestExtractExchange:
         assert extract_exchange("2330.XX") is None
 
     def test_a_share_suffix_returns_none(self):
-        """A-share exchange suffixes are NOT Taiwan exchanges."""
+        """Legacy SH/SZ/BJ exchange suffixes are NOT Taiwan exchanges."""
         assert extract_exchange("600519.SH") is None
         assert extract_exchange("000001.SZ") is None
         assert extract_exchange("830799.BJ") is None

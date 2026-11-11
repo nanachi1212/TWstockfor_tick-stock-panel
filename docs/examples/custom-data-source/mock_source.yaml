@@ -1,5 +1,5 @@
 name: mock_source
-display_name: "Mock 自定義數據源"
+display_name: "Mock 自訂資料源"
 auth:
   type: none
 
@@ -11,7 +11,7 @@ datasets:
     rpm: 200
     response_path: data
     field_map:
-      ts_code: symbol
+      stock_id: symbol
       trade_date: date
       open: open
       high: high
@@ -29,7 +29,7 @@ datasets:
     rpm: 200
     response_path: data
     field_map:
-      ts_code: symbol
+      stock_id: symbol
       trade_date: trade_date
       factor: ex_factor
     transforms:
@@ -41,7 +41,7 @@ datasets:
     rpm: 60
     response_path: data
     field_map:
-      ts_code: symbol
+      stock_id: symbol
       name: name
       last: last_price
       pre_close: prev_close

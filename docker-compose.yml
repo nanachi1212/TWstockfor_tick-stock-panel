@@ -1,5 +1,4 @@
-# Phase 0 單 service:FastAPI 啟動後既跑 API 又託管前端 dist。
-# 見 ADR-17 / §8.1。
+# 單一 service:FastAPI 啟動後既提供 API，也託管前端 dist。
 services:
   app:
     build:
@@ -8,7 +7,7 @@ services:
       args:
         BACKEND_EXTRAS: ${BACKEND_EXTRAS:-}
         CODEX_CLI_VERSION: ${CODEX_CLI_VERSION:-0.144.3}
-    container_name: TickFlow_Stock_Panel
+    container_name: Nanachi_Stock_Panel
     ports:
       - "${HOST:-0.0.0.0}:${PORT:-3018}:3018"
     extra_hosts:
@@ -18,7 +17,7 @@ services:
     environment:
       # 強制固定為容器內絕對路徑, 防止 .env 裡的 DATA_DIR=./data(開發模式用)
       # 被 env_file 原樣傳入容器後按錯誤的相對路徑解析, 寫到未掛載卷的目錄,
-      # 導致每次 up --build 重建容器都丟數據。environment 優先級高於 env_file,
+      # 導致每次 up --build 重建容器都丟資料。environment 優先順序高於 env_file,
       # 無論 .env 怎麼寫這裡都以容器路徑為準。
       - DATA_DIR=/app/data
       # 將主機 Codex Desktop 的 loopback local-access 端點映射到 Docker host gateway。
@@ -27,7 +26,7 @@ services:
       - ./data:/app/data
       # 保留原始 dotenv 值供首次密碼初始化讀取，避免 Compose 展開密碼中的 $VAR。
       - ./.env:/app/.env:ro
-      # 複用主機 Codex 登錄態；後端只讀後複製到單次請求的臨時 CODEX_HOME。
-      # Windows PowerShell/CMD 下 HOME 常未設置, 可通過 .env 裡 CODEX_HOME_HOST 覆蓋。
+      # 重用主機 Codex 登入態；後端只讀後複製到單次請求的臨時 CODEX_HOME。
+      # Windows PowerShell/CMD 下 HOME 常未設定, 可通過 .env 裡 CODEX_HOME_HOST 覆蓋。
       - ${CODEX_HOME_HOST:-${HOME}/.codex}:/root/.codex:ro
     restart: unless-stopped

@@ -78,10 +78,10 @@
   .touch-visible { opacity: 1; }
 }
 
-/* 价格 / 数字一律等宽 */
+/* 價格 / 數字一律等寬 */
 .scrollbar-gutter-stable { scrollbar-gutter: stable; }
 
-/* 全局滚动条 */
+/* 全域滾動條 */
 * {
   box-sizing: border-box;
   scrollbar-width: thin;
@@ -114,7 +114,7 @@ body {
   background: var(--base);
   color: var(--fg-primary);
   font-feature-settings: 'cv02', 'cv03', 'cv04', 'cv11';
-  /* 暗色模式不用 antialiased — 让字形保持饱满,不发虚 */
+  /* 暗色模式不用 antialiased — 讓字形保持飽滿,不發虛 */
   -webkit-font-smoothing: subpixel-antialiased;
   -moz-osx-font-smoothing: auto;
   text-rendering: optimizeLegibility;

@@ -203,25 +203,25 @@ _ANSI_RE = re.compile(r"\x1b\[[0-9;?]*[ -/]*[@-~]")
 
 
 # ----------------------------------------------------------------
-# 用户 focus 输入净化 — 防止通过"特别关注"绕过红线诱导 AI 给出买卖建议
-# 命中任一敏感词时,整个 focus 被丢弃(返回空串),由各 analyzer 据此跳过注入。
+# 使用者 focus 輸入淨化 — 防止通過"特別關注"繞過紅線誘導 AI 給出買賣建議
+# 命中任一敏感詞時,整個 focus 被丟棄(回傳空串),由各 analyzer 據此跳過注入。
 # ----------------------------------------------------------------
 _FOCUS_BLOCKLIST = re.compile(
-    r"买入|卖出|加仓|减仓|轻仓|重仓|半仓|全仓|仓位|止损|止盈|"
-    r"操作建议|买卖点|买卖区间|建仓|平仓|清仓|调仓|"
-    r"追高|低吸|反包|抄底|逃顶|进攻|防守|"
-    r"激进|稳健|保守|目标价|能涨|会跌|预测涨|预测跌|"
-    r"荐股|推荐买|推荐卖|值得投资|现在买|可以买|能买|要不要买|买吗|卖吗|"
-    r"明日基调|交易计划|下单",
+    r"買入|賣出|加倉|減倉|輕倉|重倉|半倉|全倉|倉位|止損|止盈|"
+    r"操作建議|買賣點|買賣區間|建倉|平倉|清倉|調倉|"
+    r"追高|低吸|反包|抄底|逃頂|進攻|防守|"
+    r"激進|穩健|保守|目標價|能漲|會跌|預測漲|預測跌|"
+    r"薦股|推薦買|推薦賣|值得投資|現在買|可以買|能買|要不要買|買嗎|賣嗎|"
+    r"明日基調|交易計劃|下單",
     re.IGNORECASE,
 )
 
 
 def sanitize_focus(focus: str) -> str:
-    """净化用户输入的 focus 文本。
+    """淨化使用者輸入的 focus 文本。
 
-    命中交易指令/投资建议类敏感词时返回空串,阻止其注入 AI 提示词。
-    这是对系统提示词红线的兜底:即便用户试图通过 focus 绕过,也不会生效。
+    命中交易指令/投資建議類敏感詞時回傳空串,阻止其注入 AI 提示詞。
+    這是對系統提示詞紅線的保底:即便使用者試圖通過 focus 繞過,也不會生效。
     """
     if not focus:
         return ""
@@ -256,8 +256,8 @@ def current_openai_model() -> str:
 def current_codex_model() -> str:
     stored = secrets_store.load()
     model = stored.get("ai_codex_model")
-    # 旧版本的两种 provider 共用 ai_model。仅在旧配置仍启用 Codex 时回退读取,
-    # 避免把正常的 OpenAI-compatible 模型误当作 Codex 模型。
+    # 舊版本的兩種 provider 共用 ai_model。僅在舊設定仍啟用 Codex 時回退讀取,
+    # 避免把正常的 OpenAI-compatible 模型誤當作 Codex 模型。
     if model is None and current_ai_provider() == CODEX_CLI_PROVIDER:
         model = stored.get("ai_model")
     return normalize_codex_model(str(model or ""))
@@ -277,26 +277,26 @@ def current_openai_reasoning_effort() -> str:
 
 
 def current_ai_max_output_tokens() -> int:
-    """当前 AI 输出上限 (max_tokens): secrets.json 优先, 否则 config 默认。"""
+    """當前 AI 輸出上限 (max_tokens): secrets.json 優先, 否則 config 預設。"""
     return secrets_store.get_ai_config_int("ai_max_output_tokens", settings.ai_max_output_tokens)
 
 
 def current_ai_request_timeout() -> float:
-    """单次 AI 请求逾时(秒): secrets.json 优先, 否则 config 默认; 非正数回退默认。"""
+    """單次 AI 請求逾時(秒): secrets.json 優先, 否則 config 預設; 非正數回退預設。"""
     value = secrets_store.get_ai_config_int("ai_request_timeout", 0) or settings.ai_request_timeout
     return float(value) if value > 0 else settings.ai_request_timeout
 
 
 def current_ai_context_window() -> int:
-    """当前 AI 输入上下文窗口上限 (约 token): secrets.json 优先, 否则 config 默认。"""
+    """當前 AI 輸入上下文視窗上限 (約 token): secrets.json 優先, 否則 config 預設。"""
     return secrets_store.get_ai_config_int("ai_context_window", settings.ai_context_window)
 
 
 def _resolve_max_tokens(max_tokens: int | None, *, cap: int | None = None) -> int | None:
-    """显式传入的 max_tokens 钳制到配置输出上限; None 保持 None。
+    """顯式傳入的 max_tokens 限制到設定輸出上限; None 保持 None。
 
-    None = 不传该参数(推理型模型的思考 token 计入 max_tokens 预算,
-    显式限制会挤占正文, 语义见 generate_ai_text), 不能映射成配置上限。
+    None = 不傳該參數(推理型模型的思考 token 計入 max_tokens 預算,
+    顯式限制會擠佔正文, 語意見 generate_ai_text), 不能映射成設定上限。
     """
     if max_tokens is None:
         return None
@@ -305,7 +305,7 @@ def _resolve_max_tokens(max_tokens: int | None, *, cap: int | None = None) -> in
 
 
 def _estimate_input_tokens(messages: Sequence[Message]) -> int:
-    """粗略估算输入 token 数: 中文按 1 字 1 token, 其余按 4 字符 1 token。"""
+    """粗略估算輸入 token 數: 中文按 1 字 1 token, 其餘按 4 字元 1 token。"""
     total = 0
     for m in messages:
         text = str(m.get("content") or "")
@@ -321,11 +321,11 @@ def _check_input_budget(
     context_window: int | None = None,
     max_output_tokens: int | None = None,
 ) -> None:
-    """输入估算超出上下文窗口时给出明确报错, 避免上游 400 或静默截断。
+    """輸入估算超出上下文視窗時給出明確的錯誤訊息, 避免來源 400 或靜默截斷。
 
-    token 计数不精确, 仅作安全网: 用中/英文混合估算, 只有明显超窗才拒绝;
-    用户可在 AI 设置里调大『上下文窗口』。max_tokens=None(输出放开)时用
-    配置上限作输出预留估计。
+    token 計數不精確, 僅作安全網: 用中/英文混合估算, 只有明顯超窗才拒絕;
+    使用者可在 AI 設定裡調大『上下文視窗』。max_tokens=None(輸出放開)時用
+    設定上限作輸出預留估計。
     """
     context_window = current_ai_context_window() if context_window is None else context_window
     if context_window <= 0:
@@ -335,8 +335,8 @@ def _check_input_budget(
     est = _estimate_input_tokens(messages)
     if est + output_reserve > context_window:
         raise ValueError(
-            f"输入过长: 估算输入约 {est} tokens, 加上输出预算 {max_tokens} tokens, "
-            f"超过上下文窗口 {context_window}。请缩短输入, 或在 AI 设置中调大『上下文窗口』。"
+            f"輸入過長: 估算輸入約 {est} tokens, 加上輸出預算 {max_tokens} tokens, "
+            f"超過上下文視窗 {context_window}。請縮短輸入, 或在 AI 設定中調大『上下文視窗』。"
         )
 
 
@@ -393,7 +393,7 @@ def normalize_codex_command(command: str | None, *, strict: bool = True) -> str:
     if not value or value.lower() == CODEX_DEFAULT_COMMAND:
         return CODEX_DEFAULT_COMMAND
     if strict:
-        raise ValueError("Codex CLI 仅支持使用默认 codex 命令自动解析, 不支持自定义可执行路径")
+        raise ValueError("Codex CLI 僅支援使用預設 codex 命令自動解析, 不支援自訂可執行路徑")
     return CODEX_DEFAULT_COMMAND
 
 
@@ -403,9 +403,9 @@ _VERSION_SEGMENT_RE = re.compile(r"/v\d+(?:\.\d+)?$", re.IGNORECASE)
 def normalize_openai_base_url(url: str) -> str:
     """Return the OpenAI-compatible base URL expected by the OpenAI SDK.
 
-    识别 URL 中已有的版本段 (/v1、/v2、/v4 等) 时保持原样 —— 部分 OpenAI 兼容
-    服务用非 v1 的版本号 (如智谱 GLM 用 /api/paas/v4), 旧实现无条件补 /v1 会拼成
-    不存在的 /api/paas/v4/v1/chat/completions 导致 404。仅在无版本段时才补 /v1。
+    識別 URL 中已有的版本段 (/v1、/v2、/v4 等) 時保持原樣 —— 部分 OpenAI 相容
+    服務用非 v1 的版本號 (如智譜 GLM 用 /api/paas/v4), 舊實現無條件補 /v1 會拼成
+    不存在的 /api/paas/v4/v1/chat/completions 導致 404。僅在無版本段時才補 /v1。
     """
     base = (url or "").strip().rstrip("/")
     if base.endswith("/chat/completions"):
@@ -416,10 +416,10 @@ def normalize_openai_base_url(url: str) -> str:
 
 
 def codex_cli_available() -> bool:
-    """Codex CLI 是否真正可用: 解析命令后实跑一次 --version。
+    """Codex CLI 是否真正可用: 解析命令後實跑一次 --version。
 
-    仅 which 到二进制不够 — npm 壳缺平台原生二进制时同样存在于 PATH,
-    但一运行就报错(如 "Codex CLI not available"), 状态页会误报已连接。
+    僅 which 到二進制不夠 — npm 殼缺平台原生二進制時同樣存在於 PATH,
+    但一執行就出錯(如 "Codex CLI not available"), 狀態頁會誤報已連接。
     """
     try:
         base = _codex_base_command()
@@ -457,7 +457,7 @@ def ai_configured(provider: str | None = None) -> bool:
     return bool(secrets_store.get_ai_key())
 
 
-# ── 本機模型暖機: 同一程序內第一次呼叫某個本機模型時, 逾時放寬到兩倍 (上限 300 秒) ──
+# ── 本機模型暖機: 同一行程內第一次呼叫某個本機模型時, 逾時放寬到兩倍 (上限 300 秒) ──
 _WARMED_UP: set[str] = set()
 
 
@@ -489,10 +489,10 @@ async def generate_ai_text(
 ) -> str:
     """Return a complete AI response from the currently configured provider.
 
-    max_tokens=None 表示不传该参数(输出上限交给服务端默认) — 推理型模型
-    (如 deepseek reasoner 系)的思考 token 计入 max_tokens 预算, 显式限制
-    会挤占正文甚至全部吃光(正文 0 字 + finish=length), 长分析类调用应放开。
-    显式传入的数值会被钳制到配置的输出上限 (AI 设置可调)。
+    max_tokens=None 表示不傳該參數(輸出上限交給服務端預設) — 推理型模型
+    (如 deepseek reasoner 系)的思考 token 計入 max_tokens 預算, 顯式限制
+    會擠佔正文甚至全部吃光(正文 0 字 + finish=length), 長分析類呼叫應放開。
+    顯式傳入的數值會被限制到設定的輸出上限 (AI 設定可調)。
     """
     if config_snapshot is None:
         config_snapshot = snapshot_ai_provider_config()
@@ -675,7 +675,7 @@ async def stream_ai_text(
     Codex CLI only exposes the final assistant message for this use case, so it
     yields one complete chunk after the command exits.
 
-    max_tokens=None 表示不限制输出(同 generate_ai_text 的说明)。
+    max_tokens=None 表示不限制輸出(同 generate_ai_text 的說明)。
     """
     if config_snapshot is None:
         config_snapshot = snapshot_ai_provider_config()
@@ -728,7 +728,7 @@ async def _run_openai_once(
 ) -> str:
     ai_key = config_snapshot.api_key if config_snapshot is not None else secrets_store.get_ai_key()
     if not ai_key:
-        raise RuntimeError("AI API Key 未配置, 请在设置页配置")
+        raise RuntimeError("AI API Key 未設定, 請在設定頁設定")
 
     client = _openai_client(ai_key, timeout, config_snapshot=config_snapshot)
     model = config_snapshot.model if config_snapshot is not None else (
@@ -927,7 +927,7 @@ async def _stream_openai(
 ) -> AsyncIterator[str]:
     ai_key = config_snapshot.api_key if config_snapshot is not None else secrets_store.get_ai_key()
     if not ai_key:
-        raise RuntimeError("AI API Key 未配置, 请在设置页配置")
+        raise RuntimeError("AI API Key 未設定, 請在設定頁設定")
 
     client = _openai_client(ai_key, timeout, config_snapshot=config_snapshot)
     model = config_snapshot.model if config_snapshot is not None else current_ai_model()
@@ -954,7 +954,7 @@ async def _stream_openai(
             )
             break
         except Exception as exc:
-            # 流尚未开始 yield, 可安全移除被拒绝的可选参数后重建。
+            # 流尚未開始 yield, 可安全移除被拒絕的可選參數後重建。
             retry_kwargs = _openai_retry_kwargs(exc, kwargs)
             if retry_kwargs is not None:
                 kwargs = retry_kwargs
@@ -995,8 +995,8 @@ def _openai_client(
     )
 
 
-# 不同模型可能拒绝 temperature 或 reasoning_effort。这里不靠模型名猜测,
-# 只在 400 明确指出对应参数时移除该参数并重试; 每个参数最多移除一次。
+# 不同模型可能拒絕 temperature 或 reasoning_effort。這裡不靠模型名猜測,
+# 只在 400 明確指出對應參數時移除該參數並重試; 每個參數最多移除一次。
 _TEMP_REJECT_HINTS = ("temperature", "only 1 is allowed")
 _REASONING_EFFORT_REJECT_HINTS = ("reasoning_effort", "reasoning effort")
 
@@ -1058,8 +1058,8 @@ def _openai_kwargs(
 ) -> dict:
     """Build OpenAI create() kwargs; optional parameters are omitted when empty.
 
-    max_tokens=None 时不传 — 由服务端默认上限管理(推理模型的思考 token 也
-    计入该参数预算, 限制会挤占正文, 见 stream_ai_text 文档)。
+    max_tokens=None 時不傳 — 由服務端預設上限管理(推理模型的思考 token 也
+    計入該參數預算, 限制會擠佔正文, 見 stream_ai_text 文件)。
     """
     kwargs: dict = {}
     if max_tokens is not None:
@@ -1124,29 +1124,29 @@ def _format_openai_error(exc: Exception) -> str:
 
     class_name = exc.__class__.__name__
     if "Timeout" in class_name:
-        return "AI 服务请求超时, 请稍后重试或检查 AI Base URL / 网络"
+        return "AI 服務請求超時, 請稍後重試或檢查 AI Base URL / 網路"
     if "Connection" in class_name:
-        return "AI 服务连接失败, 请检查 AI Base URL / 网络"
+        return "AI 服務連接失敗, 請檢查 AI Base URL / 網路"
 
     detail = _openai_error_detail(exc)
     status_messages = {
-        400: "请求参数无效, 请检查模型名称和上下文长度",
-        401: "API Key 无效或无权限, 请检查设置页配置",
-        403: "AI 服务拒绝访问, 请检查账号权限或网关配置",
-        404: "模型或接口地址不存在, 请检查 AI Base URL 和模型名称",
-        408: "AI 服务请求超时, 请稍后重试",
-        429: "AI 服务限流或额度不足, 请稍后重试或检查额度",
-        500: "AI 服务内部错误, 请稍后重试",
-        502: "AI 网关返回错误, 请稍后重试或检查 AI Base URL",
-        503: "AI 服务暂时不可用, 请稍后重试",
-        504: "AI 上游服务超时, 请稍后重试或检查 AI Base URL / 网络",
+        400: "請求參數無效, 請檢查模型名稱和上下文長度",
+        401: "API Key 無效或無權限, 請檢查設定頁設定",
+        403: "AI 服務拒絕訪問, 請檢查帳號權限或閘道設定",
+        404: "模型或介面地址不存在, 請檢查 AI Base URL 和模型名稱",
+        408: "AI 服務請求超時, 請稍後重試",
+        429: "AI 服務限流或額度不足, 請稍後重試或檢查額度",
+        500: "AI 服務內部錯誤, 請稍後重試",
+        502: "AI 閘道回傳錯誤, 請稍後重試或檢查 AI Base URL",
+        503: "AI 服務暫時不可用, 請稍後重試",
+        504: "AI 服務端超時, 請稍後重試或檢查 AI Base URL / 網路",
     }
-    # 优先透出上游真实错误 (如 Moonshot 的 "model not found"), 仅在没有
-    # 可读 detail 时才回落到按状态码的通用文案, 避免吞掉排障关键信息。
-    message = detail or status_messages.get(status) or "请稍后重试或检查 AI 服务配置"
+    # 優先回傳來源真實錯誤 (如 Moonshot 的 "model not found"), 僅在沒有
+    # 可讀 detail 時才回落到按狀態碼的通用文案, 避免吞掉排障關鍵資訊。
+    message = detail or status_messages.get(status) or "請稍後重試或檢查 AI 服務設定"
     if status:
-        return f"AI 服务请求失败({status}): {message}"
-    return f"AI 服务请求失败: {message}"
+        return f"AI 服務請求失敗({status}): {message}"
+    return f"AI 服務請求失敗: {message}"
 
 
 def _openai_error_detail(exc: Exception) -> str:
@@ -1198,7 +1198,7 @@ async def _run_codex_cli(
     config_snapshot: AIProviderConfigSnapshot | None = None,
 ) -> str:
     prompt = _codex_prompt(messages, max_tokens=max_tokens)
-    run_path = Path(tempfile.mkdtemp(prefix="tickflow-codex-run-"))
+    run_path = Path(tempfile.mkdtemp(prefix="tsp-codex-run-"))
     try:
         codex_home_path = run_path / "codex-home"
         workspace_path = run_path / "workspace"
@@ -1210,8 +1210,8 @@ async def _run_codex_cli(
         else:
             _prepare_codex_home(codex_home_path, config_snapshot=config_snapshot)
 
-        # 不传 --ephemeral: 老版本 codex(如 0.58)无此参数, 传了直接报
-        # unexpected argument; 会话隔离已由一次性临时 CODEX_HOME 保证(跑完即删)。
+        # 不傳 --ephemeral: 老版本 codex(如 0.58)無此參數, 傳了直接報
+        # unexpected argument; 會話隔離已由一次性臨時 CODEX_HOME 保證(跑完即刪)。
         args = [
             *(
                 _codex_base_command(config_snapshot.codex_command)
@@ -1254,10 +1254,10 @@ async def _run_codex_cli(
             detail = err or out or f"exit code {returncode}"
             if _looks_like_login_error(detail):
                 raise RuntimeError("Codex 訂閱登入已失效，請在終端機執行 codex login 重新登入")
-            raise RuntimeError(f"Codex CLI 调用失败: {detail[-1200:]}")
+            raise RuntimeError(f"Codex CLI 呼叫失敗: {detail[-1200:]}")
         result = final_message or out
         if not result:
-            raise RuntimeError("Codex CLI 未返回内容")
+            raise RuntimeError("Codex CLI 未回傳內容")
         return result
     finally:
         await asyncio.to_thread(_remove_tree_best_effort, run_path)
@@ -1297,7 +1297,7 @@ async def _run_claude_cli(
 ) -> str:
     """Run one isolated `claude -p` turn on the user's Claude subscription and return its text."""
     prompt = _codex_prompt(messages, max_tokens=max_tokens)
-    workspace = Path(tempfile.mkdtemp(prefix="tickflow-claude-run-"))
+    workspace = Path(tempfile.mkdtemp(prefix="tsp-claude-run-"))
     try:
         from app.services.ai_key_profiles import validate_model_name
 
@@ -1322,7 +1322,7 @@ async def _run_claude_cli(
                 raise RuntimeError("Claude 訂閱登入已失效，請在終端機執行 claude 並用 /login 重新登入")
             raise RuntimeError(f"Claude Code CLI 呼叫失敗: {detail[-1200:]}")
         if not isinstance(result, str) or not result.strip():
-            raise RuntimeError("Claude Code CLI 未返回內容")
+            raise RuntimeError("Claude Code CLI 未回傳內容")
         return result.strip()
     finally:
         await asyncio.to_thread(shutil.rmtree, workspace, True)
@@ -1363,7 +1363,7 @@ def _run_codex_process(
             check=False,
         )
     except subprocess.TimeoutExpired as exc:
-        raise RuntimeError("Codex CLI 调用超时, 请稍后重试或检查本机 Codex 登录状态") from exc
+        raise RuntimeError("Codex CLI 呼叫超時, 請稍後重試或檢查本機 Codex 登入狀態") from exc
     return proc.returncode, proc.stdout, proc.stderr
 
 

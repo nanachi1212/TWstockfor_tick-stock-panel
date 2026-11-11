@@ -63,7 +63,7 @@ def test_compute_limit_signals_subset_matches_full_and_prunes_other_outputs():
     bars = compute_indicators(_bars(), needed={"change_pct"})
     instruments = pl.DataFrame({
         "symbol": ["600000", "300001"],
-        "name": ["浦发银行", "测试股份"],
+        "name": ["浦發銀行", "測試股份"],
         "float_shares": [1_000_000_000.0, 500_000_000.0],
     })
     full = compute_limit_signals(bars, instruments)

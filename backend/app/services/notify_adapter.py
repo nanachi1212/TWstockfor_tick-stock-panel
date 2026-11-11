@@ -1,15 +1,15 @@
-"""系统通知适配器 — 三平台原生通知中心。
+"""系統通知適配器 — 三平台原生通知中心。
 
-职责: 把后端产生的告警事件推送到操作系统通知中心。
-     窗口最小化 / 被遮挡 / 后台运行时都能弹通知 (不依赖前端 WebView)。
+職責: 把後端產生的告警事件推送到操作系統通知中心。
+     視窗最小化 / 被遮擋 / 背景執行時都能彈通知 (不依賴前端 WebView)。
 
-平台实现:
-  - Windows: winotify (进现代操作中心, 支持图标)
-  - macOS:   osascript (系统已内置, 无需额外依赖)
-  - Linux:   notify-send (系统已内置) / plyer 兜底
+平台實現:
+  - Windows: winotify (進現代操作中心, 支援圖標)
+  - macOS:   osascript (系統已內建, 無需額外依賴)
+  - Linux:   notify-send (系統已內建) / plyer 保底
 
-设计: 失败静默降级, 绝不因通知失败阻断告警主流程 (落盘 / SSE 推送)。
-     通知去重不在本层做, 复用 MonitorRuleEngine 的 cooldown 逻辑。
+設計: 失敗靜默降級, 絕不因通知失敗阻斷告警主流程 (寫入磁碟 / SSE 推送)。
+     通知去重不在本層做, 重用 MonitorRuleEngine 的 cooldown 邏輯。
 """
 from __future__ import annotations
 
@@ -20,18 +20,18 @@ from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
-# 单次通知最长字符 (避免某些平台截断报错)
+# 單次通知最長字元 (避免某些平台截斷出錯)
 _MAX_LEN = 200
 
 # Windows 通知中心顯示的來源名稱
 _WINDOWS_APP_ID = "Nanachi 的台股監控看板"
 
-# 避免重复探测平台能力, 缓存一次
+# 避免重複探測平台能力, 快取一次
 _backend_cache: str | None = None
 
 
 def _detect_backend() -> str | None:
-    """探测当前平台可用的通知后端。"""
+    """探測當前平台可用的通知後端。"""
     global _backend_cache
     if _backend_cache is not None:
         return _backend_cache if _backend_cache != "none" else None
@@ -43,7 +43,7 @@ def _detect_backend() -> str | None:
 
             backend = "winotify"
         except ImportError:
-            logger.debug("winotify 不可用, Windows 通知降级")
+            logger.debug("winotify 不可用, Windows 通知降級")
             backend = None
     elif sys.platform == "darwin":
         backend = "osascript"
@@ -55,22 +55,22 @@ def _detect_backend() -> str | None:
 
 
 def _truncate(text: str) -> str:
-    """截断超长文本, 避免平台通知上限报错。"""
+    """截斷超長文本, 避免平台通知上限出錯。"""
     text = (text or "").strip()
     return text[:_MAX_LEN] + ("…" if len(text) > _MAX_LEN else "")
 
 
 def notify(title: str, message: str, icon: Path | None = None) -> bool:
-    """推送一条系统通知。
+    """推送一條系統通知。
 
     Args:
-        title:   通知标题
+        title:   通知標題
         message: 通知正文
-        icon:    可选图标路径 (部分平台支持)
+        icon:    可選圖標路徑 (部分平台支援)
 
     Returns:
-        True=成功送达, False=失败或无可用后端。
-        失败静默, 不抛异常 (通知是辅助通道, 不能阻断告警主流程)。
+        True=成功送達, False=失敗或無可用後端。
+        失敗靜默, 不拋異常 (通知是輔助通道, 不能阻斷告警主流程)。
     """
     title = _truncate(title)
     message = _truncate(message)
@@ -96,7 +96,7 @@ def notify(title: str, message: str, icon: Path | None = None) -> bool:
 
 
 def _notify_winotify(title: str, message: str) -> bool:
-    """Windows 通知 (winotify) — 进现代操作中心。"""
+    """Windows 通知 (winotify) — 進現代操作中心。"""
     from winotify import Notification  # type: ignore[import-not-found]
 
     # Notifier 需要 Registry (用於可點擊回呼); 這裡只發單向通知, 直接用 Notification。
@@ -104,15 +104,15 @@ def _notify_winotify(title: str, message: str) -> bool:
         app_id=_WINDOWS_APP_ID,
         title=title,
         msg=message,
-        # winotify 要求 duration 为 "short" 或 "long"
+        # winotify 要求 duration 為 "short" 或 "long"
         duration="short",
     ).show()
     return True
 
 
 def _notify_osascript(title: str, message: str) -> bool:
-    """macOS 通知 (osascript) — 调用系统 AppleScript。"""
-    # 转义双引号, 避免 AppleScript 注入
+    """macOS 通知 (osascript) — 呼叫系統 AppleScript。"""
+    # 轉義雙引號, 避免 AppleScript 注入
     safe_title = title.replace('"', '\\"')
     safe_msg = message.replace('"', '\\"')
     script = (
@@ -127,7 +127,7 @@ def _notify_osascript(title: str, message: str) -> bool:
 
 
 def _notify_notify_send(title: str, message: str, icon: Path | None) -> bool:
-    """Linux 通知 (notify-send) — freedesktop.org 标准。"""
+    """Linux 通知 (notify-send) — freedesktop.org 標準。"""
     args = ["notify-send", title]
     if icon and Path(icon).exists():
         args.extend(["--icon", str(icon)])

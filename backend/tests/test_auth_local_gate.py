@@ -1,4 +1,4 @@
-"""未设密码时的本机/内网放行闸门: 防 CSRF、DNS rebinding 与 X-Forwarded-For 伪造。"""
+"""未設密碼時的本機/內網放行閘門: 防 CSRF、DNS rebinding 與 X-Forwarded-For 偽造。"""
 from __future__ import annotations
 
 from pathlib import Path
@@ -10,7 +10,7 @@ from starlette.requests import Request
 from app import config as app_config
 from app.api import auth as auth_api
 
-_PROBE = "/api/__auth_gate_probe__"  # 不存在的路由: 过闸 → 404/405, 被拦 → 403
+_PROBE = "/api/__auth_gate_probe__"  # 不存在的路由: 過閘 → 404/405, 被攔 → 403
 
 
 @pytest.fixture(autouse=True)
@@ -39,9 +39,9 @@ def _client(peer: str = "127.0.0.1") -> TestClient:
         {"sec-fetch-site": "same-site", "origin": "http://localhost:8080"},
         {"origin": "https://attacker.example"},
         {"origin": "null"},
-        # DNS rebinding: Origin 与 Host 同为攻击者域名
+        # DNS rebinding: Origin 與 Host 同為攻擊者網域
         {"host": "attacker.example:3018", "origin": "http://attacker.example:3018"},
-        {"host": "evil_x.example:3018"},  # Starlette host 正则不接受的写法也须按原始头判断
+        {"host": "evil_x.example:3018"},  # Starlette host 正則不接受的寫法也須按原始頭判斷
     ],
 )
 def test_cross_site_and_rebinding_are_rejected(headers):
@@ -60,7 +60,7 @@ def test_cross_site_and_rebinding_are_rejected(headers):
         {"host": "mypc.localdomain:3018", "sec-fetch-site": "same-origin"},
         {"host": "nas.local", "origin": "http://nas.local"},
         {"host": "[::1]:3018", "origin": "http://[::1]:3018"},
-        # 反代改写 Host($proxy_host), 浏览器 Origin 是内网地址
+        # 反向代理改寫 Host($proxy_host), 瀏覽器 Origin 是內網地址
         {"origin": "http://192.168.1.5"},
     ],
 )
@@ -69,7 +69,7 @@ def test_local_same_origin_requests_pass(headers):
 
 
 def test_multi_line_xff_cannot_spoof_local():
-    # 反代(HAProxy 等)另起一行追加真实客户端; 攻击者自填的第一行不能被单独采信
+    # 反向代理(HAProxy 等)另起一行追加真實客戶端; 攻擊者自填的第一行不能被單獨採信
     for peer in ("127.0.0.1", "172.17.0.1"):
         client = _client(peer)
         headers = [("x-forwarded-for", "127.0.0.1"), ("x-forwarded-for", "203.0.113.9")]
@@ -93,17 +93,17 @@ def _request(peer: str, xff: list[str]) -> Request:
 
 
 def test_client_ip_uses_rightmost_public_hop_from_trusted_proxy():
-    # 公网客户端在左侧自填 IP 不能改变限流键
+    # 公開網路客戶端在左側自填 IP 不能改變限流鍵
     assert auth_api._client_ip(_request("127.0.0.1", ["1.2.3.4, 198.51.100.7"])) == "198.51.100.7"
-    # 两层反代: 跳过内网反代跳, 每个公网客户端仍有自己的限流键
+    # 兩層反向代理: 跳過內網反向代理跳, 每個公開網路客戶端仍有自己的限流鍵
     assert auth_api._client_ip(_request("127.0.0.1", ["198.51.100.7, 172.18.0.2"])) == "198.51.100.7"
     assert auth_api._client_ip(_request("127.0.0.1", ["203.0.113.9, 172.18.0.2"])) == "203.0.113.9"
-    # 全为内网跳: 取最左
+    # 全為內網跳: 取最左
     assert auth_api._client_ip(_request("127.0.0.1", ["192.168.1.66, 172.18.0.2"])) == "192.168.1.66"
     assert auth_api._client_ip(_request("127.0.0.1", ["127.0.0.1", "203.0.113.9"])) == "203.0.113.9"
-    # 公网直连: XFF 一律忽略
+    # 公開網路直連: XFF 一律忽略
     assert auth_api._client_ip(_request("203.0.113.9", ["127.0.0.1"])) == "203.0.113.9"
-    # 多层本机反代: 任一跳为公网即非本机
+    # 多層本機反向代理: 任一跳為公開網路即非本機
     assert not auth_api._is_local_request(_request("127.0.0.1", ["203.0.113.9, 172.18.0.2"]))
     assert auth_api._is_local_request(_request("127.0.0.1", ["192.168.1.66"]))
 

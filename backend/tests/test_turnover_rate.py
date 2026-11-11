@@ -1,8 +1,8 @@
-"""换手率历史股本计算 + Data Manager 财务数据统计。
+"""週轉率歷史股本計算 + Data Manager 財務資料統計。
 
-注: 原 A 股「财务数据同步」产品 (services/financial_sync.py 的 FinancialScheduler
-及 sync_* 系列) 已在 Phase 8B-5.3 移除; 本文件保留的是仍被 turnover_rate 指标
-(app.indicators.pipeline) 与 Data Manager (app.api.data) 使用的通用/台股测试。
+注: 原「財務資料同步」產品 (services/financial_sync.py 的 FinancialScheduler
+及 sync_* 系列) 已在 Phase 8B-5.3 移除; 本檔案保留的是仍被 turnover_rate 指標
+(app.indicators.pipeline) 與 Data Manager (app.api.data) 使用的通用/台股測試。
 """
 from __future__ import annotations
 
@@ -17,7 +17,7 @@ from app.indicators import pipeline
 
 
 def test_historical_turnover_uses_only_available_share_capital(monkeypatch):
-    monkeypatch.setattr(pipeline, "cn_today", lambda: date(2026, 7, 18))
+    monkeypatch.setattr("app.taiwan.realtime.calendar.taipei_today", lambda: date(2026, 7, 18))
     bars = pl.DataFrame({
         "symbol": ["600000.SH"] * 5,
         "date": [
@@ -51,7 +51,7 @@ def test_historical_turnover_uses_only_available_share_capital(monkeypatch):
 
 
 def test_turnover_without_share_history_keeps_existing_behavior(monkeypatch):
-    monkeypatch.setattr(pipeline, "cn_today", lambda: date(2026, 7, 18))
+    monkeypatch.setattr("app.taiwan.realtime.calendar.taipei_today", lambda: date(2026, 7, 18))
     bars = pl.DataFrame({
         "symbol": ["600000.SH"],
         "date": [date(2024, 4, 15)],
@@ -72,7 +72,7 @@ def test_turnover_without_share_history_keeps_existing_behavior(monkeypatch):
 
 
 def test_historical_taiwan_turnover_without_verified_share_history_fails_closed(monkeypatch):
-    monkeypatch.setattr(pipeline, "cn_today", lambda: date(2026, 8, 31))
+    monkeypatch.setattr("app.taiwan.realtime.calendar.taipei_today", lambda: date(2026, 8, 31))
     bars = pl.DataFrame({
         "symbol": ["2330.TWSE"],
         "date": [date(2026, 8, 28)],
@@ -93,7 +93,7 @@ def test_historical_taiwan_turnover_without_verified_share_history_fails_closed(
 
 
 def test_taiwan_period_end_share_row_cannot_enable_historical_turnover(monkeypatch):
-    monkeypatch.setattr(pipeline, "cn_today", lambda: date(2026, 8, 31))
+    monkeypatch.setattr("app.taiwan.realtime.calendar.taipei_today", lambda: date(2026, 8, 31))
     bars = pl.DataFrame({
         "symbol": ["2330.TWSE"],
         "date": [date(2026, 8, 28)],
@@ -120,7 +120,7 @@ def test_taiwan_period_end_share_row_cannot_enable_historical_turnover(monkeypat
 
 
 def test_turnover_uses_market_volume_unit(monkeypatch):
-    monkeypatch.setattr(pipeline, "cn_today", lambda: date(2026, 8, 28))
+    monkeypatch.setattr("app.taiwan.realtime.calendar.taipei_today", lambda: date(2026, 8, 28))
     bars = pl.DataFrame({
         "symbol": ["2330.TWSE", "600000.SH"],
         "date": [date(2026, 8, 28)] * 2,

@@ -38,12 +38,12 @@ Design rationale:
    :func:`from_provider_symbol`) and never leak into the domain model.
 
 3. **Unambiguous**: ``TWSE`` and ``TPEX`` cannot be confused with any
-   A-share exchange suffix (``SH`` / ``SZ`` / ``BJ``), enabling a future
+   legacy non-Taiwan exchange suffix (``SH`` / ``SZ`` / ``BJ``), enabling a future
    multi-market coexistence path if needed.
 
 4. **Suffix length note**: The existing codebase has *one* place that
    uses ``str.slice(-2)`` to extract the 2-char exchange suffix
-   (``pipeline.py:_bench_exchange_expr``).  That function is A-share
+   (``pipeline.py:_bench_exchange_expr``).  That function is legacy non-Taiwan
    deviation logic slated for replacement.  The canonical suffix length
    should not be constrained by one line of legacy code.  The robust
    extraction pattern already used elsewhere — ``symbol.split(".")[0]``

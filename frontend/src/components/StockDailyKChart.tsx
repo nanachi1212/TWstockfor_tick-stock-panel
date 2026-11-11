@@ -53,7 +53,7 @@ interface Props {
   onDateClick?: (date: string) => void
   onPriceDoubleClick?: (price: number, currentPrice: number) => void
   onDataChange?: (result: StockDailyKChartResult) => void
-  /** 擴展數據列參數（逗號分隔 config_id.field_name），透傳給 klineDaily 接口 */
+  /** 擴展資料列參數（逗號分隔 config_id.field_name），透傳給 klineDaily 介面 */
   extColumns?: string
 }
 
@@ -146,7 +146,7 @@ export function StockDailyKChart({
   const dateRange = externalDateRange ?? getDefaultRange()
   const days = useMemo(() => rangeDays(dateRange), [dateRange])
 
-  // extColumns 納入 query key：勾選/取消擴展字段時需重新請求（帶 ext_columns 參數）
+  // extColumns 納入 query key：勾選/取消擴展欄位時需重新請求（帶 ext_columns 參數）
   const kline = useQuery({
     queryKey: QK.kline(symbol, dateRange.start, dateRange.end, extColumns),
     queryFn: () => api.klineDaily(symbol, days, dateRange, extColumns),

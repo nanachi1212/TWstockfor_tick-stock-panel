@@ -314,8 +314,8 @@ async def test_research_prompts_define_registered_weight_without_total_asset_inf
         "weight_of_registered_pct": 40.0,
     }
     messages = ai.await_args.args[0]
-    assert "占已登錄持股市值" in SYSTEM_PROMPT
-    assert "占已登錄持股市值" in messages[1]["content"]
+    assert "占已登入持股市值" in SYSTEM_PROMPT
+    assert "占已登入持股市值" in messages[1]["content"]
     assert "不是總資產" in messages[1]["content"]
     assert "現金、銀行存款、對話、記憶" in messages[1]["content"]
 

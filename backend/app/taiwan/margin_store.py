@@ -91,10 +91,10 @@ class TaiwanMarginStore:
     """
 
     def __init__(self, data_dir: Path | None = None) -> None:
-        # Phase 8B-5.0.7: 省略 data_dir 时锚定到 settings.data_dir(与
+        # Phase 8B-5.0.7: 省略 data_dir 時錨定到 settings.data_dir(與
         # TaiwanDailyStore/TaiwanSecurityMaster 同一套 Phase 8B-5.0.6 canonical
-        # root), 不再是 cwd-dependent 的裸相对路径。显式传入 data_dir(所有既有
-        # deterministic test 都这样做)时行为不变。
+        # root), 不再是 cwd-dependent 的裸相對路徑。顯式傳入 data_dir(所有既有
+        # deterministic test 都這樣做)時行為不變。
         if data_dir is None:
             from app.taiwan.data_root import taiwan_data_root
 

@@ -1,4 +1,4 @@
-param(
+﻿param(
     [Parameter(Mandatory = $true)]
     [string]$InstallerPath,
     [string]$WorkRoot = (Join-Path (Split-Path -Parent $PSScriptRoot) 'release-assets\installer-smoke'),

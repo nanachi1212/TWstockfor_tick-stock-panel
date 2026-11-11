@@ -1,12 +1,12 @@
-<#
+﻿<#
 .SYNOPSIS
-    讓「Nanachi 台股看板」後端在 Windows 登入時自動在背景啟動 (常駐盯盤、16:30 自動更新)。
+    讓「Nanachi 的台股監控看板」後端在 Windows 登入時自動在背景啟動 (常駐盯盤、16:30 自動更新)。
 
 .DESCRIPTION
     在目前使用者的「啟動」資料夾建立捷徑，登入後以隱藏視窗只啟動後端 (uvicorn, 127.0.0.1:3018)，
     不會跳出桌面視窗。之後點桌面捷徑開啟看板時，桌面程式會直接連到這個已在執行的後端，
     關掉視窗也不會停掉背景盯盤。
-    不需要系統管理員權限、不改登錄檔、不建立排程工作。
+    不需要系統管理員權限、不改登入檔、不建立排程工作。
 
     移除自動啟動: .\scripts\install-autostart.ps1 -Remove
 #>
@@ -52,7 +52,7 @@ $Shortcut = $Shell.CreateShortcut($ShortcutPath)
 $Shortcut.TargetPath = $PowerShell
 $Shortcut.Arguments = "-NoLogo -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -Command `"$BackendCmd`""
 $Shortcut.WorkingDirectory = $BackendDir
-$Shortcut.Description = 'Nanachi 台股看板：登入後在背景啟動後端 (無視窗)，常駐盯盤與 16:30 自動更新'
+$Shortcut.Description = 'Nanachi 的台股監控看板：登入後在背景啟動後端 (無視窗)，常駐盯盤與 16:30 自動更新'
 $Shortcut.WindowStyle = 7
 $Shortcut.Save()
 

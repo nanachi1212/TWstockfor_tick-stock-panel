@@ -1,11 +1,11 @@
-// 主題管理 — 暗色(默認) / 亮色切換
+// 主題管理 — 暗色(預設) / 亮色切換
 //
 // 機制:
-//   - 狀態存 localStorage('tf-theme'), 默認 dark (保持老用戶體驗不變)
+//   - 狀態存 localStorage('tf-theme'), 預設 dark (保持老使用者體驗不變)
 //   - 生效方式: html.dark class (index.css 的 CSS variables + Tailwind darkMode:class)
 //   - index.html 裡有預渲染內聯腳本, 首屏前就設好 class, 避免閃爍 (FOUC)
 //   - UI token (bg-surface/text-foreground 等) 自動跟隨;
-//     圖表畫布不吃 CSS 變量, 統一走 useChartTheme() 取調色板
+//     圖表畫布不吃 CSS 變數, 統一走 useChartTheme() 取調色板
 import { useEffect, useState } from 'react'
 import { RADIX_CHART } from './radix'
 
@@ -85,23 +85,23 @@ export function cycleFontScale(): number {
 }
 
 // ================================================================
-// 圖表調色板 — ECharts / lightweight-charts 畫布不吃 CSS 變量,
-// 所有圖表組件統一從這裡取色, 主題切換時依賴 useTheme 重建 option。
+// 圖表調色板 — ECharts / lightweight-charts 畫布不吃 CSS 變數,
+// 所有圖表元件統一從這裡取色, 主題切換時依賴 useTheme 重建 option。
 // bull/bear/accent 等語義色雙主題一致, 不在此重複定義。
 // ================================================================
 
 export interface ChartTheme {
   /** 軸刻度/圖例等常規文字 */
   text: string
-  /** 信息條/圖例裡的強調文字 */
+  /** 資訊條/圖例裡的強調文字 */
   textStrong: string
   /** 網格線 */
   grid: string
   /** 軸線/邊框 */
   border: string
-  /** 十字光標線 */
+  /** 十字游標線 */
   crosshair: string
-  /** 十字光標軸標籤背景 */
+  /** 十字游標軸標籤背景 */
   crosshairLabelBg: string
   /** tooltip 背景 */
   tooltipBg: string
@@ -109,7 +109,7 @@ export interface ChartTheme {
   tooltipBorder: string
   /** tooltip 文字 */
   tooltipText: string
-  /** 半透明信息條背景 (K線圖左上角 OHLC 條) */
+  /** 半透明資訊條背景 (K線圖左上角 OHLC 條) */
   infoBarBg: string
   /** dataZoom 滑塊填充 */
   zoomFill: string

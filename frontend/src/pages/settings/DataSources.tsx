@@ -19,8 +19,8 @@ const DATASET_LABEL: Record<string, string> = {
   financial: '財務',
 }
 
-/** 數據集 → 路由偏好字段 + 默認值 + 展示標籤 (financial 無後端路由消費方, 僅展示不參與切換) */
-/** 能力卡片定義: 數據集 + 說明 (路由選擇嵌入每張卡片) */
+/** 資料集 → 路由偏好欄位 + 預設值 + 展示標籤 (financial 無後端路由消費方, 僅展示不參與切換) */
+/** 能力卡片定義: 資料集 + 說明 (路由選擇嵌入每張卡片) */
 const CAPABILITY_CARDS = [
   { dataset: 'daily', label: '日K', desc: '歷史 + 即時覆寫' },
   { dataset: 'adj_factor', label: '除權因子', desc: '復權計算' },
@@ -28,7 +28,7 @@ const CAPABILITY_CARDS = [
   { dataset: 'minute', label: '分鐘K', desc: '分時圖，回測' },
 ] as const
 
-/** 數據集 → 路由偏好字段 + 默認值 (financial 無後端路由消費方, 僅展示) */
+/** 資料集 → 路由偏好欄位 + 預設值 (financial 無後端路由消費方, 僅展示) */
 const DATASET_ROUTE: Record<string, {
   field: 'daily_data_provider' | 'adj_factor_provider' | 'minute_data_provider' | 'realtime_data_provider'
   def: string
@@ -39,7 +39,7 @@ const DATASET_ROUTE: Record<string, {
   realtime: { field: 'realtime_data_provider', def: 'taiwan' },
 }
 
-/** 卡片內靜態數據集標籤: 只展示該源適配了哪些數據集 (路由選擇在下方能力卡片) */
+/** 卡片內靜態資料集標籤: 只展示該源適配了哪些資料集 (路由選擇在下方能力卡片) */
 function DatasetChipRow({ datasets }: { datasets: string[] }) {
   if (datasets.length === 0) return null
   return (
@@ -54,16 +54,16 @@ function DatasetChipRow({ datasets }: { datasets: string[] }) {
   )
 }
 
-/** 按能力路由網格: 每個數據源詳情下展示一張能力卡,卡片上以可點標籤列出
- *  所有具備該能力的數據源 — 點誰,該數據集就立刻由誰提供,可跨源自由組合。
- *  台灣官方資料源詳情列出全部可配置資料集; 其他源只列自己參與的能力。 */
+/** 按能力路由網格: 每個資料來源詳情下展示一張能力卡,卡片上以可點標籤列出
+ *  所有具備該能力的資料來源 — 點誰,該資料集就立刻由誰提供,可跨源自由組合。
+ *  台灣官方資料源詳情列出全部可設定資料集; 其他源只列自己參與的能力。 */
 function SourceCapabilityGrid({ sourceName, sourceDisplay, datasets, candidatesOf, providerOf, pending, onSelect, anyCustom, onReset }: {
   sourceName: string
   sourceDisplay: string
   datasets: string[]
-  /** 該數據集實際支援的候選提供方, 按推薦順序 */
+  /** 該資料集實際支援的候選提供方, 按推薦順序 */
   candidatesOf: (dataset: string) => { name: string; display: string }[]
-  /** 該數據集當前的原始路由偏好值 (adj_factor 可能是 same_as_daily) */
+  /** 該資料集當前的原始路由偏好值 (adj_factor 可能是 same_as_daily) */
   providerOf: (dataset: string) => string
   pending?: boolean
   onSelect: (dataset: string, provider: string) => void
@@ -135,7 +135,7 @@ function SourceCapabilityGrid({ sourceName, sourceDisplay, datasets, candidatesO
                     跟隨日K
                   </button>
                 )}
-                {candidates.length === 0 && <span className="text-xs text-muted">尚未配置此資料集來源</span>}
+                {candidates.length === 0 && <span className="text-xs text-muted">尚未設定此資料集來源</span>}
                 {candidates.map(c => (
                   <button
                     key={c.name}
@@ -167,11 +167,11 @@ function tagCls(active: boolean) {
 }
 
 
-/** 詳情組件所需的路由上下文(由面板構造) */
+/** 詳情元件所需的路由上下文(由面板構造) */
 interface RouteCtx {
-  /** 數據集 → 實際支援的候選提供方列表 */
+  /** 資料集 → 實際支援的候選提供方列表 */
   candidatesOf: (dataset: string) => { name: string; display: string }[]
-  /** 數據集 → 當前原始路由偏好值 (adj_factor 可能是 same_as_daily) */
+  /** 資料集 → 當前原始路由偏好值 (adj_factor 可能是 same_as_daily) */
   providerOf: (dataset: string) => string
   displayOf: (name?: string) => string
   pending: boolean
@@ -180,7 +180,7 @@ interface RouteCtx {
   onReset: () => void
 }
 
-/** 插件 API Key 配置區: 狀態 + 輸入 + 保存並檢測。
+/** 插件 API Key 設定區: 狀態 + 輸入 + 儲存並檢測。
  *  先探後存: 後端用候選 Key 實探一次, 無效不落盤; secrets.json 優先於 .env。 */
 function PluginKeyConfig({ plugin }: { plugin: PluginDataSourceItem }) {
   const qc = useQueryClient()
@@ -303,7 +303,7 @@ function PluginKeyConfig({ plugin }: { plugin: PluginDataSourceItem }) {
         </button>
       </form>
 
-      {/* 無效 Key —— 先探後存: 探測失敗時不存儲 */}
+      {/* 無效 Key —— 先探後存: 探測失敗時不儲存 */}
       {save.data && !save.data.ok && (
         <div className="mt-3 text-xs text-danger flex items-center gap-1.5">
           <AlertCircle className="h-3 w-3 shrink-0" />
@@ -330,7 +330,7 @@ export function SettingsDataSourcesPanel() {
     mutationFn: api.reloadDataSources,
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: QK.dataSources })
-      // 重載可能改變數據集聲明 → 能力與實時模式隨之變化
+      // 重載可能改變資料集聲明 → 能力與即時模式隨之變化
       qc.invalidateQueries({ queryKey: QK.capabilities })
       qc.invalidateQueries({ queryKey: QK.quoteStatus })
       toast('設定已重新載入', 'success')
@@ -352,7 +352,7 @@ export function SettingsDataSourcesPanel() {
 
   const switchProvider = useMutation({
     mutationFn: async (name: string) => {
-      // taiwan: 全量重置為台灣官方默認路由
+      // taiwan: 全量重置為台灣官方預設路由
       if (name === 'taiwan') {
         return api.updateDataProviders({
           daily_data_provider: 'taiwan',
@@ -362,7 +362,7 @@ export function SettingsDataSourcesPanel() {
           financial_data_provider: 'taiwan',
         })
       }
-      // 非台灣官方: 該源適配了哪些數據集就接管哪些, 其餘回退默認
+      // 非台灣官方: 該源適配了哪些資料集就接管哪些, 其餘回退預設
       const supported = new Set(
         allItems.find(s => s.name === name)?.datasets ?? []
       )
@@ -379,7 +379,7 @@ export function SettingsDataSourcesPanel() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: QK.preferences })
       qc.invalidateQueries({ queryKey: QK.capabilities })
-      // 切換會改變實時行情 provider → 模式(none/watchlist/full_market)立即刷新
+      // 切換會改變即時行情 provider → 模式(none/watchlist/full_market)立即重新整理
       qc.invalidateQueries({ queryKey: QK.quoteStatus })
       toast('資料來源已切換', 'success')
     },
@@ -431,7 +431,7 @@ export function SettingsDataSourcesPanel() {
   const pluginMap = new Map(pluginList.map(p => [p.name, p]))
   const pluginNames = new Set(pluginList.map(p => p.name))
 
-  // 頂部數據源選擇列表 (內置 + 所有插件 + 自定義 + 新增)
+  // 頂部資料來源選擇列表 (內建 + 所有插件 + 自定義 + 新增)
   const pluginItems: DataSourceItem[] = pluginList.map(p => ({
     name: p.name, display_name: p.display_name, datasets: p.datasets,
   }))
@@ -443,8 +443,8 @@ export function SettingsDataSourcesPanel() {
 
   const selectedCustom = customList.find(s => s.name === selected)
 
-  // ===== 各數據集當前的有效提供方 (除權 same_as_daily = 跟隨日K) =====
-  // 用於"服務中"徽標: 改單個能力路由隻影響對應數據集, 不再產生"當前數據源被切換"的表現
+  // ===== 各資料集當前的有效提供方 (除權 same_as_daily = 跟隨日K) =====
+  // 用於"服務中"徽標: 改單個能力路由隻影響對應資料集, 不再產生"當前資料來源被切換"的表現
   const dailyPref = prefs.data?.daily_data_provider || 'taiwan'
   const adjPref = prefs.data?.adj_factor_provider || 'same_as_daily'
   const effProvider: Record<string, string> = {
@@ -486,7 +486,7 @@ export function SettingsDataSourcesPanel() {
     onError: (e: Error) => toast(`路由切換失敗: ${e.message}`, 'error'),
   })
 
-  // 恢復默認: 路由全部回 台灣官方資料源
+  // 恢復預設: 路由全部回 台灣官方資料源
   const resetRouteMut = useMutation({
     mutationFn: () => api.updateDataProviders({
       daily_data_provider: 'taiwan',
@@ -508,7 +508,7 @@ export function SettingsDataSourcesPanel() {
     .filter(item => item.datasets.includes(dataset))
     .map(item => ({ name: item.name, display: item.display_name || item.name }))
 
-  // 數據集 → 當前原始路由偏好值 (adj_factor 保留 same_as_daily 以驅動"跟隨日K"標籤態)
+  // 資料集 → 當前原始路由偏好值 (adj_factor 保留 same_as_daily 以驅動"跟隨日K"標籤態)
   const providerOf = (dataset: string) => {
     switch (dataset) {
       case 'daily': return dailyPref
@@ -519,7 +519,7 @@ export function SettingsDataSourcesPanel() {
     }
   }
 
-  // 傳給各數據源詳情的路由上下文(能力卡標籤選擇 + 當前提供方展示)
+  // 傳給各資料來源詳情的路由上下文(能力卡標籤選擇 + 當前提供方展示)
   const routeCtx: RouteCtx = {
     candidatesOf,
     providerOf,
@@ -532,7 +532,7 @@ export function SettingsDataSourcesPanel() {
 
   return (
     <div className="space-y-5 max-w-5xl">
-      {/* ===== 頂部: 當前數據源 + 數據源選擇 (一個大卡片) ===== */}
+      {/* ===== 頂部: 當前資料來源 + 資料來源選擇 (一個大卡片) ===== */}
       <section className="rounded-card border border-border bg-surface p-5">
         <div className="flex items-center justify-between mb-4">
           <div className="flex items-center gap-2.5">
@@ -568,7 +568,7 @@ export function SettingsDataSourcesPanel() {
           </div>
         </div>
 
-        {/* 數據源選擇 - 橫向卡片列表 */}
+        {/* 資料來源選擇 - 橫向卡片列表 */}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2.5">
           {allItems.map(item => {
             const serving = servingLabels(item.name)
@@ -581,10 +581,10 @@ export function SettingsDataSourcesPanel() {
               <div
                 key={item.name}
                 onClick={() => {
-                  // 未就緒插件僅當支持界面配 Key 時可點開(進詳情配置); 其餘不可選
+                  // 未就緒插件僅當支援界面配 Key 時可點開(進詳情設定); 其餘不可選
                   if (pluginUnavailable && !plugin?.api_key_env) return
                   setSelected(item.name)
-                  // 只有用戶自定義源 (YAML) 才進編輯器; 官方資料源和插件不可編輯
+                  // 只有使用者自定義源 (YAML) 才進編輯器; 官方資料源和插件不可編輯
                   if (customList.some(c => c.name === item.name)) {
                     editExisting.mutate(item.name)
                   }
@@ -620,7 +620,7 @@ export function SettingsDataSourcesPanel() {
                   {pluginNames.has(item.name) && (
                     <span className="shrink-0 rounded bg-warning/15 px-1 py-0.5 text-xs font-medium leading-none text-warning">第三方</span>
                   )}
-                  {/* 右側操作區: 插件未安裝→安裝按鈕(runtime=none 無依賴可裝,顯示配置提示); 否則→使用/卸載 */}
+                  {/* 右側操作區: 插件未安裝→安裝按鈕(runtime=none 無依賴可裝,顯示設定提示); 否則→使用/卸載 */}
                   {pluginUnavailable ? (
                     plugin?.runtime === 'none' ? (
                       <span
@@ -675,7 +675,7 @@ export function SettingsDataSourcesPanel() {
                     </button>
                   )}
                 </div>
-                {/* 數據集標籤(靜態): 該源適配的數據集, 路由選擇在下方能力卡片 */}
+                {/* 資料集標籤(靜態): 該源適配的資料集, 路由選擇在下方能力卡片 */}
                 <DatasetChipRow datasets={item.datasets} />
                 {/* 未安裝插件顯示安裝命令提示 */}
                 {pluginUnavailable && plugin?.install_hint && (
@@ -685,7 +685,7 @@ export function SettingsDataSourcesPanel() {
             )
           })}
 
-          {/* 新增數據源卡片 */}
+          {/* 新增資料來源卡片 */}
           <button
             onClick={() => setSelected('__new__')}
             className={`rounded-lg border border-dashed px-3.5 py-3 transition-all flex items-center justify-center gap-1.5 text-sm ${
@@ -749,7 +749,7 @@ export function SettingsDataSourcesPanel() {
                 onCancel={() => setSelected('taiwan')}
                 onSaved={() => {
                   qc.invalidateQueries({ queryKey: QK.dataSources })
-                  // 數據集聲明變化 → 能力增廣與實時模式立即刷新
+                  // 資料集聲明變化 → 能力增廣與即時模式立即重新整理
                   qc.invalidateQueries({ queryKey: QK.preferences })
                   qc.invalidateQueries({ queryKey: QK.capabilities })
                   qc.invalidateQueries({ queryKey: QK.quoteStatus })
@@ -785,11 +785,11 @@ export function SettingsDataSourcesPanel() {
                   onCancel={() => setSelected('taiwan')}
                   onSaved={() => {
                     qc.invalidateQueries({ queryKey: QK.dataSources })
-                    // 數據集聲明變化 → 能力增廣與實時模式立即刷新
+                    // 資料集聲明變化 → 能力增廣與即時模式立即重新整理
                     qc.invalidateQueries({ queryKey: QK.preferences })
                     qc.invalidateQueries({ queryKey: QK.capabilities })
                     qc.invalidateQueries({ queryKey: QK.quoteStatus })
-                    // 強制清除該源的詳情緩存, 下次編輯重新拉取最新配置
+                    // 強制清除該源的詳情快取, 下次編輯重新拉取最新設定
                     qc.removeQueries({ queryKey: ['data-source-detail', selected] })
                   }}
                   activeName={activeName}
@@ -799,7 +799,7 @@ export function SettingsDataSourcesPanel() {
               </div>
             )
           ) : pluginList.find(x => x.name === selected) ? (
-            /* 選中插件: 信息 + 能力卡片(路由) + Key 配置 */
+            /* 選中插件: 資訊 + 能力卡片(路由) + Key 設定 */
             <PluginDetail
               plugin={pluginList.find(x => x.name === selected)!}
               isActive={servingDatasets(selected).length > 0}
@@ -899,7 +899,7 @@ function PluginDetail({ plugin, isActive, onSwitch, switching, route }: {
         </div>
       </section>
 
-      {/* API Key 配置 (聲明了 api_key_env 的插件) */}
+      {/* API Key 設定 (聲明了 api_key_env 的插件) */}
       {plugin.api_key_env && <PluginKeyConfig plugin={plugin} />}
     </div>
   )
@@ -934,7 +934,7 @@ function TaiwanOfficialDetail({ active, onSwitch, switching, route }: {
           </div>
         </div>
 
-        {/* 全部能力的提供方標籤選擇 + 恢復默認 */}
+        {/* 全部能力的提供方標籤選擇 + 恢復預設 */}
         <SourceCapabilityGrid
           sourceName="taiwan"
           sourceDisplay="台灣官方資料源"
@@ -973,7 +973,7 @@ function TaiwanOfficialDetail({ active, onSwitch, switching, route }: {
           <h3 className="text-sm font-medium text-foreground">公開免費，免 API Key</h3>
         </div>
         <p className="text-xs text-secondary leading-relaxed">
-          本資料源直接透過 TWSE 與 TPEx 官方公開端點獲取盤後日K與最新報價，並提供 Yahoo Finance 與公開資訊作為備援與補充。所有資料均自動於本機建立 Parquet/DuckDB 快取，高速且不受第三方付費 API 限制。
+          本資料源直接透過 TWSE 與 TPEx 官方公開端點取得盤後日K與最新報價，並提供 Yahoo Finance 與公開資訊作為備援與補充。所有資料均自動於本機建立 Parquet/DuckDB 快取，高速且不受第三方付費 API 限制。
         </p>
       </section>
     </div>

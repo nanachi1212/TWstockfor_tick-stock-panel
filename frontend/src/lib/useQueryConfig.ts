@@ -1,15 +1,15 @@
 /**
- * SSE 配置 — 運行時參數。
+ * SSE 設定 — 執行時參數。
  *
- * 目前只保留 SSE 重連延遲，其他數據刷新全部走 SSE invalidation。
- * 存儲在 localStorage。
+ * 目前只保留 SSE 重連延遲，其他資料重新整理全部走 SSE invalidation。
+ * 儲存在 localStorage。
  */
 import { storage } from '@/lib/storage'
 
-// ===== 配置結構 =====
+// ===== 設定結構 =====
 
 export interface QueryConfig {
-  /** SSE 配置 */
+  /** SSE 設定 */
   sse: {
     reconnectDelay: number
   }
@@ -32,7 +32,7 @@ function loadConfig(): QueryConfig {
 }
 
 /**
- * 輕量版：只讀取當前配置。
+ * 輕量版：只讀取當前設定。
  * 供 useQuoteStream 使用。
  */
 export function getQueryConfig(): QueryConfig {

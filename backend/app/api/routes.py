@@ -1,4 +1,4 @@
-"""API 路由 — Phase 0 仅 /health 与 /api/capabilities。"""
+"""API 路由 — Phase 0 僅 /health 與 /api/capabilities。"""
 from __future__ import annotations
 
 from fastapi import APIRouter
@@ -21,7 +21,7 @@ def health() -> dict:
 
 @router.get("/api/capabilities")
 def capabilities() -> dict:
-    """前端用来决定哪些功能可用、哪些灰显。"""
+    """前端用來決定哪些功能可用、哪些灰顯。"""
     capset = detect_capabilities()
     return {
         "label": tier_label(),
@@ -31,7 +31,7 @@ def capabilities() -> dict:
 
 @router.post("/api/capabilities/redetect")
 def redetect() -> dict:
-    """用户在设置页"重新检测"按钮。"""
+    """使用者在設定頁"重新檢測"按鈕。"""
     capset = detect_capabilities(force=True)
     return {
         "label": tier_label(),

@@ -1,6 +1,6 @@
-"""Capability 定义(§5.1)。
+"""Capability 定義(§5.1)。
 
-业务代码只依赖 CapabilitySet 与已配置的数据源能力。
+業務代碼只依賴 CapabilitySet 與已設定的資料來源能力。
 """
 from __future__ import annotations
 
@@ -9,7 +9,7 @@ from enum import StrEnum
 
 
 class Cap(StrEnum):
-    """所有 capability 的命名常量。新增能力时只在这里加一行。"""
+    """所有 capability 的命名常量。新增能力時只在這裡加一行。"""
 
     QUOTE_BY_SYMBOL        = "quote.by_symbol"
     QUOTE_BATCH            = "quote.batch"
@@ -29,14 +29,14 @@ class Cap(StrEnum):
 
 @dataclass(slots=True, frozen=True)
 class CapabilityLimits:
-    """单个 capability 的运行时限制。"""
-    rpm: int | None = None        # 次/分钟,None 表示未知或不限
-    batch: int | None = None      # 标的/次
-    subscribe: int | None = None  # WS 订阅上限
+    """單個 capability 的執行時限制。"""
+    rpm: int | None = None        # 次/分鐘,None 表示未知或不限
+    batch: int | None = None      # 標的/次
+    subscribe: int | None = None  # WS 訂閱上限
 
 
 class CapabilitySet:
-    """探测得到的"用户当前可用能力"。业务代码的唯一真理源。"""
+    """探測得到的"使用者當前可用能力"。業務代碼的唯一真理源。"""
 
     def __init__(self, caps: dict[Cap, CapabilityLimits] | None = None) -> None:
         self._caps: dict[Cap, CapabilityLimits] = dict(caps or {})
@@ -48,7 +48,7 @@ class CapabilitySet:
         return self._caps.get(cap)
 
     def require(self, cap: Cap) -> CapabilityLimits:
-        """断言可用,否则抛 CapabilityDenied。"""
+        """斷言可用,否則拋 CapabilityDenied。"""
         if cap not in self._caps:
             raise CapabilityDenied(cap)
         return self._caps[cap]
@@ -73,9 +73,9 @@ class CapabilitySet:
 
 
 class CapabilityDenied(Exception):
-    """请求的 capability 当前不可用。"""
+    """請求的 capability 當前不可用。"""
 
     def __init__(self, cap: Cap, suggestion: str | None = None) -> None:
         self.cap = cap
-        self.suggestion = suggestion or f"目前資料源未提供『{cap}』, 請配置支援此資料集的來源"
+        self.suggestion = suggestion or f"目前資料源未提供『{cap}』, 請設定支援此資料集的來源"
         super().__init__(f"capability not available: {cap}; {self.suggestion}")

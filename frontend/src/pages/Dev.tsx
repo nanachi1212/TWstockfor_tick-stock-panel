@@ -60,9 +60,9 @@ function MinuteProbePanel() {
   return (
     <div className="space-y-4">
       <div>
-        <h2 className="text-sm font-semibold text-foreground">分鐘K數據探測</h2>
+        <h2 className="text-sm font-semibold text-foreground">分鐘K資料探測</h2>
         <p className="mt-1 text-xs text-muted">
-          逐日調用 <code className="px-1 rounded bg-elevated text-secondary">/api/kline/minute</code> 接口，
+          逐日呼叫 <code className="px-1 rounded bg-elevated text-secondary">/api/kline/minute</code> 介面，
           檢查台股最近若干天的分鐘K資料。歷史分鐘資料需先設定具備分鐘能力的自訂資料來源；官方公開報價不提供此歷史資料。
         </p>
       </div>
@@ -113,7 +113,7 @@ function MinuteProbePanel() {
             <div className="mt-1 text-lg font-semibold text-foreground">{total}</div>
           </div>
           <div className="rounded-btn bg-elevated p-3">
-            <div className="text-xs text-muted">有數據</div>
+            <div className="text-xs text-muted">有資料</div>
             <div className="mt-1 text-lg font-semibold text-emerald-400">{hasData}</div>
           </div>
           <div className="rounded-btn bg-elevated p-3">
@@ -130,7 +130,7 @@ function MinuteProbePanel() {
               <tr>
                 <th className="px-4 py-2 text-left font-medium">日期</th>
                 <th className="px-4 py-2 text-right font-medium">分鐘K條數</th>
-                <th className="px-4 py-2 text-left font-medium">數據來源</th>
+                <th className="px-4 py-2 text-left font-medium">資料來源</th>
                 <th className="px-4 py-2 text-center font-medium">狀態</th>
               </tr>
             </thead>

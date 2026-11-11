@@ -1,7 +1,7 @@
 /**
- * 系統設置面板 — 全局行為開關。
+ * 系統設定面板 — 全局行為開關。
  *
- * 獨立於實時監控, 放置影響整體應用行為的開關項。
+ * 獨立於即時監控, 放置影響整體應用行為的開關項。
  */
 import { useState, useCallback, useEffect } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
@@ -37,11 +37,11 @@ export function SettingsSystemPanel() {
     try { return localStorage.getItem('voice_broadcast_enabled') === '1' } catch { return false }
   })
   const [voices, setVoices] = useState(listZhVoices())
-  // 用戶手選值 (空=走默認偏好 Google 中國大陸)
+  // 使用者手選值 (空=走預設偏好 Google 中國大陸)
   const [voiceConfigured, setVoiceConfigured] = useState(() => {
     try { return localStorage.getItem('voice_broadcast_voice') || '' } catch { return '' }
   })
-  // 下拉回顯值: 用戶手選優先, 否則顯示當前解析到的語音
+  // 下拉回顯值: 使用者手選優先, 否則顯示當前解析到的語音
   const [voiceURI, setVoiceURI] = useState(() => {
     try { return localStorage.getItem('voice_broadcast_voice') || getCurrentVoiceURI() } catch { return getCurrentVoiceURI() }
   })
@@ -52,11 +52,11 @@ export function SettingsSystemPanel() {
     } catch { return 1 }
   })
 
-  // 語音包異步加載 (Google 雲語音為 Chrome 聯網注入, 比本地晚到), 監聽刷新
+  // 語音包非同步載入 (Google 雲語音為 Chrome 聯網注入, 比本地晚到), 監聽重新整理
   useEffect(() => {
     const h = () => {
       setVoices(listZhVoices())
-      // 用戶未手選時, 跟隨默認偏好 (Google CN 到貨後自動同步回顯)
+      // 使用者未手選時, 跟隨預設偏好 (Google CN 到貨後自動同步回顯)
       if (!voiceConfigured) setVoiceURI(getCurrentVoiceURI())
     }
     if ('speechSynthesis' in window) {
@@ -69,8 +69,8 @@ export function SettingsSystemPanel() {
     }
   }, [voiceConfigured])
 
-  // 刷新前端緩存: 清除 react-query 緩存 + 強制重載 (繞過瀏覽器緩存)
-  // 不動 localStorage (用戶列配置/策略池等偏好保留), 也不影響後端的本地股票數據
+  // 重新整理前端快取: 清除 react-query 快取 + 強制重載 (繞過瀏覽器快取)
+  // 不動 localStorage (使用者列設定/策略池等偏好保留), 也不影響後端的本地股票資料
   const handleClearCache = useCallback(() => {
     setClearing(true)
     qc.clear()
@@ -183,7 +183,7 @@ export function SettingsSystemPanel() {
           onChange={(v) => {
             localStorage.setItem('voice_broadcast_enabled', v ? '1' : '0')
             setVoiceEnabled(v)
-            if (v) { activateVoice(); previewVoice() }   // 開啟即激活 + 試聽一句
+            if (v) { activateVoice(); previewVoice() }   // 開啟即啟用 + 試聽一句
           }}
         />
 
@@ -211,7 +211,7 @@ export function SettingsSystemPanel() {
                   setVoiceConfigured(v)
                   setVoiceURI(v)
                 } else {
-                  // 選"默認偏好": 清空手選, 走 Google 中國大陸偏好
+                  // 選"預設偏好": 清空手選, 走 Google 中國大陸偏好
                   localStorage.removeItem('voice_broadcast_voice')
                   setVoiceConfigured('')
                   setVoiceURI(getCurrentVoiceURI())

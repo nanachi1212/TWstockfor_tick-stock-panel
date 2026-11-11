@@ -32,8 +32,8 @@ catch {
     Add-Content -LiteralPath $FallbackLog -Value $message -Encoding UTF8
     Add-Type -AssemblyName PresentationFramework
     [System.Windows.MessageBox]::Show(
-        "Nanachi 台股看板啟動失敗。`n`n$($_.Exception.Message)`n`n記錄：$FallbackLog",
-        'Nanachi 台股看板',
+        "Nanachi 的台股監控看板啟動失敗。`n`n$($_.Exception.Message)`n`n記錄：$FallbackLog",
+        'Nanachi 的台股監控看板',
         'OK',
         'Error'
     ) | Out-Null

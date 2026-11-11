@@ -1,5 +1,5 @@
-# 后端二次开发目录
+# 後端二次開發目錄
 
-在本目录新增普通 `.py` 模块即可由应用自动发现，无需修改 `app/main.py`。以下划线开头的模块不会加载。
+在本目錄新增普通 `.py` 模組即可由應用自動發現，無需修改 `app/main.py`。以下劃線開頭的模組不會載入。
 
-以 [`_template.py.example`](_template.py.example) 为起点，并遵循 [`docs/secondary-development.md`](../../../docs/secondary-development.md)。模板文件不会参与运行。
+以 [`_template.py.example`](_template.py.example) 為起點，並遵循 [`docs/secondary-development.md`](../../../docs/secondary-development.md)。模板文件不會參與執行。

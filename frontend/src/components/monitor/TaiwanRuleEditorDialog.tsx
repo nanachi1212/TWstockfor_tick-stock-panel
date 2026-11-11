@@ -177,7 +177,7 @@ export function TaiwanRuleEditorDialog({
         <div className="flex items-center justify-between border-b border-border/60 px-5 py-3.5 bg-surface/80">
           <div>
             <h3 className="text-base font-bold text-foreground">
-              {rule ? '編輯台股即時監控規則' : '新建台股即時監控規則'}
+              {rule ? '編輯台股即時監控規則' : '新增台股即時監控規則'}
             </h3>
             <p className="text-xs text-muted">盤中行情邊緣觸發，支援漲跌幅限制與防抖冷卻</p>
           </div>
@@ -406,7 +406,7 @@ export function TaiwanRuleEditorDialog({
             </div>
           )}
 
-          {/* 高級配置: 冷卻時間、遲滯防抖、嚴重等級 */}
+          {/* 高級設定: 冷卻時間、遲滯防抖、嚴重等級 */}
           <div className="grid grid-cols-3 gap-2 pt-1 border-t border-border/40">
             <div>
               <label className="block text-xs font-semibold text-muted mb-1">冷卻時間 (秒)</label>
@@ -418,7 +418,7 @@ export function TaiwanRuleEditorDialog({
               />
             </div>
             <div>
-              <label className="block text-xs font-semibold text-muted mb-1">遲滯防抖回調</label>
+              <label className="block text-xs font-semibold text-muted mb-1">遲滯防抖回呼</label>
               <input
                 type="number"
                 step="0.1"

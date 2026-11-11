@@ -6,9 +6,9 @@ from pathlib import Path
 _version_root = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parents[2]))
 __version__ = (_version_root / "VERSION").read_text(encoding="utf-8").strip().removeprefix("v")
 
-# Windows 默认 stdout/stderr 编码为 GBK(cp936),TickFlow SDK 内部输出含 emoji 的
-# 指数/标的名称(如 \U0001f193)时会抛 UnicodeEncodeError,导致请求失败。
-# 进程加载最早阶段强制 UTF-8,根治此类编码崩溃。
+# Windows 預設 stdout/stderr 編碼為 GBK(cp936),第三方資料來源輸出含 emoji 的
+# 指數/標的名稱(如 \U0001f193)時會拋 UnicodeEncodeError,導致請求失敗。
+# 行程載入最早階段強制 UTF-8,根治此類編碼崩潰。
 for _stream in (sys.stdout, sys.stderr):
     if hasattr(_stream, "reconfigure"):
         try:

@@ -1,12 +1,12 @@
-"""异步盘后管道任务注册表 — 每个 job 独立 JSON 文件。
+"""非同步盤後管道任務註冊表 — 每個 job 獨立 JSON 檔案。
 
-设计:
-  - job_store/ 文件夹,每个 job 一个 {id}.json,最多保留 max_jobs 个文件
-  - running/pending 状态的 job 仅存内存(高频读写)
-  - succeeded/failed 后写入独立文件并从内存释放
-  - 列表查询 = 内存中的活跃 job + 磁盘文件扫描,按时间排序
-  - 单个查询 = 内存优先,没有则读磁盘
-  - 创建新 job 前检查文件数量,>= max_jobs 时删除最老的文件
+設計:
+  - job_store/ 資料夾,每個 job 一個 {id}.json,最多保留 max_jobs 個檔案
+  - running/pending 狀態的 job 僅存記憶體(高頻讀寫)
+  - succeeded/failed 後寫入獨立檔案並從記憶體釋放
+  - 列表查詢 = 記憶體中的活躍 job + 磁碟檔案掃描,按時間排序
+  - 單個查詢 = 記憶體優先,沒有則讀磁碟
+  - 建立新 job 前檢查檔案數量,>= max_jobs 時刪除最老的檔案
 """
 from __future__ import annotations
 
@@ -24,30 +24,30 @@ logger = logging.getLogger(__name__)
 
 JobStatus = Literal["pending", "running", "succeeded", "failed"]
 
-# 卡死判定阈值(秒)。语义是「进度停滞」而非「总时长」:
-# running 期间只要 progress() 还在上报(每个分块都会回调), 就永远不算卡死 ——
-# 慢带宽/高延迟环境下的冷启动全市场拉取可能远超 20 分钟, 但只要分块在推进,
-# 不应被误杀(reap 旧实现按总时长一刀切, 导致 UI 标记失败而拉取线程仍在写盘)。
+# 卡死判定閾值(秒)。語意是「進度停滯」而非「總時長」:
+# running 期間只要 progress() 還在上報(每個分塊都會回呼), 就永遠不算卡死 ——
+# 慢帶寬/高延遲環境下的冷啟動全市場取得可能遠超 20 分鐘, 但只要分塊在推進,
+# 不應被誤殺(reap 舊實現按總時長一刀切, 導致 UI 標記失敗而取得執行緒仍在寫盤)。
 #
-# 阈值按任务类型区分,可在 Web 数据源设置中调整:
-#   - 普通任务(日K管道/扩展/修正/重算): 1200s (20 分钟无进度)
-#   - 长任务(分钟K全市场同步,数据量是日K的 ~240 倍): 1800s (30 分钟无进度)
+# 閾值按任務類型區分,可在 Web 資料來源設定中調整:
+#   - 普通任務(日K管道/擴展/修正/重算): 1200s (20 分鐘無進度)
+#   - 長任務(分鐘K全市場同步,資料量是日K的 ~240 倍): 1800s (30 分鐘無進度)
 DEFAULT_JOB_TIMEOUT_S = 1200
 LONG_JOB_TIMEOUT_S = 1800
-# 总时长硬上限(兜底): 进度回调持续上报但永不结束的病态循环无法靠停滞判定捕获,
-# 超过该值无条件终止。取 12h(最长合法任务分钟K补齐的历史量级远小于此)。
+# 總時長硬上限(保底): 進度回呼持續上報但永不結束的病態循環無法靠停滯判定捕獲,
+# 超過該值無條件終止。取 12h(最長合法任務分鐘K補齊的歷史量級遠小於此)。
 HARD_JOB_TIMEOUT_S = 12 * 3600
-# 向后兼容: 旧调用方引用 STALE_JOB_TIMEOUT_S
+# 向後相容: 舊呼叫方引用 STALE_JOB_TIMEOUT_S
 STALE_JOB_TIMEOUT_S = DEFAULT_JOB_TIMEOUT_S
 
 
 class JobCancelledError(BaseException):
-    """任务已被取消(reap 判定卡死后自动取消,或未来的手动取消)。
+    """任務已被取消(reap 判定卡死後自動取消,或未來的手動取消)。
 
-    继承 BaseException 而非 Exception(对齐 asyncio.CancelledError 的设计):
-    同步循环内部的分块异常隔离(``except Exception: continue``)不得吞掉取消信号,
-    它必须从 executor 线程一路传播回 API 边界的 task()。API 层应有独立
-    ``except JobCancelledError`` 分支(job 此时已被 reap 标记 failed,无需再写状态)。
+    繼承 BaseException 而非 Exception(對齊 asyncio.CancelledError 的設計):
+    同步循環內部的分塊異常隔離(``except Exception: continue``)不得吞掉取消信號,
+    它必須從 executor 執行緒一路傳播回 API 邊界的 task()。API 層應有獨立
+    ``except JobCancelledError`` 分支(job 此時已被 reap 標記 failed,無需再寫狀態)。
     """
 
     def __init__(self, job_id: str) -> None:
@@ -55,18 +55,18 @@ class JobCancelledError(BaseException):
         self.job_id = job_id
 
 
-# ── 取消标志注册表 ──────────────────────────────────────────────────────
-# reap 终止 job 时置位; 僵尸线程随后每次 progress() 回调检查到即抛
-# JobCancelledError 自行退出。flag 独立于 job 记录存活 —— fail() 会把记录从
-# _active_jobs 弹出, 但僵尸线程仍需通过 flag 感知取消。
-# 有界(最多 _CANCEL_FLAG_MAX 条, 淘汰最老): 真卡死的僵尸永远不会回来清 flag。
+# ── 取消標誌註冊表 ──────────────────────────────────────────────────────
+# reap 終止 job 時置位; 殭屍執行緒隨後每次 progress() 回呼檢查到即拋
+# JobCancelledError 自行退出。flag 獨立於 job 記錄存活 —— fail() 會把記錄從
+# _active_jobs 彈出, 但殭屍執行緒仍需通過 flag 感知取消。
+# 有界(最多 _CANCEL_FLAG_MAX 條, 淘汰最老): 真卡死的殭屍永遠不會回來清 flag。
 _CANCEL_FLAG_MAX = 32
 _CANCEL_FLAGS: dict[str, threading.Event] = {}
 _CANCEL_FLAGS_LOCK = threading.Lock()
 
 
 def request_cancel(job_id: str) -> bool:
-    """请求取消指定 job。返回是否存在该 job 的 flag。"""
+    """請求取消指定 job。回傳是否存在該 job 的 flag。"""
     with _CANCEL_FLAGS_LOCK:
         ev = _CANCEL_FLAGS.get(job_id)
         if ev is None:
@@ -84,7 +84,7 @@ def _register_cancel_flag(job_id: str) -> None:
     with _CANCEL_FLAGS_LOCK:
         if job_id not in _CANCEL_FLAGS:
             _CANCEL_FLAGS[job_id] = threading.Event()
-        # 有界淘汰最老(当前活跃 job 总是最新注册, 不会被误淘汰)
+        # 有界淘汰最老(當前活躍 job 總是最新註冊, 不會被誤淘汰)
         while len(_CANCEL_FLAGS) > _CANCEL_FLAG_MAX:
             oldest = next(iter(_CANCEL_FLAGS))
             _CANCEL_FLAGS.pop(oldest)
@@ -110,7 +110,7 @@ class JobStore:
     # ===== persistence =====
 
     def _write_file(self, job: dict[str, Any]) -> None:
-        """将终态 job 写入独立 JSON 文件。"""
+        """將終態 job 寫入獨立 JSON 檔案。"""
         path = self._store_dir / f"{job['id']}.json"
         try:
             path.write_text(
@@ -121,9 +121,9 @@ class JobStore:
             logger.warning("failed to write job file %s", path)
 
     def _read_file(self, job_id: str) -> dict[str, Any] | None:
-        """从磁盘读取单个 job 文件。"""
-        # job_id 来自 URL 路径参数: 只接受 create() 生成的格式(uuid4().hex[:10]),
-        # 防止 "..\\" / 绝对路径逃出 job_store 读取任意 .json(路径穿越)。
+        """從磁碟讀取單個 job 檔案。"""
+        # job_id 來自 URL 路徑參數: 只接受 create() 生成的格式(uuid4().hex[:10]),
+        # 防止 "..\\" / 絕對路徑逃出 job_store 讀取任意 .json(路徑穿越)。
         if not isinstance(job_id, str) or not re.fullmatch(r"[0-9a-f]{10}", job_id):
             return None
         path = self._store_dir / f"{job_id}.json"
@@ -136,7 +136,7 @@ class JobStore:
             return None
 
     def _delete_oldest(self) -> None:
-        """删除最老的 job 文件,保持文件数量 < max_jobs。"""
+        """刪除最老的 job 檔案,保持檔案數量 < max_jobs。"""
         try:
             files = sorted(self._store_dir.glob("*.json"), key=lambda f: f.stat().st_mtime)
         except Exception:
@@ -149,7 +149,7 @@ class JobStore:
                 logger.warning("failed to delete old job file %s", oldest)
 
     def _job_files_sorted(self) -> list[dict[str, Any]]:
-        """扫描磁盘上所有 job 文件,按 started_at 从新到旧排序。"""
+        """掃描磁碟上所有 job 檔案,按 started_at 從新到舊排序。"""
         jobs: list[dict[str, Any]] = []
         for f in self._store_dir.glob("*.json"):
             try:
@@ -167,18 +167,18 @@ class JobStore:
         *,
         long_running: bool = False,
     ) -> tuple[str, bool]:
-        """单飞创建任务。返回 (job_id, is_new)。
+        """單飛建立任務。回傳 (job_id, is_new)。
 
-        去重条件为 **pending ∨ running**(而非仅 running):`/run` 先 create() 再在
-        后台任务里 start() 置 running,两者之间存在 pending 窗口。旧实现只在 running 时
-        复用,两次快速点击时首个 job 仍是 pending → 第二次绕过去重、另起并发任务、覆盖
-        _active_id,导致两条全市场拉取同时读改写同一 parquet。纳入 pending 后该窗口关闭。
+        去重條件為 **pending ∨ running**(而非僅 running):`/run` 先 create() 再在
+        背景任務裡 start() 置 running,兩者之間存在 pending 視窗。舊實現只在 running 時
+        重用,兩次快速點擊時首個 job 仍是 pending → 第二次繞過去重、另起並行任務、覆蓋
+        _active_id,導致兩條全市場取得同時讀改寫同一 parquet。納入 pending 後該視窗關閉。
 
-        is_new=False 表示复用了已有活跃任务,调用方**不得**再调度新的后台任务。
+        is_new=False 表示重用了已有活躍任務,呼叫方**不得**再調度新的背景任務。
 
-        timeout_s: reap_stale 判定「进度停滞卡死」的阈值。None 时读取用户配置。
-        long_running: timeout_s 为 None 时,是否读取长任务配置;普通任务默认
-            1200s,分钟K全市场同步等长任务默认 1800s。
+        timeout_s: reap_stale 判定「進度停滯卡死」的閾值。None 時讀取使用者設定。
+        long_running: timeout_s 為 None 時,是否讀取長任務設定;普通任務預設
+            1200s,分鐘K全市場同步等長任務預設 1800s。
         """
         if timeout_s is None:
             from app.services import preferences
@@ -220,8 +220,8 @@ class JobStore:
                 return
             j["status"] = "running"
             j["started_at"] = datetime.utcnow().isoformat(timespec="seconds") + "Z"
-            # 心跳基准初始化为启动时刻: start() 到首次 progress() 之间的
-            # 初始化阶段(解析标的池等)同样计入停滞计时。
+            # 心跳基準初始化為啟動時刻: start() 到首次 progress() 之間的
+            # 初始化階段(解析標的池等)同樣計入停滯計時。
             j["last_progress_at"] = j["started_at"]
 
     def succeed(self, job_id: str, result: Any) -> None:
@@ -260,8 +260,8 @@ class JobStore:
         with self._lock:
             j = self._active_jobs.get(job_id)
             if not j:
-                # 记录已不在(通常是被 reap 终止后 fail() 弹出)。
-                # 僵尸线程仍需感知取消 —— flag 检查不能依赖记录存在。
+                # 記錄已不在(通常是被 reap 終止後 fail() 彈出)。
+                # 殭屍執行緒仍需感知取消 —— flag 檢查不能依賴記錄存在。
                 cancelled = _CANCEL_FLAGS.get(job_id)
                 if cancelled is not None and cancelled.is_set():
                     raise JobCancelledError(job_id)
@@ -286,8 +286,8 @@ class JobStore:
                 j["log"].append(entry)
                 if len(j["log"]) > 200:
                     j["log"] = j["log"][-200:]
-        # 锁外检查取消: reap 可能在本次更新刚结束后置位,下一次回调必然命中;
-        # 在这里立即检查可以把终止延迟压缩到当次回调。
+        # 鎖外檢查取消: reap 可能在本次更新剛結束後置位,下一次回呼必然命中;
+        # 在這裡立即檢查可以把終止延遲壓縮到當次回呼。
         ev = _CANCEL_FLAGS.get(job_id)
         if ev is not None and ev.is_set():
             raise JobCancelledError(job_id)
@@ -295,18 +295,18 @@ class JobStore:
     # ===== query =====
 
     def get(self, job_id: str) -> dict[str, Any] | None:
-        # 内存中的活跃 job 优先
+        # 記憶體中的活躍 job 優先
         j = self._active_jobs.get(job_id)
         if j:
             return j
-        # 否则从磁盘读
+        # 否則從磁碟讀
         return self._read_file(job_id)
 
     def list_recent(self, limit: int = 20) -> list[dict[str, Any]]:
-        # 合并: 内存中的活跃 job + 磁盘文件
+        # 合併: 記憶體中的活躍 job + 磁碟檔案
         all_jobs: list[dict[str, Any]] = list(self._active_jobs.values())
         all_jobs.extend(self._job_files_sorted())
-        # 按 started_at 从新到旧排序,去重(理论上不会有重复)
+        # 按 started_at 從新到舊排序,去重(理論上不會有重複)
         seen: set[str] = set()
         result: list[dict[str, Any]] = []
         for j in sorted(all_jobs, key=lambda x: x.get("started_at") or "", reverse=True):
@@ -323,24 +323,24 @@ class JobStore:
         return self._active_id
 
     def reap_stale(self, timeout_s: int | None = None) -> None:
-        """回收卡死的 running job。两种判定:
+        """回收卡死的 running job。兩種判定:
 
-        1. 进度停滞(主判定): 距上次 progress() 上报超过阈值秒数。
-           慢带宽环境下任务只要仍在分块推进就不会被误杀 —— 这正是旧的
-           总时长判定的问题(冷启动全市场拉取 >20min 就被标死,线程却还在写盘)。
-        2. 总时长硬上限(兜底): 进度回调持续但永不结束的病态循环。
+        1. 進度停滯(主判定): 距上次 progress() 上報超過閾值秒數。
+           慢帶寬環境下任務只要仍在分塊推進就不會被誤殺 —— 這正是舊的
+           總時長判定的問題(冷啟動全市場取得 >20min 就被標死,執行緒卻還在寫盤)。
+        2. 總時長硬上限(保底): 進度回呼持續但永不結束的病態循環。
 
-        在 /run 和 /jobs/{id} 轮询端点都会调用 — 保证卡死后任意轮询都能自愈,
-        无需用户再次手动触发同步。reload 后的孤儿 task(内存里已无 job 记录)
-        不在此处理:它们没有 active_id,只能靠 executor 线程自然结束或进程重启。
+        在 /run 和 /jobs/{id} 輪詢端點都會呼叫 — 保證卡死後任意輪詢都能自愈,
+        無需使用者再次手動觸發同步。reload 後的孤兒 task(記憶體裡已無 job 記錄)
+        不在此處理:它們沒有 active_id,只能靠 executor 執行緒自然結束或行程重啟。
 
-        终止是**协作式**的: 置 cancel flag → 僵尸线程在下一个分块进度回调处
-        抛 JobCancelledError 自行退出(BaseException,不会被分块异常隔离吞掉)。
-        线程真正退出前,由所有权 token 保证它误释放不了新任务的执行槽。
+        終止是**協作式**的: 置 cancel flag → 殭屍執行緒在下一個分塊進度回呼處
+        拋 JobCancelledError 自行退出(BaseException,不會被分塊異常隔離吞掉)。
+        執行緒真正退出前,由所有權 token 保證它誤釋放不了新任務的執行槽。
 
-        timeout_s: 显式覆盖停滞阈值。None 时用 job 自身 create() 时存的 timeout_s,
-        缺失则回退 DEFAULT_JOB_TIMEOUT_S。分钟K长任务在 create 时存了更大阈值,
-        不被普通任务的 1200s 误杀。
+        timeout_s: 顯式覆蓋停滯閾值。None 時用 job 自身 create() 時存的 timeout_s,
+        缺失則回退 DEFAULT_JOB_TIMEOUT_S。分鐘K長任務在 create 時存了更大閾值,
+        不被普通任務的 1200s 誤殺。
         """
         with self._lock:
             jid = self._active_id
@@ -353,14 +353,14 @@ class JobStore:
             last_alive = j.get("last_progress_at") or started
             if not started:
                 return
-            # 优先用显式传入, 其次 job 自身阈值, 最后默认值
+            # 優先用顯式傳入, 其次 job 自身閾值, 最後預設值
             effective_timeout = timeout_s if timeout_s is not None else j.get("timeout_s", DEFAULT_JOB_TIMEOUT_S)
             timeout_s = effective_timeout
             started_at = started
             last_alive_at = last_alive
-        # 时间计算放到锁外(避免 datetime 解析持锁)。
+        # 時間計算放到鎖外(避免 datetime 解析持鎖)。
         # started_at 形如 "2026-07-04T12:00:00Z"(start() 用 datetime.utcnow 存)。
-        # 两端都用 timezone-aware UTC 比较,避免 naive/aware 混用导致 TypeError。
+        # 兩端都用 timezone-aware UTC 比較,避免 naive/aware 混用導致 TypeError。
         try:
             start_dt = _parse_utc(started_at)
             alive_dt = _parse_utc(last_alive_at)
@@ -371,31 +371,31 @@ class JobStore:
             return
         if stalled_s > timeout_s:
             logger.warning(
-                "reap_stale: 强制取消卡死 job %s (进度停滞 %.0fs > 阈值 %ss, 总运行 %.0fs)",
+                "reap_stale: 強制取消卡死 job %s (進度停滯 %.0fs > 閾值 %ss, 總執行 %.0fs)",
                 jid, stalled_s, timeout_s, total_s)
-            self.terminate(jid, f"超时自动取消: 进度停滞 {int(stalled_s)}s 超过阈值 {timeout_s}s,已请求终止")
+            self.terminate(jid, f"超時自動取消: 進度停滯 {int(stalled_s)}s 超過閾值 {timeout_s}s,已請求終止")
         elif total_s > HARD_JOB_TIMEOUT_S:
             logger.warning(
-                "reap_stale: 强制取消 job %s (总运行 %.0fs 超过硬上限 %ss)",
+                "reap_stale: 強制取消 job %s (總執行 %.0fs 超過硬上限 %ss)",
                 jid, total_s, HARD_JOB_TIMEOUT_S)
-            self.terminate(jid, f"超时自动取消: 总运行 {int(total_s)}s 超过硬上限,已请求终止")
+            self.terminate(jid, f"超時自動取消: 總執行 {int(total_s)}s 超過硬上限,已請求終止")
 
     def terminate(self, job_id: str, message: str) -> None:
-        """标记失败 + 请求协作式终止 + 强制释放执行槽(带所有权)。
+        """標記失敗 + 請求協作式終止 + 強制釋放執行槽(帶所有權)。
 
-        reap_stale(判定卡死)与手动取消端点共用。
+        reap_stale(判定卡死)與手動取消端點共用。
         """
-        # 先置 cancel flag 再标失败: fail() 弹出记录后,僵尸线程的 progress()
-        # 依赖 flag(而非记录)感知取消。
+        # 先置 cancel flag 再標失敗: fail() 彈出記錄後,殭屍執行緒的 progress()
+        # 依賴 flag(而非記錄)感知取消。
         request_cancel(job_id)
         self.fail(job_id, message)
-        # 强制释放重任务槽(按所有权): 卡死线程可能永远回不来释放。
-        # job 已标记 failed 且已请求终止; 僵尸线程即使后续短暂写盘,
-        # 也会在下一个分块回调处自行退出, 下次拉取会覆盖, 安全。
+        # 強制釋放重任務槽(按所有權): 卡死執行緒可能永遠回不來釋放。
+        # job 已標記 failed 且已請求終止; 殭屍執行緒即使後續短暫寫盤,
+        # 也會在下一個分塊回呼處自行退出, 下次取得會覆蓋, 安全。
         release_run_slot(job_id)
 
     def clear(self) -> None:
-        """清空所有任务（内存 + 磁盘文件 + 取消标志）。"""
+        """清空所有任務（記憶體 + 磁碟檔案 + 取消標誌）。"""
         with self._lock:
             self._active_jobs.clear()
             self._active_id = None
@@ -434,35 +434,35 @@ def _duration_s(j: dict[str, Any]) -> float | None:
         return None
 
 
-# 进程内单例
+# 行程內單例
 job_store = JobStore()
 
 
 # ================================================================
-# 重任务互斥执行槽 — 防「僵尸并发」, 带所有权 token
+# 重任務互斥執行槽 — 防「殭屍並行」, 帶所有權 token
 # ================================================================
-# create() 的单飞去重能挡住 pending/running 窗口内的重复点击, 但挡不住
-# reap_stale 把卡死 job 标记 failed、清掉 _active_id 之后 —— 此时 executor
-# 线程可能仍在跑(线程无法被硬中断), 下一次 /run 会视作无活跃任务而另起一条,
-# 与僵尸线程并发读改写同一 parquet。
+# create() 的單飛去重能擋住 pending/running 視窗內的重複點擊, 但擋不住
+# reap_stale 把卡死 job 標記 failed、清掉 _active_id 之後 —— 此時 executor
+# 執行緒可能仍在跑(執行緒無法被硬中斷), 下一次 /run 會視作無活躍任務而另起一條,
+# 與殭屍執行緒並行讀改寫同一 parquet。
 #
-# 该槽绑定「实际执行体」的生命周期而非 job 状态: 每个重任务在真正开跑前
-# try_acquire_run_slot(job_id), 结束(含异常)在 finally 里 release_run_slot(job_id)。
+# 該槽綁定「實際執行體」的生命週期而非 job 狀態: 每個重任務在真正開跑前
+# try_acquire_run_slot(job_id), 結束(含異常)在 finally 裡 release_run_slot(job_id)。
 #
-# 所有权 token 修复的竞态: 旧实现用裸 threading.Lock + 无参 release ——
-# 僵尸线程最终结束时会在 finally 里误释放**新任务**正持有的锁(Lock 允许
-# 任意线程 release), 第三次点击又能插入并发。现在 release 必须携带持有者
-# job_id, 非持有者的释放一律忽略; reap 的强制释放也走同一入口。
-# 代价: 真卡死且协作式终止不生效(如卡在单个无限阻塞的网络读里)时,
-# 需重启进程才能再次跑重任务(优先保证数据不损坏)。
+# 所有權 token 修復的競態: 舊實現用裸 threading.Lock + 無參 release ——
+# 殭屍執行緒最終結束時會在 finally 裡誤釋放**新任務**正持有的鎖(Lock 允許
+# 任意執行緒 release), 第三次點擊又能插入並行。現在 release 必須攜帶持有者
+# job_id, 非持有者的釋放一律忽略; reap 的強制釋放也走同一入口。
+# 代價: 真卡死且協作式終止不生效(如卡在單個無限阻塞的網路讀裡)時,
+# 需重啟行程才能再次跑重任務(優先保證資料不損壞)。
 _run_slot_lock = threading.Lock()
 _run_slot_owner: str | None = None
 
 
 def try_acquire_run_slot(owner: str = "") -> bool:
-    """尝试占用重任务执行槽(非阻塞)。成功返回 True 并记录持有者。
+    """嘗試佔用重任務執行槽(非阻塞)。成功回傳 True 並記錄持有者。
 
-    owner: 持有者标识(调用方传 job_id), 供 release_run_slot 校验所有权。
+    owner: 持有者標識(呼叫方傳 job_id), 供 release_run_slot 校驗所有權。
     """
     global _run_slot_owner
     with _run_slot_lock:
@@ -473,11 +473,11 @@ def try_acquire_run_slot(owner: str = "") -> bool:
 
 
 def release_run_slot(owner: str | None = None) -> None:
-    """释放重任务执行槽。
+    """釋放重任務執行槽。
 
-    owner=None 时无条件释放(兼容旧调用/测试);
-    owner 非 None 时仅当它是当前持有者才释放 —— 僵尸线程 finally 里的
-    误释放(持有者已换成新 job 或槽已被 reap 释放)会被忽略, 幂等不抛。
+    owner=None 時無條件釋放(相容舊呼叫/測試);
+    owner 非 None 時僅當它是當前持有者才釋放 —— 殭屍執行緒 finally 裡的
+    誤釋放(持有者已換成新 job 或槽已被 reap 釋放)會被忽略, 冪等不拋。
     """
     global _run_slot_owner
     with _run_slot_lock:
@@ -487,5 +487,5 @@ def release_run_slot(owner: str | None = None) -> None:
 
 
 def _parse_utc(ts: str) -> datetime:
-    """解析 start()/progress() 存的 "2026-07-04T12:00:00Z" 形式时间戳。"""
+    """解析 start()/progress() 存的 "2026-07-04T12:00:00Z" 形式時間戳。"""
     return datetime.fromisoformat(ts.replace("Z", "+00:00"))

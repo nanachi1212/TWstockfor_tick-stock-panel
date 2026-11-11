@@ -112,7 +112,7 @@ describe('資料健康中心', () => {
     expect(screen.getByRole('button', { name: 'Daily OHLC 立即更新' })).toBeDisabled()
     vi.mocked(api.dataHealthJobs).mockResolvedValue([job])
     resolve(job)
-    await screen.findByText(/排隊中 \(queued\)/)
+    await screen.findByText(/排隊中/)
     expect(retry).toBeDisabled()
   })
 
@@ -120,7 +120,7 @@ describe('資料健康中心', () => {
     vi.mocked(api.dataHealthJobs).mockResolvedValue([{ ...job, status: 'partial', reason: '部分來源仍缺漏' }])
     const client = mount()
     const invalidate = vi.spyOn(client, 'invalidateQueries')
-    await screen.findByText(/部分完成 \(partial\)/)
+    await screen.findByText(/部分完成/)
     expect(screen.getByText('部分來源仍缺漏')).toBeInTheDocument()
     await waitFor(() => expect(invalidate).toHaveBeenCalled())
   })

@@ -1,8 +1,8 @@
-"""storage 统计求和不变量测试 — total_size_mb 必须等于各部分之和, 不得重复累加。
+"""storage 統計求和不變數測試 — total_size_mb 必須等於各部分之和, 不得重複累加。
 
-历史 bug: other_dirs 循环被复制了两遍, 且 financials 既在 other_dirs 里又有专属
-统计块 —— financials 被计入 3 次、pools/backtest_results/screener_results/ai_cache
-各计入 2 次, total_size_mb 虚高。此测试用精确整 MB 文件锁定总和不变量。
+歷史 bug: other_dirs 循環被複制了兩遍, 且 financials 既在 other_dirs 裡又有專屬
+統計塊 —— financials 被計入 3 次、pools/backtest_results/screener_results/ai_cache
+各計入 2 次, total_size_mb 虛高。此測試用精確整 MB 檔案鎖定總和不變數。
 """
 from __future__ import annotations
 
@@ -25,7 +25,7 @@ def _build_tree(data_dir: Path) -> None:
     _write_mb(data_dir / "backtest_results" / "r.json", 1.0)
     _write_mb(data_dir / "screener_results" / "s.json", 1.0)
     _write_mb(data_dir / "ai_cache" / "c.json", 1.0)
-    _write_mb(data_dir / "capabilities.json", 0.5)  # 根目录散文件
+    _write_mb(data_dir / "capabilities.json", 0.5)  # 根目錄散檔案
 
 
 def test_total_equals_sum_of_parts(tmp_path):
@@ -34,9 +34,9 @@ def test_total_equals_sum_of_parts(tmp_path):
 
     parts_mb = (
         stats["daily_size_mb"]            # 1.0  (subdirs 表)
-        + stats["financials_size_mb"]     # 2.0  (专属统计块)
-        + 1.0 + 1.0 + 1.0 + 1.0           # pools/backtest/screener/ai_cache (单次循环)
-        + 0.5                             # 根目录散文件
+        + stats["financials_size_mb"]     # 2.0  (專屬統計塊)
+        + 1.0 + 1.0 + 1.0 + 1.0           # pools/backtest/screener/ai_cache (單次循環)
+        + 0.5                             # 根目錄散檔案
     )
     assert stats["total_size_mb"] == parts_mb == 7.5
 
@@ -47,7 +47,7 @@ def test_financials_counted_once_not_three_times(tmp_path):
 
     assert stats["financials_files"] == 1
     assert stats["financials_size_mb"] == 2.0
-    # 旧 bug: financials 计 3 次 (6MB) + 其余 4 目录各计 2 次 (8MB) → 15.5
+    # 舊 bug: financials 計 3 次 (6MB) + 其餘 4 目錄各計 2 次 (8MB) → 15.5
     assert stats["total_size_mb"] != 15.5
 
 
@@ -55,7 +55,7 @@ def test_missing_dirs_contribute_zero(tmp_path):
     _write_mb(tmp_path / "kline_daily" / "part.parquet", 1.0)
     stats = _compute_storage(tmp_path)
 
-    # financials 目录不存在时不含其明细键 (既有行为), 且不贡献任何体积
+    # financials 目錄不存在時不含其明細鍵 (既有行為), 且不貢獻任何體積
     assert stats.get("financials_files", 0) == 0
     assert stats.get("financials_size_mb", 0.0) == 0.0
     assert stats["total_size_mb"] == 1.0

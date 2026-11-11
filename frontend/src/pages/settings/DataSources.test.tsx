@@ -25,7 +25,7 @@ it('only offers declared providers for minute and adjustment data while retainin
   expect(within(minute as HTMLElement).getByRole('button', { name: '自訂分鐘來源' })).toBeInTheDocument()
   expect(within(minute as HTMLElement).queryByRole('button', { name: /台灣官方/ })).not.toBeInTheDocument()
   const adjustment = screen.getByText('除權因子').closest('.rounded-lg')!
-  expect(within(adjustment as HTMLElement).getByText('尚未配置此資料集來源')).toBeInTheDocument()
+  expect(within(adjustment as HTMLElement).getByText('尚未設定此資料集來源')).toBeInTheDocument()
   expect(within(adjustment as HTMLElement).queryByRole('button', { name: /台灣官方/ })).not.toBeInTheDocument()
   expect(screen.getByText('新增資料來源')).toBeInTheDocument()
 })

@@ -74,7 +74,7 @@ function AnalyticsBody({ data }: { data: TaiwanPortfolioAnalytics }) {
             <Stat label="最大產業占比" value={pct(concentration.largest_industry?.weight)} hint={concentration.largest_industry?.industry ?? '無法判定：僅有 ETF 或個股產業未分類'} />
           </div>
         ) : <p role="status" className="text-xs text-warning">收盤價不完整或日期不一致，暫不顯示整體權重與集中度。</p>}
-        <p className="text-xs text-muted">占比以本頁已登錄持股的收盤市值計算，不含現金或其他帳戶。僅呈現集中程度，不設定風險門檻。</p>
+        <p className="text-xs text-muted">占比以本頁已登入持股的收盤市值計算，不含現金或其他帳戶。僅呈現集中程度，不設定風險門檻。</p>
       </div>
       <div className="grid gap-3 lg:grid-cols-[2fr_1fr]">
       <div className="min-w-0 space-y-2">
@@ -103,7 +103,7 @@ function AnalyticsBody({ data }: { data: TaiwanPortfolioAnalytics }) {
         )}
       </div>
       <div className="space-y-2">
-        <h3 className="text-xs font-semibold text-secondary">產業配置{allocation.as_of && <span className="ml-1 font-normal text-muted">（{allocation.as_of} 收盤）</span>}</h3>
+        <h3 className="text-xs font-semibold text-secondary">產業設定{allocation.as_of && <span className="ml-1 font-normal text-muted">（{allocation.as_of} 收盤）</span>}</h3>
         {allocation.sectors.length ? (
           <ul className="space-y-1.5">
             {allocation.sectors.map(s => (

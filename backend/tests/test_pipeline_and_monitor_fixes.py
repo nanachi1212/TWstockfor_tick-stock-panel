@@ -1,6 +1,6 @@
-"""回归测试: 本轮修复的几处高风险行为(并发单飞 / 重任务槽 / sector fail-closed)。
+"""迴歸測試: 本輪修復的幾處高風險行為(並行單飛 / 重任務槽 / sector fail-closed)。
 
-均为纯逻辑, 不触网, 不依赖真实数据源。
+均為純邏輯, 不觸網, 不依賴真實資料來源。
 """
 from __future__ import annotations
 
@@ -8,10 +8,10 @@ from __future__ import annotations
 from app.services import pipeline_jobs, preferences
 from app.services.pipeline_jobs import JobStore
 
-# ── JobStore 单飞 ────────────────────────────────────────────────────────
+# ── JobStore 單飛 ────────────────────────────────────────────────────────
 
 def test_create_singleflight_dedupes_pending_window(monkeypatch, tmp_path):
-    """两次快速 create() 在 pending 窗口内应复用同一 job(is_new=False)。"""
+    """兩次快速 create() 在 pending 視窗內應重用同一 job(is_new=False)。"""
     monkeypatch.setattr(preferences, "load", lambda: {"data_source_job_timeout_s": 3600})
     store = JobStore(store_dir=tmp_path / "jobs")
 
@@ -19,12 +19,12 @@ def test_create_singleflight_dedupes_pending_window(monkeypatch, tmp_path):
     assert new1 is True
     assert store.get(jid1)["timeout_s"] == 3600
 
-    # 尚未 start(), job 仍是 pending —— 旧实现会在此另起新 job(并发双跑根因)
+    # 尚未 start(), job 仍是 pending —— 舊實現會在此另起新 job(並行雙跑根因)
     jid2, new2 = store.create()
     assert jid2 == jid1
     assert new2 is False
 
-    # start() 后仍复用同一活跃 job
+    # start() 後仍重用同一活躍 job
     store.start(jid1)
     jid3, new3 = store.create()
     assert jid3 == jid1
@@ -32,7 +32,7 @@ def test_create_singleflight_dedupes_pending_window(monkeypatch, tmp_path):
 
 
 def test_create_new_after_terminal(monkeypatch, tmp_path):
-    """job 终态(succeed/fail)后, create() 应给出新 job。"""
+    """job 終態(succeed/fail)後, create() 應給出新 job。"""
     monkeypatch.setattr(preferences, "load", lambda: {"data_source_long_job_timeout_s": 5400})
     store = JobStore(store_dir=tmp_path / "jobs")
     jid1, _ = store.create(long_running=True)
@@ -46,14 +46,14 @@ def test_create_new_after_terminal(monkeypatch, tmp_path):
 
 
 def test_get_rejects_path_traversal_job_id(monkeypatch, tmp_path):
-    """job_id 来自 URL: 穿越/绝对路径不得读出 job_store 外的 .json。"""
+    """job_id 來自 URL: 穿越/絕對路徑不得讀出 job_store 外的 .json。"""
     monkeypatch.setattr(preferences, "load", lambda: {})
     (tmp_path / "secret.json").write_text('{"api_key": "x"}', encoding="utf-8")
     store = JobStore(store_dir=tmp_path / "jobs")
     for bad in ("..\\secret", "../secret", str(tmp_path / "secret")):
         assert store.get(bad) is None
 
-    # 正常 id 仍可从磁盘读回
+    # 正常 id 仍可從磁碟讀回
     jid, _ = store.create()
     store.start(jid)
     store.succeed(jid, {"ok": True})
@@ -61,21 +61,21 @@ def test_get_rejects_path_traversal_job_id(monkeypatch, tmp_path):
 
 
 def test_run_slot_is_exclusive():
-    """重任务执行槽同一时刻只允许一个持有者(防僵尸并发)。"""
+    """重任務執行槽同一時刻只允許一個持有者(防殭屍並行)。"""
     assert pipeline_jobs.try_acquire_run_slot() is True
     try:
-        # 已被占用, 第二次获取失败
+        # 已被佔用, 第二次取得失敗
         assert pipeline_jobs.try_acquire_run_slot() is False
     finally:
         pipeline_jobs.release_run_slot()
-    # 释放后可再次获取
+    # 釋放後可再次取得
     assert pipeline_jobs.try_acquire_run_slot() is True
     pipeline_jobs.release_run_slot()
-    # 重复释放幂等, 不抛
+    # 重複釋放冪等, 不拋
     pipeline_jobs.release_run_slot()
 
 
-# ── 监控 sector fail-closed ──────────────────────────────────────────────
+# ── 監控 sector fail-closed ──────────────────────────────────────────────
 
 def _base_price_rule(scope: str) -> dict:
     return {

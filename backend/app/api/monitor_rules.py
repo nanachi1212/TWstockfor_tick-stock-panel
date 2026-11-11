@@ -37,7 +37,7 @@ class TaiwanMonitorRuleUpdate(BaseModel):
 
 @router.get("/taiwan")
 def list_taiwan_rules():
-    """获取所有台股即时监控规则。"""
+    """取得所有台股即時監控規則。"""
     from app.taiwan.realtime.monitor_engine import get_monitor_engine
     engine = get_monitor_engine()
     rules = engine.list_rules()
@@ -46,7 +46,7 @@ def list_taiwan_rules():
 
 @router.post("/taiwan")
 def create_taiwan_rule(req: TaiwanMonitorRuleCreate):
-    """新增台股即时监控规则 (带 Security Master 与参数合法性校验)。"""
+    """新增台股即時監控規則 (帶 Security Master 與參數合法性校驗)。"""
     import uuid
     from app.taiwan.realtime.monitor_engine import get_monitor_engine
     from app.taiwan.realtime.monitor_models import TaiwanMonitorRule, TaiwanRuleType
@@ -100,7 +100,7 @@ def sync_taiwan_plan_rules():
 
 @router.patch("/taiwan/{rule_id}")
 def update_taiwan_rule(rule_id: str, req: TaiwanMonitorRuleUpdate):
-    """更新或启用/停用指定台股监控规则。"""
+    """更新或啟用/停用指定台股監控規則。"""
     from app.taiwan.realtime.monitor_engine import get_monitor_engine
     from app.taiwan.realtime.monitor_models import TaiwanMonitorRule, TaiwanRuleType
 
@@ -155,7 +155,7 @@ def update_taiwan_rule(rule_id: str, req: TaiwanMonitorRuleUpdate):
 
 @router.delete("/taiwan/{rule_id}")
 def delete_taiwan_rule(rule_id: str):
-    """删除指定台股监控规则。"""
+    """刪除指定台股監控規則。"""
     from app.taiwan.realtime.monitor_engine import get_monitor_engine
     engine = get_monitor_engine()
     deleted = engine.delete_rule(rule_id)
@@ -166,7 +166,7 @@ def delete_taiwan_rule(rule_id: str):
 
 @router.post("/taiwan/evaluate")
 def evaluate_taiwan_rules(request: Request):
-    """执行一轮台股实时规则评估, 并将告警落盘与推送到 SSE。"""
+    """執行一輪台股即時規則評估, 並將告警寫入磁碟與推送到 SSE。"""
     from app.services import alert_store
     from app.taiwan.realtime.monitor_engine import get_monitor_engine
 

@@ -6,7 +6,7 @@
 - 昨收基準線：淺灰實線（從開到右），比虛線更明顯
 - 分時均線：黃色細線（成交均價，這裡用 close 的累計均值近似）
 - 價格線下方漸變填充: 頂部半透明實色 → 底部全透明(與個股對話框 EChartsIntraday 一致)
-空數據返回等尺寸佔位 SVG，保證加載前後尺寸一致（同 MiniCandlestick 模式）。
+空資料返回等尺寸佔位 SVG，保證載入前後尺寸一致（同 MiniCandlestick 模式）。
 */
 import { useId } from 'react'
 import type { MinuteKlineRow } from '@/lib/api'
@@ -22,7 +22,7 @@ export function MiniIntraday({ rows, prevClose, changePct, width = 100, height =
   height?: number
 }) {
   const rawId = useId()
-  // 空數據：返回等尺寸佔位
+  // 空資料：返回等尺寸佔位
   if (!rows || rows.length < 2) {
     return <svg width={width} height={height} viewBox={`0 0 ${width} ${height}`} className="block" aria-label="尚無分時" />
   }
@@ -39,7 +39,7 @@ export function MiniIntraday({ rows, prevClose, changePct, width = 100, height =
   const padY = 3
   const n = rows.length
 
-  // 漲跌著色: 優先用 changePct (後端 enriched 字段, 最可靠);
+  // 漲跌著色: 優先用 changePct (後端 enriched 欄位, 最可靠);
   // 其次用 prevClose vs lastClose; 最後回退到第一根 open
   const lastClose = rows[n - 1].close
   const firstOpen = rows[0].open

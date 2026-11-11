@@ -17,42 +17,42 @@ function dispatchSideEffects(alerts: AlertEvent[]) {
   speakAlerts(alerts)            // 語音播報 (speechSynthesis, 各自獨立開關)
 }
 
-// ===== 全局狀態 (模塊級, 仿 Toast.tsx 模式) =====
+// ===== 全局狀態 (模組級, 仿 Toast.tsx 模式) =====
 type Item = { id: number; alert: AlertEvent }
 let _id = 0
 let _queue: Item[] = []
 const AUTO_DISMISS = 5000      // 5 秒自動消失
 const _listeners: Set<(items: Item[]) => void> = new Set()
 
-/** 從 localStorage 讀取配置 */
+/** 從 localStorage 讀取設定 */
 function getEnabled(): boolean {
   try {
     const v = localStorage.getItem('alert_toast_enabled')
-    return v === null ? true : v === '1'   // 默認開啟
+    return v === null ? true : v === '1'   // 預設開啟
   } catch { return true }
 }
 
 function getMaxVisible(): number {
   try {
     const v = parseInt(localStorage.getItem('alert_toast_max') || '', 10)
-    return v >= 1 && v <= 10 ? v : 3       // 默認 3, 範圍 1-10
+    return v >= 1 && v <= 10 ? v : 3       // 預設 3, 範圍 1-10
   } catch { return 3 }
 }
 
-/** 通知外部配置變更後刷新 (設置頁改了配置後調用) */
+/** 通知外部設定變更後重新整理 (設定頁改了設定後呼叫) */
 export function refreshAlertToastConfig() {
   _emit()
 }
 
 function _emit() { _listeners.forEach(fn => fn([..._queue])) }
 
-/** 推入單條監控告警通知 (兼容入口, 不發聲 — 發聲由批量入口統一處理) */
+/** 推入單條監控告警通知 (相容入口, 不發聲 — 發聲由批量入口統一處理) */
 export function pushAlertToast(alert: AlertEvent) {
   pushAlertToasts([alert])
 }
 
 /**
- * 批量推入監控告警通知 (一輪 SSE 多隻新命中時調用)。
+ * 批量推入監控告警通知 (一輪 SSE 多隻新命中時呼叫)。
  * - 每條都彈 Toast (受 maxVisible 上限, 超出丟最舊)
  * - 整批只播放一聲通知音, 避免短時連續響多聲刷屏
  */
@@ -209,7 +209,7 @@ export function AlertToastContainer() {
                 </div>
               )}
 
-              {/* 行業/概念標籤 (後端 SSE 推送時已富化, 字段配置來自監控中心全局設置) */}
+              {/* 行業/概念標籤 (後端 SSE 推送時已富化, 欄位設定來自監控中心全局設定) */}
               {(() => {
                 const tags: { text: string; cls: string }[] = []
                 for (const [isIndustry, item] of [[true, extFields.industry], [false, extFields.concept]] as const) {

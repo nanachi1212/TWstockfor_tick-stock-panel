@@ -90,7 +90,7 @@ function FontScaleToggle() {
 /** 監控中心未讀徽標 — 僅在非監控頁且有未讀時顯示。 */
 function MonitorBadge({ active }: { active: boolean }) {
   const unread = useUnreadAlerts()
-  // 尊重用戶設置: 可在菜單設置裡關閉數字提示
+  // 尊重使用者設定: 可在選單設定裡關閉數字提示
   const badgeEnabled = (() => {
     try { return localStorage.getItem('monitor_badge_enabled') !== '0' } catch { return true }
   })()
@@ -160,16 +160,16 @@ export function Layout() {
   const { data: settingsState } = useSettings()
   const { data: versionData } = useVersion()
   const { data: prefs } = usePreferences()
-  // 數據源列表 (用於實時行情狀態顯示當前數據源名稱)
+  // 資料來源列表 (用於即時行情狀態顯示當前資料來源名稱)
   const { data: dataSources } = useQuery({
     queryKey: QK.dataSources,
     queryFn: api.dataSources,
     staleTime: 60_000,
   })
-  // poll=true: 全局唯一開啟條件輪詢 (非交易時段 60s 兜底, 交易時段靠 SSE)
+  // poll=true: 全局唯一開啟條件輪詢 (非交易時段 60s 備援, 交易時段靠 SSE)
   const { data: quoteStatus } = useQuoteStatus({ poll: true })
 
-  // 自選分組 — 僅當用戶開啟「顯示在側邊欄」時拉取
+  // 自選分組 — 僅當使用者開啟「顯示在側邊欄」時拉取
   const groupsInNav = prefs?.watchlist_groups_in_nav ?? false
   const location = useLocation()
   const { data: watchlistGroupsData } = useQuery({
@@ -179,7 +179,7 @@ export function Layout() {
     staleTime: 60_000,
   })
   const watchlistGroups = watchlistGroupsData?.groups ?? []
-  // 自選二級菜單展開狀態 — 默認當前在自選頁時展開
+  // 自選二級選單展開狀態 — 預設當前在自選頁時展開
   const [watchlistNavExpanded, setWatchlistNavExpanded] = useState(location.pathname === '/watchlist')
 
   const [isCompact, setIsCompact] = useState(() => window.matchMedia(COMPACT_QUERY).matches)
@@ -189,9 +189,9 @@ export function Layout() {
     try { return localStorage.getItem('tf-nav-collapsed') === '1' } catch { return false }
   })
 
-  // 分組等權平均漲跌幅 — 複用 watchlist/enriched 查詢緩存(與自選頁同 key,
-  // 盤中隨 SSE 刷新)。可見性門控: 子菜單實際可見(桌面側欄展開或手機抽屜開著
-  // + 二級菜單展開)時才拉取, 不為隱藏 UI 發請求。
+  // 分組等權平均漲跌幅 — 複用 watchlist/enriched 查詢快取(與自選頁同 key,
+  // 盤中隨 SSE 重新整理)。可見性門控: 子選單實際可見(桌面側欄展開或手機抽屜開著
+  // + 二級選單展開)時才拉取, 不為隱藏 UI 發請求。
   const navPanelVisible = isCompact ? drawerOpen : !navCollapsed
   const navGroupPctVisible = groupsInNav && navPanelVisible && watchlistNavExpanded
   const { data: navWatchlist } = useQuery({
@@ -214,7 +214,7 @@ export function Layout() {
     [navWatchlist, navEnriched],
   )
 
-  // 數據同步狀態輪詢: 有活躍 job 時「數據」菜單項顯示轉圈
+  // 資料同步狀態輪詢: 有活躍 job 時「資料」選單項顯示轉圈
   const { data: pipelineJobs } = useQuery({
     queryKey: QK.pipelineJobs,
     queryFn: () => api.pipelineJobs(1),
@@ -223,7 +223,7 @@ export function Layout() {
   })
   const isDataSyncing = !!pipelineJobs?.active_id
 
-  // 數據同步完成的"瞬時反饋": isDataSyncing 從 true→false 時顯示綠色對勾,
+  // 資料同步完成的"瞬時反饋": isDataSyncing 從 true→false 時顯示綠色對勾,
   // 閃爍約 3 秒後自動消失。
   const [dataSyncJustDone, setDataSyncJustDone] = useState(false)
   const prevSyncingRef = useRef(false)
@@ -242,7 +242,7 @@ export function Layout() {
   const navigate = useNavigate()
   const version = versionData?.version
   const realtimeEnabled = prefs?.realtime_quotes_enabled ?? false
-  // 自選實時模式限制提示: 可手動關閉, 不持久化 (刷新後恢復顯示)
+  // 自選即時模式限制提示: 可手動關閉, 不持久化 (重新整理後恢復顯示)
   const [dismissFreeHint, setDismissFreeHint] = useState(false)
   useEffect(() => {
     const compact = window.matchMedia(COMPACT_QUERY)
@@ -291,22 +291,22 @@ export function Layout() {
       return next
     })
   }
-  // SSE: 行情更新時自動刷新相關 queries + 告警通知
+  // SSE: 行情更新時自動重新整理相關 queries + 告警通知
   useQuoteStream(realtimeEnabled, prefs?.sse_refresh_pages)
-  // 實時 SSE 連接狀態 — 斷開時底部顯示提示, 提示可能漏策略告警
+  // 即時 SSE 連接狀態 — 斷開時底部顯示提示, 提示可能漏策略告警
   const streamStatus = useQuoteStreamStatus()
 
   const toggleQuote = useToggleRealtimeQuotes()
   const isRunning = quoteStatus?.running ?? false
   const isTrading = quoteStatus?.is_trading_hours ?? false
-  // 管道/數據修正運行期間實時行情被臨時暫停 — 此時禁止開啟
+  // 管道/資料修正執行期間即時行情被臨時暫停 — 此時禁止開啟
   const isPaused = quoteStatus?.paused ?? false
-  // 實時模式以 quote_status 為準 (數據源無關): none=不可用 / watchlist=自選實時 / full_market=全市場
+  // 即時模式以 quote_status 為準 (資料來源無關): none=不可用 / watchlist=自選即時 / full_market=全市場
   const quoteMode = quoteStatus?.mode ?? 'none'
   const realtimeUnavailable = quoteMode === 'none'
   const isWatchlistMode = quoteMode === 'watchlist'
   const realtimeModeLabel = isWatchlistMode ? '自選股' : '全市場'
-  // 自訂實時行情來源顯示其名稱
+  // 自訂即時行情來源顯示其名稱
   const realtimeProvider = prefs?.realtime_data_provider
   const realtimeProviderName = realtimeProvider && realtimeProvider !== 'taiwan'
     ? (dataSources?.custom?.find(s => s.name === realtimeProvider)?.display_name || realtimeProvider)
@@ -340,7 +340,7 @@ export function Layout() {
         ? '關閉即時行情'
         : '開啟即時行情'
 
-  // 當前主數據源 (用於側邊欄數據源狀態卡)
+  // 當前主資料來源 (用於側邊欄資料來源狀態卡)
   const activeProvider = prefs?.daily_data_provider || 'taiwan'
   const activeProviderName = activeProvider === 'taiwan'
     ? '台灣官方資料源'
@@ -359,7 +359,7 @@ export function Layout() {
     if (alertsTotal != null) setAlertTotal(alertsTotal)
   }, [alertsTotal])
 
-  // 合併內置頁面 + 擴展導航
+  // 合併內建頁面 + 擴展導航
   type NavItem = { to: string; label: string; icon: LucideIcon; badge?: string }
   const extensionNav: NavItem[] = getFrontendExtensionNavigation().map(item => ({
     to: item.route.path,
@@ -381,8 +381,8 @@ export function Layout() {
         const merged = [...ordered]
         for (const item of allNav) {
           if (seen.has(item.to)) continue
-          // 未保存過排序的新條目: 內置頁插回默認位置(排在已保存的默認前驅之後),
-          // 分析/擴展菜單仍追加到末尾
+          // 未儲存過排序的新條目: 內建頁插回預設位置(排在已儲存的預設前驅之後),
+          // 分析/擴展選單仍追加到末尾
           const defaultIndex = nav.findIndex(n => n.to === item.to)
           let anchor = -1
           if (defaultIndex > 0) {
@@ -421,7 +421,7 @@ export function Layout() {
     : coreNavItems
 
   const handleToggle = async (enabled: boolean) => {
-    // 開啟時重新校驗實時權限 (以 quote_status 的數據源無關判定為準)
+    // 開啟時重新校驗即時權限 (以 quote_status 的資料來源無關判定為準)
     if (enabled) {
       const fresh = await qc.fetchQuery({
         queryKey: QK.quoteStatus,
@@ -437,7 +437,7 @@ export function Layout() {
       }
     }
     await toggleQuote.mutateAsync(enabled)
-    // 僅在交易時段立即獲取一次行情
+    // 僅在交易時段立即取得一次行情
     if (enabled && isTrading) {
       api.intradayRefresh().catch(() => {})
     }
@@ -573,7 +573,7 @@ export function Layout() {
                     }
                   </button>
                 ) : (
-                  /* 普通菜單項 */
+                  /* 普通選單項 */
                   <NavLink
                     to={to}
                     title={collapsed ? label : undefined}
@@ -596,7 +596,7 @@ export function Layout() {
                             {badge}
                           </span>
                         )}
-                        {/* 數據同步狀態: 同步中轉圈, 剛完成顯示綠色對勾閃爍 3 秒 */}
+                        {/* 資料同步狀態: 同步中轉圈, 剛完成顯示綠色對勾閃爍 3 秒 */}
                         {to === '/data' && isDataSyncing && !collapsed && (
                           <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin text-accent" />
                         )}
@@ -610,7 +610,7 @@ export function Layout() {
                   </NavLink>
                 )}
 
-                {/* 自選分組二級子菜單 — 展開時顯示 */}
+                {/* 自選分組二級子選單 — 展開時顯示 */}
                 {isWatchlistExpandable && watchlistNavExpanded && (
                   <div className="mt-0.5 space-y-0.5">
                     <NavLink
@@ -707,7 +707,7 @@ export function Layout() {
               </div>
             </div>
           ) : (
-            /* 實時可用 — 開關 + 跳轉設置 */
+            /* 即時可用 — 開關 + 跳轉設定 */
             <div className="flex items-center gap-2">
               <div className="flex min-w-0 flex-1 items-center gap-2">
                 <span className={`inline-block h-2 w-2 shrink-0 rounded-full ${realtimeIndicatorClass}`} />

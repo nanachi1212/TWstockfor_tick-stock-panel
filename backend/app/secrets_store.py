@@ -1,9 +1,9 @@
-"""Key / 凭据本地存储(§14)。
+"""Key / 憑據本地儲存(§14)。
 
-存储位置:`data/user_data/secrets.json`,权限 0600。
-优先级:secrets.json > .env > 空。
+儲存位置:`data/user_data/secrets.json`,權限 0600。
+優先級:secrets.json > .env > 空。
 
-UI 改 Key 时只动这个文件,不动 .env。
+UI 改 Key 時只動這個檔案,不動 .env。
 """
 from __future__ import annotations
 
@@ -33,7 +33,7 @@ def load() -> dict:
 
 
 def save(updates: dict) -> dict:
-    """合并写入(不会清掉未提及的字段)。返回新内容。"""
+    """合併寫入(不會清掉未提及的欄位)。回傳新內容。"""
     current = load()
     current.update({k: v for k, v in updates.items() if v is not None})
     p = _path()
@@ -46,7 +46,7 @@ def save(updates: dict) -> dict:
 
 
 def clear(*keys: str) -> dict:
-    """清掉指定字段(留空清全部)。"""
+    """清掉指定欄位(留空清全部)。"""
     p = _path()
     if not p.exists():
         return {}
@@ -100,10 +100,10 @@ def confirm_ai_target(target: str) -> None:
 
 
 def get_ai_key() -> str:
-    """取当前 AI Key: 优先 active profile → secrets.json 单字段 → .env。
+    """取當前 AI Key: 優先 active profile → secrets.json 單欄位 → .env。
 
-    多 profile 激活时直接从 ai_key_profiles 读取激活 profile 的 key,
-    无需重启; 不存在任何 profile 时回退到旧的 ai_api_key 单字段行为。
+    多 profile 啟用時直接從 ai_key_profiles 讀取啟用 profile 的 key,
+    無需重啟; 不存在任何 profile 時回退到舊的 ai_api_key 單欄位行為。
     """
     import contextlib
     with contextlib.suppress(Exception):
@@ -126,7 +126,7 @@ def get_ai_key() -> str:
 
 
 def get_ai_config(key: str, default: str = "") -> str:
-    """取 AI 配置项:secrets.json 优先,否则 config。"""
+    """取 AI 設定項:secrets.json 優先,否則 config。"""
     val = load().get(key)
     if val:
         return val
@@ -135,7 +135,7 @@ def get_ai_config(key: str, default: str = "") -> str:
 
 
 def get_ai_config_int(key: str, default: int) -> int:
-    """取 AI 数值配置项 (如 ai_max_output_tokens): secrets.json 优先,否则 config。"""
+    """取 AI 數值設定項 (如 ai_max_output_tokens): secrets.json 優先,否則 config。"""
     val = load().get(key)
     if val is not None:
         try:
@@ -147,9 +147,9 @@ def get_ai_config_int(key: str, default: int) -> int:
 
 
 def get_env_backed_secret(field: str, env_name: str) -> str:
-    """取环境变量后备的密钥(插件 API Key 等):secrets.json 优先,否则环境变量。
+    """取環境變數後備的金鑰(外掛 API Key 等):secrets.json 優先,否則環境變數。
 
-    UI 写入 secrets.json 后即覆盖 .env。
+    UI 寫入 secrets.json 後即覆蓋 .env。
     """
     val = load().get(field)
     if val:
@@ -158,7 +158,7 @@ def get_env_backed_secret(field: str, env_name: str) -> str:
 
 
 def mask(key: str, prefix: int = 4, suffix: int = 4) -> str:
-    """脱敏显示。"""
+    """脫敏顯示。"""
     if not key:
         return ""
     if len(key) <= prefix + suffix:

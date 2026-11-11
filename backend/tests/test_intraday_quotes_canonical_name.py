@@ -22,7 +22,7 @@ from app.main import app
 
 
 def _fake_quote(symbol: str, provider_name: str, prev_close: float = 2470.0):
-    """模拟 TaiwanRealtimeQuote: 只需要 .symbol / .prev_close / .to_dict()。"""
+    """模擬 TaiwanRealtimeQuote: 只需要 .symbol / .prev_close / .to_dict()。"""
     q = MagicMock()
     q.symbol = symbol
     q.prev_close = prev_close

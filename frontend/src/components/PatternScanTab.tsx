@@ -60,7 +60,7 @@ function PatternRow({ item }: { item: PatternScanItem }) {
 
 export function PatternScanTab({ data }: { data: PatternScanSnapshot }) {
   if (data.status === 'unavailable') return <p role="status" className="rounded-lg border border-border bg-surface p-6 text-muted">
-    {data.date} {REASON_LABELS[data.reason ?? ''] ?? '暫無可用的型態資料'}
+    {data.date} {REASON_LABELS[data.reason ?? ''] ?? '尚無可用的型態資料'}
   </p>
   const excluded = Object.entries(data.excluded).filter(([, n]) => n > 0)
   return <div className="space-y-4">

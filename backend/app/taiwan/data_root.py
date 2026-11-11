@@ -2,7 +2,7 @@
 
 A single, tiny helper so every Taiwan storage module (TaiwanDailyStore,
 TaiwanSecurityMaster, TaiwanMonitorEngine's rule file, ...) resolves its
-default path the same way the rest of the app already does for A-share data
+default path the same way the rest of the app already does for its other data
 — anchored to ``app.config.settings.data_dir`` (itself anchored to the
 project root in dev mode, or the exe-adjacent directory in a packaged
 desktop build; see ``app/config.py::_user_data_root``), never to the
@@ -33,7 +33,7 @@ def taiwan_data_root() -> Path:
 
     Always ``<settings.data_dir>/taiwan`` — the same absolute root every
     other market's data lives under (``settings.data_dir`` already holds
-    A-share's ``instruments/``, ``kline_daily/``, etc. as siblings).
+    the ``instruments/``, ``kline_daily/``, etc. directories as siblings).
     """
     from app.config import settings
 

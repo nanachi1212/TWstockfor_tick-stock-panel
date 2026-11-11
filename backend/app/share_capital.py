@@ -1,4 +1,4 @@
-"""历史股本解析, Taiwan 缺少 PIT denominator 时保持 fail-closed。"""
+"""歷史股本解析, Taiwan 缺少 PIT denominator 時保持 fail-closed。"""
 from __future__ import annotations
 
 from datetime import date
@@ -8,7 +8,7 @@ import polars as pl
 
 
 def load_share_history(data_dir: Path) -> pl.DataFrame:
-    """读取本地财务股本表; 未同步或损坏时返回空表。"""
+    """讀取本地財務股本表; 未同步或損壞時回傳空表。"""
     path = data_dir / "financials" / "shares" / "part.parquet"
     if not path.exists():
         return pl.DataFrame()
@@ -27,10 +27,10 @@ def apply_historical_float_shares(
     *,
     today: date,
 ) -> pl.DataFrame:
-    """为行情行解析有效流通股本。
+    """為行情行解析有效流通在外股數本。
 
-    当日保留 rows.float_shares; 历史日期使用公告日不晚于交易日的最新股本。
-    既有非 Taiwan 市场保留 current fallback; Taiwan 不允许 current backward-fill。
+    當日保留 rows.float_shares; 歷史日期使用公告日不晚於交易日的最新股本。
+    既有非 Taiwan 市場保留 current fallback; Taiwan 不允許 current backward-fill。
     """
     required = {"symbol", "date", "float_shares"}
     if rows.is_empty() or not required <= set(rows.columns):

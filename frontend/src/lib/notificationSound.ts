@@ -2,7 +2,7 @@
  * 通知聲效 — 用 Web Audio API 合成, 無需音頻文件。
  *
  * 聲效列表 (純代碼合成, 不同頻率/波形/節奏):
- * - ding:   清脆"叮" (默認, 適合一般提醒)
+ * - ding:   清脆"叮" (預設, 適合一般提醒)
  * - chime:  兩音階風鈴 (適合策略信號)
  * - alert:  急促警報 (適合重要/異動)
  * - soft:   柔和低音 (適合價格提醒)
@@ -108,7 +108,7 @@ const SOUND_PRESETS: Record<string, (ctx: AudioContext) => void> = {
   },
 }
 
-/** 播放通知聲效 (從 localStorage 讀配置) */
+/** 播放通知聲效 (從 localStorage 讀設定) */
 export function playNotificationSound() {
   try {
     const enabled = localStorage.getItem('alert_sound_enabled')
@@ -127,7 +127,7 @@ export function playNotificationSound() {
   }
 }
 
-/** 聲效選項 (供設置頁下拉) */
+/** 聲效選項 (供設定頁下拉) */
 export const SOUND_OPTIONS = [
   { key: 'ding', label: '清脆叮' },
   { key: 'chime', label: '風鈴' },
@@ -143,7 +143,7 @@ export const SOUND_OPTIONS = [
   { key: 'none', label: '無聲' },
 ]
 
-/** 預覽聲效 (設置頁點"試聽"用) */
+/** 預覽聲效 (設定頁點"試聽"用) */
 export function previewSound(sound: string) {
   try {
     const ctx = getCtx()

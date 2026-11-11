@@ -46,7 +46,7 @@ export function QuantEvaluationCard({ compact = false }: { compact?: boolean }) 
     <section className="mb-1.5 rounded-card border border-border bg-surface/85 p-3.5">
       <div className="mb-2.5 flex items-center gap-1.5">
         <Activity className="h-3.5 w-3.5 text-accent" />
-        <h2 className="text-xs font-semibold text-foreground">Quant Evaluation</h2>
+        <h2 className="text-xs font-semibold text-foreground">量化評估</h2>
         <span className="ml-auto text-xs text-muted">歷史驗證，與即時選股分開</span>
       </div>
 
@@ -57,7 +57,7 @@ export function QuantEvaluationCard({ compact = false }: { compact?: boolean }) 
         </div>
       ) : query.isError ? (
         <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-muted" role="alert">
-          <span>目前無法讀取 Quant Evaluation 狀態，不影響即時選股。</span>
+          <span>目前無法讀取量化評估狀態，不影響即時選股。</span>
           <button
             type="button"
             onClick={() => void query.refetch()}

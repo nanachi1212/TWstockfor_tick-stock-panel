@@ -1,7 +1,7 @@
 """Taiwan provider throttling on the shared app.rate_limits slot table.
 
 The Taiwan path uses namespaced buckets (taiwan:twse ...) so it can never share
-accounting with the legacy TickFlow / A-share buckets, which stay keyed by rpm
+accounting with the legacy rpm-keyed buckets, which stay keyed by rpm
 value.  The last test in this module pins that legacy behaviour.
 """
 
@@ -206,7 +206,7 @@ def test_429_retry_path_still_consumes_quota(monkeypatch: pytest.MonkeyPatch) ->
 
 
 def test_legacy_ashare_buckets_are_untouched() -> None:
-    """Taiwan keys must not alias the rpm-keyed buckets the A-share path uses."""
+    """Taiwan keys must not alias the rpm-keyed buckets the legacy path uses."""
     _reset_slots()
     taiwan_http.throttle(TWSE_URL, rpm=RPM)
     taiwan_http.throttle(TWSE_URL, rpm=RPM)

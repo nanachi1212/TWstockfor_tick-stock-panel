@@ -112,7 +112,7 @@ async def test_generate_ai_summary_strict_schema(mock_daily_brief_service: Taiwa
         "section_e_candidates": "今日新候選股主要集中在營收年增成長標的。",
         "section_f_risks": "目前無新增處置或重大暫停交易風險股票。",
         "section_g_tracking": "明日觀察重點在大盤成交量能是否放大及法人買賣超動向。",
-        "evidence_sources": ["加權指數收盤數據", "市場情緒指標"],
+        "evidence_sources": ["加權指數收盤資料", "市場情緒指標"],
     })
 
     with patch("app.taiwan.daily_brief_service.generate_ai_text", new_callable=AsyncMock) as mock_gen:

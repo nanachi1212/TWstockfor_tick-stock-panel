@@ -211,7 +211,7 @@ class TaiwanAIStockResearchReport(BaseModel):
 
     # Structured insights and evidence validation
     key_observations: list[ObservationItem] = Field(default_factory=list, description="重點客觀觀察清單 (最多 5 項，均需引證)")
-    risk_factors: list[ObservationItem] = Field(default_factory=list, description="客觀數據所揭示之風險特徵 (均需引證)")
+    risk_factors: list[ObservationItem] = Field(default_factory=list, description="客觀資料所揭示之風險特徵 (均需引證)")
     watch_next: list[ObservationItem] = Field(default_factory=list, description="依目前證據可追蹤且附有效引用的具體觀察項目")
     beginner_answer: BeginnerAnswer | None = Field(None, description="新手三問 (僅在提供 beginner_selection 時產生)")
     missing_information: list[str] = Field(default_factory=list, description="確定性揭示之系統缺失或未覆蓋項目")
@@ -747,10 +747,10 @@ SYSTEM_PROMPT = """你是一個客觀、確定性導向的「台股個股研究�
    - 絕對禁止給予 Buy / Sell / Hold、加碼、減碼、買進、賣出評級。
    - 絕對禁止預測未來股價、給予目標價 (Target Price)、公允價值 (Fair Value)、上漲空間 (Upside) 或勝率評分。
    - 禁用煽動性詞彙：必漲、看多、看空、強烈推薦、逢低買進、散戶進場、主力洗盤、大戶吃貨。
-   - 允許用詞：顯示、反映、目前資料可觀察到、目前證據支持、數據呈現。
+   - 允許用詞：顯示、反映、目前資料可觀察到、目前證據支援、資料呈現。
 2. 封閉事實邊界 (Closed Evidence Boundary)：
-   - 你只能使用傳入的 JSON 數據進行解讀。
-   - 嚴禁捏造新聞、法說會內容、非數據列出的財務指標、產業未驗證傳言或未來催化劑 (Catalysts)。
+   - 你只能使用傳入的 JSON 資料進行解讀。
+   - 嚴禁捏造新聞、法說會內容、非資料列出的財務指標、產業未驗證傳言或未來催化劑 (Catalysts)。
    - 若欄位為 null 或 missing，必須如實說明「目前資料不足」或「未提供」，不得私自推估數值。
    - data_quality 為 partial 時，仍須解讀其他已提供的證據；只將缺漏區段列為限制，不得因缺少新聞、融資券或基本面而放棄整份研究。各區段必須保留其資料日與 stale/unavailable 狀態。
 3. 證據引用規定 (Evidence Refs)：
@@ -775,7 +775,7 @@ SYSTEM_PROMPT = """你是一個客觀、確定性導向的「台股個股研究�
    - 必須嚴格輸出純 JSON 物件，符合指定之綱要結構，不得包含任何 Markdown 外框或閒聊文字。
  8. 個人情境:
    - personal_context 僅依提供的單股行情快照、持倉、自選、Quant 快照、該股提醒事件與社群聲量解讀; 缺少欄位不得補值, 行情標示 stale 時必須標明資料偏舊。
-   - weight_of_registered_pct 僅代表「占已登錄持股市值」，絕非占總資產、淨資產或完整投資組合；quote_coverage 不是 complete 時不得推算或暗示此比例。
+   - weight_of_registered_pct 僅代表「占已登入持股市值」，絕非占總資產、淨資產或完整投資組合；quote_coverage 不是 complete 時不得推算或暗示此比例。
    - 不得從持倉摘要或任何缺失欄位推論現金、銀行存款、對話、記憶或其他未提供資產。
    - social 僅代表社群討論與 AI 情緒分析，可能有抽樣與群體偏誤，不是官方資料、公司事實或未來股價證據。
    - 不重新計算或改寫 Quant 分數與排名, 也不提供買賣決策。
@@ -1051,7 +1051,7 @@ class TaiwanAIResearchService:
         user_prompt = f"""請依據以下封閉研究證據 JSON，為 {ctx.identity.name} ({ctx.identity.code}) 產出結構化客觀解讀報告。
 
 市場研究證據日期為 {ctx.as_of_date}。如包含個人脈絡，該資料代表本次分析時的目前狀態，不得描述成市場證據日期當時的歷史狀態；不得用目前持倉、自選或提醒推論歷史狀態。
-若提供 weight_of_registered_pct，該百分比嚴格僅為「占已登錄持股市值」，不是總資產、淨資產或完整投資組合比例；不得推論未提供的現金、銀行存款、對話、記憶或其他資產。
+若提供 weight_of_registered_pct，該百分比嚴格僅為「占已登入持股市值」，不是總資產、淨資產或完整投資組合比例；不得推論未提供的現金、銀行存款、對話、記憶或其他資產。
 
 【合法引用鍵白名單 (Allowed evidence_refs)】:
 {json.dumps(sorted(list(registry_keys)), ensure_ascii=False)}
@@ -1079,11 +1079,11 @@ class TaiwanAIResearchService:
     {{"text": "觀察重點說明", "evidence_refs": ["合法的白名單鍵"]}}
   ],
   "risk_factors": [
-    {{"text": "數據所呈現之風險特徵", "evidence_refs": ["合法的白名單鍵"]}}
+    {{"text": "資料所呈現之風險特徵", "evidence_refs": ["合法的白名單鍵"]}}
   ],
   "missing_information": ["需涵蓋上述之缺失項目說明"],
   "watch_next": [
-    {{"text": "目前資料支持的具體觀察點", "evidence_refs": ["合法的白名單鍵"]}}
+    {{"text": "目前資料支援的具體觀察點", "evidence_refs": ["合法的白名單鍵"]}}
   ]{beginner_schema}
 }}"""
 

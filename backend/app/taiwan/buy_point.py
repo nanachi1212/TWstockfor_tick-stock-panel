@@ -147,7 +147,7 @@ def builtin_presets() -> list[BuyPointStrategy]:
     """Return the stable built-in catalogue, with no user-data dependency."""
     return [
         _preset("quant_pullback", "Quant 強勢回檔", "等待 Quant 維持高檔的強勢股回檔，不追高。", "價格／Quant", BuyPointConditions(quant_min=70, pullback_min_pct=3, pullback_max_pct=6)),
-        _preset("breakout_high", "突破前高", "觀察整理後突破近期前高，需有 Quant 支持。", "價格突破", BuyPointConditions(quant_min=60, breakout_window=20, volume_multiplier=1.0)),
+        _preset("breakout_high", "突破前高", "觀察整理後突破近期前高，需有 Quant 支援。", "價格突破", BuyPointConditions(quant_min=60, breakout_window=20, volume_multiplier=1.0)),
         _preset("volume_breakout", "放量突破", "價格與成交量同時轉強，尋找有量能確認的突破。", "價格／量能", BuyPointConditions(quant_min=60, breakout_window=10, volume_multiplier=1.5)),
         _preset("institutional_turn", "法人轉買", "觀察法人籌碼由弱轉強，不把單日買超直接當訊號。", "籌碼", BuyPointConditions(quant_min=60, institutional_required=True)),
         _preset("foreign_holding", "外資持股增加", "尋找外資持股逐步增加，而非單日突然買超。", "籌碼", BuyPointConditions(quant_min=60, foreign_shareholding_change_min=0)),

@@ -1,4 +1,4 @@
-"""生成應用圖標 — 白色 squircle 背景 + 紫色 Logo。
+"""生成應用圖示 — 白色 squircle 背景 + 紫色 Logo。
 
 設計 (與 frontend Logo.tsx / favicon.svg 一致):
   背景: 白色 squircle (macOS Big Sur+ 要求不透明 squircle 背景, 用白色填充)
@@ -10,7 +10,7 @@
   → 上影 = 2 (短), 下影 = 6 (長)
 
 每尺寸獨立繪製: 線條佔比全尺寸統一 (~9.4%), 小尺寸微調補償, 不隨尺寸遞減。
-運行: python packaging/generate_icon.py
+執行: python packaging/generate_icon.py
 產物:
   packaging/icon.ico   — Windows (16/32/48/64/128/256)
   packaging/icon.icns  — macOS   (16/32/64/128/256/512, 含 @2x)
@@ -33,7 +33,7 @@ LOGO_WICK = (91, 33, 182, 255)
 
 
 def _draw(size: int, sw_b: float, sw_w: float, body_w: float) -> Image.Image:
-    """繪製單尺寸圖標 (像素直接映射 32-viewBox)。"""
+    """繪製單尺寸圖示 (像素直接映射 32-viewBox)。"""
     factor = max(8, 2048 // size)
     s = size * factor
     img = Image.new("RGBA", (s, s), (0, 0, 0, 0))
@@ -73,7 +73,7 @@ def _draw(size: int, sw_b: float, sw_w: float, body_w: float) -> Image.Image:
 def draw_logo(size: int) -> Image.Image:
     """按尺寸選參數, 保證各尺寸視覺粗細一致。
 
-    核心原則: 所有尺寸線條佔圖標的視覺比例統一, 不能出現"大尺寸反而顯細"。
+    核心原則: 所有尺寸線條佔圖示的視覺比例統一, 不能出現"大尺寸反而顯細"。
     基準定為 sw=4.0/32 (12.5%) — 經多輪對比選定, Dock 放大時線條仍清晰有力。
     小尺寸在基準上略加粗, 抵消像素化糊掉; 大尺寸統一用基準, 不遞減。
     """

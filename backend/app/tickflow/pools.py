@@ -31,7 +31,7 @@ def _pool_cache_path(pool_id: str) -> Path:
 
 
 def get_pool(pool_id: PoolId, refresh: bool = False) -> list[str]:
-    """返回標的池中的 symbol 列表。"""
+    """回傳標的池中的 symbol 欄表。"""
     if pool_id not in {"TAIWAN_ALL", "TWSE_ALL", "TPEX_ALL", "STOCKS", "ETFS", "watchlist"}:
         raise ValueError("Unsupported market pool")
     if pool_id == "watchlist":

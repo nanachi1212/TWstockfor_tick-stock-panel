@@ -122,7 +122,7 @@ class TaiwanMarketSentimentService:
                 raise_for_status=True,
             )
             if not rows:
-                return None, "unavailable", f"查無 {target_date.isoformat()} 近期台指期三大法人數據"
+                return None, "unavailable", f"查無 {target_date.isoformat()} 近期台指期三大法人資料"
 
             parsed = self._parse_futures_rows(rows, target_date=target_date)
             if not parsed:
@@ -220,7 +220,7 @@ class TaiwanMarketSentimentService:
                 raise_for_status=True,
             )
             if not rows:
-                return None, "unavailable", f"查無 {target_date.isoformat()} 近期選擇權三大法人數據"
+                return None, "unavailable", f"查無 {target_date.isoformat()} 近期選擇權三大法人資料"
 
             parsed = self._parse_options_rows(rows, target_date=target_date)
             if not parsed:

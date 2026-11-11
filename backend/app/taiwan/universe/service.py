@@ -32,9 +32,9 @@ class TaiwanSecurityMaster:
         twse_adapter: TwseInstrumentAdapter | None = None,
         tpex_adapter: TpexInstrumentAdapter | None = None,
     ) -> None:
-        # Phase 8B-5.0.6: 省略 cache_path 时锚定到 settings.data_dir, 不再是
-        # cwd-dependent 的裸相对路径(见 app/taiwan/data_root.py)。显式传入
-        # cache_path(既有 deterministic test 都这样做)时行为不变。
+        # Phase 8B-5.0.6: 省略 cache_path 時錨定到 settings.data_dir, 不再是
+        # cwd-dependent 的裸相對路徑(見 app/taiwan/data_root.py)。顯式傳入
+        # cache_path(既有 deterministic test 都這樣做)時行為不變。
         if cache_path is None:
             from app.taiwan.data_root import taiwan_data_root
 

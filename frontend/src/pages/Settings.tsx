@@ -1,5 +1,5 @@
 /**
- * 統一設置頁面 — Tab 切換外殼。
+ * 統一設定頁面 — Tab 切換外殼。
  *
  * 通過 URL query param ?tab=xxx 同步 Tab 狀態。
  */
@@ -47,7 +47,7 @@ export function Settings() {
   const activeTab = TABS.find((t) => t.key === tabParam) ?? TABS[0]
   const highlight = searchParams.get('highlight') ?? ''
 
-  // 設置菜單收起狀態 — 持久化到 localStorage
+  // 設定選單收起狀態 — 持久化到 localStorage
   const [collapsed, setCollapsed] = useState(() => {
     try { return localStorage.getItem('tf-settings-nav-collapsed') === '1' } catch { return false }
   })
@@ -87,7 +87,7 @@ export function Settings() {
                 {!collapsed && <span>收起選單</span>}
               </button>
 
-              {/* Tab 按鈕列表 — 收起時只顯示圖標 */}
+              {/* Tab 按鈕列表 — 收起時只顯示圖示 */}
               {TABS.map(({ key, label, icon: Icon, badge }) => (
                 <button
                   key={key}

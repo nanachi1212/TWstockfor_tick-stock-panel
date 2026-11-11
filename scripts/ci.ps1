@@ -1,4 +1,4 @@
-[CmdletBinding()]
+﻿[CmdletBinding()]
 param(
     [ValidateSet('Auto', 'Fast', 'Full', 'Live')]
     [string]$Mode = 'Auto',

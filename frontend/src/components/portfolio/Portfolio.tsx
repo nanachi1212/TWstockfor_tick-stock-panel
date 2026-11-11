@@ -256,7 +256,7 @@ export function PortfolioTradeDialog({
       })
       onClose()
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : '無法保存成交紀錄')
+      setError(cause instanceof Error ? cause.message : '無法儲存成交紀錄')
     }
   }
 
@@ -309,7 +309,7 @@ export function PortfolioTradeDialog({
         {side === 'sell' && position && <p className="text-xs text-muted">目前持有 {position.shares.toLocaleString()} 股，平均成本 {money(position.averageCost)}</p>}
         {ledgerError && <p role="alert" className="text-xs text-danger">{ledgerError}</p>}
         {error && <p role="alert" className="rounded-lg bg-danger/10 px-3 py-2 text-xs text-danger">{error}</p>}
-        <button type="submit" disabled={!!ledgerError || (side === 'sell' ? (!taxQuery.data || taxQuery.isFetching) : (!instrumentQuery.data || instrumentQuery.isFetching))} className="w-full rounded-lg bg-accent px-3 py-2 text-xs font-semibold text-white hover:bg-accent/90 disabled:cursor-not-allowed disabled:opacity-50">保存成交</button>
+        <button type="submit" disabled={!!ledgerError || (side === 'sell' ? (!taxQuery.data || taxQuery.isFetching) : (!instrumentQuery.data || instrumentQuery.isFetching))} className="w-full rounded-lg bg-accent px-3 py-2 text-xs font-semibold text-white hover:bg-accent/90 disabled:cursor-not-allowed disabled:opacity-50">儲存成交</button>
       </form>
     </div>
   )
@@ -317,7 +317,7 @@ export function PortfolioTradeDialog({
 
 export function PortfolioPanel({ symbol, name, quote: detailQuote, change: detailChange, changePct: detailChangePct, quoteMeta, quoteUnavailable = false, openImportOnMount = false, allocation }: {
   symbol?: string
-  /** 「我的持股」頁：一進來就打開匯入視窗。 */
+  /** 「我的持股」頁：一進來就開啟匯入視窗。 */
   openImportOnMount?: boolean
   allocation?: TaiwanPortfolioAnalytics['allocation']
   name?: string
@@ -449,7 +449,7 @@ export function PortfolioPanel({ symbol, name, quote: detailQuote, change: detai
         </div>
       )}
       {!symbol && quotesQuery.isLoading && positions.length > 0 && <p role="status" className="text-xs text-muted">正在載入持股報價…</p>}
-      {!symbol && quotesQuery.isError && <p role="alert" className="text-xs text-warning">報價載入失敗，請稍後重試；持股與成本資料仍已保存。</p>}
+      {!symbol && quotesQuery.isError && <p role="alert" className="text-xs text-warning">報價載入失敗，請稍後重試；持股與成本資料仍已儲存。</p>}
       {shownPositions.length === 0 ? ledgerError ? null : (
         <p className="rounded-lg bg-base px-3 py-5 text-center text-xs text-muted">{symbol ? '目前沒有這檔持股，記錄買入後會顯示在這裡。' : '目前沒有持股，從觀察清單或個股頁記錄第一筆買入。'}</p>
       ) : (

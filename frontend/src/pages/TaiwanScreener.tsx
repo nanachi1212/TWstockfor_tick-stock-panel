@@ -53,6 +53,7 @@ import { formatAmount, formatChangePct, formatPrice, formatShortBalanceLots, for
 
 import { STRATEGY_COMMON_NOTE, STRATEGY_GUIDE } from '@/lib/strategyGuide'
 import { dayTradeFit } from '@/lib/dayTrade'
+import { statusLabel } from '@/lib/evidenceLabel'
 
 const FORWARD_STRATEGY_OPTIONS = [
   { id: 'trend_liquidity_v1', label: '趨勢流動性' },
@@ -177,7 +178,7 @@ export function TaiwanScreener() {
       ...(forwardPreview.strategy_readiness !== 'ready' ? (forwardPreview.strategy_readiness_reasons ?? ['策略資料覆蓋不足']).map(reason => reason === '法人資料不可用' ? '法人資料尚未準備' : reason === '月營收資料不可用' ? '月營收資料尚未準備' : reason) : []),
       ...Object.entries(forwardPreview.risk_source_statuses ?? {})
         .filter(([, status]) => status !== 'available')
-        .map(([source, status]) => `監管來源 ${source}：${status}`),
+        .map(([source, status]) => `監管來源 ${source}：${statusLabel(status)}`),
       ...(forwardPreview.degraded_sections ?? []).map(section => section === 'trend_history' ? '部分標的缺可用價格，已排除' : section),
     ],
   } : null
@@ -624,7 +625,7 @@ export function TaiwanScreener() {
     staleTime: 10_000,
   })
 
-  // 快照保存 Mutation (A12)
+  // 快照儲存 Mutation (A12)
   const saveSnapshotMutation = useMutation({
     mutationFn: () => {
       if (!data?.items?.length) throw new Error('目前尚無選股結果')
@@ -786,7 +787,7 @@ export function TaiwanScreener() {
             <div className="mt-1 text-xs text-zinc-400">條件：{STRATEGY_GUIDE[activeForwardStrategy].rule}。{STRATEGY_COMMON_NOTE}</div>
           </div>
         )}
-        {data?.strategy_id && <span className="rounded bg-zinc-900 px-2 py-1 text-xs text-purple-300">{data.strategy_name}，{data.strategy_readiness ?? '—'}</span>}
+        {data?.strategy_id && <span className="rounded bg-zinc-900 px-2 py-1 text-xs text-purple-300">{data.strategy_name}，{statusLabel(data.strategy_readiness)}</span>}
         {data?.strategy_id && data.strategy_coverage && Object.keys(data.strategy_coverage).length > 0 && (
           <span className="rounded bg-zinc-900 px-2 py-1 text-xs text-zinc-400">
             覆蓋：{Object.entries(data.strategy_coverage).map(([key, value]) => `${key.replace(/_count$/, '')} ${value}`).join('，')}

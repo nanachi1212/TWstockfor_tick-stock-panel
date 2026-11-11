@@ -71,7 +71,7 @@ def test_full_rebuild_rejects_missing_existing_dates_before_writing(tmp_path, mo
     _write_existing(tmp_path, "2026-07-15", 1.0)
     monkeypatch.setattr(pipeline, "compute_enriched", _fake_compute_enriched)
 
-    with pytest.raises(RuntimeError, match="缺少已有日期分区"):
+    with pytest.raises(RuntimeError, match="缺少已有日期分區"):
         pipeline.run_pipeline(data_dir=tmp_path)
 
     existing = pl.read_parquet(

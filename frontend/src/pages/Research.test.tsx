@@ -37,7 +37,7 @@ describe('Research history page', () => {
     expect(workflow).toHaveTextContent('當時持股：100 股')
     expect(workflow).toHaveTextContent('alert-1')
     expect(within(workflow).getByRole('link', { name: '原候選快照與事後追蹤' })).toHaveAttribute('href', '/selection-review?tab=live&model_key=baseline_v1&session=2026-09-01')
-    expect(within(workflow).getByRole('link', { name: '檢視／登錄持股' })).toHaveAttribute('href', '/stocks/2330.TWSE#portfolio')
+    expect(within(workflow).getByRole('link', { name: '檢視／登入持股' })).toHaveAttribute('href', '/stocks/2330.TWSE#portfolio')
     expect(within(workflow).getByRole('link', { name: '檢視／設定提醒' })).toHaveAttribute('href', '/stocks/2330.TWSE#monitor')
     expect(api.taiwanAIResearchHistoryDetail).toHaveBeenCalledWith('old')
   })

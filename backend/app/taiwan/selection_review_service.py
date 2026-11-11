@@ -200,7 +200,7 @@ class TaiwanSelectionReviewService:
             snapshots = self._read_snapshots_raw()
         if not snapshots:
             return {key: {"status": "unavailable", "source": "Selection Review",
-                          "reason": "尚未保存選股快照"}
+                          "reason": "尚未儲存選股快照"}
                     for key in ("selection_snapshot", "selection_outcome")}
         latest = max(snapshots, key=lambda item: item.created_at)
         common = {"source": "Selection Review", "data_date": latest.as_of_date,
@@ -211,7 +211,7 @@ class TaiwanSelectionReviewService:
         behind = date.fromisoformat(latest.as_of_date) < target
         snapshot = {**common, "status": "not_run" if behind else "current", "last_success": latest.created_at,
                     "reason": f"今日（{target}）尚未手動鎖定選股快照；既有快照保留" if behind
-                    else "已保存不可變快照"}
+                    else "已儲存不可變快照"}
         try:
             review = self.get_snapshot_review(latest.snapshot_id)
         except Exception:

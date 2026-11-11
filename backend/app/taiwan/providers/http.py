@@ -2,8 +2,8 @@
 
 Every Taiwan request goes through the process-shared slot table in
 ``app.rate_limits`` before it leaves the machine.  Buckets are namespaced
-(``taiwan:twse`` ...) so they never share accounting with the legacy TickFlow /
-A-share buckets, which stay keyed by rpm value.
+(``taiwan:twse`` ...) so they never share accounting with the legacy
+rpm-keyed buckets, which stay keyed by rpm value.
 
 Requests whose host is not in ``_HOST_KEYS`` return ``None`` from
 ``rate_limit_key`` and are sent unthrottled, i.e. exactly the previous

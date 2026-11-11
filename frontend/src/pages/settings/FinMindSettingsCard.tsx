@@ -154,7 +154,7 @@ export function FinMindSettingsCard() {
         >
           FinMind 官方網站
         </a>{' '}
-        免費註冊會員並設定 Token 後，可享有每小時 600 次請求額度。Token 將安全保存在本機，絕不寫入 Git、前端 Bundle 或對外洩漏。
+        免費註冊會員並設定 Token 後，可享有每小時 600 次請求額度。Token 將安全儲存在本機，絕不寫入 Git、前端 Bundle 或對外洩漏。
       </p>
 
       {/* 當前 Token 狀態 */}

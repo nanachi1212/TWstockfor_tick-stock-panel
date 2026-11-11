@@ -1,1 +1,1 @@
-"""TickFlow 适配层 — 能力探测 / 调度 / Repository。"""
+"""資料存取層 (沿用 tickflow 目錄名) — 能力探測 / 調度 / Repository。"""

@@ -39,11 +39,11 @@ export const QK = {
   watchlistEnriched:    (ext?: string) => ['watchlist-enriched', ext] as const,
   // 不用 watchlist- 前綴: 日K歷史盤中幾乎不變, 若被 SSE quotes_updated 高頻失效
   // (expert 1s) 會導致全自選日K每秒重拉, staleTime 形同虛設。
-  // 刷新點: staleTime 過期 + Watchlist 增刪自選/改蠟燭天數時的手動失效;
-  // 當日最後一根蠟燭由 Watchlist 用 enriched 實時 OHLC 前端修補 (零額外請求)。
+  // 重新整理點: staleTime 過期 + Watchlist 增刪自選/改蠟燭天數時的手動失效;
+  // 當日最後一根蠟燭由 Watchlist 用 enriched 即時 OHLC 前端修補 (零額外請求)。
   watchlistKlineBatch:  (symbols: string) => ['kline-batch', symbols] as const,
   // 不用 watchlist- 前綴: 避免被 SSE quotes_updated 高頻失效(expert 1s/pro 2s)
-  // 導致每次都拉資料來源觸限流。分時圖用固定 refetchInterval 刷新即可。
+  // 導致每次都拉資料來源觸限流。分時圖用固定 refetchInterval 重新整理即可。
   minuteBatch:          (symbols: string) => ['minute-batch', symbols] as const,
   instrumentSearch:     (q: string, assetTypes?: string) =>
     ['instrument-search', q, assetTypes ?? 'stock', 'taiwan'] as const,
@@ -111,7 +111,7 @@ export const QK = {
   taiwanSocialSentimentJob: (jobId: string, source?: string, symbol?: string, q?: string, offset?: number) =>
     ['taiwan-social-sentiment-job', jobId, source ?? '', symbol ?? '', q ?? '', offset ?? 0] as const,
 
-  // 市場環境(Regime) — 日級離線計算, 不進 SSE 刷新
+  // 市場環境(Regime) — 日級離線計算, 不進 SSE 重新整理
   regimeLatest:         ['regime-latest'] as const,
 
   // Selection Review (A12)
@@ -158,15 +158,15 @@ export const DATA_HEALTH_INVALIDATE_PREFIXES = {
 // ===== SSE 應該 invalidate 的 key 前綴列表 =====
 // 新增需要 SSE 推送的查詢，只需在此加一行
 //
-// 注意: 策略頁 (screener-cached) 不在此列表 —— 行情刷新時策略結果不變
-// (非監控策略讀盤後靜態緩存, 監控策略由獨立的 strategy_results_updated 事件在
-// 重算完成後刷新)。若加入 'screener', 會導致每個行情 tick 雙重刷新策略頁,
-// 且在 monitor "重算" 窗口內讀到空結果, 造成策略列表閃爍 (變 0 → 空失效 → 又出現)。
+// 注意: 策略頁 (screener-cached) 不在此列表 —— 行情重新整理時策略結果不變
+// (非監控策略讀盤後靜態快取, 監控策略由獨立的 strategy_results_updated 事件在
+// 重算完成後重新整理)。若加入 'screener', 會導致每個行情 tick 雙重重新整理策略頁,
+// 且在 monitor "重算" 視窗內讀到空結果, 造成策略列表閃爍 (變 0 → 空失效 → 又出現)。
 
 export const SSE_INVALIDATE_PREFIXES = [
-  // 精確前綴: 只命中自選頁的實時數據 (quotes/enriched)。不能用寬泛的 'watchlist' ——
-  // 會誤傷 ['watchlist'] (自選列表) 和 ['watchlist-groups'] (分組配置, 只隨手動操作變化)。
-  // 舊設置裡的 'watchlist' 單開關由 useQuoteStream 兼容讀取。
+  // 精確前綴: 只命中自選頁的即時資料 (quotes/enriched)。不能用寬泛的 'watchlist' ——
+  // 會誤傷 ['watchlist'] (自選列表) 和 ['watchlist-groups'] (分組設定, 只隨手動操作變化)。
+  // 舊設定裡的 'watchlist' 單開關由 useQuoteStream 相容讀取。
   'watchlist-quotes',
   'watchlist-enriched',
   'quote-status',

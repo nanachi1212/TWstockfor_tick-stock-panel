@@ -333,12 +333,12 @@ def save_snapshot(req: SnapshotRequest, request: Request):
         raise HTTPException(404, "找不到買點策略")
     signal = next((item for item in _signals_for_symbols(store, [req.symbol]) if item.strategy_id == req.strategy_id), None)
     if signal is None or signal.status not in {"triggered", "approaching"} or signal.price is None:
-        raise HTTPException(409, "目前買點資料不足或尚未形成，無法保存快照")
+        raise HTTPException(409, "目前買點資料不足或尚未形成，無法儲存快照")
     from app.taiwan.daily_update import resolve_target_latest_trading_date
 
     eligible_date = resolve_target_latest_trading_date().isoformat()
     if signal.data_as_of != eligible_date:
-        raise HTTPException(409, "買點資料不是目前可用的最新交易日，無法保存前瞻快照")
+        raise HTTPException(409, "買點資料不是目前可用的最新交易日，無法儲存前瞻快照")
     from app.taiwan.selection_review_models import (
         SaveSelectionSnapshotRequest,
         SelectionSnapshotItem,

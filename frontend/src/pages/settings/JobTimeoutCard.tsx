@@ -1,5 +1,5 @@
 /**
- * 數據任務超時配置卡片 — 從 DataSources 抽出, 放在系統設置頁。
+ * 資料任務超時設定卡片 — 從 DataSources 抽出, 放在系統設定頁。
  */
 import { useState } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
@@ -74,7 +74,7 @@ export function JobTimeoutCard() {
           <div>
             <h2 className="text-sm font-medium text-foreground">逾時設定</h2>
             <p className="text-xs text-muted mt-1 leading-relaxed">
-              背景任務超過對應時間<b>沒有任何進度</b>才判定卡死並自動終止;只要任務仍在推進(如慢頻寬下的冷啟動全市場拉取),無論總時長多久都不會被中斷。儲存時自動換算為秒,修改後對新建任務生效。
+              背景任務超過對應時間<b>沒有任何進度</b>才判定卡死並自動終止;只要任務仍在推進(如慢頻寬下的冷啟動全市場拉取),無論總時長多久都不會被中斷。儲存時自動換算為秒,修改後對新增任務生效。
             </p>
           </div>
         </div>

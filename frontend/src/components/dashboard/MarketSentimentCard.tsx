@@ -165,7 +165,7 @@ export function MarketSentimentCard({ targetDate }: { targetDate?: string | null
               <AlertTriangle className="h-3 w-3 shrink-0" />
               <span>
                 {data.derivatives_status_message ||
-                  '期權籌碼資料未配置或受限，已純依現貨指標客觀計算，未造假數據。'}
+                  '期權籌碼資料未設定或受限，已純依現貨指標客觀計算，未造假資料。'}
               </span>
             </div>
           )}

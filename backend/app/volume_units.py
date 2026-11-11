@@ -12,7 +12,7 @@ TAIWAN_SUFFIXES = (".TWSE", ".TPEX")
 def volume_unit_for_symbols(symbols: Iterable[str]) -> str:
     taiwan = [str(symbol).endswith(TAIWAN_SUFFIXES) for symbol in symbols]
     if taiwan and any(taiwan) and not all(taiwan):
-        raise ValueError("mixed Taiwan/CN matrices require one canonical volume unit")
+        raise ValueError("mixed Taiwan/legacy matrices require one canonical volume unit")
     return "shares" if taiwan and all(taiwan) else "lots"
 
 

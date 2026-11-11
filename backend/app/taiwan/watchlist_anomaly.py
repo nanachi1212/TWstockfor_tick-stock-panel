@@ -4,7 +4,7 @@
 - 漲跌幅絕對值 ≥ 3% (可調)。
 - 同一股票同一天只提醒一次 (方向改變才會再提醒一次)。
 
-結果走既有提醒管線: alert_store 落盤 → SSE 廣播到看板「提醒」區 → 依全域通道推播。
+結果走既有提醒管線: alert_store 寫入磁碟 → SSE 廣播到看板「提醒」區 → 依全域通道推播。
 預設關閉；資料來源不是盤中即時報價時 (收盤快照、延遲) 不觸發，避免誤報。
 """
 # ruff: noqa: RUF001, RUF002 -- user-facing Traditional Chinese text is intentional.
@@ -23,7 +23,7 @@ _PREF_ENABLED = "watchlist_anomaly_enabled"
 _PREF_THRESHOLD = "watchlist_anomaly_threshold_pct"  # 單位: 百分比數值, 3 = 3%
 _DEFAULT_THRESHOLD_PCT = 3.0
 _MIN_THRESHOLD_PCT, _MAX_THRESHOLD_PCT = 1.0, 10.0
-# (trade_date, symbol) → direction already notified today (重啟後由已落盤提醒重建)
+# (trade_date, symbol) → direction already notified today (重啟後由已寫入磁碟提醒重建)
 _NOTIFIED: dict[tuple[date, str], str] = {}
 _RESTORED_DATE: date | None = None
 _LIVE_SOURCES = {"twse_mis", "mis", "fugle"}
@@ -179,7 +179,7 @@ def scan(app_state: Any | None = None) -> dict[str, Any]:
 
     events = [ev for _, _, ev in pending]
     alert_store.append_many(data_dir, events)
-    # 落盤成功後才記為「今天已提醒」; 寫入失敗則下一輪重試
+    # 寫入磁碟成功後才記為「今天已提醒」; 寫入失敗則下一輪重試
     for key, direction, _ in pending:
         _NOTIFIED[key] = direction
     qs = getattr(app_state, "quote_service", None)

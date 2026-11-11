@@ -1,4 +1,4 @@
-"""Windows 路径防护: 缓存键、插件名、持股同步路径在碰文件系统前就拒绝穿越与 UNC 路径。"""
+"""Windows 路徑防護: 快取鍵、外掛名、持股同步路徑在碰檔案系統前就拒絕穿越與 UNC 路徑。"""
 from __future__ import annotations
 
 import json
@@ -58,7 +58,7 @@ def test_news_traversal_symbol_does_not_overwrite_files(tmp_path: Path):
     service.get_recent_news("../../victim.TWSE")
     assert json.loads(victim.read_text(encoding="utf-8")) == {"keep": True}
 
-    # 正常 ETF 代码照常查询并写入缓存
+    # 正常 ETF 代碼照常查詢並寫入快取
     assert service.get_recent_news("00878").status == "available"
     assert (tmp_path / "cache" / "TaiwanStockNews" / "00878.json").is_file()
 

@@ -5,7 +5,7 @@
 就在背景執行一次既有的增量更新 (與 16:30 排程同一條流程)，不另建資料路徑。
 
 - 不在盤中補跑 (官方全市場日線要收盤後才完整)。
-- 一個程序只補跑一次，失敗只記 log，不影響啟動。
+- 一個行程只補跑一次，失敗只記 log，不影響啟動。
 """
 # ruff: noqa: RUF002 -- user-facing Traditional Chinese text is intentional.
 from __future__ import annotations
@@ -99,7 +99,7 @@ def _run(app_state: Any) -> None:
             logger.info("startup catch-up skipped: %s", reason)
         else:
             logger.info("startup catch-up: daily data stale (%s); running the shared post-close update chain", reason)
-            # 與 16:30 排程同一條流程 (資料更新 + 研究視圖 + Quant + Auto Watch + 自動 AI 說明 + 收盤推播)
+            # 與 16:30 排程同一條流程 (資料更新 + 研究檢視表 + Quant + Auto Watch + 自動 AI 說明 + 收盤推播)
             daily_pipeline.set_app_state(app_state)
             daily_pipeline.run_taiwan_update(trigger="startup_catchup")
             _LAST.update(status="ran", reason=reason)
@@ -174,7 +174,7 @@ def schedule(app_state: Any, delay_seconds: float = 20.0) -> bool:
 
 
 def cancel() -> None:
-    """關閉程序時取消尚未執行的補跑 (已開始執行的不中斷)。"""
+    """關閉程式時取消尚未執行的補跑 (已開始執行的不中斷)。"""
     global _TIMER
     if _TIMER is not None:
         _TIMER.cancel()

@@ -1,7 +1,7 @@
 import { PortfolioPanel } from '@/components/portfolio/Portfolio'
 import { PortfolioAnalyticsPanel, usePortfolioAnalytics } from '@/components/portfolio/PortfolioAnalytics'
 
-/** 左側選單「我的持股」：持倉清單，進入時直接打開匯入視窗。 */
+/** 左側選單「我的持股」：持倉清單，進入時直接開啟匯入視窗。 */
 export function Holdings() {
   const { hasHoldings, query } = usePortfolioAnalytics()
   return (

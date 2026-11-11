@@ -57,7 +57,7 @@ async function networkFirst(request) {
 async function navigate(event) {
   try {
     const response = await fetch(event.request)
-    // sw.js 內容不變就不會重跑 install; 每次連線導航刷新離線殼, 離線時才拿得到引用現行 assets 檔名的 index.html。
+    // sw.js 內容不變就不會重跑 install; 每次連線導航重新整理離線殼, 離線時才拿得到引用現行 assets 檔名的 index.html。
     event.waitUntil(caches.open(CACHE).then(cache => cache.add(SHELL)))
     return response
   } catch {

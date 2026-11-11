@@ -55,7 +55,7 @@ REASONS = {
     "empty_official_daily_snapshot": "官方日行情尚未發布（回應為空）",
     "official_daily_snapshot_incomplete": "官方來源回應不完整或連線中斷，下次排程自動重試",
     "exchange_missing": "部分交易所資料缺漏，尚未完整涵蓋 TWSE 與 TPEx",
-    "reference_snapshot": "已保存參考快照，更新頻率未記錄，無法確認目前新鮮度",
+    "reference_snapshot": "已儲存參考快照，更新頻率未記錄，無法確認目前新鮮度",
     "security_master_missing": "本地證券主檔尚不存在",
     "cache_metadata_invalid": "本地快取 metadata 無法讀取",
     "live_run_missing": "目前交易日尚未建立有效 Live Quant run",
@@ -350,7 +350,7 @@ class DatasetHealth(BaseModel):
     error: str | None = None
     data_date: str | None = None
     freshness: str = "未知"
-    reason: str = "尚未查詢或尚未保存 metadata"
+    reason: str = "尚未查詢或尚未儲存 metadata"
     last_attempt: str | None = None
     last_success: str | None = None
     actions: list[HealthAction] = Field(default=["validate"])
@@ -710,7 +710,7 @@ class DataHealthService:
             "freshness": "今日交易日證據",
             "reason": "兩交易所交易日狀態已確認"
             if known == 2
-            else "今日交易日將於官方盤後日行情入庫後確認；未將未知平日視為開市或休市",
+            else "今日交易日將於官方盤後日行情寫入後確認；未將未知平日視為開市或休市",
         }
 
     def _quant(self) -> dict[str, Any]:
@@ -731,7 +731,7 @@ class DataHealthService:
                 "data_date": pending,
                 "freshness": "目前已完成且有官方證據的交易日",
                 # Downstream consequence; an older ranking is never shown as today's.
-                "reason": f"等待 {today} 官方日行情入庫後才執行今日 Live Quant（下游依賴 Daily）"
+                "reason": f"等待 {today} 官方日行情寫入後才執行今日 Live Quant（下游依賴 Daily）"
                 if pending == today
                 else REASONS["session_unavailable"],
                 "last_attempt": timestamp(op.get("recorded_at")),
@@ -809,8 +809,8 @@ class DataHealthService:
             return {
                 "status": "unavailable",
                 "source": "TWSE MI_5MINS_HIST / TPEx tpex_index（官方 OpenAPI）",
-                "freshness": "官方指數日收盤，隨盤後更新保存",
-                "reason": "尚未保存官方指數收盤；執行盤後更新後自動取得",
+                "freshness": "官方指數日收盤，隨盤後更新儲存",
+                "reason": "尚未儲存官方指數收盤；執行盤後更新後自動取得",
             }
         target = resolve_target_latest_trading_date()
         day = row["date"]
@@ -833,13 +833,13 @@ class DataHealthService:
             "source": row["source"],
             "data_date": day.isoformat(),
             "freshness": f"官方指數日收盤；目標交易日 {target}",
-            "reason": "已保存官方指數收盤"
+            "reason": "已儲存官方指數收盤"
             if status == "current"
             else safe_reason(failure.get("error"), "本次官方指數更新失敗，原有資料保留")
             if status == "provider_error" and failure
-            else f"官方 OpenAPI 尚未提供 {target} 指數收盤；已保存最近官方收盤"
+            else f"官方 OpenAPI 尚未提供 {target} 指數收盤；已儲存最近官方收盤"
             if status == "awaiting_publication"
-            else f"已保存的官方指數收盤早於目標交易日 {target}",
+            else f"已儲存的官方指數收盤早於目標交易日 {target}",
             "last_success": timestamp(row.get("retrieved_at")),
             "last_attempt": timestamp(run.get("run_started_at")) if failure else None,
         }

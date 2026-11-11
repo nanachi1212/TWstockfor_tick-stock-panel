@@ -4,6 +4,7 @@ import { type AlertEvent, type TaiwanAbnormalDiagnosticsSnapshot } from '@/lib/a
 import { type TaiwanDailyStatus } from './MarketOverviewCard'
 import { SectionTitle } from './SectionTitle'
 import { pctClass, fmtStockPct } from './dashboardFormat'
+import { statusLabel } from '@/lib/evidenceLabel'
 
 export function MarketAnomalyCard({ snapshot, loading, error, alerts, alertsLoading, alertsError, marketDailyStatus }: {
   snapshot?: TaiwanAbnormalDiagnosticsSnapshot
@@ -67,7 +68,7 @@ export function MarketAnomalyCard({ snapshot, loading, error, alerts, alertsLoad
         </Link>
       )}
           </>}
-      {snapshot && <div className="mt-1 text-xs text-muted">診斷狀態：{snapshot.data_quality.overall_status}，日行情 {snapshot.data_quality.daily_status}，{snapshot.data_quality.evaluated_symbol_count} 檔</div>}
+      {snapshot && <div className="mt-1 text-xs text-muted">診斷狀態：{statusLabel(snapshot.data_quality.overall_status)}，日行情 {statusLabel(snapshot.data_quality.daily_status)}，{snapshot.data_quality.evaluated_symbol_count} 檔</div>}
     </section>
   )
 }

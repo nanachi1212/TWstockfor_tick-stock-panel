@@ -1,10 +1,10 @@
 /**
  * 語音播報 — 用瀏覽器原生 speechSynthesis, 無需依賴/音頻文件。
  *
- * 與 notificationSound.ts 平行的獨立模塊:
+ * 與 notificationSound.ts 平行的獨立模組:
  * - 引擎獨立: speechSynthesis (OS 層) vs Web Audio
- * - 配置獨立: voice_broadcast_* localStorage keys
- * - 開關獨立: voice_broadcast_enabled (默認關)
+ * - 設定獨立: voice_broadcast_* localStorage keys
+ * - 開關獨立: voice_broadcast_enabled (預設關)
  *
  * 節流策略 (複用通知聲效"整批一聲"理念, 語音更嚴):
  * - speakAlerts() 一次接收一批告警, 合併成一句話
@@ -15,23 +15,23 @@ import type { AlertEvent } from './api'
 import { strategyEventMeta, strategyName } from './strategyMonitorEvents'
 
 const LS = {
-  enabled: 'voice_broadcast_enabled',     // '1'/'0', 默認關
-  voice: 'voice_broadcast_voice',         // 語音包 voiceURI (空=系統默認)
-  rate: 'voice_broadcast_rate',            // 語速 0.5-2, 默認 1
+  enabled: 'voice_broadcast_enabled',     // '1'/'0', 預設關
+  voice: 'voice_broadcast_voice',         // 語音包 voiceURI (空=系統預設)
+  rate: 'voice_broadcast_rate',            // 語速 0.5-2, 預設 1
 } as const
 
-// ===== 激活態: 瀏覽器自動播放策略要求用戶先交互一次 =====
+// ===== 啟用態: 瀏覽器自動播放策略要求使用者先交互一次 =====
 let _activated = false
 
 /**
- * 解鎖 speechSynthesis — 瀏覽器禁止頁面加載後自動發聲。
- * 由設置頁開關/試聽按鈕點擊時調用一次, 之後 SSE 推來的告警才能自動念。
+ * 解鎖 speechSynthesis — 瀏覽器禁止頁面載入後自動發聲。
+ * 由設定頁開關/試聽按鈕點擊時呼叫一次, 之後 SSE 推來的告警才能自動念。
  */
 export function activateVoice() {
   try {
     if (!_activated && 'speechSynthesis' in window) {
       _activated = true
-      // 空語句觸發激活, 不實際發聲
+      // 空語句觸發啟用, 不實際發聲
       const u = new SpeechSynthesisUtterance('')
       u.volume = 0
       window.speechSynthesis.speak(u)
@@ -39,16 +39,16 @@ export function activateVoice() {
   } catch { /* ignore */ }
 }
 
-/** 是否支持語音播報 */
+/** 是否支援語音播報 */
 export function isVoiceSupported(): boolean {
   return typeof window !== 'undefined' && 'speechSynthesis' in window
 }
 
-// ===== 中文語音包檢測 (供設置頁下拉) =====
+// ===== 中文語音包檢測 (供設定頁下拉) =====
 
 /**
  * 返回系統可用的中文語音包。
- * 注意: getVoices() 首次調用可能返回空, 需監聽 voiceschanged 事件。
+ * 注意: getVoices() 首次呼叫可能返回空, 需監聽 voiceschanged 事件。
  */
 export function listZhVoices(): SpeechSynthesisVoice[] {
   try {
@@ -56,29 +56,29 @@ export function listZhVoices(): SpeechSynthesisVoice[] {
   } catch { return [] }
 }
 
-// ===== 語音包解析: 用戶手選 > zh-TW > 其他中文 > zh-CN 兜底 =====
+// ===== 語音包解析: 使用者手選 > zh-TW > 其他中文 > zh-CN 備援 =====
 
 /**
  * 解析當前應使用的語音包 (TAIWAN_LOCALIZATION_POLISH follow-up: 修正預設偏好,
  * 不再讓 zh-CN 優先於 zh-TW)。
  *
  * 優先級:
- *   1. 用戶在設置頁手選的 (voice_broadcast_voice) — 不受本次調整影響
+ *   1. 使用者在設定頁手選的 (voice_broadcast_voice) — 不受本次調整影響
  *   2. zh-TW 語音 (若同時存在多個 zh-TW 語音包, 優先其中的 Google 版本 — 因其
  *      音質通常接近真人; 但不要求一定要有 Google, 沒有 Google zh-TW 時用任一
  *      zh-TW 語音)
  *   3. 其他適合中文的語音 (zh-HK / 泛用 zh 等, 排除 zh-CN — zh-CN 只能是更後面
- *      的兜底, 不該在這一層出現)
- *   4. zh-CN 兜底 (沒有任何 zh-TW / 其他中文語音時, 至少用中文發音, 優於英文
- *      系統默認音)
- *   5. 都沒有: undefined (交瀏覽器系統默認, 可能不標準但不崩)
+ *      的備援, 不該在這一層出現)
+ *   4. zh-CN 備援 (沒有任何 zh-TW / 其他中文語音時, 至少用中文發音, 優於英文
+ *      系統預設音)
+ *   5. 都沒有: undefined (交瀏覽器系統預設, 可能不標準但不崩)
  */
 function resolveVoice(): SpeechSynthesisVoice | undefined {
   try {
     const voices = window.speechSynthesis.getVoices()
     if (voices.length === 0) return undefined
 
-    // 1. 用戶手選
+    // 1. 使用者手選
     const configured = localStorage.getItem(LS.voice)
     if (configured) {
       const m = voices.find(v => v.voiceURI === configured)
@@ -95,12 +95,12 @@ function resolveVoice(): SpeechSynthesisVoice | undefined {
     const otherZh = voices.find(v => v.lang.startsWith('zh') && v.lang !== 'zh-CN')
     if (otherZh) return otherZh
 
-    // 4. zh-CN 兜底
+    // 4. zh-CN 備援
     return voices.find(v => v.lang === 'zh-CN')
   } catch { return undefined }
 }
 
-/** 當前實際使用的語音 voiceURI (供設置頁下拉回顯) */
+/** 當前實際使用的語音 voiceURI (供設定頁下拉回顯) */
 export function getCurrentVoiceURI(): string {
   return resolveVoice()?.voiceURI ?? ''
 }
@@ -177,14 +177,14 @@ function buildText(alerts: AlertEvent[]): string {
 let _speaking = false
 
 /**
- * 播報一批監控告警 (從 localStorage 讀配置)。
+ * 播報一批監控告警 (從 localStorage 讀設定)。
  * 整批合併成一句話; 正在播報時丟棄新批次 (與"整批一聲"理念一致)。
  */
 export function speakAlerts(alerts: AlertEvent[]) {
   try {
     if (alerts.length === 0) return
     if (localStorage.getItem(LS.enabled) !== '1') return   // 開關關: 不播報
-    if (!isVoiceSupported()) return                          // 不支持: 靜默
+    if (!isVoiceSupported()) return                          // 不支援: 靜默
     if (_speaking) return                                    // 正在唸: 丟棄新批次
 
     const text = buildText(alerts)
@@ -205,7 +205,7 @@ export function speakAlerts(alerts: AlertEvent[]) {
   }
 }
 
-/** 停止當前播報 (關閉開關/試聽前調用) */
+/** 停止當前播報 (關閉開關/試聽前呼叫) */
 export function stopVoice() {
   try {
     if (isVoiceSupported()) {
@@ -215,7 +215,7 @@ export function stopVoice() {
   } catch { /* ignore */ }
 }
 
-/** 試聽 (設置頁點"試聽"用) */
+/** 試聽 (設定頁點"試聽"用) */
 export function previewVoice(text = '語音播報已開啟, 這是試聽效果') {
   try {
     if (!isVoiceSupported()) return

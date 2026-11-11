@@ -285,7 +285,7 @@ export function SocialSentiment() {
                 ['24h 變化', selectedRow.volume_change_24h == null ? '不可比' : `${(selectedRow.volume_change_24h * 100).toFixed(0)}%`], ['資料日期', sentiment.data?.as_of ?? '不可用'],
               ].map(([label, value]) => <div key={label} className="rounded-lg border border-border/60 bg-base p-2"><span className="block text-xs text-muted">{label}</span><span className="text-xs font-medium text-foreground">{value}</span></div>)}
             </div>
-            <p className="mt-3 text-xs leading-relaxed text-muted">為避免保存不必要的使用者內容，現有 history 不儲存原始文章、留言或標題，因此此處不顯示代表貼文。</p>
+            <p className="mt-3 text-xs leading-relaxed text-muted">為避免儲存不必要的使用者內容，現有 history 不儲存原始文章、留言或標題，因此此處不顯示代表貼文。</p>
           </section>
         )}
       </div>

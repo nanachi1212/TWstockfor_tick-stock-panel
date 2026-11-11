@@ -1,4 +1,4 @@
-"""TickFlow Pro 80% rpm safety budget (process-local)."""
+"""80% rpm safety budget (process-local)."""
 
 from __future__ import annotations
 

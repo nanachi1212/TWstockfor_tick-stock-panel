@@ -146,7 +146,7 @@ describe('QuantEvaluationCard', () => {
     vi.mocked(api.taiwanQuantEvaluation).mockRejectedValue(new Error('network failure'))
     renderCard()
 
-    expect(await screen.findByRole('alert')).toHaveTextContent('目前無法讀取 Quant Evaluation 狀態')
+    expect(await screen.findByRole('alert')).toHaveTextContent('目前無法讀取量化評估狀態')
     expect(screen.getByRole('button', { name: '重試' })).toBeInTheDocument()
   })
 })

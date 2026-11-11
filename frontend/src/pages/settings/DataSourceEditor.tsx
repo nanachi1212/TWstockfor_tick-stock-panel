@@ -26,7 +26,7 @@ const TARGET_FIELDS: Record<DatasetKey, string[]> = {
   minute: ['symbol', 'datetime', 'open', 'high', 'low', 'close', 'volume', 'amount'],
 }
 
-// 內部字段的中文說明 (下拉選項展示用)
+// 內部欄位的中文說明 (下拉選項展示用)
 const FIELD_LABELS: Record<string, string> = {
   symbol: '股票代碼 (如 2330.TWSE / 6488.TPEX)',
   date: '交易日期 (YYYY-MM-DD)',
@@ -45,7 +45,7 @@ const FIELD_LABELS: Record<string, string> = {
   change_pct: '漲跌幅 (小數 0.0366=3.66%)',
   change_amount: '漲跌額',
   amplitude: '振幅 (小數)',
-  turnover_rate: '換手率 (小數 0.05=5%)',
+  turnover_rate: '週轉率 (小數 0.05=5%)',
   timestamp: '時間戳',
   session: '交易時段',
 }
@@ -102,7 +102,7 @@ export function DataSourceEditor({
   const [config, setConfig] = useState<CustomSourceConfig>(() => initial ? structuredClone(initial) : emptyConfig())
   const [activeTab, setActiveTab] = useState<DatasetKey>('daily')
 
-  // 編輯現有源: 從後端拉完整配置 (每次掛載都重新拉, 不用緩存, 確保拿到最新保存的配置)
+  // 編輯現有源: 從後端拉完整設定 (每次掛載都重新拉, 不用快取, 確保拿到最新儲存的設定)
   const fetchCfg = useQuery({
     queryKey: ['data-source-detail', existingName],
     queryFn: () => api.dataSource(existingName!),
@@ -118,7 +118,7 @@ export function DataSourceEditor({
 
   const save = useMutation({
     mutationFn: () => {
-      // 提交前校驗: 每個已啟用數據集必須填了 URL
+      // 提交前校驗: 每個已啟用資料集必須填了 URL
       for (const [key, ds] of Object.entries(config.datasets)) {
         if (!ds.url.trim()) {
           throw new Error(`資料集「${DATASET_LABEL[key as DatasetKey] || key}」未填寫介面 URL`)
@@ -136,7 +136,7 @@ export function DataSourceEditor({
     },
     onSuccess: () => {
       toast(isNew ? '資料來源已建立' : '資料來源已更新', 'success')
-      // 保存後強制重新拉取最新配置, 讓數據集開關狀態正確刷新
+      // 儲存後強制重新拉取最新設定, 讓資料集開關狀態正確重新整理
       fetchCfg.refetch()
       onSaved()
     },
@@ -212,7 +212,7 @@ export function DataSourceEditor({
         <div className="p-12 text-center text-sm text-muted">載入設定中…</div>
       ) : (
         <div className="grid grid-cols-1 lg:grid-cols-[260px_1fr]">
-          {/* 左: 基本信息 + 鑑權 + 數據集開關 */}
+          {/* 左: 基本資訊 + 驗證 + 資料集開關 */}
           <div className="p-5 space-y-4 border-r border-border/40">
             <Field label="名稱" hint="小寫字母/數字/底線">
               <input
@@ -227,7 +227,7 @@ export function DataSourceEditor({
               <input
                 value={config.display_name}
                 onChange={e => setConfig({ ...config, display_name: e.target.value })}
-                placeholder="我的 Tushare"
+                placeholder="我的資料來源"
                 className={`${INPUT_CLS} w-full`}
               />
             </Field>
@@ -270,7 +270,7 @@ export function DataSourceEditor({
                     <span className="flex-1 text-left">{DATASET_LABEL[key]}</span>
                     {enabled
                       ? <span className="text-xs text-accent">已設定</span>
-                      : <span className="text-xs text-muted/50">回退 TF</span>
+                      : <span className="text-xs text-muted/50">未設定</span>
                     }
                     <Toggle
                       checked={enabled}
@@ -282,7 +282,7 @@ export function DataSourceEditor({
             </div>
           </div>
 
-          {/* 右: 當前數據集詳情 */}
+          {/* 右: 當前資料集詳情 */}
           <div className="p-5">
             <DatasetDetail
               key={activeTab}
@@ -298,7 +298,7 @@ export function DataSourceEditor({
         </div>
       )}
 
-      {/* 底部保存欄 */}
+      {/* 底部儲存欄 */}
       <div className="px-6 py-3.5 border-t border-border/60 flex items-center justify-between bg-elevated/20">
         <div className="text-xs text-muted">
           {Object.keys(config.datasets).length} 個資料集已設定
@@ -435,7 +435,7 @@ function DatasetDetail({
               </Field>
             </div>
 
-            {/* 請求參數字段映射 — 摺疊區 */}
+            {/* 請求參數欄位映射 — 摺疊區 */}
             <div>
               <button
                 type="button"
@@ -521,7 +521,7 @@ function DatasetDetail({
               <div className="flex items-center justify-between mb-2">
                 <div className="text-xs uppercase tracking-widest text-muted">回應參數欄位對應</div>
                 <a
-                  href="https://github.com/nanachi1212/TWstockfor_tick-stock-panel/blob/main/docs/custom-data-source.md#用-ai-生成映射配置"
+                  href="https://github.com/nanachi1212/TWstockfor_tick-stock-panel/blob/main/docs/custom-data-source.md#用-ai-生成映射設定"
                   target="_blank"
                   rel="noreferrer"
                   className="text-xs text-accent/70 hover:text-accent hover:underline"
@@ -604,12 +604,12 @@ function FieldMapEditor({
   targets: string[]
   onChange: (fm: Record<string, string>) => void
 }) {
-  // 內部用數組維護行的穩定身份, 避免 Record 在編輯空行時 key 漂移導致輸入框失焦
+  // 內部用陣列維護行的穩定身份, 避免 Record 在編輯空行時 key 漂移導致輸入框失焦
   const [rows, setRows] = useState<Array<{ src: string; target: string; id: number }>>(() => {
     const entries = Object.entries(fieldMap)
     // 有意義的映射 (src 非空且非 pending)
     const real = entries.filter(([s, t]) => s.trim() && t.trim() && !s.startsWith('__pending_'))
-    // pending 行 (外部字段名還沒填, 但 target 已選)
+    // pending 行 (外部欄位名還沒填, 但 target 已選)
     const pending = entries.filter(([s]) => s.startsWith('__pending_'))
     if (real.length > 0 || pending.length > 0) {
       return [
@@ -617,7 +617,7 @@ function FieldMapEditor({
         ...pending.map(([, target], i) => ({ src: '', target, id: real.length + i + 1 })),
       ]
     }
-    // fieldMap 為空時自動預填該數據集的所有內部字段 (外部字段名留空待填)
+    // fieldMap 為空時自動預填該資料集的所有內部欄位 (外部欄位名留空待填)
     return targets.map((target, i) => ({ src: '', target, id: i + 1 }))
   })
   const nextId = useRef(targets.length + 1)
@@ -632,7 +632,7 @@ function FieldMapEditor({
       if (s && r.target.trim()) {
         out[s] = r.target.trim()
       } else if (r.target.trim()) {
-        // 外部字段名還沒填, 用臨時 key 保留 target 選擇
+        // 外部欄位名還沒填, 用臨時 key 保留 target 選擇
         out[`__pending_${pendingIdx++}`] = r.target.trim()
       }
     }

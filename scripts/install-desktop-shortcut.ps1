@@ -28,7 +28,7 @@ foreach ($Dir in $Targets) {
     $Shortcut.TargetPath = $PowerShell
     $Shortcut.Arguments = "-NoLogo -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$EntryScript`""
     $Shortcut.WorkingDirectory = $Root
-    $Shortcut.Description = 'Nanachi 台股看板正式桌面入口'
+    $Shortcut.Description = 'Nanachi 的台股監控看板正式桌面入口'
     $Shortcut.WindowStyle = 7  # 最小化啟動，PowerShell 視窗不會跳到前景
     if ($Icon) { $Shortcut.IconLocation = "$Icon,0" }
     $Shortcut.Save()

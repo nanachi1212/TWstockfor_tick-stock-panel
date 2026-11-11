@@ -7,7 +7,7 @@
   - 預先寫入 security_master.parquet, 讓 TaiwanSecurityMaster.ensure_loaded()
     走 load_cache() 而不是 load_from_adapters() —— 後者會真的連 TWSE/TPEx 抓 ISIN,
     這正是 test_api_endpoint_zero_market_http_and_no_ai 要防的 0-HTTP 契約。
-  - 寫入固定的日線 / 三大法人 / 融資券 partition, 交易日窗口以 2026-08-28 為最後一天。
+  - 寫入固定的日線 / 三大法人 / 融資券 partition, 交易日視窗以 2026-08-28 為最後一天。
 
 資料是刻意造的最小集合 (足以算出 MA20 / RSI14 / 5D、20D 報酬), 不依賴任何外部來源。
 
@@ -231,7 +231,7 @@ def _security_master_frame() -> pl.DataFrame:
 
 
 def _build_offline_master(cache_path):
-    """落盤 fixture security master 並回傳指向它的 TaiwanSecurityMaster。"""
+    """寫入磁碟 fixture security master 並回傳指向它的 TaiwanSecurityMaster。"""
     from app.taiwan.universe.service import TaiwanSecurityMaster
 
     cache_path.parent.mkdir(parents=True, exist_ok=True)
@@ -273,7 +273,7 @@ def no_auto_watch_background_sync(monkeypatch):
 
 @pytest.fixture
 def taiwan_data_env(tmp_path, monkeypatch):
-    """Hermetic 台股資料環境: tmp data_dir + 預先落盤的 master / 日線 / 法人 / 融資券。
+    """Hermetic 台股資料環境: tmp data_dir + 預先寫入磁碟的 master / 日線 / 法人 / 融資券。
 
     回傳 dict, 內含 target (最後交易日)、trading_days、data_dir。
     """

@@ -116,7 +116,7 @@ export function MonitorWidget({ onStockClick }: {
                         : ev.message && <span className="truncate text-xs text-muted">{ev.message}</span>}
                       <span className="flex-1" />
                       <span className="text-xs text-muted/50 shrink-0 font-mono">
-                        {ev.ts ? new Date(ev.ts).toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }) : ''}
+                        {ev.ts ? new Date(ev.ts).toLocaleString('zh-TW', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }) : ''}
                       </span>
                     </div>
                   ) : (
@@ -124,7 +124,7 @@ export function MonitorWidget({ onStockClick }: {
                       <span className="truncate text-xs text-muted">{ev.message}</span>
                       <span className="flex-1" />
                       <span className="text-xs text-muted/50 shrink-0 font-mono">
-                        {ev.ts ? new Date(ev.ts).toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }) : ''}
+                        {ev.ts ? new Date(ev.ts).toLocaleString('zh-TW', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }) : ''}
                       </span>
                     </div>
                   )}
@@ -146,7 +146,7 @@ export function MonitorWidget({ onStockClick }: {
                       <span className="text-xs text-muted truncate flex-1">{ev.message}</span>
                     )}
                     <span className="text-xs text-muted/50 shrink-0 font-mono">
-                      {ev.ts ? new Date(ev.ts).toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }) : ''}
+                      {ev.ts ? new Date(ev.ts).toLocaleString('zh-TW', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }) : ''}
                     </span>
                   </div>
                   {ev.signals && ev.signals.length > 0 && (

@@ -1,15 +1,15 @@
-"""访问密码认证 — 单用户, 自托管场景。
+"""訪問密碼認證 — 單使用者, 自託管場景。
 
-设计:
-  - 密码用 PBKDF2-HMAC-SHA256 哈希(标准库 hashlib, 无新依赖), 加随机 salt。
-    即使 auth.json 泄露, 也无法逆向出明文密码。
-  - 会话用随机 token(token_urlsafe), 内存 + 文件双存(支持多进程/重启不丢失)。
-  - 存储: data/user_data/auth.json (chmod 0600), 仿 secrets_store 模式。
+設計:
+  - 密碼用 PBKDF2-HMAC-SHA256 雜湊(標準庫 hashlib, 無新依賴), 加隨機 salt。
+    即使 auth.json 洩露, 也無法逆向出明文密碼。
+  - 會話用隨機 token(token_urlsafe), 記憶體 + 檔案雙存(支援多行程/重啟不丟失)。
+  - 儲存: data/user_data/auth.json (chmod 0600), 仿 secrets_store 模式。
 
-安全要点:
-  - 设密码接口必须限制本机/内网(见 auth router), 防黑客抢占域名抢先设密码。
-  - 登录限流: 错5次锁5分钟(见 auth router 内存计数)。
-  - 单密码, 不做多用户(避免重构全项目数据层)。
+安全要點:
+  - 設密碼介面必須限制本機/內網(見 auth router), 防黑客搶佔網域搶先設密碼。
+  - 登入限流: 錯5次鎖5分鐘(見 auth router 記憶體計數)。
+  - 單密碼, 不做多使用者(避免重構全項目資料層)。
 """
 from __future__ import annotations
 
@@ -26,18 +26,18 @@ from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
-# PBKDF2 参数(NIST 推荐, 单次校验 ~100ms, 兼顾安全与响应)
+# PBKDF2 參數(NIST 推薦, 單次校驗 ~100ms, 兼顧安全與回應)
 _PBKDF2_ITER = 200_000
 _SALT_LEN = 16
 _TOKEN_BYTES = 32
 
-# 会话有效期: 30 天(自托管单用户, 长一点减少重登频率)
+# 會話有效期: 30 天(自託管單使用者, 長一點減少重登頻率)
 SESSION_TTL = 30 * 24 * 3600
 
 _lock = threading.Lock()
-# 内存中的有效会话: { token: expire_ts }。进程重启后从磁盘恢复。
+# 記憶體中的有效會話: { token: expire_ts }。行程重啟後從磁碟恢復。
 _sessions: dict[str, float] = {}
-# 記憶體會話最後一次與 auth.json 同步時的檔案戳記; 檔案被其他程序 (如撤銷腳本) 改過就重讀。
+# 記憶體會話最後一次與 auth.json 同步時的檔案戳記; 檔案被其他行程 (如撤銷腳本) 改過就重讀。
 _sessions_stamp: tuple[int, int] | None = None
 
 # 檔案未變更時重用驗證結果; 改密碼後失效, 外部修改則重新驗證。
@@ -121,7 +121,7 @@ def _sync_sessions_locked() -> None:
 
 
 def _hash_password(password: str, salt: bytes | None = None) -> tuple[str, str]:
-    """返回 (salt_hex, hash_hex)。salt 为 None 时生成新 salt。"""
+    """回傳 (salt_hex, hash_hex)。salt 為 None 時生成新 salt。"""
     if salt is None:
         salt = os.urandom(_SALT_LEN)
     dk = hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), salt, _PBKDF2_ITER)
@@ -129,7 +129,7 @@ def _hash_password(password: str, salt: bytes | None = None) -> tuple[str, str]:
 
 
 def _verify_password(password: str, salt_hex: str, hash_hex: str) -> bool:
-    """恒定时间比较, 防时序攻击。"""
+    """恆定時間比較, 防時序攻擊。"""
     try:
         salt = bytes.fromhex(salt_hex)
         expected = bytes.fromhex(hash_hex)
@@ -140,7 +140,7 @@ def _verify_password(password: str, salt_hex: str, hash_hex: str) -> bool:
 
 
 # ================================================================
-# 密码管理
+# 密碼管理
 # ================================================================
 
 def is_configured() -> bool:
@@ -161,10 +161,10 @@ def is_configured() -> bool:
 
 
 def set_password(password: str) -> None:
-    """设置/修改访问密码。清空所有现有会话(强制重新登录)。"""
+    """設定/修改訪問密碼。清空所有現有會話(強制重新登入)。"""
     global _configured_cache
     if len(password) < 6:
-        raise ValueError("密码至少 6 位")
+        raise ValueError("密碼至少 6 位")
     salt_hex, hash_hex = _hash_password(password)
     with _lock:
         current = _load()  # 不覆寫已損壞的認證檔。
@@ -172,30 +172,30 @@ def set_password(password: str) -> None:
             "password_hash": hash_hex,
             "password_salt": salt_hex,
             "updated_at": int(time.time()),
-            "sessions": {},  # 清空持久化会话 (含驗證專用密碼登入的會話)
+            "sessions": {},  # 清空持久化會話 (含驗證專用密碼登入的會話)
             # 驗證專用密碼與主密碼各自管理, 改主密碼不清掉它。
             **{k: current[k] for k in ("verify_hash", "verify_salt") if k in current},
         })
         _sessions.clear()  # 儲存成功後才撤銷舊會話。
-    _configured_cache = None  # 失效缓存, 下次 is_configured 重读最新真值
+    _configured_cache = None  # 失效快取, 下次 is_configured 重讀最新真值
     logger.info("access password set")
 
 
 def bootstrap_from_env() -> bool:
-    """首次初始化: 若环境变量 AUTH_PASSWORD 已配置且尚未设过密码, 则用它设密码。
+    """首次初始化: 若環境變數 AUTH_PASSWORD 已設定且尚未設過密碼, 則用它設密碼。
 
-    公网服务器部署场景: 避免每次都要 SSH 端口转发才能设首个密码。
-    明文密码只在内存/配置中, 经 set_password() 哈希后写入 auth.json (chmod 0600)。
-    一旦设置成功, 后续重启不再覆盖 (用户改密码走 UI, 不受环境变量影响)。
+    公開網路伺服器部署場景: 避免每次都要 SSH 端口轉發才能設首個密碼。
+    明文密碼只在記憶體/設定中, 經 set_password() 雜湊後寫入 auth.json (chmod 0600)。
+    一旦設定成功, 後續重啟不再覆蓋 (使用者改密碼走 UI, 不受環境變數影響)。
 
     Returns:
-        True 表示本次用环境变量初始化了密码; False 表示无需初始化。
+        True 表示本次用環境變數初始化了密碼; False 表示無需初始化。
     """
     from app.config import _ENV_FILE, settings
 
     pwd = (settings.auth_password or "").strip()
-    # Compose 会对 env_file 中未加单引号的 $VAR 做插值。Docker 部署时同时
-    # 只读挂载原始 .env,首次初始化密码直接按 dotenv 语义读取,避免特殊字符被截断。
+    # Compose 會對 env_file 中未加單引號的 $VAR 做插值。Docker 部署時同時
+    # 只讀掛載原始 .env,首次初始化密碼直接按 dotenv 語意讀取,避免特殊字元被截斷。
     if _ENV_FILE.is_file():
         from dotenv import dotenv_values
 
@@ -205,14 +205,14 @@ def bootstrap_from_env() -> bool:
     if not pwd:
         return False
     if is_configured():
-        # 已设过密码, 不覆盖 (避免环境变量反复重置用户在 UI 改的密码)
+        # 已設過密碼, 不覆蓋 (避免環境變數反覆重置使用者在 UI 改的密碼)
         return False
     try:
         set_password(pwd)
         logger.info("access password bootstrapped from AUTH_PASSWORD env (one-time)")
         return True
     except ValueError as e:
-        # 密码不合规 (< 6 位), 记日志但不阻断启动
+        # 密碼不合規 (< 6 位), 記日誌但不阻斷啟動
         logger.warning("AUTH_PASSWORD bootstrap skipped: %s", e)
         return False
 
@@ -228,7 +228,7 @@ def set_verify_password(password: str | None) -> None:
         _sync_sessions_locked()
         d = _load()
         if not d.get("password_hash"):
-            raise ValueError("尚未设置访问密码")
+            raise ValueError("尚未設定訪問密碼")
         for token in d.pop("verify_sessions", []):
             _sessions.pop(token, None)
         d.pop("verify_hash", None)
@@ -258,7 +258,7 @@ def create_verify_session(password: str) -> str | None:
 
 
 def verify_and_create_session(password: str) -> str | None:
-    """验证主密码, 成功则创建会话并返回 token, 失败返回 None。"""
+    """驗證主密碼, 成功則建立會話並回傳 token, 失敗回傳 None。"""
     with _lock:
         _sync_sessions_locked()
         d = _load()
@@ -275,7 +275,7 @@ def verify_and_create_session(password: str) -> str | None:
 
 
 def revoke_session(token: str) -> None:
-    """注销会话(登出)。"""
+    """註銷會話(登出)。"""
     with _lock:
         _sync_sessions_locked()
         _sessions.pop(token, None)
@@ -283,7 +283,7 @@ def revoke_session(token: str) -> None:
 
 
 def is_valid_session(token: str) -> bool:
-    """检查会话是否有效(存在且未过期)。过期则清理。"""
+    """檢查會話是否有效(存在且未過期)。過期則清理。"""
     if not token:
         return False
     with _lock:
@@ -299,7 +299,7 @@ def is_valid_session(token: str) -> bool:
 
 
 def _persist_sessions_locked() -> None:
-    """把当前内存会话写回 auth.json(需持锁调用)。"""
+    """把當前記憶體會話寫回 auth.json(需持鎖呼叫)。"""
     d = _load()
     if not d:
         return
@@ -308,18 +308,18 @@ def _persist_sessions_locked() -> None:
 
 
 def _restore_sessions() -> None:
-    """启动时从 auth.json 恢复未过期会话(支持进程重启不丢登录态)。"""
+    """啟動時從 auth.json 恢復未過期會話(支援行程重啟不丟登入態)。"""
     global _sessions_stamp
     with _lock:
         saved = _load().get("sessions") or {}
         _sessions_stamp = None  # 強制從磁碟重讀
         _sync_sessions_locked()
         if len(_sessions) != len(saved):
-            # 有过期会话被清理, 落盘一次
+            # 有過期會話被清理, 寫入磁碟一次
             _persist_sessions_locked()
 
 
-# 模块加载时恢复会话
+# 模組載入時恢復會話
 try:
     _restore_sessions()
 except Exception as e:

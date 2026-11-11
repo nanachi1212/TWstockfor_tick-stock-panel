@@ -4,6 +4,7 @@ import { Link } from 'react-router-dom'
 import { api, type DataHealthAction, type DataHealthStatus } from '@/lib/api'
 import { QK } from '@/lib/queryKeys'
 import { useDataHealth } from '@/lib/useDataHealth'
+import { statusLabel } from '@/lib/evidenceLabel'
 
 // 「等待官方發布」「尚未執行」是資料正常的時間差，不是故障；只有「正常」計入健康數。
 const statuses: Record<DataHealthStatus, string> = {
@@ -77,12 +78,12 @@ export function DataHealth() {
           {Object.entries(statuses).map(([value, label]) => <option key={value} value={value}>{label} ({value})</option>)}
         </select>
         <button type="button" disabled={updatingAll || !health.data || jobs.isLoading || jobs.isError} onClick={() => void updateAll()} className="rounded bg-accent px-3 py-1.5 text-sm font-medium text-white disabled:opacity-50">{updatingAll ? '正在送出更新…' : '一鍵全部更新'}</button>
-        <button type="button" disabled={health.isFetching} onClick={() => void health.refetch()} className="text-sm text-accent disabled:opacity-50">刷新健康狀態</button>
+        <button type="button" disabled={health.isFetching} onClick={() => void health.refetch()} className="text-sm text-accent disabled:opacity-50">重新整理健康狀態</button>
         <Link to="/settings?tab=ai" className="text-sm text-accent self-center">AI 設定</Link>
       </div>
       {hiddenCount > 0 && <p className="text-xs text-muted">已隱藏 {hiddenCount} 個次要或尚未設定的資料源（例如 FinBridge、借券）；要看請用上方狀態篩選。</p>}
       {health.isLoading && <p role="status">正在讀取資料健康…</p>}
-      {health.isError && <p role="alert" className="text-danger">資料健康讀取失敗，請刷新健康狀態。</p>}
+      {health.isError && <p role="alert" className="text-danger">資料健康讀取失敗，請重新整理健康狀態。</p>}
       {action.isError && <p role="alert" className="text-danger">操作未啟動：{action.error.message}</p>}
       {jobs.isError && <p role="alert" className="text-danger">無法讀取背景任務，暫停操作以避免重複更新。</p>}
       {health.data && <div className="overflow-x-auto rounded-card border border-border">
@@ -94,9 +95,9 @@ export function DataHealth() {
               {row.provider && <div className="text-xs font-normal text-muted">{row.provider}</div>}
               {row.enabled != null && <div className="text-xs font-normal text-muted">{row.enabled ? 'enabled' : 'disabled'}，{row.auth_configured ? 'auth configured' : 'auth not configured'}</div>}
             </th>
-            <td className={`p-3 ${colors[row.status]}`}><span>{statuses[row.status]}</span><div className="text-xs">{row.status}</div></td>
+            <td className={`p-3 ${colors[row.status]}`}><span>{statuses[row.status]}</span></td>
             <td className="p-3"><div>{row.source ?? '未知'}</div><div className="text-muted">{row.as_of ?? row.data_date ?? '未知'}</div></td>
-            <td className="p-3 max-w-sm break-words"><div className="text-muted text-xs mb-1">{row.freshness}</div>{row.reason}{row.error && <div className="mt-1 text-xs text-danger">{row.error}</div>}</td>
+            <td className="p-3 max-w-sm break-words"><div className="text-muted text-xs mb-1">{statusLabel(row.freshness)}</div>{row.reason}{row.error && <div className="mt-1 text-xs text-danger">{row.error}</div>}</td>
             <td className="p-3 text-xs"><time dateTime={row.last_attempt ?? undefined}>{localTime(row.last_attempt)}</time></td>
             <td className="p-3 text-xs"><time dateTime={row.last_success ?? undefined}>{localTime(row.last_success)}</time></td>
             <td className="p-3"><div className="flex flex-wrap gap-2">{row.actions.map(kind => <button type="button" key={kind} aria-label={`${row.name} ${actions[kind]}`} disabled={action.isPending || busy.has(row.id) || row.status === 'updating' || jobs.isLoading || jobs.isError}
@@ -113,7 +114,7 @@ export function DataHealth() {
         <h2 className="font-medium mb-2">更新與驗證任務</h2>
         <p className="text-xs text-muted mb-2">背景任務記錄於服務重啟後清除；重新驗證成功表示完成檢查，資料仍可能不可用。</p>
         <ul className="space-y-2 text-sm">{jobs.data.slice(0, 10).map(job => <li key={job.job_id} className="break-words">
-          {health.data?.datasets.find(r => r.id === job.dataset)?.name ?? job.dataset}，{actions[job.action]}，{jobStatuses[job.status]} ({job.status})
+          {health.data?.datasets.find(r => r.id === job.dataset)?.name ?? job.dataset}，{actions[job.action]}，{jobStatuses[job.status]}
           {job.reason && <span className="ml-2 text-muted">{job.reason}</span>}
         </li>)}</ul>
       </section>}

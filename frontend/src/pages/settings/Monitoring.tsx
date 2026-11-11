@@ -19,6 +19,7 @@ import { useUpdateQuoteInterval, useToggleRealtimeQuotes } from '@/lib/useShared
 import { api } from '@/lib/api'
 import { QK } from '@/lib/queryKeys'
 import { toast } from '@/components/Toast'
+import { statusLabel } from '@/lib/evidenceLabel'
 
 // 頁面 → 顯示名
 const PAGE_LABELS: Record<string, string> = {
@@ -26,7 +27,7 @@ const PAGE_LABELS: Record<string, string> = {
   watchlist: '自選頁',
 }
 
-// ===== 導出為 Panel 組件 (由 Settings.tsx 嵌入) =====
+// ===== 匯出為 Panel 元件 (由 Settings.tsx 嵌入) =====
 
 export function SettingsMonitoringPanel(_props: { highlight?: string } = {}) {
   const qc = useQueryClient()
@@ -40,16 +41,16 @@ export function SettingsMonitoringPanel(_props: { highlight?: string } = {}) {
   const { data: intervalData } = useQuoteInterval()
   const updateInterval = useUpdateQuoteInterval()
   const toggleQuote = useToggleRealtimeQuotes()
-  // 實時模式以 quote_status 為準 (數據源無關): watchlist=自選實時 / full_market=全市場 / none=不可用
+  // 即時模式以 quote_status 為準 (資料來源無關): watchlist=自選即時 / full_market=全市場 / none=不可用
   const quoteMode = quoteStatus?.mode ?? 'none'
   const isWatchlistMode = quoteMode === 'watchlist'
   const realtimeEnabled = prefs?.realtime_quotes_enabled ?? false
-  // 分時圖實時刷新間隔 (秒), 與後端 [3,60] clamp 對齊; 默認 6
+  // 分時圖即時重新整理間隔 (秒), 與後端 [3,60] clamp 對齊; 預設 6
   const intradayInterval = prefs?.minute_intraday_refresh_interval ?? 6
   // 滑塊本地草稿: 拖動時即時反饋, 停頓 2s 後落庫 (與行情輪詢滑塊一致)
   const [intradayIntervalDraft, setIntradayIntervalDraft] = useState(intradayInterval)
   const refreshPages = prefs?.sse_refresh_pages ?? {}
-  // 只有明確保存的全域通道才顯示為啟用，舊規則預設不代表全域設定。
+  // 只有明確儲存的全域通道才顯示為啟用，舊規則預設不代表全域設定。
   const externalChannels = prefs?.external_notification_channels ?? []
   const externalStatus = notificationStatus?.external_notification_status ?? {}
   const deliveryStatusLabel = (channel: 'line' | 'telegram') => ({
@@ -59,7 +60,7 @@ export function SettingsMonitoringPanel(_props: { highlight?: string } = {}) {
   }[externalStatus[channel] ?? ''] ?? '尚未傳送')
   const isRunning = quoteStatus?.running ?? false
   const isTrading = quoteStatus?.is_trading_hours ?? false
-  // 管道/數據修正運行期間實時行情被臨時暫停 — 此時禁止開啟
+  // 管道/資料修正執行期間即時行情被臨時暫停 — 此時禁止開啟
   const isPaused = quoteStatus?.paused ?? false
   const interval = intervalData?.interval ?? 6
   const minInterval = intervalData?.min_interval ?? 6
@@ -167,12 +168,12 @@ export function SettingsMonitoringPanel(_props: { highlight?: string } = {}) {
     return () => window.clearTimeout(t)
   }, [intervalDraft, interval, updateInterval])
 
-  // 分時刷新間隔: 服務端值變化時同步本地草稿
+  // 分時重新整理間隔: 服務端值變化時同步本地草稿
   useEffect(() => {
     setIntradayIntervalDraft(intradayInterval)
   }, [intradayInterval])
 
-  // 分時刷新間隔: 草稿與已保存值不同時, 2s 防抖落庫
+  // 分時重新整理間隔: 草稿與已儲存值不同時, 2s 防抖落庫
   useEffect(() => {
     if (intradayIntervalDraft === intradayInterval) return
     const t = window.setTimeout(() => {
@@ -285,7 +286,7 @@ export function SettingsMonitoringPanel(_props: { highlight?: string } = {}) {
         </Card>
         )}
 
-        {/* 自選列表分時圖實時刷新 (默認關閉, 開啟後盤中按設定間隔輪詢刷新分時數據) */}
+        {/* 自選列表分時圖即時重新整理 (預設關閉, 開啟後盤中按設定間隔輪詢重新整理分時資料) */}
         <Card icon={Activity} title="分時圖重新整理">
           <ToggleRow
             label="自選/策略分時圖即時重新整理"
@@ -336,7 +337,7 @@ export function SettingsMonitoringPanel(_props: { highlight?: string } = {}) {
         {/* 外部推播渠道；App 內提醒不依賴外部服務。 */}
         <Card icon={Webhook} title="外部通知">
           <p className="text-xs text-secondary mb-3">
-            App 內提醒會照常保存。選擇外送通道後，觸發的提醒也會送出；需保持 TWStock 後端執行。
+            App 內提醒會照常儲存。選擇外送通道後，觸發的提醒也會送出；需保持 TWStock 後端執行。
           </p>
           {prefs?.external_notification_channels == null && (
             <div className="mb-3 flex flex-wrap items-center gap-2">
@@ -447,7 +448,7 @@ export function SettingsMonitoringPanel(_props: { highlight?: string } = {}) {
                         <li><b>啟用 Messaging API</b>：登入後台管理頁面，在「設定 &gt; Messaging API」分頁點選啟用。</li>
                         <li><b>取得 Channel Access Token</b>：登入 LINE Developers Console，在頻道「Messaging API」頁籤發行並複製長期 Channel Access Token。</li>
                         <li>
-                          <b>取得 Target ID（接收對象識別碼）</b>：
+                          <b>取得 Target ID（接收物件識別碼）</b>：
                           <div className="mt-1 space-y-1 pl-1 text-xs text-secondary">
                             <p>
                               <b>⚠️ 重要觀念</b>：Target ID <b>不等於一般 LINE ID</b>（不能填寫個人自訂的好友搜尋帳號或行動條碼）。
@@ -678,7 +679,7 @@ function PushExtrasCard({ prefs, disabled, hasChannels, telegramConfigured }: {
             className="px-2 py-1 rounded-btn bg-elevated text-xs text-secondary disabled:opacity-50">試送早安</button>
           <button type="button" disabled={digestTest.isPending} onClick={() => digestTest.mutate('evening')}
             className="px-2 py-1 rounded-btn bg-elevated text-xs text-secondary disabled:opacity-50">試送收盤</button>
-          {last && <span className="text-xs text-muted">上次：{last.kind === 'morning' ? '早安' : '收盤'}，{last.status}{last.ran_at ? `，${last.ran_at.slice(0, 16).replace('T', ' ')}` : ''}</span>}
+          {last && <span className="text-xs text-muted">上次：{last.kind === 'morning' ? '早安' : '收盤'}，{statusLabel(last.status)}{last.ran_at ? `，${last.ran_at.slice(0, 16).replace('T', ' ')}` : ''}</span>}
         </div>
       )}
       <ToggleRow

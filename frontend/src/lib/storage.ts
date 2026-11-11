@@ -1,7 +1,7 @@
 /**
  * 集中管理所有 localStorage 持久化。
  *
- * - key 在此註冊，各頁面只通過 storage.xxx.get/set 調用。
+ * - key 在此註冊，各頁面只通過 storage.xxx.get/set 呼叫。
  * - 類型安全，不再散落 try/catch。
  */
 
@@ -28,29 +28,29 @@ export const storage = {
   /** 個股頁是否展開進階資料（預設初學者模式） */
   stockDetailAdvanced:  kv<boolean>('stock-detail-advanced'),
 
-  /** 查詢輪詢 / SSE 配置 */
+  /** 查詢輪詢 / SSE 設定 */
   queryConfig:          kv<unknown>('tf-stocks-query-config'),
 
   /** 策略池 (screener) */
   strategyPool:         kv<string[]>('strategy-pool'),
 
-  /** 自選列表列配置 */
+  /** 自選列表列設定 */
   watchlistColumns:     kv<unknown[]>('watchlist_columns'),
 
   /** Portfolio 成交紀錄，持倉與損益由成交資料重建 */
   portfolioTransactions: kv<unknown[]>('portfolio_transactions', true, true),
   portfolioImportPrevious: kv<unknown[] | null>('portfolio_import_previous', true, true),
 
-  /** 個股日K信息條指標配置 */
+  /** 個股日K資訊條指標設定 */
   stockInfoBarFields:   kv<unknown[]>('stock_info_bar_fields'),
 
-  /** 個股日K成交量對比設置 */
+  /** 個股日K成交量對比設定 */
   stockVolumeCompare:   kv<{ enabled: boolean; days: number }>('stock_volume_compare'),
 
   /** 個股詳情多日分時週期 */
   stockPreviewIntradayDays: kv<number>('stock_preview_intraday_days'),
 
-  /** 策略結果列表列配置 */
+  /** 策略結果列表列設定 */
   screenerResultColumns: kv<unknown[]>('screener_result_columns'),
 
   /** 自選列表視圖模式 table | card (分組卡片為臨時模式, 不持久化) */
@@ -71,19 +71,19 @@ export const storage = {
   /** 自選列表板塊篩選 */
   watchlistBoardFilter: kv<string[]>('watchlist_boardFilter'),
 
-  /** 自選列表排除 ST 標的 (默認不排除) */
+  /** 自選列表排除 ST 標的 (預設不排除) */
 
-  /** 自選分組統計條配置 (metric: 統計指標, sort: 排序方式, card*: 分組卡片顯示項) */
+  /** 自選分組統計條設定 (metric: 統計指標, sort: 排序方式, card*: 分組卡片顯示項) */
   watchlistGroupStats: kv<{ metric: string; sort: string; cardTopN?: number; cardColorBar?: boolean; cardRank?: boolean }>('watchlist_groupStats'),
 
   /** Screener 卡片尺寸 */
   screenerCardSize:     kv<string>('screener-card-size'),
 
-  /** 策略回測快捷區間按鈕配置 */
+  /** 策略回測快捷區間按鈕設定 */
   strategyBacktestQuickRanges: kv<unknown>('strategy-backtest-quick-ranges'),
 
-  /** 數據頁畫像卡片顯隱 (卡片key → 是否顯示) */
+  /** 資料頁畫像卡片顯隱 (卡片key → 是否顯示) */
   dataCardVisible: kv<Record<string, boolean>>('data-card-visible'),
-  /** 數據頁畫像卡片順序 (卡片key 數組, 長度=卡片總數) */
+  /** 資料頁畫像卡片順序 (卡片key 陣列, 長度=卡片總數) */
   dataCardOrder: kv<string[]>('data-card-order'),
 } as const

@@ -1,4 +1,4 @@
-"""自选股 API。"""
+"""自選股 API。"""
 from __future__ import annotations
 
 import logging
@@ -118,7 +118,7 @@ def create_group(req: GroupNameRequest):
 
 @router.put("/groups/reorder")
 def reorder_groups(req: GroupReorderRequest):
-    """重排分组前后顺序 (json 数组顺序即定义顺序, 侧边栏/标签栏/分组视图共用)。"""
+    """重排分組前後順序 (json 陣列順序即定義順序, 側邊欄/標籤欄/分組檢視表共用)。"""
     try:
         groups = watchlist.reorder_groups(req.ordered_ids)
     except ValueError as e:
@@ -131,7 +131,7 @@ def rename_group(group_id: str, req: GroupNameRequest):
     try:
         groups = watchlist.rename_group(group_id, req.name, req.color)
     except KeyError as e:
-        raise HTTPException(404, "自选分组不存在") from e
+        raise HTTPException(404, "自選分組不存在") from e
     except ValueError as e:
         raise HTTPException(400, str(e)) from e
     return {"groups": groups}
@@ -142,17 +142,17 @@ def delete_group(group_id: str, request: Request):
     try:
         groups, rows = watchlist.delete_group(group_id)
     except KeyError as e:
-        raise HTTPException(404, "自选分组不存在") from e
+        raise HTTPException(404, "自選分組不存在") from e
     return {"groups": groups, "symbols": _with_names(rows, request)}
 
 
 @router.post("/groups/{group_id}/clear")
 def clear_group(group_id: str, request: Request):
-    """清空分组成员:把该分组内所有股票转为未分组,保留分组定义。"""
+    """清空分組成員:把該分組內所有股票轉為未分組,保留分組定義。"""
     try:
         rows = watchlist.clear_group(group_id)
     except KeyError as e:
-        raise HTTPException(404, "自选分组不存在") from e
+        raise HTTPException(404, "自選分組不存在") from e
     return {"symbols": _with_names(rows, request)}
 
 
@@ -164,11 +164,11 @@ def move_one_to_top(symbol: str, request: Request):
 
 @router.put("/{symbol}/group")
 def assign_group(symbol: str, req: GroupAssignRequest, request: Request):
-    """互斥设定分组(仅保留此组; None=移出全部分组)。多组操作用 members 端点。"""
+    """互斥設定分組(僅保留此組; None=移出全部分組)。多組操作用 members 端點。"""
     try:
         rows = watchlist.set_group(symbol, req.group_id)
     except KeyError as e:
-        raise HTTPException(404, "自选标的不存在") from e
+        raise HTTPException(404, "自選標的不存在") from e
     except ValueError as e:
         raise HTTPException(400, str(e)) from e
     return {"symbols": _with_names(rows, request)}
@@ -176,11 +176,11 @@ def assign_group(symbol: str, req: GroupAssignRequest, request: Request):
 
 @router.post("/groups/{group_id}/members/{symbol}")
 def add_member(group_id: str, symbol: str, request: Request):
-    """把标的加入分组(多组成员关系: 不影响其他分组)。"""
+    """把標的加入分組(多組成員關係: 不影響其他分組)。"""
     try:
         rows = watchlist.add_to_group(symbol, group_id)
     except KeyError as e:
-        raise HTTPException(404, "自选标的不存在") from e
+        raise HTTPException(404, "自選標的不存在") from e
     except ValueError as e:
         raise HTTPException(400, str(e)) from e
     return {"symbols": _with_names(rows, request)}
@@ -188,11 +188,11 @@ def add_member(group_id: str, symbol: str, request: Request):
 
 @router.delete("/groups/{group_id}/members/{symbol}")
 def remove_member(group_id: str, symbol: str, request: Request):
-    """把标的移出分组(仅摘本组标签; 标的仍在自选, 可能落入未分组)。"""
+    """把標的移出分組(僅摘本組標籤; 標的仍在自選, 可能落入未分組)。"""
     try:
         rows = watchlist.remove_from_group(symbol, group_id)
     except KeyError as e:
-        raise HTTPException(404, "自选标的不存在") from e
+        raise HTTPException(404, "自選標的不存在") from e
     except ValueError as e:
         raise HTTPException(400, str(e)) from e
     return {"symbols": _with_names(rows, request)}
@@ -207,13 +207,13 @@ def remove_one(symbol: str, request: Request):
 
 @router.delete("")
 def clear_all():
-    """清空自选列表。"""
+    """清空自選列表。"""
     count = watchlist.clear()
     _resync_auto_watch()
     return {"removed": count}
 
 
-# 自选页需要的列
+# 自選頁需要的列
 _WATCHLIST_COLS = [
     "symbol", "close", "open", "high", "low", "prev_close", "change_pct", "change_amount", "amount",
     "turnover_rate",

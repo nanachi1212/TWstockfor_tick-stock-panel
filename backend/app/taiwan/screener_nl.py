@@ -110,7 +110,7 @@ _TRUNCATION_RETRY_MAX_TOKENS = 1400
 
 
 _RECOMMENDATION_INTENT = re.compile(
-    r"推薦|推荐|建議買|建议买|該買|该买|值得買|值得买|買哪|买哪|明牌|報牌|报牌|會漲|会涨"
+    r"推薦|推薦|建議買|建議買|該買|該買|值得買|值得買|買哪|買哪|明牌|報牌|報牌|會漲|會漲"
     r"|recommend|ignore\s+(all\s+)?(previous\s+)?instructions",
     re.IGNORECASE,
 )

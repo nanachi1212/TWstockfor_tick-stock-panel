@@ -1,4 +1,4 @@
-# Nanachi 的台股監控看板 - one-shot launcher for backend + frontend (Windows / PowerShell)
+﻿# Nanachi 的台股監控看板 - one-shot launcher for backend + frontend (Windows / PowerShell)
 #
 # Usage:
 #   .\dev.ps1
@@ -194,9 +194,9 @@ $frontendPidFile = [System.IO.Path]::GetTempFileName()
 
 $backendJob = Start-Job -Name 'backend' -ScriptBlock {
     param($pidFile, $dir, $envFile, $bindAddress, $port)
-    # Start-Job 開的是全新 powershell.exe 子進程, 不繼承主進程的 UTF-8 設置,
-    # 默認用系統 ANSI (中文 Windows = GBK/cp936) 解碼後端 UTF-8 輸出 → 中文亂碼。
-    # 這裡強制子進程用 UTF-8, 與 app/__init__.py 的 stdout/stderr 編碼對齊。
+    # Start-Job 開的是全新 powershell.exe 子程序, 不繼承主程序的 UTF-8 設定,
+    # 預設用系統 ANSI (中文 Windows = GBK/cp936) 解碼後端 UTF-8 輸出 → 中文亂碼。
+    # 這裡強制子程序用 UTF-8, 與 app/__init__.py 的 stdout/stderr 編碼對齊。
     [Console]::OutputEncoding = New-Object System.Text.UTF8Encoding $false
     $OutputEncoding           = New-Object System.Text.UTF8Encoding $false
     $PID | Out-File -FilePath $pidFile -Encoding ascii -Force
@@ -208,7 +208,7 @@ $backendJob = Start-Job -Name 'backend' -ScriptBlock {
 
 $frontendJob = Start-Job -Name 'frontend' -ScriptBlock {
     param($pidFile, $dir, $bindAddress, $backendPort, $port)
-    # 同上: job 子進程默認 GBK, pnpm/前端工具鏈也是 UTF-8 輸出, 需對齊。
+    # 同上: job 子程序預設 GBK, pnpm/前端工具鏈也是 UTF-8 輸出, 需對齊。
     [Console]::OutputEncoding = New-Object System.Text.UTF8Encoding $false
     $OutputEncoding           = New-Object System.Text.UTF8Encoding $false
     $PID | Out-File -FilePath $pidFile -Encoding ascii -Force

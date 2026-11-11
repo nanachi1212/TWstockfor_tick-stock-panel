@@ -1,4 +1,4 @@
-"""自选分组持久化与 API 契约。"""
+"""自選分組持久化與 API 契約。"""
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
@@ -32,15 +32,15 @@ def test_historical_watchlist_is_read_as_ungrouped(monkeypatch, tmp_path):
 
 def test_group_lifecycle_preserves_watchlist_entries(monkeypatch, tmp_path):
     monkeypatch.setattr(settings, "data_dir", tmp_path)
-    groups, created = watchlist.create_group("  短线  ", "orange")
-    assert groups == [{"id": created["id"], "name": "短线", "color": "orange"}]
+    groups, created = watchlist.create_group("  短線  ", "orange")
+    assert groups == [{"id": created["id"], "name": "短線", "color": "orange"}]
 
     watchlist.add("600000.SH", group_id=created["id"])
     watchlist.add("000001.SZ")
     assert watchlist.list_symbols()[1]["group_ids"] == [created["id"]]
 
-    renamed = watchlist.rename_group(created["id"], "观察", "fuchsia")
-    assert renamed[0]["name"] == "观察"
+    renamed = watchlist.rename_group(created["id"], "觀察", "fuchsia")
+    assert renamed[0]["name"] == "觀察"
     assert renamed[0]["color"] == "fuchsia"
 
     remaining, rows = watchlist.delete_group(created["id"])
@@ -56,9 +56,9 @@ def test_group_validation_and_assignment_errors(monkeypatch, tmp_path):
 
     with pytest.raises(ValueError, match="已存在"):
         watchlist.create_group("核心")
-    with pytest.raises(ValueError, match="颜色"):
-        watchlist.create_group("无效颜色", "black")
-    with pytest.raises(ValueError, match="颜色"):
+    with pytest.raises(ValueError, match="顏色"):
+        watchlist.create_group("無效顏色", "black")
+    with pytest.raises(ValueError, match="顏色"):
         watchlist.rename_group(created["id"], "核心", "black")
     with pytest.raises(ValueError, match="不存在"):
         watchlist.set_group("600000.SH", "missing")
@@ -81,14 +81,14 @@ def test_reorder_groups(monkeypatch, tmp_path):
     assert [group["name"] for group in reordered] == ["三", "一", "二"]
     assert [group["name"] for group in watchlist.list_groups()] == ["三", "一", "二"]
 
-    # ids 与现有分组不一致 (缺失 / 多余 / 重复) 均拒绝
+    # ids 與現有分組不一致 (缺失 / 多餘 / 重複) 均拒絕
     with pytest.raises(ValueError, match="不一致"):
         watchlist.reorder_groups([first["id"], second["id"]])
     with pytest.raises(ValueError, match="不一致"):
         watchlist.reorder_groups([first["id"], second["id"], third["id"], "missing"])
     with pytest.raises(ValueError, match="不一致"):
         watchlist.reorder_groups([first["id"], first["id"], second["id"], third["id"]])
-    # 失败请求不改变现有顺序
+    # 失敗請求不改變現有順序
     assert [group["name"] for group in watchlist.list_groups()] == ["三", "一", "二"]
 
 
@@ -113,7 +113,7 @@ def test_group_api_contract(monkeypatch, tmp_path):
     monkeypatch.setattr(settings, "data_dir", tmp_path)
     request = _request()
     created = watchlist_api.create_group(
-        watchlist_api.GroupNameRequest(name="中线", color="teal")
+        watchlist_api.GroupNameRequest(name="中線", color="teal")
     )
     group_id = created["group"]["id"]
     assert created["group"]["color"] == "teal"
@@ -132,7 +132,7 @@ def test_group_api_contract(monkeypatch, tmp_path):
     assert moved["symbols"][0]["group_ids"] == []
 
     with pytest.raises(HTTPException) as exc_info:
-        watchlist_api.rename_group("missing", watchlist_api.GroupNameRequest(name="无效"))
+        watchlist_api.rename_group("missing", watchlist_api.GroupNameRequest(name="無效"))
     assert exc_info.value.status_code == 404
 
 
@@ -141,33 +141,33 @@ def test_historical_groups_default_to_sky(monkeypatch, tmp_path):
     path = tmp_path / "user_data" / "watchlist_groups.json"
     path.parent.mkdir(parents=True)
     path.write_text(
-        '[{"id":"legacy","name":"旧分组"},'
-        '{"id":"invalid","name":"未知颜色","color":"black"}]',
+        '[{"id":"legacy","name":"舊分組"},'
+        '{"id":"invalid","name":"未知顏色","color":"black"}]',
         encoding="utf-8",
     )
 
     assert watchlist.list_groups() == [
-        {"id": "legacy", "name": "旧分组", "color": "sky"},
-        {"id": "invalid", "name": "未知颜色", "color": "sky"},
+        {"id": "legacy", "name": "舊分組", "color": "sky"},
+        {"id": "invalid", "name": "未知顏色", "color": "sky"},
     ]
 
 
 def test_clear_group_moves_members_to_ungrouped(monkeypatch, tmp_path):
-    """清空分组:成员变未分组,分组定义保留。"""
+    """清空分組:成員變未分組,分組定義保留。"""
     monkeypatch.setattr(settings, "data_dir", tmp_path)
     _, group = watchlist.create_group("芯片")
     watchlist.add("600000.SH", group_id=group["id"])
     watchlist.add("000001.SZ", group_id=group["id"])
-    watchlist.add("300750.SZ")  # 不在任何分组
+    watchlist.add("300750.SZ")  # 不在任何分組
 
     rows = watchlist.clear_group(group["id"])
-    # 3 只都还在,group_id 全部为 None
+    # 3 只都還在,group_id 全部為 None
     assert len(rows) == 3
     assert all(r["group_ids"] == [] for r in rows)
-    # 分组定义仍在
+    # 分組定義仍在
     assert any(g["id"] == group["id"] for g in watchlist.list_groups())
 
-    # 清空不存在的分组 → KeyError
+    # 清空不存在的分組 → KeyError
     with pytest.raises(KeyError):
         watchlist.clear_group("missing")
 
@@ -176,7 +176,7 @@ def test_clear_group_api(monkeypatch, tmp_path):
     monkeypatch.setattr(settings, "data_dir", tmp_path)
     request = _request()
     created = watchlist_api.create_group(
-        watchlist_api.GroupNameRequest(name="中线", color="teal")
+        watchlist_api.GroupNameRequest(name="中線", color="teal")
     )
     group_id = created["group"]["id"]
     watchlist.add("600000.SH", group_id=group_id)
@@ -185,43 +185,43 @@ def test_clear_group_api(monkeypatch, tmp_path):
     result = watchlist_api.clear_group(group_id, request)
     assert all(s["group_ids"] == [] for s in result["symbols"])
 
-    # 不存在的分组 → 404
+    # 不存在的分組 → 404
     with pytest.raises(HTTPException) as exc:
         watchlist_api.clear_group("missing", request)
     assert exc.value.status_code == 404
 
 
-# ── 多组成员关系 (M:N) ──────────────────────────────────────
+# ── 多組成員關係 (M:N) ──────────────────────────────────────
 
 
 def test_multi_group_membership(monkeypatch, tmp_path):
-    """一股可同时属于多个分组; 移出一个不影响其他。"""
+    """一股可同時屬於多個分組; 移出一個不影響其他。"""
     monkeypatch.setattr(settings, "data_dir", tmp_path)
-    _, ga = watchlist.create_group("半导体")
-    _, gb = watchlist.create_group("反包备选")
+    _, ga = watchlist.create_group("半導體")
+    _, gb = watchlist.create_group("反包備選")
     watchlist.add("600118.SH", group_id=ga["id"])
 
     rows = watchlist.add_to_group("600118.SH", gb["id"])
     got = next(r for r in rows if r["symbol"] == "600118.SH")
-    assert got["group_ids"] == [ga["id"], gb["id"]]      # 两组并存
+    assert got["group_ids"] == [ga["id"], gb["id"]]      # 兩組並存
 
-    # 重复加入幂等
+    # 重複加入冪等
     rows = watchlist.add_to_group("600118.SH", gb["id"])
     got = next(r for r in rows if r["symbol"] == "600118.SH")
     assert got["group_ids"] == [ga["id"], gb["id"]]
 
-    # 移出一个, 另一个保留
+    # 移出一個, 另一個保留
     rows = watchlist.remove_from_group("600118.SH", ga["id"])
     got = next(r for r in rows if r["symbol"] == "600118.SH")
     assert got["group_ids"] == [gb["id"]]
 
-    # 移出最后一个 → 未分组(仍在自选)
+    # 移出最後一個 → 未分組(仍在自選)
     rows = watchlist.remove_from_group("600118.SH", gb["id"])
     got = next(r for r in rows if r["symbol"] == "600118.SH")
     assert got["group_ids"] == []
     assert any(r["symbol"] == "600118.SH" for r in rows)
 
-    # 不存在的分组/标的
+    # 不存在的分組/標的
     with pytest.raises(ValueError, match="不存在"):
         watchlist.add_to_group("600118.SH", "missing")
     with pytest.raises(KeyError):
@@ -229,7 +229,7 @@ def test_multi_group_membership(monkeypatch, tmp_path):
 
 
 def test_set_group_exclusive_keeps_only_one(monkeypatch, tmp_path):
-    """互斥设定: 已在多组的标的被 set 后只保留指定组。"""
+    """互斥設定: 已在多組的標的被 set 後只保留指定組。"""
     monkeypatch.setattr(settings, "data_dir", tmp_path)
     _, ga = watchlist.create_group("一")
     _, gb = watchlist.create_group("二")
@@ -241,7 +241,7 @@ def test_set_group_exclusive_keeps_only_one(monkeypatch, tmp_path):
 
 
 def test_clear_group_strips_only_that_group(monkeypatch, tmp_path):
-    """清空分组只摘该组标签, 其他组成员关系保留。"""
+    """清空分組只摘該組標籤, 其他組成員關係保留。"""
     monkeypatch.setattr(settings, "data_dir", tmp_path)
     _, ga = watchlist.create_group("一")
     _, gb = watchlist.create_group("二")
@@ -252,12 +252,12 @@ def test_clear_group_strips_only_that_group(monkeypatch, tmp_path):
     rows = watchlist.clear_group(ga["id"])
     a = next(r for r in rows if r["symbol"] == "600000.SH")
     b = next(r for r in rows if r["symbol"] == "000001.SZ")
-    assert a["group_ids"] == [gb["id"]]   # 二组保留
+    assert a["group_ids"] == [gb["id"]]   # 二組保留
     assert b["group_ids"] == []
 
 
 def test_legacy_single_group_id_migration(monkeypatch, tmp_path):
-    """旧 schema(单值 group_id 列)读取迁移 + 首次写回前自动备份 .bak。"""
+    """舊 schema(單值 group_id 列)讀取遷移 + 首次寫回前自動備份 .bak。"""
     monkeypatch.setattr(settings, "data_dir", tmp_path)
     path = tmp_path / "user_data" / "watchlist.parquet"
     path.parent.mkdir(parents=True)
@@ -271,9 +271,9 @@ def test_legacy_single_group_id_migration(monkeypatch, tmp_path):
     rows = watchlist.list_symbols()
     assert rows[0]["group_ids"] == ["g1"]
     assert rows[1]["group_ids"] == []
-    assert not (tmp_path / "user_data" / "watchlist.parquet.bak").exists()  # 只读不备份
+    assert not (tmp_path / "user_data" / "watchlist.parquet.bak").exists()  # 只讀不備份
 
-    # 触发写入 → 备份生成, 文件落新 schema
+    # 觸發寫入 → 備份生成, 檔案落新 schema
     watchlist.add("300750.SZ")
     assert (tmp_path / "user_data" / "watchlist.parquet.bak").exists()
     df = pl.read_parquet(path)

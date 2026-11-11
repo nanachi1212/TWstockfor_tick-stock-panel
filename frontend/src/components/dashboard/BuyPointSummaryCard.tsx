@@ -21,4 +21,4 @@ export function BuyPointSummaryCard() {
   )
 }
 
-// 看板監控中心小組件 — 顯示前 10 條觸發記錄 + 更多按鈕
+// 看板監控中心小元件 — 顯示前 10 條觸發記錄 + 更多按鈕

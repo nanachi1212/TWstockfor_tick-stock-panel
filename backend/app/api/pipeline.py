@@ -1,4 +1,4 @@
-"""盘后管道 API — 异步触发 + 进度跟踪。"""
+"""盤後管道 API — 非同步觸發 + 進度跟蹤。"""
 from __future__ import annotations
 
 import logging
@@ -16,8 +16,8 @@ router = APIRouter(prefix="/api/pipeline", tags=["pipeline"])
 
 @router.get("/jobs/{job_id}")
 def get_job(job_id: str) -> dict:
-    # 每次轮询都检查卡死 job — 前端持续轮询, 进度停滞超阈值后必定自愈,
-    # 无需用户再次手动点「同步」。
+    # 每次輪詢都檢查卡死 job — 前端持續輪詢, 進度停滯超閾值後必定自愈,
+    # 無需使用者再次手動點「同步」。
     job_store.reap_stale()
     j = job_store.get(job_id)
     if not j:
@@ -27,13 +27,13 @@ def get_job(job_id: str) -> dict:
 
 @router.post("/jobs/{job_id}/cancel")
 def cancel_job(job_id: str) -> dict:
-    """手动取消一个 running 的 job(协作式: 拉取线程在当前分块完成后自行退出)。"""
+    """手動取消一個 running 的 job(協作式: 取得執行緒在當前分塊完成後自行退出)。"""
     j = job_store.get(job_id)
     if not j:
         raise HTTPException(status_code=404, detail="job not found")
     if j["status"] not in ("running", "pending"):
         raise HTTPException(status_code=400, detail=f"job status is {j['status']}, cannot cancel")
-    job_store.terminate(job_id, "用户手动取消")
+    job_store.terminate(job_id, "使用者手動取消")
     return {"cancelled": job_id}
 
 

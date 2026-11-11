@@ -2,9 +2,9 @@
 # Nanachi 的台股監控看板 — 一鍵啟動前後端
 #
 # 用法:
-#   ./dev.sh                          # 默認 backend:3018  frontend:3011
-#   BACKEND_PORT=8000 ./dev.sh        # 改後端端口
-#   FRONTEND_PORT=5173 ./dev.sh       # 改前端端口
+#   ./dev.sh                          # 預設 backend:3018  frontend:3011
+#   BACKEND_PORT=8000 ./dev.sh        # 改後端連接埠
+#   FRONTEND_PORT=5173 ./dev.sh       # 改前端連接埠
 #
 # Ctrl-C 同時關閉兩端。
 
@@ -91,7 +91,7 @@ require_cmd() {
 require_cmd uv   "curl -LsSf https://astral.sh/uv/install.sh | sh"
 require_cmd pnpm "npm i -g pnpm   或   corepack enable && corepack prepare pnpm@9 --activate"
 
-# ===== 2. 端口佔用檢查 —— 佔用就直接 kill =====
+# ===== 2. 連接埠佔用檢查 —— 佔用就直接 kill =====
 free_port() {
   local name="$1" port="$2"
   local pids
@@ -99,7 +99,7 @@ free_port() {
   if [ -z "$pids" ]; then
     return 0
   fi
-  warn "端口 $port($name)被佔用,kill 現有進程 PID: $(echo "$pids" | xargs)"
+  warn "連接埠 $port($name)被佔用,kill 現有程序 PID: $(echo "$pids" | xargs)"
   # 先 TERM
   echo "$pids" | xargs kill 2>/dev/null || true
   sleep 1
@@ -113,10 +113,10 @@ free_port() {
   # 再確認一次
   pids=$(lsof -nP -tiTCP:"$port" -sTCP:LISTEN 2>/dev/null || true)
   if [ -n "$pids" ]; then
-    err "端口 $port 仍被佔用 — kill 失敗。請手動處理:lsof -i :$port"
+    err "連接埠 $port 仍被佔用 — kill 失敗。請手動處理:lsof -i :$port"
     exit 1
   fi
-  ok "端口 $port 已釋放"
+  ok "連接埠 $port 已釋放"
 }
 free_port backend  "$BACKEND_PORT"
 free_port frontend "$FRONTEND_PORT"
@@ -140,7 +140,7 @@ if [ ! -d "$FRONTEND_DIR/node_modules" ]; then
   ok "前端依賴裝好了"
 fi
 
-# ===== 4. 啟動 + 日誌前綴 =====
+# ===== 4. 啟動 + 記錄檔前綴 =====
 PIDS=()
 
 cleanup() {
@@ -151,14 +151,14 @@ cleanup() {
       kill "$pid" 2>/dev/null || true
     fi
   done
-  # 等子進程退出,避免孤兒
+  # 等子程序退出,避免孤兒
   wait 2>/dev/null || true
   ok "已退出"
   exit 0
 }
 trap cleanup INT TERM
 
-# 用 awk 加前綴(macOS sed 沒有 -u line-buffered,改用 awk + fflush 兼容)
+# 用 awk 加前綴(macOS sed 沒有 -u line-buffered,改用 awk + fflush 相容)
 prefix_awk() {
   awk -v p="$1" '{ print p $0; fflush() }'
 }
@@ -177,8 +177,8 @@ echo
 (
   cd "$BACKEND_DIR"
   # --no-sync: 跳過依賴解析, 直接用已安裝的 .venv。
-  # 比 --frozen 更徹底: 不校驗 lockfile, 避免鏡像源 403/網絡抖動導致後端起不來。
-  # python -m uvicorn: 強制用 venv 的解釋器和 uvicorn 模塊, 防止 PATH 裡
+  # 比 --frozen 更徹底: 不驗證 lockfile, 避免套件源 403/網路抖動導致後端起不來。
+  # python -m uvicorn: 強制用 venv 的解釋器和 uvicorn 模組, 防止 PATH 裡
   # 其他 Python(如 /usr/local/bin/uvicorn) 搶先, 導致用錯誤版本啟動後端。
   uv run --no-sync python -m uvicorn app.main:app ${UVICORN_ENV_ARGS[@]+"${UVICORN_ENV_ARGS[@]}"} --reload \
     --host "$BACKEND_HOST" --port "$BACKEND_PORT" 2>&1 \
@@ -194,11 +194,11 @@ PIDS+=("$!")
 ) &
 PIDS+=("$!")
 
-# 等任一退出(bash 4.3+)或全部退出(老 bash)
+# 等任一退出(bash 4.3+)或全部退出(舊版 bash)
 if wait -n 2>/dev/null; then
-  warn "其中一個進程退出,正在關閉另一個..."
+  warn "其中一個程序退出,正在關閉另一個..."
   cleanup
 else
-  # 老 bash 沒有 wait -n,退化為 wait 全部
+  # 舊版 bash 沒有 wait -n,退化為 wait 全部
   wait
 fi

@@ -55,3 +55,17 @@ export function evidenceLabel(key: string): string {
 export function evidenceLabels(keys: string[]): string {
   return keys.map(evidenceLabel).join('、')
 }
+
+// 後端狀態碼（available / stale / partial ...）轉成介面用的繁中標籤；沒收錄的保留原文。
+const STATUS: Record<string, string> = {
+  available: '可用', current: '最新', stale: '資料較舊', partial: '部分可用', unavailable: '不可用',
+  degraded: '部分降級', ready: '已就緒', ok: '正常', success: '成功', failed: '失敗', error: '錯誤',
+  fallback: '備援', verified: '已驗證', unverified: '未驗證', running: '執行中', queued: '排隊中',
+  completed: '已完成', skipped: '已略過', not_run: '尚未執行', data_insufficient: '資料不足',
+  insufficient: '資料不足', complete: '完整',
+}
+
+export function statusLabel(code: string | null | undefined): string {
+  if (!code) return '—'
+  return STATUS[code] ?? code
+}

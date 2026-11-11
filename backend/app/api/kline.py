@@ -70,11 +70,11 @@ def _default_minute_date(repo, symbol: str | None = None, asset_type: str = "sto
 
 
 def _search_taiwan_instruments(q: str, limit: int) -> list[dict]:
-    """仅查 TaiwanSecurityMaster, 不触碰 repo.get_instruments*() 的 legacy A 股缓存。
+    """僅查 TaiwanSecurityMaster, 不觸碰 repo.get_instruments*() 的舊版非台股快取。
 
-    canonical symbol 形如 2330.TWSE / 6488.TPEX; 支持代码/canonical symbol/
-    繁体中文名称查询, 排序/评分逻辑在 TaiwanSecurityMaster.search() 内完成。
-    只保留 is_supported 的 stock/etf(权证等未支援标的不该出现在自选搜索里)。
+    canonical symbol 形如 2330.TWSE / 6488.TPEX; 支援代碼/canonical symbol/
+    繁體中文名稱查詢, 排序/評分邏輯在 TaiwanSecurityMaster.search() 內完成。
+    只保留 is_supported 的 stock/etf(權證等未支援標的不該出現在自選搜尋裡)。
     """
     from app.taiwan.universe import get_security_master
 
@@ -95,9 +95,9 @@ def _search_taiwan_instruments(q: str, limit: int) -> list[dict]:
 @router.get("/instruments/search")
 def search_instruments(
     request: Request,
-    q: str = Query("", min_length=0, max_length=50, description="搜索关键词"),
+    q: str = Query("", min_length=0, max_length=50, description="搜尋關鍵詞"),
     limit: int = Query(20, ge=1, le=50),
-    asset_types: str = Query("stock", description="逗号分隔的资产类型: stock,etf"),
+    asset_types: str = Query("stock", description="逗號分隔的資產類型: stock,etf"),
     market: Annotated[
         Literal["taiwan", "all"] | None,
         Query(description="台股證券主檔; all 為相容別名, 同樣只搜尋台股"),
@@ -113,7 +113,7 @@ def search_instruments(
 
 @router.post("/instruments/names")
 def instruments_names(request: Request, symbols: list[str]):
-    """批量查标的名称 (股票 + ETF + 指数)。传入 symbol 列表, 返回 {symbol: name}。"""
+    """批次查標的名稱 (股票 + ETF + 指數)。傳入 symbol 欄表, 回傳 {symbol: name}。"""
     if not symbols:
         return {"names": {}}
     symbols = _require_taiwan_symbols(symbols)
@@ -127,11 +127,11 @@ def instruments_names(request: Request, symbols: list[str]):
 
 
 def _get_stock_info(repo, symbol: str) -> dict:
-    """从 instruments 内存缓存查标的名称 + 股本。
+    """從 instruments 記憶體快取查標的名稱 + 股本。
 
-    该接口在个股弹窗打开时每秒被调用 (SSE invalidate 触发重拉), 走
-    repo.get_instruments() 的 Polars 内存缓存按 symbol 过滤, 不再每请求
-    DuckDB 扫 instruments parquet。列缺失时返回空 dict, 与旧 SQL 报错路径一致。
+    該介面在個股彈窗打開時每秒被呼叫 (SSE invalidate 觸發重拉), 走
+    repo.get_instruments() 的 Polars 記憶體快取按 symbol 過濾, 不再每請求
+    DuckDB 掃 instruments parquet。欄缺失時回傳空 dict, 與舊 SQL 出錯路徑一致。
     """
     import polars as pl
     try:
@@ -152,7 +152,7 @@ def _get_stock_info(repo, symbol: str) -> dict:
 
 
 def _get_asset_info(repo, symbol: str, asset_type: str) -> dict:
-    """非股票标的 (ETF / 指数) 的名称信息 — 从对应 instruments 缓存查, 无股本概念。"""
+    """非股票標的 (ETF / 指數) 的名稱資訊 — 從對應 instruments 快取查, 無股本概念。"""
     import polars as pl
     try:
         df = repo.get_instruments_asset(asset_type)
@@ -273,9 +273,9 @@ def get_daily(
     request: Request,
     symbol: str = Query(..., description="台股代碼, 如 2330.TWSE"),
     days: int = Query(120, ge=10, le=2000),
-    start_date: Optional[str] = Query(None, description="起始日期 YYYY-MM-DD, 优先于 days"),
-    end_date: Optional[str] = Query(None, description="截止日期 YYYY-MM-DD, 默认今天"),
-    ext_columns: Optional[str] = Query(None, description="逗号分隔的 ext 列: config_id.field_name"),
+    start_date: Optional[str] = Query(None, description="起始日期 YYYY-MM-DD, 優先於 days"),
+    end_date: Optional[str] = Query(None, description="截止日期 YYYY-MM-DD, 預設今天"),
+    ext_columns: Optional[str] = Query(None, description="逗號分隔的 ext 列: config_id.field_name"),
 ):
     """Read canonical raw Taiwan history or the configured custom enriched history.
 
@@ -313,7 +313,7 @@ def get_daily(
 
     start = requested_start or end - timedelta(days=days)
 
-    # 从 enriched 表读取 (已含前复权 OHLCV + 技术指标 + 信号); ETF/指数走独立存储
+    # 從 enriched 表讀取 (已含前復權 OHLCV + 技術指標 + 信號); ETF/指數走獨立儲存
     df = repo.get_daily_asset(asset_type, symbol, start, end)
 
     if df.is_empty():
@@ -327,7 +327,7 @@ def get_daily(
             raise HTTPException(status_code=502, detail=f"日線資料來源讀取失敗: {e}") from e
         if raw.is_empty():
             return {"symbol": symbol, "name": stock_name, "stock_info": stock_info, "rows": []}
-        # 拉除权因子做前复权 (資料來源有支援時), 否则空 df → compute_enriched 退回未复权
+        # 拉除權因子做前復權 (資料來源有支援時), 否則空 df → compute_enriched 退回未復權
         factors = pl.DataFrame()
         capset = getattr(request.app.state, "capabilities", None)
         try:
@@ -335,7 +335,7 @@ def get_daily(
             if capset and capset.has(Cap.ADJ_FACTOR):
                 factors = kline_sync.fetch_adj_factor_single(symbol)
         except Exception as e:  # noqa: BLE001
-            logger.debug("单股除权因子拉取失败 %s: %s", symbol, e)
+            logger.debug("單股除權因子取得失敗 %s: %s", symbol, e)
         enriched = compute_enriched(raw, factors=factors)
         enriched = enriched.filter((pl.col("date") >= start) & (pl.col("date") <= end))
         rows = enriched.to_dicts() if start_date else enriched.tail(days).to_dicts()
@@ -355,15 +355,15 @@ def get_daily(
 
 
 def _attach_ext(resp: dict, repo, symbol: str, ext_columns: Optional[str]) -> dict:  # noqa: ARG001
-    """ext 擴充欄位為已移除的 A 股功能; 保留簽名, 直接回傳原回應。"""
+    """ext 擴充欄位屬於已移除的非台股功能; 保留簽名, 直接回傳原回應。"""
     return resp
 
 
 def _maybe_inject_live_candle(request: Request, symbol: str, rows: list[dict], asset_type: str = "stock") -> list[dict]:
-    """如果有当日实时 enriched 数据, 用实时数据生成今日蜡烛并追加/覆盖。
+    """如果有當日即時 enriched 資料, 用即時資料生成今日蠟燭並追加/覆蓋。
 
-    stock 走 QuoteService 的股票实时缓存; etf 走 ETF enriched 缓存 (开启实时 ETF
-    拉取时为盘中数据, 否则为磁盘最新日, 由下方"非今日不注入"守卫自然跳过)。
+    stock 走 QuoteService 的股票即時快取; etf 走 ETF enriched 快取 (開啟即時 ETF
+    取得時為盤中資料, 否則為磁碟最新日, 由下方"非今日不注入"守衛自然跳過)。
     """
     if asset_type == "stock":
         qs = getattr(request.app.state, "quote_service", None)
@@ -377,11 +377,11 @@ def _maybe_inject_live_candle(request: Request, symbol: str, rows: list[dict], a
     if df_today.is_empty():
         return rows
 
-    # 非交易日（周末/假日）缓存的行情日期 != 今天，跳过注入避免产生重复蜡烛
+    # 非交易日（週末/假日）快取的行情日期 != 今天，跳過注入避免產生重複蠟燭
     if not enriched_date or enriched_date != taipei_today():
         return rows
 
-    # 查找该 symbol 的实时 enriched 行
+    # 查找該 symbol 的即時 enriched 行
     import polars as pl
     try:
         q = df_today.filter(pl.col("symbol") == symbol).to_dicts()
@@ -397,8 +397,8 @@ def _maybe_inject_live_candle(request: Request, symbol: str, rows: list[dict], a
 
     today_str = str(enriched_date)
 
-    # enriched 行已包含 OHLCV + 全套指标, 直接用它
-    # 修复: API 在非交易时段可能返回 open/high/low=0, 用 close 填充避免异常蜡烛
+    # enriched 行已包含 OHLCV + 全套指標, 直接用它
+    # 修復: API 在非交易時段可能回傳 open/high/low=0, 用 close 填充避免異常蠟燭
     raw_open = q.get("open")
     raw_high = q.get("high")
     raw_low = q.get("low")
@@ -414,7 +414,7 @@ def _maybe_inject_live_candle(request: Request, symbol: str, rows: list[dict], a
         "change_pct": q.get("change_pct"),
         "is_live": True,
     }
-    # 补上 enriched 的技术指标字段
+    # 補上 enriched 的技術指標欄位
     for key in ("ma5", "ma10", "ma20", "ma30", "ma60",
                 "macd_dif", "macd_dea", "macd_hist",
                 "kdj_k", "kdj_d", "kdj_j",
@@ -424,7 +424,7 @@ def _maybe_inject_live_candle(request: Request, symbol: str, rows: list[dict], a
         if key in q and q[key] is not None:
             live_row[key] = q[key]
 
-    # 如果已有今天的 enriched 行, 覆盖; 否则追加
+    # 如果已有今天的 enriched 行, 覆蓋; 否則追加
     found = False
     for i, r in enumerate(rows):
         if str(r.get("date")) == today_str:
@@ -439,16 +439,16 @@ def _maybe_inject_live_candle(request: Request, symbol: str, rows: list[dict], a
 
 
 class DailyBatchRequest(BaseModel):
-    """批量日K请求。"""
+    """批次日K請求。"""
     symbols: list[str] = []
     days: int = 12
 
 
 @router.post("/daily-batch")
 def get_daily_batch(request: Request, body: DailyBatchRequest):
-    """批量获取多只股票最近 N 天日K (OHLCV)。
+    """批次取得多隻股票最近 N 天日K (OHLCV)。
 
-    用于自选列表迷你蜡烛图等场景，只返回基础列，不返回全部 enriched 指标。
+    用於自選列表迷你蠟燭圖等場景，只回傳基礎欄，不回傳全部 enriched 指標。
     """
     days = body.days
     symbols = _require_taiwan_symbols(body.symbols)
@@ -465,11 +465,11 @@ def get_daily_batch(request: Request, body: DailyBatchRequest):
     import polars as pl
 
     end = taipei_today()
-    start = end - timedelta(days=days * 2)  # 多取一些确保交易日够
+    start = end - timedelta(days=days * 2)  # 多取一些確保交易日夠
 
     cols = ["symbol", "date", "open", "high", "low", "close", "volume"]
 
-    # 按资产类型分组: stock 走批量缓存; etf/index 逐只查独立存储 (数量少, 成本可忽略)
+    # 按資產類型分組: stock 走批次快取; etf/index 逐只查獨立儲存 (數量少, 成本可忽略)
     stock_symbols: list[str] = []
     etf_symbols: list[str] = []
     index_symbols: list[str] = []
@@ -500,8 +500,8 @@ def get_daily_batch(request: Request, body: DailyBatchRequest):
         return {"data": {}}
     df = pl.concat(frames, how="diagonal_relaxed")
 
-    # 按 symbol 分组, 每只取最近 N 条。
-    # partition_by 一次切分, 避免 N 只自选时对同一批数据做 N 次全帧过滤。
+    # 按 symbol 分組, 每隻取最近 N 條。
+    # partition_by 一次切分, 避免 N 只自選時對同一批資料做 N 次全幀過濾。
     result: dict[str, list[dict]] = {}
     for part in df.partition_by("symbol", maintain_order=True):
         sub = part.sort("date").tail(days)
@@ -513,11 +513,11 @@ def get_daily_batch(request: Request, body: DailyBatchRequest):
 
 @router.post("/minute-batch")
 def get_minute_batch(request: Request, body: dict):
-    """批量获取多只股票某天的分钟K (分时图用)。
+    """批次取得多隻股票某天的分鐘K (分時圖用)。
 
-    - 本地优先: 先从 kline_minute parquet 读, 完整的直接用
-    - 缺失补拉: 本地不完整的 symbol 用 sync_minute_batch 批量实时拉 (不落库)
-    - 需要已配置的自訂分鐘資料來源
+    - 本地優先: 先從 kline_minute parquet 讀, 完整的直接用
+    - 缺失補拉: 本地不完整的 symbol 用 sync_minute_batch 批次即時拉 (不寫入資料庫)
+    - 需要已設定的自訂分鐘資料來源
     """
     from datetime import datetime
 
@@ -535,14 +535,14 @@ def get_minute_batch(request: Request, body: dict):
     capset = request.app.state.capabilities
 
     if not _minute_allowed(capset):
-        raise HTTPException(403, "尚未配置可用的台股分鐘資料來源")
+        raise HTTPException(403, "尚未設定可用的台股分鐘資料來源")
 
     try:
         trade_date = date.fromisoformat(trade_date_str) if trade_date_str else _default_minute_date(repo)
     except (TypeError, ValueError) as exc:
         raise HTTPException(422, "date 必須為 YYYY-MM-DD") from exc
 
-    # Step 1: 本地优先 — 一次 scan 读全部 symbol 当日分钟K (股票 / ETF 分钟数据分开存储)
+    # Step 1: 本地優先 — 一次 scan 讀全部 symbol 當日分鐘K (股票 / ETF 分鐘資料分開儲存)
     etf_set = repo.get_etf_symbol_set()
     stock_syms = [s for s in symbols if s not in etf_set]
     etf_syms = [s for s in symbols if s in etf_set]
@@ -556,7 +556,7 @@ def get_minute_batch(request: Request, body: dict):
 
     expected = _expected_minutes(trade_date)
 
-    # 按 symbol 分组, 判定哪些不完整需要补拉 (partition_by 一次切分, 同 daily-batch)
+    # 按 symbol 分組, 判定哪些不完整需要補拉 (partition_by 一次切分, 同 daily-batch)
     result: dict[str, list[dict]] = {}
     incomplete: list[str] = []
     local_parts: dict[str, pl.DataFrame] = {}
@@ -570,16 +570,16 @@ def get_minute_batch(request: Request, body: dict):
         elif not sub.is_empty():
             result[sym] = sub.to_dicts()
 
-    # Step 2: 缺失的 symbol 批量实时拉取 (不落库)
+    # Step 2: 缺失的 symbol 批次即時取得 (不寫入資料庫)
     if incomplete:
         start_time = datetime(trade_date.year, trade_date.month, trade_date.day, 9, 0, tzinfo=TAIPEI_TZ)
         end_time = datetime(trade_date.year, trade_date.month, trade_date.day, 13, 30, tzinfo=TAIPEI_TZ)
         lim = capset.limits(Cap.KLINE_MINUTE_BATCH)
-        # etf_set 已在上方获取, 直接复用 — 按 asset_type 拆分调用 sync_minute_batch
+        # etf_set 已在上方取得, 直接重用 — 按 asset_type 拆分呼叫 sync_minute_batch
         # (自訂資料來源依賴 asset_type 正確傳遞)
-        # 契约: 本端点只接受 stock/ETF (指数分钟K已随 Phase 8B-5.1 一并移除),
-        # 故两分支已覆盖全部 incomplete。若未来重新支持指数, 需额外加 index 分支
-        # 以避免被误路由为 stock。
+        # 契約: 本端點只接受 stock/ETF (指數分鐘K已隨 Phase 8B-5.1 一併移除),
+        # 故兩分支已覆蓋全部 incomplete。若未來重新支援指數, 需額外加 index 分支
+        # 以避免被誤路由為 stock。
         stock_incomplete = [s for s in incomplete if s not in etf_set]
         etf_incomplete = [s for s in incomplete if s in etf_set]
         live_parts: list[pl.DataFrame] = []
@@ -622,10 +622,10 @@ def get_minute_batch(request: Request, body: dict):
 @router.get("/minute-range")
 def get_minute_range(
     request: Request,
-    symbol: str = Query(..., description="标的代码"),
-    days: int = Query(10, ge=1, le=20, description="最近交易日数量"),
+    symbol: str = Query(..., description="標的代碼"),
+    days: int = Query(10, ge=1, le=20, description="最近交易日數量"),
 ):
-    """读取单只标的最近 N 个已落库交易日的分钟 K。"""
+    """讀取單隻標的最近 N 個已寫入資料庫交易日的分鐘 K。"""
     import polars as pl
 
     symbol = _require_taiwan_symbol(symbol)
@@ -643,7 +643,7 @@ def get_minute_range(
         "requested_days": days,
     }
 
-    # 指数分钟 K 不落本地仓库 (Phase 8B-5.1: 只读实时端点已随 Indices.tsx 一并删除)。
+    # 指數分鐘 K 不落本地倉庫 (Phase 8B-5.1: 只讀即時端點已隨 Indices.tsx 一併刪除)。
     if asset_type == "index":
         return {**base_response, "sessions": [], "source": "none"}
 
@@ -690,13 +690,13 @@ def get_minute_range(
 @router.get("/minute")
 def get_minute(
     request: Request,
-    symbol: str = Query(..., description="标的代码"),
-    trade_date: date | None = Query(None, alias="date", description="交易日期, 默认最新"),
+    symbol: str = Query(..., description="標的代碼"),
+    trade_date: date | None = Query(None, alias="date", description="交易日期, 預設最新"),
 ):
-    """讀取台股分鐘 K; 本地完整資料優先, 缺漏交由配置的自訂來源。"""
+    """讀取台股分鐘 K; 本地完整資料優先, 缺漏交由設定的自訂來源。"""
     symbol = _require_taiwan_symbol(symbol)
     if not _minute_allowed(request.app.state.capabilities):
-        raise HTTPException(403, "尚未配置可用的台股分鐘資料來源")
+        raise HTTPException(403, "尚未設定可用的台股分鐘資料來源")
     repo = request.app.state.repo
     asset_type = repo.resolve_asset_type(symbol)
     stock_info = _get_stock_info(repo, symbol) if asset_type == "stock" else _get_asset_info(repo, symbol, asset_type)
@@ -715,7 +715,7 @@ def get_minute(
 
     expected = _expected_minutes(trade_date)
 
-    is_complete = not df.is_empty() and len(df) >= expected * 0.9  # 允许 10% 容差
+    is_complete = not df.is_empty() and len(df) >= expected * 0.9  # 允許 10% 容差
 
     if is_complete:
         return {
@@ -726,7 +726,7 @@ def get_minute(
             "prev_close": prev_close,
         }
 
-    # 本地不完整或無資料, 使用配置的自訂分鐘來源
+    # 本地不完整或無資料, 使用設定的自訂分鐘來源
     live_df = kline_sync.fetch_minute_single(symbol, trade_date, asset_type=asset_type)
     return {
         "symbol": symbol, "name": stock_name, "stock_info": stock_info,
@@ -740,10 +740,10 @@ def get_minute(
 
 @router.post("/sync_minute_single")
 async def sync_minute_single(request: Request, body: dict):
-    """手动拉取单只股票的分钟K并落库 (前复权)。
+    """手動取得單隻股票的分鐘K並寫入資料庫 (前復權)。
 
     body: { "symbol": "2330.TWSE" }
-    用于个股分时图"获取数据"按钮: 本地无数据时单独拉取并持久化。
+    用於個股分時圖"取得資料"按鈕: 本地無資料時單獨取得並持久化。
     """
     import asyncio
 
@@ -751,28 +751,28 @@ async def sync_minute_single(request: Request, body: dict):
 
     symbol = body.get("symbol", "").strip()
     if not symbol:
-        raise HTTPException(status_code=400, detail="symbol 不能为空")
+        raise HTTPException(status_code=400, detail="symbol 不能為空")
 
     symbol = _require_taiwan_symbol(symbol)
 
     requested_days = body.get("days")
     if requested_days is not None:
         if isinstance(requested_days, bool) or not isinstance(requested_days, int):
-            raise HTTPException(status_code=400, detail="days 必须是整数")
+            raise HTTPException(status_code=400, detail="days 必須是整數")
         if requested_days < 1 or requested_days > 30:
-            raise HTTPException(status_code=400, detail="days 必须在 1 到 30 之间")
+            raise HTTPException(status_code=400, detail="days 必須在 1 到 30 之間")
 
     repo = request.app.state.repo
     capset = request.app.state.capabilities
 
-    # 指数分钟K无本地存储, 落库会污染股票分钟表 kline_minute, 此端点显式拒绝。
-    # (Phase 8B-5.1: 指数分钟K只读端点 /api/index/minute 已随 Indices.tsx 一并删除,
-    # 无实时读取替代路径。)
+    # 指數分鐘K無本地儲存, 寫入資料庫會汙染股票分鐘表 kline_minute, 此端點顯式拒絕。
+    # (Phase 8B-5.1: 指數分鐘K只讀端點 /api/index/minute 已隨 Indices.tsx 一併刪除,
+    # 無即時讀取替代路徑。)
     if repo.resolve_asset_type(symbol) == "index":
-        raise HTTPException(status_code=400, detail="指数分钟K不支持落库同步")
+        raise HTTPException(status_code=400, detail="指數分鐘K不支援寫入資料庫同步")
 
     if not _minute_allowed(capset):
-        raise HTTPException(status_code=403, detail="尚未配置可用的台股分鐘資料來源")
+        raise HTTPException(status_code=403, detail="尚未設定可用的台股分鐘資料來源")
 
     days = requested_days if requested_days is not None else get_minute_sync_days()
     loop = asyncio.get_event_loop()
@@ -782,14 +782,14 @@ async def sync_minute_single(request: Request, body: dict):
 
     written = await loop.run_in_executor(_long_task_executor, _run)
 
-    # 刷新视图
+    # 重新整理檢視表
     from app.jobs.daily_pipeline import _refresh_single_view
     _refresh_single_view(repo, "kline_minute")
 
     return {"status": "ok", "symbol": symbol, "rows": written}
 
 
-# 长时间任务专用线程池（隔离于 FastAPI 默认线程池，防止阻塞请求处理）
+# 長時間任務專用執行緒池（隔離於 FastAPI 預設執行緒池，防止阻塞請求處理）
 import concurrent.futures as _cf
 
 _long_task_executor = _cf.ThreadPoolExecutor(max_workers=2, thread_name_prefix="long-task")

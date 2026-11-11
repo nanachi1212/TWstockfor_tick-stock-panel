@@ -5,6 +5,7 @@ import { FlaskConical } from 'lucide-react'
 import { api, type StrategyLabFilters, type StrategyLabHorizon, type StrategyLabObservation, type StrategyLabStats } from '@/lib/api'
 import { QK } from '@/lib/queryKeys'
 import { STRATEGY_GUIDE } from '@/lib/strategyGuide'
+import { statusLabel } from '@/lib/evidenceLabel'
 
 const HORIZONS = ['1D', '5D', '20D'] as const
 const SLICES = [
@@ -70,13 +71,13 @@ export function StrategyLab() {
   return <main className="mx-auto max-w-[1600px] space-y-6 px-4 py-6">
     <header className="space-y-2">
       <h1 className="flex items-center gap-2 text-lg font-bold"><FlaskConical className="h-6 w-6 text-primary" />策略實驗室</h1>
-      <p className="text-sm text-muted-foreground">Forward / OOS observed，僅使用保存的前瞻觀察，不是 historical backtest。</p>
+      <p className="text-sm text-muted-foreground">Forward / OOS observed，僅使用儲存的前瞻觀察，不是 historical backtest。</p>
       <p className="rounded-lg border border-amber-500/30 bg-amber-500/5 p-3 text-sm">Historical PIT research：未完全可用。各策略保留原始進場基準；觀察報酬未扣成本與滑價，並非可成交的投資組合績效。</p>
     </header>
     <section aria-label="切片篩選" className="flex flex-wrap items-end gap-3 rounded-xl border border-border bg-card p-4">
       <label className="text-xs">Minimum sample<select aria-label="Minimum sample" value={filters.minimum_sample} onChange={e => updateFilter('minimum_sample', Number(e.target.value))} className="mt-1 block rounded border border-border bg-background p-2">{[5, 10, 20, 30, 50].map(n => <option key={n} value={n}>{n}</option>)}</select></label>
       <label className="max-w-72 text-xs">策略<select aria-label="策略篩選" value={filters.strategy_key ?? ''} onChange={e => updateFilter('strategy_key', e.target.value)} className="mt-1 block max-w-full rounded border border-border bg-background p-2"><option value="">全部策略</option>{data?.strategy_options.map(item => <option key={item.key} value={item.key}>{item.source}，{item.strategy_name}，{item.key.slice(0, 8)}</option>)}</select></label>
-      {SLICES.map(([key, label]) => <label key={key} className="text-xs">{label}<select aria-label={label} value={filters[key] ?? ''} disabled={!data?.filter_options[key]?.length} onChange={e => updateFilter(key, e.target.value)} className="mt-1 block rounded border border-border bg-background p-2 disabled:opacity-50"><option value="">{data?.filter_options[key]?.length ? '全部' : '未保存可驗證背景'}</option>{data?.filter_options[key]?.map(value => <option key={value} value={value}>{value}</option>)}</select></label>)}
+      {SLICES.map(([key, label]) => <label key={key} className="text-xs">{label}<select aria-label={label} value={filters[key] ?? ''} disabled={!data?.filter_options[key]?.length} onChange={e => updateFilter(key, e.target.value)} className="mt-1 block rounded border border-border bg-background p-2 disabled:opacity-50"><option value="">{data?.filter_options[key]?.length ? '全部' : '未儲存可驗證背景'}</option>{data?.filter_options[key]?.map(value => <option key={value} value={value}>{value}</option>)}</select></label>)}
       <p className="w-full text-xs text-muted-foreground">每個 horizon 及切片各自檢查 N ≥ {filters.minimum_sample}；pending / unavailable 排除於命中率分母，未四捨五入 return &gt; 0 才算命中。超額報酬只計入同期 benchmark 可用的配對樣本，另列 N。</p>
     </section>
     {(overview.isLoading || overview.isPlaceholderData) && <p role="status">載入策略觀察…</p>}
@@ -106,11 +107,11 @@ export function StrategyLab() {
         <div className="overflow-x-auto rounded-xl border border-border bg-card"><table className="w-full min-w-[1200px] text-left text-xs"><thead className="text-muted-foreground"><tr>{['標的 / signal_date', 'Entry basis', 'Horizon / status', 'Return', 'Benchmark return', 'Excess', 'Strategy identity / provenance'].map(label => <th className="p-3" key={label}>{label}</th>)}</tr></thead><tbody>{detail.data.observations.map(row => <tr key={row.observation_id} className="border-t border-border/50 align-top">
           <td className="p-3"><Link className="text-primary" to={`/stocks/${encodeURIComponent(row.symbol)}`}>{row.name || row.symbol}</Link><p>{row.symbol}</p><p>{row.signal_date}</p></td>
           <td className="p-3">{basis(row.identity.entry_basis)}<p>{row.entry_date ?? '未確認'}，{row.entry_price ?? '不可用'}</p></td>
-          <td className="p-3">{row.horizon}D，{row.status}<p className="text-muted-foreground">{row.reason}</p></td>
+          <td className="p-3">{row.horizon}D，{statusLabel(row.status)}<p className="text-muted-foreground">{row.reason}</p></td>
           <td className="p-3">{row.return_pct === null ? '不可用 / pending' : pct(row.return_pct)}</td>
           <td className="p-3">{row.benchmark_return_pct === null ? '不可用' : pct(row.benchmark_return_pct)}<p className="text-muted-foreground">{row.benchmark_symbol ?? row.benchmark_reason}</p></td>
           <td className="p-3">{row.excess_pct === null ? '不可用' : pct(row.excess_pct)}</td>
-          <td className="max-w-sm space-y-1 p-3"><p>{row.identity.source}，{row.identity.strategy_id}，{row.identity.version ?? '未保存版本'}</p><p>{row.evidence_label}</p><ReviewLink row={row} /><details><summary className="cursor-pointer text-primary">來源證據</summary><dl className="mt-2 space-y-1 break-all"><dt>snapshot id</dt><dd>{row.snapshot_id}</dd><dt>as_of</dt><dd>{row.as_of}</dd><dt>outcome date</dt><dd>{row.outcome_date ?? '未確認'}</dd><dt>strategy identity</dt><dd>{row.identity.key}</dd><dt>provenance</dt><dd><pre className="whitespace-pre-wrap break-all">{JSON.stringify(row.provenance, null, 2)}</pre></dd></dl></details></td>
+          <td className="max-w-sm space-y-1 p-3"><p>{row.identity.source}，{row.identity.strategy_id}，{row.identity.version ?? '未儲存版本'}</p><p>{row.evidence_label}</p><ReviewLink row={row} /><details><summary className="cursor-pointer text-primary">來源證據</summary><dl className="mt-2 space-y-1 break-all"><dt>snapshot id</dt><dd>{row.snapshot_id}</dd><dt>as_of</dt><dd>{row.as_of}</dd><dt>outcome date</dt><dd>{row.outcome_date ?? '未確認'}</dd><dt>strategy identity</dt><dd>{row.identity.key}</dd><dt>provenance</dt><dd><pre className="whitespace-pre-wrap break-all">{JSON.stringify(row.provenance, null, 2)}</pre></dd></dl></details></td>
         </tr>)}</tbody></table></div>
         <div className="flex gap-3 text-sm"><button disabled={offset === 0} onClick={() => setOffset(previous => Math.max(0, previous - 50))}>上一頁</button><span>{detail.data.total === 0 ? '0 / 0' : `${offset + 1}–${Math.min(offset + 50, detail.data.total)} / ${detail.data.total}`}</span><button disabled={offset + 50 >= detail.data.total} onClick={() => setOffset(previous => previous + 50)}>下一頁</button></div>
       </>}

@@ -24,7 +24,7 @@ export function TaiwanHistoryDataCard() {
   const [activeJobId, setActiveJobId] = useState<string | null>(null)
   const [activeJob, setActiveJob] = useState<TaiwanBootstrapJobState | null>(null)
 
-  // 1. 查詢台股歷史日 K 本機存儲狀態
+  // 1. 查詢台股歷史日 K 本機儲存狀態
   const {
     data: historyStatus,
     isLoading: isStatusLoading,
@@ -138,7 +138,7 @@ export function TaiwanHistoryDataCard() {
               )}
             </div>
             <p className="text-xs text-secondary mt-1">
-              本地 Parquet 高速列式存儲，供回測、選股指標預計算與個股歷史 K 線圖使用。
+              本地 Parquet 高速列式儲存，供回測、選股指標預計算與個股歷史 K 線圖使用。
             </p>
           </div>
         </div>
@@ -246,7 +246,7 @@ export function TaiwanHistoryDataCard() {
               onClick={() => {
                 if (
                   window.confirm(
-                    '確認要重新下載官方 GitHub Release 歷史資料包嗎？既有同日期分區將被覆寫，新分區與用戶資料會妥善保留。'
+                    '確認要重新下載官方 GitHub Release 歷史資料包嗎？既有同日期分區將被覆寫，新分區與使用者資料會妥善保留。'
                   )
                 ) {
                   bootstrapMutation.mutate()

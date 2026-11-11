@@ -51,8 +51,8 @@ function InstitutionalTable({ rows, investor, unit }: { rows: InstitutionalStati
           <td className="p-3">{row.symbol.includes('.') ? <Link className="text-accent" to={`/stocks/${encodeURIComponent(row.symbol)}`}>{row.symbol} {row.name}</Link> : row.symbol === 'ALL' ? '上市＋上櫃' : row.symbol === 'TWSE' ? '上市' : '上櫃'}</td>
           <td className="p-3 text-right"><Metric metric={unit === 'shares' ? stats.net_shares : stats.net_lots} signed /></td>
           <td className="hidden p-3 text-right md:table-cell"><Metric metric={stats.net_volume_ratio} percent signed /></td>
-          <td className="p-3 text-right"><Metric metric={stats.buy_streak} />{stats.streak_capped && stats.buy_streak.value !== 0 && <span className="text-xs text-muted">至少，達窗口上限</span>}</td>
-          <td className="p-3 text-right"><Metric metric={stats.sell_streak} />{stats.streak_capped && stats.sell_streak.value !== 0 && <span className="text-xs text-muted">至少，達窗口上限</span>}</td>
+          <td className="p-3 text-right"><Metric metric={stats.buy_streak} />{stats.streak_capped && stats.buy_streak.value !== 0 && <span className="text-xs text-muted">至少，達視窗上限</span>}</td>
+          <td className="p-3 text-right"><Metric metric={stats.sell_streak} />{stats.streak_capped && stats.sell_streak.value !== 0 && <span className="text-xs text-muted">至少，達視窗上限</span>}</td>
         </tr>
       })}</tbody>
     </table>
@@ -76,7 +76,7 @@ function Rotation({ rows }: { rows: IndustryRotationRow[] }) {
     <p className="text-xs text-muted leading-relaxed">RS＝產業等權報酬－全市場股票等權報酬，採原始收盤價，未排除除權息影響。成交值占比採每日產業成交值／全市場股票成交值，20D 為每日占比的算術平均；變化＝當日占比－20D 平均（百分點）。ETF 不納入產業輪動。</p>
     <div className="rounded-lg border border-border bg-surface p-3">
       <div className="grid grid-cols-2 gap-2 text-xs text-secondary"><span>左上：落後、資金增加</span><span className="text-right">右上：領先、資金增加</span></div>
-      {points.length ? <ReactECharts option={option} style={{ height: 390 }} /> : <p className="py-12 text-center text-muted">完整資料不足，暫無可繪製的產業。</p>}
+      {points.length ? <ReactECharts option={option} style={{ height: 390 }} /> : <p className="py-12 text-center text-muted">完整資料不足，尚無可繪製的產業。</p>}
       <div className="grid grid-cols-2 gap-2 text-xs text-secondary"><span>左下：落後、資金減少</span><span className="text-right">右下：領先、資金減少</span></div>
       <p className="mt-3 text-xs text-muted">僅繪製 20D RS 與占比變化皆完整的產業（{points.length}/{rows.length}）。部分資料可於下表查看。</p>
     </div>
@@ -142,11 +142,11 @@ export function MarketResearch() {
         </div>
         {tab.id === 'institutional' && <>
           <div className="flex flex-wrap gap-3">
-            <label>窗口 <select aria-label="交易日窗口" value={window} onChange={e => update('window', e.target.value)} className={inputClass}>{[5, 10, 20, 45, 60].map(d => <option value={d} key={d}>{d} 交易日</option>)}</select></label>
+            <label>視窗 <select aria-label="交易日視窗" value={window} onChange={e => update('window', e.target.value)} className={inputClass}>{[5, 10, 20, 45, 60].map(d => <option value={d} key={d}>{d} 交易日</option>)}</select></label>
             <label>法人 <select aria-label="法人" value={investor} onChange={e => setInvestor(e.target.value as Investor)} className={inputClass}>{Object.entries(INVESTOR_LABELS).map(([id, label]) => <option key={id} value={id}>{label}</option>)}</select></label>
             <label>單位 <select aria-label="數量單位" value={unit} onChange={e => setUnit(e.target.value as 'shares' | 'lots')} className={inputClass}><option value="lots">張</option><option value="shares">股</option></select></label>
           </div>
-          <p className="text-xs text-muted leading-relaxed">彙總範圍為目前支援的上市、上櫃股票與 ETF，非交易所發布的法人買賣金額。1 張＝1,000 股，不估算金額。占比採同一標的、同一日期的淨買賣超／成交股數；部分資料只累計已取得資料。連買／連賣以窗口內連續交易日計算，缺日或市場資料不完整即中斷。點選每格狀態可查看來源與覆蓋。</p>
+          <p className="text-xs text-muted leading-relaxed">彙總範圍為目前支援的上市、上櫃股票與 ETF，非交易所發布的法人買賣金額。1 張＝1,000 股，不估算金額。占比採同一標的、同一日期的淨買賣超／成交股數；部分資料只累計已取得資料。連買／連賣以視窗內連續交易日計算，缺日或市場資料不完整即中斷。點選每格狀態可查看來源與覆蓋。</p>
         </>}
         {query.isLoading && <p role="status" className="py-8 text-muted">載入資料中…</p>}
         {query.isError && <div role="alert" className="rounded-lg border border-danger/30 p-4 text-danger">資料讀取失敗：{query.error instanceof Error ? query.error.message : '請稍後重試'}<button className="ml-3 underline" onClick={() => void query.refetch()}>重試</button></div>}

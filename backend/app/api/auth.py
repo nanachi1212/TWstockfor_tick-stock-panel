@@ -1,17 +1,17 @@
-"""访问认证 API。
+"""訪問認證 API。
 
-端点:
-  GET  /api/auth/status        — 是否已设密码、当前会话是否有效
-  POST /api/auth/setup         — 首次设置密码(仅限本机/内网, 防公网抢占)
-  POST /api/auth/login         — 登录(密码 → 会话 token, 含限流)
-  POST /api/auth/logout        — 注销当前会话
-  POST /api/auth/change-password — 改密码(需已登录)
+端點:
+  GET  /api/auth/status        — 是否已設密碼、當前會話是否有效
+  POST /api/auth/setup         — 首次設定密碼(僅限本機/內網, 防公開網路搶佔)
+  POST /api/auth/login         — 登入(密碼 → 會話 token, 含限流)
+  POST /api/auth/logout        — 註銷當前會話
+  POST /api/auth/change-password — 改密碼(需已登入)
 
 安全:
-  - setup 端点只接受本机/内网请求(request.client.host), 公网请求 403。
-    否则黑客可比用户更早扫到域名, 抢先设密码, 反客为主。
-  - login 限流: 同一来源 IP 连续失败 5 次, 锁 5 分钟(内存计数)。
-  - 会话 token 通过 HttpOnly cookie 下发, 前端无需手动管理。
+  - setup 端點只接受本機/內網請求(request.client.host), 公開網路請求 403。
+    否則黑客可比使用者更早掃到網域, 搶先設密碼, 反客為主。
+  - login 限流: 同一來源 IP 連續失敗 5 次, 鎖 5 分鐘(記憶體計數)。
+  - 會話 token 通過 HttpOnly cookie 下發, 前端無需手動管理。
 """
 from __future__ import annotations
 
@@ -32,7 +32,7 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 
 COOKIE_NAME = "tf_session"
-_COOKIE_MAX_AGE = 30 * 24 * 3600  # 与 SESSION_TTL 一致
+_COOKIE_MAX_AGE = 30 * 24 * 3600  # 與 SESSION_TTL 一致
 
 # 限流: { ip: (fail_count, lock_until_ts) }
 _fail_counter: dict[str, tuple[int, float]] = defaultdict(lambda: (0, 0.0))
@@ -42,13 +42,13 @@ _LOCK_SECONDS = 300
 
 
 def _is_local_network(host: str | None) -> bool:
-    """该地址是否本机或内网地址(判断整条请求来源请用 _is_local_request)。"""
+    """該地址是否本機或內網地址(判斷整條請求來源請用 _is_local_request)。"""
     if not host:
         return False
     if host in ("127.0.0.1", "::1", "localhost", "testclient"):
         return True
 
-    # 内网网段: 10.x / 172.16-31.x / 192.168.x
+    # 內網網段: 10.x / 172.16-31.x / 192.168.x
     if host.startswith("10.") or host.startswith("192.168."):
         return True
     if host.startswith("172."):
@@ -62,20 +62,20 @@ def _is_local_network(host: str | None) -> bool:
 
 
 def _xff_hops(request: Request) -> list[str]:
-    """X-Forwarded-For 各跳(左=最远, 右=相邻反代追加)。
+    """X-Forwarded-For 各跳(左=最遠, 右=相鄰反向代理追加)。
 
-    多行头按出现顺序合并: HAProxy 等会另起一行追加, 只读第一行会读到客户端自填的值。
+    多行頭按出現順序合併: HAProxy 等會另起一行追加, 只讀第一行會讀到客戶端自填的值。
     """
     joined = ",".join(request.headers.getlist("x-forwarded-for"))
     return [hop.strip() for hop in joined.split(",") if hop.strip()]
 
 
 def _client_ip(request: Request) -> str:
-    """取客户端 IP(登录限流键 / 日志)。
+    """取客戶端 IP(登入限流鍵 / 日誌)。
 
-    仅当直连 peer 是本机/内网(可信反代)时采信 X-Forwarded-For: 从右往左跳过本机/内网
-    反代追加的跳, 取第一个公网跳(其左侧可能是客户端自填, 不采信); 全是内网则取最左。
-    多层反代时不会把所有人归到同一个反代 IP 上(否则一人失败即锁死全部登录)。
+    僅當直連 peer 是本機/內網(可信反向代理)時採信 X-Forwarded-For: 從右往左跳過本機/內網
+    反向代理追加的跳, 取第一個公開網路跳(其左側可能是客戶端自填, 不採信); 全是內網則取最左。
+    多層反向代理時不會把所有人歸到同一個反向代理 IP 上(否則一人失敗即鎖死全部登入)。
     """
     direct = request.client.host if request.client else ""
     hops = _xff_hops(request) if direct and _is_local_network(direct) else []
@@ -85,9 +85,9 @@ def _client_ip(request: Request) -> str:
     return hops[0] if hops else (direct or "unknown")
 
 
-# 不可公网注册的本地域名后缀(RFC 6761 / RFC 6762 附录 G / RFC 8375)。
-# ponytail: 内网自有公网域名(如 nas.example.com)与 DNS rebinding 无法区分, 未设密码时会被拒;
-# 设密码后走会话认证不受影响, 真有需求再加主机名白名单配置。
+# 不可公開網路註冊的本地網域後綴(RFC 6761 / RFC 6762 附錄 G / RFC 8375)。
+# ponytail: 內網自有公開網路網域(如 nas.example.com)與 DNS rebinding 無法區分, 未設密碼時會被拒;
+# 設密碼後走會話認證不受影響, 真有需求再加主機名白名單設定。
 _LOCAL_NAME_SUFFIXES = (
     ".localhost", ".local", ".localdomain", ".home.arpa",
     ".lan", ".home", ".internal", ".intranet", ".private", ".corp",
@@ -109,19 +109,19 @@ def _ip(name: str | None) -> ipaddress.IPv4Address | ipaddress.IPv6Address | Non
 
 
 def _is_local_name(name: str | None) -> bool:
-    """单标签主机名或本地后缀: 外站无法注册, DNS rebinding 无法伪造。"""
+    """單標籤主機名或本地後綴: 外站無法註冊, DNS rebinding 無法偽造。"""
     name = (name or "").rstrip(".")
     return bool(name) and ("." not in name or name.endswith(_LOCAL_NAME_SUFFIXES))
 
 
 def _is_same_site_browser(request: Request) -> bool:
-    """拒绝外站页面借用户浏览器发来的请求(CSRF)与 DNS rebinding。
+    """拒絕外站頁面借使用者瀏覽器發來的請求(CSRF)與 DNS rebinding。
 
-    - Sec-Fetch-Site 为 cross-site/same-site: 浏览器明确标记的外站请求;
-    - Host 须是 IP / 单标签 / 本地后缀: rebinding 时 Host 是攻击者的公网域名;
-    - Origin 须与 Host 同源, 或(反代改写 Host 时)本身是内网 IP / 本地主机名。
-    非浏览器客户端不带 Origin/Sec-Fetch-*, 仍由来源 IP 闸门把关。
-    Host 与 Origin 都从原始头解析, 不用 request.url(Host 不合法时会回落到服务器地址)。
+    - Sec-Fetch-Site 為 cross-site/same-site: 瀏覽器明確標記的外站請求;
+    - Host 須是 IP / 單標籤 / 本地後綴: rebinding 時 Host 是攻擊者的公開網路網域;
+    - Origin 須與 Host 同源, 或(反向代理改寫 Host 時)本身是內網 IP / 本地主機名。
+    非瀏覽器客戶端不帶 Origin/Sec-Fetch-*, 仍由來源 IP 閘門把關。
+    Host 與 Origin 都從原始頭解析, 不用 request.url(Host 不合法時會回落到伺服器地址)。
     """
     if request.headers.get("sec-fetch-site", "").lower() in ("cross-site", "same-site"):
         return False
@@ -144,10 +144,10 @@ def _is_same_site_browser(request: Request) -> bool:
 
 
 def _is_local_request(request: Request) -> bool:
-    """未设密码时的放行条件: 来源确为本机/内网, 且不是外站页面经浏览器发起。
+    """未設密碼時的放行條件: 來源確為本機/內網, 且不是外站頁面經瀏覽器發起。
 
-    直连 peer 与可信反代转发的每一跳都须是本机/内网: 多层本机反代时最右一跳是
-    上一层反代, 不能只看最右; 任一跳为公网即视为公网(自填公网 IP 只会拒掉自己)。
+    直連 peer 與可信反向代理轉發的每一跳都須是本機/內網: 多層本機反向代理時最右一跳是
+    上一層反向代理, 不能只看最右; 任一跳為公開網路即視為公開網路(自填公開網路 IP 只會拒掉自己)。
     """
     direct = request.client.host if request.client else ""
     return (
@@ -158,7 +158,7 @@ def _is_local_request(request: Request) -> bool:
 
 
 def _is_loopback_request(request: Request) -> bool:
-    """驗證專用密碼的放行條件: 直連來自本機回環、沒有任何反代轉發 (tailscale serve 會帶 X-Forwarded-For), 且非外站。"""
+    """驗證專用密碼的放行條件: 直連來自本機回環、沒有任何反向代理轉發 (tailscale serve 會帶 X-Forwarded-For), 且非外站。"""
     direct = request.client.host if request.client else ""
     try:
         loopback = ipaddress.ip_address(direct).is_loopback
@@ -168,7 +168,7 @@ def _is_loopback_request(request: Request) -> bool:
 
 
 def _check_login_rate_limit(ip: str) -> None:
-    """登录失败限流检查, 触发则抛 429。锁定过期后重置计数(重新给 5 次机会)。"""
+    """登入失敗限流檢查, 觸發則拋 429。鎖定過期後重置計數(重新給 5 次機會)。"""
     with _fail_lock:
         count, until = _fail_counter.get(ip, (0, 0.0))
         now = time.time()
@@ -176,17 +176,17 @@ def _check_login_rate_limit(ip: str) -> None:
             wait = int(until - now)
             raise HTTPException(
                 status_code=429,
-                detail=f"登录失败次数过多, 请 {wait} 秒后重试",
+                detail=f"登入失敗次數過多, 請 {wait} 秒後重試",
             )
         if until and until <= now:
-            # 锁定已过期: 清除旧计数, 否则之后每失败一次都会立刻再锁 5 分钟
+            # 鎖定已過期: 清除舊計數, 否則之後每失敗一次都會立刻再鎖 5 分鐘
             _fail_counter.pop(ip, None)
 
 
 def _record_login_fail(ip: str) -> None:
-    """记录一次登录失败, 达阈值则锁定。"""
+    """記錄一次登入失敗, 達閾值則鎖定。"""
     with _fail_lock:
-        # 防内存膨胀: 条目过多时清掉已过锁定期的记录
+        # 防記憶體膨脹: 條目過多時清掉已過鎖定期的記錄
         if len(_fail_counter) > 1000:
             now = time.time()
             for stale in [k for k, (_, u) in _fail_counter.items() if u <= now]:
@@ -200,13 +200,13 @@ def _record_login_fail(ip: str) -> None:
 
 
 def _clear_login_fails(ip: str) -> None:
-    """登录成功后清除该 IP 的失败计数。"""
+    """登入成功後清除該 IP 的失敗計數。"""
     with _fail_lock:
         _fail_counter.pop(ip, None)
 
 
 # ================================================================
-# 端点
+# 端點
 # ================================================================
 
 class PasswordIn(BaseModel):
@@ -224,7 +224,7 @@ class ChangePasswordIn(BaseModel):
 
 @router.get("/status")
 def auth_status(request: Request) -> dict:
-    """认证状态: 是否已设密码 + 当前请求是否已登录。"""
+    """認證狀態: 是否已設密碼 + 當前請求是否已登入。"""
     token = request.cookies.get(COOKIE_NAME)
     return {
         "configured": auth.is_configured(),
@@ -234,21 +234,21 @@ def auth_status(request: Request) -> dict:
 
 @router.post("/setup")
 def setup_password(req: PasswordIn, request: Request) -> dict:
-    """首次设置访问密码。仅限本机/内网请求(防公网抢占)。
+    """首次設定訪問密碼。僅限本機/內網請求(防公開網路搶佔)。
 
-    若已设置过密码, 返回 409(改密码走 /change-password)。
+    若已設定過密碼, 回傳 409(改密碼走 /change-password)。
     """
-    # 关键: 限制只有服务器主人(本机/内网)能设密码
+    # 關鍵: 限制只有伺服器主人(本機/內網)能設密碼
     client_ip = _client_ip(request)
     if not _is_local_request(request):
         logger.warning("setup rejected from non-local ip: %s", client_ip)
         raise HTTPException(
             status_code=403,
-            detail="首次设置密码仅允许本机或内网访问,请通过 SSH/本地浏览器操作",
+            detail="首次設定密碼僅允許本機或內網訪問,請通過 SSH/本地瀏覽器操作",
         )
 
     if auth.is_configured():
-        raise HTTPException(status_code=409, detail="密码已设置,如需修改请登录后使用改密码功能")
+        raise HTTPException(status_code=409, detail="密碼已設定,如需修改請登入後使用改密碼功能")
 
     auth.set_password(req.password)
     logger.info("access password set up from %s", client_ip)
@@ -257,12 +257,12 @@ def setup_password(req: PasswordIn, request: Request) -> dict:
 
 @router.post("/login")
 def login(req: LoginIn, request: Request, response: Response) -> dict:
-    """登录: 密码 → 会话 token(写 HttpOnly cookie)。含失败限流。"""
+    """登入: 密碼 → 會話 token(寫 HttpOnly cookie)。含失敗限流。"""
     ip = _client_ip(request)
     _check_login_rate_limit(ip)
 
     if not auth.is_configured():
-        raise HTTPException(status_code=409, detail="尚未设置访问密码")
+        raise HTTPException(status_code=409, detail="尚未設定訪問密碼")
 
     token = auth.verify_and_create_session(req.password)
     if token:
@@ -272,9 +272,9 @@ def login(req: LoginIn, request: Request, response: Response) -> dict:
         token = auth.create_verify_session(req.password)
     if not token:
         _record_login_fail(ip)
-        raise HTTPException(status_code=401, detail="密码错误")
+        raise HTTPException(status_code=401, detail="密碼錯誤")
 
-    # HttpOnly: 防 XSS 窃取; SameSite=Lax: 防 CSRF; Path=/: 全站生效
+    # HttpOnly: 防 XSS 竊取; SameSite=Lax: 防 CSRF; Path=/: 全站生效
     response.set_cookie(
         key=COOKIE_NAME,
         value=token,
@@ -282,14 +282,14 @@ def login(req: LoginIn, request: Request, response: Response) -> dict:
         httponly=True,
         samesite="lax",
         path="/",
-        secure=False,  # 自托管可能无 HTTPS, 不强制 secure(建议反代加 HTTPS)
+        secure=False,  # 自託管可能無 HTTPS, 不強制 secure(建議反向代理加 HTTPS)
     )
     return {"ok": True, "authenticated": True}
 
 
 @router.post("/logout")
 def logout(request: Request, response: Response) -> dict:
-    """注销当前会话。"""
+    """註銷當前會話。"""
     token = request.cookies.get(COOKIE_NAME)
     if token:
         auth.revoke_session(token)
@@ -299,23 +299,23 @@ def logout(request: Request, response: Response) -> dict:
 
 @router.post("/change-password")
 def change_password(req: ChangePasswordIn, request: Request) -> dict:
-    """修改密码: 需验证旧密码, 成功后所有会话失效(含当前, 需重新登录)。"""
+    """修改密碼: 需驗證舊密碼, 成功後所有會話失效(含當前, 需重新登入)。"""
     token = request.cookies.get(COOKIE_NAME)
     if not (token and auth.is_valid_session(token)):
-        raise HTTPException(status_code=401, detail="请先登录")
+        raise HTTPException(status_code=401, detail="請先登入")
 
     if not auth.is_configured():
-        raise HTTPException(status_code=409, detail="尚未设置访问密码")
+        raise HTTPException(status_code=409, detail="尚未設定訪問密碼")
 
-    # 验证旧密码
+    # 驗證舊密碼
     new_token = auth.verify_and_create_session(req.old_password)
     if not new_token:
         ip = _client_ip(request)
         _record_login_fail(ip)
-        raise HTTPException(status_code=401, detail="旧密码错误")
-    # 临时 token 用完即弃
+        raise HTTPException(status_code=401, detail="舊密碼錯誤")
+    # 臨時 token 用完即棄
     auth.revoke_session(new_token)
 
-    # 改密码(set_password 会清空所有会话)
+    # 改密碼(set_password 會清空所有會話)
     auth.set_password(req.new_password)
-    return {"ok": True, "message": "密码已修改, 请重新登录"}
+    return {"ok": True, "message": "密碼已修改, 請重新登入"}

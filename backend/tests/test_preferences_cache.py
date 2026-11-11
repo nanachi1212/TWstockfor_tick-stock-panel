@@ -1,4 +1,4 @@
-"""preferences mtime 缓存测试 — 读盘去重, 且外部修改/自身写入后立即可见。"""
+"""preferences mtime 快取測試 — 讀盤去重, 且外部修改/自身寫入後立即可見。"""
 from __future__ import annotations
 
 import json
@@ -35,7 +35,7 @@ def test_second_load_hits_cache_without_disk_parse(_isolated, monkeypatch):
 
     assert preferences.load()["realtime_quotes_enabled"] is True
     assert preferences.load()["realtime_quotes_enabled"] is True
-    assert counter["loads"] == 1, "签名未变时第二次 load 不得重复读盘+parse"
+    assert counter["loads"] == 1, "簽名未變時第二次 load 不得重複讀盤+parse"
 
 
 def test_external_file_change_invalidates_cache(_isolated, monkeypatch):
@@ -43,7 +43,7 @@ def test_external_file_change_invalidates_cache(_isolated, monkeypatch):
     assert preferences.load()["realtime_quote_interval"] == 6.0
 
     _isolated.write_text(json.dumps({"realtime_quote_interval": 3.0}), encoding="utf-8")
-    # 同尺寸修改且 mtime 粒度可能不变时, 显式推进 mtime 模拟真实场景
+    # 同尺寸修改且 mtime 粒度可能不變時, 顯式推進 mtime 模擬真實場景
     st = _isolated.stat()
     os.utime(_isolated, ns=(st.st_atime_ns, st.st_mtime_ns + 1_000_000))
 

@@ -200,7 +200,7 @@ async def test_ai_provider_user_facing_error_is_shown():
     svc = TaiwanAIResearchService()
 
     with patch("app.taiwan.ai_research.generate_ai_text", new_callable=AsyncMock) as mock_ai:
-        mock_ai.side_effect = RuntimeError("AI 服务请求失败(400): No models loaded.")
+        mock_ai.side_effect = RuntimeError("AI 服務請求失敗(400): No models loaded.")
         resp = await svc.generate_report("2330.TWSE", target_date=date(2026, 8, 28))
 
         assert resp.error_code == "provider_error"

@@ -1,9 +1,9 @@
 /**
  * 股票列表單元格渲染原語（共享）。
  *
- * 只負責「無業務上下文」的純數據列：價格/成交/均線/區間/技術指標/動量/財務等。
+ * 只負責「無業務上下文」的純資料列：價格/成交/均線/區間/技術指標/動量/財務等。
  * symbol、strategies、score、signals、candle 等需要頁面上下文（加自選按鈕、失效行、
- * kline 數據、信號提取）的列由各頁面的 renderCell 自行處理。
+ * kline 資料、信號提取）的列由各頁面的 renderCell 自行處理。
  *
  * 口徑與原 ScreenerTable 對齊（已和自選頁校準過）：amplitude 用 *100、annual_vol/
  * 財務率類用 fmtPct、kdj 用 toFixed(1)、vol_ma 用 fmtBigNum 等。
@@ -33,15 +33,15 @@ export function RSIBadge({ value }: { value: number | null | undefined }) {
   return <span className={`tabular-nums ${color}`}>{value.toFixed(1)}</span>
 }
 
-// ===== 純數據列渲染 =====
+// ===== 純資料列渲染 =====
 
 function fmtMaybePrice(value: any) {
   return value != null && !Number.isNaN(value) ? fmtPrice(value) : '—'
 }
 
 /**
- * 渲染一個純數據內置列的 <td>。
- * 返回 null 表示該列不屬於純數據列（symbol/strategies/score/signals/candle 等），由調用方處理。
+ * 渲染一個純資料內建列的 <td>。
+ * 返回 null 表示該列不屬於純資料列（symbol/strategies/score/signals/candle 等），由呼叫方處理。
  */
 export function renderBuiltinDataCell(r: any, col: ColumnConfig): ReactNode | null {
   if (col.source.type !== 'builtin') return null

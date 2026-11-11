@@ -17,15 +17,15 @@ from fastapi import FastAPI, Request
 app = FastAPI(title="Mock Custom Market Data Source")
 
 SYMBOLS = {
-    "000001.SZ": "平安銀行",
-    "600000.SH": "浦發銀行",
-    "300750.SZ": "寧德時代",
+    "2330.TWSE": "台積電",
+    "2317.TWSE": "鴻海",
+    "6488.TPEX": "環球晶",
 }
 
 BASE = {
-    "000001.SZ": 10.20,
-    "600000.SH": 8.60,
-    "300750.SZ": 186.00,
+    "2330.TWSE": 1000.00,
+    "2317.TWSE": 200.00,
+    "6488.TPEX": 400.00,
 }
 
 
@@ -70,7 +70,7 @@ async def daily(request: Request):
             for sym in symbols:
                 base = BASE[sym] + offset * 0.03
                 rows.append({
-                    "ts_code": sym,
+                    "stock_id": sym,
                     "trade_date": cur.isoformat(),
                     "open": round(base, 2),
                     "high": round(base * 1.015, 2),
@@ -91,7 +91,7 @@ async def adj_factor(request: Request):
     return {
         "code": 0,
         "data": [
-            {"ts_code": sym, "trade_date": today.isoformat(), "factor": 1.0}
+            {"stock_id": sym, "trade_date": today.isoformat(), "factor": 1.0}
             for sym in symbols
         ],
     }
@@ -106,7 +106,7 @@ async def realtime():
         last = round(prev * (1 + (i + 1) * 0.006), 2)
         change = round(last - prev, 2)
         rows.append({
-            "ts_code": sym,
+            "stock_id": sym,
             "name": name,
             "last": last,
             "pre_close": prev,

@@ -382,7 +382,7 @@ async def test_real_stock_matrix_evidence_and_report_generation(symbol, expected
         "industry_interpretation": "產業動向平穩。",
         "price_technical_interpretation": "價格技術位階處於均線附近。",
         "institutional_interpretation": "三大法人籌碼依統計揭示。",
-        "margin_interpretation": "信用交易數據維持穩定。",
+        "margin_interpretation": "信用交易資料維持穩定。",
         "fundamentals_interpretation": "ETF 不適用個別公司財務指標" if expected_type == "etf" else "基本面財務指標如實反映。",
         "abnormal_diagnostics_interpretation": "無顯著異常訊號。",
         "key_observations": [
@@ -472,7 +472,7 @@ async def test_prompt_injection_in_security_master_treated_as_raw_data():
 
     with patch.object(svc.research_svc, "get_research_context", return_value=injected_ctx):
         mock_llm_json = {
-            "overview": "客觀解讀：依據數據陳述，不包含任何推薦或目標價。",
+            "overview": "客觀解讀：依據資料陳述，不包含任何推薦或目標價。",
             "key_observations": [
                 {
                     "text": "價格維持在穩定區間。",
@@ -696,7 +696,7 @@ async def test_sparse_and_partially_unavailable_data_handling():
 
     with patch.object(svc.research_svc, "get_research_context", return_value=sparse_ctx):
         mock_llm_json = {
-            "overview": "資料稀疏情形測試，三大法人與信用交易數據暫未提供。",
+            "overview": "資料稀疏情形測試，三大法人與信用交易資料暫未提供。",
             "key_observations": [
                 {
                     "text": "收盤價格維持穩定。",

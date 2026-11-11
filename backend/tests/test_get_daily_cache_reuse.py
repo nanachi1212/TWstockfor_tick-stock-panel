@@ -1,8 +1,8 @@
-"""get_daily 复用 enriched 历史缓存的等价性测试。
+"""get_daily 重用 enriched 歷史快取的等價性測試。
 
-个股对话框打开时 /api/kline/daily 每个行情 tick 调用一次; 旧路径每次
-150 天扫描 + 全套指标重算, 新路径优先从预计算历史缓存裁剪。
-本测试证明: 同一份数据下两条路径输出逐列一致, 且缓存命中时不触发扫描。
+個股對話框打開時 /api/kline/daily 每個行情 tick 呼叫一次; 舊路徑每次
+150 天掃描 + 全套指標重算, 新路徑優先從預計算歷史快取裁剪。
+本測試證明: 同一份資料下兩條路徑輸出逐欄一致, 且快取命中時不觸發掃描。
 """
 from __future__ import annotations
 
@@ -17,7 +17,7 @@ SYM = "600001.SH"
 
 
 def _raw_frame(days: int = 80) -> pl.DataFrame:
-    """构造 ~57 个交易日的 14 列形态数据 (复权价与原始价一致, 无除权)。"""
+    """構造 ~57 個交易日的 14 欄形態資料 (復權價與原始價一致, 無除權)。"""
     base = date(2026, 4, 1)
     rows = []
     price = 10.0
@@ -66,19 +66,19 @@ def test_get_daily_cache_path_matches_scan_path():
     dates = raw["date"].to_list()
     start, end = dates[30], dates[-1]
 
-    # 旧路径: 无历史缓存 → 扫描 + 即时计算
+    # 舊路徑: 無歷史快取 → 掃描 + 即時計算
     repo_old, calls_old = _bare_repo(raw)
     result_old = repo_old.get_daily(SYM, start, end)
     assert calls_old["scan"] == 1
 
-    # 新路径: 预计算历史缓存 (同一真实计算栈 _compute_enriched_range 构建)
+    # 新路徑: 預計算歷史快取 (同一真實計算棧 _compute_enriched_range 構建)
     repo_new, calls_new = _bare_repo(raw)
     hist = repo_new._compute_enriched_range(raw)
     repo_new._enriched_history_cache = hist
     repo_new._enriched_history_start = hist["date"].min()
     result_new = repo_new.get_daily(SYM, start, end)
 
-    assert calls_new["scan"] == 0, "缓存命中时不得回退到扫描路径"
+    assert calls_new["scan"] == 0, "快取命中時不得回退到掃描路徑"
     assert result_new.height == result_old.height
 
     common = sorted(set(result_old.columns) & set(result_new.columns))
@@ -100,7 +100,7 @@ def test_get_daily_falls_back_to_scan_when_cache_does_not_cover_start():
     repo._enriched_history_cache = hist
     repo._enriched_history_start = hist["date"].min()
 
-    # 请求起点早于缓存覆盖 → 必须回退扫描路径
+    # 請求起點早於快取覆蓋 → 必須回退掃描路徑
     result = repo.get_daily(SYM, dates[0] - timedelta(days=5), dates[-1])
     assert calls["scan"] == 1
     assert not result.is_empty()
