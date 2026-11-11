@@ -7,7 +7,6 @@ Strict Guarantees:
 - Daily brief history saved safely in user_data/taiwan_daily_briefs.json (private, non-bundled, no secrets).
 - Missing values preserved; never faked as zeros or phantom events.
 """
-# ruff: noqa: RUF001
 from __future__ import annotations
 
 from typing import Any, Literal
@@ -133,6 +132,9 @@ class CandidateFactBrief(BaseModel):
     strategy_matches: list[CandidateItem] = Field(default_factory=list)
     strategy_status: Literal["available", "not_requested", "unavailable", "unknown"] = "unknown"
     strategy_status_message: str | None = None
+    # "no_run" = no frozen Live Quant run on or before the brief date; "unavailable" = reading it failed.
+    # Neither may be read as "no new entrants" (new_top10 / dropped_top10 are empty in both cases).
+    live_quant_status: Literal["available", "no_run", "unavailable", "unknown"] = "unknown"
 
 
 class EventFactBrief(BaseModel):

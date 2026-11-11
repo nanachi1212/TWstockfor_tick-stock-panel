@@ -3,12 +3,7 @@ import { useQuery } from '@tanstack/react-query'
 import { Database, Loader2 } from 'lucide-react'
 import { api } from '@/lib/api'
 import { QK } from '@/lib/queryKeys'
-
-const TAIWAN_FRESHNESS_LABEL: Record<string, string> = {
-  current: '最新',
-  stale: '過期',
-  unavailable: '尚無資料',
-}
+import { statusLabel } from '@/lib/evidenceLabel'
 
 export function TaiwanOverviewCard() {
   const status = useQuery({
@@ -56,7 +51,7 @@ export function TaiwanOverviewCard() {
               <span className="text-secondary">{r.label}</span>
               <span className="font-mono text-muted">{r.asOf ?? '—'}</span>
               <span className="text-xs font-medium text-muted">
-                {TAIWAN_FRESHNESS_LABEL[r.freshness] ?? r.freshness}
+                {statusLabel(r.freshness)}
               </span>
             </div>
           ))}

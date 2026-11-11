@@ -176,9 +176,9 @@ echo
 
 (
   cd "$BACKEND_DIR"
-  # --no-sync: 跳過依賴解析, 直接用已安裝的 .venv。
+  # --no-sync: 跳過相依套件解析, 直接用已安裝的 .venv。
   # 比 --frozen 更徹底: 不驗證 lockfile, 避免套件源 403/網路抖動導致後端起不來。
-  # python -m uvicorn: 強制用 venv 的解釋器和 uvicorn 模組, 防止 PATH 裡
+  # python -m uvicorn: 強制用 venv 的直譯器和 uvicorn 模組, 防止 PATH 裡
   # 其他 Python(如 /usr/local/bin/uvicorn) 搶先, 導致用錯誤版本啟動後端。
   uv run --no-sync python -m uvicorn app.main:app ${UVICORN_ENV_ARGS[@]+"${UVICORN_ENV_ARGS[@]}"} --reload \
     --host "$BACKEND_HOST" --port "$BACKEND_PORT" 2>&1 \

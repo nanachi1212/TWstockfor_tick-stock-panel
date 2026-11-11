@@ -4,9 +4,10 @@ import { Eye, Loader2, Star, X } from 'lucide-react'
 import { api, type TaiwanAbnormalDiagnosticsSnapshot } from '@/lib/api'
 import { QK } from '@/lib/queryKeys'
 import { selectionReasons, useTodayQuantSelection } from '@/components/quant/TodaySelection'
+import { fmtPct, fmtPrice, priceColorClass, taipeiDate, todayTaipei } from '@/lib/format'
 import { type TaiwanDailyStatus } from './MarketOverviewCard'
 import { SectionTitle } from './SectionTitle'
-import { fmtPrice, pctClass, fmtStockPct } from './dashboardFormat'
+import { isDailyCurrent } from './dashboardFormat'
 
 export function WatchlistQuickGlance({ onStockClick, anomalies, diagnosticsLoading, diagnosticsError, marketDailyStatus }: {
   onStockClick: (symbol: string, name?: string) => void
@@ -48,13 +49,13 @@ export function WatchlistQuickGlance({ onStockClick, anomalies, diagnosticsLoadi
   const attention = rows
     .sort((a, b) => Math.abs(b.change_pct ?? 0) - Math.abs(a.change_pct ?? 0))
   const rankedBySymbol = new Map(quant.signals.map(signal => [signal.symbol, signal]))
-  const diagnosticsCurrent = anomalies?.data_quality.daily_status === 'current' && marketDailyStatus === 'current'
+  const diagnosticsCurrent = isDailyCurrent(anomalies?.data_quality.daily_status, marketDailyStatus)
   const diagnosticsComplete = diagnosticsCurrent && anomalies?.data_quality.overall_status === 'complete'
   const anomalyBySymbol = new Map((diagnosticsComplete ? anomalies.items : []).map(item => [item.symbol, item]))
-  const todayTaipei = new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Taipei' })
+  const today = todayTaipei()
   const watchlistAlerts = (alerts.data?.alerts ?? []).filter(event => {
-    const eventDate = new Date(event.ts).toLocaleDateString('sv-SE', { timeZone: 'Asia/Taipei' })
-    return event.symbol && rowsBySymbol.has(event.symbol) && eventDate === todayTaipei
+    const eventDate = taipeiDate(event.ts)
+    return event.symbol && rowsBySymbol.has(event.symbol) && eventDate === today
   })
   const watchlistTop10Entries = new Set(watchlistAlerts
     .filter(event => event.source === 'quant' && event.type === 'quant_top10_enter')
@@ -65,10 +66,10 @@ export function WatchlistQuickGlance({ onStockClick, anomalies, diagnosticsLoadi
     <section className="rounded-card border border-border bg-surface p-4">
       <SectionTitle icon={Eye} title="我的觀察" hint={rows.length ? `${rows.length} 檔，行情 ${enriched.data?.as_of ?? '—'}` : undefined} />
       {rows.length > 0 && <div className="mb-1 flex flex-wrap gap-1 text-xs text-secondary">
-        <span className="rounded bg-elevated px-1.5 py-0.5">今日 Top 10 {quant.loading ? '—' : quant.error || !quant.validRun ? 'unavailable' : `${rows.filter(row => rankedBySymbol.has(row.symbol)).length} 檔`}</span>
-        <span className="rounded bg-elevated px-1.5 py-0.5">新進 Top 10 {alerts.isPending ? '—' : alerts.isError ? 'unavailable' : `${watchlistTop10Entries} 檔`}</span>
-        <span className="rounded bg-elevated px-1.5 py-0.5">異常 {diagnosticsLoading ? '—' : diagnosticsError || !diagnosticsCurrent ? 'unavailable' : !diagnosticsComplete ? '資料不完整' : `${rows.filter(row => (anomalyBySymbol.get(row.symbol)?.signal_count ?? 0) > 0).length} 檔，${anomalies.trade_date}`}</span>
-        <span className="rounded bg-elevated px-1.5 py-0.5">今日提醒 {alerts.isPending ? '—' : alerts.isError ? 'unavailable' : `${watchlistAlerts.length} 則`}</span>
+        <span className="rounded bg-elevated px-1.5 py-0.5">今日 Top 10 {quant.loading ? '—' : quant.error || !quant.validRun ? '不可用' : `${rows.filter(row => rankedBySymbol.has(row.symbol)).length} 檔`}</span>
+        <span className="rounded bg-elevated px-1.5 py-0.5">新進 Top 10 {alerts.isPending ? '—' : alerts.isError ? '不可用' : `${watchlistTop10Entries} 檔`}</span>
+        <span className="rounded bg-elevated px-1.5 py-0.5">異常 {diagnosticsLoading ? '—' : diagnosticsError || !diagnosticsCurrent ? '不可用' : !diagnosticsComplete ? '資料不完整' : `${rows.filter(row => (anomalyBySymbol.get(row.symbol)?.signal_count ?? 0) > 0).length} 檔，${anomalies.trade_date}`}</span>
+        <span className="rounded bg-elevated px-1.5 py-0.5">今日提醒 {alerts.isPending ? '—' : alerts.isError ? '不可用' : `${watchlistAlerts.length} 則`}</span>
       </div>}
       {watchlist.isLoading || enriched.isLoading ? (
         <div className="flex items-center gap-2 py-4 text-xs text-muted">
@@ -96,12 +97,12 @@ export function WatchlistQuickGlance({ onStockClick, anomalies, diagnosticsLoadi
               </button>
               <div className="text-right shrink-0">
                 <div className="font-mono text-xs text-foreground">{fmtPrice(r.close)}</div>
-                <div className={`font-mono text-xs font-semibold ${pctClass(r.change_pct)}`}>{fmtStockPct(r.change_pct)}</div>
+                <div className={`font-mono text-xs font-semibold ${priceColorClass(r.change_pct)}`}>{fmtPct(r.change_pct)}</div>
                 {(() => {
                   const signal = rankedBySymbol.get(r.symbol)
                   const summary = signal
-                    ? `#${signal.rank}，Quant ${fmtStockPct(signal.score)}，${selectionReasons(signal).slice(0, 1).join('') || '符合既有動能條件'}`
-                    : quant.validRun ? '今日未進入 Top 10' : '今日 Quant 排名 unavailable'
+                    ? `#${signal.rank}，Quant ${fmtPct(signal.score)}，${selectionReasons(signal).slice(0, 1).join('') || '符合既有動能條件'}`
+                    : quant.validRun ? '今日未進入 Top 10' : '今日 Quant 排名不可用'
                   const anomaly = anomalyBySymbol.get(r.symbol)
                   return <div className="max-w-[240px] truncate text-xs text-secondary">{summary}{anomaly?.signal_count ? `，異常 ${anomaly.signal_count} 項` : ''}</div>
                 })()}

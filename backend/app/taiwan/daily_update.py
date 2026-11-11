@@ -376,9 +376,22 @@ class TaiwanDailyUpdateService:
                             daily_stats.status = "failed"
                             daily_stats.failed_dates.append({"error": res["error"]})
                         else:
-                            daily_stats.status = "success"
-                            daily_stats.dates_fetched = 1 if res.get("symbols_fetched", 0) > 0 else 0
-                            daily_stats.dates_skipped = 1 if res.get("symbols_fetched", 0) == 0 else 0
+                            fetched_symbols = res.get("symbols_fetched", 0)
+                            failed_symbols = res.get("failed") or []
+                            # Jobs ran but no source returned a row: that is a failure, not "current".
+                            nothing_returned = res.get("jobs_executed", 0) > 0 and fetched_symbols == 0
+                            if failed_symbols:
+                                daily_stats.failed_dates.append(
+                                    {"error": "symbols failed: " + ", ".join(map(str, failed_symbols[:20]))}
+                                )
+                            elif nothing_returned:
+                                daily_stats.failed_dates.append({"error": "no source returned daily rows"})
+                            if failed_symbols or nothing_returned:
+                                daily_stats.status = "failed" if fetched_symbols == 0 else "partial"
+                            else:
+                                daily_stats.status = "success"
+                            daily_stats.dates_fetched = 1 if fetched_symbols > 0 else 0
+                            daily_stats.dates_skipped = 1 if fetched_symbols == 0 and not daily_stats.failed_dates else 0
                             daily_stats.rows_written = res.get("rows_written", 0)
                     else:
                         # Full-market refresh -> use fast official snapshot path (TWSE 1 + TPEx 1)

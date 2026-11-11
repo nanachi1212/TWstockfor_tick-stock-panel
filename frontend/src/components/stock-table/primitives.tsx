@@ -1,9 +1,9 @@
 /**
- * 股票列表單元格渲染原語（共享）。
+ * 股票列表儲存格渲染原語（共享）。
  *
  * 只負責「無業務上下文」的純資料列：價格/成交/均線/區間/技術指標/動量/財務等。
  * symbol、strategies、score、signals、candle 等需要頁面上下文（加自選按鈕、失效行、
- * kline 資料、信號提取）的列由各頁面的 renderCell 自行處理。
+ * kline 資料、訊號提取）的列由各頁面的 renderCell 自行處理。
  *
  * 口徑與原 ScreenerTable 對齊（已和自選頁校準過）：amplitude 用 *100、annual_vol/
  * 財務率類用 fmtPct、kdj 用 toFixed(1)、vol_ma 用 fmtBigNum 等。
@@ -35,10 +35,6 @@ export function RSIBadge({ value }: { value: number | null | undefined }) {
 
 // ===== 純資料列渲染 =====
 
-function fmtMaybePrice(value: any) {
-  return value != null && !Number.isNaN(value) ? fmtPrice(value) : '—'
-}
-
 /**
  * 渲染一個純資料內建列的 <td>。
  * 返回 null 表示該列不屬於純資料列（symbol/strategies/score/signals/candle 等），由呼叫方處理。
@@ -57,7 +53,7 @@ export function renderBuiltinDataCell(r: any, col: ColumnConfig): ReactNode | nu
   switch (key) {
     // 價格
     case 'price':
-      return <td key={col.id} className={`${numCls} text-secondary`}>{fmtMaybePrice(r.close)}</td>
+      return <td key={col.id} className={`${numCls} text-secondary`}>{fmtPrice(r.close)}</td>
     case 'pct':
       return <td key={col.id} className={`${numCls} font-medium ${priceColorClass(r.change_pct)}`}>{fmtPct(r.change_pct)}</td>
     case 'change_amount':
@@ -75,17 +71,17 @@ export function renderBuiltinDataCell(r: any, col: ColumnConfig): ReactNode | nu
       return (
         <td key={col.id} className={numCls}>
           <span className={r.vol_ratio_5d >= 2 ? 'text-accent font-medium' : ''}>
-            {fmtMaybePrice(r.vol_ratio_5d)}
+            {fmtPrice(r.vol_ratio_5d)}
           </span>
         </td>
       )
     case 'annual_vol':
       return <td key={col.id} className={numCls}>{r.annual_vol_20d != null ? fmtPct(r.annual_vol_20d) : '—'}</td>
     // 均線
-    case 'ma5':  return <td key={col.id} className={numCls}>{fmtMaybePrice(r.ma5)}</td>
-    case 'ma10': return <td key={col.id} className={numCls}>{fmtMaybePrice(r.ma10)}</td>
-    case 'ma20': return <td key={col.id} className={numCls}>{fmtMaybePrice(r.ma20)}</td>
-    case 'ma60': return <td key={col.id} className={numCls}>{fmtMaybePrice(r.ma60)}</td>
+    case 'ma5':  return <td key={col.id} className={numCls}>{fmtPrice(r.ma5)}</td>
+    case 'ma10': return <td key={col.id} className={numCls}>{fmtPrice(r.ma10)}</td>
+    case 'ma20': return <td key={col.id} className={numCls}>{fmtPrice(r.ma20)}</td>
+    case 'ma60': return <td key={col.id} className={numCls}>{fmtPrice(r.ma60)}</td>
     // 區間
     case 'high_60d': return <td key={col.id} className={numCls}>{r.high_60d != null ? fmtPrice(r.high_60d) : '—'}</td>
     case 'low_60d':  return <td key={col.id} className={numCls}>{r.low_60d != null ? fmtPrice(r.low_60d) : '—'}</td>

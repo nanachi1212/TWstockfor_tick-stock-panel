@@ -1,4 +1,4 @@
-# ruff: noqa: RUF001 -- fixtures mirror official Chinese payload text exactly.
+
 """OOS blocker convergence: trading-day evidence and historical subtype evidence.
 
 Offline only. Payloads mirror the official responses recorded in the probes

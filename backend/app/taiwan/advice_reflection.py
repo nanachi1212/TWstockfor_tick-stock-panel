@@ -7,7 +7,7 @@ Settlement is deterministic and always runs. The reflection call is an
 automatic AI call, so it runs only when the user turns it on (default off)
 and AI is configured; a failed call is retried on the next run.
 """
-# ruff: noqa: RUF001 -- user-facing Traditional Chinese prompts and messages.
+
 from __future__ import annotations
 
 import asyncio

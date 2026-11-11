@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import asdict, is_dataclass
 from datetime import date, datetime
+from functools import lru_cache
 from typing import Any, Literal
 
 from pydantic import BaseModel, Field
@@ -269,5 +270,6 @@ class TaiwanCurrentDataService:
             )
 
 
+@lru_cache(maxsize=1)
 def get_taiwan_current_data_service() -> TaiwanCurrentDataService:
     return TaiwanCurrentDataService()

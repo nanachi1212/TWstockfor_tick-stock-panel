@@ -16,8 +16,11 @@ import polars as pl
 from app.taiwan.daily_store import TaiwanDailyStore
 from app.taiwan.observed_universe import ObservedUniverseStore, is_potential_market_session
 from app.taiwan.providers.hybrid_provider import TaiwanHybridProvider
-from app.taiwan.providers.snapshot_provider import OfficialDailySnapshotAdapter, OfficialSnapshotUnpublished
-from app.taiwan.realtime.calendar import TaiwanTradingCalendar
+from app.taiwan.providers.snapshot_provider import (
+    OfficialDailySnapshotAdapter,
+    OfficialSnapshotUnpublished,
+)
+from app.taiwan.realtime.calendar import TaiwanTradingCalendar, taipei_today
 from app.taiwan.universe import get_security_master
 
 logger = logging.getLogger(__name__)
@@ -149,7 +152,10 @@ class TaiwanDailyRefreshService:
           - Exactly 1 HTTP request for TPEx dailyQuotes
         per trading day (2 HTTP requests total per date instead of ~2,335).
         """
-        available = set(self._store.available_dates()) if not force else set()
+        # A partition made by a single-symbol fetch is not a complete market day.
+        available = (
+            set(self._store.available_dates()) - set(self._store.partial_dates()) if not force else set()
+        )
         stats: dict[str, Any] = {
             "dates_requested": 0,
             "dates_fetched": 0,
@@ -218,7 +224,7 @@ class TaiwanDailyRefreshService:
         if not symbols:
             return {"error": "no symbols in universe"}
 
-        end = end or date.today()
+        end = end or taipei_today()
         start = start or self._start_date
         if start > end:
             return {"error": "start > end"}
@@ -296,5 +302,5 @@ class TaiwanDailyRefreshService:
             return {"symbol": symbol, "rows": 0, "status": "empty"}
 
         rows = df.height
-        written = self._store.write_batch(df)
+        written = self._store.write_batch(df, partial=True)
         return {"symbol": symbol, "rows": rows, "written": written, "status": "ok"}

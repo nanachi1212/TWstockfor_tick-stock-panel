@@ -10,7 +10,7 @@ authority.  The radar adds two things on top of it:
 A quote that the monitor engine refuses (closed session, stale, delayed, daily
 fallback) gets no live status here either.  This is not a trade instruction.
 """
-# ruff: noqa: RUF001 -- user-facing Traditional Chinese text is intentional.
+
 from __future__ import annotations
 
 import logging
@@ -29,6 +29,7 @@ from app.taiwan.beginner_selection import (
     MarketSummary,
     PlanLevels,
 )
+from app.taiwan.realtime.calendar import taipei_now
 from app.taiwan.realtime.models import TaiwanRealtimeQuote
 from app.taiwan.realtime.monitor_engine import quote_quality_gate
 from app.taiwan.realtime.monitor_models import EvaluationStatus
@@ -140,11 +141,28 @@ def _unavailable(note: str, price: float | None = None, quote_time: str | None =
                      price=price, quote_time=quote_time, note=note)
 
 
-def radar_live(candidate: BeginnerCandidate, quote: TaiwanRealtimeQuote | None) -> RadarLive:
+def _ex_today_symbols(service: object) -> set[str]:
+    """Symbols with a corporate action effective today; unknown coverage counts as none."""
+    try:
+        today = taipei_now().date()
+        events = service.screener.action_store.read_verified_window(today, today)  # type: ignore[attr-defined]
+    except Exception as exc:
+        logger.debug("entry radar corporate actions unavailable: %s", type(exc).__name__)
+        return set()
+    return {event.symbol for event in events or ()}
+
+
+def radar_live(
+    candidate: BeginnerCandidate, quote: TaiwanRealtimeQuote | None, ex_today: bool = False,
+) -> RadarLive:
     if quote is None:
         return _unavailable("目前拿不到即時報價。")
     meta = quote.source_meta
-    return _judge(candidate, quote).model_copy(update={
+    live = _judge(candidate, quote)
+    if ex_today and live.status != "unavailable":
+        # The frozen levels were set on the pre-adjustment price; today's price is not comparable.
+        live = _unavailable("今天除權息，計畫價位已失效。", live.price, live.quote_time)
+    return live.model_copy(update={
         "source": meta.source, "source_status": meta.status, "freshness_class": meta.freshness_class,
     })
 
@@ -205,6 +223,7 @@ def build_radar(
     missing = sum(1 for c in candidates if c.symbol not in quotes)
     if missing and "即時報價暫時不可用" not in gaps:
         gaps.append(f"{missing} 檔股票沒有即時報價" if quotes else "即時報價暫時不可用")
+    ex_today = _ex_today_symbols(service)
     session = next((q.market_status for q in quotes.values()), None) or market_session()
     # Missing live quotes are a degraded radar even when the end-of-day selection is ready.
     status = "degraded" if missing and selection.status == "ready" else selection.status
@@ -216,7 +235,7 @@ def build_radar(
         market_session=session,
         market=selection.market,
         items=[
-            RadarItem(candidate=c, sources=sources[c.symbol], live=radar_live(c, quotes.get(c.symbol)))
+            RadarItem(candidate=c, sources=sources[c.symbol], live=radar_live(c, quotes.get(c.symbol), c.symbol in ex_today))
             for c in candidates
         ],
         not_selected=selection.not_selected,

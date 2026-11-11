@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import * as echarts from 'echarts'
-import type { ECharts, EChartsOption } from 'echarts'
+import { echarts, type ECharts } from '@/lib/echarts'
+import type { EChartsOption } from 'echarts'
 import type { ForwardBatchTimeline } from '@/lib/api'
 import { RADIX } from '@/lib/radix'
 

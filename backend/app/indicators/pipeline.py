@@ -1,7 +1,7 @@
 """enriched 表計算流水線(§7.5 / §7.7 Step 2)。
 
 儲存層 (enriched parquet):
-  僅儲存基礎行情窄表 (14 欄), 指標和信號由各服務即時計算。
+  僅儲存基礎行情窄表 (14 欄), 指標和訊號由各服務即時計算。
 
   儲存欄: symbol, date, OHLCV(前復權), volume, amount,
           raw_close, raw_high, raw_low, turnover_rate,
@@ -45,7 +45,7 @@ ENRICHED_STORAGE_COLS = [
 # ================================================================
 # enriched 完整列清單 (儲存 + 執行時計算)
 # 供 AI 審查代碼時參考: 策略/篩選/回測 可直接使用以下欄名。
-# 分類: 儲存欄 → 指標欄 → 信號欄 → JOIN 欄
+# 分類: 儲存欄 → 指標欄 → 訊號欄 → JOIN 欄
 # ================================================================
 ENRICHED_COLUMNS: dict[str, dict[str, str]] = {
     # ── 儲存欄 (parquet 持久化) ──────────────────────────
@@ -61,7 +61,7 @@ ENRICHED_COLUMNS: dict[str, dict[str, str]] = {
     "raw_high":                "原始最高價(未復權)",
     "raw_low":                 "原始最低價(未復權)",
     "turnover_rate":           "週轉率",
-    "consecutive_limit_ups":   "連板數",
+    "consecutive_limit_ups":   "連續漲停天數",
     "consecutive_limit_downs": "連跌數",
     # ── 基礎指標 ─────────────────────────────────────────
     "prev_close":              "前收盤價",
@@ -82,7 +82,7 @@ ENRICHED_COLUMNS: dict[str, dict[str, str]] = {
     "ema60":                   "60日指數均線",
     # ── MACD ─────────────────────────────────────────────
     "macd_dif":                "MACD DIF線(快線-慢線)",
-    "macd_dea":                "MACD DEA線(信號線)",
+    "macd_dea":                "MACD DEA線(訊號線)",
     "macd_hist":               "MACD柱狀圖 (DIF-DEA)×2",
     # ── 布林帶 BOLL ──────────────────────────────────────
     "boll_upper":              "布林帶上軌 MA20+2σ",
@@ -97,7 +97,7 @@ ENRICHED_COLUMNS: dict[str, dict[str, str]] = {
     "vol_ma5":                 "5日成交均量",
     "vol_ma10":                "10日成交均量",
     "vol_ratio_5d":            "量比 (成交量/5日均量)",
-    # ── 极值 ─────────────────────────────────────────────
+    # ── 極值 ─────────────────────────────────────────────
     "high_60d":                "60日最高價",
     "low_60d":                 "60日最低價",
     # ── 動量 ─────────────────────────────────────────────
@@ -112,12 +112,12 @@ ENRICHED_COLUMNS: dict[str, dict[str, str]] = {
     "rsi_6":                   "6日相對強弱指標",
     "rsi_14":                  "14日相對強弱指標",
     "rsi_24":                  "24日相對強弱指標",
-    # ── 信號欄 (bool) ────────────────────────────────────
-    "signal_ma_golden_5_20":   "MA5上穿MA20 (金叉)",
-    "signal_ma_dead_5_20":     "MA5下穿MA20 (死叉)",
+    # ── 訊號欄 (bool) ────────────────────────────────────
+    "signal_ma_golden_5_20":   "MA5上穿MA20 (黃金交叉)",
+    "signal_ma_dead_5_20":     "MA5下穿MA20 (死亡交叉)",
     "signal_ma_golden_20_60":  "MA20上穿MA60",
-    "signal_macd_golden":      "MACD金叉 (DIF上穿DEA)",
-    "signal_macd_dead":        "MACD死叉 (DIF下穿DEA)",
+    "signal_macd_golden":      "MACD黃金交叉 (DIF上穿DEA)",
+    "signal_macd_dead":        "MACD死亡交叉 (DIF下穿DEA)",
     "signal_ma20_breakout":    "收盤突破MA20上方",
     "signal_ma20_breakdown":   "收盤跌破MA20下方",
     "signal_ma5_breakout":     "收盤突破MA5上方",
@@ -161,6 +161,34 @@ ENRICHED_COLUMNS_BY_CATEGORY: dict[str, list[str]] = {
 
 def _ema_alpha(span: int) -> float:
     return 2.0 / (span + 1)
+
+
+def kdj_rsv_expr(close: pl.Expr, low_n: pl.Expr, high_n: pl.Expr) -> pl.Expr:
+    """The single RSV definition shared by the full and incremental KDJ paths.
+
+    A flat window (high == low) has no range, so RSV is the neutral 50 instead
+    of 0/0 = NaN; an unfinished window (null high/low) stays null.
+    """
+    span = high_n - low_n
+    return (
+        pl.when(span > 0).then(100 * (close - low_n) / span)
+        .when(span.is_null()).then(None)
+        .otherwise(50.0)
+    )
+
+
+def volume_ratio_expr(volume: pl.Expr, prev_mean_5d: pl.Expr, time_factor: float = 1.0) -> pl.Expr:
+    """The single 量比 definition: volume / previous-5-day mean volume (today excluded).
+
+    time_factor scales a partial intraday volume to a full session; a missing or
+    zero baseline gives null instead of inf.
+    """
+    return pl.when(prev_mean_5d > 0).then(volume * time_factor / prev_mean_5d).otherwise(None)
+
+
+def _bars_so_far() -> pl.Expr:
+    """Number of bars per symbol up to and including the current row."""
+    return pl.col("close").cum_count().over("symbol")
 
 
 def _apply_adj_factor(raw: pl.DataFrame, factors: pl.DataFrame) -> pl.DataFrame:
@@ -213,6 +241,9 @@ def _apply_adj_factor(raw: pl.DataFrame, factors: pl.DataFrame) -> pl.DataFrame:
         right_on="trade_date",
         by="symbol",
         strategy="backward",
+        # Both sides are explicitly sorted by (symbol, date); polars cannot verify
+        # sortedness within `by` groups and would only emit a warning.
+        check_sortedness=False,
     )
 
     # 補充 total_factor + 前復權 + 除權標記,一次 with_columns 完成
@@ -250,9 +281,6 @@ _INDICATOR_DEPS: dict[str, set[str]] = {
     "atr_14": {"_tr"},
     "vol_ratio_5d": {"_vol_ma5"},
     "annual_vol_20d": {"_daily_pct"},
-    "rsi_6": {"_delta", "_gain", "_loss"},
-    "rsi_14": {"_delta", "_gain", "_loss"},
-    "rsi_24": {"_delta", "_gain", "_loss"},
 }
 
 # compute_indicators 可產出的全部指標/臨時欄 (needed=None 時即為此全集, 行為不變)
@@ -343,7 +371,7 @@ def compute_indicators(
     if "_ema26" in want:
         _p1.append(pl.col("close").ewm_mean(alpha=_ema_alpha(26), adjust=False).over("symbol").alias("_ema26"))
     if "_boll_std" in want:
-        _p1.append(pl.col("close").rolling_std(20).over("symbol").alias("_boll_std"))
+        _p1.append(pl.col("close").rolling_std(20, ddof=0).over("symbol").alias("_boll_std"))
     if "_kdj_ln" in want:
         _p1.append(pl.col("low").rolling_min(9).over("symbol").alias("_kdj_ln"))
     if "_kdj_hn" in want:
@@ -391,10 +419,7 @@ def compute_indicators(
 
     # Pass 3: KDJ
     if "kdj_k" in want:
-        _kdj_rsv = (
-            100 * (pl.col("close") - pl.col("_kdj_ln"))
-            / (pl.col("_kdj_hn") - pl.col("_kdj_ln")).fill_null(1e-12)
-        )
+        _kdj_rsv = kdj_rsv_expr(pl.col("close"), pl.col("_kdj_ln"), pl.col("_kdj_hn"))
         df = df.with_columns([
             _kdj_rsv.ewm_mean(alpha=1.0 / 3, adjust=False).over("symbol").alias("kdj_k"),
         ])
@@ -416,7 +441,7 @@ def compute_indicators(
         # 標準量比: 今日成交量 / 前5日均量(不含當天)
         # 盤後全量路徑: 當日 volume 是完整全天量, 無需時間折算
         df = df.with_columns(
-            (pl.col("volume") / pl.col("_vol_ma5_prev")).alias("vol_ratio_5d"),
+            volume_ratio_expr(pl.col("volume"), pl.col("_vol_ma5_prev")).alias("vol_ratio_5d"),
         )
     _p4mom: list[pl.Expr] = []
     if "momentum_5d" in want:
@@ -454,38 +479,29 @@ def compute_indicators(
                 .alias("annual_vol_20d"),
         )
 
-    # Pass 5: RSI
-    if want & {"rsi_6", "rsi_14", "rsi_24"}:
-        df = df.with_columns(
-            pl.col("close").diff().over("symbol").alias("_delta"),
-        ).with_columns([
-            pl.when(pl.col("_delta") > 0).then(pl.col("_delta")).otherwise(0.0).alias("_gain"),
-            pl.when(pl.col("_delta") < 0).then(-pl.col("_delta")).otherwise(0.0).alias("_loss"),
-        ])
-        for n in (6, 14, 24):
-            if f"rsi_{n}" not in want:
-                continue
-            a = 1.0 / n
-            df = df.with_columns([
-                pl.col("_gain").ewm_mean(alpha=a, adjust=False).over("symbol").alias(f"_rsi_avg_gain_{n}"),
-                pl.col("_loss").ewm_mean(alpha=a, adjust=False).over("symbol").alias(f"_rsi_avg_loss_{n}"),
-            ]).with_columns(
-                (100 - 100 / (1 + pl.col(f"_rsi_avg_gain_{n}") /
-                             pl.when(pl.col(f"_rsi_avg_loss_{n}") == 0)
-                               .then(1e-12)
-                               .otherwise(pl.col(f"_rsi_avg_loss_{n}"))
-                             )).alias(f"rsi_{n}"),
+    # Pass 5: RSI (Wilder, the one definition in technical_indicators) + warm-up gates
+    # shared with the Taiwan indicator panel, so a bar that is still mostly EMA seed
+    # bias is null in every screen. Local import: app.taiwan imports this module.
+    from app.taiwan.technical_indicators import MIN_BARS_MACD, wilder_rsi_expr
+
+    for n in (6, 14, 24):
+        if f"rsi_{n}" in want:
+            df = df.with_columns(
+                pl.when(_bars_so_far() >= n + 1).then(wilder_rsi_expr(n)).otherwise(None)
+                .alias(f"rsi_{n}"),
             )
+    macd_cols = [c for c in ("macd_dif", "macd_dea", "macd_hist") if c in want]
+    if macd_cols:
+        df = df.with_columns([
+            pl.when(_bars_so_far() >= MIN_BARS_MACD).then(pl.col(c)).otherwise(None).alias(c)
+            for c in macd_cols
+        ])
 
     # Pass 6: 週轉率 (需要 float_shares, 後續在 compute_all 中 JOIN instruments 後補充)
 
     # 清理臨時欄 (只丟棄實際存在的臨時欄)
     _temp_cols = ["_boll_std", "_tr", "_ema12", "_ema26",
-                  "_kdj_ln", "_kdj_hn", "_vol_ma5", "_vol_ma5_prev", "_daily_pct",
-                  "_delta", "_gain", "_loss",
-                  "_rsi_avg_gain_6", "_rsi_avg_loss_6",
-                  "_rsi_avg_gain_14", "_rsi_avg_loss_14",
-                  "_rsi_avg_gain_24", "_rsi_avg_loss_24"]
+                  "_kdj_ln", "_kdj_hn", "_vol_ma5", "_vol_ma5_prev", "_daily_pct"]
     df = df.drop([c for c in _temp_cols if c in df.columns])
 
     _elapsed = (_time.perf_counter() - _t0) * 1000
@@ -525,7 +541,7 @@ LIMIT_SIGNAL_OUTPUTS: frozenset[str] = frozenset({
 })
 
 def compute_signals(df: pl.DataFrame, needed: set[str] | None = None) -> pl.DataFrame:
-    """從已有指標欄計算原子信號布林列。
+    """從已有指標欄計算原子訊號布林列。
 
     輸入必須包含 compute_indicators() 產出的指標欄。
     """
@@ -601,7 +617,7 @@ def compute_limit_signals(
     instruments: pl.DataFrame,
     needed: set[str] | None = None,
 ) -> pl.DataFrame:
-    """計算漲跌停相關信號。
+    """計算漲跌停相關訊號。
 
     產出:
       signal_limit_up, consecutive_limit_ups
@@ -664,7 +680,8 @@ def compute_limit_signals(
         df = df.with_columns(pl.lit(None).cast(pl.Float64).alias("turnover_rate"))
 
     # 前一日參考收盤價（交易所漲跌停基準價）
-    # 僅在 adj_factor 發生變化（除權除息 XD/DR）時使用前復權昨收作為交易所參考價;
+    # 僅在 adj_factor 發生變化（除權除息 XD/DR）時改用除權息參考價 = 前復權昨收換回當日原始價格尺度
+    # (昨收 * raw_close / close; 之後若還有除權息, 前復權昨收帶有後續事件的倍數, 必須換算);
     # 否則使用原始 raw_close.shift(1) 以避免浮點精度誤差。
     if not need_price_limits:
         cleanup = [c for c in ("name", "float_shares", "limit_up", "limit_down") if c in df.columns]
@@ -673,9 +690,10 @@ def compute_limit_signals(
     _adj_today = pl.col("close") / pl.col("raw_close")
     _adj_yesterday = pl.col("close").shift(1).over("symbol") / pl.col("raw_close").shift(1).over("symbol")
     _adj_changed = (_adj_today - _adj_yesterday).abs() > 1e-6
+    _ex_reference = pl.col("close").shift(1).over("symbol") * pl.col("raw_close") / pl.col("close")
     df = df.with_columns(
-        pl.when(_adj_changed)
-        .then(pl.col("close").shift(1).over("symbol"))   # 除權: 使用前復權昨收
+        pl.when(_adj_changed & (pl.col("close") > 0))
+        .then(_ex_reference)   # 除權: 前復權昨收換回當日原始價格尺度
         .otherwise(pl.col("raw_close").shift(1).over("symbol"))  # 正常: 使用原始昨收
         .alias("_prev_raw_close")
     )
@@ -701,7 +719,7 @@ def compute_limit_signals(
 
     # 生效漲跌停價: 維表日期與行情日期一致時使用權威值, 否則使用理論價。
     # 舊版維表沒有 as_of, 保持僅在最新行情日使用權威值的相容行為。
-    _SENTINEL = 10000.0
+    sentinel = 10000.0
     if "_instrument_as_of" in df.columns:
         authoritative_date = (
             pl.col("_instrument_as_of") == pl.col("date").cast(pl.Date, strict=False)
@@ -712,7 +730,7 @@ def compute_limit_signals(
         effective_limit_up = pl.when(
             authoritative_date
             & pl.col("limit_up").is_not_null()
-            & (pl.col("limit_up") < _SENTINEL)
+            & (pl.col("limit_up") < sentinel)
         ).then(pl.col("limit_up")).otherwise(pl.col("_theoretical_limit_up"))
     else:
         effective_limit_up = pl.col("_theoretical_limit_up")
@@ -720,7 +738,7 @@ def compute_limit_signals(
         effective_limit_down = pl.when(
             authoritative_date
             & pl.col("limit_down").is_not_null()
-            & (pl.col("limit_down") < _SENTINEL)
+            & (pl.col("limit_down") < sentinel)
         ).then(pl.col("limit_down")).otherwise(pl.col("_theoretical_limit_down"))
     else:
         effective_limit_down = pl.col("_theoretical_limit_down")
@@ -858,7 +876,7 @@ def compute_all(
     df: pl.DataFrame,
     instruments: pl.DataFrame | None = None,
 ) -> pl.DataFrame:
-    """從 OHLCV 計算全套指標 + 信號。一站式呼叫。
+    """從 OHLCV 計算全套指標 + 訊號。一站式呼叫。
 
     輸入: symbol, date, open, high, low, close, volume, amount, raw_close
     """
@@ -902,11 +920,11 @@ def compute_enriched(
     factors: pl.DataFrame | None = None,
     instruments: pl.DataFrame | None = None,
 ) -> pl.DataFrame:
-    """對原始日 K 應用前復權 + 全量計算指標 + 信號, 產出完整 enriched (含全部指標欄)。
+    """對原始日 K 應用前復權 + 全量計算指標 + 訊號, 產出完整 enriched (含全部指標欄)。
 
     輸入應包含至少: symbol, date, open, high, low, close, volume (可選 amount)。
     如果提供了 factors, 先應用前復權再算指標。
-    如果提供了 instruments, 計算漲跌停信號和週轉率。
+    如果提供了 instruments, 計算漲跌停訊號和週轉率。
     """
     if raw.is_empty():
         return raw
@@ -931,7 +949,7 @@ def compute_enriched(
     # 排序
     df = raw.sort(["symbol", "date"])
 
-    # 全量計算指標 + 信號
+    # 全量計算指標 + 訊號
     df = compute_all(df, instruments=instruments)
 
     return df
@@ -954,7 +972,7 @@ def compute_enriched_today(
 
     參數:
         live_agg:       repo.get_live_agg() — 包含所有遞推狀態 + 視窗聚合
-        prev_enriched:  repo.get_enriched_latest() — 昨天的完整 enriched (用於信號交叉判斷)
+        prev_enriched:  repo.get_enriched_latest() — 昨天的完整 enriched (用於訊號交叉判斷)
         today_ohlcv:    今天的 OHLCV (symbol, date, open, high, low, close, volume, amount)
         instruments:    維表 (漲跌停/週轉率需要)
         elapsed_minutes: 當日已交易分鐘數(用於標準量比的時間折算)。
@@ -967,6 +985,12 @@ def compute_enriched_today(
         return pl.DataFrame()
 
     alpha = _ema_alpha
+
+    def need_history(expr: pl.Expr, bars: int) -> pl.Expr:
+        """Null unless the stored state covers `bars` earlier bars (same warm-up as the full path)."""
+        if "_window_len" not in live_agg.columns:
+            return expr
+        return pl.when(pl.col("_window_len") >= bars).then(expr).otherwise(None)
 
     # ---- JOIN: 今天的 OHLCV + 各股票最後一個有效交易日的遞推狀態 ----
     # 當日行情是主表, 復牌或新上市股票不能因為沒有歷史狀態而被靜默刪除。
@@ -1033,19 +1057,20 @@ def compute_enriched_today(
     ema26 = alpha(26) * pl.col("close") + (1 - alpha(26)) * pl.col("_ema26")
     dif = ema12 - ema26
     dea = alpha(9) * dif + (1 - alpha(9)) * pl.col("macd_dea")
+    from app.taiwan.technical_indicators import MIN_BARS_MACD  # 延後匯入: app.taiwan 會匯入本模組
     df = df.with_columns([
-        dif.alias("macd_dif"),
-        dea.alias("macd_dea"),
-        ((dif - dea) * 2).alias("macd_hist"),
+        need_history(dif, MIN_BARS_MACD - 1).alias("macd_dif"),
+        need_history(dea, MIN_BARS_MACD - 1).alias("macd_dea"),
+        need_history((dif - dea) * 2, MIN_BARS_MACD - 1).alias("macd_hist"),
     ])
 
     # ---- MA (用部分和) ----
     df = df.with_columns([
-        ((pl.col("_ma5_partial_sum") + pl.col("close")) / 5).alias("ma5"),
-        ((pl.col("_ma10_partial_sum") + pl.col("close")) / 10).alias("ma10"),
-        ((pl.col("_ma20_partial_sum") + pl.col("close")) / 20).alias("ma20"),
-        ((pl.col("_ma30_partial_sum") + pl.col("close")) / 30).alias("ma30"),
-        ((pl.col("_ma60_partial_sum") + pl.col("close")) / 60).alias("ma60"),
+        need_history((pl.col("_ma5_partial_sum") + pl.col("close")) / 5, 4).alias("ma5"),
+        need_history((pl.col("_ma10_partial_sum") + pl.col("close")) / 10, 9).alias("ma10"),
+        need_history((pl.col("_ma20_partial_sum") + pl.col("close")) / 20, 19).alias("ma20"),
+        need_history((pl.col("_ma30_partial_sum") + pl.col("close")) / 30, 29).alias("ma30"),
+        need_history((pl.col("_ma60_partial_sum") + pl.col("close")) / 60, 59).alias("ma60"),
     ])
 
     # ---- Bollinger ----
@@ -1055,14 +1080,14 @@ def compute_enriched_today(
     boll_var = boll_sq_sum / 20 - boll_ma ** 2
     boll_std = pl.when(boll_var > 0).then(boll_var.sqrt()).otherwise(0.0)
     df = df.with_columns([
-        (boll_ma + 2 * boll_std).alias("boll_upper"),
-        (boll_ma - 2 * boll_std).alias("boll_lower"),
+        need_history(boll_ma + 2 * boll_std, 19).alias("boll_upper"),
+        need_history(boll_ma - 2 * boll_std, 19).alias("boll_lower"),
     ])
 
     # ---- KDJ (遞推) ----
     kdj_ln = pl.min_horizontal(pl.col("_kdj_8d_low"), pl.col("low"))
     kdj_hn = pl.max_horizontal(pl.col("_kdj_8d_high"), pl.col("high"))
-    rsv = (pl.col("close") - kdj_ln) / (kdj_hn - kdj_ln).fill_null(1e-12) * 100
+    rsv = kdj_rsv_expr(pl.col("close"), kdj_ln, kdj_hn)
     k_today = rsv / 3 + pl.col("kdj_k") * 2 / 3
     d_today = k_today / 3 + pl.col("kdj_d") * 2 / 3
     df = df.with_columns([
@@ -1092,14 +1117,16 @@ def compute_enriched_today(
         df = df.with_columns([
             avg_gain.alias(f"_rsi_avg_gain_{n}"),
             avg_loss.alias(f"_rsi_avg_loss_{n}"),
-            (100 - 100 / (1 + avg_gain / pl.when(avg_loss == 0).then(1e-12).otherwise(avg_loss)))
-            .alias(f"rsi_{n}"),
+            need_history(
+                100 - 100 / (1 + avg_gain / pl.when(avg_loss == 0).then(1e-12).otherwise(avg_loss)),
+                n,
+            ).alias(f"rsi_{n}"),
         ])
 
     # ---- 量比 ----
     # vol_ma5/vol_ma10 保留原語意(含當天的均量), 其他地方在用
-    vol_ma5 = (pl.col("_vol_ma5_partial_sum") + pl.col("volume")) / 5
-    vol_ma10 = (pl.col("_vol_ma10_partial_sum") + pl.col("volume")) / 10
+    vol_ma5 = need_history((pl.col("_vol_ma5_partial_sum") + pl.col("volume")) / 5, 4)
+    vol_ma10 = need_history((pl.col("_vol_ma10_partial_sum") + pl.col("volume")) / 10, 9)
     # Taiwan volume ratio: accumulated volume / (previous mean daily volume * session fraction).
     # _vol_ma5_prev_sum 是前5個交易日成交量之和(tail(5)), 不含當天
     # 盤中 volume 是部分量, 按 elapsed_minutes 折算到全天量級
@@ -1112,45 +1139,45 @@ def compute_enriched_today(
     df = df.with_columns([
         vol_ma5.alias("vol_ma5"),
         vol_ma10.alias("vol_ma10"),
-        ((pl.col("volume") * time_factor) / vol_ma5_prev).alias("vol_ratio_5d"),
+        need_history(volume_ratio_expr(pl.col("volume"), vol_ma5_prev, time_factor), 5).alias("vol_ratio_5d"),
     ])
 
-    # ---- 极值 60 日 ----
+    # ---- 60 日高低 (收盤價口徑, 與全量版 rolling_max/min(close) 一致) ----
     df = df.with_columns([
-        pl.when(has_history_state)
-          .then(pl.max_horizontal(pl.col("_high_59d"), pl.col("high")))
-          .otherwise(None)
-          .alias("high_60d"),
-        pl.when(has_history_state)
-          .then(pl.min_horizontal(pl.col("_low_59d"), pl.col("low")))
-          .otherwise(None)
-          .alias("low_60d"),
+        need_history(
+            pl.when(has_history_state).then(pl.max_horizontal(pl.col("_high_59d"), pl.col("close"))).otherwise(None),
+            59,
+        ).alias("high_60d"),
+        need_history(
+            pl.when(has_history_state).then(pl.min_horizontal(pl.col("_low_59d"), pl.col("close"))).otherwise(None),
+            59,
+        ).alias("low_60d"),
     ])
 
     # ---- 動量 (5d/10d/20d/30d/60d) ----
     df = df.with_columns([
-        (pl.col("close") / pl.col("_close_5d_ago") - 1).alias("momentum_5d"),
-        (pl.col("close") / pl.col("_close_10d_ago") - 1).alias("momentum_10d"),
-        (pl.col("close") / pl.col("_close_20d_ago") - 1).alias("momentum_20d"),
-        (pl.col("close") / pl.col("_close_30d_ago") - 1).alias("momentum_30d"),
-        (pl.col("close") / pl.col("_close_60d_ago") - 1).alias("momentum_60d"),
+        need_history(pl.col("close") / pl.col("_close_5d_ago") - 1, 5).alias("momentum_5d"),
+        need_history(pl.col("close") / pl.col("_close_10d_ago") - 1, 10).alias("momentum_10d"),
+        need_history(pl.col("close") / pl.col("_close_20d_ago") - 1, 20).alias("momentum_20d"),
+        need_history(pl.col("close") / pl.col("_close_30d_ago") - 1, 30).alias("momentum_30d"),
+        need_history(pl.col("close") / pl.col("_close_60d_ago") - 1, 60).alias("momentum_60d"),
     ])
 
     # ---- 年化波動率 20d (遞推) ----
-    # 用 Welford 簡化: sum + sum_sq of 19 historical returns + today's return
+    # sum + sum_sq of 19 historical returns + today's return; sample variance (ddof=1)
+    # to match the full path's rolling_std(20).
     today_ret = pl.col("close") / pl.col("prev_close") - 1
     total_sum = pl.col("_vol_19d_pct_sum").fill_null(0.0) + today_ret
     total_sq_sum = pl.col("_vol_19d_pct_sq_sum").fill_null(0.0) + today_ret ** 2
-    vol_mean = total_sum / 20
-    vol_var = total_sq_sum / 20 - vol_mean ** 2
+    vol_var = (total_sq_sum - total_sum ** 2 / 20) / 19
     df = df.with_columns(
-        pl.when(has_history_state & (vol_var > 0))
-          .then(vol_var.sqrt() * (252 ** 0.5))
-          .otherwise(None)
-          .alias("annual_vol_20d"),
+        need_history(
+            pl.when(has_history_state & (vol_var > 0)).then(vol_var.sqrt() * (252 ** 0.5)).otherwise(None),
+            20,
+        ).alias("annual_vol_20d"),
     )
 
-    # ---- 信號 (需要昨天的指標值判斷交叉) ----
+    # ---- 訊號 (需要昨天的指標值判斷交叉) ----
     if not prev_enriched.is_empty():
         sig_prev = prev_enriched.select(
             "symbol",
@@ -1167,14 +1194,14 @@ def compute_enriched_today(
         df = df.join(sig_prev, on="symbol", how="left")
 
         df = df.with_columns([
-            # MA 金叉/死叉
+            # MA 黃金交叉/死亡交叉
             ((pl.col("ma5") > pl.col("ma20")) & (pl.col("_prev_ma5") <= pl.col("_prev_ma20")))
                 .alias("signal_ma_golden_5_20"),
             ((pl.col("ma5") < pl.col("ma20")) & (pl.col("_prev_ma5") >= pl.col("_prev_ma20")))
                 .alias("signal_ma_dead_5_20"),
             ((pl.col("ma20") > pl.col("ma60")) & (pl.col("_prev_ma20") <= pl.col("_prev_ma60")))
                 .alias("signal_ma_golden_20_60"),
-            # MACD 金叉/死叉
+            # MACD 黃金交叉/死亡交叉
             ((pl.col("macd_dif") > pl.col("macd_dea")) & (pl.col("_prev_dif") <= pl.col("_prev_dea")))
                 .alias("signal_macd_golden"),
             ((pl.col("macd_dif") < pl.col("macd_dea")) & (pl.col("_prev_dif") >= pl.col("_prev_dea")))
@@ -1195,8 +1222,8 @@ def compute_enriched_today(
             ((pl.col("close") < pl.col("ma10")) & (pl.col("_prev_close_enriched") >= pl.col("_prev_ma10")))
                 .alias("signal_ma10_breakdown"),
             # BOLL 突破
-            (pl.col("close") >= pl.col("boll_upper")).alias("signal_boll_breakout_upper"),
-            (pl.col("close") <= pl.col("boll_lower")).alias("signal_boll_breakdown_lower"),
+            (pl.col("close") > pl.col("boll_upper")).alias("signal_boll_breakout_upper"),
+            (pl.col("close") < pl.col("boll_lower")).alias("signal_boll_breakdown_lower"),
         ])
 
         df = df.drop([
@@ -1212,7 +1239,7 @@ def compute_enriched_today(
         (pl.col("vol_ratio_5d") >= 2.0).alias("signal_volume_surge"),
     ])
 
-    # ---- 漲跌停 + 週轉率 + 炸板 + 連板 ----
+    # ---- 漲跌停 + 週轉率 + 炸板 + 連續漲停 ----
     if instruments is not None and not instruments.is_empty():
         df = _compute_limit_signals_today(df, instruments)
 
@@ -1254,7 +1281,7 @@ def compute_enriched_today(
 
 
 def _compute_limit_signals_today(df: pl.DataFrame, instruments: pl.DataFrame) -> pl.DataFrame:
-    """盤中增量版的漲跌停/週轉率/炸板/連板計算。"""
+    """盤中增量版的漲跌停/週轉率/炸板/連續漲停計算。"""
     inst_cols = ["symbol"]
     for c in ["float_shares", "limit_up", "limit_down"]:
         if c in instruments.columns:
@@ -1268,14 +1295,13 @@ def _compute_limit_signals_today(df: pl.DataFrame, instruments: pl.DataFrame) ->
     df = df.join(inst_subset, on="symbol", how="left", suffix="_inst")
 
     # 週轉率: API 有則直接用, 無則從 float_shares 計算
-    if "turnover_rate" not in df.columns:
-        if "float_shares" in df.columns and "volume" in df.columns:
-            df = df.with_columns(
-                pl.when(pl.col("float_shares") > 0)
-                  .then(turnover_rate_pct_expr())
-                  .otherwise(None)
-                  .alias("turnover_rate")
-            )
+    if "turnover_rate" not in df.columns and "float_shares" in df.columns and "volume" in df.columns:
+        df = df.with_columns(
+            pl.when(pl.col("float_shares") > 0)
+              .then(turnover_rate_pct_expr())
+              .otherwise(None)
+              .alias("turnover_rate")
+        )
 
     # 漲跌停 (用 raw_close / raw_high 和前一日原始收盤價)
     # 優先用 API 原始前收盤價, 回退到 close_right, 最後回退到 raw_close
@@ -1302,7 +1328,7 @@ def _compute_limit_signals_today(df: pl.DataFrame, instruments: pl.DataFrame) ->
     # 生效漲跌停價: 維表日期與行情日期一致時優先使用交易所權威值;
     # 維表過期或價格缺失時回退自算理論價。舊版無 as_of 維表保持相容。
     # 哨兵閾值 10000 用於識別 "新股無漲跌停限制" 的佔位值 (實際漲停價不可能上萬)。
-    _SENTINEL = 10000.0
+    sentinel = 10000.0
     authoritative_date = (
         pl.col("_instrument_as_of") == trade_date.cast(pl.Date, strict=False)
         if "_instrument_as_of" in df.columns
@@ -1316,12 +1342,12 @@ def _compute_limit_signals_today(df: pl.DataFrame, instruments: pl.DataFrame) ->
             authoritative_date
             & pl.col("limit_up").is_not_null()
             & (pl.col("limit_up") > 0)
-            & (pl.col("limit_up") < _SENTINEL)
+            & (pl.col("limit_up") < sentinel)
         )
         no_price_limit = (
             authoritative_date
             & pl.col("limit_up").is_not_null()
-            & (pl.col("limit_up") >= _SENTINEL)
+            & (pl.col("limit_up") >= sentinel)
         )
         effective_limit_up = pl.when(
             has_authoritative_up
@@ -1333,7 +1359,7 @@ def _compute_limit_signals_today(df: pl.DataFrame, instruments: pl.DataFrame) ->
             authoritative_date
             & pl.col("limit_down").is_not_null()
             & (pl.col("limit_down") > 0)
-            & (pl.col("limit_down") < _SENTINEL)
+            & (pl.col("limit_down") < sentinel)
         )
         effective_limit_down = pl.when(
             has_authoritative_down
@@ -1381,7 +1407,7 @@ def _compute_limit_signals_today(df: pl.DataFrame, instruments: pl.DataFrame) ->
           .alias("signal_broken_limit_up"),
     ])
 
-    # 連板數: 同向 +1, 不同向歸零
+    # 連續漲停天數: 同向 +1, 不同向歸零
     # _prev_consec_up / _prev_consec_down 來自 live_agg (昨日 enriched)
     if "_prev_consec_up" not in df.columns:
         df = df.with_columns(pl.lit(0).cast(pl.UInt32).alias("_prev_consec_up"))

@@ -3,12 +3,11 @@ import { useNavigate } from 'react-router-dom'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Bell, TrendingUp, TrendingDown, X } from 'lucide-react'
 import type { AlertEvent } from '@/lib/api'
-import { fmtPct, fmtPrice } from '@/lib/format'
+import { fmtPct, fmtPrice, priceColorClass } from '@/lib/format'
 import { cnSignal } from '@/lib/signals'
 import { cn } from '@/lib/cn'
 import { playNotificationSound } from '@/lib/notificationSound'
 import { speakAlerts } from '@/lib/voiceBroadcast'
-import { usePreferences } from '@/lib/useSharedQueries'
 import { strategyEventMeta, strategyName } from '@/lib/strategyMonitorEvents'
 
 /** 通知渠道分發 — 所有副作用渠道在此匯合, 新增渠道只改這裡 */
@@ -80,7 +79,7 @@ const SOURCE_BADGE: Record<string, { label: string; cls: string }> = {
   signal:    { label: '訊號',   cls: 'bg-accent/15 text-accent' },
   price:     { label: '價格',   cls: 'bg-emerald-400/15 text-emerald-400' },
   market:    { label: '異動',   cls: 'bg-purple-500/15 text-purple-400' },
-  sector:    { label: '板塊',   cls: 'bg-cyan-500/15 text-cyan-700 dark:text-cyan-300' },
+  sector:    { label: '類股',   cls: 'bg-cyan-500/15 text-cyan-700 dark:text-cyan-300' },
   pool_entry: { label: '進入', cls: 'bg-danger/15 text-danger' },
   pool_exit:   { label: '移出', cls: 'bg-bear/15 text-bear' },
   buy_signal: { label: '買進', cls: 'bg-danger/15 text-danger' },
@@ -93,11 +92,6 @@ const SOURCE_BADGE: Record<string, { label: string; cls: string }> = {
 export function AlertToastContainer() {
   const [items, setItems] = useState<Item[]>([])
   const navigate = useNavigate()
-  const { data: prefs } = usePreferences()
-  const extFields = prefs?.monitor_ext_fields ?? {
-    concept: { field: 'ext_gn_ths.所屬概念' },
-    industry: { field: 'ext_hy_ths.所屬同花順行業' },
-  }
 
   const sub = useCallback(() => {
     _listeners.add(setItems)
@@ -125,7 +119,6 @@ export function AlertToastContainer() {
           const ev = item.alert
           const badgeKey = (ev.source === 'strategy' && ev.type) ? ev.type : ev.source
           const badge = SOURCE_BADGE[badgeKey] ?? { label: badgeKey, cls: 'bg-elevated text-muted' }
-          const pct = ev.change_pct ?? 0
           const isStrategy = ev.source === 'strategy'
           const sname = isStrategy ? strategyName(ev.message ?? '') : ''
           const eventMeta = strategyEventMeta(ev.type)
@@ -157,9 +150,9 @@ export function AlertToastContainer() {
                 {ev.symbol && <span className="font-mono text-xs font-medium text-foreground shrink-0">{ev.symbol}</span>}
                 {ev.name && <span className="text-xs text-secondary truncate flex-1">{ev.name}</span>}
                 {ev.change_pct != null && (
-                  <span className={cn('inline-flex items-center gap-0.5 text-xs font-mono font-medium shrink-0', pct >= 0 ? 'text-danger' : 'text-bear')}>
-                    {pct >= 0 ? <TrendingUp className="h-2.5 w-2.5" /> : <TrendingDown className="h-2.5 w-2.5" />}
-                    {fmtPct(pct)}
+                  <span className={cn('inline-flex items-center gap-0.5 text-xs font-mono font-medium shrink-0', priceColorClass(ev.change_pct))}>
+                    {ev.change_pct > 0 ? <TrendingUp className="h-2.5 w-2.5" /> : ev.change_pct < 0 ? <TrendingDown className="h-2.5 w-2.5" /> : null}
+                    {fmtPct(ev.change_pct)}
                   </span>
                 )}
                 <button aria-label="關閉通知" onClick={(e: MouseEvent<HTMLButtonElement>) => { e.stopPropagation(); dismiss(item.id) }} className="shrink-0 p-0.5 rounded text-muted/50 hover:text-foreground hover:bg-elevated transition-colors cursor-pointer">
@@ -203,33 +196,6 @@ export function AlertToastContainer() {
                   {ev.message && <span className="text-xs text-foreground/70 truncate flex-1">{ev.message}</span>}
                 </div>
               )}
-
-              {/* 行業/概念標籤 (後端 SSE 推送時已富化, 欄位設定來自監控中心全局設定) */}
-              {(() => {
-                const tags: { text: string; cls: string }[] = []
-                for (const [isIndustry, item] of [[true, extFields.industry], [false, extFields.concept]] as const) {
-                  if (!item?.field) continue
-                  const key = item.field.replace('.', '__')
-                  const v = (ev as Record<string, unknown>)[key]
-                  if (v == null) continue
-                  let parts = String(v).split(/[、,，;；\-]/).map(s => s.trim()).filter(Boolean)
-                  const mt = item.maxTags ?? 0
-                  if (mt > 0) parts = parts.slice(0, mt)
-                  const hi = item.hiddenIndices
-                  if (hi?.length) parts = parts.filter((_, i) => !hi.includes(i))
-                  for (const t of parts) {
-                    tags.push({ text: t, cls: isIndustry ? 'bg-sky-500/10 text-sky-400' : 'bg-orange-500/10 text-orange-400' })
-                  }
-                }
-                if (!tags.length) return null
-                return (
-                  <div className="mt-1 flex flex-wrap items-center gap-1 pl-0.5">
-                    {tags.map((t, i) => (
-                      <span key={i} className={cn('rounded px-1 py-px text-xs leading-tight', t.cls)}>{t.text}</span>
-                    ))}
-                  </div>
-                )
-              })()}
             </motion.div>
           )
         })}

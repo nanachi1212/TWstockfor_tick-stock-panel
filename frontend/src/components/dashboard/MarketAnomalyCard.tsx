@@ -1,9 +1,10 @@
 import { Link } from 'react-router-dom'
 import { Activity } from 'lucide-react'
 import { type AlertEvent, type TaiwanAbnormalDiagnosticsSnapshot } from '@/lib/api'
+import { fmtPct, priceColorClass, taipeiDate, todayTaipei } from '@/lib/format'
 import { type TaiwanDailyStatus } from './MarketOverviewCard'
 import { SectionTitle } from './SectionTitle'
-import { pctClass, fmtStockPct } from './dashboardFormat'
+import { isDailyCurrent } from './dashboardFormat'
 import { statusLabel } from '@/lib/evidenceLabel'
 
 export function MarketAnomalyCard({ snapshot, loading, error, alerts, alertsLoading, alertsError, marketDailyStatus }: {
@@ -15,15 +16,15 @@ export function MarketAnomalyCard({ snapshot, loading, error, alerts, alertsLoad
   alertsError: boolean
   marketDailyStatus: TaiwanDailyStatus
 }) {
-  const fresh = snapshot?.data_quality.daily_status === 'current' && marketDailyStatus === 'current'
+  const fresh = isDailyCurrent(snapshot?.data_quality.daily_status, marketDailyStatus)
   const rows = fresh ? [...(snapshot?.items ?? [])]
     .filter(item => item.signal_count > 0)
     .sort((a, b) => b.signal_count - a.signal_count || Math.abs(b.change_pct ?? 0) - Math.abs(a.change_pct ?? 0))
     .slice(0, 8) : []
-  const todayTaipei = new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Taipei' })
+  const today = todayTaipei()
   const quantEvents = alerts.filter(event => {
-    const eventDate = new Date(event.ts).toLocaleDateString('sv-SE', { timeZone: 'Asia/Taipei' })
-    return event.source === 'quant' && ['quant_top10_enter', 'quant_top10_exit'].includes(event.type) && eventDate === todayTaipei
+    const eventDate = taipeiDate(event.ts)
+    return event.source === 'quant' && ['quant_top10_enter', 'quant_top10_exit'].includes(event.type) && eventDate === today
   })
   const displayedQuantEvents = quantEvents.slice(0, 5)
   const signalLabel: Record<string, string> = {
@@ -37,7 +38,7 @@ export function MarketAnomalyCard({ snapshot, loading, error, alerts, alertsLoad
       <SectionTitle icon={Activity} title="市場異常" hint={snapshot ? `資料交易日 ${snapshot.trade_date}` : undefined} />
       {loading ? <div className="py-4 text-xs text-muted">正在讀取市場異常…</div>
         : error || !snapshot ? <div className="py-4 text-xs text-muted">目前無法讀取市場異常資料。</div>
-          : !fresh ? <div className="rounded border border-warning/40 bg-warning/10 px-2 py-2 text-xs text-warning">異常雷達資料 {marketDailyStatus !== 'current' ? marketDailyStatus : snapshot.data_quality.daily_status}，不以過期行情判定今日異常。</div>
+          : !fresh ? <div className="rounded border border-warning/40 bg-warning/10 px-2 py-2 text-xs text-warning">異常雷達資料狀態：{statusLabel(marketDailyStatus !== 'current' ? marketDailyStatus : snapshot.data_quality.daily_status)}，不以過期行情判定今日異常。</div>
             : <>
               {snapshot.data_quality.overall_status !== 'complete' && (
                 <div className="mb-1 rounded border border-warning/40 bg-warning/10 px-2 py-2 text-xs text-warning">診斷資料不完整，部分異常規則無法判定。</div>
@@ -49,7 +50,7 @@ export function MarketAnomalyCard({ snapshot, loading, error, alerts, alertsLoad
               ) : <div className="space-y-1">{rows.map(item => (
                 <Link key={item.symbol} to={`/stocks/${encodeURIComponent(item.symbol)}`} className="flex w-full items-center justify-between gap-2 rounded-md bg-elevated/40 px-2 py-1.5 text-left hover:bg-elevated/80">
                   <span className="min-w-0"><span className="text-xs font-medium text-foreground">{item.name}</span><span className="ml-1 font-mono text-xs text-muted">{item.symbol}</span><span className="ml-1 block truncate text-xs text-secondary">{item.signals.map(signal => signalLabel[signal.type] ?? signal.type).join('、')}</span></span>
-                  <span className={`shrink-0 font-mono text-xs ${pctClass(item.change_pct)}`}>{fmtStockPct(item.change_pct)}</span>
+                  <span className={`shrink-0 font-mono text-xs ${priceColorClass(item.change_pct)}`}>{fmtPct(item.change_pct)}</span>
                 </Link>
               ))}</div>}
             </>}

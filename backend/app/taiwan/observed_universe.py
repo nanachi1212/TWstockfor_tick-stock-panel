@@ -50,7 +50,6 @@ buckets (``taiwan:twse`` / ``taiwan:tpex``):
 """
 from __future__ import annotations
 
-# ruff: noqa: RUF001 -- Official Chinese provider status must remain exact.
 import hashlib
 import json
 import logging
@@ -213,14 +212,18 @@ class ObservedUniverseStore:
         return self.read_range(exchange)
 
     def read_range(self, exchange: str | None = None,
-                   start: date | None = None, end: date | None = None) -> pl.DataFrame:
-        """Read a bounded session range without scanning unrelated history."""
+                   start: date | None = None, end: date | None = None,
+                   columns: list[str] | None = None) -> pl.DataFrame:
+        """Read a bounded session range without scanning unrelated history.
+
+        ``columns`` limits what is decoded from each partition.
+        """
         pattern = f"exchange={exchange}" if exchange else "exchange=*"
         files = sorted(self._data_dir.glob(f"{pattern}/date=*/part.parquet"))
         files = [f for f in files
                  if (start is None or date.fromisoformat(f.parent.name[5:]) >= start)
                  and (end is None or date.fromisoformat(f.parent.name[5:]) <= end)]
-        frames = [pl.read_parquet(f) for f in files]
+        frames = [pl.read_parquet(f, columns=columns) for f in files]
         frames = [f for f in frames if f.height]
         return pl.concat(frames, how="diagonal_relaxed") if frames else pl.DataFrame(schema=_CENSUS_SCHEMA)
 
@@ -621,7 +624,7 @@ class ObservedUniverseCensus:
 
 def first_observed_dates(store: ObservedUniverseStore, exchange: str) -> dict[str, date]:
     """Earliest observed session per code — the input to A2b classification."""
-    frame = store.read(exchange)
+    frame = store.read_range(exchange, columns=["raw_code", "date"])
     if frame.is_empty():
         return {}
     grouped = frame.group_by("raw_code").agg(pl.col("date").min().alias("first_observed"))

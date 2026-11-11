@@ -380,3 +380,44 @@ def test_selection_review_api_endpoints(monkeypatch, review_service: TaiwanSelec
     res_del = client.delete(f"/api/taiwan/selection-review/snapshots/{snapshot_id}")
     assert res_del.status_code == 200
     assert res_del.json()["ok"] is True
+
+
+def test_matured_flag_tolerates_a_damaged_stored_date(tmp_path):
+    from types import SimpleNamespace
+
+    svc = TaiwanSelectionReviewService(path=tmp_path / "snap.json")
+    damaged = SimpleNamespace(source_data_date=None, as_of_date="not-a-date")
+    assert svc._is_forward_horizon_matured(damaged, 1) is False
+
+
+def test_list_and_stats_parse_the_snapshot_file_once_per_request(
+        review_service: TaiwanSelectionReviewService, monkeypatch):
+    def save(strategy_id: str):
+        return review_service.save_snapshot(SaveSelectionSnapshotRequest(
+            strategy_id=strategy_id, strategy_name=strategy_id, as_of_date="2026-08-03",
+            items=[SelectionSnapshotItem(symbol="2330.TWSE", name="台積電", rank=1, price=1000.0,
+                                         match_reasons=["月營收年增 > 20%"])]))
+
+    saved = [save("strat_a"), save("strat_a"), save("strat_b")]
+    expected = {s.snapshot_id: review_service.get_snapshot_review(s.snapshot_id) for s in saved}
+    parses, scans = [], []
+    read, dates = review_service._read_snapshots_raw, review_service.daily_store.available_dates
+    monkeypatch.setattr(review_service, "_read_snapshots_raw", lambda: parses.append(1) or read())
+    monkeypatch.setattr(review_service.daily_store, "available_dates", lambda: scans.append(1) or dates())
+
+    listed = review_service.list_snapshots()
+    # Three snapshots of one source date: one file parse and one session scan, not one per snapshot.
+    assert (len(parses), len(scans)) == (1, 1)
+    assert {item.snapshot_id: item.h5d_avg_return_pct for item in listed} == {
+        snapshot_id: review.h5d_avg_return_pct for snapshot_id, review in expected.items()}
+    assert {item.h5d_avg_return_pct for item in listed} == {5.0}
+
+    parses.clear()
+    assert review_service.get_strategy_reviews()[0].evaluated_picks_5d == 2
+    assert review_service.get_condition_reviews()[0].sample_count_5d == 3
+    assert len(parses) == 2  # one per request
+
+    scans.clear()
+    save("strat_c")
+    assert len(review_service.list_snapshots()) == 4  # a later save is visible to the next request
+    assert len(scans) == 1  # and nothing was kept from the request before

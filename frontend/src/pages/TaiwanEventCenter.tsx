@@ -19,6 +19,7 @@ import { api, type MarketEventSeverity } from '@/lib/api'
 import { QK } from '@/lib/queryKeys'
 import { toast } from '@/components/Toast'
 import { cn } from '@/lib/cn'
+import { fmtTaipeiDateTime } from '@/lib/format'
 import { storage } from '@/lib/storage'
 import { buildPortfolioPositions, isPortfolioTransaction, type PortfolioTransaction } from '@/lib/portfolio'
 import { MopsConferenceAvailability, MopsEventEvidence } from '@/components/taiwan/MopsEventEvidence'
@@ -459,7 +460,7 @@ export function TaiwanEventCenter() {
                         </a>
                       )}
                     </div>
-                    <span>檢索時間：{new Date(ev.retrieved_at).toLocaleTimeString('zh-TW')}</span>
+                    <span>檢索時間：{fmtTaipeiDateTime(ev.retrieved_at, '—', true)}</span>
                   </div>
                 </div>
               )
@@ -488,6 +489,8 @@ export function TaiwanEventCenter() {
                 <Loader2 className="mx-auto h-4 w-4 animate-spin text-accent mb-1" />
                 正在分析候選股票…
               </div>
+            ) : candidatesQuery.isError ? (
+              <div role="alert" className="py-4 text-center text-xs text-warning">事件候選標的載入失敗，請稍後再試。</div>
             ) : (candidatesQuery.data?.candidates ?? []).length === 0 ? (
               <div className="py-4 text-center text-xs text-muted">尚無事件候選標的</div>
             ) : (

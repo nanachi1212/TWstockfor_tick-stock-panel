@@ -15,22 +15,23 @@ Covers:
 - exactly ONE generate_ai_text call regardless of symbol count
 - AI is never invoked by the deterministic comparison path
 """
+import json
 from datetime import date
 from unittest.mock import AsyncMock, patch
-import json
+
 import pytest
 
+from app.taiwan.abnormal_diagnostics import (
+    CompactIndustryContext,
+    CompactMarketContext,
+    TaiwanAbnormalDiagnosticItem,
+)
+from app.taiwan.comparison import ComparisonInstrumentResult
 from app.taiwan.comparison_ai_research import (
     TaiwanComparisonAIResearchService,
     build_comparison_evidence_registry,
 )
-from app.taiwan.comparison import ComparisonInstrumentResult
-from app.taiwan.abnormal_diagnostics import (
-    TaiwanAbnormalDiagnosticItem,
-    CompactIndustryContext,
-    CompactMarketContext,
-)
-from tests.test_taiwan_stock_comparison import build_context, _make_stub_service
+from tests.test_taiwan_stock_comparison import _make_stub_service, build_context
 
 
 @pytest.mark.asyncio

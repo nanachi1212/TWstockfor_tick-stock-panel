@@ -1,12 +1,13 @@
 import { Link } from 'react-router-dom'
 import { toneClass } from '@/components/ChipRankingTab'
-import { CoverageNotice, pct, previousIncomplete, yi } from '@/components/MarketHeatmap'
+import { CoverageNotice, pct, previousIncomplete } from '@/components/MarketHeatmap'
+import { fmtBigNum } from '@/lib/format'
 import type { GroupRankingRow, GroupRankingSnapshot } from '@/lib/marketResearch'
 import { resolveWatchlistGroupColor } from '@/lib/watchlist-group-colors'
 
 const MOBILE_HIDDEN = 'hidden md:table-cell'
 const HEADERS = [['名次', ''], ['變動', ''], ['族群', ''], ['量能加權漲跌', ''], ['金額加權', MOBILE_HIDDEN], ['簡單平均', MOBILE_HIDDEN], ['中位數', MOBILE_HIDDEN],
-  ['上漲／下跌／平盤', MOBILE_HIDDEN], ['上漲比例', ''], ['成交金額（億）', ''], ['成分', MOBILE_HIDDEN]]
+  ['上漲／下跌／平盤', MOBILE_HIDDEN], ['上漲比例', ''], ['成交金額', ''], ['成分', MOBILE_HIDDEN]]
 const share = (v: number) => `${(v * 100).toFixed(1)}%`
 
 function RankChange({ change }: { change: number | null }) {
@@ -32,20 +33,20 @@ function GroupRows({ group }: { group: GroupRankingRow }) {
       <Change value={group.median_change} className={MOBILE_HIDDEN} />
       <td className={`p-3 text-right tabular-nums ${MOBILE_HIDDEN}`}><span className="text-bull">{group.advance}</span>／<span className="text-bear">{group.decline}</span>／{group.flat}</td>
       <td className="p-3 text-right tabular-nums">{group.breadth == null ? '—' : share(group.breadth)}</td>
-      <td className="p-3 text-right tabular-nums">{yi(group.amount)}</td>
+      <td className="p-3 text-right tabular-nums">{fmtBigNum(group.amount)}</td>
       <td className={`p-3 text-right tabular-nums ${MOBILE_HIDDEN}`}>{group.quoted}/{group.members}{group.excluded > 0 && <span className="ml-1 text-xs text-muted">排除 {group.excluded}</span>}</td>
     </tr>
     {group.items.length > 0 && <tr><td colSpan={HEADERS.length} className="px-3 pb-3">
       <details>
         <summary className="cursor-pointer text-xs text-muted">成分股明細（{group.items.length} 檔）</summary>
         <table className="mt-2 w-full text-xs">
-          <thead className="text-muted"><tr>{['股票', '收盤', '漲跌', '成交金額（億）', '占族群', '權重'].map(t => <th key={t} className="px-2 py-1 text-right font-normal first:text-left">{t}</th>)}</tr></thead>
+          <thead className="text-muted"><tr>{['股票', '收盤', '漲跌', '成交金額', '占族群', '權重'].map(t => <th key={t} className="px-2 py-1 text-right font-normal first:text-left">{t}</th>)}</tr></thead>
           <tbody>{group.items.map(item => <tr key={item.symbol} className="border-t border-border/60">
             <td className="px-2 py-1"><Link className="text-accent hover:underline" to={`/stocks/${encodeURIComponent(item.symbol)}`}>{item.symbol.split('.')[0]} {item.name}</Link>
               {item.excluded && <span className="ml-2 rounded bg-elevated px-1.5 py-0.5 text-xs text-muted">低量排除</span>}</td>
             <td className="px-2 py-1 text-right tabular-nums">{item.close}</td>
             <td className={`px-2 py-1 text-right tabular-nums ${toneClass(item.change_pct)}`}>{pct(item.change_pct, 2)}</td>
-            <td className="px-2 py-1 text-right tabular-nums">{yi(item.amount)}</td>
+            <td className="px-2 py-1 text-right tabular-nums">{fmtBigNum(item.amount)}</td>
             <td className="px-2 py-1 text-right tabular-nums">{share(item.share)}</td>
             <td className="px-2 py-1 text-right tabular-nums">{share(item.weight)}</td>
           </tr>)}</tbody>

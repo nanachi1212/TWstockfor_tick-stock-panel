@@ -14,6 +14,7 @@ from datetime import date, datetime
 from enum import Enum
 from typing import TYPE_CHECKING, Any, Literal
 
+from app.taiwan.realtime.calendar import taipei_now
 from app.taiwan.symbol import parse_symbol
 
 if TYPE_CHECKING:
@@ -89,8 +90,8 @@ class TaiwanMonitorRule:
     reference_volume: int | None = None  # in SHARES
     severity: TaiwanAlertSeverity | str = TaiwanAlertSeverity.WARNING
     notify_channels: list[str] = field(default_factory=list)
-    created_at: str = field(default_factory=lambda: datetime.now().isoformat())
-    updated_at: str = field(default_factory=lambda: datetime.now().isoformat())
+    created_at: str = field(default_factory=lambda: taipei_now().isoformat())
+    updated_at: str = field(default_factory=lambda: taipei_now().isoformat())
     source: Literal["manual", "trade_plan"] = "manual"
     plan_identity: str | None = None
     plan_as_of: str | None = None
@@ -151,8 +152,8 @@ class TaiwanMonitorRule:
             reference_volume=int(data["reference_volume"]) if data.get("reference_volume") is not None else None,
             severity=data.get("severity", TaiwanAlertSeverity.WARNING),
             notify_channels=[str(c) for c in data.get("notify_channels", []) if c in ("line", "telegram")],
-            created_at=str(data.get("created_at", datetime.now().isoformat())),
-            updated_at=str(data.get("updated_at", datetime.now().isoformat())),
+            created_at=str(data.get("created_at", taipei_now().isoformat())),
+            updated_at=str(data.get("updated_at", taipei_now().isoformat())),
             source=data.get("source", "manual"),
             plan_identity=data.get("plan_identity"),
             plan_as_of=data.get("plan_as_of"),

@@ -25,7 +25,6 @@ from app.taiwan.symbol import (
     to_provider_symbol,
 )
 
-
 # ── Test fixtures ──────────────────────────────────────────────
 
 # These names are ONLY in tests — they are NOT in production code.

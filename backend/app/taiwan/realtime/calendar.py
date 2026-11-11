@@ -14,13 +14,15 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
-from datetime import date, datetime, timedelta, timezone
+from datetime import date, datetime, timedelta
 from datetime import time as dt_time
 from typing import Literal
+from zoneinfo import ZoneInfo
 
 from app.taiwan.realtime.models import MarketStatus
 
-TAIPEI_TZ = timezone(timedelta(hours=8))
+# The backend's one Asia/Taipei definition; taiwan_values.TAIPEI is this same object.
+TAIPEI_TZ = ZoneInfo("Asia/Taipei")
 
 PRE_OPEN_START = dt_time(8, 30)
 REGULAR_OPEN_START = dt_time(9, 0)

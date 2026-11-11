@@ -4,12 +4,13 @@ Official MOPS open data currently exposes a report date (``出表日期``), not 
 verifiable publication time.  Such live records are retained with provenance but
 ``available_at=None`` and therefore cannot enter an as-of backtest.
 """
-# ruff: noqa: RUF001 -- official field names contain full-width punctuation.
+
 from __future__ import annotations
 
 import hashlib
 import json
 import re
+import time
 from collections.abc import Iterable
 from dataclasses import asdict, dataclass, fields, replace
 from datetime import date, datetime, timedelta
@@ -18,6 +19,7 @@ from typing import Any
 
 import httpx
 
+from app.taiwan.providers.http import taiwan_client
 from app.taiwan.providers.taiwan_values import TAIPEI, parse_number, parse_taiwan_date
 
 STATEMENT_CATEGORIES = ("ci", "basi", "bd", "fh", "ins", "mim")
@@ -129,6 +131,11 @@ def latest_as_of(
     return max(eligible, key=lambda row: (row.period_end, row.available_at, row.revision))
 
 
+# path -> ((mtime_ns, size), records). The ledger gains a whole market of valuation
+# rows per refresh and every breadth request reads it, so parse only when it changed.
+_LOAD_MEMO: dict[Path, tuple[tuple[int, int], list[FundamentalRecord]]] = {}
+
+
 class TaiwanFundamentalStore:
     """Small append-only JSONL store; revisions are never overwritten."""
 
@@ -138,7 +145,13 @@ class TaiwanFundamentalStore:
     def load(self) -> list[FundamentalRecord]:
         if not self.path.exists():
             return []
-        return [FundamentalRecord.from_dict(json.loads(line)) for line in self.path.read_text(encoding="utf-8").splitlines() if line]
+        stat = self.path.stat()
+        signature = (stat.st_mtime_ns, stat.st_size)
+        memo = _LOAD_MEMO.get(self.path)
+        if memo is None or memo[0] != signature:
+            memo = (signature, [FundamentalRecord.from_dict(json.loads(line)) for line in self.path.read_text(encoding="utf-8").splitlines() if line])
+            _LOAD_MEMO[self.path] = memo
+        return list(memo[1])
 
     def save(self, records: Iterable[FundamentalRecord]) -> int:
         merged = {self._identity(row): row for row in self.load()}
@@ -149,10 +162,9 @@ class TaiwanFundamentalStore:
         temporary = self.path.with_suffix(".tmp")
         temporary.write_text(payload + ("\n" if payload else ""), encoding="utf-8")
         temporary.replace(self.path)
+        # Two saves inside one timestamp tick can leave size and mtime unchanged.
+        _LOAD_MEMO.pop(self.path, None)
         return len(merged)
-
-    def get_as_of(self, symbol: str, query_at: datetime, *, dataset: str | None = None) -> FundamentalRecord | None:
-        return latest_as_of(self.load(), symbol, query_at, dataset=dataset)
 
     @staticmethod
     def _identity(row: FundamentalRecord) -> tuple[str, str, str, str, str]:
@@ -165,8 +177,13 @@ class TaiwanOfficialFundamentals:
     TWSE = "https://openapi.twse.com.tw/v1"
     TPEX = "https://www.tpex.org.tw/openapi/v1"
 
+    # Whole-market tables change at most daily; a short cache avoids re-downloading the same
+    # table for each dataset section of one request.
+    _ROWS_TTL_SECONDS = 300.0
+
     def __init__(self, client: httpx.Client | None = None) -> None:
-        self.client = client or httpx.Client(timeout=30.0)
+        self.client = client or taiwan_client(timeout=30.0)
+        self._rows_cache: dict[str, tuple[float, list[dict[str, Any]], datetime]] = {}
 
     def monthly_revenue(self, symbol: str, exchange: str, *, security_type: str = "stock") -> FundamentalRecord:
         if security_type == "etf":
@@ -236,7 +253,8 @@ class TaiwanOfficialFundamentals:
         if exchange not in {"TWSE", "TPEX"}:
             raise ValueError("unsupported valuation exchange")
         path = "exchangeReport/BWIBBU_ALL" if exchange == "TWSE" else "tpex_mainboard_peratio_analysis"
-        url, rows, retrieved = self._rows(exchange, path)
+        # An explicit refresh must observe the source now, never the short per-request cache.
+        url, rows, retrieved = self._rows(exchange, path, fresh=True)
         records = []
         for row in rows:
             code = str(row.get("Code") or row.get("SecuritiesCompanyCode") or "").strip()
@@ -354,14 +372,18 @@ class TaiwanOfficialFundamentals:
                 return url, row, retrieved
         raise LookupError(f"official {path} row not found for {symbol}")
 
-    def _rows(self, exchange: str, path: str) -> tuple[str, list[dict[str, Any]], datetime]:
+    def _rows(self, exchange: str, path: str, *, fresh: bool = False) -> tuple[str, list[dict[str, Any]], datetime]:
         url = f"{self.TWSE if exchange == 'TWSE' else self.TPEX}/{path}"
+        cached = None if fresh else self._rows_cache.get(url)
+        if cached and time.monotonic() - cached[0] < self._ROWS_TTL_SECONDS:
+            return url, cached[1], cached[2]
         response = self.client.get(url)
         response.raise_for_status()
         retrieved = datetime.now(TAIPEI)
         rows = response.json()
         if not isinstance(rows, list):
             raise ValueError(f"official {path} schema changed")
+        self._rows_cache[url] = (time.monotonic(), rows, retrieved)
         return url, rows, retrieved
 
 

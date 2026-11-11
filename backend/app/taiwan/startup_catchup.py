@@ -7,7 +7,7 @@
 - 不在盤中補跑 (官方全市場日線要收盤後才完整)。
 - 一個行程只補跑一次，失敗只記 log，不影響啟動。
 """
-# ruff: noqa: RUF002 -- user-facing Traditional Chinese text is intentional.
+
 from __future__ import annotations
 
 import contextlib
@@ -66,7 +66,10 @@ def _catchup_official_evidence(app_state: Any) -> dict[str, Any]:
     from app.config import settings
     from app.jobs import daily_pipeline
     from app.taiwan.events_service import get_event_service
-    from app.taiwan.monthly_revenue_evidence import MonthlyRevenueEvidenceStore, refresh_monthly_revenue_evidence
+    from app.taiwan.monthly_revenue_evidence import (
+        MonthlyRevenueEvidenceStore,
+        refresh_monthly_revenue_evidence,
+    )
 
     store = MonthlyRevenueEvidenceStore(settings.data_dir / "taiwan" / "monthly_revenue_evidence")
     revenue = refresh_monthly_revenue_evidence(store, refetch_after=timedelta(hours=1))

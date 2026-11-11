@@ -23,6 +23,7 @@ from typing import Any, ClassVar
 
 import polars as pl
 
+from app.file_lock import file_lock
 from app.taiwan.providers.taiwan_values import TAIPEI
 
 SOURCE_EXCHANGE = {"TWT49U": "TWSE", "TWTAUU": "TWSE", "TWTB8U": "TWSE",
@@ -425,31 +426,27 @@ class CorporateActionStore:
     def save(self, events: Iterable[CorporateActionEvent]) -> int:
         incoming = tuple(events)
         self.path.parent.mkdir(parents=True, exist_ok=True)
-        lock = self.path.with_suffix(".lock")
-        try:
-            descriptor = os.open(lock, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
-        except FileExistsError as exc:
-            raise RuntimeError("corporate-action store is locked; no data changed") from exc
-        os.close(descriptor)
-        temporary = None
-        try:
-            merged = {e.content_hash: e for e in self._read_observations()}
-            for event in incoming:
-                merged.setdefault(event.content_hash, event)
-            records = []
-            for event in sorted(merged.values(), key=lambda e: (e.symbol, e.effective_date, e.content_hash)):
-                record = event.to_dict()
-                for key in ("effective_at", "retrieved_at", "available_at"):
-                    value = record[key]
-                    record[key] = value.isoformat() if value else None
-                records.append(record)
-            frame = pl.DataFrame(records, schema=_SCHEMA)
-            handle, temporary = tempfile.mkstemp(dir=self.path.parent, suffix=".tmp")
-            os.close(handle)
-            frame.write_parquet(temporary)
-            os.replace(temporary, self.path)
-            return frame.height
-        finally:
-            if temporary is not None:
-                Path(temporary).unlink(missing_ok=True)
-            lock.unlink(missing_ok=True)
+        # The shared OS-level lock is released when the process dies, so a killed writer can
+        # never leave the store permanently locked (a lock *file* would).
+        with file_lock(self.path.with_suffix(".lock")):
+            temporary = None
+            try:
+                merged = {e.content_hash: e for e in self._read_observations()}
+                for event in incoming:
+                    merged.setdefault(event.content_hash, event)
+                records = []
+                for event in sorted(merged.values(), key=lambda e: (e.symbol, e.effective_date, e.content_hash)):
+                    record = event.to_dict()
+                    for key in ("effective_at", "retrieved_at", "available_at"):
+                        value = record[key]
+                        record[key] = value.isoformat() if value else None
+                    records.append(record)
+                frame = pl.DataFrame(records, schema=_SCHEMA)
+                handle, temporary = tempfile.mkstemp(dir=self.path.parent, suffix=".tmp")
+                os.close(handle)
+                frame.write_parquet(temporary)
+                os.replace(temporary, self.path)
+                return frame.height
+            finally:
+                if temporary is not None:
+                    Path(temporary).unlink(missing_ok=True)

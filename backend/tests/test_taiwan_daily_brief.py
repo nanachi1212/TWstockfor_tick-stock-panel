@@ -8,7 +8,6 @@ Verifies:
 - History persistence in user_data/taiwan_daily_briefs.json (private, non-bundled, no secrets).
 - API routes integration with loopback client IP.
 """
-# ruff: noqa: RUF001
 from __future__ import annotations
 
 import json
@@ -634,7 +633,7 @@ async def test_daily_brief_ai_uses_normalized_percentage_points_without_mutating
     })
     with patch("app.taiwan.daily_brief_service.generate_ai_text", new_callable=AsyncMock, return_value=response) as generate:
         await mock_daily_brief_service.generate_ai_summary(brief, config_snapshot=Mock())
-    messages = generate.await_args.kwargs["messages"]
+    messages = generate.await_args.args[0]
     assert "百分點" in messages[0]["content"]
     payload = json.loads(messages[1]["content"].split("```json\n", 1)[1].rsplit("\n```", 1)[0])
     assert payload["schema_version"] == 2

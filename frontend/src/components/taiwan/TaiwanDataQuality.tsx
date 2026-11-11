@@ -13,6 +13,7 @@
  */
 import { Activity } from 'lucide-react'
 import { cn } from '@/lib/cn'
+import { taipeiTime } from '@/lib/format'
 
 /** Watchlist 使用 TaiwanSourceMeta，StockDetail 使用較精簡的 TaiwanSectionMeta。
  * TaiwanSectionMeta 的 freshness 欄位可選，舊回應缺少時仍由下方 fallback 處理。 */
@@ -50,19 +51,10 @@ export function formatQuoteSource(source: string | null | undefined): string {
   return SOURCE_DISPLAY_NAMES[source] ?? '其他資料來源'
 }
 
-/** 格式化行情時間 (HH:mm:ss)；解析失敗時原樣回傳，不偽造時間。 */
-export function formatQuoteTime(timeStr: string | null | undefined, isFallback = false): string {
-  if (!timeStr) return isFallback ? '上一交易日 13:30' : '時間不可用'
-  try {
-    const d = new Date(timeStr)
-    if (isNaN(d.getTime())) return timeStr
-    const hh = String(d.getHours()).padStart(2, '0')
-    const mm = String(d.getMinutes()).padStart(2, '0')
-    const ss = String(d.getSeconds()).padStart(2, '0')
-    return `${hh}:${mm}:${ss}`
-  } catch {
-    return timeStr
-  }
+/** 格式化行情時間 (台北時間 HH:mm:ss)；缺值回「時間不可用」，解析失敗時原樣回傳，不偽造時間。 */
+export function formatQuoteTime(timeStr: string | null | undefined): string {
+  if (!timeStr) return '時間不可用'
+  return taipeiTime(timeStr) ?? timeStr
 }
 
 export interface FreshnessLabel {
@@ -121,7 +113,7 @@ export function DataQualityBadge({
     `來源: ${formatQuoteSource(meta.source)}`,
     meta.freshness_class ? `等級: ${meta.freshness_class}` : null,
     quoteTime !== undefined
-      ? `報價時間: ${formatQuoteTime(quoteTime, meta.status === 'daily_fallback')}`
+      ? `報價時間: ${formatQuoteTime(quoteTime)}`
       : `抓取時間: ${meta.fetched_at || '--'}`,
     meta.fallback_reason ? `備援原因: ${meta.fallback_reason}` : null,
   ].filter(Boolean).join('\n')

@@ -1,6 +1,7 @@
 import { AlertTriangle, RefreshCw } from 'lucide-react'
 import type { TaiwanCurrentDataResponse, TaiwanDataSection, TaiwanUsageScope } from '@/lib/api'
 import { cn } from '@/lib/cn'
+import { fmtBigNum } from '@/lib/format'
 
 type Props = {
   response?: TaiwanCurrentDataResponse
@@ -62,11 +63,7 @@ function number(value: unknown, digits = 2) {
 
 function money(value: unknown) {
   const parsed = numberValue(value)
-  if (parsed == null) return '--'
-  const absolute = Math.abs(parsed)
-  if (absolute >= 100_000_000) return `${number(parsed / 100_000_000)} 億元`
-  if (absolute >= 10_000) return `${number(parsed / 10_000)} 萬元`
-  return `${number(parsed, 0)} 元`
+  return parsed == null ? '--' : `${fmtBigNum(parsed, 2)}元`
 }
 
 function percent(value: unknown) {

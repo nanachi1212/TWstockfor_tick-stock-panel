@@ -1,6 +1,5 @@
 """Data health transport; aggregation and safe actions belong to domain services."""
 
-# ruff: noqa: RUF001
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 

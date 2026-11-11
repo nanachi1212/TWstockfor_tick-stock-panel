@@ -37,7 +37,7 @@ export function usePreferences() {
 /** 行情狀態 — SSE quotes_updated 自動重新整理。
 
  * poll=true 時啟用 60s 狀態輪詢備援, 用於在交易時段邊界
- * (11:30午休 / 13:00開盤 / 15:00收盤) 同步 quote status。
+ * (09:00 開盤 / 13:30 收盤) 同步 quote status。
  * SSE 會在行情更新時即時重新整理, 輪詢負責沒有 SSE 的休盤邊界。
  * 只應在全局唯一掛載處 (Layout) 傳 poll=true, 避免多頁面重複輪詢;
  * 其他呼叫方共享同一 queryKey 快取, 無需自行輪詢。

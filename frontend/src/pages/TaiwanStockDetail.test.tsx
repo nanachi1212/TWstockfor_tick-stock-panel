@@ -22,6 +22,7 @@ vi.mock('@/lib/api', () => ({
       sources: { ptt: { status: 'available' }, dcard: { status: 'unavailable' } }, rankings: [],
     }),
     watchlistList: vi.fn().mockResolvedValue({ symbols: [] }),
+    quoteStatus: vi.fn().mockResolvedValue({ is_trading_hours: true }),
     watchlistAdd: vi.fn(),
     watchlistRemove: vi.fn(),
     watchlistGroups: vi.fn().mockResolvedValue({ groups: [] }),

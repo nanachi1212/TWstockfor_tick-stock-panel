@@ -22,28 +22,28 @@ def test_merge_live_enriched_preserves_full_index_partition(tmp_path):
 
     # 模擬盤後管道: flush 寫入全量 3 只指數
     full_df = pl.DataFrame([
-        _enriched_row("000001.SH", 3000.0, dt),
-        _enriched_row("399001.SZ", 10000.0, dt),
-        _enriched_row("399006.SZ", 2000.0, dt),
+        _enriched_row("IX0001.TWSE", 3000.0, dt),
+        _enriched_row("IX0003.TWSE", 10000.0, dt),
+        _enriched_row("IX0004.TWSE", 2000.0, dt),
     ])
     repo.flush_live_enriched_asset("index", full_df)
 
     # 模擬即時重新整理: 只 merge 核心指數 1 只 (價格更新)
     partial_df = pl.DataFrame([
-        _enriched_row("000001.SH", 3001.0, dt),
+        _enriched_row("IX0001.TWSE", 3001.0, dt),
     ])
     repo.merge_live_enriched_asset("index", partial_df)
 
-    # 驗證: 分區檔案仍有 3 只指數, 000001.SH 價格已更新, 其他指數未丟失
+    # 驗證: 分區檔案仍有 3 只指數, IX0001.TWSE 價格已更新, 其他指數未丟失
     out = tmp_path / "kline_index_enriched" / f"date={dt.isoformat()}" / "part.parquet"
     result = pl.read_parquet(out)
     assert len(result) == 3, f"merge 後分區應有 3 只指數, 實際 {len(result)}"
 
-    sh = result.filter(pl.col("symbol") == "000001.SH")
-    assert sh["close"][0] == 3001.0, "merge 應更新 000001.SH 價格"
+    sh = result.filter(pl.col("symbol") == "IX0001.TWSE")
+    assert sh["close"][0] == 3001.0, "merge 應更新 IX0001.TWSE 價格"
 
-    sz = result.filter(pl.col("symbol") == "399001.SZ")
-    assert sz["close"][0] == 10000.0, "399001.SZ 不應被 merge 覆蓋"
+    sz = result.filter(pl.col("symbol") == "IX0003.TWSE")
+    assert sz["close"][0] == 10000.0, "IX0003.TWSE 不應被 merge 覆蓋"
 
-    cyb = result.filter(pl.col("symbol") == "399006.SZ")
-    assert cyb["close"][0] == 2000.0, "399006.SZ 不應被 merge 覆蓋"
+    cyb = result.filter(pl.col("symbol") == "IX0004.TWSE")
+    assert cyb["close"][0] == 2000.0, "IX0004.TWSE 不應被 merge 覆蓋"

@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { api } from '@/lib/api'
 import { QK } from '@/lib/queryKeys'
+import { fmtLots } from '@/lib/format'
 import type { ChipRankingItem, ChipRankingTracking, ChipTrackingDay, ChipTrackingHorizon } from '@/lib/marketResearch'
 
 const COMPONENT_LABELS: Record<string, string> = {
@@ -13,7 +14,7 @@ const COMPONENT_LABELS: Record<string, string> = {
   margin_drop: '融資減少',
 }
 
-const lots = (shares: number | null | undefined) => shares == null ? '—' : Math.round(shares / 1000).toLocaleString('zh-TW')
+const lots = (shares: number | null | undefined) => fmtLots(shares, false, false)
 export const signed = (v: number | null | undefined, digits = 2, suffix = '') => v == null ? '—' : `${v > 0 ? '+' : ''}${v.toFixed(digits)}${suffix}`
 export const toneClass = (v: number | null | undefined) => v == null || v === 0 ? '' : v > 0 ? 'text-bull' : 'text-bear'
 

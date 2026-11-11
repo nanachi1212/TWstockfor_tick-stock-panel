@@ -1,7 +1,8 @@
 import { useMemo, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
-import ReactECharts from 'echarts-for-react'
+import ReactECharts from 'echarts-for-react/lib/core'
+import { echarts } from '@/lib/echarts'
 import { BigHolderRankingTab } from '@/components/BigHolderRankingTab'
 import { ChipRankingTab } from '@/components/ChipRankingTab'
 import { GroupRankingTab } from '@/components/GroupRankingTab'
@@ -76,7 +77,7 @@ function Rotation({ rows }: { rows: IndustryRotationRow[] }) {
     <p className="text-xs text-muted leading-relaxed">RS＝產業等權報酬－全市場股票等權報酬，採原始收盤價，未排除除權息影響。成交值占比採每日產業成交值／全市場股票成交值，20D 為每日占比的算術平均；變化＝當日占比－20D 平均（百分點）。ETF 不納入產業輪動。</p>
     <div className="rounded-lg border border-border bg-surface p-3">
       <div className="grid grid-cols-2 gap-2 text-xs text-secondary"><span>左上：落後、資金增加</span><span className="text-right">右上：領先、資金增加</span></div>
-      {points.length ? <ReactECharts option={option} style={{ height: 390 }} /> : <p className="py-12 text-center text-muted">完整資料不足，尚無可繪製的產業。</p>}
+      {points.length ? <ReactECharts echarts={echarts} option={option} style={{ height: 390 }} /> : <p className="py-12 text-center text-muted">完整資料不足，尚無可繪製的產業。</p>}
       <div className="grid grid-cols-2 gap-2 text-xs text-secondary"><span>左下：落後、資金減少</span><span className="text-right">右下：領先、資金減少</span></div>
       <p className="mt-3 text-xs text-muted">僅繪製 20D RS 與占比變化皆完整的產業（{points.length}/{rows.length}）。部分資料可於下表查看。</p>
     </div>

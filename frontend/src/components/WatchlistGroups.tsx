@@ -194,12 +194,7 @@ export function WatchlistGroupBar({
 
       {/* 清空分組確認彈窗 */}
       {confirmClear && selected !== 'all' && selected !== 'ungrouped' && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center">
-          <div
-            className="absolute inset-0 bg-black/60 backdrop-blur-sm"
-            onClick={() => setConfirmClear(false)}
-          />
-          <div className="relative w-[90vw] max-w-[380px] rounded-card border border-border bg-base shadow-2xl p-6">
+        <Modal onClose={() => setConfirmClear(false)} ariaLabel="清空分組" overlayClassName="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm" panelClassName="w-[90vw] max-w-[380px] rounded-card border border-border bg-base shadow-2xl p-6">
             <h3 className="text-sm font-medium text-foreground mb-2">清空分組</h3>
             <p className="text-xs text-secondary mb-5">
               確認清空「{tabs.find(t => t.id === selected)?.name}」分組? 分組內所有股票將轉為未分組(不從自選中刪除)。
@@ -218,8 +213,7 @@ export function WatchlistGroupBar({
                 確認清空
               </button>
             </div>
-          </div>
-        </div>
+</Modal>
       )}
 
       {managerOpen && (
@@ -300,6 +294,8 @@ function GroupManagerDialog({
     try {
       await api.updateWatchlistGroupsInNav(enabled)
       await qc.invalidateQueries({ queryKey: QK.preferences })
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '側邊欄設定儲存失敗')
     } finally {
       setNavTogglePending(false)
     }

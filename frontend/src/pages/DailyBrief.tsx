@@ -25,6 +25,8 @@ import {
 import { QK } from '@/lib/queryKeys'
 import { toast } from '@/components/Toast'
 import { cn } from '@/lib/cn'
+import { Modal } from '@/components/Modal'
+import { fmtBigNum, fmtLots, fmtPctPoint, todayTaipei, priceColorClass } from '@/lib/format'
 import { CopyButton } from '@/components/CopyButton'
 import { formatDailyBriefCopy, formatDailyBriefPrompt } from '@/lib/copy-formatters'
 import { buildPortfolioPositions, PORTFOLIO_CHANGED, readPortfolioLedger } from '@/lib/portfolio'
@@ -35,13 +37,8 @@ import { ExternalContextCard } from '@/components/ExternalContextCard'
 function formatLots(value: number | null | undefined): string {
   if (value == null || !Number.isFinite(value)) return '-'
   const lots = value / 1000
-  const text = Math.abs(lots) >= 10_000 ? `${(lots / 10_000).toFixed(1)} 萬張` : `${Math.round(lots).toLocaleString('zh-TW')} 張`
-  return lots > 0 ? `+${text}` : text
-}
-
-function formatChangePct(value: number | null | undefined, digits: number): string {
-  if (value == null) return '—'
-  return `${value >= 0 ? '+' : ''}${value.toFixed(digits)}%`
+  if (Math.abs(lots) >= 10_000) return `${lots > 0 ? '+' : ''}${(lots / 10_000).toFixed(1)} 萬張`
+  return fmtLots(value, true)
 }
 
 /** 持股只存在本機帳本；讀不到就送 null，讓報告寫「持股資料暫時無法取得」而不是 0 持股。 */
@@ -187,7 +184,7 @@ export function DailyBrief() {
       if (!strategyComplete || candidates.length === 0 || candidates.some(c => !Number.isFinite(c.close) || c.close! <= 0)) {
         throw new Error('候選資料尚未完整或缺少有效價格，無法儲存研究快照。')
       }
-      const today = briefQuery.data?.brief_date || new Date().toISOString().slice(0, 10)
+      const today = briefQuery.data?.brief_date || todayTaipei()
       return api.selectionReview.saveSnapshot({
         strategy_id: 'daily_brief_candidates',
         strategy_name: '每日摘要今日候選股',
@@ -225,8 +222,9 @@ export function DailyBrief() {
 
   const brief = activeHistoryBrief ? activeHistoryBrief.structured_brief : briefQuery.data
   const aiSourceKey = JSON.stringify([selectedHistoryId, holdingsKey, brief])
-  const aiSummary = activeHistoryBrief ? activeHistoryBrief.ai_summary
-    : liveAiSummary?.sourceKey === aiSourceKey ? liveAiSummary.summary : null
+  // A summary generated just now for the brief on screen wins over the one saved with a history brief.
+  const aiSummary = liveAiSummary?.sourceKey === aiSourceKey ? liveAiSummary.summary
+    : activeHistoryBrief?.ai_summary ?? null
   const strategyFailed = brief?.candidates.strategy_status === 'unavailable'
   const strategyPending = !activeHistoryBrief && (
     fullQuery.isFetching || (!strategyFailed && (fullQuery.isPending || brief?.candidates.strategy_status === 'not_requested'))
@@ -546,6 +544,8 @@ export function DailyBrief() {
 
       {briefQuery.isLoading ? (
         <div className="text-center py-20 text-sm text-muted-foreground">彙整今日客觀資料中...</div>
+      ) : !brief && briefQuery.isError ? (
+        <div role="alert" className="text-center py-20 text-sm text-warning">今日市場簡報載入失敗，請確認後端服務後重新整理。</div>
       ) : !brief ? (
         <div className="text-center py-20 border border-dashed rounded-xl p-8 bg-card">
           <Info className="h-10 w-10 text-muted-foreground/40 mx-auto mb-3" />
@@ -568,7 +568,7 @@ export function DailyBrief() {
                   <span
                     className={cn(
                       'text-xs font-semibold',
-                      brief.market.taiex_change_pct >= 0 ? 'text-rose-500' : 'text-emerald-500',
+                      priceColorClass(brief.market.taiex_change_pct),
                     )}
                   >
                     {brief.market.taiex_change_pct >= 0 ? '+' : ''}
@@ -582,8 +582,8 @@ export function DailyBrief() {
                 <div className="mt-1 text-xs font-medium text-warning">{taiexFreshnessNote(brief.market)}</div>
               )}
               <div className="text-xs text-muted-foreground mt-1">
-                成交量：{brief.market.total_turnover > 0
-                  ? `${(brief.market.total_turnover / 1e8).toFixed(1)} 億元`
+                成交金額：{brief.market.total_turnover > 0
+                  ? `${fmtBigNum(brief.market.total_turnover)}元`
                   : '—'}
               </div>
             </div>
@@ -591,11 +591,11 @@ export function DailyBrief() {
             <div className="bg-card border border-border/60 rounded-xl p-4">
               <span className="text-xs text-muted-foreground">全市場漲跌家數</span>
               <div className="flex items-center gap-3 mt-1.5 text-xs font-medium">
-                <span className="text-rose-500 flex items-center gap-1">
+                <span className="text-bull flex items-center gap-1">
                   <TrendingUp className="h-3.5 w-3.5" /> 上漲 {brief.market.advance_count} (漲停{' '}
                   {brief.market.upper_limit_count})
                 </span>
-                <span className="text-emerald-500 flex items-center gap-1">
+                <span className="text-bear flex items-center gap-1">
                   <TrendingDown className="h-3.5 w-3.5" /> 下跌 {brief.market.decline_count} (跌停{' '}
                   {brief.market.lower_limit_count})
                 </span>
@@ -613,7 +613,7 @@ export function DailyBrief() {
                   <span
                     className={cn(
                       'font-medium font-mono',
-                      (brief.market.foreign_net ?? 0) >= 0 ? 'text-rose-500' : 'text-emerald-500',
+                      priceColorClass(brief.market.foreign_net),
                     )}
                   >
                     {formatLots(brief.market.foreign_net)}
@@ -624,7 +624,7 @@ export function DailyBrief() {
                   <span
                     className={cn(
                       'font-medium font-mono',
-                      (brief.market.investment_trust_net ?? 0) >= 0 ? 'text-rose-500' : 'text-emerald-500',
+                      priceColorClass(brief.market.investment_trust_net),
                     )}
                   >
                     {formatLots(brief.market.investment_trust_net)}
@@ -652,11 +652,12 @@ export function DailyBrief() {
                     className={cn(
                       'text-xs px-1.5 py-0.5 rounded font-medium',
                       s.change_pct == null ? 'bg-muted text-muted-foreground'
-                        : s.change_pct >= 0 ? 'bg-rose-500/10 text-rose-600 dark:text-rose-400'
-                          : 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400',
+                        : s.change_pct > 0 ? 'bg-bull/10 text-bull'
+                          : s.change_pct < 0 ? 'bg-bear/10 text-bear'
+                            : 'bg-muted text-muted-foreground',
                     )}
                   >
-                    {s.industry} {formatChangePct(s.change_pct, 1)}
+                    {s.industry} {fmtPctPoint(s.change_pct, 1)}
                   </span>
                 ))}
               </div>
@@ -823,7 +824,7 @@ export function DailyBrief() {
                 {allCandidates.length > 0 && (
                   <button
                     onClick={() => saveSnapshotMutation.mutate(allCandidates)}
-                    disabled={saveSnapshotMutation.isPending || !strategyComplete || allCandidates.some(c => !Number.isFinite(c.close) || c.close! <= 0)}
+                    disabled={saveSnapshotMutation.isPending || !!activeHistoryBrief || !strategyComplete || allCandidates.some(c => !Number.isFinite(c.close) || c.close! <= 0)}
                     className="inline-flex items-center gap-1.5 text-xs font-medium bg-secondary text-secondary-foreground hover:bg-secondary/80 border border-border/60 px-3 py-1.5 rounded-lg transition-colors"
                   >
                     <BookmarkPlus className="h-3.5 w-3.5" />
@@ -886,10 +887,10 @@ export function DailyBrief() {
                           <span
                             className={cn(
                               'font-medium',
-                              c.change_pct == null ? 'text-muted-foreground' : c.change_pct >= 0 ? 'text-rose-500' : 'text-emerald-500',
+                              priceColorClass(c.change_pct),
                             )}
                           >
-                            {formatChangePct(c.change_pct, 2)}
+                            {fmtPctPoint(c.change_pct, 2)}
                           </span>
                         </div>
 
@@ -1020,8 +1021,12 @@ export function DailyBrief() {
 
       {/* 歷史日報 Modal */}
       {showHistoryModal && (
-        <div className="fixed inset-0 z-50 bg-background/80 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-card border border-border rounded-xl shadow-lg max-w-md w-full p-5 space-y-4">
+        <Modal
+          onClose={() => setShowHistoryModal(false)}
+          ariaLabel="已儲存的每日摘要歷史"
+          overlayClassName="fixed inset-0 z-50 bg-background/80 backdrop-blur-sm flex items-center justify-center p-4"
+          panelClassName="bg-card border border-border rounded-xl shadow-lg max-w-md w-full p-5 space-y-4"
+        >
             <div className="flex items-center justify-between border-b border-border/60 pb-3">
               <h3 className="font-bold text-base flex items-center gap-2">
                 <History className="h-4 w-4 text-primary" />
@@ -1035,7 +1040,9 @@ export function DailyBrief() {
               </button>
             </div>
 
-            {!historyQuery.data || historyQuery.data.length === 0 ? (
+            {historyQuery.isError ? (
+                <p role="alert" className="text-xs text-warning py-6 text-center">日報歷史紀錄載入失敗，請稍後再試</p>
+              ) : !historyQuery.data || historyQuery.data.length === 0 ? (
               <p className="text-xs text-muted-foreground py-6 text-center">尚無已儲存的日報歷史紀錄</p>
             ) : (
               <div className="space-y-2 max-h-80 overflow-y-auto pr-1">
@@ -1070,8 +1077,7 @@ export function DailyBrief() {
                 ))}
               </div>
             )}
-          </div>
-        </div>
+        </Modal>
       )}
     </div>
   )

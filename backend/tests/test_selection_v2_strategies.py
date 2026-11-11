@@ -234,3 +234,15 @@ def test_new_beginner_strategies_hit_expected_rows():
     assert apply_strategy(frame, "pullback_support_v1")["symbol"].to_list() == ["1101.TWSE"]
     assert apply_strategy(frame, "foreign_trend_v1")["symbol"].to_list() == ["1101.TWSE"]
     assert apply_strategy(frame, "oversold_rebound_v1")["symbol"].to_list() == ["1102.TWSE"]
+
+
+def test_rank_strategy_puts_missing_signal_last():
+    from app.taiwan.selection_v2 import rank_strategy
+
+    frame = pl.DataFrame({
+        "symbol": ["A.TWSE", "B.TWSE", "C.TWSE"],
+        "foreign_net_5d": [None, 5.0, 9.0],
+        "momentum_20d": [1.0, 1.0, 1.0],
+        "amount": [1.0, 1.0, 1.0],
+    })
+    assert rank_strategy(frame, "foreign_trend_v1")["symbol"].to_list() == ["C.TWSE", "B.TWSE", "A.TWSE"]

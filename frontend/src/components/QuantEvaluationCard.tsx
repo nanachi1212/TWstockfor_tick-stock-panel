@@ -2,13 +2,10 @@ import { useQuery } from '@tanstack/react-query'
 import { Activity, Loader2, RefreshCw } from 'lucide-react'
 import { api } from '@/lib/api'
 import { QK } from '@/lib/queryKeys'
+import { fmtPct } from '@/lib/format'
 
 function formatNumber(value: number | null | undefined, digits = 3) {
   return typeof value === 'number' && Number.isFinite(value) ? value.toFixed(digits) : '—'
-}
-
-function formatPct(value: number | null | undefined) {
-  return typeof value === 'number' && Number.isFinite(value) ? `${(value * 100).toFixed(2)}%` : '—'
 }
 
 export function QuantEvaluationCard({ compact = false }: { compact?: boolean }) {
@@ -131,13 +128,13 @@ export function QuantEvaluationCard({ compact = false }: { compact?: boolean }) 
                 <Metric label="5D 指標 IC" value={formatNumber(query.data.evaluation.factor_ic.momentum_5d?.['5']?.ic_mean)} />
                 <Metric label="20D 指標 IC" value={formatNumber(query.data.evaluation.factor_ic.momentum_20d?.['20']?.ic_mean)} />
                 <Metric label="Composite IC (20D)" value={formatNumber(query.data.evaluation.composite_score_ic['20']?.ic_mean)} />
-                <Metric label="IC 正向比例" value={formatPct(query.data.evaluation.composite_score_ic['20']?.ic_positive_ratio)} />
+                <Metric label="IC 正向比例" value={fmtPct(query.data.evaluation.composite_score_ic['20']?.ic_positive_ratio, 2, false)} />
               </div>
               <p className="mt-2 text-xs text-muted">IC 表示選股分數與未來報酬排序的一致程度。</p>
               <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-3">
-                <Metric label="20D 高分組報酬" value={formatPct(query.data.evaluation.composite_score_buckets['20']?.top_bucket_future_return)} />
-                <Metric label="20D 低分組報酬" value={formatPct(query.data.evaluation.composite_score_buckets['20']?.bottom_bucket_future_return)} />
-                <Metric label="20D 高低分組差" value={formatPct(query.data.evaluation.composite_score_buckets['20']?.long_short_spread)} />
+                <Metric label="20D 高分組報酬" value={fmtPct(query.data.evaluation.composite_score_buckets['20']?.top_bucket_future_return, 2, false)} />
+                <Metric label="20D 低分組報酬" value={fmtPct(query.data.evaluation.composite_score_buckets['20']?.bottom_bucket_future_return, 2, false)} />
+                <Metric label="20D 高低分組差" value={fmtPct(query.data.evaluation.composite_score_buckets['20']?.long_short_spread, 2, false)} />
                 <Metric label="Walk-forward folds" value={String(query.data.evaluation.walk_forward.folds.length)} />
               </div>
               <p className="mt-2 text-xs text-muted">高低分組差為兩組未來報酬之差，不代表可成交策略績效。</p>

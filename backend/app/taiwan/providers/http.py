@@ -26,6 +26,9 @@ conservative per-host defaults below are used when no rpm is supplied:
   strictest of the official hosts and blocks bursts of detail queries; the
   dividend-lifecycle path issues one detail POST per material-information row,
   so it is paced more slowly than the quote endpoints.
+* ``taiwan:mis`` = 30 rpm.  The TWSE MIS quote endpoint backs the live quote panel, so it
+  has its own bucket (it must not queue behind bulk TWSE downloads) and a faster pace
+  than the bulk hosts; it is still capped so polling cannot hammer the endpoint.
 * ``taiwan:tdcc`` = 12 rpm.  集保 distribution data is not fetched yet; it is
   registered up-front at the MOPS pace so a future adapter cannot forget to.
 * ``taiwan:finmind`` = 5 rpm by default. Declared: 300 req/hour anonymous (5/min),
@@ -55,6 +58,7 @@ logger = logging.getLogger(__name__)
 TWSE = "taiwan:twse"
 TPEX = "taiwan:tpex"
 MOPS = "taiwan:mops"
+MIS = "taiwan:mis"
 FINMIND = "taiwan:finmind"
 YAHOO = "taiwan:yahoo"
 TDCC = "taiwan:tdcc"
@@ -63,6 +67,7 @@ TDCC = "taiwan:tdcc"
 _HOST_KEYS: tuple[tuple[str, str], ...] = (
     ("mops.twse.com.tw", MOPS),
     ("mopsov.twse.com.tw", MOPS),
+    ("mis.twse.com.tw", MIS),
     ("twse.com.tw", TWSE),
     ("tpex.org.tw", TPEX),
     ("finmindtrade.com", FINMIND),
@@ -75,6 +80,7 @@ SOURCE_RPM: dict[str, int] = {
     TWSE: 20,
     TPEX: 20,
     MOPS: 12,
+    MIS: 30,
     TDCC: 12,
     FINMIND: 5,
     YAHOO: 30,

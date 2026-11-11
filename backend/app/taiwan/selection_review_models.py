@@ -7,7 +7,6 @@ Strict Guarantees:
 - Graceful degradation: pending when horizon not yet elapsed, unavailable if price missing.
 - No fabricated zeros or forward mutation.
 """
-# ruff: noqa: RUF001
 from __future__ import annotations
 
 from typing import Any, Literal

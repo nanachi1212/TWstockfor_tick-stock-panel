@@ -49,7 +49,7 @@ def refresh_security_master(max_age_hours: float = 20.0) -> str:
         return "fresh"
     fresh = TaiwanSecurityMaster()
     count = fresh.load_from_adapters()
-    previous = len(current._instruments) if current.load_cache() else 0  # noqa: SLF001
+    previous = len(current._instruments) if current.load_cache() else 0
     if count == 0 or count < previous * 0.9:
         return f"skipped: fetched {count} < cached {previous}"
     fresh.save_cache()

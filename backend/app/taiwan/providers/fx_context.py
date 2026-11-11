@@ -1,5 +1,5 @@
 """Daily CBC foreign-exchange context from the public Frankfurter v2 API."""
-# ruff: noqa: RUF001 -- user-facing Traditional Chinese text is intentional.
+
 from __future__ import annotations
 
 import threading

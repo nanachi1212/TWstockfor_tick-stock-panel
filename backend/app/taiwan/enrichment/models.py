@@ -5,7 +5,6 @@ Covers:
   - StalePolicy: Dataset-specific freshness policies (Quotes vs Daily vs Chip vs Margin vs Index).
   - InstitutionalFlow: Three Major Institutional Investors (Foreign, Investment Trust, Dealer).
   - MarginTrading: Margin Trading & Short Selling with strict unit normalization (shares).
-  - MarketQuote: Official closing snapshot / quote with explicit fallback metadata.
   - MarketIndex: TAIEX and TPEx benchmark market index series.
   - EtfCategory: Hardened ETF classification (domestic equity, foreign, bond, leveraged, inverse, unknown).
 """
@@ -14,7 +13,7 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass
 from datetime import date, datetime, timedelta
 from enum import Enum
-from typing import Any
+from typing import Any, ClassVar
 
 
 class DatasetType(str, Enum):
@@ -46,7 +45,7 @@ class StalePolicy:
     """Evaluates dataset-specific staleness rules without hardcoding a global threshold."""
 
     # Default staleness thresholds by dataset
-    THRESHOLDS = {
+    THRESHOLDS: ClassVar[dict[DatasetType, timedelta]] = {
         DatasetType.QUOTE: timedelta(hours=4),           # Quote stale after 4h past session close
         DatasetType.DAILY: timedelta(days=4),            # Daily stale after 4 calendar days (weekend buffer)
         DatasetType.INSTITUTIONAL: timedelta(days=4),    # Chip stale after 4 calendar days
@@ -62,13 +61,20 @@ class StalePolicy:
         fetched_at: datetime,
         now: datetime | None = None,
     ) -> bool:
-        current_time = now or datetime.now()
+        # Imported here: the calendar module depends on this one.
+        from app.taiwan.realtime.calendar import TAIPEI_TZ, taipei_now
+
+        def taipei(value: datetime) -> datetime:
+            # Naive values are Taipei wall-clock time, never the server's zone.
+            return value.replace(tzinfo=TAIPEI_TZ) if value.tzinfo is None else value
+
+        current_time = taipei(now or taipei_now())
         threshold = cls.THRESHOLDS.get(dataset, timedelta(days=4))
         if trade_date is None:
-            return (current_time - fetched_at) > threshold
+            return (current_time - taipei(fetched_at)) > threshold
 
         # Compare trade_date relative to current_time
-        trade_dt = datetime(trade_date.year, trade_date.month, trade_date.day, 13, 30)
+        trade_dt = datetime(trade_date.year, trade_date.month, trade_date.day, 13, 30, tzinfo=TAIPEI_TZ)
         return (current_time - trade_dt) > threshold
 
 
@@ -192,42 +198,18 @@ class MarginTrading:
 
 
 @dataclass(frozen=True)
-class MarketQuote:
-    """Official Taiwan market snapshot / closing quote with provenance."""
-    symbol: str
-    name: str
-    price: float
-    open: float
-    high: float
-    low: float
-    previous_close: float
-    change: float
-    change_pct: float
-    volume: int                       # shares
-    amount: float                     # TWD
-    trade_time: datetime
-    meta: SourceMeta
-
-    def to_dict(self) -> dict[str, Any]:
-        res = asdict(self)
-        res["trade_time"] = self.trade_time.isoformat()
-        res["meta"] = self.meta.to_dict()
-        return res
-
-
-@dataclass(frozen=True)
 class MarketIndex:
     """Taiwan market benchmark index series point (TAIEX, TPEx Index)."""
     symbol: str                       # "TAIEX" | "TPEX_INDEX"
     name: str                         # "發行量加權股價指數" | "櫃買指數"
     date: date
-    open: float
-    high: float
-    low: float
+    open: float | None                # None = not published; never 0
+    high: float | None
+    low: float | None
     close: float
-    previous_close: float
-    change: float
-    change_pct: float
+    previous_close: float | None
+    change: float | None
+    change_pct: float | None
     meta: SourceMeta
 
     def to_dict(self) -> dict[str, Any]:

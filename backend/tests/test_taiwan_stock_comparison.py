@@ -21,19 +21,20 @@ directly (mirroring the established pattern in test_taiwan_research_context.py)
 so they do not depend on the local Taiwan daily/institutional/margin parquet
 cache being populated in this environment.
 """
+import json
 from datetime import date
 from unittest.mock import MagicMock, patch
-import json
+
 import pytest
 from fastapi.testclient import TestClient
 
 from app.main import app
 from app.taiwan.abnormal_diagnostics import (
-    TaiwanAbnormalDiagnosticItem,
-    TaiwanAbnormalDiagnosticsSnapshot,
     CompactIndustryContext,
     CompactMarketContext,
     DiagnosticsDataQuality,
+    TaiwanAbnormalDiagnosticItem,
+    TaiwanAbnormalDiagnosticsSnapshot,
 )
 from app.taiwan.comparison import (
     MAX_COMPARE_SYMBOLS,
@@ -43,8 +44,9 @@ from app.taiwan.comparison import (
     resolve_canonical_symbols,
 )
 from app.taiwan.research_context import (
-    EvidenceMeta,
     ETFContextEvidence,
+    EvidenceMeta,
+    EvidenceSummaryCounts,
     FundamentalsContextEvidence,
     IndustryContextEvidence,
     InstitutionalContextEvidence,
@@ -55,12 +57,10 @@ from app.taiwan.research_context import (
     PriceContextEvidence,
     RealtimeContextEvidence,
     ResearchDataQuality,
-    EvidenceSummaryCounts,
     StockIdentityEvidence,
     TaiwanStockResearchContext,
     TechnicalContextEvidence,
 )
-
 
 # ── Shared Test Fixture Helper ────────────────────────────────
 
@@ -492,7 +492,10 @@ def test_compare_passes_include_etfs_true_and_populates_etf_diagnostic_item():
 
     resp = svc.compare(["2330.TWSE", "0050.TWSE"], target_date=date(2026, 8, 28))
 
-    svc.diag_svc.get_diagnostics.assert_called_once_with(target_date=date(2026, 8, 28), include_all=True, include_etfs=True)
+    svc.diag_svc.get_diagnostics.assert_called_once_with(
+        target_date=date(2026, 8, 28), include_all=True, include_etfs=True,
+        symbols=["2330.TWSE", "0050.TWSE"],
+    )
 
     etf_instrument = next(i for i in resp.instruments if i.symbol == "0050.TWSE")
     assert etf_instrument.diagnostic_item is not None
@@ -503,16 +506,20 @@ def test_compare_passes_include_etfs_true_and_populates_etf_diagnostic_item():
 
 
 def test_request_schema_rejects_single_symbol():
+    from pydantic import ValidationError
+
     from app.taiwan.comparison import TaiwanStockCompareRequest
 
-    with pytest.raises(Exception):
+    with pytest.raises(ValidationError):
         TaiwanStockCompareRequest(symbols=["2330.TWSE"])
 
 
 def test_request_schema_rejects_six_symbols():
+    from pydantic import ValidationError
+
     from app.taiwan.comparison import TaiwanStockCompareRequest
 
-    with pytest.raises(Exception):
+    with pytest.raises(ValidationError):
         TaiwanStockCompareRequest(symbols=[f"S{i}.TWSE" for i in range(MAX_COMPARE_SYMBOLS + 1)])
 
 

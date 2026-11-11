@@ -36,6 +36,16 @@ def test_local_model_not_loaded_is_red_and_autoload_runs_lms_load():
         assert ai_health.ai_status()["status"] == "error"
 
 
+def test_remote_ai_status_only_counts_reachable_and_not_throttled_as_ok():
+    cfg = _cfg("https://api.example.com/v1")
+    expected = {200: "ok", 404: "ok", 401: "error", 403: "error", 429: "error", 500: "error", 503: "error"}
+    for code, status in expected.items():
+        response = httpx.Response(code, request=httpx.Request("GET", "https://api.example.com/v1/models"))
+        with patch("app.services.ai_provider.snapshot_ai_provider_config", return_value=cfg), \
+             patch.object(ai_health.httpx, "get", return_value=response):
+            assert ai_health.ai_status()["status"] == status, code
+
+
 def test_autoload_reloads_alias_by_model_key_with_configured_length():
     cfg = _cfg("http://127.0.0.1:1234/v1", "research-model", 50000)
     result, calls = _autoload(cfg, LOADED_16K, lms_entry=LMS_ENTRY)

@@ -670,7 +670,7 @@ async def test_numerical_direction_preservation_validation(taiwan_data_env):
     assert ctx.price_context.return_5d is not None
 
     # Verify build_evidence_registry includes direction keys
-    payload, registry_keys, _ = build_evidence_registry(ctx, diag_item=None)
+    _payload, registry_keys, _ = build_evidence_registry(ctx, diag_item=None)
     assert "price_context.return_5d" in registry_keys
     assert "price_context.change_pct" in registry_keys
     assert "technical_context.above_ma20" in registry_keys

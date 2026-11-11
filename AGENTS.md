@@ -1,6 +1,6 @@
 # TWstockfor_tick-stock-panel Repository Instructions
 
-本檔補充 repository 的產品、架構與台股資料語意規則。修改、調試或審查本倉庫前，必須完整閱讀 [`CONTRIBUTING.md`](CONTRIBUTING.md)，遵循其中的架構、數據契約、測試與審查規範。涉及代碼二次開發、前端插槽、後端可替換策略、擴展註冊或上游升級兼容時，另須閱讀 [`docs/secondary-development.md`](docs/secondary-development.md) 相關章節，並以實際程式碼確認 API 存在。
+本檔補充 repository 的產品、架構與台股資料語意規則。修改、偵錯或審查本儲存庫前，必須完整閱讀 [`CONTRIBUTING.md`](CONTRIBUTING.md)，遵循其中的架構、資料契約、測試與審查規範。涉及代碼二次開發、前端插槽、後端可替換策略、擴充註冊或上游升級相容時，另須閱讀 [`docs/secondary-development.md`](docs/secondary-development.md) 相關章節，並以實際程式碼確認 API 存在。
 
 ## Product Direction
 
@@ -31,7 +31,7 @@
 ## Architecture
 
 - 優先擴充既有模組、服務、provider、repository、query cache 與 UI component，不建立第二套平行資料流或重複權威計算。
-- API 層保持薄；不要繞過既有標準化、資料倉庫或 service 直接讀取來源或本機檔案。
+- API 層保持薄；不要繞過既有標準化、資料儲存庫或 service 直接讀取來源或本機檔案。
 - 避免只為維持 `mystocktracer` 為第二套長期產品而新增相容層。
 - 修改寫入或刷新流程時，檢查持久化、記憶體快取、generation/version、SSE 與前端 query invalidation 是否一致。
 - 前端不要用局部補丁掩蓋後端資料單位或契約錯誤。
@@ -59,12 +59,12 @@
 除必讀的 `CONTRIBUTING.md` 外，只讀取任務涉及的領域文件：
 
 - 架構邊界或 authoritative ownership：閱讀相關 architecture 文件。
-- provider、plugin 或自訂資料源：閱讀 `docs/custom-data-source.md`、`docs/plugin-development.md` 或對應契約。
+- provider、plugin 或自訂資料源：閱讀 `docs/custom-data-source.md` 或對應契約。
 - 台股 symbol、交易規則、稅費、settlement 或資料語意：閱讀相關 Taiwan market / data-source 文件。
-- 二次開發、前端插槽、後端擴展點或上游升級：閱讀 `docs/secondary-development.md` 對應章節。
+- 二次開發、前端插槽、後端擴充點或上游升級：閱讀 `docs/secondary-development.md` 對應章節。
 - deployment、packaging 或 release：只在任務涉及時閱讀對應文件。
 
 ## User Data and Runtime Data
 
-- 不提交 `data/`、使用者 runtime data、密鑰、Token、Webhook、日誌、資料庫、Parquet 樣本或機器絕對路徑。
+- 不提交 `data/`、使用者 runtime data、密鑰、Token、Webhook、記錄檔、資料庫、Parquet 樣本或機器絕對路徑。
 - 配置、歷史資料與 persisted schema 優先保持向後相容；必要 migration 必須可安全失敗並保留可恢復性。

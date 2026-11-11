@@ -271,6 +271,15 @@ def no_auto_watch_background_sync(monkeypatch):
     monkeypatch.setattr(watchlist_api, "_resync_auto_watch", lambda: None)
 
 
+@pytest.fixture(autouse=True)
+def stock_detail_waits_for_slow_sources(monkeypatch):
+    """The stock page gives slow sources 3 s and lets them finish in the background.
+    In tests that thread would outlive the test and its patches, so the page waits it out."""
+    from app.taiwan import detail_service
+
+    monkeypatch.setattr(detail_service, "_SLOW_SECTION_WAIT", 600.0)
+
+
 @pytest.fixture
 def taiwan_data_env(tmp_path, monkeypatch):
     """Hermetic 台股資料環境: tmp data_dir + 預先寫入磁碟的 master / 日線 / 法人 / 融資券。

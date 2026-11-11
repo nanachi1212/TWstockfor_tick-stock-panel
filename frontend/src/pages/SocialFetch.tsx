@@ -8,6 +8,7 @@ import {
 } from '@/lib/api'
 import { QK } from '@/lib/queryKeys'
 import { cn } from '@/lib/cn'
+import { fmtTaipeiDateTime } from '@/lib/format'
 
 const PAGE_SIZE = 50
 
@@ -26,7 +27,7 @@ function statusLabel(status: string) {
 }
 
 function dateTime(value: string | null | undefined) {
-  return value ? new Date(value).toLocaleString('zh-TW', { hour12: false }) : '尚未完成'
+  return value ? fmtTaipeiDateTime(value, '尚未完成', true) : '尚未完成'
 }
 
 function sentimentLabel(value: string) {

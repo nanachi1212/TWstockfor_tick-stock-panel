@@ -202,8 +202,7 @@ def _quote(stamp, fetched):
 def test_realtime_freshness_is_session_aware(monkeypatch, now, stale):
     from app.taiwan.realtime import service as rt
 
-    svc = rt.TaiwanRealtimeService(mis_provider=SimpleNamespace(), yahoo_provider=SimpleNamespace(),
-                                   official_close_provider=SimpleNamespace())
+    svc = rt.TaiwanRealtimeService(mis_provider=SimpleNamespace(), yahoo_provider=SimpleNamespace())
     monkeypatch.setattr(rt, "taipei_now", lambda: now)
     close = now.replace(hour=13, minute=30) if not stale else now - timedelta(minutes=5)
     svc._cache[("2330.TWSE", "closed")] = (0.0, _quote(close, now.isoformat()))
@@ -214,8 +213,7 @@ def test_realtime_health_uses_newest_observation_per_symbol(monkeypatch):
     from app.taiwan.realtime import service as rt
 
     now = datetime(2026, 9, 30, 16, 8, tzinfo=TAIPEI_TZ)
-    svc = rt.TaiwanRealtimeService(mis_provider=SimpleNamespace(), yahoo_provider=SimpleNamespace(),
-                                   official_close_provider=SimpleNamespace())
+    svc = rt.TaiwanRealtimeService(mis_provider=SimpleNamespace(), yahoo_provider=SimpleNamespace())
     monkeypatch.setattr(rt, "taipei_now", lambda: now)
     morning = _quote(now.replace(hour=10), "2026-09-30T10:05:00+08:00")
     morning.source_meta = replace(morning.source_meta, is_stale=True)

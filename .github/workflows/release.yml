@@ -188,7 +188,7 @@ jobs:
         # 用 create-dmg 生成標準 macOS DMG:
         # 掛載後顯示一個帶背景的卷, 左側 app 圖示, 右側 Applications 替身,
         # 使用者直接把圖示拖進 Applications 即完成安裝 (符合 mac 習慣)。
-        # --app-drop-link 在指定座標生成 Applications 替身 (即"拖拽安裝"箭頭的目標);
+        # --app-drop-link 在指定座標生成 Applications 替身 (即"拖曳安裝"箭頭的目標);
         # --skip-jenkins 跳過 Finder 排圖示動畫 (CI 無 GUI, 否則 AppleScript 卡住)。
         # 工作目錄是專案根 (與 Windows/Linux 步驟一致), 產物輸出到根。
         # create-dmg 語法: create-dmg [選項] <輸出.dmg> <源目錄或.app>

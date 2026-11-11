@@ -122,7 +122,7 @@ function fmtPctText(pct: number): string {
  * 設計原則: 必念個股名稱 (不念代碼), source 分類拼接:
  *   strategy(≤5只單條): "[名稱] 進入/移出 策略「策略名」 [漲跌幅]"
  *   strategy(>5只批量): 直接念 message (後端已含名稱列表)
- *   signal: "[名稱] 入場/出場信號觸發 [漲跌幅]"
+ *   signal: "[名稱] 入場/出場訊號觸發 [漲跌幅]"
  *   price/market/其他: "[名稱] [message條件摘要] [漲跌幅]"
  */
 function buildSingleText(a: AlertEvent): string {
@@ -148,7 +148,7 @@ function buildSingleText(a: AlertEvent): string {
     return parts.join(' ')
   }
 
-  // 信號類: message 形如 "入場信號觸發"/"出場信號觸發"
+  // 訊號類: message 形如 "入場訊號觸發"/"出場訊號觸發"
   if (a.source === 'signal') {
     const parts = [name]
     if (a.message) parts.push(a.message)

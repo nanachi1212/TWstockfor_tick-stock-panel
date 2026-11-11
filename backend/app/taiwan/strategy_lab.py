@@ -4,12 +4,12 @@ Selection Review owns price evaluation; LiveLedger owns appended daily labels.
 This module admits their evidence, keeps identities separate and aggregates it.
 It never reconstructs historical signals, downloads data or writes snapshots.
 """
-# ruff: noqa: RUF001
 from __future__ import annotations
 
 import math
 from collections import defaultdict
 from datetime import date, datetime
+from pathlib import Path
 from typing import Any, Literal
 
 from pydantic import BaseModel, Field
@@ -20,11 +20,17 @@ from app.taiwan.quant.live_contract import HORIZONS, LIVE_CONTRACT, canonical_ha
 from app.taiwan.quant.live_store import LiveLedger
 from app.taiwan.realtime.calendar import taipei_now
 from app.taiwan.selection_review_models import SelectionSnapshot
-from app.taiwan.selection_review_service import TaiwanSelectionReviewService
+from app.taiwan.selection_review_service import TaiwanSelectionReviewService, request_memo
 
 Source = Literal["Selection", "A13 Buy Point", "Daily recommendation"]
 Status = Literal["matured", "pending", "unavailable"]
 SLICES = ("exchange", "industry", "market_regime", "liquidity_bucket", "risk_status")
+# Every snapshot field _daily_rows/_daily_identity read. The parse memo keeps only these:
+# a frozen snapshot also carries ~20 MB of features that must not stay in memory.
+_RUN_FIELDS = ("model", "contract", "signal_session", "signals", "regime", "data_cutoff",
+               "feature_snapshot_hash", "raw_history_hash")
+# ledger root -> (file signatures, parsed runs); one entry per root, replaced when a file changes.
+_LEDGER_PARSE: dict[Path, tuple[tuple, list[tuple[dict[str, Any], bool, list[dict[str, Any]]]]]] = {}
 
 
 class LabFilters(BaseModel):
@@ -158,6 +164,14 @@ def summarize(rows: list[Observation], minimum_sample: int) -> HorizonStats:
         average_excess_pct=sum(excess) / len(excess) if enough_excess else None,
         sample_sufficient=enough, excess_sample_sufficient=enough_excess,
     )
+
+
+def _file_signature(path: Path) -> tuple[int, int] | None:
+    try:
+        stat = path.stat()
+    except FileNotFoundError:
+        return None
+    return stat.st_mtime_ns, stat.st_size
 
 
 def _matches(row: Observation, filters: LabFilters) -> bool:
@@ -297,18 +311,56 @@ class StrategyLabService:
             cost_assumption="未扣成本與滑價；收盤基準觀察報酬",
         )
 
-    def _daily_rows(self, run: dict[str, Any]) -> list[Observation]:
+    def _live_runs(self) -> list[tuple[dict[str, Any], bool, list[dict[str, Any]]]]:
+        """Stored runs with their outcomes, parsed again only when a ledger file changed.
+
+        Only the parse is kept. Maturity depends on the clock, so _daily_rows derives the
+        statuses from these rows on every request.
+        """
+        root = self.ledger.root
+        if not (root / "signals.sqlite3").exists():
+            return []
+        # Taken before reading: a write during the parse then forces a re-read next time.
+        # ponytail: assumes rollback-journal SQLite (LiveLedger never enables WAL); add the
+        # -wal files to the signature if that changes.
+        signature = tuple(_file_signature(root / name) for name in ("signals.sqlite3", "outcomes.sqlite3"))
+        memo = _LEDGER_PARSE.get(root)
+        if memo is not None and memo[0] == signature:
+            return memo[1]
+        parsed = []
+        for header in self.ledger.outcome_runs(read_only=True):
+            run = self.ledger.read_run(header["model_key"], header["session"], read_only=True)
+            if run:
+                valid = self._snapshot_valid(run)  # needs the full snapshot for its hash
+                run = {**run, "snapshot": {key: value for key, value in run["snapshot"].items()
+                                           if key in _RUN_FIELDS}}
+                parsed.append((run, valid, self._signal_outcomes(run)))
+        _LEDGER_PARSE[root] = (signature, parsed)
+        return parsed
+
+    @staticmethod
+    def _snapshot_valid(run: dict[str, Any]) -> bool:
+        snapshot = run["snapshot"]
+        return (run.get("audit_status") == "ok" and snapshot.get("contract") == LIVE_CONTRACT
+                and snapshot.get("signal_session") == run["session"]
+                and canonical_hash(snapshot) == run.get("snapshot_hash"))
+
+    def _signal_outcomes(self, run: dict[str, Any]) -> list[dict[str, Any]]:
+        signals = {item["symbol"]: item for item in run["snapshot"].get("signals", [])}
+        return self.ledger.signal_outcomes(run["model_key"], run["session"], list(signals.values()), read_only=True)
+
+    def _daily_rows(self, run: dict[str, Any], *, valid: bool | None = None,
+                    outcomes: list[dict[str, Any]] | None = None) -> list[Observation]:
         snapshot = run["snapshot"]
         ident = self._daily_identity(run)
-        valid = (run.get("audit_status") == "ok" and snapshot.get("contract") == LIVE_CONTRACT
-                 and snapshot.get("signal_session") == run["session"]
-                 and canonical_hash(snapshot) == run.get("snapshot_hash"))
+        if valid is None:
+            valid = self._snapshot_valid(run)
         signals = {item["symbol"]: item for item in snapshot.get("signals", [])}
         regime = snapshot.get("regime", {})
         regime_value = regime.get("regime") if (regime.get("status") == "verified"
                         and regime.get("as_of") == run["session"]) else None
         result = []
-        for item in self.ledger.signal_outcomes(run["model_key"], run["session"], list(signals.values()), read_only=True):
+        for item in (self._signal_outcomes(run) if outcomes is None else outcomes):
             raw = finite(item.get("value"))
             end = str(item["end_session"]) if item.get("end_session") else None
             status: Status = ("pending" if valid and item["status"] == "pending" else
@@ -342,6 +394,7 @@ class StrategyLabService:
             ))
         return result
 
+    @request_memo()
     def observations(self) -> tuple[list[Observation], dict[str, int], dict[str, tuple[StrategyIdentity, set[str]]]]:
         snapshots = self.selection.read_snapshots()
         groups: dict[str, list[SelectionSnapshot]] = defaultdict(list)
@@ -366,12 +419,9 @@ class StrategyLabService:
                 continue
             rows.extend(self._selection_rows(snapshot))
             register(self._selection_identity(snapshot), snapshot.snapshot_id)
-        if (self.ledger.root / "signals.sqlite3").exists():
-            for header in self.ledger.outcome_runs(read_only=True):
-                run = self.ledger.read_run(header["model_key"], header["session"], read_only=True)
-                if run:
-                    rows.extend(self._daily_rows(run))
-                    register(self._daily_identity(run), f"live:{run['model_key']}:{run['session']}")
+        for run, valid, outcomes in self._live_runs():
+            rows.extend(self._daily_rows(run, valid=valid, outcomes=outcomes))
+            register(self._daily_identity(run), f"live:{run['model_key']}:{run['session']}")
         observations: dict[tuple[str, str, str, int], list[Observation]] = defaultdict(list)
         for row in rows:
             observations[(row.identity.key, row.signal_date, row.symbol, row.horizon)].append(row)

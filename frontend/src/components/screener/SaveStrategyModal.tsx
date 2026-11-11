@@ -1,3 +1,4 @@
+import { Modal } from '@/components/Modal'
 import { Loader2, Bookmark, Save } from 'lucide-react'
 
 interface SaveStrategyModalProps {
@@ -21,8 +22,12 @@ export function SaveStrategyModal({ open, name, setName, description, setDescrip
   return (
     <>
     {showSaveModal && (
-      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4">
-        <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-5 w-full max-w-md shadow-2xl space-y-4">
+      <Modal
+        onClose={onClose}
+        ariaLabel="儲存自訂選股策略"
+        overlayClassName="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4"
+        panelClassName="bg-zinc-900 border border-zinc-800 rounded-xl p-5 w-full max-w-md shadow-2xl space-y-4"
+      >
           <div className="flex items-center justify-between border-b border-zinc-800 pb-3">
             <div className="flex items-center gap-2">
               <Bookmark className="w-5 h-5 text-purple-400" />
@@ -91,8 +96,7 @@ export function SaveStrategyModal({ open, name, setName, description, setDescrip
               儲存策略
             </button>
           </div>
-        </div>
-      </div>
+      </Modal>
     )}
     </>
   )

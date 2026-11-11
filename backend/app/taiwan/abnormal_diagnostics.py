@@ -225,6 +225,7 @@ class TaiwanAbnormalDiagnosticsService:
         exchange_filter: str | None = None,
         include_etfs: bool = False,
         include_context_snapshots: bool = False,
+        symbols: list[str] | None = None,
     ) -> TaiwanAbnormalDiagnosticsSnapshot:
         """Run batch diagnostics across Taiwan universe for target_date with zero request-time HTTP.
 
@@ -244,6 +245,10 @@ class TaiwanAbnormalDiagnosticsService:
         if include_etfs:
             stock_symbols = stock_symbols + self.security_master.get_universe(UniverseType.TAIWAN_ETFS)
         universe_count = len(stock_symbols)
+        if symbols is not None:
+            # Signals use only each symbol's own history, so callers needing a few symbols skip the market-wide reads.
+            wanted = set(symbols)
+            stock_symbols = [s for s in stock_symbols if s in wanted]
         if not stock_symbols:
             return self._empty_snapshot(target)
 
@@ -381,8 +386,10 @@ class TaiwanAbnormalDiagnosticsService:
                 vol_ratio = round(vol / mean_v5, 2)
                 if vol_ratio >= 2.0:
                     sev: Literal["low", "moderate", "high", "extreme"] = "moderate"
-                    if vol_ratio >= 5.0: sev = "extreme"
-                    elif vol_ratio >= 3.0: sev = "high"
+                    if vol_ratio >= 5.0:
+                        sev = "extreme"
+                    elif vol_ratio >= 3.0:
+                        sev = "high"
                     signals.append(DiagnosticSignalEvidence(
                         type="VOLUME_SPIKE",
                         severity=sev,
@@ -402,8 +409,10 @@ class TaiwanAbnormalDiagnosticsService:
                 amt_ratio = round(amt / mean_a5, 2)
                 if amt_ratio >= 2.0:
                     sev: Literal["low", "moderate", "high", "extreme"] = "moderate"
-                    if amt_ratio >= 5.0: sev = "extreme"
-                    elif amt_ratio >= 3.0: sev = "high"
+                    if amt_ratio >= 5.0:
+                        sev = "extreme"
+                    elif amt_ratio >= 3.0:
+                        sev = "high"
                     signals.append(DiagnosticSignalEvidence(
                         type="TURNOVER_SPIKE",
                         severity=sev,
@@ -591,19 +600,17 @@ class TaiwanAbnormalDiagnosticsService:
             # ── Signal 10: RELATIVE_STRENGTH_OUTLIER ──
             ind_m = ind_metrics_map.get(inst_master.industry or "")
             c5_base = c5_base_map.get(sym)
-            if ind_m and ind_m.relative_strength_5d is not None and c5_base and close_p is not None:
+            if ind_m and ind_m.average_return_5d is not None and c5_base and close_p is not None:
                 ret_5d = (close_p / c5_base) - 1.0
-                # Excess over industry equal-weight 5D
-                # RS 5D = ind_5d_return - mkt_5d_return
-                # If stock 5D return exceeds industry by >= 10%
-                diff_5d = round(ret_5d - (ind_m.average_change_pct or 0.0), 4)
+                # Excess over the industry equal-weight 5-session return (same horizon).
+                diff_5d = round(ret_5d - ind_m.average_return_5d, 4)
                 if abs(diff_5d) >= 0.10:
                     signals.append(DiagnosticSignalEvidence(
                         type="RELATIVE_STRENGTH_OUTLIER",
                         subtype="LEADER" if diff_5d > 0 else "LAGGARD",
                         severity="high" if abs(diff_5d) >= 0.15 else "moderate",
                         observed=round(diff_5d * 100.0, 2),
-                        baseline=round((ind_m.average_change_pct or 0.0) * 100.0, 2),
+                        baseline=round(ind_m.average_return_5d * 100.0, 2),
                         delta=round(diff_5d * 100.0, 2),
                         threshold=10.0,
                         formula="abs(stock_5d_return - industry_mean_return) >= 10%",

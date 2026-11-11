@@ -7,12 +7,17 @@ UI 改 Key 時只動這個檔案,不動 .env。
 """
 from __future__ import annotations
 
+import contextlib
 import json
 import logging
 import os
+import threading
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
+
+# Serializes read-modify-write so concurrent saves cannot drop each other's keys.
+_WRITE_LOCK = threading.RLock()
 
 
 def _path() -> Path:
@@ -27,37 +32,43 @@ def load() -> dict:
     if p.exists():
         try:
             return json.loads(p.read_text(encoding="utf-8"))
-        except Exception as e:  # noqa: BLE001
+        except Exception as e:
             logger.warning("secrets.json malformed: %s", e)
     return {}
 
 
+def _write(p: Path, data: dict) -> None:
+    """Write to a sibling temp file with 0600 and swap it in, so a crash never leaves a torn file."""
+    tmp = p.with_name(p.name + ".tmp")
+    tmp.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
+    with contextlib.suppress(OSError):
+        os.chmod(tmp, 0o600)
+    os.replace(tmp, p)
+
+
 def save(updates: dict) -> dict:
     """合併寫入(不會清掉未提及的欄位)。回傳新內容。"""
-    current = load()
-    current.update({k: v for k, v in updates.items() if v is not None})
-    p = _path()
-    p.write_text(json.dumps(current, indent=2, ensure_ascii=False), encoding="utf-8")
-    try:
-        os.chmod(p, 0o600)
-    except OSError:
-        pass
-    return current
+    with _WRITE_LOCK:
+        current = load()
+        current.update({k: v for k, v in updates.items() if v is not None})
+        _write(_path(), current)
+        return current
 
 
 def clear(*keys: str) -> dict:
     """清掉指定欄位(留空清全部)。"""
-    p = _path()
-    if not p.exists():
-        return {}
-    if not keys:
-        p.unlink()
-        return {}
-    current = load()
-    for k in keys:
-        current.pop(k, None)
-    p.write_text(json.dumps(current, indent=2, ensure_ascii=False), encoding="utf-8")
-    return current
+    with _WRITE_LOCK:
+        p = _path()
+        if not p.exists():
+            return {}
+        if not keys:
+            p.unlink()
+            return {}
+        current = load()
+        for k in keys:
+            current.pop(k, None)
+        _write(p, current)
+        return current
 
 
 # 還原的備份換了 AI 端點卻沒一起還原金鑰時, 記下被換端點的對象 ("legacy" = 舊版單一設定,
@@ -107,7 +118,11 @@ def get_ai_key() -> str:
     """
     import contextlib
     with contextlib.suppress(Exception):
-        from app.services.ai_key_profiles import get_active_ai_key, get_active_profile_id, has_any_profile
+        from app.services.ai_key_profiles import (
+            get_active_ai_key,
+            get_active_profile_id,
+            has_any_profile,
+        )
         if has_any_profile():
             active_id = get_active_profile_id()
             if active_id and ai_target_unconfirmed(active_id):

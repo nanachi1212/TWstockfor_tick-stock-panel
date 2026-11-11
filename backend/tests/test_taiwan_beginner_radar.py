@@ -119,6 +119,14 @@ def test_refused_quote_keeps_its_provenance_and_missing_quote_has_none():
     assert radar_live(_pick(), None).source is None
 
 
+def test_ex_dividend_day_voids_the_frozen_plan_levels():
+    candidate = _pick()
+    quote = _quote(price=candidate.trade_plan.entry_zone_high)
+    live = radar_live(candidate, quote, ex_today=True)
+    assert live.status == "unavailable" and "除權息" in live.note and live.price == quote.last_price
+    assert radar_live(candidate, quote, ex_today=False).status == "in_zone"
+
+
 def test_candidate_without_plan_keeps_price_but_no_status():
     candidate, _ = evaluate_candidate(_facts(close=110.0, adjusted_close=110.0, ma20=95.0), FAVORABLE)
     assert candidate.selection_state == "no_chase" and candidate.trade_plan is None

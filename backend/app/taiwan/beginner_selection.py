@@ -9,7 +9,7 @@ Unavailable evidence stays ``unavailable``; it is never filled with zero.
 Critical evidence gates eligibility (``skip``); optional evidence only lowers
 priority and is listed in ``data_gaps``.
 """
-# ruff: noqa: RUF001 -- user-facing Traditional Chinese text is intentional.
+
 from __future__ import annotations
 
 import logging
@@ -1066,7 +1066,11 @@ class BeginnerSelectionService:
                 ),
                 daily=daily.get(item.symbol, []),
                 social_status=social["status"],
-                social_mentions=(social["mentions"].get(item.symbol, 0) if social["status"] != "unavailable" else None),
+                # Absent from a complete ranking means 0 mentions; from a partial one it is unknown.
+                social_mentions=(
+                    social["mentions"].get(item.symbol, 0 if social["status"] == "available" else None)
+                    if social["status"] != "unavailable" else None
+                ),
                 technical_metrics=technical_metrics,
             ))
         amounts = {item.symbol: float(item.amount) for item in items if item.amount is not None}

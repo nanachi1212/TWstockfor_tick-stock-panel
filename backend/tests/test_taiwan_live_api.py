@@ -63,7 +63,7 @@ def test_live_models_marks_run_current_only_when_session_operation_and_audit_agr
         read_run=lambda model_key, session: {"audit_status": "ok"} if session == expected.isoformat() else None,
         models=lambda: [],
     )
-    monkeypatch.setattr(taiwan_live, "CurrentLiveSource", Source)
+    monkeypatch.setattr(taiwan_live, "StoredSessionEvidence", Source)
     monkeypatch.setattr(taiwan_live, "LiveLedger", lambda evidence=None: ledger)
 
     response = taiwan_live.live_models()
@@ -97,7 +97,7 @@ def test_live_models_fails_closed_for_conflict_or_stale_operation(monkeypatch, a
         read_run=lambda model_key, session: {"audit_status": audit_status},
         models=lambda: [],
     )
-    monkeypatch.setattr(taiwan_live, "CurrentLiveSource", Source)
+    monkeypatch.setattr(taiwan_live, "StoredSessionEvidence", Source)
     monkeypatch.setattr(taiwan_live, "LiveLedger", lambda evidence=None: ledger)
 
     response = taiwan_live.live_models()
@@ -120,8 +120,38 @@ def test_live_models_fails_closed_when_expected_session_cannot_be_resolved(monke
         read_run=lambda model_key, session: (_ for _ in ()).throw(AssertionError("must not read an unknown session")),
         models=lambda: [],
     )
-    monkeypatch.setattr(taiwan_live, "CurrentLiveSource", Source)
+    monkeypatch.setattr(taiwan_live, "StoredSessionEvidence", Source)
     monkeypatch.setattr(taiwan_live, "LiveLedger", lambda evidence=None: ledger)
+
+    response = taiwan_live.live_models()
+
+    assert response["expected_session"] is None
+    assert response["current_run_valid"] is False
+    assert response["current_run_reason"] == "session_unavailable"
+
+
+def test_live_models_request_path_reads_stored_evidence_only(monkeypatch, tmp_path):
+    """The dashboard poll must never build the fetching live source; no stored proof => unavailable."""
+    from app.taiwan.observed_universe import ObservedUniverseCensus, ObservedUniverseStore
+    from app.taiwan.quant import live_runner
+    from app.taiwan.quant.live_store import LiveLedger
+
+    def boom(*args, **kwargs):
+        raise AssertionError("request path must not fetch")
+
+    monkeypatch.setattr(taiwan_live, "_SESSION_CACHE", None)
+    monkeypatch.setattr(live_runner.CurrentLiveSource, "__init__", boom)
+    monkeypatch.setattr(live_runner, "_official_calendar", boom)
+    monkeypatch.setattr(ObservedUniverseCensus, "fetch_twse", boom)
+    monkeypatch.setattr(ObservedUniverseCensus, "fetch_tpex", boom)
+    monkeypatch.setattr(
+        taiwan_live, "StoredSessionEvidence",
+        lambda: live_runner.StoredSessionEvidence(store=ObservedUniverseStore(tmp_path / "census")),
+    )
+    monkeypatch.setattr(
+        taiwan_live, "LiveLedger",
+        lambda evidence=None: LiveLedger(tmp_path / "live_quant", evidence=evidence),
+    )
 
     response = taiwan_live.live_models()
 
@@ -164,7 +194,7 @@ def test_live_models_reuses_bounded_expected_session_evidence(monkeypatch):
         def models():
             return []
 
-    monkeypatch.setattr(taiwan_live, "CurrentLiveSource", Source)
+    monkeypatch.setattr(taiwan_live, "StoredSessionEvidence", Source)
     monkeypatch.setattr(taiwan_live, "LiveLedger", Ledger)
     monkeypatch.setattr(taiwan_live.time, "monotonic", lambda: now[0])
 
@@ -200,7 +230,7 @@ def test_live_models_distinguishes_available_zero_candidates_from_unavailable(mo
         },
         models=lambda: [],
     )
-    monkeypatch.setattr(taiwan_live, "CurrentLiveSource", Source)
+    monkeypatch.setattr(taiwan_live, "StoredSessionEvidence", Source)
     monkeypatch.setattr(taiwan_live, "LiveLedger", lambda evidence=None: ledger)
 
     response = taiwan_live.live_models()
@@ -226,7 +256,7 @@ def test_live_models_projects_refresh_failure_as_unavailable_not_zero(monkeypatc
         read_run=lambda _model_key, _session: None,
         models=lambda: [],
     )
-    monkeypatch.setattr(taiwan_live, "CurrentLiveSource", Source)
+    monkeypatch.setattr(taiwan_live, "StoredSessionEvidence", Source)
     monkeypatch.setattr(taiwan_live, "LiveLedger", lambda evidence=None: ledger)
 
     response = taiwan_live.live_models()

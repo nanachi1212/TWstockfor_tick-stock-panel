@@ -200,7 +200,11 @@ def test_lending_anomaly_standardized_to_surge():
     for day in range(16, 21):
         rows.append({"date": f"2026-08-{day:02d}", "volume": 60000, "fee_rate": 3.0})
 
-    lending_data = svc._process_securities_lending(rows, "2026-08-20", "2026-08-20T14:00:00")
+    # The 20 sample days are the market's sessions: the 5 / 20 windows are trading-day windows.
+    lending_data = svc._process_securities_lending(
+        rows, "2026-08-20", "2026-08-20T14:00:00", trading_dates=[r["date"] for r in rows],
+    )
+    assert (lending_data.volume_5d, lending_data.volume_20d) == (300_000, 315_000)
     # Must emit 'surge', NOT 'abnormal_increase'
     assert lending_data.anomaly_status == "surge"
 
@@ -289,6 +293,31 @@ def test_connection_test_captures_rate_limit_error():
         assert res["ok"] is False
         assert res["error_type"] == "rate_limit"
         assert "頻率上限" in res["message"]
+
+
+def test_http_402_quota_is_a_rate_limit_and_aborts_daily_batch():
+    import urllib.error
+
+    import pytest
+
+    adapter = FinMindAdapter(token="tok")
+
+    def quota_exhausted(url, **_kwargs):
+        raise urllib.error.HTTPError(url, 402, "Payment Required", {}, None)
+
+    with patch("app.taiwan.providers.finmind_provider.fetch_json", quota_exhausted):
+        with pytest.raises(FinMindRateLimitError):
+            adapter.fetch_dataset("TaiwanStockPrice", "2330", raise_for_status=True)
+        # A partial batch must not look like success: the whole fetch fails.
+        with pytest.raises(FinMindRateLimitError):
+            adapter.fetch_daily(["2330.TWSE", "2317.TWSE"], None, None)
+
+    with (
+        patch("app.taiwan.providers.finmind_provider.fetch_json",
+              lambda url, **_kw: {"status": 402, "msg": "Requests reach the upper limit"}),
+        pytest.raises(FinMindRateLimitError),
+    ):
+        adapter.fetch_dataset("TaiwanStockPrice", "2330", raise_for_status=True)
 
 
 def test_connection_test_captures_network_error():

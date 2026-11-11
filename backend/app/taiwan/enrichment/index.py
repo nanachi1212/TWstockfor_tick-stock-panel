@@ -11,8 +11,8 @@ Guarantees:
 """
 from __future__ import annotations
 
-from datetime import date, datetime
 import logging
+from datetime import date, datetime
 from typing import Any
 
 from app.taiwan.enrichment.models import (
@@ -21,6 +21,7 @@ from app.taiwan.enrichment.models import (
     SourceMeta,
     StalePolicy,
 )
+from app.taiwan.providers.taiwan_values import TAIPEI
 
 logger = logging.getLogger(__name__)
 
@@ -39,16 +40,17 @@ def _parse_tw_date(raw: str) -> date:
     raise ValueError(f"Cannot parse Taiwan date format: {raw}")
 
 
-def _clean_float(val: Any) -> float:
+def _clean_float(val: Any) -> float | None:
+    """Parse an official number; missing or malformed stays None, never 0."""
     if val is None:
-        return 0.0
+        return None
     s = str(val).strip().replace(",", "")
     if not s or s == "--":
-        return 0.0
+        return None
     try:
         return float(s)
     except (ValueError, TypeError):
-        return 0.0
+        return None
 
 
 class TaiwanIndexProvider:
@@ -64,7 +66,7 @@ class TaiwanIndexProvider:
     ) -> list[MarketIndex]:
         results: list[MarketIndex] = []
         url = source_url or self.TWSE_INDEX_URL
-        fetched_at = datetime.now()
+        fetched_at = datetime.now(TAIPEI)
 
         for r in rows:
             raw_date = r.get("Date")
@@ -79,13 +81,16 @@ class TaiwanIndexProvider:
             high_idx = _clean_float(r.get("HighestIndex"))
             low_idx = _clean_float(r.get("LowestIndex"))
             close_idx = _clean_float(r.get("ClosingIndex"))
+            if close_idx is None:
+                continue  # no close, no index point; other missing values stay None, never 0
 
             # Calculate change against previous close if available in series
             prev_close = open_idx
             if results:
                 prev_close = results[-1].close
-            change = round(close_idx - prev_close, 2)
-            change_pct = round(change / prev_close * 100.0, 2) if prev_close > 0 else 0.0
+            change = round(close_idx - prev_close, 2) if prev_close is not None else None
+            change_pct = (None if change is None
+                          else round(change / prev_close * 100.0, 2) if prev_close > 0 else 0.0)
 
             meta = SourceMeta(
                 source="twse:MI_5MINS_HIST",
@@ -124,7 +129,7 @@ class TaiwanIndexProvider:
     ) -> list[MarketIndex]:
         results: list[MarketIndex] = []
         url = source_url or self.TPEX_INDEX_URL
-        fetched_at = datetime.now()
+        fetched_at = datetime.now(TAIPEI)
 
         for r in rows:
             raw_date = r.get("Date")
@@ -140,8 +145,13 @@ class TaiwanIndexProvider:
             low_idx = _clean_float(r.get("Low"))
             close_idx = _clean_float(r.get("Close"))
             change = _clean_float(r.get("Change"))
-            prev_close = round(close_idx - change, 2) if close_idx > 0 else 0.0
-            change_pct = round(change / prev_close * 100.0, 2) if prev_close > 0 else 0.0
+            if close_idx is None:
+                continue  # no close, no index point; other missing values stay None, never 0
+            if change is None:
+                prev_close = change_pct = None
+            else:
+                prev_close = round(close_idx - change, 2) if close_idx > 0 else 0.0
+                change_pct = round(change / prev_close * 100.0, 2) if prev_close > 0 else 0.0
 
             meta = SourceMeta(
                 source="tpex:tpex_index",

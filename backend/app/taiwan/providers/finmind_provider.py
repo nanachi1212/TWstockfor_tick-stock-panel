@@ -32,6 +32,9 @@ from app.taiwan.symbol import TaiwanSymbol, parse_symbol, to_provider_symbol
 
 logger = logging.getLogger(__name__)
 
+# FinMind answers an exhausted quota with 402 (documented) as well as the usual 429.
+_RATE_LIMIT_CODES = (402, 429)
+
 
 class FinMindError(Exception):
     """Base exception for FinMind API operations."""
@@ -44,7 +47,7 @@ class FinMindAuthError(FinMindError):
 
 
 class FinMindRateLimitError(FinMindError):
-    """Rate limit exceeded (HTTP 429)."""
+    """Rate limit exceeded (HTTP 402/429)."""
     pass
 
 
@@ -140,7 +143,7 @@ class FinMindAdapter:
                 if raise_for_status:
                     if status in (401, 403) or any(k in msg.lower() for k in ("token", "auth", "invalid")):
                         raise FinMindAuthError(f"認證失敗: {msg or status}")
-                    elif status == 429 or "rate limit" in msg.lower():
+                    elif status in _RATE_LIMIT_CODES or "rate limit" in msg.lower():
                         raise FinMindRateLimitError(f"頻率限制: {msg or status}")
                     else:
                         raise FinMindError(f"FinMind API 狀態錯誤 {status}: {msg}")
@@ -161,7 +164,7 @@ class FinMindAdapter:
             if raise_for_status:
                 if e.code in (401, 403):
                     raise FinMindAuthError("FinMind 認證失敗，Token 無效或未被授權") from e
-                elif e.code == 429:
+                elif e.code in _RATE_LIMIT_CODES:
                     raise FinMindRateLimitError("FinMind API 已達請求頻率上限 (Rate Limit)") from e
                 else:
                     raise FinMindError(f"HTTP 錯誤 {e.code}") from e
@@ -190,7 +193,7 @@ class FinMindAdapter:
         if not symbols:
             return pl.DataFrame()
 
-        end_dt = end_time or datetime.now()
+        end_dt = end_time or datetime.now(TAIPEI)
         start_dt = start_time or (end_dt - timedelta(days=365))
         start_str = start_dt.strftime("%Y-%m-%d")
         end_str = end_dt.strftime("%Y-%m-%d")
@@ -210,6 +213,8 @@ class FinMindAdapter:
                     timeout=self.timeout,
                     rpm=self.metadata.rate_limit_rpm,
                 )
+                if isinstance(payload, dict) and payload.get("status") in _RATE_LIMIT_CODES:
+                    raise FinMindRateLimitError(f"頻率限制: {payload.get('msg') or payload.get('status')}")
                 rows = payload.get("data", []) if isinstance(payload, dict) else []
                 if not rows:
                     logger.debug("FinMind returned 0 rows for %s", canonical_sym.canonical)
@@ -230,6 +235,14 @@ class FinMindAdapter:
                 )
                 if not normalized.is_empty():
                     frames.append(normalized)
+            except FinMindRateLimitError:
+                # Quota is exhausted for every remaining symbol: fail the batch so a partial
+                # result is never mistaken for a complete one.
+                raise
+            except urllib.error.HTTPError as e:
+                if e.code in _RATE_LIMIT_CODES:
+                    raise FinMindRateLimitError("FinMind API 已達請求頻率上限 (Rate Limit)") from e
+                logger.warning("FinMind fetch failed for %s on %s: %s", canonical_sym.canonical, sanitized_url, e)
             except Exception as e:
                 logger.warning("FinMind fetch failed for %s on %s: %s", canonical_sym.canonical, sanitized_url, e)
 
@@ -279,7 +292,7 @@ class FinMindAdapter:
         - Fails closed: an empty result from both benchmark probes returns ok=False.
         - Never leaks token in error messages or response.
         """
-        now = datetime.now()
+        now = datetime.now(TAIPEI)
         start_price = (now - timedelta(days=60)).strftime("%Y-%m-%d")
         start_rev = (now - timedelta(days=365)).strftime("%Y-%m-%d")
 

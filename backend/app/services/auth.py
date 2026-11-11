@@ -1,4 +1,4 @@
-"""訪問密碼認證 — 單使用者, 自託管場景。
+"""存取密碼認證 — 單使用者, 自託管場景。
 
 設計:
   - 密碼用 PBKDF2-HMAC-SHA256 雜湊(標準庫 hashlib, 無新依賴), 加隨機 salt。
@@ -9,7 +9,7 @@
 安全要點:
   - 設密碼介面必須限制本機/內網(見 auth router), 防黑客搶佔網域搶先設密碼。
   - 登入限流: 錯5次鎖5分鐘(見 auth router 記憶體計數)。
-  - 單密碼, 不做多使用者(避免重構全項目資料層)。
+  - 單密碼, 不做多使用者(避免重構整個專案資料層)。
 """
 from __future__ import annotations
 
@@ -161,7 +161,7 @@ def is_configured() -> bool:
 
 
 def set_password(password: str) -> None:
-    """設定/修改訪問密碼。清空所有現有會話(強制重新登入)。"""
+    """設定/修改存取密碼。清空所有現有會話(強制重新登入)。"""
     global _configured_cache
     if len(password) < 6:
         raise ValueError("密碼至少 6 位")
@@ -184,7 +184,7 @@ def set_password(password: str) -> None:
 def bootstrap_from_env() -> bool:
     """首次初始化: 若環境變數 AUTH_PASSWORD 已設定且尚未設過密碼, 則用它設密碼。
 
-    公開網路伺服器部署場景: 避免每次都要 SSH 端口轉發才能設首個密碼。
+    公開網路伺服器部署場景: 避免每次都要 SSH 連接埠轉發才能設首個密碼。
     明文密碼只在記憶體/設定中, 經 set_password() 雜湊後寫入 auth.json (chmod 0600)。
     一旦設定成功, 後續重啟不再覆蓋 (使用者改密碼走 UI, 不受環境變數影響)。
 
@@ -228,7 +228,7 @@ def set_verify_password(password: str | None) -> None:
         _sync_sessions_locked()
         d = _load()
         if not d.get("password_hash"):
-            raise ValueError("尚未設定訪問密碼")
+            raise ValueError("尚未設定存取密碼")
         for token in d.pop("verify_sessions", []):
             _sessions.pop(token, None)
         d.pop("verify_hash", None)

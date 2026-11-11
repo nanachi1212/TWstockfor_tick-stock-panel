@@ -13,8 +13,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from app.services.ai_provider import AIOutputTruncated, generate_ai_text, AIProviderConfigSnapshot
-
+from app.services.ai_provider import AIOutputTruncated, AIProviderConfigSnapshot, generate_ai_text
 
 # ─────────────────────────────────────────────────────────────
 # Helpers
@@ -53,14 +52,16 @@ async def test_truncated_raises_ai_output_truncated():
     mock_client = MagicMock()
     mock_client.chat.completions.create = AsyncMock(return_value=resp)
 
-    with patch("app.services.ai_provider._openai_client", return_value=mock_client):
-        with pytest.raises(AIOutputTruncated) as exc_info:
-            await generate_ai_text(
-                [{"role": "user", "content": "test"}],
-                max_tokens=1600,
-                timeout=5.0,
-                config_snapshot=_stub_config(),
-            )
+    with (
+        patch("app.services.ai_provider._openai_client", return_value=mock_client),
+        pytest.raises(AIOutputTruncated) as exc_info,
+    ):
+        await generate_ai_text(
+            [{"role": "user", "content": "test"}],
+            max_tokens=1600,
+            timeout=5.0,
+            config_snapshot=_stub_config(),
+        )
 
     assert exc_info.value.partial_content == partial
 
@@ -273,15 +274,14 @@ async def test_daily_brief_raises_value_error_on_double_truncation():
         with pytest.raises(ValueError, match="AI 回覆超過輸出長度限制"):
             # Call the internal AI generation path directly by building the call
             # the same way daily_brief_service._call_ai does.
-            partial = "half-baked"
-            _BRIEF_RETRY_MSG = (
+            brief_retry_msg = (
                 "前次輸出已超出 token 上限截斷。"
                 "請重新輸出完整 JSON，每個字串欄位縮短至 100 字以內，"
                 "section_b_key_changes 限 3 項，evidence_sources 限 3 項。"
             )
             messages = [{"role": "user", "content": "make brief"}]
             try:
-                text = await dbs.generate_ai_text(
+                await dbs.generate_ai_text(
                     messages=messages,
                     temperature=0.2,
                     max_tokens=3500,
@@ -289,12 +289,13 @@ async def test_daily_brief_raises_value_error_on_double_truncation():
                     config_snapshot=config_snap,
                 )
             except AIOutputTruncated as trunc_exc:
-                retry_msgs = list(messages) + [
+                retry_msgs = [
+                    *messages,
                     {"role": "assistant", "content": trunc_exc.partial_content},
-                    {"role": "user", "content": _BRIEF_RETRY_MSG},
+                    {"role": "user", "content": brief_retry_msg},
                 ]
                 try:
-                    text = await dbs.generate_ai_text(
+                    await dbs.generate_ai_text(
                         messages=retry_msgs,
                         temperature=0.2,
                         max_tokens=3500,
@@ -302,4 +303,4 @@ async def test_daily_brief_raises_value_error_on_double_truncation():
                         config_snapshot=config_snap,
                     )
                 except AIOutputTruncated:
-                    raise ValueError("AI 回覆超過輸出長度限制，請重新產生。")
+                    raise ValueError("AI 回覆超過輸出長度限制，請重新產生。") from None

@@ -33,7 +33,7 @@
 >
 > **會做**:用固定規則挑出每日候選、算出承接區／突破價與失效位,並可加入自選自動監控;AI 用白話解釋同一份證據。
 >
-> **明確不做**:不預測漲跌、不保證報酬、不做自動下單。分組與價位只由規則決定,AI 不參與排名、不改價位;AI 只在你主動點擊時才會呼叫。
+> **明確不做**:不預測漲跌、不保證報酬、不做自動下單。分組與價位只由規則決定,AI 不參與排名、不改價位;AI 預設只在你主動按一下時才會呼叫；「盤後自動 AI 說明」等三項自動功能為選配，預設關閉。
 
 ---
 
@@ -48,15 +48,15 @@
 
 | 頁面 | 一句話 |
 | :--- | :--- |
-| 🧭 **今日選股** | 每日承接雷達:今日候選加上持股與自選股,分成可觀察／等拉回／等突破／不追,顯示承接區或突破價、失效位與盤中狀態;卡片上可展開 AI 白話說明、一鍵加入自選並自動監控 |
 | 📊 **看板** | 今日市場強弱(漲跌家數與偏強/中性/偏弱)、產業強弱最強最弱、自選股動態、台股資料狀態、監控觸發記錄 |
+| 🧭 **今日選股** | 每日承接雷達:今日候選加上持股與自選股,分成可觀察／等拉回／等突破／不追,顯示承接區或突破價、失效位與盤中狀態;卡片上可展開 AI 白話說明、一鍵加入自選並自動監控 |
 | 🔍 **台股選股** | 全市場量化統計快照、產業類股輪動、10 類客觀異常訊號、5 組常用篩選、技術面與法人籌碼進階條件、AI 自然語言條件解析 |
-| 💼 **我的持股** | 匯入並檢視自己的持股清單(可選檔案、拖曳或直接貼上券商／Excel 的表格) |
 | ⭐ **自選股** | 自選清單與多對多分組、表格/卡片雙檢視、自訂欄位、板塊與風險警示過濾、迷你日K與分時 |
-| ⚖️ **多股比較** | 多檔並列的確定性比較表(報酬率、外資買賣超、本益比、異常訊號數),AI 客觀解讀為選配且需手動觸發 |
-| 📈 **個股頁面** | 歷史日K與成交量、五檔即時盤口、三大法人買賣超、融資融券與券資比、近 5 日核心籌碼滾動因子、漲跌幅限制規則 |
-| 📣 **推播與查詢** | 早晚各一則「今日一句話」、自選股盤中異常摘要、Telegram 輸入代號反向查詢；全部預設關閉，走同一組 LINE／Telegram 通道 |
+| 💼 **我的持股** | 匯入並檢視自己的持股清單(可選檔案、拖曳或直接貼上券商／Excel 的表格) |
 | 🚨 **監控中心** | 盤中即時行情與五檔、8 種規則類型、冷卻時間與遲滯防抖、觸發記錄,命中可推播到 LINE 或 Telegram |
+| ⚖️ **多股比較** | 多檔並列的確定性比較表(報酬率、外資買賣超、本益比、異常訊號數),AI 客觀解讀為選配且需手動觸發 |
+| 📈 **個股頁面** | 歷史日K、五檔即時盤口、三大法人買賣超、融資融券與券資比、近 5 日核心籌碼滾動因子、漲跌幅限制規則 |
+| 📣 **推播與查詢** | 早晚各一則「今日一句話」、自選股盤中異常摘要、Telegram 輸入代號反向查詢；全部預設關閉，走同一組 LINE／Telegram 通道 |
 
 <details>
 <summary><b>📦 更多細節</b></summary>
@@ -67,9 +67,9 @@
 
 **進階功能**(側邊欄底部收合,共十一頁):每日摘要、大盤研究、研究歷史、事件中心、買點策略、選股復盤、策略實驗室、社群聲量、社群即時撈取、模型驗證、資料健康。
 
-**AI 的用途**:今日選股卡片與個股頁的白話解讀、個股頁依買點策略約束的行動建議(Advice,buy 需策略觸發且有有效計畫)、台股選股頁把中文條件翻譯成篩選欄位、多股比較頁與每日摘要的客觀解讀。全部手動觸發;可接雲端或本機 OpenAI 相容服務(LM Studio、llama.cpp),本機模型會自動關閉思考模式以加快回應。不設定 AI 完全不影響其他功能。
+**AI 的用途**:今日選股卡片與個股頁的白話解讀、個股頁依買點策略約束的行動建議(Advice,buy 需策略觸發且有有效計畫)、台股選股頁把中文條件翻譯成篩選欄位、多股比較頁與每日摘要的客觀解讀。預設全部手動觸發（盤後自動 AI 說明、提醒後 AI 解讀、盤後自動 AI 反省三項為選配，預設關閉）;可接雲端或本機 OpenAI 相容服務(LM Studio、llama.cpp),本機模型會自動關閉思考模式以加快回應。不設定 AI 完全不影響其他功能。
 
-**外部提醒**:在「設定 → 監控」儲存 LINE Messaging API 或 Telegram Bot 後，可先傳送測試訊息，再勾選全域外送通道；App 內提醒一律保留，可選 App only、加 LINE、加 Telegram 或兩者都加。只有 TWStock 後端執行並觸發提醒時才會發送；外部服務故障不影響 App 內提醒。憑證保存在本機 `data/user_data/secrets.json`，不會送到前端回應中。
+**外部提醒**:在「設定 → 即時監控」儲存 LINE Messaging API 或 Telegram Bot 後，可先傳送測試訊息，再勾選全域外送通道；App 內提醒一律保留，可選 App only、加 LINE、加 Telegram 或兩者都加。只有 TWStock 後端執行並觸發提醒時才會發送；外部服務故障不影響 App 內提醒。憑證保存在本機 `data/user_data/secrets.json`，不會送到前端回應中。
 
 </details>
 
@@ -130,7 +130,7 @@ docker compose up --build
 
 ### 方式 C:原始碼開發模式
 
-> 前置依賴:Python ≥ 3.11 · Node ≥ 20 · [`uv`](https://docs.astral.sh/uv/) · `pnpm`(`npm i -g pnpm`)
+> 前置需求:Python ≥ 3.11 · Node ≥ 20 · [`uv`](https://docs.astral.sh/uv/) · `pnpm`(`npm i -g pnpm`)
 
 ```bash
 cp .env.example .env
@@ -206,7 +206,7 @@ Windows 安裝包已內含啟動與一般研究功能需要的公開 seed，第�
 
 ```ini
 PORT=3018                      # 後端服務連接埠
-HOST=0.0.0.0                   # 監聽位址;只給本機用可設 127.0.0.1
+HOST=127.0.0.1                 # 監聽位址;要讓區域網路其他裝置連線才設 0.0.0.0
 DATA_DIR=./data                # 資料存放目錄
 AUTH_PASSWORD=''               # 首次啟動預先設定存取密碼(選填)
 AI_API_KEY=                    # 選配;留空 = 關閉 AI 功能
@@ -222,9 +222,9 @@ AI_API_KEY=                    # 選配;留空 = 關閉 AI 功能
 | :--- | :--- |
 | **後端** | FastAPI · Pydantic v2 · APScheduler · sse-starlette |
 | **資料** | Polars(計算)· DuckDB(查詢)· Parquet(儲存) |
-| **資料來源** | TWSE / TPEx 官方公開資料 · 可插件化擴充(YAML 自訂源) |
+| **資料來源** | TWSE / TPEx 官方公開資料 · 可外掛化擴充(YAML 自訂源) |
 | **AI**(選配) | OpenAI 或任何 OpenAI 相容介面 |
-| **前端** | React 18 · Vite · TypeScript · Tailwind · TanStack Query · Lightweight Charts · ECharts · dnd-kit |
+| **前端** | React 18 · Vite · TypeScript · Tailwind · TanStack Query · ECharts · dnd-kit |
 | **桌面版** | PyInstaller · pywebview · Inno Setup(Windows 安裝包) |
 | **部署** | Docker 兩階段建置,前端 dist 複製進後端映像檔,**單容器** |
 
@@ -236,13 +236,12 @@ AI_API_KEY=                    # 選配;留空 = 關閉 AI 功能
 | :--- | :--- |
 | [快速上手](./快速上手.md) | **五分鐘上手：安裝、看懂第一頁、加自選、開提醒** |
 | [docs/操作說明書.md](./docs/操作說明書.md) | 逐頁操作、推播設定、資料更新、常見問題、資料與隱私 |
-| [docs/deployment.md](./docs/deployment.md) | 部署方式(Dev / Docker / GitHub Actions)、舊 CPU 相容、更新程式、存取密碼 |
+| [docs/deployment.md](./docs/deployment.md) | 部署方式(Dev / Docker)、舊 CPU 相容、更新程式、存取密碼 |
 | [docs/configuration.md](./docs/configuration.md) | 所有 `.env` 設定項詳解 |
 | [docs/taiwan-market-overview.md](./docs/taiwan-market-overview.md) | 台股(TWSE/TPEx)模組開發者指南:啟動、測試、本地資料位置 |
 | [docs/taiwan-data-sources.md](./docs/taiwan-data-sources.md) | 台股資料來源與端點說明 |
 | [docs/custom-data-source.md](./docs/custom-data-source.md) | 自訂資料來源接入、YAML 設定與 mock 聯調範例 |
-| [docs/plugin-development.md](./docs/plugin-development.md) | 資料來源插件開發規範 |
-| [docs/secondary-development.md](./docs/secondary-development.md) | 二次開發、前端插槽、後端擴展點 |
+| [docs/secondary-development.md](./docs/secondary-development.md) | 二次開發、前端插槽、後端擴充點 |
 | [docs/archive/](./docs/archive/) | 歷史階段報告與研究紀錄（唯讀保存，不再維護） |
 | [CONTRIBUTING.md](./CONTRIBUTING.md) | 貢獻、AI 開發與複審規範 |
 

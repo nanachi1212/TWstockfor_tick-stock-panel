@@ -31,7 +31,6 @@ historical 創新板 table shows the code on that date (a board move resets it).
 """
 from __future__ import annotations
 
-# ruff: noqa: RUF001 -- Official Chinese provider fields must remain exact.
 import hashlib
 import json
 import logging
@@ -396,19 +395,31 @@ def resolve_industry_only_codes(
     terminations = dict(zip(termination_rows["code"], termination_rows["termination_date"], strict=True))
     companies = evidence.load_company()
 
+    # One partition read per first-seen day instead of one per code.
+    codes_by_day: dict[date, list[str]] = {}
+    for code, day in first_seen.items():
+        codes_by_day.setdefault(day, []).append(code)
+    statuses: dict[str, list[str]] = {}
+    stored_days: set[date] = set()
+    for day, codes in codes_by_day.items():
+        if not classifications.has(day):
+            continue
+        stored_days.add(day)
+        frame = _with_type_contract(
+            pl.read_parquet(classifications.partition_path(day))).filter(pl.col("code").is_in(codes))
+        for code, status in zip(frame["code"], frame["classification_status"], strict=True):
+            statuses.setdefault(code, []).append(status)
+
     pending: dict[date, list[str]] = {}
     industry_members: set[str] = set()
     for code, day in first_seen.items():
-        if not classifications.has(day):
+        if day not in stored_days:
             continue
-        mine = _with_type_contract(
-            pl.read_parquet(classifications.partition_path(day))).filter(pl.col("code") == code)
-        if mine.height == 1 and mine["classification_status"][0] == "verified":
-            continue
-        if mine.height > 1:
+        mine = statuses.get(code, [])
+        if mine == ["verified"] or len(mine) > 1:
             continue
         pending.setdefault(day, []).append(code)
-        if mine.height == 1:
+        if mine:
             industry_members.add(code)
 
     decisions: dict[str, Decision] = {}

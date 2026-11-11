@@ -1,4 +1,4 @@
-# ruff: noqa: RUF001 -- fixtures mirror official Chinese payload text exactly.
+
 """A2a/A2b regression tests — historical census, classification, worker runtime.
 
 Every test runs offline: official payloads are inline fixtures shaped exactly
@@ -13,6 +13,7 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import date, datetime, timedelta
 from pathlib import Path
 
+import polars as pl
 import pytest
 
 from app.taiwan.backfill_worker import (
@@ -30,7 +31,6 @@ from app.taiwan.historical_classification import (
     HistoricalClassificationStore,
     TwseHistoricalClassifier,
     classification_queue,
-    verified_stock_codes,
 )
 from app.taiwan.observed_universe import (
     CensusSchemaError,
@@ -493,7 +493,7 @@ def test_tpex_rows_can_never_reach_the_primary_verified_universe(tmp_path: Path)
                                           client=_StubClient(_classification_router))
     classification.write(PROBE_DATE, classifier.classify_date(PROBE_DATE))
 
-    verified = verified_stock_codes(classification)
+    verified = classification.read().filter(pl.col("primary_oos_eligible_type"))
     assert verified.is_empty(), "industry membership cannot establish a verified common stock"
 
     observed_tpex = store.read("TPEX")
@@ -508,7 +508,7 @@ def test_industry_only_membership_cannot_claim_common_stock(tmp_path: Path) -> N
                                           client=_StubClient(_classification_router))
     classification.write(PROBE_DATE, classifier.classify_date(PROBE_DATE))
 
-    verified = verified_stock_codes(classification)
+    verified = classification.read().filter(pl.col("primary_oos_eligible_type"))
     codes = set(verified["code"].to_list())
     assert not ({"2330", "1701"} & codes)
     assert "0050" not in codes, "ETFs are classified but are not the stock universe"

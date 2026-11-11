@@ -3,7 +3,7 @@ ARG BACKEND_EXTRAS=
 ARG CODEX_CLI_VERSION=0.144.3
 
 # === Stage 1: 前端建置 ===
-FROM node:20-alpine AS frontend-builder
+FROM node:22-alpine AS frontend-builder
 WORKDIR /build
 RUN npm install -g pnpm@9
 COPY frontend/package.json frontend/pnpm-lock.yaml* ./
@@ -13,7 +13,7 @@ RUN pnpm build
 
 # === Stage 1c: Codex CLI ===
 # 固定版本讓映像檔可重現；只複製安裝產物到執行映像檔，不保留 npm。
-FROM node:20-bookworm-slim AS codex-builder
+FROM node:22-bookworm-slim AS codex-builder
 # 版本由頂層 ARG CODEX_CLI_VERSION 提供, 這裡僅宣告以繼承, 不再重複預設值。
 ARG CODEX_CLI_VERSION
 RUN npm install --global --prefix /opt/codex "@openai/codex@${CODEX_CLI_VERSION}" \
@@ -24,7 +24,7 @@ RUN npm install --global --prefix /opt/codex "@openai/codex@${CODEX_CLI_VERSION}
     && /opt/codex-native --version
 
 # === Stage 2: Python 執行環境 ===
-FROM python:3.11-slim AS runtime
+FROM python:3.12-slim AS runtime
 ARG BACKEND_EXTRAS=
 WORKDIR /app
 

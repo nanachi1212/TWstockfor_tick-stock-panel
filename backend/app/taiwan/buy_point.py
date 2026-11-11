@@ -5,7 +5,7 @@ evaluates a typed, point-in-time market snapshot and returns an explainable
 signal.  API and scheduled callers are responsible for assembling that snapshot
 from the repository's existing data stores.
 """
-# ruff: noqa: RUF001 -- user-facing Traditional Chinese labels are intentional.
+
 from __future__ import annotations
 
 import json
@@ -327,6 +327,14 @@ def evaluate_buy_point(strategy: BuyPointStrategy, data: BuyPointMarketData) -> 
         needed = max(1, c.resonance_min_categories)
         price_labels = [label for label in failed if label.startswith(("回檔 ", "突破 "))]
         failed = [label for label in failed if label not in price_labels]
+        if passed_categories >= needed:
+            # Fewer than all three categories may suffice, so a failed category no longer blocks.
+            category_labels = {"quant": {f"Quant >= {c.quant_min:g}" if c.quant_min is not None else "",
+                                         "仍在 Quant universe"},
+                               "institutional": {"法人由賣轉買或淨買超改善"}}
+            for category, labels in category_labels.items():
+                if not category_pass.get(category, False):
+                    failed = [label for label in failed if label not in labels]
         if price_ok:
             near_failures.difference_update(price_labels)
             triggered = [label for label in triggered if not label.startswith("接近")]

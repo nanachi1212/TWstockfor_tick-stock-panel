@@ -9,19 +9,19 @@ import { storage } from '@/lib/storage'
 import { useTodayQuantSelection } from '@/components/quant/TodaySelection'
 import { DataQualityBadge, freshnessLabel, type TaiwanQuoteMetaLike } from '@/components/taiwan/TaiwanDataQuality'
 import { TaiwanRuleEditorDialog } from '@/components/monitor/TaiwanRuleEditorDialog'
+import { Modal } from '@/components/Modal'
 import {
   buildPortfolioPositions,
   createPortfolioTransaction,
   isTaiwanPortfolioSymbol,
   isPortfolioTransaction,
-  nowTaipeiTime,
   parsePortfolioImport,
   PORTFOLIO_CHANGED,
   readPortfolioLedger,
-  todayTaipeiDate,
   type PortfolioSide,
   type PortfolioTransaction,
 } from '@/lib/portfolio'
+import { fmtTaipeiDateTime, nowTaipeiTime, taipeiDate, todayTaipei } from '@/lib/format'
 
 const PORTFOLIO_LOCK_DB = 'tick-stock-panel-portfolio-lock'
 const PORTFOLIO_LOCK_STORE = 'locks'
@@ -207,18 +207,18 @@ export function PortfolioTradeDialog({
   const [shares, setShares] = useState('')
   const [price, setPrice] = useState(quote && quote > 0 ? String(quote) : '')
   const [fee, setFee] = useState('0')
-  const [date, setDate] = useState(todayTaipeiDate)
+  const [date, setDate] = useState(todayTaipei)
   const [tradeTime, setTradeTime] = useState(nowTaipeiTime)
   const [error, setError] = useState('')
   const position = useMemo(() => buildPortfolioPositions(transactions).find(item => item.symbol === symbol.trim().toUpperCase() && item.shares > 0), [transactions, symbol])
   const instrumentQuery = useQuery({
     queryKey: ['portfolio-instrument', symbol.trim().toUpperCase(), date],
     queryFn: () => api.taiwanPortfolioInstrument(symbol.trim().toUpperCase(), date),
-    enabled: side === 'buy' && isTaiwanPortfolioSymbol(symbol) && date <= todayTaipeiDate(),
+    enabled: side === 'buy' && isTaiwanPortfolioSymbol(symbol) && date <= todayTaipei(),
     retry: false,
   })
   const taxInputsValid = !!symbol.trim() && Number.isInteger(Number(shares)) && Number(shares) > 0
-    && Number.isFinite(Number(price)) && Number(price) > 0 && /^\d{4}-\d{2}-\d{2}$/.test(date) && date <= todayTaipeiDate()
+    && Number.isFinite(Number(price)) && Number(price) > 0 && /^\d{4}-\d{2}-\d{2}$/.test(date) && date <= todayTaipei()
   const taxQuery = useQuery({
     queryKey: ['portfolio-sell-tax', symbol.trim().toUpperCase(), shares, price, date],
     queryFn: () => api.taiwanTransactionTax(symbol.trim().toUpperCase(), Number(shares) * Number(price), date),
@@ -261,10 +261,10 @@ export function PortfolioTradeDialog({
   }
 
   return (
-    <div className="fixed inset-0 z-[80] grid place-items-center bg-black/55 p-4" role="presentation" onMouseDown={event => { if (event.target === event.currentTarget) onClose() }}>
-      <form onSubmit={submit} className="w-full max-w-md space-y-3 rounded-2xl border border-border bg-surface p-4 shadow-2xl" aria-label="Portfolio 成交紀錄">
+    <Modal onClose={onClose} labelledBy="portfolio-trade-title" overlayClassName="fixed inset-0 z-[80] grid place-items-center bg-black/55 p-4" panelClassName="w-full max-w-md rounded-2xl border border-border bg-surface shadow-2xl">
+      <form onSubmit={submit} className="space-y-3 p-4" aria-label="Portfolio 成交紀錄">
         <div className="flex items-center justify-between">
-          <h2 className="text-sm font-semibold">記錄{side === 'buy' ? '買入' : '賣出'}</h2>
+          <h2 id="portfolio-trade-title" className="text-sm font-semibold">記錄{side === 'buy' ? '買入' : '賣出'}</h2>
           <button type="button" onClick={onClose} className="text-xs text-muted hover:text-foreground">關閉</button>
         </div>
         <div className="grid grid-cols-2 gap-2">
@@ -285,7 +285,7 @@ export function PortfolioTradeDialog({
             <input type="number" min="0.01" step="0.01" value={price} onChange={event => setPrice(event.target.value)} required className="w-full rounded-lg border border-border bg-base px-3 py-2 text-foreground" />
           </label>
           <label className="space-y-1 text-xs text-secondary">日期
-            <input type="date" max={todayTaipeiDate()} value={date} onChange={event => setDate(event.target.value)} required className="w-full rounded-lg border border-border bg-base px-3 py-2 text-foreground" />
+            <input type="date" max={todayTaipei()} value={date} onChange={event => setDate(event.target.value)} required className="w-full rounded-lg border border-border bg-base px-3 py-2 text-foreground" />
           </label>
           <label className="space-y-1 text-xs text-secondary">成交時間（台北）
             <input type="time" value={tradeTime} onChange={event => setTradeTime(event.target.value)} required className="w-full rounded-lg border border-border bg-base px-3 py-2 text-foreground" />
@@ -311,7 +311,7 @@ export function PortfolioTradeDialog({
         {error && <p role="alert" className="rounded-lg bg-danger/10 px-3 py-2 text-xs text-danger">{error}</p>}
         <button type="submit" disabled={!!ledgerError || (side === 'sell' ? (!taxQuery.data || taxQuery.isFetching) : (!instrumentQuery.data || instrumentQuery.isFetching))} className="w-full rounded-lg bg-accent px-3 py-2 text-xs font-semibold text-white hover:bg-accent/90 disabled:cursor-not-allowed disabled:opacity-50">儲存成交</button>
       </form>
-    </div>
+    </Modal>
   )
 }
 
@@ -381,10 +381,10 @@ export function PortfolioPanel({ symbol, name, quote: detailQuote, change: detai
   const dailyUpCount = positions.filter(position => (quotes.get(position.symbol)?.change ?? 0) > 0).length
   const dailyDownCount = positions.filter(position => (quotes.get(position.symbol)?.change ?? 0) < 0).length
   const quantTopCount = positions.filter(position => quantBySymbol.has(position.symbol)).length
-  const todayTaipei = new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Taipei' })
+  const today = todayTaipei()
   const portfolioAlertsToday = (portfolioAlerts.data?.alerts ?? []).filter(event => {
-    const eventDate = new Date(event.ts).toLocaleDateString('sv-SE', { timeZone: 'Asia/Taipei' })
-    return symbols.includes(event.symbol ?? '') && eventDate === todayTaipei
+    const eventDate = taipeiDate(event.ts)
+    return symbols.includes(event.symbol ?? '') && eventDate === today
   }).length
   const unavailableQuoteValue = quoteFetchFailed ? '行情更新失敗' : '報價不完整'
 
@@ -444,8 +444,8 @@ export function PortfolioPanel({ symbol, name, quote: detailQuote, change: detai
           <Summary label={hasDegradedQuote ? '未實現報酬率（含非即時報價）' : '未實現報酬率'} value={hasMissingQuote || totalCost === 0 ? (hasMissingQuote ? unavailableQuoteValue : '—') : signedPct(totalUnrealized / totalCost * 100)} tone={hasMissingQuote ? null : totalUnrealized} />
           <Summary label={hasDegradedQuote ? '今日持股變化（含非即時報價）' : '今日持股變化'} value={hasMissingQuote ? unavailableQuoteValue : hasMissingDailyChange ? '報價不完整' : money(totalDailyChange)} tone={hasMissingQuote || hasMissingDailyChange ? null : totalDailyChange} />
           <Summary label="今日上漲 / 下跌" value={quotesLoading ? '—' : quoteFetchFailed || hasMissingDailyChange || hasStaleDailyChange ? '資料不完整' : `${dailyUpCount} / ${dailyDownCount} 檔`} />
-          <Summary label="Quant Top 10 持股" value={quant.loading ? '—' : quant.error || !quant.validRun ? 'unavailable' : `${quantTopCount} 檔`} />
-          <Summary label="今日持股提醒" value={portfolioAlerts.isLoading ? '—' : portfolioAlerts.isError ? 'unavailable' : `${portfolioAlertsToday} 則`} />
+          <Summary label="Quant Top 10 持股" value={quant.loading ? '—' : quant.error || !quant.validRun ? '無法取得' : `${quantTopCount} 檔`} />
+          <Summary label="今日持股提醒" value={portfolioAlerts.isLoading ? '—' : portfolioAlerts.isError ? '無法取得' : `${portfolioAlertsToday} 則`} />
         </div>
       )}
       {!symbol && quotesQuery.isLoading && positions.length > 0 && <p role="status" className="text-xs text-muted">正在載入持股報價…</p>}
@@ -548,7 +548,7 @@ function usePortfolioAutoSync(enabled: boolean) {
     void (async () => {
       try {
         const { text } = await api.portfolioImportRead({ path })
-        if (!await importHoldingRows(parsePortfolioImport(text, todayTaipeiDate()), true, { previous: mark, version: JSON.stringify([info.path, info.modified]) })) return
+        if (!await importHoldingRows(parsePortfolioImport(text, todayTaipei()), true, { previous: mark, version: JSON.stringify([info.path, info.modified]) })) return
         void qc.invalidateQueries({ queryKey: QK.watchlist })
         setMessage(`已從 ${info.name} 自動同步持股`)
       } catch (cause) {
@@ -617,7 +617,7 @@ function PortfolioImportDialog({ onClose }: { onClose: () => void }) {
       setError(cause instanceof Error ? cause.message : '讀取檔案失敗')
     }
   }
-  const parsed = useMemo(() => parsePortfolioImport(text, todayTaipeiDate()), [text])
+  const parsed = useMemo(() => parsePortfolioImport(text, todayTaipei()), [text])
 
   const runImport = async () => {
     setBusy(true)
@@ -639,8 +639,7 @@ function PortfolioImportDialog({ onClose }: { onClose: () => void }) {
   }
 
   return (
-    <div className="fixed inset-0 z-[80] grid place-items-center bg-black/55 p-4" role="presentation" onMouseDown={event => { if (event.target === event.currentTarget) onClose() }}>
-      <div className="max-h-[calc(100vh-2rem)] w-full max-w-2xl space-y-3 overflow-y-auto rounded-2xl border border-border bg-surface p-4 shadow-2xl" role="dialog" aria-label="匯入持股">
+    <Modal onClose={onClose} ariaLabel="匯入持股" overlayClassName="fixed inset-0 z-[80] grid place-items-center bg-black/55 p-4" panelClassName="max-h-[calc(100vh-2rem)] w-full max-w-2xl space-y-3 overflow-y-auto rounded-2xl border border-border bg-surface p-4 shadow-2xl">
         <div className="flex items-center justify-between">
           <h2 className="text-sm font-semibold">一鍵匯入持股</h2>
           <button type="button" onClick={onClose} className="text-xs text-muted hover:text-foreground">關閉</button>
@@ -685,7 +684,7 @@ function PortfolioImportDialog({ onClose }: { onClose: () => void }) {
                   <li key={file.path}>
                     <button type="button" disabled={loadingSource} onClick={() => void loadCloud({ path: file.path }, file.name)} className="w-full px-3 py-1.5 text-left hover:bg-elevated disabled:opacity-50">
                       <span className="font-medium text-foreground">{file.name}</span>
-                      <span className="ml-2 text-muted">{new Date(file.modified * 1000).toLocaleString('zh-TW', { hour12: false })}</span>
+                      <span className="ml-2 text-muted">{fmtTaipeiDateTime(file.modified * 1000, '—', true)}</span>
                       <div className="truncate text-xs text-muted">{file.folder}</div>
                     </button>
                   </li>
@@ -733,8 +732,7 @@ function PortfolioImportDialog({ onClose }: { onClose: () => void }) {
         <button type="button" disabled={busy || loadingSource || !!parsed.errors.length || (replace && parsed.incomplete) || (!parsed.rows.length && !(replace && parsed.emptySnapshot))} onClick={() => void runImport()} className="w-full rounded-lg bg-accent px-3 py-2 text-xs font-semibold text-white disabled:opacity-50">
           {busy ? '匯入中…' : loadingSource ? '讀取來源中…' : parsed.emptySnapshot && replace ? '以零持股快照取代帳本' : `匯入 ${parsed.rows.length} 檔持股`}
         </button>
-      </div>
-    </div>
+    </Modal>
   )
 }
 

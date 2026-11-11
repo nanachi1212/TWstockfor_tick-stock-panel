@@ -17,8 +17,9 @@ import {
 } from '@/lib/api'
 import { evidenceLabel } from '@/lib/evidenceLabel'
 import { cn } from '@/lib/cn'
-import { fmtDate } from '@/lib/format'
+import { fmtPct, todayTaipei } from '@/lib/format'
 import { QK } from '@/lib/queryKeys'
+import { useDebounced } from '@/lib/useDebounced'
 import { useCompareSymbols, MAX_COMPARE_SYMBOLS, MIN_COMPARE_SYMBOLS } from '@/lib/useCompareSymbols'
 import { DatePicker } from '@/components/DatePicker'
 
@@ -38,10 +39,11 @@ export function TaiwanStockCompare() {
   const [searchQuery, setSearchQuery] = useState('')
   const [isSearchOpen, setIsSearchOpen] = useState(false)
 
+  const settledSearch = useDebounced(searchQuery)
   const searchQueryResult = useQuery({
-    queryKey: ['taiwanSearch', searchQuery],
-    queryFn: () => api.taiwanSearch(searchQuery, 10),
-    enabled: searchQuery.trim().length > 0,
+    queryKey: ['taiwanSearch', settledSearch],
+    queryFn: () => api.taiwanSearch(settledSearch, 10),
+    enabled: settledSearch.trim().length > 0,
     staleTime: 60_000,
   })
 
@@ -134,7 +136,7 @@ export function TaiwanStockCompare() {
 
   const comparisonErrorMessage =
     comparisonQuery.error instanceof Error ? comparisonQuery.error.message : '比較資料載入失敗，請重試'
-  const fmtPct = (v: number | null | undefined) => (v == null ? '資料不足' : `${(v * 100).toFixed(2)}%`)
+  const fmtRatio = (v: number | null | undefined) => (v == null ? '資料不足' : fmtPct(v, 2, false))
   const fmtNum = (v: number | null | undefined, digits = 2) => (v == null ? '資料不足' : v.toFixed(digits))
 
   // 資料新鮮度提示文字（單行、非儀表板）：依 comparison_date 與 daily_as_of
@@ -271,7 +273,7 @@ export function TaiwanStockCompare() {
                 <DatePicker
                   value={explicitDate || ''}
                   onChange={v => setDate(v)}
-                  max={fmtDate(new Date())}
+                  max={todayTaipei()}
                   placeholder="最新"
                   align="right"
                 />
@@ -346,7 +348,7 @@ export function TaiwanStockCompare() {
                         <td className="sticky left-0 bg-surface py-2 pr-3 text-muted">5 日報酬率</td>
                         {data.instruments.map(inst => (
                           <td key={inst.symbol} className="py-2 px-3 font-mono">
-                            {fmtPct(inst.context.price_context.return_5d)}
+                            {fmtRatio(inst.context.price_context.return_5d)}
                           </td>
                         ))}
                       </tr>
@@ -354,7 +356,7 @@ export function TaiwanStockCompare() {
                         <td className="sticky left-0 bg-surface py-2 pr-3 text-muted">20 日報酬率</td>
                         {data.instruments.map(inst => (
                           <td key={inst.symbol} className="py-2 px-3 font-mono">
-                            {fmtPct(inst.context.price_context.return_20d)}
+                            {fmtRatio(inst.context.price_context.return_20d)}
                           </td>
                         ))}
                       </tr>
@@ -390,7 +392,7 @@ export function TaiwanStockCompare() {
                         <td className="sticky left-0 bg-surface py-2 pr-3 text-muted">異常訊號數</td>
                         {data.instruments.map(inst => (
                           <td key={inst.symbol} className="py-2 px-3 font-mono">
-                            {inst.diagnostic_item?.signal_count ?? 0}
+                            {inst.diagnostic_item?.signal_count ?? '—'}
                           </td>
                         ))}
                       </tr>

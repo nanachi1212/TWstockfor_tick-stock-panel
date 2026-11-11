@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-# ruff: noqa: RUF001 -- fixtures mirror official MOPS text exactly.
 import copy
 import json
 from datetime import date, datetime

@@ -95,7 +95,7 @@ export function SettingsSystemPanel() {
 
         <ToggleRow
           label="開啟監控通知彈窗"
-          desc="收到監控告警時在右下角彈出通知卡片"
+          desc="收到監控警示時在右下角彈出通知卡片"
           checked={toastEnabled}
           onChange={(v) => {
             localStorage.setItem('alert_toast_enabled', v ? '1' : '0')
@@ -126,7 +126,7 @@ export function SettingsSystemPanel() {
 
         <ToggleRow
           label="通知音效"
-          desc="收到監控告警時播放提示音"
+          desc="收到監控警示時播放提示音"
           checked={soundEnabled}
           disabled={!toastEnabled}
           onChange={(v) => {
@@ -176,8 +176,8 @@ export function SettingsSystemPanel() {
         </div>
 
         <ToggleRow
-          label="監控告警語音播報"
-          desc="收到告警時用中文語音播報內容 (需瀏覽器支援,預設關閉)"
+          label="監控警示語音播報"
+          desc="收到警示時用中文語音播報內容 (需瀏覽器支援,預設關閉)"
           checked={voiceEnabled}
           disabled={!toastEnabled}
           onChange={(v) => {

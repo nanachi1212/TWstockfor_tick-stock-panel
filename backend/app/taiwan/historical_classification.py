@@ -231,7 +231,7 @@ class TwseHistoricalClassifier:
             raise ValueError("TWSE classification response date mismatch")
         stat = str(payload.get("stat", "")).strip()
         if stat != "OK":
-            if stat == "很抱歉，沒有符合條件的資料!":  # noqa: RUF001 -- Official status.
+            if stat == "很抱歉，沒有符合條件的資料!":
                 return set()
             raise ValueError(f"TWSE classification provider error: {stat or 'missing status'}")
         table = next(
@@ -335,14 +335,6 @@ class TwseHistoricalClassifier:
             stats["dates_done"] += 1
             stats["completed_dates"].append(day.isoformat())
         return stats
-
-
-def verified_stock_codes(store: HistoricalClassificationStore) -> pl.DataFrame:
-    """Codes verified as common stocks, with the session that established it."""
-    frame = store.read()
-    if frame.is_empty():
-        return frame
-    return frame.filter(pl.col("primary_oos_eligible_type"))
 
 
 def classification_counts(

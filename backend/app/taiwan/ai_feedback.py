@@ -3,18 +3,18 @@
 只做兩件事: 把回饋追加到 data/user_data/ai_feedback.jsonl、算出各模型的準確感受統計。
 不改變任何 AI 結果、不參與排名；目的是讓使用者一週後知道哪個模型值得用。
 """
-# ruff: noqa: RUF002 -- user-facing Traditional Chinese text is intentional.
+
 from __future__ import annotations
 
 import json
 import logging
 from collections import defaultdict
-from datetime import datetime
 from pathlib import Path
 from typing import Any
 
 from app.config import settings
 from app.file_lock import file_lock
+from app.taiwan.realtime.calendar import taipei_now
 
 logger = logging.getLogger(__name__)
 
@@ -38,7 +38,7 @@ def record(
     data_dir: Path | None = None,
 ) -> dict[str, Any]:
     entry = {
-        "ts": datetime.now().astimezone().isoformat(timespec="seconds"),
+        "ts": taipei_now().isoformat(timespec="seconds"),
         "symbol": str(symbol or "").strip().upper(),
         "record_id": str(record_id or "").strip() or None,
         "model": str(model or "").strip() or None,

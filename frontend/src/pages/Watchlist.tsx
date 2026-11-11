@@ -47,6 +47,7 @@ import {
   buildExtColumnsParam,
 } from '@/lib/watchlist-columns'
 import { type WatchlistView, initialWatchlistView } from '@/lib/watchlist-view'
+import { Modal } from '@/components/Modal'
 
 // ===== 台灣市場篩選 =====
 const BOARDS = ['上市', '上櫃'] as const
@@ -67,7 +68,7 @@ function turnoverColor(rate: number | null | undefined): string {
 }
 
 // ===== 動態列渲染 =====
-// 表頭/單元格渲染已共享化：純資料列由 @/components/stock-table/primitives 的
+// 表頭/儲存格渲染已共享化：純資料列由 @/components/stock-table/primitives 的
 // renderBuiltinDataCell 處理；symbol/signals/candle/ext 等需上下文的列由下方
 // 表格 renderCell 回呼處理。表格骨架使用 StockDataTable。
 
@@ -359,7 +360,7 @@ function StockSearchBox({
                     </span>
                   ) : (
                     // 未加自選: + 一鍵加入當前分組頁籤 (全部/未分組頁簽下加為未分組);
-                    // 文件夾圖示展開分組選單, 顯式選擇目標分組
+                    // 資料夾圖示展開分組選單, 顯式選擇目標分組
                     <span className="flex shrink-0 items-center gap-0.5">
                       <button
                         type="button"
@@ -581,7 +582,7 @@ const StockCard = React.memo(function StockCard({
 
         {/* 第三行: 指標 */}
         <div className="flex flex-wrap items-center gap-x-2.5 gap-y-0.5 text-xs text-muted leading-relaxed">
-          <span title="週轉率">換手<span className={`font-mono ml-0.5 ${turnoverColor(r.turnover_rate)}`}>{r.turnover_rate != null ? `${r.turnover_rate.toFixed(2)}%` : '—'}</span></span>
+          <span title="週轉率">週轉<span className={`font-mono ml-0.5 ${turnoverColor(r.turnover_rate)}`}>{r.turnover_rate != null ? `${r.turnover_rate.toFixed(2)}%` : '—'}</span></span>
           <span title="量比">量比<span className="font-mono ml-0.5">{fmtPrice(r.vol_ratio_5d)}</span></span>
           <span title="RSI14">RSI<span className="font-mono ml-0.5">{r.rsi_14 != null ? r.rsi_14.toFixed(1) : '—'}</span></span>
           {/* 擴展資料列展示在卡片中 */}
@@ -613,7 +614,7 @@ const StockCard = React.memo(function StockCard({
         </div>
       </div>
 
-      {/* 信號標籤區 */}
+      {/* 訊號標籤區 */}
       {signals.length > 0 && (
         <div className="pl-4 pr-2.5 pt-1.5 pb-2 flex flex-wrap gap-1">
           {signals.slice(0, 3).map(s => (
@@ -974,6 +975,7 @@ export function Watchlist() {
   const [confirmRemove, setConfirmRemove] = useState<string | null>(null)
 
   // 穩定的 per-symbol 回呼 (供 memo 化的 StockCard 使用, 避免每次渲染都傳新引用)
+  const handleQuickBuy = useCallback((symbol: string, name: string, quote: number | null) => setPortfolioTrade({ symbol, name, quote }), [])
   const handleCardPreview = useCallback((sym: string, _name: string) => {
     navigate(`/stocks/${encodeURIComponent(sym)}`)
   }, [navigate])
@@ -994,7 +996,7 @@ export function Watchlist() {
   }, [])
 
   const listEntries = useMemo(() => list.data?.symbols ?? [], [list.data?.symbols])
-  const allSymbols = listEntries.map(s => s.symbol)
+  const allSymbols = useMemo(() => listEntries.map(s => s.symbol), [listEntries])
   const rows = useMemo(() => enriched.data?.rows ?? [], [enriched.data?.rows])
   const groupBySymbol = useMemo(
     () => new Map(listEntries.map(entry => [entry.symbol, entry.group_ids ?? []])),
@@ -1206,7 +1208,7 @@ export function Watchlist() {
       candleMeta={klineBatch.data?.meta?.[r.symbol]}
       showCandle={dailyKVisible}
       onPreview={handleCardPreview}
-      onQuickBuy={(symbol, name, quote) => setPortfolioTrade({ symbol, name, quote })}
+      onQuickBuy={handleQuickBuy}
       onConfirmRemove={handleCardConfirmRemove}
       onCancelRemove={handleCardCancelRemove}
       onRequestRemove={handleCardRequestRemove}
@@ -1357,7 +1359,7 @@ export function Watchlist() {
                 </button>
               </>
             )}
-            {/* 擴展插槽: 自選頁工具欄二開區 (無註冊時不渲染) */}
+            {/* 擴展插槽: 自選頁工具列擴充區 (無註冊時不渲染) */}
             <ExtensionSlot
               name="watchlist.toolbar"
               context={{
@@ -1748,7 +1750,7 @@ export function Watchlist() {
                 if (key === 'turnover') {
                   return <td className={`${numCls} ${turnoverColor(r.turnover_rate)}`}>{r.turnover_rate != null ? `${r.turnover_rate.toFixed(2)}%` : '—'}</td>
                 }
-                // 信號列
+                // 訊號列
                 if (key === 'signals') {
                   const signals = getSignals(r)
                   return (
@@ -1845,22 +1847,7 @@ export function Watchlist() {
       {/* 清空確認彈窗 */}
       <AnimatePresence>
         {confirmClear && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center">
-            <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              transition={{ duration: 0.15 }}
-              className="absolute inset-0 bg-black/60 backdrop-blur-sm"
-              onClick={() => setConfirmClear(false)}
-            />
-            <motion.div
-              initial={{ opacity: 0, scale: 0.95, y: 12 }}
-              animate={{ opacity: 1, scale: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.97, y: 8 }}
-              transition={{ duration: 0.2, ease: [0.16, 1, 0.3, 1] }}
-              className="relative w-[90vw] max-w-[380px] rounded-card border border-border bg-base shadow-2xl p-6"
-            >
+          <Modal onClose={() => setConfirmClear(false)} ariaLabel="確認清空自選" overlayClassName="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm" panelClassName="w-[90vw] max-w-[380px] rounded-card border border-border bg-base shadow-2xl p-6">
               <h3 className="text-sm font-medium text-foreground mb-2">確認清空自選</h3>
               <p className="text-xs text-secondary mb-5">
                 將移除全部 {allSymbols.length} 檔自選股,此操作無法復原。
@@ -1880,8 +1867,7 @@ export function Watchlist() {
                   {clearAll.isPending ? '清除中…' : '確認清空'}
                 </button>
               </div>
-            </motion.div>
-          </div>
+</Modal>
         )}
       </AnimatePresence>
 

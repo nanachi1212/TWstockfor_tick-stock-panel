@@ -1,5 +1,5 @@
 """Official corporate-action transport/parser; arithmetic is in the domain layer."""
-# ruff: noqa: RUF001 -- Official response text and units must remain exact.
+
 from __future__ import annotations
 
 import json

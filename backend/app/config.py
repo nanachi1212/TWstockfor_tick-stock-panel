@@ -25,7 +25,7 @@ def _user_data_root() -> Path:
       1. 環境變數 DATA_DIR (pydantic-settings 自動注入到 settings.data_dir, 不在此處理)
       2. 打包桌面版: %LOCALAPPDATA%/NanachiStockPanel/data
          - 與程式安裝目錄隔離, 升級與解除安裝預設不觸碰使用者資料。
-      3. 非 frozen (開發模式): 項目根 data/
+      3. 非 frozen (開發模式): 專案根 data/
 
     舊版本安裝目錄內的 data/ 會由 DataStore._migrate_legacy_data_dir() 保守複製到
     新位置; 來源保留, 不會因為遷移失敗或升級安裝而遺失。
@@ -34,7 +34,7 @@ def _user_data_root() -> Path:
     if _IS_FROZEN:
         return user_data_path("NanachiStockPanel", appauthor=False) / "data"
 
-    # 開發模式: 項目根 data/
+    # 開發模式: 專案根 data/
     return _PROJECT_ROOT / "data"
 
 
@@ -42,7 +42,7 @@ def _resource_root() -> Path:
     """只讀資源根目錄。
 
     frozen: PyInstaller 解壓目錄 (_MEIPASS)
-    非 frozen: 項目根目錄 (源碼樹)
+    非 frozen: 專案根目錄 (原始碼樹)
     """
     if _IS_FROZEN:
         # sys._MEIPASS 是 PyInstaller 注入的解壓根
@@ -51,7 +51,7 @@ def _resource_root() -> Path:
 
 
 def _project_root() -> Path:
-    """項目根目錄 (非 frozen 用)。"""
+    """專案根目錄 (非 frozen 用)。"""
     return Path(__file__).resolve().parent.parent.parent
 
 
@@ -104,11 +104,11 @@ class Settings(BaseSettings):
     port: int = 3018
     log_level: str = "INFO"
 
-    # Auth — 首次啟動時預置訪問密碼(明文, 僅用於初始化, 詳見 services/auth.bootstrap_from_env)
-    # 公開網路伺服器部署時免去 SSH 端口轉發設密碼的麻煩。寫入 auth.json(雜湊)後即不再讀取。
+    # Auth — 首次啟動時預置存取密碼(明文, 僅用於初始化, 詳見 services/auth.bootstrap_from_env)
+    # 公開網路伺服器部署時免去 SSH 連接埠轉發設密碼的麻煩。寫入 auth.json(雜湊)後即不再讀取。
     auth_password: str = ""
 
-    # Data — frozen: exe 同級 data/ 子目錄; 非 frozen: 項目根 data/
+    # Data — frozen: exe 同級 data/ 子目錄; 非 frozen: 專案根 data/
     # (均可被環境變數 DATA_DIR 覆蓋, pydantic-settings 自動注入)
     data_dir: Path = _user_data_root()
 
@@ -129,9 +129,9 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def _resolve_paths(self) -> Settings:
-        """確保 data_dir 是絕對路徑（環境變數傳入的相對路徑基於項目根目錄解析）。"""
+        """確保 data_dir 是絕對路徑（環境變數傳入的相對路徑基於專案根目錄解析）。"""
         if not self.data_dir.is_absolute():
-            # 相對路徑基於項目根目錄解析，而非 CWD
+            # 相對路徑基於專案根目錄解析，而非 CWD
             self.data_dir = (_PROJECT_ROOT / self.data_dir).resolve()
         if self.ai_max_output_tokens <= 0:
             raise ValueError("ai_max_output_tokens must be positive")

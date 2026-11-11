@@ -36,7 +36,7 @@ backend/app/static
 # ===== 文件(映像檔不需要; README.md 除外, Dockerfile 明確 COPY 了它) =====
 docs
 
-# ===== 桌面使用者端打包(PyInstaller 專用, 與 Docker 部署無關) =====
+# ===== 桌面用戶端打包(PyInstaller 專用, 與 Docker 部署無關) =====
 packaging
 backend/dist
 backend/build

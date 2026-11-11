@@ -9,7 +9,6 @@ Strict Guarantees:
 - Descriptive condition analytics without causal claims or automated weight changes.
 - Stored exclusively in user_data/taiwan_selection_snapshots.json (private, non-bundled).
 """
-# ruff: noqa: RUF001
 from __future__ import annotations
 
 import contextlib
@@ -20,6 +19,7 @@ import os
 import threading
 import time
 import uuid
+from contextvars import ContextVar
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from statistics import median
@@ -58,6 +58,24 @@ DEFAULT_BENCHMARK_NAME = "台灣50"
 FORWARD_RULE_VERSION = "trend_liquidity_v1"
 FORWARD_PRICE_ADJUSTMENT = "pit_price_normalized_cash_and_share_actions_not_total_return"
 SAMPLE_SUFFICIENT_THRESHOLD = 5
+_REQUEST_MEMO: ContextVar[dict | None] = ContextVar("selection_review_request_memo", default=None)
+
+
+@contextlib.contextmanager
+def request_memo():
+    """Resolve file-derived lookups (session lists, input versions) once per call.
+
+    Many snapshots share a source date; nothing is kept after the outermost call returns,
+    so a later request always sees the files as they are then.
+    """
+    if _REQUEST_MEMO.get() is not None:
+        yield
+        return
+    token = _REQUEST_MEMO.set({})
+    try:
+        yield
+    finally:
+        _REQUEST_MEMO.reset(token)
 
 
 def _storage_path() -> Path:
@@ -250,6 +268,14 @@ class TaiwanSelectionReviewService:
         with self._lock:
             return self._read_snapshots_raw()
 
+    @staticmethod
+    def _first_by_id(snapshots: list[SelectionSnapshot]) -> dict[str, SelectionSnapshot]:
+        """get_snapshot() over an already read file: the first stored copy of an id wins."""
+        found: dict[str, SelectionSnapshot] = {}
+        for snapshot in snapshots:
+            found.setdefault(snapshot.snapshot_id, snapshot)
+        return found
+
     def lock_forward_batch(self, screener=None, strategy_id: str = FORWARD_RULE_VERSION) -> SelectionSnapshot:
         """Run the canonical screener server-side and lock one batch per source session."""
         from app.taiwan.screener import TaiwanScreenerRequest, TaiwanScreenerService
@@ -402,6 +428,9 @@ class TaiwanSelectionReviewService:
 
     def _get_forward_trading_days(self, as_of: date) -> list[date]:
         """Resolve sessions from calendar evidence, never slide over missing prices."""
+        memo = _REQUEST_MEMO.get()
+        if memo is not None and (self, as_of) in memo:
+            return memo[(self, as_of)]
         partitions = set(self.daily_store.available_dates())
         observed: dict[date, bool] = {}
 
@@ -451,6 +480,8 @@ class TaiwanSelectionReviewService:
                 # must not silently reassign horizon N to date N+1.
                 break
             cursor += timedelta(days=1)
+        if memo is not None:
+            memo[(self, as_of)] = days
         return days
 
     def _potential_horizon_due(self, as_of: date, horizon: int) -> date:
@@ -723,7 +754,11 @@ class TaiwanSelectionReviewService:
 
     def _is_forward_horizon_matured(self, snapshot: SelectionSnapshot, horizon: int) -> bool:
         """Use the scheduled horizon date, independent of missing price data."""
-        source = date.fromisoformat(snapshot.source_data_date or snapshot.as_of_date)
+        try:
+            source = date.fromisoformat(snapshot.source_data_date or snapshot.as_of_date)
+        except ValueError:
+            # One damaged stored date must not fail the whole list; it simply never matures.
+            return False
         sessions = self._get_forward_trading_days(source)
         return len(sessions) >= horizon and taipei_now() >= market_close(sessions[horizon - 1])
 
@@ -821,6 +856,7 @@ class TaiwanSelectionReviewService:
             average_excess_return_pct=summary.average_excess_return_pct,
         )
 
+    @request_memo()
     def get_forward_batch_stats(self, strategy_id: str | None = None) -> ForwardBatchStats:
         # An omitted selector is the frozen v1 compatibility view. Callers
         # that want another strategy must opt in explicitly, so no endpoint
@@ -933,6 +969,10 @@ class TaiwanSelectionReviewService:
 
     def _forward_review_inputs(self) -> tuple:
         """Read local versions once; each batch selects its own date window below."""
+        memo = _REQUEST_MEMO.get()
+        if memo is not None and (self, "inputs") in memo:
+            return memo[(self, "inputs")]
+
         def file_versions(paths) -> tuple:
             versions = []
             for path in paths:
@@ -947,6 +987,8 @@ class TaiwanSelectionReviewService:
         census = file_versions(self.census_store._data_dir.glob("exchange=*/date=*/part.parquet")) if self.census_store else ()
         actions = file_versions((self.action_store.path,
                                 self.action_store.path.with_name("coverage.json")))
+        if memo is not None:
+            memo[(self, "inputs")] = (daily, census, actions)
         return daily, census, actions
 
     def _forward_batch_fingerprint(self, snapshot: SelectionSnapshot, inputs: tuple) -> tuple:
@@ -1002,6 +1044,7 @@ class TaiwanSelectionReviewService:
             return None
         return self.review_snapshot(snapshot)
 
+    @request_memo()
     def review_snapshot(self, snapshot: SelectionSnapshot) -> SnapshotReviewDetail:
         """Evaluate an already read immutable snapshot through the same review path."""
         if snapshot.record_type == "forward_batch":
@@ -1189,12 +1232,14 @@ class TaiwanSelectionReviewService:
             h20d_unavailable_count=sum(i.h20d_status == "unavailable" for i in evaluated_items),
         )
 
+    @request_memo()
     def list_snapshots(
         self, record_type: str | None = None, strategy_id: str | None = None,
     ) -> list[SnapshotListItem]:
         """List snapshots with summarized evaluation metrics, optionally by record type."""
         with self._lock:
             raw_list = self._read_snapshots_raw()
+        stored = self._first_by_id(raw_list)
         if record_type is not None:
             raw_list = [s for s in raw_list if s.record_type == record_type]
         if strategy_id is not None:
@@ -1208,82 +1253,58 @@ class TaiwanSelectionReviewService:
 
         result: list[SnapshotListItem] = []
         for s in raw_list:
+            # The file was read once above; reviewing by id would re-parse it per snapshot.
             review = (self._cached_forward_review(s, forward_inputs)
-                      if s.record_type == "forward_batch" else self.get_snapshot_review(s.snapshot_id))
-            if review:
-                result.append(
-                    SnapshotListItem(
-                        snapshot_id=s.snapshot_id,
-                        created_at=s.created_at,
-                        strategy_id=s.strategy_id,
-                        strategy_version=s.strategy_version,
-                        strategy_name=s.strategy_name,
-                        source=s.source,
-                        as_of_date=s.as_of_date,
-                        selected_count=len(s.items),
-                        record_type=s.record_type,
-                        observation_origin=s.observation_origin,
-                        locked_at=s.locked_at,
-                        source_data_date=s.source_data_date,
-                        target_trade_date=s.target_trade_date,
-                        target_trade_date_status=s.target_trade_date_status,
-                        rule_version=s.rule_version,
-                        evaluation_basis=s.evaluation_basis,
-                        risk_source_status=s.risk_source_status,
-                        risk_source_as_of=s.risk_source_as_of,
-                        risk_target_date=s.risk_target_date,
-                        selection_indicator_basis=s.selection_indicator_basis,
-                        trend_adjustment_status=s.trend_adjustment_status,
-                        h5d_evaluated_count=review.h5d_evaluated_count,
-                        h20d_evaluated_count=review.h20d_evaluated_count,
-                        h1d_pending_count=review.h1d_pending_count,
-                        h5d_pending_count=review.h5d_pending_count,
-                        h20d_pending_count=review.h20d_pending_count,
-                        h1d_matured=self._is_forward_horizon_matured(s, 1),
-                        h5d_matured=self._is_forward_horizon_matured(s, 5),
-                        h20d_matured=self._is_forward_horizon_matured(s, 20),
-                        h5d_avg_return_pct=review.h5d_avg_return_pct,
-                        h20d_avg_return_pct=review.h20d_avg_return_pct,
-                        h5d_bm_return_pct=review.h5d_bm_avg_return_pct,
-                        h20d_bm_return_pct=review.h20d_bm_avg_return_pct,
-                        h5d_excess_pct=review.h5d_avg_excess_pct,
-                        h20d_excess_pct=review.h20d_avg_excess_pct,
-                    )
+                      if s.record_type == "forward_batch" else self.review_snapshot(stored[s.snapshot_id]))
+            result.append(
+                SnapshotListItem(
+                    snapshot_id=s.snapshot_id,
+                    created_at=s.created_at,
+                    strategy_id=s.strategy_id,
+                    strategy_version=s.strategy_version,
+                    strategy_name=s.strategy_name,
+                    source=s.source,
+                    as_of_date=s.as_of_date,
+                    selected_count=len(s.items),
+                    record_type=s.record_type,
+                    observation_origin=s.observation_origin,
+                    locked_at=s.locked_at,
+                    source_data_date=s.source_data_date,
+                    target_trade_date=s.target_trade_date,
+                    target_trade_date_status=s.target_trade_date_status,
+                    rule_version=s.rule_version,
+                    evaluation_basis=s.evaluation_basis,
+                    risk_source_status=s.risk_source_status,
+                    risk_source_as_of=s.risk_source_as_of,
+                    risk_target_date=s.risk_target_date,
+                    selection_indicator_basis=s.selection_indicator_basis,
+                    trend_adjustment_status=s.trend_adjustment_status,
+                    h5d_evaluated_count=review.h5d_evaluated_count,
+                    h20d_evaluated_count=review.h20d_evaluated_count,
+                    h1d_pending_count=review.h1d_pending_count,
+                    h5d_pending_count=review.h5d_pending_count,
+                    h20d_pending_count=review.h20d_pending_count,
+                    h1d_matured=self._is_forward_horizon_matured(s, 1),
+                    h5d_matured=self._is_forward_horizon_matured(s, 5),
+                    h20d_matured=self._is_forward_horizon_matured(s, 20),
+                    h5d_avg_return_pct=review.h5d_avg_return_pct,
+                    h20d_avg_return_pct=review.h20d_avg_return_pct,
+                    h5d_bm_return_pct=review.h5d_bm_avg_return_pct,
+                    h20d_bm_return_pct=review.h20d_bm_avg_return_pct,
+                    h5d_excess_pct=review.h5d_avg_excess_pct,
+                    h20d_excess_pct=review.h20d_avg_excess_pct,
                 )
-            else:
-                result.append(
-                    SnapshotListItem(
-                        snapshot_id=s.snapshot_id,
-                        created_at=s.created_at,
-                        strategy_id=s.strategy_id,
-                        strategy_version=s.strategy_version,
-                        strategy_name=s.strategy_name,
-                        source=s.source,
-                        as_of_date=s.as_of_date,
-                        selected_count=len(s.items),
-                        record_type=s.record_type,
-                        observation_origin=s.observation_origin,
-                        locked_at=s.locked_at,
-                        source_data_date=s.source_data_date,
-                        target_trade_date=s.target_trade_date,
-                        target_trade_date_status=s.target_trade_date_status,
-                        rule_version=s.rule_version,
-                        evaluation_basis=s.evaluation_basis,
-                        risk_source_status=s.risk_source_status,
-                        risk_source_as_of=s.risk_source_as_of,
-                        risk_target_date=s.risk_target_date,
-                        selection_indicator_basis=s.selection_indicator_basis,
-                        trend_adjustment_status=s.trend_adjustment_status,
-                    )
-                )
+            )
         return result
 
     # ── Strategy & Condition Analytics ──────────────────────────────
 
+    @request_memo()
     def get_strategy_reviews(self, source: str | None = None) -> list[StrategyReviewStats]:
         """Aggregate performance for each saved strategy across all evaluated snapshots."""
         with self._lock:
             raw_list = self._read_snapshots_raw()
+        stored = self._first_by_id(raw_list)
 
         by_strat: dict[str, list[SelectionSnapshot]] = {}
         strat_names: dict[str, str] = {}
@@ -1301,9 +1322,7 @@ class TaiwanSelectionReviewService:
             all_excess_20d: list[float] = []
 
             for s in snapshots:
-                rev = self.get_snapshot_review(s.snapshot_id)
-                if not rev:
-                    continue
+                rev = self.review_snapshot(stored[s.snapshot_id])
                 for item in rev.evaluated_items:
                     if item.h5d_status == "completed" and item.h5d_raw_return_pct is not None:
                         all_ret_5d.append(item.h5d_raw_return_pct)
@@ -1347,10 +1366,12 @@ class TaiwanSelectionReviewService:
         results.sort(key=lambda r: (r.snapshots_count, r.evaluated_picks_5d), reverse=True)
         return results
 
+    @request_memo()
     def get_condition_reviews(self) -> list[ConditionReviewStats]:
         """Descriptive analytics grouping evaluated returns by match_reasons."""
         with self._lock:
             raw_list = self._read_snapshots_raw()
+        stored = self._first_by_id(raw_list)
 
         cond_ret_5d: dict[str, list[float]] = {}
         cond_ret_20d: dict[str, list[float]] = {}
@@ -1358,9 +1379,7 @@ class TaiwanSelectionReviewService:
         for s in raw_list:
             if s.record_type != "research":
                 continue
-            rev = self.get_snapshot_review(s.snapshot_id)
-            if not rev:
-                continue
+            rev = self.review_snapshot(stored[s.snapshot_id])
             for item in rev.evaluated_items:
                 reasons = item.match_reasons or ["通用篩選"]
                 for reason in reasons:

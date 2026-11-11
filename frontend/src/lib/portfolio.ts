@@ -1,5 +1,6 @@
 import type { TaiwanRealtimeQuote } from './api'
 import { storage } from './storage'
+import { nowTaipeiTime, todayTaipei } from './format'
 
 /** Window event fired after the browser ledger is written (same tab); other tabs get storage. */
 export const PORTFOLIO_CHANGED = 'portfolio-transactions-changed'
@@ -102,16 +103,6 @@ export function isSupportedPortfolioInstrument(value: {
     && (value.instrument_type === 'stock' || value.instrument_type === 'etf')
 }
 
-export function todayTaipeiDate() {
-  return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Taipei' }).format(new Date())
-}
-
-export function nowTaipeiTime() {
-  return new Intl.DateTimeFormat('en-GB', {
-    timeZone: 'Asia/Taipei', hour: '2-digit', minute: '2-digit', hourCycle: 'h23',
-  }).format(new Date())
-}
-
 export function isPortfolioTransaction(value: unknown): value is PortfolioTransaction {
   if (!value || typeof value !== 'object') return false
   const item = value as Partial<PortfolioTransaction>
@@ -199,12 +190,12 @@ export function createPortfolioTransaction(
   if (!parsedDate || parsedDate.toISOString().slice(0, 10) !== input.date) {
     throw new Error('請輸入有效成交日期')
   }
-  if (input.date > todayTaipeiDate()) throw new Error('成交日期不可晚於今日')
+  if (input.date > todayTaipei()) throw new Error('成交日期不可晚於今日')
   if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(input.tradeTime)) throw new Error('請輸入有效成交時間')
   if (input.tradeTime < '09:00' || input.tradeTime > '14:30') {
     throw new Error('成交時間必須落在台灣市場交易時段（09:00 至 14:30）')
   }
-  if (input.date === todayTaipeiDate() && input.tradeTime > nowTaipeiTime()) {
+  if (input.date === todayTaipei() && input.tradeTime > nowTaipeiTime()) {
     throw new Error('成交時間不可晚於現在（台北時間）')
   }
   if (input.side === 'sell') {

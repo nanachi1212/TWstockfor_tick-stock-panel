@@ -31,14 +31,16 @@ import logging
 import re
 from datetime import date
 from typing import Any, Literal
+
 from pydantic import BaseModel, Field
 
+from app.services.ai_json import _extract_json_object
 from app.services.ai_provider import (
     current_ai_model,
     current_ai_provider,
     generate_ai_text,
+    generate_structured_ai_text,
 )
-from app.services.ai_json import _extract_json_object
 from app.taiwan.ai_research import build_evidence_registry
 from app.taiwan.comparison import (
     MAX_COMPARE_SYMBOLS,
@@ -128,6 +130,24 @@ class TaiwanComparisonAIStockResearchReport(BaseModel):
     missing_information: list[str] = Field(default_factory=list)
 
     disclaimer: str = Field(default=COMPARISON_DISCLAIMER_TEXT)
+
+
+def _text_or_none(value: Any) -> str | None:
+    return value.strip() if isinstance(value, str) and value.strip() else None
+
+
+def _validated_items(value: Any, registry_keys: set[str]) -> list[ComparisonObservationItem]:
+    """Keep only well-formed {text, evidence_refs} entries whose refs are in the evidence registry."""
+    items: list[ComparisonObservationItem] = []
+    for entry in value if isinstance(value, list) else []:
+        if not isinstance(entry, dict):
+            continue
+        text = _text_or_none(entry.get("text"))
+        raw_refs = entry.get("evidence_refs")
+        refs = [r for r in raw_refs if isinstance(r, str) and r in registry_keys] if isinstance(raw_refs, list) else []
+        if text and refs:
+            items.append(ComparisonObservationItem(text=text, evidence_refs=refs))
+    return items
 
 
 class TaiwanComparisonAIRequest(BaseModel):
@@ -244,7 +264,7 @@ class TaiwanComparisonAIResearchService:
             return TaiwanComparisonAIResearchResponse(
                 status="unavailable",
                 error_code="context_assembly_failed",
-                error_message=f"無法組裝比較研究上下文: {e}",
+                error_message="目前無法組裝比較研究資料，請確認代號後重試。",
                 generated_at=now_iso,
             )
 
@@ -289,18 +309,20 @@ class TaiwanComparisonAIResearchService:
 
         # 4. Invoke AI Provider — exactly ONE call for the whole comparison.
         try:
-            raw_text = await generate_ai_text(
+            raw_text = await generate_structured_ai_text(
                 messages,
+                truncated_retry_message="前次 JSON 被截斷，請以相同結構重新輸出，每個欄位縮短。",
                 temperature=0.1,
                 max_tokens=2000,
                 timeout=60.0,
+                generate=generate_ai_text,
             )
         except Exception as e:
-            logger.warning("AI provider failed in stock comparison for %s: %s", symbols, e)
+            logger.warning("AI provider failed in stock comparison for %s: %s", symbols, type(e).__name__)
             return TaiwanComparisonAIResearchResponse(
                 status="unavailable",
                 error_code="provider_error",
-                error_message=f"AI 比較分析服務呼叫失敗: {e}",
+                error_message="AI 比較分析服務暫時無法使用，請稍後重試。",
                 provider=current_ai_provider(),
                 model=current_ai_model(),
                 prompt_version=COMPARISON_PROMPT_VERSION,
@@ -329,41 +351,23 @@ class TaiwanComparisonAIResearchService:
             )
 
         # 6. Validate Evidence References
-        validated_observations: list[ComparisonObservationItem] = []
-        for obs in parsed.get("key_observations") or []:
-            if not isinstance(obs, dict):
-                continue
-            text = str(obs.get("text") or "").strip()
-            if not text:
-                continue
-            refs = [r for r in obs.get("evidence_refs") or [] if r in registry_keys]
-            if refs:
-                validated_observations.append(ComparisonObservationItem(text=text, evidence_refs=refs))
-
-        validated_risks: list[ComparisonObservationItem] = []
-        for rsk in parsed.get("risk_factors") or []:
-            if not isinstance(rsk, dict):
-                continue
-            text = str(rsk.get("text") or "").strip()
-            if not text:
-                continue
-            refs = [r for r in rsk.get("evidence_refs") or [] if r in registry_keys]
-            if refs:
-                validated_risks.append(ComparisonObservationItem(text=text, evidence_refs=refs))
-
-        ai_missing = parsed.get("missing_information") or []
+        # The model may return any JSON shape: coerce each field instead of letting it become a 500.
+        validated_observations = _validated_items(parsed.get("key_observations"), registry_keys)
+        validated_risks = _validated_items(parsed.get("risk_factors"), registry_keys)
+        ai_missing = parsed.get("missing_information")
+        ai_missing = ai_missing if isinstance(ai_missing, list) else []
         combined_missing = sorted(set(missing_items + [str(m).strip() for m in ai_missing if m]))
+        prose = {
+            key: _text_or_none(parsed.get(key))
+            for key in (
+                "comparison_overview", "price_technical_comparison", "institutional_comparison",
+                "margin_comparison", "fundamentals_comparison", "abnormal_diagnostics_comparison",
+            )
+        }
 
         # 7. Deterministic Ranking/Recommendation Language Guard — applied ONLY to
         #    AI-generated prose fields, never to raw evidence/symbol/company data.
-        prose_fields: list[str] = [
-            str(parsed.get("comparison_overview") or ""),
-            str(parsed.get("price_technical_comparison") or ""),
-            str(parsed.get("institutional_comparison") or ""),
-            str(parsed.get("margin_comparison") or ""),
-            str(parsed.get("fundamentals_comparison") or ""),
-            str(parsed.get("abnormal_diagnostics_comparison") or ""),
-        ]
+        prose_fields: list[str] = [text or "" for text in prose.values()]
         prose_fields.extend(obs.text for obs in validated_observations)
         prose_fields.extend(rsk.text for rsk in validated_risks)
 
@@ -398,12 +402,12 @@ class TaiwanComparisonAIResearchService:
             prompt_version=COMPARISON_PROMPT_VERSION,
             provider=curr_provider,
             model=curr_model,
-            comparison_overview=str(parsed.get("comparison_overview") or "").strip(),
-            price_technical_comparison=parsed.get("price_technical_comparison"),
-            institutional_comparison=parsed.get("institutional_comparison"),
-            margin_comparison=parsed.get("margin_comparison"),
-            fundamentals_comparison=parsed.get("fundamentals_comparison"),
-            abnormal_diagnostics_comparison=parsed.get("abnormal_diagnostics_comparison"),
+            comparison_overview=prose["comparison_overview"] or "",
+            price_technical_comparison=prose["price_technical_comparison"],
+            institutional_comparison=prose["institutional_comparison"],
+            margin_comparison=prose["margin_comparison"],
+            fundamentals_comparison=prose["fundamentals_comparison"],
+            abnormal_diagnostics_comparison=prose["abnormal_diagnostics_comparison"],
             key_observations=validated_observations[:8],
             risk_factors=validated_risks,
             missing_information=combined_missing,

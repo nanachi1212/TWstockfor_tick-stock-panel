@@ -1,6 +1,5 @@
 """Bounded single-flight jobs that call existing updaters, never copy their logic."""
 
-# ruff: noqa: RUF001
 from __future__ import annotations
 
 import asyncio
@@ -27,6 +26,8 @@ JobStatus = Literal["queued", "running", "completed", "partial", "failed"]
 # Benchmarks are refreshed by the same daily updater run (one single-flight group).
 DAILY = {"daily", "institutional", "margin", "taiex", "tpex_index"}
 SOCIAL = {"ptt", "social_ai"}
+# A stuck social update must not hold the health job (and its duplicate guard) forever.
+SOCIAL_JOB_TIMEOUT_SECONDS = 30 * 60
 
 
 class HealthJob(BaseModel):
@@ -104,7 +105,8 @@ def execute_existing(dataset: str, action: HealthAction) -> tuple[JobStatus, str
         started = manager.start_manual()
         if not started.get("job_id"):
             return "failed", "目前已有社群更新執行中，請等待既有任務完成"
-        while True:
+        deadline = time.monotonic() + SOCIAL_JOB_TIMEOUT_SECONDS
+        while time.monotonic() < deadline:
             job = manager.get_job(started["job_id"])
             if job and job["status"] not in {"queued", "running"}:
                 status: JobStatus = (
@@ -121,6 +123,7 @@ def execute_existing(dataset: str, action: HealthAction) -> tuple[JobStatus, str
                     else "社群來源或 AI 仍有缺漏，請查看各來源原因",
                 )
             time.sleep(0.5)
+        return "failed", "社群更新等待逾時，請稍後查看各來源狀態"
     raise ValueError("unsafe_action")
 
 

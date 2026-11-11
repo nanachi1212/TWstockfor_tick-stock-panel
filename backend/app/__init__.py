@@ -1,5 +1,6 @@
 """Nanachi 的台股監控看板 backend."""
 
+import contextlib
 import sys
 from pathlib import Path
 
@@ -11,7 +12,5 @@ __version__ = (_version_root / "VERSION").read_text(encoding="utf-8").strip().re
 # 行程載入最早階段強制 UTF-8,根治此類編碼崩潰。
 for _stream in (sys.stdout, sys.stderr):
     if hasattr(_stream, "reconfigure"):
-        try:
+        with contextlib.suppress(Exception):
             _stream.reconfigure(encoding="utf-8", errors="replace")
-        except Exception:  # noqa: BLE001
-            pass

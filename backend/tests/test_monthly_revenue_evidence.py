@@ -1,5 +1,5 @@
 """Official monthly-revenue PIT evidence (MOPS t21sc03 observations)."""
-# ruff: noqa: RUF001 -- fixtures mirror official full-width page text.
+
 from __future__ import annotations
 
 import inspect
@@ -258,6 +258,12 @@ def test_refresh_is_market_batched_incremental_and_records_failures(tmp_path):
     second = refresh_monthly_revenue_evidence(store, now=now + timedelta(hours=1), client=again)
     assert again.urls == [failing]  # only the page without a fresh success
     assert second["skipped_fresh"] == 23 and second["status"] == "available"
+
+    # The ledger is read once per run, not once per page.
+    reads = MagicMock(wraps=store.fetches)
+    store.fetches = reads
+    third = refresh_monthly_revenue_evidence(store, now=now + timedelta(hours=2), client=_Client())
+    assert third["skipped_fresh"] == 24 and reads.call_count == 1
 
 
 def test_refresh_gives_up_when_the_network_is_unreachable(tmp_path):

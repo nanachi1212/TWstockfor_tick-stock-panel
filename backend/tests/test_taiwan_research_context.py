@@ -20,6 +20,7 @@ Verifies:
 """
 from datetime import date
 from unittest.mock import MagicMock, patch
+
 import polars as pl
 from fastapi.testclient import TestClient
 
@@ -188,19 +189,19 @@ def test_historical_no_look_ahead():
         margin_store=mock_margin,
         security_master=mock_sm,
     )
-    ctx = svc.get_research_context("TEST.TWSE", d_target)
+    svc.get_research_context("TEST.TWSE", d_target)
 
     # Assert all calls to daily, institutional, margin read_range had end <= d_target
     for call in mock_daily.read_range.call_args_list:
-        _, start, end = call[0]
+        _, _start, end = call[0]
         if end is not None:
             assert end <= d_target
     for call in mock_inst.read_range.call_args_list:
-        _, start, end = call[0]
+        _, _start, end = call[0]
         if end is not None:
             assert end <= d_target
     for call in mock_margin.read_range.call_args_list:
-        _, start, end = call[0]
+        _, _start, end = call[0]
         if end is not None:
             assert end <= d_target
 

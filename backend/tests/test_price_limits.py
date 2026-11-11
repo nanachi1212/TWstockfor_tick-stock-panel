@@ -7,14 +7,7 @@ import pytest
 
 from app.api import kline
 from app.indicators import pipeline
-from app.price_limits import polars_limit_price, polars_price_limit_pct, price_limit_pct
-
-
-def test_scalar_price_limit_rules():
-    assert price_limit_pct("2330.TWSE") == pytest.approx(0.10)
-    assert price_limit_pct("8069.TPEX") == pytest.approx(0.10)
-    assert price_limit_pct("600001.SH") is None
-    assert price_limit_pct("2330") is None
+from app.price_limits import polars_limit_price, polars_price_limit_pct
 
 
 def test_polars_price_limit_pct_only_applies_to_taiwan_symbols():
@@ -35,11 +28,12 @@ def test_polars_limit_prices_use_half_up_cent_rounding():
 
 class _InstrumentRepo:
     def get_instruments_asset(self, asset_type: str) -> pl.DataFrame:
-        assert asset_type == "stock"
+        assert asset_type in {"stock", "etf"}
         return pl.DataFrame({
-            "symbol": ["2330.TWSE"],
-            "limit_up": [10.88],
-            "limit_down": [8.90],
+            "symbol": ["2330.TWSE", "00631L.TWSE", "9999.TWSE"],
+            "asset_type": ["stock", "etf", "etf"],
+            "limit_up": [10.88, None, None],
+            "limit_down": [8.90, None, None],
         })
 
 
@@ -55,16 +49,31 @@ def test_minute_price_limit_prefers_authoritative_prices_only_today(monkeypatch)
 
     assert current == {
         "rate": 0.10,
+        "no_limit": False,
         "limit_up": 10.88,
         "limit_down": 8.90,
         "source": "instrument",
     }
     assert historical == {
         "rate": 0.10,
+        "no_limit": False,
         "limit_up": None,
         "limit_down": None,
         "source": "rule",
     }
+
+
+def test_minute_price_limit_follows_the_instrument_not_a_flat_ten_percent():
+    day = date(2026, 7, 3)
+    leveraged = kline._get_price_limit_info(_InstrumentRepo(), "00631L.TWSE", day, "etf")
+    unconfirmed = kline._get_price_limit_info(_InstrumentRepo(), "9999.TWSE", day, "etf")
+    missing = kline._get_price_limit_info(_InstrumentRepo(), "1101.TWSE", day, "stock")
+
+    assert leveraged["rate"] == pytest.approx(0.20)
+    assert leveraged["no_limit"] is False
+    # An unclassified ETF is unknown, never silently "10%" or "no limit".
+    assert unconfirmed["rate"] is None and unconfirmed["no_limit"] is None
+    assert missing["rate"] is None and missing["no_limit"] is None
 
 
 def _daily_limit_rows(current_close: float) -> pl.DataFrame:

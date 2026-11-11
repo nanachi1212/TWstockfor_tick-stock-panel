@@ -13,6 +13,7 @@ import { api, type TaiwanRealtimeQuote } from '@/lib/api'
 
 import { QK } from '@/lib/queryKeys'
 import { cn } from '@/lib/cn'
+import { fmtBigNum, fmtLots } from '@/lib/format'
 import { DataQualityBadge, formatQuoteTime } from '@/components/taiwan/TaiwanDataQuality'
 
 interface TaiwanQuotePanelProps {
@@ -31,23 +32,13 @@ const PRESET_SYMBOLS = [
 
 /** 格式化金額為易讀的 萬 / 億 或原始數值 */
 function formatAmount(amt: number | null | undefined): string {
-  if (amt == null) return '--'
-  if (Math.abs(amt) >= 100_000_000) {
-    return `${(amt / 100_000_000).toFixed(2)} 億`
-  }
-  if (Math.abs(amt) >= 10_000) {
-    return `${(amt / 10_000).toFixed(2)} 萬`
-  }
-  return amt.toLocaleString()
+  return amt == null ? '--' : fmtBigNum(amt, 2)
 }
 
 /** 格式化股數 (可選擇切換顯示 張數 = 股數 / 1000) */
 function formatVolume(shares: number | null | undefined, unit: 'shares' | 'lots'): string {
   if (shares == null) return '--'
-  if (unit === 'lots') {
-    const lots = (shares / 1000).toFixed(shares % 1000 === 0 ? 0 : 2)
-    return `${Number(lots).toLocaleString()} 張`
-  }
+  if (unit === 'lots') return fmtLots(shares)
   return `${shares.toLocaleString()} 股`
 }
 
@@ -106,8 +97,8 @@ function FiveLevelBook({
 
   const getPriceClass = (p: number) => {
     if (!prevClose) return 'text-foreground'
-    if (p > prevClose) return 'text-rose-500 font-medium'
-    if (p < prevClose) return 'text-emerald-500 font-medium'
+    if (p > prevClose) return 'text-bull font-medium'
+    if (p < prevClose) return 'text-bear font-medium'
     return 'text-foreground/80'
   }
 
@@ -183,7 +174,7 @@ export function TaiwanQuotePanel({ onSelectSymbol, onAddRuleForSymbol }: TaiwanQ
 
   const isUp = (currentQuote?.change || 0) > 0
   const isDown = (currentQuote?.change || 0) < 0
-  const colorCls = isUp ? 'text-rose-500 dark:text-rose-400' : isDown ? 'text-emerald-500 dark:text-emerald-400' : 'text-foreground'
+  const colorCls = isUp ? 'text-bull' : isDown ? 'text-bear' : 'text-foreground'
   const bgCls = isUp ? 'bg-rose-500/10' : isDown ? 'bg-emerald-500/10' : 'bg-surface'
 
   return (
@@ -214,7 +205,7 @@ export function TaiwanQuotePanel({ onSelectSymbol, onAddRuleForSymbol }: TaiwanQ
                   <span>{q?.name || sym.split('.')[0]}</span>
                   <span className="text-xs opacity-70">{sym.split('.')[1]}</span>
                   {q?.last_price != null && (
-                    <span className={cn('text-xs font-mono', qUp ? 'text-rose-500' : qDown ? 'text-emerald-500' : 'text-muted')}>
+                    <span className={cn('text-xs font-mono', qUp ? 'text-bull' : qDown ? 'text-bear' : 'text-muted')}>
                       {q.last_price.toFixed(1)}
                     </span>
                   )}
@@ -268,7 +259,7 @@ export function TaiwanQuotePanel({ onSelectSymbol, onAddRuleForSymbol }: TaiwanQ
                   <DataQualityBadge meta={currentQuote.source_meta} />
                   <span className="flex items-center gap-1 text-xs text-muted font-mono" title="台灣時間 (Asia/Taipei)">
                     <Clock className="h-3 w-3" />
-                    {formatQuoteTime(currentQuote.quote_time, currentQuote.source_meta?.status === 'daily_fallback')}
+                    {formatQuoteTime(currentQuote.quote_time)}
                   </span>
                 </div>
               </div>
@@ -303,11 +294,11 @@ export function TaiwanQuotePanel({ onSelectSymbol, onAddRuleForSymbol }: TaiwanQ
                 </div>
                 <div className="rounded-lg bg-elevated/40 p-2 border border-border/30">
                   <div className="text-muted text-xs">最高價</div>
-                  <div className="font-mono font-medium text-sm text-rose-500 mt-0.5">{currentQuote.high != null ? currentQuote.high.toFixed(2) : '--'}</div>
+                  <div className="font-mono font-medium text-sm text-bull mt-0.5">{currentQuote.high != null ? currentQuote.high.toFixed(2) : '--'}</div>
                 </div>
                 <div className="rounded-lg bg-elevated/40 p-2 border border-border/30">
                   <div className="text-muted text-xs">最低價</div>
-                  <div className="font-mono font-medium text-sm text-emerald-500 mt-0.5">{currentQuote.low != null ? currentQuote.low.toFixed(2) : '--'}</div>
+                  <div className="font-mono font-medium text-sm text-bear mt-0.5">{currentQuote.low != null ? currentQuote.low.toFixed(2) : '--'}</div>
                 </div>
                 <div className="rounded-lg bg-elevated/40 p-2 border border-border/30">
                   <div className="text-muted text-xs">昨收價</div>
@@ -325,13 +316,13 @@ export function TaiwanQuotePanel({ onSelectSymbol, onAddRuleForSymbol }: TaiwanQ
                 </div>
                 <div className="rounded-lg bg-elevated/40 p-2 border border-border/30">
                   <div className="text-muted text-xs">漲停價 ({currentQuote.price_limit_pct != null ? `+${+(currentQuote.price_limit_pct * 100).toFixed(2)}%` : '無限制'})</div>
-                  <div className="font-mono font-medium text-sm text-rose-600 dark:text-rose-400 mt-0.5">
+                  <div className="font-mono font-medium text-sm text-bull mt-0.5">
                     {currentQuote.limit_up != null ? currentQuote.limit_up.toFixed(2) : '--'}
                   </div>
                 </div>
                 <div className="rounded-lg bg-elevated/40 p-2 border border-border/30">
                   <div className="text-muted text-xs">跌停價 ({currentQuote.price_limit_pct != null ? `-${+(currentQuote.price_limit_pct * 100).toFixed(2)}%` : '無限制'})</div>
-                  <div className="font-mono font-medium text-sm text-emerald-600 dark:text-emerald-400 mt-0.5">
+                  <div className="font-mono font-medium text-sm text-bear mt-0.5">
                     {currentQuote.limit_down != null ? currentQuote.limit_down.toFixed(2) : '--'}
                   </div>
                 </div>
@@ -375,7 +366,9 @@ export function TaiwanQuotePanel({ onSelectSymbol, onAddRuleForSymbol }: TaiwanQ
       ) : (
         <div className="flex flex-col items-center justify-center p-8 rounded-xl border border-dashed border-border text-center text-muted">
           <AlertCircle className="h-8 w-8 text-muted mb-2" />
-          <p className="text-sm">尚未載入即時報價，請稍候或檢查後端服務</p>
+          <p className="text-sm" role={quotesQuery.isError ? 'alert' : undefined}>
+            {quotesQuery.isError ? '即時報價載入失敗，請確認後端服務後重試' : quotesQuery.isLoading ? '即時報價載入中…' : '目前沒有即時報價'}
+          </p>
         </div>
       )}
     </div>

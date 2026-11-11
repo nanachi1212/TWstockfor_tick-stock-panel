@@ -12,11 +12,12 @@ Covers:
 from __future__ import annotations
 
 from pathlib import Path
+
 import polars as pl
 import pytest
 
 from app.data_providers.registry import get_provider
-from app.taiwan.market_rules import PriceLimitClass, TaxClass, TickSizeClass
+from app.taiwan.market_rules import TaxClass, TickSizeClass
 from app.taiwan.universe import (
     MarketProfileBridge,
     TaiwanSecurityMaster,
@@ -50,6 +51,14 @@ def offline_master(tmp_path: Path) -> TaiwanSecurityMaster:
 
 class TestTaiwanSecurityMasterOffline:
     """Offline unit tests for TaiwanSecurityMaster orchestrator."""
+
+    def test_failed_reload_keeps_the_loaded_master_and_save_is_atomic(self, offline_master: TaiwanSecurityMaster):
+        offline_master.save_cache()
+        assert not offline_master.cache_path.with_name(offline_master.cache_path.name + ".tmp").exists()
+        before = set(offline_master.to_dataframe()["symbol"].to_list())
+        offline_master.cache_path.write_bytes(b"not a parquet file")
+        assert offline_master.reload() is False
+        assert set(offline_master.to_dataframe()["symbol"].to_list()) == before
 
     def test_merge_and_deduplication(self, offline_master: TaiwanSecurityMaster):
         df = offline_master.to_dataframe()
@@ -121,7 +130,7 @@ class TestTaiwanSecurityMasterOffline:
         assert tsmc is not None
         assert MarketProfileBridge.get_tax_class(tsmc) == TaxClass.ORDINARY_STOCK
         assert MarketProfileBridge.get_tick_size_class(tsmc) == TickSizeClass.ORDINARY_STOCK
-        assert MarketProfileBridge.get_price_limit_class(tsmc) == PriceLimitClass.ORDINARY_TEN_PERCENT
+        assert MarketProfileBridge.get_price_limit_pct(tsmc) == 0.10
 
         etf = offline_master.get_instrument("0050.TWSE")
         assert etf is not None

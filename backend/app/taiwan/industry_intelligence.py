@@ -105,6 +105,7 @@ class IndustryMetrics(BaseModel):
     margin_balance_change: float | None = None  # in shares
     short_balance_change: float | None = None  # in shares
 
+    average_return_5d: float | None = None  # equal-weight 5-session return, decimal
     relative_strength_5d: float | None = None  # decimal e.g. 0.025
     relative_strength_20d: float | None = None  # decimal e.g. -0.010
     relative_strength_5d_comparable_count: int = 0
@@ -507,6 +508,7 @@ class TaiwanIndustryIntelligenceService:
                 ind_5d_mean = float(comp_5d["return_5d"].mean())
                 rs_5d = relative_strength(ind_5d_mean, m_ret_5d)
             else:
+                ind_5d_mean = None
                 rs_5d = None
 
             # Relative Strength 20D
@@ -591,6 +593,7 @@ class TaiwanIndustryIntelligenceService:
                 dealer_net=d_net,
                 margin_balance_change=mb_chg,
                 short_balance_change=sb_chg,
+                average_return_5d=ind_5d_mean,
                 relative_strength_5d=rs_5d,
                 relative_strength_20d=rs_20d,
                 relative_strength_5d_comparable_count=rs_5d_cnt,

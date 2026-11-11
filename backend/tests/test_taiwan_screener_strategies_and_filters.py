@@ -242,3 +242,18 @@ def test_screener_strategy_api_endpoints():
     res = client.delete(f"/api/taiwan/screener/strategies/{strat_id}")
     assert res.status_code == 200
     assert res.json()["ok"] is True
+
+
+def test_strategy_store_never_overwrites_unreadable_file(tmp_path: Path):
+    import pytest
+
+    store_file = tmp_path / "strategies.json"
+    store_file.write_text("{not json", encoding="utf-8")
+    store = TaiwanScreenerStrategyStore(path=store_file)
+
+    assert all(s.is_preset for s in store.list_strategies())  # reading still shows presets
+    with pytest.raises(ValueError):
+        store.save_strategy(name="x", conditions={})
+    with pytest.raises(ValueError):
+        store.delete_strategy("strat_x")
+    assert store_file.read_text(encoding="utf-8") == "{not json"

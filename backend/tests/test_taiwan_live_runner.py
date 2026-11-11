@@ -540,7 +540,7 @@ def test_outcome_writer_rejects_premature_label(inputs, environment):
 
 def test_read_api_empty_real_outcomes_404_and_no_write_route(environment, monkeypatch):
     ledger, source, _ = environment
-    monkeypatch.setattr(taiwan_live, "CurrentLiveSource", lambda: SimpleNamespace(
+    monkeypatch.setattr(taiwan_live, "StoredSessionEvidence", lambda: SimpleNamespace(
         evidence=source.evidence, close=lambda: None,
     ))
     monkeypatch.setattr(taiwan_live, "LiveLedger", lambda evidence=None: ledger)
@@ -556,3 +556,20 @@ def test_read_api_empty_real_outcomes_404_and_no_write_route(environment, monkey
     assert response.status_code == 200
     assert response.json()["snapshot"]["validation_state"] == "unvalidated"
     assert response.json()["outcomes"][0]["status"] == "pending"
+
+
+def test_stored_session_evidence_never_reaches_the_network(tmp_path, monkeypatch):
+    from app.taiwan.observed_universe import ObservedUniverseCensus, ObservedUniverseStore
+    from app.taiwan.quant.live_contract import latest_completed_session
+    from app.taiwan.quant.live_runner import StoredSessionEvidence
+
+    def boom(*args, **kwargs):
+        raise AssertionError("request path must not fetch")
+
+    monkeypatch.setattr(ObservedUniverseCensus, "fetch_twse", boom)
+    monkeypatch.setattr(ObservedUniverseCensus, "fetch_tpex", boom)
+    source = StoredSessionEvidence(store=ObservedUniverseStore(tmp_path / "census"))
+    # Empty store: a plain weekday has no stored proof, so the session stays unresolved.
+    with pytest.raises(ValueError, match="session_evidence_unresolved"):
+        latest_completed_session(
+            datetime(2026, 9, 22, 17, 0, tzinfo=TAIPEI_TZ), source.evidence)

@@ -389,3 +389,42 @@ def test_recent_alerts_keep_change_pct_alert_without_price(monkeypatch):
     assert [a.alert_id for a in alerts] == ["a1", "a2"]
     assert alerts[0].trigger_price is None
     assert alerts[1].trigger_price == 1000.0
+
+def test_slow_sources_do_not_hold_the_page(monkeypatch):
+    """A rate-limited source slower than the wait leaves its section pending, not the page."""
+    import threading
+    import time
+
+    from app.taiwan import detail_service
+
+    release = threading.Event()
+    svc = TaiwanStockDetailService()
+    mock_rt = MagicMock()
+    mock_rt.get_quotes.return_value = {"2330.TWSE": _make_sample_quote("2330.TWSE", 2420.0, 2410.0)}
+    svc.realtime_service = mock_rt
+    chips = MagicMock()
+    chips.get_fundamentals_bundle.side_effect = lambda *_: release.wait(5) and None
+    chips.get_extra_chips_bundle.return_value = None
+    svc.fundamental_chips_service = chips
+    news = MagicMock()
+    news.get_recent_news.side_effect = lambda *_args, **_kwargs: release.wait(5)
+    monkeypatch.setattr("app.taiwan.news_service.get_news_service", lambda: news)
+    events = MagicMock()
+    events.get_events.return_value = []
+    events.get_product_sources_status.return_value = ("available", {})
+    monkeypatch.setattr("app.taiwan.events_service.get_event_service", lambda: events)
+    monkeypatch.setattr(detail_service, "_SLOW_SECTION_WAIT", 0.2)
+
+    started = time.monotonic()
+    try:
+        res = svc.get_stock_detail("2330.TWSE", days=30)
+        elapsed = time.monotonic() - started
+    finally:
+        release.set()
+
+    assert elapsed < 2
+    assert res.realtime.last_price == 2420.0
+    assert res.fundamentals is None
+    assert res.events_status == "available"
+    assert res.news_status == "unavailable"
+    assert "抓取" in res.news_status_message

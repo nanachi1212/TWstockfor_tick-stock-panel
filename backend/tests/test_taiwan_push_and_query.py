@@ -1,5 +1,5 @@
 """早晚一句話推播、自選異常摘要、Telegram 查詢、AI 回饋、啟動補更新的單元測試 (全部離線)。"""
-# ruff: noqa: RUF001 -- Traditional Chinese fixtures are intentional.
+
 from __future__ import annotations
 
 from datetime import datetime
@@ -55,11 +55,12 @@ class _FakeSelectionService:
         return SimpleNamespace(candidate=_candidate(symbol=symbol))
 
 
-def _quote(symbol, price, pct, name="台積電", source="twse_mis", stale=False):
+def _quote(symbol, price, pct, name="台積電", source="twse_mis", stale=False, status="closed"):
     """pct 為百分點 (與 TaiwanRealtimeQuote.change_pct 契約一致: 4.5 = +4.50%)。"""
     return SimpleNamespace(
         symbol=symbol, name=name, last_price=price, change_pct=pct,
-        quote_time=datetime(2026, 10, 8, 10, 5), source_meta=SimpleNamespace(source=source, is_stale=stale),
+        quote_time=datetime(2026, 10, 8, 10, 5), market_status=SimpleNamespace(value=status),
+        source_meta=SimpleNamespace(source=source, is_stale=stale, trade_date="2026-10-08"),
     )
 
 
@@ -123,6 +124,45 @@ def test_run_respects_switch_and_channels(monkeypatch, isolated_prefs):
     assert result["status"] == "sent" and result["channels"] == ["telegram"]
     assert sent == [("telegram", "hello")]
     assert push_digest.last_run()["kind"] == "morning"
+
+
+def test_evening_text_only_labels_a_real_session_close_as_close(monkeypatch):
+    import app.taiwan.realtime as rt
+    from app.services import watchlist
+
+    monkeypatch.setattr(watchlist, "list_symbols", lambda: [{"symbol": "2330.TWSE"}, {"symbol": "2454.TWSE"}])
+    quotes = {
+        "2330.TWSE": _quote("2330.TWSE", 1000.0, 1.0),
+        "2454.TWSE": _quote("2454.TWSE", 1200.0, 2.0, "聯發科", status="open"),
+    }
+    monkeypatch.setattr(rt, "get_realtime_service", lambda: SimpleNamespace(get_quotes=lambda symbols: quotes))
+    text = push_digest.build_evening_text("2026-10-08")
+    assert "• 台積電（2330）+1.00%，收 1000" in text
+    assert "• 聯發科（2454）+2.00%，價 1200" in text
+
+
+def test_evening_digest_is_not_resent_for_the_same_session(monkeypatch, isolated_prefs):
+    from app.services import webhook_adapter
+
+    sent = []
+    monkeypatch.setattr(push_digest, "build_evening_text", lambda as_of=None: "hello")
+    monkeypatch.setattr(webhook_adapter, "send_telegram", lambda *a: sent.append(a[-1]) or True)
+    isolated_prefs["channels"] = ["telegram"]
+    push_digest.set_enabled(True)
+    assert push_digest.run("evening", "2026-10-08")["status"] == "sent"
+    assert push_digest.run("evening", "2026-10-08")["status"] == "already_sent"
+    assert push_digest.run("evening", "2026-10-09")["status"] == "sent"
+    assert sent == ["hello", "hello"]
+
+
+def test_failed_push_is_not_reported_as_sent(monkeypatch, isolated_prefs):
+    from app.services import webhook_adapter
+
+    monkeypatch.setattr(push_digest, "build_morning_text", lambda: "hello")
+    monkeypatch.setattr(webhook_adapter, "send_telegram", lambda *a: False)
+    isolated_prefs["channels"] = ["telegram"]
+    push_digest.set_enabled(True)
+    assert push_digest.run("morning")["status"] == "not_sent"
 
 
 # ── watchlist_anomaly ────────────────────────────────────────────────────

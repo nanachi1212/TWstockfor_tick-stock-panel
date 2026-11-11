@@ -40,8 +40,11 @@ def test_live_quant_rank_is_exposed_on_the_0_to_100_scale(tmp_path, monkeypatch)
     from app.taiwan.quant import live_store
 
     class FakeLedger:
-        def runs(self, limit):
-            return [{"snapshot": {"signals": [{"symbol": "2330.TWSE", "score": 0.975}]}}]
+        session = "2026-10-07"
+
+        def list_runs(self, limit):
+            return [{"session": self.session,
+                     "snapshot": {"signals": [{"symbol": "2330.TWSE", "score": 0.975}]}}]
 
     monkeypatch.setattr(live_store, "LiveLedger", FakeLedger)
     cache = FinMindCache(tmp_path)
@@ -56,6 +59,12 @@ def test_live_quant_rank_is_exposed_on_the_0_to_100_scale(tmp_path, monkeypatch)
     scores = dict(zip(out["symbol"], out["quant_score"], strict=True))
     assert scores["2330.TWSE"] == pytest.approx(97.5)  # passes a template quant_score_min of 70
     assert scores["2317.TWSE"] is None
+
+    # A run frozen for another session must not score this session's quotes.
+    FakeLedger.session = "2026-10-06"
+    out, _, _ = svc._join_cached_fundamentals_chips(
+        pl.DataFrame({"symbol": ["2330.TWSE"]}), ["2330.TWSE"])
+    assert out["quant_score"].to_list() == [None]
 
 
 @pytest.mark.parametrize("canonical", [False, True])

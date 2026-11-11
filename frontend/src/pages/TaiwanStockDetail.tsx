@@ -34,9 +34,11 @@ import {
   type BeginnerSymbolResponse,
   type TaiwanTimeframeVerdict,
 } from '@/lib/api'
-import { evidenceLabel, evidenceLabels } from '@/lib/evidenceLabel'
+import { evidenceLabel, evidenceLabels, statusLabel } from '@/lib/evidenceLabel'
 import { QK } from '@/lib/queryKeys'
 import { cn } from '@/lib/cn'
+import { fmtBigNum, fmtLots, priceColorClass } from '@/lib/format'
+import { useQuoteStatus } from '@/lib/useSharedQueries'
 import { loadLastCompareSymbols, mergeSymbolIntoCompare } from '@/lib/taiwanCompareSymbols'
 import { CopyButton } from '@/components/CopyButton'
 import { formatStockDetailCopy, formatStockDetailPrompt, type CopyAvailabilityMeta, type StockDetailCopyData } from '@/lib/copy-formatters'
@@ -81,7 +83,7 @@ function copyAvailabilityMeta(meta: AvailabilityMetaInput | null | undefined): C
 
 function availabilityText(meta: AvailabilityMetaInput | null | undefined): string {
   const normalized = copyAvailabilityMeta(meta)
-  return `來源 ${normalized.source ?? '不可用'}，狀態 ${normalized.status ?? 'unavailable'}，資料日 ${normalized.data_date ?? '不可用'}，新鮮度 ${normalized.freshness ?? 'unavailable'}，原因 ${normalized.reason ?? '未提供'}`
+  return `來源 ${normalized.source ?? '不可用'}，狀態 ${statusLabel(normalized.status ?? 'unavailable')}，資料日 ${normalized.data_date ?? '不可用'}，新鮮度 ${statusLabel(normalized.freshness ?? 'unavailable')}，原因 ${normalized.reason ?? '未提供'}`
 }
 
 const RANGE_OPTIONS = [
@@ -191,11 +193,12 @@ export function TaiwanStockDetail() {
     },
   })
 
-  // Query unified stock detail
+  // Query unified stock detail. Quotes do not move outside trading hours, so poll slowly then.
+  const marketClosed = useQuoteStatus().data?.is_trading_hours === false
   const detailQuery = useQuery({
     queryKey: QK.taiwanStockDetail(symbol, selectedRange),
     queryFn: () => api.taiwanStockDetail(symbol, selectedRange),
-    refetchInterval: 10_000,
+    refetchInterval: marketClosed ? 60_000 : 10_000,
   })
 
   const currentDataQuery = useQuery({
@@ -240,6 +243,16 @@ export function TaiwanStockDetail() {
   const [requestAdviceDebate, setRequestAdviceDebate] = useState(false)
   const [aiAdviceResponse, setAiAdviceResponse] = useState<TaiwanAIAdviceResponse | null>(null)
   const [includePortfolioInCopy, setIncludePortfolioInCopy] = useState<boolean>(false)
+
+  // Switching stocks must not keep showing the previous stock's AI output.
+  useEffect(() => {
+    setAiReport(null)
+    setAiError(null)
+    setAiProvider(null)
+    setAiModel(null)
+    setAiAdviceResponse(null)
+    setIsAiLoading(false)
+  }, [symbol])
 
   useEffect(() => {
     const strategies = buyPointStrategiesQuery.data?.strategies ?? []
@@ -496,16 +509,13 @@ export function TaiwanStockDetail() {
   // Price movement classes
   const isUp = (data?.realtime?.change || 0) > 0
   const isDown = (data?.realtime?.change || 0) < 0
-  const priceColor = isUp ? 'text-rose-500' : isDown ? 'text-emerald-500' : 'text-foreground'
+  const priceColor = isUp ? 'text-bull' : isDown ? 'text-bear' : 'text-foreground'
   const sign = isUp ? '+' : ''
 
   // Volume display helper
   const formatVol = (shares: number | null | undefined) => {
     if (shares == null) return '--'
-    if (volUnit === 'lots') {
-      const lots = Math.round(shares / 1000)
-      return `${lots.toLocaleString()} 張`
-    }
+    if (volUnit === 'lots') return fmtLots(shares)
     return `${shares.toLocaleString()} 股`
   }
   const formatSignedVol = (shares: number | null | undefined) => (
@@ -780,8 +790,8 @@ export function TaiwanStockDetail() {
                   </span>
                   {!data.price_limit.is_no_limit && (
                     <div className="mt-1 flex items-center justify-between text-xs font-mono">
-                      <span className="text-rose-500">漲停 {data.price_limit.limit_up?.toFixed(2) || '--'}</span>
-                      <span className="text-emerald-500">跌停 {data.price_limit.limit_down?.toFixed(2) || '--'}</span>
+                      <span className="text-bull">漲停 {data.price_limit.limit_up?.toFixed(2) || '--'}</span>
+                      <span className="text-bear">跌停 {data.price_limit.limit_down?.toFixed(2) || '--'}</span>
                     </div>
                   )}
                   {data.price_limit.is_no_limit && (
@@ -798,7 +808,7 @@ export function TaiwanStockDetail() {
                   <div className="mt-1 flex items-center justify-between text-xs font-mono">
                     <span>{data.market_context.close?.toFixed(2) || '--'}</span>
                     <span className={cn(
-                      data.market_context.change_pct == null ? 'text-muted' : data.market_context.change_pct >= 0 ? 'text-rose-500' : 'text-emerald-500'
+                      priceColorClass(data.market_context.change_pct)
                     )}>
                       {data.market_context.change_pct == null ? '--' : `${data.market_context.change_pct >= 0 ? '+' : ''}${data.market_context.change_pct.toFixed(2)}%`}
                     </span>
@@ -837,11 +847,11 @@ export function TaiwanStockDetail() {
               </div>
               <div>
                 <span className="text-muted text-xs">最高</span>
-                <p className="font-mono font-medium text-rose-500 mt-0.5">{data.realtime.high?.toFixed(2) || '--'}</p>
+                <p className="font-mono font-medium text-bull mt-0.5">{data.realtime.high?.toFixed(2) || '--'}</p>
               </div>
               <div>
                 <span className="text-muted text-xs">最低</span>
-                <p className="font-mono font-medium text-emerald-500 mt-0.5">{data.realtime.low?.toFixed(2) || '--'}</p>
+                <p className="font-mono font-medium text-bear mt-0.5">{data.realtime.low?.toFixed(2) || '--'}</p>
               </div>
               <div>
                 <div className="flex items-center justify-between">
@@ -912,7 +922,7 @@ export function TaiwanStockDetail() {
             <div className="lg:col-span-2 rounded-2xl border border-border bg-surface p-4">
               <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
                 <div className="flex items-center gap-2">
-                  <h3 className="text-sm font-bold text-foreground">歷史日 K 線與成交量</h3>
+                  <h3 className="text-sm font-bold text-foreground">歷史日 K 線</h3>
                   {data.daily_history.meta?.trade_date && (
                     <span className="text-xs text-muted font-mono">
                       資料截至 {data.daily_history.meta.trade_date}
@@ -971,7 +981,7 @@ export function TaiwanStockDetail() {
                     data.realtime.asks.slice().reverse().map(([price, vol], idx) => (
                       <div key={`ask-${idx}`} className="flex items-center justify-between text-xs font-mono py-0.5 px-2 rounded bg-emerald-500/5">
                         <span className="text-muted text-xs">賣 {5 - idx}</span>
-                        <span className="text-emerald-500 font-semibold">{price.toFixed(2)}</span>
+                        <span className={cn('font-semibold', priceColorClass(data.realtime.prev_close != null ? price - data.realtime.prev_close : null))}>{price.toFixed(2)}</span>
                         <span className="text-muted">{formatVol(vol)}</span>
                       </div>
                     ))
@@ -988,7 +998,7 @@ export function TaiwanStockDetail() {
                     data.realtime.bids.map(([price, vol], idx) => (
                       <div key={`bid-${idx}`} className="flex items-center justify-between text-xs font-mono py-0.5 px-2 rounded bg-rose-500/5">
                         <span className="text-muted text-xs">買 {idx + 1}</span>
-                        <span className="text-rose-500 font-semibold">{price.toFixed(2)}</span>
+                        <span className={cn('font-semibold', priceColorClass(data.realtime.prev_close != null ? price - data.realtime.prev_close : null))}>{price.toFixed(2)}</span>
                         <span className="text-muted">{formatVol(vol)}</span>
                       </div>
                     ))
@@ -1003,7 +1013,7 @@ export function TaiwanStockDetail() {
                   formatQuoteSource 顯示名稱。 */}
               <div className="mt-4 pt-3 border-t border-border/60 text-xs text-muted flex items-center justify-between">
                 <span>來源: {formatQuoteSource(data.realtime.meta?.source)}</span>
-                <span>{data.realtime.meta?.is_stale ? '⚠️ 資料已過期' : '即時更新正常'}</span>
+                <span>{data.realtime.meta?.is_stale ? '⚠️ 資料已過期' : data.realtime.meta?.is_stale === false && data.realtime.last_price != null ? '即時更新正常' : '更新狀態未確認'}</span>
               </div>
             </div>
           </div>
@@ -1022,25 +1032,25 @@ export function TaiwanStockDetail() {
                 <div className="space-y-2.5 text-xs">
                   <div className="flex items-center justify-between">
                     <span className="text-muted">外資及陸資</span>
-                    <span className={cn('font-mono font-bold', data.institutional.foreign_net == null ? 'text-muted' : data.institutional.foreign_net >= 0 ? 'text-rose-500' : 'text-emerald-500')}>
+                    <span className={cn('font-mono font-bold', priceColorClass(data.institutional.foreign_net))}>
                       {formatSignedVol(data.institutional.foreign_net)}
                     </span>
                   </div>
                   <div className="flex items-center justify-between">
                     <span className="text-muted">投信基金</span>
-                    <span className={cn('font-mono font-bold', data.institutional.investment_trust_net == null ? 'text-muted' : data.institutional.investment_trust_net >= 0 ? 'text-rose-500' : 'text-emerald-500')}>
+                    <span className={cn('font-mono font-bold', priceColorClass(data.institutional.investment_trust_net))}>
                       {formatSignedVol(data.institutional.investment_trust_net)}
                     </span>
                   </div>
                   <div className="flex items-center justify-between">
                     <span className="text-muted">自營商合計</span>
-                    <span className={cn('font-mono font-bold', data.institutional.dealer_net == null ? 'text-muted' : data.institutional.dealer_net >= 0 ? 'text-rose-500' : 'text-emerald-500')}>
+                    <span className={cn('font-mono font-bold', priceColorClass(data.institutional.dealer_net))}>
                       {formatSignedVol(data.institutional.dealer_net)}
                     </span>
                   </div>
                   <div className="pt-2 border-t border-border flex items-center justify-between">
                     <span className="font-semibold text-foreground">三大法人合計</span>
-                    <span className={cn('font-mono font-bold text-sm', data.institutional.total_net == null ? 'text-muted' : data.institutional.total_net >= 0 ? 'text-rose-500' : 'text-emerald-500')}>
+                    <span className={cn('font-mono font-bold text-sm', priceColorClass(data.institutional.total_net))}>
                       {formatSignedVol(data.institutional.total_net)}
                     </span>
                   </div>
@@ -1066,7 +1076,7 @@ export function TaiwanStockDetail() {
                   </div>
                   <div className="flex items-center justify-between">
                     <span className="text-muted">融資增減</span>
-                    <span className={cn('font-mono font-bold', data.margin.margin_change == null ? 'text-muted' : data.margin.margin_change >= 0 ? 'text-rose-500' : 'text-emerald-500')}>
+                    <span className={cn('font-mono font-bold', priceColorClass(data.margin.margin_change))}>
                       {formatSignedVol(data.margin.margin_change)}
                     </span>
                   </div>
@@ -1076,7 +1086,7 @@ export function TaiwanStockDetail() {
                   </div>
                   <div className="flex items-center justify-between">
                     <span className="text-muted">融券增減</span>
-                    <span className={cn('font-mono font-bold', data.margin.short_change == null ? 'text-muted' : data.margin.short_change >= 0 ? 'text-rose-500' : 'text-emerald-500')}>
+                    <span className={cn('font-mono font-bold', priceColorClass(data.margin.short_change))}>
                       {formatSignedVol(data.margin.short_change)}
                     </span>
                   </div>
@@ -1106,10 +1116,10 @@ export function TaiwanStockDetail() {
                       <span>投信 5 日累計</span>
                     </div>
                     <div className="flex items-center justify-between font-mono font-bold mt-1">
-                      <span className={(data.factors.foreign_net_5d || 0) >= 0 ? 'text-rose-500' : 'text-emerald-500'}>
+                      <span className={priceColorClass(data.factors.foreign_net_5d)}>
                         {formatVol(data.factors.foreign_net_5d)}
                       </span>
-                      <span className={(data.factors.investment_trust_net_5d || 0) >= 0 ? 'text-rose-500' : 'text-emerald-500'}>
+                      <span className={priceColorClass(data.factors.investment_trust_net_5d)}>
                         {formatVol(data.factors.investment_trust_net_5d)}
                       </span>
                     </div>
@@ -1121,10 +1131,10 @@ export function TaiwanStockDetail() {
                       <span>融資變動量</span>
                     </div>
                     <div className="flex items-center justify-between font-mono font-bold mt-1">
-                      <span className={(data.factors.dealer_net_5d || 0) >= 0 ? 'text-rose-500' : 'text-emerald-500'}>
+                      <span className={priceColorClass(data.factors.dealer_net_5d)}>
                         {formatVol(data.factors.dealer_net_5d)}
                       </span>
-                      <span className={(data.factors.margin_balance_change || 0) >= 0 ? 'text-rose-500' : 'text-emerald-500'}>
+                      <span className={priceColorClass(data.factors.margin_balance_change)}>
                         {formatVol(data.factors.margin_balance_change)}
                       </span>
                     </div>
@@ -1189,20 +1199,20 @@ export function TaiwanStockDetail() {
                   </span>
                   <span className="font-mono font-bold text-foreground">
                     {data.fundamentals?.revenue?.latest_revenue != null
-                      ? `${(data.fundamentals.revenue.latest_revenue / 100_000_000).toFixed(2)} 億元`
+                      ? `${fmtBigNum(data.fundamentals.revenue.latest_revenue)}元`
                       : '--'}
                   </span>
                 </div>
                 <div className="flex items-center justify-between text-xs pt-1 border-t border-border/40">
                   <div>
                     <span className="text-muted mr-1.5">月增率 (MoM)</span>
-                    <span className={cn('font-mono font-semibold', (data.fundamentals?.revenue?.mom || 0) >= 0 ? 'text-rose-500' : 'text-emerald-500')}>
+                    <span className={cn('font-mono font-semibold', priceColorClass(data.fundamentals?.revenue?.mom))}>
                       {data.fundamentals?.revenue?.mom != null ? `${data.fundamentals.revenue.mom >= 0 ? '+' : ''}${data.fundamentals.revenue.mom.toFixed(2)}%` : '--'}
                     </span>
                   </div>
                   <div>
                     <span className="text-muted mr-1.5">年增率 (YoY)</span>
-                    <span className={cn('font-mono font-semibold', (data.fundamentals?.revenue?.yoy || 0) >= 0 ? 'text-rose-500' : 'text-emerald-500')}>
+                    <span className={cn('font-mono font-semibold', priceColorClass(data.fundamentals?.revenue?.yoy))}>
                       {data.fundamentals?.revenue?.yoy != null ? `${data.fundamentals.revenue.yoy >= 0 ? '+' : ''}${data.fundamentals.revenue.yoy.toFixed(2)}%` : '--'}
                     </span>
                   </div>
@@ -1216,8 +1226,8 @@ export function TaiwanStockDetail() {
                       {data.fundamentals.revenue.trend.slice(-6).map((t, idx) => (
                         <div key={idx} className="bg-surface rounded p-1 text-xs">
                           <div className="text-muted text-xs truncate">{t.year_month.slice(2)}</div>
-                          <div className="text-foreground font-medium truncate">{(t.revenue / 100_000_000).toFixed(1)}億</div>
-                          <div className={cn('text-xs', (t.yoy || 0) >= 0 ? 'text-rose-500' : 'text-emerald-500')}>
+                          <div className="text-foreground font-medium truncate">{fmtBigNum(t.revenue)}</div>
+                          <div className={cn('text-xs', priceColorClass(t.yoy))}>
                             {t.yoy != null ? `${t.yoy >= 0 ? '+' : ''}${t.yoy.toFixed(0)}%` : '-'}
                           </div>
                         </div>
@@ -1242,7 +1252,7 @@ export function TaiwanStockDetail() {
                     <span className="text-muted">營業利益</span>
                     <span className="font-mono text-foreground">
                       {data.fundamentals?.profitability?.operating_income != null
-                        ? `${(data.fundamentals.profitability.operating_income / 100_000_000).toFixed(2)} 億`
+                        ? fmtBigNum(data.fundamentals.profitability.operating_income)
                         : '--'}
                     </span>
                   </div>
@@ -1250,7 +1260,7 @@ export function TaiwanStockDetail() {
                     <span className="text-muted">稅後淨利</span>
                     <span className="font-mono text-foreground">
                       {data.fundamentals?.profitability?.net_income != null
-                        ? `${(data.fundamentals.profitability.net_income / 100_000_000).toFixed(2)} 億`
+                        ? fmtBigNum(data.fundamentals.profitability.net_income)
                         : '--'}
                     </span>
                   </div>
@@ -1298,13 +1308,13 @@ export function TaiwanStockDetail() {
                 <div className="grid grid-cols-3 gap-2 text-xs text-center font-mono">
                   <div className="bg-surface rounded-lg p-2 border border-border/40">
                     <div className="text-muted text-xs mb-0.5">近 5 日變化</div>
-                    <div className={cn('font-bold', (data.extra_chips?.foreign_shareholding?.change_5d || 0) >= 0 ? 'text-rose-500' : 'text-emerald-500')}>
+                    <div className={cn('font-bold', priceColorClass(data.extra_chips?.foreign_shareholding?.change_5d))}>
                       {data.extra_chips?.foreign_shareholding?.change_5d != null ? `${data.extra_chips.foreign_shareholding.change_5d >= 0 ? '+' : ''}${data.extra_chips.foreign_shareholding.change_5d.toFixed(2)}%` : '--'}
                     </div>
                   </div>
                   <div className="bg-surface rounded-lg p-2 border border-border/40">
                     <div className="text-muted text-xs mb-0.5">近 20 日變化</div>
-                    <div className={cn('font-bold', (data.extra_chips?.foreign_shareholding?.change_20d || 0) >= 0 ? 'text-rose-500' : 'text-emerald-500')}>
+                    <div className={cn('font-bold', priceColorClass(data.extra_chips?.foreign_shareholding?.change_20d))}>
                       {data.extra_chips?.foreign_shareholding?.change_20d != null ? `${data.extra_chips.foreign_shareholding.change_20d >= 0 ? '+' : ''}${data.extra_chips.foreign_shareholding.change_20d.toFixed(2)}%` : '--'}
                     </div>
                   </div>
@@ -1336,7 +1346,7 @@ export function TaiwanStockDetail() {
                     <div className="grid grid-cols-3 gap-2 text-xs text-center font-mono">
                       <div className="bg-surface rounded-lg p-2 border border-border/40">
                         <div className="text-muted text-xs mb-0.5">較上週</div>
-                        <div className={cn('font-bold', bh?.change_1w == null ? 'text-muted' : bh.change_1w >= 0 ? 'text-rose-500' : 'text-emerald-500')}>
+                        <div className={cn('font-bold', bh?.change_1w == null ? 'text-muted' : priceColorClass(bh.change_1w))}>
                           {bh?.change_1w != null ? `${bh.change_1w >= 0 ? '+' : ''}${bh.change_1w.toFixed(2)}%` : '--'}
                         </div>
                       </div>
@@ -2413,7 +2423,7 @@ const RATIONALE_KIND_LABELS = {
 
 const VERDICT_TEXT = { bullish: '偏多', bearish: '偏空', neutral: '中性' } as const
 // 台股慣例：紅漲綠跌。
-const VERDICT_TONE = { bullish: 'text-rose-500', bearish: 'text-emerald-500', neutral: 'text-muted' } as const
+const VERDICT_TONE = { bullish: 'text-bull', bearish: 'text-bear', neutral: 'text-muted' } as const
 
 /** 日／週／月各一句話的規則式多空判定；最後一根週、月 K 含本週（本月）至今。 */
 function TimeframeVerdicts({ verdicts }: { verdicts: TaiwanTimeframeVerdict[] }) {

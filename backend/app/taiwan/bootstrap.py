@@ -15,7 +15,7 @@ import tempfile
 import threading
 import uuid
 from collections.abc import Callable
-from datetime import date, datetime, timedelta
+from datetime import date, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -25,8 +25,12 @@ from pydantic import BaseModel, Field
 
 from app.taiwan.daily_refresh import TaiwanDailyRefreshService
 from app.taiwan.daily_store import TaiwanDailyStore
-from app.taiwan.daily_update import resolve_early_update_target_date, resolve_target_latest_trading_date
+from app.taiwan.daily_update import (
+    resolve_early_update_target_date,
+    resolve_target_latest_trading_date,
+)
 from app.taiwan.data_root import taiwan_data_root
+from app.taiwan.realtime.calendar import taipei_now
 
 logger = logging.getLogger(__name__)
 
@@ -116,7 +120,7 @@ class BootstrapJobState(BaseModel):
     error: str | None = None
     bytes_downloaded: int = 0
     total_bytes: int = 0
-    updated_at: str = Field(default_factory=lambda: datetime.now().isoformat())
+    updated_at: str = Field(default_factory=lambda: taipei_now().isoformat())
 
 
 _jobs_lock = threading.Lock()
@@ -178,7 +182,7 @@ def safe_extract_zip(zip_path: Path, extract_dir: Path) -> None:
             except AttributeError:
                 # Fallback for older python Path
                 if not str(target_path).startswith(str(resolved_extract)):
-                    raise ValueError(f"Zip Slip attack detected: path traversal in {filename}")
+                    raise ValueError(f"Zip Slip attack detected: path traversal in {filename}") from None
 
             if member.is_dir():
                 target_path.mkdir(parents=True, exist_ok=True)
@@ -507,7 +511,7 @@ class TaiwanBootstrapService:
                 job.bytes_downloaded = bytes_downloaded
             if total_bytes is not None:
                 job.total_bytes = total_bytes
-            job.updated_at = datetime.now().isoformat()
+            job.updated_at = taipei_now().isoformat()
 
     def _run_job(self, job_id: str, force: bool = False) -> None:
         logger.info("Starting Taiwan historical bootstrap job %s", job_id)
@@ -532,31 +536,33 @@ class TaiwanBootstrapService:
                 total = 0
 
                 try:
-                    with httpx.Client(follow_redirects=True, timeout=120.0) as client:
-                        with client.stream("GET", self.download_url) as response:
-                            if response.status_code != 200:
-                                raise RuntimeError(
-                                    f"下載失敗: HTTP {response.status_code} {response.reason_phrase}"
-                                )
+                    with (
+                        httpx.Client(follow_redirects=True, timeout=120.0) as client,
+                        client.stream("GET", self.download_url) as response,
+                    ):
+                        if response.status_code != 200:
+                            raise RuntimeError(
+                                f"下載失敗: HTTP {response.status_code} {response.reason_phrase}"
+                            )
 
-                            total = int(response.headers.get("content-length", 0))
-                            self._update_job(job_id, total_bytes=total)
+                        total = int(response.headers.get("content-length", 0))
+                        self._update_job(job_id, total_bytes=total)
 
-                            with open(zip_file_path, "wb") as f:
-                                for chunk in response.iter_bytes(chunk_size=128 * 1024):
-                                    if chunk:
-                                        f.write(chunk)
-                                        hasher.update(chunk)
-                                        downloaded += len(chunk)
-                                        pct = int(downloaded / total * 60) if total > 0 else 30
-                                        mb = downloaded / (1024 * 1024)
-                                        total_mb = total / (1024 * 1024) if total > 0 else ASSET_APPROX_SIZE_MB
-                                        self._update_job(
-                                            job_id,
-                                            progress=pct,
-                                            bytes_downloaded=downloaded,
-                                            message=f"正在下載: {mb:.1f} / {total_mb:.1f} MiB ({pct * 100 // 60}%)",
-                                        )
+                        with open(zip_file_path, "wb") as f:
+                            for chunk in response.iter_bytes(chunk_size=128 * 1024):
+                                if chunk:
+                                    f.write(chunk)
+                                    hasher.update(chunk)
+                                    downloaded += len(chunk)
+                                    pct = int(downloaded / total * 60) if total > 0 else 30
+                                    mb = downloaded / (1024 * 1024)
+                                    total_mb = total / (1024 * 1024) if total > 0 else ASSET_APPROX_SIZE_MB
+                                    self._update_job(
+                                        job_id,
+                                        progress=pct,
+                                        bytes_downloaded=downloaded,
+                                        message=f"正在下載: {mb:.1f} / {total_mb:.1f} MiB ({pct * 100 // 60}%)",
+                                    )
                 except httpx.RequestError as exc:
                     raise RuntimeError(f"無法連線至 GitHub Release: {exc}") from exc
 
@@ -564,14 +570,14 @@ class TaiwanBootstrapService:
                 self._update_job(
                     job_id,
                     status="verifying",
-                    stage="驗證校驗碼",
+                    stage="驗證檢查碼",
                     progress=65,
-                    message="正在校驗 SHA256 完整性...",
+                    message="正在驗證 SHA256 完整性...",
                 )
                 actual_sha256 = hasher.hexdigest().lower()
                 if actual_sha256 != self.expected_sha256:
                     raise ValueError(
-                        f"SHA256 校驗失敗! 預期: {self.expected_sha256}, 實際: {actual_sha256}"
+                        f"SHA256 驗證失敗! 預期: {self.expected_sha256}, 實際: {actual_sha256}"
                     )
 
                 # Step 3: Extract ZIP with Zip Slip prevention
@@ -603,11 +609,13 @@ class TaiwanBootstrapService:
                 if "user_data" in [p.lower() for p in dest_root.parts]:
                     raise RuntimeError("安全違規: 目標路徑不得包含 user_data")
 
-                # Move/replace security_master.parquet safely
+                # The bundle's security master is only as new as the bundle: install it when there
+                # is none locally, never over a local one (which tracks newer listings).
                 dest_sec = dest_root / "security_master.parquet"
-                tmp_dest_sec = dest_root / f"security_master.parquet.tmp_{uuid.uuid4().hex[:6]}"
-                shutil.copy2(str(sec_src), str(tmp_dest_sec))
-                tmp_dest_sec.replace(dest_sec)
+                if not dest_sec.exists():
+                    tmp_dest_sec = dest_root / f"security_master.parquet.tmp_{uuid.uuid4().hex[:6]}"
+                    shutil.copy2(str(sec_src), str(tmp_dest_sec))
+                    tmp_dest_sec.replace(dest_sec)
 
                 # Merge daily partitions (never delete existing partitions)
                 dest_daily = dest_root / "daily"
@@ -724,10 +732,17 @@ class TaiwanBootstrapService:
                 "stats": res,
             }
         else:
+            failed = res.get("failed_dates") or []
+            if failed:
+                shown = "、".join(str(f.get("date")) for f in failed[:5])
+                message = (f"更新未完成: 成功 {fetched} 個交易日, {len(failed)} 個交易日抓取失敗 ({shown})"
+                           f", 最新至 {newest}{note}")
+            else:
+                message = f"成功更新 {fetched} 個交易日 (最新至 {newest}){note}"
             result = {
-                "ok": True,
+                "ok": not failed,
                 "already_current": False,
-                "message": f"成功更新 {fetched} 個交易日 (最新至 {newest}){note}",
+                "message": message,
                 "dates_fetched": fetched,
                 "stats": res,
             }

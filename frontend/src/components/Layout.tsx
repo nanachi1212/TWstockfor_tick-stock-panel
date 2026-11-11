@@ -22,7 +22,6 @@ import {
   DatabaseZap,
   Loader2,
   Sparkles,
-  CheckCircle2,
   ChevronRight,
   ChevronDown,
   Sun,
@@ -167,7 +166,7 @@ export function Layout() {
     staleTime: 60_000,
   })
   // poll=true: 全局唯一開啟條件輪詢 (非交易時段 60s 備援, 交易時段靠 SSE)
-  const { data: quoteStatus } = useQuoteStatus({ poll: true })
+  const { data: quoteStatus, isError: quoteStatusFailed } = useQuoteStatus({ poll: true })
 
   // 自選分組 — 僅當使用者開啟「顯示在側邊欄」時拉取
   const groupsInNav = prefs?.watchlist_groups_in_nav ?? false
@@ -213,30 +212,6 @@ export function Layout() {
     ),
     [navWatchlist, navEnriched],
   )
-
-  // 資料同步狀態輪詢: 有活躍 job 時「資料」選單項顯示轉圈
-  const { data: pipelineJobs } = useQuery({
-    queryKey: QK.pipelineJobs,
-    queryFn: () => api.pipelineJobs(1),
-    refetchInterval: (query) => (query.state.data?.active_id ? 2000 : 15000),
-    refetchIntervalInBackground: true,
-  })
-  const isDataSyncing = !!pipelineJobs?.active_id
-
-  // 資料同步完成的"瞬時反饋": isDataSyncing 從 true→false 時顯示綠色對勾,
-  // 閃爍約 3 秒後自動消失。
-  const [dataSyncJustDone, setDataSyncJustDone] = useState(false)
-  const prevSyncingRef = useRef(false)
-  useEffect(() => {
-    // 僅在"剛結束"(true→false)且非首次掛載時觸發
-    if (prevSyncingRef.current && !isDataSyncing) {
-      setDataSyncJustDone(true)
-      const t = setTimeout(() => setDataSyncJustDone(false), 3000)
-      prevSyncingRef.current = isDataSyncing
-      return () => clearTimeout(t)
-    }
-    prevSyncingRef.current = isDataSyncing
-  }, [isDataSyncing])
 
   const qc = useQueryClient()
   const navigate = useNavigate()
@@ -596,13 +571,6 @@ export function Layout() {
                             {badge}
                           </span>
                         )}
-                        {/* 資料同步狀態: 同步中轉圈, 剛完成顯示綠色對勾閃爍 3 秒 */}
-                        {to === '/data' && isDataSyncing && !collapsed && (
-                          <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin text-accent" />
-                        )}
-                        {to === '/data' && !isDataSyncing && dataSyncJustDone && !collapsed && (
-                          <CheckCircle2 className="h-3.5 w-3.5 shrink-0 text-bull" />
-                        )}
                         {/* 監控中心徽標: 僅非監控頁且有未讀時顯示 */}
                         {to === '/monitor' && !collapsed && <MonitorBadge active={isActive} />}
                       </>
@@ -687,7 +655,13 @@ export function Layout() {
           </div>
         ) : (
         <div className="border-t border-border px-3 py-2.5 shrink-0">
-          {realtimeUnavailable && !realtimeProviderName ? (
+          {!quoteStatus && quoteStatusFailed ? (
+            // A failed status request is not the same as "this source has no realtime".
+            <div role="alert" className="flex items-center justify-between">
+              <span className="text-xs text-secondary truncate">即時行情</span>
+              <span className="text-xs text-danger">狀態載入失敗</span>
+            </div>
+          ) : realtimeUnavailable && !realtimeProviderName ? (
             <div>
               <div className="flex items-center justify-between">
                 <span className="text-xs text-secondary truncate">即時行情</span>

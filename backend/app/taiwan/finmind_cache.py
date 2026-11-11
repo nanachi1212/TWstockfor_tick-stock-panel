@@ -45,6 +45,9 @@ class FinMindCache:
 
     def __init__(self, cache_dir: Path | None = None) -> None:
         self.cache_dir = cache_dir or _cache_root()
+        # path -> ((mtime_ns, size), metadata item, fetched_at): health checks re-parse only
+        # files that changed instead of every cache file (payloads can be large).
+        self._meta_memo: dict[Path, tuple[tuple[int, int], dict[str, Any], datetime]] = {}
 
     def _file_path(self, dataset: str, symbol: str) -> Path:
         """Raises ValueError for keys that are not plain codes, before any filesystem access."""
@@ -134,16 +137,23 @@ class FinMindCache:
         for symbol in self.list_cached_symbols(dataset):
             path = self.cache_dir / dataset / f"{symbol}.json"
             try:
-                raw = json.loads(path.read_text(encoding="utf-8"))
-                if not isinstance(raw, dict):
-                    raise ValueError("invalid cache metadata")
-                item = {key: raw.get(key) for key in
-                        ("status", "data_date", "fetched_at", "error_msg")}
-                item["symbol"] = symbol
-                if not raw.get("data") and item["status"] == "available":
-                    item["status"] = "unavailable"
-                stamp = datetime.fromisoformat(str(item["fetched_at"]))
-                stamp = stamp.replace(tzinfo=UTC) if stamp.tzinfo is None else stamp
+                stat = path.stat()
+                signature = (stat.st_mtime_ns, stat.st_size)
+                memo = self._meta_memo.get(path)
+                if memo is not None and memo[0] == signature:
+                    item, stamp = dict(memo[1]), memo[2]
+                else:
+                    raw = json.loads(path.read_text(encoding="utf-8"))
+                    if not isinstance(raw, dict):
+                        raise ValueError("invalid cache metadata")
+                    item = {key: raw.get(key) for key in
+                            ("status", "data_date", "fetched_at", "error_msg")}
+                    item["symbol"] = symbol
+                    if not raw.get("data") and item["status"] == "available":
+                        item["status"] = "unavailable"
+                    stamp = datetime.fromisoformat(str(item["fetched_at"]))
+                    stamp = stamp.replace(tzinfo=UTC) if stamp.tzinfo is None else stamp
+                    self._meta_memo[path] = (signature, dict(item), stamp)
                 if item["status"] == "available" and (
                     datetime.now(UTC) - stamp
                 ).total_seconds() >= DATASET_TTL.get(dataset, 6 * 3600):

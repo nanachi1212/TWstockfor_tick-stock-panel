@@ -25,13 +25,13 @@ import json
 import logging
 import re
 from dataclasses import dataclass, replace
-from datetime import datetime
 from html import unescape
 from html.parser import HTMLParser
 
 import httpx
 
 from app.taiwan.providers.http import taiwan_client
+from app.taiwan.realtime.calendar import taipei_now
 from app.taiwan.universe.industry_classification import resolve_industry_name
 from app.taiwan.universe.models import OFFICIAL_ORDINARY_ETF_TYPES, TaiwanInstrument
 
@@ -197,7 +197,7 @@ def parse_isin_html(
 
     current_category = "UNKNOWN"
     instruments: list[TaiwanInstrument] = []
-    now_iso = datetime.now().isoformat()
+    now_iso = taipei_now().isoformat()
 
     for tds in parser.rows:
         if not tds:
@@ -388,7 +388,7 @@ def _get_json(url: str, timeout: float = 15.0) -> list[dict]:
 
 
 def _official_company_directory(exchange: str, url: str) -> list[TaiwanInstrument]:
-    now = datetime.now().astimezone().isoformat()
+    now = taipei_now().isoformat()
     instruments = []
     for row in _get_json(url):
         if exchange == "TWSE":
@@ -415,7 +415,7 @@ def _official_company_directory(exchange: str, url: str) -> list[TaiwanInstrumen
 
 
 def _official_twse_etf_directory() -> list[TaiwanInstrument]:
-    now = datetime.now().astimezone().isoformat()
+    now = taipei_now().isoformat()
     instruments = []
     for row in _get_json(TWSE_ETF_PRODUCTS_URL):
         code, name = row.get("基金代號"), row.get("基金簡稱")

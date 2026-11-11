@@ -22,7 +22,7 @@ _cache_sig: tuple[int, int] | None = None
 _SAVE_LOCK = threading.RLock()
 
 
-# 監控規則可選的外部推播渠道。多選: 不推播 = 空陣列, 而非 'none'。
+# 監控規則可選的外部推播管道。多選: 不推播 = 空陣列, 而非 'none'。
 REVIEW_PUSH_CHANNELS = {"line", "telegram"}
 
 # 頁面 SSE 重新整理設定: { "watchlist": true, "monitor": true, ... }
@@ -117,7 +117,7 @@ def get_realtime_watchlist_symbols() -> list[str]:
     try:
         from app.services import watchlist
         rows = watchlist.list_symbols()
-    except Exception as e:  # noqa: BLE001
+    except Exception as e:
         logger.warning("load watchlist for realtime failed: %s", e)
         return []
     out: list[str] = []
@@ -141,20 +141,8 @@ def get_minute_sync_enabled() -> bool:
 
 
 def get_minute_intraday_refresh() -> bool:
-    """自選列表分時圖是否跟隨即時行情重新整理。
-
-    預設值隨權限: 有即時行情權限 (Pro+) 的使用者預設開啟, 否則關閉。
-    使用者主動設定過的 (key 存在) 以使用者選擇為準, 即使是 False 也尊重。
-    """
-    data = load()
-    if "minute_intraday_refresh" in data:
-        return bool(data["minute_intraday_refresh"])
-    # 未設定過: 有權限預設開, 無權限預設關。
-    try:
-        from app.services.quote_service import QuoteService
-        return QuoteService.is_realtime_allowed()
-    except Exception:
-        return False
+    """自選列表分時圖是否跟隨即時行情重新整理; 使用者沒設定過時預設開啟。"""
+    return bool(load().get("minute_intraday_refresh", True))
 
 
 # 分時圖即時重新整理間隔允許範圍 (秒)。下限 3s, 上限 60s。
@@ -186,39 +174,13 @@ def get_minute_sync_segment_days() -> int:
 # ===== 資料來源選擇 (台灣官方或已設定的自訂來源) =====
 
 _ALLOWED_DATA_PROVIDERS = {"taiwan"}
-DATA_SOURCE_JOB_TIMEOUT_MIN_S = 60
-
-
-def get_data_source_job_timeout_s() -> int:
-    """回傳普通資料背景任務的卡死判定時間(秒)。"""
-    from app.services.pipeline_jobs import DEFAULT_JOB_TIMEOUT_S
-    raw = load().get("data_source_job_timeout_s", DEFAULT_JOB_TIMEOUT_S)
-    try:
-        timeout_s = int(raw)
-    except (TypeError, ValueError):
-        timeout_s = DEFAULT_JOB_TIMEOUT_S
-    return max(DATA_SOURCE_JOB_TIMEOUT_MIN_S, timeout_s)
-
-
-def get_data_source_long_job_timeout_s() -> int:
-    """回傳分鐘 K 全市場等長任務的卡死判定時間(秒)。"""
-    from app.services.pipeline_jobs import LONG_JOB_TIMEOUT_S
-    raw = load().get(
-        "data_source_long_job_timeout_s",
-        LONG_JOB_TIMEOUT_S,
-    )
-    try:
-        timeout_s = int(raw)
-    except (TypeError, ValueError):
-        timeout_s = LONG_JOB_TIMEOUT_S
-    return max(DATA_SOURCE_JOB_TIMEOUT_MIN_S, timeout_s)
 
 
 def _allowed_data_providers() -> set[str]:
     try:
         from app.data_providers import custom as custom_sources
         return _ALLOWED_DATA_PROVIDERS | custom_sources.names()
-    except Exception:  # noqa: BLE001
+    except Exception:
         return set(_ALLOWED_DATA_PROVIDERS)
 
 
@@ -262,7 +224,7 @@ def get_index_daily_batch_size() -> int:
     return max(1, min(10000, load().get("index_daily_batch_size", 100)))
 
 
-# ── 五檔盤口 sealed(真假漲停) 設定 ──────────────────────
+# ── 五檔報價 sealed(真假漲停) 設定 ──────────────────────
 
 
 def get_realtime_pull_stock() -> bool:
@@ -314,7 +276,7 @@ def get_sidebar_index_symbols() -> list[str]:
 
 
 def get_system_notify_enabled() -> bool:
-    """系統通知開關 — 開啟後監控告警同時推送到操作系統通知中心。"""
+    """系統通知開關 — 開啟後監控告警同時推播到作業系統通知中心。"""
     return load().get("system_notify_enabled", False)
 
 
@@ -396,7 +358,7 @@ def set_finmind_enabled(enabled: bool) -> bool:
 
 
 def get_webhook_enabled_default() -> bool:
-    """新建監控規則時是否預設勾選推送 (老布林, 已由 webhook_default_channels 取代)。
+    """新增監控規則時是否預設勾選推播 (老布林, 已由 webhook_default_channels 取代)。
 
     保留向後相容: 讀取 webhook_default_channels 非空時回傳 True。
     """
@@ -404,13 +366,13 @@ def get_webhook_enabled_default() -> bool:
 
 
 def get_webhook_default_channels() -> list[str]:
-    """新建監控規則時預設勾選的推送渠道 (多選)。
+    """新增監控規則時預設勾選的推播管道 (多選)。
 
-    空列表 = 新建規則預設不推送; ['line'] = 預設推播 LINE。
-    此預設值供規則編輯器新建規則時預填, 單條規則仍可獨立修改。
+    空列表 = 新增規則預設不推播; ['line'] = 預設推播 LINE。
+    此預設值供規則編輯器新增規則時預填, 單條規則仍可獨立修改。
 
-    舊版飛書/企業微信渠道與布林值只做安全過濾,不刪除原始偏好資料,
-    也不自動映射到新的收件者。
+    舊版飛書/企業微信管道與布林值只做安全過濾,不刪除原始偏好資料,
+    也不自動對應到新的收件者。
     """
     d = load()
     raw = d.get("webhook_default_channels")

@@ -13,7 +13,7 @@ from polars.testing import assert_frame_equal
 
 from app.repository import KlineRepository
 
-SYM = "600001.SH"
+SYM = "2303.TWSE"
 
 
 def _raw_frame(days: int = 80) -> pl.DataFrame:

@@ -8,6 +8,7 @@ import { useSettings } from '@/lib/useSharedQueries'
 import { api, type SettingsState } from '@/lib/api'
 import { QK } from '@/lib/queryKeys'
 import { AiKeyProfilesPanel } from './AiKeyProfiles'
+import { Modal } from '@/components/Modal'
 
 // 統一的輸入框樣式(與項目其他設定頁一致)
 const INPUT_CLS =
@@ -217,11 +218,13 @@ export function SettingsAIPanel() {
     if (isOpenAIProvider) directDrafts.current.openai.model = value
   }
 
-  const handleTest = async () => {
+  // The backend can only test saved settings, so the key-field button saves first and says so.
+  // The status-card button tests what is already saved and never writes.
+  const handleTest = async (saveFirst: boolean) => {
     setTesting(true)
     setTestResult(null)
     try {
-      if (canSave) await api.saveAiSettings(payload())
+      if (saveFirst && canSave) await api.saveAiSettings(payload())
       const r = await api.strategyAiTest()
       setTestResult({ ok: r.ok, msg: r.ok ? `連線成功，${r.model ?? provider}` : (r.error ?? '未知錯誤') })
     } catch (e: any) {
@@ -235,7 +238,7 @@ export function SettingsAIPanel() {
     <div className="space-y-5 max-w-2xl">
       <Card icon={Plug} title="連線狀態" right={
         configured && (
-          <button onClick={handleTest} disabled={testing}
+          <button onClick={() => handleTest(false)} disabled={testing}
             className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-btn bg-elevated hover:bg-elevated/80 text-xs text-secondary transition-colors duration-150 ease-smooth disabled:opacity-50">
             {testing ? <Loader2 className="h-3 w-3 animate-spin" /> : <Wifi className="h-3 w-3" />}
             {testing ? '測試中' : '測試'}
@@ -247,11 +250,11 @@ export function SettingsAIPanel() {
             {configured ? <Wifi className="h-4.5 w-4.5" /> : <WifiOff className="h-4.5 w-4.5" />}
           </div>
           <div className="min-w-0">
-            <div className="text-sm font-medium text-foreground">{configured ? 'AI 已連線' : 'AI 未設定'}</div>
+            <div className="text-sm font-medium text-foreground">{settings.isError && !s ? 'AI 設定載入失敗' : configured ? 'AI 已連線' : 'AI 未設定'}</div>
             <div className="text-xs text-muted mt-0.5 truncate">
               {configured
                 ? [s?.ai_model, s?.ai_api_key_masked].filter(Boolean).join('，') || '已儲存 AI 設定'
-                : '設定 API Key 後即可使用 AI 功能。'}
+                : settings.isError && !s ? '請確認後端服務後重新整理。' : '設定 API Key 後即可使用 AI 功能。'}
             </div>
           </div>
         </div>
@@ -341,9 +344,9 @@ export function SettingsAIPanel() {
                   {showKey ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
                 </button>
               </div>
-              <button onClick={handleTest} disabled={testing || !apiKey} className="h-9 px-3 rounded-lg border border-border/50 text-xs text-secondary hover:text-accent hover:border-accent/30 disabled:opacity-40 transition-all flex items-center gap-1.5 shrink-0">
+              <button onClick={() => handleTest(true)} disabled={testing || !apiKey} className="h-9 px-3 rounded-lg border border-border/50 text-xs text-secondary hover:text-accent hover:border-accent/30 disabled:opacity-40 transition-all flex items-center gap-1.5 shrink-0">
                 {testing ? <Loader2 className="h-3 w-3 animate-spin" /> : <Wifi className="h-3 w-3" />}
-                測試
+                儲存並測試
               </button>
             </div>
           </Field>
@@ -407,9 +410,7 @@ export function SettingsAIPanel() {
       </div>
 
       {confirmClear && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center">
-          <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => setConfirmClear(false)} />
-          <div className="relative w-[90vw] max-w-[380px] rounded-card border border-border bg-base shadow-2xl p-6">
+        <Modal onClose={() => setConfirmClear(false)} ariaLabel="清空 AI 設定" overlayClassName="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm" panelClassName="w-[90vw] max-w-[380px] rounded-card border border-border bg-base shadow-2xl p-6">
             <h3 className="text-sm font-medium text-foreground mb-2">清空 AI 設定</h3>
             <p className="text-xs text-secondary mb-5 leading-relaxed">
               這會清空已儲存的 provider、API Key、API 位址、模型和相關 AI 設定。之後可以重新設定。
@@ -422,8 +423,7 @@ export function SettingsAIPanel() {
                 {clear.isPending ? '清空中…' : '確認'}
               </button>
             </div>
-          </div>
-        </div>
+</Modal>
       )}
     </div>
   )
@@ -470,7 +470,9 @@ function AiFeedbackSummaryCard() {
   return (
     <div className="rounded-card border border-border bg-surface/60 px-4 py-3 space-y-1.5" aria-label="AI 說明回饋統計">
       <p className="text-sm font-medium text-foreground">AI 說明準不準（你的回饋）</p>
-      {!data || data.total === 0 ? (
+      {summary.isError ? (
+        <p role="alert" className="text-xs text-warning">回饋統計載入失敗，請稍後再試。</p>
+      ) : !data || data.total === 0 ? (
         <p className="text-xs text-muted">還沒有回饋。到「今日選股」卡片展開 AI 白話說明，按「準」或「不準」就會累積到這裡。</p>
       ) : (
         <>

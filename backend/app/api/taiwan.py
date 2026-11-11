@@ -3,7 +3,7 @@
 Covers:
   - GET /api/taiwan/stocks/{symbol}: Unified Taiwan Stock Research Workspace Detail API.
 """
-# ruff: noqa: RUF001, RUF002 -- user-facing Traditional Chinese API messages.
+
 from __future__ import annotations
 
 import logging
@@ -380,32 +380,6 @@ def get_taiwan_bootstrap_job(job_id: str):
     if not job:
         raise HTTPException(status_code=404, detail=f"找不到任務 {job_id}")
     return job
-
-
-@router.get("/bootstrap/stream/{job_id}")
-async def stream_taiwan_bootstrap_job(job_id: str):
-    """SSE 即時推播 Bootstrap 任務進度。"""
-    import asyncio
-
-    from sse_starlette.sse import EventSourceResponse
-
-    svc = TaiwanBootstrapService()
-    job = svc.get_job(job_id)
-    if not job:
-        raise HTTPException(status_code=404, detail=f"找不到任務 {job_id}")
-
-    async def event_generator():
-        while True:
-            cur = svc.get_job(job_id)
-            if not cur:
-                break
-            payload = cur.model_dump_json()
-            yield {"event": "progress", "data": payload}
-            if cur.status in ("success", "failed"):
-                break
-            await asyncio.sleep(0.5)
-
-    return EventSourceResponse(event_generator())
 
 
 @router.post("/bootstrap/update-latest")
@@ -985,23 +959,6 @@ def check_taiwan_event_alerts(
     except Exception as e:
         logger.exception("Failed to check and trigger event alerts: %s", e)
         raise HTTPException(status_code=500, detail=f"事件提醒檢查失敗: {e}") from e
-
-
-@router.get("/news/{symbol}")
-def get_taiwan_stock_news(
-    symbol: str,
-    limit: int = Query(15, ge=1, le=50),
-    refresh: bool = Query(False, description="是否強制重取"),
-):
-    """取得個股近期新聞 (使用 FinMind TaiwanStockNews，支援確定性去重與快取保護)。"""
-    from app.taiwan.news_service import get_news_service
-
-    svc = get_news_service()
-    try:
-        return svc.get_recent_news(symbol_or_code=symbol, limit=limit, force_refresh=refresh)
-    except Exception as e:
-        logger.exception("Failed to fetch stock news for %s: %s", symbol, e)
-        raise HTTPException(status_code=500, detail=f"新聞取得失敗: {e}") from e
 
 
 @router.get("/market-sentiment")

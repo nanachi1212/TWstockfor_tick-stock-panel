@@ -21,7 +21,7 @@ def _ai_profile_count() -> int:
     try:
         from app.services.ai_key_profiles import list_profiles
         return len(list_profiles())
-    except Exception:  # noqa: BLE001
+    except Exception:
         return 0
 
 
@@ -33,7 +33,7 @@ def _ai_active_profile_name() -> str | None:
             if p.get("active"):
                 return str(p.get("name", ""))
         return None
-    except Exception:  # noqa: BLE001
+    except Exception:
         return None
 
 
@@ -42,6 +42,17 @@ def get_settings() -> dict:
     """回傳當前設定概況(Key 脫敏)。"""
     from app.config import settings
     from app.services import preferences
+    from app.services.ai_provider import (
+        ai_configured,
+        current_ai_context_window,
+        current_ai_max_output_tokens,
+        current_ai_model,
+        current_codex_command,
+        current_codex_model,
+        current_codex_reasoning_effort,
+        current_openai_model,
+        current_openai_reasoning_effort,
+    )
     from app.taiwan import (
         advice_reflection,
         auto_ai_explain,
@@ -49,17 +60,6 @@ def get_settings() -> dict:
         push_digest,
         telegram_bot,
         watchlist_anomaly,
-    )
-    from app.services.ai_provider import (
-        ai_configured,
-        current_ai_model,
-        current_codex_command,
-        current_codex_model,
-        current_codex_reasoning_effort,
-        current_openai_model,
-        current_openai_reasoning_effort,
-        current_ai_context_window,
-        current_ai_max_output_tokens,
     )
 
     ai_provider = secrets_store.get_ai_config("ai_provider", settings.ai_provider)
@@ -135,6 +135,8 @@ def save_ai_settings(req: AiSettingsIn) -> dict:
     from app.services.ai_provider import (
         OPENAI_PROVIDER,
         ai_configured,
+        current_ai_context_window,
+        current_ai_max_output_tokens,
         current_ai_model,
         current_ai_provider,
         current_codex_command,
@@ -142,11 +144,10 @@ def save_ai_settings(req: AiSettingsIn) -> dict:
         current_codex_reasoning_effort,
         current_openai_model,
         current_openai_reasoning_effort,
-        current_ai_context_window,
-        current_ai_max_output_tokens,
         normalize_codex_command,
         normalize_codex_model,
         normalize_codex_reasoning_effort,
+        reset_ai_configured_cache,
     )
 
     updates: dict = {}
@@ -199,6 +200,7 @@ def save_ai_settings(req: AiSettingsIn) -> dict:
     if updates:
         secrets_store.save(updates)
     secrets_store.confirm_ai_target(secrets_store.AI_LEGACY_TARGET)  # 使用者已在設定頁確認舊版單一設定
+    reset_ai_configured_cache()  # saving is the user's "detect again"
 
     provider = current_ai_provider()
     return {
@@ -441,16 +443,6 @@ class DataProvidersIn(BaseModel):
     financial_data_provider: str | None = None
 
 
-class PluginKeyIn(BaseModel):
-    plugin: str
-    api_key: str
-
-
-class DataSourceJobTimeoutPrefs(BaseModel):
-    data_source_job_timeout_s: int = Field(ge=60)
-    data_source_long_job_timeout_s: int = Field(ge=60)
-
-
 class DatasetConfigIn(BaseModel):
     url: str
     method: str = "GET"
@@ -510,8 +502,6 @@ def get_preferences() -> dict:
         "minute_data_provider": preferences.get_minute_data_provider(),
         "realtime_data_provider": preferences.get_realtime_data_provider(),
         "financial_data_provider": preferences.get_financial_provider(),
-        "data_source_job_timeout_s": preferences.get_data_source_job_timeout_s(),
-        "data_source_long_job_timeout_s": preferences.get_data_source_long_job_timeout_s(),
         "realtime_watchlist_symbols": preferences.get_realtime_watchlist_symbols(),
         **preferences.get_realtime_quote_scope(),
         "enriched_batch_size": preferences.get_enriched_batch_size(),
@@ -551,111 +541,20 @@ def list_data_sources() -> dict:
     from app.data_providers import custom as custom_sources
     return {
         "builtin": [{"name": "taiwan", "display_name": "台灣官方資料源 (TWSE/TPEx)", "datasets": ["daily", "realtime", "financial"]}],
-        "plugins": custom_sources.list_plugins(),
+        "plugins": [],
         "custom": custom_sources.list_sources(),
         "errors": custom_sources.errors(),
         "config_dir": str(custom_sources.data_sources_dir()),
     }
 
 
-@router.post("/plugin-key")
-def save_plugin_key(req: PluginKeyIn) -> dict:
-    """儲存外掛 API Key(先探後存)。
-
-    流程: probe_plugin_key 用候選 Key 實探 → 有效才寫 secrets.json
-    ({plugin}_api_key, 優先級高於 .env) → load_all 重掃, 外掛即刻變為可切換。
-    """
-    from app.data_providers import custom as custom_sources
-
-    name = req.plugin.strip().lower()
-    key = req.api_key.strip()
-    if not key:
-        return {"ok": False, "error": "key empty"}
-    ok, message = custom_sources.probe_plugin_key(name, key)
-    if not ok:
-        return {"ok": False, "reason": "invalid", "error": message}
-    secrets_store.save({f"{name}_api_key": key})
-    custom_sources.load_all()
-    status = next((p for p in custom_sources.list_plugins() if p["name"] == name), None)
-    return {
-        "ok": True,
-        "api_key_masked": secrets_store.mask(key),
-        "plugin_available": bool(status and status.get("available")),
-        "plugin": status,
-    }
-
-
-@router.delete("/plugin-key/{name}")
-def clear_plugin_key(name: str) -> dict:
-    """清除外掛的界面設定 Key(secrets.json);.env 裡的同名變數仍然生效。"""
-    from app.data_providers import custom as custom_sources
-
-    manifest = custom_sources.plugin_manifest(name)
-    if manifest is None or not custom_sources.is_builtin(name):
-        raise HTTPException(status_code=404, detail=f"外掛 '{name}' 不存在")
-    if not manifest.get("api_key_env"):
-        raise HTTPException(status_code=400, detail=f"外掛 '{name}' 不支援在界面設定 Key")
-    secrets_store.clear(f"{name.lower()}_api_key")
-    custom_sources.load_all()
-    status = next((p for p in custom_sources.list_plugins() if p["name"] == name), None)
-    return {
-        "ok": True,
-        "plugin_available": bool(status and status.get("available")),
-        "plugin": status,
-    }
-
-
 @router.post("/data-sources/reload")
-def reload_data_sources() -> dict:
+def reload_data_sources(request: Request) -> dict:
     """重新載入 data_sources/*.yaml。"""
     from app.data_providers import custom as custom_sources
     custom_sources.load_all()
+    request.app.state.capabilities = detect_capabilities()
     return list_data_sources()
-
-
-@router.post("/plugins/{name}/install")
-def install_plugin(name: str) -> dict:
-    """安裝指定外掛的依賴 (npm install / pip install), 完成後重新掃描。
-
-    根據 plugin.yaml 的 runtime 欄位決定安裝方式。安裝可能耗時較長 (網路下載),
-    客戶端需設較長超時。
-    """
-    from app.data_providers import custom as custom_sources
-    if not custom_sources.is_builtin(name):
-        raise HTTPException(status_code=404, detail=f"外掛 '{name}' 不存在")
-    ok, message = custom_sources.install_plugin(name)
-    # 無論成功失敗都重新掃描, 重新整理外掛狀態 (安裝可能部分成功)
-    custom_sources.load_all()
-    result = list_data_sources()
-    result["install_ok"] = ok
-    result["install_message"] = message
-    return result
-
-
-@router.delete("/plugins/{name}/install")
-def uninstall_plugin(name: str) -> dict:
-    """解除安裝指定外掛的依賴 (刪除 node_modules / pip uninstall), 完成後重新掃描。
-
-    如果該外掛當前正被使用, 自動回退到 taiwan。
-    """
-    from app.data_providers import custom as custom_sources
-    from app.services import preferences
-    if not custom_sources.is_builtin(name):
-        raise HTTPException(status_code=404, detail=f"外掛 '{name}' 不存在")
-    selected = preferences.load()
-    ok, message = custom_sources.uninstall_plugin(name)
-    updates = {}
-    for key in ("daily_data_provider", "minute_data_provider", "realtime_data_provider",
-                "financial_data_provider", "adj_factor_provider"):
-        if selected.get(key) == name:
-            updates[key] = "same_as_daily" if key == "adj_factor_provider" else "taiwan"
-    if updates:
-        preferences.save(updates)
-    custom_sources.load_all()
-    result = list_data_sources()
-    result["uninstall_ok"] = ok
-    result["uninstall_message"] = message
-    return result
 
 
 @router.get("/data-sources/{name}")
@@ -669,8 +568,8 @@ def get_data_source(name: str) -> dict:
 
 
 @router.post("/data-sources")
-def save_data_source(req: CustomSourceIn) -> dict:
-    """建立或更新一個自訂資料來源 yaml, 儲存後自動 reload。"""
+def save_data_source(req: CustomSourceIn, request: Request) -> dict:
+    """建立或更新一個自訂資料來源 yaml, 儲存後自動 reload 並重新偵測能力。"""
     from app.data_providers import custom as custom_sources
     config = req.model_dump()
     config["name"] = (config.get("name") or "").lower()
@@ -679,6 +578,7 @@ def save_data_source(req: CustomSourceIn) -> dict:
         custom_sources.load_all()
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
+    request.app.state.capabilities = detect_capabilities()
     return list_data_sources()
 
 
@@ -734,7 +634,7 @@ def test_data_source(req: CustomSourceTestIn) -> dict:
         else:
             provider = custom_sources.get_provider(req.provider)
         return provider.test_dataset(req.dataset, req.symbols)
-    except Exception as e:  # noqa: BLE001
+    except Exception as e:
         raise HTTPException(status_code=400, detail=f"自訂資料來源測試失敗: {e}") from e
     finally:
         if temporary and provider is not None:
@@ -764,14 +664,6 @@ def update_data_providers(req: DataProvidersIn, request: Request) -> dict:
         "realtime_data_provider": preferences.get_realtime_data_provider(),
         "financial_data_provider": preferences.get_financial_provider(),
     }
-
-
-@router.put("/preferences/data-source-job-timeouts")
-def update_data_source_job_timeouts(req: DataSourceJobTimeoutPrefs) -> dict:
-    """儲存普通與長資料背景任務的卡死判定時間。"""
-    from app.services import preferences
-    preferences.save(req.model_dump())
-    return req.model_dump()
 
 
 @router.get("/preferences/watchlist-columns")
@@ -825,9 +717,6 @@ def update_realtime_quotes(req: RealtimeQuotesPrefs, request: Request) -> dict:
     from app.services import preferences
     qs = getattr(request.app.state, "quote_service", None)
 
-    if req.realtime_quotes_enabled and qs and qs.is_paused():
-        # 管道/資料修正執行期間禁止開啟即時行情 — 防止寫盤競態
-        raise HTTPException(status_code=409, detail="資料同步執行中，即時行情已臨時暫停，請稍後再開啟")
     preferences.save({"realtime_quotes_enabled": req.realtime_quotes_enabled})
     if qs:
         if req.realtime_quotes_enabled:

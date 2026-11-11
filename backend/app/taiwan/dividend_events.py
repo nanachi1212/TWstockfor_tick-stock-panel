@@ -1,7 +1,6 @@
 """Official MOPS dividend lifecycle events with point-in-time semantics."""
 from __future__ import annotations
 
-# ruff: noqa: RUF001 -- official field names contain full-width punctuation.
 import re
 from dataclasses import dataclass
 from datetime import date, datetime
@@ -9,6 +8,7 @@ from typing import Any
 
 import httpx
 
+from app.taiwan.providers.http import taiwan_client
 from app.taiwan.providers.taiwan_values import TAIPEI, parse_number, parse_taiwan_date
 
 EVENT_TYPES = {
@@ -81,7 +81,7 @@ class MOPSDividendLifecycleProvider:
     """Read stable, timed dividend events from MOPS historical material information."""
 
     def __init__(self, client: httpx.Client | None = None) -> None:
-        self.client = client or httpx.Client(timeout=30.0)
+        self.client = client or taiwan_client(timeout=30.0)
 
     def events(
         self,

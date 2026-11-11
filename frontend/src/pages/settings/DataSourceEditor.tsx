@@ -218,7 +218,7 @@ export function DataSourceEditor({
               <input
                 value={config.name}
                 onChange={e => setConfig({ ...config, name: e.target.value })}
-                placeholder="my_tushare"
+                placeholder="my_source"
                 disabled={!isNew}
                 className={`${INPUT_CLS} w-full disabled:opacity-60`}
               />
@@ -581,7 +581,7 @@ function DatasetDetail({
             className="py-12 text-center"
           >
             <div className="text-sm text-muted mb-1">{DATASET_LABEL[datasetKey]} 未啟用</div>
-            <div className="text-xs text-muted/60">啟用後此資料集將由該自訂來源提供,未啟用則回退內建資料來源</div>
+            <div className="text-xs text-muted/60">啟用後此資料集將由該自訂來源提供,未啟用則改用內建資料來源</div>
             <button
               onClick={() => onToggle(true)}
               className="mt-3 inline-flex items-center gap-1 px-3 py-1.5 rounded-btn bg-accent/10 text-accent text-xs font-medium hover:bg-accent/20 transition-colors"

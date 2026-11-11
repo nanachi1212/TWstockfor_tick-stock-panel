@@ -373,11 +373,14 @@ def _backfill_announcements(
 ) -> dict[str, Any]:
     report: dict[str, Any] = {"written": 0, "unchanged": 0, "refreshed": 0, "conflict": 0,
                               "errors": []}
+    # Read coverage once: each (source, month) is visited once, so a month
+    # written below never changes the answer for a later one.
+    covered = {source: store.covered_months(source) for source in ANNOUNCEMENT_SOURCES}
     year, month = start.year, start.month
     while (year, month) <= (end.year, end.month):
         first, last = month_bounds(year, month)
         for source in ANNOUNCEMENT_SOURCES:
-            through = store.covered_months(source).get((year, month))
+            through = covered[source].get((year, month))
             if through is not None and through >= last:
                 continue
             if should_stop is not None and should_stop():

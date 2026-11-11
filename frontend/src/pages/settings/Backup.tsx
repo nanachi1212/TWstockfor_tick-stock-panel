@@ -9,6 +9,7 @@ import { useQuery } from '@tanstack/react-query'
 import { Download, Upload, ShieldCheck, AlertTriangle, RotateCcw, RefreshCw } from 'lucide-react'
 import { PageHeader } from '@/components/PageHeader'
 import { api, type BackupPreview } from '@/lib/api'
+import { fmtTaipeiDateTime } from '@/lib/format'
 import {
   collectBrowserStorage, exportBackup, restoreBackup, saveBlob, undoRestore, type BrowserSnapshot,
 } from '@/lib/deviceTransfer'
@@ -225,7 +226,7 @@ export function SettingsBackupPanel() {
           <div className="mt-4 space-y-3" data-testid="backup-preview">
             <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-xs">
               <dt className="text-muted">建立時間</dt>
-              <dd className="text-foreground">{preview.created_at ? new Date(preview.created_at).toLocaleString('zh-TW') : '—'}</dd>
+              <dd className="text-foreground">{fmtTaipeiDateTime(preview.created_at, '—', true)}</dd>
               <dt className="text-muted">App 版本</dt>
               <dd className="text-foreground">
                 {preview.app_version ?? '—'}

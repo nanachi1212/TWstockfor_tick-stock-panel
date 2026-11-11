@@ -48,6 +48,7 @@ def list_taiwan_rules():
 def create_taiwan_rule(req: TaiwanMonitorRuleCreate):
     """新增台股即時監控規則 (帶 Security Master 與參數合法性校驗)。"""
     import uuid
+
     from app.taiwan.realtime.monitor_engine import get_monitor_engine
     from app.taiwan.realtime.monitor_models import TaiwanMonitorRule, TaiwanRuleType
 
@@ -95,7 +96,7 @@ def sync_taiwan_plan_rules():
         return sync_watchlist_plans()
     except Exception as exc:
         logger.exception("Taiwan Auto Watch sync failed")
-        raise HTTPException(status_code=503, detail="自動監控同步失敗，原有規則已保留") from exc  # noqa: RUF001
+        raise HTTPException(status_code=503, detail="自動監控同步失敗，原有規則已保留") from exc
 
 
 @router.patch("/taiwan/{rule_id}")

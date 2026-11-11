@@ -15,7 +15,14 @@ Orchestrates:
 from __future__ import annotations
 
 import logging
+import os
+import threading
+import time
+from collections.abc import Callable
+from concurrent.futures import Future
+from concurrent.futures import TimeoutError as FutureTimeout
 from datetime import date, datetime, timedelta
+from typing import Any
 
 import polars as pl
 
@@ -59,6 +66,39 @@ logger = logging.getLogger(__name__)
 _DAILY_HISTORY_DAYS = 1100
 _DAILY_COLUMNS = ("date", "open", "high", "low", "close", "volume", "amount")
 _DAILY_CACHE_SIZE = 64
+
+# FinMind, MOPS and news sit behind shared rate limits (FinMind: one request per ~15 s)
+# that background warm-ups also queue on. The page waits this long in total; slower
+# fetches keep running, fill the services' own caches, and the page's 10 s refetch
+# shows them. Without the bound a cold or offline symbol held the request for minutes.
+_SLOW_SECTION_WAIT = 3.0
+_PENDING = object()
+_slow_inflight: dict[tuple[str, str], Future] = {}
+_slow_lock = threading.Lock()
+
+
+def _submit_slow(section: str, symbol: str, fetch: Callable[[], Any]) -> Future:
+    """Start *fetch* unless the same section of the same symbol is already running."""
+    key = (section, symbol)
+
+    def run() -> None:
+        try:
+            future.set_result(fetch())
+        except Exception as exc:
+            future.set_exception(exc)
+        finally:
+            with _slow_lock:
+                _slow_inflight.pop(key, None)
+
+    with _slow_lock:
+        future = _slow_inflight.get(key)
+        if future is None:
+            future = _slow_inflight[key] = Future()
+            # Daemon threads, not an executor: an executor joins its workers at exit, so
+            # closing the app would wait out every queued rate-limit slot.
+            # ponytail: one thread per pending section; the limiters pace the actual requests.
+            threading.Thread(target=run, daemon=True, name=f"stock-detail-{section}").start()
+        return future
 
 
 class TaiwanStockDetailService:
@@ -173,26 +213,54 @@ class TaiwanStockDetailService:
         # 10. Recent Alerts
         recent_alerts = self._aggregate_recent_alerts(symbol_str)
 
-        # 10. Fundamentals and Extra Chips (robust fallback: does not abort detail)
-        try:
-            exchange = identity.exchange
-            fundamentals_data = self.fundamental_chips_service.get_fundamentals_bundle(symbol_str, exchange)
-        except Exception as e:
-            logger.debug("Fundamentals aggregation error for %s: %s", symbol_str, e)
-            fundamentals_data = None
+        # 10-11. Rate-limited sources: started together, awaited up to _SLOW_SECTION_WAIT.
+        from app.taiwan.events_service import get_event_service
+        from app.taiwan.news_service import get_news_service
 
-        try:
-            extra_chips_data = self.fundamental_chips_service.get_extra_chips_bundle(symbol_str)
-        except Exception as e:
-            logger.debug("Extra chips aggregation error for %s: %s", symbol_str, e)
+        exchange = identity.exchange
+        chips = self.fundamental_chips_service
+
+        def fetch_events():
+            event_svc = get_event_service()
+            events = event_svc.get_events(scope="all", symbol=symbol_str, limit=30, include_mops=True)
+            return events, *event_svc.get_product_sources_status()
+
+        slow = {
+            "fundamentals": _submit_slow(
+                "fundamentals", symbol_str, lambda: chips.get_fundamentals_bundle(symbol_str, exchange)),
+            "extra_chips": _submit_slow(
+                "extra_chips", symbol_str, lambda: chips.get_extra_chips_bundle(symbol_str)),
+            "events": _submit_slow("events", symbol_str, fetch_events),
+            "news": _submit_slow(
+                "news", symbol_str, lambda: get_news_service().get_recent_news(symbol_str, limit=10)),
+        }
+        deadline = time.monotonic() + _SLOW_SECTION_WAIT
+
+        def settled(section: str) -> Any:
+            """The section's result, _PENDING while it is still fetching, or the error."""
+            try:
+                return slow[section].result(timeout=max(0.0, deadline - time.monotonic()))
+            except FutureTimeout:
+                return _PENDING
+            except Exception as exc:  # one section must not abort the page
+                logger.debug("%s aggregation error for %s: %s", section, symbol_str, exc)
+                return exc
+
+        fundamentals_data = settled("fundamentals")
+        if fundamentals_data is _PENDING or isinstance(fundamentals_data, Exception):
+            fundamentals_data = None
+        extra_chips_data = settled("extra_chips")
+        if extra_chips_data is _PENDING or isinstance(extra_chips_data, Exception):
             extra_chips_data = None
 
         # Determine overall quality
+        # A section can be "available" while its data predates the newest session: meta.status says so.
         sections_statuses = [
             realtime_data.meta.status if realtime_data.meta else "unknown",
-            daily_data.status,
-            institutional_data.status,
-            margin_data.status,
+            *(
+                section.meta.status if section.meta and section.meta.status else section.status
+                for section in (daily_data, institutional_data, margin_data)
+            ),
         ]
         if all(s == "available" for s in sections_statuses):
             overall_quality = "good"
@@ -207,30 +275,26 @@ class TaiwanStockDetailService:
         recent_events = []
         events_status = "unavailable"
         events_sources_status: dict[str, str] = {}
-        try:
-            from app.taiwan.events_service import get_event_service
-            event_svc = get_event_service()
-            recent_events = event_svc.get_events(scope="all", symbol=symbol_str, limit=30, include_mops=True)
-            events_status, events_sources_status = event_svc.get_product_sources_status()
-        except Exception as e:
-            logger.debug("Recent events aggregation error for %s: %s", symbol_str, e)
+        events_result = settled("events")
+        if events_result is _PENDING:
+            events_status = "not_queried"
+        elif not isinstance(events_result, Exception):
+            recent_events, events_status, events_sources_status = events_result
 
         recent_news = []
-        news_status = "available"
+        news_status = "unavailable"
         news_status_message = None
         news_fetched_at = None
-        try:
-            from app.taiwan.news_service import get_news_service
-            news_svc = get_news_service()
-            news_res = news_svc.get_recent_news(symbol_str, limit=10)
+        news_res = settled("news")
+        if news_res is _PENDING:
+            news_status_message = "新聞還在抓取、稍後會自動更新"
+        elif isinstance(news_res, Exception):
+            news_status_message = "新聞資料暫時無法取得"
+        else:
             recent_news = news_res.items
             news_status = news_res.status
             news_status_message = news_res.status_message
             news_fetched_at = news_res.fetched_at
-        except Exception as e:
-            logger.debug("Recent news aggregation error for %s: %s", symbol_str, e)
-            news_status = "unavailable"
-            news_status_message = str(e)
 
         return TaiwanStockDetailResponse(
             symbol=symbol_str,
@@ -325,8 +389,21 @@ class TaiwanStockDetailService:
 
     def _stored_daily(self, symbol_str: str, start: date) -> pl.DataFrame:
         """Persisted rows for one symbol, reread only when a store partition changes."""
-        files = list(self.daily_store._data_dir.glob("date=*/part.parquet"))
-        generation = (len(files), max((f.stat().st_mtime_ns for f in files), default=0))
+        # One directory listing plus one stat per partition: the previous glob probed every
+        # partition a second time (about 5x slower on 690 partitions) on each poll.
+        # A rewrite of an existing partition leaves the parent directory's mtime untouched,
+        # so the per-partition stat stays.
+        count, newest = 0, 0
+        with os.scandir(self.daily_store._data_dir) as entries:
+            for entry in entries:
+                if not entry.name.startswith("date="):
+                    continue
+                try:
+                    newest = max(newest, os.stat(os.path.join(entry.path, "part.parquet")).st_mtime_ns)
+                except OSError:
+                    continue
+                count += 1
+        generation = (count, newest)
         key = (symbol_str, start)
         cached = self._stored_daily_cache.get(key)
         if cached is not None and cached[0] == generation:
@@ -389,13 +466,15 @@ class TaiwanStockDetailService:
             if not history.is_empty():
                 rows: list[TaiwanDailyRow] = []
                 for item in history.tail(days).iter_rows(named=True):
+                    if any(item.get(field) is None for field in ("open", "high", "low", "close")):
+                        continue  # a bar with a missing price is dropped, never drawn as a 0-yuan candle
                     rows.append(
                         TaiwanDailyRow(
                             date=str(item.get("date", ""))[:10],
-                            open=float(item.get("open") or 0.0),
-                            high=float(item.get("high") or 0.0),
-                            low=float(item.get("low") or 0.0),
-                            close=float(item.get("close") or 0.0),
+                            open=float(item["open"]),
+                            high=float(item["high"]),
+                            low=float(item["low"]),
+                            close=float(item["close"]),
                             volume=int(item.get("volume") or 0),
                             amount=float(item.get("amount")) if item.get("amount") is not None else None,
                         )
@@ -832,7 +911,7 @@ class TaiwanStockDetailService:
             for a in raw_alerts:
                 if a.get("symbol") == symbol_str or a.get("rule_symbol") == symbol_str:
                     ts = a.get("ts", 0)
-                    dt_str = datetime.fromtimestamp(ts / 1000.0).isoformat() if ts else ""
+                    dt_str = datetime.fromtimestamp(ts / 1000.0, tz=taipei_now().tzinfo).isoformat() if ts else ""
                     alerts.append(
                         TaiwanRecentAlert(
                             alert_id=str(a.get("alert_id", a.get("id", ""))),

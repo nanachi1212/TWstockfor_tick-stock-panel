@@ -47,7 +47,6 @@ export const QK = {
     ['instrument-search', q, assetTypes ?? 'stock', 'taiwan'] as const,
 
   // Data / Pipeline
-  pipelineJobs:         ['pipeline-jobs'] as const,
 
   // Monitor (監控規則 + 觸發記錄)
   alerts:               (source?: string) => ['alerts', source ?? ''] as const,

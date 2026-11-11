@@ -26,6 +26,11 @@ logger = logging.getLogger(__name__)
 TAIWAN_DAILY_COLUMNS: list[str] = [
     "symbol", "date", "open", "high", "low", "close", "volume", "amount", "quote_ts"
 ]
+# Optional provenance kept per row so third-party fallback data stays distinguishable from
+# official exchange data after storage.  Reads return them only on request.
+PROVENANCE_COLUMNS: list[str] = ["provider", "source", "status"]
+# Marker file in a partition that exists only because of a per-symbol fetch.
+PARTIAL_MARKER = ".partial"
 
 
 class TaiwanDailyStore:
@@ -49,7 +54,9 @@ class TaiwanDailyStore:
 
     # ── Write ──────────────────────────────────────────────────────
 
-    def write_batch(self, df: pl.DataFrame, partition_date: date | None = None) -> int:
+    def write_batch(
+        self, df: pl.DataFrame, partition_date: date | None = None, *, partial: bool = False,
+    ) -> int:
         """Atomically append rows to the daily parquet dataset, grouped by date.
 
         Each distinct date in *df* is written to its own partition directory:
@@ -63,6 +70,9 @@ class TaiwanDailyStore:
             df: Polars DataFrame whose columns are a superset of
                 TAIWAN_DAILY_COLUMNS.
             partition_date:  Ignored.  Kept for API compatibility.
+            partial: The rows are a per-symbol fetch, not a full-market snapshot.  A partition
+                created by such a write is marked partial (see ``partial_dates``); any
+                non-partial write clears the mark.
 
         Returns:
             Number of rows written (after dedup).
@@ -73,7 +83,10 @@ class TaiwanDailyStore:
             return 0
 
         df = df.with_columns(pl.col("date").cast(pl.Date, strict=False))
-        df = df.select(TAIWAN_DAILY_COLUMNS)
+        df = df.select([
+            *TAIWAN_DAILY_COLUMNS,
+            *[pl.col(c).cast(pl.Utf8) for c in PROVENANCE_COLUMNS if c in df.columns],
+        ])
 
         # Deduplicate incoming batch by (symbol, date), keep last.
         before = df.height
@@ -84,7 +97,13 @@ class TaiwanDailyStore:
         # Group by date and write each partition independently.
         for part_date in df["date"].unique().sort().to_list():
             group = df.filter(pl.col("date") == part_date)
+            existed = (self._data_dir / f"date={part_date.isoformat()}" / "part.parquet").exists()
             total_written += self._write_partition(part_date, group)
+            marker = self._data_dir / f"date={part_date.isoformat()}" / PARTIAL_MARKER
+            if not partial:
+                marker.unlink(missing_ok=True)
+            elif not existed:
+                marker.touch()
 
         logger.debug("write_batch total rows written: %d", total_written)
         return total_written
@@ -156,12 +175,27 @@ class TaiwanDailyStore:
         Results are sorted by symbol ASC, date ASC.
         """
         if symbols:
-            latest = self.latest_date()
-            if latest is not None:
-                latest_df = self.read_range(symbols, latest, latest)
-                if set(latest_df["symbol"].to_list()) >= set(symbols):
-                    return latest_df.sort(["symbol", "date"])
-        df = self.read_all(symbols)
+            # Newest partitions first; older ones are asked only for the symbols
+            # still missing, so one absent symbol no longer loads every symbol's
+            # whole history.
+            dates = self.available_dates()
+            missing = list(dict.fromkeys(symbols))
+            frames: list[pl.DataFrame] = []
+            end = len(dates)
+            for size in (1, 20, end):
+                if end <= 0 or not missing:
+                    break
+                start = max(0, end - size)
+                part = self.read_range(missing, dates[start], dates[end - 1])
+                if not part.is_empty():
+                    frames.append(part)
+                    found = set(part["symbol"].to_list())
+                    missing = [s for s in missing if s not in found]
+                end = start
+            df = (pl.concat(frames, how="diagonal_relaxed") if frames
+                  else pl.DataFrame(schema=_schema()))
+        else:
+            df = self.read_all(symbols)
         if df.is_empty():
             return df
         return (
@@ -178,8 +212,14 @@ class TaiwanDailyStore:
         symbols: list[str] | None,
         start: date | None,
         end: date | None,
+        *,
+        include_provenance: bool = False,
     ) -> pl.DataFrame:
-        """Return all rows for *symbols* between *start* and *end* (inclusive)."""
+        """Return all rows for *symbols* between *start* and *end* (inclusive).
+
+        ``include_provenance`` appends the ``provider``/``source``/``status`` columns
+        (null for rows stored before they were kept).
+        """
         files = sorted(self._data_dir.glob("date=*/part.parquet"))
         if not files:
             return pl.DataFrame(schema=_schema())
@@ -218,7 +258,11 @@ class TaiwanDailyStore:
 
         if not frames:
             return pl.DataFrame(schema=_schema())
-        return pl.concat(frames, how="diagonal_relaxed").select(TAIWAN_DAILY_COLUMNS)
+        out = pl.concat(frames, how="diagonal_relaxed")
+        if not include_provenance:
+            return out.select(TAIWAN_DAILY_COLUMNS)
+        missing = [pl.lit(None, dtype=pl.Utf8).alias(c) for c in PROVENANCE_COLUMNS if c not in out.columns]
+        return out.with_columns(missing).select([*TAIWAN_DAILY_COLUMNS, *PROVENANCE_COLUMNS])
 
     def available_dates(self) -> list[date]:
         """Return all partition dates present in storage."""
@@ -230,6 +274,16 @@ class TaiwanDailyStore:
             except (ValueError, IndexError):
                 continue
         return sorted(dates)
+
+    def partial_dates(self) -> set[date]:
+        """Dates whose partition was created by a per-symbol fetch and holds no full-market snapshot."""
+        found: set[date] = set()
+        for marker in self._data_dir.glob(f"date=*/{PARTIAL_MARKER}"):
+            try:
+                found.add(date.fromisoformat(marker.parent.name.split("=", 1)[1]))
+            except (ValueError, IndexError):
+                continue
+        return found
 
     def latest_date(self) -> date | None:
         """Return the most recent partition date, or *None* if empty."""

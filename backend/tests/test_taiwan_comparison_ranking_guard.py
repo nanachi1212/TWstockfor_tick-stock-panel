@@ -9,7 +9,6 @@ comparison prose fields. These tests prove:
 """
 from app.taiwan.comparison_ai_research import detect_ranking_language
 
-
 # ── Legitimate objective comparison language MUST survive ─────
 
 

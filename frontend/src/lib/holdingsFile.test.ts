@@ -39,6 +39,13 @@ describe('holdings file import', () => {
     expect(excelSerialToDate(44833, true)).toBe('2026-09-30')
   })
 
+  it('decodes a Big5 CSV (common broker export) instead of showing mojibake', async () => {
+    // '代號,股數\n2330,1000' encoded as Big5
+    const big5 = Uint8Array.from([165, 78, 184, 185, 44, 170, 209, 188, 198, 10, 50, 51, 51, 48, 44, 49, 48, 48, 48])
+    expect(await holdingsFileToText(new File([big5], 'broker.csv'))).toBe('代號,股數\n2330,1000')
+    expect(await holdingsFileToText(new File(['代號,股數'], 'utf8.csv'))).toBe('代號,股數')
+  })
+
   it('converts an HTML-table ".xls" export and routes by extension', async () => {
     const html = '<html><body><table><tr><td>現股損益</td></tr><tr><th>商品名稱</th><th>股數</th><th>成交價</th><th>投資成本</th></tr>'
       + '<tr><td>元大台灣 50 (0050)</td><td>1,084</td><td>107.73</td><td>-116,934</td></tr>'

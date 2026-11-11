@@ -100,6 +100,21 @@ def engine(tmp_path, mock_sec_master, monkeypatch):
     return TaiwanMonitorEngine(storage_path=storage)
 
 
+def test_one_damaged_rule_does_not_drop_the_readable_ones_or_get_overwritten(tmp_path):
+    import json
+
+    storage = tmp_path / "monitor_rules.json"
+    good = TaiwanMonitorRule(rule_id="r1", name="good", symbol="2330.TWSE",
+                             rule_type=TaiwanRuleType.PRICE_ABOVE, threshold=1000.0)
+    storage.write_text(json.dumps([good.to_dict(), {"rule_id": "broken"}]), encoding="utf-8")
+
+    engine = TaiwanMonitorEngine(storage_path=storage)
+    assert [r.rule_id for r in engine.list_rules()] == ["r1"]
+    # The unreadable entry is kept in a copy beside the file before any later save replaces it.
+    copies = list(tmp_path.glob("monitor_rules.json.unreadable-*"))
+    assert len(copies) == 1 and "broken" in copies[0].read_text(encoding="utf-8")
+
+
 def make_quote(
     symbol: str = "2330.TWSE",
     name: str = "台積電",
@@ -709,7 +724,7 @@ class TestQuantTop10Alerts:
         t0 = 1000.0
         # 1. Trigger at t0
         q1 = make_quote(last_price=2505.0)
-        alert1, status1, _ = engine.evaluate_single_rule(rule, q1, now_mono=t0)
+        _alert1, status1, _ = engine.evaluate_single_rule(rule, q1, now_mono=t0)
         assert status1 == EvaluationStatus.TRIGGERED
 
         # 2. Drop price at t0 + 10s (re-arms state)
@@ -736,7 +751,7 @@ class TestQuantTop10Alerts:
         )
         # 1. Trigger at 2501
         q1 = make_quote(last_price=2501.0)
-        alert1, status1, _ = engine.evaluate_single_rule(rule, q1)
+        _alert1, status1, _ = engine.evaluate_single_rule(rule, q1)
         assert status1 == EvaluationStatus.TRIGGERED
 
         # 2. Fluctuate to 2498.0 (below 2500, but NOT below 2495.0 -> Still armed!)

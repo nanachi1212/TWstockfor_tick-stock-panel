@@ -1,11 +1,10 @@
 import { Link } from 'react-router-dom'
 import { Layers, Loader2 } from 'lucide-react'
 import { type IndustryMetrics, type TaiwanIndustryIntelligenceSnapshot } from '@/lib/api'
-import { fmtBigNum } from '@/lib/format'
+import { fmtBigNum, fmtPct, priceColorClass, todayTaipei } from '@/lib/format'
 import { useTodayQuantSelection } from '@/components/quant/TodaySelection'
 import { type TaiwanDailyStatus } from './MarketOverviewCard'
 import { SectionTitle } from './SectionTitle'
-import { pctClass, fmtStockPct } from './dashboardFormat'
 import { statusLabel } from '@/lib/evidenceLabel'
 
 export function IndustryStrengthList({ title, rows, tone, quantBySymbol }: { title: string; rows: IndustryMetrics[]; tone: 'bull' | 'bear'; quantBySymbol: Map<string, number> }) {
@@ -17,16 +16,16 @@ export function IndustryStrengthList({ title, rows, tone, quantBySymbol }: { tit
           <Link to={`/taiwan-screener?industry=${encodeURIComponent(ind.industry)}`} aria-label={`查看${ind.industry}類股股票`} className="block rounded hover:text-accent">
             <div className="flex items-center justify-between gap-2">
               <span className="truncate text-foreground" title={ind.industry}>{ind.industry}</span>
-              <span className={`shrink-0 font-mono font-semibold ${pctClass(ind.average_change_pct)}`}>{fmtStockPct(ind.average_change_pct)}</span>
+              <span className={`shrink-0 font-mono font-semibold ${priceColorClass(ind.average_change_pct)}`}>{fmtPct(ind.average_change_pct)}</span>
             </div>
             <div className="mt-0.5 flex flex-wrap gap-x-2 text-xs text-muted">
-              <span>中位 {fmtStockPct(ind.median_change_pct)}</span>
+              <span>中位 {fmtPct(ind.median_change_pct)}</span>
               <span>漲/跌 {ind.advance_count}/{ind.decline_count}</span>
               <span>成交 {fmtBigNum(ind.turnover)}</span>
               <span>占大盤 {(ind.turnover_share * 100).toFixed(1)}%</span>
             </div>
           </Link>
-          {ind.top_turnover.slice(0, 2).length > 0 && <div className="mt-0.5 flex gap-2 truncate text-xs text-secondary"><span className="shrink-0">活躍：</span>{ind.top_turnover.slice(0, 2).map(stock => <Link key={stock.symbol} to={`/stocks/${encodeURIComponent(stock.symbol)}`} className="truncate hover:text-accent">{stock.name} {fmtStockPct(stock.change_pct)}</Link>)}</div>}
+          {ind.top_turnover.slice(0, 2).length > 0 && <div className="mt-0.5 flex gap-2 truncate text-xs text-secondary"><span className="shrink-0">活躍：</span>{ind.top_turnover.slice(0, 2).map(stock => <Link key={stock.symbol} to={`/stocks/${encodeURIComponent(stock.symbol)}`} className="truncate hover:text-accent">{stock.name} {fmtPct(stock.change_pct)}</Link>)}</div>}
           {ind.top_turnover.some(stock => quantBySymbol.has(stock.symbol)) && <div className="mt-0.5 flex gap-2 truncate text-xs text-accent"><span className="shrink-0">Quant Top：</span>{ind.top_turnover.filter(stock => quantBySymbol.has(stock.symbol)).map(stock => <Link key={stock.symbol} to={`/stocks/${encodeURIComponent(stock.symbol)}`} className="truncate hover:underline">{stock.name} #{quantBySymbol.get(stock.symbol)}</Link>)}</div>}
         </div>
       ))}
@@ -45,7 +44,7 @@ export function IndustryStrengthCard({ snapshot, loading, error, marketDailyStat
   const top = sorted.slice(0, topCount)
   const bottom = sorted.slice(sorted.length - bottomCount).reverse()
   const quantBySymbol = new Map(quant.signals.map(signal => [signal.symbol, signal.rank]))
-  const tradeDateIsToday = ind.data?.trade_date === new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Taipei' })
+  const tradeDateIsToday = ind.data?.trade_date === todayTaipei()
 
   return (
     <section className="rounded-card border border-border bg-surface/80 p-2.5 backdrop-blur-sm">

@@ -110,11 +110,21 @@ export async function xlsxToText(buffer: ArrayBuffer): Promise<string> {
   return toTsv(rows)
 }
 
+/** 先以嚴格 UTF-8 解碼；失敗代表不是 UTF-8，改用 Big5（台灣券商匯出檔常見編碼）。 */
+async function fileText(file: File): Promise<string> {
+  const bytes = await file.arrayBuffer()
+  try {
+    return new TextDecoder('utf-8', { fatal: true }).decode(bytes)
+  } catch {
+    return new TextDecoder('big5').decode(bytes)
+  }
+}
+
 /** 依副檔名與內容把匯入檔轉成文字。支援 CSV/TSV/TXT、Excel (.xlsx)、HTML 表格 (.xls/.html)。 */
 export async function holdingsFileToText(file: File): Promise<string> {
   const ext = file.name.toLowerCase().split('.').pop() ?? ''
   if (ext === 'xlsx') return xlsxToText(await file.arrayBuffer())
-  const text = await file.text()
+  const text = await fileText(file)
   if ((ext === 'xls' || ext === 'html' || ext === 'htm') && /<table[\s>]/i.test(text)) return htmlTablesToText(text)
   if (ext === 'xls' && !text.includes('\t') && !text.includes(',')) throw new Error('舊版 Excel (.xls) 無法直接讀取，請另存成 .xlsx 或 CSV，或直接複製貼上')
   return text

@@ -209,7 +209,7 @@ def add_batch(
                 gids.append(group_id)
             rows.insert(0, {
                 "symbol": symbol,
-                "added_at": datetime.now(UTC).replace(tzinfo=None).isoformat(timespec="seconds"),
+                "added_at": datetime.now(UTC).isoformat(timespec="seconds"),
                 "note": note,
                 "group_ids": gids,
             })

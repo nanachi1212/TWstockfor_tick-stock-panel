@@ -43,7 +43,7 @@ def _make_history(symbol: str, closes: list[float], volumes: list[float]) -> pl.
         "low": closes,
         "close": closes,
         "volume": volumes,
-        "amount": [c * v for c, v in zip(closes, volumes)],
+        "amount": [c * v for c, v in zip(closes, volumes, strict=False)],
     })
 
 
@@ -68,18 +68,18 @@ def _ref_rsi14(closes: list[float]) -> list[float]:
     avg_gain = _ref_ema(gains, 1.0 / 14.0)
     avg_loss = _ref_ema(losses, 1.0 / 14.0)
     rsi = []
-    for g, l in zip(avg_gain, avg_loss):
-        l = l if l != 0 else 1e-12
-        rsi.append(100.0 - 100.0 / (1.0 + g / l))
+    for g, loss in zip(avg_gain, avg_loss, strict=True):
+        loss = loss if loss != 0 else 1e-12
+        rsi.append(100.0 - 100.0 / (1.0 + g / loss))
     return rsi
 
 
 def _ref_macd(closes: list[float]) -> tuple[list[float], list[float], list[float]]:
     ema12 = _ref_ema(closes, 2.0 / 13.0)
     ema26 = _ref_ema(closes, 2.0 / 27.0)
-    dif = [a - b for a, b in zip(ema12, ema26)]
+    dif = [a - b for a, b in zip(ema12, ema26, strict=True)]
     dea = _ref_ema(dif, 2.0 / 10.0)
-    hist = [(d - s) * 2.0 for d, s in zip(dif, dea)]
+    hist = [(d - s) * 2.0 for d, s in zip(dif, dea, strict=True)]
     return dif, dea, hist
 
 
@@ -217,7 +217,7 @@ def test_tpex_symbol_goes_through_same_indicator_flow():
     history = _make_history("6488.TPEX", closes, volumes)
     out = compute_taiwan_daily_indicators(history).to_dicts()[0]
     assert out["symbol"] == "6488.TPEX"
-    dif, dea, hist = _ref_macd(closes)
+    dif, _dea, _hist = _ref_macd(closes)
     assert out["macd_dif"] == pytest.approx(dif[-1], abs=1e-6)
 
 

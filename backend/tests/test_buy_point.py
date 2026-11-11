@@ -367,6 +367,38 @@ def test_alert_state_is_not_advanced_when_persistence_raises(tmp_path: Path, mon
     assert store.state_snapshot("quant_pullback:2330.TWSE")[1] is None
 
 
+def test_dispatch_writes_the_state_file_once_per_batch(tmp_path: Path, monkeypatch):
+    store = BuyPointStrategyStore(tmp_path / "strategies.json")
+    monkeypatch.setattr(
+        buy_points.alert_store, "append_many",
+        lambda _data_dir, events: [event["alert_id"] for event in events],
+    )
+    writes = 0
+    real_write = store._write
+
+    def counting_write(payload):
+        nonlocal writes
+        writes += 1
+        real_write(payload)
+
+    monkeypatch.setattr(store, "_write", counting_write)
+    triggered = _triggered_signal()
+    waiting = [
+        triggered.model_copy(update={"symbol": symbol, "status": "waiting"})
+        for symbol in ("2317.TWSE", "2454.TWSE", "2303.TWSE")
+    ]
+
+    assert len(buy_points._dispatch_alerts(tmp_path, None, store, [triggered, *waiting])) == 1
+    assert writes == 1
+    assert store.state("quant_pullback:2330.TWSE") == "triggered"
+    assert store.state("quant_pullback:2454.TWSE") == "waiting"
+    assert store.state_snapshot("quant_pullback:2330.TWSE")[1] is not None
+
+    # An unchanged poll (the common case) does not rewrite the file at all.
+    assert buy_points._dispatch_alerts(tmp_path, None, store, [triggered, *waiting]) == []
+    assert writes == 1
+
+
 def test_alert_transition_id_deduplicates_independent_callers(tmp_path: Path):
     first_store = BuyPointStrategyStore(tmp_path / "first.json")
     second_store = BuyPointStrategyStore(tmp_path / "second.json")
@@ -443,3 +475,24 @@ def test_snapshot_preserves_unknown_risk_without_inventing_clear(tmp_path: Path,
     assert result == {"snapshot_id": "saved"}
     assert captured[0].items[0].risk_status == "unknown"
     assert captured[0].items[0].event_risk_summary is None
+
+
+def test_resonance_min_categories_below_three_lets_one_category_fail():
+    preset = next(item for item in builtin_presets() if item.id == "resonance")
+    closes = [{"close": 100.0}] * 20 + [{"close": 105.0}]
+    clear = dict(
+        daily=closes, price=105, institutional_trend=[-10, 5], regulatory_unknown=False,
+        disposition=False, suspended=False, delisted=False, capital_reduction_critical=False,
+        severe_event_risk=False,
+    )
+
+    def run(min_categories):
+        conditions = preset.conditions.model_copy(update={"resonance_min_categories": min_categories})
+        custom = preset.model_copy(update={
+            "id": "custom_resonance", "preset": False, "source_preset_id": "resonance",
+            "conditions": conditions,
+        })
+        return evaluate_buy_point(custom, data(quant_score=10, **clear))  # quant fails
+
+    assert run(2).status == "triggered"
+    assert run(3).status == "waiting"

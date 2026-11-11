@@ -5,6 +5,7 @@ import { api } from '@/lib/api'
 import { QK } from '@/lib/queryKeys'
 import { cn } from '@/lib/cn'
 import { taiexFreshnessNote } from '@/lib/daily-brief'
+import { fmtPctPoint, priceColorClass } from '@/lib/format'
 
 export function DashboardDailyBriefWidget() {
   const briefQuery = useQuery({
@@ -77,7 +78,7 @@ export function DashboardDailyBriefWidget() {
 
 export function DashboardSelectionReviewWidget() {
   const snapshotsQuery = useQuery({
-    queryKey: QK.selectionSnapshots(),
+    queryKey: [...QK.selectionSnapshots(), 'dashboard-3'],
     queryFn: () => api.selectionReview.listSnapshots({ limit: 3 }),
     staleTime: 5 * 60 * 1000,
   })
@@ -127,17 +128,17 @@ export function DashboardSelectionReviewWidget() {
           <div className="grid grid-cols-2 gap-2 text-xs">
             <div className="bg-elevated/40 p-1.5 rounded border border-border/40">
               <span className="text-muted block text-xs">5 日超額報酬（相較 0050）</span>
-              <span className={cn('font-semibold font-mono', (latestSnapshot.h5d_excess_pct ?? 0) >= 0 ? 'text-bull' : 'text-bear')}>
+              <span className={cn('font-semibold font-mono', latestSnapshot.h5d_evaluated_count > 0 ? priceColorClass(latestSnapshot.h5d_excess_pct) : 'text-muted')}>
                 {latestSnapshot.h5d_evaluated_count > 0 && latestSnapshot.h5d_excess_pct !== null
-                  ? `${latestSnapshot.h5d_excess_pct >= 0 ? '+' : ''}${latestSnapshot.h5d_excess_pct.toFixed(2)}%`
+                  ? fmtPctPoint(latestSnapshot.h5d_excess_pct)
                   : '追蹤中'}
               </span>
             </div>
             <div className="bg-elevated/40 p-1.5 rounded border border-border/40">
               <span className="text-muted block text-xs">20 日超額報酬（相較 0050）</span>
-              <span className={cn('font-semibold font-mono', (latestSnapshot.h20d_excess_pct ?? 0) >= 0 ? 'text-bull' : 'text-bear')}>
+              <span className={cn('font-semibold font-mono', latestSnapshot.h20d_evaluated_count > 0 ? priceColorClass(latestSnapshot.h20d_excess_pct) : 'text-muted')}>
                 {latestSnapshot.h20d_evaluated_count > 0 && latestSnapshot.h20d_excess_pct !== null
-                  ? `${latestSnapshot.h20d_excess_pct >= 0 ? '+' : ''}${latestSnapshot.h20d_excess_pct.toFixed(2)}%`
+                  ? fmtPctPoint(latestSnapshot.h20d_excess_pct)
                   : '追蹤中'}
               </span>
             </div>

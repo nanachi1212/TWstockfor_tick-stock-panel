@@ -10,18 +10,19 @@ from __future__ import annotations
 
 from datetime import date
 from pathlib import Path
+
 import polars as pl
 import pytest
 
-from app.taiwan.institutional_store import TaiwanInstitutionalStore
-from app.taiwan.margin_store import TaiwanMarginStore
+from app.taiwan.daily_store import TaiwanDailyStore
 from app.taiwan.institutional_margin_refresh import (
     TaiwanInstitutionalRefreshService,
     TaiwanMarginRefreshService,
 )
+from app.taiwan.institutional_store import TaiwanInstitutionalStore
+from app.taiwan.margin_store import TaiwanMarginStore
 from app.taiwan.realtime.calendar import TaiwanTradingCalendar
 from app.taiwan.screener import TaiwanScreenerRequest, TaiwanScreenerService
-from app.taiwan.daily_store import TaiwanDailyStore
 
 
 @pytest.fixture
@@ -310,6 +311,7 @@ class TestHttpRetryHardening:
     def test_institutional_transient_failure_retries_then_succeeds(self, inst_store: TaiwanInstitutionalStore, monkeypatch):
         """Scenario: attempt 1 timeout, attempt 2 HTTP 500, attempt 3 success -> 3 calls, persisted."""
         import urllib.error
+
         from app.taiwan import institutional_margin_refresh
 
         calls = {"count": 0}
@@ -362,6 +364,7 @@ class TestHttpRetryHardening:
     def test_http_404_not_retried(self, monkeypatch):
         """Permanent 4xx errors (e.g. 404) must NOT be retried (only 1 call)."""
         import urllib.error
+
         from app.taiwan import institutional_margin_refresh
 
         calls = {"count": 0}

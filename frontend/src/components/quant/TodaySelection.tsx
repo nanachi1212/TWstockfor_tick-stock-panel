@@ -4,13 +4,14 @@ import { Link } from 'react-router-dom'
 import { ArrowUpRight, Loader2, RefreshCw, Star, TrendingUp } from 'lucide-react'
 import { api, type TaiwanLiveQuantHorizonSummary, type TaiwanLiveQuantRank, type TaiwanLiveQuantSignal } from '@/lib/api'
 import { QK } from '@/lib/queryKeys'
+import { fmtPct } from '@/lib/format'
 
 function finite(value: unknown): number | null {
   return typeof value === 'number' && Number.isFinite(value) ? value : null
 }
 
 function formatPct(value: number | null, digits = 1) {
-  return value == null ? '—' : `${(value * 100).toFixed(digits)}%`
+  return fmtPct(value, digits, false)
 }
 
 function horizonLabel(summary: TaiwanLiveQuantHorizonSummary | undefined) {

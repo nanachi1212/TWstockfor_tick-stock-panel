@@ -127,7 +127,7 @@ def _start_seed_incremental_refresh(seed_result) -> threading.Thread | None:
 def _acquire_single_instance() -> bool:
     """單實例鎖。已執行回傳 False (本行程應退出), 否則 True。
 
-    用 data_dir/.desktop.lock 檔案鎖實現。跨行程, 檔案存在即視為已執行
+    用 data_dir/.desktop.lock 檔案鎖實作。跨行程, 檔案存在即視為已執行
     (簡單可靠; 不引入 msvcrt/fcntl 平台差異)。
     """
     from app.config import settings
@@ -250,7 +250,7 @@ def _pid_alive(pid: int) -> bool:
     import os
 
     if os.name == "nt":
-        # Windows: 0 表示存在, 其它是异常
+        # Windows: 0 表示存在, 其它是異常
         try:
             os.kill(pid, 0)
             return True
@@ -258,7 +258,7 @@ def _pid_alive(pid: int) -> bool:
             return False
     else:
         try:
-            os.kill(pid, 0)  # signal 0 = 探測存活, 不實際發信號
+            os.kill(pid, 0)  # signal 0 = 探測存活, 不實際發訊號
             return True
         except OSError:
             return False
@@ -284,10 +284,10 @@ def _create_server(port: int):
 
     config = uvicorn.Config(
         app,
-        host="127.0.0.1",  # 僅本機, 不暴露外網 (桌面版無需遠程訪問)
+        host="127.0.0.1",  # 僅本機, 不暴露外網 (桌面版無需遠端存取)
         port=port,
         log_level="info",
-        access_log=False,    # 桌面版不需要訪問日誌
+        access_log=False,    # 桌面版不需要存取日誌
         loop="auto",
     )
     return uvicorn.Server(config)
@@ -339,7 +339,7 @@ def _project_backend_ready(port: int = _BASE_PORT) -> bool:
 def _wait_for_server(port: int, timeout: float = 60.0) -> bool:
     """輪詢 health 介面直到後端就緒或超時。
 
-    比 monkey-patch uvicorn 內部方法更健壯, 不依賴版本內部實現。
+    比 monkey-patch uvicorn 內部方法更健壯, 不依賴版本內部實作。
     """
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:

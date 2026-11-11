@@ -14,7 +14,7 @@ from enum import StrEnum
 from typing import Any, ClassVar
 
 from app.taiwan.enrichment.models import EtfCategory
-from app.taiwan.market_rules import PriceLimitClass, TaxClass, TickSizeClass
+from app.taiwan.market_rules import PriceLimitClass, PriceLimitModel, TaxClass, TickSizeClass
 
 
 @dataclass(frozen=True)
@@ -140,8 +140,10 @@ class MarketProfileBridge:
         Domestic inverse ETF (00632R, -1X): 0.10 (10%)
         Foreign / Bond ETF (00646, 00720B, 00633L): None (NO_LIMIT)
         """
+        # The percentage itself always comes from PriceLimitModel; this method only decides
+        # which limit class (ordinary / leveraged / no limit) an instrument belongs to.
         if instrument.instrument_type == "stock":
-            return 0.10
+            return PriceLimitModel.get_limit_pct()
 
         if instrument.instrument_type == "etf":
             cls.verify_confirmed_etf(instrument)
@@ -149,7 +151,9 @@ class MarketProfileBridge:
             if official_profile is not None:
                 if official_profile.underlying_scope == "foreign":
                     return None
-                return round(0.10 * abs(official_profile.price_limit_multiplier), 4)
+                return PriceLimitModel.get_limit_pct(
+                    PriceLimitClass.LEVERAGED_DOMESTIC, official_profile.price_limit_multiplier
+                )
             cat = instrument.etf_category or EtfCategory.UNKNOWN.value
 
             scope = instrument.underlying_scope or "unknown"
@@ -165,20 +169,13 @@ class MarketProfileBridge:
 
             if scope == "domestic":
                 # Domestic leveraged / inverse ETF: 10% * abs(multiplier)
-                return round(0.10 * abs(instrument.leverage_multiplier), 4)
+                return PriceLimitModel.get_limit_pct(
+                    PriceLimitClass.LEVERAGED_DOMESTIC, instrument.leverage_multiplier
+                )
 
             raise ValueError(f"Unrecognized underlying scope {scope!r} for ETF {instrument.symbol}.")
 
-        return 0.10
-
-    @classmethod
-    def get_price_limit_class(cls, instrument: TaiwanInstrument) -> PriceLimitClass:
-        pct = cls.get_price_limit_pct(instrument)
-        if pct is None:
-            return PriceLimitClass.NO_LIMIT
-        if pct == 0.10 and abs(instrument.leverage_multiplier - 1.0) < 1e-6:
-            return PriceLimitClass.ORDINARY_TEN_PERCENT
-        return PriceLimitClass.LEVERAGED_DOMESTIC
+        return PriceLimitModel.get_limit_pct()
 
     @classmethod
     def calc_limits(
@@ -189,7 +186,6 @@ class MarketProfileBridge:
         """Calculate authoritative price limit boundary prices for an instrument, aligned to valid ticks."""
         pct = cls.get_price_limit_pct(instrument)
         tick_class = cls.get_tick_size_class(instrument)
-        from app.taiwan.market_rules import PriceLimitModel
         return PriceLimitModel.calc_limits_for_pct(ref_price=ref_price, limit_pct=pct, tick_class=tick_class)
 
 

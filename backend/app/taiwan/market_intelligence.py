@@ -19,8 +19,9 @@ from __future__ import annotations
 import logging
 from datetime import date, timedelta
 from typing import Literal
-from pydantic import BaseModel
+
 import polars as pl
+from pydantic import BaseModel
 
 from app.taiwan.daily_store import TaiwanDailyStore
 from app.taiwan.daily_update import (
@@ -226,8 +227,8 @@ class TaiwanMarketIntelligenceService:
         flat_count = len(comparable.filter(pl.col("close") == pl.col("prev_close")))
 
         # Limit counts
-        limit_ups = len(df.filter(pl.col("is_limit_up") == True))
-        limit_downs = len(df.filter(pl.col("is_limit_down") == True))
+        limit_ups = len(df.filter(pl.col("is_limit_up") == True))  # noqa: E712  polars expression
+        limit_downs = len(df.filter(pl.col("is_limit_down") == True))  # noqa: E712  polars expression
 
         return MarketBreadthStats(
             supported_count=snapshot_rows,

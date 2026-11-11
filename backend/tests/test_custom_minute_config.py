@@ -216,7 +216,7 @@ def _capture_test_request(dataset: str, **overrides):
         return []
 
     provider._request_rows = request_rows
-    provider.test_dataset(dataset, ["600000.SH"])
+    provider.test_dataset(dataset, ["2330.TWSE"])
     provider.close()
     return captured
 
@@ -229,7 +229,7 @@ def test_test_dataset_realtime_omits_symbol_and_time_parameters():
 def test_test_dataset_history_uses_symbol_and_short_time_range(dataset):
     captured = _capture_test_request(dataset)
 
-    assert captured["symbols"] == ["600000.SH"]
+    assert captured["symbols"] == ["2330.TWSE"]
     assert isinstance(captured["start_time"], datetime)
     assert isinstance(captured["end_time"], datetime)
     assert (captured["end_time"] - captured["start_time"]).days == 7
@@ -242,7 +242,7 @@ def test_test_dataset_minute_injects_production_overrides():
         freq_param="period",
     )
 
-    assert captured["symbols"] == ["600000.SH"]
+    assert captured["symbols"] == ["2330.TWSE"]
     assert captured["override_params"] == {"asset": "stock", "period": "1m"}
     assert captured["override_body"] == {"asset": "stock", "period": "1m"}
 

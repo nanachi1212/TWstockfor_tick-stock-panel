@@ -12,7 +12,6 @@ Severity mapping (Deterministic, no AI):
 - attention: Disposition, warning securities, capital reduction, par change
 - risk: Suspended trading, delisting
 """
-# ruff: noqa: RUF001
 from __future__ import annotations
 
 import hashlib
@@ -80,6 +79,19 @@ EVENT_TYPE_LABELS: dict[str, str] = {
 }
 
 
+def disposition_period_active(period: str, today_str: str) -> bool | None:
+    """Whether today falls inside a "start~end" disposition period; None when it cannot be parsed."""
+    parts = re.split(r"\s*[～~]\s*|\s+-\s+", str(period or "").strip())
+    if len(parts) < 2:
+        return None
+    try:
+        start = parse_taiwan_date(parts[0].strip()).isoformat()
+        end = parse_taiwan_date(parts[1].strip()).isoformat()
+    except Exception:
+        return None
+    return start <= today_str <= end
+
+
 def _status_list_summary(status: str, list_date: str | None) -> str:
     return (f"櫃買中心目前名單列為{status}（名單日 {list_date or '來源未提供'}）。此來源只列出目前狀態，"
             "未提供公告日、生效日、結束日與原因，不代表今日新增。")
@@ -114,7 +126,7 @@ class MarketEvent(BaseModel):
     summary: str = Field(..., description="事件摘要說明")
     source: str = Field(..., description="官方或權威資料來源識別")
     source_url: str | None = Field(None, description="來源 URL")
-    retrieved_at: str = Field(..., description="資料檢索時間 ISO 字串")
+    retrieved_at: str = Field(..., description="資料擷取時間 ISO 字串")
     published_at: str | None = Field(default=None, description="可確認的官方公告時間，非事件或出表日期")
     available_at: str | None = Field(default=None, description="有可靠公告證據才設定，否則 null")
     status: str = Field(default="data_insufficient", description="公告可得時間證據: available / data_insufficient")
@@ -179,6 +191,7 @@ class TaiwanEventService:
             "corporate_actions": "available",
         }
         self.last_status: str = "available"
+        self._official_lock = threading.Lock()  # single-flight for cold official-source fetches
         self._mops_lock = threading.Lock()
         self._mops_refreshing = False
         self._mops_cache: dict[str, Any] | None = None
@@ -229,8 +242,10 @@ class TaiwanEventService:
                 raw_date = str(r.get("Date") or "").strip()
                 try:
                     ev_date = parse_taiwan_date(raw_date).isoformat()
+                    id_date = ev_date
                 except Exception:
                     ev_date = taipei_now().date().isoformat()
+                    id_date = "undated"  # keep the event id stable across days
 
                 symbol, clean_code, name, exchange, is_resolvable = self._resolve_symbol(code, "TWSE")
                 reasons = str(r.get("ReasonsOfDisposition") or "").strip()
@@ -238,7 +253,7 @@ class TaiwanEventService:
                 measures = str(r.get("DispositionMeasures") or "").strip()
                 detail = str(r.get("Detail") or "").strip()
 
-                event_id = hashlib.sha256(f"twse_punish_{clean_code}_{ev_date}_{period}".encode()).hexdigest()[:16]
+                event_id = hashlib.sha256(f"twse_punish_{clean_code}_{id_date}_{period}".encode()).hexdigest()[:16]
                 summary = f"處置期間: {period}，措施: {measures}" if period else measures
                 events.append(
                     MarketEvent(
@@ -292,15 +307,17 @@ class TaiwanEventService:
                 raw_date = str(r.get("Date") or "").strip()
                 try:
                     ev_date = parse_taiwan_date(raw_date).isoformat()
+                    id_date = ev_date
                 except Exception:
                     ev_date = taipei_now().date().isoformat()
+                    id_date = "undated"  # keep the event id stable across days
 
                 symbol, clean_code, name, exchange, is_resolvable = self._resolve_symbol(code, "TPEX")
                 reasons = str(r.get("DispositionReasons") or "").strip()
                 period = str(r.get("DispositionPeriod") or "").strip()
                 cond = str(r.get("DisposalCondition") or "").strip()
 
-                event_id = hashlib.sha256(f"tpex_disp_{clean_code}_{ev_date}_{period}".encode()).hexdigest()[:16]
+                event_id = hashlib.sha256(f"tpex_disp_{clean_code}_{id_date}_{period}".encode()).hexdigest()[:16]
                 summary = f"處置期間: {period}。{reasons}" if period else reasons
                 events.append(
                     MarketEvent(
@@ -353,13 +370,15 @@ class TaiwanEventService:
                 raw_date = str(r.get("Date") or "").strip()
                 try:
                     ev_date = parse_taiwan_date(raw_date).isoformat()
+                    id_date = ev_date
                 except Exception:
                     ev_date = taipei_now().date().isoformat()
+                    id_date = "undated"  # keep the event id stable across days
 
                 symbol, clean_code, name, exchange, is_resolvable = self._resolve_symbol(code, "TWSE")
                 info = str(r.get("TradingInfoForAttention") or "").strip()
 
-                event_id = hashlib.sha256(f"twse_notice_{clean_code}_{ev_date}".encode()).hexdigest()[:16]
+                event_id = hashlib.sha256(f"twse_notice_{clean_code}_{id_date}".encode()).hexdigest()[:16]
                 events.append(
                     MarketEvent(
                         id=f"evt_warn_{event_id}",
@@ -407,13 +426,15 @@ class TaiwanEventService:
                 raw_date = str(r.get("Date") or "").strip()
                 try:
                     ev_date = parse_taiwan_date(raw_date).isoformat()
+                    id_date = ev_date
                 except Exception:
                     ev_date = taipei_now().date().isoformat()
+                    id_date = "undated"  # keep the event id stable across days
 
                 symbol, clean_code, name, exchange, is_resolvable = self._resolve_symbol(code, "TPEX")
                 info = str(r.get("TradingInformation") or "").strip()
 
-                event_id = hashlib.sha256(f"tpex_warn_{clean_code}_{ev_date}".encode()).hexdigest()[:16]
+                event_id = hashlib.sha256(f"tpex_warn_{clean_code}_{id_date}".encode()).hexdigest()[:16]
                 events.append(
                     MarketEvent(
                         id=f"evt_warn_{event_id}",
@@ -530,7 +551,7 @@ class TaiwanEventService:
                 is_altered = bool(str(r.get("AlteredTrading") or "").strip())
 
                 if is_suspended:
-                    event_id = hashlib.sha256(f"tpex_suspend_{clean_code}_{ev_date}".encode()).hexdigest()[:16]
+                    event_id = hashlib.sha256(f"tpex_suspend_{clean_code}_{list_date or 'undated'}".encode()).hexdigest()[:16]
                     events.append(
                         MarketEvent(
                             id=f"evt_susp_{event_id}",
@@ -553,7 +574,7 @@ class TaiwanEventService:
                         )
                     )
                 elif is_altered:
-                    event_id = hashlib.sha256(f"tpex_altered_{clean_code}_{ev_date}".encode()).hexdigest()[:16]
+                    event_id = hashlib.sha256(f"tpex_altered_{clean_code}_{list_date or 'undated'}".encode()).hexdigest()[:16]
                     events.append(
                         MarketEvent(
                             id=f"evt_alt_{event_id}",
@@ -593,8 +614,6 @@ class TaiwanEventService:
                 symbol, code, name, exchange, is_resolvable = self._resolve_symbol(a.symbol, a.exchange)
                 ev_date = a.effective_date.isoformat()
                 event_type = a.event_type
-                if event_type not in SEVERITY_BY_EVENT_TYPE:
-                    event_type = "cash_dividend"
 
                 # Generate concise title & summary
                 if event_type == "cash_dividend":
@@ -802,6 +821,17 @@ class TaiwanEventService:
 
     def get_all_regulatory_and_official_events(self, force_refresh: bool = False) -> list[MarketEvent]:
         """Fetch and aggregate all official events with local file caching."""
+        cached = self._read_official_cache(force_refresh)
+        if cached is not None:
+            return cached
+        # Concurrent cold callers wait for one fetch, then read the cache it filled.
+        with self._official_lock:
+            cached = self._read_official_cache(force_refresh)
+            if cached is not None:
+                return cached
+            return self._fetch_official_events()
+
+    def _read_official_cache(self, force_refresh: bool) -> list[MarketEvent] | None:
         cache_file = _cache_path()
         now = datetime.now(UTC).timestamp()
 
@@ -825,7 +855,11 @@ class TaiwanEventService:
                     return items
             except Exception as e:
                 logger.warning("Failed to read events cache from disk: %s", e)
+        return None
 
+    def _fetch_official_events(self) -> list[MarketEvent]:
+        cache_file = _cache_path()
+        now = datetime.now(UTC).timestamp()
         # Fresh fetch from official sources
         all_events: list[MarketEvent] = []
         all_events.extend(self.fetch_twse_punish_events())
@@ -932,7 +966,7 @@ class TaiwanEventService:
                 continue
 
             ev_date = a.effective_date.isoformat()
-            event_type = a.event_type if a.event_type in SEVERITY_BY_EVENT_TYPE else "cash_dividend"
+            event_type = a.event_type
 
             if event_type == "cash_dividend":
                 div = f"{a.cash_dividend:.2f} 元" if a.cash_dividend else ""
@@ -1035,24 +1069,10 @@ class TaiwanEventService:
             # Scope date filter
             if scope == "today":
                 # Matches today or ongoing disposition period
-                if ev.event_date != today_str:
-                    # If it's a disposition event, check if today is within its active period
-                    period = ev.details.get("period", "")
-                    if period and ("～" in period or "~" in period or "-" in period):
-                        # Active period check
-                        parts = re.split(r"[～~\-]", period)
-                        if len(parts) >= 2:
-                            try:
-                                p_start = parse_taiwan_date(parts[0].strip()).isoformat()
-                                p_end = parse_taiwan_date(parts[1].strip()).isoformat()
-                                if not (p_start <= today_str <= p_end):
-                                    continue
-                            except Exception:
-                                continue
-                        else:
-                            continue
-                    else:
-                        continue
+                if ev.event_date != today_str and disposition_period_active(
+                    ev.details.get("period", ""), today_str
+                ) is not True:
+                    continue
             elif scope == "week":
                 # Events in the past 7 days or upcoming 7 days
                 if not (week_ago_str <= ev.event_date <= week_ahead_str):
@@ -1158,20 +1178,8 @@ class TaiwanEventService:
                 continue
             if ev.event_type == "disposition":
                 # Check active period
-                period = ev.details.get("period", "")
-                if period:
-                    parts = re.split(r"[～~\-]", period)
-                    if len(parts) >= 2:
-                        try:
-                            p_start = parse_taiwan_date(parts[0].strip()).isoformat()
-                            p_end = parse_taiwan_date(parts[1].strip()).isoformat()
-                            if p_start <= today_str <= p_end:
-                                is_disposition = True
-                        except Exception:
-                            is_disposition = True
-                    else:
-                        is_disposition = True
-                else:
+                # An unknown period stays flagged (fail-closed); only a known expired period clears it.
+                if disposition_period_active(ev.details.get("period", ""), today_str) is not False:
                     is_disposition = True
             elif ev.event_type == "suspended_trading":
                 is_suspended = True
@@ -1197,7 +1205,8 @@ class TaiwanEventService:
         reduction, split, delisting, dividends) for user's watchlist or portfolio.
         Reuses existing alert_store and webhook_adapter.
         """
-        from app.services import alert_store, preferences, webhook_adapter
+        from app.services import alert_store, webhook_adapter
+        from app.taiwan.push_digest import _channels, send_text
 
         if not symbols:
             return []
@@ -1220,9 +1229,12 @@ class TaiwanEventService:
             limit=100,
         )
 
+        # delivered_ids = pushed (or nothing to push to). An alert already stored but not in it
+        # had its push fail, so only the push is retried. 45 days covers the event window below.
         delivered_ids = _load_delivered_alert_ids(data_dir)
-        existing_alerts = alert_store.list_recent(data_dir, days=7, limit=1000)
-        existing_alert_ids = {str(a.get("alert_id")) for a in existing_alerts} | delivered_ids
+        stored_ids = {str(a.get("alert_id")) for a in alert_store.list_recent(data_dir, days=45, limit=1000)}
+        channels = _channels()
+        delivered_changed = False
 
         today = taipei_now().date()
         today_str = today.isoformat()
@@ -1230,32 +1242,21 @@ class TaiwanEventService:
         max_date_str = (today + timedelta(days=30)).isoformat()
 
         triggered: list[dict[str, Any]] = []
-        prefs = preferences.load()
 
         for ev in target_events:
             # Active disposition period check
-            is_active_disposition = False
-            if ev.event_type == "disposition":
-                period = ev.details.get("period", "")
-                if period:
-                    parts = re.split(r"[～~\-]", period)
-                    if len(parts) >= 2:
-                        try:
-                            p_start = parse_taiwan_date(parts[0].strip()).isoformat()
-                            p_end = parse_taiwan_date(parts[1].strip()).isoformat()
-                            if p_start <= today_str <= p_end:
-                                is_active_disposition = True
-                        except Exception:
-                            pass
+            is_active_disposition = ev.event_type == "disposition" and (
+                disposition_period_active(ev.details.get("period", ""), today_str) is True
+            )
 
             if not is_active_disposition and (ev.event_date < min_date_str or ev.event_date > max_date_str):
                 continue  # historical event or too distant in future, skip!
 
             alert_id = f"evt_alert_{ev.id}"
-            if alert_id in existing_alert_ids:
+            if alert_id in delivered_ids:
                 continue
 
-            triggered_at = datetime.now(UTC)
+            triggered_at = taipei_now()  # same Taipei-offset stamp as the other alert sources
             alert_event = {
                 "alert_id": alert_id,
                 "symbol": ev.symbol,
@@ -1271,23 +1272,15 @@ class TaiwanEventService:
                 "details": ev.details,
             }
 
-            alert_store.append(data_dir, alert_event)
-            body = webhook_adapter.alert_message(alert_event)
-            if prefs.get("line_enabled"):
-                line_token = str(prefs.get("line_channel_access_token") or "")
-                line_target = str(prefs.get("line_user_id") or "")
-                if line_token and line_target:
-                    webhook_adapter.send_line(line_token, line_target, "", body)
-            if prefs.get("telegram_enabled"):
-                tg_token = str(prefs.get("telegram_bot_token") or "")
-                tg_chat = str(prefs.get("telegram_chat_id") or "")
-                if tg_token and tg_chat:
-                    webhook_adapter.send_telegram(tg_token, tg_chat, "", body)
-            triggered.append(alert_event)
-            existing_alert_ids.add(alert_id)
-            delivered_ids.add(alert_id)
+            if alert_id not in stored_ids:
+                alert_store.append(data_dir, alert_event)
+                stored_ids.add(alert_id)
+                triggered.append(alert_event)
+            if not channels or send_text(webhook_adapter.alert_message(alert_event)):
+                delivered_ids.add(alert_id)
+                delivered_changed = True
 
-        if triggered:
+        if delivered_changed:
             _save_delivered_alert_ids(data_dir, delivered_ids)
 
         return triggered

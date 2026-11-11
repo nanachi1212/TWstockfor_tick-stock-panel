@@ -446,7 +446,8 @@ def _code_sha() -> str:
     repo = Path(__file__).resolve().parents[4]
     try:
         result = subprocess.run(
-            ["git", "rev-parse", "--verify", "HEAD"],
+            # safe.directory: a repo owned by another Windows account must not hide the code version.
+            ["git", "-c", "safe.directory=*", "rev-parse", "--verify", "HEAD"],
             cwd=repo, check=True, capture_output=True, text=True, timeout=5,
         )
     except (OSError, subprocess.SubprocessError) as exc:
@@ -502,6 +503,8 @@ def run_primary_oos_evaluation(
     lock = WorkerLock(store.path.with_name(".primary_oos.lock"))
     try:
         with lock:
+            # Resolve the code version first: failing here is cheap, after the long load it is not.
+            actual_code_sha = code_sha or _code_sha()
             inputs = input_loader(preflight)
             if inputs.preflight.context(spec.fingerprint) != preflight.context(spec.fingerprint):
                 raise PrimaryOosNotReadyError(inputs.preflight.readiness)
@@ -525,7 +528,6 @@ def run_primary_oos_evaluation(
             if set(inputs.action_coverage) != {"TWSE"}:
                 raise PrimaryOosInputError("Primary OOS source must contain TWSE coverage only")
 
-            actual_code_sha = code_sha or _code_sha()
             dataset_identity = _input_identity(inputs)
             spec_data = spec.describe()
             spec_hash = spec.fingerprint

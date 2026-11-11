@@ -2154,19 +2154,6 @@ export interface DataSourceItem {
   path?: string | null
 }
 
-/** 內建可選插件資料來源 (plugins/ 目錄, 需手動裝依賴) */
-export interface PluginDataSourceItem {
-  name: string
-  display_name: string
-  datasets: string[]
-  runtime: string          // node | python | none
-  available: boolean       // 依賴是否已安裝
-  status: string           // 可用性原因 (供 UI 顯示)
-  description: string
-  install_hint: string     // 未裝依賴時顯示的安裝命令
-  api_key_env?: string     // 聲明後設定頁提供 Key 輸入框 (先探後存)
-}
-
 export interface DataSourceLoadError {
   name?: string
   path: string
@@ -2175,7 +2162,6 @@ export interface DataSourceLoadError {
 
 export interface DataSourcesResponse {
   builtin: DataSourceItem[]
-  plugins: PluginDataSourceItem[]
   custom: DataSourceItem[]
   errors: DataSourceLoadError[]
   config_dir: string
@@ -2189,15 +2175,6 @@ export interface DataSourceTestResult {
   preview: Record<string, unknown>[]
 }
 
-/** 插件 Key 儲存結果 (先探後存: 無效 Key 返回 ok=false 且不落盤) */
-export interface PluginKeyResult {
-  ok: boolean
-  reason?: string
-  error?: string
-  api_key_masked?: string
-  plugin_available?: boolean
-  plugin?: PluginDataSourceItem | null
-}
 
 export interface DatasetConfig {
   url: string
@@ -2241,8 +2218,6 @@ export interface Preferences {
   minute_data_provider?: string
   realtime_data_provider?: string
   financial_data_provider?: string
-  data_source_job_timeout_s: number
-  data_source_long_job_timeout_s: number
   realtime_watchlist_symbols?: string[]
   realtime_pull_stock?: boolean
   realtime_pull_etf?: boolean
@@ -2258,8 +2233,6 @@ export interface Preferences {
   enriched_batch_size: number
   index_daily_batch_size: number
   sse_refresh_pages: Record<string, boolean>
-  strategy_monitor_enabled: boolean
-  strategy_monitor_ids: string[]
   system_notify_enabled: boolean
   feishu_webhook_url?: string
   feishu_webhook_secret?: string
@@ -2280,21 +2253,10 @@ export interface Preferences {
   sidebar_index_symbols: string[]
   nav_order: string[]
   nav_hidden: string[]
-  screener_auto_run: boolean
   minute_intraday_refresh: boolean
   minute_intraday_refresh_interval: number
-  monitor_ext_fields: { concept: MonitorExtFieldItem | null; industry: MonitorExtFieldItem | null }
 }
 
-/** 監控中心 ext 欄位單項設定 (行業/概念標籤的來源 + 顯示裁剪) */
-export interface MonitorExtFieldItem {
-  /** "configId.fieldName" */
-  field: string
-  /** 顯示前N個標籤, 0=不限制 */
-  maxTags?: number
-  /** 隱藏的位置 (0-based), 如 [0] 表示隱藏第一個 */
-  hiddenIndices?: number[]
-}
 export interface StrategyAlertEvent {
   source: 'strategy' | 'depth'
   type: string
@@ -3032,32 +2994,6 @@ export const api = {
   deleteDataSource: (name: string) =>
     request<DataSourcesResponse>(`/api/settings/data-sources/${encodeURIComponent(name)}`, { method: 'DELETE' }),
   reloadDataSources: () => request<DataSourcesResponse>('/api/settings/data-sources/reload', { method: 'POST' }),
-  installPlugin: (name: string) => {
-    // npm install 可能耗時較長, 用 6 分鐘超時
-    const controller = new AbortController()
-    const timer = setTimeout(() => controller.abort(), 360_000)
-    return request<DataSourcesResponse & { install_ok: boolean; install_message: string }>(
-      `/api/settings/plugins/${encodeURIComponent(name)}/install`,
-      { method: 'POST', signal: controller.signal },
-    ).finally(() => clearTimeout(timer))
-  },
-  uninstallPlugin: (name: string) =>
-    request<DataSourcesResponse & { uninstall_ok: boolean; uninstall_message: string }>(
-      `/api/settings/plugins/${encodeURIComponent(name)}/install`,
-      { method: 'DELETE' },
-    ),
-  savePluginKey: (plugin: string, apiKey: string) => {
-    // 先探後存: 後端會用候選 Key 實探一次, 探測超時 10s + 餘量
-    const controller = new AbortController()
-    const timer = setTimeout(() => controller.abort(), 30_000)
-    return request<PluginKeyResult>('/api/settings/plugin-key', {
-      method: 'POST',
-      body: JSON.stringify({ plugin, api_key: apiKey }),
-      signal: controller.signal,
-    }).finally(() => clearTimeout(timer))
-  },
-  clearPluginKey: (plugin: string) =>
-    request<PluginKeyResult>(`/api/settings/plugin-key/${encodeURIComponent(plugin)}`, { method: 'DELETE' }),
   testDataSource: (
     provider: string,
     dataset: string,
@@ -3072,17 +3008,6 @@ export const api = {
     request<Pick<Preferences, 'daily_data_provider' | 'adj_factor_provider' | 'minute_data_provider' | 'realtime_data_provider'>>(
       '/api/settings/preferences/data-providers',
       { method: 'PUT', body: JSON.stringify(cfg) },
-    ),
-  updateDataSourceJobTimeouts: (dataSourceJobTimeoutS: number, dataSourceLongJobTimeoutS: number) =>
-    request<Pick<Preferences, 'data_source_job_timeout_s' | 'data_source_long_job_timeout_s'>>(
-      '/api/settings/preferences/data-source-job-timeouts',
-      {
-        method: 'PUT',
-        body: JSON.stringify({
-          data_source_job_timeout_s: dataSourceJobTimeoutS,
-          data_source_long_job_timeout_s: dataSourceLongJobTimeoutS,
-        }),
-      },
     ),
   // Phase 8B-5.8: updateMinuteSync/updatePipelinePullTypes/
   // updatePipelineRegimeEnabled/updateRegimeBatchParams 隨已刪除的
@@ -3128,23 +3053,15 @@ export const api = {
   intradayRefresh: () => request<{ status: string }>('/api/intraday/refresh', { method: 'POST' }),
   updateRealtimeMonitorConfig: (cfg: {
     sse_refresh_pages?: Record<string, boolean>
-    strategy_monitor_enabled?: boolean
-    strategy_monitor_ids?: string[]
     sidebar_index_symbols?: string[]
-    screener_auto_run?: boolean
     minute_intraday_refresh?: boolean
     minute_intraday_refresh_interval?: number
-    monitor_ext_fields?: { concept: MonitorExtFieldItem | null; industry: MonitorExtFieldItem | null }
   }) =>
     request<{
       sse_refresh_pages: Record<string, boolean>
-      strategy_monitor_enabled: boolean
-      strategy_monitor_ids: string[]
       sidebar_index_symbols: string[]
-      screener_auto_run: boolean
       minute_intraday_refresh: boolean
       minute_intraday_refresh_interval: number
-      monitor_ext_fields: { concept: MonitorExtFieldItem | null; industry: MonitorExtFieldItem | null }
     }>('/api/settings/preferences/realtime-monitor', {
       method: 'PUT',
       body: JSON.stringify(cfg),
@@ -3327,11 +3244,6 @@ export const api = {
       extColumns
         ? `/api/watchlist/enriched?ext_columns=${encodeURIComponent(extColumns)}`
         : '/api/watchlist/enriched',
-    ),
-
-  pipelineJobs: (limit = 20) =>
-    request<{ active_id: string | null; jobs: PipelineJobSummary[] }>(
-      `/api/pipeline/jobs?limit=${limit}`,
     ),
 
   // ===== Taiwan Realtime & Monitor APIs (Phase 5C) =====
@@ -3794,9 +3706,8 @@ export const api = {
         method: 'POST',
         body: JSON.stringify(payload),
       }),
-    listSnapshots: (params?: { strategy_id?: string; limit?: number }) => {
+    listSnapshots: (params?: { limit?: number }) => {
       const q = new URLSearchParams()
-      if (params?.strategy_id) q.set('strategy_id', params.strategy_id)
       if (params?.limit) q.set('limit', String(params.limit))
       const qs = q.toString()
       return request<SnapshotListItem[]>(`/api/taiwan/selection-review/snapshots${qs ? `?${qs}` : ''}`)
@@ -3888,32 +3799,6 @@ export interface TaiwanUpdateLatestResult {
   stats?: Record<string, any>
   selection_readiness?: Record<string, any>
 }
-
-// ===== Pipeline =====
-export interface PipelineJob {
-  id: string
-  status: 'pending' | 'running' | 'succeeded' | 'failed'
-  stage: string
-  progress: number          // 0-100 整體進度
-  stage_pct: number         // 0-100 當前階段內進度
-  log: { ts: string; stage: string; msg: string }[]
-  started_at: string | null
-  finished_at: string | null
-  duration_s: number | null
-  result: {
-    universe_size: number
-    daily_days: number
-    adj_factor_symbols: number
-    enriched_days: number
-    index_count?: number
-    index_daily_rows?: number
-    minute_rows: number
-    skipped_stages?: string[]
-  } | null
-  error: string | null
-}
-
-export type PipelineJobSummary = Omit<PipelineJob, 'log'>
 
 // ===== Selection Review & Snapshot Interfaces (A12) =====
 export type HorizonStatus = 'completed' | 'pending' | 'unavailable'

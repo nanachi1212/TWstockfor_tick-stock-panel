@@ -18,16 +18,16 @@
 
 生命周期:
   - 服務啟動時讀取 preferences，若 enabled 則自動啟動執行緒
-  - 執行中可通過 API 切換開關
+  - 執行中可透過 API 切換開關
   - 關閉時停止執行緒
 """
 from __future__ import annotations
 
+import contextlib
 import logging
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
-from contextlib import contextmanager
 from datetime import date
 
 import polars as pl
@@ -39,7 +39,7 @@ from app.taiwan.realtime.models import MarketStatus
 logger = logging.getLogger(__name__)
 
 # 外部推播專用執行緒池 —— 與行情輪詢執行緒隔離。
-# 若在 _poll_loop 上同步投遞, API 慢/宕機會逐條累加,拖垮整條即時行情+告警輪詢。
+# 若在 _poll_loop 上同步投遞, API 慢/當機會逐條累加,拖垮整條即時行情+告警輪詢。
 # 這裡 fire-and-forget,
 # 失敗由 webhook_adapter 記 WARNING(可見), 但絕不阻塞熱路徑。
 _WEBHOOK_EXECUTOR = ThreadPoolExecutor(max_workers=2, thread_name_prefix="notification-push")
@@ -63,7 +63,7 @@ class QuoteSubscriber:
 
     此前四個通道共用服務級 Event + pending 列表, pop 是「取走」語意:
     多客戶端 (多標籤頁/多裝置) 時告警只會被先醒來的連接消費, 其餘永遠
-    收不到; 共享 Event 的 clear/wait 也存在互相吞信號的競態。
+    收不到; 共享 Event 的 clear/wait 也存在互相吞訊號的競態。
     改為每連接獨立訂閱者後, 事件對所有客戶端廣播。
     """
 
@@ -81,11 +81,11 @@ class QuoteSubscriber:
 
     # ── 消費側 (SSE generator 執行緒) ──────────────────────
     def wait(self, timeout: float = 5.0) -> bool:
-        """阻塞等待任一通道有新信號。"""
+        """阻塞等待任一通道有新訊號。"""
         return self._event.wait(timeout=timeout)
 
     def pop(self) -> dict:
-        """原子取走全部待推送內容並復位事件。"""
+        """原子取走全部待推播內容並復位事件。"""
         with self._lock:
             out = {
                 "quote_updated": self._quote_updated,
@@ -111,19 +111,6 @@ class QuoteSubscriber:
             if len(self._alerts) > self._max_alerts:  # 背壓: 丟棄最舊
                 self._alerts = self._alerts[-self._max_alerts:]
             self._event.set()
-
-
-    def clear_alerts(self) -> None:
-        with self._lock:
-            self._alerts = []
-            if (
-                not self._quote_updated
-                and not self._strategy_results_updated
-                and not self._depth_updated
-                and not self._daily_data_updated
-                and not self._reviews
-            ):
-                self._event.clear()
 
     def notify_quote(self) -> None:
         with self._lock:
@@ -156,7 +143,7 @@ def _persist_last_fetch(fetched_at_ms: float) -> None:
         from app.services import preferences
         preferences.save({"last_fetch_ms": round(fetched_at_ms, 0)})
         _last_fetch_written_at_ms = fetched_at_ms
-    except Exception as e:  # noqa: BLE001
+    except Exception as e:
         logger.debug("last_fetch_ms 持久化失敗 (不影響行情): %s", e)
 
 
@@ -175,10 +162,6 @@ class QuoteService:
         self._fetch_lock = threading.Lock()
         self._running = False
         self._enabled = False      # 全域開關 (持久化到 preferences)
-        # 暫停態: 盤後管道/資料修正執行期間臨時暫停取數, 防止與管道寫同一批 parquet 競態。
-        # 與 _enabled 不同 — pause 不改 preferences、不 stop 執行緒, 僅讓輪詢循環跳過取數;
-        # 行程重啟後 _paused 歸零, 從 preferences 恢復真實開關態, 無"假關閉"副作用。
-        self._paused = False
         self._interval = self.DEFAULT_INTERVAL
         self._thread: threading.Thread | None = None
         self._repo = None          # 延遲注入, 避免循環匯入
@@ -194,12 +177,11 @@ class QuoteService:
         try:
             from app.services import preferences as _prefs
             self._fetched_at: float = float(_prefs.load().get("last_fetch_ms", 0.0))
-        except Exception:  # noqa: BLE001
+        except Exception:
             self._fetched_at = 0.0      # 取得完成的 Unix 時間戳 (毫秒)
         self._symbol_count: int = 0
         self._index_symbol_count: int = 0
         self._etf_symbol_count: int = 0
-        self._index_quotes_cache: pl.DataFrame | None = None
 
     # ================================================================
     # 生命周期
@@ -230,15 +212,8 @@ class QuoteService:
         self._save_enabled(False)
         logger.info("行情服務已停止")
 
-    def enable(self) -> bool:
-        """開啟自動行情 (不立即啟動執行緒，等下一個交易時段)。
-
-        none 檔無即時行情權限,拒絕開啟並回傳 False;
-        free 檔開啟自選股即時,starter+ 開啟全市場即時。回傳值表示是否真正開啟。
-        """
-        if not self.is_realtime_allowed():
-            logger.warning("即時行情開啟被拒:當前檔位(none)無即時行情權限")
-            return False
+    def enable(self) -> None:
+        """開啟自動行情 (不立即啟動執行緒，等下一個交易時段)。"""
         self._enabled = True
         self._save_enabled(True)
         if not self._running:
@@ -248,63 +223,15 @@ class QuoteService:
             self._thread = threading.Thread(target=self._poll_loop, daemon=True)
             self._thread.start()
         logger.info("行情服務已啟用, 輪詢間隔 %.1fs", self._interval)
-        return True
 
     def disable(self) -> None:
         """關閉自動行情。"""
         self.stop()
         logger.info("行情服務已關閉")
 
-    # ================================================================
-    # 臨時暫停 (盤後管道/資料修正期間, 防止寫盤競態)
-    # ================================================================
-
-    def pause(self) -> None:
-        """臨時暫停行情輪詢取數 (不關閉執行緒、不改 preferences)。
-
-        用於盤後管道/資料修正執行期間, 防止即時行情覆寫管道正在寫的 parquet。
-        與 stop() 的區別: 執行緒繼續存活但跳過 _fetch_quotes; preferences 開關態不變,
-        管道結束呼叫 resume() 即恢復。執行緒級檢查, 即時生效, 無 join 等待。
-        """
-        self._paused = True
-        logger.info("行情輪詢已臨時暫停 (管道/修正執行中)")
-
-    def resume(self) -> None:
-        """恢復暫停的行情輪詢取數 (對應 pause)。"""
-        self._paused = False
-        logger.info("行情輪詢已恢復")
-
-    def is_paused(self) -> bool:
-        """是否處於臨時暫停態 (管道執行期間)。"""
-        return self._paused
-
-    @contextmanager
-    def paused(self):
-        """上下文管理器: 進入時暫停輪詢取數, 退出時(含異常)自動恢復。
-
-        供盤後管道/資料修正重用:
-            with quote_service.paused():
-                run_pipeline(...)
-        無論正常結束還是異常/crash, finally 都會 resume (除非行程直接被 kill)。
-        """
-        self.pause()
-        try:
-            yield
-        finally:
-            self.resume()
-
     def boot_check(self) -> None:
-        """啟動時檢查 preferences，若 enabled 則自動啟動。
-
-        none 檔無即時行情權限:即使 preferences 標記為 enabled,
-        也不啟動,並同步 preferences 為關閉(避免 UI 誤顯示已開啟)。
-        """
+        """啟動時檢查 preferences，若 enabled 則自動啟動。"""
         from app.services import preferences
-        if not self.is_realtime_allowed():
-            if preferences.get_realtime_quotes_enabled():
-                self._save_enabled(False)
-            logger.info("即時行情未啟動:當前檔位(none)無即時行情權限")
-            return
         if preferences.get_realtime_quotes_enabled():
             self.start()
 
@@ -326,8 +253,8 @@ class QuoteService:
         return clamped
 
     def get_min_interval(self) -> float:
-        """回傳當前檔位允許的最小間隔。"""
-        return self._tier_min_interval()
+        """回傳允許的最小輪詢間隔。"""
+        return self.DEFAULT_INTERVAL
 
     # ================================================================
     # SSE 訂閱管理 — 每個 /stream 連接一個訂閱者, 事件廣播
@@ -367,36 +294,17 @@ class QuoteService:
         self._broadcast_alerts(alerts)
 
 
-    # ================================================================
-    # 檔位感知間隔限制
-    # ================================================================
-
-
-    @classmethod
-    def realtime_mode(cls) -> str:
-        """當前即時行情模式: 台灣官方模式下全功能開放。"""
-        return "full_market"
-
-    @classmethod
-    def is_realtime_allowed(cls) -> bool:
-        """當前檔位是否允許使用即時行情。"""
-        return cls.realtime_mode() != "none"
-
-    @classmethod
-    def _tier_min_interval(cls) -> float:
-        return cls.DEFAULT_INTERVAL
-
     def _clamp_interval(self, interval: float) -> float:
-        return max(self._tier_min_interval(), min(self.MAX_INTERVAL, interval))
+        return max(self.DEFAULT_INTERVAL, min(self.MAX_INTERVAL, interval))
 
     # ================================================================
-    # 行情資料訪問
+    # 行情資料存取
     # ================================================================
 
     def get_enriched_today(self) -> tuple[pl.DataFrame, date | None]:
         """回傳今天 enriched 資料 + 日期 (執行緒安全)。
 
-        所有頁面統一通過此方法取得即時行情 + 技術指標。
+        所有頁面統一透過此方法取得即時行情 + 技術指標。
         """
         if not self._repo:
             return pl.DataFrame(), None
@@ -407,14 +315,13 @@ class QuoteService:
         """回傳行情服務狀態。"""
         from app.services import preferences
         age = (time.perf_counter() - self._fetch_time) * 1000 if self._fetch_time else -1
-        mode = self.realtime_mode()
         phase = self._market_phase()
         return {
             "enabled": self._enabled,
             "running": self._running,
-            "paused": self._paused,
-            "mode": mode,
-            "realtime_allowed": mode != "none",
+            "paused": False,
+            "mode": "full_market",
+            "realtime_allowed": True,
             "watchlist_symbol_count": len(preferences.get_realtime_watchlist_symbols()),
             "interval_s": self._interval,
             "symbol_count": self._symbol_count,
@@ -429,9 +336,9 @@ class QuoteService:
         }
 
     def refresh(self) -> dict:
-        """手動觸發一次行情取得。"""
-        self._fetch_quotes()
-        return self.status()
+        """手動觸發一次行情取得; refreshed=False 表示目前不在盤中, 沒有實際取數。"""
+        refreshed = self._fetch_quotes()
+        return {**self.status(), "refreshed": refreshed}
 
     # ================================================================
     # 背景輪詢
@@ -440,14 +347,11 @@ class QuoteService:
     def _poll_loop(self) -> None:
         while self._running and self._enabled:
             try:
-                # 管道/資料修正執行期間臨時暫停取數, 防止與管道寫同一批 parquet 競態。
-                # 執行緒繼續存活 + 分片 sleep, resume() 後即時恢復, 無需重啟執行緒。
-                if not self._paused:
-                    if self._is_continuous_trading():
-                        self._fetch_quotes()
-                    else:
-                        logger.debug("非台股盤中, 跳過行情輪詢")
-            except Exception as e:  # noqa: BLE001
+                if self._is_continuous_trading():
+                    self._fetch_quotes()
+                else:
+                    logger.debug("非台股盤中, 跳過行情輪詢")
+            except Exception as e:
                 logger.warning("行情輪詢異常: %s", e)
 
             waited = 0.0
@@ -455,12 +359,12 @@ class QuoteService:
                 time.sleep(0.5)
                 waited += 0.5
 
-    def _fetch_quotes(self) -> None:
-        """按當前檔位取得行情。加鎖串行化 (背景輪詢 vs 手動 refresh)。"""
+    def _fetch_quotes(self) -> bool:
+        """取得行情。加鎖串行化 (背景輪詢 vs 手動 refresh); 回傳是否真的取數 / 評估過。"""
         with self._fetch_lock:
-            self._fetch_full_market_quotes()
+            return self._fetch_full_market_quotes()
 
-    def _fetch_full_market_quotes(self) -> None:
+    def _fetch_full_market_quotes(self) -> bool:
         """取得全市場行情 → 寫 daily + 計算 enriched + 更新快取。"""
         from app.services import preferences
 
@@ -468,8 +372,15 @@ class QuoteService:
         if provider_name == "taiwan":
             # 台股官方來源沒有全市場盤中快照 (STOCK_DAY_ALL 是盤後日資料, 不可冒充今日即時 K
             # 寫進 kline_daily)。monitor_engine 自己向 MIS 取規則標的的即時報價, 這裡只觸發評估。
+            if not self._is_continuous_trading():
+                return False
             self._evaluate_monitors()
-            return
+            now_ms = time.time() * 1000
+            with self._lock:
+                self._fetch_time = time.perf_counter()
+                self._fetched_at = now_ms
+            _persist_last_fetch(now_ms)
+            return True
 
         from app.data_providers import custom as custom_sources
         if custom_sources.provider_has_dataset(provider_name, "realtime"):
@@ -478,11 +389,12 @@ class QuoteService:
                 now_ts = time.perf_counter()
                 records = custom_sources.get_provider(provider_name).get_realtime()
                 self._process_full_market_records(records, t0=t0, now_ts=now_ts)
-                return
-            except Exception as e:  # noqa: BLE001
+                return True
+            except Exception as e:
                 logger.warning("自訂即時行情取得失敗: %s", e)
-                return
+                return False
         logger.warning("即時資料來源 %s 未提供 realtime 資料集, 略過行情更新", provider_name)
+        return False
 
     def _process_full_market_records(self, records: list[dict], *, t0: float, now_ts: float) -> None:
         """把全市場 records 寫盤並增量計算 enriched。"""
@@ -522,7 +434,6 @@ class QuoteService:
             self._symbol_count = len(stock_records)
             self._index_symbol_count = len(index_records)
             self._etf_symbol_count = len(etf_records)
-            self._index_quotes_cache = self._build_index_quotes(index_records)
 
         _persist_last_fetch(fetched_at)
         logger.info("行情重新整理: %d 只股票, %d 只ETF, %d 只指數, 耗時 %.0fms", len(stock_records), len(etf_records), len(index_records), fetch_ms)
@@ -532,14 +443,14 @@ class QuoteService:
         if not daily_df.is_empty() and self._repo:
             try:
                 self._repo.flush_live_daily(daily_df)
-            except Exception as e:  # noqa: BLE001
+            except Exception as e:
                 logger.warning("日K寫盤失敗: %s", e)
 
         etf_daily_df = self._build_daily(etf_records)
         if not etf_daily_df.is_empty() and self._repo:
             try:
                 self._repo.flush_live_daily_asset("etf", etf_daily_df)
-            except Exception as e:  # noqa: BLE001
+            except Exception as e:
                 logger.warning("ETF 日K寫盤失敗: %s", e)
 
         # ---- 構建 API 直接值的補充表 (不寫 daily, 只用於 enriched 計算) ----
@@ -624,46 +535,6 @@ class QuoteService:
         return out
 
     @staticmethod
-    def _build_index_quotes(records: list[dict]) -> pl.DataFrame:
-        """構建指數即時行情快取，不落股票 parquet。
-
-        注意: API 回傳的 change_pct/amplitude 是小數 (0.0366 = 3.66%),
-        統一轉成百分比輸出, 與 _fallback_index_quotes_from_daily 口徑一致
-        (前端指數側不×100, 直接 toFixed(2)% 展示)。
-        """
-        if not records:
-            return pl.DataFrame()
-        df = pl.DataFrame(records)
-        keep = [c for c in [
-            "symbol", "name", "last_price", "prev_close", "open", "high", "low",
-            "volume", "amount", "change_pct", "change_amount", "amplitude", "timestamp", "session",
-        ] if c in df.columns]
-        if not keep or "symbol" not in keep:
-            return pl.DataFrame()
-        df = df.select(keep)
-        # 自訂源可能不提供 change_pct/change_amount, 按 last_price/prev_close 補算
-        # (資料源可能已計算漲跌幅, 此處只補缺失值)
-        if "change_pct" not in df.columns and "last_price" in df.columns and "prev_close" in df.columns:
-            # prev_close=0 → inf (非合法 JSON), prev_close=null → null; 用 when 守護
-            df = df.with_columns(
-                pl.when(pl.col("prev_close") != 0)
-                .then((pl.col("last_price") - pl.col("prev_close")) / pl.col("prev_close"))
-                .otherwise(None)
-                .alias("change_pct")
-            )
-        if "change_amount" not in df.columns and "last_price" in df.columns and "prev_close" in df.columns:
-            df = df.with_columns(
-                (pl.col("last_price") - pl.col("prev_close")).alias("change_amount")
-            )
-        # change_pct / amplitude: 小數 → 百分比 (統一指數展示口徑)
-        for col in ("change_pct", "amplitude"):
-            if col in df.columns:
-                df = df.with_columns((pl.col(col).cast(pl.Float64) * 100).alias(col))
-        if "last_price" in df.columns and "close" not in df.columns:
-            df = df.with_columns(pl.col("last_price").alias("close"))
-        return df
-
-    @staticmethod
     def _market_phase() -> str:
         """台股市場時段 (Asia/Taipei), 回傳 MarketStatus 值; 時段規則唯一來源是 taiwan.realtime.calendar。
 
@@ -711,7 +582,7 @@ class QuoteService:
                         persisted_taiwan_events.extend(events)
 
                     tw_engine.evaluate_all(persist_events=persist_taiwan_alerts)
-            except Exception as e:  # noqa: BLE001
+            except Exception as e:
                 logger.warning("台股監控評估失敗: %s", e)
 
             if not persisted_taiwan_events:
@@ -747,10 +618,10 @@ class QuoteService:
                 from app.taiwan import event_ai_explain
 
                 event_ai_explain.submit(persisted_taiwan_events)
-            except Exception as e:  # noqa: BLE001
+            except Exception as e:
                 logger.warning("事件 AI 解讀提交失敗 (%s)", type(e).__name__)
 
-        except Exception as e:  # noqa: BLE001
+        except Exception as e:
             logger.warning("監控評估失敗: %s", e)
 
     def _format_extension_notifications(self, events: list[dict]) -> list[dict]:
@@ -792,8 +663,7 @@ class QuoteService:
     def _maybe_send_webhook(self, rule_events: list[dict], engine) -> None:
         """Dispatch persisted alert events; global channels override legacy rule opt-ins."""
         try:
-            from app.services import preferences
-            from app.services import webhook_adapter
+            from app.services import preferences, webhook_adapter
 
             global_channels = preferences.get_external_notification_channels()
 
@@ -827,27 +697,25 @@ class QuoteService:
                     str(ev.get(key) or "") for key in ("rule_id", "symbol", "sector_key", "type", "ts")
                 ))
                 # The alert is already durable and in SSE before provider I/O begins.
-                if "line" in channels:
-                    if _claim_external_delivery(event_id, "line"):
-                        if line_token and line_target:
-                            _WEBHOOK_EXECUTOR.submit(webhook_adapter.send_line, line_token, line_target, "", body)
-                        else:
-                            webhook_adapter.record_delivery_status("line", "not_configured")
-                        enqueued += 1
-                if "telegram" in channels:
-                    if _claim_external_delivery(event_id, "telegram"):
-                        if telegram_token and telegram_chat:
-                            _WEBHOOK_EXECUTOR.submit(webhook_adapter.send_telegram, telegram_token, telegram_chat, "", body)
-                        else:
-                            webhook_adapter.record_delivery_status("telegram", "not_configured")
-                        enqueued += 1
+                if "line" in channels and _claim_external_delivery(event_id, "line"):
+                    if line_token and line_target:
+                        _WEBHOOK_EXECUTOR.submit(webhook_adapter.send_line, line_token, line_target, "", body)
+                    else:
+                        webhook_adapter.record_delivery_status("line", "not_configured")
+                    enqueued += 1
+                if "telegram" in channels and _claim_external_delivery(event_id, "telegram"):
+                    if telegram_token and telegram_chat:
+                        _WEBHOOK_EXECUTOR.submit(webhook_adapter.send_telegram, telegram_token, telegram_chat, "", body)
+                    else:
+                        webhook_adapter.record_delivery_status("telegram", "not_configured")
+                    enqueued += 1
             if enqueued:
-                logger.info("Webhook 已提交 %d 條 (非同步投遞, 按渠道獨立投遞, 失敗記 WARNING)", enqueued)
-        except Exception as e:  # noqa: BLE001
+                logger.info("Webhook 已提交 %d 條 (非同步投遞, 按管道獨立投遞, 失敗記 WARNING)", enqueued)
+        except Exception as e:
             logger.warning("外部提醒提交失敗 (%s)", type(e).__name__)
 
     def _maybe_send_system_notifications(self, all_alerts: list[dict]) -> None:
-        """把告警轉發到操作系統通知中心 (由 preferences 開關控制)。
+        """把告警轉發到作業系統通知中心 (由 preferences 開關控制)。
 
         - 開關關閉: 直接回傳
         - 開關開啟: 逐條發系統通知; 失敗靜默, 不阻斷主流程
@@ -855,14 +723,13 @@ class QuoteService:
         - 批次策略事件 (symbol="") 聚合為一條通知, 避免刷屏
         """
         try:
-            from app.services import preferences
-            from app.services import notify_adapter
+            from app.services import notify_adapter, preferences
 
             if not preferences.get_system_notify_enabled():
                 return
 
             for ev in all_alerts:
-                # 通知標題: 用 source 分類 (策略/信號/價格/異動)
+                # 通知標題: 用 source 分類 (策略/訊號/價格/異動)
                 source = ev.get("source", "")
                 source_label = {
                     "strategy": "策略", "signal": "訊號",
@@ -874,14 +741,11 @@ class QuoteService:
                 message = ev.get("message") or ""
 
                 # 正文: 優先用現成 message, 拼上 symbol/name 讓使用者一眼定位
-                if symbol:
-                    body = f"{symbol} {name} {message}".strip()
-                else:
-                    body = message or name
+                body = f"{symbol} {name} {message}".strip() if symbol else message or name
 
                 title = f"台股監控 · {source_label}"
                 notify_adapter.notify(title, body)
-        except Exception as e:  # noqa: BLE001
+        except Exception as e:
             logger.debug("系統通知發送異常 (不影響告警主流程): %s", e)
 
     # ================================================================
@@ -915,7 +779,7 @@ class QuoteService:
 
             if use_incremental:
                 from app.indicators.pipeline import compute_enriched_today
-                from app.market_time import trading_minutes_elapsed_from_ts, trading_minutes_elapsed
+                from app.market_time import trading_minutes_elapsed, trading_minutes_elapsed_from_ts
                 instruments = self._repo.get_instruments()
                 # 將 API 直接提供的補充欄位 JOIN 到 daily_df
                 today_ohlcv = daily_df
@@ -943,6 +807,7 @@ class QuoteService:
             # ---- 全量回退路徑 ----
             if not use_incremental:
                 from datetime import timedelta
+
                 from app.indicators.pipeline import compute_enriched
 
                 logger.info("enriched 全量計算 (live_agg=%s, 上次日期=%s)",
@@ -971,10 +836,8 @@ class QuoteService:
                 factor_path = self._repo.store.data_dir / factor_dir / "all.parquet" if factor_dir else None
                 factors = pl.DataFrame()
                 if factor_path and factor_path.exists():
-                    try:
+                    with contextlib.suppress(Exception):
                         factors = pl.read_parquet(factor_path)
-                    except Exception:
-                        pass
                 instruments = self._repo.get_instruments() if asset_type == "stock" else None
 
                 enriched_full = compute_enriched(
@@ -997,5 +860,5 @@ class QuoteService:
             mode_label = "增量" if use_incremental else "全量"
             logger.info("enriched %s: %d 只, %s, 耗時 %.0fms",
                         mode_label, len(enriched_today), today, elapsed * 1000)
-        except Exception as e:  # noqa: BLE001
+        except Exception as e:
             logger.warning("enriched 計算失敗: %s", e)

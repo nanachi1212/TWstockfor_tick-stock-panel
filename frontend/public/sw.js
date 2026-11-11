@@ -1,5 +1,6 @@
 const CACHE = 'twstock-static-v1'
 const SHELL = '/index.html'
+const MAX_ENTRIES = 200
 const PRECACHE = [
   SHELL,
   '/manifest.webmanifest',
@@ -58,11 +59,21 @@ async function navigate(event) {
   try {
     const response = await fetch(event.request)
     // sw.js 內容不變就不會重跑 install; 每次連線導航重新整理離線殼, 離線時才拿得到引用現行 assets 檔名的 index.html。
-    event.waitUntil(caches.open(CACHE).then(cache => cache.add(SHELL)))
+    // 導航回應本身就是殼 (SPA fallback), 直接存這份, 不再多抓一次 index.html。
+    event.waitUntil(refreshShell(response.clone()).catch(() => {}))
     return response
   } catch {
     return (await caches.match(SHELL)) ?? Response.error()
   }
+}
+
+async function refreshShell(response) {
+  if (!response.ok) return
+  const html = await response.text()
+  // /docs 之類不是 SPA 殼的頁面不能蓋掉離線殼。
+  if (!html.includes('id="root"')) return
+  const cache = await caches.open(CACHE)
+  await cache.put(SHELL, new Response(html, { headers: { 'content-type': 'text/html; charset=utf-8' } }))
 }
 
 async function fetchAndCache(request) {
@@ -72,7 +83,17 @@ async function fetchAndCache(request) {
     try {
       const cache = await caches.open(CACHE)
       await cache.put(request, response.clone())
+      await trim(cache)
     } catch {}
   }
   return response
+}
+
+// 一次建置約 70 個檔; 舊版帶 hash 的 assets 不會再被請求, 超過上限就從最舊的刪起 (keys() 依寫入順序)。
+// ponytail: 以寫入順序近似「最舊」, 跨版本沒變的檔可能被刪後重抓一次; 要精確就改成比對 index.html 引用清單。
+async function trim(cache) {
+  const keys = await cache.keys()
+  for (const key of keys.slice(0, Math.max(0, keys.length - MAX_ENTRIES))) {
+    if (!PRECACHE.includes(new URL(key.url).pathname)) await cache.delete(key)
+  }
 }

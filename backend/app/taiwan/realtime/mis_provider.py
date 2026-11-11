@@ -15,15 +15,13 @@ Semantics & Boundary Clarification:
 """
 from __future__ import annotations
 
-from datetime import date, datetime
-import json
 import logging
 import time
-import urllib.request
+from datetime import date, datetime
 from typing import Any
 
-
 from app.taiwan.enrichment.models import SourceMeta
+from app.taiwan.providers.http import fetch_json
 from app.taiwan.realtime.calendar import get_market_status, taipei_now
 from app.taiwan.realtime.models import MarketStatus, RealtimeStatus, TaiwanRealtimeQuote
 from app.taiwan.symbol import TaiwanSymbol, parse_symbol
@@ -70,11 +68,11 @@ def _parse_depth_tier(
     p_parts = [p.strip() for p in prices_str.split("_") if p.strip()]
     v_parts = [v.strip() for v in volumes_str.split("_") if v.strip()]
     tier: list[tuple[float, int]] = []
-    for p_s, v_s in zip(p_parts, v_parts):
+    for p_s, v_s in zip(p_parts, v_parts, strict=False):
         p = _safe_float(p_s)
         v_lots = _safe_float(v_s)
         if p is not None and v_lots is not None and p > 0:
-            tier.append((p, int(round(v_lots * 1000))))
+            tier.append((p, round(v_lots * 1000)))
     return tier
 
 
@@ -108,10 +106,8 @@ class TwseMisRealtimeProvider:
         else:
             channels = "|".join(channel_to_canonical.keys())
             url = f"{MIS_ENDPOINT}?ex_ch={channels}&json=1&delay=0"
-            req = urllib.request.Request(url, headers=DEFAULT_HEADERS)
             try:
-                with urllib.request.urlopen(req, timeout=self.timeout) as resp:
-                    raw_data = json.loads(resp.read().decode("utf-8"))
+                raw_data = fetch_json(url, headers=DEFAULT_HEADERS, timeout=self.timeout)
                 observed_ms = (time.perf_counter() - t0) * 1000
             except Exception as e:
                 logger.warning("Failed to fetch quotes from TWSE MIS: %s", e)
@@ -144,7 +140,7 @@ class TwseMisRealtimeProvider:
 
             # Volume conversion: MIS 'v' is in LOTS (張) -> multiply by 1,000 to shares
             v_lots = _safe_float(item.get("v"))
-            volume_shares = int(round(v_lots * 1000)) if v_lots is not None else None
+            volume_shares = round(v_lots * 1000) if v_lots is not None else None
 
             # Calculate change and percentage
             change: float | None = None

@@ -1,5 +1,5 @@
 """Explain existing beginner selection evidence without changing its ranking."""
-# ruff: noqa: RUF001 -- user-facing Traditional Chinese text is intentional.
+
 from __future__ import annotations
 
 import re

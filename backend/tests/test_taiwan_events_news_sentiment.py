@@ -1,4 +1,3 @@
-# ruff: noqa: RUF001
 from __future__ import annotations
 
 from datetime import date, datetime
@@ -622,7 +621,8 @@ def test_screener_risk_event_filters():
     service = TaiwanScreenerService()
 
     mock_events = MagicMock()
-    mock_events.check_symbol_risk_status.side_effect = lambda sym: {
+    mock_events.get_cached_regulatory_snapshot.return_value = ([], "available", None)
+    mock_events.check_symbol_risk_status.side_effect = lambda sym, events=None: {
         "2330": {"is_disposition": False, "is_suspended": False, "has_risk_event": False},
         "3008": {"is_disposition": True, "is_suspended": False, "has_risk_event": True},
         "2454": {"is_disposition": False, "is_suspended": False, "has_risk_event": False},
@@ -642,6 +642,14 @@ def test_screener_risk_event_filters():
         filtered_risk = service._apply_filters(df, req_risk)
         symbols_risk = filtered_risk["symbol"].to_list()
         assert "3008" not in symbols_risk
+
+        # Event source unavailable: the exclusion cannot be verified, so nothing passes.
+        mock_events.get_cached_regulatory_snapshot.return_value = ([], "unavailable", None)
+        mock_events.get_all_regulatory_and_official_events.return_value = []
+        mock_events.last_status = "unavailable"
+        degraded: list[str] = []
+        assert service._apply_filters(df, req, degraded).is_empty()
+        assert degraded == ["events"]
 
 
 # ---------------------------------------------------------------------------
@@ -668,15 +676,7 @@ def test_api_events_endpoints(client):
     alert_data = resp_alerts.json()
     assert "triggered_alerts" in alert_data
 
-    # 4. GET /api/taiwan/news/2330
-    resp_news = client.get("/api/taiwan/news/2330?limit=3")
-    assert resp_news.status_code == 200
-    news_data = resp_news.json()
-    assert "items" in news_data
-    assert "symbol" in news_data
-    assert "2330" in news_data["symbol"]
-
-    # 5. GET /api/taiwan/market-sentiment
+    # 4. GET /api/taiwan/market-sentiment
     resp_sent = client.get("/api/taiwan/market-sentiment")
     assert resp_sent.status_code == 200
     sent_data = resp_sent.json()

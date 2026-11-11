@@ -3,7 +3,7 @@
 This module translates existing price, plan, chip, and market facts. It does
 not rank candidates and does not create support, resistance, or stop prices.
 """
-# ruff: noqa: RUF001 -- user-facing Traditional Chinese text is intentional.
+
 from __future__ import annotations
 
 import math

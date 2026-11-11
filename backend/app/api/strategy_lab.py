@@ -1,5 +1,4 @@
 """Strategy Lab query endpoints; all admission and statistics live in the service."""
-# ruff: noqa: RUF001
 from __future__ import annotations
 
 import sqlite3

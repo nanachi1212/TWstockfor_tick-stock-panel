@@ -10,7 +10,7 @@ export type ColumnSource =
   | { type: 'ext'; configId: string; fieldName: string; fieldLabel?: string; fieldType?: string }
   | { type: 'computed'; key: string }
 
-/** 擴展列字符串值渲染設定 */
+/** 擴展列字串值渲染設定 */
 export interface ExtColumnDisplayConfig {
   /** 顯示模式: tag=分隔為標籤, text=純文字 */
   displayMode: 'tag' | 'text'
@@ -34,13 +34,13 @@ export interface ExtColumnDisplayConfig {
 
 /** 日k列渲染設定（builtin: candle 列專用） */
 export interface CandleColumnConfig {
-  /** 開啟（顯示蠟燭圖）時單元格寬度 px */
+  /** 開啟（顯示蠟燭圖）時儲存格寬度 px */
   enabledWidth?: number
-  /** 開啟時單元格高度 px */
+  /** 開啟時儲存格高度 px */
   enabledHeight?: number
-  /** 關閉（收起）時單元格寬度 px */
+  /** 關閉（收起）時儲存格寬度 px */
   disabledWidth?: number
-  /** 關閉時單元格高度 px */
+  /** 關閉時儲存格高度 px */
   disabledHeight?: number
   /** 顯示最近多少個交易日的日k */
   days?: number
@@ -57,9 +57,9 @@ export const DEFAULT_CANDLE_CONFIG: Required<CandleColumnConfig> = {
 
 /** 分時列渲染設定（builtin: intraday 列專用） */
 export interface IntradayColumnConfig {
-  /** 單元格寬度 px */
+  /** 儲存格寬度 px */
   width?: number
-  /** 單元格高度 px */
+  /** 儲存格高度 px */
   height?: number
 }
 

@@ -5,12 +5,11 @@ v8 chart/quote endpoints.
 """
 from __future__ import annotations
 
-from datetime import datetime
-import json
 import logging
-import urllib.request
+from datetime import datetime
 
 from app.taiwan.enrichment.models import SourceMeta
+from app.taiwan.providers.http import fetch_json
 from app.taiwan.realtime.calendar import get_market_status, taipei_now
 from app.taiwan.realtime.models import RealtimeStatus, TaiwanRealtimeQuote
 from app.taiwan.symbol import TaiwanSymbol, parse_symbol
@@ -55,10 +54,8 @@ class YahooRealtimeProvider:
         if mock_response_json is not None:
             raw = mock_response_json
         else:
-            req = urllib.request.Request(url, headers=DEFAULT_HEADERS)
             try:
-                with urllib.request.urlopen(req, timeout=self.timeout) as resp:
-                    raw = json.loads(resp.read().decode("utf-8"))
+                raw = fetch_json(url, headers=DEFAULT_HEADERS, timeout=self.timeout)
             except Exception as e:
                 logger.warning("Failed to fetch quote from Yahoo for %s: %s", ts.canonical, e)
                 return None

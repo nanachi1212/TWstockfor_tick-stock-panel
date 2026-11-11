@@ -10,7 +10,7 @@
 
 預設資料來源是**台灣官方資料源(TWSE / TPEx)**,整合台灣證券交易所與證券櫃檯買賣中心的公開資料,提供日K歷史行情、即時報價、標的清單與基本面資訊,**不需要任何 API Key**,`.env` 也不需要為它填任何東西。
 
-資料集的提供方在面板 **設定 → 資料來源** 逐項切換;沒有個別指定的資料集一律由台灣官方資料源提供。系統同時支援插件化接入第三方資料來源(YAML 宣告自有介面見 [custom-data-source.md](./custom-data-source.md),插件開發見 [plugin-development.md](./plugin-development.md))。
+資料集的提供方在面板 **設定 → 資料來源** 逐項切換;沒有個別指定的資料集一律由台灣官方資料源提供。系統同時支援外掛化接入第三方資料來源(YAML 宣告自有介面見 [custom-data-source.md](./custom-data-source.md))。
 
 歷史日 K 需要先在本機建立,做法見 [操作說明書 → 歷史日 K 與 GitHub Release 資料包](./操作說明書.md#15-歷史日-k-與-github-release-資料包)。
 
@@ -18,7 +18,7 @@
 
 ## AI(可選)
 
-AI 為選配功能,只在你主動點擊時才會呼叫,用在:今日選股卡片與個股頁的白話解讀、個股頁依買點策略約束的行動建議、台股選股頁把中文條件翻譯成篩選欄位、多股比較頁與每日摘要的客觀解讀。**所有設定留空即跳過**,不影響核心功能。支援任意 OpenAI 相容介面。
+AI 為選配功能,預設只在你主動按一下時才會呼叫(盤後自動 AI 說明等三項自動功能為選配,預設關閉),用在:今日選股卡片與個股頁的白話解讀、個股頁依買點策略約束的行動建議、台股選股頁把中文條件翻譯成篩選欄位、多股比較頁與每日摘要的客觀解讀。**所有設定留空即跳過**,不影響核心功能。支援任意 OpenAI 相容介面。
 
 ```ini
 AI_PROVIDER=openai_compat              # openai_compat | openai | codex_cli | claude_cli
@@ -42,12 +42,12 @@ AI_MODEL=gpt-5.5
 ## 服務
 
 ```ini
-HOST=0.0.0.0          # 開發服務監聽位址 / Docker 主機綁定位址
+HOST=127.0.0.1        # 開發服務監聽位址 / Docker 主機綁定位址(.env.example 預設值)
 PORT=3018             # 開發後端連接埠 / Docker 主機映射連接埠
 LOG_LEVEL=INFO        # DEBUG | INFO | WARNING | ERROR
 ```
 
-- `HOST`:`0.0.0.0` 監聽所有網卡(容器/公開網路部署需要);僅本機用可設 `127.0.0.1`
+- `HOST`:預設 `127.0.0.1`(僅本機);要讓區域網路或公開網路的其他裝置連線才設 `0.0.0.0`(監聽所有網卡)
 - `PORT`:預設 `3018`;開發模式也接受 `BACKEND_PORT` 覆蓋,改連接埠後 SSH 轉發指令也要同步改
 - `LOG_LEVEL`:排查問題時改 `DEBUG`
 
@@ -74,17 +74,17 @@ AUTH_PASSWORD='你的密碼'  # 至少 6 位;僅首次生效,已設過則不覆�
 面板首次設定存取密碼時,出於安全考慮**僅允許本機或內網存取**(防公開網路陌生人搶先設定鎖死面板)。公開網路伺服器部署可透過此環境變數預先設定首個密碼。
 密碼建議使用單引號包裹，Docker 啟動時會把整個原始 `.env` 唯讀掛載到容器內 `/app/.env`，相容已有的未加引號設定。容器可以讀取其中的金鑰但不能修改該檔案，請保持主機檔案權限為 `600` 並僅執行可信映像檔。
 
-詳細步驟、SSH 轉發方案、重置密碼方法見 [deployment.md → 存取密碼設定](./deployment.md#存取密碼設定公開網路部署必讀)。
+詳細步驟、SSH 轉發方案、重置密碼方法見 [deploy-password.md](./deploy-password.md)。
 
 ---
 
-## 後端依賴 Extras(可選)
+## 後端相依套件 Extras(可選)
 
 ```ini
 BACKEND_EXTRAS=             # 留空使用預設;legacy-cpu 相容舊 CPU
 ```
 
-舊 CPU 無 AVX2/FMA 支援時設為 `legacy-cpu`,會給 Polars 切到 `rtcompat` 執行階段。Docker 建置和 `./dev.sh` / `.\dev.ps1` 都會讀取此值並同步依賴。詳見 [deployment.md → 舊 CPU 相容](./deployment.md#舊-cpu-相容avx2fma-缺失)。
+舊 CPU 無 AVX2/FMA 支援時設為 `legacy-cpu`,會給 Polars 切到 `rtcompat` 執行階段。Docker 建置和 `./dev.sh` / `.\dev.ps1` 都會讀取此值並同步相依套件。詳見 [deployment.md → 舊 CPU 相容](./deployment.md#舊-cpu-相容avx2fma-缺失)。
 
 ---
 
