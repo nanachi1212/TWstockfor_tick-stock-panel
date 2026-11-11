@@ -316,7 +316,7 @@ revivt 3064 2024-02-05 factor=3.3333333333333335。
 
 `quant/panel.py` 對每個 feature date T 以 T 收盤為錨點調用 `adjust_prices_as_of`，技術與股票報酬只讀 PIT 調整價。法人、融資券與市場指數列須有不晚於 T 收盤的明確 `available_at`；目前舊 store 沒有這個欄位時，因子保留 null 與 coverage exception，不回填零。歷史產業因子固定 `not_pit_safe`。股數基準事件跨 20 期時 `relative_volume` 為 `data_insufficient`，金額與 ADV20 不受此限制。
 
-`quant/training.py` 是 panel 進入模型列的入口：`resolve_training_eligibility(manifest, capabilities)` → `quant_eligibility.eligible(universe, policy)` → `training_matrix()`。每日期的候選母體限同一 `policy_version`、`universe_tier` 的 eligible symbols，輸出保留 `feature_schema_version`、`factor_version`、`policy_version`、`universe_tier`，並回報 rejected features/symbols 與理由。`cross_section.py` 只對此母體做 winsorize、zscore、rank_pct，percentile 附 `date/policy_version/universe_tier/eligible_count`；產業中立化拒絕無 PIT assignment。
+`quant/training.py` 是 panel 進入模型列的入口：`resolve_training_eligibility(manifest, capabilities)` → `quant_eligibility.eligible(universe, policy)` → `training_matrix()`。每日期的候選母體限同一 `policy_version`、`universe_tier` 的 eligible symbols，輸出保留 `feature_schema_version`、`factor_version`、`policy_version`、`universe_tier`，並回報 rejected features/symbols 與理由。
 
 歷史 training 的 `warmup_sessions` 與 `adv20_twd` 必須以 `(date, symbol)` 為 key；
 symbol-only 現況／全樣本 map 會拒絕。每日期只取該日期的證據，缺值不通過非零門檻，

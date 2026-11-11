@@ -603,8 +603,6 @@ def run_primary_oos_evaluation(
                     recorded_at=now().isoformat(), context=context,
                     error_code=type(exc).__name__,
                 )
-                if isinstance(exc, PrimaryOosInputError):
-                    raise PrimaryOosRunFailedError(run_id, type(exc).__name__) from exc
                 raise PrimaryOosRunFailedError(run_id, type(exc).__name__) from exc
     except WorkerBusyError:
         return {"status": "evaluation_running", "run_id": None, "reused": False}

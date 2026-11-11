@@ -12,7 +12,6 @@ overrides (used by every existing deterministic test in this repo) still work.
 """
 from __future__ import annotations
 
-import os
 
 from app.taiwan.data_root import taiwan_data_root
 from app.taiwan.daily_store import TaiwanDailyStore

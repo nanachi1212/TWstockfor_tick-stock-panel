@@ -17,9 +17,9 @@ STRICT CONSTRAINTS:
 from __future__ import annotations
 
 import logging
-from datetime import date, datetime, timedelta
-from typing import Any, Literal
-from pydantic import BaseModel, Field
+from datetime import date, timedelta
+from typing import Literal
+from pydantic import BaseModel
 import polars as pl
 
 from app.taiwan.daily_store import TaiwanDailyStore

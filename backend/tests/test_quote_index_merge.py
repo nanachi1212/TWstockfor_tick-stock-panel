@@ -3,7 +3,7 @@ from datetime import date
 
 import polars as pl
 
-from app.tickflow.repository import DataStore, KlineRepository
+from app.repository import DataStore, KlineRepository
 
 
 def _enriched_row(symbol: str, close: float, dt: date) -> dict:
@@ -47,32 +47,3 @@ def test_merge_live_enriched_preserves_full_index_partition(tmp_path):
 
     cyb = result.filter(pl.col("symbol") == "399006.SZ")
     assert cyb["close"][0] == 2000.0, "399006.SZ 不應被 merge 覆蓋"
-
-
-def test_merge_live_daily_preserves_full_index_partition(tmp_path):
-    """日K merge 同樣不截斷全量分區。"""
-    repo = KlineRepository(DataStore(tmp_path))
-    dt = date(2026, 7, 28)
-
-    # 盤後管道 flush 寫入全量 3 只指數日K
-    full_df = pl.DataFrame([
-        {"symbol": "000001.SH", "date": dt, "open": 3000.0, "high": 3010.0,
-         "low": 2990.0, "close": 3000.0, "volume": 1000, "amount": 10000.0},
-        {"symbol": "399001.SZ", "date": dt, "open": 10000.0, "high": 10010.0,
-         "low": 9990.0, "close": 10000.0, "volume": 2000, "amount": 20000.0},
-        {"symbol": "399006.SZ", "date": dt, "open": 2000.0, "high": 2010.0,
-         "low": 1990.0, "close": 2000.0, "volume": 3000, "amount": 30000.0},
-    ])
-    repo.flush_live_daily_asset("index", full_df)
-
-    # 即時 merge 部分指數
-    partial_df = pl.DataFrame([
-        {"symbol": "000001.SH", "date": dt, "open": 3000.0, "high": 3010.0,
-         "low": 2990.0, "close": 3001.0, "volume": 1000, "amount": 10000.0},
-    ])
-    repo.merge_live_daily_asset("index", partial_df)
-
-    out = tmp_path / "kline_index_daily" / f"date={dt.isoformat()}" / "part.parquet"
-    result = pl.read_parquet(out)
-    assert len(result) == 3, f"merge 後分區應有 3 只指數, 實際 {len(result)}"
-    assert result.filter(pl.col("symbol") == "000001.SH")["close"][0] == 3001.0

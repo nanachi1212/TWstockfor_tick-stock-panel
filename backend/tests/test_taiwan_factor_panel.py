@@ -11,19 +11,14 @@ import pytest
 from app.taiwan.adjust import adjust_prices_for_presentation
 from app.taiwan.corporate_actions import CorporateActionEvent, event_market_open
 from app.taiwan.providers.taiwan_values import TAIPEI, market_close
-from app.taiwan.quant.baseline import run_baseline_dry_run
-from app.taiwan.quant.cross_section import industry_neutralize, transform_cross_section
 from app.taiwan.quant.feature_manifest import (
     DatasetCapability,
-    EligibilityResolution,
     FeatureManifest,
     FeatureSpec,
-    FeatureVerdict,
 )
 from app.taiwan.quant.panel import build_factor_panel
 from app.taiwan.quant.storage import FactorPanelStore, factor_meta
-from app.taiwan.quant.training import TrainingMatrixResult, panel_training_matrix
-from app.taiwan.quant.validation.folds import PurgedFold
+from app.taiwan.quant.training import panel_training_matrix
 from app.taiwan.quant_eligibility import EligibilityPolicy
 
 
@@ -85,14 +80,6 @@ def _training(panel, universe):
                                                    tier=panel.universe_tier,
                                                    min_warmup_sessions=0),
                                  manifest, capabilities)
-
-
-def _admitted(frame: pl.DataFrame, features: tuple[str, ...]) -> TrainingMatrixResult:
-    resolution = EligibilityResolution("s", tuple(
-        FeatureVerdict(feature, "synthetic_verified", "technical", True)
-        for feature in features
-    ))
-    return TrainingMatrixResult(frame, resolution, (), {})
 
 
 def test_pit_panel_full_series_warmup_and_presentation_rejection():
@@ -221,12 +208,6 @@ def test_training_filters_symbols_features_and_cross_section_population():
     assert "foreign_net_1d" not in result.matrix.columns
     assert "industry_rank" not in result.matrix.columns
     assert result.matrix["feature_schema_version"].to_list()[-1] == "schema-1"
-    x = transform_cross_section(result, day=_days(21)[-1], factor="ma20",
-                                policy_version="v1", universe_tier="primary_verified")
-    assert x.eligible_count == 1
-    assert x.values["rank_pct"].to_list() == [1.0]
-    with pytest.raises(ValueError, match="not_pit_safe"):
-        industry_neutralize()
 
 
 def test_training_warmup_and_liquidity_are_date_specific():
@@ -256,29 +237,6 @@ def test_training_rejects_symbol_only_policy_evidence(field):
         panel_training_matrix(_panel(2), _universe(2, ("2330.TWSE",)),
                               EligibilityPolicy(), FeatureManifest("s", ()), {},
                               **{field: {"2330.TWSE": 1000000}})
-
-
-def test_cross_section_ties_versions_and_numeric_transforms():
-    base = {"date": [_days(1)[0]] * 3, "symbol": ["B", "A", "C"],
-            "ma20": [1.0, 1.0, 100.0], "policy_version": ["v1"] * 3,
-            "universe_tier": ["secondary_observed"] * 3,
-            "feature_schema_version": ["s"] * 3}
-    frame = pl.DataFrame(base)
-    admission = _admitted(frame, ("ma20",))
-    out = transform_cross_section(admission, day=_days(1)[0], factor="ma20",
-                                  policy_version="v1", universe_tier="secondary_observed",
-                                  winsor_tail=0.25)
-    rows = {row["symbol"]: row for row in out.values.to_dicts()}
-    assert rows["A"]["rank_pct"] == pytest.approx(1 / 3)
-    assert rows["B"]["rank_pct"] == pytest.approx(2 / 3)
-    assert rows["C"]["winsorized"] == pytest.approx(50.5)
-    assert rows["C"]["zscore"] > 0
-    with pytest.raises(ValueError, match="policy"):
-        transform_cross_section(admission, day=_days(1)[0], factor="ma20",
-                                policy_version="v2", universe_tier="secondary_observed")
-    with pytest.raises(TypeError, match="admitted"):
-        transform_cross_section(frame, day=_days(1)[0], factor="ma20",
-                                policy_version="v1", universe_tier="secondary_observed")
 
 
 def test_storage_is_idempotent_atomic_and_preserves_nulls(tmp_path):
@@ -369,43 +327,3 @@ def test_storage_partition_publication_failure_leaves_no_partial_target(tmp_path
     target = store._partition(panel, _days(1)[0])
     assert not target.exists()
     assert list(target.parent.glob(".factor_*")) == []
-
-
-def test_baseline_fits_only_train_tunes_only_validation_and_never_publishes():
-    days = _days(8)
-    rows = []
-    for day in days:
-        for symbol, factor, label in (("A", 1.0, 0.01), ("B", 2.0, 0.02)):
-            rows.append({"date": day, "symbol": symbol, "ma20": factor,
-                         "industry_rank": factor * 100, "forward_return": label,
-                         "factor_version": "fv", "policy_version": "v1",
-                         "universe_tier": "secondary_observed", "feature_schema_version": "s"})
-    matrix = pl.DataFrame(rows)
-    admission = _admitted(matrix, ("ma20",))
-    fold = PurgedFold(0, days[0], days[2], days[3], days[4], days[5], days[7], 0, 0, 0)
-    first = run_baseline_dry_run(admission, fold, factor_groups={"ma20": "technical"})
-    poisoned = matrix.with_columns(
-        pl.when(pl.col("date") >= days[5]).then(-pl.col("forward_return") * 1000)
-        .otherwise(pl.col("forward_return")).alias("forward_return"),
-        pl.when(pl.col("date") >= days[5]).then(-pl.col("ma20") * 1000)
-        .otherwise(pl.col("ma20")).alias("ma20"),
-    )
-    second = run_baseline_dry_run(_admitted(poisoned, ("ma20",)), fold,
-                                  factor_groups={"ma20": "technical"})
-    assert first.weights == second.weights
-    assert first.validation_threshold == second.validation_threshold
-    assert first.selected_features == ("ma20",)
-    assert first.ranks["usage_scope"].to_list() == ["experimental_only"] * 6
-    assert "forward_return" not in first.ranks.columns
-    assert first.ranks["fold_index"].to_list() == [0] * 6
-    assert first.ranks.equals(run_baseline_dry_run(admission, fold,
-                              factor_groups={"ma20": "technical"}).ranks)
-    assert run_baseline_dry_run(admission, fold, factor_groups={"ma20": "technical"},
-                                primary_ready=True).usage_scope == "experimental_only"
-    with pytest.raises(ValueError, match="disabled"):
-        run_baseline_dry_run(_admitted(matrix, ("industry_rank",)), fold,
-                             factor_groups={"industry_rank": "industry"})
-    with pytest.raises(ValueError, match="rejected"):
-        run_baseline_dry_run(admission, fold, factor_groups={"industry_rank": "technical"})
-    with pytest.raises(TypeError, match="admitted"):
-        run_baseline_dry_run(matrix, fold, factor_groups={"ma20": "technical"})

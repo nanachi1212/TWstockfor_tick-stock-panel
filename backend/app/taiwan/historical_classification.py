@@ -82,13 +82,6 @@ _CONTRACT_VERSION = b"2"
 #: Requests consumed to classify one session.
 REQUESTS_PER_DATE = len(TWSE_INDUSTRY_TYPES) + 1 + len(TWSE_UNSUPPORTED_TYPES)
 
-CLASSIFICATION_COLUMNS: list[str] = [
-    "code", "exchange", "instrument_type",
-    "industry", "industry_status",
-    "classification_effective_from", "classification_source", "classification_status",
-    "retrieved_at",
-    "instrument_type_status", "primary_oos_eligible_type",
-]
 
 _SCHEMA: dict[str, Any] = {
     "code": pl.Utf8,
@@ -125,9 +118,6 @@ def _with_type_contract(frame: pl.DataFrame) -> pl.DataFrame:
         (verified & (pl.col("instrument_type") == "stock")).fill_null(False)
         .alias("primary_oos_eligible_type"),
     )
-
-#: Only these may enter the Primary verified stock universe.
-VERIFIED_STOCK_TYPES = frozenset({"stock"})
 
 
 class HistoricalClassificationStore:

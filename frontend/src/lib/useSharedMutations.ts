@@ -28,23 +28,3 @@ export function useUpdateQuoteInterval() {
     },
   })
 }
-
-interface WatchlistBatchAddInput {
-  symbols: string[]
-  groupId?: string | null
-}
-
-/** 批量新增自選 — Screener / 截圖匯入共用 */
-export function useWatchlistBatchAdd() {
-  const qc = useQueryClient()
-  return useMutation({
-    mutationFn: ({ symbols, groupId }: WatchlistBatchAddInput) =>
-      api.watchlistBatchAdd(symbols, '', groupId),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: QK.watchlist })
-      // 前綴匹配: 實際 key 為 ['watchlist-enriched', extColumnsParam],
-      // 不能用 QK.watchlistEnriched()(= undefined) 精確匹配, 否則列表不重新整理。
-      qc.invalidateQueries({ queryKey: ['watchlist-enriched'] })
-    },
-  })
-}

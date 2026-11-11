@@ -181,50 +181,6 @@ def test_new_quant_exit_rule_is_not_seeded_from_stale_freeze(monkeypatch):
     source.close.assert_called_once_with()
 
 
-def test_manual_quant_alert_evaluation_persists_before_committing_edges(monkeypatch):
-    from app.api import taiwan_live
-    from app.services import alert_store
-    from app.taiwan.realtime import monitor_engine
-
-    session = "2026-09-24"
-    ledger = Mock()
-    ledger.read_run.return_value = {
-        "audit_status": "ok",
-        "snapshot": {"signals": [{"symbol": "2330.TWSE", "rank": 1}]},
-    }
-    ledger.latest_operation.return_value = {
-        "freeze": {"status": "frozen", "session": session},
-    }
-    events = [{"alert_id": "manual-event", "symbol": "2330.TWSE"}]
-    engine = Mock()
-
-    def evaluate(_signals, _session, *, available, persist_events):
-        assert available is True
-        persisted_ids = persist_events(events)
-        return [event for event in events if event["alert_id"] in persisted_ids]
-
-    engine.evaluate_quant_top10.side_effect = evaluate
-    data_dir = object()
-    append = Mock()
-    append.return_value = [events[0]["alert_id"]]
-    push = Mock()
-    monkeypatch.setattr(taiwan_live, "_expected_session", lambda: session)
-    monkeypatch.setattr(taiwan_live, "LiveLedger", lambda: ledger)
-    monkeypatch.setattr(taiwan_live, "LiveModel", lambda: SimpleNamespace(key="model"))
-    monkeypatch.setattr(monitor_engine, "get_monitor_engine", lambda: engine)
-    monkeypatch.setattr(alert_store, "append_many", append)
-    request = SimpleNamespace(app=SimpleNamespace(state=SimpleNamespace(
-        repo=SimpleNamespace(store=SimpleNamespace(data_dir=data_dir)),
-        quote_service=SimpleNamespace(push_alerts=push),
-    )))
-
-    result = taiwan_live.evaluate_quant_alerts(request)
-
-    assert result == {"ok": True, "status": "available", "alerts": events}
-    append.assert_called_once_with(data_dir, events)
-    push.assert_called_once_with(events)
-
-
 @pytest.mark.parametrize("ready,lock_fails", [(True, False), (True, True), (False, False)])
 def test_after_close_forward_lock_preserves_ai_and_push_chain(monkeypatch, ready, lock_fails):
     from app.taiwan import auto_ai_explain, auto_watch, push_digest, selection_review_service

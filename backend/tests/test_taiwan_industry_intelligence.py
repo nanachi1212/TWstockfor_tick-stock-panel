@@ -33,11 +33,8 @@ from fastapi.testclient import TestClient
 from app.main import app
 from app.taiwan.industry_intelligence import (
     TaiwanIndustryIntelligenceService,
-    TaiwanIndustryIntelligenceSnapshot,
 )
 from app.taiwan.realtime.calendar import TaiwanTradingCalendar
-from app.taiwan.universe import TaiwanSecurityMaster
-from app.taiwan.universe.models import TaiwanInstrument
 
 
 @pytest.fixture

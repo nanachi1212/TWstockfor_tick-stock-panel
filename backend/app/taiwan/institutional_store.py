@@ -21,47 +21,8 @@ from pathlib import Path
 import polars as pl
 
 from app.file_lock import file_lock
-from app.taiwan.providers.base import (
-    AmountUnit,
-    PriceSemantics,
-    SourceMetadata,
-    VolumeUnit,
-)
 
 logger = logging.getLogger(__name__)
-
-TAIWAN_INSTITUTIONAL_COLUMNS: list[str] = [
-    "symbol",
-    "date",
-    "trade_date",
-    "foreign_buy",
-    "foreign_sell",
-    "foreign_net",
-    "investment_trust_buy",
-    "investment_trust_sell",
-    "investment_trust_net",
-    "dealer_buy",
-    "dealer_sell",
-    "dealer_net",
-    "dealer_proprietary_buy",
-    "dealer_proprietary_sell",
-    "dealer_proprietary_net",
-    "dealer_hedge_buy",
-    "dealer_hedge_sell",
-    "dealer_hedge_net",
-    "official_net",
-    "computed_net",
-    "has_discrepancy",
-    "status",
-    "source",
-]
-
-DEFAULT_INSTITUTIONAL_METADATA = SourceMetadata(
-    source_name="taiwan_institutional_store",
-    volume_unit=VolumeUnit.SHARES,
-    amount_unit=AmountUnit.TWD,
-    price_semantics=PriceSemantics.RAW,
-)
 
 
 def _schema() -> dict[str, pl.DataType]:

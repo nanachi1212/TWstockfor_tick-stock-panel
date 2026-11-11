@@ -73,6 +73,3 @@ def _first_brace_block(text: str) -> str:
             if depth == 0:
                 return text[start:i + 1]
     return text[start:]
-
-
-extract_json_object = _extract_json_object

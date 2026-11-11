@@ -22,7 +22,6 @@ _cache_sig: tuple[int, int] | None = None
 _SAVE_LOCK = threading.RLock()
 
 
-
 # 監控規則可選的外部推播渠道。多選: 不推播 = 空陣列, 而非 'none'。
 REVIEW_PUSH_CHANNELS = {"line", "telegram"}
 
@@ -31,8 +30,6 @@ SSE_REFRESH_PAGES_DEFAULT = {
     "overview-market": True,
     "watchlist": True,
 }
-
-SIDEBAR_INDEX_SYMBOLS_DEFAULT: list[str] = []
 
 
 def _path() -> Path:
@@ -111,7 +108,6 @@ def get_watchlist_groups_in_nav() -> bool:
     return load().get("watchlist_groups_in_nav", False)
 
 
-
 def get_realtime_quote_interval() -> float:
     return load().get("realtime_quote_interval", 6.0)
 
@@ -132,11 +128,6 @@ def get_realtime_watchlist_symbols() -> list[str]:
         if len(out) >= 5:
             break
     return out
-
-
-def set_realtime_watchlist_symbols(symbols: list[str]) -> list[str]:  # noqa: ARG001
-    """相容舊介面: Free 即時標的現在由自選頁前 5 個決定。"""
-    return get_realtime_watchlist_symbols()
 
 
 def set_realtime_quote_interval(interval: float) -> float:
@@ -176,14 +167,6 @@ def get_minute_intraday_refresh_interval() -> int:
     return max(_INTRADAY_REFRESH_INTERVAL_MIN,
                min(_INTRADAY_REFRESH_INTERVAL_MAX,
                    int(load().get("minute_intraday_refresh_interval", 6))))
-
-
-# 監控中心個股通知 ext 欄位預設設定 (與 ext_presets 內建預設對齊)
-_MONITOR_EXT_FIELDS_DEFAULT = {
-    "concept": "ext_gn_ths.所屬概念",
-    "industry": "ext_hy_ths.所屬同話順行業",
-}
-
 
 
 def get_minute_sync_days() -> int:
@@ -234,7 +217,7 @@ def get_data_source_long_job_timeout_s() -> int:
 def _allowed_data_providers() -> set[str]:
     try:
         from app.data_providers import custom as custom_sources
-        return (_ALLOWED_DATA_PROVIDERS | custom_sources.names()) - {"tickflow"}
+        return _ALLOWED_DATA_PROVIDERS | custom_sources.names()
     except Exception:  # noqa: BLE001
         return set(_ALLOWED_DATA_PROVIDERS)
 
@@ -269,36 +252,9 @@ def get_financial_provider() -> str:
 # ===== 盤後管道取得內容開關 =====
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 def get_enriched_batch_size() -> int:
     """回傳 enriched 全量計算每批 symbol 數量。"""
     return max(1, min(10000, load().get("enriched_batch_size", 1000)))
-
-
-def set_enriched_batch_size(size: int) -> int:
-    """儲存 enriched 全量計算批次大小。"""
-    size = max(10, min(6000, size))
-    save({"enriched_batch_size": size})
-    return size
 
 
 def get_index_daily_batch_size() -> int:
@@ -306,19 +262,7 @@ def get_index_daily_batch_size() -> int:
     return max(1, min(10000, load().get("index_daily_batch_size", 100)))
 
 
-def set_index_daily_batch_size(size: int) -> int:
-    """儲存指數日 K 同步批次大小。"""
-    size = max(1, min(10000, size))
-    save({"index_daily_batch_size": size})
-    return size
-
-
 # ── 五檔盤口 sealed(真假漲停) 設定 ──────────────────────
-
-
-
-
-
 
 
 def get_realtime_pull_stock() -> bool:
@@ -345,16 +289,6 @@ def get_realtime_index_symbols() -> list[str]:
     return []
 
 
-def set_realtime_quote_scope(cfg: dict) -> dict:
-    updates = {}
-    for key in ("realtime_pull_stock", "realtime_pull_etf"):
-        if key in cfg and cfg[key] is not None:
-            updates[key] = bool(cfg[key])
-    if updates:
-        save(updates)
-    return get_realtime_quote_scope()
-
-
 def get_realtime_quote_scope() -> dict:
     return {
         "realtime_pull_stock": get_realtime_pull_stock(),
@@ -374,12 +308,6 @@ def get_sse_refresh_pages() -> dict[str, bool]:
     return result
 
 
-def set_sse_refresh_pages(pages: dict[str, bool]) -> dict[str, bool]:
-    """儲存頁面 SSE 重新整理設定。"""
-    save({"sse_refresh_pages": pages})
-    return get_sse_refresh_pages()
-
-
 def get_sidebar_index_symbols() -> list[str]:
     """The retired sidebar index feed has no active symbols."""
     return []
@@ -388,12 +316,6 @@ def get_sidebar_index_symbols() -> list[str]:
 def get_system_notify_enabled() -> bool:
     """系統通知開關 — 開啟後監控告警同時推送到操作系統通知中心。"""
     return load().get("system_notify_enabled", False)
-
-
-def set_system_notify_enabled(enabled: bool) -> bool:
-    """儲存系統通知開關。"""
-    save({"system_notify_enabled": bool(enabled)})
-    return bool(enabled)
 
 
 def get_line_target_id() -> str:
@@ -481,15 +403,6 @@ def get_webhook_enabled_default() -> bool:
     return bool(get_webhook_default_channels())
 
 
-def set_webhook_enabled_default(enabled: bool) -> bool:
-    """儲存推送預設勾選態 (老布林相容入口)。
-
-    舊布林值無法安全推斷新的 LINE/Telegram 收件者; True/False 都不自動啟用新渠道。
-    """
-    set_webhook_default_channels([])
-    return get_webhook_enabled_default()
-
-
 def get_webhook_default_channels() -> list[str]:
     """新建監控規則時預設勾選的推送渠道 (多選)。
 
@@ -504,18 +417,6 @@ def get_webhook_default_channels() -> list[str]:
     if isinstance(raw, list):
         return [c for c in raw if c in REVIEW_PUSH_CHANNELS]
     return []
-
-
-def set_webhook_default_channels(channels: list[str]) -> list[str]:
-    """儲存新建規則預設推送渠道 (多選)。過濾白名單外、去重、保序。空列表 = 不推送。"""
-    seen: set[str] = set()
-    cleaned: list[str] = []
-    for c in channels or []:
-        if c in REVIEW_PUSH_CHANNELS and c not in seen:
-            seen.add(c)
-            cleaned.append(c)
-    save({"webhook_default_channels": cleaned})
-    return cleaned
 
 
 def get_external_notification_channels() -> list[str] | None:
@@ -534,8 +435,6 @@ def set_external_notification_channels(channels: list[str]) -> list[str]:
     cleaned = list(dict.fromkeys(c for c in (channels or []) if c in REVIEW_PUSH_CHANNELS))
     save({"external_notification_channels": cleaned})
     return cleaned
-
-
 
 
 def set_realtime_monitor_config(cfg: dict) -> dict:
@@ -598,8 +497,6 @@ def set_watchlist_columns(columns: list[dict]) -> list[dict]:
     return columns
 
 
-
-
 def get_onboarding_completed() -> bool:
     """是否已完成首次使用嚮導。預設 False（新使用者）。"""
     return bool(load().get("onboarding_completed", False))
@@ -613,14 +510,3 @@ def set_onboarding_completed(done: bool = True) -> bool:
 
 # ===== 財務資料同步時間(持久化,重啟不丟失) =====
 # 結構: { "metrics": "2026-06-25T10:00:00+08:00", "income": ..., ... }
-
-def get_financial_sync_times() -> dict[str, str]:
-    """回傳各財務表的最後同步時間(ISO 字串)。未同步過的表不在回傳值中。"""
-    return load().get("financial_sync_times", {}) or {}
-
-
-def set_financial_sync_time(table: str, iso_ts: str) -> None:
-    """更新單張財務表的最後同步時間(合併寫入,不清除其他表)。"""
-    times = get_financial_sync_times()
-    times[table] = iso_ts
-    save({"financial_sync_times": times})

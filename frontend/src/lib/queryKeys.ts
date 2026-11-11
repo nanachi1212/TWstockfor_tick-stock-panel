@@ -30,8 +30,6 @@ export const QK = {
   taiwanHistoryStatus: ['taiwan-history-status'] as const,
   quoteStatus:    ['quote-status'] as const,
   quoteInterval:  ['quote-interval'] as const,
-  overviewMarket: (asOf?: string) => ['overview-market', asOf ?? 'latest'] as const,
-  indexQuotes:    ['index-quotes'] as const,
 
   // Watchlist
   watchlist:            ['watchlist'] as const,
@@ -48,36 +46,10 @@ export const QK = {
   instrumentSearch:     (q: string, assetTypes?: string) =>
     ['instrument-search', q, assetTypes ?? 'stock', 'taiwan'] as const,
 
-  // Screener
-  screener:             ['screener'] as const,
-  screenerKlineBatch:   (symbols: string) => ['screener-kline-batch', symbols] as const,
-
-  // Backtest
-  strategyLinkOptions: (assetType?: 'stock' | 'etf') => assetType
-    ? ['strategy-link-options', assetType] as const
-    : ['strategy-link-options'] as const,
-  strategyDetail:       (id: string) => ['strategy-detail', id] as const,
-
   // Data / Pipeline
-  dataStatus:           ['data-status'] as const,
   pipelineJobs:         ['pipeline-jobs'] as const,
-  pipelineJob:          (id: string) => ['pipeline-job', id] as const,
-
-  // Kline
-  kline:                (symbol: string, start: string, end: string, extColumns?: string) =>
-                           ['kline', symbol, start, end, extColumns ?? ''] as const,
-  stockLevels:          (symbol: string, days?: number) => ['stock-levels', symbol, days ?? 120] as const,
-  klineMinute:          (symbol: string, date: string) =>
-                             ['kline-minute', symbol, date] as const,
-  klineMinuteRange:     (symbol: string, days: number) =>
-                             ['kline-minute-range', symbol, days] as const,
-
-  // Schema
-
-  // Custom Signals
 
   // Monitor (監控規則 + 觸發記錄)
-  monitorRules:         ['monitor-rules'] as const,
   alerts:               (source?: string) => ['alerts', source ?? ''] as const,
   alertsToday:          ['alerts', '', 'dashboard-today'] as const,
   syncPlanRules: ['taiwan-plan-sync'] as const,
@@ -88,7 +60,6 @@ export const QK = {
   taiwanSearch:         (q: string) => ['taiwan-search', q] as const,
   taiwanStockDetail:    (symbol: string, days?: number) => ['taiwan-stock-detail', symbol, days ?? 120] as const,
   taiwanCurrentData:    (symbol: string) => ['taiwan-current-data', symbol] as const,
-  taiwanCapabilities:   ['taiwan-capabilities'] as const,
   institutionalFlowSeries: ['institutional-flow-series'] as const,
   institutionalStatistics: (date: string, window: number) => ['institutional-statistics', date || 'latest', window] as const,
   industryRotation: (date: string) => ['industry-rotation', date || 'latest'] as const,
@@ -100,7 +71,6 @@ export const QK = {
   bigHolderRanking: ['big-holder-ranking'] as const,
   taiwanEvents:         (scope?: string, symbols?: string, date?: string, eventType?: string) => ['taiwan-events', scope ?? 'all', symbols ?? '', date ?? '', eventType ?? 'all'] as const,
   taiwanEventCandidates:(limit?: number) => ['taiwan-event-candidates', limit ?? 10] as const,
-  taiwanStockNews:      (symbol: string, limit?: number) => ['taiwan-stock-news', symbol, limit ?? 15] as const,
   taiwanAIResearchHistory: (params?: { symbol?: string; from?: string; to?: string; purpose?: string; limit?: number }) =>
     ['taiwan-ai-research-history', params ?? {}] as const,
   taiwanAIResearchHistoryDetail: (id: string) => ['taiwan-ai-research-history-detail', id] as const,
@@ -110,9 +80,6 @@ export const QK = {
   taiwanSocialSentimentHistory: ['taiwan-social-sentiment-history'] as const,
   taiwanSocialSentimentJob: (jobId: string, source?: string, symbol?: string, q?: string, offset?: number) =>
     ['taiwan-social-sentiment-job', jobId, source ?? '', symbol ?? '', q ?? '', offset ?? 0] as const,
-
-  // 市場環境(Regime) — 日級離線計算, 不進 SSE 重新整理
-  regimeLatest:         ['regime-latest'] as const,
 
   // Selection Review (A12)
   selectionSnapshots:   (strategyId?: string) => ['selection-snapshots', strategyId ?? 'all'] as const,
@@ -142,7 +109,6 @@ export const QK = {
   // Daily Brief (A12)
   dailyBrief:           (targetDate?: string, holdingsKey = 'market', mode: 'full' | 'preview' = 'full') => ['daily-brief', targetDate ?? 'today', holdingsKey, mode] as const,
   dailyBriefHistory:    (limit?: number) => ['daily-brief-history', limit ?? 30] as const,
-  dailyBriefHistoryDetail: (briefId: string) => ['daily-brief-history-detail', briefId] as const,
 } as const
 
 // Health jobs reuse existing consumer caches even when the user leaves the health page.

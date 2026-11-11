@@ -368,8 +368,6 @@ export interface ChipRankingTracking {
   other_definition_days: number
   days: ChipTrackingDay[]
 }
-export type MarketResearchTab = typeof MARKET_RESEARCH_TABS[number]['id']
-
 export function rotationPoints(rows: IndustryRotationRow[]) {
   return rows.filter(r => r.relative_strength_20d.status === 'available'
     && r.turnover_share_delta_pp.status === 'available'

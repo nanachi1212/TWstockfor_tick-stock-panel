@@ -31,6 +31,16 @@ foreach ($path in @($work, $localAppData, $roamingAppData, $tempDir)) {
     New-Item -ItemType Directory -Force -Path $path | Out-Null
 }
 
+# The smoke install shares the installer's AppId, so on a machine that already has the app
+# it would replace the real uninstall entry and shortcuts, then remove them on uninstall.
+foreach ($hive in @('HKCU:\Software', 'HKLM:\Software', 'HKLM:\Software\WOW6432Node')) {
+    $entry = Get-ItemProperty -LiteralPath "$hive\Microsoft\Windows\CurrentVersion\Uninstall\NanachiStockPanel_is1" -ErrorAction SilentlyContinue
+    if ($entry -and $entry.InstallLocation -and
+        [System.IO.Path]::GetFullPath($entry.InstallLocation).TrimEnd('\') -ne $installDir.TrimEnd('\')) {
+        throw "這台電腦已安裝正式版（$($entry.InstallLocation)），安裝測試會拆掉它的捷徑與解除安裝項目，所以不執行。打包請加 -SkipSmoke，安裝測試交給 GitHub CI。"
+    }
+}
+
 if (Get-NetTCPConnection -LocalPort 3018 -State Listen -ErrorAction SilentlyContinue) {
     throw 'Port 3018 is already in use; refusing to stop an unrelated process.'
 }

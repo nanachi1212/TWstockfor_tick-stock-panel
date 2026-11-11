@@ -6,11 +6,9 @@ Exported symbols:
   - MarginTrading, TaiwanMarginProvider, TwseMarginAdapter, TpexMarginAdapter
   - MarketQuote, TaiwanOfficialQuoteProvider
   - MarketIndex, TaiwanIndexProvider
-  - compute_chip_factors, compute_margin_factors
 """
 from __future__ import annotations
 
-from app.taiwan.enrichment.factors import compute_chip_factors, compute_margin_factors
 from app.taiwan.enrichment.index import TaiwanIndexProvider
 from app.taiwan.enrichment.institutional import (
     TaiwanInstitutionalProvider,
@@ -53,6 +51,4 @@ __all__ = [
     "TpexMarginAdapter",
     "TwseInstitutionalAdapter",
     "TwseMarginAdapter",
-    "compute_chip_factors",
-    "compute_margin_factors",
 ]

@@ -38,7 +38,6 @@ from app.taiwan.abnormal_diagnostics import (
 from app.taiwan.comparison import (
     MAX_COMPARE_SYMBOLS,
     MIN_COMPARE_SYMBOLS,
-    ComparisonInstrumentResult,
     TaiwanStockComparisonService,
     _MemoizingSnapshotProxy,
     resolve_canonical_symbols,
@@ -548,7 +547,6 @@ def test_routing_compare_and_single_symbol_endpoints_do_not_collide():
     # 2. POST /stocks/compare/ai-research -> comparison AI handler (NOT /stocks/{symbol}/ai-research)
     with patch("app.api.taiwan.TaiwanComparisonAIResearchService") as mock_ai_svc_cls:
         from app.taiwan.comparison_ai_research import TaiwanComparisonAIResearchResponse
-        import asyncio
 
         async def _fake_generate_comparison(symbols, target_date=None):
             return TaiwanComparisonAIResearchResponse(

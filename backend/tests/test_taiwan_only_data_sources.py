@@ -9,7 +9,7 @@ import pytest
 def test_registry_rejects_retired_or_unknown_provider_without_io(monkeypatch):
     from app.data_providers import custom
     from app.data_providers.registry import get_provider
-    monkeypatch.setattr(custom, "is_custom_provider", lambda name: name == "tickflow")
+    monkeypatch.setattr(custom, "is_custom_provider", lambda name: False)
     constructor = MagicMock()
     monkeypatch.setattr("app.taiwan.providers.hybrid_provider.TaiwanHybridProvider", constructor)
     for name in ("tickflow", "unknown", "akshare"):

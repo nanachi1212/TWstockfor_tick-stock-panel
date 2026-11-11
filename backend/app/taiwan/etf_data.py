@@ -1,12 +1,9 @@
 """Official Taiwan ETF structured data, separate from company fundamentals."""
 from __future__ import annotations
 
-import json
-from collections.abc import Iterable
-from dataclasses import asdict, dataclass, fields
+from dataclasses import dataclass
 from datetime import datetime
 from html import unescape
-from pathlib import Path
 from typing import Any
 
 import httpx
@@ -14,17 +11,6 @@ import httpx
 from app.taiwan.providers.taiwan_values import TAIPEI, parse_number, parse_taiwan_date
 
 TWSE_ETF_PRODUCTS_URL = "https://openapi.twse.com.tw/v1/opendata/t187ap47_L"
-
-
-def _iso(value: datetime | None) -> str | None:
-    return value.isoformat() if value else None
-
-
-def _datetime(value: str | datetime | None) -> datetime | None:
-    result = datetime.fromisoformat(value) if isinstance(value, str) else value
-    if result is not None and result.tzinfo is None:
-        raise ValueError("ETF timestamps must be timezone-aware")
-    return result
 
 
 @dataclass(frozen=True)
@@ -69,106 +55,6 @@ class TaiwanETFSnapshot:
     normalized_unit: str
     published_at: datetime | None = None
     available_at: datetime | None = None
-
-    def to_dict(self) -> dict[str, Any]:
-        result = asdict(self)
-        for name in ("retrieved_at", "published_at", "available_at"):
-            result[name] = _iso(getattr(self, name))
-        return result
-
-    @classmethod
-    def from_dict(cls, raw: dict[str, Any]) -> TaiwanETFSnapshot:
-        data = {field.name: raw.get(field.name) for field in fields(cls)}
-        for name in ("retrieved_at", "published_at", "available_at"):
-            data[name] = _datetime(data[name])
-        return cls(**data)
-
-
-@dataclass(frozen=True)
-class TaiwanETFDistribution:
-    symbol: str
-    distribution_per_unit: float | None
-    ex_date: str | None
-    record_date: str | None
-    payment_date: str | None
-    currency: str
-    provider: str
-    source: str
-    source_url: str
-    retrieved_at: datetime
-    status: str
-    raw_unit: str = "TWD_per_unit"
-    normalized_unit: str = "TWD_per_unit"
-    published_at: datetime | None = None
-    available_at: datetime | None = None
-
-
-@dataclass(frozen=True)
-class TaiwanETFHolding:
-    etf_symbol: str
-    holding_symbol: str | None
-    name: str
-    weight: float | None
-    as_of_date: str
-    currency: str | None
-    provider: str
-    source: str
-    source_url: str
-    retrieved_at: datetime
-    status: str
-    coverage: str
-    raw_unit: str = "percent"
-    normalized_unit: str = "ratio"
-
-    def __post_init__(self) -> None:
-        if self.coverage not in {"full", "partial", "unknown"}:
-            raise ValueError("invalid holdings coverage")
-
-
-def calculate_premium_discount(
-    market_price: float | None,
-    nav: float | None,
-    *,
-    price_date: str,
-    nav_date: str,
-) -> float | None:
-    """Calculate a ratio only for compatible values on the same date."""
-    if market_price is None or nav is None or nav <= 0 or price_date != nav_date:
-        return None
-    return market_price / nav - 1
-
-
-def latest_snapshot_as_of(
-    records: Iterable[TaiwanETFSnapshot], symbol: str, query_at: datetime,
-) -> TaiwanETFSnapshot | None:
-    query_at = _datetime(query_at)
-    eligible = [
-        row for row in records
-        if row.symbol == symbol and row.available_at is not None and query_at > row.available_at
-    ]
-    return max(eligible, key=lambda row: (row.as_of_date, row.available_at)) if eligible else None
-
-
-class TaiwanETFSnapshotStore:
-    def __init__(self, data_dir: Path) -> None:
-        self.path = data_dir / "taiwan" / "etf" / "snapshots.jsonl"
-
-    def load(self) -> list[TaiwanETFSnapshot]:
-        if not self.path.exists():
-            return []
-        return [TaiwanETFSnapshot.from_dict(json.loads(line)) for line in self.path.read_text(encoding="utf-8").splitlines() if line]
-
-    def save(self, records: Iterable[TaiwanETFSnapshot]) -> int:
-        merged = {(row.symbol, row.as_of_date, row.source): row for row in self.load()}
-        for row in records:
-            merged[(row.symbol, row.as_of_date, row.source)] = row
-        self.path.parent.mkdir(parents=True, exist_ok=True)
-        rows = sorted(merged.values(), key=lambda row: (row.symbol, row.as_of_date, row.source))
-        payload = "\n".join(json.dumps(row.to_dict(), ensure_ascii=False, sort_keys=True) for row in rows)
-        temporary = self.path.with_suffix(".tmp")
-        temporary.write_text(payload + ("\n" if payload else ""), encoding="utf-8")
-        temporary.replace(self.path)
-        return len(rows)
 
 
 class TaiwanOfficialETFData:

@@ -1,7 +1,6 @@
 import { useEffect, useRef, useCallback, useSyncExternalStore } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import { DATA_HEALTH_INVALIDATE_PREFIXES, SSE_INVALIDATE_PREFIXES } from './queryKeys'
-import { getQueryConfig } from './useQueryConfig'
 import { toast } from '@/components/Toast'
 import { pushAlertToasts } from '@/components/AlertToast'
 import type { StrategyAlertEvent } from './api'
@@ -18,6 +17,8 @@ const _statusListeners = new Set<() => void>()
 const FAILS_BEFORE_TOAST = 3
 // 指數退避上限
 const BACKOFF_CAP_MS = 60_000
+// 重連基礎延遲
+const RECONNECT_BASE_MS = 5_000
 
 function _emitStatus() {
   _statusListeners.forEach((fn) => fn())
@@ -50,16 +51,6 @@ export function useQuoteStreamStatus(): QuoteStreamStatus {
 // 該 symbol 的日K查詢 (['kline', symbol]), 讓日K最後一根蠟燭隨即時價變化。
 // 不加進 SSE_INVALIDATE_PREFIXES 全局列表 —— 避免回測彈窗等也每秒重拉。
 let _focusSymbol: string | null = null
-
-/** 註冊當前焦點股票 (個股對話框開啟時呼叫)。 */
-export function setFocusSymbol(symbol: string): void {
-  _focusSymbol = symbol
-}
-
-/** 清除焦點股票 (個股對話框關閉時呼叫)。 */
-export function clearFocusSymbol(): void {
-  _focusSymbol = null
-}
 
 /**
  * 全局 SSE hook: 監聽後端行情更新推送 + 策略監控通知。
@@ -213,7 +204,7 @@ export function useQuoteStream(
           toast('即時連線已中斷，正在重連…', 'error')
         }
         // 指數退避 (base * 2^(n-1), 上限 60s), 替代原來固定 5s
-        const base = getQueryConfig().sse.reconnectDelay
+        const base = RECONNECT_BASE_MS
         const delay = Math.min(base * 2 ** (failCount - 1), BACKOFF_CAP_MS)
         retryRef.current = setTimeout(connect, delay)
       }

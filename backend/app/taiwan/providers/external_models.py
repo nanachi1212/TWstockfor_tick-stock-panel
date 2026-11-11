@@ -4,7 +4,6 @@ from __future__ import annotations
 import json
 import os
 import tempfile
-from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Literal
 
@@ -25,10 +24,6 @@ class ExternalProviderResult(BaseModel):
     @classmethod
     def unavailable(cls, source: str, reason: str) -> ExternalProviderResult:
         return cls(source=source, status="unavailable", error_reason=reason)
-
-
-def utc_now_iso() -> str:
-    return datetime.now(UTC).isoformat()
 
 
 def read_json_cache(path: Path) -> dict[str, Any] | None:

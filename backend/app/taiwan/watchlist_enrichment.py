@@ -33,14 +33,6 @@ import polars as pl
 
 logger = logging.getLogger(__name__)
 
-# 與 api/watchlist.py 的 _WATCHLIST_COLS 保持同名欄位, 缺失的技術指標欄一律不寫
-# (下游 concat 用 diagonal_relaxed 補 null, 前端沿用既有 "—" 渲染, 不新造欄位名)。
-_TAIWAN_ROW_FIELDS = (
-    "symbol", "name", "asset_type",
-    "close", "open", "high", "low", "prev_close",
-    "change_amount", "change_pct", "amount",
-)
-
 
 def _sanitize_float(value: Any) -> float | None:
     """NaN/Inf -> None; 其餘原樣回傳 (與 api/watchlist.py 對舊版 enriched 列的處理口徑一致)。"""

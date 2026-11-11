@@ -11,7 +11,7 @@ from datetime import date, timedelta
 import polars as pl
 from polars.testing import assert_frame_equal
 
-from app.tickflow.repository import KlineRepository
+from app.repository import KlineRepository
 
 SYM = "600001.SH"
 
@@ -49,7 +49,6 @@ def _bare_repo(raw: pl.DataFrame) -> tuple[KlineRepository, dict]:
     repo._enriched_cache = None
     repo._enriched_cache_date = None
     repo.get_instruments = lambda: pl.DataFrame()  # type: ignore[method-assign]
-    repo.get_historical_shares = lambda: pl.DataFrame()  # type: ignore[method-assign]
     repo.get_enriched_latest = lambda: (pl.DataFrame(), None)  # type: ignore[method-assign]
     calls = {"scan": 0}
 

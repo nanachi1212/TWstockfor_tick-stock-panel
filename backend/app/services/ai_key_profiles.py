@@ -34,7 +34,6 @@ logger = logging.getLogger(__name__)
 
 _lock = threading.Lock()
 
-_VALID_CHANNELS = frozenset(("line", "telegram"))
 # Subscription providers run the user's logged-in CLI and store no API key.
 _SUBSCRIPTION_PROVIDERS = frozenset(("codex_cli", "claude_cli"))
 # Model names are passed as CLI arguments: letters/digits first, no leading "-", no spaces or control characters.
@@ -86,7 +85,6 @@ def _read_json(path: Path, default: Any) -> Any:
     except Exception as e:
         logger.warning("ai_key_profiles read failed (%s): %s", path.name, e)
         return default
-
 
 
 # ── Internal data structures ────────────────────────────────────────────────
@@ -160,15 +158,6 @@ def get_active_ai_key() -> str:
             if p.get("active"):
                 return str(secrets.get(p.get("id", ""), ""))
         return ""
-
-
-def get_active_provider() -> str | None:
-    """Return the provider string of the active profile, or None."""
-    with _lock:
-        for p in _load_metadata():
-            if p.get("active"):
-                return str(p.get("provider", "openai_compat"))
-    return None
 
 
 def get_active_profile_config() -> dict | None:

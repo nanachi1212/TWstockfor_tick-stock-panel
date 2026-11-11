@@ -8,13 +8,7 @@ Core principles:
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime
 from enum import Enum
-from typing import Protocol
-
-import polars as pl
-
-from app.data_providers.base import AssetType
 
 
 class VolumeUnit(str, Enum):
@@ -57,18 +51,3 @@ class SourceMetadata:
 PROVENANCE_COLS = [
     "provider", "source", "source_url", "retrieved_at", "trade_date", "status",
 ]
-
-
-class TaiwanSourceAdapter(Protocol):
-    """Protocol for single-source Taiwan data adapters."""
-    metadata: SourceMetadata
-
-    def fetch_daily(
-        self,
-        symbols: list[str],
-        start_time: datetime | None,
-        end_time: datetime | None,
-        asset_type: AssetType = "stock",
-    ) -> pl.DataFrame:
-        """Fetch daily raw records from this source."""
-        ...

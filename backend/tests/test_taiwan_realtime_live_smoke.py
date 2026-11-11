@@ -7,9 +7,7 @@ from __future__ import annotations
 
 import pytest
 
-from app.taiwan.realtime.calendar import get_market_status, taipei_now
 from app.taiwan.realtime.mis_provider import TwseMisRealtimeProvider
-from app.taiwan.realtime.models import MarketStatus, RealtimeStatus
 from app.taiwan.realtime.service import TaiwanRealtimeService
 from app.taiwan.realtime.yahoo_provider import YahooRealtimeProvider
 

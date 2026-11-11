@@ -172,16 +172,11 @@ export const MONITOR_INTRADAY_SIGNAL_LABELS: Record<string, string> = {
   signal_intraday_zero_cross_down: '分時價格下穿0軸',
 }
 
-export const MONITOR_INTRADAY_SIGNAL_OPTIONS = Object.keys(MONITOR_INTRADAY_SIGNAL_LABELS)
-
 /** 內建原子信號 → 中文標籤 */
 export const SIGNAL_LABELS: Record<string, string> = BUILTIN_SIGNAL_DEFINITIONS.reduce<Record<string, string>>((acc, sig) => {
   acc[sig.id] = sig.name
   return acc
 }, { ...MONITOR_INTRADAY_SIGNAL_LABELS })
-
-/** 內建信號 ID 列表 */
-export const SIGNAL_OPTIONS = BUILTIN_SIGNAL_DEFINITIONS.map(sig => sig.id)
 
 /** 常用技術指標/欄位 → 中文 (閾值條件展示用, 與後端 ENRICHED_COLUMNS 對齊) */
 const FIELD_LABELS: Record<string, string> = {

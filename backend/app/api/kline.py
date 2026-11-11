@@ -10,7 +10,7 @@ from fastapi import APIRouter, HTTPException, Query, Request
 from pydantic import BaseModel
 
 from app.indicators.pipeline import compute_enriched
-from app.price_limits import is_risk_warning_name, price_limit_pct
+from app.price_limits import price_limit_pct
 from app.services import kline_sync
 from app.taiwan.realtime.calendar import TAIPEI_TZ, taipei_now, taipei_today
 from app.taiwan.symbol import parse_symbol
@@ -111,21 +111,6 @@ def search_instruments(
     return {"results": _search_taiwan_instruments(q, limit)}
 
 
-@router.post("/instruments/names")
-def instruments_names(request: Request, symbols: list[str]):
-    """批次查標的名稱 (股票 + ETF + 指數)。傳入 symbol 欄表, 回傳 {symbol: name}。"""
-    if not symbols:
-        return {"names": {}}
-    symbols = _require_taiwan_symbols(symbols)
-    from app.taiwan.universe import get_security_master
-
-    master = get_security_master()
-    return {"names": {
-        symbol: inst.name for symbol in symbols
-        if (inst := master.get_instrument(symbol)) is not None
-    }}
-
-
 def _get_stock_info(repo, symbol: str) -> dict:
     """從 instruments 記憶體快取查標的名稱 + 股本。
 
@@ -171,20 +156,13 @@ def _get_price_limit_info(
     symbol: str,
     trade_date: date,
     asset_type: str,
-    instrument_name: str | None,
 ) -> dict | None:
     """Return the date-aware limit rule and today's authoritative prices."""
     if asset_type == "index":
         return None
 
     info = {
-        "rate": price_limit_pct(
-            symbol,
-            trade_date,
-            is_risk_warning=(
-                asset_type == "stock" and is_risk_warning_name(instrument_name)
-            ),
-        ),
+        "rate": price_limit_pct(symbol),
         "limit_up": None,
         "limit_down": None,
         "source": "rule",
@@ -331,7 +309,7 @@ def get_daily(
         factors = pl.DataFrame()
         capset = getattr(request.app.state, "capabilities", None)
         try:
-            from app.tickflow.capabilities import Cap
+            from app.capabilities import Cap
             if capset and capset.has(Cap.ADJ_FACTOR):
                 factors = kline_sync.fetch_adj_factor_single(symbol)
         except Exception as e:  # noqa: BLE001
@@ -523,7 +501,7 @@ def get_minute_batch(request: Request, body: dict):
 
     import polars as pl
 
-    from app.tickflow.capabilities import Cap
+    from app.capabilities import Cap
 
     symbols: list[str] = body.get("symbols", [])
     trade_date_str: str | None = body.get("date")
@@ -708,9 +686,7 @@ def get_minute(
     prev_close = _get_previous_closes(
         repo, symbol, [trade_date], asset_type,
     ).get(trade_date)
-    price_limit = _get_price_limit_info(
-        repo, symbol, trade_date, asset_type, stock_name,
-    )
+    price_limit = _get_price_limit_info(repo, symbol, trade_date, asset_type)
     df = repo.get_minute(symbol, trade_date, asset_type=asset_type)
 
     expected = _expected_minutes(trade_date)
@@ -738,58 +714,4 @@ def get_minute(
     }
 
 
-@router.post("/sync_minute_single")
-async def sync_minute_single(request: Request, body: dict):
-    """手動取得單隻股票的分鐘K並寫入資料庫 (前復權)。
-
-    body: { "symbol": "2330.TWSE" }
-    用於個股分時圖"取得資料"按鈕: 本地無資料時單獨取得並持久化。
-    """
-    import asyncio
-
-    from app.services.preferences import get_minute_sync_days
-
-    symbol = body.get("symbol", "").strip()
-    if not symbol:
-        raise HTTPException(status_code=400, detail="symbol 不能為空")
-
-    symbol = _require_taiwan_symbol(symbol)
-
-    requested_days = body.get("days")
-    if requested_days is not None:
-        if isinstance(requested_days, bool) or not isinstance(requested_days, int):
-            raise HTTPException(status_code=400, detail="days 必須是整數")
-        if requested_days < 1 or requested_days > 30:
-            raise HTTPException(status_code=400, detail="days 必須在 1 到 30 之間")
-
-    repo = request.app.state.repo
-    capset = request.app.state.capabilities
-
-    # 指數分鐘K無本地儲存, 寫入資料庫會汙染股票分鐘表 kline_minute, 此端點顯式拒絕。
-    # (Phase 8B-5.1: 指數分鐘K只讀端點 /api/index/minute 已隨 Indices.tsx 一併刪除,
-    # 無即時讀取替代路徑。)
-    if repo.resolve_asset_type(symbol) == "index":
-        raise HTTPException(status_code=400, detail="指數分鐘K不支援寫入資料庫同步")
-
-    if not _minute_allowed(capset):
-        raise HTTPException(status_code=403, detail="尚未設定可用的台股分鐘資料來源")
-
-    days = requested_days if requested_days is not None else get_minute_sync_days()
-    loop = asyncio.get_event_loop()
-
-    def _run():
-        return kline_sync.sync_and_persist_minute([symbol], repo, capset, days=days, force_full_days=True)
-
-    written = await loop.run_in_executor(_long_task_executor, _run)
-
-    # 重新整理檢視表
-    from app.jobs.daily_pipeline import _refresh_single_view
-    _refresh_single_view(repo, "kline_minute")
-
-    return {"status": "ok", "symbol": symbol, "rows": written}
-
-
 # 長時間任務專用執行緒池（隔離於 FastAPI 預設執行緒池，防止阻塞請求處理）
-import concurrent.futures as _cf
-
-_long_task_executor = _cf.ThreadPoolExecutor(max_workers=2, thread_name_prefix="long-task")

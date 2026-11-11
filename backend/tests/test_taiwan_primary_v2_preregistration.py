@@ -10,17 +10,12 @@ from app.taiwan.quant.live_contract import canonical_hash
 from app.taiwan.quant.primary_v2_preregistration import (
     CANDIDATES,
     PREREGISTRATION_ID,
-    BenchmarkResult,
-    CandidateSelectionMetrics,
     CandidateSpec,
     ConfirmatoryStatus,
     EvaluationPurpose,
-    build_confirmatory_run_contract,
     build_confirmatory_window,
-    describe_preregistration,
     guard_evaluation_frame,
     preregistration_content,
-    select_candidate,
 )
 from app.taiwan.quant.primary_v2_status import model_validation_status
 
@@ -39,19 +34,9 @@ def test_candidate_identities_are_deterministic_and_contract_sensitive() -> None
 
 def test_preregistration_id_is_deterministic_and_selection_sensitive() -> None:
     assert canonical_hash(preregistration_content()) == PREREGISTRATION_ID
-    assert describe_preregistration()["preregistration_id"] == PREREGISTRATION_ID
     changed = deepcopy(preregistration_content())
     changed["selection_rule"]["minimum_valid_dates"] = 41
     assert canonical_hash(changed) != PREREGISTRATION_ID
-
-
-def test_selector_uses_metrics_then_preregistered_tie_break() -> None:
-    tied = CandidateSelectionMetrics(0.01, 0.02, 40, 1200, 30)
-    selected = select_candidate({candidate.key: tied for candidate in reversed(CANDIDATES)})
-    assert selected == CANDIDATES[0]
-    assert select_candidate({CANDIDATES[0].key: CandidateSelectionMetrics(
-        None, 0.02, 40, 1200, 30,
-    )}) is None
 
 
 def test_confirmatory_start_uses_first_verified_session_after_v1() -> None:
@@ -106,31 +91,6 @@ def test_confirmatory_guard_fails_closed_until_final_20d_label_matures() -> None
     )
     assert guarded.height == 63
     assert guarded["date"].max() == ready.block_end_session
-
-    contract = build_confirmatory_run_contract(
-        window=ready,
-        selected_candidate_key="primary_v2_momentum_60d",
-        dataset_identity="future-dataset",
-    )
-    assert contract.preregistration_id == PREREGISTRATION_ID
-    assert contract.run_identity == contract.run_identity
-    assert contract.describe()["selection_rule"]["outer_test_access"] == "prohibited"
-
-    with pytest.raises(RuntimeError, match="waiting_for_labels"):
-        build_confirmatory_run_contract(
-            window=pending,
-            selected_candidate_key="primary_v2_momentum_60d",
-            dataset_identity="future-dataset",
-        )
-
-
-def test_missing_benchmark_is_none_not_zero() -> None:
-    assert BenchmarkResult().describe() == {
-        "benchmark_symbol": None,
-        "benchmark_return": None,
-        "top_minus_benchmark": None,
-        "valid_benchmark_dates": 0,
-    }
 
 
 def test_model_status_reads_old_artifact_without_optional_benchmark(tmp_path) -> None:

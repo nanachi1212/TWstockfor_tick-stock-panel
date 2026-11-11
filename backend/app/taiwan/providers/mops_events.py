@@ -22,7 +22,6 @@ from app.taiwan.dividend_events import MOPS_EVIDENCE_URL, classify_dividend_even
 from app.taiwan.providers.http import DEFAULT_USER_AGENT, fetch_json, taiwan_client
 from app.taiwan.providers.taiwan_values import TAIPEI, parse_integer, parse_taiwan_date
 
-MOPS_EVENT_TYPES = {"material_information", "investor_conference", "insider_transfer_declaration"}
 OFFICIAL_FEEDS = {
     "mops:material:TWSE": ("https://openapi.twse.com.tw/v1/opendata/t187ap04_L", "TWSE", "material_information"),
     "mops:material:TPEX": ("https://www.tpex.org.tw/openapi/v1/mopsfin_t187ap04_O", "TPEX", "material_information"),

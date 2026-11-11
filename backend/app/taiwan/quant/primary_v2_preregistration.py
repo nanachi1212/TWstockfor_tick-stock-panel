@@ -87,7 +87,6 @@ CANDIDATES = (
         (0.5, 0.5),
     ),
 )
-CANDIDATE_BY_KEY = {candidate.key: candidate for candidate in CANDIDATES}
 
 
 @dataclass(frozen=True)
@@ -117,59 +116,6 @@ class SelectionRule:
 
 
 SELECTION_RULE = SelectionRule()
-
-
-@dataclass(frozen=True)
-class CandidateSelectionMetrics:
-    direction_adjusted_mean_ic: float | None
-    top_minus_universe: float | None
-    valid_dates: int
-    observations: int
-    minimum_cross_section_observations: int
-
-    def eligible(self, rule: SelectionRule = SELECTION_RULE) -> bool:
-        return (
-            self.direction_adjusted_mean_ic is not None
-            and self.top_minus_universe is not None
-            and self.valid_dates >= rule.minimum_valid_dates
-            and self.observations >= rule.minimum_observations
-            and self.minimum_cross_section_observations
-            >= rule.minimum_cross_section_observations_per_date
-        )
-
-
-def select_candidate(
-    metrics: Mapping[str, CandidateSelectionMetrics],
-    rule: SelectionRule = SELECTION_RULE,
-) -> CandidateSpec | None:
-    """Select one preregistered candidate without outer-test evidence."""
-    unknown = set(metrics) - set(CANDIDATE_BY_KEY)
-    if unknown:
-        raise ValueError(f"unregistered candidate metrics: {sorted(unknown)}")
-    priority = {key: index for index, key in enumerate(rule.tie_break)}
-    eligible = [
-        (key, value) for key, value in metrics.items() if value.eligible(rule)
-    ]
-    if not eligible:
-        return None
-
-    def selection_key(
-        item: tuple[str, CandidateSelectionMetrics],
-    ) -> tuple[float, float, int]:
-        key, value = item
-        assert value.direction_adjusted_mean_ic is not None
-        assert value.top_minus_universe is not None
-        return (
-            -value.direction_adjusted_mean_ic,
-            -value.top_minus_universe,
-            priority[key],
-        )
-
-    selected, _ = min(
-        eligible,
-        key=selection_key,
-    )
-    return CANDIDATE_BY_KEY[selected]
 
 
 @dataclass(frozen=True)
@@ -271,137 +217,6 @@ def ensure_confirmatory_ready(window: ConfirmatoryWindow) -> None:
         raise RuntimeError(f"confirmatory evaluation is not ready ({window.status.value})")
 
 
-@dataclass(frozen=True)
-class BenchmarkResult:
-    """Backward-compatible optional benchmark fields for a future artifact."""
-
-    benchmark_symbol: str | None = None
-    benchmark_return: float | None = None
-    top_minus_benchmark: float | None = None
-    valid_benchmark_dates: int = 0
-
-    def __post_init__(self) -> None:
-        supplied = (
-            self.benchmark_symbol is not None
-            or self.benchmark_return is not None
-            or self.top_minus_benchmark is not None
-        )
-        if supplied and self.valid_benchmark_dates <= 0:
-            raise ValueError("benchmark evidence needs positive valid_benchmark_dates")
-        if not supplied and self.valid_benchmark_dates != 0:
-            raise ValueError("missing benchmark evidence must have zero valid dates")
-
-    def describe(self) -> dict[str, Any]:
-        return {
-            "benchmark_symbol": self.benchmark_symbol,
-            "benchmark_return": self.benchmark_return,
-            "top_minus_benchmark": self.top_minus_benchmark,
-            "valid_benchmark_dates": self.valid_benchmark_dates,
-        }
-
-
-@dataclass(frozen=True)
-class ConfirmatoryRunContract:
-    preregistration_id: str
-    candidate_key: str
-    candidate_identity: str
-    selection_rule_identity: str
-    start_session: date
-    block_end_session: date
-    dataset_identity: str
-
-    def content(self) -> dict[str, Any]:
-        return {
-            "purpose": EvaluationPurpose.CONFIRMATORY_EVALUATION.value,
-            "preregistration_id": self.preregistration_id,
-            "candidate_key": self.candidate_key,
-            "candidate_identity": self.candidate_identity,
-            "selection_rule_identity": self.selection_rule_identity,
-            "selection_rule": SELECTION_RULE.describe(),
-            "start_session": self.start_session.isoformat(),
-            "block_end_session": self.block_end_session.isoformat(),
-            "required_decision_sessions": REQUIRED_DECISION_SESSIONS,
-            "horizons": list(HORIZONS),
-            "dataset_identity": self.dataset_identity,
-        }
-
-    @property
-    def run_identity(self) -> str:
-        return canonical_hash(self.content())
-
-    def describe(self) -> dict[str, Any]:
-        return {**self.content(), "run_identity": self.run_identity}
-
-
-def build_confirmatory_run_contract(
-    *,
-    window: ConfirmatoryWindow,
-    selected_candidate_key: str,
-    dataset_identity: str,
-) -> ConfirmatoryRunContract:
-    """Create the one-run identity only after every preregistered gate passes."""
-    ensure_confirmatory_ready(window)
-    if selected_candidate_key not in CANDIDATE_BY_KEY:
-        raise ValueError("confirmatory run requires a preregistered candidate")
-    if not dataset_identity:
-        raise ValueError("confirmatory run requires a dataset identity")
-    assert window.start_session is not None
-    assert window.block_end_session is not None
-    candidate = CANDIDATE_BY_KEY[selected_candidate_key]
-    return ConfirmatoryRunContract(
-        preregistration_id=PREREGISTRATION_ID,
-        candidate_key=candidate.key,
-        candidate_identity=candidate.identity,
-        selection_rule_identity=canonical_hash(SELECTION_RULE.describe()),
-        start_session=window.start_session,
-        block_end_session=window.block_end_session,
-        dataset_identity=dataset_identity,
-    )
-
-
-@dataclass(frozen=True)
-class ConfirmatoryMetrics:
-    direction_adjusted_mean_ic: float | None
-    median_ic: float | None
-    positive_ic_ratio: float | None
-    top_bucket_return: float | None
-    universe_return: float | None
-    bottom_bucket_return: float | None
-    top_minus_universe: float | None
-    long_short: float | None
-    top_minus_0050: float | None
-    valid_date_count: int
-    pit_or_data_quality_violation: bool
-
-
-def assess_confirmatory_success(metrics: ConfirmatoryMetrics) -> str:
-    """Return pass, fail, or insufficient_evidence for one horizon."""
-    required = (
-        metrics.direction_adjusted_mean_ic,
-        metrics.top_minus_universe,
-        metrics.long_short,
-        metrics.top_minus_0050,
-    )
-    if metrics.valid_date_count < 50 or any(value is None for value in required):
-        return "insufficient_evidence"
-    if metrics.pit_or_data_quality_violation:
-        return "fail"
-    mean_ic = metrics.direction_adjusted_mean_ic
-    top_minus_universe = metrics.top_minus_universe
-    long_short = metrics.long_short
-    top_minus_0050 = metrics.top_minus_0050
-    assert mean_ic is not None
-    assert top_minus_universe is not None
-    assert long_short is not None
-    assert top_minus_0050 is not None
-    return "pass" if (
-        mean_ic > 0
-        and top_minus_universe > 0
-        and long_short > 0
-        and top_minus_0050 >= 0
-    ) else "fail"
-
-
 def preregistration_content() -> dict[str, Any]:
     return {
         "version": "primary-oos-v2-preregistration-v1",
@@ -446,7 +261,3 @@ def preregistration_content() -> dict[str, Any]:
 
 
 PREREGISTRATION_ID = canonical_hash(preregistration_content())
-
-
-def describe_preregistration() -> dict[str, Any]:
-    return {**preregistration_content(), "preregistration_id": PREREGISTRATION_ID}

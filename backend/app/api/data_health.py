@@ -24,14 +24,6 @@ def jobs() -> list[HealthJob]:
     return get_health_job_manager().list_jobs()
 
 
-@router.get("/jobs/{job_id}", response_model=HealthJob)
-def job(job_id: str) -> HealthJob:
-    result = get_health_job_manager().get(job_id)
-    if result is None:
-        raise HTTPException(404, "找不到資料健康任務，服務重啟後記錄會清除")
-    return result
-
-
 @router.post("/{dataset}/actions", response_model=HealthJob, status_code=202)
 def start_action(dataset: str, payload: HealthActionRequest) -> HealthJob:
     try:

@@ -21,7 +21,7 @@ from app.data_providers.custom.mapper import (
     map_rows,
 )
 from app.data_providers.normalizer import normalize_adj_factors, normalize_daily
-from app.tickflow.rate_limits import chunked, sleep_between_batches
+from app.rate_limits import chunked, sleep_between_batches
 
 logger = logging.getLogger(__name__)
 

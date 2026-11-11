@@ -15,7 +15,7 @@ from datetime import date
 
 import pytest
 
-from app.price_limits import board_limit_pct, price_limit_pct, taiwan_price_limit_pct
+from app.price_limits import price_limit_pct, taiwan_price_limit_pct
 from app.taiwan.market_rules import (
     EXAMPLE_BROKER_MIN_COMMISSION,
     BacktestMode,
@@ -200,14 +200,12 @@ class TestPriceLimitModelAndDelegation:
     def test_price_limits_py_delegation_ordinary_stock(self):
         # Ordinary stock 2330.TWSE -> 10%
         assert taiwan_price_limit_pct("2330.TWSE") == 0.10
-        assert board_limit_pct("2330.TWSE") == 0.10
-        assert price_limit_pct("2330.TWSE", date(2026, 8, 28)) == 0.10
+        assert price_limit_pct("2330.TWSE") == 0.10
 
     def test_price_limits_py_delegation_no_limit_etf(self):
         # Foreign ETF / Bond ETF with NO_LIMIT class must return None, NOT 10%
         assert taiwan_price_limit_pct("00646.TWSE", limit_class=PriceLimitClass.NO_LIMIT) is None
-        assert board_limit_pct("00646.TWSE", limit_class=PriceLimitClass.NO_LIMIT) is None
-        assert price_limit_pct("00646.TWSE", date(2026, 8, 28), limit_class=PriceLimitClass.NO_LIMIT) is None
+        assert price_limit_pct("00646.TWSE", limit_class=PriceLimitClass.NO_LIMIT) is None
 
 
 # ── 6. Settlement and Same-Day Exit Decoupling ─────────────────

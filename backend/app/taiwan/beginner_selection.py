@@ -13,10 +13,9 @@ priority and is listed in ``data_gaps``.
 from __future__ import annotations
 
 import logging
-import math
 import threading
 from dataclasses import dataclass, replace
-from datetime import UTC, date, datetime, timedelta
+from datetime import date, timedelta
 from pathlib import Path
 from typing import Any, Literal
 
@@ -24,6 +23,7 @@ from pydantic import BaseModel, Field
 
 from app.taiwan.beginner_technical import (
     BeginnerTechnicalPanel,
+    _finite,
     build_beginner_technical_panel,
     fugle_inner_outer_evidence,
     with_inner_outer_evidence,
@@ -35,6 +35,7 @@ from app.taiwan.buy_point import (
     BuyPointRiskFilters,
     BuyPointSignal,
     BuyPointStrategy,
+    _now,
     evaluate_buy_point,
 )
 from app.taiwan.providers.external_models import ExternalProviderResult
@@ -257,12 +258,6 @@ class BeginnerFacts(BaseModel):
 
 
 # ── Pure rules ───────────────────────────────────────────────────
-
-
-def _finite(value: Any) -> float | None:
-    if isinstance(value, bool) or not isinstance(value, (int, float)):
-        return None
-    return float(value) if math.isfinite(value) else None
 
 
 def _reason(code: str, key: str, direction: Direction, text: str) -> EvidenceReason:
@@ -679,10 +674,6 @@ def rank_candidates(
 
 
 # ── Assembly from existing local stores ──────────────────────────
-
-
-def _now() -> str:
-    return datetime.now(UTC).isoformat()
 
 
 _SNAPSHOT_CONDITION = threading.Condition()

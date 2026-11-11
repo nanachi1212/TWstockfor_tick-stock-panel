@@ -91,9 +91,6 @@ def test_history_save_restart_read_and_idempotent_ensure_report(tmp_path):
     assert len(path.read_text(encoding="utf-8").splitlines()) == 1
     assert restarted.get(first["id"])["evidence_payload"] == run.evidence_payload
     assert restarted.get(first["id"])["evidence_digest"] == run.evidence_digest
-    link = restarted.append_link(first["id"], {"type": "future_review", "id": "review-1"})
-    assert link["parent_id"] == first["id"]
-    assert link["run_id"] == run.run_id
 
 
 def test_history_ignores_only_truncated_final_line(tmp_path):

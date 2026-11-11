@@ -38,8 +38,6 @@ def client(monkeypatch):
     ("get", "/minute-range", {"symbol": "830001.BJ"}, None),
     ("post", "/daily-batch", None, {"symbols": ["2330.TWSE", "600519.SH"]}),
     ("post", "/minute-batch", None, {"symbols": ["000001.SZ"]}),
-    ("post", "/instruments/names", None, ["600519.SH"]),
-    ("post", "/sync_minute_single", None, {"symbol": "600519.SH"}),
 ])
 def test_retired_symbols_rejected_before_storage_or_fetch(client, method, path, params, body):
     response = client.request(method, "/api/kline" + path, params=params, json=body)

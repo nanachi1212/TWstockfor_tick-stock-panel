@@ -47,4 +47,4 @@ def test_realtime_turnover_rate_uses_api_value_directly_after_entry_normalizatio
 def test_realtime_turnover_rate_falls_back_to_float_shares_when_missing():
     out = pipeline._compute_limit_signals_today(_today_rows(), _instruments())
 
-    assert out["turnover_rate"][0] == pytest.approx(0.8)
+    assert out["turnover_rate"][0] == pytest.approx(0.008)  # volume 為股數: 8000 / 1e8 * 100

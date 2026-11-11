@@ -2,12 +2,9 @@
 from __future__ import annotations
 
 # ruff: noqa: RUF001 -- official field names contain full-width punctuation.
-import json
 import re
-from collections.abc import Iterable
-from dataclasses import asdict, dataclass, fields
+from dataclasses import dataclass
 from datetime import date, datetime
-from pathlib import Path
 from typing import Any
 
 import httpx
@@ -26,10 +23,6 @@ EVENT_TYPES = {
 MOPS_SEARCH_URL = "https://mops.twse.com.tw/mops/api/t05st01"
 MOPS_DETAIL_URL = "https://mops.twse.com.tw/mops/api/t05st01_detail"
 MOPS_EVIDENCE_URL = "https://mops.twse.com.tw/mops/web/t05st01"
-
-
-def _iso(value: datetime | None) -> str | None:
-    return value.isoformat() if value else None
 
 
 def _datetime(value: str | datetime | None) -> datetime | None:
@@ -82,76 +75,6 @@ class DividendLifecycleEvent:
             raise ValueError("MOPS lifecycle event must use exact_timestamp availability")
         if not self.revision_identity or not self.availability_evidence_identifier:
             raise ValueError("stable official event identity is required")
-
-    def to_dict(self) -> dict[str, Any]:
-        result = asdict(self)
-        for name in ("event_timestamp", "available_at", "retrieved_at"):
-            result[name] = _iso(getattr(self, name))
-        return result
-
-    @classmethod
-    def from_dict(cls, raw: dict[str, Any]) -> DividendLifecycleEvent:
-        data = {field.name: raw.get(field.name) for field in fields(cls)}
-        for name in ("event_timestamp", "available_at", "retrieved_at"):
-            data[name] = _datetime(data[name])
-        return cls(**data)
-
-
-def get_dividend_events_as_of(
-    events: Iterable[DividendLifecycleEvent],
-    symbol: str,
-    query_at: datetime,
-) -> list[DividendLifecycleEvent]:
-    """Return events visible strictly after their exact publication timestamp."""
-    checked = _datetime(query_at)
-    return sorted(
-        (
-            event
-            for event in events
-            if event.symbol == symbol and checked > event.available_at
-        ),
-        key=lambda event: (event.event_timestamp, event.revision_identity),
-    )
-
-
-class TaiwanDividendEventStore:
-    """Small append-only JSONL store keyed by official material-event identity."""
-
-    def __init__(self, data_dir: Path) -> None:
-        self.path = data_dir / "taiwan" / "fundamentals" / "dividend_events.jsonl"
-
-    def load(self) -> list[DividendLifecycleEvent]:
-        if not self.path.exists():
-            return []
-        return [
-            DividendLifecycleEvent.from_dict(json.loads(line))
-            for line in self.path.read_text(encoding="utf-8").splitlines()
-            if line
-        ]
-
-    def save(self, events: Iterable[DividendLifecycleEvent]) -> int:
-        merged = {event.revision_identity: event for event in self.load()}
-        for event in events:
-            merged.setdefault(event.revision_identity, event)
-        self.path.parent.mkdir(parents=True, exist_ok=True)
-        payload = "\n".join(
-            json.dumps(event.to_dict(), ensure_ascii=False, sort_keys=True)
-            for event in sorted(
-                merged.values(),
-                key=lambda item: (item.event_timestamp, item.revision_identity),
-            )
-        )
-        temporary = self.path.with_suffix(".tmp")
-        temporary.write_text(payload + ("\n" if payload else ""), encoding="utf-8")
-        temporary.replace(self.path)
-        return len(merged)
-
-    def get_as_of(
-        self,
-        symbol: str,
-        query_at: datetime,
-    ) -> list[DividendLifecycleEvent]:
-        return get_dividend_events_as_of(self.load(), symbol, query_at)
 
 
 class MOPSDividendLifecycleProvider:

@@ -38,6 +38,8 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Any, Literal
 
+import httpx
+
 from app.taiwan.providers.taiwan_values import TAIPEI
 
 logger = logging.getLogger(__name__)
@@ -50,6 +52,7 @@ ISSUER_KINDS: dict[str, str] = {"0": "domestic", "1": "foreign"}
 # latest YoY, the previous month's YoY and MoM without inventing a series.
 WINDOW_MONTH_OFFSETS = (1, 2, 3, 13, 14, 15)
 REFETCH_AFTER = timedelta(hours=20)
+MAX_UNREACHABLE = 3  # consecutive connection failures before a refresh gives up
 MAX_EVIDENCE_AGE = timedelta(days=4)
 
 EvidenceStatus = Literal[
@@ -466,39 +469,47 @@ def refresh_monthly_revenue_evidence(
         "run_id": run_id, "source": SOURCE, "periods": periods,
         "fetched": 0, "skipped_fresh": 0, "not_published": 0, "failed": 0, "errors": [],
     }
+    unreachable = 0
     try:
-        for market in BOARDS:
-            for kind in ISSUER_KINDS:
-                for period in periods:
-                    last = store.last_success(market, kind, period)
-                    if last is not None and now - last < refetch_after:
-                        summary["skipped_fresh"] += 1
-                        continue
-                    url = page_url(market, kind, period)
-                    raw: bytes | None = None
-                    try:
-                        response = client.get(url)
-                        response.raise_for_status()
-                        raw = response.content
-                        page = parse_revenue_page(decode_page(raw), period=period)
-                        store.record_fetch(
-                            run_id=run_id, market=market, kind=kind, period=period,
-                            retrieved_at=now, status=page.status,
-                            raw=raw, page=page,
-                        )
-                        summary["fetched"] += 1
-                        summary["not_published"] += page.status == "not_published"
-                    except Exception as exc:
-                        status: FetchStatus = "schema_changed" if isinstance(exc, RevenuePageSchemaError) else "error"
-                        store.record_fetch(
-                            run_id=run_id, market=market, kind=kind, period=period,
-                            retrieved_at=now, status=status, raw=raw,
-                            error=f"{type(exc).__name__}: {exc}"[:300],
-                        )
-                        summary["failed"] += 1
-                        if len(summary["errors"]) < 10:
-                            summary["errors"].append(f"{market}/{kind}/{period}: {type(exc).__name__}")
-                        logger.warning("Monthly revenue evidence fetch failed for %s: %s", url, exc)
+        for market, kind, period in (
+            (market, kind, period) for market in BOARDS for kind in ISSUER_KINDS for period in periods
+        ):
+            last = store.last_success(market, kind, period)
+            if last is not None and now - last < refetch_after:
+                summary["skipped_fresh"] += 1
+                continue
+            url = page_url(market, kind, period)
+            raw: bytes | None = None
+            try:
+                response = client.get(url)
+                response.raise_for_status()
+                raw = response.content
+                page = parse_revenue_page(decode_page(raw), period=period)
+                store.record_fetch(
+                    run_id=run_id, market=market, kind=kind, period=period,
+                    retrieved_at=now, status=page.status,
+                    raw=raw, page=page,
+                )
+                summary["fetched"] += 1
+                summary["not_published"] += page.status == "not_published"
+                unreachable = 0
+            except Exception as exc:
+                status: FetchStatus = "schema_changed" if isinstance(exc, RevenuePageSchemaError) else "error"
+                store.record_fetch(
+                    run_id=run_id, market=market, kind=kind, period=period,
+                    retrieved_at=now, status=status, raw=raw,
+                    error=f"{type(exc).__name__}: {exc}"[:300],
+                )
+                summary["failed"] += 1
+                if len(summary["errors"]) < 10:
+                    summary["errors"].append(f"{market}/{kind}/{period}: {type(exc).__name__}")
+                logger.warning("Monthly revenue evidence fetch failed for %s: %s", url, exc)
+                unreachable = unreachable + 1 if isinstance(exc, httpx.TransportError) else 0
+                if unreachable >= MAX_UNREACHABLE:
+                    # Every attempt holds a shared MOPS rate-limit slot, so walking all pages
+                    # with the network down starves every other MOPS reader for minutes.
+                    summary["aborted"] = "network_unreachable"
+                    break
     finally:
         if owned:
             client.close()

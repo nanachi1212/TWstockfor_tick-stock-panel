@@ -194,11 +194,10 @@ PIDS+=("$!")
 ) &
 PIDS+=("$!")
 
-# 等任一退出(bash 4.3+)或全部退出(舊版 bash)
-if wait -n 2>/dev/null; then
-  warn "其中一個程序退出,正在關閉另一個..."
-  cleanup
-else
-  # 舊版 bash 沒有 wait -n,退化為 wait 全部
-  wait
-fi
+# 任一個退出就關閉另一個。不用 wait -n: 子程序以非 0 結束(例如後端崩潰)時,
+# 它的回傳值和「舊版 bash 不支援 wait -n」分不出來,前端會被留著。
+while kill -0 "${PIDS[0]}" 2>/dev/null && kill -0 "${PIDS[1]}" 2>/dev/null; do
+  sleep 1
+done
+warn "其中一個程序退出,正在關閉另一個..."
+cleanup

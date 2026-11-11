@@ -17,7 +17,6 @@ from datetime import date
 from enum import Enum
 from typing import Literal
 
-import numpy as np
 
 
 # ── Enums ──────────────────────────────────────────────────────
@@ -253,26 +252,6 @@ class TickSizeModel:
             steps = round(price / tick)
         return round(steps * tick, 4)
 
-    @classmethod
-    def round_to_valid_tick(
-        cls,
-        price: float,
-        tick_class: TickSizeClass = TickSizeClass.ORDINARY_STOCK,
-        side: Literal["buy", "sell", "round"] = "round",
-        trade_date: date | None = None,
-    ) -> float:
-        """General rounding entry point.
-
-        side='round': standard nearest tick (recommended for general orders/fills).
-        side='buy': floor to tick (conservative boundary limit).
-        side='sell': ceil to tick (conservative boundary limit).
-        """
-        if side == "buy":
-            return cls.round_price_limit_boundary(price, direction="up", tick_class=tick_class, trade_date=trade_date)
-        if side == "sell":
-            return cls.round_price_limit_boundary(price, direction="down", tick_class=tick_class, trade_date=trade_date)
-        return cls.round_order_price(price, tick_class=tick_class, mode="nearest", trade_date=trade_date)
-
 
 # ── 5. Price Limit Model ───────────────────────────────────────
 
@@ -372,24 +351,3 @@ class TaiwanMarketProfile:
         if self.mode == BacktestMode.ODD_LOT:
             return False
         return False
-
-    def buy_transaction_cost(self, trade_value: float) -> float:
-        """Buy cost: commission only."""
-        return self.cost.calc_commission(trade_value)
-
-    def sell_transaction_cost(
-        self,
-        trade_value: float,
-        tax_class: TaxClass = TaxClass.ORDINARY_STOCK,
-        is_day_trade: bool = False,
-        trade_date: date | None = None,
-    ) -> float:
-        """Sell cost: commission + securities transaction tax."""
-        comm = self.cost.calc_commission(trade_value)
-        tax = self.tax.calc_tax(
-            trade_value,
-            tax_class=tax_class,
-            is_day_trade=is_day_trade,
-            trade_date=trade_date,
-        )
-        return comm + tax

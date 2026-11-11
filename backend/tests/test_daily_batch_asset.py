@@ -4,7 +4,7 @@ import datetime as _dt
 import polars as pl
 import pytest
 
-from app.tickflow.repository import DataStore, KlineRepository
+from app.repository import DataStore, KlineRepository
 
 
 @pytest.fixture()

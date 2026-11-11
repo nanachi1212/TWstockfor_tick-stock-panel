@@ -1,6 +1,6 @@
 """Optional AI Multi-Stock Objective Research Comparison Service (Phase 7G).
 
-Extends the Phase 7E closed-evidence-boundary AI interpretation layer to 2-5
+Extends the Phase 7E closed-evidence-boundary AI interpretation layer to 2-10
 Taiwan instruments at once. Reuses `build_evidence_registry()` per symbol,
 namespaces keys by canonical symbol, and sends exactly ONE LLM call for the
 whole comparison (never N calls). Enforces the same no-recommendation /
@@ -39,7 +39,7 @@ from app.services.ai_provider import (
     generate_ai_text,
 )
 from app.services.ai_json import _extract_json_object
-from app.taiwan.ai_research import ObservationItem, build_evidence_registry
+from app.taiwan.ai_research import build_evidence_registry
 from app.taiwan.comparison import (
     MAX_COMPARE_SYMBOLS,
     MIN_COMPARE_SYMBOLS,

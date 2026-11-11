@@ -626,17 +626,3 @@ def get_version() -> dict:
     from app import __version__
 
     return {"version": f"v{__version__}"}
-
-
-@router.post("/refresh-cache")
-def refresh_cache(request: Request) -> dict:
-    """重建 Polars 記憶體快取 (clear + refresh), 不清資料、不清 alerts。
-
-    用於跨天後快取殘留、或維表更新後手動重新整理場景。
-    與設定頁「清理並重新整理」的區別: 那個清前端 react-query, 這個重建後端 enriched 快取。
-    """
-    repo = request.app.state.repo
-    repo.clear_cache()
-    repo.refresh_cache()
-    logger.info("refresh-cache: Polars 快取已重建")
-    return {"ok": True}

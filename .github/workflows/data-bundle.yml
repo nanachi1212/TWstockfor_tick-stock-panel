@@ -29,7 +29,7 @@ jobs:
       - name: Install backend dependencies
         working-directory: backend
         run: |
-          uv python install 3.11
+          uv python install 3.12
           uv sync --frozen
 
       - name: Download current bundle
@@ -75,7 +75,7 @@ jobs:
           mv "$RUNNER_TEMP/out/bundle.zip" "$RUNNER_TEMP/out/$asset"
           sha=$(sha256sum "$RUNNER_TEMP/out/$asset" | cut -d' ' -f1)
           gh release create "$tag" "$RUNNER_TEMP/out/$asset" --repo "$REPO" --target "$GITHUB_SHA" \
-            --title "$tag" --latest \
+            --title "$tag" --latest=false \
             --notes "台股公開資料包（自動產生），日 K ${FIRST} ~ ${AS_OF}，另含最近 60 個交易日的三大法人、融資融券、交易日普查與處置紀錄。只含官方公開資料，已通過隱私檢查。SHA256: $sha"
           jq -n --arg tag "$tag" --arg asset "$asset" --arg sha "$sha" --arg as_of "$AS_OF" \
             '{tag: $tag, asset: $asset, sha256: $sha, data_as_of: $as_of}' > "$RUNNER_TEMP/out/data-latest.json"

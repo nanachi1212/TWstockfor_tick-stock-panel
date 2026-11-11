@@ -34,7 +34,6 @@ returns a listing status from an observation.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass
 from datetime import date
 from typing import Literal
 
@@ -56,24 +55,6 @@ UNIVERSE_COLUMNS: list[str] = [
     "listing_metadata_status",
     "instrument_type", "instrument_type_status",
 ]
-
-
-@dataclass(frozen=True)
-class UniverseRow:
-    """One (date, security) market-truth record."""
-
-    date: date
-    code: str
-    exchange: str
-    observed_on_market: bool
-    tradable_source: str
-    listing_metadata_status: str
-    instrument_type: str | None
-    instrument_type_status: str
-
-    @property
-    def market_symbol(self) -> str:
-        return f"{self.code}.{self.exchange}"
 
 
 class PitUniverse:

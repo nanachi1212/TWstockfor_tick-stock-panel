@@ -83,13 +83,6 @@ TWSE_CENSUS_TYPE = "ALLBUT0999"
 TWSE_SOURCE = f"twse:MI_INDEX:{TWSE_CENSUS_TYPE}"
 TPEX_SOURCE = "tpex:dailyQuotes"
 
-CENSUS_COLUMNS: list[str] = [
-    "date", "raw_code", "exchange", "observed",
-    "raw_name", "raw_source_category",
-    "open", "high", "low", "close", "volume", "amount",
-    "instrument_type", "instrument_type_status",
-    "source", "retrieved_at",
-]
 
 #: A2a never classifies.  Both TWSE and TPEx rows leave here unclassified;
 #: A2b fills TWSE in from the official historical industry/ETF tables.

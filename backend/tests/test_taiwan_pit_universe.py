@@ -10,7 +10,6 @@ from datetime import date
 from pathlib import Path
 
 import polars as pl
-import pytest
 
 from app.taiwan.historical_classification import HistoricalClassificationStore
 from app.taiwan.observed_universe import ObservedUniverseStore
@@ -20,7 +19,6 @@ from app.taiwan.quant_eligibility import (
     PRIMARY_VERIFIED,
     SECONDARY_OBSERVED,
     EligibilityPolicy,
-    assert_oos_claimable,
     describe_tier,
     eligible,
     market_truth_gate,
@@ -167,12 +165,9 @@ def test_tpex_can_never_reach_the_primary_tier(tmp_path: Path) -> None:
     assert "5371.TPEX" in set(secondary["market_symbol"].to_list())
 
 
-def test_tiers_are_labelled_and_only_primary_may_claim_oos() -> None:
+def test_tiers_are_labelled() -> None:
     assert describe_tier(PRIMARY_VERIFIED) == "TWSE Verified OOS"
     assert describe_tier(SECONDARY_OBSERVED) == "TWSE + TPEx Observed Experimental"
-    assert_oos_claimable(PRIMARY_VERIFIED)
-    with pytest.raises(ValueError, match="may not carry an out-of-sample"):
-        assert_oos_claimable(SECONDARY_OBSERVED)
 
 
 def test_warmup_and_liquidity_are_policy_not_truth(tmp_path: Path) -> None:

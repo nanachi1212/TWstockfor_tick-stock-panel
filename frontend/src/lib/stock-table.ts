@@ -19,7 +19,6 @@ export interface Signal {
 /** 信號欄位定義：[行欄位名, 展示標籤, 信號類型] */
 export const SIGNAL_FIELDS: [string, string, SignalType][] = [
   ['signal_limit_up', '漲停', 'bull'],
-  ['signal_broken_board_recovery', '反包', 'bull'],
   ['signal_volume_surge', '放量', 'neutral'],
   ['signal_ma_golden_5_20', 'MA金叉', 'bull'],
   ['signal_ma_dead_5_20', 'MA死叉', 'bear'],

@@ -52,7 +52,6 @@ from fastapi.testclient import TestClient
 from app.main import app
 from app.taiwan.abnormal_diagnostics import (
     TaiwanAbnormalDiagnosticsService,
-    TaiwanAbnormalDiagnosticsSnapshot,
 )
 
 

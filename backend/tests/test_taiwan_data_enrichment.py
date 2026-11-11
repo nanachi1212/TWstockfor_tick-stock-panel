@@ -12,15 +12,12 @@ Covers:
   - Official Quote snapshots (TWSE & TPEx) and transparent fallback with reasons
   - Benchmark Index parsing (TAIEX & TPEx Index) with dedicated schema
   - Hardened ETF classification and strict UNKNOWN ETF safety in MarketProfileBridge
-  - Polars factor computation (5-day rolling net, margin balance change, short-margin ratio)
 """
 from __future__ import annotations
 
-from datetime import date, datetime, timedelta
-import polars as pl
+from datetime import date, datetime
 import pytest
 
-from app.taiwan.enrichment.factors import compute_chip_factors, compute_margin_factors
 from app.taiwan.enrichment.index import TaiwanIndexProvider
 from app.taiwan.enrichment.institutional import (
     TaiwanInstitutionalProvider,
@@ -697,65 +694,3 @@ class TestEtfClassificationAndSafety:
         )
         with pytest.raises(ValueError, match="Refusing to apply regulatory market rules to unconfirmed ETF"):
             MarketProfileBridge.get_price_limit_class(unknown_etf)
-
-
-
-
-# ── 7. Polars Factor Compatibility Tests ────────────────────────
-
-
-class TestFactorCompatibility:
-    """Verify rolling institutional flows and margin momentum can be computed in Polars."""
-
-    def test_chip_factor_pipeline(self):
-        dates = [date(2026, 8, 20) + timedelta(days=i) for i in range(7)]
-        rows = [
-            {
-                "symbol": "2330.TWSE",
-                "trade_date": d,
-                "foreign_net": 1000,
-                "investment_trust_net": 500,
-                "dealer_net": 200,
-            }
-            for d in dates
-        ]
-        df = pl.DataFrame(rows)
-        factored = compute_chip_factors(df)
-
-        assert "foreign_net_5d" in factored.columns
-        assert "investment_trust_net_5d" in factored.columns
-        assert "dealer_net_5d" in factored.columns
-
-        # 5-day rolling sum for the 5th item (idx 4) should be 5 * 1000 = 5000
-        assert factored["foreign_net_5d"][4] == 5000
-        assert factored["investment_trust_net_5d"][4] == 2500
-        assert factored["dealer_net_5d"][4] == 1000
-
-    def test_margin_factor_pipeline(self):
-        dates = [date(2026, 8, 24), date(2026, 8, 25)]
-        rows = [
-            {
-                "symbol": "2330.TWSE",
-                "trade_date": dates[0],
-                "margin_previous_balance": 10000,
-                "margin_balance": 10500,
-                "short_balance": 1050,
-            },
-            {
-                "symbol": "2330.TWSE",
-                "trade_date": dates[1],
-                "margin_previous_balance": 10500,
-                "margin_balance": 11000,
-                "short_balance": 1200,
-            },
-        ]
-        df = pl.DataFrame(rows)
-        factored = compute_margin_factors(df)
-
-        assert "margin_balance_change" in factored.columns
-        assert "short_margin_ratio" in factored.columns
-
-        assert factored["margin_balance_change"][0] == 500
-        assert factored["short_margin_ratio"][0] == 10.0  # 1050 / 10500 * 100
-        assert factored["margin_balance_change"][1] == 500
-        assert factored["short_margin_ratio"][1] == round(1200 / 11000 * 100, 2)

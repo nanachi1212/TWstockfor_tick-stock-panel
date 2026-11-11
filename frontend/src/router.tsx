@@ -13,13 +13,12 @@ import {
   getFrontendExtensionRoutes,
 } from './extensions/registry'
 
-// 代碼分割: 頁面全部 lazy 載入, 避免首屏打包所有頁面 (ECharts / lightweight-charts /
+// 代碼分割: 頁面全部 lazy 載入, 避免首屏打包所有頁面 (ECharts /
 // framer-motion 等重庫) → 大幅減小首屏 bundle。命名匯出用 .then 映射為 default。
 // Layout / Onboarding / Auth 為應用外殼與入口, 保持同步載入。
 const Watchlist = lazy(() => import('./pages/Watchlist').then(m => ({ default: m.Watchlist })))
 const Monitor = lazy(() => import('./pages/Monitor').then(m => ({ default: m.Monitor })))
 const Dashboard = lazy(() => import('./pages/Dashboard').then(m => ({ default: m.Dashboard })))
-const Branding = lazy(() => import('./pages/Branding').then(m => ({ default: m.Branding })))
 const Settings = lazy(() => import('./pages/Settings').then(m => ({ default: m.Settings })))
 const Dev = lazy(() => import('./pages/Dev').then(m => ({ default: m.Dev })))
 const TaiwanStockDetail = lazy(() => import('./pages/TaiwanStockDetail').then(m => ({ default: m.TaiwanStockDetail })))
@@ -64,13 +63,10 @@ const CORE_ROUTE_PATHS = new Set([
   '/market-research',
   '/research',
   '/monitor',
-  '/indices',
-  '/branding',
   '/settings',
   '/dev',
   '/settings/keys',
   '/settings/ai',
-  '/settings/queries',
 ])
 
 finalizeFrontendExtensions(CORE_ROUTE_PATHS)
@@ -141,14 +137,12 @@ export const router = createBrowserRouter([
       { path: 'model', element: <ModelValidation /> },
       { path: 'buy-points', element: <BuyPointStrategies /> },
       { path: 'monitor', element: <Monitor /> },
-      { path: 'branding', element: <Branding /> },
       { path: 'settings', element: <Settings /> },
       // 隱藏路由：開發者工具（不暴露在選單，僅供調試）
       { path: 'dev', element: <Dev /> },
       // 舊路由相容重定向
       { path: 'settings/keys', element: <Navigate to="/settings?tab=data-sources" replace /> },
       { path: 'settings/ai', element: <Navigate to="/settings?tab=ai" replace /> },
-      { path: 'settings/queries', element: <Navigate to="/settings?tab=queries" replace /> },
       ...frontendExtensionRoutes.map(route => {
         const ExtensionPage = route.component
         return {

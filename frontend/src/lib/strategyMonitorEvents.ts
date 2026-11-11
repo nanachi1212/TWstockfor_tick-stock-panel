@@ -1,5 +1,3 @@
-import type { StrategyNotifyEvent } from './api'
-
 export interface StrategyEventMeta {
   label: string
   action: string
@@ -38,28 +36,6 @@ const META: Record<string, StrategyEventMeta> = {
     className: 'text-bear',
   },
 }
-
-/** 新增策略監控的預設通知事件: 選股結果(進入/移出), 與後端省略欄位時的回填一致 */
-export const DEFAULT_STRATEGY_NOTIFY_EVENTS: StrategyNotifyEvent[] = [
-  'pool_entry',
-  'pool_exit',
-]
-
-export const LEGACY_STRATEGY_NOTIFY_EVENTS: StrategyNotifyEvent[] = [
-  'pool_entry',
-  'pool_exit',
-]
-
-export const STRATEGY_NOTIFY_EVENT_OPTIONS: {
-  key: StrategyNotifyEvent
-  label: string
-  group: 'signal' | 'pool'
-}[] = [
-  { key: 'buy_signal', label: '買入訊號', group: 'signal' },
-  { key: 'sell_signal', label: '賣出訊號', group: 'signal' },
-  { key: 'pool_entry', label: '進入選股結果', group: 'pool' },
-  { key: 'pool_exit', label: '移出選股結果', group: 'pool' },
-]
 
 export function strategyEventMeta(type: string): StrategyEventMeta {
   return META[type] ?? {

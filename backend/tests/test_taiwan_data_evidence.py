@@ -19,7 +19,6 @@ NOW = datetime(2026, 9, 23, tzinfo=TAIPEI)
 @pytest.mark.parametrize("reason", ["pending", "unexplained_empty", "provider_error", "schema_mismatch"])
 def test_unresolved_evidence_never_certifies_trading(reason):
     evidence = TradingDayEvidence(D, "TWSE", "unresolved", "twse:MI_INDEX", reason, NOW)
-    assert evidence.possible_trading_session
     assert evidence.describe()["status"] == "unresolved"
 
 

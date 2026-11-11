@@ -76,12 +76,3 @@ def delete_alert_by_id(alert_id: str, request: Request):
     if not deleted:
         raise HTTPException(status_code=404, detail="記錄不存在")
     return {"ok": True}
-
-
-@router.delete("/{ts}")
-def delete_alert(ts: int, request: Request):
-    """刪除單條觸發記錄 (按 ts 毫秒時間戳)。"""
-    deleted = alert_store.delete_one(_data_dir(request), ts)
-    if not deleted:
-        raise HTTPException(status_code=404, detail="紀錄不存在")
-    return {"ok": True}

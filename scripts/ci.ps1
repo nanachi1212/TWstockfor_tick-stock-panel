@@ -120,7 +120,7 @@ function Get-ChangeProfile {
     $frontend = Test-AnyPath -Paths $Paths -Pattern '^frontend/'
     $dependency = Test-AnyPath -Paths $Paths -Pattern '(^|/)(uv\.lock|pyproject\.toml|requirements[^/]*\.txt|poetry\.lock|package\.json|pnpm-lock\.yaml|package-lock\.json|yarn\.lock|bun\.lockb)$'
     $schemaOrMigration = Test-AnyPath -Paths $Paths -Pattern '(^|/)(schema|schemas|migrations?|contracts?)(/|\.|$)|(^|/).*\.(sql|graphql|gql)$'
-    $sharedContract = Test-AnyPath -Paths $Paths -Pattern '^(backend/app/api/|backend/app/(core|tickflow|data_providers)/|frontend/src/(lib/api\.|lib/queryKeys\.|types/|extensions/)|shared/|contracts/)'
+    $sharedContract = Test-AnyPath -Paths $Paths -Pattern '^(backend/app/api/|backend/app/(core|data_providers)/|frontend/src/(lib/api\.|lib/queryKeys\.|types/|extensions/)|shared/|contracts/)'
     $scriptOrWorkflow = Test-AnyPath -Paths $Paths -Pattern '^(scripts/|\.github/workflows/)'
     $documentation = Test-AnyPath -Paths $Paths -Pattern '(^|/)(README|CONTRIBUTING|AGENTS)(\.|$)|^(docs|specs)/|\.(md|mdx|rst|txt)$'
 
@@ -167,7 +167,7 @@ function Get-BackendTestFiles {
 
     foreach ($path in $Paths | Where-Object { $_ -match '^backend/' }) {
         if ($path -match '^backend/tests/(.+\.py)$') {
-            $candidate = Join-Path $BackendRoot ($Matches[1] -replace '/', '\\')
+            $candidate = Join-Path $testRoot ($Matches[1] -replace '/', '\')
             Add-PathIfExists -Target $selected -Path $candidate
             continue
         }
@@ -196,6 +196,7 @@ function Get-BackendTestFiles {
             Add-PathIfExists -Target $selected -Path $match.FullName
         }
 
+        $tokenMatches = @()
         if ($matches.Count -eq 0) {
             $significantTokens = @($leaf -split '_' | Where-Object { $_.Length -ge 4 -and $_ -notin @('data', 'main', 'test') })
             $tokenMatches = @($allTests | Where-Object {
@@ -207,7 +208,8 @@ function Get-BackendTestFiles {
             }
         }
 
-        if ($matches.Count -eq 0 -and $selected.Count -eq 0) {
+        # A changed file with no test of its own must not ride on tests picked for another file.
+        if ($matches.Count -eq 0 -and $tokenMatches.Count -eq 0) {
             $fallbackRequired = $true
         }
     }

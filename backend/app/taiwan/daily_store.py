@@ -20,25 +20,12 @@ from typing import Any
 import polars as pl
 
 from app.file_lock import file_lock
-from app.taiwan.providers.base import (
-    AmountUnit,
-    PriceSemantics,
-    SourceMetadata,
-    VolumeUnit,
-)
 
 logger = logging.getLogger(__name__)
 
 TAIWAN_DAILY_COLUMNS: list[str] = [
     "symbol", "date", "open", "high", "low", "close", "volume", "amount", "quote_ts"
 ]
-
-DEFAULT_TAIWAN_METADATA = SourceMetadata(
-    source_name="taiwan_daily_store",
-    volume_unit=VolumeUnit.SHARES,
-    amount_unit=AmountUnit.TWD,
-    price_semantics=PriceSemantics.RAW,
-)
 
 
 class TaiwanDailyStore:
@@ -185,10 +172,6 @@ class TaiwanDailyStore:
             .drop("_max_date")
             .sort(["symbol", "date"])
         )
-
-    def read_latest(self, symbols: list[str] | None = None) -> pl.DataFrame:
-        """Deprecated: use :meth:`read_latest_per_symbol` instead."""
-        return self.read_latest_per_symbol(symbols)
 
     def read_range(
         self,

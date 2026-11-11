@@ -454,29 +454,6 @@ class TaiwanAIResearchHistoryStore:
         with self._lock:
             return self._read_unlocked()
 
-    def append_link(self, record_id: str, target: Any) -> dict[str, Any]:
-        with self._lock:
-            records = self._read_unlocked()
-            parent = next((record for record in records if record.get("id") == record_id), None)
-            if parent is None:
-                raise KeyError(record_id)
-            record = {
-                "id": f"link_{uuid.uuid4().hex}",
-                "kind": "link",
-                "run_id": parent.get("run_id"),
-                "parent_id": record_id,
-                "saved_at": taipei_now().isoformat(),
-                "symbol": parent.get("symbol"),
-                "purpose": parent.get("purpose"),
-                "target": target,
-            }
-            try:
-                _canonical(record)
-            except (TypeError, ValueError) as exc:
-                raise AIResearchHistoryError("Link target is not JSON serializable") from exc
-            self._append_unlocked(record)
-            return record
-
     def list(
         self,
         *,

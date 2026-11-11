@@ -6,7 +6,7 @@ rate limiting protection, freshness / stale detection, and fallback chain.
 from __future__ import annotations
 
 from dataclasses import replace
-from datetime import date, datetime, time as dt_time, timedelta
+from datetime import date, datetime, time as dt_time
 
 import logging
 import threading

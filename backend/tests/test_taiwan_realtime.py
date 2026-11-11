@@ -12,15 +12,13 @@ Tests all components strictly offline with simulated fixtures:
 """
 from __future__ import annotations
 
-from datetime import date, datetime, time as dt_time, timedelta
-import pytest
+from datetime import date, datetime
 
 from app.taiwan.enrichment.models import SourceMeta
 from app.taiwan.realtime import mis_provider as mis_provider_module
 from app.taiwan.realtime.calendar import (
     TAIPEI_TZ,
     get_market_status,
-    taipei_now,
 )
 from app.taiwan.realtime.mis_provider import (
     TwseMisRealtimeProvider,
@@ -30,14 +28,12 @@ from app.taiwan.realtime.mis_provider import (
 from app.taiwan.realtime.models import (
     MarketStatus,
     RealtimeStatus,
-    TaiwanRealtimeQuote,
 )
 from app.taiwan.realtime.service import TaiwanRealtimeService
 from app.taiwan.realtime.yahoo_provider import (
     YahooRealtimeProvider,
     to_yahoo_ticker,
 )
-from app.taiwan.symbol import parse_symbol
 
 #: A frozen Taiwan trading session (Friday 2026-08-28, 11:00, market OPEN).
 #: Tests that exercise session-date validation drive both the provider clock and

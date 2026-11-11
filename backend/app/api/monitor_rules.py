@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import logging
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 router = APIRouter(prefix="/api/monitor-rules", tags=["monitor-rules"])
@@ -162,41 +162,3 @@ def delete_taiwan_rule(rule_id: str):
     if not deleted:
         raise HTTPException(status_code=404, detail=f"Rule {rule_id} not found")
     return {"ok": True, "deleted": rule_id}
-
-
-@router.post("/taiwan/evaluate")
-def evaluate_taiwan_rules(request: Request):
-    """執行一輪台股即時規則評估, 並將告警寫入磁碟與推送到 SSE。"""
-    from app.services import alert_store
-    from app.taiwan.realtime.monitor_engine import get_monitor_engine
-
-    engine = get_monitor_engine()
-    def persist_events(alerts):
-        repo = getattr(request.app.state, "repo", None)
-        if repo is None:
-            raise HTTPException(status_code=503, detail="提醒儲存尚未就緒")
-        alert_store.append_many(
-            repo.store.data_dir, [alert.to_dict() for alert in alerts],
-        )
-
-    alerts = engine.evaluate_all(persist_events=persist_events)
-    if alerts:
-        alert_dicts = [alert.to_dict() for alert in alerts]
-        quote_svc = getattr(request.app.state, "quote_service", None)
-        if quote_svc:
-            try:
-                quote_svc.push_alerts(alert_dicts)
-            except Exception as e:
-                logger.warning("Failed to push Taiwan alerts to SSE: %s", e)
-            try:
-                quote_svc._maybe_send_webhook(alert_dicts, None)
-            except Exception as e:
-                logger.warning("Failed to dispatch Taiwan external alerts: %s", type(e).__name__)
-
-    return {
-        "ok": True,
-        "evaluated_rules": len(engine.list_rules()),
-        "alerts_count": len(alerts),
-        "alerts": [a.to_dict() for a in alerts],
-    }
-

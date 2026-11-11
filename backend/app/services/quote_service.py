@@ -112,12 +112,6 @@ class QuoteSubscriber:
                 self._alerts = self._alerts[-self._max_alerts:]
             self._event.set()
 
-    def push_review(self, event_json: str) -> None:
-        with self._lock:
-            self._reviews.append(event_json)
-            if len(self._reviews) > self._max_reviews:
-                self._reviews = self._reviews[-self._max_reviews:]
-            self._event.set()
 
     def clear_alerts(self) -> None:
         with self._lock:
@@ -136,15 +130,6 @@ class QuoteSubscriber:
             self._quote_updated = True
             self._event.set()
 
-    def notify_strategy_results(self) -> None:
-        with self._lock:
-            self._strategy_results_updated = True
-            self._event.set()
-
-    def notify_depth(self) -> None:
-        with self._lock:
-            self._depth_updated = True
-            self._event.set()
 
     def notify_daily_data(self) -> None:
         with self._lock:
@@ -173,7 +158,6 @@ def _persist_last_fetch(fetched_at_ms: float) -> None:
         _last_fetch_written_at_ms = fetched_at_ms
     except Exception as e:  # noqa: BLE001
         logger.debug("last_fetch_ms 持久化失敗 (不影響行情): %s", e)
-
 
 
 class QuoteService:
@@ -369,18 +353,6 @@ class QuoteService:
         for sub in self._snapshot_subscribers():
             sub.notify_quote()
 
-    def notify_strategy_results_updated(self) -> None:
-        """策略監控完成即時結果更新後呼叫，僅重新整理策略頁結果快取。"""
-        for sub in self._snapshot_subscribers():
-            sub.notify_strategy_results()
-
-    def notify_depth_updated(self) -> None:
-        """五檔盤口修正完成後呼叫: 通知 SSE 推送 depth_updated, 觸發連板梯隊重新整理。
-
-        與行情/告警通道獨立 — 只重新整理連板梯隊, 不連帶重新整理 watchlist 等。
-        """
-        for sub in self._snapshot_subscribers():
-            sub.notify_depth()
 
     def notify_daily_data_updated(self) -> None:
         """盤後日線/法人/融資/集保寫入後呼叫: 前端重新整理依賴日線的查詢 (含持股分析)。"""
@@ -394,18 +366,6 @@ class QuoteService:
     def push_alerts(self, alerts: list[dict]) -> None:
         self._broadcast_alerts(alerts)
 
-    def clear_pending_alerts(self) -> None:
-        for sub in self._snapshot_subscribers():
-            sub.clear_alerts()
-
-    def push_review_event(self, event_json: str) -> None:
-        """廣播一條覆盤進度事件(JSON 字串), 喚醒所有 SSE generator。
-
-        事件格式與 recap_market_stream 的產出一致(meta/delta/error/done),
-        前端 reviewStore 直接消費。背壓在訂閱者佇列內做 (丟棄最舊)。
-        """
-        for sub in self._snapshot_subscribers():
-            sub.push_review(event_json)
 
     # ================================================================
     # 檔位感知間隔限制
@@ -442,37 +402,6 @@ class QuoteService:
             return pl.DataFrame(), None
         return self._repo.get_enriched_latest()
 
-    def get_quotes_compat(self) -> pl.DataFrame:
-        """相容介面: 回傳行情 DataFrame (用於盤中選股等需要 last_price/prev_close 的場景)。
-
-        從 _enriched_cache 取 today 的資料, 只選行情基礎欄, 補上 last_price 別名。
-        不回傳指標欄, 避免 JOIN live_agg 時欄名衝突。
-        """
-        df, _ = self.get_enriched_today()
-        if df.is_empty():
-            return df
-
-        # 只取盤中選股需要的行情基礎欄
-        keep = [c for c in [
-            "symbol", "close", "open", "high", "low", "volume", "amount",
-            "prev_close", "change_pct", "change_amount", "amplitude", "turnover_rate",
-        ] if c in df.columns]
-        df = df.select(keep)
-
-        # enriched 的 close 等價於 last_price
-        if "close" in df.columns and "last_price" not in df.columns:
-            df = df.with_columns(pl.col("close").alias("last_price"))
-        return df
-
-    def get_index_quotes(self, symbols: list[str] | None = None) -> pl.DataFrame:
-        """回傳即時指數行情快取。不會觸發外部請求。"""
-        with self._lock:
-            df = self._index_quotes_cache.clone() if self._index_quotes_cache is not None else pl.DataFrame()
-        if df.is_empty():
-            return df
-        if symbols:
-            return df.filter(pl.col("symbol").is_in(symbols))
-        return df
 
     def status(self) -> dict:
         """回傳行情服務狀態。"""
@@ -633,23 +562,6 @@ class QuoteService:
     # 工具
     # ================================================================
 
-    @staticmethod
-    def _split_records_by_asset(
-        records: list[dict], index_set: set[str], etf_set: set[str],
-    ) -> tuple[list[dict], list[dict], list[dict]]:
-        """把行情 records 按資產拆成 (index, etf, stock)。判定順序與 resolve_asset_type 一致: 先 ETF 後指數。"""
-        index_records: list[dict] = []
-        etf_records: list[dict] = []
-        stock_records: list[dict] = []
-        for r in records:
-            sym = r.get("symbol")
-            if sym in etf_set:
-                etf_records.append(r)
-            elif sym in index_set:
-                index_records.append(r)
-            else:
-                stock_records.append(r)
-        return index_records, etf_records, stock_records
 
     @staticmethod
     def _build_daily(records: list[dict]) -> pl.DataFrame:
@@ -1069,32 +981,11 @@ class QuoteService:
                     full_df,
                     factors=factors,
                     instruments=instruments,
-                    historical_shares=(
-                        self._repo.get_historical_shares()
-                        if asset_type == "stock"
-                        else None
-                    ),
-                )
-                # momentum_3d 不在指標全集裡, 但 deviate_3d 需要; 多日幀上 shift 補算
-                enriched_full = enriched_full.sort(["symbol", "date"]).with_columns(
-                    (pl.col("close") / pl.col("close").shift(3).over("symbol") - 1).alias("momentum_3d")
                 )
                 enriched_today = enriched_full.filter(pl.col("date") == today)
 
             if enriched_today.is_empty():
                 return
-
-            # 異動偏離欄: 盤中路徑不經過 _refresh_enriched 冷重新整理,
-            # 需在此附著 (基準 = 歷史幀 + 指數即時外推), 否則盤中異動列表為空
-            if asset_type == "stock":
-                from app.indicators.pipeline import attach_deviation_columns_today
-                try:
-                    index_quotes = self.get_index_quotes()
-                except Exception:
-                    index_quotes = None
-                enriched_today = attach_deviation_columns_today(
-                    enriched_today, self._repo.store.data_dir, index_quotes
-                )
 
             # ---- 寫盤 + 更新快取 ----
             if merge:

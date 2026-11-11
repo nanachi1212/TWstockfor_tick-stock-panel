@@ -280,7 +280,7 @@ def with_inner_outer_evidence(
 ) -> BeginnerTechnicalPanel:
     """Overlay live flow evidence without changing any selection calculation."""
     risks = [risk for risk in panel.key_risks if risk.code != "inner_outer_unavailable"]
-    if evidence.status != "available" and not any(r.code == "inner_outer_unavailable" for r in risks):
+    if evidence.status != "available":
         risks.append(TechnicalRisk(
             code="inner_outer_unavailable",
             text=evidence.explanation,

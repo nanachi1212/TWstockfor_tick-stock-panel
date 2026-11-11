@@ -30,6 +30,7 @@ from app.api import (
 from app.api import auth as auth_api
 from app.api import settings as settings_api
 from app.api.routes import router as core_router
+from app.capabilities import CapabilityDenied, detect_capabilities
 from app.config import settings
 from app.extensions.loader import (
     configure_backend_extensions,
@@ -38,10 +39,8 @@ from app.extensions.loader import (
 )
 from app.jobs import daily_pipeline
 from app.log_sanitizer import SanitizingFormatter
+from app.repository import DataStore, KlineRepository
 from app.services.quote_service import QuoteService
-from app.tickflow.capabilities import CapabilityDenied
-from app.tickflow.policy import detect_capabilities
-from app.tickflow.repository import DataStore, KlineRepository
 
 logging.basicConfig(
     level=settings.log_level,

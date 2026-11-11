@@ -13,11 +13,10 @@ Design Principles:
 from __future__ import annotations
 
 from datetime import date, datetime
-import json
 import logging
-import urllib.request
 from typing import Any
 
+from app.taiwan.enrichment.index import _clean_float
 from app.taiwan.enrichment.models import (
     DatasetType,
     MarketQuote,
@@ -26,18 +25,6 @@ from app.taiwan.enrichment.models import (
 )
 
 logger = logging.getLogger(__name__)
-
-
-def _clean_float(val: Any) -> float:
-    if val is None:
-        return 0.0
-    s = str(val).strip().replace(",", "")
-    if not s or s == "--":
-        return 0.0
-    try:
-        return float(s)
-    except (ValueError, TypeError):
-        return 0.0
 
 
 def _clean_int(val: Any) -> int:

@@ -76,12 +76,12 @@ jobs:
       - name: 安裝 pnpm
         uses: pnpm/action-setup@v4
         with:
-          version: 9
+          version: 9.10.0
 
-      - name: 設定 Node 20
+      - name: 設定 Node 22
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '22'
           cache: 'pnpm'
           cache-dependency-path: frontend/pnpm-lock.yaml
 
@@ -92,7 +92,7 @@ jobs:
           pnpm build
 
       - name: 安裝 uv
-        uses: astral-sh/setup-uv@v3
+        uses: astral-sh/setup-uv@v5
         with:
           enable-cache: true
 

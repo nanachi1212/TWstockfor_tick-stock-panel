@@ -13,20 +13,14 @@ from datetime import date, datetime, time, timedelta
 
 import polars as pl
 
+from app.capabilities import Cap, CapabilitySet
 from app.data_providers.base import AssetType
-from app.indicators.pipeline import filter_halt_days
+from app.rate_limits import resolve_limit
+from app.repository import KlineRepository
 from app.services import preferences
 from app.taiwan.realtime.calendar import TAIPEI_TZ, taipei_now
-from app.tickflow.capabilities import Cap, CapabilitySet
-from app.tickflow.rate_limits import resolve_limit
-from app.tickflow.repository import KlineRepository
 
 logger = logging.getLogger(__name__)
-
-
-def _reject_ashare_symbols(symbols: list[str]) -> None:
-    if any(str(symbol).upper().endswith((".SH", ".SZ", ".BJ")) for symbol in symbols):
-        raise ValueError("不支援 .SH/.SZ/.BJ 代碼, 本系統僅提供台股行情")
 
 
 def _atomic_write_parquet(df: pl.DataFrame, out) -> None:
@@ -41,54 +35,6 @@ def _atomic_write_parquet(df: pl.DataFrame, out) -> None:
     tmp = out.with_name(out.name + ".tmp")
     df.write_parquet(tmp)
     tmp.replace(out)  # 同目錄 rename, POSIX/NTFS 均為原子操作
-
-
-# 標準欄(無論 SDK 回傳什麼形狀,我們把它規範成這套)
-CANONICAL_DAILY_COLS = [
-    "symbol", "date", "open", "high", "low", "close", "volume", "amount",
-]
-
-
-def _normalize_daily(df_in, default_symbol: str | None = None) -> pl.DataFrame:
-    """把 SDK 回傳的 pandas/任意 DataFrame 規範成 canonical 欄。"""
-    if df_in is None or len(df_in) == 0:
-        return pl.DataFrame()
-
-    if not isinstance(df_in, pl.DataFrame):
-        df = pl.from_pandas(df_in.reset_index() if hasattr(df_in, "reset_index") else df_in)
-    else:
-        df = df_in
-
-    # 相容欄位名差异
-    rename_map = {
-        "ts_code": "symbol",
-        "trade_date": "date",
-        "vol": "volume",
-        "amt": "amount",
-        "datetime": "date",
-    }
-    df = df.rename({k: v for k, v in rename_map.items() if k in df.columns})
-
-    if "symbol" not in df.columns and default_symbol is not None:
-        df = df.with_columns(pl.lit(default_symbol).alias("symbol"))
-
-    # 類型規範
-    if "date" in df.columns and df.schema["date"] != pl.Date:
-        df = df.with_columns(pl.col("date").cast(pl.Date, strict=False))
-
-    for col in ("open", "high", "low", "close"):
-        if col in df.columns:
-            df = df.with_columns(pl.col(col).cast(pl.Float64, strict=False))
-    for col in ("volume", "amount"):
-        if col in df.columns:
-            df = df.with_columns(pl.col(col).cast(pl.Float64, strict=False))
-
-    # 過濾停牌日 (open/high 為 0; close 可能被填充為前收盤價, 不能用全零判斷)
-    df = filter_halt_days(df)
-
-    # 只保留 canonical 欄
-    keep = [c for c in CANONICAL_DAILY_COLS if c in df.columns]
-    return df.select(keep)
 
 
 def read_taiwan_daily_history(
@@ -180,7 +126,6 @@ def sync_daily_batch(symbols: list[str],
 
     if not symbols:
         return pl.DataFrame()
-    _reject_ashare_symbols(symbols)
     name = preferences.get_daily_data_provider()
     if name != "taiwan" and not custom_sources.provider_has_dataset(name, "daily"):
         if failed_out is not None:
@@ -190,119 +135,6 @@ def sync_daily_batch(symbols: list[str],
     return get_provider(name).get_daily(
         symbols, start_time=start_time, end_time=end_time, on_chunk_done=on_chunk_done,
     )
-
-
-def sync_and_persist_daily_batch(
-    symbols: list[str],
-    repo: KlineRepository,
-    capset: CapabilitySet,
-    count: int | None = None,
-    start_date: datetime | None = None,
-    end_date: datetime | None = None,
-    on_chunk_done: Callable[[int, int], None] | None = None,
-) -> int:
-    """Persist daily bars from the selected provider, preserving the repository boundary."""
-    if not symbols:
-        return 0
-    end_time = end_date or datetime.now()
-    start_time = start_date or (end_time - timedelta(days=count or 365))
-    df = sync_daily_batch(
-        symbols, count=count, start_time=start_time, end_time=end_time,
-        on_chunk_done=on_chunk_done,
-    )
-    if df.is_empty():
-        return 0
-    repo.append_daily(df)
-    try:
-        d = repo.store.data_dir.as_posix()
-        repo.db.execute(
-            f"""CREATE OR REPLACE VIEW kline_daily AS
-                SELECT * FROM read_parquet('{d}/kline_daily/**/*.parquet', union_by_name=true)"""
-        )
-    except Exception as exc:
-        logger.warning("refresh view failed: %s", exc)
-    return df.height
-
-
-
-
-def _normalize_adj_factor(raw) -> pl.DataFrame:
-    """Normalize SDK ex_factors response to symbol/trade_date/ex_factor."""
-    if raw is None or len(raw) == 0:
-        return pl.DataFrame()
-    if isinstance(raw, dict):
-        rows: list[dict] = []
-        for sym, values in raw.items():
-            for item in values or []:
-                row = dict(item or {})
-                row.setdefault("symbol", sym)
-                rows.append(row)
-        df = pl.DataFrame(rows) if rows else pl.DataFrame()
-    elif isinstance(raw, pl.DataFrame):
-        df = raw
-    else:
-        df = pl.from_pandas(raw.reset_index() if hasattr(raw, "reset_index") else raw)
-    if df.is_empty():
-        return df
-    # rename: timestamp/date → trade_date, adj_factor → ex_factor
-    # 注意: 新版 SDK 可能同時回傳 timestamp 和 trade_date (或 adj_factor 和 ex_factor),
-    # 直接 rename 會產生重複欄出錯。僅當目標欄不存在時才 rename。
-    rename_map: dict[str, str] = {}
-    for src, dst in (("timestamp", "trade_date"), ("date", "trade_date"), ("adj_factor", "ex_factor")):
-        if src in df.columns and dst not in df.columns:
-            rename_map[src] = dst
-    df = df.rename(rename_map)
-    if "trade_date" in df.columns:
-        if df.schema["trade_date"] in {pl.Int64, pl.Int32, pl.UInt64, pl.UInt32, pl.Float64, pl.Float32}:
-            df = df.with_columns(
-                pl.from_epoch(pl.col("trade_date").cast(pl.Int64), time_unit="ms").dt.date().alias("trade_date")
-            )
-        else:
-            df = df.with_columns(pl.col("trade_date").cast(pl.Date, strict=False))
-    if "ex_factor" in df.columns:
-        df = df.with_columns(pl.col("ex_factor").cast(pl.Float64, strict=False))
-    cols = [c for c in ["symbol", "trade_date", "ex_factor"] if c in df.columns]
-    if len(cols) < 3:
-        return pl.DataFrame()
-    return df.select(cols).drop_nulls()
-
-
-def sync_adj_factor(symbols: list[str], repo: KlineRepository,
-                    capset: CapabilitySet,
-                    start_time: datetime | None = None,
-                    end_time: datetime | None = None,
-                    on_chunk_done: Callable[[int, int], None] | None = None,
-                    asset_type: str = "stock") -> tuple[int, list[str]]:
-    """Persist adjustment factors only when the selected custom provider supports them."""
-    from app.data_providers import custom as custom_sources
-
-    if not symbols:
-        return 0, []
-    _reject_ashare_symbols(symbols)
-    name = preferences.get_adj_factor_provider()
-    if name == "same_as_daily":
-        name = preferences.get_daily_data_provider()
-    if name == "taiwan" or not custom_sources.provider_has_dataset(name, "adj_factor"):
-        return 0, []
-    new_data = custom_sources.get_provider(name).get_adj_factors(
-        symbols, start_time=start_time, end_time=end_time,
-        asset_type=asset_type, on_chunk_done=on_chunk_done,
-    )
-    if new_data.is_empty():
-        return 0, []
-    affected = new_data["symbol"].unique().to_list()
-    factor_dir = "adj_factor_etf" if asset_type == "etf" else "adj_factor"
-    out = repo.store.data_dir / factor_dir / "all.parquet"
-    out.parent.mkdir(parents=True, exist_ok=True)
-    if out.exists():
-        existing = pl.read_parquet(out)
-        merged = pl.concat([existing, new_data]).unique(
-            subset=["symbol", "trade_date"], keep="last",
-        ).sort(["symbol", "trade_date"])
-        _atomic_write_parquet(merged, out)
-        return merged.height - existing.height, affected
-    _atomic_write_parquet(new_data.sort(["symbol", "trade_date"]), out)
-    return new_data.height, affected
 
 
 # ===== 分鐘 K 同步 =====
@@ -364,11 +196,6 @@ def _normalize_minute(df_in, default_symbol: str | None = None) -> pl.DataFrame:
     return df.select(keep)
 
 
-def _datetime_to_ms(dt: datetime) -> int:
-    """datetime → 毫秒時間戳 (供 SDK start_time / end_time 使用)。"""
-    return int(dt.timestamp() * 1000)
-
-
 def _write_minute_partition(df: pl.DataFrame, minute_dir) -> int:
     """按 _trade_date 分區寫入磁碟分鐘 K (讀舊→concat→unique→原子寫)。回傳寫入列數。
 
@@ -422,7 +249,6 @@ def _try_custom_minute(
     on_chunk_done: Callable[[int, int, str], None] | None = None,
 ) -> tuple[pl.DataFrame | None, bool]:
     """Read custom minute bars; failures remain unavailable instead of changing sources."""
-    _reject_ashare_symbols(symbols)
     name = preferences.get_minute_data_provider()
     provider, unavailable, error = _resolve_minute_provider(name)
     if unavailable:
@@ -470,43 +296,6 @@ def sync_minute_batch(
     return df
 
 
-def intraday_monitor_support(capset: CapabilitySet | None) -> dict[str, object]:
-    """Only a configured minute provider can supply generic intraday signal bars."""
-    _, unavailable, error = _resolve_minute_provider(preferences.get_minute_data_provider())
-    if error is not None:
-        logger.warning("minute provider resolution failed: %s", error)
-    return {
-        "available": not unavailable,
-        "source": None if unavailable else "custom_minute",
-        "max_symbols": 0 if unavailable else 100,
-        "reason": "尚未設定分鐘資料來源" if unavailable else "使用已設定的分鐘資料來源",
-    }
-
-
-def _normalize_intraday_raw(raw, default_symbol: str | None = None) -> list[pl.DataFrame]:
-    frames: list[pl.DataFrame] = []
-    if isinstance(raw, dict):
-        for symbol, sub in raw.items():
-            if sub is not None and len(sub) > 0:
-                frames.append(_normalize_minute(sub, default_symbol=str(symbol)))
-    elif raw is not None and len(raw) > 0:
-        frames.append(_normalize_minute(raw, default_symbol=default_symbol))
-    return [frame for frame in frames if not frame.is_empty()]
-
-
-def fetch_intraday_monitor_batch(
-    symbols: list[str], capset: CapabilitySet | None, *, now: datetime | None = None,
-) -> pl.DataFrame:
-    """Read the Taiwan session through the configured minute provider without persisting."""
-    support = intraday_monitor_support(capset)
-    if not symbols or not support["available"] or len(symbols) > int(support["max_symbols"]):
-        return pl.DataFrame()
-    now = now or taipei_now()
-    return sync_minute_batch(
-        symbols, start_time=now.replace(hour=9, minute=0, second=0, microsecond=0), end_time=now,
-    )
-
-
 def fetch_minute_single(
     symbol: str,
     trade_date: date,
@@ -525,7 +314,6 @@ def fetch_adj_factor_single(symbol: str) -> pl.DataFrame:
     """Read factors only from an explicitly configured provider with that dataset."""
     from app.data_providers import custom as custom_sources
 
-    _reject_ashare_symbols([symbol])
     name = preferences.get_adj_factor_provider()
     if name == "same_as_daily":
         name = preferences.get_daily_data_provider()

@@ -828,14 +828,13 @@ class TaiwanSelectionReviewService:
         strategy_id = strategy_id or FORWARD_RULE_VERSION
         with self._lock:
             batches = [s for s in self._read_snapshots_raw() if s.record_type == "forward_batch"]
-        if strategy_id is not None:
-            if not is_supported_strategy(strategy_id):
-                raise ValueError(f"不支援的前瞻策略: {strategy_id}")
-            batches = [s for s in batches if s.strategy_id == strategy_id]
-        metadata = strategy_metadata(strategy_id) if strategy_id else None
+        if not is_supported_strategy(strategy_id):
+            raise ValueError(f"不支援的前瞻策略: {strategy_id}")
+        batches = [s for s in batches if s.strategy_id == strategy_id]
+        metadata = strategy_metadata(strategy_id)
         stats = ForwardBatchStats(
             strategy_id=strategy_id,
-            strategy_name=metadata["name"] if metadata else None,
+            strategy_name=metadata["name"],
             batches_count=len(batches),
             picks_count=sum(len(s.items) for s in batches),
         )

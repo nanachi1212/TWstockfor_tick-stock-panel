@@ -7,8 +7,7 @@ assumptions, no non-Taiwan holiday/calendar assumptions). Input must come from
 gets written back anywhere — this module is pure compute.
 
 Formulas deliberately mirror the app-wide convention already used by the legacy
-enriched pipeline in ``backend/app/indicators/pipeline.py`` (and, for MACD, also
-``backend/app/backtest/matrix.py``), so a single shared Watchlist column name
+enriched pipeline in ``backend/app/indicators/pipeline.py``, so a single shared Watchlist column name
 (``ma5``, ``rsi_14``, ``macd_dif``, ...) means the same thing regardless of
 which market a row belongs to:
 
@@ -16,17 +15,11 @@ which market a row belongs to:
   - Momentum:  ``close / close.shift(n) - 1`` — a fraction, e.g. 0.05 = 5%
     (pipeline.py: "momentum_5d: 5日動量(漲跌幅小數)").
   - RSI:  Wilder's smoothed RSI — EMA(gain)/EMA(loss) with alpha=1/14,
-    adjust=False (pipeline.py ``rsi_14``). This is a *different* formula
-    from the simple SMA-based RSI already used in
-    ``app/taiwan/screener.py::_compute_batch_indicators`` — that is a
-    pre-existing, separate divergence in this repo and is not touched here.
-    Wilder's formula was chosen for this module because the Watchlist
-    response merges Taiwan and legacy rows under the *same*
-    ``rsi_14`` column (Phase 8B-5.0.4's dispatcher) — using the same
-    formula as pipeline.py keeps that shared column's meaning consistent
-    across both markets in one table. See Phase 8B-5.0.5 report §F.
+    adjust=False (pipeline.py ``rsi_14``). ``screener.py`` uses the same
+    formula through ``wilder_rsi_expr``, so ``rsi_14`` means the same thing
+    in the Watchlist and the screener.
   - MACD: EMA(12) - EMA(26) = dif; EMA(dif, 9) = dea; (dif - dea) * 2 = hist
-    (pipeline.py and backtest/matrix.py both use the same 12/26/9 spans).
+    (pipeline.py uses the same 12/26/9 spans).
 
 Insufficient history -> ``null``, never ``0``/``NaN``/``Infinity``/a faked
 warm-up value. EMA-based indicators (RSI, MACD) are additionally gated by a

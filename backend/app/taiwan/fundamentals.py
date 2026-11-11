@@ -109,17 +109,6 @@ class FundamentalRecord:
         return cls(**data)
 
 
-@dataclass(frozen=True)
-class ShareCapital:
-    """Distinct capital concepts; absent official float data stays absent."""
-
-    total_shares: int | None = None
-    issued_shares: int | None = None
-    float_shares: int | None = None
-    capital_twd: int | None = None
-    status: str = "data_insufficient"
-
-
 def latest_as_of(
     records: Iterable[FundamentalRecord], symbol: str, query_at: datetime,
     *, dataset: str | None = None,

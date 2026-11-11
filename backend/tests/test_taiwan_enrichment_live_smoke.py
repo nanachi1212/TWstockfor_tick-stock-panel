@@ -8,12 +8,11 @@ Connects to official TWSE and TPEx live endpoints:
 """
 from __future__ import annotations
 
-from datetime import date, datetime, timedelta
+from datetime import date, timedelta
 import json
 import urllib.request
 import pytest
 
-from app.taiwan.enrichment.index import TaiwanIndexProvider
 from app.taiwan.enrichment.institutional import TaiwanInstitutionalProvider
 from app.taiwan.enrichment.margin import TaiwanMarginProvider
 from app.taiwan.enrichment.models import EtfCategory

@@ -1,13 +1,10 @@
 """多日分時 API 契約。"""
 
-import asyncio
 from datetime import date, datetime
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 import polars as pl
-import pytest
-from fastapi import HTTPException
 
 from app.api import kline as kline_api
 
@@ -83,31 +80,3 @@ def test_minute_range_does_not_read_stock_store_for_index():
     assert result["asset_type"] == "index"
     assert result["sessions"] == []
     repo.get_minute_range.assert_not_called()
-
-
-def test_sync_minute_single_uses_requested_days(monkeypatch):
-    repo = MagicMock()
-    repo.resolve_asset_type.return_value = "stock"
-    capset = MagicMock()
-    sync = MagicMock(return_value=2400)
-    refresh = MagicMock()
-    monkeypatch.setattr(kline_api, "_minute_allowed", lambda _: True)
-    monkeypatch.setattr(kline_api.kline_sync, "sync_and_persist_minute", sync)
-    monkeypatch.setattr("app.jobs.daily_pipeline._refresh_single_view", refresh)
-
-    result = asyncio.run(kline_api.sync_minute_single(
-        _request(repo, capset),
-        {"symbol": "2330.TWSE", "days": 10},
-    ))
-
-    assert result["rows"] == 2400
-    sync.assert_called_once_with(["2330.TWSE"], repo, capset, days=10, force_full_days=True)
-    refresh.assert_called_once_with(repo, "kline_minute")
-
-
-def test_sync_minute_single_rejects_invalid_days():
-    with pytest.raises(HTTPException, match="days 必須在 1 到 30 之間"):
-        asyncio.run(kline_api.sync_minute_single(
-            _request(),
-            {"symbol": "2330.TWSE", "days": 0},
-        ))
