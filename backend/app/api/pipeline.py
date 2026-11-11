@@ -1,7 +1,6 @@
 """盘后管道 API — 异步触发 + 进度跟踪。"""
 from __future__ import annotations
 
-import concurrent.futures as _cf
 import logging
 
 from fastapi import APIRouter, HTTPException
@@ -9,9 +8,6 @@ from fastapi import APIRouter, HTTPException
 from app.services.pipeline_jobs import (
     job_store,
 )
-
-# 长时间任务专用线程池（隔离于 FastAPI 默认线程池，防止阻塞请求处理）
-_long_task_executor = _cf.ThreadPoolExecutor(max_workers=2, thread_name_prefix="long-task")
 
 logger = logging.getLogger(__name__)
 

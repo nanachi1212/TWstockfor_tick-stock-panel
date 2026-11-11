@@ -36,7 +36,6 @@ export const QK = {
   // Watchlist
   watchlist:            ['watchlist'] as const,
   watchlistGroups:      ['watchlist-groups'] as const,
-  watchlistQuotes:      ['watchlist-quotes'] as const,
   watchlistEnriched:    (ext?: string) => ['watchlist-enriched', ext] as const,
   // 不用 watchlist- 前綴: 日K歷史盤中幾乎不變, 若被 SSE quotes_updated 高頻失效
   // (expert 1s) 會導致全自選日K每秒重拉, staleTime 形同虛設。
@@ -51,17 +50,9 @@ export const QK = {
 
   // Screener
   screener:             ['screener'] as const,
-  screenerStrategies:   (assetType: string = 'stock') => ['screener-strategies', assetType] as const,
-  screenerCachedSummary: ['screener-cached', 'summary'] as const,
-  screenerCachedResult: (strategyId: string, asOf?: string, ext?: string) => ['screener-cached', 'strategy', strategyId, asOf ?? '', ext ?? ''] as const,
-  screenerCached:       (asOf?: string, ext?: string) => ['screener-cached', 'all', asOf ?? '', ext ?? ''] as const,
   screenerKlineBatch:   (symbols: string) => ['screener-kline-batch', symbols] as const,
-  marketSnapshot:       ['market-snapshot'] as const,
 
   // Backtest
-  backtestStatus:       ['backtest-status'] as const,
-  factorColumns:        ['backtest-factor-columns'] as const,
-  researchCandidates:  ['research-candidates'] as const,
   strategyLinkOptions: (assetType?: 'stock' | 'etf') => assetType
     ? ['strategy-link-options', assetType] as const
     : ['strategy-link-options'] as const,
@@ -71,7 +62,6 @@ export const QK = {
   dataStatus:           ['data-status'] as const,
   pipelineJobs:         ['pipeline-jobs'] as const,
   pipelineJob:          (id: string) => ['pipeline-job', id] as const,
-  dimensionMembers:     (id: string, field: string, value: string, date?: string) => ['dimension-members', id, field, value, date] as const,
 
   // Kline
   kline:                (symbol: string, start: string, end: string, extColumns?: string) =>
@@ -88,7 +78,6 @@ export const QK = {
 
   // Monitor (監控規則 + 觸發記錄)
   monitorRules:         ['monitor-rules'] as const,
-  monitorRuleOptions:   ['monitor-rule-options'] as const,
   alerts:               (source?: string) => ['alerts', source ?? ''] as const,
   alertsToday:          ['alerts', '', 'dashboard-today'] as const,
   syncPlanRules: ['taiwan-plan-sync'] as const,
@@ -123,11 +112,7 @@ export const QK = {
     ['taiwan-social-sentiment-job', jobId, source ?? '', symbol ?? '', q ?? '', offset ?? 0] as const,
 
   // 市場環境(Regime) — 日級離線計算, 不進 SSE 刷新
-  // Phase 8B-5.7: 僅保留仍有真實 consumer 的 regimeLatest(Mining)/
-  // regimeCoverage(Data) —— history/states/phases/mainline 隨已刪除的
-  // Regime.tsx 一併移除。
   regimeLatest:         ['regime-latest'] as const,
-  regimeCoverage:       ['regime-coverage'] as const,
 
   // Selection Review (A12)
   selectionSnapshots:   (strategyId?: string) => ['selection-snapshots', strategyId ?? 'all'] as const,

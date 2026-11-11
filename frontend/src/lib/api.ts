@@ -3120,8 +3120,6 @@ export interface Preferences {
   instruments_schedule: { hour: number; minute: number }
   enriched_batch_size: number
   index_daily_batch_size: number
-  depth_polling_interval: number
-  depth_finalize_time: { hour: number; minute: number }
   sse_refresh_pages: Record<string, boolean>
   strategy_monitor_enabled: boolean
   strategy_monitor_ids: string[]
@@ -4094,9 +4092,6 @@ export const api = {
       body: JSON.stringify({ columns }),
     }),
 
-  // 策略結果列表列配置
-  screenerResultColumns: () =>
-    request<{ columns: any[] | null }>('/api/settings/preferences/screener-result-columns'),
   capabilities: () => request<CapabilitiesResponse>('/api/capabilities'),
   version: () => request<{ version: string }>('/api/data/version'),
   klineDaily: (symbol: string, days = 120, dateRange?: { start: string; end: string }, extColumns?: string) =>
@@ -4214,81 +4209,12 @@ export const api = {
     ),
   watchlistClear: () =>
     request<{ removed: number }>('/api/watchlist', { method: 'DELETE' }),
-  watchlistQuotes: () => request<{ quotes: Quote[] }>('/api/watchlist/quotes'),
   watchlistEnriched: (extColumns?: string) =>
     request<{ rows: any[]; as_of: string | null; elapsed_ms: number }>(
       extColumns
         ? `/api/watchlist/enriched?ext_columns=${encodeURIComponent(extColumns)}`
         : '/api/watchlist/enriched',
     ),
-
-  screenerStrategies: async (assetType?: 'stock' | 'etf' | 'index') => {
-    const data = await request<{ strategies: StrategyDetail[]; load_errors?: StrategyLoadError[] }>(
-      `/api/strategies?${assetType ? `asset_type=${assetType}&` : ''}timeframe=1d`,
-    )
-    return { presets: data.strategies, load_errors: data.load_errors }
-  },
-  screenerCachedSummary: () =>
-    request<ScreenerCachedSummary>('/api/screener/cached-summary'),
-  screenerCachedResult: (strategyId: string, extColumns?: string) =>
-    request<ScreenerCachedResult>(
-      extColumns
-        ? `/api/screener/cached-result/${encodeURIComponent(strategyId)}?ext_columns=${encodeURIComponent(extColumns)}`
-        : `/api/screener/cached-result/${encodeURIComponent(strategyId)}`,
-    ),
-  screenerCached: (extColumns?: string) =>
-    request<{ as_of: string | null; results: Record<string, { total: number; as_of: string; rows: any[] }>; today_ever_matched: Record<string, string[]> | null; today_ever_rows: Record<string, Record<string, any>> | null; updated_at: number | null }>(
-      extColumns
-        ? `/api/screener/cached?ext_columns=${encodeURIComponent(extColumns)}`
-        : '/api/screener/cached',
-    ),
-  marketSnapshot: () =>
-    request<{ as_of: string | null; rows: MarketSnapshotRow[] }>('/api/screener/market-snapshot'),
-
-  // 市場環境(Regime)
-  // Phase 8B-5.7: 移除僅供已刪除的 Regime.tsx 研究頁使用的 history/states/
-  // recompute/phases/mainline 端點。Phase 8C-D: regimeLatest 唯一的 frontend
-  // consumer(Mining 挖掘頁)已隨產品介面移除, 一併移除此 client method
-  // (backend /api/regime/latest 與 regime core 計算完全未動, 見 Final Report)。
-  // regimeCoverage 已是 Phase 8B-5.8 刪除 /data 頁後的既有 orphan, 不屬本次
-  // 範圍, 不動。
-  regimeCoverage: () => request<RegimeCoverage>('/api/regime/coverage'),
-  backtestStatus: () => request<{ available: boolean }>('/api/backtest/status'),
-
-  factorColumns: () =>
-    request<{ columns: FactorColumn[] }>('/api/backtest/factor/columns'),
-
-  miningRuns: () =>
-    request<{ items: MiningRun[] }>('/api/backtest/mining/runs'),
-
-  miningAvailability: (params: {
-    assetType: 'stock' | 'etf'
-    budgetProfile: MiningBudgetProfile
-    start?: string
-    end?: string
-  }) => {
-    const query = new URLSearchParams({
-      asset_type: params.assetType,
-      budget_profile: params.budgetProfile,
-    })
-    if (params.start) query.set('start', params.start)
-    if (params.end) query.set('end', params.end)
-    return request<MiningAvailability>(`/api/backtest/mining/availability?${query}`, {
-      quiet: true,
-    })
-  },
-
-  miningRun: (runId: string) =>
-    request<MiningRun>(`/api/backtest/mining/runs/${encodeURIComponent(runId)}`),
-
-  miningResult: (runId: string) =>
-    request<MiningResult>(`/api/backtest/mining/runs/${encodeURIComponent(runId)}/result`),
-
-  miningConfig: () =>
-    request<MiningScheduleConfig>('/api/backtest/mining/config'),
-
-  researchCandidates: () =>
-    request<{ items: ResearchCandidate[] }>('/api/backtest/candidates'),
 
   pipelineJob: (id: string) => request<PipelineJob>(`/api/pipeline/jobs/${id}`),
   pipelineJobs: (limit = 20) =>
@@ -4297,35 +4223,6 @@ export const api = {
     ),
 
   dataStatus: () => request<DataStatus>('/api/data/status'),
-  dimensionMembers: (id: string, opts: { field: string; value: string; date?: string; limit?: number }) => {
-    const qs = new URLSearchParams({ field: opts.field, value: opts.value })
-    if (opts.date) qs.set('date', opts.date)
-    if (opts.limit) qs.set('limit', String(opts.limit))
-    return request<DimensionMembersResult>(`/api/ext-data/${encodeURIComponent(id)}/dimension-members?${qs.toString()}`)
-  },
-
-  extDataSchemaAll: () =>
-    request<{ items: { id: string; label: string; mode: string; columns: { name: string; type: string; label: string }[] }[] }>('/api/ext-data/schema-all'),
-
-  // ===== Financials =====
-  // Phase 8B-5.3: 僅保留 financialMetrics —— 見上方 FinancialMetricRecord 註釋。
-  customSignalsOptions: () =>
-    request<CustomSignalOptions>('/api/custom-signals/options'),
-
-  monitorRulesList: () =>
-    request<{ rules: MonitorRule[] }>('/api/monitor-rules'),
-
-  monitorRuleOptions: () =>
-    request<MonitorRuleOptions>('/api/monitor-rules/options'),
-
-  monitorRuleSave: (rule: MonitorRule) =>
-    request<{ ok: boolean; rule: MonitorRule }>('/api/monitor-rules', {
-      method: 'POST',
-      body: JSON.stringify(rule),
-    }),
-
-  monitorRuleDelete: (id: string) =>
-    request<{ ok: boolean }>(`/api/monitor-rules/${encodeURIComponent(id)}`, { method: 'DELETE' }),
 
   // ===== Taiwan Realtime & Monitor APIs (Phase 5C) =====
   taiwanQuotes: (symbols: string[], force = false) =>
